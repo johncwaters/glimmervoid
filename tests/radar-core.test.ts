@@ -341,18 +341,18 @@ test('occurrenceDelta: reads occurrence history rows and filters malformed entri
     { occurrences: 5 },
   ];
   assert.deepEqual(occurrenceHistoryValues(history), [2, 2, 3, 5]);
-  assert.deepEqual(occurrenceDelta(history), { direction: 'up', percent: 100 });
+  assert.deepEqual(occurrenceDelta(occurrenceHistoryValues(history)), { direction: 'up', percent: 100 });
 });
 
 test('occurrenceDelta: needs four points and a nonzero earlier half', () => {
   assert.equal(occurrenceDelta([1, 2, 3]), null);
   assert.equal(occurrenceDelta([0, 0, 3, 4]), null);
-  assert.equal(occurrenceDelta(null), null);
+  assert.equal(occurrenceDelta([]), null);
 });
 
-test('sparklineWindowTitle: summarizes the finite poll window', () => {
+test('sparklineWindowTitle: summarizes the parsed poll window', () => {
   assert.equal(sparklineWindowTitle([4, 12, 190]), '3 polls, 4 to 190 occurrences');
-  assert.equal(sparklineWindowTitle([12, Number.NaN, 4]), '2 polls, 4 to 12 occurrences');
+  assert.equal(sparklineWindowTitle(occurrenceHistoryValues([12, Number.NaN, 4])), '2 polls, 4 to 12 occurrences');
   assert.equal(sparklineWindowTitle([]), '0 polls, 0 to 0 occurrences');
 });
 

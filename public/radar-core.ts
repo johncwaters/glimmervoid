@@ -342,8 +342,7 @@ export function sparklinePoints(values: unknown, width = 64, height = 16) {
   }).join(' ');
 }
 
-export function occurrenceDelta(history: unknown): { direction: 'up' | 'down' | 'flat'; percent: number } | null {
-  const occurrenceValues = occurrenceHistoryValues(history);
+export function occurrenceDelta(occurrenceValues: number[]): { direction: 'up' | 'down' | 'flat'; percent: number } | null {
   if (occurrenceValues.length < 4) return null;
   const midpoint = Math.floor(occurrenceValues.length / 2);
   const earlierTotal = occurrenceValues.slice(0, midpoint).reduce((sum, value) => sum + value, 0);
@@ -356,9 +355,8 @@ export function occurrenceDelta(history: unknown): { direction: 'up' | 'down' | 
 }
 
 export function sparklineWindowTitle(occurrenceValues: number[]): string {
-  const finiteValues = occurrenceValues.filter((value) => Number.isFinite(value));
-  if (finiteValues.length === 0) return '0 polls, 0 to 0 occurrences';
-  return `${finiteValues.length} polls, ${Math.min(...finiteValues)} to ${Math.max(...finiteValues)} occurrences`;
+  if (occurrenceValues.length === 0) return '0 polls, 0 to 0 occurrences';
+  return `${occurrenceValues.length} polls, ${Math.min(...occurrenceValues)} to ${Math.max(...occurrenceValues)} occurrences`;
 }
 
 export function summarizeIssues(issues: unknown) {

@@ -229,6 +229,18 @@ function createActionCluster() {
   status.setAttribute('role', 'status');
   wrap.append(status);
   const buttons: HTMLButtonElement[] = [];
+  let followUp: HTMLElement | null = null;
+
+  const clearFollowUp = () => {
+    followUp?.remove();
+    followUp = null;
+  };
+
+  const showFollowUp = (element: HTMLElement) => {
+    clearFollowUp();
+    followUp = element;
+    wrap.append(element);
+  };
 
   const setBusy = (busy: boolean) => {
     for (const button of buttons) button.disabled = busy;
@@ -253,14 +265,16 @@ function createActionCluster() {
     payload: Record<string, unknown>,
     pendingText: string,
     describe: (message: ServerMessage) => string,
-    onOk: ((message: ServerMessage, statusElement: HTMLElement) => void) | null = null,
+    onOk: ((message: ServerMessage) => void) | null = null,
   ) => {
     _hold.begin(token);
     setBusy(true);
+    clearFollowUp();
     status.dataset.tone = 'busy';
     status.textContent = pendingText;
     const settle = (tone: string, text: string) => {
       setBusy(false);
+      clearFollowUp();
       status.dataset.tone = tone;
       status.textContent = text;
       _hold.settle(token);
@@ -271,25 +285,36 @@ function createActionCluster() {
         return;
       }
       settle('ok', describe(msg));
-      if (onOk) onOk(msg, status);
+      if (onOk) onOk(msg);
     };
     sendControlRequest(type, payload)
       .then(resolved)
       .catch((err: unknown) => settle('error', String((err as Error | null)?.message || 'Request failed')));
   };
 
-  return { addButton, request, wrap };
+  return { addButton, request, showFollowUp, wrap };
+}
+
+function buildOpenTraceButton(sessionId: string) {
+  const button = el('button', 'radar-issue-action radar-open-trace', 'Open trace');
+  button.type = 'button';
+  button.title = 'Open the session trace';
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    openTraceView(sessionId);
+  });
+  return button;
 }
 
 function buildIssueActions(issue: RadarIssue, projectId: unknown, projectLabel: string) {
-  const { addButton, request, wrap } = createActionCluster();
+  const { addButton, request, showFollowUp, wrap } = createActionCluster();
 
   const requestIssueAction = (
     requestType: string,
     requestPayload: Record<string, unknown>,
     pendingText: string,
     describe: (message: ServerMessage) => string,
-    onOk: ((message: ServerMessage, statusElement: HTMLElement) => void) | null = null,
+    onOk: ((message: ServerMessage) => void) | null = null,
   ) => request(
     `${requestType}:${issue.issueId}`,
     requestType,
@@ -313,18 +338,9 @@ function buildIssueActions(issue: RadarIssue, projectId: unknown, projectLabel: 
             ? `Starting ${String(message.sessionName || 'session')}; the prompt lands when it is up`
             : `Prompt pasted into ${String(message.sessionName || 'the session')}; press Enter there`
         ),
-        (message, statusElement) => {
+        (message) => {
           if (typeof message.sessionId !== 'string' || !_openTrace) return;
-          const sessionId = message.sessionId;
-          const link = el('a', 'radar-open-trace', 'Open trace');
-          link.href = '#trace';
-          link.addEventListener('click', (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            if (!_openTrace) return;
-            _openTrace(sessionId);
-          });
-          statusElement.append(document.createTextNode(' '), link);
+          showFollowUp(buildOpenTraceButton(message.sessionId));
         },
       );
     });
@@ -440,7 +456,7 @@ function buildIssueRow(issue: RadarIssue, projectId: unknown, projectLabel: stri
 
   const trend = el('span', 'radar-issue-trend');
   if (sparkline) trend.append(sparkline);
-  const occurrenceChange = occurrenceDelta(issue.history);
+  const occurrenceChange = occurrenceDelta(historyValues);
   if (occurrenceChange) {
     const directionGlyph = occurrenceChange.direction === 'up' ? '+' : occurrenceChange.direction === 'down' ? '-' : '=';
     const pill = el('span', 'radar-delta', `${directionGlyph}${occurrenceChange.percent}%`);
@@ -680,6 +696,11 @@ function buildOpsSection(rows: RadarOpsRow[]) {
 function openPrsView() {
   if (!_navigateToPrs) return;
   _navigateToPrs();
+}
+
+function openTraceView(sessionId: string) {
+  if (!_openTrace) return;
+  _openTrace(sessionId);
 }
 
 function buildPrRow(row: { severity: string; phase: string; number: number | null; title: string; projectLabel: string; reason: string }) {

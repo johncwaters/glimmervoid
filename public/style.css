@@ -2188,8 +2188,7 @@ a.radar-issue-title:hover {
 
 .radar-open-trace {
   color: var(--accent);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  border-color: var(--accent-dim);
 }
 
 .radar-investigations {
@@ -3359,6 +3358,9 @@ html[data-layout="phone"] .hooks-editor-footer .btn-dialog { flex: 1 1 0; min-he
 }
 
 .trace-leading-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 9px 12px;
   border-bottom: 1px solid var(--border-dim);
 }
@@ -3435,7 +3437,11 @@ html[data-layout="phone"] .hooks-editor-footer .btn-dialog { flex: 1 1 0; min-he
   font-variant-numeric: tabular-nums;
 }
 
-.trace-turn-metrics { margin-left: auto; }
+.trace-turn-metrics {
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: normal;
+}
 
 .trace-row[data-kind="prompt"] .trace-kind { --trace-chip-color: var(--state-waiting); }
 .trace-row[data-kind="thinking"] .trace-kind,
