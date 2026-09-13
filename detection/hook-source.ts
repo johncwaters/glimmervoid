@@ -26,7 +26,7 @@ export interface HookRegistration {
   token: string;
   onSignal: (signal: HookSignal) => void;
   onEvent?: ((event: string, payload: Record<string, unknown>) => void) | null;
-  hooks?: HookProfile;
+  hooks: HookProfile | null;
 }
 
 export interface HookHandleResult {
@@ -47,9 +47,12 @@ class HookRouter {
     this._sessions = new Map();
   }
 
-  register(glimmervoidId: string, { token, onSignal, onEvent = null, hooks = claudeCode.hooks }: HookRegistration): void {
+  register(glimmervoidId: string, { token, onSignal, onEvent = null, hooks }: HookRegistration): void {
     if (!glimmervoidId || !token || typeof onSignal !== 'function') {
       throw new Error('HookRouter.register requires glimmervoidId, token, onSignal');
+    }
+    if (!hooks) {
+      throw new Error('HookRouter.register requires a hook profile; an agent that declares no hooks must not register');
     }
     this._sessions.set(glimmervoidId, { token, onSignal, onEvent, hooks });
   }
@@ -72,7 +75,7 @@ class HookRouter {
     if (!token || token !== entry.token) {
       return { status: 403, signal: null, reason: 'bad-token' };
     }
-    const hooks = entry.hooks || claudeCode.hooks;
+    const { hooks } = entry;
     const mappedPayload = typeof hooks.mapPayload === 'function'
       ? hooks.mapPayload(event, payload)
       : payload;

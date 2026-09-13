@@ -1,9 +1,10 @@
 import path from "node:path";
 
-type PathLookupExec = (
-  command: string,
-  options: { encoding: 'utf8'; stdio: ['ignore', 'pipe', 'ignore']; timeout: number },
-) => string;
+type PathLookupOptions = { encoding: 'utf8'; stdio: ['ignore', 'pipe', 'ignore']; timeout: number };
+
+type PathLookupExec = (command: string, options: PathLookupOptions) => string;
+
+type PathLookupExecFile = (file: string, args: readonly string[], options: PathLookupOptions) => string;
 
 type CommandKind = "exe" | "shim" | "unresolved";
 
@@ -36,47 +37,90 @@ function dedupePathMatches(
   return unique;
 }
 
+const PATH_PROBE_OPTIONS: PathLookupOptions = {
+  encoding: "utf8",
+  stdio: ["ignore", "pipe", "ignore"],
+  timeout: 2000,
+};
+
+interface PathProbe {
+  shellCommand: string;
+  file: string;
+  args: readonly string[];
+}
+
+function pathProbesFor(name: string, platform: NodeJS.Platform): PathProbe[] {
+  if (platform === "win32") {
+    return [{ shellCommand: `where ${name}`, file: "where", args: [name] }];
+  }
+  return [
+    { shellCommand: `which -a ${name}`, file: "which", args: ["-a", name] },
+    { shellCommand: `sh -c "command -v ${name}"`, file: "sh", args: ["-c", 'command -v "$1"', "sh", name] },
+  ];
+}
+
+function resolveCommandMatches(
+  name: string,
+  { platform, runProbe }: { platform: NodeJS.Platform; runProbe: (probe: PathProbe) => string },
+): string[] {
+  for (const probe of pathProbesFor(name, platform)) {
+    let matches: string[] = [];
+    try {
+      const output = runProbe(probe);
+      matches = dedupePathMatches(output.split(/\r?\n/).filter((line) => line.trim()), platform);
+    } catch {
+      matches = [];
+    }
+    if (matches.length > 0) return matches;
+  }
+  return [];
+}
+
 function resolvePathCommandMatches(
   name: string,
   { platform, exec }: { platform: NodeJS.Platform; exec: PathLookupExec },
 ): string[] {
-  const run = (command: string): string[] => {
-    const output = exec(command, {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 2000,
-    });
-    return dedupePathMatches(output.split(/\r?\n/).filter((line) => line.trim()), platform);
-  };
-  if (platform === "win32") {
-    try {
-      return run(`where ${name}`);
-    } catch {
-      return [];
-    }
-  }
-  let matches: string[] = [];
-  try {
-    matches = run(`which -a ${name}`);
-  } catch {
-    matches = [];
-  }
-  if (matches.length > 0) return matches;
-  try {
-    return run(`sh -c "command -v ${name}"`);
-  } catch {
-    return [];
-  }
+  return resolveCommandMatches(name, {
+    platform,
+    runProbe: (probe) => exec(probe.shellCommand, PATH_PROBE_OPTIONS),
+  });
+}
+
+function resolveArgvCommandMatches(
+  name: string,
+  { platform, execFile }: { platform: NodeJS.Platform; execFile: PathLookupExecFile },
+): string[] {
+  return resolveCommandMatches(name, {
+    platform,
+    runProbe: (probe) => execFile(probe.file, probe.args, PATH_PROBE_OPTIONS),
+  });
+}
+
+function isAbsoluteCommandPath(name: string, platform: NodeJS.Platform): boolean {
+  return (platform === "win32" ? path.win32 : path.posix).isAbsolute(name);
 }
 
 function resolveAgentCommand(
-  { name, platform = process.platform, exec }:
-    { name: string; platform?: NodeJS.Platform; exec?: PathLookupExec },
+  { name, platform = process.platform, execFile, pathExists }:
+    {
+      name: string;
+      platform?: NodeJS.Platform;
+      execFile?: PathLookupExecFile;
+      pathExists?: (candidate: string) => boolean;
+    },
 ): ResolvedCommand {
-  if (typeof exec !== "function") throw new TypeError("resolveAgentCommand requires an exec function");
-  const matches = resolvePathCommandMatches(name, { platform, exec });
+  if (isAbsoluteCommandPath(name, platform)) {
+    if (typeof pathExists !== "function") {
+      throw new TypeError("resolveAgentCommand requires a pathExists probe for an absolute command");
+    }
+    if (pathExists(name)) return { path: name, kind: classifyCommandKind(name) };
+    console.warn(`[glimmervoid] could not resolve '${name}'`);
+    return { path: null, kind: "unresolved" };
+  }
+  if (typeof execFile !== "function") throw new TypeError("resolveAgentCommand requires an execFile function");
+  const matches = resolveArgvCommandMatches(name, { platform, execFile });
   if (matches.length === 0) {
-    console.warn(`[glimmervoid] could not resolve '${name}' on PATH`);
+    console.warn(`[glimmervoid] could not resolve '${name}'`);
     return { path: null, kind: "unresolved" };
   }
   const resolvedPath = matches[0];
@@ -124,4 +168,4 @@ export {
   resolveAgentCommand,
   buildAgentSpawnCommand,
 };
-export type { CommandKind, PathLookupExec, ResolvedCommand };
+export type { CommandKind, PathLookupExec, PathLookupExecFile, PathLookupOptions, ResolvedCommand };

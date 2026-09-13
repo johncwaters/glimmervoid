@@ -465,13 +465,11 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       return;
     }
 
-    const agent = requestedAgent as NonNullable<ProjectEntry['agent']> | '';
-
     const skipPerms = msg.dangerouslySkipPermissions !== false;
     const created = createProjectSession({
       name,
       path: projectPath,
-      agent: agent && agent !== DEFAULT_AGENT_ID ? agent : undefined,
+      agent: requestedAgent && requestedAgent !== DEFAULT_AGENT_ID ? requestedAgent : undefined,
       dangerouslySkipPermissions: skipPerms,
       requireExistingPath: true,
     });

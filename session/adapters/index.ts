@@ -1,12 +1,14 @@
 import claudeCode from "./claude-code.ts";
 import codex from "./codex.ts";
 import grok from "./grok.ts";
+import { createCustomAdapter } from "./custom.ts";
 
 import type { HookProfile } from "../../detection/hook-source.ts";
 import type { TitleProfile } from "../../detection/osc-title-source.ts";
-import type { PathLookupExec, ResolvedCommand } from "../core/spawn-command.ts";
+import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import type { PackDelivery } from "../core/pack-pointer-core.ts";
+import { CustomAgentDeclaration } from "../../shared/contracts/index.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
 
 interface AgentCapabilities {
@@ -85,7 +87,8 @@ interface AgentSpawnCommandOptions {
 
 interface AgentCommandOptions {
   platform?: NodeJS.Platform;
-  exec?: PathLookupExec;
+  execFile?: PathLookupExecFile;
+  pathExists?: (candidate: string) => boolean;
 }
 
 interface AgentAdapter {
@@ -95,7 +98,7 @@ interface AgentAdapter {
   commandName: string;
   envProfile: AgentEnvProfile;
   titleProfile: AgentTitleProfile;
-  hooks: AgentHookProfile;
+  hooks: AgentHookProfile | null;
   capabilities: AgentCapabilities;
   packCarrier: string;
   packNoticeCaveat?: string;
@@ -113,29 +116,77 @@ type AgentAdapterShape = AgentAdapter & Record<string, unknown>;
 
 const DEFAULT_AGENT_ID = claudeCode.id;
 
-type Adapter = typeof claudeCode | typeof codex | typeof grok;
+type Adapter = AgentAdapter;
 const adapterEntries: [string, Adapter][] = [
   [claudeCode.id, claudeCode],
   [codex.id, codex],
   [grok.id, grok],
 ];
 const ADAPTERS = new Map(adapterEntries);
+const customAdapters = new Map<string, AgentAdapter>();
+const customAgentFingerprints = new Map<string, string>();
 
 const resolvedCommands = new Map<string, ResolvedCommand>();
 
+function declarationFingerprint(declaration: CustomAgentDeclaration): string {
+  return JSON.stringify([
+    declaration.command,
+    declaration.args,
+    declaration.idleTitle ?? null,
+    declaration.busyTitle ?? null,
+  ]);
+}
+
+function customAgentFingerprint(agentId: string | null | undefined): string | null {
+  if (agentId == null) return null;
+  return customAgentFingerprints.get(agentId) ?? null;
+}
+
+function setCustomAgents(declared: unknown): string[] {
+  for (const customId of customAdapters.keys()) resolvedCommands.delete(customId);
+  customAdapters.clear();
+  customAgentFingerprints.clear();
+  if (declared == null) return [];
+  if (!Array.isArray(declared)) return ['[glimmervoid] customAgents ignored: customAgents must be an array'];
+  const warnings: string[] = [];
+  for (const [index, candidate] of declared.entries()) {
+    const parsed = CustomAgentDeclaration.safeParse(candidate);
+    if (!parsed.success) {
+      warnings.push(`[glimmervoid] customAgents[${index}] ignored: ${parsed.error.issues.map((issue) => issue.message).join('; ')}`);
+      continue;
+    }
+    const declaration = parsed.data;
+    if (ADAPTERS.has(declaration.id)) {
+      warnings.push(`[glimmervoid] customAgents[${index}] ignored: id "${declaration.id}" collides with the builtin agent of the same id`);
+      continue;
+    }
+    if (customAdapters.has(declaration.id)) {
+      warnings.push(`[glimmervoid] customAgents[${index}] ignored: id "${declaration.id}" is declared more than once`);
+      continue;
+    }
+    customAdapters.set(declaration.id, createCustomAdapter(declaration));
+    customAgentFingerprints.set(declaration.id, declarationFingerprint(declaration));
+  }
+  return warnings;
+}
+
+function hookProfileOf(adapter: AgentAdapter): AgentHookProfile | null {
+  if (!adapter.capabilities.hooks) return null;
+  return adapter.hooks;
+}
+
 function listAgentIds(): string[] {
-  return [...ADAPTERS.keys()];
+  return [...ADAPTERS.keys(), ...customAdapters.keys()];
 }
 
 function isKnownAgentId(agentId: unknown): boolean {
-  return typeof agentId === "string" && ADAPTERS.has(agentId);
+  if (typeof agentId !== "string") return false;
+  return ADAPTERS.has(agentId) || customAdapters.has(agentId);
 }
 
 function getAdapter(agentId: string | null | undefined): Adapter | null {
   if (agentId == null) return ADAPTERS.get(DEFAULT_AGENT_ID) ?? null;
-  const adapter = ADAPTERS.get(agentId);
-  if (adapter) return adapter;
-  return null;
+  return ADAPTERS.get(agentId) ?? customAdapters.get(agentId) ?? null;
 }
 
 function resolveAdapter(
@@ -167,9 +218,12 @@ export {
   listAgentIds,
   isKnownAgentId,
   getAdapter,
+  hookProfileOf,
   resolveAdapter,
   commandFor,
+  customAgentFingerprint,
   resetCommandCache,
+  setCustomAgents,
 };
 export type {
   Adapter,

@@ -8,8 +8,10 @@ import { encodeProjectDir } from '../session/core/conversation-history.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import { writeSessionSettings } from '../detection/settings-injector.ts';
 import claudeCode from '../session/adapters/claude-code.ts';
+import codex from '../session/adapters/codex.ts';
 import * as adapters from '../session/adapters/index.ts';
 import { validateConfig } from '../server/config-store.ts';
+import { BUILTIN_AGENT_IDS, CustomAgentDeclaration } from '../shared/contracts/index.ts';
 import { STATES } from '../shared/states.ts';
 import { execFileSync } from 'node:child_process';
 import { fakePty } from './helpers/fake-pty.ts';
@@ -257,10 +259,10 @@ test('the adapter hook table reproduces every pre-extraction mapping', () => {
   }
 });
 
-test('HookRouter translates with the registered session adapter, defaulting to claude-code', () => {
+test('HookRouter translates with the hook profile the registration names', () => {
   const router = new HookRouter();
   const seen: HookSignal[] = [];
-  router.register('s1', { token: 'tok', onSignal: (s) => seen.push(s) });
+  router.register('s1', { token: 'tok', onSignal: (s) => seen.push(s), hooks: claudeCode.hooks });
   router.register('s2', { token: 'tok', onSignal: (s) => seen.push(s), hooks: claudeCode.hooks });
   for (const id of ['s1', 's2']) {
     const out = router.handle({ glimmervoidId: id, event: 'Notification', token: 'tok', payload: { notification_type: 'idle_prompt' } });
@@ -280,9 +282,9 @@ test('the title source classifies with the adapter profile', () => {
 test('importing sessions.ts resolves no agent binary; the first use does, and caches it', () => {
   const probe = `
     const cp = require('node:child_process');
-    const real = cp.execSync;
+    const real = cp.execFileSync;
     const seen: Record<string, unknown>[] = [];
-    cp.execSync = (cmd, opts) => { seen.push(String(cmd)); return real(cmd, opts); };
+    cp.execFileSync = (file, args, opts) => { seen.push([file, ...(Array.isArray(args) ? args : [])].join(' ')); return real(file, args, opts); };
     const claudeLookups = () => seen.filter((c) => /claude/.test(c)).length;
     const sessions = require('./session/sessions.ts');
     const afterRequire = claudeLookups();
@@ -303,27 +305,168 @@ test('the command registry resolves once per agent id and re-resolves after a re
   adapters.resetCommandCache();
   try {
     let resolutions = 0;
-    const exec = () => { resolutions += 1; return '/usr/local/bin/claude\n'; };
-    const first = adapters.commandFor('claude-code', { platform: 'linux', exec });
-    const second = adapters.commandFor('claude-code', { platform: 'linux', exec });
+    const execFile = () => { resolutions += 1; return '/usr/local/bin/claude\n'; };
+    const first = adapters.commandFor('claude-code', { platform: 'linux', execFile });
+    const second = adapters.commandFor('claude-code', { platform: 'linux', execFile });
     assert.equal(resolutions, 1);
     assert.equal(second, first);
     assert.deepEqual(first, { path: '/usr/local/bin/claude', kind: 'shim' });
     adapters.resetCommandCache();
-    adapters.commandFor('claude-code', { platform: 'linux', exec });
+    adapters.commandFor('claude-code', { platform: 'linux', execFile });
     assert.equal(resolutions, 2);
   } finally {
     adapters.resetCommandCache();
   }
 });
 
-test('config accepts an absent or registered agent on a project and refuses anything else', () => {
+test('config accepts a builtin or declared agent id on a project and refuses every other spelling', () => {
   assert.equal(validateConfig({ projects: [{ path: '/a' }] }).ok, true);
   assert.equal(validateConfig({ projects: [{ path: '/a', agent: 'claude-code' }] }).ok, true);
   assert.equal(validateConfig({ projects: [{ path: '/a', agent: 'codex' }] }).ok, true);
-  const bad = validateConfig({ projects: [{ path: '/a', agent: 'gemini' }] });
+  assert.equal(validateConfig({
+    customAgents: [{ id: 'opencode', label: 'OpenCode', command: 'opencode' }],
+    projects: [{ path: '/a', agent: 'opencode' }],
+  }).ok, true);
+  const undeclared = validateConfig({ projects: [{ path: '/a', agent: 'gemini' }] });
+  assert.equal(undeclared.ok, false, 'a well-shaped but undeclared id never falls back to claude-code');
+  assert.deepEqual(undeclared.errors, [
+    'projects[0].agent "gemini" names no known agent; declare it under customAgents or use one of claude-code, codex, grok',
+  ]);
+  const bad = validateConfig({ projects: [{ path: '/a', agent: 'Gemini CLI' }] });
   assert.equal(bad.ok, false);
-  assert.deepEqual(bad.errors, ['projects[0].agent must be one of: claude-code, codex, grok']);
+  assert.deepEqual(bad.errors, [
+    'projects[0].agent must be an agent id of 2 to 32 characters of lowercase letters, digits and dashes, starting with a letter',
+  ]);
   const wrongType = validateConfig({ projects: [{ path: '/a', agent: 7 }] });
   assert.equal(wrongType.ok, false);
+});
+
+function declaredCustomAgent(overrides: Record<string, unknown> = {}) {
+  return CustomAgentDeclaration.parse({ id: 'opencode', label: 'OpenCode', command: 'opencode', ...overrides });
+}
+
+test('a custom-agent overlay adds its id to the registry and an empty reload drops it again', () => {
+  try {
+    adapters.setCustomAgents([declaredCustomAgent()]);
+    assert.deepEqual(adapters.listAgentIds(), ['claude-code', 'codex', 'grok', 'opencode']);
+    assert.equal(adapters.isKnownAgentId('opencode'), true);
+    assert.equal(adapters.getAdapter('opencode')?.label, 'OpenCode');
+    adapters.setCustomAgents([]);
+    assert.deepEqual(adapters.listAgentIds(), ['claude-code', 'codex', 'grok']);
+    assert.equal(adapters.isKnownAgentId('opencode'), false);
+    assert.equal(adapters.getAdapter('opencode'), null);
+  } finally {
+    adapters.setCustomAgents([]);
+  }
+});
+
+test('a declaration can never shadow a builtin adapter', () => {
+  try {
+    adapters.setCustomAgents([declaredCustomAgent({ id: 'codex', label: 'Impostor', command: 'impostor' })]);
+    assert.equal(adapters.getAdapter('codex'), codex);
+    assert.deepEqual(adapters.listAgentIds(), ['claude-code', 'codex', 'grok']);
+  } finally {
+    adapters.setCustomAgents([]);
+  }
+});
+
+test('a custom-agent reload evicts only the custom ids from the resolved-command cache', () => {
+  adapters.resetCommandCache();
+  try {
+    let builtinLookups = 0;
+    let customLookups = 0;
+    const builtinExecFile = () => { builtinLookups += 1; return '/usr/local/bin/claude\n'; };
+    const customExecFile = () => { customLookups += 1; return '/usr/local/bin/opencode\n'; };
+
+    adapters.setCustomAgents([declaredCustomAgent()]);
+    adapters.commandFor('claude-code', { platform: 'linux', execFile: builtinExecFile });
+    adapters.commandFor('opencode', { platform: 'linux', execFile: customExecFile });
+    assert.equal(builtinLookups, 1);
+    assert.equal(customLookups, 1);
+
+    adapters.setCustomAgents([declaredCustomAgent({ command: 'opencode-next' })]);
+    adapters.commandFor('claude-code', { platform: 'linux', execFile: builtinExecFile });
+    adapters.commandFor('opencode', { platform: 'linux', execFile: customExecFile });
+    assert.equal(builtinLookups, 1, 'a builtin keeps its cached resolution across a custom-agent reload');
+    assert.equal(customLookups, 2, 'a redeclared custom id re-resolves its command');
+  } finally {
+    adapters.setCustomAgents([]);
+    adapters.resetCommandCache();
+  }
+});
+
+test('the declaration fingerprint tracks the spawn and title fields, so an edit reaches a running session', () => {
+  try {
+    adapters.setCustomAgents([declaredCustomAgent()]);
+    const first = adapters.customAgentFingerprint('opencode');
+    assert.ok(first);
+    adapters.setCustomAgents([declaredCustomAgent()]);
+    assert.equal(adapters.customAgentFingerprint('opencode'), first);
+    for (const edit of [{ command: 'opencode-next' }, { args: ['--yolo'] }, { idleTitle: 'idle' }, { busyTitle: 'busy' }]) {
+      adapters.setCustomAgents([declaredCustomAgent(edit)]);
+      assert.notEqual(adapters.customAgentFingerprint('opencode'), first, JSON.stringify(edit));
+    }
+    adapters.setCustomAgents([]);
+    assert.equal(adapters.customAgentFingerprint('opencode'), null);
+    assert.equal(adapters.customAgentFingerprint('claude-code'), null);
+  } finally {
+    adapters.setCustomAgents([]);
+  }
+});
+
+test('the contract builtin agent ids are exactly the builtin registry, so a new adapter cannot be silently dropped', () => {
+  adapters.setCustomAgents([]);
+  assert.deepEqual([...BUILTIN_AGENT_IDS], adapters.listAgentIds());
+});
+
+test('every adapter declares the hooks capability exactly when it carries a hook profile', () => {
+  try {
+    adapters.setCustomAgents([declaredCustomAgent()]);
+    for (const id of adapters.listAgentIds()) {
+      const adapter = adapters.getAdapter(id);
+      assert.ok(adapter, id);
+      assert.equal(adapter.capabilities.hooks, adapter.hooks != null, id);
+      assert.equal(adapters.hookProfileOf(adapter), adapter.capabilities.hooks ? adapter.hooks : null, id);
+    }
+    const custom = adapters.getAdapter('opencode');
+    assert.ok(custom);
+    assert.equal(custom.hooks, null);
+    assert.equal(custom.capabilities.hooks, false);
+    assert.equal(adapters.hookProfileOf(custom), null);
+  } finally {
+    adapters.setCustomAgents([]);
+  }
+});
+
+test('a declaration whose command could reach a shell is refused before it becomes an adapter', () => {
+  try {
+    const warnings = adapters.setCustomAgents([
+      { id: 'opencode', label: 'OpenCode', command: 'opencode; touch /tmp/pwned' },
+    ]);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /customAgents\[0\] ignored/);
+    assert.equal(adapters.isKnownAgentId('opencode'), false);
+  } finally {
+    adapters.setCustomAgents([]);
+  }
+});
+
+test('one bad declaration costs only itself, so the valid siblings still reach the registry', () => {
+  try {
+    const warnings = adapters.setCustomAgents([
+      { id: 'opencode', label: 'OpenCode', command: 'opencode' },
+      { id: 'BAD ID', label: 'Broken', command: 'broken' },
+      { id: 'codex', label: 'Impostor', command: 'impostor' },
+      { id: 'opencode', label: 'Twin', command: 'opencode' },
+      { id: 'aider', label: 'Aider', command: 'aider' },
+    ]);
+    assert.equal(warnings.length, 3);
+    assert.match(warnings[0], /customAgents\[1\] ignored/);
+    assert.match(warnings[1], /collides with the builtin agent/);
+    assert.match(warnings[2], /is declared more than once/);
+    assert.deepEqual(adapters.listAgentIds(), ['claude-code', 'codex', 'grok', 'opencode', 'aider']);
+    assert.equal(adapters.getAdapter('codex'), codex);
+  } finally {
+    adapters.setCustomAgents([]);
+  }
 });

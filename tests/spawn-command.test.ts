@@ -140,36 +140,79 @@ test('dedupePathMatches leaves an empty or single-entry list alone', () => {
 });
 
 test('resolveAgentCommand falls back to command -v when which is missing on posix', () => {
-  const commands: string[] = [];
+  const invocations: string[][] = [];
   const resolved = resolveAgentCommand({
     name: 'claude',
     platform: 'linux',
-    exec(command) {
-      commands.push(command);
-      if (command === 'which -a claude') throw new Error('which missing');
-      assert.equal(command, 'sh -c "command -v claude"');
+    execFile(file, args) {
+      invocations.push([file, ...args]);
+      if (file === 'which') throw new Error('which missing');
       return '/home/u/.local/bin/claude\n';
     },
   });
 
-  assert.deepEqual(commands, ['which -a claude', 'sh -c "command -v claude"']);
+  assert.deepEqual(invocations, [['which', '-a', 'claude'], ['sh', '-c', 'command -v "$1"', 'sh', 'claude']]);
   assert.deepEqual(resolved, { path: '/home/u/.local/bin/claude', kind: 'shim' });
 });
 
 test('resolveAgentCommand falls back to command -v when which returns no matches', () => {
-  const commands: string[] = [];
+  const invocations: string[][] = [];
   const resolved = resolveAgentCommand({
     name: 'claude',
     platform: 'linux',
-    exec(command) {
-      commands.push(command);
-      if (command === 'which -a claude') return '\n';
+    execFile(file, args) {
+      invocations.push([file, ...args]);
+      if (file === 'which') return '\n';
       return '/usr/local/bin/claude\n';
     },
   });
 
-  assert.deepEqual(commands, ['which -a claude', 'sh -c "command -v claude"']);
+  assert.deepEqual(invocations, [['which', '-a', 'claude'], ['sh', '-c', 'command -v "$1"', 'sh', 'claude']]);
   assert.deepEqual(resolved, { path: '/usr/local/bin/claude', kind: 'shim' });
+});
+
+test('a command carrying a shell metacharacter rides the PATH probe as one argv element, never a shell word', () => {
+  const invocations: string[][] = [];
+  const injected = 'opencode; touch /tmp/pwned';
+  resolveAgentCommand({
+    name: injected,
+    platform: 'linux',
+    execFile(file, args) {
+      invocations.push([file, ...args]);
+      return '\n';
+    },
+  });
+  assert.deepEqual(invocations, [
+    ['which', '-a', injected],
+    ['sh', '-c', 'command -v "$1"', 'sh', injected],
+  ]);
+  for (const [, ...args] of invocations) {
+    assert.equal(args.some((arg) => arg.includes(`${injected} `) || arg === `command -v ${injected}`), false);
+  }
+});
+
+test('an absolute command resolves only when the probe finds it, and fails closed when it does not', () => {
+  const probed: string[] = [];
+  const found = resolveAgentCommand({
+    name: '/opt/agents/opencode',
+    platform: 'linux',
+    pathExists(candidate) {
+      probed.push(candidate);
+      return true;
+    },
+  });
+  assert.deepEqual(found, { path: '/opt/agents/opencode', kind: 'shim' });
+
+  const missing = resolveAgentCommand({
+    name: '/opt/agents/typo',
+    platform: 'linux',
+    pathExists(candidate) {
+      probed.push(candidate);
+      return false;
+    },
+  });
+  assert.deepEqual(missing, { path: null, kind: 'unresolved' });
+  assert.deepEqual(probed, ['/opt/agents/opencode', '/opt/agents/typo']);
 });
 
 test('classifyCommandKind maps extensions correctly', () => {

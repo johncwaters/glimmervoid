@@ -6,6 +6,7 @@ import { HOOK_URL_ENV } from "./core/hook-relay-core.ts";
 import { RTK_PATH_ENV } from "./core/rtk-hook-core.ts";
 import type { UserHook } from "./core/user-hooks-core.ts";
 import type { DecisionEntry } from "./core/decision-log.ts";
+import { hookProfileOf } from "./adapters/index.ts";
 import type {
   AgentAdapter,
   ArgvConfigInjection,
@@ -140,7 +141,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         token,
         onSignal: options.ingestSignal,
         onEvent: options.observeHook,
-        hooks: options.adapter.hooks,
+        hooks: hookProfileOf(options.adapter),
       });
       return { args, env: { [HOOK_URL_ENV]: hookUrl, ...(relayEnv || {}) } };
     } catch (error) {
@@ -207,13 +208,14 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   }
 
   function inject(): HookInjectionResult {
-    if (!options.hookRouter || !options.getHookPort) return NO_HOOK_INJECTION;
+    const hookProfile = hookProfileOf(options.adapter);
+    if (!hookProfile || !options.hookRouter || !options.getHookPort) return NO_HOOK_INJECTION;
     const port = resolveListenerPort();
     if (!port) {
       console.warn(`[session:${options.name}] hook injection skipped: HTTP listener port unavailable - hooks were not injected`);
       return NO_HOOK_INJECTION;
     }
-    const injection = options.adapter.hooks.injection;
+    const injection = hookProfile.injection;
     if (injection?.kind === "argv-config") return injectRelayHooks(port, injection);
     if (injection?.kind === "home-hooks-file") return injectHomeRelayHooks(port, injection);
     try {
@@ -240,7 +242,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         token,
         onSignal: options.ingestSignal,
         onEvent: options.observeHook,
-        hooks: options.adapter.hooks,
+        hooks: hookProfileOf(options.adapter),
       });
       return { args: buildSettingsArgs(nextSettingsHandle.settingsPath), env: {} };
     } catch (error) {

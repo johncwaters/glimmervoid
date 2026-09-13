@@ -49,6 +49,7 @@ interface SessionRegistryDependencies {
   carryWorktreeAcrossRecreate: (oldSession: Session | null, newSession: Session) => unknown;
   ensureProjectIds: (projects: RegistryProject[]) => boolean;
   resolveAgentId: (agent: AgentId) => string;
+  agentFingerprintOf?: (agentId: string) => string | null;
   logger: Pick<Console, 'log' | 'warn'>;
 }
 
@@ -167,7 +168,13 @@ function reconcileSessionWorktrees({
 
 function createSessionRegistry(dependencies: SessionRegistryDependencies): SessionRegistry {
   const { sessions, config } = dependencies;
+  const agentFingerprintOf = dependencies.agentFingerprintOf ?? (() => null);
+  const capturedAgentFingerprints = new Map<string, string | null>();
   let pendingAutoResumeOnListening: (() => void) | null = null;
+
+  function captureAgentFingerprint(project: RegistryProject): void {
+    capturedAgentFingerprints.set(project.id, agentFingerprintOf(dependencies.resolveAgentId(project.agent)));
+  }
 
   function getSession(id: string): Session | null {
     return sessions.get(id) || null;
@@ -212,6 +219,7 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
     for (const project of config.projects) {
       const session = dependencies.makeSession(project, config);
       sessions.set(project.id, session);
+      captureAgentFingerprint(project);
       dependencies.wireSessionEvents(session);
     }
     noteRepos();
@@ -246,6 +254,7 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
       .then(() => session.discardWorktree?.())
       .catch(() => {});
     sessions.delete(id);
+    capturedAgentFingerprints.delete(id);
     dependencies.broadcastControl({ type: 'session-removed', id, session: session.name });
     dependencies.logger.log(`${logLabel}: ${session.name}`);
     return true;
@@ -255,6 +264,7 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
     for (const project of added) {
       const session = dependencies.makeSession(project, { ...config, ...newConfig });
       sessions.set(project.id, session);
+      captureAgentFingerprint(project);
       dependencies.wireSessionEvents(session);
       dependencies.broadcastControl({
         type: 'session-added',
@@ -285,6 +295,7 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
       oldSession.destroy();
       const newSession = dependencies.makeSession(project, { ...config, ...newConfig });
       sessions.set(project.id, newSession);
+      captureAgentFingerprint(project);
       dependencies.wireSessionEvents(newSession);
       dependencies.carryWorktreeAcrossRecreate(oldSession, newSession);
       dependencies.broadcastControl({
@@ -319,6 +330,8 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
     const diff = diffProjects(sessions, newConfig.projects, {
       ensureProjectIds: dependencies.ensureProjectIds,
       resolveAgentId: dependencies.resolveAgentId,
+      agentFingerprintOf,
+      capturedAgentFingerprintOf: (sessionId: string) => capturedAgentFingerprints.get(sessionId) ?? null,
     });
     for (const id of diff.removed) teardownSession(id, '[config] Removed session');
     addSessions(diff.added, newConfig);

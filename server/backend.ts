@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import type { Server } from 'node:http';
 import path from 'node:path';
-import { resolveAdapter } from '../session/adapters/index.ts';
+import { customAgentFingerprint, resolveAdapter, setCustomAgents } from '../session/adapters/index.ts';
 import type { Session } from '../session/sessions.ts';
 import { createConfigStore, generateProjectId, ensureProjectIds, glimmervoidHomeDir } from './config-store.ts';
 import type { GlimmervoidConfig } from './config-store.ts';
@@ -48,6 +48,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   const configStore = createConfigStore({ settingsDefaults });
   const { config } = configStore;
+  applyCustomAgents(config);
   const port = process.env.GLIMMERVOID_PORT
     ? Number.parseInt(process.env.GLIMMERVOID_PORT, 10)
     : (config.port || 3000);
@@ -258,17 +259,28 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       if (!adapter) throw new Error('Default agent adapter is unavailable');
       return adapter.id;
     },
+    agentFingerprintOf: customAgentFingerprint,
     logger: console,
   });
   sessionRegistry.initialize();
-  const { applyConfigReload } = sessionRegistry;
+  const reconcileProjectsOnReload = sessionRegistry.applyConfigReload;
 
   laneAssembly.startMemoryLanes();
   void rtkInstall.maybeInstall();
   laneAssembly.startRuntimeLanes();
 
+  function applyCustomAgents(sourceConfig: GlimmervoidConfig): void {
+    for (const warning of setCustomAgents(sourceConfig.customAgents)) console.warn(warning);
+  }
+
+  function applyConfigReload(newConfig: GlimmervoidConfig): void {
+    applyCustomAgents(newConfig);
+    reconcileProjectsOnReload(newConfig);
+  }
+
   function applySettingsReload(newConfig: GlimmervoidConfig): void {
     configStore.applySettings(newConfig);
+    applyCustomAgents(newConfig);
     updateCheck.applySettings();
     for (const [, sess] of sessions) {
       sess.updateSettings(config);

@@ -7,7 +7,7 @@ import { canonicalizePath, equalsIgnoringCaseOnWindows } from '../shared/paths.t
 import { DEFAULT_BRANCH_GC_PREFIXES } from './core/branch-gc-core.ts';
 import { decideConfigPath, glimmervoidHomeDir as resolveGlimmervoidHomeDir } from './core/config-path-core.ts';
 import { readEnvSecrets, withEnvSecrets, withoutEnvSecrets } from './core/config-secrets-core.ts';
-import { BranchGcFileSettings, Config, configIssueMessage, RUNTIME_CONFIG_SCALAR_KEYS } from '../shared/contracts/index.ts';
+import { AGENT_ID_SHAPE_MESSAGE, BranchGcFileSettings, Config, configIssueMessage, RUNTIME_CONFIG_SCALAR_KEYS } from '../shared/contracts/index.ts';
 import { isPlainObject } from './core/usage-number-core.ts';
 import {
   INGEST_SPEC, MEMORY_SPEC, MILL_METRICS_SPEC, PACK_DISTILLER_SPEC, pickMillBlock,
@@ -167,6 +167,7 @@ function validateConfig(candidate: unknown): ConfigValidation {
   const parsedConfig = Config.safeParse(candidate);
   if (!parsedConfig.success) {
     const errors = parsedConfig.error.issues.map((issue) => {
+      if (issue.code === 'custom') return issue.message;
       const [root, index, field] = issue.path;
       if (root === 'port') return 'port must be an integer from 0 to 65535';
       if (root === 'repoRoots' || root === 'worktreeShare') return `${root} must be an array of strings`;
@@ -177,7 +178,7 @@ function validateConfig(candidate: unknown): ConfigValidation {
       if (root !== 'projects') return issue.message;
       if (typeof index !== 'number') return 'projects must be an array';
       if (!field) return `projects[${index}] must be a plain object`;
-      if (field === 'agent') return `projects[${index}].agent must be one of: claude-code, codex, grok`;
+      if (field === 'agent') return `projects[${index}].agent must be ${AGENT_ID_SHAPE_MESSAGE}`;
       if (field === 'codexBypassHookTrust') return `projects[${index}].codexBypassHookTrust must be a boolean`;
       return `projects[${index}].${String(field)} must be a string`;
     });
@@ -489,6 +490,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     if (newConfig.memory != null) config.memory = newConfig.memory;
     if (newConfig.ingest != null) config.ingest = newConfig.ingest;
     if (newConfig.agentApi != null) config.agentApi = newConfig.agentApi;
+    config.customAgents = newConfig.customAgents ?? [];
 
     config.hooks = Array.isArray(newConfig.hooks) ? newConfig.hooks : [];
     if (newConfig.port != null && newConfig.port !== config.port) {

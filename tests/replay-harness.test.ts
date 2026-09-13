@@ -6,6 +6,8 @@ import path from 'node:path';
 import { parseRecording, replayDetection, summarize } from '../detection/replay.ts';
 import { createOscTitleSource } from '../detection/osc-title-source.ts';
 import claudeCode from '../session/adapters/claude-code.ts';
+import { setCustomAgents } from '../session/adapters/index.ts';
+import { CustomAgentDeclaration } from '../shared/contracts/index.ts';
 import { parseExitPlanModeHookPayload } from '../shared/contracts/plan-review.ts';
 
 const FIX = path.join(import.meta.dirname, 'fixtures');
@@ -109,6 +111,26 @@ test('grok fixture replays the live approval race from title WAITING to hook COM
   assert.ok(authoritativeAwaiting, 'the hook supersedes the duplicate title signal');
   assert.equal(authoritativeAwaiting.confidence, 'high');
   assert.equal(signals[readyAt].source, 'hook');
+});
+
+test('a config-declared custom agent replays title-only: working, then ready, never awaiting-input', async () => {
+  const { version, agent, records } = load('v2-custom-title-only.jsonl');
+  assert.equal(version, 2);
+  assert.equal(agent, 'opencode');
+  setCustomAgents([CustomAgentDeclaration.parse({ id: 'opencode', label: 'OpenCode', command: 'opencode' })]);
+  try {
+    const { signals } = await replayDetection(records, { ...FAST, agent, titleContext: { cwdBasename: 'project' } });
+    const counts = summarize(signals);
+    assert.ok(counts.working >= 1, 'the spinner titles reach the card');
+    assert.ok(counts.ready >= 1, 'the settled cwd-basename title completes the turn');
+    assert.equal(counts['awaiting-input'] || 0, 0, 'a title-only adapter never claims awaiting-input');
+
+    const order = signals.map((signal) => signal.signal);
+    assert.ok(order.indexOf('ready') > order.indexOf('working'), 'the boot title never fires ready before the first spinner');
+    assert.equal(signals.every((signal) => signal.source === 'title'), true, 'a hookless adapter has only the title tier');
+  } finally {
+    setCustomAgents([]);
+  }
 });
 
 test('real v1 recordings replay cleanly and never emit awaiting-input (title honest contract)', async () => {

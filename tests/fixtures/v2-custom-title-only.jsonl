@@ -1,0 +1,11 @@
+{"type": "header", "version": 2, "records": "full", "session": "fixture-custom-title-only", "agent": "opencode", "startedAt": 0, "config": {"hooksInjected": false, "cols": 80, "rows": 24}, "cols": 80, "rows": 24}
+{"type": "data", "ts": 0, "data": "\u001b]0;project\u0007", "len": 12}
+{"type": "data", "ts": 210, "data": "\u001b]0;⠹ project\u0007", "len": 14}
+{"type": "data", "ts": 315, "data": "\u001b]0;⠸ project\u0007", "len": 14}
+{"type": "data", "ts": 420, "data": "\u001b]0;⠼ project\u0007", "len": 14}
+{"type": "data", "ts": 525, "data": "\u001b]0;⠴ project\u0007", "len": 14}
+{"type": "data", "ts": 630, "data": "\u001b]0;⠦ project\u0007", "len": 14}
+{"type": "data", "ts": 735, "data": "\u001b]0;⠧ project\u0007", "len": 14}
+{"type": "data", "ts": 840, "data": "\u001b]0;⠇ project\u0007", "len": 14}
+{"type": "data", "ts": 945, "data": "\u001b]0;⠏ project\u0007", "len": 14}
+{"type": "data", "ts": 1050, "data": "\u001b]0;project\u0007", "len": 12}

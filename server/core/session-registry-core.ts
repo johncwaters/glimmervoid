@@ -27,6 +27,8 @@ export interface RegistrySession {
 export interface RegistryDependencies {
   ensureProjectIds: (projects: RegistryProject[]) => unknown;
   resolveAgentId: (agent: AgentId) => string;
+  agentFingerprintOf?: (agentId: string) => string | null;
+  capturedAgentFingerprintOf?: (sessionId: string) => string | null;
 }
 
 function projectSkipsPermissions(project: RegistryProject): boolean {
@@ -49,6 +51,8 @@ function diffProjects(
   dependencies: RegistryDependencies,
 ) {
   dependencies.ensureProjectIds(newProjects);
+  const agentFingerprintOf = dependencies.agentFingerprintOf ?? (() => null);
+  const capturedAgentFingerprintOf = dependencies.capturedAgentFingerprintOf ?? (() => null);
   const newProjectsById = new Map<string, RegistryProject>(newProjects.map((project) => [project.id, project]));
   const added: RegistryProject[] = [];
   const removed: string[] = [];
@@ -66,7 +70,9 @@ function diffProjects(
     if (!project) continue;
     const pathChanged = project.path !== session.path;
     const permissionsChanged = projectSkipsPermissions(project) !== session.dangerouslySkipPermissions;
-    const agentChanged = dependencies.resolveAgentId(project.agent) !== session.agentId;
+    const resolvedAgentId = dependencies.resolveAgentId(project.agent);
+    const agentChanged = resolvedAgentId !== session.agentId
+      || agentFingerprintOf(resolvedAgentId) !== capturedAgentFingerprintOf(id);
     const hookTrustChanged = (project.codexBypassHookTrust === true) !== session.bypassHookTrust;
     if (pathChanged || permissionsChanged || agentChanged || hookTrustChanged) {
       modified.push(project);

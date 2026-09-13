@@ -211,11 +211,53 @@ export const ConfigUpdate = z.object({
   worktreeSyncOnStart: optionalBoolean('worktreeSyncOnStart'),
   worktreeRerere: optionalBoolean('worktreeRerere'),
 }).omit({ port: true, worktreeShare: true }).strict();
+const AGENT_ID_RE = /^[a-z][a-z0-9-]{1,31}$/;
+export const BUILTIN_AGENT_IDS = Object.freeze(['claude-code', 'codex', 'grok']);
+export const AGENT_ID_SHAPE_MESSAGE = 'an agent id of 2 to 32 characters of lowercase letters, digits and dashes, starting with a letter';
+
+const AGENT_COMMAND_BASENAME_RE = /^[A-Za-z0-9._+-]+$/;
+const AGENT_COMMAND_ABSOLUTE_RE = /^(?:\/|[A-Za-z]:[\\/])[A-Za-z0-9._+\-\\/]*[A-Za-z0-9._+-]$/;
+export const AGENT_COMMAND_SHAPE_MESSAGE = 'a bare command name or an absolute path, built only from letters, digits, dot, underscore, plus, dash and path separators';
+
+function isSpawnableCommand(command: string): boolean {
+  if (AGENT_COMMAND_BASENAME_RE.test(command)) return true;
+  return AGENT_COMMAND_ABSOLUTE_RE.test(command);
+}
+
+export const CustomAgentDeclaration = z.object({
+  id: z.string({ error: 'customAgents[].id must be a string' }).regex(AGENT_ID_RE, { error: `customAgents[].id must be ${AGENT_ID_SHAPE_MESSAGE}` }),
+  label: z.string({ error: 'customAgents[].label must be a string' })
+    .min(1, { error: 'customAgents[].label must not be empty' })
+    .max(60, { error: 'customAgents[].label must be at most 60 characters' }),
+  command: z.string({ error: 'customAgents[].command must be a string' })
+    .min(1, { error: 'customAgents[].command must not be empty' })
+    .refine((command) => command.trim().length > 0, { error: 'customAgents[].command must not be blank' })
+    .refine(isSpawnableCommand, { error: `customAgents[].command must be ${AGENT_COMMAND_SHAPE_MESSAGE}` }),
+  args: z.array(z.string({ error: 'customAgents[].args must be an array of strings' }), { error: 'customAgents[].args must be an array of strings' }).default([]),
+  idleTitle: z.string({ error: 'customAgents[].idleTitle must be a string' }).optional(),
+  busyTitle: z.string({ error: 'customAgents[].busyTitle must be a string' }).optional(),
+}).strict();
+
+export const CustomAgentDeclarations = z.array(CustomAgentDeclaration, { error: 'customAgents must be an array' })
+  .superRefine((declarations, ctx) => {
+    const claimedIds = new Set(BUILTIN_AGENT_IDS);
+    for (const [index, declaration] of declarations.entries()) {
+      if (!claimedIds.has(declaration.id)) {
+        claimedIds.add(declaration.id);
+        continue;
+      }
+      const message = BUILTIN_AGENT_IDS.includes(declaration.id)
+        ? `customAgents[${index}].id "${declaration.id}" collides with the builtin agent of the same id`
+        : `customAgents[${index}].id "${declaration.id}" is declared more than once`;
+      ctx.addIssue({ code: 'custom', path: [index, 'id'], message });
+    }
+  });
+
 export const ProjectConfig = z.object({
   id: z.string().optional(),
   name: z.string().optional(),
   path: z.string(),
-  agent: z.enum(['claude-code', 'codex', 'grok']).optional(),
+  agent: z.string({ error: 'projects[].agent must be a string' }).regex(AGENT_ID_RE, { error: `projects[].agent must be ${AGENT_ID_SHAPE_MESSAGE}` }).optional(),
   codexBypassHookTrust: z.boolean().optional(),
 }).passthrough();
 const FILE_CONFIG_SHAPE = {
@@ -233,6 +275,7 @@ const FILE_CONFIG_SHAPE = {
   trace: TraceSettings,
   planReview: PlanReviewSettings,
   agentApi: AgentApiSettings,
+  customAgents: CustomAgentDeclarations.optional(),
 };
 export const Config = z.object({
   ...FILE_CONFIG_SHAPE,
@@ -249,7 +292,21 @@ export const Config = z.object({
     allowedOrigins: z.array(z.string()).optional(),
   }).passthrough().optional(),
   projects: z.array(ProjectConfig),
-}).passthrough();
+}).passthrough().superRefine((config, ctx) => {
+  if (!Array.isArray(config.projects)) return;
+  const declaredAgentIds = new Set<string>(BUILTIN_AGENT_IDS);
+  for (const declaration of config.customAgents ?? []) declaredAgentIds.add(declaration.id);
+  for (const [index, project] of config.projects.entries()) {
+    const agent = project?.agent;
+    if (typeof agent !== 'string' || !AGENT_ID_RE.test(agent)) continue;
+    if (declaredAgentIds.has(agent)) continue;
+    ctx.addIssue({
+      code: 'custom',
+      path: ['projects', index, 'agent'],
+      message: `projects[${index}].agent "${agent}" names no known agent; declare it under customAgents or use one of ${[...declaredAgentIds].join(', ')}`,
+    });
+  }
+});
 
 export const BROWSER_CONFIG_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE));
 export const CONFIG_BLOCK_KEYS = Object.freeze([
@@ -285,3 +342,4 @@ export type Config = z.infer<typeof Config>;
 export type BrowserConfig = z.infer<typeof BrowserConfig>;
 export type ConfigUpdate = z.infer<typeof ConfigUpdate>;
 export type ProjectConfig = z.infer<typeof ProjectConfig>;
+export type CustomAgentDeclaration = z.infer<typeof CustomAgentDeclaration>;

@@ -1,9 +1,11 @@
 
-import { execSync } from "../../server/child-process-safe.ts";
+import fs from "node:fs";
+import { execFileSync } from "../../server/child-process-safe.ts";
 import { relayPath } from "../../server/runtime-paths.ts";
 import { PACK_NAME_RE } from "../../server/core/pack-core.ts";
 import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
-import type { PathLookupExec, ResolvedCommand } from "../core/spawn-command.ts";
+import { classifyAgentTitle, isBrailleChar } from "../core/title-classifier-core.ts";
+import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
 import { buildAgentEnv } from "../core/spawn-env.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import { buildHookCommand } from "../core/hook-command-core.ts";
@@ -30,28 +32,18 @@ const HOOK_EVENTS = ["SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "
 
 const envProfile: AgentEnvProfile = { scrub: [], set: {} };
 
-const BRAILLE_MIN = 0x2800;
-const BRAILLE_MAX = 0x28ff;
-
 const ACTION_REQUIRED_RE = /^\[\s*[.!]\s*\]\s*Action Required\b/;
 
-function isSpinnerChar(char: string | null | undefined): boolean {
-  if (!char) return false;
-  const code = char.codePointAt(0) ?? 0;
-  return code >= BRAILLE_MIN && code <= BRAILLE_MAX;
-}
-
-function isPathLikeTitle(title: string): boolean {
-  return title.includes("/") || title.includes("\\");
+function classifyActionRequired(title: string, cwdBasename: string): string | null {
+  if (!ACTION_REQUIRED_RE.test(title)) return null;
+  return title.trimEnd().endsWith(cwdBasename) ? "awaiting-input" : "unknown";
 }
 
 function classifyTitle(title: string, { cwdBasename = null }: { cwdBasename?: string | null } = {}): string {
-  if (isPathLikeTitle(title)) return "ignore";
-  if (isSpinnerChar(String.fromCodePoint(title.codePointAt(0) ?? 0))) return "working";
-  if (!cwdBasename) return "ignore";
-  if (ACTION_REQUIRED_RE.test(title)) return title.trimEnd().endsWith(cwdBasename) ? "awaiting-input" : "unknown";
-  if (title.trim() === cwdBasename) return "ready";
-  return "unknown";
+  return classifyAgentTitle(title, { cwdBasename }, {
+    isSpinnerChar: isBrailleChar,
+    classifyAgainstCwdBasename: classifyActionRequired,
+  });
 }
 
 const titleProfile: AgentTitleProfile = {
@@ -144,12 +136,17 @@ const hooks: AgentHookProfile = {
 };
 
 function resolveCommand(
-  { platform, exec = execSync }: { platform?: NodeJS.Platform; exec?: PathLookupExec } = {},
+  { platform, execFile = execFileSync, pathExists = fs.existsSync }: {
+    platform?: NodeJS.Platform;
+    execFile?: PathLookupExecFile;
+    pathExists?: (candidate: string) => boolean;
+  } = {},
 ): ResolvedCommand {
   return resolveAgentCommand({
     name: COMMAND_NAME,
     platform: platform || process.platform,
-    exec,
+    execFile,
+    pathExists,
   });
 }
 

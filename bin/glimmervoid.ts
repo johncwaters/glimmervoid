@@ -130,14 +130,31 @@ function firstLineOf(error: unknown): string {
   return messageOf(error).split('\n')[0];
 }
 
-function resolveConfigPathReadOnly(): string {
-  const decided = decideConfigPath({
+function decideReadOnlyConfigPath(): ReturnType<typeof decideConfigPath> {
+  return decideConfigPath({
     env: process.env,
     homeDir: glimmervoidHomeDir(os.homedir(), process.env),
   }, (candidate) => fs.existsSync(candidate));
+}
+
+function resolveConfigPathReadOnly(): string {
+  const decided = decideReadOnlyConfigPath();
   if (decided.path) return decided.path;
   if (decided.source === 'env') return `${decided.envPath} (set via GLIMMERVOID_CONFIG, but NOT found)`;
   return `${decided.homePath} (created on first run)`;
+}
+
+async function readDeclaredCustomAgents(): Promise<{ declared: unknown; error: string | null }> {
+  const decided = decideReadOnlyConfigPath();
+  if (!decided.path) return { declared: [], error: null };
+  const { loadConfigFile } = await import('../server/config-store.ts');
+  try {
+    const loaded = loadConfigFile(decided.path, { exitOnError: false });
+    if (!loaded.config) return { declared: [], error: loaded.message };
+    return { declared: loaded.config.customAgents, error: null };
+  } catch (err) {
+    return { declared: [], error: `could not read ${decided.path}: ${firstLineOf(err)}` };
+  }
 }
 
 async function runDoctor(): Promise<void> {
@@ -173,7 +190,10 @@ async function runDoctor(): Promise<void> {
   console.log('\nAgents');
 
   try {
-    const { listAgentIds, getAdapter, commandFor } = await import('../session/adapters/index.ts');
+    const { listAgentIds, getAdapter, commandFor, setCustomAgents } = await import('../session/adapters/index.ts');
+    const declaredCustomAgents = await readDeclaredCustomAgents();
+    if (declaredCustomAgents.error) line('config', declaredCustomAgents.error);
+    for (const warning of setCustomAgents(declaredCustomAgents.declared)) line('customAgents', warning);
     for (const id of listAgentIds()) {
       const adapter = getAdapter(id);
       if (!adapter) continue;

@@ -69,7 +69,7 @@ async function replayDetection(records: ReplayRecord[], opts: ReplayOptions = {}
       title.feed(r.data);
     }
     if (r.type === 'hook' && typeof r.event === 'string') {
-      const sig = adapter.hooks.mapSignal(r.event, r.payload);
+      const sig = adapter.hooks?.mapSignal(r.event, r.payload);
       if (sig) {
         status.ingest({ signal: sig, source: 'hook', ts: Date.now(), event: r.event, payload: r.payload });
       }

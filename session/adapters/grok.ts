@@ -10,6 +10,7 @@ import { renderGrokHooksFile, classifyGrokHooksFile } from "../core/grok-hooks-f
 import { PACK_DIRECTIVE, renderPackPointerText } from "../core/pack-pointer-core.ts";
 import type { PackDelivery } from "../core/pack-pointer-core.ts";
 import type { ResolvedCommand } from "../core/spawn-command.ts";
+import { firstCharOfTitle, isBrailleChar, isPathLikeTitle } from "../core/title-classifier-core.ts";
 import type {
   AgentAdapterShape,
   AgentArgsOptions,
@@ -39,8 +40,6 @@ const MANAGED_HOOK_EVENT_SETS = [[
   "Notification",
 ]];
 const ACTION_REQUIRED_MARKER = String.fromCodePoint(0x26a0);
-const BRAILLE_MIN = 0x2800;
-const BRAILLE_MAX = 0x28ff;
 const CLAUDE_COMPAT_HOOKS_ENV = "GROK_CLAUDE_HOOKS_ENABLED";
 const PROJECT_CONFIG_CANDIDATES = Object.freeze([
   Object.freeze({ relPath: ".claude/settings.json", presenceIsHit: false }),
@@ -138,17 +137,10 @@ function sessionIdOf(payload: HookPayload): unknown {
   return payload?.sessionId;
 }
 
-function isSpinnerChar(char: string | null | undefined): boolean {
-  if (!char) return false;
-  const codePoint = char.codePointAt(0) ?? 0;
-  return codePoint >= BRAILLE_MIN && codePoint <= BRAILLE_MAX;
-}
-
 function classifyTitle(title: string | null | undefined): string {
   const normalizedTitle = String(title || "");
-  if (normalizedTitle.includes("/") || normalizedTitle.includes("\\")) return "ignore";
-  const firstCharacter = normalizedTitle.length > 0 ? String.fromCodePoint(normalizedTitle.codePointAt(0) ?? 0) : "";
-  if (isSpinnerChar(firstCharacter)) return "working";
+  if (isPathLikeTitle(normalizedTitle)) return "ignore";
+  if (isBrailleChar(firstCharOfTitle(normalizedTitle))) return "working";
   if (normalizedTitle.startsWith(ACTION_REQUIRED_MARKER)) return "awaiting-input";
   return "unknown";
 }

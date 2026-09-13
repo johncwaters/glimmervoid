@@ -1,11 +1,13 @@
 
+import fs from "node:fs";
 import { buildAntiSlopArgs } from "../core/anti-slop-prompt.ts";
 import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
-import type { PathLookupExec, ResolvedCommand } from "../core/spawn-command.ts";
+import { isBrailleChar, isSpinnerChar } from "../core/title-classifier-core.ts";
+import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
 import { buildAgentEnv } from "../core/spawn-env.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import type { PackDelivery } from "../core/pack-pointer-core.ts";
-import { execSync } from "../../server/child-process-safe.ts";
+import { execFileSync } from "../../server/child-process-safe.ts";
 import type { AgentAdapterShape, AgentArgsOptions, AgentHookProfile, AgentSpawnCommandOptions } from "./index.ts";
 import { PLAN_TOOL_NAME } from "../../shared/contracts/index.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
@@ -24,22 +26,7 @@ const envProfile: AgentEnvProfile = {
   additionalDirsEnvVar: "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD",
 };
 
-const BRAILLE_MIN = 0x2800;
-const BRAILLE_MAX = 0x28ff;
-const KNOWN_SPINNER_CODEPOINTS = new Set([0x25d0, 0x25d1, 0x25d2, 0x25d3]);
 const KNOWN_IDLE_CODEPOINTS = new Set([0x2733]);
-
-function isBrailleChar(char: string | null | undefined): boolean {
-  if (!char) return false;
-  const code = char.codePointAt(0) ?? 0;
-  return code >= BRAILLE_MIN && code <= BRAILLE_MAX;
-}
-
-function isSpinnerChar(char: string | null | undefined): boolean {
-  if (!char) return false;
-  if (isBrailleChar(char)) return true;
-  return KNOWN_SPINNER_CODEPOINTS.has(char.codePointAt(0) ?? 0);
-}
 
 function isKnownIdleChar(char: string | null | undefined): boolean {
   if (!char) return false;
@@ -126,12 +113,17 @@ const hooks: AgentHookProfile = {
 };
 
 function resolveCommand(
-  { platform, exec = execSync }: { platform?: NodeJS.Platform; exec?: PathLookupExec } = {},
+  { platform, execFile = execFileSync, pathExists = fs.existsSync }: {
+    platform?: NodeJS.Platform;
+    execFile?: PathLookupExecFile;
+    pathExists?: (candidate: string) => boolean;
+  } = {},
 ): ResolvedCommand {
   return resolveAgentCommand({
     name: COMMAND_NAME,
     platform: platform || process.platform,
-    exec,
+    execFile,
+    pathExists,
   });
 }
 
