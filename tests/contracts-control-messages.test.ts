@@ -6,7 +6,12 @@ import path from 'node:path';
 import { z } from 'zod';
 
 import { ClientMessage, ServerMessage } from '../shared/contracts/index.ts';
-import { CONTROL_FRAME_MAX_BYTES } from '../shared/contracts/control-messages.ts';
+import {
+  CONTROL_FRAME_MAX_BYTES,
+  DIFF_ANNOTATION_NOTE_MAX_CHARS,
+  DIFF_ANNOTATION_PATH_MAX_CHARS,
+  DIFF_ANNOTATIONS_MAX,
+} from '../shared/contracts/control-messages.ts';
 import {
   PLAN_BODY_CAP_BYTES,
   PLAN_COMMENTS_MAX,
@@ -124,6 +129,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-worktree-blocked', id: 'session-1', session: 'glimmervoid', branch: 'develop', notice: 'missing branch', timestamp: NOW },
   { type: 'session-worktree-ready', id: 'session-1', session: 'glimmervoid', branch: 'glimmervoid/session/1', base: 'develop', timestamp: NOW },
   { type: 'session-diff', id: 'session-1', committed: { stat: '1 file', diff: 'patch' }, uncommitted: { stat: '', diff: '' }, hasCommits: true },
+  { type: 'send-diff-annotations-result', requestId: 'r9', ok: true, error: null, pending: false },
   { type: 'branch-sync-status', id: 'session-1', branch: 'develop', upstream: 'origin/develop', state: 'ahead', ahead: 1, behind: 0, fetched: true },
   { type: 'session-changed', id: 'session-1', sig: 'sha' },
   { type: 'post-turn-result', id: 'session-1', session: 'glimmervoid', mode: 'fix', skipped: null, filesFixed: 1, findings: [{ file: 'a.js', rule: 'finalNewline', count: 1 }], timestamp: NOW },
@@ -221,6 +227,38 @@ test('GitHub issue client requests validate their bounded fields', () => {
     type: 'open-issue-session', requestId: 'r2', projectId: 'p1', issueNumber: 42,
   });
   assert.equal(ClientMessage.safeParse({ type: 'open-issue-session', requestId: 'r2', projectId: 'p1', issueNumber: 0 }).success, false);
+});
+
+test('send-diff-annotations bounds every field of every note', () => {
+  const note = { section: 'committed', path: 'public/app.ts', line: 12, side: 'new', note: 'rename this' };
+  assert.deepEqual(ClientMessage.parse({ type: 'send-diff-annotations', id: 'session-1', requestId: 'r1', annotations: [note] }), {
+    type: 'send-diff-annotations', id: 'session-1', requestId: 'r1', annotations: [note],
+  });
+
+  assert.equal(ClientMessage.safeParse({ type: 'send-diff-annotations', id: 'session-1', annotations: [] }).success, false);
+  assert.equal(ClientMessage.safeParse({ type: 'send-diff-annotations', id: 'session-1', annotations: [{ ...note, line: 0 }] }).success, false);
+  assert.equal(ClientMessage.safeParse({ type: 'send-diff-annotations', id: 'session-1', annotations: [{ ...note, line: 1.5 }] }).success, false);
+  assert.equal(ClientMessage.safeParse({ type: 'send-diff-annotations', id: 'session-1', annotations: [{ ...note, note: '' }] }).success, false);
+  assert.equal(ClientMessage.safeParse({ type: 'send-diff-annotations', id: 'session-1', annotations: [{ ...note, path: '' }] }).success, false);
+  assert.equal(ClientMessage.safeParse({ type: 'send-diff-annotations', id: 'session-1', annotations: [{ ...note, path: `public/app.ts${String.fromCharCode(27)}[201~` }] }).success, false);
+  assert.equal(ClientMessage.safeParse({ type: 'send-diff-annotations', id: 'session-1', annotations: [{ ...note, path: `public/app.ts${String.fromCharCode(10)}` }] }).success, false);
+  assert.equal(ClientMessage.safeParse({ type: 'send-diff-annotations', id: 'session-1', annotations: [{ ...note, path: 'x'.repeat(DIFF_ANNOTATION_PATH_MAX_CHARS + 1) }] }).success, false);
+  assert.equal(ClientMessage.safeParse({ type: 'send-diff-annotations', id: 'session-1', annotations: [{ ...note, note: 'x'.repeat(DIFF_ANNOTATION_NOTE_MAX_CHARS) }] }).success, true);
+  assert.equal(ClientMessage.safeParse({ type: 'send-diff-annotations', id: 'session-1', annotations: [{ ...note, side: 'both' }] }).success, false);
+  assert.equal(ClientMessage.safeParse({ type: 'send-diff-annotations', id: 'session-1', annotations: [{ ...note, section: 'staged' }] }).success, false);
+  const noteWithoutSection: Record<string, unknown> = { ...note };
+  delete noteWithoutSection.section;
+  assert.equal(ClientMessage.safeParse({ type: 'send-diff-annotations', id: 'session-1', annotations: [noteWithoutSection] }).success, false);
+  assert.equal(ClientMessage.safeParse({ type: 'send-diff-annotations', id: 'session-1', annotations: [{ ...note, note: 'x'.repeat(DIFF_ANNOTATION_NOTE_MAX_CHARS + 1) }] }).success, false);
+  assert.equal(ClientMessage.safeParse({ type: 'send-diff-annotations', id: 'session-1', annotations: [{ ...note, hunk: 3 }] }).success, false);
+
+  const atCap = Array.from({ length: DIFF_ANNOTATIONS_MAX }, (_unused, index) => ({ ...note, line: index + 1 }));
+  assert.equal(ClientMessage.safeParse({ type: 'send-diff-annotations', id: 'session-1', annotations: atCap }).success, true);
+  assert.equal(ClientMessage.safeParse({
+    type: 'send-diff-annotations',
+    id: 'session-1',
+    annotations: [...atCap, { ...note, line: DIFF_ANNOTATIONS_MAX + 1 }],
+  }).success, false);
 });
 
 test('session-diff pins the object payload returned by Session.getDiff', () => {

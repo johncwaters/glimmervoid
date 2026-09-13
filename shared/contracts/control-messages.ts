@@ -42,6 +42,23 @@ export const IssuesReportPush = z.object({
 });
 export type IssuesReportPush = z.infer<typeof IssuesReportPush>;
 
+export const DIFF_ANNOTATION_PATH_MAX_CHARS = 400;
+export const DIFF_ANNOTATION_NOTE_MAX_CHARS = 1000;
+const DIFF_ANNOTATION_PATH_RE = new RegExp(
+  `^[^${String.fromCharCode(0)}-${String.fromCharCode(31)}${String.fromCharCode(127)}-${String.fromCharCode(159)}]+$`,
+);
+
+export const DiffAnnotation = z.strictObject({
+  section: z.enum(['committed', 'uncommitted']),
+  path: z.string().min(1).max(DIFF_ANNOTATION_PATH_MAX_CHARS).regex(DIFF_ANNOTATION_PATH_RE),
+  line: z.number().int().positive(),
+  side: z.enum(['old', 'new']),
+  note: z.string().min(1).max(DIFF_ANNOTATION_NOTE_MAX_CHARS),
+});
+export type DiffAnnotation = z.infer<typeof DiffAnnotation>;
+
+export const DIFF_ANNOTATIONS_MAX = 50;
+
 export const CONTROL_FRAME_ENVELOPE_BYTES = 4096;
 export const CONTROL_FRAME_MAX_BYTES = CONTROL_FRAME_ENVELOPE_BYTES
   + 2 * (PLAN_BODY_CAP_BYTES + PLAN_FEEDBACK_MAX_CHARS + 2 * PLAN_COMMENTS_MAX * PLAN_COMMENT_MAX_CHARS);
@@ -109,6 +126,7 @@ export const CLIENT_MESSAGE_TYPES = Object.freeze([
   'discard-session-worktree',
   'resolve-session-merge',
   'request-session-diff',
+  'send-diff-annotations',
   'request-branch-sync',
   'resync-branch',
   'debug-state',
@@ -149,6 +167,11 @@ const clientVariants = [
   loose('request-usage-report', { requestId, days: z.unknown().optional(), force: z.unknown().optional() }),
   loose('request-mill-report', { requestId }),
   loose('request-hooks-report', { requestId }),
+  loose('send-diff-annotations', {
+    id: sessionId,
+    annotations: z.array(DiffAnnotation).min(1).max(DIFF_ANNOTATIONS_MAX),
+    requestId,
+  }),
 
   loose('save-hook', { hook: z.record(z.string(), z.unknown()), requestId }),
   loose('delete-hook', { id: z.string(), requestId }),
@@ -201,6 +224,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'session-worktree-warning',
   'session-worktree-ready',
   'session-diff',
+  'send-diff-annotations-result',
   'branch-sync-status',
   'session-changed',
   'post-turn-result',
@@ -361,6 +385,12 @@ const serverVariants = [
     committed: openObject({ stat: z.string(), diff: z.string() }),
     uncommitted: openObject({ stat: z.string(), diff: z.string() }),
     hasCommits: z.boolean(),
+  }),
+  loose('send-diff-annotations-result', {
+    requestId,
+    ok: z.boolean(),
+    error: optionalError,
+    pending: z.boolean().optional(),
   }),
   loose('branch-sync-status', {
     id: sessionId,

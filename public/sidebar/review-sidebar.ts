@@ -1,13 +1,22 @@
+import type { DiffAnnotation, ServerMessage } from '#shared/contracts/control-messages.ts';
+import { DIFF_ANNOTATION_NOTE_MAX_CHARS, DIFF_ANNOTATIONS_MAX } from '#shared/contracts/control-messages.ts';
 import type { SessionState } from '#shared/states.ts';
 import { MERGEABLE_LIVE_STATES, STATES } from '#shared/states.ts';
-import { sendControlMsg } from '../control-ws.ts';
+import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { getSidebarWidth, setSidebarWidth } from '../ui-prefs.ts';
-import type { DiffFile } from './diff-core.ts';
-import { parseUnifiedDiff, shouldDropDiffCache, summarizeFiles } from './diff-core.ts';
+import type { AnnotationTarget, DiffFile, SectionDiffText } from './diff-core.ts';
+import {
+  annotationKey,
+  annotationTargetOf,
+  parseUnifiedDiff,
+  shouldDropDiffCache,
+  staleDraftKeys,
+  summarizeFiles,
+} from './diff-core.ts';
 import {
   baseLabel,
   decideMergeAction,
@@ -64,6 +73,23 @@ let resolveSentTimer: ReturnType<typeof setTimeout> | null = null;
 let resyncResult: { forId: string; text: string; isError: boolean } | null = null;
 let resyncResultTimer: ReturnType<typeof setTimeout> | null = null;
 
+interface AnnotatedLine {
+  target: AnnotationTarget;
+  section: DiffAnnotation['section'];
+  rows: HTMLElement[];
+}
+
+const annotatedLineByNoteKey = new Map<string, AnnotatedLine>();
+
+let notesEl: HTMLElement | null = null;
+let sendNotesBtn: HTMLButtonElement | null = null;
+let notesStatusEl: HTMLElement | null = null;
+let notesListEl: HTMLElement | null = null;
+const draftNoteByKey = new Map<string, DiffAnnotation>();
+let openEditorKey: string | null = null;
+let notesSendInFlight = false;
+let notesOutcome: string | null = null;
+
 export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
   panelEl = panel;
   if (!panelEl) return;
@@ -79,9 +105,20 @@ export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
   controlsEl = el('div', 'review-controls');
   bodyEl = el('div', 'review-sidebar-body');
 
+  notesEl = el('div', 'review-notes');
+  const notesBar = el('div', 'review-notes-bar');
+  sendNotesBtn = el('button', 'review-btn review-btn-primary', 'Send notes');
+  sendNotesBtn.type = 'button';
+  sendNotesBtn.title = 'Paste the drafted review notes into this session as one message';
+  sendNotesBtn.addEventListener('click', sendDraftAnnotations);
+  notesStatusEl = el('div', 'review-notes-status');
+  notesBar.append(sendNotesBtn, notesStatusEl);
+  notesListEl = el('div', 'review-notes-list');
+  notesEl.append(notesBar, notesListEl);
+
   const handle = el('div', 'review-resize-handle');
   handle.setAttribute('aria-hidden', 'true');
-  mountedPanel.append(head, branchSyncEl, controlsEl, bodyEl, handle);
+  mountedPanel.append(head, branchSyncEl, controlsEl, notesEl, bodyEl, handle);
 
   let dragStartX = 0, dragStartWidth = 0;
 
@@ -130,6 +167,7 @@ export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
 
     openFiles.clear();
     expanded.clear();
+    clearDraftAnnotations();
     if (id) { requestDiff(id); requestBranchSync(id); }
     render();
   });
@@ -172,8 +210,26 @@ export function seedReviewMergeStatus(id: string, mergeStatus: string, reason: s
 }
 
 export function setReviewDiff(id: string, payload: unknown) {
-  diffById.set(id, (payload || null) as SessionDiffPayload | null);
-  if (id === getSelectedId()) render();
+  const next = (payload || null) as SessionDiffPayload | null;
+  const previous = diffById.get(id) ?? null;
+  diffById.set(id, next);
+  if (id !== getSelectedId()) return;
+  dropDraftsForChangedSections(previous, next);
+  render();
+}
+
+function sectionDiffText(payload: SessionDiffPayload | null): SectionDiffText {
+  return { committed: payload?.committed?.diff || '', uncommitted: payload?.uncommitted?.diff || '' };
+}
+
+function dropDraftsForChangedSections(previous: SessionDiffPayload | null, next: SessionDiffPayload | null) {
+  if (draftNoteByKey.size === 0) return;
+  if (!previous) return;
+  const stale = staleDraftKeys(sectionDiffText(previous), sectionDiffText(next), draftNoteByKey.keys());
+  if (stale.length === 0) return;
+  for (const key of stale) draftNoteByKey.delete(key);
+  if (openEditorKey !== null && stale.includes(openEditorKey)) openEditorKey = null;
+  notesOutcome = `${stale.length} note${stale.length === 1 ? '' : 's'} dropped because the diff changed.`;
 }
 
 export function setReviewBranchSync(id: unknown, payload: unknown) {
@@ -340,10 +396,212 @@ function sessionName(ui: SessionUi | null | undefined, id: string) {
   return ui?.card?.dataset.session || id;
 }
 
+function clearDraftAnnotations() {
+  draftNoteByKey.clear();
+  openEditorKey = null;
+  notesOutcome = null;
+  notesSendInFlight = false;
+}
+
+function draftAnnotationFor(noteKey: string) {
+  return draftNoteByKey.get(noteKey) ?? null;
+}
+
+function notesStatusText() {
+  if (notesSendInFlight) return 'Sending notes...';
+  if (notesOutcome) return notesOutcome;
+  if (draftNoteByKey.size === 0) return 'Annotate a diff line to draft a note.';
+  return `${draftNoteByKey.size} note${draftNoteByKey.size === 1 ? '' : 's'} drafted`;
+}
+
+function draftListEntry(noteKey: string, draft: DiffAnnotation) {
+  const entry = el('div', 'review-notes-entry');
+  const sideMarker = draft.side === 'old' ? ' (removed line)' : '';
+  entry.append(el('span', 'review-notes-entry-where', `${draft.section} ${draft.path}:${draft.line}${sideMarker}`));
+  entry.append(el('span', 'review-notes-entry-note', draft.note));
+  const remove = el('button', 'review-note-remove', 'Remove');
+  remove.type = 'button';
+  remove.title = 'Drop this note';
+  remove.addEventListener('click', () => removeDraftNote(noteKey));
+  entry.append(remove);
+  return entry;
+}
+
+function renderDraftList() {
+  if (!notesListEl) return;
+  notesListEl.replaceChildren();
+  notesListEl.hidden = draftNoteByKey.size === 0;
+  for (const [noteKey, draft] of draftNoteByKey) notesListEl.append(draftListEntry(noteKey, draft));
+}
+
+function updateNotesBar() {
+  if (!notesEl || !sendNotesBtn || !notesStatusEl) return;
+  const id = getSelectedId();
+  notesEl.hidden = !id || !sessionUIs.has(id);
+  sendNotesBtn.disabled = notesSendInFlight || draftNoteByKey.size === 0;
+  notesStatusEl.textContent = notesStatusText();
+  renderDraftList();
+}
+
+function sendDraftAnnotations() {
+  const id = getSelectedId();
+  if (!id || notesSendInFlight || draftNoteByKey.size === 0) return;
+  notesSendInFlight = true;
+  notesOutcome = null;
+  updateNotesBar();
+  void sendControlRequest('send-diff-annotations', { id, annotations: [...draftNoteByKey.values()] })
+    .then(applyDiffAnnotationsResult, failDraftAnnotations);
+}
+
+function failDraftAnnotations(reason: unknown) {
+  notesSendInFlight = false;
+  const text = reason instanceof Error ? reason.message : '';
+  notesOutcome = text ? `Could not send the notes: ${text}.` : 'Could not send the notes.';
+  updateNotesBar();
+}
+
+function annotationsResultError(message: ServerMessage) {
+  if (message.type === 'send-diff-annotations-result' && typeof message.error === 'string' && message.error) return message.error;
+  if (message.type === 'error' && typeof message.message === 'string' && message.message) return message.message;
+  return 'Could not send the notes.';
+}
+
+function applyDiffAnnotationsResult(message: ServerMessage) {
+  notesSendInFlight = false;
+  if (message.type !== 'send-diff-annotations-result' || message.ok !== true) {
+    notesOutcome = annotationsResultError(message);
+    updateNotesBar();
+    return;
+  }
+  if (message.pending === true) {
+    notesOutcome = 'Notes queued until the session wakes. They stay drafted here, and pressing Send notes again re-sends them.';
+    updateNotesBar();
+    return;
+  }
+  notesOutcome = 'Notes sent.';
+  draftNoteByKey.clear();
+  openEditorKey = null;
+  render();
+}
+
+function noteDisplay(noteKey: string, note: string) {
+  const wrap = el('div', 'review-note');
+  wrap.dataset.noteFor = noteKey;
+  wrap.append(el('span', 'review-note-text', note));
+  const remove = el('button', 'review-note-remove', 'Remove');
+  remove.type = 'button';
+  remove.title = 'Drop this note';
+  remove.addEventListener('click', () => removeDraftNote(noteKey));
+  wrap.append(remove);
+  return wrap;
+}
+
+function noteEditor(noteKey: string, initial: string) {
+  const wrap = el('div', 'review-note-editor');
+  wrap.dataset.editorFor = noteKey;
+  const input = el('input', 'review-note-input');
+  input.type = 'text';
+  input.value = initial;
+  input.maxLength = DIFF_ANNOTATION_NOTE_MAX_CHARS;
+  input.placeholder = 'Note for this line';
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') { event.preventDefault(); saveDraftNote(noteKey, input.value); return; }
+    if (event.key === 'Escape') { event.preventDefault(); closeNoteEditor(); }
+  });
+  const save = el('button', 'review-note-save', 'Save');
+  save.type = 'button';
+  save.addEventListener('click', () => saveDraftNote(noteKey, input.value));
+  const cancel = el('button', 'review-note-cancel', 'Cancel');
+  cancel.type = 'button';
+  cancel.addEventListener('click', closeNoteEditor);
+  wrap.append(input, save, cancel);
+  return wrap;
+}
+
+function noteAttachments(noteKey: string) {
+  const built: HTMLElement[] = [];
+  const draft = draftAnnotationFor(noteKey);
+  if (openEditorKey === noteKey) built.push(noteEditor(noteKey, draft ? draft.note : ''));
+  if (draft) built.push(noteDisplay(noteKey, draft.note));
+  return built;
+}
+
+function attachNotesTo(row: HTMLElement, noteKey: string) {
+  const attachments = noteAttachments(noteKey);
+  row.after(...attachments);
+  return attachments;
+}
+
+function detachNoteAttachments(row: HTMLElement) {
+  let next = row.nextElementSibling;
+  while (next instanceof HTMLElement && (next.dataset.noteFor !== undefined || next.dataset.editorFor !== undefined)) {
+    const following = next.nextElementSibling;
+    next.remove();
+    next = following;
+  }
+}
+
+function refreshAnnotatedRows(noteKey: string) {
+  const annotated = annotatedLineByNoteKey.get(noteKey);
+  if (!annotated) return;
+  let inputToFocus: HTMLInputElement | null = null;
+  for (const row of annotated.rows) {
+    detachNoteAttachments(row);
+    const attachments = attachNotesTo(row, noteKey);
+    for (const attachment of attachments) {
+      const input = attachment.querySelector('input');
+      if (!inputToFocus && input instanceof HTMLInputElement) inputToFocus = input;
+    }
+  }
+  if (!inputToFocus) return;
+  inputToFocus.focus();
+  inputToFocus.select();
+}
+
+function openNoteEditor(noteKey: string) {
+  const previous = openEditorKey;
+  openEditorKey = noteKey;
+  if (previous && previous !== noteKey) refreshAnnotatedRows(previous);
+  refreshAnnotatedRows(noteKey);
+}
+
+function closeNoteEditor() {
+  const key = openEditorKey;
+  if (!key) return;
+  openEditorKey = null;
+  refreshAnnotatedRows(key);
+}
+
+function saveDraftNote(noteKey: string, raw: string) {
+  const annotated = annotatedLineByNoteKey.get(noteKey);
+  if (!annotated) return;
+  const note = raw.trim();
+  if (!note) return;
+  if (draftNoteByKey.size >= DIFF_ANNOTATIONS_MAX && !draftNoteByKey.has(noteKey)) {
+    notesOutcome = `Only ${DIFF_ANNOTATIONS_MAX} notes can be sent at once.`;
+    updateNotesBar();
+    return;
+  }
+  draftNoteByKey.set(noteKey, { ...annotated.target, section: annotated.section, note });
+  notesOutcome = null;
+  openEditorKey = null;
+  refreshAnnotatedRows(noteKey);
+  updateNotesBar();
+}
+
+function removeDraftNote(noteKey: string) {
+  draftNoteByKey.delete(noteKey);
+  notesOutcome = null;
+  refreshAnnotatedRows(noteKey);
+  updateNotesBar();
+}
+
 function render() {
   if (!controlsEl || !bodyEl) return;
   controlsEl.replaceChildren();
   bodyEl.replaceChildren();
+  annotatedLineByNoteKey.clear();
+  updateNotesBar();
   if (branchSyncEl) branchSyncEl.replaceChildren();
 
   const id = getSelectedId();
@@ -467,7 +725,7 @@ function renderBranchSync(id: string) {
   return row;
 }
 
-function renderSection(kind: string, label: string, meaning: string, files: DiffFile[]) {
+function renderSection(kind: DiffAnnotation['section'], label: string, meaning: string, files: DiffFile[]) {
   const wrap = el('div', 'review-section');
   wrap.dataset.kind = kind;
 
@@ -494,7 +752,7 @@ function renderSection(kind: string, label: string, meaning: string, files: Diff
   return wrap;
 }
 
-function renderFile(f: DiffFile, kind: string) {
+function renderFile(f: DiffFile, kind: DiffAnnotation['section']) {
   const key = `${kind}:${f.path}`;
   const open = openFiles.has(key);
   const sec = el('div', 'review-file');
@@ -542,8 +800,21 @@ function renderFile(f: DiffFile, kind: string) {
       const gutter = line.type === 'add' ? '+' : line.type === 'del' ? '-' : line.type === 'meta' ? '\\' : ' ';
       row.append(el('span', 'review-line-gutter', gutter));
       row.append(el('span', 'review-line-text', line.text));
+      const target = annotationTargetOf(f, line);
       body.append(row);
       rendered++;
+      if (!target) continue;
+      const noteKey = annotationKey(kind, target.path, target.line, target.side);
+      const annotated = annotatedLineByNoteKey.get(noteKey) ?? { target, section: kind, rows: [] };
+      annotated.rows.push(row);
+      annotatedLineByNoteKey.set(noteKey, annotated);
+      row.dataset.noteKey = noteKey;
+      const annotate = el('button', 'review-annotate', 'note');
+      annotate.type = 'button';
+      annotate.title = `Note on ${target.path}:${target.line}`;
+      annotate.addEventListener('click', () => openNoteEditor(noteKey));
+      row.append(annotate);
+      attachNotesTo(row, noteKey);
     }
     if (truncated) break;
   }

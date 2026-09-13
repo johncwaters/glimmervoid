@@ -7,6 +7,7 @@ import type { WebSocket, WebSocketServer } from 'ws';
 import {
   BRANCH_GC_CONTROL_BOOLEAN_KEYS, BRANCH_GC_CONTROL_NUMERIC_KEYS,
   ClientMessage, RUNTIME_CONFIG_SCALAR_KEYS, ConfigUpdate, configIssueMessage,
+  type DiffAnnotation,
 } from '../shared/contracts/index.ts';
 import { STATES } from '../shared/states.ts';
 import { claudeProjectsDir, listRepoConversations } from '../session/core/conversation-history.ts';
@@ -20,6 +21,7 @@ import {
 } from './core/settings-mill-core.ts';
 import { readPosthogReport } from './posthog-report.ts';
 import * as posthogCore from './core/posthog-core.ts';
+import { formatDiffAnnotationMessage } from './core/diff-annotations-core.ts';
 import { buildGithubIssuePrompt, deriveIssueSessionName } from './core/github-issues-core.ts';
 import { createPrGh } from './pr-gh.ts';
 import type { PrGh } from './pr-gh.ts';
@@ -89,6 +91,7 @@ interface ControlRequest {
   pack?: string;
   deliver?: boolean;
   hook?: Record<string, unknown>;
+  annotations?: DiffAnnotation[];
   [key: string]: unknown;
 }
 
@@ -317,6 +320,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'request-hooks-report': () => ({ type: 'hooks-report', requestId, error: message }),
     'save-hook': () => ({ type: 'save-hook-result', requestId, ok: false, error: message }),
     'delete-hook': () => ({ type: 'delete-hook-result', requestId, ok: false, error: message }),
+    'send-diff-annotations': () => ({ type: 'send-diff-annotations-result', requestId, ok: false, error: message }),
   };
   const requestType = typeof msg?.type === 'string' ? msg.type : '';
   if (Object.hasOwn(builders, requestType)) return builders[requestType]();
@@ -897,6 +901,17 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     reply({ ok: res.ok === true, error: res.error || null });
   }
 
+  function handleSendDiffAnnotations(msg: ControlRequest, ws: ControlSocket): void {
+    const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'send-diff-annotations-result', { ok: false, error: null, ...payload });
+    const session = findSession(msg);
+    if (!session) { reply({ error: 'Session not found' }); return; }
+    const text = formatDiffAnnotationMessage(msg.annotations ?? []);
+    if (!text) { reply({ error: 'No review notes to send' }); return; }
+    const pasted = session.pasteTextWhenReady(text);
+    if (!pasted.ok) { reply({ error: `Could not write to "${session.name}" (${pasted.reason})` }); return; }
+    reply({ ok: true, pending: pasted.deferred === true });
+  }
+
   async function handleRequestUsageReport(msg: ControlRequest, ws: ControlSocket): Promise<void> {
     if (!requestUsageReport) {
       ws.send(JSON.stringify({ type: 'usage-report', requestId: msg.requestId || null, error: 'Usage tracking is not running' }));
@@ -1053,6 +1068,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'request-hooks-report': handleRequestHooksReport,
     'save-hook': handleSaveHook,
     'delete-hook': handleDeleteHook,
+    'send-diff-annotations': handleSendDiffAnnotations,
     'kill':             (msg: ControlRequest) => { const s = findSession(msg); if (s) s.killSession(); },
     'start-session':    (msg: ControlRequest) => {
       const s = findSession(msg);
