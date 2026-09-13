@@ -7475,15 +7475,20 @@ html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-nav { displa
 :root[data-flying-animals="true"] .nyan-flight {
   position: fixed;
 
-  top: max(var(--nyan-top, 18vh), 64px);
+  top: var(--nyan-top);
   left: 0;
-  width: 61.2px;
-  height: 37.8px;
+  width: var(--nyan-width);
+  height: var(--nyan-height);
 
   z-index: 30;
   pointer-events: none;
+  transform-origin: left center;
 
-  transform: translateX(-45vw);
+  transform: translateX(var(--nyan-start-x)) scale(var(--nyan-scale));
+}
+
+html[data-layout="phone"][data-flying-animals="true"] .nyan-flight {
+  z-index: 110;
 }
 
 :root[data-flying-animals="true"] .nyan-trail {
@@ -7529,7 +7534,7 @@ html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-nav { displa
 :root[data-flying-animals="true"] .nyan-sprite {
   position: absolute;
   inset: 0;
-  background-size: 367.2px 37.8px;
+  background-size: calc(var(--nyan-width) * 6) var(--nyan-height);
   background-repeat: no-repeat;
   image-rendering: pixelated;
   animation: nyan-bob 0.6s steps(1, end) infinite, nyan-frames 0.9s steps(6) infinite;
@@ -7880,8 +7885,8 @@ html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-nav { displa
 }
 
 @keyframes nyan-fly {
-  from { transform: translateX(-45vw); }
-  to   { transform: translateX(145vw); }
+  from { transform: translateX(var(--nyan-start-x)) scale(var(--nyan-scale)); }
+  to   { transform: translateX(var(--nyan-end-x)) scale(var(--nyan-scale)); }
 }
 
 @keyframes nyan-bob {
@@ -7890,7 +7895,7 @@ html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-nav { displa
 }
 
 @keyframes nyan-frames {
-  to { background-position-x: -367.2px; }
+  to { background-position-x: calc(var(--nyan-width) * -6); }
 }
 
 @keyframes rainbow-wave {
