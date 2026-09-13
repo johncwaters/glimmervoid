@@ -3,7 +3,142 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { pickAutoResume, RESUME_ID_RE } from '../session/core/auto-resume.ts';
+import { pickAutoResume, resolveResumeTarget, RESUME_ID_RE } from '../session/core/auto-resume.ts';
+import { projectDirCandidates } from '../server/core/usage-scan-core.ts';
+
+const RESUME_SESSION_ID = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
+
+test('resolveResumeTarget returns null without probing when no resume id is set', () => {
+  let probeCount = 0;
+  const resumeTarget = resolveResumeTarget({
+    resumeSessionId: null,
+    transcriptPath: '/reported/session.jsonl',
+    projectsDirs: ['/home/carbon-unit/.claude/projects'],
+    cwds: ['/workspace'],
+  }, () => {
+    probeCount += 1;
+    return true;
+  });
+
+  assert.deepEqual(resumeTarget, { resumeSessionId: null, transcriptPath: null });
+  assert.equal(probeCount, 0);
+});
+
+test('resolveResumeTarget probes a reported transcript path before any derived one', () => {
+  const reportedTranscriptPath = path.join('/reported', `${RESUME_SESSION_ID}.jsonl`);
+  const probedPaths: string[] = [];
+  const resumeTarget = resolveResumeTarget({
+    resumeSessionId: RESUME_SESSION_ID,
+    transcriptPath: reportedTranscriptPath,
+    projectsDirs: ['/configured/projects'],
+    cwds: ['/workspace'],
+  }, (transcriptPath) => {
+    probedPaths.push(transcriptPath);
+    return true;
+  });
+
+  assert.deepEqual(probedPaths, [reportedTranscriptPath]);
+  assert.deepEqual(resumeTarget, {
+    resumeSessionId: RESUME_SESSION_ID,
+    transcriptPath: reportedTranscriptPath,
+  });
+});
+
+test('resolveResumeTarget ignores a reported transcript path belonging to another conversation', () => {
+  const otherConversationTranscriptPath = path.join(
+    '/configured', 'projects', '-workspace', '11111111-1111-4111-8111-111111111111.jsonl');
+  const derivedTranscriptPath = path.join(
+    '/configured', 'projects', '-workspace', `${RESUME_SESSION_ID}.jsonl`);
+  const probedPaths: string[] = [];
+  const resumeTarget = resolveResumeTarget({
+    resumeSessionId: RESUME_SESSION_ID,
+    transcriptPath: otherConversationTranscriptPath,
+    projectsDirs: ['/configured/projects'],
+    cwds: ['/workspace'],
+  }, (transcriptPath) => {
+    probedPaths.push(transcriptPath);
+    return true;
+  });
+
+  assert.deepEqual(probedPaths, [derivedTranscriptPath]);
+  assert.deepEqual(resumeTarget, {
+    resumeSessionId: RESUME_SESSION_ID,
+    transcriptPath: derivedTranscriptPath,
+  });
+});
+
+test('resolveResumeTarget clears the id when only another conversation transcript exists', () => {
+  const otherConversationTranscriptPath = path.join(
+    '/configured', 'projects', '-workspace', '11111111-1111-4111-8111-111111111111.jsonl');
+  const resumeTarget = resolveResumeTarget({
+    resumeSessionId: RESUME_SESSION_ID,
+    transcriptPath: otherConversationTranscriptPath,
+    projectsDirs: ['/configured/projects'],
+    cwds: ['/workspace'],
+  }, (transcriptPath) => transcriptPath === otherConversationTranscriptPath);
+
+  assert.deepEqual(resumeTarget, {
+    resumeSessionId: null,
+    transcriptPath: path.join('/configured', 'projects', '-workspace', `${RESUME_SESSION_ID}.jsonl`),
+  });
+});
+
+test('resolveResumeTarget keeps the id when the CLAUDE_CONFIG_DIR transcript exists', () => {
+  const projectsDirs = projectDirCandidates({ CLAUDE_CONFIG_DIR: '/configured', HOME: '/home/carbon-unit' });
+  const expectedTranscriptPath = path.join('/configured', 'projects', '-workspace', `${RESUME_SESSION_ID}.jsonl`);
+  const resumeTarget = resolveResumeTarget({
+    resumeSessionId: RESUME_SESSION_ID,
+    transcriptPath: null,
+    projectsDirs,
+    cwds: ['/workspace'],
+  }, (transcriptPath) => transcriptPath === expectedTranscriptPath);
+
+  assert.deepEqual(resumeTarget, { resumeSessionId: RESUME_SESSION_ID, transcriptPath: expectedTranscriptPath });
+});
+
+test('resolveResumeTarget keeps the id when only the XDG projects dir holds the transcript', () => {
+  const projectsDirs = projectDirCandidates({ HOME: '/home/carbon-unit', XDG_CONFIG_HOME: '/xdg-config' });
+  const expectedTranscriptPath = path.join('/xdg-config', 'claude', 'projects', '-workspace', `${RESUME_SESSION_ID}.jsonl`);
+  const resumeTarget = resolveResumeTarget({
+    resumeSessionId: RESUME_SESSION_ID,
+    transcriptPath: null,
+    projectsDirs,
+    cwds: ['/workspace'],
+  }, (transcriptPath) => transcriptPath === expectedTranscriptPath);
+
+  assert.deepEqual(resumeTarget, { resumeSessionId: RESUME_SESSION_ID, transcriptPath: expectedTranscriptPath });
+});
+
+test('resolveResumeTarget keeps the id when the transcript sits under the realpath cwd spelling', () => {
+  const expectedTranscriptPath = path.join('/configured', 'projects', '-real-workspace', `${RESUME_SESSION_ID}.jsonl`);
+  const resumeTarget = resolveResumeTarget({
+    resumeSessionId: RESUME_SESSION_ID,
+    transcriptPath: null,
+    projectsDirs: ['/configured/projects'],
+    cwds: ['/symlinked/workspace', '/real/workspace'],
+  }, (transcriptPath) => transcriptPath === expectedTranscriptPath);
+
+  assert.deepEqual(resumeTarget, { resumeSessionId: RESUME_SESSION_ID, transcriptPath: expectedTranscriptPath });
+});
+
+test('resolveResumeTarget clears the id when no candidate transcript exists', () => {
+  const probedPaths: string[] = [];
+  const resumeTarget = resolveResumeTarget({
+    resumeSessionId: RESUME_SESSION_ID,
+    transcriptPath: null,
+    projectsDirs: ['/xdg-config/claude/projects', '/home/carbon-unit/.claude/projects'],
+    cwds: ['/symlinked/workspace', '/real/workspace'],
+  }, (transcriptPath) => {
+    probedPaths.push(transcriptPath);
+    return false;
+  });
+
+  assert.equal(probedPaths.length, 4);
+  assert.deepEqual(resumeTarget, {
+    resumeSessionId: null,
+    transcriptPath: path.join('/xdg-config', 'claude', 'projects', '-symlinked-workspace', `${RESUME_SESSION_ID}.jsonl`),
+  });
+});
 
 test('pickAutoResume picks a project that was active and has a resumeSessionId', () => {
   const projects = [{ id: 'a', wasActive: true, resumeSessionId: 'abcd1234' }];

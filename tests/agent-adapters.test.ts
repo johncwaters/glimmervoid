@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Session } from '../session/sessions.ts';
+import { encodeProjectDir } from '../session/core/conversation-history.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import { writeSessionSettings } from '../detection/settings-injector.ts';
 import claudeCode from '../session/adapters/claude-code.ts';
@@ -81,6 +82,16 @@ test('renderPackArgs keeps the existing Claude --add-dir loop byte-identical', (
 
 test('spawn argv for a fully featured session is byte-identical to the pre-extraction one', async () => {
   const hooksBaseDir = tmpHooksDir();
+  const previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = hooksBaseDir;
+  const transcriptPath = path.join(
+    hooksBaseDir,
+    'projects',
+    encodeProjectDir(process.cwd()),
+    `${RESUME_ID}.jsonl`,
+  );
+  fs.mkdirSync(path.dirname(transcriptPath), { recursive: true });
+  fs.writeFileSync(transcriptPath, '', 'utf8');
   const calls: AdapterSpawnCall[] = [];
   const session = new Session({
     id: 'capture-session',
@@ -117,6 +128,8 @@ test('spawn argv for a fully featured session is byte-identical to the pre-extra
     assert.equal('CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD' in env, false, 'no packs delivered');
   } finally {
     session.destroy();
+    if (previousClaudeConfigDir == null) delete process.env.CLAUDE_CONFIG_DIR;
+    if (previousClaudeConfigDir != null) process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
     fs.rmSync(hooksBaseDir, { recursive: true, force: true });
   }
 });

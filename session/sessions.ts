@@ -1,8 +1,10 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import pty from "node-pty";
 import { EventEmitter } from "node:events";
 import { execFile } from "../server/child-process-safe.ts";
+import { projectDirCandidates } from "../server/core/usage-scan-core.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
@@ -25,7 +27,7 @@ import type { ExitSignal } from "./core/exit-transition.ts";
 import { shouldHoldTerminalStopForNotice } from "./core/pack-notice.ts";
 import * as agentTracker from "./core/agent-tracker.ts";
 import { DEFAULT_GATE_RELEASE_SETTLE_MS } from "./core/gate-release.ts";
-import { RESUME_ID_RE } from "./core/auto-resume.ts";
+import { resolveResumeTarget, RESUME_ID_RE } from "./core/auto-resume.ts";
 import { projectSessionSnapshots } from "./core/snapshot-projection.ts";
 import type { UserHook } from "./core/user-hooks-core.ts";
 import type { DecisionEntry } from "./core/decision-log.ts";
@@ -744,6 +746,15 @@ class Session extends EventEmitter {
 
   effectiveCwd(): string { return this.worktreeLifecycle.effectiveCwd(); }
 
+  _spawnCwdSpellings(): string[] {
+    const spawnCwd = this.effectiveCwd();
+    try {
+      return Array.from(new Set([spawnCwd, fs.realpathSync.native(spawnCwd)]));
+    } catch {
+      return [spawnCwd];
+    }
+  }
+
   _provisionWorktree({ fresh = false }: { fresh?: boolean } = {}) { return this.worktreeLifecycle.provision({ fresh }); }
 
   _settleWorktreeOnExit() { return this.worktreeLifecycle.settleOnExit(); }
@@ -984,10 +995,25 @@ class Session extends EventEmitter {
       extraEnv: spawnExtraEnv,
     });
 
+    const configuredResumeSessionId = this._can("resume") ? this._resumeSessionId : null;
+    let spawnResumeSessionId = configuredResumeSessionId;
+    if (this.usageVendor === "claude") {
+      const resumeTarget = resolveResumeTarget({
+        resumeSessionId: configuredResumeSessionId,
+        transcriptPath: this._transcriptPath,
+        projectsDirs: projectDirCandidates(env, [], os.homedir()),
+        cwds: this._spawnCwdSpellings(),
+      }, fs.existsSync);
+      spawnResumeSessionId = resumeTarget.resumeSessionId;
+      if (configuredResumeSessionId && !spawnResumeSessionId) {
+        console.warn(`[session:${this.name}] spawning without the stale resume id because no transcript exists: ${resumeTarget.transcriptPath}`);
+      }
+    }
+
     this._suppressResumeCapture = false;
     const agentArgs = this._adapter.buildArgs({
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
-      resumeSessionId: this._can("resume") ? this._resumeSessionId : null,
+      resumeSessionId: spawnResumeSessionId,
       extraArgs: this._extraClaudeArgs,
       antiSlopPrompt: this._antiSlopPrompt,
       initialPrompt: this._initialPrompt,

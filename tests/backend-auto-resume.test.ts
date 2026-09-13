@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -12,6 +12,7 @@ import type { ConfigStore } from '../server/config-store.ts';
 import type { RegistryConfig } from '../server/session-registry.ts';
 import { createSpawnGate } from '../server/spawn-gate.ts';
 import { Session } from '../session/sessions.ts';
+import { encodeProjectDir } from '../session/core/conversation-history.ts';
 import { STATES } from '../shared/states.ts';
 import { UNREACHABLE_PID, fakePty } from './helpers/fake-pty.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
@@ -22,6 +23,27 @@ interface SpawnCall {
   file: string;
   args: string[];
 }
+
+const claudeConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-backend-auto-resume-'));
+const previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+process.env.CLAUDE_CONFIG_DIR = claudeConfigDir;
+
+function writeClaudeTranscript(cwd: string, resumeSessionId: string): void {
+  const transcriptPath = path.join(
+    claudeConfigDir,
+    'projects',
+    encodeProjectDir(cwd),
+    `${resumeSessionId}.jsonl`,
+  );
+  fs.mkdirSync(path.dirname(transcriptPath), { recursive: true });
+  fs.writeFileSync(transcriptPath, '', 'utf8');
+}
+
+after(() => {
+  if (previousClaudeConfigDir == null) delete process.env.CLAUDE_CONFIG_DIR;
+  if (previousClaudeConfigDir != null) process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
+  fs.rmSync(claudeConfigDir, { recursive: true, force: true });
+});
 
 function withStore<T>(cfg: Record<string, unknown>, fn: (store: ConfigStore, configPath: string) => T): T {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-autoresume-'));
@@ -161,7 +183,9 @@ function autoResumeConfig(projects: Record<string, unknown>[], autoResume: boole
 
 test('runAutoResume spawns a picked session with --resume <id> and leaves non-picked ones alone', async () => {
   const calls: SpawnCall[] = [];
-  const picked = fakeSession('picked', '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5', calls);
+  const resumeSessionId = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
+  writeClaudeTranscript(process.cwd(), resumeSessionId);
+  const picked = fakeSession('picked', resumeSessionId, calls);
   const dormantNoFlag = fakeSession('not-active', null, calls);
   const noId = fakeSession('no-id', null, calls);
   const sessionsMap = new Map([
@@ -249,6 +273,7 @@ test('createBackend defers boot auto-resume until the HTTP listener has a hook p
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-autoresume-proj-'));
   const cfgPath = path.join(cfgDir, 'config.json');
   const resumeSessionId = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
+  writeClaudeTranscript(projectDir, resumeSessionId);
   fs.writeFileSync(cfgPath, JSON.stringify({
     autoResume: true,
     checkForUpdates: false,
