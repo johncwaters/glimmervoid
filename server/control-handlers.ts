@@ -20,6 +20,9 @@ import {
 } from './core/settings-mill-core.ts';
 import { readPosthogReport } from './posthog-report.ts';
 import * as posthogCore from './core/posthog-core.ts';
+import { buildGithubIssuePrompt, deriveIssueSessionName } from './core/github-issues-core.ts';
+import { createPrGh } from './pr-gh.ts';
+import type { PrGh } from './pr-gh.ts';
 import { buildSettingsPayload as buildSettingsPayloadFrom } from './settings-payload.ts';
 import { RESUME_ID_RE } from '../session/core/auto-resume.ts';
 import { execFile } from './child-process-safe.ts';
@@ -75,6 +78,7 @@ interface ControlRequest {
   settings?: Record<string, unknown>;
   issueId?: string | number;
   projectId?: string | number;
+  issueNumber?: number;
   action?: string;
   days?: unknown;
   force?: unknown;
@@ -126,6 +130,7 @@ interface ControlHandlerDeps {
   posthogSetIssueStatus?: ((args: { projectId: string; issueId: string; action: string }) => Promise<Record<string, unknown>>) | null;
   posthogArchiveInvestigation?: ((args: { id: string }) => Promise<Record<string, unknown>>) | null;
   getPrStatus?: (() => unknown) | null;
+  createGithubClient?: (cwd: string) => Pick<PrGh, 'listIssues' | 'viewIssue' | 'repoSlug'>;
   getPackVersions?: () => Record<string, string | null>;
   serverBuild?: () => string | null;
   getUsageSessions?: (() => unknown) | null;
@@ -303,6 +308,8 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'list-agents': () => ({ type: 'agents-listed', requestId, agents: [], error: message }),
     'get-posthog-report': () => ({ type: 'posthog-report', requestId, ok: false, found: false, issueId: null, error: message }),
     'posthog-open-session': () => ({ type: 'posthog-open-session-result', requestId, ok: false, error: message }),
+    'request-issues': () => ({ type: 'issues-report', requestId, ts: Date.now(), projectId: typeof msg?.projectId === 'string' ? msg.projectId : '', issues: [], error: message }),
+    'open-issue-session': () => ({ type: 'open-issue-session-result', requestId, ok: false, error: message }),
     'posthog-issue-action': () => ({ type: 'posthog-issue-action-result', requestId, ok: false, error: message }),
     'posthog-archive-investigation': () => ({ type: 'posthog-archive-investigation-result', requestId, ok: false, error: message }),
     'request-usage-report': () => ({ type: 'usage-report', requestId, error: message }),
@@ -366,6 +373,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     posthogArchiveInvestigation = null,
 
     getPrStatus,
+    createGithubClient = createPrGh,
 
     getPackVersions = () => ({}),
 
@@ -450,29 +458,18 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
     const agent = requestedAgent as NonNullable<ProjectEntry['agent']> | '';
 
-    for (const [, sess] of sessions) {
-      if (sess.name === name) {
-        sendError(ws, `Session "${name}" already exists`);
-        return;
-      }
-    }
-
-    const resolvedPath = path.resolve(projectPath);
-    if (!fs.existsSync(resolvedPath)) {
-      sendError(ws, `Path does not exist: ${projectPath}`);
+    const skipPerms = msg.dangerouslySkipPermissions !== false;
+    const created = createProjectSession({
+      name,
+      path: projectPath,
+      agent: agent && agent !== DEFAULT_AGENT_ID ? agent : undefined,
+      dangerouslySkipPermissions: skipPerms,
+      requireExistingPath: true,
+    });
+    if (!created.ok) {
+      sendError(ws, created.error);
       return;
     }
-
-    const skipPerms = msg.dangerouslySkipPermissions !== false;
-    const project: ProjectEntry = { id: generateProjectId(), name, path: resolvedPath };
-    if (!skipPerms) project.dangerouslySkipPermissions = false;
-
-    if (agent && agent !== DEFAULT_AGENT_ID) project.agent = agent;
-
-    const freshConfig = configStore.save(cfg => {
-      cfg.projects.push(project);
-    });
-    if (freshConfig) applyConfigReload(freshConfig);
     console.log(`[control] Added session via UI: ${name}${skipPerms ? ' (skip permissions)' : ' (permission prompts)'}`);
   }
 
@@ -759,6 +756,24 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     return entries;
   }
 
+  function createProjectSession({ name, path: projectPath, agent, dangerouslySkipPermissions, requireExistingPath }: { name: string; path: string; agent?: ProjectEntry['agent']; dangerouslySkipPermissions?: boolean; requireExistingPath?: boolean }): { ok: true; project: ProjectEntry } | { ok: false; error: string } {
+    for (const [, session] of sessions) {
+      if (session.name !== name) continue;
+      return { ok: false, error: `Session "${name}" already exists` };
+    }
+    const resolvedPath = path.resolve(projectPath);
+    if (requireExistingPath && !fs.existsSync(resolvedPath)) return { ok: false, error: `Path does not exist: ${projectPath}` };
+    const project: ProjectEntry = { id: generateProjectId(), name, path: resolvedPath };
+    if (dangerouslySkipPermissions === false) project.dangerouslySkipPermissions = false;
+    if (agent) project.agent = agent;
+    const freshConfig = configStore.save(cfg => {
+      cfg.projects.push(project);
+    });
+    if (!freshConfig) return { ok: false, error: `Could not save session "${name}"` };
+    applyConfigReload(freshConfig);
+    return { ok: true, project };
+  }
+
   function autoCreatePosthogProject(projectId: unknown, posthogProjectName: unknown): ProjectEntry | null {
     const projectMap = config.posthog?.projectMap;
     const mappedEntry = projectMap && typeof projectMap === 'object'
@@ -774,17 +789,62 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     const name = posthogCore.sanitizeSessionName(path.basename(resolvedPath))
       || posthogCore.sanitizeSessionName(posthogProjectName);
     if (!name) return null;
-    for (const [, sess] of sessions) {
-      if (sess.name === name) return null;
-    }
-
-    const project = { id: generateProjectId(), name, path: resolvedPath };
-    const freshConfig = configStore.save(cfg => {
-      cfg.projects.push(project);
-    });
-    if (freshConfig) applyConfigReload(freshConfig);
+    const created = createProjectSession({ name, path: resolvedPath, agent: undefined });
+    if (!created.ok) return null;
     console.log(`[control] posthog-open-session auto-created session: ${name} (${resolvedPath})`);
-    return project;
+    return created.project;
+  }
+
+  function findConfiguredProject(projectId: unknown): ProjectEntry | null {
+    if (typeof projectId !== 'string') return null;
+    return config.projects.find((project) => project.id === projectId) ?? null;
+  }
+
+  async function handleRequestIssues(msg: ControlRequest, ws: ControlSocket): Promise<void> {
+    const projectId = typeof msg.projectId === 'string' ? msg.projectId : '';
+    const reply = (issues: unknown[], error: string | null = null) => replyTo(ws, msg, 'issues-report', {
+      ts: Date.now(), projectId, issues, error,
+    });
+    const project = findConfiguredProject(projectId);
+    if (!project) { reply([], 'Project not found'); return; }
+    try {
+      const listed = await createGithubClient(path.resolve(project.path)).listIssues();
+      if (!listed.ok) { reply([], `Could not list GitHub issues: ${listed.error}`); return; }
+      reply(listed.issues);
+    } catch (error) {
+      reply([], `Could not list GitHub issues: ${errorMessage(error)}`);
+    }
+  }
+
+  async function handleOpenIssueSession(msg: ControlRequest, ws: ControlSocket): Promise<void> {
+    const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'open-issue-session-result', { ok: false, error: null, ...payload });
+    const project = findConfiguredProject(msg.projectId);
+    if (!project) { reply({ error: 'Project not found' }); return; }
+    const issueNumber = msg.issueNumber ?? 0;
+    try {
+      const github = createGithubClient(path.resolve(project.path));
+      const [viewed, repoSlug] = await Promise.all([github.viewIssue(issueNumber), github.repoSlug()]);
+      if (!viewed.ok) { reply({ error: `Could not read GitHub issue #${issueNumber}: ${viewed.error}` }); return; }
+      const issue = viewed.issue;
+      if (!issue) { reply({ error: `Open issue #${issueNumber} was not found` }); return; }
+      const sessionName = deriveIssueSessionName(issue);
+      const created = createProjectSession({
+        name: sessionName,
+        path: project.path,
+        agent: project.agent,
+        dangerouslySkipPermissions: project.dangerouslySkipPermissions !== false,
+      });
+      if (!created.ok) { reply({ error: created.error }); return; }
+      const session = sessions.get(created.project.id);
+      if (!session) { reply({ error: `Session "${sessionName}" is not loaded` }); return; }
+      const prompt = buildGithubIssuePrompt({ issue, repoSlug: repoSlug || project.name });
+      const pasted = session.pasteTextWhenReady(prompt);
+      if (!pasted.ok) { reply({ error: `Could not write to "${session.name}" (${pasted.reason})` }); return; }
+      reply({ ok: true, sessionId: session.id, sessionName: session.name, pending: pasted.deferred === true });
+      console.log(`[control] open-issue-session: issue=${issueNumber} -> session=${session.name}`);
+    } catch (error) {
+      reply({ error: `Could not open GitHub issue session: ${errorMessage(error)}` });
+    }
   }
 
   function handlePosthogOpenSession(msg: ControlRequest, ws: ControlSocket): void {
@@ -984,6 +1044,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'list-agents':      handleListAgents,
     'get-posthog-report': handleGetPosthogReport,
     'posthog-open-session': handlePosthogOpenSession,
+    'request-issues': handleRequestIssues,
+    'open-issue-session': handleOpenIssueSession,
     'posthog-issue-action': handlePosthogIssueAction,
     'posthog-archive-investigation': handlePosthogArchiveInvestigation,
     'request-usage-report': handleRequestUsageReport,

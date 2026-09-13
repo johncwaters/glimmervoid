@@ -25,6 +25,22 @@ const opaqueObject = openObject();
 const opaqueArray = z.array(z.unknown());
 const planRevisionNumber = z.number().int().positive();
 const trailSteps = z.array(openObject({ at: timestamp, tool: z.string(), detail: z.string() }));
+const githubIssueRow = z.object({
+  number: z.number().int().positive(),
+  title: z.string(),
+  labels: z.array(z.object({ name: z.string(), color: z.string() }).passthrough()),
+  url: z.string(),
+  updatedAt: z.string(),
+}).passthrough();
+export type GithubIssueRow = z.infer<typeof githubIssueRow>;
+
+export const IssuesReportPush = z.object({
+  ts: timestamp,
+  projectId: z.string(),
+  issues: z.array(githubIssueRow),
+  error: optionalError,
+});
+export type IssuesReportPush = z.infer<typeof IssuesReportPush>;
 
 export const CONTROL_FRAME_ENVELOPE_BYTES = 4096;
 export const CONTROL_FRAME_MAX_BYTES = CONTROL_FRAME_ENVELOPE_BYTES
@@ -71,6 +87,8 @@ export const CLIENT_MESSAGE_TYPES = Object.freeze([
   'list-agents',
   'get-posthog-report',
   'posthog-open-session',
+  'request-issues',
+  'open-issue-session',
   'posthog-issue-action',
   'posthog-archive-investigation',
   'request-usage-report',
@@ -124,6 +142,8 @@ const clientVariants = [
   loose('list-agents', { requestId }),
   loose('get-posthog-report', { issueId: z.union([z.string(), z.number()]), requestId }),
   loose('posthog-open-session', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), requestId }),
+  loose('request-issues', { requestId, projectId: z.string() }),
+  loose('open-issue-session', { requestId, projectId: z.string(), issueNumber: z.number().int().positive() }),
   loose('posthog-issue-action', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), action: z.string(), requestId }),
   loose('posthog-archive-investigation', { id: z.unknown().optional(), requestId }),
   loose('request-usage-report', { requestId, days: z.unknown().optional(), force: z.unknown().optional() }),
@@ -209,6 +229,8 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'posthog-investigation-finished',
   'posthog-report',
   'posthog-open-session-result',
+  'issues-report',
+  'open-issue-session-result',
   'posthog-issue-action-result',
   'posthog-archive-investigation-result',
   'pr-status',
@@ -459,6 +481,15 @@ const serverVariants = [
     error: z.string().optional(),
   }),
   loose('posthog-open-session-result', {
+    requestId,
+    ok: z.boolean(),
+    error: optionalError,
+    sessionId: z.string().optional(),
+    sessionName: z.string().optional(),
+    pending: z.boolean().optional(),
+  }),
+  loose('issues-report', { requestId, ...IssuesReportPush.shape }),
+  loose('open-issue-session-result', {
     requestId,
     ok: z.boolean(),
     error: optionalError,

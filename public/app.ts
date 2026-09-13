@@ -1,7 +1,7 @@
 import '@xterm/xterm/css/xterm.css';
 import './tailwind.css';
 
-import type { ServerMessage } from '#shared/contracts/control-messages.ts';
+import type { IssuesReportPush, ServerMessage } from '#shared/contracts/control-messages.ts';
 import { shouldShowServerAction } from '#shared/client-trust.ts';
 import { STATES } from '#shared/states.ts';
 import { getBorrowedCardId } from './card-host.ts';
@@ -20,6 +20,7 @@ import { initNotifications, showDesktopNotification } from './notifications.ts';
 import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneScreenActive, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen } from './phone/phone-shell.ts';
 import { noteKnownProjectPath } from './project-registry.ts';
 import { acknowledgePrAttention, applyPrStatus, mountPrView, setPrActivityCallback } from './pr-panel.ts';
+import { applyIssuesConnectionState, applyIssuesProjects, applyIssuesReport, applyOpenIssueSessionResult, mountIssuesView, setIssuesRequestSender } from './issues-panel.ts';
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID, updateBannerText } from './radar-core.ts';
 import { acknowledgeRadarAttention, applyHealthSnapshot as applyRadarHealth, applyInvestigationActivity, applyInvestigationFinished, applyPosthogStatus, applyPrStatus as applyRadarPrStatus, applyUpdateAvailable as applyRadarUpdate, mountRadarView, setRadarActivityCallback, setRadarNavigateToPrs, setRadarTraceOpener } from './radar-panel.ts';
@@ -107,6 +108,7 @@ setConnectionStateCallback((state, label) => {
   connectionLabel.textContent = label;
   applyTraceConnectionState(state === 'connected');
   applyPlanConnectionState(state === 'connected');
+  applyIssuesConnectionState(state === 'connected');
 
   if (state === 'connected') {
     if (shutdownScreen.classList.contains('active')) {
@@ -158,6 +160,7 @@ function handleSnapshot(sessions: unknown, packVersions: unknown) {
     agent: session.agent,
     permissionMode: session.dangerouslySkipPermissions ? 'Skip permissions' : 'Default',
   })));
+  applyIssuesProjects(rows.filter((session) => !session.ephemeral).map((session) => ({ id: session.id, name: session.name })));
   for (const s of rows) {
     if (!s.ephemeral) noteKnownProjectPath(s.path);
     const exists = hasSession(s.id);
@@ -270,6 +273,7 @@ setUsageRequestSender(sendControlMsg);
 setMillRequestSender(sendControlMsg);
 setHooksRequestSender(sendControlMsg);
 setTraceRequestSender(sendControlMsg);
+setIssuesRequestSender(sendControlMsg);
 
 function isHooksSurfaceVisible() {
   if (isPhoneShellActive()) return isPhoneScreenActive('hooks');
@@ -370,6 +374,8 @@ const messageHandlers = {
   'posthog-investigation-activity': (msg) => applyInvestigationActivity(msg),
   'posthog-investigation-finished': (msg) => applyInvestigationFinished(msg),
   'pr-status':          (msg) => { applyPrStatus(msg); applyRadarPrStatus(msg); },
+  'issues-report':      (msg) => applyIssuesReport(msg as ServerMessage & IssuesReportPush),
+  'open-issue-session-result': (msg) => applyOpenIssueSessionResult(msg),
   'usage-sessions':     (msg) => { applyUsageSessionChips(msg.sessions); applyUsageSessions(msg); requestUsageReportIfVisible(); },
   'usage-report':       (msg) => { applyUsageReport(msg); refreshSettingsStatus(); },
 
@@ -552,6 +558,7 @@ queryTag(document, '#btn-help', 'button').addEventListener('click', () => {
 const viewFocusEl = queryTag(document, '#view-focus', 'section');
 const viewRadarEl = queryTag(document, '#view-radar', 'section');
 const viewPrsEl = queryTag(document, '#view-prs', 'section');
+const viewIssuesEl = queryTag(document, '#view-issues', 'section');
 const viewUsageEl = queryTag(document, '#view-usage', 'section');
 const viewMillEl = queryTag(document, '#view-mill', 'section');
 const viewVisionsEl = queryTag(document, '#view-visions', 'section');
@@ -561,6 +568,7 @@ const viewSettingsEl = queryTag(document, '#view-settings', 'section');
 const tabFocus = queryTag(document, '#tab-focus', 'button');
 const tabRadar = queryTag(document, '#tab-radar', 'button');
 const tabPrs = queryTag(document, '#tab-prs', 'button');
+const tabIssues = queryTag(document, '#tab-issues', 'button');
 const tabUsage = queryTag(document, '#tab-usage', 'button');
 const tabMill = queryTag(document, '#tab-mill', 'button');
 const tabVisions = queryTag(document, '#tab-visions', 'button');
@@ -615,6 +623,8 @@ mountRadarView(viewRadarEl);
 
 mountPrView(viewPrsEl);
 
+mountIssuesView(viewIssuesEl);
+
 mountUsageView(viewUsageEl);
 
 mountMillView(viewMillEl);
@@ -631,6 +641,7 @@ const VIEW_TABS = [
   { view: 'focus', tab: tabFocus, el: viewFocusEl },
   { view: 'radar', tab: tabRadar, el: viewRadarEl },
   { view: 'prs', tab: tabPrs, el: viewPrsEl },
+  { view: 'issues', tab: tabIssues, el: viewIssuesEl },
   { view: 'usage', tab: tabUsage, el: viewUsageEl },
   { view: 'mill', tab: tabMill, el: viewMillEl },
   { view: 'visions', tab: tabVisions, el: viewVisionsEl },

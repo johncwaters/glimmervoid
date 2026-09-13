@@ -167,6 +167,8 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'posthog-investigation-finished', projectId: 7, issueId: 'issue-1', verdict: 'NEEDS_HUMAN', summaryLine: 'the retry path double-fires', startedAt: NOW, trail: [{ at: NOW, tool: 'Read', detail: 'server/a.ts' }] },
   { type: 'posthog-report', requestId: 'posthog-1', ok: true, found: true, issueId: 'issue-1', format: 'markdown', content: 'report' },
   { type: 'posthog-open-session-result', requestId: 'posthog-2', ok: true, error: null, sessionId: 'session-1' },
+  { type: 'issues-report', requestId: 'issues-1', ts: NOW, projectId: 'p1', issues: [{ number: 42, title: 'Reconnect drops queued writes', labels: [{ name: 'bug', color: 'ff0000' }], url: 'https://github.test/acme/repo/issues/42', updatedAt: '2026-09-13T10:00:00Z' }], error: null },
+  { type: 'open-issue-session-result', requestId: 'issues-2', ok: true, error: null, sessionId: 'session-2', sessionName: 'issue-42-fix-reconnect', pending: false },
   { type: 'posthog-issue-action-result', requestId: 'posthog-3', ok: true, error: null, status: 'resolved' },
   { type: 'posthog-archive-investigation-result', requestId: 'posthog-4', ok: true, error: null },
   { type: 'pr-status', ts: NOW, projects: [] },
@@ -209,6 +211,16 @@ test('real server payloads round-trip through every server contract variant', ()
     assert.equal(parsed.success, true, `${payload.type}: ${parsed.error?.issues[0]?.message || 'invalid'}`);
     assert.deepEqual(parsed.data, payload, payload.type);
   }
+});
+
+test('GitHub issue client requests validate their bounded fields', () => {
+  assert.deepEqual(ClientMessage.parse({ type: 'request-issues', requestId: 'r1', projectId: 'p1' }), {
+    type: 'request-issues', requestId: 'r1', projectId: 'p1',
+  });
+  assert.deepEqual(ClientMessage.parse({ type: 'open-issue-session', requestId: 'r2', projectId: 'p1', issueNumber: 42 }), {
+    type: 'open-issue-session', requestId: 'r2', projectId: 'p1', issueNumber: 42,
+  });
+  assert.equal(ClientMessage.safeParse({ type: 'open-issue-session', requestId: 'r2', projectId: 'p1', issueNumber: 0 }).success, false);
 });
 
 test('session-diff pins the object payload returned by Session.getDiff', () => {
