@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { AGENT_API_VERBS } from '../shared/contracts/session.ts';
 import { execSync } from '../server/child-process-safe.ts';
 import { decideConfigPath, glimmervoidHomeDir } from '../server/core/config-path-core.ts';
 import { packageRoot } from '../server/runtime-paths.ts';
@@ -30,6 +31,9 @@ Commands:
   memory forget <id|pattern>  Expunge a remembered record
   memory backfill   Re-run the cold-start transcript backfill
   memory distill [--dry-run]  Rebuild the published projection from the canon
+  spawn <prompt>    From inside a Glimmervoid session, start a sibling session on that prompt
+  attention <note>  From inside a Glimmervoid session, flag it as needing the operator
+  board             From inside a Glimmervoid session, list the live sessions
 
 Options:
   --name <label>    Label for the device being paired (with: pair)
@@ -107,7 +111,13 @@ if (isMemoryCommand) {
   runAsyncCommand(runMemoryCli(args.slice(1)));
 }
 
-if (!isPackCommand && !isMemoryCommand && !isAgentCommand && !isVisionsCommand) {
+const isAgentApiCommand = !!args[0] && (AGENT_API_VERBS as readonly string[]).includes(args[0]);
+if (isAgentApiCommand) {
+  const { runAgentApiCli } = await import('../server/agent-api-cli.ts');
+  runAsyncCommand(runAgentApiCli(args));
+}
+
+if (!isPackCommand && !isMemoryCommand && !isAgentCommand && !isVisionsCommand && !isAgentApiCommand) {
   await import('../server/index.ts');
 }
 

@@ -5,13 +5,15 @@ import type { UserHook } from '../session/core/user-hooks-core.ts';
 import { createRecorder } from '../session/session-recorder.ts';
 import type { GitWorkspace } from '../session/session-worktree-lifecycle.ts';
 import { Session } from '../session/sessions.ts';
-import type { SessionPlanReviewPort } from '../session/sessions.ts';
+import type { SessionOptions, SessionPlanReviewPort } from '../session/sessions.ts';
 import { DEFAULT_CONFIG } from './config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import { isMillEnabled, projectVariantSlug } from './core/pack-core.ts';
 import { projectSkipsPermissions } from './core/session-registry-core.ts';
 import { resolveUsageConfig } from './usage-wiring.ts';
+
+type SessionSpawnOverrides = Pick<SessionOptions, 'agent' | 'agentDepth' | 'ephemeral' | 'initialPrompt'>;
 
 interface SessionFactoryDependencies {
   configStore: { configPath: string };
@@ -31,7 +33,11 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
     return usageConfig.enabled && usageConfig.planLimits;
   }
 
-  return function makeSession(project: ProjectEntry, config: GlimmervoidConfig): Session {
+  return function makeSession(
+    project: ProjectEntry,
+    config: GlimmervoidConfig,
+    overrides: SessionSpawnOverrides = {},
+  ): Session {
     const session = new Session({
       id: project.id,
       name: project.name,
@@ -59,6 +65,8 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       planReviewPort: dependencies.getPlanReviewPort(),
       planLimits: planLimitsEnabled(config),
       getUserHooks: () => dependencies.getUserHooks(project.id),
+      agentApi: config.agentApi?.enabled === true,
+      ...overrides,
     });
     const captureConfig = {
       ...(config.capture || {}),
@@ -71,4 +79,4 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
 }
 
 export { createSessionFactory };
-export type { SessionFactoryDependencies };
+export type { SessionFactoryDependencies, SessionSpawnOverrides };

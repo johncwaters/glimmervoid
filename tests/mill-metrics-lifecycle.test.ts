@@ -53,6 +53,7 @@ function shutdownWithLane(millMetricsIdle: () => Promise<void>, overrides: Parti
     notificationManager: { destroy: () => {} },
     telegramChannel: { destroy: () => {} },
     sessions: new Map(),
+    agentSessions: new Map(),
     reviewSessions: new Map(),
     investigationSessions: new Map(),
     distillSessions: new Map(),

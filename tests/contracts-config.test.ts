@@ -35,6 +35,16 @@ test('planReview.enabled is a boolean file-only setting that defaults on', () =>
   assert.equal('planReview' in BrowserConfig.shape, false);
 });
 
+test('agentApi.enabled is a boolean file-only setting that defaults off', () => {
+  assert.equal(DEFAULT_CONFIG.agentApi.enabled, false);
+  assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, agentApi: { enabled: true } }).success, true);
+  const refused = Config.safeParse({ ...DEFAULT_CONFIG, agentApi: { enabled: 'true' } });
+  assert.equal(refused.success, false);
+  assert.equal(refused.success === false && configIssueMessage(refused.error), 'agentApi.enabled must be a boolean');
+  assert.equal('agentApi' in ConfigUpdate.shape, false);
+  assert.equal('agentApi' in BrowserConfig.shape, false);
+});
+
 test('updateChannel accepts release and main across config boundaries', () => {
   for (const updateChannel of ['release', 'main']) {
     assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, updateChannel }).success, true);

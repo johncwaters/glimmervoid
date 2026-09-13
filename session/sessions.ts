@@ -7,6 +7,8 @@ import { execFile } from "../server/child-process-safe.ts";
 import { projectDirCandidates } from "../server/core/usage-scan-core.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
+import { AGENT_URL_ENV } from "../shared/contracts/session.ts";
+import { generateToken } from "../detection/settings-injector.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
 import { createStatusSource } from "../detection/status-source.ts";
 import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status-source.ts";
@@ -153,6 +155,8 @@ interface SessionOptions {
   liveWorktreeReview?: boolean;
   worktreeRoot?: string | null;
   worktreeShare?: string[] | null;
+  agentDepth?: number;
+  agentApi?: boolean;
 }
 
 class Session extends EventEmitter {
@@ -207,6 +211,12 @@ class Session extends EventEmitter {
   _planLimits: boolean;
   _planReviewPort: SessionPlanReviewPort | null;
   _hooks: ReturnType<typeof createSessionHookLifecycle>;
+  _agentDepth: number;
+  _agentToken: string | null;
+  _agentApiEnabled: boolean;
+  _agentLiveChildren: number;
+  _agentLifetimeSpawns: number;
+  _agentSpawnsInFlight: number;
   _ptySpawn: PtySpawn;
   _killProc: KillProc;
   _signalProc: SignalProc;
@@ -299,6 +309,9 @@ class Session extends EventEmitter {
 
     worktreeRoot = null,
     worktreeShare = null,
+
+    agentDepth = 0,
+    agentApi = false,
   }: SessionOptions) {
     super();
     this.id = id;
@@ -426,6 +439,12 @@ class Session extends EventEmitter {
       },
       recordDecision: (entry) => this._recordDecision(entry),
     });
+    this._agentDepth = agentDepth;
+    this._agentToken = generateToken();
+    this._agentApiEnabled = agentApi === true;
+    this._agentLiveChildren = 0;
+    this._agentLifetimeSpawns = 0;
+    this._agentSpawnsInFlight = 0;
     this._ptySpawn = ptySpawn || ((file, args, opts) => pty.spawn(file, args, opts));
 
     this._killProc = killProc || ((args, opts, cb) => execFile("taskkill", args, opts, cb));
@@ -669,6 +688,54 @@ class Session extends EventEmitter {
 
   get hookSeen(): boolean {
     return this._hookSeen;
+  }
+
+  get agentToken(): string | null {
+    return this._agentToken;
+  }
+
+  _agentApiEnv(): Record<string, string> {
+    if (!this._agentApiEnabled || !this._agentToken) return {};
+    const port = this._hooks.listenerPort();
+    if (!port) return {};
+    const url = `http://127.0.0.1:${port}/agent/${encodeURIComponent(this.id)}?t=${encodeURIComponent(this._agentToken)}`;
+    return { [AGENT_URL_ENV]: url };
+  }
+
+  agentSpawnBudget(): { liveChildren: number; lifetimeSpawns: number; inFlight: number; depth: number } {
+    return {
+      liveChildren: this._agentLiveChildren,
+      lifetimeSpawns: this._agentLifetimeSpawns,
+      inFlight: this._agentSpawnsInFlight,
+      depth: this._agentDepth,
+    };
+  }
+
+  beginAgentSpawn(): void {
+    this._agentSpawnsInFlight += 1;
+    this._agentLifetimeSpawns += 1;
+    this._agentLiveChildren += 1;
+  }
+
+  finishAgentSpawn(): void {
+    this._agentSpawnsInFlight = Math.max(0, this._agentSpawnsInFlight - 1);
+  }
+
+  noteAgentChildExit(): void {
+    this._agentLiveChildren = Math.max(0, this._agentLiveChildren - 1);
+  }
+
+  noteAttention(note: string): void {
+    if (this._destroyed) return;
+    const ts = Date.now();
+    this._setPendingPromptKind("agent");
+    this.emit("agent-attention", { note, ts });
+    this._statusSource.ingest({
+      signal: "awaiting-input",
+      source: "agent",
+      confidence: "high",
+      ts,
+    });
   }
 
   get sleeping(): boolean {
@@ -985,8 +1052,9 @@ class Session extends EventEmitter {
     this._armTitleQuietFallback();
 
     this._titleSource.setContext({ cwdBasename: path.basename(this.effectiveCwd()) });
-    const spawnExtraEnv = Object.keys(hookInjection.env).length > 0
-      ? { ...(this._spawnEnv || {}), ...hookInjection.env }
+    const injectedEnv = { ...hookInjection.env, ...this._agentApiEnv() };
+    const spawnExtraEnv = Object.keys(injectedEnv).length > 0
+      ? { ...(this._spawnEnv || {}), ...injectedEnv }
       : this._spawnEnv;
 
     const env = this._buildSpawnEnv({
@@ -1501,6 +1569,7 @@ class Session extends EventEmitter {
   destroy(): void {
     if (this._destroyed) return;
     this._destroyed = true;
+    this._agentToken = null;
 
     this._clearSleepKill();
 

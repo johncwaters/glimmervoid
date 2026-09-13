@@ -9,6 +9,8 @@ import type { GlimmervoidConfig } from './config-store.ts';
 import { createLifecycle } from './server-lifecycle.ts';
 import { execFileAsync, spawn } from './child-process-safe.ts';
 import { createBackendHttpApp } from './backend-http.ts';
+import { createAgentApiWiring } from './agent-api-wiring.ts';
+import type { AgentApiPort } from './agent-api-wiring.ts';
 import { createBackendWebSockets } from './backend-websockets.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 import { createBackendShutdown } from './backend-shutdown.ts';
@@ -70,6 +72,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const serverBuild = `${packageJson.version}+${crypto.randomBytes(4).toString('hex')}`;
 
   let broadcastControl: ControlBroadcast | null = null;
+  let agentApi: AgentApiPort | null = null;
   let gitWorkspace: ReturnType<typeof createBackendLanes>['gitWorkspace'] | null = null;
   const sessionRuntime = createBackendSessionRuntime({
     httpServer,
@@ -97,6 +100,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getSession: getSessionAny,
     getUsage: () => usage,
     getPlanReview: () => laneAssembly.planReview,
+    getAgentApi: () => agentApi,
     logger: console,
   });
 
@@ -123,6 +127,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   broadcastControl = broadcastControlFromWebSockets;
 
   const sessions = new Map<string, Session>();
+  const agentSessions = new Map<string, Session>();
   const health = createBackendHealth({
     sessions,
     getAllSessions: () => allLiveSessions(),
@@ -154,13 +159,14 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   } = notifications;
 
   function getSessionAny(id: string): Session | null {
-    return sessions.get(id) || null;
+    return sessions.get(id) || agentSessions.get(id) || null;
   }
 
   const laneAssembly = createBackendLanes({
     config,
     configStore,
     sessions,
+    agentSessions,
     reviewSessions,
     investigationSessions,
     closeSessionDataClients,
@@ -198,6 +204,19 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     visionsSetup,
   } = laneAssembly;
   gitWorkspace = assembledGitWorkspace;
+  agentApi = createAgentApiWiring({
+    config,
+    agentSessions,
+    listAllSessions: () => allLiveSessions(),
+    listBoardSessions: () => [...sessions.values(), ...agentSessions.values()],
+    makeSession,
+    wireSessionEvents: (session: Session) => wireSessionEvents(session),
+    closeSessionDataClients,
+    broadcastControl,
+    spawnGate,
+    recordLane,
+    logger: console,
+  });
 
   const wireSessionEvents = createSessionEventWiring({
     configStore,
@@ -298,6 +317,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     notificationManager,
     telegramChannel,
     sessions,
+    agentSessions,
     reviewSessions,
     investigationSessions,
     distillSessions,
@@ -336,6 +356,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   createBackendControl({
     controlWss,
     sessions,
+    agentSessions,
     config,
     configStore,
     broadcastControl,

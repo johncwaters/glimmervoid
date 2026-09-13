@@ -58,6 +58,7 @@ interface BackendLaneDependencies {
   config: GlimmervoidConfig;
   configStore: ConfigStore;
   sessions: Map<string, Session>;
+  agentSessions: Map<string, Session>;
   reviewSessions: Map<string, Session>;
   investigationSessions: Map<string, Session>;
   closeSessionDataClients: (id: string) => void;
@@ -104,6 +105,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     config,
     configStore,
     sessions,
+    agentSessions,
     reviewSessions,
     investigationSessions,
     closeSessionDataClients,
@@ -136,6 +138,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const recordLane = laneLedger.record;
   const allLiveSessions = (): Session[] => [
     ...sessions.values(),
+    ...agentSessions.values(),
     ...reviewSessions.values(),
     ...investigationSessions.values(),
     ...visionsSessions.values(),

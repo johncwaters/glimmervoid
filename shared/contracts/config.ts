@@ -158,6 +158,10 @@ const PlanReviewSettings = z.object({
   enabled: optionalBoolean('planReview.enabled'),
 }, { error: 'planReview must be an object' }).optional();
 
+const AgentApiSettings = z.object({
+  enabled: optionalBoolean('agentApi.enabled'),
+}, { error: 'agentApi must be an object' }).optional();
+
 const BROWSER_CONFIG_SHAPE = {
   port: z.number().int().min(0).max(65535).optional(),
   autoRecoverSeconds: z.number().finite().nonnegative().optional(),
@@ -228,6 +232,7 @@ const FILE_CONFIG_SHAPE = {
   ingest: optionalLooseObject('ingest'),
   trace: TraceSettings,
   planReview: PlanReviewSettings,
+  agentApi: AgentApiSettings,
 };
 export const Config = z.object({
   ...FILE_CONFIG_SHAPE,

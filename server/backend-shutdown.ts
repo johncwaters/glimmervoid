@@ -24,6 +24,7 @@ interface BackendShutdownDependencies {
   notificationManager: { destroy: () => void };
   telegramChannel: { destroy: () => void };
   sessions: Map<string, ShutdownSession>;
+  agentSessions: Map<string, ShutdownSession>;
   reviewSessions: Map<string, ShutdownSession>;
   investigationSessions: Map<string, ShutdownSession>;
   distillSessions: Map<string, ShutdownSession>;
@@ -96,7 +97,7 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     destroySessions([dependencies.sessions], pendingReaps);
     stoppers.add('branch-gc', () => dependencies.branchGc.stop());
     stoppers.add('pr-review', () => dependencies.prReview.stopPoller());
-    destroySessions([dependencies.reviewSessions], pendingReaps);
+    destroySessions([dependencies.agentSessions, dependencies.reviewSessions], pendingReaps);
     stoppers.add('posthog', () => dependencies.posthog.stopPoller());
     stoppers.add('pack-service', () => dependencies.packService.stop());
     stoppers.add('usage', () => dependencies.usage.stop());

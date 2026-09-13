@@ -47,6 +47,10 @@ const DEFAULT_CONFIG = {
     enabled: true,
   },
 
+  agentApi: {
+    enabled: false,
+  },
+
   checkForUpdates: true,
   updateChannel: 'release' as const,
 
@@ -484,6 +488,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     if (newConfig.millMetrics != null) config.millMetrics = newConfig.millMetrics;
     if (newConfig.memory != null) config.memory = newConfig.memory;
     if (newConfig.ingest != null) config.ingest = newConfig.ingest;
+    if (newConfig.agentApi != null) config.agentApi = newConfig.agentApi;
 
     config.hooks = Array.isArray(newConfig.hooks) ? newConfig.hooks : [];
     if (newConfig.port != null && newConfig.port !== config.port) {

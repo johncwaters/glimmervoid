@@ -1,6 +1,8 @@
 import path from "node:path";
+import { AGENT_URL_ENV } from "../../shared/contracts/session.ts";
+import { HOOK_URL_ENV } from "./hook-relay-core.ts";
 
-const GLIMMERVOID_SCRUB_KEYS = ["GLIMMERVOID_PORT", "GLIMMERVOID_CONFIG"];
+const GLIMMERVOID_SCRUB_KEYS = ["GLIMMERVOID_PORT", "GLIMMERVOID_CONFIG", HOOK_URL_ENV, AGENT_URL_ENV];
 
 type SpawnEnv = Record<string, string | undefined>;
 
@@ -60,9 +62,10 @@ function buildAgentEnv(
   profile: AgentEnvProfile,
   { additionalDirsClaudeMd = false, prependPathDir: pathDir = null }: AgentEnvOptions = {},
 ): SpawnEnv {
-  const env: SpawnEnv = { ...baseEnv, ...(extraEnv || {}) };
+  const env: SpawnEnv = { ...baseEnv };
   for (const key of profile.scrub || []) delete env[key];
   for (const key of GLIMMERVOID_SCRUB_KEYS) delete env[key];
+  Object.assign(env, extraEnv || {});
   Object.assign(env, profile.set || {});
   if (profile.additionalDirsEnvVar) delete env[profile.additionalDirsEnvVar];
   if (additionalDirsClaudeMd && profile.additionalDirsEnvVar) env[profile.additionalDirsEnvVar] = "1";

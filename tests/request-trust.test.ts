@@ -59,7 +59,7 @@ test('a traversal dressed as a pair path is not a pair path', () => {
   );
 });
 
-const PATHS = ['/', '/hook/abc/Stop', '/app.js', '/pair/tok'];
+const PATHS = ['/', '/hook/abc/Stop', '/agent/abc/spawn', '/app.js', '/pair/tok'];
 
 test('with remote disabled every request is allowed on both listeners, whatever the path', () => {
   for (const trust of ['local', 'remote']) {
@@ -92,7 +92,7 @@ test('on the remote listener only /pair/* is reachable without a cookie', () => 
     decideRequestAccess({ remoteEnabled: true, trust: 'remote', pathname: '/pair/tok', authenticated: false }),
     { allow: true, action: 'pair-page' }
   );
-  for (const pathname of ['/', '/app.js', '/hook/abc/Stop']) {
+  for (const pathname of ['/', '/app.js', '/hook/abc/Stop', '/agent/abc/spawn']) {
     assert.deepEqual(
       decideRequestAccess({ remoteEnabled: true, trust: 'remote', pathname, authenticated: false }),
       { allow: false, action: 'unauthorized' },
@@ -106,6 +106,15 @@ test('the hook ingress is NOT exempt on the remote listener', () => {
     remoteEnabled: true, trust: 'remote', pathname: '/hook/session/Stop', authenticated: false,
   });
   assert.equal(decision.allow, false);
+});
+
+test('the agent ingress is NOT exempt on the remote listener either', () => {
+  for (const verb of ['spawn', 'attention', 'board']) {
+    const decision = decideRequestAccess({
+      remoteEnabled: true, trust: 'remote', pathname: `/agent/session/${verb}`, authenticated: false,
+    });
+    assert.equal(decision.allow, false, verb);
+  }
 });
 
 test('an authenticated remote device reaches every path', () => {

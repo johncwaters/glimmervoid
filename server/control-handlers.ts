@@ -109,6 +109,7 @@ interface MillControl {
 
 interface ControlHandlerDeps {
   sessions: Map<string, Session>;
+  agentSessions?: Map<string, Session>;
 
   makeSession?: (project: ProjectEntry, config: GlimmervoidConfig) => Session;
   wireSessionEvents?: (session: Session) => void;
@@ -353,6 +354,7 @@ function parseSinceParam(url: string | undefined): number | null {
 function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandlerDeps) {
   const {
     sessions,
+    agentSessions = new Map<string, Session>(),
     config,
     configStore,
     broadcastControl,
@@ -408,8 +410,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   }
 
   function findSession(msg: ControlRequest): Session | null {
-    if (msg.id && sessions.has(msg.id)) return sessions.get(msg.id) ?? null;
-    return null;
+    if (!msg.id) return null;
+    return sessions.get(msg.id) ?? agentSessions.get(msg.id) ?? null;
   }
 
   const MERGE_REFUSAL_COPY: Record<string, string> = {
@@ -430,6 +432,9 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   function buildSnapshot() {
     const list: unknown[] = [];
     for (const [, sess] of sessions) {
+      list.push(sess.toSnapshot());
+    }
+    for (const [, sess] of agentSessions) {
       list.push(sess.toSnapshot());
     }
 
@@ -484,6 +489,14 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       return;
     }
 
+    if (agentSessions.get(sess.id) === sess) {
+      sess.destroy();
+      agentSessions.delete(sess.id);
+      broadcastControl({ type: 'session-removed', id: sess.id, session: sess.name });
+      console.log(`[control] Removed spawned session via UI: ${sess.name}`);
+      return;
+    }
+
     const freshConfig = configStore.save(cfg => {
       cfg.projects = cfg.projects.filter(p => p.id !== sess.id);
     });
@@ -499,6 +512,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       sendError(ws, 'Session and new name are required');
       return;
     }
+
+    if (sess.ephemeral) { sendError(ws, 'This session cannot be renamed'); return; }
 
     if (!SESSION_NAME_RE.test(newName)) {
       sendError(ws, 'Session name may only contain letters, numbers, spaces, dashes, dots, underscores, and parentheses (max 64 chars)');

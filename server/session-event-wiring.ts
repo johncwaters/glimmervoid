@@ -53,12 +53,17 @@ interface SessionEventDependencies {
 
 interface NotifyCopyContext {
   planTitle: string | null;
+  agentNote: string | null;
+}
+
+function waitingCopy(name: string, context: NotifyCopyContext): string {
+  if (context.planTitle) return `${name}: Plan ready for review: ${context.planTitle}`;
+  if (context.agentNote) return `${name}: ${context.agentNote}`;
+  return `${name} needs your input`;
 }
 
 const NOTIFY_MESSAGES: Record<string, (name: string, context: NotifyCopyContext) => string> = {
-  waiting: (name, context) => (context.planTitle
-    ? `${name}: Plan ready for review: ${context.planTitle}`
-    : `${name} needs your input`),
+  waiting: waitingCopy,
   complete: (name) => `${name} finished working`,
   failed: (name) => `${name} failed`,
 };
@@ -91,6 +96,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     if (dependencies.millMetricsPort) attachMillMetricsSession(session, dependencies.millMetricsPort);
     let postTurnDebounce: NodeJS.Timeout | null = null;
     let pendingPromptKind: string | null = null;
+    let pendingAgentNote: string | null = null;
     const notifyGate = createNotifyGate();
     let lastPersistedWasActive: boolean | null = null;
     const persistProjectField = (field: string, value: unknown) => {
@@ -203,10 +209,11 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       const planTitleForCopy = pendingPromptKind === 'plan'
         ? (dependencies.planReview?.latestPlanTitle(session.id) ?? null)
         : null;
+      const agentNoteForCopy = pendingPromptKind === 'agent' ? pendingAgentNote : null;
       dependencies.notificationManager.trigger(
         session.id,
         category,
-        message(session.name, { planTitle: planTitleForCopy }),
+        message(session.name, { planTitle: planTitleForCopy, agentNote: agentNoteForCopy }),
         planTitleForCopy === null ? null : 'plan',
       );
     });
@@ -221,7 +228,11 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     session.on('packs-delivered', (payload: PacksDeliveredPayload) => {
       if (dependencies.millMetricsPort) dependencies.millMetricsPort.onPacksDelivered(session.id, payload);
     });
+    session.on('agent-attention', ({ note }: { note: string }) => {
+      pendingAgentNote = note;
+    });
     session.on('user-prompt', () => {
+      pendingAgentNote = null;
       notifyGate.reset();
     });
     session.on('prompt-kind-change', ({ pendingPromptKind: nextKind }: { pendingPromptKind: string | null }) => {

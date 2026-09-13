@@ -56,6 +56,7 @@ interface SessionHookLifecycle {
   inject(): HookInjectionResult;
   cleanup(): void;
   token(): string | null;
+  listenerPort(): number | null;
   hasInjection(): boolean;
   hasSettings(): boolean;
 }
@@ -196,12 +197,18 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     return registerRelayHooks(port, []);
   }
 
+  function resolveListenerPort(): number | null {
+    if (!options.getHookPort) return null;
+    try {
+      return options.getHookPort() || null;
+    } catch {
+      return null;
+    }
+  }
+
   function inject(): HookInjectionResult {
     if (!options.hookRouter || !options.getHookPort) return NO_HOOK_INJECTION;
-    let port: number | null = null;
-    try {
-      port = options.getHookPort();
-    } catch {}
+    const port = resolveListenerPort();
     if (!port) {
       console.warn(`[session:${options.name}] hook injection skipped: HTTP listener port unavailable - hooks were not injected`);
       return NO_HOOK_INJECTION;
@@ -247,6 +254,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     inject,
     cleanup,
     token: () => token,
+    listenerPort: resolveListenerPort,
     hasInjection: () => token !== null,
     hasSettings: () => settingsHandle !== null,
   };

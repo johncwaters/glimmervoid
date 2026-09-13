@@ -33,7 +33,11 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function resolveHookTarget(baseUrl: string, event: string): { url: string | null; reason: string } {
+function resolveHookTarget(
+  baseUrl: string,
+  event: string,
+  pathPrefix: string = HOOK_PATH_PREFIX,
+): { url: string | null; reason: string } {
   let target: URL;
   try {
     target = new URL(baseUrl);
@@ -42,7 +46,7 @@ function resolveHookTarget(baseUrl: string, event: string): { url: string | null
   }
   if (target.protocol !== "http:") return { url: null, reason: "not-http" };
   if (!LOOPBACK_HOSTS.has(target.hostname)) return { url: null, reason: "not-loopback" };
-  if (!target.pathname.startsWith(HOOK_PATH_PREFIX)) return { url: null, reason: "not-hook-path" };
+  if (!target.pathname.startsWith(pathPrefix)) return { url: null, reason: "not-hook-path" };
   const base = target.pathname.replace(/\/+$/, "");
   target.pathname = `${base}/${event}`;
   return { url: target.toString(), reason: "ok" };

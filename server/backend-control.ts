@@ -45,6 +45,7 @@ interface UsageControl {
 interface BackendControlDependencies {
   controlWss: WebSocketServer;
   sessions: Map<string, Session>;
+  agentSessions: Map<string, Session>;
   config: GlimmervoidConfig;
   configStore: ConfigStore;
   broadcastControl: ControlBroadcast;
@@ -100,6 +101,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
 
   registerControlHandlers(controlWss, {
     sessions,
+    agentSessions: dependencies.agentSessions,
     config,
     configStore,
     broadcastControl,

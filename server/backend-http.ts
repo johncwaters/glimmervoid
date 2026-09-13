@@ -8,6 +8,8 @@ import type { Express, Request, RequestHandler, Response } from 'express';
 import { HOOK_EVENTS } from '../detection/settings-injector.ts';
 import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT } from '../shared/contracts/plan-review.ts';
 import type { Session } from '../session/sessions.ts';
+import type { AgentApiPort } from './agent-api-wiring.ts';
+import { decideAgentRequest, REFUSAL_REASON, REFUSAL_STATUS } from './core/agent-api-core.ts';
 import { decideHostAllowed } from './core/host-policy.ts';
 import { decideOriginAllowed } from './core/origin-policy.ts';
 import { configSiblingPath } from './pairings-store.ts';
@@ -35,6 +37,58 @@ const KNOWN_HOOK_EVENTS: ReadonlySet<string> = new Set([
 function knownHookEventName(event: string): string {
   const name = event.toLowerCase();
   return KNOWN_HOOK_EVENTS.has(name) ? name : UNNAMED_HOOK_EVENT;
+}
+
+function isLoopbackRequest(req: Request): boolean {
+  const ip = req.socket.remoteAddress || '';
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
+
+function presentedToken(req: Request): string | null {
+  const queryToken = req.query?.t;
+  if (typeof queryToken === 'string' && queryToken) return queryToken;
+  return (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || null;
+}
+
+function readCappedBody(
+  req: Request,
+  capBytes: number,
+  onOversize: (declaredBytes: string) => void,
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    let receivedBytes = 0;
+    let settled = false;
+    const abandon = () => {
+      if (settled) return;
+      settled = true;
+      resolve(null);
+    };
+    req.on('error', abandon);
+    req.on('data', (chunk: Buffer) => {
+      if (settled) return;
+      receivedBytes += chunk.length;
+      chunks.push(chunk);
+      if (receivedBytes <= capBytes) return;
+      onOversize(String(req.headers['content-length'] || `at least ${receivedBytes}`));
+      req.destroy();
+      abandon();
+    });
+    req.on('end', () => {
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks).toString('utf8'));
+    });
+  });
+}
+
+function parseJsonBody(body: string): Record<string, unknown> {
+  try {
+    const parsed = body ? JSON.parse(body) : {};
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
 }
 
 interface HookRouterOutput {
@@ -69,6 +123,7 @@ interface BackendHttpDependencies {
   getSession: (id: string) => Session | null;
   getUsage: () => { ingestStatusline: (payload: object) => void };
   getPlanReview?: () => PlanReviewHookPort | null;
+  getAgentApi?: () => AgentApiPort | null;
   logger?: Pick<Console, 'warn'>;
 }
 
@@ -159,6 +214,23 @@ function receiveUpload({ req, res, sess, dir, filename, savedPath }: {
   });
 }
 
+function refuseAgentRequest(res: Response): void {
+  res.status(REFUSAL_STATUS).json({ ok: false, error: REFUSAL_REASON });
+}
+
+function answerAgentVerb({ res, agentApi, session, verb, payload }: {
+  res: Response;
+  agentApi: AgentApiPort;
+  session: Session;
+  verb: string;
+  payload: Record<string, unknown>;
+}): void {
+  void agentApi.handle(session, verb, payload).then(
+    (reply) => { res.status(reply.status).json(reply.body); },
+    () => { res.status(500).json({ ok: false, error: 'could not answer the request' }); },
+  );
+}
+
 function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
   const {
     staticDir,
@@ -172,6 +244,7 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
     getSession,
     getUsage,
     getPlanReview = () => null,
+    getAgentApi = () => null,
     logger = console,
   } = dependencies;
   const app = express();
@@ -200,33 +273,18 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
   });
 
   app.post('/hook/:glimmervoidId/:event', (req, res) => {
-    const ip = req.socket.remoteAddress || '';
-    if (!(ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1')) {
+    if (!isLoopbackRequest(req)) {
       res.status(403).end();
       return;
     }
-    const bodyChunks: Buffer[] = [];
-    let aborted = false;
-    let receivedBytes = 0;
     const bodyCapBytes = hookBodyCapBytes(req.params.event, getPlanReview());
-    req.on('error', () => { aborted = true; });
-    req.on('data', (chunk: Buffer) => {
-      receivedBytes += chunk.length;
-      bodyChunks.push(chunk);
-      if (receivedBytes <= bodyCapBytes) return;
-      aborted = true;
-      const declaredBytes = req.headers['content-length'] || `at least ${receivedBytes}`;
+    const overCap = (declaredBytes: string) => {
       logger.warn(`[hook] ${knownHookEventName(req.params.event)} body of ${declaredBytes} bytes is over the ${bodyCapBytes} byte cap and was refused`);
-      req.destroy();
-    });
-    req.on('end', () => {
-      if (aborted) return;
-      const body = Buffer.concat(bodyChunks).toString('utf8');
-      let payload: Record<string, unknown> = {};
-      try {
-        payload = body ? JSON.parse(body) : {};
-      } catch {}
-      const token = req.query?.t || (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || null;
+    };
+    void readCappedBody(req, bodyCapBytes, overCap).then((body) => {
+      if (body === null) return;
+      const payload = parseJsonBody(body);
+      const token = presentedToken(req);
       const output = hookRouter.handle({
         glimmervoidId: req.params.glimmervoidId,
         event: req.params.event,
@@ -268,6 +326,29 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
         abandonedByClaudeCode.abort();
       });
       planDecision.then(answer, () => { answer(null); });
+    });
+  });
+
+  app.post('/agent/:glimmervoidId/:verb', (req, res) => {
+    const agentApi = getAgentApi();
+    const session = getSession(req.params.glimmervoidId);
+    const verdict = decideAgentRequest({
+      sessionId: req.params.glimmervoidId,
+      presentedToken: presentedToken(req),
+      expectedToken: session?.agentToken ?? null,
+      isLoopback: isLoopbackRequest(req),
+      enabled: agentApi?.enabled() === true,
+    });
+    const overCap = (declaredBytes: string) => {
+      logger.warn(`[agent] a ${declaredBytes} byte body is over the ${HOOK_BODY_CAP_BYTES} byte cap and was refused`);
+    };
+    void readCappedBody(req, HOOK_BODY_CAP_BYTES, overCap).then((body) => {
+      if (body === null) return;
+      if (!verdict.ok || !agentApi || !session) {
+        refuseAgentRequest(res);
+        return;
+      }
+      answerAgentVerb({ res, agentApi, session, verb: req.params.verb, payload: parseJsonBody(body) });
     });
   });
 
