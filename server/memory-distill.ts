@@ -63,6 +63,11 @@ interface DistillReport {
   claims: number;
 }
 
+interface DistillPass {
+  report: DistillReport;
+  cursorAdvanced: boolean;
+}
+
 interface PublishedView {
   manifest: ProjectionManifest | null;
   distilled: boolean;
@@ -414,6 +419,7 @@ function createMemoryDistiller(deps: MemoryDistillerOptions = {}) {
       previousTexts: published.previousTexts,
       maxNewClaims: distillCore.MAX_CLAIMS,
       lockedTouched: checked.lockedTouched,
+      carryForwardClaims: published.claims.filter((claim) => (claim.project || null) !== project),
     });
     if (!merged.ok) {
       await noteOutcome(memoryStore, { advanced: false, cursor: 0, failures });
@@ -491,6 +497,7 @@ function createMemoryDistiller(deps: MemoryDistillerOptions = {}) {
       await noteOutcome(memoryStore, { advanced: true, cursor, failures });
       return report({
         status: 'current', verdict: checked.verdict, mode: 'incremental', cursor, delta: delta.records.length,
+        remaining: delta.remaining,
       });
     }
     const proposed = distillCore.applyDistillOps(published.claims, checked.ops);
@@ -499,6 +506,7 @@ function createMemoryDistiller(deps: MemoryDistillerOptions = {}) {
       previousTexts: published.previousTexts,
       maxNewClaims: config.maxNewClaims,
       lockedTouched: checked.lockedTouched,
+      carryForwardClaims: published.claims,
     });
     if (!merged.ok) {
       await noteOutcome(memoryStore, { advanced: false, cursor, failures });
@@ -519,69 +527,129 @@ function createMemoryDistiller(deps: MemoryDistillerOptions = {}) {
     return { ...outcome, delta: delta.records.length, remaining: delta.remaining };
   }
 
+  async function distillForMode({
+    memoryStore, valid, watermark, published, delta, mode, failures,
+  }: {
+    memoryStore: MemoryStore;
+    valid: MemoryRecord[];
+    watermark: CanonWatermark;
+    published: PublishedView;
+    delta: ReturnType<typeof distillCore.selectDeltaForPrompt>;
+    mode: ReturnType<typeof distillCore.decideDistillMode>;
+    failures: number;
+  }): Promise<DistillReport> {
+    if (mode.mode === 'full') {
+      return await compact({
+        memoryStore, valid, watermark, published, project: mode.project, failures,
+      });
+    }
+    if (delta.records.length === 0) {
+      return await reconcile({
+        memoryStore, valid, watermark, published, cursor: delta.nextCursor, failures,
+      });
+    }
+    return await distillDelta({
+      memoryStore, valid, watermark, published, delta, failures,
+    });
+  }
+
+  function finishPass(outcome: DistillReport, cursorAdvanced = false): DistillPass {
+    return { report: outcome, cursorAdvanced };
+  }
+
+  async function runPass({
+    dryRun, force, continuation,
+  }: {
+    dryRun: boolean;
+    force: boolean;
+    continuation: boolean;
+  }): Promise<DistillPass> {
+    if (!store) return finishPass(report({ status: 'disabled', reason: 'no memory store' }));
+    const memoryStore = store;
+    const valid = memoryStore.validRecords();
+    const watermark = memoryStore.watermark();
+    const failures = memoryStore.distillFailures();
+    const published = await readPublished(memoryStore);
+
+    const cursor = published.distilled ? memoryStore.distillCursorSeq() : 0;
+    const standing = distillCore.renderPublishedForPrompt(published.claims).length;
+    const delta = distillCore.selectDeltaForPrompt(valid, {
+      sinceSeq: cursor,
+      limit: distillCore.deltaWindowFor(config.maxPromptRecords, failures),
+      maxChars: Math.max(MIN_DELTA_CHARS, config.maxPromptChars - standing),
+      now: now(),
+      horizonMs: config.staleHorizonDays * 86400000,
+    });
+    if (delta.stale > 0) log.note(`stepped over ${delta.stale} record(s) older than ${config.staleHorizonDays} day(s)`);
+    const mode = distillCore.decideDistillMode(published.claims, {
+      maxProjectClaims: config.maxProjectClaims,
+      maxChars: config.maxPromptChars,
+      maxProjectChars: config.maxProjectChars,
+    });
+    const verdict = distillCore.decideDistillRun({
+      now: now(),
+      watermark,
+      manifest: published.manifest,
+      lastAppendAt: memoryStore.lastAppendAt(),
+      intervalMs: continuation ? 0 : intervalMs,
+      quietMs: config.quietMs,
+      workPending: delta.pending > 0 || mode.mode === 'full',
+    });
+    if (!verdict.run && !force) {
+      return finishPass(report({ status: verdict.reason ?? 'skipped', cursor, delta: delta.records.length }));
+    }
+    if (dryRun) {
+      return finishPass(report({
+        status: 'stale',
+        mode: mode.mode,
+        cursor,
+        delta: delta.records.length,
+        remaining: delta.remaining,
+        records: delta.records.length,
+        claims: published.claims.length,
+      }));
+    }
+    const outcome = await distillForMode({
+      memoryStore, valid, watermark, published, delta, mode, failures,
+    });
+    const nextRunCursor = published.distilled || outcome.status === 'published'
+      ? memoryStore.distillCursorSeq()
+      : 0;
+    return finishPass(outcome, nextRunCursor > cursor);
+  }
+
+  function keepingPublished(lastPublished: DistillReport | null, outcome: DistillReport): DistillReport {
+    if (!lastPublished) return outcome;
+    if (outcome.status !== 'error' && outcome.status !== 'locked') return outcome;
+    log.warn(`a continuation batch failed after ${lastPublished.version ?? 'a batch'} published: ${outcome.reason}`);
+    return { ...lastPublished, reason: outcome.reason };
+  }
+
   async function runOnce({ dryRun = false, force = false }: { dryRun?: boolean; force?: boolean } = {}): Promise<DistillReport> {
     if (!store) return report({ status: 'disabled', reason: 'no memory store' });
-    const memoryStore = store;
     if (running) return report({ status: 'skipped', reason: 'a run is already in flight' });
     running = true;
+    let lastPublished: DistillReport | null = null;
     try {
-      const valid = memoryStore.validRecords();
-      const watermark = memoryStore.watermark();
-      const failures = memoryStore.distillFailures();
-      const published = await readPublished(memoryStore);
-
-      const cursor = published.distilled ? memoryStore.distillCursorSeq() : 0;
-      const standing = distillCore.renderPublishedForPrompt(published.claims).length;
-      const delta = distillCore.selectDeltaForPrompt(valid, {
-        sinceSeq: cursor,
-        limit: distillCore.deltaWindowFor(config.maxPromptRecords, failures),
-        maxChars: Math.max(MIN_DELTA_CHARS, config.maxPromptChars - standing),
-        now: now(),
-        horizonMs: config.staleHorizonDays * 86400000,
-      });
-      if (delta.stale > 0) log.note(`stepped over ${delta.stale} record(s) older than ${config.staleHorizonDays} day(s)`);
-      const mode = distillCore.decideDistillMode(published.claims, {
-        maxProjectClaims: config.maxProjectClaims,
-        maxChars: config.maxPromptChars,
-        maxProjectChars: config.maxProjectChars,
-      });
-      const verdict = distillCore.decideDistillRun({
-        now: now(),
-        watermark,
-        manifest: published.manifest,
-        lastAppendAt: memoryStore.lastAppendAt(),
-        intervalMs,
-        quietMs: config.quietMs,
-        workPending: delta.pending > 0 || mode.mode === 'full',
-      });
-      if (!verdict.run && !force) return report({ status: verdict.reason ?? 'skipped', cursor, delta: delta.records.length });
-      if (dryRun) {
-        return report({
-          status: 'stale',
-          mode: mode.mode,
-          cursor,
-          delta: delta.records.length,
-          remaining: delta.remaining,
-          records: delta.records.length,
-          claims: published.claims.length,
-        });
+      let completedBatches = 0;
+      let batch = await runPass({ dryRun, force, continuation: false });
+      completedBatches += 1;
+      if (batch.report.published) lastPublished = batch.report;
+      while (distillCore.shouldContinueDeltaBatches({
+        completedBatches, remaining: batch.report.remaining, status: batch.report.status,
+        cursorAdvanced: batch.cursorAdvanced,
+      })) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        batch = await runPass({ dryRun, force, continuation: true });
+        completedBatches += 1;
+        if (batch.report.published) lastPublished = batch.report;
       }
-      if (mode.mode === 'full') {
-        return await compact({
-          memoryStore, valid, watermark, published, project: mode.project, failures,
-        });
-      }
-      if (delta.records.length === 0) {
-        return await reconcile({
-          memoryStore, valid, watermark, published, cursor: delta.nextCursor, failures,
-        });
-      }
-      return await distillDelta({
-        memoryStore, valid, watermark, published, delta, failures,
-      });
+      return keepingPublished(lastPublished, batch.report);
     } catch (error) {
-      if (isBusyError(error)) return report({ status: 'locked', reason: 'the memory database is busy' });
-      return report({ status: 'error', reason: firstLine(errorMessage(error)) });
+      if (isBusyError(error)) {
+        return keepingPublished(lastPublished, report({ status: 'locked', reason: 'the memory database is busy' }));
+      }
+      return keepingPublished(lastPublished, report({ status: 'error', reason: firstLine(errorMessage(error)) }));
     } finally {
       running = false;
     }

@@ -32,6 +32,7 @@ const TRAFFIC_PING_KIND: Record<string, string | undefined> = {
 
 const META_KEY = '_meta';
 const ACTIVITY_COALESCE_MS = 400;
+const TRAFFIC_RETRY_DELAY_MS = 1000;
 
 type PosthogState = Record<string, unknown>;
 
@@ -155,6 +156,7 @@ interface PosthogPollerDependencies {
   trafficSpikeMinUsers?: number;
   trafficSpikeCooldownMinutes?: number;
   trafficSpikeBaselineDays?: number;
+  waitForTrafficRetry?: () => Promise<void>;
 }
 
 interface PosthogPoller {
@@ -217,6 +219,9 @@ function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
   const trafficSpikeMinUsers = deps.trafficSpikeMinUsers ?? traffic.DEFAULT_TRAFFIC_SPIKE_MIN_USERS;
   const trafficSpikeCooldownMinutes = deps.trafficSpikeCooldownMinutes ?? traffic.DEFAULT_TRAFFIC_SPIKE_COOLDOWN_MINUTES;
   const trafficSpikeBaselineDays = deps.trafficSpikeBaselineDays ?? traffic.DEFAULT_TRAFFIC_BASELINE_DAYS;
+  const waitForTrafficRetry = deps.waitForTrafficRetry ?? (() => new Promise<void>((resolve) => {
+    setTimeoutFn(resolve, TRAFFIC_RETRY_DELAY_MS);
+  }));
 
   let state: PosthogState = {};
   const trails = new Map<string, InvestigationTrail>();
@@ -538,7 +543,11 @@ function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
     if (!trafficSpikeEnabled) return;
     if (typeof api.queryTrafficBuckets !== 'function') return;
     try {
-      const res = await api.queryTrafficBuckets(projectId, { baselineDays: trafficSpikeBaselineDays });
+      let res = await api.queryTrafficBuckets(projectId, { baselineDays: trafficSpikeBaselineDays });
+      if (!res.ok && 'status' in res && traffic.shouldRetryTrafficQuery(res.status)) {
+        await waitForTrafficRetry();
+        res = await api.queryTrafficBuckets(projectId, { baselineDays: trafficSpikeBaselineDays });
+      }
       if (!res || !res.ok || !('buckets' in res)) {
         const reason = res && 'error' in res ? res.error : null;
         log.warn(`[posthog-poller] traffic query failed for ${projectName}: ${reason || 'no response'}`);

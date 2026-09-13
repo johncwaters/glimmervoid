@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { createMemoryStore } from '../server/memory-store.ts';
+import { createMemoryDb } from '../server/memory-db.ts';
 import {
   BOOTSTRAP_PROMPT, MEMORY_DISTILL_DENY_TOOLS, PROMPT_FILE, WORK_DIR_PREFIX, createMemoryDistiller,
 } from '../server/memory-distill.ts';
@@ -41,6 +42,7 @@ interface KnowledgeInput {
 
 interface LaneOptions extends Partial<DistillConfig> {
   result?: DistillResult | null;
+  resultsPerSpawn?: (DistillResult | null)[] | null;
   onSpawn?: ((spawn: { prompt: string; cwd: string }) => Promise<void> | void) | null;
 }
 
@@ -101,11 +103,15 @@ function knowledge(text: string, project: string | null = '/repos/glimmervoid'):
   };
 }
 
-function makeLane(store: MemoryStore, clock: Clock, { result = null, onSpawn = null, ...config }: LaneOptions = {}): {
+function makeLane(store: MemoryStore, clock: Clock, { result = null, resultsPerSpawn = null, onSpawn = null, ...config }: LaneOptions = {}): {
   distiller: ReturnType<typeof createMemoryDistiller>;
   spawns: RecordedSpawn[];
 } {
   const spawns: RecordedSpawn[] = [];
+  function resultForSpawn(spawnIndex: number): DistillResult | null {
+    if (!resultsPerSpawn) return result;
+    return resultsPerSpawn[Math.min(spawnIndex, resultsPerSpawn.length - 1)] ?? null;
+  }
   const options: MemoryDistillerOptions = {
     store,
     config: { ...resolveDistillConfig(config, { memoryEnabled: true }), ...config },
@@ -119,7 +125,7 @@ function makeLane(store: MemoryStore, clock: Clock, { result = null, onSpawn = n
       spawns.push({ prompt: delivered, argvPrompt: prompt, cwd });
       if (onSpawn) await onSpawn({ prompt: delivered, cwd });
     },
-    readResult: async () => result,
+    readResult: async () => resultForSpawn(spawns.length - 1),
   };
   return { distiller: createMemoryDistiller(options), spawns };
 }
@@ -493,6 +499,80 @@ test('a run reads only the records above the cursor and moves it once the build 
     assert.equal(published.includes('the poller is opt in'), true);
 });
 
+test('one due run drains more records than fit in a single prompt window', async () => {
+  const dir = tempDir();
+  const clock = { at: START };
+  const store = openStore(dir, clock);
+  const [standing] = await seed(store, clock, ['the poller ticks every 15 minutes']);
+  clock.at += 2 * HOUR;
+  assert.equal((await makeLane(store, clock, {
+    result: distilledResult([{
+      kind: 'knowledge', project: '/repos/glimmervoid', rank: 'model', ids: [standing.id], text: standing.text,
+    }]),
+  }).distiller.runOnce()).status, 'published');
+
+  const backlog = await seed(store, clock, ['new one', 'new two', 'new three', 'new four', 'new five']);
+  clock.at += 25 * HOUR;
+  const lane = makeLane(store, clock, { maxPromptRecords: 2, result: distilledResult([], 'NO_CHANGE') });
+  const report = await lane.distiller.runOnce();
+
+  assert.equal(report.status, 'current');
+  assert.equal(report.remaining, 0);
+  assert.equal(lane.spawns.length, 3);
+  assert.equal(store.distillCursorSeq(), backlog[backlog.length - 1].seq);
+});
+
+test('a first ever run that finds nothing to distill spawns once over the whole backlog', async () => {
+  const dir = tempDir();
+  const clock = { at: START };
+  const store = openStore(dir, clock);
+  const backlog = await seed(store, clock, ['new one', 'new two', 'new three', 'new four', 'new five']);
+  clock.at += 2 * HOUR;
+  const lane = makeLane(store, clock, { maxPromptRecords: 2, result: distilledResult([], 'NO_CHANGE') });
+
+  const report = await lane.distiller.runOnce();
+
+  assert.equal(report.status, 'current');
+  assert.equal(report.verdict, 'NO_CHANGE');
+  assert.equal(report.remaining, 3);
+  assert.equal(lane.spawns.length, 1);
+  assert.equal(lane.spawns[0].prompt.includes(backlog[0].id), true);
+  assert.equal(lane.spawns[0].prompt.includes(backlog[2].id), false);
+});
+
+test('a continuation batch that fails still reports the version an earlier batch published', async () => {
+  const dir = tempDir();
+  const clock = { at: START };
+  const store = openStore(dir, clock);
+  const [standing] = await seed(store, clock, ['the poller ticks every 15 minutes']);
+  clock.at += 2 * HOUR;
+  assert.equal((await makeLane(store, clock, {
+    result: distilledResult([{
+      kind: 'knowledge', project: '/repos/glimmervoid', rank: 'model', ids: [standing.id], text: standing.text,
+    }]),
+  }).distiller.runOnce()).status, 'published');
+
+  const backlog = await seed(store, clock, ['new one', 'new two', 'new three', 'new four', 'new five']);
+  clock.at += 25 * HOUR;
+  const lane = makeLane(store, clock, {
+    maxPromptRecords: 2,
+    resultsPerSpawn: [
+      distilledResult([{
+        kind: 'knowledge', project: '/repos/glimmervoid', rank: 'model', ids: [backlog[0].id], text: 'new one',
+      }]),
+      null,
+    ],
+  });
+  const report = await lane.distiller.runOnce();
+
+  assert.equal(lane.spawns.length, 2);
+  assert.equal(report.status, 'published');
+  assert.equal(report.published, true);
+  assert.equal(report.version, manifestOf(dir).version);
+  assert.equal(typeof report.reason, 'string', 'the failed batch reason rides along');
+  assert.equal(readProjectFiles(dir).includes('new one'), true);
+});
+
 test('a failed run leaves the cursor where it was and counts against the delta window', async () => {
   const dir = tempDir();
   const clock = { at: START };
@@ -614,6 +694,9 @@ test('a project past its claim threshold is re-distilled in full, and only that 
     });
     assert.equal((await seeded.distiller.runOnce()).status, 'published');
     const cursor = store.distillCursorSeq();
+    const externalDb = createMemoryDb({ dbPath: path.join(dir, 'glimmervoid.db') });
+    externalDb.deleteRecord(other.id);
+    externalDb.close();
 
     clock.at += 25 * HOUR;
     const compacting = makeLane(store, clock, {
@@ -629,7 +712,7 @@ test('a project past its claim threshold is re-distilled in full, and only that 
     const published = readProjectFiles(dir);
     assert.equal(published.includes('one compacted claim'), true);
     assert.equal(published.includes('standing big one'), false);
-    assert.equal(published.includes('a standing claim elsewhere'), true, 'every other project is untouched');
+    assert.equal(published.includes('a standing claim elsewhere'), true, 'an untouched project survives a missing source row');
     assert.equal(store.distillCursorSeq(), cursor, 'a compaction never moves the delta cursor');
 });
 

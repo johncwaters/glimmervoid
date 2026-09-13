@@ -20,6 +20,7 @@ type EndIntent = 'operator-abort' | 'close-out' | 'natural';
 type MillPromptBoundary = {
   ts: number;
   wasAwaitingInput: boolean;
+  runningAt?: number;
 };
 
 type MillTurnBoundaryState = {
@@ -31,7 +32,7 @@ type MillTurnBoundaryState = {
 type MillTurnBoundaryEvent =
   | { kind: 'hook-event'; event: string; state: string; ts: number }
   | { kind: 'state-change'; to: string; ts: number }
-  | { kind: 'user-prompt' };
+  | { kind: 'user-prompt'; ts: number };
 
 type MillTurnBoundaryStep = {
   state: MillTurnBoundaryState;
@@ -143,6 +144,15 @@ function endedTurnState(ts: number, wasAwaitingInput: boolean, hasSeenPrompt: bo
   return { boundary: { ts, wasAwaitingInput }, hasSeenTurnEnd: true, hasSeenPrompt };
 }
 
+function boundaryForPrompt(boundary: MillPromptBoundary | null, ts: number): MillPromptBoundary | null {
+  if (!boundary) return null;
+  if (boundary.runningAt === undefined) return boundary;
+  const elapsedSinceRunningMs = ts - boundary.runningAt;
+  if (!Number.isFinite(elapsedSinceRunningMs) || elapsedSinceRunningMs < 0) return null;
+  if (elapsedSinceRunningMs >= TITLE_RACE_MS) return null;
+  return { ts: boundary.ts, wasAwaitingInput: boundary.wasAwaitingInput };
+}
+
 function reduceTurnBoundary(
   state: MillTurnBoundaryState,
   event: MillTurnBoundaryEvent,
@@ -151,7 +161,7 @@ function reduceTurnBoundary(
   if (event.kind === 'user-prompt') {
     return {
       state: { boundary: null, hasSeenTurnEnd: state.hasSeenTurnEnd, hasSeenPrompt: true },
-      boundary: state.boundary,
+      boundary: boundaryForPrompt(state.boundary, event.ts),
       hasSeenPriorPrompt,
     };
   }
@@ -164,8 +174,13 @@ function reduceTurnBoundary(
     };
   }
   if (event.to === STATES.RUNNING) {
+    if (!state.boundary) return { state, boundary: null, hasSeenPriorPrompt };
     return {
-      state: { boundary: null, hasSeenTurnEnd: state.hasSeenTurnEnd, hasSeenPrompt: state.hasSeenPrompt },
+      state: {
+        boundary: { ...state.boundary, runningAt: event.ts },
+        hasSeenTurnEnd: state.hasSeenTurnEnd,
+        hasSeenPrompt: state.hasSeenPrompt,
+      },
       boundary: null,
       hasSeenPriorPrompt,
     };
@@ -282,6 +297,9 @@ function mergePacks(earlier: MillMetricPack[], later: MillMetricPack[]): MillMet
 function mergeSessionRecords(first: MillMetricSession, second: MillMetricSession): MillMetricSession {
   const earlier = first.startedAt <= second.startedAt ? first : second;
   const later = earlier === first ? second : first;
+  const laterFinalState = typeof later.finalState === 'string' && later.finalState ? later.finalState : null;
+  const mergedDisposition = later.endedAt === null ? later.disposition : later.disposition ?? earlier.disposition;
+  const mergedFinalState = later.endedAt === null ? later.finalState : laterFinalState ?? earlier.finalState;
   return {
     sessionId: later.sessionId,
 
@@ -289,8 +307,8 @@ function mergeSessionRecords(first: MillMetricSession, second: MillMetricSession
     startedAt: earlier.startedAt,
     endedAt: later.endedAt,
     agent: later.agent,
-    disposition: later.disposition,
-    finalState: later.finalState,
+    disposition: mergedDisposition,
+    finalState: mergedFinalState,
     tokens: addNumbers(earlier.tokens, later.tokens),
     costUSD: addNumbers(earlier.costUSD, later.costUSD),
     resumeSessionId: later.resumeSessionId ?? earlier.resumeSessionId,

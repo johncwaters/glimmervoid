@@ -67,6 +67,14 @@ type TokenLedger = {
   banked: TokenTotals;
 };
 
+const CLOSED_ACCUMULATOR_GRACE_MS = 10 * 60 * 1000;
+const MAX_CLOSED_ACCUMULATORS = 64;
+
+type ClosedAccumulator = {
+  accumulator: Accumulator;
+  closedAt: number;
+};
+
 type MillMetricsWiringOptions = {
   store: MillMetricsRecordSink;
   nowFn?: () => number;
@@ -81,6 +89,18 @@ function createMillMetricsWiring({
   logger = null,
 }: MillMetricsWiringOptions) {
   const accumulators = new Map<string, Accumulator>();
+  const closedAccumulators = new Map<string, ClosedAccumulator>();
+
+  function pruneClosedAccumulators(atMs: number): void {
+    for (const [sessionId, closed] of [...closedAccumulators]) {
+      if (atMs - closed.closedAt < CLOSED_ACCUMULATOR_GRACE_MS) continue;
+      closedAccumulators.delete(sessionId);
+    }
+    for (const sessionId of [...closedAccumulators.keys()]) {
+      if (closedAccumulators.size <= MAX_CLOSED_ACCUMULATORS) return;
+      closedAccumulators.delete(sessionId);
+    }
+  }
 
   function warn(message: string): void {
     if (!logger || typeof logger.warn !== 'function') return;
@@ -186,6 +206,65 @@ function createMillMetricsWiring({
     return ledgerTotals(ledger);
   }
 
+  function accumulatorFromDelivery(
+    sessionId: string,
+    agent: string,
+    startedAt: number,
+    packs: Map<string, MillMetricPackAccumulator>,
+  ): Accumulator {
+    return {
+      sessionId,
+      startedAt,
+      agent,
+      packs,
+      prompts: { interruption: 0, answer: 0, followup: 0, ambiguous: 0 },
+      tokens: emptyLedger(),
+    };
+  }
+
+  function accumulatorFromClosed(closed: Accumulator): Accumulator {
+    return accumulatorFromDelivery(
+      closed.sessionId,
+      closed.agent,
+      closed.startedAt,
+      new Map(closed.packs),
+    );
+  }
+
+  function recordPrompt(accumulator: Accumulator, payload: MillPromptSubmittedPayload): void {
+    const state = typeof payload?.state === 'string' ? payload.state : '';
+    const ts = numberOrNull(payload?.ts) ?? nowFn();
+    const promptClass: MillMetricPromptClass = classifyPrompt({
+      boundary: promptBoundaryOrNull(payload?.boundary),
+      hasSeenTurnEnd: payload?.hasSeenTurnEnd === true,
+      hasSeenPriorPrompt: payload?.hasSeenPriorPrompt === true,
+      ts,
+    });
+    accumulator.prompts[promptClass] += 1;
+    store.appendEvent({
+      v: 1,
+      kind: 'prompt',
+      ts,
+      sessionId: accumulator.sessionId,
+      promptClass,
+      state,
+    });
+  }
+
+  function persistClosedPrompt(closed: Accumulator, payload: MillPromptSubmittedPayload): void {
+    const accumulator = accumulatorFromClosed(closed);
+    observeTokens(accumulator);
+    recordPrompt(accumulator, payload);
+    const totals = observeTokens(accumulator);
+    const record = recordFromAccumulator(accumulator, {
+      endedAt: numberOrNull(payload?.ts) ?? nowFn(),
+      tokens: totals.tokens,
+      costUSD: totals.costUSD,
+      resumeSessionId: accumulator.tokens.identity,
+    });
+    if (record) store.closeSession(record);
+  }
+
   function onPacksDelivered(sessionId: string, payload: {
     packs?: DeliveredPack[];
     agent?: string;
@@ -205,15 +284,12 @@ function createMillMetricsWiring({
       });
     }
     if (packs.size === 0) return;
-    const accumulator: Accumulator = {
-      sessionId,
-      startedAt,
-      agent,
-      packs,
-      prompts: { interruption: 0, answer: 0, followup: 0, ambiguous: 0 },
-      tokens: emptyLedger(),
-    };
+    if (accumulators.has(sessionId)) {
+      closeAccumulator(sessionId, { disposition: null, finalState: '', transition: 'pack-redelivered' });
+    }
+    const accumulator = accumulatorFromDelivery(sessionId, agent, startedAt, packs);
     accumulators.set(sessionId, accumulator);
+    closedAccumulators.delete(sessionId);
     observeTokens(accumulator);
     for (const [packName, pack] of packs) {
       store.appendEvent({
@@ -231,24 +307,14 @@ function createMillMetricsWiring({
 
   function onPromptSubmitted(sessionId: string, payload: MillPromptSubmittedPayload): void {
     const accumulator = accumulators.get(sessionId);
-    if (!accumulator) return;
-    const state = typeof payload?.state === 'string' ? payload.state : '';
-    const ts = numberOrNull(payload?.ts) ?? nowFn();
-    const promptClass: MillMetricPromptClass = classifyPrompt({
-      boundary: promptBoundaryOrNull(payload?.boundary),
-      hasSeenTurnEnd: payload?.hasSeenTurnEnd === true,
-      hasSeenPriorPrompt: payload?.hasSeenPriorPrompt === true,
-      ts,
-    });
-    accumulator.prompts[promptClass] += 1;
-    store.appendEvent({
-      v: 1,
-      kind: 'prompt',
-      ts,
-      sessionId,
-      promptClass,
-      state,
-    });
+    if (accumulator) {
+      recordPrompt(accumulator, payload);
+      return;
+    }
+    pruneClosedAccumulators(nowFn());
+    const closed = closedAccumulators.get(sessionId);
+    if (!closed) return;
+    persistClosedPrompt(closed.accumulator, payload);
   }
 
   function closeAccumulator(sessionId: string, {
@@ -264,6 +330,8 @@ function createMillMetricsWiring({
     accumulators.delete(sessionId);
     if (!accumulator) return;
     const endedAt = nowFn();
+    closedAccumulators.set(sessionId, { accumulator, closedAt: endedAt });
+    pruneClosedAccumulators(endedAt);
     const totals = observeTokens(accumulator);
     const record = recordFromAccumulator(accumulator, {
       endedAt,
@@ -303,6 +371,7 @@ function createMillMetricsWiring({
 
   function onSessionTeardown(sessionId: string): void {
     closeAccumulator(sessionId, { disposition: null, finalState: '', transition: 'teardown' });
+    closedAccumulators.delete(sessionId);
   }
 
   function scorecards(): Record<string, MillPackScorecard> {
@@ -346,11 +415,12 @@ function attachMillMetricsSession(
     turnBoundary = reduceTurnBoundary(turnBoundary, { kind: 'state-change', to, ts: Date.now() }).state;
   });
   session.on('user-prompt', (payload) => {
-    const step = reduceTurnBoundary(turnBoundary, { kind: 'user-prompt' });
+    const promptTs = numberOrNull(payload?.ts) ?? Date.now();
+    const step = reduceTurnBoundary(turnBoundary, { kind: 'user-prompt', ts: promptTs });
     turnBoundary = step.state;
     port.onPromptSubmitted(session.id, {
       state: payload?.state,
-      ts: payload?.ts,
+      ts: promptTs,
       boundary: step.boundary,
       hasSeenTurnEnd: step.state.hasSeenTurnEnd,
       hasSeenPriorPrompt: step.hasSeenPriorPrompt,

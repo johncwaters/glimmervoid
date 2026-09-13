@@ -2,14 +2,15 @@
 
 import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 
-import pkg from '../package.json' with { type: 'json' };
 import { execSync } from '../server/child-process-safe.ts';
 import { decideConfigPath, glimmervoidHomeDir } from '../server/core/config-path-core.ts';
 import { packageRoot } from '../server/runtime-paths.ts';
 import { formatPathNotice, npmGlobalBinDir, onPath, pnpmGlobalBinDir } from './path-doctor.ts';
 
 const args = process.argv.slice(2);
+const pkg = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as { version: string };
 
 if (args.includes('--help') || args.includes('-h')) {
   console.log(`Usage: glimmervoid [command] [options]

@@ -63,6 +63,120 @@ function branchGcGitWorkspace(overrides: Partial<BranchGcGitWorkspace> = {}): Br
   };
 }
 
+test('skips missing and non-git projects without failing the lane, and stays skipped while they stay broken', async () => {
+  const warnings: string[] = [];
+  const statuses: Record<string, unknown>[] = [];
+  const projectPathsFetched: string[] = [];
+  const poller = createBranchGcPoller({
+    gitWorkspace: branchGcGitWorkspace({
+      async fetchOrigin({ projectPath }) {
+        projectPathsFetched.push(projectPath);
+        if (projectPath === '/missing') return { ok: false, err: 'ENOENT: no such file or directory' };
+        if (projectPath === '/not-a-repo') return { ok: false, err: 'fatal: not a git repository' };
+        return { ok: true };
+      },
+    }),
+    getConfig: () => ({ projects: [{ path: '/missing' }, { path: '/not-a-repo' }, { path: '/repo' }] }),
+    liveSessionIds: () => new Set(),
+    liveWorktreePaths: () => new Set(),
+    log: { warn: (message) => { warnings.push(message); } },
+    onTickComplete: (status) => statuses.push(status),
+    statProjectPath: async (target) => {
+      if (target.startsWith('/missing')) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      if (target === '/not-a-repo/.git') throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      return {};
+    },
+  });
+
+  await poller.tick();
+  await poller.tick();
+
+  assert.deepEqual(projectPathsFetched, ['/missing', '/not-a-repo', '/repo', '/repo']);
+  assert.equal(warnings.length, 2);
+  assert.deepEqual(warnings, [
+    '[branch-gc] skipping /missing: ENOENT: no such file or directory',
+    '[branch-gc] skipping /not-a-repo: fatal: not a git repository',
+  ]);
+  for (const status of statuses) {
+    const projects = status.projects;
+    assert.ok(Array.isArray(projects));
+    assert.ok(projects.every((project) => isRecord(project) && project.errors === 0));
+  }
+});
+
+test('a skipped project resumes on the tick after its repository comes back', async () => {
+  const warnings: string[] = [];
+  const traces: Record<string, unknown>[] = [];
+  const projectPathsFetched: string[] = [];
+  let repoIsBack = false;
+  const poller = createBranchGcPoller({
+    gitWorkspace: branchGcGitWorkspace({
+      async fetchOrigin({ projectPath }) {
+        projectPathsFetched.push(projectPath);
+        if (!repoIsBack) return { ok: false, err: 'ENOENT: no such file or directory' };
+        return { ok: true };
+      },
+    }),
+    getConfig: () => ({ projects: [{ path: '/unmounted' }] }),
+    liveSessionIds: () => new Set(),
+    liveWorktreePaths: () => new Set(),
+    log: { warn: (message) => { warnings.push(message); } },
+    decisionTrace: (entry) => { traces.push(entry); },
+    statProjectPath: async () => {
+      if (!repoIsBack) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      return {};
+    },
+  });
+
+  await poller.tick();
+  await poller.tick();
+  assert.deepEqual(projectPathsFetched, ['/unmounted']);
+
+  repoIsBack = true;
+  await poller.tick();
+  await poller.tick();
+
+  assert.deepEqual(projectPathsFetched, ['/unmounted', '/unmounted', '/unmounted']);
+  assert.deepEqual(warnings, [
+    '[branch-gc] skipping /unmounted: ENOENT: no such file or directory',
+    '[branch-gc] resuming /unmounted: the git repository is back',
+  ]);
+  assert.equal(traces.filter((entry) => entry.decision === 'resumed').length, 1);
+});
+
+test('a fetch error in a project that still exists keeps failing the tick instead of silencing it', async () => {
+  const warnings: string[] = [];
+  const statuses: Record<string, unknown>[] = [];
+  const projectPathsFetched: string[] = [];
+  const poller = createBranchGcPoller({
+    gitWorkspace: branchGcGitWorkspace({
+      async fetchOrigin({ projectPath }) {
+        projectPathsFetched.push(projectPath);
+        return { ok: false, err: 'error: cannot open .git/FETCH_HEAD: No such file or directory' };
+      },
+    }),
+    getConfig: () => ({ projects: [{ path: '/live' }] }),
+    liveSessionIds: () => new Set(),
+    liveWorktreePaths: () => new Set(),
+    log: { warn: (message) => { warnings.push(message); } },
+    onTickComplete: (status) => statuses.push(status),
+    statProjectPath: async () => ({}),
+  });
+
+  await poller.tick();
+
+  assert.deepEqual(projectPathsFetched, ['/live']);
+  assert.ok(warnings.some((message) => message.includes('fetch failed in /live')));
+  assert.ok(warnings.some((message) => message.includes('poll failed')));
+  const firstStatus = statuses[0];
+  assert.ok(firstStatus);
+  const projects = firstStatus.projects;
+  assert.ok(Array.isArray(projects));
+  const firstProject = projects[0];
+  assert.ok(isRecord(firstProject));
+  assert.equal(firstProject.errors, 1);
+});
+
 test('fetches before listing, deletes separately, continues after failure, and protects live sessions', async () => {
   const calls: (string | number | null | undefined)[][] = [];
   const traces: Record<string, unknown>[] = [];

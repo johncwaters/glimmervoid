@@ -1,3 +1,6 @@
+import fsp from 'node:fs/promises';
+import path from 'node:path';
+
 import { DEFAULT_BRANCH_GC_PREFIXES, planBranchGc, planWorktreeGc, worktreeIntegrationTips } from './core/branch-gc-core.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import { ancestorProvenProbe, ancestryFromResult, buildTipProbe, proveMergedAcrossTips } from './core/merge-proof-core.ts';
@@ -79,6 +82,7 @@ interface BranchGcPollerDeps {
   decisionTrace?: (entry: Record<string, unknown>) => void;
   onTickComplete?: (summary: Record<string, unknown>) => void;
   now?: () => number;
+  statProjectPath?: (projectPath: string) => Promise<unknown>;
 }
 
 interface BranchGcPoller {
@@ -104,7 +108,9 @@ function createBranchGcPoller(deps: BranchGcPollerDeps): BranchGcPoller {
     decisionTrace = () => {},
     onTickComplete = () => {},
     now = () => Date.now(),
+    statProjectPath = (projectPath: string) => fsp.stat(projectPath),
   } = deps;
+  const skippedProjectPaths = new Set<string>();
 
   async function callGit<Args, Result extends GitCallResult>(
     method: (args: Args) => Promise<Result>,
@@ -130,6 +136,47 @@ function createBranchGcPoller(deps: BranchGcPollerDeps): BranchGcPoller {
     const message = gitResult.err || gitResult.out || 'git command failed';
     log.warn(`[branch-gc] ${operation} failed in ${projectPath}: ${message}`);
     trace({ projectPath, name, decision: 'skipped', reason: `${operation}-error` });
+  }
+
+  function isMissingPathError(error: unknown): boolean {
+    return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
+  }
+
+  async function pathIsMissing(target: string): Promise<boolean> {
+    try {
+      await statProjectPath(target);
+      return false;
+    } catch (error) {
+      return isMissingPathError(error);
+    }
+  }
+
+  async function projectPathIsUnusable(projectPath: string, gitResult: GitCallResult): Promise<boolean> {
+    const message = `${gitResult.err || ''}\n${gitResult.out || ''}`;
+    if (/not a git repository/i.test(message)) return true;
+    return await pathIsMissing(projectPath);
+  }
+
+  async function projectPathIsARepoAgain(projectPath: string): Promise<boolean> {
+    if (await pathIsMissing(projectPath)) return false;
+    return !(await pathIsMissing(path.join(projectPath, '.git')));
+  }
+
+  function noteProjectSkip(projectPath: string, gitResult: GitCallResult): void {
+    if (skippedProjectPaths.has(projectPath)) return;
+    skippedProjectPaths.add(projectPath);
+    const message = gitResult.err || gitResult.out || 'git command failed';
+    log.warn(`[branch-gc] skipping ${projectPath}: ${message}`);
+    trace({ projectPath, decision: 'skipped', reason: 'unusable-project-path' });
+  }
+
+  async function stillSkipped(projectPath: string): Promise<boolean> {
+    if (!skippedProjectPaths.has(projectPath)) return false;
+    if (!(await projectPathIsARepoAgain(projectPath))) return true;
+    skippedProjectPaths.delete(projectPath);
+    log.warn(`[branch-gc] resuming ${projectPath}: the git repository is back`);
+    trace({ projectPath, decision: 'resumed', reason: 'project-path-restored' });
+    return false;
   }
 
   async function probeAncestryAcrossTips(
@@ -345,11 +392,16 @@ function createBranchGcPoller(deps: BranchGcPollerDeps): BranchGcPoller {
 
   async function tickProject(projectPath: string, config: BranchGcConfig, liveWorktreePathSet: Set<string>): Promise<BranchGcProjectSummary> {
     const summary: BranchGcProjectSummary = { projectPath, deletions: [], kept: [], worktreeRemovals: [], worktreesKept: [], errors: 0 };
+    if (await stillSkipped(projectPath)) return summary;
     const fetched = await callGit(gitWorkspace.fetchOrigin, {
       projectPath,
       timeoutMs: BRANCH_GC_FETCH_TIMEOUT_MS,
     });
     if (!fetched.ok) {
+      if (await projectPathIsUnusable(projectPath, fetched)) {
+        noteProjectSkip(projectPath, fetched);
+        return summary;
+      }
       noteGitError({ projectPath, operation: 'fetch', gitResult: fetched });
       summary.errors += 1;
       return summary;

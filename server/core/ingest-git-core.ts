@@ -328,8 +328,16 @@ function decideGitEvents({
   return { events: event ? [event] : [], next };
 }
 
+function classifyGitStatusFailure(error: unknown): 'missing-root' | 'check-root' | 'transient' {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/not a git repository/i.test(message)) return 'missing-root';
+  if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return 'check-root';
+  return 'transient';
+}
+
 export {
   CLEAN_SIGNATURE,
+  classifyGitStatusFailure,
   DEFAULT_DEBOUNCE_MS,
   DEFAULT_POLL_MS,
   LOG_ARGS,

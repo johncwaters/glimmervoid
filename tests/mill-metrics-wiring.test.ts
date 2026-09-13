@@ -196,6 +196,23 @@ test('session event wiring supplies and consumes the prior Stop or COMPLETE boun
   session.destroy();
 });
 
+test('session event wiring keeps an answer boundary when RUNNING wins the prompt race', () => {
+  const { session, submitted } = millWiredSession('mill-running-race');
+
+  session.state = STATES.WAITING;
+  session.emit('hook-event', { event: 'Stop', payload: {} });
+  session.emit('state-change', {
+    from: STATES.WAITING,
+    to: STATES.RUNNING,
+    event: 'user_input',
+    detail: { signal: 'working' },
+  });
+  session.emit('user-prompt', { state: STATES.RUNNING, ts: Date.now() });
+
+  assert.equal(submitted[0]?.boundary?.wasAwaitingInput, true);
+  session.destroy();
+});
+
 test('session event wiring reports no turn end until one has happened', () => {
   const { session, submitted } = millWiredSession('mill-first-prompt');
 
@@ -268,6 +285,106 @@ test('a session torn down while live closes with no disposition instead of stayi
   assert.equal(closedAt(store, 0).disposition, null);
   assert.equal(closedAt(store, 0).endedAt, NOW);
   assert.equal(wiring.scorecards().alpha.liveSessions, 0);
+});
+
+test('pack re-delivery closes the live accumulator before opening the replacement', () => {
+  const store = fakeStore();
+  let vendorTotals: VendorTotals = { tokens: 100, costUSD: 1, identity: 'conv-a' };
+  const wiring = createMillMetricsWiring({
+    store,
+    nowFn: () => NOW + 2000,
+    tokensForSession: () => vendorTotals,
+  });
+  wiring.port.onPacksDelivered('s1', delivered());
+  wiring.port.onPromptSubmitted('s1', {
+    state: 'RUNNING', ts: NOW + 500, boundary: null, hasSeenTurnEnd: false,
+  });
+  vendorTotals = { tokens: 150, costUSD: 1.5, identity: 'conv-a' };
+  wiring.port.onPacksDelivered('s1', delivered({
+    packs: [{ name: 'beta', version: 'v2' }],
+    ts: NOW + 1000,
+  }));
+  wiring.port.onPromptSubmitted('s1', {
+    state: 'RUNNING', ts: NOW + 1500, boundary: null, hasSeenTurnEnd: true,
+  });
+
+  assert.equal(store.closed.length, 1);
+  assert.equal(closedAt(store, 0).prompts.followup, 1);
+  assert.equal(closedAt(store, 0).tokens, 50);
+  assert.equal(store.events.find((event) => event.transition === 'pack-redelivered')?.kind, 'session-end');
+  assert.equal(wiring.scorecards().alpha.outcomes.meanTokens, 50);
+  assert.equal(wiring.scorecards().beta.outcomes.meanTokens, 50);
+  assert.equal(wiring.scorecards().beta.outcomes.meanInterruptions, 1);
+});
+
+test('a prompt arriving after teardown is attributed to the closed session', () => {
+  const store = fakeStore();
+  const wiring = createMillMetricsWiring({ store, nowFn: () => NOW });
+  wiring.port.onPacksDelivered('s1', delivered());
+  wiring.port.onSessionEnd('s1', {
+    transitionEvent: 'user_kill', intent: 'operator-abort', finalState: 'DONE',
+  });
+  wiring.port.onPromptSubmitted('s1', {
+    state: 'RUNNING', ts: NOW + 1000, boundary: null, hasSeenTurnEnd: true,
+  });
+
+  assert.equal(store.closed.length, 2);
+  assert.equal(closedAt(store, 1).prompts.interruption, 1);
+  const scorecard = wiring.scorecards().alpha;
+  assert.equal(scorecard.outcomes.meanInterruptions, 1);
+  assert.equal(scorecard.outcomes.abortRate, 1);
+});
+
+test('a torn-down session keeps no accumulator for a later prompt', () => {
+  const store = fakeStore();
+  const wiring = createMillMetricsWiring({ store, nowFn: () => NOW });
+  wiring.port.onPacksDelivered('s1', delivered());
+  wiring.port.onSessionTeardown('s1');
+  wiring.port.onPromptSubmitted('s1', {
+    state: 'RUNNING', ts: NOW + 1000, boundary: null, hasSeenTurnEnd: true,
+  });
+
+  assert.equal(store.closed.length, 1);
+  assert.equal(closedAt(store, 0).prompts.interruption, 0);
+});
+
+test('a closed session is forgotten once its grace window has passed', () => {
+  const store = fakeStore();
+  let clock = NOW;
+  const wiring = createMillMetricsWiring({ store, nowFn: () => clock });
+  wiring.port.onPacksDelivered('s1', delivered());
+  wiring.port.onSessionEnd('s1', {
+    transitionEvent: 'user_kill', intent: 'operator-abort', finalState: 'DONE',
+  });
+  clock = NOW + 11 * 60 * 1000;
+  wiring.port.onPromptSubmitted('s1', {
+    state: 'RUNNING', ts: clock, boundary: null, hasSeenTurnEnd: true,
+  });
+
+  assert.equal(store.closed.length, 1);
+});
+
+test('closed sessions are capped instead of retained for the life of the process', () => {
+  const store = fakeStore();
+  const wiring = createMillMetricsWiring({ store, nowFn: () => NOW });
+  for (let index = 0; index < 65; index += 1) {
+    const sessionId = `s${index}`;
+    wiring.port.onPacksDelivered(sessionId, delivered());
+    wiring.port.onSessionEnd(sessionId, {
+      transitionEvent: 'user_kill', intent: 'operator-abort', finalState: 'DONE',
+    });
+  }
+  assert.equal(store.closed.length, 65);
+
+  wiring.port.onPromptSubmitted('s0', {
+    state: 'RUNNING', ts: NOW + 1000, boundary: null, hasSeenTurnEnd: true,
+  });
+  assert.equal(store.closed.length, 65);
+
+  wiring.port.onPromptSubmitted('s64', {
+    state: 'RUNNING', ts: NOW + 1000, boundary: null, hasSeenTurnEnd: true,
+  });
+  assert.equal(store.closed.length, 66);
 });
 
 test('live scorecards report the tokens the run has added so far', () => {

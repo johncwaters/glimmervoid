@@ -7,6 +7,7 @@ import {
   spikeMultiple,
   formatMultiple,
   spikeSummaryLine,
+  shouldRetryTrafficQuery,
   MIN_BASELINE_SAMPLE_HOURS,
   DEFAULT_TRAFFIC_SPIKE_MULTIPLIER,
   DEFAULT_TRAFFIC_SPIKE_MIN_USERS,
@@ -26,6 +27,11 @@ test('computeBaseline reports the p90, the median and the sample size', () => {
   assert.equal(baseline.p90, 9);
   assert.equal(baseline.median, 5.5);
   assert.equal(baseline.sampleHours, 10);
+});
+
+test('only transient gateway statuses retry traffic queries', () => {
+  for (const status of [502, 503, 504]) assert.equal(shouldRetryTrafficQuery(status), true);
+  for (const status of [400, 401, 429, 500, 501, 505, undefined]) assert.equal(shouldRetryTrafficQuery(status), false);
 });
 
 test('computeBaseline is unmoved by bucket order', () => {

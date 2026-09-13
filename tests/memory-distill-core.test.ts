@@ -8,12 +8,14 @@ import {
 } from '../server/core/memory-core.ts';
 import { needsDistill } from '../server/core/distill-core.ts';
 import {
-  DEFAULT_INTERVAL_MINUTES, DEFAULT_MAX_PROJECT_CHARS, MAX_CLAIM_IDS, MIN_DELTA_WINDOW, applyDistillOps,
+  DEFAULT_INTERVAL_MINUTES, DEFAULT_MAX_PROJECT_CHARS, MAX_CLAIM_IDS, MAX_DELTA_BATCHES_PER_RUN, MIN_DELTA_WINDOW,
+  applyDistillOps,
   buildIncrementalDistillPrompt, buildMemoryDistillPrompt, claimProjectTags, compactionShrank, decideDistillMode,
   enforceProjectionBudget,
   decideDistillRun, deltaWindowFor, finalizeMergedClaims, NO_PROJECT_LABEL, publishedClaimTexts, readPublishedClaims,
   DEFAULT_STALE_HORIZON_DAYS,
   renderDistilledProjection, resolveDistillConfig, selectCanonForPrompt, selectDeltaForPrompt,
+  shouldContinueDeltaBatches,
   validateDistillOps, validateDistillResult,
 } from '../server/core/memory-distill-core.ts';
 
@@ -474,6 +476,30 @@ test('a run of failures halves the window down to one record, never to zero', ()
   assert.equal(deltaWindowFor(400, 300), MIN_DELTA_WINDOW);
 });
 
+test('a due run continues through its backlog but stops at the per-run batch cap', () => {
+  assert.equal(shouldContinueDeltaBatches({
+    completedBatches: 1, remaining: 401, status: 'published', cursorAdvanced: true,
+  }), true);
+  assert.equal(shouldContinueDeltaBatches({
+    completedBatches: 2, remaining: 1, status: 'current', cursorAdvanced: true,
+  }), true);
+  assert.equal(shouldContinueDeltaBatches({
+    completedBatches: MAX_DELTA_BATCHES_PER_RUN, remaining: 1, status: 'published', cursorAdvanced: true,
+  }), false);
+  assert.equal(shouldContinueDeltaBatches({
+    completedBatches: 1, remaining: 1, status: 'error', cursorAdvanced: true,
+  }), false);
+});
+
+test('a batch that left the cursor where it was never re-runs the same window', () => {
+  assert.equal(shouldContinueDeltaBatches({
+    completedBatches: 1, remaining: 401, status: 'current', cursorAdvanced: false,
+  }), false);
+  assert.equal(shouldContinueDeltaBatches({
+    completedBatches: 1, remaining: 401, status: 'published', cursorAdvanced: false,
+  }), false);
+});
+
 test('the two prompt corpora carry their own markers, so neither fence closes the other', () => {
   const published = [{ ...claim(), handle: 'c-0123456789', locked: false }];
   const prompt = buildIncrementalDistillPrompt({
@@ -521,6 +547,23 @@ test('a claim whose records left the canon is pruned with no model in the loop',
   });
   assert.equal(merged.ok, true);
   assert.deepEqual(merged.claims.map((entry) => entry.text), ['the surviving claim']);
+});
+
+test('previously published claims survive missing citations until a model operation supersedes them', () => {
+  const published = withHandlesFor([
+    claim({ ids: ['m-0000000000000001'], text: 'the old project claim' }),
+    claim({ project: '/repo/other', ids: ['m-0000000000000002'], text: 'the other project claim' }),
+  ]);
+  const replacement = claim({ ids: ['m-0000000000000003'], text: 'the corrected project claim' });
+  const proposed = applyDistillOps(published, [{ op: 'update', target: published[0].handle, claim: replacement }]);
+  const merged = finalizeMergedClaims(proposed, {
+    records: [record({ id: 'm-0000000000000003', text: replacement.text })],
+    previousTexts: new Set(published.map((entry) => entry.text)),
+    carryForwardClaims: published,
+  });
+
+  assert.equal(merged.ok, true);
+  assert.deepEqual(merged.claims.map((entry) => entry.text), ['the corrected project claim', 'the other project claim']);
 });
 
 test('every locked record is re-synthesized verbatim, so a delta run never diverts on an unread lock', () => {

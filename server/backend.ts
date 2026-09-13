@@ -2,7 +2,6 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import type { Server } from 'node:http';
 import path from 'node:path';
-import packageJson from '../package.json' with { type: 'json' };
 import { resolveAdapter } from '../session/adapters/index.ts';
 import type { Session } from '../session/sessions.ts';
 import { createConfigStore, generateProjectId, ensureProjectIds, glimmervoidHomeDir } from './config-store.ts';
@@ -43,6 +42,7 @@ interface CreateBackendOptions extends BackendLaneOptions {
 
 function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const { staticDir = 'auto', settingsDefaults } = options;
+  const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as { version: string };
 
   const configStore = createConfigStore({ settingsDefaults });
   const { config } = configStore;

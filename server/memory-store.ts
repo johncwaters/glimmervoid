@@ -282,12 +282,12 @@ function createMemoryStore(deps: MemoryStoreOptions = {}) {
 
   function assembleRecords(rawRecords: MemoryRecord[]) {
     const loaded: MemoryRecord[] = [];
-    let invalid = 0;
+    const invalidIds: string[] = [];
     let demoted = 0;
     for (const raw of rawRecords) {
       const checked = verifiedRecord(raw);
       if (!checked) {
-        invalid += 1;
+        invalidIds.push(String(raw.id));
         continue;
       }
       if (checked.demoted) demoted += 1;
@@ -295,7 +295,7 @@ function createMemoryStore(deps: MemoryStoreOptions = {}) {
     }
     const capped = core.enforceKindCaps(core.applySupersessions(loaded), { maxPerKind: config.maxRecordsPerKind });
     return {
-      records: capped.records, dropped: capped.dropped, droppedRecords: capped.droppedRecords, invalid, demoted,
+      records: capped.records, dropped: capped.dropped, droppedRecords: capped.droppedRecords, invalidIds, demoted,
     };
   }
 
@@ -333,7 +333,7 @@ function createMemoryStore(deps: MemoryStoreOptions = {}) {
     records = beforePrune.records.filter((record) => !removedRecordIds.has(record.id));
     cachedDataVersion = versionBeforeSnapshot;
     lastStorePruneAt = pruneAt;
-    return { expiredSegmentKeys, outcome, invalid: beforePrune.invalid, demoted: beforePrune.demoted };
+    return { expiredSegmentKeys, outcome, invalidIds: beforePrune.invalidIds, demoted: beforePrune.demoted };
   }
 
   function pruneStoreAfterAppend(recordsAfterAppend: MemoryRecord[]): void {
@@ -370,10 +370,11 @@ function createMemoryStore(deps: MemoryStoreOptions = {}) {
     openedDb.ensureSearchIndex();
     const pruned = runStorePrune();
     cachedLastAppendAt = openedDb.lastAppendAt();
+    if (pruned.invalidIds.length > 0) log.warn(`invalid memory row ids: ${JSON.stringify(pruned.invalidIds)}`);
     log.note(
       `loaded ${records.length} record(s): ${pruned.expiredSegmentKeys.length} expired segment(s) dropped `
       + `(${pruned.outcome.removedByRetention} record(s)), ${pruned.outcome.removedByCap} over cap, `
-      + `${pruned.invalid} invalid, ${pruned.demoted} demoted`,
+      + `${pruned.invalidIds.length} invalid, ${pruned.demoted} demoted`,
     );
   }
 
@@ -568,9 +569,13 @@ function createMemoryStore(deps: MemoryStoreOptions = {}) {
           const out: (MemoryRecord | null)[] = [];
           for (const input of canonicalInputs) {
             const signed = buildForAppend(input);
-            const seq = signed === null ? false : openedDb.insertRecord(signed);
-            if (!seq || signed === null) {
-              log.debugNote(() => (signed === null ? 'record rejected' : 'record already remembered'));
+            if (signed === null) {
+              out.push(null);
+              continue;
+            }
+            const seq = openedDb.insertRecord(signed);
+            if (!seq) {
+              log.debugNote(() => 'record already remembered');
               out.push(null);
               continue;
             }

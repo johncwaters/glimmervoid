@@ -104,17 +104,17 @@ test('a Stop hook opens a boundary the next prompt consumes once', () => {
   });
   assert.deepEqual(opened.state, { boundary: { ts: 1000, wasAwaitingInput: true }, hasSeenTurnEnd: true, hasSeenPrompt: false });
 
-  const consumed = reduceTurnBoundary(opened.state, { kind: 'user-prompt' });
+  const consumed = reduceTurnBoundary(opened.state, { kind: 'user-prompt', ts: 2000 });
   assert.deepEqual(consumed.boundary, { ts: 1000, wasAwaitingInput: true });
   assert.deepEqual(consumed.state, { boundary: null, hasSeenTurnEnd: true, hasSeenPrompt: true });
 
-  const secondPrompt = reduceTurnBoundary(consumed.state, { kind: 'user-prompt' });
+  const secondPrompt = reduceTurnBoundary(consumed.state, { kind: 'user-prompt', ts: 3000 });
   assert.equal(secondPrompt.boundary, null);
   assert.equal(secondPrompt.state.hasSeenTurnEnd, true);
 });
 
 test('a prompt before any turn has ended reports no turn end', () => {
-  const step = reduceTurnBoundary(initialTurnBoundaryState(), { kind: 'user-prompt' });
+  const step = reduceTurnBoundary(initialTurnBoundaryState(), { kind: 'user-prompt', ts: 10_000 });
   assert.equal(step.boundary, null);
   assert.equal(step.state.hasSeenTurnEnd, false);
   assert.equal(step.hasSeenPriorPrompt, false);
@@ -127,7 +127,7 @@ test('a prompt before any turn has ended reports no turn end', () => {
 });
 
 test('only the very first prompt of a session falls back to followup', () => {
-  const firstPrompt = reduceTurnBoundary(initialTurnBoundaryState(), { kind: 'user-prompt' });
+  const firstPrompt = reduceTurnBoundary(initialTurnBoundaryState(), { kind: 'user-prompt', ts: 10_000 });
   assert.equal(classifyPrompt({
     boundary: firstPrompt.boundary,
     hasSeenTurnEnd: firstPrompt.state.hasSeenTurnEnd,
@@ -135,7 +135,7 @@ test('only the very first prompt of a session falls back to followup', () => {
     ts: 10_000,
   }), 'followup');
 
-  const secondPrompt = reduceTurnBoundary(firstPrompt.state, { kind: 'user-prompt' });
+  const secondPrompt = reduceTurnBoundary(firstPrompt.state, { kind: 'user-prompt', ts: 20_000 });
   assert.equal(secondPrompt.state.hasSeenTurnEnd, false);
   assert.equal(secondPrompt.hasSeenPriorPrompt, true);
   assert.equal(classifyPrompt({
@@ -147,7 +147,7 @@ test('only the very first prompt of a session falls back to followup', () => {
 });
 
 test('a turn end keeps the prompts a session has already seen', () => {
-  const afterPrompt = reduceTurnBoundary(initialTurnBoundaryState(), { kind: 'user-prompt' }).state;
+  const afterPrompt = reduceTurnBoundary(initialTurnBoundaryState(), { kind: 'user-prompt', ts: 500 }).state;
   const afterStop = reduceTurnBoundary(afterPrompt, {
     kind: 'hook-event', event: 'Stop', state: STATES.WAITING, ts: 1000,
   }).state;
@@ -169,11 +169,25 @@ test('only a WAITING or COMPLETE transition and a Stop hook open a boundary', ()
   });
 });
 
-test('work resuming without a prompt retires the boundary so the next prompt is an interruption', () => {
+test('a RUNNING race preserves the prior boundary only for the title race window', () => {
   const afterWaiting = reduceTurnBoundary(initialTurnBoundaryState(), { kind: 'state-change', to: STATES.WAITING, ts: 1000 }).state;
   const waitingResumed = reduceTurnBoundary(afterWaiting, { kind: 'state-change', to: STATES.RUNNING, ts: 2000 }).state;
-  assert.deepEqual(waitingResumed, { boundary: null, hasSeenTurnEnd: true, hasSeenPrompt: false });
-  const promptAfterWaiting = reduceTurnBoundary(waitingResumed, { kind: 'user-prompt' });
+  assert.deepEqual(waitingResumed, {
+    boundary: { ts: 1000, wasAwaitingInput: true, runningAt: 2000 },
+    hasSeenTurnEnd: true,
+    hasSeenPrompt: false,
+  });
+  const racedPrompt = reduceTurnBoundary(waitingResumed, { kind: 'user-prompt', ts: 2500 });
+  assert.deepEqual(racedPrompt.boundary, { ts: 1000, wasAwaitingInput: true });
+  assert.equal(classifyPrompt({
+    boundary: racedPrompt.boundary,
+    hasSeenTurnEnd: racedPrompt.state.hasSeenTurnEnd,
+    hasSeenPriorPrompt: racedPrompt.hasSeenPriorPrompt,
+    ts: 2500,
+  }), 'answer');
+
+  const waitingResumedAgain = reduceTurnBoundary(afterWaiting, { kind: 'state-change', to: STATES.RUNNING, ts: 2000 }).state;
+  const promptAfterWaiting = reduceTurnBoundary(waitingResumedAgain, { kind: 'user-prompt', ts: 600_000 });
   assert.equal(classifyPrompt({
     boundary: promptAfterWaiting.boundary,
     hasSeenTurnEnd: promptAfterWaiting.state.hasSeenTurnEnd,
@@ -183,8 +197,12 @@ test('work resuming without a prompt retires the boundary so the next prompt is 
 
   const afterComplete = reduceTurnBoundary(initialTurnBoundaryState(), { kind: 'state-change', to: STATES.COMPLETE, ts: 1000 }).state;
   const completeResumed = reduceTurnBoundary(afterComplete, { kind: 'state-change', to: STATES.RUNNING, ts: 2000 }).state;
-  assert.deepEqual(completeResumed, { boundary: null, hasSeenTurnEnd: true, hasSeenPrompt: false });
-  const promptAfterComplete = reduceTurnBoundary(completeResumed, { kind: 'user-prompt' });
+  assert.deepEqual(completeResumed, {
+    boundary: { ts: 1000, wasAwaitingInput: false, runningAt: 2000 },
+    hasSeenTurnEnd: true,
+    hasSeenPrompt: false,
+  });
+  const promptAfterComplete = reduceTurnBoundary(completeResumed, { kind: 'user-prompt', ts: 600_000 });
   assert.equal(classifyPrompt({
     boundary: promptAfterComplete.boundary,
     hasSeenTurnEnd: promptAfterComplete.state.hasSeenTurnEnd,
@@ -195,7 +213,7 @@ test('work resuming without a prompt retires the boundary so the next prompt is 
 
 test('a prompt answered while the session still waits keeps scoring as an answer', () => {
   const afterWaiting = reduceTurnBoundary(initialTurnBoundaryState(), { kind: 'state-change', to: STATES.WAITING, ts: 1000 }).state;
-  const prompt = reduceTurnBoundary(afterWaiting, { kind: 'user-prompt' });
+  const prompt = reduceTurnBoundary(afterWaiting, { kind: 'user-prompt', ts: 600_000 });
   assert.equal(classifyPrompt({
     boundary: prompt.boundary,
     hasSeenTurnEnd: prompt.state.hasSeenTurnEnd,
@@ -261,6 +279,26 @@ test('two runs of one session id fold into a single record rather than replacing
   assert.equal(folded.prompts.interruption, 5);
   assert.equal(folded.prompts.ambiguous, 1);
   assert.deepEqual(folded.packs, [{ name: 'alpha', version: 'v2', tokenEstimate: 200 }]);
+});
+
+test('an empty teardown outcome cannot erase an earlier real outcome', () => {
+  const ended = record({
+    startedAt: 100,
+    endedAt: 200,
+    disposition: 'user-kill',
+    finalState: 'DONE',
+  });
+  const teardown = record({
+    startedAt: 300,
+    endedAt: 400,
+    disposition: null,
+    finalState: '',
+  });
+  const [folded] = mergeRecords([ended], [teardown]);
+  assert.ok(folded);
+  assert.equal(folded.endedAt, 400);
+  assert.equal(folded.disposition, 'user-kill');
+  assert.equal(folded.finalState, 'DONE');
 });
 
 test('a session with a persisted run and a live run is one delivery, still live', () => {

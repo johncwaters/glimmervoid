@@ -36,6 +36,7 @@ const OPS: readonly string[] = Object.freeze(['add', 'update', 'retire']);
 const PENDING_DIR_NAME = 'dist-pending';
 const FAILURES_PER_HALVING = 3;
 const MIN_DELTA_WINDOW = 1;
+const MAX_DELTA_BATCHES_PER_RUN = 4;
 
 export interface DistillClaim {
   kind: string;
@@ -374,6 +375,21 @@ function deltaWindowFor(base: number, failures: unknown): number {
   return Math.max(MIN_DELTA_WINDOW, window);
 }
 
+function shouldContinueDeltaBatches({
+  completedBatches, remaining, status, cursorAdvanced, maxBatches = MAX_DELTA_BATCHES_PER_RUN,
+}: {
+  completedBatches: number;
+  remaining: number;
+  status: string;
+  cursorAdvanced: boolean;
+  maxBatches?: number;
+}): boolean {
+  if (status !== 'published' && status !== 'current') return false;
+  if (remaining <= 0) return false;
+  if (!cursorAdvanced) return false;
+  return completedBatches < Math.max(1, Math.floor(maxBatches));
+}
+
 function withHandles(claims: unknown): HandledClaim[] {
   return (Array.isArray(claims) ? (claims as DistillClaim[]) : []).map((claim) => ({ ...claim, handle: claimHandle(claim) }));
 }
@@ -605,21 +621,23 @@ function lockedClaimFor(record: MemoryRecord): HandledClaim {
 
 function finalizeMergedClaims(claims: unknown, {
   records = [], previousTexts = new Set<string>(), maxNewClaims = DEFAULT_MAX_NEW_CLAIMS, maxClaims = MAX_CLAIMS,
-  lockedTouched = [],
+  lockedTouched = [], carryForwardClaims = [],
 }: {
   records?: MemoryRecord[];
   previousTexts?: Set<string>;
   maxNewClaims?: number;
   maxClaims?: number;
   lockedTouched?: string[];
+  carryForwardClaims?: HandledClaim[];
 } = {}): MergedClaimsResult {
   const valid = Array.isArray(records) ? records : [];
   const validIds = new Set(valid.map((record) => record.id));
   const lockedIds = new Set(valid.filter((record) => record.locked === true).map((record) => record.id));
+  const carriedHandles = new Set(withHandles(carryForwardClaims).map((claim) => claim.handle));
   const merged: HandledClaim[] = [];
   const seen = new Set<string>();
   for (const claim of withHandles(claims)) {
-    if (!claim.ids.every((id) => validIds.has(id))) continue;
+    if (!claim.ids.every((id) => validIds.has(id)) && !carriedHandles.has(claim.handle)) continue;
     if (claim.ids.some((id) => lockedIds.has(id))) continue;
     if (seen.has(claim.handle)) continue;
     seen.add(claim.handle);
@@ -773,6 +791,7 @@ export {
   INTERVAL_MINUTES_RANGE,
   MAX_CLAIMS,
   MAX_CLAIM_IDS,
+  MAX_DELTA_BATCHES_PER_RUN,
   FAILURES_PER_HALVING,
   MAX_NEW_CLAIMS_RANGE,
   MAX_PROJECT_CHARS_RANGE,
@@ -806,6 +825,7 @@ export {
   resolveDistillConfig,
   selectCanonForPrompt,
   selectDeltaForPrompt,
+  shouldContinueDeltaBatches,
   validateDistillOps,
   validateDistillResult,
 };

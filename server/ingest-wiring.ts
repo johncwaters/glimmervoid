@@ -5,6 +5,8 @@ import {
 } from './core/ingest-core.ts';
 import type { IngestConfig, IngestEvent } from './core/ingest-core.ts';
 import { deriveSessionRoots, isActiveSessionState } from './core/ingest-fs-core.ts';
+import { drainBatchLog, emptyBatchLogState, recordBatchLog } from './core/ingest-batch-log-core.ts';
+import type { BatchLogState } from './core/ingest-batch-log-core.ts';
 import { createAgentLogIngest } from './ingest-agent-logs.ts';
 import type { AgentLogConsumer, AgentLogIngestOptions } from './ingest-agent-logs.ts';
 import { createEditorIngest } from './ingest-editor.ts';
@@ -84,9 +86,10 @@ function createIngestLane({
   const store = createIngestStore(resolved);
   const sources = enabledSourceNames(resolved);
   let pendingEvents: IngestEvent[] = [];
+  let batchLogState: BatchLogState = emptyBatchLogState();
   let stopped = false;
 
-  const { debugNote, note, warn } = createLaneLog({ prefix: '[ingest]', logger, debugFlag: debug });
+  const { note, warn } = createLaneLog({ prefix: '[ingest]', logger, debugFlag: debug });
 
   function emit(message: Record<string, unknown>): void {
     if (typeof broadcast !== 'function') return;
@@ -99,7 +102,6 @@ function createIngestLane({
 
   function pokeActivity(): void {
     if (typeof onActivity !== 'function') return;
-    debugNote(() => 'activity poke');
     try {
       onActivity();
     } catch (error) {
@@ -120,13 +122,25 @@ function createIngestLane({
       ts: nowFn(),
     };
     emit(message);
-    debugNote(() => `batch flushed: ${events.length} events (seq ${events[events.length - 1].seq}-${events[0].seq}), ${message.overflow} overflowed`);
+    const firstSeq = newestFirst[newestFirst.length - 1].seq;
+    const lastSeq = newestFirst[0].seq;
+    batchLogState = recordBatchLog(batchLogState, {
+      events: events.length, overflowed: message.overflow, firstSeq, lastSeq,
+    });
+    if (message.overflow > 0) warn(`batch overflow: ${events.length} events (seq ${firstSeq}-${lastSeq}), ${message.overflow} overflowed`);
     pokeActivity();
     return message;
   }
 
   let batchTimer: NodeJS.Timeout | null = setIntervalFn(flushBatch, batchIntervalMs);
+  let batchLogTimer: NodeJS.Timeout | null = setIntervalFn(() => {
+    const drained = drainBatchLog(batchLogState);
+    batchLogState = drained.next;
+    if (!drained.summary) return;
+    note(`batch summary: ${drained.summary.events} events across ${drained.summary.batches} batches (seq ${drained.summary.firstSeq}-${drained.summary.lastSeq}), ${drained.summary.overflowed} overflowed`);
+  }, 60000);
   if (batchTimer && typeof batchTimer.unref === 'function') batchTimer.unref();
+  if (batchLogTimer && typeof batchLogTimer.unref === 'function') batchLogTimer.unref();
 
   function publish(raw: unknown): IngestEvent | null {
     if (stopped) return null;
@@ -292,6 +306,8 @@ function createIngestLane({
     stopped = true;
     if (batchTimer) clearIntervalFn(batchTimer);
     batchTimer = null;
+    if (batchLogTimer) clearIntervalFn(batchLogTimer);
+    batchLogTimer = null;
     pendingEvents = [];
     for (const adapter of adapters) {
       try {

@@ -653,6 +653,172 @@ test('a directory that is not a repo is skipped without disabling the source', a
   await source.stop();
 });
 
+test('a missing repository root is dropped after status fails, without retry noise', async () => {
+  const published: GitIngestEvent[] = [];
+  const timers = fakeTimers();
+  const watchers = fakeWatchers();
+  const warnings: string[] = [];
+  let isMissing = false;
+  const fake = fakeGit({
+    status: () => {
+      if (isMissing) throw Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' });
+      return porcelain({});
+    },
+  });
+  const source = injectedSource({
+    fake,
+    watchers,
+    timers,
+    published,
+    overrides: {
+      logger: { log: () => {}, warn: (message) => warnings.push(message) },
+      statRepoDir: async () => { throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); },
+    },
+  });
+  await source.start();
+  const installed = watchers.watched.length;
+
+  isMissing = true;
+  await settleThroughDebounce(source, timers);
+
+  assert.equal(source.repoCount, 0);
+  assert.equal(watchers.stopCount, installed);
+  assert.equal(warnings.filter((message) => message.includes('retrying')).length, 0);
+  assert.equal(warnings.filter((message) => message.includes('dropped missing repository')).length, 1);
+  await source.stop();
+});
+
+test('a repository whose root vanished is not re-added from the cached layout on every poll', async () => {
+  const published: GitIngestEvent[] = [];
+  const timers = fakeTimers();
+  const watchers = fakeWatchers();
+  const notes: string[] = [];
+  const warnings: string[] = [];
+  let isMissing = false;
+  const source = injectedSource({
+    fake: fakeGit({ status: () => porcelain({}) }),
+    watchers,
+    timers,
+    published,
+    overrides: {
+      execFileFn: async (_file, args, options) => {
+        if (isMissing) throw Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' });
+        if (args[0] === 'rev-parse') {
+          return { stdout: `${String(options.cwd)}\n${String(options.cwd)}/.git\n${String(options.cwd)}/.git\n` };
+        }
+        if (args.includes('status')) return { stdout: porcelain({}) };
+        return { stdout: logLine(SHA, 'init') };
+      },
+      logger: { log: (message: string) => notes.push(message), warn: (message: string) => warnings.push(message) },
+      statRepoDir: async () => { throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); },
+    },
+  });
+  await source.start();
+  assert.equal(source.repoCount, 1);
+
+  isMissing = true;
+  await settleThroughDebounce(source, timers);
+  assert.equal(source.repoCount, 0);
+
+  for (let poll = 0; poll < 3; poll += 1) {
+    await source.poll();
+    timers.runTimeouts();
+    await source.settle();
+  }
+
+  assert.equal(source.repoCount, 0);
+  assert.equal(notes.filter((message) => message.includes('git source: added')).length, 1);
+  assert.equal(warnings.filter((message) => message.includes('dropped missing repository')).length, 1);
+  await source.stop();
+});
+
+test('a second directory in the same repository does not re-add it after the root vanished', async () => {
+  const published: GitIngestEvent[] = [];
+  const timers = fakeTimers();
+  const watchers = fakeWatchers();
+  const notes: string[] = [];
+  const warnings: string[] = [];
+  let isMissing = false;
+  const source = injectedSource({
+    fake: fakeGit({ status: () => porcelain({}) }),
+    watchers,
+    timers,
+    published,
+    overrides: {
+      reposProvider: () => ['/repo', '/repo/nested'],
+      execFileFn: async (_file, args, _options) => {
+        if (isMissing) throw Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' });
+        if (args[0] === 'rev-parse') return { stdout: '/repo\n/repo/.git\n/repo/.git\n' };
+        if (args.includes('status')) return { stdout: porcelain({}) };
+        return { stdout: logLine(SHA, 'init') };
+      },
+      logger: { log: (message: string) => notes.push(message), warn: (message: string) => warnings.push(message) },
+      statRepoDir: async () => { throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); },
+    },
+  });
+  await source.start();
+  assert.equal(source.repoCount, 1);
+
+  isMissing = true;
+  await settleThroughDebounce(source, timers);
+  assert.equal(source.repoCount, 0);
+
+  for (let poll = 0; poll < 3; poll += 1) {
+    await source.poll();
+    timers.runTimeouts();
+    await source.settle();
+  }
+
+  assert.equal(source.repoCount, 0);
+  assert.equal(notes.filter((message) => message.includes('git source: added')).length, 1);
+  assert.equal(warnings.filter((message) => message.includes('dropped missing repository')).length, 1);
+  await source.stop();
+});
+
+test('a git binary that vanishes from PATH keeps the repo watched and retries', async () => {
+  const published: GitIngestEvent[] = [];
+  const timers = fakeTimers();
+  const watchers = fakeWatchers();
+  const warnings: string[] = [];
+  let spawnFails = false;
+  const fake = fakeGit({
+    status: () => {
+      if (spawnFails) throw Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' });
+      return porcelain({});
+    },
+  });
+  const statted: string[] = [];
+  const source = injectedSource({
+    fake,
+    watchers,
+    timers,
+    published,
+    overrides: {
+      logger: { log: () => {}, warn: (message) => warnings.push(message) },
+      statRepoDir: async (dir: string) => {
+        statted.push(dir);
+        return {};
+      },
+    },
+  });
+  await source.start();
+
+  spawnFails = true;
+  await settleThroughDebounce(source, timers);
+  await settleThroughDebounce(source, timers);
+
+  assert.equal(source.repoCount, 1);
+  assert.deepEqual(statted, ['/repo', '/repo']);
+  assert.equal(watchers.stopCount, 0);
+  assert.equal(warnings.filter((message) => message.includes('dropped missing repository')).length, 0);
+  assert.equal(warnings.filter((message) => message.includes('retrying')).length, 1);
+
+  spawnFails = false;
+  await settleThroughDebounce(source, timers);
+  assert.equal(source.repoCount, 1);
+  await source.stop();
+});
+
 test('a repo the provider stopped naming is dropped, watchers and all', async () => {
   const published: GitIngestEvent[] = [];
   const timers = fakeTimers();

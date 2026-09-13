@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import http from 'node:http';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -10,7 +11,7 @@ type GlimmervoidBackend = ReturnType<typeof import('./server/backend.ts').create
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
-const pkg = require('./package.json') as { version: string };
+const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')) as { version: string };
 
 function glimmervoidBackendPlugin(): Plugin {
   let backend: GlimmervoidBackend | null = null;

@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import {
   CLEAN_SIGNATURE, LOG_FIELD_SEPARATOR, createRepoState, decideGitEvents, deriveWatchDirs,
-  isNoiseGitFile, parseCommitLine, parsePorcelainStatus, parseRevParse, shouldReadCommit, signatureOf,
+  classifyGitStatusFailure, isNoiseGitFile, parseCommitLine, parsePorcelainStatus, parseRevParse, shouldReadCommit, signatureOf,
 } from '../server/core/ingest-git-core.ts';
 
 const NOW = 1700000000000;
@@ -70,6 +70,13 @@ test('rev-parse keeps a linked worktree gitdir separate from the common dir', ()
 test('rev-parse output that is short of its three lines resolves to nothing at all', () => {
   assert.equal(parseRevParse('/projects/glimmervoid\n', '/projects/glimmervoid'), null);
   assert.equal(parseRevParse('', '/projects/glimmervoid'), null);
+});
+
+test('a not-a-repository status error removes the watch root and an ENOENT only asks for a stat', () => {
+  assert.equal(classifyGitStatusFailure(new Error('fatal: not a git repository')), 'missing-root');
+  assert.equal(classifyGitStatusFailure({ code: 'ENOENT' }), 'check-root');
+  assert.equal(classifyGitStatusFailure(Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' })), 'check-root');
+  assert.equal(classifyGitStatusFailure(new Error('git timed out')), 'transient');
 });
 
 test('the watch set is directories, deduped, with the linked worktree gitdir beside the common one', () => {

@@ -1,11 +1,13 @@
 
+import fsp from 'node:fs/promises';
+
 import { execFileAsync } from './child-process-safe.ts';
 import { createWatchDebounce } from '../detection/watch-debounce.ts';
 import type { WatchDebounce } from '../detection/watch-debounce.ts';
 import { canonicalizePath } from '../shared/paths.ts';
 import {
   DEFAULT_DEBOUNCE_MS, DEFAULT_POLL_MS, LOG_ARGS, REV_PARSE_ARGS, STATUS_ARGS, createRepoState,
-  decideGitEvents, deriveWatchDirs, isNoiseGitFile, parseCommitLine, parsePorcelainStatus, parseRevParse,
+  classifyGitStatusFailure, decideGitEvents, deriveWatchDirs, isNoiseGitFile, parseCommitLine, parsePorcelainStatus, parseRevParse,
   shouldReadCommit,
 } from './core/ingest-git-core.ts';
 import type { GitCommit, GitIngestEvent, GitLayout, GitRepoState } from './core/ingest-git-core.ts';
@@ -44,6 +46,7 @@ interface GitIngestOptions {
   ) => Promise<{ stdout: string | Buffer }>;
   createWatch?: typeof createWatchDebounce;
   canonicalize?: (path: string) => string;
+  statRepoDir?: (dir: string) => Promise<unknown>;
   nowFn?: () => number;
   setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
   clearIntervalFn?: (handle: NodeJS.Timeout) => void;
@@ -71,6 +74,7 @@ function createGitIngest({
   execFileFn = execFileAsync,
   createWatch = createWatchDebounce,
   canonicalize = canonicalizePath,
+  statRepoDir = (dir: string) => fsp.stat(dir),
   nowFn = Date.now,
   setIntervalFn = (fn: () => void, ms: number) => setInterval(fn, ms),
   clearIntervalFn = clearInterval,
@@ -141,14 +145,14 @@ function createGitIngest({
   }
 
 
-  async function runGit(cwd: string, args: readonly string[]): Promise<string | null> {
+  async function runGit(cwd: string, args: readonly string[]): Promise<{ stdout: string | null; error: unknown }> {
     try {
       const { stdout } = await execFileFn(gitPath, args, {
         cwd, encoding: 'utf8', timeout: gitTimeoutMs, maxBuffer: MAX_GIT_BUFFER_BYTES,
       });
-      return typeof stdout === 'string' ? stdout : String(stdout || '');
-    } catch {
-      return null;
+      return { stdout: typeof stdout === 'string' ? stdout : String(stdout || ''), error: null };
+    } catch (error) {
+      return { stdout: null, error };
     }
   }
 
@@ -197,9 +201,9 @@ function createGitIngest({
   async function resolveLayout(dir: string): Promise<GitLayout | null> {
     const cached = layoutCache.get(dir);
     if (cached) return cached;
-    const stdout = await runGit(dir, REV_PARSE_ARGS);
-    if (!alive() || stdout === null) return null;
-    const parsed = parseRevParse(stdout, dir);
+    const outcome = await runGit(dir, REV_PARSE_ARGS);
+    if (!alive() || outcome.stdout === null) return null;
+    const parsed = parseRevParse(outcome.stdout, dir);
     if (!parsed) return null;
     const layout = {
       toplevel: canonicalize(parsed.toplevel),
@@ -210,7 +214,20 @@ function createGitIngest({
     return layout;
   }
 
-  function dropRepo(key: string): void {
+  function forgetDir(dir: string, gitDir: string): void {
+    const forgottenDirs = new Set([dir]);
+    for (const [cachedDir, layout] of [...layoutCache]) {
+      if (layout.gitDir !== gitDir) continue;
+      forgottenDirs.add(cachedDir);
+    }
+    for (const forgottenDir of forgottenDirs) layoutCache.delete(forgottenDir);
+    for (const [spelling, canonical] of [...canonicalCache]) {
+      if (!forgottenDirs.has(canonical)) continue;
+      canonicalCache.delete(spelling);
+    }
+  }
+
+  function dropRepo(key: string, { announce = true }: { announce?: boolean } = {}): void {
     const repo = repos.get(key);
     if (!repo) return;
     repos.delete(key);
@@ -218,6 +235,7 @@ function createGitIngest({
     repo.timer = null;
     for (const handle of repo.watchers.values()) handle.stop();
     repo.watchers.clear();
+    if (!announce) return;
     note(`git source: dropped ${repo.root} (${repos.size} repos watched)`);
   }
 
@@ -326,22 +344,46 @@ function createGitIngest({
   }
 
 
+  async function repoDirIsGone(dir: string): Promise<boolean> {
+    try {
+      await statRepoDir(dir);
+      return false;
+    } catch (error) {
+      return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
+    }
+  }
+
+  async function statusFailureMeansRootIsGone(repo: WatchedRepo, error: unknown): Promise<boolean> {
+    const verdict = classifyGitStatusFailure(error);
+    if (verdict === 'transient') return false;
+    if (verdict === 'check-root') return await repoDirIsGone(repo.dir);
+    return true;
+  }
+
   async function readRepo(repo: WatchedRepo): Promise<void> {
-    const statusOut = await runGit(repo.dir, STATUS_ARGS);
+    const statusOutcome = await runGit(repo.dir, STATUS_ARGS);
     if (!alive() || !repos.has(repo.key)) return;
-    if (statusOut === null) {
+    if (statusOutcome.stdout === null) {
+      const rootIsGone = await statusFailureMeansRootIsGone(repo, statusOutcome.error);
+      if (!alive() || !repos.has(repo.key)) return;
+      if (rootIsGone) {
+        forgetDir(repo.dir, repo.key);
+        dropRepo(repo.key, { announce: false });
+        warn(`git source: dropped missing repository ${repo.root}`);
+        return;
+      }
       if (repo.warnedRead) return;
       repo.warnedRead = true;
       warn(`git source: git status failed for ${repo.root}; retrying on the next trigger`);
       return;
     }
     repo.warnedRead = false;
-    const status = parsePorcelainStatus(statusOut);
+    const status = parsePorcelainStatus(statusOutcome.stdout);
     let commit: GitCommit | null = null;
     if (shouldReadCommit(repo.state, status)) {
-      const logOut = await runGit(repo.dir, LOG_ARGS);
+      const logOutcome = await runGit(repo.dir, LOG_ARGS);
       if (!alive() || !repos.has(repo.key)) return;
-      commit = parseCommitLine(logOut || '');
+      commit = parseCommitLine(logOutcome.stdout || '');
     }
     const decided = decideGitEvents({
       previous: repo.state, status, commit, root: repo.root, now: nowFn(),

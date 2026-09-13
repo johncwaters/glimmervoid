@@ -87,6 +87,10 @@ function formatMultiple(multiple: unknown): string {
   return `${(Math.round(value * 10) / 10)}x`;
 }
 
+function shouldRetryTrafficQuery(status: unknown): boolean {
+  return status === 502 || status === 503 || status === 504;
+}
+
 function spikeSummaryLine({ currentUsers, baseline, multiple }: {
   currentUsers?: unknown;
   baseline?: { p90?: unknown } | null;
@@ -153,4 +157,4 @@ function decideTrafficSpike({ currentUsers, baseline, prev, now, cfg }: {
   return verdict('ping', 'spike-started', started, multiple);
 }
 
-export { computeBaseline, decideTrafficSpike, spikeMultiple, formatMultiple, spikeSummaryLine, TRAFFIC_KEY, MIN_BASELINE_SAMPLE_HOURS, DEFAULT_TRAFFIC_SPIKE_MULTIPLIER, DEFAULT_TRAFFIC_SPIKE_MIN_USERS, DEFAULT_TRAFFIC_SPIKE_COOLDOWN_MINUTES, DEFAULT_TRAFFIC_BASELINE_DAYS };
+export { computeBaseline, decideTrafficSpike, spikeMultiple, formatMultiple, spikeSummaryLine, shouldRetryTrafficQuery, TRAFFIC_KEY, MIN_BASELINE_SAMPLE_HOURS, DEFAULT_TRAFFIC_SPIKE_MULTIPLIER, DEFAULT_TRAFFIC_SPIKE_MIN_USERS, DEFAULT_TRAFFIC_SPIKE_COOLDOWN_MINUTES, DEFAULT_TRAFFIC_BASELINE_DAYS };

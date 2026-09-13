@@ -144,18 +144,15 @@ test('the lane names its enabled sources at start and says starting, not started
   assert.equal(notes.some((line) => line.includes('source started')), false);
 });
 
-test('the batch-flush line is debug-gated and carries counts rather than summaries', () => {
-  const quiet = drivenLane({ enabled: true, sources: { git: { enabled: true } } });
-  quiet.lane.publish(commit('a secret command nobody should read in a log'));
-  quiet.timers.runIntervals();
-  assert.equal(quiet.notes.some((line) => line.includes('batch flushed')), false);
-
-  const loud = drivenLane({ enabled: true, sources: { git: { enabled: true } } }, { debug: () => true });
-  loud.lane.publish(commit('a secret command nobody should read in a log'));
-  loud.timers.runIntervals();
-  const flushLine = loud.notes.find((line) => line.includes('batch flushed'));
-  assert.match(String(flushLine), /1 events \(seq \d+-\d+\), 0 overflowed/);
-  assert.equal(loud.notes.some((line) => line.includes('nobody should read')), false);
+test('batch flushes emit one count-only summary per minute', () => {
+  const driven = drivenLane({ enabled: true, sources: { git: { enabled: true } } });
+  driven.lane.publish(commit('a secret command nobody should read in a log'));
+  driven.timers.runIntervals();
+  driven.timers.runIntervals();
+  const summaries = driven.notes.filter((line) => line.includes('batch summary'));
+  assert.equal(summaries.length, 1);
+  assert.match(summaries[0], /1 events across 1 batches \(seq \d+-\d+\), 0 overflowed/);
+  assert.equal(driven.notes.some((line) => line.includes('nobody should read')), false);
 });
 
 test('a debug getter that throws reads as debug off rather than failing the batch', () => {
@@ -509,7 +506,7 @@ test('stop cancels the batch timer, detaches every tap, and refuses later publis
   lane.attachSessionTap(second);
   first.emit('data', 'pending output\n');
   assert.ok(timers.timeoutCount > 0);
-  assert.equal(timers.intervalCount, 1);
+  assert.equal(timers.intervalCount, 2);
 
   lane.stop();
 

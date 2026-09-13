@@ -208,6 +208,7 @@ function harness(over: HarnessOverrides = {}) {
     clearIntervalFn: over.clearIntervalFn || (() => {}),
     setTimeoutFn: over.setTimeoutFn || (() => heldTimer()),
     clearTimeoutFn: () => {},
+    waitForTrafficRetry: over.waitForTrafficRetry,
     log: { warn() {} },
     onTickComplete: (status) => { summaries.push(status); },
     onInvestigationActivity: over.onInvestigationActivity,
@@ -1509,6 +1510,23 @@ test('a failed traffic response is logged, not thrown, and leaves the slice alon
   await flush();
   assert.deepEqual(pings, []);
   assert.equal(poller._state()._traffic, undefined);
+});
+
+test('a transient gateway traffic response retries once before dropping the interval', async () => {
+  let waits = 0;
+  const { poller, pings, trafficCalls } = trafficHarness([
+    { ok: false, status: 503, body: null, error: 'HTTP 503' },
+    trafficBody(87),
+  ], {
+    now: () => HOUR_MS,
+    waitForTrafficRetry: async () => { waits += 1; },
+  });
+  await poller.start();
+  await flush();
+
+  assert.equal(waits, 1);
+  assert.equal(trafficCalls.length, 2);
+  assert.equal(pings.length, 1);
 });
 
 test('the traffic slice is never treated as an issue entry', async () => {

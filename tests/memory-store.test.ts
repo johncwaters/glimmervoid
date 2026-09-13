@@ -591,6 +591,29 @@ test('a row hand-written by another local process is demoted on the next load', 
   }
 });
 
+test('store load names every invalid row once without logging its body', async () => {
+  const dir = tempDir();
+  try {
+    const invalidId = 'm-2222222222222222';
+    const db = createMemoryDb({ dbPath: dbPathFor(dir) });
+    db.close();
+    plantRow(dir, durableRecord({ id: invalidId, text: 'private invalid row body' }), { kind: 'invalid-kind' });
+    const logs: string[] = [];
+    const store = openStore(dir, {
+      logger: { log: (line: string) => { logs.push(line); }, warn: (line: string) => { logs.push(line); } },
+    });
+
+    const identifierLogs = logs.filter((line) => line.includes('invalid memory row ids'));
+    assert.equal(identifierLogs.length, 1);
+    assert.equal(identifierLogs[0].includes(invalidId), true);
+    assert.equal(logs.some((line) => line.includes('private invalid row body')), false);
+    assert.equal(logs.some((line) => line.includes('1 invalid')), true);
+    await store.stop();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('an expired month is deleted whole on load and a live one is kept', async () => {
   const dir = tempDir();
   try {
@@ -978,6 +1001,23 @@ test('a rejected record costs the record, never the append after it', async () =
     const accepted = await store.append(knowledge('the poller ticks every 15 minutes'));
     assert.notEqual(accepted, null);
     assert.equal(readCanon(dir).length, 1);
+    await store.stop();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a rejected record logs its reason once', async () => {
+  const dir = tempDir();
+  try {
+    const logs: string[] = [];
+    const store = openStore(dir, {
+      logger: { log: (line: string) => { logs.push(line); }, warn: (line: string) => { logs.push(line); } },
+      extra: { debug: true },
+    });
+    await store.append(knowledge('the token was wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'));
+
+    assert.deepEqual(logs.filter((line) => line.includes('record rejected')), ['[memory] record rejected: high-entropy']);
     await store.stop();
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
