@@ -10,6 +10,7 @@ import {
 } from '../server/config-store.ts';
 import type { ConfigStore, DefaultConfig, GlimmervoidConfig } from '../server/config-store.ts';
 import { ENV_SECRET_BINDINGS } from '../server/core/config-secrets-core.ts';
+import { getAdapter, setCustomAgents } from '../session/adapters/index.ts';
 import { ConfigUpdate } from '../shared/contracts/index.ts';
 import { SECRET_PRESENCE_SUFFIX as CLIENT_SECRET_PRESENCE_SUFFIX } from '../public/settings-view-core.ts';
 
@@ -93,8 +94,11 @@ test('ensureProjectIds assigns ids only where missing and reports change', () =>
 });
 
 test('validateConfig accepts lenient partial configs and unknown keys', () => {
-  assert.deepEqual(validateConfig({ projects: [], custom: { any: true } }), { ok: true });
-  assert.deepEqual(validateConfig({
+  assert.deepEqual(validateConfig({ projects: [], custom: { any: true } }), {
+    ok: true,
+    config: { projects: [], custom: { any: true } },
+  });
+  const lenient = {
     projects: [{ path: '/repo' }],
     port: 65535,
     autoRecoverSeconds: 0,
@@ -104,7 +108,8 @@ test('validateConfig accepts lenient partial configs and unknown keys', () => {
     worktreeShare: ['node_modules'],
     remote: {},
     unknownKey: 123,
-  }), { ok: true });
+  };
+  assert.deepEqual(validateConfig(lenient), { ok: true, config: lenient });
 });
 
 test('config file compatibility keeps port zero and replayBufferKB zero', () => {
@@ -163,6 +168,32 @@ test('validateConfig rejects a config missing the projects key entirely', () => 
   const validation = validateConfig({ port: 4123 });
   assert.equal(validation.ok, false);
   assert.match((validation.ok ? [] : validation.errors).join('\n'), /projects must be an array/);
+});
+
+test('a loaded config carries the contract defaults, so a bare custom agent declaration reaches the registry intact', () => {
+  withStore(richConfig({ customAgents: [{ id: 'opencode', label: 'OpenCode', command: 'opencode' }] }), (store) => {
+    assert.deepEqual(store.config.customAgents, [
+      { id: 'opencode', label: 'OpenCode', command: 'opencode', args: [] },
+    ]);
+    try {
+      setCustomAgents(store.config.customAgents ?? []);
+      assert.deepEqual(getAdapter('opencode')?.buildArgs(), []);
+    } finally {
+      setCustomAgents([]);
+    }
+  });
+});
+
+test('a dashboard save returns the validated config, so a contract default reaches the runtime without a restart', () => {
+  withStore(richConfig(), (store) => {
+    const saved = store.save((cfg) => {
+      const draft: Record<string, unknown> = cfg;
+      draft.customAgents = [{ id: 'opencode', label: 'OpenCode', command: 'opencode' }];
+    });
+    assert.deepEqual(saved?.customAgents, [
+      { id: 'opencode', label: 'OpenCode', command: 'opencode', args: [] },
+    ]);
+  });
 });
 
 test('save writes an invalid.bak copy when the fresh read is corrupt JSON', () => {

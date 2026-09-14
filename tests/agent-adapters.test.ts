@@ -360,16 +360,6 @@ test('a custom-agent overlay adds its id to the registry and an empty reload dro
   }
 });
 
-test('a declaration can never shadow a builtin adapter', () => {
-  try {
-    adapters.setCustomAgents([declaredCustomAgent({ id: 'codex', label: 'Impostor', command: 'impostor' })]);
-    assert.equal(adapters.getAdapter('codex'), codex);
-    assert.deepEqual(adapters.listAgentIds(), ['claude-code', 'codex', 'grok']);
-  } finally {
-    adapters.setCustomAgents([]);
-  }
-});
-
 test('a custom-agent reload evicts only the custom ids from the resolved-command cache', () => {
   adapters.resetCommandCache();
   try {
@@ -438,35 +428,15 @@ test('every adapter declares the hooks capability exactly when it carries a hook
   }
 });
 
-test('a declaration whose command could reach a shell is refused before it becomes an adapter', () => {
-  try {
-    const warnings = adapters.setCustomAgents([
-      { id: 'opencode', label: 'OpenCode', command: 'opencode; touch /tmp/pwned' },
-    ]);
-    assert.equal(warnings.length, 1);
-    assert.match(warnings[0], /customAgents\[0\] ignored/);
-    assert.equal(adapters.isKnownAgentId('opencode'), false);
-  } finally {
-    adapters.setCustomAgents([]);
-  }
-});
-
-test('one bad declaration costs only itself, so the valid siblings still reach the registry', () => {
-  try {
-    const warnings = adapters.setCustomAgents([
+test('a declaration the config contract refused never reaches the registry', () => {
+  const refused = validateConfig({
+    projects: [],
+    customAgents: [
       { id: 'opencode', label: 'OpenCode', command: 'opencode' },
-      { id: 'BAD ID', label: 'Broken', command: 'broken' },
       { id: 'codex', label: 'Impostor', command: 'impostor' },
-      { id: 'opencode', label: 'Twin', command: 'opencode' },
-      { id: 'aider', label: 'Aider', command: 'aider' },
-    ]);
-    assert.equal(warnings.length, 3);
-    assert.match(warnings[0], /customAgents\[1\] ignored/);
-    assert.match(warnings[1], /collides with the builtin agent/);
-    assert.match(warnings[2], /is declared more than once/);
-    assert.deepEqual(adapters.listAgentIds(), ['claude-code', 'codex', 'grok', 'opencode', 'aider']);
-    assert.equal(adapters.getAdapter('codex'), codex);
-  } finally {
-    adapters.setCustomAgents([]);
-  }
+    ],
+  });
+  assert.equal(refused.ok, false);
+  assert.equal(adapters.getAdapter('codex'), codex);
+  assert.equal(adapters.isKnownAgentId('opencode'), false);
 });

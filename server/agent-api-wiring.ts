@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
-import { resolveAdapter } from '../session/adapters/index.ts';
+import { isKnownAgentId } from '../session/adapters/index.ts';
+import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import type { Session } from '../session/sessions.ts';
 import type { AgentAttentionRequest, AgentBoardRow, AgentSpawnRequest } from '../shared/contracts/session.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
@@ -61,8 +62,10 @@ function createAgentApiWiring({
     const budget = parent.agentSpawnBudget();
     const allowance = decideSpawnAllowance(budget);
     if (!allowance.ok) return { ok: false, status: allowance.status, error: allowance.reason };
-    const agentId = request.agent ? resolveAdapter(request.agent)?.id : parent.agentId;
-    if (!agentId) return { ok: false, status: 400, error: `unknown agent ${request.agent}` };
+    if (request.agent && !isKnownAgentId(request.agent)) {
+      return { ok: false, status: 400, error: `unknown agent ${request.agent}` };
+    }
+    const agentId = request.agent || parent.agentId;
 
     const name = deriveChildSessionName(request.name || parent.name, listAllSessions().map((session) => session.name));
     const id = `${AGENT_LANE_TAG}-${crypto.randomUUID()}`;
@@ -79,7 +82,7 @@ function createAgentApiWiring({
       if (released) return;
       released = true;
       parent.noteAgentChildExit();
-      if (child) broadcastControl({ type: 'session-removed', id, session: name });
+      broadcastControl({ type: 'session-removed', id, session: name });
     };
     const abandonChild = (reason: string): SpawnOutcome => {
       logger.warn(`[${AGENT_LANE_TAG} ${name}] ${reason}`);
@@ -103,7 +106,14 @@ function createAgentApiWiring({
       });
       spawned.on('exit', releaseChildSlot);
       spawned.on('teardown', releaseChildSlot);
-      await spawnGate.run(() => spawned.start());
+      await spawnGate.run(() => {
+        if (spawned._destroyed) return undefined;
+        broadcastControl({
+          type: 'session-added',
+          ...projectSessionCard(spawned, { id, name }),
+        });
+        return spawned.start();
+      });
       if (!spawned.hasLivePty) return abandonChild('the child never reached a live terminal');
       return { ok: true, sessionId: id, name };
     } catch (error) {

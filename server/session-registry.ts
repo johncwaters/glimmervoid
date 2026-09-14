@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import type { Server } from 'node:http';
 
 import { pickAutoResume } from '../session/core/auto-resume.ts';
+import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import type { Session } from '../session/sessions.ts';
 import { isSameDirectoryPath } from '../shared/paths.ts';
 import { STATES } from '../shared/states.ts';
@@ -268,14 +269,7 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
       dependencies.wireSessionEvents(session);
       dependencies.broadcastControl({
         type: 'session-added',
-        id: project.id,
-        session: project.name,
-        path: project.path,
-        state: session.state,
-        stateSince: session.stateSince,
-        skipPerms: !!session.dangerouslySkipPermissions,
-        worktree: !!session.isWorktree,
-        resumeSessionId: session.resumeSessionId || null,
+        ...projectSessionCard(session, { id: project.id, name: project.name }),
       });
       session.start();
       dependencies.logger.log(`[config] Added session: ${project.name}`);
@@ -300,14 +294,7 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
       dependencies.carryWorktreeAcrossRecreate(oldSession, newSession);
       dependencies.broadcastControl({
         type: 'session-modified',
-        id: project.id,
-        session: project.name,
-        path: project.path,
-        state: newSession.state,
-        stateSince: newSession.stateSince,
-        skipPerms: !!newSession.dangerouslySkipPermissions,
-        worktree: !!newSession.isWorktree,
-        resumeSessionId: newSession.resumeSessionId || null,
+        ...projectSessionCard(newSession, { id: project.id, name: project.name }),
       });
       if (!wasDormant) newSession.start();
       dependencies.logger.log(`[config] Modified session: ${project.name}${wasDormant ? ' (left dormant)' : ''}`);

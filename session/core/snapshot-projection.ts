@@ -1,3 +1,38 @@
+import type { SessionCardFields } from "../../shared/contracts/control-messages.ts";
+
+interface SessionCardSource {
+  path: string;
+  state: SessionCardFields["state"];
+  stateSince: number;
+  dangerouslySkipPermissions?: boolean;
+  isWorktree?: boolean;
+  resumeSessionId?: string | null;
+  ephemeral?: boolean;
+}
+
+interface SessionCardIdentity {
+  id: string;
+  name: string;
+}
+
+function projectSessionCard(
+  source: SessionCardSource,
+  { id, name }: SessionCardIdentity,
+): SessionCardFields {
+  const card: SessionCardFields = {
+    id,
+    session: name,
+    path: source.path,
+    state: source.state,
+    stateSince: source.stateSince,
+    skipPerms: !!source.dangerouslySkipPermissions,
+    worktree: !!source.isWorktree,
+    resumeSessionId: source.resumeSessionId || null,
+  };
+  if (source.ephemeral === undefined) return card;
+  return { ...card, ephemeral: source.ephemeral };
+}
+
 interface SnapshotSource {
   id: string;
   name: string;
@@ -64,5 +99,5 @@ function projectSessionSnapshots(source: SnapshotSource) {
   return { wire, debug };
 }
 
-export { projectSessionSnapshots };
-export type { SnapshotSource };
+export { projectSessionCard, projectSessionSnapshots };
+export type { SessionCardIdentity, SessionCardSource, SnapshotSource };

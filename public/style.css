@@ -7162,6 +7162,7 @@ html[data-layout="phone"] .phone-terminal:has(.session-card[data-face="plan"]) .
 .phone-review,
 .phone-radar,
 .phone-prs,
+.phone-issues,
 .phone-usage,
 .phone-mill,
 .phone-visions,
@@ -7174,6 +7175,7 @@ html[data-layout="phone"] .review-resize-handle { display: none; }
 html[data-layout="phone"] .review-sidebar-body { overscroll-behavior: contain; }
 .phone-radar > .radar-view,
 .phone-prs > .pr-view,
+.phone-issues > .issues-view,
 .phone-usage > .usage-view,
 .phone-mill > .mill-view,
 .phone-visions > .visions-view,
@@ -7530,6 +7532,14 @@ html[data-layout="phone"] .pr-reason {
   overflow-wrap: anywhere;
 }
 html[data-layout="phone"] .pr-unconfigured { font-size: 13px; }
+
+html[data-layout="phone"] .issues-view {
+  padding: 14px 12px 24px;
+  font-size: 13px;
+}
+html[data-layout="phone"] .issues-project { padding: 12px; }
+html[data-layout="phone"] .issue-row { grid-template-columns: 1fr; gap: 4px; }
+html[data-layout="phone"] .issues-project-picker { min-width: 0; flex: 1 1 160px; }
 
 .phone-empty { margin: auto; padding: 24px; text-align: center; color: var(--text-dim); }
 .phone-empty[hidden] { display: none; }

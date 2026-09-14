@@ -27,6 +27,7 @@ export interface PhoneShellHooks {
   headerControls?: AdoptableElement[];
   radarPanelEl?: HTMLElement | null;
   prsPanelEl?: HTMLElement | null;
+  issuesPanelEl?: HTMLElement | null;
   usagePanelEl?: HTMLElement | null;
   millPanelEl?: HTMLElement | null;
   visionsPanelEl?: HTMLElement | null;
@@ -42,6 +43,7 @@ const SCREENS: readonly PhoneScreenSpec[] = Object.freeze([
   { id: 'review', label: 'Review', glyph: '◫' },
   { id: 'radar', label: 'Radar', glyph: '◎', nested: true },
   { id: 'prs', label: 'PRs', glyph: '⇅', nested: true },
+  { id: 'issues', label: 'Issues', glyph: '#', nested: true },
   { id: 'usage', label: 'Usage', glyph: '◔', nested: true },
   { id: 'mill', label: 'Mill', glyph: '▦', nested: true },
   { id: 'visions', label: 'Visions', glyph: '◇', nested: true },
@@ -60,6 +62,8 @@ let radarMountEl: HTMLDivElement | null = null;
 let radarPanelEl: AdoptableElement | null = null;
 let prsMountEl: HTMLDivElement | null = null;
 let prsPanelEl: AdoptableElement | null = null;
+let issuesMountEl: HTMLDivElement | null = null;
+let issuesPanelEl: AdoptableElement | null = null;
 let usageMountEl: HTMLDivElement | null = null;
 let usagePanelEl: AdoptableElement | null = null;
 let millMountEl: HTMLDivElement | null = null;
@@ -222,6 +226,7 @@ function build() {
   reviewMountEl = el('div', 'phone-review');
   radarMountEl = el('div', 'phone-radar');
   prsMountEl = el('div', 'phone-prs');
+  issuesMountEl = el('div', 'phone-issues');
   usageMountEl = el('div', 'phone-usage');
   millMountEl = el('div', 'phone-mill');
   visionsMountEl = el('div', 'phone-visions');
@@ -236,6 +241,7 @@ function build() {
     review: reviewMountEl,
     radar: radarMountEl,
     prs: prsMountEl,
+    issues: issuesMountEl,
     usage: usageMountEl,
     mill: millMountEl,
     visions: visionsMountEl,
@@ -367,6 +373,7 @@ export function mountPhoneShell(options?: PhoneShellHooks) {
   hooks = options || {};
   radarPanelEl = hooks.radarPanelEl || null;
   prsPanelEl = hooks.prsPanelEl || null;
+  issuesPanelEl = hooks.issuesPanelEl || null;
   usagePanelEl = hooks.usagePanelEl || null;
   millPanelEl = hooks.millPanelEl || null;
   visionsPanelEl = hooks.visionsPanelEl || null;
@@ -387,6 +394,8 @@ export function activatePhoneShell({ sessionId }: { sessionId?: string } = {}) {
   if (radarPanelEl) radarPanelEl.hidden = false;
   adoptElement(prsPanelEl, prsMountEl);
   if (prsPanelEl) prsPanelEl.hidden = false;
+  adoptElement(issuesPanelEl, issuesMountEl);
+  if (issuesPanelEl) issuesPanelEl.hidden = false;
   adoptElement(usagePanelEl, usageMountEl);
   if (usagePanelEl) usagePanelEl.hidden = false;
   adoptElement(millPanelEl, millMountEl);
@@ -420,6 +429,7 @@ export function deactivatePhoneShell() {
   reparentReviewPanel(null);
   if (radarPanelEl) releaseElement(radarPanelEl);
   if (prsPanelEl) releaseElement(prsPanelEl);
+  if (issuesPanelEl) releaseElement(issuesPanelEl);
   if (usagePanelEl) releaseElement(usagePanelEl);
   if (millPanelEl) releaseElement(millPanelEl);
   if (visionsPanelEl) releaseElement(visionsPanelEl);

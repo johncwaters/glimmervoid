@@ -769,6 +769,7 @@ if (!initialSettingsTarget && !initialPlanTarget) {
 mountPhoneShell({
   radarPanelEl: viewRadarEl,
   prsPanelEl: viewPrsEl,
+  issuesPanelEl: viewIssuesEl,
   usagePanelEl: viewUsageEl,
   millPanelEl: viewMillEl,
   visionsPanelEl: viewVisionsEl,

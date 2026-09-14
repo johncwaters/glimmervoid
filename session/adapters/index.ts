@@ -8,8 +8,7 @@ import type { TitleProfile } from "../../detection/osc-title-source.ts";
 import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import type { PackDelivery } from "../core/pack-pointer-core.ts";
-import { CustomAgentDeclaration } from "../../shared/contracts/index.ts";
-import type { HookPayload } from "../../shared/contracts/index.ts";
+import type { CustomAgentDeclaration, HookPayload } from "../../shared/contracts/index.ts";
 
 interface AgentCapabilities {
   hooks: boolean;
@@ -116,8 +115,7 @@ type AgentAdapterShape = AgentAdapter & Record<string, unknown>;
 
 const DEFAULT_AGENT_ID = claudeCode.id;
 
-type Adapter = AgentAdapter;
-const adapterEntries: [string, Adapter][] = [
+const adapterEntries: [string, AgentAdapter][] = [
   [claudeCode.id, claudeCode],
   [codex.id, codex],
   [grok.id, grok],
@@ -142,32 +140,14 @@ function customAgentFingerprint(agentId: string | null | undefined): string | nu
   return customAgentFingerprints.get(agentId) ?? null;
 }
 
-function setCustomAgents(declared: unknown): string[] {
+function setCustomAgents(declared: readonly CustomAgentDeclaration[]): void {
   for (const customId of customAdapters.keys()) resolvedCommands.delete(customId);
   customAdapters.clear();
   customAgentFingerprints.clear();
-  if (declared == null) return [];
-  if (!Array.isArray(declared)) return ['[glimmervoid] customAgents ignored: customAgents must be an array'];
-  const warnings: string[] = [];
-  for (const [index, candidate] of declared.entries()) {
-    const parsed = CustomAgentDeclaration.safeParse(candidate);
-    if (!parsed.success) {
-      warnings.push(`[glimmervoid] customAgents[${index}] ignored: ${parsed.error.issues.map((issue) => issue.message).join('; ')}`);
-      continue;
-    }
-    const declaration = parsed.data;
-    if (ADAPTERS.has(declaration.id)) {
-      warnings.push(`[glimmervoid] customAgents[${index}] ignored: id "${declaration.id}" collides with the builtin agent of the same id`);
-      continue;
-    }
-    if (customAdapters.has(declaration.id)) {
-      warnings.push(`[glimmervoid] customAgents[${index}] ignored: id "${declaration.id}" is declared more than once`);
-      continue;
-    }
+  for (const declaration of declared) {
     customAdapters.set(declaration.id, createCustomAdapter(declaration));
     customAgentFingerprints.set(declaration.id, declarationFingerprint(declaration));
   }
-  return warnings;
 }
 
 function hookProfileOf(adapter: AgentAdapter): AgentHookProfile | null {
@@ -184,7 +164,7 @@ function isKnownAgentId(agentId: unknown): boolean {
   return ADAPTERS.has(agentId) || customAdapters.has(agentId);
 }
 
-function getAdapter(agentId: string | null | undefined): Adapter | null {
+function getAdapter(agentId: string | null | undefined): AgentAdapter | null {
   if (agentId == null) return ADAPTERS.get(DEFAULT_AGENT_ID) ?? null;
   return ADAPTERS.get(agentId) ?? customAdapters.get(agentId) ?? null;
 }
@@ -192,7 +172,7 @@ function getAdapter(agentId: string | null | undefined): Adapter | null {
 function resolveAdapter(
   agentId: string | null | undefined,
   { warn = console.warn, label = "" }: { warn?: (message: string) => void; label?: string } = {},
-): Adapter | null {
+): AgentAdapter | null {
   const adapter = getAdapter(agentId);
   if (adapter) return adapter;
   warn(`[glimmervoid]${label ? ` ${label}:` : ""} unknown agent "${agentId}", falling back to ${DEFAULT_AGENT_ID}`);
@@ -226,7 +206,6 @@ export {
   setCustomAgents,
 };
 export type {
-  Adapter,
   AgentAdapter,
   AgentAdapterShape,
   AgentArgsOptions,

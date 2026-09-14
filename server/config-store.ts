@@ -18,7 +18,7 @@ type ProjectEntry = Config['projects'][number] & { id: string; name: string };
 interface GlimmervoidConfig extends Config {
   projects: ProjectEntry[];
 }
-type ConfigValidation = { ok: true } | { ok: false; errors: string[] };
+type ConfigValidation = { ok: true; config: GlimmervoidConfig } | { ok: false; errors: string[] };
 
 const DEFAULT_CONFIG = {
   port: 3000,
@@ -184,7 +184,7 @@ function validateConfig(candidate: unknown): ConfigValidation {
     });
     return { ok: false, errors };
   }
-  return { ok: true };
+  return { ok: true, config: parsedConfig.data as GlimmervoidConfig };
 }
 
 function normalizeConfigFile(candidate: unknown): GlimmervoidConfig {
@@ -200,8 +200,8 @@ function normalizeConfigFile(candidate: unknown): GlimmervoidConfig {
     draft[key] = fallback;
   }
   const validation = validateConfig(draft);
-  if ('errors' in validation) throw new Error(`validation failed: ${validation.errors.join('; ')}`);
-  return draft as GlimmervoidConfig;
+  if (!validation.ok) throw new Error(`validation failed: ${validation.errors.join('; ')}`);
+  return validation.config;
 }
 
 function writeBackupContent(backupPath: string, content: string): void {
@@ -408,7 +408,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       console.warn('[config] Failed to write config.json:', errorCode(err));
       return null;
     }
-    return effectiveConfig;
+    return mutatedValidation.config;
   }
 
   function getSettings() {

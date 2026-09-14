@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { AGENT_API_VERBS } from '../shared/contracts/session.ts';
+import type { CustomAgentDeclaration } from '../shared/contracts/config.ts';
 import { execSync } from '../server/child-process-safe.ts';
 import { decideConfigPath, glimmervoidHomeDir } from '../server/core/config-path-core.ts';
 import { packageRoot } from '../server/runtime-paths.ts';
@@ -144,14 +145,14 @@ function resolveConfigPathReadOnly(): string {
   return `${decided.homePath} (created on first run)`;
 }
 
-async function readDeclaredCustomAgents(): Promise<{ declared: unknown; error: string | null }> {
+async function readDeclaredCustomAgents(): Promise<{ declared: readonly CustomAgentDeclaration[]; error: string | null }> {
   const decided = decideReadOnlyConfigPath();
   if (!decided.path) return { declared: [], error: null };
   const { loadConfigFile } = await import('../server/config-store.ts');
   try {
     const loaded = loadConfigFile(decided.path, { exitOnError: false });
     if (!loaded.config) return { declared: [], error: loaded.message };
-    return { declared: loaded.config.customAgents, error: null };
+    return { declared: loaded.config.customAgents ?? [], error: null };
   } catch (err) {
     return { declared: [], error: `could not read ${decided.path}: ${firstLineOf(err)}` };
   }
@@ -193,7 +194,7 @@ async function runDoctor(): Promise<void> {
     const { listAgentIds, getAdapter, commandFor, setCustomAgents } = await import('../session/adapters/index.ts');
     const declaredCustomAgents = await readDeclaredCustomAgents();
     if (declaredCustomAgents.error) line('config', declaredCustomAgents.error);
-    for (const warning of setCustomAgents(declaredCustomAgents.declared)) line('customAgents', warning);
+    setCustomAgents(declaredCustomAgents.declared);
     for (const id of listAgentIds()) {
       const adapter = getAdapter(id);
       if (!adapter) continue;

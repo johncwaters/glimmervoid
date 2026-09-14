@@ -480,6 +480,17 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     console.log(`[control] Added session via UI: ${name}${skipPerms ? ' (skip permissions)' : ' (permission prompts)'}`);
   }
 
+  function handleStartSession(msg: ControlRequest, ws: ControlSocket): void {
+    const sess = findSession(msg);
+    if (!sess) return;
+    if (agentSessions.get(sess.id) === sess) {
+      sendError(ws, 'This session is started by the agent that spawned it', { id: sess.id });
+      return;
+    }
+    if (sess.state !== STATES.DORMANT) return;
+    sess.start();
+  }
+
   function handleRemoveSession(msg: ControlRequest, ws: ControlSocket): void {
     const sess = findSession(msg);
     if (!sess) {
@@ -489,8 +500,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
     if (agentSessions.get(sess.id) === sess) {
       sess.destroy();
-      agentSessions.delete(sess.id);
-      broadcastControl({ type: 'session-removed', id: sess.id, session: sess.name });
       console.log(`[control] Removed spawned session via UI: ${sess.name}`);
       return;
     }
@@ -1083,10 +1092,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'delete-hook': handleDeleteHook,
     'send-diff-annotations': handleSendDiffAnnotations,
     'kill':             (msg: ControlRequest) => { const s = findSession(msg); if (s) s.killSession(); },
-    'start-session':    (msg: ControlRequest) => {
-      const s = findSession(msg);
-      if (s && s.state === STATES.DORMANT) s.start();
-    },
+    'start-session':    handleStartSession,
     'restart':          (msg: ControlRequest) => { const s = findSession(msg); if (s) s.restart({ fresh: msg.fresh === true }); },
     'force-restart':    (msg: ControlRequest) => { const s = findSession(msg); if (s) s.forceRestart({ fresh: msg.fresh === true }); },
     'dismiss':          (msg: ControlRequest) => { const s = findSession(msg); if (s) s.dismiss(); },

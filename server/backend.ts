@@ -270,7 +270,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   laneAssembly.startRuntimeLanes();
 
   function applyCustomAgents(sourceConfig: GlimmervoidConfig): void {
-    for (const warning of setCustomAgents(sourceConfig.customAgents)) console.warn(warning);
+    setCustomAgents(sourceConfig.customAgents ?? []);
   }
 
   function applyConfigReload(newConfig: GlimmervoidConfig): void {

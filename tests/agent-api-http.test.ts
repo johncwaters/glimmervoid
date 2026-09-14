@@ -12,8 +12,10 @@ import { sessionIdFromBranch } from '../server/core/branch-gc-core.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
 import { MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
 import { createSessionEventWiring } from '../server/session-event-wiring.ts';
+import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
+import { SessionCardFields } from '../shared/contracts/index.ts';
 import { createConfigStore, DEFAULT_CONFIG } from '../server/config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts';
 import { STATES } from '../shared/states.ts';
@@ -199,10 +201,12 @@ interface WiringFixtureOptions {
   spawnFails?: boolean;
   makeSessionThrowsFirst?: boolean;
   laneSessions?: Session[];
+  holdSpawnGate?: boolean;
 }
 
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
+  holdSpawnGate = false,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -217,6 +221,7 @@ function wiringFixture({
   const childProjects: ProjectEntry[] = [];
   const wired: Session[] = [];
   const broadcasts: Record<string, unknown>[] = [];
+  const heldGateTasks: (() => void)[] = [];
   let makeSessionCalls = 0;
   const makeSession = (project: ProjectEntry, _config: GlimmervoidConfig, overrides: Partial<SessionOptions> = {}) => {
     makeSessionCalls += 1;
@@ -246,15 +251,24 @@ function wiringFixture({
     wireSessionEvents: (session: Session) => { wired.push(session); },
     closeSessionDataClients: () => {},
     broadcastControl: (message) => { broadcasts.push(message); },
-    spawnGate: { run: (task: () => unknown) => Promise.resolve(task()) },
+    spawnGate: {
+      run: (task: () => unknown) => (holdSpawnGate
+        ? new Promise<unknown>((resolve) => { heldGateTasks.push(() => { resolve(task()); }); })
+        : Promise.resolve(task())),
+    },
     logger: { warn: () => {} },
   });
+  const releaseSpawnGate = () => {
+    for (const admit of heldGateTasks.splice(0)) admit();
+  };
   const spawn = (session: Session, request: Record<string, unknown>) => wiring.handle(session, 'spawn', request);
   const destroyAll = () => {
     for (const session of created) session.destroy();
     parent.destroy();
   };
-  return { wiring, spawn, parent, agentSessions, created, childProjects, wired, broadcasts, destroyAll };
+  return {
+    wiring, spawn, parent, agentSessions, created, childProjects, wired, broadcasts, releaseSpawnGate, destroyAll,
+  };
 }
 
 test('a valid spawn creates exactly one sibling that may not spawn again', async () => {
@@ -273,6 +287,23 @@ test('a valid spawn creates exactly one sibling that may not spawn again', async
     });
     const grandchild = await fixture.spawn(child, { prompt: 'go deeper' });
     assert.equal(grandchild.status, 403);
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
+test('a spawn naming an unknown agent is refused rather than silently handed the default adapter', async () => {
+  const fixture = wiringFixture();
+  try {
+    const reply = await fixture.spawn(fixture.parent, { prompt: 'review the diff', agent: 'opencode-typo' });
+    assert.equal(reply.status, 400);
+    assert.equal(reply.body.ok, false);
+    assert.match(String(reply.body.error), /unknown agent opencode-typo/);
+    assert.equal(fixture.created.length, 0, 'no child process was started');
+    assert.equal(fixture.agentSessions.size, 0);
+    assert.deepEqual(fixture.parent.agentSpawnBudget(), {
+      liveChildren: 0, lifetimeSpawns: 0, inFlight: 0, depth: 0,
+    });
   } finally {
     fixture.destroyAll();
   }
@@ -357,12 +388,113 @@ test('the board carries the operator sessions only, never an internal lane sessi
   }
 });
 
+test('a spawned child reaches the dashboard as one session-added card', async () => {
+  const fixture = wiringFixture();
+  try {
+    const reply = await fixture.spawn(fixture.parent, { prompt: 'review the diff' });
+    const added = fixture.broadcasts.filter((message) => message.type === 'session-added');
+    assert.equal(added.length, 1, 'the child card is announced exactly once');
+    const { stateSince, ...card } = added[0];
+    assert.equal(typeof stateSince, 'number');
+    assert.deepEqual(card, {
+      type: 'session-added',
+      id: reply.body.sessionId,
+      session: reply.body.name,
+      path: fixture.parent.path,
+      state: STATES.DORMANT,
+      skipPerms: true,
+      worktree: fixture.parent.isWorktree,
+      resumeSessionId: null,
+      ephemeral: true,
+    });
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
+test('the child card is withheld until the spawn gate admits the start', async () => {
+  const fixture = wiringFixture({ holdSpawnGate: true });
+  try {
+    const pending = fixture.spawn(fixture.parent, { prompt: 'review the diff' });
+    await Promise.resolve();
+    assert.equal(
+      fixture.broadcasts.filter((message) => message.type === 'session-added').length,
+      0,
+      'a queued spawn leaves no dormant card on the dashboard',
+    );
+    fixture.releaseSpawnGate();
+    const reply = await pending;
+    assert.equal(reply.status, 200);
+    const added = fixture.broadcasts.filter((message) => message.type === 'session-added');
+    assert.equal(added.length, 1);
+    assert.equal(added[0].id, reply.body.sessionId);
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
+test('a child destroyed while the gate holds it is never carded and is still cleared from the dashboard', async () => {
+  const fixture = wiringFixture({ holdSpawnGate: true });
+  try {
+    const pending = fixture.spawn(fixture.parent, { prompt: 'review the diff' });
+    await Promise.resolve();
+    const queuedChildId = fixture.created[0].id;
+    fixture.created[0].destroy();
+    fixture.releaseSpawnGate();
+    const reply = await pending;
+    assert.equal(reply.status, 500, 'the caller is told the child never came up');
+    assert.equal(
+      fixture.broadcasts.filter((message) => message.type === 'session-added').length,
+      0,
+      'no card is announced for a child that is already gone',
+    );
+    assert.deepEqual(
+      fixture.broadcasts.filter((message) => message.type === 'session-removed').map((message) => message.id),
+      [queuedChildId],
+      'the queued child is cleared once, so a snapshot that listed it does not keep a stale card',
+    );
+    assert.equal(fixture.agentSessions.size, 0, 'the destroyed child left the live map');
+    assert.equal(fixture.parent.agentSpawnBudget().liveChildren, 0, 'the slot was released exactly once');
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
+test('the shared session card projection carries exactly the session-added payload fields', () => {
+  const source = {
+    path: '/repo',
+    state: STATES.DORMANT,
+    stateSince: 1700000000000,
+    dangerouslySkipPermissions: true,
+    isWorktree: false,
+    resumeSessionId: null,
+    ephemeral: true,
+  };
+  const ephemeralCard = projectSessionCard(source, { id: 'child-id', name: 'child name' });
+  assert.deepEqual(ephemeralCard, {
+    id: 'child-id',
+    session: 'child name',
+    path: '/repo',
+    state: STATES.DORMANT,
+    stateSince: 1700000000000,
+    skipPerms: true,
+    worktree: false,
+    resumeSessionId: null,
+    ephemeral: true,
+  });
+  assert.equal(SessionCardFields.safeParse(ephemeralCard).success, true, 'the card satisfies the wire contract');
+  const operatorCard = projectSessionCard({ ...source, ephemeral: false }, { id: 'operator-id', name: 'operator name' });
+  assert.equal(operatorCard.ephemeral, false, 'an operator card carries the flag its own session owns');
+  const flaglessCard = projectSessionCard({ ...source, ephemeral: undefined }, { id: 'plain-id', name: 'plain name' });
+  assert.equal('ephemeral' in flaglessCard, false, 'a source without the flag leaves it off the wire');
+});
+
 test('a child exiting tells the dashboard its card is gone', async () => {
   const fixture = wiringFixture();
   try {
     const reply = await fixture.spawn(fixture.parent, { prompt: 'review the diff' });
     fixture.created[0].emit('exit');
-    assert.deepEqual(fixture.broadcasts, [
+    assert.deepEqual(fixture.broadcasts.filter((message) => message.type === 'session-removed'), [
       { type: 'session-removed', id: reply.body.sessionId, session: reply.body.name },
     ]);
   } finally {
@@ -475,25 +607,25 @@ interface SnapshotFrame {
   sessions?: { id: string }[];
 }
 
-test('removing a spawned child from the dashboard destroys it and clears its card', () => {
-  const child = plainSession('agent-spawn-removable', 'parent agent');
-  const agentSessions = new Map<string, Session>([[child.id, child]]);
-  const broadcasts: Record<string, unknown>[] = [];
+test('removing a spawned child from the dashboard destroys it and clears its card exactly once', async () => {
+  const fixture = wiringFixture();
   try {
-    const server = createControlServer(controlDeps({ projects: [] }, {
-      agentSessions,
-      broadcastControl: (message) => { broadcasts.push(message); },
+    const spawned = await fixture.spawn(fixture.parent, { prompt: 'review the diff' });
+    const childId = String(spawned.body.sessionId);
+    const server = createControlServer(controlDeps({ ...DEFAULT_CONFIG, projects: [] }, {
+      agentSessions: fixture.agentSessions,
+      broadcastControl: (message) => { fixture.broadcasts.push(message); },
     }));
     const connection = connectControl<SnapshotFrame>(server);
-    connection.send({ type: 'remove-session', id: child.id });
-    assert.equal(agentSessions.size, 0, 'the child is gone from the live map');
-    assert.equal(child._destroyed, true, 'the child process was torn down');
+    connection.send({ type: 'remove-session', id: childId });
+    assert.equal(fixture.agentSessions.size, 0, 'the child is gone from the live map');
+    assert.equal(fixture.created[0]._destroyed, true, 'the child process was torn down');
     assert.deepEqual(
-      broadcasts.filter((message) => message.type === 'session-removed'),
-      [{ type: 'session-removed', id: child.id, session: child.name }],
+      fixture.broadcasts.filter((message) => message.type === 'session-removed'),
+      [{ type: 'session-removed', id: childId, session: spawned.body.name }],
     );
   } finally {
-    child.destroy();
+    fixture.destroyAll();
   }
 });
 
@@ -551,6 +683,22 @@ test('a live agent child is on the control snapshot and a kill reaches it', () =
     assert.deepEqual(snapshot.sessions?.map((row) => row.id), [child.id]);
     connection.send({ type: 'kill', id: child.id });
     assert.deepEqual(killed, [child.id], 'the kill reached the spawned sibling');
+  } finally {
+    child.destroy();
+  }
+});
+
+test('a start-session for an agent child is refused so it cannot race the spawn gate', () => {
+  const child = plainSession('agent-spawn-tapped', 'parent agent');
+  let startAttempts = 0;
+  child.start = () => { startAttempts += 1; return Promise.resolve(); };
+  const agentSessions = new Map<string, Session>([[child.id, child]]);
+  try {
+    const server = createControlServer(controlDeps({ projects: [] }, { agentSessions }));
+    const connection = connectControl<{ type: string; message?: string }>(server);
+    connection.send({ type: 'start-session', id: child.id });
+    assert.equal(startAttempts, 0, 'the dashboard tap never starts a child its parent owns');
+    assert.equal(connection.sent.filter((frame) => frame.type === 'error').length, 1, 'the dashboard is told why');
   } finally {
     child.destroy();
   }

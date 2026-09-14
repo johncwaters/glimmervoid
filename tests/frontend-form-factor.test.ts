@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 
 const importCore = () => import('../public/form-factor-core.ts');
 
@@ -36,4 +37,15 @@ test('the media queries the shell evaluates are derived from the one width const
   assert.equal(PHONE_MAX_WIDTH_PX, 768);
   assert.equal(PHONE_NARROW_QUERY, '(max-width: 768px)');
   assert.equal(COARSE_POINTER_QUERY, '(pointer: coarse)');
+});
+
+test('the phone shell carries the GitHub issues screen and adopts the one desktop panel', () => {
+  const phoneShellSource = fs.readFileSync(new URL('../public/phone/phone-shell.ts', import.meta.url), 'utf8');
+  const appSource = fs.readFileSync(new URL('../public/app.ts', import.meta.url), 'utf8');
+
+  assert.match(phoneShellSource, /\{ id: 'issues',[^}]*nested: true \}/);
+  assert.match(phoneShellSource, /adoptElement\(issuesPanelEl, issuesMountEl\)/);
+  assert.match(phoneShellSource, /if \(issuesPanelEl\) releaseElement\(issuesPanelEl\)/);
+  assert.match(appSource, /issuesPanelEl: viewIssuesEl,/);
+  assert.equal(appSource.match(/mountIssuesView\(/g)?.length, 1, 'the issues panel is rendered once for both layouts');
 });

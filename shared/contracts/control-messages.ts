@@ -25,6 +25,19 @@ const opaqueObject = openObject();
 const opaqueArray = z.array(z.unknown());
 const planRevisionNumber = z.number().int().positive();
 const trailSteps = z.array(openObject({ at: timestamp, tool: z.string(), detail: z.string() }));
+export const SessionCardFields = z.object({
+  id: sessionId,
+  session: z.string(),
+  path: z.string(),
+  state: SessionState,
+  stateSince: timestamp,
+  skipPerms: z.boolean(),
+  worktree: z.boolean(),
+  resumeSessionId: nullableString,
+  ephemeral: z.boolean().optional(),
+});
+export type SessionCardFields = z.infer<typeof SessionCardFields>;
+
 const githubIssueRow = z.object({
   number: z.number().int().positive(),
   title: z.string(),
@@ -319,28 +332,8 @@ const serverVariants = [
     timestamp,
     skipPerms: z.boolean().optional(),
   }),
-  loose('session-added', {
-    id: sessionId,
-    session: z.string(),
-    path: z.string(),
-    state: SessionState,
-    stateSince: timestamp,
-    skipPerms: z.boolean(),
-    worktree: z.boolean(),
-    resumeSessionId: nullableString,
-    ephemeral: z.boolean().optional(),
-  }),
-  loose('session-modified', {
-    id: sessionId,
-    session: z.string(),
-    path: z.string(),
-    state: SessionState,
-    stateSince: timestamp,
-    skipPerms: z.boolean(),
-    worktree: z.boolean(),
-    resumeSessionId: nullableString,
-    ephemeral: z.boolean().optional(),
-  }),
+  loose('session-added', SessionCardFields.shape),
+  loose('session-modified', SessionCardFields.shape),
   loose('session-removed', { id: sessionId, session: z.string() }),
   loose('session-renamed', { id: sessionId, oldName: z.string(), newName: z.string() }),
   loose('session-git', { id: sessionId, worktree: z.boolean() }),
