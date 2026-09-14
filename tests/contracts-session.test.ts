@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  AgentAttentionRequest, AgentBoardRow, AgentSpawnRequest, PendingWakeup, SessionSnapshot,
+  AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentSpawnRequest, PendingWakeup, SessionSnapshot,
 } from '../shared/contracts/session.ts';
 import { Session } from '../session/sessions.ts';
 test('SessionSnapshot preserves nested extension fields', () => {
@@ -97,6 +97,14 @@ test('an attention request carries one bounded note and nothing else', () => {
   assert.equal(AgentAttentionRequest.safeParse({ note: 'x'.repeat(501) }).success, false);
   assert.equal(AgentAttentionRequest.safeParse({ note: 'x'.repeat(500) }).success, true);
   assert.equal(AgentAttentionRequest.safeParse({ note: 'hi', promptKind: 'agent' }).success, false);
+});
+
+test('an attention reply always says whether the note was held for a later state', () => {
+  assert.deepEqual(AgentAttentionReply.parse({ ok: true, pending: true }), { ok: true, pending: true });
+  assert.deepEqual(AgentAttentionReply.parse({ ok: true, pending: false }), { ok: true, pending: false });
+  assert.equal(AgentAttentionReply.safeParse({ ok: true }).success, false);
+  assert.equal(AgentAttentionReply.safeParse({ ok: false, pending: false }).success, false);
+  assert.equal(AgentAttentionReply.safeParse({ ok: true, pending: false, note: 'hi' }).success, false);
 });
 
 test('a board row is a strict subset of the snapshot that carries no path', () => {

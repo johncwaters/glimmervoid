@@ -1,5 +1,6 @@
 import { createNotifyGate, explainNotification } from '../session/core/notify-gate.ts';
 import type { Session } from '../session/sessions.ts';
+import { AGENT_ATTENTION_NOTE_SEPARATOR } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
 import type { ControlMessageRecord } from './control-replay-core.ts';
@@ -216,6 +217,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         message(session.name, { planTitle: planTitleForCopy, agentNote: agentNoteForCopy }),
         planTitleForCopy === null ? null : 'plan',
       );
+      if (agentNoteForCopy !== null) pendingAgentNote = null;
     });
 
     const ingestLaneAtWiring = dependencies.getIngestLane();
@@ -229,7 +231,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       if (dependencies.millMetricsPort) dependencies.millMetricsPort.onPacksDelivered(session.id, payload);
     });
     session.on('agent-attention', ({ note }: { note: string }) => {
-      pendingAgentNote = note;
+      pendingAgentNote = pendingAgentNote === null ? note : `${pendingAgentNote}${AGENT_ATTENTION_NOTE_SEPARATOR}${note}`;
     });
     session.on('user-prompt', () => {
       pendingAgentNote = null;

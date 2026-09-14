@@ -158,9 +158,9 @@ const PlanReviewSettings = z.object({
   enabled: optionalBoolean('planReview.enabled'),
 }, { error: 'planReview must be an object' }).optional();
 
-const AgentApiSettings = z.object({
-  enabled: optionalBoolean('agentApi.enabled'),
-}, { error: 'agentApi must be an object' }).optional();
+const agentApiShape = { enabled: optionalBoolean('agentApi.enabled') };
+const AgentApiSettings = z.object(agentApiShape, { error: 'agentApi must be an object' }).strict().optional();
+const AgentApiFileSettings = z.object(agentApiShape, { error: 'agentApi must be an object' }).passthrough().optional();
 
 const BROWSER_CONFIG_SHAPE = {
   port: z.number().int().min(0).max(65535).optional(),
@@ -195,6 +195,7 @@ const BROWSER_CONFIG_SHAPE = {
   millMetrics: MillMetricsSettings,
   memory: MillSettings,
   ingest: MillSettings,
+  agentApi: AgentApiSettings,
 };
 
 export const BrowserConfig = z.object(BROWSER_CONFIG_SHAPE);
@@ -272,9 +273,9 @@ const FILE_CONFIG_SHAPE = {
   millMetrics: optionalLooseObject('millMetrics'),
   memory: optionalLooseObject('memory'),
   ingest: optionalLooseObject('ingest'),
+  agentApi: AgentApiFileSettings,
   trace: TraceSettings,
   planReview: PlanReviewSettings,
-  agentApi: AgentApiSettings,
   customAgents: CustomAgentDeclarations.optional(),
 };
 export const Config = z.object({
@@ -311,6 +312,7 @@ export const Config = z.object({
 export const BROWSER_CONFIG_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE));
 export const CONFIG_BLOCK_KEYS = Object.freeze([
   'prReview', 'branchGc', 'visions', 'posthog', 'usage', 'telegram', 'packDistiller', 'millMetrics', 'memory', 'ingest',
+  'agentApi',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {
   if (CONFIG_BLOCK_KEYS.includes(key)) return false;

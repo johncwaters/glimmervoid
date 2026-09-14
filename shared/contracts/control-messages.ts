@@ -25,6 +25,15 @@ const opaqueObject = openObject();
 const opaqueArray = z.array(z.unknown());
 const planRevisionNumber = z.number().int().positive();
 const trailSteps = z.array(openObject({ at: timestamp, tool: z.string(), detail: z.string() }));
+export const CustomAgentSummaryRow = z.object({
+  id: z.string(),
+  label: z.string(),
+  command: z.string(),
+  args: z.array(z.string()),
+  resolvable: z.boolean().nullable(),
+}).strict();
+export type CustomAgentSummaryRow = z.infer<typeof CustomAgentSummaryRow>;
+
 export const SessionCardFields = z.object({
   id: sessionId,
   session: z.string(),

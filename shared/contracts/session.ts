@@ -49,9 +49,16 @@ export const AgentSpawnRequest = z.object({
   agent: z.string({ error: 'agent must be a string' }).min(1, { error: 'agent must not be empty' }).max(40, { error: 'agent must be at most 40 characters' }).optional(),
 }).strict();
 
+export const AGENT_ATTENTION_NOTE_SEPARATOR = ' | ';
+
 export const AgentAttentionRequest = z.object({
   note: z.string({ error: 'note must be a string' }).min(1, { error: 'note must not be empty' }).max(500, { error: 'note must be at most 500 characters' }),
 }).strict();
+
+export const AgentAttentionReply = z.union([
+  z.object({ ok: z.literal(true), pending: z.boolean() }).strict(),
+  z.object({ ok: z.literal(false), error: z.string() }).strict(),
+]);
 
 export const AgentBoardRow = z.object({
   id: SessionSnapshot.shape.id,
@@ -63,4 +70,5 @@ export const AgentBoardRow = z.object({
 
 export type AgentSpawnRequest = z.infer<typeof AgentSpawnRequest>;
 export type AgentAttentionRequest = z.infer<typeof AgentAttentionRequest>;
+export type AgentAttentionReply = z.infer<typeof AgentAttentionReply>;
 export type AgentBoardRow = z.infer<typeof AgentBoardRow>;

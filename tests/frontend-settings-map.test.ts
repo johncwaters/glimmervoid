@@ -141,3 +141,23 @@ test('file-only paths exist in defaults and never enter a dirty payload', async 
   }
   assert.deepEqual(collectDirtyBlocks(SETTINGS_MAP, original, edited), {});
 });
+
+test('the agent API toggle is dashboard-writable and the custom agents row stays file-only', async () => {
+  const { SETTINGS_MAP } = await loadMap();
+  const settings = SETTINGS_MAP.flatMap<SettingsSetting>((section) => section.settings);
+
+  const agentApi = settings.find((setting) => setting.path === 'agentApi.enabled');
+  assert.ok(agentApi, 'the map exposes agentApi.enabled');
+  assert.equal(agentApi.control, 'toggle');
+  assert.equal(agentApi.danger, true);
+  assert.ok(agentApi.dangerConfirmation);
+  assert.ok(agentApi.warning);
+  assert.equal(agentApi.fileOnly, undefined);
+  assert.equal(DASHBOARD_SETTING_PATH_SET.has('agentApi.enabled'), true);
+
+  const customAgents = settings.find((setting) => setting.path === 'customAgents');
+  assert.ok(customAgents, 'the map exposes customAgents');
+  assert.equal(customAgents.control, 'readonly');
+  assert.equal(customAgents.fileOnly, true);
+  assert.equal(DASHBOARD_SETTING_PATH_SET.has('customAgents'), false);
+});

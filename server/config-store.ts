@@ -8,6 +8,7 @@ import { DEFAULT_BRANCH_GC_PREFIXES } from './core/branch-gc-core.ts';
 import { decideConfigPath, glimmervoidHomeDir as resolveGlimmervoidHomeDir } from './core/config-path-core.ts';
 import { readEnvSecrets, withEnvSecrets, withoutEnvSecrets } from './core/config-secrets-core.ts';
 import { AGENT_ID_SHAPE_MESSAGE, BranchGcFileSettings, Config, configIssueMessage, RUNTIME_CONFIG_SCALAR_KEYS } from '../shared/contracts/index.ts';
+import type { CustomAgentDeclaration } from '../shared/contracts/index.ts';
 import { isPlainObject } from './core/usage-number-core.ts';
 import {
   INGEST_SPEC, MEMORY_SPEC, MILL_METRICS_SPEC, PACK_DISTILLER_SPEC, pickMillBlock,
@@ -88,6 +89,8 @@ const DEFAULT_CONFIG = {
     intervalMs: 6 * 60 * 60 * 1000,
   },
   repoRoots: [] as string[],
+
+  customAgents: [] as CustomAgentDeclaration[],
 
   postTurnChecks: {
     enabled: true,
@@ -425,6 +428,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       detectBackgroundAgents: config.detectBackgroundAgents ?? effectiveDefaults.detectBackgroundAgents,
       recordSignals: config.recordSignals ?? effectiveDefaults.recordSignals,
       trace: { enabled: config.trace?.enabled ?? DEFAULT_CONFIG.trace.enabled },
+      agentApi: { enabled: config.agentApi?.enabled ?? DEFAULT_CONFIG.agentApi.enabled },
       antiSlopPrompt: config.antiSlopPrompt ?? effectiveDefaults.antiSlopPrompt,
       rtk: config.rtk ?? effectiveDefaults.rtk,
       checkForUpdates: config.checkForUpdates ?? effectiveDefaults.checkForUpdates,

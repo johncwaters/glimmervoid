@@ -224,6 +224,7 @@ export const SETTINGS_MAP = Object.freeze([
       { id: 'file-branch-gc-dry-run', path: 'branchGc.dryRun', title: 'Branch cleanup dry run', description: 'Report planned cleanup without deleting remote branches.', control: 'readonly', keywords: ['git', 'safety'], fileOnly: true },
       { id: 'file-branch-gc-stale-days', path: 'branchGc.staleDays', title: 'Branch stale days', description: 'Age threshold for orphan branch cleanup.', control: 'readonly', keywords: ['git', 'retention'], fileOnly: true },
       { id: 'file-branch-gc-interval-ms', path: 'branchGc.intervalMs', title: 'Branch cleanup interval', description: 'Delay between branch cleanup passes.', control: 'readonly', keywords: ['git', 'schedule'], fileOnly: true },
+      { id: 'file-custom-agents', path: 'customAgents', title: 'Custom agents', description: 'Extra agent CLIs a session can be spawned with.', control: 'readonly', keywords: ['adapters', 'cli'], fileOnly: true, status: 'custom-agents' },
     ],
   },
   {
@@ -641,6 +642,13 @@ export const SETTINGS_MAP = Object.freeze([
         description: 'Allow an isolated agent to fix an issue, push a branch and open a pull request.',
         control: 'toggle', keywords: ['automatic', 'pull request'], danger: true, dangerConfirmation: 'posthog',
         warning: 'Enabling this control lets PostHog fixes commit, push and open pull requests automatically.', defaultValue: false,
+      },
+      {
+        id: 'agent-api-enabled', path: 'agentApi.enabled', title: 'Agent API',
+        description: 'Expose the per-session agent endpoint to running sessions.',
+        control: 'toggle', keywords: ['session', 'localhost'], danger: true, dangerConfirmation: 'agent-api',
+        warning: 'Enabling this control lets a running session spawn sibling sessions, flag itself and read the board through a per-session token on localhost, and it applies to sessions spawned after the change.',
+        defaultValue: false,
       },
       {
         id: 'rtk-compression', path: 'rtk', title: 'rtk output compression',

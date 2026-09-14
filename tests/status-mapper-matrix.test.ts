@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { mapSignalToEvent } from '../session/core/status-mapper.ts';
+import { acceptsAttentionSignal, mapSignalToEvent, shouldDeferAttention } from '../session/core/status-mapper.ts';
 import type { LifecycleEvent } from '../session/core/status-mapper.ts';
 import { STATES } from '../shared/states.ts';
 
@@ -74,4 +74,14 @@ test('awaiting-input never fires from WAITING (already awaiting input) or DONE/F
 
 test('activeAgents default parameter behaves as 0 when omitted', () => {
   assert.equal(mapSignalToEvent('ready', STATES.RUNNING, 'high'), 'task_complete');
+});
+
+test('an attention signal is accepted only from the states the machine table lets it move', () => {
+  const accepting = ALL_STATES.filter((state) => acceptsAttentionSignal(state));
+  assert.deepEqual(accepting.sort(), [STATES.COMPLETE, STATES.IDLE, STATES.RUNNING].sort());
+});
+
+test('an attention note is held only while the session is still starting up', () => {
+  const deferring = ALL_STATES.filter((state) => shouldDeferAttention(state));
+  assert.deepEqual(deferring.sort(), [STATES.DORMANT, STATES.INITIALIZING, STATES.STARTING].sort());
 });

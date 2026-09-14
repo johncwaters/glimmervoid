@@ -7,7 +7,8 @@ import { execFile } from "../server/child-process-safe.ts";
 import { projectDirCandidates } from "../server/core/usage-scan-core.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
-import { AGENT_URL_ENV } from "../shared/contracts/session.ts";
+import { AGENT_ATTENTION_NOTE_SEPARATOR, AGENT_URL_ENV } from "../shared/contracts/session.ts";
+import type { AgentAttentionReply } from "../shared/contracts/session.ts";
 import { generateToken } from "../detection/settings-injector.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
 import { createStatusSource } from "../detection/status-source.ts";
@@ -23,7 +24,7 @@ import {
   ENTRY_HOOKS,
   EXIT_HOOKS,
 } from "./core/state-machine.ts";
-import { mapSignalToEvent } from "./core/status-mapper.ts";
+import { acceptsAttentionSignal, mapSignalToEvent, shouldDeferAttention } from "./core/status-mapper.ts";
 import { decideExitTransition } from "./core/exit-transition.ts";
 import type { ExitSignal } from "./core/exit-transition.ts";
 import { shouldHoldTerminalStopForNotice } from "./core/pack-notice.ts";
@@ -50,6 +51,7 @@ const KILL_MAX_WAIT_MS = 3000;
 
 const KILL_REAP_MAX_WAIT_MS = 2400;
 const SLEEP_KILL_TIMEOUT_MS = 15 * 60 * 1000;
+const MAX_PENDING_ATTENTION_NOTES = 5;
 
 function signalablePid(pid: unknown): number | null {
   const parsed = Number(pid);
@@ -196,6 +198,7 @@ class Session extends EventEmitter {
   _hookSeen: boolean;
   _lastSignal: Record<string, unknown> | null;
   _pendingPromptKind: string | null;
+  _pendingAttentionNotes: string[];
   _titleQuiet: boolean;
   _spawnCommand: ResolvedCommand | null;
   _initialPrompt: string | null;
@@ -372,6 +375,7 @@ class Session extends EventEmitter {
     this._lastSignal = null;
 
     this._pendingPromptKind = null;
+    this._pendingAttentionNotes = [];
 
     this._titleQuiet = false;
     this.backgroundTracking = createSessionBackgroundTracking({
@@ -725,8 +729,20 @@ class Session extends EventEmitter {
     this._agentLiveChildren = Math.max(0, this._agentLiveChildren - 1);
   }
 
-  noteAttention(note: string): void {
-    if (this._destroyed) return;
+  noteAttention(note: string): AgentAttentionReply {
+    if (this._destroyed) return { ok: true, pending: false };
+    if (shouldDeferAttention(this.state)) {
+      if (this._pendingAttentionNotes.length >= MAX_PENDING_ATTENTION_NOTES) {
+        return { ok: false, error: `the session is already holding ${MAX_PENDING_ATTENTION_NOTES} attention notes; wait until it can accept input` };
+      }
+      this._pendingAttentionNotes.push(note);
+      return { ok: true, pending: true };
+    }
+    this._raiseAttention(note);
+    return { ok: true, pending: false };
+  }
+
+  _raiseAttention(note: string): void {
     const ts = Date.now();
     this._setPendingPromptKind("agent");
     this.emit("agent-attention", { note, ts });
@@ -736,6 +752,14 @@ class Session extends EventEmitter {
       confidence: "high",
       ts,
     });
+  }
+
+  _releasePendingAttention(): void {
+    if (this._pendingAttentionNotes.length === 0) return;
+    if (!acceptsAttentionSignal(this.state)) return;
+    const releasing = this._pendingAttentionNotes;
+    this._pendingAttentionNotes = [];
+    this._raiseAttention(releasing.join(AGENT_ATTENTION_NOTE_SEPARATOR));
   }
 
   get sleeping(): boolean {
@@ -996,6 +1020,8 @@ class Session extends EventEmitter {
 
     this.emit("state-change", { from, to, event, detail: detail || null });
 
+    this._releasePendingAttention();
+
     return true;
   }
 
@@ -1240,6 +1266,7 @@ class Session extends EventEmitter {
   async _handlePtyExit(exitCode: number, signal: ExitSignal): Promise<void> {
     const pid = this.ptyProcess ? this.ptyProcess.pid : null;
     this._resetDetectionSources({ quiet: false, clearTracking: true });
+    this._pendingAttentionNotes = [];
 
     this._clearPackNotice();
     this._hooks.cleanup();
@@ -1570,6 +1597,7 @@ class Session extends EventEmitter {
     if (this._destroyed) return;
     this._destroyed = true;
     this._agentToken = null;
+    this._pendingAttentionNotes = [];
 
     this._clearSleepKill();
 

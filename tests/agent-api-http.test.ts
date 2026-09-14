@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { setTimeout as setTimeoutPromise } from 'node:timers/promises';
 import type { Server } from 'node:http';
 
 import { createBackend } from '../server/backend.ts';
@@ -190,7 +191,7 @@ test('attention raises the normal waiting notification path with an agent prompt
   session.on('needs-attention', ({ name }: { name: string }) => { attentionCalls.push(name); });
   const response = await post(base, 'attention', { note: 'the operator must choose a base branch' }, token);
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { ok: true });
+  assert.deepEqual(await response.json(), { ok: true, pending: false });
   assert.equal(session.state, 'WAITING');
   assert.equal(session.toSnapshot().pendingPromptKind, 'agent');
   assert.deepEqual(attentionCalls, ['agent api'], 'the normal needs-attention notification fired once');
@@ -704,10 +705,8 @@ test('a start-session for an agent child is refused so it cannot race the spawn 
   }
 });
 
-test('the attention note becomes the notification body the operator reads', () => {
-  const session = plainSession('attention-note-session', 'worktree lane');
-  const triggered: { category: string; message: string }[] = [];
-  const wireSessionEvents = createSessionEventWiring({
+function notificationWiring(triggered: { category: string; message: string }[]) {
+  return createSessionEventWiring({
     configStore: { save: () => null },
     config: { projects: [] },
     recordLane: () => {},
@@ -723,18 +722,180 @@ test('the attention note becomes the notification body the operator reads', () =
     closeSessionDataClients: () => {},
     logger: { error: () => {}, log: () => {}, warn: () => {} },
   });
+}
+
+test('the attention note becomes the notification body the operator reads', () => {
+  const session = plainSession('attention-note-session', 'worktree lane');
+  const triggered: { category: string; message: string }[] = [];
+  const wireSessionEvents = notificationWiring(triggered);
   try {
     wireSessionEvents(session);
     session.transition('user_start');
     session.transition('spawn_success', { spawnCwdExists: true });
     session.transition('first_output');
     assert.equal(session.state, STATES.IDLE);
-    session.noteAttention('pick a base branch before I rebase');
+    assert.deepEqual(session.noteAttention('pick a base branch before I rebase'), { ok: true, pending: false });
     assert.equal(session.state, STATES.WAITING);
     assert.deepEqual(triggered, [{
       category: 'waiting',
       message: 'worktree lane: pick a base branch before I rebase',
     }]);
+  } finally {
+    session.destroy();
+  }
+});
+
+test('an attention note sent while the session is still STARTING is held, then fires once it reaches IDLE', async () => {
+  const session = plainSession('attention-starting-session', 'booting lane');
+  const triggered: { category: string; message: string }[] = [];
+  const wireSessionEvents = notificationWiring(triggered);
+  const fixture = wiringFixture();
+  try {
+    wireSessionEvents(session);
+    session.transition('user_start');
+    session.transition('spawn_success', { spawnCwdExists: true });
+    assert.equal(session.state, STATES.STARTING);
+    const reply = await fixture.wiring.handle(session, 'attention', { note: 'pick a base branch before I rebase' });
+    assert.equal(reply.status, 200);
+    assert.deepEqual(reply.body, { ok: true, pending: true });
+    assert.equal(session.state, STATES.STARTING, 'a held note never moves a session the machine table cannot move');
+    assert.deepEqual(triggered, [], 'nothing is notified while the note is held');
+    session.transition('first_output');
+    assert.equal(session.state, STATES.WAITING, 'the held note fires as soon as the session can accept it');
+    assert.equal(session.toSnapshot().pendingPromptKind, 'agent');
+    assert.deepEqual(triggered, [{
+      category: 'waiting',
+      message: 'booting lane: pick a base branch before I rebase',
+    }], 'the operator is notified exactly once');
+  } finally {
+    fixture.destroyAll();
+    session.destroy();
+  }
+});
+
+test('two notes held during startup release as one raise carrying both, in the order they arrived', () => {
+  const session = plainSession('attention-queue-session', 'queued lane');
+  const raised: string[] = [];
+  try {
+    session.on('agent-attention', ({ note }: { note: string }) => { raised.push(note); });
+    session.transition('user_start');
+    session.transition('spawn_success', { spawnCwdExists: true });
+    assert.deepEqual(session.noteAttention('pick a base branch'), { ok: true, pending: true });
+    assert.deepEqual(session.noteAttention('then confirm the force push'), { ok: true, pending: true });
+    assert.deepEqual(raised, [], 'neither note fires while the session cannot accept one');
+    session.transition('first_output');
+    assert.deepEqual(raised, ['pick a base branch | then confirm the force push']);
+    assert.equal(session.state, STATES.WAITING);
+  } finally {
+    session.destroy();
+  }
+});
+
+test('two notes held during startup reach the operator in one notification, in order', () => {
+  const session = plainSession('attention-queue-notify-session', 'queued notify lane');
+  const triggered: { category: string; message: string }[] = [];
+  const wireSessionEvents = notificationWiring(triggered);
+  try {
+    wireSessionEvents(session);
+    session.transition('user_start');
+    session.transition('spawn_success', { spawnCwdExists: true });
+    assert.deepEqual(session.noteAttention('pick a base branch'), { ok: true, pending: true });
+    assert.deepEqual(session.noteAttention('then confirm the force push'), { ok: true, pending: true });
+    assert.deepEqual(triggered, [], 'nothing is notified while the notes are held');
+    session.transition('first_output');
+    assert.deepEqual(triggered, [{
+      category: 'waiting',
+      message: 'queued notify lane: pick a base branch | then confirm the force push',
+    }], 'the single notification carries every held note');
+  } finally {
+    session.destroy();
+  }
+});
+
+test('a note raised while the session already waits folds into the next notification, without the delivered one', async () => {
+  const session = plainSession('attention-fold-session', 'folding lane');
+  const triggered: { category: string; message: string }[] = [];
+  const wireSessionEvents = notificationWiring(triggered);
+  try {
+    wireSessionEvents(session);
+    session.transition('user_start');
+    session.transition('spawn_success', { spawnCwdExists: true });
+    session.transition('first_output');
+    assert.deepEqual(session.noteAttention('pick a base branch'), { ok: true, pending: false });
+    assert.equal(session.state, STATES.WAITING);
+    assert.deepEqual(session.noteAttention('then confirm the force push'), { ok: true, pending: false });
+    session.transition('user_dismiss');
+    await setTimeoutPromise(600);
+    assert.deepEqual(session.noteAttention('and pick a reviewer'), { ok: true, pending: false });
+    assert.equal(session.state, STATES.WAITING);
+    assert.deepEqual(triggered.map((entry) => entry.message), [
+      'folding lane: pick a base branch',
+      'folding lane: then confirm the force push | and pick a reviewer',
+    ], 'the undelivered note is folded in and the delivered one is not repeated');
+  } finally {
+    session.destroy();
+  }
+});
+
+test('a sixth held note is refused rather than silently dropping an earlier one', async () => {
+  const session = plainSession('attention-queue-full-session', 'crowded lane');
+  const raised: string[] = [];
+  const fixture = wiringFixture();
+  try {
+    session.on('agent-attention', ({ note }: { note: string }) => { raised.push(note); });
+    session.transition('user_start');
+    session.transition('spawn_success', { spawnCwdExists: true });
+    for (let index = 0; index < 5; index += 1) {
+      assert.deepEqual(session.noteAttention(`note ${index}`), { ok: true, pending: true });
+    }
+    const refused = await fixture.wiring.handle(session, 'attention', { note: 'note 5' });
+    assert.equal(refused.status, 429);
+    assert.equal(refused.body.ok, false);
+    assert.match(String(refused.body.error), /5 attention notes/);
+    session.transition('first_output');
+    assert.deepEqual(raised, ['note 0 | note 1 | note 2 | note 3 | note 4'], 'the refused note is the one that never reaches the operator');
+  } finally {
+    fixture.destroyAll();
+    session.destroy();
+  }
+});
+
+test('a note held at exit cannot bounce a session restarted before the exit settles', async () => {
+  const session = plainSession('attention-exit-race-session', 'racing lane');
+  const triggered: { category: string; message: string }[] = [];
+  const wireSessionEvents = notificationWiring(triggered);
+  try {
+    wireSessionEvents(session);
+    session.transition('user_start');
+    session.transition('spawn_success', { spawnCwdExists: true });
+    assert.deepEqual(session.noteAttention('pick a base branch before I rebase'), { ok: true, pending: true });
+    const exiting = session._handlePtyExit(1, null);
+    session.transition('user_restart');
+    session.transition('spawn_success', { spawnCwdExists: true });
+    session.transition('first_output');
+    await exiting;
+    assert.equal(session.state, STATES.IDLE, 'the restart outruns the exit settle and still sees no dead note');
+    assert.deepEqual(triggered.filter((entry) => entry.category === 'waiting'), []);
+  } finally {
+    session.destroy();
+  }
+});
+
+test('a held attention note is dropped when the session exits before it can fire', async () => {
+  const session = plainSession('attention-exit-session', 'dying lane');
+  const triggered: { category: string; message: string }[] = [];
+  const wireSessionEvents = notificationWiring(triggered);
+  try {
+    wireSessionEvents(session);
+    session.transition('user_start');
+    session.transition('spawn_success', { spawnCwdExists: true });
+    assert.deepEqual(session.noteAttention('pick a base branch before I rebase'), { ok: true, pending: true });
+    await session._handlePtyExit(1, null);
+    session.transition('user_restart');
+    session.transition('spawn_success', { spawnCwdExists: true });
+    session.transition('first_output');
+    assert.equal(session.state, STATES.IDLE, 'a restarted session is not bounced into WAITING by a dead note');
+    assert.deepEqual(triggered.filter((entry) => entry.category === 'waiting'), []);
   } finally {
     session.destroy();
   }

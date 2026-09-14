@@ -1,5 +1,6 @@
 import type { SettingsRange } from '#shared/settings-ranges.ts';
 import { SETTINGS_RANGES } from '#shared/settings-ranges.ts';
+import type { CustomAgentSummaryRow } from '#shared/contracts/control-messages.ts';
 import type { UpdateJournal } from '#shared/contracts/update-journal.ts';
 import { REPO_SLUG } from '#shared/repo.ts';
 import { playAlertSound, SOUND_OPTIONS } from './alert-sound.ts';
@@ -540,6 +541,7 @@ function statusText(setting: SettingsSetting) {
 }
 
 function buildStatusSlot(setting: SettingsSetting) {
+  if (setting.status === 'custom-agents') return buildCustomAgentsStatus();
   if (setting.status === 'usage-last-report') return buildUsageStatus();
   if (setting.status === 'update-actions') return buildUpdateProgress();
   if (setting.status?.startsWith('update-')) return null;
@@ -672,6 +674,28 @@ function renderFooter(errors: Record<string, string>) {
   actions.append(revert, save);
   footer.appendChild(actions);
   return footer;
+}
+
+function resolvabilityLabel(resolvable: boolean | null): string {
+  if (resolvable === null) return 'not probed yet';
+  if (resolvable) return 'resolved';
+  return 'not found on PATH';
+}
+
+function customAgentLines(): string[] {
+  const rows: CustomAgentSummaryRow[] = Array.isArray(settingsPayload.customAgents) ? settingsPayload.customAgents : [];
+  if (rows.length === 0) return ['None declared. Add customAgents to config.json.'];
+  return rows.map((row) => {
+    const invocation = row.args.length > 0 ? `${row.command} ${row.args.join(' ')}` : row.command;
+    return `${row.id}  ${row.label}  ${invocation}  ${resolvabilityLabel(row.resolvable)}`;
+  });
+}
+
+function buildCustomAgentsStatus() {
+  const block = el('div', 'settings-view-status-block settings-view-status-slot');
+  block.appendChild(el('div', 'settings-section-title', 'Declared agents'));
+  for (const line of customAgentLines()) block.appendChild(el('div', 'settings-readonly', line));
+  return block;
 }
 
 function buildUsageStatus() {

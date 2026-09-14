@@ -141,12 +141,17 @@ function customAgentFingerprint(agentId: string | null | undefined): string | nu
 }
 
 function setCustomAgents(declared: readonly CustomAgentDeclaration[]): void {
-  for (const customId of customAdapters.keys()) resolvedCommands.delete(customId);
+  const nextFingerprintById = new Map<string, string>();
+  for (const declaration of declared) nextFingerprintById.set(declaration.id, declarationFingerprint(declaration));
+  for (const [customId, previousFingerprint] of customAgentFingerprints) {
+    if (nextFingerprintById.get(customId) === previousFingerprint) continue;
+    resolvedCommands.delete(customId);
+  }
   customAdapters.clear();
   customAgentFingerprints.clear();
   for (const declaration of declared) {
     customAdapters.set(declaration.id, createCustomAdapter(declaration));
-    customAgentFingerprints.set(declaration.id, declarationFingerprint(declaration));
+    customAgentFingerprints.set(declaration.id, nextFingerprintById.get(declaration.id) ?? declarationFingerprint(declaration));
   }
 }
 
@@ -189,6 +194,21 @@ function commandFor(adapterOrId: AgentAdapter | string, options?: AgentCommandOp
   return resolved;
 }
 
+function describeAgentResolvability(agentId: string): { label: string; path: string | null; resolvable: boolean } {
+  const adapter = getAdapter(agentId);
+  if (!adapter) return { label: agentId, path: null, resolvable: false };
+  const resolvedPath = commandFor(adapter)?.path ?? null;
+  return { label: adapter.label || agentId, path: resolvedPath, resolvable: !!resolvedPath };
+}
+
+function cachedAgentResolvability(agentId: string): { label: string; path: string | null; resolvable: boolean | null } {
+  const adapter = getAdapter(agentId);
+  if (!adapter) return { label: agentId, path: null, resolvable: false };
+  const cached = resolvedCommands.get(adapter.id);
+  if (!cached) return { label: adapter.label || agentId, path: null, resolvable: null };
+  return { label: adapter.label || agentId, path: cached.path ?? null, resolvable: !!cached.path };
+}
+
 function resetCommandCache(): void {
   resolvedCommands.clear();
 }
@@ -200,8 +220,10 @@ export {
   getAdapter,
   hookProfileOf,
   resolveAdapter,
+  cachedAgentResolvability,
   commandFor,
   customAgentFingerprint,
+  describeAgentResolvability,
   resetCommandCache,
   setCustomAgents,
 };

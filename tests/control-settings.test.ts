@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import childProcess from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,6 +8,9 @@ import path from 'node:path';
 import { createConfigStore } from '../server/config-store.ts';
 import type { ConfigStore, DefaultConfig, GlimmervoidConfig } from '../server/config-store.ts';
 import type { ControlMessageRecord } from '../server/control-replay-core.ts';
+import { buildSettingsPayload } from '../server/settings-payload.ts';
+import { commandFor, resetCommandCache, setCustomAgents } from '../session/adapters/index.ts';
+import { CustomAgentDeclaration } from '../shared/contracts/index.ts';
 import { connectControl, controlDeps, createControlServer, testConfigStore } from './helpers/control-harness.ts';
 
 interface SettingsFrame {
@@ -655,4 +659,85 @@ test('the browser round trip never sees a credential and never blanks one', asyn
     });
     assert.equal(blockOf(readDisk().telegram, 'botToken'), 'fresh-tok', 'a pasted token still writes through');
   });
+});
+
+test('an agentApi save persists, echoes, and flips the live config the agent route reads', () => {
+  const h = harness({ projects: [], agentApi: { enabled: false } });
+  h.send({ type: 'update-settings', settings: { agentApi: { enabled: true } } });
+
+  assert.deepEqual(h.cfg.agentApi, { enabled: true });
+  assert.deepEqual(updatedFrom(h)?.settings?.agentApi, { enabled: true });
+  assert.equal(h.store.config.agentApi?.enabled, true);
+  assert.equal(h.reloadCalls.length, 1);
+});
+
+test('an agentApi save carrying no keys leaves the stored enabled flag alone', () => {
+  const h = harness({ projects: [], agentApi: { enabled: true } });
+  h.send({ type: 'update-settings', settings: { agentApi: {} } });
+
+  assert.deepEqual(h.cfg.agentApi, { enabled: true });
+  assert.equal(h.store.config.agentApi?.enabled, true);
+});
+
+test('an agentApi block carrying an unknown key is rejected and nothing is persisted', () => {
+  const h = harness({ projects: [], agentApi: { enabled: false } });
+  h.send({ type: 'update-settings', settings: { agentApi: { enabled: true, token: 'x' } } });
+
+  assert.ok(errorFrom(h));
+  assert.deepEqual(h.cfg.agentApi, { enabled: false });
+  assert.equal(h.reloadCalls.length, 0);
+});
+
+test('the settings payload carries one summary row per declared custom agent, resolvability unknown until probed', () => {
+  const declared = [{ id: 'opencode', label: 'OpenCode', command: '/nonexistent/opencode', args: ['--headless'] }];
+  setCustomAgents(declared);
+  try {
+    const h = harness({ projects: [], customAgents: declared });
+    h.send({ type: 'get-settings' });
+    const payload = h.sent.find((message) => message.type === 'settings')?.settings;
+    assert.deepEqual(payload?.customAgents, [
+      { id: 'opencode', label: 'OpenCode', command: '/nonexistent/opencode', args: ['--headless'], resolvable: null },
+    ]);
+  } finally {
+    setCustomAgents([]);
+    resetCommandCache();
+  }
+});
+
+test('the settings payload carries an empty custom agent summary when none are declared', () => {
+  const h = harness({ projects: [] });
+  h.send({ type: 'get-settings' });
+  assert.deepEqual(h.sent.find((message) => message.type === 'settings')?.settings?.customAgents, []);
+});
+
+test('a settings payload build reads the resolution cache and spawns no PATH probe', () => {
+  const warm = CustomAgentDeclaration.parse({ id: 'opencode', label: 'OpenCode', command: 'opencode' });
+  const missing = CustomAgentDeclaration.parse({ id: 'ghostcode', label: 'GhostCode', command: 'ghostcode' });
+  const unprobed = CustomAgentDeclaration.parse({ id: 'shadowcode', label: 'ShadowCode', command: 'node' });
+  const realExecFileSync = childProcess.execFileSync;
+  let probes = 0;
+  childProcess.execFileSync = (): never => {
+    probes += 1;
+    throw new Error('a settings payload build must not probe PATH');
+  };
+  try {
+    setCustomAgents([warm, missing, unprobed]);
+    commandFor('opencode', { platform: process.platform, execFile: () => '/usr/local/bin/opencode\n' });
+    commandFor('ghostcode', { platform: process.platform, execFile: () => '', pathExists: () => false });
+    probes = 0;
+    const payload = buildSettingsPayload({
+      configStore: { getSettings: () => ({}), config: { customAgents: [warm, missing, unprobed] } },
+      resolveRtk: () => null,
+    });
+    assert.equal(probes, 0, 'a settings payload build never probes PATH');
+    assert.deepEqual(payload.customAgents, [
+      { id: 'opencode', label: 'OpenCode', command: 'opencode', args: [], resolvable: true },
+      { id: 'ghostcode', label: 'GhostCode', command: 'ghostcode', args: [], resolvable: false },
+      { id: 'shadowcode', label: 'ShadowCode', command: 'node', args: [], resolvable: null },
+    ]);
+  } finally {
+    childProcess.execFileSync = realExecFileSync;
+    setCustomAgents([]);
+    resetCommandCache();
+  }
 });

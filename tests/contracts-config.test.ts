@@ -35,14 +35,29 @@ test('planReview.enabled is a boolean file-only setting that defaults on', () =>
   assert.equal('planReview' in BrowserConfig.shape, false);
 });
 
-test('agentApi.enabled is a boolean file-only setting that defaults off', () => {
+test('agentApi.enabled is a boolean dashboard-writable setting that defaults off', () => {
   assert.equal(DEFAULT_CONFIG.agentApi.enabled, false);
   assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, agentApi: { enabled: true } }).success, true);
   const refused = Config.safeParse({ ...DEFAULT_CONFIG, agentApi: { enabled: 'true' } });
   assert.equal(refused.success, false);
   assert.equal(refused.success === false && configIssueMessage(refused.error), 'agentApi.enabled must be a boolean');
-  assert.equal('agentApi' in ConfigUpdate.shape, false);
-  assert.equal('agentApi' in BrowserConfig.shape, false);
+  assert.equal('agentApi' in ConfigUpdate.shape, true);
+  assert.equal('agentApi' in BrowserConfig.shape, true);
+});
+
+test('the persisted config tolerates an unrecognized agentApi key the dashboard update refuses', () => {
+  assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, agentApi: { enabled: true, token: 'x' } }).success, true);
+  assert.equal(ConfigUpdate.safeParse({ agentApi: { enabled: true, token: 'x' } }).success, false);
+  assert.equal(BrowserConfig.safeParse({ agentApi: { enabled: true, token: 'x' } }).success, false);
+  assert.equal(CONFIG_BLOCK_KEYS.includes('agentApi'), true);
+});
+
+test('a settings update carries agentApi.enabled and nothing else inside the block', () => {
+  const accepted = ConfigUpdate.safeParse({ agentApi: { enabled: true } });
+  assert.equal(accepted.success, true);
+  assert.deepEqual(accepted.success === true && accepted.data.agentApi, { enabled: true });
+  assert.equal(ConfigUpdate.safeParse({ agentApi: { enabled: true, token: 'x' } }).success, false);
+  assert.equal(ConfigUpdate.safeParse({ agentApi: { enabled: 'true' } }).success, false);
 });
 
 function withCustomAgents(customAgents: unknown) {

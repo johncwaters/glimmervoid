@@ -3,7 +3,9 @@ import crypto from 'node:crypto';
 import { isKnownAgentId } from '../session/adapters/index.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import type { Session } from '../session/sessions.ts';
-import type { AgentAttentionRequest, AgentBoardRow, AgentSpawnRequest } from '../shared/contracts/session.ts';
+import type {
+  AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentSpawnRequest,
+} from '../shared/contracts/session.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord } from './control-replay-core.ts';
 import { decideSpawnAllowance, deriveChildSessionName, parseAgentVerb } from './core/agent-api-core.ts';
@@ -123,8 +125,8 @@ function createAgentApiWiring({
     }
   }
 
-  function attention(parent: Session, request: AgentAttentionRequest): void {
-    parent.noteAttention(request.note);
+  function attention(parent: Session, request: AgentAttentionRequest): AgentAttentionReply {
+    return parent.noteAttention(request.note);
   }
 
   function board(): AgentBoardRow[] {
@@ -142,8 +144,8 @@ function createAgentApiWiring({
     if (!parsed.ok) return { status: parsed.status, body: { ok: false, error: parsed.error } };
     if (parsed.verb === 'board') return { status: 200, body: { ok: true, sessions: board() } };
     if (parsed.verb === 'attention') {
-      attention(session, parsed.request);
-      return { status: 200, body: { ok: true } };
+      const reply = attention(session, parsed.request);
+      return { status: reply.ok ? 200 : 429, body: reply };
     }
     const outcome = await spawn(session, parsed.request);
     if (!outcome.ok) return { status: outcome.status, body: { ok: false, error: outcome.error } };

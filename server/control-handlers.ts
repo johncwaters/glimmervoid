@@ -28,7 +28,7 @@ import type { PrGh } from './pr-gh.ts';
 import { buildSettingsPayload as buildSettingsPayloadFrom } from './settings-payload.ts';
 import { RESUME_ID_RE } from '../session/core/auto-resume.ts';
 import { execFile } from './child-process-safe.ts';
-import { DEFAULT_AGENT_ID, isKnownAgentId, listAgentIds, getAdapter, commandFor } from '../session/adapters/index.ts';
+import { DEFAULT_AGENT_ID, describeAgentResolvability, isKnownAgentId, listAgentIds } from '../session/adapters/index.ts';
 import { HOOK_EVENT_CATALOG, ID_RE as HOOK_ID_RE, MAX_TIMEOUT_SEC as HOOK_MAX_TIMEOUT_SEC, normalizeHook, rawStoredHooks, readStoredHooks, removeHook, upsertHook } from '../session/core/user-hooks-core.ts';
 import { describeBuiltinHooks } from '../detection/settings-injector.ts';
 import { PlanDecision } from '../shared/contracts/plan-review.ts';
@@ -279,6 +279,7 @@ const DASHBOARD_SETTING_PATHS = Object.freeze([
   ...USAGE_VENDOR_KEYS.map((key) => `usage.vendors.${key}`),
   ...USAGE_BUDGET_KEYS.map((key) => `usage.budget.${key}`),
   ...TELEGRAM_STRING_KEYS.map((key) => `telegram.${key}`),
+  'agentApi.enabled',
 ]);
 
 const USAGE_REPORT_MAX_DAYS = 3650;
@@ -692,6 +693,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
         cfg[spec.name] = mergeMillBlock(cfg[spec.name], incoming[spec.name], spec);
       }
       if (s.telegram != null) cfg.telegram = mergeSettingsBlockOverStored(cfg.telegram, s.telegram);
+      if (s.agentApi != null) cfg.agentApi = mergeSettingsBlockOverStored(cfg.agentApi, s.agentApi);
     });
     if (!freshConfig) return;
     applySettingsReload(freshConfig);
@@ -711,10 +713,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
   function handleListAgents(msg: ControlRequest, ws: ControlSocket): void {
     const agents = listAgentIds().map((id) => {
-      const adapter = getAdapter(id);
-      if (!adapter) return { id, label: id, resolvable: false };
-      const resolved = commandFor(adapter);
-      return { id, label: adapter.label || id, resolvable: !!resolved?.path };
+      const { label, resolvable } = describeAgentResolvability(id);
+      return { id, label, resolvable };
     });
     ws.send(JSON.stringify({
       type: 'agents-listed',

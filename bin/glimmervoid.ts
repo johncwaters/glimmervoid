@@ -191,16 +191,15 @@ async function runDoctor(): Promise<void> {
   console.log('\nAgents');
 
   try {
-    const { listAgentIds, getAdapter, commandFor, setCustomAgents } = await import('../session/adapters/index.ts');
+    const { listAgentIds, getAdapter, describeAgentResolvability, setCustomAgents } = await import('../session/adapters/index.ts');
     const declaredCustomAgents = await readDeclaredCustomAgents();
     if (declaredCustomAgents.error) line('config', declaredCustomAgents.error);
     setCustomAgents(declaredCustomAgents.declared);
     for (const id of listAgentIds()) {
       const adapter = getAdapter(id);
       if (!adapter) continue;
-      const resolved = commandFor(adapter);
-      const where = resolved?.path ? resolved.path : 'not found on PATH';
-      line(`${id} (${adapter.label || id})`, where);
+      const { label, path: resolvedPath } = describeAgentResolvability(id);
+      line(`${id} (${label})`, resolvedPath ?? 'not found on PATH');
       line(`${id} pack carrier`, adapter.capabilities.packs ? adapter.packCarrier : 'unsupported');
       const packNoticeCaveat = 'packNoticeCaveat' in adapter ? adapter.packNoticeCaveat : '';
       if (packNoticeCaveat) line(`${id} pack notices`, packNoticeCaveat);

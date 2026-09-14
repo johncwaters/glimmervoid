@@ -360,6 +360,73 @@ test('a custom-agent overlay adds its id to the registry and an empty reload dro
   }
 });
 
+test('one resolvability rule answers for the settings payload, the agent list and the doctor', () => {
+  adapters.resetCommandCache();
+  try {
+    adapters.setCustomAgents([
+      declaredCustomAgent(),
+      declaredCustomAgent({ id: 'ghostcode', label: 'GhostCode', command: '/nonexistent/ghostcode' }),
+    ]);
+    adapters.commandFor('opencode', { platform: 'linux', execFile: () => '/usr/local/bin/opencode\n' });
+    assert.deepEqual(adapters.describeAgentResolvability('opencode'), {
+      label: 'OpenCode', path: '/usr/local/bin/opencode', resolvable: true,
+    });
+    assert.deepEqual(adapters.describeAgentResolvability('ghostcode'), {
+      label: 'GhostCode', path: null, resolvable: false,
+    });
+    assert.deepEqual(adapters.describeAgentResolvability('gemini'), {
+      label: 'gemini', path: null, resolvable: false,
+    });
+  } finally {
+    adapters.setCustomAgents([]);
+    adapters.resetCommandCache();
+  }
+});
+
+test('the cached resolvability read answers before any probe and spawns none', () => {
+  adapters.resetCommandCache();
+  try {
+    adapters.setCustomAgents([declaredCustomAgent()]);
+    assert.deepEqual(adapters.cachedAgentResolvability('opencode'), {
+      label: 'OpenCode', path: null, resolvable: null,
+    }, 'an unprobed declaration reports unknown rather than resolving it');
+    adapters.commandFor('opencode', { platform: 'linux', execFile: () => '/usr/local/bin/opencode\n' });
+    assert.deepEqual(adapters.cachedAgentResolvability('opencode'), {
+      label: 'OpenCode', path: '/usr/local/bin/opencode', resolvable: true,
+    });
+    assert.deepEqual(adapters.cachedAgentResolvability('gemini'), { label: 'gemini', path: null, resolvable: false });
+  } finally {
+    adapters.setCustomAgents([]);
+    adapters.resetCommandCache();
+  }
+});
+
+test('a custom-agent reload keeps a cached resolution when the declaration is unchanged', () => {
+  adapters.resetCommandCache();
+  try {
+    let customLookups = 0;
+    const customExecFile = () => { customLookups += 1; return '/usr/local/bin/opencode\n'; };
+
+    adapters.setCustomAgents([declaredCustomAgent()]);
+    adapters.commandFor('opencode', { platform: 'linux', execFile: customExecFile });
+    adapters.setCustomAgents([declaredCustomAgent()]);
+    adapters.commandFor('opencode', { platform: 'linux', execFile: customExecFile });
+    assert.equal(customLookups, 1, 'an unchanged declaration keeps its cached resolution across a reload');
+
+    adapters.setCustomAgents([declaredCustomAgent({ command: 'opencode-next' })]);
+    adapters.commandFor('opencode', { platform: 'linux', execFile: customExecFile });
+    assert.equal(customLookups, 2, 'a changed declaration evicts it');
+
+    adapters.setCustomAgents([]);
+    adapters.setCustomAgents([declaredCustomAgent({ command: 'opencode-next' })]);
+    adapters.commandFor('opencode', { platform: 'linux', execFile: customExecFile });
+    assert.equal(customLookups, 3, 'a withdrawn declaration evicts it too');
+  } finally {
+    adapters.setCustomAgents([]);
+    adapters.resetCommandCache();
+  }
+});
+
 test('a custom-agent reload evicts only the custom ids from the resolved-command cache', () => {
   adapters.resetCommandCache();
   try {
