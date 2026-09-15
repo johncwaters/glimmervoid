@@ -28,13 +28,24 @@ For a machine that only needs the `glimmervoid` command (npm 12 or newer require
 npm install -g github:johncwaters/glimmervoid --allow-git=root
 ```
 
-Linux additionally needs node-pty compiled at install time, which npm 12's default script-skipping prevents:
+Linux additionally needs node-pty compiled, which npm 12's default script-skipping prevents at install time. Install normally, then compile node-pty on its own:
+
+```bash
+npm install -g github:johncwaters/glimmervoid --allow-git=root
+npm rebuild -g node-pty --allow-scripts=node-pty
+```
+
+Folding both into one command also works, at the cost of a far broader scripts opt-in:
 
 ```bash
 npm install -g github:johncwaters/glimmervoid --allow-git=root --dangerously-allow-all-scripts
 ```
 
-On an older npm, run the same command through `npx npm@12 install -g ...`. The floor is hard: npm 11 global installs from git specs land as a link into npm's cache temp clone, which npm then deletes (npm/cli#9406, fixed by pacote 22 which ships in npm 12). `--allow-git=root` is npm 12's opt-in for git dependencies, scoped to the root package. The Linux scripts flag must be the broad one, all alternatives verified against npm 12.0.2: targeted `--allow-scripts node-pty` FAILS the whole git-spec install (`EALLOWSCRIPTS` from the project-scoped git-dep preparation), and a plain post-hoc `npm rebuild node-pty` is blocked by the same allowScripts policy. The repair for a scripts-skipped Linux install is `cd "$(npm root -g)/glimmervoid" && npm rebuild node-pty --dangerously-allow-all-scripts` (verified), or rerunning the install with the flag. `glimmervoid doctor` reports whether the module loads.
+On an older npm, run the same command through `npx npm@12 install -g ...`. The floor is hard: npm 11 global installs from git specs land as a link into npm's cache temp clone, which npm then deletes (npm/cli#9406, fixed by pacote 22 which ships in npm 12). `--allow-git=root` is npm 12's opt-in for git dependencies, scoped to the root package.
+
+Why the rebuild is a separate step, verified against npm 12.0.2: any `allow-scripts` value, whether from the command line or from any npmrc, propagates into the project-scoped child install npm uses to prepare a git dependency, and that child refuses it with `EALLOWSCRIPTS`. So the targeted flag cannot ride along on the install command, `~/.npmrc` must carry no `allow-scripts` line while the install runs, and the rebuild must run from a directory outside `$(npm root -g)/glimmervoid`, where it would be project-scoped and fail the same way. A package-level `allowScripts` field in this repo's `package.json` does not help either, because npm 12 reads that field only for project-scoped installs. The broad flag is wider only on the install command, where it runs install scripts for every package in the dependency tree rather than node-pty's alone.
+
+A clone or source checkout takes a different repair, `npm rebuild node-pty --dangerously-allow-all-scripts` run from the checkout root, which is why the boot refusal and `glimmervoid doctor` name both install shapes. `README.md` is authoritative for the install procedure and carries the remaining rebuild traps; keep this page in step with it.
 
 npm packs the repo before installing from a GitHub spec, so `package.json`'s `files` whitelist still bounds exactly what lands in the install.
 
