@@ -8,6 +8,8 @@ import { AGENT_API_VERBS } from '../shared/contracts/session.ts';
 import type { CustomAgentDeclaration } from '../shared/contracts/config.ts';
 import { execSync } from '../server/child-process-safe.ts';
 import { decideConfigPath, glimmervoidHomeDir } from '../server/core/config-path-core.ts';
+import { nodePtyRebuildHint } from '../server/core/node-pty-preflight-core.ts';
+import { probeNodePty } from '../server/node-pty-preflight.ts';
 import { packageRoot } from '../server/runtime-paths.ts';
 import { formatPathNotice, npmGlobalBinDir, onPath, pnpmGlobalBinDir } from './path-doctor.ts';
 
@@ -221,12 +223,11 @@ async function runDoctor(): Promise<void> {
   }
 
   console.log('\nNative module');
-  try {
-    await import('node-pty');
-    line('node-pty', 'loads OK');
-  } catch (err) {
+  const nodePty = await probeNodePty();
+  if (nodePty.ok) line('node-pty', 'loads OK');
+  if (!nodePty.ok) {
     line('node-pty', 'FAILED to load');
-    line('reason', firstLineOf(err));
+    line('reason', nodePty.reason);
     line('hint', nodePtyRebuildHint(platform));
   }
 
@@ -251,10 +252,4 @@ function resolveNpmGlobalPrefix(exec: typeof execSync): string | null {
     return null;
   }
   return null;
-}
-
-function nodePtyRebuildHint(platform: NodeJS.Platform): string {
-  if (platform === 'linux') return 'install build tools: sudo apt install build-essential python3; then rebuild: npm rebuild node-pty --dangerously-allow-all-scripts (the flag is required on npm 12, unknown-but-harmless on older npm)';
-  if (platform === 'win32') return 'install Visual Studio Build Tools, then rebuild: npm rebuild node-pty --dangerously-allow-all-scripts (the flag is required on npm 12, unknown-but-harmless on older npm)';
-  return 'install the native build tools for this platform, then rebuild: npm rebuild node-pty --dangerously-allow-all-scripts';
 }
