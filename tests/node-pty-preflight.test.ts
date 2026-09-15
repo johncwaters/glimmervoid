@@ -38,6 +38,18 @@ test('nodePtyRebuildHint: linux names the apt toolchain, win32 names Visual Stud
   assert.equal(/build-essential/.test(nodePtyRebuildHint('win32')), false);
 });
 
+test('nodePtyRebuildHint: darwin names the Xcode command line tools, the only toolchain a mac needs', () => {
+  const hint = nodePtyRebuildHint('darwin');
+  assert.match(hint, /install Xcode Command Line Tools: xcode-select --install/);
+  assert.doesNotMatch(hint, /build-essential|Visual Studio/, 'no other platform toolchain leaks in');
+  assert.doesNotMatch(hint, /native build tools for this platform/, 'no generic fallback on a platform we name');
+});
+
+test('formatNodePtyBootRefusal: darwin carries the Xcode toolchain hint', () => {
+  const message = formatNodePtyBootRefusal({ platform: 'darwin', packageDir: '/pkg/node-pty', reason: 'boom' });
+  assert.match(message, /xcode-select --install/);
+});
+
 test('nodePtyRebuildHint: every platform names the global rebuild and the checkout rebuild, each labelled', () => {
   for (const platform of ['linux', 'win32', 'darwin'] as NodeJS.Platform[]) {
     const hint = nodePtyRebuildHint(platform);

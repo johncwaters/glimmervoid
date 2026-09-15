@@ -134,6 +134,13 @@ function seedFish(fishDir: string, { entries = [] }: { entries?: string[] } = {}
   return filePath;
 }
 
+function seedZsh(homeDir: string, { lines = [] }: { lines?: string[] } = {}): string {
+  fs.mkdirSync(homeDir, { recursive: true });
+  const filePath = path.join(homeDir, '.zsh_history');
+  fs.writeFileSync(filePath, lines.map((line) => `${line}\n`).join(''), 'utf8');
+  return filePath;
+}
+
 function fishEntry(cmd: string, when: number | string): string {
   return `- cmd: ${cmd}\n  when: ${when}\n`;
 }
@@ -582,4 +589,27 @@ test('an empty shells list still means the two zero-setup shells, and warns abou
 
   assert.equal(adapter.trackedCount, 1, 'the recorded default is unchanged');
   assert.deepEqual(warnings, []);
+}));
+
+test('on macOS the unconfigured default tails the zsh history, extended-history stamps and all', withHome(async ({ tmpDir, events, warnings, build }) => {
+  const filePath = seedZsh(tmpDir, { lines: [': 1700000000:0;npm install'] });
+  const adapter = build({ platform: 'darwin' });
+  await adapter.start();
+
+  assert.deepEqual(adapter.trackedFiles, [filePath], 'a mac with no shells config still reads its own history');
+  append(filePath, ': 1700000005:0;npm run deploy\n');
+  await adapter.poll();
+
+  assert.deepEqual(summaries(events), ['zsh: npm run deploy']);
+  assert.equal(events[0].ts, 1700000005000, 'the extended-history stamp survives the IO shell');
+  assert.deepEqual(warnings, []);
+}));
+
+test('on macOS a PowerShell history sitting in the home directory is NOT tailed by default', withHome(async ({ psDir, tmpDir, build }) => {
+  seedPsReadLine(psDir, { lines: ['npm test'] });
+  seedZsh(tmpDir, { lines: [': 1700000000:0;npm install'] });
+  const adapter = build({ platform: 'darwin' });
+  await adapter.start();
+
+  assert.equal(adapter.trackedCount, 1, 'only the zsh history, never the PSReadLine file beside it');
 }));

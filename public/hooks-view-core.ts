@@ -95,7 +95,7 @@ export const HOOK_TYPE_OPTIONS = Object.freeze([
 
 export const HOOK_TEMPLATES: readonly HookTemplate[] = Object.freeze([
   { id: 'lint', label: 'Lint after edits', summary: 'PostToolUse on Edit|Write', draft: { name: 'Lint after edits', event: 'PostToolUse', matcher: 'Edit|Write', type: 'command', command: 'npx biome check --write "$(jq -r .tool_input.file_path)"' } },
-  { id: 'notify', label: 'Notify on Stop', summary: 'Stop, command', draft: { name: 'Notify on Stop', event: 'Stop', matcher: '', type: 'command', command: 'notify-send "Claude finished a turn"' } },
+  { id: 'notify', label: 'Notify on Stop', summary: 'Stop, command', draft: { name: 'Notify on Stop', event: 'Stop', matcher: '', type: 'command', command: 'command -v notify-send >/dev/null 2>&1 && notify-send "Claude finished a turn" || { command -v osascript >/dev/null 2>&1 && osascript -e \'display notification "Claude finished a turn" with title "Claude Code"\'; }' } },
   { id: 'guard', label: 'Guard destructive Bash', summary: 'PreToolUse on Bash, exit 2 blocks', draft: { name: 'Guard destructive Bash', event: 'PreToolUse', matcher: 'Bash', type: 'command', command: 'jq -r .tool_input.command | grep -Eq "rm -rf|git push --force" && exit 2 || exit 0' } },
   { id: 'log', label: 'Log every prompt', summary: 'UserPromptSubmit, appends JSON', draft: { name: 'Log every prompt', event: 'UserPromptSubmit', matcher: '', type: 'command', command: 'cat >> ~/.claude/prompts.jsonl' } },
 ]);

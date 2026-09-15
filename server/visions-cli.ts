@@ -54,7 +54,7 @@ async function runStatus(): Promise<number> {
   console.log('glimmervoid visions\n');
   console.log(`  ${'relay'.padEnd(18)} ${fs.existsSync(RELAY_PATH) ? commandLine(resolveRelayInvocation()) : `MISSING: ${RELAY_PATH}`}`);
   console.log(`  ${'extension'.padEnd(18)} ${extensionId} ${manifest.version}`);
-  if (editors.length === 0) console.log(`  ${'VS Code family'.padEnd(18)} none found on PATH`);
+  if (editors.length === 0) console.log(`  ${'VS Code family'.padEnd(18)} none found on PATH or on disk`);
   for (const [command, commandPath] of editors) {
     const installed = isExtensionInstalled(await editorExtensions(commandPath), extensionId);
     console.log(`  ${command.padEnd(18)} ${installed ? 'extension installed' : 'not installed'}`);

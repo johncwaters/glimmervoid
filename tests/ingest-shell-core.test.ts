@@ -4,8 +4,8 @@ import type { HistoryParseState } from '../server/core/ingest-shell-core.ts';
 import path from 'node:path';
 
 import {
-  DEFAULT_SHELLS, MAX_COMMAND_CHARS, MAX_CONTINUATION_LINES, SHELLS, createParseState, decideCommandEvent, historyLocations,
-  isTrivialCommand, matchesLocation, normalizeShells, parseHistoryLines, unescapeFish,
+  MAX_COMMAND_CHARS, MAX_CONTINUATION_LINES, SHELLS, createParseState, decideCommandEvent, defaultShellsFor,
+  historyLocations, isTrivialCommand, matchesLocation, normalizeShells, parseHistoryLines, unescapeFish,
 } from '../server/core/ingest-shell-core.ts';
 
 function parse(shell: string, lines: string[], state: HistoryParseState | null = null) {
@@ -18,25 +18,46 @@ function texts(shell: string, lines: string[]) {
 
 test('an absent or empty shells list means the two zero-setup shells, never all four', () => {
   for (const raw of [undefined, null, [], 'powershell']) {
-    assert.deepEqual(normalizeShells(raw), { shells: ['powershell', 'fish'], rejected: [] });
+    assert.deepEqual(normalizeShells(raw, 'win32'), { shells: ['powershell', 'fish'], rejected: [] });
+    assert.deepEqual(normalizeShells(raw, 'linux'), { shells: ['powershell', 'fish'], rejected: [] });
   }
-  assert.deepEqual([...DEFAULT_SHELLS], ['powershell', 'fish']);
+  assert.deepEqual([...defaultShellsFor('win32')], ['powershell', 'fish']);
   assert.ok(SHELLS.includes('bash') && SHELLS.includes('zsh'), 'both are configurable, neither is default');
 });
 
+test('macOS defaults to zsh, the shell every mac login already writes history for', () => {
+  assert.deepEqual([...defaultShellsFor('darwin')], ['zsh', 'fish']);
+  for (const raw of [undefined, null, []]) {
+    assert.deepEqual(normalizeShells(raw, 'darwin'), { shells: ['zsh', 'fish'], rejected: [] });
+  }
+});
+
+test('the macOS default resolves to the zsh history file every mac writes without setup', () => {
+  const found = historyLocations({ env: { HOME: '/Users/j' }, platform: 'darwin' });
+  assert.deepEqual(found.map((location) => path.join(location.dir, String(location.name))), [
+    path.join('/Users/j', '.zsh_history'),
+    path.join('/Users/j', '.histfile'),
+    path.join('/Users/j', '.local', 'share', 'fish', 'fish_history'),
+    path.join('/Users/j', '.config', 'fish', 'fish_history'),
+  ]);
+  assert.equal(found[0].shell, 'zsh');
+});
+
 test('an explicit list names exactly the shells to tail, so fish alone drops PowerShell', () => {
-  assert.deepEqual(normalizeShells(['fish']), { shells: ['fish'], rejected: [] });
-  assert.deepEqual(normalizeShells(['bash', 'zsh']), { shells: ['bash', 'zsh'], rejected: [] });
+  assert.deepEqual(normalizeShells(['fish'], 'win32'), { shells: ['fish'], rejected: [] });
+  assert.deepEqual(normalizeShells(['bash', 'zsh'], 'win32'), { shells: ['bash', 'zsh'], rejected: [] });
+  assert.deepEqual(normalizeShells(['powershell'], 'darwin'), { shells: ['powershell'], rejected: [] });
 });
 
 test('pwsh and powershell are one shell, and a bad entry rides back as rejected beside the good ones', () => {
-  assert.deepEqual(normalizeShells(['pwsh', 'PowerShell', 'powershell.exe']), { shells: ['powershell'], rejected: [] });
-  assert.deepEqual(normalizeShells(['nushell', 'fish', 42, null]), { shells: ['fish'], rejected: ['nushell', '42', 'null'] });
+  assert.deepEqual(normalizeShells(['pwsh', 'PowerShell', 'powershell.exe'], 'win32'), { shells: ['powershell'], rejected: [] });
+  assert.deepEqual(normalizeShells(['nushell', 'fish', 42, null], 'win32'), { shells: ['fish'], rejected: ['nushell', '42', 'null'] });
 });
 
 test('a non-empty list naming no known shell resolves to NOTHING, never to the defaults', () => {
-  assert.deepEqual(normalizeShells(['nushell']), { shells: [], rejected: ['nushell'] });
-  assert.deepEqual(normalizeShells(['nushell', 'csh', 'csh']), { shells: [], rejected: ['nushell', 'csh'] });
+  assert.deepEqual(normalizeShells(['nushell'], 'win32'), { shells: [], rejected: ['nushell'] });
+  assert.deepEqual(normalizeShells(['nushell', 'csh', 'csh'], 'win32'), { shells: [], rejected: ['nushell', 'csh'] });
+  assert.deepEqual(normalizeShells(['nushell'], 'darwin'), { shells: [], rejected: ['nushell'] });
   assert.deepEqual(historyLocations({ shells: ['nushell'], env: { HOME: '/home/j' }, platform: 'linux' }), []);
 });
 

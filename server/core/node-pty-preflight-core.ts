@@ -31,6 +31,7 @@ function nativeBindingCandidates({ packageDir, platform, arch }: NativeBindingSc
 function nativeToolchainHint(platform: NodeJS.Platform): string {
   if (platform === 'linux') return 'install build tools: sudo apt install build-essential python3';
   if (platform === 'win32') return 'install Visual Studio Build Tools';
+  if (platform === 'darwin') return 'install Xcode Command Line Tools: xcode-select --install';
   return 'install the native build tools for this platform';
 }
 

@@ -94,7 +94,7 @@ function createShellHistoryIngest({
   const pollMs = positiveInt(sourceConfig.pollMs, DEFAULT_POLL_MS);
   const { note, warn } = createLaneLog({ prefix: '[ingest]', logger });
   const locations = historyLocations({ shells: sourceConfig.shells, env, platform, homeDir });
-  const rejectedShells = normalizeShells(sourceConfig.shells).rejected;
+  const rejectedShells = normalizeShells(sourceConfig.shells, platform).rejected;
   if (rejectedShells.length > 0) {
     const nothing = locations.length === 0 ? '; no history file is tailed' : '';
     warn(`shell-history source: unknown shell(s) in sources.shellHistory.shells: ${rejectedShells.join(', ')}${nothing}`);

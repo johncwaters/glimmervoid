@@ -5,7 +5,8 @@ import { stringOrNull } from './usage-number-core.ts';
 
 const SOURCE = 'shellHistory';
 const SHELLS: readonly string[] = Object.freeze(['powershell', 'fish', 'bash', 'zsh']);
-const DEFAULT_SHELLS: readonly string[] = Object.freeze(['powershell', 'fish']);
+const ZERO_SETUP_SHELLS: readonly string[] = Object.freeze(['powershell', 'fish']);
+const ZERO_SETUP_SHELLS_ON_MACOS: readonly string[] = Object.freeze(['zsh', 'fish']);
 
 const PSREADLINE_SUFFIX = '_history.txt';
 
@@ -50,8 +51,12 @@ export type ShellIngestEvent = {
 }
 
 
-function normalizeShells(raw: unknown): { shells: string[]; rejected: string[] } {
-  if (!Array.isArray(raw) || raw.length === 0) return { shells: [...DEFAULT_SHELLS], rejected: [] };
+function defaultShellsFor(platform: NodeJS.Platform): readonly string[] {
+  return platform === 'darwin' ? ZERO_SETUP_SHELLS_ON_MACOS : ZERO_SETUP_SHELLS;
+}
+
+function normalizeShells(raw: unknown, platform: NodeJS.Platform): { shells: string[]; rejected: string[] } {
+  if (!Array.isArray(raw) || raw.length === 0) return { shells: [...defaultShellsFor(platform)], rejected: [] };
   const shells: string[] = [];
   const rejected: string[] = [];
   for (const entry of raw) {
@@ -142,7 +147,7 @@ function historyLocations({
   platform?: NodeJS.Platform;
   homeDir?: string | null;
 } = {}): HistoryLocation[] {
-  const wanted = normalizeShells(shells).shells;
+  const wanted = normalizeShells(shells, platform).shells;
   const locations: HistoryLocation[] = [...histFileLocation(wanted, env)];
   for (const shell of wanted) {
     if (shell === 'powershell') locations.push(...powershellLocations(env, platform, homeDir));
@@ -337,12 +342,12 @@ function decideCommandEvent({
 }
 
 export {
-  DEFAULT_SHELLS,
   MAX_COMMAND_CHARS,
   MAX_CONTINUATION_LINES,
   SHELLS,
   createParseState,
   decideCommandEvent,
+  defaultShellsFor,
   historyLocations,
   isTrivialCommand,
   matchesLocation,

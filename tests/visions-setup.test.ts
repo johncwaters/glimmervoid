@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createVisionsSetup } from '../server/visions-setup.ts';
+import { createVisionsSetup, installExtensions, resolvedEditorPaths } from '../server/visions-setup.ts';
 import type { ExtensionReport, WireReport } from '../server/visions-setup.ts';
 import { IMPLIED_INGEST, decideImpliedDefaults } from '../server/core/visions-defaults-core.ts';
 
@@ -41,6 +41,41 @@ function harness(initialConfig: TestConfig) {
   });
   return { calls, config, setup };
 }
+
+function noEditorOnPath(): string {
+  throw new Error('nothing on PATH');
+}
+
+test('on macOS an editor installed as an app bundle under the home directory is found with nothing on PATH', () => {
+  const bundleCli = '/Users/j/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code';
+  const resolved = resolvedEditorPaths({
+    platform: 'darwin',
+    exec: noEditorOnPath,
+    homeDir: '/Users/j',
+    exists: (candidate) => candidate === bundleCli,
+  });
+  assert.deepEqual(resolved, { code: bundleCli }, 'the home directory reaches the bundle scan');
+});
+
+test('installExtensions judges an absolute editor path against the injected platform and probe, never the host', async () => {
+  const windowsEditor = 'C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd';
+  const refused = await installExtensions({
+    requested: windowsEditor,
+    resolvedByCommand: {},
+    platform: 'win32',
+    exists: () => false,
+  });
+  assert.deepEqual(refused.targets, []);
+  assert.equal(refused.reason, `editor path does not exist on disk: ${windowsEditor}`);
+
+  const onPath = await installExtensions({
+    requested: 'code',
+    resolvedByCommand: {},
+    platform: 'win32',
+    exists: () => true,
+  });
+  assert.equal(onPath.reason, 'editor not found on PATH: code');
+});
 
 test('a boot with visions off wires nothing and unwires nothing', async () => {
   const { calls, setup } = harness({ visions: { enabled: false } });

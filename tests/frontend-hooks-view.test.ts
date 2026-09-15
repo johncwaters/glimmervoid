@@ -134,6 +134,17 @@ test('settingsEntryPreview is the injector shape: matcher only when set, timeout
   assert.deepEqual(JSON.parse(settingsEntryPreview(hook({ event: 'Stop', matcher: undefined, type: 'http', url: 'http://x', timeout: 30 }))), { hooks: { Stop: [{ hooks: [{ type: 'http', url: 'http://x', timeout: 30 }] }] } });
 });
 
+test('the notify template fires on macOS as well as linux, from one command string', async () => {
+  const { HOOK_TEMPLATES } = await importCore();
+  const notify = HOOK_TEMPLATES.find((template) => template.id === 'notify');
+  if (!notify) throw new Error('the notify template is gone');
+  const command = String(notify.draft.command);
+  assert.match(command, /command -v notify-send/, 'linux is probed rather than assumed');
+  assert.match(command, /\|\| \{ command -v osascript >\/dev\/null 2>&1 && osascript -e 'display notification/, 'the mac fallback is gated on its own probe, so a broken notify daemon is not a missing command');
+  assert.ok(command.includes('||'), 'one string, both platforms, no second template');
+  assert.equal(notify.label, 'Notify on Stop', 'the label names the action and stays put');
+});
+
 test('templates open as valid drafts and a dirty draft is told from an untouched one', async () => {
   const { HOOK_TEMPLATES, templateDraft, draftProblem, isDraftDirty, fromDraft, emptyDraft, duplicateName } = await importCore();
   const events: HookEvent[] = [...EVENTS, { name: 'PostToolUse', matcher: 'tool', description: '' }, { name: 'UserPromptSubmit', matcher: null, description: '' }];

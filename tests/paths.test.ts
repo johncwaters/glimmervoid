@@ -15,6 +15,46 @@ test('isSameDirectoryPath matches spellings differing by separator, trailing sla
   assert.ok(isSameDirectoryPath('C:\\Repo\\Project', 'c:\\repo\\project'), 'Windows paths are case-insensitive');
 });
 
+function asPlatform(platform: NodeJS.Platform, fn: () => void): void {
+  const original = Object.getOwnPropertyDescriptor(process, 'platform') ?? { value: process.platform, configurable: true };
+  Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+  try {
+    fn();
+  } finally {
+    Object.defineProperty(process, 'platform', original);
+  }
+}
+
+function withLinkedTempDir(fn: (context: { dir: string; link: string }) => void): void {
+  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-paths-')));
+  const link = path.join(path.dirname(dir), `${path.basename(dir)}-alias`);
+  fs.symlinkSync(dir, link, WIN ? 'junction' : 'dir');
+  try {
+    fn({ dir, link });
+  } finally {
+    try { fs.unlinkSync(link); } catch { fs.rmSync(link, { recursive: true, force: true }); }
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('on macOS a symlinked spelling of a worktree is the same directory, because APFS aliases are ordinary there', () => {
+  withLinkedTempDir(({ dir, link }) => {
+    assert.notEqual(link, dir, 'the fixture really is a second spelling');
+    asPlatform('darwin', () => {
+      assert.ok(isSameDirectoryPath(link, dir), 'a mac alias must not split one worktree into two');
+      assert.ok(!isSameDirectoryPath(link, path.join(dir, 'nested')), 'canonicalizing is not collapsing');
+    });
+  });
+});
+
+test('on linux two spellings stay two paths, so no sync realpath runs off Windows and macOS', () => {
+  withLinkedTempDir(({ dir, link }) => {
+    asPlatform('linux', () => {
+      assert.equal(isSameDirectoryPath(link, dir), false);
+    });
+  });
+});
+
 test('isSameDirectoryPath keeps genuinely different directories apart', () => {
   const a = path.join(os.tmpdir(), 'glimmervoid-paths-a');
   const b = path.join(os.tmpdir(), 'glimmervoid-paths-b');

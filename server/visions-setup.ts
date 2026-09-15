@@ -7,7 +7,7 @@ import { resolvePathCommandMatches } from '../session/core/spawn-command.ts';
 import { execFileAsync, execSync } from './child-process-safe.ts';
 import { isUnder, underTestRunner } from './core/db-path-guard.ts';
 import {
-  EDITOR_CANDIDATES, decideEditorTargets, isExtensionInstalled, visionsExtensionFiles,
+  decideEditorTargets, isExtensionInstalled, resolveEditorPathsFor, visionsExtensionFiles,
 } from './core/editor-extension-core.ts';
 import type { EditorTarget as ExtensionEditorTarget } from './core/editor-extension-core.ts';
 import { relayInvocation } from './core/editor-setup-core.ts';
@@ -121,16 +121,16 @@ function missingInstallFiles(): string[] {
 }
 
 function resolvedEditorPaths(
-  { platform = process.platform, exec = execSync }: { platform?: NodeJS.Platform; exec?: typeof execSync } = {},
+  { platform = process.platform, exec = execSync, homeDir = os.homedir(), exists = fs.existsSync }: {
+    platform?: NodeJS.Platform; exec?: typeof execSync; homeDir?: string; exists?: (candidate: string) => boolean;
+  } = {},
 ): Record<string, string> {
-  const resolved: Record<string, string> = {};
-  for (const candidate of EDITOR_CANDIDATES) {
-    const matches = resolvePathCommandMatches(candidate.command, { platform, exec });
-    const first = matches[0];
-    if (!first) continue;
-    resolved[candidate.command] = first;
-  }
-  return resolved;
+  return resolveEditorPathsFor({
+    platform,
+    homeDir,
+    matchesOnPath: (command) => resolvePathCommandMatches(command, { platform, exec }),
+    exists,
+  });
 }
 
 function relayInvocationOptions(
@@ -188,12 +188,18 @@ async function uninstallFrom(target: ExtensionEditorTarget, extensionId: string)
 }
 
 async function installExtensions(
-  { requested = null, resolvedByCommand = null }: {
+  { requested = null, resolvedByCommand = null, platform = process.platform, exists = fs.existsSync }: {
     requested?: string | null;
     resolvedByCommand?: Record<string, string> | null;
+    platform?: NodeJS.Platform;
+    exists?: (candidate: string) => boolean;
   } = {},
 ): Promise<ExtensionReport> {
-  const { targets, reason } = decideEditorTargets({ requested, resolvedByCommand: resolvedByCommand || resolvedEditorPaths() });
+  const { targets, reason } = decideEditorTargets({
+    requested,
+    resolvedByCommand: resolvedByCommand || resolvedEditorPaths({ platform, exists }),
+    probe: { platform, exists },
+  });
   if (targets.length === 0) return { targets: [], reason, results: [] };
 
   const { manifest, vsix } = packVsix();
@@ -206,9 +212,16 @@ async function installExtensions(
 }
 
 async function uninstallExtensions(
-  { resolvedByCommand = null }: { resolvedByCommand?: Record<string, string> | null } = {},
+  { resolvedByCommand = null, platform = process.platform, exists = fs.existsSync }: {
+    resolvedByCommand?: Record<string, string> | null;
+    platform?: NodeJS.Platform;
+    exists?: (candidate: string) => boolean;
+  } = {},
 ): Promise<{ targets: ExtensionEditorTarget[]; results: InstallOutcome[] }> {
-  const { targets } = decideEditorTargets({ resolvedByCommand: resolvedByCommand || resolvedEditorPaths() });
+  const { targets } = decideEditorTargets({
+    resolvedByCommand: resolvedByCommand || resolvedEditorPaths({ platform, exists }),
+    probe: { platform, exists },
+  });
   const { manifest } = packVsix();
   const extensionId = extensionIdOf(manifest);
   const results: InstallOutcome[] = [];

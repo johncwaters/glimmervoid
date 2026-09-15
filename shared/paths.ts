@@ -22,7 +22,7 @@ export function isSameDirectoryPath(a: unknown, b: unknown): boolean {
   const resolvedB = path.resolve(String(b || ''));
   if (equalsIgnoringCaseOnWindows(resolvedA, resolvedB)) return true;
 
-  if (process.platform !== 'win32') return false;
+  if (process.platform !== 'win32' && process.platform !== 'darwin') return false;
 
   return equalsIgnoringCaseOnWindows(canonicalizePath(resolvedA), canonicalizePath(resolvedB));
 }
