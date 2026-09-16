@@ -35,6 +35,7 @@ Session card modules, decomposed from the old monolithic session-card.js. Each s
 - A phone layout bids on visibility alone, because Android Chrome reports no window focus across a soft-keyboard transition and the phone was stranded at the keyboard-open grid forever (harness `keyboard-down-after-window-blur`); a backgrounded phone is hidden, so the hidden check is what keeps it from stealing (harness `hidden-phone-never-steals`), and `blurred-viewer-never-steals` is pinned to the desktop companion it was written for.
 - The plan is the card's second face and release always restores the terminal, so a grid tile never owns review UI (`tests/frontend-plan-face.test.ts`).
 - WebGL contexts are a scarce resource: always acquire through `webgl-pool.ts`.
+- A WebGL addon attached while the card had no layout box is rebuilt on the card's first reveal, because xterm writes a cell's glyph vertices only when the render model shows that cell changing, so a renderer that latched a hidden box leaves most cells blank until their content happens to change (`tests/frontend-webgl-pool.test.ts`, `shouldReloadWebgl`).
 - No per-session `setInterval`: ride `session-tick.ts`.
 - State is applied via `applyState` + `[data-state]` CSS; do not hand-toggle state classes.
 

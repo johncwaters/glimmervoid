@@ -90,6 +90,7 @@ test('the borrowed card swaps to plan and release restores the terminal face thr
     fitAddon: null,
     webglAddon: null,
     needsWebGLReload: false,
+    webglAttachedWithoutLayout: false,
     dataWs: null,
     card,
     nameEl: document.createElement('span'),

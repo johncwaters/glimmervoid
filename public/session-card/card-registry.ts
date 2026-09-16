@@ -16,6 +16,7 @@ export interface SessionUi {
   fitAddon: FitAddon | null;
   webglAddon: WebglAddon | null;
   needsWebGLReload: boolean;
+  webglAttachedWithoutLayout: boolean;
   dataWs: WebSocket | null;
   card: SessionCardElement;
   nameEl: HTMLSpanElement;

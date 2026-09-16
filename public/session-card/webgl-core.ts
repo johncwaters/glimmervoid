@@ -1,3 +1,12 @@
+export function shouldReloadWebgl(state: {
+  needsReload: boolean;
+  wasAttachedWithoutLayout: boolean;
+  hasLayoutNow: boolean;
+}): boolean {
+  if (state.needsReload) return true;
+  return state.wasAttachedWithoutLayout && state.hasLayoutNow;
+}
+
 export function pickEvictionVictims<Key>(lruKeys: readonly Key[], cap: number, protectedKeys: readonly Key[] | Key = []): Key[] {
   const protectedKeySet = new Set<Key>(Array.isArray(protectedKeys) ? protectedKeys : [protectedKeys as Key]);
   const victims: Key[] = [];

@@ -270,6 +270,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     fitAddon: null,
     webglAddon: null,
     needsWebGLReload: false,
+    webglAttachedWithoutLayout: false,
     dataWs: null,
     card: dom.card,
     nameEl: dom.nameEl,

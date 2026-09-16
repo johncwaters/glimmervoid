@@ -23,7 +23,7 @@ import {
 import { osc8LinkHandler, registerUrlLinkProvider } from './terminal-links.ts';
 import { showErrorToast } from './toast.ts';
 import { wireTouchScroll } from './touch-scroll.ts';
-import { reacquireWebglIfEvicted, tryLoadWebGL } from './webgl-pool.ts';
+import { reacquireWebglIfStale, releaseWebgl, tryLoadWebGL } from './webgl-pool.ts';
 
 
 const INPUT_QUEUE_MAX = 1024;
@@ -181,8 +181,7 @@ export function setupTerminal(termWrap: HTMLElement, ui: SessionUi) {
 
   ui.term = term;
   ui.fitAddon = fitAddon;
-  ui.webglAddon = null;
-  ui.needsWebGLReload = false;
+  releaseWebgl(ui);
 
   let gridRafId: number | null = null;
   let settleTimerId: ReturnType<typeof setTimeout> | null = null;
@@ -293,7 +292,7 @@ export function setupTerminal(termWrap: HTMLElement, ui: SessionUi) {
     isActiveViewer = isActive;
     cancelSettle();
     owedClaim = null;
-    if (isActive) reacquireWebglIfEvicted(ui);
+    if (isActive) reacquireWebglIfStale(ui);
     syncGrid({ isActivationEdge: true });
   };
   ui.card.addEventListener('focusin', () => {
@@ -465,7 +464,7 @@ export function syncGridOnEngagementEdge(ui: SessionUi | null | undefined) {
 export function ensureTerminalReady(ui: SessionUi | null | undefined, sessionId: string) {
   if (!ui) return;
   ensureTerminalSetup(ui, sessionId);
-  reacquireWebglIfEvicted(ui);
+  reacquireWebglIfStale(ui);
   const term = ui.term;
   if (!term) return;
   term.refresh(0, term.rows - 1);

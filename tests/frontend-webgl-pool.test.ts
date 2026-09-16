@@ -31,3 +31,23 @@ test('pickEvictionVictims: stops when only protected keys remain at/over the cap
   const { pickEvictionVictims } = await importCore();
   assert.deepEqual(pickEvictionVictims(['a'], 1, ['a']), []);
 });
+
+test('shouldReloadWebgl: an addon flagged for reload rebuilds whatever the layout', async () => {
+  const { shouldReloadWebgl } = await importCore();
+  assert.equal(shouldReloadWebgl({ needsReload: true, wasAttachedWithoutLayout: false, hasLayoutNow: false }), true);
+});
+
+test('shouldReloadWebgl: an addon attached without a layout box reloads once the box exists', async () => {
+  const { shouldReloadWebgl } = await importCore();
+  assert.equal(shouldReloadWebgl({ needsReload: false, wasAttachedWithoutLayout: true, hasLayoutNow: true }), true);
+});
+
+test('shouldReloadWebgl: an addon attached without a layout box waits while still unlaid', async () => {
+  const { shouldReloadWebgl } = await importCore();
+  assert.equal(shouldReloadWebgl({ needsReload: false, wasAttachedWithoutLayout: true, hasLayoutNow: false }), false);
+});
+
+test('shouldReloadWebgl: an addon attached with a layout box never reloads on reveal', async () => {
+  const { shouldReloadWebgl } = await importCore();
+  assert.equal(shouldReloadWebgl({ needsReload: false, wasAttachedWithoutLayout: false, hasLayoutNow: true }), false);
+});

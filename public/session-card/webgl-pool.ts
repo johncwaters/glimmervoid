@@ -2,13 +2,19 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { uiState } from '../ui-state-core.ts';
 import type { SessionUi } from './card-registry.ts';
 import { sessionUIs } from './card-registry.ts';
-import { pickEvictionVictims } from './webgl-core.ts';
+import { pickEvictionVictims, shouldReloadWebgl } from './webgl-core.ts';
 
 const MAX_WEBGL_CONTEXTS = window.matchMedia?.('(pointer: coarse)').matches ? 4 : 12;
 const _webglLru = new Map<SessionUi, true>();
 
+function hasLayoutBox(el: HTMLElement) {
+  return el.clientWidth > 0 && el.clientHeight > 0;
+}
+
 export function releaseWebgl(ui: SessionUi) {
   _webglLru.delete(ui);
+  ui.needsWebGLReload = false;
+  ui.webglAttachedWithoutLayout = false;
   if (ui.webglAddon) {
     try { ui.webglAddon.dispose(); } catch {  }
     ui.webglAddon = null;
@@ -26,14 +32,20 @@ function evictWebglIfNeeded(exceptUi: SessionUi) {
   }
 }
 
-export function reacquireWebglIfEvicted(ui: SessionUi | null | undefined) {
-  if (!ui?.term || !ui.needsWebGLReload) return;
-  tryLoadWebGL(ui);
+export function reacquireWebglIfStale(ui: SessionUi | null | undefined) {
+  if (!ui?.term) return;
+  const isStale = shouldReloadWebgl({
+    needsReload: ui.needsWebGLReload,
+    wasAttachedWithoutLayout: ui.webglAttachedWithoutLayout,
+    hasLayoutNow: hasLayoutBox(ui.termWrap),
+  });
+  if (!isStale) return;
+  tryLoadWebGL(ui, { isForced: true });
 }
 
-export function tryLoadWebGL(ui: SessionUi) {
+export function tryLoadWebGL(ui: SessionUi, options: { isForced?: boolean } = {}) {
   try {
-    if (ui.webglAddon && !ui.needsWebGLReload) {
+    if (ui.webglAddon && !ui.needsWebGLReload && !options.isForced) {
       _webglLru.delete(ui);
       _webglLru.set(ui, true);
       return;
@@ -57,6 +69,7 @@ export function tryLoadWebGL(ui: SessionUi) {
     term.loadAddon(addon);
     ui.webglAddon = addon;
     ui.needsWebGLReload = false;
+    ui.webglAttachedWithoutLayout = !hasLayoutBox(ui.termWrap);
     _webglLru.set(ui, true);
 
     requestAnimationFrame(() => {
@@ -66,6 +79,7 @@ export function tryLoadWebGL(ui: SessionUi) {
   } catch {
     ui.webglAddon = null;
     ui.needsWebGLReload = false;
+    ui.webglAttachedWithoutLayout = false;
     _webglLru.delete(ui);
   }
 }
