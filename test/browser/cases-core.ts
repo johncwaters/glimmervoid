@@ -341,6 +341,21 @@ export const SCENARIOS: readonly Scenario[] = [
     ],
   },
   {
+    name: 'keyboard-down-after-window-blur',
+    phoneOnly: true,
+    steps: [
+      { kind: 'open' },
+      { kind: 'settle' },
+      { kind: 'remember', label: 'phone-box' },
+      { kind: 'tap-terminal' },
+      { kind: 'keyboard', state: 'up' },
+      { kind: 'settle' },
+      { kind: 'window-blur' },
+      { kind: 'keyboard', state: 'down' },
+      { kind: 'settle', expectRemembered: 'phone-box' },
+    ],
+  },
+  {
     name: 'keyboard-down-while-unengaged',
     phoneOnly: true,
     steps: [
@@ -392,7 +407,25 @@ export const SCENARIOS: readonly Scenario[] = [
     ],
   },
   {
+    name: 'hidden-phone-never-steals',
+    phoneOnly: true,
+    companionViewport: 'desktop-1280',
+    steps: [
+      { kind: 'open', viewer: 'a' },
+      { kind: 'settle', viewer: 'a', expectGrid: 'exact' },
+      { kind: 'tap-terminal', viewer: 'a' },
+      { kind: 'background', viewer: 'a' },
+      { kind: 'open', viewer: 'b' },
+      { kind: 'settle', viewer: 'b', expectGrid: 'exact' },
+      { kind: 'offline', viewer: 'a' },
+      { kind: 'online', viewer: 'a' },
+      { kind: 'settle', viewer: 'b', expectGrid: 'exact' },
+      { kind: 'settle', viewer: 'a', expectGrid: 'following' },
+    ],
+  },
+  {
     name: 'blurred-viewer-never-steals',
+    viewports: ['phone-393'],
     companionViewport: 'desktop-1280',
     steps: [
       { kind: 'open', viewer: 'b' },

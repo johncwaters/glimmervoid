@@ -93,6 +93,7 @@ test('a hidden document is never engaged, however the card holds focus', () => {
       isDocumentFocused: true,
       hasFocusInsideCard: true,
       hasWindowBlurredSinceFocus: false,
+      isPhoneLayout: false,
     }),
     false,
   );
@@ -102,6 +103,7 @@ test('a hidden document is never engaged, however the card holds focus', () => {
       isDocumentFocused: false,
       hasFocusInsideCard: false,
       hasWindowBlurredSinceFocus: false,
+      isPhoneLayout: false,
     }),
     false,
   );
@@ -111,6 +113,7 @@ test('a hidden document is never engaged, however the card holds focus', () => {
       isDocumentFocused: false,
       hasFocusInsideCard: true,
       hasWindowBlurredSinceFocus: true,
+      isPhoneLayout: false,
     }),
     false,
   );
@@ -123,6 +126,7 @@ test('a visible document with focus inside the card is engaged even when the win
       isDocumentFocused: false,
       hasFocusInsideCard: true,
       hasWindowBlurredSinceFocus: false,
+      isPhoneLayout: false,
     }),
     true,
   );
@@ -132,6 +136,7 @@ test('a visible document with focus inside the card is engaged even when the win
       isDocumentFocused: true,
       hasFocusInsideCard: false,
       hasWindowBlurredSinceFocus: false,
+      isPhoneLayout: false,
     }),
     true,
   );
@@ -141,6 +146,7 @@ test('a visible document with focus inside the card is engaged even when the win
       isDocumentFocused: false,
       hasFocusInsideCard: false,
       hasWindowBlurredSinceFocus: false,
+      isPhoneLayout: false,
     }),
     false,
   );
@@ -153,6 +159,7 @@ test('a card still holding focus after a window blur is not engaged', () => {
       isDocumentFocused: false,
       hasFocusInsideCard: true,
       hasWindowBlurredSinceFocus: true,
+      isPhoneLayout: false,
     }),
     false,
   );
@@ -165,6 +172,7 @@ test('focus landing inside the card again after a window blur restores engagemen
       isDocumentFocused: false,
       hasFocusInsideCard: true,
       hasWindowBlurredSinceFocus: false,
+      isPhoneLayout: false,
     }),
     true,
   );
@@ -177,9 +185,23 @@ test('a window that says it holds focus is engaged whatever the stale blur flag 
       isDocumentFocused: true,
       hasFocusInsideCard: true,
       hasWindowBlurredSinceFocus: true,
+      isPhoneLayout: false,
     }),
     true,
   );
+});
+
+test('a visible phone is engaged however the window and the card report their focus', () => {
+  const blurredPhone = {
+    isDocumentVisible: true,
+    isDocumentFocused: false,
+    hasFocusInsideCard: true,
+    hasWindowBlurredSinceFocus: true,
+    isPhoneLayout: true,
+  };
+  assert.equal(isViewerEngaged(blurredPhone), true);
+  assert.equal(isViewerEngaged({ ...blurredPhone, hasFocusInsideCard: false }), true);
+  assert.equal(isViewerEngaged({ ...blurredPhone, isDocumentVisible: false }), false);
 });
 
 test('an engagement edge re-bids for a following viewer and only re-syncs the exact owner', () => {

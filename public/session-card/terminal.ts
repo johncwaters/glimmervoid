@@ -3,6 +3,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import type { SessionUi } from './card-registry.ts';
 import { writeClipboardText } from '../dom-helpers.ts';
+import { isPhoneLayout } from '../form-factor.ts';
 import { isFocusAltShortcut } from '../focus-view/focus-shortcuts.ts';
 import { nextReconnectDelayMs } from '../reconnect-backoff.ts';
 import { renderScheduler } from '../render-scheduler.ts';
@@ -51,6 +52,7 @@ function isViewerEngagedAt(card: HTMLElement) {
     isDocumentFocused: document.hasFocus(),
     hasFocusInsideCard: activeElement instanceof Node && card.contains(activeElement),
     hasWindowBlurredSinceFocus: _hasWindowBlurredSinceFocus,
+    isPhoneLayout: isPhoneLayout(),
   });
 }
 
@@ -372,7 +374,6 @@ function wireSoftKeyboardInput(termWrap: HTMLElement, term: Terminal, ui: Sessio
 
   let alreadySentText = '';
 
-  const isPhoneLayout = () => document.documentElement.dataset.layout === 'phone';
   const resyncBaseline = () => { alreadySentText = textarea.value; };
 
   const resetSoftKeyboardBuffer = () => {

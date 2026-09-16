@@ -32,6 +32,7 @@ Session card modules, decomposed from the old monolithic session-card.js. Each s
 - One xterm per session; the Focus view re-parents the card node, so never assume a fixed parent container.
 - The pty holds one grid and the newest claimant wins, so a viewer bids only while its own document is focused and visible, checked when the claim is SENT, and every active viewer re-syncs on its engagement edge, dropping its stored claim only when it is following; without all of that a background tab steals the phone's grid on any resize, reattach or settle that outlives its focus, and the phone can never win it back.
 - A claim is decided whatever the engagement, remembered as owed when the send is refused, and retried on every engagement edge, socket open and sync, because Android Chrome lies about `document.hasFocus()` around soft-keyboard transitions: dropping the claim silently left the phone following the pty's 80x24 default forever (`tests/frontend-grid-core.test.ts`, harness `keyboard-down-while-unengaged`). Focus inside the card counts as engagement for the same reason, but only until a window blur and again from the next focus landing in it, because `document.activeElement` survives an alt-tab and a merely visible desktop tab must never bid (harness `blurred-viewer-never-steals`).
+- A phone layout bids on visibility alone, because Android Chrome reports no window focus across a soft-keyboard transition and the phone was stranded at the keyboard-open grid forever (harness `keyboard-down-after-window-blur`); a backgrounded phone is hidden, so the hidden check is what keeps it from stealing (harness `hidden-phone-never-steals`), and `blurred-viewer-never-steals` is pinned to the desktop companion it was written for.
 - The plan is the card's second face and release always restores the terminal, so a grid tile never owns review UI (`tests/frontend-plan-face.test.ts`).
 - WebGL contexts are a scarce resource: always acquire through `webgl-pool.ts`.
 - No per-session `setInterval`: ride `session-tick.ts`.
@@ -43,7 +44,7 @@ Session card modules, decomposed from the old monolithic session-card.js. Each s
 ## Dependencies
 
 ### Internal
-- `../control-ws.ts`, `../render-scheduler.ts`, `../theme.ts`, `../focus-view/focus-shortcuts.ts`, `#shared/states.ts`
+- `../control-ws.ts`, `../render-scheduler.ts`, `../theme.ts`, `../form-factor.ts`, `../focus-view/focus-shortcuts.ts`, `#shared/states.ts`
 
 ### External
 - `@xterm/xterm`, `@xterm/addon-fit`, `@xterm/addon-webgl`

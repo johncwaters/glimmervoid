@@ -34,6 +34,7 @@ export interface ViewerEngagementInput {
   isDocumentFocused: boolean;
   hasFocusInsideCard: boolean;
   hasWindowBlurredSinceFocus: boolean;
+  isPhoneLayout: boolean;
 }
 
 export interface GridEngagementEdgeInput {
@@ -89,8 +90,10 @@ export function isViewerEngaged({
   isDocumentFocused,
   hasFocusInsideCard,
   hasWindowBlurredSinceFocus,
+  isPhoneLayout,
 }: ViewerEngagementInput): boolean {
   if (!isDocumentVisible) return false;
+  if (isPhoneLayout) return true;
   if (isDocumentFocused) return true;
   return hasFocusInsideCard && !hasWindowBlurredSinceFocus;
 }
