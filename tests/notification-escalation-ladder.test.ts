@@ -66,6 +66,35 @@ test('an unacknowledged completion reaches the phone, and only the phone', (t) =
   assert.equal(browser.length, 1, 're-toasting a browser that already ignored it would just repeat it');
 });
 
+test('a suppressed notification reaches the phone after the escalation delay, and only the phone', (t) => {
+  useFakeClock(t);
+  const { manager, browser, phone } = makeManager();
+  t.after(() => manager.destroy());
+
+  manager.setFocusSuppressed(true);
+  manager.trigger('sess-1', 'complete', 'build finished');
+  t.mock.timers.tick(PHONE_MS);
+
+  assert.equal(browser.length, 0);
+  assert.equal(phone.length, 1);
+  assert.equal(phone[0].context.phoneEscalation, true);
+  assert.equal(manager.getNotificationState('sess-1'), NS.ESCALATED_PHONE);
+});
+
+test('blur before the phone delay delivers to the web and no phone ping fires', (t) => {
+  useFakeClock(t);
+  const { manager, browser, escalations } = makeManager();
+  t.after(() => manager.destroy());
+
+  manager.setFocusSuppressed(true);
+  manager.trigger('sess-1', 'complete', 'build finished');
+  t.mock.timers.tick(PHONE_MS / 2);
+  manager.setFocusSuppressed(false);
+
+  assert.equal(browser.length, 1);
+  assert.equal(escalations().length, 0);
+});
+
 test('an acknowledgement before the rung comes due cancels it', (t) => {
   useFakeClock(t);
   const { manager, escalations } = makeManager();

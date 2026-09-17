@@ -25,6 +25,7 @@ export const NOTIFICATION_TRANSITIONS: Readonly<Record<NotificationState, Readon
   [NOTIFICATION_STATES.SUPPRESSED]: {
     trigger:           NOTIFICATION_STATES.PENDING,
     unsuppress:        NOTIFICATION_STATES.PENDING,
+    phone_escalation:  NOTIFICATION_STATES.ESCALATED_PHONE,
     acknowledge:       NOTIFICATION_STATES.IDLE,
     session_destroyed: NOTIFICATION_STATES.IDLE,
   },
@@ -53,4 +54,3 @@ export const NOTIFICATION_TRANSITIONS: Readonly<Record<NotificationState, Readon
     session_destroyed: NOTIFICATION_STATES.IDLE,
   },
 });
-

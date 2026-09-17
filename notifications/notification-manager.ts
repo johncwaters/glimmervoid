@@ -187,6 +187,7 @@ class NotificationManager extends EventEmitter {
         break;
 
       case NS.SUPPRESSED:
+        this._armPhoneEscalation(sessionName, entry);
         break;
 
       case NS.DELIVERED:
