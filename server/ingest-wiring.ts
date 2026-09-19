@@ -88,6 +88,7 @@ function createIngestLane({
   let pendingEvents: IngestEvent[] = [];
   let batchLogState: BatchLogState = emptyBatchLogState();
   let stopped = false;
+  let stoppingPromise: Promise<void> | null = null;
 
   const { note, warn } = createLaneLog({ prefix: '[ingest]', logger, debugFlag: debug });
 
@@ -167,7 +168,7 @@ function createIngestLane({
     return buildContextDigest(store, { scopes, budgetChars, now: now == null ? nowFn() : now });
   }
 
-  const adapters: { name: string; start?: () => unknown; stop: () => unknown }[] = [];
+  const adapters: { name: string; start?: () => unknown; stop: () => Promise<void> | void }[] = [];
   const terminalEnabled = resolved.enabled === true && resolved.sources.terminal.enabled === true;
   const terminal = terminalEnabled
     ? createTerminalIngest({
@@ -301,23 +302,30 @@ function createIngestLane({
     return terminal.hasSessionTap(sess);
   }
 
-  function stop(): void {
-    if (stopped) return;
+  function stopAdapter(adapter: (typeof adapters)[number]): Promise<void> {
+    const failed = (error: unknown) => { warn(`stopping the ${adapter.name} source failed: ${errorMessage(error)}`); };
+    try {
+      return Promise.resolve(adapter.stop()).then(() => { note(`the ${adapter.name} source stopped`); }, failed);
+    } catch (error) {
+      failed(error);
+      return Promise.resolve();
+    }
+  }
+
+  async function stop(): Promise<void> {
+    if (stoppingPromise) {
+      await stoppingPromise;
+      return;
+    }
     stopped = true;
     if (batchTimer) clearIntervalFn(batchTimer);
     batchTimer = null;
     if (batchLogTimer) clearIntervalFn(batchLogTimer);
     batchLogTimer = null;
     pendingEvents = [];
-    for (const adapter of adapters) {
-      try {
-        adapter.stop();
-        note(`the ${adapter.name} source stopped`);
-      } catch (error) {
-        warn(`stopping the ${adapter.name} source failed: ${errorMessage(error)}`);
-      }
-    }
-    note('lane stopped');
+    const stopping = adapters.map(stopAdapter);
+    stoppingPromise = Promise.allSettled(stopping).then(() => { note('lane stopped'); });
+    await stoppingPromise;
   }
 
   function noteEditorEvent(notification: { method?: string; uri?: string } | null | undefined): unknown {

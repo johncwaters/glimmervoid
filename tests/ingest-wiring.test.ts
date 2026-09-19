@@ -526,6 +526,65 @@ test('stop is idempotent', () => {
   assert.equal(lane.isStopped, true);
 });
 
+test('stop notes a source stopped only once its teardown settled, and warns when one rejects', async () => {
+  let resolveUnsubscribe = () => {};
+  let wasUnsubscribeRequested = false;
+  const deferredUnsubscribe = new Promise<void>((resolve) => { resolveUnsubscribe = resolve; });
+  const deferred = drivenLane(
+    { enabled: true, sources: { fs: { enabled: true, roots: ['/repo'] } } },
+    {
+      fsOptions: {
+        loadWatcher: () => ({
+          subscribe: async () => ({
+            unsubscribe: () => {
+              wasUnsubscribeRequested = true;
+              return deferredUnsubscribe;
+            },
+          }),
+        }),
+      },
+    },
+  );
+  if (!deferred.lane.fs) throw new Error('the fs adapter must be enabled');
+  await deferred.lane.fs.settle();
+
+  let resolved = false;
+  const stopping = deferred.lane.stop().then(() => { resolved = true; });
+  await new Promise<void>((resolve) => { setImmediate(resolve); });
+  assert.equal(resolved, false);
+  assert.equal(wasUnsubscribeRequested, true);
+  assert.equal(
+    deferred.notes.some((line) => line.includes('the fs source stopped')),
+    false,
+    `saw ${JSON.stringify(deferred.notes)}`,
+  );
+  resolveUnsubscribe();
+  await stopping;
+  assert.equal(resolved, true);
+  assert.ok(deferred.notes.some((line) => line === '[ingest] the fs source stopped'));
+
+  const rejecting = drivenLane(
+    { enabled: true, sources: { fs: { enabled: true, roots: ['/repo'] } } },
+    {
+      fsOptions: {
+        loadWatcher: () => ({
+          subscribe: async () => ({ unsubscribe: () => Promise.resolve() }),
+        }),
+      },
+    },
+  );
+  const rejectingFsAdapter = rejecting.lane.fs;
+  if (!rejectingFsAdapter) throw new Error('the fs adapter must be enabled');
+  await rejectingFsAdapter.settle();
+  rejectingFsAdapter.stop = () => Promise.reject(new Error('stop failed'));
+  await assert.doesNotReject(rejecting.lane.stop());
+  assert.ok(
+    rejecting.warnings.some((line) => line === '[ingest] stopping the fs source failed: stop failed'),
+    `saw ${JSON.stringify(rejecting.warnings)}`,
+  );
+  assert.equal(rejecting.notes.some((line) => line.includes('the fs source stopped')), false);
+});
+
 test('a stopped lane attaches no new tap', () => {
   const { lane } = drivenLane();
   lane.stop();
