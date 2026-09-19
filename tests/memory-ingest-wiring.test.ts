@@ -491,6 +491,101 @@ test('the file cap is enforced inside a directory, not only between directories'
   assert.equal(result.files, 3, 'one directory of twelve cannot walk past the cap');
 }));
 
+test('a default backfill retains offsets for every file through its file cap', withHomes(async ({ projects, memoryDir, env, cleanups }) => {
+  const dir = path.join(projects, 'C--repo');
+  fs.mkdirSync(dir, { recursive: true });
+  for (let index = 0; index < 2001; index += 1) {
+    fs.writeFileSync(
+      path.join(dir, `sess-${index}.jsonl`),
+      claudeAssistant({ text: `turn ${index}`, sessionId: `sess-${index}`, ts: '2026-08-20T10:00:00.000Z' }),
+      'utf8',
+    );
+  }
+  const store = realStore(memoryDir);
+  cleanups.push(() => store.stop());
+  const ingest = createMemoryIngest({ store, env });
+  cleanups.push(() => ingest.stop());
+
+  const result = await ingest.backfill();
+  assert.equal(result.files, 2000);
+  assert.equal(Object.keys(store.tailState().files).length, 2000);
+  assert.equal(ingest.stats().dropped, 0, 'an offset may not outrun the queue that holds its records');
+  assert.equal(ingest.stats().written, 2000);
+  assert.equal(store.stats().total, 2000);
+}));
+
+test('an explicit tail-entry cap overrides the backfill file cap', withHomes(async ({ projects, memoryDir, env, cleanups }) => {
+  const dir = path.join(projects, 'C--repo');
+  fs.mkdirSync(dir, { recursive: true });
+  for (let index = 0; index < 4; index += 1) {
+    fs.writeFileSync(
+      path.join(dir, `sess-${index}.jsonl`),
+      claudeAssistant({ text: `turn ${index}`, sessionId: `sess-${index}`, ts: '2026-08-20T10:00:00.000Z' }),
+      'utf8',
+    );
+  }
+  const store = realStore(memoryDir);
+  cleanups.push(() => store.stop());
+  const ingest = createMemoryIngest({ store, env, maxBackfillFiles: 4, maxTailEntries: 2 });
+  cleanups.push(() => ingest.stop());
+
+  await ingest.backfill();
+  assert.equal(Object.keys(store.tailState().files).length, 2);
+}));
+
+test('a stop that lands before the first byte leaves no offset behind for the file it abandoned', withHomes(async ({ projects, memoryDir, env, cleanups }) => {
+  const lines: string[] = [];
+  for (let index = 0; index < 400; index += 1) {
+    lines.push(claudeAssistant({ text: `turn number ${index}`, ts: '2026-08-20T10:00:00.000Z' }));
+  }
+  const filePath = seedTranscript(projects, { lines });
+  const store = fakeStore(memoryDir);
+  let stopTheIngest: (() => Promise<void>) | null = null;
+  const fsPromises: typeof fs.promises = {
+    ...fs.promises,
+    open: async (...args: Parameters<typeof fs.promises.open>) => {
+      const stop = stopTheIngest;
+      stopTheIngest = null;
+      if (stop) await stop();
+      return fs.promises.open(...args);
+    },
+  };
+  const ingest = createMemoryIngest({ store, env, fsPromises, maxQueued: 10 });
+  cleanups.push(() => ingest.stop());
+  stopTheIngest = ingest.stop;
+
+  await ingest.backfill();
+
+  assert.equal(store.appended.length, 0, 'the stop landed before a single record of that file was written');
+  assert.equal(store.tails.has(filePath), false, 'an abandoned range may never be marked read');
+}));
+
+test('a stop that lands mid-file keeps the records already written and still leaves no offset behind', withHomes(async ({ projects, memoryDir, env, cleanups }) => {
+  const lines: string[] = [];
+  for (let index = 0; index < 400; index += 1) {
+    lines.push(claudeAssistant({ text: `turn number ${index}`, ts: '2026-08-20T10:00:00.000Z' }));
+  }
+  const filePath = seedTranscript(projects, { lines });
+  const store = fakeStore(memoryDir);
+  const ingest = createMemoryIngest({ store, env, maxQueued: 10 });
+  cleanups.push(() => ingest.stop());
+  const appendBatchWithoutStopping = store.appendMany;
+  let stopping: Promise<void> | null = null;
+  store.appendMany = async (inputs: unknown) => {
+    const outcome = await appendBatchWithoutStopping(inputs);
+    stopping = stopping || ingest.stop();
+    return outcome;
+  };
+
+  await ingest.backfill();
+  await stopping;
+
+  assert.ok(store.appended.length > 0, 'the stop landed after a first batch of that file was already written');
+  assert.ok(store.appended.length < 400, `a mid-file stop wrote ${store.appended.length} of 400`);
+  assert.equal(store.tails.has(filePath), false, 'an abandoned range may never be marked read');
+  assert.equal(ingest.stats().dropped, 0, 'the rest of the file is left unread, not shovelled into a queue that can no longer drain');
+}));
+
 test('a transcript older than the lane ledger is skipped, since nothing can vouch for its lane', withHomes(async ({ projects, memoryDir, env, cleanups }) => {
   const filePath = seedTranscript(projects, {
     sessionId: 'sess-ancient',

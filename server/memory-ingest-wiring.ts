@@ -45,6 +45,13 @@ interface QueuedInput {
   [key: string]: unknown;
 }
 
+interface TailOffsetWrite {
+  path: string;
+  size: number;
+  mtimeMs: number;
+  offset: number;
+}
+
 interface MemoryIngestOptions {
   store?: MemoryIngestStore;
   logger?: LaneLogger | null;
@@ -99,11 +106,11 @@ function createMemoryIngest({
   clearTimeoutFn = clearTimeout,
   maxRecordsPerTick = core.DEFAULT_MAX_RECORDS_PER_TICK,
   maxQueued = core.DEFAULT_MAX_QUEUED,
-  maxTailEntries = core.DEFAULT_MAX_TAIL_ENTRIES,
+  maxBackfillFiles = DEFAULT_MAX_BACKFILL_FILES,
+  maxTailEntries = Math.max(core.DEFAULT_MAX_TAIL_ENTRIES, maxBackfillFiles),
   backfillByteBudget = DEFAULT_BACKFILL_BYTE_BUDGET,
   backfillChunkBytes = DEFAULT_BACKFILL_CHUNK_BYTES,
   maxBackfillDirs = DEFAULT_MAX_BACKFILL_DIRS,
-  maxBackfillFiles = DEFAULT_MAX_BACKFILL_FILES,
   vendors = null,
   knownProjects = [],
 }: MemoryIngestOptions = {}) {
@@ -116,7 +123,7 @@ function createMemoryIngest({
     seen: 0, queued: 0, written: 0, rejected: 0, dropped: 0, offsetsSkipped: 0, laneSkipped: 0, refused: 0,
   };
   let queued: QueuedInput[] = [];
-  const pendingTails = new Map<string, TailSnapshot>();
+  const pendingTails = new Map<string, TailOffsetWrite>();
   const holedPaths = new Set<string>();
   let tailState: TailState = core.normalizeTailState(null);
   let loadPromise: Promise<TailState> | null = null;
@@ -139,7 +146,7 @@ function createMemoryIngest({
     return loadPromise;
   }
 
-  function commitTail(tail: { path: string; size: number; mtimeMs: number; offset: number }): void {
+  function commitTail(tail: TailOffsetWrite): void {
     if (tail?.path && holedPaths.has(tail.path)) {
       log.debugNote(() => `offset held back for ${tail.path}: an earlier range was never remembered`);
       return;
@@ -181,13 +188,17 @@ function createMemoryIngest({
     scheduleFlush();
   }
 
-  function noteTail(tail: TailSnapshot | null | undefined): void {
-    if (stopped || !tail?.path) return;
+  function commitTailWhenDrained(tail: TailOffsetWrite): void {
     if (queued.some((input) => input.tailPath === tail.path)) {
       pendingTails.set(tail.path, tail);
       return;
     }
     commitTail(tail);
+  }
+
+  function noteTail(tail: TailSnapshot | null | undefined): void {
+    if (stopped || !tail?.path) return;
+    commitTailWhenDrained(tail);
   }
 
   function holdOffsets(inputs: QueuedInput[]): void {
@@ -350,16 +361,18 @@ function createMemoryIngest({
     }
   }
 
-  function ingestLines(
+  async function ingestLines(
     entry: BackfillEntry,
     lines: string[],
     scope: { sessionId: string | null; root: string | null },
     lanes: Map<string, string> | null,
-  ): void {
+  ): Promise<boolean> {
+    if (stopped) return false;
     let context: { root: string | null; sessionId: string | null; vendorState: VendorState | null } = {
       root: scope.root, sessionId: scope.sessionId, vendorState: null,
     };
     for (const rawLine of lines) {
+      if (stopped) return false;
       if (!rawLine) continue;
       const mapped = mapAgentLine({
         vendor: entry.root.vendor,
@@ -372,8 +385,12 @@ function createMemoryIngest({
       if (mapped.events.length === 0) continue;
       if (laneIsEphemeral(lanes, context.sessionId)) continue;
       if (isDispatchWorkdir(context.root)) continue;
-      for (const event of mapped.events) enqueue(event, entry.file);
+      for (const event of mapped.events) {
+        if (queued.length >= maxQueued) await whenIdle();
+        enqueue(event, entry.file);
+      }
     }
+    return true;
   }
 
   async function backfillFile(
@@ -402,10 +419,10 @@ function createMemoryIngest({
     const lastBreak = bytes.lastIndexOf(0x0a);
     const consumed = lastBreak === -1 ? bytes.length : lastBreak + 1;
     const scope = await scopeFor(entry);
-    if (lastBreak !== -1) {
-      ingestLines(entry, bytes.subarray(0, consumed).toString('utf8').split(/\r?\n/), scope, lanes);
-    }
-    commitTail({
+    const transcriptLines = lastBreak === -1 ? [] : bytes.subarray(0, consumed).toString('utf8').split(/\r?\n/);
+    const ingestedEveryLine = await ingestLines(entry, transcriptLines, scope, lanes);
+    if (!ingestedEveryLine) return { bytesRead: bytes.length, partial: plan.partial, missing: false };
+    commitTailWhenDrained({
       path: entry.file, size: stat.size, mtimeMs: stat.mtimeMs, offset: plan.start + consumed,
     });
     return { bytesRead: bytes.length, partial: plan.partial, missing: false };
@@ -445,7 +462,7 @@ function createMemoryIngest({
     await whenIdle();
     log.note(
       `backfill read ${bytesRead} byte(s) across ${files} file(s): `
-      + `${counts.written} written, ${counts.rejected} rejected, `
+      + `${counts.written} written, ${counts.rejected} rejected, ${counts.dropped} dropped, `
       + `${counts.laneSkipped} predating the lane ledger${partial ? ', budget reached' : ''}`,
     );
     return { ok: true, reason: null, files, bytesRead, partial };
