@@ -55,6 +55,7 @@ import type { LaneLog } from './lane-log.ts';
 const DEFAULT_BYTE_BUDGET = 64 * 1024 * 1024;
 const DEFAULT_CHUNK_SIZE = 1024 * 1024;
 const LINE_YIELD_INTERVAL = 5000;
+const FILE_YIELD_INTERVAL = 64;
 const SYNTHETIC_PRIMARY = Symbol('syntheticPrimary');
 const ANOMALY_BASELINE_DAYS = 30;
 
@@ -139,6 +140,7 @@ interface UsageScannerOptions {
   logger?: Pick<Console, 'warn'>;
   byteBudget?: number;
   chunkSize?: number;
+  yieldNowFn?: () => Promise<void>;
 }
 
 interface PassResult {
@@ -420,6 +422,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     logger = noopLogger,
     byteBudget = DEFAULT_BYTE_BUDGET,
     chunkSize = DEFAULT_CHUNK_SIZE,
+    yieldNowFn = yieldNow,
   } = deps;
 
   const laneLog = createLaneLog({ prefix: '[usage]', logger });
@@ -611,20 +614,20 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
       onLine: (line: string, lineOrdinal: number, vendorState: CodexUsageState | null) => void;
       shouldYieldAfterLine: () => boolean;
     },
-  ): Promise<{ bytesRead: number; partial: boolean; failed: boolean }> {
+  ): Promise<{ bytesRead: number; partial: boolean; failed: boolean; skipped: boolean }> {
     let stat: ScannerFileStat;
     try {
       stat = await fsPromises.stat(file);
     } catch (error) {
-      if (isAbsentPathError(error)) return { bytesRead: 0, partial: false, failed: false };
+      if (isAbsentPathError(error)) return { bytesRead: 0, partial: false, failed: false, skipped: false };
       laneLog.warn('stat failed', { path: file, error: errorMessage(error) });
-      return { bytesRead: 0, partial: false, failed: true };
+      return { bytesRead: 0, partial: false, failed: true, skipped: false };
     }
 
     const prior = force ? null : fileStates.get(file) ?? null;
     const hadPrior = fileStates.has(file);
     const decision = decideFileRead(prior, { size: stat.size, mtimeMs: stat.mtimeMs });
-    if (decision.action === 'skip') return { bytesRead: 0, partial: false, failed: false };
+    if (decision.action === 'skip') return { bytesRead: 0, partial: false, failed: false, skipped: true };
 
     const state: FileState = decision.action === 'restart'
       ? { size: stat.size, mtimeMs: stat.mtimeMs, offset: 0, carry: '', lineOrdinal: 0, vendorState: createVendorState(vendor) }
@@ -666,7 +669,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
         for (const line of split.lines) {
           state.lineOrdinal = (state.lineOrdinal || 0) + 1;
           onLine(line, state.lineOrdinal, state.vendorState);
-          if (shouldYieldAfterLine()) await yieldNow();
+          if (shouldYieldAfterLine()) await yieldNowFn();
         }
       }
       if (partial) {
@@ -686,13 +689,13 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     } catch (error) {
       if (hadPrior) fileStates.set(file, priorSnapshot);
       if (!hadPrior) fileStates.delete(file);
-      if (isAbsentPathError(error)) return { bytesRead, partial: false, failed: false };
+      if (isAbsentPathError(error)) return { bytesRead, partial: false, failed: false, skipped: false };
       laneLog.warn('read failed', { path: file, error: errorMessage(error) });
-      return { bytesRead, partial: false, failed: true };
+      return { bytesRead, partial: false, failed: true, skipped: false };
     } finally {
       if (handle) await handle.close().catch(() => {});
     }
-    return { bytesRead, partial, failed: false };
+    return { bytesRead, partial, failed: false, skipped: false };
   }
 
   function pruneStoredEntries(): void {
@@ -905,6 +908,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     let partial = false;
     let ioFailures = 0;
     let bytesReadThisPass = 0;
+    let skippedFileCount = 0;
     let didRollBackAnyFile = false;
     if (force) resetStore();
     const resolved = await resolveProjectsDirsAsync({ fsPromises, env, extraProjectsDirs, homeDir, laneLog });
@@ -949,7 +953,13 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
       currentFileJournal = null;
       bytesReadThisPass += fileResult.bytesRead;
       partial = partial || fileResult.partial;
-      await yieldNow();
+      if (!fileResult.skipped) {
+        await yieldNowFn();
+      }
+      if (fileResult.skipped) {
+        skippedFileCount += 1;
+        if (skippedFileCount % FILE_YIELD_INTERVAL === 0) await yieldNowFn();
+      }
       if (partial) break;
     }
 

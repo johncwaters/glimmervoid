@@ -44,6 +44,29 @@ test('runPass ingests a fixture tree and append reruns ingest only new entries',
   assert.ok((await fs.stat(transcript)).size > firstSize);
 });
 
+test('runPass batches yields for unchanged files without changing results', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  for (let fileNumber = 0; fileNumber < 129; fileNumber += 1) {
+    await writeLines(path.join(projectsDir, 'C--repo', `session-${fileNumber}.jsonl`), [
+      usageLine({ messageId: `message-${fileNumber}`, requestId: `request-${fileNumber}`, input: fileNumber + 1 }),
+    ]);
+  }
+  let yieldCount = 0;
+  const scanner = makeScanner(root, { yieldNowFn: async () => { yieldCount += 1; } });
+
+  const first = await scanner.runPass();
+  const firstReport = scanner.buildReport();
+  yieldCount = 0;
+  const second = await scanner.runPass();
+
+  assert.equal(second.entries, first.entries);
+  assert.equal(second.newEntries, 0);
+  assert.deepEqual(scanner.buildReport(), firstReport);
+  assert.ok(yieldCount < second.files);
+  assert.equal(yieldCount, 2);
+});
+
 test('truncation restarts the file and dedup prevents surviving entries from duplicating', async () => {
   const root = await makeTempRoot();
   const projectsDir = await makeProjectsDir(root);
