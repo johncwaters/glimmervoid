@@ -58,7 +58,7 @@ interface NotifyCopyContext {
 }
 
 function waitingCopy(name: string, context: NotifyCopyContext): string {
-  if (context.planTitle) return `${name}: Plan ready for review: ${context.planTitle}`;
+  if (context.planTitle) return `${name} has a plan ready for review: ${context.planTitle}`;
   if (context.agentNote) return `${name}: ${context.agentNote}`;
   return `${name} needs your input`;
 }

@@ -59,7 +59,7 @@ test('a waiting notification names the plan the lane stored, read from the lane 
   assert.deepEqual(triggered, [{
     id: 'plan-notify-session',
     category: 'waiting',
-    message: 'worktree lane: Plan ready for review: Ship the rollout',
+    message: 'worktree lane has a plan ready for review: Ship the rollout',
     kind: 'plan',
   }]);
   assert.deepEqual(titleLookups, ['plan-notify-session'], 'the copy comes from the lane that stored the plan');
@@ -104,7 +104,7 @@ test('the plan kind survives the manager and reaches the notify message the brow
   const broadcasts: NotifyBroadcast[] = [];
   manager.registerChannel('web', createWebNotificationChannel((msg) => { broadcasts.push(msg); }));
 
-  manager.trigger('plan lane', 'waiting', 'plan lane: Plan ready for review: Ship the rollout', 'plan');
+  manager.trigger('plan lane', 'waiting', 'plan lane has a plan ready for review: Ship the rollout', 'plan');
   manager.trigger('permission lane', 'waiting', 'permission lane needs your input');
   manager.destroy();
 
