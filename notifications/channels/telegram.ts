@@ -38,10 +38,8 @@ function decideTelegramNotification({
   return { send: true, reason: 'no-dashboard-audience' };
 }
 
-function formatTelegramText(sessionName: string, category: string | null, message: string): string {
-  const body = message || `${sessionName} needs attention`;
-  if (!category) return body;
-  return `${category}: ${body}`;
+function formatTelegramText(sessionName: string, message: string): string {
+  return message || `${sessionName} needs attention`;
 }
 
 export interface TelegramChannelDeps {
@@ -79,7 +77,7 @@ function createTelegramChannel({
     });
     if (!decision.send) return decision;
     if (!botToken || !chatId) return decision;
-    const text = formatTelegramText(sessionId, category, message);
+    const text = formatTelegramText(sessionId, message);
 
     if (outbox) {
       void outbox.deliver(text);
