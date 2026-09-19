@@ -597,7 +597,10 @@ function compareRecords(left: MemoryRecord, right: MemoryRecord): number {
   return left.id < right.id ? -1 : (left.id > right.id ? 1 : 0);
 }
 
-function compareEvictionPriority(left: MemoryRecord, right: MemoryRecord): number {
+function compareEvictionPriority(left: MemoryRecord, right: MemoryRecord, distillCursorSeq: number): number {
+  const leftWasDistilled = distillCursorSeq > 0 && typeof left.seq === 'number' && left.seq <= distillCursorSeq;
+  const rightWasDistilled = distillCursorSeq > 0 && typeof right.seq === 'number' && right.seq <= distillCursorSeq;
+  if (leftWasDistilled !== rightWasDistilled) return leftWasDistilled ? -1 : 1;
   const leftRank = effectiveRankValue(left);
   const rightRank = effectiveRankValue(right);
   if (leftRank !== rightRank) return leftRank - rightRank;
@@ -606,7 +609,10 @@ function compareEvictionPriority(left: MemoryRecord, right: MemoryRecord): numbe
 
 function enforceKindCaps(
   records: unknown,
-  { maxPerKind = MAX_RECORDS_PER_KIND }: { maxPerKind?: number } = {},
+  {
+    maxPerKind = MAX_RECORDS_PER_KIND,
+    distillCursorSeq = 0,
+  }: { maxPerKind?: number; distillCursorSeq?: number } = {},
 ): { records: MemoryRecord[]; dropped: number; droppedRecords: MemoryRecord[] } {
   const byKind = new Map<string, MemoryRecord[]>();
   for (const record of Array.isArray(records) ? (records as MemoryRecord[]) : []) {
@@ -619,7 +625,7 @@ function enforceKindCaps(
   for (const bucket of byKind.values()) {
     const lockedRecords = bucket.filter((record) => record.locked === true);
     const evictableRecords = bucket.filter((record) => record.locked !== true);
-    evictableRecords.sort(compareEvictionPriority);
+    evictableRecords.sort((left, right) => compareEvictionPriority(left, right, distillCursorSeq));
     const overflow = Math.min(evictableRecords.length, Math.max(0, bucket.length - maxPerKind));
     droppedRecords.push(...evictableRecords.slice(0, overflow));
     for (const record of evictableRecords.slice(overflow)) kept.push(record);

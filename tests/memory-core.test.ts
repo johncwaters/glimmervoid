@@ -292,20 +292,82 @@ test('segment file names round-trip and nothing else is read as a segment', () =
   assert.equal(parseSegmentFileName('canon-202608.jsonl.tmp.1.2'), null);
 });
 
-test('per-kind caps evict the oldest of the over-full kind only', () => {
+test('a zero or absent distill cursor preserves the existing kind cap ordering', () => {
   const records: MemoryRecord[] = [];
   for (let index = 0; index < 5; index += 1) {
-    records.push(build({ text: `knowledge fact number ${index}` }, NOW + index));
+    records.push({ ...build({ text: `knowledge fact number ${index}` }, NOW + index), seq: index + 1 });
   }
   records.push(build({ kind: 'preference', project: null, text: 'prefers guard clauses' }, NOW + 100));
-  const capped = enforceKindCaps(records, { maxPerKind: 3 });
-  assert.equal(capped.dropped, 2);
-  assert.equal(capped.records.filter((record) => record.kind === 'knowledge').length, 3);
-  assert.equal(capped.records.filter((record) => record.kind === 'preference').length, 1);
-  assert.deepEqual(
-    capped.records.filter((record) => record.kind === 'knowledge').map((record) => record.text),
-    ['knowledge fact number 2', 'knowledge fact number 3', 'knowledge fact number 4']
+  const withoutCursor = enforceKindCaps(records, { maxPerKind: 3 });
+  const zeroCursor = enforceKindCaps(records, { maxPerKind: 3, distillCursorSeq: 0 });
+  const expectedKnowledge = ['knowledge fact number 2', 'knowledge fact number 3', 'knowledge fact number 4'];
+  for (const capped of [withoutCursor, zeroCursor]) {
+    assert.equal(capped.dropped, 2);
+    assert.equal(capped.records.filter((record) => record.kind === 'knowledge').length, 3);
+    assert.equal(capped.records.filter((record) => record.kind === 'preference').length, 1);
+    assert.deepEqual(
+      capped.records.filter((record) => record.kind === 'knowledge').map((record) => record.text),
+      expectedKnowledge,
+    );
+  }
+});
+
+test('distilled records evict before unread records despite rank and recency', () => {
+  const distilledOperator = {
+    ...build({
+      source: { kind: 'operator', vendor: 'glimmervoid', sessionId: null },
+      text: 'the operator confirmed the merge gate is authoritative',
+    }, NOW + 3000),
+    seq: 1,
+  };
+  const distilledRecentModel = {
+    ...build({
+      source: { kind: 'model', vendor: 'glimmervoid', sessionId: null },
+      text: 'the distiller recently confirmed the merge gate behavior',
+    }, NOW + 2000),
+    seq: 2,
+  };
+  const unreadOldModel = {
+    ...build({
+      source: { kind: 'model', vendor: 'glimmervoid', sessionId: null },
+      text: 'an older unread model claim about the merge gate',
+    }, NOW),
+    seq: 11,
+  };
+  const unreadRecentModel = {
+    ...build({
+      source: { kind: 'model', vendor: 'glimmervoid', sessionId: null },
+      text: 'a newer unread model claim about the merge gate',
+    }, NOW + 1000),
+    seq: 12,
+  };
+  const capped = enforceKindCaps(
+    [distilledOperator, distilledRecentModel, unreadOldModel, unreadRecentModel],
+    { maxPerKind: 2, distillCursorSeq: 10 },
   );
+  assert.deepEqual(capped.droppedRecords.map((record) => record.id), [distilledRecentModel.id, distilledOperator.id]);
+  assert.deepEqual(
+    capped.records.map((record) => record.id).sort(),
+    [unreadOldModel.id, unreadRecentModel.id].sort(),
+  );
+});
+
+test('locked records survive the kind cap regardless of the distill cursor', () => {
+  const locked = {
+    ...build({
+      source: { kind: 'operator', vendor: 'glimmervoid', sessionId: null },
+      text: 'the operator locked this distilled record',
+      locked: true,
+    }, NOW),
+    seq: 1,
+  };
+  const unread = [
+    { ...build({ text: 'first unread record' }, NOW + 1), seq: 11 },
+    { ...build({ text: 'second unread record' }, NOW + 2), seq: 12 },
+  ];
+  const capped = enforceKindCaps([locked, ...unread], { maxPerKind: 1, distillCursorSeq: 10 });
+  assert.deepEqual(capped.records.map((record) => record.id), [locked.id]);
+  assert.equal(capped.droppedRecords.some((record) => record.id === locked.id), false);
 });
 
 test('a session quoting its own delivered memory back is dropped before ingestion', () => {
@@ -588,19 +650,22 @@ test('validateMemoryRecord caps an over-long text rather than loading it whole',
   }).record?.text.length, MAX_RECORD_CHARS);
 });
 
-test('the kind cap evicts the lowest effective rank first, so a model flood cannot unseat an operator', () => {
-  const operatorFact = build({
+test('when every record is above the distill cursor the kind cap keeps rank then recency ordering', () => {
+  const operatorFact = { ...build({
     source: { kind: 'operator', vendor: 'glimmervoid', sessionId: null },
     text: 'the merge gate is authoritative and was set by the operator',
-  }, NOW);
+  }, NOW), seq: 11 };
   const flood: MemoryRecord[] = [];
   for (let index = 0; index < 3; index += 1) {
-    flood.push(build({
-      source: { kind: 'model', vendor: 'glimmervoid', sessionId: null },
-      text: `a distiller claim number ${index}`,
-    }, NOW + 1000 + index));
+    flood.push({
+      ...build({
+        source: { kind: 'model', vendor: 'glimmervoid', sessionId: null },
+        text: `a distiller claim number ${index}`,
+      }, NOW + 1000 + index),
+      seq: 12 + index,
+    });
   }
-  const capped = enforceKindCaps([operatorFact, ...flood], { maxPerKind: 2 });
+  const capped = enforceKindCaps([operatorFact, ...flood], { maxPerKind: 2, distillCursorSeq: 10 });
   assert.equal(capped.dropped, 2);
   assert.deepEqual(
     capped.records.map((record) => record.id).sort(),

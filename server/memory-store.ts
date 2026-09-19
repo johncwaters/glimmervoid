@@ -293,7 +293,10 @@ function createMemoryStore(deps: MemoryStoreOptions = {}) {
       if (checked.demoted) demoted += 1;
       loaded.push(checked.record);
     }
-    const capped = core.enforceKindCaps(core.applySupersessions(loaded), { maxPerKind: config.maxRecordsPerKind });
+    const capped = core.enforceKindCaps(core.applySupersessions(loaded), {
+      maxPerKind: config.maxRecordsPerKind,
+      distillCursorSeq: openedDb.distillCursorSeq(),
+    });
     return {
       records: capped.records, dropped: capped.dropped, droppedRecords: capped.droppedRecords, invalidIds, demoted,
     };
@@ -349,6 +352,7 @@ function createMemoryStore(deps: MemoryStoreOptions = {}) {
     }
     const capped = core.enforceKindCaps(core.applySupersessions(recordsAfterAppend), {
       maxPerKind: config.maxRecordsPerKind,
+      distillCursorSeq: openedDb.distillCursorSeq(),
     });
     records = capped.records;
   }
@@ -445,6 +449,12 @@ function createMemoryStore(deps: MemoryStoreOptions = {}) {
     return documents;
   }
 
+  function clearDistillCursorForUndistilledProjection(source: string): void {
+    if (source === 'distill' || openedDb.distillCursorSeq() === 0) return;
+    openedDb.setDistillCursorSeq(0);
+    log.note('the published projection is no longer distilled: the delta cursor was reset to the start');
+  }
+
   async function publishProjection({
     files, source = 'trivial', verdict = null, distilledAt = null, recordCount = 0, claimCount = null,
     watermark = null,
@@ -457,6 +467,7 @@ function createMemoryStore(deps: MemoryStoreOptions = {}) {
     claimCount?: number | null;
     watermark?: { hash?: unknown } | null;
   }): Promise<PublishOutcome> {
+    clearDistillCursorForUndistilledProjection(source);
     const plan = core.planProjectionBuild({
       files, watermark, builtAt: now(), source, verdict, distilledAt, recordCount, claimCount,
     });

@@ -1591,6 +1591,34 @@ test('the distill cursor and its failure counter survive a store reopen', async 
   assert.equal(second.distillFailures(), 2);
 });
 
+test('forgetting a record replaces the distilled projection and resets the distill cursor, while a routine append leaves both alone', async () => {
+  const dir = tempDir();
+  try {
+    const store = openStore(dir);
+    const forgotten = requireRecord(await store.append(knowledge('the old deployment rule must be removed')), 'record to forget');
+    await store.publishProjection({
+      files: [{ relPath: 'MEMORY.md', content: '# Distilled memory\n' }],
+      source: 'distill',
+      verdict: 'DISTILLED',
+      recordCount: 1,
+    });
+    await store.setDistillCursorSeq(17);
+    await store.append(knowledge('the routine append must not replace distilled memory'));
+    await store.flushProjection();
+
+    assert.equal(readManifest(dir).source, 'distill');
+    assert.equal(store.distillCursorSeq(), 17);
+
+    requireForget(await store.forget(forgotten.id));
+
+    assert.equal(readManifest(dir).source, 'trivial');
+    assert.equal(store.distillCursorSeq(), 0);
+    await store.stop();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('a project tag migration stamped by an older schema version reruns on the next open', async () => {
   const dir = tempDir();
   const projectPath = '/repos/glimmervoid';
