@@ -515,6 +515,18 @@ test('both prompts say what one overlong claim costs, since a silent cap refused
   }
 });
 
+test('both prompts refuse a run when one claim mixes record kinds', () => {
+  const one = record({ id: 'm-000000000000002d', seq: 1, text: 'the poller ticks every 15 minutes' });
+  const full = buildMemoryDistillPrompt({ records: [one], resultPath: '/tmp/result.json' });
+  const incremental = buildIncrementalDistillPrompt({
+    published: withHandlesFor([claim({ ids: ['m-000000000000002e'], text: 'a standing fact' })]),
+    records: [one],
+    resultPath: '/tmp/result.json',
+  });
+  const singleKindRule = '- Every record a claim cites must be of the claim\'s own kind. ONE claim mixing kinds refuses this whole run.';
+  for (const prompt of [full, incremental]) assert.equal(prompt.includes(singleKindRule), true);
+});
+
 test('the horizon default is seven days and stays inside its range', () => {
   assert.equal(resolveDistillConfig(null, { memoryEnabled: true }).staleHorizonDays, DEFAULT_STALE_HORIZON_DAYS);
   assert.equal(resolveDistillConfig({ staleHorizonDays: 30 }, { memoryEnabled: true }).staleHorizonDays, 30);
