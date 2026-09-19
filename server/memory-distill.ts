@@ -193,6 +193,7 @@ function createMemoryDistiller(deps: MemoryDistillerOptions = {}) {
   const log = createLaneLog({ prefix: `[${LANE_NAME}]`, logger, debugFlag: debug });
   const intervalMs = config.intervalMinutes * 60000;
   let running = false;
+  let lastAttemptAt = 0;
 
   function report(overrides: Partial<DistillReport>): DistillReport {
     return {
@@ -570,6 +571,7 @@ function createMemoryDistiller(deps: MemoryDistillerOptions = {}) {
     const watermark = memoryStore.watermark();
     const failures = memoryStore.distillFailures();
     const published = await readPublished(memoryStore);
+    const passNow = now();
 
     const cursor = published.distilled ? memoryStore.distillCursorSeq() : 0;
     const standing = distillCore.renderPublishedForPrompt(published.claims).length;
@@ -577,7 +579,7 @@ function createMemoryDistiller(deps: MemoryDistillerOptions = {}) {
       sinceSeq: cursor,
       limit: distillCore.deltaWindowFor(config.maxPromptRecords, failures),
       maxChars: Math.max(MIN_DELTA_CHARS, config.maxPromptChars - standing),
-      now: now(),
+      now: passNow,
       horizonMs: config.staleHorizonDays * 86400000,
     });
     if (delta.stale > 0) log.note(`stepped over ${delta.stale} record(s) older than ${config.staleHorizonDays} day(s)`);
@@ -587,13 +589,15 @@ function createMemoryDistiller(deps: MemoryDistillerOptions = {}) {
       maxProjectChars: config.maxProjectChars,
     });
     const verdict = distillCore.decideDistillRun({
-      now: now(),
+      now: passNow,
       watermark,
       manifest: published.manifest,
       lastAppendAt: memoryStore.lastAppendAt(),
       intervalMs: continuation ? 0 : intervalMs,
       quietMs: config.quietMs,
       workPending: delta.pending > 0 || mode.mode === 'full',
+      lastAttemptAt,
+      failures,
     });
     if (!verdict.run && !force) {
       return finishPass(report({ status: verdict.reason ?? 'skipped', cursor, delta: delta.records.length }));
@@ -609,6 +613,7 @@ function createMemoryDistiller(deps: MemoryDistillerOptions = {}) {
         claims: published.claims.length,
       }));
     }
+    lastAttemptAt = passNow;
     const outcome = await distillForMode({
       memoryStore, valid, watermark, published, delta, mode, failures,
     });

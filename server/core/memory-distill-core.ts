@@ -757,7 +757,7 @@ function claimProjectTags(claims: unknown): string[] {
 
 function decideDistillRun({
   now = 0, watermark = null, manifest = null, lastAppendAt = 0, intervalMs = DEFAULT_INTERVAL_MINUTES * 60000,
-  quietMs = DEFAULT_QUIET_MS, workPending = false,
+  quietMs = DEFAULT_QUIET_MS, workPending = false, lastAttemptAt = 0, failures = 0,
 }: {
   now?: number;
   watermark?: { hash?: unknown } | null;
@@ -766,6 +766,8 @@ function decideDistillRun({
   intervalMs?: number;
   quietMs?: number;
   workPending?: boolean;
+  lastAttemptAt?: number;
+  failures?: number;
 } = {}): { run: boolean; reason: string | null } {
   const manifestDistilledAt = manifest?.distilledAt;
   const distilledAt = typeof manifestDistilledAt === 'number' && Number.isFinite(manifestDistilledAt)
@@ -775,6 +777,11 @@ function decideDistillRun({
   const settled = workPending !== true;
   if (settled && published && watermark && published.hash === watermark.hash) return { run: false, reason: 'unchanged' };
   if (distilledAt !== null && now - distilledAt < intervalMs) return { run: false, reason: 'cooling' };
+  const failureExponent = Math.max(0, Math.floor(failures) - 1);
+  const failureBackoffMs = Math.min(intervalMs, CHECK_INTERVAL_MS * 2 ** failureExponent);
+  if (failures > 0 && lastAttemptAt > 0 && now - lastAttemptAt < failureBackoffMs) {
+    return { run: false, reason: 'backoff' };
+  }
   if (lastAppendAt > 0 && now - lastAppendAt < quietMs) return { run: false, reason: 'busy' };
   return { run: true, reason: null };
 }

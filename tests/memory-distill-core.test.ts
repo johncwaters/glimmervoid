@@ -368,6 +368,62 @@ test('a run needs a moved canon, an elapsed interval and a settled canon', () =>
   assert.deepEqual(decideDistillRun({ now: NOW, watermark: moved, manifest: null }), { run: true, reason: null });
 });
 
+test('zero failures never opens the failure backoff gate', () => {
+  assert.deepEqual(
+    decideDistillRun({ now: NOW, lastAttemptAt: NOW - 1, failures: 0 }),
+    { run: true, reason: null }
+  );
+});
+
+test('failure backoff blocks through the geometric delay and opens at its boundary', () => {
+  const lastAttemptAt = NOW - 4 * 15 * 60 * 1000;
+  assert.deepEqual(
+    decideDistillRun({
+      now: NOW - 1, lastAttemptAt, failures: 3, intervalMs: 24 * 60 * 60 * 1000,
+    }),
+    { run: false, reason: 'backoff' }
+  );
+  assert.deepEqual(
+    decideDistillRun({
+      now: NOW, lastAttemptAt, failures: 3, intervalMs: 24 * 60 * 60 * 1000,
+    }),
+    { run: true, reason: null }
+  );
+});
+
+test('failure backoff never exceeds the configured distill interval', () => {
+  const intervalMs = 20 * 60 * 1000;
+  const lastAttemptAt = NOW - intervalMs;
+  assert.equal(decideDistillRun({
+    now: NOW - 1, lastAttemptAt, failures: 20, intervalMs,
+  }).reason, 'backoff');
+  assert.equal(decideDistillRun({
+    now: NOW, lastAttemptAt, failures: 20, intervalMs,
+  }).run, true);
+});
+
+test('cooling and quiet gates retain their order around failure backoff', () => {
+  const manifest = { distilledAt: NOW - 1000, watermark: { hash: 'old' } };
+  assert.equal(decideDistillRun({
+    now: NOW,
+    watermark: { hash: 'new' },
+    manifest,
+    intervalMs: 60000,
+    lastAttemptAt: NOW - 1,
+    failures: 1,
+  }).reason, 'cooling');
+  assert.equal(decideDistillRun({
+    now: NOW,
+    watermark: { hash: 'new' },
+    manifest: { ...manifest, distilledAt: NOW - 90000 },
+    intervalMs: 60000,
+    lastAttemptAt: NOW - 90000,
+    failures: 1,
+    lastAppendAt: NOW - 1,
+    quietMs: 5000,
+  }).reason, 'busy');
+});
+
 test('a delta reads only the records above the cursor, oldest ordinal first', () => {
   const records = [
     record({ id: 'm-0000000000000003', seq: 3, text: 'third' }),
