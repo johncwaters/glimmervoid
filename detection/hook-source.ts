@@ -1,4 +1,5 @@
 import claudeCode from '../session/adapters/claude-code.ts';
+import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import { HookEnvelope } from '../shared/contracts/index.ts';
 import type { HookPayload } from '../shared/contracts/index.ts';
 
@@ -35,6 +36,10 @@ export interface HookHandleResult {
   reason: string;
 }
 
+export interface HookRouterDependencies {
+  recordOutcome?: OutcomeRecorder;
+}
+
 class HookRouter {
   _sessions: Map<string, {
     token: string;
@@ -43,8 +48,11 @@ class HookRouter {
     hooks: HookProfile;
   }>;
 
-  constructor() {
+  _recordOutcome: OutcomeRecorder;
+
+  constructor({ recordOutcome = () => {} }: HookRouterDependencies = {}) {
     this._sessions = new Map();
+    this._recordOutcome = recordOutcome;
   }
 
   register(glimmervoidId: string, { token, onSignal, onEvent = null, hooks }: HookRegistration): void {
@@ -70,9 +78,11 @@ class HookRouter {
     const { glimmervoidId, event, token, payload } = parsedEnvelope.data;
     const entry = this._sessions.get(glimmervoidId);
     if (!entry) {
+      this._recordOutcome('hookRejected404');
       return { status: 404, signal: null, reason: 'unknown-session' };
     }
     if (!token || token !== entry.token) {
+      this._recordOutcome('hookRejected403');
       return { status: 403, signal: null, reason: 'bad-token' };
     }
     const { hooks } = entry;

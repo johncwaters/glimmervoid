@@ -32,6 +32,7 @@ import { createBackendUpdateCheck } from './backend-update.ts';
 import { normalizeUpdateChannel } from './core/update-core.ts';
 import type { CheckForUpdate } from './backend-update.ts';
 import { createBackendSessionRuntime } from './backend-session-runtime.ts';
+import { createOutcomesLane } from './outcomes-wiring.ts';
 import { createUpdateApplyLane } from './update-apply.ts';
 import { packageRoot } from './runtime-paths.ts';
 
@@ -72,6 +73,9 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   const serverBuild = `${packageJson.version}+${crypto.randomBytes(4).toString('hex')}`;
 
+  const outcomes = createOutcomesLane();
+  const recordOutcome = outcomes.record;
+
   let broadcastControl: ControlBroadcast | null = null;
   let agentApi: AgentApiPort | null = null;
   let gitWorkspace: ReturnType<typeof createBackendLanes>['gitWorkspace'] | null = null;
@@ -82,6 +86,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getGitWorkspace: () => gitWorkspace,
     getPlanReviewPort: () => laneAssembly.planReview?.port ?? null,
     getBroadcastControl: () => broadcastControl,
+    recordOutcome,
     logger: console,
   });
   const { getHookPort, hookRouter, makeSession, rtkInstall } = sessionRuntime;
@@ -102,6 +107,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getUsage: () => usage,
     getPlanReview: () => laneAssembly.planReview,
     getAgentApi: () => agentApi,
+    recordOutcome,
     logger: console,
   });
 
@@ -114,6 +120,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     tokenMatches,
     getSession: getSessionAny,
     getVisionsLane: getCurrentVisionsLane,
+    recordOutcome,
     logger: console,
   });
   const {
@@ -147,6 +154,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     controlWss,
     dataWss,
     broadcastControl,
+    recordOutcome,
     logger: console,
   });
   const {
@@ -354,6 +362,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     millMetricsPort: laneAssembly.millMetrics.port,
     telegramOutbox,
     heartbeat,
+    outcomes,
     controlWss,
     dataWss,
   });

@@ -11,6 +11,7 @@ import { createReplayLog } from './control-replay-core.ts';
 import type { ControlMessageRecord, ReplayLog } from './control-replay-core.ts';
 import { decideControlSend } from './core/control-send-core.ts';
 import { decideHostAllowed } from './core/host-policy.ts';
+import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import { classifyRequestOrigin, decideUpgradeAccess } from './core/request-trust.ts';
 import type { RequestTrust } from './core/request-trust.ts';
 import { classifyUpgradePath, dataSessionIdFromUrl, upgradeTokenFromUrl } from './core/upgrade-route.ts';
@@ -43,6 +44,7 @@ interface BackendWebSocketDependencies {
   tokenMatches: (token: string | null) => boolean;
   getSession: (id: string) => Session | null;
   getVisionsLane: () => VisionsUpgradeLane | null;
+  recordOutcome?: OutcomeRecorder;
   logger: Pick<Console, 'warn'>;
 }
 
@@ -91,10 +93,15 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     tokenMatches,
     getSession,
     getVisionsLane,
+    recordOutcome = () => {},
     logger,
   } = dependencies;
   const controlWss = new WebSocketServer({ noServer: true, maxPayload: CONTROL_FRAME_MAX_BYTES });
   const dataWss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
+  controlWss.on('connection', (socket) => {
+    recordOutcome('controlWsOpened');
+    socket.on('close', () => recordOutcome('controlWsClosed'));
+  });
   const controlReplayLog = createReplayLog();
   const sessionDataClients = new Map<string, Map<WebSocket, ViewerSizeRecord | null>>();
   let nextViewerResizeSeq = 0;
@@ -131,6 +138,8 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
 
   function attachDataConnection(): void {
     dataWss.on('connection', (socket, request) => {
+      recordOutcome('dataWsOpened');
+      socket.on('close', () => recordOutcome('dataWsClosed'));
       const sessionId = dataSessionIdFromUrl(request.url);
       if (sessionId === null) {
         socket.close(1008, 'Invalid session id');

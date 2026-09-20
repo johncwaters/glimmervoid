@@ -93,6 +93,40 @@ test('HookRouter rejects unknown session (404)', () => {
   assert.equal(res.signal, null);
 });
 
+test('HookRouter counts an unknown session as a 404 rejection', () => {
+  const recorded: string[] = [];
+  const r = new HookRouter({ recordOutcome: (name) => recorded.push(name) });
+  r.handle({ glimmervoidId: 'nope', event: 'Stop', token: 'x', payload: {} });
+  assert.deepEqual(recorded, ['hookRejected404']);
+});
+
+test('HookRouter counts an accepted hook as no rejection at all', () => {
+  const recorded: string[] = [];
+  const r = new HookRouter({ recordOutcome: (name) => recorded.push(name) });
+  r.register('s1', { token: 'good', onSignal: () => {}, hooks: claudeCode.hooks });
+  r.handle({ glimmervoidId: 's1', event: 'Stop', token: 'good', payload: {} });
+  r.handle({ glimmervoidId: 's1', event: 'PreToolUse', token: 'good', payload: {} });
+  assert.deepEqual(recorded, []);
+});
+
+test('a rejected token is counted only as its status class, never carried into the count', () => {
+  const secretToken = 'glimmervoid-fake-bearer-DO-NOT-LOG-9f3c1a';
+  const recorded: string[] = [];
+  const r = new HookRouter({ recordOutcome: (name) => recorded.push(name) });
+  r.register('s1', { token: 'good', onSignal: () => {}, hooks: claudeCode.hooks });
+
+  const res = r.handle({
+    glimmervoidId: 's1', event: 'Stop', token: secretToken, payload: { transcript_path: '/home/someone/secret.jsonl' },
+  });
+
+  assert.equal(res.status, 403);
+  assert.deepEqual(recorded, ['hookRejected403']);
+  const everythingRecorded = JSON.stringify(recorded);
+  assert.equal(everythingRecorded.includes(secretToken), false, 'the presented token never reaches the counter');
+  assert.equal(everythingRecorded.includes('s1'), false, 'the session id never reaches the counter');
+  assert.equal(everythingRecorded.includes('secret.jsonl'), false, 'the payload never reaches the counter');
+});
+
 test('HookRouter rejects bad token (403)', () => {
   const r = new HookRouter();
   const got: HookSignal[] = [];

@@ -103,6 +103,28 @@ test('a failed send stays queued for the next boot', async (t) => {
   assert.equal(stored[0].attempts, 1);
 });
 
+test('every telegram send attempt is counted, confirmed and failed apart', async (t) => {
+  const { dir, filePath } = tempFile();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const recorded: string[] = [];
+  let confirmNext = false;
+  const outbox = createTelegramOutbox({
+    filePath,
+    warn: () => {},
+    recordOutcome: (name) => recorded.push(name),
+    send: async () => {
+      confirmNext = !confirmNext;
+      return { ok: confirmNext };
+    },
+  });
+
+  await outbox.deliver('waiting: needs your input');
+  await outbox.deliver('complete: build finished');
+  await outbox.idle();
+
+  assert.deepEqual(recorded, ['telegramDelivered', 'telegramFailed']);
+});
+
 test('a ping queued by a dead process is replayed by the next one', async (t) => {
   const { dir, filePath } = tempFile();
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

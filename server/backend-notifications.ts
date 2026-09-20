@@ -8,6 +8,7 @@ import { createTelegramOutbox } from '../notifications/telegram-outbox.ts';
 import type { Session } from '../session/sessions.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 import { createClientPresence } from './core/client-presence.ts';
+import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import { configSiblingPath } from './pairings-store.ts';
 import { sendTelegramMessage } from './telegram-transport.ts';
 import { createHeartbeat } from './ws-heartbeat.ts';
@@ -35,11 +36,14 @@ interface BackendNotificationDependencies {
   controlWss: NotificationWsServer;
   dataWss: NotificationWsServer;
   broadcastControl: ControlBroadcast;
+  recordOutcome?: OutcomeRecorder;
   logger: Pick<Console, 'warn'>;
 }
 
 function createBackendNotifications(dependencies: BackendNotificationDependencies) {
-  const { config, configStore, sessions, controlWss, dataWss, broadcastControl, logger } = dependencies;
+  const {
+    config, configStore, sessions, controlWss, dataWss, broadcastControl, recordOutcome = () => {}, logger,
+  } = dependencies;
   const clientPresence = createClientPresence();
   const phoneEscalationMs = () => (
     config.phoneEscalationMs == null ? DEFAULT_PHONE_ESCALATION_MS : config.phoneEscalationMs
@@ -48,12 +52,14 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
     escalationIntervalMs: ESCALATION_INTERVAL_MS,
     debounceMs: config.notifyDebounceMs || 3000,
     phoneEscalationMs: phoneEscalationMs(),
+    recordOutcome,
   });
   notificationManager.registerChannel('web', createWebNotificationChannel(broadcastControl));
   if (config.osToast) notificationManager.registerChannel('toast', createToastChannel());
 
   const telegramOutbox = createTelegramOutbox({
     filePath: configSiblingPath(configStore.configPath, 'telegram-outbox.json'),
+    recordOutcome,
     send: (entry) => {
       const telegram = config.telegram || {};
       const botToken = telegram.botToken;

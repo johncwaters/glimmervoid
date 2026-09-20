@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 
 import { writeJsonAtomic } from '../server/json-file.ts';
+import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import {
   normalizeOutbox, planEnqueue, planReplay, recordFailure, removeEntry,
   DEFAULT_MAX_AGE_MS, DEFAULT_MAX_ATTEMPTS, DEFAULT_MAX_ENTRIES,
@@ -21,6 +22,7 @@ export interface TelegramOutboxDeps {
   warn?: (message: string) => void;
   readFileSync?: (filePath: string, encoding: BufferEncoding) => string;
   writeJson?: typeof writeJsonAtomic;
+  recordOutcome?: OutcomeRecorder;
 }
 
 function createTelegramOutbox({
@@ -33,6 +35,7 @@ function createTelegramOutbox({
   warn = console.warn,
   readFileSync = fs.readFileSync,
   writeJson = writeJsonAtomic,
+  recordOutcome = () => {},
 }: TelegramOutboxDeps) {
   let entries: OutboxEntry[] = [];
   let writeChain: Promise<unknown> = Promise.resolve();
@@ -75,10 +78,12 @@ function createTelegramOutbox({
       warn(`[telegram-outbox] send threw: ${error instanceof Error ? error.message : String(error)}`);
     }
     if (ok) {
+      recordOutcome('telegramDelivered');
       entries = removeEntry(entries, entry.id);
       await persist();
       return;
     }
+    recordOutcome('telegramFailed');
     const outcome = recordFailure(entries, entry.id, { maxAttempts });
     entries = outcome.entries;
     if (outcome.dropped) warn(`[telegram-outbox] giving up on a ping after ${maxAttempts} attempts`);

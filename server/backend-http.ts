@@ -12,6 +12,7 @@ import type { AgentApiPort } from './agent-api-wiring.ts';
 import { decideAgentRequest, REFUSAL_REASON, REFUSAL_STATUS } from './core/agent-api-core.ts';
 import { decideHostAllowed } from './core/host-policy.ts';
 import { decideOriginAllowed } from './core/origin-policy.ts';
+import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import { configSiblingPath } from './pairings-store.ts';
 import { clientDir } from './runtime-paths.ts';
 import {
@@ -124,6 +125,7 @@ interface BackendHttpDependencies {
   getUsage: () => { ingestStatusline: (payload: object) => void };
   getPlanReview?: () => PlanReviewHookPort | null;
   getAgentApi?: () => AgentApiPort | null;
+  recordOutcome?: OutcomeRecorder;
   logger?: Pick<Console, 'warn'>;
 }
 
@@ -245,6 +247,7 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
     getUsage,
     getPlanReview = () => null,
     getAgentApi = () => null,
+    recordOutcome = () => {},
     logger = console,
   } = dependencies;
   const app = express();
@@ -274,6 +277,7 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
 
   app.post('/hook/:glimmervoidId/:event', (req, res) => {
     if (!isLoopbackRequest(req)) {
+      recordOutcome('hookRejectedNonLoopback');
       res.status(403).end();
       return;
     }

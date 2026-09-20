@@ -157,6 +157,18 @@ test('multiple registered channels are all called, in registration order', () =>
   manager.destroy();
 });
 
+test('each channel delivery is counted, success and failure apart', () => {
+  const recorded: string[] = [];
+  const manager = new NotificationManager({
+    escalationIntervalMs: 60000, debounceMs: 0, recordOutcome: (name) => recorded.push(name),
+  });
+  manager.registerChannel('broken', () => { throw new Error('boom'); });
+  manager.registerChannel('working', () => {});
+  manager.trigger('s1', 'waiting', 'test');
+  assert.deepEqual(recorded, ['notifyFailed', 'notifyDelivered']);
+  manager.destroy();
+});
+
 test('a channel that throws does not block a later channel from delivering', () => {
   const manager = new NotificationManager({ escalationIntervalMs: 60000, debounceMs: 0 });
   const calls: number[] = [];

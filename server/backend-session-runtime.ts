@@ -6,6 +6,7 @@ import type { SessionPlanReviewPort } from '../session/sessions.ts';
 import type { GitWorkspace } from '../session/session-worktree-lifecycle.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 import type { ConfigStore, GlimmervoidConfig } from './config-store.ts';
+import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import { createRtkInstallWiring } from './rtk-install-wiring.ts';
 import { getRtkPath } from './rtk-resolver.ts';
 import { listPackSpecNamesSync } from './pack-builder.ts';
@@ -19,11 +20,12 @@ interface BackendSessionRuntimeDependencies {
   getGitWorkspace: () => GitWorkspace | null;
   getPlanReviewPort?: () => SessionPlanReviewPort | null;
   getBroadcastControl: () => ControlBroadcast | null;
+  recordOutcome?: OutcomeRecorder;
   logger: Pick<Console, 'warn'>;
 }
 
 function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependencies) {
-  const hookRouter = new HookRouter();
+  const hookRouter = new HookRouter({ recordOutcome: dependencies.recordOutcome });
   const getHookPort = (): number | null => {
     const address = dependencies.httpServer?.address();
     if (!address || typeof address !== 'object' || !address.port) return null;

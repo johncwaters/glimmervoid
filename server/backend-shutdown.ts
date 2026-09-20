@@ -49,6 +49,7 @@ interface BackendShutdownDependencies {
   millMetricsPort?: ShutdownMillMetricsPort | null;
   telegramOutbox: { idle: () => unknown };
   heartbeat: { stop: () => void };
+  outcomes?: Stoppable | null;
   controlWss: { close: () => void };
   dataWss: { close: () => void };
 }
@@ -129,6 +130,8 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     if (millMetricsIdle) stoppers.add('mill-metrics', () => millMetricsIdle());
     stoppers.add('telegram-outbox', () => dependencies.telegramOutbox.idle());
     destroySessions([dependencies.visionsSessions, dependencies.memoryDistillSessions], pendingReaps);
+    const outcomes = dependencies.outcomes;
+    if (outcomes) stoppers.add('outcomes', () => outcomes.stop());
     dependencies.heartbeat.stop();
     dependencies.controlWss.close();
     dependencies.dataWss.close();

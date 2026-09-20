@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 
 import { NOTIFICATION_STATES as NS, NOTIFICATION_TRANSITIONS } from '../shared/notification-states.ts';
+import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import type { NotificationState } from '../shared/notification-states.ts';
 
 export type NotificationKind = 'plan';
@@ -43,6 +44,10 @@ export interface NotificationManagerOptions {
   phoneEscalationMs?: number;
 }
 
+export interface NotificationManagerDependencies extends NotificationManagerOptions {
+  recordOutcome?: OutcomeRecorder;
+}
+
 class NotificationManager extends EventEmitter {
   _entries: Map<string, NotificationEntry>;
   _channels: RegisteredChannel[];
@@ -51,8 +56,14 @@ class NotificationManager extends EventEmitter {
   _debounceMs: number;
   _phoneEscalationMs: number;
   _recentCategories: Map<string, number>;
+  _recordOutcome: OutcomeRecorder;
 
-  constructor({ escalationIntervalMs = 300000, debounceMs = 3000, phoneEscalationMs = 300000 }: NotificationManagerOptions = {}) {
+  constructor({
+    escalationIntervalMs = 300000,
+    debounceMs = 3000,
+    phoneEscalationMs = 300000,
+    recordOutcome = () => {},
+  }: NotificationManagerDependencies = {}) {
     super();
     this._entries = new Map();
     this._channels = [];
@@ -61,6 +72,7 @@ class NotificationManager extends EventEmitter {
     this._debounceMs = debounceMs;
     this._phoneEscalationMs = phoneEscalationMs;
     this._recentCategories = new Map();
+    this._recordOutcome = recordOutcome;
   }
 
 
@@ -273,7 +285,9 @@ class NotificationManager extends EventEmitter {
       if (channelFilter && !channelFilter(channel)) continue;
       try {
         channel.fn(sessionName, category, message, context);
+        this._recordOutcome('notifyDelivered');
       } catch (err) {
+        this._recordOutcome('notifyFailed');
         console.warn(`[channel:${channel.name}] delivery failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
