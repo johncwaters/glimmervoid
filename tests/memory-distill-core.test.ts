@@ -8,7 +8,7 @@ import {
 } from '../server/core/memory-core.ts';
 import { needsDistill } from '../server/core/distill-core.ts';
 import {
-  DEFAULT_INTERVAL_MINUTES, DEFAULT_MAX_PROJECT_CHARS, MAX_CLAIM_IDS, MAX_DELTA_BATCHES_PER_RUN, MIN_DELTA_WINDOW,
+  DEFAULT_INTERVAL_MINUTES, DEFAULT_MAX_PROJECT_CHARS, MAX_CLAIM_IDS, MAX_CLAIMS, MAX_DELTA_BATCHES_PER_RUN, MIN_DELTA_WINDOW,
   applyDistillOps,
   buildIncrementalDistillPrompt, buildMemoryDistillPrompt, claimProjectTags, compactionShrank, decideDistillMode,
   enforceProjectionBudget,
@@ -525,6 +525,77 @@ test('both prompts refuse a run when one claim mixes record kinds', () => {
   });
   const singleKindRule = '- Every record a claim cites must be of the claim\'s own kind. ONE claim mixing kinds refuses this whole run.';
   for (const prompt of [full, incremental]) assert.equal(prompt.includes(singleKindRule), true);
+});
+
+test('both prompts require every claim to cite a record id', () => {
+  const one = record({ id: 'm-000000000000002f', seq: 1, text: 'the poller ticks every 15 minutes' });
+  const full = buildMemoryDistillPrompt({ records: [one], resultPath: '/tmp/result.json' });
+  const incremental = buildIncrementalDistillPrompt({
+    published: withHandlesFor([claim({ ids: ['m-0000000000000030'], text: 'a standing fact' })]),
+    records: [one],
+    resultPath: '/tmp/result.json',
+  });
+  assert.equal(full.includes('- Every claim must cite at least one record id copied exactly from the markers above. ONE claim without one refuses this whole run.'), true);
+  assert.equal(incremental.includes('- Every claim must cite at least one record id copied exactly from the observations above. ONE claim without one refuses this whole run.'), true);
+});
+
+test('both prompts say what one claim over the record-id cap costs', () => {
+  const one = record({ id: 'm-0000000000000031', seq: 1, text: 'the poller ticks every 15 minutes' });
+  const full = buildMemoryDistillPrompt({ records: [one], resultPath: '/tmp/result.json' });
+  const incremental = buildIncrementalDistillPrompt({
+    published: withHandlesFor([claim({ ids: ['m-0000000000000032'], text: 'a standing fact' })]),
+    records: [one],
+    resultPath: '/tmp/result.json',
+  });
+  const recordIdCapRule = `- At most ${MAX_CLAIM_IDS} record ids per claim. ONE claim over it refuses this whole run, so split a broadly supported fact into several claims or cite its strongest ${MAX_CLAIM_IDS} records.`;
+  for (const prompt of [full, incremental]) assert.equal(prompt.includes(recordIdCapRule), true);
+});
+
+test('both prompts require non-empty claim text', () => {
+  const one = record({ id: 'm-0000000000000033', seq: 1, text: 'the poller ticks every 15 minutes' });
+  const full = buildMemoryDistillPrompt({ records: [one], resultPath: '/tmp/result.json' });
+  const incremental = buildIncrementalDistillPrompt({
+    published: withHandlesFor([claim({ ids: ['m-0000000000000034'], text: 'a standing fact' })]),
+    records: [one],
+    resultPath: '/tmp/result.json',
+  });
+  const nonEmptyTextRule = '- Every claim must carry non-empty text. ONE claim without text refuses this whole run.';
+  for (const prompt of [full, incremental]) assert.equal(prompt.includes(nonEmptyTextRule), true);
+});
+
+test('both prompts forbid high-entropy tokens in claim text', () => {
+  const one = record({ id: 'm-0000000000000035', seq: 1, text: 'the poller ticks every 15 minutes' });
+  const full = buildMemoryDistillPrompt({ records: [one], resultPath: '/tmp/result.json' });
+  const incremental = buildIncrementalDistillPrompt({
+    published: withHandlesFor([claim({ ids: ['m-0000000000000036'], text: 'a standing fact' })]),
+    records: [one],
+    resultPath: '/tmp/result.json',
+  });
+  const highEntropyRule = '- Never put a high-entropy token in claim text. ONE claim carrying one refuses this whole run.';
+  for (const prompt of [full, incremental]) assert.equal(prompt.includes(highEntropyRule), true);
+});
+
+test('the full prompt requires a DISTILLED result to carry a claim', () => {
+  const full = buildMemoryDistillPrompt({ records: [record()], resultPath: '/tmp/result.json' });
+  assert.equal(full.includes('- A DISTILLED result must contain at least one claim. An empty claim set refuses this whole run.'), true);
+});
+
+test('the incremental prompt limits the operation count', () => {
+  const incremental = buildIncrementalDistillPrompt({
+    published: withHandlesFor([claim({ ids: ['m-0000000000000037'], text: 'a standing fact' })]),
+    records: [record()],
+    resultPath: '/tmp/result.json',
+  });
+  assert.equal(incremental.includes(`- At most ${MAX_CLAIMS} operations may be output. ONE operation over it refuses this whole run.`), true);
+});
+
+test('the incremental prompt preserves a claim while records still exist', () => {
+  const incremental = buildIncrementalDistillPrompt({
+    published: withHandlesFor([claim({ ids: ['m-0000000000000038'], text: 'a standing fact' })]),
+    records: [record()],
+    resultPath: '/tmp/result.json',
+  });
+  assert.equal(incremental.includes('- Retiring every standing claim is allowed only when your operations also add one. Leaving no claim at all while records still exist refuses this whole run, so pair a retire that empties the set with its replacement claim.'), true);
 });
 
 test('the horizon default is seven days and stays inside its range', () => {
