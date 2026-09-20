@@ -31,6 +31,8 @@ const BOOTSTRAP_PROMPT = 'Read memory-distill-prompt.txt and follow all instruct
 const WORK_DIR_PREFIX = 'glimmervoid-memory-distill-';
 
 const MIN_DELTA_CHARS = 4000;
+const BUSY_RETRY_MARGIN_MS = 1000;
+const MAX_CONSECUTIVE_BUSY_DEFERRALS = 10;
 
 const MEMORY_DISTILL_DENY_TOOLS = Object.freeze([
   'Bash', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task', 'Bash(git push:*)', 'Bash(gh:*)',
@@ -194,6 +196,10 @@ function createMemoryDistiller(deps: MemoryDistillerOptions = {}) {
   const intervalMs = config.intervalMinutes * 60000;
   let running = false;
   let lastAttemptAt = 0;
+  let busyDeferralTimer: NodeJS.Timeout | null = null;
+  let consecutiveBusyDeferrals = 0;
+  let previousSkipReason: string | null = null;
+  let stopped = false;
 
   function report(overrides: Partial<DistillReport>): DistillReport {
     return {
@@ -558,6 +564,34 @@ function createMemoryDistiller(deps: MemoryDistillerOptions = {}) {
     return { report: outcome, cursorAdvanced };
   }
 
+  function clearBusyDeferral(): void {
+    if (!busyDeferralTimer) return;
+    clearTimeoutFn(busyDeferralTimer);
+    busyDeferralTimer = null;
+  }
+
+  function noteSkippedPass(reason: string, retryAfterMs: number | null = null): void {
+    if (previousSkipReason === reason) return;
+    previousSkipReason = reason;
+    if (retryAfterMs !== null) {
+      log.note(`pass skipped: ${reason}; retryAfterMs=${retryAfterMs}`);
+      return;
+    }
+    log.note(`pass skipped: ${reason}`);
+  }
+
+  function armBusyDeferral(retryAfterMs: number): void {
+    if (busyDeferralTimer || stopped) return;
+    if (consecutiveBusyDeferrals >= MAX_CONSECUTIVE_BUSY_DEFERRALS) return;
+    consecutiveBusyDeferrals += 1;
+    busyDeferralTimer = setTimeoutFn(async () => {
+      busyDeferralTimer = null;
+      const outcome = await loop.track(runOnceInternal({ isDeferred: true }));
+      if (outcome.status === 'error') log.warn(`run failed: ${outcome.reason}`);
+    }, retryAfterMs + BUSY_RETRY_MARGIN_MS);
+    busyDeferralTimer.unref();
+  }
+
   async function runPass({
     dryRun, force, continuation,
   }: {
@@ -600,8 +634,16 @@ function createMemoryDistiller(deps: MemoryDistillerOptions = {}) {
       failures,
     });
     if (!verdict.run && !force) {
+      if (verdict.reason === 'busy') {
+        noteSkippedPass(verdict.reason, verdict.retryAfterMs);
+        armBusyDeferral(verdict.retryAfterMs);
+      }
+      if (verdict.reason !== 'busy') noteSkippedPass(verdict.reason);
       return finishPass(report({ status: verdict.reason ?? 'skipped', cursor, delta: delta.records.length }));
     }
+    previousSkipReason = null;
+    consecutiveBusyDeferrals = 0;
+    clearBusyDeferral();
     if (dryRun) {
       return finishPass(report({
         status: 'stale',
@@ -630,7 +672,14 @@ function createMemoryDistiller(deps: MemoryDistillerOptions = {}) {
     return { ...lastPublished, reason: outcome.reason };
   }
 
-  async function runOnce({ dryRun = false, force = false }: { dryRun?: boolean; force?: boolean } = {}): Promise<DistillReport> {
+  async function runOnceInternal({
+    dryRun = false, force = false, isDeferred = false,
+  }: {
+    dryRun?: boolean;
+    force?: boolean;
+    isDeferred?: boolean;
+  } = {}): Promise<DistillReport> {
+    if (!isDeferred) consecutiveBusyDeferrals = 0;
     if (!store) return report({ status: 'disabled', reason: 'no memory store' });
     if (running) return report({ status: 'skipped', reason: 'a run is already in flight' });
     running = true;
@@ -660,6 +709,10 @@ function createMemoryDistiller(deps: MemoryDistillerOptions = {}) {
     }
   }
 
+  function runOnce(options: { dryRun?: boolean; force?: boolean } = {}): Promise<DistillReport> {
+    return runOnceInternal(options);
+  }
+
   const loop = createTickLoop({
     tag: LANE_NAME,
     intervalMs: Math.min(checkIntervalMs, intervalMs),
@@ -675,20 +728,30 @@ function createMemoryDistiller(deps: MemoryDistillerOptions = {}) {
 
   async function start(): Promise<void> {
     if (!config.enabled || !store) return;
+    stopped = false;
     await loop.start();
+  }
+
+  async function stop(): Promise<void> {
+    stopped = true;
+    clearBusyDeferral();
+    consecutiveBusyDeferrals = 0;
+    await loop.stop();
   }
 
   return {
     isEnabled: () => config.enabled === true && Boolean(store),
     runOnce,
     start,
-    stop: () => loop.stop(),
+    stop,
   };
 }
 
 export {
   BOOTSTRAP_PROMPT,
+  BUSY_RETRY_MARGIN_MS,
   LANE_NAME,
+  MAX_CONSECUTIVE_BUSY_DEFERRALS,
   MEMORY_DISTILL_DENY_TOOLS,
   PROMPT_FILE,
   RESULT_FILE,

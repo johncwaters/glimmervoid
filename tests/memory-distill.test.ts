@@ -7,7 +7,8 @@ import path from 'node:path';
 import { createMemoryStore } from '../server/memory-store.ts';
 import { createMemoryDb } from '../server/memory-db.ts';
 import {
-  BOOTSTRAP_PROMPT, MEMORY_DISTILL_DENY_TOOLS, PROMPT_FILE, WORK_DIR_PREFIX, createMemoryDistiller,
+  BOOTSTRAP_PROMPT, BUSY_RETRY_MARGIN_MS, MAX_CONSECUTIVE_BUSY_DEFERRALS, MEMORY_DISTILL_DENY_TOOLS,
+  PROMPT_FILE, WORK_DIR_PREFIX, createMemoryDistiller,
 } from '../server/memory-distill.ts';
 import type { MemoryDistillerOptions } from '../server/memory-distill.ts';
 import { resolveDistillConfig } from '../server/core/memory-distill-core.ts';
@@ -44,6 +45,7 @@ interface LaneOptions extends Partial<DistillConfig> {
   result?: DistillResult | null;
   resultsPerSpawn?: (DistillResult | null)[] | null;
   onSpawn?: ((spawn: { prompt: string; cwd: string }) => Promise<void> | void) | null;
+  runtime?: Pick<MemoryDistillerOptions, 'logger' | 'debug' | 'setTimeoutFn' | 'clearTimeoutFn'>;
 }
 
 interface RecordedSpawn {
@@ -52,12 +54,47 @@ interface RecordedSpawn {
   cwd: string;
 }
 
+interface ScheduledTimeout {
+  callback: () => void;
+  delayMs: number;
+  handle: NodeJS.Timeout;
+  cleared: boolean;
+}
+
 const QUIET = { log() {}, warn() {} };
 const START = Date.UTC(2026, 7, 23, 12, 0, 0);
 const HOUR = 3600000;
 
 const openedStores: MemoryStore[] = [];
 const fixtureDirs: string[] = [];
+
+function createTimerHarness() {
+  const scheduledTimeouts: ScheduledTimeout[] = [];
+  return {
+    scheduledTimeouts,
+    setTimeoutFn(callback: () => void, delayMs: number): NodeJS.Timeout {
+      const handle = setTimeout(() => {}, HOUR);
+      handle.unref();
+      scheduledTimeouts.push({ callback, delayMs, handle, cleared: false });
+      return handle;
+    },
+    clearTimeoutFn(handle: NodeJS.Timeout): void {
+      const scheduled = scheduledTimeouts.find((entry) => entry.handle === handle);
+      if (scheduled) scheduled.cleared = true;
+      clearTimeout(handle);
+    },
+    pending(): ScheduledTimeout[] {
+      return scheduledTimeouts.filter((entry) => !entry.cleared);
+    },
+    async fireNext(): Promise<void> {
+      const scheduled = scheduledTimeouts.find((entry) => !entry.cleared);
+      if (!scheduled) throw new Error('no timeout is pending');
+      scheduled.cleared = true;
+      clearTimeout(scheduled.handle);
+      await scheduled.callback();
+    },
+  };
+}
 
 test.afterEach(async () => {
   for (const store of openedStores.splice(0)) {
@@ -103,7 +140,9 @@ function knowledge(text: string, project: string | null = '/repos/glimmervoid'):
   };
 }
 
-function makeLane(store: MemoryStore, clock: Clock, { result = null, resultsPerSpawn = null, onSpawn = null, ...config }: LaneOptions = {}): {
+function makeLane(store: MemoryStore, clock: Clock, {
+  result = null, resultsPerSpawn = null, onSpawn = null, runtime = {}, ...config
+}: LaneOptions = {}): {
   distiller: ReturnType<typeof createMemoryDistiller>;
   spawns: RecordedSpawn[];
 } {
@@ -126,6 +165,7 @@ function makeLane(store: MemoryStore, clock: Clock, { result = null, resultsPerS
       if (onSpawn) await onSpawn({ prompt: delivered, cwd });
     },
     readResult: async () => resultForSpawn(spawns.length - 1),
+    ...runtime,
   };
   return { distiller: createMemoryDistiller(options), spawns };
 }
@@ -297,6 +337,127 @@ test('an unmoved canon and a canon still being appended to both spawn nothing', 
     const busy = makeLane(store, clock, { result: distilledResult(claims), quietMs: 60000 });
     assert.equal((await busy.distiller.runOnce()).status, 'busy');
     assert.equal(busy.spawns.length, 0);
+});
+
+test('a busy pass arms one deferral and another busy pass cannot arm a second', async () => {
+  const dir = tempDir();
+  const clock = { at: START };
+  const store = openStore(dir, clock);
+  await seed(store, clock, ['the poller ticks every 15 minutes']);
+  const timers = createTimerHarness();
+  const lane = makeLane(store, clock, {
+    quietMs: 60000,
+    runtime: { setTimeoutFn: timers.setTimeoutFn, clearTimeoutFn: timers.clearTimeoutFn },
+  });
+
+  assert.equal((await lane.distiller.runOnce()).status, 'busy');
+  assert.equal(timers.pending().length, 1);
+  assert.equal(timers.pending()[0].delayMs, 59999 + BUSY_RETRY_MARGIN_MS);
+
+  assert.equal((await lane.distiller.runOnce()).status, 'busy');
+  assert.equal(timers.pending().length, 1);
+  assert.equal(timers.scheduledTimeouts.length, 1);
+});
+
+test('a busy deferral runs after the quiet window', async () => {
+  const dir = tempDir();
+  const clock = { at: START };
+  const store = openStore(dir, clock);
+  const [record] = await seed(store, clock, ['the poller ticks every 15 minutes']);
+  const timers = createTimerHarness();
+  const lane = makeLane(store, clock, {
+    quietMs: 60000,
+    result: distilledResult([{
+      kind: 'knowledge', project: '/repos/glimmervoid', rank: 'model', ids: [record.id], text: record.text,
+    }]),
+    runtime: { setTimeoutFn: timers.setTimeoutFn, clearTimeoutFn: timers.clearTimeoutFn },
+  });
+
+  assert.equal((await lane.distiller.runOnce()).status, 'busy');
+  clock.at += timers.pending()[0].delayMs;
+  await timers.fireNext();
+
+  assert.equal(lane.spawns.length, 1);
+  assert.equal(timers.pending().length, 0);
+});
+
+test('stop clears a pending busy deferral', async () => {
+  const dir = tempDir();
+  const clock = { at: START };
+  const store = openStore(dir, clock);
+  await seed(store, clock, ['the poller ticks every 15 minutes']);
+  const timers = createTimerHarness();
+  const lane = makeLane(store, clock, {
+    quietMs: 60000,
+    runtime: { setTimeoutFn: timers.setTimeoutFn, clearTimeoutFn: timers.clearTimeoutFn },
+  });
+
+  assert.equal((await lane.distiller.runOnce()).status, 'busy');
+  assert.equal(timers.pending().length, 1);
+  await lane.distiller.stop();
+  assert.equal(timers.pending().length, 0);
+});
+
+test('the consecutive busy deferral cap leaves the next attempt to the ordinary tick', async () => {
+  const dir = tempDir();
+  const clock = { at: START };
+  const store = openStore(dir, clock);
+  await seed(store, clock, ['the poller ticks every 15 minutes']);
+  const timers = createTimerHarness();
+  const lane = makeLane(store, clock, {
+    quietMs: 60000,
+    runtime: { setTimeoutFn: timers.setTimeoutFn, clearTimeoutFn: timers.clearTimeoutFn },
+  });
+
+  assert.equal((await lane.distiller.runOnce()).status, 'busy');
+  for (let deferral = 0; deferral < MAX_CONSECUTIVE_BUSY_DEFERRALS; deferral += 1) {
+    clock.at += timers.pending()[0].delayMs;
+    await store.append(knowledge(`fresh record ${deferral}`));
+    await timers.fireNext();
+  }
+
+  assert.equal(timers.scheduledTimeouts.length, MAX_CONSECUTIVE_BUSY_DEFERRALS);
+  assert.equal(timers.pending().length, 0);
+  assert.equal(lane.spawns.length, 0);
+});
+
+test('skip reasons are logged once per change and a running pass resets the reason', async () => {
+  const dir = tempDir();
+  const clock = { at: START };
+  const store = openStore(dir, clock);
+  const [record] = await seed(store, clock, ['the poller ticks every 15 minutes']);
+  const timers = createTimerHarness();
+  const lines: string[] = [];
+  const lane = makeLane(store, clock, {
+    quietMs: 60000,
+    result: distilledResult([{
+      kind: 'knowledge', project: '/repos/glimmervoid', rank: 'model', ids: [record.id], text: record.text,
+    }]),
+    runtime: {
+      debug: true,
+      logger: { log: (line: string) => { lines.push(line); }, warn() {} },
+      setTimeoutFn: timers.setTimeoutFn,
+      clearTimeoutFn: timers.clearTimeoutFn,
+    },
+  });
+
+  assert.equal((await lane.distiller.runOnce()).status, 'busy');
+  assert.equal((await lane.distiller.runOnce()).status, 'busy');
+  clock.at += 60000 + BUSY_RETRY_MARGIN_MS;
+  assert.equal((await lane.distiller.runOnce()).status, 'published');
+  assert.equal((await lane.distiller.runOnce()).status, 'unchanged');
+  assert.equal((await lane.distiller.runOnce()).status, 'unchanged');
+  await store.append(knowledge('the poller is opt in'));
+  assert.equal((await lane.distiller.runOnce()).status, 'cooling');
+  assert.equal((await lane.distiller.runOnce()).status, 'cooling');
+  clock.at += 25 * HOUR;
+  await store.append(knowledge('the poller owns a quiet gate'));
+  assert.equal((await lane.distiller.runOnce()).status, 'busy');
+  assert.equal((await lane.distiller.runOnce()).status, 'busy');
+
+  assert.equal(lines.filter((line) => line.includes('pass skipped: busy; retryAfterMs=')).length, 2);
+  assert.equal(lines.filter((line) => line.includes('pass skipped: unchanged')).length, 1);
+  assert.equal(lines.filter((line) => line.includes('pass skipped: cooling')).length, 1);
 });
 
 test('a distilled build is not re-run before its interval has elapsed', async () => {

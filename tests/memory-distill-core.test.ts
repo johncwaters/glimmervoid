@@ -356,7 +356,7 @@ test('a run needs a moved canon, an elapsed interval and a settled canon', () =>
       now: NOW, watermark: moved, manifest: { watermark, distilledAt: NOW - 90000 }, intervalMs: 60000,
       lastAppendAt: NOW - 10, quietMs: 5000,
     }),
-    { run: false, reason: 'busy' }
+    { run: false, reason: 'busy', retryAfterMs: 4990 }
   );
   assert.deepEqual(
     decideDistillRun({
@@ -366,6 +366,17 @@ test('a run needs a moved canon, an elapsed interval and a settled canon', () =>
     { run: true, reason: null }
   );
   assert.deepEqual(decideDistillRun({ now: NOW, watermark: moved, manifest: null }), { run: true, reason: null });
+});
+
+test('a busy run reports the remaining quiet time and clamps fractional milliseconds to one', () => {
+  assert.deepEqual(
+    decideDistillRun({ now: NOW, lastAppendAt: NOW - 2000, quietMs: 5000 }),
+    { run: false, reason: 'busy', retryAfterMs: 3000 }
+  );
+  assert.deepEqual(
+    decideDistillRun({ now: NOW, lastAppendAt: NOW - 4999.5, quietMs: 5000 }),
+    { run: false, reason: 'busy', retryAfterMs: 1 }
+  );
 });
 
 test('zero failures never opens the failure backoff gate', () => {

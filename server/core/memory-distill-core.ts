@@ -781,7 +781,10 @@ function decideDistillRun({
   workPending?: boolean;
   lastAttemptAt?: number;
   failures?: number;
-} = {}): { run: boolean; reason: string | null } {
+} = {}):
+  | { run: true; reason: null }
+  | { run: false; reason: 'unchanged' | 'cooling' | 'backoff' }
+  | { run: false; reason: 'busy'; retryAfterMs: number } {
   const manifestDistilledAt = manifest?.distilledAt;
   const distilledAt = typeof manifestDistilledAt === 'number' && Number.isFinite(manifestDistilledAt)
     ? manifestDistilledAt
@@ -795,7 +798,9 @@ function decideDistillRun({
   if (failures > 0 && lastAttemptAt > 0 && now - lastAttemptAt < failureBackoffMs) {
     return { run: false, reason: 'backoff' };
   }
-  if (lastAppendAt > 0 && now - lastAppendAt < quietMs) return { run: false, reason: 'busy' };
+  if (lastAppendAt > 0 && now - lastAppendAt < quietMs) {
+    return { run: false, reason: 'busy', retryAfterMs: Math.max(1, quietMs - (now - lastAppendAt)) };
+  }
   return { run: true, reason: null };
 }
 
