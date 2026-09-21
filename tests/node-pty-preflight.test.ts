@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import {
   nativeBindingCandidates,
+  spawnHelperCandidates,
   nodePtyRebuildHint,
   formatNodePtyBootRefusal,
 } from '../server/core/node-pty-preflight-core.ts';
@@ -138,4 +139,118 @@ test('scanNativeBinding: a package directory with no binding is refused and name
   } finally {
     fs.rmSync(emptyPackageDir, { recursive: true, force: true });
   }
+});
+
+function writeBindingBeside({
+  packageDir,
+  searchDir,
+  helperMode,
+}: { packageDir: string; searchDir: string[]; helperMode: number | null }): string {
+  const bindingDir = path.join(packageDir, ...searchDir);
+  fs.mkdirSync(bindingDir, { recursive: true });
+  fs.writeFileSync(path.join(bindingDir, 'pty.node'), '');
+  const helperPath = path.join(bindingDir, 'spawn-helper');
+  if (helperMode == null) return helperPath;
+  fs.writeFileSync(helperPath, '');
+  fs.chmodSync(helperPath, helperMode);
+  return helperPath;
+}
+
+const darwinScope = { platform: 'darwin' as NodeJS.Platform, arch: process.arch };
+
+function writeBindingFixture({
+  helperMode,
+  scope,
+}: { helperMode: number | null; scope: { platform: NodeJS.Platform; arch: string } }): {
+  packageDir: string;
+  helperPath: string;
+} {
+  const packageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-node-pty-'));
+  const searchDir = ['prebuilds', `${scope.platform}-${scope.arch}`];
+  return { packageDir, helperPath: writeBindingBeside({ packageDir, searchDir, helperMode }) };
+}
+
+test('scanNativeBinding: a spawn-helper stripped of its execute bit is repaired rather than refused', () => {
+  const { packageDir, helperPath } = writeBindingFixture({ helperMode: 0o644, scope: darwinScope });
+  try {
+    const result = scanNativeBinding(packageDir, darwinScope);
+    assert.equal(result.ok, true, result.ok ? '' : result.reason);
+    assert.notEqual(fs.statSync(helperPath).mode & 0o111, 0);
+  } finally {
+    fs.rmSync(packageDir, { recursive: true, force: true });
+  }
+});
+
+test('scanNativeBinding: an executable spawn-helper keeps the mode it already has', () => {
+  const { packageDir, helperPath } = writeBindingFixture({ helperMode: 0o700, scope: darwinScope });
+  try {
+    assert.equal(scanNativeBinding(packageDir, darwinScope).ok, true);
+    assert.equal(fs.statSync(helperPath).mode & 0o777, 0o700);
+  } finally {
+    fs.rmSync(packageDir, { recursive: true, force: true });
+  }
+});
+
+test('scanNativeBinding: on darwin a binding with no spawn-helper anywhere is refused and names the paths checked', () => {
+  const { packageDir, helperPath } = writeBindingFixture({ helperMode: null, scope: darwinScope });
+  try {
+    const result = scanNativeBinding(packageDir, darwinScope);
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.match(result.reason, /no executable spawn-helper found/);
+    assert.ok(result.reason.includes(helperPath), result.reason);
+    assert.equal(result.packageDir, packageDir);
+  } finally {
+    fs.rmSync(packageDir, { recursive: true, force: true });
+  }
+});
+
+test('scanNativeBinding: every spawn-helper that exists is repaired, not only the first executable one', () => {
+  const packageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-node-pty-'));
+  try {
+    writeBindingBeside({ packageDir, searchDir: ['build', 'Release'], helperMode: 0o755 });
+    const prebuiltHelperPath = writeBindingBeside({
+      packageDir,
+      searchDir: ['prebuilds', `${darwinScope.platform}-${darwinScope.arch}`],
+      helperMode: 0o644,
+    });
+    const result = scanNativeBinding(packageDir, darwinScope);
+    assert.equal(result.ok, true, result.ok ? '' : result.reason);
+    assert.notEqual(fs.statSync(prebuiltHelperPath).mode & 0o111, 0, prebuiltHelperPath);
+  } finally {
+    fs.rmSync(packageDir, { recursive: true, force: true });
+  }
+});
+
+test('scanNativeBinding: off darwin the host default accepts a binding with no spawn-helper anywhere, since node-pty only spawns through a helper on macOS', { skip: process.platform === 'darwin' }, () => {
+  const hostScope = { platform: process.platform, arch: process.arch };
+  const { packageDir } = writeBindingFixture({ helperMode: null, scope: hostScope });
+  try {
+    const result = scanNativeBinding(packageDir);
+    assert.equal(result.ok, true, result.ok ? '' : result.reason);
+  } finally {
+    fs.rmSync(packageDir, { recursive: true, force: true });
+  }
+});
+
+test('scanNativeBinding: the host platform and arch are the default scope', () => {
+  const { packageDir } = writeBindingFixture({ helperMode: null, scope: { platform: process.platform, arch: process.arch } });
+  try {
+    assert.deepEqual(scanNativeBinding(packageDir), scanNativeBinding(packageDir, { platform: process.platform, arch: process.arch }));
+  } finally {
+    fs.rmSync(packageDir, { recursive: true, force: true });
+  }
+});
+
+test('spawnHelperCandidates: off darwin there are none, on darwin each binding candidate has a sibling helper', () => {
+  assert.deepEqual(spawnHelperCandidates({ packageDir: '/pkg', platform: 'linux', arch: 'x64' }), []);
+  assert.deepEqual(spawnHelperCandidates({ packageDir: '/pkg', platform: 'win32', arch: 'x64' }), []);
+  const mac = spawnHelperCandidates({ packageDir: '/pkg', platform: 'darwin', arch: 'arm64' });
+  assert.deepEqual(
+    mac,
+    nativeBindingCandidates({ packageDir: '/pkg', platform: 'darwin', arch: 'arm64' }).map((bindingPath) =>
+      path.join(path.dirname(bindingPath), 'spawn-helper'),
+    ),
+  );
+  assert.ok(mac.includes(path.join('/pkg', 'prebuilds', 'darwin-arm64', 'spawn-helper')), mac.join(', '));
 });

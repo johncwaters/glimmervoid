@@ -28,6 +28,13 @@ function nativeBindingCandidates({ packageDir, platform, arch }: NativeBindingSc
   ]);
 }
 
+function spawnHelperCandidates({ packageDir, platform, arch }: NativeBindingScope): string[] {
+  if (platform !== 'darwin') return [];
+  return nativeBindingCandidates({ packageDir, platform, arch }).map((bindingPath) =>
+    path.join(path.dirname(bindingPath), 'spawn-helper'),
+  );
+}
+
 function nativeToolchainHint(platform: NodeJS.Platform): string {
   if (platform === 'linux') return 'install build tools: sudo apt install build-essential python3';
   if (platform === 'win32') return 'install Visual Studio Build Tools';
@@ -56,4 +63,4 @@ function formatNodePtyBootRefusal({ platform, packageDir, reason }: BootRefusalS
   ].join('\n');
 }
 
-export { nativeBindingCandidates, nodePtyRebuildHint, formatNodePtyBootRefusal };
+export { nativeBindingCandidates, spawnHelperCandidates, nodePtyRebuildHint, formatNodePtyBootRefusal };
