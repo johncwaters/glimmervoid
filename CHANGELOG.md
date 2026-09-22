@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-09-22
+
+### Added
+
+- **Workspace sessions**: a session can span several connected repositories. Its working directory is a folder holding one fresh worktree per chosen repo on a `glimmervoid/workspace/<id>` branch, plus a generated `AGENTS.md` map and a `CLAUDE.md` pointer, so each repo's own instructions load only when the agent works there. Glimmervoid only creates and releases the member worktrees: release keeps a member with uncommitted work, branches are never deleted, and the workspace prefix sits outside branch cleanup.
+- **Minimizable review sidebar**: a Minimize control collapses the desktop review sidebar to a narrow strip with a Show review button, giving the focused terminal the width back. The choice persists across reloads, and the panel stays mounted so diff caches and draft notes survive.
+- **Outcome counters**: notification delivery, Telegram sends, hook endpoint rejections, WebSocket opens and closes, and event loop lag are now counted and drained into one `[outcomes] summary` journal line a minute, listing only non-zero counters and staying silent when idle. A hook rejection records only a fixed outcome name, and an off-loopback refusal is counted apart from a bad bearer token.
+
+### Fixed
+
+- **Notifications**: when every dashboard reported focused, suppressed notifications never reached the phone and could be held for hours; a suppressed entry now climbs to the Telegram rung after `phoneEscalationMs` like any unacknowledged one. Telegram messages drop the redundant category prefix, and plan-ready copy reads as a sentence.
+- **Session resume**: a blank spawn after a restart no longer overwrites the saved resume id with one that never got a transcript, which could orphan the real conversation. Only a report that is a genuine resume target is persisted, and `/clear` still adopts the new id.
+- **node-pty on macOS**: boot and `glimmervoid doctor` now repair a `spawn-helper` binary installed without its execute bit, which turned every session spawn into `posix_spawnp failed.` while preflight still reported node-pty healthy.
+- **Phone terminal**: opening a session in the Terminal tab no longer paints the grid with most glyphs missing until a reload; a WebGL addon first attached without a layout box is rebuilt on its first visible activation.
+- **Memory distillation**: the prompts now state every rule the claim verifier enforces, including the citation cap and the single-kind rule, which had left distill refused on every run for days. Refused runs back off geometrically instead of rerunning every 15 minutes, and a pass skipped because the store was busy retries once the quiet window clears instead of waiting for a tick that could stay locked in phase with a looping session.
+- **Memory retention and backfill**: eviction deletes records the distiller has already read before unread ones, and the distill cursor resets whenever a non-distilled projection is published. Backfill keeps an offset for every file it reads, flushes at the queue bound instead of dropping records, and never marks a file interrupted by a stop as read.
+- **Ingest lane**: stopping the lane now waits for every source to finish closing, so a settings-driven rebuild no longer subscribes the same roots while the old watchers are still shutting down.
+
+### Changed
+
+- **Usage scanning**: a pass yields to the event loop once per 64 unchanged files instead of after every file, cutting roughly 9,300 yields per idle pass to about 146.
+- **CI**: the Windows test leg is dropped; CI runs on Ubuntu only. No Windows code path or platform claim changes.
+
 ## [0.25.0] - 2026-09-15
 
 ### Added
