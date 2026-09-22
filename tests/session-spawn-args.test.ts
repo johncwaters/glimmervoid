@@ -142,17 +142,22 @@ test('a missing Claude transcript spawns without --resume and keeps the bound re
     assert.equal(calls[0].args.includes('--resume'), false, 'spawned without the stale resume id');
     assert.equal(s.resumeSessionId, resumeSessionId, 'bound resume id survives the probe miss');
     assert.deepEqual(cleared, []);
-    assert.deepEqual(warnings, [
-      `[session:missing-resume-transcript] spawning without the stale resume id because no transcript exists: ${expectedTranscriptPath}`,
-    ]);
-    const freshResumeSessionId = '33333333-3333-4333-8333-333333333333';
+    assert.equal(warnings.length, 1);
+    assert.match(
+      warnings[0] ?? '',
+      new RegExp(`^\\[session:missing-resume-transcript\\] spawning without the stale resume id ${resumeSessionId} `
+        + 'because no transcript exists at any of: '));
+    assert.ok(
+      warnings[0]?.includes(expectedTranscriptPath),
+      'the warn names every path probed, not just the first');
+    const blankSpawnSessionId = '33333333-3333-4333-8333-333333333333';
     s.ingestHookSignal({
       signal: 'session-start',
       source: 'hook',
       ts: Date.now(),
-      payload: { session_id: freshResumeSessionId, source: 'startup' },
+      payload: { session_id: blankSpawnSessionId, source: 'startup' },
     });
-    assert.equal(s.resumeSessionId, freshResumeSessionId, 'fresh child resume id is captured');
+    assert.equal(s.resumeSessionId, resumeSessionId, 'a blank child never overwrites the saved conversation');
   } finally {
     console.warn = originalWarn;
     s.destroy();
@@ -185,6 +190,49 @@ test('fresh restart clears the resume id and spawns without --resume', async () 
     assert.deepEqual(cleared, [{ id: 'fresh-restart' }]);
     assert.equal(calls.at(-1)?.args.includes('--resume'), false, 'fresh restart spawned without --resume');
   } finally {
+    s.destroy();
+  }
+});
+
+test('a hook transcript path the derived candidates cannot reproduce still resumes the next spawn', async () => {
+  const calls: ArgvCall[] = [];
+  const warnings: string[] = [];
+  const resumeSessionId = '44444444-4444-4444-8444-444444444444';
+  const relocatedTranscriptPath = path.join(claudeConfigDir, 'relocated', `${resumeSessionId}.jsonl`);
+  fs.mkdirSync(path.dirname(relocatedTranscriptPath), { recursive: true });
+  fs.writeFileSync(relocatedTranscriptPath, '', 'utf8');
+  const originalWarn = console.warn;
+  console.warn = (message: unknown) => { warnings.push(String(message)); };
+  const s = new Session({
+    id: 'relocated-transcript',
+    name: 'relocated-transcript',
+    path: process.cwd(),
+    resumeSessionId,
+    spawnCommand: { path: process.execPath, kind: 'exe' },
+    ptySpawn: (file, args) => { calls.push({ file, args }); return fakePty(); },
+    killProc: (_args, _opts, cb) => cb(null, '', ''),
+  });
+  try {
+    await s.start();
+    assert.equal(calls[0].args.includes('--resume'), false, 'no derived candidate reproduces the relocated transcript');
+    assert.equal(warnings.length, 1);
+
+    s.ingestHookSignal({
+      signal: 'ready',
+      source: 'hook',
+      ts: Date.now(),
+      payload: { session_id: resumeSessionId, transcript_path: relocatedTranscriptPath },
+    });
+    s.state = STATES.DONE;
+    assert.equal(s.restart(), true, 'restart accepted');
+    await waitFor(() => calls.length === 2);
+
+    const args = calls.at(-1)?.args ?? [];
+    const resumeIndex = args.indexOf('--resume');
+    assert.notEqual(resumeIndex, -1, 'the reported transcript path survived into the restart');
+    assert.equal(args[resumeIndex + 1], resumeSessionId);
+  } finally {
+    console.warn = originalWarn;
     s.destroy();
   }
 });

@@ -1,5 +1,5 @@
 import { createNotifyGate, explainNotification } from '../session/core/notify-gate.ts';
-import type { Session } from '../session/sessions.ts';
+import type { ClaudeSessionIdEvent, Session } from '../session/sessions.ts';
 import { AGENT_ATTENTION_NOTE_SEPARATOR } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
@@ -104,8 +104,8 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       persistSessionField(dependencies.configStore, dependencies.config, session.id, field, value);
     };
 
-    session.on('claude-session-id', ({ id, vendor }: { id: string; vendor: string }) => {
-      persistProjectField('resumeSessionId', id);
+    session.on('claude-session-id', ({ id, vendor, isResumeTarget }: ClaudeSessionIdEvent) => {
+      if (isResumeTarget) persistProjectField('resumeSessionId', id);
       dependencies.recordLane(id, INTERACTIVE_LANE, vendor);
       dependencies.usage.refreshSessions();
     });

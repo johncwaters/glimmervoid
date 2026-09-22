@@ -14,6 +14,15 @@ interface ResumeTargetOptions {
 interface ResumeTarget {
   resumeSessionId: string | null;
   transcriptPath: string | null;
+  checkedTranscriptPaths: string[];
+}
+
+interface ReportedResumeId {
+  currentResumeSessionId: string | null;
+  reportedId: string;
+  signal: string | null | undefined;
+  sessionStartSource: string | null | undefined;
+  confidence?: string | null | undefined;
 }
 
 interface AutoResumeProject {
@@ -62,14 +71,31 @@ function resolveResumeTarget(
   options: ResumeTargetOptions,
   fileExists: (transcriptPath: string) => boolean,
 ): ResumeTarget {
-  if (!options.resumeSessionId) return { resumeSessionId: null, transcriptPath: null };
-  const candidates = transcriptPathCandidates(options);
-  const existingTranscriptPath = candidates.find((candidate) => fileExists(candidate));
-  if (!existingTranscriptPath) {
-    return { resumeSessionId: null, transcriptPath: candidates[0] || null };
+  if (!options.resumeSessionId) {
+    return { resumeSessionId: null, transcriptPath: null, checkedTranscriptPaths: [] };
   }
-  return { resumeSessionId: options.resumeSessionId, transcriptPath: existingTranscriptPath };
+  const candidates = transcriptPathCandidates(options);
+  const checkedTranscriptPaths: string[] = [];
+  for (const candidate of candidates) {
+    checkedTranscriptPaths.push(candidate);
+    if (!fileExists(candidate)) continue;
+    return { resumeSessionId: options.resumeSessionId, transcriptPath: candidate, checkedTranscriptPaths };
+  }
+  return { resumeSessionId: null, transcriptPath: candidates[0] || null, checkedTranscriptPaths };
 }
 
-export { pickAutoResume, resolveResumeTarget, RESUME_ID_RE };
-export type { AutoResumeConfig, AutoResumeProject };
+function shouldAdoptReportedResumeId(
+  { currentResumeSessionId, reportedId, signal, sessionStartSource, confidence }: ReportedResumeId,
+): boolean {
+  if (!currentResumeSessionId) return true;
+  if (reportedId === currentResumeSessionId) return false;
+  if (String(confidence || "").toLowerCase() === "low") return false;
+  if (signal === "session-start") {
+    return String(sessionStartSource || "").toLowerCase() === "clear";
+  }
+  if (signal === "session-end") return false;
+  return true;
+}
+
+export { pickAutoResume, resolveResumeTarget, shouldAdoptReportedResumeId, RESUME_ID_RE };
+export type { AutoResumeConfig, AutoResumeProject, ReportedResumeId };

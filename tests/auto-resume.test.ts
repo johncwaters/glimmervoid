@@ -3,10 +3,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { pickAutoResume, resolveResumeTarget, RESUME_ID_RE } from '../session/core/auto-resume.ts';
+import { pickAutoResume, resolveResumeTarget, shouldAdoptReportedResumeId, RESUME_ID_RE } from '../session/core/auto-resume.ts';
 import { projectDirCandidates } from '../server/core/usage-scan-core.ts';
 
 const RESUME_SESSION_ID = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
+const REPORTED_SESSION_ID = '11111111-1111-4111-8111-111111111111';
+
+function resolvedIdAndPath(resumeTarget: ReturnType<typeof resolveResumeTarget>) {
+  return { resumeSessionId: resumeTarget.resumeSessionId, transcriptPath: resumeTarget.transcriptPath };
+}
 
 test('resolveResumeTarget returns null without probing when no resume id is set', () => {
   let probeCount = 0;
@@ -20,7 +25,7 @@ test('resolveResumeTarget returns null without probing when no resume id is set'
     return true;
   });
 
-  assert.deepEqual(resumeTarget, { resumeSessionId: null, transcriptPath: null });
+  assert.deepEqual(resolvedIdAndPath(resumeTarget), { resumeSessionId: null, transcriptPath: null });
   assert.equal(probeCount, 0);
 });
 
@@ -38,7 +43,7 @@ test('resolveResumeTarget probes a reported transcript path before any derived o
   });
 
   assert.deepEqual(probedPaths, [reportedTranscriptPath]);
-  assert.deepEqual(resumeTarget, {
+  assert.deepEqual(resolvedIdAndPath(resumeTarget), {
     resumeSessionId: RESUME_SESSION_ID,
     transcriptPath: reportedTranscriptPath,
   });
@@ -61,7 +66,7 @@ test('resolveResumeTarget ignores a reported transcript path belonging to anothe
   });
 
   assert.deepEqual(probedPaths, [derivedTranscriptPath]);
-  assert.deepEqual(resumeTarget, {
+  assert.deepEqual(resolvedIdAndPath(resumeTarget), {
     resumeSessionId: RESUME_SESSION_ID,
     transcriptPath: derivedTranscriptPath,
   });
@@ -77,7 +82,7 @@ test('resolveResumeTarget clears the id when only another conversation transcrip
     cwds: ['/workspace'],
   }, (transcriptPath) => transcriptPath === otherConversationTranscriptPath);
 
-  assert.deepEqual(resumeTarget, {
+  assert.deepEqual(resolvedIdAndPath(resumeTarget), {
     resumeSessionId: null,
     transcriptPath: path.join('/configured', 'projects', '-workspace', `${RESUME_SESSION_ID}.jsonl`),
   });
@@ -93,7 +98,7 @@ test('resolveResumeTarget keeps the id when the CLAUDE_CONFIG_DIR transcript exi
     cwds: ['/workspace'],
   }, (transcriptPath) => transcriptPath === expectedTranscriptPath);
 
-  assert.deepEqual(resumeTarget, { resumeSessionId: RESUME_SESSION_ID, transcriptPath: expectedTranscriptPath });
+  assert.deepEqual(resolvedIdAndPath(resumeTarget), { resumeSessionId: RESUME_SESSION_ID, transcriptPath: expectedTranscriptPath });
 });
 
 test('resolveResumeTarget keeps the id when only the XDG projects dir holds the transcript', () => {
@@ -106,7 +111,7 @@ test('resolveResumeTarget keeps the id when only the XDG projects dir holds the 
     cwds: ['/workspace'],
   }, (transcriptPath) => transcriptPath === expectedTranscriptPath);
 
-  assert.deepEqual(resumeTarget, { resumeSessionId: RESUME_SESSION_ID, transcriptPath: expectedTranscriptPath });
+  assert.deepEqual(resolvedIdAndPath(resumeTarget), { resumeSessionId: RESUME_SESSION_ID, transcriptPath: expectedTranscriptPath });
 });
 
 test('resolveResumeTarget keeps the id when the transcript sits under the realpath cwd spelling', () => {
@@ -118,7 +123,7 @@ test('resolveResumeTarget keeps the id when the transcript sits under the realpa
     cwds: ['/symlinked/workspace', '/real/workspace'],
   }, (transcriptPath) => transcriptPath === expectedTranscriptPath);
 
-  assert.deepEqual(resumeTarget, { resumeSessionId: RESUME_SESSION_ID, transcriptPath: expectedTranscriptPath });
+  assert.deepEqual(resolvedIdAndPath(resumeTarget), { resumeSessionId: RESUME_SESSION_ID, transcriptPath: expectedTranscriptPath });
 });
 
 test('resolveResumeTarget clears the id when no candidate transcript exists', () => {
@@ -134,10 +139,118 @@ test('resolveResumeTarget clears the id when no candidate transcript exists', ()
   });
 
   assert.equal(probedPaths.length, 4);
-  assert.deepEqual(resumeTarget, {
+  assert.deepEqual(resolvedIdAndPath(resumeTarget), {
     resumeSessionId: null,
     transcriptPath: path.join('/xdg-config', 'claude', 'projects', '-symlinked-workspace', `${RESUME_SESSION_ID}.jsonl`),
   });
+});
+
+test('resolveResumeTarget reports every candidate it checked when no transcript exists', () => {
+  const resumeTarget = resolveResumeTarget({
+    resumeSessionId: RESUME_SESSION_ID,
+    transcriptPath: null,
+    projectsDirs: ['/xdg-config/claude/projects', '/home/carbon-unit/.claude/projects'],
+    cwds: ['/symlinked/workspace', '/real/workspace'],
+  }, () => false);
+
+  assert.deepEqual(resumeTarget.checkedTranscriptPaths, [
+    path.join('/xdg-config', 'claude', 'projects', '-symlinked-workspace', `${RESUME_SESSION_ID}.jsonl`),
+    path.join('/xdg-config', 'claude', 'projects', '-real-workspace', `${RESUME_SESSION_ID}.jsonl`),
+    path.join('/home/carbon-unit', '.claude', 'projects', '-symlinked-workspace', `${RESUME_SESSION_ID}.jsonl`),
+    path.join('/home/carbon-unit', '.claude', 'projects', '-real-workspace', `${RESUME_SESSION_ID}.jsonl`),
+  ]);
+});
+
+test('shouldAdoptReportedResumeId adopts any id when nothing is bound yet', () => {
+  assert.equal(shouldAdoptReportedResumeId({
+    currentResumeSessionId: null,
+    reportedId: REPORTED_SESSION_ID,
+    signal: 'session-start',
+    sessionStartSource: 'startup',
+  }), true);
+});
+
+test('shouldAdoptReportedResumeId reports no change when the id is already the bound one', () => {
+  assert.equal(shouldAdoptReportedResumeId({
+    currentResumeSessionId: RESUME_SESSION_ID,
+    reportedId: RESUME_SESSION_ID,
+    signal: 'ready',
+    sessionStartSource: null,
+  }), false);
+});
+
+test('shouldAdoptReportedResumeId keeps the bound id when a blank spawn announces a new one at SessionStart', () => {
+  for (const sessionStartSource of ['startup', 'resume', 'compact', 'fork', null, undefined]) {
+    assert.equal(shouldAdoptReportedResumeId({
+      currentResumeSessionId: RESUME_SESSION_ID,
+      reportedId: REPORTED_SESSION_ID,
+      signal: 'session-start',
+      sessionStartSource,
+    }), false, `SessionStart source ${String(sessionStartSource)}`);
+  }
+});
+
+test('shouldAdoptReportedResumeId adopts a SessionStart id after /clear, whatever the letter case', () => {
+  for (const sessionStartSource of ['clear', 'Clear', 'CLEAR']) {
+    assert.equal(shouldAdoptReportedResumeId({
+      currentResumeSessionId: RESUME_SESSION_ID,
+      reportedId: REPORTED_SESSION_ID,
+      signal: 'session-start',
+      sessionStartSource,
+    }), true, sessionStartSource);
+  }
+});
+
+test('shouldAdoptReportedResumeId keeps the bound id when SessionEnd names a different one', () => {
+  assert.equal(shouldAdoptReportedResumeId({
+    currentResumeSessionId: RESUME_SESSION_ID,
+    reportedId: REPORTED_SESSION_ID,
+    signal: 'session-end',
+    sessionStartSource: null,
+  }), false);
+});
+
+test('shouldAdoptReportedResumeId adopts a different id from any signal that proves a transcript exists', () => {
+  for (const signal of ['resume', 'ready', 'awaiting-input', null, undefined]) {
+    assert.equal(shouldAdoptReportedResumeId({
+      currentResumeSessionId: RESUME_SESSION_ID,
+      reportedId: REPORTED_SESSION_ID,
+      signal,
+      sessionStartSource: null,
+    }), true, `signal ${String(signal)}`);
+  }
+});
+
+test('shouldAdoptReportedResumeId keeps the bound id when a low confidence ready names a different one', () => {
+  assert.equal(shouldAdoptReportedResumeId({
+    currentResumeSessionId: RESUME_SESSION_ID,
+    reportedId: REPORTED_SESSION_ID,
+    signal: 'ready',
+    sessionStartSource: null,
+    confidence: 'low',
+  }), false);
+});
+
+test('shouldAdoptReportedResumeId adopts a low confidence report when nothing is bound yet', () => {
+  assert.equal(shouldAdoptReportedResumeId({
+    currentResumeSessionId: null,
+    reportedId: REPORTED_SESSION_ID,
+    signal: 'ready',
+    sessionStartSource: null,
+    confidence: 'low',
+  }), true);
+});
+
+test('shouldAdoptReportedResumeId adopts a ready naming a different id when confidence is not low', () => {
+  for (const confidence of ['high', null, undefined]) {
+    assert.equal(shouldAdoptReportedResumeId({
+      currentResumeSessionId: RESUME_SESSION_ID,
+      reportedId: REPORTED_SESSION_ID,
+      signal: 'ready',
+      sessionStartSource: null,
+      confidence,
+    }), true, `confidence ${String(confidence)}`);
+  }
 });
 
 test('pickAutoResume picks a project that was active and has a resumeSessionId', () => {

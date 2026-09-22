@@ -14,6 +14,10 @@ function hook(s: Session, signal: string, payload: HookPayload) {
   s.ingestHookSignal({ signal, source: 'hook', ts: Date.now(), payload });
 }
 
+function lowConfidenceHook(s: Session, signal: string, payload: HookPayload) {
+  s.ingestHookSignal({ signal, source: 'hook', ts: Date.now(), confidence: 'low', payload });
+}
+
 for (const signal of ['resume', 'ready', 'awaiting-input', 'session-end']) {
   test(`a ${signal} hook payload captures the live session id`, () => {
     const s = makeSession();
@@ -70,16 +74,60 @@ for (const source of ['startup', 'resume', 'clear', 'compact', 'fork']) {
     assert.equal(s.resumeSessionId, id, 'mirrored into the live resume binding');
     assert.equal(events.length, 1, 'emitted claude-session-id once');
 
-    assert.deepEqual(events[0], { id, source, vendor: 'claude', sessionId: id, transcriptPath: null });
+    assert.deepEqual(events[0], {
+      id, source, vendor: 'claude', sessionId: id, transcriptPath: null, isResumeTarget: true,
+    });
     s.destroy();
   });
 }
 
-test('a later SessionStart re-captures a new id (resume assigns a new id each time)', () => {
+test('a later SessionStart never repoints the resume id, because no transcript exists yet', () => {
   const s = makeSession();
   sessionStart(s, { session_id: 'abcd1234-0000-0000-0000-abcdabcdabcd', source: 'startup' });
   sessionStart(s, { session_id: 'ffff9999-0000-0000-0000-ffffffffffff', source: 'resume' });
-  assert.equal(s.resumeSessionId, 'ffff9999-0000-0000-0000-ffffffffffff');
+  assert.equal(s.resumeSessionId, 'abcd1234-0000-0000-0000-abcdabcdabcd');
+  s.destroy();
+});
+
+test('a blank spawn at SessionStart never overwrites the saved conversation, a later turn does', () => {
+  const s = makeSession({ resumeSessionId: 'aaaa1111-0000-0000-0000-aaaaaaaaaaaa' });
+  const events: Record<string, unknown>[] = [];
+  s.on('claude-session-id', (event) => events.push(event));
+
+  sessionStart(s, { session_id: 'bbbb2222-0000-0000-0000-bbbbbbbbbbbb', source: 'startup' });
+  assert.equal(s.resumeSessionId, 'aaaa1111-0000-0000-0000-aaaaaaaaaaaa', 'the transcript on disk keeps the binding');
+  assert.equal(events[0]?.id, 'bbbb2222-0000-0000-0000-bbbbbbbbbbbb', 'the live id still reaches the trace lane');
+  assert.equal(events[0]?.isResumeTarget, false);
+
+  hook(s, 'ready', { session_id: 'bbbb2222-0000-0000-0000-bbbbbbbbbbbb' });
+  assert.equal(s.resumeSessionId, 'bbbb2222-0000-0000-0000-bbbbbbbbbbbb', 'a finished turn proves a transcript exists');
+  assert.equal(events[1]?.isResumeTarget, true);
+  s.destroy();
+});
+
+test('a low confidence idle prompt never repoints the saved conversation, a real turn end does', () => {
+  const s = makeSession({ resumeSessionId: 'aaaa1111-0000-0000-0000-aaaaaaaaaaaa' });
+  sessionStart(s, { session_id: 'bbbb2222-0000-0000-0000-bbbbbbbbbbbb', source: 'startup' });
+
+  lowConfidenceHook(s, 'ready', { session_id: 'bbbb2222-0000-0000-0000-bbbbbbbbbbbb' });
+  assert.equal(s.resumeSessionId, 'aaaa1111-0000-0000-0000-aaaaaaaaaaaa');
+
+  hook(s, 'ready', { session_id: 'bbbb2222-0000-0000-0000-bbbbbbbbbbbb' });
+  assert.equal(s.resumeSessionId, 'bbbb2222-0000-0000-0000-bbbbbbbbbbbb');
+  s.destroy();
+});
+
+test('a SessionStart after /clear adopts the new id the carbon unit asked for', () => {
+  const s = makeSession({ resumeSessionId: 'aaaa1111-0000-0000-0000-aaaaaaaaaaaa' });
+  sessionStart(s, { session_id: 'cccc3333-0000-0000-0000-cccccccccccc', source: 'clear' });
+  assert.equal(s.resumeSessionId, 'cccc3333-0000-0000-0000-cccccccccccc');
+  s.destroy();
+});
+
+test('a SessionEnd naming a blank conversation never overwrites the saved one', () => {
+  const s = makeSession({ resumeSessionId: 'aaaa1111-0000-0000-0000-aaaaaaaaaaaa' });
+  hook(s, 'session-end', { session_id: 'bbbb2222-0000-0000-0000-bbbbbbbbbbbb' });
+  assert.equal(s.resumeSessionId, 'aaaa1111-0000-0000-0000-aaaaaaaaaaaa');
   s.destroy();
 });
 
@@ -155,5 +203,22 @@ test('capture does not disturb an already-bound resumeSessionId when the new hoo
   const s = makeSession({ resumeSessionId: 'preexisting-0000-0000-0000-abcdabcdabcd' });
   sessionStart(s, { session_id: 'bad', source: 'startup' });
   assert.equal(s.resumeSessionId, 'preexisting-0000-0000-0000-abcdabcdabcd');
+  s.destroy();
+});
+
+test('repointing the conversation from outside the capture path re-arms the emit', () => {
+  const s = makeSession();
+  const events: Record<string, unknown>[] = [];
+  s.on('claude-session-id', (event) => events.push(event));
+  const liveId = 'abcd1234-0000-0000-0000-abcdabcdabcd';
+  hook(s, 'ready', { session_id: liveId });
+  assert.equal(events.length, 1, 'the first report is cached');
+
+  s.setResumeConversation('ffff9999-0000-0000-0000-ffffffffffff');
+  hook(s, 'ready', { session_id: liveId });
+
+  assert.equal(events.length, 2, 'the repoint invalidated the cached report');
+  assert.equal(events[1]?.isResumeTarget, true);
+  assert.equal(s.resumeSessionId, liveId, 'the live conversation wins over the operator repoint');
   s.destroy();
 });

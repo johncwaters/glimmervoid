@@ -30,7 +30,7 @@ import type { ExitSignal } from "./core/exit-transition.ts";
 import { shouldHoldTerminalStopForNotice } from "./core/pack-notice.ts";
 import * as agentTracker from "./core/agent-tracker.ts";
 import { DEFAULT_GATE_RELEASE_SETTLE_MS } from "./core/gate-release.ts";
-import { resolveResumeTarget, RESUME_ID_RE } from "./core/auto-resume.ts";
+import { resolveResumeTarget, shouldAdoptReportedResumeId, RESUME_ID_RE } from "./core/auto-resume.ts";
 import { projectSessionSnapshots } from "./core/snapshot-projection.ts";
 import type { UserHook } from "./core/user-hooks-core.ts";
 import type { DecisionEntry } from "./core/decision-log.ts";
@@ -161,6 +161,15 @@ interface SessionOptions {
   agentApi?: boolean;
 }
 
+interface ClaudeSessionIdEvent {
+  id: string;
+  source: string | null;
+  vendor: string;
+  sessionId: string;
+  transcriptPath: string | null;
+  isResumeTarget: boolean;
+}
+
 class Session extends EventEmitter {
   id: string;
   name: string;
@@ -205,6 +214,7 @@ class Session extends EventEmitter {
   _extraClaudeArgs: string[];
   _resumeSessionId: string | null;
   _transcriptPath: string | null;
+  _lastClaudeSessionReport: { id: string; transcriptPath: string | null; isResumeTarget: boolean } | null;
   _suppressResumeCapture: boolean;
   _antiSlopPrompt: boolean;
   _spawnEnv: Record<string, string> | null;
@@ -400,6 +410,7 @@ class Session extends EventEmitter {
     this._packsBuiltRoot = packsBuiltRoot;
     this._resumeSessionId = resumeSessionId || null;
     this._transcriptPath = null;
+    this._lastClaudeSessionReport = null;
     this._suppressResumeCapture = false;
     this._antiSlopPrompt = !!antiSlopPrompt && this._can("antiSlop");
     this.ephemeral = !!ephemeral;
@@ -553,7 +564,8 @@ class Session extends EventEmitter {
       const sessionIdOf = typeof this._adapter.sessionIdOf === "function"
         ? this._adapter.sessionIdOf
         : (payload: HookPayload) => payload?.session_id;
-      this._captureClaudeSessionId(sessionIdOf(raw.payload), raw.payload.source, raw.payload.transcript_path);
+      this._captureClaudeSessionId(
+        sessionIdOf(raw.payload), raw.payload.source, raw.payload.transcript_path, raw.signal, raw.confidence);
     }
 
     if (raw && raw.signal === "awaiting-input") this._setPendingPromptKind(raw.promptKind || null);
@@ -591,22 +603,46 @@ class Session extends EventEmitter {
     this._setPendingPromptKind(null);
   }
 
-  _captureClaudeSessionId(id: unknown, source: unknown, transcriptPath: unknown): void {
+  _captureClaudeSessionId(
+    id: unknown,
+    source: unknown,
+    transcriptPath: unknown,
+    signal: string | null,
+    confidence?: string | null,
+  ): void {
     if (this._suppressResumeCapture) return;
     if (typeof id !== "string" || !RESUME_ID_RE.test(id)) return;
-    const nextTranscriptPath = typeof transcriptPath === "string" && transcriptPath ? transcriptPath : null;
-    const isKnownId = id === this._resumeSessionId;
-    if (isKnownId && (!nextTranscriptPath || nextTranscriptPath === this._transcriptPath)) return;
-    if (nextTranscriptPath) this._transcriptPath = nextTranscriptPath;
-    if (!isKnownId) this.setResumeConversation(id);
+    const reportedTranscriptPath = typeof transcriptPath === "string" && transcriptPath ? transcriptPath : null;
+    const reportedSource = typeof source === "string" ? source : null;
+    const shouldAdopt = shouldAdoptReportedResumeId({
+      currentResumeSessionId: this._resumeSessionId,
+      reportedId: id,
+      signal,
+      sessionStartSource: reportedSource,
+      confidence,
+    });
+    if (shouldAdopt) this.setResumeConversation(id);
 
-    this.emit("claude-session-id", {
+    const isResumeTarget = id === this._resumeSessionId;
+    if (reportedTranscriptPath && isResumeTarget) this._transcriptPath = reportedTranscriptPath;
+    const liveTranscriptPath = reportedTranscriptPath || this._transcriptPath;
+    const lastReport = this._lastClaudeSessionReport;
+    const isRepeatReport = !!lastReport
+      && lastReport.id === id
+      && lastReport.transcriptPath === liveTranscriptPath
+      && lastReport.isResumeTarget === isResumeTarget;
+    if (isRepeatReport) return;
+    this._lastClaudeSessionReport = { id, transcriptPath: liveTranscriptPath, isResumeTarget };
+
+    const event: ClaudeSessionIdEvent = {
       id,
-      source: source || null,
+      source: reportedSource,
       vendor: this.usageVendor,
       sessionId: id,
-      transcriptPath: this._transcriptPath,
-    });
+      transcriptPath: liveTranscriptPath,
+      isResumeTarget,
+    };
+    this.emit("claude-session-id", event);
   }
 
   _setPendingPromptKind(kind: string | null): void {
@@ -776,6 +812,7 @@ class Session extends EventEmitter {
 
   setResumeConversation(id: string | null): void {
     this._resumeSessionId = id || null;
+    this._lastClaudeSessionReport = null;
   }
 
   get resumeSessionId(): string | null {
@@ -1100,7 +1137,7 @@ class Session extends EventEmitter {
       }, fs.existsSync);
       spawnResumeSessionId = resumeTarget.resumeSessionId;
       if (configuredResumeSessionId && !spawnResumeSessionId) {
-        console.warn(`[session:${this.name}] spawning without the stale resume id because no transcript exists: ${resumeTarget.transcriptPath}`);
+        console.warn(`[session:${this.name}] spawning without the stale resume id ${configuredResumeSessionId} because no transcript exists at any of: ${resumeTarget.checkedTranscriptPaths.join(", ")}`);
       }
     }
 
@@ -1630,4 +1667,4 @@ function claudeCommand(): ResolvedCommand {
 }
 
 export { Session, claudeCommand };
-export type { SessionOptions, SessionPlanReviewPort, SessionPty, SessionRecorderPort };
+export type { ClaudeSessionIdEvent, SessionOptions, SessionPlanReviewPort, SessionPty, SessionRecorderPort };
