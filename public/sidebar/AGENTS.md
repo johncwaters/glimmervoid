@@ -21,7 +21,7 @@ The review sidebar: the single home for the worktree review gate of the selected
 - `diff-core.ts` stays pure and dependency-free (node:test runs it); rendering belongs in `review-sidebar.ts`.
 - Merge semantics live server-side (rebase-then-FF, park on conflict, `session/core/merge-prompt.ts` handoff); the sidebar only sends control messages and renders results.
 - Diff text renders via textContent/escaped markup; never innerHTML raw diff content.
-- The panel is built once and MOVED between layouts, never rebuilt. It has no close control in either one (the desktop dock is permanent; the phone screen is dismissed by the bottom nav), so do not reintroduce a dismiss button without a layout that needs it.
+- The panel is built once and MOVED between layouts, never rebuilt. It has no close control in either one (the desktop dock is permanent; the phone screen is dismissed by the bottom nav), so do not reintroduce a dismiss button without a layout that needs it. Desktop may MINIMIZE it to a strip (`data-collapsed`, persisted in `ui-prefs.ts`) because the element must stay mounted; phone ignores that state.
 
 ### Testing Requirements
 - `tests/frontend-diff-core.test.ts` for the parser; merge flow verified end-to-end via `npm run dev` with a worktree session.

@@ -7,7 +7,7 @@ import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
-import { getSidebarWidth, setSidebarWidth } from '../ui-prefs.ts';
+import { getSidebarWidth, isReviewSidebarCollapsed, setReviewSidebarCollapsed, setSidebarWidth } from '../ui-prefs.ts';
 import type { AnnotationTarget, DiffFile, SectionDiffText } from './diff-core.ts';
 import {
   annotationKey,
@@ -98,7 +98,21 @@ export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
   const head = el('div', 'review-sidebar-head');
   const title = el('span', 'review-sidebar-title', 'Review');
   sessionNameEl = el('span', 'review-sidebar-session');
-  head.append(title, sessionNameEl);
+  const applyCollapsed = (isCollapsed: boolean) => {
+    mountedPanel.toggleAttribute('data-collapsed', isCollapsed);
+    setReviewSidebarCollapsed(isCollapsed);
+  };
+
+  const minimizeBtn = el('button', 'review-btn review-sidebar-minimize', 'Minimize');
+  minimizeBtn.type = 'button';
+  minimizeBtn.title = 'Minimize the review sidebar to give the terminal more room';
+  minimizeBtn.addEventListener('click', () => applyCollapsed(true));
+  head.append(title, sessionNameEl, minimizeBtn);
+
+  const expandBtn = el('button', 'review-sidebar-expand', 'Show review');
+  expandBtn.type = 'button';
+  expandBtn.title = 'Restore the review sidebar';
+  expandBtn.addEventListener('click', () => applyCollapsed(false));
 
   branchSyncEl = el('div', 'review-branch-sync');
 
@@ -118,7 +132,8 @@ export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
 
   const handle = el('div', 'review-resize-handle');
   handle.setAttribute('aria-hidden', 'true');
-  mountedPanel.append(head, branchSyncEl, controlsEl, notesEl, bodyEl, handle);
+  mountedPanel.append(expandBtn, head, branchSyncEl, controlsEl, notesEl, bodyEl, handle);
+  mountedPanel.toggleAttribute('data-collapsed', isReviewSidebarCollapsed());
 
   let dragStartX = 0, dragStartWidth = 0;
 

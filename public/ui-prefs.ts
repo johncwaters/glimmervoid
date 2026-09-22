@@ -12,6 +12,7 @@ export interface UiPrefs {
   activeView: string;
   lastFocusedSessionId: string | null;
   railWidth: number | null;
+  reviewSidebarCollapsed: boolean;
   keptProjects: string[];
   traceHiddenKinds: string[];
   dismissedUpdate: string | null;
@@ -38,6 +39,7 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   activeView: asString('focus'),
   lastFocusedSessionId: asNullableString,
   railWidth: asNullableNumber,
+  reviewSidebarCollapsed: asBoolean(false),
   keptProjects: asStringList,
   traceHiddenKinds: asStringList,
   dismissedUpdate: asNullableString,
@@ -89,6 +91,9 @@ export const setActiveView = (view: string) => write('activeView', view);
 
 export const getRailWidth = () => read('railWidth');
 export const setRailWidth = (px: number | null) => write('railWidth', px);
+
+export const isReviewSidebarCollapsed = () => read('reviewSidebarCollapsed');
+export const setReviewSidebarCollapsed = (collapsed: boolean) => write('reviewSidebarCollapsed', collapsed);
 
 export const getKeptProjects = () => read('keptProjects');
 export const setKeptProjects = (paths: string[]) => write('keptProjects', paths);

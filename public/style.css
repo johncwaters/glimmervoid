@@ -5557,6 +5557,31 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   overflow: hidden;
 }
 
+.review-sidebar-minimize { flex: 0 0 auto; padding: 3px 8px; }
+.review-sidebar-expand { display: none; }
+html:not([data-layout="phone"]) .app-sidebar[data-collapsed] { flex-basis: 28px; }
+html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > :not(.review-sidebar-expand) { display: none; }
+html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-expand {
+  display: block;
+  flex: 1 1 auto;
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 12px 0;
+  writing-mode: vertical-rl;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: start;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-expand:hover { color: var(--text-head); background: color-mix(in oklab, var(--accent) 8%, transparent); }
+.review-sidebar-expand:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+[data-layout="phone"] .review-sidebar-minimize { display: none; }
+
 .review-resize-handle {
   position: absolute;
   left: 0;
