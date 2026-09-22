@@ -4,7 +4,7 @@ import path from 'node:path';
 import { execFileAsync, execFileSync } from '../server/child-process-safe.ts';
 import { createSerialQueue, isQueueAdmissionTimeout } from './spawn-gate.ts';
 import { matchedPrefix, sessionIdFromBranch, usablePrefixes } from './core/branch-gc-core.ts';
-import { comparableDirectoryPath } from '../shared/paths.ts';
+import { comparableDirectoryPath, isSameDirectoryPath, sanitizeWorktreeName } from '../shared/paths.ts';
 import type { RemoteBranchTip } from './core/branch-gc-core.ts';
 import {
   GIT_FETCH_TIMEOUT_MS,
@@ -319,8 +319,6 @@ function createGitWorkspace(opts: {
     }
     return null;
   }
-  function sanitize(s: unknown): string { return String(s || '').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, ''); }
-
   async function detectDefaultBranch({ projectPath }: { projectPath: string }): Promise<string | null> {
     const remoteHead = await run(['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], projectPath);
     const fromRemoteHead = remoteHead.ok ? defaultBranchFromRemoteHead(remoteHead.out) : null;
@@ -467,7 +465,7 @@ function createGitWorkspace(opts: {
       const configured = await run(['config', '--get', 'rerere.enabled'], projectPath);
       if (!configured.ok || configured.out === '') await run(['config', 'rerere.enabled', 'true'], projectPath);
     }
-    const branch = `glimmervoid/${sanitize(teamId)}/${sanitize(label)}`;
+    const branch = `glimmervoid/${sanitizeWorktreeName(teamId)}/${sanitizeWorktreeName(label)}`;
     await run(['worktree', 'prune'], projectPath);
     const listed = await run(['worktree', 'list', '--porcelain'], projectPath);
     if (listed.ok) {
@@ -495,11 +493,11 @@ function createGitWorkspace(opts: {
     await run(['branch', '-D', branch], projectPath);
 
     let wtParent = os.tmpdir();
-    let prefix = `glimmervoid-wt-${sanitize(teamId)}-`;
+    let prefix = `glimmervoid-wt-${sanitizeWorktreeName(teamId)}-`;
     if (worktreeBase) {
       try { fs.mkdirSync(worktreeBase, { recursive: true }); } catch {}
       wtParent = worktreeBase;
-      prefix = `${sanitize(path.basename(projectPath)) || 'repo'}-`;
+      prefix = `${sanitizeWorktreeName(path.basename(projectPath)) || 'repo'}-`;
     }
     const wtDir = mkdtemp(path.join(wtParent, prefix));
     const add = await run(['worktree', 'add', '-b', branch, wtDir, baseSha], projectPath);
@@ -525,6 +523,43 @@ function createGitWorkspace(opts: {
     if (!ignored.length) return;
     try { await populateWorktree(projectPath, wtDir, ignored); } catch {}
     await refuseTrackableLinks(wtDir, ignored);
+  }
+
+  async function ensureWorkspaceMemberBody({ projectPath, wtDir, branch, shareList }: WorktreeArgs): Promise<WorkspaceHandle> {
+    if (!wtDir || !branch) return { cwd: projectPath, isGit: false, reason: 'missing-workspace-member' };
+    const inside = await run(['rev-parse', '--is-inside-work-tree'], projectPath);
+    if (!inside.ok || inside.out !== 'true') return { cwd: projectPath, isGit: false, reason: 'not-git' };
+    await run(['worktree', 'prune'], projectPath);
+    const listed = await run(['worktree', 'list', '--porcelain'], projectPath);
+    if (!listed.ok) return { cwd: projectPath, isGit: false, error: listed.err };
+    const conflictPath = findWorktreeForBranch(listed.out, branch);
+    if (conflictPath && !isSameDirectoryPath(conflictPath, wtDir)) {
+      return { cwd: projectPath, isGit: false, reason: 'branch-in-use', conflictPath, branch };
+    }
+    const base = await detectDefaultBranch({ projectPath });
+    if (conflictPath) {
+      await populateShare({ projectPath, wtDir, shareList });
+      return { cwd: wtDir, isGit: true, branch, base };
+    }
+    const existingBranch = await run(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], projectPath);
+    if (existingBranch.ok) {
+      const attached = await run(['worktree', 'add', wtDir, branch], projectPath);
+      if (!attached.ok) return { cwd: projectPath, isGit: false, reason: 'worktree-add-failed', error: attached.err };
+      await populateShare({ projectPath, wtDir, shareList });
+      return { cwd: wtDir, isGit: true, branch, base };
+    }
+    if (!base) return { cwd: projectPath, isGit: false, reason: 'no-base-branch' };
+    const synced = await syncIntegrationBranchBody({ projectPath, branch: base });
+    if (synced.outcome === 'fetch-failed' || synced.outcome === 'update-failed') {
+      return { cwd: projectPath, isGit: false, reason: 'base-sync-failed', error: synced.error };
+    }
+    const baseRef = await run(['rev-parse', '--verify', '--quiet', `refs/heads/${base}`], projectPath);
+    const baseSha = baseRef.ok ? baseRef.out : await ensureLocalBranch(projectPath, base);
+    if (!baseSha) return { cwd: projectPath, isGit: false, reason: 'no-base-branch' };
+    const added = await run(['worktree', 'add', '-b', branch, wtDir, baseSha], projectPath);
+    if (!added.ok) return { cwd: projectPath, isGit: false, reason: 'worktree-add-failed', error: added.err };
+    await populateShare({ projectPath, wtDir, shareList });
+    return { cwd: wtDir, isGit: true, branch, base, baseSha };
   }
 
   async function refuseTrackableLinks(wtDir: string, entries: string[]): Promise<void> {
@@ -874,6 +909,25 @@ function createGitWorkspace(opts: {
     return failure ?? okResult('');
   }
 
+  async function removeSharedLinks(wtDir: string, shareList: string[] | null | undefined): Promise<void> {
+    for (const rel of shareList ?? []) {
+      if (!rel || String(rel).includes('..')) continue;
+      const linkPath = path.join(wtDir, rel);
+      const stat = await fsp.lstat(linkPath).catch(() => null);
+      if (!stat || !stat.isSymbolicLink()) continue;
+      if (!(await run(['check-ignore', '-q', '--', rel], wtDir)).ok) continue;
+      await fsp.rm(linkPath, { recursive: false, force: true }).catch(() => fsp.rmdir(linkPath)).catch(() => {});
+    }
+  }
+
+  async function removeWorkspaceMemberBody({ projectPath, cwd, shareList }: WorktreeArgs): Promise<GitResult> {
+    if (!cwd) return { ok: false, out: '', err: 'a workspace member removal needs a path' };
+    await removeSharedLinks(cwd, shareList);
+    const removed = await run(['worktree', 'remove', cwd], projectPath);
+    await run(['worktree', 'prune'], projectPath);
+    return removed;
+  }
+
   async function listWorktreeBranches({ projectPath }: WorktreeArgs): Promise<WorktreeBranch[]> {
     const inside = await run(['rev-parse', '--is-inside-work-tree'], projectPath);
     if (!inside.ok || inside.out !== 'true') return [];
@@ -1124,6 +1178,8 @@ function createGitWorkspace(opts: {
 
   return {
     create: serialized(createBody),
+    ensureWorkspaceMember: serialized(ensureWorkspaceMemberBody),
+    removeWorkspaceMember: serialized(removeWorkspaceMemberBody),
     discard: serialized(discardBody),
     mergeBack: serialized(mergeBackBody),
     mergeKeep: serialized(mergeKeepBody),

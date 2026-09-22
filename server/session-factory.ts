@@ -42,6 +42,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       id: project.id,
       name: project.name,
       path: project.path,
+      workspaceRepos: project.repos,
       dangerouslySkipPermissions: projectSkipsPermissions(project),
       agent: project.agent,
       bypassHookTrust: project.codexBypassHookTrust === true,

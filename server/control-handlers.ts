@@ -27,6 +27,7 @@ import { createPrGh } from './pr-gh.ts';
 import type { PrGh } from './pr-gh.ts';
 import { buildSettingsPayload as buildSettingsPayloadFrom } from './settings-payload.ts';
 import { RESUME_ID_RE } from '../session/core/auto-resume.ts';
+import { planWorkspace } from '../session/core/workspace-core.ts';
 import { execFile } from './child-process-safe.ts';
 import { DEFAULT_AGENT_ID, describeAgentResolvability, isKnownAgentId, listAgentIds } from '../session/adapters/index.ts';
 import { HOOK_EVENT_CATALOG, ID_RE as HOOK_ID_RE, MAX_TIMEOUT_SEC as HOOK_MAX_TIMEOUT_SEC, normalizeHook, rawStoredHooks, readStoredHooks, removeHook, upsertHook } from '../session/core/user-hooks-core.ts';
@@ -73,6 +74,7 @@ interface ControlRequest {
   name?: string;
   newName?: string;
   path?: string;
+  repos?: string[];
   agent?: string;
   order?: string[];
   conversationId?: string;
@@ -449,8 +451,9 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   function handleAddSession(msg: ControlRequest, ws: ControlSocket): void {
     const name = (msg.name || '').trim();
     const projectPath = (msg.path || '').trim();
+    const repos = msg.repos;
 
-    if (!name || !projectPath) {
+    if (!name || (!projectPath && !repos)) {
       sendError(ws, 'Name and path are required');
       return;
     }
@@ -467,12 +470,20 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     }
 
     const skipPerms = msg.dangerouslySkipPermissions !== false;
+    if (repos) {
+      for (const repoPath of repos) {
+        if (isExistingDirectory(repoPath)) continue;
+        sendError(ws, `Repository path does not exist: ${repoPath}`);
+        return;
+      }
+    }
     const created = createProjectSession({
       name,
       path: projectPath,
+      repos,
       agent: requestedAgent && requestedAgent !== DEFAULT_AGENT_ID ? requestedAgent : undefined,
       dangerouslySkipPermissions: skipPerms,
-      requireExistingPath: true,
+      requireExistingPath: !repos,
     });
     if (!created.ok) {
       sendError(ws, created.error);
@@ -782,14 +793,26 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     return entries;
   }
 
-  function createProjectSession({ name, path: projectPath, agent, dangerouslySkipPermissions, requireExistingPath }: { name: string; path: string; agent?: ProjectEntry['agent']; dangerouslySkipPermissions?: boolean; requireExistingPath?: boolean }): { ok: true; project: ProjectEntry } | { ok: false; error: string } {
+  function createProjectSession({ name, path: projectPath, repos, agent, dangerouslySkipPermissions, requireExistingPath }: { name: string; path: string; repos?: string[]; agent?: ProjectEntry['agent']; dangerouslySkipPermissions?: boolean; requireExistingPath?: boolean }): { ok: true; project: ProjectEntry } | { ok: false; error: string } {
     for (const [, session] of sessions) {
       if (session.name !== name) continue;
       return { ok: false, error: `Session "${name}" already exists` };
     }
-    const resolvedPath = path.resolve(projectPath);
+    const id = generateProjectId();
+    let resolvedPath = path.resolve(projectPath);
+    let workspaceRepos: string[] | undefined;
+    if (repos) {
+      const firstRepo = repos[0];
+      if (!firstRepo) return { ok: false, error: 'A workspace needs at least two repositories' };
+      const worktreeRoot = config.worktreeRoot || path.join(path.dirname(path.resolve(firstRepo)), '.glimmervoid-worktrees');
+      const planned = planWorkspace({ worktreeRoot, sessionName: name, sessionId: id, repoPaths: repos });
+      if (!planned.ok) return { ok: false, error: planned.error };
+      resolvedPath = planned.plan.folder;
+      workspaceRepos = planned.plan.members.map((member) => member.repoPath);
+    }
     if (requireExistingPath && !fs.existsSync(resolvedPath)) return { ok: false, error: `Path does not exist: ${projectPath}` };
-    const project: ProjectEntry = { id: generateProjectId(), name, path: resolvedPath };
+    const project: ProjectEntry = { id, name, path: resolvedPath };
+    if (workspaceRepos) project.repos = workspaceRepos;
     if (dangerouslySkipPermissions === false) project.dangerouslySkipPermissions = false;
     if (agent) project.agent = agent;
     const freshConfig = configStore.save(cfg => {

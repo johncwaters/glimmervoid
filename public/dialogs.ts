@@ -39,16 +39,37 @@ export function createAddSessionDialog() {
   applyDialogAria(dialog, 'add-session-title');
 
   const pickerEl = queryTag(dialog, '#add-session-picker', 'select');
+  const pickerLabelEl = query(dialog, '#add-session-picker-label');
+  const workspaceListEl = query(dialog, '#add-session-workspace-list');
+  const singleModeButton = queryTag(dialog, '#add-session-single-mode', 'button');
+  const workspaceModeButton = queryTag(dialog, '#add-session-workspace-mode', 'button');
   const agentLabelEl = query(dialog, '#add-session-agent-label');
   const agentSelectEl = queryTag(dialog, '#add-session-agent', 'select');
   const advancedToggle = queryTag(dialog, '#add-session-advanced-toggle', 'button');
   const advancedPanel = query(dialog, '#add-session-advanced');
   const nameInput = queryTag(dialog, '#add-session-name', 'input');
   const pathInput = queryTag(dialog, '#add-session-path', 'input');
+  const pathLabelEl = query(dialog, '#add-session-path-label');
   const requirePermsCheckbox = queryTag(dialog, '#add-session-require-perms', 'input');
   const errorEl = query(dialog, '#add-session-error');
   const btnCancel = queryTag(dialog, '#add-session-cancel', 'button');
   const btnConfirm = queryTag(dialog, '#add-session-confirm', 'button');
+  let isWorkspaceMode = false;
+
+  function setWorkspaceMode(enabled: boolean) {
+    isWorkspaceMode = enabled;
+    singleModeButton.setAttribute('aria-pressed', String(!enabled));
+    workspaceModeButton.setAttribute('aria-pressed', String(enabled));
+    pickerLabelEl.hidden = enabled;
+    workspaceListEl.hidden = !enabled;
+    advancedToggle.hidden = enabled;
+    advancedToggle.setAttribute('aria-expanded', String(enabled));
+    advancedPanel.hidden = !enabled;
+    pathLabelEl.hidden = enabled;
+    if (enabled) requestAnimationFrame(() => nameInput.focus());
+  }
+  singleModeButton.addEventListener('click', () => setWorkspaceMode(false));
+  workspaceModeButton.addEventListener('click', () => setWorkspaceMode(true));
 
   advancedToggle.setAttribute('aria-expanded', 'false');
   advancedToggle.addEventListener('click', () => {
@@ -72,6 +93,13 @@ export function createAddSessionDialog() {
           const existingCount = countSessionsByName(project.name);
           const label = existingCount > 0 ? `${project.name} (${existingCount} open)` : project.name;
           group.appendChild(option(label, { value: JSON.stringify({ name: project.name, path: project.path }) }));
+          const choice = el('label', 'dialog-checkbox-label');
+          const checkbox = el('input');
+          checkbox.type = 'checkbox';
+          checkbox.className = 'dialog-checkbox';
+          checkbox.value = project.path;
+          choice.append(checkbox, el('span', null, project.name));
+          workspaceListEl.appendChild(choice);
           hasProjects = true;
         }
         pickerEl.appendChild(group);
@@ -79,10 +107,12 @@ export function createAddSessionDialog() {
       if (hasProjects) return;
       pickerEl.textContent = '';
       pickerEl.appendChild(option('No projects found (configure repo roots in Settings)', { disabled: true, selected: true }));
+      workspaceListEl.textContent = 'No projects found (configure repo roots in Settings).';
     })
     .catch(() => {
       pickerEl.textContent = '';
       pickerEl.appendChild(option('Scan failed', { disabled: true, selected: true }));
+      workspaceListEl.textContent = 'Repository scan failed.';
     });
 
   pickerEl.addEventListener('change', () => {
@@ -117,6 +147,19 @@ export function createAddSessionDialog() {
   function submit() {
     const name = nameInput.value.trim();
     const projectPath = pathInput.value.trim();
+    if (isWorkspaceMode) {
+      const repos = [...workspaceListEl.querySelectorAll<HTMLInputElement>('input:checked')].map((checkbox) => checkbox.value);
+      if (!name || repos.length < 2) {
+        errorEl.textContent = 'Enter a name and select at least two repositories.';
+        return;
+      }
+      const message: Record<string, unknown> = { type: 'add-session', name: suggestSessionName(name), path: repos[0], repos };
+      if (requirePermsCheckbox.checked) message.dangerouslySkipPermissions = false;
+      if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;
+      sendControlMsg(message);
+      close();
+      return;
+    }
     if (!name || !projectPath) {
       errorEl.textContent = 'Both fields are required. Select a project or use Advanced options.';
       return;
@@ -131,7 +174,9 @@ export function createAddSessionDialog() {
   btnCancel.addEventListener('click', close);
   btnConfirm.addEventListener('click', submit);
   nameInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') pathInput.focus();
+    if (event.key !== 'Enter') return;
+    if (isWorkspaceMode) submit();
+    if (!isWorkspaceMode) pathInput.focus();
   });
   pathInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') submit();

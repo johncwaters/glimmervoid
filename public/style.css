@@ -1454,6 +1454,38 @@ body {
   flex-wrap: wrap;
 }
 
+.dialog-mode-controls {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.dialog-mode-button {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text-dim);
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.dialog-mode-button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--text-head);
+}
+
+.dialog-workspace-list {
+  max-height: 220px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+}
+
+.dialog-label[hidden],
+.dialog-advanced-toggle[hidden],
+.dialog-workspace-list[hidden] {
+  display: none;
+}
+
 .dialog-checkbox-label input[type="checkbox"] {
   margin-top: 2px;
   accent-color: var(--accent);

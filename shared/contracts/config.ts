@@ -258,6 +258,7 @@ export const ProjectConfig = z.object({
   id: z.string().optional(),
   name: z.string().optional(),
   path: z.string(),
+  repos: z.array(z.string()).min(2).optional(),
   agent: z.string({ error: 'projects[].agent must be a string' }).regex(AGENT_ID_RE, { error: `projects[].agent must be ${AGENT_ID_SHAPE_MESSAGE}` }).optional(),
   codexBypassHookTrust: z.boolean().optional(),
 }).passthrough();

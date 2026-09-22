@@ -28,6 +28,12 @@ interface ServerPayload {
   [field: string]: unknown;
 }
 
+test('add-session accepts workspace repository paths', () => {
+  const parsed = ClientMessage.safeParse({ type: 'add-session', name: 'Workspace', path: '/repos/one', repos: ['/repos/one', '/repos/two'] });
+  assert.equal(parsed.success, true);
+  assert.equal(ClientMessage.safeParse({ type: 'add-session', name: 'Workspace', path: '/repos/one', repos: 'bad' }).success, false);
+});
+
 function dispatchTypes(file: string, startMarker: string, endMarker: string): string[] {
   const source = fs.readFileSync(path.join(import.meta.dirname, '..', file), 'utf8');
   const start = source.indexOf(startMarker);

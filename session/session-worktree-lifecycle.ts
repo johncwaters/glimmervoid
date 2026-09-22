@@ -24,6 +24,9 @@ import {
   firstGitErrorLine,
 } from "../server/core/branch-sync-core.ts";
 import type { WorktreeArgs } from "../server/git-workspace.ts";
+import type { GitWorkspaceInstance } from "../server/git-workspace.ts";
+import { planWorkspaceMembers } from "./core/workspace-core.ts";
+import { createSessionWorkspaceMembers } from "./session-workspace-members.ts";
 
 const WORKTREE_CHECK_DEBOUNCE_MS = 400;
 
@@ -101,7 +104,13 @@ interface GitWorkspace {
   rebaseOnly: (args: WorkspaceArgs) => Promise<RebaseResult>;
   syncIntegrationBranch?: (args: WorkspaceArgs) => Promise<IntegrationSyncResult>;
   detectDefaultBranch?: (options: { projectPath: string }) => Promise<string | null>;
+  ensureWorkspaceMember?: GitWorkspaceInstance["ensureWorkspaceMember"];
+  removeWorkspaceMember?: GitWorkspaceInstance["removeWorkspaceMember"];
 }
+
+type WorkspaceMembersSetup =
+  | { ok: true; members: ReturnType<typeof createSessionWorkspaceMembers> }
+  | { ok: false; error: string };
 
 interface SessionPort {
   state: () => SessionSnapshot;
@@ -121,6 +130,8 @@ interface WorktreeLifecycleOptions {
   liveWorktreeReview?: boolean;
   worktreeRoot?: string | null;
   worktreeShare?: string[] | null;
+  workspaceRepos?: string[] | null;
+  sessionName?: string;
   port: SessionPort;
 }
 
@@ -210,6 +221,25 @@ function isOwnRemoteCopy(upstream: string, branch: string): boolean {
   return branchFromRemoteRef(upstream) === branch;
 }
 
+function setUpWorkspaceMembers({ folder, sessionId, sessionName, repoPaths, shareList, gitWorkspace }: {
+  folder: string;
+  sessionId: string;
+  sessionName: string;
+  repoPaths: string[];
+  shareList: string[] | null;
+  gitWorkspace: GitWorkspace | null;
+}): WorkspaceMembersSetup {
+  const planned = planWorkspaceMembers({ folder, sessionId, repoPaths });
+  if (!planned.ok) return planned;
+  const ensureWorkspaceMember = gitWorkspace?.ensureWorkspaceMember;
+  const removeWorkspaceMember = gitWorkspace?.removeWorkspaceMember;
+  if (!ensureWorkspaceMember || !removeWorkspaceMember) return { ok: false, error: "Git workspace is unavailable" };
+  return {
+    ok: true,
+    members: createSessionWorkspaceMembers({ plan: planned.plan, sessionName, shareList, gitWorkspace: { ensureWorkspaceMember, removeWorkspaceMember } }),
+  };
+}
+
 function createSessionWorktreeLifecycle({
   id,
   projectPath,
@@ -220,9 +250,14 @@ function createSessionWorktreeLifecycle({
   liveWorktreeReview = true,
   worktreeRoot = null,
   worktreeShare = null,
+  workspaceRepos = null,
+  sessionName = id,
   port,
 }: WorktreeLifecycleOptions) {
   const currentProjectPath = (): string => port.projectPath ? port.projectPath() : projectPath;
+  const workspaceMembers = workspaceRepos
+    ? setUpWorkspaceMembers({ folder: currentProjectPath(), sessionId: id, sessionName, repoPaths: workspaceRepos, shareList: worktreeShare, gitWorkspace })
+    : null;
   const lifecycleState: WorktreeLifecycleState = {
     worktreeDir: null,
     commonGitDir: null,
@@ -455,7 +490,19 @@ function createSessionWorktreeLifecycle({
     await runAutoRebase(SPAWN_GAP_TRIGGER, signature);
   }
 
+  async function provisionWorkspaceMembers(setup: WorkspaceMembersSetup): Promise<boolean> {
+    if (!setup.ok) {
+      port.emit("worktree-blocked", { id, branch: null, notice: setup.error });
+      return false;
+    }
+    const provisioned = await setup.members.provision();
+    if (provisioned.ok) return true;
+    port.emit("worktree-blocked", { id, branch: setup.members.branch, notice: provisioned.error });
+    return false;
+  }
+
   async function provision({ fresh = false }: { fresh?: boolean } = {}): Promise<boolean> {
+    if (workspaceMembers) return provisionWorkspaceMembers(workspaceMembers);
     if (!gitWorkspace) return true;
     if (lifecycleState.worktreeDir && fs.existsSync(lifecycleState.worktreeDir)) {
       if (fresh) await syncFreshWorktree();
@@ -557,7 +604,13 @@ function createSessionWorktreeLifecycle({
     setMergeStatus(status);
   }
 
+  async function releaseWorkspaceMembers(members: ReturnType<typeof createSessionWorkspaceMembers>): Promise<void> {
+    const released = await members.release();
+    if (released.keptDirs.length > 0) console.warn(`[session ${id}] kept workspace members with uncommitted work: ${released.keptDirs.join(", ")}`);
+  }
+
   async function discardWorktree(): Promise<void> {
+    if (workspaceMembers?.ok) return releaseWorkspaceMembers(workspaceMembers.members);
     stopWatching();
     if (gitWorkspace && lifecycleState.workspace) {
       try { await gitWorkspace.discard({ projectPath: currentProjectPath(), workspace: lifecycleState.workspace }); } catch {}

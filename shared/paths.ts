@@ -12,9 +12,12 @@ export function canonicalizePath(p: string): string {
   }
 }
 
+export function caseFoldedPathKey(value: string): string {
+  return process.platform === 'win32' ? value.toLowerCase() : value;
+}
+
 export function equalsIgnoringCaseOnWindows(a: string, b: string): boolean {
-  if (a === b) return true;
-  return process.platform === 'win32' && a.toLowerCase() === b.toLowerCase();
+  return caseFoldedPathKey(a) === caseFoldedPathKey(b);
 }
 
 export function isSameDirectoryPath(a: unknown, b: unknown): boolean {
@@ -41,4 +44,8 @@ export async function comparableDirectoryPath(candidatePath: unknown): Promise<s
 
 export function safePathSegment(value: unknown): string {
   return String(value).replace(/[<>:"/\\|?*\x00-\x1f]/g, '-').replace(/[. ]+$/, '') || '_';
+}
+
+export function sanitizeWorktreeName(value: unknown): string {
+  return String(value || '').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '');
 }

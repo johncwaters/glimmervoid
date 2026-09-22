@@ -157,6 +157,7 @@ interface SessionOptions {
   liveWorktreeReview?: boolean;
   worktreeRoot?: string | null;
   worktreeShare?: string[] | null;
+  workspaceRepos?: string[];
   agentDepth?: number;
   agentApi?: boolean;
 }
@@ -322,6 +323,7 @@ class Session extends EventEmitter {
 
     worktreeRoot = null,
     worktreeShare = null,
+    workspaceRepos = undefined,
 
     agentDepth = 0,
     agentApi = false,
@@ -478,6 +480,8 @@ class Session extends EventEmitter {
       liveWorktreeReview,
       worktreeRoot,
       worktreeShare,
+      workspaceRepos,
+      sessionName: name,
       port: {
         projectPath: () => this.path,
         state: () => ({

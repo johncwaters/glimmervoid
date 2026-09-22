@@ -1,10 +1,15 @@
 <h2 class="dialog-title" id="add-session-title">Add Session</h2>
-<label class="dialog-label">
+<div class="dialog-mode-controls" role="group" aria-label="Session kind">
+  <button type="button" class="dialog-mode-button" id="add-session-single-mode" aria-pressed="true">Single repo</button>
+  <button type="button" class="dialog-mode-button" id="add-session-workspace-mode" aria-pressed="false">Workspace</button>
+</div>
+<label class="dialog-label" id="add-session-picker-label">
   Pick a project:
   <select class="dialog-input project-picker" id="add-session-picker">
     <option value="" disabled selected>Scanning...</option>
   </select>
 </label>
+<div class="dialog-workspace-list" id="add-session-workspace-list" role="group" aria-label="Workspace repositories" hidden></div>
 <label class="dialog-label" id="add-session-agent-label" hidden>
   Agent
   <select class="dialog-input" id="add-session-agent"></select>
@@ -15,7 +20,7 @@
     Name
     <input type="text" class="dialog-input" id="add-session-name" placeholder="my-project" autocomplete="off" spellcheck="false">
   </label>
-  <label class="dialog-label">
+  <label class="dialog-label" id="add-session-path-label">
     Path
     <input type="text" class="dialog-input" id="add-session-path" placeholder="C:\Users\...\my-project" autocomplete="off" spellcheck="false">
   </label>

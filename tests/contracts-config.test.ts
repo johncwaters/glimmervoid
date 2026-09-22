@@ -19,6 +19,12 @@ test('DEFAULT_CONFIG satisfies the persisted Config contract', () => {
   assert.equal(DEFAULT_CONFIG.planReview.enabled, true);
 });
 
+test('workspace projects require at least two repository paths', () => {
+  const project = { id: 'workspace', name: 'Workspace', path: '/worktrees/ws-workspace', repos: ['/repos/one', '/repos/two'] };
+  assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, projects: [project] }).success, true);
+  assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, projects: [{ ...project, repos: ['/repos/one'] }] }).success, false);
+});
+
 test('trace.enabled is a boolean file-only setting with a default-on projection', () => {
   assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, trace: { enabled: false } }).success, true);
   assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, trace: { enabled: 'false' } }).success, false);

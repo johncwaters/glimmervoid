@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { LocalWorktreeTip, RemoteBranchTip } from '../server/core/branch-gc-core.ts';
 
-import { DAY_MS, planBranchGc, planWorktreeGc, worktreeIntegrationTips } from '../server/core/branch-gc-core.ts';
+import { DAY_MS, DEFAULT_BRANCH_GC_PREFIXES, planBranchGc, planWorktreeGc, worktreeIntegrationTips } from '../server/core/branch-gc-core.ts';
 
 const NOW_MS = Date.parse('2026-08-25T12:00:00Z');
 
@@ -19,6 +19,17 @@ function branch(name: string, overrides: Partial<RemoteBranchTip> = {}) {
 function worktree(branch: string, overrides: Partial<LocalWorktreeTip> = {}): LocalWorktreeTip {
   return { cwd: `/worktrees/${branch}`, branch, locked: false, dirty: false, tipSha: `${branch}-sha`, integrationBranch: 'main', merged: true, ...overrides };
 }
+
+test('workspace branches stay outside default worktree collection prefixes', () => {
+  const planned = planWorktreeGc({
+    worktrees: [worktree('glimmervoid/workspace/session-id')],
+    liveWorktreePaths: new Set(),
+    integrationTips: [],
+    prefixes: DEFAULT_BRANCH_GC_PREFIXES,
+  });
+  assert.deepEqual(planned.removals, []);
+  assert.equal(planned.kept[0]?.reason, 'foreign-prefix');
+});
 
 test('plans local worktree removal only after every keep guard declines', () => {
   const plan = planWorktreeGc({
