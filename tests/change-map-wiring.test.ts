@@ -321,3 +321,71 @@ test('single changed scope lists tracked paths once and leaves links empty', { s
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('tsconfig paths and NodeNext imports carry blast radius through a wizard-shaped repo', { skip: !hasGit() }, async () => {
+  const { root, base } = createPackageRepo('wizard', {}, {
+    'tsconfig.json': '{\n// configuration\n"extends":"./tsconfig.build.json"\n}',
+    'tsconfig.build.json': JSON.stringify({ compilerOptions: { paths: { '@shared/*': ['./src/shared/*'], '@programs': ['./src/programs/index.ts'] } } }),
+    'src/shared/util.ts': 'export const util = 1;\n',
+    'src/programs/index.ts': "import { util } from '@shared/util';\nexport const program = util;\n",
+    'src/cli/run.ts': "import { program } from '../programs/index.js';\nexport const run = program;\n",
+    'tests/run.test.ts': "import { run } from '../src/cli/run.js';\nvoid run;\n",
+  });
+  try {
+    writeRepoFile(root, 'src/shared/util.ts', 'export const util = 2;\n');
+    const session = fixtureSession('wizard', 'Wizard', () => [scopeOf(root, base)]);
+    const map = await createChangeMapService({ sessions: new Map([[session.id, session]]) }).build(session);
+    const [repo] = map.repos;
+    const blast = repo.blastRadius.find((fact) => fact.path === 'src/shared/util.ts');
+    assert.deepEqual(blast?.directDependents, ['src/programs/index.ts']);
+    assert.equal(blast?.transitiveDependentCount, 3);
+    assert.deepEqual(blast?.dependentTests, ['tests/run.test.ts']);
+    assert.equal(repo.untestedFiles.some((fact) => fact.path === 'src/shared/util.ts'), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Python package imports carry blast radius through a posthog-shaped repo', { skip: !hasGit() }, async () => {
+  const { root, base } = createPackageRepo('posthog', {}, {
+    'posthog/__init__.py': '',
+    'posthog/models/__init__.py': 'from .user import User\n',
+    'posthog/models/user.py': 'class User: pass\n',
+    'posthog/api/__init__.py': '',
+    'posthog/api/user.py': 'from posthog.models.user import User\nthing = User\n',
+    'posthog/api/test/test_user.py': 'from posthog.api.user import thing\n',
+  });
+  try {
+    writeRepoFile(root, 'posthog/models/user.py', 'class User: value = 1\n');
+    const session = fixtureSession('posthog', 'Posthog', () => [scopeOf(root, base)]);
+    const map = await createChangeMapService({ sessions: new Map([[session.id, session]]) }).build(session);
+    const [repo] = map.repos;
+    const blast = repo.blastRadius.find((fact) => fact.path === 'posthog/models/user.py');
+    assert.deepEqual(blast?.directDependents, ['posthog/api/user.py', 'posthog/models/__init__.py']);
+    assert.deepEqual(blast?.dependentTests, ['posthog/api/test/test_user.py']);
+    assert.equal(repo.untestedFiles.some((fact) => fact.path === 'posthog/models/user.py'), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('an extends config edit refreshes memoized imports when name status stays unchanged', { skip: !hasGit() }, async () => {
+  const { root } = createPackageRepo('config-refresh', {}, {
+    'tsconfig.json': '{"extends":"./tsconfig.build.json"}',
+    'tsconfig.build.json': '{"compilerOptions":{"paths":{"@shared/*":["./missing/*"]}}}',
+    'src/shared/util.ts': 'export const util = 1;\n',
+    'src/main.ts': "import { util } from '@shared/util';\nvoid util;\n",
+  });
+  try {
+    writeRepoFile(root, 'src/shared/util.ts', 'export const util = 2;\n');
+    const session = fixtureSession('config-refresh', 'Config', () => [modifiedScope(root, 'src/shared/util.ts')]);
+    const service = createChangeMapService({ sessions: new Map([[session.id, session]]) });
+    const before = await service.build(session);
+    assert.equal(before.repos[0].blastRadius.some((fact) => fact.path === 'src/shared/util.ts'), false);
+    writeRepoFile(root, 'tsconfig.build.json', '{"compilerOptions":{"paths":{"@shared/*":["./src/shared/*"]}}}');
+    const after = await service.build(session);
+    assert.deepEqual(after.repos[0].blastRadius.find((fact) => fact.path === 'src/shared/util.ts')?.directDependents, ['src/main.ts']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

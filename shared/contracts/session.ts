@@ -19,6 +19,7 @@ export const SessionSnapshot = z.object({
   dangerouslySkipPermissions: z.boolean(),
   ephemeral: z.boolean(),
   isWorktree: z.boolean(),
+  isWorkspace: z.boolean().default(false),
   resumeSessionId: z.string().nullable(),
   activeAgents: z.number().int().nonnegative(),
   packs: z.array(z.object({ name: z.string(), version: z.string() })),

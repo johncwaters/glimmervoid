@@ -43,6 +43,7 @@ export const SessionCardFields = z.object({
   stateSince: timestamp,
   skipPerms: z.boolean(),
   worktree: z.boolean(),
+  workspace: z.boolean().optional(),
   resumeSessionId: nullableString,
   ephemeral: z.boolean().optional(),
 });

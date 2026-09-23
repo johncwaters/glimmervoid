@@ -11,7 +11,11 @@ const STATUS_BY_LETTER: Record<string, ChangedFileStatus> = {
   '?': 'untracked',
 };
 
-export const SOURCE_EXTENSIONS = Object.freeze(['.ts', '.tsx', '.js', '.mjs', '.cjs', '.jsx', '.mts', '.cts']);
+export const SOURCE_EXTENSIONS = Object.freeze(['.ts', '.tsx', '.js', '.mjs', '.cjs', '.jsx', '.mts', '.cts', '.py']);
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
 
 export function isSourcePath(repoPath: string): boolean {
   return SOURCE_EXTENSIONS.some((extension) => repoPath.endsWith(extension));
@@ -88,4 +92,3 @@ export function readImportsMap(packageJsonText: string | null): Record<string, s
     return {};
   }
 }
-

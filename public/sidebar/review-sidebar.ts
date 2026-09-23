@@ -190,7 +190,8 @@ export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
     expanded.clear();
     pendingOpenFilePath = null;
     clearDraftAnnotations();
-    if (id) { requestDiff(id); requestBranchSync(id); }
+    if (id) requestDiff(id);
+    if (id && !isWorkspaceSession(id)) requestBranchSync(id);
     render();
   });
 
@@ -328,7 +329,7 @@ export function forgetReviewSession(id: unknown) {
 
 export function mergeSelectedSession() {
   const id = getSelectedId();
-  if (!id) return false;
+  if (!id || isWorkspaceSession(id)) return false;
   const ui = sessionUIs.get(id);
   if (!ui) return false;
   const curStatus = statusById.get(id) || 'none';
@@ -346,7 +347,7 @@ export function mergeSelectedSession() {
 
 export function resolveSelectedSession() {
   const id = getSelectedId();
-  if (!id) return false;
+  if (!id || isWorkspaceSession(id)) return false;
   const ui = sessionUIs.get(id);
   if (!ui) return false;
   if ((statusById.get(id) || 'none') !== 'parked') return false;
@@ -358,7 +359,7 @@ export function resolveSelectedSession() {
 
 export function resyncSelectedSession() {
   const id = getSelectedId();
-  if (!id || !sessionUIs.has(id)) return false;
+  if (!id || !sessionUIs.has(id) || isWorkspaceSession(id)) return false;
   if (resyncingIds.has(id)) return false;
   if (resyncDisabledReason(syncById.get(id), false)) return false;
   requestResyncBranch(id);
@@ -394,6 +395,10 @@ function requestDiff(id: string) {
 function requestChangeMap(id: string) {
   if (!mapById.has(id)) mapById.set(id, null);
   sendControlMsg({ type: 'request-change-map', id });
+}
+
+function isWorkspaceSession(id: string): boolean {
+  return sessionUIs.get(id)?.card.dataset.workspace !== undefined;
 }
 
 function requestBranchSync(id: string) {
@@ -710,7 +715,8 @@ function render() {
     return;
   }
 
-  if (branchSyncEl) {
+  const isWorkspace = isWorkspaceSession(id);
+  if (branchSyncEl && !isWorkspace) {
     const row = renderBranchSync(id);
     if (row) branchSyncEl.append(row);
   }
@@ -748,23 +754,23 @@ function render() {
   }
 
   const effectiveBase = baseLabel(ui.effectiveBase);
-  const actions = renderActions(id, {
+  const actions = isWorkspace ? null : renderActions(id, {
     status, reviewable, mergeAction, live, state, sync, resyncing, effectiveBase, mergeReason,
   });
-  controlsEl.append(actions);
+  if (actions) controlsEl.append(actions);
 
-  const resyncStatus = resyncStatusLine(id, sync, resyncing);
+  const resyncStatus = isWorkspace ? null : resyncStatusLine(id, sync, resyncing);
   if (resyncStatus) {
     const r = el('div', resyncStatus.loading ? 'review-control-reason review-loading' : 'review-control-reason', resyncStatus.text);
     if (resyncStatus.error) r.classList.add('review-control-reason-error');
     r.id = 'review-resync-reason';
     controlsEl.append(r);
-    const resyncBtn = actions.querySelector('#review-resync-btn');
+    const resyncBtn = actions?.querySelector('#review-resync-btn');
     if (resyncBtn) resyncBtn.setAttribute('aria-describedby', 'review-resync-reason');
   }
 
   let reasonShown = false;
-  if (mergeAction.isRendered && !mergeAction.isEnabled) {
+  if (!isWorkspace && mergeAction.isRendered && !mergeAction.isEnabled) {
     const reason = mergeDisabledReason({ status, mergeReason, fetched, hasCommits, live, state });
     if (reason) {
 
@@ -772,7 +778,7 @@ function render() {
       r.id = 'review-merge-reason';
       controlsEl.append(r);
       reasonShown = true;
-      const mergeBtn = actions.querySelector('#review-merge-btn');
+      const mergeBtn = actions?.querySelector('#review-merge-btn');
       if (mergeBtn) mergeBtn.setAttribute('aria-describedby', 'review-merge-reason');
     }
   }

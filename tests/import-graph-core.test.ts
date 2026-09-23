@@ -11,6 +11,7 @@ import {
   buildImportGraph,
   computeBlastRadius,
   extractImportSpecifiers,
+  extractPythonImportSpecifiers,
   isTestPath,
   resolveSpecifier,
 } from '../server/core/import-graph-core.ts';
@@ -33,6 +34,54 @@ test('extraction keeps static, type, call and re-export specifiers in source ord
   assert.equal(CALL_IMPORT.global, true);
   assert.equal(STATIC_IMPORT.global, true);
   assert.deepEqual(extractImportSpecifiers(sourceText), extractImportSpecifiers(sourceText));
+});
+
+test('NodeNext specifiers resolve to TypeScript source files', () => {
+  const knownPaths = new Set(['src/main.ts', 'src/a.ts', 'src/b.tsx', 'src/c.mts', 'src/d.cts', 'src/live.js']);
+  const resolve = (specifier: string) => resolveSpecifier({ fromPath: 'src/main.ts', specifier, knownPaths, importsMap: {} });
+  assert.equal(resolve('./a.js'), 'src/a.ts');
+  assert.equal(resolve('./b.jsx'), 'src/b.tsx');
+  assert.equal(resolve('./c.mjs'), 'src/c.mts');
+  assert.equal(resolve('./d.cjs'), 'src/d.cts');
+  assert.equal(resolve('./live.js'), 'src/live.js');
+});
+
+test('Python extraction covers absolute, relative, aliased and multiline imports', () => {
+  const source = [
+    'import posthog.models.user as model, ee.tasks',
+    'from .user import User as LocalUser, helper',
+    'from ..pkg import (',
+    '  first as renamed,',
+    '  second,',
+    ')',
+    'from . import sibling',
+    '# import hidden',
+    'text = "from bogus import wrong"',
+  ].join('\n');
+  assert.deepEqual(extractPythonImportSpecifiers(source), [
+    'posthog.models.user', 'ee.tasks', '.user', '.user.User', '.user.helper',
+    '..pkg', '..pkg.first', '..pkg.second', '.', '.sibling',
+  ]);
+});
+
+test('Python resolution finds files and package initializers from root or relative package', () => {
+  const knownPaths = new Set([
+    'posthog/models/__init__.py', 'posthog/models/user.py', 'posthog/api/user.py',
+    'posthog/api/test/test_user.py', 'posthog/api/test/__init__.py',
+  ]);
+  const resolve = (fromPath: string, specifier: string) => resolveSpecifier({ fromPath, specifier, knownPaths, importsMap: {} });
+  assert.equal(resolve('posthog/api/user.py', 'posthog.models.user'), 'posthog/models/user.py');
+  assert.equal(resolve('posthog/api/test/test_user.py', '..user'), 'posthog/api/user.py');
+  assert.equal(resolve('posthog/api/test/test_user.py', '.'), 'posthog/api/test/__init__.py');
+  assert.equal(resolve('posthog/api/user.py', 'posthog.models.missing'), null);
+  assert.equal(resolve('posthog/api/user.py', '....models.user'), null);
+});
+
+test('Python extraction stays linear on long non-import lines', () => {
+  const source = `${'x'.repeat(20000)}\n${'fromx '.repeat(5000)}\nimport target.module`;
+  const startedAt = performance.now();
+  assert.deepEqual(extractPythonImportSpecifiers(source), ['target.module']);
+  assert.ok(performance.now() - startedAt < 250);
 });
 
 test('extraction stays linear on whitespace runs and quote-free export lines', () => {
@@ -133,6 +182,9 @@ test('depth bound limits transitive reach and test detection covers directory an
   assert.equal(isTestPath('src/source.test.ts'), true);
   assert.equal(isTestPath('src/source.spec.js'), true);
   assert.equal(isTestPath('src/source.ts'), false);
+  assert.equal(isTestPath('posthog/api/test_user.py'), true);
+  assert.equal(isTestPath('posthog/api/user_test.py'), true);
+  assert.equal(isTestPath('posthog/api/conftest.py'), true);
 });
 
 test('blast radius caps sorted lists while preserving full counts', () => {

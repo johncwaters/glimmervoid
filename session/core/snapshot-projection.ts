@@ -6,6 +6,7 @@ interface SessionCardSource {
   stateSince: number;
   dangerouslySkipPermissions?: boolean;
   isWorktree?: boolean;
+  isWorkspace?: boolean;
   resumeSessionId?: string | null;
   ephemeral?: boolean;
 }
@@ -28,6 +29,7 @@ function projectSessionCard(
     skipPerms: !!source.dangerouslySkipPermissions,
     worktree: !!source.isWorktree,
     resumeSessionId: source.resumeSessionId || null,
+    ...(source.isWorkspace ? { workspace: true } : {}),
   };
   if (source.ephemeral === undefined) return card;
   return { ...card, ephemeral: source.ephemeral };
@@ -44,6 +46,7 @@ interface SnapshotSource {
   dangerouslySkipPermissions: boolean;
   ephemeral: boolean;
   isWorktree: boolean;
+  isWorkspace: boolean;
   resumeSessionId: string | null;
   activeAgents: number;
   packs: { name: string; version: string }[];
@@ -71,6 +74,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     dangerouslySkipPermissions: source.dangerouslySkipPermissions,
     ephemeral: source.ephemeral,
     isWorktree: source.isWorktree,
+    isWorkspace: source.isWorkspace,
     resumeSessionId: source.resumeSessionId,
     activeAgents: source.activeAgents,
     packs: source.packs.map(({ name, version }) => ({ name, version })),

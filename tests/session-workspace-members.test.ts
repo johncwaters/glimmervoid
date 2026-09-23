@@ -113,6 +113,7 @@ test('workspace session merge refuses because the folder is not a single-repo wo
     gitWorkspace: createGitWorkspace(),
   });
   assert.equal(session.isWorktree, false);
+  assert.equal(session.isWorkspace, true);
   assert.deepEqual(await session.mergeWorktree(), { merged: false, refused: true, reason: 'no-worktree' });
   session.destroy();
 });

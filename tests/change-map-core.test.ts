@@ -57,6 +57,7 @@ test('a committed file edited again stays one entry marked uncommitted with its 
 
 test('source and AGENTS.md path predicates', () => {
   assert.equal(isSourcePath('server/a.ts'), true);
+  assert.equal(isSourcePath('posthog/models/user.py'), true);
   assert.equal(isSourcePath('public/style.css'), false);
   assert.equal(isAgentsDocPath('AGENTS.md'), true);
   assert.equal(isAgentsDocPath('session/AGENTS.md'), true);

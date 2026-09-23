@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { matchPathPatterns } from './tsconfig-paths-core.ts';
 import {
   CHANGE_MAP_LIST_CAP,
   changeMapFactId,
@@ -27,22 +28,107 @@ export function extractImportSpecifiers(sourceText: string): string[] {
   return [...new Set(matches.map((match) => match.specifier))];
 }
 
-function resolveImportAlias(specifier: string, importsMap: Record<string, string>): string | null {
-  const exactTarget = importsMap[specifier];
-  if (exactTarget) return exactTarget;
-
-  for (const [alias, target] of Object.entries(importsMap)) {
-    const wildcardIndex = alias.indexOf('*');
-    if (wildcardIndex < 0 || alias.indexOf('*', wildcardIndex + 1) >= 0) continue;
-    const prefix = alias.slice(0, wildcardIndex);
-    const suffix = alias.slice(wildcardIndex + 1);
-    if (!specifier.startsWith(prefix) || !specifier.endsWith(suffix)) continue;
-    if (specifier.length < prefix.length + suffix.length) continue;
-    const wildcardValue = specifier.slice(prefix.length, specifier.length - suffix.length);
-    return target.replace('*', wildcardValue);
+export function extractPythonImportSpecifiers(sourceText: string): string[] {
+  const specifiers: string[] = [];
+  let pendingFrom = '';
+  let pendingNames = '';
+  let stringQuote = '';
+  let isTripleString = false;
+  for (const originalLine of sourceText.split('\n')) {
+    let line = '';
+    for (let index = 0; index < originalLine.length; index++) {
+      const character = originalLine[index];
+      if (stringQuote) {
+        if (character === '\\') { index++; continue; }
+        if (isTripleString && originalLine.slice(index, index + 3) === stringQuote.repeat(3)) {
+          index += 2;
+          stringQuote = '';
+          isTripleString = false;
+          continue;
+        }
+        if (!isTripleString && character === stringQuote) stringQuote = '';
+        continue;
+      }
+      if (character === '#') break;
+      if (character === '"' || character === "'") {
+        stringQuote = character;
+        isTripleString = originalLine.slice(index, index + 3) === character.repeat(3);
+        if (isTripleString) index += 2;
+        continue;
+      }
+      line += character;
+    }
+    const trimmed = line.trim();
+    if (pendingFrom) {
+      pendingNames += trimmed;
+      if (!trimmed.includes(')')) continue;
+      specifiers.push(...fromImportSpecifiers(pendingFrom, pendingNames));
+      pendingFrom = '';
+      pendingNames = '';
+      continue;
+    }
+    if (trimmed.startsWith('import ')) {
+      for (const name of trimmed.slice(7).split(',')) {
+        const importedName = name.trim().split(/\s+/)[0];
+        if (importedName) specifiers.push(importedName);
+      }
+      continue;
+    }
+    if (!trimmed.startsWith('from ')) continue;
+    const importIndex = trimmed.indexOf(' import ');
+    if (importIndex < 0) continue;
+    const moduleName = trimmed.slice(5, importIndex).trim();
+    if (!moduleName) continue;
+    const names = trimmed.slice(importIndex + 8);
+    if (names.includes('(') && !names.includes(')')) {
+      pendingFrom = moduleName;
+      pendingNames = names;
+      continue;
+    }
+    specifiers.push(...fromImportSpecifiers(moduleName, names));
   }
+  return [...new Set(specifiers)];
+}
 
-  return null;
+function fromImportSpecifiers(moduleName: string, importedNames: string): string[] {
+  const separator = moduleName.endsWith('.') ? '' : '.';
+  const submodules = importedNames.replace(/[()]/g, '').split(',')
+    .map((name) => name.trim().split(/\s+/)[0])
+    .filter((importedName) => importedName && importedName !== '*')
+    .map((importedName) => `${moduleName}${separator}${importedName}`);
+  return [moduleName, ...submodules];
+}
+
+function resolvePythonSpecifier(fromPath: string, specifier: string, knownPaths: Set<string>): string | null {
+  let moduleName = specifier;
+  let directory = '';
+  if (specifier.startsWith('.')) {
+    directory = path.posix.dirname(fromPath);
+    let dotCount = 0;
+    while (specifier[dotCount] === '.') dotCount++;
+    for (let index = 1; index < dotCount; index++) {
+      if (directory === '.') return null;
+      directory = path.posix.dirname(directory);
+    }
+    moduleName = specifier.slice(dotCount);
+  }
+  const modulePath = path.posix.normalize(path.posix.join(directory, moduleName.replaceAll('.', '/')));
+  if (modulePath === '..' || modulePath.startsWith('../') || path.posix.isAbsolute(modulePath)) return null;
+  const candidates = moduleName ? [`${modulePath}.py`, `${modulePath}/__init__.py`] : [path.posix.join(directory, '__init__.py')];
+  return candidates.find((candidate) => knownPaths.has(candidate)) ?? null;
+}
+
+function sourceCandidates(candidatePath: string): string[] {
+  const mappedExtension: Record<string, string> = { '.js': '.ts', '.jsx': '.tsx', '.mjs': '.mts', '.cjs': '.cts' };
+  const extension = path.posix.extname(candidatePath);
+  const mapped = mappedExtension[extension];
+  return [
+    candidatePath,
+    ...(mapped ? [`${candidatePath.slice(0, -extension.length)}${mapped}`] : []),
+    `${candidatePath}.ts`, `${candidatePath}.js`, `${candidatePath}.mjs`, `${candidatePath}.cjs`,
+    `${candidatePath}.tsx`, `${candidatePath}.jsx`, `${candidatePath}.mts`, `${candidatePath}.cts`,
+    `${candidatePath}/index.ts`, `${candidatePath}/index.js`, `${candidatePath}/index.tsx`,
+  ];
 }
 
 export function resolveSpecifier({
@@ -50,40 +136,37 @@ export function resolveSpecifier({
   specifier,
   knownPaths,
   importsMap,
+  tsconfigTargets = () => [],
 }: {
   fromPath: string;
   specifier: string;
   knownPaths: Set<string>;
   importsMap: Record<string, string>;
+  tsconfigTargets?: (fromPath: string, specifier: string) => string[];
 }): string | null {
+  if (fromPath.endsWith('.py')) return resolvePythonSpecifier(fromPath, specifier, knownPaths);
   const isRelative = specifier.startsWith('./') || specifier.startsWith('../');
-  const aliasTarget = specifier.startsWith('#') ? resolveImportAlias(specifier, importsMap) : null;
-  if (!isRelative && !aliasTarget) return null;
-  const candidatePath = isRelative
-    ? path.posix.join(path.posix.dirname(fromPath), specifier)
-    : path.posix.normalize((aliasTarget ?? '').replace(/^\.\//, ''));
-  if (candidatePath.startsWith('../') || candidatePath === '..') {
-    return null;
+  const aliasTargets = specifier.startsWith('#')
+    ? matchPathPatterns(specifier, Object.fromEntries(Object.entries(importsMap).map(([alias, target]) => [alias, [target]])))
+    : [];
+  const targets = isRelative ? [path.posix.join(path.posix.dirname(fromPath), specifier)] : specifier.startsWith('#') ? aliasTargets : tsconfigTargets(fromPath, specifier);
+  for (const target of targets) {
+    const candidatePath = path.posix.normalize(target.replace(/^\.\//, ''));
+    if (candidatePath.startsWith('../') || candidatePath === '..' || path.posix.isAbsolute(candidatePath)) continue;
+    const found = sourceCandidates(candidatePath).find((candidate) => knownPaths.has(candidate));
+    if (found) return found;
   }
-
-  const candidates = [
-    candidatePath,
-    `${candidatePath}.ts`,
-    `${candidatePath}.js`,
-    `${candidatePath}.mjs`,
-    `${candidatePath}.tsx`,
-    `${candidatePath}/index.ts`,
-    `${candidatePath}/index.js`,
-  ];
-  return candidates.find((candidate) => knownPaths.has(candidate)) ?? null;
+  return null;
 }
 
 export function buildImportGraph({
   specifiersByPath,
   importsMap,
+  tsconfigTargets,
 }: {
   specifiersByPath: Map<string, string[]>;
   importsMap: Record<string, string>;
+  tsconfigTargets?: (fromPath: string, specifier: string) => string[];
 }): ImportGraph {
   const knownPaths = new Set(specifiersByPath.keys());
   const dependentsByPath = new Map(
@@ -92,7 +175,7 @@ export function buildImportGraph({
 
   for (const [fromPath, specifiers] of specifiersByPath) {
     for (const specifier of specifiers) {
-      const importedPath = resolveSpecifier({ fromPath, specifier, knownPaths, importsMap });
+      const importedPath = resolveSpecifier({ fromPath, specifier, knownPaths, importsMap, tsconfigTargets });
       if (!importedPath) continue;
       dependentsByPath.get(importedPath)?.add(fromPath);
     }
@@ -105,6 +188,7 @@ export function isTestPath(repoPath: string): boolean {
   const segments = repoPath.split('/');
   if (segments.slice(0, -1).some((segment) => segment === 'tests' || segment === 'test' || segment === '__tests__')) return true;
   const fileName = segments.at(-1) ?? '';
+  if (fileName.endsWith('.py') && (fileName.startsWith('test_') || fileName.endsWith('_test.py') || fileName === 'conftest.py')) return true;
   return fileName.includes('.test.') || fileName.includes('.spec.');
 }
 
@@ -151,7 +235,7 @@ export function computeBlastRadius({
     const transitiveDependents = collectTransitiveDependents(graph, changedPath, maxDepth);
     const dependentTests = [...transitiveDependents].filter(isTestPath).sort();
 
-    if (/\.(?:ts|js|mjs|tsx)$/.test(changedPath) && dependentTests.length === 0) {
+    if (/\.(?:ts|js|mjs|tsx|jsx|cts|cjs|mts|py)$/.test(changedPath) && dependentTests.length === 0) {
       untestedFiles.push({ factId: changeMapFactId('untested', repoName, changedPath), path: changedPath });
     }
 

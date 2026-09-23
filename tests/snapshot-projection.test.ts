@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { projectSessionSnapshots } from "../session/core/snapshot-projection.ts";
+import { projectSessionCard, projectSessionSnapshots } from "../session/core/snapshot-projection.ts";
 
 function snapshotSource() {
   return {
@@ -14,6 +14,7 @@ function snapshotSource() {
     dangerouslySkipPermissions: false,
     ephemeral: false,
     isWorktree: true,
+    isWorkspace: false,
     resumeSessionId: "resume-1",
     activeAgents: 0,
     packs: [{ name: "rules", version: "v1", dir: "/private/rules" }],
@@ -58,4 +59,15 @@ test("L7 effective base projection preserves producer-normalized branch names", 
   const remoteQualifiedSnapshot = snapshotSource();
   remoteQualifiedSnapshot.effectiveBase = "origin/main";
   assert.equal(projectSessionSnapshots(remoteQualifiedSnapshot).wire.effectiveBase, "origin/main");
+});
+
+test("workspace sessions are marked on the wire snapshot and the session card", () => {
+  const workspaceSnapshot = snapshotSource();
+  workspaceSnapshot.isWorkspace = true;
+  assert.equal(projectSessionSnapshots(workspaceSnapshot).wire.isWorkspace, true);
+  assert.equal(projectSessionSnapshots(snapshotSource()).wire.isWorkspace, false);
+  const identity = { id: "s1", name: "Session One" };
+  const cardSource = { path: "/ws", state: "COMPLETE" as const, stateSince: 1 };
+  assert.equal(projectSessionCard({ ...cardSource, isWorkspace: true }, identity).workspace, true);
+  assert.equal("workspace" in projectSessionCard(cardSource, identity), false);
 });

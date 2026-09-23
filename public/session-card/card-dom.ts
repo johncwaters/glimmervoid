@@ -55,6 +55,7 @@ function buildTagBadge({ cls, text = '', title, ariaLabel, ariaHidden }: TagBadg
 export interface CardOptions {
   skipPerms?: boolean;
   worktree?: boolean;
+  workspace?: boolean;
   resume?: boolean;
   path?: unknown;
   stateSince?: unknown;
@@ -68,6 +69,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   card.dataset.state = state;
   if (options.skipPerms) card.dataset.skipPerms = '';
   if (options.worktree) card.dataset.worktree = '';
+  if (options.workspace) card.dataset.workspace = '';
   if (options.resume) card.dataset.resume = '';
   if (options.path) card.dataset.path = String(options.path);
 

@@ -875,6 +875,7 @@ class Session extends EventEmitter {
   get worktreeNotice(): string | null { return this.worktreeLifecycle.snapshot().worktreeNotice; }
 
   get isWorktree(): boolean { return this.worktreeLifecycle.snapshot().isWorktree; }
+  get isWorkspace(): boolean { return this.worktreeLifecycle.snapshot().isWorkspace; }
 
   getWorktreeCarry() { return this.worktreeLifecycle.getCarry(); }
 
@@ -982,6 +983,7 @@ class Session extends EventEmitter {
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       ephemeral: this.ephemeral,
       isWorktree: this.isWorktree,
+      isWorkspace: this.isWorkspace,
       resumeSessionId: this._resumeSessionId,
       activeAgents: active,
       packs: this._packDelivery.delivered(),

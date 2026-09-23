@@ -100,7 +100,7 @@ const SESSION = {
   sleeping: false,
   dangerouslySkipPermissions: true,
   ephemeral: false,
-  isWorktree: true,
+  isWorktree: true, isWorkspace: false,
   resumeSessionId: null,
   activeAgents: 0,
   packs: [{ name: 'rules', version: 'abc123' }],

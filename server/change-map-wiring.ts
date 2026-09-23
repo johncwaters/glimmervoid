@@ -17,7 +17,9 @@ import {
 import { CO_CHANGE_LOG_ARGS, computeCoChange, parseCoChangeLog } from './core/co-change-core.ts';
 import type { CommitFiles } from './core/co-change-core.ts';
 import { computeCollisions, computeSubsystems, readAgentsTitle } from './core/change-ownership-core.ts';
-import { buildImportGraph, computeBlastRadius, extractImportSpecifiers } from './core/import-graph-core.ts';
+import { buildImportGraph, computeBlastRadius, extractImportSpecifiers, extractPythonImportSpecifiers } from './core/import-graph-core.ts';
+import { createTsconfigPathsResolver, parseTsconfigJsonc, resolveExtendsPath } from './core/tsconfig-paths-core.ts';
+import type { TsconfigPaths } from './core/tsconfig-paths-core.ts';
 import { computeCrossRepoLinks, indexImportersByPackage, readPackageManifest } from './core/workspace-links-core.ts';
 import type { PackageManifest, RepoPackageFacts } from './core/workspace-links-core.ts';
 
@@ -78,6 +80,7 @@ interface RepoInputs {
   repoPathsText: string;
   repoPaths: string[];
   specifiersByPath: Map<string, string[]>;
+  configsByPath: Map<string, TsconfigPaths>;
 }
 
 interface MemoizedImporterIndex {
@@ -187,6 +190,8 @@ export function createChangeMapService({
   nowFn = Date.now,
 }: ChangeMapServiceOptions) {
   const specifierCache = createFileFactCache(extractImportSpecifiers, []);
+  const pythonSpecifierCache = createFileFactCache(extractPythonImportSpecifiers, []);
+  const tsconfigCache = createFileFactCache((text) => ({ config: parseTsconfigJsonc(text) }), { config: null });
   const agentsTitleCache = createFileFactCache(readAgentsTitle, null);
   const packageManifestCache = createFileFactCache<PackageManifest>(readPackageManifest, null);
   const commonDirByRoot = new Map<string, string>();
@@ -249,17 +254,17 @@ export function createChangeMapService({
   async function repoFactsFor(scope: ChangeScope, files: ChangedFile[], commonDir: string, inputs: RepoInputs): Promise<RepoChangeMap> {
     const repoName = scope.name;
     const changedPaths = files.map((file) => file.path);
-    const { repoPathsText, repoPaths, specifiersByPath } = inputs;
+    const { repoPathsText, repoPaths, specifiersByPath, configsByPath } = inputs;
     const agentsTitleByPath = await agentsTitleCache.readMany(scope.root, repoPaths.filter(isAgentsDocPath));
     const packageJsonText = await fs.promises.readFile(path.join(scope.root, 'package.json'), 'utf8').catch(() => null);
     const historyTip = scope.base || (await runGit(['rev-parse', 'HEAD'], scope.root)).trim();
     const memoKey = hashText(JSON.stringify([
       scope.name, scope.base, scope.committedNameStatus, scope.uncommittedNameStatus, hashText(repoPathsText),
-      specifierCache.generation(), agentsTitleCache.generation(), packageJsonText, historyTip,
+      specifierCache.generation(), pythonSpecifierCache.generation(), tsconfigCache.generation(), agentsTitleCache.generation(), packageJsonText, historyTip,
     ]));
     const memoized = repoFactsByRoot.get(scope.root);
     if (memoized && memoized.memoKey === memoKey) return memoized.repoFacts;
-    const graph = buildImportGraph({ specifiersByPath, importsMap: readImportsMap(packageJsonText) });
+    const graph = buildImportGraph({ specifiersByPath, importsMap: readImportsMap(packageJsonText), tsconfigTargets: createTsconfigPathsResolver(configsByPath) });
     const { blastRadius, untestedFiles } = computeBlastRadius({ repoName, graph, changedPaths: presentPaths(files) });
     const agentsDocs = [...agentsTitleByPath].map(([agentsPath, title]) => ({ path: agentsPath, title }));
     const commits = await commitsFor(scope.root, commonDir, historyTip);
@@ -305,8 +310,31 @@ export function createChangeMapService({
       const inputs = (async () => {
         const repoPathsText = await runGit(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], root);
         const repoPaths = parseNulSeparatedPaths(repoPathsText);
-        const specifiersByPath = await specifierCache.readMany(root, repoPaths.filter(isSourcePath));
-        return { repoPathsText, repoPaths, specifiersByPath };
+        const sourcePaths = repoPaths.filter(isSourcePath);
+        const [javascriptSpecifiers, pythonSpecifiers] = await Promise.all([
+          specifierCache.readMany(root, sourcePaths.filter((repoPath) => !repoPath.endsWith('.py'))),
+          pythonSpecifierCache.readMany(root, sourcePaths.filter((repoPath) => repoPath.endsWith('.py'))),
+        ]);
+        const specifiersByPath = new Map([...javascriptSpecifiers, ...pythonSpecifiers]);
+        const listedPaths = new Set(repoPaths);
+        const configsByPath = new Map<string, TsconfigPaths>();
+        const visitedConfigs = new Set<string>();
+        let pendingConfigs = repoPaths.filter((repoPath) => path.posix.basename(repoPath) === 'tsconfig.json');
+        while (pendingConfigs.length > 0) {
+          const unreadConfigs = pendingConfigs.filter((repoPath) => !visitedConfigs.has(repoPath));
+          if (unreadConfigs.length === 0) break;
+          unreadConfigs.forEach((repoPath) => visitedConfigs.add(repoPath));
+          const configs = await tsconfigCache.readMany(root, unreadConfigs);
+          pendingConfigs = [];
+          for (const [configPath, { config }] of configs) {
+            if (!config) continue;
+            configsByPath.set(configPath, config);
+            if (!config.extendsPath) continue;
+            const parentPath = resolveExtendsPath(configPath, config.extendsPath);
+            if (listedPaths.has(parentPath) && !visitedConfigs.has(parentPath)) pendingConfigs.push(parentPath);
+          }
+        }
+        return { repoPathsText, repoPaths, specifiersByPath, configsByPath };
       })();
       inputsByRoot.set(root, inputs);
       return inputs;
@@ -317,7 +345,7 @@ export function createChangeMapService({
       const packageFacts = await Promise.allSettled(scopes.map(async (scope): Promise<RepoPackageFacts> => {
         const inputs = await repoInputsFor(scope.root);
         const manifestsByPath = await packageManifestCache.readMany(scope.root, inputs.repoPaths.filter((repoPath) => path.posix.basename(repoPath) === 'package.json'));
-        const memoKey = hashText(JSON.stringify([specifierCache.generation(), hashText(inputs.repoPathsText)]));
+        const memoKey = hashText(JSON.stringify([specifierCache.generation(), pythonSpecifierCache.generation(), hashText(inputs.repoPathsText)]));
         const memoized = importerIndexByRoot.get(scope.root);
         const importersByPackage = memoized && memoized.memoKey === memoKey
           ? memoized.importersByPackage

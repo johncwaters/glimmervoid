@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { CHANGE_MAP_LIST_CAP, changeMapFactId } from '../../shared/contracts/change-map.ts';
 import type { CrossRepoLink } from '../../shared/contracts/change-map.ts';
+import { isRecord } from './change-map-core.ts';
 
 export interface PackageManifest {
   name: string | null;
@@ -12,10 +13,6 @@ export interface RepoPackageFacts {
   manifests: { path: string; manifest: PackageManifest }[];
   importersByPackage: Map<string, string[]>;
   changedPaths: string[];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 export function readPackageManifest(text: string | null): PackageManifest | null {
@@ -59,6 +56,7 @@ export function isLocalLinkSpec(spec: string): boolean {
 export function indexImportersByPackage(specifiersByPath: Map<string, string[]>): Map<string, string[]> {
   const importerPathsByPackage = new Map<string, Set<string>>();
   for (const [importerPath, specifiers] of specifiersByPath) {
+    if (importerPath.endsWith('.py')) continue;
     for (const specifier of specifiers) {
       const packageName = bareSpecifierPackage(specifier);
       if (!packageName) continue;

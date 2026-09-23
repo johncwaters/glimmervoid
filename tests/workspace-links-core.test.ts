@@ -38,10 +38,12 @@ test('importer index deduplicates paths across subpath imports and sorts them', 
   const index = indexImportersByPackage(new Map([
     ['z.ts', ['shared/sub', 'shared', './local']],
     ['a.ts', ['shared', '@scope/name/sub', 'node:fs']],
+    ['posthog/models/user.py', ['shared', 'posthog.models']],
   ]));
   assert.deepEqual(index.get('shared'), ['a.ts', 'z.ts']);
   assert.deepEqual(index.get('@scope/name'), ['a.ts']);
   assert.equal(index.has('node:fs'), false);
+  assert.equal(index.has('posthog.models'), false);
 });
 
 function repoFacts(repoName: string, manifests: RepoPackageFacts['manifests'], changedPaths: string[] = [], importersByPackage = new Map<string, string[]>()): RepoPackageFacts {

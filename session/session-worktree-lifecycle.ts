@@ -322,6 +322,7 @@ function createSessionWorktreeLifecycle({
       worktreeNotice: lifecycleState.worktreeNotice,
       effectiveBase: effectiveIntegrationBranch(),
       isWorktree: lifecycleState.isWorktree,
+      isWorkspace: workspaceMembers !== null,
       isAutoRebasing: lifecycleState.autoRebasing,
       hasConflictCooldown: Boolean(lifecycleState.rebaseConflictKey),
       hasPendingCheck: lifecycleState.checkTimer !== null,

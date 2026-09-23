@@ -81,6 +81,7 @@ interface SnapshotSession {
   agent?: string;
   dangerouslySkipPermissions?: boolean;
   isWorktree?: boolean;
+  isWorkspace?: boolean;
   resumeSessionId?: string | null;
   mergeStatus?: string;
   mergeReason?: string | null;
@@ -165,7 +166,7 @@ function handleSnapshot(sessions: unknown, packVersions: unknown) {
     if (!s.ephemeral) noteKnownProjectPath(s.path);
     const exists = hasSession(s.id);
     if (exists) applyState(s.id, s.state, s.stateSince);
-    if (!exists) createSessionCard(s.id, s.name, s.state, { skipPerms: !!s.dangerouslySkipPermissions, worktree: !!s.isWorktree, path: s.path, resume: !!s.resumeSessionId, stateSince: s.stateSince });
+    if (!exists) createSessionCard(s.id, s.name, s.state, { skipPerms: !!s.dangerouslySkipPermissions, worktree: !!s.isWorktree, workspace: !!s.isWorkspace, path: s.path, resume: !!s.resumeSessionId, stateSince: s.stateSince });
 
     setSessionAgent(s.id, s.agent);
 
@@ -326,7 +327,7 @@ const messageHandlers = {
 
   'session-packs':      (msg) => setSessionPacks(msg.id, msg.packs),
   'state-change':       (msg) => handleStateChange(msg),
-  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, worktree: !!msg.worktree, path: msg.path, resume: !!msg.resumeSessionId, stateSince: msg.stateSince }); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); syncTraceSessionsFromCards(); },
+  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, resume: !!msg.resumeSessionId, stateSince: msg.stateSince }); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); syncTraceSessionsFromCards(); },
   'session-removed':    (msg) => { removeSessionCard(msg.id); forgetReviewSession(msg.id); refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); syncTraceSessionsFromCards(); },
   'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshPhoneBoard(); syncTraceSessionsFromCards(); },
   'session-modified':   (msg) => {
@@ -334,7 +335,7 @@ const messageHandlers = {
     const hadPlan = sessionUIs.get(String(msg.id))?.hasPlan === true;
     removeSessionCard(msg.id);
     forgetReviewSession(msg.id);
-    createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, worktree: !!msg.worktree, path: msg.path, resume: !!msg.resumeSessionId, stateSince: msg.stateSince });
+    createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, resume: !!msg.resumeSessionId, stateSince: msg.stateSince });
     setSessionHasPlan(msg.id, hadPlan);
     restoreUsageChip(msg.id);
     refreshFavicon(sessionUIs);
