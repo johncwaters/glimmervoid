@@ -1,4 +1,5 @@
 import type { DiffAnnotation, ServerMessage } from '#shared/contracts/control-messages.ts';
+import { ChangeMap } from '#shared/contracts/change-map.ts';
 import { DIFF_ANNOTATION_NOTE_MAX_CHARS, DIFF_ANNOTATIONS_MAX } from '#shared/contracts/control-messages.ts';
 import type { SessionState } from '#shared/states.ts';
 import { MERGEABLE_LIVE_STATES, STATES } from '#shared/states.ts';
@@ -7,7 +8,9 @@ import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
-import { getSidebarWidth, isReviewSidebarCollapsed, setReviewSidebarCollapsed, setSidebarWidth } from '../ui-prefs.ts';
+import { getReviewSidebarView, getSidebarWidth, isReviewSidebarCollapsed, setReviewSidebarCollapsed, setReviewSidebarView, setSidebarWidth } from '../ui-prefs.ts';
+import { buildChangeMapView } from './change-map-core.ts';
+import { renderChangeMapView } from './change-map-view.ts';
 import type { AnnotationTarget, DiffFile, SectionDiffText } from './diff-core.ts';
 import {
   annotationKey,
@@ -53,6 +56,7 @@ const SIDEBAR_MAX = 700;
 const statusById = new Map<string, string>();
 const reasonById = new Map<string, string | null>();
 const diffById = new Map<string, SessionDiffPayload | null>();
+const mapById = new Map<string, ChangeMap | null>();
 
 const syncById = new Map<string, BranchSync | null>();
 
@@ -60,6 +64,8 @@ const resyncingIds = new Set<string>();
 
 const openFiles = new Set<string>();
 const expanded = new Set<string>();
+let selectedView = getReviewSidebarView();
+let pendingOpenFilePath: string | null = null;
 
 let panelEl: HTMLElement | null = null;
 let branchSyncEl: HTMLElement | null = null;
@@ -182,6 +188,7 @@ export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
 
     openFiles.clear();
     expanded.clear();
+    pendingOpenFilePath = null;
     clearDraftAnnotations();
     if (id) { requestDiff(id); requestBranchSync(id); }
     render();
@@ -202,7 +209,11 @@ export function reparentReviewPanel(parentEl: HTMLElement | null) {
 function applyStatus(id: string, next: string) {
   const prev = statusById.get(id);
   statusById.set(id, next);
-  if (shouldDropDiffCache(prev, next)) diffById.delete(id);
+  if (shouldDropDiffCache(prev, next)) {
+    diffById.delete(id);
+    mapById.delete(id);
+    if (id === getSelectedId()) requestChangeMap(id);
+  }
   if (id === getSelectedId()) render();
 }
 
@@ -230,7 +241,18 @@ export function setReviewDiff(id: string, payload: unknown) {
   diffById.set(id, next);
   if (id !== getSelectedId()) return;
   dropDraftsForChangedSections(previous, next);
+  if (pendingOpenFilePath) expandFileInDiff(pendingOpenFilePath, next);
   render();
+  scrollToPendingFile();
+}
+
+export function setSessionChangeMap(id: unknown, map: unknown) {
+  const key = sessionIdOf(id);
+  if (!key) return;
+  const parsed = ChangeMap.safeParse(map);
+  if (!parsed.success || parsed.data.sessionId !== key) return;
+  mapById.set(key, parsed.data);
+  if (key === getSelectedId()) render();
 }
 
 function sectionDiffText(payload: SessionDiffPayload | null): SectionDiffText {
@@ -287,6 +309,7 @@ export function refreshReviewSidebar(id: unknown) {
   const key = sessionIdOf(id);
   if (key !== getSelectedId()) return;
   if (!diffById.has(key)) requestDiff(key);
+  if (!mapById.has(key)) requestChangeMap(key);
   render();
 }
 
@@ -295,6 +318,7 @@ export function forgetReviewSession(id: unknown) {
   statusById.delete(key);
   reasonById.delete(key);
   diffById.delete(key);
+  mapById.delete(key);
   syncById.delete(key);
   resyncingIds.delete(key);
   if (resyncResult && resyncResult.forId === key) { clearTimeout(resyncResultTimer ?? undefined); resyncResult = null; }
@@ -364,6 +388,12 @@ function isLive(state: string) {
 
 function requestDiff(id: string) {
   sendControlMsg({ type: 'request-session-diff', id });
+  requestChangeMap(id);
+}
+
+function requestChangeMap(id: string) {
+  if (!mapById.has(id)) mapById.set(id, null);
+  sendControlMsg({ type: 'request-change-map', id });
 }
 
 function requestBranchSync(id: string) {
@@ -611,10 +641,63 @@ function removeDraftNote(noteKey: string) {
   updateNotesBar();
 }
 
+function setSelectedView(view: 'map' | 'diff') {
+  selectedView = view;
+  if (view === 'map') pendingOpenFilePath = null;
+  setReviewSidebarView(view);
+  render();
+}
+
+function renderViewSwitch() {
+  const switcher = el('div', 'review-view-switch');
+  switcher.setAttribute('role', 'group');
+  switcher.setAttribute('aria-label', 'Review view');
+  for (const view of ['map', 'diff'] as const) {
+    const button = el('button', 'review-view-option', view === 'map' ? 'Map' : 'Diff');
+    button.type = 'button';
+    button.dataset.selected = String(selectedView === view);
+    button.setAttribute('aria-pressed', String(selectedView === view));
+    button.addEventListener('click', () => setSelectedView(view));
+    switcher.append(button);
+  }
+  return switcher;
+}
+
+function expandFileInDiff(path: string, payload: SessionDiffPayload | null | undefined) {
+  if (!payload) return;
+  const committed = parseUnifiedDiff(payload.committed?.diff);
+  const uncommitted = parseUnifiedDiff(payload.uncommitted?.diff);
+  for (const file of committed) {
+    if (file.path === path || file.oldPath === path) openFiles.add(`committed:${file.path}`);
+  }
+  for (const file of uncommitted) {
+    if (file.path === path || file.oldPath === path) openFiles.add(`uncommitted:${file.path}`);
+  }
+}
+
+function scrollToPendingFile() {
+  if (!bodyEl || !pendingOpenFilePath) return;
+  const sections = bodyEl.querySelectorAll<HTMLElement>('.review-file');
+  for (const section of sections) {
+    if (section.dataset.path !== pendingOpenFilePath && section.dataset.oldPath !== pendingOpenFilePath) continue;
+    section.scrollIntoView({ block: 'nearest' });
+    pendingOpenFilePath = null;
+    return;
+  }
+}
+
+function openFileFromMap(path: string) {
+  pendingOpenFilePath = path;
+  expandFileInDiff(path, diffById.get(getSelectedId() ?? ''));
+  setSelectedView('diff');
+  scrollToPendingFile();
+}
+
 function render() {
   if (!controlsEl || !bodyEl) return;
   controlsEl.replaceChildren();
   bodyEl.replaceChildren();
+  bodyEl.append(renderViewSwitch());
   annotatedLineByNoteKey.clear();
   updateNotesBar();
   if (branchSyncEl) branchSyncEl.replaceChildren();
@@ -698,6 +781,13 @@ function render() {
     controlsEl.append(el('div', 'review-resolve-sent', 'Resolve prompt sent'));
   }
 
+  if (selectedView === 'map') {
+    const changeMap = mapById.get(id);
+    if (changeMap) bodyEl.append(renderChangeMapView(buildChangeMapView(changeMap), openFileFromMap));
+    if (!changeMap) bodyEl.append(el('div', 'review-nochanges review-loading', 'Loading map...'));
+    return;
+  }
+
   if (committedFiles.length > 0) {
     bodyEl.append(renderSection('committed', 'Committed', mergeTargetText(effectiveBase), committedFiles));
   }
@@ -771,6 +861,8 @@ function renderFile(f: DiffFile, kind: DiffAnnotation['section']) {
   const key = `${kind}:${f.path}`;
   const open = openFiles.has(key);
   const sec = el('div', 'review-file');
+  sec.dataset.path = f.path;
+  if (f.oldPath) sec.dataset.oldPath = f.oldPath;
   sec.dataset.status = f.status;
   sec.dataset.open = open ? 'true' : 'false';
 

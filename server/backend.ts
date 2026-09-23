@@ -410,6 +410,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     readTracePage: traceWiring?.readTracePage ?? null,
     readPlanRevision: laneAssembly.planReview?.readPlanRevision ?? null,
     decidePlanReview: laneAssembly.planReview?.decide ?? null,
+    changeMapNarrator: laneAssembly.changeMapNarrator,
     serverBuild: () => serverBuild,
     logger: console,
   });

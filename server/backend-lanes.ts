@@ -11,6 +11,7 @@ import { createGitWorkspace, createGitWorkspaceSync } from './git-workspace.ts';
 import { createIngestLane } from './ingest-wiring.ts';
 import { dbPathForConfig } from './glimmervoid-db.ts';
 import { createMemoryDistillSpawn, createMemoryDistiller } from './memory-distill.ts';
+import { createChangeNarrator } from './change-narrator.ts';
 import { createMemoryIngest, earliestLaneEntryMs } from './memory-ingest-wiring.ts';
 import { createMemoryStore } from './memory-store.ts';
 import { createMillMetricsStore } from './mill-metrics-store.ts';
@@ -263,6 +264,20 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     })
     : null;
 
+  const changeMapNarrator = createChangeNarrator({
+    getConfig: () => configStore.config,
+    spawnDistill: createMemoryDistillSpawn({
+      sessions: memoryDistillSessions,
+      closeSessionDataClients,
+      hookRouter,
+      getHookPort,
+      spawnGate,
+      recordLane,
+      replayBufferKB: config.replayBufferKB,
+      laneName: 'change-map',
+    }),
+  });
+
   let ingestLane: ReturnType<typeof createIngestLane> | null = null;
   let visionsLane: ReturnType<typeof createVisionsWiring> | null = null;
   const visionsSessions = new Map<string, Session>();
@@ -510,6 +525,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   return {
     allLiveSessions,
     branchGc,
+    changeMapNarrator,
     current,
     currentIngest,
     currentVisions,

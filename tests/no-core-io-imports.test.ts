@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { CALL_IMPORT, STATIC_IMPORT } from '../server/core/import-graph-core.ts';
 
 const ROOT = path.join(import.meta.dirname, '..');
 const CORE_DIRECTORIES = [path.join(ROOT, 'server', 'core'), path.join(ROOT, 'session', 'core')];
@@ -14,8 +15,6 @@ const FORBIDDEN_NODE_MODULES = new Set([
   'node:https',
   'node:net',
 ]);
-const CALL_IMPORT = /\b(?:require|import)\s*\(\s*(['"])([^'"]+)\1\s*\)/g;
-const STATIC_IMPORT = /\bimport(?:\s+[^'"]*?\s+from\s*)?\s*(['"])([^'"]+)\1/g;
 
 function collectSourceFiles(directory: string, files: string[] = []): string[] {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {

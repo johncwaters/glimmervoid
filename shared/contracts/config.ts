@@ -38,6 +38,14 @@ const PrReviewSettings = optionalObject('prReview', {
   reviewTimeoutSeconds: optionalNumber('prReview.reviewTimeoutSeconds', ranges.PR_REVIEW_TIMEOUT_RANGE),
 });
 
+const ChangeMapSettings = optionalObject('changeMap', {
+  narrator: optionalObject('changeMap.narrator', {
+    enabled: optionalBoolean('changeMap.narrator.enabled'),
+    model: optionalString('changeMap.narrator.model', true),
+    timeoutSeconds: optionalInteger('changeMap.narrator.timeoutSeconds', ranges.CHANGE_MAP_NARRATOR_TIMEOUT_RANGE),
+  }),
+});
+
 const BRANCH_GC_SETTINGS_SHAPE = {
   enabled: optionalBoolean('branchGc.enabled'),
   worktrees: optionalBoolean('branchGc.worktrees'),
@@ -186,6 +194,7 @@ const BROWSER_CONFIG_SHAPE = {
   worktreeShare: z.array(z.string()).optional(),
   repoRoots: z.array(z.string()).optional(),
   prReview: PrReviewSettings,
+  changeMap: ChangeMapSettings,
   branchGc: BranchGcSettings,
   visions: VisionsSettings,
   posthog: PosthogSettings,
@@ -265,6 +274,7 @@ export const ProjectConfig = z.object({
 const FILE_CONFIG_SHAPE = {
   ...BROWSER_CONFIG_SHAPE,
   prReview: optionalLooseObject('prReview'),
+  changeMap: ChangeMapSettings,
   branchGc: optionalLooseObject('branchGc'),
   visions: optionalLooseObject('visions'),
   posthog: optionalLooseObject('posthog'),
@@ -312,7 +322,7 @@ export const Config = z.object({
 
 export const BROWSER_CONFIG_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE));
 export const CONFIG_BLOCK_KEYS = Object.freeze([
-  'prReview', 'branchGc', 'visions', 'posthog', 'usage', 'telegram', 'packDistiller', 'millMetrics', 'memory', 'ingest',
+  'prReview', 'changeMap', 'branchGc', 'visions', 'posthog', 'usage', 'telegram', 'packDistiller', 'millMetrics', 'memory', 'ingest',
   'agentApi',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {

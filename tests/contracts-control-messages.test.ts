@@ -135,6 +135,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-worktree-blocked', id: 'session-1', session: 'glimmervoid', branch: 'develop', notice: 'missing branch', timestamp: NOW },
   { type: 'session-worktree-ready', id: 'session-1', session: 'glimmervoid', branch: 'glimmervoid/session/1', base: 'develop', timestamp: NOW },
   { type: 'session-diff', id: 'session-1', committed: { stat: '1 file', diff: 'patch' }, uncommitted: { stat: '', diff: '' }, hasCommits: true },
+  { type: 'change-map', id: 'session-1', map: { sessionId: 'session-1', sig: 'sig-1', generatedAt: NOW, repos: [], narrative: null, narratorState: 'disabled' } },
   { type: 'send-diff-annotations-result', requestId: 'r9', ok: true, error: null, pending: false },
   { type: 'branch-sync-status', id: 'session-1', branch: 'develop', upstream: 'origin/develop', state: 'ahead', ahead: 1, behind: 0, fetched: true },
   { type: 'session-changed', id: 'session-1', sig: 'sha' },

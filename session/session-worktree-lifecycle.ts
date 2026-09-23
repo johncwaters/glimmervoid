@@ -26,6 +26,7 @@ import {
 import type { WorktreeArgs } from "../server/git-workspace.ts";
 import type { GitWorkspaceInstance } from "../server/git-workspace.ts";
 import { planWorkspaceMembers } from "./core/workspace-core.ts";
+import type { WorkspaceMember } from "./core/workspace-core.ts";
 import { createSessionWorkspaceMembers } from "./session-workspace-members.ts";
 
 const WORKTREE_CHECK_DEBOUNCE_MS = 400;
@@ -154,6 +155,15 @@ interface WorktreeLifecycleState {
   rerereWatcher: ReturnType<typeof createRerereWatcher> | null;
   checkTimer: NodeJS.Timeout | null;
   lastSignature: string | null;
+  provisionedMembers: WorkspaceMember[] | null;
+}
+
+export interface ChangeScope {
+  name: string;
+  root: string;
+  base: string | null;
+  committedNameStatus: string;
+  uncommittedNameStatus: string;
 }
 
 interface AdoptWorktreeOptions {
@@ -277,6 +287,7 @@ function createSessionWorktreeLifecycle({
     rerereWatcher: null,
     checkTimer: null,
     lastSignature: null,
+    provisionedMembers: null,
   };
 
   function effectiveIntegrationBranch() {
@@ -496,7 +507,10 @@ function createSessionWorktreeLifecycle({
       return false;
     }
     const provisioned = await setup.members.provision();
-    if (provisioned.ok) return true;
+    if (provisioned.ok) {
+      lifecycleState.provisionedMembers = provisioned.members;
+      return true;
+    }
     port.emit("worktree-blocked", { id, branch: setup.members.branch, notice: provisioned.error });
     return false;
   }
@@ -679,23 +693,71 @@ function createSessionWorktreeLifecycle({
     return { ref: lifecycleState.baseSha || null, verified: false };
   }
 
+  function diffGitOptions(cwd: string): GitOptions {
+    return { cwd, encoding: "utf8", timeout: 15000, maxBuffer: 64 * 1024 * 1024 };
+  }
+
+  async function resolveDiffBase(run: (args: string[]) => Promise<string>, opts: GitOptions): Promise<{ base: string; aheadCount: string }> {
+    const { ref: baseRef, verified } = await resolveVerifiedBaseRef(run, opts);
+    if (verified) {
+      return {
+        base: (await run(["merge-base", baseRef, "HEAD"])).trim(),
+        aheadCount: (await run(["rev-list", "--count", `${baseRef}..HEAD`])).trim(),
+      };
+    }
+    if (!baseRef) return { base: "", aheadCount: "0" };
+    return { base: baseRef, aheadCount: (await run(["rev-list", "--count", `${baseRef}..HEAD`])).trim() };
+  }
+
+  async function readChangeScope(name: string, root: string, base: string): Promise<ChangeScope> {
+    const run = (args: string[]): Promise<string> => gitOut(args, diffGitOptions(root));
+    const nul = String.fromCharCode(0);
+    const trackedNameStatus = await run(["diff", "-z", "--name-status", "-M", "HEAD"]);
+    const untrackedPaths = (await run(["ls-files", "-z", "--others", "--exclude-standard"])).split(nul).filter(Boolean);
+    return {
+      name,
+      root,
+      base: base || null,
+      committedNameStatus: base ? await run(["diff", "-z", "--name-status", "-M", `${base}..HEAD`]) : "",
+      uncommittedNameStatus: trackedNameStatus + untrackedPaths.map((untrackedPath) => `?${nul}${untrackedPath}${nul}`).join(""),
+    };
+  }
+
+  async function memberMergeBase(member: WorkspaceMember): Promise<string> {
+    const run = (args: string[]): Promise<string> => gitOut(args, diffGitOptions(member.dir));
+    const candidates = member.base ? [member.base, `origin/${member.base}`, "origin/HEAD"] : ["origin/HEAD"];
+    for (const candidate of candidates) {
+      if (!(await run(["rev-parse", "--verify", "--quiet", candidate])).trim()) continue;
+      return (await run(["merge-base", candidate, "HEAD"])).trim();
+    }
+    return "";
+  }
+
+  async function getChangeScopes(): Promise<ChangeScope[]> {
+    const members = lifecycleState.provisionedMembers;
+    if (members) {
+      const scopes: ChangeScope[] = [];
+      for (const member of members) {
+        const memberDirStats = await fs.promises.stat(member.dir).catch(() => null);
+        if (!memberDirStats?.isDirectory()) continue;
+        scopes.push(await readChangeScope(member.name, member.dir, await memberMergeBase(member)));
+      }
+      return scopes;
+    }
+    const worktreeDir = lifecycleState.worktreeDir;
+    if (!worktreeDir) return [];
+    const run = (args: string[]): Promise<string> => gitOut(args, diffGitOptions(worktreeDir));
+    const { base } = await resolveDiffBase(run, diffGitOptions(worktreeDir));
+    return [await readChangeScope(path.basename(currentProjectPath()), worktreeDir, base)];
+  }
+
   async function getDiff() {
     const empty = { stat: "", diff: "" };
     if (!lifecycleState.worktreeDir) return { committed: empty, uncommitted: empty, hasCommits: false };
-    const opts = { cwd: lifecycleState.worktreeDir, encoding: "utf8", timeout: 15000, maxBuffer: 64 * 1024 * 1024 };
+    const opts = diffGitOptions(lifecycleState.worktreeDir);
     const run = (args: string[]): Promise<string> => gitOut(args, opts);
     await run(["add", "-N", "--", "."]);
-    let base = "";
-    let aheadCount = "0";
-    const { ref: baseRef, verified } = await resolveVerifiedBaseRef(run, opts);
-    if (verified) {
-      base = (await run(["merge-base", baseRef, "HEAD"])).trim();
-      aheadCount = (await run(["rev-list", "--count", `${baseRef}..HEAD`])).trim();
-    }
-    if (!verified && baseRef) {
-      base = baseRef;
-      aheadCount = (await run(["rev-list", "--count", `${base}..HEAD`])).trim();
-    }
+    const { base, aheadCount } = await resolveDiffBase(run, opts);
     const committed = base
       ? { stat: (await run(["diff", "--stat", `${base}..HEAD`])).trim(), diff: await run(["diff", `${base}..HEAD`]) }
       : empty;
@@ -997,6 +1059,7 @@ function createSessionWorktreeLifecycle({
     pasteMergePrompt,
     hasUnmergedWork,
     getDiff,
+    getChangeScopes,
     resolveEffectiveBase,
     getBranchSync,
     resyncBranch,

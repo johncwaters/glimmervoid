@@ -56,6 +56,7 @@ export const SETTINGS_SECTION_ALIASES = Object.freeze({
   telegram: 'machine-telegram',
   notifications: 'machine-telegram',
   'pr-review': 'lanes-pr-review',
+  'change-map': 'lanes-change-map',
   prreview: 'lanes-pr-review',
   visions: 'lanes-visions',
   mill: 'lanes-mill',
@@ -321,6 +322,29 @@ export const SETTINGS_MAP = Object.freeze([
         description: 'Estimated monthly spend ceiling. Zero or below means no ceiling.',
         control: 'number', range: 'USAGE_BUDGET_RANGE', keywords: ['spend', 'alert'], defaultValue: null,
         integer: false, nullable: true, zeroIsNull: true, step: 0.01,
+      },
+    ],
+  },
+  {
+    id: 'lanes-change-map',
+    level: 'lanes',
+    title: 'Change map',
+    description: 'Optional model narration for deterministic change facts.',
+    settings: [
+      {
+        id: 'change-map-narrator-enabled', path: 'changeMap.narrator.enabled', title: 'Enable narration',
+        description: 'Add cited model claims to the change map.',
+        control: 'toggle', keywords: ['review', 'claims'], defaultValue: false,
+      },
+      {
+        id: 'change-map-narrator-model', path: 'changeMap.narrator.model', title: 'Narrator model',
+        description: 'Claude model used for change map claims.',
+        control: 'text', keywords: ['claude', 'haiku'], defaultValue: 'haiku',
+      },
+      {
+        id: 'change-map-narrator-timeout', path: 'changeMap.narrator.timeoutSeconds', title: 'Narrator timeout (seconds)',
+        description: 'Maximum time allowed for one narration.',
+        control: 'number', range: 'CHANGE_MAP_NARRATOR_TIMEOUT_RANGE', keywords: ['deadline', 'narration'], defaultValue: 90,
       },
     ],
   },

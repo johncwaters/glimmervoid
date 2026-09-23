@@ -4,13 +4,15 @@
 # sidebar
 
 ## Purpose
-The review sidebar: the single home for the worktree review gate of the selected session. Shows a changed-files summary over collapsible per-file diffs plus the actions (Merge into the integration branch without ending the session; Discard for a settled worktree). App-level, shared by every view. Right-docked on the desktop layout; the SAME element is re-parented into the phone Review screen (`reparentReviewPanel`), so both layouts are one review surface with one set of caches and listeners.
+The review sidebar: the single home for the worktree review gate of the selected session. Opens on the Map view; the diff is the drill-down. Shows the actions (Merge into the integration branch without ending the session; Discard for a settled worktree). App-level, shared by every view. Right-docked on the desktop layout; the SAME element is re-parented into the phone Review screen (`reparentReviewPanel`), so both layouts are one review surface with one set of caches and listeners.
 
 ## Key Files
 
 | File | Description |
 |------|-------------|
 | `review-sidebar.ts` | DOM module: summary, per-file collapsible diff markup, Merge/Discard actions |
+| `change-map-core.ts` | Pure Change Map facts to view model projection |
+| `change-map-view.ts` | Change Map DOM rendering and file drill-down controls |
 | `diff-core.ts` | Pure unified-diff parser: `git diff` text -> file sections with hunks and typed lines; no DOM |
 | `selection.ts` | Single source of truth for the selected session id, with subscriber notification; shared by grid clicks and Focus pill focusing |
 

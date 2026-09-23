@@ -62,10 +62,13 @@ import {
 } from '../shared/settings-ranges.ts';
 import { USAGE_VENDOR_KEYS, USAGE_BUDGET_KEYS } from '../shared/usage-config.ts';
 import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
+import type { ChangeMap } from '../shared/contracts/change-map.ts';
 import type { UpdateStatus } from './backend-update.ts';
 import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { PlanReadRequest, PlanReadResult } from './plan-review-wiring.ts';
 import type { TracePage, TracePageRequest } from './trace-wiring.ts';
+import { createChangeMapService } from './change-map-wiring.ts';
+import type { ChangeMapNarrator } from './change-map-wiring.ts';
 
 interface ControlRequest {
   type: string;
@@ -143,6 +146,7 @@ interface ControlHandlerDeps {
   getUsageReport?: (() => unknown) | null;
   requestUsageReport?: ((args: { days?: number; force?: boolean; requestId?: string | null }) => Promise<unknown>) | null;
   getPlanLimits?: (() => unknown) | null;
+  changeMapNarrator?: ChangeMapNarrator | null;
   millReport?: MillControl | null;
   controlReplayLog?: ReplayLog | null;
   getRtkInstallStatus?: () => Record<string, unknown> | null;
@@ -330,6 +334,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
   if (Object.hasOwn(builders, requestType)) return builders[requestType]();
   const genericErrorRequests = new Set([
     'request-session-diff',
+    'request-change-map',
     'request-branch-sync',
     'resync-branch',
     'debug-state',
@@ -406,7 +411,24 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     readTracePage = null,
     readPlanRevision = null,
     decidePlanReview = null,
+    changeMapNarrator = null,
   } = deps;
+
+  const changeMaps = createChangeMapService({
+    sessions,
+    narrator: changeMapNarrator,
+    onNarrationSettled: (sessionId) => {
+      broadcastChangeMap(sessionId).catch((error: unknown) => {
+        console.warn(`[control] change-map broadcast failed: id=${sessionId}: ${errorMessage(error)}`);
+      });
+    },
+  });
+
+  async function broadcastChangeMap(sessionId: string): Promise<void> {
+    const session = sessions.get(sessionId);
+    if (!session) return;
+    broadcastControl({ type: 'change-map', id: session.id, map: await changeMaps.build(session, { mayStartNarration: false }) });
+  }
 
   function buildSettingsPayload() {
     return buildSettingsPayloadFrom({ configStore, rtkInstallStatus: getRtkInstallStatus() });
@@ -1136,6 +1158,19 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
       const { committed, uncommitted, hasCommits } = await s.getDiff();
       ws.send(JSON.stringify({ type: 'session-diff', id: s.id, committed, uncommitted, hasCommits }));
+    },
+
+    'request-change-map':         async (msg: ControlRequest, ws: ControlSocket) => {
+      const s = findSession(msg);
+      if (!s) return;
+      const map = await changeMaps.build(s).catch((error: unknown): ChangeMap => {
+        console.warn(`[control] request-change-map build failed: id=${s.id}: ${errorMessage(error)}`);
+        return {
+          sessionId: s.id, sig: null, generatedAt: Date.now(), repos: [], narrative: null, narratorState: 'disabled',
+          error: `Change map could not be built: ${errorMessage(error)}`,
+        };
+      });
+      ws.send(JSON.stringify({ type: 'change-map', id: s.id, map }));
     },
 
     'request-branch-sync':        async (msg: ControlRequest, ws: ControlSocket) => {

@@ -911,6 +911,8 @@ class Session extends EventEmitter {
 
   getDiff() { return this.worktreeLifecycle.getDiff(); }
 
+  getChangeScopes() { return this.worktreeLifecycle.getChangeScopes(); }
+
   getBranchSync() { return this.worktreeLifecycle.getBranchSync(); }
 
   resyncBranch() { return this.worktreeLifecycle.resyncBranch(); }

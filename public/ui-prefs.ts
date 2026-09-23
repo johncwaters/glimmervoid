@@ -13,6 +13,7 @@ export interface UiPrefs {
   lastFocusedSessionId: string | null;
   railWidth: number | null;
   reviewSidebarCollapsed: boolean;
+  reviewSidebarView: 'map' | 'diff';
   keptProjects: string[];
   traceHiddenKinds: string[];
   dismissedUpdate: string | null;
@@ -29,6 +30,7 @@ const asNullableString = (value: unknown): string | null => (typeof value === 's
 const asNullableNumber = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
 const asStringList = (value: unknown): string[] =>
   Array.isArray(value) ? [...new Set(value.filter((entry): entry is string => typeof entry === 'string' && entry !== ''))] : [];
+const asReviewSidebarView = (value: unknown): UiPrefs['reviewSidebarView'] => value === 'diff' ? 'diff' : 'map';
 
 const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   soundEnabled: asBoolean(true),
@@ -40,6 +42,7 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   lastFocusedSessionId: asNullableString,
   railWidth: asNullableNumber,
   reviewSidebarCollapsed: asBoolean(false),
+  reviewSidebarView: asReviewSidebarView,
   keptProjects: asStringList,
   traceHiddenKinds: asStringList,
   dismissedUpdate: asNullableString,
@@ -94,6 +97,8 @@ export const setRailWidth = (px: number | null) => write('railWidth', px);
 
 export const isReviewSidebarCollapsed = () => read('reviewSidebarCollapsed');
 export const setReviewSidebarCollapsed = (collapsed: boolean) => write('reviewSidebarCollapsed', collapsed);
+export const getReviewSidebarView = () => read('reviewSidebarView');
+export const setReviewSidebarView = (view: UiPrefs['reviewSidebarView']) => write('reviewSidebarView', view);
 
 export const getKeptProjects = () => read('keptProjects');
 export const setKeptProjects = (paths: string[]) => write('keptProjects', paths);

@@ -9,6 +9,7 @@ import {
   PlanDraftPush,
   PlanResponseFrame,
 } from './plan-review.ts';
+import { ChangeMap } from './change-map.ts';
 import { PendingWakeup, SessionSnapshot, SessionState } from './session.ts';
 import { TraceRecord } from './trace.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
@@ -148,6 +149,7 @@ export const CLIENT_MESSAGE_TYPES = Object.freeze([
   'discard-session-worktree',
   'resolve-session-merge',
   'request-session-diff',
+  'request-change-map',
   'send-diff-annotations',
   'request-branch-sync',
   'resync-branch',
@@ -166,7 +168,7 @@ export const CLIENT_MESSAGE_TYPES = Object.freeze([
 const idOnlyClientTypes = [
   'remove-session', 'kill', 'start-session', 'restart', 'force-restart', 'dismiss', 'sleep', 'wake',
   'merge-session', 'finish-session', 'merge-continue-session', 'discard-session-worktree',
-  'resolve-session-merge', 'request-session-diff', 'request-branch-sync', 'resync-branch', 'debug-state',
+  'resolve-session-merge', 'request-session-diff', 'request-change-map', 'request-branch-sync', 'resync-branch', 'debug-state',
 ];
 
 const clientVariants = [
@@ -246,6 +248,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'session-worktree-warning',
   'session-worktree-ready',
   'session-diff',
+  'change-map',
   'send-diff-annotations-result',
   'branch-sync-status',
   'session-changed',
@@ -388,6 +391,7 @@ const serverVariants = [
     uncommitted: openObject({ stat: z.string(), diff: z.string() }),
     hasCommits: z.boolean(),
   }),
+  loose('change-map', { id: sessionId, map: ChangeMap }),
   loose('send-diff-annotations-result', {
     requestId,
     ok: z.boolean(),

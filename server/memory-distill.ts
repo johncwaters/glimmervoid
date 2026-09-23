@@ -91,6 +91,7 @@ interface MemoryDistillSpawnOptions {
   spawnGate?: SpawnGate | null;
   replayBufferKB?: number;
   recordLane?: RecordLane | null;
+  laneName?: string;
 }
 
 interface MemoryDistillerOptions {
@@ -128,7 +129,7 @@ function writeStandaloneDenySettings(permissions: unknown): { args: string[]; cl
 
 function createMemoryDistillSpawn({
   sessions = new Map(), closeSessionDataClients = () => {}, hookRouter = null, getHookPort = null,
-  spawnGate = null, replayBufferKB = undefined, recordLane = null,
+  spawnGate = null, replayBufferKB = undefined, recordLane = null, laneName = LANE_NAME,
 }: MemoryDistillSpawnOptions = {}): SpawnDistill {
   return async function spawnMemoryDistill({ id, name, prompt, cwd, model = null, signal = null }) {
     const posture = buildLanePermissions({ denyTools: MEMORY_DISTILL_DENY_TOOLS });
@@ -150,7 +151,7 @@ function createMemoryDistillSpawn({
     };
     const sess = new Session(options);
     registerEphemeralSession({
-      map: sessions, id, sess, closeSessionDataClients, logPrefix: LANE_NAME, name, recordLane,
+      map: sessions, id, sess, closeSessionDataClients, logPrefix: laneName, name, recordLane,
     });
     try {
       await awaitSessionExit(sess, { signal, spawnGate });

@@ -48,6 +48,10 @@ const DEFAULT_CONFIG = {
     enabled: true,
   },
 
+  changeMap: {
+    narrator: { enabled: false, model: 'haiku', timeoutSeconds: 90 },
+  },
+
   agentApi: {
     enabled: false,
   },
@@ -442,6 +446,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       repoRoots: config.repoRoots,
 
       prReview: config.prReview ? { ...config.prReview } : null,
+      changeMap: config.changeMap ? { ...config.changeMap } : null,
       branchGc: { ...config.branchGc },
       visions: config.visions ? { ...config.visions } : null,
 
@@ -484,6 +489,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     if (newConfig.postTurnChecks != null) config.postTurnChecks = newConfig.postTurnChecks;
     if (newConfig.worktreeShare != null) config.worktreeShare = newConfig.worktreeShare;
     if (newConfig.prReview != null) config.prReview = newConfig.prReview;
+    if (newConfig.changeMap != null) config.changeMap = newConfig.changeMap;
     if (newConfig.branchGc != null) config.branchGc = resolveBranchGc(newConfig.branchGc);
     if (newConfig.visions != null) config.visions = newConfig.visions;
     if (newConfig.posthog != null) config.posthog = newConfig.posthog;

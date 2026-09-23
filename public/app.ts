@@ -34,7 +34,7 @@ import { openConfirmDialog } from './session-card/modal.ts';
 import { reconnectDataWs, syncGridOnEngagementEdge } from './session-card/terminal.ts';
 import { showErrorToast } from './session-card/toast.ts';
 import { activateSettingsSection, applySettingsBroadcast, applySettingsProjectReport, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, clearSettingsUpdateRequest, mountSettingsView, refreshSettingsStatus, resolveSettingsTarget } from './settings-panel.ts';
-import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync } from './sidebar/review-sidebar.ts';
+import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
 import { createSettingsLink } from './settings-link.ts';
 import { applyFlyingAnimals } from './flying-animals.ts';
@@ -353,6 +353,7 @@ const messageHandlers = {
   'session-worktree-warning': (msg) => { showErrorToast(`${msg.session}: ${msg.notice || 'base branch warning'}`); },
   'session-worktree-ready': (msg) => { setSessionEffectiveBase(msg.id, msg.base); },
   'session-diff':       (msg) => { setSessionDiff(msg.id, { committed: msg.committed, uncommitted: msg.uncommitted, hasCommits: msg.hasCommits }); },
+  'change-map':         (msg) => setSessionChangeMap(msg.id, msg.map),
   'branch-sync-status': (msg) => setReviewBranchSync(msg.id, { branch: msg.branch, upstream: msg.upstream, state: msg.state, ahead: msg.ahead, behind: msg.behind, fetched: msg.fetched, action: msg.action, error: msg.error }),
   'session-changed':    (msg) => notifyWorktreeChanged(msg.id),
   'post-turn-result':   (msg) => setSessionPostTurn(msg.id, msg),

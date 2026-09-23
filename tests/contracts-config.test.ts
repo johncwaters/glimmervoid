@@ -17,6 +17,20 @@ test('DEFAULT_CONFIG satisfies the persisted Config contract', () => {
   assert.equal(Config.shape.integrationBranch.safeParse(null).success, true);
   assert.equal(DEFAULT_CONFIG.trace.enabled, true);
   assert.equal(DEFAULT_CONFIG.planReview.enabled, true);
+  assert.deepEqual(DEFAULT_CONFIG.changeMap.narrator, { enabled: false, model: 'haiku', timeoutSeconds: 90 });
+});
+
+test('change map narrator settings cross persisted, browser, and update contracts', () => {
+  const changeMap = { narrator: { enabled: true, model: 'sonnet', timeoutSeconds: 15 } };
+  assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, changeMap }).success, true);
+  assert.equal(BrowserConfig.safeParse({ changeMap }).success, true);
+  assert.equal(ConfigUpdate.safeParse({ changeMap }).success, true);
+  assert.equal(CONFIG_BLOCK_KEYS.includes('changeMap'), true);
+  for (const timeoutSeconds of [14, 601, 15.5]) {
+    assert.equal(ConfigUpdate.safeParse({ changeMap: { narrator: { timeoutSeconds } } }).success, false);
+    assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, changeMap: { narrator: { timeoutSeconds } } }).success, false);
+  }
+  assert.equal(ConfigUpdate.safeParse({ changeMap: { narrator: { enabled: 'true' } } }).success, false);
 });
 
 test('workspace projects require at least two repository paths', () => {

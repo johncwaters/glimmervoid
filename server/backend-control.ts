@@ -1,6 +1,7 @@
 import type { WebSocket, WebSocketServer } from 'ws';
 import type { Session } from '../session/sessions.ts';
 import type { ControlBroadcast, ControlSocket } from './backend-websockets.ts';
+import type { ChangeMapNarrator } from './change-map-wiring.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import { registerControlHandlers } from './control-handlers.ts';
 import type { MillControl } from './control-handlers.ts';
@@ -78,6 +79,7 @@ interface BackendControlDependencies {
     request: { agentId?: string | null; revision?: number | null },
   ) => Promise<PlanReadResult | null>) | null;
   decidePlanReview: ((sessionId: string, decision: PlanDecision) => string | null) | null;
+  changeMapNarrator: ChangeMapNarrator | null;
   serverBuild: () => string;
   logger: Pick<Console, 'warn'>;
 }
@@ -136,6 +138,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     readTracePage: dependencies.readTracePage,
     readPlanRevision: dependencies.readPlanRevision,
     decidePlanReview: dependencies.decidePlanReview,
+    changeMapNarrator: dependencies.changeMapNarrator,
   });
 
   const sendLaneSnapshotOnConnect = (
