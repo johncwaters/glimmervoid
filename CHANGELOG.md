@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-09-23
+
+### Added
+
+- **Change Map is the default Review view**: the Review sidebar opens on a map of how the session's changes connect to the code, with Diff one click away. For each repository it shows changed files grouped under their nearest `AGENTS.md`, import-graph blast radius and the tests that reach each file, untested files, files that usually change together but are missing from this change, fix-heavy hotspots, and collisions with other live sessions on the same repository. Every row opens its file in Diff.
+- **Change Map for workspace sessions**: a workspace session gets one map across its member repositories, refreshed at each turn end, and its Diff shows every member with member-prefixed paths. When one member's `package.json` depends on another member's package, the map shows the link and whether the dependency is linked locally or comes from the registry, meaning a change only reaches it after a publish.
+- **Change Map narrator**: optional cited claims written by a model from the map's facts, off by default (`changeMap.narrator.enabled`). `changeMap.narrator.engine` picks `claude` (default) or `codex`, which runs `codex exec` read-only with an output schema; a blank model uses the engine's default. Claims that cite no known fact are dropped.
+- **Import resolution for real repositories**: blast radius and test reach now follow tsconfig `paths` and `baseUrl` through relative `extends` chains, NodeNext `.js` specifiers that point at `.ts` sources, and Python imports.
+
+### Fixed
+
+- **Session spawns after a dependency reinstall**: node-pty's spawn-helper execute bit is repaired before every spawn, so an `npm ci` under a live server no longer leaves every new session failing with `posix_spawnp failed.` until a restart.
+- **Workspace review controls**: workspace sessions no longer show Merge, Resync or a branch-sync row, and their alt+m and alt+r shortcuts do nothing, since Glimmervoid never merges or rebases workspace members.
+
 ## [0.26.0] - 2026-09-22
 
 ### Added
