@@ -116,3 +116,96 @@ test('workspace session merge refuses because the folder is not a single-repo wo
   assert.deepEqual(await session.mergeWorktree(), { merged: false, refused: true, reason: 'no-worktree' });
   session.destroy();
 });
+
+test('workspace session diff prefixes member paths and change checks announce member edits once', { skip: !hasGit() }, async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-workspace-diff-'));
+  const first = makeRepo(root, 'first');
+  const second = makeRepo(root, 'second');
+  const session = new Session({
+    id: 'workspace-diff-session',
+    name: 'Workspace Diff',
+    path: path.join(root, 'ws-workspace-diff'),
+    workspaceRepos: [first, second],
+    gitWorkspace: createGitWorkspace(),
+  });
+  try {
+    assert.equal(await session._provisionWorktree(), true);
+    const changes: { sig: string }[] = [];
+    session.on('worktree-changed', (change: { sig: string }) => changes.push(change));
+    await session.checkWorktreeChange();
+    await session.checkWorktreeChange();
+    assert.equal(changes.length, 1);
+
+    const [firstScope] = await session.getChangeScopes();
+    fs.writeFileSync(path.join(firstScope.root, 'README.md'), 'edited');
+    fs.writeFileSync(path.join(path.dirname(firstScope.root), 'second', 'added.txt'), 'new');
+    await session.checkWorktreeChange();
+    assert.equal(changes.length, 2);
+
+    const diff = await session.getDiff();
+    assert.match(diff.uncommitted.diff, /^diff --git a\/first\/README\.md b\/first\/README\.md$/m);
+    assert.match(diff.uncommitted.diff, /^diff --git a\/second\/added\.txt b\/second\/added\.txt$/m);
+    assert.deepEqual((await session.getChangeScopes()).map((scope) => scope.sessionPathPrefix), ['first/', 'second/']);
+  } finally {
+    session.destroy();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('workspace session diff prefixes member paths on rename headers', { skip: !hasGit() }, async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-workspace-rename-'));
+  const first = makeRepo(root, 'first');
+  const second = makeRepo(root, 'second');
+  const session = new Session({
+    id: 'workspace-rename-session',
+    name: 'Workspace Rename',
+    path: path.join(root, 'ws-workspace-rename'),
+    workspaceRepos: [first, second],
+    gitWorkspace: createGitWorkspace(),
+  });
+  try {
+    assert.equal(await session._provisionWorktree(), true);
+    const [firstScope] = await session.getChangeScopes();
+    git(['mv', 'README.md', 'GUIDE.md'], firstScope.root);
+
+    const diff = await session.getDiff();
+    assert.match(diff.uncommitted.diff, /^rename from first\/README\.md$/m);
+    assert.match(diff.uncommitted.diff, /^rename to first\/GUIDE\.md$/m);
+  } finally {
+    session.destroy();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('workspace change checks announce each new member commit to the same file', { skip: !hasGit() }, async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-workspace-commits-'));
+  const first = makeRepo(root, 'first');
+  const second = makeRepo(root, 'second');
+  const session = new Session({
+    id: 'workspace-commit-session',
+    name: 'Workspace Commits',
+    path: path.join(root, 'ws-workspace-commits'),
+    workspaceRepos: [first, second],
+    gitWorkspace: createGitWorkspace(),
+  });
+  try {
+    assert.equal(await session._provisionWorktree(), true);
+    const [firstScope] = await session.getChangeScopes();
+    const changes: { sig: string }[] = [];
+    session.on('worktree-changed', (change: { sig: string }) => changes.push(change));
+
+    fs.writeFileSync(path.join(firstScope.root, 'a.ts'), 'export const turn = 1;');
+    git(['add', 'a.ts'], firstScope.root);
+    git(['commit', '-m', 'turn one'], firstScope.root);
+    await session.checkWorktreeChange();
+    assert.equal(changes.length, 1);
+
+    fs.writeFileSync(path.join(firstScope.root, 'a.ts'), 'export const turn = 2;');
+    git(['commit', '-am', 'turn two'], firstScope.root);
+    await session.checkWorktreeChange();
+    assert.equal(changes.length, 2);
+  } finally {
+    session.destroy();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

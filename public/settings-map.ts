@@ -337,9 +337,15 @@ export const SETTINGS_MAP = Object.freeze([
         control: 'toggle', keywords: ['review', 'claims'], defaultValue: false,
       },
       {
+        id: 'change-map-narrator-engine', path: 'changeMap.narrator.engine', title: 'Narrator engine',
+        description: 'CLI used to generate change map claims.',
+        control: 'select', options: [{ value: 'claude', label: 'Claude' }, { value: 'codex', label: 'Codex' }],
+        keywords: ['claude', 'codex'], defaultValue: 'claude',
+      },
+      {
         id: 'change-map-narrator-model', path: 'changeMap.narrator.model', title: 'Narrator model',
-        description: 'Claude model used for change map claims.',
-        control: 'text', keywords: ['claude', 'haiku'], defaultValue: 'haiku',
+        description: 'Blank uses the engine default: haiku for Claude, the configured Codex model for Codex.',
+        control: 'text', keywords: ['claude', 'codex', 'haiku'], defaultValue: '',
       },
       {
         id: 'change-map-narrator-timeout', path: 'changeMap.narrator.timeoutSeconds', title: 'Narrator timeout (seconds)',

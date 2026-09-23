@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { createChangeNarrator } from '../server/change-narrator.ts';
-import { changeMapFactId } from '../shared/contracts/change-map.ts';
+import { CHANGE_MAP_CLAIMS_MAX, changeMapFactId } from '../shared/contracts/change-map.ts';
 import type { ChangeMap, ChangeNarrative } from '../shared/contracts/change-map.ts';
 
 function mapWithFiles(paths: string[] = ['server/a.ts']): ChangeMap {
   return {
     sessionId: 'session', sig: null, generatedAt: 1, narrative: null, narratorState: 'disabled',
-    repos: [{ name: 'repo', root: '/repo', base: null, error: null,
+    repos: [{ name: 'repo', root: '/repo', sessionPathPrefix: '', base: null, error: null, links: [],
       files: paths.map((path) => ({ factId: changeMapFactId('file', 'repo', path), path, status: 'modified', isCommitted: false })),
       subsystems: [], coChangeGaps: [], hotspots: [], blastRadius: [], untestedFiles: [], collisions: [],
     }],
@@ -23,6 +25,87 @@ function deferredNarration() {
 async function flush(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
 }
+
+async function awaitNarration(narrator: ReturnType<typeof createChangeNarrator>, map: ChangeMap): Promise<ChangeNarrative | null> {
+  await new Promise<void>((resolve) => {
+    assert.equal(narrator.narrationFor(map, resolve).narratorState, 'pending');
+  });
+  return narrator.narrationFor(map, () => {}).narrative;
+}
+
+test('Codex narration uses exec output schema and only passes a configured model', async () => {
+  const map = mapWithFiles();
+  for (const model of ['', 'gpt-5']) {
+    const narrator = createChangeNarrator({
+      getConfig: () => ({ changeMap: { narrator: { enabled: true, engine: 'codex', model } } }),
+      spawnDistill: async ({ agent, extraArgs, cwd, prompt, model: spawnModel }) => {
+        assert.equal(agent, 'codex');
+        assert.equal(spawnModel, null);
+        assert.match(prompt, /answer only with the JSON/);
+        assert.deepEqual(extraArgs?.slice(0, 5), ['exec', '--sandbox', 'read-only', '--ephemeral', '--skip-git-repo-check']);
+        const schemaIndex = extraArgs?.indexOf('--output-schema') ?? -1;
+        const outputIndex = extraArgs?.indexOf('-o') ?? -1;
+        assert.equal(schemaIndex, 5);
+        assert.equal(outputIndex, 7);
+        const schemaPath = extraArgs?.[schemaIndex + 1];
+        const resultPath = extraArgs?.[outputIndex + 1];
+        assert.ok(schemaPath);
+        assert.ok(resultPath);
+        const schema = JSON.parse(await fs.readFile(schemaPath, 'utf8'));
+        assert.deepEqual(schema.required, ['claims']);
+        assert.equal(schema.additionalProperties, false);
+        assert.equal(schema.properties.claims.maxItems, CHANGE_MAP_CLAIMS_MAX);
+        assert.equal(schema.properties.claims.items.additionalProperties, false);
+        const factsPrompt = await fs.readFile(path.join(cwd, 'change-narrative-prompt.txt'), 'utf8');
+        assert.doesNotMatch(factsPrompt, /Use no tools except Write|Result file:/);
+        assert.match(factsPrompt, /Facts JSON:/);
+        assert.deepEqual(extraArgs?.slice(outputIndex + 2), model ? ['-m', model] : []);
+        await fs.writeFile(resultPath, JSON.stringify({ claims: [{ text: 'Changed.', factIds: [map.repos[0].files[0].factId] }] }));
+      },
+    });
+    const narrative = await awaitNarration(narrator, map);
+    assert.equal(narrative?.model, model || 'codex default');
+    assert.equal(narrative?.claims[0].text, 'Changed.');
+  }
+});
+
+test('Claude narration keeps the Write prompt and defaults to haiku', async () => {
+  const map = mapWithFiles();
+  const narrator = createChangeNarrator({
+    getConfig: () => ({ changeMap: { narrator: { enabled: true, model: '' } } }),
+    spawnDistill: async ({ agent, extraArgs, cwd, model, prompt }) => {
+      assert.equal(agent, undefined);
+      assert.deepEqual(extraArgs, []);
+      assert.equal(model, 'haiku');
+      assert.match(prompt, /follow its instructions/);
+      const factsPrompt = await fs.readFile(path.join(cwd, 'change-narrative-prompt.txt'), 'utf8');
+      assert.match(factsPrompt, /Use no tools except Write/);
+      assert.match(factsPrompt, /Result file:/);
+      await fs.writeFile(path.join(cwd, 'change-narrative-result.json'), JSON.stringify({ claims: [{ text: 'Changed.', factIds: [map.repos[0].files[0].factId] }] }));
+    },
+  });
+  assert.equal((await awaitNarration(narrator, map))?.model, 'haiku');
+});
+
+test('switching narrator engine or model misses the cache', async () => {
+  const map = mapWithFiles();
+  let engine = 'claude';
+  let model = '';
+  const requestedHashes: string[] = [];
+  const narrator = createChangeNarrator({
+    getConfig: () => ({ changeMap: { narrator: { enabled: true, engine, model } } }),
+    spawnNarration: async ({ factsHash }) => { requestedHashes.push(factsHash); return null; },
+  });
+  await awaitNarration(narrator, map);
+  assert.equal(narrator.narrationFor(map, () => {}).narratorState, 'failed');
+  engine = 'codex';
+  await awaitNarration(narrator, map);
+  model = 'gpt-5';
+  await awaitNarration(narrator, map);
+  model = 'codex default';
+  await awaitNarration(narrator, map);
+  assert.equal(new Set(requestedHashes).size, 4);
+});
 
 test('disabled and empty maps do not spawn', () => {
   let enabled = false;

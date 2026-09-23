@@ -25,6 +25,7 @@ function createFixtureRepo(): { root: string; base: string } {
   git(['init', '-q', '-b', 'main'], root);
   git(['config', 'user.email', 'fixture@example.test'], root);
   git(['config', 'user.name', 'Fixture'], root);
+  git(['config', 'commit.gpgsign', 'false'], root);
   writeRepoFile(root, 'AGENTS.md', '# Fixture\n');
   writeRepoFile(root, 'server/AGENTS.md', '# Server\n');
   writeRepoFile(root, 'server/a.ts', 'export const a = 1;\n');
@@ -50,6 +51,7 @@ function scopeOf(root: string, base: string): ChangeScope {
   return {
     name: 'fixture',
     root,
+    sessionPathPrefix: '',
     base,
     committedNameStatus: git(['diff', '-z', '--name-status', '-M', `${base}..HEAD`], root),
     uncommittedNameStatus: git(['diff', '-z', '--name-status', '-M', 'HEAD'], root) + untracked.map((untrackedPath) => `?${nul}${untrackedPath}${nul}`).join(''),
@@ -57,7 +59,7 @@ function scopeOf(root: string, base: string): ChangeScope {
 }
 
 function modifiedScope(root: string, repoPath: string): ChangeScope {
-  return { name: 'fixture', root, base: null, committedNameStatus: '', uncommittedNameStatus: `M${nul}${repoPath}${nul}` };
+  return { name: 'fixture', root, sessionPathPrefix: '', base: null, committedNameStatus: '', uncommittedNameStatus: `M${nul}${repoPath}${nul}` };
 }
 
 function fixtureSession(id: string, name: string, scopes: () => ChangeScope[]): ChangeMapSession {
@@ -91,7 +93,7 @@ test('a session with no changes gets an empty repo map without reading history',
   const { root, base } = createFixtureRepo();
   try {
     const gitCalls: string[][] = [];
-    const clean = fixtureSession('clean', 'Clean', () => [{ name: 'fixture', root, base, committedNameStatus: '', uncommittedNameStatus: '' }]);
+    const clean = fixtureSession('clean', 'Clean', () => [{ name: 'fixture', root, sessionPathPrefix: '', base, committedNameStatus: '', uncommittedNameStatus: '' }]);
     const service = createChangeMapService({
       sessions: new Map([[clean.id, clean]]),
       runGit: async (args) => { gitCalls.push(args); return ''; },
@@ -128,7 +130,7 @@ test('builds requested during an assembly coalesce into one follow-up that reads
   let repoName = 'before';
   const session = fixtureSession('shared', 'Shared', () => {
     scopeReads++;
-    return [{ name: repoName, root: '/nonexistent-change-map-root', base: null, committedNameStatus: '', uncommittedNameStatus: '' }];
+    return [{ name: repoName, root: '/nonexistent-change-map-root', sessionPathPrefix: '', base: null, committedNameStatus: '', uncommittedNameStatus: '' }];
   });
   const service = createChangeMapService({ sessions: new Map([[session.id, session]]) });
   const first = service.build(session);
@@ -223,6 +225,98 @@ test('non-ASCII paths arrive unquoted from committed and untracked changes', { s
       [committedPath, 'added'], [untrackedPath, 'untracked'],
     ].sort((left, right) => left[0].localeCompare(right[0])));
     assert.equal(repo.blastRadius.find((fact) => fact.path === 'server/a.ts')?.directDependents.includes(committedPath), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function createPackageRepo(repoName: string, packageJson: object, sourceFiles: Record<string, string>): { root: string; base: string } {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), `glimmervoid-${repoName}-`));
+  git(['init', '-q', '-b', 'main'], root);
+  git(['config', 'user.email', 'fixture@example.test'], root);
+  git(['config', 'user.name', 'Fixture'], root);
+  git(['config', 'commit.gpgsign', 'false'], root);
+  writeRepoFile(root, 'package.json', JSON.stringify(packageJson));
+  for (const [repoPath, contents] of Object.entries(sourceFiles)) writeRepoFile(root, repoPath, contents);
+  return { root, base: commitAll(root, 'seed') };
+}
+
+async function buildWorkspacePackageMap(versionSpec: string) {
+  const lib = createPackageRepo('lib', { name: 'shared-lib' }, { 'src/index.ts': 'export const shared = 1;\n' });
+  const app = createPackageRepo('app', { dependencies: { 'shared-lib': versionSpec } }, {
+    'src/use.ts': "import 'shared-lib';\n",
+    'src/deep.ts': "import 'shared-lib/sub';\n",
+  });
+  try {
+    writeRepoFile(lib.root, 'src/index.ts', 'export const shared = 2;\n');
+    commitAll(lib.root, 'change shared library');
+    const libScope = { ...scopeOf(lib.root, lib.base), name: 'lib' };
+    const appScope = { ...scopeOf(app.root, app.base), name: 'app' };
+    const session = fixtureSession('workspace', 'Workspace', () => [libScope, appScope]);
+    return await createChangeMapService({ sessions: new Map([[session.id, session]]) }).build(session);
+  } finally {
+    fs.rmSync(lib.root, { recursive: true, force: true });
+    fs.rmSync(app.root, { recursive: true, force: true });
+  }
+}
+
+test('workspace map links a clean consumer to a changed provider through bare imports', { skip: !hasGit() }, async () => {
+  const map = await buildWorkspacePackageMap('^1.0.0');
+  const app = map.repos.find((repo) => repo.name === 'app');
+  const lib = map.repos.find((repo) => repo.name === 'lib');
+  assert.deepEqual(lib?.links, []);
+  assert.equal(app?.files.length, 0);
+  assert.equal(app?.links.length, 1);
+  assert.deepEqual(app?.links[0], {
+    factId: 'link:app:lib:shared-lib', providerRepo: 'lib', packageName: 'shared-lib', packageDir: '',
+    consumerManifest: 'package.json', versionSpec: '^1.0.0', isLocalLink: false,
+    providerChangedPathCount: 1, importers: ['src/deep.ts', 'src/use.ts'], importerCount: 2, changedImporterCount: 0,
+  });
+});
+
+test('workspace map marks file dependencies as local links', { skip: !hasGit() }, async () => {
+  const map = await buildWorkspacePackageMap('file:../lib');
+  assert.equal(map.repos.find((repo) => repo.name === 'app')?.links[0].isLocalLink, true);
+});
+
+test('a repo build error stays visible while its package still provides a link', { skip: !hasGit() }, async () => {
+  const lib = createPackageRepo('lib', { name: 'shared-lib' }, { 'src/index.ts': 'export const shared = 1;\n' });
+  const app = createPackageRepo('app', { dependencies: { 'shared-lib': '^1' } }, { 'src/use.ts': "import 'shared-lib';\n" });
+  try {
+    writeRepoFile(lib.root, 'src/index.ts', 'export const shared = 2;\n');
+    commitAll(lib.root, 'change shared library');
+    const session = fixtureSession('workspace', 'Workspace', () => [
+      { ...scopeOf(lib.root, lib.base), name: 'lib' },
+      { ...scopeOf(app.root, app.base), name: 'app' },
+    ]);
+    const service = createChangeMapService({
+      sessions: new Map([[session.id, session]]),
+      runGit: async (args, cwd) => {
+        if (cwd === lib.root && args[0] === 'log') throw new Error('history unavailable');
+        return git(args, cwd);
+      },
+    });
+    const map = await service.build(session);
+    assert.equal(map.repos.find((repo) => repo.name === 'lib')?.error, 'history unavailable');
+    assert.equal(map.repos.find((repo) => repo.name === 'app')?.links[0].providerRepo, 'lib');
+  } finally {
+    fs.rmSync(lib.root, { recursive: true, force: true });
+    fs.rmSync(app.root, { recursive: true, force: true });
+  }
+});
+
+test('single changed scope lists tracked paths once and leaves links empty', { skip: !hasGit() }, async () => {
+  const { root, base } = createFixtureRepo();
+  try {
+    const session = fixtureSession('single', 'Single', () => [scopeOf(root, base)]);
+    const gitCalls: string[][] = [];
+    const service = createChangeMapService({
+      sessions: new Map([[session.id, session]]),
+      runGit: async (args, cwd) => { gitCalls.push(args); return git(args, cwd); },
+    });
+    const map = await service.build(session);
+    assert.deepEqual(map.repos[0].links, []);
+    assert.equal(gitCalls.filter((args) => args[0] === 'ls-files').length, 1);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

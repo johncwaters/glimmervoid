@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { ChangeMap, RepoChangeMap } from '../shared/contracts/change-map.ts';
+import type { ChangeMap, CrossRepoLink, RepoChangeMap } from '../shared/contracts/change-map.ts';
 import { changeMapFactId } from '../shared/contracts/change-map.ts';
 import { buildChangeMapView } from '../public/sidebar/change-map-core.ts';
 
 function makeRepo(overrides: Partial<RepoChangeMap> = {}): RepoChangeMap {
   return {
-    name: 'glimmervoid', root: '/repo', base: 'main', files: [], subsystems: [], coChangeGaps: [],
+    name: 'glimmervoid', root: '/repo', sessionPathPrefix: '', base: 'main', files: [], links: [], subsystems: [], coChangeGaps: [],
     hotspots: [], blastRadius: [], untestedFiles: [], collisions: [], error: null, ...overrides,
   };
 }
@@ -15,6 +15,15 @@ function makeMap(repo: RepoChangeMap, overrides: Partial<ChangeMap> = {}): Chang
   return {
     sessionId: 'session', sig: 'sig', generatedAt: 1, repos: [repo], narrative: null,
     narratorState: 'disabled', ...overrides,
+  };
+}
+
+function makeLink(overrides: Partial<CrossRepoLink> = {}): CrossRepoLink {
+  return {
+    factId: changeMapFactId('link', 'consumer', 'provider'), providerRepo: 'provider', packageName: '@example/provider',
+    packageDir: 'packages/provider', consumerManifest: 'package.json', versionSpec: '^1.0.0', isLocalLink: false,
+    providerChangedPathCount: 0, importers: ['src/app.ts'], importerCount: 1, changedImporterCount: 0,
+    ...overrides,
   };
 }
 
@@ -40,7 +49,74 @@ test('warnings have severity order and plain English copy for every kind', () =>
     'Wide blast radius: 10 files depend on session/sessions.ts',
   ]);
   assert.equal(warnings[0]?.factId, repo.collisions[0]?.factId);
-  assert.deepEqual(view.repos[0]?.files[0], { path, status: 'modified', isCommitted: true, dependentCount: 10, testCount: 2 });
+  assert.deepEqual(warnings.map((warning) => warning.openPath), warnings.map((warning) => warning.path));
+  assert.deepEqual(view.repos[0]?.files[0], { path, openPath: path, status: 'modified', isCommitted: true, dependentCount: 10, testCount: 2 });
+});
+
+test('workspace warning and file rows open prefixed paths while displaying repo paths', () => {
+  const consumer = makeRepo({
+    name: 'consumer', sessionPathPrefix: 'consumer/',
+    files: [{ factId: changeMapFactId('file', 'consumer', 'src/app.ts'), path: 'src/app.ts', status: 'modified', isCommitted: false }],
+    untestedFiles: [{ factId: changeMapFactId('untested', 'consumer', 'src/app.ts'), path: 'src/app.ts' }],
+  });
+  const provider = makeRepo({
+    name: 'provider', sessionPathPrefix: 'provider/',
+    files: [{ factId: changeMapFactId('file', 'provider', 'src/index.ts'), path: 'src/index.ts', status: 'added', isCommitted: true }],
+    hotspots: [{ factId: changeMapFactId('hotspot', 'provider', 'src/index.ts'), path: 'src/index.ts', commitCount: 2, fixCommitCount: 1 }],
+  });
+  const view = buildChangeMapView(makeMap(consumer, { repos: [consumer, provider] }));
+  assert.deepEqual(view.repos.map((repo) => repo.warnings.map(({ path, openPath }) => ({ path, openPath }))), [
+    [{ path: 'src/app.ts', openPath: 'consumer/src/app.ts' }],
+    [{ path: 'src/index.ts', openPath: 'provider/src/index.ts' }],
+  ]);
+  assert.deepEqual(view.repos.map((repo) => repo.files.map(({ path, openPath }) => ({ path, openPath }))), [
+    [{ path: 'src/app.ts', openPath: 'consumer/src/app.ts' }],
+    [{ path: 'src/index.ts', openPath: 'provider/src/index.ts' }],
+  ]);
+});
+
+test('link warning copy covers registry and local links with singular and plural counts', () => {
+  const consumer = makeRepo({ name: 'consumer', links: [
+    makeLink({ providerChangedPathCount: 1, changedImporterCount: 2 }),
+    makeLink({
+      factId: changeMapFactId('link', 'consumer', 'provider', 'local'), packageDir: '',
+      versionSpec: 'workspace:*', isLocalLink: true, providerChangedPathCount: 2,
+      importerCount: 3, changedImporterCount: 1,
+    }),
+  ] });
+  const warnings = buildChangeMapView(makeMap(consumer)).repos[0]?.warnings ?? [];
+  assert.deepEqual(warnings.map((warning) => warning.kind), ['link', 'link']);
+  assert.deepEqual(warnings.map((warning) => warning.severity), [6, 6]);
+  assert.deepEqual(warnings.map((warning) => warning.headline), [
+    'consumer imports @example/provider from provider in 1 file',
+    'consumer imports @example/provider from provider in 3 files',
+  ]);
+  assert.deepEqual(warnings.map((warning) => warning.detail), [
+    'Uses ^1.0.0 from the registry, so provider changes reach it only after a publish. provider changed 1 file in packages/provider. 2 importing files changed here.',
+    'Linked locally (workspace:*), so provider changes reach it now. provider changed 2 files in the repository root. 1 importing file changed here.',
+  ]);
+});
+
+test('link warnings open the first provider file in the package and fall back to an importer', () => {
+  const provider = makeRepo({ name: 'provider', sessionPathPrefix: 'provider/', files: [
+    { factId: changeMapFactId('file', 'provider', 'outside.ts'), path: 'outside.ts', status: 'modified', isCommitted: false },
+    { factId: changeMapFactId('file', 'provider', 'packages/provider/z.ts'), path: 'packages/provider/z.ts', status: 'modified', isCommitted: false },
+    { factId: changeMapFactId('file', 'provider', 'packages/provider/a.ts'), path: 'packages/provider/a.ts', status: 'modified', isCommitted: false },
+  ] });
+  const consumer = makeRepo({ name: 'consumer', sessionPathPrefix: 'consumer/', links: [makeLink({ providerChangedPathCount: 2 })] });
+  const map = makeMap(consumer, { repos: [consumer, provider] });
+  const view = buildChangeMapView(map);
+  assert.deepEqual(view.repos[0]?.warnings[0] && { path: view.repos[0].warnings[0].path, openPath: view.repos[0].warnings[0].openPath }, {
+    path: 'packages/provider/a.ts', openPath: 'provider/packages/provider/a.ts',
+  });
+  assert.equal(view.repos[0]?.header.fileCount, 0);
+  assert.equal(view.emptyState, null);
+
+  const fallback = buildChangeMapView(makeMap(consumer, { repos: [consumer, makeRepo({ name: 'provider', sessionPathPrefix: 'provider/' })] }));
+  assert.deepEqual(fallback.repos[0]?.warnings[0] && { path: fallback.repos[0].warnings[0].path, openPath: fallback.repos[0].warnings[0].openPath }, {
+    path: 'src/app.ts', openPath: 'consumer/src/app.ts',
+  });
+  assert.equal(fallback.emptyState, null);
 });
 
 test('small blast radius is omitted and committed counts are per repository', () => {
@@ -88,4 +164,27 @@ test('narrator states display status or linked claims', () => {
   const ready = buildChangeMapView(makeMap(repo, { narratorState: 'ready', narrative: { factsHash: 'hash', model: 'model', claims } }));
   assert.equal(ready.narrative.status, null);
   assert.deepEqual(ready.narrative.claims, claims);
+});
+
+test('link warnings without a changed provider file open the first changed importer', () => {
+  const consumer = makeRepo({
+    name: 'consumer', sessionPathPrefix: 'consumer/',
+    files: [{ factId: changeMapFactId('file', 'consumer', 'src/z.ts'), path: 'src/z.ts', status: 'modified', isCommitted: false }],
+    links: [makeLink({ importers: ['src/a.ts', 'src/z.ts'], importerCount: 2, changedImporterCount: 1 })],
+  });
+  const provider = makeRepo({ name: 'provider', sessionPathPrefix: 'provider/', files: [
+    { factId: changeMapFactId('file', 'provider', 'outside.ts'), path: 'outside.ts', status: 'modified', isCommitted: false },
+  ] });
+  const linkWarning = buildChangeMapView(makeMap(consumer, { repos: [consumer, provider] })).repos[0]?.warnings.find((warning) => warning.kind === 'link');
+  assert.deepEqual(linkWarning && { path: linkWarning.path, openPath: linkWarning.openPath }, { path: 'src/z.ts', openPath: 'consumer/src/z.ts' });
+});
+
+test('link warnings on a root package open the first changed provider file anywhere in the repository', () => {
+  const consumer = makeRepo({ name: 'consumer', sessionPathPrefix: 'consumer/', links: [makeLink({ packageDir: '', providerChangedPathCount: 2 })] });
+  const provider = makeRepo({ name: 'provider', sessionPathPrefix: 'provider/', files: [
+    { factId: changeMapFactId('file', 'provider', 'src/b.ts'), path: 'src/b.ts', status: 'modified', isCommitted: false },
+    { factId: changeMapFactId('file', 'provider', 'lib/a.ts'), path: 'lib/a.ts', status: 'modified', isCommitted: false },
+  ] });
+  const linkWarning = buildChangeMapView(makeMap(consumer, { repos: [consumer, provider] })).repos[0]?.warnings[0];
+  assert.deepEqual(linkWarning && { path: linkWarning.path, openPath: linkWarning.openPath }, { path: 'lib/a.ts', openPath: 'provider/lib/a.ts' });
 });

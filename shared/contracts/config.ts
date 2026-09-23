@@ -38,9 +38,12 @@ const PrReviewSettings = optionalObject('prReview', {
   reviewTimeoutSeconds: optionalNumber('prReview.reviewTimeoutSeconds', ranges.PR_REVIEW_TIMEOUT_RANGE),
 });
 
+export const CHANGE_MAP_NARRATOR_ENGINES = Object.freeze(['claude', 'codex'] as const);
+
 const ChangeMapSettings = optionalObject('changeMap', {
   narrator: optionalObject('changeMap.narrator', {
     enabled: optionalBoolean('changeMap.narrator.enabled'),
+    engine: z.enum(CHANGE_MAP_NARRATOR_ENGINES, { error: `changeMap.narrator.engine must be one of ${CHANGE_MAP_NARRATOR_ENGINES.join(', ')}` }).optional(),
     model: optionalString('changeMap.narrator.model', true),
     timeoutSeconds: optionalInteger('changeMap.narrator.timeoutSeconds', ranges.CHANGE_MAP_NARRATOR_TIMEOUT_RANGE),
   }),

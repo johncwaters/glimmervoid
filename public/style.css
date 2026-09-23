@@ -5735,6 +5735,7 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-e
 .review-map-warning[data-severity="5"] { border-color: var(--state-failed); }
 .review-map-warning[data-severity="4"], .review-map-warning[data-severity="3"] { border-color: var(--state-waiting); }
 .review-map-warning[data-severity="2"], .review-map-warning[data-severity="1"] { border-color: var(--border); }
+.review-map-warning[data-kind="link"] { border-color: var(--accent); }
 .review-map-error { margin: 8px 0; color: var(--state-failed); font-size: 11px; overflow-wrap: anywhere; }
 .review-map-narrative-status, .review-map-claim { margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
 .review-map-narrative { border: 1px solid var(--border-dim); padding: 7px; }

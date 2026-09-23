@@ -5,7 +5,7 @@ export const CHANGE_MAP_CLAIM_MAX_CHARS = 600;
 export const CHANGE_MAP_CLAIMS_MAX = 12;
 
 export const CHANGE_MAP_FACT_KINDS = Object.freeze([
-  'file', 'subsystem', 'co-change', 'hotspot', 'blast', 'untested', 'collision',
+  'file', 'subsystem', 'co-change', 'hotspot', 'blast', 'untested', 'collision', 'link',
 ] as const);
 export type ChangeMapFactKind = (typeof CHANGE_MAP_FACT_KINDS)[number];
 
@@ -80,9 +80,25 @@ export const CollisionFact = z.strictObject({
 });
 export type CollisionFact = z.infer<typeof CollisionFact>;
 
+export const CrossRepoLink = z.strictObject({
+  factId,
+  providerRepo: z.string().min(1),
+  packageName: z.string().min(1),
+  packageDir: z.string(),
+  consumerManifest: repoPath,
+  versionSpec: z.string(),
+  isLocalLink: z.boolean(),
+  providerChangedPathCount: count,
+  importers: cappedPaths,
+  importerCount: count,
+  changedImporterCount: count,
+});
+export type CrossRepoLink = z.infer<typeof CrossRepoLink>;
+
 export const RepoChangeMap = z.strictObject({
   name: z.string().min(1),
   root: z.string().min(1),
+  sessionPathPrefix: z.string(),
   base: z.string().nullable(),
   files: z.array(ChangedFile),
   subsystems: z.array(SubsystemFact),
@@ -91,6 +107,7 @@ export const RepoChangeMap = z.strictObject({
   blastRadius: z.array(BlastRadiusFact),
   untestedFiles: z.array(UntestedFileFact),
   collisions: z.array(CollisionFact),
+  links: z.array(CrossRepoLink),
   error: z.string().nullable(),
 });
 export type RepoChangeMap = z.infer<typeof RepoChangeMap>;

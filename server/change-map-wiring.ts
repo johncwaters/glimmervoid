@@ -18,6 +18,8 @@ import { CO_CHANGE_LOG_ARGS, computeCoChange, parseCoChangeLog } from './core/co
 import type { CommitFiles } from './core/co-change-core.ts';
 import { computeCollisions, computeSubsystems, readAgentsTitle } from './core/change-ownership-core.ts';
 import { buildImportGraph, computeBlastRadius, extractImportSpecifiers } from './core/import-graph-core.ts';
+import { computeCrossRepoLinks, indexImportersByPackage, readPackageManifest } from './core/workspace-links-core.ts';
+import type { PackageManifest, RepoPackageFacts } from './core/workspace-links-core.ts';
 
 const GIT_TIMEOUT_MS = 15000;
 const GIT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
@@ -72,6 +74,17 @@ interface MemoizedRepoFacts {
   repoFacts: RepoChangeMap;
 }
 
+interface RepoInputs {
+  repoPathsText: string;
+  repoPaths: string[];
+  specifiersByPath: Map<string, string[]>;
+}
+
+interface MemoizedImporterIndex {
+  memoKey: string;
+  importersByPackage: Map<string, string[]>;
+}
+
 interface QueuedAssembly {
   mayStartNarration: boolean;
   promise: Promise<ChangeMap>;
@@ -101,7 +114,7 @@ function rememberBounded<Value>(valueByKey: Map<string, Value>, key: string, val
   valueByKey.set(key, value);
 }
 
-function createFileFactCache<Value>(derive: (text: string) => Value, oversizedValue: Value | null) {
+function createFileFactCache<Value>(derive: (text: string) => Value | null, oversizedValue: Value | null) {
   const factByAbsolutePath = new Map<string, CachedFileFact<Value>>();
   let missGeneration = 0;
 
@@ -145,6 +158,7 @@ function emptyRepoMap(scope: ChangeScope): RepoChangeMap {
   return {
     name: scope.name,
     root: scope.root,
+    sessionPathPrefix: scope.sessionPathPrefix,
     base: scope.base,
     files: [],
     subsystems: [],
@@ -153,6 +167,7 @@ function emptyRepoMap(scope: ChangeScope): RepoChangeMap {
     blastRadius: [],
     untestedFiles: [],
     collisions: [],
+    links: [],
     error: null,
   };
 }
@@ -173,10 +188,12 @@ export function createChangeMapService({
 }: ChangeMapServiceOptions) {
   const specifierCache = createFileFactCache(extractImportSpecifiers, []);
   const agentsTitleCache = createFileFactCache(readAgentsTitle, null);
+  const packageManifestCache = createFileFactCache<PackageManifest>(readPackageManifest, null);
   const commonDirByRoot = new Map<string, string>();
   const commitsByLogKey = new Map<string, CommitFiles[]>();
   const siblingScopesById = new Map<string, SiblingScopes>();
   const repoFactsByRoot = new Map<string, MemoizedRepoFacts>();
+  const importerIndexByRoot = new Map<string, MemoizedImporterIndex>();
   const runningBySessionId = new Map<string, Promise<ChangeMap>>();
   const queuedBySessionId = new Map<string, QueuedAssembly>();
 
@@ -229,12 +246,10 @@ export function createChangeMapService({
     return otherSessions;
   }
 
-  async function repoFactsFor(scope: ChangeScope, files: ChangedFile[], commonDir: string): Promise<RepoChangeMap> {
+  async function repoFactsFor(scope: ChangeScope, files: ChangedFile[], commonDir: string, inputs: RepoInputs): Promise<RepoChangeMap> {
     const repoName = scope.name;
     const changedPaths = files.map((file) => file.path);
-    const repoPathsText = await runGit(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], scope.root);
-    const repoPaths = parseNulSeparatedPaths(repoPathsText);
-    const specifiersByPath = await specifierCache.readMany(scope.root, repoPaths.filter(isSourcePath));
+    const { repoPathsText, repoPaths, specifiersByPath } = inputs;
     const agentsTitleByPath = await agentsTitleCache.readMany(scope.root, repoPaths.filter(isAgentsDocPath));
     const packageJsonText = await fs.promises.readFile(path.join(scope.root, 'package.json'), 'utf8').catch(() => null);
     const historyTip = scope.base || (await runGit(['rev-parse', 'HEAD'], scope.root)).trim();
@@ -262,19 +277,19 @@ export function createChangeMapService({
     return repoFacts;
   }
 
-  async function buildRepoMap(scope: ChangeScope, selfId: string): Promise<RepoChangeMap> {
+  async function buildRepoMap(scope: ChangeScope, selfId: string, repoInputsFor: (root: string) => Promise<RepoInputs>): Promise<RepoChangeMap> {
     const files = changedFilesOf(scope);
     if (files.length === 0) return emptyRepoMap(scope);
     const commonDir = await commonDirFor(scope.root);
-    const repoFacts = await repoFactsFor(scope, files, commonDir);
+    const repoFacts = await repoFactsFor(scope, files, commonDir, await repoInputsFor(scope.root));
     const otherSessions = await otherSessionsOn(commonDir, selfId);
     const changedPaths = files.map((file) => file.path);
     return { ...repoFacts, collisions: computeCollisions({ repoName: scope.name, changedPaths, otherSessions }) };
   }
 
-  async function buildRepoMapSafely(scope: ChangeScope, selfId: string): Promise<RepoChangeMap> {
+  async function buildRepoMapSafely(scope: ChangeScope, selfId: string, repoInputsFor: (root: string) => Promise<RepoInputs>): Promise<RepoChangeMap> {
     try {
-      return await buildRepoMap(scope, selfId);
+      return await buildRepoMap(scope, selfId, repoInputsFor);
     } catch (error) {
       return { ...emptyRepoMap(scope), files: changedFilesOf(scope), error: error instanceof Error ? error.message : String(error) };
     }
@@ -283,8 +298,47 @@ export function createChangeMapService({
   async function assemble(session: ChangeMapSession, mayStartNarration: boolean): Promise<ChangeMap> {
     forgetEndedSiblings();
     const scopes = await session.getChangeScopes();
+    const inputsByRoot = new Map<string, Promise<RepoInputs>>();
+    function repoInputsFor(root: string): Promise<RepoInputs> {
+      const cached = inputsByRoot.get(root);
+      if (cached) return cached;
+      const inputs = (async () => {
+        const repoPathsText = await runGit(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], root);
+        const repoPaths = parseNulSeparatedPaths(repoPathsText);
+        const specifiersByPath = await specifierCache.readMany(root, repoPaths.filter(isSourcePath));
+        return { repoPathsText, repoPaths, specifiersByPath };
+      })();
+      inputsByRoot.set(root, inputs);
+      return inputs;
+    }
     const repos: RepoChangeMap[] = [];
-    for (const scope of scopes) repos.push(await buildRepoMapSafely(scope, session.id));
+    for (const scope of scopes) repos.push(await buildRepoMapSafely(scope, session.id, repoInputsFor));
+    if (scopes.length > 1) {
+      const packageFacts = await Promise.allSettled(scopes.map(async (scope): Promise<RepoPackageFacts> => {
+        const inputs = await repoInputsFor(scope.root);
+        const manifestsByPath = await packageManifestCache.readMany(scope.root, inputs.repoPaths.filter((repoPath) => path.posix.basename(repoPath) === 'package.json'));
+        const memoKey = hashText(JSON.stringify([specifierCache.generation(), hashText(inputs.repoPathsText)]));
+        const memoized = importerIndexByRoot.get(scope.root);
+        const importersByPackage = memoized && memoized.memoKey === memoKey
+          ? memoized.importersByPackage
+          : indexImportersByPackage(inputs.specifiersByPath);
+        if (!memoized || memoized.memoKey !== memoKey) {
+          rememberBounded(importerIndexByRoot, scope.root, { memoKey, importersByPackage }, MAX_MEMOIZED_REPO_FACTS);
+        }
+        return {
+          repoName: scope.name,
+          manifests: [...manifestsByPath].map(([manifestPath, manifest]) => ({ path: manifestPath, manifest })),
+          importersByPackage,
+          changedPaths: changedFilesOf(scope).map((file) => file.path),
+        };
+      }));
+      try {
+        const linksByConsumer = computeCrossRepoLinks(packageFacts.flatMap((outcome) => outcome.status === 'fulfilled' ? [outcome.value] : []));
+        for (const repo of repos) repo.links = linksByConsumer.get(repo.name) ?? [];
+      } catch {
+        for (const repo of repos) repo.links = [];
+      }
+    }
     const factsOnly: ChangeMap = {
       sessionId: session.id,
       sig: hashText(JSON.stringify(scopes)),

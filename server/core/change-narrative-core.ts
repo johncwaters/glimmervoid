@@ -1,11 +1,11 @@
 import {
   CHANGE_MAP_CLAIM_MAX_CHARS, CHANGE_MAP_CLAIMS_MAX, CHANGE_MAP_LIST_CAP,
 } from '../../shared/contracts/change-map.ts';
-import type { BlastRadiusFact, ChangeMap, ChangeNarrative, SubsystemFact } from '../../shared/contracts/change-map.ts';
+import type { BlastRadiusFact, ChangeMap, ChangeNarrative, CrossRepoLink, SubsystemFact } from '../../shared/contracts/change-map.ts';
 
-type FactGroup = 'files' | 'subsystems' | 'coChangeGaps' | 'hotspots' | 'blastRadius' | 'untestedFiles' | 'collisions';
+type FactGroup = 'files' | 'subsystems' | 'coChangeGaps' | 'hotspots' | 'blastRadius' | 'untestedFiles' | 'collisions' | 'links';
 const FACT_GROUPS: readonly FactGroup[] = [
-  'files', 'subsystems', 'coChangeGaps', 'hotspots', 'blastRadius', 'untestedFiles', 'collisions',
+  'files', 'subsystems', 'coChangeGaps', 'hotspots', 'blastRadius', 'untestedFiles', 'collisions', 'links',
 ];
 
 function narrativeFacts(map: ChangeMap) {
@@ -21,6 +21,7 @@ function narrativeFacts(map: ChangeMap) {
       blastRadius: capFacts(repo.blastRadius, compareBlastRadius),
       untestedFiles: capFacts(repo.untestedFiles, compareFactIds),
       collisions: capFacts(repo.collisions, compareFactIds),
+      links: capFacts(repo.links, compareLinks),
     })).sort((left, right) => left.name.localeCompare(right.name)),
   };
 }
@@ -39,6 +40,10 @@ function compareFactIds(left: { factId: string }, right: { factId: string }): nu
 
 function compareBlastRadius(left: BlastRadiusFact, right: BlastRadiusFact): number {
   return right.transitiveDependentCount - left.transitiveDependentCount || compareFactIds(left, right);
+}
+
+function compareLinks(left: CrossRepoLink, right: CrossRepoLink): number {
+  return right.changedImporterCount - left.changedImporterCount || right.importerCount - left.importerCount || compareFactIds(left, right);
 }
 
 function factsHashInput(map: ChangeMap): string {
@@ -66,16 +71,20 @@ function knownNarrativeFactIds(map: ChangeMap): Set<string> {
   return knownFactIds;
 }
 
-function buildNarrativePrompt({ facts, resultPath }: { facts: ReturnType<typeof narrativeFacts>; resultPath: string }): string {
+function buildNarrativePrompt({ facts, resultPath }: { facts: ReturnType<typeof narrativeFacts>; resultPath: string | null }): string {
+  const deliveryLines = resultPath
+    ? ['Use no tools except Write to the exact result file path below.', 'Write']
+    : ['Answer with the JSON as your final message and write no files.', 'Return'];
   return [
     'The facts below are your only source of truth. Read nothing else.',
-    'Use no tools except Write to the exact result file path below.',
-    `Write JSON { "claims": [{ "text": string, "factIds": string[] }] } with at most ${CHANGE_MAP_CLAIMS_MAX} claims.`,
+    deliveryLines[0],
+    `${deliveryLines[1]} JSON { "claims": [{ "text": string, "factIds": string[] }] } with at most ${CHANGE_MAP_CLAIMS_MAX} claims.`,
     'Each claim must be one or two plain-English sentences about how a change connects to the codebase or what risk it carries.',
     'Every claim must cite one or more factIds copied exactly from the facts. Do not invent facts or identifiers.',
+    'When links are present, lead with how a change in one repository reaches another through them.',
     `Each fact list and subsystem path list holds at most ${CHANGE_MAP_LIST_CAP} entries; totalCounts and pathCount give the full sizes.`,
     `Keep each claim within ${CHANGE_MAP_CLAIM_MAX_CHARS} characters.`,
-    `Result file: ${resultPath}`,
+    ...(resultPath ? [`Result file: ${resultPath}`] : []),
     `Facts JSON: ${JSON.stringify(facts)}`,
   ].join('\n');
 }

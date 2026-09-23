@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import type { HookRouter } from '../detection/hook-source.ts';
+import { DEFAULT_AGENT_ID } from '../session/adapters/index.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import { needsDistill } from './core/distill-core.ts';
@@ -45,6 +46,8 @@ type SpawnDistill = (options: {
   name: string;
   prompt: string;
   cwd: string;
+  agent?: string;
+  extraArgs?: string[];
   model?: string | null;
   signal?: AbortSignal | null;
 }) => Promise<void>;
@@ -131,20 +134,22 @@ function createMemoryDistillSpawn({
   sessions = new Map(), closeSessionDataClients = () => {}, hookRouter = null, getHookPort = null,
   spawnGate = null, replayBufferKB = undefined, recordLane = null, laneName = LANE_NAME,
 }: MemoryDistillSpawnOptions = {}): SpawnDistill {
-  return async function spawnMemoryDistill({ id, name, prompt, cwd, model = null, signal = null }) {
-    const posture = buildLanePermissions({ denyTools: MEMORY_DISTILL_DENY_TOOLS });
-    const standalone = hookRouter ? null : writeStandaloneDenySettings(posture.permissions);
-    const extraClaudeArgs = ['-p', ...posture.args, ...(standalone ? standalone.args : [])];
-    if (model) extraClaudeArgs.push('--model', model);
+  return async function spawnMemoryDistill({ id, name, prompt, cwd, agent = DEFAULT_AGENT_ID, extraArgs = [], model = null, signal = null }) {
+    const isCodex = agent === 'codex';
+    const posture = isCodex ? null : buildLanePermissions({ denyTools: MEMORY_DISTILL_DENY_TOOLS });
+    const standalone = !hookRouter && posture ? writeStandaloneDenySettings(posture.permissions) : null;
+    const extraClaudeArgs = isCodex ? extraArgs : ['-p', ...(posture?.args ?? []), ...(standalone ? standalone.args : [])];
+    if (!isCodex && model) extraClaudeArgs.push('--model', model);
     const options: SessionOptions = {
       id,
       name,
       path: cwd,
+      agent,
       dangerouslySkipPermissions: false,
       extraClaudeArgs,
       initialPrompt: prompt,
       ephemeral: true,
-      settingsPermissions: posture.permissions,
+      settingsPermissions: posture?.permissions ?? null,
       replayBufferKB,
       hookRouter,
       getHookPort,

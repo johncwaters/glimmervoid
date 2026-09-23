@@ -49,7 +49,7 @@ const DEFAULT_CONFIG = {
   },
 
   changeMap: {
-    narrator: { enabled: false, model: 'haiku', timeoutSeconds: 90 },
+    narrator: { enabled: false, engine: 'claude', model: '', timeoutSeconds: 90 },
   },
 
   agentApi: {

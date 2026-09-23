@@ -10,7 +10,7 @@ function mapWithFiles(paths: string[] = ['server/a.ts']): ChangeMap {
   return {
     sessionId: 'session', sig: 'signature', generatedAt: 123, narrative: null, narratorState: 'pending',
     repos: [{
-      name: 'repo', root: '/private/repo', base: 'main', error: null,
+      name: 'repo', root: '/private/repo', sessionPathPrefix: '', base: 'main', error: null, links: [],
       files: paths.map((path) => ({ factId: changeMapFactId('file', 'repo', path), path, status: 'modified', isCommitted: false })),
       subsystems: [], coChangeGaps: [], hotspots: [], blastRadius: [], untestedFiles: [], collisions: [],
     }],
@@ -39,8 +39,29 @@ test('prompt embeds only the projected facts and exact result path', () => {
   assert.ok(prompt.includes(JSON.stringify(facts)));
   assert.ok(prompt.includes('/tmp/result.json'));
   assert.ok(prompt.includes('only source of truth'));
+  assert.ok(prompt.includes('When links are present, lead with how a change in one repository reaches another through them.'));
   assert.ok(prompt.includes(String(CHANGE_MAP_CLAIMS_MAX)));
   assert.equal(prompt.includes('/private/repo'), false);
+});
+
+test('link facts are counted, capped by impact, and accepted as narrative citations', () => {
+  const map = mapWithFiles([]);
+  const links = Array.from({ length: CHANGE_MAP_LIST_CAP + 2 }, (_, index) => ({
+    factId: changeMapFactId('link', 'repo', `provider-${index}`, 'shared'),
+    providerRepo: `provider-${index}`, packageName: 'shared', packageDir: '', consumerManifest: 'package.json',
+    versionSpec: '^1', isLocalLink: false, providerChangedPathCount: 1, importers: [],
+    importerCount: index % 2, changedImporterCount: index === CHANGE_MAP_LIST_CAP + 1 ? 2 : 0,
+  }));
+  map.repos[0].links = links;
+  const [facts] = narrativeFacts(map).repos;
+  assert.equal(facts.totalCounts.links, CHANGE_MAP_LIST_CAP + 2);
+  assert.equal(facts.links.length, CHANGE_MAP_LIST_CAP);
+  assert.equal(facts.links[0].providerRepo, `provider-${CHANGE_MAP_LIST_CAP + 1}`);
+  assert.equal(facts.links[1].importerCount, 1);
+  assert.equal(knownNarrativeFactIds(map).has(facts.links[0].factId), true);
+  const excluded = links.find((link) => !facts.links.some((fact) => fact.factId === link.factId));
+  assert.equal(knownNarrativeFactIds(map).has(excluded?.factId ?? ''), false);
+  assert.equal(factsHashInput(map), factsHashInput({ ...map, repos: [{ ...map.repos[0], links: [...links].reverse() }] }));
 });
 
 test('validator drops unknown citations, empty and overlong text, and invalid top-level input', () => {

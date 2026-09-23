@@ -11,6 +11,7 @@ function repoMap(overrides: Record<string, unknown> = {}) {
   return {
     name: 'glimmervoid',
     root: '/work/glimmervoid',
+    sessionPathPrefix: '',
     base: 'abc123',
     files: [{ factId: 'file:glimmervoid:a.ts', path: 'a.ts', status: 'modified', isCommitted: true }],
     subsystems: [{ factId: 'subsystem:glimmervoid:AGENTS.md', agentsPath: 'AGENTS.md', title: 'glimmervoid', paths: ['a.ts'] }],
@@ -27,6 +28,19 @@ function repoMap(overrides: Record<string, unknown> = {}) {
     }],
     untestedFiles: [],
     collisions: [{ factId: 'collision:glimmervoid:a.ts:s2', path: 'a.ts', otherSessionId: 's2', otherSessionName: 'other' }],
+    links: [{
+      factId: 'link:glimmervoid:shared-lib:shared-lib',
+      providerRepo: 'shared-lib',
+      packageName: 'shared-lib',
+      packageDir: '',
+      consumerManifest: 'package.json',
+      versionSpec: '^1.2.0',
+      isLocalLink: false,
+      providerChangedPathCount: 3,
+      importers: ['a.ts'],
+      importerCount: 1,
+      changedImporterCount: 1,
+    }],
     error: null,
     ...overrides,
   };

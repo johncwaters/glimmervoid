@@ -1,11 +1,11 @@
 import { el } from '../dom-helpers.ts';
 import type { ChangeMapRepoView, ChangeMapView } from './change-map-core.ts';
 
-function clickableFileRow(path: string, className: string, onOpenFile: (path: string) => void) {
+function clickableFileRow(path: string, openPath: string, className: string, onOpenFile: (path: string) => void) {
   const row = el('button', className);
   row.type = 'button';
   row.title = `Open ${path} in the diff`;
-  row.addEventListener('click', () => onOpenFile(path));
+  row.addEventListener('click', () => onOpenFile(openPath));
   return row;
 }
 
@@ -30,7 +30,7 @@ function renderRepo(repo: ChangeMapRepoView, onOpenFile: (path: string) => void)
     section.append(el('h3', 'review-map-label', 'Signals'));
     const warnings = el('div', 'review-map-warnings');
     for (const warning of repo.warnings) {
-      const row = clickableFileRow(warning.path, 'review-map-warning', onOpenFile);
+      const row = clickableFileRow(warning.path, warning.openPath, 'review-map-warning', onOpenFile);
       row.dataset.severity = String(warning.severity);
       row.dataset.kind = warning.kind;
       row.append(el('span', 'review-map-warning-headline', warning.headline));
@@ -43,7 +43,7 @@ function renderRepo(repo: ChangeMapRepoView, onOpenFile: (path: string) => void)
     section.append(el('h3', 'review-map-label', 'Files'));
     const files = el('div', 'review-map-files');
     for (const file of repo.files) {
-      const row = clickableFileRow(file.path, 'review-map-file', onOpenFile);
+      const row = clickableFileRow(file.path, file.openPath, 'review-map-file', onOpenFile);
       row.dataset.status = file.status;
       row.append(el('span', 'review-map-file-path', file.path));
       row.append(el('span', 'review-map-file-meta', `${file.status} · ${file.isCommitted ? 'committed' : 'uncommitted'} · ${file.dependentCount} dependents · ${file.testCount} tests`));
