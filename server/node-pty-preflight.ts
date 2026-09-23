@@ -97,4 +97,14 @@ async function probeNodePty(): Promise<NodePtyProbeResult> {
   return scanNativeBinding(resolved.packageDir);
 }
 
-export { probeNodePty, scanNativeBinding };
+function requireExecutableSpawnHelper(
+  packageDir: string | null = null,
+  scope: NativeScanScope = hostScope(),
+): void {
+  const resolved = packageDir === null ? resolveNodePtyPackageDir() : { packageDir };
+  if ('error' in resolved) return;
+  const helper = ensureSpawnHelperExecutable(resolved.packageDir, scope);
+  if (!helper.ok) throw new Error(helper.reason);
+}
+
+export { probeNodePty, requireExecutableSpawnHelper, scanNativeBinding };

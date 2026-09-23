@@ -5,6 +5,7 @@ import pty from "node-pty";
 import { EventEmitter } from "node:events";
 import { execFile } from "../server/child-process-safe.ts";
 import { projectDirCandidates } from "../server/core/usage-scan-core.ts";
+import { requireExecutableSpawnHelper } from "../server/node-pty-preflight.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
 import { AGENT_ATTENTION_NOTE_SEPARATOR, AGENT_URL_ENV } from "../shared/contracts/session.ts";
@@ -462,7 +463,10 @@ class Session extends EventEmitter {
     this._agentLiveChildren = 0;
     this._agentLifetimeSpawns = 0;
     this._agentSpawnsInFlight = 0;
-    this._ptySpawn = ptySpawn || ((file, args, opts) => pty.spawn(file, args, opts));
+    this._ptySpawn = ptySpawn || ((file, args, opts) => {
+      requireExecutableSpawnHelper();
+      return pty.spawn(file, args, opts);
+    });
 
     this._killProc = killProc || ((args, opts, cb) => execFile("taskkill", args, opts, cb));
     this._signalProc = signalProc || ((pid, signal) => process.kill(pid, signal));

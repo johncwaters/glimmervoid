@@ -10,7 +10,7 @@ import {
   nodePtyRebuildHint,
   formatNodePtyBootRefusal,
 } from '../server/core/node-pty-preflight-core.ts';
-import { probeNodePty, scanNativeBinding } from '../server/node-pty-preflight.ts';
+import { probeNodePty, requireExecutableSpawnHelper, scanNativeBinding } from '../server/node-pty-preflight.ts';
 
 test('nativeBindingCandidates: each of Release, Debug and prebuilds is checked package-relative then lib-relative', () => {
   const candidates = nativeBindingCandidates({ packageDir: '/pkg/node-pty', platform: 'linux', arch: 'x64' });
@@ -253,4 +253,30 @@ test('spawnHelperCandidates: off darwin there are none, on darwin each binding c
     ),
   );
   assert.ok(mac.includes(path.join('/pkg', 'prebuilds', 'darwin-arm64', 'spawn-helper')), mac.join(', '));
+});
+
+test('requireExecutableSpawnHelper: a helper stripped after boot is repaired before the next spawn', () => {
+  const { packageDir, helperPath } = writeBindingFixture({ helperMode: 0o644, scope: darwinScope });
+  try {
+    requireExecutableSpawnHelper(packageDir, darwinScope);
+    assert.notEqual(fs.statSync(helperPath).mode & 0o111, 0);
+  } finally {
+    fs.rmSync(packageDir, { recursive: true, force: true });
+  }
+});
+
+test('requireExecutableSpawnHelper: a missing helper throws the checked paths instead of an opaque posix_spawnp failure', () => {
+  const { packageDir, helperPath } = writeBindingFixture({ helperMode: null, scope: darwinScope });
+  try {
+    assert.throws(
+      () => requireExecutableSpawnHelper(packageDir, darwinScope),
+      (error: unknown) => error instanceof Error && error.message.includes(helperPath),
+    );
+  } finally {
+    fs.rmSync(packageDir, { recursive: true, force: true });
+  }
+});
+
+test('requireExecutableSpawnHelper: the installed node-pty passes on the host', () => {
+  assert.doesNotThrow(() => requireExecutableSpawnHelper());
 });
