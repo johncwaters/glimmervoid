@@ -264,6 +264,14 @@ function mergeSettingsBlockOverStored(stored: unknown, incoming: Record<string, 
   }
   return merged;
 }
+function mergeChangeMapOverStored(stored: unknown, incoming: Record<string, unknown>): Record<string, unknown> {
+  const merged = mergeSettingsBlockOverStored(stored, incoming);
+  const storedNarrator = stored && typeof stored === 'object' ? Object.getOwnPropertyDescriptor(stored, 'narrator')?.value : undefined;
+  const incomingNarrator = incoming.narrator;
+  if (!incomingNarrator || typeof incomingNarrator !== 'object') return merged;
+  merged.narrator = mergeSettingsBlockOverStored(storedNarrator, { ...incomingNarrator });
+  return merged;
+}
 const DASHBOARD_SETTING_PATHS = Object.freeze([
   ...BRANCH_GC_CONTROL_BOOLEAN_KEYS.map((key) => `branchGc.${key}`),
   ...BRANCH_GC_CONTROL_NUMERIC_KEYS.map((key) => `branchGc.${key}`),
@@ -718,6 +726,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
         cfg[key] = incoming[key];
       }
       if (s.repoRoots != null) cfg.repoRoots = s.repoRoots;
+      if (s.changeMap != null) cfg.changeMap = mergeChangeMapOverStored(cfg.changeMap, s.changeMap);
       if (s.branchGc != null) cfg.branchGc = mergeSettingsBlockOverStored(cfg.branchGc, s.branchGc);
       if (s.visions != null) cfg.visions = s.visions;
       if (s.teamReview != null) cfg.teamReview = mergeSettingsBlockOverStored(cfg.teamReview, s.teamReview);
