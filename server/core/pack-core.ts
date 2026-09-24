@@ -478,12 +478,10 @@ function millPackNames(config: { millEnabled?: unknown } | null | undefined, val
 interface PackConsumerConfig {
   millEnabled?: unknown;
   projects?: unknown;
-  prReview?: { packs?: unknown } | null;
   posthog?: { packs?: unknown } | null;
 }
 
 const PACK_CONSUMER_LANES: readonly { kind: string; label: string; read: (config: PackConsumerConfig | null | undefined) => unknown }[] = Object.freeze([
-  { kind: 'prReview', label: 'prReview.packs', read: (config: PackConsumerConfig | null | undefined) => config?.prReview?.packs },
   { kind: 'posthog', label: 'posthog.packs', read: (config: PackConsumerConfig | null | undefined) => config?.posthog?.packs },
 ]);
 

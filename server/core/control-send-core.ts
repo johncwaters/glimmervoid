@@ -14,7 +14,6 @@ const REFRESHABLE_TYPES = new Set([
   'plan-limits',
   'ingest-activity',
   'ingest-snapshot',
-  'pr-status',
   'posthog-status',
   'posthog-investigation-activity',
   'session-trace-changed',

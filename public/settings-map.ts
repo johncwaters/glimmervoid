@@ -55,9 +55,7 @@ export const SETTINGS_SECTION_ALIASES = Object.freeze({
   detection: 'machine-detection-sessions',
   telegram: 'machine-telegram',
   notifications: 'machine-telegram',
-  'pr-review': 'lanes-pr-review',
   'change-map': 'lanes-change-map',
-  prreview: 'lanes-pr-review',
   visions: 'lanes-visions',
   mill: 'lanes-mill',
   posthog: 'lanes-posthog',
@@ -355,38 +353,6 @@ export const SETTINGS_MAP = Object.freeze([
     ],
   },
   {
-    id: 'lanes-pr-review',
-    level: 'lanes',
-    title: 'PR review',
-    description: 'Review and merge eligible GitHub pull requests behind hard gates.',
-    settings: [
-      {
-        id: 'pr-review-projects', path: 'prReview.projects', title: 'Projects to watch',
-        description: 'Configured projects eligible for PR review.',
-        control: 'projects', keywords: ['repositories', 'watch list'], defaultValue: [],
-      },
-      {
-        id: 'pr-review-interval', path: 'prReview.intervalMinutes', title: 'Poll interval (minutes)',
-        description: 'Delay between GitHub polling passes.',
-        control: 'number', range: 'PR_REVIEW_INTERVAL_RANGE', keywords: ['refresh', 'schedule'], defaultValue: 15,
-      },
-      {
-        id: 'pr-review-max-concurrent', path: 'prReview.maxConcurrentReviews', title: 'Max concurrent reviews',
-        description: 'Maximum review sessions running together.',
-        control: 'number', range: 'PR_REVIEW_MAX_CONCURRENT_RANGE', keywords: ['parallel', 'workers'], defaultValue: 3,
-      },
-      {
-        id: 'pr-review-timeout', path: 'prReview.reviewTimeoutSeconds', title: 'Review timeout (seconds)',
-        description: 'Maximum time allowed for one review session.',
-        control: 'number', range: 'PR_REVIEW_TIMEOUT_RANGE', keywords: ['deadline', 'session'], defaultValue: 900,
-      },
-    ],
-    unattendedLinks: [
-      { settingId: 'pr-review-enabled', title: 'Enable PR auto-review' },
-      { settingId: 'pr-review-merge-method', title: 'Merge method' },
-    ],
-  },
-  {
     id: 'lanes-visions',
     level: 'lanes',
     title: 'Visions',
@@ -648,19 +614,6 @@ export const SETTINGS_MAP = Object.freeze([
     title: 'Unattended actions',
     description: 'Controls that let automated work change repositories or install executable tooling.',
     settings: [
-      {
-        id: 'pr-review-enabled', path: 'prReview.enabled', title: 'Enable PR auto-review',
-        description: 'Review and merge eligible pull requests after every configured gate passes.',
-        control: 'toggle', keywords: ['github', 'pull request'], danger: true, dangerConfirmation: 'pr-review',
-        warning: 'Enabling this lane can merge eligible pull requests without a carbon unit present.', defaultValue: false,
-      },
-      {
-        id: 'pr-review-merge-method', path: 'prReview.mergeMethod', title: 'Merge method',
-        description: 'GitHub merge strategy used after every gate passes.',
-        control: 'select', options: [{ value: 'rebase', label: 'Rebase' }, { value: 'squash', label: 'Squash' }, { value: 'merge', label: 'Merge' }],
-        keywords: ['github', 'strategy'], danger: true,
-        warning: 'This method is applied automatically when PR review reaches its merge gate.', defaultValue: 'rebase',
-      },
       {
         id: 'visions-auto-fix', path: 'visions.autoFix', title: 'Apply tier 1 fixes',
         description: 'Allow Visions to edit the active buffer without asking.',

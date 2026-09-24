@@ -326,7 +326,6 @@ test('with the mill switched off the report claims no consumer and no pending de
     config: {
       millEnabled: false,
       projects: [{ id: 'p1', name: 'glimmervoid', path: projectPath }],
-      prReview: { packs: ['good'] },
     },
     listSessions: () => [{ id: 's1', name: 'glimmervoid', path: projectPath, state: 'DORMANT', packs: [] }],
   });

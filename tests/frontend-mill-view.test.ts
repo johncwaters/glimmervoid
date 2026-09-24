@@ -122,8 +122,8 @@ test('a pack nothing names is said out loud rather than left blank', async () =>
   const { consumerLine } = await importCore();
   assert.equal(consumerLine(pack()), 'consumers: none');
   assert.equal(
-    consumerLine(pack({ consumers: { projects: ['glimmervoid', 'other'], lanes: [{ kind: 'prReview', label: 'prReview.packs' }] } })),
-    'consumers: projects glimmervoid, other, the PR review lane',
+    consumerLine(pack({ consumers: { projects: ['glimmervoid', 'other'], lanes: [{ kind: 'posthog', label: 'posthog.packs' }] } })),
+    'consumers: projects glimmervoid, other, the Radar lane',
   );
 });
 

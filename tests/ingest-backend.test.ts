@@ -311,14 +311,14 @@ test('the git watch set is populated at boot, and never by an ephemeral lane ses
     await until(() => gitSourceOf(backend).repoCount === 1, 'the boot poke should have derived the watch set');
     assert.deepEqual(gitSourceOf(backend).repoKeys, [projectGitDir]);
 
-    const ephemeral = new FakeEphemeralSession('pr-review:42', { path: seededPath(seeded.laneDir, 'lane directory'), worktreeDir: seededPath(seeded.laneDir, 'lane directory') });
+    const ephemeral = new FakeEphemeralSession('team-review:42', { path: seededPath(seeded.laneDir, 'lane directory'), worktreeDir: seededPath(seeded.laneDir, 'lane directory') });
     registerEphemeralSession({
       map: new Map(),
       id: ephemeral.id,
       sess: ephemeral,
       closeSessionDataClients: () => {},
-      logPrefix: 'pr-review',
-      name: 'pr review',
+      logPrefix: 'team-review',
+      name: 'team review',
     });
 
     await lane.noteRepos();

@@ -2,8 +2,6 @@
 import { attentionSignature } from './attention-ack-core.ts';
 import { numberOr, textOr } from './coerce-core.ts';
 import { lanePlaceholder } from './lane-placeholder-core.ts';
-import type { PrProject, PrRow, PrStatusSnapshot } from './pr-view-core.ts';
-import { normalizePhase, prNeedsAction, severityFor as prSeverityFor, sortPrsByAttention } from './pr-view-core.ts';
 
 export interface RadarIssue {
   issueId?: unknown;
@@ -536,35 +534,6 @@ export function opsRows({ update, health }: { update?: RadarUpdateFeed | null; h
   });
   for (const anomaly of healthAnomalyRows(health)) {
     rows.push({ kind: 'anomaly', key: anomaly.key, text: anomaly.label, detail: '', tone: 'warn' });
-  }
-  return rows;
-}
-
-export function needsActionPrRows(snapshot: PrStatusSnapshot | null | undefined) {
-  const projects: (PrProject | null)[] = Array.isArray(snapshot?.projects) ? snapshot.projects : [];
-  const rows: {
-    projectId: string;
-    projectLabel: string;
-    number: number | null;
-    title: string;
-    phase: string;
-    severity: string;
-    reason: string;
-  }[] = [];
-  for (const project of projects) {
-    const prs: PrRow[] = Array.isArray(project?.prs) ? project.prs : [];
-    const actionable = sortPrsByAttention(prs.filter((pr) => prNeedsAction(pr)));
-    for (const pr of actionable) {
-      rows.push({
-        projectId: textOr(project?.projectId, ''),
-        projectLabel: textOr(project?.repoSlug, textOr(project?.name, textOr(project?.projectId, 'project'))),
-        number: typeof pr?.number === 'number' && Number.isFinite(pr.number) ? pr.number : null,
-        title: textOr(pr?.title, 'Untitled pull request'),
-        phase: normalizePhase(pr?.phase),
-        severity: prSeverityFor(pr?.phase, { inFlight: !!pr?.inFlight, pingedError: !!pr?.pingedError }),
-        reason: textOr(pr?.reason, ''),
-      });
-    }
   }
   return rows;
 }

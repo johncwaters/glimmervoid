@@ -393,7 +393,7 @@ test('the lifecycle awaits every named lane stopper before releasing the listene
   const lc = createLifecycle({
     shutdown: () => ({
       reaps: [],
-      stoppers: [{ name: 'pr-review', promise: laneStopped.promise.then(() => order.push('lane drained')) }],
+      stoppers: [{ name: 'posthog', promise: laneStopped.promise.then(() => order.push('lane drained')) }],
     }),
     httpServer: { close(callback: () => void) { order.push('listener closed'); if (callback) callback(); } },
     onRestart: null,

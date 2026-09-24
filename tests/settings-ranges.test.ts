@@ -8,7 +8,6 @@ import * as memoryDistillCore from '../server/core/memory-distill-core.ts';
 import {
   BRANCH_GC_NUMERIC_RANGES,
   POSTHOG_NUMERIC_RANGES,
-  PR_REVIEW_NUMERIC_RANGES,
   VISIONS_DISPATCH_NUMERIC_RANGES,
   VISIONS_INTENT_NUMERIC_RANGES,
 } from '../server/control-handlers.ts';
@@ -30,7 +29,6 @@ test('server resolvers and wire specs reuse the shared range objects', () => {
   assert.strictEqual(PACK_DISTILLER_SPEC.integerRanges.intervalHours, ranges.PACK_DISTILLER_INTERVAL_RANGE);
   assert.strictEqual(PACK_DISTILLER_SPEC.integerRanges.timeoutSeconds, ranges.PACK_DISTILLER_TIMEOUT_RANGE);
   assert.strictEqual(USAGE_INTEGER_RANGES, ranges.USAGE_INTEGER_RANGES);
-  assert.strictEqual(PR_REVIEW_NUMERIC_RANGES.intervalMinutes, ranges.PR_REVIEW_INTERVAL_RANGE);
   assert.strictEqual(BRANCH_GC_NUMERIC_RANGES.staleDays, ranges.BRANCH_GC_STALE_DAYS_RANGE);
   assert.strictEqual(VISIONS_DISPATCH_NUMERIC_RANGES.quietMs, ranges.VISIONS_QUIET_MS_RANGE);
   assert.strictEqual(VISIONS_INTENT_NUMERIC_RANGES.threadTtlMs, ranges.VISIONS_INTENT_THREAD_TTL_MS_RANGE);

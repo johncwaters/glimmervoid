@@ -31,7 +31,6 @@ interface BackendShutdownDependencies {
   visionsSessions: Map<string, ShutdownSession>;
   memoryDistillSessions: Map<string, ShutdownSession>;
   branchGc: Stoppable;
-  prReview: { stopPoller: () => unknown };
   posthog: { stopPoller: () => unknown };
   packService: Stoppable;
   usage: Stoppable;
@@ -97,7 +96,6 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     closeMeasuredSessions(dependencies.millMetricsPort, dependencies.sessions);
     destroySessions([dependencies.sessions], pendingReaps);
     stoppers.add('branch-gc', () => dependencies.branchGc.stop());
-    stoppers.add('pr-review', () => dependencies.prReview.stopPoller());
     destroySessions([dependencies.agentSessions, dependencies.reviewSessions], pendingReaps);
     stoppers.add('posthog', () => dependencies.posthog.stopPoller());
     stoppers.add('pack-service', () => dependencies.packService.stop());

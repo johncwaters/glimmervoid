@@ -19,11 +19,11 @@ import { applyDeleteHookResult, applyHooksReport, applySaveHookResult, mountHook
 import { initNotifications, showDesktopNotification } from './notifications.ts';
 import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneScreenActive, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen } from './phone/phone-shell.ts';
 import { noteKnownProjectPath } from './project-registry.ts';
-import { acknowledgePrAttention, applyPrStatus, mountPrView, setPrActivityCallback } from './pr-panel.ts';
+import { acknowledgeTeamReviewAttention, applyTeamReviewStatus, mountTeamReviewView, setTeamReviewActivityCallback } from './team-review-panel.ts';
 import { applyIssuesConnectionState, applyIssuesProjects, applyIssuesReport, applyOpenIssueSessionResult, mountIssuesView, setIssuesRequestSender } from './issues-panel.ts';
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID, updateBannerText } from './radar-core.ts';
-import { acknowledgeRadarAttention, applyHealthSnapshot as applyRadarHealth, applyInvestigationActivity, applyInvestigationFinished, applyPosthogStatus, applyPrStatus as applyRadarPrStatus, applyUpdateAvailable as applyRadarUpdate, mountRadarView, setRadarActivityCallback, setRadarNavigateToPrs, setRadarTraceOpener } from './radar-panel.ts';
+import { acknowledgeRadarAttention, applyHealthSnapshot as applyRadarHealth, applyInvestigationActivity, applyInvestigationFinished, applyPosthogStatus, applyUpdateAvailable as applyRadarUpdate, mountRadarView, setRadarActivityCallback, setRadarTraceOpener } from './radar-panel.ts';
 import { handleDebugStateRefresh, handleDebugStateResponse, onDebugModeChanged } from './session-card/card-dom.ts';
 import { findSessionUi, sessionUIs } from './session-card/card-registry.ts';
 import type { PlanResponse } from './plan/plan-face.ts';
@@ -375,7 +375,7 @@ const messageHandlers = {
   'posthog-status':     (msg) => applyPosthogStatus(msg),
   'posthog-investigation-activity': (msg) => applyInvestigationActivity(msg),
   'posthog-investigation-finished': (msg) => applyInvestigationFinished(msg),
-  'pr-status':          (msg) => { applyPrStatus(msg); applyRadarPrStatus(msg); },
+  'team-review-status': (msg) => applyTeamReviewStatus(msg),
   'issues-report':      (msg) => applyIssuesReport(msg as ServerMessage & IssuesReportPush),
   'open-issue-session-result': (msg) => applyOpenIssueSessionResult(msg),
   'usage-sessions':     (msg) => { applyUsageSessionChips(msg.sessions); applyUsageSessions(msg); requestUsageReportIfVisible(); },
@@ -587,7 +587,7 @@ setRadarActivityCallback((active) => {
   tabRadarActivityEl.classList.toggle('active', active);
   setPhoneScreenAttention('radar', active);
 });
-setPrActivityCallback((active) => {
+setTeamReviewActivityCallback((active) => {
   tabPrsActivityEl.classList.toggle('active', active);
   setPhoneScreenAttention('prs', active);
 });
@@ -608,11 +608,6 @@ setVisionsActivityCallback((level) => {
   setPhoneScreenAttention('visions', level);
 });
 
-setRadarNavigateToPrs(() => {
-  if (showPhoneScreen('prs')) return;
-  activateView('prs');
-});
-
 mountFocusView({
   rail: document.getElementById('focus-rail'),
   center: document.getElementById('focus-center'),
@@ -623,7 +618,7 @@ mountReviewSidebar({ panel: document.getElementById('review-sidebar') });
 
 mountRadarView(viewRadarEl);
 
-mountPrView(viewPrsEl);
+mountTeamReviewView(viewPrsEl);
 
 mountIssuesView(viewIssuesEl);
 
@@ -660,7 +655,7 @@ let shouldPersistActiveView = true;
 let savedViewAwaitingSurface: string | null = null;
 function acknowledgeViewAttention(view: string) {
   if (view === 'radar') acknowledgeRadarAttention();
-  if (view === 'prs') acknowledgePrAttention();
+  if (view === 'prs') acknowledgeTeamReviewAttention();
   if (view === 'usage') acknowledgeUsageAttention();
   if (view === 'mill') acknowledgeMillAttention();
   if (view === 'visions') {

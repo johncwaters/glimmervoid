@@ -5,10 +5,9 @@ import type { MillPackRow } from '../server/core/mill-core.ts';
 import { MAX_OUTPUT_ROWS, budgetPercent, buildMillReport, shortBuiltReason } from '../server/core/mill-core.ts';
 import { MAX_INDEX_TOKENS, MAX_PACKS_PER_SESSION, packConsumerGroups } from '../server/core/pack-core.ts';
 
-function sourcesFor({ projects = [], prReview = null, posthog = null, packNames = ['house-rules'] } = {}) {
+function sourcesFor({ projects = [], posthog = null, packNames = ['house-rules'] } = {}) {
   return packConsumerGroups({
     projects,
-    prReview: prReview ? { packs: prReview } : null,
     posthog: posthog ? { packs: posthog } : null,
   }, packNames);
 }
@@ -369,38 +368,33 @@ test('lane lists are normalized through the spawn rule, and every rejection is r
   const report = buildMillReport(baseInput({
     consumers: {
       projects: [{ name: 'glimmervoid' }, { name: 'other' }],
-      prReview: ['house-rules', 'house-rules'],
-      posthog: ['../escape'],
+      posthog: ['house-rules', 'house-rules'],
     },
   }));
   const pack = report.packs[0];
   assert.deepEqual(pack.consumers.projects, ['glimmervoid', 'other']);
-  assert.deepEqual(laneKinds(pack), ['prReview'], 'only the lanes that actually name it');
-  assert.ok(report.configWarnings.some((w) => w.includes('prReview.packs') && w.includes('repeats')));
-  assert.ok(report.configWarnings.some((w) => w.includes('posthog.packs') && w.includes('not a valid pack name')));
+  assert.deepEqual(laneKinds(pack), ['posthog'], 'only the lanes that actually name it');
+  assert.ok(report.configWarnings.some((w) => w.includes('posthog.packs') && w.includes('repeats')));
 });
 
 test('a consumer naming a pack no spec defines is a warning, not a silent skip', () => {
   const report = buildMillReport(baseInput({
-    consumers: { projects: [{ name: 'glimmervoid' }], prReview: ['ghost'], posthog: null, packNames: ['ghost'] },
+    consumers: { projects: [{ name: 'glimmervoid' }], posthog: ['ghost'], packNames: ['ghost'] },
   }));
   assert.ok(report.configWarnings.some((w) => w === 'project "glimmervoid" names pack "ghost", which has no spec'));
-  assert.ok(report.configWarnings.some((w) => w === 'prReview.packs names pack "ghost", which has no spec'));
+  assert.ok(report.configWarnings.some((w) => w === 'posthog.packs names pack "ghost", which has no spec'));
 });
 
 test('a pack with no project and no lane reports hasConsumers false and counts as unconsumed', () => {
-  const report = buildMillReport(baseInput({
-    consumers: { projects: [], prReview: null, posthog: null },
-  }));
+  const report = buildMillReport(baseInput({ consumers: { projects: [], posthog: null } }));
   assert.equal(report.packs[0].hasConsumers, false, 'nothing delivers it, so the mill skips it on purpose');
   assert.equal(report.totals.unconsumed, 1);
 });
 
 test('one consumer of any kind is enough for hasConsumers', () => {
   for (const consumers of [
-    { projects: [{ id: 'p1', name: 'glimmervoid' }], prReview: null, posthog: null },
-    { projects: [], prReview: ['house-rules'], posthog: null },
-    { projects: [], prReview: null, posthog: ['house-rules'] },
+    { projects: [{ id: 'p1', name: 'glimmervoid' }], posthog: null },
+    { projects: [], posthog: ['house-rules'] },
   ]) {
     const report = buildMillReport(baseInput({ consumers }));
     assert.equal(report.packs[0].hasConsumers, true);
@@ -415,7 +409,6 @@ test('the report carries each project id with every spec, since every project co
         { id: 'p1', name: 'glimmervoid' },
         { id: 'p2', name: 'other' },
       ],
-      prReview: null,
       posthog: null,
     },
   }));

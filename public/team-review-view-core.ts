@@ -1,12 +1,10 @@
 import { attentionSignature } from './attention-ack-core.ts';
 import { numberOr, textOr } from './coerce-core.ts';
-import { lanePlaceholder } from './lane-placeholder-core.ts';
 
-export interface PrRow {
+export interface TeamReviewRow {
   number?: number;
   phase?: string | null;
   inFlight?: boolean;
-  pingedError?: boolean;
   wasConflicting?: boolean;
   title?: string;
   url?: string;
@@ -14,18 +12,16 @@ export interface PrRow {
   reason?: string;
 }
 
-export interface PrProject {
+export interface TeamReviewProject {
   projectId?: string;
   name?: string;
   repoSlug?: string;
   lastTickAt?: number;
-  prs?: PrRow[] | null;
+  prs?: TeamReviewRow[] | null;
 }
 
-export interface PrStatusSnapshot {
-  projects?: (PrProject | null)[];
-  configured?: boolean;
-  reason?: unknown;
+export interface TeamReviewStatusSnapshot {
+  projects?: (TeamReviewProject | null)[];
 }
 
 const PHASE_RANK: Record<string, number> = {
@@ -34,10 +30,9 @@ const PHASE_RANK: Record<string, number> = {
   'changes-requested': 1,
   conflicting: 2,
   'resolving-conflicts': 2,
-  'awaiting-checks': 3,
   'in-review': 3,
   pending: 4,
-  merged: 5,
+  clean: 5,
 };
 
 const PHASE_SEVERITY: Record<string, string> = {
@@ -46,10 +41,9 @@ const PHASE_SEVERITY: Record<string, string> = {
   'changes-requested': 'warn',
   conflicting: 'warn',
   'resolving-conflicts': 'warn',
-  'awaiting-checks': 'info',
   'in-review': 'info',
   pending: 'dim',
-  merged: 'ok',
+  clean: 'ok',
 };
 
 const PHASE_LABEL: Record<string, string> = {
@@ -58,18 +52,17 @@ const PHASE_LABEL: Record<string, string> = {
   'changes-requested': 'changes requested',
   conflicting: 'conflicting',
   'resolving-conflicts': 'resolving',
-  'awaiting-checks': 'awaiting checks',
   'in-review': 'in review',
   pending: 'pending',
-  merged: 'merged',
+  clean: 'clean',
 };
 
 const UNKNOWN_RANK = 99;
 
 export const PENDING_PHASE = 'pending';
 
-export function prStatusPlaceholder(status: PrStatusSnapshot | null | undefined) {
-  return lanePlaceholder(status, { label: 'PR auto-review', tab: 'PR Review' });
+export function prStatusPlaceholder(_status: TeamReviewStatusSnapshot | null | undefined) {
+  return 'No pull requests to review.';
 }
 
 export function normalizePhase(phase: string | null | undefined) {
@@ -83,20 +76,19 @@ export function phaseLabel(phase: string | null | undefined) {
   return { label: String(key), known: false };
 }
 
-export function severityFor(phase: string | null | undefined, { inFlight = false, pingedError = false }: { inFlight?: boolean; pingedError?: boolean } = {}) {
-  if (pingedError) return 'crit';
+export function severityFor(phase: string | null | undefined, { inFlight = false }: { inFlight?: boolean } = {}) {
   const mapped = PHASE_SEVERITY[normalizePhase(phase)];
   if (mapped) return mapped;
   if (inFlight) return 'info';
   return 'dim';
 }
 
-export function prHasError(pr: PrRow | null | undefined) {
-  return Boolean(pr?.pingedError) || pr?.phase === 'error';
+export function prHasError(pr: TeamReviewRow | null | undefined) {
+  return pr?.phase === 'error';
 }
 
 export function summarizePrs(prs: unknown) {
-  const list: PrRow[] = Array.isArray(prs) ? prs : [];
+  const list: TeamReviewRow[] = Array.isArray(prs) ? prs : [];
   let inReview = 0;
   let errors = 0;
   for (const pr of list) {
@@ -106,12 +98,12 @@ export function summarizePrs(prs: unknown) {
   return { open: list.length, inReview, errors };
 }
 
-export function prAttentionSignature(snapshot: PrStatusSnapshot | null | undefined) {
-  const projects: (PrProject | null)[] = Array.isArray(snapshot?.projects) ? snapshot.projects : [];
+export function prAttentionSignature(snapshot: TeamReviewStatusSnapshot | null | undefined) {
+  const projects: (TeamReviewProject | null)[] = Array.isArray(snapshot?.projects) ? snapshot.projects : [];
   const parts: string[] = [];
   for (const project of projects) {
     const label = textOr(project?.repoSlug, textOr(project?.projectId, 'project'));
-    const prs: PrRow[] = Array.isArray(project?.prs) ? project.prs : [];
+    const prs: TeamReviewRow[] = Array.isArray(project?.prs) ? project.prs : [];
     for (const pr of prs) {
       if (!prHasError(pr)) continue;
       parts.push(`${label}#${numberOr(pr?.number, '?')}:${normalizePhase(pr?.phase)}`);
@@ -122,20 +114,18 @@ export function prAttentionSignature(snapshot: PrStatusSnapshot | null | undefin
 
 const NEEDS_ACTION_PHASES = new Set(['error', 'done', 'changes-requested', 'conflicting']);
 
-export function prNeedsAction(pr: PrRow | null | undefined) {
-  if (pr?.pingedError) return true;
+export function prNeedsAction(pr: TeamReviewRow | null | undefined) {
   return NEEDS_ACTION_PHASES.has(normalizePhase(pr?.phase));
 }
 
-function rankFor(pr: PrRow | null | undefined) {
-  if (pr?.pingedError) return PHASE_RANK.error;
+function rankFor(pr: TeamReviewRow | null | undefined) {
   const rank = PHASE_RANK[normalizePhase(pr?.phase)];
   return rank == null ? UNKNOWN_RANK : rank;
 }
 
-export function sortPrsByAttention(prs: unknown): PrRow[] {
+export function sortPrsByAttention(prs: unknown): TeamReviewRow[] {
   if (!Array.isArray(prs)) return [];
-  return (prs as PrRow[])
+  return (prs as TeamReviewRow[])
     .map((pr, index) => ({ pr, index }))
     .sort((a, b) => {
       const byRank = rankFor(a.pr) - rankFor(b.pr);

@@ -72,6 +72,7 @@ const DAEMON_CONFIG_SIBLINGS: readonly string[] = Object.freeze([
   'usage-warehouse.json',
   'usage-budget-state.json',
   'pr-review-state.json',
+  'team-review-state.json',
   'pairings.json',
   'pairings-seen.json',
   'litellm-pricing.json',

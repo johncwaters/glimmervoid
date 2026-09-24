@@ -60,7 +60,6 @@ function shutdownWithLane(millMetricsIdle: () => Promise<void>, overrides: Parti
     visionsSessions: new Map(),
     memoryDistillSessions: new Map(),
     branchGc: { stop: () => {} },
-    prReview: { stopPoller: () => {} },
     posthog: { stopPoller: () => {} },
     packService: { stop: () => {} },
     usage: { stop: () => {} },

@@ -274,7 +274,7 @@ export function distillTone(row: Pick<MillDistillRow, 'stale'> | null | undefine
   return 'warn';
 }
 
-const LANE_DISPLAY: Record<string, string> = { prReview: 'the PR review lane', posthog: 'the Radar lane' };
+const LANE_DISPLAY: Record<string, string> = { posthog: 'the Radar lane' };
 
 export function consumerLine(pack: MillPack | null | undefined) {
   const consumers: MillConsumers = pack?.consumers || {};

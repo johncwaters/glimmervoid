@@ -59,61 +59,11 @@ function holdsKey(value: unknown, key: string): boolean {
   return key in value;
 }
 
-test('a valid prReview+telegram payload persists and echoes in settings-updated', () => {
-  const h = harness({ projects: [{ id: 'p1', name: 'proj-one', path: 'C:/p1' }] });
-
-  h.send({
-    type: 'update-settings',
-    settings: {
-      prReview: { enabled: true, projects: ['p1'], intervalMinutes: 10, mergeMethod: 'squash', maxConcurrentReviews: 2, reviewTimeoutSeconds: 600 },
-      telegram: { botToken: 'tok', chatId: '123' },
-    },
-  });
-
-  assert.deepEqual(h.cfg.prReview, { enabled: true, projects: ['p1'], intervalMinutes: 10, mergeMethod: 'squash', maxConcurrentReviews: 2, reviewTimeoutSeconds: 600 });
-  assert.deepEqual(h.cfg.telegram, { botToken: 'tok', chatId: '123' });
-
-  const updated = updatedFrom(h);
-  assert.ok(updated, 'replied settings-updated');
-  assert.deepEqual(updated.settings?.prReview, h.cfg.prReview);
-  assert.deepEqual(updated.settings?.telegram, h.store.getSettings().telegram, 'the echo is the redacted projection');
-
-  assert.equal(h.reloadCalls.length, 1, 'applySettingsReload invoked once (hot-applies the poller)');
-  assert.ok(h.broadcasts.some((m) => m.type === 'settings-updated'), 'broadcast to other clients too');
-});
-
-test('an invalid mergeMethod is rejected with settings-error and nothing is persisted', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { prReview: { mergeMethod: 'fast-forward' } } });
-
-  const err = errorFrom(h);
-  assert.ok(err && /mergeMethod/.test(String(err.message)));
-  assert.equal(h.cfg.prReview, undefined, 'nothing persisted');
-  assert.equal(h.reloadCalls.length, 0, 'no reload on a rejected save');
-});
-
-test('non-array prReview.projects is rejected with settings-error', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { prReview: { projects: 'p1' } } });
-
-  const err = errorFrom(h);
-  assert.ok(err && /projects/.test(String(err.message)));
-  assert.equal(h.cfg.prReview, undefined);
-});
-
-test('a non-boolean prReview.enabled is rejected with settings-error', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { prReview: { enabled: 'yes' } } });
-
-  const err = errorFrom(h);
-  assert.ok(err && /enabled/.test(String(err.message)));
-  assert.equal(h.cfg.prReview, undefined);
-});
-
-test('a non-positive prReview numeric field is rejected with settings-error', () => {
-  const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { prReview: { intervalMinutes: 0 } } });
-  assert.ok(h.sent.find((m) => m.type === 'settings-error' && /intervalMinutes/.test(String(m.message))));
+test('a Telegram payload persists and echoes with its secret redacted', () => {
+  const settings = harness({ projects: [] });
+  settings.send({ type: 'update-settings', settings: { telegram: { botToken: 'tok', chatId: '123' } } });
+  assert.deepEqual(settings.cfg.telegram, { botToken: 'tok', chatId: '123' });
+  assert.deepEqual(updatedFrom(settings)?.settings?.telegram, settings.store.getSettings().telegram);
 });
 
 test('a non-object telegram is rejected with settings-error', () => {
@@ -122,16 +72,12 @@ test('a non-object telegram is rejected with settings-error', () => {
   assert.ok(h.sent.find((m) => m.type === 'settings-error' && /telegram/.test(String(m.message))));
 });
 
-test('a stray projectChoices field is rejected by name without a partial write', () => {
-  const h = harness({ projects: [] });
-  h.send({
-    type: 'update-settings',
-    settings: { prReview: { enabled: false }, projectChoices: [{ id: 'x', name: 'y' }] },
-  });
-
-  assert.equal(h.cfg.prReview, undefined);
-  assert.equal(h.cfg.projectChoices, undefined, 'projectChoices is derived read-only, never written to cfg');
-  assert.match(String(errorFrom(h)?.message), /projectChoices/);
+test('a stray projectChoices field rejects the entire settings write', () => {
+  const settings = harness({ projects: [] });
+  settings.send({ type: 'update-settings', settings: { cursorBlink: true, projectChoices: [{ id: 'x', name: 'y' }] } });
+  assert.equal(settings.cfg.cursorBlink, undefined);
+  assert.equal(settings.cfg.projectChoices, undefined);
+  assert.match(String(errorFrom(settings)?.message), /projectChoices/);
 });
 
 test('worktree conflict switches remain settable while withheld from settings', () => {
@@ -555,17 +501,15 @@ test('a rejected posthog block blocks the whole save, including unrelated keys',
   assert.equal(h.cfg.cursorBlink, undefined, 'the save is atomic: nothing lands when validation fails');
 });
 
-test('posthog validation leaves prReview, telegram and remote alone', () => {
-  const h = harness({
+test('a posthog save leaves Telegram and remote settings alone', () => {
+  const settings = harness({
     projects: [],
-    prReview: { enabled: true, projects: ['p1'] },
+    telegram: { botToken: 'tok', chatId: '123' },
     remote: { enabled: true, port: 3001 },
   });
-  h.send({ type: 'update-settings', settings: { posthog: posthogPayload() } });
-
-  assert.deepEqual(h.cfg.prReview, { enabled: true, projects: ['p1'] }, 'prReview untouched');
-  assert.deepEqual(h.cfg.remote, { enabled: true, port: 3001 }, 'remote is not settable and is untouched');
-  assert.equal(h.cfg.telegram, undefined, 'telegram not written by a posthog-only save');
+  settings.send({ type: 'update-settings', settings: { posthog: posthogPayload() } });
+  assert.deepEqual(settings.cfg.telegram, { botToken: 'tok', chatId: '123' });
+  assert.deepEqual(settings.cfg.remote, { enabled: true, port: 3001 });
 });
 
 function withRealStore(

@@ -184,7 +184,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'open-issue-session-result', requestId: 'issues-2', ok: true, error: null, sessionId: 'session-2', sessionName: 'issue-42-fix-reconnect', pending: false },
   { type: 'posthog-issue-action-result', requestId: 'posthog-3', ok: true, error: null, status: 'resolved' },
   { type: 'posthog-archive-investigation-result', requestId: 'posthog-4', ok: true, error: null },
-  { type: 'pr-status', ts: NOW, projects: [] },
+  { type: 'team-review-status', ts: NOW, projects: [] },
   { type: 'branch-gc-status', ts: NOW, projects: [] },
   { type: 'usage-sessions', ts: NOW, pricingSource: 'bundled', sessions: [{ id: 'session-1', tokens: 123, costUSD: 0.5, officialCostUSD: null }] },
   { type: 'usage-report', requestId: 'usage-1', ts: NOW, tz: 'UTC', blockHours: 5, totals: {}, daily: [], models: [], sessions: [], blocks: [], activeBlock: null, anomaly: null, byLane: {}, budget: {}, savings: {}, tokenLimit: null, pricing: {}, scan: {}, warning: null, error: null },

@@ -4,11 +4,9 @@ import assert from 'node:assert/strict';
 import {
   prKey,
   filterActionablePrs,
+  phaseForVerdict,
   planReviews,
-  planMerges,
-  nextState,
-  pingFor,
-} from '../server/core/pr-review-core.ts';
+} from '../server/core/team-review-core.ts';
 
 function makePr(overrides = {}) {
   return {
@@ -98,58 +96,10 @@ test('planReviews skips a PR marked inFlight even if head differs', () => {
   assert.deepEqual(planReviews(prs, state), []);
 });
 
-test('planMerges selects only awaiting-checks phase entries', () => {
-  const prs = [
-    makePr({ key: 'owner/repo#1', number: 1 }),
-    makePr({ key: 'owner/repo#2', number: 2 }),
-    makePr({ key: 'owner/repo#3', number: 3 }),
-  ];
-  const state = {
-    'owner/repo#1': { phase: 'awaiting-checks' },
-    'owner/repo#2': { phase: 'done' },
-    'owner/repo#3': { phase: 'error' },
-  };
-  assert.deepEqual(planMerges(prs, state), [prs[0]]);
-});
-
-test('nextState maps each verdict to the correct phase', () => {
-  assert.equal(nextState('CLEAN'), 'awaiting-checks');
-  assert.equal(nextState('RESOLVED'), 'awaiting-checks');
-  assert.equal(nextState('CHANGES'), 'done');
-  assert.equal(nextState('ERROR'), 'error');
-});
-
-test('nextState maps an unknown verdict to error', () => {
-  assert.equal(nextState('BOGUS'), 'error');
-});
-
-test('pingFor returns null for clean', () => {
-  assert.equal(pingFor('clean', { key: 'owner/repo#12' }), null);
-});
-
-test('pingFor returns a non-null message containing the key for changes', () => {
-  const msg = pingFor('changes', { key: 'owner/repo#12', summary: 'needs tests' });
-  assert.notEqual(msg, null);
-  assert.match(msg as string, /owner\/repo#12/);
-  assert.match(msg as string, /needs tests/);
-});
-
-test('pingFor returns a non-null message containing the key for resolved', () => {
-  const msg = pingFor('resolved', { key: 'owner/repo#12' });
-  assert.notEqual(msg, null);
-  assert.match(msg as string, /owner\/repo#12/);
-});
-
-test('pingFor returns a non-null message containing the key for merged', () => {
-  const msg = pingFor('merged', { key: 'owner/repo#12', summary: 'rebase' });
-  assert.notEqual(msg, null);
-  assert.match(msg as string, /owner\/repo#12/);
-  assert.match(msg as string, /rebase/);
-});
-
-test('pingFor returns a non-null message containing the key for error', () => {
-  const msg = pingFor('error', { key: 'owner/repo#12', reason: 'checks failed' });
-  assert.notEqual(msg, null);
-  assert.match(msg as string, /owner\/repo#12/);
-  assert.match(msg as string, /checks failed/);
+test('phaseForVerdict keeps clean verdicts apart from requested changes', () => {
+  assert.equal(phaseForVerdict('CLEAN'), 'clean');
+  assert.equal(phaseForVerdict('RESOLVED'), 'clean');
+  assert.equal(phaseForVerdict('CHANGES'), 'changes-requested');
+  assert.equal(phaseForVerdict('ERROR'), 'error');
+  assert.equal(phaseForVerdict('SOMETHING-ELSE'), 'error');
 });

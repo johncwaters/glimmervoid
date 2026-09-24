@@ -29,15 +29,6 @@ const optionalInteger = (field: string, range: { min: number; max: number }) => 
 const optionalObject = (field: string, shape: z.ZodRawShape) => z.object(shape, { error: `${field} must be an object` }).nullable().optional();
 const optionalLooseObject = (field: string) => z.object({}, { error: `${field} must be an object` }).passthrough().nullable().optional();
 
-const PrReviewSettings = optionalObject('prReview', {
-  enabled: optionalBoolean('prReview.enabled'),
-  projects: z.array(z.string({ error: 'prReview.projects must be an array of strings' }), { error: 'prReview.projects must be an array of strings' }).optional(),
-  mergeMethod: z.enum(['rebase', 'squash', 'merge'], { error: 'prReview.mergeMethod must be one of rebase, squash, merge' }).optional(),
-  intervalMinutes: optionalNumber('prReview.intervalMinutes', ranges.PR_REVIEW_INTERVAL_RANGE),
-  maxConcurrentReviews: optionalNumber('prReview.maxConcurrentReviews', ranges.PR_REVIEW_MAX_CONCURRENT_RANGE),
-  reviewTimeoutSeconds: optionalNumber('prReview.reviewTimeoutSeconds', ranges.PR_REVIEW_TIMEOUT_RANGE),
-});
-
 export const CHANGE_MAP_NARRATOR_ENGINES = Object.freeze(['claude', 'codex'] as const);
 
 const ChangeMapSettings = optionalObject('changeMap', {
@@ -196,7 +187,6 @@ const BROWSER_CONFIG_SHAPE = {
   worktreeRoot: optionalString('worktreeRoot'),
   worktreeShare: z.array(z.string()).optional(),
   repoRoots: z.array(z.string()).optional(),
-  prReview: PrReviewSettings,
   changeMap: ChangeMapSettings,
   branchGc: BranchGcSettings,
   visions: VisionsSettings,
@@ -276,7 +266,6 @@ export const ProjectConfig = z.object({
 }).passthrough();
 const FILE_CONFIG_SHAPE = {
   ...BROWSER_CONFIG_SHAPE,
-  prReview: optionalLooseObject('prReview'),
   changeMap: ChangeMapSettings,
   branchGc: optionalLooseObject('branchGc'),
   visions: optionalLooseObject('visions'),
@@ -325,7 +314,7 @@ export const Config = z.object({
 
 export const BROWSER_CONFIG_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE));
 export const CONFIG_BLOCK_KEYS = Object.freeze([
-  'prReview', 'changeMap', 'branchGc', 'visions', 'posthog', 'usage', 'telegram', 'packDistiller', 'millMetrics', 'memory', 'ingest',
+'changeMap', 'branchGc', 'visions', 'posthog', 'usage', 'telegram', 'packDistiller', 'millMetrics', 'memory', 'ingest',
   'agentApi',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {

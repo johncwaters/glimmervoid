@@ -5,7 +5,6 @@ import { createInvestigationDialog, createPosthogReportDialog } from './dialogs.
 import type { InvestigationDialog } from './dialogs.ts';
 import { sendControlRequest } from './control-ws.ts';
 import { createPollAgoTicker, formatAgo, formatDuration } from './poll-ago.ts';
-import { phaseLabel } from './pr-view-core.ts';
 import { createRenderHold } from './radar-hold-core.ts';
 import { createSettingsLink } from './settings-link.ts';
 import { getRadarAttentionAck, setRadarAttentionAck } from './ui-prefs.ts';
@@ -23,7 +22,6 @@ import {
   issueStatusLabel,
   issueSummaryText,
   retainKnownInvestigationIds,
-  needsActionPrRows,
   occurrenceDelta,
   occurrenceHistoryValues,
   opsRows,
@@ -41,7 +39,6 @@ import {
   verdictLabel,
 } from './radar-core.ts';
 import type { InvestigationActivityFrame, InvestigationFinishedFrame, RadarHealthFeed, RadarIssue, RadarLoadPhase, RadarOpsRow, RadarProject, RadarProjectAlert, RadarSnapshot, RadarUpdateFeed } from './radar-core.ts';
-import type { PrStatusSnapshot } from './pr-view-core.ts';
 
 type RadarProjectEntry = RadarProjectAlert & { project: RadarProject };
 
@@ -63,10 +60,8 @@ let _health: RadarHealthFeed | null = null;
 
 let _healthKey = '';
 let _update: RadarUpdateFeed | null = null;
-let _prs: PrStatusSnapshot | null = null;
 let _root: HTMLDivElement | null = null;
 let _activityCallback: ((unseen: boolean) => void) | null = null;
-let _navigateToPrs: (() => void) | null = null;
 let _openTrace: ((sessionId: string) => void) | null = null;
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const _attention = createAttentionAck({
@@ -693,49 +688,9 @@ function buildOpsSection(rows: RadarOpsRow[]) {
   return section;
 }
 
-function openPrsView() {
-  if (!_navigateToPrs) return;
-  _navigateToPrs();
-}
-
 function openTraceView(sessionId: string) {
   if (!_openTrace) return;
   _openTrace(sessionId);
-}
-
-function buildPrRow(row: { severity: string; phase: string; number: number | null; title: string; projectLabel: string; reason: string }) {
-  const item = el('div', 'radar-pr-row');
-  item.dataset.severity = row.severity;
-  const stripe = el('span', 'radar-stripe');
-  stripe.setAttribute('aria-hidden', 'true');
-  const { label: phaseText } = phaseLabel(row.phase);
-  const numbered = row.number === null ? row.title : `#${row.number} ${row.title}`;
-
-  const title = el('span', 'radar-pr-title');
-  title.textContent = numbered;
-  title.title = numbered;
-  item.append(stripe, el('span', 'radar-pr-phase', phaseText), title, el('span', 'radar-pr-repo', row.projectLabel));
-
-  item.tabIndex = 0;
-  item.setAttribute('role', 'button');
-  item.setAttribute('aria-label', `Open the pull requests view for ${numbered}`);
-  item.title = row.reason || 'Open the pull requests view';
-  item.addEventListener('click', () => openPrsView());
-  item.addEventListener('keydown', (event) => {
-    if (event.target !== item) return;
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    openPrsView();
-  });
-  return item;
-}
-
-function buildPrsSection(rows: { severity: string; phase: string; number: number | null; title: string; projectLabel: string; reason: string }[]) {
-  const section = buildSection('Pull requests', 'needing action');
-  const list = el('div', 'radar-prs');
-  for (const row of rows) list.append(buildPrRow(row));
-  section.append(list);
-  return section;
 }
 
 function render() {
@@ -746,13 +701,11 @@ function render() {
   const projects = projectsOf<RadarProject>(_latest);
   const investigations = investigationRows(_latest, _archivedLocally);
   const ops = opsRows({ update: _update, health: _health });
-  const prs = needsActionPrRows(_prs);
   const loadPhase = radarLoadPhase(_latest, projects.length);
 
   _root.append(buildErrorsSection(projects, loadPhase));
   if (investigations.length > 0) _root.append(buildInvestigationsSection(investigations));
   if (ops.length > 0) _root.append(buildOpsSection(ops));
-  if (prs.length > 0) _root.append(buildPrsSection(prs));
 }
 
 function renderOrDefer() {
@@ -772,10 +725,6 @@ export function acknowledgeRadarAttention() {
 export function setRadarActivityCallback(callback: (unseen: boolean) => void) {
   _activityCallback = callback;
   refreshActivity();
-}
-
-export function setRadarNavigateToPrs(navigate: () => void) {
-  _navigateToPrs = navigate;
 }
 
 export function setRadarTraceOpener(open: ((sessionId: string) => void) | null) {
@@ -840,10 +789,4 @@ export function applyHealthSnapshot(stats: unknown) {
 export function applyUpdateAvailable(msg: unknown) {
   _update = msg as RadarUpdateFeed;
   renderOrDefer();
-}
-
-export function applyPrStatus(msg: unknown) {
-  _prs = msg as PrStatusSnapshot;
-  renderOrDefer();
-  refreshActivity();
 }

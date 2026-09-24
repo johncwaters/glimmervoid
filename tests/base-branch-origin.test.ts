@@ -356,7 +356,7 @@ test('L5 forkFromHead isolates a detached checkout at its exact SHA', { skip: !G
     const gitWorkspace = createGitWorkspace();
     const created = await gitWorkspace.create({
       projectPath: fixture.repositoryPath,
-      teamId: 'pr-review',
+      teamId: 'team-review',
       label: 'detached',
       forkFromHead: true,
     });

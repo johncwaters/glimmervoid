@@ -12,24 +12,22 @@ async function load() {
   return { SETTINGS_MAP, ...core };
 }
 
-test('an untouched section writes nothing', async () => {
+test('an untouched lane writes nothing', async () => {
   const { SETTINGS_MAP, collectDirtyBlocks, hydrateFromSettings } = await load();
-  const payload = { prReview: { enabled: false, intervalMinutes: 15 } };
+  const payload = { visions: { enabled: false } };
   const original = hydrateFromSettings(SETTINGS_MAP, payload);
   const edited = hydrateFromSettings(SETTINGS_MAP, payload);
   assert.deepEqual(collectDirtyBlocks(SETTINGS_MAP, original, edited), {});
 });
-test('one dirty lane sends only its top-level block and preserves stored sibling keys', async () => {
+
+test('one dirty lane preserves unknown stored keys in its block', async () => {
   const { SETTINGS_MAP, collectDirtyBlocks, hydrateFromSettings } = await load();
-  const payload = {
-    prReview: { enabled: false, intervalMinutes: 15, mergeMethod: 'squash', futureKey: 7 },
-    visions: { enabled: false },
-  };
+  const payload = { visions: { enabled: false, futureKey: 7 }, posthog: { enabled: false } };
   const original = hydrateFromSettings(SETTINGS_MAP, payload);
   const edited = hydrateFromSettings(SETTINGS_MAP, payload);
-  edited['prReview.enabled'] = true;
+  edited['visions.enabled'] = true;
   assert.deepEqual(collectDirtyBlocks(SETTINGS_MAP, original, edited), {
-    prReview: { enabled: true, intervalMinutes: 15, mergeMethod: 'squash', futureKey: 7 },
+    visions: { enabled: true, futureKey: 7 },
   });
 });
 
@@ -59,30 +57,19 @@ test('an unrendered stored project id survives a projects-control save', async (
   });
 });
 
-test('a settings refresh preserves dirty sections and refreshes clean sections', async () => {
+test('a settings refresh preserves a dirty lane and updates a clean lane', async () => {
   const { SETTINGS_MAP, collectDirtyBlocks, hydrateFromSettings, rehydratePreservingDirtySections } = await load();
-  const currentPayload = {
-    prReview: { enabled: false, intervalMinutes: 15 },
-    visions: { enabled: false },
-  };
+  const currentPayload = { visions: { enabled: false }, posthog: { enabled: false } };
   const currentOriginal = hydrateFromSettings(SETTINGS_MAP, currentPayload);
   const currentEdited = hydrateFromSettings(SETTINGS_MAP, currentPayload);
-  currentEdited['prReview.enabled'] = true;
-  const freshPayload = {
-    prReview: { enabled: false, intervalMinutes: 30 },
-    visions: { enabled: true },
-  };
+  currentEdited['visions.enabled'] = true;
+  const freshPayload = { visions: { enabled: false }, posthog: { enabled: true } };
   const { original, edited } = rehydratePreservingDirtySections(
-    SETTINGS_MAP,
-    freshPayload,
-    currentOriginal,
-    currentEdited,
+    SETTINGS_MAP, freshPayload, currentOriginal, currentEdited,
   );
-  assert.equal(edited['prReview.enabled'], true);
   assert.equal(edited['visions.enabled'], true);
-  assert.deepEqual(collectDirtyBlocks(SETTINGS_MAP, original, edited), {
-    prReview: { enabled: true, intervalMinutes: 30 },
-  });
+  assert.equal(edited['posthog.enabled'], true);
+  assert.deepEqual(collectDirtyBlocks(SETTINGS_MAP, original, edited), { visions: { enabled: true } });
 });
 
 test('zero and negative budgets validate and serialize as no ceiling', async () => {
@@ -100,30 +87,19 @@ test('zero and negative budgets validate and serialize as no ceiling', async () 
   });
 });
 
-test('a successful save rehydrates its section while preserving other dirty sections', async () => {
+test('a successful save rehydrates its lane and preserves another dirty lane', async () => {
   const { SETTINGS_MAP, collectDirtyBlocks, hydrateFromSettings, rehydratePreservingDirtySections } = await load();
-  const currentPayload = {
-    prReview: { projects: [] },
-    visions: { enabled: false },
-  };
+  const currentPayload = { visions: { projects: [] }, posthog: { enabled: false } };
   const currentOriginal = hydrateFromSettings(SETTINGS_MAP, currentPayload);
   const currentEdited = hydrateFromSettings(SETTINGS_MAP, currentPayload);
-  currentEdited['prReview.projects'] = ['project-1'];
-  currentEdited['visions.enabled'] = true;
-  const freshPayload = {
-    prReview: { projects: ['project-1'] },
-    visions: { enabled: false },
-  };
+  currentEdited['visions.projects'] = ['project-1'];
+  currentEdited['posthog.enabled'] = true;
+  const freshPayload = { visions: { projects: ['project-1'] }, posthog: { enabled: false } };
   const { original, edited } = rehydratePreservingDirtySections(
-    SETTINGS_MAP,
-    freshPayload,
-    currentOriginal,
-    currentEdited,
-    { rehydrateSectionIds: ['lanes-pr-review'] },
+    SETTINGS_MAP, freshPayload, currentOriginal, currentEdited,
+    { rehydrateSectionIds: ['lanes-visions'] },
   );
-  assert.deepEqual(collectDirtyBlocks(SETTINGS_MAP, original, edited), {
-    visions: { enabled: true },
-  });
+  assert.deepEqual(collectDirtyBlocks(SETTINGS_MAP, original, edited), { posthog: { enabled: true } });
 });
 
 test('search uses exact tokens and weighted fields', async () => {
@@ -163,20 +139,19 @@ test('unattended actions sort last within the map', async () => {
   const section = (id: string, level: string): SettingsSection => ({ id, level, title: id, settings: [] });
   const ordered = orderSections([
     section('lanes-unattended', 'lanes'),
-    section('lanes-pr-review', 'lanes'),
     section('lanes-mill', 'lanes'),
     section('project-one', 'projects'),
   ]);
   assert.deepEqual(ordered.map((section) => section.id), [
-    'lanes-pr-review', 'lanes-mill', 'lanes-unattended', 'project-one',
+    'lanes-mill', 'lanes-unattended', 'project-one',
   ]);
 });
 
 test('danger toggles require an exact confirmation only when turning on', async () => {
   const { decideDangerToggle } = await load();
-  assert.equal(decideDangerToggle(false, true, 'pr review', 'pr-review'), false);
-  assert.equal(decideDangerToggle(false, true, 'pr-review', 'pr-review'), true);
-  assert.equal(decideDangerToggle(true, false, '', 'pr-review'), false);
+  assert.equal(decideDangerToggle(false, true, 'visions', 'VISIONS'), false);
+  assert.equal(decideDangerToggle(false, true, 'VISIONS', 'VISIONS'), true);
+  assert.equal(decideDangerToggle(true, false, '', 'VISIONS'), false);
 });
 
 test('project sections derive read-only records and carry no pack control', async () => {

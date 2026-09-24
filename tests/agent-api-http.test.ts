@@ -373,7 +373,7 @@ test('a child the factory refuses frees the slot so the next spawn is admitted',
 });
 
 test('the board carries the operator sessions only, never an internal lane session', async () => {
-  const lane = plainSession('pr-review-lane', 'pr review');
+  const lane = plainSession('team-review-lane', 'team review');
   const fixture = wiringFixture({ laneSessions: [lane] });
   try {
     await fixture.spawn(fixture.parent, { prompt: 'review the diff' });

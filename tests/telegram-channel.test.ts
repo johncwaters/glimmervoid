@@ -6,7 +6,6 @@ import {
 } from '../notifications/channels/telegram.ts';
 import { createTelegramCompletionDefer } from '../notifications/telegram-completion-defer.ts';
 import { sendTelegramMessage } from '../server/telegram-transport.ts';
-import { sendPrPing } from '../server/pr-telegram.ts';
 import type { TelegramChannelDeps } from '../notifications/channels/telegram.ts';
 
 const CONFIGURED = { enabled: true, botToken: 'TOK', chatId: '123', connectionCount: 0 };
@@ -157,7 +156,7 @@ test('a missing config object does not throw the delivery loop', () => {
   assert.doesNotThrow(() => channel('sess-id', 'complete', 'msg', {}));
 });
 
-test('the shared transport swallows failures for both lanes', async () => {
+test('the shared transport swallows failures', async () => {
   const transport = () => Promise.reject(new Error('boom'));
   const warned: string[] = [];
   const originalWarn = console.warn;
@@ -166,13 +165,11 @@ test('the shared transport swallows failures for both lanes', async () => {
     await assert.doesNotReject(() => sendTelegramMessage({
       botToken: 'TOK', chatId: '1', text: 'x', tag: 'channel:telegram', transport,
     }));
-    await assert.doesNotReject(() => sendPrPing('TOK', '1', 'x', { transport }));
   } finally {
     console.warn = originalWarn;
   }
-  assert.equal(warned.length, 2);
+  assert.equal(warned.length, 1);
   assert.ok(warned[0].includes('[channel:telegram]'));
-  assert.ok(warned[1].includes('[pr-telegram]'), 'the PR lane keeps its own log tag');
 });
 
 test('the shared transport posts the Telegram sendMessage shape', async () => {

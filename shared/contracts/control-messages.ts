@@ -283,7 +283,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'open-issue-session-result',
   'posthog-issue-action-result',
   'posthog-archive-investigation-result',
-  'pr-status',
+  'team-review-status',
   'branch-gc-status',
   'usage-sessions',
   'usage-report',
@@ -541,7 +541,7 @@ const serverVariants = [
     status: nullableString.optional(),
   }),
   loose('posthog-archive-investigation-result', { requestId, ok: z.boolean(), error: optionalError }),
-  loose('pr-status', { ts: timestamp, projects: z.array(opaqueObject) }),
+  loose('team-review-status', { ts: timestamp, projects: z.array(opaqueObject) }),
 
   loose('branch-gc-status'),
   loose('usage-sessions', {

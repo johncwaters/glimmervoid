@@ -556,25 +556,23 @@ test('isPackRelativePath accepts a plain relative path and nothing that escapes'
 test('packConsumerSources lists one row per project plus one per lane, and every project names every spec', () => {
   const sources = packConsumerSources({
     projects: [{ id: 'p1', name: 'glimmervoid' }, { path: 'C:/x' }],
-    prReview: { packs: ['b'] },
     posthog: { packs: ['c'] },
   }, ['a', 'd']);
   assert.deepEqual(sources.map((s) => [s.kind, s.id, s.label]), [
     ['project', 'p1', 'glimmervoid'],
     ['project', null, 'project'],
-    ['prReview', null, 'prReview.packs'],
     ['posthog', null, 'posthog.packs'],
   ]);
   assert.deepEqual(sources.filter((s) => s.kind === 'project').map((s) => s.packs), [['a', 'd'], ['a', 'd']]);
-  assert.deepEqual(sources.filter((s) => s.kind !== 'project').map((s) => s.packs), [['b'], ['c']]);
+  assert.deepEqual(sources.filter((s) => s.kind !== 'project').map((s) => s.packs), [['c']]);
 });
 
 test('with the mill off the lane rows carry no pack, so an ephemeral lane gets nothing either', () => {
-  const config = { projects: [{ id: 'p1', name: 'glimmervoid' }], prReview: { packs: ['b'] }, posthog: { packs: ['c'] } };
+  const config = { projects: [{ id: 'p1', name: 'glimmervoid' }], posthog: { packs: ['c'] } };
   const off = packConsumerSources({ ...config, millEnabled: false }, []);
-  assert.deepEqual(off.filter((s) => s.kind !== 'project').map((s) => s.packs), [[], []]);
+  assert.deepEqual(off.filter((s) => s.kind !== 'project').map((s) => s.packs), [[]]);
   const on = packConsumerSources({ ...config, millEnabled: true }, ['a']);
-  assert.deepEqual(on.filter((s) => s.kind !== 'project').map((s) => s.packs), [['b'], ['c']]);
+  assert.deepEqual(on.filter((s) => s.kind !== 'project').map((s) => s.packs), [['c']]);
 });
 
 test('millPackNames returns the normalized list when the mill is on and nothing when it is off', () => {
@@ -628,9 +626,8 @@ test('a record with no usable path is its own group: nothing marks it as a sibli
 
 
 test('the lane rows pass through the grouping untouched', () => {
-  const rows = packConsumerGroups({ projects: [], prReview: { packs: ['b'] }, posthog: { packs: ['c'] } }, ['a']);
+  const rows = packConsumerGroups({ projects: [], posthog: { packs: ['c'] } }, ['a']);
   assert.deepEqual(rows.map((row) => [row.kind, row.label]), [
-    ['prReview', 'prReview.packs'],
     ['posthog', 'posthog.packs'],
   ]);
 });

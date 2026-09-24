@@ -18,7 +18,6 @@ import {
   investigationRows,
   issueLastSeenAtMs,
   issueStatusLabel,
-  needsActionPrRows,
   occurrenceDelta,
   occurrenceHistoryValues,
   opsRows,
@@ -468,63 +467,6 @@ test('opsRows: nothing to say renders no rows at all', () => {
   assert.deepEqual(opsRows({}), []);
   assert.deepEqual(opsRows(), []);
   assert.deepEqual(opsRows({ health: { anomalies: { orphanPty: false } } }), []);
-});
-
-test('needsActionPrRows: keeps only attention-worthy PRs, flattened across projects', () => {
-  const rows = needsActionPrRows({
-    projects: [
-      {
-        projectId: 'p1',
-        repoSlug: 'me/one',
-        prs: [
-          { number: 4, title: 'Healthy', phase: 'awaiting-checks' },
-          { number: 5, title: 'Broken', phase: 'error', reason: 'checks failing' },
-        ],
-      },
-      {
-        projectId: 'p2',
-        name: 'Two',
-        prs: [{ number: 9, title: 'Conflicts', phase: 'conflicting' }],
-      },
-    ],
-  });
-  assert.deepEqual(rows.map((r) => r.number), [5, 9]);
-  assert.deepEqual(rows.map((r) => r.projectLabel), ['me/one', 'Two']);
-  assert.deepEqual(rows.map((r) => r.severity), ['crit', 'warn']);
-  assert.deepEqual(rows.map((r) => r.reason), ['checks failing', '']);
-  assert.equal(rows[1].phase, 'conflicting');
-});
-
-test('needsActionPrRows: rows within a project keep the PR attention order', () => {
-  const rows = needsActionPrRows({
-    projects: [{
-      projectId: 'p1',
-      prs: [
-        { number: 1, title: 'Conflicting', phase: 'conflicting' },
-        { number: 2, title: 'Errored', phase: 'error' },
-      ],
-    }],
-  });
-  assert.deepEqual(rows.map((r) => r.number), [2, 1]);
-});
-
-test('needsActionPrRows: an empty, absent or healthy feed yields no rows', () => {
-  assert.deepEqual(needsActionPrRows(undefined), []);
-  assert.deepEqual(needsActionPrRows({ projects: [] }), []);
-  assert.deepEqual(needsActionPrRows({ projects: [{ projectId: 'p', prs: [{ number: 1, phase: 'merged' }] }] }), []);
-});
-
-test('needsActionPrRows: malformed entries fall back rather than throwing', () => {
-  const rows = needsActionPrRows({ projects: [{ prs: [{ phase: 'error' }] }] });
-  assert.deepEqual(rows, [{
-    projectId: '',
-    projectLabel: 'project',
-    number: null,
-    title: 'Untitled pull request',
-    phase: 'error',
-    severity: 'crit',
-    reason: '',
-  }]);
 });
 
 const posthogWith = (issues: { change?: string; verdict?: string }[]) => ({ projects: [{ projectId: 'ph', issues }] });

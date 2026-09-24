@@ -28,10 +28,6 @@ interface PosthogControl {
   archiveInvestigation: (args: { id: string }) => Promise<Record<string, unknown>>;
 }
 
-interface PrReviewControl {
-  getStatus: () => Record<string, unknown> | null;
-}
-
 interface PackControl {
   getVersions: () => Record<string, string | null>;
 }
@@ -69,7 +65,6 @@ interface BackendControlDependencies {
   noteRestartRequested: () => void;
   laneAssembly: LaneReader;
   posthog: PosthogControl;
-  prReview: PrReviewControl;
   packService: PackControl;
   usage: UsageControl;
   mill: MillControl;
@@ -94,7 +89,6 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     controlReplayLog,
     laneAssembly,
     posthog,
-    prReview,
     packService,
     usage,
     mill,
@@ -127,7 +121,6 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     getPosthogStatus: () => posthog.getStatus(),
     posthogSetIssueStatus: (args) => posthog.setIssueStatus(args),
     posthogArchiveInvestigation: (args) => posthog.archiveInvestigation(args),
-    getPrStatus: () => prReview.getStatus(),
     getPackVersions: () => packService.getVersions(),
     serverBuild: dependencies.serverBuild,
     getUsageSessions: () => usage.getSessionsMessage(),
@@ -169,7 +162,6 @@ export type {
   LaneReader,
   PackControl,
   PosthogControl,
-  PrReviewControl,
   SnapshotLane,
   UsageControl,
 };

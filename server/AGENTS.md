@@ -26,12 +26,11 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `config-store.js` | Runtime config load/save/defaults |
 | `child-process-safe.js` | THE ONLY importer of `node:child_process` (`tests/no-direct-child-process.test.ts`) |
 | `update-check.ts` | Startup release-tag check, advisory only |
-| `pr-review-wiring.ts` | PR auto-review IO shell |
+| `team-review-wiring.ts` | Team review session and state helpers |
 | `ephemeral-session.js` | Shared ephemeral-Session registration and cleanup |
-| `pr-poller.ts` | PR auto-review poller (opt-in), IO-free |
-| `pr-gh.ts` | `gh`/`git` wrappers for the PR poller |
-| `pr-telegram.ts` | PR-only Telegram push helper (never throws; NOT a `NotificationManager` channel) |
-| `core/pr-review-core.ts` | Pure PR-review decisions |
+| `team-review-poller.ts` | Team review poller, IO-free |
+| `pr-gh.ts` | `gh` issue queries shared with the control plane |
+| `core/team-review-core.ts` | Pure team review decisions |
 | `core/branch-sync-core.ts` | Pure ahead/behind decisions for the branch-sync indicator |
 | `core/restart-strategy.ts` | Pure restart strategy, keyed on systemd's `INVOCATION_ID` |
 | `core/upgrade-route.ts` | Pure WS-upgrade target classification by PATHNAME |
@@ -62,17 +61,10 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 
 - Deletion needs ancestry or tree-containment proof (`server/core/merge-proof-core.ts`) or staleness, any probe failure keeps it, and the push is a leased qualified refspec on that listed tip, so cleanup cannot lose a branch; `dryRun` traces would-delete (`tests/branch-gc-poller.test.ts`).
 
-### GitHub PR Auto-Review (opt-in)
-
-- Inert unless both `config.prReview.enabled` and `config.telegram` are set. A clean PR is reviewed IN PLACE (diff only) so it coexists with a live session in the repo; a conflicting one gets a worktree, discarded on every exit path.
-- Only the POLLER merges; the agent never does. The verdict travels via a result file, since `gh pr review` 422s on your own PR, and a missing one reads as ERROR, never a false clean.
-- Every merge gate fails CLOSED: reviewed head must equal current head, checks must be green (no checks is never green), and a `gh` error on the workflow-files query defers a tick (`server/core/pr-review-core.ts`).
-
 ### Radar / PostHog Auto-Fix (opt-in)
 
 - The agent COMMITS; the server pushes and opens the PR. `FIX_DENY` denies `git push` and `gh` outright, since a prefix deny-list cannot constrain a push TARGET or a merge API call.
 - The server REFUSES the handoff when the diff touches `.github/workflows/`, making "never touches CI" structural; the PR url comes from `gh` stdout, never the agent.
-- Nothing here merges. With `prReview.enabled` also on, unattended code can reach the base branch with no carbon unit in the loop; the operator opts into that knowingly.
 - The branch name carries a random discriminator: a deterministic one collides with a previous fix's pushed branch, burning the timeout on a regression after a fix.
 - The live investigation view is the hook-derived tool trail, never the PTY: `claude -p` writes nothing to its terminal until the final answer, so a terminal viewer would show a blank screen for the whole run.
 

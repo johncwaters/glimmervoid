@@ -1,12 +1,11 @@
 import { createAttentionAck } from './attention-ack-core.ts';
 import { buildStatChip, el, externalLink, isPanelHidden, projectsOf } from './dom-helpers.ts';
-import type { PrProject, PrRow, PrStatusSnapshot } from './pr-view-core.ts';
-import { phaseLabel, prAttentionSignature, prStatusPlaceholder, severityFor as severity, sortPrsByAttention, summarizePrs } from './pr-view-core.ts';
+import type { TeamReviewProject, TeamReviewRow, TeamReviewStatusSnapshot } from './team-review-view-core.ts';
+import { phaseLabel, prAttentionSignature, prStatusPlaceholder, severityFor as severity, sortPrsByAttention, summarizePrs } from './team-review-view-core.ts';
 import { createPollAgoTicker } from './poll-ago.ts';
-import { createSettingsLink } from './settings-link.ts';
 import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
 
-let _latest: PrStatusSnapshot | null = null;
+let _latest: TeamReviewStatusSnapshot | null = null;
 let _root: HTMLDivElement | null = null;
 let _activityCallback: ((isActive: boolean) => void) | null = null;
 const _pollTicker = createPollAgoTicker(() => _root);
@@ -22,9 +21,9 @@ function shortSha(sha: unknown) {
   return sha.slice(0, 7);
 }
 
-function buildPrRow(pr: PrRow) {
+function buildPrRow(pr: TeamReviewRow) {
   const row = el('div', 'pr-row');
-  row.dataset.severity = severity(pr.phase, { inFlight: !!pr.inFlight, pingedError: !!pr.pingedError });
+  row.dataset.severity = severity(pr.phase, { inFlight: !!pr.inFlight });
 
   const stripe = el('span', 'pr-stripe');
   stripe.setAttribute('aria-hidden', 'true');
@@ -55,7 +54,7 @@ function buildPrRow(pr: PrRow) {
 
 const summaryStat = (label: string, value: string, tone?: string | null) => buildStatChip('pr', label, value, tone);
 
-function buildProject(project: PrProject) {
+function buildProject(project: TeamReviewProject) {
   const wrap = el('div', 'pr-project');
   const prs = sortPrsByAttention(project.prs);
   const counts = summarizePrs(prs);
@@ -90,7 +89,7 @@ function refreshActivity() {
   _activityCallback(_attention.refresh());
 }
 
-export function acknowledgePrAttention() {
+export function acknowledgeTeamReviewAttention() {
   _attention.acknowledge();
   refreshActivity();
 }
@@ -99,23 +98,21 @@ function render() {
   if (!_root) return;
   _root.textContent = '';
   _pollTicker.reset();
-  const projects = projectsOf<PrProject>(_latest);
+  const projects = projectsOf<TeamReviewProject>(_latest);
   if (projects.length === 0) {
     const empty = el('p', 'pr-unconfigured', prStatusPlaceholder(_latest));
-    const link = createSettingsLink('lanes-unattended', 'pr-review-enabled', 'PR review settings');
-    empty.append(document.createTextNode(' '), link);
     _root.append(empty);
     return;
   }
   for (const project of projects) _root.append(buildProject(project));
 }
 
-export function setPrActivityCallback(callback: (isActive: boolean) => void) {
+export function setTeamReviewActivityCallback(callback: (isActive: boolean) => void) {
   _activityCallback = callback;
   refreshActivity();
 }
 
-export function mountPrView(parent: HTMLElement) {
+export function mountTeamReviewView(parent: HTMLElement) {
   if (_root) return _root;
   const root = el('div', 'pr-content');
   parent.appendChild(root);
@@ -125,8 +122,8 @@ export function mountPrView(parent: HTMLElement) {
   return root;
 }
 
-export function applyPrStatus(msg: unknown) {
-  _latest = msg as PrStatusSnapshot;
+export function applyTeamReviewStatus(msg: unknown) {
+  _latest = msg as TeamReviewStatusSnapshot;
   render();
   refreshActivity();
 }

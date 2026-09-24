@@ -410,6 +410,7 @@ export function compositionParts(totals: UsageTotals | null | undefined) {
 const LANE_LABELS: Readonly<Record<string, string>> = Object.freeze({
   interactive: 'Interactive',
   'pr-review': 'PR review',
+  'team-review': 'Team review',
   'pack-distill': 'Pack distiller',
   posthog: 'PostHog',
   other: 'Other',

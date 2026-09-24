@@ -22,7 +22,6 @@ import type { SpecListing } from './pack-builder.ts';
 
 interface MillConfig {
   projects?: unknown;
-  prReview?: { packs?: unknown } | null;
   posthog?: { packs?: unknown } | null;
   millEnabled?: boolean;
   packDistiller?: { enabled?: boolean } | null;

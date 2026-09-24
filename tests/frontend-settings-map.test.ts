@@ -69,6 +69,12 @@ test('the map has unique ids, known paths, range-backed numbers and searchable k
   }
 });
 
+test('the removed automatic PR controls are absent from settings', async () => {
+  const { SETTINGS_MAP } = await loadMap();
+  assert.equal(SETTINGS_MAP.some((section) => section.id === 'lanes-pr-review'), false);
+  assert.equal(SETTINGS_MAP.some((section) => section.settings.some((setting) => setting.id.startsWith('pr-review-'))), false);
+});
+
 test('the map exposes no mill measurement controls', async () => {
   const { SETTINGS_MAP } = await loadMap();
   const paths = SETTINGS_MAP.flatMap<SettingsSetting>((section) => section.settings).map((setting) => setting.path);

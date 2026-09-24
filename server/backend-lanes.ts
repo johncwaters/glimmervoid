@@ -26,7 +26,6 @@ import {
 } from './pack-distiller.ts';
 import { createPlanReviewWiring } from './plan-review-wiring.ts';
 import { createPosthogWiring } from './posthog-wiring.ts';
-import { createPrReviewWiring } from './pr-review-wiring.ts';
 import { createSpawnGate } from './spawn-gate.ts';
 import { createUsageWiring, resolveUsageConfig } from './usage-wiring.ts';
 import { createLaneLedger } from './usage-lane-ledger.ts';
@@ -121,15 +120,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const spawnGate = createSpawnGate();
   const gitWorkspace = createGitWorkspace({ rerere: config.worktreeRerere !== false });
   const gitWorkspaceSync = createGitWorkspaceSync();
-  const getProjectPathById = (projectId: string) => {
-    const project = config.projects.find((candidate) => candidate.id === projectId);
-    return project ? project.path : null;
-  };
-  const getProjectNameById = (projectId: string) => {
-    const project = config.projects.find((candidate) => candidate.id === projectId);
-    return project ? project.name ?? null : null;
-  };
-
   const laneLedger = createLaneLedger({
     ledgerPath: configSiblingPath(configStore.configPath, 'usage-lanes.json'),
     retainDays: resolveUsageConfig(config.usage).warehouseRetainDays,
@@ -156,19 +146,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       .filter((sessionDirectory): sessionDirectory is string => Boolean(sessionDirectory))
       .map((sessionDirectory) => comparableDirectoryPath(sessionDirectory)))),
     ...(options.branchGcWiringOptions || {}),
-  });
-  const prReview = createPrReviewWiring({
-    config,
-    reviewSessions,
-    closeSessionDataClients,
-    hookRouter,
-    getHookPort,
-    spawnGate,
-    gitWorkspace,
-    recordLane,
-    getProjectPathById,
-    getProjectNameById,
-    broadcast: broadcastControl,
   });
   const posthog = createPosthogWiring({
     config,
@@ -452,7 +429,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const millEnabled = () => isMillEnabled(config);
   const fixedLaneEntries = {
     'branch-gc': branchGc,
-    'pr-review': prReview,
     posthog,
     'pack-service': packService,
     usage,
@@ -489,7 +465,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     const startSteps = [
       () => void visionsSetup.maybeApply(),
       () => branchGc.start(),
-      () => prReview.startPoller(),
       () => posthog.startPoller(),
       () => {
         if (!millEnabled()) return;
@@ -506,7 +481,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   function restartServiceLanes(): void {
     const restartSteps = [
       () => branchGc.restartIfConfigChanged(),
-      () => prReview.restartIfConfigChanged(),
       () => posthog.restartIfConfigChanged(),
       () => usage.restartIfConfigChanged(),
       () => void millMetrics.restartIfConfigChanged(),
@@ -543,7 +517,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     packService,
     planReview,
     posthog,
-    prReview,
     recordLane,
     restartDynamicLanes,
     restartServiceLanes,

@@ -1,11 +1,16 @@
 const BOT_LOGINS = new Set(['dependabot[bot]', 'renovate[bot]']);
 
-const VERDICT_TO_PHASE: Record<string, string> = {
-  CLEAN: 'awaiting-checks',
-  RESOLVED: 'awaiting-checks',
-  CHANGES: 'done',
-  ERROR: 'error',
-};
+const TEAM_REVIEW_LANE_ID = 'team-review';
+const TEAM_REVIEW_STATE_FILENAME = `${TEAM_REVIEW_LANE_ID}-state.json`;
+const TEAM_REVIEW_BRANCH_PREFIX = `glimmervoid/${TEAM_REVIEW_LANE_ID}/`;
+
+const ERROR_PHASE = 'error';
+const PHASE_BY_VERDICT: Readonly<Record<string, string>> = Object.freeze({
+  CLEAN: 'clean',
+  RESOLVED: 'clean',
+  CHANGES: 'changes-requested',
+  ERROR: ERROR_PHASE,
+});
 
 export interface PullRequestCandidate {
   isDraft?: boolean;
@@ -26,6 +31,10 @@ export interface ReviewStateEntry {
   inFlight?: boolean;
   reviewedHead?: string;
   phase?: string;
+}
+
+function phaseForVerdict(verdict: string): string {
+  return PHASE_BY_VERDICT[verdict] ?? ERROR_PHASE;
 }
 
 function prKey(repoSlug: string, prNumber: number | string): string {
@@ -64,25 +73,7 @@ function planReviews<T extends { key?: string; headRefOid?: string }>(
   });
 }
 
-function planMerges<T extends { key?: string }>(prs: T[], state: Record<string, ReviewStateEntry | undefined>): T[] {
-  return prs.filter((pr) => state[pr.key ?? ''] && state[pr.key ?? '']?.phase === 'awaiting-checks');
-}
-
-function nextState(verdict: string): string {
-  return VERDICT_TO_PHASE[verdict] || 'error';
-}
-
-function pingFor(kind: string, ctx: { key?: string; summary?: string; reason?: string } = {}): string | null {
-  const detail = ctx.summary || ctx.reason;
-  const messages: Record<string, string | null> = {
-    changes: `changes requested on ${ctx.key}${detail ? `: ${detail}` : ''}`,
-    resolved: `conflicts resolved on ${ctx.key}, awaiting checks`,
-    merged: `merged ${ctx.key}${detail ? ` (${detail})` : ''}`,
-    error: `error on ${ctx.key}${detail ? `: ${detail}` : ''}`,
-    clean: null,
-  };
-  if (!(kind in messages)) return null;
-  return messages[kind];
-}
-
-export { prKey, filterActionablePrs, planReviews, planMerges, nextState, pingFor };
+export {
+  ERROR_PHASE, TEAM_REVIEW_BRANCH_PREFIX, TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME,
+  filterActionablePrs, phaseForVerdict, planReviews, prKey,
+};

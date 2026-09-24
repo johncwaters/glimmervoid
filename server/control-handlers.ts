@@ -49,9 +49,6 @@ import {
   POSTHOG_TRAFFIC_MIN_USERS_RANGE,
   POSTHOG_TRAFFIC_MULTIPLIER_RANGE,
   POSTHOG_TRANSIENT_RECURRENCE_RANGE,
-  PR_REVIEW_INTERVAL_RANGE,
-  PR_REVIEW_MAX_CONCURRENT_RANGE,
-  PR_REVIEW_TIMEOUT_RANGE,
   VISIONS_ACTIVITY_MAX_PER_HOUR_RANGE,
   VISIONS_COOLDOWN_MS_RANGE,
   VISIONS_DISPATCH_TIMEOUT_RANGE,
@@ -138,7 +135,6 @@ interface ControlHandlerDeps {
   posthogReportsDir?: string | null;
   posthogSetIssueStatus?: ((args: { projectId: string; issueId: string; action: string }) => Promise<Record<string, unknown>>) | null;
   posthogArchiveInvestigation?: ((args: { id: string }) => Promise<Record<string, unknown>>) | null;
-  getPrStatus?: (() => unknown) | null;
   createGithubClient?: (cwd: string) => Pick<PrGh, 'listIssues' | 'viewIssue' | 'repoSlug'>;
   getPackVersions?: () => Record<string, string | null>;
   serverBuild?: () => string | null;
@@ -191,14 +187,6 @@ function scanRepoRoots(roots: string[] | undefined): { root: string; projects: {
   return results;
 }
 
-const PR_REVIEW_BOOLEAN_KEYS = Object.freeze(['enabled']);
-const PR_REVIEW_VALUE_KEYS = Object.freeze(['projects', 'mergeMethod']);
-const PR_REVIEW_NUMERIC_KEYS = Object.freeze(['intervalMinutes', 'maxConcurrentReviews', 'reviewTimeoutSeconds']);
-const PR_REVIEW_NUMERIC_RANGES = Object.freeze({
-  intervalMinutes: PR_REVIEW_INTERVAL_RANGE,
-  maxConcurrentReviews: PR_REVIEW_MAX_CONCURRENT_RANGE,
-  reviewTimeoutSeconds: PR_REVIEW_TIMEOUT_RANGE,
-});
 const BRANCH_GC_NUMERIC_RANGES = Object.freeze({
   staleDays: BRANCH_GC_STALE_DAYS_RANGE,
   intervalMs: BRANCH_GC_INTERVAL_MS_RANGE,
@@ -264,9 +252,6 @@ function mergeSettingsBlockOverStored(stored: unknown, incoming: Record<string, 
   return merged;
 }
 const DASHBOARD_SETTING_PATHS = Object.freeze([
-  ...PR_REVIEW_BOOLEAN_KEYS.map((key) => `prReview.${key}`),
-  ...PR_REVIEW_VALUE_KEYS.map((key) => `prReview.${key}`),
-  ...PR_REVIEW_NUMERIC_KEYS.map((key) => `prReview.${key}`),
   ...BRANCH_GC_CONTROL_BOOLEAN_KEYS.map((key) => `branchGc.${key}`),
   ...BRANCH_GC_CONTROL_NUMERIC_KEYS.map((key) => `branchGc.${key}`),
   ...VISIONS_BOOLEAN_KEYS.map((key) => `visions.${key}`),
@@ -386,7 +371,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     posthogSetIssueStatus = null,
     posthogArchiveInvestigation = null,
 
-    getPrStatus,
     createGithubClient = createPrGh,
 
     getPackVersions = () => ({}),
@@ -716,7 +700,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
         cfg[key] = incoming[key];
       }
       if (s.repoRoots != null) cfg.repoRoots = s.repoRoots;
-      if (s.prReview != null) cfg.prReview = s.prReview;
       if (s.branchGc != null) cfg.branchGc = mergeSettingsBlockOverStored(cfg.branchGc, s.branchGc);
       if (s.visions != null) cfg.visions = s.visions;
       if (s.posthog != null) cfg.posthog = mergeSettingsBlockOverStored(cfg.posthog, s.posthog);
@@ -1269,11 +1252,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       ws.send(JSON.stringify(posthogStatus));
     }
 
-    const prStatus = typeof getPrStatus === 'function' ? getPrStatus() : null;
-    if (prStatus) {
-      ws.send(JSON.stringify(prStatus));
-    }
-
     const usageSessions = typeof getUsageSessions === 'function' ? getUsageSessions() : null;
     if (usageSessions) {
       ws.send(JSON.stringify(usageSessions));
@@ -1338,7 +1316,6 @@ export {
   BRANCH_GC_NUMERIC_RANGES,
   DASHBOARD_SETTING_PATHS,
   POSTHOG_NUMERIC_RANGES,
-  PR_REVIEW_NUMERIC_RANGES,
   VISIONS_DISPATCH_NUMERIC_RANGES,
   VISIONS_INTENT_NUMERIC_RANGES,
   registerControlHandlers,
