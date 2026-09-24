@@ -19,7 +19,7 @@ import { applyDeleteHookResult, applyHooksReport, applySaveHookResult, mountHook
 import { initNotifications, showDesktopNotification } from './notifications.ts';
 import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneScreenActive, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen } from './phone/phone-shell.ts';
 import { noteKnownProjectPath } from './project-registry.ts';
-import { acknowledgeTeamReviewAttention, applyTeamReviewStatus, mountTeamReviewView, setTeamReviewActivityCallback } from './team-review-panel.ts';
+import { acknowledgeTeamReviewAttention, applyTeamReviewActionResult, applyTeamReviewStatus, mountTeamReviewView, setTeamReviewActivityCallback } from './team-review-panel.ts';
 import { applyIssuesConnectionState, applyIssuesProjects, applyIssuesReport, applyOpenIssueSessionResult, mountIssuesView, setIssuesRequestSender } from './issues-panel.ts';
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID, updateBannerText } from './radar-core.ts';
@@ -376,6 +376,7 @@ const messageHandlers = {
   'posthog-investigation-activity': (msg) => applyInvestigationActivity(msg),
   'posthog-investigation-finished': (msg) => applyInvestigationFinished(msg),
   'team-review-status': (msg) => applyTeamReviewStatus(msg),
+  'team-review-action-result': (msg) => applyTeamReviewActionResult(msg),
   'issues-report':      (msg) => applyIssuesReport(msg as ServerMessage & IssuesReportPush),
   'open-issue-session-result': (msg) => applyOpenIssueSessionResult(msg),
   'usage-sessions':     (msg) => { applyUsageSessionChips(msg.sessions); applyUsageSessions(msg); requestUsageReportIfVisible(); },

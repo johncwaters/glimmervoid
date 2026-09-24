@@ -167,3 +167,20 @@ test('the agent API toggle is dashboard-writable and the custom agents row stays
   assert.equal(customAgents.fileOnly, true);
   assert.equal(DASHBOARD_SETTING_PATH_SET.has('customAgents'), false);
 });
+
+test('the Team review lane section owns the enable toggle, org and team, and its deep link resolves', async () => {
+  const { SETTINGS_MAP, SETTINGS_SECTION_ALIASES } = await loadMap();
+  const { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID } = await import('../public/team-review-view-core.ts');
+  const section = SETTINGS_MAP.find((entry) => entry.id === TEAM_REVIEW_SETTINGS_SECTION_ID);
+  assert.ok(section, 'the empty-state link names a missing section');
+  assert.equal(section.level, 'lanes');
+  assert.equal(SETTINGS_SECTION_ALIASES['team-review'], TEAM_REVIEW_SETTINGS_SECTION_ID);
+  const teamReviewSettings: SettingsSetting[] = section.settings;
+  assert.deepEqual(teamReviewSettings.map((setting) => [setting.id, setting.path, setting.control]), [
+    ['team-review-enabled', 'teamReview.enabled', 'toggle'],
+    ['team-review-org', 'teamReview.org', 'text'],
+    ['team-review-team', 'teamReview.team', 'text'],
+  ]);
+  assert.equal(teamReviewSettings.some((setting) => setting.id === TEAM_REVIEW_SETTINGS_SETTING_ID), true);
+  for (const setting of teamReviewSettings) assert.equal(DASHBOARD_SETTING_PATH_SET.has(setting.path), true, setting.path);
+});

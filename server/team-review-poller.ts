@@ -27,6 +27,11 @@ interface SpawnReviewArgs {
 
 type DraftPatch = Partial<Omit<ReviewDraftType, 'key' | 'repo' | 'number'>>;
 
+interface DraftExpectation {
+  reviewedHead: ReviewDraftType['reviewedHead'];
+  status: ReviewDraftType['status'];
+}
+
 interface TeamReviewPollerDependencies {
   org: string;
   team: string;
@@ -193,9 +198,10 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     return state[key]?.draft ?? null;
   }
 
-  async function updateDraft(key: string, patch: DraftPatch): Promise<ReviewDraftType | null> {
+  async function updateDraft(key: string, expected: DraftExpectation, patch: DraftPatch): Promise<ReviewDraftType | null> {
     const entry = state[key];
     if (!entry?.draft) return null;
+    if (entry.draft.reviewedHead !== expected.reviewedHead || entry.draft.status !== expected.status) return null;
     const parsed = ReviewDraft.safeParse({ ...entry.draft, ...patch, key: entry.draft.key, repo: entry.draft.repo, number: entry.draft.number });
     if (!parsed.success) return null;
     entry.draft = parsed.data;
@@ -219,4 +225,4 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
 type TeamReviewPoller = ReturnType<typeof createTeamReviewPoller>;
 
 export { createTeamReviewPoller };
-export type { DraftPatch, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller, TeamReviewPollerDependencies };
+export type { DraftExpectation, DraftPatch, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller, TeamReviewPollerDependencies };

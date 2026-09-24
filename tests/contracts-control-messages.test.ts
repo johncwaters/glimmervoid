@@ -256,8 +256,11 @@ test('team review actions carry editable text and diff comments', () => {
     { ...action, head: undefined },
     { ...action, head: 'A'.repeat(40) },
     { ...action, head: 'a'.repeat(39) },
+    { ...action, key: '' },
   ]) assert.equal(ClientMessage.safeParse(invalid).success, false);
   assert.equal(ServerMessage.safeParse({ type: 'team-review-action-result', key: action.key, ok: false, error: 'stale head' }).success, true);
+  assert.equal(ServerMessage.safeParse({ type: 'team-review-action-result', key: action.key, ok: true, warning: 'Do not post it again' }).success, true);
+  assert.equal(ServerMessage.safeParse({ type: 'team-review-action-result', key: action.key, ok: true, warning: 4 }).success, false);
 });
 
 test('team review status carries typed drafts, not an opaque project list', () => {

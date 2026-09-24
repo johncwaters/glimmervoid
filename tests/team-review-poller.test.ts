@@ -138,7 +138,7 @@ test('a draft at the same head is never reviewed again, whatever its status', as
   github.heads.set(1, HEAD_ONE);
   await poller.start();
   await settle();
-  await poller.updateDraft(`${REPO}#1`, { status: 'discarded' });
+  await poller.updateDraft(`${REPO}#1`, { reviewedHead: HEAD_ONE, status: 'ready' }, { status: 'discarded' });
   await poller.tick();
   await settle();
   assert.equal(spawned.length, 1);
@@ -250,7 +250,7 @@ test('departed PRs are pruned, posted ones only after seven days', async () => {
   for (const number of [1, 2, 3]) github.heads.set(number, HEAD_ONE);
   await poller.start();
   await settle();
-  await poller.updateDraft(`${REPO}#2`, { status: 'posted' });
+  await poller.updateDraft(`${REPO}#2`, { reviewedHead: HEAD_ONE, status: 'ready' }, { status: 'posted' });
   github.requested = [searchItem(3, 'teammate')];
   await poller.tick();
   await settle();
@@ -398,10 +398,25 @@ test('updateDraft rejects a patch that breaks the draft schema and keeps identit
   github.heads.set(1, HEAD_ONE);
   await poller.start();
   await settle();
-  assert.equal(await poller.updateDraft(`${REPO}#1`, { reviewedHead: 'nope' }), null);
-  assert.equal(await poller.updateDraft('Acme/other#1', { status: 'posted' }), null);
-  const updated = await poller.updateDraft(`${REPO}#1`, { body: 'edited' });
+  const expected = { reviewedHead: HEAD_ONE, status: 'error' } as const;
+  assert.equal(await poller.updateDraft(`${REPO}#1`, expected, { reviewedHead: 'nope' }), null);
+  assert.equal(await poller.updateDraft('Acme/other#1', expected, { status: 'posted' }), null);
+  const updated = await poller.updateDraft(`${REPO}#1`, expected, { body: 'edited' });
   assert.equal(updated?.body, 'edited');
   assert.equal(updated?.key, `${REPO}#1`);
+  await poller.stop();
+});
+
+test('updateDraft is a compare-and-set that leaves a draft alone when its head or status moved', async () => {
+  const { poller, github } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.equal(await poller.updateDraft(`${REPO}#1`, { reviewedHead: HEAD_TWO, status: 'ready' }, { status: 'posted' }), null);
+  assert.equal(await poller.updateDraft(`${REPO}#1`, { reviewedHead: HEAD_ONE, status: 'stale' }, { status: 'posted' }), null);
+  assert.equal(poller.getDraft(`${REPO}#1`)?.status, 'ready');
+  const posted = await poller.updateDraft(`${REPO}#1`, { reviewedHead: HEAD_ONE, status: 'ready' }, { status: 'posted' });
+  assert.equal(posted?.status, 'posted');
   await poller.stop();
 });

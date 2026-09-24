@@ -1,5 +1,5 @@
 import type {
-  PrDetail, ReviewDraft, ReviewResult, SearchedPr, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
+  PrDetail, ReviewComment, ReviewDraft, ReviewResult, SearchedPr, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../../shared/contracts/team-review.ts';
 
 const STAMP_MODEL = 'sonnet';
@@ -127,6 +127,72 @@ function eventForAction(action: string): 'APPROVE' | 'COMMENT' | null {
   if (action === 'approve') return 'APPROVE';
   if (action === 'comment') return 'COMMENT';
   return null;
+}
+
+interface CommentableFileLines {
+  left: Set<number>;
+  right: Set<number>;
+}
+
+type CommentableLines = Map<string, CommentableFileLines>;
+
+const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+
+function diffHeaderPath(line: string, sidePrefix: string): string | null {
+  const rawPath = line.slice(4).replace(/\r$/, '').replace(/\t.*$/, '');
+  const unquoted = rawPath.startsWith('"') && rawPath.endsWith('"') ? rawPath.slice(1, -1) : rawPath;
+  if (unquoted === '/dev/null') return null;
+  return unquoted.startsWith(sidePrefix) ? unquoted.slice(sidePrefix.length) : unquoted;
+}
+
+function commentableLines(diffText: string): CommentableLines {
+  const linesByPath: CommentableLines = new Map();
+  let oldPath: string | null = null;
+  let currentFile: CommentableFileLines | null = null;
+  let oldLine = 0;
+  let newLine = 0;
+  let oldRemaining = 0;
+  let newRemaining = 0;
+  for (const line of diffText.split('\n')) {
+    if (oldRemaining > 0 || newRemaining > 0) {
+      if (!currentFile) continue;
+      const marker = line.charAt(0);
+      if (marker === '\\') continue;
+      if (marker === '-') { currentFile.left.add(oldLine); oldLine += 1; oldRemaining -= 1; continue; }
+      if (marker === '+') { currentFile.right.add(newLine); newLine += 1; newRemaining -= 1; continue; }
+      currentFile.left.add(oldLine);
+      currentFile.right.add(newLine);
+      oldLine += 1;
+      newLine += 1;
+      oldRemaining -= 1;
+      newRemaining -= 1;
+      continue;
+    }
+    if (line.startsWith('diff --git ')) { oldPath = null; currentFile = null; continue; }
+    if (line.startsWith('--- ')) { oldPath = diffHeaderPath(line, 'a/'); continue; }
+    if (line.startsWith('+++ ')) {
+      const filePath = diffHeaderPath(line, 'b/') ?? oldPath;
+      currentFile = filePath === null ? null : linesByPath.get(filePath) ?? { left: new Set(), right: new Set() };
+      if (filePath !== null && currentFile) linesByPath.set(filePath, currentFile);
+      continue;
+    }
+    const hunk = HUNK_HEADER.exec(line);
+    if (!hunk || !currentFile) continue;
+    oldLine = Number(hunk[1]);
+    oldRemaining = hunk[2] === undefined ? 1 : Number(hunk[2]);
+    newLine = Number(hunk[3]);
+    newRemaining = hunk[4] === undefined ? 1 : Number(hunk[4]);
+  }
+  return linesByPath;
+}
+
+function invalidComments(comments: readonly ReviewComment[], commentable: CommentableLines): ReviewComment[] {
+  return comments.filter((comment) => {
+    const fileLines = commentable.get(comment.path);
+    if (!fileLines) return true;
+    const sideLines = comment.side === 'LEFT' ? fileLines.left : fileLines.right;
+    return !sideLines.has(comment.line);
+  });
 }
 
 function isSettledAtHead(entry: TeamReviewStateEntry | undefined, head: string): boolean {
@@ -298,7 +364,7 @@ export {
   REVIEW_TIMEOUT_SECONDS, POLL_INTERVAL_MINUTES, POSTED_RETENTION_MS,
   TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME,
   PR_JSON_FILENAME, PR_DIFF_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, DIFF_UNAVAILABLE_NOTE,
-  buildReviewPrompt, canPost, draftsNewestFirst, errorDraft, eventForAction, isSettledAtHead, markDraftStale,
+  buildReviewPrompt, canPost, commentableLines, draftsNewestFirst, errorDraft, eventForAction, invalidComments, isSettledAtHead, markDraftStale,
   prBaseRef, prHeadRef, prKey, readyDraft, repoFromSearchItem, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, teamReviewStatus, triagePr,
 };
-export type { ReviewTier, TeamReviewCandidate };
+export type { CommentableFileLines, CommentableLines, ReviewTier, TeamReviewCandidate };

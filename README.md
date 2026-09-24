@@ -146,6 +146,7 @@ The install succeeded, but the directory where npm placed the `glimmervoid` comm
 - Keyboard navigation: jump between sessions, step through the ones needing attention, and merge or resolve from the keyboard
 - Radar error monitoring (opt-in): polls PostHog error tracking, pings Telegram the moment an issue spikes, regresses, or first appears, and sends a headless agent to diagnose it and write a report
 - Radar auto-fix (opt-in): a spiking, regressed, or new issue gets an agent that reproduces the bug first, repairs it in a throwaway worktree, and hands back a pull request Glimmervoid opens for you; the agent can never push or merge
+- Team PR review (opt-in): drafts a review of each open pull request from your GitHub team in a sandboxed agent with no shell, network or GitHub write; you edit the draft in the Reviews tab and nothing posts until you choose Approve or Comment, and only if the pull request has not moved since the review
 - Auto-resume by default: sessions that were live when Glimmervoid stopped come back on the next start with their Claude conversation resumed
 - Configurable themes, hot-reloadable configuration
 
@@ -195,7 +196,7 @@ On first run, Glimmervoid creates `~/.glimmervoid/config.json` with defaults. Yo
 }
 ```
 
-This is a minimal starting example. The full key list (`integrationBranch`, `autoResume`, `posthog`, `detectBackgroundAgents`, `recordSignals`, and more) is documented in the dashboard's Settings dialog and can also be edited directly in `config.json`.
+This is a minimal starting example. The full key list (`integrationBranch`, `autoResume`, `posthog`, `teamReview`, `detectBackgroundAgents`, `recordSignals`, and more) is documented in the dashboard's Settings dialog and can also be edited directly in `config.json`.
 
 Two credentials can come from the environment instead, which keeps them out of `config.json` altogether:
 

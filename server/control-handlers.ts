@@ -60,7 +60,8 @@ import {
 import { USAGE_VENDOR_KEYS, USAGE_BUDGET_KEYS } from '../shared/usage-config.ts';
 import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
 import type { ChangeMap } from '../shared/contracts/change-map.ts';
-import type { TeamReviewStatus } from '../shared/contracts/team-review.ts';
+import { TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
+import type { TeamReviewActionResult, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type { UpdateStatus } from './backend-update.ts';
 import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { PlanReadRequest, PlanReadResult } from './plan-review-wiring.ts';
@@ -110,6 +111,13 @@ interface MillControl {
   getCachedReport(): unknown;
 }
 
+type TeamReviewActionOutcome = Omit<TeamReviewActionResult, 'key'>;
+
+interface TeamReviewActionControl {
+  isRunning(): boolean;
+  submitAction(request: TeamReviewActionRequest): Promise<TeamReviewActionOutcome>;
+}
+
 interface ControlHandlerDeps {
   sessions: Map<string, Session>;
   agentSessions?: Map<string, Session>;
@@ -137,6 +145,7 @@ interface ControlHandlerDeps {
   posthogSetIssueStatus?: ((args: { projectId: string; issueId: string; action: string }) => Promise<Record<string, unknown>>) | null;
   posthogArchiveInvestigation?: ((args: { id: string }) => Promise<Record<string, unknown>>) | null;
   getTeamReviewStatus?: (() => TeamReviewStatus | null) | null;
+  teamReview?: TeamReviewActionControl | null;
   createGithubClient?: (cwd: string) => Pick<PrGh, 'listIssues' | 'viewIssue' | 'repoSlug'>;
   getPackVersions?: () => Record<string, string | null>;
   serverBuild?: () => string | null;
@@ -314,6 +323,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'open-issue-session': () => ({ type: 'open-issue-session-result', requestId, ok: false, error: message }),
     'posthog-issue-action': () => ({ type: 'posthog-issue-action-result', requestId, ok: false, error: message }),
     'posthog-archive-investigation': () => ({ type: 'posthog-archive-investigation-result', requestId, ok: false, error: message }),
+    'team-review-action': () => ({ type: 'team-review-action-result', requestId, key: typeof msg?.key === 'string' ? msg.key : '', ok: false, error: message }),
     'request-usage-report': () => ({ type: 'usage-report', requestId, error: message }),
     'request-mill-report': () => ({ type: 'mill-report', requestId, error: message }),
     'request-hooks-report': () => ({ type: 'hooks-report', requestId, error: message }),
@@ -377,6 +387,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     posthogSetIssueStatus = null,
     posthogArchiveInvestigation = null,
     getTeamReviewStatus = null,
+    teamReview = null,
 
     createGithubClient = createPrGh,
 
@@ -950,6 +961,15 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     reply({ ok: res.ok === true, error: res.error || null, status: res.status || null });
   }
 
+  async function handleTeamReviewAction(msg: ControlRequest, ws: ControlSocket): Promise<void> {
+    const requestedKey = typeof msg.key === 'string' ? msg.key : '';
+    const reply = (outcome: TeamReviewActionOutcome) => replyTo(ws, msg, 'team-review-action-result', { key: requestedKey, ...outcome });
+    const parsed = TeamReviewActionRequest.safeParse(msg);
+    if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
+    if (!teamReview?.isRunning()) { reply({ ok: false, error: 'Team review is not running' }); return; }
+    reply(await teamReview.submitAction(parsed.data));
+  }
+
   async function handlePosthogArchiveInvestigation(msg: ControlRequest, ws: ControlSocket): Promise<void> {
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'posthog-archive-investigation-result', { ok: false, error: null, ...payload });
     const ref = posthogCore.validateInvestigationId(msg.id);
@@ -1121,6 +1141,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'open-issue-session': handleOpenIssueSession,
     'posthog-issue-action': handlePosthogIssueAction,
     'posthog-archive-investigation': handlePosthogArchiveInvestigation,
+    'team-review-action': handleTeamReviewAction,
     'request-usage-report': handleRequestUsageReport,
     'request-mill-report': handleRequestMillReport,
     'request-hooks-report': handleRequestHooksReport,
@@ -1331,4 +1352,4 @@ export {
   VISIONS_INTENT_NUMERIC_RANGES,
   registerControlHandlers,
 };
-export type { ControlHandlerDeps, ControlRequest, MillControl };
+export type { ControlHandlerDeps, ControlRequest, MillControl, TeamReviewActionControl };

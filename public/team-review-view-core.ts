@@ -1,138 +1,127 @@
+import type {
+  ReviewComment, ReviewDraft, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus,
+} from '#shared/contracts/team-review.ts';
 import { attentionSignature } from './attention-ack-core.ts';
-import { numberOr, textOr } from './coerce-core.ts';
 
-export interface TeamReviewRow {
-  number?: number;
-  phase?: string | null;
-  inFlight?: boolean;
-  wasConflicting?: boolean;
-  title?: string;
-  url?: string;
-  headSha?: string;
-  reason?: string;
+export interface InReviewRow {
+  key: string;
+  draft: ReviewDraft | null;
 }
 
-export interface TeamReviewProject {
-  projectId?: string;
-  name?: string;
-  repoSlug?: string;
-  lastTickAt?: number;
-  prs?: TeamReviewRow[] | null;
+export interface TeamReviewSections {
+  ready: ReviewDraft[];
+  inReview: InReviewRow[];
+  attention: ReviewDraft[];
+  posted: ReviewDraft[];
 }
 
-export interface TeamReviewStatusSnapshot {
-  projects?: (TeamReviewProject | null)[];
-}
+export const TEAM_REVIEW_SETTINGS_SECTION_ID = 'lanes-team-review';
+export const TEAM_REVIEW_SETTINGS_SETTING_ID = 'team-review-enabled';
 
-const PHASE_RANK: Record<string, number> = {
-  error: 0,
-  done: 1,
-  'changes-requested': 1,
-  conflicting: 2,
-  'resolving-conflicts': 2,
-  'in-review': 3,
-  pending: 4,
-  clean: 5,
-};
+const VERDICT_LABELS: Readonly<Record<ReviewDraft['verdict'], string>> = Object.freeze({
+  STAMP: 'stamp',
+  COMMENT: 'comment',
+  NEEDS_YOU: 'needs you',
+});
 
-const PHASE_SEVERITY: Record<string, string> = {
-  error: 'crit',
-  done: 'warn',
-  'changes-requested': 'warn',
-  conflicting: 'warn',
-  'resolving-conflicts': 'warn',
-  'in-review': 'info',
-  pending: 'dim',
-  clean: 'ok',
-};
+const VERDICT_TONES: Readonly<Record<ReviewDraft['verdict'], string>> = Object.freeze({
+  STAMP: 'ok',
+  COMMENT: 'info',
+  NEEDS_YOU: 'warn',
+});
 
-const PHASE_LABEL: Record<string, string> = {
+const ATTENTION_STATUS_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  stale: 'stale',
   error: 'error',
-  done: 'changes requested',
-  'changes-requested': 'changes requested',
-  conflicting: 'conflicting',
-  'resolving-conflicts': 'resolving',
-  'in-review': 'in review',
-  pending: 'pending',
-  clean: 'clean',
-};
+});
 
-const UNKNOWN_RANK = 99;
+const ACTION_OUTCOME_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.freeze({
+  approve: 'Approved on GitHub',
+  comment: 'Comment posted on GitHub',
+  discard: 'Draft discarded',
+});
 
-export const PENDING_PHASE = 'pending';
+const ACTION_PROGRESS_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.freeze({
+  approve: 'Posting the approval',
+  comment: 'Posting the comment',
+  discard: 'Discarding the draft',
+});
 
-export function prStatusPlaceholder(_status: TeamReviewStatusSnapshot | null | undefined) {
-  return 'No pull requests to review.';
-}
-
-export function normalizePhase(phase: string | null | undefined) {
-  return phase == null ? PENDING_PHASE : phase;
-}
-
-export function phaseLabel(phase: string | null | undefined) {
-  const key = normalizePhase(phase);
-  const label = PHASE_LABEL[key];
-  if (label) return { label, known: true };
-  return { label: String(key), known: false };
-}
-
-export function severityFor(phase: string | null | undefined, { inFlight = false }: { inFlight?: boolean } = {}) {
-  const mapped = PHASE_SEVERITY[normalizePhase(phase)];
-  if (mapped) return mapped;
-  if (inFlight) return 'info';
-  return 'dim';
-}
-
-export function prHasError(pr: TeamReviewRow | null | undefined) {
-  return pr?.phase === 'error';
-}
-
-export function summarizePrs(prs: unknown) {
-  const list: TeamReviewRow[] = Array.isArray(prs) ? prs : [];
-  let inReview = 0;
-  let errors = 0;
-  for (const pr of list) {
-    if (pr?.inFlight) inReview += 1;
-    if (prHasError(pr)) errors += 1;
+export function groupDrafts(status: TeamReviewStatus | null | undefined): TeamReviewSections {
+  const sections: TeamReviewSections = { ready: [], inReview: [], attention: [], posted: [] };
+  if (!status) return sections;
+  const inFlightKeys = new Set(status.inFlight);
+  const draftsByKey = new Map(status.drafts.map((draft) => [draft.key, draft]));
+  for (const key of status.inFlight) sections.inReview.push({ key, draft: draftsByKey.get(key) ?? null });
+  for (const draft of status.drafts) {
+    if (inFlightKeys.has(draft.key)) continue;
+    if (draft.status === 'ready') sections.ready.push(draft);
+    if (draft.status === 'stale' || draft.status === 'error') sections.attention.push(draft);
+    if (draft.status === 'posted') sections.posted.push(draft);
   }
-  return { open: list.length, inReview, errors };
+  return sections;
 }
 
-export function prAttentionSignature(snapshot: TeamReviewStatusSnapshot | null | undefined) {
-  const projects: (TeamReviewProject | null)[] = Array.isArray(snapshot?.projects) ? snapshot.projects : [];
-  const parts: string[] = [];
-  for (const project of projects) {
-    const label = textOr(project?.repoSlug, textOr(project?.projectId, 'project'));
-    const prs: TeamReviewRow[] = Array.isArray(project?.prs) ? project.prs : [];
-    for (const pr of prs) {
-      if (!prHasError(pr)) continue;
-      parts.push(`${label}#${numberOr(pr?.number, '?')}:${normalizePhase(pr?.phase)}`);
-    }
-  }
-  return attentionSignature(parts);
+export function hasAnyRow(sections: TeamReviewSections): boolean {
+  return sections.ready.length + sections.inReview.length + sections.attention.length + sections.posted.length > 0;
 }
 
-const NEEDS_ACTION_PHASES = new Set(['error', 'done', 'changes-requested', 'conflicting']);
-
-export function prNeedsAction(pr: TeamReviewRow | null | undefined) {
-  return NEEDS_ACTION_PHASES.has(normalizePhase(pr?.phase));
+export function pullRequestLabel(repo: string, number: number): string {
+  return `${repo}#${number}`;
 }
 
-function rankFor(pr: TeamReviewRow | null | undefined) {
-  const rank = PHASE_RANK[normalizePhase(pr?.phase)];
-  return rank == null ? UNKNOWN_RANK : rank;
+export function tierLabel(tier: ReviewDraft['tier']): string {
+  return tier === 'full' ? 'full' : 'stamp';
 }
 
-export function sortPrsByAttention(prs: unknown): TeamReviewRow[] {
-  if (!Array.isArray(prs)) return [];
-  return (prs as TeamReviewRow[])
-    .map((pr, index) => ({ pr, index }))
-    .sort((a, b) => {
-      const byRank = rankFor(a.pr) - rankFor(b.pr);
-      if (byRank !== 0) return byRank;
-      const byNumber = numberOr(b.pr?.number, 0) - numberOr(a.pr?.number, 0);
-      if (byNumber !== 0) return byNumber;
-      return a.index - b.index;
-    })
-    .map((entry) => entry.pr);
+export function verdictLabel(verdict: ReviewDraft['verdict']): string {
+  return VERDICT_LABELS[verdict] ?? String(verdict).toLowerCase();
+}
+
+export function verdictTone(verdict: ReviewDraft['verdict']): string {
+  return VERDICT_TONES[verdict] ?? 'dim';
+}
+
+export function attentionStatusLabel(status: ReviewDraft['status']): string {
+  return ATTENTION_STATUS_LABELS[status] ?? status;
+}
+
+export function attentionDetail(draft: ReviewDraft): string {
+  if (draft.status === 'stale') return 'The pull request moved after this review. It will be reviewed again at the new head.';
+  return draft.error || draft.summary || 'The review failed.';
+}
+
+export function commentLocation(comment: ReviewComment): string {
+  const sideSuffix = comment.side === 'LEFT' ? ' (old)' : '';
+  return `${comment.path}:${comment.line}${sideSuffix}`;
+}
+
+export function withoutComment(comments: readonly ReviewComment[], removedIndex: number): ReviewComment[] {
+  return comments.filter((_comment, index) => index !== removedIndex);
+}
+
+export function buildActionRequest(draft: ReviewDraft, action: TeamReviewAction, body: string, comments: readonly ReviewComment[]): TeamReviewActionRequest {
+  return { key: draft.key, head: draft.reviewedHead, action, body, comments: [...comments] };
+}
+
+export function actionProgressText(action: TeamReviewAction): string {
+  return ACTION_PROGRESS_TEXT[action];
+}
+
+export function actionOutcomeText(action: TeamReviewAction): string {
+  return ACTION_OUTCOME_TEXT[action];
+}
+
+export function emptyStateText(status: TeamReviewStatus | null | undefined): string {
+  if (!status) return 'Waiting for the team review lane.';
+  if (!status.configured) return status.reason ? `Team review is not running: ${status.reason}.` : 'Team review is off.';
+  return 'No review drafts yet. New teammate pull requests show up here after the next poll.';
+}
+
+export function readyAttentionSignature(status: TeamReviewStatus | null | undefined): string {
+  return attentionSignature(groupDrafts(status).ready.map((draft) => `${draft.key}@${draft.reviewedHead}`));
+}
+
+export function readyRowSignature(draft: ReviewDraft): string {
+  return `${draft.key}@${draft.reviewedHead}:${draft.status}`;
 }

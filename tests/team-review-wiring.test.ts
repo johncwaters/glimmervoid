@@ -8,13 +8,15 @@ import { isDispatchWorkdir } from '../server/core/ingest-agent-core.ts';
 import { FULL_MODEL, REVIEW_BOOTSTRAP_PROMPT, STAMP_MODEL } from '../server/core/team-review-core.ts';
 import type { ReviewTier } from '../server/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/team-review-poller.ts';
-import type { SpawnReviewArgs } from '../server/team-review-poller.ts';
+import type { DraftPatch, SpawnReviewArgs } from '../server/team-review-poller.ts';
+import type { PostedReview } from '../server/pr-gh.ts';
 import {
-  TEAM_REVIEW_DENY_TOOLS, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewWiring, emptyTeamReviewStatus,
+  TEAM_REVIEW_DENY_TOOLS, createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewWiring, emptyTeamReviewStatus,
   sweepLeftoverCheckouts, teamReviewClaudeArgs, teamReviewPermissions, teamReviewShouldStart,
 } from '../server/team-review-wiring.ts';
-import type { TeamReviewDispatchOptions, TeamReviewSpawn } from '../server/team-review-wiring.ts';
-import { PrDetail, TeamReviewStatus } from '../shared/contracts/team-review.ts';
+import type { TeamReviewActionGithub, TeamReviewDispatchOptions, TeamReviewSpawn } from '../server/team-review-wiring.ts';
+import { PrDetail, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
+import type { ReviewComment, ReviewDraft as ReviewDraftType, TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 
@@ -441,4 +443,251 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
   } finally {
     fs.rmSync(homeDir, { recursive: true, force: true });
   }
+});
+
+const ACTION_KEY = 'Acme/app#7';
+const ACTION_DIFF = [
+  'diff --git a/src/app.ts b/src/app.ts',
+  '--- a/src/app.ts',
+  '+++ b/src/app.ts',
+  '@@ -1,2 +1,3 @@',
+  ' const port = 3000;',
+  '-listen(port);',
+  '+listen(port, host);',
+  '+ready();',
+  '',
+].join('\n');
+const COMMENT_ON_ADDED_LINE: ReviewComment = { path: 'src/app.ts', line: 3, side: 'RIGHT', body: 'Log this?' };
+const COMMENT_OFF_DIFF: ReviewComment = { path: 'src/app.ts', line: 40, side: 'RIGHT', body: 'Not in the diff' };
+
+type PostArgs = Parameters<TeamReviewActionGithub['postReview']>[0];
+type DismissArgs = Parameters<TeamReviewActionGithub['dismissReview']>[0];
+
+interface ActionHarnessOptions {
+  headReads?: (string | null)[];
+  diff?: string | null;
+  postResult?: PostedReview;
+  dismissResult?: { ok: boolean; err: string };
+  holdPost?: Promise<void>;
+  onPost?: () => void;
+  draft?: Partial<ReviewDraftType>;
+}
+
+function actionDraft(overrides: Partial<ReviewDraftType> = {}): ReviewDraftType {
+  return ReviewDraft.parse({
+    key: ACTION_KEY, repo: 'Acme/app', number: 7, title: 'Listen on host', url: 'https://github.com/Acme/app/pull/7',
+    author: 'teammate', tier: 'stamp', reasons: ['3 counted lines in 1 files'], reviewedHead: HEAD,
+    verdict: 'STAMP', summary: 'Looks fine', body: 'LGTM', comments: [], status: 'ready', ...overrides,
+  });
+}
+
+function actionHarness(options: ActionHarnessOptions = {}) {
+  let draft = actionDraft(options.draft);
+  const headReads = [...(options.headReads ?? [HEAD, HEAD])];
+  const headLookups: string[] = [];
+  const diffLookups: string[] = [];
+  const posted: PostArgs[] = [];
+  const dismissed: DismissArgs[] = [];
+  const patches: DraftPatch[] = [];
+  const actions = createTeamReviewActions({
+    drafts: {
+      getDraft: (key) => (key === draft.key ? draft : null),
+      updateDraft: async (key, expected, patch) => {
+        if (key !== draft.key || draft.reviewedHead !== expected.reviewedHead || draft.status !== expected.status) return null;
+        patches.push(patch);
+        draft = ReviewDraft.parse({ ...draft, ...patch });
+        return draft;
+      },
+    },
+    github: {
+      prHead: async (repo, number) => {
+        headLookups.push(`${repo}#${number}`);
+        return headReads.length > 0 ? (headReads.shift() ?? null) : HEAD;
+      },
+      prDiff: async (repo, number) => {
+        diffLookups.push(`${repo}#${number}`);
+        return options.diff === undefined ? ACTION_DIFF : options.diff;
+      },
+      postReview: async (review) => {
+        posted.push(review);
+        if (options.holdPost) await options.holdPost;
+        options.onPost?.();
+        return options.postResult ?? { ok: true, err: '', reviewId: 99 };
+      },
+      dismissReview: async (dismissal) => {
+        dismissed.push(dismissal);
+        return options.dismissResult ?? { ok: true, err: '' };
+      },
+    },
+    log: { warn: () => {} },
+  });
+  const submit = (overrides: Partial<TeamReviewActionRequest> & Pick<TeamReviewActionRequest, 'action'>) => actions.submitAction({
+    key: ACTION_KEY, head: HEAD, body: 'LGTM', comments: [], ...overrides,
+  });
+  return {
+    submit, posted, dismissed, patches, headLookups, diffLookups,
+    currentDraft: () => draft,
+    replaceDraft: (next: ReviewDraftType) => { draft = next; },
+  };
+}
+
+test('approve posts an APPROVE review pinned to the reviewed head and marks the draft posted', async () => {
+  const h = actionHarness();
+  assert.deepEqual(await h.submit({ action: 'approve', body: 'Ship it', comments: [COMMENT_ON_ADDED_LINE] }), { ok: true });
+  assert.deepEqual(h.posted, [{
+    repo: 'Acme/app', number: 7, commitId: HEAD, event: 'APPROVE', body: 'Ship it', comments: [COMMENT_ON_ADDED_LINE],
+  }]);
+  assert.equal(h.currentDraft().status, 'posted');
+  assert.equal(h.currentDraft().body, 'Ship it');
+  assert.deepEqual(h.currentDraft().comments, [COMMENT_ON_ADDED_LINE]);
+  assert.deepEqual(h.dismissed, []);
+});
+
+test('comment posts a COMMENT review without re-reading the head afterwards', async () => {
+  const h = actionHarness();
+  assert.equal((await h.submit({ action: 'comment', body: 'A few notes' })).ok, true);
+  assert.equal(h.posted[0]?.event, 'COMMENT');
+  assert.equal(h.headLookups.length, 1);
+});
+
+test('a clicked head that differs from the draft head is refused before GitHub is asked anything', async () => {
+  const h = actionHarness();
+  const outcome = await h.submit({ action: 'approve', head: OTHER_HEAD });
+  assert.equal(outcome.ok, false);
+  assert.match(String(outcome.error), /replaced/);
+  assert.deepEqual(h.headLookups, []);
+  assert.deepEqual(h.posted, []);
+  assert.equal(h.currentDraft().status, 'ready');
+});
+
+test('discard of a draft replaced after it was shown is refused and the new draft stays ready', async () => {
+  const h = actionHarness({ draft: { reviewedHead: OTHER_HEAD } });
+  const outcome = await h.submit({ action: 'discard', head: HEAD });
+  assert.equal(outcome.ok, false);
+  assert.match(String(outcome.error), /replaced/);
+  assert.equal(h.currentDraft().status, 'ready');
+  assert.deepEqual(h.patches, []);
+});
+
+test('a live head that moved marks the draft stale and never posts', async () => {
+  const h = actionHarness({ headReads: [OTHER_HEAD] });
+  const outcome = await h.submit({ action: 'approve' });
+  assert.equal(outcome.ok, false);
+  assert.match(String(outcome.error), /moved to ddddddd/);
+  assert.deepEqual(h.posted, []);
+  assert.equal(h.currentDraft().status, 'stale');
+});
+
+test('an unreadable live head refuses without posting or marking the draft', async () => {
+  const h = actionHarness({ headReads: [null] });
+  assert.equal((await h.submit({ action: 'approve' })).ok, false);
+  assert.deepEqual(h.posted, []);
+  assert.equal(h.currentDraft().status, 'ready');
+});
+
+test('an inline comment outside the diff is refused by name and nothing is posted', async () => {
+  const h = actionHarness();
+  const outcome = await h.submit({ action: 'comment', comments: [COMMENT_ON_ADDED_LINE, COMMENT_OFF_DIFF] });
+  assert.equal(outcome.ok, false);
+  assert.match(String(outcome.error), /src\/app\.ts:40 \(RIGHT\)/);
+  assert.doesNotMatch(String(outcome.error), /src\/app\.ts:3 /);
+  assert.deepEqual(h.posted, []);
+  assert.equal(h.currentDraft().status, 'ready');
+});
+
+test('an unavailable diff refuses inline comments rather than posting them unchecked', async () => {
+  const h = actionHarness({ diff: null });
+  assert.equal((await h.submit({ action: 'approve', comments: [COMMENT_ON_ADDED_LINE] })).ok, false);
+  assert.deepEqual(h.posted, []);
+});
+
+test('a review with no inline comments posts without fetching the diff', async () => {
+  const h = actionHarness();
+  assert.equal((await h.submit({ action: 'approve' })).ok, true);
+  assert.deepEqual(h.diffLookups, []);
+});
+
+test('a postReview failure reports the gh error and leaves the draft ready', async () => {
+  const h = actionHarness({ postResult: { ok: false, err: 'HTTP 422: Unprocessable Entity', reviewId: null } });
+  assert.deepEqual(await h.submit({ action: 'approve' }), { ok: false, error: 'HTTP 422: Unprocessable Entity' });
+  assert.equal(h.currentDraft().status, 'ready');
+  assert.deepEqual(h.patches, []);
+});
+
+test('discard marks the draft discarded without touching GitHub', async () => {
+  const h = actionHarness();
+  assert.deepEqual(await h.submit({ action: 'discard' }), { ok: true });
+  assert.equal(h.currentDraft().status, 'discarded');
+  assert.deepEqual(h.headLookups, []);
+  assert.deepEqual(h.posted, []);
+});
+
+test('a second action for the same key while one runs is refused', async () => {
+  let releasePost: () => void = () => {};
+  const holdPost = new Promise<void>((resolve) => { releasePost = resolve; });
+  const h = actionHarness({ holdPost });
+  const first = h.submit({ action: 'approve' });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const second = await h.submit({ action: 'approve' });
+  releasePost();
+  assert.equal(second.ok, false);
+  assert.match(String(second.error), /already running/);
+  assert.equal((await first).ok, true);
+  assert.equal(h.posted.length, 1);
+});
+
+test('a draft that is not ready is never posted', async () => {
+  const h = actionHarness({ draft: { status: 'stale' } });
+  assert.equal((await h.submit({ action: 'approve' })).ok, false);
+  assert.deepEqual(h.headLookups, []);
+  assert.deepEqual(h.posted, []);
+});
+
+test('a draft replaced while the review posts is left untouched and the operator is warned not to post again', async () => {
+  const freshDraft = actionDraft({ reviewedHead: OTHER_HEAD, body: 'Fresh review' });
+  let replace: () => void = () => {};
+  const h = actionHarness({ onPost: () => replace() });
+  replace = () => h.replaceDraft(freshDraft);
+  const outcome = await h.submit({ action: 'comment', body: 'Old text' });
+  assert.equal(outcome.ok, true);
+  assert.match(String(outcome.warning), /Do not post it again/);
+  assert.deepEqual(h.currentDraft(), freshDraft);
+  assert.deepEqual(h.patches, []);
+});
+
+test('an approval whose pull request moved during the post is dismissed and the draft marked stale', async () => {
+  const h = actionHarness({ headReads: [HEAD, OTHER_HEAD] });
+  const outcome = await h.submit({ action: 'approve' });
+  assert.equal(outcome.ok, false);
+  assert.match(String(outcome.error), /moved to ddddddd while the approval was posting, so the approval was dismissed/);
+  assert.equal(h.dismissed.length, 1);
+  const [dismissal] = h.dismissed;
+  assert.deepEqual([dismissal?.repo, dismissal?.number, dismissal?.reviewId], ['Acme/app', 7, 99]);
+  assert.match(String(dismissal?.message), /moved while this approval was posting/);
+  assert.equal(h.currentDraft().status, 'stale');
+});
+
+test('a failed dismissal of a moved approval tells the operator the approval still stands', async () => {
+  const h = actionHarness({ headReads: [HEAD, OTHER_HEAD], dismissResult: { ok: false, err: 'HTTP 403' } });
+  const outcome = await h.submit({ action: 'approve' });
+  assert.equal(outcome.ok, false);
+  assert.match(String(outcome.error), /dismissing the approval failed \(HTTP 403\), so it still stands/);
+  assert.equal(h.currentDraft().status, 'stale');
+});
+
+test('a moved approval without a review id is reported rather than dismissed blindly', async () => {
+  const h = actionHarness({ headReads: [HEAD, OTHER_HEAD], postResult: { ok: true, err: '', reviewId: null } });
+  const outcome = await h.submit({ action: 'approve' });
+  assert.equal(outcome.ok, false);
+  assert.match(String(outcome.error), /did not return the review id/);
+  assert.deepEqual(h.dismissed, []);
+});
+
+test('an approval whose head cannot be re-read is marked posted with a warning to check GitHub', async () => {
+  const h = actionHarness({ headReads: [HEAD, null] });
+  const outcome = await h.submit({ action: 'approve' });
+  assert.equal(outcome.ok, true);
+  assert.match(String(outcome.warning), /Could not confirm/);
+  assert.equal(h.currentDraft().status, 'posted');
+  assert.deepEqual(h.dismissed, []);
 });

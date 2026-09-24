@@ -18,17 +18,22 @@ import { createJsonStateStore } from './json-file.ts';
 import { createLaneRunner } from './lane-runner.ts';
 import type { LaneRunnerGate, LaneStatusRecord } from './lane-runner.ts';
 import { createPrGh } from './pr-gh.ts';
+import type { PrGh } from './pr-gh.ts';
 import { createRepoCache } from './repo-cache.ts';
 import { createTeamReviewPoller } from './team-review-poller.ts';
-import type { DraftPatch, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller } from './team-review-poller.ts';
+import type { DraftExpectation, DraftPatch, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller } from './team-review-poller.ts';
 import { ReviewResult, TeamReviewState, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type {
-  PrDetail, ReviewDraft, TeamReviewState as TeamReviewStateType, TeamReviewStatus as TeamReviewStatusType,
+  PrDetail, ReviewComment, ReviewDraft, TeamReviewActionRequest, TeamReviewActionResult,
+  TeamReviewState as TeamReviewStateType, TeamReviewStatus as TeamReviewStatusType,
 } from '../shared/contracts/team-review.ts';
 
 const TEAM_REVIEW_DENY_TOOLS = Object.freeze(['Bash', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task']);
 const TEAM_REVIEW_ALLOW_TOOLS = Object.freeze(['Read', 'Grep', 'Glob', 'Write']);
 const RESULT_MAX_BYTES = 1024 * 1024;
+const REPLACED_DRAFT_ERROR = 'The draft was replaced after it was shown. Read the new draft before acting on it';
+const STALE_APPROVAL_DISMISSAL = 'The pull request moved while this approval was posting, so it no longer covers the current head.';
+const UNMARKED_POST_WARNING = 'The review was posted on GitHub, but its draft could not be marked posted. Do not post it again';
 
 interface TeamReviewWiringConfig {
   teamReview?: Record<string, unknown> | null;
@@ -89,10 +94,25 @@ interface TeamReviewWiringOptions {
   broadcast?: (message: LaneStatusRecord) => void;
   log?: Pick<Console, 'warn'>;
   homeDir?: string;
-  github?: TeamReviewGithub & { prDiff(repo: string, number: number): Promise<string | null> };
+  github?: TeamReviewGithub & Pick<PrGh, 'prDiff'> & Partial<Pick<PrGh, 'postReview' | 'dismissReview'>>;
   repoCache?: TeamReviewRepoCache;
   spawnSession?: TeamReviewSpawn;
   createPoller?: typeof createTeamReviewPoller;
+}
+
+type TeamReviewActionOutcome = Omit<TeamReviewActionResult, 'key'>;
+
+interface TeamReviewDraftStore {
+  getDraft(key: string): ReviewDraft | null;
+  updateDraft(key: string, expected: DraftExpectation, patch: DraftPatch): Promise<ReviewDraft | null>;
+}
+
+type TeamReviewActionGithub = Pick<PrGh, 'prHead' | 'prDiff' | 'postReview' | 'dismissReview'>;
+
+interface TeamReviewActionOptions {
+  drafts: TeamReviewDraftStore;
+  github: TeamReviewActionGithub;
+  log?: Pick<Console, 'warn'>;
 }
 
 function errorMessage(error: unknown): string {
@@ -330,6 +350,96 @@ function createTeamReviewSpawn({
   };
 }
 
+function describeInvalidComments(comments: readonly ReviewComment[]): string {
+  const locations = comments.map((comment) => `${comment.path}:${comment.line} (${comment.side})`).join(', ');
+  return `These inline comments are not on lines in the diff, remove them and retry: ${locations}`;
+}
+
+function createTeamReviewActions({ drafts, github, log = console }: TeamReviewActionOptions) {
+  const actionsInFlight = new Set<string>();
+
+  async function markDraft(key: string, draft: ReviewDraft, patch: DraftPatch): Promise<ReviewDraft | null> {
+    const updated = await drafts.updateDraft(key, { reviewedHead: draft.reviewedHead, status: draft.status }, patch);
+    if (!updated) log.warn(`[${core.TEAM_REVIEW_LANE_ID}] could not mark ${key} ${patch.status ?? 'updated'}, the draft changed underneath the action`);
+    return updated;
+  }
+
+  async function discard(key: string, draft: ReviewDraft): Promise<TeamReviewActionOutcome> {
+    if (draft.status === 'posted') return { ok: false, error: 'That review was already posted' };
+    const discarded = await markDraft(key, draft, { status: 'discarded' });
+    return discarded ? { ok: true } : { ok: false, error: 'The draft could not be discarded' };
+  }
+
+  async function misplacedCommentsError(draft: ReviewDraft, comments: readonly ReviewComment[]): Promise<string | null> {
+    if (comments.length === 0) return null;
+    const diff = await github.prDiff(draft.repo, draft.number);
+    if (diff === null) return 'Could not fetch the diff to check the inline comments. Remove them to post without them';
+    const misplaced = core.invalidComments(comments, core.commentableLines(diff));
+    return misplaced.length > 0 ? describeInvalidComments(misplaced) : null;
+  }
+
+  async function retractApproval(key: string, draft: ReviewDraft, movedHead: string, reviewId: number | null): Promise<TeamReviewActionOutcome> {
+    await markDraft(key, draft, { status: 'stale' });
+    const moved = `The pull request moved to ${movedHead.slice(0, 7)} while the approval was posting`;
+    if (reviewId === null) return { ok: false, error: `${moved}, and GitHub did not return the review id, so the approval still stands. Dismiss it on GitHub` };
+    const dismissal = await github.dismissReview({ repo: draft.repo, number: draft.number, reviewId, message: STALE_APPROVAL_DISMISSAL });
+    if (!dismissal.ok) return { ok: false, error: `${moved}, and dismissing the approval failed (${firstLine(dismissal.err)}), so it still stands. Dismiss it on GitHub` };
+    return { ok: false, error: `${moved}, so the approval was dismissed. It will be reviewed again` };
+  }
+
+  async function post(key: string, draft: ReviewDraft, request: TeamReviewActionRequest): Promise<TeamReviewActionOutcome> {
+    if (draft.status !== 'ready') return { ok: false, error: `The draft is ${draft.status}, so it cannot be posted` };
+    const event = core.eventForAction(request.action);
+    if (!event) return { ok: false, error: 'Unknown review action' };
+    if (event === 'COMMENT' && !request.body.trim() && request.comments.length === 0) {
+      return { ok: false, error: 'A comment review needs a body or an inline comment' };
+    }
+    const liveHead = await github.prHead(draft.repo, draft.number);
+    if (!liveHead) return { ok: false, error: 'Could not read the pull request head from GitHub' };
+    if (!core.canPost(draft, request.head, liveHead)) {
+      await markDraft(key, draft, { status: 'stale' });
+      return { ok: false, error: `The pull request moved to ${liveHead.slice(0, 7)} after this review, so nothing was posted. It will be reviewed again` };
+    }
+    const commentsError = await misplacedCommentsError(draft, request.comments);
+    if (commentsError) return { ok: false, error: commentsError };
+    const posted = await github.postReview({
+      repo: draft.repo, number: draft.number, commitId: draft.reviewedHead, event, body: request.body, comments: request.comments,
+    });
+    if (!posted.ok) return { ok: false, error: posted.err || 'GitHub refused the review' };
+    const headAfterPost = event === 'APPROVE' ? await github.prHead(draft.repo, draft.number) : draft.reviewedHead;
+    if (headAfterPost !== null && headAfterPost !== draft.reviewedHead) return retractApproval(key, draft, headAfterPost, posted.reviewId);
+    const marked = await markDraft(key, draft, { status: 'posted', body: request.body, comments: request.comments });
+    const warnings = [
+      headAfterPost === null ? 'Could not confirm the pull request head after approving. Check the approval on GitHub' : '',
+      marked ? '' : UNMARKED_POST_WARNING,
+    ].filter(Boolean);
+    return warnings.length > 0 ? { ok: true, warning: warnings.join('. ') } : { ok: true };
+  }
+
+  async function runAction(request: TeamReviewActionRequest): Promise<TeamReviewActionOutcome> {
+    const draft = drafts.getDraft(request.key);
+    if (!draft) return { ok: false, error: 'That review draft no longer exists' };
+    if (draft.reviewedHead !== request.head) return { ok: false, error: REPLACED_DRAFT_ERROR };
+    if (request.action === 'discard') return discard(request.key, draft);
+    return post(request.key, draft, request);
+  }
+
+  async function submitAction(request: TeamReviewActionRequest): Promise<TeamReviewActionOutcome> {
+    if (actionsInFlight.has(request.key)) return { ok: false, error: 'An action for this pull request is already running' };
+    actionsInFlight.add(request.key);
+    try {
+      return await runAction(request);
+    } catch (error) {
+      log.warn(`[${core.TEAM_REVIEW_LANE_ID}] action failed for ${request.key}: ${errorMessage(error)}`);
+      return { ok: false, error: errorMessage(error) };
+    } finally {
+      actionsInFlight.delete(request.key);
+    }
+  }
+
+  return { submitAction };
+}
+
 function createTeamReviewStateIo(statePath: string, log: Pick<Console, 'warn'>) {
   let loaded: TeamReviewStateType = {};
   const store = createJsonStateStore<TeamReviewStateType>({
@@ -420,19 +530,40 @@ function createTeamReviewWiring({
     return runner.getPoller()?.getDraft(key) ?? null;
   }
 
-  async function updateDraft(key: string, patch: DraftPatch): Promise<ReviewDraft | null> {
+  async function updateDraft(key: string, expected: DraftExpectation, patch: DraftPatch): Promise<ReviewDraft | null> {
     const poller = runner.getPoller();
     if (!poller) return null;
-    return poller.updateDraft(key, patch);
+    return poller.updateDraft(key, expected, patch);
   }
+
+  function isRunning(): boolean {
+    return runner.getPoller() !== null;
+  }
+
+  const actions = createTeamReviewActions({
+    drafts: { getDraft, updateDraft },
+    github: {
+      prHead: (repo, number) => github.prHead(repo, number),
+      prDiff: (repo, number) => github.prDiff(repo, number),
+      postReview: async (review) => {
+        if (!github.postReview) return { ok: false, err: 'this GitHub client cannot post reviews', reviewId: null };
+        return github.postReview(review);
+      },
+      dismissReview: async (dismissal) => {
+        if (!github.dismissReview) return { ok: false, err: 'this GitHub client cannot dismiss reviews' };
+        return github.dismissReview(dismissal);
+      },
+    },
+    log,
+  });
 
   return {
     startPoller: runner.startPoller,
     stopPoller,
     restartIfConfigChanged: runner.restartIfConfigChanged,
     getStatus,
-    getDraft,
-    updateDraft,
+    isRunning,
+    submitAction: actions.submitAction,
   };
 }
 
@@ -440,10 +571,10 @@ type TeamReviewWiring = ReturnType<typeof createTeamReviewWiring>;
 
 export {
   TEAM_REVIEW_ALLOW_TOOLS, TEAM_REVIEW_DENY_TOOLS,
-  createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewWiring, makeTeamReviewResultFile,
+  createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewWiring, makeTeamReviewResultFile,
   emptyTeamReviewStatus, readReviewResult, sweepLeftoverCheckouts, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewPermissions, teamReviewShouldStart,
 };
 export type {
-  TeamReviewDispatchOptions, TeamReviewGitWorkspace, TeamReviewRepoCache, TeamReviewSpawn, TeamReviewWiring,
+  TeamReviewActionGithub, TeamReviewActionOptions, TeamReviewActionOutcome, TeamReviewDispatchOptions, TeamReviewDraftStore, TeamReviewGitWorkspace, TeamReviewRepoCache, TeamReviewSpawn, TeamReviewWiring,
   TeamReviewWiringConfig, TeamReviewWiringOptions,
 };

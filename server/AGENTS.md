@@ -68,6 +68,13 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - The branch name carries a random discriminator: a deterministic one collides with a previous fix's pushed branch, burning the timeout on a regression after a fix.
 - The live investigation view is the hook-derived tool trail, never the PTY: `claude -p` writes nothing to its terminal until the final answer, so a terminal viewer would show a blank screen for the whole run.
 
+### Team PR Review (opt-in)
+
+- Only the operator's Approve or Comment posts, and only when the clicked head equals both the reviewed and the live head, since a review lands under the operator's name (`tests/team-review-core.test.ts`, `tests/team-review-wiring.test.ts`).
+- The review agent holds no shell, network or GitHub write (`tests/lane-permissions-core.test.ts`).
+- PR text, diff and checkout are untrusted data, fenced in the prompt (`tests/team-review-core.test.ts`).
+- Review checkouts are removed on every exit path and swept at lane start (`tests/team-review-wiring.test.ts`).
+
 ### Usage Tracking
 
 - Costs are estimates against list price, not bills, over local transcripts only. Budgets evaluate on a COMPLETE scan pass, or after three consecutive io-failed passes since an undercount can only delay an alert, and only a complete or an incremental io-failed pass writes the warehouse: a byte-limited pass, or an io-failed pass that already reset the store, would store an undercount as durable truth and burn a once-per-period alert. State files are quarantined beside the original when corrupt and never rewritten while unreadable, and a budget alert is stamped fired only after it delivered (`server/json-file.ts`, `tests/usage-budget-wiring.test.ts`).

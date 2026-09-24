@@ -161,18 +161,45 @@ test('postReview sends one JSON request through stdin', async () => {
   const calls: { args: string[]; input?: string }[] = [];
   const gh = createPrGh('/repo', async (_command, args, _cwd, input) => {
     calls.push({ args, input });
-    return { ok: true, out: '{}', err: '' };
+    return { ok: true, out: '{"id":99,"state":"COMMENTED"}', err: '' };
   });
   assert.deepEqual(await gh.postReview({
     repo: 'Acme/repo', number: 7, commitId: HEAD_SHA, event: 'COMMENT', body: 'Review',
     comments: [{ path: 'src/main.ts', line: 3, side: 'RIGHT', body: 'Please check this' }],
-  }), { ok: true, err: '' });
+  }), { ok: true, err: '', reviewId: 99 });
   assert.deepEqual(calls, [{
     args: ['api', '-X', 'POST', 'repos/Acme/repo/pulls/7/reviews', '--input', '-'],
     input: JSON.stringify({ commit_id: HEAD_SHA, event: 'COMMENT', body: 'Review', comments: [{ path: 'src/main.ts', line: 3, side: 'RIGHT', body: 'Please check this' }] }),
   }]);
-  assert.deepEqual(await gh.postReview({ repo: 'Acme/../repo', number: 7, commitId: HEAD_SHA, event: 'COMMENT', body: '', comments: [] }), { ok: false, err: 'invalid repository or pull request number' });
+  assert.deepEqual(await gh.postReview({ repo: 'Acme/../repo', number: 7, commitId: HEAD_SHA, event: 'COMMENT', body: '', comments: [] }), { ok: false, err: 'invalid repository or pull request number', reviewId: null });
   assert.equal(calls.length, 1);
+});
+
+test('postReview reports a null review id when gh returns no usable id', async () => {
+  const gh = createPrGh('/repo', async () => ({ ok: true, out: '{}', err: '' }));
+  assert.deepEqual(await gh.postReview({ repo: 'Acme/repo', number: 7, commitId: HEAD_SHA, event: 'APPROVE', body: '', comments: [] }), { ok: true, err: '', reviewId: null });
+});
+
+test('dismissReview sends one JSON dismissal through stdin and refuses bad segments', async () => {
+  const calls: { args: string[]; input?: string }[] = [];
+  const gh = createPrGh('/repo', async (_command, args, _cwd, input) => {
+    calls.push({ args, input });
+    return { ok: true, out: '{}', err: '' };
+  });
+  assert.deepEqual(await gh.dismissReview({ repo: 'Acme/repo', number: 7, reviewId: 99, message: 'Head moved' }), { ok: true, err: '' });
+  assert.deepEqual(calls, [{
+    args: ['api', '-X', 'PUT', 'repos/Acme/repo/pulls/7/reviews/99/dismissals', '--input', '-'],
+    input: JSON.stringify({ message: 'Head moved', event: 'DISMISS' }),
+  }]);
+  assert.deepEqual(await gh.dismissReview({ repo: 'Acme/../repo', number: 7, reviewId: 99, message: 'x' }), { ok: false, err: 'invalid repository or pull request number' });
+  assert.deepEqual(await gh.dismissReview({ repo: 'Acme/repo', number: 7, reviewId: 0, message: 'x' }), { ok: false, err: 'invalid review id' });
+  assert.deepEqual(await gh.dismissReview({ repo: 'Acme/repo', number: 7, reviewId: 99, message: ' ' }), { ok: false, err: 'a dismissal needs a message' });
+  assert.equal(calls.length, 1);
+});
+
+test('dismissReview reports the gh failure', async () => {
+  const gh = createPrGh('/repo', async () => ({ ok: false, out: '', err: 'HTTP 403\n' }));
+  assert.deepEqual(await gh.dismissReview({ repo: 'Acme/repo', number: 7, reviewId: 99, message: 'Head moved' }), { ok: false, err: 'HTTP 403' });
 });
 
 test('listIssues asks gh for no body and drops any body gh still returns', async () => {

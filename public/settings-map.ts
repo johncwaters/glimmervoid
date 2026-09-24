@@ -59,6 +59,8 @@ export const SETTINGS_SECTION_ALIASES = Object.freeze({
   visions: 'lanes-visions',
   mill: 'lanes-mill',
   posthog: 'lanes-posthog',
+  'team-review': 'lanes-team-review',
+  reviews: 'lanes-team-review',
   usage: 'machine-usage',
   shortcuts: 'browser-shortcuts',
   unattended: 'lanes-unattended',
@@ -607,6 +609,29 @@ export const SETTINGS_MAP = Object.freeze([
       },
     ],
     unattendedLinks: [{ settingId: 'posthog-auto-fix', title: 'Attempt fixes for major issues' }],
+  },
+  {
+    id: 'lanes-team-review',
+    level: 'lanes',
+    title: 'Team review',
+    description: "Draft reviews of teammates' pull requests for you to post from the Reviews tab.",
+    settings: [
+      {
+        id: 'team-review-enabled', path: 'teamReview.enabled', title: 'Enable team review',
+        description: 'Poll open pull requests from the team and draft a review of each one. Nothing is posted until you choose Approve or Comment.',
+        control: 'toggle', keywords: ['pull requests', 'github'], defaultValue: false,
+      },
+      {
+        id: 'team-review-org', path: 'teamReview.org', title: 'GitHub organization',
+        description: 'Organization login that owns the team, for example PostHog.',
+        control: 'text', keywords: ['github', 'owner'], defaultValue: '',
+      },
+      {
+        id: 'team-review-team', path: 'teamReview.team', title: 'GitHub team',
+        description: 'Team slug whose members and review requests are polled.',
+        control: 'text', keywords: ['github', 'slug'], defaultValue: '',
+      },
+    ],
   },
   {
     id: 'lanes-unattended',

@@ -31,6 +31,19 @@ test('one dirty lane preserves unknown stored keys in its block', async () => {
   });
 });
 
+test('a dirty Team review section saves its trimmed org and team with the toggle', async () => {
+  const { SETTINGS_MAP, collectDirtyBlocks, hydrateFromSettings } = await load();
+  const payload = { teamReview: { enabled: false, org: '', team: '' } };
+  const original = hydrateFromSettings(SETTINGS_MAP, payload);
+  const edited = hydrateFromSettings(SETTINGS_MAP, payload);
+  edited['teamReview.enabled'] = true;
+  edited['teamReview.org'] = ' PostHog ';
+  edited['teamReview.team'] = 'product-engineering';
+  assert.deepEqual(collectDirtyBlocks(SETTINGS_MAP, original, edited), {
+    teamReview: { enabled: true, org: 'PostHog', team: 'product-engineering' },
+  });
+});
+
 test('the legacy memory retention alias moves with retainDays', async () => {
   const { SETTINGS_MAP, collectDirtyBlocks, hydrateFromSettings } = await load();
   const payload = { memory: { retainDays: 90, memoryRetainDays: 120 } };

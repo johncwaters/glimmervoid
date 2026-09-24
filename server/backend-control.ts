@@ -4,7 +4,7 @@ import type { ControlBroadcast, ControlSocket } from './backend-websockets.ts';
 import type { ChangeMapNarrator } from './change-map-wiring.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import { registerControlHandlers } from './control-handlers.ts';
-import type { MillControl } from './control-handlers.ts';
+import type { MillControl, TeamReviewActionControl } from './control-handlers.ts';
 import type { ReplayLog } from './control-replay-core.ts';
 import type { PlanDecision } from '../shared/contracts/plan-review.ts';
 import type { TeamReviewStatus } from '../shared/contracts/team-review.ts';
@@ -29,7 +29,7 @@ interface PosthogControl {
   archiveInvestigation: (args: { id: string }) => Promise<Record<string, unknown>>;
 }
 
-interface TeamReviewControl {
+interface TeamReviewControl extends TeamReviewActionControl {
   getStatus: () => TeamReviewStatus | null;
 }
 
@@ -129,6 +129,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     posthogSetIssueStatus: (args) => posthog.setIssueStatus(args),
     posthogArchiveInvestigation: (args) => posthog.archiveInvestigation(args),
     getTeamReviewStatus: () => teamReview.getStatus(),
+    teamReview,
     getPackVersions: () => packService.getVersions(),
     serverBuild: dependencies.serverBuild,
     getUsageSessions: () => usage.getSessionsMessage(),

@@ -73,6 +73,26 @@ export const ReviewDraft = z.object({
 });
 export type ReviewDraft = z.infer<typeof ReviewDraft>;
 
+export const TeamReviewAction = z.enum(['approve', 'comment', 'discard']);
+export type TeamReviewAction = z.infer<typeof TeamReviewAction>;
+
+export const TeamReviewActionRequest = z.object({
+  key: z.string().min(1),
+  head: CommitSha,
+  action: TeamReviewAction,
+  body: z.string(),
+  comments: z.array(ReviewComment),
+});
+export type TeamReviewActionRequest = z.infer<typeof TeamReviewActionRequest>;
+
+export const TeamReviewActionResult = z.object({
+  key: z.string(),
+  ok: z.boolean(),
+  error: z.string().optional(),
+  warning: z.string().optional(),
+});
+export type TeamReviewActionResult = z.infer<typeof TeamReviewActionResult>;
+
 export const TeamReviewStateEntry = z.object({
   draft: ReviewDraft.nullable(),
   reviewedHead: CommitSha.nullable(),

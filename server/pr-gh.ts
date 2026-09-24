@@ -68,7 +68,14 @@ interface PrGh {
   viewPr(repo: string, number: number): Promise<PrDetailType | null>;
   prDiff(repo: string, number: number): Promise<string | null>;
   prHead(repo: string, number: number): Promise<string | null>;
-  postReview(review: { repo: string; number: number; commitId: string; event: 'APPROVE' | 'COMMENT'; body: string; comments: ReviewCommentType[] }): Promise<{ ok: boolean; err: string }>;
+  postReview(review: { repo: string; number: number; commitId: string; event: 'APPROVE' | 'COMMENT'; body: string; comments: ReviewCommentType[] }): Promise<PostedReview>;
+  dismissReview(dismissal: { repo: string; number: number; reviewId: number; message: string }): Promise<{ ok: boolean; err: string }>;
+}
+
+interface PostedReview {
+  ok: boolean;
+  err: string;
+  reviewId: number | null;
 }
 
 async function run(cmd: string, args: string[], cwd: string, input?: string, preserveOutput = false): Promise<CommandResult> {
@@ -94,6 +101,7 @@ const SEARCH_RESPONSE = z.object({ items: z.array(SearchedPr) });
 const SEARCH_PAGE_SIZE = 100;
 const MAX_SEARCH_PAGES = 5;
 const PR_DIFF_MAX_BYTES = 2 * 1024 * 1024;
+const CREATED_REVIEW = z.object({ id: z.number().int().positive() }).passthrough();
 const PR_DIFF = z.string().refine((diff) => Buffer.byteLength(diff, 'utf8') <= PR_DIFF_MAX_BYTES);
 
 function repoParts(repo: string): [string, string] | null {
@@ -252,18 +260,30 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
 
     async postReview({ repo, number, commitId, event, body, comments }) {
       const parts = repoParts(repo);
-      if (!parts || !isPrNumber(number)) return { ok: false, err: 'invalid repository or pull request number' };
-      if (!CommitSha.safeParse(commitId).success) return { ok: false, err: 'invalid commit id' };
-      if (event !== 'APPROVE' && event !== 'COMMENT') return { ok: false, err: 'invalid review event' };
-      if (typeof body !== 'string' || !Array.isArray(comments)) return { ok: false, err: 'invalid review body or comments' };
+      if (!parts || !isPrNumber(number)) return { ok: false, err: 'invalid repository or pull request number', reviewId: null };
+      if (!CommitSha.safeParse(commitId).success) return { ok: false, err: 'invalid commit id', reviewId: null };
+      if (event !== 'APPROVE' && event !== 'COMMENT') return { ok: false, err: 'invalid review event', reviewId: null };
+      if (typeof body !== 'string' || !Array.isArray(comments)) return { ok: false, err: 'invalid review body or comments', reviewId: null };
       const parsedComments = z.array(ReviewComment).safeParse(comments);
-      if (!parsedComments.success) return { ok: false, err: 'invalid review comments' };
+      if (!parsedComments.success) return { ok: false, err: 'invalid review comments', reviewId: null };
       const input = JSON.stringify({ commit_id: commitId, event, body, comments: parsedComments.data });
       const response = await runGh(['api', '-X', 'POST', `repos/${parts[0]}/${parts[1]}/pulls/${number}/reviews`, '--input', '-'], input);
-      return { ok: response.ok, err: response.ok ? '' : response.err.trim() || 'gh review post failed' };
+      if (!response.ok) return { ok: false, err: response.err.trim() || 'gh review post failed', reviewId: null };
+      const created = CREATED_REVIEW.safeParse(parseJson<unknown>(response.out, null));
+      return { ok: true, err: '', reviewId: created.success ? created.data.id : null };
+    },
+
+    async dismissReview({ repo, number, reviewId, message }) {
+      const parts = repoParts(repo);
+      if (!parts || !isPrNumber(number)) return { ok: false, err: 'invalid repository or pull request number' };
+      if (!Number.isSafeInteger(reviewId) || reviewId <= 0) return { ok: false, err: 'invalid review id' };
+      if (typeof message !== 'string' || !message.trim()) return { ok: false, err: 'a dismissal needs a message' };
+      const input = JSON.stringify({ message, event: 'DISMISS' });
+      const response = await runGh(['api', '-X', 'PUT', `repos/${parts[0]}/${parts[1]}/pulls/${number}/reviews/${reviewId}/dismissals`, '--input', '-'], input);
+      return { ok: response.ok, err: response.ok ? '' : response.err.trim() || 'gh review dismissal failed' };
     },
   };
 }
 
 export { createPrGh, normalizeIssue };
-export type { CommandResult, GithubIssue, GithubIssueDetail, GithubIssueLabel, GithubIssueList, GithubIssueWithoutBody, PrGh, PrSearchResult };
+export type { CommandResult, GithubIssue, GithubIssueDetail, GithubIssueLabel, GithubIssueList, GithubIssueWithoutBody, PostedReview, PrGh, PrSearchResult };

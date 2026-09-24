@@ -6,9 +6,11 @@ import {
   POSTED_RETENTION_MS,
   buildReviewPrompt,
   canPost,
+  commentableLines,
   draftsNewestFirst,
   errorDraft,
   eventForAction,
+  invalidComments,
   isSettledAtHead,
   markDraftStale,
   prBaseRef,
@@ -296,4 +298,90 @@ test('the review prompt fences PR text as untrusted and pins the head', () => {
 test('the fetched PR refs are namespaced per PR number, apart from each other', () => {
   assert.equal(prHeadRef(7), 'refs/glimmervoid-pr/7');
   assert.equal(prBaseRef(7), 'refs/glimmervoid-base/7');
+});
+
+const SAMPLE_DIFF = [
+  'diff --git a/src/app.ts b/src/app.ts',
+  'index 1111111..2222222 100644',
+  '--- a/src/app.ts',
+  '+++ b/src/app.ts',
+  '@@ -10,4 +10,5 @@ export function start() {',
+  '   const port = 3000;',
+  '-  listen(port);',
+  '--- a removed line that looks like a header',
+  '+  listen(port, host);',
+  '+  log(port);',
+  '+  ready();',
+  ' }',
+  'diff --git a/docs/old.md b/docs/new.md',
+  'similarity index 90%',
+  'rename from docs/old.md',
+  'rename to docs/new.md',
+  'index 3333333..4444444 100644',
+  '--- a/docs/old.md',
+  '+++ b/docs/new.md',
+  '@@ -1,2 +1,2 @@',
+  '-Old title',
+  '+New title',
+  ' Body line',
+  'diff --git a/src/added.ts b/src/added.ts',
+  'new file mode 100644',
+  'index 0000000..5555555',
+  '--- /dev/null',
+  '+++ b/src/added.ts',
+  '@@ -0,0 +1,2 @@',
+  '+export const one = 1;',
+  '+export const two = 2;',
+  '\\ No newline at end of file',
+  'diff --git a/src/gone.ts b/src/gone.ts',
+  'deleted file mode 100644',
+  '--- a/src/gone.ts',
+  '+++ /dev/null',
+  '@@ -1 +0,0 @@',
+  '-export const gone = true;',
+  '',
+].join('\n');
+
+function sortedLines(lines: Set<number> | undefined): number[] {
+  return [...(lines ?? [])].sort((left, right) => left - right);
+}
+
+test('commentable lines hold the new-file side as RIGHT and the old-file side as LEFT, per path', () => {
+  const commentable = commentableLines(SAMPLE_DIFF);
+  assert.deepEqual([...commentable.keys()].sort(), ['docs/new.md', 'src/added.ts', 'src/app.ts', 'src/gone.ts']);
+  assert.deepEqual(sortedLines(commentable.get('src/app.ts')?.right), [10, 11, 12, 13, 14]);
+  assert.deepEqual(sortedLines(commentable.get('src/app.ts')?.left), [10, 11, 12, 13]);
+  assert.deepEqual(sortedLines(commentable.get('docs/new.md')?.right), [1, 2]);
+  assert.deepEqual(sortedLines(commentable.get('docs/new.md')?.left), [1, 2]);
+  assert.equal(commentable.has('docs/old.md'), false);
+  assert.deepEqual(sortedLines(commentable.get('src/added.ts')?.right), [1, 2]);
+  assert.deepEqual(sortedLines(commentable.get('src/added.ts')?.left), []);
+  assert.deepEqual(sortedLines(commentable.get('src/gone.ts')?.left), [1]);
+  assert.deepEqual(sortedLines(commentable.get('src/gone.ts')?.right), []);
+});
+
+test('a pure rename with no hunk has no commentable lines', () => {
+  const renameOnly = [
+    'diff --git a/a.txt b/b.txt',
+    'similarity index 100%',
+    'rename from a.txt',
+    'rename to b.txt',
+    '',
+  ].join('\n');
+  assert.equal(commentableLines(renameOnly).size, 0);
+});
+
+test('invalid comments are the ones whose path, side or line is outside the diff', () => {
+  const commentable = commentableLines(SAMPLE_DIFF);
+  const onAddedLine = { path: 'src/app.ts', line: 12, side: 'RIGHT' as const, body: 'ok' };
+  const onRemovedLine = { path: 'src/app.ts', line: 11, side: 'LEFT' as const, body: 'ok' };
+  const outsideHunk = { path: 'src/app.ts', line: 40, side: 'RIGHT' as const, body: 'far away' };
+  const wrongSide = { path: 'src/added.ts', line: 1, side: 'LEFT' as const, body: 'no old file' };
+  const unknownPath = { path: 'src/other.ts', line: 1, side: 'RIGHT' as const, body: 'not in diff' };
+  const renamedAwayPath = { path: 'docs/old.md', line: 1, side: 'LEFT' as const, body: 'old name' };
+  assert.deepEqual(
+    invalidComments([onAddedLine, onRemovedLine, outsideHunk, wrongSide, unknownPath, renamedAwayPath], commentable),
+    [outsideHunk, wrongSide, unknownPath, renamedAwayPath],
+  );
+  assert.deepEqual(invalidComments([], commentable), []);
 });

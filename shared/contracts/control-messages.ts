@@ -13,7 +13,7 @@ import { ChangeMap } from './change-map.ts';
 import { PendingWakeup, SessionSnapshot, SessionState } from './session.ts';
 import { TraceRecord } from './trace.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
-import { CommitSha, ReviewComment, TeamReviewStatus } from './team-review.ts';
+import { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus } from './team-review.ts';
 
 const requestId = z.string().nullable().optional();
 const sessionId = z.string();
@@ -190,7 +190,7 @@ const clientVariants = [
   loose('request-issues', { requestId, projectId: z.string() }),
   loose('open-issue-session', { requestId, projectId: z.string(), issueNumber: z.number().int().positive() }),
   loose('posthog-issue-action', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), action: z.string(), requestId }),
-  loose('team-review-action', { key: z.string(), head: CommitSha, action: z.enum(['approve', 'comment', 'discard']), body: z.string(), comments: z.array(ReviewComment), requestId }),
+  loose('team-review-action', { ...TeamReviewActionRequest.shape, requestId }),
   loose('posthog-archive-investigation', { id: z.unknown().optional(), requestId }),
   loose('request-usage-report', { requestId, days: z.unknown().optional(), force: z.unknown().optional() }),
   loose('request-mill-report', { requestId }),
@@ -544,7 +544,7 @@ const serverVariants = [
     error: optionalError,
     status: nullableString.optional(),
   }),
-  loose('team-review-action-result', { key: z.string(), ok: z.boolean(), error: z.string().optional(), requestId }),
+  loose('team-review-action-result', { ...TeamReviewActionResult.shape, requestId }),
   loose('posthog-archive-investigation-result', { requestId, ok: z.boolean(), error: optionalError }),
   TeamReviewStatus,
 
