@@ -986,6 +986,7 @@ class Session extends EventEmitter {
       isWorkspace: this.isWorkspace,
       resumeSessionId: this._resumeSessionId,
       activeAgents: active,
+      awaitingBackgroundTasks: this.backgroundTracking.awaitingBackgroundTasks(),
       packs: this._packDelivery.delivered(),
       pendingWakeup: this.backgroundTracking.pendingWakeup(),
       pendingPromptKind: this._pendingPromptKind,

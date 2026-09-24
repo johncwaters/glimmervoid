@@ -130,7 +130,7 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     const rowDetails = rowState.get(row);
     if (!rowDetails) return;
     const { ui, state, unseen } = entry;
-    const { glyph, label } = stateChip(state);
+    const { glyph, label } = stateChip(state, ui.awaitingBackgroundTasks);
     const statusLabel = ui.pendingPromptKind === 'plan' ? 'Plan ready' : label;
     const name = entry.name;
     row.dataset.state = state;

@@ -17,6 +17,7 @@ function snapshotSource() {
     isWorkspace: false,
     resumeSessionId: "resume-1",
     activeAgents: 0,
+    awaitingBackgroundTasks: false,
     packs: [{ name: "rules", version: "v1", dir: "/private/rules" }],
     pendingWakeup: null,
     pendingPromptKind: null,
@@ -37,6 +38,7 @@ test("wire and debug snapshots share state and redacted pack projections", () =>
   assert.equal(debug.packs, wire.packs);
   assert.deepEqual(wire.packs, [{ name: "rules", version: "v1" }]);
   assert.equal(wire.effectiveBase, "main");
+  assert.equal(wire.awaitingBackgroundTasks, false);
   assert.deepEqual(debug.transitions, [{
     from: "RUNNING",
     to: "COMPLETE",

@@ -50,6 +50,7 @@ interface SessionBackgroundTracking {
   trackTaskLifecycle(raw: HookSignal): void;
   trackSubagent(raw: HookSignal): void;
   activeAgentCount(): number;
+  awaitingBackgroundTasks(): boolean;
   emitAgentsChange(): void;
   clearAgents(): void;
   stashGateHeldReady(signal: ResolvedStatusSignal): void;
@@ -87,6 +88,8 @@ function createSessionBackgroundTracking({
   let lastActivitySeq = 0;
 
   let agentBreakdown: TaskRegistryBreakdown = { counted: 0, declared: 0, idleNames: 0, idleTasks: 0 };
+  let publishedActiveAgents = 0;
+  let publishedAwaitingBackgroundTasks = false;
 
   const wakeups: WakeupMap = new Map();
   let wakeupSeq = 0;
@@ -111,6 +114,21 @@ function createSessionBackgroundTracking({
     gateHeldReady = null;
     gateQuietSince = null;
     clearGateTimer();
+    publishAgentsChange();
+  }
+
+  function awaitingBackgroundTasks(): boolean {
+    return detectBackgroundAgents && gateHeldReady !== null && port.state() === "RUNNING"
+      && tasks.isOnlyBackgroundTasks();
+  }
+
+  function publishAgentsChange(): void {
+    const activeAgents = activeAgentCount();
+    const awaiting = awaitingBackgroundTasks();
+    if (activeAgents === publishedActiveAgents && awaiting === publishedAwaitingBackgroundTasks) return;
+    publishedActiveAgents = activeAgents;
+    publishedAwaitingBackgroundTasks = awaiting;
+    port.emit("agents-change", { activeAgents, awaitingBackgroundTasks: awaiting });
   }
 
   function armGateTimer(ms: number): void {
@@ -134,6 +152,7 @@ function createSessionBackgroundTracking({
     if (!held || port.isDestroyed()) return;
     const now = Date.now();
     const activeAgents = activeAgentCount();
+    publishAgentsChange();
 
     if (activeAgents === 0 && gateQuietSince === null) gateQuietSince = now;
     const { decision, waitMs } = decideGateRelease({
@@ -177,14 +196,13 @@ function createSessionBackgroundTracking({
   }
 
   function emitAgentsChange(): void {
-    port.emit("agents-change", { activeAgents: activeAgentCount() });
+    publishAgentsChange();
     evaluateGateHeldReady();
   }
 
   function withAgentCount(mutate: () => void): void {
-    const before = activeAgentCount();
     mutate();
-    if (activeAgentCount() !== before) emitAgentsChange();
+    emitAgentsChange();
   }
 
   function applyBackgroundTasks(payload: unknown): void {
@@ -325,7 +343,10 @@ function createSessionBackgroundTracking({
 
   function noteStatus(signal: string): number {
     signalSeq += 1;
-    if (signal !== "ready") lastActivitySeq = signalSeq;
+    if (signal !== "ready") {
+      lastActivitySeq = signalSeq;
+      if (gateHeldReady) evaluateGateHeldReady();
+    }
     return signalSeq;
   }
 
@@ -335,6 +356,7 @@ function createSessionBackgroundTracking({
     trackTaskLifecycle,
     trackSubagent,
     activeAgentCount,
+    awaitingBackgroundTasks,
     emitAgentsChange,
     clearAgents,
     stashGateHeldReady,

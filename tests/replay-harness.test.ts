@@ -9,6 +9,8 @@ import claudeCode from '../session/adapters/claude-code.ts';
 import { setCustomAgents } from '../session/adapters/index.ts';
 import { CustomAgentDeclaration } from '../shared/contracts/index.ts';
 import { parseExitPlanModeHookPayload } from '../shared/contracts/plan-review.ts';
+import { Session } from '../session/sessions.ts';
+import { STATES } from '../shared/states.ts';
 
 const FIX = path.join(import.meta.dirname, 'fixtures');
 const FAST = { stabilizationMs: 40, conflictWindowMs: 20, dedupWindowMs: 10 };
@@ -25,6 +27,24 @@ test('v2 fixture (complete via Stop): emits working + ready, never awaiting-inpu
   assert.ok(c.working >= 1, 'expected working');
   assert.ok(c.ready >= 1, 'expected ready');
   assert.equal(c['awaiting-input'] || 0, 0, 'no false WAITING');
+});
+
+test('v2 fixture (running monitor on Stop): the recorded Stop reaches COMPLETE', async (t) => {
+  const { version, records } = load('v2-background-monitor-stop.jsonl');
+  assert.equal(version, 2);
+  const { signals } = await replayDetection(records, FAST);
+  assert.ok(signals.some((signal) => signal.signal === 'ready' && signal.source === 'hook'));
+
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const session = new Session({ id: 'fixture-monitor', name: 'monitor', path: process.cwd(), statusConflictMs: 20, statusDedupMs: 10 });
+  session.state = STATES.RUNNING;
+  const stop = records.find((record) => record.type === 'hook' && record.event === 'Stop');
+  assert.ok(stop);
+  session.ingestHookSignal({ signal: 'ready', source: 'hook', ts: Date.now(), payload: stop.payload });
+  t.mock.timers.tick(40);
+  assert.equal(session.state, STATES.COMPLETE);
+  assert.equal(session.toSnapshot().awaitingBackgroundTasks, false);
+  session.destroy();
 });
 
 test('v2 fixture (SessionStart clear): the command-relayed reset signal reaches replay', async () => {

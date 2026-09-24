@@ -87,6 +87,7 @@ interface SnapshotSession {
   mergeReason?: string | null;
   effectiveBase?: string;
   activeAgents?: number;
+  awaitingBackgroundTasks?: boolean;
   pendingWakeup?: unknown;
   pendingPromptKind?: unknown;
   hasPlan?: unknown;
@@ -175,7 +176,7 @@ function handleSnapshot(sessions: unknown, packVersions: unknown) {
     seedSessionMergeStatus(s.id, s.mergeStatus, s.mergeReason);
     setSessionEffectiveBase(s.id, s.effectiveBase);
 
-    setSessionAgents(s.id, s.activeAgents);
+    setSessionAgents(s.id, s.activeAgents, s.awaitingBackgroundTasks);
 
     setSessionWakeup(s.id, s.pendingWakeup);
 
@@ -346,7 +347,7 @@ const messageHandlers = {
   'session-git':        (msg) => setSessionWorktree(msg.id, !!msg.worktree),
   'session-resume':     (msg) => setSessionResume(msg.id, msg.resumeSessionId),
 
-  'session-agents':     (msg) => { setSessionAgents(msg.id, msg.activeAgents); handleDebugStateRefresh(msg.id); },
+  'session-agents':     (msg) => { setSessionAgents(msg.id, msg.activeAgents, msg.awaitingBackgroundTasks); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); handleDebugStateRefresh(msg.id); },
   'session-wakeup':     (msg) => setSessionWakeup(msg.id, msg.pendingWakeup),
   'session-prompt':     (msg) => { setSessionPrompt(msg.id, msg.pendingPromptKind); refreshPhoneBoard(); },
   'session-merge-status': (msg) => { setSessionMergeStatus(msg.id, msg.mergeStatus, msg.reason); setFocusMergeStatus(msg.id, msg.mergeStatus); refreshPhoneBoard(); },

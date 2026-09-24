@@ -1,5 +1,5 @@
 import type { SessionState } from '#shared/states.ts';
-import { BADGE_LABELS, STATE_GLYPHS } from '#shared/states.ts';
+import { BADGE_LABELS, STATE_GLYPHS, STATES } from '#shared/states.ts';
 
 export type AdoptableElement = HTMLElement & { _adoptHome?: { parent: HTMLElement | null; next: Element | null } };
 
@@ -46,9 +46,10 @@ export function externalLink(className: string, text: string, url: string | null
 
 export const MERGE_TAGS: Readonly<Record<string, string>> = { 'pending-review': 'REVIEW', parked: 'PARKED', merging: 'MERGING' };
 
-export function stateChip(state: string) {
+export function stateChip(state: string, awaitingBackgroundTasks = false) {
   const knownState = state as SessionState;
-  return { glyph: STATE_GLYPHS[knownState] || '', label: (BADGE_LABELS[knownState] || state).toUpperCase() };
+  const label = state === STATES.RUNNING && awaitingBackgroundTasks ? 'Monitoring' : BADGE_LABELS[knownState] || state;
+  return { glyph: STATE_GLYPHS[knownState] || '', label: label.toUpperCase() };
 }
 
 export function observeHeaderHeight(barEl: HTMLElement | null | undefined) {

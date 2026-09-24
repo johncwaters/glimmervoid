@@ -437,6 +437,62 @@ test('background_tasks on Stop suppresses completion even with zero counted sub-
   t.mock.timers.tick(40);
   assert.equal(s.state, STATES.RUNNING, 'background Bash still running: no COMPLETE');
   assert.equal(s.toSnapshot().activeAgents, 1, 'declared count rides the snapshot chip');
+  assert.equal(s.toSnapshot().awaitingBackgroundTasks, false, 'an untyped declaration is not background-only');
+  s.destroy();
+});
+
+test('running monitor declarations across Stops do not hold completion', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const s = makeSession(STATES.RUNNING);
+  const backgroundTasks = [{ id: 'monitor-1', type: 'monitor', status: 'running' }];
+  hook(s, 'ready', { payload: { background_tasks: backgroundTasks } });
+  t.mock.timers.tick(40);
+  assert.equal(s.state, STATES.COMPLETE);
+  assert.equal(s.toSnapshot().activeAgents, 0);
+  assert.equal(s.toSnapshot().awaitingBackgroundTasks, false);
+  hook(s, 'resume');
+  hook(s, 'ready', { payload: { background_tasks: backgroundTasks } });
+  t.mock.timers.tick(40);
+  assert.equal(s.state, STATES.COMPLETE);
+  s.destroy();
+});
+
+test('running shell declarations across Stops release from first sighting and report monitoring while held', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const s = makeSession(STATES.RUNNING, { shellTaskTtlMs: 150, gateReleaseSettleMs: 20 });
+  const agentChanges: { activeAgents: number; awaitingBackgroundTasks: boolean }[] = [];
+  s.on('agents-change', (event) => agentChanges.push(event));
+  const backgroundTasks = [{ id: 'shell-1', type: 'shell', status: 'running' }];
+  hook(s, 'ready', { payload: { background_tasks: backgroundTasks } });
+  t.mock.timers.tick(40);
+  assert.equal(s.state, STATES.RUNNING);
+  assert.equal(s.toSnapshot().awaitingBackgroundTasks, true);
+  hook(s, 'resume');
+  assert.equal(s.toSnapshot().awaitingBackgroundTasks, false);
+  t.mock.timers.tick(60);
+  hook(s, 'ready', { payload: { background_tasks: backgroundTasks } });
+  t.mock.timers.tick(40);
+  assert.equal(s.state, STATES.RUNNING);
+  assert.equal(s.toSnapshot().awaitingBackgroundTasks, true);
+  t.mock.timers.tick(100);
+  t.mock.timers.tick(40);
+  assert.equal(s.state, STATES.COMPLETE);
+  assert.equal(s.toSnapshot().awaitingBackgroundTasks, false);
+  assert.ok(agentChanges.some((event) => event.awaitingBackgroundTasks));
+  assert.equal(agentChanges.at(-1)?.awaitingBackgroundTasks, false);
+  s.destroy();
+});
+
+test('new working activity cancels a shell-held ready and clears monitoring immediately', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const s = makeSession(STATES.RUNNING, { shellTaskTtlMs: 150 });
+  hook(s, 'ready', { payload: { background_tasks: [{ id: 'shell-1', type: 'shell', status: 'running' }] } });
+  t.mock.timers.tick(40);
+  assert.equal(s.toSnapshot().awaitingBackgroundTasks, true);
+  hook(s, 'working');
+  assert.equal(s.toSnapshot().awaitingBackgroundTasks, false);
+  t.mock.timers.tick(250);
+  assert.equal(s.state, STATES.RUNNING);
   s.destroy();
 });
 

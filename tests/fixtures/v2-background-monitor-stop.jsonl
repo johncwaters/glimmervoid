@@ -1,0 +1,4 @@
+{"type":"header","version":2,"session":"fixture-monitor","startedAt":0,"config":{},"cols":80,"rows":24}
+{"type":"data","ts":1,"data":"\u001b]0;⠂ Claude Code\u0007"}
+{"type":"hook","ts":2,"event":"Stop","payload":{"hook_event_name":"Stop","background_tasks":[{"id":"monitor-1","type":"monitor","status":"running"}]}}
+{"type":"footer","ts":3,"reason":"pty_exit","exitCode":0}

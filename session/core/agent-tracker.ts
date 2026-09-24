@@ -51,7 +51,7 @@ function extractBackgroundTasks(payload: unknown): DeclaredEntry[] | null {
 
 const WEAK_TASK_TYPES = new Set<string | null | undefined>(['shell', 'monitor']);
 
-const NON_GATING_TASK_TYPES = new Set<string | null | undefined>(['dream']);
+const NON_GATING_TASK_TYPES = new Set<string | null | undefined>(['dream', 'monitor']);
 
 const DEFAULT_SHELL_TASK_TTL_MS = 60 * 60 * 1000;
 
@@ -65,22 +65,42 @@ const DEFAULT_TEAMMATE_TASK_TTL_MS = 90 * 1000;
 function declaredActiveCount(
   entries: readonly DeclaredEntry[] | null,
   idleIds: ReadonlySet<string> | null,
-  ageMs = 0, weakTtlMs = DEFAULT_SHELL_TASK_TTL_MS, idleNameCount = 0,
+  ageMs: number | ((entry: DeclaredEntry) => number) = 0, weakTtlMs = DEFAULT_SHELL_TASK_TTL_MS, idleNameCount = 0,
   teammateTtlMs = DEFAULT_TEAMMATE_TASK_TTL_MS, agentTtlMs = DEFAULT_AGENT_TTL_MS,
 ): number {
   if (!entries) return 0;
   let n = 0;
   let teammateCount = 0;
   for (const e of entries) {
+    const entryAgeMs = typeof ageMs === 'function' ? ageMs(e) : ageMs;
     if (e.id && idleIds && idleIds.has(e.id)) continue;
-    if (WEAK_TASK_TYPES.has(e.type) && ageMs >= weakTtlMs) continue;
+    if (WEAK_TASK_TYPES.has(e.type) && entryAgeMs >= weakTtlMs) continue;
     if (NON_GATING_TASK_TYPES.has(e.type)) continue;
-    if (e.type === 'teammate' && ageMs >= teammateTtlMs) continue;
-    if (!WEAK_TASK_TYPES.has(e.type) && e.type !== 'teammate' && ageMs >= agentTtlMs) continue;
+    if (e.type === 'teammate' && entryAgeMs >= teammateTtlMs) continue;
+    if (!WEAK_TASK_TYPES.has(e.type) && e.type !== 'teammate' && entryAgeMs >= agentTtlMs) continue;
     n++;
     if (e.type === 'teammate') teammateCount++;
   }
   return n - Math.min(idleNameCount, teammateCount);
+}
+
+function isOnlyBackgroundTasks(
+  entries: readonly DeclaredEntry[] | null,
+  countedAgents: TimestampMap,
+  idleIds: ReadonlySet<string>,
+  ageMs: (entry: DeclaredEntry) => number,
+  weakTtlMs: number,
+  idleNameCount: number,
+  teammateTtlMs: number,
+  agentTtlMs: number,
+): boolean {
+  if (!entries || countedAgents.size > 0) return false;
+  const shellEntries = entries.filter((entry) => entry.type === 'shell');
+  const otherEntries = entries.filter((entry) => entry.type !== 'shell');
+  const count = (selectedEntries: DeclaredEntry[]) => declaredActiveCount(
+    selectedEntries, idleIds, ageMs, weakTtlMs, idleNameCount, teammateTtlMs, agentTtlMs,
+  );
+  return count(shellEntries) > 0 && count(otherEntries) === 0;
 }
 
 function declaredEntryTtlMs(
@@ -98,6 +118,7 @@ interface NextDrainInputs {
   countedAgents?: TimestampMap | null;
   declaredEntries?: readonly DeclaredEntry[] | null;
   declaredTs?: number;
+  declaredFirstSeenTs?: ReadonlyMap<string, number>;
   idleIds?: ReadonlySet<string> | null;
   now?: number;
   agentTtlMs?: number;
@@ -105,10 +126,20 @@ interface NextDrainInputs {
   teammateTtlMs?: number;
 }
 
+function declaredEntryAgeStartTs(
+  entry: DeclaredEntry,
+  declaredTs: number,
+  declaredFirstSeenTs: ReadonlyMap<string, number> | undefined,
+): number {
+  if (!WEAK_TASK_TYPES.has(entry.type) || !entry.id) return declaredTs;
+  return declaredFirstSeenTs?.get(entry.id) ?? declaredTs;
+}
+
 function msUntilNextDrain({
   countedAgents = null,
   declaredEntries = null,
   declaredTs = 0,
+  declaredFirstSeenTs = undefined,
   idleIds = null,
   now = 0,
   agentTtlMs = DEFAULT_AGENT_TTL_MS,
@@ -127,7 +158,8 @@ function msUntilNextDrain({
     for (const e of declaredEntries) {
       if (e.id && idleIds && idleIds.has(e.id)) continue;
       if (e.type && NON_GATING_TASK_TYPES.has(e.type)) continue;
-      consider(declaredTs + declaredEntryTtlMs(e.type, weakTtlMs, teammateTtlMs, agentTtlMs));
+      const ageStartTs = declaredEntryAgeStartTs(e, declaredTs, declaredFirstSeenTs);
+      consider(ageStartTs + declaredEntryTtlMs(e.type, weakTtlMs, teammateTtlMs, agentTtlMs));
     }
   }
   if (earliestExpiry === null) return null;
@@ -174,6 +206,7 @@ interface TaskRegistryInspection {
   orphanAgentStops: TimestampMap;
   declared: DeclaredEntry[] | null;
   declaredTs: number;
+  declaredFirstSeenTs: TimestampMap;
   idleTaskIds: Set<string>;
   idleTeammateNames: TimestampMap;
   declaredTeammateIds: Set<string>;
@@ -192,6 +225,7 @@ interface TaskRegistry {
   noteTeammateIdle(name: string, ts: number): void;
   regateByAgentId(agentId: unknown): void;
   activeCount(): number;
+  isOnlyBackgroundTasks(): boolean;
   getBreakdown(): TaskRegistryBreakdown;
   msUntilNextDrain(at: number): number | null;
   clear(): void;
@@ -209,21 +243,24 @@ function createTaskRegistry({
   const orphanAgentStops: TimestampMap = new Map();
   let declaredEntries: DeclaredEntry[] | null = null;
   let declaredTs = 0;
+  const declaredFirstSeenTs: TimestampMap = new Map();
   const idleTaskIds = new Set<string>();
   const idleTeammateNames: TimestampMap = new Map();
   let declaredTeammateIds = new Set<string>();
   let breakdown: TaskRegistryBreakdown = { counted: 0, declared: 0, idleNames: 0, idleTasks: 0 };
+
+  function entryAgeMs(entry: DeclaredEntry, at: number): number {
+    return at - declaredEntryAgeStartTs(entry, declaredTs, declaredFirstSeenTs);
+  }
 
   function reap(at: number): void {
     pruneAgents(countedAgents, at, agentTtlMs);
     pruneAgents(orphanAgentStops, at, agentTtlMs);
     pruneAgents(idleTeammateNames, at, agentTtlMs);
     if (declaredEntries === null) return;
-    const declaredTtlMs = declaredEntries.reduce((maxTtlMs, entry) => Math.max(
-      maxTtlMs,
-      declaredEntryTtlMs(entry.type, shellTaskTtlMs, teammateTaskTtlMs, agentTtlMs),
-    ), agentTtlMs);
-    if (at - declaredTs < declaredTtlMs) return;
+    const hasUnexpiredEntry = declaredEntries.some((entry) => entryAgeMs(entry, at)
+      < declaredEntryTtlMs(entry.type, shellTaskTtlMs, teammateTaskTtlMs, agentTtlMs));
+    if (hasUnexpiredEntry) return;
     declaredEntries = null;
     declaredTs = 0;
   }
@@ -264,11 +301,20 @@ function createTaskRegistry({
       declaredEntries = entries;
       declaredTs = now();
       const declaredIds = new Set<string>(entries.flatMap((e) => (e.id ? [e.id] : [])));
+      for (const id of declaredFirstSeenTs.keys()) {
+        if (!declaredIds.has(id)) declaredFirstSeenTs.delete(id);
+      }
+      for (const id of declaredIds) {
+        if (!declaredFirstSeenTs.has(id)) declaredFirstSeenTs.set(id, declaredTs);
+      }
       for (const id of idleTaskIds) {
         if (!declaredIds.has(id)) idleTaskIds.delete(id);
       }
       declaredTeammateIds = evictDepartedTeammateNames(idleTeammateNames, declaredTeammateIds, entries);
-      const rawDeclaredActive = declaredActiveCount(entries, idleTaskIds);
+      const rawDeclaredActive = declaredActiveCount(
+        entries, idleTaskIds, (entry) => entryAgeMs(entry, declaredTs),
+        shellTaskTtlMs, 0, teammateTaskTtlMs, agentTtlMs,
+      );
       if (rawDeclaredActive === 0 && countedAgents.size > 0) countedAgents.clear();
     },
 
@@ -313,7 +359,7 @@ function createTaskRegistry({
       const at = now();
       reap(at);
       const declared = declaredActiveCount(
-        declaredEntries, idleTaskIds, declaredEntries ? at - declaredTs : 0,
+        declaredEntries, idleTaskIds, (entry) => entryAgeMs(entry, at),
         shellTaskTtlMs, idleTeammateNames.size, teammateTaskTtlMs, agentTtlMs,
       );
       breakdown = {
@@ -325,6 +371,15 @@ function createTaskRegistry({
       return Math.max(countedAgents.size, declared);
     },
 
+    isOnlyBackgroundTasks() {
+      const at = now();
+      reap(at);
+      return isOnlyBackgroundTasks(
+        declaredEntries, countedAgents, idleTaskIds, (entry) => entryAgeMs(entry, at),
+        shellTaskTtlMs, idleTeammateNames.size, teammateTaskTtlMs, agentTtlMs,
+      );
+    },
+
     getBreakdown() {
       return breakdown;
     },
@@ -334,6 +389,7 @@ function createTaskRegistry({
         countedAgents,
         declaredEntries,
         declaredTs,
+        declaredFirstSeenTs,
         idleIds: idleTaskIds,
         now: at,
         agentTtlMs,
@@ -348,6 +404,7 @@ function createTaskRegistry({
       orphanAgentStops.clear();
       declaredEntries = null;
       declaredTs = 0;
+      declaredFirstSeenTs.clear();
       idleTaskIds.clear();
       idleTeammateNames.clear();
       declaredTeammateIds.clear();
@@ -360,6 +417,7 @@ function createTaskRegistry({
         orphanAgentStops: new Map(orphanAgentStops),
         declared: declaredEntries,
         declaredTs,
+        declaredFirstSeenTs: new Map(declaredFirstSeenTs),
         idleTaskIds: new Set(idleTaskIds),
         idleTeammateNames: new Map(idleTeammateNames),
         declaredTeammateIds: new Set(declaredTeammateIds),

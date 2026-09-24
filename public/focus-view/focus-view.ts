@@ -316,7 +316,7 @@ function paintPill(pill: FocusPill, id: string, ui: SessionUi) {
   if (state !== STATES.COMPLETE) pill.removeAttribute('data-unseen');
   if (state === STATES.COMPLETE && prev && prev !== STATES.COMPLETE) pill.dataset.unseen = '';
   pill.dataset.state = state;
-  const { glyph, label } = stateChip(state);
+  const { glyph, label } = stateChip(state, ui.awaitingBackgroundTasks);
   pill._refs.glyph.textContent = glyph;
   pill._refs.label.textContent = label;
   pill._refs.name.textContent = sessionName(ui);

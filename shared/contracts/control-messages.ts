@@ -355,7 +355,7 @@ const serverVariants = [
   loose('session-renamed', { id: sessionId, oldName: z.string(), newName: z.string() }),
   loose('session-git', { id: sessionId, worktree: z.boolean() }),
   loose('session-resume', { id: sessionId, resumeSessionId: z.string().nullable() }),
-  loose('session-agents', { id: sessionId, activeAgents: z.number().int().nonnegative(), timestamp }),
+  loose('session-agents', { id: sessionId, activeAgents: z.number().int().nonnegative(), awaitingBackgroundTasks: z.boolean(), timestamp }),
   loose('session-packs', { id: sessionId, packs: z.array(z.object({ name: z.string(), version: z.string() })) }),
   loose('session-wakeup', { id: sessionId, pendingWakeup: PendingWakeup.nullable(), timestamp }),
   loose('session-prompt', { id: sessionId, pendingPromptKind: nullableString, timestamp }),

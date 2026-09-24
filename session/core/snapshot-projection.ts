@@ -49,6 +49,7 @@ interface SnapshotSource {
   isWorkspace: boolean;
   resumeSessionId: string | null;
   activeAgents: number;
+  awaitingBackgroundTasks: boolean;
   packs: { name: string; version: string }[];
   pendingWakeup: Record<string, unknown> | null;
   pendingPromptKind: string | null;
@@ -77,6 +78,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     isWorkspace: source.isWorkspace,
     resumeSessionId: source.resumeSessionId,
     activeAgents: source.activeAgents,
+    awaitingBackgroundTasks: source.awaitingBackgroundTasks,
     packs: source.packs.map(({ name, version }) => ({ name, version })),
     pendingWakeup: source.pendingWakeup,
     pendingPromptKind: source.pendingPromptKind,

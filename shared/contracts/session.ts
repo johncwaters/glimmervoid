@@ -22,6 +22,7 @@ export const SessionSnapshot = z.object({
   isWorkspace: z.boolean().default(false),
   resumeSessionId: z.string().nullable(),
   activeAgents: z.number().int().nonnegative(),
+  awaitingBackgroundTasks: z.boolean(),
   packs: z.array(z.object({ name: z.string(), version: z.string() })),
   pendingWakeup: PendingWakeup.nullable(),
   pendingPromptKind: z.string().nullable(),

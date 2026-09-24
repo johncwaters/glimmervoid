@@ -80,7 +80,7 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     topBar.dataset.state = state;
 
     if (!isRenameInProgress(nameEl)) nameEl.textContent = ui.card?.dataset.session || shownId;
-    const { glyph, label } = stateChip(state);
+    const { glyph, label } = stateChip(state, ui.awaitingBackgroundTasks);
     glyphEl.textContent = glyph;
     labelEl.textContent = label;
     elapsedEl.textContent = sessionElapsedText(ui);

@@ -450,11 +450,12 @@ function paintCardBadge(ui: SessionUi, selector: string, datasetKey: string, bad
   if (title !== undefined) badge.title = title;
 }
 
-export function setSessionAgents(sessionId: unknown, activeAgents: unknown) {
+export function setSessionAgents(sessionId: unknown, activeAgents: unknown, awaitingBackgroundTasks: unknown = false) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
   const n = Math.max(0, Number(activeAgents) || 0);
   ui.activeAgents = n;
+  ui.awaitingBackgroundTasks = ui.currentState === STATES.RUNNING && awaitingBackgroundTasks === true;
   paintCardBadge(ui, '.agents-badge', 'agents', {
     on: n > 0,
     value: String(n),
@@ -647,6 +648,7 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
   const state = asText(nextState);
   const prevState = ui.currentState;
   ui.currentState = state;
+  if (state !== STATES.RUNNING) ui.awaitingBackgroundTasks = false;
 
   if (state !== prevState) {
     ui.stateSince = typeof stateSince === 'number' && Number.isFinite(stateSince) ? stateSince : Date.now();

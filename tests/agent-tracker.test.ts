@@ -124,7 +124,7 @@ test('declaredActiveCount filters out-of-band idled ids; an id-less entry always
   assert.equal(declaredActiveCount(null, new Set(['a'])), 0);
 });
 
-test('declaredActiveCount: a weak (shell/monitor) entry counts fresh and stops counting past the weak TTL; a teammate entry keeps counting', () => {
+test('declaredActiveCount: a shell entry counts fresh and stops counting past the weak TTL; a teammate entry keeps counting', () => {
   const entries = [{ id: 'b1', type: 'shell' }, { id: 't1', type: 'teammate' }];
   const idleIds = new Set<string>();
   assert.equal(declaredActiveCount(entries, idleIds, 0, 100), 2, 'both count when fresh');
@@ -138,10 +138,11 @@ test('the default shell task TTL covers a forty-minute external agent run', () =
   assert.equal(declaredActiveCount(entries, new Set<string>(), DEFAULT_SHELL_TASK_TTL_MS), 0);
 });
 
-test('declaredActiveCount: dream entries never gate, alone or mixed with gating entries', () => {
-  assert.equal(declaredActiveCount([{ id: 'd1', type: 'dream' }], new Set<string>()), 0, 'a lone dream entry never gates');
-  const mixed = [{ id: 'd1', type: 'dream' }, { id: 'b1', type: 'shell' }];
-  assert.equal(declaredActiveCount(mixed, new Set<string>()), 1, 'the dream entry is skipped; the shell entry still gates');
+test('declaredActiveCount: dream and monitor entries never gate, alone or mixed with shell', () => {
+  assert.equal(declaredActiveCount([{ id: 'd1', type: 'dream' }], new Set<string>()), 0);
+  assert.equal(declaredActiveCount([{ id: 'm1', type: 'monitor' }], new Set<string>()), 0);
+  const mixed = [{ id: 'd1', type: 'dream' }, { id: 'm1', type: 'monitor' }, { id: 'b1', type: 'shell' }];
+  assert.equal(declaredActiveCount(mixed, new Set<string>()), 1);
 });
 
 test('declaredActiveCount: idleNameCount subtracts from surviving teammate-type entries', () => {
@@ -190,6 +191,21 @@ test('msUntilNextDrain: a declared teammate snapshot 60s into a 90s TTL has 30s 
     ...TTLS,
   });
   assert.equal(ms, 30000);
+});
+
+test('msUntilNextDrain uses first sighting for identified entries and snapshot time for id-less entries', () => {
+  const now = 1000000;
+  const entries = [{ id: 'b1', type: 'shell' }, { type: 'shell' }];
+  const firstSeenTs = new Map([['b1', now - 80]]);
+  assert.equal(msUntilNextDrain({
+    declaredEntries: entries,
+    declaredTs: now - 20,
+    declaredFirstSeenTs: firstSeenTs,
+    now,
+    weakTtlMs: 100,
+  }), 20);
+  assert.equal(declaredActiveCount(entries, new Set<string>(),
+    (entry) => now - ((entry.id ? firstSeenTs.get(entry.id) : undefined) ?? now - 20), 100), 2);
 });
 
 test('msUntilNextDrain: picks the sooner of a weak entry and a teammate entry in the same snapshot', () => {
@@ -249,13 +265,14 @@ test('msUntilNextDrain: the counted map and the declared snapshot are compared a
   assert.equal(ms, 10000);
 });
 
-test('msUntilNextDrain: a drained id and a dream entry contribute nothing (dream-only falls back)', () => {
+test('msUntilNextDrain: drained ids, dreams, and monitors contribute nothing', () => {
   const now = 1000000;
   assert.equal(
     msUntilNextDrain({ declaredEntries: [{ id: 'd1', type: 'dream' }], declaredTs: now, now, ...TTLS }),
     null,
     'a dream entry never gates, so it is never the next drain',
   );
+  assert.equal(msUntilNextDrain({ declaredEntries: [{ id: 'm1', type: 'monitor' }], declaredTs: now, now, ...TTLS }), null);
   assert.equal(
     msUntilNextDrain({
       declaredEntries: [{ id: 'tm1', type: 'teammate' }],

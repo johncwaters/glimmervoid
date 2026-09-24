@@ -47,6 +47,7 @@ export interface SessionUi {
   planFace: PlanFaceController;
   effectiveBase?: string;
   activeAgents?: number;
+  awaitingBackgroundTasks?: boolean;
   packs?: DeliveredPack[];
   resizeObserver?: ResizeObserver;
   ptySize?: TerminalGrid | null;

@@ -18,6 +18,7 @@ test('SessionSnapshot preserves nested extension fields', () => {
     isWorktree: false,
     resumeSessionId: null,
     activeAgents: 0,
+    awaitingBackgroundTasks: false,
     packs: [],
     pendingWakeup: { at: 2, kind: 'cron', reason: null, extension: true },
     pendingPromptKind: null,

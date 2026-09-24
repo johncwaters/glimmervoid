@@ -247,13 +247,14 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       session: session.name,
       timestamp: Date.now(),
     }));
-    session.on('agents-change', (payload: Record<string, unknown>) => {
+    session.on('agents-change', (payload: { activeAgents: number; awaitingBackgroundTasks: boolean }) => {
       dependencies.telegramChannel.recheck(session.id);
       dependencies.broadcastControl({
-        ...payload,
         type: 'session-agents',
         id: session.id,
         session: session.name,
+        activeAgents: payload.activeAgents,
+        awaitingBackgroundTasks: payload.awaitingBackgroundTasks,
         timestamp: Date.now(),
       });
     });
