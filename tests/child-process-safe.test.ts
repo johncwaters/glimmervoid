@@ -193,3 +193,10 @@ test("real end-to-end: execFileSync runs node and returns its stdout (no window)
     .trim();
   assert.equal(out, "hello");
 });
+
+test('real end-to-end: execFileAsync writes input to stdin', async () => {
+  const { stdout } = await safe.execFileAsync(process.execPath, ['-e', 'process.stdin.setEncoding("utf8");let value="";process.stdin.on("data",chunk=>value+=chunk);process.stdin.on("end",()=>process.stdout.write(value))'], {
+    encoding: 'utf8', input: 'review payload',
+  });
+  assert.equal(stdout, 'review payload');
+});

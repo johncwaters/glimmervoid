@@ -107,6 +107,10 @@ function isDocsOrTests(filePath: string): boolean {
 
 function triagePr(detail: PrDetail): { tier: 'skip' | 'stamp' | 'full'; reasons: string[] } {
   if (detail.isCrossRepository) return { tier: 'skip', reasons: ['fork'] };
+  const listedLines = detail.files.reduce((total, file) => total + file.additions + file.deletions, 0);
+  if (detail.files.length >= 100 || listedLines < detail.additions + detail.deletions) {
+    return { tier: 'full', reasons: ['file list truncated'] };
+  }
   for (const file of detail.files) {
     const reason = sensitivePathReason(file.path);
     if (reason) return { tier: 'full', reasons: [reason] };

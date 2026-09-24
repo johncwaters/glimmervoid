@@ -60,7 +60,8 @@ const execFile: ExecFileFn = Object.assign(
   {
     [promisify.custom]: (file: string, ...rest: unknown[]) => new Promise<ExecFileResult>((resolve, reject) => {
       const { args, options } = split(rest);
-      const execOptions = hide(options) as ExecFileOptionsWithStringEncoding;
+      const { input, ...commandOptions } = options ?? {};
+      const execOptions = hide(commandOptions) as ExecFileOptionsWithStringEncoding;
       const callback = (err: ExecException | null, stdout: string, stderr: string) => {
         if (err) {
           const failure = err as ExecException & { stdout?: string; stderr?: string };
@@ -70,7 +71,11 @@ const execFile: ExecFileFn = Object.assign(
         }
         resolve({ stdout, stderr });
       };
-      cp.execFile(file, args, execOptions, callback);
+      const child = cp.execFile(file, args, execOptions, callback);
+      if (typeof input !== 'string') return;
+      if (!child.stdin) return reject(new Error('execFile stdin unavailable'));
+      child.stdin.on('error', reject);
+      child.stdin.end(input);
     }),
   },
 );

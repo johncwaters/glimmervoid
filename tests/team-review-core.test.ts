@@ -192,13 +192,22 @@ test('triage uses sensitive paths and counted source size', () => {
   const fixtures = [
     { name: 'wizard#1350', detail: prDetail('PostHog/wizard', 1350, wizardFiles), tier: 'full', reason: '252 counted lines over 200' },
     { name: 'context-mill#404', detail: prDetail('PostHog/context-mill', 404, contextMillFiles), tier: 'stamp', reason: 'docs and tests only' },
-    { name: 'wizard-workbench#4136', detail: prDetail('PostHog/wizard-workbench', 4136, workbenchFiles), tier: 'full', reason: '124 counted files over 10' },
+    { name: 'wizard-workbench#4136', detail: prDetail('PostHog/wizard-workbench', 4136, workbenchFiles), tier: 'full', reason: 'file list truncated' },
     { name: 'workflow', detail: prDetail('PostHog/wizard', 1355, [{ path: '.github/workflows/ci.yml', additions: 2, deletions: 1 }]), tier: 'full', reason: 'touches .github/workflows/ci.yml' },
     { name: 'fork', detail: prDetail('PostHog/wizard', 1356, [{ path: 'src/index.ts', additions: 1, deletions: 0 }], true), tier: 'skip', reason: 'fork' },
   ] as const;
   for (const fixture of fixtures) {
     assert.deepEqual(triagePr(fixture.detail), { tier: fixture.tier, reasons: [fixture.reason] }, fixture.name);
   }
+});
+
+test('triage treats a capped or incomplete file list as full after the fork check', () => {
+  const cappedFiles = Array.from({ length: 100 }, (_unused, index) => ({ path: `docs/page-${index}.md`, additions: 1, deletions: 0 }));
+  const capped = prDetail('PostHog/wizard', 1400, cappedFiles);
+  assert.deepEqual(triagePr(capped), { tier: 'full', reasons: ['file list truncated'] });
+  assert.deepEqual(triagePr({ ...capped, isCrossRepository: true }), { tier: 'skip', reasons: ['fork'] });
+  const incomplete = prDetail('PostHog/wizard', 1401, [{ path: 'README.md', additions: 1, deletions: 0 }]);
+  assert.deepEqual(triagePr({ ...incomplete, additions: 2 }), { tier: 'full', reasons: ['file list truncated'] });
 });
 
 test('triage excludes each non-source category from size but reviews sensitive paths', () => {
