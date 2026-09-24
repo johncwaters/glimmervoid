@@ -426,15 +426,18 @@ test('getSettings resolves branchGc defaults while opt-in blocks stay null; proj
     const s = store.getSettings();
     assert.deepEqual(s.branchGc, DEFAULT_CONFIG.branchGc);
     assert.equal(s.visions, null);
+    assert.equal(s.teamReview, null);
     assert.equal(s.telegram, null);
     assert.deepEqual(s.projectChoices, [{ id: 'p1', name: 'proj-one' }]);
 
     store.config.branchGc = { ...DEFAULT_CONFIG.branchGc, enabled: false, staleDays: 21 };
     store.config.visions = { enabled: true, dispatch: { enabled: false } };
+    store.config.teamReview = { enabled: true, org: 'PostHog', team: 'product-engineering' };
     store.config.telegram = { botToken: 'tok', chatId: '123' };
     const s2 = store.getSettings();
     assert.deepEqual(s2.branchGc, { ...DEFAULT_CONFIG.branchGc, enabled: false, staleDays: 21 });
     assert.deepEqual(s2.visions, { enabled: true, dispatch: { enabled: false } });
+    assert.deepEqual(s2.teamReview, { enabled: true, org: 'PostHog', team: 'product-engineering' });
     assert.deepEqual(s2.telegram, { chatId: '123', botTokenConfigured: true });
   });
 });
@@ -530,16 +533,19 @@ test('applySettings preserves branchGc defaults and merges partial overrides', (
     store.applySettings({ projects: [], cursorBlink: true });
     assert.deepEqual(store.config.branchGc, DEFAULT_CONFIG.branchGc);
     assert.equal(store.config.visions, undefined);
+    assert.equal(store.config.teamReview, undefined);
     assert.equal(store.config.telegram, undefined);
 
     store.applySettings({
       projects: [],
       branchGc: { enabled: false },
       visions: { enabled: true },
+      teamReview: { enabled: true, org: 'PostHog', team: 'product-engineering' },
       telegram: { botToken: 'x', chatId: 'y' },
     });
     assert.deepEqual(store.config.branchGc, { ...DEFAULT_CONFIG.branchGc, enabled: false });
     assert.deepEqual(store.config.visions, { enabled: true });
+    assert.deepEqual(store.config.teamReview, { enabled: true, org: 'PostHog', team: 'product-engineering' });
     assert.deepEqual(store.config.telegram, { botToken: 'x', chatId: 'y' });
   });
 });

@@ -183,6 +183,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'issues-report', requestId: 'issues-1', ts: NOW, projectId: 'p1', issues: [{ number: 42, title: 'Reconnect drops queued writes', labels: [{ name: 'bug', color: 'ff0000' }], url: 'https://github.test/acme/repo/issues/42', updatedAt: '2026-09-13T10:00:00Z' }], error: null },
   { type: 'open-issue-session-result', requestId: 'issues-2', ok: true, error: null, sessionId: 'session-2', sessionName: 'issue-42-fix-reconnect', pending: false },
   { type: 'posthog-issue-action-result', requestId: 'posthog-3', ok: true, error: null, status: 'resolved' },
+  { type: 'team-review-action-result', requestId: 'review-1', key: 'PostHog/wizard#1350', ok: true },
   { type: 'posthog-archive-investigation-result', requestId: 'posthog-4', ok: true, error: null },
   { type: 'team-review-status', ts: NOW, projects: [] },
   { type: 'branch-gc-status', ts: NOW, projects: [] },
@@ -234,6 +235,24 @@ test('GitHub issue client requests validate their bounded fields', () => {
     type: 'open-issue-session', requestId: 'r2', projectId: 'p1', issueNumber: 42,
   });
   assert.equal(ClientMessage.safeParse({ type: 'open-issue-session', requestId: 'r2', projectId: 'p1', issueNumber: 0 }).success, false);
+});
+
+test('team review actions carry editable text and diff comments', () => {
+  const action = {
+    type: 'team-review-action', requestId: 'review-1', key: 'PostHog/wizard#1350',
+    head: 'a'.repeat(40), action: 'comment', body: 'Please check this line',
+    comments: [{ path: 'src/agent/index.ts', line: 4, side: 'RIGHT', body: 'Check this' }],
+  };
+  assert.deepEqual(ClientMessage.parse(action), action);
+  for (const invalid of [
+    { ...action, action: 'merge' },
+    { ...action, comments: [{ path: 'src/agent/index.ts', line: 0, body: 'Check this' }] },
+    { ...action, body: 4 },
+    { ...action, head: undefined },
+    { ...action, head: 'A'.repeat(40) },
+    { ...action, head: 'a'.repeat(39) },
+  ]) assert.equal(ClientMessage.safeParse(invalid).success, false);
+  assert.equal(ServerMessage.safeParse({ type: 'team-review-action-result', key: action.key, ok: false, error: 'stale head' }).success, true);
 });
 
 test('send-diff-annotations bounds every field of every note', () => {

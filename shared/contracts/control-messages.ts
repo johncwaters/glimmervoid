@@ -13,6 +13,7 @@ import { ChangeMap } from './change-map.ts';
 import { PendingWakeup, SessionSnapshot, SessionState } from './session.ts';
 import { TraceRecord } from './trace.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
+import { CommitSha, ReviewComment } from './team-review.ts';
 
 const requestId = z.string().nullable().optional();
 const sessionId = z.string();
@@ -131,6 +132,7 @@ export const CLIENT_MESSAGE_TYPES = Object.freeze([
   'request-issues',
   'open-issue-session',
   'posthog-issue-action',
+  'team-review-action',
   'posthog-archive-investigation',
   'request-usage-report',
   'request-mill-report',
@@ -188,6 +190,7 @@ const clientVariants = [
   loose('request-issues', { requestId, projectId: z.string() }),
   loose('open-issue-session', { requestId, projectId: z.string(), issueNumber: z.number().int().positive() }),
   loose('posthog-issue-action', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), action: z.string(), requestId }),
+  loose('team-review-action', { key: z.string(), head: CommitSha, action: z.enum(['approve', 'comment', 'discard']), body: z.string(), comments: z.array(ReviewComment), requestId }),
   loose('posthog-archive-investigation', { id: z.unknown().optional(), requestId }),
   loose('request-usage-report', { requestId, days: z.unknown().optional(), force: z.unknown().optional() }),
   loose('request-mill-report', { requestId }),
@@ -282,6 +285,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'issues-report',
   'open-issue-session-result',
   'posthog-issue-action-result',
+  'team-review-action-result',
   'posthog-archive-investigation-result',
   'team-review-status',
   'branch-gc-status',
@@ -540,6 +544,7 @@ const serverVariants = [
     error: optionalError,
     status: nullableString.optional(),
   }),
+  loose('team-review-action-result', { key: z.string(), ok: z.boolean(), error: z.string().optional(), requestId }),
   loose('posthog-archive-investigation-result', { requestId, ok: z.boolean(), error: optionalError }),
   loose('team-review-status', { ts: timestamp, projects: z.array(opaqueObject) }),
 

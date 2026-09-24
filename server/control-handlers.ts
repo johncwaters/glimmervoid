@@ -192,6 +192,8 @@ const BRANCH_GC_NUMERIC_RANGES = Object.freeze({
   intervalMs: BRANCH_GC_INTERVAL_MS_RANGE,
 });
 const VISIONS_BOOLEAN_KEYS = Object.freeze(['enabled', 'autoFix']);
+const TEAM_REVIEW_BOOLEAN_KEYS = Object.freeze(['enabled']);
+const TEAM_REVIEW_STRING_KEYS = Object.freeze(['org', 'team']);
 const VISIONS_VALUE_KEYS = Object.freeze(['projects']);
 const VISIONS_DISPATCH_BOOLEAN_KEYS = Object.freeze(['enabled']);
 const VISIONS_DISPATCH_STRING_KEYS = Object.freeze(['model']);
@@ -260,6 +262,8 @@ const DASHBOARD_SETTING_PATHS = Object.freeze([
   ...VISIONS_DISPATCH_STRING_KEYS.map((key) => `visions.dispatch.${key}`),
   ...VISIONS_DISPATCH_NUMERIC_KEYS.map((key) => `visions.dispatch.${key}`),
   ...VISIONS_INTENT_NUMERIC_KEYS.map((key) => `visions.intent.${key}`),
+  ...TEAM_REVIEW_BOOLEAN_KEYS.map((key) => `teamReview.${key}`),
+  ...TEAM_REVIEW_STRING_KEYS.map((key) => `teamReview.${key}`),
   ...POSTHOG_BOOLEAN_KEYS.map((key) => `posthog.${key}`),
   ...POSTHOG_STRING_KEYS.map((key) => `posthog.${key}`),
   ...POSTHOG_VALUE_KEYS.map((key) => `posthog.${key}`),
@@ -702,6 +706,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       if (s.repoRoots != null) cfg.repoRoots = s.repoRoots;
       if (s.branchGc != null) cfg.branchGc = mergeSettingsBlockOverStored(cfg.branchGc, s.branchGc);
       if (s.visions != null) cfg.visions = s.visions;
+      if (s.teamReview != null) cfg.teamReview = mergeSettingsBlockOverStored(cfg.teamReview, s.teamReview);
       if (s.posthog != null) cfg.posthog = mergeSettingsBlockOverStored(cfg.posthog, s.posthog);
       if (s.usage != null) cfg.usage = s.usage;
       for (const spec of MILL_SPECS) {

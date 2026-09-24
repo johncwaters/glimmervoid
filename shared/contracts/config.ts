@@ -76,6 +76,12 @@ const VisionsSettings = optionalObject('visions', {
   }),
 });
 
+const TeamReviewSettings = optionalObject('teamReview', {
+  enabled: optionalBoolean('teamReview.enabled'),
+  org: optionalString('teamReview.org', true),
+  team: optionalString('teamReview.team', true),
+});
+
 const posthogNumberRanges = {
   intervalMinutes: ranges.POSTHOG_INTERVAL_RANGE,
   maxConcurrentInvestigations: ranges.POSTHOG_MAX_CONCURRENT_RANGE,
@@ -190,6 +196,7 @@ const BROWSER_CONFIG_SHAPE = {
   changeMap: ChangeMapSettings,
   branchGc: BranchGcSettings,
   visions: VisionsSettings,
+  teamReview: TeamReviewSettings,
   posthog: PosthogSettings,
   usage: UsageSettings,
   telegram: TelegramSettings,
@@ -269,6 +276,7 @@ const FILE_CONFIG_SHAPE = {
   changeMap: ChangeMapSettings,
   branchGc: optionalLooseObject('branchGc'),
   visions: optionalLooseObject('visions'),
+  teamReview: optionalLooseObject('teamReview'),
   posthog: optionalLooseObject('posthog'),
   usage: optionalLooseObject('usage'),
   telegram: optionalLooseObject('telegram'),
@@ -314,7 +322,7 @@ export const Config = z.object({
 
 export const BROWSER_CONFIG_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE));
 export const CONFIG_BLOCK_KEYS = Object.freeze([
-'changeMap', 'branchGc', 'visions', 'posthog', 'usage', 'telegram', 'packDistiller', 'millMetrics', 'memory', 'ingest',
+'changeMap', 'branchGc', 'visions', 'teamReview', 'posthog', 'usage', 'telegram', 'packDistiller', 'millMetrics', 'memory', 'ingest',
   'agentApi',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {

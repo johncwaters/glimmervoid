@@ -47,6 +47,23 @@ test('change map narrator settings cross persisted, browser, and update contract
   }
 });
 
+test('team review settings cross persisted, browser, and update contracts', () => {
+  const teamReview = { enabled: true, org: 'PostHog', team: 'product-engineering' };
+  assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, teamReview }).success, true);
+  assert.equal(BrowserConfig.safeParse({ teamReview }).success, true);
+  assert.equal(ConfigUpdate.safeParse({ teamReview }).success, true);
+  assert.equal(CONFIG_BLOCK_KEYS.includes('teamReview'), true);
+  for (const invalid of [
+    { enabled: 'true' },
+    { org: 42 },
+    { team: 42 },
+  ]) {
+    assert.equal(BrowserConfig.safeParse({ teamReview: invalid }).success, false);
+    assert.equal(ConfigUpdate.safeParse({ teamReview: invalid }).success, false);
+  }
+  assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, teamReview: { enabled: 'true' } }).success, true);
+});
+
 test('workspace projects require at least two repository paths', () => {
   const project = { id: 'workspace', name: 'Workspace', path: '/worktrees/ws-workspace', repos: ['/repos/one', '/repos/two'] };
   assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, projects: [project] }).success, true);
