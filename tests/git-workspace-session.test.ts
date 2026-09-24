@@ -87,7 +87,7 @@ function fakeSessionGit(cmds: string[], opts: FakeGitOptions = {}): (rawArgs: st
 
     const args = rawArgs[0] === '-c' ? rawArgs.slice(2) : rawArgs;
     if (args[0] === 'rev-list') return ahead;
-    if (args[0] === 'status') return dirty;
+    if (args.includes('status')) return dirty;
     if (args[0] === 'diff') return conflicts.join('\n');
     if (args[0] === 'rev-parse' && args.includes('REBASE_HEAD')) {
       if (!conflicts.length) fail('no REBASE_HEAD');
@@ -244,7 +244,7 @@ test('mergeFastForwardTo reports a queue admission timeout instead of merging la
   const gitWorkspace = createGitWorkspace({
     git: async (args) => {
       calls.push(args);
-      if (args[0] === 'status') await blocked.promise;
+      if (args.includes('status')) await blocked.promise;
       return 'a'.repeat(40);
     },
   });
@@ -268,7 +268,7 @@ test('a queue admission timeout returns a refusal from the worktree probe and re
   const gitWorkspace = createGitWorkspace({
     git: async (args) => {
       calls.push(args);
-      if (args[0] === 'status') await blocked.promise;
+      if (args.includes('status')) await blocked.promise;
       return 'a'.repeat(40);
     },
   });
@@ -1527,7 +1527,7 @@ test('listSessionWorktrees (injected git): a failing status keeps the worktree e
       return 'worktree /repo\nbranch refs/heads/main\n\nworktree /wt/corrupt\nbranch refs/heads/glimmervoid/session/corrupt\n\n';
     }
     if (args[0] === 'config') return 'main';
-    if (args[0] === 'status') {
+    if (args.includes('status')) {
       const failure: Error & { status?: number } = new Error('fatal: unable to read index file');
       failure.status = 128;
       throw failure;

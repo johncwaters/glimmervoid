@@ -462,7 +462,7 @@ test('main channel resolves the upstream tip and reports commits behind after fe
     if (args.join(' ') === 'rev-parse HEAD') return { stdout: `${SHA_LOCAL}\n`, stderr: '' };
     if (args.join(' ') === 'rev-parse --abbrev-ref HEAD') return { stdout: 'main\n', stderr: '' };
     if (args.join(' ') === 'rev-parse --abbrev-ref @{upstream}') return { stdout: 'origin/main\n', stderr: '' };
-    if (args[0] === 'status') return { stdout: '', stderr: '' };
+    if (args.includes('status')) return { stdout: '', stderr: '' };
     if (args.join(' ') === 'ls-remote origin refs/heads/main') {
       return { stdout: `${SHA_RELEASE_COMMIT}\trefs/heads/main\n`, stderr: '' };
     }
@@ -497,7 +497,7 @@ test('main channel reports no-upstream without querying a remote tip', async () 
     if (args.join(' ') === 'rev-parse HEAD') return { stdout: `${SHA_LOCAL}\n`, stderr: '' };
     if (args.join(' ') === 'rev-parse --abbrev-ref HEAD') return { stdout: 'main\n', stderr: '' };
     if (args.join(' ') === 'rev-parse --abbrev-ref @{upstream}') throw new Error('no upstream');
-    if (args[0] === 'status') return { stdout: '', stderr: '' };
+    if (args.includes('status')) return { stdout: '', stderr: '' };
     if (args[0] === 'ls-remote') remoteQueries += 1;
     throw new Error(`unexpected git ${args.join(' ')}`);
   };
@@ -549,7 +549,7 @@ test('a fresh cache is discarded once the installed sha is the sha it names', as
     if (args.join(' ') === 'rev-parse HEAD') return { stdout: `${SHA_LOCAL}\n`, stderr: '' };
     if (args.join(' ') === 'rev-parse --abbrev-ref HEAD') return { stdout: 'main\n', stderr: '' };
     if (args.join(' ') === 'rev-parse --abbrev-ref @{upstream}') return { stdout: 'origin/main\n', stderr: '' };
-    if (args[0] === 'status') return { stdout: '', stderr: '' };
+    if (args.includes('status')) return { stdout: '', stderr: '' };
     if (args[0] === 'ls-remote') {
       remoteTipQueries += 1;
       return { stdout: `${SHA_LOCAL}\trefs/heads/main\n`, stderr: '' };
@@ -582,7 +582,7 @@ test('the main-channel fetch takes a fraction of the budget so the probes after 
     if (args.join(' ') === 'rev-parse HEAD') return { stdout: `${SHA_LOCAL}\n`, stderr: '' };
     if (args.join(' ') === 'rev-parse --abbrev-ref HEAD') return { stdout: 'main\n', stderr: '' };
     if (args.join(' ') === 'rev-parse --abbrev-ref @{upstream}') return { stdout: 'origin/main\n', stderr: '' };
-    if (args[0] === 'status') return { stdout: '', stderr: '' };
+    if (args.includes('status')) return { stdout: '', stderr: '' };
     if (args[0] === 'ls-remote') return { stdout: `${SHA_RELEASE_COMMIT}\trefs/heads/main\n`, stderr: '' };
     if (args[0] === 'rev-list') return { stdout: '0\t2\n', stderr: '' };
     throw new Error(`unexpected git ${args.join(' ')}`);
@@ -613,7 +613,7 @@ test('an abort between main-channel steps stops the remaining probes', async () 
     if (args.join(' ') === 'rev-parse HEAD') return { stdout: `${SHA_LOCAL}\n`, stderr: '' };
     if (args.join(' ') === 'rev-parse --abbrev-ref HEAD') return { stdout: 'main\n', stderr: '' };
     if (args.join(' ') === 'rev-parse --abbrev-ref @{upstream}') return { stdout: 'origin/main\n', stderr: '' };
-    if (args[0] === 'status') return { stdout: '', stderr: '' };
+    if (args.includes('status')) return { stdout: '', stderr: '' };
     if (args[0] === 'ls-remote') {
       remoteTipQueries += 1;
       return { stdout: `${SHA_RELEASE_COMMIT}\trefs/heads/main\n`, stderr: '' };

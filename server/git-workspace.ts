@@ -240,7 +240,7 @@ function findWorktreeForBranch(porcelain: string, branch: string): string | null
   return hit ? hit.cwd : null;
 }
 
-const WORKTREE_STATUS_ARGS = ['status', '--porcelain', '--untracked-files=all', '--ignore-submodules=none'];
+const WORKTREE_STATUS_ARGS = ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=all', '--ignore-submodules=none'];
 
 const isDirtyResult = (dirty: GitResult) => dirty.ok && dirty.out !== '';
 function hasWorkFrom(dirty: GitResult, ahead: GitResult | null): boolean {
@@ -649,7 +649,7 @@ function createGitWorkspace(opts: {
       return { committed: false, merged: false, reason: 'nothing-to-commit' };
     }
 
-    const dirty = (await run(['status', '--porcelain'], wt)).out !== '';
+    const dirty = (await run(['--no-optional-locks', 'status', '--porcelain'], wt)).out !== '';
     const stashed = dirty && (await run(['stash', 'push', '--include-untracked', '-m', 'glimmervoid-merge'], wt)).ok;
 
     let rerereReplayed = false;
@@ -704,7 +704,7 @@ function createGitWorkspace(opts: {
     }
     const warning = mergeSyncWarning(baseSync, target);
 
-    if ((await run(['status', '--porcelain'], wt)).out !== '') {
+    if ((await run(['--no-optional-locks', 'status', '--porcelain'], wt)).out !== '') {
       return includeWarning({ merged: false, committed: false, branch, base: target, reason: 'uncommitted-changes', parked: true }, warning);
     }
 
@@ -764,7 +764,7 @@ function createGitWorkspace(opts: {
     if (g.error) return { ok: false, reason: g.error.reason ?? undefined };
     const { wt = '', target = '' } = g;
 
-    const status = await run(['status', '--porcelain'], wt);
+    const status = await run(['--no-optional-locks', 'status', '--porcelain'], wt);
     if (!status.ok) return { ok: false, reason: 'unreadable' };
     if (status.out !== '') return { ok: false, reason: 'dirty' };
 
@@ -1296,7 +1296,7 @@ function createGitWorkspaceSync(opts: { git?: (args: string[], cwd: string) => s
       const id = sessionIdFromBranch(name);
       if (id === null) continue;
       const { base: resolvedIntegrationBranch, measureRef } = migrateMarkerBase(projectPath, name, integrationBranch, configuredIntegrationBranch);
-      const dirty = run(['status', '--porcelain'], wt);
+      const dirty = run(['--no-optional-locks', 'status', '--porcelain'], wt);
       const ahead = !isDirtyResult(dirty) && resolvedIntegrationBranch
         ? run(['rev-list', '--count', `${measureRef || resolvedIntegrationBranch}..${name}`], projectPath)
         : null;

@@ -180,7 +180,7 @@ async function gitRoot(cwd: string | undefined): Promise<string> {
 
 async function listChangedFiles(root: string): Promise<string[]> {
   const out = await execGit(
-    ['-c', 'core.quotepath=false', 'status', '--porcelain', '-uall', '--no-renames'],
+    ['--no-optional-locks', '-c', 'core.quotepath=false', 'status', '--porcelain', '-uall', '--no-renames'],
     root,
   );
   const lines = out.toString().split(/\r?\n/);

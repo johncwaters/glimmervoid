@@ -160,7 +160,7 @@ async function cloneIdentity(
   const checkout = await probeBranchAndUpstream((args) => runGitProbe(runCommand, args, options));
   const status = await runGitProbe(
     runCommand,
-    ['status', '--porcelain', '--untracked-files=all', '--ignore-submodules=none'],
+    ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=all', '--ignore-submodules=none'],
     options,
   );
   return {
