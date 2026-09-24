@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  attentionDetail, buildActionRequest, commentLocation, emptyStateText, groupDrafts, hasAnyRow, pullRequestLabel,
+  attentionDetail, buildActionRequest, commentLocation, emptyStateText, groupDrafts, hasAnyRow, inFlightProgressText, isInFlightProgressOnlyChange, phaseLabel, pullRequestLabel,
   readyAttentionSignature, readyRowSignature, tierLabel, verdictLabel, verdictTone, withoutComment,
 } from '../public/team-review-view-core.ts';
-import { ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
-import type { ReviewDraft as ReviewDraftType, TeamReviewStatus as TeamReviewStatusType } from '../shared/contracts/team-review.ts';
+import { InFlightReview, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
+import type {
+  InFlightReview as InFlightReviewType, ReviewDraft as ReviewDraftType, TeamReviewStatus as TeamReviewStatusType,
+} from '../shared/contracts/team-review.ts';
 
 const HEAD = 'a'.repeat(40);
 const NEXT_HEAD = 'b'.repeat(40);
@@ -19,7 +21,15 @@ function draft(number: number, overrides: Partial<ReviewDraftType> = {}): Review
   });
 }
 
-function status(drafts: ReviewDraftType[], inFlight: string[] = [], configured = true): TeamReviewStatusType {
+function inFlightReview(number: number, overrides: Partial<InFlightReviewType> = {}): InFlightReviewType {
+  return InFlightReview.parse({
+    key: `Acme/app#${number}`, repo: 'Acme/app', number, title: `PR ${number}`, url: `https://github.com/Acme/app/pull/${number}`,
+    author: 'teammate', tier: 'stamp', reasons: ['12 counted lines in 1 files'], head: HEAD,
+    phase: 'preparing', startedAt: 1000, deadlineAt: null, toolCalls: 0, recentSteps: [], ...overrides,
+  });
+}
+
+function status(drafts: ReviewDraftType[], inFlight: InFlightReviewType[] = [], configured = true): TeamReviewStatusType {
   return TeamReviewStatus.parse({ type: 'team-review-status', ts: 1000, configured, reason: null, drafts, inFlight });
 }
 
@@ -30,18 +40,18 @@ test('drafts group into ready, in review, needs attention and recently posted, w
     draft(3, { status: 'error', error: 'review timed out after 900s' }),
     draft(4, { status: 'posted' }),
     draft(5, { status: 'discarded' }),
-  ], ['Acme/app#9']));
+  ], [inFlightReview(9)]));
   assert.deepEqual(sections.ready.map((row) => row.number), [1]);
-  assert.deepEqual(sections.inReview, [{ key: 'Acme/app#9', draft: null }]);
+  assert.deepEqual(sections.inReview.map((row) => row.key), ['Acme/app#9']);
   assert.deepEqual(sections.attention.map((row) => row.number), [2, 3]);
   assert.deepEqual(sections.posted.map((row) => row.number), [4]);
   assert.equal(hasAnyRow(sections), true);
 });
 
 test('a PR under review shows only under In review, even when an older draft exists', () => {
-  const sections = groupDrafts(status([draft(1, { status: 'stale' })], ['Acme/app#1']));
+  const sections = groupDrafts(status([draft(1, { status: 'stale' })], [inFlightReview(1)]));
   assert.equal(sections.inReview.length, 1);
-  assert.equal(sections.inReview[0]?.draft?.number, 1);
+  assert.equal(sections.inReview[0]?.number, 1);
   assert.deepEqual(sections.attention, []);
 });
 
@@ -109,4 +119,36 @@ test('the action request pins the reviewed head and carries only the remaining c
 test('attention rows explain a stale draft and surface the error of a failed one', () => {
   assert.match(attentionDetail(draft(1, { status: 'stale' })), /moved after this review/);
   assert.equal(attentionDetail(draft(1, { status: 'error', error: 'no result file' })), 'no result file');
+});
+
+test('a review in progress names its phase in plain words', () => {
+  assert.equal(phaseLabel('preparing'), 'fetching the diff');
+  assert.equal(phaseLabel('checkout'), 'checking out the head');
+  assert.equal(phaseLabel('reviewing'), 'agent reviewing');
+});
+
+test('progress text shows elapsed time before the agent starts, then the timeout budget and tool calls', () => {
+  assert.equal(inFlightProgressText(inFlightReview(1, { startedAt: 0 }), 42000), '0:42 elapsed');
+  const reviewing = inFlightReview(1, { phase: 'reviewing', startedAt: 0, deadlineAt: 900000, toolCalls: 1 });
+  assert.equal(inFlightProgressText(reviewing, 125000), '2:05 elapsed, times out in 12:55, 1 tool call');
+  assert.equal(inFlightProgressText({ ...reviewing, toolCalls: 14 }, 125000), '2:05 elapsed, times out in 12:55, 14 tool calls');
+});
+
+test('progress text never counts below zero once the deadline passes', () => {
+  const overdue = inFlightReview(1, { phase: 'reviewing', startedAt: 0, deadlineAt: 1000, toolCalls: 0 });
+  assert.equal(inFlightProgressText(overdue, 5000), '0:05 elapsed, times out in 0:00, 0 tool calls');
+});
+
+test('a status that only advances in-flight progress is a progress-only change', () => {
+  const previous = status([draft(1)], [inFlightReview(2)]);
+  assert.equal(isInFlightProgressOnlyChange(previous, status([draft(1)], [inFlightReview(2, { phase: 'reviewing', toolCalls: 3 })])), true);
+});
+
+test('a changed draft, in-flight set, configuration or missing previous status needs a full render', () => {
+  const previous = status([draft(1)], [inFlightReview(2)]);
+  assert.equal(isInFlightProgressOnlyChange(null, previous), false);
+  assert.equal(isInFlightProgressOnlyChange(previous, status([draft(1, { body: 'edited' })], [inFlightReview(2)])), false);
+  assert.equal(isInFlightProgressOnlyChange(previous, status([draft(1)], [inFlightReview(2), inFlightReview(3)])), false);
+  assert.equal(isInFlightProgressOnlyChange(previous, status([draft(1)], [])), false);
+  assert.equal(isInFlightProgressOnlyChange(previous, status([draft(1)], [inFlightReview(2)], false)), false);
 });

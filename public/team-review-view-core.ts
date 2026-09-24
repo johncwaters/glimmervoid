@@ -1,16 +1,12 @@
 import type {
-  ReviewComment, ReviewDraft, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus,
+  InFlightReview, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus,
 } from '#shared/contracts/team-review.ts';
 import { attentionSignature } from './attention-ack-core.ts';
-
-export interface InReviewRow {
-  key: string;
-  draft: ReviewDraft | null;
-}
+import { formatClockOffset } from './radar-core.ts';
 
 export interface TeamReviewSections {
   ready: ReviewDraft[];
-  inReview: InReviewRow[];
+  inReview: InFlightReview[];
   attention: ReviewDraft[];
   posted: ReviewDraft[];
 }
@@ -35,6 +31,12 @@ const ATTENTION_STATUS_LABELS: Readonly<Record<string, string>> = Object.freeze(
   error: 'error',
 });
 
+const PHASE_LABELS: Readonly<Record<ReviewProgressPhase, string>> = Object.freeze({
+  preparing: 'fetching the diff',
+  checkout: 'checking out the head',
+  reviewing: 'agent reviewing',
+});
+
 const ACTION_OUTCOME_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.freeze({
   approve: 'Approved on GitHub',
   comment: 'Comment posted on GitHub',
@@ -50,9 +52,8 @@ const ACTION_PROGRESS_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.
 export function groupDrafts(status: TeamReviewStatus | null | undefined): TeamReviewSections {
   const sections: TeamReviewSections = { ready: [], inReview: [], attention: [], posted: [] };
   if (!status) return sections;
-  const inFlightKeys = new Set(status.inFlight);
-  const draftsByKey = new Map(status.drafts.map((draft) => [draft.key, draft]));
-  for (const key of status.inFlight) sections.inReview.push({ key, draft: draftsByKey.get(key) ?? null });
+  const inFlightKeys = new Set(status.inFlight.map((review) => review.key));
+  sections.inReview.push(...status.inFlight);
   for (const draft of status.drafts) {
     if (inFlightKeys.has(draft.key)) continue;
     if (draft.status === 'ready') sections.ready.push(draft);
@@ -80,6 +81,17 @@ export function verdictLabel(verdict: ReviewDraft['verdict']): string {
 
 export function verdictTone(verdict: ReviewDraft['verdict']): string {
   return VERDICT_TONES[verdict] ?? 'dim';
+}
+
+export function phaseLabel(phase: ReviewProgressPhase): string {
+  return PHASE_LABELS[phase] ?? phase;
+}
+
+export function inFlightProgressText(review: InFlightReview, nowMs: number): string {
+  const parts = [`${formatClockOffset(nowMs - review.startedAt)} elapsed`];
+  if (review.deadlineAt !== null) parts.push(`times out in ${formatClockOffset(review.deadlineAt - nowMs)}`);
+  if (review.phase === 'reviewing') parts.push(`${review.toolCalls} ${review.toolCalls === 1 ? 'tool call' : 'tool calls'}`);
+  return parts.join(', ');
 }
 
 export function attentionStatusLabel(status: ReviewDraft['status']): string {
@@ -124,4 +136,13 @@ export function readyAttentionSignature(status: TeamReviewStatus | null | undefi
 
 export function readyRowSignature(draft: ReviewDraft): string {
   return `${draft.key}@${draft.reviewedHead}:${draft.status}`;
+}
+
+export function isInFlightProgressOnlyChange(previous: TeamReviewStatus | null | undefined, next: TeamReviewStatus): boolean {
+  if (!previous) return false;
+  if (previous.configured !== next.configured || previous.reason !== next.reason) return false;
+  const previousKeys = previous.inFlight.map((review) => review.key).join('\n');
+  const nextKeys = next.inFlight.map((review) => review.key).join('\n');
+  if (previousKeys !== nextKeys) return false;
+  return JSON.stringify(previous.drafts) === JSON.stringify(next.drafts);
 }

@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {
   MAX_REVIEW_ATTEMPTS,
   POSTED_RETENTION_MS,
+  RECENT_STEPS_SHOWN,
+  applyReviewProgress,
   buildReviewPrompt,
   canPost,
   commentableLines,
@@ -21,9 +23,10 @@ import {
   reviewAttemptsAfter,
   selectCandidates,
   shouldPruneEntry,
+  startReviewProgress,
   triagePr,
 } from '../server/core/team-review-core.ts';
-import { PrDetail, ReviewDraft, SearchedPr, TeamReviewState } from '../shared/contracts/team-review.ts';
+import { InFlightReview, PrDetail, ReviewDraft, SearchedPr, TeamReviewState } from '../shared/contracts/team-review.ts';
 import type { TeamReviewStateEntry } from '../shared/contracts/team-review.ts';
 
 test('prKey formats as repoSlug#prNumber', () => {
@@ -384,4 +387,39 @@ test('invalid comments are the ones whose path, side or line is outside the diff
     [outsideHunk, wrongSide, unknownPath, renamedAwayPath],
   );
   assert.deepEqual(invalidComments([], commentable), []);
+});
+
+const PROGRESS_CANDIDATE = { key: 'Acme/app#7', repo: 'Acme/app', number: 7, title: 'Fix it', url: 'https://github.com/Acme/app/pull/7', author: 'teammate' };
+
+test('a started review is preparing with no deadline and no tool calls, and parses as the wire shape', () => {
+  const progress = startReviewProgress({ candidate: PROGRESS_CANDIDATE, tier: 'stamp', reasons: ['small'], head: HEAD, at: 500 });
+  assert.equal(progress.phase, 'preparing');
+  assert.equal(progress.startedAt, 500);
+  assert.equal(progress.deadlineAt, null);
+  assert.equal(progress.toolCalls, 0);
+  assert.equal(InFlightReview.safeParse(progress).success, true);
+});
+
+test('a phase change carries the upgraded tier and sets the deadline only when a timeout starts', () => {
+  const started = startReviewProgress({ candidate: PROGRESS_CANDIDATE, tier: 'stamp', reasons: ['small'], head: HEAD, at: 0 });
+  const checkout = applyReviewProgress(started, { kind: 'phase', phase: 'checkout', tier: 'full', reasons: ['small', 'diff unavailable'] }, 1000);
+  assert.equal(checkout.tier, 'full');
+  assert.deepEqual(checkout.reasons, ['small', 'diff unavailable']);
+  assert.equal(checkout.deadlineAt, null);
+  const reviewing = applyReviewProgress(checkout, { kind: 'phase', phase: 'reviewing', tier: 'full', reasons: checkout.reasons, timeoutSeconds: 900 }, 2000);
+  assert.equal(reviewing.phase, 'reviewing');
+  assert.equal(reviewing.deadlineAt, 902000);
+  assert.equal(started.phase, 'preparing', 'progress updates never mutate the previous record');
+});
+
+test('tool steps count every call but keep only the most recent few', () => {
+  let progress = startReviewProgress({ candidate: PROGRESS_CANDIDATE, tier: 'stamp', reasons: [], head: HEAD, at: 0 });
+  const totalSteps = RECENT_STEPS_SHOWN + 3;
+  for (let index = 0; index < totalSteps; index += 1) {
+    progress = applyReviewProgress(progress, { kind: 'step', tool: 'Read', detail: `file-${index}.ts` }, index);
+  }
+  assert.equal(progress.toolCalls, totalSteps);
+  assert.equal(progress.recentSteps.length, RECENT_STEPS_SHOWN);
+  assert.equal(progress.recentSteps.at(-1)?.detail, `file-${totalSteps - 1}.ts`);
+  assert.equal(progress.recentSteps.at(-1)?.at, totalSteps - 1);
 });

@@ -165,7 +165,7 @@ test('a moved head marks the ready draft stale and queues a fresh review', async
   await poller.tick();
   await settle();
   assert.equal(poller.getDraft(`${REPO}#1`)?.status, 'stale', 'the old draft is stale while the new review runs');
-  assert.deepEqual(statuses.at(-1)?.inFlight, [`${REPO}#1`]);
+  assert.deepEqual(statuses.at(-1)?.inFlight.map((review) => review.key), [`${REPO}#1`]);
   release.resolve?.();
   await settle();
   assert.equal(spawnCount, 2);
@@ -419,4 +419,97 @@ test('updateDraft is a compare-and-set that leaves a draft alone when its head o
   const posted = await poller.updateDraft(`${REPO}#1`, { reviewedHead: HEAD_ONE, status: 'ready' }, { status: 'posted' });
   assert.equal(posted?.status, 'posted');
   await poller.stop();
+});
+
+test('a running review reports its PR, tier, phase and tool steps in the status until it finishes', async () => {
+  const release: { resolve?: () => void } = {};
+  const gate = new Promise<void>((resolve) => { release.resolve = resolve; });
+  const { poller, github, statuses, setNow } = setup({
+    spawnReview: async (args) => {
+      args.reportProgress?.({ kind: 'phase', phase: 'reviewing', tier: args.tier, reasons: args.reasons, timeoutSeconds: 60 });
+      args.reportProgress?.({ kind: 'step', tool: 'Read', detail: 'pr.diff' });
+      await gate;
+      return draftFor(args);
+    },
+  });
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  const running = statuses.at(-1)?.inFlight[0];
+  assert.equal(running?.title, 'PR 1');
+  assert.equal(running?.tier, 'stamp');
+  assert.equal(running?.phase, 'reviewing');
+  assert.equal(running?.startedAt, 1000);
+  assert.equal(running?.deadlineAt, 61000);
+  assert.equal(running?.toolCalls, 1);
+  assert.deepEqual(running?.recentSteps, [{ at: 1000, tool: 'Read', detail: 'pr.diff' }]);
+  for (const status of statuses) assert.equal(TeamReviewStatus.safeParse(status).success, true);
+  setNow(5000);
+  release.resolve?.();
+  await settle();
+  assert.deepEqual(statuses.at(-1)?.inFlight, []);
+  await poller.stop();
+});
+
+test('progress reported after a review finishes is ignored', async () => {
+  let lateReport: SpawnReviewArgs['reportProgress'];
+  const { poller, github, statuses } = setup({
+    spawnReview: async (args) => { lateReport = args.reportProgress; return draftFor(args); },
+  });
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  const statusCount = statuses.length;
+  lateReport?.({ kind: 'step', tool: 'Read', detail: 'late' });
+  assert.equal(statuses.length, statusCount);
+  assert.deepEqual(statuses.at(-1)?.inFlight, []);
+  await poller.stop();
+});
+
+test('tool steps inside the emit interval coalesce into one trailing status that the finished review supersedes', async () => {
+  const release: { resolve?: () => void } = {};
+  const gate = new Promise<void>((resolve) => { release.resolve = resolve; });
+  const report: { progress?: SpawnReviewArgs['reportProgress'] } = {};
+  const timers: { fn: () => void; ms: number; isCleared: boolean }[] = [];
+  const timerByHandle = new Map<NodeJS.Timeout, { fn: () => void; ms: number; isCleared: boolean }>();
+  const { poller, github, statuses, setNow } = setup({
+    spawnReview: async (args) => { report.progress = args.reportProgress; await gate; return draftFor(args); },
+    setTimeoutFn: (fn, ms) => {
+      const timer = { fn, ms, isCleared: false };
+      const handle = ({}) as NodeJS.Timeout;
+      timers.push(timer);
+      timerByHandle.set(handle, timer);
+      return handle;
+    },
+    clearTimeoutFn: (handle) => {
+      const timer = timerByHandle.get(handle);
+      if (timer) timer.isCleared = true;
+    },
+  });
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  const statusCountAfterTick = statuses.length;
+  setNow(1400);
+  report.progress?.({ kind: 'step', tool: 'Read', detail: 'one' });
+  report.progress?.({ kind: 'step', tool: 'Grep', detail: 'two' });
+  assert.equal(statuses.length, statusCountAfterTick);
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0]?.ms, 600);
+  setNow(2000);
+  timers[0]?.fn();
+  assert.equal(statuses.length, statusCountAfterTick + 1);
+  assert.equal(statuses.at(-1)?.inFlight[0]?.toolCalls, 2);
+  setNow(3500);
+  report.progress?.({ kind: 'step', tool: 'Read', detail: 'three' });
+  assert.equal(statuses.length, statusCountAfterTick + 2);
+  report.progress?.({ kind: 'step', tool: 'Read', detail: 'four' });
+  assert.equal(timers.length, 2);
+  release.resolve?.();
+  await poller.stop();
+  assert.equal(timers[1]?.isCleared, true);
+  assert.deepEqual(statuses.at(-1)?.inFlight, []);
 });

@@ -1,12 +1,12 @@
 import * as core from './core/team-review-core.ts';
-import type { ReviewTier, TeamReviewCandidate } from './core/team-review-core.ts';
+import type { ReviewProgressEvent, ReviewTier, TeamReviewCandidate } from './core/team-review-core.ts';
 import { firstLine } from './ephemeral-session.ts';
 import { createTickLoop } from './lane-runner.ts';
 import type { TickOutcome } from './lane-runner.ts';
 import type { PrSearchResult } from './pr-gh.ts';
 import { ReviewDraft } from '../shared/contracts/team-review.ts';
 import type {
-  PrDetail, ReviewDraft as ReviewDraftType, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
+  InFlightReview, PrDetail, ReviewDraft as ReviewDraftType, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../shared/contracts/team-review.ts';
 
 interface TeamReviewGithub {
@@ -23,6 +23,7 @@ interface SpawnReviewArgs {
   detail: PrDetail;
   tier: ReviewTier;
   reasons: string[];
+  reportProgress?: (event: ReviewProgressEvent) => void;
 }
 
 type DraftPatch = Partial<Omit<ReviewDraftType, 'key' | 'repo' | 'number'>>;
@@ -42,6 +43,8 @@ interface TeamReviewPollerDependencies {
   beforeStart?: () => Promise<void>;
   setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
   clearIntervalFn?: (handle: NodeJS.Timeout) => void;
+  setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
+  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
   log?: Pick<Console, 'warn'>;
   onTickComplete?: (status: TeamReviewStatus) => void;
   now?: () => number;
@@ -58,11 +61,15 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     org, team, github, spawnReview,
     readState = async () => ({}), writeState = async () => {}, beforeStart = async () => {},
     setIntervalFn = (fn, ms) => setInterval(fn, ms), clearIntervalFn = clearInterval,
+    setTimeoutFn = (fn, ms) => setTimeout(fn, ms), clearTimeoutFn = clearTimeout,
     log = console, onTickComplete = () => {}, now = () => Date.now(),
   } = deps;
   const maxConcurrentReviews = deps.maxConcurrentReviews ?? core.MAX_CONCURRENT_REVIEWS;
   let state: TeamReviewState = {};
   let self: string | null = null;
+  const progressByKey = new Map<string, InFlightReview>();
+  let lastEmitAt = Number.NEGATIVE_INFINITY;
+  let pendingProgressEmit: NodeJS.Timeout | null = null;
 
   const loop = createTickLoop({
     tag: core.TEAM_REVIEW_LANE_ID, intervalMs: (deps.intervalMinutes ?? core.POLL_INTERVAL_MINUTES) * 60000,
@@ -74,10 +81,48 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     return Object.keys(state).filter((key) => state[key]?.inFlight);
   }
 
+  function inFlightReviews(): InFlightReview[] {
+    return inFlightKeys().flatMap((key) => {
+      const progress = progressByKey.get(key);
+      return progress ? [progress] : [];
+    });
+  }
+
+  function cancelPendingProgressEmit(): void {
+    if (pendingProgressEmit === null) return;
+    clearTimeoutFn(pendingProgressEmit);
+    pendingProgressEmit = null;
+  }
+
   function emitStatus(): void {
+    cancelPendingProgressEmit();
+    lastEmitAt = now();
     onTickComplete(core.teamReviewStatus({
-      ts: now(), configured: true, drafts: core.draftsNewestFirst(state), inFlight: inFlightKeys(),
+      ts: now(), configured: true, drafts: core.draftsNewestFirst(state), inFlight: inFlightReviews(),
     }));
+  }
+
+  function progressReporter(key: string): (event: ReviewProgressEvent) => void {
+    return (event) => {
+      const progress = progressByKey.get(key);
+      if (!progress) return;
+      progressByKey.set(key, core.applyReviewProgress(progress, event, now()));
+      emitProgressCoalesced();
+    };
+  }
+
+  function emitProgressCoalesced(): void {
+    if (pendingProgressEmit !== null || loop.isStopped()) return;
+    const waitMs = lastEmitAt + core.PROGRESS_EMIT_INTERVAL_MS - now();
+    if (waitMs <= 0) {
+      emitStatus();
+      return;
+    }
+    pendingProgressEmit = setTimeoutFn(() => {
+      pendingProgressEmit = null;
+      if (loop.isStopped()) return;
+      emitStatus();
+    }, waitMs);
   }
 
   function entryFor(key: string): TeamReviewStateEntry {
@@ -95,6 +140,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     }));
     const entry = entryFor(args.candidate.key);
     entry.inFlight = false;
+    progressByKey.delete(args.candidate.key);
     if (draft === null) {
       await persist();
       emitStatus();
@@ -155,7 +201,12 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       }
       entry.inFlight = true;
       freeSlots -= 1;
-      const args: SpawnReviewArgs = { candidate, detail, tier: triage.tier, reasons: triage.reasons };
+      progressByKey.set(candidate.key, core.startReviewProgress({
+        candidate, tier: triage.tier, reasons: triage.reasons, head: detail.headRefOid, at: now(),
+      }));
+      const args: SpawnReviewArgs = {
+        candidate, detail, tier: triage.tier, reasons: triage.reasons, reportProgress: progressReporter(candidate.key),
+      };
       loop.track(runReview(args).catch((error: unknown) => {
         log.warn(`[${core.TEAM_REVIEW_LANE_ID}] review crashed for ${candidate.key}: ${errorMessage(error)}`);
       }));
@@ -216,10 +267,17 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       await beforeStart();
       state = (await readState()) || {};
       for (const entry of Object.values(state)) entry.inFlight = false;
+      progressByKey.clear();
     });
   }
 
-  return { start, stop: loop.stop, tick: loop.tick, getDraft, updateDraft, _state: () => state };
+  async function stop(): Promise<void> {
+    cancelPendingProgressEmit();
+    await loop.stop();
+    cancelPendingProgressEmit();
+  }
+
+  return { start, stop, tick: loop.tick, getDraft, updateDraft, _state: () => state };
 }
 
 type TeamReviewPoller = ReturnType<typeof createTeamReviewPoller>;

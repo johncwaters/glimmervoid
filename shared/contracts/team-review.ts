@@ -106,12 +106,40 @@ export type TeamReviewStateEntry = z.infer<typeof TeamReviewStateEntry>;
 export const TeamReviewState = z.record(z.string(), TeamReviewStateEntry);
 export type TeamReviewState = z.infer<typeof TeamReviewState>;
 
+export const ReviewProgressPhase = z.enum(['preparing', 'checkout', 'reviewing']);
+export type ReviewProgressPhase = z.infer<typeof ReviewProgressPhase>;
+
+export const ReviewProgressStep = z.object({
+  at: z.number().finite(),
+  tool: z.string(),
+  detail: z.string(),
+});
+export type ReviewProgressStep = z.infer<typeof ReviewProgressStep>;
+
+export const InFlightReview = z.object({
+  key: z.string(),
+  repo: repoSlug,
+  number: z.number().int().positive(),
+  title: z.string(),
+  url: z.string(),
+  author: z.string(),
+  tier: z.enum(['stamp', 'full']),
+  reasons: z.array(z.string()),
+  head: CommitSha,
+  phase: ReviewProgressPhase,
+  startedAt: z.number().finite(),
+  deadlineAt: z.number().finite().nullable(),
+  toolCalls: z.number().int().nonnegative(),
+  recentSteps: z.array(ReviewProgressStep),
+});
+export type InFlightReview = z.infer<typeof InFlightReview>;
+
 export const TeamReviewStatus = z.object({
   type: z.literal('team-review-status'),
   ts: z.number().finite(),
   configured: z.boolean(),
   reason: z.string().nullable().optional(),
   drafts: z.array(ReviewDraft),
-  inFlight: z.array(z.string()),
+  inFlight: z.array(InFlightReview),
 }).passthrough();
 export type TeamReviewStatus = z.infer<typeof TeamReviewStatus>;

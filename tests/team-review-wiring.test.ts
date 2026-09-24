@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { isDispatchWorkdir } from '../server/core/ingest-agent-core.ts';
 import { FULL_MODEL, REVIEW_BOOTSTRAP_PROMPT, STAMP_MODEL } from '../server/core/team-review-core.ts';
-import type { ReviewTier } from '../server/core/team-review-core.ts';
+import type { ReviewProgressEvent, ReviewTier } from '../server/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/team-review-poller.ts';
 import type { DraftPatch, SpawnReviewArgs } from '../server/team-review-poller.ts';
 import type { PostedReview } from '../server/pr-gh.ts';
@@ -295,7 +295,71 @@ test('the spawned session runs the bootstrap prompt under the lane posture and i
   assert.equal(created[0].dangerouslySkipPermissions, false);
   assert.deepEqual(created[0].settingsPermissions, posture.permissions);
   assert.equal(created[0].ephemeral, true);
+  assert.equal(created[0].observeToolCalls, false, 'no tool hook is installed when nobody listens');
   assert.deepEqual(recorded, ['team-review']);
+});
+
+test('the spawned session forwards PreToolUse hook events as tool steps and ignores other hooks', async () => {
+  const created: SessionOptions[] = [];
+  const steps: { tool: string; detail: string }[] = [];
+  const spawn = createTeamReviewSpawn({
+    reviewSessions: new Map<string, unknown>(),
+    closeSessionDataClients: () => {},
+    hookRouter: null,
+    getHookPort: null,
+    spawnGate: { run: async (task) => task() },
+    makeSession: (options) => {
+      created.push(options);
+      const session = new Session(options);
+      session.start = async () => {
+        session.emit('hook-event', { event: 'PreToolUse', payload: { tool_name: 'Read', tool_input: { file_path: 'pr.diff' } } });
+        session.emit('hook-event', { event: 'Stop', payload: {} });
+        session.emit('exit');
+      };
+      return session;
+    },
+  });
+  await spawn({
+    id: 'team-review:Acme/app#7', name: 'Team review Acme/app#7', cwd: '/tmp/x',
+    extraClaudeArgs: teamReviewClaudeArgs('stamp', null), settingsPermissions: teamReviewPermissions().permissions,
+    signal: new AbortController().signal, onToolStep: (step) => { steps.push(step); },
+  });
+  assert.equal(created[0].observeToolCalls, true);
+  assert.deepEqual(steps, [{ tool: 'Read', detail: 'pr.diff' }]);
+});
+
+test('a full review reports checkout then reviewing with the timeout, and forwards tool steps', async () => {
+  const events: ReviewProgressEvent[] = [];
+  const { review, cleanup } = setup({
+    timeoutSeconds: 30,
+    spawnSession: async (call) => {
+      call.onToolStep?.({ tool: 'Grep', detail: 'TODO' });
+      fs.writeFileSync(path.join(call.cwd, 'result.json'), validResult());
+    },
+  });
+  try {
+    const draft = await review({ ...reviewArgs('full'), reportProgress: (event) => { events.push(event); } });
+    assert.equal(draft.status, 'ready');
+    assert.deepEqual(events, [
+      { kind: 'phase', phase: 'checkout', tier: 'full', reasons: ['a reason'] },
+      { kind: 'phase', phase: 'reviewing', tier: 'full', reasons: ['a reason'], timeoutSeconds: 30 },
+      { kind: 'step', tool: 'Grep', detail: 'TODO' },
+    ]);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a stamp review whose diff is unavailable reports the upgrade to full at checkout', async () => {
+  const events: ReviewProgressEvent[] = [];
+  const { review, cleanup } = setup({ diff: null });
+  try {
+    await review({ ...reviewArgs('stamp'), reportProgress: (event) => { events.push(event); } });
+    assert.deepEqual(events[0], { kind: 'phase', phase: 'checkout', tier: 'full', reasons: ['a reason', 'diff unavailable, upgraded to a full review'] });
+    assert.equal(events[1]?.kind === 'phase' ? events[1].phase : null, 'reviewing');
+  } finally {
+    cleanup();
+  }
 });
 
 test('the lane starts only when enabled with both org and team', () => {

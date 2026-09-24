@@ -1,5 +1,5 @@
 import type {
-  PrDetail, ReviewComment, ReviewDraft, ReviewResult, SearchedPr, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
+  InFlightReview, PrDetail, ReviewComment, ReviewProgressPhase, ReviewDraft, ReviewResult, SearchedPr, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../../shared/contracts/team-review.ts';
 
 const STAMP_MODEL = 'sonnet';
@@ -10,6 +10,8 @@ const MAX_CONCURRENT_REVIEWS = 2;
 const MAX_REVIEW_ATTEMPTS = 3;
 const REVIEW_TIMEOUT_SECONDS = 900;
 const POLL_INTERVAL_MINUTES = 15;
+const RECENT_STEPS_SHOWN = 5;
+const PROGRESS_EMIT_INTERVAL_MS = 1000;
 
 const TEAM_REVIEW_LANE_ID = 'team-review';
 const TEAM_REVIEW_STATE_FILENAME = `${TEAM_REVIEW_LANE_ID}-state.json`;
@@ -227,9 +229,32 @@ function draftsNewestFirst(state: TeamReviewState): ReviewDraft[] {
 }
 
 function teamReviewStatus({ ts, configured, reason = null, drafts = [], inFlight = [] }: {
-  ts: number; configured: boolean; reason?: string | null; drafts?: ReviewDraft[]; inFlight?: string[];
+  ts: number; configured: boolean; reason?: string | null; drafts?: ReviewDraft[]; inFlight?: InFlightReview[];
 }): TeamReviewStatus {
   return { type: 'team-review-status', ts, configured, reason, drafts, inFlight };
+}
+
+type ReviewProgressEvent =
+  | { kind: 'phase'; phase: ReviewProgressPhase; tier: ReviewTier; reasons: string[]; timeoutSeconds?: number }
+  | { kind: 'step'; tool: string; detail: string };
+
+function startReviewProgress({ candidate, tier, reasons, head, at }: {
+  candidate: TeamReviewCandidate; tier: ReviewTier; reasons: string[]; head: string; at: number;
+}): InFlightReview {
+  return {
+    key: candidate.key, repo: candidate.repo, number: candidate.number, title: candidate.title,
+    url: candidate.url, author: candidate.author, tier, reasons, head,
+    phase: 'preparing', startedAt: at, deadlineAt: null, toolCalls: 0, recentSteps: [],
+  };
+}
+
+function applyReviewProgress(progress: InFlightReview, event: ReviewProgressEvent, at: number): InFlightReview {
+  if (event.kind === 'step') {
+    const recentSteps = [...progress.recentSteps, { at, tool: event.tool, detail: event.detail }].slice(-RECENT_STEPS_SHOWN);
+    return { ...progress, toolCalls: progress.toolCalls + 1, recentSteps };
+  }
+  const deadlineAt = event.timeoutSeconds === undefined ? progress.deadlineAt : at + event.timeoutSeconds * 1000;
+  return { ...progress, phase: event.phase, tier: event.tier, reasons: [...event.reasons], deadlineAt };
 }
 
 function draftBase(candidate: TeamReviewCandidate, tier: ReviewTier, reasons: string[], reviewedHead: string) {
@@ -361,10 +386,10 @@ function buildReviewPrompt({
 
 export {
   STAMP_MODEL, FULL_MODEL, STAMP_MAX_LINES, STAMP_MAX_FILES, MAX_CONCURRENT_REVIEWS, MAX_REVIEW_ATTEMPTS,
-  REVIEW_TIMEOUT_SECONDS, POLL_INTERVAL_MINUTES, POSTED_RETENTION_MS,
+  REVIEW_TIMEOUT_SECONDS, POLL_INTERVAL_MINUTES, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS,
   TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME,
   PR_JSON_FILENAME, PR_DIFF_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, DIFF_UNAVAILABLE_NOTE,
   buildReviewPrompt, canPost, commentableLines, draftsNewestFirst, errorDraft, eventForAction, invalidComments, isSettledAtHead, markDraftStale,
-  prBaseRef, prHeadRef, prKey, readyDraft, repoFromSearchItem, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, teamReviewStatus, triagePr,
+  applyReviewProgress, prBaseRef, prHeadRef, prKey, readyDraft, repoFromSearchItem, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr,
 };
-export type { CommentableFileLines, CommentableLines, ReviewTier, TeamReviewCandidate };
+export type { CommentableFileLines, CommentableLines, ReviewProgressEvent, ReviewTier, TeamReviewCandidate };

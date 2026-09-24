@@ -1,16 +1,17 @@
 import { TeamReviewStatus } from '#shared/contracts/team-review.ts';
 import type {
-  ReviewComment, ReviewDraft, TeamReviewAction, TeamReviewStatus as TeamReviewStatusType,
+  InFlightReview, ReviewComment, ReviewDraft, TeamReviewAction, TeamReviewStatus as TeamReviewStatusType,
 } from '#shared/contracts/team-review.ts';
 import { createAttentionAck } from './attention-ack-core.ts';
 import { sendControlMsg } from './control-ws.ts';
 import { el, externalLink, isPanelHidden } from './dom-helpers.ts';
+import { createPollAgoTicker } from './poll-ago.ts';
+import { formatTrailOffset } from './radar-core.ts';
 import { createSettingsLink } from './settings-link.ts';
-import type { InReviewRow } from './team-review-view-core.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, commentLocation,
-  emptyStateText, groupDrafts, hasAnyRow, pullRequestLabel, readyAttentionSignature, readyRowSignature, tierLabel,
+  emptyStateText, groupDrafts, hasAnyRow, inFlightProgressText, isInFlightProgressOnlyChange, phaseLabel, pullRequestLabel, readyAttentionSignature, readyRowSignature, tierLabel,
   verdictLabel, verdictTone, withoutComment,
 } from './team-review-view-core.ts';
 import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
@@ -31,7 +32,9 @@ interface PendingAction {
 
 let _latest: TeamReviewStatusType | null = null;
 let _root: HTMLDivElement | null = null;
+let _inReviewSection: HTMLElement | null = null;
 let _activityCallback: ((isActive: boolean) => void) | null = null;
+const _progressTicker = createPollAgoTicker(() => _root);
 const _readyRows = new Map<string, ReadyRowHandle>();
 const _pendingActions = new Map<string, PendingAction>();
 const _attention = createAttentionAck({
@@ -57,7 +60,7 @@ function buildRowHead(draft: ReviewDraft) {
   return head;
 }
 
-function buildTriageLine(draft: ReviewDraft) {
+function buildTriageLine(draft: Pick<ReviewDraft, 'tier' | 'reasons'>) {
   const line = el('div', 'pr-draft-triage');
   line.append(chip(tierLabel(draft.tier), draft.tier === 'full' ? 'info' : 'dim'));
   const reasons = draft.reasons.join(', ');
@@ -173,11 +176,30 @@ function readyRowFor(draft: ReviewDraft): HTMLElement {
   return handle.element;
 }
 
-function buildInReviewRow({ key, draft }: InReviewRow) {
-  const row = el('div', 'pr-line');
-  if (draft) row.append(pullRequestLink(draft), el('span', 'pr-draft-title', draft.title));
-  if (!draft) row.append(el('span', 'pr-link', key));
-  row.append(chip('reviewing', 'info'));
+function buildProgressSteps(review: InFlightReview) {
+  const list = el('ol', 'pr-progress-steps');
+  list.setAttribute('aria-label', `Latest tool calls for ${pullRequestLabel(review.repo, review.number)}`);
+  for (const step of review.recentSteps) {
+    const item = el('li', 'pr-progress-step');
+    const detail = el('span', 'pr-progress-detail', step.detail);
+    detail.title = step.detail;
+    item.append(el('span', 'pr-progress-at', formatTrailOffset(review.startedAt, step.at)), el('span', 'pr-progress-tool', step.tool), detail);
+    list.append(item);
+  }
+  return list;
+}
+
+function buildInReviewRow(review: InFlightReview) {
+  const row = el('div', 'pr-in-review');
+  const head = el('div', 'pr-draft-head');
+  head.append(pullRequestLink(review), el('span', 'pr-draft-title', review.title), el('span', 'pr-draft-author', review.author));
+  const progress = el('div', 'pr-line');
+  const progressText = el('span', 'pr-progress-text');
+  progressText.setAttribute('role', 'status');
+  _progressTicker.track(progressText, review.startedAt, () => inFlightProgressText(review, Date.now()));
+  progress.append(chip(phaseLabel(review.phase), 'info'), progressText);
+  row.append(head, buildTriageLine(review), progress);
+  if (review.recentSteps.length > 0) row.append(buildProgressSteps(review));
   return row;
 }
 
@@ -227,12 +249,17 @@ function render() {
   const sections = groupDrafts(_latest);
   forgetDepartedRows(new Set(sections.ready.map((draft) => draft.key)));
   _root.textContent = '';
+  _inReviewSection = null;
+  _progressTicker.reset();
   if (!_latest || !_latest.configured || !hasAnyRow(sections)) {
     _root.append(buildEmptyState());
     return;
   }
   if (sections.ready.length > 0) _root.append(buildSection('Ready', sections.ready, readyRowFor));
-  if (sections.inReview.length > 0) _root.append(buildSection('In review', sections.inReview, buildInReviewRow));
+  if (sections.inReview.length > 0) {
+    _inReviewSection = buildSection('In review', sections.inReview, buildInReviewRow);
+    _root.append(_inReviewSection);
+  }
   if (sections.attention.length > 0) _root.append(buildSection('Needs attention', sections.attention, buildAttentionRow));
   if (sections.posted.length > 0) _root.append(buildSection('Recently posted', sections.posted, buildPostedRow));
   if (focused?.isConnected) focused.focus({ preventScroll: true });
@@ -258,6 +285,7 @@ export function mountTeamReviewView(parent: HTMLElement) {
   const root = el('div', 'pr-content');
   parent.appendChild(root);
   _root = root;
+  _progressTicker.ensure();
   render();
   return root;
 }
@@ -265,9 +293,20 @@ export function mountTeamReviewView(parent: HTMLElement) {
 export function applyTeamReviewStatus(msg: unknown) {
   const parsed = TeamReviewStatus.safeParse(msg);
   if (!parsed.success) return;
+  const previous = _latest;
   _latest = parsed.data;
+  if (isInFlightProgressOnlyChange(previous, parsed.data) && replaceInReviewSection()) return;
   render();
   refreshActivity();
+}
+
+function replaceInReviewSection(): boolean {
+  if (!_latest || !_inReviewSection?.isConnected) return false;
+  _progressTicker.reset();
+  const replacement = buildSection('In review', groupDrafts(_latest).inReview, buildInReviewRow);
+  _inReviewSection.replaceWith(replacement);
+  _inReviewSection = replacement;
+  return true;
 }
 
 export function applyTeamReviewActionResult(msg: unknown) {

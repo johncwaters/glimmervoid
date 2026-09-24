@@ -191,7 +191,12 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
     url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate', tier: 'stamp', reasons: ['12 counted lines in 1 files'],
     reviewedHead: 'a'.repeat(40), verdict: 'STAMP', summary: 'Looks right', body: 'Matches the description.',
     comments: [{ path: 'src/a.ts', line: 3, side: 'RIGHT', body: 'Nit' }], status: 'ready',
-  }], inFlight: ['PostHog/wizard#1351'] },
+  }], inFlight: [{
+    key: 'PostHog/wizard#1351', repo: 'PostHog/wizard', number: 1351, title: 'Tighten retries',
+    url: 'https://github.com/PostHog/wizard/pull/1351', author: 'teammate', tier: 'full', reasons: ['touches auth'],
+    head: 'b'.repeat(40), phase: 'reviewing', startedAt: NOW, deadlineAt: NOW + 900000, toolCalls: 2,
+    recentSteps: [{ at: NOW, tool: 'Read', detail: 'src/retry.ts' }],
+  }] },
   { type: 'branch-gc-status', ts: NOW, projects: [] },
   { type: 'usage-sessions', ts: NOW, pricingSource: 'bundled', sessions: [{ id: 'session-1', tokens: 123, costUSD: 0.5, officialCostUSD: null }] },
   { type: 'usage-report', requestId: 'usage-1', ts: NOW, tz: 'UTC', blockHours: 5, totals: {}, daily: [], models: [], sessions: [], blocks: [], activeBlock: null, anomaly: null, byLane: {}, budget: {}, savings: {}, tokenLimit: null, pricing: {}, scan: {}, warning: null, error: null },
@@ -270,6 +275,7 @@ test('team review status carries typed drafts, not an opaque project list', () =
   for (const invalid of [
     { ...status, drafts: undefined },
     { ...status, inFlight: [7] },
+    { ...status, inFlight: ['PostHog/wizard#1351'] },
     { ...status, drafts: [{ key: 'PostHog/wizard#1' }] },
   ]) assert.equal(ServerMessage.safeParse(invalid).success, false);
 });

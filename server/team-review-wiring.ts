@@ -6,6 +6,7 @@ import type { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
+import { trailStepFromHook } from './core/investigation-trail-core.ts';
 import { buildLanePermissions } from './core/lane-permissions-core.ts';
 import * as core from './core/team-review-core.ts';
 import type { ReviewTier, TeamReviewCandidate } from './core/team-review-core.ts';
@@ -65,6 +66,7 @@ type TeamReviewSpawn = (options: {
   extraClaudeArgs: string[];
   settingsPermissions: { deny: string[]; defaultMode: string };
   signal: AbortSignal;
+  onToolStep?: (step: { tool: string; detail: string }) => void;
 }) => Promise<void>;
 
 interface TeamReviewDispatchOptions {
@@ -244,7 +246,7 @@ function createTeamReviewDispatcher({
   }
 
   function spawnWithTimeout(
-    { candidate, detail, tier, reasons, workDir, resultPath, worktreePath, onPending }: SpawnReviewArgs & {
+    { candidate, detail, tier, reasons, reportProgress, workDir, resultPath, worktreePath, onPending }: SpawnReviewArgs & {
       workDir: string; resultPath: string; worktreePath: string | null; onPending: (pending: Promise<unknown>) => void;
     },
   ): Promise<ReviewDraft> {
@@ -264,6 +266,7 @@ function createTeamReviewDispatcher({
         extraClaudeArgs: teamReviewClaudeArgs(tier, worktreePath),
         settingsPermissions: posture.permissions,
         signal: shutdownSignal ? AbortSignal.any([signal, shutdownSignal]) : signal,
+        onToolStep: (step) => reportProgress?.({ kind: 'step', ...step }),
       })
         .then(async () => {
           if (signal.aborted) return undefined;
@@ -277,7 +280,7 @@ function createTeamReviewDispatcher({
   }
 
   return async function reviewPullRequest(args: SpawnReviewArgs): Promise<ReviewDraft> {
-    const { candidate, detail } = args;
+    const { candidate, detail, reportProgress = () => {} } = args;
     let { tier, reasons } = args;
     const failed = (error: string) => core.errorDraft({ candidate, tier, reasons, reviewedHead: detail.headRefOid, error });
     let resultFile: JobResultFile | null = null;
@@ -296,6 +299,7 @@ function createTeamReviewDispatcher({
       await fs.writeFile(path.join(workDir, core.PR_DIFF_FILENAME), diff ?? core.DIFF_UNAVAILABLE_NOTE, 'utf8');
       let worktreePath: string | null = null;
       if (tier === 'full') {
+        reportProgress({ kind: 'phase', phase: 'checkout', tier, reasons });
         const staged = await stageCheckout(candidate, detail);
         if ('error' in staged) return failed(staged.error);
         worktreePath = path.join(worktreeRoot, worktreeDirName(candidate.repo, detail.number, randomSuffix()));
@@ -306,6 +310,7 @@ function createTeamReviewDispatcher({
       }
       const prompt = core.buildReviewPrompt({ candidate, detail, tier, hasDiff: diff !== null, worktreePath, resultFileName: JOB_RESULT_FILENAME });
       await fs.writeFile(path.join(workDir, core.REVIEW_PROMPT_FILENAME), prompt, 'utf8');
+      reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds });
       return await spawnWithTimeout({
         ...args, tier, reasons, workDir, resultPath: resultFile.path, worktreePath,
         onPending: (pending) => { pendingSession = pending; },
@@ -333,7 +338,7 @@ function createTeamReviewSpawn({
   replayBufferKB?: number;
   makeSession?: (options: SessionOptions) => Session;
 }): TeamReviewSpawn {
-  return async function spawnTeamReviewSession({ id, name, cwd, extraClaudeArgs, settingsPermissions, signal }) {
+  return async function spawnTeamReviewSession({ id, name, cwd, extraClaudeArgs, settingsPermissions, signal, onToolStep }) {
     const sess = makeSession({
       id,
       name,
@@ -342,6 +347,7 @@ function createTeamReviewSpawn({
       extraClaudeArgs,
       initialPrompt: core.REVIEW_BOOTSTRAP_PROMPT,
       ephemeral: true,
+      observeToolCalls: onToolStep !== undefined,
       settingsPermissions,
       replayBufferKB,
       hookRouter,
@@ -350,6 +356,12 @@ function createTeamReviewSpawn({
     registerEphemeralSession({
       map: reviewSessions, id, sess, closeSessionDataClients, logPrefix: core.TEAM_REVIEW_LANE_ID, name, recordLane,
     });
+    if (onToolStep) {
+      sess.on('hook-event', ({ event, payload }: { event: string; payload: Record<string, unknown> }) => {
+        const step = trailStepFromHook(event, payload);
+        if (step) onToolStep(step);
+      });
+    }
     await awaitSessionExit(sess, { signal, spawnGate });
   };
 }
