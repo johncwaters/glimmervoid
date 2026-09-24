@@ -8,7 +8,7 @@ import { createRepoCache } from '../server/repo-cache.ts';
 import type { CommandRunner } from '../server/repo-cache.ts';
 
 async function git(args: string[], cwd: string): Promise<string> {
-  const { stdout } = await execFileAsync('git', args, { cwd, encoding: 'utf8' });
+  const { stdout } = await execFileAsync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8' });
   return stdout.trim();
 }
 

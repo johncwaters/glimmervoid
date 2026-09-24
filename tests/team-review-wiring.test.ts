@@ -227,15 +227,21 @@ test('a result whose head is not the provided head is an error draft', async () 
   }
 });
 
-test('a missing diff writes a note for a full review and refuses a stamp review', async () => {
+test('a missing diff writes a note for a full review and upgrades a stamp review to a full one', async () => {
   const full = setup({ diff: null });
   const stamp = setup({ diff: null });
   try {
     assert.equal((await full.review(reviewArgs('full'))).status, 'ready');
     assert.match(full.spawns[0].prDiff, /exceeded the 2 MB cap/);
     const draft = await stamp.review(reviewArgs('stamp'));
-    assert.equal(draft.status, 'error');
-    assert.equal(stamp.spawns.length, 0);
+    assert.equal(draft.status, 'ready');
+    assert.equal(draft.tier, 'full');
+    assert.ok(draft.reasons.includes('diff unavailable, upgraded to a full review'));
+    assert.equal(stamp.staged.length, 1);
+    assert.equal(stamp.removed.length, 1);
+    const args = stamp.spawns[0].extraClaudeArgs;
+    assert.equal(args[args.indexOf('--model') + 1], FULL_MODEL);
+    assert.ok(args.includes('--add-dir'));
   } finally {
     full.cleanup();
     stamp.cleanup();

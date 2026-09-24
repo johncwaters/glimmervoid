@@ -42,7 +42,7 @@ const SCREENS: readonly PhoneScreenSpec[] = Object.freeze([
   { id: 'terminal', label: 'Terminal', glyph: '▸' },
   { id: 'review', label: 'Review', glyph: '◫' },
   { id: 'radar', label: 'Radar', glyph: '◎', nested: true },
-  { id: 'prs', label: 'PRs', glyph: '⇅', nested: true },
+  { id: 'prs', label: 'PR reviews', glyph: '⇅', nested: true },
   { id: 'issues', label: 'Issues', glyph: '#', nested: true },
   { id: 'usage', label: 'Usage', glyph: '◔', nested: true },
   { id: 'mill', label: 'Mill', glyph: '▦', nested: true },

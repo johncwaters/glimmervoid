@@ -139,14 +139,14 @@ The install succeeded, but the directory where npm placed the `glimmervoid` comm
 - Structural status detection: hooks as the authoritative signal, an OSC-0 title fallback, never screen scraping (see below)
 - Background sub-agent completion gate: a session with live background agents or tasks stays out of Complete until they finish
 - Native browser notifications when a session needs input, finishes, or fails (opt-in Windows toast fallback)
-- Phone layout as a first-class second layout, not a squeezed desktop: Board, Terminal, Review, Radar, PRs and Usage screens, attention-first ordering, and soft-keyboard handling that resizes the terminal instead of covering it
+- Phone layout as a first-class second layout, not a squeezed desktop: Board, Terminal, Review, Radar, PR reviews and Usage screens, attention-first ordering, and soft-keyboard handling that resizes the terminal instead of covering it
 - Remote mode (opt-in): a separate listener with single-use device pairing and cookie auth (see [Remote access](#remote-access))
 - Telegram notifications (opt-in): pings your phone only when no dashboard tab is open anywhere, so it fills the gap instead of duplicating the browser notification
 - Image upload from the phone key strip: pick an image, and its saved path is pasted into that session's prompt for you to send
 - Keyboard navigation: jump between sessions, step through the ones needing attention, and merge or resolve from the keyboard
 - Radar error monitoring (opt-in): polls PostHog error tracking, pings Telegram the moment an issue spikes, regresses, or first appears, and sends a headless agent to diagnose it and write a report
 - Radar auto-fix (opt-in): a spiking, regressed, or new issue gets an agent that reproduces the bug first, repairs it in a throwaway worktree, and hands back a pull request Glimmervoid opens for you; the agent can never push or merge
-- Team PR review (opt-in): drafts a review of each open pull request from your GitHub team in a sandboxed agent with no shell, network or GitHub write; you edit the draft in the Reviews tab and nothing posts until you choose Approve or Comment, and only if the pull request has not moved since the review
+- Team PR review (opt-in): drafts a review of each open pull request from your GitHub team in a sandboxed agent with no shell, network or GitHub write; you edit the draft in the PR reviews tab and nothing posts until you choose Approve or Comment, and only if the pull request has not moved since the review
 - Auto-resume by default: sessions that were live when Glimmervoid stopped come back on the next start with their Claude conversation resumed
 - Configurable themes, hot-reloadable configuration
 

@@ -614,7 +614,7 @@ export const SETTINGS_MAP = Object.freeze([
     id: 'lanes-team-review',
     level: 'lanes',
     title: 'Team review',
-    description: "Draft reviews of teammates' pull requests for you to post from the Reviews tab.",
+    description: "Draft reviews of teammates' pull requests for you to post from the PR reviews tab.",
     settings: [
       {
         id: 'team-review-enabled', path: 'teamReview.enabled', title: 'Enable team review',

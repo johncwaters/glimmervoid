@@ -277,7 +277,8 @@ function createTeamReviewDispatcher({
   }
 
   return async function reviewPullRequest(args: SpawnReviewArgs): Promise<ReviewDraft> {
-    const { candidate, detail, tier, reasons } = args;
+    const { candidate, detail } = args;
+    let { tier, reasons } = args;
     const failed = (error: string) => core.errorDraft({ candidate, tier, reasons, reviewedHead: detail.headRefOid, error });
     let resultFile: JobResultFile | null = null;
     let checkout: { projectPath: string; worktreePath: string } | null = null;
@@ -287,7 +288,10 @@ function createTeamReviewDispatcher({
       resultFile = await makeResultFile(`${candidate.repo}-${detail.number}`);
       const workDir = path.dirname(resultFile.path);
       const diff = await github.prDiff(candidate.repo, detail.number);
-      if (diff === null && tier === 'stamp') return failed('diff unavailable, and a stamp review has no checkout to read');
+      if (diff === null && tier === 'stamp') {
+        tier = 'full';
+        reasons = [...reasons, 'diff unavailable, upgraded to a full review'];
+      }
       await fs.writeFile(path.join(workDir, core.PR_JSON_FILENAME), `${JSON.stringify(detail, null, 2)}\n`, 'utf8');
       await fs.writeFile(path.join(workDir, core.PR_DIFF_FILENAME), diff ?? core.DIFF_UNAVAILABLE_NOTE, 'utf8');
       let worktreePath: string | null = null;
@@ -303,7 +307,7 @@ function createTeamReviewDispatcher({
       const prompt = core.buildReviewPrompt({ candidate, detail, tier, hasDiff: diff !== null, worktreePath, resultFileName: JOB_RESULT_FILENAME });
       await fs.writeFile(path.join(workDir, core.REVIEW_PROMPT_FILENAME), prompt, 'utf8');
       return await spawnWithTimeout({
-        ...args, workDir, resultPath: resultFile.path, worktreePath,
+        ...args, tier, reasons, workDir, resultPath: resultFile.path, worktreePath,
         onPending: (pending) => { pendingSession = pending; },
       });
     } catch (error) {
