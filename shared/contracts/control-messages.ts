@@ -13,7 +13,7 @@ import { ChangeMap } from './change-map.ts';
 import { PendingWakeup, SessionSnapshot, SessionState } from './session.ts';
 import { TraceRecord } from './trace.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
-import { CommitSha, ReviewComment } from './team-review.ts';
+import { CommitSha, ReviewComment, TeamReviewStatus } from './team-review.ts';
 
 const requestId = z.string().nullable().optional();
 const sessionId = z.string();
@@ -546,7 +546,7 @@ const serverVariants = [
   }),
   loose('team-review-action-result', { key: z.string(), ok: z.boolean(), error: z.string().optional(), requestId }),
   loose('posthog-archive-investigation-result', { requestId, ok: z.boolean(), error: optionalError }),
-  loose('team-review-status', { ts: timestamp, projects: z.array(opaqueObject) }),
+  TeamReviewStatus,
 
   loose('branch-gc-status'),
   loose('usage-sessions', {

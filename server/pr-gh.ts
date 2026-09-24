@@ -40,6 +40,11 @@ interface GithubIssue {
 
 type GithubIssueWithoutBody = Omit<GithubIssue, 'body'>;
 
+interface PrSearchResult {
+  items: SearchedPrType[];
+  complete: boolean;
+}
+
 interface GithubIssueList {
   ok: boolean;
   issues: GithubIssueWithoutBody[];
@@ -58,8 +63,8 @@ interface PrGh {
   viewIssue(issueNumber: number | string): Promise<GithubIssueDetail>;
   viewer(): Promise<string | null>;
   teamMembers(org: string, team: string): Promise<string[]>;
-  searchTeamRequested(org: string, team: string): Promise<SearchedPrType[]>;
-  searchAuthoredBy(org: string, logins: string[]): Promise<SearchedPrType[]>;
+  searchTeamRequested(org: string, team: string): Promise<PrSearchResult>;
+  searchAuthoredBy(org: string, logins: string[]): Promise<PrSearchResult>;
   viewPr(repo: string, number: number): Promise<PrDetailType | null>;
   prDiff(repo: string, number: number): Promise<string | null>;
   prHead(repo: string, number: number): Promise<string | null>;
@@ -152,15 +157,15 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     return parsed.success ? parsed.data.items : null;
   }
 
-  async function search(query: string): Promise<SearchedPrType[]> {
+  async function search(query: string): Promise<PrSearchResult> {
     const items: SearchedPrType[] = [];
     for (let page = 1; page <= MAX_SEARCH_PAGES; page += 1) {
       const pageItems = await searchPage(query, page);
-      if (!pageItems) return items;
+      if (!pageItems) return { items, complete: false };
       items.push(...pageItems);
-      if (pageItems.length < SEARCH_PAGE_SIZE) return items;
+      if (pageItems.length < SEARCH_PAGE_SIZE) return { items, complete: true };
     }
-    return items;
+    return { items, complete: false };
   }
 
   return {
@@ -204,19 +209,21 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     },
 
     async searchTeamRequested(org, team) {
-      if (!GH_SEGMENT.test(org) || !GH_SEGMENT.test(team)) return [];
+      if (!GH_SEGMENT.test(org) || !GH_SEGMENT.test(team)) return { items: [], complete: false };
       return search(`is:pr is:open draft:false org:${org} team-review-requested:${org}/${team}`);
     },
 
     async searchAuthoredBy(org, logins) {
-      if (!GH_SEGMENT.test(org) || !logins.every((login) => GH_SEGMENT.test(login))) return [];
+      if (!GH_SEGMENT.test(org) || !logins.every((login) => GH_SEGMENT.test(login))) return { items: [], complete: false };
       const items: SearchedPrType[] = [];
+      let complete = true;
       for (let index = 0; index < logins.length; index += 5) {
         const authors = logins.slice(index, index + 5).map((login) => `author:${login}`).join(' ');
         const chunk = await search(`is:pr is:open draft:false org:${org} ${authors}`);
-        items.push(...chunk);
+        items.push(...chunk.items);
+        complete = complete && chunk.complete;
       }
-      return items;
+      return { items, complete };
     },
 
     async viewPr(repo, number) {
@@ -259,4 +266,4 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
 }
 
 export { createPrGh, normalizeIssue };
-export type { CommandResult, GithubIssue, GithubIssueDetail, GithubIssueLabel, GithubIssueList, GithubIssueWithoutBody, PrGh };
+export type { CommandResult, GithubIssue, GithubIssueDetail, GithubIssueLabel, GithubIssueList, GithubIssueWithoutBody, PrGh, PrSearchResult };

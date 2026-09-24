@@ -27,6 +27,7 @@ import {
 import { createPlanReviewWiring } from './plan-review-wiring.ts';
 import { createPosthogWiring } from './posthog-wiring.ts';
 import { createSpawnGate } from './spawn-gate.ts';
+import { createTeamReviewWiring } from './team-review-wiring.ts';
 import { createUsageWiring, resolveUsageConfig } from './usage-wiring.ts';
 import { createLaneLedger } from './usage-lane-ledger.ts';
 import { createTraceWiring } from './trace-wiring.ts';
@@ -157,6 +158,18 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     recordLane,
     gitWorkspace,
     broadcast: broadcastControl,
+  });
+  const teamReview = createTeamReviewWiring({
+    config,
+    reviewSessions,
+    closeSessionDataClients,
+    hookRouter,
+    getHookPort,
+    spawnGate,
+    recordLane,
+    gitWorkspace,
+    broadcast: broadcastControl,
+    log: logger,
   });
 
   let ingestConfig = resolveIngestConfig(config.ingest);
@@ -430,6 +443,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const fixedLaneEntries = {
     'branch-gc': branchGc,
     posthog,
+    'team-review': teamReview,
     'pack-service': packService,
     usage,
     'pack-distiller': packDistiller,
@@ -466,6 +480,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => void visionsSetup.maybeApply(),
       () => branchGc.start(),
       () => posthog.startPoller(),
+      () => teamReview.startPoller(),
       () => {
         if (!millEnabled()) return;
         packService.start().catch((error: unknown) => logger.warn(`[packs] auto-rebuild failed to start: ${errorMessage(error)}`));
@@ -482,6 +497,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     const restartSteps = [
       () => branchGc.restartIfConfigChanged(),
       () => posthog.restartIfConfigChanged(),
+      () => teamReview.restartIfConfigChanged(),
       () => usage.restartIfConfigChanged(),
       () => void millMetrics.restartIfConfigChanged(),
       () => {
@@ -523,6 +539,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     reviewSessions,
     spawnGate,
     startMemoryLanes,
+    teamReview,
     startRuntimeLanes,
     tapIngestForSession,
     traceWiring,

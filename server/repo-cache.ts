@@ -1,6 +1,7 @@
 import path from 'node:path';
-import { lstat, mkdir } from 'node:fs/promises';
+import { lstat, mkdir, readdir } from 'node:fs/promises';
 import { execFileAsync } from './child-process-safe.ts';
+import { prBaseRef, prHeadRef } from './core/team-review-core.ts';
 import { createSerialQueue } from './spawn-gate.ts';
 import { CommitSha } from '../shared/contracts/team-review.ts';
 
@@ -40,6 +41,12 @@ async function isDirectoryWithoutSymlink(directory: string): Promise<boolean | n
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return null;
     return false;
   }
+}
+
+async function childDirectoryNames(directory: string): Promise<string[]> {
+  if (await isDirectoryWithoutSymlink(directory) !== true) return [];
+  const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+  return entries.filter((entry) => entry.isDirectory() && GH_SEGMENT.test(entry.name)).map((entry) => entry.name);
 }
 
 async function runGit(args: string[], cwd: string, env?: Record<string, string>): Promise<CommandResult> {
@@ -93,7 +100,23 @@ function createRepoCache({ rootDir, commandRunner = runGit, remoteUrlFor = (repo
     }
   }
 
+  async function isCachedClone(repoDir: string): Promise<boolean> {
+    return await isDirectoryWithoutSymlink(repoDir) === true && await isDirectoryWithoutSymlink(path.join(repoDir, '.git')) === true;
+  }
+
   return {
+    async listRepos(): Promise<string[]> {
+      const repoDirs: string[] = [];
+      for (const owner of await childDirectoryNames(cacheRoot)) {
+        const ownerDir = path.join(cacheRoot, owner);
+        for (const name of await childDirectoryNames(ownerDir)) {
+          const repoDir = path.join(ownerDir, name);
+          if (await isCachedClone(repoDir)) repoDirs.push(repoDir);
+        }
+      }
+      return repoDirs;
+    },
+
     async ensureRepo(repo: string): Promise<string | null> {
       const parts = repoParts(repo);
       if (!parts) return null;
@@ -108,11 +131,11 @@ function createRepoCache({ rootDir, commandRunner = runGit, remoteUrlFor = (repo
         if (!repoDir) return { ok: false, headSha: null };
         const fetched = await run([
           'fetch', '--filter=blob:none', 'origin',
-          `+refs/pull/${number}/head:refs/glimmervoid-pr/${number}`,
-          `+refs/heads/${baseRef}:refs/glimmervoid-base/${number}`,
+          `+refs/pull/${number}/head:${prHeadRef(number)}`,
+          `+refs/heads/${baseRef}:${prBaseRef(number)}`,
         ], repoDir, NETWORK_GIT_ENV);
         if (!fetched.ok) return { ok: false, headSha: null };
-        const head = await run(['rev-parse', `refs/glimmervoid-pr/${number}`], repoDir);
+        const head = await run(['rev-parse', prHeadRef(number)], repoDir);
         const parsed = CommitSha.safeParse(head.out);
         if (!head.ok || !parsed.success) return { ok: false, headSha: null };
         return { ok: true, headSha: parsed.data };

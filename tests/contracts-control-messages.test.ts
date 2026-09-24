@@ -185,7 +185,12 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'posthog-issue-action-result', requestId: 'posthog-3', ok: true, error: null, status: 'resolved' },
   { type: 'team-review-action-result', requestId: 'review-1', key: 'PostHog/wizard#1350', ok: true },
   { type: 'posthog-archive-investigation-result', requestId: 'posthog-4', ok: true, error: null },
-  { type: 'team-review-status', ts: NOW, projects: [] },
+  { type: 'team-review-status', ts: NOW, configured: true, drafts: [{
+    key: 'PostHog/wizard#1350', repo: 'PostHog/wizard', number: 1350, title: 'Improve agent detection',
+    url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate', tier: 'stamp', reasons: ['12 counted lines in 1 files'],
+    reviewedHead: 'a'.repeat(40), verdict: 'STAMP', summary: 'Looks right', body: 'Matches the description.',
+    comments: [{ path: 'src/a.ts', line: 3, side: 'RIGHT', body: 'Nit' }], status: 'ready',
+  }], inFlight: ['PostHog/wizard#1351'] },
   { type: 'branch-gc-status', ts: NOW, projects: [] },
   { type: 'usage-sessions', ts: NOW, pricingSource: 'bundled', sessions: [{ id: 'session-1', tokens: 123, costUSD: 0.5, officialCostUSD: null }] },
   { type: 'usage-report', requestId: 'usage-1', ts: NOW, tz: 'UTC', blockHours: 5, totals: {}, daily: [], models: [], sessions: [], blocks: [], activeBlock: null, anomaly: null, byLane: {}, budget: {}, savings: {}, tokenLimit: null, pricing: {}, scan: {}, warning: null, error: null },
@@ -253,6 +258,16 @@ test('team review actions carry editable text and diff comments', () => {
     { ...action, head: 'a'.repeat(39) },
   ]) assert.equal(ClientMessage.safeParse(invalid).success, false);
   assert.equal(ServerMessage.safeParse({ type: 'team-review-action-result', key: action.key, ok: false, error: 'stale head' }).success, true);
+});
+
+test('team review status carries typed drafts, not an opaque project list', () => {
+  const status = { type: 'team-review-status', ts: NOW, configured: false, reason: null, drafts: [], inFlight: [] };
+  assert.equal(ServerMessage.safeParse(status).success, true);
+  for (const invalid of [
+    { ...status, drafts: undefined },
+    { ...status, inFlight: [7] },
+    { ...status, drafts: [{ key: 'PostHog/wizard#1' }] },
+  ]) assert.equal(ServerMessage.safeParse(invalid).success, false);
 });
 
 test('send-diff-annotations bounds every field of every note', () => {

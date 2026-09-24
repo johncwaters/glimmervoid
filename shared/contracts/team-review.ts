@@ -72,3 +72,26 @@ export const ReviewDraft = z.object({
   error: z.string().optional(),
 });
 export type ReviewDraft = z.infer<typeof ReviewDraft>;
+
+export const TeamReviewStateEntry = z.object({
+  draft: ReviewDraft.nullable(),
+  reviewedHead: CommitSha.nullable(),
+  inFlight: z.boolean(),
+  skipReason: z.string().nullable(),
+  reviewAttempts: z.number().int().nonnegative().default(0),
+  updatedAt: z.number().finite(),
+});
+export type TeamReviewStateEntry = z.infer<typeof TeamReviewStateEntry>;
+
+export const TeamReviewState = z.record(z.string(), TeamReviewStateEntry);
+export type TeamReviewState = z.infer<typeof TeamReviewState>;
+
+export const TeamReviewStatus = z.object({
+  type: z.literal('team-review-status'),
+  ts: z.number().finite(),
+  configured: z.boolean(),
+  reason: z.string().nullable().optional(),
+  drafts: z.array(ReviewDraft),
+  inFlight: z.array(z.string()),
+}).passthrough();
+export type TeamReviewStatus = z.infer<typeof TeamReviewStatus>;

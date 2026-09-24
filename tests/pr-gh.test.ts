@@ -44,9 +44,13 @@ test('search methods use raw search API and chunk twelve authors into three requ
     calls.push(args);
     return { ok: true, out: JSON.stringify({ items: [searchItem(calls.length)] }), err: '' };
   });
-  assert.deepEqual((await gh.searchTeamRequested('Acme', 'docs')).map((item) => item.number), [1]);
+  const requested = await gh.searchTeamRequested('Acme', 'docs');
+  assert.deepEqual(requested.items.map((item) => item.number), [1]);
+  assert.equal(requested.complete, true);
   const logins = Array.from({ length: 12 }, (_unused, index) => `member${index}`);
-  assert.deepEqual((await gh.searchAuthoredBy('Acme', logins)).map((item) => item.number), [2, 3, 4]);
+  const authored = await gh.searchAuthoredBy('Acme', logins);
+  assert.deepEqual(authored.items.map((item) => item.number), [2, 3, 4]);
+  assert.equal(authored.complete, true);
   assert.deepEqual(calls, [
     ['api', '-X', 'GET', 'search/issues', '-f', 'q=is:pr is:open draft:false org:Acme team-review-requested:Acme/docs', '-f', 'per_page=100', '-f', 'page=1'],
     ['api', '-X', 'GET', 'search/issues', '-f', 'q=is:pr is:open draft:false org:Acme author:member0 author:member1 author:member2 author:member3 author:member4', '-f', 'per_page=100', '-f', 'page=1'],
@@ -67,31 +71,50 @@ test('search pages through full result pages until a short page', async () => {
     const pageIndex = calls.length - 1;
     return { ok: true, out: searchPageOf(pageIndex * 100 + 1, pageSizes[pageIndex]), err: '' };
   });
-  const numbers = (await gh.searchTeamRequested('Acme', 'docs')).map((item) => item.number);
-  assert.deepEqual(numbers, Array.from({ length: 203 }, (_unused, index) => index + 1));
+  const requested = await gh.searchTeamRequested('Acme', 'docs');
+  assert.deepEqual(requested.items.map((item) => item.number), Array.from({ length: 203 }, (_unused, index) => index + 1));
+  assert.equal(requested.complete, true);
   const query = 'q=is:pr is:open draft:false org:Acme team-review-requested:Acme/docs';
   assert.deepEqual(calls, [1, 2, 3].map((page) => ['api', '-X', 'GET', 'search/issues', '-f', query, '-f', 'per_page=100', '-f', `page=${page}`]));
 });
 
-test('search stops paging at the page cap', async () => {
+test('search stops paging at the page cap and reports the truncated result incomplete', async () => {
   const calls: string[][] = [];
   const gh = createPrGh('/repo', async (_command, args) => {
     calls.push(args);
     return { ok: true, out: searchPageOf((calls.length - 1) * 100 + 1, 100), err: '' };
   });
-  assert.equal((await gh.searchTeamRequested('Acme', 'docs')).length, 500);
+  const requested = await gh.searchTeamRequested('Acme', 'docs');
+  assert.equal(requested.items.length, 500);
+  assert.equal(requested.complete, false);
   assert.deepEqual(calls.map((args) => args.at(-1)), ['page=1', 'page=2', 'page=3', 'page=4', 'page=5']);
 });
 
-test('search keeps gathered pages when a later page fails', async () => {
+test('search keeps gathered pages when a later page fails and reports the result incomplete', async () => {
   const calls: string[][] = [];
   const gh = createPrGh('/repo', async (_command, args) => {
     calls.push(args);
     if (calls.length === 2) return { ok: false, out: '', err: 'rate limited' };
     return { ok: true, out: searchPageOf(1, 100), err: '' };
   });
-  assert.equal((await gh.searchTeamRequested('Acme', 'docs')).length, 100);
+  const requested = await gh.searchTeamRequested('Acme', 'docs');
+  assert.equal(requested.items.length, 100);
+  assert.equal(requested.complete, false);
   assert.equal(calls.length, 2);
+});
+
+test('an authored search with one failed author chunk reports the result incomplete', async () => {
+  let calls = 0;
+  const gh = createPrGh('/repo', async () => {
+    calls += 1;
+    if (calls === 2) return { ok: false, out: '', err: 'rate limited' };
+    return { ok: true, out: searchPageOf(calls, 1), err: '' };
+  });
+  const logins = Array.from({ length: 12 }, (_unused, index) => `member${index}`);
+  const authored = await gh.searchAuthoredBy('Acme', logins);
+  assert.deepEqual(authored.items.map((item) => item.number), [1, 3]);
+  assert.equal(authored.complete, false);
+  assert.equal(calls, 3);
 });
 
 test('PR reads use exact argv and parse contract shapes', async () => {
@@ -118,16 +141,16 @@ test('invalid inputs and malformed contract payloads fail closed', async () => {
     return { ok: true, out: '{}', err: '' };
   });
   assert.deepEqual(await invalid.teamMembers('Acme/bad', 'docs'), []);
-  assert.deepEqual(await invalid.searchTeamRequested('Acme', '../docs'), []);
-  assert.deepEqual(await invalid.searchAuthoredBy('Acme', ['good', 'bad/login']), []);
+  assert.deepEqual(await invalid.searchTeamRequested('Acme', '../docs'), { items: [], complete: false });
+  assert.deepEqual(await invalid.searchAuthoredBy('Acme', ['good', 'bad/login']), { items: [], complete: false });
   assert.equal(await invalid.viewPr('../repo', 7), null);
   assert.equal(await invalid.prDiff('Acme/repo', 0), null);
   assert.equal(await invalid.prHead('Acme/repo', 0), null);
   assert.equal(calls, 0);
   assert.equal(await invalid.viewer(), null);
   assert.deepEqual(await invalid.teamMembers('Acme', 'docs'), []);
-  assert.deepEqual(await invalid.searchTeamRequested('Acme', 'docs'), []);
-  assert.deepEqual(await invalid.searchAuthoredBy('Acme', ['alice']), []);
+  assert.deepEqual(await invalid.searchTeamRequested('Acme', 'docs'), { items: [], complete: false });
+  assert.deepEqual(await invalid.searchAuthoredBy('Acme', ['alice']), { items: [], complete: false });
   assert.equal(await invalid.viewPr('Acme/repo', 7), null);
   assert.equal(await invalid.prHead('Acme/repo', 7), null);
   const oversized = createPrGh('/repo', async () => ({ ok: true, out: 'x'.repeat(2 * 1024 * 1024 + 1), err: '' }));

@@ -60,6 +60,7 @@ import {
 import { USAGE_VENDOR_KEYS, USAGE_BUDGET_KEYS } from '../shared/usage-config.ts';
 import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
 import type { ChangeMap } from '../shared/contracts/change-map.ts';
+import type { TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type { UpdateStatus } from './backend-update.ts';
 import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { PlanReadRequest, PlanReadResult } from './plan-review-wiring.ts';
@@ -135,6 +136,7 @@ interface ControlHandlerDeps {
   posthogReportsDir?: string | null;
   posthogSetIssueStatus?: ((args: { projectId: string; issueId: string; action: string }) => Promise<Record<string, unknown>>) | null;
   posthogArchiveInvestigation?: ((args: { id: string }) => Promise<Record<string, unknown>>) | null;
+  getTeamReviewStatus?: (() => TeamReviewStatus | null) | null;
   createGithubClient?: (cwd: string) => Pick<PrGh, 'listIssues' | 'viewIssue' | 'repoSlug'>;
   getPackVersions?: () => Record<string, string | null>;
   serverBuild?: () => string | null;
@@ -374,6 +376,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
     posthogSetIssueStatus = null,
     posthogArchiveInvestigation = null,
+    getTeamReviewStatus = null,
 
     createGithubClient = createPrGh,
 
@@ -1256,6 +1259,9 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (posthogStatus) {
       ws.send(JSON.stringify(posthogStatus));
     }
+
+    const teamReviewStatus = typeof getTeamReviewStatus === 'function' ? getTeamReviewStatus() : null;
+    if (teamReviewStatus) ws.send(JSON.stringify(teamReviewStatus));
 
     const usageSessions = typeof getUsageSessions === 'function' ? getUsageSessions() : null;
     if (usageSessions) {

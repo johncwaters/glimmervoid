@@ -909,6 +909,10 @@ function createGitWorkspace(opts: {
     return failure ?? okResult('');
   }
 
+  async function pruneWorktreesBody({ projectPath }: WorktreeArgs): Promise<GitResult> {
+    return run(['worktree', 'prune'], projectPath);
+  }
+
   async function removeSharedLinks(wtDir: string, shareList: string[] | null | undefined): Promise<void> {
     for (const rel of shareList ?? []) {
       if (!rel || String(rel).includes('..')) continue;
@@ -1199,6 +1203,7 @@ function createGitWorkspace(opts: {
       admissionRefused: true,
     })),
     fetchOrigin: serialized(fetchOriginBody),
+    pruneWorktrees: serialized(pruneWorktreesBody),
     stageDetachedWorktree: serialized(stageDetachedWorktreeBody),
     mergeFastForwardTo,
     resetKeepTo: admitted(resetKeepToBody, (args: ResetKeepArgs): QueuedGitResult => ({

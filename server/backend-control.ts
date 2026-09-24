@@ -7,6 +7,7 @@ import { registerControlHandlers } from './control-handlers.ts';
 import type { MillControl } from './control-handlers.ts';
 import type { ReplayLog } from './control-replay-core.ts';
 import type { PlanDecision } from '../shared/contracts/plan-review.ts';
+import type { TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
 import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { UpdateStatus } from './backend-update.ts';
@@ -26,6 +27,10 @@ interface PosthogControl {
   getStatus: () => Record<string, unknown> | null;
   setIssueStatus: (args: { projectId: string; issueId: string; action: string }) => Promise<Record<string, unknown>>;
   archiveInvestigation: (args: { id: string }) => Promise<Record<string, unknown>>;
+}
+
+interface TeamReviewControl {
+  getStatus: () => TeamReviewStatus | null;
 }
 
 interface PackControl {
@@ -65,6 +70,7 @@ interface BackendControlDependencies {
   noteRestartRequested: () => void;
   laneAssembly: LaneReader;
   posthog: PosthogControl;
+  teamReview: TeamReviewControl;
   packService: PackControl;
   usage: UsageControl;
   mill: MillControl;
@@ -89,6 +95,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     controlReplayLog,
     laneAssembly,
     posthog,
+    teamReview,
     packService,
     usage,
     mill,
@@ -121,6 +128,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     getPosthogStatus: () => posthog.getStatus(),
     posthogSetIssueStatus: (args) => posthog.setIssueStatus(args),
     posthogArchiveInvestigation: (args) => posthog.archiveInvestigation(args),
+    getTeamReviewStatus: () => teamReview.getStatus(),
     getPackVersions: () => packService.getVersions(),
     serverBuild: dependencies.serverBuild,
     getUsageSessions: () => usage.getSessionsMessage(),
@@ -163,5 +171,6 @@ export type {
   PackControl,
   PosthogControl,
   SnapshotLane,
+  TeamReviewControl,
   UsageControl,
 };

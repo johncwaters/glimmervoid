@@ -32,6 +32,7 @@ interface BackendShutdownDependencies {
   memoryDistillSessions: Map<string, ShutdownSession>;
   branchGc: Stoppable;
   posthog: { stopPoller: () => unknown };
+  teamReview?: { stopPoller: () => unknown } | null;
   packService: Stoppable;
   usage: Stoppable;
   packDistiller: Stoppable;
@@ -98,6 +99,8 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     stoppers.add('branch-gc', () => dependencies.branchGc.stop());
     destroySessions([dependencies.agentSessions, dependencies.reviewSessions], pendingReaps);
     stoppers.add('posthog', () => dependencies.posthog.stopPoller());
+    const teamReview = dependencies.teamReview;
+    if (teamReview) stoppers.add('team-review', () => teamReview.stopPoller());
     stoppers.add('pack-service', () => dependencies.packService.stop());
     stoppers.add('usage', () => dependencies.usage.stop());
     stoppers.add('pack-distiller', () => dependencies.packDistiller.stop());
