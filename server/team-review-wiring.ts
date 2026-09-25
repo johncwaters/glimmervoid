@@ -662,7 +662,7 @@ function createTeamReviewActions({ drafts, github, log = console }: TeamReviewAc
     if (request.action === 'discard') return discard(request.key, draft);
     if (request.action === 'requeue') {
       const isQueued = await drafts.requeue(request.key, request.head);
-      return isQueued ? { ok: true } : { ok: false, error: 'only a failed review can be queued again' };
+      return isQueued ? { ok: true } : { ok: false, error: 'only a failed or ready review can be queued again' };
     }
     return post(request.key, draft, request);
   }

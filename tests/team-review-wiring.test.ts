@@ -997,7 +997,7 @@ function actionHarness(options: ActionHarnessOptions = {}) {
       },
       requeue: async (key, head) => {
         requeues.push(`${key}@${head}`);
-        return key === draft.key && head === draft.reviewedHead && draft.status === 'error';
+        return key === draft.key && head === draft.reviewedHead && (draft.status === 'error' || draft.status === 'ready');
       },
     },
     github: {
@@ -1061,14 +1061,16 @@ test('a clicked head that differs from the draft head is refused before GitHub i
   assert.equal(h.currentDraft().status, 'ready');
 });
 
-test('requeue accepts only an error draft at the clicked head and never calls GitHub', async () => {
+test('requeue accepts only an error or ready draft at the clicked head and never calls GitHub', async () => {
   const harness = actionHarness();
-  for (const status of ['ready', 'posted', 'discarded'] as const) {
+  for (const status of ['posted', 'discarded'] as const) {
     harness.replaceDraft(actionDraft({ status }));
-    assert.deepEqual(await harness.submit({ action: 'requeue', body: '', comments: [] }), { ok: false, error: 'only a failed review can be queued again' });
+    assert.deepEqual(await harness.submit({ action: 'requeue', body: '', comments: [] }), { ok: false, error: 'only a failed or ready review can be queued again' });
   }
   harness.replaceDraft(actionDraft({ status: 'error', error: 'timed out' }));
   assert.equal((await harness.submit({ action: 'requeue', head: OTHER_HEAD, body: '', comments: [] })).ok, false);
+  assert.deepEqual(await harness.submit({ action: 'requeue', body: '', comments: [] }), { ok: true });
+  harness.replaceDraft(actionDraft({ status: 'ready' }));
   assert.deepEqual(await harness.submit({ action: 'requeue', body: '', comments: [] }), { ok: true });
   assert.deepEqual(harness.requeues, Array(4).fill(`${ACTION_KEY}@${HEAD}`));
   assert.deepEqual(harness.headLookups, []);

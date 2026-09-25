@@ -284,8 +284,11 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
 
   async function requeue(key: string, head: string): Promise<boolean> {
     const entry = state[key];
-    if (!entry || entry.inFlight || entry.draft?.status !== 'error' || entry.draft.reviewedHead !== head) return false;
+    if (!entry?.draft || entry.inFlight || entry.draft.reviewedHead !== head) return false;
+    if (entry.draft.status !== 'error' && entry.draft.status !== 'ready') return false;
     entry.reviewAttempts = 0;
+    entry.reviewedHead = null;
+    core.markDraftStale(entry, now());
     entry.updatedAt = now();
     await persist();
     emitStatus();

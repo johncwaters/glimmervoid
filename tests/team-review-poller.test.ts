@@ -174,6 +174,26 @@ test('requeue resets a failed review at its attempt limit and the next tick revi
   await poller.stop();
 });
 
+test('requeue of a ready draft marks it stale at once and the next tick reviews it again', async () => {
+  const key = `${REPO}#1`;
+  const { poller, github, spawned } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.equal(spawned.length, 1);
+  assert.equal(poller.getDraft(key)?.status, 'ready');
+  assert.equal(await poller.requeue(key, HEAD_ONE), true);
+  assert.equal(poller.getDraft(key)?.status, 'stale');
+  assert.equal(poller._state()[key]?.reviewAttempts, 0);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 2);
+  assert.equal(poller.getDraft(key)?.status, 'ready');
+  assert.equal(poller._state()[key]?.reviewAttempts, 1);
+  await poller.stop();
+});
+
 test('a moved head marks the ready draft stale and queues a fresh review', async () => {
   const release: { resolve?: () => void } = {};
   const gate = new Promise<void>((resolve) => { release.resolve = resolve; });

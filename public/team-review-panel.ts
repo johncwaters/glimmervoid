@@ -253,6 +253,7 @@ const ACTION_BUTTONS: readonly { label: string; action: TeamReviewAction }[] = [
   { label: 'Approve', action: 'approve' },
   { label: 'Comment', action: 'comment' },
   { label: 'Discard', action: 'discard' },
+  { label: 'Queue review', action: 'requeue' },
 ];
 
 function sendAction(draft: ReviewDraft, action: TeamReviewAction, body: string, comments: ReviewComment[], settle: (isDone: boolean, text: string) => void): boolean {
@@ -568,7 +569,7 @@ export function applyTeamReviewActionResult(message: unknown): void {
   if (!pending || pending.requestId !== actionResult.requestId) return;
   window.clearTimeout(pending.timer);
   _pendingActions.delete(actionResult.key);
-  const handle = pending.action === 'requeue' ? _errorDetails.get(actionResult.key) : _readyDetails.get(actionResult.key);
+  const handle = (pending.action === 'requeue' ? _errorDetails.get(actionResult.key) : undefined) ?? _readyDetails.get(actionResult.key);
   if (!handle) return;
   if (actionResult.ok === true) {
     if (pending.action === 'requeue') _errorDetails.delete(actionResult.key);
