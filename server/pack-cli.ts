@@ -2,11 +2,11 @@ import path from 'node:path';
 
 import { DEFAULT_AGENT_ID, commandFor } from '../session/adapters/index.ts';
 import { loadConfigFile, resolveConfigPath } from './config-store.ts';
+import { renderMeterTrack, renderTable } from './core/ascii-figure-core.ts';
 import { packVariantProjects } from './core/pack-core.ts';
 import {
   buildPacks, defaultBuiltRoot, defaultSpecsDir, describePackSpec, listPackSpecs, readBuiltManifest,
 } from './pack-builder.ts';
-import type { BuildReport } from './pack-builder.ts';
 import { createPackDistiller } from './pack-distiller.ts';
 import type { PackDistiller } from './pack-distiller.ts';
 import { formatTimestamp, shortVersion } from './text-format.ts';
@@ -20,12 +20,6 @@ const USAGE = [
   '  distill [name]   Regenerate derived pack sources whose sources drifted',
   '                   --dry-run reports what would be distilled and spawns nothing',
 ].join('\n');
-
-function reportLine(report: BuildReport): string {
-  const name = report.name.padEnd(24);
-  if (!report.ok) return `${name}FAILED`;
-  return `${name}ok    version ${shortVersion(report.version)}  files ${report.fileCount}  tokens ${report.tokenEstimate}/${report.budgetTokens}`;
-}
 
 function variantProjects() {
   try {
@@ -41,13 +35,26 @@ async function runBuild(name: string | null): Promise<number> {
     console.log(`No pack specs in ${defaultSpecsDir()}.`);
     return 0;
   }
-  let failed = 0;
-  for (const report of reports) {
-    console.log(reportLine(report));
-    if (report.ok) continue;
-    failed += 1;
-    for (const error of report.errors) console.error(`  ${error}`);
+  const rows = reports.map((report) => {
+    if (!report.ok) return [report.name, 'FAILED', '-', '-', '-'];
+    const budget = report.budgetTokens;
+    const tokensAgainstBudget = budget === null
+      ? String(report.tokenEstimate)
+      : `${renderMeterTrack(budget > 0 ? report.tokenEstimate / budget : 0, 12)} ${report.tokenEstimate}/${budget}`;
+    return [report.name, 'ok', shortVersion(report.version), String(report.fileCount), tokensAgainstBudget];
+  });
+  console.log(renderTable({
+    title: 'Pack build',
+    headers: ['NAME', 'STATUS', 'VERSION', 'FILES', 'TOKENS / BUDGET'],
+    rows,
+    align: ['left', 'left', 'left', 'right', 'left'],
+    terminalColumns: process.stdout.columns,
+  }));
+  const failedReports = reports.filter((report) => !report.ok);
+  for (const report of failedReports) {
+    for (const error of report.errors) console.error(`${report.name}: ${error}`);
   }
+  const failed = failedReports.length;
   if (failed > 0) {
     console.error(`\n${failed} pack(s) failed to build. Nothing was written for those.`);
     return 1;
@@ -63,19 +70,26 @@ async function runList(): Promise<number> {
     console.log(`No pack specs in ${defaultSpecsDir()}.`);
     return 0;
   }
-  console.log(`${'NAME'.padEnd(24)}${'SOURCES'.padEnd(9)}${'BUDGET'.padEnd(9)}${'BUILT VERSION'.padEnd(15)}BUILT AT`);
+  const rows: string[][] = [];
   for (const spec of specs) {
     const described = await describePackSpec(spec.specPath);
     const manifest = await readBuiltManifest(spec.name);
     const version = described.valid ? shortVersion(manifest ? manifest.version : null) : 'INVALID SPEC';
-    console.log(
-      spec.name.padEnd(24)
-      + String(described.sourceCount).padEnd(9)
-      + String(described.budgetTokens === null ? '-' : described.budgetTokens).padEnd(9)
-      + version.padEnd(15)
-      + formatTimestamp(manifest ? manifest.builtAt : null),
-    );
+    rows.push([
+      spec.name,
+      String(described.sourceCount),
+      String(described.budgetTokens === null ? '-' : described.budgetTokens),
+      version,
+      formatTimestamp(manifest ? manifest.builtAt : null),
+    ]);
   }
+  console.log(renderTable({
+    title: 'Packs',
+    headers: ['NAME', 'SOURCES', 'BUDGET', 'BUILT VERSION', 'BUILT AT'],
+    rows,
+    align: ['left', 'right', 'right', 'left', 'left'],
+    terminalColumns: process.stdout.columns,
+  }));
   console.log(`\nSpecs: ${path.dirname(first.specPath)}\nBuilt: ${defaultBuiltRoot()}`);
   return 0;
 }

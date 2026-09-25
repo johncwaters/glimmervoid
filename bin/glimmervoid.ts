@@ -7,6 +7,7 @@ import path from 'node:path';
 import { AGENT_API_VERBS } from '../shared/contracts/session.ts';
 import type { CustomAgentDeclaration } from '../shared/contracts/config.ts';
 import { execSync } from '../server/child-process-safe.ts';
+import { renderTable } from '../server/core/ascii-figure-core.ts';
 import { decideConfigPath, glimmervoidHomeDir } from '../server/core/config-path-core.ts';
 import { nodePtyRebuildHint } from '../server/core/node-pty-preflight-core.ts';
 import { probeNodePty } from '../server/node-pty-preflight.ts';
@@ -164,20 +165,30 @@ async function runDoctor(): Promise<void> {
   const platform = process.platform;
   const homedir = os.homedir();
   const pathEnv = process.env.PATH || process.env.Path || '';
-  const line = (label: string, value: string) => console.log(`  ${label.padEnd(18)} ${value}`);
+  let section = 'Versions';
+  let rows: string[][] = [];
+  const line = (label: string, value: string) => rows.push([label, value]);
+  const flush = () => {
+    console.log(renderTable({ title: section, rows, terminalColumns: process.stdout.columns }));
+    rows = [];
+  };
+  const switchSection = (nextSection: string) => {
+    flush();
+    console.log('');
+    section = nextSection;
+  };
 
   console.log('glimmervoid doctor\n');
 
-  console.log('Versions');
   line('glimmervoid', pkg.version);
   line('node', process.version);
   line('platform', `${platform} ${process.arch}`);
 
-  console.log('\nThis CLI');
+  switchSection('This CLI');
   line('running from', process.argv[1] || '(unknown)');
   line('package dir', packageRoot);
 
-  console.log('\nPATH registration');
+  switchSection('PATH registration');
 
   const envNpmBin = npmGlobalBinDir({ env: process.env, platform, homedir });
   const npmBin = envNpmBin || npmGlobalBinDir({ env: process.env, platform, homedir, resolvedPrefix: resolveNpmGlobalPrefix(execSync) });
@@ -190,7 +201,7 @@ async function runDoctor(): Promise<void> {
     line('on PATH', onPath(pnpmBin, { pathEnv, platform }) ? 'yes' : 'NO');
   }
 
-  console.log('\nAgents');
+  switchSection('Agents');
 
   try {
     const { listAgentIds, getAdapter, describeAgentResolvability, setCustomAgents } = await import('../session/adapters/index.ts');
@@ -213,7 +224,7 @@ async function runDoctor(): Promise<void> {
     line('agents', `probe failed: ${firstLineOf(err)}`);
   }
 
-  console.log('\nrtk');
+  switchSection('rtk');
   try {
     const { getRtkPath } = await import('../server/rtk-resolver.ts');
     const rtkPath = getRtkPath();
@@ -222,7 +233,7 @@ async function runDoctor(): Promise<void> {
     line('rtk', `probe failed: ${firstLineOf(err)}`);
   }
 
-  console.log('\nNative module');
+  switchSection('Native module');
   const nodePty = await probeNodePty();
   if (nodePty.ok) line('node-pty', 'loads OK');
   if (!nodePty.ok) {
@@ -231,8 +242,9 @@ async function runDoctor(): Promise<void> {
     line('hint', nodePtyRebuildHint(platform));
   }
 
-  console.log('\nConfig');
+  switchSection('Config');
   line('resolved config', resolveConfigPathReadOnly());
+  flush();
 
   if (npmBin && !npmOn) {
     console.log(`\n${formatPathNotice({ installedBinDir: npmBin, onPathFlag: false, platform })}`);

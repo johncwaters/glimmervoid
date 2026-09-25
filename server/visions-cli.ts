@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 
 import { createRelay } from '../session/visions-relay.ts';
+import { renderTable } from './core/ascii-figure-core.ts';
 import { buildSetupGuide, commandLine, recipeIds } from './core/editor-setup-core.ts';
 import { isExtensionInstalled } from './core/editor-extension-core.ts';
 import { extensionIdOf } from './core/vsix-core.ts';
@@ -11,10 +12,8 @@ import {
   unwireEverything, wireEverything,
 } from './visions-setup.ts';
 
-function reportFiles(files: EditorOutcome[]): void {
-  for (const file of files) {
-    console.log(`  ${file.label.padEnd(18)} ${file.action}: ${file.filePath}`);
-  }
+function fileOutcomeRows(files: EditorOutcome[]): string[][] {
+  return files.map((file) => [file.label, `${file.action}: ${file.filePath}`]);
 }
 
 async function runInstall(args: string[]): Promise<number> {
@@ -26,11 +25,13 @@ async function runInstall(args: string[]): Promise<number> {
     return 1;
   }
 
+  const rows: string[][] = [];
   for (const result of report.extensions.results) {
-    console.log(`  ${result.label.padEnd(18)} ${result.ok ? 'extension installed' : `FAILED: ${result.detail}`}`);
+    rows.push([result.label, result.ok ? 'extension installed' : `FAILED: ${result.detail}`]);
   }
-  if (report.extensions.results.length === 0) console.log(`  ${'VS Code family'.padEnd(18)} ${report.extensions.reason}`);
-  reportFiles(report.files);
+  if (report.extensions.results.length === 0) rows.push(['VS Code family', report.extensions.reason]);
+  rows.push(...fileOutcomeRows(report.files));
+  console.log(renderTable({ title: 'Visions install', rows, terminalColumns: process.stdout.columns }));
 
   console.log(`\nrelay ${report.invocation ? commandLine(report.invocation) : '(unresolved)'}`);
   console.log('reload any open editor window, then open a markdown file inside a project the daemon knows.');
@@ -39,10 +40,12 @@ async function runInstall(args: string[]): Promise<number> {
 
 async function runUninstall(): Promise<number> {
   const report = await unwireEverything();
+  const rows: string[][] = [];
   for (const result of report.extensions.results) {
-    console.log(`  ${result.label.padEnd(18)} ${result.ok ? `extension ${result.detail}` : `FAILED: ${result.detail}`}`);
+    rows.push([result.label, result.ok ? `extension ${result.detail}` : `FAILED: ${result.detail}`]);
   }
-  reportFiles(report.files);
+  rows.push(...fileOutcomeRows(report.files));
+  console.log(renderTable({ title: 'Visions uninstall', rows, terminalColumns: process.stdout.columns }));
   return 0;
 }
 
@@ -51,17 +54,19 @@ async function runStatus(): Promise<number> {
   const extensionId = extensionIdOf(manifest);
   const editors = Object.entries(resolvedEditorPaths());
 
-  console.log('glimmervoid visions\n');
-  console.log(`  ${'relay'.padEnd(18)} ${fs.existsSync(RELAY_PATH) ? commandLine(resolveRelayInvocation()) : `MISSING: ${RELAY_PATH}`}`);
-  console.log(`  ${'extension'.padEnd(18)} ${extensionId} ${manifest.version}`);
-  if (editors.length === 0) console.log(`  ${'VS Code family'.padEnd(18)} none found on PATH or on disk`);
+  const rows: string[][] = [
+    ['relay', fs.existsSync(RELAY_PATH) ? commandLine(resolveRelayInvocation()) : `MISSING: ${RELAY_PATH}`],
+    ['extension', `${extensionId} ${manifest.version}`],
+  ];
+  if (editors.length === 0) rows.push(['VS Code family', 'none found on PATH or on disk']);
   for (const [command, commandPath] of editors) {
     const installed = isExtensionInstalled(await editorExtensions(commandPath), extensionId);
-    console.log(`  ${command.padEnd(18)} ${installed ? 'extension installed' : 'not installed'}`);
+    rows.push([command, installed ? 'extension installed' : 'not installed']);
   }
   for (const target of editorTargets()) {
-    console.log(`  ${target.label.padEnd(18)} ${fs.existsSync(target.filePath) ? 'wired' : 'not wired'}: ${target.filePath}`);
+    rows.push([target.label, `${fs.existsSync(target.filePath) ? 'wired' : 'not wired'}: ${target.filePath}`]);
   }
+  console.log(renderTable({ title: 'Visions status', rows, terminalColumns: process.stdout.columns }));
   return 0;
 }
 
