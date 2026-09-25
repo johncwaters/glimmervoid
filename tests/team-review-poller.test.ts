@@ -147,6 +147,23 @@ test('a draft at the same head is never reviewed again, whatever its status', as
   await poller.stop();
 });
 
+test('saved drafts are published at start before the first GitHub search finishes', async () => {
+  const key = `${REPO}#1`;
+  const candidate = { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate' };
+  const draft = errorDraft({ candidate, tier: 'stamp', reasons: [], reviewedHead: HEAD_ONE, error: 'timed out' });
+  const savedState: TeamReviewState = {
+    [key]: { draft, reviewedHead: HEAD_ONE, inFlight: false, skipReason: null, reviewAttempts: MAX_REVIEW_ATTEMPTS, updatedAt: 1 },
+  };
+  const { poller, github, statuses } = setup({
+    readState: async () => structuredClone(savedState),
+    beforeStart: () => new Promise(() => {}),
+  });
+  github.searchTeamRequested = () => new Promise(() => {});
+  void poller.start();
+  await settle();
+  assert.deepEqual(statuses[0]?.drafts.map((published) => published.key), [key], 'the saved draft is published even while beforeStart is still sweeping');
+});
+
 test('requeue resets a failed review at its attempt limit and the next tick reviews it again', async () => {
   const key = `${REPO}#1`;
   const candidate = { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate' };

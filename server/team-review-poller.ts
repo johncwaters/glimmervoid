@@ -299,6 +299,8 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     await loop.start(async () => {
       state = (await readState()) || {};
       for (const entry of Object.values(state)) entry.inFlight = false;
+      progressByKey.clear();
+      emitStatus();
       const keepPaths = new Set<string>();
       for (const entry of Object.values(state)) {
         if (!entry.resumable) continue;
@@ -306,7 +308,6 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
         keepPaths.add(entry.resumable.worktreePath);
       }
       await beforeStart(keepPaths);
-      progressByKey.clear();
     });
   }
 
