@@ -4,11 +4,15 @@ export function preferredBorrowedFace({
   hasPlan,
   pendingPromptKind,
   hasOpenReview,
+  hasApprovedReview = false,
 }: {
   hasPlan: boolean;
   pendingPromptKind: string | null;
   hasOpenReview: boolean;
+  hasApprovedReview?: boolean;
 }): SessionCardFace {
-  if (hasPlan && (pendingPromptKind === 'plan' || hasOpenReview)) return 'plan';
+  if (!hasPlan) return 'terminal';
+  if (hasOpenReview) return 'plan';
+  if (pendingPromptKind === 'plan' && !hasApprovedReview) return 'plan';
   return 'terminal';
 }

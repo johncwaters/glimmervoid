@@ -10,7 +10,7 @@ import { openPlanFeedbackDialog } from '../plan/plan-feedback-dialog.ts';
 import { createPlanFace, dropPlanBodyCache } from '../plan/plan-face.ts';
 import type { PlanResponse } from '../plan/plan-face.ts';
 import { createPlanHash } from '../plan/plan-link.ts';
-import { mergePlanChanged } from '../plan/plan-view-core.ts';
+import { isApprovedReview, mergePlanChanged } from '../plan/plan-view-core.ts';
 import type { PlanChangedMessage } from '../plan/plan-view-core.ts';
 import { seedReviewMergeStatus, setReviewDiff, setReviewMergeStatus } from '../sidebar/review-sidebar.ts';
 import { setSelectedId } from '../sidebar/selection.ts';
@@ -337,7 +337,8 @@ export type SessionPlanDraftMessage = PlanDraftPush;
 
 function preferredFaceFor(ui: SessionUi): SessionCardFace {
   const hasOpenReview = ui.planReviewState.reviews.some((review) => review.state === 'open');
-  return preferredBorrowedFace({ hasPlan: ui.hasPlan, pendingPromptKind: ui.pendingPromptKind, hasOpenReview });
+  const hasApprovedReview = ui.planReviewState.reviews.some(isApprovedReview);
+  return preferredBorrowedFace({ hasPlan: ui.hasPlan, pendingPromptKind: ui.pendingPromptKind, hasOpenReview, hasApprovedReview });
 }
 
 function showPlanFaceWhenPreferred(sessionId: unknown) {

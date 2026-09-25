@@ -50,6 +50,20 @@ const ACTION_LABELS: readonly { kind: PlanActionKind; label: string }[] = Object
   { kind: 'edit', label: 'Edit plan' },
 ]);
 
+export function isApprovalDecision(decision: PlanDecisionKind | null): boolean {
+  return decision === 'approve' || decision === 'approve-accept-edits';
+}
+
+export function isApprovedReview(review: PlanReview): boolean {
+  const isSettled = review.state === 'decided' || review.state === 'closed';
+  return isSettled && isApprovalDecision(review.lastDecision);
+}
+
+export function isApprovalConfirmed(state: PlanReviewState, agentId: string | null): boolean {
+  const review = state.reviews.find((candidate) => candidate.agentId === agentId);
+  return review !== undefined && isApprovedReview(review);
+}
+
 function reviewFor(state: PlanReviewState, selectedAgentId: string | null) {
   return state.reviews.find((review) => review.agentId === selectedAgentId) ?? state.reviews[0] ?? null;
 }

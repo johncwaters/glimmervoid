@@ -13,7 +13,7 @@ import { diffPlanBodies } from './plan-diff-core.ts';
 import { parsePlanMarkdown, splitPlanSections } from './plan-markdown-core.ts';
 import type { PlanSection } from './plan-markdown-core.ts';
 import { renderPlanBlocks, renderPlanDiff, renderPlanSections } from './plan-render.ts';
-import { createPlanViewModel, openRevisionFor, planLimitRefusal, previousRevisionFor } from './plan-view-core.ts';
+import { createPlanViewModel, isApprovalConfirmed, isApprovalDecision, openRevisionFor, planLimitRefusal, previousRevisionFor } from './plan-view-core.ts';
 import type { PlanActionKind, PlanDecisionExtras } from './plan-view-core.ts';
 
 export type PlanResponse = PlanResponseFrame;
@@ -153,6 +153,7 @@ export function createPlanFace(deps: PlanFaceDeps) {
   let diffRequestKey = '';
   let draftRequestKey = '';
   let isDecisionInFlight = false;
+  let awaitedApproval: DecisionTarget | null = null;
   let isEditing = false;
   let isDiffShown = false;
   let isDraftShown = false;
@@ -253,6 +254,7 @@ export function createPlanFace(deps: PlanFaceDeps) {
     if (!deps.sendDecision(sessionId, request)) return false;
     problem = null;
     isDecisionInFlight = true;
+    awaitedApproval = isApprovalDecision(decision) ? target : null;
     render();
     return true;
   }
@@ -559,8 +561,15 @@ export function createPlanFace(deps: PlanFaceDeps) {
     renderColumn(body);
   }
 
+  function followConfirmedApproval(next: PlanReviewState) {
+    if (awaitedApproval === null || !isApprovalConfirmed(next, awaitedApproval.agentId)) return;
+    awaitedApproval = null;
+    deps.showTerminal();
+  }
+
   function show(id: string) {
     if (id !== sessionId) {
+      awaitedApproval = null;
       isDecisionInFlight = false;
       problem = null;
       pendingRequestsByTarget.clear();
@@ -608,6 +617,7 @@ export function createPlanFace(deps: PlanFaceDeps) {
     isDecisionInFlight = false;
     state = { reviews: response.reviews };
     confirmSentComments(state);
+    followConfirmedApproval(state);
     const body = response.body;
     if (!body) {
       const refused = takeSolePendingRequest() ?? takePendingDraftRequest();
@@ -639,6 +649,7 @@ export function createPlanFace(deps: PlanFaceDeps) {
     confirmSentComments(next);
     state = next;
     isDecisionInFlight = false;
+    followConfirmedApproval(next);
   }
 
   function update(next: PlanFaceUpdate) {
@@ -648,6 +659,7 @@ export function createPlanFace(deps: PlanFaceDeps) {
       draftChangedAtBySessionAgent.set(draftNoticeKey(next.draft.id, next.draft.agentId), next.draft.changedAt);
     }
     if (next.decisionRefused) {
+      awaitedApproval = null;
       isDecisionInFlight = false;
       sentComments = null;
     }

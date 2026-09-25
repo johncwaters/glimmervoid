@@ -158,6 +158,17 @@ test('the preferred borrowed face follows plan attention or an open review', () 
   assert.equal(preferredBorrowedFace({ hasPlan: false, pendingPromptKind: 'plan', hasOpenReview: true }), 'terminal');
 });
 
+test('an approved review outranks the plan prompt it answered, so the card stays on the terminal', () => {
+  assert.equal(
+    preferredBorrowedFace({ hasPlan: true, pendingPromptKind: 'plan', hasOpenReview: false, hasApprovedReview: true }),
+    'terminal',
+  );
+  assert.equal(
+    preferredBorrowedFace({ hasPlan: true, pendingPromptKind: 'plan', hasOpenReview: true, hasApprovedReview: true }),
+    'plan',
+  );
+});
+
 test('a plan summary landing after the plan prompt re-runs the one borrowed face decision', () => {
   assert.equal(preferredBorrowedFace({ hasPlan: false, pendingPromptKind: 'plan', hasOpenReview: false }), 'terminal');
   assert.equal(preferredBorrowedFace({ hasPlan: true, pendingPromptKind: 'plan', hasOpenReview: false }), 'plan');
@@ -373,10 +384,11 @@ test('an approve click sends one decision, then every action disables until the 
   installPlanFaceDocument();
   const { createPlanFace, dropPlanBodyCache } = await import('../public/plan/plan-face.ts');
   const decisions: { id: string; request: Record<string, unknown> }[] = [];
+  let terminalShows = 0;
   const face = createPlanFace({
     requestPlan: () => true,
     requestDraft: () => true,
-    showTerminal: () => {},
+    showTerminal: () => { terminalShows += 1; },
     sendDecision: (id, request) => { decisions.push({ id, request: { ...request } }); return true; },
     promptFeedback: () => {},
     reportProblem: () => {},
@@ -408,9 +420,90 @@ test('an approve click sends one decision, then every action disables until the 
   decisionButton(face.el, 'approve').fire('click');
   assert.equal(decisions.length, 1, 'a second click while one decision is in flight sends nothing');
 
+  assert.equal(terminalShows, 0, 'the terminal waits for the server to confirm the approval');
+
   face.update({ state: { reviews: [{ ...openMainReview, state: 'decided', openRevision: null, lastDecision: 'approve' }] } });
   assert.ok(planFaceTexts(face.el).some((text) => text.includes('Approved')));
+  assert.equal(terminalShows, 1, 'a confirmed approval returns the card to the terminal');
+
+  face.update({ state: { reviews: [{ ...openMainReview, state: 'decided', openRevision: null, lastDecision: 'approve' }] } });
+  assert.equal(terminalShows, 1, 'a repeated push does not switch the face again');
   dropPlanBodyCache('session-approve');
+});
+
+test('an approved review stays approved once the plan tool result closes it, and a released one never is', async () => {
+  const { isApprovalConfirmed, isApprovedReview } = await import('../public/plan/plan-view-core.ts');
+  const closedApproved = { ...openMainReview, state: 'closed' as const, openRevision: null, approvedRevision: 2, lastDecision: 'approve' as const };
+  const closedAcceptEdits = { ...closedApproved, lastDecision: 'approve-accept-edits' as const };
+  const closedReleased = { ...closedApproved, approvedRevision: null, lastDecision: 'terminal' as const };
+  assert.equal(isApprovedReview(closedApproved), true);
+  assert.equal(isApprovedReview(closedAcceptEdits), true);
+  assert.equal(isApprovedReview(closedReleased), false);
+  assert.equal(isApprovedReview({ ...closedApproved, state: 'released' as const }), false);
+  assert.equal(isApprovalConfirmed({ reviews: [closedApproved] }, null), true);
+  assert.equal(isApprovalConfirmed({ reviews: [closedReleased] }, null), false);
+});
+
+test('an approval first confirmed by the closing push still returns the card to the terminal', async () => {
+  installPlanFaceDocument();
+  const { createPlanFace, dropPlanBodyCache } = await import('../public/plan/plan-face.ts');
+  let terminalShows = 0;
+  const face = createPlanFace({
+    requestPlan: () => true,
+    requestDraft: () => true,
+    showTerminal: () => { terminalShows += 1; },
+    sendDecision: () => true,
+    promptFeedback: () => {},
+    reportProblem: () => {},
+  });
+
+  face.show('session-approve-closed');
+  face.update({
+    response: {
+      id: 'session-approve-closed',
+      reviews: [openMainReview],
+      body: { agentId: null, revision: 2, plan: '# Ship it', planFilePath: '/plans/a.md', receivedAt: 40 },
+    },
+  });
+  decisionButton(face.el, 'approve').fire('click');
+  assert.equal(terminalShows, 0);
+
+  face.update({ state: { reviews: [{ ...openMainReview, state: 'closed', openRevision: null, approvedRevision: 2, lastDecision: 'approve' }] } });
+  assert.equal(terminalShows, 1);
+  dropPlanBodyCache('session-approve-closed');
+});
+
+test('a refused approval or sent feedback leaves the card on the plan', async () => {
+  installPlanFaceDocument();
+  const { createPlanFace, dropPlanBodyCache } = await import('../public/plan/plan-face.ts');
+  let terminalShows = 0;
+  const face = createPlanFace({
+    requestPlan: () => true,
+    requestDraft: () => true,
+    showTerminal: () => { terminalShows += 1; },
+    sendDecision: () => true,
+    promptFeedback: (_request, onSubmit) => onSubmit('tighten step 2'),
+    reportProblem: () => {},
+  });
+
+  face.show('session-refused');
+  face.update({
+    response: {
+      id: 'session-refused',
+      reviews: [openMainReview],
+      body: { agentId: null, revision: 2, plan: '# Ship it', planFilePath: '/plans/a.md', receivedAt: 40 },
+    },
+  });
+  decisionButton(face.el, 'approve').fire('click');
+  face.update({ decisionRefused: true });
+  face.update({ state: { reviews: [{ ...openMainReview, state: 'decided', openRevision: null, lastDecision: 'approve' }] } });
+  assert.equal(terminalShows, 0, 'a refused approval never switches the face');
+
+  face.update({ state: { reviews: [openMainReview] } });
+  decisionButton(face.el, 'revise').fire('click');
+  face.update({ state: { reviews: [{ ...openMainReview, state: 'decided', openRevision: null, lastDecision: 'revise' }] } });
+  assert.equal(terminalShows, 0, 'feedback keeps the plan on screen for the next revision');
+  dropPlanBodyCache('session-refused');
 });
 
 test('a revision that reopens the review moves the face onto it, so no decision names the revision it replaced', async () => {
