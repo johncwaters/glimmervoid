@@ -1,16 +1,13 @@
 import type { IBuffer, IBufferCellPosition, ILink, ILinkProvider, Terminal } from '@xterm/xterm';
+import { openExternalUrl } from '../external-link.ts';
 import { findUrls } from './link-detect-core.ts';
 
 const MAX_WRAPPED_ROWS = 50;
 
-function openOnThisDevice(url: string) {
-  window.open(url, '_blank', 'noopener,noreferrer');
-}
-
 export function osc8LinkHandler() {
   return {
     activate(_event: MouseEvent, uri: string) {
-      openOnThisDevice(uri);
+      openExternalUrl(uri);
     },
     allowNonHttpProtocols: false,
   };
@@ -60,7 +57,7 @@ export function registerUrlLinkProvider(term: Terminal) {
           range: { start: from, end: to },
           text: url,
           activate(_event: MouseEvent, matched: string) {
-            openOnThisDevice(matched);
+            openExternalUrl(matched);
           },
         });
       }

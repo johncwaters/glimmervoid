@@ -9,6 +9,7 @@ import type { GlimmervoidConfig } from './config-store.ts';
 import { createLifecycle } from './server-lifecycle.ts';
 import { execFileAsync, spawn } from './child-process-safe.ts';
 import { createBackendHttpApp } from './backend-http.ts';
+import { createHostUrlOpener } from './host-url-opener.ts';
 import { createAgentApiWiring } from './agent-api-wiring.ts';
 import type { AgentApiPort } from './agent-api-wiring.ts';
 import { createBackendWebSockets } from './backend-websockets.ts';
@@ -102,6 +103,9 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     allowedHosts,
     listenerPortsFor,
     pageToken,
+    remoteListenerPort,
+    tokenMatches,
+    openUrlOnHost: createHostUrlOpener(),
     hookRouter,
     getSession: getSessionAny,
     getUsage: () => usage,

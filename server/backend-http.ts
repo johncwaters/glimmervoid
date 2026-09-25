@@ -11,7 +11,10 @@ import type { Session } from '../session/sessions.ts';
 import type { AgentApiPort } from './agent-api-wiring.ts';
 import { decideAgentRequest, REFUSAL_REASON, REFUSAL_STATUS } from './core/agent-api-core.ts';
 import { decideHostAllowed } from './core/host-policy.ts';
+import { decideOpenExternalRequest, OPEN_EXTERNAL_BODY_CAP_BYTES } from './core/open-external-core.ts';
 import { decideOriginAllowed } from './core/origin-policy.ts';
+import { classifyRequestOrigin } from './core/request-trust.ts';
+import type { HostUrlOpener } from './host-url-opener.ts';
 import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import { configSiblingPath } from './pairings-store.ts';
 import { clientDir } from './runtime-paths.ts';
@@ -120,6 +123,9 @@ interface BackendHttpDependencies {
   allowedHosts: string[];
   listenerPortsFor: (socket: { localPort?: number | null } | null) => number[];
   pageToken: string;
+  remoteListenerPort?: number | null;
+  tokenMatches?: (presented: unknown) => boolean;
+  openUrlOnHost?: HostUrlOpener;
   hookRouter: { handle: (input: Record<string, unknown>) => HookRouterOutput };
   getSession: (id: string) => Session | null;
   getUsage: () => { ingestStatusline: (payload: object) => void };
@@ -233,6 +239,41 @@ function answerAgentVerb({ res, agentApi, session, verb, payload }: {
   );
 }
 
+const HOST_OPEN_FAILURE_STATUS = { 'unsupported-platform': 501, 'spawn-failed': 502 } as const;
+
+function answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, tokenMatches, openUrlOnHost, logger }: {
+  req: Request;
+  res: Response;
+  remoteListenerPort: number | null;
+  listenerPortsFor: BackendHttpDependencies['listenerPortsFor'];
+  tokenMatches: (presented: unknown) => boolean;
+  openUrlOnHost: HostUrlOpener;
+  logger: Pick<Console, 'warn'>;
+}): void {
+  void readCappedBody(req, OPEN_EXTERNAL_BODY_CAP_BYTES, () => {}).then(async (body) => {
+    if (body === null) return;
+    const verdict = decideOpenExternalRequest({
+      isLoopback: isLoopbackRequest(req),
+      trust: classifyRequestOrigin({ localPort: req.socket.localPort, remoteListenerPort }),
+      origin: req.headers.origin,
+      listenerPorts: listenerPortsFor(req.socket),
+      tokenOk: tokenMatches(req.headers['x-glimmervoid-page-token']),
+      requestedUrl: parseJsonBody(body).url,
+    });
+    if (!verdict.ok) {
+      res.status(verdict.status).json({ ok: false, error: verdict.error });
+      return;
+    }
+    const outcome = await openUrlOnHost(verdict.url);
+    if (outcome === 'opened') {
+      res.status(204).end();
+      return;
+    }
+    logger.warn(`[open-external] could not open a link on the host: ${outcome}`);
+    res.status(HOST_OPEN_FAILURE_STATUS[outcome]).json({ ok: false, error: outcome });
+  });
+}
+
 function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
   const {
     staticDir,
@@ -242,6 +283,9 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
     allowedHosts,
     listenerPortsFor,
     pageToken,
+    remoteListenerPort = null,
+    tokenMatches = () => false,
+    openUrlOnHost = async () => 'unsupported-platform',
     hookRouter,
     getSession,
     getUsage,
@@ -273,6 +317,10 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
     }
     res.setHeader('Cache-Control', 'no-store');
     res.json({ token: pageToken });
+  });
+
+  app.post('/open-external', (req, res) => {
+    answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, tokenMatches, openUrlOnHost, logger });
   });
 
   app.post('/hook/:glimmervoidId/:event', (req, res) => {

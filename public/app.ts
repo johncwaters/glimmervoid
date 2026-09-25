@@ -8,6 +8,7 @@ import { getBorrowedCardId } from './card-host.ts';
 import { checkControlLiveness, connectControl, onControlMessage, sendControlMsg, sendControlRequest, setConnectionStateCallback } from './control-ws.ts';
 import { createAddSessionDialog } from './dialogs.ts';
 import { observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers.ts';
+import { routeExternalAnchorsThroughHost } from './external-link.ts';
 import { refreshFavicon } from './favicon.ts';
 import { activateFocusView, centerSessionQuietly, deactivateFocusView, focusAdjacentInRail, focusNextAttention, focusNthInRail, getFocusedSessionId, isFocusActive, mountFocusView, openPlanInFocus, refreshFocusRoster, restoreFocusedSession, setFocusMergeStatus } from './focus-view/focus-view.ts';
 import { initFormFactor, isPhoneLayout, onLayoutChange } from './form-factor.ts';
@@ -50,6 +51,7 @@ applyTheme(getThemeId());
 applyFlyingAnimals(isFlyingAnimalsEnabled());
 
 initFormFactor();
+routeExternalAnchorsThroughHost(document);
 
 const connectionEl = queryTag(document, '#connection-status', 'span');
 const connectionLabel = queryTag(connectionEl, '.connection-label', 'span');

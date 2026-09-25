@@ -1,3 +1,5 @@
+import { normalizedHttpUrl } from '#shared/http-url.ts';
+
 export type PlanInline =
   | { type: 'text'; text: string }
   | { type: 'code'; text: string }
@@ -94,16 +96,6 @@ function emphasisMarkerAt(source: string, cursor: number): string | null {
   return null;
 }
 
-function safeHttpHref(href: string): string | null {
-  try {
-    const parsed = new URL(href);
-    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return parsed.href;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 function findClosingMarker(source: string, marker: string, from: number) {
   const index = source.indexOf(marker, from);
   return index > from ? index : -1;
@@ -156,7 +148,7 @@ function parsePlanInline(source: string): PlanInline[] {
   while (cursor < source.length) {
     const link = planLinkAt(source, cursor, closeBracketAtOrAfter);
     if (link) {
-      const href = safeHttpHref(link.target.trim());
+      const href = normalizedHttpUrl(link.target.trim());
       if (href) nodes.push({ type: 'link', href, children: parsePlanInline(link.label) });
       if (!href) appendText(nodes, link.label);
       cursor = link.end;

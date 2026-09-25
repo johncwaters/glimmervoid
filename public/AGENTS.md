@@ -16,6 +16,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `reconnect-backoff.ts` | Pure `nextReconnectDelayMs(attempt, random)`: the ONE retry delay for both WS clients (500ms doubling to a 30s cap, jittered to 50-100%) |
 | `dialogs.ts` | Add Session and investigation-report dialog factories |
 | `settings-map.ts` / `settings-view-core.ts` / `settings-panel.ts` | Declarative settings source, pure search/hash/project/dirty rules, primary-view DOM shell |
+| `external-link.ts` / `external-link-core.ts` | THE opener for every off-dashboard link: inside an editor's Electron browser view it asks the host (`POST /open-external`) because that view keeps every popup as an internal tab |
 | `settings-link.ts` | `createSettingsLink`, the one anchor builder for `#settings/` deep links from other views |
 | `render-scheduler.ts` | Global xterm WRITE scheduler: callback-gated round-robin with per-frame budget |
 | `notifications.ts` | Native Web Notifications (browser routes to Windows Action Center); replaces the server-side toast path |
