@@ -66,6 +66,7 @@ import {
   planWindowUsedText,
   pricingFetchedAtMs,
   pricingSourceLine,
+  prReviewsSpendTile,
   projectionLimitLine,
   projectionLine,
   provenanceLabel,
@@ -517,6 +518,8 @@ function buildTotalsSection() {
   const tiles = el('div', 'usage-tiles');
   tiles.append(buildTile('today', formatTokens(today?.tokens ?? 0), formatUsd(today?.costUSD ?? 0), tone).tile);
   tiles.append(buildTile('range total', formatTokens(totals.tokens ?? 0), formatUsd(totals.costUSD ?? 0)).tile);
+  const prReviews = prReviewsSpendTile(_report);
+  if (prReviews) tiles.append(buildTile(prReviews.label, prReviews.value, prReviews.sub).tile);
   section.append(tiles);
   const composition = buildCompositionRow(totals);
   if (composition) section.append(composition);

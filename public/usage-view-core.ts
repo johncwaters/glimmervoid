@@ -410,7 +410,7 @@ export function compositionParts(totals: UsageTotals | null | undefined) {
 const LANE_LABELS: Readonly<Record<string, string>> = Object.freeze({
   interactive: 'Interactive',
   'pr-review': 'PR review',
-  'team-review': 'Team review',
+  'team-review': 'PR reviews',
   'pack-distill': 'Pack distiller',
   posthog: 'PostHog',
   other: 'Other',
@@ -432,6 +432,20 @@ export function laneRows(report: UsageReport | null | undefined): UsageLaneRow[]
 
 export function hasLaneAttribution(report: UsageReport | null | undefined) {
   return laneRows(report).some((row) => row.lane !== 'interactive' && row.lane !== 'other');
+}
+
+const PR_REVIEWS_LANE = 'team-review';
+
+export function prReviewsSpendTile(report: UsageReport | null | undefined) {
+  if (!Array.isArray(report?.byLane)) return null;
+  const row = laneRows(report).find((candidate) => candidate.lane === PR_REVIEWS_LANE);
+  const costUSD = finiteNumber(row?.costUSD) ?? 0;
+  const tokens = finiteNumber(row?.tokens) ?? 0;
+  const basis = shareBasis(report?.totals);
+  const share = percentOfTotal(basis === 'costUSD' ? costUSD : tokens, report?.totals?.[basis]);
+  const shareText = share === null ? '' : `${formatPercent(share)} of range ${basis === 'costUSD' ? 'cost' : 'tokens'}`;
+  const sub = [formatUsd(costUSD), shareText, laneSessionsText(row?.sessions)].filter(Boolean).join(', ');
+  return { label: laneLabel(PR_REVIEWS_LANE), value: formatTokens(tokens), sub };
 }
 
 export function laneSessionsText(sessions: unknown) {

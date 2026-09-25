@@ -338,7 +338,7 @@ test('laneRows and laneLabel: known lanes get names, unknown ids pass through', 
   assert.deepEqual(laneRows({}), []);
   assert.deepEqual(laneRows(null), []);
   assert.equal(laneLabel('pr-review'), 'PR review');
-  assert.equal(laneLabel('team-review'), 'Team review');
+  assert.equal(laneLabel('team-review'), 'PR reviews');
   assert.equal(laneLabel('pack-distill'), 'Pack distiller');
   assert.equal(laneLabel('posthog'), 'PostHog');
   assert.equal(laneLabel('interactive'), 'Interactive');
@@ -346,6 +346,28 @@ test('laneRows and laneLabel: known lanes get names, unknown ids pass through', 
 
   assert.equal(laneLabel('some-new-lane'), 'some-new-lane');
   assert.equal(laneLabel(''), 'Other');
+});
+
+test('prReviewsSpendTile reports the PR reviews lane spend and its share of the range', async () => {
+  const { prReviewsSpendTile } = await importCore();
+  const report = {
+    totals: { costUSD: 10, tokens: 5000 },
+    byLane: [
+      { lane: 'interactive', tokens: 4000, costUSD: 7.5, sessions: 3 },
+      { lane: 'team-review', tokens: 1000, costUSD: 2.5, sessions: 2 },
+    ],
+  };
+  assert.deepEqual(prReviewsSpendTile(report), { label: 'PR reviews', value: '1k', sub: '$2.50, 25% of range cost, 2 sessions' });
+});
+
+test('prReviewsSpendTile shows zero spend when no review ran and hides without lane data', async () => {
+  const { prReviewsSpendTile } = await importCore();
+  const idle = prReviewsSpendTile({ totals: { costUSD: 4 }, byLane: [{ lane: 'interactive', tokens: 10, costUSD: 4, sessions: 1 }] });
+  assert.deepEqual(idle, { label: 'PR reviews', value: '0', sub: '$0.00, 0% of range cost' });
+  const unpriced = prReviewsSpendTile({ totals: { costUSD: 0, tokens: 400 }, byLane: [{ lane: 'team-review', tokens: 100, costUSD: 0, sessions: 1 }] });
+  assert.equal(unpriced?.sub, '$0.00, 25% of range tokens, 1 session');
+  assert.equal(prReviewsSpendTile({ totals: { costUSD: 4 } }), null);
+  assert.equal(prReviewsSpendTile(null), null);
 });
 
 test('the lanes section stays hidden until a real automation lane has spend', async () => {
