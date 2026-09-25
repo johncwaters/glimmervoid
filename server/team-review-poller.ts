@@ -6,7 +6,7 @@ import type { TickOutcome } from './lane-runner.ts';
 import type { PrSearchResult } from './pr-gh.ts';
 import { ReviewDraft } from '../shared/contracts/team-review.ts';
 import type {
-  InFlightReview, PrDetail, ReviewDraft as ReviewDraftType, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
+  InFlightReview, PrDetail, ResumableReview, ReviewDraft as ReviewDraftType, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../shared/contracts/team-review.ts';
 
 interface TeamReviewGithub {
@@ -23,8 +23,11 @@ interface SpawnReviewArgs {
   detail: PrDetail;
   tier: ReviewTier;
   reasons: string[];
+  resume?: ResumableReview;
   reportProgress?: (event: ReviewProgressEvent) => void;
 }
+
+type ReviewOutcome = ReviewDraftType | { kind: 'stopped'; resumable: ResumableReview | null };
 
 type DraftPatch = Partial<Omit<ReviewDraftType, 'key' | 'repo' | 'number'>>;
 
@@ -37,10 +40,11 @@ interface TeamReviewPollerDependencies {
   org: string;
   team: string;
   github: TeamReviewGithub;
-  spawnReview: (args: SpawnReviewArgs) => Promise<ReviewDraftType | null>;
+  spawnReview: (args: SpawnReviewArgs) => Promise<ReviewOutcome>;
+  discardResumable?: (record: ResumableReview) => Promise<void>;
   readState?: () => Promise<TeamReviewState>;
   writeState?: (state: TeamReviewState) => Promise<void>;
-  beforeStart?: () => Promise<void>;
+  beforeStart?: (keepPaths: ReadonlySet<string>) => Promise<void>;
   setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
   clearIntervalFn?: (handle: NodeJS.Timeout) => void;
   setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
@@ -58,7 +62,7 @@ function errorMessage(error: unknown): string {
 
 function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   const {
-    org, team, github, spawnReview,
+    org, team, github, spawnReview, discardResumable = async () => {},
     readState = async () => ({}), writeState = async () => {}, beforeStart = async () => {},
     setIntervalFn = (fn, ms) => setInterval(fn, ms), clearIntervalFn = clearInterval,
     setTimeoutFn = (fn, ms) => setTimeout(fn, ms), clearTimeoutFn = clearTimeout,
@@ -134,18 +138,21 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   }
 
   async function runReview(args: SpawnReviewArgs): Promise<void> {
-    const draft = await spawnReview(args).catch((error: unknown) => core.errorDraft({
+    const outcome = await spawnReview(args).catch((error: unknown) => core.errorDraft({
       candidate: args.candidate, tier: args.tier, reasons: args.reasons,
       reviewedHead: args.detail.headRefOid, error: firstLine(errorMessage(error)) || 'review crashed',
     }));
     const entry = entryFor(args.candidate.key);
     entry.inFlight = false;
     progressByKey.delete(args.candidate.key);
-    if (draft === null) {
+    if ('kind' in outcome) {
+      if (outcome.resumable) entry.resumable = outcome.resumable;
       await persist();
       emitStatus();
       return;
     }
+    const draft = outcome;
+    entry.resumable = null;
     entry.reviewAttempts = core.reviewAttemptsAfter(entry, draft.reviewedHead);
     entry.draft = draft;
     entry.reviewedHead = draft.reviewedHead;
@@ -173,9 +180,14 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     return { queue, isDirty };
   }
 
-  function pruneDeparted(candidateKeys: Set<string>): boolean {
+  async function pruneDeparted(candidateKeys: Set<string>): Promise<boolean> {
     let isDirty = false;
     for (const [key, entry] of Object.entries(state)) {
+      if (!candidateKeys.has(key) && entry.resumable) {
+        await discardResumable(entry.resumable);
+        entry.resumable = null;
+        isDirty = true;
+      }
       if (!core.shouldPruneEntry(entry, candidateKeys.has(key), now())) continue;
       delete state[key];
       isDirty = true;
@@ -192,9 +204,17 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       if (!detail) continue;
       const triage = core.triagePr(detail);
       const entry = entryFor(candidate.key);
+      const resumeAction = core.resumeDecision(entry, detail.headRefOid, now());
+      const resume = resumeAction === 'resume' ? entry.resumable ?? undefined : undefined;
+      if (resumeAction === 'discard' && entry.resumable) await discardResumable(entry.resumable);
+      if (resumeAction !== 'none') {
+        entry.resumable = null;
+        await persist();
+      }
       entry.updatedAt = now();
       isDirty = true;
       if (triage.tier === 'skip') {
+        if (resume) await discardResumable(resume);
         entry.reviewedHead = detail.headRefOid;
         entry.skipReason = triage.reasons.join(', ') || 'skipped';
         continue;
@@ -205,7 +225,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
         candidate, tier: triage.tier, reasons: triage.reasons, head: detail.headRefOid, at: now(),
       }));
       const args: SpawnReviewArgs = {
-        candidate, detail, tier: triage.tier, reasons: triage.reasons, reportProgress: progressReporter(candidate.key),
+        candidate, detail, tier: triage.tier, reasons: triage.reasons, resume, reportProgress: progressReporter(candidate.key),
       };
       loop.track(runReview(args).catch((error: unknown) => {
         log.warn(`[${core.TEAM_REVIEW_LANE_ID}] review crashed for ${candidate.key}: ${errorMessage(error)}`);
@@ -237,7 +257,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       return { failed: true };
     }
     const { candidates, isComplete } = collected;
-    const isPruned = isComplete ? pruneDeparted(new Set(candidates.map((candidate) => candidate.key))) : false;
+    const isPruned = isComplete ? await pruneDeparted(new Set(candidates.map((candidate) => candidate.key))) : false;
     const planned = await headsToReview(candidates);
     const isStarted = await startReviews(planned.queue);
     if (isPruned || planned.isDirty || isStarted) await persist();
@@ -262,11 +282,27 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     return parsed.data;
   }
 
+  async function requeue(key: string, head: string): Promise<boolean> {
+    const entry = state[key];
+    if (!entry || entry.inFlight || entry.draft?.status !== 'error' || entry.draft.reviewedHead !== head) return false;
+    entry.reviewAttempts = 0;
+    entry.updatedAt = now();
+    await persist();
+    emitStatus();
+    return true;
+  }
+
   async function start(): Promise<void> {
     await loop.start(async () => {
-      await beforeStart();
       state = (await readState()) || {};
       for (const entry of Object.values(state)) entry.inFlight = false;
+      const keepPaths = new Set<string>();
+      for (const entry of Object.values(state)) {
+        if (!entry.resumable) continue;
+        keepPaths.add(entry.resumable.workDir);
+        keepPaths.add(entry.resumable.worktreePath);
+      }
+      await beforeStart(keepPaths);
       progressByKey.clear();
     });
   }
@@ -277,10 +313,10 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     cancelPendingProgressEmit();
   }
 
-  return { start, stop, tick: loop.tick, getDraft, updateDraft, _state: () => state };
+  return { start, stop, tick: loop.tick, getDraft, updateDraft, requeue, _state: () => state };
 }
 
 type TeamReviewPoller = ReturnType<typeof createTeamReviewPoller>;
 
 export { createTeamReviewPoller };
-export type { DraftExpectation, DraftPatch, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller, TeamReviewPollerDependencies };
+export type { DraftExpectation, DraftPatch, ReviewOutcome, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller, TeamReviewPollerDependencies };

@@ -46,8 +46,8 @@ test('repo cache clones once and fetches a PR head from a local bare origin', as
     const repoDir = path.join(cacheRoot, 'Acme', 'repo');
     assert.equal(await cache.ensureRepo('Acme/repo'), repoDir);
     assert.equal(await cache.ensureRepo('Acme/repo'), repoDir);
-    assert.deepEqual(await cache.fetchPr('Acme/repo', 1, 'main'), { ok: true, headSha: expectedHead });
-    assert.deepEqual(await cache.hydrateRange('Acme/repo', 1, expectedHead), { ok: true });
+    assert.deepEqual(await cache.fetchPr('Acme/repo', 1, 'main'), { ok: true, headSha: expectedHead, err: '' });
+    assert.deepEqual(await cache.hydrateRange('Acme/repo', 1, expectedHead), { ok: true, err: '' });
     assert.deepEqual(calls, [
       ['clone', '--filter=blob:none', '--no-checkout', originDir, repoDir],
       ['fetch', '--filter=blob:none', 'origin', '+refs/pull/1/head:refs/glimmervoid-pr/1', '+refs/heads/main:refs/glimmervoid-base/1'],
@@ -56,12 +56,30 @@ test('repo cache clones once and fetches a PR head from a local bare origin', as
     ]);
     assert.deepEqual(envs, [{ GIT_TERMINAL_PROMPT: '0' }, { GIT_TERMINAL_PROMPT: '0' }, undefined, { GIT_TERMINAL_PROMPT: '0' }]);
     assert.equal(await cache.ensureRepo('../repo'), null);
-    assert.deepEqual(await cache.fetchPr('Acme/repo/other', 1, 'main'), { ok: false, headSha: null });
-    assert.deepEqual(await cache.fetchPr('Acme/repo', 1, '../main'), { ok: false, headSha: null });
-    assert.deepEqual(await cache.hydrateRange('Acme/repo', 1, '--output=/tmp/x'), { ok: false });
-    assert.deepEqual(await cache.hydrateRange('Acme/repo', 0, expectedHead), { ok: false });
-    assert.deepEqual(await cache.hydrateRange('Acme/repo', 2, expectedHead), { ok: false });
+    assert.deepEqual(await cache.fetchPr('Acme/repo/other', 1, 'main'), { ok: false, headSha: null, err: '' });
+    assert.deepEqual(await cache.fetchPr('Acme/repo', 1, '../main'), { ok: false, headSha: null, err: '' });
+    assert.deepEqual(await cache.hydrateRange('Acme/repo', 1, '--output=/tmp/x'), { ok: false, err: '' });
+    assert.deepEqual(await cache.hydrateRange('Acme/repo', 0, expectedHead), { ok: false, err: '' });
+    const missingBase = await cache.hydrateRange('Acme/repo', 2, expectedHead);
+    assert.equal(missingBase.ok, false);
+    assert.match(missingBase.err, /unknown revision or path/);
     assert.equal(calls.length, 5);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('repo cache returns git fetch and hydration errors', async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-repo-cache-errors-'));
+  try {
+    await mkdir(path.join(tempDir, 'Acme', 'repo', '.git'), { recursive: true });
+    const cache = createRepoCache({
+      rootDir: tempDir,
+      commandRunner: async (args) => ({ ok: false, out: '', err: args[0] === 'fetch' ? 'fatal: fetch denied' : 'fatal: blob missing' }),
+    });
+    const head = 'a'.repeat(40);
+    assert.deepEqual(await cache.fetchPr('Acme/repo', 1, 'main'), { ok: false, headSha: null, err: 'fatal: fetch denied' });
+    assert.deepEqual(await cache.hydrateRange('Acme/repo', 1, head), { ok: false, err: 'fatal: blob missing' });
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

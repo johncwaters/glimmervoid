@@ -110,7 +110,7 @@ export const ReviewDraft = z.object({
 });
 export type ReviewDraft = z.infer<typeof ReviewDraft>;
 
-export const TeamReviewAction = z.enum(['approve', 'comment', 'discard']);
+export const TeamReviewAction = z.enum(['approve', 'comment', 'discard', 'requeue']);
 export type TeamReviewAction = z.infer<typeof TeamReviewAction>;
 
 export const TeamReviewActionRequest = z.object({
@@ -130,12 +130,23 @@ export const TeamReviewActionResult = z.object({
 });
 export type TeamReviewActionResult = z.infer<typeof TeamReviewActionResult>;
 
+export const ResumableReview = z.object({
+  sessionId: z.string().min(1),
+  workDir: z.string().min(1),
+  worktreePath: z.string().min(1),
+  head: CommitSha,
+  deadlineAt: z.number(),
+  savedAt: z.number(),
+});
+export type ResumableReview = z.infer<typeof ResumableReview>;
+
 export const TeamReviewStateEntry = z.object({
   draft: ReviewDraft.nullable(),
   reviewedHead: CommitSha.nullable(),
   inFlight: z.boolean(),
   skipReason: z.string().nullable(),
   reviewAttempts: z.number().int().nonnegative().default(0),
+  resumable: ResumableReview.nullable().optional(),
   updatedAt: z.number().finite(),
 });
 export type TeamReviewStateEntry = z.infer<typeof TeamReviewStateEntry>;

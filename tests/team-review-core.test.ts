@@ -7,6 +7,7 @@ import {
   POSTED_RETENTION_MS,
   REVIEW_SKILL_NAME,
   RECENT_STEPS_SHOWN,
+  RESUME_TTL_MS,
   applyReviewProgress,
   buildReviewPrompt,
   canPost,
@@ -26,6 +27,7 @@ import {
   readyDraft,
   renderReview,
   repoFromSearchItem,
+  resumeDecision,
   reviewAttemptsAfter,
   selectCandidates,
   shouldPruneEntry,
@@ -209,6 +211,16 @@ function stateEntry(overrides: Partial<TeamReviewStateEntry> = {}): TeamReviewSt
   return { draft: null, reviewedHead: HEAD, inFlight: false, skipReason: null, reviewAttempts: 1, updatedAt: 1000, ...overrides };
 }
 
+test('resume decisions check the head, age and original deadline', () => {
+  const resumable = { sessionId: 'claude-1', workDir: '/work', worktreePath: '/tree', head: HEAD, deadlineAt: RESUME_TTL_MS + 2000, savedAt: 1000 };
+  assert.equal(resumeDecision(stateEntry(), HEAD, 1000), 'none');
+  assert.equal(resumeDecision(stateEntry({ resumable }), HEAD, 2000), 'resume');
+  assert.equal(resumeDecision(stateEntry({ resumable }), 'b'.repeat(40), 2000), 'discard');
+  assert.equal(resumeDecision(stateEntry({ resumable: { ...resumable, deadlineAt: RESUME_TTL_MS * 2 + 2000 } }), HEAD, RESUME_TTL_MS + 1001), 'discard');
+  assert.equal(resumeDecision(stateEntry({ resumable }), HEAD, RESUME_TTL_MS + 2000), 'discard');
+  assert.equal(isSettledAtHead(stateEntry({ draft: readyDraftAt(HEAD), resumable }), HEAD), false);
+});
+
 function readyDraftAt(head: string) {
   return readyDraft({
     candidate: CANDIDATE, tier: 'stamp', reasons: ['docs and tests only'],
@@ -340,6 +352,14 @@ test('a pr-review report parses into its verdict, head, findings and summary', (
     ['README.md', null, 'RIGHT', 'MEDIUM', 'necessity/unasked', 'NIT'],
   ]);
   assert.equal(parsed.result.findings[1]?.body, 'Either reading holds | ask.');
+});
+
+test('a report summary ends before trailing verdict and actionable lines', () => {
+  const parsed = parseReviewReport(`${REPORT}\nVERDICT: REQUEST CHANGES\nACTIONABLE (MEDIUM or higher): 4`);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.result.summary, 'Pinned tree abc. Three findings.\nSecond line.');
+  assert.equal(parsed.result.findings.length, 3);
 });
 
 test('a report with no findings parses, and a failed, headless or garbled report is refused', () => {

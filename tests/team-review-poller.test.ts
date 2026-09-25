@@ -10,6 +10,7 @@ import type { ReviewDraft, TeamReviewState, TeamReviewStatus as TeamReviewStatus
 const REPO = 'Acme/app';
 const HEAD_ONE = '1'.repeat(40);
 const HEAD_TWO = '2'.repeat(40);
+const RESUMABLE = { sessionId: 'claude-1', workDir: '/work', worktreePath: '/tree', head: HEAD_ONE, deadlineAt: 9000, savedAt: 1000 };
 
 function searchItem(number: number, author: string, overrides: Record<string, unknown> = {}) {
   return SearchedPr.parse({
@@ -120,15 +121,15 @@ test('requested and authored PRs are deduped and self, bots and drafts never rea
   await poller.stop();
 });
 
-test('start runs the leftover sweep before it reads state or ticks', async () => {
+test('start reads state before sweeping and passes the saved paths', async () => {
   const order: string[] = [];
   const { poller } = setup({
-    beforeStart: async () => { order.push('sweep'); },
-    readState: async () => { order.push('read'); return {}; },
+    beforeStart: async (keepPaths) => { order.push(`sweep:${[...keepPaths].sort().join(',')}`); },
+    readState: async () => { order.push('read'); return { [`${REPO}#1`]: { draft: null, reviewedHead: null, inFlight: false, skipReason: null, reviewAttempts: 0, updatedAt: 1, resumable: { sessionId: 'abc', workDir: '/work', worktreePath: '/tree', head: HEAD_ONE, deadlineAt: 9000, savedAt: 1000 } } }; },
   });
   await poller.start();
   await settle();
-  assert.deepEqual(order, ['sweep', 'read']);
+  assert.deepEqual(order, ['read', 'sweep:/tree,/work']);
   await poller.stop();
 });
 
@@ -143,6 +144,33 @@ test('a draft at the same head is never reviewed again, whatever its status', as
   await settle();
   assert.equal(spawned.length, 1);
   assert.equal(poller.getDraft(`${REPO}#1`)?.status, 'discarded');
+  await poller.stop();
+});
+
+test('requeue resets a failed review at its attempt limit and the next tick reviews it again', async () => {
+  const key = `${REPO}#1`;
+  const candidate = { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate' };
+  const draft = errorDraft({ candidate, tier: 'stamp', reasons: [], reviewedHead: HEAD_ONE, error: 'timed out' });
+  const savedState: TeamReviewState = {
+    [key]: { draft, reviewedHead: HEAD_ONE, inFlight: false, skipReason: null, reviewAttempts: MAX_REVIEW_ATTEMPTS, updatedAt: 1 },
+  };
+  const { poller, github, spawned, writes, statuses, setNow } = setup({ readState: async () => structuredClone(savedState) });
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.equal(spawned.length, 0);
+  assert.equal(await poller.requeue(key, HEAD_TWO), false);
+  setNow(2000);
+  assert.equal(await poller.requeue(key, HEAD_ONE), true);
+  assert.equal(poller._state()[key]?.reviewAttempts, 0);
+  assert.equal(poller._state()[key]?.updatedAt, 2000);
+  assert.equal(writes.at(-1)?.[key]?.reviewAttempts, 0);
+  assert.equal(statuses.at(-1)?.drafts[0]?.status, 'error');
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 1);
+  assert.equal(poller.getDraft(key)?.status, 'ready');
   await poller.stop();
 });
 
@@ -327,7 +355,7 @@ test('a crashed spawn becomes an error draft, and restart clears stale in-flight
 test('a review aborted by shutdown leaves no draft and is queued again on the next tick', async () => {
   let isShuttingDown = true;
   const { poller, github, spawned } = setup({
-    spawnReview: async (args) => { spawned.push(args); return isShuttingDown ? null : draftFor(args); },
+    spawnReview: async (args) => { spawned.push(args); return isShuttingDown ? { kind: 'stopped', resumable: null } : draftFor(args); },
   });
   github.requested = [searchItem(1, 'teammate')];
   github.heads.set(1, HEAD_ONE);
@@ -341,6 +369,108 @@ test('a review aborted by shutdown leaves no draft and is queued again on the ne
   await settle();
   assert.equal(spawned.length, 2);
   assert.equal(poller.getDraft(`${REPO}#1`)?.status, 'ready');
+  await poller.stop();
+});
+
+test('a stopped review saves its resume record without changing the prior draft or attempts', async () => {
+  const key = `${REPO}#1`;
+  const previousDraft = errorDraft({
+    candidate: { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate' },
+    tier: 'stamp', reasons: [], reviewedHead: HEAD_ONE, error: 'previous failure',
+  });
+  const { poller, github, writes } = setup({
+    readState: async () => ({ [key]: { draft: previousDraft, reviewedHead: HEAD_ONE, inFlight: false, skipReason: null, reviewAttempts: 1, updatedAt: 1000 } }),
+    spawnReview: async () => ({ kind: 'stopped', resumable: RESUMABLE }),
+  });
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  const entry = poller._state()[key];
+  assert.equal(entry?.inFlight, false);
+  assert.deepEqual(entry?.draft, previousDraft);
+  assert.equal(entry?.reviewAttempts, 1);
+  assert.equal(entry?.reviewedHead, HEAD_ONE);
+  assert.deepEqual(entry?.resumable, RESUMABLE);
+  assert.deepEqual(writes.at(-1)?.[key]?.resumable, RESUMABLE);
+  await poller.stop();
+});
+
+test('the next tick consumes a saved resume record before spawning', async () => {
+  const key = `${REPO}#1`;
+  const spawned: SpawnReviewArgs[] = [];
+  const { poller, github, writes } = setup({
+    readState: async () => ({ [key]: { draft: null, reviewedHead: null, inFlight: false, skipReason: null, reviewAttempts: 0, updatedAt: 1000, resumable: RESUMABLE } }),
+    spawnReview: async (args) => { spawned.push(args); return draftFor(args); },
+  });
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.deepEqual(spawned[0]?.resume, RESUMABLE);
+  assert.equal(writes.some((state) => state[key]?.resumable === null && state[key]?.inFlight === false), true);
+  assert.equal(poller._state()[key]?.resumable, null);
+  assert.equal(poller.getDraft(key)?.status, 'ready');
+  await poller.stop();
+});
+
+test('a moved head discards the saved review and starts fresh', async () => {
+  const key = `${REPO}#1`;
+  const discarded: string[] = [];
+  const spawned: SpawnReviewArgs[] = [];
+  const { poller, github } = setup({
+    readState: async () => ({ [key]: { draft: null, reviewedHead: null, inFlight: false, skipReason: null, reviewAttempts: 0, updatedAt: 1000, resumable: RESUMABLE } }),
+    discardResumable: async (record) => { discarded.push(record.sessionId); },
+    spawnReview: async (args) => { spawned.push(args); return draftFor(args); },
+  });
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_TWO);
+  await poller.start();
+  await settle();
+  assert.deepEqual(discarded, ['claude-1']);
+  assert.equal(spawned[0]?.resume, undefined);
+  assert.equal(spawned[0]?.detail.headRefOid, HEAD_TWO);
+  assert.equal(poller._state()[key]?.resumable, null);
+  await poller.stop();
+});
+
+test('a resumed review that now triages as skipped discards its checkout', async () => {
+  const key = `${REPO}#1`;
+  const discarded: string[] = [];
+  const spawned: SpawnReviewArgs[] = [];
+  const { poller, github } = setup({
+    readState: async () => ({ [key]: { draft: null, reviewedHead: null, inFlight: false, skipReason: null, reviewAttempts: 0, updatedAt: 1000, resumable: RESUMABLE } }),
+    discardResumable: async (record) => { discarded.push(record.sessionId); },
+    spawnReview: async (args) => { spawned.push(args); return draftFor(args); },
+  });
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  github.viewPr = async () => prDetail(1, HEAD_ONE, { isCrossRepository: true });
+  await poller.start();
+  await settle();
+  assert.deepEqual(discarded, ['claude-1']);
+  assert.deepEqual(spawned, []);
+  assert.equal(poller._state()[key]?.resumable, null);
+  assert.equal(poller._state()[key]?.skipReason, 'fork');
+  await poller.stop();
+});
+
+test('a departed PR discards its saved checkout while retaining a posted draft', async () => {
+  const key = `${REPO}#1`;
+  const postedDraft = { ...draftFor({
+    candidate: { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate' },
+    detail: prDetail(1, HEAD_ONE), tier: 'stamp', reasons: [],
+  }), status: 'posted' as const };
+  const discarded: string[] = [];
+  const { poller } = setup({
+    readState: async () => ({ [key]: { draft: postedDraft, reviewedHead: HEAD_ONE, inFlight: false, skipReason: null, reviewAttempts: 1, updatedAt: 1000, resumable: RESUMABLE } }),
+    discardResumable: async (record) => { discarded.push(record.sessionId); },
+  });
+  await poller.start();
+  await settle();
+  assert.deepEqual(discarded, ['claude-1']);
+  assert.equal(poller._state()[key]?.resumable, null);
+  assert.equal(poller._state()[key]?.draft?.status, 'posted');
   await poller.stop();
 });
 

@@ -5,14 +5,14 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { isDispatchWorkdir } from '../server/core/ingest-agent-core.ts';
-import { AUTOMATED_REVIEW_NOTE, FULL_MODEL, REVIEW_BOOTSTRAP_PROMPT, REVIEW_POSTING_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_REPORT_FILENAME, STAMP_MODEL } from '../server/core/team-review-core.ts';
+import { AUTOMATED_REVIEW_NOTE, FULL_MODEL, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_POSTING_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_REPORT_FILENAME, STAMP_MODEL } from '../server/core/team-review-core.ts';
 import type { ReviewProgressEvent, ReviewTier } from '../server/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/team-review-poller.ts';
 import type { DraftPatch, SpawnReviewArgs } from '../server/team-review-poller.ts';
 import type { PostedReview } from '../server/pr-gh.ts';
 import {
   TEAM_REVIEW_DENY_RULES, createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewWiring, emptyTeamReviewStatus,
-  sweepLeftoverCheckouts, teamReviewClaudeArgs, teamReviewPermissions, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
+  createTeamReviewStateIo, makeTeamReviewWorkDir, sweepLeftoverCheckouts, teamReviewClaudeArgs, teamReviewPermissions, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
 } from '../server/team-review-wiring.ts';
 import type { TeamReviewActionGithub, TeamReviewDispatchOptions, TeamReviewSpawn } from '../server/team-review-wiring.ts';
 import { PrDetail, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
@@ -56,9 +56,10 @@ function workDirOf(call: Parameters<TeamReviewSpawn>[0]): string {
 }
 
 function setup(overrides: Partial<TeamReviewDispatchOptions> & {
-  writeReport?: (workDir: string) => void; diff?: string | null; fetchedHead?: string; hydrated?: boolean;
+  writeReport?: (workDir: string) => void; diff?: string | null; fetchedHead?: string; fetchedErr?: string; hydrated?: boolean; hydratedErr?: string;
 } = {}) {
   const worktreeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-wt-test-'));
+  const workRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-work-test-'));
   const staged: string[] = [];
   const removed: string[] = [];
   const pruned: string[] = [];
@@ -70,10 +71,10 @@ function setup(overrides: Partial<TeamReviewDispatchOptions> & {
     repoCache: {
       listRepos: async () => [],
       ensureRepo: async () => '/cache/Acme/app',
-      fetchPr: async () => ({ ok: true, headSha: overrides.fetchedHead ?? HEAD }),
+      fetchPr: async () => ({ ok: !overrides.fetchedErr, headSha: overrides.fetchedErr ? null : (overrides.fetchedHead ?? HEAD), err: overrides.fetchedErr ?? '' }),
       hydrateRange: async (repo, number, headSha) => {
         hydrations.push(`${repo}#${number}@${headSha}`);
-        return { ok: overrides.hydrated ?? true };
+        return { ok: overrides.hydrated ?? true, err: overrides.hydratedErr ?? '' };
       },
     },
     gitWorkspace: {
@@ -92,17 +93,254 @@ function setup(overrides: Partial<TeamReviewDispatchOptions> & {
       writeReport(workDir);
     },
     worktreeRoot,
+    workRoot,
     randomSuffix: () => 'abcd',
     ...overrides,
   };
-  const review = createTeamReviewDispatcher(options);
-  const cleanup = () => fs.rmSync(worktreeRoot, { recursive: true, force: true });
-  return { review, staged, removed, pruned, hydrations, spawns, worktreeRoot, cleanup };
+  const dispatch = createTeamReviewDispatcher(options);
+  const review = async (args: SpawnReviewArgs): Promise<ReviewDraftType> => {
+    const outcome = await dispatch(args);
+    if ('kind' in outcome) throw new Error('review stopped unexpectedly');
+    return outcome;
+  };
+  const cleanup = () => {
+    fs.rmSync(worktreeRoot, { recursive: true, force: true });
+    fs.rmSync(workRoot, { recursive: true, force: true });
+  };
+  return { review, dispatch, staged, removed, pruned, hydrations, spawns, worktreeRoot, workRoot, cleanup };
 }
 
 function reviewArgs(tier: ReviewTier) {
   return { candidate, detail, tier, reasons: ['a reason'] };
 }
+
+test('review work dirs are created under the selected root', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-work-root-'));
+  try {
+    const workDir = await makeTeamReviewWorkDir(root, 'Acme/app-7');
+    assert.equal(path.dirname(workDir.dir), root);
+    assert.equal(fs.existsSync(workDir.dir), true);
+    await workDir.cleanup();
+    assert.equal(fs.existsSync(workDir.dir), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('shutdown keeps a captured review session and its two directories', async () => {
+  const shutdownController = new AbortController();
+  const { dispatch, worktreeRoot, cleanup } = setup({
+    shutdownSignal: shutdownController.signal,
+    timeoutSeconds: 60,
+    now: () => 1000,
+    gitWorkspace: {
+      stageDetachedWorktree: async ({ worktreePath }) => { fs.mkdirSync(String(worktreePath), { recursive: true }); return { ok: true }; },
+      removeWorktreeByPath: async () => { throw new Error('checkout must remain'); },
+      pruneWorktrees: async () => ({ ok: true }),
+    },
+    spawnSession: async ({ onSessionId }) => { onSessionId?.('claude-1'); shutdownController.abort(); },
+  });
+  try {
+    const outcome = await dispatch(reviewArgs('full'));
+    assert.equal('kind' in outcome && outcome.kind, 'stopped');
+    if (!('kind' in outcome)) throw new Error('expected stopped review');
+    assert.deepEqual(outcome.resumable && {
+      sessionId: outcome.resumable.sessionId,
+      head: outcome.resumable.head,
+      deadlineAt: outcome.resumable.deadlineAt,
+      savedAt: outcome.resumable.savedAt,
+    }, { sessionId: 'claude-1', head: HEAD, deadlineAt: 61000, savedAt: 1000 });
+    assert.equal(fs.existsSync(outcome.resumable?.workDir ?? ''), true);
+    assert.equal(fs.existsSync(outcome.resumable?.worktreePath ?? ''), true);
+    assert.equal(path.dirname(outcome.resumable?.worktreePath ?? ''), worktreeRoot);
+  } finally {
+    cleanup();
+  }
+});
+
+test('shutdown without a captured session removes the review directories', async () => {
+  const shutdownController = new AbortController();
+  const { dispatch, removed, workRoot, worktreeRoot, cleanup } = setup({
+    shutdownSignal: shutdownController.signal,
+    gitWorkspace: {
+      stageDetachedWorktree: async ({ worktreePath }) => { fs.mkdirSync(String(worktreePath), { recursive: true }); return { ok: true }; },
+      removeWorktreeByPath: async ({ cwd }) => { removed.push(String(cwd)); fs.rmSync(String(cwd), { recursive: true, force: true }); return { ok: true }; },
+      pruneWorktrees: async () => ({ ok: true }),
+    },
+    spawnSession: async () => { shutdownController.abort(); },
+  });
+  try {
+    assert.deepEqual(await dispatch(reviewArgs('full')), { kind: 'stopped', resumable: null });
+    assert.equal(removed.length, 1);
+    assert.deepEqual(fs.readdirSync(workRoot), []);
+    assert.deepEqual(fs.readdirSync(worktreeRoot), []);
+  } finally {
+    cleanup();
+  }
+});
+
+test('resume uses the saved cwd and session with the remaining timeout without staging', async () => {
+  const timeouts: number[] = [];
+  const { dispatch, staged, hydrations, spawns, workRoot, worktreeRoot, cleanup } = setup({
+    now: () => 3000,
+    makeWorkDir: async () => { throw new Error('resume must use the saved work dir'); },
+    setTimeoutFn: (_fn, timeoutMs) => { timeouts.push(timeoutMs); return setTimeout(() => {}, 100000); },
+  });
+  const workDir = fs.mkdtempSync(path.join(workRoot, 'resume-work-'));
+  const worktreePath = fs.mkdtempSync(path.join(worktreeRoot, 'resume-tree-'));
+  fs.writeFileSync(path.join(workDir, REVIEW_PROMPT_FILENAME), 'original prompt');
+  const resume = { sessionId: 'claude-1', workDir, worktreePath, head: HEAD, deadlineAt: 81000, savedAt: 1000 };
+  try {
+    const outcome = await dispatch({ ...reviewArgs('full'), resume });
+    if ('kind' in outcome) throw new Error('expected a draft');
+    assert.equal(outcome.status, 'ready');
+    assert.deepEqual(staged, []);
+    assert.deepEqual(hydrations, []);
+    assert.equal(spawns[0]?.resumeSessionId, 'claude-1');
+    assert.equal(spawns[0]?.initialPrompt, REVIEW_RESUME_PROMPT);
+    assert.equal(spawns[0]?.cwd, workDir);
+    assert.deepEqual(spawns[0]?.spawnEnv, teamReviewSpawnEnv(workDir));
+    assert.deepEqual(spawns[0]?.settingsSandbox, teamReviewSandbox(workDir));
+    assert.deepEqual(timeouts, [78000]);
+  } finally {
+    cleanup();
+    fs.rmSync(workDir, { recursive: true, force: true });
+    fs.rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
+
+test('shutdown before a resumed spawn restores the saved record', async () => {
+  const shutdownController = new AbortController();
+  shutdownController.abort();
+  const { dispatch, staged, spawns, workRoot, worktreeRoot, cleanup } = setup({ shutdownSignal: shutdownController.signal, now: () => 3000 });
+  const workDir = fs.mkdtempSync(path.join(workRoot, 'paused-work-'));
+  const worktreePath = fs.mkdtempSync(path.join(worktreeRoot, 'paused-tree-'));
+  const resume = { sessionId: 'claude-1', workDir, worktreePath, head: HEAD, deadlineAt: 81000, savedAt: 1000 };
+  try {
+    assert.deepEqual(await dispatch({ ...reviewArgs('full'), resume }), { kind: 'stopped', resumable: { ...resume, savedAt: 3000 } });
+    assert.deepEqual(staged, []);
+    assert.deepEqual(spawns, []);
+    assert.equal(fs.existsSync(workDir), true);
+    assert.equal(fs.existsSync(worktreePath), true);
+  } finally {
+    cleanup();
+    fs.rmSync(workDir, { recursive: true, force: true });
+    fs.rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
+
+test('a missing saved work dir deletes the remaining checkout and starts a fresh review', async () => {
+  const { dispatch, staged, spawns, workRoot, worktreeRoot, cleanup } = setup();
+  const worktreePath = fs.mkdtempSync(path.join(worktreeRoot, 'orphan-tree-'));
+  try {
+    const outcome = await dispatch({ ...reviewArgs('stamp'), resume: {
+      sessionId: 'claude-1', workDir: path.join(workRoot, 'missing'), worktreePath, head: HEAD, deadlineAt: 81000, savedAt: 1000,
+    } });
+    if ('kind' in outcome) throw new Error('expected a draft');
+    assert.equal(outcome.status, 'ready');
+    assert.equal(fs.existsSync(worktreePath), false);
+    assert.equal(staged.length, 1);
+    assert.equal(spawns[0]?.resumeSessionId, undefined);
+    assert.equal(spawns[0]?.initialPrompt, REVIEW_BOOTSTRAP_PROMPT);
+  } finally {
+    cleanup();
+    fs.rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
+
+test('a saved review whose paths sit outside the review roots is ignored and nothing outside is deleted', async () => {
+  const outsideDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-outside-'));
+  const outsideWorkDir = fs.mkdtempSync(path.join(outsideDirectory, 'work-'));
+  const outsideWorktree = fs.mkdtempSync(path.join(outsideDirectory, 'tree-'));
+  const { dispatch, staged, spawns, cleanup } = setup();
+  try {
+    const outcome = await dispatch({ ...reviewArgs('stamp'), resume: {
+      sessionId: 'claude-1', workDir: outsideWorkDir, worktreePath: outsideWorktree, head: HEAD, deadlineAt: 81000, savedAt: 1000,
+    } });
+    if ('kind' in outcome) throw new Error('expected a draft');
+    assert.equal(staged.length, 1);
+    assert.equal(spawns[0]?.resumeSessionId, undefined);
+    assert.equal(fs.existsSync(outsideWorkDir), true);
+    assert.equal(fs.existsSync(outsideWorktree), true);
+  } finally {
+    cleanup();
+    fs.rmSync(outsideDirectory, { recursive: true, force: true });
+  }
+});
+
+test('a saved review whose directory is a symlink out of the review roots is ignored and its target is kept', async () => {
+  const outsideDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-outside-'));
+  const { dispatch, staged, spawns, workRoot, worktreeRoot, cleanup } = setup();
+  const linkedWorkDir = path.join(workRoot, 'linked-work');
+  fs.symlinkSync(outsideDirectory, linkedWorkDir, 'dir');
+  const worktreePath = fs.mkdtempSync(path.join(worktreeRoot, 'saved-tree-'));
+  try {
+    const outcome = await dispatch({ ...reviewArgs('stamp'), resume: {
+      sessionId: 'claude-1', workDir: linkedWorkDir, worktreePath, head: HEAD, deadlineAt: 81000, savedAt: 1000,
+    } });
+    if ('kind' in outcome) throw new Error('expected a draft');
+    assert.equal(staged.length, 1);
+    assert.equal(spawns[0]?.resumeSessionId, undefined);
+    assert.notEqual(spawns[0]?.cwd, linkedWorkDir);
+    assert.equal(fs.existsSync(outsideDirectory), true);
+  } finally {
+    cleanup();
+    fs.rmSync(outsideDirectory, { recursive: true, force: true });
+  }
+});
+
+test('a review that finished its report before shutdown returns the ready draft and cleans up', async () => {
+  const shutdownController = new AbortController();
+  const { dispatch, removed, workRoot, worktreeRoot, cleanup } = setup({
+    shutdownSignal: shutdownController.signal,
+    log: { warn: () => { shutdownController.abort(); } },
+    spawnSession: async ({ cwd }) => {
+      fs.writeFileSync(path.join(cwd, REVIEW_REPORT_FILENAME), reportText());
+      fs.writeFileSync(path.join(cwd, REVIEW_POSTING_FILENAME), 'not a posting plan');
+    },
+    gitWorkspace: {
+      stageDetachedWorktree: async ({ worktreePath }) => { fs.mkdirSync(String(worktreePath), { recursive: true }); return { ok: true }; },
+      removeWorktreeByPath: async ({ cwd }) => { removed.push(String(cwd)); fs.rmSync(String(cwd), { recursive: true, force: true }); return { ok: true }; },
+      pruneWorktrees: async () => ({ ok: true }),
+    },
+  });
+  try {
+    const outcome = await dispatch(reviewArgs('full'));
+    if ('kind' in outcome) throw new Error('expected a draft');
+    assert.equal(shutdownController.signal.aborted, true);
+    assert.equal(outcome.status, 'ready');
+    assert.equal(removed.length, 1);
+    assert.deepEqual(fs.readdirSync(workRoot), []);
+    assert.deepEqual(fs.readdirSync(worktreeRoot), []);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a fresh review started after an unusable saved record is stopped with its own full deadline', async () => {
+  const shutdownController = new AbortController();
+  const { dispatch, workRoot, worktreeRoot, cleanup } = setup({
+    shutdownSignal: shutdownController.signal,
+    timeoutSeconds: 60,
+    now: () => 5000,
+    gitWorkspace: {
+      stageDetachedWorktree: async ({ worktreePath }) => { fs.mkdirSync(String(worktreePath), { recursive: true }); return { ok: true }; },
+      removeWorktreeByPath: async () => ({ ok: true }),
+      pruneWorktrees: async () => ({ ok: true }),
+    },
+    spawnSession: async ({ onSessionId }) => { onSessionId?.('claude-2'); shutdownController.abort(); },
+  });
+  try {
+    const outcome = await dispatch({ ...reviewArgs('full'), resume: {
+      sessionId: 'claude-1', workDir: path.join(workRoot, 'missing'), worktreePath: path.join(worktreeRoot, 'also-missing'), head: HEAD, deadlineAt: 6000, savedAt: 1000,
+    } });
+    if (!('kind' in outcome)) throw new Error('expected stopped review');
+    assert.equal(outcome.resumable?.sessionId, 'claude-2');
+    assert.equal(outcome.resumable?.deadlineAt, 65000);
+  } finally {
+    cleanup();
+  }
+});
 
 test('every tier runs pr-review from a throwaway work dir, and no argv entry names the staged checkout of the head', async () => {
   for (const tier of ['stamp', 'full'] as const) {
@@ -255,11 +493,11 @@ test('a failed worktree stage still runs the removal and never spawns', async ()
 });
 
 test('a failed blob hydration is an error draft that never spawns, and the checkout is still removed', async () => {
-  const { review, staged, removed, spawns, cleanup } = setup({ hydrated: false });
+  const { review, staged, removed, spawns, cleanup } = setup({ hydrated: false, hydratedErr: 'fatal: missing blob\nmore detail' });
   try {
     const draft = await review(reviewArgs('full'));
     assert.equal(draft.status, 'error');
-    assert.match(draft.error ?? '', /could not fetch the file contents of Acme\/app#7/);
+    assert.equal(draft.error, 'could not fetch the file contents of Acme/app#7: fatal: missing blob');
     assert.equal(spawns.length, 0);
     assert.deepEqual(removed, staged);
   } finally {
@@ -286,7 +524,20 @@ test('the review session env withholds every GitHub credential and blanks the gl
     GIT_CONFIG_VALUE_1: 'https://push-disabled.invalid/',
     GLIMMERVOID_POSTHOG_API_KEY: '',
     GLIMMERVOID_TELEGRAM_BOT_TOKEN: '',
+    CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0',
   });
+});
+
+test('a failed fetch reports the first git error line in its error draft', async () => {
+  const { review, staged, spawns, cleanup } = setup({ fetchedErr: 'fatal: permission denied\nmore detail' });
+  try {
+    const draft = await review(reviewArgs('full'));
+    assert.equal(draft.error, 'could not fetch Acme/app#7: fatal: permission denied');
+    assert.deepEqual(staged, []);
+    assert.equal(spawns.length, 0);
+  } finally {
+    cleanup();
+  }
 });
 
 test('a fetched head that differs from the triaged head is an error draft, with nothing staged or spawned', async () => {
@@ -372,6 +623,7 @@ test('the posture denies every GitHub path, loads no MCP server, runs without pr
 test('the spawned session runs the constant bootstrap prompt with the given env, without permission prompts, attributed to the lane', async () => {
   const created: SessionOptions[] = [];
   const recorded: string[] = [];
+  const capturedIds: string[] = [];
   const reviewSessions = new Map<string, unknown>();
   const spawn = createTeamReviewSpawn({
     reviewSessions,
@@ -391,11 +643,13 @@ test('the spawned session runs the constant bootstrap prompt with the given env,
     },
   });
   const posture = teamReviewPermissions();
-  await spawn({
+  const request: Parameters<TeamReviewSpawn>[0] = {
     id: 'team-review:Acme/app#7', name: 'Team review Acme/app#7', cwd: '/tmp/x', spawnEnv: teamReviewSpawnEnv('/tmp/x'),
     extraClaudeArgs: teamReviewClaudeArgs('stamp'), settingsPermissions: posture, settingsSandbox: teamReviewSandbox('/tmp/x'),
     signal: new AbortController().signal,
-  });
+    onSessionId: (id) => { capturedIds.push(id); },
+  };
+  await spawn(request);
   assert.equal(created[0].initialPrompt, REVIEW_BOOTSTRAP_PROMPT);
   assert.equal(REVIEW_BOOTSTRAP_PROMPT, `Read ${REVIEW_PROMPT_FILENAME} and follow all instructions in that file`);
   assert.equal(created[0].path, '/tmp/x');
@@ -406,6 +660,10 @@ test('the spawned session runs the constant bootstrap prompt with the given env,
   assert.equal(created[0].ephemeral, true);
   assert.equal(created[0].observeToolCalls, false, 'no tool hook is installed when nobody listens');
   assert.deepEqual(recorded, ['team-review']);
+  assert.deepEqual(capturedIds, ['claude-1']);
+  await spawn({ ...request, id: 'team-review:Acme/app#7:resume', resumeSessionId: 'claude-1', initialPrompt: REVIEW_RESUME_PROMPT });
+  assert.equal(created[1].resumeSessionId, 'claude-1');
+  assert.equal(created[1].initialPrompt, REVIEW_RESUME_PROMPT);
 });
 
 test('a review whose sandbox cannot be applied ends as an error draft without spawning an agent', async () => {
@@ -544,6 +802,8 @@ test('the start sweep deletes every leftover checkout and prunes each cached clo
     fs.mkdirSync(path.join(worktreeRoot, 'Acme-lib-9-beef'));
     await sweepLeftoverCheckouts({
       worktreeRoot,
+      workRoot: path.join(worktreeRoot, 'work'),
+      keepPaths: new Set(),
       repoCache: { listRepos: async () => ['/cache/Acme/app', '/cache/Acme/lib'] },
       gitWorkspace: { pruneWorktrees: async ({ projectPath }) => { pruned.push(projectPath); return { ok: true }; } },
       log: { warn: () => {} },
@@ -559,11 +819,36 @@ test('the start sweep tolerates a missing worktree root', async () => {
   const pruned: string[] = [];
   await sweepLeftoverCheckouts({
     worktreeRoot: path.join(os.tmpdir(), `team-review-absent-${process.pid}-${Date.now()}`),
+    workRoot: path.join(os.tmpdir(), `team-review-work-absent-${process.pid}-${Date.now()}`),
+    keepPaths: new Set(),
     repoCache: { listRepos: async () => ['/cache/Acme/app'] },
     gitWorkspace: { pruneWorktrees: async ({ projectPath }) => { pruned.push(projectPath); return { ok: true }; } },
     log: { warn: () => {} },
   });
   assert.deepEqual(pruned, ['/cache/Acme/app']);
+});
+
+test('the start sweep keeps saved review paths in both roots and deletes other paths', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-sweep-keep-'));
+  const worktreeRoot = path.join(root, 'trees');
+  const workRoot = path.join(root, 'work');
+  const keptTree = path.join(worktreeRoot, 'kept');
+  const keptWork = path.join(workRoot, 'kept');
+  try {
+    for (const directory of [keptTree, keptWork, path.join(worktreeRoot, 'old'), path.join(workRoot, 'old')]) {
+      fs.mkdirSync(directory, { recursive: true });
+    }
+    await sweepLeftoverCheckouts({
+      worktreeRoot, workRoot, keepPaths: new Set([keptTree, keptWork]),
+      repoCache: { listRepos: async () => [] },
+      gitWorkspace: { pruneWorktrees: async () => ({ ok: true }) },
+      log: { warn: () => {} },
+    });
+    assert.deepEqual(fs.readdirSync(worktreeRoot), ['kept']);
+    assert.deepEqual(fs.readdirSync(workRoot), ['kept']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('the empty lane status parses as the team-review-status contract', () => {
@@ -580,6 +865,7 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-home-test-'));
   const removed: string[] = [];
   let spawnReview: ((args: SpawnReviewArgs) => Promise<unknown>) | null = null;
+  let isPollerStarted = false;
   let isSessionRunning = false;
   const wiring = createTeamReviewWiring({
     config: { teamReview: { enabled: true, org: 'Acme', team: 'core' } },
@@ -597,8 +883,8 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
     repoCache: {
       listRepos: async () => [],
       ensureRepo: async () => '/cache/Acme/app',
-      fetchPr: async () => ({ ok: true, headSha: HEAD }),
-      hydrateRange: async () => ({ ok: true }),
+      fetchPr: async () => ({ ok: true, headSha: HEAD, err: '' }),
+      hydrateRange: async () => ({ ok: true, err: '' }),
     },
     gitWorkspace: {
       stageDetachedWorktree: async ({ worktreePath }) => { fs.mkdirSync(String(worktreePath), { recursive: true }); return { ok: true }; },
@@ -616,12 +902,13 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
     }),
     createPoller: (dependencies) => {
       spawnReview = dependencies.spawnReview;
-      return createTeamReviewPoller(dependencies);
+      const poller = createTeamReviewPoller(dependencies);
+      return { ...poller, start: async () => { await poller.start(); isPollerStarted = true; } };
     },
   });
   try {
     wiring.startPoller();
-    await waitFor(() => spawnReview !== null);
+    await waitFor(() => spawnReview !== null && isPollerStarted);
     const startReview = spawnReview as ((args: SpawnReviewArgs) => Promise<unknown>) | null;
     assert.ok(startReview);
     let isReviewSettled = false;
@@ -631,7 +918,7 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
     assert.equal(removed.length, 1);
     assert.equal(isReviewSettled, true);
     const draft = await pending;
-    assert.equal(draft, null);
+    assert.deepEqual(draft, { kind: 'stopped', resumable: null });
     assert.deepEqual(fs.readdirSync(path.join(homeDir, 'team-review-worktrees')), []);
   } finally {
     fs.rmSync(homeDir, { recursive: true, force: true });
@@ -674,6 +961,22 @@ function actionDraft(overrides: Partial<ReviewDraftType> = {}): ReviewDraftType 
   });
 }
 
+test('state loading drops an invalid saved review while retaining a valid draft', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-state-test-'));
+  try {
+    const statePath = path.join(homeDir, 'state.json');
+    const validEntry = { draft: actionDraft(), reviewedHead: HEAD, inFlight: false, skipReason: null, reviewAttempts: 1, updatedAt: 42 };
+    fs.writeFileSync(statePath, JSON.stringify({ [ACTION_KEY]: validEntry, 'Acme/app#8': { draft: 'bad' } }));
+    const warnings: string[] = [];
+    const stateIo = createTeamReviewStateIo(statePath, { warn: (message) => { warnings.push(message); } });
+    assert.deepEqual(await stateIo.readState(), { [ACTION_KEY]: validEntry });
+    assert.deepEqual(warnings, ['[team-review] dropped an invalid saved review Acme/app#8']);
+    assert.equal(fs.existsSync(statePath), true);
+  } finally {
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
 function actionHarness(options: ActionHarnessOptions = {}) {
   let draft = actionDraft(options.draft);
   const headReads = [...(options.headReads ?? [HEAD, HEAD])];
@@ -682,6 +985,7 @@ function actionHarness(options: ActionHarnessOptions = {}) {
   const posted: PostArgs[] = [];
   const dismissed: DismissArgs[] = [];
   const patches: DraftPatch[] = [];
+  const requeues: string[] = [];
   const actions = createTeamReviewActions({
     drafts: {
       getDraft: (key) => (key === draft.key ? draft : null),
@@ -690,6 +994,10 @@ function actionHarness(options: ActionHarnessOptions = {}) {
         patches.push(patch);
         draft = ReviewDraft.parse({ ...draft, ...patch });
         return draft;
+      },
+      requeue: async (key, head) => {
+        requeues.push(`${key}@${head}`);
+        return key === draft.key && head === draft.reviewedHead && draft.status === 'error';
       },
     },
     github: {
@@ -718,7 +1026,7 @@ function actionHarness(options: ActionHarnessOptions = {}) {
     key: ACTION_KEY, head: HEAD, body: 'LGTM', comments: [], ...overrides,
   });
   return {
-    submit, posted, dismissed, patches, headLookups, diffLookups,
+    submit, posted, dismissed, patches, requeues, headLookups, diffLookups,
     currentDraft: () => draft,
     replaceDraft: (next: ReviewDraftType) => { draft = next; },
   };
@@ -751,6 +1059,22 @@ test('a clicked head that differs from the draft head is refused before GitHub i
   assert.deepEqual(h.headLookups, []);
   assert.deepEqual(h.posted, []);
   assert.equal(h.currentDraft().status, 'ready');
+});
+
+test('requeue accepts only an error draft at the clicked head and never calls GitHub', async () => {
+  const harness = actionHarness();
+  for (const status of ['ready', 'posted', 'discarded'] as const) {
+    harness.replaceDraft(actionDraft({ status }));
+    assert.deepEqual(await harness.submit({ action: 'requeue', body: '', comments: [] }), { ok: false, error: 'only a failed review can be queued again' });
+  }
+  harness.replaceDraft(actionDraft({ status: 'error', error: 'timed out' }));
+  assert.equal((await harness.submit({ action: 'requeue', head: OTHER_HEAD, body: '', comments: [] })).ok, false);
+  assert.deepEqual(await harness.submit({ action: 'requeue', body: '', comments: [] }), { ok: true });
+  assert.deepEqual(harness.requeues, Array(4).fill(`${ACTION_KEY}@${HEAD}`));
+  assert.deepEqual(harness.headLookups, []);
+  assert.deepEqual(harness.diffLookups, []);
+  assert.deepEqual(harness.posted, []);
+  assert.deepEqual(harness.dismissed, []);
 });
 
 test('discard of a draft replaced after it was shown is refused and the new draft stays ready', async () => {

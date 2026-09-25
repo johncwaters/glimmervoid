@@ -255,6 +255,8 @@ test('team review actions carry editable text and diff comments', () => {
     comments: [{ path: 'src/agent/index.ts', line: 4, side: 'RIGHT', body: 'Check this' }],
   };
   assert.deepEqual(ClientMessage.parse(action), action);
+  const requeue = { ...action, action: 'requeue', body: '', comments: [] };
+  assert.deepEqual(ClientMessage.parse(requeue), requeue);
   for (const invalid of [
     { ...action, action: 'merge' },
     { ...action, comments: [{ path: 'src/agent/index.ts', line: 0, body: 'Check this' }] },

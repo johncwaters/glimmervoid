@@ -71,12 +71,14 @@ const ACTION_OUTCOME_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.f
   approve: 'Approved on GitHub',
   comment: 'Comment posted on GitHub',
   discard: 'Draft discarded',
+  requeue: 'Queued. The next poll reviews it again.',
 });
 
 const ACTION_PROGRESS_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.freeze({
   approve: 'Posting the approval',
   comment: 'Posting the comment',
   discard: 'Discarding the draft',
+  requeue: 'Queueing the review',
 });
 
 export function groupDrafts(status: TeamReviewStatus | null | undefined): TeamReviewSections {

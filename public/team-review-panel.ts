@@ -20,7 +20,7 @@ const ACTION_REPLY_TIMEOUT_MS = 120000;
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const SHARD_PATH = 'M4.5 0.5L8.5 5.5L4.5 10.5L0.5 5.5Z';
 
-interface ReadyDetailHandle {
+interface ActionDetailHandle {
   signature: string;
   element: HTMLElement;
   settle: (isDone: boolean, text: string) => void;
@@ -42,7 +42,8 @@ let _selectedKey: string | null = null;
 let _renderedDetailSignature: string | null = null;
 let _activityCallback: ((isActive: boolean) => void) | null = null;
 const _progressTicker = createPollAgoTicker(() => _root);
-const _readyDetails = new Map<string, ReadyDetailHandle>();
+const _readyDetails = new Map<string, ActionDetailHandle>();
+const _errorDetails = new Map<string, ActionDetailHandle>();
 const _pendingActions = new Map<string, PendingAction>();
 const _attention = createAttentionAck({
   getAck: getPrsAttentionAck,
@@ -266,7 +267,7 @@ function sendAction(draft: ReviewDraft, action: TeamReviewAction, body: string, 
   return true;
 }
 
-function createReadyDetail(draft: ReviewDraft): ReadyDetailHandle {
+function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   const detail = el('article', 'pr-detail');
   detail.append(createDetailHeading(draft));
   const verdict = el('section', 'pr-verdict-box');
@@ -382,7 +383,38 @@ function createOtherDetail(draft: ReviewDraft): HTMLElement {
     return detail;
   }
   detail.append(el('p', 'pr-attention-detail', attentionDetail(draft)));
+  if (draft.status !== 'error') return detail;
+  const footer = el('footer', 'pr-footer');
+  const button = el('button', 'pr-action', 'Queue review');
+  button.type = 'button';
+  button.dataset.action = 'requeue';
+  const status = el('span', 'pr-action-status');
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  const settle = (isDone: boolean, message: string) => {
+    button.disabled = isDone;
+    status.dataset.tone = isDone ? 'ok' : 'error';
+    status.textContent = message;
+  };
+  button.addEventListener('click', () => {
+    if (_pendingActions.has(draft.key)) return;
+    button.disabled = true;
+    status.dataset.tone = 'busy';
+    status.textContent = actionProgressText('requeue');
+    if (sendAction(draft, 'requeue', '', [], settle)) return;
+    settle(false, 'Not connected to the server.');
+  });
+  footer.append(button, status);
+  detail.append(footer);
+  _errorDetails.set(draft.key, { signature: `${draft.status}:${draft.reviewedHead}:${draft.error ?? ''}`, element: detail, settle });
   return detail;
+}
+
+function otherDetailFor(draft: ReviewDraft): HTMLElement {
+  if (draft.status !== 'error') return createOtherDetail(draft);
+  const cached = _errorDetails.get(draft.key);
+  if (cached && (_pendingActions.has(draft.key) || cached.signature === `${draft.status}:${draft.reviewedHead}:${draft.error ?? ''}`)) return cached.element;
+  return createOtherDetail(draft);
 }
 
 function renderSelectedDetail(sections: TeamReviewSections): void {
@@ -404,7 +436,7 @@ function renderSelectedDetail(sections: TeamReviewSections): void {
   }
   const other = [...sections.attention, ...sections.posted].find((draft) => draft.key === _selectedKey);
   if (!other) return;
-  _detail.replaceChildren(createOtherDetail(other));
+  _detail.replaceChildren(otherDetailFor(other));
   _renderedDetailSignature = `${other.status}:${other.key}`;
 }
 
@@ -418,6 +450,11 @@ function forgetDepartedDetails(readyKeys: Set<string>): void {
   for (const key of [..._readyDetails.keys()]) {
     if (readyKeys.has(key) || _pendingActions.has(key)) continue;
     _readyDetails.delete(key);
+  }
+  const errorKeys = new Set(_latest?.drafts.filter((draft) => draft.status === 'error').map((draft) => draft.key) ?? []);
+  for (const key of _errorDetails.keys()) {
+    if (errorKeys.has(key) || _pendingActions.has(key)) continue;
+    _errorDetails.delete(key);
   }
 }
 
@@ -531,9 +568,10 @@ export function applyTeamReviewActionResult(message: unknown): void {
   if (!pending || pending.requestId !== actionResult.requestId) return;
   window.clearTimeout(pending.timer);
   _pendingActions.delete(actionResult.key);
-  const handle = _readyDetails.get(actionResult.key);
+  const handle = pending.action === 'requeue' ? _errorDetails.get(actionResult.key) : _readyDetails.get(actionResult.key);
   if (!handle) return;
   if (actionResult.ok === true) {
+    if (pending.action === 'requeue') _errorDetails.delete(actionResult.key);
     handle.settle(true, typeof actionResult.warning === 'string' && actionResult.warning ? `${actionOutcomeText(pending.action)}. ${actionResult.warning}` : actionOutcomeText(pending.action));
     return;
   }

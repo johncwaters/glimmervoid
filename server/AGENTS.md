@@ -74,7 +74,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - The review IS the operator's `pr-review` skill and profile, so it holds a hand-run standard; its cwd is an empty work dir and the untrusted checkout is never an `--add-dir` (`tests/team-review-wiring.test.ts`).
 - The review runs in Claude Code's Bash sandbox (strict egress allowlist, credential paths unreadable, no secret in env); a session that cannot apply it never spawns (`tests/session-hook-lifecycle.test.ts`, `tests/team-review-wiring.test.ts`).
 - PR text is untrusted data, fenced in the prompt (`tests/team-review-core.test.ts`).
-- Review checkouts are removed on every exit path and swept at lane start (`tests/team-review-wiring.test.ts`).
+- Review dirs are deleted on every exit and swept at start, bar a shutdown's resume record (`tests/team-review-wiring.test.ts`).
 
 ### Usage Tracking
 

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  attentionDetail, buildActionRequest, chooseSelectedReviewKey, commentLocation, emptyStateText, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  actionOutcomeText, actionProgressText, attentionDetail, buildActionRequest, chooseSelectedReviewKey, commentLocation, emptyStateText, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, phaseLabel, pullRequestLabel, readyAttentionSignature, readyRowSignature, reviewFooterText, reviewProgressSteps,
   severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone, withoutComment,
 } from '../public/team-review-view-core.ts';
@@ -117,6 +117,14 @@ test('the action request pins the reviewed head and carries only the remaining c
   });
   assert.equal(commentLocation(comments[0]), 'src/a.ts:3');
   assert.equal(commentLocation(comments[1]), 'src/a.ts:9 (old)');
+});
+
+test('queue review sends an empty action payload and has stable progress and outcome text', () => {
+  assert.deepEqual(buildActionRequest(draft(1, { status: 'error' }), 'requeue', '', []), {
+    key: 'Acme/app#1', head: HEAD, action: 'requeue', body: '', comments: [],
+  });
+  assert.equal(actionProgressText('requeue'), 'Queueing the review');
+  assert.equal(actionOutcomeText('requeue'), 'Queued. The next poll reviews it again.');
 });
 
 test('attention rows explain a stale draft and surface the error of a failed one', () => {

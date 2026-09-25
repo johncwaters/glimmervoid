@@ -12,6 +12,7 @@ const STAMP_MAX_FILES = 10;
 const MAX_CONCURRENT_REVIEWS = 2;
 const MAX_REVIEW_ATTEMPTS = 3;
 const REVIEW_TIMEOUT_SECONDS = 2400;
+const RESUME_TTL_MS = 2 * 60 * 60 * 1000;
 const POLL_INTERVAL_MINUTES = 15;
 const RECENT_STEPS_SHOWN = 5;
 const PROGRESS_EMIT_INTERVAL_MS = 1000;
@@ -22,6 +23,7 @@ const POSTED_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 const REVIEW_PROMPT_FILENAME = 'team-review-prompt.txt';
 const REVIEW_BOOTSTRAP_PROMPT = `Read ${REVIEW_PROMPT_FILENAME} and follow all instructions in that file`;
+const REVIEW_RESUME_PROMPT = 'The glimmervoid server restarted and stopped this review partway. Continue the same review from where it stopped; do not start over. If a qa-swarm Workflow run was interrupted, call the Workflow tool again with the same name and the same args as before plus resumeFromRunId set to that run id, so completed lanes replay from cache. Then finish every remaining instruction in team-review-prompt.txt and write both files it names.';
 const REVIEW_REPORT_FILENAME = 'pr-review-report.md';
 const REVIEW_POSTING_FILENAME = 'pr-review-posting.json';
 const REVIEW_SKILL_NAME = 'pr-review';
@@ -202,9 +204,19 @@ function invalidComments(comments: readonly ReviewComment[], commentable: Commen
 }
 
 function isSettledAtHead(entry: TeamReviewStateEntry | undefined, head: string): boolean {
+  if (entry?.resumable) return false;
   if (!entry || entry.reviewedHead !== head) return false;
   if (entry.draft?.status === 'error') return entry.reviewAttempts >= MAX_REVIEW_ATTEMPTS;
   return entry.draft !== null || entry.skipReason !== null;
+}
+
+function resumeDecision(entry: TeamReviewStateEntry, currentHead: string, nowMs: number): 'resume' | 'discard' | 'none' {
+  const record = entry.resumable;
+  if (!record) return 'none';
+  if (record.head !== currentHead) return 'discard';
+  if (nowMs - record.savedAt > RESUME_TTL_MS) return 'discard';
+  if (record.deadlineAt <= nowMs) return 'discard';
+  return 'resume';
 }
 
 function reviewAttemptsAfter(entry: TeamReviewStateEntry, reviewedHead: string): number {
@@ -308,7 +320,9 @@ function parseFindingLine(line: string): UnvalidatedFinding | null {
 
 function sectionAfter(lines: readonly string[], heading: string): string[] | null {
   const headingIndex = lines.findIndex((line) => line.trim() === heading);
-  return headingIndex === -1 ? null : lines.slice(headingIndex + 1);
+  if (headingIndex === -1) return null;
+  const sectionEnd = lines.findIndex((line, index) => index > headingIndex && /^(VERDICT:|ACTIONABLE|TRUNCATED:|HEAD_SHA:|STRUCTURED_FINDINGS:|OVERALL_SUMMARY:)/.test(line.trim()));
+  return lines.slice(headingIndex + 1, sectionEnd === -1 ? undefined : sectionEnd);
 }
 
 function parseFindingSection(findingLines: readonly string[]): { findings: UnvalidatedFinding[] } | { reason: string } {
@@ -333,8 +347,7 @@ function parseReviewReport(report: string): { ok: true; result: ReviewResultType
   const findingsSection = sectionAfter(lines, 'STRUCTURED_FINDINGS:');
   const summarySection = sectionAfter(lines, 'OVERALL_SUMMARY:');
   if (!findingsSection || !summarySection) return { ok: false, reason: 'the report is missing STRUCTURED_FINDINGS or OVERALL_SUMMARY' };
-  const findingLines = findingsSection.slice(0, findingsSection.length - summarySection.length - 1);
-  const parsedFindings = parseFindingSection(findingLines);
+  const parsedFindings = parseFindingSection(findingsSection);
   if ('reason' in parsedFindings) return { ok: false, reason: parsedFindings.reason };
   const parsed = ReviewResult.safeParse({
     verdict, head, summary: summarySection.join('\n').trim(), findings: parsedFindings.findings,
@@ -513,10 +526,10 @@ function buildReviewPrompt({
 
 export {
   STAMP_MODEL, FULL_MODEL, STAMP_MAX_LINES, STAMP_MAX_FILES, MAX_CONCURRENT_REVIEWS, MAX_REVIEW_ATTEMPTS,
-  REVIEW_TIMEOUT_SECONDS, POLL_INTERVAL_MINUTES, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS,
+  REVIEW_TIMEOUT_SECONDS, RESUME_TTL_MS, POLL_INTERVAL_MINUTES, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS,
   TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME,
-  REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, REVIEW_SKILL_NAME, AUTOMATED_REVIEW_NOTE,
+  REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, REVIEW_SKILL_NAME, AUTOMATED_REVIEW_NOTE,
   buildReviewPrompt, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, errorDraft, eventForAction, invalidComments, isSettledAtHead, markDraftStale,
-  applyReviewProgress, prBaseRef, prHeadRef, prKey, readyDraft, repoFromSearchItem, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr,
+  applyReviewProgress, prBaseRef, prHeadRef, prKey, readyDraft, repoFromSearchItem, resumeDecision, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr,
 };
 export type { CommentableFileLines, CommentableLines, ReviewProgressEvent, ReviewTier, TeamReviewCandidate };

@@ -123,33 +123,33 @@ function createRepoCache({ rootDir, commandRunner = runGit, remoteUrlFor = (repo
       return queueFor(repo).run(() => ensureRepoUnlocked(repo, parts));
     },
 
-    async fetchPr(repo: string, number: number, baseRef: string): Promise<{ ok: boolean; headSha: string | null }> {
+    async fetchPr(repo: string, number: number, baseRef: string): Promise<{ ok: boolean; headSha: string | null; err: string }> {
       const parts = repoParts(repo);
-      if (!parts || !Number.isSafeInteger(number) || number <= 0 || !isSafeBaseRef(baseRef)) return { ok: false, headSha: null };
+      if (!parts || !Number.isSafeInteger(number) || number <= 0 || !isSafeBaseRef(baseRef)) return { ok: false, headSha: null, err: '' };
       return queueFor(repo).run(async () => {
         const repoDir = await ensureRepoUnlocked(repo, parts);
-        if (!repoDir) return { ok: false, headSha: null };
+        if (!repoDir) return { ok: false, headSha: null, err: '' };
         const fetched = await run([
           'fetch', '--filter=blob:none', 'origin',
           `+refs/pull/${number}/head:${prHeadRef(number)}`,
           `+refs/heads/${baseRef}:${prBaseRef(number)}`,
         ], repoDir, NETWORK_GIT_ENV);
-        if (!fetched.ok) return { ok: false, headSha: null };
+        if (!fetched.ok) return { ok: false, headSha: null, err: fetched.err };
         const head = await run(['rev-parse', prHeadRef(number)], repoDir);
         const parsed = CommitSha.safeParse(head.out);
-        if (!head.ok || !parsed.success) return { ok: false, headSha: null };
-        return { ok: true, headSha: parsed.data };
+        if (!head.ok || !parsed.success) return { ok: false, headSha: null, err: head.err };
+        return { ok: true, headSha: parsed.data, err: '' };
       });
     },
 
-    async hydrateRange(repo: string, number: number, headSha: string): Promise<{ ok: boolean }> {
+    async hydrateRange(repo: string, number: number, headSha: string): Promise<{ ok: boolean; err: string }> {
       const parts = repoParts(repo);
-      if (!parts || !Number.isSafeInteger(number) || number <= 0 || !CommitSha.safeParse(headSha).success) return { ok: false };
+      if (!parts || !Number.isSafeInteger(number) || number <= 0 || !CommitSha.safeParse(headSha).success) return { ok: false, err: '' };
       return queueFor(repo).run(async () => {
         const repoDir = await ensureRepoUnlocked(repo, parts);
-        if (!repoDir) return { ok: false };
+        if (!repoDir) return { ok: false, err: '' };
         const hydrated = await run(['diff', '--shortstat', `${prBaseRef(number)}...${headSha}`], repoDir, NETWORK_GIT_ENV);
-        return { ok: hydrated.ok };
+        return { ok: hydrated.ok, err: hydrated.err };
       });
     },
   };

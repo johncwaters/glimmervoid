@@ -1,9 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { PrDetail, ReviewComment, ReviewDraft, ReviewResult, SearchedPr } from '../shared/contracts/team-review.ts';
+import { PrDetail, ReviewComment, ReviewDraft, ReviewResult, SearchedPr, TeamReviewStateEntry } from '../shared/contracts/team-review.ts';
 
 const HEAD = 'a'.repeat(40);
+
+test('saved review entries accept both legacy state and a resumable session', () => {
+  const oldEntry = { draft: null, reviewedHead: null, inFlight: false, skipReason: null, reviewAttempts: 0, updatedAt: 1000 };
+  const resumable = { sessionId: 'claude-1', workDir: '/work/review', worktreePath: '/work/tree', head: HEAD, deadlineAt: 9000, savedAt: 1000 };
+  assert.deepEqual(TeamReviewStateEntry.parse(oldEntry), oldEntry);
+  assert.deepEqual(TeamReviewStateEntry.parse({ ...oldEntry, resumable }), { ...oldEntry, resumable });
+  assert.equal(TeamReviewStateEntry.safeParse({ ...oldEntry, resumable: { ...resumable, sessionId: '' } }).success, false);
+  assert.equal(TeamReviewStateEntry.safeParse({ ...oldEntry, resumable: { ...resumable, head: 'bad' } }).success, false);
+});
 
 test('search items require the fields needed to identify a PR while retaining GitHub fields', () => {
   const item = {
