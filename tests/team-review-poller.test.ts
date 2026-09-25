@@ -36,7 +36,7 @@ function prDetail(number: number, head: string, overrides: Record<string, unknow
 function draftFor({ candidate, detail, tier, reasons }: SpawnReviewArgs): ReviewDraft {
   return readyDraft({
     candidate, tier, reasons,
-    result: { verdict: 'STAMP', head: detail.headRefOid, summary: 'fine', body: 'Looks right.', comments: [] },
+    result: { verdict: 'APPROVE', head: detail.headRefOid, summary: 'fine', findings: [] },
   });
 }
 

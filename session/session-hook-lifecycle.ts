@@ -39,6 +39,7 @@ interface SessionHookOptions {
   getHookPort: (() => number | null) | null;
   hooksBaseDir: string | undefined;
   settingsPermissions: Record<string, unknown> | null;
+  settingsSandbox: Record<string, unknown> | null;
   detectScheduledWakeups: boolean;
   observeToolCalls: boolean;
   enableProjectMcp: boolean;
@@ -60,6 +61,7 @@ interface SessionHookLifecycle {
   listenerPort(): number | null;
   hasInjection(): boolean;
   hasSettings(): boolean;
+  isRequiredSandboxMissing(): boolean;
 }
 
 function errorCode(error: unknown): string | null {
@@ -228,6 +230,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         glimmervoidId: options.id,
         baseDir: options.hooksBaseDir,
         permissions: options.settingsPermissions,
+        sandbox: options.settingsSandbox,
         detectScheduledWakeups: options.detectScheduledWakeups,
         observeToolCalls: options.observeToolCalls,
         enableProjectMcp: options.enableProjectMcp,
@@ -259,6 +262,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     listenerPort: resolveListenerPort,
     hasInjection: () => token !== null,
     hasSettings: () => settingsHandle !== null,
+    isRequiredSandboxMissing: () => options.settingsSandbox !== null && settingsHandle === null,
   };
 }
 

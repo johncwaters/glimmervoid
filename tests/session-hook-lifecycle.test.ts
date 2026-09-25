@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { HookRouter } from '../detection/hook-source.ts';
 import { listAgentIds, getAdapter } from '../session/adapters/index.ts';
-import { Session } from '../session/sessions.ts';
+import { SANDBOX_UNAPPLIED_ERROR, Session } from '../session/sessions.ts';
 import { buildAgentEnv } from '../session/core/spawn-env.ts';
 import { HOOK_URL_ENV } from '../session/core/hook-relay-core.ts';
 import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
@@ -15,9 +15,10 @@ import type { SpawnCall } from './helpers/fake-pty.ts';
 
 const PORT = 41234;
 
-function sessionFor(agentId: string, baseDir: string, agentApi = true) {
+function sessionFor(agentId: string, baseDir: string, agentApi = true, settingsSandbox: Record<string, unknown> | null = null) {
   const calls: SpawnCall[] = [];
   const session = new Session({
+    settingsSandbox,
     id: `session-${agentId}`,
     name: agentId,
     path: baseDir,
@@ -89,6 +90,73 @@ test('the agent token is a second token, never the hook token', async () => {
       session.destroy();
     }
   });
+});
+
+test('a settings sandbox reaches the hook settings file verbatim, and no sandbox key is written without one', async () => {
+  await withTempDir(async (dir) => {
+    const sandbox = { enabled: true, failIfUnavailable: true, filesystem: { denyRead: ['~/.ssh'] } };
+    const sandboxed = sessionFor('claude-code', dir, true, sandbox);
+    const plain = sessionFor('claude-code', path.join(dir, 'plain'));
+    try {
+      await sandboxed.session.start();
+      await plain.session.start();
+      const readSettings = (base: string) => JSON.parse(fs.readFileSync(path.join(base, 'session-claude-code', 'settings.json'), 'utf8'));
+      assert.deepEqual(readSettings(dir).sandbox, sandbox);
+      assert.equal('sandbox' in readSettings(path.join(dir, 'plain')), false);
+      assert.equal(sandboxed.calls[0].args.filter((arg) => arg === '--settings').length, 1, 'the sandbox rides the one hooks settings file');
+    } finally {
+      sandboxed.session.destroy();
+      plain.session.destroy();
+    }
+  });
+});
+
+async function startRefused(overrides: Partial<ConstructorParameters<typeof Session>[0]>): Promise<{ spawned: number; errors: string[] }> {
+  let spawned = 0;
+  const errors: string[] = [];
+  const session = new Session({
+    id: 'session-sandboxed',
+    name: 'sandboxed',
+    path: os.tmpdir(),
+    agent: 'claude-code',
+    spawnCommand: { path: process.execPath, kind: 'exe' },
+    settingsSandbox: { enabled: true, failIfUnavailable: true },
+    hookRouter: new HookRouter(),
+    getHookPort: () => PORT,
+    ptySpawn: () => {
+      spawned += 1;
+      return fakePty();
+    },
+    ...overrides,
+  });
+  session.on('error', (error: Error) => { errors.push(error.message); });
+  try {
+    await session.start();
+  } finally {
+    session.destroy();
+  }
+  return { spawned, errors };
+}
+
+test('a session that requests a sandbox refuses to spawn when no hook router can carry the settings file', async () => {
+  assert.deepEqual(await startRefused({ hookRouter: null }), { spawned: 0, errors: [SANDBOX_UNAPPLIED_ERROR] });
+});
+
+test('a session that requests a sandbox refuses to spawn when the hook listener port is unavailable', async () => {
+  assert.deepEqual(await startRefused({ getHookPort: () => null }), { spawned: 0, errors: [SANDBOX_UNAPPLIED_ERROR] });
+  assert.deepEqual(await startRefused({ getHookPort: () => { throw new Error('no listener'); } }), { spawned: 0, errors: [SANDBOX_UNAPPLIED_ERROR] });
+});
+
+test('a session that requests a sandbox refuses to spawn when the settings file cannot be written', async () => {
+  await withTempDir(async (dir) => {
+    const occupiedBaseDir = path.join(dir, 'occupied');
+    fs.writeFileSync(occupiedBaseDir, 'not a directory');
+    assert.deepEqual(await startRefused({ hooksBaseDir: occupiedBaseDir }), { spawned: 0, errors: [SANDBOX_UNAPPLIED_ERROR] });
+  });
+});
+
+test('a session without a sandbox still spawns on the OSC title fallback when hooks cannot be injected', async () => {
+  assert.deepEqual(await startRefused({ settingsSandbox: null, hookRouter: null }), { spawned: 1, errors: [] });
 });
 
 test('a restart keeps the one agent token the session was minted with', async () => {

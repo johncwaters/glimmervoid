@@ -17,7 +17,7 @@ function draft(number: number, overrides: Partial<ReviewDraftType> = {}): Review
   return ReviewDraft.parse({
     key: `Acme/app#${number}`, repo: 'Acme/app', number, title: `PR ${number}`, url: `https://github.com/Acme/app/pull/${number}`,
     author: 'teammate', tier: 'stamp', reasons: ['12 counted lines in 1 files'], reviewedHead: HEAD,
-    verdict: 'STAMP', summary: 'Fine', body: 'LGTM', comments: [], status: 'ready', ...overrides,
+    verdict: 'APPROVE', summary: 'Fine', body: 'LGTM', comments: [], status: 'ready', ...overrides,
   });
 }
 
@@ -69,11 +69,13 @@ test('an absent or empty status has no rows', () => {
 test('tier and verdict labels are short and lower case, with a tone per verdict', () => {
   assert.equal(tierLabel('stamp'), 'stamp');
   assert.equal(tierLabel('full'), 'full');
-  assert.equal(verdictLabel('STAMP'), 'stamp');
-  assert.equal(verdictLabel('COMMENT'), 'comment');
-  assert.equal(verdictLabel('NEEDS_YOU'), 'needs you');
-  assert.equal(verdictTone('STAMP'), 'ok');
-  assert.equal(verdictTone('NEEDS_YOU'), 'warn');
+  assert.equal(verdictLabel('APPROVE'), 'approve');
+  assert.equal(verdictLabel('APPROVE WITH NITS'), 'approve with nits');
+  assert.equal(verdictLabel('REQUEST CHANGES'), 'request changes');
+  assert.equal(verdictLabel('BLOCKED'), 'blocked');
+  assert.equal(verdictTone('APPROVE'), 'ok');
+  assert.equal(verdictTone('REQUEST CHANGES'), 'warn');
+  assert.equal(verdictTone('BLOCKED'), 'crit');
   assert.equal(pullRequestLabel('Acme/app', 7), 'Acme/app#7');
 });
 

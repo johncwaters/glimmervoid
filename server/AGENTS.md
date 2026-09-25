@@ -71,8 +71,9 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 ### Team PR Review (opt-in)
 
 - Only the operator's Approve or Comment posts, and only when the clicked head equals both the reviewed and the live head, since a review lands under the operator's name (`tests/team-review-core.test.ts`, `tests/team-review-wiring.test.ts`).
-- The review agent holds no shell, network or GitHub write (`tests/lane-permissions-core.test.ts`).
-- PR text, diff and checkout are untrusted data, fenced in the prompt (`tests/team-review-core.test.ts`).
+- The review IS the operator's `pr-review` skill and profile, so it holds a hand-run standard; its cwd is an empty work dir and the untrusted checkout is never an `--add-dir` (`tests/team-review-wiring.test.ts`).
+- The review runs in Claude Code's Bash sandbox (strict egress allowlist, credential paths unreadable, no secret in env); a session that cannot apply it never spawns (`tests/session-hook-lifecycle.test.ts`, `tests/team-review-wiring.test.ts`).
+- PR text is untrusted data, fenced in the prompt (`tests/team-review-core.test.ts`).
 - Review checkouts are removed on every exit path and swept at lane start (`tests/team-review-wiring.test.ts`).
 
 ### Usage Tracking

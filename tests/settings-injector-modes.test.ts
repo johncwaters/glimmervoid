@@ -88,3 +88,14 @@ test('no Read matcher reaches PostToolUse, since nothing consumes pack reads', (
     WAKEUP_TOOL_MATCHER,
   ]);
 });
+
+test('a sandbox block is written verbatim as the top-level sandbox key and is absent when none is given', () => {
+  const base = { port: 3000, glimmervoidId: 'sandboxed', token: 'tok' };
+  const sandbox = { enabled: true, network: { strictAllowlist: true, allowedDomains: ['api.openai.com'] } };
+  const settings = buildHookSettings({ ...base, sandbox, permissions: { deny: ['WebFetch'] } });
+  assert.deepEqual(settings.sandbox, sandbox);
+  assert.deepEqual(settings.permissions, { deny: ['WebFetch'] });
+  assert.ok(settings.hooks.Stop, 'the hooks stay in the same file');
+  assert.equal('sandbox' in buildHookSettings(base), false);
+  assert.equal('sandbox' in buildHookSettings({ ...base, sandbox: null }), false);
+});
