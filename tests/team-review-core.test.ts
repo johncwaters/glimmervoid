@@ -32,7 +32,9 @@ import {
   startReviewProgress,
   triagePr,
 } from '../server/core/team-review-core.ts';
-import { InFlightReview, PrDetail, ReviewDraft, SearchedPr, TeamReviewState } from '../shared/contracts/team-review.ts';
+import { parseReviewComment, severityCounts } from '../public/team-review-view-core.ts';
+import { FindingSeverity, InFlightReview, PrDetail, ReviewDraft, SearchedPr, TeamReviewState } from '../shared/contracts/team-review.ts';
+import { findingHeader } from '../shared/team-review-markdown.ts';
 import type { TeamReviewStateEntry } from '../shared/contracts/team-review.ts';
 
 test('prKey formats as repoSlug#prNumber', () => {
@@ -382,6 +384,23 @@ test('rendering follows the pr-review posting format, and a finding off the diff
   ].join('\n\n'));
   const cleanBody = renderReview({ ...parsed.result, verdict: 'APPROVE', findings: [] }, commentable).body;
   assert.equal(cleanBody, `${AUTOMATED_REVIEW_NOTE}\n\nVerdict: APPROVE`);
+});
+
+test('every server-rendered finding header round-trips through the dashboard parsers', () => {
+  const parsed = parseReviewReport(REPORT);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  const commentable = commentableLines('diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,4 +1,5 @@\n a\n b\n c\n+d\n e\n');
+  const { body, comments } = renderReview(parsed.result, commentable);
+  const inlineComment = parseReviewComment(comments[0]?.body ?? '');
+  assert.equal(inlineComment.tag, 'code/logic');
+  assert.equal(inlineComment.severity, 'HIGH');
+  assert.deepEqual(inlineComment.paragraphs.map((paragraph) => paragraph.segments.map((segment) => segment.text).join('')), ['Off by one: use <= here.']);
+  assert.deepEqual(severityCounts({ body, comments }), [{ severity: 'HIGH', count: 1 }, { severity: 'MEDIUM', count: 2 }]);
+  for (const severity of FindingSeverity.options) {
+    const finding = parseReviewComment(`${AUTOMATED_REVIEW_NOTE}\n\n${findingHeader('code/logic', severity)}\n\nBody.`);
+    assert.deepEqual([finding.tag, finding.severity], ['code/logic', severity]);
+  }
 });
 
 test('a draft saved with the old verdict names still loads, mapped onto the code-review verdicts', () => {

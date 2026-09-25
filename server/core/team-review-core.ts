@@ -1,4 +1,5 @@
 import { PostingPlan, ReviewResult } from '../../shared/contracts/team-review.ts';
+import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, withoutAutomatedNote } from '../../shared/team-review-markdown.ts';
 import type {
   InFlightReview, PostingPlan as PostingPlanType, PrDetail, ReviewComment, ReviewDraft, ReviewFinding, ReviewProgressPhase,
   ReviewResult as ReviewResultType, SearchedPr, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
@@ -24,7 +25,6 @@ const REVIEW_BOOTSTRAP_PROMPT = `Read ${REVIEW_PROMPT_FILENAME} and follow all i
 const REVIEW_REPORT_FILENAME = 'pr-review-report.md';
 const REVIEW_POSTING_FILENAME = 'pr-review-posting.json';
 const REVIEW_SKILL_NAME = 'pr-review';
-const AUTOMATED_REVIEW_NOTE = '> [!NOTE]\n> Automated review. Not written by a human.';
 const PR_TITLE_MAX_CHARS = 500;
 const PR_BODY_MAX_CHARS = 20000;
 
@@ -344,7 +344,7 @@ function parseReviewReport(report: string): { ok: true; result: ReviewResultType
 }
 
 function findingHeader(finding: ReviewFinding): string {
-  return `**[${finding.reviewer}] ${finding.severity}**`;
+  return renderFindingHeader(finding.reviewer, finding.severity);
 }
 
 function isInlineFinding(finding: ReviewFinding, commentable: CommentableLines | null): boolean {
@@ -393,11 +393,6 @@ function withAutomatedNote(body: string): string {
   if (body.trimStart().startsWith(AUTOMATED_REVIEW_NOTE)) return body;
   if (!body.trim()) return AUTOMATED_REVIEW_NOTE;
   return `${AUTOMATED_REVIEW_NOTE}\n\n${body}`;
-}
-
-function withoutAutomatedNote(body: string): string {
-  const trimmed = body.trimStart();
-  return trimmed.startsWith(AUTOMATED_REVIEW_NOTE) ? trimmed.slice(AUTOMATED_REVIEW_NOTE.length).trim() : body.trim();
 }
 
 function isCommentable(comment: ReviewComment, commentable: CommentableLines | null): boolean {

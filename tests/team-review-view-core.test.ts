@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  attentionDetail, buildActionRequest, commentLocation, emptyStateText, groupDrafts, hasAnyRow, inFlightProgressText, isInFlightProgressOnlyChange, phaseLabel, pullRequestLabel,
-  readyAttentionSignature, readyRowSignature, tierLabel, verdictLabel, verdictTone, withoutComment,
+  attentionDetail, buildActionRequest, chooseSelectedReviewKey, commentLocation, emptyStateText, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  parseReviewComment, phaseLabel, pullRequestLabel, readyAttentionSignature, readyRowSignature, reviewFooterText, reviewProgressSteps,
+  severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone, withoutComment,
 } from '../public/team-review-view-core.ts';
 import { InFlightReview, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type {
@@ -136,6 +137,12 @@ test('progress text shows elapsed time before the agent starts, then the timeout
   assert.equal(inFlightProgressText({ ...reviewing, toolCalls: 14 }, 125000), '2:05 elapsed, times out in 12:55, 14 tool calls');
 });
 
+test('elapsed text is the leading part of the progress text on its own', () => {
+  const reviewing = inFlightReview(1, { phase: 'reviewing', startedAt: 0, deadlineAt: 900000, toolCalls: 3 });
+  assert.equal(inFlightElapsedText(reviewing, 125000), '2:05 elapsed');
+  assert.ok(inFlightProgressText(reviewing, 125000).startsWith(inFlightElapsedText(reviewing, 125000)));
+});
+
 test('progress text never counts below zero once the deadline passes', () => {
   const overdue = inFlightReview(1, { phase: 'reviewing', startedAt: 0, deadlineAt: 1000, toolCalls: 0 });
   assert.equal(inFlightProgressText(overdue, 5000), '0:05 elapsed, times out in 0:00, 0 tool calls');
@@ -153,4 +160,77 @@ test('a changed draft, in-flight set, configuration or missing previous status n
   assert.equal(isInFlightProgressOnlyChange(previous, status([draft(1)], [inFlightReview(2), inFlightReview(3)])), false);
   assert.equal(isInFlightProgressOnlyChange(previous, status([draft(1)], [])), false);
   assert.equal(isInFlightProgressOnlyChange(previous, status([draft(1)], [inFlightReview(2)], false)), false);
+});
+
+test('selection favors ready, then in review, then attention and stays on an available key', () => {
+  const sections = groupDrafts(status([draft(1), draft(2, { status: 'stale' }), draft(3, { status: 'posted' })], [inFlightReview(4)]));
+  assert.equal(chooseSelectedReviewKey(sections, null), 'Acme/app#1');
+  assert.equal(chooseSelectedReviewKey(sections, 'Acme/app#4'), 'Acme/app#4');
+  assert.equal(chooseSelectedReviewKey(sections, 'missing'), 'Acme/app#1');
+  assert.equal(chooseSelectedReviewKey(groupDrafts(status([draft(2, { status: 'error' })], [inFlightReview(4)])), null), 'Acme/app#4');
+  assert.equal(chooseSelectedReviewKey(groupDrafts(status([draft(2, { status: 'error' })])), null), 'Acme/app#2');
+  assert.equal(chooseSelectedReviewKey(groupDrafts(status([])), null), null);
+});
+
+test('severity glyph data uses three shards and distinct critical halo level', () => {
+  assert.deepEqual(severityPresentation('LOW'), { filledCount: 1, colorToken: '--text-dim' });
+  assert.deepEqual(severityPresentation('MEDIUM'), { filledCount: 2, colorToken: '--accent' });
+  assert.deepEqual(severityPresentation('HIGH'), { filledCount: 3, colorToken: '--state-waiting' });
+  assert.deepEqual(severityPresentation('CRITICAL'), { filledCount: 3, colorToken: '--state-failed' });
+});
+
+test('each verdict selects its one seal mark', () => {
+  assert.equal(verdictSealKind('APPROVE'), 'check');
+  assert.equal(verdictSealKind('APPROVE WITH NITS'), 'dot');
+  assert.equal(verdictSealKind('REQUEST CHANGES'), 'bar');
+  assert.equal(verdictSealKind('BLOCKED'), 'cross');
+});
+
+test('severity totals include folded body findings and every inline comment header', () => {
+  const review = draft(1, {
+    body: '**[body] HIGH**\n\nFirst.\n\n- **[folded] MEDIUM** `src/a.ts:3`: second.',
+    comments: [
+      { path: 'src/a.ts', line: 4, side: 'RIGHT', body: '> [!NOTE]\n> Automated review. Not written by a human.\n\n**[logic] HIGH**\n\nThird.' },
+      { path: 'src/b.ts', line: 5, side: 'LEFT', body: '**[security] CRITICAL**\n\nFourth.' },
+    ],
+  });
+  assert.deepEqual(severityCounts(review), [
+    { severity: 'CRITICAL', count: 1 }, { severity: 'HIGH', count: 2 }, { severity: 'MEDIUM', count: 1 },
+  ]);
+  assert.deepEqual(severityCounts(draft(2)), []);
+});
+
+test('comment parsing removes the posted note and heading while keeping paragraphs and inline code', () => {
+  const parsed = parseReviewComment('> [!NOTE]\n> Automated review. Not written by a human.\n\n**[code/logic] HIGH**\n\nFirst `value` stays.\n\nSuggested fix: update `count` here.\n\nOpen question. Does `mode` matter?');
+  assert.equal(parsed.tag, 'code/logic');
+  assert.equal(parsed.severity, 'HIGH');
+  assert.deepEqual(parsed.paragraphs, [
+    { lead: '', leadKind: null, segments: [{ text: 'First ', isCode: false }, { text: 'value', isCode: true }, { text: ' stays.', isCode: false }] },
+    { lead: 'Suggested fix:', leadKind: 'fix', segments: [{ text: 'update ', isCode: false }, { text: 'count', isCode: true }, { text: ' here.', isCode: false }] },
+    { lead: 'Open question.', leadKind: 'question', segments: [{ text: 'Does ', isCode: false }, { text: 'mode', isCode: true }, { text: ' matter?', isCode: false }] },
+  ]);
+});
+
+test('comment parsing accepts fix and open question variants and plain comments', () => {
+  assert.deepEqual(parseReviewComment('Fix: Use a guard.').paragraphs[0], { lead: 'Fix:', leadKind: 'fix', segments: [{ text: 'Use a guard.', isCode: false }] });
+  assert.deepEqual(parseReviewComment('Open question, should this retry?').paragraphs[0], { lead: 'Open question,', leadKind: 'question', segments: [{ text: 'should this retry?', isCode: false }] });
+  assert.deepEqual(parseReviewComment('Open question: is this intended?').paragraphs[0], { lead: 'Open question:', leadKind: 'question', segments: [{ text: 'is this intended?', isCode: false }] });
+  assert.equal(parseReviewComment('Plain comment').severity, null);
+});
+
+test('footer names the reviewed head and current included comment count', () => {
+  assert.equal(reviewFooterText(HEAD, 0), 'Posts 1 review on aaaaaaa: the body plus 0 inline comments');
+  assert.equal(reviewFooterText(HEAD, 1), 'Posts 1 review on aaaaaaa: the body plus 1 inline comment');
+  assert.equal(reviewFooterText(HEAD, 2), 'Posts 1 review on aaaaaaa: the body plus 2 inline comments');
+});
+
+test('progress tracker advances one active stage and leaves Draft ready pending', () => {
+  assert.deepEqual(reviewProgressSteps('preparing').map((step) => step.state), ['active', 'todo', 'todo', 'todo']);
+  assert.deepEqual(reviewProgressSteps('checkout').map((step) => step.state), ['done', 'active', 'todo', 'todo']);
+  assert.deepEqual(reviewProgressSteps('reviewing'), [
+    { label: 'Fetch the diff', state: 'done' },
+    { label: 'Check out the head', state: 'done' },
+    { label: 'Run pr-review', state: 'active' },
+    { label: 'Draft ready', state: 'todo' },
+  ]);
 });
