@@ -46,13 +46,17 @@ test('review comments default to the new side and require a positive line', () =
   assert.equal(ReviewComment.safeParse({ path: 'src/agent/index.ts', line: 4, side: 'CENTER', body: 'Check this' }).success, false);
 });
 
-test('review result accepts known verdicts and an exact lowercase commit SHA', () => {
-  const result = { verdict: 'STAMP', head: HEAD, summary: 'Spot checked', body: 'Looks good', comments: [] };
+test('review result accepts code-review verdicts, typed findings and an exact lowercase commit SHA', () => {
+  const finding = { path: 'src/a.ts', line: 4, side: 'RIGHT', severity: 'HIGH', reviewer: 'code/logic', disposition: 'ACTIONABLE', body: 'Off by one' };
+  const result = { verdict: 'APPROVE WITH NITS', head: HEAD, summary: 'Spot checked', findings: [finding, { ...finding, line: null, disposition: null }] };
   assert.deepEqual(ReviewResult.parse(result), result);
   for (const invalid of [
     { ...result, head: 'abc123' },
     { ...result, head: HEAD.toUpperCase() },
-    { ...result, verdict: 'APPROVE' },
+    { ...result, verdict: 'STAMP' },
+    { ...result, verdict: 'FAILED' },
+    { ...result, findings: [{ ...finding, severity: 'NIT' }] },
+    { ...result, findings: [{ ...finding, line: 0 }] },
   ]) assert.equal(ReviewResult.safeParse(invalid).success, false);
 });
 
@@ -61,7 +65,7 @@ test('editable review draft requires a repository, tier, status, and reviewed he
     key: 'PostHog/wizard#1350', repo: 'PostHog/wizard', number: 1350,
     title: 'Improve agent detection', url: 'https://github.com/PostHog/wizard/pull/1350',
     author: 'teammate', tier: 'full', reasons: ['252 counted lines over 200'],
-    reviewedHead: HEAD, verdict: 'COMMENT', summary: 'Check branch', body: 'A draft review',
+    reviewedHead: HEAD, verdict: 'APPROVE WITH NITS', summary: 'Check branch', body: 'A draft review',
     comments: [{ path: 'src/agent/index.ts', line: 4, side: 'RIGHT', body: 'Check this' }],
     status: 'ready',
   };

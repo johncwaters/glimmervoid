@@ -15,15 +15,17 @@ export const TEAM_REVIEW_SETTINGS_SECTION_ID = 'lanes-team-review';
 export const TEAM_REVIEW_SETTINGS_SETTING_ID = 'team-review-enabled';
 
 const VERDICT_LABELS: Readonly<Record<ReviewDraft['verdict'], string>> = Object.freeze({
-  STAMP: 'stamp',
-  COMMENT: 'comment',
-  NEEDS_YOU: 'needs you',
+  APPROVE: 'approve',
+  'APPROVE WITH NITS': 'approve with nits',
+  'REQUEST CHANGES': 'request changes',
+  BLOCKED: 'blocked',
 });
 
 const VERDICT_TONES: Readonly<Record<ReviewDraft['verdict'], string>> = Object.freeze({
-  STAMP: 'ok',
-  COMMENT: 'info',
-  NEEDS_YOU: 'warn',
+  APPROVE: 'ok',
+  'APPROVE WITH NITS': 'info',
+  'REQUEST CHANGES': 'warn',
+  BLOCKED: 'crit',
 });
 
 const ATTENTION_STATUS_LABELS: Readonly<Record<string, string>> = Object.freeze({

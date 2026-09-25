@@ -141,6 +141,17 @@ function createRepoCache({ rootDir, commandRunner = runGit, remoteUrlFor = (repo
         return { ok: true, headSha: parsed.data };
       });
     },
+
+    async hydrateRange(repo: string, number: number, headSha: string): Promise<{ ok: boolean }> {
+      const parts = repoParts(repo);
+      if (!parts || !Number.isSafeInteger(number) || number <= 0 || !CommitSha.safeParse(headSha).success) return { ok: false };
+      return queueFor(repo).run(async () => {
+        const repoDir = await ensureRepoUnlocked(repo, parts);
+        if (!repoDir) return { ok: false };
+        const hydrated = await run(['diff', '--shortstat', `${prBaseRef(number)}...${headSha}`], repoDir, NETWORK_GIT_ENV);
+        return { ok: hydrated.ok };
+      });
+    },
   };
 }
 

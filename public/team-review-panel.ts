@@ -195,7 +195,6 @@ function buildInReviewRow(review: InFlightReview) {
   head.append(pullRequestLink(review), el('span', 'pr-draft-title', review.title), el('span', 'pr-draft-author', review.author));
   const progress = el('div', 'pr-line');
   const progressText = el('span', 'pr-progress-text');
-  progressText.setAttribute('role', 'status');
   _progressTicker.track(progressText, review.startedAt, () => inFlightProgressText(review, Date.now()));
   progress.append(chip(phaseLabel(review.phase), 'info'), progressText);
   row.append(head, buildTriageLine(review), progress);

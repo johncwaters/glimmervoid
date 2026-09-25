@@ -53,6 +53,7 @@ const KILL_MAX_WAIT_MS = 3000;
 const KILL_REAP_MAX_WAIT_MS = 2400;
 const SLEEP_KILL_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_PENDING_ATTENTION_NOTES = 5;
+const SANDBOX_UNAPPLIED_ERROR = "sandbox settings could not be applied, session not started";
 
 function signalablePid(pid: unknown): number | null {
   const parsed = Number(pid);
@@ -137,6 +138,7 @@ interface SessionOptions {
   resumeSessionId?: string | null;
   antiSlopPrompt?: boolean;
   settingsPermissions?: Record<string, unknown> | null;
+  settingsSandbox?: Record<string, unknown> | null;
   spawnEnv?: Record<string, string> | null;
   enableProjectMcp?: boolean;
   rtkPath?: string | null;
@@ -288,6 +290,7 @@ class Session extends EventEmitter {
     antiSlopPrompt = false,
 
     settingsPermissions = null,
+    settingsSandbox = null,
 
     spawnEnv = null,
 
@@ -445,6 +448,7 @@ class Session extends EventEmitter {
       getHookPort,
       hooksBaseDir,
       settingsPermissions,
+      settingsSandbox,
       detectScheduledWakeups,
       observeToolCalls: observeToolCalls === true,
       enableProjectMcp: !!enableProjectMcp,
@@ -1125,6 +1129,14 @@ class Session extends EventEmitter {
     this._resetDetectionSources({ quiet: false });
 
     const hookInjection = this._hooks.inject();
+    if (this._hooks.isRequiredSandboxMissing()) {
+      this._hooks.cleanup();
+      this._packDelivery.replaceDelivered([]);
+      const refusal = new Error(SANDBOX_UNAPPLIED_ERROR);
+      this.transition("spawn_fail", { error: refusal.message });
+      this.emit("error", refusal);
+      return;
+    }
     const settingsArgs = [...hookInjection.args];
 
     this._titleQuiet = this._adapter.titleProfile.quietUntilFirstPrompt === true && this._hooks.hasInjection();
@@ -1683,5 +1695,5 @@ function claudeCommand(): ResolvedCommand {
   return commandFor(DEFAULT_AGENT_ID);
 }
 
-export { Session, claudeCommand };
+export { SANDBOX_UNAPPLIED_ERROR, Session, claudeCommand };
 export type { ClaudeSessionIdEvent, SessionOptions, SessionPlanReviewPort, SessionPty, SessionRecorderPort };

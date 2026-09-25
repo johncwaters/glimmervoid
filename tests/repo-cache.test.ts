@@ -47,16 +47,21 @@ test('repo cache clones once and fetches a PR head from a local bare origin', as
     assert.equal(await cache.ensureRepo('Acme/repo'), repoDir);
     assert.equal(await cache.ensureRepo('Acme/repo'), repoDir);
     assert.deepEqual(await cache.fetchPr('Acme/repo', 1, 'main'), { ok: true, headSha: expectedHead });
+    assert.deepEqual(await cache.hydrateRange('Acme/repo', 1, expectedHead), { ok: true });
     assert.deepEqual(calls, [
       ['clone', '--filter=blob:none', '--no-checkout', originDir, repoDir],
       ['fetch', '--filter=blob:none', 'origin', '+refs/pull/1/head:refs/glimmervoid-pr/1', '+refs/heads/main:refs/glimmervoid-base/1'],
       ['rev-parse', 'refs/glimmervoid-pr/1'],
+      ['diff', '--shortstat', `refs/glimmervoid-base/1...${expectedHead}`],
     ]);
-    assert.deepEqual(envs, [{ GIT_TERMINAL_PROMPT: '0' }, { GIT_TERMINAL_PROMPT: '0' }, undefined]);
+    assert.deepEqual(envs, [{ GIT_TERMINAL_PROMPT: '0' }, { GIT_TERMINAL_PROMPT: '0' }, undefined, { GIT_TERMINAL_PROMPT: '0' }]);
     assert.equal(await cache.ensureRepo('../repo'), null);
     assert.deepEqual(await cache.fetchPr('Acme/repo/other', 1, 'main'), { ok: false, headSha: null });
     assert.deepEqual(await cache.fetchPr('Acme/repo', 1, '../main'), { ok: false, headSha: null });
-    assert.equal(calls.length, 3);
+    assert.deepEqual(await cache.hydrateRange('Acme/repo', 1, '--output=/tmp/x'), { ok: false });
+    assert.deepEqual(await cache.hydrateRange('Acme/repo', 0, expectedHead), { ok: false });
+    assert.deepEqual(await cache.hydrateRange('Acme/repo', 2, expectedHead), { ok: false });
+    assert.equal(calls.length, 5);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

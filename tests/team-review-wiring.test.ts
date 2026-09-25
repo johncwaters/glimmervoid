@@ -5,19 +5,19 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { isDispatchWorkdir } from '../server/core/ingest-agent-core.ts';
-import { FULL_MODEL, REVIEW_BOOTSTRAP_PROMPT, STAMP_MODEL } from '../server/core/team-review-core.ts';
+import { AUTOMATED_REVIEW_NOTE, FULL_MODEL, REVIEW_BOOTSTRAP_PROMPT, REVIEW_POSTING_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_REPORT_FILENAME, STAMP_MODEL } from '../server/core/team-review-core.ts';
 import type { ReviewProgressEvent, ReviewTier } from '../server/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/team-review-poller.ts';
 import type { DraftPatch, SpawnReviewArgs } from '../server/team-review-poller.ts';
 import type { PostedReview } from '../server/pr-gh.ts';
 import {
-  TEAM_REVIEW_DENY_TOOLS, createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewWiring, emptyTeamReviewStatus,
-  sweepLeftoverCheckouts, teamReviewClaudeArgs, teamReviewPermissions, teamReviewShouldStart,
+  TEAM_REVIEW_DENY_RULES, createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewWiring, emptyTeamReviewStatus,
+  sweepLeftoverCheckouts, teamReviewClaudeArgs, teamReviewPermissions, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
 } from '../server/team-review-wiring.ts';
 import type { TeamReviewActionGithub, TeamReviewDispatchOptions, TeamReviewSpawn } from '../server/team-review-wiring.ts';
 import { PrDetail, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type { ReviewComment, ReviewDraft as ReviewDraftType, TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
-import { Session } from '../session/sessions.ts';
+import { SANDBOX_UNAPPLIED_ERROR, Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 
 const HEAD = 'c'.repeat(40);
@@ -31,26 +31,50 @@ const detail = PrDetail.parse({
   isDraft: false, isCrossRepository: false, baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefOid: HEAD,
   additions: 3, deletions: 1, files: [{ path: 'src/a.ts', additions: 3, deletions: 1 }],
 });
+const DIFF = 'diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,2 +1,3 @@\n one\n+two\n three\n';
 
-type SpawnCall = Parameters<TeamReviewSpawn>[0] & { files: string[]; prDiff: string; prJson: unknown };
+type SpawnCall = Parameters<TeamReviewSpawn>[0] & { workDir: string; workDirFiles: string[]; prompt: string };
 
-function validResult(head = HEAD) {
-  return JSON.stringify({ verdict: 'COMMENT', head, summary: 'one nit', body: 'Looks fine.', comments: [{ path: 'src/a.ts', line: 2, body: 'Nit' }] });
+function reportText(head = HEAD) {
+  return [
+    `HEAD_SHA: ${head}`,
+    '',
+    'VERDICT: APPROVE WITH NITS',
+    'ACTIONABLE: 0',
+    'TRUNCATED: none',
+    '',
+    'STRUCTURED_FINDINGS:',
+    '- file: src/a.ts | line: 2 | side: RIGHT | severity: MEDIUM | reviewer: code/logic | disposition: NIT | body: Nit on the new line.',
+    '',
+    'OVERALL_SUMMARY:',
+    'one nit',
+  ].join('\n');
 }
 
-function setup(overrides: Partial<TeamReviewDispatchOptions> & { writeResult?: (cwd: string) => void; diff?: string | null; fetchedHead?: string } = {}) {
+function workDirOf(call: Parameters<TeamReviewSpawn>[0]): string {
+  return call.cwd;
+}
+
+function setup(overrides: Partial<TeamReviewDispatchOptions> & {
+  writeReport?: (workDir: string) => void; diff?: string | null; fetchedHead?: string; hydrated?: boolean;
+} = {}) {
   const worktreeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-wt-test-'));
   const staged: string[] = [];
   const removed: string[] = [];
   const pruned: string[] = [];
+  const hydrations: string[] = [];
   const spawns: SpawnCall[] = [];
-  const writeResult = overrides.writeResult ?? ((cwd: string) => fs.writeFileSync(path.join(cwd, 'result.json'), validResult()));
+  const writeReport = overrides.writeReport ?? ((workDir: string) => fs.writeFileSync(path.join(workDir, REVIEW_REPORT_FILENAME), reportText()));
   const options: TeamReviewDispatchOptions = {
-    github: { prDiff: async () => (overrides.diff === undefined ? 'diff --git a/src/a.ts b/src/a.ts\n' : overrides.diff) },
+    github: { prDiff: async () => (overrides.diff === undefined ? DIFF : overrides.diff) },
     repoCache: {
       listRepos: async () => [],
       ensureRepo: async () => '/cache/Acme/app',
       fetchPr: async () => ({ ok: true, headSha: overrides.fetchedHead ?? HEAD }),
+      hydrateRange: async (repo, number, headSha) => {
+        hydrations.push(`${repo}#${number}@${headSha}`);
+        return { ok: overrides.hydrated ?? true };
+      },
     },
     gitWorkspace: {
       stageDetachedWorktree: async ({ worktreePath }) => { staged.push(String(worktreePath)); return { ok: true }; },
@@ -58,13 +82,14 @@ function setup(overrides: Partial<TeamReviewDispatchOptions> & { writeResult?: (
       pruneWorktrees: async ({ projectPath }) => { pruned.push(projectPath); return { ok: true }; },
     },
     spawnSession: async (call) => {
+      const workDir = workDirOf(call);
       spawns.push({
         ...call,
-        files: fs.readdirSync(call.cwd).sort(),
-        prDiff: fs.readFileSync(path.join(call.cwd, 'pr.diff'), 'utf8'),
-        prJson: JSON.parse(fs.readFileSync(path.join(call.cwd, 'pr.json'), 'utf8')),
+        workDir,
+        workDirFiles: fs.readdirSync(workDir).sort(),
+        prompt: fs.readFileSync(path.join(workDir, REVIEW_PROMPT_FILENAME), 'utf8'),
       });
-      writeResult(call.cwd);
+      writeReport(workDir);
     },
     worktreeRoot,
     randomSuffix: () => 'abcd',
@@ -72,56 +97,109 @@ function setup(overrides: Partial<TeamReviewDispatchOptions> & { writeResult?: (
   };
   const review = createTeamReviewDispatcher(options);
   const cleanup = () => fs.rmSync(worktreeRoot, { recursive: true, force: true });
-  return { review, staged, removed, pruned, spawns, worktreeRoot, cleanup };
+  return { review, staged, removed, pruned, hydrations, spawns, worktreeRoot, cleanup };
 }
 
 function reviewArgs(tier: ReviewTier) {
   return { candidate, detail, tier, reasons: ['a reason'] };
 }
 
-test('a stamp review gets pr.json, pr.diff and a prompt in a throwaway cwd, and no worktree', async () => {
-  const { review, staged, removed, spawns, cleanup } = setup();
-  try {
-    const draft = await review(reviewArgs('stamp'));
-    assert.equal(draft.status, 'ready');
-    assert.equal(draft.verdict, 'COMMENT');
-    assert.equal(draft.tier, 'stamp');
-    assert.deepEqual(draft.reasons, ['a reason']);
-    assert.equal(draft.comments[0]?.side, 'RIGHT');
-    assert.deepEqual(staged, []);
-    assert.deepEqual(removed, []);
-    assert.equal(spawns.length, 1);
-    assert.deepEqual(spawns[0].files, ['pr.diff', 'pr.json', 'team-review-prompt.txt']);
-    assert.match(spawns[0].prDiff, /^diff --git/);
-    assert.deepEqual(spawns[0].prJson, JSON.parse(JSON.stringify(detail)));
-    assert.equal(spawns[0].id, 'team-review:Acme/app#7');
-    assert.ok(spawns[0].extraClaudeArgs.includes(STAMP_MODEL));
-    assert.equal(spawns[0].extraClaudeArgs.includes('--add-dir'), false);
-    assert.equal(fs.existsSync(spawns[0].cwd), false, 'the throwaway cwd is removed afterwards');
-    assert.equal(isDispatchWorkdir(spawns[0].cwd), true, 'ingest must recognise the lane cwd as its own dispatch');
-  } finally {
-    cleanup();
+test('every tier runs pr-review from a throwaway work dir, and no argv entry names the staged checkout of the head', async () => {
+  for (const tier of ['stamp', 'full'] as const) {
+    const { review, staged, removed, hydrations, spawns, worktreeRoot, cleanup } = setup();
+    try {
+      const draft = await review(reviewArgs(tier));
+      assert.equal(draft.status, 'ready');
+      assert.equal(draft.tier, tier);
+      const expectedWorktree = path.join(worktreeRoot, 'glimmervoid-wt-team-review-Acme-app-7-abcd');
+      assert.deepEqual(staged, [expectedWorktree]);
+      assert.deepEqual(removed, [expectedWorktree]);
+      assert.deepEqual(hydrations, [`Acme/app#7@${HEAD}`]);
+      assert.notEqual(spawns[0].cwd, expectedWorktree);
+      assert.equal(spawns[0].cwd, spawns[0].workDir);
+      assert.equal(spawns[0].extraClaudeArgs.some((arg) => arg.includes(expectedWorktree)), false, 'the untrusted checkout is never an added dir');
+      assert.equal(spawns[0].extraClaudeArgs.includes('--add-dir'), false);
+      assert.deepEqual(spawns[0].workDirFiles, ['gh-config', REVIEW_PROMPT_FILENAME]);
+      assert.deepEqual(spawns[0].spawnEnv, teamReviewSpawnEnv(spawns[0].workDir));
+      assert.deepEqual(spawns[0].settingsSandbox, teamReviewSandbox(spawns[0].workDir));
+      assert.match(spawns[0].prompt, /pr-review/);
+      assert.ok(spawns[0].prompt.includes(`git -C ${expectedWorktree}`));
+      assert.ok(spawns[0].prompt.includes(path.join(spawns[0].workDir, REVIEW_REPORT_FILENAME)));
+      assert.equal(spawns[0].id, 'team-review:Acme/app#7');
+      const args = spawns[0].extraClaudeArgs;
+      assert.equal(args[args.indexOf('--model') + 1], tier === 'full' ? FULL_MODEL : STAMP_MODEL);
+      assert.equal(fs.existsSync(spawns[0].workDir), false, 'the throwaway dir is removed afterwards');
+      assert.equal(isDispatchWorkdir(spawns[0].cwd), true, 'ingest must recognise the work dir cwd as the lane dispatch');
+      assert.equal(isDispatchWorkdir(expectedWorktree), true);
+    } finally {
+      cleanup();
+    }
   }
 });
 
-test('a full review stages the fetched head, hands it over with --add-dir, then removes it', async () => {
-  const { review, staged, removed, spawns, worktreeRoot, cleanup } = setup();
+test('the report becomes a draft rendered in the pr-review posting format', async () => {
+  const { review, cleanup } = setup();
   try {
     const draft = await review(reviewArgs('full'));
-    assert.equal(draft.status, 'ready');
-    const expectedWorktree = path.join(worktreeRoot, 'Acme-app-7-abcd');
-    assert.deepEqual(staged, [expectedWorktree]);
-    assert.deepEqual(removed, [expectedWorktree]);
-    const args = spawns[0].extraClaudeArgs;
-    assert.equal(args[args.indexOf('--add-dir') + 1], expectedWorktree);
-    assert.equal(args[args.indexOf('--model') + 1], FULL_MODEL);
-    assert.equal(fs.existsSync(spawns[0].cwd), false);
+    assert.equal(draft.verdict, 'APPROVE WITH NITS');
+    assert.equal(draft.summary, 'one nit');
+    assert.equal(draft.comments.length, 1);
+    assert.equal(draft.comments[0]?.line, 2);
+    assert.match(draft.comments[0]?.body ?? '', /\*\*\[code\/logic\] MEDIUM\*\*/);
+    assert.match(draft.body, /^> \[!NOTE\]/);
+    assert.match(draft.body, /Verdict: APPROVE WITH NITS/);
   } finally {
     cleanup();
   }
 });
 
-test('a full review removes the worktree when the session throws', async () => {
+test('a Step 4 posting plan from the skill becomes the draft verbatim, and a bad one falls back to the findings', async () => {
+  const inlineBody = `${AUTOMATED_REVIEW_NOTE}\n\n**[code/logic] MEDIUM**\n\nNit on the new line.\n\nSuggested fix: rename it.`;
+  const plan = { event: 'COMMENT', body: 'Automated review. See inline comments.', commit_id: HEAD, comments: [{ path: 'src/a.ts', line: 2, side: 'RIGHT', body: inlineBody }] };
+  const warnings: string[] = [];
+  const withPlan = setup({
+    writeReport: (workDir) => {
+      fs.writeFileSync(path.join(workDir, REVIEW_REPORT_FILENAME), reportText());
+      fs.writeFileSync(path.join(workDir, REVIEW_POSTING_FILENAME), JSON.stringify(plan));
+    },
+  });
+  const badPlan = setup({
+    log: { warn: (message: string) => { warnings.push(message); } },
+    writeReport: (workDir) => {
+      fs.writeFileSync(path.join(workDir, REVIEW_REPORT_FILENAME), reportText());
+      fs.writeFileSync(path.join(workDir, REVIEW_POSTING_FILENAME), JSON.stringify({ ...plan, commit_id: OTHER_HEAD }));
+    },
+  });
+  try {
+    const draft = await withPlan.review(reviewArgs('full'));
+    assert.equal(draft.body, `${AUTOMATED_REVIEW_NOTE}\n\nAutomated review. See inline comments.`);
+    assert.deepEqual(draft.comments, [{ path: 'src/a.ts', line: 2, side: 'RIGHT', body: inlineBody }]);
+    assert.equal(draft.verdict, 'APPROVE WITH NITS');
+    assert.ok(withPlan.spawns[0].prompt.includes(path.join(withPlan.spawns[0].workDir, REVIEW_POSTING_FILENAME)));
+    const fallback = await badPlan.review(reviewArgs('full'));
+    assert.match(fallback.body, /Verdict: APPROVE WITH NITS/);
+    assert.match(warnings.join('\n'), /targets/);
+  } finally {
+    withPlan.cleanup();
+    badPlan.cleanup();
+  }
+});
+
+test('a finding off the diff lines folds into the review body, and without a diff every line finding stays inline', async () => {
+  const offDiff = setup({ diff: 'diff --git a/src/b.ts b/src/b.ts\n--- a/src/b.ts\n+++ b/src/b.ts\n@@ -1 +1 @@\n-x\n+y\n' });
+  const noDiff = setup({ diff: null });
+  try {
+    const folded = await offDiff.review(reviewArgs('full'));
+    assert.deepEqual(folded.comments, []);
+    assert.match(folded.body, /`src\/a.ts:2`: Nit on the new line\./);
+    assert.equal((await noDiff.review(reviewArgs('full'))).comments.length, 1);
+  } finally {
+    offDiff.cleanup();
+    noDiff.cleanup();
+  }
+});
+
+test('a review removes the worktree when the session throws', async () => {
   const { review, removed, staged, cleanup } = setup({ spawnSession: async () => { throw new Error('spawn refused'); } });
   try {
     const draft = await review(reviewArgs('full'));
@@ -134,7 +212,7 @@ test('a full review removes the worktree when the session throws', async () => {
   }
 });
 
-test('a full review removes the worktree when the review times out', async () => {
+test('a review removes the worktree when it times out', async () => {
   let wasAborted = false;
   const { review, removed, cleanup } = setup({
     timeoutSeconds: 1,
@@ -166,7 +244,7 @@ test('a failed worktree stage still runs the removal and never spawns', async ()
     spawnSession: async () => { spawnCount += 1; },
   });
   try {
-    const draft = await review(reviewArgs('full'));
+    const draft = await review(reviewArgs('stamp'));
     assert.equal(draft.status, 'error');
     assert.match(draft.error ?? '', /already exists/);
     assert.equal(spawnCount, 0);
@@ -174,6 +252,41 @@ test('a failed worktree stage still runs the removal and never spawns', async ()
   } finally {
     cleanup();
   }
+});
+
+test('a failed blob hydration is an error draft that never spawns, and the checkout is still removed', async () => {
+  const { review, staged, removed, spawns, cleanup } = setup({ hydrated: false });
+  try {
+    const draft = await review(reviewArgs('full'));
+    assert.equal(draft.status, 'error');
+    assert.match(draft.error ?? '', /could not fetch the file contents of Acme\/app#7/);
+    assert.equal(spawns.length, 0);
+    assert.deepEqual(removed, staged);
+  } finally {
+    cleanup();
+  }
+});
+
+test('the review session env withholds every GitHub credential and blanks the glimmervoid secrets', () => {
+  assert.deepEqual(teamReviewSpawnEnv('/work'), {
+    GH_TOKEN: '',
+    GITHUB_TOKEN: '',
+    GH_ENTERPRISE_TOKEN: '',
+    GITHUB_ENTERPRISE_TOKEN: '',
+    GH_CONFIG_DIR: path.join('/work', 'gh-config'),
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_ASKPASS: '',
+    SSH_ASKPASS: '',
+    GIT_SSH_COMMAND: 'false',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_COUNT: '2',
+    GIT_CONFIG_KEY_0: 'credential.helper',
+    GIT_CONFIG_VALUE_0: '',
+    GIT_CONFIG_KEY_1: 'remote.origin.pushurl',
+    GIT_CONFIG_VALUE_1: 'https://push-disabled.invalid/',
+    GLIMMERVOID_POSTHOG_API_KEY: '',
+    GLIMMERVOID_TELEGRAM_BOT_TOKEN: '',
+  });
 });
 
 test('a fetched head that differs from the triaged head is an error draft, with nothing staged or spawned', async () => {
@@ -190,33 +303,27 @@ test('a fetched head that differs from the triaged head is an error draft, with 
   }
 });
 
-test('a result that is not JSON is an error draft', async () => {
-  const { review, cleanup } = setup({ writeResult: (cwd) => fs.writeFileSync(path.join(cwd, 'result.json'), 'STAMP it') });
+test('a missing, unreadable or failed report is an error draft', async () => {
+  const missing = setup({ writeReport: () => {} });
+  const garbled = setup({ writeReport: (workDir) => fs.writeFileSync(path.join(workDir, REVIEW_REPORT_FILENAME), 'looks fine to me') });
+  const failedRun = setup({
+    writeReport: (workDir) => fs.writeFileSync(path.join(workDir, REVIEW_REPORT_FILENAME), reportText().replace('VERDICT: APPROVE WITH NITS', 'VERDICT: FAILED')),
+  });
   try {
-    const draft = await review(reviewArgs('stamp'));
-    assert.equal(draft.status, 'error');
-    assert.match(draft.error ?? '', /not JSON/);
+    const missingDraft = await missing.review(reviewArgs('stamp'));
+    assert.equal(missingDraft.status, 'error');
+    assert.equal(missingDraft.error, 'no pr-review report');
+    assert.equal((await garbled.review(reviewArgs('stamp'))).status, 'error');
+    assert.match((await failedRun.review(reviewArgs('stamp'))).error ?? '', /did not complete/);
   } finally {
-    cleanup();
-  }
-});
-
-test('a result with a bad verdict or no file is an error draft', async () => {
-  const invalid = setup({ writeResult: (cwd) => fs.writeFileSync(path.join(cwd, 'result.json'), JSON.stringify({ ...JSON.parse(validResult()), verdict: 'APPROVE' })) });
-  const missing = setup({ writeResult: () => {} });
-  try {
-    assert.equal((await invalid.review(reviewArgs('stamp'))).status, 'error');
-    const draft = await missing.review(reviewArgs('stamp'));
-    assert.equal(draft.status, 'error');
-    assert.equal(draft.error, 'no result file');
-  } finally {
-    invalid.cleanup();
     missing.cleanup();
+    garbled.cleanup();
+    failedRun.cleanup();
   }
 });
 
-test('a result whose head is not the provided head is an error draft', async () => {
-  const { review, cleanup } = setup({ writeResult: (cwd) => fs.writeFileSync(path.join(cwd, 'result.json'), validResult(OTHER_HEAD)) });
+test('a report whose head is not the provided head is an error draft', async () => {
+  const { review, cleanup } = setup({ writeReport: (workDir) => fs.writeFileSync(path.join(workDir, REVIEW_REPORT_FILENAME), reportText(OTHER_HEAD)) });
   try {
     const draft = await review(reviewArgs('stamp'));
     assert.equal(draft.status, 'error');
@@ -227,44 +334,42 @@ test('a result whose head is not the provided head is an error draft', async () 
   }
 });
 
-test('a missing diff writes a note for a full review and upgrades a stamp review to a full one', async () => {
-  const full = setup({ diff: null });
-  const stamp = setup({ diff: null });
-  try {
-    assert.equal((await full.review(reviewArgs('full'))).status, 'ready');
-    assert.match(full.spawns[0].prDiff, /exceeded the 2 MB cap/);
-    const draft = await stamp.review(reviewArgs('stamp'));
-    assert.equal(draft.status, 'ready');
-    assert.equal(draft.tier, 'full');
-    assert.ok(draft.reasons.includes('diff unavailable, upgraded to a full review'));
-    assert.equal(stamp.staged.length, 1);
-    assert.equal(stamp.removed.length, 1);
-    const args = stamp.spawns[0].extraClaudeArgs;
-    assert.equal(args[args.indexOf('--model') + 1], FULL_MODEL);
-    assert.ok(args.includes('--add-dir'));
-  } finally {
-    full.cleanup();
-    stamp.cleanup();
-  }
+test('the sandbox fails closed, binds a strict egress allowlist, and keeps credential paths unreadable', () => {
+  const sandbox = teamReviewSandbox('/work/dir');
+  assert.equal(sandbox.enabled, true);
+  assert.equal(sandbox.failIfUnavailable, true, 'no bubblewrap means an error draft, never an unsandboxed run');
+  assert.equal(sandbox.allowUnsandboxedCommands, false);
+  assert.equal(sandbox.enableWeakerNetworkIsolation, true, 'macOS TLS verification needs trustd');
+  assert.equal(sandbox.network.strictAllowlist, true, 'without it the domain list is advisory');
+  assert.equal(sandbox.network.allowLocalBinding, true);
+  assert.equal(sandbox.network.allowAllUnixSockets, true);
+  assert.deepEqual(sandbox.network.allowedDomains, ['api.github.com', 'chatgpt.com', '*.chatgpt.com', 'auth.openai.com', 'api.openai.com', '*.openai.com']);
+  assert.deepEqual(sandbox.filesystem.allowWrite, ['~/.codex', '/work/dir']);
+  assert.deepEqual(sandbox.filesystem.denyRead, ['~/.ssh', '~/.config/gh', '~/Library/Keychains', '~/.git-credentials']);
+  assert.deepEqual(Object.keys(sandbox).sort(), ['allowUnsandboxedCommands', 'enableWeakerNetworkIsolation', 'enabled', 'failIfUnavailable', 'filesystem', 'network']);
+  assert.deepEqual(Object.keys(sandbox.network).sort(), ['allowAllUnixSockets', 'allowLocalBinding', 'allowedDomains', 'strictAllowlist']);
+  assert.deepEqual(Object.keys(sandbox.filesystem).sort(), ['allowWrite', 'denyRead']);
+  assert.notEqual(teamReviewSandbox('/a').network.allowedDomains, teamReviewSandbox('/b').network.allowedDomains, 'each call hands out fresh arrays');
 });
 
-test('the posture has no shell and no network, and pins the model after every variadic flag', () => {
+test('the posture denies every GitHub path, loads no MCP server, runs without prompts, and pins the model last', () => {
   const posture = teamReviewPermissions();
-  assert.equal(posture.permissions.defaultMode, 'acceptEdits');
-  for (const tool of ['Bash', 'WebFetch', 'WebSearch', 'Task', 'Edit', 'NotebookEdit']) {
-    assert.ok(posture.permissions.deny.includes(tool), tool);
-  }
-  assert.deepEqual([...TEAM_REVIEW_DENY_TOOLS], posture.permissions.deny);
-  assert.deepEqual(posture.args.slice(0, 2), ['--tools', 'Read,Grep,Glob,Write']);
+  assert.equal(posture.defaultMode, 'bypassPermissions');
+  for (const rule of ['Bash(gh:*)', 'Bash(git push:*)', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch']) assert.ok(posture.deny.includes(rule), rule);
+  assert.deepEqual([...TEAM_REVIEW_DENY_RULES], posture.deny);
+  assert.equal(posture.deny.includes('Bash'), false, 'pr-review needs git in a shell');
   for (const tier of ['stamp', 'full'] as const) {
-    const args = teamReviewClaudeArgs(tier, tier === 'full' ? '/wt' : null);
-    assert.equal(args[0], '-p');
+    const args = teamReviewClaudeArgs(tier);
+    assert.deepEqual(args.slice(0, 3), ['-p', '--strict-mcp-config', '--disallowedTools']);
+    assert.equal(args.includes('--add-dir'), false, 'an added dir loads its .claude/skills, so the checkout is reached by path only');
+    assert.deepEqual(args.slice(args.indexOf('--disallowedTools') + 1, -2), [...TEAM_REVIEW_DENY_RULES], 'the argv carries the denies even when no hook settings file is written');
     assert.deepEqual(args.slice(-2), ['--model', tier === 'full' ? FULL_MODEL : STAMP_MODEL]);
-    assert.ok(args.includes('--strict-mcp-config'));
+    assert.equal(args.includes('--setting-sources'), false, 'the operator profile carries the pr-review skill');
+    assert.equal(args.includes('--disable-slash-commands'), false);
   }
 });
 
-test('the spawned session runs the bootstrap prompt under the lane posture and is attributed to the lane', async () => {
+test('the spawned session runs the constant bootstrap prompt with the given env, without permission prompts, attributed to the lane', async () => {
   const created: SessionOptions[] = [];
   const recorded: string[] = [];
   const reviewSessions = new Map<string, unknown>();
@@ -287,16 +392,45 @@ test('the spawned session runs the bootstrap prompt under the lane posture and i
   });
   const posture = teamReviewPermissions();
   await spawn({
-    id: 'team-review:Acme/app#7', name: 'Team review Acme/app#7', cwd: '/tmp/x',
-    extraClaudeArgs: teamReviewClaudeArgs('stamp', null), settingsPermissions: posture.permissions,
+    id: 'team-review:Acme/app#7', name: 'Team review Acme/app#7', cwd: '/tmp/x', spawnEnv: teamReviewSpawnEnv('/tmp/x'),
+    extraClaudeArgs: teamReviewClaudeArgs('stamp'), settingsPermissions: posture, settingsSandbox: teamReviewSandbox('/tmp/x'),
     signal: new AbortController().signal,
   });
   assert.equal(created[0].initialPrompt, REVIEW_BOOTSTRAP_PROMPT);
-  assert.equal(created[0].dangerouslySkipPermissions, false);
-  assert.deepEqual(created[0].settingsPermissions, posture.permissions);
+  assert.equal(REVIEW_BOOTSTRAP_PROMPT, `Read ${REVIEW_PROMPT_FILENAME} and follow all instructions in that file`);
+  assert.equal(created[0].path, '/tmp/x');
+  assert.deepEqual(created[0].spawnEnv, teamReviewSpawnEnv('/tmp/x'));
+  assert.equal(created[0].dangerouslySkipPermissions, true);
+  assert.deepEqual(created[0].settingsPermissions, posture);
+  assert.deepEqual(created[0].settingsSandbox, teamReviewSandbox('/tmp/x'));
   assert.equal(created[0].ephemeral, true);
   assert.equal(created[0].observeToolCalls, false, 'no tool hook is installed when nobody listens');
   assert.deepEqual(recorded, ['team-review']);
+});
+
+test('a review whose sandbox cannot be applied ends as an error draft without spawning an agent', async () => {
+  const created: SessionOptions[] = [];
+  const { review, cleanup } = setup({
+    spawnSession: createTeamReviewSpawn({
+      reviewSessions: new Map<string, unknown>(),
+      closeSessionDataClients: () => {},
+      hookRouter: null,
+      getHookPort: null,
+      spawnGate: { run: async (task) => task() },
+      makeSession: (options) => {
+        created.push(options);
+        return new Session({ ...options, ptySpawn: () => { throw new Error('an unsandboxed review must never spawn'); } });
+      },
+    }),
+  });
+  try {
+    const draft = await review(reviewArgs('stamp'));
+    assert.equal(draft.status, 'error');
+    assert.equal(draft.error, SANDBOX_UNAPPLIED_ERROR);
+    assert.ok(created[0].settingsSandbox, 'the review asked for a sandbox');
+  } finally {
+    cleanup();
+  }
 });
 
 test('the spawned session forwards PreToolUse hook events as tool steps and ignores other hooks', async () => {
@@ -312,7 +446,7 @@ test('the spawned session forwards PreToolUse hook events as tool steps and igno
       created.push(options);
       const session = new Session(options);
       session.start = async () => {
-        session.emit('hook-event', { event: 'PreToolUse', payload: { tool_name: 'Read', tool_input: { file_path: 'pr.diff' } } });
+        session.emit('hook-event', { event: 'PreToolUse', payload: { tool_name: 'Read', tool_input: { file_path: 'src/a.ts' } } });
         session.emit('hook-event', { event: 'Stop', payload: {} });
         session.emit('exit');
       };
@@ -320,43 +454,31 @@ test('the spawned session forwards PreToolUse hook events as tool steps and igno
     },
   });
   await spawn({
-    id: 'team-review:Acme/app#7', name: 'Team review Acme/app#7', cwd: '/tmp/x',
-    extraClaudeArgs: teamReviewClaudeArgs('stamp', null), settingsPermissions: teamReviewPermissions().permissions,
+    id: 'team-review:Acme/app#7', name: 'Team review Acme/app#7', cwd: '/tmp/x', spawnEnv: teamReviewSpawnEnv('/tmp/x'),
+    extraClaudeArgs: teamReviewClaudeArgs('stamp'), settingsPermissions: teamReviewPermissions(), settingsSandbox: teamReviewSandbox('/tmp/x'),
     signal: new AbortController().signal, onToolStep: (step) => { steps.push(step); },
   });
   assert.equal(created[0].observeToolCalls, true);
-  assert.deepEqual(steps, [{ tool: 'Read', detail: 'pr.diff' }]);
+  assert.deepEqual(steps, [{ tool: 'Read', detail: 'src/a.ts' }]);
 });
 
-test('a full review reports checkout then reviewing with the timeout, and forwards tool steps', async () => {
+test('a review reports checkout then reviewing with the timeout, and forwards tool steps', async () => {
   const events: ReviewProgressEvent[] = [];
   const { review, cleanup } = setup({
     timeoutSeconds: 30,
     spawnSession: async (call) => {
-      call.onToolStep?.({ tool: 'Grep', detail: 'TODO' });
-      fs.writeFileSync(path.join(call.cwd, 'result.json'), validResult());
+      call.onToolStep?.({ tool: 'Skill', detail: 'pr-review' });
+      fs.writeFileSync(path.join(workDirOf(call), REVIEW_REPORT_FILENAME), reportText());
     },
   });
   try {
-    const draft = await review({ ...reviewArgs('full'), reportProgress: (event) => { events.push(event); } });
+    const draft = await review({ ...reviewArgs('stamp'), reportProgress: (event) => { events.push(event); } });
     assert.equal(draft.status, 'ready');
     assert.deepEqual(events, [
-      { kind: 'phase', phase: 'checkout', tier: 'full', reasons: ['a reason'] },
-      { kind: 'phase', phase: 'reviewing', tier: 'full', reasons: ['a reason'], timeoutSeconds: 30 },
-      { kind: 'step', tool: 'Grep', detail: 'TODO' },
+      { kind: 'phase', phase: 'checkout', tier: 'stamp', reasons: ['a reason'] },
+      { kind: 'phase', phase: 'reviewing', tier: 'stamp', reasons: ['a reason'], timeoutSeconds: 30 },
+      { kind: 'step', tool: 'Skill', detail: 'pr-review' },
     ]);
-  } finally {
-    cleanup();
-  }
-});
-
-test('a stamp review whose diff is unavailable reports the upgrade to full at checkout', async () => {
-  const events: ReviewProgressEvent[] = [];
-  const { review, cleanup } = setup({ diff: null });
-  try {
-    await review({ ...reviewArgs('stamp'), reportProgress: (event) => { events.push(event); } });
-    assert.deepEqual(events[0], { kind: 'phase', phase: 'checkout', tier: 'full', reasons: ['a reason', 'diff unavailable, upgraded to a full review'] });
-    assert.equal(events[1]?.kind === 'phase' ? events[1].phase : null, 'reviewing');
   } finally {
     cleanup();
   }
@@ -476,6 +598,7 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
       listRepos: async () => [],
       ensureRepo: async () => '/cache/Acme/app',
       fetchPr: async () => ({ ok: true, headSha: HEAD }),
+      hydrateRange: async () => ({ ok: true }),
     },
     gitWorkspace: {
       stageDetachedWorktree: async ({ worktreePath }) => { fs.mkdirSync(String(worktreePath), { recursive: true }); return { ok: true }; },
@@ -547,7 +670,7 @@ function actionDraft(overrides: Partial<ReviewDraftType> = {}): ReviewDraftType 
   return ReviewDraft.parse({
     key: ACTION_KEY, repo: 'Acme/app', number: 7, title: 'Listen on host', url: 'https://github.com/Acme/app/pull/7',
     author: 'teammate', tier: 'stamp', reasons: ['3 counted lines in 1 files'], reviewedHead: HEAD,
-    verdict: 'STAMP', summary: 'Looks fine', body: 'LGTM', comments: [], status: 'ready', ...overrides,
+    verdict: 'APPROVE', summary: 'Looks fine', body: 'LGTM', comments: [], status: 'ready', ...overrides,
   });
 }
 

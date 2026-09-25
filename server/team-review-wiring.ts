@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 import type { HookRouter } from '../detection/hook-source.ts';
@@ -7,14 +8,13 @@ import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { trailStepFromHook } from './core/investigation-trail-core.ts';
-import { buildLanePermissions } from './core/lane-permissions-core.ts';
 import * as core from './core/team-review-core.ts';
-import type { ReviewTier, TeamReviewCandidate } from './core/team-review-core.ts';
+import type { CommentableLines, ReviewTier, TeamReviewCandidate } from './core/team-review-core.ts';
 import {
-  JOB_RESULT_FILENAME, awaitSessionExit, createJobResultFile, drainPending, firstLine, raceWithAbort,
+  awaitSessionExit, drainPending, firstLine, raceWithAbort,
   registerEphemeralSession,
 } from './ephemeral-session.ts';
-import type { JobResultFile, RecordLane, SpawnGate } from './ephemeral-session.ts';
+import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 import { createJsonStateStore } from './json-file.ts';
 import { createLaneRunner } from './lane-runner.ts';
 import type { LaneRunnerGate, LaneStatusRecord } from './lane-runner.ts';
@@ -23,15 +23,34 @@ import type { PrGh } from './pr-gh.ts';
 import { createRepoCache } from './repo-cache.ts';
 import { createTeamReviewPoller } from './team-review-poller.ts';
 import type { DraftExpectation, DraftPatch, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller } from './team-review-poller.ts';
-import { ReviewResult, TeamReviewState, TeamReviewStatus } from '../shared/contracts/team-review.ts';
+import { TeamReviewState, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type {
-  PrDetail, ReviewComment, ReviewDraft, TeamReviewActionRequest, TeamReviewActionResult,
+  PostingPlan, PrDetail, ReviewComment, ReviewResult, ReviewDraft, TeamReviewActionRequest, TeamReviewActionResult,
   TeamReviewState as TeamReviewStateType, TeamReviewStatus as TeamReviewStatusType,
 } from '../shared/contracts/team-review.ts';
 
-const TEAM_REVIEW_DENY_TOOLS = Object.freeze(['Bash', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task']);
-const TEAM_REVIEW_ALLOW_TOOLS = Object.freeze(['Read', 'Grep', 'Glob', 'Write']);
+const TEAM_REVIEW_DENY_RULES = Object.freeze([
+  'Bash(gh:*)',
+  'Bash(git push:*)',
+  'Bash(curl:*api.github.com*)',
+  'Edit',
+  'NotebookEdit',
+  'WebFetch',
+  'WebSearch',
+]);
+const TEAM_REVIEW_ALLOWED_DOMAINS = Object.freeze([
+  'api.github.com',
+  'chatgpt.com',
+  '*.chatgpt.com',
+  'auth.openai.com',
+  'api.openai.com',
+  '*.openai.com',
+]);
+const TEAM_REVIEW_DENY_READ_PATHS = Object.freeze(['~/.ssh', '~/.config/gh', '~/Library/Keychains', '~/.git-credentials']);
+const CODEX_HOME_PATH = '~/.codex';
 const RESULT_MAX_BYTES = 1024 * 1024;
+const EMPTY_GH_CONFIG_DIRNAME = 'gh-config';
+const PUSH_DISABLED_URL = 'https://push-disabled.invalid/';
 const REPLACED_DRAFT_ERROR = 'The draft was replaced after it was shown. Read the new draft before acting on it';
 const STALE_APPROVAL_DISMISSAL = 'The pull request moved while this approval was posting, so it no longer covers the current head.';
 const UNMARKED_POST_WARNING = 'The review was posted on GitHub, but its draft could not be marked posted. Do not post it again';
@@ -40,6 +59,15 @@ interface TeamReviewWiringConfig {
   teamReview?: Record<string, unknown> | null;
   replayBufferKB?: number;
 }
+
+type TeamReviewSandbox = {
+  enabled: true;
+  failIfUnavailable: true;
+  allowUnsandboxedCommands: false;
+  enableWeakerNetworkIsolation: true;
+  network: { strictAllowlist: true; allowLocalBinding: true; allowAllUnixSockets: true; allowedDomains: string[] };
+  filesystem: { allowWrite: string[]; denyRead: string[] };
+};
 
 interface TeamReviewSettings {
   enabled: boolean;
@@ -51,6 +79,12 @@ interface TeamReviewRepoCache {
   listRepos(): Promise<string[]>;
   ensureRepo(repo: string): Promise<string | null>;
   fetchPr(repo: string, number: number, baseRef: string): Promise<{ ok: boolean; headSha: string | null }>;
+  hydrateRange(repo: string, number: number, headSha: string): Promise<{ ok: boolean }>;
+}
+
+interface TeamReviewWorkDir {
+  dir: string;
+  cleanup(): Promise<void>;
 }
 
 interface TeamReviewGitWorkspace {
@@ -63,8 +97,10 @@ type TeamReviewSpawn = (options: {
   id: string;
   name: string;
   cwd: string;
+  spawnEnv: Record<string, string>;
   extraClaudeArgs: string[];
   settingsPermissions: { deny: string[]; defaultMode: string };
+  settingsSandbox: TeamReviewSandbox;
   signal: AbortSignal;
   onToolStep?: (step: { tool: string; detail: string }) => void;
 }) => Promise<void>;
@@ -76,7 +112,7 @@ interface TeamReviewDispatchOptions {
   spawnSession: TeamReviewSpawn;
   worktreeRoot: string;
   timeoutSeconds?: number;
-  makeResultFile?: (prefix: string) => Promise<JobResultFile>;
+  makeWorkDir?: (prefix: string) => Promise<TeamReviewWorkDir>;
   setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
   clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
   randomSuffix?: () => string;
@@ -145,44 +181,104 @@ function emptyTeamReviewStatus(gate: LaneRunnerGate): TeamReviewStatusType {
   return core.teamReviewStatus({ ts: Date.now(), configured: gate.start, reason: gate.reason ?? null });
 }
 
-function teamReviewPermissions() {
-  return buildLanePermissions({ denyTools: TEAM_REVIEW_DENY_TOOLS, allowTools: TEAM_REVIEW_ALLOW_TOOLS });
+function teamReviewPermissions(): { deny: string[]; defaultMode: string } {
+  return { deny: [...TEAM_REVIEW_DENY_RULES], defaultMode: 'bypassPermissions' };
 }
 
-function teamReviewClaudeArgs(tier: ReviewTier, worktreePath: string | null): string[] {
-  const posture = teamReviewPermissions();
+function teamReviewSandbox(workDir: string): TeamReviewSandbox {
+  return {
+    enabled: true,
+    failIfUnavailable: true,
+    allowUnsandboxedCommands: false,
+    enableWeakerNetworkIsolation: true,
+    network: {
+      strictAllowlist: true,
+      allowLocalBinding: true,
+      allowAllUnixSockets: true,
+      allowedDomains: [...TEAM_REVIEW_ALLOWED_DOMAINS],
+    },
+    filesystem: {
+      allowWrite: [CODEX_HOME_PATH, workDir],
+      denyRead: [...TEAM_REVIEW_DENY_READ_PATHS],
+    },
+  };
+}
+
+function teamReviewClaudeArgs(tier: ReviewTier): string[] {
   const model = tier === 'full' ? core.FULL_MODEL : core.STAMP_MODEL;
-  const addDir = worktreePath ? ['--add-dir', worktreePath] : [];
-  return ['-p', ...posture.args, ...addDir, '--model', model];
+  return ['-p', '--strict-mcp-config', '--disallowedTools', ...TEAM_REVIEW_DENY_RULES, '--model', model];
 }
 
-function makeTeamReviewResultFile(prefix: string): Promise<JobResultFile> {
-  return createJobResultFile(`glimmervoid-wt-${core.TEAM_REVIEW_LANE_ID}-${prefix}`);
+function emptyGhConfigDir(workDir: string): string {
+  return path.join(workDir, EMPTY_GH_CONFIG_DIRNAME);
 }
 
-async function readReviewResult(resultPath: string, expectedHead: string): Promise<{ ok: true; result: ReviewResult } | { ok: false; reason: string }> {
-  let raw: string;
+function teamReviewSpawnEnv(workDir: string): Record<string, string> {
+  return {
+    GH_TOKEN: '',
+    GITHUB_TOKEN: '',
+    GH_ENTERPRISE_TOKEN: '',
+    GITHUB_ENTERPRISE_TOKEN: '',
+    GH_CONFIG_DIR: emptyGhConfigDir(workDir),
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_ASKPASS: '',
+    SSH_ASKPASS: '',
+    GIT_SSH_COMMAND: 'false',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_COUNT: '2',
+    GIT_CONFIG_KEY_0: 'credential.helper',
+    GIT_CONFIG_VALUE_0: '',
+    GIT_CONFIG_KEY_1: 'remote.origin.pushurl',
+    GIT_CONFIG_VALUE_1: PUSH_DISABLED_URL,
+    GLIMMERVOID_POSTHOG_API_KEY: '',
+    GLIMMERVOID_TELEGRAM_BOT_TOKEN: '',
+  };
+}
+
+async function makeTeamReviewWorkDir(prefix: string): Promise<TeamReviewWorkDir> {
+  const safePrefix = `glimmervoid-wt-${core.TEAM_REVIEW_LANE_ID}-${prefix}`.replace(/[^\w.-]+/g, '-');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), `${safePrefix}-`));
+  return {
+    dir,
+    cleanup: () => fs.rm(dir, { recursive: true, force: true }).catch(() => {}),
+  };
+}
+
+async function readReviewReport(reportPath: string, expectedHead: string): Promise<{ ok: true; result: ReviewResult } | { ok: false; reason: string }> {
+  let report: string;
   try {
-    const stat = await fs.stat(resultPath);
-    if (stat.size > RESULT_MAX_BYTES) return { ok: false, reason: 'result file is too large' };
-    raw = await fs.readFile(resultPath, 'utf8');
+    const stat = await fs.stat(reportPath);
+    if (stat.size > RESULT_MAX_BYTES) return { ok: false, reason: 'the pr-review report is too large' };
+    report = await fs.readFile(reportPath, 'utf8');
   } catch {
-    return { ok: false, reason: 'no result file' };
+    return { ok: false, reason: 'no pr-review report' };
   }
-  let decoded: unknown;
+  const parsed = core.parseReviewReport(report);
+  if (!parsed.ok) return { ok: false, reason: firstLine(parsed.reason) };
+  if (parsed.result.head !== expectedHead) return { ok: false, reason: `report head ${parsed.result.head} is not the reviewed head ${expectedHead}` };
+  return parsed;
+}
+
+async function readPostingPlan(postingPath: string, expectedHead: string, log: Pick<Console, 'warn'>): Promise<PostingPlan | null> {
+  let json: string;
   try {
-    decoded = JSON.parse(raw);
+    const stat = await fs.stat(postingPath);
+    if (stat.size > RESULT_MAX_BYTES) {
+      log.warn(`[${core.TEAM_REVIEW_LANE_ID}] the posting plan is too large, rendering from the findings instead`);
+      return null;
+    }
+    json = await fs.readFile(postingPath, 'utf8');
   } catch {
-    return { ok: false, reason: 'result file is not JSON' };
+    return null;
   }
-  const parsed = ReviewResult.safeParse(decoded);
-  if (!parsed.success) return { ok: false, reason: `result file is invalid: ${firstLine(parsed.error.issues[0]?.message ?? 'schema mismatch')}` };
-  if (parsed.data.head !== expectedHead) return { ok: false, reason: `result head ${parsed.data.head} is not the reviewed head ${expectedHead}` };
-  return { ok: true, result: parsed.data };
+  const parsed = core.parsePostingPlan(json, expectedHead);
+  if (parsed.ok) return parsed.plan;
+  log.warn(`[${core.TEAM_REVIEW_LANE_ID}] ${parsed.reason}, rendering from the findings instead`);
+  return null;
 }
 
 function worktreeDirName(repo: string, number: number, suffix: string): string {
-  return `${repo.replace(/[^\w.-]+/g, '-')}-${number}-${suffix}`;
+  return `glimmervoid-wt-${core.TEAM_REVIEW_LANE_ID}-${repo.replace(/[^\w.-]+/g, '-')}-${number}-${suffix}`;
 }
 
 async function pathExists(candidatePath: string): Promise<boolean> {
@@ -218,7 +314,7 @@ async function sweepLeftoverCheckouts({ worktreeRoot, repoCache, gitWorkspace, l
 function createTeamReviewDispatcher({
   github, repoCache, gitWorkspace, spawnSession, worktreeRoot,
   timeoutSeconds = core.REVIEW_TIMEOUT_SECONDS,
-  makeResultFile = makeTeamReviewResultFile,
+  makeWorkDir = makeTeamReviewWorkDir,
   setTimeoutFn = (fn, ms) => setTimeout(fn, ms),
   clearTimeoutFn = clearTimeout,
   randomSuffix = () => randomBytes(4).toString('hex'),
@@ -234,6 +330,12 @@ function createTeamReviewDispatcher({
     await pruneCachedClone(gitWorkspace, projectPath, log);
   }
 
+  async function hydrateBlobs(candidate: TeamReviewCandidate, detail: PrDetail): Promise<boolean> {
+    const hydrated = await repoCache.hydrateRange(candidate.repo, detail.number, detail.headRefOid)
+      .catch(() => ({ ok: false }));
+    return hydrated.ok;
+  }
+
   async function stageCheckout(candidate: TeamReviewCandidate, detail: PrDetail): Promise<{ projectPath: string } | { error: string }> {
     const projectPath = await repoCache.ensureRepo(candidate.repo);
     if (!projectPath) return { error: `could not clone ${candidate.repo}` };
@@ -246,12 +348,12 @@ function createTeamReviewDispatcher({
   }
 
   function spawnWithTimeout(
-    { candidate, detail, tier, reasons, reportProgress, workDir, resultPath, worktreePath, onPending }: SpawnReviewArgs & {
-      workDir: string; resultPath: string; worktreePath: string | null; onPending: (pending: Promise<unknown>) => void;
+    { candidate, detail, tier, reasons, reportProgress, workDir, reportPath, postingPath, commentable, onPending }: SpawnReviewArgs & {
+      workDir: string; reportPath: string; postingPath: string; commentable: CommentableLines | null;
+      onPending: (pending: Promise<unknown>) => void;
     },
   ): Promise<ReviewDraft> {
     const failed = (error: string) => core.errorDraft({ candidate, tier, reasons, reviewedHead: detail.headRefOid, error });
-    const posture = teamReviewPermissions();
     return raceWithAbort<ReviewDraft>({
       timeoutMs: timeoutSeconds * 1000,
       setTimeoutFn,
@@ -263,56 +365,53 @@ function createTeamReviewDispatcher({
         id: `${core.TEAM_REVIEW_LANE_ID}:${candidate.key}`,
         name: `Team review ${candidate.key}`,
         cwd: workDir,
-        extraClaudeArgs: teamReviewClaudeArgs(tier, worktreePath),
-        settingsPermissions: posture.permissions,
+        spawnEnv: teamReviewSpawnEnv(workDir),
+        extraClaudeArgs: teamReviewClaudeArgs(tier),
+        settingsPermissions: teamReviewPermissions(),
+        settingsSandbox: teamReviewSandbox(workDir),
         signal: shutdownSignal ? AbortSignal.any([signal, shutdownSignal]) : signal,
         onToolStep: (step) => reportProgress?.({ kind: 'step', ...step }),
       })
         .then(async () => {
           if (signal.aborted) return undefined;
           if (shutdownSignal?.aborted) return failed('review stopped by shutdown');
-          const outcome = await readReviewResult(resultPath, detail.headRefOid);
+          const outcome = await readReviewReport(reportPath, detail.headRefOid);
           if (!outcome.ok) return failed(outcome.reason);
-          return core.readyDraft({ candidate, tier, reasons, result: outcome.result });
+          const posting = await readPostingPlan(postingPath, detail.headRefOid, log);
+          return core.readyDraft({ candidate, tier, reasons, result: outcome.result, commentable, posting });
         })
         .catch((error: unknown) => failed(firstLine(errorMessage(error)) || 'review session failed')),
     });
   }
 
   return async function reviewPullRequest(args: SpawnReviewArgs): Promise<ReviewDraft> {
-    const { candidate, detail, reportProgress = () => {} } = args;
-    let { tier, reasons } = args;
+    const { candidate, detail, tier, reasons, reportProgress = () => {} } = args;
     const failed = (error: string) => core.errorDraft({ candidate, tier, reasons, reviewedHead: detail.headRefOid, error });
-    let resultFile: JobResultFile | null = null;
+    let workDirHandle: TeamReviewWorkDir | null = null;
     let checkout: { projectPath: string; worktreePath: string } | null = null;
     let pendingSession: Promise<unknown> | null = null;
     try {
       if (shutdownSignal?.aborted) return failed('review stopped by shutdown');
-      resultFile = await makeResultFile(`${candidate.repo}-${detail.number}`);
-      const workDir = path.dirname(resultFile.path);
+      workDirHandle = await makeWorkDir(`${candidate.repo}-${detail.number}`);
+      const workDir = workDirHandle.dir;
+      const reportPath = path.join(workDir, core.REVIEW_REPORT_FILENAME);
+      const postingPath = path.join(workDir, core.REVIEW_POSTING_FILENAME);
       const diff = await github.prDiff(candidate.repo, detail.number);
-      if (diff === null && tier === 'stamp') {
-        tier = 'full';
-        reasons = [...reasons, 'diff unavailable, upgraded to a full review'];
-      }
-      await fs.writeFile(path.join(workDir, core.PR_JSON_FILENAME), `${JSON.stringify(detail, null, 2)}\n`, 'utf8');
-      await fs.writeFile(path.join(workDir, core.PR_DIFF_FILENAME), diff ?? core.DIFF_UNAVAILABLE_NOTE, 'utf8');
-      let worktreePath: string | null = null;
-      if (tier === 'full') {
-        reportProgress({ kind: 'phase', phase: 'checkout', tier, reasons });
-        const staged = await stageCheckout(candidate, detail);
-        if ('error' in staged) return failed(staged.error);
-        worktreePath = path.join(worktreeRoot, worktreeDirName(candidate.repo, detail.number, randomSuffix()));
-        checkout = { projectPath: staged.projectPath, worktreePath };
-        await fs.mkdir(worktreeRoot, { recursive: true });
-        const created = await gitWorkspace.stageDetachedWorktree({ projectPath: staged.projectPath, worktreePath, sha: detail.headRefOid });
-        if (!created.ok) return failed(`could not stage a checkout: ${firstLine(created.err ?? '') || 'git worktree add failed'}`);
-      }
-      const prompt = core.buildReviewPrompt({ candidate, detail, tier, hasDiff: diff !== null, worktreePath, resultFileName: JOB_RESULT_FILENAME });
+      reportProgress({ kind: 'phase', phase: 'checkout', tier, reasons });
+      const staged = await stageCheckout(candidate, detail);
+      if ('error' in staged) return failed(staged.error);
+      const worktreePath = path.join(worktreeRoot, worktreeDirName(candidate.repo, detail.number, randomSuffix()));
+      checkout = { projectPath: staged.projectPath, worktreePath };
+      await fs.mkdir(worktreeRoot, { recursive: true });
+      const created = await gitWorkspace.stageDetachedWorktree({ projectPath: staged.projectPath, worktreePath, sha: detail.headRefOid });
+      if (!created.ok) return failed(`could not stage a checkout: ${firstLine(created.err ?? '') || 'git worktree add failed'}`);
+      if (!(await hydrateBlobs(candidate, detail))) return failed(`could not fetch the file contents of ${candidate.key}`);
+      const prompt = core.buildReviewPrompt({ candidate, detail, tier, reasons, checkoutPath: worktreePath, reportPath, postingPath });
       await fs.writeFile(path.join(workDir, core.REVIEW_PROMPT_FILENAME), prompt, 'utf8');
+      await fs.mkdir(emptyGhConfigDir(workDir), { recursive: true });
       reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds });
       return await spawnWithTimeout({
-        ...args, tier, reasons, workDir, resultPath: resultFile.path, worktreePath,
+        ...args, workDir, reportPath, postingPath, commentable: diff === null ? null : core.commentableLines(diff),
         onPending: (pending) => { pendingSession = pending; },
       });
     } catch (error) {
@@ -320,7 +419,7 @@ function createTeamReviewDispatcher({
     } finally {
       await drainPending(pendingSession);
       if (checkout) await removeCheckout(checkout);
-      if (resultFile) await resultFile.cleanup();
+      if (workDirHandle) await workDirHandle.cleanup();
     }
   };
 }
@@ -338,17 +437,19 @@ function createTeamReviewSpawn({
   replayBufferKB?: number;
   makeSession?: (options: SessionOptions) => Session;
 }): TeamReviewSpawn {
-  return async function spawnTeamReviewSession({ id, name, cwd, extraClaudeArgs, settingsPermissions, signal, onToolStep }) {
+  return async function spawnTeamReviewSession({ id, name, cwd, spawnEnv, extraClaudeArgs, settingsPermissions, settingsSandbox, signal, onToolStep }) {
     const sess = makeSession({
       id,
       name,
       path: cwd,
-      dangerouslySkipPermissions: false,
+      spawnEnv,
+      dangerouslySkipPermissions: true,
       extraClaudeArgs,
       initialPrompt: core.REVIEW_BOOTSTRAP_PROMPT,
       ephemeral: true,
       observeToolCalls: onToolStep !== undefined,
       settingsPermissions,
+      settingsSandbox,
       replayBufferKB,
       hookRouter,
       getHookPort,
@@ -586,11 +687,11 @@ function createTeamReviewWiring({
 type TeamReviewWiring = ReturnType<typeof createTeamReviewWiring>;
 
 export {
-  TEAM_REVIEW_ALLOW_TOOLS, TEAM_REVIEW_DENY_TOOLS,
-  createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewWiring, makeTeamReviewResultFile,
-  emptyTeamReviewStatus, readReviewResult, sweepLeftoverCheckouts, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewPermissions, teamReviewShouldStart,
+  TEAM_REVIEW_DENY_RULES,
+  createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewWiring, makeTeamReviewWorkDir,
+  emptyTeamReviewStatus, readReviewReport, sweepLeftoverCheckouts, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewPermissions, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
 };
 export type {
-  TeamReviewActionGithub, TeamReviewActionOptions, TeamReviewActionOutcome, TeamReviewDispatchOptions, TeamReviewDraftStore, TeamReviewGitWorkspace, TeamReviewRepoCache, TeamReviewSpawn, TeamReviewWiring,
-  TeamReviewWiringConfig, TeamReviewWiringOptions,
+  TeamReviewActionGithub, TeamReviewActionOptions, TeamReviewActionOutcome, TeamReviewDispatchOptions, TeamReviewDraftStore, TeamReviewGitWorkspace, TeamReviewRepoCache, TeamReviewSandbox, TeamReviewSpawn, TeamReviewWiring,
+  TeamReviewWiringConfig, TeamReviewWiringOptions, TeamReviewWorkDir,
 };

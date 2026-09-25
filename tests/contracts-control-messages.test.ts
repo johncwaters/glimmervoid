@@ -189,7 +189,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'team-review-status', ts: NOW, configured: true, drafts: [{
     key: 'PostHog/wizard#1350', repo: 'PostHog/wizard', number: 1350, title: 'Improve agent detection',
     url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate', tier: 'stamp', reasons: ['12 counted lines in 1 files'],
-    reviewedHead: 'a'.repeat(40), verdict: 'STAMP', summary: 'Looks right', body: 'Matches the description.',
+    reviewedHead: 'a'.repeat(40), verdict: 'APPROVE', summary: 'Looks right', body: 'Matches the description.',
     comments: [{ path: 'src/a.ts', line: 3, side: 'RIGHT', body: 'Nit' }], status: 'ready',
   }], inFlight: [{
     key: 'PostHog/wizard#1351', repo: 'PostHog/wizard', number: 1351, title: 'Tighten retries',

@@ -43,16 +43,53 @@ export const ReviewComment = z.object({
 });
 export type ReviewComment = z.infer<typeof ReviewComment>;
 
-const reviewVerdict = z.enum(['STAMP', 'COMMENT', 'NEEDS_YOU']);
+const LEGACY_VERDICTS: Readonly<Record<string, string>> = Object.freeze({
+  STAMP: 'APPROVE',
+  COMMENT: 'APPROVE WITH NITS',
+  NEEDS_YOU: 'REQUEST CHANGES',
+});
+
+export const ReviewVerdict = z.enum(['APPROVE', 'APPROVE WITH NITS', 'REQUEST CHANGES', 'BLOCKED']);
+export type ReviewVerdict = z.infer<typeof ReviewVerdict>;
+
+const storedVerdict = z.preprocess(
+  (verdict) => (typeof verdict === 'string' && Object.hasOwn(LEGACY_VERDICTS, verdict) ? LEGACY_VERDICTS[verdict] : verdict),
+  ReviewVerdict,
+);
+
+export const FindingSeverity = z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
+export type FindingSeverity = z.infer<typeof FindingSeverity>;
+
+export const ReviewFinding = z.object({
+  path: z.string().min(1),
+  line: z.number().int().positive().nullable(),
+  side: z.enum(['RIGHT', 'LEFT']),
+  severity: FindingSeverity,
+  reviewer: z.string().min(1),
+  disposition: z.enum(['ACTIONABLE', 'NIT', 'AMBIGUOUS']).nullable(),
+  body: z.string().min(1),
+});
+export type ReviewFinding = z.infer<typeof ReviewFinding>;
 
 export const ReviewResult = z.object({
-  verdict: reviewVerdict,
+  verdict: ReviewVerdict,
   head: CommitSha,
   summary: z.string(),
-  body: z.string(),
-  comments: z.array(ReviewComment),
+  findings: z.array(ReviewFinding),
 });
 export type ReviewResult = z.infer<typeof ReviewResult>;
+
+export const PostingPlan = z.object({
+  body: z.string(),
+  commit_id: CommitSha,
+  comments: z.array(z.object({
+    path: z.string().min(1),
+    line: z.number().int().positive(),
+    side: z.enum(['RIGHT', 'LEFT']).default('RIGHT'),
+    body: z.string().min(1),
+  })),
+});
+export type PostingPlan = z.infer<typeof PostingPlan>;
 
 export const ReviewDraft = z.object({
   key: z.string(),
@@ -64,7 +101,7 @@ export const ReviewDraft = z.object({
   tier: z.enum(['stamp', 'full']),
   reasons: z.array(z.string()),
   reviewedHead: CommitSha,
-  verdict: reviewVerdict,
+  verdict: storedVerdict,
   summary: z.string(),
   body: z.string(),
   comments: z.array(ReviewComment),
