@@ -283,6 +283,8 @@ const DASHBOARD_SETTING_PATHS = Object.freeze([
   ...VISIONS_INTENT_NUMERIC_KEYS.map((key) => `visions.intent.${key}`),
   ...TEAM_REVIEW_BOOLEAN_KEYS.map((key) => `teamReview.${key}`),
   ...TEAM_REVIEW_STRING_KEYS.map((key) => `teamReview.${key}`),
+  'teamReview.reReviewAfterHours',
+  'teamReview.skipIdleAfterDays',
   ...POSTHOG_BOOLEAN_KEYS.map((key) => `posthog.${key}`),
   ...POSTHOG_STRING_KEYS.map((key) => `posthog.${key}`),
   ...POSTHOG_VALUE_KEYS.map((key) => `posthog.${key}`),

@@ -241,8 +241,8 @@ test('visions validation rejects wrong scalar types and ranges', () => {
 
 test('team review settings persist, echo, and reject invalid fields', () => {
   const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { teamReview: { enabled: true, org: ' PostHog ', team: ' product-engineering ', ignored: true } } });
-  const expected = { enabled: true, org: 'PostHog', team: 'product-engineering' };
+  h.send({ type: 'update-settings', settings: { teamReview: { enabled: true, org: ' PostHog ', team: ' product-engineering ', reReviewAfterHours: 6, skipIdleAfterDays: 3, ignored: true } } });
+  const expected = { enabled: true, org: 'PostHog', team: 'product-engineering', reReviewAfterHours: 6, skipIdleAfterDays: 3 };
   assert.deepEqual(h.cfg.teamReview, expected);
   assert.deepEqual(updatedFrom(h)?.settings?.teamReview, expected);
 
@@ -250,6 +250,8 @@ test('team review settings persist, echo, and reject invalid fields', () => {
     [{ enabled: 'true' }, /teamReview.enabled must be a boolean/],
     [{ org: 42 }, /teamReview.org must be a string/],
     [{ team: 42 }, /teamReview.team must be a string/],
+    [{ reReviewAfterHours: 0 }, /teamReview.reReviewAfterHours must be a positive number/],
+    [{ skipIdleAfterDays: 0 }, /teamReview.skipIdleAfterDays must be a positive number/],
   ];
   for (const [teamReview, message] of cases) {
     const invalid = harness({ projects: [] });

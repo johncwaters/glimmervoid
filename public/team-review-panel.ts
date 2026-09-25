@@ -42,7 +42,7 @@ let _renderedDetailSignature: string | null = null;
 let _activityCallback: ((isActive: boolean) => void) | null = null;
 const _progressTicker = createPollAgoTicker(() => _root);
 const _readyDetails = new Map<string, ActionDetailHandle>();
-const _errorDetails = new Map<string, ActionDetailHandle>();
+const _requeueDetails = new Map<string, ActionDetailHandle>();
 const _pendingActions = new Map<string, PendingAction>();
 const _attention = createAttentionAck({
   getAck: getPrsAttentionAck,
@@ -130,7 +130,7 @@ function pullRequestLink(review: Pick<ReviewDraft, 'repo' | 'number' | 'url'>): 
   return externalLink('pr-link', pullRequestLabel(review.repo, review.number), review.url);
 }
 
-function createQueueRow(review: ReviewDraft | InFlightReview, kind: 'ready' | 'inReview' | 'attention' | 'posted'): HTMLButtonElement {
+function createQueueRow(review: ReviewDraft | InFlightReview, kind: 'ready' | 'inReview' | 'attention' | 'posted' | 'discarded'): HTMLButtonElement {
   const row = el('button', 'pr-queue-row');
   row.type = 'button';
   row.dataset.reviewKey = review.key;
@@ -149,7 +149,7 @@ function createQueueRow(review: ReviewDraft | InFlightReview, kind: 'ready' | 'i
     const draft = review as ReviewDraft;
     bottom.append(createVerdictSeal(draft.verdict), el('span', 'pr-queue-author', draft.author), createSeverityCounts(draft, true));
   }
-  if (kind === 'attention') {
+  if (kind === 'attention' || kind === 'discarded') {
     const draft = review as ReviewDraft;
     bottom.append(el('span', `pr-attention-label pr-attention-label-${draft.status}`, attentionStatusLabel(draft.status)), el('span', 'pr-queue-author', draft.author), el('span', 'pr-queue-reason', attentionDetail(draft)));
   }
@@ -167,7 +167,7 @@ function createQueueRow(review: ReviewDraft | InFlightReview, kind: 'ready' | 'i
   return row;
 }
 
-function createQueueSection(title: string, reviews: (ReviewDraft | InFlightReview)[], kind: 'ready' | 'inReview' | 'attention' | 'posted'): HTMLElement {
+function createQueueSection(title: string, reviews: (ReviewDraft | InFlightReview)[], kind: 'ready' | 'inReview' | 'attention' | 'posted' | 'discarded'): HTMLElement {
   const section = el('section', 'pr-queue-section');
   section.append(el('h3', 'pr-section-heading', `${title} ${reviews.length}`));
   for (const review of reviews) section.append(createQueueRow(review, kind));
@@ -364,7 +364,7 @@ function createOtherDetail(draft: ReviewDraft): HTMLElement {
     return detail;
   }
   detail.append(el('p', 'pr-attention-detail', attentionDetail(draft)));
-  if (draft.status !== 'error') return detail;
+  if (draft.status !== 'error' && draft.status !== 'stale' && draft.status !== 'discarded') return detail;
   const footer = el('footer', 'pr-footer');
   const button = el('button', 'pr-action', 'Queue review');
   button.type = 'button';
@@ -387,13 +387,13 @@ function createOtherDetail(draft: ReviewDraft): HTMLElement {
   });
   footer.append(button, status);
   detail.append(footer);
-  _errorDetails.set(draft.key, { signature: `${draft.status}:${draft.reviewedHead}:${draft.error ?? ''}`, element: detail, settle });
+  _requeueDetails.set(draft.key, { signature: `${draft.status}:${draft.reviewedHead}:${draft.error ?? ''}`, element: detail, settle });
   return detail;
 }
 
 function otherDetailFor(draft: ReviewDraft): HTMLElement {
-  if (draft.status !== 'error') return createOtherDetail(draft);
-  const cached = _errorDetails.get(draft.key);
+  if (draft.status !== 'error' && draft.status !== 'stale' && draft.status !== 'discarded') return createOtherDetail(draft);
+  const cached = _requeueDetails.get(draft.key);
   if (cached && (_pendingActions.has(draft.key) || cached.signature === `${draft.status}:${draft.reviewedHead}:${draft.error ?? ''}`)) return cached.element;
   return createOtherDetail(draft);
 }
@@ -415,7 +415,7 @@ function renderSelectedDetail(sections: TeamReviewSections): void {
     _renderedDetailSignature = `inReview:${inReview.key}`;
     return;
   }
-  const other = [...sections.attention, ...sections.posted].find((draft) => draft.key === _selectedKey);
+  const other = [...sections.attention, ...sections.posted, ...sections.discarded].find((draft) => draft.key === _selectedKey);
   if (!other) return;
   _detail.replaceChildren(otherDetailFor(other));
   _renderedDetailSignature = `${other.status}:${other.key}`;
@@ -432,10 +432,10 @@ function forgetDepartedDetails(readyKeys: Set<string>): void {
     if (readyKeys.has(key) || _pendingActions.has(key)) continue;
     _readyDetails.delete(key);
   }
-  const errorKeys = new Set(_latest?.drafts.filter((draft) => draft.status === 'error').map((draft) => draft.key) ?? []);
-  for (const key of _errorDetails.keys()) {
-    if (errorKeys.has(key) || _pendingActions.has(key)) continue;
-    _errorDetails.delete(key);
+  const requeueKeys = new Set(_latest?.drafts.filter((draft) => draft.status === 'error' || draft.status === 'stale' || draft.status === 'discarded').map((draft) => draft.key) ?? []);
+  for (const key of _requeueDetails.keys()) {
+    if (requeueKeys.has(key) || _pendingActions.has(key)) continue;
+    _requeueDetails.delete(key);
   }
 }
 
@@ -487,6 +487,7 @@ function render(): void {
   }
   if (sections.attention.length) queueSections.push(createQueueSection('Needs attention', sections.attention, 'attention'));
   if (sections.posted.length) queueSections.push(createQueueSection('Recently posted', sections.posted, 'posted'));
+  if (sections.discarded.length) queueSections.push(createQueueSection('Discarded', sections.discarded, 'discarded'));
   _queue.replaceChildren(...queueSections);
   restoreQueueFocus(focusedReviewKey);
   renderSelectedDetail(sections);
@@ -546,10 +547,10 @@ export function applyTeamReviewActionResult(message: unknown): void {
   if (!pending || pending.requestId !== actionResult.requestId) return;
   window.clearTimeout(pending.timer);
   _pendingActions.delete(actionResult.key);
-  const handle = (pending.action === 'requeue' ? _errorDetails.get(actionResult.key) : undefined) ?? _readyDetails.get(actionResult.key);
+  const handle = (pending.action === 'requeue' ? _requeueDetails.get(actionResult.key) : undefined) ?? _readyDetails.get(actionResult.key);
   if (!handle) return;
   if (actionResult.ok === true) {
-    if (pending.action === 'requeue') _errorDetails.delete(actionResult.key);
+    if (pending.action === 'requeue') _requeueDetails.delete(actionResult.key);
     handle.settle(true, typeof actionResult.warning === 'string' && actionResult.warning ? `${actionOutcomeText(pending.action)}. ${actionResult.warning}` : actionOutcomeText(pending.action));
     return;
   }

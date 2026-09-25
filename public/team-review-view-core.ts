@@ -11,6 +11,7 @@ export interface TeamReviewSections {
   inReview: InFlightReview[];
   attention: ReviewDraft[];
   posted: ReviewDraft[];
+  discarded: ReviewDraft[];
 }
 
 export interface ReviewParagraph {
@@ -59,6 +60,7 @@ const VERDICT_TONES: Readonly<Record<ReviewDraft['verdict'], string>> = Object.f
 const ATTENTION_STATUS_LABELS: Readonly<Record<string, string>> = Object.freeze({
   stale: 'stale',
   error: 'error',
+  discarded: 'discarded',
 });
 
 const PHASE_LABELS: Readonly<Record<ReviewProgressPhase, string>> = Object.freeze({
@@ -82,7 +84,7 @@ const ACTION_PROGRESS_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.
 });
 
 export function groupDrafts(status: TeamReviewStatus | null | undefined): TeamReviewSections {
-  const sections: TeamReviewSections = { ready: [], inReview: [], attention: [], posted: [] };
+  const sections: TeamReviewSections = { ready: [], inReview: [], attention: [], posted: [], discarded: [] };
   if (!status) return sections;
   const inFlightKeys = new Set(status.inFlight.map((review) => review.key));
   sections.inReview.push(...status.inFlight);
@@ -91,16 +93,17 @@ export function groupDrafts(status: TeamReviewStatus | null | undefined): TeamRe
     if (draft.status === 'ready') sections.ready.push(draft);
     if (draft.status === 'stale' || draft.status === 'error') sections.attention.push(draft);
     if (draft.status === 'posted') sections.posted.push(draft);
+    if (draft.status === 'discarded') sections.discarded.push(draft);
   }
   return sections;
 }
 
 export function hasAnyRow(sections: TeamReviewSections): boolean {
-  return sections.ready.length + sections.inReview.length + sections.attention.length + sections.posted.length > 0;
+  return sections.ready.length + sections.inReview.length + sections.attention.length + sections.posted.length + sections.discarded.length > 0;
 }
 
 export function chooseSelectedReviewKey(sections: TeamReviewSections, selectedKey: string | null): string | null {
-  const rows = [...sections.ready, ...sections.inReview, ...sections.attention, ...sections.posted];
+  const rows = [...sections.ready, ...sections.inReview, ...sections.attention, ...sections.posted, ...sections.discarded];
   if (selectedKey && rows.some((row) => row.key === selectedKey)) return selectedKey;
   return rows[0]?.key ?? null;
 }
@@ -197,7 +200,8 @@ export function attentionStatusLabel(status: ReviewDraft['status']): string {
 }
 
 export function attentionDetail(draft: ReviewDraft): string {
-  if (draft.status === 'stale') return 'The pull request moved after this review. It will be reviewed again at the new head.';
+  if (draft.status === 'stale') return 'Out of date. Automatic review runs at the next poll after the configured wait. Queue review bypasses the wait.';
+  if (draft.status === 'discarded') return 'Not reviewed again until queued.';
   return draft.error || draft.summary || 'The review failed.';
 }
 

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { MAX_REVIEW_ATTEMPTS, POSTED_RETENTION_MS, errorDraft, readyDraft } from '../server/core/team-review-core.ts';
+import { DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, MAX_REVIEW_ATTEMPTS, POSTED_RETENTION_MS, errorDraft, readyDraft } from '../server/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/team-review-poller.ts';
 import type { SpawnReviewArgs, TeamReviewGithub, TeamReviewPollerDependencies } from '../server/team-review-poller.ts';
 import { PrDetail, SearchedPr, TeamReviewStatus } from '../shared/contracts/team-review.ts';
@@ -147,6 +147,34 @@ test('a draft at the same head is never reviewed again, whatever its status', as
   await poller.stop();
 });
 
+test('discarded draft stays settled after a new head until manually queued', async () => {
+  const key = `${REPO}#1`;
+  const { poller, github, spawned, statuses } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.equal(spawned.length, 1);
+  assert.ok(await poller.updateDraft(key, { reviewedHead: HEAD_ONE, status: 'ready' }, { status: 'discarded' }));
+  github.heads.set(1, HEAD_TWO);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 1);
+  assert.equal(poller.getDraft(key)?.status, 'discarded');
+  assert.equal(await poller.requeue(key, HEAD_TWO), false);
+  assert.equal(await poller.requeue(key, HEAD_ONE), true);
+  assert.equal(poller.getDraft(key)?.status, 'stale');
+  assert.equal(poller._state()[key]?.reviewedHead, null);
+  assert.equal(poller._state()[key]?.reviewAttempts, 0);
+  assert.equal(statuses.at(-1)?.drafts[0]?.status, 'stale');
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 2);
+  assert.equal(poller.getDraft(key)?.status, 'ready');
+  assert.equal(poller.getDraft(key)?.reviewedHead, HEAD_TWO);
+  await poller.stop();
+});
+
 test('saved drafts are published at start before the first GitHub search finishes', async () => {
   const key = `${REPO}#1`;
   const candidate = { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate' };
@@ -211,11 +239,11 @@ test('requeue of a ready draft marks it stale at once and the next tick reviews 
   await poller.stop();
 });
 
-test('a moved head marks the ready draft stale and queues a fresh review', async () => {
+test('a moved head marks the ready draft stale and waits until the review interval passes', async () => {
   const release: { resolve?: () => void } = {};
   const gate = new Promise<void>((resolve) => { release.resolve = resolve; });
   let spawnCount = 0;
-  const { poller, github, statuses } = setup({
+  const { poller, github, statuses, writes, setNow } = setup({
     spawnReview: async (args) => {
       spawnCount += 1;
       if (spawnCount === 2) await gate;
@@ -226,16 +254,144 @@ test('a moved head marks the ready draft stale and queues a fresh review', async
   github.heads.set(1, HEAD_ONE);
   await poller.start();
   await settle();
+  assert.equal(poller._state()[`${REPO}#1`]?.reviewedAt, 1000);
   github.heads.set(1, HEAD_TWO);
   await poller.tick();
   await settle();
-  assert.equal(poller.getDraft(`${REPO}#1`)?.status, 'stale', 'the old draft is stale while the new review runs');
+  assert.equal(spawnCount, 1);
+  assert.equal(poller.getDraft(`${REPO}#1`)?.status, 'stale');
+  assert.equal(writes.at(-1)?.[`${REPO}#1`]?.draft?.status, 'stale');
+  assert.deepEqual(statuses.at(-1)?.inFlight, []);
+  setNow(1000 + DEFAULT_RE_REVIEW_AFTER_HOURS * 3600000 - 1);
+  await poller.tick();
+  assert.equal(spawnCount, 1);
+  setNow(1000 + DEFAULT_RE_REVIEW_AFTER_HOURS * 3600000);
+  await poller.tick();
+  await settle();
   assert.deepEqual(statuses.at(-1)?.inFlight.map((review) => review.key), [`${REPO}#1`]);
   release.resolve?.();
   await settle();
   assert.equal(spawnCount, 2);
   assert.equal(poller.getDraft(`${REPO}#1`)?.status, 'ready');
   assert.equal(poller.getDraft(`${REPO}#1`)?.reviewedHead, HEAD_TWO);
+  assert.equal(poller._state()[`${REPO}#1`]?.reviewedAt, 1000 + DEFAULT_RE_REVIEW_AFTER_HOURS * 3600000);
+  await poller.stop();
+});
+
+test('a head that returns to the last reviewed head within the wait restores the stale draft to ready without spawning', async () => {
+  const key = `${REPO}#1`;
+  const { poller, github, spawned, setNow } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.equal(spawned.length, 1);
+  github.heads.set(1, HEAD_TWO);
+  await poller.tick();
+  await settle();
+  assert.equal(poller.getDraft(key)?.status, 'stale');
+  github.heads.set(1, HEAD_ONE);
+  setNow(1000 + DEFAULT_RE_REVIEW_AFTER_HOURS * 3600000 - 1);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 1);
+  assert.equal(poller.getDraft(key)?.status, 'ready');
+  assert.equal(poller.getDraft(key)?.reviewedHead, HEAD_ONE);
+  await poller.stop();
+});
+
+test('a stale draft can be manually queued inside the review interval', async () => {
+  const key = `${REPO}#1`;
+  const { poller, github, spawned } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  github.heads.set(1, HEAD_TWO);
+  await poller.tick();
+  assert.equal(poller.getDraft(key)?.status, 'stale');
+  assert.equal(await poller.requeue(key, HEAD_ONE), true);
+  assert.equal(poller._state()[key]?.reviewedHead, null);
+  assert.equal(poller._state()[key]?.reviewAttempts, 0);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 2);
+  assert.equal(poller.getDraft(key)?.reviewedHead, HEAD_TWO);
+  await poller.stop();
+});
+
+test('a legacy ready draft keeps its original review time after becoming stale', async () => {
+  const key = `${REPO}#1`;
+  const candidate = { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate' };
+  const draft = readyDraft({ candidate, tier: 'stamp', reasons: [], result: { verdict: 'APPROVE', head: HEAD_ONE, summary: 'fine', findings: [] } });
+  const savedState: TeamReviewState = { [key]: { draft, reviewedHead: HEAD_ONE, inFlight: false, skipReason: null, reviewAttempts: 1, updatedAt: 1000 } };
+  const { poller, github, spawned, setNow } = setup({ readState: async () => structuredClone(savedState) });
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_TWO);
+  setNow(2000);
+  await poller.start();
+  await settle();
+  assert.equal(poller.getDraft(key)?.status, 'stale');
+  assert.equal(poller._state()[key]?.reviewedAt, 1000);
+  assert.equal(poller._state()[key]?.updatedAt, 2000);
+  assert.equal(spawned.length, 0);
+  setNow(1000 + DEFAULT_RE_REVIEW_AFTER_HOURS * 3600000);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 1);
+  await poller.stop();
+});
+
+test('an error draft below the attempt limit retries at the same head without waiting', async () => {
+  let attempts = 0;
+  const { poller, github } = setup({
+    spawnReview: async (args) => {
+      attempts += 1;
+      if (attempts === 1) return errorDraft({ candidate: args.candidate, tier: args.tier, reasons: args.reasons, reviewedHead: args.detail.headRefOid, error: 'failed' });
+      return draftFor(args);
+    },
+  });
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.equal(poller.getDraft(`${REPO}#1`)?.status, 'error');
+  assert.equal(poller._state()[`${REPO}#1`]?.reviewedAt, 1000);
+  await poller.tick();
+  await settle();
+  assert.equal(attempts, 2);
+  assert.equal(poller.getDraft(`${REPO}#1`)?.status, 'ready');
+  await poller.stop();
+});
+
+test('an idle PR is omitted from review and pruned from the visible drafts', async () => {
+  const key = `${REPO}#1`;
+  const { poller, github, spawned, statuses, setNow } = setup();
+  github.requested = [searchItem(1, 'teammate', { updated_at: new Date(1000).toISOString() })];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.equal(spawned.length, 1);
+  setNow(1000 + DEFAULT_SKIP_IDLE_AFTER_DAYS * 86400000 + 1);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 1);
+  assert.equal(poller._state()[key], undefined);
+  assert.deepEqual(statuses.at(-1)?.drafts, []);
+  await poller.stop();
+});
+
+test('a PR already idle on first search is never reviewed or shown', async () => {
+  const nowMs = 1000 + DEFAULT_SKIP_IDLE_AFTER_DAYS * 86400000 + 1;
+  const { poller, github, spawned, statuses, setNow } = setup();
+  setNow(nowMs);
+  github.requested = [searchItem(1, 'teammate', { updated_at: new Date(1000).toISOString() })];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.deepEqual(spawned, []);
+  assert.deepEqual(statuses.at(-1)?.drafts, []);
+  assert.deepEqual(poller._state(), {});
   await poller.stop();
 });
 
@@ -271,6 +427,22 @@ test('a skip-tier PR is recorded with its reason and never spawned', async () =>
   await settle();
   assert.equal(spawned.length, 0);
   assert.deepEqual(poller._state()[`${REPO}#5`], { draft: null, reviewedHead: HEAD_ONE, inFlight: false, skipReason: 'fork', reviewAttempts: 0, updatedAt: 1000 });
+  await poller.stop();
+});
+
+test('a skip-tier PR is not re-fetched with viewPr on a second tick at the same head', async () => {
+  const { poller, github, spawned } = setup();
+  github.requested = [searchItem(5, 'teammate')];
+  github.heads.set(5, HEAD_ONE);
+  let viewPrCalls = 0;
+  github.viewPr = async (_repo, number) => { viewPrCalls += 1; return prDetail(number, HEAD_ONE, { isCrossRepository: true }); };
+  await poller.start();
+  await settle();
+  assert.equal(viewPrCalls, 1);
+  await poller.tick();
+  await settle();
+  assert.equal(viewPrCalls, 1);
+  assert.equal(spawned.length, 0);
   await poller.stop();
 });
 
@@ -401,6 +573,7 @@ test('a review aborted by shutdown leaves no draft and is queued again on the ne
   assert.equal(poller.getDraft(`${REPO}#1`), null);
   assert.equal(poller._state()[`${REPO}#1`]?.inFlight, false);
   assert.equal(poller._state()[`${REPO}#1`]?.reviewAttempts, 0);
+  assert.equal(poller._state()[`${REPO}#1`]?.reviewedAt, undefined);
   isShuttingDown = false;
   await poller.tick();
   await settle();
@@ -428,6 +601,7 @@ test('a stopped review saves its resume record without changing the prior draft 
   assert.deepEqual(entry?.draft, previousDraft);
   assert.equal(entry?.reviewAttempts, 1);
   assert.equal(entry?.reviewedHead, HEAD_ONE);
+  assert.equal(entry?.reviewedAt, undefined);
   assert.deepEqual(entry?.resumable, RESUMABLE);
   assert.deepEqual(writes.at(-1)?.[key]?.resumable, RESUMABLE);
   await poller.stop();
@@ -532,8 +706,8 @@ test('an error draft is retried until the attempt budget for its head is spent, 
   await poller.stop();
 });
 
-test('a moved head resets the attempt count and reviews the new head', async () => {
-  const { poller, github, spawned } = setup({
+test('a moved head waits after exhausted errors, then resets the attempt count', async () => {
+  const { poller, github, spawned, setNow } = setup({
     spawnReview: async (args) => {
       spawned.push(args);
       return errorDraft({ candidate: args.candidate, tier: args.tier, reasons: args.reasons, reviewedHead: args.detail.headRefOid, error: 'timed out' });
@@ -549,6 +723,10 @@ test('a moved head resets the attempt count and reviews the new head', async () 
   }
   assert.equal(poller._state()[`${REPO}#1`]?.reviewAttempts, MAX_REVIEW_ATTEMPTS);
   github.heads.set(1, HEAD_TWO);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, MAX_REVIEW_ATTEMPTS);
+  setNow(1000 + DEFAULT_RE_REVIEW_AFTER_HOURS * 3600000);
   await poller.tick();
   await settle();
   assert.equal(spawned.length, MAX_REVIEW_ATTEMPTS + 1);

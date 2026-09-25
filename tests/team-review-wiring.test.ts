@@ -12,7 +12,7 @@ import type { DraftPatch, SpawnReviewArgs } from '../server/team-review-poller.t
 import type { PostedReview } from '../server/pr-gh.ts';
 import {
   TEAM_REVIEW_DENY_RULES, createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewWiring, emptyTeamReviewStatus,
-  createTeamReviewStateIo, makeTeamReviewWorkDir, sweepLeftoverCheckouts, teamReviewClaudeArgs, teamReviewPermissions, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
+  createTeamReviewStateIo, makeTeamReviewWorkDir, readTeamReviewSettings, sweepLeftoverCheckouts, teamReviewClaudeArgs, teamReviewPermissions, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
 } from '../server/team-review-wiring.ts';
 import type { TeamReviewActionGithub, TeamReviewDispatchOptions, TeamReviewSpawn } from '../server/team-review-wiring.ts';
 import { PrDetail, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
@@ -749,6 +749,13 @@ test('the lane starts only when enabled with both org and team', () => {
   assert.equal(teamReviewShouldStart({ teamReview: { enabled: true, org: 'Acme', team: 'core' } }).start, true);
 });
 
+test('team review settings use configurable positive review and idle windows', () => {
+  assert.deepEqual(readTeamReviewSettings({}), { enabled: false, org: '', team: '', reReviewAfterHours: 24, skipIdleAfterDays: 14 });
+  assert.deepEqual(readTeamReviewSettings({ teamReview: { enabled: true, org: ' Acme ', team: ' core ', reReviewAfterHours: 6, skipIdleAfterDays: 3 } }), {
+    enabled: true, org: 'Acme', team: 'core', reReviewAfterHours: 6, skipIdleAfterDays: 3,
+  });
+});
+
 test('a failed worktree removal still deletes the checkout directory and prunes the cached clone', async () => {
   const warnings: string[] = [];
   const pruned: string[] = [];
@@ -997,7 +1004,7 @@ function actionHarness(options: ActionHarnessOptions = {}) {
       },
       requeue: async (key, head) => {
         requeues.push(`${key}@${head}`);
-        return key === draft.key && head === draft.reviewedHead && (draft.status === 'error' || draft.status === 'ready');
+        return key === draft.key && head === draft.reviewedHead && (draft.status === 'error' || draft.status === 'ready' || draft.status === 'stale' || draft.status === 'discarded');
       },
     },
     github: {
@@ -1061,18 +1068,20 @@ test('a clicked head that differs from the draft head is refused before GitHub i
   assert.equal(h.currentDraft().status, 'ready');
 });
 
-test('requeue accepts only an error or ready draft at the clicked head and never calls GitHub', async () => {
+test('requeue accepts error, ready, stale or discarded drafts at the clicked head and never calls GitHub', async () => {
   const harness = actionHarness();
-  for (const status of ['posted', 'discarded'] as const) {
-    harness.replaceDraft(actionDraft({ status }));
-    assert.deepEqual(await harness.submit({ action: 'requeue', body: '', comments: [] }), { ok: false, error: 'only a failed or ready review can be queued again' });
-  }
+  harness.replaceDraft(actionDraft({ status: 'posted' }));
+  assert.deepEqual(await harness.submit({ action: 'requeue', body: '', comments: [] }), { ok: false, error: 'only a failed, ready, stale or discarded review can be queued again' });
   harness.replaceDraft(actionDraft({ status: 'error', error: 'timed out' }));
   assert.equal((await harness.submit({ action: 'requeue', head: OTHER_HEAD, body: '', comments: [] })).ok, false);
   assert.deepEqual(await harness.submit({ action: 'requeue', body: '', comments: [] }), { ok: true });
   harness.replaceDraft(actionDraft({ status: 'ready' }));
   assert.deepEqual(await harness.submit({ action: 'requeue', body: '', comments: [] }), { ok: true });
-  assert.deepEqual(harness.requeues, Array(4).fill(`${ACTION_KEY}@${HEAD}`));
+  harness.replaceDraft(actionDraft({ status: 'discarded' }));
+  assert.deepEqual(await harness.submit({ action: 'requeue', body: '', comments: [] }), { ok: true });
+  harness.replaceDraft(actionDraft({ status: 'stale' }));
+  assert.deepEqual(await harness.submit({ action: 'requeue', body: '', comments: [] }), { ok: true });
+  assert.deepEqual(harness.requeues, Array(5).fill(`${ACTION_KEY}@${HEAD}`));
   assert.deepEqual(harness.headLookups, []);
   assert.deepEqual(harness.diffLookups, []);
   assert.deepEqual(harness.posted, []);

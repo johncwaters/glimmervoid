@@ -614,7 +614,7 @@ export const SETTINGS_MAP = Object.freeze([
     id: 'lanes-team-review',
     level: 'lanes',
     title: 'Team review',
-    description: "Draft reviews of teammates' pull requests for you to post from the PR reviews tab.",
+    description: "Draft reviews of teammates' pull requests for you to post from the Reviews tab.",
     settings: [
       {
         id: 'team-review-enabled', path: 'teamReview.enabled', title: 'Enable team review',
@@ -630,6 +630,16 @@ export const SETTINGS_MAP = Object.freeze([
         id: 'team-review-team', path: 'teamReview.team', title: 'GitHub team',
         description: 'Team slug whose members and review requests are polled.',
         control: 'text', keywords: ['github', 'slug'], defaultValue: '',
+      },
+      {
+        id: 'team-review-re-review-after-hours', path: 'teamReview.reReviewAfterHours', title: 'Re-review after (hours)',
+        description: 'When a reviewed PR has a new head, review it again after this many hours since its last review. Queue review runs it at any time.',
+        control: 'number', range: 'POSTHOG_INTERVAL_RANGE', keywords: ['review', 'delay'], defaultValue: 24, integer: false, step: 0.5,
+      },
+      {
+        id: 'team-review-skip-idle-after-days', path: 'teamReview.skipIdleAfterDays', title: 'Skip PRs idle for (days)',
+        description: 'Leave pull requests without GitHub activity for this long out of automatic review.',
+        control: 'number', range: 'POSTHOG_INTERVAL_RANGE', keywords: ['idle', 'activity'], defaultValue: 14, integer: false, step: 0.5,
       },
     ],
   },

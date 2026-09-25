@@ -2502,6 +2502,7 @@ a.radar-issue-title:hover {
 .pr-phase-label { color: var(--accent); white-space: nowrap; }
 .pr-attention-label { color: var(--state-waiting); text-transform: uppercase; font-weight: 700; }
 .pr-attention-label-error { color: var(--state-failed); }
+.pr-attention-label-discarded { color: var(--text-dim); }
 
 .pr-verdict-seal {
   display: inline-flex;

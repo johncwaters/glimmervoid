@@ -80,6 +80,8 @@ const TeamReviewSettings = optionalObject('teamReview', {
   enabled: optionalBoolean('teamReview.enabled'),
   org: optionalString('teamReview.org', true),
   team: optionalString('teamReview.team', true),
+  reReviewAfterHours: optionalNumber('teamReview.reReviewAfterHours'),
+  skipIdleAfterDays: optionalNumber('teamReview.skipIdleAfterDays'),
 });
 
 const posthogNumberRanges = {

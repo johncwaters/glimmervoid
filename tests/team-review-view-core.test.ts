@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  actionOutcomeText, actionProgressText, attentionDetail, buildActionRequest, chooseSelectedReviewKey, commentLocation, emptyStateText, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey, commentLocation, emptyStateText, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, phaseLabel, pullRequestLabel, readyAttentionSignature, readyRowSignature, reviewFooterText, reviewProgressSteps,
   severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone, withoutComment,
 } from '../public/team-review-view-core.ts';
@@ -34,7 +34,7 @@ function status(drafts: ReviewDraftType[], inFlight: InFlightReviewType[] = [], 
   return TeamReviewStatus.parse({ type: 'team-review-status', ts: 1000, configured, reason: null, drafts, inFlight });
 }
 
-test('drafts group into ready, in review, needs attention and recently posted, with discarded hidden', () => {
+test('drafts group into ready, in review, needs attention, recently posted and discarded', () => {
   const sections = groupDrafts(status([
     draft(1),
     draft(2, { status: 'stale' }),
@@ -46,6 +46,7 @@ test('drafts group into ready, in review, needs attention and recently posted, w
   assert.deepEqual(sections.inReview.map((row) => row.key), ['Acme/app#9']);
   assert.deepEqual(sections.attention.map((row) => row.number), [2, 3]);
   assert.deepEqual(sections.posted.map((row) => row.number), [4]);
+  assert.deepEqual(sections.discarded.map((row) => row.number), [5]);
   assert.equal(hasAnyRow(sections), true);
 });
 
@@ -64,7 +65,7 @@ test('each section keeps the server order, which is newest first', () => {
 test('an absent or empty status has no rows', () => {
   assert.equal(hasAnyRow(groupDrafts(null)), false);
   assert.equal(hasAnyRow(groupDrafts(status([], [], true))), false);
-  assert.equal(hasAnyRow(groupDrafts(status([draft(1, { status: 'discarded' })]))), false);
+  assert.equal(hasAnyRow(groupDrafts(status([draft(1, { status: 'discarded' })]))), true);
 });
 
 test('tier and verdict labels are short and lower case, with a tone per verdict', () => {
@@ -95,6 +96,7 @@ test('the badge signature tracks ready drafts by key and head only', () => {
   const reReviewed = status([draft(1, { reviewedHead: NEXT_HEAD })]);
   assert.notEqual(readyAttentionSignature(reReviewed), readyAttentionSignature(readyAtHead));
   assert.equal(readyAttentionSignature(status([draft(1, { status: 'posted' })])), '');
+  assert.equal(readyAttentionSignature(status([draft(1, { status: 'discarded' })])), '');
   assert.equal(readyAttentionSignature(null), '');
 });
 
@@ -128,8 +130,10 @@ test('queue review sends an empty action payload and has stable progress and out
 });
 
 test('attention rows explain a stale draft and surface the error of a failed one', () => {
-  assert.match(attentionDetail(draft(1, { status: 'stale' })), /moved after this review/);
+  assert.equal(attentionDetail(draft(1, { status: 'stale' })), 'Out of date. Automatic review runs at the next poll after the configured wait. Queue review bypasses the wait.');
   assert.equal(attentionDetail(draft(1, { status: 'error', error: 'no result file' })), 'no result file');
+  assert.equal(attentionStatusLabel('discarded'), 'discarded');
+  assert.equal(attentionDetail(draft(1, { status: 'discarded' })), 'Not reviewed again until queued.');
 });
 
 test('a review in progress names its phase in plain words', () => {
@@ -170,13 +174,16 @@ test('a changed draft, in-flight set, configuration or missing previous status n
   assert.equal(isInFlightProgressOnlyChange(previous, status([draft(1)], [inFlightReview(2)], false)), false);
 });
 
-test('selection favors ready, then in review, then attention and stays on an available key', () => {
-  const sections = groupDrafts(status([draft(1), draft(2, { status: 'stale' }), draft(3, { status: 'posted' })], [inFlightReview(4)]));
+test('selection favors ready, then in review, attention, posted and discarded, while keeping an available key', () => {
+  const sections = groupDrafts(status([draft(5, { status: 'discarded' }), draft(1), draft(2, { status: 'stale' }), draft(3, { status: 'posted' })], [inFlightReview(4)]));
   assert.equal(chooseSelectedReviewKey(sections, null), 'Acme/app#1');
   assert.equal(chooseSelectedReviewKey(sections, 'Acme/app#4'), 'Acme/app#4');
+  assert.equal(chooseSelectedReviewKey(sections, 'Acme/app#5'), 'Acme/app#5');
   assert.equal(chooseSelectedReviewKey(sections, 'missing'), 'Acme/app#1');
   assert.equal(chooseSelectedReviewKey(groupDrafts(status([draft(2, { status: 'error' })], [inFlightReview(4)])), null), 'Acme/app#4');
   assert.equal(chooseSelectedReviewKey(groupDrafts(status([draft(2, { status: 'error' })])), null), 'Acme/app#2');
+  assert.equal(chooseSelectedReviewKey(groupDrafts(status([draft(5, { status: 'discarded' }), draft(3, { status: 'posted' })])), null), 'Acme/app#3');
+  assert.equal(chooseSelectedReviewKey(groupDrafts(status([draft(5, { status: 'discarded' })])), null), 'Acme/app#5');
   assert.equal(chooseSelectedReviewKey(groupDrafts(status([])), null), null);
 });
 

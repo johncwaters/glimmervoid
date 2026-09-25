@@ -10,6 +10,7 @@ test('saved review entries accept both legacy state and a resumable session', ()
   const resumable = { sessionId: 'claude-1', workDir: '/work/review', worktreePath: '/work/tree', head: HEAD, deadlineAt: 9000, savedAt: 1000 };
   assert.deepEqual(TeamReviewStateEntry.parse(oldEntry), oldEntry);
   assert.deepEqual(TeamReviewStateEntry.parse({ ...oldEntry, resumable }), { ...oldEntry, resumable });
+  assert.deepEqual(TeamReviewStateEntry.parse({ ...oldEntry, reviewedAt: 2000 }).reviewedAt, 2000);
   assert.equal(TeamReviewStateEntry.safeParse({ ...oldEntry, resumable: { ...resumable, sessionId: '' } }).success, false);
   assert.equal(TeamReviewStateEntry.safeParse({ ...oldEntry, resumable: { ...resumable, head: 'bad' } }).success, false);
 });
@@ -23,6 +24,7 @@ test('search items require the fields needed to identify a PR while retaining Gi
     user: { login: 'teammate', type: 'User', id: 7 },
     pull_request: { url: 'https://api.github.com/repos/PostHog/wizard/pulls/1350' },
     state: 'open',
+    updated_at: '2026-09-25T00:00:00Z',
   };
   assert.deepEqual(SearchedPr.parse(item), item);
   for (const invalid of [
@@ -30,6 +32,7 @@ test('search items require the fields needed to identify a PR while retaining Gi
     { ...item, user: { login: 'teammate' } },
     { ...item, number: 0 },
     { ...item, draft: 'false' },
+    { ...item, updated_at: 123 },
   ]) assert.equal(SearchedPr.safeParse(invalid).success, false);
 });
 

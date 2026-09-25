@@ -54,6 +54,8 @@ interface TeamReviewPollerDependencies {
   now?: () => number;
   intervalMinutes?: number;
   maxConcurrentReviews?: number;
+  reReviewAfterMs?: number;
+  skipIdleAfterMs?: number;
 }
 
 function errorMessage(error: unknown): string {
@@ -69,6 +71,8 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     log = console, onTickComplete = () => {}, now = () => Date.now(),
   } = deps;
   const maxConcurrentReviews = deps.maxConcurrentReviews ?? core.MAX_CONCURRENT_REVIEWS;
+  const reReviewAfterMs = deps.reReviewAfterMs ?? core.DEFAULT_RE_REVIEW_AFTER_HOURS * 60 * 60 * 1000;
+  const skipIdleAfterMs = deps.skipIdleAfterMs ?? core.DEFAULT_SKIP_IDLE_AFTER_DAYS * 24 * 60 * 60 * 1000;
   let state: TeamReviewState = {};
   let self: string | null = null;
   const progressByKey = new Map<string, InFlightReview>();
@@ -158,6 +162,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     entry.reviewedHead = draft.reviewedHead;
     entry.skipReason = null;
     entry.updatedAt = now();
+    entry.reviewedAt = entry.updatedAt;
     await persist();
     emitStatus();
   }
@@ -173,8 +178,12 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
         continue;
       }
       const head = await github.prHead(candidate.repo, candidate.number);
-      if (head === null || core.isSettledAtHead(entry, head)) continue;
-      if (core.markDraftStale(entry, now())) isDirty = true;
+      if (head === null) continue;
+      if (core.restoreDraftAtReviewedHead(entry, head, now())) isDirty = true;
+      const canAutoReview = core.shouldAutoReview(entry, head, now(), reReviewAfterMs);
+      if (entry.reviewedHead !== head && entry.draft?.status === 'ready') entry.reviewedAt ??= entry.updatedAt;
+      if (entry.reviewedHead !== head && core.markDraftStale(entry, now())) isDirty = true;
+      if (!canAutoReview) continue;
       queue.push(candidate);
     }
     return { queue, isDirty };
@@ -243,7 +252,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     const teammates = members.filter((login) => login.toLowerCase() !== viewer.toLowerCase());
     const requested = await github.searchTeamRequested(org, team);
     const authored = teammates.length > 0 ? await github.searchAuthoredBy(org, teammates) : { items: [], complete: true };
-    const candidates = core.selectCandidates(requested.items, authored.items, { self: viewer });
+    const candidates = core.selectCandidates(requested.items, authored.items, { self: viewer, nowMs: now(), skipIdleAfterMs });
     return { candidates, isComplete: requested.complete && authored.complete };
   }
 
@@ -285,9 +294,10 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   async function requeue(key: string, head: string): Promise<boolean> {
     const entry = state[key];
     if (!entry?.draft || entry.inFlight || entry.draft.reviewedHead !== head) return false;
-    if (entry.draft.status !== 'error' && entry.draft.status !== 'ready') return false;
+    if (entry.draft.status !== 'error' && entry.draft.status !== 'ready' && entry.draft.status !== 'stale' && entry.draft.status !== 'discarded') return false;
     entry.reviewAttempts = 0;
     entry.reviewedHead = null;
+    if (entry.draft.status === 'discarded') entry.draft = { ...entry.draft, status: 'stale' };
     core.markDraftStale(entry, now());
     entry.updatedAt = now();
     await persist();

@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {
   AUTOMATED_REVIEW_NOTE,
   MAX_REVIEW_ATTEMPTS,
+  DEFAULT_RE_REVIEW_AFTER_HOURS,
+  DEFAULT_SKIP_IDLE_AFTER_DAYS,
   POSTED_RETENTION_MS,
   REVIEW_SKILL_NAME,
   RECENT_STEPS_SHOWN,
@@ -27,9 +29,11 @@ import {
   readyDraft,
   renderReview,
   repoFromSearchItem,
+  restoreDraftAtReviewedHead,
   resumeDecision,
   reviewAttemptsAfter,
   selectCandidates,
+  shouldAutoReview,
   shouldPruneEntry,
   startReviewProgress,
   triagePr,
@@ -89,7 +93,7 @@ test('search candidates union requested and authored PRs once, excluding self, d
     searchItem('PostHog/context-mill', 405, 'colleague'),
   ];
   assert.equal(repoFromSearchItem(requested[0]), 'PostHog/wizard');
-  assert.deepEqual(selectCandidates(requested, authored, { self: 'operator' }), [
+  assert.deepEqual(selectCandidates(requested, authored, { self: 'operator', nowMs: 1000, skipIdleAfterMs: 14 * 86400000 }), [
     { key: 'PostHog/wizard#1350', repo: 'PostHog/wizard', number: 1350, title: 'PR 1350', url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate' },
     { key: 'PostHog/context-mill#405', repo: 'PostHog/context-mill', number: 405, title: 'PR 405', url: 'https://github.com/PostHog/context-mill/pull/405', author: 'colleague' },
   ]);
@@ -103,9 +107,21 @@ test('search candidates accept enterprise repository URLs and skip unparseable o
   assert.equal(repoFromSearchItem(enterprise), 'PostHog/wizard');
   assert.equal(repoFromSearchItem(malformed), null);
   assert.equal(repoFromSearchItem(notARepo), null);
-  assert.deepEqual(selectCandidates([malformed, enterprise, notARepo], [valid], { self: 'operator' }).map((candidate) => candidate.key), [
+  assert.deepEqual(selectCandidates([malformed, enterprise, notARepo], [valid], { self: 'operator', nowMs: 1000, skipIdleAfterMs: 14 * 86400000 }).map((candidate) => candidate.key), [
     'PostHog/wizard#1360', 'PostHog/context-mill#405',
   ]);
+});
+
+test('search candidates keep recent, missing and unparseable activity while dropping idle PRs', () => {
+  const nowMs = Date.parse('2026-09-25T00:00:00Z');
+  const skipIdleAfterMs = DEFAULT_SKIP_IDLE_AFTER_DAYS * 86400000;
+  const requested = [
+    searchItem('PostHog/wizard', 1, 'teammate', { updated_at: new Date(nowMs - skipIdleAfterMs).toISOString() }),
+    searchItem('PostHog/wizard', 2, 'teammate', { updated_at: new Date(nowMs - skipIdleAfterMs - 1).toISOString() }),
+    searchItem('PostHog/wizard', 3, 'teammate'),
+    searchItem('PostHog/wizard', 4, 'teammate', { updated_at: 'unparseable' }),
+  ];
+  assert.deepEqual(selectCandidates(requested, [], { self: 'operator', nowMs, skipIdleAfterMs }).map((candidate) => candidate.number), [1, 3, 4]);
 });
 
 test('triage uses sensitive paths and counted source size', () => {
@@ -228,7 +244,7 @@ function readyDraftAt(head: string) {
   });
 }
 
-test('a PR is settled at a head only once a draft or a skip was recorded for that head', () => {
+test('a discarded draft stays settled across heads while other drafts and skips settle at their head', () => {
   assert.equal(isSettledAtHead(undefined, HEAD), false);
   assert.equal(isSettledAtHead(stateEntry(), HEAD), false);
   assert.equal(isSettledAtHead(stateEntry({ skipReason: 'fork' }), HEAD), true);
@@ -236,7 +252,10 @@ test('a PR is settled at a head only once a draft or a skip was recorded for tha
   for (const status of ['stale', 'posted', 'discarded'] as const) {
     assert.equal(isSettledAtHead(stateEntry({ draft: { ...readyDraftAt(HEAD), status } }), HEAD), true, status);
   }
-  assert.equal(isSettledAtHead(stateEntry({ draft: readyDraftAt(HEAD) }), 'b'.repeat(40)), false);
+  const nextHead = 'b'.repeat(40);
+  assert.equal(isSettledAtHead(stateEntry({ draft: { ...readyDraftAt(HEAD), status: 'discarded' } }), nextHead), true);
+  assert.equal(isSettledAtHead(stateEntry({ draft: readyDraftAt(HEAD) }), nextHead), false);
+  assert.equal(isSettledAtHead(stateEntry({ draft: { ...readyDraftAt(HEAD), status: 'posted' } }), nextHead), false);
 });
 
 test('an error draft stays retryable until its head has used every review attempt', () => {
@@ -246,6 +265,46 @@ test('an error draft stays retryable until its head has used every review attemp
   }
   assert.equal(isSettledAtHead(stateEntry({ draft: failedDraft, reviewAttempts: MAX_REVIEW_ATTEMPTS }), HEAD), true);
   assert.equal(MAX_REVIEW_ATTEMPTS, 3);
+});
+
+test('automatic review starts immediately for new and resumable entries and respects settled heads', () => {
+  const waitMs = DEFAULT_RE_REVIEW_AFTER_HOURS * 3600000;
+  const readyEntry = stateEntry({ draft: readyDraftAt(HEAD), reviewedAt: 1000 });
+  const resumable = { sessionId: 'claude-1', workDir: '/work', worktreePath: '/tree', head: HEAD, deadlineAt: 9000, savedAt: 1000 };
+  assert.equal(shouldAutoReview(undefined, HEAD, 1000, waitMs), true);
+  assert.equal(shouldAutoReview(stateEntry(), HEAD, 1000, waitMs), true);
+  assert.equal(shouldAutoReview(readyEntry, HEAD, 1000 + waitMs, waitMs), false);
+  assert.equal(shouldAutoReview(stateEntry({ ...readyEntry, resumable }), HEAD, 1000, waitMs), true);
+  assert.equal(shouldAutoReview(stateEntry({ ...readyEntry, reviewedHead: null }), HEAD, 1000, waitMs), true);
+  assert.equal(shouldAutoReview(stateEntry({ ...readyEntry, draft: { ...readyDraftAt(HEAD), status: 'discarded' } }), 'b'.repeat(40), 1000 + waitMs, waitMs), false);
+});
+
+test('automatic review skips a triaged skip at its head and re-triages once the head moves', () => {
+  const waitMs = DEFAULT_RE_REVIEW_AFTER_HOURS * 3600000;
+  const nextHead = 'b'.repeat(40);
+  const skippedEntry = stateEntry({ skipReason: 'fork', reviewedAt: 1000 });
+  assert.equal(shouldAutoReview(skippedEntry, HEAD, 1000, waitMs), false);
+  assert.equal(shouldAutoReview(skippedEntry, nextHead, 1000, waitMs), true);
+});
+
+test('automatic review waits after a changed head across draft states and uses the last review time', () => {
+  const waitMs = DEFAULT_RE_REVIEW_AFTER_HOURS * 3600000;
+  const nextHead = 'b'.repeat(40);
+  for (const status of ['ready', 'stale', 'posted', 'error'] as const) {
+    const entry = stateEntry({ draft: { ...readyDraftAt(HEAD), status }, reviewedAt: 1000, updatedAt: 1000 + waitMs });
+    assert.equal(shouldAutoReview(entry, nextHead, 1000 + waitMs - 1, waitMs), false, status);
+    assert.equal(shouldAutoReview(entry, nextHead, 1000 + waitMs, waitMs), true, status);
+  }
+  const oldEntry = stateEntry({ draft: readyDraftAt(HEAD), updatedAt: 1000 });
+  assert.equal(shouldAutoReview(oldEntry, nextHead, 1000 + waitMs - 1, waitMs), false);
+  assert.equal(shouldAutoReview(oldEntry, nextHead, 1000 + waitMs, waitMs), true);
+});
+
+test('an error at the same head retries below its limit without waiting', () => {
+  const failedDraft = { ...readyDraftAt(HEAD), status: 'error' as const };
+  const waitMs = DEFAULT_RE_REVIEW_AFTER_HOURS * 3600000;
+  assert.equal(shouldAutoReview(stateEntry({ draft: failedDraft, reviewAttempts: 1 }), HEAD, 1000, waitMs), true);
+  assert.equal(shouldAutoReview(stateEntry({ draft: failedDraft, reviewAttempts: MAX_REVIEW_ATTEMPTS }), HEAD, 1000 + waitMs, waitMs), false);
 });
 
 test('review attempts count up at the same head and restart at one when the head moves', () => {
@@ -269,6 +328,24 @@ test('only a ready draft goes stale when its head moves', () => {
   const posted = stateEntry({ draft: { ...readyDraftAt(HEAD), status: 'posted' } });
   assert.equal(markDraftStale(posted, 5000), false);
   assert.equal(posted.draft?.status, 'posted');
+});
+
+test('a stale draft restores to ready once the head returns to the last reviewed head', () => {
+  const stale = stateEntry({ draft: { ...readyDraftAt(HEAD), status: 'stale' } });
+  assert.equal(restoreDraftAtReviewedHead(stale, HEAD, 5000), true);
+  assert.equal(stale.draft?.status, 'ready');
+  assert.equal(stale.updatedAt, 5000);
+});
+
+test('a stale draft does not restore when requeued, at a different head, or not stale', () => {
+  const nextHead = 'b'.repeat(40);
+  const requeued = stateEntry({ draft: { ...readyDraftAt(HEAD), status: 'stale' }, reviewedHead: null });
+  assert.equal(restoreDraftAtReviewedHead(requeued, HEAD, 5000), false);
+  const staleAtOtherHead = stateEntry({ draft: { ...readyDraftAt(HEAD), status: 'stale' } });
+  assert.equal(restoreDraftAtReviewedHead(staleAtOtherHead, nextHead, 5000), false);
+  const ready = stateEntry({ draft: readyDraftAt(HEAD) });
+  assert.equal(restoreDraftAtReviewedHead(ready, HEAD, 5000), false);
+  assert.equal(ready.draft?.status, 'ready');
 });
 
 test('departed PRs are pruned, except in-flight ones and posted ones inside the retention window', () => {

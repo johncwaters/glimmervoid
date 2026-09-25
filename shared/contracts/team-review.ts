@@ -8,6 +8,7 @@ export const SearchedPr = z.object({
   title: z.string(),
   html_url: z.string(),
   draft: z.boolean().optional(),
+  updated_at: z.string().optional(),
   repository_url: z.string(),
   user: z.object({ login: z.string(), type: z.enum(['User', 'Bot']) }).passthrough(),
   pull_request: z.object({}).passthrough(),
@@ -147,6 +148,7 @@ export const TeamReviewStateEntry = z.object({
   skipReason: z.string().nullable(),
   reviewAttempts: z.number().int().nonnegative().default(0),
   resumable: ResumableReview.nullable().optional(),
+  reviewedAt: z.number().optional(),
   updatedAt: z.number().finite(),
 });
 export type TeamReviewStateEntry = z.infer<typeof TeamReviewStateEntry>;

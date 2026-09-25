@@ -72,6 +72,8 @@ interface TeamReviewSettings {
   enabled: boolean;
   org: string;
   team: string;
+  reReviewAfterHours: number;
+  skipIdleAfterDays: number;
 }
 
 interface TeamReviewRepoCache {
@@ -168,6 +170,8 @@ function readTeamReviewSettings(config: TeamReviewWiringConfig): TeamReviewSetti
     enabled: block?.enabled === true,
     org: typeof block?.org === 'string' ? block.org.trim() : '',
     team: typeof block?.team === 'string' ? block.team.trim() : '',
+    reReviewAfterHours: typeof block?.reReviewAfterHours === 'number' && Number.isFinite(block.reReviewAfterHours) && block.reReviewAfterHours > 0 ? block.reReviewAfterHours : core.DEFAULT_RE_REVIEW_AFTER_HOURS,
+    skipIdleAfterDays: typeof block?.skipIdleAfterDays === 'number' && Number.isFinite(block.skipIdleAfterDays) && block.skipIdleAfterDays > 0 ? block.skipIdleAfterDays : core.DEFAULT_SKIP_IDLE_AFTER_DAYS,
   };
 }
 
@@ -662,7 +666,7 @@ function createTeamReviewActions({ drafts, github, log = console }: TeamReviewAc
     if (request.action === 'discard') return discard(request.key, draft);
     if (request.action === 'requeue') {
       const isQueued = await drafts.requeue(request.key, request.head);
-      return isQueued ? { ok: true } : { ok: false, error: 'only a failed or ready review can be queued again' };
+      return isQueued ? { ok: true } : { ok: false, error: 'only a failed, ready, stale or discarded review can be queued again' };
     }
     return post(request.key, draft, request);
   }
@@ -759,6 +763,8 @@ function createTeamReviewWiring({
       return createPoller({
         org: settings.org,
         team: settings.team,
+        reReviewAfterMs: settings.reReviewAfterHours * 60 * 60 * 1000,
+        skipIdleAfterMs: settings.skipIdleAfterDays * 24 * 60 * 60 * 1000,
         github,
         spawnReview: trackReview,
         beforeStart: (keepPaths) => sweepLeftoverCheckouts({ worktreeRoot, workRoot, keepPaths, repoCache, gitWorkspace, log }),
@@ -838,6 +844,7 @@ export {
   TEAM_REVIEW_DENY_RULES,
   createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewStateIo, createTeamReviewWiring, makeTeamReviewWorkDir,
   emptyTeamReviewStatus, readReviewReport, sweepLeftoverCheckouts, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewPermissions, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
+  readTeamReviewSettings,
 };
 export type {
   TeamReviewActionGithub, TeamReviewActionOptions, TeamReviewActionOutcome, TeamReviewDispatchOptions, TeamReviewDraftStore, TeamReviewGitWorkspace, TeamReviewRepoCache, TeamReviewSandbox, TeamReviewSpawn, TeamReviewWiring,

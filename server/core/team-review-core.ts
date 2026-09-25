@@ -14,6 +14,8 @@ const MAX_REVIEW_ATTEMPTS = 3;
 const REVIEW_TIMEOUT_SECONDS = 2400;
 const RESUME_TTL_MS = 2 * 60 * 60 * 1000;
 const POLL_INTERVAL_MINUTES = 15;
+const DEFAULT_RE_REVIEW_AFTER_HOURS = 24;
+const DEFAULT_SKIP_IDLE_AFTER_DAYS = 14;
 const RECENT_STEPS_SHOWN = 5;
 const PROGRESS_EMIT_INTERVAL_MS = 1000;
 
@@ -61,13 +63,15 @@ function repoFromSearchItem(item: SearchedPr): string | null {
   return match[1];
 }
 
-function selectCandidates(teamRequested: SearchedPr[], authored: SearchedPr[], { self }: { self: string }): TeamReviewCandidate[] {
+function selectCandidates(teamRequested: SearchedPr[], authored: SearchedPr[], { self, nowMs, skipIdleAfterMs }: { self: string; nowMs: number; skipIdleAfterMs: number }): TeamReviewCandidate[] {
   const candidates: TeamReviewCandidate[] = [];
   const seenKeys = new Set<string>();
   for (const item of [...teamRequested, ...authored]) {
     if (item.user.login.toLowerCase() === self.toLowerCase()) continue;
     if (item.draft === true) continue;
     if (item.user.type === 'Bot' || item.user.login.toLowerCase().endsWith('[bot]')) continue;
+    const updatedAtMs = item.updated_at ? Date.parse(item.updated_at) : Number.NaN;
+    if (Number.isFinite(updatedAtMs) && nowMs - updatedAtMs > skipIdleAfterMs) continue;
     const repo = repoFromSearchItem(item);
     if (repo === null) continue;
     const key = prKey(repo, item.number);
@@ -205,9 +209,19 @@ function invalidComments(comments: readonly ReviewComment[], commentable: Commen
 
 function isSettledAtHead(entry: TeamReviewStateEntry | undefined, head: string): boolean {
   if (entry?.resumable) return false;
+  if (entry?.draft?.status === 'discarded') return true;
   if (!entry || entry.reviewedHead !== head) return false;
   if (entry.draft?.status === 'error') return entry.reviewAttempts >= MAX_REVIEW_ATTEMPTS;
   return entry.draft !== null || entry.skipReason !== null;
+}
+
+function shouldAutoReview(entry: TeamReviewStateEntry | undefined, currentHead: string, nowMs: number, reReviewAfterMs: number): boolean {
+  if (!entry) return true;
+  if (isSettledAtHead(entry, currentHead)) return false;
+  if (!entry.draft) return true;
+  if (entry.resumable || entry.reviewedHead === null) return true;
+  if (entry.reviewedHead === currentHead && entry.draft.status === 'error') return true;
+  return nowMs - (entry.reviewedAt ?? entry.updatedAt) >= reReviewAfterMs;
 }
 
 function resumeDecision(entry: TeamReviewStateEntry, currentHead: string, nowMs: number): 'resume' | 'discard' | 'none' {
@@ -227,6 +241,15 @@ function reviewAttemptsAfter(entry: TeamReviewStateEntry, reviewedHead: string):
 function markDraftStale(entry: TeamReviewStateEntry, nowMs: number): boolean {
   if (entry.draft?.status !== 'ready') return false;
   entry.draft = { ...entry.draft, status: 'stale' };
+  entry.updatedAt = nowMs;
+  return true;
+}
+
+function restoreDraftAtReviewedHead(entry: TeamReviewStateEntry, currentHead: string, nowMs: number): boolean {
+  if (entry.draft?.status !== 'stale') return false;
+  if (entry.reviewedHead === null || entry.reviewedHead !== currentHead) return false;
+  if (entry.draft.reviewedHead !== currentHead) return false;
+  entry.draft = { ...entry.draft, status: 'ready' };
   entry.updatedAt = nowMs;
   return true;
 }
@@ -526,10 +549,10 @@ function buildReviewPrompt({
 
 export {
   STAMP_MODEL, FULL_MODEL, STAMP_MAX_LINES, STAMP_MAX_FILES, MAX_CONCURRENT_REVIEWS, MAX_REVIEW_ATTEMPTS,
-  REVIEW_TIMEOUT_SECONDS, RESUME_TTL_MS, POLL_INTERVAL_MINUTES, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS,
+  REVIEW_TIMEOUT_SECONDS, RESUME_TTL_MS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS,
   TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME,
   REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, REVIEW_SKILL_NAME, AUTOMATED_REVIEW_NOTE,
-  buildReviewPrompt, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, errorDraft, eventForAction, invalidComments, isSettledAtHead, markDraftStale,
+  buildReviewPrompt, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, errorDraft, eventForAction, invalidComments, isSettledAtHead, shouldAutoReview, markDraftStale, restoreDraftAtReviewedHead,
   applyReviewProgress, prBaseRef, prHeadRef, prKey, readyDraft, repoFromSearchItem, resumeDecision, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr,
 };
 export type { CommentableFileLines, CommentableLines, ReviewProgressEvent, ReviewTier, TeamReviewCandidate };
