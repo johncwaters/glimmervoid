@@ -1,11 +1,12 @@
 import type {
+  MillMetricArmName,
   MillMetricDisposition,
   MillMetricPack,
   MillMetricPromptClass,
   MillMetricPromptCounts,
   MillMetricSession,
 } from '../../shared/contracts/mill-metrics.ts';
-import { MILL_METRICS_RETAIN_DAY_RANGE } from '../../shared/settings-ranges.ts';
+import { MILL_METRICS_HOLDOUT_PERCENT_RANGE, MILL_METRICS_RETAIN_DAY_RANGE } from '../../shared/settings-ranges.ts';
 import { STATES } from '../../shared/states.ts';
 import { numberOrNull } from './usage-number-core.ts';
 import { cutoffDayKey } from './usage-warehouse-core.ts';
@@ -14,6 +15,7 @@ type IntegerRange = { min: number; max: number };
 
 const TITLE_RACE_MS = 1500;
 const DEFAULT_MILL_METRICS_RETAIN_DAYS = 90;
+const DEFAULT_MILL_METRICS_HOLDOUT_PERCENT = 0;
 
 type EndIntent = 'operator-abort' | 'close-out' | 'natural';
 
@@ -51,6 +53,7 @@ type MillMetricAccumulator = {
   agent: string;
   packs: Map<string, AccumulatorPack>;
   prompts: MillMetricPromptCounts;
+  arm: MillMetricArmName;
 };
 
 type RecordOptions = {
@@ -115,6 +118,7 @@ function integerWithin(value: unknown, { min, max }: IntegerRange, fallback: num
 function resolveMillMetricsConfig(raw: MillMetricsRawConfig): MillMetricsConfig {
   return {
     retainDays: integerWithin(raw?.retainDays, MILL_METRICS_RETAIN_DAY_RANGE, DEFAULT_MILL_METRICS_RETAIN_DAYS),
+    holdoutPercent: integerWithin(raw?.holdoutPercent, MILL_METRICS_HOLDOUT_PERCENT_RANGE, DEFAULT_MILL_METRICS_HOLDOUT_PERCENT),
   };
 }
 
@@ -261,13 +265,24 @@ function recordFromAccumulator(
       ambiguous: nonnegativeInteger(accumulator.prompts?.ambiguous),
     },
     packs,
+    arm: accumulator.arm === 'holdout' ? 'holdout' : 'packs',
   };
 }
 
 function compareRecords(left: MillMetricSession, right: MillMetricSession): number {
   const dayOrder = String(left.day).localeCompare(String(right.day));
   if (dayOrder !== 0) return dayOrder;
-  return String(left.sessionId).localeCompare(String(right.sessionId));
+  const sessionOrder = String(left.sessionId).localeCompare(String(right.sessionId));
+  if (sessionOrder !== 0) return sessionOrder;
+  return armOf(left).localeCompare(armOf(right));
+}
+
+function armOf(record: MillMetricSession): MillMetricArmName {
+  return record.arm === 'holdout' ? 'holdout' : 'packs';
+}
+
+function mergeKey(record: MillMetricSession): string {
+  return `${record.sessionId}|${armOf(record)}`;
 }
 
 function addNumbers(left: number | null, right: number | null): number | null {
@@ -319,6 +334,7 @@ function mergeSessionRecords(first: MillMetricSession, second: MillMetricSession
       ambiguous: nonnegativeInteger(earlier.prompts?.ambiguous) + nonnegativeInteger(later.prompts?.ambiguous),
     },
     packs: mergePacks(earlier.packs, later.packs),
+    arm: armOf(later),
   };
 }
 
@@ -326,13 +342,14 @@ function mergeRecords(
   existingRecords: MillMetricSession[],
   freshRecords: MillMetricSession[],
 ): MillMetricSession[] {
-  const recordsBySessionId = new Map<string, MillMetricSession>();
+  const recordsBySessionAndArm = new Map<string, MillMetricSession>();
   for (const record of [...(existingRecords || []), ...(freshRecords || [])]) {
     if (!record || typeof record.sessionId !== 'string' || !record.sessionId) continue;
-    const current = recordsBySessionId.get(record.sessionId);
-    recordsBySessionId.set(record.sessionId, current ? mergeSessionRecords(current, record) : record);
+    const key = mergeKey(record);
+    const current = recordsBySessionAndArm.get(key);
+    recordsBySessionAndArm.set(key, current ? mergeSessionRecords(current, record) : record);
   }
-  return Array.from(recordsBySessionId.values()).sort(compareRecords);
+  return Array.from(recordsBySessionAndArm.values()).sort(compareRecords);
 }
 
 function firstDay(record: MillMetricSession): string | null {
@@ -433,11 +450,12 @@ export type MillMetricEndIntent = EndIntent;
 export type { MillPromptBoundary, MillTurnBoundaryEvent, MillTurnBoundaryState, MillTurnBoundaryStep };
 export type MillMetricPackAccumulator = AccumulatorPack;
 export type MillMetricAccumulatorShape = MillMetricAccumulator;
-export type MillMetricsConfig = { retainDays: number };
-export type MillMetricsRawConfig = { retainDays?: unknown } | null | undefined;
+export type MillMetricsConfig = { retainDays: number; holdoutPercent: number };
+export type MillMetricsRawConfig = { retainDays?: unknown; holdoutPercent?: unknown } | null | undefined;
 export type MillPackScorecard = PackScorecard;
 
 export {
+  DEFAULT_MILL_METRICS_HOLDOUT_PERCENT,
   DEFAULT_MILL_METRICS_RETAIN_DAYS,
   TITLE_RACE_MS,
   buildScorecards,

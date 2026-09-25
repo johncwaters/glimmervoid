@@ -30,6 +30,8 @@ const MillMetricEvent = z.discriminatedUnion('kind', [
   }),
 ]);
 
+const MillMetricArm = z.enum(['packs', 'holdout']);
+
 const MillMetricPackRecord = z.object({
   name: z.string().min(1),
   version: z.string(),
@@ -54,6 +56,7 @@ const MillMetricSessionRecord = z.object({
     ambiguous: z.number().int().nonnegative(),
   }),
   packs: z.array(MillMetricPackRecord),
+  arm: MillMetricArm.default('packs'),
 });
 
 const MillMetricStore = z.object({
@@ -65,6 +68,7 @@ const MillMetricStore = z.object({
 export type MillMetricPromptClass = 'interruption' | 'answer' | 'followup' | 'ambiguous';
 export type MillMetricDisposition = 'user-kill' | 'natural';
 export type MillMetricPromptCounts = Record<MillMetricPromptClass, number>;
+export type MillMetricArmName = z.infer<typeof MillMetricArm>;
 export type MillMetricPack = z.infer<typeof MillMetricPackRecord>;
 export type MillMetricSession = z.infer<typeof MillMetricSessionRecord>;
 

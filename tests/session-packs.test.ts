@@ -12,11 +12,13 @@ import { HookRouter } from '../detection/hook-source.ts';
 import { WAKEUP_TOOL_MATCHER } from '../detection/settings-injector.ts';
 import { fakePty, spawnCapture } from './helpers/fake-pty.ts';
 import type { SpawnCall } from './helpers/fake-pty.ts';
+import type { DecisionEntry } from '../session/core/decision-log.ts';
 
 interface PacksDeliveredPayload {
   packs: { name: string; version: string; tokenEstimate: number | null }[];
   agent: string;
   ts: number;
+  heldOut: boolean;
 }
 const CLAUDE_MD_ENV = 'CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD';
 
@@ -507,6 +509,7 @@ test('a pack update between lookups still arms a notice before the delivered lis
     canNotify: () => true,
     renderArgs: () => [],
     recordDecision: () => {},
+    holdoutPercent: () => 0,
     resolvePack: async (name) => {
       assert.deepEqual(packDelivery.delivered(), previousDeliveries.map(({ name: packName, version }) => ({ name: packName, version })));
       if (name === 'beta') assert.equal(packDelivery.noteUpdate('alpha', 'v2'), true);
@@ -541,6 +544,7 @@ test('a pack list read from a thunk is re-read on every resolve, so no session n
     canNotify: () => true,
     renderArgs: () => [],
     recordDecision: () => {},
+    holdoutPercent: () => 0,
     resolvePack: async (name) => ({ name, version: 'v1', dir: `/packs/${name}/current` }),
   });
   assert.deepEqual(packDelivery.names(), ['alpha']);
@@ -619,6 +623,131 @@ test('a build carrying only its own index is skipped as empty, costing the sessi
     assert.deepEqual(skips.map((d) => [d.decision, d.reason]), [['skipped', 'empty']]);
   } finally {
     s.destroy();
+    await fsp.rm(builtRoot, { recursive: true, force: true });
+  }
+});
+
+function holdoutDelivery({
+  holdoutPercent,
+  random,
+  isBuilt = true,
+}: {
+  holdoutPercent: number;
+  random: () => number;
+  isBuilt?: boolean;
+}) {
+  const decisions: DecisionEntry[] = [];
+  let randomDraws = 0;
+  const packDelivery = createSessionPackDelivery({
+    configuredPacks: () => ['alpha', 'beta'],
+    builtRoot: '/packs',
+    variantSlug: null,
+    projectPath: process.cwd(),
+    sessionName: 'holdout-packs',
+    agentId: 'claude-code',
+    canDeliver: () => true,
+    canNotify: () => true,
+    renderArgs: (packs) => packs.flatMap((pack) => ['--add-dir', pack.dir]),
+    recordDecision: (entry) => decisions.push(entry),
+    holdoutPercent: () => holdoutPercent,
+    random: () => {
+      randomDraws += 1;
+      return random();
+    },
+    resolvePack: async (name) => (isBuilt
+      ? { name, version: 'v1', dir: `/packs/${name}/current` }
+      : { name, reason: 'not built' }),
+  });
+  return { packDelivery, decisions, randomDraws: () => randomDraws };
+}
+
+test('a spawn drawn into the holdout carries no pack and records every resolved pack as held out', async () => {
+  const { packDelivery, decisions } = holdoutDelivery({ holdoutPercent: 50, random: () => 0.49 });
+  const delivery = await packDelivery.resolve();
+  assert.deepEqual(delivery, { args: [], packs: [], heldOut: true });
+  assert.deepEqual(packDelivery.delivered(), []);
+  assert.deepEqual(decisions.map((entry) => [entry.name, entry.decision, entry.reason]), [
+    ['alpha', 'skipped', 'holdout'],
+    ['beta', 'skipped', 'holdout'],
+  ]);
+});
+
+test('a spawn drawn into the packs arm is delivered exactly as before', async () => {
+  const { packDelivery, decisions } = holdoutDelivery({ holdoutPercent: 50, random: () => 0.5 });
+  const delivery = await packDelivery.resolve();
+  assert.deepEqual(delivery.args, ['--add-dir', '/packs/alpha/current', '--add-dir', '/packs/beta/current']);
+  assert.equal(delivery.heldOut, undefined);
+  assert.deepEqual(packDelivery.delivered(), [{ name: 'alpha', version: 'v1' }, { name: 'beta', version: 'v1' }]);
+  assert.deepEqual(decisions.map((entry) => entry.decision), ['delivered', 'delivered']);
+});
+
+test('a zero holdout share never holds a spawn out, whatever the draw', async () => {
+  const { packDelivery } = holdoutDelivery({ holdoutPercent: 0, random: () => 0 });
+  const delivery = await packDelivery.resolve();
+  assert.equal(delivery.heldOut, undefined);
+  assert.equal(delivery.packs.length, 2);
+});
+
+test('a spawn with no resolved pack is never counted as held out', async () => {
+  const { packDelivery, decisions, randomDraws } = holdoutDelivery({ holdoutPercent: 90, random: () => 0, isBuilt: false });
+  const delivery = await packDelivery.resolve();
+  assert.deepEqual(delivery, { args: [], packs: [] });
+  assert.equal(randomDraws(), 0);
+  assert.deepEqual(decisions.map((entry) => entry.reason), ['not built', 'not built']);
+});
+
+test('a held-out session announces its arm with an empty pack list and spawns without pack flags', async () => {
+  const builtRoot = await makeBuiltRoot({ 'house-rules': 'v-abc' });
+  const calls: SpawnCall[] = [];
+  const payloads: PacksDeliveredPayload[] = [];
+  const session = new Session({
+    id: 'held-out',
+    name: 'held-out',
+    path: process.cwd(),
+    packs: ['house-rules'],
+    packsBuiltRoot: builtRoot,
+    packHoldoutPercent: () => 100,
+    spawnCommand: { path: process.execPath, kind: 'exe' },
+    ptySpawn: spawnCapture(calls),
+  });
+  session.on('packs-delivered', (payload: PacksDeliveredPayload) => payloads.push(payload));
+  try {
+    await session.start();
+    assert.deepEqual(calls[0].args, []);
+    assert.equal(CLAUDE_MD_ENV in calls[0].opts.env, false);
+    assert.deepEqual(session.toSnapshot().packs, []);
+    assert.equal(payloads.length, 1);
+    assert.equal(payloads[0].heldOut, true);
+    assert.deepEqual(payloads[0].packs, []);
+    const holdouts = session.getDebugState().decisions.filter((entry) => entry.kind === 'pack');
+    assert.deepEqual(holdouts.map((entry) => [entry.decision, entry.reason]), [['skipped', 'holdout']]);
+  } finally {
+    session.destroy();
+    await fsp.rm(builtRoot, { recursive: true, force: true });
+  }
+});
+
+test('a delivered session announces the packs arm', async () => {
+  const builtRoot = await makeBuiltRoot({ 'house-rules': 'v-abc' });
+  const payloads: PacksDeliveredPayload[] = [];
+  const session = new Session({
+    id: 'packs-arm',
+    name: 'packs-arm',
+    path: process.cwd(),
+    packs: ['house-rules'],
+    packsBuiltRoot: builtRoot,
+    packHoldoutPercent: () => 0,
+    spawnCommand: { path: process.execPath, kind: 'exe' },
+    ptySpawn: () => fakePty(),
+  });
+  session.on('packs-delivered', (payload: PacksDeliveredPayload) => payloads.push(payload));
+  try {
+    await session.start();
+    assert.equal(payloads.length, 1);
+    assert.equal(payloads[0].heldOut, false);
+    assert.equal(payloads[0].packs.length, 1);
+  } finally {
+    session.destroy();
     await fsp.rm(builtRoot, { recursive: true, force: true });
   }
 });

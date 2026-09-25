@@ -222,6 +222,16 @@ test('the persisted mill measurement block keeps its retention setting', () => {
   assert.deepEqual(Config.parse(config).millMetrics, { retainDays: 90 });
 });
 
+test('the mill holdout share is an integer from 0 to 90 that survives the persisted block', () => {
+  const config = { ...DEFAULT_CONFIG, millMetrics: { retainDays: 90, holdoutPercent: 50 } };
+  assert.deepEqual(Config.parse(config).millMetrics, { retainDays: 90, holdoutPercent: 50 });
+  assert.equal(ConfigUpdate.safeParse({ millMetrics: { holdoutPercent: 0 } }).success, true);
+  assert.equal(ConfigUpdate.safeParse({ millMetrics: { holdoutPercent: 90 } }).success, true);
+  assert.equal(ConfigUpdate.safeParse({ millMetrics: { holdoutPercent: 91 } }).success, false);
+  assert.equal(ConfigUpdate.safeParse({ millMetrics: { holdoutPercent: -1 } }).success, false);
+  assert.equal(ConfigUpdate.safeParse({ millMetrics: { holdoutPercent: 12.5 } }).success, false);
+});
+
 test('branchGc prefixes parse as string arrays and reject non-arrays', () => {
   assert.equal(BranchGcFileSettings.safeParse({ prefixes: ['glimmervoid/session/', 'worktree-agent-'] }).success, true);
   assert.equal(BranchGcFileSettings.safeParse({ prefixes: 'glimmervoid/session/' }).success, false);

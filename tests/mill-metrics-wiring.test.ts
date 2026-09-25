@@ -10,6 +10,7 @@ import { createMillMetricsStore } from '../server/mill-metrics-store.ts';
 import { createMillMetricsLane, createMillMetricsWiring } from '../server/mill-metrics-wiring.ts';
 import type { MillMetricsPort, MillPromptSubmittedPayload } from '../server/mill-metrics-wiring.ts';
 import type { MillMetricsStoreInstance } from '../server/mill-metrics-store.ts';
+import type { MillMetricsConfig } from '../server/core/mill-metrics-core.ts';
 import { createSessionEventWiring } from '../server/session-event-wiring.ts';
 import type { MillMetricSession } from '../shared/contracts/mill-metrics.ts';
 import type { Session } from '../session/sessions.ts';
@@ -47,6 +48,7 @@ interface DeliveredPayload {
   packs: { name: string; version: string; tokenEstimate?: number | null }[];
   agent: string;
   ts: number;
+  heldOut?: boolean;
 }
 
 const NOW = Date.parse('2026-08-30T12:00:00Z');
@@ -478,7 +480,7 @@ test('an identity that only arrives after the baseline is not treated as a new c
 test('measurement starts live and a retention change swaps the store behind it', async () => {
   const order: string[] = [];
   const stores: FakeStore[] = [];
-  let millMetricsConfig = { retainDays: 90 };
+  let millMetricsConfig = { retainDays: 90, holdoutPercent: 0 };
   const lane = createMillMetricsLane({
     resolveConfig: () => millMetricsConfig,
     createStore: ({ retainDays }) => {
@@ -492,7 +494,7 @@ test('measurement starts live and a retention change swaps the store behind it',
   lane.port.onPacksDelivered('s1', delivered());
   assert.equal(lane.scorecards().alpha.liveSessions, 1);
 
-  millMetricsConfig = { retainDays: 30 };
+  millMetricsConfig = { retainDays: 30, holdoutPercent: 0 };
   await lane.restartIfConfigChanged();
   assert.deepEqual(order, ['open:90', 'drain', 'open:30']);
   assert.equal(lane.currentStore(), stores[1]);
@@ -508,7 +510,7 @@ function gatedLane(
   order: string[],
   stores: FakeStore[],
   gate: { promise: Promise<void>; open: () => void },
-  initialConfig: { retainDays: number },
+  initialConfig: MillMetricsConfig,
   logger: Pick<Console, 'warn'> | null = null,
 ) {
   let millMetricsConfig = initialConfig;
@@ -530,7 +532,7 @@ function gatedLane(
     },
     nowFn: () => NOW,
   });
-  return { lane, setConfig: (next: { retainDays: number }) => { millMetricsConfig = next; } };
+  return { lane, setConfig: (next: MillMetricsConfig) => { millMetricsConfig = next; } };
 }
 
 function openGate(): { promise: Promise<void>; open: () => void } {
@@ -545,9 +547,9 @@ test('a session closing while the store is swapping is replayed into the replace
   const order: string[] = [];
   const stores: FakeStore[] = [];
   const gate = openGate();
-  const { lane, setConfig } = gatedLane(order, stores, gate, { retainDays: 90 });
+  const { lane, setConfig } = gatedLane(order, stores, gate, { retainDays: 90, holdoutPercent: 0 });
   lane.port.onPacksDelivered('s1', delivered());
-  setConfig({ retainDays: 30 });
+  setConfig({ retainDays: 30, holdoutPercent: 0 });
   const swap = lane.restartIfConfigChanged();
   await tick();
   assert.equal(lane.currentStore(), null);
@@ -564,12 +566,12 @@ test('two settings changes during one drain end on a single open store', async (
   const order: string[] = [];
   const stores: FakeStore[] = [];
   const gate = openGate();
-  const { lane, setConfig } = gatedLane(order, stores, gate, { retainDays: 90 });
+  const { lane, setConfig } = gatedLane(order, stores, gate, { retainDays: 90, holdoutPercent: 0 });
   lane.port.onPacksDelivered('s1', delivered());
-  setConfig({ retainDays: 30 });
+  setConfig({ retainDays: 30, holdoutPercent: 0 });
   const first = lane.restartIfConfigChanged();
   await tick();
-  setConfig({ retainDays: 60 });
+  setConfig({ retainDays: 60, holdoutPercent: 0 });
   const second = lane.restartIfConfigChanged();
   lane.port.onSessionEnd('s1', { transitionEvent: 'user_kill', intent: 'natural', finalState: 'DONE' });
   gate.open();
@@ -584,9 +586,9 @@ test('shutdown during a store swap drains the replacement as well', async () => 
   const order: string[] = [];
   const stores: FakeStore[] = [];
   const gate = openGate();
-  const { lane, setConfig } = gatedLane(order, stores, gate, { retainDays: 90 });
+  const { lane, setConfig } = gatedLane(order, stores, gate, { retainDays: 90, holdoutPercent: 0 });
   lane.port.onPacksDelivered('s1', delivered());
-  setConfig({ retainDays: 30 });
+  setConfig({ retainDays: 30, holdoutPercent: 0 });
   void lane.restartIfConfigChanged();
   await tick();
   lane.port.onSessionTeardown('s1');
@@ -602,11 +604,11 @@ test('a swap buffer filled with events gives ground to a close instead of droppi
   const stores: FakeStore[] = [];
   const gate = openGate();
   const warnings: string[] = [];
-  const { lane, setConfig } = gatedLane(order, stores, gate, { retainDays: 90 }, {
+  const { lane, setConfig } = gatedLane(order, stores, gate, { retainDays: 90, holdoutPercent: 0 }, {
     warn: (message: string) => { warnings.push(message); },
   });
   lane.port.onPacksDelivered('s1', delivered());
-  setConfig({ retainDays: 30 });
+  setConfig({ retainDays: 30, holdoutPercent: 0 });
   const swap = lane.restartIfConfigChanged();
   await tick();
   for (let index = 0; index < 600; index += 1) {
@@ -727,7 +729,7 @@ test('a store replaced while holding unpersisted closes hands them to its replac
   const recordsPath = path.join(root, 'mill-metrics.json');
   const eventsDir = path.join(root, 'mill-metrics');
   let readable = false;
-  let millMetricsConfig = { retainDays: 90 };
+  let millMetricsConfig = { retainDays: 90, holdoutPercent: 0 };
   const lane = createMillMetricsLane({
     resolveConfig: () => millMetricsConfig,
     nowFn: () => NOW,
@@ -753,9 +755,41 @@ test('a store replaced while holding unpersisted closes hands them to its replac
   assert.equal(fs.existsSync(recordsPath), false);
 
   readable = true;
-  millMetricsConfig = { retainDays: 30 };
+  millMetricsConfig = { retainDays: 30, holdoutPercent: 0 };
   await lane.restartIfConfigChanged();
   await lane.whenIdle();
   const persisted = JSON.parse(await fsp.readFile(recordsPath, 'utf8')) as { sessions: { sessionId: string }[] };
   assert.deepEqual(persisted.sessions.map((entry) => entry.sessionId), ['s1']);
+});
+
+test('a held-out spawn closes as a holdout record with no packs and no pack events', () => {
+  const store = fakeStore();
+  const wiring = createMillMetricsWiring({ store, nowFn: () => NOW });
+  wiring.port.onPacksDelivered('s1', delivered({ packs: [], heldOut: true }));
+  wiring.port.onPromptSubmitted('s1', { state: 'RUNNING', ts: NOW, boundary: null, hasSeenTurnEnd: true });
+  wiring.port.onSessionEnd('s1', { transitionEvent: 'user_kill', intent: 'operator-abort', finalState: 'DONE' });
+  assert.equal(store.closed.length, 1);
+  assert.equal(closedAt(store, 0).arm, 'holdout');
+  assert.deepEqual(closedAt(store, 0).packs, []);
+  assert.equal(closedAt(store, 0).prompts.interruption, 1);
+  assert.equal(store.events.some((event) => event.kind === 'pack-delivered'), false);
+});
+
+test('a delivered spawn closes as the packs arm', () => {
+  const store = fakeStore();
+  const wiring = createMillMetricsWiring({ store, nowFn: () => NOW });
+  wiring.port.onPacksDelivered('s1', delivered({ heldOut: false }));
+  wiring.port.onSessionEnd('s1', { transitionEvent: 'user_kill', intent: 'operator-abort', finalState: 'DONE' });
+  assert.equal(closedAt(store, 0).arm, 'packs');
+  assert.equal(closedAt(store, 0).packs.length, 1);
+});
+
+test('an empty pack list that was not held out is still not measured', () => {
+  const store = fakeStore();
+  const wiring = createMillMetricsWiring({ store, nowFn: () => NOW });
+  wiring.port.onPacksDelivered('s1', delivered({ packs: [] }));
+  wiring.port.onPacksDelivered('s2', delivered({ packs: [{ name: '', version: 'v1' }] }));
+  wiring.port.onSessionEnd('s1', { transitionEvent: 'user_kill', intent: 'operator-abort', finalState: 'DONE' });
+  wiring.port.onSessionEnd('s2', { transitionEvent: 'user_kill', intent: 'operator-abort', finalState: 'DONE' });
+  assert.deepEqual(store.closed, []);
 });

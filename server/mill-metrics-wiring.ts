@@ -16,6 +16,7 @@ import type {
   MillPromptBoundary,
 } from './core/mill-metrics-core.ts';
 import type {
+  MillMetricArmName,
   MillMetricDisposition,
   MillMetricPromptClass,
   MillMetricSession,
@@ -211,12 +212,14 @@ function createMillMetricsWiring({
     agent: string,
     startedAt: number,
     packs: Map<string, MillMetricPackAccumulator>,
+    arm: MillMetricArmName,
   ): Accumulator {
     return {
       sessionId,
       startedAt,
       agent,
       packs,
+      arm,
       prompts: { interruption: 0, answer: 0, followup: 0, ambiguous: 0 },
       tokens: emptyLedger(),
     };
@@ -228,6 +231,7 @@ function createMillMetricsWiring({
       closed.agent,
       closed.startedAt,
       new Map(closed.packs),
+      closed.arm,
     );
   }
 
@@ -269,9 +273,12 @@ function createMillMetricsWiring({
     packs?: DeliveredPack[];
     agent?: string;
     ts?: number;
+    heldOut?: boolean;
   }): void {
     if (typeof sessionId !== 'string' || !sessionId) return;
-    if (!Array.isArray(payload?.packs) || payload.packs.length === 0) return;
+    const arm: MillMetricArmName = payload?.heldOut === true ? 'holdout' : 'packs';
+    if (!Array.isArray(payload?.packs)) return;
+    if (payload.packs.length === 0 && arm !== 'holdout') return;
     const agent = typeof payload.agent === 'string' && payload.agent ? payload.agent : null;
     if (!agent) return;
     const startedAt = numberOrNull(payload.ts) ?? nowFn();
@@ -283,11 +290,11 @@ function createMillMetricsWiring({
         tokenEstimate: numberOrNull(pack.tokenEstimate),
       });
     }
-    if (packs.size === 0) return;
+    if (packs.size === 0 && arm !== 'holdout') return;
     if (accumulators.has(sessionId)) {
       closeAccumulator(sessionId, { disposition: null, finalState: '', transition: 'pack-redelivered' });
     }
-    const accumulator = accumulatorFromDelivery(sessionId, agent, startedAt, packs);
+    const accumulator = accumulatorFromDelivery(sessionId, agent, startedAt, packs, arm);
     accumulators.set(sessionId, accumulator);
     closedAccumulators.delete(sessionId);
     observeTokens(accumulator);
@@ -570,6 +577,7 @@ export type MillMetricsPort = {
     packs?: DeliveredPack[];
     agent?: string;
     ts?: number;
+    heldOut?: boolean;
   }) => void;
   onPromptSubmitted: (sessionId: string, payload: MillPromptSubmittedPayload) => void;
   onSessionEnd: (sessionId: string, payload: {

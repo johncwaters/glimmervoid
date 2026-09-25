@@ -143,6 +143,7 @@ interface SessionOptions {
   packs?: unknown;
   packsBuiltRoot?: string | null;
   packVariantSlug?: string | null;
+  packHoldoutPercent?: (() => number) | null;
   planReviewPort?: SessionPlanReviewPort | null;
   planLimits?: boolean;
   getUserHooks?: (() => UserHook[]) | null;
@@ -298,6 +299,7 @@ class Session extends EventEmitter {
     packsBuiltRoot = null,
 
     packVariantSlug = null,
+    packHoldoutPercent = null,
     planReviewPort = null,
 
     planLimits = false,
@@ -430,6 +432,7 @@ class Session extends EventEmitter {
       canNotify: () => this._can("packNotice"),
       renderArgs: (deliveredPacks, builtRoot) => this._adapter.renderPackArgs(deliveredPacks, builtRoot),
       recordDecision: (entry) => this._recordDecision(entry),
+      holdoutPercent: packHoldoutPercent ?? (() => 0),
     });
     this._planLimits = planLimits === true && this._can("statusLine");
     this._planReviewPort = planReviewPort;
@@ -1203,11 +1206,12 @@ class Session extends EventEmitter {
       return;
     }
 
-    if (packDelivery.packs.length > 0) {
+    if (packDelivery.packs.length > 0 || packDelivery.heldOut === true) {
       this.emit("packs-delivered", {
         packs: this._packDelivery.deliveredWithTokenEstimates(),
         agent: this.agentId,
         ts: Date.now(),
+        heldOut: packDelivery.heldOut === true,
       });
     }
 

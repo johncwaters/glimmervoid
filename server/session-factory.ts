@@ -9,6 +9,7 @@ import type { SessionOptions, SessionPlanReviewPort } from '../session/sessions.
 import { DEFAULT_CONFIG } from './config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
+import { resolveMillMetricsConfig } from './core/mill-metrics-core.ts';
 import { isMillEnabled, projectVariantSlug } from './core/pack-core.ts';
 import { projectSkipsPermissions } from './core/session-registry-core.ts';
 import { resolveUsageConfig } from './usage-wiring.ts';
@@ -63,6 +64,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       resumeSessionId: (project.resumeSessionId as string | null | undefined) || null,
       packs: () => (isMillEnabled(dependencies.getConfig()) ? dependencies.listPackNames() : []),
       packVariantSlug: projectVariantSlug(project.path),
+      packHoldoutPercent: () => resolveMillMetricsConfig(dependencies.getConfig().millMetrics).holdoutPercent,
       planReviewPort: dependencies.getPlanReviewPort(),
       planLimits: planLimitsEnabled(config),
       getUserHooks: () => dependencies.getUserHooks(project.id),

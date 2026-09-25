@@ -50,6 +50,7 @@ export const PACK_DISTILLER_INTERVAL_RANGE = Object.freeze({ min: 1, max: 720 })
 export const PACK_DISTILLER_TIMEOUT_RANGE = Object.freeze({ min: 60, max: 7200 });
 export const CHANGE_MAP_NARRATOR_TIMEOUT_RANGE = Object.freeze({ min: 15, max: 600 });
 export const MILL_METRICS_RETAIN_DAY_RANGE = Object.freeze({ min: 7, max: 3650 });
+export const MILL_METRICS_HOLDOUT_PERCENT_RANGE = Object.freeze({ min: 0, max: 90 });
 
 export const MEMORY_RETAIN_DAY_RANGE = Object.freeze({ min: 30, max: 3650 });
 export const MAX_RECORD_CHARS_RANGE = Object.freeze({ min: 200, max: 20000 });

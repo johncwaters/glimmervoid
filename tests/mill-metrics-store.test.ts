@@ -29,6 +29,7 @@ function record(overrides: Partial<MillMetricSession> = {}): MillMetricSession {
       version: 'v1',
       tokenEstimate: 100,
     }],
+    arm: 'packs',
     ...overrides,
   };
 }
@@ -83,6 +84,31 @@ test('legacy record keys are stripped while loading', async (t) => {
   for (const key of ['filesRead', 'files', 'filesDropped', 'opened', 'measurable']) {
     assert.equal(Object.hasOwn(loaded.packs[0], key), false);
   }
+});
+
+test('a record written before arms existed loads as the packs arm', async (t) => {
+  const paths = await fixture(t);
+  const { arm, ...recordWithoutArm } = record();
+  assert.equal(arm, 'packs');
+  await fsp.writeFile(paths.recordsPath, JSON.stringify({
+    version: 1,
+    updatedAt: new Date(NOW).toISOString(),
+    sessions: [recordWithoutArm],
+  }), 'utf8');
+  const store = createMillMetricsStore({ ...paths, retainDays: 90, nowFn: () => NOW });
+  await store.load();
+  assert.deepEqual(store.records(), [record()]);
+});
+
+test('a holdout record with no packs round-trips through the durable store', async (t) => {
+  const paths = await fixture(t);
+  const store = createMillMetricsStore({ ...paths, retainDays: 90, nowFn: () => NOW });
+  await store.load();
+  store.closeSession(record({ arm: 'holdout', packs: [] }));
+  await store.whenIdle();
+  const reloaded = createMillMetricsStore({ ...paths, retainDays: 90, nowFn: () => NOW });
+  await reloaded.load();
+  assert.deepEqual(reloaded.records(), [record({ arm: 'holdout', packs: [] })]);
 });
 
 test('an unreadable records file starts empty and warns', async (t) => {

@@ -156,6 +156,7 @@ const MillSettings = z.object({
 
 const MillMetricsSettings = z.object({
   retainDays: optionalInteger('millMetrics.retainDays', ranges.MILL_METRICS_RETAIN_DAY_RANGE),
+  holdoutPercent: optionalInteger('millMetrics.holdoutPercent', ranges.MILL_METRICS_HOLDOUT_PERCENT_RANGE),
 }, { error: 'millMetrics must be an object' }).optional();
 
 const TraceSettings = z.object({

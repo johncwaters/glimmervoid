@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  DEFAULT_MILL_METRICS_HOLDOUT_PERCENT,
   DEFAULT_MILL_METRICS_RETAIN_DAYS,
   TITLE_RACE_MS,
   buildScorecards,
@@ -53,6 +54,7 @@ function record(overrides: Partial<MillMetricSession> = {}): MillMetricSession {
     resumeSessionId: null,
     prompts: prompts(),
     packs: [pack()],
+    arm: 'packs',
     ...overrides,
   };
 }
@@ -66,6 +68,7 @@ function accumulator(overrides: Partial<MillMetricAccumulatorShape> = {}): MillM
     packs: new Map<string, MillMetricPackAccumulator>([['alpha', {
       version: 'v1', tokenEstimate: 100,
     }]]),
+    arm: 'packs',
     ...overrides,
   };
 }
@@ -379,9 +382,112 @@ test('a restart keeps a session alive for retention instead of expiring it with 
 });
 
 test('a retention the wire would refuse falls back rather than reaching the lane', () => {
-  assert.deepEqual(resolveMillMetricsConfig({ retainDays: 180 }), { retainDays: 180 });
+  assert.deepEqual(resolveMillMetricsConfig({ retainDays: 180 }), { retainDays: 180, holdoutPercent: 0 });
   assert.equal(resolveMillMetricsConfig({ retainDays: 6 }).retainDays, DEFAULT_MILL_METRICS_RETAIN_DAYS);
   assert.equal(resolveMillMetricsConfig({ retainDays: 3651 }).retainDays, DEFAULT_MILL_METRICS_RETAIN_DAYS);
   assert.equal(resolveMillMetricsConfig({ retainDays: 90.5 }).retainDays, DEFAULT_MILL_METRICS_RETAIN_DAYS);
   assert.equal(resolveMillMetricsConfig(null).retainDays, DEFAULT_MILL_METRICS_RETAIN_DAYS);
+});
+
+test('the holdout share defaults to none and falls back when out of range', () => {
+  assert.equal(DEFAULT_MILL_METRICS_HOLDOUT_PERCENT, 0);
+  assert.equal(resolveMillMetricsConfig(null).holdoutPercent, 0);
+  assert.equal(resolveMillMetricsConfig({ holdoutPercent: 50 }).holdoutPercent, 50);
+  assert.equal(resolveMillMetricsConfig({ holdoutPercent: 90 }).holdoutPercent, 90);
+  assert.equal(resolveMillMetricsConfig({ holdoutPercent: 91 }).holdoutPercent, DEFAULT_MILL_METRICS_HOLDOUT_PERCENT);
+  assert.equal(resolveMillMetricsConfig({ holdoutPercent: -1 }).holdoutPercent, DEFAULT_MILL_METRICS_HOLDOUT_PERCENT);
+  assert.equal(resolveMillMetricsConfig({ holdoutPercent: 12.5 }).holdoutPercent, DEFAULT_MILL_METRICS_HOLDOUT_PERCENT);
+  assert.equal(resolveMillMetricsConfig({ holdoutPercent: '50' }).holdoutPercent, DEFAULT_MILL_METRICS_HOLDOUT_PERCENT);
+});
+
+test('a held-out accumulator records the holdout arm with no packs', () => {
+  const heldOut = recordFromAccumulator(accumulator({ arm: 'holdout', packs: new Map() }));
+  assert.ok(heldOut);
+  assert.equal(heldOut.arm, 'holdout');
+  assert.deepEqual(heldOut.packs, []);
+  assert.equal(recordFromAccumulator(accumulator())?.arm, 'packs');
+});
+
+test('a merged holdout session keeps its arm and adds nothing to any scorecard', () => {
+  const [folded] = mergeRecords(
+    [record({ arm: 'holdout', packs: [] })],
+    [record({ arm: 'holdout', packs: [], startedAt: Date.parse('2026-08-30T12:00:00Z') })],
+  );
+  assert.ok(folded);
+  assert.equal(folded.arm, 'holdout');
+  assert.deepEqual(buildScorecards([folded]), {});
+});
+
+test('a card restarted across arms keeps one record per arm with its own packs and totals', () => {
+  const packsRun = record({
+    startedAt: 100,
+    endedAt: 200,
+    tokens: 10,
+    costUSD: 1,
+    disposition: 'user-kill',
+    prompts: prompts({ interruption: 2 }),
+    packs: [pack()],
+    arm: 'packs',
+  });
+  const holdoutRun = record({
+    startedAt: 300,
+    endedAt: 400,
+    tokens: 5,
+    costUSD: 0.5,
+    disposition: 'natural',
+    prompts: prompts({ interruption: 7 }),
+    packs: [],
+    arm: 'holdout',
+  });
+  const merged = mergeRecords([packsRun], [holdoutRun]);
+  assert.equal(merged.length, 2);
+  const packsRecord = merged.find((entry) => entry.arm === 'packs');
+  const holdoutRecord = merged.find((entry) => entry.arm === 'holdout');
+  assert.ok(packsRecord);
+  assert.ok(holdoutRecord);
+  assert.deepEqual(packsRecord.packs, [pack()]);
+  assert.equal(packsRecord.tokens, 10);
+  assert.equal(packsRecord.costUSD, 1);
+  assert.equal(packsRecord.prompts.interruption, 2);
+  assert.equal(packsRecord.disposition, 'user-kill');
+  assert.deepEqual(holdoutRecord.packs, []);
+  assert.equal(holdoutRecord.tokens, 5);
+  assert.equal(holdoutRecord.costUSD, 0.5);
+  assert.equal(holdoutRecord.prompts.interruption, 7);
+  assert.equal(holdoutRecord.disposition, 'natural');
+  assert.deepEqual(mergeRecords([holdoutRun], [packsRun]).map((entry) => entry.arm), ['holdout', 'packs']);
+});
+
+test('same-arm runs of a card still fold into one record', () => {
+  const merged = mergeRecords(
+    [record({ startedAt: 100, endedAt: 200, tokens: 10 })],
+    [record({ startedAt: 300, endedAt: 400, tokens: 5 })],
+  );
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0]?.arm, 'packs');
+  assert.equal(merged[0]?.tokens, 15);
+});
+
+test('buildScorecards credits a pack only with the packs-arm outcomes of a card restarted across arms', () => {
+  const packsRun = record({
+    startedAt: 100,
+    endedAt: 200,
+    tokens: 40,
+    disposition: 'natural',
+    prompts: prompts({ interruption: 1 }),
+    arm: 'packs',
+  });
+  const holdoutRun = record({
+    startedAt: 300,
+    endedAt: 400,
+    tokens: 900,
+    disposition: 'user-kill',
+    prompts: prompts({ interruption: 9 }),
+    packs: [],
+    arm: 'holdout',
+  });
+  const scorecard = buildScorecards([packsRun], [holdoutRun]).alpha;
+  assert.ok(scorecard);
+  assert.equal(scorecard.deliveries, 1);
+  assert.deepEqual(scorecard.outcomes, { sessions: 1, meanInterruptions: 1, abortRate: 0, meanTokens: 40 });
 });

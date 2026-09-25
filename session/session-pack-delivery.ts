@@ -44,11 +44,14 @@ interface SessionPackDeliveryOptions {
   renderArgs: (packs: ResolvedDelivery[], builtRoot: string) => string[] | null;
   recordDecision: (entry: DecisionEntry) => void;
   resolvePack?: (name: string, options: { builtRoot: string }) => Promise<PackResolution>;
+  holdoutPercent: () => number;
+  random?: () => number;
 }
 
 interface PackDeliveryResult {
   args: string[];
   packs: ResolvedDelivery[];
+  heldOut?: boolean;
 }
 
 interface SessionPackDelivery {
@@ -73,6 +76,7 @@ function createSessionPackDelivery(options: SessionPackDeliveryOptions): Session
   let configuredNames = readConfiguredNames();
   const latestVersions = new Map<string, string>();
   const resolvePack = options.resolvePack || resolveBuiltPack;
+  const random = options.random ?? Math.random;
   let delivered: DeliveredPack[] = [];
   let isNoticePending = false;
 
@@ -121,6 +125,11 @@ function createSessionPackDelivery(options: SessionPackDeliveryOptions): Session
       reason: variant ? variant.reason : "no valid variant name for this project",
     });
     return base;
+  }
+
+  function isHeldOut(resolvedPacks: ResolvedDelivery[]): boolean {
+    if (resolvedPacks.length === 0) return false;
+    return random() * 100 < options.holdoutPercent();
   }
 
   async function resolve(): Promise<PackDeliveryResult> {
@@ -176,6 +185,14 @@ function createSessionPackDelivery(options: SessionPackDeliveryOptions): Session
       }
       delivered = [];
       return { args: [], packs: [] };
+    }
+    if (isHeldOut(nextDelivered)) {
+      const ts = Date.now();
+      for (const pack of nextDelivered) {
+        options.recordDecision({ kind: "pack", ts, name: pack.name, decision: "skipped", reason: "holdout" });
+      }
+      delivered = [];
+      return { args: [], packs: [], heldOut: true };
     }
     delivered = nextDelivered;
     const ts = Date.now();
