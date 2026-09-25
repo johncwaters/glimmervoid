@@ -34,7 +34,6 @@ interface PendingAction {
 
 let _latest: TeamReviewStatusType | null = null;
 let _root: HTMLDivElement | null = null;
-let _header: HTMLElement | null = null;
 let _queue: HTMLElement | null = null;
 let _detail: HTMLElement | null = null;
 let _inReviewSection: HTMLElement | null = null;
@@ -173,25 +172,6 @@ function createQueueSection(title: string, reviews: (ReviewDraft | InFlightRevie
   section.append(el('h3', 'pr-section-heading', `${title} ${reviews.length}`));
   for (const review of reviews) section.append(createQueueRow(review, kind));
   return section;
-}
-
-function createHeader(sections: TeamReviewSections): HTMLElement {
-  const header = el('header', 'pr-header');
-  header.append(el('h2', 'pr-header-title', 'PR reviews'));
-  const counts = el('div', 'pr-header-counts');
-  for (const [count, label, tone] of [
-    [sections.ready.length, 'ready', 'ready'],
-    [sections.inReview.length, 'in review', 'review'],
-    [sections.attention.length, 'needs attention', 'attention'],
-  ] as const) {
-    const item = el('span', 'pr-header-count');
-    const number = el('strong', null, String(count));
-    number.dataset.tone = tone;
-    item.append(number, ` ${label}`);
-    counts.append(item);
-  }
-  header.append(counts);
-  return header;
 }
 
 function createDetailHeading(review: ReviewDraft | InFlightReview): HTMLElement {
@@ -461,13 +441,12 @@ function forgetDepartedDetails(readyKeys: Set<string>): void {
 
 function ensureShell(): void {
   if (!_root || _queue?.isConnected) return;
-  _header = el('div', 'pr-header-host');
   _queue = el('nav', 'pr-queue');
   _queue.setAttribute('aria-label', 'Review queue');
   _detail = el('main', 'pr-detail-host');
   const columns = el('div', 'pr-columns');
   columns.append(_queue, _detail);
-  _root.replaceChildren(_header, columns);
+  _root.replaceChildren(columns);
   _renderedDetailSignature = null;
 }
 
@@ -491,7 +470,6 @@ function render(): void {
   _progressTicker.reset();
   if (!_latest?.configured || !hasAnyRow(sections)) {
     _root.replaceChildren(buildEmptyState());
-    _header = null;
     _queue = null;
     _detail = null;
     _inReviewSection = null;
@@ -499,9 +477,8 @@ function render(): void {
     return;
   }
   ensureShell();
-  if (!_header || !_queue) return;
+  if (!_queue) return;
   _selectedKey = chooseSelectedReviewKey(sections, _selectedKey);
-  _header.replaceChildren(createHeader(sections));
   const queueSections: HTMLElement[] = [];
   if (sections.ready.length) queueSections.push(createQueueSection('Ready', sections.ready, 'ready'));
   if (sections.inReview.length) {
