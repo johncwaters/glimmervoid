@@ -245,6 +245,7 @@ function installPlanFaceDocument() {
       createTextNode: (text: string) => Object.assign(new PlanFaceElement('#text'), { textContent: text }),
     },
   });
+  Object.defineProperty(globalThis, 'requestAnimationFrame', { configurable: true, value: () => 0 });
 }
 
 const exploreReview = {

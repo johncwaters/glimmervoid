@@ -13,7 +13,7 @@ import { diffPlanBodies } from './plan-diff-core.ts';
 import { parsePlanMarkdown, splitPlanSections } from './plan-markdown-core.ts';
 import type { PlanSection } from './plan-markdown-core.ts';
 import { renderPlanBlocks, renderPlanDiff, renderPlanSections } from './plan-render.ts';
-import { createPlanViewModel, isApprovalConfirmed, isApprovalDecision, openRevisionFor, planLimitRefusal, previousRevisionFor } from './plan-view-core.ts';
+import { createPlanViewModel, currentHeadingIndex, isApprovalConfirmed, isApprovalDecision, openRevisionFor, planLimitRefusal, previousRevisionFor } from './plan-view-core.ts';
 import type { PlanActionKind, PlanDecisionExtras } from './plan-view-core.ts';
 
 export type PlanResponse = PlanResponseFrame;
@@ -69,6 +69,7 @@ interface SentComments {
 const MAX_CACHED_BODIES_PER_SESSION = 12;
 const MAX_PENDING_REQUESTS = 8;
 const WHOLE_PLAN_SECTION_KEY = '';
+const READING_LINE_OFFSET_PX = 48;
 const bodyCacheBySession = new Map<string, Map<string, string>>();
 
 function bodyKey(agentId: string | null, revision: number) {
@@ -164,6 +165,8 @@ export function createPlanFace(deps: PlanFaceDeps) {
   const draftChangedAtBySessionAgent = new Map<string, number>();
   const commentsByRevision = new Map<string, Map<string, string>>();
   const pendingRequestsByTarget = new Map<string, PlanRequestTarget>();
+  let railLinks: HTMLButtonElement[] = [];
+  let isHeadingSyncQueued = false;
 
   function scrollToHeading(id: string) {
     const heading = readingColumn.querySelector<HTMLElement>(`#${CSS.escape(id)}`);
@@ -171,6 +174,37 @@ export function createPlanFace(deps: PlanFaceDeps) {
   }
 
   narrowHeadingPicker.addEventListener('change', () => scrollToHeading(narrowHeadingPicker.value));
+
+  function markCurrentHeading() {
+    isHeadingSyncQueued = false;
+    const headings = railLinks
+      .map((link) => readingColumn.querySelector<HTMLElement>(`#${CSS.escape(link.dataset.headingId ?? '')}`))
+      .filter((heading) => heading !== null);
+    const columnTop = readingColumn.getBoundingClientRect().top - readingColumn.scrollTop;
+    const currentIndex = currentHeadingIndex({
+      headingOffsets: headings.map((heading) => heading.getBoundingClientRect().top - columnTop),
+      scrollTop: readingColumn.scrollTop,
+      isScrolledToEnd: readingColumn.scrollTop > 0 && readingColumn.scrollTop + readingColumn.clientHeight >= readingColumn.scrollHeight - 2,
+      readingLineOffset: READING_LINE_OFFSET_PX,
+    });
+    const currentId = currentIndex === null ? null : headings[currentIndex]?.id ?? null;
+    for (const link of railLinks) {
+      if (link.dataset.headingId === currentId) {
+        link.setAttribute('aria-current', 'location');
+        continue;
+      }
+      link.removeAttribute('aria-current');
+    }
+    if (currentId !== null) narrowHeadingPicker.value = currentId;
+  }
+
+  function queueHeadingSync() {
+    if (isHeadingSyncQueued || root.hidden || railLinks.length === 0) return;
+    isHeadingSyncQueued = true;
+    requestAnimationFrame(markCurrentHeading);
+  }
+
+  readingColumn.addEventListener('scroll', queueHeadingSync, { passive: true });
 
   function leaveTransientViews() {
     isEditing = false;
@@ -420,12 +454,16 @@ export function createPlanFace(deps: PlanFaceDeps) {
   function renderHeadingRail(sections: readonly PlanSection[]) {
     headingRail.replaceChildren();
     narrowHeadingPicker.replaceChildren();
+    railLinks = [];
     for (const section of sections) {
       if (section.heading === null || section.id === null) continue;
       const headingId = section.id;
       const button = el('button', 'plan-heading-link', section.heading);
       button.type = 'button';
       button.dataset.level = String(section.level);
+      button.dataset.headingId = headingId;
+      button.title = section.heading;
+      railLinks.push(button);
       button.addEventListener('click', () => scrollToHeading(headingId));
       headingRail.append(button);
       const option = el('option', null, section.heading);
@@ -559,6 +597,8 @@ export function createPlanFace(deps: PlanFaceDeps) {
     }
 
     renderColumn(body);
+    narrowHeadingPicker.hidden = railLinks.length < 2;
+    queueHeadingSync();
   }
 
   function followConfirmedApproval(next: PlanReviewState) {

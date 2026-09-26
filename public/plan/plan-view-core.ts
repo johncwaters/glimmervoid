@@ -236,3 +236,22 @@ export function mergePlanChanged(state: PlanReviewState, message: PlanChangedMes
   reviews[reviewIndex === -1 ? reviews.length : reviewIndex] = review;
   return { reviews };
 }
+
+export interface ReadingPosition {
+  headingOffsets: readonly number[];
+  scrollTop: number;
+  isScrolledToEnd: boolean;
+  readingLineOffset: number;
+}
+
+export function currentHeadingIndex({ headingOffsets, scrollTop, isScrolledToEnd, readingLineOffset }: ReadingPosition): number | null {
+  if (headingOffsets.length === 0) return null;
+  if (isScrolledToEnd) return headingOffsets.length - 1;
+  const readingLine = scrollTop + readingLineOffset;
+  let currentIndex = 0;
+  for (let index = 0; index < headingOffsets.length; index++) {
+    if (headingOffsets[index] > readingLine) break;
+    currentIndex = index;
+  }
+  return currentIndex;
+}

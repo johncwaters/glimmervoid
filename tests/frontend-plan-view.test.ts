@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PLAN_BODY_CAP_BYTES, PLAN_COMMENT_MAX_CHARS, PLAN_HOOK_OUTPUT_MAX_CHARS } from '../shared/contracts/plan-review.ts';
 import type { PlanReview, PlanReviewState } from '../shared/contracts/plan-review.ts';
-import { createPlanViewModel, mergePlanChanged, planLimitRefusal, previousRevisionFor } from '../public/plan/plan-view-core.ts';
+import { createPlanViewModel, currentHeadingIndex, mergePlanChanged, planLimitRefusal, previousRevisionFor } from '../public/plan/plan-view-core.ts';
 import type { PlanChangedMessage, PlanViewInput } from '../public/plan/plan-view-core.ts';
 
 const state: PlanReviewState = {
@@ -244,4 +244,20 @@ test('a decision serializing past one control frame is refused, since the socket
   const refusal = planLimitRefusal({ plan: escapeHeavyPlan });
   assert.ok(refusal);
   assert.match(refusal, /control frame/);
+});
+
+test('the current heading is the last one above the reading line, and the first before any is passed', () => {
+  const headingOffsets = [0, 400, 900];
+  assert.equal(currentHeadingIndex({ headingOffsets, scrollTop: 0, isScrolledToEnd: false, readingLineOffset: 48 }), 0);
+  assert.equal(currentHeadingIndex({ headingOffsets, scrollTop: 360, isScrolledToEnd: false, readingLineOffset: 48 }), 1);
+  assert.equal(currentHeadingIndex({ headingOffsets, scrollTop: 899, isScrolledToEnd: false, readingLineOffset: 0 }), 1);
+  assert.equal(currentHeadingIndex({ headingOffsets: [120, 400], scrollTop: 0, isScrolledToEnd: false, readingLineOffset: 0 }), 0);
+});
+
+test('scrolling to the end marks the last heading, since a short final section never reaches the reading line', () => {
+  assert.equal(currentHeadingIndex({ headingOffsets: [0, 400, 900], scrollTop: 500, isScrolledToEnd: true, readingLineOffset: 48 }), 2);
+});
+
+test('a plan without headings has no current heading', () => {
+  assert.equal(currentHeadingIndex({ headingOffsets: [], scrollTop: 0, isScrolledToEnd: false, readingLineOffset: 48 }), null);
 });
