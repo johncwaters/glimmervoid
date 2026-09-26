@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version-file: .nvmrc
@@ -32,7 +34,30 @@ jobs:
             echo "::error::tag $GITHUB_REF_NAME does not match package.json version v$PACKAGE_VERSION"
             exit 1
           fi
-      - run: npm ci
-      - run: npm run build
-      - run: env -u GLIMMERVOID_POSTHOG_API_KEY -u GLIMMERVOID_TELEGRAM_BOT_TOKEN npm test
-      - run: npm publish --provenance --access public
+      - name: tagged commit is on main
+        shell: bash
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::tag $GITHUB_REF_NAME points at $GITHUB_SHA, which is not on origin/main"
+            exit 1
+          fi
+      - name: skip when this version is already on npm
+        id: registry
+        shell: bash
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          if npm view "glimmervoid@$PACKAGE_VERSION" version > /dev/null 2>&1; then
+            echo "glimmervoid@$PACKAGE_VERSION is already published"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "published=false" >> "$GITHUB_OUTPUT"
+      - if: steps.registry.outputs.published == 'false'
+        run: npm ci
+      - if: steps.registry.outputs.published == 'false'
+        run: npm run build
+      - if: steps.registry.outputs.published == 'false'
+        run: env -u GLIMMERVOID_POSTHOG_API_KEY -u GLIMMERVOID_TELEGRAM_BOT_TOKEN npm test
+      - if: steps.registry.outputs.published == 'false'
+        run: npm publish --provenance --access public

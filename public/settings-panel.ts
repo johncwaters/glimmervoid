@@ -3,7 +3,7 @@ import { SETTINGS_RANGES } from '#shared/settings-ranges.ts';
 import type { CustomAgentSummaryRow } from '#shared/contracts/control-messages.ts';
 import type { UpdateJournal } from '#shared/contracts/update-journal.ts';
 import { REPO_SLUG } from '#shared/repo.ts';
-import { playAlertSound, SOUND_OPTIONS } from './alert-sound.ts';
+import { loadCustomSounds, playAlertSound, resolveSoundId, soundOptions } from './alert-sound.ts';
 import { sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { el } from './dom-helpers.ts';
 import { ensureNotificationPermission, notificationPermission, notificationsSupported } from './notifications.ts';
@@ -58,26 +58,30 @@ interface SearchResult {
   score: number;
 }
 
-const OPTION_CATALOGS: Readonly<Record<string, { id: string; label: string }[]>> = Object.freeze({
-  sounds: SOUND_OPTIONS,
-  themes: getThemeList(),
+const OPTION_CATALOGS: Readonly<Record<string, () => { id: string; label: string }[]>> = Object.freeze({
+  sounds: () => soundOptions(),
+  themes: getThemeList,
 });
 
 function resolveSettingOptions(setting: SettingsSetting): SettingsSetting {
   if (!setting.optionsFrom) return setting;
-  const catalog = OPTION_CATALOGS[setting.optionsFrom] || [];
+  const catalog = OPTION_CATALOGS[setting.optionsFrom]?.() ?? [];
   return {
     ...setting,
     options: catalog.map((option) => ({ value: option.id, label: option.label })),
   };
 }
 
-const STATIC_SETTINGS_VIEW_MAP = Object.freeze(SETTINGS_MAP.map((section) => ({
-  ...section,
-  settings: section.settings.map(resolveSettingOptions),
-})));
+function buildStaticSettingsViewMap() {
+  return Object.freeze(SETTINGS_MAP.map((section) => ({
+    ...section,
+    settings: section.settings.map(resolveSettingOptions),
+  })));
+}
 
-let SETTINGS_VIEW_MAP = orderSections(STATIC_SETTINGS_VIEW_MAP);
+let staticSettingsViewMap = buildStaticSettingsViewMap();
+
+let SETTINGS_VIEW_MAP = orderSections(staticSettingsViewMap);
 
 const LEVEL_LABELS: Readonly<Record<string, string>> = Object.freeze({
   browser: 'This browser',
@@ -87,6 +91,7 @@ const LEVEL_LABELS: Readonly<Record<string, string>> = Object.freeze({
 });
 
 let rootEl: HTMLElement | null = null;
+let settingsViewVisibilityObserver: IntersectionObserver | null = null;
 let shellEl: HTMLDivElement | null = null;
 let navigationEl: HTMLElement | null = null;
 let searchEl: HTMLInputElement | null = null;
@@ -117,7 +122,7 @@ function browserPreferences() {
   return {
     themeId: getThemeId(),
     flyingAnimalsEnabled: isFlyingAnimalsEnabled(),
-    soundId: getSoundId(),
+    soundId: resolveSoundId(getSoundId()),
     notificationsEnabled: isNotificationsEnabled(),
   };
 }
@@ -162,7 +167,7 @@ function flashSetting(settingId: string) {
 function rebuildSettingsMap() {
   const previousSectionId = selectedSection?.id;
   const projectSections = buildProjectSections(projectReport.projects);
-  SETTINGS_VIEW_MAP = orderSections([...STATIC_SETTINGS_VIEW_MAP, ...projectSections]);
+  SETTINGS_VIEW_MAP = orderSections([...staticSettingsViewMap, ...projectSections]);
   selectedSection = resolveEntry(SETTINGS_VIEW_MAP, selectedSection?.id) ?? selectedSection;
   if (previousSectionId === selectedSection?.id) return;
   dangerConfirmationBySettingId.clear();
@@ -763,6 +768,7 @@ function selectSection(
   }
   if (sectionButtonLevelEl) sectionButtonLevelEl.textContent = LEVEL_LABELS[selectedSection.level] || selectedSection.level;
   renderContent();
+  if (isAlertSoundSection(selectedSection)) reloadCustomSounds();
   if (updateHash) replaceSettingsHash(selectedSection.id, settingId);
   if (settingId) flashSetting(settingId);
   if (focusContent) contentEl?.querySelector('h1')?.focus();
@@ -986,6 +992,29 @@ export function mountSettingsView(
   rootEl.appendChild(shellEl);
   hydrate(settingsPayload);
   renderNavigation();
+  reloadCustomSounds();
+  settingsViewVisibilityObserver?.disconnect();
+  settingsViewVisibilityObserver = new IntersectionObserver((entries) => {
+    if (entries.some((entry) => entry.isIntersecting)) reloadCustomSounds();
+  });
+  settingsViewVisibilityObserver.observe(rootEl);
+}
+
+function reloadCustomSounds() {
+  void loadCustomSounds().then(refreshSoundOptions);
+}
+
+function isAlertSoundSection(section: SettingsSection) {
+  return section.settings.some((setting) => setting.path === 'pref:soundId');
+}
+
+function refreshSoundOptions() {
+  staticSettingsViewMap = buildStaticSettingsViewMap();
+  rebuildSettingsMap();
+  const soundId = resolveSoundId(getSoundId());
+  if (originalValues) originalValues['pref:soundId'] = soundId;
+  if (editedValues) editedValues['pref:soundId'] = soundId;
+  if (isAlertSoundSection(selectedSection)) renderContent();
 }
 
 export function closeSettingsSectionPicker({ returnFocus = true }: { returnFocus?: boolean } = {}) {

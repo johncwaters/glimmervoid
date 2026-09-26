@@ -27,13 +27,13 @@ npm run typecheck
 npm test
 ```
 
-Unset `GLIMMERVOID_POSTHOG_API_KEY` and `GLIMMERVOID_TELEGRAM_BOT_TOKEN` before `npm test`, or tests for those lanes reach the live services and hang:
+`npm test` is safe with `GLIMMERVOID_POSTHOG_API_KEY` and `GLIMMERVOID_TELEGRAM_BOT_TOKEN` set: its preload, `tests/helpers/isolate-home.ts`, deletes both from the test process and points `GLIMMERVOID_HOME` at a throwaway directory. A command that bypasses that preload, such as `node --test tests/some.test.ts` run directly, still sees them and lets those lanes reach the live services and hang, so unset them first:
 
 ```bash
-env -u GLIMMERVOID_POSTHOG_API_KEY -u GLIMMERVOID_TELEGRAM_BOT_TOKEN npm test
+env -u GLIMMERVOID_POSTHOG_API_KEY -u GLIMMERVOID_TELEGRAM_BOT_TOKEN node --test tests/some.test.ts
 ```
 
-In PowerShell, `Remove-Item Env:GLIMMERVOID_POSTHOG_API_KEY, Env:GLIMMERVOID_TELEGRAM_BOT_TOKEN -ErrorAction SilentlyContinue` first.
+In PowerShell, `Remove-Item Env:GLIMMERVOID_POSTHOG_API_KEY, Env:GLIMMERVOID_TELEGRAM_BOT_TOKEN -ErrorAction SilentlyContinue` first. Or pass `--import ./tests/helpers/isolate-home.ts` to get the same isolation `npm test` has.
 
 If you change a setting, a config key or an environment variable, run `npm run docs:config` and commit the regenerated `docs/configuration.md`; `tests/config-docs.test.ts` fails otherwise.
 

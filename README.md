@@ -25,12 +25,16 @@ glimmervoid
 Linux (node-pty ships no Linux prebuilds, so it compiles at install time):
 
 ```bash
-sudo apt install build-essential python3
+sudo apt install build-essential python3 git
 npm install -g glimmervoid --allow-scripts=node-pty
 glimmervoid
 ```
 
-Open http://localhost:3000 and add a project from the dashboard. That is the whole setup; everything else is optional.
+If `npm install -g` fails with `EACCES`, see [docs/troubleshooting.md](docs/troubleshooting.md#eacces-on-a-global-install); never use `sudo npm`.
+
+Open http://localhost:3000. A fresh install knows no projects, so **+ Session** shows "No projects found" until you say where your repositories live: open **Settings**, then **Repositories**, and add the folder that holds your git checkouts under **Repository roots** (each subfolder becomes a project). For a one-off, **+ Session** then **Advanced options** takes a name and a path directly. That is the whole setup; everything else is optional.
+
+To check notifications, allow them when the dashboard asks (or turn on **Desktop notifications** under **Settings**, **Appearance and alerts**) and keep a dashboard tab open. A notification only appears while that tab is not focused, since a focused tab already shows the change. With no dashboard tab open anywhere, only Telegram reaches you (the `telegram` keys in [docs/configuration.md](docs/configuration.md)).
 
 The `--allow-scripts=node-pty` flag matters on npm 12, which blocks dependency install scripts by default. npm 10 and 11 run them by default (npm 11 prints a notice), so there the flag is unnecessary but harmless. If the native module still fails to load, the server refuses to start and prints the repair command; `glimmervoid doctor` runs the same check. See [docs/troubleshooting.md](docs/troubleshooting.md).
 
@@ -51,6 +55,7 @@ Update a clone with `git pull --ff-only && npm ci && npm run build`, then restar
 - **Node.js >= 22.18.0** (the `engines` floor). npm 12 itself needs Node 22.22.2 or newer; distro-packaged Node is usually older than either, so use nodesource, nvm or the official installer.
 - **Windows 11 or Linux.** macOS is untested.
 - **Claude Code CLI** on PATH, or another supported agent below.
+- **git** on PATH, for per-session worktrees.
 - **Linux only:** `build-essential` and `python3` for node-pty.
 
 ## Supported agents
@@ -81,7 +86,8 @@ glimmervoid --version
 - Real-time terminal output via xterm.js with WebGL rendering
 - Structural status detection: hooks as the authoritative signal, an OSC-0 title fallback, never screen scraping (see below)
 - Background sub-agent completion gate: a session with live background agents or tasks stays out of Complete until they finish
-- Browser notifications when a session needs input, finishes or fails, with an opt-in Windows OS toast fallback (`osToast`)
+- Browser notifications when a session needs input, finishes or fails
+- Custom alert sounds: drop your own `.ogg`, `.mp3`, `.wav`, `.m4a` or `.webm` files into `~/.glimmervoid/sounds/` (or `$GLIMMERVOID_HOME/sounds/`) and pick one in Settings
 - Phone layout as a first-class second layout: board, terminal and review screens, attention-first ordering, and a terminal that resizes around the soft keyboard instead of hiding behind it
 - Remote access (opt-in): a separate listener with single-use device pairing and cookie auth
 - Telegram notifications (opt-in), sent only when no dashboard tab is open anywhere
@@ -122,15 +128,22 @@ On first run Glimmervoid creates `~/.glimmervoid/config.json`. Most settings are
 
 ## Remote access
 
-Remote access is off unless you add a `remote` block to `config.json`. It opens a second loopback listener meant to sit behind a reverse proxy such as `tailscale serve`, never a wider bind:
+Remote access is off by default. It is a second loopback listener meant to sit behind an HTTPS reverse proxy, never a wider bind, and it is created only at startup:
 
-```json
-{
-  "remote": { "enabled": true, "port": 3456, "publicHost": "my-machine.example.ts.net" }
-}
-```
+1. Add a `remote` block to `~/.glimmervoid/config.json`. `enabled` defaults to `false`; `port` has no default and is required once enabled (it must differ from the local port); `publicHost` defaults to empty and is the hostname your proxy serves, used for shareable pairing links and the allowed origin.
 
-Pair a device with `glimmervoid pair --name phone`, which prints a single-use URL valid for 10 minutes that sets an auth cookie when opened. `glimmervoid pair --list` and `glimmervoid pair --revoke <id>` manage devices, and a revoke applies without a restart. A pairing grants full control of the machine as the server account, so treat pairing URLs as passwords.
+   ```json
+   {
+     "remote": { "enabled": true, "port": 3456, "publicHost": "my-machine.example.ts.net" }
+   }
+   ```
+
+2. Restart Glimmervoid (stop and start it, or `systemctl --user restart glimmervoid` when it runs as a service). The log line `Glimmervoid remote listener on http://127.0.0.1:3456 (paired devices only)` confirms the listener is up.
+3. Point an HTTPS reverse proxy at that port. With Tailscale, `tailscale serve --bg 3456` serves `https://<machine>.<tailnet>.ts.net`, which is the name `publicHost` should hold.
+4. Verify from the device: `https://<publicHost>/` should answer with Glimmervoid's "Pairing required" page.
+5. On the host, run `glimmervoid pair --name phone`. It prints a single-use URL valid for 10 minutes that sets an auth cookie when opened on the device.
+
+`glimmervoid pair --list` and `glimmervoid pair --revoke <id>` manage devices, and a revoke applies without a restart. A pairing grants full control of the machine as the server account, so treat pairing URLs as passwords.
 
 ## Security
 

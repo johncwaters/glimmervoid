@@ -16,6 +16,9 @@ import { decideOriginAllowed } from './core/origin-policy.ts';
 import { classifyRequestOrigin } from './core/request-trust.ts';
 import type { HostUrlOpener } from './host-url-opener.ts';
 import type { OutcomeRecorder } from '../shared/outcome-names.ts';
+import { glimmervoidHomeDir } from './config-store.ts';
+import { resolveCustomSoundsDir } from './core/custom-sounds-core.ts';
+import { mountCustomSoundRoutes } from './custom-sounds-routes.ts';
 import { configSiblingPath } from './pairings-store.ts';
 import { clientDir } from './runtime-paths.ts';
 import {
@@ -117,6 +120,7 @@ function hookBodyCapBytes(event: string, planReview: PlanReviewHookPort | null):
 
 interface BackendHttpDependencies {
   staticDir: string | null;
+  customSoundsDir?: string;
   configStore: { configPath: string };
   remote: { allowedOrigins: string[] };
   remoteAuth: { httpMiddleware: RequestHandler; mountPairRoutes: (app: Express) => void } | null;
@@ -277,6 +281,7 @@ function answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, to
 function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
   const {
     staticDir,
+    customSoundsDir = resolveCustomSoundsDir(glimmervoidHomeDir()),
     configStore,
     remote,
     remoteAuth,
@@ -441,6 +446,8 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
         if (!res.headersSent) res.status(500).json({ error: 'could not store the upload' });
       });
   });
+
+  mountCustomSoundRoutes(app, { soundsDir: customSoundsDir });
 
   if (staticDir === 'auto') {
     if (!fs.existsSync(path.join(clientDir, 'index.html'))) {

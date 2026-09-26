@@ -53,11 +53,6 @@ if (args.includes('--version')) {
   process.exit(0);
 }
 
-if (args[0] === 'doctor' || args.includes('--doctor')) {
-  await runDoctor();
-  process.exit(0);
-}
-
 function getArgValue(flag: string): string | null {
   const idx = args.indexOf(flag);
   if (idx !== -1 && idx + 1 < args.length) {
@@ -74,6 +69,11 @@ if (configArg) {
 const portArg = getArgValue('--port');
 if (portArg) {
   process.env.GLIMMERVOID_PORT = portArg;
+}
+
+if (args[0] === 'doctor' || args.includes('--doctor')) {
+  await runDoctor();
+  process.exit(0);
 }
 
 if (args[0] === 'pair') {

@@ -10,7 +10,7 @@ The notification domain: the lifecycle state machine deciding when the operator 
 | File | Description |
 |------|-------------|
 | `notification-manager.ts` | Notification lifecycle state machine (states in `../shared/notification-states.ts`); focus suppression defers, never drops |
-| `channels/` | Delivery adapters: web-notification (primary, via control WS) and OS toast (opt-in fallback); see `channels/AGENTS.md` |
+| `channels/` | Delivery adapters: web-notification (primary, via control WS) and Telegram; see `channels/AGENTS.md` |
 
 ## For AI Agents
 - The per-state notify decision lives in `../session/core/notify-gate.ts`; the manager only owns entry lifecycle and timers.

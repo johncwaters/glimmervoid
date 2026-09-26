@@ -27,3 +27,13 @@ export function decideAgentPicker(agents: unknown, { defaultId = DEFAULT_AGENT_I
   const selectedId = hasDefault ? defaultId : options.length > 0 ? options[0].id : defaultId;
   return { show: options.length > 1, options, selectedId };
 }
+
+export const NO_AGENT_GUIDANCE = 'No supported agent CLI was found on the PATH Glimmervoid runs with. Install Claude Code (or another supported agent), make sure its command is on that PATH, then run glimmervoid doctor to confirm.';
+
+export function decideAgentAvailability(listing: unknown) {
+  const reply = typeof listing === 'object' && listing !== null ? (listing as { agents?: unknown; error?: unknown }) : null;
+  const isAuthoritativeListing = reply !== null && Array.isArray(reply.agents) && !reply.error;
+  if (!isAuthoritativeListing) return { canSpawn: true, guidance: '' };
+  if (decideAgentPicker(reply.agents).options.length > 0) return { canSpawn: true, guidance: '' };
+  return { canSpawn: false, guidance: NO_AGENT_GUIDANCE };
+}

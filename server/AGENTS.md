@@ -9,11 +9,11 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 
 | File | Description |
 |------|-------------|
-| `backend.js` | Express + WebSocket server factory |
-| `backend-*.js` | Wiring extracted from the factory, one concern per file |
+| `backend.ts` | Express + WebSocket server factory |
+| `backend-*.ts` | Wiring extracted from the factory, one concern per file |
 | `session-{factory,registry,event-wiring}.ts` | Session construction, config reconciliation, and one-time event wiring |
-| `control-handlers.js` | Control-WebSocket message handlers (kill, restart, rename, settings) |
-| `control-replay-core.js` | Pure control-broadcast replay log |
+| `control-handlers.ts` | Control-WebSocket message handlers (kill, restart, rename, settings) |
+| `control-replay-core.ts` | Pure control-broadcast replay log |
 | `server-lifecycle.ts` | Boot/shutdown helpers; restart strategy in `core/restart-strategy.ts` |
 | `ws-sender.ts` | Data-WebSocket sender: batching and backpressure |
 | `post-turn-checker.ts` | Post-turn hygiene IO runner (rules in `session/core/post-turn-rules.ts`) |
@@ -22,12 +22,12 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `usage-pricing.ts` | Claude model pricing loader |
 | `data/claude-pricing.json` | Bundled LiteLLM pricing snapshot |
 | `spawn-gate.ts` | Process-wide async serialization of `pty.spawn` initiation (ConPTY wedge avoidance) |
-| `git-workspace.js` | THE ONLY module allowed to run `git worktree` (`tests/no-direct-git-worktree.test.ts`) |
-| `config-store.js` | Runtime config load/save/defaults |
-| `child-process-safe.js` | THE ONLY importer of `node:child_process` (`tests/no-direct-child-process.test.ts`) |
+| `git-workspace.ts` | THE ONLY module allowed to run `git worktree` (`tests/no-direct-git-worktree.test.ts`) |
+| `config-store.ts` | Runtime config load/save/defaults |
+| `child-process-safe.ts` | THE ONLY importer of `node:child_process` (`tests/no-direct-child-process.test.ts`) |
 | `update-check.ts` | Startup release-tag check, advisory only |
 | `team-review-wiring.ts` | Team review session and state helpers |
-| `ephemeral-session.js` | Shared ephemeral-Session registration and cleanup |
+| `ephemeral-session.ts` | Shared ephemeral-Session registration and cleanup |
 | `team-review-poller.ts` | Team review poller, IO-free |
 | `pr-gh.ts` | `gh` issue queries shared with the control plane |
 | `core/team-review-core.ts` | Pure team review decisions |
@@ -36,8 +36,7 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `core/upgrade-route.ts` | Pure WS-upgrade target classification by PATHNAME |
 
 ## For AI Agents
-- These modules live one level below the repo root: filesystem assets (`dist/`, `public/`, `node_modules/`) resolve via `path.join(__dirname, '..', ...)`. Keep that offset when adding paths.
-- CommonJS for `.js`; Mill measurement `.ts` keeps the same runtime module shape through native type stripping. No new dependencies without explicit instruction; avoid `else` (guard clauses).
+- Resolve a shipped asset only through `runtime-paths.ts`, never `import.meta.dirname` or a `..` offset: the same module runs from a source checkout and from `dist/`.
 - See root `AGENTS.md` for architecture and conventions.
 
 ## Invariants

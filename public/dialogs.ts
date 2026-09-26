@@ -2,7 +2,7 @@ import addSessionHTML from './components/add-session-dialog.html?raw';
 import { sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { el, query, queryTag } from './dom-helpers.ts';
 import { applyDialogAria, buildDialogShell, createModalOverlay } from './session-card/modal.ts';
-import { DEFAULT_AGENT_ID, decideAgentPicker } from './session-card/agent-core.ts';
+import { DEFAULT_AGENT_ID, decideAgentAvailability, decideAgentPicker } from './session-card/agent-core.ts';
 import { countSessionsByName, suggestSessionName } from './session-card/naming.ts';
 import { onSessionTick } from './session-card/session-tick.ts';
 import { formatAgo } from './poll-ago.ts';
@@ -124,8 +124,19 @@ export function createAddSessionDialog() {
   });
 
   let selectedAgentId = DEFAULT_AGENT_ID;
+  let isSpawnBlocked = false;
+  function blockSpawnWithGuidance(guidance: string) {
+    isSpawnBlocked = true;
+    btnConfirm.disabled = true;
+    const agentGuidanceEl = el('p', 'dialog-hint dialog-hint-warning', guidance);
+    agentGuidanceEl.id = 'add-session-agent-guidance';
+    agentGuidanceEl.setAttribute('role', 'status');
+    errorEl.before(agentGuidanceEl);
+  }
   sendControlRequest('list-agents', {})
     .then((message) => {
+      const availability = decideAgentAvailability(message);
+      if (!availability.canSpawn) blockSpawnWithGuidance(availability.guidance);
       const decision = decideAgentPicker((message.agents as AgentChoice[] | undefined) || []);
       selectedAgentId = decision.selectedId;
       if (!decision.show) return;
@@ -145,6 +156,7 @@ export function createAddSessionDialog() {
   pathInput.addEventListener('input', () => { pickerEl.selectedIndex = 0; });
 
   function submit() {
+    if (isSpawnBlocked) return;
     const name = nameInput.value.trim();
     const projectPath = pathInput.value.trim();
     if (isWorkspaceMode) {

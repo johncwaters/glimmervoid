@@ -1,7 +1,6 @@
 import type { WebSocket } from 'ws';
 import { NotificationManager } from '../notifications/notification-manager.ts';
 import { createTelegramChannel, decideTelegramNotification } from '../notifications/channels/telegram.ts';
-import { createToastChannel } from '../notifications/channels/toast.ts';
 import { createWebNotificationChannel } from '../notifications/channels/web-notification.ts';
 import { createTelegramCompletionDefer } from '../notifications/telegram-completion-defer.ts';
 import { createTelegramOutbox } from '../notifications/telegram-outbox.ts';
@@ -19,7 +18,6 @@ const DEFAULT_PHONE_ESCALATION_MS = 300000;
 interface NotificationConfig {
   phoneEscalationMs?: number;
   notifyDebounceMs?: number;
-  osToast?: boolean;
   telegramNotifications?: boolean;
   telegram?: { botToken?: string; chatId?: string } | null;
 }
@@ -55,7 +53,6 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
     recordOutcome,
   });
   notificationManager.registerChannel('web', createWebNotificationChannel(broadcastControl));
-  if (config.osToast) notificationManager.registerChannel('toast', createToastChannel());
 
   const telegramOutbox = createTelegramOutbox({
     filePath: configSiblingPath(configStore.configPath, 'telegram-outbox.json'),

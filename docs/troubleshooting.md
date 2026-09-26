@@ -2,6 +2,19 @@
 
 Start with `glimmervoid doctor`. It changes nothing and starts no server: it reports versions, where the CLI runs from, whether npm's global bin directory is on PATH, which agent CLIs resolve, whether node-pty loads, and which config file would be used.
 
+## `EACCES` on a global install
+
+npm's global prefix is a system directory (NodeSource and distro Node use `/usr`). Never fix that with `sudo npm`. Either install Node through [nvm](https://github.com/nvm-sh/nvm), whose prefix lives in your home directory, or give npm a home-owned prefix and reinstall:
+
+```bash
+mkdir -p ~/.npm-global
+npm config set prefix ~/.npm-global
+echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> ~/.profile
+source ~/.profile
+```
+
+npm's own guide covers the same fix: [Resolving EACCES permissions errors when installing packages globally](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally).
+
 ## `glimmervoid` is not recognized after a global install
 
 The install worked, but npm's global command directory is not on PATH (common with a zip or standalone Node, a locked-down corporate image, or pnpm without `pnpm setup`).

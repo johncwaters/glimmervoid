@@ -4,18 +4,12 @@
 # assets
 
 ## Purpose
-Repo-level static assets for documentation and source media. Runtime-served audio lives in `public/audio/` (these are the source copies).
+Repo-level static assets for documentation, served as Vite's `publicDir`. No third-party media ships here: built-in alert sounds are synthesized in `public/alert-sound-core.ts`, and operator sounds are served from `<glimmervoid home>/sounds/` by `server/custom-sounds-routes.ts`.
 
 ## Subdirectories
 
 | Directory | Purpose |
 |-----------|---------|
-| `audio/` | Source notification sound files (OGG); copies served at runtime live in `public/audio/` |
 | `pictures/` | Screenshots and demo media for README/docs (`glimmervoid-demo.gif` README hero: a real Claude Code session mid-run, captured via Playwright driving an actual Glimmervoid instance) |
-
-## For AI Agents
-
-### Working In This Directory
-- Adding a notification sound: place the file in BOTH `assets/audio/` and `public/audio/`, then register it in `public/alert-sound.ts` `SOUND_OPTIONS`.
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

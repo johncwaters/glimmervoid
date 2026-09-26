@@ -21,7 +21,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `render-scheduler.ts` | Global xterm WRITE scheduler: callback-gated round-robin with per-frame budget |
 | `notifications.ts` | Native Web Notifications (browser routes to Windows Action Center); replaces the server-side toast path |
 | `notify-dedupe-core.ts` | Pure cross-tab claim (short-TTL localStorage) so exactly one open tab raises each notification |
-| `alert-sound.ts` | Notification sounds: audio files from `audio/` + synth-beep fallback |
+| `alert-sound.ts` / `alert-sound-core.ts` | Alert sounds: synthesized built-ins plus the operator's own files from `GET /custom-sounds`; any id no longer present resolves to the default |
 | `health-monitor.ts` | Footer panel rendering server memory/leak telemetry from `health-snapshot` messages |
 | `usage-panel.ts` | Usage tab DOM shell fed by `usage-sessions` pushes and `request-usage-report` replies |
 | `hooks-panel.ts` / `hooks-view-core.ts` | Hooks tab: operator Claude Code hooks (`request-hooks-report`, `save-hook`, `delete-hook`) over a pure core owning every string and draft rule |
@@ -50,7 +50,6 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `plan/` | Safe plan parsing and the session card's shared plan face (see `plan/AGENTS.md`) |
 | `sidebar/` | Review sidebar: diff rendering, selection, merge actions (see `sidebar/AGENTS.md`) |
 | `components/` | Static HTML fragments imported `?raw` (see `components/AGENTS.md`) |
-| `audio/` | Notification sound files (OGG) |
 
 ## For AI Agents
 

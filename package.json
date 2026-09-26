@@ -22,8 +22,7 @@
     "node": ">=22.18.0"
   },
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "author": "John C. Waters <john@johncwaters.com>",
   "license": "MIT",
@@ -70,6 +69,9 @@
     "node-pty": "^1.1.0",
     "ws": "^8.16.0",
     "zod": "^4.4.3"
+  },
+  "allowScripts": {
+    "node-pty": true
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.5",

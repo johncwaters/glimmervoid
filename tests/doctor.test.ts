@@ -25,3 +25,21 @@ test('doctor reports each pack carrier and the codex hook-trust caveat', () => {
     fs.rmSync(npmPrefix, { recursive: true, force: true });
   }
 });
+
+test('doctor reports the config file named by --config, not the default one', () => {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-doctor-config-'));
+  try {
+    const configPath = path.join(scratch, 'alternate-config.json');
+    fs.writeFileSync(configPath, JSON.stringify({ projects: [] }));
+    const result = spawnSync(process.execPath, ['bin/glimmervoid.ts', 'doctor', '--config', configPath], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env: { ...process.env, npm_config_prefix: scratch, GLIMMERVOID_CONFIG: '' },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const resolvedConfigLine = result.stdout.split('\n').find((outputLine) => outputLine.includes('resolved config'));
+    assert.ok(resolvedConfigLine?.includes(configPath), result.stdout);
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});

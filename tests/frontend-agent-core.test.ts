@@ -96,3 +96,26 @@ test('decideAgentPicker: bad input never throws', async () => {
   assert.equal(decideAgentPicker(undefined).show, false);
   assert.equal(decideAgentPicker([null, {}, { id: 'codex', resolvable: true }, { resolvable: true }]).selectedId, 'codex');
 });
+
+test('decideAgentAvailability: a listing with no resolvable agent blocks spawning and explains why', async () => {
+  const { decideAgentAvailability, NO_AGENT_GUIDANCE } = await importCore();
+  const blocked = decideAgentAvailability({ agents: [{ id: 'claude-code', label: 'Claude Code', resolvable: false }] });
+  assert.equal(blocked.canSpawn, false);
+  assert.equal(blocked.guidance, NO_AGENT_GUIDANCE);
+  assert.match(blocked.guidance, /glimmervoid doctor/);
+  assert.equal(decideAgentAvailability({ agents: [] }).canSpawn, false);
+});
+
+test('decideAgentAvailability: one resolvable agent allows spawning with no guidance', async () => {
+  const { decideAgentAvailability } = await importCore();
+  const allowed = decideAgentAvailability({ agents: [{ id: 'codex', label: 'Codex CLI', resolvable: true }] });
+  assert.deepEqual(allowed, { canSpawn: true, guidance: '' });
+});
+
+test('decideAgentAvailability: a failed or malformed listing never blocks spawning', async () => {
+  const { decideAgentAvailability } = await importCore();
+  assert.equal(decideAgentAvailability({ agents: [], error: 'invalid request' }).canSpawn, true);
+  assert.equal(decideAgentAvailability({}).canSpawn, true);
+  assert.equal(decideAgentAvailability(null).canSpawn, true);
+  assert.equal(decideAgentAvailability('agents').canSpawn, true);
+});

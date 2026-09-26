@@ -24,14 +24,37 @@ function hasCommand(cmd: string): boolean {
   }
 }
 
+function isAncestor(ancestorRef: string, descendantRef: string): boolean {
+  try {
+    execSync(`git merge-base --is-ancestor ${ancestorRef} ${descendantRef}`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const VERSION = pkg.version;
 const TAG = `v${VERSION}`;
+const RELEASE_BRANCH = 'main';
+const RELEASE_UPSTREAM = `origin/${RELEASE_BRANCH}`;
 
 console.log(`==> Releasing glimmervoid ${TAG}\n`);
 
 const status = runCapture('git status --porcelain');
 if (status) {
   console.error('ERROR: Working tree is dirty. Commit or stash changes first.');
+  process.exit(1);
+}
+
+const currentBranch = runCapture('git rev-parse --abbrev-ref HEAD');
+if (currentBranch !== RELEASE_BRANCH) {
+  console.error(`ERROR: Releases are cut from ${RELEASE_BRANCH}, but the current branch is ${currentBranch}. Check out ${RELEASE_BRANCH} first.`);
+  process.exit(1);
+}
+
+run(`git fetch origin ${RELEASE_BRANCH}`);
+if (!isAncestor(RELEASE_UPSTREAM, 'HEAD')) {
+  console.error(`ERROR: Local ${RELEASE_BRANCH} is behind or has diverged from ${RELEASE_UPSTREAM}. Run git pull --ff-only and re-check before releasing.`);
   process.exit(1);
 }
 
@@ -65,7 +88,7 @@ if (rawSources.length > 0) {
 console.log(`   ${packedFiles.length} files, all built.`);
 
 console.log('\n==> Pushing to GitHub...');
-run('git push');
+run(`git push origin ${RELEASE_BRANCH}`);
 
 console.log(`\n==> Tagging ${TAG}...`);
 run(`git tag -a ${TAG} -m "Glimmervoid ${TAG}"`);

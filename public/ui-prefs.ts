@@ -1,3 +1,4 @@
+import { DEFAULT_SOUND_ID } from './alert-sound-core.ts';
 import { getJSON, setJSON } from './local-store.ts';
 
 const STORAGE_KEY = 'glimmervoid-ui-prefs';
@@ -34,7 +35,7 @@ const asReviewSidebarView = (value: unknown): UiPrefs['reviewSidebarView'] => va
 
 const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   soundEnabled: asBoolean(true),
-  soundId: asString('coins'),
+  soundId: asString(DEFAULT_SOUND_ID),
   themeId: asString('phyrexian'),
   flyingAnimalsEnabled: asBoolean(false),
   notificationsEnabled: asBoolean(true),

@@ -1,29 +1,61 @@
-export interface SoundOption {
-  id: string;
-  label: string;
-  file: string | null;
+import {
+  CUSTOM_SOUNDS_ROUTE,
+  DEFAULT_SOUND_ID,
+  TONES_BY_SOUND_ID,
+  customSoundFileName,
+  customSoundUrl,
+  parseCustomSoundList,
+  resolveSoundId as resolveSoundIdAgainst,
+  soundOptions as soundOptionsFrom,
+} from './alert-sound-core.ts';
+import type { SoundOption } from './alert-sound-core.ts';
+
+const CUSTOM_SOUND_VOLUME = 0.3;
+
+let knownCustomSoundNames: readonly string[] | null = null;
+
+export function soundOptions(): SoundOption[] {
+  return soundOptionsFrom(knownCustomSoundNames);
 }
 
-export const SOUND_OPTIONS: SoundOption[] = [
-  { id: 'coins', label: 'Coins', file: '/audio/Coins_jingle_(4).wav.ogg' },
-  { id: 'tears', label: 'Tears of Guthix', file: '/audio/Tears_of_Guthix_(minigame)_blue_tears.ogg' },
-  { id: 'beep', label: 'Beep (synth)', file: null },
-];
+export function resolveSoundId(soundId: unknown): string {
+  return resolveSoundIdAgainst(soundId, knownCustomSoundNames);
+}
 
-function playSynthBeep() {
-  const ctx = new AudioContext();
-  if (ctx.state === 'suspended') ctx.resume();
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.type = 'sine';
-  osc.frequency.value = 880;
-  gain.gain.value = 0.15;
-  osc.connect(gain);
-  gain.connect(ctx.destination);
-  const now = ctx.currentTime;
-  osc.start(now);
-  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
-  osc.stop(now + 0.2);
+export async function loadCustomSounds(): Promise<void> {
+  try {
+    const response = await fetch(CUSTOM_SOUNDS_ROUTE, { credentials: 'same-origin', cache: 'no-store' });
+    if (response.ok) knownCustomSoundNames = parseCustomSoundList(await response.json());
+  } catch {
+  }
+}
+
+function playTones(soundId: string) {
+  const sound = TONES_BY_SOUND_ID[soundId] ?? TONES_BY_SOUND_ID[DEFAULT_SOUND_ID];
+  const audioContext = new AudioContext();
+  if (audioContext.state === 'suspended') audioContext.resume();
+  const master = audioContext.createGain();
+  master.gain.value = sound.peakGain;
+  master.connect(audioContext.destination);
+  const now = audioContext.currentTime;
+  let lastEndSeconds = 0;
+  for (const tone of sound.tones) {
+    const start = now + tone.startSeconds;
+    const end = start + tone.durationSeconds;
+    const oscillator = audioContext.createOscillator();
+    const toneGain = audioContext.createGain();
+    oscillator.type = tone.waveform;
+    oscillator.frequency.value = tone.frequency;
+    toneGain.gain.setValueAtTime(0.001, start);
+    toneGain.gain.exponentialRampToValueAtTime(1, start + 0.01);
+    toneGain.gain.exponentialRampToValueAtTime(0.001, end);
+    oscillator.connect(toneGain);
+    toneGain.connect(master);
+    oscillator.start(start);
+    oscillator.stop(end);
+    lastEndSeconds = Math.max(lastEndSeconds, tone.startSeconds + tone.durationSeconds);
+  }
+  setTimeout(() => audioContext.close().catch(() => {}), (lastEndSeconds + 0.1) * 1000);
 }
 
 const NYAN_NOTES = [
@@ -68,16 +100,24 @@ export function playNyanJingle() {
   }
 }
 
+function playDefaultSoundInstead() {
+  try {
+    playTones(DEFAULT_SOUND_ID);
+  } catch {
+  }
+}
+
 export function playAlertSound(soundId: string) {
   try {
-    const option = SOUND_OPTIONS.find(o => o.id === soundId) || SOUND_OPTIONS[0];
-    if (option.file) {
-      const audio = new Audio(option.file);
-      audio.volume = 0.3;
-      audio.play().catch(() => {});
+    const resolvedSoundId = resolveSoundId(soundId);
+    const fileName = customSoundFileName(resolvedSoundId);
+    if (!fileName) {
+      playTones(resolvedSoundId);
       return;
     }
-    playSynthBeep();
+    const audio = new Audio(customSoundUrl(fileName));
+    audio.volume = CUSTOM_SOUND_VOLUME;
+    audio.play().catch(playDefaultSoundInstead);
   } catch {
   }
 }
