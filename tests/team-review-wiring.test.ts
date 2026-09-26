@@ -878,17 +878,19 @@ test('the empty lane status parses as the team-review-status contract', () => {
   assert.equal(TeamReviewStatus.safeParse(emptyTeamReviewStatus({ start: true })).success, true);
 });
 
-async function waitFor(isReady: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 200 && !isReady(); attempt += 1) await new Promise<void>((resolve) => setImmediate(resolve));
-  assert.equal(isReady(), true);
+function deferredSignal(): { promise: Promise<void>; resolve: () => void; reject: (reason: unknown) => void } {
+  let resolve: () => void = () => {};
+  let reject: (reason: unknown) => void = () => {};
+  const promise = new Promise<void>((settle, fail) => { resolve = settle; reject = fail; });
+  return { promise, resolve, reject };
 }
 
-test('stopping the lane aborts an in-flight full review, yields no draft, and resolves only after its checkout is removed', async () => {
+test('stopping the lane aborts an in-flight full review, yields no draft, and resolves only after its checkout is removed', { timeout: 10_000 }, async () => {
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-home-test-'));
   const removed: string[] = [];
   let spawnReview: ((args: SpawnReviewArgs) => Promise<unknown>) | null = null;
-  let isPollerStarted = false;
-  let isSessionRunning = false;
+  const pollerStarted = deferredSignal();
+  const sessionRunning = deferredSignal();
   const wiring = createTeamReviewWiring({
     config: { teamReview: { enabled: true, org: 'Acme', team: 'core' } },
     reviewSessions: new Map(),
@@ -919,23 +921,33 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
       pruneWorktrees: async () => ({ ok: true }),
     },
     spawnSession: ({ signal }) => new Promise<void>((resolve) => {
-      isSessionRunning = true;
+      sessionRunning.resolve();
       signal.addEventListener('abort', () => resolve(), { once: true });
     }),
     createPoller: (dependencies) => {
       spawnReview = dependencies.spawnReview;
       const poller = createTeamReviewPoller(dependencies);
-      return { ...poller, start: async () => { await poller.start(); isPollerStarted = true; } };
+      return {
+        ...poller,
+        start: async () => {
+          await poller.start().catch((startError: unknown) => { pollerStarted.reject(startError); throw startError; });
+          pollerStarted.resolve();
+        },
+      };
     },
   });
   try {
     wiring.startPoller();
-    await waitFor(() => spawnReview !== null && isPollerStarted);
+    await pollerStarted.promise;
     const startReview = spawnReview as ((args: SpawnReviewArgs) => Promise<unknown>) | null;
     assert.ok(startReview);
     let isReviewSettled = false;
     const pending = startReview(reviewArgs('full')).then((draft) => { isReviewSettled = true; return draft; });
-    await waitFor(() => isSessionRunning);
+    const firstToSettle = await Promise.race([
+      sessionRunning.promise.then(() => 'session running' as const),
+      pending.then(() => 'review settled' as const),
+    ]);
+    assert.equal(firstToSettle, 'session running', 'the review settled before its session spawned');
     await wiring.stopPoller();
     assert.equal(removed.length, 1);
     assert.equal(isReviewSettled, true);
@@ -943,6 +955,7 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
     assert.deepEqual(draft, { kind: 'stopped', resumable: null });
     assert.deepEqual(fs.readdirSync(path.join(homeDir, 'team-review-worktrees')), []);
   } finally {
+    await wiring.stopPoller();
     fs.rmSync(homeDir, { recursive: true, force: true });
   }
 });
