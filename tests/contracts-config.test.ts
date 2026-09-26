@@ -48,7 +48,7 @@ test('change map narrator settings cross persisted, browser, and update contract
 });
 
 test('team review settings cross persisted, browser, and update contracts', () => {
-  const teamReview = { enabled: true, org: 'PostHog', team: 'product-engineering', reReviewAfterHours: 24, skipIdleAfterDays: 14 };
+  const teamReview = { enabled: true, org: 'PostHog', team: 'product-engineering', reReviewAfterHours: 24, skipIdleAfterDays: 14, skill: 'my-review' };
   assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, teamReview }).success, true);
   assert.equal(BrowserConfig.safeParse({ teamReview }).success, true);
   assert.equal(ConfigUpdate.safeParse({ teamReview }).success, true);
@@ -57,6 +57,7 @@ test('team review settings cross persisted, browser, and update contracts', () =
     { enabled: 'true' },
     { org: 42 },
     { team: 42 },
+    { skill: 42 },
     { reReviewAfterHours: 0 },
     { reReviewAfterHours: -1 },
     { skipIdleAfterDays: 0 },

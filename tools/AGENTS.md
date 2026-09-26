@@ -4,13 +4,12 @@
 # tools
 
 ## Purpose
-Auxiliary developer tooling that supports working ON Glimmervoid; nothing here ships in the npm package or runs in the Glimmervoid server.
+Editor tooling: `vscode-visions/` is built into `dist/` and packed into a VSIX at runtime by `server/visions-setup.ts`, so it ships.
 
 ## Subdirectories
 
 | Directory | Purpose |
 |-----------|---------|
-| `company-context/` | Zero-dependency MCP server feeding project reference material to OMC workflow skills; its content lives in `company-context/context/` (see `company-context/AGENTS.md`) |
 | `vscode-visions/` | Minimal VS Code extension that launches the Glimmervoid Visions markdown LSP relay |
 
 ## For AI Agents

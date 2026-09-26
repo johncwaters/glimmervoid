@@ -3,11 +3,14 @@ import assert from 'node:assert/strict';
 
 import {
   CLONE_COMMAND,
+  NPM_GLOBAL_COMMAND,
   shortSha,
   parseResolvedSha,
   parseTagVersion,
   parseLsRemoteTags,
   parseLatestReleaseTag,
+  parseRegistryLatest,
+  decideReleaseSource,
   decideInstallFlavor,
   buildUpdateCommand,
   buildReleaseUrl,
@@ -99,6 +102,21 @@ test('parseLatestReleaseTag reads tag_name and leaves sha null', () => {
   assert.equal(parseLatestReleaseTag([]), null);
 });
 
+test('parseRegistryLatest reads the published version and its gitHead', () => {
+  assert.deepEqual(parseRegistryLatest({ version: '0.21.0', gitHead: SHA_A }), { version: '0.21.0', sha: SHA_A });
+  assert.deepEqual(parseRegistryLatest({ version: '0.21.0' }), { version: '0.21.0', sha: null });
+  assert.equal(parseRegistryLatest({ version: 'v0.21.0' }), null);
+  assert.equal(parseRegistryLatest({ version: '0.21.0-rc.1' }), null);
+  assert.equal(parseRegistryLatest({ tag_name: 'v0.21.0' }), null);
+  assert.equal(parseRegistryLatest(null), null);
+});
+
+test('decideReleaseSource sends only npm-global installs to the registry', () => {
+  assert.equal(decideReleaseSource('npm-global'), 'npm-registry');
+  assert.equal(decideReleaseSource('clone'), 'github-tags');
+  assert.equal(decideReleaseSource('unknown'), 'github-tags');
+});
+
 test('decideInstallFlavor prefers the lockfile commit, then gitHead, then a clone', () => {
   assert.deepEqual(
     decideInstallFlavor({ lockfileSha: SHA_A, gitHeadSha: SHA_B, hasGitDir: true }),
@@ -113,6 +131,15 @@ test('decideInstallFlavor prefers the lockfile commit, then gitHead, then a clon
   assert.deepEqual(decideInstallFlavor(), { flavor: 'unknown', installedSha: null });
 });
 
+test('decideInstallFlavor reads a package inside node_modules with no commit or git dir as a registry npm-global install', () => {
+  assert.deepEqual(decideInstallFlavor({ isInsideNodeModules: true }), { flavor: 'npm-global', installedSha: null });
+  assert.deepEqual(decideInstallFlavor({ hasGitDir: true, isInsideNodeModules: true }), { flavor: 'clone', installedSha: null });
+  assert.deepEqual(
+    decideInstallFlavor({ lockfileSha: SHA_A, isInsideNodeModules: true }),
+    { flavor: 'npm-global', installedSha: SHA_A },
+  );
+});
+
 test('decideInstallFlavor ignores a truncated or non-hex commit', () => {
   assert.deepEqual(
     decideInstallFlavor({ lockfileSha: SHA_A.slice(0, 7), gitHeadSha: 'HEAD', hasGitDir: false }),
@@ -120,12 +147,21 @@ test('decideInstallFlavor ignores a truncated or non-hex commit', () => {
   );
 });
 
-test('buildUpdateCommand pins npm-global to the latest tag and keeps clone commands unchanged', () => {
-  assert.equal(buildUpdateCommand('npm-global', '0.21.0'), 'npm install -g github:johncwaters/glimmervoid#v0.21.0 --allow-git=root');
-  assert.equal(buildUpdateCommand('npm-global', null), 'npm install -g github:johncwaters/glimmervoid --allow-git=root');
-  assert.equal(buildUpdateCommand('npm-global', ''), 'npm install -g github:johncwaters/glimmervoid --allow-git=root');
+test('buildUpdateCommand pins npm-global to the latest registry version and keeps clone commands unchanged', () => {
+  assert.equal(buildUpdateCommand('npm-global', '0.21.0'), 'npm install -g glimmervoid@0.21.0');
+  assert.equal(buildUpdateCommand('npm-global', null), 'npm install -g glimmervoid@latest');
+  assert.equal(buildUpdateCommand('npm-global', ''), 'npm install -g glimmervoid@latest');
+  assert.equal(buildUpdateCommand('npm-global', null), NPM_GLOBAL_COMMAND);
   assert.equal(buildUpdateCommand('clone', '0.21.0'), CLONE_COMMAND);
   assert.equal(buildUpdateCommand('unknown', '0.21.0'), CLONE_COMMAND);
+});
+
+test('buildUpdateCommand allows the node-pty install script only on Linux', () => {
+  assert.equal(buildUpdateCommand('npm-global', '0.21.0', 'linux'), 'npm install -g glimmervoid@0.21.0 --allow-scripts=node-pty');
+  assert.equal(buildUpdateCommand('npm-global', null, 'linux'), 'npm install -g glimmervoid@latest --allow-scripts=node-pty');
+  assert.equal(buildUpdateCommand('npm-global', '0.21.0', 'win32'), 'npm install -g glimmervoid@0.21.0');
+  assert.equal(buildUpdateCommand('npm-global', '0.21.0', 'darwin'), 'npm install -g glimmervoid@0.21.0');
+  assert.equal(buildUpdateCommand('clone', '0.21.0', 'linux'), CLONE_COMMAND);
 });
 
 test('buildReleaseUrl points at the release tag page', () => {
@@ -178,7 +214,7 @@ test('decideUpdateStatus reports updates by version only', () => {
     currentSha: SHA_A,
     latestSha: SHA_A,
     releaseUrl: 'https://github.com/johncwaters/glimmervoid/releases/tag/v0.21.0',
-    command: 'npm install -g github:johncwaters/glimmervoid#v0.21.0 --allow-git=root',
+    command: 'npm install -g glimmervoid@0.21.0',
     flavor: 'npm-global',
     channel: 'release',
     behindCount: null,
@@ -194,6 +230,11 @@ test('decideUpdateStatus reports updates by version only', () => {
   });
   assert.equal(sameVersionWithDifferentSha.updateAvailable, false);
   assert.equal(sameVersionWithDifferentSha.command, CLONE_COMMAND);
+});
+
+test('decideUpdateStatus passes the platform to the npm-global command', () => {
+  const onLinux = decideUpdateStatus({ currentVersion: '0.20.0', latestVersion: '0.21.0', flavor: 'npm-global', platform: 'linux' });
+  assert.equal(onLinux.command, 'npm install -g glimmervoid@0.21.0 --allow-scripts=node-pty');
 });
 
 test('decideUpdateStatus suppresses a release already contained by a clone checkout', () => {

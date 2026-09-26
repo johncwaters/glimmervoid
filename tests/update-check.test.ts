@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { MAIN_FETCH_TIMEOUT_MS, checkForUpdate } from '../server/update-check.ts';
+import { MAIN_FETCH_TIMEOUT_MS, NPM_REGISTRY_LATEST_URL, checkForUpdate } from '../server/update-check.ts';
 import type { CheckForUpdateOptions } from '../server/update-check.ts';
 
 const SHA_LOCAL = '0123456789abcdef0123456789abcdef01234567';
@@ -17,9 +17,9 @@ interface Fixture {
   statePath: string;
 }
 
-function makeTempRoot(): Fixture {
+function makeTempRoot({ parentDirectory = 'node_modules' }: { parentDirectory?: string } = {}): Fixture {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-update-'));
-  const packageRoot = path.join(dir, 'node_modules', 'glimmervoid');
+  const packageRoot = path.join(dir, parentDirectory, 'glimmervoid');
   fs.mkdirSync(packageRoot, { recursive: true });
   fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({ name: 'glimmervoid', version: '0.20.0' }), 'utf8');
   return { dir, packageRoot, statePath: path.join(dir, 'update-check.json') };
@@ -73,10 +73,18 @@ function fakeGit({ head, tags, throws, isReleaseAncestor }: {
   };
 }
 
-function fakeFetch({ version, ok = true, throws }: { version?: string; ok?: boolean; throws?: Error } = {}): typeof fetch {
-  return async () => {
+function fakeFetch({ version, registryVersion = version, ok = true, throws }: {
+  version?: string;
+  registryVersion?: string;
+  ok?: boolean;
+  throws?: Error;
+} = {}): typeof fetch {
+  return async (input) => {
     if (throws) throw throws;
     if (!ok) return new Response(null, { status: 500 });
+    if (String(input) === NPM_REGISTRY_LATEST_URL) {
+      return Response.json({ name: 'glimmervoid', version: registryVersion ?? null, gitHead: SHA_RELEASE_COMMIT });
+    }
     return Response.json({ tag_name: version ? `v${version}` : null });
   };
 }
@@ -98,6 +106,7 @@ function baseOptions(fixture: Fixture, overrides: Partial<CheckForUpdateOptions>
     runCommand: fakeGit({ tags: tagsStdout() }),
     fetchFn: fakeFetch({ version: '0.21.0' }),
     now: 1000,
+    platform: 'win32',
     ...overrides,
   };
 }
@@ -110,7 +119,7 @@ test('reads the installed commit from the hidden npm lockfile and reports the pi
   assert.equal(statusOf(result).currentSha, SHA_LOCAL);
   assert.equal(statusOf(result).latestSha, SHA_RELEASE_COMMIT);
   assert.equal(statusOf(result).flavor, 'npm-global');
-  assert.equal(statusOf(result).command, 'npm install -g github:johncwaters/glimmervoid#v0.21.0 --allow-git=root');
+  assert.equal(statusOf(result).command, 'npm install -g glimmervoid@0.21.0');
   assert.equal(statusOf(result).releaseUrl, 'https://github.com/johncwaters/glimmervoid/releases/tag/v0.21.0');
 });
 
@@ -190,8 +199,75 @@ test('a failed release ancestry probe falls back to the version comparison', asy
   assert.equal(result.reason, null);
 });
 
-test('an unresolvable installed commit still compares versions', async () => {
+test('a registry install inside node_modules with no commit reports the npm-global registry command', async () => {
   const fixture = makeTempRoot();
+  const result = statusOf(await checkForUpdate(baseOptions(fixture, { platform: 'linux' })));
+  assert.equal(result.updateAvailable, true);
+  assert.equal(result.currentSha, null);
+  assert.equal(result.flavor, 'npm-global');
+  assert.equal(result.command, 'npm install -g glimmervoid@0.21.0 --allow-scripts=node-pty');
+});
+
+test('an npm-global install reads the latest version from the npm registry, not GitHub tags', async () => {
+  const fixture = makeTempRoot();
+  writeLockfile(fixture.packageRoot, `git+https://github.com/johncwaters/glimmervoid.git#${SHA_LOCAL}`);
+  const requestedUrls: string[] = [];
+  let lsRemoteCalls = 0;
+  const status = statusOf(await checkForUpdate(baseOptions(fixture, {
+    runCommand: async (file, ...rest) => {
+      if (argvOf(rest)[0] === 'ls-remote') lsRemoteCalls += 1;
+      return fakeGit({ tags: tagsStdout({ version: '0.22.0' }) })(file, ...rest);
+    },
+    fetchFn: async (input, init) => {
+      requestedUrls.push(String(input));
+      return fakeFetch({ version: '0.22.0', registryVersion: '0.21.0' })(input, init);
+    },
+  })));
+  assert.deepEqual(requestedUrls, [NPM_REGISTRY_LATEST_URL]);
+  assert.equal(lsRemoteCalls, 0);
+  assert.equal(status.latest, '0.21.0');
+  assert.equal(status.latestSha, SHA_RELEASE_COMMIT);
+  assert.equal(status.updateAvailable, true);
+  assert.equal(status.command, 'npm install -g glimmervoid@0.21.0');
+});
+
+test('an npm-global install never offers a tagged version the registry has not published', async () => {
+  const fixture = makeTempRoot();
+  const status = statusOf(await checkForUpdate(baseOptions(fixture, {
+    currentVersion: '0.21.0',
+    runCommand: fakeGit({ tags: tagsStdout({ version: '0.22.0' }) }),
+    fetchFn: fakeFetch({ version: '0.22.0', registryVersion: '0.21.0' }),
+  })));
+  assert.equal(status.flavor, 'npm-global');
+  assert.equal(status.latest, '0.21.0');
+  assert.equal(status.updateAvailable, false);
+  assert.equal(status.command, 'npm install -g glimmervoid@0.21.0');
+});
+
+test('a failed npm registry check is advisory and never falls back to GitHub tags', async () => {
+  const fixture = makeTempRoot();
+  const status = statusOf(await checkForUpdate(baseOptions(fixture, {
+    runCommand: fakeGit({ tags: tagsStdout({ version: '0.22.0' }) }),
+    fetchFn: fakeFetch({ ok: false }),
+  })));
+  assert.equal(status.flavor, 'npm-global');
+  assert.equal(status.reason, 'release-check-failed');
+  assert.equal(status.latest, null);
+  assert.equal(status.updateAvailable, false);
+  assert.equal(fs.existsSync(fixture.statePath), false);
+});
+
+test('a thrown npm registry request is advisory', async () => {
+  const fixture = makeTempRoot();
+  const status = statusOf(await checkForUpdate(baseOptions(fixture, {
+    fetchFn: fakeFetch({ throws: new Error('registry unreachable') }),
+  })));
+  assert.equal(status.reason, 'release-check-failed');
+  assert.equal(status.updateAvailable, false);
+});
+
+test('an unresolvable installed commit still compares versions', async () => {
+  const fixture = makeTempRoot({ parentDirectory: 'unpacked' });
   const result = await checkForUpdate(baseOptions(fixture));
   assert.equal(statusOf(result).updateAvailable, true);
   assert.equal(statusOf(result).currentSha, null);
@@ -213,8 +289,7 @@ test('a broken git binary never throws, it uses releases/latest as fallback', as
 });
 
 test('git ls-remote tags is primary and releases/latest is not fetched when it succeeds', async () => {
-  const fixture = makeTempRoot();
-  writeLockfile(fixture.packageRoot, `git+https://github.com/johncwaters/glimmervoid.git#${SHA_LOCAL}`);
+  const fixture = makeTempRoot({ parentDirectory: 'unpacked' });
   let fetchCalls = 0;
   const result = await checkForUpdate(baseOptions(fixture, {
     fetchFn: async () => {
@@ -228,8 +303,7 @@ test('git ls-remote tags is primary and releases/latest is not fetched when it s
 });
 
 test('releases/latest is the fallback when git ls-remote tags fails', async () => {
-  const fixture = makeTempRoot();
-  writeLockfile(fixture.packageRoot, `git+https://github.com/johncwaters/glimmervoid.git#${SHA_LOCAL}`);
+  const fixture = makeTempRoot({ parentDirectory: 'unpacked' });
   const requested: { url: string; accept: string | null }[] = [];
   const result = await checkForUpdate(baseOptions(fixture, {
     runCommand: fakeGit({}),
@@ -246,7 +320,7 @@ test('releases/latest is the fallback when git ls-remote tags fails', async () =
 });
 
 test('releases/latest is the fallback when git ls-remote has no valid release tag', async () => {
-  const fixture = makeTempRoot();
+  const fixture = makeTempRoot({ parentDirectory: 'unpacked' });
   const result = await checkForUpdate(baseOptions(fixture, {
     runCommand: fakeGit({ tags: `${SHA_RELEASE_TAG}\trefs/heads/main\nnot ls remote output` }),
     fetchFn: fakeFetch({ version: '0.21.0' }),
@@ -256,7 +330,7 @@ test('releases/latest is the fallback when git ls-remote has no valid release ta
 });
 
 test('records a failed status when the releases/latest fallback body is not JSON', async () => {
-  const fixture = makeTempRoot();
+  const fixture = makeTempRoot({ parentDirectory: 'unpacked' });
   const result = await checkForUpdate(baseOptions(fixture, {
     runCommand: fakeGit({}),
     fetchFn: async () => new Response('not json'),
@@ -276,8 +350,7 @@ test('same version is no update even when shas differ', async () => {
 });
 
 test('records a failed status when no latest release version could be read', async () => {
-  const fixture = makeTempRoot();
-  writeLockfile(fixture.packageRoot, `git+https://github.com/johncwaters/glimmervoid.git#${SHA_LOCAL}`);
+  const fixture = makeTempRoot({ parentDirectory: 'unpacked' });
   const result = await checkForUpdate(baseOptions(fixture, {
     runCommand: fakeGit({}),
     fetchFn: fakeFetch({ throws: new Error('network down') }),
@@ -286,7 +359,7 @@ test('records a failed status when no latest release version could be read', asy
 });
 
 test('records a failed status on a non-200 latest release response', async () => {
-  const fixture = makeTempRoot();
+  const fixture = makeTempRoot({ parentDirectory: 'unpacked' });
   const result = await checkForUpdate(baseOptions(fixture, {
     runCommand: fakeGit({}),
     fetchFn: fakeFetch({ version: '0.21.0', ok: false }),
@@ -295,7 +368,7 @@ test('records a failed status on a non-200 latest release response', async () =>
 });
 
 test('does not write throttle state when no release version resolves', async () => {
-  const fixture = makeTempRoot();
+  const fixture = makeTempRoot({ parentDirectory: 'unpacked' });
   const result = await checkForUpdate(baseOptions(fixture, {
     runCommand: fakeGit({}),
     fetchFn: fakeFetch({ ok: false }),
@@ -305,7 +378,7 @@ test('does not write throttle state when no release version resolves', async () 
 });
 
 test('records a failed status when the request times out', async () => {
-  const fixture = makeTempRoot();
+  const fixture = makeTempRoot({ parentDirectory: 'unpacked' });
   const result = await checkForUpdate(baseOptions(fixture, {
     runCommand: fakeGit({}),
     fetchFn: hangingFetch,
@@ -346,13 +419,14 @@ test('a real check persists the latest version and nullable sha', async () => {
     channel: 'release',
     latestVersion: '0.21.0',
     latestSha: SHA_RELEASE_COMMIT,
+    releaseSource: 'npm-registry',
     behindCount: null,
     reason: null,
   });
 });
 
 test('a releases/latest fallback persists a nullable sha', async () => {
-  const fixture = makeTempRoot();
+  const fixture = makeTempRoot({ parentDirectory: 'unpacked' });
   await checkForUpdate(baseOptions(fixture, {
     runCommand: fakeGit({}),
     fetchFn: fakeFetch({ version: '0.21.0' }),
@@ -363,6 +437,7 @@ test('a releases/latest fallback persists a nullable sha', async () => {
     channel: 'release',
     latestVersion: '0.21.0',
     latestSha: null,
+    releaseSource: 'github-tags',
     behindCount: null,
     reason: null,
   });
@@ -376,6 +451,7 @@ test('a fresh state is reused and no network call is made', async () => {
     channel: 'release',
     latestVersion: '0.21.0',
     latestSha: SHA_RELEASE_COMMIT,
+    releaseSource: 'npm-registry',
   }), 'utf8');
   let networkCalls = 0;
   const result = await checkForUpdate(baseOptions(fixture, {
@@ -395,8 +471,70 @@ test('a fresh state is reused and no network call is made', async () => {
   assert.equal(statusOf(result).updateAvailable, true);
 });
 
-test('a fresh cache with no channel is ignored', async () => {
+function countingRegistryFetch(registryVersion: string): { fetchFn: typeof fetch; registryCalls: () => number } {
+  let calls = 0;
+  const registryFetch = fakeFetch({ registryVersion });
+  return {
+    fetchFn: async (input, init) => {
+      if (String(input) === NPM_REGISTRY_LATEST_URL) calls += 1;
+      return registryFetch(input, init);
+    },
+    registryCalls: () => calls,
+  };
+}
+
+test('a fresh tag-sourced cache is not reused by an npm-global install', async () => {
   const fixture = makeTempRoot();
+  writeLockfile(fixture.packageRoot, `git+https://github.com/johncwaters/glimmervoid.git#${SHA_LOCAL}`);
+  fs.writeFileSync(fixture.statePath, JSON.stringify({
+    lastCheckAt: 1000,
+    channel: 'release',
+    latestVersion: '0.22.0',
+    latestSha: SHA_RELEASE_TAG,
+    releaseSource: 'github-tags',
+  }), 'utf8');
+  const registry = countingRegistryFetch('0.21.0');
+  const status = statusOf(await checkForUpdate(baseOptions(fixture, { now: 2000, fetchFn: registry.fetchFn })));
+  assert.equal(registry.registryCalls(), 1);
+  assert.equal(status.latest, '0.21.0');
+  assert.equal(status.command, 'npm install -g glimmervoid@0.21.0');
+  const state = JSON.parse(fs.readFileSync(fixture.statePath, 'utf8'));
+  assert.equal(state.releaseSource, 'npm-registry');
+});
+
+test('a fresh legacy cache without a release source is not reused by an npm-global install', async () => {
+  const fixture = makeTempRoot();
+  writeLockfile(fixture.packageRoot, `git+https://github.com/johncwaters/glimmervoid.git#${SHA_LOCAL}`);
+  fs.writeFileSync(fixture.statePath, JSON.stringify({
+    lastCheckAt: 1000,
+    channel: 'release',
+    latestVersion: '0.22.0',
+    latestSha: SHA_RELEASE_TAG,
+  }), 'utf8');
+  const registry = countingRegistryFetch('0.21.0');
+  const status = statusOf(await checkForUpdate(baseOptions(fixture, { now: 2000, fetchFn: registry.fetchFn })));
+  assert.equal(registry.registryCalls(), 1);
+  assert.equal(status.latest, '0.21.0');
+});
+
+test('a fresh registry-sourced cache is reused by an npm-global install', async () => {
+  const fixture = makeTempRoot();
+  writeLockfile(fixture.packageRoot, `git+https://github.com/johncwaters/glimmervoid.git#${SHA_LOCAL}`);
+  fs.writeFileSync(fixture.statePath, JSON.stringify({
+    lastCheckAt: 1000,
+    channel: 'release',
+    latestVersion: '0.22.0',
+    latestSha: SHA_RELEASE_COMMIT,
+    releaseSource: 'npm-registry',
+  }), 'utf8');
+  const registry = countingRegistryFetch('0.21.0');
+  const status = statusOf(await checkForUpdate(baseOptions(fixture, { now: 2000, fetchFn: registry.fetchFn })));
+  assert.equal(registry.registryCalls(), 0);
+  assert.equal(status.latest, '0.22.0');
+});
+
+test('a fresh cache with no channel is ignored', async () => {
+  const fixture = makeTempRoot({ parentDirectory: 'unpacked' });
   fs.writeFileSync(fixture.statePath, JSON.stringify({
     lastCheckAt: 1000,
     remoteSha: SHA_RELEASE_COMMIT,
@@ -428,8 +566,7 @@ test('a stale state is ignored and refreshed', async () => {
 });
 
 test('a corrupt state file is ignored rather than fatal', async () => {
-  const fixture = makeTempRoot();
-  writeLockfile(fixture.packageRoot, `git+https://github.com/johncwaters/glimmervoid.git#${SHA_LOCAL}`);
+  const fixture = makeTempRoot({ parentDirectory: 'unpacked' });
   fs.writeFileSync(fixture.statePath, 'not json', 'utf8');
   let lsRemoteCalls = 0;
   const runCommand: RunCommand = async (file: string, ...rest: unknown[]) => {
@@ -511,8 +648,7 @@ test('main channel reports no-upstream without querying a remote tip', async () 
 });
 
 test('a cache entry is ignored when its channel does not match', async () => {
-  const fixture = makeTempRoot();
-  writeLockfile(fixture.packageRoot, `git+https://github.com/johncwaters/glimmervoid.git#${SHA_LOCAL}`);
+  const fixture = makeTempRoot({ parentDirectory: 'unpacked' });
   fs.writeFileSync(fixture.statePath, JSON.stringify({
     lastCheckAt: 1000,
     channel: 'main',

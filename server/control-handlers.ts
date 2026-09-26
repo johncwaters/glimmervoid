@@ -204,7 +204,7 @@ const BRANCH_GC_NUMERIC_RANGES = Object.freeze({
 });
 const VISIONS_BOOLEAN_KEYS = Object.freeze(['enabled', 'autoFix']);
 const TEAM_REVIEW_BOOLEAN_KEYS = Object.freeze(['enabled']);
-const TEAM_REVIEW_STRING_KEYS = Object.freeze(['org', 'team']);
+const TEAM_REVIEW_STRING_KEYS = Object.freeze(['org', 'team', 'skill']);
 const VISIONS_VALUE_KEYS = Object.freeze(['projects']);
 const VISIONS_DISPATCH_BOOLEAN_KEYS = Object.freeze(['enabled']);
 const VISIONS_DISPATCH_STRING_KEYS = Object.freeze(['model']);

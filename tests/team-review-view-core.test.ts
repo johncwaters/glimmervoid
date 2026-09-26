@@ -245,7 +245,7 @@ test('progress tracker advances one active stage and leaves Draft ready pending'
   assert.deepEqual(reviewProgressSteps('reviewing'), [
     { label: 'Fetch the diff', state: 'done' },
     { label: 'Check out the head', state: 'done' },
-    { label: 'Run pr-review', state: 'active' },
+    { label: 'Review', state: 'active' },
     { label: 'Draft ready', state: 'todo' },
   ]);
 });

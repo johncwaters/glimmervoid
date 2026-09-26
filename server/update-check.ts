@@ -8,19 +8,22 @@ import { glimmervoidHomeDir } from './config-store.ts';
 import { parseLeftRightCount, parseRemoteFromUpstream } from './core/branch-sync-core.ts';
 import {
   decideInstallFlavor,
+  decideReleaseSource,
   decideUpdateStatus,
   isCheckFresh,
   normalizeSha,
   parseLatestReleaseTag,
   parseLsRemoteTags,
+  parseRegistryLatest,
   parseResolvedSha,
 } from './core/update-core.ts';
-import type { InstallFlavor } from './core/update-core.ts';
+import type { InstallFlavor, ReleaseSource } from './core/update-core.ts';
 import { writeJsonAtomicSync } from './json-file.ts';
 import { packageRoot as resolvedPackageRoot } from './runtime-paths.ts';
 
 const GIT_REMOTE_URL = `https://github.com/${REPO_SLUG}.git`;
 const GITHUB_LATEST_RELEASE_URL = `https://api.github.com/repos/${REPO_SLUG}/releases/latest`;
+const NPM_REGISTRY_LATEST_URL = 'https://registry.npmjs.org/glimmervoid/latest';
 const DEFAULT_TIMEOUT_MS = 8000;
 const GIT_HEAD_TIMEOUT_MS = 3000;
 const LS_REMOTE_TIMEOUT_MS = 5000;
@@ -56,6 +59,7 @@ interface CheckState {
   channel?: unknown;
   latestVersion?: string | null;
   latestSha?: string | null;
+  releaseSource?: unknown;
   behindCount?: unknown;
   reason?: unknown;
 }
@@ -72,6 +76,7 @@ interface CheckForUpdateOptions {
   statePath?: string;
   ttlMs?: number;
   now?: number;
+  platform?: NodeJS.Platform;
 }
 
 type CoreUpdateStatus = ReturnType<typeof decideUpdateStatus>;
@@ -179,14 +184,33 @@ async function resolveInstalledIdentity(
     lockfileSha: readLockfileSha(packageRoot),
     gitHeadSha: readPackageGitHead(packageRoot),
     hasGitDir: directoryExists(path.join(packageRoot, '.git')),
+    isInsideNodeModules: path.basename(path.dirname(packageRoot)) === 'node_modules',
   });
   if (decided.flavor === 'clone') return cloneIdentity(packageRoot, runCommand, signal);
   return { ...decided, installedBranch: null, upstream: null, isTreeClean: null };
 }
 
-async function resolveLatestRelease(
-  { runCommand, fetchFn, signal }: { runCommand: RunCommand; fetchFn: typeof fetch; signal: AbortSignal },
+async function resolveLatestRegistryVersion(
+  { fetchFn, signal }: { fetchFn: typeof fetch; signal: AbortSignal },
 ): Promise<LatestTarget> {
+  try {
+    const response = await fetchFn(NPM_REGISTRY_LATEST_URL, {
+      signal,
+      headers: { Accept: 'application/json', 'User-Agent': 'glimmervoid-update-check' },
+    });
+    if (!response || !response.ok) return { version: null, sha: null, behindCount: null, reason: 'release-check-failed' };
+    const published = parseRegistryLatest(await response.json());
+    if (!published) return { version: null, sha: null, behindCount: null, reason: 'release-check-failed' };
+    return { ...published, behindCount: null, reason: null };
+  } catch {
+    return { version: null, sha: null, behindCount: null, reason: 'release-check-failed' };
+  }
+}
+
+async function resolveLatestRelease(
+  { flavor, runCommand, fetchFn, signal }: { flavor: InstallFlavor; runCommand: RunCommand; fetchFn: typeof fetch; signal: AbortSignal },
+): Promise<LatestTarget> {
+  if (decideReleaseSource(flavor) === 'npm-registry') return resolveLatestRegistryVersion({ fetchFn, signal });
   const remoteTags = await runGitProbe(runCommand, ['ls-remote', '--tags', GIT_REMOTE_URL], {
     timeout: LS_REMOTE_TIMEOUT_MS,
     signal,
@@ -281,6 +305,7 @@ async function finish(
   latestTarget: LatestTarget,
   currentVersion: string | undefined,
   channel: UpdateChannel,
+  platform: NodeJS.Platform,
   lastCheckAt: number,
   packageRoot: string,
   runCommand: RunCommand,
@@ -303,6 +328,7 @@ async function finish(
       currentVersion,
       latestVersion: latestTarget.version,
       flavor: installed.flavor,
+      platform,
       channel,
       behindCount: latestTarget.behindCount,
       reason: latestTarget.reason,
@@ -339,6 +365,7 @@ async function checkForUpdate({
   statePath = defaultStatePath(),
   ttlMs = STATE_TTL_MS,
   now = Date.now(),
+  platform = process.platform,
 }: CheckForUpdateOptions = {}): Promise<UpdateCheckStatus> {
   const timer = setTimeout(() => abortController.abort(), timeoutMs);
   const signal = abortController.signal;
@@ -354,13 +381,15 @@ async function checkForUpdate({
     const cached = readCheckState(statePath);
     const cacheOutrunByInstall = normalizeSha(cached?.latestSha) !== null
       && normalizeSha(cached?.latestSha) === installed.installedSha;
-    if (cached?.channel === updateChannel && !cacheOutrunByInstall && isCheckFresh(cached.lastCheckAt, now, ttlMs)) {
-      return finish(installed, targetFromCache(cached), currentVersion, updateChannel, now, packageRoot, runCommand, signal);
+    const expectedReleaseSource: ReleaseSource | null = updateChannel === 'release' ? decideReleaseSource(installed.flavor) : null;
+    const isCacheFromSameSource = expectedReleaseSource === null || cached?.releaseSource === expectedReleaseSource;
+    if (cached?.channel === updateChannel && isCacheFromSameSource && !cacheOutrunByInstall && isCheckFresh(cached.lastCheckAt, now, ttlMs)) {
+      return finish(installed, targetFromCache(cached), currentVersion, updateChannel, platform, now, packageRoot, runCommand, signal);
     }
     signal.throwIfAborted();
     const latestTarget = updateChannel === 'main'
       ? await resolveLatestMain(installed, packageRoot, runCommand, fetchOrigin, signal)
-      : await resolveLatestRelease({ runCommand, fetchFn, signal });
+      : await resolveLatestRelease({ flavor: installed.flavor, runCommand, fetchFn, signal });
     const hasCacheableTarget = latestTarget.reason === null
       && (latestTarget.version !== null || latestTarget.sha !== null);
     if (hasCacheableTarget) {
@@ -369,17 +398,19 @@ async function checkForUpdate({
         channel: updateChannel,
         latestVersion: latestTarget.version,
         latestSha: normalizeSha(latestTarget.sha),
+        releaseSource: expectedReleaseSource,
         behindCount: latestTarget.behindCount,
         reason: latestTarget.reason,
       });
     }
-    return finish(installed, latestTarget, currentVersion, updateChannel, now, packageRoot, runCommand, signal);
+    return finish(installed, latestTarget, currentVersion, updateChannel, platform, now, packageRoot, runCommand, signal);
   } catch {
     return finish(
       installed,
       { version: null, sha: null, behindCount: null, reason: 'update-check-failed' },
       currentVersion,
       updateChannel,
+      platform,
       now,
       packageRoot,
       runCommand,
@@ -394,6 +425,7 @@ export {
   GITHUB_LATEST_RELEASE_URL,
   GIT_REMOTE_URL,
   MAIN_FETCH_TIMEOUT_MS,
+  NPM_REGISTRY_LATEST_URL,
   STATE_FILE_NAME,
   STATE_TTL_MS,
   checkForUpdate,

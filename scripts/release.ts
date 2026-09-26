@@ -94,3 +94,5 @@ if (!hasGhCli) {
 }
 
 console.log(`\n==> Done! Tagged and pushed glimmervoid ${TAG}.`);
+console.log(`   The tag push triggers .github/workflows/publish.yml, which publishes glimmervoid@${VERSION} to npm. Nothing is published locally.`);
+console.log(`   Watch it at https://github.com/${REPO_SLUG}/actions/workflows/publish.yml, then confirm with: npm view glimmervoid@${VERSION} version`);

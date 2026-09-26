@@ -641,6 +641,11 @@ export const SETTINGS_MAP = Object.freeze([
         description: 'Leave pull requests without GitHub activity for this long out of automatic review.',
         control: 'number', range: 'POSTHOG_INTERVAL_RANGE', keywords: ['idle', 'activity'], defaultValue: 14, integer: false, step: 0.5,
       },
+      {
+        id: 'team-review-skill', path: 'teamReview.skill', title: 'Review skill',
+        description: 'Name of a Claude Code skill installed for the review agent, for example your own PR review skill. Leave empty to let the agent review with whatever skills it has.',
+        control: 'text', keywords: ['skill', 'claude code', 'pr review'], defaultValue: '',
+      },
     ],
   },
   {

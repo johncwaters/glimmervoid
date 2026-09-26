@@ -74,6 +74,7 @@ interface TeamReviewSettings {
   team: string;
   reReviewAfterHours: number;
   skipIdleAfterDays: number;
+  skill: string;
 }
 
 interface TeamReviewRepoCache {
@@ -123,6 +124,7 @@ interface TeamReviewDispatchOptions {
   randomSuffix?: () => string;
   now?: () => number;
   shutdownSignal?: AbortSignal | null;
+  readReviewSkill?: () => string;
   log?: Pick<Console, 'warn'>;
 }
 
@@ -172,6 +174,7 @@ function readTeamReviewSettings(config: TeamReviewWiringConfig): TeamReviewSetti
     team: typeof block?.team === 'string' ? block.team.trim() : '',
     reReviewAfterHours: typeof block?.reReviewAfterHours === 'number' && Number.isFinite(block.reReviewAfterHours) && block.reReviewAfterHours > 0 ? block.reReviewAfterHours : core.DEFAULT_RE_REVIEW_AFTER_HOURS,
     skipIdleAfterDays: typeof block?.skipIdleAfterDays === 'number' && Number.isFinite(block.skipIdleAfterDays) && block.skipIdleAfterDays > 0 ? block.skipIdleAfterDays : core.DEFAULT_SKIP_IDLE_AFTER_DAYS,
+    skill: typeof block?.skill === 'string' ? block.skill.trim() : '',
   };
 }
 
@@ -259,10 +262,10 @@ async function readReviewReport(reportPath: string, expectedHead: string): Promi
   let report: string;
   try {
     const stat = await fs.stat(reportPath);
-    if (stat.size > RESULT_MAX_BYTES) return { ok: false, reason: 'the pr-review report is too large' };
+    if (stat.size > RESULT_MAX_BYTES) return { ok: false, reason: 'the review report is too large' };
     report = await fs.readFile(reportPath, 'utf8');
   } catch {
-    return { ok: false, reason: 'no pr-review report' };
+    return { ok: false, reason: 'no review report' };
   }
   const parsed = core.parseReviewReport(report);
   if (!parsed.ok) return { ok: false, reason: firstLine(parsed.reason) };
@@ -370,6 +373,7 @@ function createTeamReviewDispatcher({
   randomSuffix = () => randomBytes(4).toString('hex'),
   now = () => Date.now(),
   shutdownSignal = null,
+  readReviewSkill = () => '',
   log = console,
 }: TeamReviewDispatchOptions) {
   async function removeCheckout({ projectPath, worktreePath }: { projectPath: string; worktreePath: string }): Promise<void> {
@@ -508,7 +512,9 @@ function createTeamReviewDispatcher({
       if (!created.ok) return failed(`could not stage a checkout: ${firstLine(created.err ?? '') || 'git worktree add failed'}`);
       const hydrated = await hydrateBlobs(candidate, detail);
       if (!hydrated.ok) return failed(`could not fetch the file contents of ${candidate.key}${hydrated.err ? `: ${firstLine(hydrated.err)}` : ''}`);
-      const prompt = core.buildReviewPrompt({ candidate, detail, tier, reasons, checkoutPath: worktreePath, reportPath, postingPath });
+      const prompt = core.buildReviewPrompt({
+        candidate, detail, tier, reasons, checkoutPath: worktreePath, reportPath, postingPath, reviewSkill: readReviewSkill(),
+      });
       await fs.writeFile(path.join(workDir, core.REVIEW_PROMPT_FILENAME), prompt, 'utf8');
       await fs.mkdir(emptyGhConfigDir(workDir), { recursive: true });
       reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds });
@@ -738,6 +744,7 @@ function createTeamReviewWiring({
   const inFlightReviews = new Set<Promise<ReviewOutcome>>();
   const reviewPullRequest = createTeamReviewDispatcher({
     github, repoCache, gitWorkspace, spawnSession, worktreeRoot, workRoot, shutdownSignal: shutdownController.signal, log,
+    readReviewSkill: () => readTeamReviewSettings(config).skill,
   });
 
   function trackReview(args: SpawnReviewArgs): Promise<ReviewOutcome> {

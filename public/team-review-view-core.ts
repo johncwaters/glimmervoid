@@ -159,7 +159,7 @@ export function reviewFooterText(reviewedHead: string, includedComments: number)
 }
 
 export function reviewProgressSteps(phase: ReviewProgressPhase): { label: string; state: 'done' | 'active' | 'todo' }[] {
-  const labels = ['Fetch the diff', 'Check out the head', 'Run pr-review', 'Draft ready'];
+  const labels = ['Fetch the diff', 'Check out the head', 'Review', 'Draft ready'];
   const activeIndex = { preparing: 0, checkout: 1, reviewing: 2 }[phase];
   return labels.map((label, index) => ({ label, state: index < activeIndex ? 'done' : index === activeIndex ? 'active' : 'todo' }));
 }

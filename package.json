@@ -1,7 +1,6 @@
 {
   "name": "glimmervoid",
   "version": "0.26.1",
-  "private": true,
   "description": "Spawn and manage Claude Code sessions on Windows and Linux with a browser dashboard and real-time xterm.js streaming",
   "main": "dist/server/index.js",
   "type": "module",
@@ -21,6 +20,10 @@
   ],
   "engines": {
     "node": ">=22.18.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "author": "John C. Waters <john@johncwaters.com>",
   "license": "MIT",
@@ -53,7 +56,8 @@
     "build": "node scripts/build.mjs",
     "postinstall": "node scripts/postinstall.mjs",
     "prepare": "node scripts/prepare-build.js",
-    "release": "node scripts/release.ts"
+    "release": "node scripts/release.ts",
+    "docs:config": "node scripts/generate-config-docs.ts"
   },
   "dependencies": {
     "@parcel/watcher": "^2.6.0",

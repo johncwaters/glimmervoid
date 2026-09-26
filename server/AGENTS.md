@@ -71,7 +71,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 ### Team PR Review (opt-in)
 
 - Only the operator's Approve or Comment posts, and only when the clicked head equals both the reviewed and the live head, since a review lands under the operator's name (`tests/team-review-core.test.ts`, `tests/team-review-wiring.test.ts`).
-- The review IS the operator's `pr-review` skill and profile, so it holds a hand-run standard; its cwd is an empty work dir and the untrusted checkout is never an `--add-dir` (`tests/team-review-wiring.test.ts`).
+- Glimmervoid owns the report contract, not the procedure: skills differ per machine, so the review runs `teamReview.skill`; its cwd is an empty work dir and the untrusted checkout is never an `--add-dir` (`tests/team-review-wiring.test.ts`).
 - The review runs in Claude Code's Bash sandbox (strict egress allowlist, credential paths unreadable, no secret in env); a session that cannot apply it never spawns (`tests/session-hook-lifecycle.test.ts`, `tests/team-review-wiring.test.ts`).
 - PR text is untrusted data, fenced in the prompt (`tests/team-review-core.test.ts`).
 - Review dirs are deleted on every exit and swept at start, bar a shutdown's resume record (`tests/team-review-wiring.test.ts`).
@@ -90,7 +90,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - Always-on measurement observes pack delivery and prompt hooks outside status signals, so it cannot move a card; `millMetrics.retainDays` only bounds retained history.
 - A prompt inside `TITLE_RACE_MS` of entering RUNNING is ambiguous because the title spinner can win the prompt race.
 
-### Long-Term Memory (plan: `docs/plan-visions-3.md`)
+### Long-Term Memory
 
 - Trust is stamped by the WRITE PATH, never read off the event; ranks fall but never rise along a lineage (`server/core/memory-core.ts`).
 - A user prompt becomes a `prompt` record, never projected and refused as knowledge, its kind absent from the ingest ring's table, so operator text reaches neither `dist/` nor the control WS.
@@ -118,7 +118,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - The mode is set in the lane's managed settings file, overriding the operator's own, or `defaultMode: auto` leaves a classifier deciding these writes instead of a rule.
 - A lane prompt is written in its throwaway cwd and invoked by a constant bootstrap argument, since a Windows `.cmd` shim re-parses argv through `cmd.exe` (`server/visions-dispatch.ts`, `server/pack-distiller.ts`).
 
-### Plan Review (plan: `docs/plan-plan-review.md`)
+### Plan Review
 
 - The plan endpoint is a SECOND URL, never a second entry on the shared one: hooks run in parallel and a `PermissionRequest` payload carries no tool-use id, so two entries on one URL arrive as indistinguishable posts. The unmatched entry stays byte-identical (`tests/settings-injector-user-hooks.test.ts`).
 - Every path fails OPEN and the held reply is written AT MOST ONCE, never after the socket closed: a fired hook timeout destroys the socket in silence, so a late write is a no-op.

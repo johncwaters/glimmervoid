@@ -17,7 +17,7 @@ const laneModules = [
 
 const calledLoggerChannel = /\blogger\s*\.\s*(?:log|warn|error|info|debug)\s*\(/;
 const loggerGuard = /typeof\s+logger\s*\.\s*(?:log|warn)/;
-const bracketPrefix = /['\"]\s*(\[[a-z][a-z0-9:-]*\])/g;
+const bracketPrefix = /['"]\s*(\[[a-z][a-z0-9:-]*\])/g;
 
 function sourceFor(file: string): string {
   return fs.readFileSync(path.join(repoRoot, file), 'utf8');

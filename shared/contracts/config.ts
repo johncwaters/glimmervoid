@@ -80,6 +80,7 @@ const TeamReviewSettings = optionalObject('teamReview', {
   enabled: optionalBoolean('teamReview.enabled'),
   org: optionalString('teamReview.org', true),
   team: optionalString('teamReview.team', true),
+  skill: optionalString('teamReview.skill', true),
   reReviewAfterHours: optionalNumber('teamReview.reReviewAfterHours'),
   skipIdleAfterDays: optionalNumber('teamReview.skipIdleAfterDays'),
 });

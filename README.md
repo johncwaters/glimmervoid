@@ -2,57 +2,39 @@
 
 [![CI](https://github.com/johncwaters/glimmervoid/actions/workflows/test.yml/badge.svg)](https://github.com/johncwaters/glimmervoid/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22.18-brightgreen.svg)](https://nodejs.org)
 [![Platform: Windows | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-0078d4)](https://github.com/johncwaters/glimmervoid)
 
 **Run dozens of Claude Code agents at once. See every session. Miss nothing.**
 
-Running more than a couple of Claude Code agents at once turns into alt-tabbing between terminal windows, missing the exact moment one finishes or silently blocks on a prompt, and merging work you never watched happen. Glimmervoid is the shipped fix: one browser dashboard, live terminal output for every session, exact status instead of a guess, and per-agent git worktrees you can review and merge without leaving the page.
+Running more than a couple of Claude Code agents at once turns into alt-tabbing between terminal windows, missing the exact moment one finishes or silently blocks on a prompt, and merging work you never watched happen. Glimmervoid is one browser dashboard with live terminal output for every session, exact status instead of a guess, and per-agent git worktrees you can review and merge without leaving the page.
 
-I run my daily agent fleet in it. This README was written inside a Glimmervoid session: Glimmervoid is developed inside Glimmervoid.
+Glimmervoid is developed inside Glimmervoid.
 
 ![Glimmervoid dashboard mid-run: two Claude Code sessions streaming live terminal output, one working, one flipping to Complete with its real output and worktree diff visible in the review sidebar](assets/pictures/glimmervoid-demo.gif)
 
-## Install
+## Quickstart
 
-Glimmervoid ships from this repo, through two channels. It is not an npm package: nothing is published to any registry, and the `github:` spec below is the only supported install.
-
-### Server machines: dotfiles
-
-My own always-on machines are provisioned by my dotfiles repo's server profile: it clones this repo to `~/Projects/glimmervoid`, runs `npm ci` and `npm run build`, installs a systemd user service running `node dist/server/index.js`, and fronts the remote listener with `tailscale serve`. Updating is re-running its apply script.
-
-### Standalone CLI
-
-Requires npm 12 or newer (`npm --version` to check). npm 12 refuses git dependencies by default, so the install carries an explicit opt-in flag. On Windows and macOS this is the whole command: node-pty's registry tarball ships a `prebuilds/<platform>-<arch>/` binary that loads with no install script at all, its blocked `post-install.js` only copies `conpty.dll` for a node-pty option Glimmervoid never passes, and `prepare` builds `dist/` during npm's git preparation regardless of the install-scripts policy.
+Windows:
 
 ```bash
-npm install -g github:johncwaters/glimmervoid --allow-git=root
+npm install -g glimmervoid
+glimmervoid
 ```
 
-On Linux, node-pty has no prebuilds and must compile through node-gyp, which npm 12's default script-skipping prevents. Install normally, then compile node-pty on its own, with the build toolchain from Requirements installed:
+Linux (node-pty ships no Linux prebuilds, so it compiles at install time):
 
 ```bash
-npm install -g github:johncwaters/glimmervoid --allow-git=root
-npm rebuild -g node-pty --allow-scripts=node-pty
+sudo apt install build-essential python3
+npm install -g glimmervoid --allow-scripts=node-pty
+glimmervoid
 ```
 
-Folding both into one command also works, at the cost of a far broader scripts opt-in:
+Open http://localhost:3000 and add a project from the dashboard. That is the whole setup; everything else is optional.
 
-```bash
-npm install -g github:johncwaters/glimmervoid --allow-git=root --dangerously-allow-all-scripts
-```
+The `--allow-scripts=node-pty` flag matters on npm 12, which blocks dependency install scripts by default. npm 10 and 11 run them by default (npm 11 prints a notice), so there the flag is unnecessary but harmless. If the native module still fails to load, the server refuses to start and prints the repair command; `glimmervoid doctor` runs the same check. See [docs/troubleshooting.md](docs/troubleshooting.md).
 
-On an older npm, run the same command through `npx npm@12 install -g ...` without upgrading. The npm 12 floor is hard, not advisory: npm 11 global installs from git specs are broken outright ([npm/cli#9406](https://github.com/npm/cli/issues/9406), the package lands as a link into npm's cache temp clone, which npm then deletes).
-
-Your `~/.npmrc` must carry no `allow-scripts` line while the install runs. Any value for that setting, whether it comes from the command line or from any npmrc, propagates into the project-scoped child install npm uses to prepare a git dependency, and that child refuses it with `EALLOWSCRIPTS`; take the line out for the install and put it back afterwards. That is also why the targeted `--allow-scripts node-pty` form cannot simply be added to the install command, and why a package-level `allowScripts` field in this repo's package.json would not help either: npm 12 reads that field only for project-scoped installs and skips it whenever the run is a global one. All of it verified against npm 12.0.2.
-
-The separate rebuild is a global command, which is why `--allow-scripts` is legal there, but two nearby spellings look right and are not. Run it from outside the installed package: from inside `$(npm root -g)/glimmervoid` the same command is project-scoped and dies with `EALLOWSCRIPTS`. And name node-pty rather than the wrapper: `npm rebuild -g glimmervoid --allow-scripts=node-pty` exits 0 and reports rebuilt dependencies while rebuilding nothing nested, leaving node-pty exactly as broken. The older in-place form still works as a fallback, `cd "$(npm root -g)/glimmervoid" && npm rebuild node-pty --dangerously-allow-all-scripts`, and is no wider in practice, since a rebuild is scoped by its package argument and only node-pty's scripts run either way. Security note: on the install command that broad flag IS wider, running install scripts for every package in the dependency tree during that one command, bounded only by the fact that the tree is exactly this repo's pinned package-lock.
-
-On Windows a failed attempt can leave a partial `node_modules\glimmervoid` under the global prefix that npm then reports as `EPERM` when you retry; remove it with `Remove-Item -Recurse -Force "$(npm root -g)\glimmervoid"` first. Linux needs no such cleanup: an `EALLOWSCRIPTS` failure dies inside npm's cache temp clone and leaves the prefix untouched, so rerunning the install on top of it works.
-
-With the binding missing, the server refuses to start instead of crashing partway through boot, and prints that same repair command. `glimmervoid doctor` runs the same check alongside the rest of your install.
-
-Or clone and run it in place:
+### From source
 
 ```bash
 git clone https://github.com/johncwaters/glimmervoid.git
@@ -62,93 +44,53 @@ npm run build
 npm start
 ```
 
-Open `http://localhost:3000` to view the dashboard.
+Update a clone with `git pull --ff-only && npm ci && npm run build`, then restart the server. The dashboard's update check prints the right command for whichever way you installed.
 
-To update a clone, pull and rebuild (Glimmervoid's own startup update check nudges you with the same three steps; `--ff-only` is the safer form of the pull):
+## Requirements
 
-```bash
-git pull --ff-only && npm ci && npm run build
-```
+- **Node.js >= 22.18.0** (the `engines` floor). npm 12 itself needs Node 22.22.2 or newer; distro-packaged Node is usually older than either, so use nodesource, nvm or the official installer.
+- **Windows 11 or Linux.** macOS is untested.
+- **Claude Code CLI** on PATH, or another supported agent below.
+- **Linux only:** `build-essential` and `python3` for node-pty.
 
-Then restart the server (`systemctl --user restart glimmervoid` where the service is installed). See [docs/distribution.md](docs/distribution.md) for the full picture.
+## Supported agents
 
-### Docker preview
+- **Claude Code** (`claude`), the default and the most complete: hooks, background agent gating, auto-resume, context packs.
+- **Codex CLI** (`codex`), with hook-based status. Codex has no notification event, so a question it asks in prose looks like a finished turn.
+- **Grok Build** (`grok`). Run `glimmervoid agent setup grok` once to install its hook relay.
+- **Any other terminal agent**, declared under `customAgents` in `config.json` with an `id`, `label`, `command` and optional `args`, `idleTitle` and `busyTitle`. Custom agents get status from the terminal title only.
 
-The Dockerfile is a courtesy preview path, not the recommended daily path. The container has no authentication and must only ever be published to localhost.
-
-```bash
-docker build -t glimmervoid .
-docker run -e GLIMMERVOID_HOST=0.0.0.0 -e GLIMMERVOID_INSECURE_BIND=1 -p 127.0.0.1:3000:3000 glimmervoid
-```
-
-The two env vars make Glimmervoid bind all interfaces INSIDE the container (docker port mapping cannot reach the container's loopback); the `-p 127.0.0.1:...` prefix is what keeps the host side loopback-only. Never publish the port wider. Claude Code credentials and repos must be mounted for real use.
+The Add Session dialog only offers agents whose command resolves on PATH, and `glimmervoid doctor` lists what it found. A project can default to an agent with `projects[].agent`.
 
 ## Usage
 
 ```
-glimmervoid                        # Start on default port 3000
-glimmervoid doctor                 # Diagnose install / PATH issues and exit
-glimmervoid pair                   # Mint a single-use pairing link for a remote device
-glimmervoid pair --list            # List paired devices
-glimmervoid pair --revoke <id>     # Revoke a paired device
-
-glimmervoid pair --name <label>    # Label the device being paired
-glimmervoid --port 3001            # Override the server port (default: 3000)
-glimmervoid --config <path>        # Path to config file (default: ~/.glimmervoid/config.json)
-glimmervoid --version              # Show version number
-glimmervoid --help                 # Show help
+glimmervoid                   # start the server on port 3000
+glimmervoid --port 3001       # start on another port
+glimmervoid doctor            # diagnose the install, PATH, agents and native module
+glimmervoid pair --name phone # mint a single-use pairing link for a remote device
+glimmervoid --version
 ```
 
-Open `http://localhost:3000` to view the dashboard.
-
-## Remote access
-
-Remote access is off unless you add a `remote` block to `config.json`; it opens a second loopback listener designed to sit behind a reverse proxy such as `tailscale serve`, never a wider bind. Pair a device with `glimmervoid pair`, which prints a single-use URL valid for 10 minutes and sets an auth cookie on redemption; `glimmervoid pair --list` and `glimmervoid pair --revoke <id>` manage devices, and a revoke takes effect without a restart.
-
-```bash
-glimmervoid pair --name phone
-glimmervoid pair --list
-glimmervoid pair --revoke <device-id>
-```
-
-Pairing grants real access to your machine; see [Limitations](#limitations) for the whole trust boundary.
-
-## Troubleshooting
-
-### `glimmervoid` is not recognized after the global install
-
-The install succeeded, but the directory where npm placed the `glimmervoid` command is not on your PATH (common with a zip/standalone Node, a locked-down corporate image, or pnpm without `pnpm setup`). To fix it:
-
-1. Confirm it installed: `npm ls -g glimmervoid`
-2. Find npm's global command directory: `npm config get prefix`. On Windows the command shims (`glimmervoid.cmd`, `glimmervoid.ps1`) live directly in that directory.
-3. Make sure that directory is on your PATH. The official Node.js Windows installer adds it for you; if you installed Node from a zip, add it in PowerShell, then open a NEW terminal:
-
-   ```powershell
-   [Environment]::SetEnvironmentVariable("PATH", [Environment]::GetEnvironmentVariable("PATH","User") + ";$(npm config get prefix)", "User")
-   ```
-
-4. Using pnpm? Run `pnpm setup` once (it configures and registers the global bin directory), then reinstall.
-5. Once `glimmervoid` resolves, run `glimmervoid doctor` to confirm PATH, the native module, and the config path are all healthy.
+`glimmervoid --help` lists every command.
 
 ## Features
 
-- Focus view: a single-session work surface with a roster rail of every session beside a worktree review sidebar
+- Focus view: a roster rail of every session, the selected session's live terminal in the center, and a worktree review sidebar
 - Per-session git worktree isolation: review and merge each agent's committed work from the dashboard while it keeps running
-- Spawn and manage multiple Claude Code sessions simultaneously
-- Real-time terminal output via xterm.js with WebGL acceleration
+- Real-time terminal output via xterm.js with WebGL rendering
 - Structural status detection: hooks as the authoritative signal, an OSC-0 title fallback, never screen scraping (see below)
 - Background sub-agent completion gate: a session with live background agents or tasks stays out of Complete until they finish
-- Native browser notifications when a session needs input, finishes, or fails (opt-in Windows toast fallback)
-- Phone layout as a first-class second layout, not a squeezed desktop: Board, Terminal, Review, Radar, PR reviews and Usage screens, attention-first ordering, and soft-keyboard handling that resizes the terminal instead of covering it
-- Remote mode (opt-in): a separate listener with single-use device pairing and cookie auth (see [Remote access](#remote-access))
-- Telegram notifications (opt-in): pings your phone only when no dashboard tab is open anywhere, so it fills the gap instead of duplicating the browser notification
-- Image upload from the phone key strip: pick an image, and its saved path is pasted into that session's prompt for you to send
-- Keyboard navigation: jump between sessions, step through the ones needing attention, and merge or resolve from the keyboard
-- Radar error monitoring (opt-in): polls PostHog error tracking, pings Telegram the moment an issue spikes, regresses, or first appears, and sends a headless agent to diagnose it and write a report
-- Radar auto-fix (opt-in): a spiking, regressed, or new issue gets an agent that reproduces the bug first, repairs it in a throwaway worktree, and hands back a pull request Glimmervoid opens for you; the agent can never push or merge
-- Team PR review (opt-in): drafts a review of each open pull request from your GitHub team in a sandboxed agent with no shell, network or GitHub write; you edit the draft in the PR reviews tab and nothing posts until you choose Approve or Comment, and only if the pull request has not moved since the review
-- Auto-resume by default: sessions that were live when Glimmervoid stopped come back on the next start with their Claude conversation resumed
-- Configurable themes, hot-reloadable configuration
+- Browser notifications when a session needs input, finishes or fails, with an opt-in Windows OS toast fallback (`osToast`)
+- Phone layout as a first-class second layout: board, terminal and review screens, attention-first ordering, and a terminal that resizes around the soft keyboard instead of hiding behind it
+- Remote access (opt-in): a separate listener with single-use device pairing and cookie auth
+- Telegram notifications (opt-in), sent only when no dashboard tab is open anywhere
+- Plan review: read, edit and approve a Claude Code plan from the dashboard or phone
+- Usage tracking: token use and estimated cost from local Claude Code, Codex and Grok transcripts, with optional budgets
+- Radar (opt-in): polls PostHog error tracking, pings Telegram when an issue spikes, regresses or first appears, and sends an agent to investigate; optional auto-fix opens a pull request the agent itself can never push or merge
+- Team PR review (opt-in): drafts a review of each open pull request from a GitHub team in a sandboxed agent, optionally with your own Claude Code review skill (`teamReview.skill`); nothing posts until you choose Approve or Comment
+- Auto-resume: sessions that were live when Glimmervoid stopped come back with their conversation resumed
+- Hot-reloaded configuration and a Settings view for most of it
 
 ## Why the status detection is hard (and how Glimmervoid does it)
 
@@ -166,68 +108,69 @@ Boot auto-resume (reattaching a session's Claude conversation after Glimmervoid 
 
 Every session also writes a JSONL forensic recording by default (hook payloads and state transitions, not raw terminal bytes), and a version-aware replay harness drives recorded traffic back through the detection code as regression fixtures. That's how bugs like the ones above get diagnosed from real session data instead of guesswork, and how they stay caught if the logic regresses.
 
-## Engineering notes
-
-- Pure-core seam architecture: IO-free decision logic lives in `session/core/` and `*-core.ts` modules; thin shells around them do the actual I/O.
-- `node:test` suite in `tests/`, zero test-framework dependency.
-- Table-driven state machines, e.g. `session/core/state-machine.ts`.
-- Server-side fix handoff in the Radar lane: the fix agent may only commit locally (`git push` and every `gh` call are denied it, because a prefix deny-list cannot constrain a push target), so `server/posthog-wiring.ts` does the push and opens the pull request from arguments it built itself, refusing any diff that touches `.github/workflows/`.
-- Bounded-retention session recorder: `session/session-recorder.ts`, capped by file size, file count, and age so it can run unattended indefinitely.
-
 ## Focus
 
 Glimmervoid centers on one session at a time. A left **roster rail** lists one pill per session (grouped by project, with a live working heartbeat and a "needs you" queue); the **center** borrows that session's live terminal as the work surface; a right **review sidebar** shows its changes.
 
-Every git-repo session runs in its own git worktree forked from the integration branch (`integrationBranch`, default `develop`), so an agent's edits stay out of your main checkout until you review them. The sidebar splits **Committed** (the mergeable unit) from **Uncommitted** work, keeps the diff live, and merges into the integration branch with one click while the session keeps running. If a merge hits conflicts it parks, and **Resolve in session** hands the conflict back to the agent that owns the worktree with a ready-to-run prompt.
+Every git-repo session runs in its own git worktree forked from the integration branch, so an agent's edits stay out of your main checkout until you review them. `integrationBranch` is unset by default, which means each repo's own default branch: `origin/HEAD`, then `main`, then `master`. The sidebar splits **Committed** (the mergeable unit) from **Uncommitted** work, keeps the diff live, and merges into the integration branch with one click while the session keeps running. If a merge hits conflicts it parks, and **Resolve in session** hands the conflict back to the agent that owns the worktree with a ready-to-run prompt.
 
-Navigate it all from the keyboard: `Alt+1`..`Alt+9` jump to a session, `Alt+Up`/`Alt+Down` move through the rail, `Alt+W` steps through the sessions needing attention, and `Alt+M` / `Alt+R` merge or resolve the selected one. Press `?` for the full list.
+Navigate it from the keyboard: `Alt+1`..`Alt+9` jump to a session, `Alt+Up`/`Alt+Down` move through the rail, `Alt+W` steps through the sessions needing attention, `Alt+M` / `Alt+R` merge or resolve the selected one, and `Alt+0` opens Add Session.
 
 ## Configuration
 
-On first run, Glimmervoid creates `~/.glimmervoid/config.json` with defaults. You can also configure from the dashboard Settings button.
+On first run Glimmervoid creates `~/.glimmervoid/config.json`. Most settings are edited from the dashboard's Settings view, and the server reloads the file when you edit it by hand. Every key, its default and every environment variable are in [docs/configuration.md](docs/configuration.md), which is generated from the code.
+
+## Remote access
+
+Remote access is off unless you add a `remote` block to `config.json`. It opens a second loopback listener meant to sit behind a reverse proxy such as `tailscale serve`, never a wider bind:
 
 ```json
 {
-  "port": 3000,
-  "projects": [
-    { "name": "my-project", "path": "C:\\path\\to\\project" }
-  ],
-  "repoRoots": ["C:\\path\\to\\repos"]
+  "remote": { "enabled": true, "port": 3456, "publicHost": "my-machine.example.ts.net" }
 }
 ```
 
-This is a minimal starting example. The full key list (`integrationBranch`, `autoResume`, `posthog`, `teamReview`, `detectBackgroundAgents`, `recordSignals`, and more) is documented in the dashboard's Settings dialog and can also be edited directly in `config.json`.
+Pair a device with `glimmervoid pair --name phone`, which prints a single-use URL valid for 10 minutes that sets an auth cookie when opened. `glimmervoid pair --list` and `glimmervoid pair --revoke <id>` manage devices, and a revoke applies without a restart. A pairing grants full control of the machine as the server account, so treat pairing URLs as passwords.
 
-Two credentials can come from the environment instead, which keeps them out of `config.json` altogether:
+## Security
 
-- `GLIMMERVOID_POSTHOG_API_KEY` supplies `posthog.apiKey`.
-- `GLIMMERVOID_TELEGRAM_BOT_TOKEN` supplies `telegram.botToken`.
+Glimmervoid runs agents with your account's privileges and trusts every local process. Read [SECURITY.md](SECURITY.md) for the trust model and how to report a vulnerability, and [Limitations](#limitations) for the short version.
 
-Either one overrides the stored value, and Glimmervoid strips that key from `config.json` on every write, so a save from the dashboard cannot put it back. The systemd unit installed by the dotfiles reads both from `~/.glimmervoid/secrets.env` when that file exists.
+## Running as a service (Linux)
 
-## Requirements
+A systemd user unit keeps Glimmervoid running after you log out:
 
-- **Node.js** >= 22.18.0 to run Glimmervoid (clone path), which is where type stripping is on by default, so the `.ts` sources and the `.test.ts` suite run unbuilt; `node:sqlite` FTS5 for the long-term memory store lands earlier, at 22.16.0. The standalone CLI install needs **Node.js >= 22.22.2**, because it goes through npm 12 and that is npm 12's own engine floor (`npx npm@12` fails the same check on an older Node). Distro-packaged Node is usually far older than either floor; use nodesource or nvm.
-- **Windows 11 or Linux**
-- **Claude Code CLI** installed and available on PATH
-- **Linux build tools for node-pty:** `sudo apt install build-essential python3`
+```ini
+# ~/.config/systemd/user/glimmervoid.service
+[Unit]
+Description=Glimmervoid
+
+[Service]
+ExecStart=/usr/bin/env glimmervoid
+EnvironmentFile=-%h/.glimmervoid/secrets.env
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now glimmervoid
+loginctl enable-linger "$USER"
+```
+
+`secrets.env` is optional and can hold `GLIMMERVOID_POSTHOG_API_KEY` and `GLIMMERVOID_TELEGRAM_BOT_TOKEN`, which keeps both out of `config.json`. The unit's `PATH` must reach `node`, `glimmervoid` and your agent CLIs; with nvm, set `Environment=PATH=...` or point `ExecStart` at absolute paths. For a source checkout, use `ExecStart=/usr/bin/env node dist/server/index.js` with `WorkingDirectory=` set to the checkout.
 
 ## Development
 
-```bash
-npm install
-npm run dev             # Vite dev server with HMR (port 5173)
-npm run build           # Production build to dist/
-npm start               # Production server
-```
-
-`tests/` is the automated `node:test` suite (`npm test`). `test/` holds manual smoke scripts, run by hand, not part of CI.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Limitations
 
-- **Windows 11 and Linux.** Developed daily on Windows 11, which is where the multi-session tooling didn't exist; it also runs on Linux servers, which is how my always-on machines are provisioned. macOS is untested, not merely undocumented.
-- **Local-first, with an opt-in remote door.** By default Glimmervoid binds `localhost` and neither WebSocket channel has authentication, so any local process can connect. That's a deliberate single-user scope choice, not an oversight, but it means the local port must never be exposed to the network. Remote access is a separate opt-in listener gated by single-use pairing tokens and cookies, meant to sit behind a reverse proxy such as `tailscale serve`; a pairing cookie grants full code execution as the server account, so pairing URLs are passwords and should be handled like them.
-- **Requires the Claude Code CLI.** Glimmervoid spawns and manages it; it doesn't replace it.
+- **Windows 11 and Linux only.** macOS is untested.
+- **Local-first, with an opt-in remote door.** By default Glimmervoid binds `127.0.0.1` and has no login on the local listener, so any local process can drive it. That is a deliberate single-user choice, and it means the local port must never be exposed to the network. Remote access is a separate listener gated by single-use pairing tokens and cookies, meant to sit behind a reverse proxy; a pairing cookie grants full code execution as the server account.
+- **Requires an agent CLI.** Glimmervoid spawns and manages Claude Code (or another supported agent); it doesn't replace it.
 
 ## Changelog
 

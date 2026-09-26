@@ -2,7 +2,9 @@ import type { UpdateChannel } from '../../shared/contracts/update-journal.ts';
 import { REPO_SLUG } from '../../shared/repo.ts';
 
 const SHA_RE = /^[0-9a-f]{40}$/;
-const NPM_GLOBAL_COMMAND = `npm install -g github:${REPO_SLUG} --allow-git=root`;
+const NPM_PACKAGE_NAME = 'glimmervoid';
+const NPM_GLOBAL_COMMAND = `npm install -g ${NPM_PACKAGE_NAME}@latest`;
+const LINUX_INSTALL_SCRIPT_FLAG = ' --allow-scripts=node-pty';
 const CLONE_COMMAND = 'git pull --ff-only && npm ci && npm run build';
 const SHORT_SHA_LENGTH = 7;
 const INSTALL_FLAVORS = new Set<string>(['npm-global', 'clone', 'unknown']);
@@ -10,6 +12,7 @@ const TAG_VERSION_RE = /^v(\d+\.\d+\.\d+)$/;
 const UPDATE_CHANNELS = new Set<string>(['release', 'main']);
 
 export type InstallFlavor = 'npm-global' | 'clone' | 'unknown';
+export type ReleaseSource = 'npm-registry' | 'github-tags';
 
 export interface ReleaseTag {
   version: string;
@@ -70,25 +73,27 @@ function parseLsRemoteTags(stdout: unknown): { version: string; sha: string } | 
   return latest;
 }
 
-function decideInstallFlavor({ lockfileSha, gitHeadSha, hasGitDir }: {
+function decideInstallFlavor({ lockfileSha, gitHeadSha, hasGitDir, isInsideNodeModules }: {
   lockfileSha?: unknown;
   gitHeadSha?: unknown;
   hasGitDir?: boolean;
+  isInsideNodeModules?: boolean;
 } = {}): { flavor: InstallFlavor; installedSha: string | null } {
   const fromLockfile = normalizeSha(lockfileSha);
   if (fromLockfile) return { flavor: 'npm-global', installedSha: fromLockfile };
   const fromGitHead = normalizeSha(gitHeadSha);
   if (fromGitHead) return { flavor: 'npm-global', installedSha: fromGitHead };
   if (hasGitDir) return { flavor: 'clone', installedSha: null };
+  if (isInsideNodeModules) return { flavor: 'npm-global', installedSha: null };
   return { flavor: 'unknown', installedSha: null };
 }
 
-function buildUpdateCommand(flavor: unknown, latestVersion: unknown): string {
-  if (flavor === 'npm-global' && textOrNull(latestVersion)) {
-    return `npm install -g github:${REPO_SLUG}#v${latestVersion} --allow-git=root`;
-  }
-  if (flavor === 'npm-global') return NPM_GLOBAL_COMMAND;
-  return CLONE_COMMAND;
+function buildUpdateCommand(flavor: unknown, latestVersion: unknown, platform?: unknown): string {
+  if (flavor !== 'npm-global') return CLONE_COMMAND;
+  const version = textOrNull(latestVersion);
+  const installCommand = version ? `npm install -g ${NPM_PACKAGE_NAME}@${version}` : NPM_GLOBAL_COMMAND;
+  if (platform === 'linux') return `${installCommand}${LINUX_INSTALL_SCRIPT_FLAG}`;
+  return installCommand;
 }
 
 function buildReleaseUrl(version: unknown): string | null {
@@ -128,6 +133,21 @@ function parseLatestReleaseTag(doc: unknown): ReleaseTag | null {
   return { version, sha: null };
 }
 
+function decideReleaseSource(flavor: unknown): ReleaseSource {
+  if (flavor === 'npm-global') return 'npm-registry';
+  return 'github-tags';
+}
+
+function parseRegistryLatest(doc: unknown): ReleaseTag | null {
+  if (!doc || typeof doc !== 'object') return null;
+  const registryDocument = doc as { version?: unknown; gitHead?: unknown };
+  const publishedVersion = textOrNull(registryDocument.version);
+  if (!publishedVersion) return null;
+  const version = parseTagVersion(`v${publishedVersion}`);
+  if (!version) return null;
+  return { version, sha: normalizeSha(registryDocument.gitHead) };
+}
+
 function textOrNull(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -152,12 +172,13 @@ function normalizeBehindCount(value: unknown): number | null {
   return count;
 }
 
-function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion, latestVersion, flavor, channel, behindCount, reason, isLatestReleaseAncestorOfHead }: {
+function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion, latestVersion, flavor, platform, channel, behindCount, reason, isLatestReleaseAncestorOfHead }: {
   installedSha?: unknown;
   latestSha?: unknown;
   currentVersion?: unknown;
   latestVersion?: unknown;
   flavor?: unknown;
+  platform?: unknown;
   channel?: unknown;
   behindCount?: unknown;
   reason?: unknown;
@@ -183,7 +204,7 @@ function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion
     currentSha,
     latestSha,
     releaseUrl: buildReleaseUrl(latest),
-    command: buildUpdateCommand(flavor, latest),
+    command: buildUpdateCommand(flavor, latest, platform),
     flavor: normalizedFlavor,
     channel: normalizedChannel,
     behindCount: normalizedBehindCount,
@@ -200,4 +221,4 @@ function isCheckFresh(lastCheckAt: unknown, nowMs: unknown, ttlMs: unknown): boo
   return age < Number(ttlMs);
 }
 
-export { NPM_GLOBAL_COMMAND, CLONE_COMMAND, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, parseTagVersion, parseLsRemoteTags, decideInstallFlavor, buildUpdateCommand, buildReleaseUrl, compareSemver, parseLatestReleaseTag, decideUpdateStatus, isCheckFresh };
+export { NPM_GLOBAL_COMMAND, CLONE_COMMAND, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, parseTagVersion, parseLsRemoteTags, decideInstallFlavor, buildUpdateCommand, buildReleaseUrl, compareSemver, parseLatestReleaseTag, decideReleaseSource, parseRegistryLatest, decideUpdateStatus, isCheckFresh };

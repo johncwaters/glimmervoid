@@ -4,10 +4,10 @@ node_modules
 .omc/
 .DS_Store
 coverage/
+docs/internal/
 dist/
 .vscode/
 .claude/*
-!.claude/omc.jsonc
 !.claude/release-profile.json
 config.json
 # Remote-mode device pairings (hashes only, but machine-local state). A repo-local GLIMMERVOID_CONFIG lands them here.

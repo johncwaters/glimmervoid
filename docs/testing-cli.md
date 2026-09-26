@@ -1,39 +1,64 @@
 # Glimmervoid CLI Testing Guide
 
-Test scenarios for Glimmervoid's CLI functionality. Run these before cutting a release, since the startup update check keys on the `vX.Y.Z` release tag. See `distribution.md` for the shipping model.
+Manual checks for the CLI to run before cutting a release. See `distribution.md` for how a release ships.
+
+Commands are given for bash; where PowerShell differs, it follows. Run them from the repo root of a checkout with dependencies installed (`npm ci`). `node bin/glimmervoid.ts` runs the CLI from source; after `npm run build`, `node dist/bin/glimmervoid.js` runs the built one that ships.
 
 ## Prerequisites
 
-- **Node.js** v18+ (`node --version`)
-- **npm** v8+
-- Repository cloned, dependencies installed (`npm install`)
-- Windows 11 (PowerShell commands below; bash alternatives noted where relevant)
+- Node.js >= 22.18.0 (`node --version`); npm 12 needs 22.22.2 or newer for the global install checks
+- Windows 11 or Linux
 
-## Configuration Resolution Order
+## Config resolution order
 
-1. `--config <path>` flag (highest priority)
-2. `~/.glimmervoid/config.json` (user home)
-3. `./config.json` in the app directory (local dev fallback)
-4. If none exist, seeds `~/.glimmervoid/config.json` with defaults
+1. `--config <path>`, which sets `GLIMMERVOID_CONFIG`. The file must exist.
+2. `config.json` under `GLIMMERVOID_HOME`, when that is set.
+3. `~/.glimmervoid/config.json`.
+4. If the file from step 2 or 3 does not exist, it is created with defaults.
+
+The tests below point `GLIMMERVOID_HOME` at a scratch directory so they never touch your real config.
+
+```bash
+export GLIMMERVOID_HOME="$(mktemp -d)"
+```
+
+```powershell
+$env:GLIMMERVOID_HOME = Join-Path $env:TEMP "glimmervoid-cli-test"
+New-Item -ItemType Directory -Force $env:GLIMMERVOID_HOME | Out-Null
+```
 
 ---
 
-## Test 1: `--help` Flag
+## Test 1: `--help` and `-h`
 
-```powershell
+```bash
 node bin/glimmervoid.ts --help
+node bin/glimmervoid.ts -h
 ```
 
-**Expected:**
+**Expected:** both print the same usage text and exit 0. `tests/cli-docs.test.ts` pins this block to the real output:
 
 ```
 Usage: glimmervoid [command] [options]
 
 Commands:
   doctor            Diagnose install / PATH issues and exit
+  agent setup grok  Install Glimmervoid's env-inert Grok hook relay
   pair              Mint a single-use pairing link for a remote device
   pair --list       List paired devices
   pair --revoke <id>  Revoke a paired device
+  visions relay     Run the Visions LSP relay on stdio (what an editor's LSP client spawns)
+  visions install   Install the Visions extension into every VS Code family editor on PATH
+  visions setup     Print LSP client config for Neovim, Helix, Emacs, Kate, Sublime, JetBrains
+  visions status    Report the relay path and which editors carry the extension
+  pack build [name] Build one context pack, or every spec
+  pack list         List context pack specs and their built versions
+  memory forget <id|pattern>  Expunge a remembered record
+  memory backfill   Re-run the cold-start transcript backfill
+  memory distill [--dry-run]  Rebuild the published projection from the canon
+  spawn <prompt>    From inside a Glimmervoid session, start a sibling session on that prompt
+  attention <note>  From inside a Glimmervoid session, flag it as needing the operator
+  board             From inside a Glimmervoid session, list the live sessions
 
 Options:
   --name <label>    Label for the device being paired (with: pair)
@@ -43,313 +68,148 @@ Options:
   --help, -h        Show this help message
 ```
 
-**Exit code:** 0
-
 ---
 
-## Test 2: `-h` Short Flag
+## Test 2: `--version`
 
-```powershell
-node bin/glimmervoid.ts -h
-```
-
-**Expected:** Same output as `--help`.
-
----
-
-## Test 3: `--version` Flag
-
-```powershell
+```bash
 node bin/glimmervoid.ts --version
 ```
 
-**Expected:** matches the `version` field in `package.json`
+**Expected:** the `version` field of `package.json`, exit 0.
 
 ---
 
-## Test 4: `--port` Override
+## Test 3: default config seeding and `--port`
 
-Start the server on a custom port. Press `Ctrl+C` to stop after verifying.
-
-```powershell
+```bash
 node bin/glimmervoid.ts --port 4567
 ```
 
 **Expected output includes:**
 
 ```
-Glimmervoid server listening on http://localhost:4567
+Created default config at <GLIMMERVOID_HOME>/config.json
+Glimmervoid server listening on http://127.0.0.1:4567
 ```
 
-Open `http://localhost:4567` in a browser to verify the dashboard loads. Then `Ctrl+C` to stop.
+Open http://localhost:4567 and check the dashboard loads, then stop the server with `Ctrl+C`. The seeded `config.json` is valid JSON with `port`, `projects`, `repoRoots` and the timing fields.
 
 ---
 
-## Test 5: `--config` with Explicit Path
+## Test 4: `--config` with an explicit path
 
-Use the repo's local config explicitly:
-
-```powershell
-node bin/glimmervoid.ts --config ./config.json --port 4568
+```bash
+node bin/glimmervoid.ts --config "$GLIMMERVOID_HOME/config.json" --port 4568
 ```
 
-**Expected:** Server starts using the specified config, listening on port 4568. `Ctrl+C` to stop.
+```powershell
+node bin/glimmervoid.ts --config "$env:GLIMMERVOID_HOME\config.json" --port 4568
+```
+
+**Expected:** the server starts on port 4568 with no "Created default config" line. `Ctrl+C` to stop.
 
 ---
 
-## Test 6: `--config` with Nonexistent Path
+## Test 5: `--config` with a missing file
 
-```powershell
-node bin/glimmervoid.ts --config C:\nonexistent\config.json
+```bash
+node bin/glimmervoid.ts --config ./does-not-exist.json
 ```
 
-**Expected:**
-
-```
-Config file not found: C:\nonexistent\config.json
-```
-
-**Exit code:** 1
+**Expected:** `Config file not found: <absolute path>/does-not-exist.json`, exit 1.
 
 ---
 
-## Test 7: Default Config Auto-Seeding
+## Test 6: `glimmervoid doctor`
 
-Remove the home config (back it up first if you have one):
-
-```powershell
-# Backup if exists
-if (Test-Path "$env:USERPROFILE\.glimmervoid\config.json") {
-    Copy-Item "$env:USERPROFILE\.glimmervoid\config.json" "$env:USERPROFILE\.glimmervoid\config.json.bak"
-}
-
-# Remove it
-Remove-Item "$env:USERPROFILE\.glimmervoid\config.json" -ErrorAction SilentlyContinue
-```
-
-Run glimmervoid (no flags):
-
-```powershell
-node bin/glimmervoid.ts --port 4569
-```
-
-**Expected output includes:**
-
-```
-Created default config at C:\Users\<you>\.glimmervoid\config.json
-Glimmervoid server listening on http://localhost:4569
-```
-
-**Verify the seeded config:**
-
-```powershell
-Get-Content "$env:USERPROFILE\.glimmervoid\config.json"
-```
-
-Should contain valid JSON with `port`, `projects`, `repoRoots`, and timeout fields.
-
-**Restore:**
-
-```powershell
-# Restore backup if you had one
-if (Test-Path "$env:USERPROFILE\.glimmervoid\config.json.bak") {
-    Move-Item "$env:USERPROFILE\.glimmervoid\config.json.bak" "$env:USERPROFILE\.glimmervoid\config.json" -Force
-}
-```
-
----
-
-## Test 8: Local Dev Fallback
-
-Verify `node server/main.ts` still works as before (backward compatibility):
-
-```powershell
-node server/main.ts
-```
-
-**Expected:** Server starts using `./config.json` from the repo directory. `Ctrl+C` to stop.
-
----
-
-## Test 9: `glimmervoid doctor`
-
-```powershell
+```bash
 node bin/glimmervoid.ts doctor
 ```
 
-**Expected:** A read-only report, no server started and nothing written to disk: glimmervoid/node/platform versions, where the CLI is running from, the npm (and pnpm, if present) global bin directory and whether each is on PATH, a `node-pty` load probe, and the resolved config path. When the npm global bin directory is not on PATH, it also prints the one-step fix.
-
-**Exit code:** 0
+**Expected:** a read-only report with no server started and nothing written: versions, where the CLI runs from, the npm (and pnpm, if present) global bin directory and whether each is on PATH, the agent CLIs that resolve, the rtk binary, a `node-pty` load probe, and the resolved config path. Exit 0 even when node-pty fails to load, so read the NATIVE MODULE section.
 
 ---
 
-## Test 10: `glimmervoid pair`
+## Test 7: `glimmervoid pair`
 
-Use a temporary config so the test does not modify your normal pairing store. Start Glimmervoid in one PowerShell window:
+Enable the remote listener in the scratch config and start the server in one terminal:
 
-```powershell
-$pairDir = Join-Path $env:TEMP "glimmervoid-pair-cli-test"
-New-Item -ItemType Directory -Force $pairDir | Out-Null
-$pairConfig = Join-Path $pairDir "config.json"
-@'
-{
-  "port": 3000,
-  "remote": {
-    "enabled": true,
-    "port": 3456
-  },
-  "projects": []
-}
-'@ | Set-Content -Encoding UTF8 $pairConfig
-
-node bin/glimmervoid.ts --config $pairConfig --port 3455
+```bash
+cat > "$GLIMMERVOID_HOME/config.json" <<'JSON'
+{ "port": 3455, "remote": { "enabled": true, "port": 3456 }, "projects": [] }
+JSON
+node bin/glimmervoid.ts
 ```
 
-In a second PowerShell window, mint and redeem a pairing link:
-
 ```powershell
-$pairConfig = Join-Path (Join-Path $env:TEMP "glimmervoid-pair-cli-test") "config.json"
-$mintOutput = node bin/glimmervoid.ts --config $pairConfig pair --name Phone
-$mintOutput
-$pairUrl = ($mintOutput | Select-String "http://127.0.0.1:3456/pair/").Matches.Value
-Invoke-WebRequest $pairUrl -SessionVariable pairedSession | Out-Null
+'{ "port": 3455, "remote": { "enabled": true, "port": 3456 }, "projects": [] }' | Set-Content -Encoding UTF8 "$env:GLIMMERVOID_HOME\config.json"
+node bin/glimmervoid.ts
 ```
 
-**Expected mint output includes:** `http://127.0.0.1:3456/pair/` and `Treat this link like a password.`
+In a second terminal with the same `GLIMMERVOID_HOME`:
 
-List the paired device:
-
-```powershell
-node bin/glimmervoid.ts --config $pairConfig pair --list
+```bash
+node bin/glimmervoid.ts pair --name Phone
 ```
 
-**Expected output includes:** a table with `ID`, `NAME`, `PAIRED`, `LAST SEEN`, `STATUS`, and a row whose `NAME` is `Phone`.
+**Expected output includes:** `http://127.0.0.1:3456/pair/<token>` and `Treat this link like a password.` Opening the link in a browser pairs it.
 
-Revoke it, replacing `<id>` with the `ID` from the list output:
-
-```powershell
-node bin/glimmervoid.ts --config $pairConfig pair --revoke <id>
-node bin/glimmervoid.ts --config $pairConfig pair --list
+```bash
+node bin/glimmervoid.ts pair --list
 ```
 
-**Expected output includes:** `Revoked <id>. A running Glimmervoid applies this within 30 seconds, no restart needed.` and the same device row with `revoked` in the `STATUS` column.
+**Expected:** a table with `ID`, `NAME`, `PAIRED`, `LAST SEEN` and `STATUS`, with a row named `Phone` once the link was opened (a minted but unopened link does not list).
 
-**Exit code:** 0 for mint, list, and revoke.
+```bash
+node bin/glimmervoid.ts pair --revoke <id>
+node bin/glimmervoid.ts pair --list
+```
 
-Stop the server from the first PowerShell window with `Ctrl+C`.
+**Expected:** `Revoked <id>. A running Glimmervoid applies this within 30 seconds, no restart needed.`, then the row shows `revoked`. All three commands exit 0. Stop the server with `Ctrl+C`.
 
 ---
 
-## Test 11: `npm pack` Verification
+## Test 8: tarball contents
 
-Installing from the GitHub spec packs the repo first, so this list is exactly what lands in a global install.
-
-```powershell
+```bash
 npm pack --dry-run
 ```
 
-**Expected files included** (per the `files` array in `package.json`):
-
-```
-dist/            (the whole built package: client, server, bin, session relays, packs, extension)
-scripts/postinstall.mjs
-scripts/prepare-build.js
-package.json
-```
-
-**Verify no unwanted files**: no raw `.ts` source anywhere, and no `config.json`, `spike/`, `.omc/`, `.claude/`, `docs/`, `node_modules/`.
+**Expected:** the built `dist/` tree plus `scripts/postinstall.mjs`, `scripts/recover-handoff.mjs`, `scripts/prepare-build.js`, `package.json`, `README.md` and `LICENSE`. No raw `.ts` source, no `docs/`, no `.claude/`, no `config.json`. `npm run release` refuses a tarball with raw `.ts` or without `dist/bin/glimmervoid.js`.
 
 ---
 
-## Test 12: `package.json` Fields
+## Test 9: global install from the tarball
 
-```powershell
-node -e "const p=require('./package.json'); console.log(JSON.stringify({bin:p.bin,files:p.files,engines:p.engines},null,2))"
-```
-
-**Expected:** `bin.glimmervoid` points at `dist/bin/glimmervoid.js`, `engines.node` is `>=22.18.0`, and `files` matches the array above (check `package.json` directly for the current list; it grows as new server-side modules ship).
-
----
-
-## Testing as Global Install (npm link)
-
-Simulate the `npm install -g github:johncwaters/glimmervoid` result without a network round trip:
-
-```powershell
-npm link
-```
-
-Then test:
-
-```powershell
-glimmervoid --help
+```bash
+npm pack
+npm install -g ./glimmervoid-<version>.tgz --allow-scripts=node-pty
 glimmervoid --version
-glimmervoid --port 4570
-# Ctrl+C to stop
+glimmervoid doctor
+npm uninstall -g glimmervoid
 ```
 
-**Cleanup:**
-
-```powershell
-npm unlink -g glimmervoid
-```
+**Expected:** the version matches, and doctor reports `node-pty  loads OK`. This is the same check the packaged install step in `.github/workflows/test.yml` runs.
 
 ---
 
-## Environment Variable Isolation
+## Environment isolation
 
-Verify `GLIMMERVOID_PORT` and `GLIMMERVOID_CONFIG` don't leak to child Claude processes.
-
-Check the pure scrub in `session/core/spawn-env.ts` (`buildAgentEnv`, applied with the Claude Code adapter's `envProfile`), which unsets, at minimum:
-
-```javascript
-CLAUDECODE
-CLAUDE_CODE_SSE_PORT
-CLAUDE_CODE_ENTRYPOINT
-GLIMMERVOID_PORT
-GLIMMERVOID_CONFIG
-```
-
-This is a code-level verification: `buildAgentEnv` returns a scrubbed copy of the environment before `pty.spawn()`, so the same check works standalone (`session/core/spawn-env.ts` has no IO and no dependency on the rest of the session module).
+`GLIMMERVOID_PORT`, `GLIMMERVOID_CONFIG`, `GLIMMERVOID_HOOK_URL` and `GLIMMERVOID_AGENT_URL` must never leak into an agent the session did not intend to receive them. The scrub is `buildAgentEnv` in `session/core/spawn-env.ts`, pinned by `npm test`; nothing to run by hand.
 
 ---
 
-## Full Checklist
+## Checklist
 
 | # | Test | Pass? |
 |---|------|-------|
-| 1 | `--help` prints usage, exits 0 | |
-| 2 | `-h` works as short flag | |
-| 3 | `--version` prints the package.json version | |
-| 4 | `--port 4567` starts on custom port | |
-| 5 | `--config ./config.json` uses explicit config | |
-| 6 | `--config <nonexistent>` errors with exit 1 | |
-| 7 | Auto-seeds `~/.glimmervoid/config.json` when none exist | |
-| 8 | `node server/main.ts` still works (backward compat) | |
-| 9 | `glimmervoid doctor` prints a read-only report, exits 0 | |
-| 10 | `glimmervoid pair` can mint, list, and revoke a device | |
-| 11 | `npm pack --dry-run` includes correct files | |
-| 12 | `package.json` has bin, files, engines | |
-| 13 | `npm link` + `glimmervoid --help` works globally | |
-| 14 | `npm unlink -g glimmervoid` cleans up | |
-
----
-
-## Troubleshooting
-
-### Port Already in Use
-
-```powershell
-# Find and kill process on port 3000
-netstat -ano | findstr :3000
-taskkill /PID <pid> /F
-```
-
-### Config File Corruption
-
-Delete and let it re-seed:
-
-```powershell
-Remove-Item "$env:USERPROFILE\.glimmervoid\config.json"
-node bin/glimmervoid.ts --help
-```
+| 1 | `--help` and `-h` print usage, exit 0 | |
+| 2 | `--version` prints the package.json version | |
+| 3 | Seeds a default config and starts on `--port` | |
+| 4 | `--config <path>` uses that file | |
+| 5 | `--config <missing>` errors with exit 1 | |
+| 6 | `doctor` prints a read-only report, exits 0 | |
+| 7 | `pair` mints, lists and revokes a device | |
+| 8 | `npm pack --dry-run` ships only built files | |
+| 9 | Global install from the tarball runs and loads node-pty | |

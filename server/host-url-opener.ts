@@ -36,7 +36,6 @@ function createHostUrlOpener({
       };
       child.once('spawn', () => {
         child.unref();
-        // xdg-open's generic fallback runs $BROWSER in the foreground, so a still-running opener counts as opened.
         exitWindowTimer = setTimeout(() => { settle('opened'); }, exitWindowMs);
         exitWindowTimer.unref();
       });

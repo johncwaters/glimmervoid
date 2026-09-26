@@ -8,7 +8,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 
 ### Agent Adapters
 
-- An adapter is TABLES and PURE FUNCTIONS: what varies between agent CLIs is vocabulary, and flags cannot express one (`docs/plan-agent-adapters.md`). `resolveCommand` is lazy and cached per id, or a `require` costs a PATH lookup.
+- An adapter is TABLES and PURE FUNCTIONS: what varies between agent CLIs is vocabulary, and flags cannot express one. `resolveCommand` is lazy and cached per id, or a `require` costs a PATH lookup.
 - Key on `capabilities`, never `adapter.id`, which rots once a third agent shares a behavior with the first. An UNDECLARED capability is absent (`tests/agent-capabilities.test.ts`).
 - The Add Session agent picker and the card badge are adapter-driven and BINARY-GATED: `list-agents` probes each registered adapter's `resolveCommand` (cached per id), `decideAgentPicker` offers only the ones that resolve and hides itself for a single-agent install, and the badge shows a short label for a non-default agent only, so a Claude-Code-only machine looks unchanged (`public/session-card/agent-core.ts`, `tests/frontend-agent-core.test.ts`). `glimmervoid doctor` prints the same per-agent resolution.
 - rtk is self-installed from a PINNED release with a PINNED sha256 into `~/.glimmervoid/bin`, never "latest" and never a checksum fetched beside the binary, or one compromised release page swaps both halves (`server/core/rtk-install-core.ts`).

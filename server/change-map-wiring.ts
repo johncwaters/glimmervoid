@@ -323,7 +323,7 @@ export function createChangeMapService({
         while (pendingConfigs.length > 0) {
           const unreadConfigs = pendingConfigs.filter((repoPath) => !visitedConfigs.has(repoPath));
           if (unreadConfigs.length === 0) break;
-          unreadConfigs.forEach((repoPath) => visitedConfigs.add(repoPath));
+          for (const repoPath of unreadConfigs) visitedConfigs.add(repoPath);
           const configs = await tsconfigCache.readMany(root, unreadConfigs);
           pendingConfigs = [];
           for (const [configPath, { config }] of configs) {

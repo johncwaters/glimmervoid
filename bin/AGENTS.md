@@ -1,16 +1,16 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-06-10 | Updated: 2026-06-10 -->
+<!-- Generated: 2026-06-10 | Updated: 2026-09-26 -->
 
 # bin
 
 ## Purpose
-The globally-installed CLI entry point for Glimmervoid (`npm i -g github:johncwaters/glimmervoid`; there is no registry package, see `../docs/distribution.md`). Parses CLI flags and boots the production server.
+The globally-installed CLI entry point for Glimmervoid (`npm install -g glimmervoid` from the npm registry, see `../docs/distribution.md`). Parses CLI flags and boots the production server.
 
 ## Key Files
 
 | File | Description |
 |------|-------------|
-| `glimmervoid.ts` | `#!/usr/bin/env node` launcher: `doctor`, `pair` (`--list`, `--revoke <id>`, `--name <label>`), `pack` (`build [name]`, `list`), `--port`, `--config`, `--version`, `--help`; sets env vars, dispatches CLI-only commands, then imports `../server/main.ts` |
+| `glimmervoid.ts` | `#!/usr/bin/env node` launcher: parses flags, sets env vars, dispatches the CLI-only commands listed by `--help`, then boots the server; a new command also goes into the `--help` text, which `../tests/cli-docs.test.ts` checks the docs against |
 | `path-doctor.ts` | Pure PATH helpers shared by `glimmervoid doctor` and the post-install PATH notice |
 
 ## For AI Agents

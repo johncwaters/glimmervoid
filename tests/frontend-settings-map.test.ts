@@ -182,6 +182,7 @@ test('the Team review lane section owns its settings and deep link', async () =>
     ['team-review-team', 'teamReview.team', 'text'],
     ['team-review-re-review-after-hours', 'teamReview.reReviewAfterHours', 'number'],
     ['team-review-skip-idle-after-days', 'teamReview.skipIdleAfterDays', 'number'],
+    ['team-review-skill', 'teamReview.skill', 'text'],
   ]);
   assert.equal(teamReviewSettings.some((setting) => setting.id === TEAM_REVIEW_SETTINGS_SETTING_ID), true);
   for (const setting of teamReviewSettings) assert.equal(DASHBOARD_SETTING_PATH_SET.has(setting.path), true, setting.path);

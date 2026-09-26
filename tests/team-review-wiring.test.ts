@@ -342,7 +342,7 @@ test('a fresh review started after an unusable saved record is stopped with its 
   }
 });
 
-test('every tier runs pr-review from a throwaway work dir, and no argv entry names the staged checkout of the head', async () => {
+test('every tier runs the review from a throwaway work dir, and no argv entry names the staged checkout of the head', async () => {
   for (const tier of ['stamp', 'full'] as const) {
     const { review, staged, removed, hydrations, spawns, worktreeRoot, cleanup } = setup();
     try {
@@ -360,7 +360,7 @@ test('every tier runs pr-review from a throwaway work dir, and no argv entry nam
       assert.deepEqual(spawns[0].workDirFiles, ['gh-config', REVIEW_PROMPT_FILENAME]);
       assert.deepEqual(spawns[0].spawnEnv, teamReviewSpawnEnv(spawns[0].workDir));
       assert.deepEqual(spawns[0].settingsSandbox, teamReviewSandbox(spawns[0].workDir));
-      assert.match(spawns[0].prompt, /pr-review/);
+      assert.match(spawns[0].prompt, /whatever review skills or tools you have available/);
       assert.ok(spawns[0].prompt.includes(`git -C ${expectedWorktree}`));
       assert.ok(spawns[0].prompt.includes(path.join(spawns[0].workDir, REVIEW_REPORT_FILENAME)));
       assert.equal(spawns[0].id, 'team-review:Acme/app#7');
@@ -456,7 +456,8 @@ test('a review removes the worktree when it times out', async () => {
     timeoutSeconds: 1,
     setTimeoutFn: (fn) => setTimeout(fn, 0),
     spawnSession: ({ signal }) => new Promise<void>((resolve) => {
-      signal.addEventListener('abort', () => { wasAborted = true; resolve(); }, { once: true });
+      const liveSessionHandle = setInterval(() => {}, 1000);
+      signal.addEventListener('abort', () => { clearInterval(liveSessionHandle); wasAborted = true; resolve(); }, { once: true });
     }),
   });
   try {
@@ -563,7 +564,7 @@ test('a missing, unreadable or failed report is an error draft', async () => {
   try {
     const missingDraft = await missing.review(reviewArgs('stamp'));
     assert.equal(missingDraft.status, 'error');
-    assert.equal(missingDraft.error, 'no pr-review report');
+    assert.equal(missingDraft.error, 'no review report');
     assert.equal((await garbled.review(reviewArgs('stamp'))).status, 'error');
     assert.match((await failedRun.review(reviewArgs('stamp'))).error ?? '', /did not complete/);
   } finally {
@@ -749,10 +750,24 @@ test('the lane starts only when enabled with both org and team', () => {
   assert.equal(teamReviewShouldStart({ teamReview: { enabled: true, org: 'Acme', team: 'core' } }).start, true);
 });
 
+test('the configured review skill reaches the prompt of each review as it is read at spawn time', async () => {
+  let configuredSkill = 'my-review';
+  const { review, spawns, cleanup } = setup({ readReviewSkill: () => configuredSkill });
+  try {
+    await review(reviewArgs('full'));
+    configuredSkill = '';
+    await review(reviewArgs('full'));
+    assert.match(spawns[0].prompt, /Invoke the my-review skill with the Skill tool/);
+    assert.doesNotMatch(spawns[1].prompt, /Skill tool/);
+  } finally {
+    cleanup();
+  }
+});
+
 test('team review settings use configurable positive review and idle windows', () => {
-  assert.deepEqual(readTeamReviewSettings({}), { enabled: false, org: '', team: '', reReviewAfterHours: 24, skipIdleAfterDays: 14 });
-  assert.deepEqual(readTeamReviewSettings({ teamReview: { enabled: true, org: ' Acme ', team: ' core ', reReviewAfterHours: 6, skipIdleAfterDays: 3 } }), {
-    enabled: true, org: 'Acme', team: 'core', reReviewAfterHours: 6, skipIdleAfterDays: 3,
+  assert.deepEqual(readTeamReviewSettings({}), { enabled: false, org: '', team: '', reReviewAfterHours: 24, skipIdleAfterDays: 14, skill: '' });
+  assert.deepEqual(readTeamReviewSettings({ teamReview: { enabled: true, org: ' Acme ', team: ' core ', reReviewAfterHours: 6, skipIdleAfterDays: 3, skill: ' my-review ' } }), {
+    enabled: true, org: 'Acme', team: 'core', reReviewAfterHours: 6, skipIdleAfterDays: 3, skill: 'my-review',
   });
 });
 
