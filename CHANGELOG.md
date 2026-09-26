@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-09-26
+
+### Added
+
+- **Published on npm**: `npm install -g glimmervoid` is now the install path (Linux adds `--allow-scripts=node-pty` on npm 12 plus build tools). Releases publish from `.github/workflows/publish.yml` with provenance through npm trusted publishing, and an npm install's update check reads the latest version from the registry, so the banner never offers a version npm does not have.
+- **Team PR review**: with `teamReview` configured, Glimmervoid polls GitHub for pull requests requesting your team or authored by its members, triages each as a stamp or full review, and runs a sandboxed headless agent with no shell, network or GitHub write. Drafts land in the PR reviews tab, grouped by state, with live progress for running reviews, an editable body and removable inline comments. Nothing reaches GitHub until you choose Approve or Comment, and only if the pull request has not moved. `teamReview.skill` names your own Claude Code review skill; Glimmervoid only fixes the report format. Queue review re-runs a ready draft, reviews resume across restarts, and the Usage tab shows PR review spend.
+- **Custom alert sounds**: drop `.ogg`, `.mp3`, `.wav`, `.m4a` or `.webm` files into `~/.glimmervoid/sounds/` and pick them in Settings. The built-in sounds are now generated (Chime, the new default, Soft ping and Beep).
+- **Open links on the host**: in an editor's embedded browser (such as VSCodium's), terminal and PR review links open in the host's default browser.
+- **Framed CLI output**: `pack`, `doctor` and `visions` print aligned tables.
+- **Onboarding docs**: a rewritten README quickstart, a generated configuration reference (`docs/configuration.md`), troubleshooting, CONTRIBUTING, SECURITY and issue templates.
+
+### Changed
+
+- **Plan Review** returns the card to the terminal once the server confirms an approval.
+- **Add Session** disables Add and explains what to install when no agent CLI is found on PATH.
+- **Context packs** tell agents to read their data files before non-trivial work, and a per-spawn holdout arm measures their value.
+- **Team review** no longer re-reviews every push, and a discarded draft stays discarded.
+
+### Removed
+
+- The own-PR auto-review and auto-merge lane: it merged same-repo pull requests with no author check once CI was green.
+- The opt-in Windows OS toast notification channel (`osToast`).
+- The bundled third-party alert recordings (`coins` and `tears` fall back to the new default).
+
+### Fixed
+
+- **Stuck Working state**: a long-lived background task (a Monitor loop, a dev server) no longer holds a session in Working after its turn ends.
+- **Change Map narrator settings** now persist on save.
+- **Stale `index.lock`**: read-only git status probes run without optional locks, so killed probes no longer block commits.
+- **`glimmervoid doctor --config <path>`** now reports that config file.
+
 ## [0.26.1] - 2026-09-23
 
 ### Added
