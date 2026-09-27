@@ -451,6 +451,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
 
       changeMap: config.changeMap ? { ...config.changeMap } : null,
       branchGc: { ...config.branchGc },
+      postTurnChecks: config.postTurnChecks ? { ...config.postTurnChecks } : { ...DEFAULT_CONFIG.postTurnChecks },
       visions: config.visions ? { ...config.visions } : null,
       teamReview: config.teamReview ? { ...config.teamReview } : null,
 

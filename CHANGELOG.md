@@ -11,8 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Safer defaults for new installs**: three defaults now favour caution, and each has one config key that restores the old behaviour.
   - **Permission prompts are on**: sessions no longer spawn with the agent's permission bypass unless their project opts in. Add Session offers "Skip permission prompts", pre-checked from the machine default, and saves the choice on the project. A project with no choice follows `skipPermissionsByDefault`; set `skipPermissionsByDefault: true` to skip prompts again (also a guarded toggle under Settings, Unattended actions).
-  - **Branch cleanup keeps unmerged remote branches**: stale session branches with no merge proof are kept and traced as `not-merged-and-unmerged-deletion-off` instead of being deleted. Set `branchGc.deleteUnmerged: true` to delete them after `branchGc.staleDays` again. Merged branches and local worktree cleanup are unchanged.
-  - **Post-turn checks only report**: findings are listed but files are no longer rewritten, and any mode other than an exact `"fix"` counts as report. Set `postTurnChecks.mode: "fix"` to apply fixes again.
+  - **Branch cleanup keeps unmerged remote branches**: stale session branches with no merge proof are kept and traced as `not-merged-and-unmerged-deletion-off` instead of being deleted. Set `branchGc.deleteUnmerged: true` to delete them after `branchGc.staleDays` again (also a guarded toggle under Settings, Unattended actions). Merged branches and local worktree cleanup are unchanged.
+  - **Post-turn checks only report**: findings are listed but files are no longer rewritten, and any mode other than an exact `"fix"` counts as report. Set `postTurnChecks.mode: "fix"` to apply fixes again, or pick Fix under Settings, Unattended actions.
 
 ## [0.27.0] - 2026-09-26
 

@@ -227,7 +227,6 @@ export const SETTINGS_MAP = Object.freeze([
       { id: 'file-branch-gc-prefixes', path: 'branchGc.prefixes', title: 'Branch cleanup prefixes', description: 'Remote branch prefixes eligible for cleanup.', control: 'readonly', keywords: ['git', 'branch'], fileOnly: true },
       { id: 'file-branch-gc-dry-run', path: 'branchGc.dryRun', title: 'Branch cleanup dry run', description: 'Report planned cleanup without deleting remote branches.', control: 'readonly', keywords: ['git', 'safety'], fileOnly: true },
       { id: 'file-branch-gc-stale-days', path: 'branchGc.staleDays', title: 'Branch stale days', description: 'Age threshold for orphan branch cleanup when unmerged deletion is on.', control: 'readonly', keywords: ['git', 'retention'], fileOnly: true },
-      { id: 'file-branch-gc-delete-unmerged', path: 'branchGc.deleteUnmerged', title: 'Delete unmerged branches', description: 'Also delete stale remote branches with no merge proof. Off keeps every unmerged branch.', control: 'readonly', keywords: ['git', 'cleanup', 'orphan'], fileOnly: true },
       { id: 'file-branch-gc-interval-ms', path: 'branchGc.intervalMs', title: 'Branch cleanup interval', description: 'Delay between branch cleanup passes.', control: 'readonly', keywords: ['git', 'schedule'], fileOnly: true },
       { id: 'file-custom-agents', path: 'customAgents', title: 'Custom agents', description: 'Extra agent CLIs a session can be spawned with.', control: 'readonly', keywords: ['adapters', 'cli'], fileOnly: true, status: 'custom-agents' },
     ],
@@ -676,6 +675,19 @@ export const SETTINGS_MAP = Object.freeze([
         control: 'toggle', keywords: ['permissions', 'yolo', 'dangerously'], danger: true, dangerConfirmation: 'skip-permissions',
         warning: 'Enabling this control lets agents edit files and run shell commands without asking, and restarts running sessions that inherit it.',
         defaultValue: false,
+      },
+      {
+        id: 'branch-gc-delete-unmerged', path: 'branchGc.deleteUnmerged', title: 'Delete unmerged branches',
+        description: 'Also delete stale remote branches with no merge proof. Off keeps every unmerged branch.',
+        control: 'toggle', keywords: ['git', 'cleanup', 'orphan'], danger: true, dangerConfirmation: 'delete-unmerged',
+        warning: 'Enabling this control lets branch cleanup delete stale remote branches without merge proof.',
+        defaultValue: false,
+      },
+      {
+        id: 'post-turn-checks-mode', path: 'postTurnChecks.mode', title: 'Post-turn checks mode',
+        description: 'Report findings or let post-turn checks fix eligible files.',
+        control: 'select', options: [{ value: 'report', label: 'Report' }, { value: 'fix', label: 'Fix' }],
+        keywords: ['quality', 'fixes'], defaultValue: 'report',
       },
       {
         id: 'agent-api-enabled', path: 'agentApi.enabled', title: 'Agent API',

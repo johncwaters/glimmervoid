@@ -123,6 +123,31 @@ test('a valid branchGc payload is sanitized, persisted, and echoed, and file-onl
   assert.deepEqual(blockOf(echoed, 'prefixes'), ['glimmervoid/session/', 'worktree-agent-']);
 });
 
+test('dashboard saves branch deletion and post-turn fix mode while retaining sibling settings', () => {
+  const branchGc = { enabled: true, prefixes: ['custom/'], dryRun: true, staleDays: 21, deleteUnmerged: false, intervalMs: 3600000 };
+  const postTurnChecks = { enabled: true, mode: 'report', rules: { trailingWs: false, finalNewline: true } };
+  withRealStore({ projects: [], branchGc, postTurnChecks }, undefined, (h, store, readDisk) => {
+    h.send({ type: 'update-settings', settings: { branchGc: { deleteUnmerged: true } } });
+    assert.equal(errorFrom(h), undefined);
+    assert.deepEqual(readDisk().branchGc, { ...branchGc, deleteUnmerged: true });
+    assert.deepEqual(readDisk().postTurnChecks, postTurnChecks);
+    assert.equal(blockOf(store.getSettings().branchGc, 'deleteUnmerged'), true);
+
+    h.sent.length = 0;
+    h.send({ type: 'update-settings', settings: { postTurnChecks: { mode: 'fix' } } });
+    assert.equal(errorFrom(h), undefined);
+    assert.deepEqual(readDisk().branchGc, { ...branchGc, deleteUnmerged: true });
+    assert.deepEqual(readDisk().postTurnChecks, { ...postTurnChecks, mode: 'fix' });
+    assert.equal(blockOf(updatedFrom(h)?.settings?.postTurnChecks, 'mode'), 'fix');
+
+    h.sent.length = 0;
+    h.send({ type: 'update-settings', settings: { postTurnChecks: { mode: 'banana' } } });
+    assert.match(String(errorFrom(h)?.message), /postTurnChecks.mode/);
+    assert.equal(updatedFrom(h), undefined);
+    assert.deepEqual(readDisk().postTurnChecks, { ...postTurnChecks, mode: 'fix' });
+  });
+});
+
 test('a branchGc control update keeps the stored file-only keys', () => {
   const h = harness({ branchGc: { enabled: true, prefixes: ['custom/'], dryRun: true, staleDays: 14, intervalMs: 3600000 }, projects: [] });
   h.send({ type: 'update-settings', settings: { branchGc: { staleDays: 21, prefixes: ['evil/'] } } });

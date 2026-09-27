@@ -276,6 +276,7 @@ function mergeChangeMapOverStored(stored: unknown, incoming: Record<string, unkn
 const DASHBOARD_SETTING_PATHS = Object.freeze([
   ...BRANCH_GC_CONTROL_BOOLEAN_KEYS.map((key) => `branchGc.${key}`),
   ...BRANCH_GC_CONTROL_NUMERIC_KEYS.map((key) => `branchGc.${key}`),
+  'postTurnChecks.mode',
   ...VISIONS_BOOLEAN_KEYS.map((key) => `visions.${key}`),
   ...VISIONS_VALUE_KEYS.map((key) => `visions.${key}`),
   ...VISIONS_DISPATCH_BOOLEAN_KEYS.map((key) => `visions.dispatch.${key}`),
@@ -734,6 +735,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       if (s.repoRoots != null) cfg.repoRoots = s.repoRoots;
       if (s.changeMap != null) cfg.changeMap = mergeChangeMapOverStored(cfg.changeMap, s.changeMap);
       if (s.branchGc != null) cfg.branchGc = mergeSettingsBlockOverStored(cfg.branchGc, s.branchGc);
+      if (s.postTurnChecks != null) cfg.postTurnChecks = mergeSettingsBlockOverStored(cfg.postTurnChecks, s.postTurnChecks);
       if (s.visions != null) cfg.visions = s.visions;
       if (s.teamReview != null) cfg.teamReview = mergeSettingsBlockOverStored(cfg.teamReview, s.teamReview);
       if (s.posthog != null) cfg.posthog = mergeSettingsBlockOverStored(cfg.posthog, s.posthog);

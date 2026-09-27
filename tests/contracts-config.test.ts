@@ -276,7 +276,7 @@ test('the branchGc control update keeps its literal key types', () => {
 
 test('the control update keeps exactly the exported settable branchGc keys', () => {
   const parsed = ConfigUpdate.parse({
-    branchGc: { enabled: true, staleDays: 21, intervalMs: 3600000, prefixes: ['evil/'], dryRun: true },
+    branchGc: { enabled: true, staleDays: 21, intervalMs: 3600000, deleteUnmerged: true, prefixes: ['evil/'], dryRun: true },
   });
   assert.deepEqual(
     Object.keys(parsed.branchGc ?? {}).sort(),
@@ -303,10 +303,11 @@ test('a project permission choice must be a boolean when present', () => {
   assert.equal(ProjectConfig.safeParse({ path: '/repo', dangerouslySkipPermissions: 'false' }).success, false);
 });
 
-test('branchGc.deleteUnmerged is a file-only boolean the control update strips', () => {
+test('branchGc.deleteUnmerged is a dashboard-settable boolean', () => {
   assert.equal(BranchGcFileSettings.parse({ deleteUnmerged: true }).deleteUnmerged, true);
   assert.equal(BranchGcFileSettings.safeParse({ deleteUnmerged: 'yes' }).success, false);
-  assert.equal('deleteUnmerged' in (ConfigUpdate.parse({ branchGc: { deleteUnmerged: true } }).branchGc ?? {}), false);
+  assert.equal(ConfigUpdate.parse({ branchGc: { deleteUnmerged: true } }).branchGc?.deleteUnmerged, true);
+  assert.equal(ConfigUpdate.safeParse({ branchGc: { deleteUnmerged: 'yes' } }).success, false);
 });
 
 test('any hooks value parses, so one hand edit cannot cost the boot', () => {

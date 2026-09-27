@@ -168,6 +168,39 @@ test('the agent API toggle is dashboard-writable and the custom agents row stays
   assert.equal(DASHBOARD_SETTING_PATH_SET.has('customAgents'), false);
 });
 
+test('unattended actions expose branch deletion and post-turn mode as editable controls', async () => {
+  const { SETTINGS_MAP } = await loadMap();
+  const unattended = SETTINGS_MAP.find((section) => section.id === 'lanes-unattended');
+  assert.ok(unattended);
+  const unattendedSettings: SettingsSetting[] = unattended.settings;
+  const branchDeletion = unattendedSettings.find((setting) => setting.path === 'branchGc.deleteUnmerged');
+  assert.ok(branchDeletion);
+  assert.equal(branchDeletion.control, 'toggle');
+  assert.equal(branchDeletion.danger, true);
+  assert.equal(branchDeletion.dangerConfirmation, 'delete-unmerged');
+  assert.ok(branchDeletion.warning);
+  assert.equal(branchDeletion.defaultValue, false);
+  assert.equal(branchDeletion.fileOnly, undefined);
+  assert.equal(DASHBOARD_SETTING_PATH_SET.has(branchDeletion.path), true);
+
+  const postTurnMode = unattendedSettings.find((setting) => setting.path === 'postTurnChecks.mode');
+  assert.ok(postTurnMode);
+  assert.equal(postTurnMode.control, 'select');
+  assert.deepEqual(postTurnMode.options, [{ value: 'report', label: 'Report' }, { value: 'fix', label: 'Fix' }]);
+  assert.equal(postTurnMode.defaultValue, 'report');
+  assert.equal(postTurnMode.fileOnly, undefined);
+  assert.equal(DASHBOARD_SETTING_PATH_SET.has(postTurnMode.path), true);
+  assert.equal(SETTINGS_MAP.some((section) => section.settings.some((setting) => setting.id === 'file-branch-gc-delete-unmerged')), false);
+
+  const { collectDirtyBlocks, hydrateFromSettings } = await import('../public/settings-view-core.ts');
+  const original = hydrateFromSettings([unattended], DEFAULT_CONFIG);
+  const edited = { ...original, 'branchGc.deleteUnmerged': true, 'postTurnChecks.mode': 'fix' };
+  assert.deepEqual(collectDirtyBlocks([unattended], original, edited), {
+    branchGc: { ...DEFAULT_CONFIG.branchGc, deleteUnmerged: true },
+    postTurnChecks: { ...DEFAULT_CONFIG.postTurnChecks, mode: 'fix' },
+  });
+});
+
 test('the Team review lane section owns its settings and deep link', async () => {
   const { SETTINGS_MAP, SETTINGS_SECTION_ALIASES } = await loadMap();
   const { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID } = await import('../public/team-review-view-core.ts');

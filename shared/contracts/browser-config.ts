@@ -54,9 +54,13 @@ const BRANCH_GC_SETTINGS_SHAPE = {
 };
 export const BranchGcFileSettings = z.object(BRANCH_GC_SETTINGS_SHAPE, { error: 'branchGc must be an object' });
 const BranchGcSettings = optionalObject('branchGc', BRANCH_GC_SETTINGS_SHAPE);
-export const BranchGcControlSettings = BranchGcFileSettings.omit({ prefixes: true, dryRun: true, worktrees: true, deleteUnmerged: true }).nullable().optional();
-export const BRANCH_GC_CONTROL_BOOLEAN_KEYS = Object.freeze(['enabled']);
+export const BranchGcControlSettings = BranchGcFileSettings.omit({ prefixes: true, dryRun: true, worktrees: true }).nullable().optional();
+export const BRANCH_GC_CONTROL_BOOLEAN_KEYS = Object.freeze(['enabled', 'deleteUnmerged']);
 export const BRANCH_GC_CONTROL_NUMERIC_KEYS = Object.freeze(['staleDays', 'intervalMs']);
+
+const PostTurnChecksSettings = optionalObject('postTurnChecks', {
+  mode: z.enum(['report', 'fix'], { error: 'postTurnChecks.mode must be one of report, fix' }).optional(),
+});
 
 const VisionsSettings = optionalObject('visions', {
   enabled: optionalBoolean('visions.enabled'),
@@ -200,6 +204,7 @@ export const createBrowserConfigShape = (isAbsolutePath: (directory: string) => 
   repoRoots: z.array(z.string()).optional(),
   changeMap: ChangeMapSettings,
   branchGc: BranchGcSettings,
+  postTurnChecks: PostTurnChecksSettings,
   visions: VisionsSettings,
   teamReview: TeamReviewSettings,
   posthog: PosthogSettings,

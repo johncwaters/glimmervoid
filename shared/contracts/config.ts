@@ -130,7 +130,7 @@ export const Config = z.object({
 
 export const BROWSER_CONFIG_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE));
 export const CONFIG_BLOCK_KEYS = Object.freeze([
-'changeMap', 'branchGc', 'visions', 'teamReview', 'posthog', 'usage', 'telegram', 'packDistiller', 'millMetrics', 'memory', 'ingest',
+'changeMap', 'branchGc', 'postTurnChecks', 'visions', 'teamReview', 'posthog', 'usage', 'telegram', 'packDistiller', 'millMetrics', 'memory', 'ingest',
   'agentApi',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {
@@ -148,7 +148,6 @@ export const HIDDEN_CONFIG_KEYS = Object.freeze([
   'worktreeAutoRebase',
   'worktreeSyncOnStart',
   'worktreeRerere',
-  'postTurnChecks',
   'hooks',
   'remote',
   'projects',

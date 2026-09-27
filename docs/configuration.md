@@ -65,7 +65,6 @@ Config-file-only detection, timing, worktree and process settings.
 | `branchGc.prefixes` | Branch cleanup prefixes | `["glimmervoid/session/","worktree-agent-"]` | Remote branch prefixes eligible for cleanup. **File-only.** |
 | `branchGc.dryRun` | Branch cleanup dry run | `false` | Report planned cleanup without deleting remote branches. **File-only.** |
 | `branchGc.staleDays` | Branch stale days | `14` | Age threshold for orphan branch cleanup when unmerged deletion is on. **File-only.** |
-| `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no merge proof. Off keeps every unmerged branch. **File-only.** |
 | `branchGc.intervalMs` | Branch cleanup interval | `21600000` | Delay between branch cleanup passes. **File-only.** |
 | `customAgents` | Custom agents | `[]` | Extra agent CLIs a session can be spawned with. **File-only.** |
 
@@ -205,6 +204,8 @@ Controls that let automated work change repositories or install executable tooli
 | `visions.autoFix` | Apply tier 1 fixes | `false` | Allow Visions to edit the active buffer without asking. |
 | `posthog.autoFix` | Attempt fixes for major issues | `false` | Allow an isolated agent to fix an issue, push a branch and open a pull request. |
 | `skipPermissionsByDefault` | Skip permission prompts by default | `false` | Start sessions whose project sets no permission choice with the agent CLI permission bypass flag. |
+| `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no merge proof. Off keeps every unmerged branch. |
+| `postTurnChecks.mode` | Post-turn checks mode | `"report"` | Report findings or let post-turn checks fix eligible files. |
 | `agentApi.enabled` | Agent API | `false` | Expose the per-session agent endpoint to running sessions. |
 | `rtk` | rtk output compression | `false` | Compress Bash output for newly spawned or restarted sessions. |
 
