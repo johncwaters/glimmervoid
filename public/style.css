@@ -673,6 +673,7 @@ body {
 .btn-settings-remove:focus-visible,
 .btn-menu:focus-visible,
 .btn-help:focus-visible,
+.btn-mute:focus-visible,
 .settings-about-link:focus-visible,
 .btn-settings-add:focus-visible,
 .settings-view-nav-item:focus-visible,
@@ -1072,7 +1073,8 @@ body {
 }
 
 .btn-menu,
-.btn-help {
+.btn-help,
+.btn-mute {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1090,7 +1092,8 @@ body {
 }
 
 .btn-menu::after,
-.btn-help::after {
+.btn-help::after,
+.btn-mute::after {
   content: '';
   position: absolute;
   inset: -8px;
@@ -1098,20 +1101,39 @@ body {
 
 .btn-menu:hover,
 .header-menu.open .btn-menu,
-.btn-help:hover {
-  background: color-mix(in srgb, var(--text) 4%, transparent);
+.btn-help:hover,
+.btn-mute:hover {
+  background-color: color-mix(in srgb, var(--text) 4%, transparent);
   border-color: var(--border-hover);
   color: var(--text);
 }
 
 .btn-menu:active,
-.btn-help:active {
+.btn-help:active,
+.btn-mute:active {
   transform: scale(0.97);
 }
 
 .btn-help {
   color: var(--text-dim);
   font-weight: 700;
+}
+
+.btn-mute,
+.btn-power {
+  color: var(--text-dim);
+}
+
+.btn-mute[aria-pressed="true"] {
+  color: var(--text-muted);
+  background-image: linear-gradient(to top right, transparent calc(50% - 0.75px), currentColor calc(50% - 0.75px), currentColor calc(50% + 0.75px), transparent calc(50% + 0.75px));
+}
+
+.btn-power-icon {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
 }
 
 .header-menu-dropdown {
@@ -1198,12 +1220,6 @@ body {
 
 .menu-item:hover .menu-item-glyph {
   color: inherit;
-}
-
-.menu-item-glyph-muted {
-  color: var(--text-muted);
-  text-decoration: line-through;
-  text-decoration-thickness: 1px;
 }
 
 .dialog-report {
@@ -5608,14 +5624,6 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
 .focus-pill[data-state="RUNNING"][data-activity="quiet"] .focus-pill-glyph {
   animation-duration: 3.8s;
   opacity: 0.55;
-}
-.focus-pill[data-state="RUNNING"][data-activity="quiet"] .focus-pill-badge::after {
-  content: "quiet";
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: lowercase;
-  color: var(--text-dim);
 }
 
 .focus-pill[data-merge="pending-review"] { border-color: var(--accent-dim); }

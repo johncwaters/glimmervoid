@@ -412,13 +412,13 @@ const messageHandlers = {
   'shutting-down':      () => {
     connectionEl.dataset.state = 'shutdown';
     connectionLabel.textContent = 'Shutting down...';
-    queryTag(document, '#btn-menu', 'button').disabled = true;
+    queryTag(document, '#btn-power', 'button').disabled = true;
     showShutdownOverlay('Shutting down sessions...');
   },
   'restarting':         () => {
     connectionEl.dataset.state = 'shutdown';
     connectionLabel.textContent = 'Restarting...';
-    queryTag(document, '#btn-menu', 'button').disabled = true;
+    queryTag(document, '#btn-power', 'button').disabled = true;
     showShutdownOverlay('Restarting server...');
   },
 } satisfies Record<string, (msg: ServerMessage) => void>;
@@ -487,24 +487,36 @@ function showUpdateBanner(msg: ServerMessage) {
 
 queryTag(document, '#btn-add-session-header', 'button').addEventListener('click', createAddSessionDialog);
 
-const headerMenu = queryTag(document, '#header-menu', 'div');
-const btnMenu = queryTag(document, '#btn-menu', 'button');
+const btnMute = queryTag(document, '#btn-mute', 'button');
 
-function syncMenuAria() {
-  btnMenu.setAttribute('aria-expanded', headerMenu.classList.contains('open') ? 'true' : 'false');
+function syncMuteButton() {
+  btnMute.setAttribute('aria-pressed', String(!isSoundEnabled()));
+}
+syncMuteButton();
+
+btnMute.addEventListener('click', () => {
+  setSoundEnabled(!isSoundEnabled());
+  syncMuteButton();
+});
+
+const powerMenu = queryTag(document, '#power-menu', 'div');
+const btnPower = queryTag(document, '#btn-power', 'button');
+
+function syncPowerMenuAria() {
+  btnPower.setAttribute('aria-expanded', powerMenu.classList.contains('open') ? 'true' : 'false');
 }
 
-btnMenu.addEventListener('click', (e) => {
+btnPower.addEventListener('click', (e) => {
   e.stopPropagation();
-  headerMenu.classList.toggle('open');
-  syncMenuAria();
+  powerMenu.classList.toggle('open');
+  syncPowerMenuAria();
 });
 
 document.addEventListener('click', (e) => {
   if (!(e.target instanceof Node)) return;
-  if (!headerMenu.contains(e.target)) {
-    headerMenu.classList.remove('open');
-    syncMenuAria();
+  if (!powerMenu.contains(e.target)) {
+    powerMenu.classList.remove('open');
+    syncPowerMenuAria();
   }
 });
 
@@ -552,12 +564,6 @@ function activateLocationHash() {
   if (activatePlanHash()) return true;
   return activateSettingsHash();
 }
-
-queryTag(document, '#btn-settings', 'button').addEventListener('click', () => {
-  headerMenu.classList.remove('open');
-  syncMenuAria();
-  openSettings();
-});
 
 queryTag(document, '#btn-help', 'button').addEventListener('click', () => {
   openSettings('browser-shortcuts');
@@ -805,7 +811,8 @@ mountPhoneShell({
     queryTag(document, '#status-indicator', 'div'),
     queryTag(document, '#btn-add-session-header', 'button'),
     queryTag(document, '#btn-help', 'button'),
-    headerMenu,
+    btnMute,
+    powerMenu,
   ],
 });
 
@@ -829,8 +836,8 @@ onLayoutChange(applyFormFactorLayout);
 window.addEventListener('hashchange', activateLocationHash);
 
 function confirmServerRestart() {
-  headerMenu.classList.remove('open');
-  syncMenuAria();
+  powerMenu.classList.remove('open');
+  syncPowerMenuAria();
   const count = getSessionCount();
   const suffix = count > 1 ? 's' : '';
   const message = count > 0
@@ -854,8 +861,8 @@ function applyClientTrust(trust: unknown) {
 }
 
 queryTag(document, '#btn-shutdown', 'button').addEventListener('click', () => {
-  headerMenu.classList.remove('open');
-  syncMenuAria();
+  powerMenu.classList.remove('open');
+  syncPowerMenuAria();
   const count = getSessionCount();
   const suffix = count > 1 ? 's' : '';
   const message = count > 0
@@ -868,22 +875,6 @@ queryTag(document, '#btn-shutdown', 'button').addEventListener('click', () => {
     danger: true,
     onConfirm: () => sendControlMsg({ type: 'shutdown' }),
   });
-});
-
-const btnMute = queryTag(document, '#btn-mute', 'button');
-
-function updateMuteButton() {
-  const muted = !isSoundEnabled();
-  const label = muted ? 'Unmute Alerts' : 'Mute Alerts';
-  const glyphClass = muted ? 'menu-item-glyph menu-item-glyph-muted' : 'menu-item-glyph';
-  btnMute.innerHTML = `<span class="${glyphClass}">\u266A</span>${label}`;
-}
-updateMuteButton();
-
-btnMute.addEventListener('click', (e) => {
-  e.stopPropagation();
-  setSoundEnabled(!isSoundEnabled());
-  updateMuteButton();
 });
 
 function isRealInputFocused() {
