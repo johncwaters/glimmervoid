@@ -202,7 +202,7 @@ function handleSnapshot(sessions: unknown, packVersions: unknown) {
 
   refreshPhoneBoard();
   syncTraceSessionsFromCards();
-  activatePlanHash();
+  activatePlanHash(location.hash);
 }
 
 function syncTraceSessionsFromCards() {
@@ -325,7 +325,7 @@ const messageHandlers = {
     applySettingsProjectReport(msg);
     const shouldResolve = getActiveView() === 'settings' || shouldResolveSettingsHashOnMillReport;
     shouldResolveSettingsHashOnMillReport = false;
-    if (shouldResolve) activateSettingsHash();
+    if (shouldResolve) activateSettingsHash(location.hash);
   },
 
   'hooks-report':       (msg) => applyHooksReport(msg),
@@ -544,13 +544,13 @@ function activateSettingsTarget(target: { sectionId: string; settingId: string |
   return true;
 }
 
-function activateSettingsHash() {
-  const target = resolveSettingsTarget(location.hash);
+function activateSettingsHash(hash: string) {
+  const target = resolveSettingsTarget(hash);
   return activateSettingsTarget(target);
 }
 
-function activatePlanHash() {
-  const sessionId = resolvePlanTarget(location.hash);
+function activatePlanHash(hash: string) {
+  const sessionId = resolvePlanTarget(hash);
   if (!sessionId) return false;
   if (!hasSession(sessionId)) return true;
   history.replaceState(history.state, '', `${location.pathname}${location.search}`);
@@ -563,10 +563,22 @@ function activatePlanHash() {
   return true;
 }
 
-function activateLocationHash() {
-  if (activatePlanHash()) return true;
-  return activateSettingsHash();
+function activateHash(hash: string) {
+  if (activatePlanHash(hash)) return true;
+  return activateSettingsHash(hash);
 }
+
+function activateLocationHash() {
+  return activateHash(location.hash);
+}
+
+document.addEventListener('click', (event) => {
+  if (!isPhoneShellActive() || event.defaultPrevented) return;
+  const anchor = event.target instanceof Element ? event.target.closest('a[href^="#"]') : null;
+  if (!(anchor instanceof HTMLAnchorElement)) return;
+  if (!activateHash(anchor.hash)) return;
+  event.preventDefault();
+});
 
 queryTag(document, '#btn-help', 'button').addEventListener('click', () => {
   openSettings('browser-shortcuts');
