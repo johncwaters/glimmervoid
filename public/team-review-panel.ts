@@ -9,7 +9,7 @@ import { createSettingsLink } from './settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
-  commentLocation, emptyStateText, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  commentLocation, emptyStateText, groupDrafts, parseInlineSegments, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, phaseLabel, pullRequestLabel, readyAttentionSignature, readyRowSignature, reviewFooterText,
   reviewProgressSteps, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone,
 } from './team-review-view-core.ts';
@@ -188,6 +188,51 @@ function createDetailHeading(review: ReviewDraft | InFlightReview): HTMLElement 
   return heading;
 }
 
+const LEGACY_SUMMARY_HINT = 'This review predates the plain summary. Queue review to get one.';
+
+function appendSegments(element: HTMLElement, segments: ReturnType<typeof parseInlineSegments>): HTMLElement {
+  for (const segment of segments) element.append(segment.isCode ? el('code', null, segment.text) : document.createTextNode(segment.text));
+  return element;
+}
+
+function appendInlineText(element: HTMLElement, text: string): HTMLElement {
+  return appendSegments(element, parseInlineSegments(text));
+}
+
+function createAssessmentPart(title: string, content: HTMLElement, tone?: string): HTMLElement {
+  const part = el('div', 'pr-assessment-part');
+  if (tone) part.dataset.tone = tone;
+  part.append(el('h4', 'pr-assessment-title', title), content);
+  return part;
+}
+
+function createAssessmentList(items: readonly string[]): HTMLElement {
+  const list = el('ul', 'pr-assessment-list');
+  for (const item of items) list.append(appendInlineText(el('li', null), item));
+  return list;
+}
+
+function createVerdictBox(draft: ReviewDraft, isWithCounts: boolean): HTMLElement {
+  const verdict = el('section', 'pr-verdict-box');
+  verdict.setAttribute('aria-label', 'Verdict');
+  const verdictLine = el('div', 'pr-verdict-line');
+  verdictLine.append(createVerdictSeal(draft.verdict));
+  if (isWithCounts) verdictLine.append(createSeverityCounts(draft));
+  verdict.append(verdictLine);
+  const { assessment } = draft;
+  if (!assessment) {
+    const audit = el('details', 'pr-verdict-audit');
+    audit.append(el('summary', null, 'Review audit'), el('p', 'pr-verdict-summary', draft.summary));
+    verdict.append(el('p', 'pr-verdict-legacy', LEGACY_SUMMARY_HINT), audit);
+    return verdict;
+  }
+  verdict.append(appendInlineText(el('p', 'pr-verdict-summary pr-verdict-reason'), draft.summary));
+  if (assessment.change) verdict.append(createAssessmentPart('What the PR changes', appendInlineText(el('p', 'pr-verdict-summary'), assessment.change)));
+  if (assessment.checked.length > 0) verdict.append(createAssessmentPart('What the review checked', createAssessmentList(assessment.checked)));
+  if (assessment.gaps.length > 0) verdict.append(createAssessmentPart('Not covered', createAssessmentList(assessment.gaps), 'warning'));
+  return verdict;
+}
+
 function createCommentParagraph(paragraph: ReturnType<typeof parseReviewComment>['paragraphs'][number]): HTMLElement {
   const element = el('p', 'pr-comment-paragraph');
   if (paragraph.lead) {
@@ -196,8 +241,7 @@ function createCommentParagraph(paragraph: ReturnType<typeof parseReviewComment>
     lead.append(paragraph.lead);
     element.append(lead, ' ');
   }
-  for (const segment of paragraph.segments) element.append(segment.isCode ? el('code', null, segment.text) : document.createTextNode(segment.text));
-  return element;
+  return appendSegments(element, paragraph.segments);
 }
 
 function createInlineComment(comment: ReviewComment, index: number, includedIndexes: Set<number>, updateFooter: () => void): HTMLElement {
@@ -251,12 +295,7 @@ function sendAction(draft: ReviewDraft, action: TeamReviewAction, body: string, 
 function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   const detail = el('article', 'pr-detail');
   detail.append(createDetailHeading(draft));
-  const verdict = el('section', 'pr-verdict-box');
-  verdict.setAttribute('aria-label', 'Verdict');
-  const verdictLine = el('div', 'pr-verdict-line');
-  verdictLine.append(createVerdictSeal(draft.verdict), createSeverityCounts(draft));
-  verdict.append(verdictLine, el('p', 'pr-verdict-summary', draft.summary));
-  detail.append(verdict);
+  detail.append(createVerdictBox(draft, true));
 
   const posts = el('section', 'pr-posts');
   posts.setAttribute('aria-label', 'What posts to GitHub');
@@ -358,9 +397,7 @@ function createOtherDetail(draft: ReviewDraft): HTMLElement {
   const detail = el('article', 'pr-detail');
   detail.append(createDetailHeading(draft));
   if (draft.status === 'posted') {
-    const verdict = el('section', 'pr-verdict-box');
-    verdict.append(createVerdictSeal(draft.verdict), el('p', 'pr-verdict-summary', draft.summary));
-    detail.append(verdict);
+    detail.append(createVerdictBox(draft, false));
     return detail;
   }
   detail.append(el('p', 'pr-attention-detail', attentionDetail(draft)));

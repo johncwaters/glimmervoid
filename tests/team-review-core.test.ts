@@ -240,7 +240,7 @@ test('resume decisions check the head, age and original deadline', () => {
 function readyDraftAt(head: string) {
   return readyDraft({
     candidate: CANDIDATE, tier: 'stamp', reasons: ['docs and tests only'],
-    result: { verdict: 'APPROVE', head, summary: 'fine', findings: [] },
+    result: { verdict: 'APPROVE', head, summary: 'fine', assessment: null, findings: [] },
   });
 }
 
@@ -496,6 +496,50 @@ test('a report summary ends before trailing verdict and actionable lines', () =>
   if (!parsed.ok) return;
   assert.equal(parsed.result.summary, 'Pinned tree abc. Three findings.\nSecond line.');
   assert.equal(parsed.result.findings.length, 3);
+});
+
+const ASSESSED_REPORT = [
+  REPORT.replace('OVERALL_SUMMARY:\nPinned tree abc. Three findings.\nSecond line.', ''),
+  'CHANGE:',
+  'Re-arms the ask timeout per question.',
+  '',
+  'CHECKED:',
+  '- Is the old timer cleared before re-arming: yes, `src/bridge.ts:42`.',
+  '- Can a settled question re-arm: no, guarded at `src/bridge.ts:57`.',
+  '',
+  'GAPS:',
+  '(none)',
+  '',
+  'OVERALL_SUMMARY:',
+  'The off by one decides the verdict.',
+].join('\n');
+
+test('a report with operator sections parses them apart from the verdict reason', () => {
+  const parsed = parseReviewReport(ASSESSED_REPORT);
+  assert.equal(parsed.ok, true, parsed.ok ? '' : parsed.reason);
+  if (!parsed.ok) return;
+  assert.equal(parsed.result.summary, 'The off by one decides the verdict.');
+  assert.deepEqual(parsed.result.assessment, {
+    change: 'Re-arms the ask timeout per question.',
+    checked: ['Is the old timer cleared before re-arming: yes, `src/bridge.ts:42`.', 'Can a settled question re-arm: no, guarded at `src/bridge.ts:57`.'],
+    gaps: [],
+  });
+  const withGap = parseReviewReport(ASSESSED_REPORT.replace('(none)', '- The Codex reviewer failed to start.'));
+  assert.deepEqual(withGap.ok && withGap.result.assessment?.gaps, ['The Codex reviewer failed to start.']);
+  const draft = readyDraft({ candidate: CANDIDATE, tier: 'full', reasons: [], result: parsed.result });
+  assert.deepEqual(draft.assessment, parsed.result.assessment);
+});
+
+test('a report without operator sections has no assessment and its draft carries none', () => {
+  const parsed = parseReviewReport(REPORT);
+  assert.equal(parsed.ok && parsed.result.assessment, null);
+  if (!parsed.ok) return;
+  assert.equal('assessment' in readyDraft({ candidate: CANDIDATE, tier: 'full', reasons: [], result: parsed.result }), false);
+});
+
+test('the prompt asks for every operator section the parser reads', () => {
+  const prompt = reviewPromptFor();
+  for (const heading of ['CHANGE:', 'CHECKED:', 'GAPS:', 'OVERALL_SUMMARY:']) assert.match(prompt, new RegExp(`one line: ${heading}`));
 });
 
 test('a report with no findings parses, and a failed, headless or garbled report is refused', () => {

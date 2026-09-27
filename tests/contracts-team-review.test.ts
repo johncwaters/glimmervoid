@@ -60,7 +60,7 @@ test('review comments default to the new side and require a positive line', () =
 
 test('review result accepts code-review verdicts, typed findings and an exact lowercase commit SHA', () => {
   const finding = { path: 'src/a.ts', line: 4, side: 'RIGHT', severity: 'HIGH', reviewer: 'code/logic', disposition: 'ACTIONABLE', body: 'Off by one' };
-  const result = { verdict: 'APPROVE WITH NITS', head: HEAD, summary: 'Spot checked', findings: [finding, { ...finding, line: null, disposition: null }] };
+  const result = { verdict: 'APPROVE WITH NITS', head: HEAD, summary: 'Spot checked', assessment: null, findings: [finding, { ...finding, line: null, disposition: null }] };
   assert.deepEqual(ReviewResult.parse(result), result);
   for (const invalid of [
     { ...result, head: 'abc123' },

@@ -2,7 +2,7 @@ import { FindingSeverity, PostingPlan, ReviewFinding, ReviewResult, ReviewVerdic
 import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, withoutAutomatedNote } from '../../shared/team-review-markdown.ts';
 import type {
   InFlightReview, PostingPlan as PostingPlanType, PrDetail, ReviewComment, ReviewDraft, ReviewProgressPhase,
-  ReviewResult as ReviewResultType, SearchedPr, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
+  ReviewAssessment, ReviewResult as ReviewResultType, SearchedPr, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../../shared/contracts/team-review.ts';
 
 const STAMP_MODEL = 'sonnet';
@@ -343,7 +343,7 @@ function parseFindingLine(line: string): UnvalidatedFinding | null {
 function sectionAfter(lines: readonly string[], heading: string): string[] | null {
   const headingIndex = lines.findIndex((line) => line.trim() === heading);
   if (headingIndex === -1) return null;
-  const sectionEnd = lines.findIndex((line, index) => index > headingIndex && /^(VERDICT:|ACTIONABLE|TRUNCATED:|HEAD_SHA:|STRUCTURED_FINDINGS:|OVERALL_SUMMARY:)/.test(line.trim()));
+  const sectionEnd = lines.findIndex((line, index) => index > headingIndex && /^(VERDICT:|ACTIONABLE|TRUNCATED:|HEAD_SHA:|STRUCTURED_FINDINGS:|OVERALL_SUMMARY:|CHANGE:|CHECKED:|GAPS:)/.test(line.trim()));
   return lines.slice(headingIndex + 1, sectionEnd === -1 ? undefined : sectionEnd);
 }
 
@@ -359,6 +359,20 @@ function parseFindingSection(findingLines: readonly string[]): { findings: Unval
   return { findings };
 }
 
+function bulletsIn(sectionLines: readonly string[] | null): string[] {
+  if (!sectionLines) return [];
+  return sectionLines
+    .map((line) => line.trim().replace(/^[-*]\s+/, ''))
+    .filter((line) => line && line !== '(none)');
+}
+
+function parseAssessment(lines: readonly string[]): ReviewAssessment | null {
+  const change = (sectionAfter(lines, 'CHANGE:') ?? []).join('\n').trim();
+  const checked = bulletsIn(sectionAfter(lines, 'CHECKED:'));
+  if (!change && checked.length === 0) return null;
+  return { change, checked, gaps: bulletsIn(sectionAfter(lines, 'GAPS:')) };
+}
+
 function parseReviewReport(report: string): { ok: true; result: ReviewResultType } | { ok: false; reason: string } {
   const lines = report.split(/\r?\n/);
   const head = /^HEAD_SHA:\s*(\S+)\s*$/m.exec(report)?.[1];
@@ -372,7 +386,7 @@ function parseReviewReport(report: string): { ok: true; result: ReviewResultType
   const parsedFindings = parseFindingSection(findingsSection);
   if ('reason' in parsedFindings) return { ok: false, reason: parsedFindings.reason };
   const parsed = ReviewResult.safeParse({
-    verdict, head, summary: summarySection.join('\n').trim(), findings: parsedFindings.findings,
+    verdict, head, summary: summarySection.join('\n').trim(), assessment: parseAssessment(lines), findings: parsedFindings.findings,
   });
   if (!parsed.success) return { ok: false, reason: `the report is invalid: ${parsed.error.issues[0]?.message ?? 'schema mismatch'}` };
   return { ok: true, result: parsed.data };
@@ -458,7 +472,8 @@ function readyDraft(
   const rendered = posting ? renderPostingPlan(posting, commentable) : renderReview(result, commentable);
   return {
     ...draftBase(candidate, tier, reasons, result.head),
-    verdict: result.verdict, summary: result.summary, body: rendered.body, comments: rendered.comments, status: 'ready',
+    verdict: result.verdict, summary: result.summary, ...(result.assessment ? { assessment: result.assessment } : {}),
+    body: rendered.body, comments: rendered.comments, status: 'ready',
   };
 }
 
@@ -551,9 +566,26 @@ function buildReviewPrompt({
     '  <body> is the finding on that same single line, with no line breaks.',
     '  Write the single line (none) when there are no findings.',
     '- then one blank line',
+    'The remaining sections are for the operator, who reads them to judge whether the review is right before anything',
+    'posts. Write them in plain words for a reader who has not opened the diff. Never put commit SHAs, ranges, lists of',
+    'changed files, line counts, reviewer lane, router or model names, or finding counts in them: the dashboard shows',
+    'the findings on their own, and none of that helps the operator judge the review.',
+    '- then one line: CHANGE:',
+    '- then one to three sentences on what the pull request changes and which behavior that affects.',
+    '- then one blank line',
+    '- then one line: CHECKED:',
+    '- then two to six lines, each in the form "- <question the review asked of this change>: <answer>", where the',
+    '  answer cites the evidence as `path:line` in backticks. Cover the risks that decided the verdict, including the',
+    '  ones that turned out fine, so the operator can check the reasoning.',
+    '- then one blank line',
+    '- then one line: GAPS:',
+    '- then one line starting "- " for each thing the review could not cover (a reviewer that failed, a file it did',
+    '  not read, behavior it could not exercise), or the single line (none).',
+    '- then one blank line',
     '- then one line: OVERALL_SUMMARY:',
-    '- then the summary of the review as plain text, with no line starting with VERDICT:, ACTIONABLE, TRUNCATED:,',
-    '  HEAD_SHA:, STRUCTURED_FINDINGS: or OVERALL_SUMMARY:.',
+    '- then one or two sentences on why the verdict follows from CHECKED and the findings.',
+    'No line inside these sections may start with VERDICT:, ACTIONABLE, TRUNCATED:, HEAD_SHA:, STRUCTURED_FINDINGS:,',
+    'OVERALL_SUMMARY:, CHANGE:, CHECKED: or GAPS:.',
     'If the review cannot complete, still write the file, with the line VERDICT: FAILED in place of a verdict.',
     '',
     `Posting file: use the Write tool to write ${postingPath} with one JSON object, the review exactly as it would be posted:`,

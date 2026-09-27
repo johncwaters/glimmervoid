@@ -2568,6 +2568,21 @@ a.pr-link:hover { color: var(--text-head); text-decoration: underline; }
 .pr-verdict-line { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; }
 .pr-verdict-line .pr-verdict-seal { letter-spacing: 0.08em; }
 .pr-verdict-summary { color: var(--text); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.pr-verdict-reason { color: var(--text-head); }
+.pr-verdict-legacy { color: var(--text-dim); font-size: 12px; }
+.pr-verdict-audit > summary { color: var(--text-muted); font-size: 11px; cursor: pointer; }
+.pr-verdict-audit > p { margin-top: 8px; color: var(--text-dim); font-size: 12px; }
+.pr-assessment-part { display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px solid var(--border-dim); }
+.pr-assessment-title {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.pr-assessment-part[data-tone="warning"] .pr-assessment-title { color: var(--state-waiting); }
+.pr-assessment-list { display: flex; flex-direction: column; gap: 6px; padding-left: 18px; list-style: disc; color: var(--text); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.pr-assessment-list li::marker { color: var(--text-muted); }
 .pr-posts { display: flex; flex-direction: column; gap: 12px; }
 .pr-posts-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
 .pr-posts-heading h3, .pr-steps h3 { padding: 0; }
@@ -2625,7 +2640,7 @@ a.pr-link:hover { color: var(--text-head); text-decoration: underline; }
 .pr-comment-finding strong { font-weight: 700; }
 .pr-comment-location { margin-left: auto; color: var(--text-head); overflow-wrap: anywhere; }
 .pr-comment-paragraph { color: var(--text); font-size: 13px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
-.pr-comment-paragraph code { padding: 1px 5px; border-radius: var(--radius); background: var(--bg-surface); color: var(--text-head); font-size: 12px; }
+.pr-comment-paragraph code, .pr-verdict-box code { padding: 1px 5px; border-radius: var(--radius); background: var(--bg-surface); color: var(--text-head); font-size: 12px; }
 .pr-comment-lead { color: var(--accent); }
 .pr-comment-lead-question { display: inline-flex; align-items: center; gap: 5px; color: var(--state-done); }
 

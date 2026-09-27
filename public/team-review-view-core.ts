@@ -127,7 +127,7 @@ export function severityCounts(draft: Pick<ReviewDraft, 'body' | 'comments'>): {
   });
 }
 
-function parseInlineSegments(value: string): ReviewParagraph['segments'] {
+export function parseInlineSegments(value: string): ReviewParagraph['segments'] {
   const segments: ReviewParagraph['segments'] = [];
   let offset = 0;
   for (const match of value.matchAll(/`([^`\n]+)`/g)) {
@@ -237,7 +237,7 @@ export function readyAttentionSignature(status: TeamReviewStatus | null | undefi
 }
 
 export function readyRowSignature(draft: ReviewDraft): string {
-  return `${draft.key}@${draft.reviewedHead}:${draft.status}`;
+  return `${draft.key}@${draft.reviewedHead}:${draft.status}:${draft.summary}`;
 }
 
 export function isInFlightProgressOnlyChange(previous: TeamReviewStatus | null | undefined, next: TeamReviewStatus): boolean {

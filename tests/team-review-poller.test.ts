@@ -37,7 +37,7 @@ function prDetail(number: number, head: string, overrides: Record<string, unknow
 function draftFor({ candidate, detail, tier, reasons }: SpawnReviewArgs): ReviewDraft {
   return readyDraft({
     candidate, tier, reasons,
-    result: { verdict: 'APPROVE', head: detail.headRefOid, summary: 'fine', findings: [] },
+    result: { verdict: 'APPROVE', head: detail.headRefOid, summary: 'fine', assessment: null, findings: [] },
   });
 }
 
@@ -323,7 +323,7 @@ test('a stale draft can be manually queued inside the review interval', async ()
 test('a legacy ready draft keeps its original review time after becoming stale', async () => {
   const key = `${REPO}#1`;
   const candidate = { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate' };
-  const draft = readyDraft({ candidate, tier: 'stamp', reasons: [], result: { verdict: 'APPROVE', head: HEAD_ONE, summary: 'fine', findings: [] } });
+  const draft = readyDraft({ candidate, tier: 'stamp', reasons: [], result: { verdict: 'APPROVE', head: HEAD_ONE, summary: 'fine', assessment: null, findings: [] } });
   const savedState: TeamReviewState = { [key]: { draft, reviewedHead: HEAD_ONE, inFlight: false, skipReason: null, reviewAttempts: 1, updatedAt: 1000 } };
   const { poller, github, spawned, setNow } = setup({ readState: async () => structuredClone(savedState) });
   github.requested = [searchItem(1, 'teammate')];

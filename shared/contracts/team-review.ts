@@ -72,10 +72,18 @@ export const ReviewFinding = z.object({
 });
 export type ReviewFinding = z.infer<typeof ReviewFinding>;
 
+export const ReviewAssessment = z.object({
+  change: z.string(),
+  checked: z.array(z.string()),
+  gaps: z.array(z.string()),
+});
+export type ReviewAssessment = z.infer<typeof ReviewAssessment>;
+
 export const ReviewResult = z.object({
   verdict: ReviewVerdict,
   head: CommitSha,
   summary: z.string(),
+  assessment: ReviewAssessment.nullable(),
   findings: z.array(ReviewFinding),
 });
 export type ReviewResult = z.infer<typeof ReviewResult>;
@@ -104,6 +112,7 @@ export const ReviewDraft = z.object({
   reviewedHead: CommitSha,
   verdict: storedVerdict,
   summary: z.string(),
+  assessment: ReviewAssessment.optional(),
   body: z.string(),
   comments: z.array(ReviewComment),
   status: z.enum(['ready', 'stale', 'posted', 'discarded', 'error']),
