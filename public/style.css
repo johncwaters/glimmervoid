@@ -6,6 +6,8 @@
 
 :root {
 
+  --header-control-height: 34px;
+
   --bg:          #0a0810;
   --bg-card:     #100e18;
   --bg-header:   #0c0a14;
@@ -140,7 +142,8 @@ body {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
-  padding: 6px 14px;
+  height: var(--header-control-height);
+  padding: 0 14px;
   color: var(--accent);
   background: transparent;
   border: 1px solid var(--accent-dim);
@@ -211,7 +214,8 @@ body {
   font-size: 11px;
   letter-spacing: 0.02em;
   white-space: nowrap;
-  padding: 4px 10px;
+  height: var(--header-control-height);
+  padding: 0 12px;
   color: var(--text-dim);
   background: transparent;
   border: 1px solid var(--border);
@@ -1078,8 +1082,8 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 30px;
+  width: var(--header-control-height);
+  height: var(--header-control-height);
   border: 1px solid var(--border-hover);
   border-radius: 4px;
   font-size: 16px;
@@ -5039,7 +5043,8 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
 }
 .header-tabs {
   display: flex;
-  align-items: center;
+  align-items: stretch;
+  min-height: var(--header-control-height);
   gap: 2px;
   padding: 3px;
   margin-left: clamp(4px, 1vw, 8px);
@@ -5060,7 +5065,7 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   font-weight: 500;
   letter-spacing: 0.04em;
   color: var(--text-dim);
-  padding: 5px 14px;
+  padding: 0 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
