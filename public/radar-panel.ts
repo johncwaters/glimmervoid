@@ -14,7 +14,6 @@ import {
   finishedViewOf,
   isOpenInvestigationFrame,
   findIssueInSnapshot,
-  healthAnomalyRows,
   hostsDiffer,
   investigationRows,
   investigationViewOf,
@@ -24,7 +23,6 @@ import {
   retainKnownInvestigationIds,
   occurrenceDelta,
   occurrenceHistoryValues,
-  opsRows,
   partitionRadarProjects,
   radarAttentionSignature,
   radarDisplayName,
@@ -38,7 +36,7 @@ import {
   summarizeIssues,
   verdictLabel,
 } from './radar-core.ts';
-import type { InvestigationActivityFrame, InvestigationFinishedFrame, RadarHealthFeed, RadarIssue, RadarLoadPhase, RadarOpsRow, RadarProject, RadarProjectAlert, RadarSnapshot, RadarUpdateFeed } from './radar-core.ts';
+import type { InvestigationActivityFrame, InvestigationFinishedFrame, RadarIssue, RadarLoadPhase, RadarProject, RadarProjectAlert, RadarSnapshot } from './radar-core.ts';
 
 type RadarProjectEntry = RadarProjectAlert & { project: RadarProject };
 
@@ -56,10 +54,6 @@ interface InvestigationRow {
 }
 
 let _latest: RadarSnapshot | null = null;
-let _health: RadarHealthFeed | null = null;
-
-let _healthKey = '';
-let _update: RadarUpdateFeed | null = null;
 let _root: HTMLDivElement | null = null;
 let _activityCallback: ((unseen: boolean) => void) | null = null;
 let _openTrace: ((sessionId: string) => void) | null = null;
@@ -67,7 +61,7 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const _attention = createAttentionAck({
   getAck: getRadarAttentionAck,
   setAck: setRadarAttentionAck,
-  signature: () => radarAttentionSignature({ posthog: _latest, health: _health }),
+  signature: () => radarAttentionSignature({ posthog: _latest }),
   isLooking: () => !isPanelHidden(_root),
 });
 
@@ -666,28 +660,6 @@ function buildInvestigationsSection(rows: InvestigationRow[]) {
   return section;
 }
 
-function buildOpsSection(rows: RadarOpsRow[]) {
-  const section = buildSection('Ops');
-  const list = el('div', 'radar-ops');
-  for (const row of rows) {
-    const item = el('div', 'radar-ops-row');
-    item.dataset.tone = row.tone;
-    const stripe = el('span', 'radar-stripe');
-    stripe.setAttribute('aria-hidden', 'true');
-    item.append(stripe, el('span', 'radar-ops-text', row.text));
-
-    if (row.detail) item.append(el('code', 'radar-ops-detail', row.detail));
-    if (row.sectionId && row.settingId) {
-      const link = createSettingsLink(row.sectionId, row.settingId, 'Open Updates');
-      link.classList.add('radar-ops-link');
-      item.append(link);
-    }
-    list.append(item);
-  }
-  section.append(list);
-  return section;
-}
-
 function openTraceView(sessionId: string) {
   if (!_openTrace) return;
   _openTrace(sessionId);
@@ -700,12 +672,10 @@ function render() {
   _pollTicker.reset();
   const projects = projectsOf<RadarProject>(_latest);
   const investigations = investigationRows(_latest, _archivedLocally);
-  const ops = opsRows({ update: _update, health: _health });
   const loadPhase = radarLoadPhase(_latest, projects.length);
 
   _root.append(buildErrorsSection(projects, loadPhase));
   if (investigations.length > 0) _root.append(buildInvestigationsSection(investigations));
-  if (ops.length > 0) _root.append(buildOpsSection(ops));
 }
 
 function renderOrDefer() {
@@ -775,18 +745,4 @@ export function applyInvestigationFinished(msg: unknown) {
   refreshOpenInvestigation();
   renderOrDefer();
   refreshActivity();
-}
-
-export function applyHealthSnapshot(stats: unknown) {
-  _health = stats as RadarHealthFeed;
-  const key = healthAnomalyRows(_health).map((row) => row.key).join(',');
-  if (key === _healthKey) return;
-  _healthKey = key;
-  renderOrDefer();
-  refreshActivity();
-}
-
-export function applyUpdateAvailable(msg: unknown) {
-  _update = msg as RadarUpdateFeed;
-  renderOrDefer();
 }

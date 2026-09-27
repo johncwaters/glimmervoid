@@ -1,5 +1,7 @@
 import { sendControlMsg } from './control-ws.ts';
 import { el, escapeHtml } from './dom-helpers.ts';
+import { anomalyCount, shouldShowHealthMonitor } from './health-monitor-core.ts';
+import type { HealthAnomalies } from './health-monitor-core.ts';
 
 const STATE_ABBREV: Record<string, string> = {
   DORMANT: 'DOR', INITIALIZING: 'INI', STARTING: 'STA',
@@ -20,12 +22,6 @@ export interface HealthSession {
   destroyed: boolean;
   pendingRestart: boolean;
   timers: Record<string, unknown>;
-}
-
-export interface HealthAnomalies {
-  listenerMismatch: boolean;
-  orphanPty: boolean;
-  destroyedReachable: boolean;
 }
 
 export interface HealthSnapshot {
@@ -51,6 +47,7 @@ export interface HealthSnapshot {
 }
 
 let _latest: HealthSnapshot | null = null;
+let _debugModeEnabled = false;
 let _expanded = false;
 let _root: HTMLDivElement | null = null;
 let _summaryEl: HTMLButtonElement | null = null;
@@ -104,15 +101,6 @@ function buildPanel() {
   _summaryEl = summary;
   _detailEl = detail;
   return root;
-}
-
-function anomalyCount(a: HealthAnomalies | null | undefined) {
-  if (!a) return 0;
-  let n = 0;
-  if (a.listenerMismatch) n++;
-  if (a.orphanPty) n++;
-  if (a.destroyedReachable) n++;
-  return n;
 }
 
 function renderSummary() {
@@ -214,25 +202,33 @@ function renderDetail() {
   `;
 }
 
-export function setHealthMonitorVisible(on: boolean) {
+function updateHealthMonitorVisibility() {
   if (!_root) return;
+  const isVisible = shouldShowHealthMonitor(_debugModeEnabled, _latest?.anomalies);
   const wasHidden = _root.hidden;
-  _root.hidden = !on;
-  if (on && wasHidden && _latest) {
+  _root.hidden = !isVisible;
+  if (isVisible && wasHidden && _latest) {
     renderSummary();
     if (_expanded) renderDetail();
   }
+}
+
+export function setHealthMonitorDebugMode(on: boolean) {
+  _debugModeEnabled = on;
+  updateHealthMonitorVisibility();
 }
 
 export function mountHealthMonitor(parent: HTMLElement) {
   if (_root) return _root;
   const panel = buildPanel();
   parent.appendChild(panel);
+  updateHealthMonitorVisibility();
   return panel;
 }
 
 export function applyHealthSnapshot(stats: HealthSnapshot) {
   _latest = stats;
+  updateHealthMonitorVisibility();
   if (!_root || _root.hidden) return;
   renderSummary();
   if (_expanded) renderDetail();

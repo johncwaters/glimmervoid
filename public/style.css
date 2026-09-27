@@ -2282,14 +2282,12 @@ a.radar-issue-title:hover {
   color: var(--text-muted);
 }
 
-.radar-ops,
 .radar-prs {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.radar-ops-row,
 .radar-pr-row {
   display: flex;
   align-items: center;
@@ -2299,34 +2297,6 @@ a.radar-issue-title:hover {
   border-radius: var(--radius);
   background: color-mix(in oklab, var(--bg) 60%, transparent);
   min-width: 0;
-}
-
-.radar-ops-row[data-tone="dim"] .radar-stripe { background: var(--border); }
-.radar-ops-row[data-tone="warn"] .radar-stripe { background: var(--state-waiting); }
-
-.radar-ops-text {
-  color: var(--text-dim);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.radar-ops-row[data-tone="warn"] .radar-ops-text { color: var(--text); }
-
-.radar-ops-detail {
-  flex: 0 1 auto;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.radar-ops-link {
-  flex: 0 0 auto;
-  font-size: 10px;
 }
 
 .radar-pr-row[data-severity="crit"] .radar-stripe { background: var(--state-failed); }
@@ -5065,6 +5035,7 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   justify-content: center;
   transition: color var(--transition-med), background var(--transition-med), border-color var(--transition-med), box-shadow var(--transition-med);
 }
+.header-tab[hidden] { display: none; }
 .header-tab:hover {
   color: var(--text);
   background: color-mix(in oklab, var(--text-head) 6%, transparent);
@@ -7723,24 +7694,12 @@ html[data-layout="phone"] .radar-issue-action-status {
   overflow: visible;
 }
 
-html[data-layout="phone"] .radar-ops-row,
 html[data-layout="phone"] .radar-pr-row {
   flex-wrap: wrap;
   gap: 4px 8px;
   padding: 10px;
   min-height: 44px;
 }
-html[data-layout="phone"] .radar-ops-text {
-  white-space: normal;
-  overflow-wrap: anywhere;
-  flex: 1 1 calc(100% - 30px);
-}
-html[data-layout="phone"] .radar-ops-detail {
-  flex: 1 1 100%;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
 html[data-layout="phone"] .radar-pr-title {
   flex: 1 1 100%;
   white-space: normal;

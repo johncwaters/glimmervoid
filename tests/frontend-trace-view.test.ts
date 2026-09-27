@@ -630,7 +630,7 @@ test('the rendered prepend path builds one page in place and preserves scroll po
   assert.ok(showPrependSource.indexOf('renderPanel();') < showPrependSource.indexOf('previousScrollTop + scrollElement.scrollHeight'));
 });
 
-test('debug mode gates every trace entry point and exits hidden trace views', () => {
+test('settings gate every trace entry point and exit hidden trace views', () => {
   const cardDomSource = fs.readFileSync(new URL('../public/session-card/card-dom.ts', import.meta.url), 'utf8');
   const lifecycleSource = fs.readFileSync(new URL('../public/session-card/lifecycle.ts', import.meta.url), 'utf8');
   const appSource = fs.readFileSync(new URL('../public/app.ts', import.meta.url), 'utf8');
@@ -640,25 +640,30 @@ test('debug mode gates every trace entry point and exits hidden trace views', ()
   assert.match(cardDomSource, /ui\.btnTrace\.classList\.toggle\('visible', _debugMode\)/);
   assert.match(cardDomSource, /ui\.overflowMenu\.classList\.remove\('open'\)/);
   assert.match(lifecycleSource, /ui\.btnTrace\.classList\.toggle\('visible', isDebugModeEnabled\(\)\)/);
-  assert.match(appSource, /onDebugModeChanged\(setTraceSurfaceAvailable\)/);
-  assert.match(appSource, /tabTrace\.hidden = !isAvailable/);
-  assert.match(appSource, /setPhoneScreenAvailable\('trace', isAvailable\)/);
-  assert.match(appSource, /if \(isPhoneShellActive\(\)\) return;\s*if \(!isAvailable && getActiveView\(\) === 'trace'\) activateView\('focus'\)/);
+  assert.match(appSource, /applySurfaceSettings\(msg\.settings\)/);
+  assert.match(appSource, /onDebugModeChanged\(\(isDebugModeEnabled\) => setSurfaceAvailable\('trace', isDebugModeEnabled\)\);/);
+  assert.match(appSource, /viewTab\.tab\.hidden = !isAvailable/);
+  assert.match(appSource, /setPhoneScreenAvailable\(view, isAvailable\)/);
+  assert.match(appSource, /if \(isPhoneShellActive\(\)\) return;\s*if \(!isAvailable && getActiveView\(\) === view\) activateView\('focus'\)/);
+  assert.match(appSource, /if \(!isViewAvailable\(view\)\) return;/);
   assert.match(appSource, /if \(!isTraceSurfaceAvailable\) return;/);
   assert.match(appSource, /function isViewAvailable\(view: string\) \{\s*return VIEW_TABS\.some\(\(viewTab\) => viewTab\.view === view && !viewTab\.tab\.hidden\);/);
   assert.match(appSource, /activateView\(isViewAvailable\(restoredView\) \? restoredView : 'focus', \{ persist: shouldPersistActiveView \}\)/);
   assert.match(phoneShellSource, /if \(!isAvailable && active && uiState\.snapshot\(\)\.phoneScreen === screenId\) showScreen\(BOARD\)/);
 });
 
-test('a saved trace view survives the startup restore and reopens once debug mode arrives', () => {
+test('a saved gated view survives startup and reopens once its setting arrives', () => {
   const appSource = fs.readFileSync(new URL('../public/app.ts', import.meta.url), 'utf8');
   const startupRestoreSource = appSource.slice(appSource.indexOf('if (!initialSettingsTarget && !initialPlanTarget) {'), appSource.indexOf('mountPhoneShell({'));
-  const traceSurfaceSource = appSource.slice(appSource.indexOf('function setTraceSurfaceAvailable'), appSource.indexOf('onDebugModeChanged('));
+  const surfaceSource = appSource.slice(appSource.indexOf('function setSurfaceAvailable'), appSource.indexOf('function applySurfaceSettings'));
 
   assert.match(startupRestoreSource, /const canRestoreSavedView = isViewAvailable\(savedView\);/);
   assert.match(startupRestoreSource, /if \(!canRestoreSavedView\) savedViewAwaitingSurface = savedView;/);
   assert.match(startupRestoreSource, /activateView\(canRestoreSavedView \? savedView : 'focus', \{ persist: canRestoreSavedView \}\)/);
-  assert.match(traceSurfaceSource, /if \(savedViewAwaitingSurface !== 'trace'\) return;\s*activateView\('trace'\);/);
+  assert.match(surfaceSource, /if \(savedViewAwaitingSurface !== view\) return;\s*activateView\(view\);/);
+  assert.match(appSource, /for \(const view of Object\.keys\(availableSurfacesFromSettings\(null\)\)\) setSurfaceAvailable\(view, false\);/);
+  assert.match(appSource, /setSurfaceAvailable\('trace', false\);/);
+  assert.ok(appSource.indexOf("setSurfaceAvailable('trace', false);") < appSource.indexOf('const canRestoreSavedView = isViewAvailable(savedView);'));
   assert.match(appSource, /if \(persist\) savedViewAwaitingSurface = null;/);
 });
 

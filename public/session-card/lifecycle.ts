@@ -5,7 +5,7 @@ import { KILLABLE_STATES, RESTARTABLE_STATES, STATES } from '#shared/states.ts';
 import { playAlertSound } from '../alert-sound.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
-import { setHealthMonitorVisible } from '../health-monitor.ts';
+import { setHealthMonitorDebugMode } from '../health-monitor.ts';
 import { openPlanFeedbackDialog } from '../plan/plan-feedback-dialog.ts';
 import { createPlanFace, dropPlanBodyCache } from '../plan/plan-face.ts';
 import type { PlanResponse } from '../plan/plan-face.ts';
@@ -199,7 +199,7 @@ export function applyTerminalSettings(settings: unknown) {
   if (terminalSettings.cursorBlink != null) setTerminalCursorBlink(terminalSettings.cursorBlink);
   if (terminalSettings.debugMode != null) {
     setDebugMode(terminalSettings.debugMode);
-    setHealthMonitorVisible(terminalSettings.debugMode);
+    setHealthMonitorDebugMode(terminalSettings.debugMode);
   }
   for (const [, ui] of sessionUIs) {
     if (!ui.term) continue;

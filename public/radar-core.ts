@@ -98,25 +98,11 @@ export interface RadarUpdateFeed {
   [key: string]: unknown;
 }
 
-export interface RadarHealthFeed {
-  anomalies?: Record<string, unknown> | null;
-}
-
 export interface RadarProjectAlert {
   loud: boolean;
   counts: { active: number; spiking: number; needsHuman: number };
   error: string;
   staleMs: number;
-}
-
-export interface RadarOpsRow {
-  kind: string;
-  key: string;
-  text: string;
-  detail: string;
-  tone: string;
-  sectionId?: string;
-  settingId?: string;
 }
 
 export const UPDATES_SECTION_ID = 'machine-updates';
@@ -476,23 +462,6 @@ export function retainKnownInvestigationIds(snapshot: RadarSnapshot | null | und
   return ids;
 }
 
-const HEALTH_ANOMALIES: readonly [string, string][] = [
-  ['listenerMismatch', 'Listener count mismatch: data WS listener leaked or missing'],
-  ['orphanPty', 'Orphan PTY: session has live PTY but state is DONE/FAILED/DORMANT'],
-  ['destroyedReachable', 'Destroyed session still reachable in sessions map'],
-];
-
-export function healthAnomalyRows(snapshot: RadarHealthFeed | null | undefined) {
-  const anomalies = snapshot?.anomalies;
-  if (!anomalies) return [];
-  const rows: { key: string; label: string }[] = [];
-  for (const [key, label] of HEALTH_ANOMALIES) {
-    if (!anomalies[key]) continue;
-    rows.push({ key, label });
-  }
-  return rows;
-}
-
 export function shortSha(sha: unknown) {
   const text = textOr(sha, '');
   if (!/^[0-9a-f]{7,40}$/i.test(text)) return '';
@@ -505,40 +474,13 @@ function versionOrShortSha(version: unknown, sha: unknown) {
   return shortSha(sha);
 }
 
-export function updateAvailableRow(update: RadarUpdateFeed | null | undefined) {
-  if (update?.updateAvailable !== true) return null;
-  const command = textOr(update?.command, '');
-  const current = versionOrShortSha(update?.current, update?.currentSha);
-  const latest = versionOrShortSha(update?.latest, update?.latestSha);
-  if (!current || !latest) return null;
-  return { text: `Update available: ${current} -> ${latest}`, command };
-}
-
 export function updateBannerText(update: RadarUpdateFeed | null | undefined) {
   const current = versionOrShortSha(update?.current, update?.currentSha);
   const latest = versionOrShortSha(update?.latest, update?.latestSha);
   return `Update available: ${current} -> ${latest}`;
 }
 
-export function opsRows({ update, health }: { update?: RadarUpdateFeed | null; health?: RadarHealthFeed | null } = {}) {
-  const rows: RadarOpsRow[] = [];
-  const updateEntry = updateAvailableRow(update);
-  if (updateEntry) rows.push({
-    kind: 'update',
-    key: 'update',
-    text: updateEntry.text,
-    detail: updateEntry.command,
-    tone: 'dim',
-    sectionId: UPDATES_SECTION_ID,
-    settingId: UPDATES_ACTIONS_SETTING_ID,
-  });
-  for (const anomaly of healthAnomalyRows(health)) {
-    rows.push({ kind: 'anomaly', key: anomaly.key, text: anomaly.label, detail: '', tone: 'warn' });
-  }
-  return rows;
-}
-
-function radarAttentionParts({ posthog, health }: { posthog?: RadarSnapshot | null; health?: RadarHealthFeed | null } = {}) {
+function radarAttentionParts({ posthog }: { posthog?: RadarSnapshot | null } = {}) {
   const parts: string[] = [];
   const projects: RadarProject[] = Array.isArray(posthog?.projects) ? posthog.projects : [];
   for (const project of projects) {
@@ -551,11 +493,10 @@ function radarAttentionParts({ posthog, health }: { posthog?: RadarSnapshot | nu
       if (issue?.verdict === 'NEEDS_HUMAN') parts.push(`issue:${projectId}/${issueId}:needs-human`);
     }
   }
-  for (const row of healthAnomalyRows(health)) parts.push(`health:${row.key}`);
   return parts;
 }
 
-export function radarAttentionSignature(input: { posthog?: RadarSnapshot | null; health?: RadarHealthFeed | null } = {}) {
+export function radarAttentionSignature(input: { posthog?: RadarSnapshot | null } = {}) {
   return attentionSignature(radarAttentionParts(input));
 }
 

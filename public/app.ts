@@ -9,6 +9,7 @@ import { checkControlLiveness, connectControl, onControlMessage, sendControlMsg,
 import { createAddSessionDialog } from './dialogs.ts';
 import { observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers.ts';
 import { routeExternalAnchorsThroughHost } from './external-link.ts';
+import { availableSurfacesFromSettings } from './feature-surfaces-core.ts';
 import { refreshFavicon } from './favicon.ts';
 import { activateFocusView, centerSessionQuietly, deactivateFocusView, focusAdjacentInRail, focusNextAttention, focusNthInRail, getFocusedSessionId, isFocusActive, mountFocusView, openPlanInFocus, refreshFocusRoster, restoreFocusedSession, setFocusMergeStatus } from './focus-view/focus-view.ts';
 import { initFormFactor, isPhoneLayout, onLayoutChange } from './form-factor.ts';
@@ -24,7 +25,7 @@ import { acknowledgeTeamReviewAttention, applyTeamReviewActionResult, applyTeamR
 import { applyIssuesConnectionState, applyIssuesProjects, applyIssuesReport, applyOpenIssueSessionResult, mountIssuesView, setIssuesRequestSender } from './issues-panel.ts';
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID, updateBannerText } from './radar-core.ts';
-import { acknowledgeRadarAttention, applyHealthSnapshot as applyRadarHealth, applyInvestigationActivity, applyInvestigationFinished, applyPosthogStatus, applyUpdateAvailable as applyRadarUpdate, mountRadarView, setRadarActivityCallback, setRadarTraceOpener } from './radar-panel.ts';
+import { acknowledgeRadarAttention, applyInvestigationActivity, applyInvestigationFinished, applyPosthogStatus, mountRadarView, setRadarActivityCallback, setRadarTraceOpener } from './radar-panel.ts';
 import { handleDebugStateRefresh, handleDebugStateResponse, onDebugModeChanged } from './session-card/card-dom.ts';
 import { findSessionUi, sessionUIs } from './session-card/card-registry.ts';
 import type { PlanResponse } from './plan/plan-face.ts';
@@ -132,6 +133,7 @@ setConnectionStateCallback((state, label) => {
         applyTerminalSettings(msg.settings);
         applySettingsBroadcast(msg.settings);
         applyVisionsSettings(msg.settings);
+        applySurfaceSettings(msg.settings);
       })
       .catch(() => {});
     return;
@@ -369,12 +371,12 @@ const messageHandlers = {
   'session-plan-response': (msg) => { applySessionPlanResponse(msg as ServerMessage & PlanResponse); },
 
   'notify':             (msg) => { showDesktopNotification(msg); handleDebugStateRefresh(msg.session); },
-  'update-status':      (msg) => { showUpdateBanner(msg); applyRadarUpdate(msg); applySettingsUpdateStatus(msg); },
+  'update-status':      (msg) => { showUpdateBanner(msg); applySettingsUpdateStatus(msg); },
   'update-progress':    (msg) => applySettingsUpdateProgress(msg.journal),
   'error':              (msg) => { clearSettingsUpdateRequest(); applyTraceError(msg); applySessionPlanError(msg); showErrorToast(msg.message, { persist: true }); },
   'session-error':      (msg) => { applySessionPlanError(msg); showErrorToast(`${msg.session}: ${msg.message}`, { persist: true }); },
-  'settings-updated':   (msg) => { if (msg.settings) { applyTerminalSettings(msg.settings); applySettingsBroadcast(msg.settings); applyVisionsSettings(msg.settings); } },
-  'health-snapshot':    (msg) => { if (msg.stats) { applyHealthSnapshot(msg.stats as HealthSnapshot); applyRadarHealth(msg.stats as HealthSnapshot); } },
+  'settings-updated':   (msg) => { if (msg.settings) { applyTerminalSettings(msg.settings); applySettingsBroadcast(msg.settings); applyVisionsSettings(msg.settings); applySurfaceSettings(msg.settings); } },
+  'health-snapshot':    (msg) => { if (msg.stats) applyHealthSnapshot(msg.stats as HealthSnapshot); },
   'posthog-status':     (msg) => applyPosthogStatus(msg),
   'posthog-investigation-activity': (msg) => applyInvestigationActivity(msg),
   'posthog-investigation-finished': (msg) => applyInvestigationFinished(msg),
@@ -640,10 +642,10 @@ mountSettingsView(viewSettingsEl, { onRestart: confirmServerRestart });
 
 const VIEW_TABS = [
   { view: 'focus', tab: tabFocus, el: viewFocusEl },
-  { view: 'radar', tab: tabRadar, el: viewRadarEl },
   { view: 'prs', tab: tabPrs, el: viewPrsEl },
   { view: 'issues', tab: tabIssues, el: viewIssuesEl },
   { view: 'usage', tab: tabUsage, el: viewUsageEl },
+  { view: 'radar', tab: tabRadar, el: viewRadarEl },
   { view: 'mill', tab: tabMill, el: viewMillEl },
   { view: 'visions', tab: tabVisions, el: viewVisionsEl },
   { view: 'hooks', tab: tabHooks, el: viewHooksEl },
@@ -675,6 +677,7 @@ interface ActivateViewOptions {
 }
 
 function activateView(view: string, { section, setting, persist = true }: ActivateViewOptions = {}) {
+  if (!isViewAvailable(view)) return;
   const prev = getActiveView();
   uiState.dispatch('setActiveView', view);
   shouldPersistActiveView = persist;
@@ -713,20 +716,30 @@ function activateView(view: string, { section, setting, persist = true }: Activa
 }
 
 let isTraceSurfaceAvailable = false;
-function setTraceSurfaceAvailable(isAvailable: boolean) {
-  isTraceSurfaceAvailable = isAvailable;
-  tabTrace.hidden = !isAvailable;
-  setPhoneScreenAvailable('trace', isAvailable);
-  setRadarTraceOpener(isAvailable ? openTraceForSession : null);
+function setSurfaceAvailable(view: string, isAvailable: boolean) {
+  const viewTab = VIEW_TABS.find((entry) => entry.view === view);
+  if (!viewTab) return;
+  viewTab.tab.hidden = !isAvailable;
+  setPhoneScreenAvailable(view, isAvailable);
+  if (view === 'trace') {
+    isTraceSurfaceAvailable = isAvailable;
+    setRadarTraceOpener(isAvailable ? openTraceForSession : null);
+  }
   if (isPhoneShellActive()) return;
-  if (!isAvailable && getActiveView() === 'trace') activateView('focus');
+  if (!isAvailable && getActiveView() === view) activateView('focus');
   if (!isAvailable) return;
-  if (savedViewAwaitingSurface !== 'trace') return;
-  activateView('trace');
+  if (savedViewAwaitingSurface !== view) return;
+  activateView(view);
 }
 
-onDebugModeChanged(setTraceSurfaceAvailable);
-setTraceSurfaceAvailable(false);
+function applySurfaceSettings(settings: Parameters<typeof availableSurfacesFromSettings>[0]) {
+  const surfaces = availableSurfacesFromSettings(settings);
+  for (const [view, isAvailable] of Object.entries(surfaces)) setSurfaceAvailable(view, isAvailable);
+}
+
+for (const view of Object.keys(availableSurfacesFromSettings(null))) setSurfaceAvailable(view, false);
+onDebugModeChanged((isDebugModeEnabled) => setSurfaceAvailable('trace', isDebugModeEnabled));
+setSurfaceAvailable('trace', false);
 
 setTraceNavigate(() => {
   if (!isTraceSurfaceAvailable) return;

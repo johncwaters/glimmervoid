@@ -8,7 +8,6 @@ import {
   findIssueInSnapshot,
   formatClockOffset,
   formatTrailOffset,
-  healthAnomalyRows,
   finishedViewOf,
   investigationViewOf,
   isOpenInvestigationFrame,
@@ -20,7 +19,6 @@ import {
   issueStatusLabel,
   occurrenceDelta,
   occurrenceHistoryValues,
-  opsRows,
   partitionRadarProjects,
   radarAttentionSignature,
   radarDisplayName,
@@ -37,7 +35,6 @@ import {
   trailContentKey,
   trailStatusText,
   trailStepRows,
-  updateAvailableRow,
   updateBannerText,
   verdictLabel,
 } from '../public/radar-core.ts';
@@ -355,54 +352,6 @@ test('sparklineWindowTitle: summarizes the parsed poll window', () => {
   assert.equal(sparklineWindowTitle([]), '0 polls, 0 to 0 occurrences');
 });
 
-test('healthAnomalyRows: only live anomalies produce rows', () => {
-  const snapshot = { anomalies: { listenerMismatch: true, orphanPty: false, destroyedReachable: true } };
-  assert.deepEqual(healthAnomalyRows(snapshot).map((r) => r.key), ['listenerMismatch', 'destroyedReachable']);
-});
-
-test('healthAnomalyRows: an all-zero or absent snapshot renders nothing', () => {
-  assert.deepEqual(healthAnomalyRows({ anomalies: { listenerMismatch: false, orphanPty: false, destroyedReachable: false } }), []);
-  assert.deepEqual(healthAnomalyRows({}), []);
-  assert.deepEqual(healthAnomalyRows(null), []);
-  assert.deepEqual(healthAnomalyRows(undefined), []);
-});
-
-test('healthAnomalyRows: labels match the health monitor wording', () => {
-  const rows = healthAnomalyRows({ anomalies: { orphanPty: true } });
-  assert.deepEqual(rows, [{ key: 'orphanPty', label: 'Orphan PTY: session has live PTY but state is DONE/FAILED/DORMANT' }]);
-});
-
-test('updateAvailableRow: needs both versions, carries the command', () => {
-  assert.deepEqual(
-    updateAvailableRow({ updateAvailable: true, current: '1.2.0', latest: '1.3.0', command: 'npm i -g glimmervoid' }),
-    { text: 'Update available: 1.2.0 -> 1.3.0', command: 'npm i -g glimmervoid' },
-  );
-  assert.equal(updateAvailableRow({ updateAvailable: true, current: '1.2.0' }), null);
-  assert.equal(updateAvailableRow({ updateAvailable: true, latest: '1.3.0' }), null);
-  assert.equal(updateAvailableRow(null), null);
-});
-
-test('updateAvailableRow: an up-to-date status renders no row', () => {
-  assert.equal(updateAvailableRow({ updateAvailable: false, current: '1.2.0', latest: '1.2.0', command: 'c' }), null);
-  assert.equal(updateAvailableRow({ current: '1.2.0', latest: '1.3.0', command: 'c' }), null);
-});
-
-test('updateAvailableRow: ignores shas and renders the version pair', () => {
-  assert.deepEqual(
-    updateAvailableRow({
-      updateAvailable: true,
-      current: '1.2.0',
-      latest: '1.3.0',
-      currentSha: '0123456789abcdef0123456789abcdef01234567',
-      latestSha: 'FEDCBA9876543210fedcba9876543210fedcba98',
-      command: 'npm i -g glimmervoid',
-    }),
-    { text: 'Update available: 1.2.0 -> 1.3.0', command: 'npm i -g glimmervoid' },
-  );
-  const versionFallback = updateAvailableRow({ updateAvailable: true, current: '1.2.0', latest: '1.3.0', currentSha: 'not-a-sha', command: 'c' });
-  assert.equal(versionFallback?.text, 'Update available: 1.2.0 -> 1.3.0');
-});
-
 test('updateBannerText: renders only the version pair', () => {
   const shas = {
     currentSha: '0123456789abcdef0123456789abcdef01234567',
@@ -423,24 +372,9 @@ test('a main-channel status without versions labels both sides with short shas',
     latestSha: 'FEDCBA9876543210fedcba9876543210fedcba98',
     command: 'git pull',
   };
-  assert.deepEqual(
-    updateAvailableRow(mainChannelStatus),
-    { text: 'Update available: 0.24.2 -> fedcba9', command: 'git pull' },
-  );
   assert.equal(updateBannerText(mainChannelStatus), 'Update available: 0.24.2 -> fedcba9');
   const withoutVersions = { ...mainChannelStatus, current: null };
   assert.equal(updateBannerText(withoutVersions), 'Update available: 0123456 -> fedcba9');
-  assert.deepEqual(opsRows({ update: mainChannelStatus }), [
-    {
-      kind: 'update',
-      key: 'update',
-      text: 'Update available: 0.24.2 -> fedcba9',
-      detail: 'git pull',
-      tone: 'dim',
-      sectionId: 'machine-updates',
-      settingId: 'update-actions',
-    },
-  ]);
 });
 
 test('shortSha: 7 lowercase chars for a hex sha, empty string otherwise', () => {
@@ -450,33 +384,13 @@ test('shortSha: 7 lowercase chars for a hex sha, empty string otherwise', () => 
   assert.equal(shortSha(null), '');
 });
 
-test('opsRows: the update line leads, then one row per live anomaly', () => {
-  const rows = opsRows({
-    update: { updateAvailable: true, current: '1.0.0', latest: '1.1.0', command: 'npm i' },
-    health: { anomalies: { orphanPty: true, destroyedReachable: true } },
-  });
-  assert.deepEqual(rows.map((r) => r.kind), ['update', 'anomaly', 'anomaly']);
-  assert.deepEqual(rows.map((r) => r.key), ['update', 'orphanPty', 'destroyedReachable']);
-  assert.equal(rows[0].tone, 'dim');
-  assert.equal(rows[0].sectionId, 'machine-updates');
-  assert.equal(rows[0].settingId, 'update-actions');
-  assert.equal(rows[1].tone, 'warn');
-});
-
-test('opsRows: nothing to say renders no rows at all', () => {
-  assert.deepEqual(opsRows({}), []);
-  assert.deepEqual(opsRows(), []);
-  assert.deepEqual(opsRows({ health: { anomalies: { orphanPty: false } } }), []);
-});
-
 const posthogWith = (issues: { change?: string; verdict?: string }[]) => ({ projects: [{ projectId: 'ph', issues }] });
 
-test('radarAttentionSignature: includes issues and health anomalies together', () => {
+test('radarAttentionSignature: includes PostHog issues', () => {
   const signature = radarAttentionSignature({
     posthog: posthogWith([{ change: 'spiking' }, { change: 'quiet', verdict: 'NEEDS_HUMAN' }]),
-    health: { anomalies: { destroyedReachable: true } },
   });
-  assert.equal(signature, 'health:destroyedReachable|issue:ph/#0:spiking|issue:ph/#1:needs-human');
+  assert.equal(signature, 'issue:ph/#0:spiking|issue:ph/#1:needs-human');
 });
 
 test('radarAttentionSignature: names each attention issue by project, id and why', () => {
@@ -493,22 +407,17 @@ test('radarAttentionSignature: one issue that is both spiking and needs-human na
   assert.equal(radarAttentionSignature({ posthog }), 'issue:ph/i1:needs-human|issue:ph/i1:spiking');
 });
 
-test('radarAttentionSignature: live anomalies are named by key, quiet ones are absent', () => {
-  assert.equal(radarAttentionSignature({ health: { anomalies: { orphanPty: true, destroyedReachable: false } } }), 'health:orphanPty');
-  assert.equal(radarAttentionSignature({ health: { anomalies: { orphanPty: false } } }), '');
-});
-
-test('radarAttentionSignature: feed order never changes it', () => {
-  const posthog = { projects: [{ projectId: 'ph', issues: [{ issueId: 'i1', change: 'spiking' }] }] };
+test('radarAttentionSignature: issue order never changes it', () => {
+  const issues = [{ issueId: 'i1', change: 'spiking' }, { issueId: 'i2', verdict: 'NEEDS_HUMAN' }];
   assert.equal(
-    radarAttentionSignature({ posthog, health: { anomalies: { orphanPty: true } } }),
-    radarAttentionSignature({ health: { anomalies: { orphanPty: true } }, posthog }),
+    radarAttentionSignature({ posthog: { projects: [{ projectId: 'ph', issues }] } }),
+    radarAttentionSignature({ posthog: { projects: [{ projectId: 'ph', issues: [...issues].reverse() }] } }),
   );
 });
 
-test('radarAttentionSignature: quiet or absent feeds are the empty signature, never a throw', () => {
+test('radarAttentionSignature: quiet or absent PostHog status is empty', () => {
   assert.equal(radarAttentionSignature(), '');
-  assert.equal(radarAttentionSignature({ posthog: null, health: null }), '');
+  assert.equal(radarAttentionSignature({ posthog: null }), '');
   assert.equal(radarAttentionSignature({ posthog: posthogWith([{ change: 'quiet' }]) }), '');
 });
 
