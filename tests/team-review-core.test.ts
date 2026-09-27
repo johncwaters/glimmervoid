@@ -530,6 +530,81 @@ test('a report with operator sections parses them apart from the verdict reason'
   assert.deepEqual(draft.assessment, parsed.result.assessment);
 });
 
+test('operator section text written on the heading line is kept', () => {
+  const inline = parseReviewReport([
+    `HEAD_SHA: ${HEAD}`, '', 'VERDICT: APPROVE', '', 'STRUCTURED_FINDINGS: (none)', '',
+    'CHANGE: Re-arms the ask timeout per question.',
+    'CHECKED: - Is the old timer cleared: yes, `src/bridge.ts:42`.',
+    '- Can a settled question re-arm: no.',
+    'GAPS: The Codex reviewer failed to start.',
+    'OVERALL_SUMMARY: Nothing blocks this.',
+  ].join('\n'));
+  assert.equal(inline.ok, true, inline.ok ? '' : inline.reason);
+  if (!inline.ok) return;
+  assert.equal(inline.result.summary, 'Nothing blocks this.');
+  assert.equal(inline.result.findings.length, 0);
+  assert.deepEqual(inline.result.assessment, {
+    change: 'Re-arms the ask timeout per question.',
+    checked: ['Is the old timer cleared: yes, `src/bridge.ts:42`.', 'Can a settled question re-arm: no.'],
+    gaps: ['The Codex reviewer failed to start.'],
+  });
+});
+
+test('markdown-decorated headings, numbered items and wrapped items keep all their text', () => {
+  const decorated = parseReviewReport([
+    `HEAD_SHA: ${HEAD}`, '', 'VERDICT: APPROVE', '', '## STRUCTURED_FINDINGS:', '(none)', '',
+    '**CHANGE:** Re-arms the timeout.',
+    '',
+    '### CHECKED:',
+    '1. Is the old timer cleared: yes,',
+    '   at `src/bridge.ts:42`.',
+    '2) Can a settled question re-arm: no.',
+    '',
+    '**GAPS:**',
+    'None.',
+    '',
+    '## OVERALL_SUMMARY:',
+    'Nothing blocks this.',
+  ].join('\n'));
+  assert.equal(decorated.ok, true, decorated.ok ? '' : decorated.reason);
+  if (!decorated.ok) return;
+  assert.equal(decorated.result.summary, 'Nothing blocks this.');
+  assert.deepEqual(decorated.result.assessment, {
+    change: 'Re-arms the timeout.',
+    checked: ['Is the old timer cleared: yes, at `src/bridge.ts:42`.', 'Can a settled question re-arm: no.'],
+    gaps: [],
+  });
+});
+
+test('a heading with its colon outside the emphasis still ends the previous section', () => {
+  const colonOutside = parseReviewReport([
+    `HEAD_SHA: ${HEAD}`, '', 'VERDICT: APPROVE', '', 'STRUCTURED_FINDINGS:', '(none)', '',
+    '**CHANGE**: Re-arms the timeout.',
+    '',
+    'CHECKED:',
+    '- a: yes',
+    '',
+    '**GAPS**:',
+    '- reviewer failed',
+    '',
+    'OVERALL_SUMMARY:',
+    'Nothing blocks this.',
+  ].join('\n'));
+  assert.equal(colonOutside.ok, true, colonOutside.ok ? '' : colonOutside.reason);
+  if (!colonOutside.ok) return;
+  assert.deepEqual(colonOutside.result.assessment, { change: 'Re-arms the timeout.', checked: ['a: yes'], gaps: ['reviewer failed'] });
+});
+
+test('a section listing one item per line without markers keeps each line as its own item', () => {
+  const unmarked = parseReviewReport(`${REPORT}\nGAPS:\nreviewer A failed\nfile B not read`);
+  assert.deepEqual(unmarked.ok && unmarked.result.assessment, { change: '', checked: [], gaps: ['reviewer A failed', 'file B not read'] });
+});
+
+test('a report with only a gaps section still carries those gaps', () => {
+  const gapsOnly = parseReviewReport(`${REPORT}\nGAPS:\n- The Codex reviewer failed to start.`);
+  assert.deepEqual(gapsOnly.ok && gapsOnly.result.assessment, { change: '', checked: [], gaps: ['The Codex reviewer failed to start.'] });
+});
+
 test('a report without operator sections has no assessment and its draft carries none', () => {
   const parsed = parseReviewReport(REPORT);
   assert.equal(parsed.ok && parsed.result.assessment, null);

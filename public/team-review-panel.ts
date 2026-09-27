@@ -188,7 +188,7 @@ function createDetailHeading(review: ReviewDraft | InFlightReview): HTMLElement 
   return heading;
 }
 
-const LEGACY_SUMMARY_HINT = 'This review predates the plain summary. Queue review to get one.';
+const LEGACY_SUMMARY_HINT = 'This review has no plain summary. Queue review to get one.';
 
 function appendSegments(element: HTMLElement, segments: ReturnType<typeof parseInlineSegments>): HTMLElement {
   for (const segment of segments) element.append(segment.isCode ? el('code', null, segment.text) : document.createTextNode(segment.text));

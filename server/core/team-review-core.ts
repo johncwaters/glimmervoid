@@ -340,11 +340,32 @@ function parseFindingLine(line: string): UnvalidatedFinding | null {
   };
 }
 
+const REPORT_HEADINGS = ['HEAD_SHA:', 'VERDICT:', 'ACTIONABLE', 'TRUNCATED:', 'STRUCTURED_FINDINGS:', 'OVERALL_SUMMARY:', 'CHANGE:', 'CHECKED:', 'GAPS:'] as const;
+
+const COLON_WITH_EMPHASIS = /^[*_]*:[*_]*/;
+
+function textAfterHeading(line: string, heading: string): string | null {
+  const withoutMarkdown = line.trim().replace(/^[#*_\s]+/, '');
+  const headingWord = heading.endsWith(':') ? heading.slice(0, -1) : heading;
+  if (!withoutMarkdown.startsWith(headingWord)) return null;
+  const afterWord = withoutMarkdown.slice(headingWord.length);
+  if (headingWord === heading) return afterWord.replace(/^[*_]+/, '').trim();
+  const colonWithEmphasis = COLON_WITH_EMPHASIS.exec(afterWord);
+  if (!colonWithEmphasis) return null;
+  return afterWord.slice(colonWithEmphasis[0].length).trim();
+}
+
+function isReportHeading(line: string): boolean {
+  return REPORT_HEADINGS.some((heading) => textAfterHeading(line, heading) !== null);
+}
+
 function sectionAfter(lines: readonly string[], heading: string): string[] | null {
-  const headingIndex = lines.findIndex((line) => line.trim() === heading);
+  const headingIndex = lines.findIndex((line) => textAfterHeading(line, heading) !== null);
   if (headingIndex === -1) return null;
-  const sectionEnd = lines.findIndex((line, index) => index > headingIndex && /^(VERDICT:|ACTIONABLE|TRUNCATED:|HEAD_SHA:|STRUCTURED_FINDINGS:|OVERALL_SUMMARY:|CHANGE:|CHECKED:|GAPS:)/.test(line.trim()));
-  return lines.slice(headingIndex + 1, sectionEnd === -1 ? undefined : sectionEnd);
+  const textOnHeadingLine = textAfterHeading(lines[headingIndex] ?? '', heading) ?? '';
+  const sectionEnd = lines.findIndex((line, index) => index > headingIndex && isReportHeading(line));
+  const following = lines.slice(headingIndex + 1, sectionEnd === -1 ? undefined : sectionEnd);
+  return textOnHeadingLine ? [textOnHeadingLine, ...following] : following;
 }
 
 function parseFindingSection(findingLines: readonly string[]): { findings: UnvalidatedFinding[] } | { reason: string } {
@@ -359,18 +380,31 @@ function parseFindingSection(findingLines: readonly string[]): { findings: Unval
   return { findings };
 }
 
+const BULLET_MARKER = /^(?:[-*+]|\d+[.)])\s+/;
+const NOTHING_TO_LIST = /^\(?none\)?\.?$/i;
+
 function bulletsIn(sectionLines: readonly string[] | null): string[] {
-  if (!sectionLines) return [];
-  return sectionLines
-    .map((line) => line.trim().replace(/^[-*]\s+/, ''))
-    .filter((line) => line && line !== '(none)');
+  const items: string[] = [];
+  const nonEmptyLines = (sectionLines ?? []).map((line) => line.trim()).filter((line) => line !== '');
+  const usesBulletMarkers = nonEmptyLines.some((line) => BULLET_MARKER.test(line));
+  for (const trimmed of nonEmptyLines) {
+    const isNewItem = !usesBulletMarkers || BULLET_MARKER.test(trimmed) || items.length === 0;
+    const text = trimmed.replace(BULLET_MARKER, '');
+    if (isNewItem) {
+      items.push(text);
+      continue;
+    }
+    items[items.length - 1] = `${items[items.length - 1]} ${text}`;
+  }
+  return items.filter((item) => !NOTHING_TO_LIST.test(item));
 }
 
 function parseAssessment(lines: readonly string[]): ReviewAssessment | null {
   const change = (sectionAfter(lines, 'CHANGE:') ?? []).join('\n').trim();
   const checked = bulletsIn(sectionAfter(lines, 'CHECKED:'));
-  if (!change && checked.length === 0) return null;
-  return { change, checked, gaps: bulletsIn(sectionAfter(lines, 'GAPS:')) };
+  const gaps = bulletsIn(sectionAfter(lines, 'GAPS:'));
+  if (!change && checked.length === 0 && gaps.length === 0) return null;
+  return { change, checked, gaps };
 }
 
 function parseReviewReport(report: string): { ok: true; result: ReviewResultType } | { ok: false; reason: string } {
