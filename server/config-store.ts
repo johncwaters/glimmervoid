@@ -61,6 +61,8 @@ const DEFAULT_CONFIG = {
 
   autoResume: true,
 
+  skipPermissionsByDefault: false,
+
   millEnabled: true,
 
   packDistiller: {
@@ -90,6 +92,7 @@ const DEFAULT_CONFIG = {
     prefixes: [...DEFAULT_BRANCH_GC_PREFIXES],
     dryRun: false,
     staleDays: 14,
+    deleteUnmerged: false,
     intervalMs: 6 * 60 * 60 * 1000,
   },
   repoRoots: [] as string[],
@@ -98,7 +101,7 @@ const DEFAULT_CONFIG = {
 
   postTurnChecks: {
     enabled: true,
-    mode: 'fix',
+    mode: 'report',
 
     rules: { trailingWs: true, finalNewline: true, bom: true, slop: false },
   },
@@ -438,6 +441,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       checkForUpdates: config.checkForUpdates ?? effectiveDefaults.checkForUpdates,
       updateChannel: config.updateChannel ?? effectiveDefaults.updateChannel,
       autoResume: config.autoResume ?? effectiveDefaults.autoResume,
+      skipPermissionsByDefault: config.skipPermissionsByDefault ?? effectiveDefaults.skipPermissionsByDefault,
       telegramNotifications: config.telegramNotifications ?? effectiveDefaults.telegramNotifications,
       millEnabled: config.millEnabled ?? effectiveDefaults.millEnabled,
       integrationBranch: config.integrationBranch === undefined ? effectiveDefaults.integrationBranch : config.integrationBranch,

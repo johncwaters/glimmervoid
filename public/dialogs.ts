@@ -33,6 +33,11 @@ function option(text: string, { value, disabled = false, selected = false }: Opt
   return optionEl;
 }
 
+function skipsPermissionsByDefault(settings: unknown): boolean {
+  if (typeof settings !== 'object' || settings === null) return false;
+  return 'skipPermissionsByDefault' in settings && settings.skipPermissionsByDefault === true;
+}
+
 export function createAddSessionDialog() {
   const { dialog, close } = createModalOverlay();
   dialog.innerHTML = addSessionHTML;
@@ -50,7 +55,7 @@ export function createAddSessionDialog() {
   const nameInput = queryTag(dialog, '#add-session-name', 'input');
   const pathInput = queryTag(dialog, '#add-session-path', 'input');
   const pathLabelEl = query(dialog, '#add-session-path-label');
-  const requirePermsCheckbox = queryTag(dialog, '#add-session-require-perms', 'input');
+  const skipPermsCheckbox = queryTag(dialog, '#add-session-skip-perms', 'input');
   const errorEl = query(dialog, '#add-session-error');
   const btnCancel = queryTag(dialog, '#add-session-cancel', 'button');
   const btnConfirm = queryTag(dialog, '#add-session-confirm', 'button');
@@ -152,6 +157,15 @@ export function createAddSessionDialog() {
     .catch(() => {});
   agentSelectEl.addEventListener('change', () => { selectedAgentId = agentSelectEl.value; });
 
+  let hasOperatorChosenPermissions = false;
+  skipPermsCheckbox.addEventListener('change', () => { hasOperatorChosenPermissions = true; });
+  sendControlRequest('get-settings', {})
+    .then((message) => {
+      if (hasOperatorChosenPermissions) return;
+      skipPermsCheckbox.checked = skipsPermissionsByDefault(message.settings);
+    })
+    .catch(() => {});
+
   nameInput.addEventListener('input', () => { pickerEl.selectedIndex = 0; });
   pathInput.addEventListener('input', () => { pickerEl.selectedIndex = 0; });
 
@@ -165,8 +179,13 @@ export function createAddSessionDialog() {
         errorEl.textContent = 'Enter a name and select at least two repositories.';
         return;
       }
-      const message: Record<string, unknown> = { type: 'add-session', name: suggestSessionName(name), path: repos[0], repos };
-      if (requirePermsCheckbox.checked) message.dangerouslySkipPermissions = false;
+      const message: Record<string, unknown> = {
+        type: 'add-session',
+        name: suggestSessionName(name),
+        path: repos[0],
+        repos,
+        dangerouslySkipPermissions: skipPermsCheckbox.checked,
+      };
       if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;
       sendControlMsg(message);
       close();
@@ -176,8 +195,12 @@ export function createAddSessionDialog() {
       errorEl.textContent = 'Both fields are required. Select a project or use Advanced options.';
       return;
     }
-    const message: Record<string, unknown> = { type: 'add-session', name: suggestSessionName(name), path: projectPath };
-    if (requirePermsCheckbox.checked) message.dangerouslySkipPermissions = false;
+    const message: Record<string, unknown> = {
+      type: 'add-session',
+      name: suggestSessionName(name),
+      path: projectPath,
+      dangerouslySkipPermissions: skipPermsCheckbox.checked,
+    };
     if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;
     sendControlMsg(message);
     close();

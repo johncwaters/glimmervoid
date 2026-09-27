@@ -23,6 +23,7 @@ import { readPosthogReport } from './posthog-report.ts';
 import * as posthogCore from './core/posthog-core.ts';
 import { formatDiffAnnotationMessage } from './core/diff-annotations-core.ts';
 import { buildGithubIssuePrompt, deriveIssueSessionName } from './core/github-issues-core.ts';
+import { machineSkipsPermissionsByDefault } from './core/session-registry-core.ts';
 import { createPrGh } from './pr-gh.ts';
 import type { PrGh } from './pr-gh.ts';
 import { buildSettingsPayload as buildSettingsPayloadFrom } from './settings-payload.ts';
@@ -503,7 +504,9 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       return;
     }
 
-    const skipPerms = msg.dangerouslySkipPermissions !== false;
+    const skipPerms = typeof msg.dangerouslySkipPermissions === 'boolean'
+      ? msg.dangerouslySkipPermissions
+      : machineSkipsPermissionsByDefault(config);
     if (repos) {
       for (const repoPath of repos) {
         if (isExistingDirectory(repoPath)) continue;
@@ -721,6 +724,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       return;
     }
 
+    const skippedPermissionsByDefault = machineSkipsPermissionsByDefault(config);
     const freshConfig = configStore.save(cfg => {
       for (const key of RUNTIME_CONFIG_SCALAR_KEYS) {
         if (incoming[key] == null) continue;
@@ -743,6 +747,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     });
     if (!freshConfig) return;
     applySettingsReload(freshConfig);
+    if (machineSkipsPermissionsByDefault(freshConfig) !== skippedPermissionsByDefault) applyConfigReload(freshConfig);
     const updatedSettings = buildSettingsPayload();
 
     ws.send(JSON.stringify({
@@ -848,7 +853,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (requireExistingPath && !fs.existsSync(resolvedPath)) return { ok: false, error: `Path does not exist: ${projectPath}` };
     const project: ProjectEntry = { id, name, path: resolvedPath };
     if (workspaceRepos) project.repos = workspaceRepos;
-    if (dangerouslySkipPermissions === false) project.dangerouslySkipPermissions = false;
+    if (typeof dangerouslySkipPermissions === 'boolean') project.dangerouslySkipPermissions = dangerouslySkipPermissions;
     if (agent) project.agent = agent;
     const freshConfig = configStore.save(cfg => {
       cfg.projects.push(project);
@@ -916,7 +921,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
         name: sessionName,
         path: project.path,
         agent: project.agent,
-        dangerouslySkipPermissions: project.dangerouslySkipPermissions !== false,
+        dangerouslySkipPermissions: project.dangerouslySkipPermissions,
       });
       if (!created.ok) { reply({ error: created.error }); return; }
       const session = sessions.get(created.project.id);

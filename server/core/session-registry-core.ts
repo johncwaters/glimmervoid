@@ -29,10 +29,16 @@ export interface RegistryDependencies {
   resolveAgentId: (agent: AgentId) => string;
   agentFingerprintOf?: (agentId: string) => string | null;
   capturedAgentFingerprintOf?: (sessionId: string) => string | null;
+  skipPermissionsByDefault?: boolean;
 }
 
-function projectSkipsPermissions(project: RegistryProject): boolean {
-  return project.dangerouslySkipPermissions !== false;
+function machineSkipsPermissionsByDefault(config: object): boolean {
+  return 'skipPermissionsByDefault' in config && config.skipPermissionsByDefault === true;
+}
+
+function projectSkipsPermissions(project: RegistryProject, skipPermissionsByDefault: boolean): boolean {
+  if (typeof project.dangerouslySkipPermissions === 'boolean') return project.dangerouslySkipPermissions;
+  return skipPermissionsByDefault;
 }
 
 function decideWasActiveFlip(to: SessionState, event: string, pendingRestart: boolean): boolean | null {
@@ -53,6 +59,7 @@ function diffProjects(
   dependencies.ensureProjectIds(newProjects);
   const agentFingerprintOf = dependencies.agentFingerprintOf ?? (() => null);
   const capturedAgentFingerprintOf = dependencies.capturedAgentFingerprintOf ?? (() => null);
+  const skipPermissionsByDefault = dependencies.skipPermissionsByDefault === true;
   const newProjectsById = new Map<string, RegistryProject>(newProjects.map((project) => [project.id, project]));
   const added: RegistryProject[] = [];
   const removed: string[] = [];
@@ -69,7 +76,7 @@ function diffProjects(
     const project = newProjectsById.get(id);
     if (!project) continue;
     const pathChanged = project.path !== session.path;
-    const permissionsChanged = projectSkipsPermissions(project) !== session.dangerouslySkipPermissions;
+    const permissionsChanged = projectSkipsPermissions(project, skipPermissionsByDefault) !== session.dangerouslySkipPermissions;
     const resolvedAgentId = dependencies.resolveAgentId(project.agent);
     const agentChanged = resolvedAgentId !== session.agentId
       || agentFingerprintOf(resolvedAgentId) !== capturedAgentFingerprintOf(id);
@@ -90,4 +97,4 @@ function diffProjects(
   return { added, removed, modified, renamed, unchanged };
 }
 
-export { decideWasActiveFlip, diffProjects, projectSkipsPermissions, shouldStartAfterModify };
+export { decideWasActiveFlip, diffProjects, machineSkipsPermissionsByDefault, projectSkipsPermissions, shouldStartAfterModify };

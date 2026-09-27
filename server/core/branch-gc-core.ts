@@ -3,6 +3,7 @@ const DEFAULT_BRANCH_GC_PREFIXES = [SESSION_BRANCH_PREFIX, 'worktree-agent-'];
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MERGED_DELETION_REASON = 'merged-into-integration';
 const STALE_DELETION_REASON = 'stale-orphan';
+const UNMERGED_KEPT_REASON = 'not-merged-and-unmerged-deletion-off';
 
 export interface IntegrationTip {
   branch: string;
@@ -84,6 +85,7 @@ function planBranchGc({
   prefixes = DEFAULT_BRANCH_GC_PREFIXES,
   nowMs,
   staleDays = 14,
+  deleteUnmerged = false,
 }: {
   remoteBranches?: RemoteBranchTip[];
   integrationTips?: IntegrationTip[];
@@ -91,6 +93,7 @@ function planBranchGc({
   prefixes?: string[];
   nowMs: number;
   staleDays?: number;
+  deleteUnmerged?: boolean;
 }): BranchGcPlan {
   const deletions: DeletedBranch[] = [];
   const kept: KeptBranch[] = [];
@@ -114,6 +117,10 @@ function planBranchGc({
     }
     if (remoteBranch.mergedIntoIntegration === true) {
       deletions.push({ name, reason: remoteBranch.mergedReason ?? MERGED_DELETION_REASON, tipSha });
+      continue;
+    }
+    if (!deleteUnmerged) {
+      kept.push({ name, reason: UNMERGED_KEPT_REASON });
       continue;
     }
     if (Number.isFinite(remoteBranch.tipCommitTimeMs) && remoteBranch.tipCommitTimeMs < staleBeforeMs) {
@@ -180,4 +187,4 @@ function planWorktreeGc({
   return { removals, kept };
 }
 
-export { DAY_MS, DEFAULT_BRANCH_GC_PREFIXES, MERGED_DELETION_REASON, SESSION_BRANCH_PREFIX, STALE_DELETION_REASON, matchedPrefix, planBranchGc, planWorktreeGc, protectedBranchNames, sessionIdFromBranch, usablePrefixes, worktreeIntegrationTips };
+export { DAY_MS, DEFAULT_BRANCH_GC_PREFIXES, MERGED_DELETION_REASON, SESSION_BRANCH_PREFIX, STALE_DELETION_REASON, UNMERGED_KEPT_REASON, matchedPrefix, planBranchGc, planWorktreeGc, protectedBranchNames, sessionIdFromBranch, usablePrefixes, worktreeIntegrationTips };

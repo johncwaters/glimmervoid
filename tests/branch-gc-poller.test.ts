@@ -8,7 +8,7 @@ import { hasGit, git } from './helpers/git-fixture.ts';
 import { BRANCH_GC_FETCH_TIMEOUT_MS, createBranchGcPoller } from '../server/branch-gc-poller.ts';
 import type { BranchGcGitWorkspace } from '../server/branch-gc-poller.ts';
 import { createBranchGcWiring } from '../server/branch-gc-wiring.ts';
-import { DAY_MS } from '../server/core/branch-gc-core.ts';
+import { DAY_MS, UNMERGED_KEPT_REASON } from '../server/core/branch-gc-core.ts';
 import type { LocalWorktreeTip } from '../server/core/branch-gc-core.ts';
 import type { MergeProbeEnvResult, MergeTreeOutcome } from '../server/core/merge-proof-core.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
@@ -235,6 +235,7 @@ test('fetches before listing, deletes separately, continues after failure, and p
     log: { warn: () => {} },
     decisionTrace: (entry) => traces.push(entry),
     onTickComplete: (status) => statuses.push(status),
+    deleteUnmerged: true,
   });
 
   await poller.tick();
@@ -343,6 +344,26 @@ test('the lane wiring injects worktree pruning from the branchGc worktrees setti
     await wiring.stop();
   }
   assert.deepEqual(pruneWorktreesByConfiguredValue, [true, true, false]);
+});
+
+test('the lane wiring deletes unmerged branches only when branchGc.deleteUnmerged is exactly true', async () => {
+  const deleteUnmergedByConfiguredValue: (boolean | undefined)[] = [];
+  for (const deleteUnmerged of [undefined, false, true]) {
+    const wiring = createBranchGcWiring({
+      config: { branchGc: { deleteUnmerged }, projects: [] },
+      gitWorkspace: unreachableGitWorkspace(),
+      liveSessionIds: () => new Set<string>(),
+      liveWorktreePaths: () => new Set<string>(),
+      createPoller: (deps) => {
+        deleteUnmergedByConfiguredValue.push(deps.deleteUnmerged);
+        return { start: async () => {}, stop: async () => {}, tick: async () => {} };
+      },
+    });
+    wiring.start();
+    await new Promise((resolve) => setImmediate(resolve));
+    await wiring.stop();
+  }
+  assert.deepEqual(deleteUnmergedByConfiguredValue, [false, false, true]);
 });
 
 test('removes a merged local worktree before deleting remote branches', async () => {
@@ -803,9 +824,8 @@ test('a merge-tree operational failure keeps the branch and increments errors', 
   assert.equal((statuses[0]?.projects as { errors: number }[])[0]?.errors, 1);
 });
 
-test('a stale unmerged branch is deleted with a staleness reason rather than a merge reason', async () => {
-  const traces: Record<string, unknown>[] = [];
-  const poller = createBranchGcPoller({
+function staleUnmergedBranchPoller(traces: Record<string, unknown>[], deleteUnmerged?: boolean) {
+  return createBranchGcPoller({
     gitWorkspace: branchProofGitWorkspace({
       mergeTreeResult: { ok: false, err: 'CONFLICT (content)', outcome: 'conflicts' },
       treeResult: { ok: true, out: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
@@ -816,7 +836,24 @@ test('a stale unmerged branch is deleted with a staleness reason rather than a m
     liveWorktreePaths: () => new Set(),
     decisionTrace: (entry) => traces.push(entry),
     now: () => NOW_MS,
+    deleteUnmerged,
   });
+}
+
+test('by default a stale unmerged branch is kept and traced under the unmerged-deletion-off reason', async () => {
+  const traces: Record<string, unknown>[] = [];
+  await staleUnmergedBranchPoller(traces).tick();
+
+  assert.deepEqual(traces.filter((entry) => entry.decision === 'deleted'), []);
+  assert.deepEqual(
+    traces.filter((entry) => entry.name === 'glimmervoid/session/abandoned'),
+    [{ kind: 'branch-gc', ts: NOW_MS, projectPath: '/repo', name: 'glimmervoid/session/abandoned', decision: 'kept', reason: UNMERGED_KEPT_REASON }],
+  );
+});
+
+test('with deleteUnmerged on, a stale unmerged branch is deleted with a staleness reason rather than a merge reason', async () => {
+  const traces: Record<string, unknown>[] = [];
+  const poller = staleUnmergedBranchPoller(traces, true);
 
   await poller.tick();
 

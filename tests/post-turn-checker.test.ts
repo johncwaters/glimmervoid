@@ -42,12 +42,13 @@ function makeDeps(files: Record<string, string>, opts: FakeRepoOptions = {}) {
   return { writes, deps };
 }
 
-const fixCfg = resolveCheckConfig();
+const fixCfg = resolveCheckConfig({ mode: 'fix' });
 
-test('resolveCheckConfig is enabled by default (no config at all)', () => {
+test('resolveCheckConfig is enabled and report-only by default (no config at all)', () => {
   const cfg = resolveCheckConfig();
   assert.equal(cfg.enabled, true);
-  assert.equal(cfg.mode, 'fix');
+  assert.equal(cfg.mode, 'report');
+  assert.equal(cfg.rules.trailingWs?.mode, 'report');
   assert.equal(cfg.rules.trailingWs?.enabled, true);
 });
 
@@ -65,6 +66,30 @@ test('resolveCheckConfig: report mode propagates to rule modes', () => {
   const cfg = resolveCheckConfig({ mode: 'report' });
   assert.equal(cfg.mode, 'report');
   assert.equal(cfg.rules.trailingWs?.mode, 'report');
+});
+
+test('resolveCheckConfig: any top-level mode other than an explicit fix resolves to report', () => {
+  for (const mode of ['report', 'Fix', 'auto', true, 1]) {
+    const cfg = resolveCheckConfig({ mode });
+    assert.equal(cfg.mode, 'report', String(mode));
+    assert.equal(cfg.rules.trailingWs?.mode, 'report', String(mode));
+  }
+});
+
+test('resolveCheckConfig: a rule mode other than an explicit fix is report even under a fix top mode', () => {
+  const cfg = resolveCheckConfig({ mode: 'fix', rules: { trailingWs: { mode: 'bogus' }, bom: { mode: 'fix' }, finalNewline: {} } });
+  assert.equal(cfg.rules.trailingWs?.mode, 'report');
+  assert.equal(cfg.rules.bom?.mode, 'fix');
+  assert.equal(cfg.rules.finalNewline?.mode, 'fix');
+});
+
+test('the default config never writes a file even when findings exist', async () => {
+  const { deps, writes } = makeDeps({ 'a.md': 'a b   ' });
+  const report = await runPostTurnChecks({ cwd: '/x', config: resolveCheckConfig(), deps });
+  assert.equal(report.mode, 'report');
+  assert.equal(report.filesFixed, 0);
+  assert.deepEqual(writes, {});
+  assert.ok(report.findings.some((finding) => finding.rule === 'trailingWs'));
 });
 
 test('resolveCheckConfig: arrays replace, project overrides global', () => {
@@ -109,6 +134,16 @@ test('report mode never writes but still lists findings', async () => {
   assert.equal(report.filesFixed, 0);
   assert.equal(Object.keys(writes).length, 0);
   assert.ok(report.findings.some((finding) => finding.rule === 'trailingWs'));
+});
+
+test('a rule-level fix mode under a top-level report mode writes the fixed file', async () => {
+  const files = { 'a.md': 'a b   ' };
+  const { deps, writes } = makeDeps(files);
+  const cfg = resolveCheckConfig({ mode: 'report', rules: { trailingWs: { mode: 'fix' } } });
+  const report = await runPostTurnChecks({ cwd: '/x', config: cfg, deps });
+  assert.equal(report.mode, 'report');
+  assert.equal(report.filesFixed, 1);
+  assert.equal(writes['a.md'], 'a b');
 });
 
 test('mtime race: a file changed between read and write is skipped, not clobbered', async () => {

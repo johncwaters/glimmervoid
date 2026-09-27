@@ -148,6 +148,16 @@ test('applyRules report mode records findings without mutating', () => {
   assert.equal(findings.length, 1);
 });
 
+test('applyRules rewrites only under an explicit fix mode', () => {
+  const input = 'a   ';
+  for (const mode of [undefined, 'report', 'Fix', 'auto']) {
+    const { content, changed, findings } = applyRules(input, { trailingWs: { enabled: true, mode } });
+    assert.equal(content, input, String(mode));
+    assert.equal(changed, false, String(mode));
+    assert.equal(findings.length, 1, String(mode));
+  }
+});
+
 test('applyRules honors the bare glimmervoid-no-fix marker (skips everything)', () => {
   const input = `glimmervoid-no-fix${NL}a   `;
   const { content, changed } = applyRules(input, allRules);

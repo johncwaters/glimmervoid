@@ -72,6 +72,7 @@ interface BranchGcPollerDeps {
   liveSessionIds: () => Set<string>;
   liveWorktreePaths: () => Set<string> | Promise<Set<string>>;
   staleDays?: number;
+  deleteUnmerged?: boolean;
   prefixes?: string[];
   pruneWorktrees?: boolean;
   dryRun?: boolean;
@@ -98,6 +99,7 @@ function createBranchGcPoller(deps: BranchGcPollerDeps): BranchGcPoller {
     liveSessionIds,
     liveWorktreePaths,
     staleDays = DEFAULT_STALE_DAYS,
+    deleteUnmerged = false,
     prefixes = DEFAULT_BRANCH_GC_PREFIXES,
     pruneWorktrees = true,
     dryRun = false,
@@ -472,6 +474,7 @@ function createBranchGcPoller(deps: BranchGcPollerDeps): BranchGcPoller {
       prefixes,
       nowMs: now(),
       staleDays,
+      deleteUnmerged,
     });
 
     for (const keptBranch of plan.kept) {

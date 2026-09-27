@@ -144,7 +144,7 @@ function applyRules(
     const res = RULES[name].fix(current, ctx);
     if (res.findings.length === 0) continue;
     for (const f of res.findings) findings.push(f);
-    if (cfg.mode !== 'report') current = res.content;
+    if (cfg.mode === 'fix') current = res.content;
   }
   return { content: current, findings, changed: current !== content };
 }

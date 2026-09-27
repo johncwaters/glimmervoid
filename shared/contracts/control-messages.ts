@@ -175,7 +175,13 @@ const idOnlyClientTypes = [
 ];
 
 const clientVariants = [
-  loose('add-session', { name: z.string(), path: z.string(), repos: z.array(z.string()).optional(), agent: z.string().optional() }),
+  loose('add-session', {
+    name: z.string(),
+    path: z.string(),
+    repos: z.array(z.string()).optional(),
+    agent: z.string().optional(),
+    dangerouslySkipPermissions: z.boolean().optional(),
+  }),
   loose('list-conversations', { id: sessionId, requestId }),
   loose('resume-conversation', { id: sessionId, conversationId: z.string() }),
   loose('rename-session', { id: sessionId, newName: z.string() }),

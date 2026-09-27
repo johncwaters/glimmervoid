@@ -65,7 +65,7 @@ interface CheckConfigLayer {
 
 const DEFAULTS = Object.freeze({
   enabled: true,
-  mode: 'fix',
+  mode: 'report',
   rules: { trailingWs: true, finalNewline: true, bom: true, slop: false },
   include: ['**/*'],
   exclude: [
@@ -115,12 +115,16 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function explicitMode(mode: unknown): 'fix' | 'report' {
+  return mode === 'fix' ? 'fix' : 'report';
+}
+
 function normalizeRule(val: unknown, topMode: string): RuleConfig {
   if (val === false) return { enabled: false, mode: topMode };
   if (val === true || val == null) return { enabled: true, mode: topMode };
   if (typeof val === 'object') {
     const source = val as { enabled?: unknown; mode?: unknown };
-    return { enabled: source.enabled !== false, mode: typeof source.mode === 'string' ? source.mode : topMode };
+    return { enabled: source.enabled !== false, mode: source.mode == null ? topMode : explicitMode(source.mode) };
   }
   return { enabled: true, mode: topMode };
 }
@@ -140,7 +144,7 @@ function resolveCheckConfig(globalCfg?: unknown, projectCfg?: unknown): PostTurn
       base.rules = Object.assign({}, base.rules, layer.rules);
     }
   }
-  const topMode = base.mode === 'report' ? 'report' : 'fix';
+  const topMode = explicitMode(base.mode);
   const rules: Record<string, RuleConfig> = {};
   for (const name of Object.keys(base.rules)) {
     rules[name] = normalizeRule(base.rules[name], topMode);
@@ -286,7 +290,7 @@ async function runPostTurnChecks({
           report.findings.push({ file: rel, rule, count });
         }
       }
-      if (cfg.mode !== 'report' && res.changed) {
+      if (res.changed) {
         const after = _stat(abs);
         if (after && (after.mtimeMs !== before.mtimeMs || after.size !== before.size)) {
           report.errors.push({ file: rel, message: 'skipped-race' });

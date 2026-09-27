@@ -61,6 +61,7 @@ function createBranchGcWiring({
       liveSessionIds,
       liveWorktreePaths,
       staleDays: config.branchGc?.staleDays ?? DEFAULT_STALE_DAYS,
+      deleteUnmerged: config.branchGc?.deleteUnmerged === true,
       prefixes: config.branchGc?.prefixes ?? DEFAULT_BRANCH_GC_PREFIXES,
       pruneWorktrees: config.branchGc?.worktrees !== false,
       dryRun: config.branchGc?.dryRun ?? false,

@@ -11,7 +11,7 @@ import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import { resolveMillMetricsConfig } from './core/mill-metrics-core.ts';
 import { isMillEnabled, projectVariantSlug } from './core/pack-core.ts';
-import { projectSkipsPermissions } from './core/session-registry-core.ts';
+import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './core/session-registry-core.ts';
 import { resolveUsageConfig } from './usage-wiring.ts';
 
 type SessionSpawnOverrides = Pick<SessionOptions, 'agent' | 'agentDepth' | 'ephemeral' | 'initialPrompt'>;
@@ -44,7 +44,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       name: project.name,
       path: project.path,
       workspaceRepos: project.repos,
-      dangerouslySkipPermissions: projectSkipsPermissions(project),
+      dangerouslySkipPermissions: projectSkipsPermissions(project, machineSkipsPermissionsByDefault(config)),
       agent: project.agent,
       bypassHookTrust: project.codexBypassHookTrust === true,
       replayBufferKB: config.replayBufferKB,

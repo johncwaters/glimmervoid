@@ -606,6 +606,24 @@ test('a hand-edited branchGc field of the wrong type falls back to its default a
   assert.ok(warnings.some((warning) => warning.includes('branchGc.staleDays')), warnings.join('\n'));
 });
 
+test('a hand-edited branchGc.deleteUnmerged of the wrong type falls back to keeping unmerged branches and warns', () => {
+  const warnings = warningsFrom(() => {
+    withStore({ branchGc: { deleteUnmerged: 'yes' }, projects: [] }, (store) => {
+      assert.equal(store.config.branchGc?.deleteUnmerged, false);
+    });
+  });
+  assert.ok(warnings.some((warning) => warning.includes('branchGc.deleteUnmerged')), warnings.join('\n'));
+});
+
+test('the settings payload carries skipPermissionsByDefault, off unless the file turns it on', () => {
+  withStore({ projects: [] }, (store) => {
+    assert.equal(store.getSettings().skipPermissionsByDefault, false);
+  });
+  withStore({ skipPermissionsByDefault: true, projects: [] }, (store) => {
+    assert.equal(store.getSettings().skipPermissionsByDefault, true);
+  });
+});
+
 function warningsFrom(run: () => void): string[] {
   const warnings: string[] = [];
   const originalWarn = console.warn;

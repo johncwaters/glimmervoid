@@ -59,12 +59,13 @@ Config-file-only detection, timing, worktree and process settings.
 | `promptDetectionMs` | Prompt detection delay | `1500` | Timing threshold used by prompt detection. **File-only.** |
 | `notifyDebounceMs` | Notification debounce | `3000` | Delay used to coalesce notification state changes. **File-only.** |
 | `phoneEscalationMs` | Phone escalation delay | `300000` | Delay before off-dashboard escalation. **File-only.** |
-| `postTurnChecks` | Post-turn checks | `{"enabled":true,"mode":"fix","rules":{"trailingWs":true,"finalNewline":true,"bom":true,"slop":false}}` | Deterministic checks applied after eligible turns. **File-only.** |
+| `postTurnChecks` | Post-turn checks | `{"enabled":true,"mode":"report","rules":{"trailingWs":true,"finalNewline":true,"bom":true,"slop":false}}` | Deterministic checks run after eligible turns. They only report findings unless mode is fix. **File-only.** |
 | `branchGc.enabled` | Branch cleanup | `true` | Enable cleanup of eligible session branches. **File-only.** |
 | `branchGc.worktrees` | Local worktree cleanup | `true` | Enable cleanup of eligible local worktrees. **File-only.** |
 | `branchGc.prefixes` | Branch cleanup prefixes | `["glimmervoid/session/","worktree-agent-"]` | Remote branch prefixes eligible for cleanup. **File-only.** |
 | `branchGc.dryRun` | Branch cleanup dry run | `false` | Report planned cleanup without deleting remote branches. **File-only.** |
-| `branchGc.staleDays` | Branch stale days | `14` | Age threshold for orphan branch cleanup. **File-only.** |
+| `branchGc.staleDays` | Branch stale days | `14` | Age threshold for orphan branch cleanup when unmerged deletion is on. **File-only.** |
+| `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no merge proof. Off keeps every unmerged branch. **File-only.** |
 | `branchGc.intervalMs` | Branch cleanup interval | `21600000` | Delay between branch cleanup passes. **File-only.** |
 | `customAgents` | Custom agents | `[]` | Extra agent CLIs a session can be spawned with. **File-only.** |
 
@@ -203,6 +204,7 @@ Controls that let automated work change repositories or install executable tooli
 |-----|---------|---------|-------|
 | `visions.autoFix` | Apply tier 1 fixes | `false` | Allow Visions to edit the active buffer without asking. |
 | `posthog.autoFix` | Attempt fixes for major issues | `false` | Allow an isolated agent to fix an issue, push a branch and open a pull request. |
+| `skipPermissionsByDefault` | Skip permission prompts by default | `false` | Start sessions whose project sets no permission choice with the agent CLI permission bypass flag. |
 | `agentApi.enabled` | Agent API | `false` | Expose the per-session agent endpoint to running sessions. |
 | `rtk` | rtk output compression | `false` | Compress Bash output for newly spawned or restarted sessions. |
 

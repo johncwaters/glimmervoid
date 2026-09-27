@@ -29,8 +29,8 @@ interface GithubIssuesFrame {
   pending?: boolean;
 }
 
-function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket', agent: 'codex' as const }], existingSessionName = '', githubFailure = '' }: { projects?: ProjectEntry[]; existingSessionName?: string; githubFailure?: string } = {}) {
-  const config: GlimmervoidConfig = { projects };
+function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket', agent: 'codex' as const }], existingSessionName = '', githubFailure = '', skipPermissionsByDefault }: { projects?: ProjectEntry[]; existingSessionName?: string; githubFailure?: string; skipPermissionsByDefault?: boolean } = {}) {
+  const config: GlimmervoidConfig = { projects, skipPermissionsByDefault };
   const sessions = new Map<string, Session>();
   const pastesById = new Map<string, string[]>();
   const githubPaths: string[] = [];
@@ -156,6 +156,15 @@ test('open-issue-session keeps the source project permission prompts on the deri
 
   assert.equal(h.sent[0].ok, true);
   assert.equal(h.config.projects[1].dangerouslySkipPermissions, false);
+});
+
+test('open-issue-session leaves an inheriting source project inheriting the machine default', async () => {
+  const h = harness({ projects: [{ id: 'p1', name: 'socket', path: '/repo/socket' }], skipPermissionsByDefault: true });
+
+  await h.send({ type: 'open-issue-session', requestId: 'r1', projectId: 'p1', issueNumber: 42 });
+
+  assert.equal(h.sent[0].ok, true);
+  assert.equal('dangerouslySkipPermissions' in h.config.projects[1], false);
 });
 
 test('request-issues reports the gh failure instead of an empty issue list', async () => {

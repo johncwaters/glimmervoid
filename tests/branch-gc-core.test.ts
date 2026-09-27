@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { LocalWorktreeTip, RemoteBranchTip } from '../server/core/branch-gc-core.ts';
 
-import { DAY_MS, DEFAULT_BRANCH_GC_PREFIXES, planBranchGc, planWorktreeGc, worktreeIntegrationTips } from '../server/core/branch-gc-core.ts';
+import { DAY_MS, DEFAULT_BRANCH_GC_PREFIXES, UNMERGED_KEPT_REASON, planBranchGc, planWorktreeGc, worktreeIntegrationTips } from '../server/core/branch-gc-core.ts';
 
 const NOW_MS = Date.parse('2026-08-25T12:00:00Z');
 
@@ -118,7 +118,7 @@ test('the worktree tip union keeps project tips first, dedupes by sha, and drops
   );
 });
 
-test('deletes merged and stale orphaned session branches while preserving input order', () => {
+test('with deleteUnmerged on, merged and stale orphaned session branches are deleted in input order', () => {
   const planned = planBranchGc({
     remoteBranches: [
       branch('glimmervoid/session/merged', { mergedIntoIntegration: true }),
@@ -127,6 +127,7 @@ test('deletes merged and stale orphaned session branches while preserving input 
     integrationTips: [{ branch: 'develop', sha: 'develop-sha' }],
     liveSessionIds: new Set(),
     nowMs: NOW_MS,
+    deleteUnmerged: true,
   });
 
   assert.deepEqual(planned, {
@@ -152,6 +153,7 @@ test('a merged branch is deleted under the merge proof reason that decided it', 
     integrationTips: [{ branch: 'develop', sha: 'develop-sha' }],
     liveSessionIds: new Set(),
     nowMs: NOW_MS,
+    deleteUnmerged: true,
   });
 
   assert.deepEqual(planned.deletions, [
@@ -207,6 +209,7 @@ test('keeps fresh unmerged session branches and uses 14 stale days by default', 
     integrationTips: [],
     liveSessionIds: new Set(),
     nowMs: NOW_MS,
+    deleteUnmerged: true,
   });
 
   assert.deepEqual(planned, {
@@ -253,7 +256,7 @@ test('the default prefixes include worktree-agent branches and custom prefixes f
     nowMs: NOW_MS,
   });
 
-  assert.deepEqual(underDefaults.kept, [{ name: 'worktree-agent-x', reason: 'not-merged-and-fresh' }]);
+  assert.deepEqual(underDefaults.kept, [{ name: 'worktree-agent-x', reason: UNMERGED_KEPT_REASON }]);
   assert.deepEqual(underSessionPrefixOnly.kept, [{ name: 'worktree-agent-x', reason: 'foreign-prefix' }]);
 });
 
@@ -276,6 +279,7 @@ test('every deletion carries the listed tip sha that leases its removal', () => 
       { name: 'glimmervoid/session/stale', tipSha: 'stale-tip', tipCommitTimeMs: NOW_MS - 30 * DAY_MS },
     ],
     nowMs: NOW_MS,
+    deleteUnmerged: true,
   });
 
   assert.deepEqual(planned.deletions.map((deletion) => deletion.tipSha), ['merged-tip', 'stale-tip']);
@@ -301,9 +305,40 @@ test('a non-finite commit time fails closed as fresh', () => {
     liveSessionIds: new Set(),
     nowMs: NOW_MS,
     staleDays: 1,
+    deleteUnmerged: true,
   });
 
   assert.deepEqual(planned.kept, [
     { name: 'glimmervoid/session/unknown-time', reason: 'not-merged-and-fresh' },
   ]);
+});
+
+test('by default a stale unmerged branch is kept under the unmerged-deletion-off reason while a merged one is deleted', () => {
+  const planned = planBranchGc({
+    remoteBranches: [
+      branch('glimmervoid/session/merged', { mergedIntoIntegration: true }),
+      branch('glimmervoid/session/stale', { tipCommitTimeMs: NOW_MS - 400 * DAY_MS }),
+      branch('glimmervoid/session/fresh'),
+    ],
+    integrationTips: [],
+    liveSessionIds: new Set(),
+    nowMs: NOW_MS,
+  });
+
+  assert.deepEqual(planned, {
+    deletions: [{ name: 'glimmervoid/session/merged', reason: 'merged-into-integration', tipSha: 'glimmervoid/session/merged-sha' }],
+    kept: [
+      { name: 'glimmervoid/session/stale', reason: UNMERGED_KEPT_REASON },
+      { name: 'glimmervoid/session/fresh', reason: UNMERGED_KEPT_REASON },
+    ],
+  });
+});
+
+test('deleteUnmerged false keeps a stale unmerged branch that deleteUnmerged true deletes', () => {
+  const stale = branch('glimmervoid/session/stale', { tipCommitTimeMs: NOW_MS - 30 * DAY_MS });
+  const keptPlan = planBranchGc({ remoteBranches: [stale], nowMs: NOW_MS, deleteUnmerged: false });
+  const deletingPlan = planBranchGc({ remoteBranches: [stale], nowMs: NOW_MS, deleteUnmerged: true });
+
+  assert.deepEqual(keptPlan, { deletions: [], kept: [{ name: 'glimmervoid/session/stale', reason: UNMERGED_KEPT_REASON }] });
+  assert.deepEqual(deletingPlan.deletions, [{ name: 'glimmervoid/session/stale', reason: 'stale-orphan', tipSha: 'glimmervoid/session/stale-sha' }]);
 });

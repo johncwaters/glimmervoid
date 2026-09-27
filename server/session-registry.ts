@@ -7,7 +7,7 @@ import type { Session } from '../session/sessions.ts';
 import { isSameDirectoryPath } from '../shared/paths.ts';
 import { STATES } from '../shared/states.ts';
 import type { AgentId, RegistryProject } from './core/session-registry-core.ts';
-import { diffProjects, shouldStartAfterModify } from './core/session-registry-core.ts';
+import { diffProjects, machineSkipsPermissionsByDefault, shouldStartAfterModify } from './core/session-registry-core.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import type { SessionWorktree, WorktreeArgs } from './git-workspace.ts';
 
@@ -319,6 +319,7 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
       resolveAgentId: dependencies.resolveAgentId,
       agentFingerprintOf,
       capturedAgentFingerprintOf: (sessionId: string) => capturedAgentFingerprints.get(sessionId) ?? null,
+      skipPermissionsByDefault: machineSkipsPermissionsByDefault({ ...config, ...newConfig }),
     });
     for (const id of diff.removed) teardownSession(id, '[config] Removed session');
     addSessions(diff.added, newConfig);

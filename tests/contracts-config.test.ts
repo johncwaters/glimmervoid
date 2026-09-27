@@ -7,7 +7,7 @@ import path from 'node:path';
 import { createConfigStore, DEFAULT_CONFIG } from '../server/config-store.ts';
 import {
   BRANCH_GC_CONTROL_BOOLEAN_KEYS, BRANCH_GC_CONTROL_NUMERIC_KEYS, BranchGcFileSettings,
-  BrowserConfig, Config, CONFIG_BLOCK_KEYS, configIssueMessage, ConfigUpdate, HIDDEN_CONFIG_KEYS,
+  BrowserConfig, Config, CONFIG_BLOCK_KEYS, configIssueMessage, ConfigUpdate, HIDDEN_CONFIG_KEYS, ProjectConfig,
 } from '../shared/contracts/index.ts';
 
 test('DEFAULT_CONFIG satisfies the persisted Config contract', () => {
@@ -67,6 +67,17 @@ test('team review settings cross persisted, browser, and update contracts', () =
     assert.equal(ConfigUpdate.safeParse({ teamReview: invalid }).success, false);
   }
   assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, teamReview: { enabled: 'true' } }).success, true);
+});
+
+test('browser and update contracts trim usage directories and require absolute paths', () => {
+  const absoluteDirectory = path.resolve('project');
+  for (const contract of [BrowserConfig, ConfigUpdate]) {
+    const parsed = contract.parse({ usage: { extraProjectsDirs: [`  ${absoluteDirectory}  `] } });
+    assert.deepEqual(parsed.usage?.extraProjectsDirs, [absoluteDirectory]);
+    for (const directory of ['project', './project', '  ']) {
+      assert.equal(contract.safeParse({ usage: { extraProjectsDirs: [directory] } }).success, false);
+    }
+  }
 });
 
 test('workspace projects require at least two repository paths', () => {
@@ -271,6 +282,31 @@ test('the control update keeps exactly the exported settable branchGc keys', () 
     Object.keys(parsed.branchGc ?? {}).sort(),
     [...BRANCH_GC_CONTROL_BOOLEAN_KEYS, ...BRANCH_GC_CONTROL_NUMERIC_KEYS].sort(),
   );
+});
+
+test('the safe defaults ship permission prompts on, unmerged branches kept and post-turn checks report-only', () => {
+  assert.equal(DEFAULT_CONFIG.skipPermissionsByDefault, false);
+  assert.equal(DEFAULT_CONFIG.branchGc.deleteUnmerged, false);
+  assert.equal(DEFAULT_CONFIG.postTurnChecks.mode, 'report');
+});
+
+test('skipPermissionsByDefault is a dashboard-settable boolean and nothing else', () => {
+  assert.equal(ConfigUpdate.parse({ skipPermissionsByDefault: true }).skipPermissionsByDefault, true);
+  assert.equal(ConfigUpdate.safeParse({ skipPermissionsByDefault: 'true' }).success, false);
+  assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, skipPermissionsByDefault: 1 }).success, false);
+});
+
+test('a project permission choice must be a boolean when present', () => {
+  assert.equal(ProjectConfig.safeParse({ path: '/repo' }).success, true);
+  assert.equal(ProjectConfig.safeParse({ path: '/repo', dangerouslySkipPermissions: true }).success, true);
+  assert.equal(ProjectConfig.safeParse({ path: '/repo', dangerouslySkipPermissions: false }).success, true);
+  assert.equal(ProjectConfig.safeParse({ path: '/repo', dangerouslySkipPermissions: 'false' }).success, false);
+});
+
+test('branchGc.deleteUnmerged is a file-only boolean the control update strips', () => {
+  assert.equal(BranchGcFileSettings.parse({ deleteUnmerged: true }).deleteUnmerged, true);
+  assert.equal(BranchGcFileSettings.safeParse({ deleteUnmerged: 'yes' }).success, false);
+  assert.equal('deleteUnmerged' in (ConfigUpdate.parse({ branchGc: { deleteUnmerged: true } }).branchGc ?? {}), false);
 });
 
 test('any hooks value parses, so one hand edit cannot cost the boot', () => {

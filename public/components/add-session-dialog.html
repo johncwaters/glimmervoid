@@ -25,10 +25,10 @@
     <input type="text" class="dialog-input" id="add-session-path" placeholder="C:\Users\...\my-project" autocomplete="off" spellcheck="false">
   </label>
 </div>
-<label class="dialog-label dialog-checkbox-label" id="add-session-require-perms-label">
-  <input type="checkbox" class="dialog-checkbox" id="add-session-require-perms">
-  <span>Require permission prompts</span>
-  <span class="dialog-hint">Sessions run without permission prompts by default. Check this to make the agent ask before file writes and shell commands.</span>
+<label class="dialog-label dialog-checkbox-label" id="add-session-skip-perms-label">
+  <input type="checkbox" class="dialog-checkbox" id="add-session-skip-perms">
+  <span>Skip permission prompts</span>
+  <span class="dialog-hint">The agent edits files and runs shell commands without asking first, so a bad instruction or a hostile file in the repo can act on this machine unchecked. Leave this off unless you trust the repo and the task.</span>
 </label>
 <div class="dialog-error" id="add-session-error"></div>
 <div class="dialog-actions">
