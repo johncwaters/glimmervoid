@@ -20,6 +20,8 @@ import type { LaneRunnerGate, LaneStatusRecord } from './lane-runner.ts';
 import { createPrGh } from './pr-gh.ts';
 import type { PrGh } from './pr-gh.ts';
 import { createRepoCache } from './repo-cache.ts';
+import { reapTeamReviewProcesses } from './team-review-reaper.ts';
+import type { TeamReviewReapOptions } from './team-review-reaper.ts';
 import { createTeamReviewPoller } from './team-review-poller.ts';
 import type { DraftExpectation, DraftPatch, ReviewOutcome, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller } from './team-review-poller.ts';
 import { TeamReviewStateEntry, TeamReviewStatus } from '../shared/contracts/team-review.ts';
@@ -110,6 +112,8 @@ type TeamReviewSpawn = (options: {
   onToolStep?: (step: { tool: string; detail: string }) => void;
 }) => Promise<void>;
 
+type TeamReviewReap = (options: Required<TeamReviewReapOptions>) => Promise<void>;
+
 interface TeamReviewDispatchOptions {
   github: { prDiff(repo: string, number: number): Promise<string | null> };
   repoCache: TeamReviewRepoCache;
@@ -125,6 +129,7 @@ interface TeamReviewDispatchOptions {
   now?: () => number;
   shutdownSignal?: AbortSignal | null;
   readReviewSkill?: () => string;
+  reapProcesses?: TeamReviewReap;
   log?: Pick<Console, 'warn'>;
 }
 
@@ -144,6 +149,7 @@ interface TeamReviewWiringOptions {
   repoCache?: TeamReviewRepoCache;
   spawnSession?: TeamReviewSpawn;
   createPoller?: typeof createTeamReviewPoller;
+  reapProcesses?: TeamReviewReap;
 }
 
 type TeamReviewActionOutcome = Omit<TeamReviewActionResult, 'key'>;
@@ -343,14 +349,16 @@ async function deleteDirectory(directory: string, log: Pick<Console, 'warn'>): P
     .catch((error: unknown) => log.warn(`[${core.TEAM_REVIEW_LANE_ID}] could not delete ${directory}: ${errorMessage(error)}`));
 }
 
-async function sweepLeftoverCheckouts({ worktreeRoot, workRoot, keepPaths, repoCache, gitWorkspace, log }: {
+async function sweepLeftoverCheckouts({ worktreeRoot, workRoot, keepPaths, repoCache, gitWorkspace, reapProcesses = reapTeamReviewProcesses, log }: {
   worktreeRoot: string;
   workRoot: string;
   keepPaths: ReadonlySet<string>;
   repoCache: Pick<TeamReviewRepoCache, 'listRepos'>;
   gitWorkspace: Pick<TeamReviewGitWorkspace, 'pruneWorktrees'>;
+  reapProcesses?: TeamReviewReap;
   log: Pick<Console, 'warn'>;
 }): Promise<void> {
+  await reapProcesses({ ownedDirectories: [workRoot, worktreeRoot], reviewRoots: [workRoot, worktreeRoot], scope: 'sweep', log }).catch((error: unknown) => log.warn(`[${core.TEAM_REVIEW_LANE_ID}] process reap failed: ${errorMessage(error)}`));
   for (const root of [worktreeRoot, workRoot]) {
     const leftoverNames = await fs.readdir(root).catch(() => []);
     for (const leftoverName of leftoverNames) {
@@ -374,6 +382,7 @@ function createTeamReviewDispatcher({
   now = () => Date.now(),
   shutdownSignal = null,
   readReviewSkill = () => '',
+  reapProcesses = reapTeamReviewProcesses,
   log = console,
 }: TeamReviewDispatchOptions) {
   async function removeCheckout({ projectPath, worktreePath }: { projectPath: string; worktreePath: string }): Promise<void> {
@@ -449,6 +458,7 @@ function createTeamReviewDispatcher({
     const args: SpawnReviewArgs = isResumeOwned ? requestedArgs : { ...requestedArgs, resume: undefined };
     const { candidate, detail, tier, reasons, reportProgress = () => {} } = args;
     if (shutdownSignal?.aborted && args.resume) {
+      await reapProcesses({ ownedDirectories: [args.resume.workDir, args.resume.worktreePath], reviewRoots: [workRoot, worktreeRoot], scope: 'run', log }).catch((error: unknown) => log.warn(`[${core.TEAM_REVIEW_LANE_ID}] process reap failed: ${errorMessage(error)}`));
       const hasWorkDir = await pathExists(args.resume.workDir);
       const hasWorktree = await pathExists(args.resume.worktreePath);
       if (hasWorkDir && hasWorktree) return { kind: 'stopped', resumable: { ...args.resume, savedAt: now() } };
@@ -476,6 +486,7 @@ function createTeamReviewDispatcher({
             const resumedWorkDir = args.resume.workDir;
             resources.workDirHandle = { dir: resumedWorkDir, cleanup: () => deleteDirectory(resumedWorkDir, log) };
             resources.checkout = { projectPath, worktreePath: args.resume.worktreePath };
+            await reapProcesses({ ownedDirectories: [resumedWorkDir, args.resume.worktreePath], reviewRoots: [workRoot, worktreeRoot], scope: 'run', log }).catch((error: unknown) => log.warn(`[${core.TEAM_REVIEW_LANE_ID}] process reap failed: ${errorMessage(error)}`));
             const diff = await github.prDiff(candidate.repo, detail.number);
             const remainingTimeoutSeconds = Math.max(0, (args.resume.deadlineAt - now()) / 1000);
             reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds: remainingTimeoutSeconds });
@@ -489,6 +500,8 @@ function createTeamReviewDispatcher({
             });
           }
         }
+        await reapProcesses({ ownedDirectories: [args.resume.workDir, args.resume.worktreePath], reviewRoots: [workRoot, worktreeRoot], scope: 'run', log })
+          .catch((error: unknown) => log.warn(`[${core.TEAM_REVIEW_LANE_ID}] process reap failed: ${errorMessage(error)}`));
         if (hasWorktree) {
           const projectPath = await repoCache.ensureRepo(candidate.repo);
           if (projectPath) await removeCheckout({ projectPath, worktreePath: args.resume.worktreePath });
@@ -546,6 +559,11 @@ function createTeamReviewDispatcher({
       }
       return draft;
     } finally {
+      const reviewWorkDir = resources.workDirHandle?.dir;
+      if (reviewWorkDir !== undefined) {
+        await reapProcesses({ ownedDirectories: [reviewWorkDir, resources.checkout?.worktreePath].filter((directory): directory is string => directory !== undefined), reviewRoots: [workRoot, worktreeRoot], scope: 'run', log })
+          .catch((error: unknown) => log.warn(`[${core.TEAM_REVIEW_LANE_ID}] process reap failed: ${errorMessage(error)}`));
+      }
       if (!shouldPreserve) {
         if (resources.checkout) await removeCheckout(resources.checkout);
         if (resources.workDirHandle) await resources.workDirHandle.cleanup();
@@ -736,6 +754,7 @@ function createTeamReviewWiring({
     replayBufferKB: config.replayBufferKB,
   }),
   createPoller = createTeamReviewPoller,
+  reapProcesses = reapTeamReviewProcesses,
 }: TeamReviewWiringOptions) {
   const stateIo = createTeamReviewStateIo(path.join(homeDir, core.TEAM_REVIEW_STATE_FILENAME), log);
   const worktreeRoot = path.join(homeDir, 'team-review-worktrees');
@@ -743,7 +762,7 @@ function createTeamReviewWiring({
   const shutdownController = new AbortController();
   const inFlightReviews = new Set<Promise<ReviewOutcome>>();
   const reviewPullRequest = createTeamReviewDispatcher({
-    github, repoCache, gitWorkspace, spawnSession, worktreeRoot, workRoot, shutdownSignal: shutdownController.signal, log,
+    github, repoCache, gitWorkspace, spawnSession, worktreeRoot, workRoot, shutdownSignal: shutdownController.signal, reapProcesses, log,
     readReviewSkill: () => readTeamReviewSettings(config).skill,
   });
 
@@ -774,9 +793,11 @@ function createTeamReviewWiring({
         skipIdleAfterMs: settings.skipIdleAfterDays * 24 * 60 * 60 * 1000,
         github,
         spawnReview: trackReview,
-        beforeStart: (keepPaths) => sweepLeftoverCheckouts({ worktreeRoot, workRoot, keepPaths, repoCache, gitWorkspace, log }),
+        beforeStart: (keepPaths) => sweepLeftoverCheckouts({ worktreeRoot, workRoot, keepPaths, repoCache, gitWorkspace, reapProcesses, log }),
         discardResumable: async (record) => {
           if (!isOwnedResumable(record, { workRoot, worktreeRoot })) return;
+          await reapProcesses({ ownedDirectories: [record.workDir, record.worktreePath], reviewRoots: [workRoot, worktreeRoot], scope: 'run', log })
+            .catch((error: unknown) => log.warn(`[${core.TEAM_REVIEW_LANE_ID}] process reap failed: ${errorMessage(error)}`));
           await deleteDirectory(record.worktreePath, log);
           await deleteDirectory(record.workDir, log);
           const cachedClones = await repoCache.listRepos();

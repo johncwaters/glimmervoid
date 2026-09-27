@@ -16,7 +16,7 @@ import {
 } from '../server/team-review-wiring.ts';
 import type { TeamReviewActionGithub, TeamReviewDispatchOptions, TeamReviewSpawn } from '../server/team-review-wiring.ts';
 import { PrDetail, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
-import type { ReviewComment, ReviewDraft as ReviewDraftType, TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
+import type { ResumableReview, ReviewComment, ReviewDraft as ReviewDraftType, TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
 import { SANDBOX_UNAPPLIED_ERROR, Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 
@@ -94,6 +94,7 @@ function setup(overrides: Partial<TeamReviewDispatchOptions> & {
     },
     worktreeRoot,
     workRoot,
+    reapProcesses: async () => {},
     randomSuffix: () => 'abcd',
     ...overrides,
   };
@@ -200,6 +201,7 @@ test('resume uses the saved cwd and session with the remaining timeout without s
     assert.equal(spawns[0]?.initialPrompt, REVIEW_RESUME_PROMPT);
     assert.equal(spawns[0]?.cwd, workDir);
     assert.deepEqual(spawns[0]?.spawnEnv, teamReviewSpawnEnv(workDir));
+    assert.equal(spawns[0]?.workDirFiles.includes('tmp'), false);
     assert.deepEqual(spawns[0]?.settingsSandbox, teamReviewSandbox(workDir));
     assert.deepEqual(timeouts, [78000]);
   } finally {
@@ -466,6 +468,79 @@ test('a review removes the worktree when it times out', async () => {
     assert.match(draft.error ?? '', /timed out/);
     assert.equal(wasAborted, true);
     assert.equal(removed.length, 1);
+  } finally {
+    cleanup();
+  }
+});
+
+test('review process cleanup follows session exit and precedes checkout removal on every outcome', async () => {
+  for (const outcome of ['success', 'error', 'timeout', 'shutdown'] as const) {
+    const events: string[] = [];
+    const reapedDirectories: string[][] = [];
+    const shutdownController = new AbortController();
+    const spawnSession: TeamReviewSpawn = async ({ cwd, signal, onSessionId }) => {
+      if (outcome === 'timeout') {
+        await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+        events.push('session-exit');
+        return;
+      }
+      if (outcome === 'shutdown') {
+        onSessionId?.('claude-1');
+        shutdownController.abort();
+        events.push('session-exit');
+        return;
+      }
+      events.push('session-exit');
+      if (outcome === 'error') throw new Error('session failed');
+      fs.writeFileSync(path.join(cwd, REVIEW_REPORT_FILENAME), reportText());
+    };
+    const { dispatch, cleanup } = setup({
+      spawnSession,
+      shutdownSignal: shutdownController.signal,
+      timeoutSeconds: outcome === 'timeout' ? 0.001 : 60,
+      setTimeoutFn: outcome === 'timeout' ? (callback) => setTimeout(callback, 0) : undefined,
+      reapProcesses: async ({ ownedDirectories }) => {
+        reapedDirectories.push([...ownedDirectories]);
+        events.push('reap');
+      },
+      gitWorkspace: {
+        stageDetachedWorktree: async ({ worktreePath }) => { fs.mkdirSync(String(worktreePath), { recursive: true }); return { ok: true }; },
+        removeWorktreeByPath: async ({ cwd }) => { events.push('remove'); fs.rmSync(String(cwd), { recursive: true, force: true }); return { ok: true }; },
+        pruneWorktrees: async () => ({ ok: true }),
+      },
+    });
+    try {
+      const reviewOutcome = await dispatch(reviewArgs('full'));
+      assert.equal(reapedDirectories.length, 1, outcome);
+      assert.equal(reapedDirectories[0].length, 2);
+      assert.match(path.basename(reapedDirectories[0][0]), /^glimmervoid-wt-team-review-/);
+      assert.match(path.basename(reapedDirectories[0][1]), /^glimmervoid-wt-team-review-/);
+      assert.deepEqual(events, outcome === 'shutdown' ? ['session-exit', 'reap'] : ['session-exit', 'reap', 'remove'], outcome);
+      if (outcome === 'shutdown') assert.equal('kind' in reviewOutcome && reviewOutcome.kind, 'stopped');
+    } finally {
+      cleanup();
+    }
+  }
+});
+
+test('a resumed review reaps its prior run before spawning', async () => {
+  const events: string[] = [];
+  const { dispatch, workRoot, worktreeRoot, cleanup } = setup({
+    reapProcesses: async ({ ownedDirectories, reviewRoots, scope }) => { events.push(`reap:${ownedDirectories.join('|')}:${scope}:${reviewRoots.join('|')}`); },
+    spawnSession: async ({ cwd }) => {
+      events.push('spawn');
+      assert.equal(fs.existsSync(path.join(cwd, 'tmp')), false);
+      fs.writeFileSync(path.join(cwd, REVIEW_REPORT_FILENAME), reportText());
+    },
+  });
+  const workDir = fs.mkdtempSync(path.join(workRoot, 'resume-work-'));
+  const worktreePath = fs.mkdtempSync(path.join(worktreeRoot, 'resume-tree-'));
+  const resume = { sessionId: 'claude-1', workDir, worktreePath, head: HEAD, deadlineAt: Date.now() + 60000, savedAt: Date.now() };
+  try {
+    const reviewOutcome = await dispatch({ ...reviewArgs('full'), resume });
+    assert.equal('kind' in reviewOutcome, false);
+    const expectedReap = `reap:${workDir}|${worktreePath}:run:${workRoot}|${worktreeRoot}`;
+    assert.deepEqual(events, [expectedReap, 'spawn', expectedReap]);
   } finally {
     cleanup();
   }
@@ -818,6 +893,7 @@ test('a worktree removal that reports success but leaves the directory still del
 test('the start sweep deletes every leftover checkout and prunes each cached clone', async () => {
   const worktreeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-sweep-test-'));
   const pruned: string[] = [];
+  const reapedDirectories: string[][] = [];
   try {
     fs.mkdirSync(path.join(worktreeRoot, 'Acme-app-7-dead', '.git'), { recursive: true });
     fs.writeFileSync(path.join(worktreeRoot, 'Acme-app-7-dead', 'file.ts'), 'x');
@@ -826,11 +902,18 @@ test('the start sweep deletes every leftover checkout and prunes each cached clo
       worktreeRoot,
       workRoot: path.join(worktreeRoot, 'work'),
       keepPaths: new Set(),
+      reapProcesses: async ({ ownedDirectories, reviewRoots, scope }) => {
+        reapedDirectories.push([...ownedDirectories]);
+        assert.deepEqual(reviewRoots, [path.join(worktreeRoot, 'work'), worktreeRoot]);
+        assert.equal(scope, 'sweep');
+        assert.equal(fs.existsSync(path.join(worktreeRoot, 'Acme-app-7-dead')), true);
+      },
       repoCache: { listRepos: async () => ['/cache/Acme/app', '/cache/Acme/lib'] },
       gitWorkspace: { pruneWorktrees: async ({ projectPath }) => { pruned.push(projectPath); return { ok: true }; } },
       log: { warn: () => {} },
     });
     assert.deepEqual(fs.readdirSync(worktreeRoot), []);
+    assert.deepEqual(reapedDirectories, [[path.join(worktreeRoot, 'work'), worktreeRoot]]);
     assert.deepEqual(pruned, ['/cache/Acme/app', '/cache/Acme/lib']);
   } finally {
     fs.rmSync(worktreeRoot, { recursive: true, force: true });
@@ -843,6 +926,7 @@ test('the start sweep tolerates a missing worktree root', async () => {
     worktreeRoot: path.join(os.tmpdir(), `team-review-absent-${process.pid}-${Date.now()}`),
     workRoot: path.join(os.tmpdir(), `team-review-work-absent-${process.pid}-${Date.now()}`),
     keepPaths: new Set(),
+    reapProcesses: async () => {},
     repoCache: { listRepos: async () => ['/cache/Acme/app'] },
     gitWorkspace: { pruneWorktrees: async ({ projectPath }) => { pruned.push(projectPath); return { ok: true }; } },
     log: { warn: () => {} },
@@ -862,6 +946,7 @@ test('the start sweep keeps saved review paths in both roots and deletes other p
     }
     await sweepLeftoverCheckouts({
       worktreeRoot, workRoot, keepPaths: new Set([keptTree, keptWork]),
+      reapProcesses: async () => {},
       repoCache: { listRepos: async () => [] },
       gitWorkspace: { pruneWorktrees: async () => ({ ok: true }) },
       log: { warn: () => {} },
@@ -870,6 +955,63 @@ test('the start sweep keeps saved review paths in both roots and deletes other p
     assert.deepEqual(fs.readdirSync(workRoot), ['kept']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('discarding a saved review reaps its processes before removing its directories', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-discard-test-'));
+  const workRoot = path.join(homeDir, 'team-review-work');
+  const worktreeRoot = path.join(homeDir, 'team-review-worktrees');
+  fs.mkdirSync(workRoot);
+  fs.mkdirSync(worktreeRoot);
+  const workDir = fs.mkdtempSync(path.join(workRoot, 'review-'));
+  const worktreePath = fs.mkdtempSync(path.join(worktreeRoot, 'checkout-'));
+  const events: string[] = [];
+  let discardSavedReview: ((record: ResumableReview) => Promise<void>) | undefined;
+  const pollerCreated = deferredSignal();
+  const wiring = createTeamReviewWiring({
+    config: { teamReview: { enabled: true, org: 'Acme', team: 'core' } },
+    reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
+    spawnGate: { run: async (task) => task() }, homeDir, log: { warn: () => {} },
+    reapProcesses: async ({ ownedDirectories, reviewRoots, scope }) => {
+      if (ownedDirectories[0] !== workDir) return;
+      assert.deepEqual(ownedDirectories, [workDir, worktreePath]);
+      assert.deepEqual(reviewRoots, [workRoot, worktreeRoot]);
+      assert.equal(scope, 'run');
+      assert.equal(fs.existsSync(workDir), true);
+      assert.equal(fs.existsSync(worktreePath), true);
+      events.push('reap');
+    },
+    github: {
+      viewer: async () => null, teamMembers: async () => [], searchTeamRequested: async () => ({ items: [], complete: true }),
+      searchAuthoredBy: async () => ({ items: [], complete: true }), viewPr: async () => null, prHead: async () => null, prDiff: async () => null,
+    },
+    repoCache: {
+      listRepos: async () => [], ensureRepo: async () => null,
+      fetchPr: async () => ({ ok: false, headSha: null, err: '' }), hydrateRange: async () => ({ ok: false, err: '' }),
+    },
+    gitWorkspace: {
+      stageDetachedWorktree: async () => ({ ok: false }), removeWorktreeByPath: async () => ({ ok: false }),
+      pruneWorktrees: async () => ({ ok: true }),
+    },
+    createPoller: (dependencies) => {
+      discardSavedReview = dependencies.discardResumable;
+      pollerCreated.resolve();
+      return createTeamReviewPoller({ ...dependencies, beforeStart: async () => {} });
+    },
+  });
+  try {
+    wiring.startPoller();
+    await pollerCreated.promise;
+    const discard = discardSavedReview;
+    assert.ok(discard);
+    await discard({ sessionId: 'claude-1', workDir, worktreePath, head: HEAD, deadlineAt: 1000, savedAt: 1000 });
+    assert.deepEqual(events, ['reap']);
+    assert.equal(fs.existsSync(workDir), false);
+    assert.equal(fs.existsSync(worktreePath), false);
+  } finally {
+    await wiring.stopPoller();
+    fs.rmSync(homeDir, { recursive: true, force: true });
   }
 });
 
@@ -899,6 +1041,7 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
     getHookPort: null,
     spawnGate: { run: async (task) => task() },
     homeDir,
+    reapProcesses: async () => {},
     log: { warn: () => {} },
     github: {
       viewer: async () => null, teamMembers: async () => [], searchTeamRequested: async () => ({ items: [], complete: true }),
