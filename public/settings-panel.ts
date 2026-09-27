@@ -13,7 +13,6 @@ import { SETTINGS_MAP, SETTINGS_SECTION_ALIASES } from './settings-map.ts';
 import {
   buildProjectSections,
   collectDirtyBlocks,
-  decideDangerToggle,
   enrichProjectsById,
   hydrateFromSettings,
   orderSections,
@@ -22,6 +21,7 @@ import {
   resolveEntry,
   scoreSettingsSearch,
   sectionsByLevel,
+  shouldShowDangerWarning,
   validateLocally,
 } from './settings-view-core.ts';
 import type { SettingsPayload, SettingsProject, SettingsValues } from './settings-view-core.ts';
@@ -109,8 +109,6 @@ let originalValues: SettingsValues | null = null;
 let editedValues: SettingsValues | null = null;
 let serverError = '';
 let searchQuery = '';
-const dangerConfirmationBySettingId = new Map<string, string>();
-let dangerConfirmationFocusSettingId: string | null = null;
 let sectionPickerDocumentClickHandler: ((event: MouseEvent) => void) | null = null;
 let sectionPickerDocumentKeydownHandler: ((event: KeyboardEvent) => void) | null = null;
 let updateStatus: UpdateStatusView | null = null;
@@ -165,13 +163,9 @@ function flashSetting(settingId: string) {
 }
 
 function rebuildSettingsMap() {
-  const previousSectionId = selectedSection?.id;
   const projectSections = buildProjectSections(projectReport.projects);
   SETTINGS_VIEW_MAP = orderSections([...staticSettingsViewMap, ...projectSections]);
   selectedSection = resolveEntry(SETTINGS_VIEW_MAP, selectedSection?.id) ?? selectedSection;
-  if (previousSectionId === selectedSection?.id) return;
-  dangerConfirmationBySettingId.clear();
-  dangerConfirmationFocusSettingId = null;
 }
 
 function rememberProjectDetails(projects: unknown) {
@@ -287,42 +281,9 @@ function renderToggle(setting: SettingsSetting) {
     input.disabled = true;
   }
   input.setAttribute('aria-labelledby', setting.id);
-  input.addEventListener('change', () => {
-    if (!setting.dangerConfirmation) {
-      setEditedValue(setting, input.checked);
-      return;
-    }
-    const typed = dangerConfirmationBySettingId.get(setting.id) || '';
-    const next = decideDangerToggle(settingValue(setting), input.checked, typed, setting.dangerConfirmation);
-    if (next === input.checked) {
-      dangerConfirmationBySettingId.delete(setting.id);
-      setEditedValue(setting, next);
-      return;
-    }
-    dangerConfirmationBySettingId.set(setting.id, typed);
-    dangerConfirmationFocusSettingId = setting.id;
-    renderContent();
-  });
+  input.addEventListener('change', () => setEditedValue(setting, input.checked));
   label.append(input, el('span', 'settings-view-toggle-state', input.checked ? 'On' : 'Off'));
   wrapper.appendChild(label);
-  if (!setting.dangerConfirmation || input.checked || !dangerConfirmationBySettingId.has(setting.id)) return wrapper;
-  const confirmation = el('input', 'settings-view-input settings-view-danger-confirm');
-  confirmation.type = 'text';
-  confirmation.value = dangerConfirmationBySettingId.get(setting.id) || '';
-  confirmation.placeholder = `Type ${setting.dangerConfirmation}`;
-  confirmation.setAttribute('aria-label', `Type ${setting.dangerConfirmation} to confirm`);
-  confirmation.addEventListener('input', () => {
-    dangerConfirmationBySettingId.set(setting.id, confirmation.value);
-    const next = decideDangerToggle(false, true, confirmation.value, setting.dangerConfirmation);
-    if (!next) return;
-    dangerConfirmationBySettingId.delete(setting.id);
-    setEditedValue(setting, true);
-  });
-  wrapper.appendChild(confirmation);
-  if (dangerConfirmationFocusSettingId === setting.id) {
-    dangerConfirmationFocusSettingId = null;
-    requestAnimationFrame(() => confirmation.focus());
-  }
   return wrapper;
 }
 
@@ -614,7 +575,7 @@ function renderSetting(setting: SettingsSetting, errors: Record<string, string>)
   const article = el('article', 'settings-view-setting');
   article.append(renderSettingHeading(setting), el('p', 'settings-view-setting-description', setting.description));
   article.appendChild(renderControl(setting));
-  if (setting.danger && setting.warning) article.appendChild(el('div', 'settings-view-warning settings-warning', setting.warning));
+  if (shouldShowDangerWarning(setting, settingValue(setting))) article.appendChild(el('div', 'settings-view-warning settings-warning', setting.warning));
   const statusSlot = buildStatusSlot(setting);
   if (statusSlot) article.appendChild(statusSlot);
   if (errors[setting.id]) article.appendChild(el('div', 'settings-view-field-error', errors[setting.id]));
@@ -753,12 +714,7 @@ function selectSection(
   sectionId: string,
   { focusContent = false, settingId = null, updateHash = true }: { focusContent?: boolean; settingId?: string | null; updateHash?: boolean } = {}
 ) {
-  const previousSectionId = selectedSection?.id;
   selectedSection = resolveEntry(SETTINGS_VIEW_MAP, sectionId) ?? selectedSection;
-  if (previousSectionId !== selectedSection?.id) {
-    dangerConfirmationBySettingId.clear();
-    dangerConfirmationFocusSettingId = null;
-  }
   serverError = '';
   markCurrentSection(navigationEl);
   markCurrentSection(sectionPickerEl);

@@ -156,7 +156,6 @@ test('the agent API toggle is dashboard-writable and the custom agents row stays
   assert.ok(agentApi, 'the map exposes agentApi.enabled');
   assert.equal(agentApi.control, 'toggle');
   assert.equal(agentApi.danger, true);
-  assert.ok(agentApi.dangerConfirmation);
   assert.ok(agentApi.warning);
   assert.equal(agentApi.fileOnly, undefined);
   assert.equal(DASHBOARD_SETTING_PATH_SET.has('agentApi.enabled'), true);
@@ -177,7 +176,6 @@ test('unattended actions expose branch deletion and post-turn mode as editable c
   assert.ok(branchDeletion);
   assert.equal(branchDeletion.control, 'toggle');
   assert.equal(branchDeletion.danger, true);
-  assert.equal(branchDeletion.dangerConfirmation, 'delete-unmerged');
   assert.ok(branchDeletion.warning);
   assert.equal(branchDeletion.defaultValue, false);
   assert.equal(branchDeletion.fileOnly, undefined);

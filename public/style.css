@@ -6505,10 +6505,6 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-e
   gap: 10px;
 }
 
-.settings-view-danger-confirm {
-  max-width: 190px;
-}
-
 .settings-view-list,
 .settings-view-projects {
   display: flex;

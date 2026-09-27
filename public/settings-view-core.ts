@@ -420,10 +420,8 @@ export function enrichProjectsById(projects: SettingsProject[] = [], details: Se
   });
 }
 
-export function decideDangerToggle(current: unknown, requested: unknown, typed: unknown, expected: unknown) {
-  if (requested !== true) return false;
-  if (current === true) return true;
-  return String(typed || '').trim() === String(expected || '');
+export function shouldShowDangerWarning(setting: Pick<SettingsSetting, 'danger' | 'warning'>, value: unknown): boolean {
+  return setting.danger === true && Boolean(setting.warning) && value === true;
 }
 
 export function resolveEntry(map: readonly SettingsSection[], sectionId: string): SettingsSection | null {

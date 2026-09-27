@@ -160,11 +160,13 @@ test('unattended actions sort last within the map', async () => {
   ]);
 });
 
-test('danger toggles require an exact confirmation only when turning on', async () => {
-  const { decideDangerToggle } = await load();
-  assert.equal(decideDangerToggle(false, true, 'visions', 'VISIONS'), false);
-  assert.equal(decideDangerToggle(false, true, 'VISIONS', 'VISIONS'), true);
-  assert.equal(decideDangerToggle(true, false, '', 'VISIONS'), false);
+test('a danger warning shows only while its toggle is on', async () => {
+  const { shouldShowDangerWarning } = await load();
+  const dangerSetting = { danger: true, warning: 'Lets agents run unattended.' };
+  assert.equal(shouldShowDangerWarning(dangerSetting, true), true);
+  assert.equal(shouldShowDangerWarning(dangerSetting, false), false);
+  assert.equal(shouldShowDangerWarning(dangerSetting, undefined), false);
+  assert.equal(shouldShowDangerWarning({ warning: 'Plain note.' }, true), false);
 });
 
 test('project sections derive read-only records and carry no pack control', async () => {

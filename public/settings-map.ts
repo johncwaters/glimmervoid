@@ -21,7 +21,6 @@ export interface SettingsSetting {
   valueKind?: string;
   warning?: string;
   danger?: boolean;
-  dangerConfirmation?: string;
   advanced?: boolean;
   fileOnly?: boolean;
   status?: string;
@@ -660,26 +659,26 @@ export const SETTINGS_MAP = Object.freeze([
       {
         id: 'visions-auto-fix', path: 'visions.autoFix', title: 'Apply tier 1 fixes',
         description: 'Allow Visions to edit the active buffer without asking.',
-        control: 'toggle', keywords: ['automatic', 'edits'], danger: true, dangerConfirmation: 'visions',
+        control: 'toggle', keywords: ['automatic', 'edits'], danger: true,
         warning: 'Enabling this control lets Visions edit eligible buffers without a carbon unit present.', defaultValue: false,
       },
       {
         id: 'posthog-auto-fix', path: 'posthog.autoFix', title: 'Attempt fixes for major issues',
         description: 'Allow an isolated agent to fix an issue, push a branch and open a pull request.',
-        control: 'toggle', keywords: ['automatic', 'pull request'], danger: true, dangerConfirmation: 'posthog',
+        control: 'toggle', keywords: ['automatic', 'pull request'], danger: true,
         warning: 'Enabling this control lets PostHog fixes commit, push and open pull requests automatically.', defaultValue: false,
       },
       {
         id: 'skip-permissions-by-default', path: 'skipPermissionsByDefault', title: 'Skip permission prompts by default',
         description: 'Start sessions whose project sets no permission choice with the agent CLI permission bypass flag.',
-        control: 'toggle', keywords: ['permissions', 'yolo', 'dangerously'], danger: true, dangerConfirmation: 'skip-permissions',
+        control: 'toggle', keywords: ['permissions', 'yolo', 'dangerously'], danger: true,
         warning: 'Enabling this control lets agents edit files and run shell commands without asking, and restarts running sessions that inherit it.',
         defaultValue: false,
       },
       {
         id: 'branch-gc-delete-unmerged', path: 'branchGc.deleteUnmerged', title: 'Delete unmerged branches',
         description: 'Also delete stale remote branches with no merge proof. Off keeps every unmerged branch.',
-        control: 'toggle', keywords: ['git', 'cleanup', 'orphan'], danger: true, dangerConfirmation: 'delete-unmerged',
+        control: 'toggle', keywords: ['git', 'cleanup', 'orphan'], danger: true,
         warning: 'Enabling this control lets branch cleanup delete stale remote branches without merge proof.',
         defaultValue: false,
       },
@@ -692,14 +691,14 @@ export const SETTINGS_MAP = Object.freeze([
       {
         id: 'agent-api-enabled', path: 'agentApi.enabled', title: 'Agent API',
         description: 'Expose the per-session agent endpoint to running sessions.',
-        control: 'toggle', keywords: ['session', 'localhost'], danger: true, dangerConfirmation: 'agent-api',
+        control: 'toggle', keywords: ['session', 'localhost'], danger: true,
         warning: 'Enabling this control lets a running session spawn sibling sessions, flag itself and read the board through a per-session token on localhost, and it applies to sessions spawned after the change.',
         defaultValue: false,
       },
       {
         id: 'rtk-compression', path: 'rtk', title: 'rtk output compression',
         description: 'Compress Bash output for newly spawned or restarted sessions.',
-        control: 'toggle', keywords: ['bash', 'tokens'], danger: true, dangerConfirmation: 'rtk', status: 'rtk-install',
+        control: 'toggle', keywords: ['bash', 'tokens'], danger: true, status: 'rtk-install',
         warning: 'Enabling this control permits Glimmervoid to install the pinned rtk executable automatically.', defaultValue: false,
       },
     ],
