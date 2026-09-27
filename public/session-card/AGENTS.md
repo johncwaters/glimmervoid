@@ -15,7 +15,7 @@ Session card modules, decomposed from the old monolithic session-card.js. Each s
 | `aggregate-core.ts` | Pure `computeAggregate` (used by lifecycle) |
 | `agent-core.ts` | Pure `agentBadgeText(agent)`: which agent adapter id earns a card chip (never the default one) |
 | `card-dom.ts` | Card builder, badge, inline rename, confirm dialog, debug overlay |
-| `terminal.ts` | xterm.js setup, data WebSocket, OSC-52 clipboard, key handling (consults `focus-view/focus-shortcuts.ts` for which Alt+keys bubble), phone soft-keyboard input takeover |
+| `terminal.ts` | xterm.js setup, data WebSocket, OSC-52 clipboard, key handling (consults `../shortcuts-core.ts` for which shortcuts bubble), phone soft-keyboard input takeover |
 | `grid-core.ts` | Pure `decideGridActions` (resize, claim, unview, follower flag; a non-finite or non-positive proposal claims nothing, and an unengaged document claims nothing) plus `decideGridEngagementEdge` (none, resync or rebid on a focus/visibility edge) and `readDataFrame` (text bytes versus a binary `pty-size` frame, first frame of a connection is the attach) |
 | `ime-core.ts` | Pure soft-keyboard edit to terminal bytes: shared-prefix diff of xterm's helper textarea, plus the inputType/keydown predicates the takeover in `terminal.ts` gates on |
 | `activity.ts` | Working-session heartbeat from output ARRIVAL timing only (no content reads); paints liveness/quiet on the Focus rail pill |
@@ -45,7 +45,7 @@ Session card modules, decomposed from the old monolithic session-card.js. Each s
 ## Dependencies
 
 ### Internal
-- `../control-ws.ts`, `../render-scheduler.ts`, `../theme.ts`, `../form-factor.ts`, `../focus-view/focus-shortcuts.ts`, `#shared/states.ts`
+- `../control-ws.ts`, `../render-scheduler.ts`, `../theme.ts`, `../form-factor.ts`, `../shortcuts-core.ts`, `#shared/states.ts`
 
 ### External
 - `@xterm/xterm`, `@xterm/addon-fit`, `@xterm/addon-webgl`

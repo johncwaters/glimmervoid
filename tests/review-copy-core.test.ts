@@ -5,8 +5,9 @@ test('review copy names the effective base and its push action', async () => {
   const { baseLabel, mergeActionTitle, mergeTargetText, parkedStatusText } = await import('../public/sidebar/review-copy-core.ts');
   assert.equal(baseLabel('trunk'), 'trunk');
   assert.equal(baseLabel(null), 'base');
-  assert.match(mergeActionTitle('trunk'), /Merge into trunk, push it/);
-  assert.match(mergeActionTitle(null), /Merge into base, push it/);
+  assert.match(mergeActionTitle('trunk', 'Alt+I'), /Merge into trunk, push it/);
+  assert.match(mergeActionTitle(null, 'Alt+I'), /Merge into base, push it/);
+  assert.match(mergeActionTitle('trunk', 'Alt+I'), /\(Alt\+I\)$/);
   assert.equal(mergeTargetText('trunk'), 'merges into trunk');
   assert.equal(mergeTargetText(null), 'merges into base');
   assert.match(parkedStatusText('base-diverged'), /Resync the base branch by hand, then Merge again/);

@@ -7,6 +7,8 @@ import { quickAddSession, requestSessionRemoval } from '../session-actions.ts';
 import { showSessionPlanFace } from '../session-card/lifecycle.ts';
 import type { ActivityRenderKind } from '../session-card/activity.ts';
 import { setActivityRenderer } from '../session-card/activity.ts';
+import { buildShortcutKeys, SHORTCUT_PLATFORM } from '../shortcuts.ts';
+import { railAriaKeyShortcuts, shortcutChord } from '../shortcuts-core.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
@@ -137,14 +139,12 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
 
   mountedRail.removeAttribute('role');
   mountedRail.removeAttribute('aria-label');
+  mountedRail.setAttribute('aria-keyshortcuts', railAriaKeyShortcuts(SHORTCUT_PLATFORM));
 
   railHeadEl = el('button', 'focus-rail-head');
   railHeadEl.type = 'button';
 
-  railHeadEl.innerHTML = '<span class="focus-rail-head-count"></span>'
-    + '<span class="shortcut-keys">'
-    + '<kbd class="kbd">Alt</kbd><span class="shortcut-sep">+</span><kbd class="kbd">W</kbd>'
-    + '</span>';
+  railHeadEl.append(el('span', 'focus-rail-head-count'), buildShortcutKeys(shortcutChord('next-attention', SHORTCUT_PLATFORM)));
   railHeadEl.addEventListener('click', focusNextAttention);
   setRailHeadActive(false, attentionSummaryText(0));
 
@@ -238,6 +238,7 @@ function onRailKeydown(e: KeyboardEvent) {
     return;
   }
   if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  if (e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
 
   const id = pickAdjacent(railVisibleIds(), railTabStopId, e.key === 'ArrowDown' ? 1 : -1);
   if (id == null) return;

@@ -31,6 +31,6 @@ The review sidebar: the single home for the worktree review gate of the selected
 ## Dependencies
 
 ### Internal
-- `../control-ws.ts` (merge/discard/diff requests), `../session-card/` (per-card merge state), `../app.ts` (Alt+M shortcut)
+- `../control-ws.ts` (merge/discard/diff requests), `../session-card/` (per-card merge state), `../app.ts` (merge shortcut, catalog in `../shortcuts-core.ts`)
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

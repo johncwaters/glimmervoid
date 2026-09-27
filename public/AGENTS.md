@@ -29,7 +29,8 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `usage-view-core.ts` | Pure Usage tab formatting, sorting, caveat text, warning text, and per-card chip text |
 | `theme.ts` | Theme definitions applied as CSS custom properties; terminal theme derived at runtime |
 | `ui-prefs.ts` / `local-store.ts` | THE localStorage home for UI state (sound, theme, active view, rail and sidebar widths), over quota-safe wrappers. Each key is declared once in `ui-prefs.ts`'s `PREFS` table with its default and normalizer; the accessors are one line each. The review sidebar's width keeps its own storage key so an existing install's saved width survives |
-| `shortcuts.ts` | Pure display catalog of keyboard shortcuts for the Settings view; handlers live in `app.ts` and `session-card/terminal.ts`, keep in sync |
+| `shortcuts-core.ts` | Pure catalog of dashboard shortcuts matched by `KeyboardEvent.code` under Cmd (Mac) or Alt, plus the help list groups; `app.ts` dispatch, the xterm pass-through and the help list all read it |
+| `shortcuts.ts` | DOM shell for `shortcuts-core.ts`: platform detection from the user agent, `kbd` chord rendering |
 | `form-factor-core.ts` | Pure `decideLayout({ coarse, narrowWidth })` -> `'phone' \| 'desktop'`: the one predicate choosing between the two first-class layouts |
 | `form-factor.ts` | Its IO shell: evaluates the two media queries, stamps `<html data-layout>`, notifies subscribers on a live flip |
 | `card-host.ts` | THE session-card re-parenting seam (`borrowCard` / `releaseCard`), single borrower GLOBALLY; shared by the Focus center and the phone Terminal screen |
@@ -64,7 +65,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 - Section heads, stat chips, `projectsOf` and `isPanelHidden` come from `dom-helpers.ts`; a new tab panel passes its class prefix rather than copying the builders.
 
 ### Testing Requirements
-- Pure cores have node:test coverage (`tests/frontend-*.test.js`, `shortcuts-core`, `render-scheduler`, `roster-groups-core`, `focus-shortcuts-core`, `board-groups-core`); DOM modules are verified manually via `npm run dev`.
+- Pure cores have node:test coverage (`tests/frontend-*.test.js`, `shortcuts-core`, `render-scheduler`, `roster-groups-core`, `board-groups-core`); DOM modules are verified manually via `npm run dev`.
 
 ### Common Patterns
 - Pure-core (`*-core`) + DOM-wrapper pairs, mirroring the server's seam pattern.

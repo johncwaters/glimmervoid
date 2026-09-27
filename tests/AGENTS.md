@@ -17,7 +17,7 @@ Tests are named `<module>.test.ts` after the module under test. Notable clusters
 | Session/server | `sessions-buffer`, `sessions-worktree`, `session-resize`, `session-write-guard`, `ws-sender`, `control-worktree` |
 | Worktrees | `git-workspace-session`, `git-workspace-rebase`, `rebase-gate`, `sessions-auto-rebase`, `session-spawn-args`, `no-direct-git-worktree`, `backend-worktree-reconcile` |
 | Usage tracking | `usage-entry-core`, `usage-pricing-core`, `usage-aggregate-core`, `usage-blocks-core`, `usage-scan-core`, `usage-scanner`, `usage-pricing`, `backend-usage`, `control-settings-usage`, `frontend-usage-view` |
-| Frontend pure cores | `frontend-naming`, `frontend-webgl-pool`, `frontend-aggregate-status`, `frontend-attention-roster`, `frontend-diff-core`, `roster-groups-core`, `focus-shortcuts-core`, `shortcuts-core`, `render-scheduler`, `perf-corpus` |
+| Frontend pure cores | `frontend-naming`, `frontend-webgl-pool`, `frontend-aggregate-status`, `frontend-attention-roster`, `frontend-diff-core`, `roster-groups-core`, `shortcuts-core`, `render-scheduler`, `perf-corpus` |
 
 ## Subdirectories
 

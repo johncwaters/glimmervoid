@@ -25,7 +25,8 @@ import {
   validateLocally,
 } from './settings-view-core.ts';
 import type { SettingsPayload, SettingsProject, SettingsValues } from './settings-view-core.ts';
-import { SHORTCUT_GROUPS } from './shortcuts.ts';
+import { appendShortcutChord, SHORTCUT_PLATFORM } from './shortcuts.ts';
+import { shortcutGroupsFor } from './shortcuts-core.ts';
 import { applyFlyingAnimals } from './flying-animals.ts';
 import { applyTheme, getThemeList } from './theme.ts';
 import {
@@ -181,7 +182,7 @@ function rememberProjectDetails(projects: unknown) {
 }
 
 function renderShortcutGroups(container: HTMLElement) {
-  for (const group of SHORTCUT_GROUPS) {
+  for (const group of shortcutGroupsFor(SHORTCUT_PLATFORM)) {
     const groupEl = el('div', 'shortcut-group');
     groupEl.appendChild(el('div', 'shortcut-group-title', group.title));
     const rows = el('dl', 'shortcut-rows');
@@ -189,10 +190,7 @@ function renderShortcutGroups(container: HTMLElement) {
       const keys = el('dt', 'shortcut-keys');
       item.combos.forEach((chord, chordIndex) => {
         if (chordIndex > 0) keys.appendChild(el('span', 'shortcut-sep', '/'));
-        chord.forEach((caption, keyIndex) => {
-          if (keyIndex > 0) keys.appendChild(el('span', 'shortcut-sep', '+'));
-          keys.appendChild(el('kbd', 'kbd', caption));
-        });
+        appendShortcutChord(keys, chord);
       });
       rows.append(keys, el('dd', 'shortcut-label', item.label));
     }

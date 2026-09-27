@@ -8,6 +8,8 @@ import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
+import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
+import { shortcutHint } from '../shortcuts-core.ts';
 import { getReviewSidebarView, getSidebarWidth, isReviewSidebarCollapsed, setReviewSidebarCollapsed, setReviewSidebarView, setSidebarWidth } from '../ui-prefs.ts';
 import { buildChangeMapView } from './change-map-core.ts';
 import { renderChangeMapView } from './change-map-view.ts';
@@ -50,6 +52,8 @@ interface BranchSync {
 
 const REVIEWABLE = new Set(['pending-review', 'parked']);
 const MAX_FILE_LINES = 600;
+const mergeShortcutHint = shortcutHint('merge', SHORTCUT_PLATFORM);
+const resolveShortcutHint = shortcutHint('resolve-or-resync', SHORTCUT_PLATFORM);
 const SIDEBAR_MIN = 260;
 const SIDEBAR_MAX = 700;
 
@@ -981,8 +985,8 @@ function renderActions(id: string, {
     actions.append(actionButton({
       id: 'review-merge-btn',
       label: 'Merge',
-      shortcut: 'alt+m',
-      title: mergeActionTitle(effectiveBase),
+      shortcut: mergeShortcutHint,
+      title: mergeActionTitle(effectiveBase, mergeShortcutHint),
       disabled: !mergeAction.isEnabled,
       onClick: () => sendMergeContinue(id, state),
     }));
@@ -992,8 +996,8 @@ function renderActions(id: string, {
   if (resolveShown) {
     actions.append(actionButton({
       label: 'Resolve',
-      shortcut: 'alt+r',
-      title: 'Paste a resolve prompt into this session so the agent can finish the merge (alt+r)',
+      shortcut: resolveShortcutHint,
+      title: `Paste a resolve prompt into this session so the agent can finish the merge (${resolveShortcutHint})`,
       onClick: () => {
         sendControlMsg({ type: 'resolve-session-merge', id });
         resolveJustSent = true;
@@ -1008,10 +1012,10 @@ function renderActions(id: string, {
   actions.append(actionButton({
     id: 'review-resync-btn',
     label: 'Resync',
-    shortcut: resolveShown ? undefined : 'alt+r',
+    shortcut: resolveShown ? undefined : resolveShortcutHint,
     title: resolveShown
       ? 'Fetch and fast-forward/push the local base branch against its remote upstream'
-      : 'Fetch and fast-forward/push the local base branch against its remote upstream (alt+r)',
+      : `Fetch and fast-forward/push the local base branch against its remote upstream (${resolveShortcutHint})`,
     disabled: resyncing || !!resyncDisabledReason(sync, resyncing),
     onClick: () => requestResyncBranch(id),
   }));

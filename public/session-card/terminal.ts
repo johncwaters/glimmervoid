@@ -4,7 +4,8 @@ import { Terminal } from '@xterm/xterm';
 import type { SessionUi } from './card-registry.ts';
 import { writeClipboardText } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
-import { isFocusAltShortcut } from '../focus-view/focus-shortcuts.ts';
+import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
+import { resolveDashboardShortcut } from '../shortcuts-core.ts';
 import { nextReconnectDelayMs } from '../reconnect-backoff.ts';
 import { renderScheduler } from '../render-scheduler.ts';
 import { getTerminalTheme } from '../theme.ts';
@@ -337,11 +338,7 @@ export function setupTerminal(termWrap: HTMLElement, ui: SessionUi) {
 
   term.attachCustomKeyEventHandler((ev) => {
     if (ev.type !== 'keydown') return true;
-    if (ev.altKey && !ev.ctrlKey && !ev.metaKey && !ev.shiftKey
-        && document.body.dataset.activeView === 'focus'
-        && isFocusAltShortcut(ev.key)) {
-      return false;
-    }
+    if (document.body.dataset.activeView === 'focus' && resolveDashboardShortcut(ev, SHORTCUT_PLATFORM)) return false;
     const ctrl = ev.ctrlKey || ev.metaKey;
     if (ctrl && ev.key === 'c' && term.hasSelection()) {
       const selection = term.getSelection();

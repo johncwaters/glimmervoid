@@ -39,6 +39,9 @@ import { activateSettingsSection, applySettingsBroadcast, applySettingsProjectRe
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
 import { createSettingsLink } from './settings-link.ts';
+import { SHORTCUT_PLATFORM } from './shortcuts.ts';
+import { resolveDashboardShortcut } from './shortcuts-core.ts';
+import type { ResolvedDashboardShortcut } from './shortcuts-core.ts';
 import { applyFlyingAnimals } from './flying-animals.ts';
 import { applyTheme } from './theme.ts';
 import { applyTraceChanged, applyTraceConnectionState, applyTraceError, applyTraceResponse, mountTraceView, openTraceForSession, refreshTraceView, setTraceNavigate, setTraceRequestSender, setTraceSessions } from './trace-panel.ts';
@@ -885,45 +888,38 @@ function isRealInputFocused() {
     && !a.classList.contains('xterm-helper-textarea');
 }
 
+function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
+  switch (action) {
+    case 'merge':
+      mergeSelectedSession();
+      return true;
+    case 'resolve-or-resync':
+      if (!resolveSelectedSession()) resyncSelectedSession();
+      return true;
+    case 'new-session':
+      document.getElementById('btn-add-session-header')?.click();
+      return true;
+    case 'next-attention':
+      if (!isFocusActive()) return false;
+      focusNextAttention();
+      return true;
+    case 'rail-step':
+      if (!isFocusActive()) return false;
+      focusAdjacentInRail(step);
+      return true;
+    case 'session-nth':
+      if (!isFocusActive()) return false;
+      focusNthInRail(step);
+      return true;
+  }
+}
+
 document.addEventListener('keydown', (e) => {
-  if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-
   if (e.repeat) return;
-
   if (isRealInputFocused()) return;
-
-  if (e.key === 'm' || e.key === 'M') {
-    e.preventDefault();
-    mergeSelectedSession();
-    return;
-  }
-
-  if (e.key === 'r' || e.key === 'R') {
-    e.preventDefault();
-    if (!resolveSelectedSession()) resyncSelectedSession();
-    return;
-  }
-  if ((e.key === 'w' || e.key === 'W') && isFocusActive()) {
-    e.preventDefault();
-    focusNextAttention();
-    return;
-  }
-  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-    if (!isFocusActive()) return;
-    e.preventDefault();
-    focusAdjacentInRail(e.key === 'ArrowDown' ? 1 : -1);
-    return;
-  }
-  if (e.key === '0') {
-    e.preventDefault();
-    document.getElementById('btn-add-session-header')?.click();
-    return;
-  }
-  if (e.key >= '1' && e.key <= '9') {
-    if (!isFocusActive()) return;
-    e.preventDefault();
-    focusNthInRail(Number(e.key));
-  }
+  const shortcut = resolveDashboardShortcut(e, SHORTCUT_PLATFORM);
+  if (!shortcut) return;
+  if (runDashboardShortcut(shortcut)) e.preventDefault();
 });
 
 let _focusDebounce: number | null = null;
