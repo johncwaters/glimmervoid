@@ -412,8 +412,13 @@ export const SETTINGS_MAP = Object.freeze([
         description: 'Leave every project clear to accept buffers from every configured project.',
         control: 'projects', keywords: ['repositories', 'filter'], defaultValue: [],
       },
+      {
+        id: 'visions-auto-fix', path: 'visions.autoFix', title: 'Apply tier 1 fixes',
+        description: 'Allow Visions to edit the active buffer without asking.',
+        control: 'toggle', keywords: ['automatic', 'edits'], danger: true,
+        warning: 'Enabling this control lets Visions edit eligible buffers without a carbon unit present.', defaultValue: false,
+      },
     ],
-    unattendedLinks: [{ settingId: 'visions-auto-fix', title: 'Apply tier 1 fixes' }],
   },
   {
     id: 'lanes-mill',
@@ -609,8 +614,13 @@ export const SETTINGS_MAP = Object.freeze([
         description: 'Historical window used to calculate normal hourly traffic.',
         control: 'number', range: 'POSTHOG_TRAFFIC_BASELINE_RANGE', keywords: ['history', 'analytics'], defaultValue: 7,
       },
+      {
+        id: 'posthog-auto-fix', path: 'posthog.autoFix', title: 'Attempt fixes for major issues',
+        description: 'Allow an isolated agent to fix an issue, push a branch and open a pull request.',
+        control: 'toggle', keywords: ['automatic', 'pull request'], danger: true,
+        warning: 'Enabling this control lets PostHog fixes commit, push and open pull requests automatically.', defaultValue: false,
+      },
     ],
-    unattendedLinks: [{ settingId: 'posthog-auto-fix', title: 'Attempt fixes for major issues' }],
   },
   {
     id: 'lanes-team-review',
@@ -656,18 +666,6 @@ export const SETTINGS_MAP = Object.freeze([
     title: 'Unattended actions',
     description: 'Controls that let automated work change repositories or install executable tooling.',
     settings: [
-      {
-        id: 'visions-auto-fix', path: 'visions.autoFix', title: 'Apply tier 1 fixes',
-        description: 'Allow Visions to edit the active buffer without asking.',
-        control: 'toggle', keywords: ['automatic', 'edits'], danger: true,
-        warning: 'Enabling this control lets Visions edit eligible buffers without a carbon unit present.', defaultValue: false,
-      },
-      {
-        id: 'posthog-auto-fix', path: 'posthog.autoFix', title: 'Attempt fixes for major issues',
-        description: 'Allow an isolated agent to fix an issue, push a branch and open a pull request.',
-        control: 'toggle', keywords: ['automatic', 'pull request'], danger: true,
-        warning: 'Enabling this control lets PostHog fixes commit, push and open pull requests automatically.', defaultValue: false,
-      },
       {
         id: 'skip-permissions-by-default', path: 'skipPermissionsByDefault', title: 'Skip permission prompts by default',
         description: 'Start sessions whose project sets no permission choice with the agent CLI permission bypass flag.',

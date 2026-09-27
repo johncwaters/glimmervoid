@@ -129,6 +129,7 @@ Editor-buffer findings and bounded model comments.
 | `visions.intent.threadTtlMs` | Intent thread lifetime (ms) | `259200000` | How long an intent thread nobody advanced stays live before it retires. |
 | `visions.dispatch.model` | Model override | `""` | Leave blank to use the configured Claude Code default. |
 | `visions.projects` | Projects | `[]` | Leave every project clear to accept buffers from every configured project. |
+| `visions.autoFix` | Apply tier 1 fixes | `false` | Allow Visions to edit the active buffer without asking. |
 
 ### Mill
 
@@ -181,6 +182,7 @@ The PostHog lane only starts when `posthog.host`, `posthog.apiKey`, `telegram.bo
 | `posthog.trafficSpikeMinUsers` | Min users to alert | `10` | Minimum recent unique users required for a traffic alert. |
 | `posthog.trafficSpikeCooldownMinutes` | Spike cooldown (minutes) | `360` | Minimum delay between traffic alerts. Zero disables muting. |
 | `posthog.trafficSpikeBaselineDays` | Baseline window (days) | `7` | Historical window used to calculate normal hourly traffic. |
+| `posthog.autoFix` | Attempt fixes for major issues | `false` | Allow an isolated agent to fix an issue, push a branch and open a pull request. |
 
 ### Team review
 
@@ -201,8 +203,6 @@ Controls that let automated work change repositories or install executable tooli
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `visions.autoFix` | Apply tier 1 fixes | `false` | Allow Visions to edit the active buffer without asking. |
-| `posthog.autoFix` | Attempt fixes for major issues | `false` | Allow an isolated agent to fix an issue, push a branch and open a pull request. |
 | `skipPermissionsByDefault` | Skip permission prompts by default | `false` | Start sessions whose project sets no permission choice with the agent CLI permission bypass flag. |
 | `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no merge proof. Off keeps every unmerged branch. |
 | `postTurnChecks.mode` | Post-turn checks mode | `"report"` | Report findings or let post-turn checks fix eligible files. |

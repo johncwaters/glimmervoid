@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Permission prompts are on**: sessions no longer spawn with the agent's permission bypass unless their project opts in. Add Session offers "Skip permission prompts", pre-checked from the machine default, and saves the choice on the project. A project with no choice follows `skipPermissionsByDefault`; set `skipPermissionsByDefault: true` to skip prompts again (also a toggle under Settings, Unattended actions).
   - **Branch cleanup keeps unmerged remote branches**: stale session branches with no merge proof are kept and traced as `not-merged-and-unmerged-deletion-off` instead of being deleted. Set `branchGc.deleteUnmerged: true` to delete them after `branchGc.staleDays` again (also a toggle under Settings, Unattended actions). Merged branches and local worktree cleanup are unchanged.
   - **Post-turn checks only report**: findings are listed but files are no longer rewritten, and any mode other than an exact `"fix"` counts as report. Set `postTurnChecks.mode: "fix"` to apply fixes again, or pick Fix under Settings, Unattended actions.
-- **Unattended actions toggles switch on with one click**: they no longer ask you to type a confirmation word first, and the warning under each one appears only while it is on.
+- **Unattended actions toggles switch on with one click**: they no longer ask you to type a confirmation word first, and the warning under each one appears only while it is on. The Visions and PostHog auto-fix toggles moved into the Visions and PostHog sections, beside the rest of those lanes' settings.
 
 ## [0.27.0] - 2026-09-26
 
