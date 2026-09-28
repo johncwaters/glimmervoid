@@ -7,9 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.2] - 2026-09-28
+
 ### Added
 
+- **Mine view in Reviews**: a Team/Mine switch in the Reviews tab. Mine lists your open, draft and recently merged pull requests in `teamReview.org`, each with a stage (needs rebase, failing checks, unresolved threads, waiting on approval, ready to merge) and short facts such as commits behind base and failing check names. It polls every 5 minutes, is display only, and notes when the list is cut at 50 pull requests.
 - **PostHog hedgehog joins the flying animals**: a hedgehog flies by, trailing PostHog logo marks.
+
+### Changed
+
+- **Reviews shows which PRs still need you**: pull requests you already reviewed at the live head, or that a teammate approved or requested changes on, move into a "No review needed" section and are not auto-reviewed. Rows and the detail header name who reviewed what, and posted rows show when they were posted.
+
+### Fixed
+
+- **Sessions start from an up-to-date base**: when your main checkout was clean but behind origin, new sessions forked from the stale local branch. The checked-out integration branch is now fast-forwarded in place, and the sync refuses when the checkout has tracked changes or when an incoming file would overwrite an existing one (such as `.env`).
 
 ## [0.27.1] - 2026-09-28
 
