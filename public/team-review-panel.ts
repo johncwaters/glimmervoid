@@ -10,8 +10,8 @@ import { createSettingsLink } from './settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
-  commentLocation, emptyStateText, groupDrafts, parseInlineSegments, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
-  parseReviewComment, phaseLabel, pullRequestLabel, readyAttentionSignature, readyRowSignature, reviewFooterText,
+  commentLocation, emptyStateText, githubReviewSummary, groupDrafts, parseInlineSegments, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  parseReviewComment, phaseLabel, postedAgeText, pullRequestLabel, readyAttentionSignature, readyRowSignature, reviewFooterText,
   reviewProgressSteps, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone,
 } from './team-review-view-core.ts';
 import type { TeamReviewSections } from './team-review-view-core.ts';
@@ -158,9 +158,13 @@ function createQueueRow(review: ReviewDraft | InFlightReview, kind: 'ready' | 'i
   }
   if (kind === 'posted') {
     const draft = review as ReviewDraft;
-    bottom.append(createVerdictSeal(draft.verdict), el('span', 'pr-queue-author', draft.author));
+    const postedAge = postedAgeText(draft.postedAt, Date.now());
+    bottom.append(el('span', 'pr-attention-label pr-attention-label-posted', 'posted'), el('span', 'pr-queue-author', draft.author));
+    bottom.append(el('span', 'pr-queue-posted-detail', postedAge ? `${verdictLabel(draft.verdict)}, ${postedAge}` : verdictLabel(draft.verdict)));
   }
   row.append(top, bottom);
+  const githubSummary = kind === 'inReview' ? '' : githubReviewSummary(review as ReviewDraft, { isViewerShown: kind !== 'posted' });
+  if (githubSummary) row.append(el('span', 'pr-queue-github', `GitHub: ${githubSummary}`));
   row.addEventListener('click', () => {
     _selectedKey = review.key;
     for (const button of _queue?.querySelectorAll<HTMLButtonElement>('button[data-review-key]') ?? []) button.setAttribute('aria-current', String(button.dataset.reviewKey === _selectedKey));
@@ -185,6 +189,8 @@ function createDetailHeading(review: ReviewDraft | InFlightReview): HTMLElement 
   metadata.append(el('span', null, review.author));
   const reasons = review.reasons.join(', ');
   metadata.append(el('span', null, reasons ? `${tierLabel(review.tier)} review: ${reasons}` : `${tierLabel(review.tier)} review`));
+  const githubSummary = 'reviewedHead' in review ? githubReviewSummary(review) : '';
+  if (githubSummary) metadata.append(el('span', 'pr-detail-github', `GitHub: ${githubSummary}`));
   const head = 'reviewedHead' in review ? review.reviewedHead : review.head;
   metadata.append(el('span', null, `${'reviewedHead' in review ? 'reviewed at' : 'head'} ${head.slice(0, 7)}`));
   heading.append(title, metadata);
@@ -263,13 +269,13 @@ function createInlineComment(comment: ReviewComment, index: number, includedInde
   const content = el('div', 'pr-comment-content');
   const header = el('div', 'pr-comment-header');
   const parsed = parseReviewComment(comment.body);
+  header.append(el('span', 'pr-comment-location', commentLocation(comment)));
   if (parsed.severity && parsed.tag) {
     const finding = el('span', 'pr-comment-finding');
     finding.style.color = `var(${severityPresentation(parsed.severity).colorToken})`;
     finding.append(createSeverityMeter(parsed.severity), el('strong', null, `[${parsed.tag}] ${parsed.severity}`));
     header.append(finding);
   }
-  header.append(el('span', 'pr-comment-location', commentLocation(comment)));
   content.append(header);
   for (const paragraph of parsed.paragraphs) content.append(createCommentParagraph(paragraph));
   card.append(checkbox, content);
@@ -441,7 +447,7 @@ function otherDetailFor(draft: ReviewDraft): HTMLElement {
 function renderSelectedDetail(sections: TeamReviewSections): void {
   if (!_detail) return;
   _selectedKey = chooseSelectedReviewKey(sections, _selectedKey);
-  const ready = sections.ready.find((draft) => draft.key === _selectedKey);
+  const ready = [...sections.ready, ...sections.noReviewNeeded].find((draft) => draft.key === _selectedKey && draft.status === 'ready');
   if (ready) {
     const signature = `ready:${readyRowSignature(ready)}`;
     if (_renderedDetailSignature === signature) return;
@@ -455,7 +461,7 @@ function renderSelectedDetail(sections: TeamReviewSections): void {
     _renderedDetailSignature = `inReview:${inReview.key}`;
     return;
   }
-  const other = [...sections.attention, ...sections.posted, ...sections.discarded].find((draft) => draft.key === _selectedKey);
+  const other = [...sections.noReviewNeeded, ...sections.attention, ...sections.posted, ...sections.discarded].find((draft) => draft.key === _selectedKey);
   if (!other) return;
   _detail.replaceChildren(otherDetailFor(other));
   _renderedDetailSignature = `${other.status}:${other.key}`;
@@ -553,7 +559,7 @@ function render(): void {
   if (!_root) return;
   const focusedReviewKey = focusedQueueReviewKey();
   const sections = groupDrafts(_latest);
-  forgetDepartedDetails(new Set(sections.ready.map((draft) => draft.key)));
+  forgetDepartedDetails(new Set([...sections.ready, ...sections.noReviewNeeded].map((draft) => draft.key)));
   _progressTicker.reset();
   if (!_latest?.configured || !hasAnyRow(sections)) {
     _root.replaceChildren(buildEmptyState());
@@ -568,6 +574,7 @@ function render(): void {
   _selectedKey = chooseSelectedReviewKey(sections, _selectedKey);
   const queueSections: HTMLElement[] = [];
   if (sections.ready.length) queueSections.push(createQueueSection('Ready', sections.ready, 'ready'));
+  if (sections.noReviewNeeded.length) queueSections.push(createQueueSection('No review needed', sections.noReviewNeeded, 'ready'));
   if (sections.inReview.length) {
     _inReviewSection = createQueueSection('In review', sections.inReview, 'inReview');
     queueSections.push(_inReviewSection);

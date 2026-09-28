@@ -2512,6 +2512,9 @@ a.radar-issue-title:hover {
 .pr-attention-label { color: var(--state-waiting); text-transform: uppercase; font-weight: 700; }
 .pr-attention-label-error { color: var(--state-failed); }
 .pr-attention-label-discarded { color: var(--text-dim); }
+.pr-attention-label-posted { color: var(--text-muted); }
+.pr-queue-posted-detail { margin-left: auto; color: var(--text-muted); white-space: nowrap; }
+.pr-queue-github { width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 11px; }
 
 .pr-verdict-seal {
   display: inline-flex;
@@ -2656,12 +2659,12 @@ a.pr-link:hover { color: var(--text-head); text-decoration: underline; }
 }
 
 .pr-comment-card[data-included="false"] { opacity: 0.55; }
-.pr-comment-checkbox { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); cursor: pointer; }
+.pr-comment-checkbox { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); cursor: pointer; }
 .pr-comment-content { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.pr-comment-header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 12px; }
-.pr-comment-finding { display: inline-flex; align-items: center; gap: 8px; }
+.pr-comment-header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-height: 22px; font-size: 12px; }
+.pr-comment-finding { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
 .pr-comment-finding strong { font-weight: 700; }
-.pr-comment-location { margin-left: auto; color: var(--text-head); overflow-wrap: anywhere; }
+.pr-comment-location { color: var(--text-head); overflow-wrap: anywhere; }
 .pr-comment-paragraph { color: var(--text); font-size: 13px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .pr-comment-paragraph code, .pr-verdict-box code { padding: 1px 5px; border-radius: var(--radius); background: var(--bg-surface); color: var(--text-head); font-size: 12px; }
 .pr-comment-lead { color: var(--accent); }
@@ -7783,7 +7786,8 @@ html[data-layout="phone"] .pr-footer { margin: 0 -16px; padding: 16px; }
 html[data-layout="phone"] .pr-action { min-height: 44px; }
 html[data-layout="phone"] .pr-link { display: inline-flex; align-items: center; min-height: 44px; }
 html[data-layout="phone"] .pr-comment-card { grid-template-columns: 44px minmax(0, 1fr); }
-html[data-layout="phone"] .pr-comment-checkbox { width: 44px; height: 44px; }
+html[data-layout="phone"] .pr-comment-checkbox { width: 44px; height: 44px; margin: 0; }
+html[data-layout="phone"] .pr-comment-header { min-height: 44px; }
 html[data-layout="phone"] .pr-body-input { font-size: 16px; }
 html[data-layout="phone"] .pr-progress-tracker { gap: 6px; }
 html[data-layout="phone"] .pr-progress-stage { font-size: 10px; }

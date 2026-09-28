@@ -1,6 +1,6 @@
-import { FindingSeverity } from '#shared/contracts/team-review.ts';
+import { DECIDING_REVIEW_STATES, FindingSeverity } from '#shared/contracts/team-review.ts';
 import type {
-  InFlightReview, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus,
+  GithubReview, GithubReviewState, InFlightReview, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus,
 } from '#shared/contracts/team-review.ts';
 import { findingSeveritiesIn, parseLeadingFindingHeader, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import { attentionSignature } from './attention-ack-core.ts';
@@ -8,6 +8,7 @@ import { formatClockOffset } from './radar-core.ts';
 
 export interface TeamReviewSections {
   ready: ReviewDraft[];
+  noReviewNeeded: ReviewDraft[];
   inReview: InFlightReview[];
   attention: ReviewDraft[];
   posted: ReviewDraft[];
@@ -63,6 +64,12 @@ const ATTENTION_STATUS_LABELS: Readonly<Record<string, string>> = Object.freeze(
   discarded: 'discarded',
 });
 
+const GITHUB_REVIEW_VERBS: Readonly<Record<GithubReviewState, string>> = Object.freeze({
+  APPROVED: 'approved',
+  CHANGES_REQUESTED: 'requested changes',
+  COMMENTED: 'commented',
+});
+
 const PHASE_LABELS: Readonly<Record<ReviewProgressPhase, string>> = Object.freeze({
   preparing: 'fetching the diff',
   checkout: 'checking out the head',
@@ -84,26 +91,63 @@ const ACTION_PROGRESS_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.
 });
 
 export function groupDrafts(status: TeamReviewStatus | null | undefined): TeamReviewSections {
-  const sections: TeamReviewSections = { ready: [], inReview: [], attention: [], posted: [], discarded: [] };
+  const sections: TeamReviewSections = { ready: [], noReviewNeeded: [], inReview: [], attention: [], posted: [], discarded: [] };
   if (!status) return sections;
   const inFlightKeys = new Set(status.inFlight.map((review) => review.key));
   sections.inReview.push(...status.inFlight);
   for (const draft of status.drafts) {
     if (inFlightKeys.has(draft.key)) continue;
-    if (draft.status === 'ready') sections.ready.push(draft);
-    if (draft.status === 'stale' || draft.status === 'error') sections.attention.push(draft);
+    const isSettled = (draft.status === 'ready' || draft.status === 'stale') && !isReviewNeeded(draft);
+    if (isSettled) sections.noReviewNeeded.push(draft);
+    if (draft.status === 'ready' && !isSettled) sections.ready.push(draft);
+    if ((draft.status === 'stale' && !isSettled) || draft.status === 'error') sections.attention.push(draft);
     if (draft.status === 'posted') sections.posted.push(draft);
     if (draft.status === 'discarded') sections.discarded.push(draft);
   }
   return sections;
 }
 
+function settlesReview(review: GithubReview, head: string): boolean {
+  if (review.commit !== head) return false;
+  return review.isViewer || DECIDING_REVIEW_STATES.has(review.state);
+}
+
+function currentHead(draft: ReviewDraft): string {
+  return draft.liveHead ?? draft.reviewedHead;
+}
+
+export function isReviewNeeded(draft: ReviewDraft): boolean {
+  return !(draft.githubReviews ?? []).some((review) => settlesReview(review, currentHead(draft)));
+}
+
+function describeGithubReview(review: GithubReview, head: string): string {
+  const verb = GITHUB_REVIEW_VERBS[review.state];
+  if (!review.isViewer) return `${verb} by ${review.login}`;
+  if (review.commit === head) return `you ${verb}`;
+  return `you ${verb} (older commit)`;
+}
+
+export function githubReviewSummary(draft: ReviewDraft, { isViewerShown = true }: { isViewerShown?: boolean } = {}): string {
+  const reviews = (draft.githubReviews ?? []).filter((review) => isViewerShown || !review.isViewer).sort((left, right) => Number(right.isViewer) - Number(left.isViewer));
+  return reviews.map((review) => describeGithubReview(review, currentHead(draft))).join(', ');
+}
+
+export function postedAgeText(postedAt: number | undefined, nowMs: number): string {
+  if (postedAt === undefined) return '';
+  const minutes = Math.floor(Math.max(0, nowMs - postedAt) / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 export function hasAnyRow(sections: TeamReviewSections): boolean {
-  return sections.ready.length + sections.inReview.length + sections.attention.length + sections.posted.length + sections.discarded.length > 0;
+  return sections.ready.length + sections.noReviewNeeded.length + sections.inReview.length + sections.attention.length + sections.posted.length + sections.discarded.length > 0;
 }
 
 export function chooseSelectedReviewKey(sections: TeamReviewSections, selectedKey: string | null): string | null {
-  const rows = [...sections.ready, ...sections.inReview, ...sections.attention, ...sections.posted, ...sections.discarded];
+  const rows = [...sections.ready, ...sections.noReviewNeeded, ...sections.inReview, ...sections.attention, ...sections.posted, ...sections.discarded];
   if (selectedKey && rows.some((row) => row.key === selectedKey)) return selectedKey;
   return rows[0]?.key ?? null;
 }
@@ -237,7 +281,7 @@ export function readyAttentionSignature(status: TeamReviewStatus | null | undefi
 }
 
 export function readyRowSignature(draft: ReviewDraft): string {
-  return `${draft.key}@${draft.reviewedHead}:${draft.status}:${draft.summary}`;
+  return `${draft.key}@${draft.reviewedHead}:${draft.status}:${draft.summary}:${githubReviewSummary(draft)}`;
 }
 
 export function isInFlightProgressOnlyChange(previous: TeamReviewStatus | null | undefined, next: TeamReviewStatus): boolean {

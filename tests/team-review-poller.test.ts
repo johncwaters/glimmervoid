@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, MAX_REVIEW_ATTEMPTS, POSTED_RETENTION_MS, errorDraft, readyDraft } from '../server/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/team-review-poller.ts';
+import type { PrReviewSnapshot } from '../server/pr-gh.ts';
 import type { SpawnReviewArgs, TeamReviewGithub, TeamReviewPollerDependencies } from '../server/team-review-poller.ts';
 import { PrDetail, SearchedPr, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type { ReviewDraft, TeamReviewState, TeamReviewStatus as TeamReviewStatusType } from '../shared/contracts/team-review.ts';
@@ -47,6 +48,8 @@ interface FakeGithub extends TeamReviewGithub {
   isRequestedComplete: boolean;
   isAuthoredComplete: boolean;
   heads: Map<number, string>;
+  reviews: Map<number, PrReviewSnapshot['reviews']>;
+  snapshotBatches: number[][];
   authoredQueries: string[][];
   failViewer: boolean;
 }
@@ -58,6 +61,8 @@ function fakeGithub(): FakeGithub {
     isRequestedComplete: true,
     isAuthoredComplete: true,
     heads: new Map(),
+    reviews: new Map(),
+    snapshotBatches: [],
     authoredQueries: [],
     failViewer: false,
     viewer: async () => (github.failViewer ? null : 'me'),
@@ -72,6 +77,13 @@ function fakeGithub(): FakeGithub {
       return head ? prDetail(number, head) : null;
     },
     prHead: async (_repo, number) => github.heads.get(number) ?? null,
+    prReviewSnapshots: async (prs) => {
+      github.snapshotBatches.push(prs.map((pr) => pr.number));
+      return new Map(prs.flatMap((pr) => {
+        const head = github.heads.get(pr.number);
+        return head ? [[`${pr.repo}#${pr.number}`, { head, reviews: github.reviews.get(pr.number) ?? [] }] as const] : [];
+      }));
+    },
   };
   return github;
 }
@@ -118,6 +130,86 @@ test('requested and authored PRs are deduped and self, bots and drafts never rea
   assert.deepEqual(latest?.drafts.map((draft) => [draft.key, draft.status]), [[`${REPO}#1`, 'ready']]);
   assert.deepEqual(latest?.inFlight, []);
   for (const status of statuses) assert.equal(TeamReviewStatus.safeParse(status).success, true);
+  await poller.stop();
+});
+
+test('a PR the operator already reviewed on GitHub at its head is never auto-reviewed', async () => {
+  const { poller, github, spawned } = setup();
+  github.requested = [searchItem(1, 'teammate'), searchItem(2, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  github.heads.set(2, HEAD_ONE);
+  github.reviews.set(1, [{ login: 'me', state: 'APPROVED', commit: HEAD_ONE }]);
+  github.reviews.set(2, [{ login: 'me', state: 'APPROVED', commit: HEAD_TWO }]);
+  await poller.start();
+  await settle();
+  assert.deepEqual(spawned.map((args) => args.candidate.key), [`${REPO}#2`]);
+  await poller.stop();
+});
+
+test('a ready draft picks up the GitHub reviews on the next tick', async () => {
+  const { poller, github, statuses } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  github.reviews.set(1, [{ login: 'me', state: 'APPROVED', commit: HEAD_ONE }, { login: 'sarah', state: 'COMMENTED', commit: HEAD_ONE }]);
+  await poller.tick();
+  const draft = statuses.at(-1)?.drafts[0];
+  assert.equal(draft?.status, 'ready');
+  assert.deepEqual(draft?.githubReviews, [{ login: 'me', state: 'APPROVED', commit: HEAD_ONE, isViewer: true }]);
+  await poller.stop();
+});
+
+test('review snapshots load in one batch per tick and a PR without one waits for the next tick', async () => {
+  const { poller, github, spawned } = setup();
+  github.requested = [searchItem(1, 'teammate'), searchItem(2, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.deepEqual(github.snapshotBatches, [[1, 2]]);
+  assert.deepEqual(spawned.map((args) => args.candidate.key), [`${REPO}#1`]);
+  assert.equal(poller._state()[`${REPO}#2`], undefined);
+  github.heads.set(2, HEAD_TWO);
+  await poller.tick();
+  await settle();
+  assert.deepEqual(github.snapshotBatches.at(-1), [1, 2]);
+  assert.deepEqual(spawned.map((args) => args.candidate.key), [`${REPO}#1`, `${REPO}#2`]);
+  await poller.stop();
+});
+
+test('a draft carries the live head once the PR moves past the reviewed head', async () => {
+  const { poller, github, statuses, writes } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  await poller.tick();
+  assert.equal(statuses.at(-1)?.drafts[0].liveHead, HEAD_ONE);
+  const writesBefore = writes.length;
+  await poller.tick();
+  assert.equal(writes.length, writesBefore, 'an unchanged live head is not persisted again');
+  github.heads.set(1, HEAD_TWO);
+  github.reviews.set(1, [{ login: 'me', state: 'APPROVED', commit: HEAD_TWO }]);
+  await poller.tick();
+  const draft = statuses.at(-1)?.drafts[0];
+  assert.equal(draft?.status, 'stale');
+  assert.equal(draft?.reviewedHead, HEAD_ONE);
+  assert.equal(draft?.liveHead, HEAD_TWO);
+  await poller.stop();
+});
+
+test('posting a draft records when it was posted and later ticks leave that time alone', async () => {
+  const { poller, github, statuses, setNow } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  setNow(5000);
+  const posted = await poller.updateDraft(`${REPO}#1`, { reviewedHead: HEAD_ONE, status: 'ready' }, { status: 'posted' });
+  assert.equal(posted?.postedAt, 5000);
+  setNow(9000);
+  await poller.tick();
+  assert.equal(statuses.at(-1)?.drafts[0].postedAt, 5000);
   await poller.stop();
 });
 
@@ -426,7 +518,7 @@ test('a skip-tier PR is recorded with its reason and never spawned', async () =>
   await poller.tick();
   await settle();
   assert.equal(spawned.length, 0);
-  assert.deepEqual(poller._state()[`${REPO}#5`], { draft: null, reviewedHead: HEAD_ONE, inFlight: false, skipReason: 'fork', reviewAttempts: 0, updatedAt: 1000 });
+  assert.deepEqual(poller._state()[`${REPO}#5`], { draft: null, reviewedHead: HEAD_ONE, inFlight: false, skipReason: 'fork', reviewAttempts: 0, liveHead: HEAD_ONE, updatedAt: 1000 });
   await poller.stop();
 });
 

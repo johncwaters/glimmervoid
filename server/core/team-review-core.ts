@@ -1,7 +1,7 @@
-import { FindingSeverity, PostingPlan, ReviewFinding, ReviewResult, ReviewVerdict } from '../../shared/contracts/team-review.ts';
+import { DECIDING_REVIEW_STATES, FindingSeverity, GithubReviewState, PostingPlan, ReviewFinding, ReviewResult, ReviewVerdict } from '../../shared/contracts/team-review.ts';
 import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, withoutAutomatedNote } from '../../shared/team-review-markdown.ts';
 import type {
-  InFlightReview, PostingPlan as PostingPlanType, PrDetail, ReviewComment, ReviewDraft, ReviewProgressPhase,
+  GithubReview, InFlightReview, PostingPlan as PostingPlanType, PrDetail, ReviewComment, ReviewDraft, ReviewProgressPhase,
   ReviewAssessment, ReviewResult as ReviewResultType, SearchedPr, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../../shared/contracts/team-review.ts';
 
@@ -259,11 +259,35 @@ function shouldPruneEntry(entry: TeamReviewStateEntry, isStillCandidate: boolean
   return nowMs - entry.updatedAt > POSTED_RETENTION_MS;
 }
 
+function githubReviewsFrom(reviews: readonly { login: string; state: string; commit: string | null }[], viewer: string): GithubReview[] {
+  return reviews.flatMap((review) => {
+    const state = GithubReviewState.safeParse(review.state);
+    if (!state.success) return [];
+    const isViewer = review.login.toLowerCase() === viewer.toLowerCase();
+    if (!isViewer && !DECIDING_REVIEW_STATES.has(state.data)) return [];
+    return [{ login: review.login, state: state.data, commit: review.commit, isViewer }];
+  });
+}
+
+function hasViewerReviewedAt(reviews: readonly GithubReview[] | undefined, head: string): boolean {
+  return (reviews ?? []).some((review) => review.isViewer && review.commit === head);
+}
+
+function isSameGithubReviews(left: readonly GithubReview[] | undefined, right: readonly GithubReview[]): boolean {
+  return JSON.stringify(left ?? []) === JSON.stringify(right);
+}
+
+function presentedDraft(entry: TeamReviewStateEntry, draft: ReviewDraft): ReviewDraft {
+  const withReviews = entry.githubReviews?.length ? { ...draft, githubReviews: entry.githubReviews } : draft;
+  if (!entry.liveHead) return withReviews;
+  return { ...withReviews, liveHead: entry.liveHead };
+}
+
 function draftsNewestFirst(state: TeamReviewState): ReviewDraft[] {
   return Object.values(state)
     .filter((entry) => entry.draft !== null)
     .sort((left, right) => right.updatedAt - left.updatedAt)
-    .flatMap((entry) => (entry.draft ? [entry.draft] : []));
+    .flatMap((entry) => (entry.draft ? [presentedDraft(entry, entry.draft)] : []));
 }
 
 function teamReviewStatus({ ts, configured, reason = null, drafts = [], inFlight = [] }: {
@@ -650,7 +674,7 @@ export {
   REVIEW_TIMEOUT_SECONDS, RESUME_TTL_MS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS,
   TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME,
   REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE,
-  buildReviewPrompt, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, errorDraft, eventForAction, invalidComments, isSettledAtHead, shouldAutoReview, markDraftStale, restoreDraftAtReviewedHead,
+  buildReviewPrompt, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, errorDraft, eventForAction, githubReviewsFrom, hasViewerReviewedAt, invalidComments, isSameGithubReviews, isSettledAtHead, shouldAutoReview, markDraftStale, restoreDraftAtReviewedHead,
   applyReviewProgress, prBaseRef, prHeadRef, prKey, readyDraft, repoFromSearchItem, resumeDecision, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr,
 };
 export type { CommentableFileLines, CommentableLines, ReviewProgressEvent, ReviewTier, TeamReviewCandidate };

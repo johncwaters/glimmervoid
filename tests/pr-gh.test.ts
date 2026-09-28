@@ -134,6 +134,48 @@ test('PR reads use exact argv and parse contract shapes', async () => {
   ]);
 });
 
+function reviewQueryField(alias: string, owner: string, name: string, number: number): string {
+  return `${alias}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${number}) { headRefOid latestReviews(first: 20) { nodes { author { login } state commit { oid } } } } }`;
+}
+
+test('review snapshots batch aliased GraphQL fields, null empty commits and drop ghost authors', async () => {
+  const calls: string[][] = [];
+  const gh = createPrGh('/repo', async (_command, args) => {
+    calls.push(args);
+    return { ok: true, out: JSON.stringify({ data: {
+      pr0: { pullRequest: { headRefOid: HEAD_SHA, latestReviews: { nodes: [
+        { author: { login: 'sarah' }, state: 'APPROVED', commit: { oid: HEAD_SHA } },
+        { author: { login: 'copilot' }, state: 'COMMENTED', commit: { oid: '' } },
+        { author: null, state: 'APPROVED', commit: { oid: HEAD_SHA } },
+      ] } } },
+      pr1: { pullRequest: null },
+    } }), err: '' };
+  });
+  const snapshots = await gh.prReviewSnapshots([
+    { repo: 'Acme/repo', number: 7 }, { repo: '../repo', number: 8 }, { repo: 'Acme/other', number: 9 }, { repo: 'Acme/repo', number: 0 },
+  ]);
+  assert.deepEqual([...snapshots.entries()], [['Acme/repo#7', { head: HEAD_SHA, reviews: [
+    { login: 'sarah', state: 'APPROVED', commit: HEAD_SHA },
+    { login: 'copilot', state: 'COMMENTED', commit: null },
+  ] }]]);
+  assert.deepEqual(calls, [['api', 'graphql', '-f', `query=query { ${reviewQueryField('pr0', 'Acme', 'repo', 7)} ${reviewQueryField('pr1', 'Acme', 'other', 9)} }`]]);
+});
+
+test('review snapshots split into batches of 25 and keep partial data from a failed batch', async () => {
+  const calls: string[][] = [];
+  const gh = createPrGh('/repo', async (_command, args) => {
+    calls.push(args);
+    const data = { pr0: { pullRequest: { headRefOid: HEAD_SHA, latestReviews: { nodes: [] } } }, pr1: null };
+    return { ok: calls.length === 1, out: JSON.stringify({ data }), err: 'Could not resolve to a Repository' };
+  });
+  const prs = Array.from({ length: 27 }, (_unused, index) => ({ repo: 'Acme/repo', number: index + 1 }));
+  const snapshots = await gh.prReviewSnapshots(prs);
+  assert.equal(calls.length, 2);
+  assert.deepEqual([...snapshots.keys()], ['Acme/repo#1', 'Acme/repo#26']);
+  assert.equal((await gh.prReviewSnapshots([{ repo: 'bad/repo/path', number: 1 }])).size, 0);
+  assert.equal(calls.length, 2);
+});
+
 test('invalid inputs and malformed contract payloads fail closed', async () => {
   let calls = 0;
   const invalid = createPrGh('/repo', async () => {

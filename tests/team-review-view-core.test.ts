@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey, commentLocation, emptyStateText, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey, commentLocation, emptyStateText, githubReviewSummary, groupDrafts, postedAgeText, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, phaseLabel, pullRequestLabel, readyAttentionSignature, readyRowSignature, reviewFooterText, reviewProgressSteps,
   severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone, withoutComment,
 } from '../public/team-review-view-core.ts';
@@ -48,6 +48,64 @@ test('drafts group into ready, in review, needs attention, recently posted and d
   assert.deepEqual(sections.posted.map((row) => row.number), [4]);
   assert.deepEqual(sections.discarded.map((row) => row.number), [5]);
   assert.equal(hasAnyRow(sections), true);
+});
+
+test('a ready draft leaves Ready once a review at its head settles it', () => {
+  const reviewedHead = draft(1).reviewedHead;
+  const sections = groupDrafts(status([
+    draft(1, { githubReviews: [{ login: 'me', state: 'COMMENTED', commit: reviewedHead, isViewer: true }] }),
+    draft(2, { githubReviews: [{ login: 'me', state: 'APPROVED', commit: null, isViewer: true }] }),
+    draft(3, { githubReviews: [{ login: 'sarah', state: 'APPROVED', commit: reviewedHead, isViewer: false }] }),
+    draft(4, { githubReviews: [{ login: 'gil', state: 'CHANGES_REQUESTED', commit: reviewedHead, isViewer: false }] }),
+    draft(5, { githubReviews: [{ login: 'sarah', state: 'APPROVED', commit: null, isViewer: false }] }),
+    draft(6),
+  ]));
+  assert.deepEqual(sections.noReviewNeeded.map((row) => row.number), [1, 3, 4]);
+  assert.deepEqual(sections.ready.map((row) => row.number), [2, 5, 6]);
+  assert.equal(chooseSelectedReviewKey(sections, 'Acme/app#1'), 'Acme/app#1');
+});
+
+test('the GitHub summary names the operator first and flags a review of an older commit', () => {
+  const reviewedHead = draft(1).reviewedHead;
+  assert.equal(githubReviewSummary(draft(1)), '');
+  assert.equal(githubReviewSummary(draft(1, { githubReviews: [
+    { login: 'sarah', state: 'CHANGES_REQUESTED', commit: reviewedHead, isViewer: false },
+    { login: 'me', state: 'APPROVED', commit: reviewedHead, isViewer: true },
+  ] })), 'you approved, requested changes by sarah');
+  assert.equal(githubReviewSummary(draft(1, { githubReviews: [{ login: 'me', state: 'COMMENTED', commit: null, isViewer: true }] })), 'you commented (older commit)');
+  assert.equal(githubReviewSummary(draft(1, { githubReviews: [
+    { login: 'me', state: 'COMMENTED', commit: reviewedHead, isViewer: true },
+    { login: 'sarah', state: 'APPROVED', commit: reviewedHead, isViewer: false },
+  ] }), { isViewerShown: false }), 'approved by sarah');
+});
+
+test('a stale draft the operator reviewed at the live head leaves Needs attention, an error draft stays', () => {
+  const liveHead = 'c'.repeat(40);
+  const reviewedAtLiveHead = [{ login: 'me', state: 'COMMENTED' as const, commit: liveHead, isViewer: true }];
+  const sections = groupDrafts(status([
+    draft(1, { status: 'stale', liveHead, githubReviews: reviewedAtLiveHead }),
+    draft(2, { status: 'stale', liveHead, githubReviews: [{ login: 'me', state: 'APPROVED', commit: HEAD, isViewer: true }] }),
+    draft(3, { status: 'error', error: 'timed out', liveHead, githubReviews: reviewedAtLiveHead }),
+    draft(4, { liveHead, githubReviews: [{ login: 'sarah', state: 'APPROVED', commit: HEAD, isViewer: false }] }),
+  ]));
+  assert.deepEqual(sections.noReviewNeeded.map((row) => row.number), [1]);
+  assert.deepEqual(sections.attention.map((row) => row.number), [2, 3]);
+  assert.deepEqual(sections.ready.map((row) => row.number), [4]);
+});
+
+test('the GitHub summary judges the operator review against the live head, not the reviewed head', () => {
+  const liveHead = 'c'.repeat(40);
+  assert.equal(githubReviewSummary(draft(1, { status: 'stale', liveHead, githubReviews: [{ login: 'me', state: 'APPROVED', commit: liveHead, isViewer: true }] })), 'you approved');
+  assert.equal(githubReviewSummary(draft(1, { status: 'stale', liveHead, githubReviews: [{ login: 'me', state: 'APPROVED', commit: HEAD, isViewer: true }] })), 'you approved (older commit)');
+});
+
+test('posted age reads in the largest whole unit', () => {
+  const minute = 60000;
+  assert.equal(postedAgeText(undefined, 0), '');
+  assert.equal(postedAgeText(0, 30000), 'just now');
+  assert.equal(postedAgeText(0, 5 * minute), '5m ago');
+  assert.equal(postedAgeText(0, 3 * 60 * minute), '3h ago');
+  assert.equal(postedAgeText(0, 50 * 60 * minute), '2d ago');
 });
 
 test('a PR under review shows only under In review, even when an older draft exists', () => {

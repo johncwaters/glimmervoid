@@ -45,6 +45,16 @@ interface PrSearchResult {
   complete: boolean;
 }
 
+interface PrReviewSnapshot {
+  head: string;
+  reviews: { login: string; state: string; commit: string | null }[];
+}
+
+interface PrReference {
+  repo: string;
+  number: number;
+}
+
 interface GithubIssueList {
   ok: boolean;
   issues: GithubIssueWithoutBody[];
@@ -68,6 +78,7 @@ interface PrGh {
   viewPr(repo: string, number: number): Promise<PrDetailType | null>;
   prDiff(repo: string, number: number): Promise<string | null>;
   prHead(repo: string, number: number): Promise<string | null>;
+  prReviewSnapshots(prs: readonly PrReference[]): Promise<Map<string, PrReviewSnapshot>>;
   postReview(review: { repo: string; number: number; commitId: string; event: 'APPROVE' | 'COMMENT'; body: string; comments: ReviewCommentType[] }): Promise<PostedReview>;
   dismissReview(dismissal: { repo: string; number: number; reviewId: number; message: string }): Promise<{ ok: boolean; err: string }>;
 }
@@ -102,6 +113,21 @@ const SEARCH_PAGE_SIZE = 100;
 const MAX_SEARCH_PAGES = 5;
 const PR_DIFF_MAX_BYTES = 2 * 1024 * 1024;
 const CREATED_REVIEW = z.object({ id: z.number().int().positive() }).passthrough();
+const REVIEW_SNAPSHOT_BATCH_SIZE = 25;
+const LATEST_REVIEWS_PER_PR = 20;
+const GRAPHQL_REVIEW_REPOSITORY = z.object({
+  pullRequest: z.object({
+    headRefOid: CommitSha,
+    latestReviews: z.object({
+      nodes: z.array(z.object({
+        author: z.object({ login: z.string() }).passthrough().nullable(),
+        state: z.string(),
+        commit: z.object({ oid: z.string() }).passthrough().nullable().optional(),
+      }).passthrough().nullable()),
+    }).passthrough(),
+  }).passthrough().nullable(),
+}).passthrough().nullable();
+const GRAPHQL_RESPONSE = z.object({ data: z.record(z.string(), z.unknown()).nullable() }).passthrough();
 const PR_DIFF = z.string().refine((diff) => Buffer.byteLength(diff, 'utf8') <= PR_DIFF_MAX_BYTES);
 
 function repoParts(repo: string): [string, string] | null {
@@ -112,6 +138,37 @@ function repoParts(repo: string): [string, string] | null {
 
 function isPrNumber(number: number): boolean {
   return Number.isSafeInteger(number) && number > 0;
+}
+
+function reviewSnapshotKey(repo: string, number: number): string {
+  return `${repo}#${number}`;
+}
+
+function reviewSnapshotQuery(prs: readonly PrReference[]): string {
+  const fields = prs.map((pr, index) => {
+    const [owner, name] = repoParts(pr.repo) ?? ['', ''];
+    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { headRefOid latestReviews(first: ${LATEST_REVIEWS_PER_PR}) { nodes { author { login } state commit { oid } } } } }`;
+  });
+  return `query { ${fields.join(' ')} }`;
+}
+
+function reviewSnapshotFrom(repository: unknown): PrReviewSnapshot | null {
+  const parsed = GRAPHQL_REVIEW_REPOSITORY.safeParse(repository);
+  const pullRequest = parsed.success ? parsed.data?.pullRequest : null;
+  if (!pullRequest) return null;
+  const reviews = pullRequest.latestReviews.nodes.flatMap((review) => (review?.author
+    ? [{ login: review.author.login, state: review.state, commit: CommitSha.safeParse(review.commit?.oid).data ?? null }]
+    : []));
+  return { head: pullRequest.headRefOid, reviews };
+}
+
+function uniqueValidPrs(prs: readonly PrReference[]): PrReference[] {
+  const byKey = new Map<string, PrReference>();
+  for (const pr of prs) {
+    if (!repoParts(pr.repo) || !isPrNumber(pr.number)) continue;
+    byKey.set(reviewSnapshotKey(pr.repo, pr.number), { repo: pr.repo, number: pr.number });
+  }
+  return [...byKey.values()];
 }
 
 function normalizeIssueLabel(candidate: unknown): GithubIssueLabel | null {
@@ -250,6 +307,23 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       return parsed.success ? parsed.data : null;
     },
 
+    async prReviewSnapshots(prs) {
+      const snapshots = new Map<string, PrReviewSnapshot>();
+      const validPrs = uniqueValidPrs(prs);
+      for (let index = 0; index < validPrs.length; index += REVIEW_SNAPSHOT_BATCH_SIZE) {
+        const batch = validPrs.slice(index, index + REVIEW_SNAPSHOT_BATCH_SIZE);
+        const response = await runGh(['api', 'graphql', '-f', `query=${reviewSnapshotQuery(batch)}`]);
+        const parsed = GRAPHQL_RESPONSE.safeParse(parseJson<unknown>(response.out, null));
+        const data = parsed.success ? parsed.data.data : null;
+        if (!data) continue;
+        batch.forEach((pr, position) => {
+          const snapshot = reviewSnapshotFrom(data[`pr${position}`]);
+          if (snapshot) snapshots.set(reviewSnapshotKey(pr.repo, pr.number), snapshot);
+        });
+      }
+      return snapshots;
+    },
+
     async prHead(repo, number) {
       if (!repoParts(repo) || !isPrNumber(number)) return null;
       const response = await runGh(['pr', 'view', String(number), '-R', repo, '--json', 'headRefOid', '--jq', '.headRefOid']);
@@ -286,4 +360,4 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
 }
 
 export { createPrGh, normalizeIssue };
-export type { CommandResult, GithubIssue, GithubIssueDetail, GithubIssueLabel, GithubIssueList, GithubIssueWithoutBody, PostedReview, PrGh, PrSearchResult };
+export type { CommandResult, GithubIssue, GithubIssueDetail, GithubIssueLabel, GithubIssueList, GithubIssueWithoutBody, PostedReview, PrGh, PrReference, PrReviewSnapshot, PrSearchResult };

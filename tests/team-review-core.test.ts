@@ -17,6 +17,8 @@ import {
   draftsNewestFirst,
   errorDraft,
   eventForAction,
+  githubReviewsFrom,
+  hasViewerReviewedAt,
   invalidComments,
   isSettledAtHead,
   markDraftStale,
@@ -367,6 +369,42 @@ test('drafts list newest first and leave out entries without one', () => {
     'PostHog/wizard#9': stateEntry({ skipReason: 'fork' }),
   });
   assert.deepEqual(drafts.map((draft) => draft.key), [newer.key, older.key]);
+});
+
+test('GitHub reviews keep every viewer review but only approvals and change requests from others', () => {
+  const reviews = githubReviewsFrom([
+    { login: 'Me', state: 'COMMENTED', commit: HEAD },
+    { login: 'copilot-pull-request-reviewer', state: 'COMMENTED', commit: null },
+    { login: 'sarah', state: 'APPROVED', commit: HEAD },
+    { login: 'gil', state: 'CHANGES_REQUESTED', commit: null },
+    { login: 'dan', state: 'DISMISSED', commit: HEAD },
+    { login: 'eve', state: 'PENDING', commit: HEAD },
+  ], 'me');
+  assert.deepEqual(reviews, [
+    { login: 'Me', state: 'COMMENTED', commit: HEAD, isViewer: true },
+    { login: 'sarah', state: 'APPROVED', commit: HEAD, isViewer: false },
+    { login: 'gil', state: 'CHANGES_REQUESTED', commit: null, isViewer: false },
+  ]);
+  assert.equal(hasViewerReviewedAt(reviews, HEAD), true);
+  assert.equal(hasViewerReviewedAt(reviews, 'b'.repeat(40)), false);
+  assert.equal(hasViewerReviewedAt(reviews.slice(1), HEAD), false);
+});
+
+test('published drafts carry the GitHub reviews and live head but never derive a posted time from the entry', () => {
+  const reviews = [{ login: 'sarah', state: 'APPROVED' as const, commit: HEAD, isViewer: false }];
+  const liveHead = 'b'.repeat(40);
+  const ready = readyDraftAt(HEAD);
+  const posted = { ...readyDraftAt(HEAD), key: 'PostHog/wizard#1351', number: 1351, status: 'posted' as const, postedAt: 7 };
+  const drafts = draftsNewestFirst({
+    [ready.key]: stateEntry({ draft: ready, updatedAt: 1, githubReviews: reviews, liveHead }),
+    [posted.key]: stateEntry({ draft: posted, updatedAt: 2 }),
+  });
+  assert.equal(drafts[0].postedAt, 7);
+  assert.equal(drafts[0].githubReviews, undefined);
+  assert.equal(drafts[0].liveHead, undefined);
+  assert.deepEqual(drafts[1].githubReviews, reviews);
+  assert.equal(drafts[1].liveHead, liveHead);
+  assert.equal(drafts[1].postedAt, undefined);
 });
 
 test('an error draft is a valid draft that can never be posted', () => {

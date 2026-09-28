@@ -100,6 +100,24 @@ export const PostingPlan = z.object({
 });
 export type PostingPlan = z.infer<typeof PostingPlan>;
 
+export const GithubReviewState = z.enum(['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED']);
+export type GithubReviewState = z.infer<typeof GithubReviewState>;
+export const DECIDING_REVIEW_STATES: ReadonlySet<GithubReviewState> = new Set(['APPROVED', 'CHANGES_REQUESTED']);
+
+export const GithubReview = z.object({
+  login: z.string().min(1),
+  state: GithubReviewState,
+  commit: CommitSha.nullable(),
+  isViewer: z.boolean(),
+});
+export type GithubReview = z.infer<typeof GithubReview>;
+
+export const PrReviewState = z.object({
+  head: CommitSha,
+  reviews: z.array(GithubReview),
+});
+export type PrReviewState = z.infer<typeof PrReviewState>;
+
 export const ReviewDraft = z.object({
   key: z.string(),
   repo: repoSlug,
@@ -117,6 +135,9 @@ export const ReviewDraft = z.object({
   comments: z.array(ReviewComment),
   status: z.enum(['ready', 'stale', 'posted', 'discarded', 'error']),
   error: z.string().optional(),
+  githubReviews: z.array(GithubReview).optional(),
+  liveHead: CommitSha.optional(),
+  postedAt: z.number().finite().optional(),
 });
 export type ReviewDraft = z.infer<typeof ReviewDraft>;
 
@@ -158,6 +179,8 @@ export const TeamReviewStateEntry = z.object({
   reviewAttempts: z.number().int().nonnegative().default(0),
   resumable: ResumableReview.nullable().optional(),
   reviewedAt: z.number().optional(),
+  githubReviews: z.array(GithubReview).optional(),
+  liveHead: CommitSha.optional(),
   updatedAt: z.number().finite(),
 });
 export type TeamReviewStateEntry = z.infer<typeof TeamReviewStateEntry>;

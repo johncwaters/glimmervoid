@@ -3,7 +3,7 @@ import type { ReviewProgressEvent, ReviewTier, TeamReviewCandidate } from './cor
 import { firstLine } from './ephemeral-session.ts';
 import { createTickLoop } from './lane-runner.ts';
 import type { TickOutcome } from './lane-runner.ts';
-import type { PrSearchResult } from './pr-gh.ts';
+import type { PrReference, PrReviewSnapshot, PrSearchResult } from './pr-gh.ts';
 import { ReviewDraft } from '../shared/contracts/team-review.ts';
 import type {
   InFlightReview, PrDetail, ResumableReview, ReviewDraft as ReviewDraftType, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
@@ -16,6 +16,7 @@ interface TeamReviewGithub {
   searchAuthoredBy(org: string, logins: string[]): Promise<PrSearchResult>;
   viewPr(repo: string, number: number): Promise<PrDetail | null>;
   prHead(repo: string, number: number): Promise<string | null>;
+  prReviewSnapshots(prs: readonly PrReference[]): Promise<Map<string, PrReviewSnapshot>>;
 }
 
 interface SpawnReviewArgs {
@@ -167,23 +168,41 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     emitStatus();
   }
 
+  async function reviewSnapshotsFor(candidates: TeamReviewCandidate[]): Promise<Map<string, PrReviewSnapshot>> {
+    const prs = candidates.filter((candidate) => !state[candidate.key]?.inFlight).map(({ repo, number }) => ({ repo, number }));
+    if (prs.length === 0) return new Map();
+    return github.prReviewSnapshots(prs);
+  }
+
   async function headsToReview(candidates: TeamReviewCandidate[]): Promise<{ queue: TeamReviewCandidate[]; isDirty: boolean }> {
     const queue: TeamReviewCandidate[] = [];
     let isDirty = false;
+    const snapshots = await reviewSnapshotsFor(candidates);
     for (const candidate of candidates) {
       const entry = state[candidate.key];
       if (entry?.inFlight) continue;
+      const snapshot = snapshots.get(core.prKey(candidate.repo, candidate.number));
+      if (!snapshot) continue;
+      const head = snapshot.head;
+      const githubReviews = core.githubReviewsFrom(snapshot.reviews, self ?? '');
+      const isReviewedByViewer = core.hasViewerReviewedAt(githubReviews, head);
       if (!entry) {
-        queue.push(candidate);
+        if (!isReviewedByViewer) queue.push(candidate);
         continue;
       }
-      const head = await github.prHead(candidate.repo, candidate.number);
-      if (head === null) continue;
+      if (!core.isSameGithubReviews(entry.githubReviews, githubReviews)) {
+        entry.githubReviews = githubReviews;
+        isDirty = true;
+      }
+      if (entry.liveHead !== head) {
+        entry.liveHead = head;
+        isDirty = true;
+      }
       if (core.restoreDraftAtReviewedHead(entry, head, now())) isDirty = true;
       const canAutoReview = core.shouldAutoReview(entry, head, now(), reReviewAfterMs);
       if (entry.reviewedHead !== head && entry.draft?.status === 'ready') entry.reviewedAt ??= entry.updatedAt;
       if (entry.reviewedHead !== head && core.markDraftStale(entry, now())) isDirty = true;
-      if (!canAutoReview) continue;
+      if (!canAutoReview || isReviewedByViewer) continue;
       queue.push(candidate);
     }
     return { queue, isDirty };
@@ -282,7 +301,8 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     const entry = state[key];
     if (!entry?.draft) return null;
     if (entry.draft.reviewedHead !== expected.reviewedHead || entry.draft.status !== expected.status) return null;
-    const parsed = ReviewDraft.safeParse({ ...entry.draft, ...patch, key: entry.draft.key, repo: entry.draft.repo, number: entry.draft.number });
+    const postedAt = patch.status === 'posted' ? { postedAt: now() } : {};
+    const parsed = ReviewDraft.safeParse({ ...entry.draft, ...patch, ...postedAt, key: entry.draft.key, repo: entry.draft.repo, number: entry.draft.number });
     if (!parsed.success) return null;
     entry.draft = parsed.data;
     entry.updatedAt = now();
