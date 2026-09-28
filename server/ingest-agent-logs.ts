@@ -15,7 +15,7 @@ import {
   planRead,
 } from './core/ingest-tail-core.ts';
 import type { TailState } from './core/ingest-tail-core.ts';
-import { PROMPT_KIND, isDispatchWorkdir, mapAgentLine } from './core/ingest-agent-core.ts';
+import { isDispatchWorkdir, mapAgentLine } from './core/ingest-agent-core.ts';
 import type { AgentIngestEvent } from './core/ingest-agent-core.ts';
 import { positiveInt } from './core/ingest-number-core.ts';
 import { createLaneLog } from './lane-log.ts';
@@ -63,30 +63,6 @@ interface TranscriptContext {
   sessionId: string | null;
 }
 
-interface TailSnapshot {
-  path: string;
-  vendor: string;
-  root: string | null;
-  sessionId: string | null;
-  size: number;
-  mtimeMs: number;
-  offset: number;
-}
-
-interface AgentLogConsumer {
-  name?: string;
-  publish: (event: AgentIngestEvent, tail: TailSnapshot | null) => unknown;
-  noteTail?: (entry: TailSnapshot) => void;
-  userPrompts?: boolean;
-}
-
-interface AgentLogTarget {
-  name: string;
-  publish: (event: AgentIngestEvent, tail: TailSnapshot) => unknown;
-  noteTail?: ((entry: TailSnapshot) => void) | null;
-  userPrompts: boolean;
-}
-
 interface TranscriptFileSystem {
   open(filePath: string, flags: 'r'): Promise<fsNode.promises.FileHandle>;
   stat(target: string): Promise<fsNode.Stats>;
@@ -99,8 +75,7 @@ interface DirectoryWatcher {
 }
 
 interface AgentLogIngestOptions {
-  publish?: ((event: AgentIngestEvent, tail: TailSnapshot) => unknown) | null;
-  consumers?: AgentLogConsumer[];
+  publish: (event: AgentIngestEvent) => unknown;
   sourceConfig?: { pollMs?: number };
   laneMap?: (() => Map<string, string>) | null;
   logger?: LaneLogger | null;
@@ -212,8 +187,7 @@ function transcriptRootCandidates(
 }
 
 function createAgentLogIngest({
-  publish = null,
-  consumers = [],
+  publish,
   sourceConfig = {},
   laneMap = null,
   logger = console,
@@ -238,20 +212,7 @@ function createAgentLogIngest({
   maxLinesPerDrain = 200,
   maxCatchUpBytes = MAX_CATCH_UP_BYTES,
   vendors = null,
-}: AgentLogIngestOptions = {}) {
-  const targets: AgentLogTarget[] = [];
-  if (typeof publish === 'function') targets.push({ name: 'ring', publish, userPrompts: false });
-  for (const consumer of Array.isArray(consumers) ? consumers : []) {
-    if (typeof consumer?.publish !== 'function') continue;
-    targets.push({
-      name: consumer.name || 'consumer',
-      publish: consumer.publish,
-      noteTail: typeof consumer.noteTail === 'function' ? consumer.noteTail : null,
-      userPrompts: consumer.userPrompts === true,
-    });
-  }
-  if (targets.length === 0) throw new Error('createAgentLogIngest requires a publish target');
-  const wantsUserPrompts = targets.some((target) => target.userPrompts);
+}: AgentLogIngestOptions) {
   const pollMs = positiveInt(sourceConfig.pollMs, positiveInt(pollIntervalMs, DEFAULT_POLL_MS));
   const wanted = vendors && typeof vendors === 'object' ? vendors : {};
 
@@ -594,38 +555,12 @@ function createAgentLogIngest({
     }
   }
 
-  function deliver(event: AgentIngestEvent, tail: TailSnapshot): void {
-    for (const target of targets) {
-      if (event.kind === PROMPT_KIND && !target.userPrompts) continue;
-      try {
-        target.publish(event, tail);
-      } catch (error) {
-        warn(`the ${target.name} target failed: ${errorMessage(error)}`);
-      }
+  function deliver(event: AgentIngestEvent): void {
+    try {
+      publish(event);
+    } catch (error) {
+      warn(`the ring target failed: ${errorMessage(error)}`);
     }
-  }
-
-  function noteTail(tail: TailSnapshot): void {
-    for (const target of targets) {
-      if (!target.noteTail) continue;
-      try {
-        target.noteTail(tail);
-      } catch (error) {
-        warn(`the ${target.name} target failed: ${errorMessage(error)}`);
-      }
-    }
-  }
-
-  function tailSnapshot(filePath: string, context: TranscriptContext, state: TailState): TailSnapshot {
-    return {
-      path: filePath,
-      vendor: context.vendor,
-      root: context.root,
-      sessionId: context.sessionId,
-      size: state.size,
-      mtimeMs: state.mtimeMs,
-      offset: state.offset,
-    };
   }
 
   function publishLines(filePath: string, lines: string[], lanes: Map<string, string> | null): void {
@@ -641,7 +576,6 @@ function createAgentLogIngest({
         rawLine,
         ctx: { root: context.root, sessionId: context.sessionId, now: nowFn() },
         vendorState: state.vendorState,
-        includeUserPrompts: wantsUserPrompts,
       });
       state.vendorState = mapped.vendorState;
       context.root = mapped.root;
@@ -656,7 +590,7 @@ function createAgentLogIngest({
           event.detail = { ...event.detail, droppedLines };
           droppedLines = 0;
         }
-        deliver(event, tailSnapshot(filePath, context, state));
+        deliver(event);
       }
     }
   }
@@ -702,8 +636,6 @@ function createAgentLogIngest({
     const lines = applyRead(state, { text, end, stat, reset: plan.reset, dropPartial: plan.dropPartial });
     if (lines.length === 0) return;
     publishLines(filePath, lines, lanes);
-    const context = contexts.get(filePath);
-    if (context) noteTail(tailSnapshot(filePath, context, state));
   }
 
   function evictStale(): void {
@@ -820,17 +752,10 @@ export {
   DEFAULT_DISCOVER_MS,
   DEFAULT_POLL_MS,
   createAgentLogIngest,
-  readCodexRoot,
-  rootFromPath,
-  sessionIdFromPath,
-  transcriptRootCandidates,
 };
 export type {
-  AgentLogConsumer,
   AgentLogIngestOptions,
   TranscriptFileSystem,
   CachedDir,
-  TailSnapshot,
   TranscriptContext,
-  TranscriptRoot,
 };

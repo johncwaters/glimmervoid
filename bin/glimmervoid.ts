@@ -17,8 +17,7 @@ import { formatPathNotice, npmGlobalBinDir, onPath, pnpmGlobalBinDir } from './p
 const args = process.argv.slice(2);
 const pkg = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as { version: string };
 
-if (args.includes('--help') || args.includes('-h')) {
-  console.log(`Usage: glimmervoid [command] [options]
+const USAGE = `Usage: glimmervoid [command] [options]
 
 Commands:
   doctor            Diagnose install / PATH issues and exit
@@ -39,7 +38,10 @@ Options:
   --port <number>   Override the server port (default: 3000)
   --config <path>   Path to config file (default: ~/.glimmervoid/config.json)
   --version         Show version number
-  --help, -h        Show this help message`);
+  --help, -h        Show this help message`;
+
+if (args.includes('--help') || args.includes('-h')) {
+  console.log(USAGE);
   process.exit(0);
 }
 
@@ -66,47 +68,51 @@ if (portArg) {
   process.env.GLIMMERVOID_PORT = portArg;
 }
 
-if (args[0] === 'doctor' || args.includes('--doctor')) {
-  await runDoctor();
-  process.exit(0);
+type SubcommandRunner = (commandArgs: string[]) => Promise<number>;
+
+const SUBCOMMAND_RUNNERS = new Map<string, SubcommandRunner>([
+  ['doctor', async () => {
+    await runDoctor();
+    return 0;
+  }],
+  ['pair', async (commandArgs) => {
+    const { runPairCli } = await import('../server/pair-cli.ts');
+    return runPairCli(commandArgs.slice(1));
+  }],
+  ['agent', async (commandArgs) => {
+    const { runAgentSetupCli } = await import('../server/agent-setup-cli.ts');
+    return runAgentSetupCli(commandArgs.slice(1));
+  }],
+  ['visions', async (commandArgs) => {
+    const { runVisionsCli } = await import('../server/visions-cli.ts');
+    return runVisionsCli(commandArgs.slice(1));
+  }],
+  ...AGENT_API_VERBS.map((verb): [string, SubcommandRunner] => [verb, async (commandArgs) => {
+    const { runAgentApiCli } = await import('../server/agent-api-cli.ts');
+    return runAgentApiCli(commandArgs);
+  }]),
+]);
+
+async function dispatchCommandLine(): Promise<void> {
+  const requestedSubcommand = args.includes('--doctor') ? 'doctor' : args[0];
+  if (!requestedSubcommand || requestedSubcommand.startsWith('-')) {
+    await import('../server/index.ts');
+    return;
+  }
+  const runSubcommand = SUBCOMMAND_RUNNERS.get(requestedSubcommand);
+  if (!runSubcommand) {
+    console.error(`Unknown command: ${requestedSubcommand}\n${USAGE}`);
+    process.exit(1);
+  }
+  try {
+    process.exit(await runSubcommand(args));
+  } catch (err) {
+    console.error(messageOf(err));
+    process.exit(1);
+  }
 }
 
-if (args[0] === 'pair') {
-  const { runPairCli } = await import('../server/pair-cli.ts');
-  process.exit(runPairCli(args.slice(1)));
-}
-
-const isAgentCommand = args[0] === 'agent';
-if (isAgentCommand) {
-  const { runAgentSetupCli } = await import('../server/agent-setup-cli.ts');
-  process.exit(runAgentSetupCli(args.slice(1)));
-}
-
-function runAsyncCommand(run: Promise<number | never>): void {
-  run.then(
-    (code) => process.exit(code),
-    (err: unknown) => {
-      console.error(messageOf(err));
-      process.exit(1);
-    }
-  );
-}
-
-const isVisionsCommand = args[0] === 'visions';
-if (isVisionsCommand) {
-  const { runVisionsCli } = await import('../server/visions-cli.ts');
-  runAsyncCommand(runVisionsCli(args.slice(1)));
-}
-
-const isAgentApiCommand = !!args[0] && (AGENT_API_VERBS as readonly string[]).includes(args[0]);
-if (isAgentApiCommand) {
-  const { runAgentApiCli } = await import('../server/agent-api-cli.ts');
-  runAsyncCommand(runAgentApiCli(args));
-}
-
-if (!isAgentCommand && !isVisionsCommand && !isAgentApiCommand) {
-  await import('../server/index.ts');
-}
+await dispatchCommandLine();
 
 function messageOf(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;

@@ -15,9 +15,9 @@ pairings.json
 pairings-seen.json
 # Images uploaded from the phone (POST /upload/:sessionId). Same story, and a `git add -A` must never sweep them into a commit.
 uploads/
-# Long-term memory signing key and projection. Same story again, and remembered content must never become git-visible.
+# Leftover Long-Term Memory signing keys and projections must stay out of git.
 /memory/
-# The machine-wide sqlite database (the memory canon lives in it). Same reason, same place.
+# Leftover Long-Term Memory sqlite databases must stay out of git.
 /glimmervoid.db
 /glimmervoid.db-wal
 /glimmervoid.db-shm

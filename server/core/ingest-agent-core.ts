@@ -1,7 +1,5 @@
 const SOURCE = 'agentLogs';
 
-const PROMPT_KIND = 'agent-prompt';
-
 const MAX_RAW_CHARS = 4000;
 
 export type VendorState = Record<string, string>;
@@ -49,7 +47,6 @@ interface MapContext {
   root: string | null;
   sessionId: string | null;
   vendorState: VendorState | null;
-  includeUserPrompts: boolean;
   now: number;
 }
 
@@ -146,19 +143,6 @@ function turnEvent({ ts, root, sessionId, vendor, text }: EventBase & { text: un
   };
 }
 
-function promptEvent({ ts, root, sessionId, vendor, text }: EventBase & { text: unknown }): AgentIngestEvent | null {
-  const summary = boundRaw(text).trim();
-  if (!summary) return null;
-  return {
-    source: SOURCE,
-    kind: PROMPT_KIND,
-    ts,
-    scope: { root, sessionId },
-    summary: `${vendor} prompt: ${summary}`,
-    detail: { vendor },
-  };
-}
-
 function toolEvent({ ts, root, sessionId, vendor, name, target }: EventBase & { name: unknown; target: string }): AgentIngestEvent {
   const tool = boundRaw(str(name) || 'tool');
   const suffix = target ? ` ${target}` : '';
@@ -190,30 +174,7 @@ function firstTextBlock(content: ContentBlock[]): string | null {
   return null;
 }
 
-function claudeUserText(line: TranscriptLine): string | null {
-  if (line.isMeta === true || line.isCompactSummary === true) return null;
-  const content = line.message?.content;
-  if (typeof content === 'string') return str(content);
-  if (!Array.isArray(content)) return null;
-  for (const block of content) {
-    if (block?.type === 'tool_result') return null;
-  }
-  return firstTextBlock(content);
-}
-
-function mapClaudeUserLine(line: TranscriptLine, ctx: MapContext): AgentMapResult | null {
-  const text = claudeUserText(line);
-  if (!text) return null;
-  const root = str(line.cwd) || ctx.root;
-  const sessionId = str(line.sessionId) || ctx.sessionId;
-  const prompt = promptEvent({
-    ts: parseTimestamp(line.timestamp) || ctx.now, root, sessionId, vendor: 'claude', text,
-  });
-  return result(prompt ? [prompt] : [], root, sessionId, ctx.vendorState);
-}
-
 function mapClaudeLine(line: TranscriptLine, ctx: MapContext): AgentMapResult | null {
-  if (line.type === 'user') return ctx.includeUserPrompts ? mapClaudeUserLine(line, ctx) : null;
   if (line.type !== 'assistant') return null;
   const content = line.message?.content;
   if (!Array.isArray(content)) return null;
@@ -242,12 +203,6 @@ function mapCodexLine(line: TranscriptLine, ctx: MapContext): AgentMapResult | n
     return result([], str(payload.cwd) || ctx.root, str(payload.session_id) || ctx.sessionId, ctx.vendorState);
   }
   const base: EventBase = { ts, root: ctx.root, sessionId: ctx.sessionId, vendor: 'codex' };
-  if (ctx.includeUserPrompts && line.type === 'event_msg' && payload.type === 'user_message') {
-    const prompt = promptEvent({ ...base, text: payload.message });
-    if (!prompt) return null;
-    return result([prompt], ctx.root, ctx.sessionId, ctx.vendorState);
-  }
-
   if (line.type === 'event_msg' && payload.type === 'agent_message') {
     const turn = turnEvent({ ...base, text: payload.message });
     if (!turn) return null;
@@ -261,7 +216,6 @@ function mapCodexLine(line: TranscriptLine, ctx: MapContext): AgentMapResult | n
 }
 
 const PENDING_TURN_FIELD = 'pendingText';
-const PENDING_PROMPT_FIELD = 'pendingUserText';
 
 function appendChunk(vendorState: VendorState | null | undefined, text: unknown, field: string): VendorState {
   const addition = str(text);
@@ -276,19 +230,6 @@ function appendChunk(vendorState: VendorState | null | undefined, text: unknown,
 }
 
 const GROK_TURN_BOUNDARIES: readonly string[] = Object.freeze(['user_message_chunk', 'retry_state']);
-
-function takeGrokPrompt(
-  vendorState: VendorState | null,
-  base: EventBase,
-): { events: AgentIngestEvent[]; vendorState: VendorState | null } {
-  const held = str(vendorState?.[PENDING_PROMPT_FIELD]);
-  if (!held) return { events: [], vendorState };
-  const prompt = promptEvent({ ...base, text: held });
-  return {
-    events: prompt ? [prompt] : [],
-    vendorState: { [PENDING_TURN_FIELD]: str(vendorState?.[PENDING_TURN_FIELD]) || '' },
-  };
-}
 
 function grokToolName(update: GrokUpdate): string {
   const meta = update._meta && typeof update._meta === 'object' ? update._meta['x.ai/tool'] : null;
@@ -329,20 +270,7 @@ function mapGrokLine(line: TranscriptLine, ctx: MapContext): AgentMapResult | nu
   const ts = parseTimestamp(line.timestamp) || ctx.now;
   const base: EventBase = { ts, root: ctx.root, sessionId, vendor: 'grok' };
   const kind = str(update.sessionUpdate);
-  if (kind === 'user_message_chunk' && ctx.includeUserPrompts) {
-    const next = appendChunk(ctx.vendorState, update.content?.text, PENDING_PROMPT_FIELD);
-    return result([], ctx.root, sessionId, next);
-  }
-  const prompt = takeGrokPrompt(ctx.vendorState, base);
-  const turn = mapGrokTurn(kind, update, base, {
-    root: ctx.root, sessionId, vendorState: prompt.vendorState,
-  });
-
-  if (!turn) {
-    if (prompt.events.length === 0) return null;
-    return result(prompt.events, ctx.root, sessionId, prompt.vendorState);
-  }
-  return result([...prompt.events, ...turn.events], turn.root, turn.sessionId, turn.vendorState);
+  return mapGrokTurn(kind, update, base, { root: ctx.root, sessionId, vendorState: ctx.vendorState });
 }
 
 const MAPPERS: Readonly<Record<string, ((line: TranscriptLine, ctx: MapContext) => AgentMapResult | null) | undefined>> =
@@ -353,13 +281,11 @@ function mapAgentLine({
   rawLine = null,
   ctx = {},
   vendorState = null,
-  includeUserPrompts = false,
 }: {
   vendor?: string;
   rawLine?: unknown;
   ctx?: { root?: string | null; sessionId?: string | null; now?: number };
   vendorState?: VendorState | null;
-  includeUserPrompts?: boolean;
 } = {}): AgentMapResult {
   const root = ctx.root == null ? null : ctx.root;
   const sessionId = ctx.sessionId == null ? null : ctx.sessionId;
@@ -369,7 +295,7 @@ function mapAgentLine({
   const line = parseJson(rawLine);
   if (!line) return unchanged;
   const mapped = mapper(line as TranscriptLine, {
-    root, sessionId, vendorState, includeUserPrompts: includeUserPrompts === true,
+    root, sessionId, vendorState,
     now: typeof ctx.now === 'number' && Number.isFinite(ctx.now) ? ctx.now : 0,
   });
   if (!mapped) return unchanged;
@@ -379,7 +305,6 @@ function mapAgentLine({
 export {
   DISPATCH_WORKDIR_MARKERS,
   MAX_RAW_CHARS,
-  PROMPT_KIND,
   isDispatchWorkdir,
   firstTextBlock,
   mapAgentLine,

@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { resolvePathCommandMatches } from '../session/core/spawn-command.ts';
 import { execFileAsync, execSync } from './child-process-safe.ts';
-import { isUnder, underTestRunner } from './core/test-runner-path-guard.ts';
+import { isPathInside } from './core/ingest-fs-core.ts';
 import {
   decideEditorTargets, isExtensionInstalled, resolveEditorPathsFor, visionsExtensionFiles,
 } from './core/editor-extension-core.ts';
@@ -30,6 +30,10 @@ const LSP_CORE_PATH = bundled
   : path.join(packageRoot, 'server', 'core', 'visions-lsp-core.ts');
 const CLI_PATH = cliPath;
 const EDITOR_TIMEOUT_MS = 60000;
+
+function underTestRunner(env: NodeJS.ProcessEnv): boolean {
+  return typeof env.NODE_TEST_CONTEXT === 'string' && env.NODE_TEST_CONTEXT !== '';
+}
 
 interface InstallOutcome extends ExtensionEditorTarget {
   ok: boolean;
@@ -289,7 +293,7 @@ function createVisionsSetup({
     if (!underTestRunner(env)) return false;
     const configPath = configStore?.configPath;
     if (typeof configPath !== 'string' || !configPath) return false;
-    return isUnder(configPath, os.homedir()) && !isUnder(configPath, os.tmpdir());
+    return isPathInside(os.homedir(), configPath) && !isPathInside(os.tmpdir(), configPath);
   }
 
   function writeImpliedDefaults() {

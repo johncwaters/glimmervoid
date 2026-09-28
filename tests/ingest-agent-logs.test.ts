@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { createAgentLogIngest } from '../server/ingest-agent-logs.ts';
-import type { AgentLogConsumer, AgentLogIngestOptions, TranscriptFileSystem } from '../server/ingest-agent-logs.ts';
+import type { AgentLogIngestOptions, TranscriptFileSystem } from '../server/ingest-agent-logs.ts';
 import { createIngestLane } from '../server/ingest-wiring.ts';
 import { resolveIngestConfig } from '../server/core/ingest-core.ts';
 import type { AgentIngestEvent } from '../server/core/ingest-agent-core.ts';
@@ -153,21 +153,6 @@ function claudeAssistant({ text = null, tools = [], sessionId, cwd = 'C:\\repo',
   return `${JSON.stringify({
     type: 'assistant',
     message: { role: 'assistant', content },
-    cwd,
-    sessionId,
-    timestamp: ts || new Date().toISOString(),
-  })}\n`;
-}
-
-function claudeUser({ text, sessionId, cwd = 'C:\\repo', ts = null }: {
-  text: string;
-  sessionId: string;
-  cwd?: string;
-  ts?: string | null;
-}): string {
-  return `${JSON.stringify({
-    type: 'user',
-    message: { role: 'user', content: [{ type: 'text', text }] },
     cwd,
     sessionId,
     timestamp: ts || new Date().toISOString(),
@@ -812,14 +797,12 @@ function laneWith(
   homes: Homes,
   rawConfig: unknown,
   overrides: Partial<AgentLogIngestOptions> = {},
-  consumers: AgentLogConsumer[] = [],
 ) {
   const broadcasts: Record<string, unknown>[] = [];
   const lane = createIngestLane({
     config: resolveIngestConfig(rawConfig),
     broadcast: (message) => broadcasts.push(message),
     logger: { warn: () => {} },
-    agentLogConsumers: consumers,
     ...inertTimers(),
     agentLogOptions: { env: homes.env, ...overrides },
   });
@@ -830,7 +813,6 @@ test('an agent turn reaches the rings, the snapshot and the dispatch digest', wi
   const filePath = seedClaudeTranscript(homes.projects, { sessionId: 'sess-lane' });
   const { lane } = laneWith(homes, { enabled: true, sources: { agentLogs: { enabled: true } } });
   try {
-    assert.equal(lane.agentLogsEnabled, true);
     await agentLogsOf(lane).start();
     append(filePath, claudeAssistant({ text: 'Landed M7 and the suite is green.', sessionId: 'sess-lane' }));
     await agentLogsOf(lane).poll();
@@ -925,7 +907,6 @@ test('a secret past a long prefix in a turn summary is scrubbed whole, and the r
 test('the agentLogs source off constructs no adapter at all', withHomes(async (homes) => {
   const { lane } = laneWith(homes, { enabled: true, sources: { terminal: { enabled: true } } });
   try {
-    assert.equal(lane.agentLogsEnabled, false);
     assert.equal(lane.agentLogs, null);
     assert.deepEqual(lane.sources, ['terminal']);
   } finally {
@@ -941,175 +922,4 @@ test('lane stop tears the agent-log source down with it', withHomes(async (homes
   lane.stop();
   assert.equal(agentLogsOf(lane).watchCount, 0);
   assert.equal(agentLogsOf(lane).trackedCount, 0);
-}));
-
-test('with nothing asking for them, user prompts reach neither the rings nor a broadcast', withHomes(async (homes) => {
-  const filePath = seedClaudeTranscript(homes.projects, { sessionId: 'sess-prompt' });
-  const { lane, broadcasts } = laneWith(homes, { enabled: true, sources: { agentLogs: { enabled: true } } });
-  try {
-    await agentLogsOf(lane).start();
-    append(filePath, claudeUser({ text: 'the staging password is hunter2', sessionId: 'sess-prompt' }));
-    append(filePath, claudeAssistant({ text: 'Understood.', sessionId: 'sess-prompt' }));
-    await agentLogsOf(lane).poll();
-    lane.flushBatch();
-
-    assert.deepEqual(lane.recentEvents().map((event) => event.kind), ['agent-turn']);
-    const wire = JSON.stringify(broadcasts);
-    assert.equal(wire.includes('hunter2'), false, 'operator prompt text must never reach the wire');
-    assert.equal(wire.includes('agent-prompt'), false);
-  } finally {
-    lane.stop();
-  }
-}));
-
-test('adding a consumer that wants prompts leaves the ring and the broadcast byte-identical', withHomes(async (homes) => {
-  const filePath = seedClaudeTranscript(homes.projects, { sessionId: 'sess-both' });
-  const consumed: AgentIngestEvent[] = [];
-  const plain = laneWith(homes, { enabled: true, sources: { agentLogs: { enabled: true } } });
-  const withConsumer = laneWith(
-    homes,
-    { enabled: true, sources: { agentLogs: { enabled: true } } },
-    {},
-    [{ name: 'memory', userPrompts: true, publish: (event: AgentIngestEvent) => consumed.push(event) }],
-  );
-  try {
-    await agentLogsOf(plain.lane).start();
-    await agentLogsOf(withConsumer.lane).start();
-    const stamp = '2026-08-20T10:00:00.000Z';
-    append(filePath, claudeUser({ text: 'ship it', sessionId: 'sess-both', ts: stamp }));
-    append(filePath, claudeAssistant({ text: 'Shipped.', sessionId: 'sess-both', ts: stamp }));
-    await agentLogsOf(plain.lane).poll();
-    await agentLogsOf(withConsumer.lane).poll();
-    plain.lane.flushBatch();
-    withConsumer.lane.flushBatch();
-
-    assert.deepEqual(withConsumer.lane.recentEvents(), plain.lane.recentEvents());
-    assert.deepEqual(
-      withConsumer.broadcasts.map((message) => message.events),
-      plain.broadcasts.map((message) => message.events),
-    );
-    assert.deepEqual(consumed.map((event) => event.kind), ['agent-prompt', 'agent-turn']);
-  } finally {
-    plain.lane.stop();
-    withConsumer.lane.stop();
-  }
-}));
-
-test('the feedback-loop exclusion covers every target, not just the ring', withHomes(async ({ projects, env }) => {
-  const filePath = seedClaudeTranscript(projects, { sessionId: 'sess-visions' });
-  const ringEvents: AgentIngestEvent[] = [];
-  const consumed: AgentIngestEvent[] = [];
-  const adapter = createAgentLogIngest({
-    publish: (event) => ringEvents.push(event),
-    consumers: [{ name: 'memory', userPrompts: true, publish: (event: AgentIngestEvent) => consumed.push(event) }],
-    laneMap: () => new Map([['claude:sess-visions', 'visions']]),
-    env,
-    ...inertTimers(),
-  });
-  try {
-    await adapter.start();
-    append(filePath, claudeUser({ text: 'a dispatch prompt', sessionId: 'sess-visions' }));
-    append(filePath, claudeAssistant({ text: 'a dispatch answer', sessionId: 'sess-visions' }));
-    await adapter.poll();
-    assert.deepEqual(ringEvents, []);
-    assert.deepEqual(consumed, [], 'the lane must never remember what the lane itself said');
-  } finally {
-    adapter.stop();
-  }
-}));
-
-test('a throwing target costs one warning, never the drain or the target beside it', withHomes(async ({ projects, env, warnings }) => {
-  const filePath = seedClaudeTranscript(projects, { sessionId: 'sess-throw' });
-  const ringEvents: AgentIngestEvent[] = [];
-  const adapter = createAgentLogIngest({
-    publish: (event) => ringEvents.push(event),
-    consumers: [{ name: 'memory', userPrompts: true, publish: () => { throw new Error('store is down'); } }],
-    env,
-    logger: { warn: (message) => warnings.push(message) },
-    ...inertTimers(),
-  });
-  try {
-    await adapter.start();
-    append(filePath, claudeAssistant({ text: 'still tailing', sessionId: 'sess-throw' }));
-    await adapter.poll();
-    assert.equal(adapter.isDisabled, false);
-    assert.equal(ringEvents.length, 1);
-    assert.equal(warnings.length, 1);
-    assert.match(warnings[0], /memory target failed/);
-  } finally {
-    adapter.stop();
-  }
-}));
-
-test('a held Grok prompt is emitted exactly once, whatever kinds follow it', withHomes(async ({ grokSessions, env }) => {
-  const encodedCwd = encodeURIComponent('C:\\repo');
-  const dir = path.join(grokSessions, encodedCwd, '019fde0f-453b-72a3-bf55-d1fd726cb2ad');
-  fs.mkdirSync(dir, { recursive: true });
-  const filePath = path.join(dir, 'updates.jsonl');
-  fs.writeFileSync(filePath, '', 'utf8');
-
-  const consumed: AgentIngestEvent[] = [];
-  const adapter = createAgentLogIngest({
-    consumers: [{ name: 'memory', userPrompts: true, publish: (event: AgentIngestEvent) => consumed.push(event) }],
-    env,
-    ...inertTimers(),
-  });
-  try {
-    await adapter.start();
-    const line = (update: Record<string, unknown>) => `${JSON.stringify({
-      timestamp: Math.floor(Date.now() / 1000),
-      params: { sessionId: '019fde0f-453b-72a3-bf55-d1fd726cb2ad', update },
-    })}\n`;
-    append(filePath, line({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'fix the' } }));
-    append(filePath, line({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'spawn gate' } }));
-    append(filePath, line({ sessionUpdate: 'tool_call', title: 'Read', rawInput: { file_path: 'a.js' } }));
-    append(filePath, line({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'thinking' } }));
-    append(filePath, line({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Patched it.' } }));
-    append(filePath, line({ sessionUpdate: 'turn_completed', stop_reason: 'end_turn' }));
-    await adapter.poll();
-
-    const prompts = consumed.filter((event) => event.kind === 'agent-prompt');
-    assert.equal(prompts.length, 1, consumed.map((event) => event.summary).join(' | '));
-    assert.equal(prompts[0].summary, 'grok prompt: fix the spawn gate');
-    assert.deepEqual(
-      consumed.map((event) => event.kind),
-      ['agent-prompt', 'agent-tool', 'agent-turn'],
-      'the prompt is spent on the first update that is not another user chunk',
-    );
-    const turn = consumed.find((event) => event.kind === 'agent-turn');
-    if (!turn) throw new Error('no turn reached the consumer');
-    assert.equal(turn.summary, 'grok: Patched it.', 'the prompt text never leaks into the turn summary');
-  } finally {
-    adapter.stop();
-  }
-}));
-
-test('a Grok prompt held across a turn boundary is spent there rather than carried into the next turn', withHomes(async ({ grokSessions, env }) => {
-  const dir = path.join(grokSessions, encodeURIComponent('C:\\repo'), 'sess-grok-boundary');
-  fs.mkdirSync(dir, { recursive: true });
-  const filePath = path.join(dir, 'updates.jsonl');
-  fs.writeFileSync(filePath, '', 'utf8');
-
-  const consumed: AgentIngestEvent[] = [];
-  const adapter = createAgentLogIngest({
-    consumers: [{ name: 'memory', userPrompts: true, publish: (event: AgentIngestEvent) => consumed.push(event) }],
-    env,
-    ...inertTimers(),
-  });
-  try {
-    await adapter.start();
-    const line = (update: Record<string, unknown>) => `${JSON.stringify({
-      timestamp: Math.floor(Date.now() / 1000),
-      params: { sessionId: 'sess-grok-boundary', update },
-    })}\n`;
-    append(filePath, line({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'first ask' } }));
-    append(filePath, line({ sessionUpdate: 'retry_state' }));
-    append(filePath, line({ sessionUpdate: 'turn_completed', stop_reason: 'end_turn' }));
-    await adapter.poll();
-
-    assert.deepEqual(consumed.map((event) => event.kind), ['agent-prompt', 'agent-turn']);
-    assert.equal(consumed[0].summary, 'grok prompt: first ask');
-  } finally {
-    adapter.stop();
-  }
 }));

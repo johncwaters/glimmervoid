@@ -11,7 +11,6 @@ import { buildLanePermissions } from './core/lane-permissions-core.ts';
 import { awaitSessionExit, registerEphemeralSession } from './ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 
-const DEFAULT_LANE_NAME = 'lane';
 const SETTINGS_DIR_PREFIX = 'glimmervoid-lane-settings-';
 
 const LANE_SPAWN_DENY_TOOLS = Object.freeze([
@@ -37,7 +36,7 @@ interface LaneSpawnOptions {
   spawnGate?: SpawnGate | null;
   replayBufferKB?: number;
   recordLane?: RecordLane | null;
-  laneName?: string;
+  laneName: string;
 }
 
 function writeStandaloneDenySettings(permissions: unknown): { args: string[]; cleanup(): void } {
@@ -52,8 +51,8 @@ function writeStandaloneDenySettings(permissions: unknown): { args: string[]; cl
 
 function createLaneSpawn({
   sessions = new Map(), closeSessionDataClients = () => {}, hookRouter = null, getHookPort = null,
-  spawnGate = null, replayBufferKB = undefined, recordLane = null, laneName = DEFAULT_LANE_NAME,
-}: LaneSpawnOptions = {}): LaneSpawn {
+  spawnGate = null, replayBufferKB = undefined, recordLane = null, laneName,
+}: LaneSpawnOptions): LaneSpawn {
   return async function spawnLaneSession({ id, name, prompt, cwd, agent = DEFAULT_AGENT_ID, extraArgs = [], model = null, signal = null }) {
     const isCodex = agent === 'codex';
     const posture = isCodex ? null : buildLanePermissions({ denyTools: LANE_SPAWN_DENY_TOOLS });
@@ -95,4 +94,4 @@ async function readLaneResultFile(resultPath: string): Promise<Record<string, un
 }
 
 export { LANE_SPAWN_DENY_TOOLS, createLaneSpawn, readLaneResultFile };
-export type { LaneSpawn, LaneSpawnOptions };
+export type { LaneSpawn };

@@ -11,4 +11,4 @@ function buildHookCommand(relayPath: string, event: string): string | null {
   return `node ${quotedPath} ${rawEvent}`;
 }
 
-export { SAFE_PATH_RE, SAFE_EVENT_RE, buildHookCommand };
+export { SAFE_EVENT_RE, buildHookCommand };

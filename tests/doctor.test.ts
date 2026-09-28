@@ -42,3 +42,22 @@ test('doctor reports the config file named by --config, not the default one', ()
     fs.rmSync(scratch, { recursive: true, force: true });
   }
 });
+
+test('removed pack command exits with usage before server startup', () => {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-unknown-command-'));
+  try {
+    const configPath = path.join(scratch, 'config.json');
+    const result = spawnSync(process.execPath, ['bin/glimmervoid.ts', 'pack'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      timeout: 3000,
+      env: { ...process.env, GLIMMERVOID_CONFIG: configPath },
+    });
+    assert.equal(result.status, 1, result.error?.message ?? result.stderr);
+    assert.match(result.stderr, /Unknown command: pack/);
+    assert.match(result.stderr, /Usage: glimmervoid/);
+    assert.equal(fs.existsSync(configPath), false);
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});

@@ -46,7 +46,7 @@ Glimmervoid is a lightweight Node.js background process that spawns and manages 
 - Avoid `else`: prefer early returns and guard clauses.
 - Prefer the seam pattern: pure logic in `session/core/` or a `*-core` module, thin IO shells around it. A pure core imports no Session and reads no clock.
 - Inter-module communication via Node `EventEmitter`, not globals or direct coupling.
-- The published package ships `dist/` only and runs built `.js`, because Node refuses type stripping inside `node_modules`. Resolve a shipped asset (relay, pack spec, CLI, dashboard) through `server/runtime-paths.ts`, never from `import.meta.dirname`: the same module runs from a source checkout and from `dist/`.
+- The published package ships `dist/` only and runs built `.js`, because Node refuses type stripping inside `node_modules`. Resolve a shipped asset (relay, CLI, dashboard) through `server/runtime-paths.ts`, never from `import.meta.dirname`: the same module runs from a source checkout and from `dist/`.
 - Sessions are keyed by stable UUID `id`; `name` is display-only.
 - Wire and persisted shapes are Zod schemas in `shared/contracts/`; boundaries parse and fail closed (`tests/contracts-config.test.ts` and siblings), and types come from `z.infer`, never hand-duplicated.
 - `npm run typecheck` gates every tree at zero errors under full `strict` plus `erasableSyntaxOnly` and `verbatimModuleSyntax` (`tsconfig.json` for node code, `tsconfig.public.json` for the browser). No suppressions of any kind: `@ts-*` pragmas, `biome-ignore`, `as any`, and `as unknown as` all fail the gate (`tests/typecheck-gate.test.ts`).

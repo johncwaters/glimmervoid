@@ -517,7 +517,6 @@ test('a completed agent turn reaches the rings and the digest, and a lane sessio
   { ingest: AGENT_LOGS_ON },
   async ({ backend, seeded }) => {
     const lane = laneOf(backend);
-    assert.equal(lane.agentLogsEnabled, true);
     await agentLogsOf(backend).start();
 
     await new Promise((resolve) => { setTimeout(resolve, 50).unref(); });
@@ -603,7 +602,6 @@ test('with the editor source off a mirrored buffer publishes nothing', withBacke
 
 test('the agentLogs source off builds no adapter, even with the lane on', withBackend({ ingest: INGEST_ON }, async ({ backend }) => {
   const lane = laneOf(backend);
-  assert.equal(lane.agentLogsEnabled, false);
   assert.equal(lane.agentLogs, null);
 }));
 

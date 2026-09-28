@@ -12,8 +12,6 @@ const POST_TIMEOUT_MS = 1500;
 
 interface PostResponse {
   reason: string;
-  status: number | null | undefined;
-  body: Buffer | null;
 }
 
 function postPayload(url: string, body: Buffer): Promise<PostResponse> {
@@ -28,7 +26,7 @@ function postPayload(url: string, body: Buffer): Promise<PostResponse> {
     try {
       target = new URL(url);
     } catch {
-      done({ reason: "bad-url", status: null, body: null });
+      done({ reason: "bad-url" });
       return;
     }
     try {
@@ -44,35 +42,28 @@ function postPayload(url: string, body: Buffer): Promise<PostResponse> {
           },
         },
         (res) => {
-          const responseChunks: Buffer[] = [];
           let responseBytes = 0;
           res.on("data", (chunk: Buffer) => {
             if (settled) return;
-            const bytes = Buffer.from(chunk);
-            responseBytes += bytes.length;
+            responseBytes += chunk.length;
             if (responseBytes > MAX_RESPONSE_BYTES) {
               res.destroy();
-              done({ reason: "response-too-large", status: res.statusCode, body: null });
+              done({ reason: "response-too-large" });
               return;
             }
-            responseChunks.push(bytes);
           });
-          res.on("end", () => done({
-            reason: `status-${res.statusCode}`,
-            status: res.statusCode,
-            body: Buffer.concat(responseChunks),
-          }));
-          res.on("error", () => done({ reason: "response-error", status: res.statusCode, body: null }));
+          res.on("end", () => done({ reason: `status-${res.statusCode}` }));
+          res.on("error", () => done({ reason: "response-error" }));
         },
       );
-      req.on("error", () => done({ reason: "request-error", status: null, body: null }));
+      req.on("error", () => done({ reason: "request-error" }));
       req.setTimeout(POST_TIMEOUT_MS, () => {
         req.destroy();
-        done({ reason: "timeout", status: null, body: null });
+        done({ reason: "timeout" });
       });
       req.end(body);
     } catch {
-      done({ reason: "request-throw", status: null, body: null });
+      done({ reason: "request-throw" });
     }
   });
 }

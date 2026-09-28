@@ -58,10 +58,4 @@ function renderTable({ title, headers, rows, align, terminalColumns }: TableOpti
   return [top, empty, ...body, empty, `+${'-'.repeat(span)}+`].join('\n');
 }
 
-function renderMeterTrack(fraction: number, ticks: number): string {
-  const clamped = Math.min(1, Math.max(0, fraction));
-  const filled = Math.round(clamped * ticks);
-  return `[${'='.repeat(filled)}${'-'.repeat(ticks - filled)}]`;
-}
-
-export { renderTable, renderMeterTrack };
+export { renderTable };

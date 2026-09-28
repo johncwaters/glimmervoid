@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { renderMeterTrack, renderTable } from '../server/core/ascii-figure-core.ts';
+import { renderTable } from '../server/core/ascii-figure-core.ts';
 
 test('headed table centers its title and right-aligns numeric cells above a rule', () => {
   assert.equal(renderTable({
@@ -33,14 +33,6 @@ test('headerless table left-aligns every column with two spaces and no rule', ()
     `| ${' '.repeat(16)} |`,
     '+------------------+',
   ].join('\n'));
-});
-
-test('meter track fills and clamps to its tick count', () => {
-  assert.equal(renderMeterTrack(0, 12), '[------------]');
-  assert.equal(renderMeterTrack(0.5, 12), '[======------]');
-  assert.equal(renderMeterTrack(1, 12), '[============]');
-  assert.equal(renderMeterTrack(1.5, 12), '[============]');
-  assert.equal(renderMeterTrack(-1, 12), '[------------]');
 });
 
 test('non-ASCII cell padding aligns the frame by code-point width', () => {

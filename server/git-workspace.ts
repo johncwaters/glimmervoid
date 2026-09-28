@@ -181,30 +181,6 @@ async function directoryExists(candidatePath: string): Promise<boolean> {
   }
 }
 
-function normalizedDirectoryPath(value: unknown): string {
-  const posix = String(value || '').replace(/\\/g, '/').replace(/\/+$/, '');
-  const isWindowsPath = /^[A-Za-z]:\//.test(posix) || posix.startsWith('//');
-  return isWindowsPath ? posix.toLowerCase() : posix;
-}
-
-function absoluteGitDir(value: string | null | undefined, cwd: string): string | null {
-  if (!value) return null;
-  if (path.isAbsolute(value) || /^[A-Za-z]:[\\/]/.test(value) || String(value).startsWith('\\\\')) {
-    return normalizedDirectoryPath(value);
-  }
-  return normalizedDirectoryPath(path.resolve(cwd, value));
-}
-
-function projectPaths(knownProjects: unknown): string[] {
-  const paths: string[] = [];
-  for (const project of Array.isArray(knownProjects) ? knownProjects : []) {
-    const candidate = typeof project === 'string' ? project : (project as { path?: unknown } | null)?.path;
-    if (typeof candidate !== 'string' || !candidate.trim() || paths.includes(candidate)) continue;
-    paths.push(candidate);
-  }
-  return paths;
-}
-
 function parseWorktreeBranches(porcelain: string): WorktreeBranch[] {
   const result: WorktreeBranch[] = [];
   let current: { cwd: string; branch: string | null; locked: boolean; prunable: boolean; headSha: string | null } | null = null;
@@ -296,28 +272,6 @@ function createGitWorkspace(opts: {
   async function run(args: string[], cwd: string, extra?: GitExtraOptions): Promise<GitResult> {
     try { return okResult(await git(args, cwd, extra)); }
     catch (err) { return errResult(err); }
-  }
-  const commonGitDirByProject = new Map<string, string | null>();
-
-  async function commonGitDir(cwd: string): Promise<string | null> {
-    const common = await run(['rev-parse', '--git-common-dir'], cwd);
-    if (!common.ok || !common.out) return null;
-    return absoluteGitDir(common.out, cwd);
-  }
-
-  async function resolveProjectPath({ cwd, knownProjects }: { cwd: string; knownProjects?: unknown }): Promise<string | null> {
-    const sourceCommonGitDir = await commonGitDir(cwd);
-    if (!sourceCommonGitDir) return null;
-    for (const projectPath of projectPaths(knownProjects)) {
-      let configuredCommonGitDir = commonGitDirByProject.get(projectPath);
-      if (configuredCommonGitDir === undefined) {
-        configuredCommonGitDir = await commonGitDir(projectPath);
-        commonGitDirByProject.set(projectPath, configuredCommonGitDir);
-      }
-      if (configuredCommonGitDir !== sourceCommonGitDir) continue;
-      return projectPath;
-    }
-    return null;
   }
   async function detectDefaultBranch({ projectPath }: { projectPath: string }): Promise<string | null> {
     const remoteHead = await run(['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], projectPath);
@@ -1280,7 +1234,7 @@ function createGitWorkspace(opts: {
     listSessionWorktrees: serialized(listSessionWorktreesBody),
     hasUnmergedWork: serialized(hasUnmergedWorkBody),
     listWorktreeBranches, detectDefaultBranch,
-    listRemoteBranches, listIntegrationTips, isAncestor, resolveMergeProbeEnv, writeMergedTree, treeOid, resolveProjectPath,
+    listRemoteBranches, listIntegrationTips, isAncestor, resolveMergeProbeEnv, writeMergedTree, treeOid,
   };
 }
 
@@ -1292,29 +1246,6 @@ function createGitWorkspaceSync(opts: { git?: (args: string[], cwd: string) => s
     try { return okResult(git(args, cwd)); }
     catch (err) { return errResult(err); }
   }
-  const commonGitDirByProject = new Map<string, string | null>();
-
-  function commonGitDir(cwd: string): string | null {
-    const common = run(['rev-parse', '--git-common-dir'], cwd);
-    if (!common.ok || !common.out) return null;
-    return absoluteGitDir(common.out, cwd);
-  }
-
-  function resolveProjectPath({ cwd, knownProjects }: { cwd: string; knownProjects?: unknown }): string | null {
-    const sourceCommonGitDir = commonGitDir(cwd);
-    if (!sourceCommonGitDir) return null;
-    for (const projectPath of projectPaths(knownProjects)) {
-      let configuredCommonGitDir = commonGitDirByProject.get(projectPath);
-      if (configuredCommonGitDir === undefined) {
-        configuredCommonGitDir = commonGitDir(projectPath);
-        commonGitDirByProject.set(projectPath, configuredCommonGitDir);
-      }
-      if (configuredCommonGitDir !== sourceCommonGitDir) continue;
-      return projectPath;
-    }
-    return null;
-  }
-
   function detectDefaultBranch(projectPath: string): string | null {
     const remoteHead = run(['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], projectPath);
     const fromRemoteHead = remoteHead.ok ? defaultBranchFromRemoteHead(remoteHead.out) : null;
@@ -1380,7 +1311,7 @@ function createGitWorkspaceSync(opts: { git?: (args: string[], cwd: string) => s
     run(['worktree', 'prune'], projectPath);
   }
 
-  return { listSessionWorktrees, removeWorktreeByPath, resolveProjectPath };
+  return { listSessionWorktrees, removeWorktreeByPath };
 }
 
 function removeWorktreeLinks(wtDir: string | null | undefined): void {

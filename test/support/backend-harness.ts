@@ -1,7 +1,6 @@
 import type { Server } from 'node:http';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 
@@ -9,7 +8,6 @@ import WebSocket from 'ws';
 
 import { dashboardClient } from '../../tests/helpers/dashboard-ws.ts';
 
-const SHUTDOWN_TIMEOUT_MS = 15000;
 const CLAUDE_CONFIG_DIRECTORY_NAME = 'claude-config';
 const CREDENTIALS_COPY_NAME = '.credentials.json';
 
@@ -65,54 +63,6 @@ function credentialsCopyPath(tempDirectory: string): string {
   return path.join(tempDirectory, CLAUDE_CONFIG_DIRECTORY_NAME, CREDENTIALS_COPY_NAME);
 }
 
-function makeClaudeConfig(tempDirectory: string, projectDirectories: string[]): string {
-  const claudeConfigDirectory = path.join(tempDirectory, CLAUDE_CONFIG_DIRECTORY_NAME);
-  const credentialsPath = path.join(os.homedir(), '.claude', '.credentials.json');
-  const accountStatePath = path.join(os.homedir(), '.claude.json');
-  if (!fs.existsSync(credentialsPath)) throw new Error('Claude credentials are unavailable');
-  if (!fs.existsSync(accountStatePath)) throw new Error('Claude account state is unavailable');
-  const accountState = JSON.parse(fs.readFileSync(accountStatePath, 'utf8')) as Record<string, unknown>;
-  const trustedProjects = Object.fromEntries(
-    projectDirectories.map((projectDirectory) => [projectDirectory, { hasTrustDialogAccepted: true }]),
-  );
-  fs.mkdirSync(claudeConfigDirectory);
-  fs.copyFileSync(credentialsPath, credentialsCopyPath(tempDirectory));
-  fs.chmodSync(credentialsCopyPath(tempDirectory), 0o600);
-  fs.writeFileSync(
-    path.join(claudeConfigDirectory, '.claude.json'),
-    `${JSON.stringify({
-      firstStartTime: accountState.firstStartTime,
-      hasCompletedOnboarding: true,
-      lastOnboardingVersion: accountState.lastOnboardingVersion,
-      oauthAccount: accountState.oauthAccount,
-      projects: trustedProjects,
-      userID: accountState.userID,
-    }, null, 2)}\n`,
-    { encoding: 'utf8', mode: 0o600 },
-  );
-  return claudeConfigDirectory;
-}
-
-interface HarnessShutdown {
-  reaps?: Promise<unknown>[];
-  stoppers?: { promise: Promise<unknown> }[];
-}
-
-async function awaitBackendShutdown(backend: { shutdown: () => HarnessShutdown } | null | undefined): Promise<void> {
-  if (!backend) return;
-  const shutdown = backend.shutdown();
-  const reaps = Array.isArray(shutdown?.reaps) ? shutdown.reaps : [];
-  const stoppers = Array.isArray(shutdown?.stoppers)
-    ? shutdown.stoppers.map((entry) => entry.promise)
-    : [];
-  let timeoutHandle: NodeJS.Timeout | null = null;
-  const shutdownDeadline = new Promise<void>((resolve) => {
-    timeoutHandle = setTimeout(() => resolve(), SHUTDOWN_TIMEOUT_MS);
-  });
-  await Promise.race([Promise.allSettled([...reaps, ...stoppers]), shutdownDeadline]);
-  if (timeoutHandle) clearTimeout(timeoutHandle);
-}
-
 function removeHarnessTempDirectory(tempDirectory: string): void {
   try {
     fs.rmSync(tempDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
@@ -126,12 +76,10 @@ function removeHarnessTempDirectory(tempDirectory: string): void {
 }
 
 export {
-  awaitBackendShutdown,
   closeServer,
   connectControl,
   findFreeHighPort,
   listen,
-  makeClaudeConfig,
   removeHarnessTempDirectory,
   safeTextTail,
 };

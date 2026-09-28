@@ -427,15 +427,6 @@ function createUsageWiring({
     return { type: 'usage-sessions', ts: nowFn(), pricingSource: pricing?.source || null, sessions: rows };
   }
 
-  function sessionTotals(sessionId: string): { tokens: number; costUSD: number; lastTs: number | null } | null {
-    if (!scanner) return null;
-    const resumeId = sessions.get(sessionId)?.resumeSessionId;
-    if (!resumeId) return null;
-    const bucket = scanner.sessionTotals().get(resumeId);
-    if (!bucket) return null;
-    return { tokens: bucket.tokens, costUSD: bucket.costUSD, lastTs: bucket.lastTs ?? null };
-  }
-
   function pushSessions(): void {
     const message = getSessionsMessage();
     if (!message) return;
@@ -710,7 +701,6 @@ function createUsageWiring({
     refreshSessions,
     restartIfConfigChanged,
     getSessionsMessage,
-    sessionTotals,
     getCachedReport: () => lastReportMessage,
     requestReport,
     ingestStatusline,

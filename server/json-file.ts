@@ -191,10 +191,6 @@ function appendJsonLines(filePath: string, values: unknown[], options?: AsyncWri
   return appendChained(filePath, values.map((value) => `${JSON.stringify(value)}\n`).join(''), options);
 }
 
-function appendJsonLineIdle(filePath: string): Promise<void> {
-  return appendChains.get(filePath) || Promise.resolve();
-}
-
 interface JsonStateWriter {
   write(subject: unknown, buildPayload: () => string): Promise<void>;
   reset(): void;
@@ -297,7 +293,6 @@ function createJsonStateStore<T>({
 
 export {
   appendJsonLine,
-  appendJsonLineIdle,
   appendJsonLines,
   createJsonStateStore,
   createJsonStateWriter,

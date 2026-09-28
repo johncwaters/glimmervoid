@@ -8,7 +8,7 @@ import { deriveSessionRoots, isActiveSessionState } from './core/ingest-fs-core.
 import { drainBatchLog, emptyBatchLogState, recordBatchLog } from './core/ingest-batch-log-core.ts';
 import type { BatchLogState } from './core/ingest-batch-log-core.ts';
 import { createAgentLogIngest } from './ingest-agent-logs.ts';
-import type { AgentLogConsumer, AgentLogIngestOptions } from './ingest-agent-logs.ts';
+import type { AgentLogIngestOptions } from './ingest-agent-logs.ts';
 import { createEditorIngest } from './ingest-editor.ts';
 import { createFsIngest } from './ingest-fs.ts';
 import type { FsIngestOptions } from './ingest-fs.ts';
@@ -29,8 +29,7 @@ interface IngestLaneOptions {
   broadcast?: ((message: Record<string, unknown>) => void) | null;
   logger?: LaneLogger | null;
   laneMap?: (() => Map<string, string>) | null;
-  agentLogConsumers?: AgentLogConsumer[];
-  agentLogOptions?: AgentLogIngestOptions | null;
+  agentLogOptions?: Omit<AgentLogIngestOptions, 'publish'> | null;
   fsOptions?: FsIngestOptions | null;
   shellHistoryOptions?: ShellHistoryOptions | null;
   configPath?: string | null;
@@ -64,7 +63,6 @@ function createIngestLane({
   broadcast = null,
   logger = console,
   laneMap = null,
-  agentLogConsumers = [],
   agentLogOptions = null,
   fsOptions = null,
   shellHistoryOptions = null,
@@ -188,7 +186,6 @@ function createIngestLane({
       publish,
       sourceConfig: resolved.sources.agentLogs,
       laneMap,
-      consumers: agentLogConsumers,
       logger,
       nowFn,
       setIntervalFn,
@@ -351,7 +348,6 @@ function createIngestLane({
     latestSeq: () => latestSeq(store),
     recentEvents: (limit = snapshotEventLimit) => snapshotEvents(store, { limit }),
     get agentLogs() { return agentLogs; },
-    get agentLogsEnabled() { return agentLogsEnabled; },
     get git() { return git; },
     get gitEnabled() { return gitEnabled; },
     get fs() { return fsSource; },

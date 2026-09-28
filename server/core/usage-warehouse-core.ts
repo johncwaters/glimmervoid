@@ -176,4 +176,4 @@ function compareRecords(a: WarehouseRecord, b: WarehouseRecord): number {
   return a.model.localeCompare(b.model);
 }
 
-export { cutoffDayKey, mergeWarehouse, pruneWarehouse, rollupFromReport, warehouseDailyRows };
+export { mergeWarehouse, pruneWarehouse, rollupFromReport, warehouseDailyRows };

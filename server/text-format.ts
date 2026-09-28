@@ -1,7 +1,3 @@
-function shortVersion(version: unknown): string {
-  return typeof version === 'string' ? version.slice(0, 12) : '-';
-}
-
 function trimIso(iso: string): string {
   return iso.replace('T', ' ').slice(0, 19);
 }
@@ -12,4 +8,4 @@ function formatTimestamp(value: unknown): string {
   return '-';
 }
 
-export { formatTimestamp, shortVersion };
+export { formatTimestamp };

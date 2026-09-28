@@ -381,27 +381,6 @@ test('mergeBack (injected): committed-only rebase + ff-only merge when target is
   );
 });
 
-test('resolveProjectPath matches a custom linked worktree through the shared git common dir', async () => {
-  const calls: { args: string[]; cwd: string }[] = [];
-  const git = async (args: string[], cwd: string) => {
-    calls.push({ args, cwd });
-    assert.deepEqual(args, ['rev-parse', '--git-common-dir']);
-    if (cwd === '/custom/worktrees/glimmervoid-feature') return '/repos/glimmervoid/.git';
-    if (cwd === '/repos/glimmervoid') return '.git';
-    throw new Error('not a git checkout');
-  };
-  const workspace = createGitWorkspace({ git });
-  const knownProjects = [{ path: '/repos/glimmervoid' }, { path: '/repos/other' }];
-
-  assert.equal(await workspace.resolveProjectPath({
-    cwd: '/custom/worktrees/glimmervoid-feature', knownProjects,
-  }), '/repos/glimmervoid');
-  assert.equal(await workspace.resolveProjectPath({
-    cwd: '/custom/worktrees/glimmervoid-feature', knownProjects,
-  }), '/repos/glimmervoid');
-  assert.equal(calls.filter((call) => call.cwd === '/repos/glimmervoid').length, 1);
-});
-
 test('mergeBack (injected): updates the target ref via ff-only fetch when the target is NOT checked out', async () => {
   const cmds: string[] = [];
   const gw = createGitWorkspace({ git: fakeSessionGit(cmds, { ahead: '1', head: 'main' }) });

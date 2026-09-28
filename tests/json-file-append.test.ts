@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { appendJsonLine, appendJsonLineIdle } from '../server/json-file.ts';
+import { appendJsonLine } from '../server/json-file.ts';
 import type { AsyncWriteOptions } from '../server/json-file.ts';
 
 type AsyncFileSystem = NonNullable<AsyncWriteOptions['fsPromises']>;
@@ -69,19 +69,6 @@ test('a failed append does not wedge the chain for the next writer', async () =>
     await assert.rejects(failing, /disk gone/);
     await appendJsonLine(filePath, { at: 2 }, { mkdir: true });
     assert.deepEqual(parsedField(filePath, 'at'), [2]);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('appendJsonLineIdle drains what is queued and settles when nothing is', async () => {
-  const { dir, filePath } = tempFile('canon-202608.jsonl');
-  try {
-    assert.equal(await appendJsonLineIdle(filePath), undefined);
-    void appendJsonLine(filePath, { at: 1 }, { mkdir: true });
-    void appendJsonLine(filePath, { at: 2 }, { mkdir: true });
-    await appendJsonLineIdle(filePath);
-    assert.equal(fs.readFileSync(filePath, 'utf8').split('\n').filter(Boolean).length, 2);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
