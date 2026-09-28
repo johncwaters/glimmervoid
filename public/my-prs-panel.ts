@@ -2,24 +2,29 @@ import type { MyPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { el, externalLink } from './dom-helpers.ts';
 import { formatAgo } from './poll-ago.ts';
 import { createPrQueueColumns } from './pr-queue-columns.ts';
-import { chooseSelectedKey, emptyStateText, factLines, groupMyPrs, parseMyPrsStatus, queueNotices, stageLabel, stageTone } from './my-prs-view-core.ts';
+import { createStateGlyph } from './state-glyph.ts';
+import { chooseSelectedKey, emptyStateText, groupMyPrs, parseMyPrsStatus, queueNotices, readinessRows, stageLabel, stageTone } from './my-prs-view-core.ts';
 
 let root: HTMLDivElement | null = null;
+let scopeTabs: HTMLElement | null = null;
 let queue: HTMLElement | null = null;
 let detail: HTMLElement | null = null;
 let latest: MyPrsStatus | null = null;
 let selectedKey: string | null = null;
 
-function stageChip(pr: MyPr): HTMLElement {
-  const chip = el('span', 'my-pr-stage', stageLabel(pr.stage));
+function stageChip(pr: MyPr, { hasGlyph }: { hasGlyph: boolean }): HTMLElement {
+  const chip = el('span', 'my-pr-stage');
   chip.dataset.tone = stageTone(pr.stage);
+  if (hasGlyph) chip.append(createStateGlyph(stageTone(pr.stage)));
+  chip.append(stageLabel(pr.stage));
   return chip;
 }
 
 function createShell(): void {
-  if (!root || queue?.isConnected) return;
+  if (!root || !scopeTabs || queue?.isConnected) return;
   const shell = createPrQueueColumns({
     queueLabel: 'My pull requests',
+    scopeTabs,
     resizerLabel: 'Resize pull request list',
   });
   queue = shell.queue;
@@ -37,11 +42,21 @@ function renderDetail(pr: MyPr | undefined): void {
   const heading = el('div', 'pr-detail-heading');
   const title = el('div', 'pr-detail-title');
   title.append(externalLink('pr-link', pr.key, pr.url), el('h2', null, pr.title));
-  heading.append(title, stageChip(pr));
+  heading.append(title, stageChip(pr, { hasGlyph: true }));
   content.append(heading);
-  const facts = el('ul', 'my-pr-facts');
-  for (const line of factLines(pr)) facts.append(el('li', null, line));
-  content.append(facts);
+  const readiness = readinessRows(pr);
+  if (readiness.length > 0) {
+    const section = el('section', 'pr-readiness-section');
+    section.append(el('h3', 'pr-section-heading', 'Merge readiness'));
+    const list = el('ul', 'pr-readiness');
+    for (const readinessRow of readiness) {
+      const item = el('li', 'pr-readiness-row');
+      item.append(createStateGlyph(readinessRow.tone), el('span', 'pr-readiness-label', readinessRow.label), el('span', 'pr-readiness-value', readinessRow.text));
+      list.append(item);
+    }
+    section.append(list);
+    content.append(section);
+  }
   if (pr.checks.failing.length > 0) {
     const failed = el('section', 'my-pr-failures');
     failed.append(el('h3', 'pr-section-heading', 'Failing checks'));
@@ -69,11 +84,14 @@ function render(): void {
       row.type = 'button';
       row.dataset.prKey = pr.key;
       row.setAttribute('aria-current', String(pr.key === selectedKey));
+      row.title = `${pr.key}: ${stageLabel(pr.stage)}`;
+      const glyph = el('span', 'pr-queue-glyph');
+      glyph.append(createStateGlyph(stageTone(pr.stage)));
       const top = el('span', 'pr-queue-top');
       top.append(el('strong', 'pr-queue-ref', pr.key), el('span', 'pr-queue-title', pr.title));
       const bottom = el('span', 'pr-queue-bottom');
-      bottom.append(stageChip(pr));
-      row.append(top, bottom);
+      bottom.append(stageChip(pr, { hasGlyph: false }));
+      row.append(glyph, top, bottom);
       row.addEventListener('click', () => {
         selectedKey = pr.key;
         for (const button of queue?.querySelectorAll<HTMLButtonElement>('button[data-pr-key]') ?? []) button.setAttribute('aria-current', String(button.dataset.prKey === selectedKey));
@@ -93,8 +111,9 @@ function render(): void {
   renderDetail(sections.flatMap((section) => section.prs).find((pr) => pr.key === selectedKey));
 }
 
-export function mountMyPrsView(parent: HTMLElement): HTMLDivElement {
+export function mountMyPrsView(parent: HTMLElement, tabs: HTMLElement): HTMLDivElement {
   if (root) return root;
+  scopeTabs = tabs;
   root = el('div', 'pr-content');
   parent.append(root);
   render();

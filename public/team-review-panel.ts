@@ -4,21 +4,21 @@ import { createAttentionAck } from './attention-ack-core.ts';
 import { sendControlMsg } from './control-ws.ts';
 import { el, externalLink, isPanelHidden } from './dom-helpers.ts';
 import { createPollAgoTicker } from './poll-ago.ts';
-import { createPrQueueColumns } from './pr-queue-columns.ts';
+import { createPrQueueColumns, createPrQueueHead } from './pr-queue-columns.ts';
+import { createStateGlyph, createSvgIcon as svgIcon, createSvgShape as svgShape } from './state-glyph.ts';
 import { formatTrailOffset } from './radar-core.ts';
 import { createSettingsLink } from './settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, emptyStateText, githubReviewSummary, groupDrafts, parseInlineSegments, hasAnyRow, legacySummaryHint, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
-  parseReviewComment, phaseLabel, postedAgeText, pullRequestLabel, readyAttentionSignature, readyRowSignature, reviewFooterText,
+  parseReviewComment, phaseLabel, postedAgeText, pullRequestLabel, queueRowStateLabel, queueRowTone, readyAttentionSignature, readyRowSignature, reviewFooterText,
   reviewProgressSteps, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictSealText, verdictTone,
 } from './team-review-view-core.ts';
-import type { TeamReviewSections } from './team-review-view-core.ts';
+import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
 import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
 
 const ACTION_REPLY_TIMEOUT_MS = 120000;
-const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const SHARD_PATH = 'M4.5 0.5L8.5 5.5L4.5 10.5L0.5 5.5Z';
 
 interface ActionDetailHandle {
@@ -35,6 +35,7 @@ interface PendingAction {
 
 let _latest: TeamReviewStatusType | null = null;
 let _root: HTMLDivElement | null = null;
+let _scopeTabs: HTMLElement | null = null;
 let _queue: HTMLElement | null = null;
 let _detail: HTMLElement | null = null;
 let _inReviewSection: HTMLElement | null = null;
@@ -51,21 +52,6 @@ const _attention = createAttentionAck({
   signature: () => readyAttentionSignature(_latest),
   isLooking: () => !isPanelHidden(_root),
 });
-
-function svgShape(tag: string, attributes: Record<string, string>): SVGElement {
-  const shape = document.createElementNS(SVG_NAMESPACE, tag);
-  for (const [name, value] of Object.entries(attributes)) shape.setAttribute(name, value);
-  return shape;
-}
-
-function svgIcon(width: number, height: number): SVGSVGElement {
-  const icon = document.createElementNS(SVG_NAMESPACE, 'svg');
-  icon.setAttribute('width', String(width));
-  icon.setAttribute('height', String(height));
-  icon.setAttribute('viewBox', `0 0 ${width} ${height}`);
-  icon.setAttribute('aria-hidden', 'true');
-  return icon;
-}
 
 function createSeverityMeter(severity: FindingSeverity): HTMLElement {
   const presentation = severityPresentation(severity);
@@ -132,11 +118,15 @@ function pullRequestLink(review: Pick<ReviewDraft, 'repo' | 'number' | 'url'>): 
   return externalLink('pr-link', pullRequestLabel(review.repo, review.number), review.url);
 }
 
-function createQueueRow(review: ReviewDraft | InFlightReview, kind: 'ready' | 'inReview' | 'attention' | 'posted' | 'discarded'): HTMLButtonElement {
+function createQueueRow(review: ReviewDraft | InFlightReview, kind: QueueRowKind): HTMLButtonElement {
   const row = el('button', 'pr-queue-row');
   row.type = 'button';
   row.dataset.reviewKey = review.key;
   row.setAttribute('aria-current', String(review.key === _selectedKey));
+  const reviewStatus = 'status' in review ? review.status : null;
+  row.title = `${pullRequestLabel(review.repo, review.number)}: ${queueRowStateLabel(kind, reviewStatus)}`;
+  const glyph = el('span', 'pr-queue-glyph');
+  glyph.append(createStateGlyph(queueRowTone(kind, reviewStatus)));
   const top = el('span', 'pr-queue-top');
   top.append(el('strong', 'pr-queue-ref', pullRequestLabel(review.repo, review.number)), el('span', 'pr-queue-title', review.title));
   const bottom = el('span', 'pr-queue-bottom');
@@ -147,7 +137,7 @@ function createQueueRow(review: ReviewDraft | InFlightReview, kind: 'ready' | 'i
     _progressTicker.track(elapsed, inFlight.startedAt, () => inFlightElapsedText(inFlight, Date.now()));
     bottom.append(elapsed);
   }
-  if (kind === 'ready') {
+  if (kind === 'ready' || kind === 'settled') {
     const draft = review as ReviewDraft;
     bottom.append(createVerdictSeal(draft), el('span', 'pr-queue-author', draft.author), createSeverityCounts(draft, true));
   }
@@ -161,7 +151,7 @@ function createQueueRow(review: ReviewDraft | InFlightReview, kind: 'ready' | 'i
     bottom.append(el('span', 'pr-attention-label pr-attention-label-posted', 'posted'), el('span', 'pr-queue-author', draft.author));
     bottom.append(el('span', 'pr-queue-posted-detail', postedAge ? `${verdictLabel(draft.verdict)}, ${postedAge}` : verdictLabel(draft.verdict)));
   }
-  row.append(top, bottom);
+  row.append(glyph, top, bottom);
   const githubSummary = kind === 'inReview' ? '' : githubReviewSummary(review as ReviewDraft, { isViewerShown: kind !== 'posted' });
   if (githubSummary) row.append(el('span', 'pr-queue-github', `GitHub: ${githubSummary}`));
   row.addEventListener('click', () => {
@@ -173,7 +163,7 @@ function createQueueRow(review: ReviewDraft | InFlightReview, kind: 'ready' | 'i
   return row;
 }
 
-function createQueueSection(title: string, reviews: (ReviewDraft | InFlightReview)[], kind: 'ready' | 'inReview' | 'attention' | 'posted' | 'discarded'): HTMLElement {
+function createQueueSection(title: string, reviews: (ReviewDraft | InFlightReview)[], kind: QueueRowKind): HTMLElement {
   const section = el('section', 'pr-queue-section');
   section.append(el('h3', 'pr-section-heading', `${title} ${reviews.length}`));
   for (const review of reviews) section.append(createQueueRow(review, kind));
@@ -483,11 +473,10 @@ function forgetDepartedDetails(readyKeys: Set<string>): void {
 }
 
 function ensureShell(): void {
-  if (!_root || _queue?.isConnected) return;
+  if (!_root || !_scopeTabs || _queue?.isConnected) return;
   const shell = createPrQueueColumns({
     queueLabel: 'Review queue',
-    minimizeTitle: 'Minimize the review queue to give the review more room',
-    expandTitle: 'Restore the review queue',
+    scopeTabs: _scopeTabs,
     resizerLabel: 'Resize review queue',
   });
   _queue = shell.queue;
@@ -515,7 +504,7 @@ function render(): void {
   forgetDepartedDetails(new Set([...sections.ready, ...sections.noReviewNeeded].map((draft) => draft.key)));
   _progressTicker.reset();
   if (!_latest?.configured || !hasAnyRow(sections)) {
-    _root.replaceChildren(buildEmptyState());
+    _root.replaceChildren(createPrQueueHead(_scopeTabs), buildEmptyState());
     _queue = null;
     _detail = null;
     _inReviewSection = null;
@@ -527,7 +516,7 @@ function render(): void {
   _selectedKey = chooseSelectedReviewKey(sections, _selectedKey);
   const queueSections: HTMLElement[] = [];
   if (sections.ready.length) queueSections.push(createQueueSection('Ready', sections.ready, 'ready'));
-  if (sections.noReviewNeeded.length) queueSections.push(createQueueSection('No review needed', sections.noReviewNeeded, 'ready'));
+  if (sections.noReviewNeeded.length) queueSections.push(createQueueSection('No review needed', sections.noReviewNeeded, 'settled'));
   if (sections.inReview.length) {
     _inReviewSection = createQueueSection('In review', sections.inReview, 'inReview');
     queueSections.push(_inReviewSection);
@@ -554,8 +543,9 @@ export function setTeamReviewActivityCallback(callback: (isActive: boolean) => v
   refreshActivity();
 }
 
-export function mountTeamReviewView(parent: HTMLElement): HTMLDivElement {
+export function mountTeamReviewView(parent: HTMLElement, scopeTabs: HTMLElement): HTMLDivElement {
   if (_root) return _root;
+  _scopeTabs = scopeTabs;
   _root = el('div', 'pr-content');
   parent.append(_root);
   _progressTicker.ensure();

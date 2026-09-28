@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey, commentLocation, emptyStateText, githubReviewSummary, groupDrafts, postedAgeText, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
-  parseReviewComment, phaseLabel, pullRequestLabel, readyAttentionSignature, readyRowSignature, reviewFooterText, reviewProgressSteps,
+  parseReviewComment, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTone, readyAttentionSignature, readyRowSignature, reviewFooterText, reviewProgressSteps,
   severityCounts, severityPresentation, tierLabel, verdictLabel, verdictRecommendation, verdictSealKind, verdictSealText, verdictTone, withoutComment, legacySummaryHint,
 } from '../public/team-review-view-core.ts';
 import { InFlightReview, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
@@ -13,6 +13,27 @@ import type {
 
 const HEAD = 'a'.repeat(40);
 const NEXT_HEAD = 'b'.repeat(40);
+
+test('queue row tones distinguish pending, settled and failed reviews', () => {
+  assert.equal(queueRowTone('ready', 'ready'), 'warn');
+  assert.equal(queueRowTone('settled', 'ready'), 'ok');
+  assert.equal(queueRowTone('inReview', null), 'wait');
+  assert.equal(queueRowTone('attention', 'error'), 'danger');
+  assert.equal(queueRowTone('attention', 'stale'), 'warn');
+  assert.equal(queueRowTone('posted', 'posted'), 'muted');
+  assert.equal(queueRowTone('discarded', 'discarded'), 'muted');
+});
+
+test('queue row state labels name each kind and defer attention to its status', () => {
+  assert.equal(queueRowStateLabel('ready', 'ready'), 'Ready');
+  assert.equal(queueRowStateLabel('settled', 'ready'), 'No review needed');
+  assert.equal(queueRowStateLabel('inReview', null), 'In review');
+  assert.equal(queueRowStateLabel('attention', 'stale'), attentionStatusLabel('stale'));
+  assert.equal(queueRowStateLabel('attention', 'error'), attentionStatusLabel('error'));
+  assert.equal(queueRowStateLabel('attention', null), 'Needs attention');
+  assert.equal(queueRowStateLabel('posted', 'posted'), 'Posted');
+  assert.equal(queueRowStateLabel('discarded', 'discarded'), 'Discarded');
+});
 
 function draft(number: number, overrides: Partial<ReviewDraftType> = {}): ReviewDraftType {
   return ReviewDraft.parse({

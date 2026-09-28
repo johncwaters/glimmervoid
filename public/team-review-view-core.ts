@@ -5,6 +5,26 @@ import type {
 import { findingSeveritiesIn, parseLeadingFindingHeader, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import { attentionSignature } from './attention-ack-core.ts';
 import { formatClockOffset } from './radar-core.ts';
+import type { StateTone } from './state-tone-core.ts';
+
+export type QueueRowKind = 'ready' | 'settled' | 'inReview' | 'attention' | 'posted' | 'discarded';
+
+export function queueRowTone(kind: QueueRowKind, status: ReviewDraft['status'] | null): StateTone {
+  if (kind === 'ready') return 'warn';
+  if (kind === 'settled') return 'ok';
+  if (kind === 'inReview') return 'wait';
+  if (kind === 'attention') return status === 'error' ? 'danger' : 'warn';
+  return 'muted';
+}
+
+const QUEUE_ROW_STATE_LABELS: Readonly<Record<QueueRowKind, string>> = {
+  ready: 'Ready', settled: 'No review needed', inReview: 'In review', attention: 'Needs attention', posted: 'Posted', discarded: 'Discarded',
+};
+
+export function queueRowStateLabel(kind: QueueRowKind, status: ReviewDraft['status'] | null): string {
+  if (kind === 'attention' && status) return attentionStatusLabel(status);
+  return QUEUE_ROW_STATE_LABELS[kind];
+}
 
 export interface TeamReviewSections {
   ready: ReviewDraft[];
