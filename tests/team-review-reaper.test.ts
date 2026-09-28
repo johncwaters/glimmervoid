@@ -135,6 +135,12 @@ async function waitFor<T>(readValue: () => Promise<T | null>, timeoutMs = 5000):
   throw new Error('timed out waiting for process state');
 }
 
+function isOrphanParent(rows: readonly { pid: number; args: string }[], parentPid: number): boolean {
+  if (parentPid === 1) return true;
+  const parentCommand = rows.find((row) => row.pid === parentPid)?.args.split(' ')[0] ?? '';
+  return path.basename(parentCommand) === 'systemd';
+}
+
 async function isProcessActive(pid: number): Promise<boolean> {
   const { stdout } = await execFileAsync('ps', ['-p', String(pid), '-o', 'stat='], { encoding: 'utf8' }).catch(() => ({ stdout: '' }));
   const state = stdout.trim();
@@ -171,7 +177,7 @@ test('reaper kills only an orphaned signed tree and spares an unsigned survivor 
     const childPid = await waitFor(async () => {
       const rows = await listTeamReviewProcesses();
       const leader = rows.find((row) => row.pid === signed.leaderPid);
-      if (leader?.ppid !== 1) return null;
+      if (!leader || !isOrphanParent(rows, leader.ppid)) return null;
       return rows.find((row) => row.ppid === signed.leaderPid)?.pid ?? null;
     });
     const warnings: string[] = [];
