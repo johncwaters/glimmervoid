@@ -17,6 +17,7 @@ export const ANIMALS = [
   { sprite: 'is-sheep', trail: 'is-clouds' },
   { sprite: 'is-hamster', trail: 'is-seeds' },
   { sprite: 'is-giraffe', trail: 'is-acacia' },
+  { sprite: 'is-hedgehog', trail: 'is-logomarks' },
 ];
 
 export function pickAnimalIndex(rng: () => number = Math.random, prevIndex = -1): number {

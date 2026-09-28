@@ -6,12 +6,12 @@ import path from 'node:path';
 import { ANIMALS, pickAnimalIndex } from '../public/nyan-animals.ts';
 import { deriveNyanGeometry } from '../public/nyan-geometry-core.ts';
 
-test('ANIMALS: 18 entries, all sprite/trail classes unique', () => {
-  assert.equal(ANIMALS.length, 18);
+test('ANIMALS: 19 entries, all sprite/trail classes unique', () => {
+  assert.equal(ANIMALS.length, 19);
   const sprites = ANIMALS.map((animal) => animal.sprite);
   const trails = ANIMALS.map((animal) => animal.trail);
-  assert.equal(new Set(sprites).size, 18);
-  assert.equal(new Set(trails).size, 18);
+  assert.equal(new Set(sprites).size, 19);
+  assert.equal(new Set(trails).size, 19);
 });
 
 test('pickAnimalIndex: never returns prevIndex across a sweep of rng values', () => {
