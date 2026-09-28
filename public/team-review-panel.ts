@@ -10,9 +10,9 @@ import { createSettingsLink } from './settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
-  commentLocation, emptyStateText, githubReviewSummary, groupDrafts, parseInlineSegments, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  commentLocation, emptyStateText, githubReviewSummary, groupDrafts, parseInlineSegments, hasAnyRow, legacySummaryHint, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, phaseLabel, postedAgeText, pullRequestLabel, readyAttentionSignature, readyRowSignature, reviewFooterText,
-  reviewProgressSteps, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone,
+  reviewProgressSteps, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictSealText, verdictTone,
 } from './team-review-view-core.ts';
 import type { TeamReviewSections } from './team-review-view-core.ts';
 import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
@@ -89,7 +89,8 @@ function createSeverityMeter(severity: FindingSeverity): HTMLElement {
   return meter;
 }
 
-function createVerdictSeal(verdict: ReviewDraft['verdict']): HTMLElement {
+function createVerdictSeal(draft: ReviewDraft): HTMLElement {
+  const { verdict } = draft;
   const seal = el('span', 'pr-verdict-seal');
   seal.dataset.tone = verdictTone(verdict);
   const icon = svgIcon(20, 20);
@@ -99,7 +100,7 @@ function createVerdictSeal(verdict: ReviewDraft['verdict']): HTMLElement {
   if (kind === 'dot') icon.append(svgShape('circle', { cx: '10', cy: '10', r: '2.4', fill: 'currentColor' }));
   if (kind === 'bar') icon.append(svgShape('path', { d: 'M6 10H14', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round' }));
   if (kind === 'cross') icon.append(svgShape('path', { d: 'M7 7L13 13M13 7L7 13', stroke: 'var(--bg)', 'stroke-width': '1.8', 'stroke-linecap': 'round' }));
-  seal.append(icon, el('span', null, verdictLabel(verdict)));
+  seal.append(icon, el('span', null, verdictSealText(draft)));
   return seal;
 }
 
@@ -148,7 +149,7 @@ function createQueueRow(review: ReviewDraft | InFlightReview, kind: 'ready' | 'i
   }
   if (kind === 'ready') {
     const draft = review as ReviewDraft;
-    bottom.append(createVerdictSeal(draft.verdict), el('span', 'pr-queue-author', draft.author), createSeverityCounts(draft, true));
+    bottom.append(createVerdictSeal(draft), el('span', 'pr-queue-author', draft.author), createSeverityCounts(draft, true));
   }
   if (kind === 'attention' || kind === 'discarded') {
     const draft = review as ReviewDraft;
@@ -195,8 +196,6 @@ function createDetailHeading(review: ReviewDraft | InFlightReview): HTMLElement 
   return heading;
 }
 
-const LEGACY_SUMMARY_HINT = 'This review has no plain summary. Queue review to get one.';
-
 function appendSegments(element: HTMLElement, segments: ReturnType<typeof parseInlineSegments>): HTMLElement {
   for (const segment of segments) element.append(segment.isCode ? el('code', null, segment.text) : document.createTextNode(segment.text));
   return element;
@@ -223,14 +222,14 @@ function createVerdictBox(draft: ReviewDraft, isWithCounts: boolean): HTMLElemen
   const verdict = el('section', 'pr-verdict-box');
   verdict.setAttribute('aria-label', 'Verdict');
   const verdictLine = el('div', 'pr-verdict-line');
-  verdictLine.append(createVerdictSeal(draft.verdict));
+  verdictLine.append(createVerdictSeal(draft));
   if (isWithCounts) verdictLine.append(createSeverityCounts(draft));
   verdict.append(verdictLine);
   const { assessment } = draft;
   if (!assessment) {
     const audit = el('details', 'pr-verdict-audit');
     audit.append(el('summary', null, 'Review audit'), el('p', 'pr-verdict-summary', draft.summary));
-    verdict.append(el('p', 'pr-verdict-legacy', LEGACY_SUMMARY_HINT), audit);
+    verdict.append(el('p', 'pr-verdict-legacy', legacySummaryHint(draft.status)), audit);
     return verdict;
   }
   verdict.append(appendInlineText(el('p', 'pr-verdict-summary pr-verdict-reason'), draft.summary));

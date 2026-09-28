@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey, commentLocation, emptyStateText, githubReviewSummary, groupDrafts, postedAgeText, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, phaseLabel, pullRequestLabel, readyAttentionSignature, readyRowSignature, reviewFooterText, reviewProgressSteps,
-  severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone, withoutComment,
+  severityCounts, severityPresentation, tierLabel, verdictLabel, verdictRecommendation, verdictSealKind, verdictSealText, verdictTone, withoutComment, legacySummaryHint,
 } from '../public/team-review-view-core.ts';
 import { InFlightReview, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type {
@@ -127,7 +127,7 @@ test('an absent or empty status has no rows', () => {
 });
 
 test('tier and verdict labels are short and lower case, with a tone per verdict', () => {
-  assert.equal(tierLabel('stamp'), 'stamp');
+  assert.equal(tierLabel('stamp'), 'light');
   assert.equal(tierLabel('full'), 'full');
   assert.equal(verdictLabel('APPROVE'), 'approve');
   assert.equal(verdictLabel('APPROVE WITH NITS'), 'approve with nits');
@@ -137,6 +137,26 @@ test('tier and verdict labels are short and lower case, with a tone per verdict'
   assert.equal(verdictTone('REQUEST CHANGES'), 'warn');
   assert.equal(verdictTone('BLOCKED'), 'crit');
   assert.equal(pullRequestLabel('Acme/app', 7), 'Acme/app#7');
+});
+
+test('an unposted verdict reads as the review suggestion, never as an action already taken', () => {
+  assert.equal(verdictRecommendation('APPROVE'), 'suggests approve');
+  assert.equal(verdictRecommendation('APPROVE WITH NITS'), 'suggests approve with nits');
+  assert.equal(verdictRecommendation('REQUEST CHANGES'), 'suggests changes');
+  assert.equal(verdictRecommendation('BLOCKED'), 'review blocked');
+});
+
+test('the verdict seal reads as a suggestion until the review is posted', () => {
+  assert.equal(verdictSealText({ verdict: 'APPROVE', status: 'ready' }), 'suggests approve');
+  assert.equal(verdictSealText({ verdict: 'REQUEST CHANGES', status: 'stale' }), 'suggests changes');
+  assert.equal(verdictSealText({ verdict: 'APPROVE', status: 'posted' }), 'approve');
+  assert.equal(verdictSealText({ verdict: 'REQUEST CHANGES', status: 'posted' }), 'request changes');
+});
+
+test('the legacy summary hint offers a requeue only while the review is unposted', () => {
+  assert.match(legacySummaryHint('ready'), /Queue review to get a plain summary\.$/);
+  assert.doesNotMatch(legacySummaryHint('posted'), /Queue review/);
+  assert.match(legacySummaryHint('posted'), /audit log shows what it checked\.$/);
 });
 
 test('the empty state says whether the lane is off or simply has nothing yet', () => {

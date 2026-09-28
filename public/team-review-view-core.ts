@@ -51,6 +51,13 @@ const VERDICT_LABELS: Readonly<Record<ReviewDraft['verdict'], string>> = Object.
   BLOCKED: 'blocked',
 });
 
+const VERDICT_RECOMMENDATIONS: Readonly<Record<ReviewDraft['verdict'], string>> = Object.freeze({
+  APPROVE: 'suggests approve',
+  'APPROVE WITH NITS': 'suggests approve with nits',
+  'REQUEST CHANGES': 'suggests changes',
+  BLOCKED: 'review blocked',
+});
+
 const VERDICT_TONES: Readonly<Record<ReviewDraft['verdict'], string>> = Object.freeze({
   APPROVE: 'ok',
   'APPROVE WITH NITS': 'info',
@@ -213,7 +220,21 @@ export function pullRequestLabel(repo: string, number: number): string {
 }
 
 export function tierLabel(tier: ReviewDraft['tier']): string {
-  return tier === 'full' ? 'full' : 'stamp';
+  return tier === 'full' ? 'full' : 'light';
+}
+
+export function verdictRecommendation(verdict: ReviewDraft['verdict']): string {
+  return VERDICT_RECOMMENDATIONS[verdict] ?? verdictLabel(verdict);
+}
+
+export function verdictSealText(draft: Pick<ReviewDraft, 'verdict' | 'status'>): string {
+  return draft.status === 'posted' ? verdictLabel(draft.verdict) : verdictRecommendation(draft.verdict);
+}
+
+const LEGACY_SUMMARY_EXPLANATION = 'This review ran before plain summaries existed, so only its verdict and findings remain. The audit log shows what it checked.';
+
+export function legacySummaryHint(status: ReviewDraft['status']): string {
+  return status === 'posted' ? LEGACY_SUMMARY_EXPLANATION : `${LEGACY_SUMMARY_EXPLANATION} Queue review to get a plain summary.`;
 }
 
 export function verdictLabel(verdict: ReviewDraft['verdict']): string {
