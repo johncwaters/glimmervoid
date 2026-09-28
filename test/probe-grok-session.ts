@@ -33,9 +33,8 @@ interface HookRecord {
 
 const SESSION_ID = "grok-probe-session";
 const PROMPT = "Run the shell command: touch ./grok-probe-approval.txt";
-const PACK_NAME = "live-probe-pack";
 const SENTINEL_WORD = "amberlattice";
-const PACK_PROMPT = "what sentinel word does the glimmervoid context pack data file contain, answer with the word only";
+const SENTINEL_PROMPT = `reply with the single word ${SENTINEL_WORD} and nothing else`;
 const STEP_TIMEOUT_MS = 90000;
 const USAGE = "Usage: node test/probe-grok-session.ts [--keep]\n--keep retains a sanitized copy of the full authenticated PTY transcript.";
 
@@ -98,34 +97,13 @@ function writeProbeConfig(configPath: string, projectDirectory: string): void {
       path: projectDirectory,
       agent: "grok",
       dangerouslySkipPermissions: false,
-      packs: [PACK_NAME],
     }],
     teams: [],
     repoRoots: [],
-    millEnabled: false,
     autoResume: false,
     worktreeAutoRebase: false,
     capture: { enabled: true },
   }, null, 2), "utf8");
-}
-
-function makeProbePack(tempDirectory: string): string {
-  const builtRoot = path.join(tempDirectory, "packs", "built");
-  const currentDirectory = path.join(builtRoot, PACK_NAME, "current");
-  const dataDirectory = path.join(currentDirectory, "data");
-  fs.mkdirSync(dataDirectory, { recursive: true });
-  fs.writeFileSync(
-    path.join(currentDirectory, "CLAUDE.md"),
-    "# Glimmervoid live probe pack\n\nFor sentinel questions, read `data/sentinel.txt`.\n",
-    "utf8",
-  );
-  fs.writeFileSync(path.join(dataDirectory, "sentinel.txt"), `${SENTINEL_WORD}\n`, "utf8");
-  fs.writeFileSync(
-    path.join(currentDirectory, "manifest.json"),
-    JSON.stringify({ name: PACK_NAME, version: "live-probe-v1", tokenEstimate: 20 }, null, 2),
-    "utf8",
-  );
-  return builtRoot;
 }
 
 function writeClaudeHookProbe(tempDirectory: string): { childHome: string; markerPath: string } {
@@ -221,7 +199,6 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
   fs.mkdirSync(projectDirectory);
   const configPath = path.join(tempDirectory, "config.json");
   writeProbeConfig(configPath, projectDirectory);
-  const builtRoot = makeProbePack(tempDirectory);
   const claudeHookProbe = writeClaudeHookProbe(tempDirectory);
   process.env.GLIMMERVOID_CONFIG = configPath;
   process.env.GROK_HOME = makeProbeGrokHome(tempDirectory, resolvedBeforeIsolation.path);
@@ -241,7 +218,6 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
   const stateChanges: StateChange[] = [];
   const spawnCalls: SpawnCall[] = [];
   let ptyOutput = "";
-  session._packsBuiltRoot = builtRoot;
   session._spawnEnv = { ...(session._spawnEnv || {}), HOME: claudeHookProbe.childHome };
   const spawnPty = session._ptySpawn;
   session._ptySpawn = (file, spawnArgs, spawnOptions) => {
@@ -298,25 +274,25 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
     check("restart requested a resumed spawn", session.restart());
     await waitForState(session, ["IDLE"], "resumed session");
     await delay(5000);
-    session.write(PACK_PROMPT);
+    session.write(SENTINEL_PROMPT);
     await delay(1200);
     session.write("\r");
-    await waitForState(session, ["COMPLETE"], "resumed pack turn");
+    await waitForState(session, ["COMPLETE"], "resumed turn");
     const resumedStopPayload = hookPayloads.findLast((entry) => entry.event === "stop" && entry.payload.reason === "end_turn");
     const resumedAnswer = answerFrom(resumedStopPayload?.payload);
-    check("the --rules pointer let Grok read the pack data file", resumedAnswer?.toLowerCase() === SENTINEL_WORD);
+    check("the resumed turn answered with the sentinel", resumedAnswer?.toLowerCase() === SENTINEL_WORD);
     check("resume retained the same UUIDv7 id", session._resumeSessionId === capturedId);
     check("GROK_CLAUDE_HOOKS_ENABLED=false stopped the Claude hook", !fs.existsSync(claudeHookProbe.markerPath));
     check("the raw titles include a working shape", rawTitles.some(isWorkingTitle));
     check("the raw titles include an action-required shape", rawTitles.some((title) => grok.classifyTitle(title) === "awaiting-input"));
     check("the raw titles include an idle shape", rawTitles.some((title) => !isWorkingTitle(title) && grok.classifyTitle(title) === "unknown"));
-    console.log(`  [answer:pack] ${resumedAnswer || "none"}`);
+    console.log(`  [answer:resume] ${resumedAnswer || "none"}`);
     console.log(`  [ids] captured=${capturedId} after-resume=${session._resumeSessionId}`);
     console.log(`  [claude-hook-fired] ${fs.existsSync(claudeHookProbe.markerPath) ? "yes" : "no"}`);
     for (const [index, call] of spawnCalls.entries()) {
       console.log(`  [argv:${index + 1}] ${JSON.stringify([call.file, ...call.args])}`);
     }
-    check("both spawns carried the --rules pointer", spawnCalls.length === 2 && spawnCalls.every((call) => call.args.includes("--rules")));
+    check("the session spawned twice", spawnCalls.length === 2);
     check("the resumed argv retained the UUIDv7 id", !!capturedId && !!spawnCalls[1]?.args.includes("-r") && spawnCalls[1].args.includes(capturedId));
     const authenticationLine = ptyOutput.split(/\r?\n/).find((line) => line.toLowerCase().includes("not authenticated"));
     if (authenticationLine) throw new Error(authenticationLine);

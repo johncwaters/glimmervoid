@@ -20,6 +20,6 @@ The running server's update check keys on the latest release, never on the tip o
 
 - The update check (installed identity, latest release sources, advisory-only failure paths, the per-install update command, the persisted throttle): `tests/update-check.test.ts` and `tests/update-core.test.ts`.
 - Dashboard-driven update staging, guarded handoff, startup recovery and lifecycle coordination: `tests/update-apply.test.ts`, `tests/update-apply-core.test.ts`, `tests/recover-handoff.test.ts`, `tests/server-lifecycle.test.ts` and `tests/git-workspace-session.test.ts`.
-- The `files` whitelist covering every module the entry points need, and every shipped pack spec having its sources inside the tarball: the packaged global install step in `.github/workflows/test.yml` installs the real tarball with npm 12 and fails unless `glimmervoid doctor` reports node-pty loading.
+- The `files` whitelist covering every module the entry points need: the packaged global install step in `.github/workflows/test.yml` installs the real tarball with npm 12 and fails unless `glimmervoid doctor` reports node-pty loading.
 - The tag matching `package.json`, its commit being on `main`, and the suite passing before anything is published: `.github/workflows/publish.yml`.
 - CI and publishing on the same Node as development: both workflows read `.nvmrc`.

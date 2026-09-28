@@ -19,9 +19,8 @@ interface SpawnCall {
 }
 
 const SESSION_ID = 'codex-probe-session';
-const PACK_NAME = 'live-probe-pack';
 const SENTINEL_WORD = 'velvetquartz';
-const PROMPT = 'what sentinel word does the glimmervoid context pack data file contain, answer with the word only';
+const PROMPT = `reply with the single word ${SENTINEL_WORD} and nothing else`;
 const STEP_TIMEOUT_MS = 90000;
 
 let passed = 0;
@@ -85,34 +84,13 @@ function writeProbeConfig(configPath: string, projectDir: string): void {
       agent: 'codex',
       dangerouslySkipPermissions: false,
       codexBypassHookTrust: true,
-      packs: [PACK_NAME],
     }],
     teams: [],
     repoRoots: [],
-    millEnabled: false,
     autoResume: false,
     worktreeAutoRebase: false,
     capture: { enabled: true },
   }, null, 2), 'utf8');
-}
-
-function makeProbePack(tmpDir: string): string {
-  const builtRoot = path.join(tmpDir, 'packs', 'built');
-  const currentDir = path.join(builtRoot, PACK_NAME, 'current');
-  const dataDir = path.join(currentDir, 'data');
-  fs.mkdirSync(dataDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(currentDir, 'CLAUDE.md'),
-    '# Glimmervoid live probe pack\n\nFor sentinel questions, read `data/sentinel.txt`.\n',
-    'utf8',
-  );
-  fs.writeFileSync(path.join(dataDir, 'sentinel.txt'), `${SENTINEL_WORD}\n`, 'utf8');
-  fs.writeFileSync(
-    path.join(currentDir, 'manifest.json'),
-    JSON.stringify({ name: PACK_NAME, version: 'live-probe-v1', tokenEstimate: 20 }, null, 2),
-    'utf8',
-  );
-  return builtRoot;
 }
 
 function answerFrom(payload: HookPayload | undefined): string | null {
@@ -141,7 +119,6 @@ async function main(): Promise<void> {
   fs.mkdirSync(projectDir);
   const configPath = path.join(tmpDir, 'config.json');
   writeProbeConfig(configPath, projectDir);
-  const builtRoot = makeProbePack(tmpDir);
   process.env.GLIMMERVOID_CONFIG = configPath;
   process.env.CODEX_HOME = makeProbeCodexHome(tmpDir, projectDir);
 
@@ -156,7 +133,6 @@ async function main(): Promise<void> {
   const answers: string[] = [];
   const titleSignals: string[] = [];
   const spawnCalls: SpawnCall[] = [];
-  session._packsBuiltRoot = builtRoot;
   const spawnPty = session._ptySpawn;
   session._ptySpawn = (file, args, options) => {
     spawnCalls.push({ file, args: [...args], cwd: options.cwd });
@@ -181,13 +157,13 @@ async function main(): Promise<void> {
     await waitForState(session, ['RUNNING', 'IDLE'], 'first output');
     check('the session reached a live state after spawn', session.state !== 'DORMANT');
 
-    console.log('\nPack turn:');
+    console.log('\nFirst turn:');
     await delay(6000);
     session.write(PROMPT);
     await delay(1500);
     session.write('\r');
     await waitForState(session, ['COMPLETE'], 'the turn to finish');
-    check('the first turn answered with the data-file sentinel', answers.at(-1)?.toLowerCase() === SENTINEL_WORD);
+    check('the first turn answered with the sentinel', answers.at(-1)?.toLowerCase() === SENTINEL_WORD);
     console.log(`  [answer:first] ${answers.at(-1) || '(none)'}`);
 
     const capturedId = session._resumeSessionId;
@@ -203,15 +179,15 @@ async function main(): Promise<void> {
     session.write(PROMPT);
     await delay(1500);
     session.write('\r');
-    await waitForState(session, ['COMPLETE'], 'the resumed pack turn to finish');
-    check('the resumed turn answered with the data-file sentinel', answers.at(-1)?.toLowerCase() === SENTINEL_WORD);
+    await waitForState(session, ['COMPLETE'], 'the resumed turn to finish');
+    check('the resumed turn answered with the sentinel', answers.at(-1)?.toLowerCase() === SENTINEL_WORD);
     check('the resume kept the same codex session id', session._resumeSessionId === capturedId);
     console.log(`  [answer:resume] ${answers.at(-1) || '(none)'}`);
     console.log(`  [ids]  captured=${capturedId} after-resume=${session._resumeSessionId}`);
     for (const [index, call] of spawnCalls.entries()) {
       console.log(`  [argv:${index + 1}] ${JSON.stringify([call.file, ...call.args])}`);
     }
-    check('both spawns carried developer_instructions', spawnCalls.length === 2 && spawnCalls.every((call) => call.args.some((arg) => arg.startsWith('developer_instructions='))));
+    check('the session spawned twice', spawnCalls.length === 2);
     check('the second spawn used codex resume', !!capturedId && !!spawnCalls[1]?.args.includes('resume') && spawnCalls[1].args.includes(capturedId));
 
     const keptRecording = copySanitizedRecording(tmpDir) || '(none written)';

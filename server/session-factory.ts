@@ -9,8 +9,6 @@ import type { SessionOptions, SessionPlanReviewPort } from '../session/sessions.
 import { DEFAULT_CONFIG } from './config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
-import { resolveMillMetricsConfig } from './core/mill-metrics-core.ts';
-import { isMillEnabled, projectVariantSlug } from './core/pack-core.ts';
 import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './core/session-registry-core.ts';
 import { resolveUsageConfig } from './usage-wiring.ts';
 
@@ -18,14 +16,12 @@ type SessionSpawnOverrides = Pick<SessionOptions, 'agent' | 'agentDepth' | 'ephe
 
 interface SessionFactoryDependencies {
   configStore: { configPath: string };
-  getConfig: () => GlimmervoidConfig;
   hookRouter: Pick<HookRouter, 'register' | 'unregister'> | null;
   getHookPort: () => number | null;
   getGitWorkspace: () => GitWorkspace | null;
   getPlanReviewPort: () => SessionPlanReviewPort | null;
   rtkPathForConfig: (config: GlimmervoidConfig) => string | null;
   getUserHooks: (projectId: string) => UserHook[];
-  listPackNames: () => string[];
 }
 
 function createSessionFactory(dependencies: SessionFactoryDependencies) {
@@ -62,9 +58,6 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       antiSlopPrompt: config.antiSlopPrompt,
       rtkPath: dependencies.rtkPathForConfig(config),
       resumeSessionId: (project.resumeSessionId as string | null | undefined) || null,
-      packs: () => (isMillEnabled(dependencies.getConfig()) ? dependencies.listPackNames() : []),
-      packVariantSlug: projectVariantSlug(project.path),
-      packHoldoutPercent: () => resolveMillMetricsConfig(dependencies.getConfig().millMetrics).holdoutPercent,
       planReviewPort: dependencies.getPlanReviewPort(),
       planLimits: planLimitsEnabled(config),
       getUserHooks: () => dependencies.getUserHooks(project.id),

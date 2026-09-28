@@ -164,11 +164,11 @@
           <text x="480" y="246" text-anchor="middle" fill="var(--ink)" stroke="none" font-size="12" font-family="Instrument Sans, sans-serif">Notification manager</text>
           <rect x="350" y="270" width="260" height="46" rx="6" stroke="var(--line)" fill="var(--surface-2)"/>
           <text x="480" y="289" text-anchor="middle" fill="var(--ink)" stroke="none" font-size="12" font-family="Instrument Sans, sans-serif">Background lanes</text>
-          <text x="480" y="305" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">PR review, Radar, usage, packs, visions</text>
+          <text x="480" y="305" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">PR review, Radar, usage, visions</text>
           <rect x="350" y="326" width="260" height="36" rx="6" stroke="var(--line)" fill="var(--surface-2)"/>
           <text x="480" y="348" text-anchor="middle" fill="var(--ink)" stroke="none" font-size="12" font-family="Instrument Sans, sans-serif">Config store + pure cores</text>
           <text x="480" y="386" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">state in ~/.glimmervoid</text>
-          <text x="480" y="402" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">config, recordings, packs, ledgers</text>
+          <text x="480" y="402" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">config, recordings, ledgers</text>
 
           <rect x="720" y="60" width="180" height="270" rx="10" stroke="var(--line)" fill="var(--surface-2)"/>
           <text x="810" y="88" text-anchor="middle" fill="var(--ink)" stroke="none" font-family="Spline Sans Mono, monospace" font-size="13" font-weight="600">Claude Code</text>
@@ -256,7 +256,7 @@
   </figure>
 
   <ul>
-    <li><strong>Spawn.</strong> <code>pty.spawn</code> launches <code>claude</code> (resolved once at module load; <code>.exe</code> direct, shim installs via <code>cmd.exe /c</code>), through a process-wide spawn gate that serializes ConPTY creation. A per-session managed <code>--settings</code> file injects HTTP hooks, an optional statusLine relay, optional rtk compression, and context packs via <code>--add-dir</code>. The env is scrubbed before spawn.</li>
+    <li><strong>Spawn.</strong> <code>pty.spawn</code> launches <code>claude</code> (resolved once at module load; <code>.exe</code> direct, shim installs via <code>cmd.exe /c</code>), through a process-wide spawn gate that serializes ConPTY creation. A per-session managed <code>--settings</code> file injects HTTP hooks, an optional statusLine relay, and optional rtk compression. The env is scrubbed before spawn.</li>
     <li><strong>Crash safety.</strong> Every hook payload carries Claude's session id; Glimmervoid persists it immediately, so after a crash or restart, boot auto-resume respawns previously active sessions with <code>--resume</code>. There is deliberately no shutdown flush.</li>
     <li><strong>Forensics.</strong> An always-on JSONL recorder writes every hook payload, transition, and gate decision to <code>~/.glimmervoid/recordings</code>; raw PTY bytes are opt-in.</li>
     <li><strong>Pure cores.</strong> Every decision that matters (state transitions, gate releases, merge demotions, notification categories) is a pure function in <code>session/core/</code> with unit tests; <code>sessions.js</code> is the IO shell around them.</li>
@@ -317,7 +317,7 @@
   </figure>
 
   <ul>
-    <li><strong>Hooks</strong> POST to <code>POST /hook/:glimmervoidId/:event</code> on the local server, authenticated by a per-session bearer token written into the managed settings file. The hook response is itself a channel: a <code>UserPromptSubmit</code> reply can inject a Glimmervoid-authored pack-staleness notice into the turn.</li>
+    <li><strong>Hooks</strong> POST to <code>POST /hook/:glimmervoidId/:event</code> on the local server, authenticated by a per-session bearer token written into the managed settings file.</li>
     <li><strong>/clear and /compact are quiet:</strong> the TUI redraw flashes a fake spinner, so title signals are latched off until the next real prompt.</li>
     <li><strong>The PTY data path parses nothing</strong> beyond scanning for OSC-0 title sequences.</li>
   </ul>
@@ -660,70 +660,6 @@
     <figcaption>Live scan wins inside its coverage; the warehouse fills in days the deleted transcripts can no longer show, labelled as history. Lane attribution is exact (only sessions Glimmervoid recorded spawning), so "the PR review lane cost $4.20 this week" is answerable. Costs are estimates, never bills.</figcaption>
   </figure>
 
-  <h2>Context packs: the context mill <span class="when core">fs.watch + 15 min sweep</span></h2>
-  <p class="lede">A pack gathers local docs, house rules, and curated skills into a versioned, token-budgeted directory a session is pointed at with <code>--add-dir</code>. Deterministic by contract: same spec plus same content yields byte-identical output, so the version is a hash.</p>
-
-  <figure>
-    <div class="fig-scroll">
-      <svg viewBox="0 0 940 300" role="img" aria-label="Context mill: specs and sources feed the pure builder, which atomically publishes versioned pack directories; sessions receive packs at spawn via add-dir; watchers and a sweep rebuild on change; a rebuild broadcasts staleness to the dashboard and injects a notice into the next turn; read telemetry reports whether the agent opened the pack.">
-        <defs>
-          <marker id="k1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0 0 L10 5 L0 10 z" fill="var(--ink)"/>
-          </marker>
-          <marker id="k1s" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0 0 L10 5 L0 10 z" fill="var(--signal)"/>
-          </marker>
-        </defs>
-        <g fill="none" stroke="var(--ink)" stroke-width="1.3">
-          <rect x="20" y="30" width="190" height="64" rx="8" stroke="var(--line)" fill="var(--surface-2)"/>
-          <text x="115" y="54" text-anchor="middle" fill="var(--ink)" stroke="none" font-family="Spline Sans Mono, monospace" font-size="12" font-weight="600">specs + sources</text>
-          <text x="115" y="73" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">packs/ in the install,</text>
-          <text x="115" y="86" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">local files only</text>
-
-          <rect x="270" y="30" width="190" height="64" rx="8" stroke="var(--accent)" fill="var(--surface)"/>
-          <text x="365" y="54" text-anchor="middle" fill="var(--ink)" stroke="none" font-family="Spline Sans Mono, monospace" font-size="12" font-weight="600">pack builder</text>
-          <text x="365" y="73" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">pure plan, hard token budget,</text>
-          <text x="365" y="86" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">atomic publish</text>
-
-          <rect x="520" y="30" width="200" height="64" rx="8" stroke="var(--line)" fill="var(--surface)"/>
-          <text x="620" y="54" text-anchor="middle" fill="var(--ink)" stroke="none" font-family="Spline Sans Mono, monospace" font-size="12" font-weight="600">built packs</text>
-          <text x="620" y="73" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">~/.glimmervoid/packs/built/name/</text>
-          <text x="620" y="86" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">current/, hash-versioned</text>
-
-          <rect x="770" y="30" width="150" height="64" rx="8" stroke="var(--line)" fill="var(--surface)"/>
-          <text x="845" y="54" text-anchor="middle" fill="var(--ink)" stroke="none" font-family="Spline Sans Mono, monospace" font-size="12" font-weight="600">session spawn</text>
-          <text x="845" y="73" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">--add-dir per pack;</text>
-          <text x="845" y="86" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">unbuilt pack is skipped</text>
-
-          <rect x="270" y="160" width="190" height="60" rx="8" stroke="var(--line)" fill="var(--surface)"/>
-          <text x="365" y="184" text-anchor="middle" fill="var(--ink)" stroke="none" font-family="Spline Sans Mono, monospace" font-size="12" font-weight="600">watchers + sweep</text>
-          <text x="365" y="203" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">debounced fs.watch, 15 min net</text>
-
-          <rect x="520" y="160" width="200" height="76" rx="8" stroke="var(--signal)" fill="var(--surface)"/>
-          <text x="620" y="184" text-anchor="middle" fill="var(--ink)" stroke="none" font-family="Spline Sans Mono, monospace" font-size="12" font-weight="600">staleness channel</text>
-          <text x="620" y="203" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">pack-updated broadcast (chip);</text>
-          <text x="620" y="217" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">Glimmervoid-authored notice in the next</text>
-          <text x="620" y="231" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">UserPromptSubmit hook reply</text>
-
-          <rect x="770" y="160" width="150" height="60" rx="8" stroke="var(--line)" fill="var(--surface)"/>
-          <text x="845" y="184" text-anchor="middle" fill="var(--ink)" stroke="none" font-family="Spline Sans Mono, monospace" font-size="12" font-weight="600">read telemetry</text>
-          <text x="845" y="203" text-anchor="middle" fill="var(--ink-soft)" stroke="none" font-size="10.5" font-family="Instrument Sans, sans-serif">did the agent open it?</text>
-
-          <line x1="210" y1="62" x2="265" y2="62" marker-end="url(#k1)"/>
-          <line x1="460" y1="62" x2="515" y2="62" marker-end="url(#k1)"/>
-          <line x1="720" y1="62" x2="765" y2="62" marker-end="url(#k1)"/>
-          <line x1="290" y1="160" x2="330" y2="99" marker-end="url(#k1)"/>
-          <text x="290" y="135" text-anchor="end" fill="var(--ink-soft)" stroke="none" font-size="10" font-family="Spline Sans Mono, monospace">rebuild on change</text>
-          <line x1="620" y1="99" x2="620" y2="155" stroke="var(--signal)" marker-end="url(#k1s)"/>
-          <text x="632" y="130" text-anchor="start" fill="var(--signal)" stroke="none" font-size="10" font-family="Spline Sans Mono, monospace">new version</text>
-          <line x1="845" y1="99" x2="845" y2="155" marker-end="url(#k1)"/>
-          <text x="857" y="130" text-anchor="start" fill="var(--ink-soft)" stroke="none" font-size="10" font-family="Spline Sans Mono, monospace">Read hooks</text>
-        </g>
-      </svg>
-    </div>
-    <figcaption>A rebuild that would republish the same version writes nothing. Skills in a delivered pack hot-reload mid-session; CLAUDE.md and rules reach only the next spawn, which is exactly the gap the staleness chip and the notice channel close. The notice is Glimmervoid-authored text only, never pack content, so the live channel cannot become an injection relay. An opt-in distiller lane regenerates derived source files with headless sessions.</figcaption>
-  </figure>
-
   <h2>Visions: live markdown co-editor <span class="when">opt-in, per keystroke</span></h2>
   <p class="lede">An editor relay speaks LSP over stdio and connects to a dedicated <code>/visions</code> WebSocket. Glimmervoid mirrors the open documents and answers in tiers, from instant lint rules to a gated headless model dispatch.</p>
 
@@ -819,10 +755,10 @@
   <table>
     <tr><th>Moment</th><th>What runs</th></tr>
     <tr><td>boot</td><td>Config load, project id assignment, worktree reconciliation, then auto-resume of sessions whose <code>wasActive</code> marker survived, each through the spawn gate. Lane pollers wire up after.</td></tr>
-    <tr><td>spawn</td><td>Settings file written (hooks, statusLine, rtk hook), packs resolved to <code>--add-dir</code>, env scrubbed, PTY created, recorder armed.</td></tr>
+    <tr><td>spawn</td><td>Settings file written (hooks, statusLine, rtk hook), env scrubbed, PTY created, recorder armed.</td></tr>
     <tr><td>per turn</td><td>Hook callbacks move the state machine; turn end triggers worktree diff recheck, post-turn hygiene checks, a debounced usage refresh, and possibly a notification.</td></tr>
-    <tr><td>continuous</td><td>fs watchers on worktree gitdirs, integration-branch reflog, pack sources, and the pairings file; xterm renders whatever bytes arrive.</td></tr>
-    <tr><td>intervals</td><td>PR poller (15 min), pack sweep (15 min), usage scans (5 min, dashboard-gated), TTL prunes on agent tracking.</td></tr>
+    <tr><td>continuous</td><td>fs watchers on worktree gitdirs, integration-branch reflog, and the pairings file; xterm renders whatever bytes arrive.</td></tr>
+    <tr><td>intervals</td><td>PR poller (15 min), usage scans (5 min, dashboard-gated), TTL prunes on agent tracking.</td></tr>
     <tr><td>shutdown</td><td>Signals route through one guarded handler that awaits PTY kill reaps (bounded 3 s) and exits. No config flush: persisted-at-hook-time state is the resume plan.</td></tr>
   </table>
   </div>
@@ -831,8 +767,8 @@
   <div class="table-scroll">
   <table>
     <tr><th>Location</th><th>Contents</th></tr>
-    <tr><td>repo install</td><td>Server code (CommonJS), frontend (ES modules bundled by Vite), pack specs and sources. Distributed as a GitHub install, never a registry package.</td></tr>
-    <tr><td>~/.glimmervoid/</td><td>Runtime state: <code>config.json</code>, session recordings, built packs, usage warehouse and lane ledger, PR review state, pairing hashes, uploads, pricing cache.</td></tr>
+    <tr><td>repo install</td><td>Server code (CommonJS), frontend (ES modules bundled by Vite). Distributed as a GitHub install, never a registry package.</td></tr>
+    <tr><td>~/.glimmervoid/</td><td>Runtime state: <code>config.json</code>, session recordings, usage warehouse and lane ledger, PR review state, pairing hashes, uploads, pricing cache.</td></tr>
     <tr><td>pure cores</td><td><code>session/core/</code>, <code>server/core/</code>, and <code>*-core.mjs</code> in the frontend: every decision that matters is a pure function with unit tests; IO shells stay thin.</td></tr>
     <tr><td>trust boundary</td><td>Localhost only. Both WebSockets are unauthenticated by design (single-user machine); the two HTTP write ingresses (hooks, image upload) carry per-session tokens or pairing cookies. Never bind 0.0.0.0.</td></tr>
   </table>

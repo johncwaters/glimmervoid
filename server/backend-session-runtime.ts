@@ -9,7 +9,6 @@ import type { ConfigStore, GlimmervoidConfig } from './config-store.ts';
 import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import { createRtkInstallWiring } from './rtk-install-wiring.ts';
 import { getRtkPath } from './rtk-resolver.ts';
-import { listPackSpecNamesSync } from './pack-builder.ts';
 import { createSessionFactory } from './session-factory.ts';
 import { buildSettingsPayload } from './settings-payload.ts';
 
@@ -61,14 +60,12 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
   });
   const makeSession = createSessionFactory({
     configStore: dependencies.configStore,
-    getConfig: () => dependencies.config,
     hookRouter,
     getHookPort,
     getGitWorkspace: dependencies.getGitWorkspace,
     getPlanReviewPort: dependencies.getPlanReviewPort || (() => null),
     rtkPathForConfig,
     getUserHooks: (projectId: string) => hooksForProject(dependencies.config.hooks, projectId),
-    listPackNames: () => listPackSpecNamesSync(),
   });
 
   return { getHookPort, hookRouter, makeSession, rtkInstall };

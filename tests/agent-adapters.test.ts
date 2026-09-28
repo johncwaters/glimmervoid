@@ -50,7 +50,7 @@ test('an unknown agent id warns and falls back to the default rather than failin
 test('claude-code declares every capability, since it is the reference implementation', () => {
   assert.deepEqual(Object.keys(claudeCode.capabilities).sort(), [
     'antiSlop', 'awaitingInput', 'backgroundAgents', 'compactQuiet', 'headless', 'hooks',
-    'packNotice', 'packs', 'resume', 'rtk', 'skipPermissionsFlag', 'statusLine',
+    'resume', 'rtk', 'skipPermissionsFlag', 'statusLine',
   ]);
   assert.equal(Object.values(claudeCode.capabilities).every((v) => v === true), true);
 });
@@ -69,17 +69,6 @@ test('buildArgs keeps the pre-extraction order: perms, resume, lane flags, anti-
   assert.equal(args[6], '--append-system-prompt');
   assert.equal(args[args.length - 1], 'THE PROMPT');
   assert.deepEqual(claudeCode.buildArgs(), [], 'a plain user session adds nothing');
-});
-
-test('renderPackArgs keeps the existing Claude --add-dir loop byte-identical', () => {
-  assert.deepEqual(claudeCode.renderPackArgs([
-    { name: 'alpha', dir: '/packs/alpha/current' },
-    { name: 'beta', dir: '/packs/beta/current' },
-  ]), [
-    '--add-dir', '/packs/alpha/current',
-    '--add-dir', '/packs/beta/current',
-  ]);
-  assert.deepEqual(claudeCode.renderPackArgs([]), []);
 });
 
 test('spawn argv for a fully featured session is byte-identical to the pre-extraction one', async () => {
@@ -127,7 +116,6 @@ test('spawn argv for a fully featured session is byte-identical to the pre-extra
     assert.equal(env.CLAUDE_CODE_NO_FLICKER, '1');
     assert.equal('CLAUDECODE' in env, false);
     assert.equal('GLIMMERVOID_PORT' in env, false);
-    assert.equal('CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD' in env, false, 'no packs delivered');
   } finally {
     session.destroy();
     if (previousClaudeConfigDir == null) delete process.env.CLAUDE_CONFIG_DIR;
@@ -196,7 +184,6 @@ test('a rejected spawn cleans before PTY exit without double-cleaning on a late 
     spawnCommand: { path: process.execPath, kind: 'exe' },
     platform: 'linux',
     ptySpawn: () => {
-      session._packDelivery.replaceDelivered([{ name: 'rules', version: 'v1' }]);
       fs.rmSync(projectDir, { recursive: true, force: true });
       return fakePty();
     },
@@ -211,7 +198,6 @@ test('a rejected spawn cleans before PTY exit without double-cleaning on a late 
     assert.equal(session.state, STATES.FAILED);
     assert.equal(session._hooks.token(), null);
     assert.equal(session._hooks.hasSettings(), false);
-    assert.deepEqual(session._packDelivery.delivered(), []);
     assert.equal(unregisterCalls, 1);
     assert.equal(fs.existsSync(path.join(hooksBaseDir, 'rejected-spawn')), false);
     await session._handlePtyExit(1, null);

@@ -10,7 +10,6 @@ export interface RegistryProject {
   name: string;
   path: string;
   agent?: AgentId;
-  packs?: unknown;
   codexBypassHookTrust?: boolean;
   dangerouslySkipPermissions?: boolean;
 }

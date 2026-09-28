@@ -443,7 +443,7 @@ test('a session the ledger calls interactive is the operator working, and publis
 test('every ephemeral lane is excluded by the same rule, with no lane-name list to drift', withHomes(async ({ projects, events, build }) => {
   const lanes = new Map<string, string>();
   const files: string[] = [];
-  for (const lane of ['visions', 'pr-review', 'posthog', 'pack-distill']) {
+  for (const lane of ['visions', 'pr-review', 'posthog', 'change-map']) {
     lanes.set(`claude:${lane}-session`, lane);
     files.push(seedClaudeTranscript(projects, { dirName: `C--lane-${lane}`, sessionId: `${lane}-session` }));
   }

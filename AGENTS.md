@@ -24,7 +24,7 @@ Glimmervoid is a lightweight Node.js background process that spawns and manages 
 | `session/sessions.ts` | Session lifecycle and PTY ownership |
 | `session/adapters/`, `session/core/` | Agent adapters and pure session cores |
 | `detection/`, `notifications/` | Status signals and notification lifecycle |
-| `packs/`, `shared/` | Pack sources and shared constants |
+| `shared/` | Shared constants and wire contracts |
 | `public/` | Browser dashboard (`public/AGENTS.md`) |
 | `scripts/`, `tests/`, `test/` | Release scripts and tests |
 | `tools/`, `assets/`, `dist/` | Dev tools, static assets and generated build output |
@@ -34,7 +34,7 @@ Glimmervoid is a lightweight Node.js background process that spawns and manages 
 ### Working In This Directory
 
 - Everything is TypeScript ESM. Erasable syntax only (no enums, namespaces, parameter properties); relative imports carry explicit `.ts` extensions; the browser reaches `shared/` through the `#shared/*` imports map. Never `any`, never `as unknown as` (`tests/typecheck-gate.test.ts`).
-- Node >=22.18.0 (where type stripping is on by default, which source mode and the `.test.ts` suite depend on; `node:sqlite` FTS5 at 22.16 is the secondary floor). Windows 11 and Linux, developed on v24.
+- Node >=22.18.0 (where type stripping is on by default, which source mode and the `.test.ts` suite depend on). Windows 11 and Linux, developed on v24.
 - Do NOT add dependencies without explicit instruction.
 - Status detection is structural (hooks plus OSC-0 title). Never reintroduce PTY body or content scraping.
 - Spawn sessions with `pty.spawn`, never `child_process.spawn`, and never `shell: true`. Scrub env via `session/core/spawn-env.ts`.
@@ -73,8 +73,7 @@ Each subsystem states its own rules beside its code, so a rule is loaded when th
 | Agent Adapters | `session/adapters/AGENTS.md` |
 | Session Spawning, Auto-Resume and Shutdown | `session/AGENTS.md` |
 | Notifications | `notifications/AGENTS.md` |
-| Worktree Auto-Rebase, Remote Branch GC, Radar / PostHog Auto-Fix, Usage Tracking, Mill Measurement, Long-Term Memory, Ephemeral Lane Write Boundaries, Plan Review, Security: Trust Boundary, Transport and Session Identity | `server/AGENTS.md` |
-| Context Packs | `packs/AGENTS.md` |
+| Worktree Auto-Rebase, Remote Branch GC, Radar / PostHog Auto-Fix, Usage Tracking, Ephemeral Lane Write Boundaries, Plan Review, Security: Trust Boundary, Transport and Session Identity | `server/AGENTS.md` |
 | Dashboard Layouts | `public/AGENTS.md` |
 
 ## Coding Style

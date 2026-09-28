@@ -104,7 +104,6 @@ const SESSION = {
   resumeSessionId: null,
   activeAgents: 0,
   awaitingBackgroundTasks: false,
-  packs: [{ name: 'rules', version: 'abc123' }],
   pendingWakeup: null,
   pendingPromptKind: null,
   hasPlan: false,
@@ -116,10 +115,7 @@ const SESSION = {
 };
 
 const REAL_SERVER_PAYLOADS: ServerPayload[] = [
-  { type: 'snapshot', sessions: [SESSION], packVersions: { rules: 'abc123' }, serverBuild: 'build-1' },
-  { type: 'pack-updated', name: 'rules', version: 'def456' },
-  { type: 'mill-report', requestId: 'mill-1', ts: NOW, autoRebuild: true, distillerEnabled: false, watcherCount: 2, projects: [], maxPacksPerProject: 4, packs: [], configWarnings: [], totals: {}, error: null },
-  { type: 'session-packs', id: 'session-1', packs: [{ name: 'rules', version: 'abc123' }] },
+  { type: 'snapshot', sessions: [SESSION], serverBuild: 'build-1' },
   { type: 'state-change', id: 'session-1', session: 'glimmervoid', from: STATES.IDLE, to: STATES.RUNNING, event: 'user_input', timestamp: NOW },
   { type: 'session-added', id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', state: STATES.DORMANT, stateSince: NOW, skipPerms: true, worktree: false, resumeSessionId: null },
   { type: 'session-removed', id: 'session-1', session: 'glimmervoid' },
@@ -450,13 +446,13 @@ test('a malformed request receives its typed error reply with the Zod message', 
   const connection = connectControl<ServerPayload>(server);
   connection.sent.length = 0;
   connection.send({
-    type: 'request-mill-report',
+    type: 'request-usage-report',
     requestId: 7,
   });
 
   assert.equal(connection.sent.length, 1);
   const reply = connection.sent[0];
-  assert.equal(reply.type, 'mill-report');
+  assert.equal(reply.type, 'usage-report');
   assert.match(String(reply.error), /string/);
   assert.equal(ServerMessage.safeParse(reply).success, true);
 });

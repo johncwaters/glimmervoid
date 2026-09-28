@@ -92,8 +92,6 @@ test("the registry exposes the Grok adapter with the honest capability set", () 
     awaitingInput: true,
     backgroundAgents: true,
     resume: true,
-    packs: true,
-    packNotice: true,
     statusLine: false,
     rtk: false,
     antiSlop: false,
@@ -112,8 +110,8 @@ test("the native binary resolver and spawn builder never select a shim", () => {
   });
   assert.deepEqual(resolved, { path: "native:C:\\Carbon\\.grok\\bin\\grok.exe", kind: "exe" });
   assert.deepEqual(
-    grok.buildSpawnCommand({ platform: "win32", resolved, settingsArgs: ["a"], packArgs: ["b"], agentArgs: ["c"] }),
-    { file: resolved.path, args: ["a", "b", "c"] },
+    grok.buildSpawnCommand({ platform: "win32", resolved, settingsArgs: ["a"], agentArgs: ["c"] }),
+    { file: resolved.path, args: ["a", "c"] },
   );
   assert.throws(() => grok.buildSpawnCommand({ platform: "win32", resolved: { path: null, kind: "unresolved" } }), /native grok binary/);
 });
@@ -137,19 +135,6 @@ test("spawn args disable updates, map approval bypass, resume by id, and keep th
   const env = grok.buildEnv({ PATH: "/bin", GROK_CLAUDE_HOOKS_ENABLED: "true" }, null, {});
   assert.equal(grok.CLAUDE_COMPAT_HOOKS_ENV, "GROK_CLAUDE_HOOKS_ENABLED");
   assert.equal(env.GROK_CLAUDE_HOOKS_ENABLED, "false");
-});
-
-test("pack delivery uses one --rules token with ordered index pointers", () => {
-  assert.deepEqual(grok.renderPackArgs([
-    { name: "alpha", dir: "/packs/alpha/current" },
-    { name: "memory-project", dir: "/packs/memory-project/current" },
-  ], "/packs"), [
-    "--rules",
-    `${grok.PACK_DIRECTIVE}; alpha: /packs/alpha/current/CLAUDE.md; memory-project: /packs/memory-project/current/CLAUDE.md`,
-  ]);
-  assert.deepEqual(grok.renderPackArgs([], "/packs"), []);
-  assert.equal(grok.renderPackArgs([{ name: "alpha", dir: "relative/current" }], "/packs"), null);
-  assert.equal(grok.renderPackArgs([{ name: "alpha", dir: "/other/alpha/current" }], "/packs"), null);
 });
 
 test("the hook vocabulary maps turn outcomes without trusting nested sessions", () => {
@@ -232,43 +217,7 @@ test("the live background-subagent fixture gates until a later Stop declares the
   session.destroy();
 });
 
-test("the live fixture holds a notice-carrying Stop and completes once on the follow-up Stop", (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
-  const records = loadGrokHookFixture();
-  const hookRouter = new HookRouter();
-  const { session } = makeGrokSession({ hookRouter, statusConflictMs: 20, statusDedupMs: 10 });
-  session.state = "RUNNING";
-  session._packDelivery.replaceDelivered([{ name: "alpha", version: "v1" }]);
-  assert.equal(session.notePackUpdate("alpha", "v2"), true);
-  const completes: unknown[] = [];
-  session.on("state-change", (event) => {
-    if (event.to === "COMPLETE") completes.push(event);
-  });
-  hookRouter.register("grok-session", {
-    token: "fixture-token",
-    hooks: grok.hooks,
-    onSignal: (signal) => session.ingestHookSignal(signal),
-  });
-  const dispatch = (record: Record_) => hookRouter.handle({
-    glimmervoidId: "grok-session",
-    token: "fixture-token",
-    event: record.event,
-    payload: record.payload,
-  });
-
-  dispatch(records[3]);
-  t.mock.timers.tick(40);
-  assert.equal(session.state, "RUNNING");
-  assert.equal(completes.length, 0);
-  assert.match(String(session.takePackNoticeContext()), /Context pack updated/);
-  dispatch(records[4]);
-  t.mock.timers.tick(40);
-  assert.equal(session.state, "COMPLETE");
-  assert.equal(completes.length, 1);
-  session.destroy();
-});
-
-test("the live fixture completes a notice-less Stop immediately", (t) => {
+test("the live fixture completes an end_turn Stop immediately", (t) => {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
   const records = loadGrokHookFixture();
   const hookRouter = new HookRouter();
@@ -461,7 +410,6 @@ test("every installed relay command exits inert without the supervised spawn env
         [event],
         Readable.from(["{}"]),
         {},
-        { write() {} },
       );
       assert.deepEqual(relayResult, { code: 0, reason: "no-hook-url" });
     }

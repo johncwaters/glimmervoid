@@ -74,7 +74,6 @@ test.before(async () => {
   fs.writeFileSync(cfgPath, JSON.stringify({
     projects: [{ id: SESSION_ID, name: 'statusline', path: projectDir }],
     repoRoots: [],
-    millEnabled: false,
     autoResume: false,
   }, null, 2), 'utf8');
   const prevEnv = process.env.GLIMMERVOID_CONFIG;

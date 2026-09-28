@@ -81,7 +81,7 @@ test('the written settings still contain the hooks the session needs', () => {
   }
 });
 
-test('no Read matcher reaches PostToolUse, since nothing consumes pack reads', () => {
+test('no Read matcher reaches PostToolUse, since no builtin hook consumes reads', () => {
   const base = { port: 3000, glimmervoidId: 'metrics', token: 'tok' };
   const settings = buildHookSettings(base);
   assert.deepEqual(settings.hooks.PostToolUse.map((entry: { matcher?: string }) => entry.matcher), [

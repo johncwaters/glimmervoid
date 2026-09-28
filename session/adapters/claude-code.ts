@@ -6,7 +6,6 @@ import { isBrailleChar, isSpinnerChar } from "../core/title-classifier-core.ts";
 import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
 import { buildAgentEnv } from "../core/spawn-env.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
-import type { PackDelivery } from "../core/pack-pointer-core.ts";
 import { execFileSync } from "../../server/child-process-safe.ts";
 import type { AgentAdapterShape, AgentArgsOptions, AgentHookProfile, AgentSpawnCommandOptions } from "./index.ts";
 import { PLAN_TOOL_NAME } from "../../shared/contracts/index.ts";
@@ -23,7 +22,6 @@ const envProfile: AgentEnvProfile = {
     "CLAUDE_CODE_CHILD_SESSION",
   ],
   set: { CLAUDE_CODE_NO_FLICKER: "1" },
-  additionalDirsEnvVar: "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD",
 };
 
 const KNOWN_IDLE_CODEPOINTS = new Set([0x2733]);
@@ -128,13 +126,13 @@ function resolveCommand(
 }
 
 function buildSpawnCommand(
-  { platform, resolved, settingsArgs: injectedSettingsArgs = [], packArgs = [], agentArgs = [] }: AgentSpawnCommandOptions,
+  { platform, resolved, settingsArgs: injectedSettingsArgs = [], agentArgs = [] }: AgentSpawnCommandOptions,
 ): { file: string; args: string[] } {
   return buildAgentSpawnCommand({
     name: COMMAND_NAME,
     platform,
     resolved,
-    argGroups: [injectedSettingsArgs, packArgs, agentArgs],
+    argGroups: [injectedSettingsArgs, agentArgs],
   });
 }
 
@@ -143,13 +141,6 @@ function buildEnv(baseEnv: SpawnEnv, extraEnv: SpawnEnv | null | undefined, opti
 }
 
 const settingsArgs = (settingsPath: string): string[] => ["--settings", settingsPath];
-const addDirArgs = (dir: string): string[] => ["--add-dir", dir];
-
-function renderPackArgs(deliveries: readonly PackDelivery[]): string[] {
-  const args: string[] = [];
-  for (const delivery of deliveries) args.push(...addDirArgs(delivery.dir));
-  return args;
-}
 
 function buildArgs({
   dangerouslySkipPermissions = false,
@@ -179,16 +170,11 @@ const claudeCode = {
   buildEnv,
   buildArgs,
   settingsArgs,
-  addDirArgs,
-  renderPackArgs,
-  packCarrier: "--add-dir directories",
   capabilities: {
     hooks: true,
     awaitingInput: true,
     backgroundAgents: true,
     resume: true,
-    packs: true,
-    packNotice: true,
     statusLine: true,
     rtk: true,
     antiSlop: true,

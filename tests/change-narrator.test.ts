@@ -38,7 +38,7 @@ test('Codex narration uses exec output schema and only passes a configured model
   for (const model of ['', 'gpt-5']) {
     const narrator = createChangeNarrator({
       getConfig: () => ({ changeMap: { narrator: { enabled: true, engine: 'codex', model } } }),
-      spawnDistill: async ({ agent, extraArgs, cwd, prompt, model: spawnModel }) => {
+      spawnLane: async ({ agent, extraArgs, cwd, prompt, model: spawnModel }) => {
         assert.equal(agent, 'codex');
         assert.equal(spawnModel, null);
         assert.match(prompt, /answer only with the JSON/);
@@ -73,7 +73,7 @@ test('Claude narration keeps the Write prompt and defaults to haiku', async () =
   const map = mapWithFiles();
   const narrator = createChangeNarrator({
     getConfig: () => ({ changeMap: { narrator: { enabled: true, model: '' } } }),
-    spawnDistill: async ({ agent, extraArgs, cwd, model, prompt }) => {
+    spawnLane: async ({ agent, extraArgs, cwd, model, prompt }) => {
       assert.equal(agent, undefined);
       assert.deepEqual(extraArgs, []);
       assert.equal(model, 'haiku');

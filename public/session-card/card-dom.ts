@@ -39,7 +39,6 @@ const TAG_BADGES: TagBadgeSpec[] = [
   { cls: 'post-turn-badge', ariaHidden: true },
   { cls: 'agents-badge', title: 'Background sub-agents still running' },
   { cls: 'usage-badge', title: 'Tokens and estimated API list-price cost for this conversation' },
-  { cls: 'pack-badge', text: 'pack stale' },
   { cls: 'wakeup-badge' },
   { cls: 'prompt-badge', title: 'Waiting on a permission or input prompt' },
 ];
@@ -248,7 +247,6 @@ interface DebugStatePayload {
     agents?: { active?: number; counted?: number; declared?: number; idleNames?: number; idleTasks?: number } | null;
     gate?: { heldForMs?: number; seq?: number; lastActivitySeq?: number } | null;
   } | null;
-  packs?: { name: string; version?: string }[];
   decisions?: DecisionEntry[];
 }
 
@@ -326,15 +324,6 @@ function renderDebugOverlay(ui: SessionUi, payload: DebugStatePayload) {
     : 'none';
   html += `<div class="debug-field"><span class="debug-label">Gate:</span> <span class="debug-value">${escapeHtml(gateText)}</span></div>`;
   html += `</div>`;
-
-  const packs = Array.isArray(p.packs) ? p.packs : [];
-  if (packs.length > 0) {
-    html += `<div class="debug-section"><div class="debug-section-title">Packs</div>`;
-    for (const pack of packs) {
-      html += `<div class="debug-field"><span class="debug-label">${escapeHtml(pack.name)}:</span> <span class="debug-value">${escapeHtml(pack.version || 'unknown version')}</span></div>`;
-    }
-    html += `</div>`;
-  }
 
   const decisions = Array.isArray(p.decisions) ? p.decisions : [];
   html += `<div class="debug-section"><div class="debug-section-title">Decisions (last ${decisions.length})</div>`;

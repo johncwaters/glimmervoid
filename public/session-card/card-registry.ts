@@ -5,7 +5,6 @@ import type { PlanReviewState } from '#shared/contracts/plan-review.ts';
 import type { createPlanFace } from '../plan/plan-face.ts';
 import type { SessionCardFace } from './face-core.ts';
 import type { TerminalGrid } from './grid-core.ts';
-import type { DeliveredPack } from './pack-stale-core.ts';
 
 export type SessionCardElement = HTMLDivElement & { _cardHostClass?: string };
 
@@ -48,7 +47,6 @@ export interface SessionUi {
   effectiveBase?: string;
   activeAgents?: number;
   awaitingBackgroundTasks?: boolean;
-  packs?: DeliveredPack[];
   resizeObserver?: ResizeObserver;
   ptySize?: TerminalGrid | null;
 

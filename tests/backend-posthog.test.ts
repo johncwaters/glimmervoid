@@ -178,12 +178,6 @@ test('posthogCfgKey: absent posthog/telegram normalizes to null, distinct from a
   assert.notEqual(posthogCfgKey({}), posthogCfgKey({ posthog: { enabled: false } }));
 });
 
-test('posthogCfgKey: a changed packs list counts as a lane config change', () => {
-  const base = { posthog: { ...ENABLED, packs: ['crew-rules'] }, telegram: TELEGRAM };
-  const changed = { posthog: { ...ENABLED, packs: ['house-rules'] }, telegram: TELEGRAM };
-  assert.notEqual(posthogCfgKey(base), posthogCfgKey(changed));
-});
-
 test('posthogCfgKey: a posthog block the env-secret overlay reordered is not a lane config change', () => {
   const envSecrets = readEnvSecrets({ GLIMMERVOID_POSTHOG_API_KEY: 'env-api-key' });
   const beforeSave = withEnvSecrets({ posthog: { apiKey: 'env-api-key', enabled: true }, telegram: TELEGRAM }, envSecrets);
@@ -198,48 +192,6 @@ test('posthogCfgKey: a reordered posthog block with a changed host is still a la
   const changed = withEnvSecrets({ posthog: { enabled: true, host: 'https://us.ph.test' }, telegram: TELEGRAM }, envSecrets);
   assert.notDeepEqual(Object.keys(base.posthog), Object.keys(changed.posthog));
   assert.notEqual(posthogCfgKey(base), posthogCfgKey(changed));
-});
-
-test('PostHog lane passes configured packs into Session options', () => {
-  const { makeSession, constructed, created } = recordingSessionFactory();
-  const wiring = createPosthogWiring({
-    config: { posthog: { ...ENABLED, packs: ['crew-rules', '../bad', 'crew-rules', 'house-rules'] }, replayBufferKB: 256 },
-    ...inertWiringDeps(),
-    makeSession,
-  });
-  try {
-    wiring._makeInvestigationSession({
-      id: 'posthog:1',
-      name: 'PostHog',
-      path: process.cwd(),
-      initialPrompt: 'prompt',
-      spawnEnv: { POSTHOG_API_KEY: 'x', POSTHOG_HOST: 'https://ph.test' },
-    });
-    assert.deepEqual(constructed[0].packs, ['crew-rules', 'house-rules']);
-  } finally {
-    for (const session of created) session.destroy();
-  }
-});
-
-test('with the mill off the PostHog lane spawns with no pack at all', () => {
-  const { makeSession, constructed, created } = recordingSessionFactory();
-  const wiring = createPosthogWiring({
-    config: { millEnabled: false, posthog: { ...ENABLED, packs: ['crew-rules', 'house-rules'] }, replayBufferKB: 256 },
-    ...inertWiringDeps(),
-    makeSession,
-  });
-  try {
-    wiring._makeInvestigationSession({
-      id: 'posthog:1',
-      name: 'PostHog',
-      path: process.cwd(),
-      initialPrompt: 'prompt',
-      spawnEnv: { POSTHOG_API_KEY: 'x', POSTHOG_HOST: 'https://ph.test' },
-    });
-    assert.deepEqual(constructed[0].packs, []);
-  } finally {
-    for (const session of created) session.destroy();
-  }
 });
 
 test('an investigation session reports its tool trail from routed hooks, pretooluse only, newest last', async () => {

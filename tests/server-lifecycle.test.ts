@@ -430,7 +430,7 @@ test('a wedged lane costs the bound and one warning, never the exit', async () =
 test('a lane whose stop rejects is named rather than swallowed', async () => {
   const warnings: string[] = [];
   const lc = createLifecycle({
-    shutdown: () => ({ reaps: [], stoppers: [{ name: 'pack-service', promise: Promise.reject(new Error('rename failed')) }] }),
+    shutdown: () => ({ reaps: [], stoppers: [{ name: 'usage', promise: Promise.reject(new Error('rename failed')) }] }),
     httpServer: fakeHttpServer(),
     onRestart: null,
     env: UNSUPERVISED,
@@ -440,7 +440,7 @@ test('a lane whose stop rejects is named rather than swallowed', async () => {
   });
   await lc.requestShutdown();
   assert.equal(
-    warnings.some((line) => line.includes('pack-service failed to stop cleanly: rename failed')),
+    warnings.some((line) => line.includes('usage failed to stop cleanly: rename failed')),
     true
   );
 });

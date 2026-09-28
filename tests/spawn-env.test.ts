@@ -71,27 +71,6 @@ test('returns a COPY - baseEnv is never mutated', () => {
   assert.equal(env.CLAUDE_CODE_NO_FLICKER, '1', 'flag must be present on the output');
 });
 
-test('CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD is set only when a pack dir was added', () => {
-  const KEY = 'CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD';
-  assert.equal(KEY in claudeSpawnEnv(fullBase()), false);
-  assert.equal(KEY in claudeSpawnEnv(fullBase(), null, {}), false);
-  assert.equal(KEY in claudeSpawnEnv(fullBase(), null, { additionalDirsClaudeMd: false }), false);
-  assert.equal(claudeSpawnEnv(fullBase(), null, { additionalDirsClaudeMd: true })[KEY], '1');
-});
-
-test('an inherited pack flag is scrubbed when no pack dir was added', () => {
-  const KEY = 'CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD';
-  const inherited = { ...fullBase(), [KEY]: '1' };
-  assert.equal(KEY in claudeSpawnEnv(inherited, null, { additionalDirsClaudeMd: false }), false);
-  assert.equal(claudeSpawnEnv(inherited, null, { additionalDirsClaudeMd: true })[KEY], '1');
-});
-
-test('the pack flag lands on the copy, never on the source env', () => {
-  const base = fullBase();
-  claudeSpawnEnv(base, null, { additionalDirsClaudeMd: true });
-  assert.ok(!('CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD' in base));
-});
-
 test('prependPathDir prepends to an existing Path key without adding PATH', () => {
   const base: SpawnEnv = { ...fullBase(), Path: `C:\\Windows${path.delimiter}C:\\Tools` };
   delete base.PATH;

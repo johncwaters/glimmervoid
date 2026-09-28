@@ -85,7 +85,6 @@ test('a custom adapter carries no hook profile and declares every capability off
   const adapter = createCustomAdapter(declaredCustomAgent());
   assert.equal(adapter.hooks, null);
   assert.equal(Object.values(adapter.capabilities).every((value) => value === false), true);
-  assert.equal(adapter.renderPackArgs([], '/built'), null);
   assert.equal(adapter.titleProfile.quietUntilFirstPrompt, undefined);
 });
 

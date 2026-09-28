@@ -12,7 +12,6 @@ Maintainer scripts for cutting a release, validating the install tarball and gen
 |------|-------------|
 | `release.ts` | Release pipeline: pushes to GitHub, tags, creates the GitHub release; the tag push triggers the npm publish in CI. Run as `npm run release` |
 | `generate-config-docs.ts` | Renders `../docs/configuration.md` from the settings map, the config schema and defaults, plus its env var table (`npm run docs:config`); `../tests/config-docs.test.ts` fails on drift or an undocumented `GLIMMERVOID_*` read |
-| `memory-purge-fixtures.ts` | Removes test-fixture records from a memory database (`node scripts/memory-purge-fixtures.ts <db-path> [--dry-run]`), backing it up first and expunging through the store's own three writes |
 | `build.mjs`, `prepare-build.js`, `postinstall.mjs` | Stay plain `.js`: npm runs them INSIDE `node_modules` on a git install, where Node refuses type stripping |
 | `postinstall-path-check.ts` | The PATH notice itself, bundled to `dist/` and reached through `postinstall.mjs` |
 

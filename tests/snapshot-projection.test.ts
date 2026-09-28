@@ -18,7 +18,6 @@ function snapshotSource() {
     resumeSessionId: "resume-1",
     activeAgents: 0,
     awaitingBackgroundTasks: false,
-    packs: [{ name: "rules", version: "v1", dir: "/private/rules" }],
     pendingWakeup: null,
     pendingPromptKind: null,
     hasPlan: false,
@@ -32,11 +31,9 @@ function snapshotSource() {
   };
 }
 
-test("wire and debug snapshots share state and redacted pack projections", () => {
+test("wire and debug snapshots share state and the recent transitions", () => {
   const { wire, debug } = projectSessionSnapshots(snapshotSource());
   assert.equal(debug.state, wire.state);
-  assert.equal(debug.packs, wire.packs);
-  assert.deepEqual(wire.packs, [{ name: "rules", version: "v1" }]);
   assert.equal(wire.effectiveBase, "main");
   assert.equal(wire.awaitingBackgroundTasks, false);
   assert.deepEqual(debug.transitions, [{
@@ -50,7 +47,7 @@ test("wire and debug snapshots share state and redacted pack projections", () =>
 
 test("debug projection retains only its historical public shape", () => {
   const { debug } = projectSessionSnapshots(snapshotSource());
-  assert.deepEqual(Object.keys(debug), ["state", "transitions", "detection", "packs", "decisions"]);
+  assert.deepEqual(Object.keys(debug), ["state", "transitions", "detection", "decisions"]);
 });
 
 test("L7 effective base projection preserves producer-normalized branch names", () => {

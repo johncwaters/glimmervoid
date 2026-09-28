@@ -231,34 +231,20 @@ test('classifyCommandKind maps extensions correctly', () => {
   assert.equal(classifyCommandKind(''), 'unresolved');
 });
 
-test('packArgs land between the settings block and agentArgs, on both spawn forms', () => {
-  const PACKS = ['--add-dir', 'C:/Users/johnw/.glimmervoid/packs/built/house-rules/current'];
+test('the settings block precedes agentArgs on both spawn forms, and the prompt stays last', () => {
   const direct = claudeCode.buildSpawnCommand({
     platform: 'win32',
     resolved: { path: 'C:/a/claude.exe', kind: 'exe' },
     settingsArgs: SETTINGS,
-    packArgs: PACKS,
     agentArgs: [...DANGER, 'THE PROMPT'],
   });
-  assert.deepEqual(direct.args, [...SETTINGS, ...PACKS, ...DANGER, 'THE PROMPT']);
-  assert.equal(direct.args[direct.args.length - 1], 'THE PROMPT', 'the prompt positional stays last');
+  assert.deepEqual(direct.args, [...SETTINGS, ...DANGER, 'THE PROMPT']);
 
   const shim = claudeCode.buildSpawnCommand({
     platform: 'win32',
     resolved: { path: 'C:/a/claude.cmd', kind: 'shim' },
     settingsArgs: SETTINGS,
-    packArgs: PACKS,
     agentArgs: DANGER,
   });
-  assert.deepEqual(shim.args, ['/c', 'claude', ...SETTINGS, ...PACKS, ...DANGER]);
-});
-
-test('omitting packArgs reproduces the pre-pack argv exactly', () => {
-  const before = claudeCode.buildSpawnCommand({
-    platform: 'linux',
-    resolved: { path: '/usr/local/bin/claude', kind: 'shim' },
-    settingsArgs: SETTINGS,
-    agentArgs: DANGER,
-  });
-  assert.deepEqual(before.args, [...SETTINGS, ...DANGER]);
+  assert.deepEqual(shim.args, ['/c', 'claude', ...SETTINGS, ...DANGER]);
 });

@@ -2,15 +2,12 @@
 import fs from "node:fs";
 import { execFileSync } from "../../server/child-process-safe.ts";
 import { relayPath } from "../../server/runtime-paths.ts";
-import { PACK_NAME_RE } from "../../server/core/pack-core.ts";
 import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
 import { classifyAgentTitle, isBrailleChar } from "../core/title-classifier-core.ts";
 import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
 import { buildAgentEnv } from "../core/spawn-env.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import { buildHookCommand } from "../core/hook-command-core.ts";
-import { PACK_DIRECTIVE, renderPackPointerText } from "../core/pack-pointer-core.ts";
-import type { PackDelivery } from "../core/pack-pointer-core.ts";
 import type {
   AgentAdapterShape,
   AgentArgsOptions,
@@ -151,25 +148,18 @@ function resolveCommand(
 }
 
 function buildSpawnCommand(
-  { platform, resolved, settingsArgs = [], packArgs = [], agentArgs = [] }: AgentSpawnCommandOptions,
+  { platform, resolved, settingsArgs = [], agentArgs = [] }: AgentSpawnCommandOptions,
 ): { file: string; args: string[] } {
   return buildAgentSpawnCommand({
     name: COMMAND_NAME,
     platform,
     resolved,
-    argGroups: [settingsArgs, packArgs, agentArgs],
+    argGroups: [settingsArgs, agentArgs],
   });
 }
 
 function buildEnv(baseEnv: SpawnEnv, extraEnv: SpawnEnv | null | undefined, options?: AgentEnvOptions): SpawnEnv {
   return buildAgentEnv(baseEnv, extraEnv, envProfile, options);
-}
-
-function renderPackArgs(deliveries: readonly PackDelivery[], builtRoot: string): string[] | null {
-  const pointerText = renderPackPointerText(deliveries, builtRoot, (name) => PACK_NAME_RE.test(name));
-  if (pointerText === "") return [];
-  if (pointerText == null) return null;
-  return ["-c", `developer_instructions='''${pointerText}'''`];
 }
 
 const UPDATE_CHECK_ARGS = ["-c", "check_for_update_on_startup=false"];
@@ -202,9 +192,6 @@ const codex = {
   buildSpawnCommand,
   buildEnv,
   buildArgs,
-  renderPackArgs,
-  packCarrier: "developer_instructions index pointers",
-  packNoticeCaveat: "staleness notices require trusted UserPromptSubmit hooks or the hook-trust bypass",
   buildHookArgs,
   buildHookCommand,
   mayContributeHooks,
@@ -220,14 +207,11 @@ const codex = {
   TRUST_BYPASS_FLAG,
   SKIP_PERMISSIONS_ARGS,
   UPDATE_CHECK_ARGS,
-  PACK_DIRECTIVE,
   capabilities: {
     hooks: true,
     awaitingInput: true,
     backgroundAgents: false,
     resume: true,
-    packs: true,
-    packNotice: true,
     statusLine: false,
     rtk: true,
     antiSlop: false,

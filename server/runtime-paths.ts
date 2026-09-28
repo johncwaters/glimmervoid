@@ -20,6 +20,6 @@ const runtimePaths: RuntimePaths = computeRuntimePaths({
   hasPackageJson: hasPackageManifest,
 });
 
-const { assetRoot, bundled, cliPath, clientDir, extensionDir, packageRoot, packsDir, relayPath } = runtimePaths;
+const { assetRoot, bundled, cliPath, clientDir, extensionDir, packageRoot, relayPath } = runtimePaths;
 
-export { assetRoot, bundled, cliPath, clientDir, extensionDir, packageRoot, packsDir, relayPath, runtimePaths };
+export { assetRoot, bundled, cliPath, clientDir, extensionDir, packageRoot, relayPath, runtimePaths };

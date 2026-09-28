@@ -28,7 +28,6 @@ import {
 import { acceptsAttentionSignal, mapSignalToEvent, shouldDeferAttention } from "./core/status-mapper.ts";
 import { decideExitTransition } from "./core/exit-transition.ts";
 import type { ExitSignal } from "./core/exit-transition.ts";
-import { shouldHoldTerminalStopForNotice } from "./core/pack-notice.ts";
 import * as agentTracker from "./core/agent-tracker.ts";
 import { DEFAULT_GATE_RELEASE_SETTLE_MS } from "./core/gate-release.ts";
 import { resolveResumeTarget, shouldAdoptReportedResumeId, RESUME_ID_RE } from "./core/auto-resume.ts";
@@ -39,7 +38,6 @@ import { createSessionObservability } from "./session-observability.ts";
 import { createSessionOutput } from "./session-output.ts";
 import type { ScreenSnapshot } from "./session-output.ts";
 import type { ScreenKeeperFactory } from "./screen-keeper.ts";
-import { createSessionPackDelivery } from "./session-pack-delivery.ts";
 import { createSessionHookLifecycle } from "./session-hook-lifecycle.ts";
 import type { HookRouterPort } from "./session-hook-lifecycle.ts";
 import { createSessionWorktreeLifecycle } from "./session-worktree-lifecycle.ts";
@@ -64,7 +62,6 @@ function signalablePid(pid: unknown): number | null {
 
 const DISMISSIBLE_STATES: Set<SessionState> = new Set([STATES.WAITING, STATES.COMPLETE]);
 
-type SessionEndIntent = "operator-abort" | "close-out" | "natural";
 
 interface SessionPlanReviewPort {
   hasPlan: (sessionId: string) => boolean;
@@ -142,10 +139,6 @@ interface SessionOptions {
   spawnEnv?: Record<string, string> | null;
   enableProjectMcp?: boolean;
   rtkPath?: string | null;
-  packs?: unknown;
-  packsBuiltRoot?: string | null;
-  packVariantSlug?: string | null;
-  packHoldoutPercent?: (() => number) | null;
   planReviewPort?: SessionPlanReviewPort | null;
   planLimits?: boolean;
   getUserHooks?: (() => UserHook[]) | null;
@@ -223,9 +216,7 @@ class Session extends EventEmitter {
   _suppressResumeCapture: boolean;
   _antiSlopPrompt: boolean;
   _spawnEnv: Record<string, string> | null;
-  _packsBuiltRoot: string | null;
   _rtkPath: string | null;
-  _packDelivery: ReturnType<typeof createSessionPackDelivery>;
   _planLimits: boolean;
   _planReviewPort: SessionPlanReviewPort | null;
   _hooks: ReturnType<typeof createSessionHookLifecycle>;
@@ -297,12 +288,6 @@ class Session extends EventEmitter {
     enableProjectMcp = false,
     rtkPath = null,
 
-    packs = [],
-
-    packsBuiltRoot = null,
-
-    packVariantSlug = null,
-    packHoldoutPercent = null,
     planReviewPort = null,
 
     planLimits = false,
@@ -415,7 +400,6 @@ class Session extends EventEmitter {
     this._spawnCommand = spawnCommand;
     this._initialPrompt = initialPrompt;
     this._extraClaudeArgs = Array.isArray(extraClaudeArgs) ? extraClaudeArgs : [];
-    this._packsBuiltRoot = packsBuiltRoot;
     this._resumeSessionId = resumeSessionId || null;
     this._transcriptPath = null;
     this._lastClaudeSessionReport = null;
@@ -424,19 +408,6 @@ class Session extends EventEmitter {
     this.ephemeral = !!ephemeral;
     this._spawnEnv = spawnEnv;
     this._rtkPath = (this._can("rtk") && rtkPath) || null;
-    this._packDelivery = createSessionPackDelivery({
-      configuredPacks: typeof packs === "function" ? (packs as () => unknown) : () => packs,
-      builtRoot: () => this._packsBuiltRoot,
-      variantSlug: typeof packVariantSlug === "string" && packVariantSlug ? packVariantSlug : null,
-      projectPath: this.path,
-      sessionName: this.name,
-      agentId: this.agentId,
-      canDeliver: () => this._can("packs"),
-      canNotify: () => this._can("packNotice"),
-      renderArgs: (deliveredPacks, builtRoot) => this._adapter.renderPackArgs(deliveredPacks, builtRoot),
-      recordDecision: (entry) => this._recordDecision(entry),
-      holdoutPercent: packHoldoutPercent ?? (() => 0),
-    });
     this._planLimits = planLimits === true && this._can("statusLine");
     this._planReviewPort = planReviewPort;
     this._hooks = createSessionHookLifecycle({
@@ -599,12 +570,6 @@ class Session extends EventEmitter {
     if (raw && raw.signal === "ready" && raw.source === "hook") {
       this.backgroundTracking.applyBackgroundTasks(raw.payload);
     }
-    if (shouldHoldTerminalStopForNotice({
-      event: raw?.event,
-      signal: raw?.signal,
-      isNoticePending: this._packDelivery.hasPendingNotice(),
-      packNoticeHookEvent: this.packNoticeHookEvent,
-    })) return;
     this._statusSource.ingest(raw);
   }
 
@@ -842,27 +807,6 @@ class Session extends EventEmitter {
     this.emit("resume-cleared", { id: this.id });
   }
 
-  get packNames(): string[] {
-    return this._packDelivery.names();
-  }
-
-  notePackUpdate(name: string, version: string): boolean {
-    return this._packDelivery.noteUpdate(name, version);
-  }
-
-  takePackNoticeContext(): string | null {
-    return this._packDelivery.takeNotice();
-  }
-
-  get packNoticeHookEvent(): string | null {
-    if (!this._can("packNotice")) return null;
-    return this._adapter.packNoticeHookEvent || "UserPromptSubmit";
-  }
-
-  _clearPackNotice(): void {
-    this._packDelivery.clearNotice();
-  }
-
   toSnapshot() {
     return this._projectSnapshots().wire;
   }
@@ -994,7 +938,6 @@ class Session extends EventEmitter {
       resumeSessionId: this._resumeSessionId,
       activeAgents: active,
       awaitingBackgroundTasks: this.backgroundTracking.awaitingBackgroundTasks(),
-      packs: this._packDelivery.delivered(),
       pendingWakeup: this.backgroundTracking.pendingWakeup(),
       pendingPromptKind: this._pendingPromptKind,
       hasPlan: this._planReviewPort?.hasPlan(this.id) === true,
@@ -1107,9 +1050,6 @@ class Session extends EventEmitter {
 
     if (this._destroyed) return;
 
-    const packDelivery = await this._resolvePacks();
-    if (this._destroyed) return;
-
     if (this.worktreeDir) {
       this.worktreeLifecycle.startWatching();
 
@@ -1131,7 +1071,6 @@ class Session extends EventEmitter {
     const hookInjection = this._hooks.inject();
     if (this._hooks.isRequiredSandboxMissing()) {
       this._hooks.cleanup();
-      this._packDelivery.replaceDelivered([]);
       const refusal = new Error(SANDBOX_UNAPPLIED_ERROR);
       this.transition("spawn_fail", { error: refusal.message });
       this.emit("error", refusal);
@@ -1149,7 +1088,6 @@ class Session extends EventEmitter {
       : this._spawnEnv;
 
     const env = this._buildSpawnEnv({
-      additionalDirsClaudeMd: packDelivery.packs.length > 0,
       prependPathDir: this._rtkPath ? path.dirname(this._rtkPath) : null,
       extraEnv: spawnExtraEnv,
     });
@@ -1182,7 +1120,6 @@ class Session extends EventEmitter {
       platform: this._platform,
       resolved: this._spawnCommand || commandFor(this._adapter),
       settingsArgs,
-      packArgs: packDelivery.args,
       agentArgs,
     });
 
@@ -1197,7 +1134,6 @@ class Session extends EventEmitter {
       });
     } catch (err) {
       this._hooks.cleanup();
-      this._packDelivery.replaceDelivered([]);
       this.transition("spawn_fail", { error: err instanceof Error ? err.message : String(err) });
       this.emit("error", err);
       return;
@@ -1212,19 +1148,9 @@ class Session extends EventEmitter {
         this._handlePtyExit(exitCode, signal),
       );
       this._hooks.cleanup();
-      this._packDelivery.replaceDelivered([]);
       this.transition("spawn_fail", { reason: "spawn_cwd_missing" });
       this.kill();
       return;
-    }
-
-    if (packDelivery.packs.length > 0 || packDelivery.heldOut === true) {
-      this.emit("packs-delivered", {
-        packs: this._packDelivery.deliveredWithTokenEstimates(),
-        agent: this.agentId,
-        ts: Date.now(),
-        heldOut: packDelivery.heldOut === true,
-      });
     }
 
     const initialPrompt = this._initialPrompt;
@@ -1292,13 +1218,8 @@ class Session extends EventEmitter {
     }, { unref: true });
   }
 
-  async _resolvePacks() {
-    return this._packDelivery.resolve();
-  }
-
   _buildSpawnEnv({ extraEnv = this._spawnEnv, ...options }: {
     extraEnv?: Record<string, string> | null;
-    additionalDirsClaudeMd?: boolean;
     prependPathDir?: string | null;
   } = {}) {
     return this._adapter.buildEnv(process.env, extraEnv, options);
@@ -1334,7 +1255,6 @@ class Session extends EventEmitter {
     this._resetDetectionSources({ quiet: false, clearTracking: true });
     this._pendingAttentionNotes = [];
 
-    this._clearPackNotice();
     this._hooks.cleanup();
     this._ptyAlive = false;
     this.ptyProcess = null;
@@ -1569,7 +1489,7 @@ class Session extends EventEmitter {
     this._armTimer("_sleepKillTimer", SLEEP_KILL_TIMEOUT_MS, () => {
       if (!this._sleeping) return;
       const wasActive = KILLABLE_STATES.includes(this.state);
-      this.killSession("natural");
+      this.killSession();
       if (wasActive && RESTARTABLE_STATES.includes(this.state)) {
         this._autoKilled = true;
       }
@@ -1580,10 +1500,10 @@ class Session extends EventEmitter {
     this._clearTimer("_sleepKillTimer");
   }
 
-  killSession(endIntent: SessionEndIntent = "operator-abort"): boolean {
+  killSession(): boolean {
     if (!KILLABLE_STATES.includes(this.state)) return false;
     this.kill();
-    return this.transition("user_kill", { endIntent });
+    return this.transition("user_kill");
   }
 
   restart(options: { fresh?: boolean } = {}): boolean {
@@ -1620,7 +1540,7 @@ class Session extends EventEmitter {
         try { if (!this._destroyed) await this._mergeAndReset(); }
         finally { this._finishing = false; }
       });
-      this.killSession("close-out");
+      this.killSession();
       return { ok: true, pending: true };
     }
     return { ok: false, reason: "not-finishable" };
@@ -1647,7 +1567,7 @@ class Session extends EventEmitter {
         this.start({ fresh });
       });
       this.kill();
-      this.transition("user_kill", { endIntent: "natural" });
+      this.transition("user_kill");
       return true;
     }
     if (!RESTARTABLE_STATES.includes(this.state)) return false;
@@ -1677,7 +1597,6 @@ class Session extends EventEmitter {
     this._clearTimer("_titleQuietFallbackTimer");
 
     this.backgroundTracking.clearGateHeldReady();
-    this._clearPackNotice();
 
     if (this._recorder) {
       this._recorder.close();

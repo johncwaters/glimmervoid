@@ -8,12 +8,10 @@ import {
   HOOK_URL_ENV,
   MAX_PAYLOAD_BYTES,
   MAX_RESPONSE_BYTES,
-  MAX_ADDITIONAL_CONTEXT_CHARS,
   readHookUrl,
   normalizeEvent,
   resolveHookTarget,
   decideRelayPost,
-  decideHookStdout,
 } from '../session/core/hook-relay-core.ts';
 const BASE = 'http://127.0.0.1:41234/hook/sess-1?t=deadbeef';
 
@@ -53,25 +51,14 @@ function startIngress({ status = 200, responseBody = JSON.stringify({ ok: true, 
   });
 }
 
-function captureStdout() {
-  let output = '';
-  return {
-    stream: { write: (chunk: string) => { output += String(chunk); return true; } },
-    read: () => output,
-  };
-}
-
 async function relayResponse(
-  { event = 'UserPromptSubmit', status = 200, responseBody }: { event?: string; status?: number; responseBody?: string; reason?: string },
-  hookStdoutDecision?: (event: unknown, status: unknown, body: unknown) => string | null,
+  { event = 'UserPromptSubmit', status = 200, responseBody }: { event?: string; status?: number; responseBody?: string },
 ) {
   const { server, port } = await startIngress({ status, responseBody });
-  const stdout = captureStdout();
   try {
-    const result = await main([event], fakeStdin('{}'), {
+    return await main([event], fakeStdin('{}'), {
       [HOOK_URL_ENV]: `http://127.0.0.1:${port}/hook/s?t=t`,
-    }, stdout.stream, hookStdoutDecision);
-    return { result, output: stdout.read() };
+    });
   } finally {
     server.close();
   }
@@ -127,86 +114,10 @@ test('decideRelayPost: the whole verdict, refusal by refusal', () => {
   assert.equal(decideRelayPost().reason, 'no-hook-url');
 });
 
-test('decideHookStdout returns only a validated bounded notice for the matching declared event', () => {
-  const responseBody = JSON.stringify({
-    ok: true,
-    reason: 'ok',
-    hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 'Read the updated pack.' },
-    ignored: 'not forwarded',
-  });
-  assert.equal(decideHookStdout('UserPromptSubmit', 200, responseBody), JSON.stringify({
-    hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 'Read the updated pack.' },
-  }));
-  assert.equal(decideHookStdout('Stop', 200, responseBody), null);
-  const stopResponseBody = JSON.stringify({
-    hookSpecificOutput: { hookEventName: 'Stop', additionalContext: 'Read the updated pack.' },
-  });
-  assert.equal(decideHookStdout('Stop', 200, stopResponseBody), JSON.stringify({
-    hookSpecificOutput: { hookEventName: 'Stop', additionalContext: 'Read the updated pack.' },
-  }));
-  assert.equal(decideHookStdout('Notification', 200, stopResponseBody), null);
-  assert.equal(decideHookStdout('UserPromptSubmit', 403, responseBody), null);
-  assert.equal(decideHookStdout('UserPromptSubmit', 200, '{bad json'), null);
-  assert.equal(decideHookStdout('UserPromptSubmit', 200, JSON.stringify({
-    hookSpecificOutput: { hookEventName: 'Stop', additionalContext: 'x' },
-  })), null);
-  assert.equal(decideHookStdout('UserPromptSubmit', 200, JSON.stringify({
-    hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 7 },
-  })), null);
-  assert.equal(decideHookStdout('UserPromptSubmit', 200, JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: 'UserPromptSubmit',
-      additionalContext: 'x'.repeat(MAX_ADDITIONAL_CONTEXT_CHARS + 1),
-    },
-  })), null);
-  assert.equal(decideHookStdout('UserPromptSubmit', 200, 'x'.repeat(MAX_RESPONSE_BYTES + 1)), null);
-});
-
-test('relay stdout carries accepted bounded context for UserPromptSubmit and Stop only', async () => {
-  const acceptedBody = JSON.stringify({
-    ok: true,
-    hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 'Pack alpha changed.' },
-  });
-  const accepted = await relayResponse({ responseBody: acceptedBody });
-  assert.equal(accepted.result.code, 0);
-  assert.equal(accepted.output, `${JSON.stringify({
-    hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 'Pack alpha changed.' },
-  })}\n`);
-
-  const stopBody = JSON.stringify({
-    ok: true,
-    hookSpecificOutput: { hookEventName: 'Stop', additionalContext: 'Pack alpha changed.' },
-  });
-  const acceptedStop = await relayResponse({ event: 'Stop', responseBody: stopBody });
-  assert.equal(acceptedStop.output, `${JSON.stringify({
-    hookSpecificOutput: { hookEventName: 'Stop', additionalContext: 'Pack alpha changed.' },
-  })}\n`);
-
-  const silentCases = [
-    { event: 'Notification', responseBody: acceptedBody },
-    { status: 403, responseBody: acceptedBody },
-    { responseBody: '{bad json' },
-    { responseBody: JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit' } }) },
-    { responseBody: 'x'.repeat(MAX_RESPONSE_BYTES + 1), reason: 'response-too-large' },
-  ];
-  for (const silentCase of silentCases) {
-    const response = await relayResponse(silentCase);
-    assert.equal(response.result.code, 0);
-    assert.equal(response.output, '');
-    if (silentCase.reason) assert.equal(response.result.reason, silentCase.reason);
-  }
-});
-
-test('an oversized response reaches decideHookStdout with only the overflow sentinel', async () => {
-  const decision: { input: Record<string, unknown> | null } = { input: null };
-  const response = await relayResponse({
-    responseBody: 'x'.repeat(MAX_RESPONSE_BYTES + 1),
-  }, (event, status, body) => {
-    decision.input = { event, status, body };
-    return null;
-  });
-  assert.equal(response.result.reason, 'response-too-large');
-  assert.deepEqual(decision.input, { event: 'UserPromptSubmit', status: 200, body: null });
+test('an oversized response is cut off and the relay still exits 0', async () => {
+  const result = await relayResponse({ responseBody: 'x'.repeat(MAX_RESPONSE_BYTES + 1) });
+  assert.equal(result.code, 0);
+  assert.equal(result.reason, 'response-too-large');
 });
 
 test('the relay POSTs the stdin bytes untouched to /hook/:glimmervoidId/:event', async () => {

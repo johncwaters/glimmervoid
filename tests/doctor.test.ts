@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 
 const ROOT = path.join(import.meta.dirname, '..');
 
-test('doctor reports each pack carrier and the codex hook-trust caveat', () => {
+test('doctor reports every builtin agent and a loading node-pty', () => {
   const npmPrefix = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-doctor-'));
   try {
     const result = spawnSync(process.execPath, ['bin/glimmervoid.ts', 'doctor'], {
@@ -16,10 +16,9 @@ test('doctor reports each pack carrier and the codex hook-trust caveat', () => {
       env: { ...process.env, npm_config_prefix: npmPrefix },
     });
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /claude-code pack carrier\s+--add-dir directories/);
-    assert.match(result.stdout, /codex pack carrier\s+developer_instructions index pointers/);
-    assert.match(result.stdout, /grok pack carrier\s+--rules index pointers/);
-    assert.match(result.stdout, /codex pack notices\s+staleness notices require trusted UserPromptSubmit hooks or the hook-trust bypass/);
+    assert.match(result.stdout, /claude-code \(Claude Code\)/);
+    assert.match(result.stdout, /codex \(Codex CLI\)/);
+    assert.match(result.stdout, /grok \(Grok Build\)/);
     assert.match(result.stdout, /node-pty\s+loads OK/);
   } finally {
     fs.rmSync(npmPrefix, { recursive: true, force: true });

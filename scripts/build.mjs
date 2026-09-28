@@ -20,7 +20,6 @@ const REQUIRED_OUTPUTS = [
   'tools/vscode-visions/lsp-convert.js',
   'tools/vscode-visions/visions-lsp-core.js',
   'tools/vscode-visions/package.json',
-  'packs/specs/memory.pack.json',
 ];
 
 function fail(message) {

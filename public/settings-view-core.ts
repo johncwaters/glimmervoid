@@ -139,10 +139,7 @@ export function hydrateFromSettings(map: readonly SettingsSection[], settingsPay
       values[setting.path] = isStored ? STORED_SECRET_MASK : '';
       continue;
     }
-    let value = valueAtPath(settingsPayload, setting.path);
-    if (setting.path === 'memory.retainDays') {
-      value = valueAtPath(settingsPayload, 'memory.memoryRetainDays') ?? value;
-    }
+    const value = valueAtPath(settingsPayload, setting.path);
     values[setting.path] = displayValue(setting, value ?? setting.defaultValue);
   }
   payloadByHydratedValues.set(values, cloneValue(settingsPayload));
@@ -214,9 +211,6 @@ export function collectDirtyBlocks(map: readonly SettingsSection[], original: Se
       });
     }
     setValueAtPath(payload, setting.path, value);
-    if (setting.path === 'memory.retainDays' && valueAtPath(originalPayload, 'memory.memoryRetainDays') != null) {
-      setValueAtPath(payload, 'memory.memoryRetainDays', value);
-    }
   }
   for (const setting of settingsOf(map)) {
     if (!isSecretSetting(setting)) continue;
@@ -398,6 +392,17 @@ export function buildProjectSections(projects: SettingsProject[] = []): Settings
         }),
       ],
     }));
+}
+
+export function firstProjectPerPath(projects: SettingsProject[] = []): SettingsProject[] {
+  const seenPaths = new Set<string>();
+  return projects.filter((project) => {
+    if (typeof project?.id !== 'string' || !project.id) return false;
+    if (!project.path) return true;
+    if (seenPaths.has(project.path)) return false;
+    seenPaths.add(project.path);
+    return true;
+  });
 }
 
 export function enrichProjectsById(projects: SettingsProject[] = [], details: SettingsProject[] = []): SettingsProject[] {

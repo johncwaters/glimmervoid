@@ -139,6 +139,28 @@ test('a legacy packReadTelemetry config key is ignored', () => {
   });
 });
 
+test('a config carrying the retired mill and memory keys still loads, and a save keeps them on disk', () => {
+  const retiredKeys = {
+    millEnabled: false,
+    packsAutoRebuild: false,
+    packDistiller: { enabled: true, intervalHours: 24 },
+    millMetrics: { retainDays: 90, holdoutPercent: 10 },
+    memory: { enabled: true, retainDays: 365, distill: { enabled: true } },
+  };
+  withStore({
+    projects: [{ id: 'p1', name: 'proj', path: '/repo/proj', packs: ['house-rules'] }],
+    posthog: { enabled: false, packs: ['crew-rules'] },
+    ...retiredKeys,
+  }, (store, configPath) => {
+    const settings = store.getSettings();
+    for (const key of Object.keys(retiredKeys)) assert.equal(key in settings, false, key);
+    assert.notEqual(store.save((cfg) => { cfg.port = 4125; }), null);
+    const onDisk = readJson(configPath);
+    for (const [key, value] of Object.entries(retiredKeys)) assert.deepEqual(onDisk[key], value, key);
+    assert.deepEqual(block(onDisk.posthog).packs, ['crew-rules']);
+  });
+});
+
 test('validateConfig rejects malformed known fields', () => {
   const validation = validateConfig({
     projects: [{ id: 7 }],
@@ -333,15 +355,6 @@ test('updateChannel round-trips through settings and hot application', () => {
   });
 });
 
-test('getSettings projects only dashboard-settable mill measurement fields', () => {
-  withStore({
-    projects: [],
-    millMetrics: { retainDays: 180, recordsPath: '/operator-only' },
-  }, (store) => {
-    assert.deepEqual(store.getSettings().millMetrics, { retainDays: 180 });
-  });
-});
-
 test('settingsDefaults overlays a key the config file omits', () => {
   withStore({ projects: [] }, (store) => {
     assert.equal(DEFAULT_CONFIG.debugMode, false, 'the production default is off');
@@ -428,7 +441,7 @@ test('getSettings resolves branchGc defaults while opt-in blocks stay null; proj
     assert.equal(s.visions, null);
     assert.equal(s.teamReview, null);
     assert.equal(s.telegram, null);
-    assert.deepEqual(s.projectChoices, [{ id: 'p1', name: 'proj-one' }]);
+    assert.deepEqual(s.projectChoices, [{ id: 'p1', name: 'proj-one', path: 'C:/p1' }]);
 
     store.config.branchGc = { ...DEFAULT_CONFIG.branchGc, enabled: false, staleDays: 21 };
     store.config.visions = { enabled: true, dispatch: { enabled: false } };
@@ -564,25 +577,6 @@ test('branchGc defaults survive a config save round trip', () => {
 test('a partial branchGc config merges over the defaults', () => {
   withStore({ branchGc: { dryRun: true }, projects: [] }, (store) => {
     assert.deepEqual(store.config.branchGc, { ...DEFAULT_CONFIG.branchGc, dryRun: true });
-  });
-});
-
-test('a retired packsAutoRebuild:false carries over to millEnabled for the runtime and the settings', () => {
-  withStore({ projects: [], packsAutoRebuild: false }, (store) => {
-    assert.equal(store.config.millEnabled, false, 'the live config the lanes read is migrated, not just the projection');
-    assert.equal(store.getSettings().millEnabled, false);
-  });
-});
-
-test('a retired packsAutoRebuild:true leaves the mill on its default', () => {
-  withStore({ projects: [], packsAutoRebuild: true }, (store) => {
-    assert.equal(store.getSettings().millEnabled, DEFAULT_CONFIG.millEnabled);
-  });
-});
-
-test('an explicit millEnabled beats the retired key', () => {
-  withStore({ projects: [], packsAutoRebuild: false, millEnabled: true }, (store) => {
-    assert.equal(store.getSettings().millEnabled, true);
   });
 });
 

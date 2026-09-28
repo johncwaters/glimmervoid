@@ -13,7 +13,7 @@ function onlyRootHasPackageJson(directory: string): boolean {
   return directory === PACKAGE_ROOT;
 }
 
-test('a source checkout resolves relays, packs and the CLI as .ts beside the package root', () => {
+test('a source checkout resolves relays and the CLI as .ts beside the package root', () => {
   const paths = computeRuntimePaths({
     moduleFile: path.join(PACKAGE_ROOT, 'server', 'runtime-paths.ts'),
     hasPackageJson: onlyRootHasPackageJson,
@@ -22,7 +22,6 @@ test('a source checkout resolves relays, packs and the CLI as .ts beside the pac
   assert.equal(paths.packageRoot, PACKAGE_ROOT);
   assert.equal(paths.bundled, false);
   assert.equal(paths.assetRoot, PACKAGE_ROOT);
-  assert.equal(paths.packsDir, path.join(PACKAGE_ROOT, 'packs'));
   assert.equal(paths.extensionDir, path.join(PACKAGE_ROOT, 'tools', 'vscode-visions'));
   assert.equal(paths.cliPath, path.join(PACKAGE_ROOT, 'bin', 'glimmervoid.ts'));
   assert.equal(paths.relayPath('hook-relay'), path.join(PACKAGE_ROOT, 'session', 'hook-relay.ts'));
@@ -37,7 +36,6 @@ test('a bundled install resolves the same assets as .js under dist', () => {
   assert.equal(paths.packageRoot, PACKAGE_ROOT);
   assert.equal(paths.bundled, true);
   assert.equal(paths.assetRoot, path.join(PACKAGE_ROOT, 'dist'));
-  assert.equal(paths.packsDir, path.join(PACKAGE_ROOT, 'dist', 'packs'));
   assert.equal(paths.extensionDir, path.join(PACKAGE_ROOT, 'dist', 'tools', 'vscode-visions'));
   assert.equal(paths.cliPath, path.join(PACKAGE_ROOT, 'dist', 'bin', 'glimmervoid.js'));
   assert.equal(paths.relayPath('visions-relay'), path.join(PACKAGE_ROOT, 'dist', 'session', 'visions-relay.js'));

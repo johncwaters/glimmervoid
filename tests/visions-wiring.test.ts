@@ -886,14 +886,9 @@ test('empty and whitespace-only documents spawn nothing and spend no hourly slot
   assert.equal(calls.length, 1);
 });
 
-test('an oversized document skips memory retrieval and prompt construction', async (t) => {
-  let memoryReads = 0;
+test('an oversized document skips prompt construction', async (t) => {
   let promptBuilds = 0;
   const { wiring, timers, calls, lsp } = dispatchingConnection({
-    getMemoryStore: () => ({
-      append: async () => null,
-      retrieve: () => { memoryReads += 1; return []; },
-    }),
     buildPrompt: () => { promptBuilds += 1; return ''; },
   });
   t.after(() => wiring.stop());
@@ -902,7 +897,6 @@ test('an oversized document skips memory retrieval and prompt construction', asy
   runSweepThenDispatch(timers);
   await wiring.whenDispatchSettled();
   assert.equal(calls.length, 0);
-  assert.equal(memoryReads, 0);
   assert.equal(promptBuilds, 0);
 });
 
@@ -910,10 +904,6 @@ test('an assembled oversized prompt releases the dispatch gate without charging 
   const rawText = `# Title\n\nA line with with a repeat.\n${'x'.repeat(MAX_PROMPT_BYTES - 100)}`;
   const { wiring, timers, calls, notes, lsp } = dispatchingConnection({
     dispatch: { maxPerHour: 1 },
-    getMemoryStore: () => ({
-      append: async () => null,
-      retrieve: () => [{ id: 'memory-1', text: 'Keep the decision trace concise.', rank: 'model' }],
-    }),
   });
   t.after(() => wiring.stop());
 
@@ -921,7 +911,7 @@ test('an assembled oversized prompt releases the dispatch gate without charging 
   openEdited(lsp, MARKDOWN_URI, rawText);
   runSweepThenDispatch(timers);
   await wiring.whenDispatchSettled();
-  assert.equal(calls.length, 0, 'the raw document fits, but its findings, intent, and memory push the prompt over the cap');
+  assert.equal(calls.length, 0, 'the raw document fits, but its findings and intent push the prompt over the cap');
   assert.ok(notes.some((line) => line.includes('prompt-too-large')));
 
   lsp('textDocument/didChange', didChangeParams(MARKDOWN_URI, 2, REPEATED_WORD_MARKDOWN));
@@ -2819,7 +2809,7 @@ test('a throw before the spawn is logged and never counts toward the lane backof
     dispatch: { cooldownMs: 1 },
     buildPrompt: (options) => {
       promptAttempts += 1;
-      if (promptAttempts <= 3) throw new Error('the memory store is gone');
+      if (promptAttempts <= 3) throw new Error('the prompt builder failed');
       return `prompt for ${options.uri}`;
     },
   });
@@ -2889,7 +2879,7 @@ test('a freshly opened buffer orients once: intent and hand land, comments and d
   await wiring.whenDispatchSettled();
   assert.equal(calls.length, 1);
   assert.match(String(callAt(calls, 0).prompt), /orientation pass/);
-  assert.ok(notes.some((line) => /dispatching .*: orientation \(prompt=\d+b focus=0l memory=\d+c digest=\d+c\)$/.test(line)));
+  assert.ok(notes.some((line) => /dispatching .*: orientation \(prompt=\d+b focus=0l digest=\d+c\)$/.test(line)));
   const [document] = wiring.documentsSnapshot();
   assert.deepEqual(document.comments, []);
   assert.deepEqual(document.diagnostics.map((diagnostic) => diagnostic.code), ['repeated-word', 'hand']);
@@ -2941,7 +2931,7 @@ test('an edit dispatch is scoped to the edited lines, and comments or diagnostic
 
   assert.equal(calls.length, 1);
   assert.match(String(callAt(calls, 0).prompt), /Lines edited since the last review: 12\./);
-  assert.ok(notes.some((line) => /dispatching .*: edited lines 12 \(prompt=\d+b focus=1l memory=\d+c digest=\d+c\)$/.test(line)));
+  assert.ok(notes.some((line) => /dispatching .*: edited lines 12 \(prompt=\d+b focus=1l digest=\d+c\)$/.test(line)));
   const [document] = wiring.documentsSnapshot();
   assert.deepEqual(document.comments.map((comment) => comment.message), ['about the edit']);
   assert.equal(document.hand, 'a structural thought', 'the structure comment folded into the hand');
@@ -3239,48 +3229,4 @@ test('a result that was not applied gives its review lines back to the next roun
   await wiring.whenDispatchSettled();
   assert.equal(calls.length, 2);
   assert.match(String(callAt(calls, 1).prompt), /Lines edited since the last review: 12, 25\./);
-});
-
-test('an edit landing while the memory read is pending is named by the next round', async (t) => {
-  const longDocument = `# Title\n\n${Array.from({ length: 28 }, (_, index) => `Line ${index + 3} of the document.`).join('\n')}\n`;
-  let releaseMemoryRead: () => void = () => {};
-  const memoryReadGate = new Promise<void>((resolve) => { releaseMemoryRead = resolve; });
-  let memoryReads = 0;
-  const { wiring, timers, calls, lsp, clock } = dispatchingConnection({
-    dispatch: { cooldownMs: 1 },
-    getMemoryStore: () => ({
-      append: async () => null,
-      retrieve: () => [{ id: 'memory-1', text: 'Keep the decision trace concise.', rank: 'model' }],
-      readPublishedManifest: async () => {
-        memoryReads += 1;
-        if (memoryReads === 1) await memoryReadGate;
-        return { version: 'projection-1' };
-      },
-    }),
-  });
-  t.after(() => wiring.stop());
-
-  lsp('textDocument/didOpen', didOpenParams(MARKDOWN_URI, 'markdown', longDocument));
-  lsp('textDocument/didChange', rangedChangeParams(MARKDOWN_URI, 2, [
-    { range: { start: { line: 11, character: 0 }, end: { line: 11, character: 0 } }, text: 'Edited: ' },
-  ]));
-  runSweepThenDispatch(timers);
-  assert.equal(calls.length, 0, 'the round is parked on the memory read');
-
-  lsp('textDocument/didChange', rangedChangeParams(MARKDOWN_URI, 3, [
-    { range: { start: { line: 24, character: 0 }, end: { line: 24, character: 0 } }, text: 'Edited: ' },
-  ]));
-  releaseMemoryRead();
-  await wiring.whenDispatchSettled();
-  assert.equal(calls.length, 1);
-  assert.match(String(callAt(calls, 0).prompt), /Lines edited since the last review: 12\./);
-
-  clock.now += 60000;
-  lsp('textDocument/didChange', rangedChangeParams(MARKDOWN_URI, 4, [
-    { range: { start: { line: 4, character: 0 }, end: { line: 4, character: 0 } }, text: 'Edited: ' },
-  ]));
-  runSweepThenDispatch(timers);
-  await wiring.whenDispatchSettled();
-  assert.equal(calls.length, 2);
-  assert.match(String(callAt(calls, 1).prompt), /Lines edited since the last review: 5, 25\./);
 });

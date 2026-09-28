@@ -177,12 +177,12 @@ test('a fresh ledger reads what a previous process wrote', async () => {
   const root = await makeTempRoot();
   const ledgerPath = path.join(root, '.glimmervoid', 'usage-lanes.json');
   const first = createLaneLedger({ ledgerPath, nowFn: () => NOW });
-  first.record('claude-1', 'pack-distill');
+  first.record('claude-1', 'visions');
   await first.whenIdle();
 
   const second = createLaneLedger({ ledgerPath, nowFn: () => NOW });
   await second.load();
-  assert.equal(second.laneMap().get('claude:claude-1'), 'pack-distill');
+  assert.equal(second.laneMap().get('claude:claude-1'), 'visions');
 });
 
 test('re-recording the same id and lane does not rewrite the file', async () => {

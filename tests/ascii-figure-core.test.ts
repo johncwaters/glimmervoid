@@ -5,12 +5,12 @@ import { renderMeterTrack, renderTable } from '../server/core/ascii-figure-core.
 
 test('headed table centers its title and right-aligns numeric cells above a rule', () => {
   assert.equal(renderTable({
-    title: 'Packs',
+    title: 'Hooks',
     headers: ['NAME', 'COUNT'],
     rows: [['aa', '7']],
     terminalColumns: 20,
   }), [
-    '+--- [ PACKS ] ----+',
+    '+--- [ HOOKS ] ----+',
     `| ${' '.repeat(16)} |`,
     '| NAME | COUNT     |',
     '| -----+------     |',

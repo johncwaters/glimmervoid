@@ -2,7 +2,6 @@ const HOOK_URL_ENV = "GLIMMERVOID_HOOK_URL";
 
 const MAX_PAYLOAD_BYTES = 65536;
 const MAX_RESPONSE_BYTES = 65536;
-const MAX_ADDITIONAL_CONTEXT_CHARS = 10000;
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "[::1]", "localhost"]);
 
@@ -27,10 +26,6 @@ function normalizeEvent(event: unknown): string | null {
   const trimmed = event.trim();
   if (!EVENT_RE.test(trimmed)) return null;
   return trimmed.toLowerCase();
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function resolveHookTarget(
@@ -70,42 +65,13 @@ function decideRelayPost(
   return { post: true, url: target.url, reason: "ok" };
 }
 
-function decideHookStdout(event: unknown, status: unknown, body: unknown): string | null {
-  const normalizedEvent = normalizeEvent(event);
-  if (normalizedEvent !== "userpromptsubmit" && normalizedEvent !== "stop") return null;
-  if (status !== 200) return null;
-  const bodyBytes = Buffer.isBuffer(body) ? body.length : Buffer.byteLength(String(body || ""));
-  if (bodyBytes === 0 || bodyBytes > MAX_RESPONSE_BYTES) return null;
-  let parsed: unknown = null;
-  try {
-    parsed = JSON.parse(String(body));
-  } catch {
-    return null;
-  }
-  if (!isPlainObject(parsed)) return null;
-  const hookSpecificOutput = parsed.hookSpecificOutput;
-  if (!isPlainObject(hookSpecificOutput)) return null;
-  if (normalizeEvent(hookSpecificOutput.hookEventName) !== normalizedEvent) return null;
-  const additionalContext = hookSpecificOutput.additionalContext;
-  if (typeof additionalContext !== "string") return null;
-  if (additionalContext.length === 0 || additionalContext.length > MAX_ADDITIONAL_CONTEXT_CHARS) return null;
-  return JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: normalizedEvent === "stop" ? "Stop" : "UserPromptSubmit",
-      additionalContext,
-    },
-  });
-}
-
 export {
   HOOK_URL_ENV,
   MAX_PAYLOAD_BYTES,
   MAX_RESPONSE_BYTES,
-  MAX_ADDITIONAL_CONTEXT_CHARS,
   readHookUrl,
   normalizeEvent,
   resolveHookTarget,
   decideRelayPost,
-  decideHookStdout,
 };
 export type { RelayPostVerdict };

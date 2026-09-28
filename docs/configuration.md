@@ -131,27 +131,13 @@ Editor-buffer findings and bounded model comments.
 | `visions.projects` | Projects | `[]` | Leave every project clear to accept buffers from every configured project. |
 | `visions.autoFix` | Apply tier 1 fixes | `false` | Allow Visions to edit the active buffer without asking. |
 
-### Mill
+### Ingest
 
-Context packs, long-term memory and machine-context ingest.
+Machine-context ingest behind Visions.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `millEnabled` | Enable the context mill | `true` | Build every pack and deliver them to every project session (up to 4 per session). |
-| `packDistiller.enabled` | Enable the pack distiller | `false` | Run bounded sessions that refresh derived pack sources. |
-| `packDistiller.intervalHours` | Distill interval (hours) | `24` | Delay between scheduled pack distill checks. |
-| `packDistiller.timeoutSeconds` | Distill timeout (seconds) | `900` | Maximum time allowed for one pack distill session. |
-| `memory.enabled` | Enable long-term memory | `false` | Record session knowledge locally and project it into the memory pack. |
-| `memory.retainDays` | Retain memory (days) | `365` | Retention window for long-term memory records. |
-| `memory.maxRecordChars` | Max record characters | `2000` | Maximum character count for one memory record. |
-| `memory.maxRecordsPerKind` | Max records per kind | `2000` | Maximum retained records in each memory category. |
-| `memory.distill.enabled` | Distill memory | `true` | Turn raw memory records into a compact canon. |
-| `memory.distill.intervalMinutes` | Memory distill interval (minutes) | `1440` | Delay between eligible memory distill runs. |
-| `memory.distill.timeoutSeconds` | Memory distill timeout (seconds) | `900` | Maximum time allowed for one memory distill session. |
-| `memory.distill.maxNewClaims` | Max new claims per run | `20` | Maximum net-new canon claims accepted from one run. |
-| `memory.distill.quietMs` | Append-quiet window (ms) | `60000` | Required quiet time after the latest memory append. |
-| `memory.distill.staleHorizonDays` | Stale record horizon (days) | `7` | Records older than this are stepped over instead of distilled. |
-| `ingest.enabled` | Enable machine context ingest | `false` | Enable the local activity feed behind memory and Visions. Turning Visions on turns this on for you. |
+| `ingest.enabled` | Enable machine context ingest | `false` | Enable the local activity feed behind Visions. Turning Visions on turns this on for you. |
 | `ingest.sources.terminal.enabled` | Terminal output source | `false` | Include terminal output in the ingest feed. |
 | `ingest.sources.agentLogs.enabled` | Agent logs source | `false` | Include local agent logs in the ingest feed. |
 | `ingest.sources.git.enabled` | Git activity source | `false` | Include local Git activity in the ingest feed. |
@@ -215,7 +201,6 @@ Edit these in `config.json` unless the note names another dashboard surface.
 
 | Key | Default | Notes |
 |-----|---------|-------|
-| `millMetrics` | `{"retainDays":90,"holdoutPercent":0}` | Context mill measurement: `retainDays` bounds retained history, `holdoutPercent` is the share of spawns delivered no packs, as a comparison arm. |
 | `planReview` | `{"enabled":true}` | Hold Claude Code plan approvals (`ExitPlanMode`) so the plan can be read and approved from the dashboard or phone (`planReview.enabled`). |
 | `worktreeSyncOnStart` | `true` | Fetch origin and fast-forward the local integration branch before a session starts its worktree. |
 | `hooks` |  | Operator-defined hooks per project, managed from the dashboard Hooks panel. |
@@ -228,7 +213,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 
 | Variable | Audience | Effect |
 |----------|----------|--------|
-| `GLIMMERVOID_HOME` | operator | Directory holding `config.json` and all machine state (pairings, packs, memory, recordings). Defaults to `~/.glimmervoid`. |
+| `GLIMMERVOID_HOME` | operator | Directory holding `config.json` and all machine state (pairings, recordings). Defaults to `~/.glimmervoid`. |
 | `GLIMMERVOID_CONFIG` | operator | Path to the config file, winning over `GLIMMERVOID_HOME`. The file must exist or the server exits with `Config file not found`. `--config <path>` sets it. |
 | `GLIMMERVOID_PORT` | operator | Local dashboard port, overriding `port` in `config.json`. `--port <number>` sets it. The Visions relay also reads it to find the server. |
 | `GLIMMERVOID_HOST` | operator | Bind address for both listeners. Defaults to `127.0.0.1`; any non-loopback value is refused unless `GLIMMERVOID_INSECURE_BIND=1`. |

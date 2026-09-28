@@ -62,22 +62,6 @@ import {
   reviveIntentState,
 } from './core/visions-intent-core.ts';
 import type { IntentState, IntentThread } from './core/visions-intent-core.ts';
-import {
-  MAX_DELIVERED_RECORDS,
-  createBoundedKeySet,
-  dismissFeedbackInput,
-  dispatchMemoryInputs,
-  fixFeedbackInput,
-  intentHeadKey,
-  intentMemoryInput,
-  latestIntentHeads,
-  memoryDelivery,
-  projectTagFor,
-  readDismissParams,
-  servedFeedbackInput,
-  servedFindingOf,
-  servedKey,
-} from './core/visions-memory-core.ts';
 import { sweepMarkdownWithFixes } from './core/visions-rules-core.ts';
 import type { SweepDiagnostic, SweepFix } from './core/visions-rules-core.ts';
 import { isUriInProjects, projectForUri, scopePathsOf } from './core/visions-scope-core.ts';
@@ -113,21 +97,6 @@ interface DispatchOutcome {
   comments?: unknown;
   hand?: unknown;
   intent?: unknown;
-}
-
-interface MemorySection {
-  text: string;
-  count: number;
-  version: string | null;
-  deliveredTexts: string[];
-}
-
-interface VisionsMemoryStore {
-  append: (input: object) => Promise<{ id: string } | null>;
-  records?: () => object[];
-  retrieve?: (options: { query: string; project: string | null; limit: number }) => object[];
-  noteDelivered?: (text: string) => void;
-  readPublishedManifest?: () => Promise<{ version?: string } | null>;
 }
 
 interface ScopeProject {
@@ -170,16 +139,13 @@ interface VisionsWiringOptions {
     findings?: unknown[];
     intent?: string;
     digest?: string;
-    memory?: MemorySection | null;
     prompt?: string | null;
   }) => Promise<DispatchOutcome>) | null;
   contextDigest?: ((options: { scopes: null; budgetChars: number; now: number }) => unknown) | null;
   contextSeq?: (() => number | null) | null;
   scopeProjects?: ScopeProject[];
   knownProjectIds?: string[] | null;
-  getMemoryStore?: (() => VisionsMemoryStore | null) | null;
   onEditorEvent?: ((event: { method: string; uri: string }) => void) | null;
-  memoryDeliveryLimit?: number;
   intentStatePath?: string | null;
   intentThreadTtlMs?: number;
   fsFns?: IntentStateReader;
@@ -305,9 +271,7 @@ function createVisionsWiring({
   contextSeq = null,
   scopeProjects = [],
   knownProjectIds = null,
-  getMemoryStore = null,
   onEditorEvent = null,
-  memoryDeliveryLimit = MAX_DELIVERED_RECORDS,
   intentStatePath = null,
   intentThreadTtlMs = DEFAULT_THREAD_TTL_MS,
   fsFns = fs,
@@ -359,8 +323,6 @@ function createVisionsWiring({
     return isUriInProjects(uri, scopePaths);
   }
 
-  const memoryStoreOf = typeof getMemoryStore === 'function' ? getMemoryStore : () => null;
-
   function reportEditorEvent(method: string, uri: string | null): void {
     if (typeof onEditorEvent !== 'function' || !uri) return;
     try {
@@ -369,81 +331,6 @@ function createVisionsWiring({
       warn(`editor ingest report failed: ${errorMessage(error)}`);
     }
   }
-  const servedFindingKeys = createBoundedKeySet();
-  const intentHeadByKey = new Map<string, string | null>();
-  let intentHeadsSeeded = false;
-  let memoryChain: Promise<void> = Promise.resolve();
-
-  function queueMemoryWrite(work: (store: VisionsMemoryStore) => Promise<void>): void {
-    const store = memoryStoreOf();
-    if (!store) return;
-    memoryChain = memoryChain.then(() => work(store)).catch((error: unknown) => warn(`memory write failed: ${errorMessage(error)}`));
-  }
-
-  function projectTagForUri(uri: string): string | null {
-    return projectTagFor(projectForUri(uri, scopeProjects), scopeProjects);
-  }
-
-  function rememberRecords(inputs: unknown[]): void {
-    const list = (Array.isArray(inputs) ? inputs : []).filter((input) => input !== null);
-    if (list.length === 0) return;
-    queueMemoryWrite(async (store) => {
-      let written = 0;
-      for (const input of list) {
-        const record = await store.append(input as object);
-        if (record) written += 1;
-      }
-      debugNote(() => `memory: ${written}/${list.length} record(s) written`);
-    });
-  }
-
-  function seedIntentHeads(store: VisionsMemoryStore): void {
-    if (intentHeadsSeeded) return;
-    intentHeadsSeeded = true;
-    if (typeof store.records !== 'function') return;
-    for (const [key, id] of latestIntentHeads(store.records())) intentHeadByKey.set(key, id);
-  }
-
-  function readIntentHead(projectTag: string | null, threadId: string | null): { key: string; head: string | null; legacyKey: string | null } {
-    const own = intentHeadKey(projectTag, threadId);
-    if (intentHeadByKey.has(own)) return { key: own, head: intentHeadByKey.get(own) ?? null, legacyKey: null };
-    const legacyKey = intentHeadKey(projectTag, null);
-    return { key: own, head: intentHeadByKey.get(legacyKey) || null, legacyKey };
-  }
-
-  function rememberIntent(thread: IntentThread | null, projectTag: string | null): void {
-    if (!thread) return;
-    queueMemoryWrite(async (store) => {
-      seedIntentHeads(store);
-      const { key, head, legacyKey } = readIntentHead(projectTag, thread.id);
-      const input = intentMemoryInput({
-        text: thread.text, project: projectTag, supersedes: head, threadId: thread.id,
-      });
-      if (!input) return;
-      const record = await store.append(input);
-      if (!record) {
-        intentHeadByKey.delete(key);
-        return;
-      }
-      intentHeadByKey.set(key, record.id);
-      if (legacyKey) intentHeadByKey.delete(legacyKey);
-    });
-  }
-
-  function rememberServedFindings(uri: string, fixes: SweepFix[], version: number): void {
-    if (!memoryStoreOf()) return;
-    const project = projectTagForUri(uri);
-    const inputs: unknown[] = [];
-    for (const fix of fixes) {
-      const { id, line } = servedFindingOf(fix);
-      if (!servedFindingKeys.add(servedKey({ uri, version, id }))) continue;
-      inputs.push(servedFeedbackInput({
-        uri, project, id, line,
-      }));
-    }
-    rememberRecords(inputs);
-  }
-
   function broadcastFindings(uri: string, diagnostics: LineDiagnostic[]): void {
     if (typeof broadcast !== 'function') return;
     broadcast({ type: 'visions-findings', uri, diagnostics, ts: nowFn() });
@@ -621,7 +508,6 @@ function createVisionsWiring({
       uri, fix, applied, ts: nowFn(),
     });
     fixLog = appendFixLog(fixLog, entry, fixLogMax);
-    if (applied) rememberRecords([fixFeedbackInput({ uri, project: projectTagForUri(uri), fix })]);
     if (typeof broadcast !== 'function') return;
     broadcast({
       type: 'visions-fix', uri, fix: fixPayload(entry), ts: entry.ts,
@@ -663,7 +549,6 @@ function createVisionsWiring({
     intentState = merged.state;
     persistIntent();
     broadcastIntent(projectId, uri);
-    rememberIntent(merged.thread, projectTagFor(projectId, scopeProjects));
     return true;
   }
 
@@ -698,14 +583,10 @@ function createVisionsWiring({
     result: DispatchOutcome,
     doc: StoredDoc | null,
     send: (message: unknown) => void,
-    delivered: string[],
   ): boolean {
     const discarded = result.verdict === 'COMMENTS' && Array.isArray(result.comments) ? result.comments.length : 0;
     if (discarded > 0) note(`refused comments for ${uri}: orientation=${discarded}`);
     const hand = handFromResult(result);
-    rememberRecords(dispatchMemoryInputs({
-      uri, project: projectTagForUri(uri), comments: [], hand, delivered,
-    }));
     if (!hand) return true;
     const handUpdate = recordHand(uri, hand, doc);
     if (!handUpdate.changed) return true;
@@ -721,14 +602,13 @@ function createVisionsWiring({
     doc: StoredDoc | null,
     send: (message: unknown) => void,
     focus: { touchedRanges: TouchedRange[]; orientation: boolean; activeThread: IntentThread | null },
-    delivered: string[],
   ): boolean {
     if (result.verdict === 'ERROR') {
       warn(`dispatch for ${uri} failed: ${result.reason || 'no reason given'}`);
       return false;
     }
     if (result.reason) note(`dispatch for ${uri}: ${result.reason}`);
-    if (focus.orientation) return applyOrientationResult(uri, result, doc, send, delivered);
+    if (focus.orientation) return applyOrientationResult(uri, result, doc, send);
     const modelUpdate = recordModelDiagnostics(uri, result, doc, focus.touchedRanges);
     const filtered = filterComments({
       comments: result.verdict === 'COMMENTS' ? result.comments : [],
@@ -746,9 +626,6 @@ function createVisionsWiring({
       publishDiagnosticsFrame(send, uri, merged);
       recordFindings(uri, merged);
     }
-    rememberRecords(dispatchMemoryInputs({
-      uri, project: projectTagForUri(uri), comments, hand, delivered,
-    }));
     return true;
   }
 
@@ -761,33 +638,6 @@ function createVisionsWiring({
       warn(`context digest failed: ${errorMessage(error)}`);
       return '';
     }
-  }
-
-  async function readMemorySection(uri: string, text: string): Promise<MemorySection | null> {
-    const store = memoryStoreOf();
-    if (!store || typeof store.retrieve !== 'function') return null;
-    try {
-      const records = store.retrieve({
-        query: text, project: projectTagForUri(uri), limit: memoryDeliveryLimit,
-      });
-      const { lines, texts } = memoryDelivery(records, { maxRecords: memoryDeliveryLimit });
-      if (lines.length === 0) return null;
-      const body = lines.join('\n');
-      if (typeof store.noteDelivered === 'function') store.noteDelivered(body);
-      debugNote(() => `memory: ${lines.length} record(s) delivered for ${uri}`);
-      return {
-        text: body, count: lines.length, version: await readProjectionVersion(store), deliveredTexts: texts,
-      };
-    } catch (error) {
-      warn(`memory retrieval failed: ${errorMessage(error)}`);
-      return null;
-    }
-  }
-
-  async function readProjectionVersion(store: VisionsMemoryStore): Promise<string | null> {
-    if (typeof store.readPublishedManifest !== 'function') return null;
-    const manifest = await store.readPublishedManifest();
-    return typeof manifest?.version === 'string' ? manifest.version : null;
   }
 
   function readContextSeq(): number | null {
@@ -884,10 +734,7 @@ function createVisionsWiring({
         reviewConsumed = false;
         restoreReviewRanges(touchState, uri, reviewRanges, changesDuringDispatch, getDoc(store, uri)?.text ?? '');
       };
-      let deliveredTexts: string[] = [];
       const buildPromptThenDispatch = async (): Promise<DispatchOutcome | null> => {
-        const memory = memoryStoreOf() ? await readMemorySection(uri, text) : null;
-        deliveredTexts = memory?.deliveredTexts ?? [];
         const digest = readContextDigest();
         const prompt = buildPrompt({
           uri,
@@ -895,7 +742,6 @@ function createVisionsWiring({
           findings: standingFindingsFor(uri),
           intent: { active: activeThread, others: otherThreads },
           digest,
-          memory,
           touchedRanges: focusRanges,
           orientation,
           trigger: decision.trigger,
@@ -911,7 +757,7 @@ function createVisionsWiring({
         });
         if (orientation) orientedUris.add(uri);
         const focusLabel = orientation ? 'orientation' : `edited lines ${formatTouchedRanges(focusRanges)}`;
-        const sizes = `prompt=${sizeDecision.promptBytes}b focus=${touchedLineCount(focusRanges)}l memory=${memory?.text.length ?? 0}c digest=${digest.length}c`;
+        const sizes = `prompt=${sizeDecision.promptBytes}b focus=${touchedLineCount(focusRanges)}l digest=${digest.length}c`;
         note(`dispatching ${uri}: ${focusLabel} (${sizes})`);
         const outcome = await dispatch?.({
           uri,
@@ -919,7 +765,6 @@ function createVisionsWiring({
           findings: standingFindingsFor(uri),
           intent: activeThread ? activeThread.text : '',
           digest,
-          memory,
           prompt,
         });
         return outcome ?? null;
@@ -961,7 +806,7 @@ function createVisionsWiring({
         result = carried.result;
       }
       const liveFocus = { ...focus, touchedRanges: touchedRangesFor(touchState, uri) };
-      const recorded = applyDispatchResult(uri, result, currentDoc, send, liveFocus, deliveredTexts);
+      const recorded = applyDispatchResult(uri, result, currentDoc, send, liveFocus);
       if (!recorded) {
         giveBackReview();
         return;
@@ -1014,7 +859,6 @@ function createVisionsWiring({
       const entry = fixesByUri.get(uri);
       if (!entry || !isFixSetFresh(entry, hashFn(doc.text))) return [];
       const offered = filterFixesByRange(entry.fixes, params?.range as Parameters<typeof filterFixesByRange>[1]);
-      rememberServedFindings(uri, offered, doc.version);
       return buildCodeActions(offered, { uri, version: doc.version });
     }
 
@@ -1152,17 +996,6 @@ function createVisionsWiring({
         reportEditorEvent(method, uri);
         return null;
       },
-      'visions/dismissFinding': (params) => {
-        const dismissal = readDismissParams(params);
-        if (!dismissal || !isUriInScope(dismissal.uri)) {
-          debugNote(() => 'dropped a dismissal: unusable params or out of scope');
-          return null;
-        }
-        rememberRecords([dismissFeedbackInput({
-          uri: dismissal.uri, project: projectTagForUri(dismissal.uri), id: dismissal.id,
-        })]);
-        return null;
-      },
       'textDocument/didClose': (params) => {
         const uri = uriOfParams(params);
         if (uri) cancelSweep(uri);
@@ -1288,7 +1121,6 @@ function createVisionsWiring({
     getIntent: () => intentPayload(currentIntentState()),
     getIntentFor: (projectId: string | null = null, uri: string | null = null) => intentProjectPayload(currentIntentState(), projectId, uri),
     whenIntentPersistenceIdle: () => (intentStateWriter ? intentStateWriter.idle() : Promise.resolve()),
-    whenMemoryIdle: () => memoryChain,
     latestContextSeq: readContextSeq,
     whenDispatchSettled: () => Promise.resolve(dispatchSettled),
     get connectionCount() { return connections.size; },
@@ -1304,4 +1136,4 @@ export {
   isMarkdownDoc,
   readFrame,
 };
-export type { DispatchOutcome, MemorySection, VisionsConnection, VisionsMemoryStore, VisionsWiringOptions };
+export type { DispatchOutcome, VisionsConnection, VisionsWiringOptions };

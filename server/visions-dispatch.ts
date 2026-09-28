@@ -85,7 +85,6 @@ interface DispatchInput {
   findings?: unknown[];
   intent?: string;
   digest?: string;
-  memory?: { text: string; count: number; version: string | null } | null;
   prompt?: string | null;
 }
 
@@ -249,7 +248,7 @@ function createVisionsDispatcher({
     });
   }
 
-  return async function dispatch({ uri, text, findings = [], intent = '', digest = '', memory = null, prompt = null }: DispatchInput): Promise<DispatchResult> {
+  return async function dispatch({ uri, text, findings = [], intent = '', digest = '', prompt = null }: DispatchInput): Promise<DispatchResult> {
     let workDir: string | null = null;
     try {
       workDir = await makeWorkDir();
@@ -261,7 +260,7 @@ function createVisionsDispatcher({
     try {
       const generatedPrompt = typeof prompt === 'string'
         ? prompt
-        : buildVisionsPrompt({ uri, text, findings, intent, digest, memory });
+        : buildVisionsPrompt({ uri, text, findings, intent, digest });
       const sizeDecision = decidePromptSize(generatedPrompt);
       if (!sizeDecision.dispatch) return errorResult(sizeDecision.gate);
       await fs.writeFile(path.join(workDir, PROMPT_FILE), generatedPrompt, 'utf8');

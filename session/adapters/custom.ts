@@ -23,8 +23,6 @@ const TITLE_ONLY_CAPABILITIES: AgentCapabilities = Object.freeze({
   awaitingInput: false,
   backgroundAgents: false,
   resume: false,
-  packs: false,
-  packNotice: false,
   statusLine: false,
   rtk: false,
   antiSlop: false,
@@ -56,13 +54,13 @@ function createCustomAdapter(declaration: CustomAgentDeclaration): AgentAdapter 
   }
 
   function buildSpawnCommand(
-    { platform, resolved, settingsArgs = [], packArgs = [], agentArgs = [] }: AgentSpawnCommandOptions,
+    { platform, resolved, settingsArgs = [], agentArgs = [] }: AgentSpawnCommandOptions,
   ): { file: string; args: string[] } {
     return buildAgentSpawnCommand({
       name: declaration.command,
       platform,
       resolved,
-      argGroups: [settingsArgs, packArgs, agentArgs],
+      argGroups: [settingsArgs, agentArgs],
     });
   }
 
@@ -76,10 +74,6 @@ function createCustomAdapter(declaration: CustomAgentDeclaration): AgentAdapter 
     return args;
   }
 
-  function renderPackArgs(): string[] | null {
-    return null;
-  }
-
   return {
     id: declaration.id,
     label: declaration.label,
@@ -89,12 +83,10 @@ function createCustomAdapter(declaration: CustomAgentDeclaration): AgentAdapter 
     titleProfile,
     hooks: null,
     capabilities: TITLE_ONLY_CAPABILITIES,
-    packCarrier: "none",
     resolveCommand,
     buildSpawnCommand,
     buildEnv,
     buildArgs,
-    renderPackArgs,
   };
 }
 

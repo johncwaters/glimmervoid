@@ -40,7 +40,6 @@ interface SessionRegistryDependencies {
   wireSessionEvents: (session: Session) => void;
   closeSessionDataClients: (id: string) => void;
   notificationManager: { acknowledge: (id: string) => void };
-  millMetricsPort?: { onSessionTeardown: (sessionId: string) => void } | null;
   getIngestLane: () => RegistryIngestLane | null;
   broadcastControl: (message: Record<string, unknown>) => void;
   applySettingsReload: (config: RegistryConfig) => void;
@@ -245,7 +244,6 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
 
     dependencies.notificationManager.acknowledge(id);
 
-    if (dependencies.millMetricsPort) dependencies.millMetricsPort.onSessionTeardown(id);
     const ingestLane = dependencies.getIngestLane();
     if (ingestLane) ingestLane.detachSessionTap(session);
     if (ingestLane) ingestLane.releaseSessionRoots(session);
@@ -285,7 +283,6 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
       dependencies.closeSessionDataClients(project.id);
       dependencies.notificationManager.acknowledge(project.id);
 
-      if (dependencies.millMetricsPort) dependencies.millMetricsPort.onSessionTeardown(project.id);
       oldSession.destroy();
       const newSession = dependencies.makeSession(project, { ...config, ...newConfig });
       sessions.set(project.id, newSession);

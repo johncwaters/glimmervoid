@@ -2,13 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { PACK_NAME_RE } from "../../server/core/pack-core.ts";
 import { relayPath } from "../../server/runtime-paths.ts";
 import { buildAgentEnv } from "../core/spawn-env.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import { renderGrokHooksFile, classifyGrokHooksFile } from "../core/grok-hooks-file-core.ts";
-import { PACK_DIRECTIVE, renderPackPointerText } from "../core/pack-pointer-core.ts";
-import type { PackDelivery } from "../core/pack-pointer-core.ts";
 import type { ResolvedCommand } from "../core/spawn-command.ts";
 import { firstCharOfTitle, isBrailleChar, isPathLikeTitle } from "../core/title-classifier-core.ts";
 import type {
@@ -206,10 +203,10 @@ function resolveCommand({
 }
 
 function buildSpawnCommand(
-  { resolved, settingsArgs = [], packArgs = [], agentArgs = [] }: AgentSpawnCommandOptions,
+  { resolved, settingsArgs = [], agentArgs = [] }: AgentSpawnCommandOptions,
 ): { file: string; args: string[] } {
   if (!resolved?.path) throw new Error("the native grok binary is not resolved");
-  return { file: resolved.path, args: [...settingsArgs, ...packArgs, ...agentArgs] };
+  return { file: resolved.path, args: [...settingsArgs, ...agentArgs] };
 }
 
 function buildEnv(baseEnv: SpawnEnv, extraEnv: SpawnEnv | null | undefined, options?: AgentEnvOptions): SpawnEnv {
@@ -249,13 +246,6 @@ const hooks: AgentHookProfile = {
   },
 };
 
-function renderPackArgs(deliveries: readonly PackDelivery[], builtRoot: string): string[] | null {
-  const pointerText = renderPackPointerText(deliveries, builtRoot, (name) => PACK_NAME_RE.test(name));
-  if (pointerText === "") return [];
-  if (pointerText == null) return null;
-  return ["--rules", pointerText];
-}
-
 const grok = {
   id: ID,
   label: "Grok Build",
@@ -268,9 +258,6 @@ const grok = {
   buildSpawnCommand,
   buildEnv,
   buildArgs,
-  renderPackArgs,
-  packCarrier: "--rules index pointers",
-  packNoticeHookEvent: "Stop",
   sessionIdOf,
   mapHookPayload,
   mapHookToSignal,
@@ -287,14 +274,11 @@ const grok = {
   MANAGED_HOOK_EVENT_SETS,
   RELAY_PATH,
   ACTION_REQUIRED_MARKER,
-  PACK_DIRECTIVE,
   capabilities: {
     hooks: true,
     awaitingInput: true,
     backgroundAgents: true,
     resume: true,
-    packs: true,
-    packNotice: true,
     statusLine: false,
     rtk: false,
     antiSlop: false,

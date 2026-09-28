@@ -4,7 +4,7 @@ import type { ControlBroadcast, ControlSocket } from './backend-websockets.ts';
 import type { ChangeMapNarrator } from './change-map-wiring.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import { registerControlHandlers } from './control-handlers.ts';
-import type { MillControl, TeamReviewActionControl } from './control-handlers.ts';
+import type { TeamReviewActionControl } from './control-handlers.ts';
 import type { ReplayLog } from './control-replay-core.ts';
 import type { PlanDecision } from '../shared/contracts/plan-review.ts';
 import type { TeamReviewStatus } from '../shared/contracts/team-review.ts';
@@ -32,10 +32,6 @@ interface PosthogControl {
 
 interface TeamReviewControl extends TeamReviewActionControl {
   getStatus: () => TeamReviewStatus | null;
-}
-
-interface PackControl {
-  getVersions: () => Record<string, string | null>;
 }
 
 interface UsageControl {
@@ -73,9 +69,7 @@ interface BackendControlDependencies {
   posthog: PosthogControl;
   teamReview: TeamReviewControl;
   myPrs: { getStatus: () => MyPrsStatus };
-  packService: PackControl;
   usage: UsageControl;
-  mill: MillControl;
   readTracePage: ((glimmervoidSessionId: string, request: TracePageRequest) => Promise<TracePage>) | null;
   readPlanRevision: ((
     sessionId: string,
@@ -99,9 +93,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     posthog,
     teamReview,
     myPrs,
-    packService,
     usage,
-    mill,
     logger,
   } = dependencies;
 
@@ -134,13 +126,11 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     getTeamReviewStatus: () => teamReview.getStatus(),
     getMyPrsStatus: () => myPrs.getStatus(),
     teamReview,
-    getPackVersions: () => packService.getVersions(),
     serverBuild: dependencies.serverBuild,
     getUsageSessions: () => usage.getSessionsMessage(),
     getUsageReport: () => usage.getCachedReport(),
     requestUsageReport: (args) => usage.requestReport(args),
     getPlanLimits: () => usage.getPlanLimitsMessage(),
-    millReport: mill,
     readTracePage: dependencies.readTracePage,
     readPlanRevision: dependencies.readPlanRevision,
     decidePlanReview: dependencies.decidePlanReview,
@@ -173,7 +163,6 @@ export { createBackendControl };
 export type {
   BackendControlDependencies,
   LaneReader,
-  PackControl,
   PosthogControl,
   SnapshotLane,
   TeamReviewControl,

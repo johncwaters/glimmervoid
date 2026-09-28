@@ -133,7 +133,6 @@ function writeConfigDocument(configPath: string, port: number, cases: HarnessCas
     projects,
     teams: [],
     repoRoots: [],
-    millEnabled: false,
     autoResume: false,
     worktreeAutoRebase: false,
     worktreeSyncOnStart: false,
@@ -142,7 +141,6 @@ function writeConfigDocument(configPath: string, port: number, cases: HarnessCas
     capture: { enabled: false },
     recordSignals: false,
     postTurnChecks: { enabled: false },
-    packDistiller: { enabled: false },
     checkForUpdates: false,
     planReview: { enabled: true },
   };

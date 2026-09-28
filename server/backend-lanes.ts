@@ -9,21 +9,8 @@ import type { ConfigStore, GlimmervoidConfig } from './config-store.ts';
 import { configSiblingPath } from './pairings-store.ts';
 import { createGitWorkspace, createGitWorkspaceSync } from './git-workspace.ts';
 import { createIngestLane } from './ingest-wiring.ts';
-import { dbPathForConfig } from './glimmervoid-db.ts';
-import { createMemoryDistillSpawn, createMemoryDistiller } from './memory-distill.ts';
 import { createChangeNarrator } from './change-narrator.ts';
-import { createMemoryIngest, earliestLaneEntryMs } from './memory-ingest-wiring.ts';
-import { createMemoryStore } from './memory-store.ts';
-import { createMillMetricsStore } from './mill-metrics-store.ts';
-import { createMillMetricsLane } from './mill-metrics-wiring.ts';
-import { createMillWiring } from './mill-wiring.ts';
-import { createPackService } from './pack-service.ts';
-import {
-  DEFAULT_INTERVAL_HOURS,
-  DEFAULT_TIMEOUT_SECONDS,
-  createDistillSpawn,
-  createPackDistiller,
-} from './pack-distiller.ts';
+import { createLaneSpawn } from './lane-spawn.ts';
 import { createPlanReviewWiring } from './plan-review-wiring.ts';
 import { createPosthogWiring } from './posthog-wiring.ts';
 import { createSpawnGate } from './spawn-gate.ts';
@@ -38,21 +25,12 @@ import { createVisionsDispatcher, createVisionsSpawn } from './visions-dispatch.
 import { createVisionsSetup } from './visions-setup.ts';
 import { createVisionsWiring } from './visions-wiring.ts';
 import { resolveIngestConfig } from './core/ingest-core.ts';
-import { resolveMemoryConfig } from './core/memory-core.ts';
-import { resolveDistillConfig as resolveMemoryDistillConfig } from './core/memory-distill-core.ts';
-import { isMillEnabled, packVariantProjects } from './core/pack-core.ts';
 import { resolveVisionsConfig } from './core/visions-dispatch-core.ts';
 import { resolveVisionsScopeProjects } from './core/visions-scope-core.ts';
-import { isPlainObject, numberOrNull } from './core/usage-number-core.ts';
-import { resolveMillMetricsConfig } from './core/mill-metrics-core.ts';
 
 interface BackendLaneOptions {
   branchGcWiringOptions?: Record<string, unknown>;
   ingestLaneOptions?: Record<string, unknown>;
-  packServiceOptions?: Record<string, unknown>;
-  millMetricsStoreOptions?: Record<string, unknown>;
-  millMetricsWiringOptions?: Record<string, unknown>;
-  millWiringOptions?: Record<string, unknown>;
   usageWiringOptions?: Record<string, unknown>;
 }
 
@@ -78,28 +56,6 @@ interface BackendLaneDependencies {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-interface SessionTokenTotals {
-  tokens: number | null;
-  costUSD: number | null;
-  identity: string | null;
-}
-
-function tokensFromUsage(
-  usage: { sessionTotals: (sessionId: string) => { tokens?: unknown; costUSD?: unknown } | null | undefined },
-  sessions: Map<string, { resumeSessionId?: string | null }>,
-  sessionId: string,
-): SessionTokenTotals | null {
-  const resumed = sessions.get(sessionId)?.resumeSessionId;
-  const identity = typeof resumed === 'string' && resumed ? resumed : null;
-  const totals = usage.sessionTotals(sessionId);
-  if (!totals) return identity ? { tokens: null, costUSD: null, identity } : null;
-  return {
-    tokens: numberOrNull(totals.tokens),
-    costUSD: numberOrNull(totals.costUSD),
-    identity,
-  };
 }
 
 function createBackendLanes(dependencies: BackendLaneDependencies) {
@@ -135,8 +91,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     ...reviewSessions.values(),
     ...investigationSessions.values(),
     ...visionsSessions.values(),
-    ...distillSessions.values(),
-    ...memoryDistillSessions.values(),
+    ...changeMapSessions.values(),
   ];
   const branchGc = createBranchGcWiring({
     config,
@@ -186,29 +141,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     }
     return directories;
   };
-  const memoryConfig = resolveMemoryConfig(config.memory);
-  const memoryStore = memoryConfig.enabled
-    ? createMemoryStore({
-      dir: configSiblingPath(configStore.configPath, 'memory'),
-      dbPath: dbPathForConfig(configStore.configPath),
-      config: memoryConfig,
-      logger,
-      knownProjects: () => configStore.config.projects,
-      resolveProjectPath: gitWorkspace.resolveProjectPath,
-      resolveProjectPathSync: gitWorkspaceSync.resolveProjectPath,
-      debug: () => configStore.getSettings().debugMode === true,
-    })
-    : null;
-  const memoryIngest = memoryStore
-    ? createMemoryIngest({
-      store: memoryStore,
-      logger,
-      laneMap: () => laneLedger.laneMap(),
-      laneFloorMs: () => earliestLaneEntryMs(laneLedger),
-      knownProjects: () => configStore.config.projects,
-      debug: () => configStore.getSettings().debugMode === true,
-    })
-    : null;
   const isTraceEnabled = config.trace?.enabled ?? DEFAULT_CONFIG.trace.enabled;
   const traceWiring = isTraceEnabled
     ? createTraceWiring({
@@ -237,29 +169,11 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   planReview?.on('plan-draft', (notice: Record<string, unknown>) => {
     broadcastControl({ type: 'session-plan-draft', ...notice });
   });
-  const memoryDistillSessions = new Map<string, Session>();
-  const memoryDistiller = memoryStore
-    ? createMemoryDistiller({
-      store: memoryStore,
-      config: resolveMemoryDistillConfig(isPlainObject(config.memory) ? config.memory.distill : null, { memoryEnabled: true }),
-      logger,
-      debug: () => configStore.getSettings().debugMode === true,
-      spawnDistill: createMemoryDistillSpawn({
-        sessions: memoryDistillSessions,
-        closeSessionDataClients,
-        hookRouter,
-        getHookPort,
-        spawnGate,
-        recordLane,
-        replayBufferKB: config.replayBufferKB,
-      }),
-    })
-    : null;
-
+  const changeMapSessions = new Map<string, Session>();
   const changeMapNarrator = createChangeNarrator({
     getConfig: () => configStore.config,
-    spawnDistill: createMemoryDistillSpawn({
-      sessions: memoryDistillSessions,
+    spawnLane: createLaneSpawn({
+      sessions: changeMapSessions,
       closeSessionDataClients,
       hookRouter,
       getHookPort,
@@ -282,7 +196,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       logger,
       broadcast: broadcastLocalControl,
       laneMap: () => laneLedger.laneMap(),
-      agentLogConsumers: memoryIngest && !memoryIngest.source ? [memoryIngest.consumer] : [],
       repoRoots: gitRepoRoots,
       editorRoots: () => (Array.isArray(config.projects) ? config.projects : [])
         .map((project) => project?.path)
@@ -324,17 +237,11 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       scopeProjects: resolveVisionsScopeProjects({
         configuredIds: visionsConfig.projects, projects: config.projects, warn: logger.warn.bind(logger),
       }),
-      getMemoryStore: () => memoryStore,
       onEditorEvent: (event: { method?: string; uri?: string }) => ingestLane?.noteEditorEvent(event),
       knownProjectIds: (Array.isArray(config.projects) ? config.projects : [])
         .map((project) => project?.id)
         .filter((id): id is string => typeof id === 'string' && id !== ''),
     });
-  }
-
-  function ensureMemorySource(): void {
-    if (!memoryIngest || ingestLane?.agentLogsEnabled) return;
-    memoryIngest.startOwnSource();
   }
 
   function tapIngestForSession(session: Session): void {
@@ -344,7 +251,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
 
   ingestLane = buildIngestLane();
   visionsLane = buildVisionsLane();
-  ensureMemorySource();
   let laneRestart: Promise<void> = Promise.resolve();
 
   async function rebuildDynamicLanes(): Promise<void> {
@@ -354,7 +260,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     await Promise.allSettled(stopping);
     ingestLane = buildIngestLane();
     visionsLane = buildVisionsLane();
-    ensureMemorySource();
     if (ingestLane) {
       for (const session of sessions.values()) tapIngestForSession(session);
       void ingestLane.noteRepos();
@@ -381,15 +286,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     debug: () => configStore.getSettings().debugMode === true,
     onConfigChanged: restartDynamicLanes,
   });
-  const packService = createPackService({
-    variantProjects: () => packVariantProjects(config),
-    noteDelivered: (text: string) => memoryStore?.noteDelivered(text) ?? null,
-    ...(options.packServiceOptions || {}),
-  });
-  packService.on('pack-updated', ({ name, version }: { name: string; version: string }) => {
-    broadcastControl({ type: 'pack-updated', name, version });
-    for (const session of sessions.values()) session.notePackUpdate(name, version);
-  });
   const usage = createUsageWiring({
     config,
     sessions,
@@ -402,57 +298,15 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     debug: () => configStore.getSettings().debugMode === true,
     ...(options.usageWiringOptions || {}),
   });
-  const millMetrics = createMillMetricsLane({
-    resolveConfig: () => resolveMillMetricsConfig(config.millMetrics),
-    createStore: ({ retainDays }) => createMillMetricsStore({
-      recordsPath: configSiblingPath(configStore.configPath, 'mill-metrics.json'),
-      eventsDir: configSiblingPath(configStore.configPath, 'mill-metrics'),
-      retainDays,
-      logger,
-      ...(options.millMetricsStoreOptions || {}),
-    }),
-    tokensForSession: (sessionId) => tokensFromUsage(usage, sessions, sessionId),
-    logger,
-    ...(options.millMetricsWiringOptions || {}),
-  });
-  const mill = createMillWiring({
-    config,
-    listSessions: () => [...sessions.values()].map((session) => session.toSnapshot()),
-    getWatcherCount: () => packService._watcherCount(),
-    measurement: () => millMetrics.scorecards(),
-    ...(options.millWiringOptions || {}),
-  });
   controlWss.on('connection', () => {
     void usage.start();
   });
-  const distillSessions = new Map<string, Session>();
-  const packDistillerBlock = isPlainObject(config.packDistiller) ? config.packDistiller : null;
-  const packDistiller = createPackDistiller({
-    enabled: packDistillerBlock ? packDistillerBlock.enabled === true : false,
-    intervalHours: Number(packDistillerBlock?.intervalHours) || DEFAULT_INTERVAL_HOURS,
-    timeoutSeconds: Number(packDistillerBlock?.timeoutSeconds) || DEFAULT_TIMEOUT_SECONDS,
-    spawnDistill: createDistillSpawn({
-      sessions: distillSessions,
-      closeSessionDataClients,
-      hookRouter,
-      getHookPort,
-      spawnGate,
-      recordLane,
-      replayBufferKB: config.replayBufferKB,
-    }),
-  });
-  const millEnabled = () => isMillEnabled(config);
   const fixedLaneEntries = {
     'branch-gc': branchGc,
     posthog,
     'team-review': teamReview,
     'my-prs': myPrs,
-    'pack-service': packService,
     usage,
-    'pack-distiller': packDistiller,
-    'memory-ingest': memoryIngest,
-    'memory-distill': memoryDistiller,
-    'memory-store': memoryStore,
     trace: traceWiring,
     'plan-review': planReview,
   };
@@ -469,15 +323,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const currentIngest = () => ingestLane;
   const currentVisions = () => visionsLane;
 
-  function startMemoryLanes(): void {
-    if (memoryIngest) {
-      memoryIngest.backfill().catch((error: unknown) => logger.warn(`[memory-ingest] backfill failed: ${errorMessage(error)}`));
-    }
-    if (memoryDistiller) {
-      memoryDistiller.start().catch((error: unknown) => logger.warn(`[memory-distill] start failed: ${errorMessage(error)}`));
-    }
-  }
-
   function startRuntimeLanes(): void {
     const startSteps = [
       () => void visionsSetup.maybeApply(),
@@ -485,11 +330,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => posthog.startPoller(),
       () => teamReview.startPoller(),
       () => myPrs.startPoller(),
-      () => {
-        if (!millEnabled()) return;
-        packService.start().catch((error: unknown) => logger.warn(`[packs] auto-rebuild failed to start: ${errorMessage(error)}`));
-      },
-      () => packDistiller.start().catch((error: unknown) => logger.warn(`[distill] failed to start: ${errorMessage(error)}`)),
       () => traceWiring?.start().catch((error: unknown) => logger.warn(`[trace] start failed: ${errorMessage(error)}`)),
       () => uploadsWiring.start().catch((error: unknown) => logger.warn(`[uploads] start failed: ${errorMessage(error)}`)),
       () => planReview?.start().catch((error: unknown) => logger.warn(`[plan-review] start failed: ${errorMessage(error)}`)),
@@ -504,15 +344,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => teamReview.restartIfConfigChanged(),
       () => myPrs.restartIfConfigChanged(),
       () => usage.restartIfConfigChanged(),
-      () => void millMetrics.restartIfConfigChanged(),
-      () => {
-        if (!millEnabled()) {
-          void packService.pause();
-          return;
-        }
-        void packService.resume();
-        void packService.restartIfConsumersChanged();
-      },
     ];
     for (const restart of restartSteps) restart();
   }
@@ -524,18 +355,10 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     current,
     currentIngest,
     currentVisions,
-    distillSessions,
+    changeMapSessions,
     gitWorkspace,
     gitWorkspaceSync,
     investigationSessions,
-    memoryDistillSessions,
-    memoryDistiller,
-    memoryIngest,
-    memoryStore,
-    mill,
-    millMetrics,
-    packDistiller,
-    packService,
     planReview,
     posthog,
     recordLane,
@@ -543,7 +366,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     restartServiceLanes,
     reviewSessions,
     spawnGate,
-    startMemoryLanes,
     teamReview,
     myPrs,
     startRuntimeLanes,
@@ -557,5 +379,5 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   };
 }
 
-export { createBackendLanes, tokensFromUsage };
+export { createBackendLanes };
 export type { BackendLaneDependencies, BackendLaneOptions };

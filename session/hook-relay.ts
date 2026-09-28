@@ -6,7 +6,6 @@ import type { StdinLike } from "./relay-stdin.ts";
 import {
   MAX_RESPONSE_BYTES,
   decideRelayPost,
-  decideHookStdout,
 } from "./core/hook-relay-core.ts";
 
 const POST_TIMEOUT_MS = 1500;
@@ -15,10 +14,6 @@ interface PostResponse {
   reason: string;
   status: number | null | undefined;
   body: Buffer | null;
-}
-
-interface StdoutLike {
-  write(text: string): unknown;
 }
 
 function postPayload(url: string, body: Buffer): Promise<PostResponse> {
@@ -86,18 +81,12 @@ async function main(
   argv: string[] = process.argv.slice(2),
   stdin: StdinLike = process.stdin,
   env: Record<string, string | undefined> = process.env,
-  stdout: StdoutLike = process.stdout,
-  hookStdoutDecision: (event: unknown, status: unknown, body: unknown) => string | null = decideHookStdout,
 ): Promise<{ code: number; reason: string }> {
   const [event] = argv;
   const body = await readStdin(stdin);
   const verdict = decideRelayPost({ env, event, payloadBytes: body.length });
   if (!verdict.post || !verdict.url) return { code: 0, reason: verdict.reason };
   const response = await postPayload(verdict.url, body);
-  const hookStdout = hookStdoutDecision(event, response.status, response.body);
-  if (hookStdout) {
-    try { stdout.write(`${hookStdout}\n`); } catch {}
-  }
   return { code: 0, reason: response.reason };
 }
 

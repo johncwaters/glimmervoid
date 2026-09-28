@@ -51,11 +51,6 @@ Commands:
   visions install   Install the Visions extension into every VS Code family editor on PATH
   visions setup     Print LSP client config for Neovim, Helix, Emacs, Kate, Sublime, JetBrains
   visions status    Report the relay path and which editors carry the extension
-  pack build [name] Build one context pack, or every spec
-  pack list         List context pack specs and their built versions
-  memory forget <id|pattern>  Expunge a remembered record
-  memory backfill   Re-run the cold-start transcript backfill
-  memory distill [--dry-run]  Rebuild the published projection from the canon
   spawn <prompt>    From inside a Glimmervoid session, start a sibling session on that prompt
   attention <note>  From inside a Glimmervoid session, flag it as needing the operator
   board             From inside a Glimmervoid session, list the live sessions

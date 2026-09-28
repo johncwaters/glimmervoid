@@ -10,10 +10,6 @@ interface Stoppable {
   stop: () => unknown;
 }
 
-interface ShutdownMillMetricsPort {
-  onSessionTeardown: (sessionId: string) => void;
-}
-
 interface BackendShutdownDependencies {
   cancelAutoResume: () => void;
   healthInterval: NodeJS.Timeout;
@@ -27,27 +23,19 @@ interface BackendShutdownDependencies {
   agentSessions: Map<string, ShutdownSession>;
   reviewSessions: Map<string, ShutdownSession>;
   investigationSessions: Map<string, ShutdownSession>;
-  distillSessions: Map<string, ShutdownSession>;
   visionsSessions: Map<string, ShutdownSession>;
-  memoryDistillSessions: Map<string, ShutdownSession>;
+  changeMapSessions: Map<string, ShutdownSession>;
   branchGc: Stoppable;
   posthog: { stopPoller: () => unknown };
   teamReview?: { stopPoller: () => unknown } | null;
   myPrs?: { stopPoller: () => unknown } | null;
-  packService: Stoppable;
   usage: Stoppable;
-  packDistiller: Stoppable;
   getIngestLane: () => Stoppable | null;
   getVisionsLane: () => Stoppable | null;
-  memoryIngest: Stoppable | null;
-  memoryDistiller: Stoppable | null;
-  memoryStore: Stoppable | null;
   traceWiring?: Stoppable | null;
   uploadsWiring?: Stoppable | null;
   traceChangeBroadcast?: Stoppable | null;
   planReview?: Stoppable | null;
-  millMetricsIdle?: (() => Promise<void>) | null;
-  millMetricsPort?: ShutdownMillMetricsPort | null;
   telegramOutbox: { idle: () => unknown };
   heartbeat: { stop: () => void };
   outcomes?: Stoppable | null;
@@ -58,14 +46,6 @@ interface BackendShutdownDependencies {
 interface ShutdownOutcome {
   reaps: Promise<unknown>[];
   stoppers: StopperEntry[];
-}
-
-function closeMeasuredSessions(
-  millMetricsPort: ShutdownMillMetricsPort | null | undefined,
-  sessions: Map<string, ShutdownSession>,
-): void {
-  if (!millMetricsPort) return;
-  for (const id of sessions.keys()) millMetricsPort.onSessionTeardown(id);
 }
 
 function destroySessions(sessionMaps: Map<string, ShutdownSession>[], pendingReaps: Promise<unknown>[]): void {
@@ -95,7 +75,6 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     dependencies.notificationManager.destroy();
     dependencies.telegramChannel.destroy();
     const pendingReaps: Promise<unknown>[] = [];
-    closeMeasuredSessions(dependencies.millMetricsPort, dependencies.sessions);
     destroySessions([dependencies.sessions], pendingReaps);
     stoppers.add('branch-gc', () => dependencies.branchGc.stop());
     destroySessions([dependencies.agentSessions, dependencies.reviewSessions], pendingReaps);
@@ -103,18 +82,10 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     const teamReview = dependencies.teamReview;
     if (teamReview) stoppers.add('team-review', () => teamReview.stopPoller());
     if (dependencies.myPrs) stoppers.add('my-prs', () => dependencies.myPrs?.stopPoller());
-    stoppers.add('pack-service', () => dependencies.packService.stop());
     stoppers.add('usage', () => dependencies.usage.stop());
-    stoppers.add('pack-distiller', () => dependencies.packDistiller.stop());
-    destroySessions([dependencies.distillSessions, dependencies.investigationSessions], pendingReaps);
+    destroySessions([dependencies.investigationSessions], pendingReaps);
     stoppers.add('ingest', () => dependencies.getIngestLane()?.stop());
     stoppers.add('visions', () => dependencies.getVisionsLane()?.stop());
-    const memoryIngest = dependencies.memoryIngest;
-    if (memoryIngest) stoppers.add('memory-ingest', () => memoryIngest.stop());
-    const memoryDistiller = dependencies.memoryDistiller;
-    if (memoryDistiller) stoppers.add('memory-distill', () => memoryDistiller.stop());
-    const memoryStore = dependencies.memoryStore;
-    if (memoryStore) stoppers.add('memory-store', () => memoryStore.stop());
     const traceWiring = dependencies.traceWiring;
     if (dependencies.traceChangeBroadcast) dependencies.traceChangeBroadcast.stop();
     if (traceWiring) {
@@ -129,10 +100,8 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     const planReview = dependencies.planReview;
     if (planReview) stoppers.add('plan-review', () => planReview.stop());
 
-    const millMetricsIdle = dependencies.millMetricsIdle;
-    if (millMetricsIdle) stoppers.add('mill-metrics', () => millMetricsIdle());
     stoppers.add('telegram-outbox', () => dependencies.telegramOutbox.idle());
-    destroySessions([dependencies.visionsSessions, dependencies.memoryDistillSessions], pendingReaps);
+    destroySessions([dependencies.visionsSessions, dependencies.changeMapSessions], pendingReaps);
     const outcomes = dependencies.outcomes;
     if (outcomes) stoppers.add('outcomes', () => outcomes.stop());
     dependencies.heartbeat.stop();

@@ -94,7 +94,6 @@ test.before(async () => {
     projects: [{ id: SESSION_ID, name: 'plan hook', path: projectDir }],
     teams: [],
     repoRoots: [],
-    millEnabled: false,
     autoResume: false,
   }, null, 2), 'utf8');
   const prevEnv = process.env.GLIMMERVOID_CONFIG;
@@ -248,7 +247,7 @@ test('the shared PostToolUse route keeps the 64 KB cap the plan segment raises',
     tool_name: 'Read',
     tool_response: { content: 'q'.repeat(100 * 1024) },
   }).then((response) => response.status).catch(() => 'destroyed');
-  assert.notEqual(sharedRouteOutcome, 200, 'a wakeup or pack read body over 64 KB is still refused');
+  assert.notEqual(sharedRouteOutcome, 200, 'a wakeup body over 64 KB is still refused');
 });
 
 test('a disabled plan lane leaves the 64 KB cap on the permission request route', async () => {

@@ -24,7 +24,6 @@ export interface UiPrefs {
   radarAttentionAck: string;
   prsAttentionAck: string;
   usageAttentionAck: string;
-  millAttentionAck: string;
   visionsAttentionAck: string;
 }
 
@@ -57,7 +56,6 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   radarAttentionAck: asString(''),
   prsAttentionAck: asString(''),
   usageAttentionAck: asString(''),
-  millAttentionAck: asString(''),
   visionsAttentionAck: asString(''),
 };
 
@@ -133,8 +131,6 @@ export const setPrsAttentionAck = (signature: string) => write('prsAttentionAck'
 export const getUsageAttentionAck = () => read('usageAttentionAck');
 export const setUsageAttentionAck = (signature: string) => write('usageAttentionAck', signature);
 
-export const getMillAttentionAck = () => read('millAttentionAck');
-export const setMillAttentionAck = (signature: string) => write('millAttentionAck', signature);
 
 export const getVisionsAttentionAck = () => read('visionsAttentionAck');
 export const setVisionsAttentionAck = (signature: string) => write('visionsAttentionAck', signature);

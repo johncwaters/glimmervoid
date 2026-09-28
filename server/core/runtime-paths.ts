@@ -6,7 +6,6 @@ export interface RuntimePaths {
   assetRoot: string;
   clientDir: string;
   extensionDir: string;
-  packsDir: string;
   cliPath: string;
   relayPath: (relayName: string) => string;
 }
@@ -45,7 +44,6 @@ function computeRuntimePaths({ moduleFile, hasPackageJson }: RuntimePathsInput):
     assetRoot,
     clientDir: path.join(distDir, 'client'),
     extensionDir: path.join(assetRoot, 'tools', 'vscode-visions'),
-    packsDir: path.join(assetRoot, 'packs'),
     cliPath: path.join(assetRoot, 'bin', `glimmervoid${sourceExtension}`),
     relayPath: (relayName: string) => path.join(assetRoot, 'session', `${relayName}${sourceExtension}`),
   };

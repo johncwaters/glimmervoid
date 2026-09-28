@@ -9,7 +9,6 @@ import type { SessionOptions } from '../session/sessions.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { stableConfigKey } from './core/config-secrets-core.ts';
-import { millPackNames } from './core/pack-core.ts';
 import { appendTrailStep, createInvestigationTrail, trailStepFromHook } from './core/investigation-trail-core.ts';
 import type { InvestigationTrail } from './core/investigation-trail-core.ts';
 import * as core from './core/posthog-core.ts';
@@ -73,7 +72,6 @@ interface PosthogLaneConfig {
   investigationTimeoutSeconds?: number;
   maxConcurrentInvestigations?: number;
   minUsersToInvestigate?: number;
-  packs?: unknown;
   projectMap?: Record<string, string>;
   projects?: (string | number)[] | 'all';
   recurrenceDedupe?: boolean;
@@ -91,7 +89,6 @@ interface PosthogLaneConfig {
 interface PosthogWiringConfig {
   replayBufferKB?: number;
   worktreeRoot?: string;
-  millEnabled?: unknown;
   integrationBranch?: string | null;
   posthog?: PosthogLaneConfig | null;
   telegram?: { botToken?: string; chatId?: string } | null;
@@ -434,10 +431,6 @@ function posthogCfgKey(cfg: PosthogWiringConfig): string {
   return stableConfigKey({ posthog: cfg.posthog || null, telegram: cfg.telegram || null });
 }
 
-function posthogPackNames(cfg: PosthogWiringConfig): string[] {
-  return millPackNames(cfg, cfg.posthog ? cfg.posthog.packs : null);
-}
-
 function makeResolveProjects(api: PosthogApi, config: PosthogWiringConfig): () => Promise<ResolvedProject[]> {
   return async function resolveProjects() {
     const configured = config.posthog?.projects;
@@ -504,7 +497,6 @@ function createPosthogWiring({
       ephemeral: true,
       observeToolCalls: true,
       settingsPermissions: permissions,
-      packs: posthogPackNames(config),
       spawnEnv,
       replayBufferKB: config.replayBufferKB,
       hookRouter,
@@ -816,7 +808,6 @@ export {
   createPosthogWiring,
   makeResolveProjects,
   posthogCfgKey,
-  posthogPackNames,
   posthogShouldStart,
   pushFixBranch,
   readFixResult,

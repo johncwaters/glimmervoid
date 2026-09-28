@@ -50,7 +50,6 @@ interface SnapshotSource {
   resumeSessionId: string | null;
   activeAgents: number;
   awaitingBackgroundTasks: boolean;
-  packs: { name: string; version: string }[];
   pendingWakeup: Record<string, unknown> | null;
   pendingPromptKind: string | null;
   hasPlan: boolean;
@@ -79,7 +78,6 @@ function projectSessionSnapshots(source: SnapshotSource) {
     resumeSessionId: source.resumeSessionId,
     activeAgents: source.activeAgents,
     awaitingBackgroundTasks: source.awaitingBackgroundTasks,
-    packs: source.packs.map(({ name, version }) => ({ name, version })),
     pendingWakeup: source.pendingWakeup,
     pendingPromptKind: source.pendingPromptKind,
     hasPlan: source.hasPlan,
@@ -99,7 +97,6 @@ function projectSessionSnapshots(source: SnapshotSource) {
       detail: entry.detail,
     })),
     detection: source.detection,
-    packs: wire.packs,
     decisions: source.decisions.slice(-15),
   };
   return { wire, debug };

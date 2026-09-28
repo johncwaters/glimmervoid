@@ -411,7 +411,6 @@ const LANE_LABELS: Readonly<Record<string, string>> = Object.freeze({
   interactive: 'Interactive',
   'pr-review': 'PR review',
   'team-review': 'PR reviews',
-  'pack-distill': 'Pack distiller',
   posthog: 'PostHog',
   other: 'Other',
 });

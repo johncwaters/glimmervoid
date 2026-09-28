@@ -1,9 +1,7 @@
 
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
-import type { Plugin } from 'vite';
 
 const repoRoot = path.dirname(fileURLToPath(import.meta.url));
 
@@ -13,27 +11,9 @@ function isExternal(id: string): boolean {
   return !path.isAbsolute(id);
 }
 
-function copyPackSpecs(): Plugin {
-  const specsDir = path.join(repoRoot, 'packs', 'specs');
-  return {
-    name: 'glimmervoid-copy-pack-specs',
-    generateBundle() {
-      for (const entry of fs.readdirSync(specsDir)) {
-        if (!entry.endsWith('.pack.json')) continue;
-        this.emitFile({
-          type: 'asset',
-          fileName: path.posix.join('packs', 'specs', entry),
-          source: fs.readFileSync(path.join(specsDir, entry), 'utf8'),
-        });
-      }
-    },
-  };
-}
-
 export default defineConfig({
   root: repoRoot,
   publicDir: false,
-  plugins: [copyPackSpecs()],
   resolve: {
     alias: [{ find: /^#shared\//, replacement: `${path.join(repoRoot, 'shared')}/` }],
   },

@@ -139,12 +139,6 @@ interface BackendHttpDependencies {
   logger?: Pick<Console, 'warn'>;
 }
 
-function isPackNoticeHookEvent(event: unknown, session: Session | null): boolean {
-  const declaredEvent = session?.packNoticeHookEvent;
-  if (!declaredEvent) return false;
-  return String(event || '').toLowerCase() === declaredEvent.toLowerCase();
-}
-
 function isStatuslineEvent(event: unknown): boolean {
   return String(event || '').toLowerCase() === 'statusline';
 }
@@ -352,16 +346,6 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
         getUsage().ingestStatusline(payload);
       }
       const reply: Record<string, unknown> = { ok: output.status === 200, reason: output.reason };
-      const hookSession = getSession(req.params.glimmervoidId);
-      const packNotice = output.status === 200 && isPackNoticeHookEvent(req.params.event, hookSession)
-        ? hookSession?.takePackNoticeContext() || null
-        : null;
-      if (packNotice) {
-        reply.hookSpecificOutput = {
-          hookEventName: hookSession?.packNoticeHookEvent,
-          additionalContext: packNotice,
-        };
-      }
       const answer = (decision: Record<string, unknown> | null) => {
         if (res.headersSent || res.writableEnded || res.destroyed) return;
         res.status(output.status).json(decision ? { ...reply, ...decision } : reply);

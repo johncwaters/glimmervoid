@@ -56,7 +56,7 @@ export const SETTINGS_SECTION_ALIASES = Object.freeze({
   notifications: 'machine-telegram',
   'change-map': 'lanes-change-map',
   visions: 'lanes-visions',
-  mill: 'lanes-mill',
+  ingest: 'lanes-ingest',
   posthog: 'lanes-posthog',
   'team-review': 'lanes-team-review',
   reviews: 'lanes-team-review',
@@ -421,84 +421,14 @@ export const SETTINGS_MAP = Object.freeze([
     ],
   },
   {
-    id: 'lanes-mill',
+    id: 'lanes-ingest',
     level: 'lanes',
-    title: 'Mill',
-    description: 'Context packs, long-term memory and machine-context ingest.',
+    title: 'Ingest',
+    description: 'Machine-context ingest behind Visions.',
     settings: [
       {
-        id: 'mill-enabled', path: 'millEnabled', title: 'Enable the context mill',
-        description: 'Build every pack and deliver them to every project session (up to 4 per session).',
-        control: 'toggle', keywords: ['context', 'packs', 'delivery'], defaultValue: true,
-      },
-      {
-        id: 'pack-distiller-enabled', path: 'packDistiller.enabled', title: 'Enable the pack distiller',
-        description: 'Run bounded sessions that refresh derived pack sources.',
-        control: 'toggle', keywords: ['derived', 'context'], defaultValue: false,
-      },
-      {
-        id: 'pack-distiller-interval', path: 'packDistiller.intervalHours', title: 'Distill interval (hours)',
-        description: 'Delay between scheduled pack distill checks.',
-        control: 'number', range: 'PACK_DISTILLER_INTERVAL_RANGE', keywords: ['schedule', 'refresh'], defaultValue: 24,
-      },
-      {
-        id: 'pack-distiller-timeout', path: 'packDistiller.timeoutSeconds', title: 'Distill timeout (seconds)',
-        description: 'Maximum time allowed for one pack distill session.',
-        control: 'number', range: 'PACK_DISTILLER_TIMEOUT_RANGE', keywords: ['deadline', 'session'], defaultValue: 900,
-      },
-      {
-        id: 'memory-enabled', path: 'memory.enabled', title: 'Enable long-term memory',
-        description: 'Record session knowledge locally and project it into the memory pack.',
-        control: 'toggle', keywords: ['knowledge', 'store'], defaultValue: false,
-      },
-      {
-        id: 'memory-retain-days', path: 'memory.retainDays', title: 'Retain memory (days)',
-        description: 'Retention window for long-term memory records.',
-        control: 'number', range: 'MEMORY_RETAIN_DAY_RANGE', keywords: ['history', 'expiry'], defaultValue: 365,
-      },
-      {
-        id: 'memory-max-record-chars', path: 'memory.maxRecordChars', title: 'Max record characters',
-        description: 'Maximum character count for one memory record.',
-        control: 'number', range: 'MAX_RECORD_CHARS_RANGE', keywords: ['size', 'limit'], defaultValue: 2000,
-      },
-      {
-        id: 'memory-max-records-per-kind', path: 'memory.maxRecordsPerKind', title: 'Max records per kind',
-        description: 'Maximum retained records in each memory category.',
-        control: 'number', range: 'MAX_RECORDS_PER_KIND_RANGE', keywords: ['capacity', 'limit'], defaultValue: 2000,
-      },
-      {
-        id: 'memory-distill-enabled', path: 'memory.distill.enabled', title: 'Distill memory',
-        description: 'Turn raw memory records into a compact canon.',
-        control: 'toggle', keywords: ['canon', 'summarize'], defaultValue: true,
-      },
-      {
-        id: 'memory-distill-interval', path: 'memory.distill.intervalMinutes', title: 'Memory distill interval (minutes)',
-        description: 'Delay between eligible memory distill runs.',
-        control: 'number', range: 'INTERVAL_MINUTES_RANGE', keywords: ['schedule', 'canon'], defaultValue: 1440,
-      },
-      {
-        id: 'memory-distill-timeout', path: 'memory.distill.timeoutSeconds', title: 'Memory distill timeout (seconds)',
-        description: 'Maximum time allowed for one memory distill session.',
-        control: 'number', range: 'TIMEOUT_SECONDS_RANGE', keywords: ['deadline', 'canon'], defaultValue: 900,
-      },
-      {
-        id: 'memory-distill-max-claims', path: 'memory.distill.maxNewClaims', title: 'Max new claims per run',
-        description: 'Maximum net-new canon claims accepted from one run.',
-        control: 'number', range: 'MAX_NEW_CLAIMS_RANGE', keywords: ['facts', 'limit'], defaultValue: 20,
-      },
-      {
-        id: 'memory-distill-quiet', path: 'memory.distill.quietMs', title: 'Append-quiet window (ms)',
-        description: 'Required quiet time after the latest memory append.',
-        control: 'number', range: 'QUIET_MS_RANGE', keywords: ['idle', 'debounce'], defaultValue: 60000,
-      },
-      {
-        id: 'memory-distill-horizon', path: 'memory.distill.staleHorizonDays', title: 'Stale record horizon (days)',
-        description: 'Records older than this are stepped over instead of distilled.',
-        control: 'number', range: 'STALE_HORIZON_DAYS_RANGE', keywords: ['age', 'skip'], defaultValue: 7,
-      },
-      {
         id: 'ingest-enabled', path: 'ingest.enabled', title: 'Enable machine context ingest',
-        description: 'Enable the local activity feed behind memory and Visions. Turning Visions on turns this on for you.',
+        description: 'Enable the local activity feed behind Visions. Turning Visions on turns this on for you.',
         control: 'toggle', keywords: ['events', 'activity'], defaultValue: false,
       },
       {

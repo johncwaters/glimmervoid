@@ -7,7 +7,6 @@ import type { HookProfile } from "../../detection/hook-source.ts";
 import type { TitleProfile } from "../../detection/osc-title-source.ts";
 import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
-import type { PackDelivery } from "../core/pack-pointer-core.ts";
 import type { CustomAgentDeclaration, HookPayload } from "../../shared/contracts/index.ts";
 
 interface AgentCapabilities {
@@ -15,8 +14,6 @@ interface AgentCapabilities {
   awaitingInput: boolean;
   backgroundAgents: boolean;
   resume: boolean;
-  packs: boolean;
-  packNotice: boolean;
   statusLine: boolean;
   rtk: boolean;
   antiSlop: boolean;
@@ -80,7 +77,6 @@ interface AgentSpawnCommandOptions {
   platform: NodeJS.Platform;
   resolved?: ResolvedCommand | null;
   settingsArgs?: string[];
-  packArgs?: string[];
   agentArgs?: string[];
 }
 
@@ -99,14 +95,10 @@ interface AgentAdapter {
   titleProfile: AgentTitleProfile;
   hooks: AgentHookProfile | null;
   capabilities: AgentCapabilities;
-  packCarrier: string;
-  packNoticeCaveat?: string;
-  packNoticeHookEvent?: string;
   resolveCommand(options?: AgentCommandOptions): ResolvedCommand;
   buildSpawnCommand(options: AgentSpawnCommandOptions): { file: string; args: string[] };
   buildEnv(baseEnv: SpawnEnv, extraEnv: SpawnEnv | null | undefined, options?: AgentEnvOptions): SpawnEnv;
   buildArgs(options?: AgentArgsOptions): string[];
-  renderPackArgs(deliveries: readonly PackDelivery[], builtRoot: string): string[] | null;
   settingsArgs?(settingsPath: string): string[];
   sessionIdOf?(payload: HookPayload): unknown;
 }

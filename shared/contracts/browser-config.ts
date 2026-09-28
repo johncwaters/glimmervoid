@@ -157,14 +157,9 @@ export const TelegramSettings = optionalObject('telegram', {
   chatId: optionalString('telegram.chatId', true),
 });
 
-const MillSettings = z.object({
-  enabled: optionalBoolean('mill.enabled'),
-}, { error: 'mill must be an object' }).passthrough().optional();
-
-const MillMetricsSettings = z.object({
-  retainDays: optionalInteger('millMetrics.retainDays', ranges.MILL_METRICS_RETAIN_DAY_RANGE),
-  holdoutPercent: optionalInteger('millMetrics.holdoutPercent', ranges.MILL_METRICS_HOLDOUT_PERCENT_RANGE),
-}, { error: 'millMetrics must be an object' }).optional();
+const IngestSettings = z.object({
+  enabled: optionalBoolean('ingest.enabled'),
+}, { error: 'ingest must be an object' }).passthrough().optional();
 
 export const TraceSettings = z.object({
   enabled: optionalBoolean('trace.enabled'),
@@ -197,7 +192,6 @@ export const createBrowserConfigShape = (isAbsolutePath: (directory: string) => 
   updateChannel: z.enum(['release', 'main'], { error: 'updateChannel must be one of release, main' }).optional(),
   autoResume: optionalBoolean('autoResume'),
   telegramNotifications: optionalBoolean('telegramNotifications'),
-  millEnabled: optionalBoolean('millEnabled'),
   integrationBranch: optionalString('integrationBranch').nullable(),
   worktreeRoot: optionalString('worktreeRoot'),
   worktreeShare: z.array(z.string()).optional(),
@@ -210,10 +204,7 @@ export const createBrowserConfigShape = (isAbsolutePath: (directory: string) => 
   posthog: PosthogSettings,
   usage: createUsageSettings(isAbsolutePath),
   telegram: TelegramSettings,
-  packDistiller: MillSettings,
-  millMetrics: MillMetricsSettings,
-  memory: MillSettings,
-  ingest: MillSettings,
+  ingest: IngestSettings,
   agentApi: AgentApiSettings,
 });
 

@@ -62,7 +62,6 @@ async function boot(prefix: string, agentApiEnabled: boolean): Promise<BootedBac
   fs.writeFileSync(cfgPath, JSON.stringify({
     projects: [{ id: SESSION_ID, name: 'agent api', path: projectDir }],
     repoRoots: [],
-    millEnabled: false,
     autoResume: false,
     agentApi: { enabled: agentApiEnabled },
   }, null, 2), 'utf8');

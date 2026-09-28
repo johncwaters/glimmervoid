@@ -130,7 +130,7 @@ test('unsubscribing twice is harmless and never drops a different subscriber', a
   unsubscribe();
   store.subscribe(() => { notifyCount += 1; });
 
-  store.dispatch('setActiveView', 'mill');
+  store.dispatch('setActiveView', 'usage');
   assert.equal(notifyCount, 1);
 });
 

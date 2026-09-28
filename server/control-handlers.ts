@@ -17,8 +17,8 @@ import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-stor
 import type { ControlMessageRecord, ReplayLog } from './control-replay-core.ts';
 import { normalizeClientTrust } from './core/request-trust.ts';
 import {
-  INGEST_SPEC, MEMORY_SPEC, MILL_METRICS_SPEC, PACK_DISTILLER_SPEC, mergeMillBlock, validateMillBlock,
-} from './core/settings-mill-core.ts';
+  INGEST_SPEC, mergeSettingsBlock, validateSettingsBlock,
+} from './core/settings-block-core.ts';
 import { readPosthogReport } from './posthog-report.ts';
 import * as posthogCore from './core/posthog-core.ts';
 import { formatDiffAnnotationMessage } from './core/diff-annotations-core.ts';
@@ -94,8 +94,6 @@ interface ControlRequest {
   focused?: boolean;
   after?: number;
   endingAt?: number | 'tail';
-  pack?: string;
-  deliver?: boolean;
   hook?: Record<string, unknown>;
   annotations?: DiffAnnotation[];
   [key: string]: unknown;
@@ -106,11 +104,6 @@ type ControlHandler = (msg: ControlRequest, ws: ControlSocket) => unknown;
 interface PosthogLaneStatus {
   projects?: unknown;
   [key: string]: unknown;
-}
-
-interface MillControl {
-  requestReport(msg: ControlRequest, send: (payload: unknown) => void): Promise<void>;
-  getCachedReport(): unknown;
 }
 
 type TeamReviewActionOutcome = Omit<TeamReviewActionResult, 'key'>;
@@ -150,14 +143,12 @@ interface ControlHandlerDeps {
   getMyPrsStatus?: (() => MyPrsStatus | null) | null;
   teamReview?: TeamReviewActionControl | null;
   createGithubClient?: (cwd: string) => Pick<PrGh, 'listIssues' | 'viewIssue' | 'repoSlug'>;
-  getPackVersions?: () => Record<string, string | null>;
   serverBuild?: () => string | null;
   getUsageSessions?: (() => unknown) | null;
   getUsageReport?: (() => unknown) | null;
   requestUsageReport?: ((args: { days?: number; force?: boolean; requestId?: string | null }) => Promise<unknown>) | null;
   getPlanLimits?: (() => unknown) | null;
   changeMapNarrator?: ChangeMapNarrator | null;
-  millReport?: MillControl | null;
   controlReplayLog?: ReplayLog | null;
   getRtkInstallStatus?: () => Record<string, unknown> | null;
   resolveRtkPath?: () => string | null;
@@ -339,7 +330,6 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'posthog-archive-investigation': () => ({ type: 'posthog-archive-investigation-result', requestId, ok: false, error: message }),
     'team-review-action': () => ({ type: 'team-review-action-result', requestId, key: typeof msg?.key === 'string' ? msg.key : '', ok: false, error: message }),
     'request-usage-report': () => ({ type: 'usage-report', requestId, error: message }),
-    'request-mill-report': () => ({ type: 'mill-report', requestId, error: message }),
     'request-hooks-report': () => ({ type: 'hooks-report', requestId, error: message }),
     'save-hook': () => ({ type: 'save-hook-result', requestId, ok: false, error: message }),
     'delete-hook': () => ({ type: 'delete-hook-result', requestId, ok: false, error: message }),
@@ -361,8 +351,6 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
   if (genericErrorRequests.has(requestType)) return { type: 'error', message };
   return null;
 }
-
-const MILL_SPECS = [MEMORY_SPEC, MILL_METRICS_SPEC, PACK_DISTILLER_SPEC, INGEST_SPEC];
 
 function parseSinceParam(url: string | undefined): number | null {
   if (!url) return null;
@@ -406,16 +394,12 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
     createGithubClient = createPrGh,
 
-    getPackVersions = () => ({}),
-
     serverBuild = () => null,
 
     getUsageSessions = null,
     getUsageReport = null,
     requestUsageReport = null,
     getPlanLimits = null,
-
-    millReport = null,
 
     controlReplayLog = null,
 
@@ -481,7 +465,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     }
 
     return {
-      type: 'snapshot', sessions: list, packVersions: getPackVersions(), serverBuild: serverBuild(),
+      type: 'snapshot', sessions: list, serverBuild: serverBuild(),
     };
   }
 
@@ -721,10 +705,9 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       return;
     }
 
-    for (const spec of MILL_SPECS) {
-      const millError = validateMillBlock(incoming[spec.name], spec);
-      if (!millError) continue;
-      sendError(ws, millError, { type: 'settings-error', requestId: msg.requestId || null });
+    const ingestError = validateSettingsBlock(incoming.ingest, INGEST_SPEC);
+    if (ingestError) {
+      sendError(ws, ingestError, { type: 'settings-error', requestId: msg.requestId || null });
       return;
     }
 
@@ -743,10 +726,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       if (s.teamReview != null) cfg.teamReview = mergeSettingsBlockOverStored(cfg.teamReview, s.teamReview);
       if (s.posthog != null) cfg.posthog = mergeSettingsBlockOverStored(cfg.posthog, s.posthog);
       if (s.usage != null) cfg.usage = s.usage;
-      for (const spec of MILL_SPECS) {
-        if (incoming[spec.name] == null) continue;
-        cfg[spec.name] = mergeMillBlock(cfg[spec.name], incoming[spec.name], spec);
-      }
+      if (incoming.ingest != null) cfg.ingest = mergeSettingsBlock(cfg.ingest, incoming.ingest, INGEST_SPEC);
       if (s.telegram != null) cfg.telegram = mergeSettingsBlockOverStored(cfg.telegram, s.telegram);
       if (s.agentApi != null) cfg.agentApi = mergeSettingsBlockOverStored(cfg.agentApi, s.agentApi);
     });
@@ -1022,17 +1002,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     ws.send(JSON.stringify(report));
   }
 
-  function handleRequestMillReport(msg: ControlRequest, ws: ControlSocket) {
-    if (!millReport) {
-      ws.send(JSON.stringify({ type: 'mill-report', requestId: typeof msg.requestId === 'string' ? msg.requestId : null, error: 'The context mill is not running' }));
-      return;
-    }
-
-    return millReport.requestReport(msg, (payload) => {
-      if (ws.readyState === 1) ws.send(JSON.stringify(payload));
-    });
-  }
-
   function handleShutdown(): void {
     console.log('[control] Shutdown requested via UI');
     broadcastControl({ type: 'shutting-down' });
@@ -1164,7 +1133,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'posthog-archive-investigation': handlePosthogArchiveInvestigation,
     'team-review-action': handleTeamReviewAction,
     'request-usage-report': handleRequestUsageReport,
-    'request-mill-report': handleRequestMillReport,
     'request-hooks-report': handleRequestHooksReport,
     'save-hook': handleSaveHook,
     'delete-hook': handleDeleteHook,
@@ -1316,11 +1284,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       ws.send(JSON.stringify(usageReport));
     }
 
-    const millCached = millReport ? millReport.getCachedReport() : null;
-    if (millCached) {
-      ws.send(JSON.stringify(millCached));
-    }
-
     const planLimits = typeof getPlanLimits === 'function' ? getPlanLimits() : null;
     if (planLimits) {
       ws.send(JSON.stringify(planLimits));
@@ -1375,4 +1338,4 @@ export {
   VISIONS_INTENT_NUMERIC_RANGES,
   registerControlHandlers,
 };
-export type { ControlHandlerDeps, ControlRequest, MillControl, TeamReviewActionControl };
+export type { ControlHandlerDeps, ControlRequest, TeamReviewActionControl };

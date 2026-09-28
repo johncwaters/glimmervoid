@@ -6,9 +6,6 @@ import type { SessionState } from '../shared/states.ts';
 import type { ControlMessageRecord } from './control-replay-core.ts';
 import { decideWasActiveFlip } from './core/session-registry-core.ts';
 import { INTERACTIVE_LANE } from './core/usage-lane-core.ts';
-import type { MillMetricEndIntent } from './core/mill-metrics-core.ts';
-import { attachMillMetricsSession } from './mill-metrics-wiring.ts';
-import type { MillMetricsPort } from './mill-metrics-wiring.ts';
 import { resolveCheckConfig, runPostTurnChecks } from './post-turn-checker.ts';
 
 interface WiringProject extends Record<string, unknown> {
@@ -21,7 +18,6 @@ interface WiringConfig {
   postTurnChecks?: unknown;
 }
 
-type PacksDeliveredPayload = Parameters<MillMetricsPort['onPacksDelivered']>[1];
 
 interface WiringIngestLane {
   fsEnabled: boolean;
@@ -43,7 +39,6 @@ interface SessionEventDependencies {
   getIngestLane: () => WiringIngestLane | null;
   tapIngestForSession: (session: Session) => void;
   closeSessionDataClients: (id: string) => void;
-  millMetricsPort?: MillMetricsPort | null;
   traceWiring?: { attachSession: (session: Session) => void } | null;
   planReview?: {
     attachSession: (session: Session) => void;
@@ -94,7 +89,6 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
   return function wireSessionEvents(session: Session): void {
     dependencies.traceWiring?.attachSession(session);
     dependencies.planReview?.attachSession(session);
-    if (dependencies.millMetricsPort) attachMillMetricsSession(session, dependencies.millMetricsPort);
     let postTurnDebounce: NodeJS.Timeout | null = null;
     let pendingPromptKind: string | null = null;
     let pendingAgentNote: string | null = null;
@@ -156,7 +150,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       from: SessionState;
       to: SessionState;
       event: string;
-      detail: { signal?: string | null; endIntent?: MillMetricEndIntent } | null;
+      detail: { signal?: string | null } | null;
     }) => {
       dependencies.telegramChannel.noteStateChange(session.id);
       dependencies.broadcastControl({
@@ -168,16 +162,6 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         event,
         timestamp: Date.now(),
       });
-      if (dependencies.millMetricsPort && (to === STATES.DONE || to === STATES.FAILED)) {
-        dependencies.millMetricsPort.onSessionEnd(session.id, {
-          transitionEvent: event,
-          intent: detail?.endIntent,
-          finalState: to,
-        });
-      }
-      if (event === 'spawn_success' || event === 'spawn_fail') {
-        dependencies.broadcastControl({ type: 'session-packs', id: session.id, packs: session.toSnapshot().packs });
-      }
 
       const nextWasActive = decideWasActiveFlip(to, event, session.pendingRestart);
       if (nextWasActive !== null && nextWasActive !== lastPersistedWasActive) {
@@ -227,9 +211,6 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         if (ingestLane?.fsEnabled) ingestLane.noteSessionRoots(session);
       });
     }
-    session.on('packs-delivered', (payload: PacksDeliveredPayload) => {
-      if (dependencies.millMetricsPort) dependencies.millMetricsPort.onPacksDelivered(session.id, payload);
-    });
     session.on('agent-attention', ({ note }: { note: string }) => {
       pendingAgentNote = pendingAgentNote === null ? note : `${pendingAgentNote}${AGENT_ATTENTION_NOTE_SEPARATOR}${note}`;
     });

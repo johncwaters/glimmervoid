@@ -16,7 +16,6 @@ import { initFormFactor, isPhoneLayout, onLayoutChange } from './form-factor.ts'
 import type { HealthSnapshot } from './health-monitor.ts';
 import { applyHealthSnapshot, mountHealthMonitor } from './health-monitor.ts';
 import { acknowledgeVisionsAttention, applyIngestActivity, applyIngestSnapshot, applyVisionsComments, applyVisionsFindings, applyVisionsFix, applyVisionsHand, applyVisionsIntent, applyVisionsSettings, applyVisionsSnapshot, mountVisionsView, refreshVisionsView, setVisionsActivityCallback, setVisionsProjectNames } from './visions-panel.ts';
-import { acknowledgeMillAttention, applyMillReport, mountMillView, refreshMillView, requestMillReport, setMillActivityCallback, setMillRequestSender } from './mill-panel.ts';
 import { applyDeleteHookResult, applyHooksReport, applySaveHookResult, mountHooksView, refreshHooksView, requestHooksReport, setHooksRequestSender } from './hooks-panel.ts';
 import { initNotifications, showDesktopNotification } from './notifications.ts';
 import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneScreenActive, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen } from './phone/phone-shell.ts';
@@ -32,12 +31,12 @@ import { handleDebugStateRefresh, handleDebugStateResponse, onDebugModeChanged }
 import { findSessionUi, sessionUIs } from './session-card/card-registry.ts';
 import type { PlanResponse } from './plan/plan-face.ts';
 import type { SessionPlanChangedMessage, SessionPlanDraftMessage } from './session-card/lifecycle.ts';
-import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, getSessionCount, hasSession, notePackVersion, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setLatestPackVersions, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionHasPlan, setSessionMergeStatus, setSessionPacks, setSessionPostTurn, setSessionPrompt, setSessionResume, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
+import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, getSessionCount, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionResume, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { reconnectDataWs, syncGridOnEngagementEdge } from './session-card/terminal.ts';
 import { showErrorToast } from './session-card/toast.ts';
-import { activateSettingsSection, applySettingsBroadcast, applySettingsProjectReport, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, clearSettingsUpdateRequest, mountSettingsView, refreshSettingsStatus, resolveSettingsTarget } from './settings-panel.ts';
+import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, clearSettingsUpdateRequest, mountSettingsView, refreshSettingsStatus, resolveSettingsTarget } from './settings-panel.ts';
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
 import { createSettingsLink } from './settings-link.ts';
@@ -99,7 +98,6 @@ interface SnapshotSession {
   pendingWakeup?: unknown;
   pendingPromptKind?: unknown;
   hasPlan?: unknown;
-  packs?: unknown;
 }
 
 interface SessionUsageChip {
@@ -139,6 +137,7 @@ setConnectionStateCallback((state, label) => {
         applySettingsBroadcast(msg.settings);
         applyVisionsSettings(msg.settings);
         applySurfaceSettings(msg.settings);
+        if (getActiveView() === 'settings') activateSettingsHash(location.hash);
       })
       .catch(() => {});
     return;
@@ -159,10 +158,8 @@ function noteServerBuild(serverBuild: unknown) {
   if (decision.reload) location.reload();
 }
 
-function handleSnapshot(sessions: unknown, packVersions: unknown) {
+function handleSnapshot(sessions: unknown) {
   const rows = (sessions || []) as SnapshotSession[];
-
-  setLatestPackVersions(packVersions);
 
   setVisionsProjectNames(new Map(rows.filter((s) => !s.ephemeral).map((s): [string, string] => [s.id, s.name])));
   applySettingsProjects(rows.filter((session) => !session.ephemeral).map((session) => ({
@@ -192,8 +189,6 @@ function handleSnapshot(sessions: unknown, packVersions: unknown) {
     setSessionPrompt(s.id, s.pendingPromptKind);
 
     setSessionHasPlan(s.id, s.hasPlan);
-
-    setSessionPacks(s.id, s.packs);
 
     restoreUsageChip(s.id);
   }
@@ -281,7 +276,6 @@ function restoreUsageChip(sessionId: unknown) {
 }
 
 setUsageRequestSender(sendControlMsg);
-setMillRequestSender(sendControlMsg);
 setHooksRequestSender(sendControlMsg);
 setTraceRequestSender(sendControlMsg);
 setIssuesRequestSender(sendControlMsg);
@@ -306,36 +300,14 @@ function requestUsageReportIfVisible() {
   requestUsageReport();
 }
 
-const MILL_PULL_DEBOUNCE_MS = 500;
-let millPullTimer: number | null = null;
-let shouldResolveSettingsHashOnMillReport = location.hash.startsWith('#settings/');
-
-function requestMillReportSoon() {
-  if (millPullTimer) clearTimeout(millPullTimer);
-  millPullTimer = setTimeout(() => {
-    millPullTimer = null;
-    requestMillReport();
-  }, MILL_PULL_DEBOUNCE_MS);
-}
-
 const messageHandlers = {
-  'snapshot':           (msg) => { noteServerBuild(msg.serverBuild); handleSnapshot(msg.sessions, msg.packVersions); requestMillReport(); },
-
-  'pack-updated':       (msg) => { notePackVersion(msg.name, msg.version); requestMillReportSoon(); },
-  'mill-report':        (msg) => {
-    applyMillReport(msg);
-    applySettingsProjectReport(msg);
-    const shouldResolve = getActiveView() === 'settings' || shouldResolveSettingsHashOnMillReport;
-    shouldResolveSettingsHashOnMillReport = false;
-    if (shouldResolve) activateSettingsHash(location.hash);
-  },
+  'snapshot':           (msg) => { noteServerBuild(msg.serverBuild); handleSnapshot(msg.sessions); },
 
   'hooks-report':       (msg) => applyHooksReport(msg),
   'save-hook-result':   (msg) => applySaveHookResult(msg),
   'delete-hook-result': (msg) => applyDeleteHookResult(msg),
   'hooks-updated':      () => requestHooksReportIfVisible(),
 
-  'session-packs':      (msg) => setSessionPacks(msg.id, msg.packs),
   'state-change':       (msg) => handleStateChange(msg),
   'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, resume: !!msg.resumeSessionId, stateSince: msg.stateSince }); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); syncTraceSessionsFromCards(); },
   'session-removed':    (msg) => { removeSessionCard(msg.id); forgetReviewSession(msg.id); refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); syncTraceSessionsFromCards(); },
@@ -592,7 +564,6 @@ const viewRadarEl = queryTag(document, '#view-radar', 'section');
 const viewPrsEl = queryTag(document, '#view-prs', 'section');
 const viewIssuesEl = queryTag(document, '#view-issues', 'section');
 const viewUsageEl = queryTag(document, '#view-usage', 'section');
-const viewMillEl = queryTag(document, '#view-mill', 'section');
 const viewVisionsEl = queryTag(document, '#view-visions', 'section');
 const viewHooksEl = queryTag(document, '#view-hooks', 'section');
 const viewTraceEl = queryTag(document, '#view-trace', 'section');
@@ -602,7 +573,6 @@ const tabRadar = queryTag(document, '#tab-radar', 'button');
 const tabPrs = queryTag(document, '#tab-prs', 'button');
 const tabIssues = queryTag(document, '#tab-issues', 'button');
 const tabUsage = queryTag(document, '#tab-usage', 'button');
-const tabMill = queryTag(document, '#tab-mill', 'button');
 const tabVisions = queryTag(document, '#tab-visions', 'button');
 const tabHooks = queryTag(document, '#tab-hooks', 'button');
 const tabTrace = queryTag(document, '#tab-trace', 'button');
@@ -610,7 +580,6 @@ const tabSettings = queryTag(document, '#tab-settings', 'button');
 const tabRadarActivityEl = queryTag(document, '#tab-radar-activity', 'span');
 const tabPrsActivityEl = queryTag(document, '#tab-prs-activity', 'span');
 const tabUsageActivityEl = queryTag(document, '#tab-usage-activity', 'span');
-const tabMillActivityEl = queryTag(document, '#tab-mill-activity', 'span');
 const tabVisionsActivityEl = queryTag(document, '#tab-visions-activity', 'span');
 
 setRadarActivityCallback((active) => {
@@ -624,10 +593,6 @@ setTeamReviewActivityCallback((active) => {
 setUsageActivityCallback((active) => {
   tabUsageActivityEl.classList.toggle('active', active);
   setPhoneScreenAttention('usage', active);
-});
-setMillActivityCallback((active) => {
-  tabMillActivityEl.classList.toggle('active', active);
-  setPhoneScreenAttention('mill', active);
 });
 setVisionsActivityCallback((level) => {
   const active = level !== null;
@@ -654,8 +619,6 @@ mountIssuesView(viewIssuesEl);
 
 mountUsageView(viewUsageEl);
 
-mountMillView(viewMillEl);
-
 mountVisionsView(viewVisionsEl);
 
 mountHooksView(viewHooksEl);
@@ -670,7 +633,6 @@ const VIEW_TABS = [
   { view: 'issues', tab: tabIssues, el: viewIssuesEl },
   { view: 'usage', tab: tabUsage, el: viewUsageEl },
   { view: 'radar', tab: tabRadar, el: viewRadarEl },
-  { view: 'mill', tab: tabMill, el: viewMillEl },
   { view: 'visions', tab: tabVisions, el: viewVisionsEl },
   { view: 'hooks', tab: tabHooks, el: viewHooksEl },
   { view: 'trace', tab: tabTrace, el: viewTraceEl },
@@ -687,7 +649,6 @@ function acknowledgeViewAttention(view: string) {
   if (view === 'radar') acknowledgeRadarAttention();
   if (view === 'prs') acknowledgePrsViewAttention();
   if (view === 'usage') acknowledgeUsageAttention();
-  if (view === 'mill') acknowledgeMillAttention();
   if (view === 'visions') {
     acknowledgeVisionsAttention();
     refreshVisionsView();
@@ -723,11 +684,6 @@ function activateView(view: string, { section, setting, persist = true }: Activa
   if (view === 'usage') {
     refreshUsageView();
     requestUsageReport();
-  }
-
-  if (view === 'mill') {
-    refreshMillView();
-    requestMillReport();
   }
   if (view === 'hooks') {
     refreshHooksView();
@@ -790,7 +746,6 @@ const savedView = getSavedActiveView();
 const initialSettingsTarget = resolveSettingsTarget(location.hash);
 const initialPlanTarget = resolvePlanTarget(location.hash);
 if (initialSettingsTarget) {
-  shouldResolveSettingsHashOnMillReport = false;
   activateView('settings', {
     section: initialSettingsTarget.sectionId,
     setting: initialSettingsTarget.settingId,
@@ -809,7 +764,6 @@ mountPhoneShell({
   prsPanelEl: viewPrsEl,
   issuesPanelEl: viewIssuesEl,
   usagePanelEl: viewUsageEl,
-  millPanelEl: viewMillEl,
   visionsPanelEl: viewVisionsEl,
   hooksPanelEl: viewHooksEl,
   tracePanelEl: viewTraceEl,
@@ -817,7 +771,6 @@ mountPhoneShell({
 
   onScreenShown: (screenId: string) => {
     if (screenId === 'usage') { refreshUsageView(); requestUsageReport(); }
-    if (screenId === 'mill') { refreshMillView(); requestMillReport(); }
     if (screenId === 'hooks') { refreshHooksView(); requestHooksReport(); }
     if (screenId === 'trace') refreshTraceView();
     if (screenId !== 'settings') clearSettingsHash();

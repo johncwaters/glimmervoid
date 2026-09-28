@@ -10,9 +10,7 @@ import { readEnvSecrets, withEnvSecrets, withoutEnvSecrets } from './core/config
 import { AGENT_ID_SHAPE_MESSAGE, BranchGcFileSettings, Config, configIssueMessage, RUNTIME_CONFIG_SCALAR_KEYS } from '../shared/contracts/index.ts';
 import type { CustomAgentDeclaration } from '../shared/contracts/index.ts';
 import { isPlainObject } from './core/usage-number-core.ts';
-import {
-  INGEST_SPEC, MEMORY_SPEC, MILL_METRICS_SPEC, PACK_DISTILLER_SPEC, pickMillBlock,
-} from './core/settings-mill-core.ts';
+import { INGEST_SPEC, pickSettingsBlock } from './core/settings-block-core.ts';
 import { writeJsonAtomicSync, writeTextAtomicSync } from './json-file.ts';
 
 type ProjectEntry = Config['projects'][number] & { id: string; name: string };
@@ -62,14 +60,6 @@ const DEFAULT_CONFIG = {
   autoResume: true,
 
   skipPermissionsByDefault: false,
-
-  millEnabled: true,
-
-  packDistiller: {
-    enabled: false,
-    intervalHours: 24,
-    timeoutSeconds: 900,
-  },
 
   antiSlopPrompt: false,
   rtk: false,
@@ -200,7 +190,6 @@ function validateConfig(candidate: unknown): ConfigValidation {
 function normalizeConfigFile(candidate: unknown): GlimmervoidConfig {
   if (!isPlainObject(candidate)) throw new Error('config must be a plain object');
   const draft: Record<string, unknown> = candidate;
-  if (draft.millEnabled === undefined && draft.packsAutoRebuild === false) draft.millEnabled = false;
   for (const [key, fallback] of Object.entries(DEFAULT_CONFIG_BY_KEY)) {
     if (fallback === null || typeof fallback === 'object') continue;
     if (!Object.hasOwn(draft, key)) continue;
@@ -443,7 +432,6 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       autoResume: config.autoResume ?? effectiveDefaults.autoResume,
       skipPermissionsByDefault: config.skipPermissionsByDefault ?? effectiveDefaults.skipPermissionsByDefault,
       telegramNotifications: config.telegramNotifications ?? effectiveDefaults.telegramNotifications,
-      millEnabled: config.millEnabled ?? effectiveDefaults.millEnabled,
       integrationBranch: config.integrationBranch === undefined ? effectiveDefaults.integrationBranch : config.integrationBranch,
       worktreeRoot: config.worktreeRoot ?? effectiveDefaults.worktreeRoot,
       worktreeShare: config.worktreeShare ?? effectiveDefaults.worktreeShare,
@@ -460,12 +448,9 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       usage: config.usage ? { ...config.usage } : null,
       telegram: pickRedactedBlock(config.telegram, TELEGRAM_SETTINGS_KEYS, TELEGRAM_SECRET_KEYS),
 
-      packDistiller: pickMillBlock(config.packDistiller, PACK_DISTILLER_SPEC),
-      millMetrics: pickMillBlock(config.millMetrics, MILL_METRICS_SPEC),
-      memory: pickMillBlock(config.memory, MEMORY_SPEC),
-      ingest: pickMillBlock(config.ingest, INGEST_SPEC),
+      ingest: pickSettingsBlock(config.ingest, INGEST_SPEC),
 
-      projectChoices: (config.projects || []).map((p) => ({ id: p.id, name: p.name })),
+      projectChoices: (config.projects || []).map((p) => ({ id: p.id, name: p.name, path: p.path })),
     };
   }
 
@@ -500,9 +485,6 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     if (newConfig.posthog != null) config.posthog = newConfig.posthog;
     if (newConfig.usage != null) config.usage = newConfig.usage;
     if (newConfig.telegram != null) config.telegram = newConfig.telegram;
-    if (newConfig.packDistiller != null) config.packDistiller = newConfig.packDistiller;
-    if (newConfig.millMetrics != null) config.millMetrics = newConfig.millMetrics;
-    if (newConfig.memory != null) config.memory = newConfig.memory;
     if (newConfig.ingest != null) config.ingest = newConfig.ingest;
     if (newConfig.agentApi != null) config.agentApi = newConfig.agentApi;
     config.customAgents = newConfig.customAgents ?? [];

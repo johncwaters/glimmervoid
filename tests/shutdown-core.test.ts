@@ -55,9 +55,9 @@ test('the collector invokes each stopper immediately and keeps its promise', () 
   const order: string[] = [];
   const stoppers = createStopperCollector();
   stoppers.add('usage', () => { order.push('usage'); return Promise.resolve(); });
-  stoppers.add('packs', () => { order.push('packs'); });
-  assert.deepEqual(order, ['usage', 'packs'], 'timers are cleared on the spot, not when the coordinator gets round to it');
-  assert.deepEqual(stoppers.entries().map((e) => e.name), ['usage', 'packs']);
+  stoppers.add('trace', () => { order.push('trace'); });
+  assert.deepEqual(order, ['usage', 'trace'], 'timers are cleared on the spot, not when the coordinator gets round to it');
+  assert.deepEqual(stoppers.entries().map((e) => e.name), ['usage', 'trace']);
 });
 
 test('a stopper that throws synchronously becomes a rejected entry, not an aborted teardown', async () => {
@@ -83,7 +83,7 @@ test('normalizeShutdownResult accepts the historical array shape', () => {
 });
 
 test('summarizeStopOutcomes names the lanes that failed', () => {
-  const entries = [{ name: 'usage' }, { name: 'packs' }];
+  const entries = [{ name: 'usage' }, { name: 'trace' }];
   const summary = summarizeStopOutcomes(entries, {
     timedOut: false,
     settled: [{ status: 'rejected', reason: new Error('disk full') }, { status: 'fulfilled', value: undefined }],

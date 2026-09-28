@@ -60,7 +60,7 @@ Update a clone with `git pull --ff-only && npm ci && npm run build`, then restar
 
 ## Supported agents
 
-- **Claude Code** (`claude`), the default and the most complete: hooks, background agent gating, auto-resume, context packs.
+- **Claude Code** (`claude`), the default and the most complete: hooks, background agent gating, auto-resume.
 - **Codex CLI** (`codex`), with hook-based status. Codex has no notification event, so a question it asks in prose looks like a finished turn.
 - **Grok Build** (`grok`). Run `glimmervoid agent setup grok` once to install its hook relay.
 - **Any other terminal agent**, declared under `customAgents` in `config.json` with an `id`, `label`, `command` and optional `args`, `idleTitle` and `busyTitle`. Custom agents get status from the terminal title only.

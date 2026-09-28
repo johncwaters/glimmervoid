@@ -339,7 +339,6 @@ test('laneRows and laneLabel: known lanes get names, unknown ids pass through', 
   assert.deepEqual(laneRows(null), []);
   assert.equal(laneLabel('pr-review'), 'PR review');
   assert.equal(laneLabel('team-review'), 'PR reviews');
-  assert.equal(laneLabel('pack-distill'), 'Pack distiller');
   assert.equal(laneLabel('posthog'), 'PostHog');
   assert.equal(laneLabel('interactive'), 'Interactive');
   assert.equal(laneLabel('other'), 'Other');

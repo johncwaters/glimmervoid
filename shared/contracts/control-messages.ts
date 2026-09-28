@@ -136,7 +136,6 @@ export const CLIENT_MESSAGE_TYPES = Object.freeze([
   'team-review-action',
   'posthog-archive-investigation',
   'request-usage-report',
-  'request-mill-report',
   'request-hooks-report',
   'save-hook',
   'delete-hook',
@@ -200,7 +199,6 @@ const clientVariants = [
   loose('team-review-action', { ...TeamReviewActionRequest.shape, requestId }),
   loose('posthog-archive-investigation', { id: z.unknown().optional(), requestId }),
   loose('request-usage-report', { requestId, days: z.unknown().optional(), force: z.unknown().optional() }),
-  loose('request-mill-report', { requestId }),
   loose('request-hooks-report', { requestId }),
   loose('send-diff-annotations', {
     id: sessionId,
@@ -235,13 +233,10 @@ export const ClientMessage = z.discriminatedUnion('type', clientVariants);
 
 export const SERVER_MESSAGE_TYPES = Object.freeze([
   'snapshot',
-  'pack-updated',
-  'mill-report',
   'hooks-report',
   'save-hook-result',
   'delete-hook-result',
   'hooks-updated',
-  'session-packs',
   'state-change',
   'session-added',
   'session-removed',
@@ -318,22 +313,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
 const serverVariants = [
   loose('snapshot', {
     sessions: z.array(SessionSnapshot),
-    packVersions: z.record(z.string(), z.string()),
     serverBuild: nullableString,
-  }),
-  loose('pack-updated', { name: z.string(), version: z.string() }),
-  loose('mill-report', {
-    requestId,
-    ts: optionalTimestamp,
-    autoRebuild: z.boolean().optional(),
-    distillerEnabled: z.boolean().optional(),
-    watcherCount: z.number().nullable().optional(),
-    projects: z.array(opaqueObject).optional(),
-    maxPacksPerProject: z.number().optional(),
-    packs: z.array(opaqueObject).optional(),
-    configWarnings: z.array(z.string()).optional(),
-    totals: opaqueObject.optional(),
-    error: optionalError,
   }),
   loose('hooks-report', {
     requestId,
@@ -364,7 +344,6 @@ const serverVariants = [
   loose('session-git', { id: sessionId, worktree: z.boolean() }),
   loose('session-resume', { id: sessionId, resumeSessionId: z.string().nullable() }),
   loose('session-agents', { id: sessionId, activeAgents: z.number().int().nonnegative(), awaitingBackgroundTasks: z.boolean(), timestamp }),
-  loose('session-packs', { id: sessionId, packs: z.array(z.object({ name: z.string(), version: z.string() })) }),
   loose('session-wakeup', { id: sessionId, pendingWakeup: PendingWakeup.nullable(), timestamp }),
   loose('session-prompt', { id: sessionId, pendingPromptKind: nullableString, timestamp }),
 

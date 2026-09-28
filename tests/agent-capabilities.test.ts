@@ -22,26 +22,12 @@ interface CapabilitySpawnCall {
   args: string[];
   env: Record<string, string | undefined>;
 }
-const CLAUDE_MD_ENV = 'CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD';
-delete process.env[CLAUDE_MD_ENV];
-
 const RESUME_ID = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
 
 function agentWithout(...disabled: (keyof AgentCapabilities)[]): AgentAdapter {
   const capabilities: AgentCapabilities = { ...claudeCode.capabilities };
   for (const capability of disabled) capabilities[capability] = false;
   return { ...claudeCode, id: 'test-agent', label: 'Test Agent', capabilities };
-}
-
-async function makeBuiltRoot(packs: Record<string, string>) {
-  const builtRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-cap-packs-'));
-  for (const [name, version] of Object.entries(packs)) {
-    const currentDir = path.join(builtRoot, name, 'current');
-    await fsp.mkdir(currentDir, { recursive: true });
-    await fsp.writeFile(path.join(currentDir, 'CLAUDE.md'), `# ${name}\n`, 'utf8');
-    await fsp.writeFile(path.join(currentDir, 'manifest.json'), JSON.stringify({ name, version }), 'utf8');
-  }
-  return builtRoot;
 }
 
 function makeSession(options: Partial<SessionOptions> & { id: string; name: string }) {
@@ -75,51 +61,6 @@ async function withHooks(
     await fsp.rm(hooksBaseDir, { recursive: true, force: true });
   }
 }
-
-test('packs off: nothing is added to the argv, and the refusal is in the decision trace', async () => {
-  const builtRoot = await makeBuiltRoot({ 'house-rules': 'v-abc' });
-  const { session, calls } = makeSession({
-    id: 'no-packs', name: 'no-packs', adapter: agentWithout('packs'),
-    packs: ['house-rules'], packsBuiltRoot: builtRoot,
-  });
-  try {
-    await session.start();
-    assert.deepEqual(calls[0].args, [], 'no --add-dir');
-    assert.equal(CLAUDE_MD_ENV in calls[0].env, false, 'and no CLAUDE.md env flag');
-    assert.deepEqual(session.toSnapshot().packs, []);
-    const decisions = session.getDebugState().decisions.filter((d) => d.kind === 'pack');
-    assert.equal(decisions.length, 1);
-    assert.equal(decisions[0].decision, 'unsupported');
-    assert.equal(decisions[0].name, 'house-rules');
-    assert.match(String(decisions[0].reason), /test-agent/);
-    assert.equal(decisions[0].agent, 'test-agent', 'a non-default agent stamps its trace entries');
-  } finally {
-    session.destroy();
-    await fsp.rm(builtRoot, { recursive: true, force: true });
-  }
-});
-
-test('packNotice off: a rebuild arms nothing and the hook response can never carry context', async () => {
-  const builtRoot = await makeBuiltRoot({ 'house-rules': 'v-abc' });
-  const cases = [
-    { adapter: claudeCode, armed: true },
-    { adapter: agentWithout('packNotice'), armed: false },
-  ];
-  for (const { adapter, armed } of cases) {
-    const { session } = makeSession({
-      id: 'notice', name: 'notice', adapter, packs: ['house-rules'], packsBuiltRoot: builtRoot,
-    });
-    try {
-      await session.start();
-      assert.deepEqual(session.toSnapshot().packs.map((p) => p.name), ['house-rules'], 'the pack is still delivered');
-      assert.equal(session.notePackUpdate('house-rules', 'v-next'), armed);
-      assert.equal(session.takePackNoticeContext() === null, !armed);
-    } finally {
-      session.destroy();
-    }
-  }
-  await fsp.rm(builtRoot, { recursive: true, force: true });
-});
 
 test('statusLine off: planLimits injects no statusLine into the settings file', async () => {
   await withHooks({ id: 'sl-on', name: 'sl-on', planLimits: true }, ({ settings }) => {
@@ -226,14 +167,12 @@ test('a claude-code recording differs only by the header agent field', async () 
 
 test('a non-default agent stamps its decision records, so a recording says which vocabulary it holds', async () => {
   const recorderBase = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-cap-rec2-'));
-  const builtRoot = await makeBuiltRoot({ 'house-rules': 'v-abc' });
-  const { session } = makeSession({
-    id: 'rec2', name: 'rec2', adapter: agentWithout('packs'), packs: ['house-rules'], packsBuiltRoot: builtRoot,
-  });
+  const { session } = makeSession({ id: 'rec2', name: 'rec2', adapter: agentWithout('statusLine') });
   const recorder = new SessionRecorder({ name: 'rec2', baseDir: recorderBase, recordData: false });
   session.setRecorder(recorder);
   try {
     await session.start();
+    session.recordNotifyDecision({ kind: 'notify', ts: Date.now(), decision: 'suppressed' });
     await new Promise<void>((resolve) => { recorder._stream?.once('finish', () => resolve()); recorder.close(); });
     const file = fs.readdirSync(recorderBase).find((entry) => entry.endsWith('.jsonl'));
     const records = fs.readFileSync(path.join(recorderBase, String(file)), 'utf8')
@@ -241,10 +180,9 @@ test('a non-default agent stamps its decision records, so a recording says which
     assert.equal(records.find((r) => r.type === 'header')?.agent, 'test-agent');
     const decision = records.find((r) => r.type === 'decision');
     assert.equal(decision?.agent, 'test-agent');
-    assert.equal(decision?.decision, 'unsupported');
+    assert.equal(decision?.decision, 'suppressed');
   } finally {
     session.destroy();
     await fsp.rm(recorderBase, { recursive: true, force: true });
-    await fsp.rm(builtRoot, { recursive: true, force: true });
   }
 });

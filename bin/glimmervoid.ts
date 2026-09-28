@@ -30,11 +30,6 @@ Commands:
   visions install   Install the Visions extension into every VS Code family editor on PATH
   visions setup     Print LSP client config for Neovim, Helix, Emacs, Kate, Sublime, JetBrains
   visions status    Report the relay path and which editors carry the extension
-  pack build [name] Build one context pack, or every spec
-  pack list         List context pack specs and their built versions
-  memory forget <id|pattern>  Expunge a remembered record
-  memory backfill   Re-run the cold-start transcript backfill
-  memory distill [--dry-run]  Rebuild the published projection from the canon
   spawn <prompt>    From inside a Glimmervoid session, start a sibling session on that prompt
   attention <note>  From inside a Glimmervoid session, flag it as needing the operator
   board             From inside a Glimmervoid session, list the live sessions
@@ -103,25 +98,13 @@ if (isVisionsCommand) {
   runAsyncCommand(runVisionsCli(args.slice(1)));
 }
 
-const isPackCommand = args[0] === 'pack';
-if (isPackCommand) {
-  const { runPackCli } = await import('../server/pack-cli.ts');
-  runAsyncCommand(runPackCli(args.slice(1)));
-}
-
-const isMemoryCommand = args[0] === 'memory';
-if (isMemoryCommand) {
-  const { runMemoryCli } = await import('../server/memory-cli.ts');
-  runAsyncCommand(runMemoryCli(args.slice(1)));
-}
-
 const isAgentApiCommand = !!args[0] && (AGENT_API_VERBS as readonly string[]).includes(args[0]);
 if (isAgentApiCommand) {
   const { runAgentApiCli } = await import('../server/agent-api-cli.ts');
   runAsyncCommand(runAgentApiCli(args));
 }
 
-if (!isPackCommand && !isMemoryCommand && !isAgentCommand && !isVisionsCommand && !isAgentApiCommand) {
+if (!isAgentCommand && !isVisionsCommand && !isAgentApiCommand) {
   await import('../server/index.ts');
 }
 
@@ -204,18 +187,13 @@ async function runDoctor(): Promise<void> {
   switchSection('Agents');
 
   try {
-    const { listAgentIds, getAdapter, describeAgentResolvability, setCustomAgents } = await import('../session/adapters/index.ts');
+    const { listAgentIds, describeAgentResolvability, setCustomAgents } = await import('../session/adapters/index.ts');
     const declaredCustomAgents = await readDeclaredCustomAgents();
     if (declaredCustomAgents.error) line('config', declaredCustomAgents.error);
     setCustomAgents(declaredCustomAgents.declared);
     for (const id of listAgentIds()) {
-      const adapter = getAdapter(id);
-      if (!adapter) continue;
       const { label, path: resolvedPath } = describeAgentResolvability(id);
       line(`${id} (${label})`, resolvedPath ?? 'not found on PATH');
-      line(`${id} pack carrier`, adapter.capabilities.packs ? adapter.packCarrier : 'unsupported');
-      const packNoticeCaveat = 'packNoticeCaveat' in adapter ? adapter.packNoticeCaveat : '';
-      if (packNoticeCaveat) line(`${id} pack notices`, packNoticeCaveat);
     }
     const { inspectGrokAgentSetup } = await import('../server/agent-setup-cli.ts');
     const grokSetup = inspectGrokAgentSetup();

@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import { DASHBOARD_SETTING_PATHS } from '../server/control-handlers.ts';
-import { MEMORY_SPEC, MILL_METRICS_SPEC, PACK_DISTILLER_SPEC, INGEST_SPEC } from '../server/core/settings-mill-core.ts';
+import { INGEST_SPEC } from '../server/core/settings-block-core.ts';
 import * as settingsRanges from '../shared/settings-ranges.ts';
-import type { MillBlockSpec } from '../server/core/settings-mill-core.ts';
+import type { SettingsBlockSpec } from '../server/core/settings-block-core.ts';
 import type { SettingsSetting } from '../public/settings-map.ts';
 
 const loadMap = () => import('../public/settings-map.ts');
@@ -13,18 +13,17 @@ const loadMap = () => import('../public/settings-map.ts');
 const DASHBOARD_SETTING_PATH_SET = new Set(DASHBOARD_SETTING_PATHS);
 const OPTION_CATALOGS = new Set(['sounds', 'themes']);
 
-function specAllows(spec: MillBlockSpec, parts: readonly string[]): boolean {
+function specAllows(spec: SettingsBlockSpec, parts: readonly string[]): boolean {
   if (parts.length === 0) return true;
   const [key, ...remaining] = parts;
   if (spec.booleans.includes(key) && remaining.length === 0) return true;
-  if (Object.hasOwn(spec.integerRanges, key) && remaining.length === 0) return true;
   const block = spec.blocks[key];
   if (!block) return false;
   return specAllows(block, remaining);
 }
 
 const DEFAULT_CONFIG_RECORD: Record<string, unknown> = DEFAULT_CONFIG;
-const MILL_SPECS_BY_KEY: Record<string, MillBlockSpec> = { memory: MEMORY_SPEC, millMetrics: MILL_METRICS_SPEC, packDistiller: PACK_DISTILLER_SPEC, ingest: INGEST_SPEC };
+const BLOCK_SPECS_BY_KEY: Record<string, SettingsBlockSpec> = { ingest: INGEST_SPEC };
 
 function walkPath(root: unknown, parts: readonly string[]): boolean {
   let cursor = root;
@@ -42,8 +41,8 @@ function pathIsKnown(path: string): boolean {
     return walkPath(DEFAULT_CONFIG_RECORD[topLevel], remaining);
   }
   if (DASHBOARD_SETTING_PATH_SET.has(path)) return true;
-  const millSpec = MILL_SPECS_BY_KEY[topLevel];
-  return !!millSpec && specAllows(millSpec, remaining);
+  const blockSpec = BLOCK_SPECS_BY_KEY[topLevel];
+  return !!blockSpec && specAllows(blockSpec, remaining);
 }
 
 function pathExistsInDefaultConfig(path: string): boolean {
@@ -75,18 +74,12 @@ test('the removed automatic PR controls are absent from settings', async () => {
   assert.equal(SETTINGS_MAP.some((section) => section.settings.some((setting) => setting.id.startsWith('pr-review-'))), false);
 });
 
-test('the map exposes no mill measurement controls', async () => {
-  const { SETTINGS_MAP } = await loadMap();
-  const paths = SETTINGS_MAP.flatMap<SettingsSetting>((section) => section.settings).map((setting) => setting.path);
-  assert.equal(paths.some((path) => path.startsWith('millMetrics.')), false);
-});
-
-test('the map never exposes remote and memory keys stay inside the dashboard allow-list', async () => {
+test('the map never exposes remote and ingest keys stay inside the dashboard allow-list', async () => {
   const { SETTINGS_MAP } = await loadMap();
   const settings = SETTINGS_MAP.flatMap<SettingsSetting>((section) => section.settings);
   assert.equal(settings.some((setting) => setting.path === 'remote' || setting.path.startsWith('remote.')), false);
-  for (const setting of settings.filter((entry) => entry.path.startsWith('memory.'))) {
-    assert.equal(specAllows(MEMORY_SPEC, setting.path.split('.').slice(1)), true, setting.path);
+  for (const setting of settings.filter((entry) => entry.path.startsWith('ingest.'))) {
+    assert.equal(specAllows(INGEST_SPEC, setting.path.split('.').slice(1)), true, setting.path);
   }
   assert.equal(pathIsKnown('visions.dispatch.quietMS'), false);
 });

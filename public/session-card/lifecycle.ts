@@ -28,8 +28,6 @@ import { aggregateEl, container, findSessionUi, sessionIdOf, sessionUIs } from '
 import { preferredBorrowedFace } from './face-core.ts';
 import type { SessionCardFace } from './face-core.ts';
 import { openConfirmDialog } from './modal.ts';
-import type { DeliveredPack } from './pack-stale-core.ts';
-import { stalePackNames } from './pack-stale-core.ts';
 import { openResumeDialog } from './resume-dialog.ts';
 import { showErrorToast } from './toast.ts';
 
@@ -52,8 +50,6 @@ const AGGREGATE_GLYPHS: Record<string, string> = {
 
 let _lastAggregateText: string | null = null;
 let _lastAggregateSeverity: string | null = null;
-
-const latestPackVersions = new Map<string, string>();
 
 const asText = (value: unknown) => (value == null ? '' : String(value));
 
@@ -462,40 +458,6 @@ export function setSessionAgents(sessionId: unknown, activeAgents: unknown, awai
     value: String(n),
     text: n === 1 ? '1 agent' : `${n} agents`,
   });
-}
-
-export function setSessionPacks(sessionId: unknown, packs: unknown) {
-  const ui = findSessionUi(sessionId);
-  if (!ui) return;
-  ui.packs = Array.isArray(packs) ? (packs as DeliveredPack[]) : [];
-  applyPackStaleness(ui);
-}
-
-export function setLatestPackVersions(versions: unknown) {
-  latestPackVersions.clear();
-  const byName = (versions || {}) as Record<string, string>;
-  for (const [name, version] of Object.entries(byName)) latestPackVersions.set(name, version);
-  refreshPackStaleness();
-}
-
-export function notePackVersion(name: unknown, version: unknown) {
-  if (typeof name !== 'string' || typeof version !== 'string') return;
-  latestPackVersions.set(name, version);
-  refreshPackStaleness();
-}
-
-function applyPackStaleness(ui: SessionUi) {
-  const stale = stalePackNames(ui.packs, latestPackVersions);
-  paintCardBadge(ui, '.pack-badge', 'packStale', {
-    on: stale.length > 0,
-    title: stale.length > 0
-      ? `Rebuilt since this session started: ${stale.join(', ')}. Restart it to pick up the new context.`
-      : '',
-  });
-}
-
-function refreshPackStaleness() {
-  for (const [, ui] of sessionUIs) applyPackStaleness(ui);
 }
 
 export function setSessionUsage(sessionId: unknown, usage: UsageSessionUsage | null | undefined) {

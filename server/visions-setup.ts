@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { resolvePathCommandMatches } from '../session/core/spawn-command.ts';
 import { execFileAsync, execSync } from './child-process-safe.ts';
-import { isUnder, underTestRunner } from './core/db-path-guard.ts';
+import { isUnder, underTestRunner } from './core/test-runner-path-guard.ts';
 import {
   decideEditorTargets, isExtensionInstalled, resolveEditorPathsFor, visionsExtensionFiles,
 } from './core/editor-extension-core.ts';

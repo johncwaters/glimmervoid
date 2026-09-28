@@ -10,7 +10,7 @@ Design documents, postmortems, and operator guides. Background reading for why t
 
 | File | Description |
 |------|-------------|
-| `architecture-overview.html` | Architecture map (self-contained HTML page with inline SVG diagrams per subsystem, open in a browser): tiers, session lifecycle and state machine, detection flow, completion gate, worktree auto-rebase and merge, notification flow, PR review, Radar, usage, packs, Visions, remote mode, timing, storage |
+| `architecture-overview.html` | Architecture map (self-contained HTML page with inline SVG diagrams per subsystem, open in a browser): tiers, session lifecycle and state machine, detection flow, completion gate, worktree auto-rebase and merge, notification flow, PR review, Radar, usage, Visions, remote mode, timing, storage |
 | `postmortem-terminal-detection.md` | Postmortem of the content-scraping detection era; rationale for the structural-signal rewrite and the signal x state matrix |
 | `distribution.md` | How Glimmervoid ships: npm registry package published by `publish.yml` from a release tag via trusted publishing, the release steps, the update check, and which test or workflow enforces each claim |
 | `testing-cli.md` | Manual CLI checks to run before a release (`--help`, `--version`, `--port`, `--config`, `doctor`, `pair`, tarball, global install); its `--help` block and every command it names are pinned by `tests/cli-docs.test.ts` |

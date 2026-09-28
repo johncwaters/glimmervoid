@@ -4,7 +4,6 @@ import path from 'node:path';
 import { SETTINGS_MAP } from '../public/settings-map.ts';
 import type { SettingsSection, SettingsSetting } from '../public/settings-map.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
-import { DEFAULT_MILL_METRICS_HOLDOUT_PERCENT, DEFAULT_MILL_METRICS_RETAIN_DAYS } from '../server/core/mill-metrics-core.ts';
 import { Config, HIDDEN_CONFIG_KEYS } from '../shared/contracts/config.ts';
 
 interface EnvironmentVariable {
@@ -16,7 +15,7 @@ interface EnvironmentVariable {
 export const CONFIGURATION_DOC_PATH = path.join(import.meta.dirname, '..', 'docs', 'configuration.md');
 
 export const ENVIRONMENT_VARIABLES: readonly EnvironmentVariable[] = Object.freeze([
-  { name: 'GLIMMERVOID_HOME', audience: 'operator', description: 'Directory holding `config.json` and all machine state (pairings, packs, memory, recordings). Defaults to `~/.glimmervoid`.' },
+  { name: 'GLIMMERVOID_HOME', audience: 'operator', description: 'Directory holding `config.json` and all machine state (pairings, recordings). Defaults to `~/.glimmervoid`.' },
   { name: 'GLIMMERVOID_CONFIG', audience: 'operator', description: 'Path to the config file, winning over `GLIMMERVOID_HOME`. The file must exist or the server exits with `Config file not found`. `--config <path>` sets it.' },
   { name: 'GLIMMERVOID_PORT', audience: 'operator', description: 'Local dashboard port, overriding `port` in `config.json`. `--port <number>` sets it. The Visions relay also reads it to find the server.' },
   { name: 'GLIMMERVOID_HOST', audience: 'operator', description: 'Bind address for both listeners. Defaults to `127.0.0.1`; any non-loopback value is refused unless `GLIMMERVOID_INSECURE_BIND=1`.' },
@@ -35,7 +34,6 @@ export const UNLISTED_KEY_NOTES: Readonly<Record<string, string>> = Object.freez
   hooks: 'Operator-defined hooks per project, managed from the dashboard Hooks panel.',
   worktreeSyncOnStart: 'Fetch origin and fast-forward the local integration branch before a session starts its worktree.',
   planReview: 'Hold Claude Code plan approvals (`ExitPlanMode`) so the plan can be read and approved from the dashboard or phone (`planReview.enabled`).',
-  millMetrics: 'Context mill measurement: `retainDays` bounds retained history, `holdoutPercent` is the share of spawns delivered no packs, as a comparison arm.',
 });
 
 const BROWSER_LEVEL = 'browser';
@@ -44,10 +42,7 @@ function escapeCell(text: string): string {
   return text.replaceAll('|', '\\|').replaceAll('\n', ' ');
 }
 
-const DOCUMENTED_DEFAULTS: Readonly<Record<string, unknown>> = Object.freeze({
-  ...DEFAULT_CONFIG,
-  millMetrics: { retainDays: DEFAULT_MILL_METRICS_RETAIN_DAYS, holdoutPercent: DEFAULT_MILL_METRICS_HOLDOUT_PERCENT },
-});
+const DOCUMENTED_DEFAULTS: Readonly<Record<string, unknown>> = Object.freeze({ ...DEFAULT_CONFIG });
 
 function defaultAtPath(dottedPath: string): unknown {
   let cursor: unknown = DOCUMENTED_DEFAULTS;

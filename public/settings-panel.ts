@@ -14,6 +14,7 @@ import {
   buildProjectSections,
   collectDirtyBlocks,
   enrichProjectsById,
+  firstProjectPerPath,
   hydrateFromSettings,
   orderSections,
   parseSettingsHash,
@@ -104,7 +105,8 @@ let phoneSearchResultsEl: HTMLElement | null = null;
 let contentEl: HTMLDivElement | null = null;
 let selectedSection: SettingsSection = SETTINGS_VIEW_MAP[0];
 let settingsPayload: SettingsPayload = {};
-let projectReport: { projects: SettingsProject[] } = { projects: [] };
+let configuredProjects: SettingsProject[] = [];
+let settingsProjects: SettingsProject[] = [];
 const projectDetailsById = new Map<string, SettingsProject>();
 let originalValues: SettingsValues | null = null;
 let editedValues: SettingsValues | null = null;
@@ -164,7 +166,7 @@ function flashSetting(settingId: string) {
 }
 
 function rebuildSettingsMap() {
-  const projectSections = buildProjectSections(projectReport.projects);
+  const projectSections = buildProjectSections(settingsProjects);
   SETTINGS_VIEW_MAP = orderSections([...staticSettingsViewMap, ...projectSections]);
   selectedSection = resolveEntry(SETTINGS_VIEW_MAP, selectedSection?.id) ?? selectedSection;
 }
@@ -178,7 +180,7 @@ function rememberProjectDetails(projects: unknown) {
       ...project,
     });
   }
-  projectReport.projects = enrichProjectsById(projectReport.projects, [...projectDetailsById.values()]);
+  settingsProjects = enrichProjectsById(firstProjectPerPath(configuredProjects), [...projectDetailsById.values()]);
 }
 
 function renderShortcutGroups(container: HTMLElement) {
@@ -987,6 +989,7 @@ export function applySettingsBroadcast(freshSettings: unknown, options: { rehydr
   const { rehydrateSectionIds = [] } = options;
   if (!freshSettings) return;
   settingsPayload = freshSettings as SettingsPayload;
+  configuredProjects = Array.isArray(settingsPayload.projectChoices) ? settingsPayload.projectChoices : [];
   rememberProjectDetails(settingsPayload.projectChoices);
   rebuildSettingsMap();
   const source = { ...settingsPayload, prefs: browserPreferences() };
@@ -1050,20 +1053,6 @@ export function applySettingsUpdateProgress(journal: unknown) {
 
 export function clearSettingsUpdateRequest() {
   dispatchUpdateRequest('error-frame');
-}
-
-export function applySettingsProjectReport(msg: unknown) {
-  const report = msg as { error?: unknown; projects?: unknown } | null | undefined;
-  if (typeof report?.error === 'string' && report.error) return;
-  projectReport = {
-    projects: enrichProjectsById(
-      Array.isArray(report?.projects) ? report.projects : [],
-      [...projectDetailsById.values()],
-    ),
-  };
-  rebuildSettingsMap();
-  if (!rootEl) return;
-  renderNavigation();
 }
 
 export function applySettingsProjects(projects: unknown) {

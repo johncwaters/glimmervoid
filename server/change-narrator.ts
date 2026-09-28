@@ -7,8 +7,8 @@ import type { ChangeMap, ChangeNarrative } from '../shared/contracts/change-map.
 import { BrowserConfig } from '../shared/contracts/config.ts';
 import type { CHANGE_MAP_NARRATOR_ENGINES } from '../shared/contracts/config.ts';
 import type { ChangeMapNarration, ChangeMapNarrator } from './change-map-wiring.ts';
-import { createMemoryDistillSpawn, readDistillResultFile } from './memory-distill.ts';
-import type { SpawnDistill } from './memory-distill.ts';
+import { createLaneSpawn, readLaneResultFile } from './lane-spawn.ts';
+import type { LaneSpawn } from './lane-spawn.ts';
 import {
   buildNarrativePrompt, factsHashInput, hasNarratableFacts, knownNarrativeFactIds, narrativeFacts, validateNarrative,
 } from './core/change-narrative-core.ts';
@@ -46,7 +46,7 @@ type SpawnNarration = (options: SpawnNarrationOptions) => Promise<ChangeNarrativ
 interface ChangeNarratorOptions {
   getConfig: () => { changeMap?: unknown };
   spawnNarration?: SpawnNarration;
-  spawnDistill?: SpawnDistill;
+  spawnLane?: LaneSpawn;
   nowFn?: () => number;
 }
 
@@ -89,8 +89,12 @@ function claudeLaunch(resultPath: string, model: string): NarrationLaunch {
   return { promptResultPath: resultPath, bootstrapPrompt: BOOTSTRAP_PROMPT, agent: undefined, extraArgs: [], model };
 }
 
-async function spawnNarrationWithSession({ map, factsHash, engine, model, codexModel, timeoutSeconds }: SpawnNarrationOptions, spawn: SpawnDistill, nowFn: () => number): Promise<ChangeNarrative | null> {
-  const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-change-narrative-'));
+function makeNarrationWorkDir(): Promise<string> {
+  return fs.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-change-narrative-'));
+}
+
+async function spawnNarrationWithSession({ map, factsHash, engine, model, codexModel, timeoutSeconds }: SpawnNarrationOptions, spawn: LaneSpawn, nowFn: () => number): Promise<ChangeNarrative | null> {
+  const workDir = await makeNarrationWorkDir();
   const promptPath = path.join(workDir, PROMPT_FILE);
   const resultPath = path.join(workDir, RESULT_FILE);
   const controller = new AbortController();
@@ -105,7 +109,7 @@ async function spawnNarrationWithSession({ map, factsHash, engine, model, codexM
       prompt: launch.bootstrapPrompt, agent: launch.agent, extraArgs: launch.extraArgs, model: launch.model, signal: controller.signal,
     });
     if (controller.signal.aborted) return null;
-    const raw = await readDistillResultFile(resultPath);
+    const raw = await readLaneResultFile(resultPath);
     return validateNarrative({ raw, knownFactIds: knownNarrativeFactIds(map), factsHash, model });
   } finally {
     clearTimeout(timeout);
@@ -113,8 +117,8 @@ async function spawnNarrationWithSession({ map, factsHash, engine, model, codexM
   }
 }
 
-function createChangeNarrator({ getConfig, spawnNarration, spawnDistill = createMemoryDistillSpawn(), nowFn = () => Date.now() }: ChangeNarratorOptions): ChangeMapNarrator {
-  const runNarration = spawnNarration ?? ((request: SpawnNarrationOptions) => spawnNarrationWithSession(request, spawnDistill, nowFn));
+function createChangeNarrator({ getConfig, spawnNarration, spawnLane = createLaneSpawn({ laneName: 'change-map' }), nowFn = () => Date.now() }: ChangeNarratorOptions): ChangeMapNarrator {
+  const runNarration = spawnNarration ?? ((request: SpawnNarrationOptions) => spawnNarrationWithSession(request, spawnLane, nowFn));
   const cachedByHash = new Map<string, ChangeNarrative | null>();
   const queuedBySessionId = new Map<string, RequestedNarration>();
   let active: { factsHash: string; callbacksBySessionId: Map<string, () => void> } | null = null;
@@ -201,5 +205,5 @@ function createChangeNarrator({ getConfig, spawnNarration, spawnDistill = create
   return { narrationFor };
 }
 
-export { createChangeNarrator };
+export { createChangeNarrator, makeNarrationWorkDir };
 export type { ChangeNarratorOptions, SpawnNarration, SpawnNarrationOptions };

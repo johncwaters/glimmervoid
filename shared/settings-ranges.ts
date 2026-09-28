@@ -46,36 +46,10 @@ export const USAGE_INTEGER_RANGES = Object.freeze({
   sessionBlockHours: USAGE_SESSION_BLOCK_HOURS_RANGE,
 });
 
-export const PACK_DISTILLER_INTERVAL_RANGE = Object.freeze({ min: 1, max: 720 });
-export const PACK_DISTILLER_TIMEOUT_RANGE = Object.freeze({ min: 60, max: 7200 });
 export const CHANGE_MAP_NARRATOR_TIMEOUT_RANGE = Object.freeze({ min: 15, max: 600 });
-export const MILL_METRICS_RETAIN_DAY_RANGE = Object.freeze({ min: 7, max: 3650 });
-export const MILL_METRICS_HOLDOUT_PERCENT_RANGE = Object.freeze({ min: 0, max: 90 });
-
-export const MEMORY_RETAIN_DAY_RANGE = Object.freeze({ min: 30, max: 3650 });
-export const MAX_RECORD_CHARS_RANGE = Object.freeze({ min: 200, max: 20000 });
-export const MAX_RECORDS_PER_KIND_RANGE = Object.freeze({ min: 50, max: 100000 });
-export const INTERVAL_MINUTES_RANGE = Object.freeze({ min: 15, max: 20160 });
-export const TIMEOUT_SECONDS_RANGE = Object.freeze({ min: 60, max: 7200 });
-export const MAX_NEW_CLAIMS_RANGE = Object.freeze({ min: 1, max: 500 });
-export const QUIET_MS_RANGE = Object.freeze({ min: 0, max: 3600000 });
-export const MAX_PROJECT_CLAIMS_RANGE = Object.freeze({ min: 20, max: 500 });
-export const MAX_PROJECT_CHARS_RANGE = Object.freeze({ min: 2000, max: 200000 });
-export const STALE_HORIZON_DAYS_RANGE = Object.freeze({ min: 1, max: 3650 });
 
 export const SETTINGS_RANGES = Object.freeze({
   CHANGE_MAP_NARRATOR_TIMEOUT_RANGE,
-  INTERVAL_MINUTES_RANGE,
-  MAX_NEW_CLAIMS_RANGE,
-  MAX_PROJECT_CHARS_RANGE,
-  MAX_PROJECT_CLAIMS_RANGE,
-  STALE_HORIZON_DAYS_RANGE,
-  MAX_RECORD_CHARS_RANGE,
-  MAX_RECORDS_PER_KIND_RANGE,
-  MEMORY_RETAIN_DAY_RANGE,
-  MILL_METRICS_RETAIN_DAY_RANGE,
-  PACK_DISTILLER_INTERVAL_RANGE,
-  PACK_DISTILLER_TIMEOUT_RANGE,
   POSTHOG_ESCALATION_RANGE,
   POSTHOG_FIX_TIMEOUT_RANGE,
   POSTHOG_INTERVAL_RANGE,
@@ -86,9 +60,7 @@ export const SETTINGS_RANGES = Object.freeze({
   POSTHOG_TRAFFIC_COOLDOWN_RANGE,
   POSTHOG_TRAFFIC_MIN_USERS_RANGE,
   POSTHOG_TRAFFIC_MULTIPLIER_RANGE,
-  QUIET_MS_RANGE,
   REPLAY_BUFFER_KB_RANGE,
-  TIMEOUT_SECONDS_RANGE,
   USAGE_BUDGET_RANGE,
   USAGE_RETAIN_DAYS_RANGE,
   USAGE_SCAN_INTERVAL_RANGE,

@@ -225,27 +225,25 @@ test('updateChannel accepts release and main across config boundaries', () => {
   assert.equal(ConfigUpdate.safeParse({ updateChannel: 'nightly' }).success, false);
 });
 
-test('mill measurement retention crosses file, browser, and update boundaries', () => {
-  const millMetrics = { retainDays: 90 };
-  assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, millMetrics }).success, true);
-  assert.equal(BrowserConfig.safeParse({ millMetrics }).success, true);
-  assert.equal(ConfigUpdate.safeParse({ millMetrics }).success, true);
-  assert.equal(CONFIG_BLOCK_KEYS.includes('millMetrics'), true);
-});
-
-test('the persisted mill measurement block keeps its retention setting', () => {
-  const config = { ...DEFAULT_CONFIG, millMetrics: { retainDays: 90 } };
-  assert.deepEqual(Config.parse(config).millMetrics, { retainDays: 90 });
-});
-
-test('the mill holdout share is an integer from 0 to 90 that survives the persisted block', () => {
-  const config = { ...DEFAULT_CONFIG, millMetrics: { retainDays: 90, holdoutPercent: 50 } };
-  assert.deepEqual(Config.parse(config).millMetrics, { retainDays: 90, holdoutPercent: 50 });
-  assert.equal(ConfigUpdate.safeParse({ millMetrics: { holdoutPercent: 0 } }).success, true);
-  assert.equal(ConfigUpdate.safeParse({ millMetrics: { holdoutPercent: 90 } }).success, true);
-  assert.equal(ConfigUpdate.safeParse({ millMetrics: { holdoutPercent: 91 } }).success, false);
-  assert.equal(ConfigUpdate.safeParse({ millMetrics: { holdoutPercent: -1 } }).success, false);
-  assert.equal(ConfigUpdate.safeParse({ millMetrics: { holdoutPercent: 12.5 } }).success, false);
+test('a config still carrying the retired mill and memory keys parses, and the keys pass through untouched', () => {
+  const retired = {
+    millEnabled: false,
+    packsAutoRebuild: false,
+    packDistiller: { enabled: true, intervalHours: 24, timeoutSeconds: 900 },
+    millMetrics: { retainDays: 90, holdoutPercent: 50 },
+    memory: { enabled: true, retainDays: 365, distill: { enabled: true, intervalMinutes: 60 } },
+  };
+  const config = {
+    ...DEFAULT_CONFIG,
+    ...retired,
+    projects: [{ id: 'p1', name: 'proj', path: '/repo/proj', packs: ['house-rules'] }],
+    posthog: { enabled: false, packs: ['crew-rules'] },
+  };
+  const parsed = Config.safeParse(config);
+  assert.equal(parsed.success, true);
+  const data: Record<string, unknown> = parsed.success ? parsed.data : {};
+  for (const [key, value] of Object.entries(retired)) assert.deepEqual(data[key], value, key);
+  for (const key of Object.keys(retired)) assert.equal(CONFIG_BLOCK_KEYS.includes(key), false, key);
 });
 
 test('branchGc prefixes parse as string arrays and reject non-arrays', () => {

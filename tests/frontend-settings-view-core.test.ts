@@ -44,18 +44,6 @@ test('a dirty Team review section saves its trimmed org and team with the toggle
   });
 });
 
-test('the legacy memory retention alias moves with retainDays', async () => {
-  const { SETTINGS_MAP, collectDirtyBlocks, hydrateFromSettings } = await load();
-  const payload = { memory: { retainDays: 90, memoryRetainDays: 120 } };
-  const original = hydrateFromSettings(SETTINGS_MAP, payload);
-  const edited = hydrateFromSettings(SETTINGS_MAP, payload);
-  assert.equal(original['memory.retainDays'], 120);
-  edited['memory.retainDays'] = 180;
-  assert.deepEqual(collectDirtyBlocks(SETTINGS_MAP, original, edited), {
-    memory: { retainDays: 180, memoryRetainDays: 180 },
-  });
-});
-
 test('an unrendered stored project id survives a projects-control save', async () => {
   const { SETTINGS_MAP, collectDirtyBlocks, hydrateFromSettings } = await load();
   const payload = {
@@ -152,11 +140,11 @@ test('unattended actions sort last within the map', async () => {
   const section = (id: string, level: string): SettingsSection => ({ id, level, title: id, settings: [] });
   const ordered = orderSections([
     section('lanes-unattended', 'lanes'),
-    section('lanes-mill', 'lanes'),
+    section('lanes-ingest', 'lanes'),
     section('project-one', 'projects'),
   ]);
   assert.deepEqual(ordered.map((section) => section.id), [
-    'lanes-mill', 'lanes-unattended', 'project-one',
+    'lanes-ingest', 'lanes-unattended', 'project-one',
   ]);
 });
 
@@ -169,25 +157,29 @@ test('a danger warning shows only while its toggle is on', async () => {
   assert.equal(shouldShowDangerWarning({ warning: 'Plain note.' }, true), false);
 });
 
-test('project sections derive read-only records and carry no pack control', async () => {
+test('project sections derive read-only records', async () => {
   const { buildProjectSections } = await load();
   const sections = buildProjectSections(
     [{ id: 'p1', name: 'Glimmervoid', agent: 'codex', permissionMode: 'default' }],
   );
   assert.equal(sections[0].id, 'project-p1');
-  assert.equal(sections[0].settings.some((setting) => setting.control === 'pack-toggles'), false);
   assert.equal(sections[0].settings[0].value, 'codex');
   assert.equal(sections[0].settings[2].fileOnly, true);
 });
 
-test('two card records on one Mill project use the checkout name and list both cards', async () => {
-  const { buildProjectSections, enrichProjectsById } = await load();
-  const groupedProjects = [{ id: 'p1', name: 'glimmervoid' }];
+test('two configured records on one checkout share a section named for it that lists both cards', async () => {
+  const { buildProjectSections, enrichProjectsById, firstProjectPerPath } = await load();
+  const configuredProjects = [
+    { id: 'p1', name: 'glimmervoid', path: '/repos/glimmervoid' },
+    { id: 'p2', name: 'glimmervoid (2)', path: '/repos/glimmervoid' },
+    { id: 'p3', name: 'no path yet' },
+  ];
   const cardRecords = [
     { id: 'p1', name: 'glimmervoid', path: '/repos/glimmervoid', agent: 'codex' },
     { id: 'p2', name: 'glimmervoid (2)', path: '/repos/glimmervoid', agent: 'claude-code' },
   ];
-  const projects = enrichProjectsById(groupedProjects, cardRecords);
+  assert.deepEqual(firstProjectPerPath(configuredProjects).map((project) => project.id), ['p1', 'p3']);
+  const projects = enrichProjectsById(firstProjectPerPath(configuredProjects).slice(0, 1), cardRecords);
   const sections = buildProjectSections(projects);
 
   assert.equal(sections.length, 1);
