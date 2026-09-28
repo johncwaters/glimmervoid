@@ -1,6 +1,7 @@
 import { TeamReviewStatus } from '#shared/contracts/team-review.ts';
 import type { FindingSeverity, InFlightReview, ReviewComment, ReviewDraft, TeamReviewAction, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
 import { createAttentionAck } from './attention-ack-core.ts';
+import { wireColumnResizer } from './column-resizer.ts';
 import { sendControlMsg } from './control-ws.ts';
 import { el, externalLink, isPanelHidden } from './dom-helpers.ts';
 import { createPollAgoTicker } from './poll-ago.ts';
@@ -14,11 +15,13 @@ import {
   reviewProgressSteps, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone,
 } from './team-review-view-core.ts';
 import type { TeamReviewSections } from './team-review-view-core.ts';
-import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
+import { getPrsAttentionAck, getPrsQueueWidth, isPrsQueueCollapsed, setPrsAttentionAck, setPrsQueueCollapsed, setPrsQueueWidth } from './ui-prefs.ts';
 
 const ACTION_REPLY_TIMEOUT_MS = 120000;
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const SHARD_PATH = 'M4.5 0.5L8.5 5.5L4.5 10.5L0.5 5.5Z';
+const QUEUE_BOUNDS = { minPx: 220, maxPx: 720 };
+const QUEUE_KEY_STEP_PX = 16;
 
 interface ActionDetailHandle {
   signature: string;
@@ -476,13 +479,60 @@ function forgetDepartedDetails(readyKeys: Set<string>): void {
   }
 }
 
+function createQueuePane(queue: HTMLElement, columns: HTMLElement): HTMLElement {
+  const pane = el('div', 'pr-queue-pane');
+  const head = el('div', 'pr-queue-head');
+  const minimizeButton = el('button', 'review-btn pr-queue-minimize', 'Minimize');
+  minimizeButton.type = 'button';
+  minimizeButton.title = 'Minimize the review queue to give the review more room';
+  minimizeButton.addEventListener('click', () => applyQueueCollapsed(columns, true));
+  head.append(minimizeButton);
+  pane.append(head, queue);
+  return pane;
+}
+
+function createQueueExpandButton(columns: HTMLElement): HTMLButtonElement {
+  const expandButton = el('button', 'pr-queue-expand', 'Show queue');
+  expandButton.type = 'button';
+  expandButton.title = 'Restore the review queue';
+  expandButton.addEventListener('click', () => applyQueueCollapsed(columns, false));
+  return expandButton;
+}
+
+function createQueueResizer(): HTMLElement {
+  const resizer = el('div', 'pr-queue-resizer');
+  resizer.setAttribute('role', 'separator');
+  resizer.setAttribute('aria-orientation', 'vertical');
+  resizer.setAttribute('aria-label', 'Resize review queue');
+  resizer.tabIndex = 0;
+  return resizer;
+}
+
+function applyQueueCollapsed(columns: HTMLElement, isCollapsed: boolean): void {
+  columns.toggleAttribute('data-queue-collapsed', isCollapsed);
+  setPrsQueueCollapsed(isCollapsed);
+}
+
 function ensureShell(): void {
   if (!_root || _queue?.isConnected) return;
   _queue = el('nav', 'pr-queue');
   _queue.setAttribute('aria-label', 'Review queue');
   _detail = el('main', 'pr-detail-host');
   const columns = el('div', 'pr-columns');
-  columns.append(_queue, _detail);
+  const pane = createQueuePane(_queue, columns);
+  const resizer = createQueueResizer();
+  columns.append(createQueueExpandButton(columns), pane, resizer, _detail);
+  columns.toggleAttribute('data-queue-collapsed', isPrsQueueCollapsed());
+  wireColumnResizer({
+    resizer,
+    column: pane,
+    widthHost: columns,
+    widthProperty: '--pr-queue-width',
+    bounds: QUEUE_BOUNDS,
+    keyStepPx: QUEUE_KEY_STEP_PX,
+    getStoredWidth: getPrsQueueWidth,
+    setStoredWidth: setPrsQueueWidth,
+  });
   _root.replaceChildren(columns);
   _renderedDetailSignature = null;
 }

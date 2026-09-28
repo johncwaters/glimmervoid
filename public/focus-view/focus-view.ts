@@ -1,5 +1,6 @@
 import { STATES } from '#shared/states.ts';
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
+import { wireColumnResizer } from '../column-resizer.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el, MERGE_TAGS, query, stateChip } from '../dom-helpers.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
@@ -163,68 +164,20 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
   mountedRail.addEventListener('keydown', onRailKeydown);
 }
 
-const RAIL_MIN_PX = 180;
-const RAIL_MAX_PX = 480;
+const RAIL_BOUNDS = { minPx: 180, maxPx: 480 };
 const RAIL_KEY_STEP_PX = 16;
-
-function applyRailWidth(resizer: HTMLElement, px: number) {
-  if (!railEl) return null;
-  const w = Math.round(Math.min(RAIL_MAX_PX, Math.max(RAIL_MIN_PX, px)));
-  railEl.style.setProperty('--rail-width', `${w}px`);
-  resizer.setAttribute('aria-valuenow', String(w));
-  return w;
-}
 
 function wireRailResizer(resizer: HTMLElement | null) {
   if (!resizer || !railEl) return;
-  const mountedRail = railEl;
-  resizer.setAttribute('aria-valuemin', String(RAIL_MIN_PX));
-  resizer.setAttribute('aria-valuemax', String(RAIL_MAX_PX));
-
-  const stored = getRailWidth();
-  if (typeof stored === 'number' && Number.isFinite(stored)) applyRailWidth(resizer, stored);
-
-  let startX = 0;
-  let startW = 0;
-  resizer.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    startX = e.clientX;
-    startW = mountedRail.getBoundingClientRect().width;
-    resizer.setPointerCapture(e.pointerId);
-    resizer.dataset.dragging = 'true';
-    e.preventDefault();
-  });
-  resizer.addEventListener('pointermove', (e) => {
-    if (!resizer.hasPointerCapture(e.pointerId)) return;
-    applyRailWidth(resizer, startW + (e.clientX - startX));
-  });
-  const releaseDrag = (e: PointerEvent) => {
-    resizer.releasePointerCapture(e.pointerId);
-    delete resizer.dataset.dragging;
-  };
-  resizer.addEventListener('pointerup', (e) => {
-    if (!resizer.hasPointerCapture(e.pointerId)) return;
-    releaseDrag(e);
-    setRailWidth(applyRailWidth(resizer, startW + (e.clientX - startX)));
-  });
-
-  resizer.addEventListener('pointercancel', (e) => {
-    if (!resizer.hasPointerCapture(e.pointerId)) return;
-    releaseDrag(e);
-    applyRailWidth(resizer, startW);
-  });
-
-  resizer.addEventListener('dblclick', () => {
-    mountedRail.style.removeProperty('--rail-width');
-    resizer.removeAttribute('aria-valuenow');
-    setRailWidth(null);
-  });
-  resizer.addEventListener('keydown', (e) => {
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-    e.preventDefault();
-    const delta = e.key === 'ArrowRight' ? RAIL_KEY_STEP_PX : -RAIL_KEY_STEP_PX;
-    const width = applyRailWidth(resizer, mountedRail.getBoundingClientRect().width + delta);
-    if (width !== null) setRailWidth(width);
+  wireColumnResizer({
+    resizer,
+    column: railEl,
+    widthHost: railEl,
+    widthProperty: '--rail-width',
+    bounds: RAIL_BOUNDS,
+    keyStepPx: RAIL_KEY_STEP_PX,
+    getStoredWidth: getRailWidth,
+    setStoredWidth: setRailWidth,
   });
 }
 

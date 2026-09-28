@@ -15,6 +15,8 @@ export interface UiPrefs {
   railWidth: number | null;
   reviewSidebarCollapsed: boolean;
   reviewSidebarView: 'map' | 'diff';
+  prsQueueWidth: number | null;
+  prsQueueCollapsed: boolean;
   keptProjects: string[];
   traceHiddenKinds: string[];
   dismissedUpdate: string | null;
@@ -44,6 +46,8 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   railWidth: asNullableNumber,
   reviewSidebarCollapsed: asBoolean(false),
   reviewSidebarView: asReviewSidebarView,
+  prsQueueWidth: asNullableNumber,
+  prsQueueCollapsed: asBoolean(false),
   keptProjects: asStringList,
   traceHiddenKinds: asStringList,
   dismissedUpdate: asNullableString,
@@ -100,6 +104,11 @@ export const isReviewSidebarCollapsed = () => read('reviewSidebarCollapsed');
 export const setReviewSidebarCollapsed = (collapsed: boolean) => write('reviewSidebarCollapsed', collapsed);
 export const getReviewSidebarView = () => read('reviewSidebarView');
 export const setReviewSidebarView = (view: UiPrefs['reviewSidebarView']) => write('reviewSidebarView', view);
+
+export const getPrsQueueWidth = () => read('prsQueueWidth');
+export const setPrsQueueWidth = (px: number | null) => write('prsQueueWidth', px);
+export const isPrsQueueCollapsed = () => read('prsQueueCollapsed');
+export const setPrsQueueCollapsed = (collapsed: boolean) => write('prsQueueCollapsed', collapsed);
 
 export const getKeptProjects = () => read('keptProjects');
 export const setKeptProjects = (paths: string[]) => write('keptProjects', paths);
