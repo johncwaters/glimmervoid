@@ -7,25 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **Safer defaults for new installs**: three defaults now favour caution, and each has one config key that restores the old behaviour.
-  - **Permission prompts are on**: sessions no longer spawn with the agent's permission bypass unless their project opts in. Add Session offers "Skip permission prompts", pre-checked from the machine default, and saves the choice on the project. A project with no choice follows `skipPermissionsByDefault`; set `skipPermissionsByDefault: true` to skip prompts again (also a toggle under Settings, Unattended actions).
-  - **Branch cleanup keeps unmerged remote branches**: stale session branches with no merge proof are kept and traced as `not-merged-and-unmerged-deletion-off` instead of being deleted. Set `branchGc.deleteUnmerged: true` to delete them after `branchGc.staleDays` again (also a toggle under Settings, Unattended actions). Merged branches and local worktree cleanup are unchanged.
-  - **Post-turn checks only report**: findings are listed but files are no longer rewritten, and any mode other than an exact `"fix"` counts as report. Set `postTurnChecks.mode: "fix"` to apply fixes again, or pick Fix under Settings, Unattended actions.
-- **Keyboard shortcuts work on a Mac**: they match the physical key under Cmd on a Mac and Alt elsewhere, so Option-typed characters still reach the terminal and no shortcut needs more than two keys. Next session needing you moves from Alt+W to Cmd/Alt+J (Cmd+W closes the tab), merge from Alt+M to Cmd/Alt+I (Alt+M is Claude Code's permission-mode toggle), and resolve or resync from Alt+R to Cmd/Alt+U (Cmd+R reloads). The shortcut list now covers every dashboard shortcut.
-- **Header controls**: Settings is reached only from its view tab (the More sheet on a phone), and the menu button is replaced by a mute toggle and a power menu (Restart Server, Shut Down) beside the help button. Running Focus pills lose the "quiet" text. Every header control (tabs, connection chip, + Session, help, mute, power) shares one height, so the row lines up on desktop and in the phone top bar.
-- **Header tabs follow enabled features**: Reviews, Radar and Visions appear only once their feature is on, and Usage and Mill disappear when turned off, applied live from Settings. Radar is now PostHog-only: update notices live in the header banner and Settings > Updates, and health anomalies move to the health footer, which now shows whenever one exists. On a phone, which hides that footer, both reach you only through Settings > Updates.
-- **PR review panel shows what the review checked**: instead of the review's process audit (commit ranges, file lists, lane routing), each review shows what changed, what was checked with file and line evidence, the gaps, and a short reason for its verdict. Reviews written before this show a hint to re-queue, with the old audit collapsed.
-- **Unattended actions toggles switch on with one click**: they no longer ask you to type a confirmation word first, and the warning under each one appears only while it is on. The Visions and PostHog auto-fix toggles moved into the Visions and PostHog sections, beside the rest of those lanes' settings.
-
-### Fixed
-
-- **Plan view reads cleanly on phone and desktop**: the phone section picker is one line instead of a box filling half the screen, Comment buttons no longer cover heading text, and headings get their spacing and size back so sections stand apart. The phone decision buttons sit in two rows with Approve highlighted, instead of a sideways scroller that hid Answer in terminal and Edit plan. The desktop section rail and the phone picker follow the section you are reading.
-- **Leftover Codex processes after PR reviews**: Codex runs started inside a PR review could outlive the review by days, retrying a dead network proxy. They are now cleaned up when a review ends, before a resumed review starts, and at startup. Only orphaned processes carrying Claude Code's shell signature inside that review's own directory are touched.
-- **Settings links on a phone**: tapping an in-app Settings link, such as "Enabled in Unattended actions", opens that setting instead of dropping you on the Board.
-
-## [0.27.0] - 2026-09-26
+## [0.27.1] - 2026-09-28
 
 ### Added
 
@@ -38,6 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Safer defaults for new installs**: three defaults now favour caution, and each has one config key that restores the old behaviour.
+  - **Permission prompts are on**: sessions no longer spawn with the agent's permission bypass unless their project opts in. Add Session offers "Skip permission prompts", pre-checked from the machine default, and saves the choice on the project. A project with no choice follows `skipPermissionsByDefault`; set `skipPermissionsByDefault: true` to skip prompts again (also a toggle under Settings, Unattended actions).
+  - **Branch cleanup keeps unmerged remote branches**: stale session branches with no merge proof are kept and traced as `not-merged-and-unmerged-deletion-off` instead of being deleted. Set `branchGc.deleteUnmerged: true` to delete them after `branchGc.staleDays` again (also a toggle under Settings, Unattended actions). Merged branches and local worktree cleanup are unchanged.
+  - **Post-turn checks only report**: findings are listed but files are no longer rewritten, and any mode other than an exact `"fix"` counts as report. Set `postTurnChecks.mode: "fix"` to apply fixes again, or pick Fix under Settings, Unattended actions.
+- **Keyboard shortcuts work on a Mac**: they match the physical key under Cmd on a Mac and Alt elsewhere, so Option-typed characters still reach the terminal and no shortcut needs more than two keys. Next session needing you moves from Alt+W to Cmd/Alt+J (Cmd+W closes the tab), merge from Alt+M to Cmd/Alt+I (Alt+M is Claude Code's permission-mode toggle), and resolve or resync from Alt+R to Cmd/Alt+U (Cmd+R reloads). The shortcut list now covers every dashboard shortcut.
+- **Header controls**: Settings is reached only from its view tab (the More sheet on a phone), and the menu button is replaced by a mute toggle and a power menu (Restart Server, Shut Down) beside the help button. Running Focus pills lose the "quiet" text. Every header control (tabs, connection chip, + Session, help, mute, power) shares one height, so the row lines up on desktop and in the phone top bar.
+- **Header tabs follow enabled features**: Reviews, Radar and Visions appear only once their feature is on, and Usage and Mill disappear when turned off, applied live from Settings. Radar is now PostHog-only: update notices live in the header banner and Settings > Updates, and health anomalies move to the health footer, which now shows whenever one exists. On a phone, which hides that footer, both reach you only through Settings > Updates.
+- **PR review panel shows what the review checked**: instead of the review's process audit (commit ranges, file lists, lane routing), each review shows what changed, what was checked with file and line evidence, the gaps, and a short reason for its verdict. Reviews written before this show a hint to re-queue, with the old audit collapsed.
+- **Unattended actions toggles switch on with one click**: they no longer ask you to type a confirmation word first, and the warning under each one appears only while it is on. The Visions and PostHog auto-fix toggles moved into the Visions and PostHog sections, beside the rest of those lanes' settings.
 - **Plan Review** returns the card to the terminal once the server confirms an approval.
 - **Add Session** disables Add and explains what to install when no agent CLI is found on PATH.
 - **Context packs** tell agents to read their data files before non-trivial work, and a per-spawn holdout arm measures their value.
@@ -51,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Plan view reads cleanly on phone and desktop**: the phone section picker is one line instead of a box filling half the screen, Comment buttons no longer cover heading text, and headings get their spacing and size back so sections stand apart. The phone decision buttons sit in two rows with Approve highlighted, instead of a sideways scroller that hid Answer in terminal and Edit plan. The desktop section rail and the phone picker follow the section you are reading.
+- **Leftover Codex processes after PR reviews**: Codex runs started inside a PR review could outlive the review by days, retrying a dead network proxy. They are now cleaned up when a review ends, before a resumed review starts, and at startup. Only orphaned processes carrying Claude Code's shell signature inside that review's own directory are touched.
+- **Settings links on a phone**: tapping an in-app Settings link, such as "Enabled in Unattended actions", opens that setting instead of dropping you on the Board.
 - **Stuck Working state**: a long-lived background task (a Monitor loop, a dev server) no longer holds a session in Working after its turn ends.
 - **Change Map narrator settings** now persist on save.
 - **Stale `index.lock`**: read-only git status probes run without optional locks, so killed probes no longer block commits.
