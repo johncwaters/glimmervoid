@@ -8,6 +8,7 @@ import type { MillControl, TeamReviewActionControl } from './control-handlers.ts
 import type { ReplayLog } from './control-replay-core.ts';
 import type { PlanDecision } from '../shared/contracts/plan-review.ts';
 import type { TeamReviewStatus } from '../shared/contracts/team-review.ts';
+import type { MyPrsStatus } from '../shared/contracts/my-prs.ts';
 import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
 import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { UpdateStatus } from './backend-update.ts';
@@ -71,6 +72,7 @@ interface BackendControlDependencies {
   laneAssembly: LaneReader;
   posthog: PosthogControl;
   teamReview: TeamReviewControl;
+  myPrs: { getStatus: () => MyPrsStatus };
   packService: PackControl;
   usage: UsageControl;
   mill: MillControl;
@@ -96,6 +98,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     laneAssembly,
     posthog,
     teamReview,
+    myPrs,
     packService,
     usage,
     mill,
@@ -129,6 +132,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     posthogSetIssueStatus: (args) => posthog.setIssueStatus(args),
     posthogArchiveInvestigation: (args) => posthog.archiveInvestigation(args),
     getTeamReviewStatus: () => teamReview.getStatus(),
+    getMyPrsStatus: () => myPrs.getStatus(),
     teamReview,
     getPackVersions: () => packService.getVersions(),
     serverBuild: dependencies.serverBuild,

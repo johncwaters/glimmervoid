@@ -1,6 +1,8 @@
 import { execFileAsync } from './child-process-safe.ts';
 import { z } from 'zod';
 import { CommitSha, PrDetail, ReviewComment, SearchedPr } from '../shared/contracts/team-review.ts';
+import { MyPrSearchNode, MyPrSearchResponse } from '../shared/contracts/my-prs.ts';
+import type { MyPrSearchNode as MyPrSearchNodeType } from '../shared/contracts/my-prs.ts';
 import type { PrDetail as PrDetailType, ReviewComment as ReviewCommentType, SearchedPr as SearchedPrType } from '../shared/contracts/team-review.ts';
 
 
@@ -68,6 +70,8 @@ interface GithubIssueDetail {
 }
 
 interface PrGh {
+  searchMyPrs(org: string, mergedSince: string): Promise<{ ok: boolean; items: MyPrSearchNodeType[]; error: string }>;
+  behindBy(repo: string, base: string, headSha: string): Promise<number | null>;
   repoSlug(): Promise<string | null>;
   listIssues(): Promise<GithubIssueList>;
   viewIssue(issueNumber: number | string): Promise<GithubIssueDetail>;
@@ -106,6 +110,22 @@ function parseJson<T>(text: string, fallback: T): T {
 
 const HEX_LABEL_COLOR = /^[0-9a-f]{6}$/i;
 const GH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const SAFE_REF = /^(?!-)(?!.*\.\.)(?!.*\s)[A-Za-z0-9_./-]+$/;
+const MERGED_SINCE_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const MY_PRS_QUERY = `query($openQuery: String!, $mergedQuery: String!) {
+  open: search(type: ISSUE, first: 50, query: $openQuery) { nodes { ...myPrFields } }
+  merged: search(type: ISSUE, first: 50, query: $mergedQuery) { nodes { ...myPrFields } }
+}
+fragment myPrFields on PullRequest {
+  __typename number title url isDraft state mergedAt updatedAt baseRefName headRefOid mergeable mergeStateStatus reviewDecision
+  repository { nameWithOwner }
+  commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 50) { nodes {
+    __typename ... on CheckRun { name conclusion status } ... on StatusContext { context state }
+  } } } } } }
+  reviewThreads(first: 100) { nodes { isResolved } }
+  reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug organization { login } } } } }
+  latestOpinionatedReviews(first: 20) { nodes { state } }
+}`;
 const GH_LOGIN = z.string().regex(GH_SEGMENT);
 const GH_MEMBERS = z.array(GH_LOGIN);
 const SEARCH_RESPONSE = z.object({ items: z.array(SearchedPr) });
@@ -234,6 +254,27 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
   }
 
   return {
+    async searchMyPrs(org, mergedSince) {
+      if (!GH_SEGMENT.test(org) || !MERGED_SINCE_DATE.test(mergedSince)) return { ok: false, items: [], error: 'invalid organization or date' };
+      const response = await runGh(['api', 'graphql', '-H', 'Accept: application/vnd.github.merge-info-preview+json', '-f', `query=${MY_PRS_QUERY}`, '-f', `openQuery=is:pr is:open author:@me org:${org}`, '-f', `mergedQuery=is:pr is:merged author:@me org:${org} merged:>=${mergedSince}`]);
+      if (!response.ok) return { ok: false, items: [], error: response.err.trim() || 'gh graphql search failed' };
+      const parsed = MyPrSearchResponse.safeParse(parseJson<unknown>(response.out, null));
+      if (!parsed.success) return { ok: false, items: [], error: 'invalid gh graphql response' };
+      if (parsed.data.errors?.length) return { ok: false, items: [], error: 'gh graphql returned errors' };
+      const items = [...parsed.data.data.open.nodes, ...parsed.data.data.merged.nodes].flatMap((node) => {
+        const valid = MyPrSearchNode.safeParse(node);
+        return valid.success ? [valid.data] : [];
+      });
+      return { ok: true, items, error: '' };
+    },
+
+    async behindBy(repo, base, headSha) {
+      const parts = repoParts(repo);
+      if (!parts || !SAFE_REF.test(base) || !CommitSha.safeParse(headSha).success) return null;
+      const response = await runGh(['api', `repos/${parts[0]}/${parts[1]}/compare/${base}...${headSha}`, '--jq', '.behind_by']);
+      if (!response.ok || !/^\d+$/.test(response.out)) return null;
+      return Number(response.out);
+    },
     async repoSlug() {
       const r = await commandRunner('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], cwd);
       return r.ok ? r.out : null;

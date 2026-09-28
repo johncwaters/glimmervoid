@@ -8,4 +8,5 @@ export * from './plan-review.ts';
 export * from './session.ts';
 export * from './trace.ts';
 export * from './team-review.ts';
+export * from './my-prs.ts';
 export * from './update-journal.ts';

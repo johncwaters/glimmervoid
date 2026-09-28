@@ -8,7 +8,7 @@ import type { SessionOptions } from '../session/sessions.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { trailStepFromHook } from './core/investigation-trail-core.ts';
 import * as core from './core/team-review-core.ts';
-import type { CommentableLines, ReviewTier, TeamReviewCandidate } from './core/team-review-core.ts';
+import type { CommentableLines, ReviewTier, TeamReviewCandidate, TeamReviewSettingsSource } from './core/team-review-core.ts';
 import {
   awaitSessionExit, drainPending, firstLine, raceWithAbort,
   registerEphemeralSession,
@@ -56,8 +56,7 @@ const REPLACED_DRAFT_ERROR = 'The draft was replaced after it was shown. Read th
 const STALE_APPROVAL_DISMISSAL = 'The pull request moved while this approval was posting, so it no longer covers the current head.';
 const UNMARKED_POST_WARNING = 'The review was posted on GitHub, but its draft could not be marked posted. Do not post it again';
 
-interface TeamReviewWiringConfig {
-  teamReview?: Record<string, unknown> | null;
+interface TeamReviewWiringConfig extends TeamReviewSettingsSource {
   replayBufferKB?: number;
 }
 
@@ -69,15 +68,6 @@ type TeamReviewSandbox = {
   network: { strictAllowlist: true; allowLocalBinding: true; allowAllUnixSockets: true; allowedDomains: string[] };
   filesystem: { allowWrite: string[]; denyRead: string[] };
 };
-
-interface TeamReviewSettings {
-  enabled: boolean;
-  org: string;
-  team: string;
-  reReviewAfterHours: number;
-  skipIdleAfterDays: number;
-  skill: string;
-}
 
 interface TeamReviewRepoCache {
   listRepos(): Promise<string[]>;
@@ -172,27 +162,15 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function readTeamReviewSettings(config: TeamReviewWiringConfig): TeamReviewSettings {
-  const block = config.teamReview;
-  return {
-    enabled: block?.enabled === true,
-    org: typeof block?.org === 'string' ? block.org.trim() : '',
-    team: typeof block?.team === 'string' ? block.team.trim() : '',
-    reReviewAfterHours: typeof block?.reReviewAfterHours === 'number' && Number.isFinite(block.reReviewAfterHours) && block.reReviewAfterHours > 0 ? block.reReviewAfterHours : core.DEFAULT_RE_REVIEW_AFTER_HOURS,
-    skipIdleAfterDays: typeof block?.skipIdleAfterDays === 'number' && Number.isFinite(block.skipIdleAfterDays) && block.skipIdleAfterDays > 0 ? block.skipIdleAfterDays : core.DEFAULT_SKIP_IDLE_AFTER_DAYS,
-    skill: typeof block?.skill === 'string' ? block.skill.trim() : '',
-  };
-}
-
 function teamReviewShouldStart(config: TeamReviewWiringConfig): LaneRunnerGate {
-  const settings = readTeamReviewSettings(config);
+  const settings = core.readTeamReviewSettings(config);
   if (!settings.enabled) return { start: false };
   if (!settings.org || !settings.team) return { start: false, reason: 'teamReview needs both org and team' };
   return { start: true };
 }
 
 function teamReviewCfgKey(config: TeamReviewWiringConfig): string {
-  return JSON.stringify(readTeamReviewSettings(config));
+  return JSON.stringify(core.readTeamReviewSettings(config));
 }
 
 function emptyTeamReviewStatus(gate: LaneRunnerGate): TeamReviewStatusType {
@@ -763,7 +741,7 @@ function createTeamReviewWiring({
   const inFlightReviews = new Set<Promise<ReviewOutcome>>();
   const reviewPullRequest = createTeamReviewDispatcher({
     github, repoCache, gitWorkspace, spawnSession, worktreeRoot, workRoot, shutdownSignal: shutdownController.signal, reapProcesses, log,
-    readReviewSkill: () => readTeamReviewSettings(config).skill,
+    readReviewSkill: () => core.readTeamReviewSettings(config).skill,
   });
 
   function trackReview(args: SpawnReviewArgs): Promise<ReviewOutcome> {
@@ -785,7 +763,7 @@ function createTeamReviewWiring({
     emptyStatus: () => emptyTeamReviewStatus(teamReviewShouldStart(config)),
     broadcast,
     createPoller: ({ onTickComplete }) => {
-      const settings = readTeamReviewSettings(config);
+      const settings = core.readTeamReviewSettings(config);
       return createPoller({
         org: settings.org,
         team: settings.team,
@@ -872,8 +850,8 @@ export {
   TEAM_REVIEW_DENY_RULES,
   createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewStateIo, createTeamReviewWiring, makeTeamReviewWorkDir,
   emptyTeamReviewStatus, readReviewReport, sweepLeftoverCheckouts, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewPermissions, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
-  readTeamReviewSettings,
 };
+export { readTeamReviewSettings } from './core/team-review-core.ts';
 export type {
   TeamReviewActionGithub, TeamReviewActionOptions, TeamReviewActionOutcome, TeamReviewDispatchOptions, TeamReviewDraftStore, TeamReviewGitWorkspace, TeamReviewRepoCache, TeamReviewSandbox, TeamReviewSpawn, TeamReviewWiring,
   TeamReviewWiringConfig, TeamReviewWiringOptions, TeamReviewWorkDir,

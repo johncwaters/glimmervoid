@@ -14,6 +14,7 @@ import { PendingWakeup, SessionSnapshot, SessionState } from './session.ts';
 import { TraceRecord } from './trace.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
 import { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus } from './team-review.ts';
+import { MyPrsStatus } from './my-prs.ts';
 
 const requestId = z.string().nullable().optional();
 const sessionId = z.string();
@@ -294,6 +295,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'team-review-action-result',
   'posthog-archive-investigation-result',
   'team-review-status',
+  'my-prs-status',
   'branch-gc-status',
   'usage-sessions',
   'usage-report',
@@ -553,6 +555,7 @@ const serverVariants = [
   loose('team-review-action-result', { ...TeamReviewActionResult.shape, requestId }),
   loose('posthog-archive-investigation-result', { requestId, ok: z.boolean(), error: optionalError }),
   TeamReviewStatus,
+  MyPrsStatus,
 
   loose('branch-gc-status'),
   loose('usage-sessions', {

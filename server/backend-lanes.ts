@@ -28,6 +28,7 @@ import { createPlanReviewWiring } from './plan-review-wiring.ts';
 import { createPosthogWiring } from './posthog-wiring.ts';
 import { createSpawnGate } from './spawn-gate.ts';
 import { createTeamReviewWiring } from './team-review-wiring.ts';
+import { createMyPrsWiring } from './my-prs-wiring.ts';
 import { createUsageWiring, resolveUsageConfig } from './usage-wiring.ts';
 import { createLaneLedger } from './usage-lane-ledger.ts';
 import { createTraceWiring } from './trace-wiring.ts';
@@ -171,6 +172,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     broadcast: broadcastControl,
     log: logger,
   });
+  const myPrs = createMyPrsWiring({ config, broadcast: broadcastControl, log: logger });
 
   let ingestConfig = resolveIngestConfig(config.ingest);
   let visionsConfig = resolveVisionsConfig(config.visions);
@@ -444,6 +446,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     'branch-gc': branchGc,
     posthog,
     'team-review': teamReview,
+    'my-prs': myPrs,
     'pack-service': packService,
     usage,
     'pack-distiller': packDistiller,
@@ -481,6 +484,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => branchGc.start(),
       () => posthog.startPoller(),
       () => teamReview.startPoller(),
+      () => myPrs.startPoller(),
       () => {
         if (!millEnabled()) return;
         packService.start().catch((error: unknown) => logger.warn(`[packs] auto-rebuild failed to start: ${errorMessage(error)}`));
@@ -498,6 +502,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => branchGc.restartIfConfigChanged(),
       () => posthog.restartIfConfigChanged(),
       () => teamReview.restartIfConfigChanged(),
+      () => myPrs.restartIfConfigChanged(),
       () => usage.restartIfConfigChanged(),
       () => void millMetrics.restartIfConfigChanged(),
       () => {
@@ -540,6 +545,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     spawnGate,
     startMemoryLanes,
     teamReview,
+    myPrs,
     startRuntimeLanes,
     tapIngestForSession,
     traceWiring,

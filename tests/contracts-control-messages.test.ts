@@ -197,6 +197,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
     head: 'b'.repeat(40), phase: 'reviewing', startedAt: NOW, deadlineAt: NOW + 900000, toolCalls: 2,
     recentSteps: [{ at: NOW, tool: 'Read', detail: 'src/retry.ts' }],
   }] },
+  { type: 'my-prs-status', ts: NOW, configured: true, viewer: 'alice', prs: [], error: null },
   { type: 'branch-gc-status', ts: NOW, projects: [] },
   { type: 'usage-sessions', ts: NOW, pricingSource: 'bundled', sessions: [{ id: 'session-1', tokens: 123, costUSD: 0.5, officialCostUSD: null }] },
   { type: 'usage-report', requestId: 'usage-1', ts: NOW, tz: 'UTC', blockHours: 5, totals: {}, daily: [], models: [], sessions: [], blocks: [], activeBlock: null, anomaly: null, byLane: {}, budget: {}, savings: {}, tokenLimit: null, pricing: {}, scan: {}, warning: null, error: null },

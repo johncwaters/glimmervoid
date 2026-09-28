@@ -21,10 +21,12 @@ import { applyDeleteHookResult, applyHooksReport, applySaveHookResult, mountHook
 import { initNotifications, showDesktopNotification } from './notifications.ts';
 import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneScreenActive, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen } from './phone/phone-shell.ts';
 import { noteKnownProjectPath } from './project-registry.ts';
-import { acknowledgeTeamReviewAttention, applyTeamReviewActionResult, applyTeamReviewStatus, mountTeamReviewView, setTeamReviewActivityCallback } from './team-review-panel.ts';
+import { applyTeamReviewActionResult, applyTeamReviewStatus, setTeamReviewActivityCallback } from './team-review-panel.ts';
+import { applyMyPrsStatus } from './my-prs-panel.ts';
 import { applyIssuesConnectionState, applyIssuesProjects, applyIssuesReport, applyOpenIssueSessionResult, mountIssuesView, setIssuesRequestSender } from './issues-panel.ts';
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID, updateBannerText } from './radar-core.ts';
+import { acknowledgePrsViewAttention, mountPrsView } from './prs-view.ts';
 import { acknowledgeRadarAttention, applyInvestigationActivity, applyInvestigationFinished, applyPosthogStatus, mountRadarView, setRadarActivityCallback, setRadarTraceOpener } from './radar-panel.ts';
 import { handleDebugStateRefresh, handleDebugStateResponse, onDebugModeChanged } from './session-card/card-dom.ts';
 import { findSessionUi, sessionUIs } from './session-card/card-registry.ts';
@@ -384,6 +386,7 @@ const messageHandlers = {
   'posthog-investigation-activity': (msg) => applyInvestigationActivity(msg),
   'posthog-investigation-finished': (msg) => applyInvestigationFinished(msg),
   'team-review-status': (msg) => applyTeamReviewStatus(msg),
+  'my-prs-status': (msg) => applyMyPrsStatus(msg),
   'team-review-action-result': (msg) => applyTeamReviewActionResult(msg),
   'issues-report':      (msg) => applyIssuesReport(msg as ServerMessage & IssuesReportPush),
   'open-issue-session-result': (msg) => applyOpenIssueSessionResult(msg),
@@ -645,7 +648,7 @@ mountReviewSidebar({ panel: document.getElementById('review-sidebar') });
 
 mountRadarView(viewRadarEl);
 
-mountTeamReviewView(viewPrsEl);
+mountPrsView(viewPrsEl);
 
 mountIssuesView(viewIssuesEl);
 
@@ -682,7 +685,7 @@ let shouldPersistActiveView = true;
 let savedViewAwaitingSurface: string | null = null;
 function acknowledgeViewAttention(view: string) {
   if (view === 'radar') acknowledgeRadarAttention();
-  if (view === 'prs') acknowledgeTeamReviewAttention();
+  if (view === 'prs') acknowledgePrsViewAttention();
   if (view === 'usage') acknowledgeUsageAttention();
   if (view === 'mill') acknowledgeMillAttention();
   if (view === 'visions') {

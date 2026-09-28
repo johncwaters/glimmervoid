@@ -42,6 +42,35 @@ interface TeamReviewCandidate {
   author: string;
 }
 
+interface TeamReviewSettingsSource {
+  teamReview?: Record<string, unknown> | null;
+}
+
+interface TeamReviewSettings {
+  enabled: boolean;
+  org: string;
+  team: string;
+  reReviewAfterHours: number;
+  skipIdleAfterDays: number;
+  skill: string;
+}
+
+function positiveFiniteOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function readTeamReviewSettings(config: TeamReviewSettingsSource): TeamReviewSettings {
+  const block = config.teamReview;
+  return {
+    enabled: block?.enabled === true,
+    org: typeof block?.org === 'string' ? block.org.trim() : '',
+    team: typeof block?.team === 'string' ? block.team.trim() : '',
+    reReviewAfterHours: positiveFiniteOr(block?.reReviewAfterHours, DEFAULT_RE_REVIEW_AFTER_HOURS),
+    skipIdleAfterDays: positiveFiniteOr(block?.skipIdleAfterDays, DEFAULT_SKIP_IDLE_AFTER_DAYS),
+    skill: typeof block?.skill === 'string' ? block.skill.trim() : '',
+  };
+}
+
 function prKey(repoSlug: string, prNumber: number | string): string {
   return `${repoSlug}#${prNumber}`;
 }
@@ -675,6 +704,6 @@ export {
   TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME,
   REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE,
   buildReviewPrompt, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, errorDraft, eventForAction, githubReviewsFrom, hasViewerReviewedAt, invalidComments, isSameGithubReviews, isSettledAtHead, shouldAutoReview, markDraftStale, restoreDraftAtReviewedHead,
-  applyReviewProgress, prBaseRef, prHeadRef, prKey, readyDraft, repoFromSearchItem, resumeDecision, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr,
+  applyReviewProgress, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, readyDraft, repoFromSearchItem, resumeDecision, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr,
 };
-export type { CommentableFileLines, CommentableLines, ReviewProgressEvent, ReviewTier, TeamReviewCandidate };
+export type { CommentableFileLines, CommentableLines, ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSettings, TeamReviewSettingsSource };

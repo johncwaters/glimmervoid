@@ -63,6 +63,7 @@ import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
 import type { ChangeMap } from '../shared/contracts/change-map.ts';
 import { TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
 import type { TeamReviewActionResult, TeamReviewStatus } from '../shared/contracts/team-review.ts';
+import type { MyPrsStatus } from '../shared/contracts/my-prs.ts';
 import type { UpdateStatus } from './backend-update.ts';
 import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { PlanReadRequest, PlanReadResult } from './plan-review-wiring.ts';
@@ -146,6 +147,7 @@ interface ControlHandlerDeps {
   posthogSetIssueStatus?: ((args: { projectId: string; issueId: string; action: string }) => Promise<Record<string, unknown>>) | null;
   posthogArchiveInvestigation?: ((args: { id: string }) => Promise<Record<string, unknown>>) | null;
   getTeamReviewStatus?: (() => TeamReviewStatus | null) | null;
+  getMyPrsStatus?: (() => MyPrsStatus | null) | null;
   teamReview?: TeamReviewActionControl | null;
   createGithubClient?: (cwd: string) => Pick<PrGh, 'listIssues' | 'viewIssue' | 'repoSlug'>;
   getPackVersions?: () => Record<string, string | null>;
@@ -399,6 +401,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     posthogSetIssueStatus = null,
     posthogArchiveInvestigation = null,
     getTeamReviewStatus = null,
+    getMyPrsStatus = null,
     teamReview = null,
 
     createGithubClient = createPrGh,
@@ -1301,6 +1304,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
     const teamReviewStatus = typeof getTeamReviewStatus === 'function' ? getTeamReviewStatus() : null;
     if (teamReviewStatus) ws.send(JSON.stringify(teamReviewStatus));
+    const myPrsStatus = typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null;
+    if (myPrsStatus) ws.send(JSON.stringify(myPrsStatus));
 
     const usageSessions = typeof getUsageSessions === 'function' ? getUsageSessions() : null;
     if (usageSessions) {

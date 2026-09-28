@@ -17,6 +17,7 @@ export interface UiPrefs {
   reviewSidebarView: 'map' | 'diff';
   prsQueueWidth: number | null;
   prsQueueCollapsed: boolean;
+  prsMode: 'team' | 'mine';
   keptProjects: string[];
   traceHiddenKinds: string[];
   dismissedUpdate: string | null;
@@ -34,6 +35,7 @@ const asNullableNumber = (value: unknown): number | null => (typeof value === 'n
 const asStringList = (value: unknown): string[] =>
   Array.isArray(value) ? [...new Set(value.filter((entry): entry is string => typeof entry === 'string' && entry !== ''))] : [];
 const asReviewSidebarView = (value: unknown): UiPrefs['reviewSidebarView'] => value === 'diff' ? 'diff' : 'map';
+const asPrsMode = (value: unknown): UiPrefs['prsMode'] => value === 'mine' ? 'mine' : 'team';
 
 const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   soundEnabled: asBoolean(true),
@@ -48,6 +50,7 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   reviewSidebarView: asReviewSidebarView,
   prsQueueWidth: asNullableNumber,
   prsQueueCollapsed: asBoolean(false),
+  prsMode: asPrsMode,
   keptProjects: asStringList,
   traceHiddenKinds: asStringList,
   dismissedUpdate: asNullableString,
@@ -109,6 +112,8 @@ export const getPrsQueueWidth = () => read('prsQueueWidth');
 export const setPrsQueueWidth = (px: number | null) => write('prsQueueWidth', px);
 export const isPrsQueueCollapsed = () => read('prsQueueCollapsed');
 export const setPrsQueueCollapsed = (collapsed: boolean) => write('prsQueueCollapsed', collapsed);
+export const getPrsMode = () => read('prsMode');
+export const setPrsMode = (mode: UiPrefs['prsMode']) => write('prsMode', mode);
 
 export const getKeptProjects = () => read('keptProjects');
 export const setKeptProjects = (paths: string[]) => write('keptProjects', paths);

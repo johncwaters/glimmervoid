@@ -1,0 +1,50 @@
+import { z } from 'zod';
+
+export const MyPrStage = z.enum(['merged', 'draft', 'conflicts', 'behind', 'checks-failing', 'changes-requested', 'unresolved-threads', 'checks-pending', 'needs-approval', 'ready', 'unknown']);
+export type MyPrStage = z.infer<typeof MyPrStage>;
+
+const nonnegativeInteger = z.number().int().nonnegative();
+const repositoryName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/);
+
+export const MyPr = z.object({
+  key: z.string(), repo: repositoryName, number: z.number().int().positive(), title: z.string(), url: z.url(),
+  isDraft: z.boolean(), state: z.enum(['OPEN', 'MERGED', 'CLOSED']), mergedAt: z.string().nullable(), updatedAt: z.string(),
+  baseRefName: z.string(), mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']), mergeStateStatus: z.string(),
+  reviewDecision: z.enum(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED']).nullable(),
+  checks: z.object({ state: z.enum(['SUCCESS', 'FAILURE', 'PENDING', 'ERROR', 'EXPECTED']).nullable(), failing: z.array(z.string()), pendingCount: nonnegativeInteger }),
+  unresolvedThreads: nonnegativeInteger, behindBy: nonnegativeInteger.nullable(), reviewRequests: z.array(z.string()),
+  approvals: nonnegativeInteger, stage: MyPrStage,
+}).refine((pr) => pr.key === `${pr.repo}#${pr.number}`);
+export type MyPr = z.infer<typeof MyPr>;
+
+export const MyPrsStatus = z.object({
+  type: z.literal('my-prs-status'), ts: z.number().finite(), configured: z.boolean(), reason: z.string().nullable().optional(),
+  viewer: z.string().nullable(), prs: z.array(MyPr), error: z.string().nullable().optional(),
+}).passthrough();
+export type MyPrsStatus = z.infer<typeof MyPrsStatus>;
+
+const CheckRun = z.object({ __typename: z.literal('CheckRun'), name: z.string(), conclusion: z.string().nullable(), status: z.string() });
+const StatusContext = z.object({ __typename: z.literal('StatusContext'), context: z.string(), state: z.string() });
+export const MyPrSearchNode = z.object({
+  __typename: z.literal('PullRequest'), number: z.number().int().positive(), title: z.string(), url: z.url(), isDraft: z.boolean(),
+  state: z.enum(['OPEN', 'MERGED', 'CLOSED']), mergedAt: z.string().nullable(), updatedAt: z.string(), baseRefName: z.string(),
+  headRefOid: z.string().regex(/^[0-9a-f]{40}$/), mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']),
+  mergeStateStatus: z.string(), reviewDecision: z.enum(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED']).nullable(),
+  repository: z.object({ nameWithOwner: repositoryName }),
+  commits: z.object({ nodes: z.array(z.object({ commit: z.object({ statusCheckRollup: z.object({
+    state: z.enum(['SUCCESS', 'FAILURE', 'PENDING', 'ERROR', 'EXPECTED']).nullable(),
+    contexts: z.object({ nodes: z.array(z.union([CheckRun, StatusContext])) }),
+  }).nullable() }) })) }),
+  reviewThreads: z.object({ nodes: z.array(z.object({ isResolved: z.boolean() })) }),
+  reviewRequests: z.object({ nodes: z.array(z.object({ requestedReviewer: z.discriminatedUnion('__typename', [
+    z.object({ __typename: z.literal('User'), login: z.string() }),
+    z.object({ __typename: z.literal('Team'), slug: z.string(), organization: z.object({ login: z.string() }) }),
+    z.object({ __typename: z.enum(['Bot', 'Mannequin']) }),
+  ]).nullable() })) }),
+  latestOpinionatedReviews: z.object({ nodes: z.array(z.object({ state: z.string() })) }),
+});
+export type MyPrSearchNode = z.infer<typeof MyPrSearchNode>;
+
+export const MyPrSearchResponse = z.object({ data: z.object({
+  open: z.object({ nodes: z.array(z.unknown()) }), merged: z.object({ nodes: z.array(z.unknown()) }),
+}), errors: z.array(z.unknown()).optional() });

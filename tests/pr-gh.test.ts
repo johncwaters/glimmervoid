@@ -354,3 +354,63 @@ test('viewIssue refuses a payload without a usable issue number', async () => {
 
   assert.deepEqual(await gh.viewIssue(17), { ok: false, issue: null, error: 'gh issue view returned no issue' });
 });
+
+function myPrNode(number: number) {
+  return {
+    __typename: 'PullRequest', number, title: 'Fix', url: `https://github.com/Acme/app/pull/${number}`, isDraft: false,
+    state: 'OPEN', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z', baseRefName: 'main', headRefOid: HEAD_SHA,
+    mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', repository: { nameWithOwner: 'Acme/app' },
+    commits: { nodes: [] }, reviewThreads: { nodes: [] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] },
+  };
+}
+
+test('my PR search uses one GraphQL call and drops invalid nodes', async () => {
+  const calls: string[][] = [];
+  const gh = createPrGh('/repo', async (_command, args) => {
+    calls.push(args);
+    return { ok: true, out: JSON.stringify({ data: { open: { nodes: [myPrNode(1), { number: 2 }] }, merged: { nodes: [myPrNode(3)] } } }), err: '' };
+  });
+  const searched = await gh.searchMyPrs('Acme', '2026-09-27');
+  assert.equal(searched.ok, true);
+  assert.deepEqual(searched.items.map((item) => item.number), [1, 3]);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], 'api');
+  assert.equal(calls[0][1], 'graphql');
+  assert.ok(calls[0].includes('openQuery=is:pr is:open author:@me org:Acme'));
+  assert.ok(calls[0].includes('mergedQuery=is:pr is:merged author:@me org:Acme merged:>=2026-09-27'));
+});
+
+test('my PR search rejects invalid input and malformed whole responses', async () => {
+  let calls = 0;
+  const gh = createPrGh('/repo', async () => {
+    calls += 1;
+    return { ok: true, out: '{"data":{"open":{"nodes":[]}}}', err: '' };
+  });
+  assert.equal((await gh.searchMyPrs('Acme evil', '2026-09-27')).ok, false);
+  assert.equal((await gh.searchMyPrs('Acme', 'yesterday')).ok, false);
+  assert.equal(calls, 0);
+  assert.equal((await gh.searchMyPrs('Acme', '2026-09-27')).ok, false);
+  assert.equal(calls, 1);
+});
+
+test('my PR search refuses partial GraphQL data with errors', async () => {
+  const gh = createPrGh('/repo', async () => ({
+    ok: true, out: JSON.stringify({ data: { open: { nodes: [myPrNode(1)] }, merged: { nodes: [] } }, errors: [{ message: 'denied' }] }), err: '',
+  }));
+  assert.deepEqual(await gh.searchMyPrs('Acme', '2026-09-27'), { ok: false, items: [], error: 'gh graphql returned errors' });
+});
+
+test('behindBy validates repository, ref, and SHA before compare', async () => {
+  const calls: string[][] = [];
+  const gh = createPrGh('/repo', async (_command, args) => {
+    calls.push(args);
+    return { ok: true, out: '343', err: '' };
+  });
+  assert.equal(await gh.behindBy('Acme/app', 'main', HEAD_SHA), 343);
+  assert.deepEqual(calls, [['api', `repos/Acme/app/compare/main...${HEAD_SHA}`, '--jq', '.behind_by']]);
+  for (const [repo, base, sha] of [
+    ['Acme/app/extra', 'main', HEAD_SHA], ['Acme/app', '-main', HEAD_SHA],
+    ['Acme/app', 'main..other', HEAD_SHA], ['Acme/app', 'main branch', HEAD_SHA], ['Acme/app', 'main', 'bad'],
+  ]) assert.equal(await gh.behindBy(repo, base, sha), null);
+  assert.equal(calls.length, 1);
+});

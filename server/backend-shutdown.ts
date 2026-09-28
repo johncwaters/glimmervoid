@@ -33,6 +33,7 @@ interface BackendShutdownDependencies {
   branchGc: Stoppable;
   posthog: { stopPoller: () => unknown };
   teamReview?: { stopPoller: () => unknown } | null;
+  myPrs?: { stopPoller: () => unknown } | null;
   packService: Stoppable;
   usage: Stoppable;
   packDistiller: Stoppable;
@@ -101,6 +102,7 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     stoppers.add('posthog', () => dependencies.posthog.stopPoller());
     const teamReview = dependencies.teamReview;
     if (teamReview) stoppers.add('team-review', () => teamReview.stopPoller());
+    if (dependencies.myPrs) stoppers.add('my-prs', () => dependencies.myPrs?.stopPoller());
     stoppers.add('pack-service', () => dependencies.packService.stop());
     stoppers.add('usage', () => dependencies.usage.stop());
     stoppers.add('pack-distiller', () => dependencies.packDistiller.stop());
