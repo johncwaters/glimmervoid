@@ -480,7 +480,10 @@ test('review process cleanup follows session exit and precedes checkout removal 
     const shutdownController = new AbortController();
     const spawnSession: TeamReviewSpawn = async ({ cwd, signal, onSessionId }) => {
       if (outcome === 'timeout') {
-        await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+        await new Promise<void>((resolve) => {
+          const liveSessionHandle = setInterval(() => {}, 1000);
+          signal.addEventListener('abort', () => { clearInterval(liveSessionHandle); resolve(); }, { once: true });
+        });
         events.push('session-exit');
         return;
       }
