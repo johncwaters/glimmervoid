@@ -19,6 +19,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   let viewer: string | null = null;
   let hasLookedUpViewer = false;
   let previousPrs: MyPr[] = [];
+  let previousTruncatedNote: string | null = null;
   const loop = createTickLoop({
     tag: core.MY_PRS_LANE_ID, intervalMs: intervalMinutes * 60000, setIntervalFn, clearIntervalFn, log,
     tick: async () => {
@@ -31,7 +32,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
       const search = await github.searchMyPrs(org, core.mergedSinceDate(timestamp));
       if (loop.isStopped()) return { failed: false };
       if (!search.ok) {
-        onTickComplete(core.myPrsStatus({ ts: timestamp, configured: true, viewer, prs: previousPrs, error: search.error }));
+        onTickComplete(core.myPrsStatus({ ts: timestamp, configured: true, viewer, prs: previousPrs, error: search.error, truncatedNote: previousTruncatedNote }));
         return { failed: true };
       }
       const prs: MyPr[] = [];
@@ -41,7 +42,8 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
         prs.push(core.toMyPr(node, behindBy));
       }
       previousPrs = core.sortedMyPrs(prs, timestamp);
-      onTickComplete(core.myPrsStatus({ ts: timestamp, configured: true, viewer, prs: previousPrs }));
+      previousTruncatedNote = core.truncatedSearchNote(search.items.length, search.totalCount);
+      onTickComplete(core.myPrsStatus({ ts: timestamp, configured: true, viewer, prs: previousPrs, truncatedNote: previousTruncatedNote }));
       return { failed: false };
     },
   });

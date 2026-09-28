@@ -9,7 +9,9 @@ test('my PR contracts reject malformed reports and register the control message'
   assert.equal(ServerMessage.safeParse(status).success, true);
   assert.equal(SERVER_MESSAGE_TYPES.includes('my-prs-status'), true);
   assert.equal(MyPrsStatus.safeParse({ ...status, prs: [{}] }).success, false);
-  assert.equal(MyPrSearchResponse.safeParse({ data: { open: { nodes: [] }, merged: { nodes: [] } } }).success, true);
+  assert.equal(MyPrSearchResponse.safeParse({ data: { open: { issueCount: 0, nodes: [] }, merged: { issueCount: 0, nodes: [] } } }).success, true);
+  assert.equal(MyPrSearchResponse.safeParse({ data: { open: { nodes: [] }, merged: { nodes: [] } } }).success, false);
+  assert.equal(MyPrsStatus.safeParse({ ...status, truncatedNote: 'Showing the 50 most recently updated of 73 pull requests.' }).success, true);
   assert.equal(MyPrSearchNode.safeParse({ number: 1 }).success, false);
   assert.equal(MyPr.safeParse({ key: 'wrong' }).success, false);
 });

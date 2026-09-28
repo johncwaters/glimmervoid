@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deriveStage, mergedSinceDate, myPrsShouldStart, sortedMyPrs, toMyPr } from '../server/core/my-prs-core.ts';
+import { deriveStage, mergedSinceDate, myPrsShouldStart, sortedMyPrs, toMyPr, truncatedSearchNote } from '../server/core/my-prs-core.ts';
 import { MyPrSearchNode } from '../shared/contracts/my-prs.ts';
 import type { MyPr, MyPrSearchNode as MyPrSearchNodeType } from '../shared/contracts/my-prs.ts';
 
@@ -83,4 +83,10 @@ test('myPrsShouldStart refuses without an organization', () => {
 
 test('myPrsShouldStart starts with an organization and no team', () => {
   assert.deepEqual(myPrsShouldStart({ enabled: true, org: 'Acme' }), { start: true });
+});
+
+test('truncatedSearchNote names the shown and total counts only when the search was cut', () => {
+  assert.equal(truncatedSearchNote(50, 73), 'Showing the 50 most recently updated of 73 pull requests.');
+  assert.equal(truncatedSearchNote(12, 12), null);
+  assert.equal(truncatedSearchNote(0, 0), null);
 });

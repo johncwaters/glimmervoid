@@ -70,7 +70,7 @@ interface GithubIssueDetail {
 }
 
 interface PrGh {
-  searchMyPrs(org: string, mergedSince: string): Promise<{ ok: boolean; items: MyPrSearchNodeType[]; error: string }>;
+  searchMyPrs(org: string, mergedSince: string): Promise<{ ok: boolean; items: MyPrSearchNodeType[]; totalCount: number; error: string }>;
   behindBy(repo: string, base: string, headSha: string): Promise<number | null>;
   repoSlug(): Promise<string | null>;
   listIssues(): Promise<GithubIssueList>;
@@ -113,8 +113,8 @@ const GH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SAFE_REF = /^(?!-)(?!.*\.\.)(?!.*\s)[A-Za-z0-9_./-]+$/;
 const MERGED_SINCE_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MY_PRS_QUERY = `query($openQuery: String!, $mergedQuery: String!) {
-  open: search(type: ISSUE, first: 50, query: $openQuery) { nodes { ...myPrFields } }
-  merged: search(type: ISSUE, first: 50, query: $mergedQuery) { nodes { ...myPrFields } }
+  open: search(type: ISSUE, first: 50, query: $openQuery) { issueCount nodes { ...myPrFields } }
+  merged: search(type: ISSUE, first: 50, query: $mergedQuery) { issueCount nodes { ...myPrFields } }
 }
 fragment myPrFields on PullRequest {
   __typename number title url isDraft state mergedAt updatedAt baseRefName headRefOid mergeable mergeStateStatus reviewDecision
@@ -255,17 +255,18 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
 
   return {
     async searchMyPrs(org, mergedSince) {
-      if (!GH_SEGMENT.test(org) || !MERGED_SINCE_DATE.test(mergedSince)) return { ok: false, items: [], error: 'invalid organization or date' };
-      const response = await runGh(['api', 'graphql', '-H', 'Accept: application/vnd.github.merge-info-preview+json', '-f', `query=${MY_PRS_QUERY}`, '-f', `openQuery=is:pr is:open author:@me org:${org}`, '-f', `mergedQuery=is:pr is:merged author:@me org:${org} merged:>=${mergedSince}`]);
-      if (!response.ok) return { ok: false, items: [], error: response.err.trim() || 'gh graphql search failed' };
+      if (!GH_SEGMENT.test(org) || !MERGED_SINCE_DATE.test(mergedSince)) return { ok: false, items: [], totalCount: 0, error: 'invalid organization or date' };
+      const response = await runGh(['api', 'graphql', '-H', 'Accept: application/vnd.github.merge-info-preview+json', '-f', `query=${MY_PRS_QUERY}`, '-f', `openQuery=is:pr is:open author:@me org:${org} sort:updated-desc`, '-f', `mergedQuery=is:pr is:merged author:@me org:${org} merged:>=${mergedSince} sort:updated-desc`]);
+      if (!response.ok) return { ok: false, items: [], totalCount: 0, error: response.err.trim() || 'gh graphql search failed' };
       const parsed = MyPrSearchResponse.safeParse(parseJson<unknown>(response.out, null));
-      if (!parsed.success) return { ok: false, items: [], error: 'invalid gh graphql response' };
-      if (parsed.data.errors?.length) return { ok: false, items: [], error: 'gh graphql returned errors' };
+      if (!parsed.success) return { ok: false, items: [], totalCount: 0, error: 'invalid gh graphql response' };
+      if (parsed.data.errors?.length) return { ok: false, items: [], totalCount: 0, error: 'gh graphql returned errors' };
       const items = [...parsed.data.data.open.nodes, ...parsed.data.data.merged.nodes].flatMap((node) => {
         const valid = MyPrSearchNode.safeParse(node);
         return valid.success ? [valid.data] : [];
       });
-      return { ok: true, items, error: '' };
+      const { open, merged } = parsed.data.data;
+      return { ok: true, items, totalCount: open.issueCount + merged.issueCount, error: '' };
     },
 
     async behindBy(repo, base, headSha) {

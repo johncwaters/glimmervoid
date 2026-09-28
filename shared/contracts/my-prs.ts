@@ -19,7 +19,7 @@ export type MyPr = z.infer<typeof MyPr>;
 
 export const MyPrsStatus = z.object({
   type: z.literal('my-prs-status'), ts: z.number().finite(), configured: z.boolean(), reason: z.string().nullable().optional(),
-  viewer: z.string().nullable(), prs: z.array(MyPr), error: z.string().nullable().optional(),
+  viewer: z.string().nullable(), prs: z.array(MyPr), error: z.string().nullable().optional(), truncatedNote: z.string().nullable().optional(),
 }).passthrough();
 export type MyPrsStatus = z.infer<typeof MyPrsStatus>;
 
@@ -46,5 +46,5 @@ export const MyPrSearchNode = z.object({
 export type MyPrSearchNode = z.infer<typeof MyPrSearchNode>;
 
 export const MyPrSearchResponse = z.object({ data: z.object({
-  open: z.object({ nodes: z.array(z.unknown()) }), merged: z.object({ nodes: z.array(z.unknown()) }),
+  open: z.object({ issueCount: nonnegativeInteger, nodes: z.array(z.unknown()) }), merged: z.object({ issueCount: nonnegativeInteger, nodes: z.array(z.unknown()) }),
 }), errors: z.array(z.unknown()).optional() });

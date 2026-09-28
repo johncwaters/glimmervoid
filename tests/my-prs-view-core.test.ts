@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyStateText, factLines, groupMyPrs, chooseSelectedKey, parseMyPrsStatus, stageLabel, stageTone } from '../public/my-prs-view-core.ts';
+import { emptyStateText, factLines, groupMyPrs, chooseSelectedKey, parseMyPrsStatus, queueNotices, stageLabel, stageTone } from '../public/my-prs-view-core.ts';
 import { toMyPr } from '../server/core/my-prs-core.ts';
 import type { MyPr, MyPrSearchNode } from '../shared/contracts/my-prs.ts';
 
@@ -34,4 +34,14 @@ test('labels, tones, facts and empty messages reflect status', () => {
   assert.match(emptyStateText({ ...status, configured: false }), /Team review/);
   assert.match(emptyStateText({ ...status, error: 'offline' }), /offline/);
   assert.equal(parseMyPrsStatus({ type: 'my-prs-status', ts: 1, configured: true, viewer: null, prs: [{}] }), null);
+});
+
+test('queue notices list the refresh error before the truncation note', () => {
+  const status = parseMyPrsStatus({ type: 'my-prs-status', ts: 1, configured: true, viewer: 'alice', prs: [base] });
+  assert.ok(status);
+  const truncatedNote = 'Showing the 50 most recently updated of 73 pull requests.';
+  assert.deepEqual(queueNotices(null), []);
+  assert.deepEqual(queueNotices(status), []);
+  assert.deepEqual(queueNotices({ ...status, truncatedNote }), [{ text: truncatedNote, tone: 'info' }]);
+  assert.deepEqual(queueNotices({ ...status, error: 'offline', truncatedNote }), [{ text: 'Could not refresh your pull requests: offline', tone: 'error' }, { text: truncatedNote, tone: 'info' }]);
 });

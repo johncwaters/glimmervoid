@@ -58,6 +58,14 @@ export function emptyStateText(status: MyPrsStatusType | null): string {
   return 'No open or recently merged pull requests found.';
 }
 
+export interface QueueNotice { text: string; tone: 'error' | 'info' }
+
+export function queueNotices(status: MyPrsStatusType | null): QueueNotice[] {
+  if (!status) return [];
+  const notices: QueueNotice[] = status.error ? [{ text: emptyStateText(status), tone: 'error' }] : [];
+  return status.truncatedNote ? [...notices, { text: status.truncatedNote, tone: 'info' }] : notices;
+}
+
 export function chooseSelectedKey(sections: readonly MyPrSection[], previousKey: string | null): string | null {
   const prs = sections.flatMap((section) => section.prs);
   if (previousKey && prs.some((pr) => pr.key === previousKey)) return previousKey;

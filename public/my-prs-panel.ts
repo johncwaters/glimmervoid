@@ -2,7 +2,7 @@ import type { MyPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { el, externalLink } from './dom-helpers.ts';
 import { formatAgo } from './poll-ago.ts';
 import { createPrQueueColumns } from './pr-queue-columns.ts';
-import { chooseSelectedKey, emptyStateText, factLines, groupMyPrs, parseMyPrsStatus, stageLabel, stageTone } from './my-prs-view-core.ts';
+import { chooseSelectedKey, emptyStateText, factLines, groupMyPrs, parseMyPrsStatus, queueNotices, stageLabel, stageTone } from './my-prs-view-core.ts';
 
 let root: HTMLDivElement | null = null;
 let queue: HTMLElement | null = null;
@@ -86,8 +86,8 @@ function render(): void {
   });
   if (sectionElements.length === 0) queue.replaceChildren(el('p', 'pr-empty', emptyStateText(latest)));
   if (sectionElements.length > 0) {
-    const errorNotice = latest?.error ? el('p', 'my-pr-error', emptyStateText(latest)) : null;
-    queue.replaceChildren(...(errorNotice ? [errorNotice, ...sectionElements] : sectionElements));
+    const noticeElements = queueNotices(latest).map((notice) => el('p', notice.tone === 'error' ? 'my-pr-error' : 'my-pr-note', notice.text));
+    queue.replaceChildren(...noticeElements, ...sectionElements);
   }
   if (focusedKey) [...queue.querySelectorAll<HTMLButtonElement>('button[data-pr-key]')].find((row) => row.dataset.prKey === focusedKey)?.focus({ preventScroll: true });
   renderDetail(sections.flatMap((section) => section.prs).find((pr) => pr.key === selectedKey));

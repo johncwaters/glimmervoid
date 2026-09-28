@@ -70,10 +70,15 @@ export function sortedMyPrs(prs: MyPr[], nowMs: number): MyPr[] {
   });
 }
 
-export function myPrsStatus({ ts, configured, reason = null, viewer = null, prs = [], error = null }: {
-  ts: number; configured: boolean; reason?: string | null; viewer?: string | null; prs?: MyPr[]; error?: string | null;
+export function truncatedSearchNote(returnedCount: number, totalCount: number): string | null {
+  if (totalCount <= returnedCount) return null;
+  return `Showing the ${returnedCount} most recently updated of ${totalCount} pull requests.`;
+}
+
+export function myPrsStatus({ ts, configured, reason = null, viewer = null, prs = [], error = null, truncatedNote = null }: {
+  ts: number; configured: boolean; reason?: string | null; viewer?: string | null; prs?: MyPr[]; error?: string | null; truncatedNote?: string | null;
 }): MyPrsStatus {
-  return { type: 'my-prs-status', ts, configured, reason, viewer, prs, error };
+  return { type: 'my-prs-status', ts, configured, reason, viewer, prs, error, truncatedNote };
 }
 
 export function myPrsShouldStart(settings: Pick<TeamReviewSettings, 'enabled' | 'org'>): { start: boolean; reason?: string } {

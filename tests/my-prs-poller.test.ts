@@ -26,8 +26,8 @@ test('polls viewer once, compares open PRs sequentially, and keeps the last repo
       async viewer() { calls.push('viewer'); return 'alice'; },
       async searchMyPrs(org, mergedSince) {
         calls.push(`search:${org}:${mergedSince}`);
-        if (shouldFail) return { ok: false, items: [], error: 'offline' };
-        return { ok: true, items: [node('OPEN'), node('MERGED')], error: '' };
+        if (shouldFail) return { ok: false, items: [], totalCount: 0, error: 'offline' };
+        return { ok: true, items: [node('OPEN'), node('MERGED')], totalCount: 2, error: '' };
       },
       async behindBy(repo, base, headSha) {
         calls.push(`compare:${repo}:${base}:${headSha}`);
@@ -38,6 +38,7 @@ test('polls viewer once, compares open PRs sequentially, and keeps the last repo
   await poller.start();
   assert.deepEqual(calls, ['viewer', 'search:Acme:2026-09-27', `compare:Acme/app:main:${'a'.repeat(40)}`]);
   assert.equal(statuses[0].viewer, 'alice');
+  assert.equal(statuses[0].truncatedNote, null);
   assert.deepEqual(statuses[0].prs.map((pr) => [pr.number, pr.behindBy]), [[1, 3], [2, null]]);
   shouldFail = true;
   await poller.tick();
@@ -58,7 +59,7 @@ test('a stop during an in-flight tick emits no status afterward', async () => {
     log: { warn() {} },
     github: {
       async viewer() { return 'alice'; },
-      async searchMyPrs() { return { ok: true, items: [node('OPEN')], error: '' }; },
+      async searchMyPrs() { return { ok: true, items: [node('OPEN')], totalCount: 1, error: '' }; },
       behindBy() {
         signalCompareStarted();
         return new Promise<number>((resolve) => { releaseCompare = resolve; });
@@ -71,4 +72,28 @@ test('a stop during an in-flight tick emits no status afterward', async () => {
   releaseCompare(3);
   await started;
   assert.deepEqual(statuses, []);
+});
+
+test('a search cut short reports a truncation note that survives a failed refresh', async () => {
+  const statuses: MyPrsStatus[] = [];
+  let shouldFail = false;
+  const poller = createMyPrsPoller({
+    org: 'Acme', now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => statuses.push(status),
+    setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
+    log: { warn() {} },
+    github: {
+      async viewer() { return 'alice'; },
+      async searchMyPrs() {
+        if (shouldFail) return { ok: false, items: [], totalCount: 0, error: 'offline' };
+        return { ok: true, items: [node('OPEN'), node('MERGED')], totalCount: 73, error: '' };
+      },
+      async behindBy() { return 0; },
+    },
+  });
+  await poller.start();
+  assert.equal(statuses[0].truncatedNote, 'Showing the 2 most recently updated of 73 pull requests.');
+  shouldFail = true;
+  await poller.tick();
+  assert.equal(statuses[1].truncatedNote, statuses[0].truncatedNote);
+  await poller.stop();
 });
