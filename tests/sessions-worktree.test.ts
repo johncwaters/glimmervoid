@@ -287,6 +287,50 @@ test('a diverged auto-detected base forks locally and emits a warning', async ()
   }
 });
 
+test('a base checked out with local changes forks locally and names the local changes', async () => {
+  const wt = realWorktreeDir();
+  const gitWorkspace = fakeGitWorkspace({
+    worktreeDir: wt,
+    syncResult: { outcome: 'checked-out', from: 'local', to: 'remote' },
+  });
+  const session = makeSession({
+    gitWorkspace,
+    integrationBranch: null,
+    ptySpawn: () => fakePty(),
+  });
+  const warnings: { notice?: string }[] = [];
+  session.on('worktree-warning', (event: { notice?: string }) => { warnings.push(event); });
+  try {
+    await session.start();
+    assert.equal(warnings[0]?.notice, 'main is checked out with local changes and behind origin/main; forked from local');
+  } finally {
+    session.destroy();
+    fs.rmSync(wt, { recursive: true, force: true });
+  }
+});
+
+test('an integration branch fast-forwarded before the fork emits no warning', async () => {
+  const wt = realWorktreeDir();
+  const gitWorkspace = fakeGitWorkspace({
+    worktreeDir: wt,
+    syncResult: { outcome: 'updated', from: 'local', to: 'remote' },
+  });
+  const session = makeSession({
+    gitWorkspace,
+    integrationBranch: null,
+    ptySpawn: () => fakePty(),
+  });
+  const warnings: { notice?: string }[] = [];
+  session.on('worktree-warning', (event: { notice?: string }) => { warnings.push(event); });
+  try {
+    await session.start();
+    assert.deepEqual(warnings, []);
+  } finally {
+    session.destroy();
+    fs.rmSync(wt, { recursive: true, force: true });
+  }
+});
+
 test('concurrent start() calls are single-flight: one worktree, one PTY, no branch-in-use fallback', async () => {
   const wt = realWorktreeDir();
   const spawned: PtySpawnOptions[] = [];

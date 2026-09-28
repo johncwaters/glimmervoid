@@ -19,7 +19,7 @@ import { DEFAULT_BRANCH_FALLBACKS, decideMarkerBase, defaultBranchFromRemoteHead
 import type { MarkerProbes } from './core/integration-branch-core.ts';
 import { MERGE_DRIVER_KEY_PATTERN, driverEnumerationEnv, mergeProbeEnv, neutralGitConfigEnv } from './core/merge-proof-core.ts';
 import type { MergeProbeEnvResult, MergeTreeOutcome } from './core/merge-proof-core.ts';
-import type { IntegrationSyncOutcome } from './core/integration-sync-core.ts';
+import type { CheckoutTreeState, IntegrationSyncOutcome } from './core/integration-sync-core.ts';
 import { normalizeSha } from './core/update-core.ts';
 
 const fsp = fs.promises;
@@ -1025,11 +1025,61 @@ function createGitWorkspace(opts: {
       const probe = await isAncestor({ projectPath, ancestorSha: currentSha, descendantSha: remoteSha });
       ancestry = probe.ok ? probe.isAncestor : null;
     }
-    const listed = await run(['worktree', 'list', '--porcelain'], projectPath);
-    const checkedOut = !listed.ok || Boolean(findWorktreeForBranch(listed.out, branch));
-    const { outcome } = classifyRefusedIntegrationSync({ currentSha, remoteSha, isAncestor: ancestry, checkedOut });
+    const checkout = await readRefusedCheckoutTree(projectPath, branch);
+    const { outcome } = classifyRefusedIntegrationSync({ currentSha, remoteSha, isAncestor: ancestry, checkoutTree: checkout.state });
     if (outcome !== 'update-failed') return { outcome, from: currentSha, to: remoteSha };
-    return { outcome, from: currentSha, to: remoteSha, error: firstGitErrorLine(err) };
+    return { outcome, from: currentSha, to: remoteSha, error: firstGitErrorLine(err || checkout.error) };
+  }
+
+  async function readRefusedCheckoutTree(projectPath: string, branch: string): Promise<{ state: CheckoutTreeState | null; error: string }> {
+    const listed = await run(['worktree', 'list', '--porcelain'], projectPath);
+    if (!listed.ok) return { state: 'unknown', error: listed.err ?? '' };
+    const checkoutPath = findWorktreeForBranch(listed.out, branch);
+    if (!checkoutPath) return { state: null, error: '' };
+    return readCheckoutTree(checkoutPath);
+  }
+
+  async function readCheckoutTree(worktreePath: string): Promise<{ state: CheckoutTreeState; error: string }> {
+    const status = await run(['--no-optional-locks', 'status', '--porcelain', '--untracked-files=no'], worktreePath);
+    if (!status.ok) return { state: 'unknown', error: status.err ?? '' };
+    return { state: status.out === '' ? 'clean' : 'dirty', error: '' };
+  }
+
+  async function findLocalFilesAddedUpstream({ checkoutPath, localSha, remoteSha }: {
+    checkoutPath: string;
+    localSha: string;
+    remoteSha: string;
+  }): Promise<{ ok: true; collidingPaths: string[] } | { ok: false; err: string }> {
+    const added = await run(['diff', '--name-only', '--no-renames', '--diff-filter=A', '-z', localSha, remoteSha], checkoutPath);
+    if (!added.ok) return { ok: false, err: added.err ?? '' };
+    const addedPaths = added.out.split('\0').filter(Boolean);
+    const collidingPaths: string[] = [];
+    for (const addedPath of addedPaths) {
+      const existsLocally = await fsp.lstat(path.join(checkoutPath, addedPath)).then(() => true, (error: NodeJS.ErrnoException) => error.code !== 'ENOENT');
+      if (existsLocally) collidingPaths.push(addedPath);
+    }
+    return { ok: true, collidingPaths };
+  }
+
+  async function fastForwardCheckout({ checkoutPath, branch, localSha, remoteSha }: {
+    checkoutPath: string;
+    branch: string;
+    localSha: string;
+    remoteSha: string;
+  }): Promise<IntegrationSyncResult> {
+    const refused = (error: string): IntegrationSyncResult => ({ outcome: 'update-failed', from: localSha, to: remoteSha, error });
+    const headBranch = await run(['symbolic-ref', '--quiet', '--short', 'HEAD'], checkoutPath);
+    if (!headBranch.ok || headBranch.out !== branch) {
+      return refused(`${checkoutPath} no longer has ${branch} checked out`);
+    }
+    const collisions = await findLocalFilesAddedUpstream({ checkoutPath, localSha, remoteSha });
+    if (!collisions.ok) return refused(firstGitErrorLine(collisions.err));
+    if (collisions.collidingPaths.length > 0) {
+      return refused(`fast-forward would overwrite local file ${collisions.collidingPaths.join(', ')}`);
+    }
+    const merged = await run(['merge', '--ff-only', remoteSha], checkoutPath);
+    if (merged.ok) return { outcome: 'updated', from: localSha, to: remoteSha };
+    return refused(firstGitErrorLine(merged.err ?? ''));
   }
 
   async function syncIntegrationBranchBody({ projectPath, branch }: WorktreeArgs): Promise<IntegrationSyncResult> {
@@ -1049,21 +1099,33 @@ function createGitWorkspace(opts: {
     const localSha = local.ok ? local.out : null;
     const remoteSha = remote.ok ? remote.out : null;
     let ancestryVerdict: boolean | null = null;
-    let ancestryError = '';
+    let syncError = '';
     let checkedOut = false;
+    let checkoutPath: string | null = null;
+    let checkoutTree: CheckoutTreeState = 'unknown';
     if (localSha && remoteSha && localSha !== remoteSha) {
       const ancestry = await isAncestor({ projectPath, ancestorSha: localSha, descendantSha: remoteSha });
       ancestryVerdict = ancestry.ok ? ancestry.isAncestor : null;
-      if (!ancestry.ok) ancestryError = ancestry.err ?? '';
+      if (!ancestry.ok) syncError = ancestry.err ?? '';
       if (ancestryVerdict === true) {
         const listed = await run(['worktree', 'list', '--porcelain'], projectPath);
-        checkedOut = !listed.ok || Boolean(findWorktreeForBranch(listed.out, branch ?? ''));
+        if (!listed.ok) syncError = listed.err ?? '';
+        checkoutPath = listed.ok ? findWorktreeForBranch(listed.out, branch ?? '') : null;
+        checkedOut = !listed.ok || Boolean(checkoutPath);
+        if (checkoutPath) {
+          const tree = await readCheckoutTree(checkoutPath);
+          checkoutTree = tree.state;
+          syncError = tree.error;
+        }
       }
     }
 
-    const decision = decideIntegrationSync({ localSha, remoteSha, isAncestor: ancestryVerdict, checkedOut });
+    const decision = decideIntegrationSync({ localSha, remoteSha, isAncestor: ancestryVerdict, checkedOut, checkoutTree });
     if (decision.outcome === 'update-failed') {
-      return { outcome: decision.outcome, from: localSha, to: remoteSha, error: firstGitErrorLine(ancestryError) };
+      return { outcome: decision.outcome, from: localSha, to: remoteSha, error: firstGitErrorLine(syncError) };
+    }
+    if (decision.action === 'update-checkout' && checkoutPath && localSha && remoteSha) {
+      return fastForwardCheckout({ checkoutPath, branch: branch ?? '', localSha, remoteSha });
     }
     if (decision.action !== 'update') return { outcome: decision.outcome, from: localSha, to: remoteSha };
     const updated = await fastForwardTarget(projectPath, remoteRef, branch ?? '', false);
@@ -1341,7 +1403,7 @@ async function populateWorktree(projectPath: string, wtDir: string, shareList: s
     try {
       const srcStat = await fsp.stat(src).catch(() => null);
       if (!srcStat) continue;
-      const dstExists = await fsp.access(dst).then(() => true, () => false);
+      const dstExists = await fsp.access(dst).then(() => true, (error: NodeJS.ErrnoException) => error.code !== 'ENOENT');
       if (dstExists) continue;
       await fsp.mkdir(path.dirname(dst), { recursive: true });
       if (srcStat.isDirectory()) {

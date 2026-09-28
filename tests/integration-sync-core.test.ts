@@ -38,6 +38,36 @@ test('integration sync refuses a fast-forward while the branch is checked out', 
   );
 });
 
+test('integration sync fast-forwards a clean checkout of a strict ancestor in place', () => {
+  assert.deepEqual(
+    decideIntegrationSync({ localSha: 'local', remoteSha: 'remote', isAncestor: true, checkedOut: true, checkoutTree: 'clean' }),
+    { action: 'update-checkout', outcome: 'updated' },
+  );
+});
+
+test('integration sync blames local changes only for a confirmed dirty checkout', () => {
+  assert.deepEqual(
+    decideIntegrationSync({ localSha: 'local', remoteSha: 'remote', isAncestor: true, checkedOut: true, checkoutTree: 'dirty' }),
+    { action: 'none', outcome: 'checked-out' },
+  );
+});
+
+test('a checkout whose tree state could not be read is an update-failed, not local changes', () => {
+  assert.deepEqual(
+    decideIntegrationSync({ localSha: 'local', remoteSha: 'remote', isAncestor: true, checkedOut: true, checkoutTree: 'unknown' }),
+    { action: 'none', outcome: 'update-failed' },
+  );
+});
+
+test('a clean checkout never authorizes moving a diverged or unknown branch', () => {
+  for (const isAncestor of [false, null]) {
+    assert.equal(
+      decideIntegrationSync({ localSha: 'local', remoteSha: 'remote', isAncestor, checkedOut: true, checkoutTree: 'clean' }).action,
+      'none',
+    );
+  }
+});
+
 test('integration sync fast-forwards an unchecked strict ancestor', () => {
   assert.deepEqual(
     decideIntegrationSync({ localSha: 'local', remoteSha: 'remote', isAncestor: true, checkedOut: false }),
@@ -71,46 +101,55 @@ test('a successful negative probe is still the one thing that means diverged', (
 
 test('a refusal that already reached the remote tip is up-to-date, not a failure', () => {
   assert.deepEqual(
-    classifyRefusedIntegrationSync({ currentSha: 'same', remoteSha: 'same', isAncestor: true, checkedOut: false }),
+    classifyRefusedIntegrationSync({ currentSha: 'same', remoteSha: 'same', isAncestor: true, checkoutTree: null }),
     { outcome: 'up-to-date' },
   );
 });
 
 test('a refusal on a branch that really forked is diverged', () => {
   assert.deepEqual(
-    classifyRefusedIntegrationSync({ currentSha: 'local', remoteSha: 'remote', isAncestor: false, checkedOut: false }),
+    classifyRefusedIntegrationSync({ currentSha: 'local', remoteSha: 'remote', isAncestor: false, checkoutTree: null }),
     { outcome: 'diverged' },
   );
 });
 
-test('a refusal on a still-fast-forwardable branch someone checked out is checked-out', () => {
+test('a refusal on a still-fast-forwardable branch checked out with a dirty tree is checked-out', () => {
   assert.deepEqual(
-    classifyRefusedIntegrationSync({ currentSha: 'local', remoteSha: 'remote', isAncestor: true, checkedOut: true }),
+    classifyRefusedIntegrationSync({ currentSha: 'local', remoteSha: 'remote', isAncestor: true, checkoutTree: 'dirty' }),
     { outcome: 'checked-out' },
   );
 });
 
+test('a refusal on a branch checked out with a clean or unreadable tree is update-failed', () => {
+  for (const checkoutTree of ['clean', 'unknown'] as const) {
+    assert.deepEqual(
+      classifyRefusedIntegrationSync({ currentSha: 'local', remoteSha: 'remote', isAncestor: true, checkoutTree }),
+      { outcome: 'update-failed' },
+    );
+  }
+});
+
 test('a refusal with the fast-forward still legal is an operational update-failed', () => {
   assert.deepEqual(
-    classifyRefusedIntegrationSync({ currentSha: 'local', remoteSha: 'remote', isAncestor: true, checkedOut: false }),
+    classifyRefusedIntegrationSync({ currentSha: 'local', remoteSha: 'remote', isAncestor: true, checkoutTree: null }),
     { outcome: 'update-failed' },
   );
 });
 
 test('an unknown ancestry is never reported as diverged', () => {
   assert.deepEqual(
-    classifyRefusedIntegrationSync({ currentSha: 'local', remoteSha: 'remote', isAncestor: null, checkedOut: false }),
+    classifyRefusedIntegrationSync({ currentSha: 'local', remoteSha: 'remote', isAncestor: null, checkoutTree: null }),
     { outcome: 'update-failed' },
   );
   assert.deepEqual(
-    classifyRefusedIntegrationSync({ currentSha: 'local', remoteSha: 'remote', isAncestor: null, checkedOut: true }),
-    { outcome: 'checked-out' },
+    classifyRefusedIntegrationSync({ currentSha: 'local', remoteSha: 'remote', isAncestor: null, checkoutTree: 'unknown' }),
+    { outcome: 'update-failed' },
   );
 });
 
 test('an unreadable local ref cannot masquerade as up-to-date against a missing remote', () => {
   assert.deepEqual(
-    classifyRefusedIntegrationSync({ currentSha: null, remoteSha: null, isAncestor: null, checkedOut: false }),
+    classifyRefusedIntegrationSync({ currentSha: null, remoteSha: null, isAncestor: null, checkoutTree: null }),
     { outcome: 'update-failed' },
   );
 });

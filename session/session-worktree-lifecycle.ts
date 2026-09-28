@@ -502,9 +502,10 @@ function createSessionWorktreeLifecycle({
     if (!sync || !branch) return null;
     if (sync.outcome === "diverged") return `base ${branch} has diverged from origin/${branch}; forked from local`;
     if (sync.outcome === "fetch-failed") return `could not fetch origin/${branch}; forked from local`;
-    if (sync.outcome === "checked-out" || sync.outcome === "update-failed") {
-      return `could not fast-forward ${branch} from origin/${branch}; forked from local`;
+    if (sync.outcome === "checked-out") {
+      return `${branch} is checked out with local changes and behind origin/${branch}; forked from local`;
     }
+    if (sync.outcome === "update-failed") return `could not fast-forward ${branch} from origin/${branch}; forked from local`;
     return null;
   }
 

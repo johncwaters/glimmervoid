@@ -155,7 +155,7 @@ test('syncIntegrationBranch leaves a diverged local integration branch untouched
   }
 });
 
-test('syncIntegrationBranch refuses to move a checked-out integration branch', { skip: !GIT }, async () => {
+test('syncIntegrationBranch fast-forwards a clean checked-out integration branch in its checkout', { skip: !GIT }, async () => {
   const fixture = createFixture();
   try {
     git(['checkout', 'develop'], fixture.repo);
@@ -165,14 +165,81 @@ test('syncIntegrationBranch refuses to move a checked-out integration branch', {
 
     const synced = await gitWorkspace.syncIntegrationBranch({ projectPath: fixture.repo, branch: 'develop' });
 
-    assert.deepEqual(synced, { outcome: 'checked-out', from: localSha, to: remoteSha });
-    assert.equal(git(['rev-parse', 'develop'], fixture.repo).trim(), localSha);
+    assert.deepEqual(synced, { outcome: 'updated', from: localSha, to: remoteSha });
+    assert.equal(git(['rev-parse', 'develop'], fixture.repo).trim(), remoteSha);
+    assert.equal(fs.existsSync(path.join(fixture.repo, 'remote.txt')), true);
+    assert.equal(git(['status', '--porcelain'], fixture.repo).trim(), '');
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 
-test('syncIntegrationBranch refuses to move an integration branch checked out in a LINKED worktree', { skip: !GIT }, async () => {
+test('syncIntegrationBranch refuses to move a checked-out integration branch with local changes', { skip: !GIT }, async () => {
+  const fixture = createFixture();
+  try {
+    git(['checkout', 'develop'], fixture.repo);
+    fs.writeFileSync(path.join(fixture.repo, 'README.md'), '# edited\n', 'utf8');
+    const localSha = git(['rev-parse', 'HEAD'], fixture.repo).trim();
+    const remoteSha = advanceRemote(fixture.publisher, 'remote.txt');
+    const gitWorkspace = createGitWorkspace();
+
+    const synced = await gitWorkspace.syncIntegrationBranch({ projectPath: fixture.repo, branch: 'develop' });
+
+    assert.deepEqual(synced, { outcome: 'checked-out', from: localSha, to: remoteSha });
+    assert.equal(git(['rev-parse', 'develop'], fixture.repo).trim(), localSha);
+    assert.equal(fs.readFileSync(path.join(fixture.repo, 'README.md'), 'utf8'), '# edited\n');
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('syncIntegrationBranch leaves an ignored local file intact when origin starts tracking its path', { skip: !GIT }, async () => {
+  const fixture = createFixture();
+  try {
+    git(['checkout', 'develop'], fixture.repo);
+    fs.writeFileSync(path.join(fixture.repo, '.git', 'info', 'exclude'), '.env\n', 'utf8');
+    fs.writeFileSync(path.join(fixture.repo, '.env'), 'SECRET=local\n', 'utf8');
+    const localSha = git(['rev-parse', 'HEAD'], fixture.repo).trim();
+    const remoteSha = advanceRemote(fixture.publisher, '.env');
+    const gitWorkspace = createGitWorkspace();
+
+    const synced = await gitWorkspace.syncIntegrationBranch({ projectPath: fixture.repo, branch: 'develop' });
+
+    assert.deepEqual(synced, {
+      outcome: 'update-failed',
+      from: localSha,
+      to: remoteSha,
+      error: 'fast-forward would overwrite local file .env',
+    });
+    assert.equal(git(['rev-parse', 'develop'], fixture.repo).trim(), localSha, 'the ref did not move');
+    assert.equal(fs.readFileSync(path.join(fixture.repo, '.env'), 'utf8'), 'SECRET=local\n');
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('syncIntegrationBranch reports an untracked collision as update-failed, not local changes', { skip: !GIT }, async () => {
+  const fixture = createFixture();
+  try {
+    git(['checkout', 'develop'], fixture.repo);
+    fs.writeFileSync(path.join(fixture.repo, 'remote.txt'), 'mine\n', 'utf8');
+    const localSha = git(['rev-parse', 'HEAD'], fixture.repo).trim();
+    const remoteSha = advanceRemote(fixture.publisher, 'remote.txt');
+    const gitWorkspace = createGitWorkspace();
+
+    const synced = await gitWorkspace.syncIntegrationBranch({ projectPath: fixture.repo, branch: 'develop' });
+
+    assert.equal(synced.outcome, 'update-failed');
+    assert.equal(synced.error, 'fast-forward would overwrite local file remote.txt');
+    assert.equal(git(['rev-parse', 'develop'], fixture.repo).trim(), localSha);
+    assert.equal(synced.to, remoteSha);
+    assert.equal(fs.readFileSync(path.join(fixture.repo, 'remote.txt'), 'utf8'), 'mine\n');
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('syncIntegrationBranch fast-forwards a clean integration branch checked out in a LINKED worktree', { skip: !GIT }, async () => {
   const fixture = createFixture();
   const linked = path.join(fixture.root, 'linked');
   try {
@@ -183,8 +250,9 @@ test('syncIntegrationBranch refuses to move an integration branch checked out in
 
     const synced = await gitWorkspace.syncIntegrationBranch({ projectPath: fixture.repo, branch: 'develop' });
 
-    assert.deepEqual(synced, { outcome: 'checked-out', from: localSha, to: remoteSha });
-    assert.equal(git(['rev-parse', 'develop'], fixture.repo).trim(), localSha, 'the ref did not move');
+    assert.deepEqual(synced, { outcome: 'updated', from: localSha, to: remoteSha });
+    assert.equal(git(['rev-parse', 'HEAD'], linked).trim(), remoteSha);
+    assert.equal(git(['status', '--porcelain'], linked).trim(), '');
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
@@ -208,7 +276,11 @@ test('syncIntegrationBranch does not move a branch checked out between the check
     const synced = await gitWorkspace.syncIntegrationBranch({ projectPath: fixture.repo, branch: 'develop' });
 
     assert.equal(hijacked, true, 'the mutation really was a local fetch, the seam this test hangs on');
-    assert.deepEqual(synced, { outcome: 'checked-out', from: localSha, to: remoteSha });
+    assert.equal(synced.outcome, 'update-failed');
+    assert.equal(synced.from, localSha);
+    assert.equal(synced.to, remoteSha);
+    assert.equal(typeof synced.error, 'string');
+    assert.ok(synced.error, 'the refusal carries the git error');
     assert.equal(git(['rev-parse', 'develop'], fixture.repo).trim(), localSha, 'the ref did not move');
     assert.equal(git(['rev-parse', 'HEAD'], linked).trim(), localSha, 'and the checked-out index still matches it');
   } finally {
