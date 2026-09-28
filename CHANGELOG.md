@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A tighter Reviews layout**: the Team/Mine switch is now a pair of tabs in the queue's header, and Minimize is an icon button beside them, so both drop their own rows. A collapsed queue becomes a narrow strip of status marks you can still click through. Every queue row shows a status mark (cross, diamond, ring, check or dash) so state reads without relying on color. The Mine detail replaces its bullet list with a merge-readiness checklist of checks, review, threads, conflicts and base, which always agrees with the stage label. The session review sidebar no longer appears on the Reviews tab on desktop.
+
 ### Removed
 
 - **The context mill and Long-Term Memory**: context packs, the pack distiller, the Mill panel and mill measurement are gone, along with Long-Term Memory, whose only delivery path was a pack. The `glimmervoid pack` and `glimmervoid memory` commands go with them. An existing `config.json` still loads with its `millEnabled`, `packDistiller`, `millMetrics`, `memory` and per-project `packs` keys, which are now ignored, and nothing under `~/.glimmervoid` is deleted.
