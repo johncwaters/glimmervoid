@@ -292,7 +292,7 @@ test('dryRun traces and reports planned deletions without deleting remote branch
   );
   assert.deepEqual(deletionsOfFirstProject(statuses[0]), ['glimmervoid/session/merged']);
   assert.equal(statuses[0]?.dryRun, true);
-  const [firstProject] = statuses[0]?.projects as Record<string, unknown>[];
+  const [firstProject] = (statuses[0]?.projects ?? []) as Record<string, unknown>[];
   assert.deepEqual(Object.keys(firstProject).sort(), ['deletions', 'errors', 'kept', 'projectPath', 'worktreeRemovals', 'worktreesKept']);
 });
 
@@ -394,7 +394,7 @@ test('a remote branch listing failure still lets the local worktree pass remove 
     onTickComplete: (status) => statuses.push(status),
   });
   await poller.tick();
-  const [project] = statuses[0]?.projects as Record<string, unknown>[];
+  const [project] = (statuses[0]?.projects ?? []) as Record<string, unknown>[];
   assert.deepEqual(calls.filter((call) => call.startsWith('remove:')), ['remove:/agent:worktree-agent-local']);
   assert.deepEqual(project.worktreeRemovals, [{ cwd: '/agent', branch: 'worktree-agent-local', reason: 'merged' }]);
   assert.equal(project.errors, 1);
@@ -429,7 +429,7 @@ test('a local worktree status probe failure stays kept and counts an error', asy
     onTickComplete: (status) => statuses.push(status),
   });
   await poller.tick();
-  const [project] = statuses[0]?.projects as Record<string, unknown>[];
+  const [project] = (statuses[0]?.projects ?? []) as Record<string, unknown>[];
   assert.equal(project.errors, 1);
   assert.deepEqual(project.worktreesKept, [{ cwd: '/agent', branch: 'worktree-agent-local', reason: 'status-probe-failed' }]);
 });
@@ -470,7 +470,7 @@ test('a refused worktree removal counts an error and is never reported as remove
     onTickComplete: (status) => statuses.push(status),
   });
   await poller.tick();
-  const [project] = statuses[0]?.projects as Record<string, unknown>[];
+  const [project] = (statuses[0]?.projects ?? []) as Record<string, unknown>[];
   assert.deepEqual(project.worktreeRemovals, []);
   assert.equal(project.errors, 1);
   assert.equal(traces.some((entry) => entry.decision === 'removed'), false);
@@ -493,7 +493,7 @@ test('a worktree that turned dirty after planning is kept instead of removed', a
     onTickComplete: (status) => statuses.push(status),
   });
   await poller.tick();
-  const [project] = statuses[0]?.projects as Record<string, unknown>[];
+  const [project] = (statuses[0]?.projects ?? []) as Record<string, unknown>[];
   assert.equal(calls.some((call) => call.startsWith('remove:')), false);
   assert.deepEqual(project.worktreesKept, [{ cwd: '/agent', branch: 'worktree-agent-local', reason: 'became-dirty' }]);
   assert.ok(traces.some((entry) => entry.decision === 'kept' && entry.reason === 'became-dirty'));
@@ -515,7 +515,7 @@ test('a worktree whose head moved after the merge proof is kept instead of force
     onTickComplete: (status) => statuses.push(status),
   });
   await poller.tick();
-  const [project] = statuses[0]?.projects as Record<string, unknown>[];
+  const [project] = (statuses[0]?.projects ?? []) as Record<string, unknown>[];
   assert.equal(calls.some((call) => call.startsWith('remove:')), false);
   assert.deepEqual(project.worktreesKept, [{ cwd: '/agent', branch: 'worktree-agent-local', reason: 'tip-moved' }]);
   assert.ok(traces.some((entry) => entry.decision === 'kept' && entry.reason === 'tip-moved'));
@@ -533,7 +533,7 @@ test('a worktree sitting on its integration tip is kept as having no commits', a
     onTickComplete: (status) => statuses.push(status),
   });
   await poller.tick();
-  const [project] = statuses[0]?.projects as Record<string, unknown>[];
+  const [project] = (statuses[0]?.projects ?? []) as Record<string, unknown>[];
   assert.equal(calls.some((call) => call.startsWith('remove:')), false);
   assert.deepEqual(project.worktreesKept, [{ cwd: '/agent', branch: 'worktree-agent-local', reason: 'no-commits' }]);
   assert.equal(project.errors, 0);
@@ -553,7 +553,7 @@ test('a prunable worktree is reported as missing-directory without an error', as
     onTickComplete: (status) => statuses.push(status),
   });
   await poller.tick();
-  const [project] = statuses[0]?.projects as Record<string, unknown>[];
+  const [project] = (statuses[0]?.projects ?? []) as Record<string, unknown>[];
   assert.equal(project.errors, 0);
   assert.deepEqual(project.worktreesKept, [{ cwd: '/agent', branch: 'worktree-agent-local', reason: 'missing-directory' }]);
   assert.ok(traces.some((entry) => entry.decision === 'kept' && entry.reason === 'missing-directory'));
@@ -599,7 +599,7 @@ test('a dry run tick leaves the admin entry of a hand-deleted worktree on disk',
 
     await poller.tick();
 
-    const [project] = statuses[0]?.projects as Record<string, unknown>[];
+    const [project] = (statuses[0]?.projects ?? []) as Record<string, unknown>[];
     const worktreesKept = project?.worktreesKept as { branch: string; reason: string }[];
     assert.deepEqual(worktreesKept.map(({ branch, reason }) => ({ branch, reason })), [
       { branch: 'worktree-agent-gone', reason: 'missing-directory' },
@@ -628,7 +628,7 @@ test('an undecidable worktree merge proof is kept as merge-proof-failed', async 
     onTickComplete: (status) => statuses.push(status),
   });
   await poller.tick();
-  const [project] = statuses[0]?.projects as Record<string, unknown>[];
+  const [project] = (statuses[0]?.projects ?? []) as Record<string, unknown>[];
   assert.equal(calls.some((call) => call.startsWith('remove:')), false);
   assert.deepEqual(project.worktreesKept, [{ cwd: '/agent', branch: 'worktree-agent-local', reason: 'merge-proof-failed' }]);
 });
@@ -799,7 +799,7 @@ test('a merge-tree conflict keeps the branch without an error', async () => {
   await poller.tick();
 
   assert.deepEqual(deletionsOfFirstProject(statuses[0]), []);
-  assert.equal((statuses[0]?.projects as { errors: number }[])[0]?.errors, 0);
+  assert.equal(((statuses[0]?.projects ?? []) as { errors: number }[])[0]?.errors, 0);
 });
 
 test('a merge-tree operational failure keeps the branch and increments errors', async () => {
@@ -821,7 +821,7 @@ test('a merge-tree operational failure keeps the branch and increments errors', 
   await poller.tick();
 
   assert.deepEqual(deletionsOfFirstProject(statuses[0]), []);
-  assert.equal((statuses[0]?.projects as { errors: number }[])[0]?.errors, 1);
+  assert.equal(((statuses[0]?.projects ?? []) as { errors: number }[])[0]?.errors, 1);
 });
 
 function staleUnmergedBranchPoller(traces: Record<string, unknown>[], deleteUnmerged?: boolean) {
@@ -944,7 +944,7 @@ test('a failed ancestry probe leaves the branch undecidable rather than reading 
 
   assert.deepEqual(deletedBranches, []);
   assert.deepEqual(deletionsOfFirstProject(statuses[0]), []);
-  assert.equal((statuses[0]?.projects as { errors: number }[])[0]?.errors, 1);
+  assert.equal(((statuses[0]?.projects ?? []) as { errors: number }[])[0]?.errors, 1);
   assert.ok(traces.some((entry) => entry.name === 'glimmervoid/session/abandoned' && entry.reason === 'ancestor-check-error'));
 });
 
@@ -968,7 +968,7 @@ test('a tree probe failure keeps the branch, names it in the trace, and incremen
   await poller.tick();
 
   assert.deepEqual(deletionsOfFirstProject(statuses[0]), []);
-  assert.equal((statuses[0]?.projects as { errors: number }[])[0]?.errors, 1);
+  assert.equal(((statuses[0]?.projects ?? []) as { errors: number }[])[0]?.errors, 1);
   assert.ok(traces.some((entry) => entry.name === 'glimmervoid/session/abandoned' && entry.reason === 'tree-check-error'));
 });
 
@@ -1001,7 +1001,7 @@ test('a merge probe env that never resolves keeps the branch and increments erro
 
   assert.deepEqual(mergedTreeCalls, []);
   assert.deepEqual(deletionsOfFirstProject(statuses[0]), []);
-  assert.equal((statuses[0]?.projects as { errors: number }[])[0]?.errors, 1);
+  assert.equal(((statuses[0]?.projects ?? []) as { errors: number }[])[0]?.errors, 1);
   assert.ok(traces.some((entry) => entry.name === 'glimmervoid/session/abandoned' && entry.reason === 'merge-probe-env-error'));
 });
 

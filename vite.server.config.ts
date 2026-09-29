@@ -24,7 +24,7 @@ export default defineConfig({
     emptyOutDir: false,
     minify: false,
     sourcemap: false,
-    rollupOptions: {
+    rolldownOptions: {
       external: isExternal,
       input: {
         'server/index': path.join(repoRoot, 'server', 'index.ts'),
@@ -40,7 +40,6 @@ export default defineConfig({
         format: 'es',
         entryFileNames: '[name].js',
         chunkFileNames: 'chunks/[name]-[hash].js',
-        experimentalMinChunkSize: 0,
       },
     },
   },

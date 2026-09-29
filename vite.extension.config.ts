@@ -39,7 +39,7 @@ export default defineConfig({
     emptyOutDir: false,
     minify: false,
     sourcemap: false,
-    rollupOptions: {
+    rolldownOptions: {
       external: isExternal,
       input: {
         extension: path.join(extensionSourceDir, 'extension.ts'),
@@ -52,7 +52,6 @@ export default defineConfig({
         esModule: false,
         entryFileNames: '[name].js',
         chunkFileNames: '[name].js',
-        experimentalMinChunkSize: 0,
       },
     },
   },

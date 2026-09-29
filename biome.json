@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.3.5/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
   "files": {
     "includes": [
       "**",
@@ -19,6 +19,11 @@
       }
     }
   },
+  "html": {
+    "linter": {
+      "enabled": false
+    }
+  },
   "css": {
     "parser": {
       "tailwindDirectives": true
@@ -29,7 +34,7 @@
   },
   "linter": {
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "suspicious": {
         "noRedundantUseStrict": "off",
         "noControlCharactersInRegex": "off"

@@ -91,5 +91,5 @@ test('summarizeStopOutcomes names the lanes that failed', () => {
   assert.equal(summary.timedOut, false);
   assert.equal(summary.failed.length, 1);
   assert.equal(summary.failed[0].name, 'usage');
-  assert.equal((summary.failed[0]?.reason as Error).message, 'disk full');
+  assert.equal((summary.failed[0]?.reason as Error | undefined)?.message, 'disk full');
 });

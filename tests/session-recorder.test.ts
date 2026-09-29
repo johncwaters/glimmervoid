@@ -397,10 +397,10 @@ test('a live session records its hook payloads and transitions in signals mode',
     const records = readLines(findRecordingFile(baseDir, 'live-session'));
     const hook = records.find((r) => r.type === 'hook');
     assert.equal(hook?.event, 'Stop');
-    assert.equal((hook?.payload as Record<string, unknown>).session_id, 'abcd1234-0000-0000-0000-abcdabcdabcd');
+    assert.equal((hook?.payload as Record<string, unknown> | undefined)?.session_id, 'abcd1234-0000-0000-0000-abcdabcdabcd');
     const state = records.find((r) => r.type === 'state');
     assert.equal(state?.to, STATES.COMPLETE, 'the transition the hook caused is recorded alongside it');
-    assert.equal((state?.detail as Record<string, unknown>).signal, 'ready');
+    assert.equal((state?.detail as Record<string, unknown> | undefined)?.signal, 'ready');
     const decision = records.find((r) => r.type === 'decision');
     assert.equal(decision?.kind, 'signal');
     assert.equal(decision?.action, 'transition', 'the decision behind the transition is recorded too');
