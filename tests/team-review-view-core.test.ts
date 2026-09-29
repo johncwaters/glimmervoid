@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, emptyStateText, githubReviewItems, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText, reviewProgressSteps,
-  severityCounts, severityPresentation, tierLabel, verdictLabel, verdictRecommendation, verdictSealKind, verdictSealText, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter,
+  severityCounts, severityPresentation, tierLabel, verdictLabel, verdictRecommendation, verdictSealKind, verdictSealText, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, reviewScopeText,
 } from '../public/team-review-view-core.ts';
 import { InFlightReview, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type {
@@ -381,4 +381,9 @@ test('progress tracker advances one active stage and leaves Draft ready pending'
     { label: 'Review', state: 'active' },
     { label: 'Draft ready', state: 'todo' },
   ]);
+});
+
+test('the review scope names a re-review and the head it picks up from', () => {
+  assert.equal(reviewScopeText({ tier: 'full', reasons: ['touches auth'] }), 'full review: touches auth');
+  assert.equal(reviewScopeText({ tier: 'stamp', reasons: [], priorReviewedHead: 'abcdef0123456789abcdef0123456789abcdef01' }), 'light re-review of changes since abcdef0');
 });

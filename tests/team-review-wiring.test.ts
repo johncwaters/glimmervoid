@@ -59,6 +59,7 @@ function workDirOf(call: Parameters<TeamReviewSpawn>[0]): string {
 
 function setup(overrides: Partial<TeamReviewDispatchOptions> & {
   writeReport?: (workDir: string) => void; diff?: string | null; fetchedHead?: string; fetchedErr?: string; hydrated?: boolean; hydratedErr?: string;
+  isPriorHeadFetchable?: boolean;
 } = {}) {
   const worktreeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-wt-test-'));
   const workRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-work-test-'));
@@ -77,6 +78,10 @@ function setup(overrides: Partial<TeamReviewDispatchOptions> & {
       hydrateRange: async (repo, number, headSha) => {
         hydrations.push(`${repo}#${number}@${headSha}`);
         return { ok: overrides.hydrated ?? true, err: overrides.hydratedErr ?? '' };
+      },
+      hydrateSince: async (repo, sinceSha, headSha) => {
+        hydrations.push(`${repo}@${sinceSha}..${headSha}`);
+        return overrides.isPriorHeadFetchable ?? true;
       },
     },
     gitWorkspace: {
@@ -328,6 +333,7 @@ test('local checkout sharing excludes the cache clone and both review roots', as
       ensureRepo: async () => cached,
       fetchPr: async () => ({ ok: true, headSha: HEAD, err: '' }),
       hydrateRange: async () => ({ ok: true, err: '' }),
+      hydrateSince: async () => true,
     },
     readLocalCheckoutConfig: () => ({ projects: [cached, path.join(workRoot, 'clone'), path.join(worktreeRoot, 'clone')].map((checkoutPath) => ({ path: checkoutPath })) }),
     gitWorkspace: checkoutSharingWorkspace({
@@ -1320,7 +1326,7 @@ test('discarding a saved review reaps its processes before removing its director
     },
     repoCache: {
       listRepos: async () => [], ensureRepo: async () => null,
-      fetchPr: async () => ({ ok: false, headSha: null, err: '' }), hydrateRange: async () => ({ ok: false, err: '' }),
+      fetchPr: async () => ({ ok: false, headSha: null, err: '' }), hydrateRange: async () => ({ ok: false, err: '' }), hydrateSince: async () => false,
     },
     gitWorkspace: {
       stageDetachedWorktree: async () => ({ ok: false }), removeWorktreeByPath: async () => ({ ok: false }),
@@ -1386,6 +1392,7 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
       ensureRepo: async () => '/cache/Acme/app',
       fetchPr: async () => ({ ok: true, headSha: HEAD, err: '' }),
       hydrateRange: async () => ({ ok: true, err: '' }),
+      hydrateSince: async () => true,
     },
     gitWorkspace: {
       stageDetachedWorktree: async ({ worktreePath }) => { fs.mkdirSync(String(worktreePath), { recursive: true }); return { ok: true }; },
@@ -1725,4 +1732,40 @@ test('an approval whose head cannot be re-read is marked posted with a warning t
   assert.match(String(outcome.warning), /Could not confirm/);
   assert.equal(h.currentDraft().status, 'posted');
   assert.deepEqual(h.dismissed, []);
+});
+
+const PRIOR_REVIEW = { head: OTHER_HEAD, verdict: 'REQUEST CHANGES' as const, summary: 'null deref', body: 'Fix the null check.', comments: [], wasPosted: true };
+
+test('a re-review fetches the range since the earlier head and tells the reviewer about it', async () => {
+  const { review, hydrations, spawns, cleanup } = setup();
+  try {
+    await review({ ...reviewArgs('full'), priorReview: PRIOR_REVIEW });
+    assert.ok(hydrations.includes(`Acme/app@${OTHER_HEAD}..${HEAD}`));
+    assert.match(spawns[0].prompt, /This is a re-review:/);
+    assert.ok(spawns[0].prompt.includes(`diff ${OTHER_HEAD} ${HEAD}`));
+  } finally {
+    cleanup();
+  }
+});
+
+test('a re-review whose earlier head cannot be fetched reviews the whole range', async () => {
+  const { review, spawns, cleanup } = setup({ isPriorHeadFetchable: false });
+  try {
+    await review({ ...reviewArgs('full'), priorReview: PRIOR_REVIEW });
+    assert.match(spawns[0].prompt, /most likely a force-push/);
+    assert.ok(!spawns[0].prompt.includes(`diff ${OTHER_HEAD} ${HEAD}`));
+  } finally {
+    cleanup();
+  }
+});
+
+test('a first review never fetches an earlier range', async () => {
+  const { review, hydrations, spawns, cleanup } = setup();
+  try {
+    await review(reviewArgs('full'));
+    assert.ok(hydrations.every((hydration) => !hydration.includes('..')));
+    assert.doesNotMatch(spawns[0].prompt, /re-review/);
+  } finally {
+    cleanup();
+  }
 });

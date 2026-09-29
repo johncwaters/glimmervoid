@@ -103,3 +103,70 @@ test('repo cache lists only the owner/name directories that hold a git clone', a
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test('repo cache hydrates the range since an earlier head only for two commit SHAs', async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-repo-cache-since-'));
+  try {
+    await mkdir(path.join(tempDir, 'Acme', 'repo', '.git'), { recursive: true });
+    const calls: string[][] = [];
+    let isDiffOk = true;
+    const isSinceAncestor = true;
+    const cache = createRepoCache({
+      rootDir: tempDir,
+      commandRunner: async (args) => {
+        calls.push(args);
+        const ok = args[0] === 'merge-base' ? isSinceAncestor : isDiffOk;
+        return { ok, out: '', err: '' };
+      },
+    });
+    const since = 'a'.repeat(40);
+    const head = 'b'.repeat(40);
+    assert.equal(await cache.hydrateSince('Acme/repo', since, head), true);
+    assert.deepEqual(calls, [['diff', '--shortstat', since, head], ['merge-base', '--is-ancestor', since, head]]);
+    assert.equal(await cache.hydrateSince('Acme/repo', '--output=/tmp/x', head), false);
+    assert.equal(await cache.hydrateSince('../repo', since, head), false);
+    assert.equal(calls.length, 2);
+    isDiffOk = false;
+    assert.equal(await cache.hydrateSince('Acme/repo', since, head), false);
+    assert.equal(calls.length, 3);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('repo cache refuses the range since an earlier head that a force-push left off the new history', async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-repo-cache-rebased-'));
+  try {
+    const repoDir = path.join(tempDir, 'Acme', 'repo');
+    await mkdir(repoDir, { recursive: true });
+    await git(['init'], repoDir);
+    await git(['config', 'user.name', 'Test'], repoDir);
+    await git(['config', 'user.email', 'test@example.com'], repoDir);
+    await writeFile(path.join(repoDir, 'README.md'), 'base\n');
+    await git(['add', 'README.md'], repoDir);
+    await git(['commit', '-m', 'base'], repoDir);
+    const baseSha = await git(['rev-parse', 'HEAD'], repoDir);
+    await writeFile(path.join(repoDir, 'README.md'), 'base\nfirst push\n');
+    await git(['commit', '-am', 'first push'], repoDir);
+    const firstPushSha = await git(['rev-parse', 'HEAD'], repoDir);
+    await writeFile(path.join(repoDir, 'README.md'), 'base\nsecond push\n');
+    await git(['commit', '-am', 'second push'], repoDir);
+    const fastForwardSha = await git(['rev-parse', 'HEAD'], repoDir);
+    await git(['reset', '--hard', baseSha], repoDir);
+    await writeFile(path.join(repoDir, 'README.md'), 'base\nrebased\n');
+    await git(['commit', '-am', 'rebased'], repoDir);
+    const rebasedSha = await git(['rev-parse', 'HEAD'], repoDir);
+    const commandRunner: CommandRunner = async (args, cwd) => {
+      try {
+        return { ok: true, out: await git(args, cwd), err: '' };
+      } catch (error) {
+        return { ok: false, out: '', err: error instanceof Error ? error.message : String(error) };
+      }
+    };
+    const cache = createRepoCache({ rootDir: tempDir, commandRunner });
+    assert.equal(await cache.hydrateSince('Acme/repo', firstPushSha, fastForwardSha), true);
+    assert.equal(await cache.hydrateSince('Acme/repo', firstPushSha, rebasedSha), false);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});

@@ -78,6 +78,7 @@ interface TeamReviewRepoCache {
   ensureRepo(repo: string): Promise<string | null>;
   fetchPr(repo: string, number: number, baseRef: string): Promise<{ ok: boolean; headSha: string | null; err: string }>;
   hydrateRange(repo: string, number: number, headSha: string): Promise<{ ok: boolean; err: string }>;
+  hydrateSince(repo: string, sinceSha: string, headSha: string): Promise<boolean>;
 }
 
 interface TeamReviewWorkDir {
@@ -453,6 +454,13 @@ function createTeamReviewDispatcher({
       .catch((error: unknown) => ({ ok: false, err: errorMessage(error) }));
   }
 
+  async function hydratePriorRange(candidate: TeamReviewCandidate, priorHead: string, head: string): Promise<boolean> {
+    return repoCache.hydrateSince(candidate.repo, priorHead, head).catch((error: unknown) => {
+      log.warn(`[${core.TEAM_REVIEW_LANE_ID}] could not fetch the earlier reviewed head for ${candidate.key}: ${errorMessage(error)}`);
+      return false;
+    });
+  }
+
   async function stageCheckout(candidate: TeamReviewCandidate, detail: PrDetail): Promise<{ projectPath: string } | { error: string }> {
     const projectPath = await repoCache.ensureRepo(candidate.repo);
     if (!projectPath) return { error: `could not clone ${candidate.repo}` };
@@ -579,6 +587,8 @@ function createTeamReviewDispatcher({
       if (!created.ok) return failed(`could not stage a checkout: ${firstLine(created.err ?? '') || 'git worktree add failed'}`);
       const hydrated = await hydrateBlobs(candidate, detail);
       if (!hydrated.ok) return failed(`could not fetch the file contents of ${candidate.key}${hydrated.err ? `: ${firstLine(hydrated.err)}` : ''}`);
+      const priorReview = args.priorReview ?? null;
+      const isPriorHeadAvailable = priorReview ? await hydratePriorRange(candidate, priorReview.head, detail.headRefOid) : false;
       let dependencyState: 'linked' | 'none' = 'none';
       let linkedCheckout: string | null = null;
       try {
@@ -595,6 +605,7 @@ function createTeamReviewDispatcher({
       }
       const prompt = core.buildReviewPrompt({
         candidate, detail, tier, reasons, checkoutPath: worktreePath, reportPath, postingPath, dependencyState, reviewSkill: readReviewSkill(),
+        priorReview, isPriorHeadAvailable,
       });
       await fs.writeFile(path.join(workDir, core.REVIEW_PROMPT_FILENAME), prompt, 'utf8');
       await fs.mkdir(emptyGhConfigDir(workDir), { recursive: true });

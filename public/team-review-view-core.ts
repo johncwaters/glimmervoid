@@ -233,6 +233,12 @@ export function tierLabel(tier: ReviewDraft['tier']): string {
   return tier === 'full' ? 'full' : 'light';
 }
 
+export function reviewScopeText(review: Pick<ReviewDraft, 'tier' | 'reasons' | 'priorReviewedHead'>): string {
+  const kind = review.priorReviewedHead ? `${tierLabel(review.tier)} re-review of changes since ${review.priorReviewedHead.slice(0, 7)}` : `${tierLabel(review.tier)} review`;
+  const reasons = review.reasons.join(', ');
+  return reasons ? `${kind}: ${reasons}` : kind;
+}
+
 export function verdictRecommendation(verdict: ReviewDraft['verdict']): string {
   return VERDICT_RECOMMENDATIONS[verdict] ?? verdictLabel(verdict);
 }
@@ -325,8 +331,8 @@ export function readyRowSignature(draft: ReviewDraft): string {
 }
 
 export function detailHeadingSignature(review: ReviewDraft | InFlightReview): string {
-  if (!('reviewedHead' in review)) return JSON.stringify([review.prCreatedAt]);
-  return JSON.stringify([review.prCreatedAt, review.reviewedAt, review.postedAt, review.githubReviews, review.liveHead]);
+  if (!('reviewedHead' in review)) return JSON.stringify([review.prCreatedAt, review.priorReviewedHead]);
+  return JSON.stringify([review.prCreatedAt, review.reviewedAt, review.postedAt, review.githubReviews, review.liveHead, review.priorReviewedHead]);
 }
 
 export function isInFlightProgressOnlyChange(previous: TeamReviewStatus | null | undefined, next: TeamReviewStatus): boolean {

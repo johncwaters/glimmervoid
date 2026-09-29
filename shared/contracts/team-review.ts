@@ -120,6 +120,16 @@ export const PrReviewState = z.object({
 });
 export type PrReviewState = z.infer<typeof PrReviewState>;
 
+export const PriorReview = z.object({
+  head: CommitSha,
+  verdict: ReviewVerdict,
+  summary: z.string(),
+  body: z.string(),
+  comments: z.array(ReviewComment),
+  wasPosted: z.boolean(),
+});
+export type PriorReview = z.infer<typeof PriorReview>;
+
 export const ReviewDraft = z.object({
   key: z.string(),
   repo: repoSlug,
@@ -142,6 +152,7 @@ export const ReviewDraft = z.object({
   prCreatedAt: z.string().optional(),
   reviewedAt: z.number().finite().optional(),
   postedAt: z.number().finite().optional(),
+  priorReviewedHead: CommitSha.optional(),
 });
 export type ReviewDraft = z.infer<typeof ReviewDraft>;
 
@@ -186,6 +197,8 @@ export const TeamReviewStateEntry = z.object({
   githubReviews: z.array(GithubReview).optional(),
   liveHead: CommitSha.optional(),
   requeuedHead: CommitSha.optional(),
+  priorReview: PriorReview.optional(),
+  discardedReviewHead: CommitSha.optional(),
   updatedAt: z.number().finite(),
 });
 export type TeamReviewStateEntry = z.infer<typeof TeamReviewStateEntry>;
@@ -219,6 +232,7 @@ export const InFlightReview = z.object({
   toolCalls: z.number().int().nonnegative(),
   recentSteps: z.array(ReviewProgressStep),
   prCreatedAt: z.string().optional(),
+  priorReviewedHead: CommitSha.optional(),
 });
 export type InFlightReview = z.infer<typeof InFlightReview>;
 

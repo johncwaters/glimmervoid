@@ -6,7 +6,7 @@ import type { TickOutcome } from './lane-runner.ts';
 import type { PrReference, PrReviewSnapshot, PrSearchResult } from './pr-gh.ts';
 import { ReviewDraft } from '../shared/contracts/team-review.ts';
 import type {
-  InFlightReview, PrDetail, ResumableReview, ReviewDraft as ReviewDraftType, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
+  InFlightReview, PrDetail, PriorReview, ResumableReview, ReviewDraft as ReviewDraftType, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../shared/contracts/team-review.ts';
 
 interface TeamReviewGithub {
@@ -25,6 +25,7 @@ interface SpawnReviewArgs {
   tier: ReviewTier;
   reasons: string[];
   resume?: ResumableReview;
+  priorReview?: PriorReview;
   reportProgress?: (event: ReviewProgressEvent) => void;
 }
 
@@ -160,9 +161,16 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     }
     const draft = outcome;
     entry.resumable = null;
-    if (draft.status !== 'error') delete entry.requeuedHead;
+    if (draft.status !== 'error') {
+      delete entry.requeuedHead;
+      delete entry.discardedReviewHead;
+    }
     entry.reviewAttempts = core.reviewAttemptsAfter(entry, draft.reviewedHead);
-    entry.draft = { ...draft, ...(args.candidate.prCreatedAt ? { prCreatedAt: args.candidate.prCreatedAt } : {}) };
+    entry.draft = {
+      ...draft,
+      ...(args.candidate.prCreatedAt ? { prCreatedAt: args.candidate.prCreatedAt } : {}),
+      ...(args.priorReview ? { priorReviewedHead: args.priorReview.head } : {}),
+    };
     entry.reviewedHead = draft.reviewedHead;
     entry.skipReason = null;
     entry.updatedAt = now();
@@ -256,13 +264,17 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
         delete entry.requeuedHead;
         continue;
       }
+      const priorReview = core.priorReviewFor(entry, detail.headRefOid) ?? undefined;
+      const earlierReviewKept = core.earlierReviewToKeep(entry, detail.headRefOid);
+      delete entry.priorReview;
+      if (earlierReviewKept) entry.priorReview = earlierReviewKept;
       entry.inFlight = true;
       freeSlots -= 1;
       progressByKey.set(candidate.key, core.startReviewProgress({
-        candidate, tier: triage.tier, reasons: triage.reasons, head: detail.headRefOid, at: now(),
+        candidate, tier: triage.tier, reasons: triage.reasons, head: detail.headRefOid, at: now(), priorReviewedHead: priorReview?.head,
       }));
       const args: SpawnReviewArgs = {
-        candidate, detail, tier: triage.tier, reasons: triage.reasons, resume, reportProgress: progressReporter(candidate.key),
+        candidate, detail, tier: triage.tier, reasons: triage.reasons, resume, priorReview, reportProgress: progressReporter(candidate.key),
       };
       loop.track(runReview(args).catch((error: unknown) => {
         log.warn(`[${core.TEAM_REVIEW_LANE_ID}] review crashed for ${candidate.key}: ${errorMessage(error)}`);
@@ -327,7 +339,10 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     entry.reviewAttempts = 0;
     entry.reviewedHead = null;
     entry.requeuedHead = head;
-    if (entry.draft.status === 'discarded') entry.draft = { ...entry.draft, status: 'stale' };
+    if (entry.draft.status === 'discarded') {
+      entry.discardedReviewHead = entry.draft.reviewedHead;
+      entry.draft = { ...entry.draft, status: 'stale' };
+    }
     core.markDraftStale(entry, now());
     entry.updatedAt = now();
     await persist();

@@ -13,7 +13,7 @@ import {
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, emptyStateText, githubReviewItems, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText,
-  reviewProgressSteps, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictSealText, verdictTone, withReviewerNote,
+  reviewProgressSteps, reviewScopeText, severityCounts, severityPresentation, verdictLabel, verdictSealKind, verdictSealText, verdictTone, withReviewerNote,
 } from './team-review-view-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
 import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
@@ -227,8 +227,7 @@ function createDetailHeading(review: ReviewDraft | InFlightReview): HTMLElement 
   title.append(pullRequestLink(review), el('h2', null, review.title));
   const metadata = el('div', 'pr-detail-meta');
   metadata.append(el('span', null, review.author));
-  const reasons = review.reasons.join(', ');
-  metadata.append(el('span', null, reasons ? `${tierLabel(review.tier)} review: ${reasons}` : `${tierLabel(review.tier)} review`));
+  metadata.append(el('span', null, reviewScopeText(review)));
   const openedAge = createAgeReadout('Opened', review.prCreatedAt);
   if (openedAge) metadata.append(openedAge);
   if ('reviewedHead' in review) {

@@ -152,6 +152,19 @@ function createRepoCache({ rootDir, commandRunner = runGit, remoteUrlFor = (repo
         return { ok: hydrated.ok, err: hydrated.err };
       });
     },
+
+    async hydrateSince(repo: string, sinceSha: string, headSha: string): Promise<boolean> {
+      const parts = repoParts(repo);
+      if (!parts || !CommitSha.safeParse(sinceSha).success || !CommitSha.safeParse(headSha).success) return false;
+      return queueFor(repo).run(async () => {
+        const repoDir = await ensureRepoUnlocked(repo, parts);
+        if (!repoDir) return false;
+        const hydrated = await run(['diff', '--shortstat', sinceSha, headSha], repoDir, NETWORK_GIT_ENV);
+        if (!hydrated.ok) return false;
+        const isSinceAncestorOfHead = await run(['merge-base', '--is-ancestor', sinceSha, headSha], repoDir);
+        return isSinceAncestorOfHead.ok;
+      });
+    },
   };
 }
 

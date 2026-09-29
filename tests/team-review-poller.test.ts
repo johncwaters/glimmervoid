@@ -1075,3 +1075,181 @@ test('tool steps inside the emit interval coalesce into one trailing status that
   assert.equal(timers[1]?.isCleared, true);
   assert.deepEqual(statuses.at(-1)?.inFlight, []);
 });
+
+test('a requeued posted review whose PR moved reviews the new head as a re-review of the posted one', async () => {
+  const key = `${REPO}#1`;
+  const { poller, github, spawned } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.ok(await poller.updateDraft(key, { reviewedHead: HEAD_ONE, status: 'ready' }, { status: 'posted' }));
+  github.heads.set(1, HEAD_TWO);
+  assert.equal(await poller.requeue(key, HEAD_ONE), true);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 2);
+  assert.equal(spawned[1].priorReview?.head, HEAD_ONE);
+  assert.equal(spawned[1].priorReview?.wasPosted, true);
+  assert.equal(poller.getDraft(key)?.reviewedHead, HEAD_TWO);
+  assert.equal(poller.getDraft(key)?.priorReviewedHead, HEAD_ONE);
+  await poller.stop();
+});
+
+test('a requeued discard whose PR moved reviews the new head from scratch, not as a re-review of the rejected one', async () => {
+  const key = `${REPO}#1`;
+  const { poller, github, spawned } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.ok(await poller.updateDraft(key, { reviewedHead: HEAD_ONE, status: 'ready' }, { status: 'discarded' }));
+  github.heads.set(1, HEAD_TWO);
+  assert.equal(await poller.requeue(key, HEAD_ONE), true);
+  assert.equal(poller._state()[key]?.discardedReviewHead, HEAD_ONE);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 2);
+  assert.equal(spawned[1].priorReview, undefined);
+  assert.equal(poller.getDraft(key)?.reviewedHead, HEAD_TWO);
+  assert.equal(poller.getDraft(key)?.priorReviewedHead, undefined);
+  assert.equal(poller._state()[key]?.discardedReviewHead, undefined);
+  await poller.stop();
+});
+
+test('a requeue at the head of a re-review redoes it from scratch instead of reusing the older earlier review', async () => {
+  const key = `${REPO}#1`;
+  const { poller, github, spawned } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.ok(await poller.updateDraft(key, { reviewedHead: HEAD_ONE, status: 'ready' }, { status: 'posted' }));
+  github.heads.set(1, HEAD_TWO);
+  assert.equal(await poller.requeue(key, HEAD_ONE), true);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned[1].priorReview?.head, HEAD_ONE);
+  assert.ok(await poller.updateDraft(key, { reviewedHead: HEAD_TWO, status: 'ready' }, { status: 'posted' }));
+  assert.equal(await poller.requeue(key, HEAD_TWO), true);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 3);
+  assert.equal(spawned[2].priorReview, undefined);
+  assert.equal(poller.getDraft(key)?.priorReviewedHead, undefined);
+  await poller.stop();
+});
+
+test('a from-scratch redo at the head of a re-review that crashes retries from scratch', async () => {
+  const key = `${REPO}#1`;
+  let isSpawnFailing = false;
+  const { poller, github, spawned } = setup({
+    spawnReview: async (args) => {
+      spawned.push(args);
+      if (isSpawnFailing) throw new Error('pty exploded');
+      return draftFor(args);
+    },
+  });
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.ok(await poller.updateDraft(key, { reviewedHead: HEAD_ONE, status: 'ready' }, { status: 'posted' }));
+  github.heads.set(1, HEAD_TWO);
+  assert.equal(await poller.requeue(key, HEAD_ONE), true);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned[1].priorReview?.head, HEAD_ONE);
+  assert.equal(await poller.requeue(key, HEAD_TWO), true);
+  isSpawnFailing = true;
+  await poller.tick();
+  await settle();
+  assert.equal(spawned[2].priorReview, undefined);
+  assert.equal(poller.getDraft(key)?.status, 'error');
+  isSpawnFailing = false;
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 4);
+  assert.equal(spawned[3].priorReview, undefined);
+  assert.equal(poller.getDraft(key)?.priorReviewedHead, undefined);
+  await poller.stop();
+});
+
+test('a crashed same-head redo of a posted review still hands the posted review to the next head', async () => {
+  const key = `${REPO}#1`;
+  let isSpawnFailing = false;
+  const { poller, github, spawned, setNow } = setup({
+    spawnReview: async (args) => {
+      spawned.push(args);
+      if (isSpawnFailing) throw new Error('pty exploded');
+      return draftFor(args);
+    },
+  });
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.ok(await poller.updateDraft(key, { reviewedHead: HEAD_ONE, status: 'ready' }, { status: 'posted' }));
+  assert.equal(await poller.requeue(key, HEAD_ONE), true);
+  isSpawnFailing = true;
+  await poller.tick();
+  await settle();
+  assert.equal(spawned[1].priorReview, undefined);
+  assert.equal(poller.getDraft(key)?.status, 'error');
+  isSpawnFailing = false;
+  github.heads.set(1, HEAD_TWO);
+  setNow(1000 + DEFAULT_RE_REVIEW_AFTER_HOURS * 3600000);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 3);
+  assert.equal(spawned[2].priorReview?.head, HEAD_ONE);
+  assert.equal(spawned[2].priorReview?.wasPosted, true);
+  await poller.stop();
+});
+
+test('a requeue at an unchanged head reviews again from scratch', async () => {
+  const key = `${REPO}#1`;
+  const { poller, github, spawned } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.equal(await poller.requeue(key, HEAD_ONE), true);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 2);
+  assert.equal(spawned[1].priorReview, undefined);
+  assert.equal(poller.getDraft(key)?.priorReviewedHead, undefined);
+  await poller.stop();
+});
+
+test('a re-review that crashes keeps the earlier review for its retry', async () => {
+  const key = `${REPO}#1`;
+  let isSpawnFailing = false;
+  const { poller, github, spawned } = setup({
+    spawnReview: async (args) => {
+      spawned.push(args);
+      if (isSpawnFailing) throw new Error('pty exploded');
+      return draftFor(args);
+    },
+  });
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  github.heads.set(1, HEAD_TWO);
+  assert.equal(await poller.requeue(key, HEAD_ONE), true);
+  isSpawnFailing = true;
+  await poller.tick();
+  await settle();
+  assert.equal(poller.getDraft(key)?.status, 'error');
+  isSpawnFailing = false;
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 3);
+  assert.equal(spawned[2].priorReview?.head, HEAD_ONE);
+  assert.equal(spawned[2].priorReview?.wasPosted, false);
+  assert.equal(poller.getDraft(key)?.status, 'ready');
+  assert.equal(poller.getDraft(key)?.priorReviewedHead, HEAD_ONE);
+  await poller.stop();
+});
