@@ -57,6 +57,7 @@ type WorktreeArgs = {
   timeoutMs?: number;
   wtDir?: string;
   shareList?: string[] | null;
+  keepTrackableLinks?: boolean;
   teamId?: string;
   label?: string;
   baseBranch?: string | null;
@@ -326,6 +327,11 @@ function createGitWorkspace(opts: {
     return (await run(['remote', 'get-url', 'origin'], projectPath)).ok;
   }
 
+  async function originUrl({ projectPath }: { projectPath: string }): Promise<string | null> {
+    const remote = await run(['remote', 'get-url', 'origin'], projectPath);
+    return remote.ok && remote.out ? remote.out : null;
+  }
+
   async function fastForwardBaseFromOrigin(projectPath: string, branch: string, upstream: string): Promise<boolean> {
     const checkedOut = (await run(['rev-parse', '--abbrev-ref', 'HEAD'], projectPath)).out;
     const decision = decideResyncAction('behind', checkedOut === branch);
@@ -466,7 +472,7 @@ function createGitWorkspace(opts: {
     return { cwd: wtDir, isGit: true, branch, base, baseSha };
   }
 
-  async function populateShare({ projectPath, wtDir, shareList }: WorktreeArgs): Promise<void> {
+  async function populateShare({ projectPath, wtDir, shareList, keepTrackableLinks = false }: WorktreeArgs): Promise<void> {
     if (!wtDir || !shareList || !shareList.length) return;
     const ignored: string[] = [];
     for (const rel of shareList) {
@@ -476,6 +482,7 @@ function createGitWorkspace(opts: {
     }
     if (!ignored.length) return;
     try { await populateWorktree(projectPath, wtDir, ignored); } catch {}
+    if (keepTrackableLinks) return;
     await refuseTrackableLinks(wtDir, ignored);
   }
 
@@ -1205,6 +1212,7 @@ function createGitWorkspace(opts: {
     mergeKeep: serialized(mergeKeepBody),
     rebaseOnly: serialized(rebaseOnlyBody),
     populate: serialized(populateShare),
+    originUrl: serialized(originUrl),
     removeWorktreeByPath: admitted(removeWorktreeByPathBody, (args: WorktreeArgs): QueuedGitResult => ({
       ok: false,
       out: '',

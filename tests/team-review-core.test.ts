@@ -18,6 +18,7 @@ import {
   errorDraft,
   eventForAction,
   githubReviewsFrom,
+  githubRepoSlugFromRemote,
   hasViewerReviewedAt,
   invalidComments,
   isSettledAtHead,
@@ -31,6 +32,7 @@ import {
   readyDraft,
   renderReview,
   repoFromSearchItem,
+  remoteMatchesGithubRepo,
   restoreDraftAtReviewedHead,
   resumeDecision,
   reviewAttemptsAfter,
@@ -417,10 +419,39 @@ test('an error draft is a valid draft that can never be posted', () => {
 
 const OWNER_SPECIFIC_PROMPT_TEXT = [/pr-review skill/, /qa-swarm/i, /codex/i, /code-review/i, /workflow/i, /routing/i];
 
-function reviewPromptFor(overrides: { reviewSkill?: string } = {}): string {
+test('GitHub remote slugs accept supported transports and preserve dotted repository names', () => {
+  const cases: [string, string | null][] = [
+    ['https://github.com/PostHog/twig.com', 'PostHog/twig.com'],
+    ['https://github.com/PostHog/twig.com.git/', 'PostHog/twig.com'],
+    ['git@github.com:PostHog/twig.com.git', 'PostHog/twig.com'],
+    ['ssh://git@github.com/PostHog/twig.com/', 'PostHog/twig.com'],
+    ['https://gitlab.com/PostHog/twig.com', null],
+    ['https://github.com/PostHog', null],
+    ['https://github.com//twig.com', null],
+    ['https://github.com/PostHog/twig.com/pull/1', null],
+    ['garbage', null],
+  ];
+  for (const [remote, expected] of cases) assert.equal(githubRepoSlugFromRemote(remote), expected, remote);
+  assert.equal(remoteMatchesGithubRepo('git@github.com:posthog/TWIG.com.git', 'PostHog/twig.com'), true);
+  assert.equal(remoteMatchesGithubRepo('git@github.com:posthog/other.git', 'PostHog/twig.com'), false);
+});
+
+function reviewPromptFor(overrides: { reviewSkill?: string; dependencyState?: 'linked' | 'none' } = {}): string {
   const detail = prDetail('PostHog/wizard', 1350, [{ path: 'src/a.ts', additions: 3, deletions: 1 }]);
   return buildReviewPrompt({ candidate: CANDIDATE, detail, tier: 'full', reasons: ['touches auth'], checkoutPath: '/checkout', reportPath: '/work/report.md', postingPath: '/work/posting.json', ...overrides });
 }
+
+test('the review prompt explains linked and missing dependency states', () => {
+  const linked = reviewPromptFor({ dependencyState: 'linked' });
+  assert.match(linked, /node_modules in the checkout is a read-only link/);
+  assert.match(linked, /installed for that checkout's lockfile/);
+  assert.match(linked, /run the repository's typecheck, lint and tests/);
+  assert.match(linked, /changes dependency manifests/);
+  assert.match(linked, /name the mismatch under GAPS/);
+  const none = reviewPromptFor({ dependencyState: 'none' });
+  assert.match(none, /No dependencies are installed and package registries are unreachable/);
+  assert.match(none, /Do not attempt an install/);
+});
 
 test('the review prompt declines posting, fences PR text as untrusted and pins the head', () => {
   const detail = prDetail('PostHog/wizard', 1350, [{ path: 'src/a.ts', additions: 3, deletions: 1 }]);

@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { isDispatchWorkdir } from '../server/core/ingest-agent-core.ts';
+import { createGitWorkspace } from '../server/git-workspace.ts';
+import { git, hasGit } from './helpers/git-fixture.ts';
 import { AUTOMATED_REVIEW_NOTE, FULL_MODEL, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_POSTING_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_REPORT_FILENAME, STAMP_MODEL } from '../server/core/team-review-core.ts';
 import type { ReviewProgressEvent, ReviewTier } from '../server/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/team-review-poller.ts';
@@ -81,6 +83,8 @@ function setup(overrides: Partial<TeamReviewDispatchOptions> & {
       stageDetachedWorktree: async ({ worktreePath }) => { staged.push(String(worktreePath)); return { ok: true }; },
       removeWorktreeByPath: async ({ cwd }) => { removed.push(String(cwd)); return { ok: true }; },
       pruneWorktrees: async ({ projectPath }) => { pruned.push(projectPath); return { ok: true }; },
+      originUrl: async () => null,
+      populate: async () => {},
     },
     spawnSession: async (call) => {
       const workDir = workDirOf(call);
@@ -115,6 +119,234 @@ function reviewArgs(tier: ReviewTier) {
   return { candidate, detail, tier, reasons: ['a reason'] };
 }
 
+function checkoutSharingWorkspace(overrides: Partial<TeamReviewDispatchOptions['gitWorkspace']> = {}): TeamReviewDispatchOptions['gitWorkspace'] {
+  return {
+    stageDetachedWorktree: async ({ worktreePath }) => { fs.mkdirSync(String(worktreePath), { recursive: true }); return { ok: true }; },
+    originUrl: async () => 'https://github.com/Acme/app',
+    populate: async ({ projectPath, wtDir }) => { fs.symlinkSync(path.join(projectPath, 'node_modules'), path.join(wtDir, 'node_modules'), 'dir'); },
+    removeWorktreeByPath: async ({ cwd }) => { fs.rmSync(String(cwd), { recursive: true, force: true }); return { ok: true }; },
+    pruneWorktrees: async () => ({ ok: true }),
+    ...overrides,
+  };
+}
+
+test('local checkout sharing prefers configured projects with matching origins and dependencies', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-clones-'));
+  const wrong = path.join(root, 'wrong');
+  const missingModules = path.join(root, 'missing-modules');
+  const preferred = path.join(root, 'preferred');
+  const rootClone = path.join(root, 'root-clone');
+  const populated: { projectPath: string; wtDir: string; shareList: string[] }[] = [];
+  for (const directory of [wrong, missingModules, preferred, rootClone]) fs.mkdirSync(directory);
+  for (const directory of [wrong, preferred, rootClone]) fs.mkdirSync(path.join(directory, 'node_modules'));
+  const { review, spawns, cleanup } = setup({
+    readLocalCheckoutConfig: () => ({ projects: [{ path: wrong }, { path: missingModules }, { path: preferred }], repoRoots: [root] }),
+    gitWorkspace: checkoutSharingWorkspace({
+      originUrl: async ({ projectPath }) => projectPath === fs.realpathSync(wrong) ? 'https://github.com/Acme/other.git' : 'git@github.com:acme/APP.git',
+      populate: async (args) => { populated.push(args); fs.symlinkSync(path.join(args.projectPath, 'node_modules'), path.join(args.wtDir, 'node_modules'), 'dir'); },
+    }),
+  });
+  try {
+    assert.equal((await review(reviewArgs('full'))).status, 'ready');
+    assert.deepEqual(populated, [{ projectPath: fs.realpathSync(preferred), wtDir: populated[0]?.wtDir, shareList: ['node_modules'], keepTrackableLinks: true }]);
+    assert.match(spawns[0]?.prompt ?? '', /node_modules in the checkout is a read-only link/);
+    assert.deepEqual(spawns[0]?.settingsSandbox, teamReviewSandbox(spawns[0]?.workDir ?? '', fs.realpathSync(preferred)));
+  } finally {
+    cleanup();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a pull request that commits its own node_modules link is reviewed without dependencies', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-foreign-link-'));
+  const checkout = path.join(root, 'checkout');
+  const foreignModules = path.join(root, 'foreign-modules');
+  fs.mkdirSync(path.join(checkout, 'node_modules'), { recursive: true });
+  fs.mkdirSync(foreignModules);
+  const warnings: string[] = [];
+  const { review, spawns, cleanup } = setup({
+    readLocalCheckoutConfig: () => ({ projects: [{ path: checkout }] }),
+    log: { warn: (message) => { warnings.push(message); } },
+    gitWorkspace: checkoutSharingWorkspace({
+      stageDetachedWorktree: async ({ worktreePath }) => {
+        fs.mkdirSync(String(worktreePath), { recursive: true });
+        fs.symlinkSync(foreignModules, path.join(String(worktreePath), 'node_modules'), 'dir');
+        return { ok: true };
+      },
+      populate: async () => {},
+    }),
+  });
+  try {
+    assert.equal((await review(reviewArgs('full'))).status, 'ready');
+    assert.match(spawns[0]?.prompt ?? '', /No dependencies are installed/);
+    assert.deepEqual(spawns[0]?.settingsSandbox, teamReviewSandbox(spawns[0]?.workDir ?? ''));
+    assert.match(warnings.join('\n'), /node_modules could not be linked/);
+  } finally {
+    cleanup();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function initRepoIgnoringModulesDirectory(prefix: string): string {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  git(['init'], directory);
+  git(['config', 'user.email', 'test@example.com'], directory);
+  git(['config', 'user.name', 'Glimmervoid Test'], directory);
+  git(['config', 'commit.gpgsign', 'false'], directory);
+  fs.writeFileSync(path.join(directory, '.gitignore'), 'node_modules/\n', 'utf8');
+  git(['add', '-A'], directory);
+  git(['commit', '-m', 'init'], directory);
+  return fs.realpathSync(directory);
+}
+
+async function populateModulesIntoIgnoringCheckout(keepTrackableLinks: boolean): Promise<boolean> {
+  const localClone = initRepoIgnoringModulesDirectory('team-review-local-clone-');
+  const reviewCheckout = initRepoIgnoringModulesDirectory('team-review-pr-checkout-');
+  fs.mkdirSync(path.join(localClone, 'node_modules'));
+  try {
+    await createGitWorkspace().populate({ projectPath: localClone, wtDir: reviewCheckout, shareList: ['node_modules'], keepTrackableLinks });
+    return fs.lstatSync(path.join(reviewCheckout, 'node_modules'), { throwIfNoEntry: false })?.isSymbolicLink() === true;
+  } finally {
+    fs.rmSync(localClone, { recursive: true, force: true });
+    fs.rmSync(reviewCheckout, { recursive: true, force: true });
+  }
+}
+
+test('a review checkout whose gitignore lists node_modules with a trailing slash keeps the shared node_modules link', { skip: !hasGit() }, async () => {
+  assert.equal(await populateModulesIntoIgnoringCheckout(true), true);
+});
+
+test('a session worktree still refuses a node_modules link its gitignore only matches as a directory', { skip: !hasGit() || process.platform === 'win32' }, async () => {
+  assert.equal(await populateModulesIntoIgnoringCheckout(false), false);
+});
+
+test('local checkout sharing sorts root children and skips hidden and node_modules directories', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-roots-'));
+  const populated: string[] = [];
+  for (const name of ['z-last', 'a-first', '.hidden', 'node_modules']) {
+    fs.mkdirSync(path.join(root, name, 'node_modules'), { recursive: true });
+  }
+  const { review, cleanup } = setup({
+    readLocalCheckoutConfig: () => ({ projects: [], repoRoots: [root] }),
+    gitWorkspace: checkoutSharingWorkspace({
+      originUrl: async () => 'ssh://git@github.com/Acme/app.git',
+      populate: async ({ projectPath, wtDir }) => { populated.push(projectPath); fs.symlinkSync(path.join(projectPath, 'node_modules'), path.join(wtDir, 'node_modules'), 'dir'); },
+    }),
+  });
+  try {
+    assert.equal((await review(reviewArgs('stamp'))).status, 'ready');
+    assert.deepEqual(populated, [fs.realpathSync(path.join(root, 'a-first'))]);
+  } finally {
+    cleanup();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('local checkout sharing skips nonmatching origins and checkouts without dependencies', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-no-share-'));
+  const checkout = path.join(root, 'checkout');
+  fs.mkdirSync(checkout);
+  const populated: string[] = [];
+  let originReads = 0;
+  let origin = 'https://github.com/Acme/app';
+  const { review, spawns, cleanup } = setup({
+    readLocalCheckoutConfig: () => ({ projects: [{ path: checkout }, { path: checkout }], repoRoots: [] }),
+    gitWorkspace: checkoutSharingWorkspace({
+      originUrl: async () => { originReads += 1; return origin; },
+      populate: async ({ projectPath }) => { populated.push(projectPath); },
+    }),
+  });
+  try {
+    assert.equal((await review(reviewArgs('full'))).status, 'ready');
+    fs.mkdirSync(path.join(checkout, 'node_modules'));
+    origin = 'https://github.com/Acme/other';
+    assert.equal((await review(reviewArgs('full'))).status, 'ready');
+    assert.deepEqual(populated, []);
+    assert.equal(originReads, 1);
+    for (const spawn of spawns) assert.match(spawn.prompt, /No dependencies are installed/);
+  } finally {
+    cleanup();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('local checkout discovery reads the current project configuration for each review', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-live-config-'));
+  const checkout = path.join(root, 'checkout');
+  fs.mkdirSync(path.join(checkout, 'node_modules'), { recursive: true });
+  const projects: { path: string }[] = [];
+  const { review, spawns, cleanup } = setup({
+    readLocalCheckoutConfig: () => ({ projects }),
+    gitWorkspace: checkoutSharingWorkspace(),
+  });
+  try {
+    assert.equal((await review(reviewArgs('full'))).status, 'ready');
+    projects.push({ path: checkout });
+    assert.equal((await review(reviewArgs('full'))).status, 'ready');
+    assert.match(spawns[0]?.prompt ?? '', /No dependencies are installed/);
+    assert.match(spawns[1]?.prompt ?? '', /node_modules in the checkout is a read-only link/);
+  } finally {
+    cleanup();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a failed dependency share logs a warning and review continues without dependencies', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-share-fail-'));
+  const checkout = path.join(root, 'checkout');
+  fs.mkdirSync(path.join(checkout, 'node_modules'), { recursive: true });
+  const warnings: string[] = [];
+  const { review, spawns, cleanup } = setup({
+    readLocalCheckoutConfig: () => ({ projects: [{ path: checkout }] }),
+    log: { warn: (message) => { warnings.push(message); } },
+    gitWorkspace: checkoutSharingWorkspace({
+      originUrl: async () => 'https://github.com/Acme/app.git',
+      populate: async () => { throw new Error('share refused'); },
+    }),
+  });
+  try {
+    assert.equal((await review(reviewArgs('full'))).status, 'ready');
+    assert.match(warnings.join('\n'), /\[team-review\].*share refused/);
+    assert.match(spawns[0]?.prompt ?? '', /No dependencies are installed/);
+  } finally {
+    cleanup();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('local checkout sharing excludes the cache clone and both review roots', async () => {
+  const cacheHome = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-cache-exclude-'));
+  const cached = path.join(cacheHome, 'team-review-repos', 'Acme', 'app');
+  fs.mkdirSync(path.join(cached, 'node_modules'), { recursive: true });
+  let workRoot = '';
+  let worktreeRoot = '';
+  const populated: string[] = [];
+  const { review, workRoot: reviewWorkRoot, worktreeRoot: reviewWorktreeRoot, cleanup } = setup({
+    repoCacheRoot: path.join(cacheHome, 'team-review-repos'),
+    repoCache: {
+      listRepos: async () => [],
+      ensureRepo: async () => cached,
+      fetchPr: async () => ({ ok: true, headSha: HEAD, err: '' }),
+      hydrateRange: async () => ({ ok: true, err: '' }),
+    },
+    readLocalCheckoutConfig: () => ({ projects: [cached, path.join(workRoot, 'clone'), path.join(worktreeRoot, 'clone')].map((checkoutPath) => ({ path: checkoutPath })) }),
+    gitWorkspace: checkoutSharingWorkspace({
+      populate: async ({ projectPath }) => { populated.push(projectPath); },
+    }),
+  });
+  workRoot = reviewWorkRoot;
+  worktreeRoot = reviewWorktreeRoot;
+  fs.mkdirSync(path.join(workRoot, 'clone', 'node_modules'), { recursive: true });
+  fs.mkdirSync(path.join(worktreeRoot, 'clone', 'node_modules'), { recursive: true });
+  try {
+    assert.equal((await review(reviewArgs('full'))).status, 'ready');
+    assert.deepEqual(populated, []);
+  } finally {
+    cleanup();
+    fs.rmSync(cacheHome, { recursive: true, force: true });
+  }
+});
+
 test('review work dirs are created under the selected root', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-work-root-'));
   try {
@@ -138,6 +370,8 @@ test('shutdown keeps a captured review session and its two directories', async (
       stageDetachedWorktree: async ({ worktreePath }) => { fs.mkdirSync(String(worktreePath), { recursive: true }); return { ok: true }; },
       removeWorktreeByPath: async () => { throw new Error('checkout must remain'); },
       pruneWorktrees: async () => ({ ok: true }),
+      originUrl: async () => null,
+      populate: async () => {},
     },
     spawnSession: async ({ onSessionId }) => { onSessionId?.('claude-1'); shutdownController.abort(); },
   });
@@ -167,6 +401,8 @@ test('shutdown without a captured session removes the review directories', async
       stageDetachedWorktree: async ({ worktreePath }) => { fs.mkdirSync(String(worktreePath), { recursive: true }); return { ok: true }; },
       removeWorktreeByPath: async ({ cwd }) => { removed.push(String(cwd)); fs.rmSync(String(cwd), { recursive: true, force: true }); return { ok: true }; },
       pruneWorktrees: async () => ({ ok: true }),
+      originUrl: async () => null,
+      populate: async () => {},
     },
     spawnSession: async () => { shutdownController.abort(); },
   });
@@ -208,6 +444,51 @@ test('resume uses the saved cwd and session with the remaining timeout without s
     cleanup();
     fs.rmSync(workDir, { recursive: true, force: true });
     fs.rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
+
+test('a resumed review whose checkout links a local clone still denies reads of that clone', async () => {
+  const localClone = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-resume-clone-')));
+  fs.mkdirSync(path.join(localClone, 'node_modules'));
+  const { dispatch, spawns, workRoot, worktreeRoot, cleanup } = setup({
+    now: () => 3000, readLocalCheckoutConfig: () => ({ projects: [{ path: localClone }] }), gitWorkspace: checkoutSharingWorkspace(),
+  });
+  const workDir = fs.mkdtempSync(path.join(workRoot, 'resume-work-'));
+  const worktreePath = fs.mkdtempSync(path.join(worktreeRoot, 'resume-tree-'));
+  fs.symlinkSync(path.join(localClone, 'node_modules'), path.join(worktreePath, 'node_modules'), 'dir');
+  fs.writeFileSync(path.join(workDir, REVIEW_PROMPT_FILENAME), 'original prompt');
+  const resume = { sessionId: 'claude-1', workDir, worktreePath, head: HEAD, deadlineAt: 81000, savedAt: 1000 };
+  try {
+    const outcome = await dispatch({ ...reviewArgs('full'), resume });
+    if ('kind' in outcome) throw new Error('expected a draft');
+    assert.deepEqual(spawns[0]?.settingsSandbox, teamReviewSandbox(workDir, localClone));
+  } finally {
+    cleanup();
+    fs.rmSync(localClone, { recursive: true, force: true });
+  }
+});
+
+test('a resumed review whose checkout links a directory other than the discovered clone denies no clone paths', async () => {
+  const localClone = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-resume-clone-')));
+  const foreignClone = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-resume-foreign-')));
+  fs.mkdirSync(path.join(localClone, 'node_modules'));
+  fs.mkdirSync(path.join(foreignClone, 'node_modules'));
+  const { dispatch, spawns, workRoot, worktreeRoot, cleanup } = setup({
+    now: () => 3000, readLocalCheckoutConfig: () => ({ projects: [{ path: localClone }] }), gitWorkspace: checkoutSharingWorkspace(),
+  });
+  const workDir = fs.mkdtempSync(path.join(workRoot, 'resume-work-'));
+  const worktreePath = fs.mkdtempSync(path.join(worktreeRoot, 'resume-tree-'));
+  fs.symlinkSync(path.join(foreignClone, 'node_modules'), path.join(worktreePath, 'node_modules'), 'dir');
+  fs.writeFileSync(path.join(workDir, REVIEW_PROMPT_FILENAME), 'original prompt');
+  const resume = { sessionId: 'claude-1', workDir, worktreePath, head: HEAD, deadlineAt: 81000, savedAt: 1000 };
+  try {
+    const outcome = await dispatch({ ...reviewArgs('full'), resume });
+    if ('kind' in outcome) throw new Error('expected a draft');
+    assert.deepEqual(spawns[0]?.settingsSandbox, teamReviewSandbox(workDir));
+  } finally {
+    cleanup();
+    fs.rmSync(localClone, { recursive: true, force: true });
+    fs.rmSync(foreignClone, { recursive: true, force: true });
   }
 });
 
@@ -304,6 +585,8 @@ test('a review that finished its report before shutdown returns the ready draft 
       stageDetachedWorktree: async ({ worktreePath }) => { fs.mkdirSync(String(worktreePath), { recursive: true }); return { ok: true }; },
       removeWorktreeByPath: async ({ cwd }) => { removed.push(String(cwd)); fs.rmSync(String(cwd), { recursive: true, force: true }); return { ok: true }; },
       pruneWorktrees: async () => ({ ok: true }),
+      originUrl: async () => null,
+      populate: async () => {},
     },
   });
   try {
@@ -329,6 +612,8 @@ test('a fresh review started after an unusable saved record is stopped with its 
       stageDetachedWorktree: async ({ worktreePath }) => { fs.mkdirSync(String(worktreePath), { recursive: true }); return { ok: true }; },
       removeWorktreeByPath: async () => ({ ok: true }),
       pruneWorktrees: async () => ({ ok: true }),
+      originUrl: async () => null,
+      populate: async () => {},
     },
     spawnSession: async ({ onSessionId }) => { onSessionId?.('claude-2'); shutdownController.abort(); },
   });
@@ -510,6 +795,8 @@ test('review process cleanup follows session exit and precedes checkout removal 
         stageDetachedWorktree: async ({ worktreePath }) => { fs.mkdirSync(String(worktreePath), { recursive: true }); return { ok: true }; },
         removeWorktreeByPath: async ({ cwd }) => { events.push('remove'); fs.rmSync(String(cwd), { recursive: true, force: true }); return { ok: true }; },
         pruneWorktrees: async () => ({ ok: true }),
+        originUrl: async () => null,
+        populate: async () => {},
       },
     });
     try {
@@ -557,6 +844,8 @@ test('a failed worktree stage still runs the removal and never spawns', async ()
       stageDetachedWorktree: async () => ({ ok: false, err: 'fatal: already exists' }),
       removeWorktreeByPath: async ({ cwd }) => { removedPaths.push(String(cwd)); return { ok: true }; },
       pruneWorktrees: async () => ({ ok: true }),
+      originUrl: async () => null,
+      populate: async () => {},
     },
     spawnSession: async () => { spawnCount += 1; },
   });
@@ -675,11 +964,23 @@ test('the sandbox fails closed, binds a strict egress allowlist, and keeps crede
   assert.equal(sandbox.network.allowAllUnixSockets, true);
   assert.deepEqual(sandbox.network.allowedDomains, ['api.github.com', 'chatgpt.com', '*.chatgpt.com', 'auth.openai.com', 'api.openai.com', '*.openai.com']);
   assert.deepEqual(sandbox.filesystem.allowWrite, ['~/.codex', '/work/dir']);
+  assert.deepEqual(sandbox.filesystem.denyWrite, ['~/.codex/config.toml', '~/.codex/AGENTS.md', '~/.codex/skills', '~/.codex/rules', '~/.codex/prompts', '~/.codex/hooks.json']);
   assert.deepEqual(sandbox.filesystem.denyRead, ['~/.ssh', '~/.config/gh', '~/Library/Keychains', '~/.git-credentials']);
   assert.deepEqual(Object.keys(sandbox).sort(), ['allowUnsandboxedCommands', 'enableWeakerNetworkIsolation', 'enabled', 'failIfUnavailable', 'filesystem', 'network']);
   assert.deepEqual(Object.keys(sandbox.network).sort(), ['allowAllUnixSockets', 'allowLocalBinding', 'allowedDomains', 'strictAllowlist']);
-  assert.deepEqual(Object.keys(sandbox.filesystem).sort(), ['allowWrite', 'denyRead']);
+  assert.deepEqual(Object.keys(sandbox.filesystem).sort(), ['allowWrite', 'denyRead', 'denyWrite']);
   assert.notEqual(teamReviewSandbox('/a').network.allowedDomains, teamReviewSandbox('/b').network.allowedDomains, 'each call hands out fresh arrays');
+  assert.notEqual(teamReviewSandbox('/a').filesystem.denyWrite, teamReviewSandbox('/b').filesystem.denyWrite, 'each call hands out fresh arrays');
+});
+
+test('a review that linked a local clone also denies reads of that clone env files and Claude settings', () => {
+  const localClone = path.join(path.sep, 'repos', 'app');
+  const sandbox = teamReviewSandbox('/work/dir', localClone);
+  assert.deepEqual(sandbox.filesystem.denyRead, [
+    '~/.ssh', '~/.config/gh', '~/Library/Keychains', '~/.git-credentials',
+    path.join(localClone, '.env'), path.join(localClone, '.env.*'), path.join(localClone, '.claude'),
+  ]);
+  assert.deepEqual(sandbox.filesystem.allowWrite, ['~/.codex', '/work/dir']);
 });
 
 test('the posture denies every GitHub path, loads no MCP server, runs without prompts, and pins the model last', () => {
@@ -861,6 +1162,8 @@ test('a failed worktree removal still deletes the checkout directory and prunes 
       },
       removeWorktreeByPath: async () => ({ ok: false, err: 'fatal: validation failed, cannot remove working tree' }),
       pruneWorktrees: async ({ projectPath }) => { pruned.push(projectPath); return { ok: true }; },
+      originUrl: async () => null,
+      populate: async () => {},
     },
   });
   try {
@@ -875,12 +1178,38 @@ test('a failed worktree removal still deletes the checkout directory and prunes 
   }
 });
 
+test('fallback checkout removal leaves the linked dependency directory intact', async () => {
+  const localRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-linked-target-'));
+  const localCheckout = path.join(localRoot, 'checkout');
+  const localModules = path.join(localCheckout, 'node_modules');
+  fs.mkdirSync(localModules, { recursive: true });
+  fs.writeFileSync(path.join(localModules, 'keep.txt'), 'keep');
+  const { review, worktreeRoot, cleanup } = setup({
+    readLocalCheckoutConfig: () => ({ projects: [{ path: localCheckout }] }),
+    log: { warn: () => {} },
+    gitWorkspace: checkoutSharingWorkspace({
+      populate: async ({ wtDir }) => { fs.symlinkSync(localModules, path.join(wtDir, 'node_modules'), 'dir'); },
+      removeWorktreeByPath: async () => ({ ok: false, err: 'remove failed' }),
+    }),
+  });
+  try {
+    assert.equal((await review(reviewArgs('full'))).status, 'ready');
+    assert.deepEqual(fs.readdirSync(worktreeRoot), []);
+    assert.equal(fs.readFileSync(path.join(localModules, 'keep.txt'), 'utf8'), 'keep');
+  } finally {
+    cleanup();
+    fs.rmSync(localRoot, { recursive: true, force: true });
+  }
+});
+
 test('a worktree removal that reports success but leaves the directory still deletes it', async () => {
   const { review, pruned, worktreeRoot, cleanup } = setup({
     gitWorkspace: {
       stageDetachedWorktree: async ({ worktreePath }) => { fs.mkdirSync(String(worktreePath), { recursive: true }); return { ok: true }; },
       removeWorktreeByPath: async () => ({ ok: true }),
       pruneWorktrees: async () => ({ ok: true }),
+      originUrl: async () => null,
+      populate: async () => {},
     },
     log: { warn: () => {} },
   });
@@ -996,6 +1325,8 @@ test('discarding a saved review reaps its processes before removing its director
     gitWorkspace: {
       stageDetachedWorktree: async () => ({ ok: false }), removeWorktreeByPath: async () => ({ ok: false }),
       pruneWorktrees: async () => ({ ok: true }),
+      originUrl: async () => null,
+      populate: async () => {},
     },
     createPoller: (dependencies) => {
       discardSavedReview = dependencies.discardResumable;
@@ -1065,6 +1396,8 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
         return { ok: true };
       },
       pruneWorktrees: async () => ({ ok: true }),
+      originUrl: async () => null,
+      populate: async () => {},
     },
     spawnSession: ({ signal }) => new Promise<void>((resolve) => {
       sessionRunning.resolve();

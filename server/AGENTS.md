@@ -73,6 +73,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - Only the operator's Approve or Comment posts, and only when the clicked head equals both the reviewed and the live head, since a review lands under the operator's name (`tests/team-review-core.test.ts`, `tests/team-review-wiring.test.ts`).
 - Glimmervoid owns the report contract, not the procedure: skills differ per machine, so the review runs `teamReview.skill`; its cwd is an empty work dir and the untrusted checkout is never an `--add-dir` (`tests/team-review-wiring.test.ts`).
 - The review runs in Claude Code's Bash sandbox (strict egress allowlist, credential paths unreadable, no secret in env); a session that cannot apply it never spawns (`tests/session-hook-lifecycle.test.ts`, `tests/team-review-wiring.test.ts`).
+- That sandbox still runs PR code (linked `node_modules`, tests, lint) as the operator, and `~/.codex` plugin cache and sqlite state stay writable because Codex writes them mid-run, and the linked clone's `.env` deny is root-level only; the lasting fix is a per-review `CODEX_HOME`.
 - PR text is untrusted data, fenced in the prompt (`tests/team-review-core.test.ts`).
 - Review dirs are deleted on every exit and swept at start, bar a shutdown's resume record (`tests/team-review-wiring.test.ts`).
 

@@ -91,6 +91,20 @@ function repoFromSearchItem(item: SearchedPr): string | null {
   return match[1];
 }
 
+function githubRepoSlugFromRemote(remoteUrl: string): string | null {
+  const match = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([^/?#]+)\/([^/?#]+)\/?$/i.exec(remoteUrl.trim());
+  if (!match) return null;
+  const owner = match[1];
+  const name = match[2]?.replace(/\.git$/i, '');
+  const segment = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+  if (!owner || !name || !segment.test(owner) || !segment.test(name)) return null;
+  return `${owner}/${name}`;
+}
+
+function remoteMatchesGithubRepo(remoteUrl: string, repo: string): boolean {
+  return githubRepoSlugFromRemote(remoteUrl)?.toLowerCase() === repo.toLowerCase();
+}
+
 function selectCandidates(teamRequested: SearchedPr[], authored: SearchedPr[], { self, nowMs, skipIdleAfterMs }: { self: string; nowMs: number; skipIdleAfterMs: number }): TeamReviewCandidate[] {
   const candidates: TeamReviewCandidate[] = [];
   const seenKeys = new Set<string>();
@@ -594,7 +608,7 @@ function oneOf(values: readonly string[]): string {
 }
 
 function buildReviewPrompt({
-  candidate, detail, tier, reasons, checkoutPath, reportPath, postingPath, reviewSkill = '',
+  candidate, detail, tier, reasons, checkoutPath, reportPath, postingPath, dependencyState = 'none', reviewSkill = '',
 }: {
   candidate: TeamReviewCandidate;
   detail: PrDetail;
@@ -603,6 +617,7 @@ function buildReviewPrompt({
   checkoutPath: string;
   reportPath: string;
   postingPath: string;
+  dependencyState?: 'linked' | 'none';
   reviewSkill?: string;
 }): string {
   const head = detail.headRefOid;
@@ -628,6 +643,14 @@ function buildReviewPrompt({
     `- The head is the local ref ${headRef} and the base branch tip is the local ref ${baseRef}.`,
     `- BASE_SHA is the output of: git -C ${checkoutPath} merge-base ${baseRef} ${headRef}`,
     `- HEAD_SHA is ${head}.`,
+    ...(dependencyState === 'linked' ? [
+      '- node_modules in the checkout is a read-only link to the operator\'s own checkout of this repository.',
+      '- Those dependencies were installed for that checkout\'s lockfile, which may differ from this pull request.',
+      '- Use them to run the repository\'s typecheck, lint and tests. If the pull request changes dependency manifests',
+      '  or lockfiles, name the mismatch under GAPS.',
+    ] : [
+      '- No dependencies are installed and package registries are unreachable from this session. Do not attempt an install.',
+    ]),
     '- The title and body below are the author\'s description of the change.',
     '',
     'Posting is already declined. Never post, comment, approve, request changes, push, or call the GitHub API.',
@@ -703,7 +726,7 @@ export {
   REVIEW_TIMEOUT_SECONDS, RESUME_TTL_MS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS,
   TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME,
   REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE,
-  buildReviewPrompt, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, errorDraft, eventForAction, githubReviewsFrom, hasViewerReviewedAt, invalidComments, isSameGithubReviews, isSettledAtHead, shouldAutoReview, markDraftStale, restoreDraftAtReviewedHead,
+  buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, errorDraft, eventForAction, githubReviewsFrom, hasViewerReviewedAt, invalidComments, isSameGithubReviews, isSettledAtHead, shouldAutoReview, markDraftStale, restoreDraftAtReviewedHead,
   applyReviewProgress, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, readyDraft, repoFromSearchItem, resumeDecision, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr,
 };
 export type { CommentableFileLines, CommentableLines, ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSettings, TeamReviewSettingsSource };

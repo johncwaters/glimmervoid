@@ -49,6 +49,8 @@ const TEAM_REVIEW_ALLOWED_DOMAINS = Object.freeze([
 ]);
 const TEAM_REVIEW_DENY_READ_PATHS = Object.freeze(['~/.ssh', '~/.config/gh', '~/Library/Keychains', '~/.git-credentials']);
 const CODEX_HOME_PATH = '~/.codex';
+const CODEX_HOME_DENY_WRITE_PATHS = Object.freeze(['config.toml', 'AGENTS.md', 'skills', 'rules', 'prompts', 'hooks.json'].map((entry) => `${CODEX_HOME_PATH}/${entry}`));
+const LINKED_CHECKOUT_DENY_READ_ENTRIES = Object.freeze(['.env', '.env.*', '.claude']);
 const RESULT_MAX_BYTES = 1024 * 1024;
 const EMPTY_GH_CONFIG_DIRNAME = 'gh-config';
 const PUSH_DISABLED_URL = 'https://push-disabled.invalid/';
@@ -58,6 +60,8 @@ const UNMARKED_POST_WARNING = 'The review was posted on GitHub, but its draft co
 
 interface TeamReviewWiringConfig extends TeamReviewSettingsSource {
   replayBufferKB?: number;
+  projects?: { path: string }[];
+  repoRoots?: string[];
 }
 
 type TeamReviewSandbox = {
@@ -66,7 +70,7 @@ type TeamReviewSandbox = {
   allowUnsandboxedCommands: false;
   enableWeakerNetworkIsolation: true;
   network: { strictAllowlist: true; allowLocalBinding: true; allowAllUnixSockets: true; allowedDomains: string[] };
-  filesystem: { allowWrite: string[]; denyRead: string[] };
+  filesystem: { allowWrite: string[]; denyWrite: string[]; denyRead: string[] };
 };
 
 interface TeamReviewRepoCache {
@@ -83,6 +87,8 @@ interface TeamReviewWorkDir {
 
 interface TeamReviewGitWorkspace {
   stageDetachedWorktree(args: { projectPath: string; worktreePath?: string; sha?: string }): Promise<{ ok: boolean; err?: string }>;
+  originUrl(args: { projectPath: string }): Promise<string | null>;
+  populate(args: { projectPath: string; wtDir: string; shareList: string[]; keepTrackableLinks?: boolean }): Promise<void>;
   removeWorktreeByPath(args: { projectPath: string; cwd?: string | null }): Promise<{ ok: boolean; err?: string }>;
   pruneWorktrees(args: { projectPath: string }): Promise<{ ok: boolean; err?: string }>;
 }
@@ -111,6 +117,7 @@ interface TeamReviewDispatchOptions {
   spawnSession: TeamReviewSpawn;
   worktreeRoot: string;
   workRoot: string;
+  repoCacheRoot?: string | null;
   timeoutSeconds?: number;
   makeWorkDir?: (root: string, prefix: string) => Promise<TeamReviewWorkDir>;
   setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
@@ -119,6 +126,7 @@ interface TeamReviewDispatchOptions {
   now?: () => number;
   shutdownSignal?: AbortSignal | null;
   readReviewSkill?: () => string;
+  readLocalCheckoutConfig?: () => Pick<TeamReviewWiringConfig, 'projects' | 'repoRoots'>;
   reapProcesses?: TeamReviewReap;
   log?: Pick<Console, 'warn'>;
 }
@@ -135,6 +143,7 @@ interface TeamReviewWiringOptions {
   broadcast?: (message: LaneStatusRecord) => void;
   log?: Pick<Console, 'warn'>;
   homeDir?: string;
+  repoCacheRoot?: string;
   github?: TeamReviewGithub & Pick<PrGh, 'prDiff'> & Partial<Pick<PrGh, 'postReview' | 'dismissReview'>>;
   repoCache?: TeamReviewRepoCache;
   spawnSession?: TeamReviewSpawn;
@@ -181,7 +190,8 @@ function teamReviewPermissions(): { deny: string[]; defaultMode: string } {
   return { deny: [...TEAM_REVIEW_DENY_RULES], defaultMode: 'bypassPermissions' };
 }
 
-function teamReviewSandbox(workDir: string): TeamReviewSandbox {
+function teamReviewSandbox(workDir: string, linkedCheckout: string | null = null): TeamReviewSandbox {
+  const linkedCheckoutDenyRead = linkedCheckout === null ? [] : LINKED_CHECKOUT_DENY_READ_ENTRIES.map((entry) => path.join(linkedCheckout, entry));
   return {
     enabled: true,
     failIfUnavailable: true,
@@ -195,7 +205,8 @@ function teamReviewSandbox(workDir: string): TeamReviewSandbox {
     },
     filesystem: {
       allowWrite: [CODEX_HOME_PATH, workDir],
-      denyRead: [...TEAM_REVIEW_DENY_READ_PATHS],
+      denyWrite: [...CODEX_HOME_DENY_WRITE_PATHS],
+      denyRead: [...TEAM_REVIEW_DENY_READ_PATHS, ...linkedCheckoutDenyRead],
     },
   };
 }
@@ -327,6 +338,54 @@ async function deleteDirectory(directory: string, log: Pick<Console, 'warn'>): P
     .catch((error: unknown) => log.warn(`[${core.TEAM_REVIEW_LANE_ID}] could not delete ${directory}: ${errorMessage(error)}`));
 }
 
+function isInsideDirectory(directory: string, root: string): boolean {
+  const relative = path.relative(root, directory);
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+async function findLocalCheckout({ repo, config, excludedRoots, gitWorkspace, log }: {
+  repo: string;
+  config: Pick<TeamReviewWiringConfig, 'projects' | 'repoRoots'>;
+  excludedRoots: string[];
+  gitWorkspace: Pick<TeamReviewGitWorkspace, 'originUrl'>;
+  log: Pick<Console, 'warn'>;
+}): Promise<string | null> {
+  const resolvedExcludedRoots = await Promise.all(excludedRoots.map(async (root) => fs.realpath(root).catch(() => path.resolve(root))));
+  const candidatePaths = (config.projects ?? []).map((project) => project.path);
+  for (const root of config.repoRoots ?? []) {
+    const children = await fs.readdir(root, { withFileTypes: true }).catch((error: unknown) => {
+      log.warn(`[${core.TEAM_REVIEW_LANE_ID}] could not list local repositories in ${root}: ${errorMessage(error)}`);
+      return [];
+    });
+    const childNames = children.filter((entry) => entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules')
+      .map((entry) => entry.name).sort();
+    for (const childName of childNames) {
+      candidatePaths.push(path.join(root, childName));
+    }
+  }
+  const seenPaths = new Set<string>();
+  for (const candidatePath of candidatePaths) {
+    const checkoutPath = await fs.realpath(candidatePath).catch(() => null);
+    if (!checkoutPath || seenPaths.has(checkoutPath)) continue;
+    seenPaths.add(checkoutPath);
+    if (resolvedExcludedRoots.some((root) => isInsideDirectory(checkoutPath, root))) continue;
+    const modules = await fs.stat(path.join(checkoutPath, 'node_modules')).catch(() => null);
+    if (!modules?.isDirectory()) continue;
+    const origin = await gitWorkspace.originUrl({ projectPath: checkoutPath });
+    if (origin && core.remoteMatchesGithubRepo(origin, repo)) return checkoutPath;
+  }
+  return null;
+}
+
+async function isLinkedToCheckout(worktreePath: string, localCheckout: string): Promise<boolean> {
+  const modulesPath = path.join(worktreePath, 'node_modules');
+  const modulesLink = await fs.lstat(modulesPath).catch(() => null);
+  if (!modulesLink?.isSymbolicLink()) return false;
+  const linkedModules = await fs.realpath(modulesPath).catch(() => null);
+  const checkoutModules = await fs.realpath(path.join(localCheckout, 'node_modules')).catch(() => null);
+  return linkedModules !== null && linkedModules === checkoutModules;
+}
+
 async function sweepLeftoverCheckouts({ worktreeRoot, workRoot, keepPaths, repoCache, gitWorkspace, reapProcesses = reapTeamReviewProcesses, log }: {
   worktreeRoot: string;
   workRoot: string;
@@ -351,7 +410,7 @@ async function sweepLeftoverCheckouts({ worktreeRoot, workRoot, keepPaths, repoC
 }
 
 function createTeamReviewDispatcher({
-  github, repoCache, gitWorkspace, spawnSession, worktreeRoot, workRoot,
+  github, repoCache, gitWorkspace, spawnSession, worktreeRoot, workRoot, repoCacheRoot = null,
   timeoutSeconds = core.REVIEW_TIMEOUT_SECONDS,
   makeWorkDir = makeTeamReviewWorkDir,
   setTimeoutFn = (fn, ms) => setTimeout(fn, ms),
@@ -360,6 +419,7 @@ function createTeamReviewDispatcher({
   now = () => Date.now(),
   shutdownSignal = null,
   readReviewSkill = () => '',
+  readLocalCheckoutConfig = () => ({}),
   reapProcesses = reapTeamReviewProcesses,
   log = console,
 }: TeamReviewDispatchOptions) {
@@ -370,6 +430,22 @@ function createTeamReviewDispatcher({
     log.warn(`[${core.TEAM_REVIEW_LANE_ID}] worktree removal failed for ${worktreePath}, deleting it directly: ${firstLine(removal.err ?? '') || 'the directory is still present'}`);
     await deleteDirectory(worktreePath, log);
     await pruneCachedClone(gitWorkspace, projectPath, log);
+  }
+
+  async function discoverLocalCheckout(repo: string): Promise<string | null> {
+    return findLocalCheckout({
+      repo, config: readLocalCheckoutConfig(), excludedRoots: [repoCacheRoot, worktreeRoot, workRoot].filter((root): root is string => root !== null),
+      gitWorkspace, log,
+    });
+  }
+
+  async function resumedLinkedCheckout(repo: string, worktreePath: string): Promise<string | null> {
+    const localCheckout = await discoverLocalCheckout(repo).catch((error: unknown) => {
+      log.warn(`[${core.TEAM_REVIEW_LANE_ID}] local checkout discovery failed for ${repo}: ${errorMessage(error)}`);
+      return null;
+    });
+    if (!localCheckout) return null;
+    return (await isLinkedToCheckout(worktreePath, localCheckout)) ? localCheckout : null;
   }
 
   async function hydrateBlobs(candidate: TeamReviewCandidate, detail: PrDetail): Promise<{ ok: boolean; err: string }> {
@@ -389,8 +465,8 @@ function createTeamReviewDispatcher({
   }
 
   function spawnWithTimeout(
-    { candidate, detail, tier, reasons, reportProgress, resume, workDir, reportPath, postingPath, commentable, onPending, onSessionId }: SpawnReviewArgs & {
-      workDir: string; reportPath: string; postingPath: string; commentable: CommentableLines | null;
+    { candidate, detail, tier, reasons, reportProgress, resume, workDir, linkedCheckout, reportPath, postingPath, commentable, onPending, onSessionId }: SpawnReviewArgs & {
+      workDir: string; linkedCheckout: string | null; reportPath: string; postingPath: string; commentable: CommentableLines | null;
       onPending: (pending: Promise<unknown>) => void;
       onSessionId: (id: string) => void;
     },
@@ -411,7 +487,7 @@ function createTeamReviewDispatcher({
         spawnEnv: teamReviewSpawnEnv(workDir),
         extraClaudeArgs: teamReviewClaudeArgs(tier),
         settingsPermissions: teamReviewPermissions(),
-        settingsSandbox: teamReviewSandbox(workDir),
+        settingsSandbox: teamReviewSandbox(workDir, linkedCheckout),
         signal: shutdownSignal ? AbortSignal.any([signal, shutdownSignal]) : signal,
         onSessionId,
         resumeSessionId: resume?.sessionId,
@@ -469,7 +545,7 @@ function createTeamReviewDispatcher({
             const remainingTimeoutSeconds = Math.max(0, (args.resume.deadlineAt - now()) / 1000);
             reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds: remainingTimeoutSeconds });
             return spawnWithTimeout({
-              ...args, workDir: args.resume.workDir,
+              ...args, workDir: args.resume.workDir, linkedCheckout: await resumedLinkedCheckout(candidate.repo, args.resume.worktreePath),
               reportPath: path.join(args.resume.workDir, core.REVIEW_REPORT_FILENAME),
               postingPath: path.join(args.resume.workDir, core.REVIEW_POSTING_FILENAME),
               commentable: diff === null ? null : core.commentableLines(diff),
@@ -503,14 +579,28 @@ function createTeamReviewDispatcher({
       if (!created.ok) return failed(`could not stage a checkout: ${firstLine(created.err ?? '') || 'git worktree add failed'}`);
       const hydrated = await hydrateBlobs(candidate, detail);
       if (!hydrated.ok) return failed(`could not fetch the file contents of ${candidate.key}${hydrated.err ? `: ${firstLine(hydrated.err)}` : ''}`);
+      let dependencyState: 'linked' | 'none' = 'none';
+      let linkedCheckout: string | null = null;
+      try {
+        const localCheckout = await discoverLocalCheckout(candidate.repo);
+        if (localCheckout) {
+          await gitWorkspace.populate({ projectPath: localCheckout, wtDir: worktreePath, shareList: ['node_modules'], keepTrackableLinks: true });
+          const isModulesLinked = await isLinkedToCheckout(worktreePath, localCheckout);
+          dependencyState = isModulesLinked ? 'linked' : 'none';
+          linkedCheckout = isModulesLinked ? localCheckout : null;
+          if (!isModulesLinked) log.warn(`[${core.TEAM_REVIEW_LANE_ID}] node_modules could not be linked from ${localCheckout}`);
+        }
+      } catch (error) {
+        log.warn(`[${core.TEAM_REVIEW_LANE_ID}] node_modules sharing failed for ${candidate.key}: ${errorMessage(error)}`);
+      }
       const prompt = core.buildReviewPrompt({
-        candidate, detail, tier, reasons, checkoutPath: worktreePath, reportPath, postingPath, reviewSkill: readReviewSkill(),
+        candidate, detail, tier, reasons, checkoutPath: worktreePath, reportPath, postingPath, dependencyState, reviewSkill: readReviewSkill(),
       });
       await fs.writeFile(path.join(workDir, core.REVIEW_PROMPT_FILENAME), prompt, 'utf8');
       await fs.mkdir(emptyGhConfigDir(workDir), { recursive: true });
       reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds });
       return await spawnWithTimeout({
-        ...args, resume: undefined, workDir, reportPath, postingPath, commentable: diff === null ? null : core.commentableLines(diff),
+        ...args, resume: undefined, workDir, linkedCheckout, reportPath, postingPath, commentable: diff === null ? null : core.commentableLines(diff),
         onPending: (pending) => { pendingSession = pending; },
         onSessionId: (id) => { sessionId = id; },
       });
@@ -726,7 +816,8 @@ function createTeamReviewWiring({
   recordLane = null, broadcast = () => {}, log = console,
   homeDir = glimmervoidHomeDir(),
   github = createPrGh(homeDir),
-  repoCache = createRepoCache({ rootDir: path.join(homeDir, 'team-review-repos') }),
+  repoCacheRoot = path.join(homeDir, 'team-review-repos'),
+  repoCache = createRepoCache({ rootDir: repoCacheRoot }),
   spawnSession = createTeamReviewSpawn({
     reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
     replayBufferKB: config.replayBufferKB,
@@ -740,8 +831,9 @@ function createTeamReviewWiring({
   const shutdownController = new AbortController();
   const inFlightReviews = new Set<Promise<ReviewOutcome>>();
   const reviewPullRequest = createTeamReviewDispatcher({
-    github, repoCache, gitWorkspace, spawnSession, worktreeRoot, workRoot, shutdownSignal: shutdownController.signal, reapProcesses, log,
+    github, repoCache, gitWorkspace, spawnSession, worktreeRoot, workRoot, repoCacheRoot, shutdownSignal: shutdownController.signal, reapProcesses, log,
     readReviewSkill: () => core.readTeamReviewSettings(config).skill,
+    readLocalCheckoutConfig: () => ({ projects: config.projects, repoRoots: config.repoRoots }),
   });
 
   function trackReview(args: SpawnReviewArgs): Promise<ReviewOutcome> {
