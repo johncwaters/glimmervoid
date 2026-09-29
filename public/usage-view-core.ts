@@ -769,18 +769,20 @@ export function heatmapCellTitle(cell: Partial<HeatmapCell> | null | undefined) 
   return `${label}: ${formatTokens(tokens)} tokens, ${formatUsd(finiteNumber(cell?.costUSD) ?? 0)}`;
 }
 
+function dailyAnomalySentence(daily: UsageAnomaly['daily']) {
+  if (!daily) return '';
+  const days = finiteNumber(daily.baselineDays);
+  const window = days === null ? 'recent' : `${Math.round(days)} day`;
+  return `Today is ${formatRatio(daily.ratio)} the ${window} average: ${formatUsd(daily.todayUsd)} against ${formatUsd(daily.baselineUsd)}.`;
+}
+
+function burnAnomalySentence(burn: UsageAnomaly['burn']) {
+  if (!burn) return '';
+  return `This block is burning ${formatRatio(burn.ratio)} the usual rate: ${formatTokens(burn.current)} tokens per minute against ${formatTokens(burn.baseline)}.`;
+}
+
 export function anomalyLine(anomaly: UsageAnomaly | null | undefined) {
-  const daily = anomaly?.daily;
-  if (daily) {
-    const days = finiteNumber(daily.baselineDays);
-    const window = days === null ? 'recent' : `${Math.round(days)} day`;
-    return `Today is ${formatRatio(daily.ratio)} the ${window} average: ${formatUsd(daily.todayUsd)} against ${formatUsd(daily.baselineUsd)}.`;
-  }
-  const burn = anomaly?.burn;
-  if (burn) {
-    return `This block is burning ${formatRatio(burn.ratio)} the usual rate: ${formatTokens(burn.current)} tokens per minute against ${formatTokens(burn.baseline)}.`;
-  }
-  return '';
+  return [dailyAnomalySentence(anomaly?.daily), burnAnomalySentence(anomaly?.burn)].filter(Boolean).join(' ');
 }
 
 export function anomalyTone(anomaly: UsageAnomaly | null | undefined) {

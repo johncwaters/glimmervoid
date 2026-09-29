@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Usage tab says why its dot is lit**: a spending spike against your daily average lit the Usage tab dot even when no block was active, but the page only explained it inside an active block, so opening the tab showed nothing. The explanation now appears under Current block either way, and when both today's spend and the current block's burn rate are unusual, both are named.
 - **A posted review can be queued again**: the detail of a posted team review showed only its verdict, with a hint to queue a review but no button. It now has Queue review, and the review actually runs: the poller used to skip any pull request you had already reviewed at its head, so a queued re-review of a posted one never started. The draft stays posted until the new review lands, so a pull request that merged or closed meanwhile keeps its posted record.
 
 ## [0.28.0] - 2026-09-28

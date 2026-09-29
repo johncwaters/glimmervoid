@@ -425,6 +425,8 @@ function buildActiveBlockSection() {
   const section = buildSection('Current block', claudeOnly ? `${hours}h window, ${claudeOnly}` : `${hours}h window`);
   if (!block) {
     section.append(el('p', 'usage-empty', 'No active block.'));
+    const idleAnomalyLineEl = buildAnomalyLine();
+    if (idleAnomalyLineEl) section.append(idleAnomalyLineEl);
     return section;
   }
 

@@ -247,7 +247,11 @@ test('anomalyLine: the wording names the comparison, not just "unusual"', async 
     anomalyLine({ daily: null, burn }),
     'This block is burning 2.5x the usual rate: 500k tokens per minute against 200k.',
   );
-  assert.match(anomalyLine({ daily, burn }), /^Today is 3\.1x/, 'the daily comparison leads');
+  assert.equal(
+    anomalyLine({ daily, burn }),
+    'Today is 3.1x the 30 day average: $31.00 against $10.00. This block is burning 2.5x the usual rate: 500k tokens per minute against 200k.',
+    'both flagged anomalies are named, daily first',
+  );
   assert.equal(anomalyLine(null), '');
   assert.equal(anomalyLine({ daily: null, burn: null }), '');
   assert.equal(anomalyTone({ daily }), 'warn');
