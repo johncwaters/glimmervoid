@@ -1465,7 +1465,10 @@ body {
 .dialog-mode-controls {
   display: flex;
   gap: 8px;
+  min-width: 0;
   margin: 10px 0;
+  padding: 0;
+  border: 0;
 }
 
 .dialog-mode-button {
@@ -1485,7 +1488,10 @@ body {
 .dialog-workspace-list {
   max-height: 220px;
   overflow-y: auto;
-  margin-bottom: 10px;
+  min-width: 0;
+  margin: 0 0 10px;
+  padding: 0;
+  border: 0;
 }
 
 .dialog-label[hidden],
@@ -4985,7 +4991,10 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
 
 .focus-rail-resizer {
   flex: 0 0 7px;
+  align-self: stretch;
+  height: auto;
   margin: 0 -3px;
+  border: 0;
   z-index: 1;
 }
 .focus-rail-resizer,

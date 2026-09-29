@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Unknown commands no longer start the server**: `glimmervoid <name>` with an unrecognised command, including the removed `pack` and `memory`, used to fall through and launch a full server. It now prints the usage and exits 1.
+- **Screen reader semantics in the dashboard shell**: the view tabs and session rail no longer sit inside `nav` landmarks that contradicted their tab list and list box roles, the rail resizer now always reports its width (including after a double-click reset), and the Add Session choices are proper grouped fields.
 
 ## [0.27.2] - 2026-09-28
 

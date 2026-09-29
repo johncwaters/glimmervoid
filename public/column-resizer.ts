@@ -57,7 +57,7 @@ export function wireColumnResizer({ resizer, column, widthHost, widthProperty, b
   });
   resizer.addEventListener('dblclick', () => {
     widthHost.style.removeProperty(widthProperty);
-    resizer.removeAttribute('aria-valuenow');
+    resizer.setAttribute('aria-valuenow', String(Math.round(column.getBoundingClientRect().width)));
     setStoredWidth(null);
   });
   resizer.addEventListener('keydown', (event) => {

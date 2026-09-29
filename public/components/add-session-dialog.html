@@ -1,15 +1,15 @@
 <h2 class="dialog-title" id="add-session-title">Add Session</h2>
-<div class="dialog-mode-controls" role="group" aria-label="Session kind">
+<fieldset class="dialog-mode-controls" aria-label="Session kind">
   <button type="button" class="dialog-mode-button" id="add-session-single-mode" aria-pressed="true">Single repo</button>
   <button type="button" class="dialog-mode-button" id="add-session-workspace-mode" aria-pressed="false">Workspace</button>
-</div>
+</fieldset>
 <label class="dialog-label" id="add-session-picker-label">
   Pick a project:
   <select class="dialog-input project-picker" id="add-session-picker">
     <option value="" disabled selected>Scanning...</option>
   </select>
 </label>
-<div class="dialog-workspace-list" id="add-session-workspace-list" role="group" aria-label="Workspace repositories" hidden></div>
+<fieldset class="dialog-workspace-list" id="add-session-workspace-list" aria-label="Workspace repositories" hidden></fieldset>
 <label class="dialog-label" id="add-session-agent-label" hidden>
   Agent
   <select class="dialog-input" id="add-session-agent"></select>
@@ -32,6 +32,6 @@
 </label>
 <div class="dialog-error" id="add-session-error"></div>
 <div class="dialog-actions">
-  <button class="btn-dialog btn-dialog-cancel" id="add-session-cancel">Cancel</button>
-  <button class="btn-dialog btn-dialog-confirm" id="add-session-confirm">Add</button>
+  <button type="button" class="btn-dialog btn-dialog-cancel" id="add-session-cancel">Cancel</button>
+  <button type="button" class="btn-dialog btn-dialog-confirm" id="add-session-confirm">Add</button>
 </div>

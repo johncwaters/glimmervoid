@@ -132,17 +132,17 @@
       <div class="header-inner">
         <div class="header-left">
           <h1 class="header-title">Glimmervoid</h1>
-          <nav class="header-tabs" id="header-tabs" role="tablist" aria-label="Primary views">
-            <button class="header-tab" id="tab-focus" role="tab" aria-selected="true" aria-controls="view-focus" tabindex="0">Focus</button>
-            <button class="header-tab" id="tab-prs" role="tab" aria-selected="false" aria-controls="view-prs" tabindex="-1">Reviews<span class="tab-activity" id="tab-prs-activity" aria-hidden="true"></span></button>
-            <button class="header-tab" id="tab-issues" role="tab" aria-selected="false" aria-controls="view-issues" tabindex="-1">Issues</button>
-            <button class="header-tab" id="tab-usage" role="tab" aria-selected="false" aria-controls="view-usage" tabindex="-1">Usage<span class="tab-activity" id="tab-usage-activity" aria-hidden="true"></span></button>
-            <button class="header-tab" id="tab-radar" role="tab" aria-selected="false" aria-controls="view-radar" tabindex="-1">Radar<span class="tab-activity" id="tab-radar-activity" aria-hidden="true"></span></button>
-            <button class="header-tab" id="tab-visions" role="tab" aria-selected="false" aria-controls="view-visions" tabindex="-1">Visions<span class="tab-activity" id="tab-visions-activity" aria-hidden="true"></span></button>
-            <button class="header-tab" id="tab-hooks" role="tab" aria-selected="false" aria-controls="view-hooks" tabindex="-1">Hooks</button>
-            <button class="header-tab" id="tab-trace" role="tab" aria-selected="false" aria-controls="view-trace" tabindex="-1">Trace</button>
-            <button class="header-tab" id="tab-settings" role="tab" aria-selected="false" aria-controls="view-settings" tabindex="-1">Settings</button>
-          </nav>
+          <div class="header-tabs" id="header-tabs" role="tablist" aria-label="Primary views">
+            <button class="header-tab" id="tab-focus" type="button" role="tab" aria-selected="true" aria-controls="view-focus" tabindex="0">Focus</button>
+            <button class="header-tab" id="tab-prs" type="button" role="tab" aria-selected="false" aria-controls="view-prs" tabindex="-1">Reviews<span class="tab-activity" id="tab-prs-activity" aria-hidden="true"></span></button>
+            <button class="header-tab" id="tab-issues" type="button" role="tab" aria-selected="false" aria-controls="view-issues" tabindex="-1">Issues</button>
+            <button class="header-tab" id="tab-usage" type="button" role="tab" aria-selected="false" aria-controls="view-usage" tabindex="-1">Usage<span class="tab-activity" id="tab-usage-activity" aria-hidden="true"></span></button>
+            <button class="header-tab" id="tab-radar" type="button" role="tab" aria-selected="false" aria-controls="view-radar" tabindex="-1">Radar<span class="tab-activity" id="tab-radar-activity" aria-hidden="true"></span></button>
+            <button class="header-tab" id="tab-visions" type="button" role="tab" aria-selected="false" aria-controls="view-visions" tabindex="-1">Visions<span class="tab-activity" id="tab-visions-activity" aria-hidden="true"></span></button>
+            <button class="header-tab" id="tab-hooks" type="button" role="tab" aria-selected="false" aria-controls="view-hooks" tabindex="-1">Hooks</button>
+            <button class="header-tab" id="tab-trace" type="button" role="tab" aria-selected="false" aria-controls="view-trace" tabindex="-1">Trace</button>
+            <button class="header-tab" id="tab-settings" type="button" role="tab" aria-selected="false" aria-controls="view-settings" tabindex="-1">Settings</button>
+          </div>
         </div>
         <div class="header-right">
           <div class="status-indicator" id="status-indicator">
@@ -158,9 +158,9 @@
           <div class="header-menu" id="power-menu">
             <button class="btn-menu btn-power" id="btn-power" type="button" title="Server power" aria-label="Server power" aria-haspopup="menu" aria-expanded="false" aria-controls="power-menu-dropdown"><svg class="btn-power-icon" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" focusable="false"><path d="M8 1.5v6" /><path d="M4.4 3.6a5.5 5.5 0 1 0 7.2 0" /></svg></button>
             <div class="header-menu-dropdown" id="power-menu-dropdown" role="menu">
-              <button class="menu-item menu-item-warning" id="btn-restart" role="menuitem"><span class="menu-item-glyph">&#8634;</span>Restart Server</button>
+              <button class="menu-item menu-item-warning" id="btn-restart" type="button" role="menuitem"><span class="menu-item-glyph">&#8634;</span>Restart Server</button>
               <div class="menu-divider" id="menu-divider-shutdown"></div>
-              <button class="menu-item menu-item-danger" id="btn-shutdown" role="menuitem"><span class="menu-item-glyph">&#9632;</span>Shut Down</button>
+              <button class="menu-item menu-item-danger" id="btn-shutdown" type="button" role="menuitem"><span class="menu-item-glyph">&#9632;</span>Shut Down</button>
             </div>
           </div>
         </div>
@@ -168,8 +168,8 @@
     </header>
     <div class="update-banner" id="update-banner" role="status" hidden>
       <span class="update-banner-text" id="update-banner-text"></span>
-      <a class="update-banner-link" id="update-banner-link" target="_blank" rel="noopener noreferrer" hidden>View changes</a>
-      <a class="update-banner-link" id="update-banner-update" hidden>Update</a>
+      <a class="update-banner-link" id="update-banner-link" href="https://github.com/johncwaters/glimmervoid/releases" target="_blank" rel="noopener noreferrer" hidden>View changes</a>
+      <a class="update-banner-link" id="update-banner-update" href="#settings/machine-updates/update-actions" hidden>Update</a>
       <code class="update-banner-cmd" id="update-banner-cmd"></code>
       <button class="update-banner-copy" id="update-banner-copy" type="button">Copy</button>
       <span class="update-banner-copy-status" id="update-banner-copy-status" role="status"></span>
@@ -188,8 +188,8 @@
         <section class="trace-view" id="view-trace" role="tabpanel" aria-labelledby="tab-trace" hidden></section>
         <section class="settings-view" id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden></section>
         <section class="focus-view" id="view-focus" role="tabpanel" aria-labelledby="tab-focus" hidden>
-          <nav class="focus-rail" id="focus-rail" role="listbox" aria-label="Session roster" aria-keyshortcuts="ArrowUp ArrowDown Alt+ArrowUp Alt+ArrowDown"></nav>
-          <div class="focus-rail-resizer" id="focus-rail-resizer" role="separator" aria-orientation="vertical" aria-label="Resize session rail" tabindex="0"></div>
+          <div class="focus-rail" id="focus-rail" role="listbox" aria-label="Session roster" aria-keyshortcuts="ArrowUp ArrowDown Alt+ArrowUp Alt+ArrowDown"></div>
+          <hr class="focus-rail-resizer" id="focus-rail-resizer" aria-orientation="vertical" aria-label="Resize session rail" aria-valuenow="240" tabindex="0">
           <div class="focus-center" id="focus-center"></div>
         </section>
       </main>
