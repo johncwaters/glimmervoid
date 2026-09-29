@@ -56,6 +56,7 @@ Glimmervoid is a lightweight Node.js background process that spawns and manages 
 - Run `npm test` (the `node:test` suite in `tests/`) before claiming completion.
 - New pure logic gets a unit test; detection changes must also pass the replay fixtures (`tests/replay-harness.test.ts`).
 - Tests pin behavior better than prose: when a rule matters, add the test rather than a paragraph here.
+- Every operator-visible change (feature, fix, removal, dependency bump) lands with an entry under `## [Unreleased]` in `CHANGELOG.md`, written for the operator, because `scripts/release.ts` publishes that section verbatim as the GitHub release notes. Tests-only, refactor and internal docs changes need none.
 
 ### Common Patterns
 
