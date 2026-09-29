@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The context mill and Long-Term Memory**: context packs, the pack distiller, the Mill panel and mill measurement are gone, along with Long-Term Memory, whose only delivery path was a pack. The `glimmervoid pack` and `glimmervoid memory` commands go with them. An existing `config.json` still loads with its `millEnabled`, `packDistiller`, `millMetrics`, `memory` and per-project `packs` keys, which are now ignored, and nothing under `~/.glimmervoid` is deleted.
 
+### Fixed
+
+- **Unknown commands no longer start the server**: `glimmervoid <name>` with an unrecognised command, including the removed `pack` and `memory`, used to fall through and launch a full server. It now prints the usage and exits 1.
+
 ## [0.27.2] - 2026-09-28
 
 ### Added
