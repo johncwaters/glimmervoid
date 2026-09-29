@@ -1,6 +1,6 @@
 {
   "name": "glimmervoid",
-  "version": "0.28.0",
+  "version": "0.28.1",
   "description": "Spawn and manage Claude Code sessions on Windows and Linux with a browser dashboard and real-time xterm.js streaming",
   "main": "dist/server/index.js",
   "type": "module",

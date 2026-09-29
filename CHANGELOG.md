@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.1] - 2026-09-29
+
 ### Changed
 
 - **Add your own note to a team review before posting**: a ready review has a Your note box above the review body. Whatever you type there posts first, above the automated-review note, so the summary on GitHub opens in your words. Leave it empty and the body posts unchanged.
