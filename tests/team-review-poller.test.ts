@@ -198,6 +198,20 @@ test('a draft carries the live head once the PR moves past the reviewed head', a
   await poller.stop();
 });
 
+test('a later search fills the opening time on a persisted draft without rerunning its review', async () => {
+  const { poller, github, spawned, statuses } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.equal(statuses.at(-1)?.drafts[0]?.prCreatedAt, undefined);
+  github.requested = [searchItem(1, 'teammate', { created_at: '2026-09-26T12:00:00Z' })];
+  await poller.tick();
+  assert.equal(statuses.at(-1)?.drafts[0]?.prCreatedAt, '2026-09-26T12:00:00Z');
+  assert.equal(spawned.length, 1);
+  await poller.stop();
+});
+
 test('posting a draft records when it was posted and later ticks leave that time alone', async () => {
   const { poller, github, statuses, setNow } = setup();
   github.requested = [searchItem(1, 'teammate')];
@@ -977,7 +991,7 @@ test('a running review reports its PR, tier, phase and tool steps in the status 
       return draftFor(args);
     },
   });
-  github.requested = [searchItem(1, 'teammate')];
+  github.requested = [searchItem(1, 'teammate', { created_at: '2026-09-26T12:00:00Z' })];
   github.heads.set(1, HEAD_ONE);
   await poller.start();
   await settle();
@@ -986,6 +1000,7 @@ test('a running review reports its PR, tier, phase and tool steps in the status 
   assert.equal(running?.tier, 'stamp');
   assert.equal(running?.phase, 'reviewing');
   assert.equal(running?.startedAt, 1000);
+  assert.equal(running?.prCreatedAt, '2026-09-26T12:00:00Z');
   assert.equal(running?.deadlineAt, 61000);
   assert.equal(running?.toolCalls, 1);
   assert.deepEqual(running?.recentSteps, [{ at: 1000, tool: 'Read', detail: 'pr.diff' }]);
@@ -994,6 +1009,8 @@ test('a running review reports its PR, tier, phase and tool steps in the status 
   release.resolve?.();
   await settle();
   assert.deepEqual(statuses.at(-1)?.inFlight, []);
+  assert.equal(statuses.at(-1)?.drafts[0]?.prCreatedAt, '2026-09-26T12:00:00Z');
+  assert.equal(statuses.at(-1)?.drafts[0]?.reviewedAt, 5000);
   await poller.stop();
 });
 

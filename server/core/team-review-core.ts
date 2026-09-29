@@ -40,6 +40,7 @@ interface TeamReviewCandidate {
   title: string;
   url: string;
   author: string;
+  prCreatedAt?: string;
 }
 
 interface TeamReviewSettingsSource {
@@ -119,7 +120,7 @@ function selectCandidates(teamRequested: SearchedPr[], authored: SearchedPr[], {
     const key = prKey(repo, item.number);
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
-    candidates.push({ key, repo, number: item.number, title: item.title, url: item.html_url, author: item.user.login });
+    candidates.push({ key, repo, number: item.number, title: item.title, url: item.html_url, author: item.user.login, ...(item.created_at ? { prCreatedAt: item.created_at } : {}) });
   }
   return candidates;
 }
@@ -302,13 +303,13 @@ function shouldPruneEntry(entry: TeamReviewStateEntry, isStillCandidate: boolean
   return nowMs - entry.updatedAt > POSTED_RETENTION_MS;
 }
 
-function githubReviewsFrom(reviews: readonly { login: string; state: string; commit: string | null }[], viewer: string): GithubReview[] {
+function githubReviewsFrom(reviews: readonly { login: string; state: string; commit: string | null; submittedAt?: string | null }[], viewer: string): GithubReview[] {
   return reviews.flatMap((review) => {
     const state = GithubReviewState.safeParse(review.state);
     if (!state.success) return [];
     const isViewer = review.login.toLowerCase() === viewer.toLowerCase();
     if (!isViewer && !DECIDING_REVIEW_STATES.has(state.data)) return [];
-    return [{ login: review.login, state: state.data, commit: review.commit, isViewer }];
+    return [{ login: review.login, state: state.data, commit: review.commit, isViewer, ...(review.submittedAt !== undefined ? { submittedAt: review.submittedAt } : {}) }];
   });
 }
 
@@ -321,7 +322,8 @@ function isSameGithubReviews(left: readonly GithubReview[] | undefined, right: r
 }
 
 function presentedDraft(entry: TeamReviewStateEntry, draft: ReviewDraft): ReviewDraft {
-  const withReviews = entry.githubReviews?.length ? { ...draft, githubReviews: entry.githubReviews } : draft;
+  const withReviewTime = entry.reviewedAt !== undefined ? { ...draft, reviewedAt: entry.reviewedAt } : draft;
+  const withReviews = entry.githubReviews?.length ? { ...withReviewTime, githubReviews: entry.githubReviews } : withReviewTime;
   if (!entry.liveHead) return withReviews;
   return { ...withReviews, liveHead: entry.liveHead };
 }
@@ -348,7 +350,7 @@ function startReviewProgress({ candidate, tier, reasons, head, at }: {
 }): InFlightReview {
   return {
     key: candidate.key, repo: candidate.repo, number: candidate.number, title: candidate.title,
-    url: candidate.url, author: candidate.author, tier, reasons, head,
+    url: candidate.url, author: candidate.author, tier, reasons, head, ...(candidate.prCreatedAt ? { prCreatedAt: candidate.prCreatedAt } : {}),
     phase: 'preparing', startedAt: at, deadlineAt: null, toolCalls: 0, recentSteps: [],
   };
 }
@@ -365,7 +367,7 @@ function applyReviewProgress(progress: InFlightReview, event: ReviewProgressEven
 function draftBase(candidate: TeamReviewCandidate, tier: ReviewTier, reasons: string[], reviewedHead: string) {
   return {
     key: candidate.key, repo: candidate.repo, number: candidate.number, title: candidate.title,
-    url: candidate.url, author: candidate.author, tier, reasons, reviewedHead,
+    url: candidate.url, author: candidate.author, tier, reasons, reviewedHead, ...(candidate.prCreatedAt ? { prCreatedAt: candidate.prCreatedAt } : {}),
   };
 }
 

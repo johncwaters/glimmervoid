@@ -1,18 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deriveStage, mergedSinceDate, myPrsShouldStart, sortedMyPrs, toMyPr, truncatedSearchNote } from '../server/core/my-prs-core.ts';
+import { deriveStage, hasUnresolvedThreads, mergedSinceDate, myPrsShouldStart, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/core/my-prs-core.ts';
 import { MyPrSearchNode } from '../shared/contracts/my-prs.ts';
-import type { MyPr, MyPrSearchNode as MyPrSearchNodeType } from '../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
 
 const NOW = Date.parse('2026-09-28T12:00:00Z');
 const SHA = 'a'.repeat(40);
 function searchNode(): MyPrSearchNodeType {
   return {
     __typename: 'PullRequest', number: 7, title: 'Fix', url: 'https://github.com/Acme/app/pull/7', isDraft: false,
-    state: 'OPEN', mergedAt: null, updatedAt: '2026-09-28T11:00:00Z', baseRefName: 'main', headRefOid: SHA,
+    state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T11:00:00Z', baseRefName: 'main', headRefOid: SHA,
     mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', repository: { nameWithOwner: 'Acme/app' },
     commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS', contexts: { nodes: [] } } } }] },
-    reviewThreads: { nodes: [{ isResolved: true }] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [{ state: 'APPROVED' }] },
+    reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [{ isResolved: true }] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [{ state: 'APPROVED' }] },
+    latestReviews: { nodes: [{ state: 'APPROVED', submittedAt: '2026-09-28T10:00:00Z', author: { login: 'bob' } }] },
   };
 }
 function readyPr(): MyPr { return toMyPr(searchNode(), 0); }
@@ -89,4 +90,71 @@ test('truncatedSearchNote names the shown and total counts only when the search 
   assert.equal(truncatedSearchNote(50, 73), 'Showing the 50 most recently updated of 73 pull requests.');
   assert.equal(truncatedSearchNote(12, 12), null);
   assert.equal(truncatedSearchNote(0, 0), null);
+});
+
+function threadNode(overrides: Partial<MyPrThreadNode> = {}): MyPrThreadNode {
+  return {
+    isResolved: false, isOutdated: false, path: 'src/app.ts', line: 12,
+    firstComment: { totalCount: 3, nodes: [{ author: { login: 'bob' }, bodyText: 'Please\n\n rename   this', url: 'https://github.com/Acme/app/pull/7#discussion_r1', createdAt: '2026-09-28T09:00:00Z' }] },
+    lastComment: { nodes: [{ author: { login: 'alice' }, createdAt: '2026-09-28T10:00:00Z' }] },
+    ...overrides,
+  };
+}
+
+test('toMyPrThreads keeps unresolved threads with location, excerpt, and last reply', () => {
+  const threads = toMyPrThreads([threadNode(), threadNode({ isResolved: true })], 'https://github.com/Acme/app/pull/7');
+  assert.deepEqual(threads, [{
+    path: 'src/app.ts', line: 12, isOutdated: false, url: 'https://github.com/Acme/app/pull/7#discussion_r1',
+    author: 'bob', excerpt: 'Please rename this', commentCount: 3, lastAuthor: 'alice', lastActivityAt: '2026-09-28T10:00:00Z',
+  }]);
+});
+
+test('toMyPrThreads falls back to the pull request link and a null author when comments are gone', () => {
+  const [thread] = toMyPrThreads([threadNode({ firstComment: { totalCount: 0, nodes: [] }, lastComment: { nodes: [] } })], 'https://github.com/Acme/app/pull/7');
+  assert.equal(thread.url, 'https://github.com/Acme/app/pull/7');
+  assert.equal(thread.author, null);
+  assert.equal(thread.lastAuthor, null);
+  assert.equal(thread.commentCount, 1);
+});
+
+test('threadExcerpt cuts long comments at a word boundary', () => {
+  const excerpt = threadExcerpt(`${'word '.repeat(60)}end`);
+  assert.ok(excerpt.endsWith('word...'));
+  assert.ok(excerpt.length <= 203);
+  assert.equal(threadExcerpt('short'), 'short');
+});
+
+test('toMyPr carries thread detail beside the unresolved count', () => {
+  const node = searchNode();
+  node.reviewThreads.nodes.push({ isResolved: false });
+  const pr = toMyPr(node, 0, [threadNode()]);
+  assert.equal(pr.unresolvedThreads, 1);
+  assert.equal(pr.threads.length, 1);
+  assert.equal(pr.stage, 'unresolved-threads');
+});
+
+test('toMyPr never counts fewer unresolved threads than the detail lists', () => {
+  const node = searchNode();
+  node.reviewThreads.nodes.push({ isResolved: false });
+  const pr = toMyPr(node, 0, [threadNode(), threadNode({ path: 'src/b.ts' }), threadNode({ path: 'src/c.ts' })]);
+  assert.equal(pr.unresolvedThreads, 3);
+  assert.equal(pr.threads.length, 3);
+});
+
+test('toMyPr carries the opened time and each latest review with its reviewer and time', () => {
+  const node = searchNode();
+  node.latestReviews.nodes.push({ state: 'COMMENTED', submittedAt: null, author: null });
+  const pr = toMyPr(node, 0);
+  assert.equal(pr.createdAt, '2026-09-25T00:00:00Z');
+  assert.deepEqual(pr.reviews, [
+    { reviewer: 'bob', state: 'APPROVED', submittedAt: '2026-09-28T10:00:00Z' },
+    { reviewer: null, state: 'COMMENTED', submittedAt: null },
+  ]);
+});
+
+test('hasUnresolvedThreads asks for detail when the first page is all resolved but more pages exist', () => {
+  const node = searchNode();
+  assert.equal(hasUnresolvedThreads(node), false);
+  node.reviewThreads.pageInfo.hasNextPage = true;
+  assert.equal(hasUnresolvedThreads(node), true);
 });

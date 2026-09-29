@@ -162,11 +162,12 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     entry.resumable = null;
     if (draft.status !== 'error') delete entry.requeuedHead;
     entry.reviewAttempts = core.reviewAttemptsAfter(entry, draft.reviewedHead);
-    entry.draft = draft;
+    entry.draft = { ...draft, ...(args.candidate.prCreatedAt ? { prCreatedAt: args.candidate.prCreatedAt } : {}) };
     entry.reviewedHead = draft.reviewedHead;
     entry.skipReason = null;
     entry.updatedAt = now();
     entry.reviewedAt = entry.updatedAt;
+    entry.draft.reviewedAt = entry.reviewedAt;
     await persist();
     emitStatus();
   }
@@ -192,6 +193,10 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       if (!entry) {
         if (!isReviewedByViewer) queue.push(candidate);
         continue;
+      }
+      if (entry.draft && candidate.prCreatedAt && entry.draft.prCreatedAt !== candidate.prCreatedAt) {
+        entry.draft.prCreatedAt = candidate.prCreatedAt;
+        isDirty = true;
       }
       if (!core.isSameGithubReviews(entry.githubReviews, githubReviews)) {
         entry.githubReviews = githubReviews;

@@ -1,8 +1,8 @@
 import { execFileAsync } from './child-process-safe.ts';
 import { z } from 'zod';
 import { CommitSha, PrDetail, ReviewComment, SearchedPr } from '../shared/contracts/team-review.ts';
-import { MyPrSearchNode, MyPrSearchResponse } from '../shared/contracts/my-prs.ts';
-import type { MyPrSearchNode as MyPrSearchNodeType } from '../shared/contracts/my-prs.ts';
+import { MyPrSearchNode, MyPrSearchResponse, MyPrThreadNode, MyPrThreadsResponse } from '../shared/contracts/my-prs.ts';
+import type { MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode as MyPrThreadNodeType } from '../shared/contracts/my-prs.ts';
 import type { PrDetail as PrDetailType, ReviewComment as ReviewCommentType, SearchedPr as SearchedPrType } from '../shared/contracts/team-review.ts';
 
 
@@ -49,7 +49,7 @@ interface PrSearchResult {
 
 interface PrReviewSnapshot {
   head: string;
-  reviews: { login: string; state: string; commit: string | null }[];
+  reviews: { login: string; state: string; commit: string | null; submittedAt?: string | null }[];
 }
 
 interface PrReference {
@@ -72,6 +72,7 @@ interface GithubIssueDetail {
 interface PrGh {
   searchMyPrs(org: string, mergedSince: string): Promise<{ ok: boolean; items: MyPrSearchNodeType[]; totalCount: number; error: string }>;
   behindBy(repo: string, base: string, headSha: string): Promise<number | null>;
+  reviewThreads(repo: string, number: number): Promise<MyPrThreadNodeType[]>;
   repoSlug(): Promise<string | null>;
   listIssues(): Promise<GithubIssueList>;
   viewIssue(issueNumber: number | string): Promise<GithubIssueDetail>;
@@ -117,20 +118,29 @@ const MY_PRS_QUERY = `query($openQuery: String!, $mergedQuery: String!) {
   merged: search(type: ISSUE, first: 50, query: $mergedQuery) { issueCount nodes { ...myPrFields } }
 }
 fragment myPrFields on PullRequest {
-  __typename number title url isDraft state mergedAt updatedAt baseRefName headRefOid mergeable mergeStateStatus reviewDecision
+  __typename number title url isDraft state createdAt mergedAt updatedAt baseRefName headRefOid mergeable mergeStateStatus reviewDecision
   repository { nameWithOwner }
   commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 50) { nodes {
     __typename ... on CheckRun { name conclusion status } ... on StatusContext { context state }
   } } } } } }
-  reviewThreads(first: 100) { nodes { isResolved } }
+  reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { isResolved } }
   reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug organization { login } } } } }
   latestOpinionatedReviews(first: 20) { nodes { state } }
+  latestReviews(first: 20) { nodes { state submittedAt author { login } } }
+}`;
+const MY_PR_THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes {
+    isResolved isOutdated path line
+    firstComment: comments(first: 1) { totalCount nodes { author { login } bodyText url createdAt } }
+    lastComment: comments(last: 1) { nodes { author { login } createdAt } }
+  } } } }
 }`;
 const GH_LOGIN = z.string().regex(GH_SEGMENT);
 const GH_MEMBERS = z.array(GH_LOGIN);
 const SEARCH_RESPONSE = z.object({ items: z.array(SearchedPr) });
 const SEARCH_PAGE_SIZE = 100;
 const MAX_SEARCH_PAGES = 5;
+const MAX_REVIEW_THREAD_PAGES = 5;
 const PR_DIFF_MAX_BYTES = 2 * 1024 * 1024;
 const CREATED_REVIEW = z.object({ id: z.number().int().positive() }).passthrough();
 const REVIEW_SNAPSHOT_BATCH_SIZE = 25;
@@ -142,6 +152,7 @@ const GRAPHQL_REVIEW_REPOSITORY = z.object({
       nodes: z.array(z.object({
         author: z.object({ login: z.string() }).passthrough().nullable(),
         state: z.string(),
+        submittedAt: z.string().nullable().optional(),
         commit: z.object({ oid: z.string() }).passthrough().nullable().optional(),
       }).passthrough().nullable()),
     }).passthrough(),
@@ -167,7 +178,7 @@ function reviewSnapshotKey(repo: string, number: number): string {
 function reviewSnapshotQuery(prs: readonly PrReference[]): string {
   const fields = prs.map((pr, index) => {
     const [owner, name] = repoParts(pr.repo) ?? ['', ''];
-    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { headRefOid latestReviews(first: ${LATEST_REVIEWS_PER_PR}) { nodes { author { login } state commit { oid } } } } }`;
+    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { headRefOid latestReviews(first: ${LATEST_REVIEWS_PER_PR}) { nodes { author { login } state submittedAt commit { oid } } } } }`;
   });
   return `query { ${fields.join(' ')} }`;
 }
@@ -177,7 +188,7 @@ function reviewSnapshotFrom(repository: unknown): PrReviewSnapshot | null {
   const pullRequest = parsed.success ? parsed.data?.pullRequest : null;
   if (!pullRequest) return null;
   const reviews = pullRequest.latestReviews.nodes.flatMap((review) => (review?.author
-    ? [{ login: review.author.login, state: review.state, commit: CommitSha.safeParse(review.commit?.oid).data ?? null }]
+    ? [{ login: review.author.login, state: review.state, commit: CommitSha.safeParse(review.commit?.oid).data ?? null, ...(review.submittedAt !== undefined ? { submittedAt: review.submittedAt } : {}) }]
     : []));
   return { head: pullRequest.headRefOid, reviews };
 }
@@ -267,6 +278,29 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       });
       const { open, merged } = parsed.data.data;
       return { ok: true, items, totalCount: open.issueCount + merged.issueCount, error: '' };
+    },
+
+    async reviewThreads(repo, number) {
+      const parts = repoParts(repo);
+      if (!parts || !isPrNumber(number)) return [];
+      const threads: MyPrThreadNodeType[] = [];
+      let cursor: string | null = null;
+      for (let page = 1; page <= MAX_REVIEW_THREAD_PAGES; page += 1) {
+        const cursorArgs = cursor === null ? [] : ['-f', `cursor=${cursor}`];
+        const response = await runGh(['api', 'graphql', '-f', `query=${MY_PR_THREADS_QUERY}`, '-f', `owner=${parts[0]}`, '-f', `name=${parts[1]}`, '-F', `number=${number}`, ...cursorArgs]);
+        if (!response.ok) return [];
+        const parsed = MyPrThreadsResponse.safeParse(parseJson<unknown>(response.out, null));
+        if (!parsed.success || parsed.data.errors?.length) return [];
+        const reviewThreads = parsed.data.data.repository?.pullRequest?.reviewThreads;
+        if (!reviewThreads) return threads;
+        for (const thread of reviewThreads.nodes) {
+          const valid = MyPrThreadNode.safeParse(thread);
+          if (valid.success) threads.push(valid.data);
+        }
+        if (!reviewThreads.pageInfo.hasNextPage || !reviewThreads.pageInfo.endCursor) return threads;
+        cursor = reviewThreads.pageInfo.endCursor;
+      }
+      return threads;
     },
 
     async behindBy(repo, base, headSha) {

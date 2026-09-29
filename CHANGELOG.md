@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **My PRs shows each unresolved thread**: selecting a pull request with unresolved review threads lists every one under Unresolved threads, with its file and line (linked to the comment on GitHub), who opened it, the start of the comment, how many replies it has, who replied last and when. Each thread says Waiting on you when someone else spoke last, or Waiting on reviewer when you did, and threads waiting on you come first. The Threads row under Merge readiness now reads, for example, "3 unresolved, 2 waiting on you".
+- **Reviews show how old each pull request and review is**: on the Mine tab, each pull request row says when it was opened, and the detail pane adds a Reviews list naming each reviewer's latest review (approved, requested changes or commented) and how long ago they submitted it, plus an Opened time beside Updated. On the Team tab, rows and the detail pane show when the pull request was opened, when the automated review finished and when it was posted, and each GitHub review listed there carries its age. Reviews finished before this update pick up their pull request's opened time on the next poll.
+
 ## [0.28.2] - 2026-09-29
 
 ### Changed

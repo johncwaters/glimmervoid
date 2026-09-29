@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, emptyStateText, githubReviewSummary, groupDrafts, postedAgeText, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
-  parseReviewComment, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTone, readyAttentionSignature, readyRowSignature, reviewFooterText, reviewProgressSteps,
+  actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, emptyStateText, githubReviewItems, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  parseReviewComment, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText, reviewProgressSteps,
   severityCounts, severityPresentation, tierLabel, verdictLabel, verdictRecommendation, verdictSealKind, verdictSealText, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter,
 } from '../public/team-review-view-core.ts';
 import { InFlightReview, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
@@ -13,6 +13,10 @@ import type {
 
 const HEAD = 'a'.repeat(40);
 const NEXT_HEAD = 'b'.repeat(40);
+
+function githubReviewTexts(review: ReviewDraft, options: { isViewerShown?: boolean } = {}): string {
+  return githubReviewItems(review, options).map((item) => item.text).join(', ');
+}
 
 test('queue row tones distinguish pending, settled and failed reviews', () => {
   assert.equal(queueRowTone('ready', 'ready'), 'warn');
@@ -88,13 +92,13 @@ test('a ready draft leaves Ready once a review at its head settles it', () => {
 
 test('the GitHub summary names the operator first and flags a review of an older commit', () => {
   const reviewedHead = draft(1).reviewedHead;
-  assert.equal(githubReviewSummary(draft(1)), '');
-  assert.equal(githubReviewSummary(draft(1, { githubReviews: [
+  assert.equal(githubReviewTexts(draft(1)), '');
+  assert.equal(githubReviewTexts(draft(1, { githubReviews: [
     { login: 'sarah', state: 'CHANGES_REQUESTED', commit: reviewedHead, isViewer: false },
     { login: 'me', state: 'APPROVED', commit: reviewedHead, isViewer: true },
   ] })), 'you approved, requested changes by sarah');
-  assert.equal(githubReviewSummary(draft(1, { githubReviews: [{ login: 'me', state: 'COMMENTED', commit: null, isViewer: true }] })), 'you commented (older commit)');
-  assert.equal(githubReviewSummary(draft(1, { githubReviews: [
+  assert.equal(githubReviewTexts(draft(1, { githubReviews: [{ login: 'me', state: 'COMMENTED', commit: null, isViewer: true }] })), 'you commented (older commit)');
+  assert.equal(githubReviewTexts(draft(1, { githubReviews: [
     { login: 'me', state: 'COMMENTED', commit: reviewedHead, isViewer: true },
     { login: 'sarah', state: 'APPROVED', commit: reviewedHead, isViewer: false },
   ] }), { isViewerShown: false }), 'approved by sarah');
@@ -116,17 +120,19 @@ test('a stale draft the operator reviewed at the live head leaves Needs attentio
 
 test('the GitHub summary judges the operator review against the live head, not the reviewed head', () => {
   const liveHead = 'c'.repeat(40);
-  assert.equal(githubReviewSummary(draft(1, { status: 'stale', liveHead, githubReviews: [{ login: 'me', state: 'APPROVED', commit: liveHead, isViewer: true }] })), 'you approved');
-  assert.equal(githubReviewSummary(draft(1, { status: 'stale', liveHead, githubReviews: [{ login: 'me', state: 'APPROVED', commit: HEAD, isViewer: true }] })), 'you approved (older commit)');
+  assert.equal(githubReviewTexts(draft(1, { status: 'stale', liveHead, githubReviews: [{ login: 'me', state: 'APPROVED', commit: liveHead, isViewer: true }] })), 'you approved');
+  assert.equal(githubReviewTexts(draft(1, { status: 'stale', liveHead, githubReviews: [{ login: 'me', state: 'APPROVED', commit: HEAD, isViewer: true }] })), 'you approved (older commit)');
 });
 
-test('posted age reads in the largest whole unit', () => {
-  const minute = 60000;
-  assert.equal(postedAgeText(undefined, 0), '');
-  assert.equal(postedAgeText(0, 30000), 'just now');
-  assert.equal(postedAgeText(0, 5 * minute), '5m ago');
-  assert.equal(postedAgeText(0, 3 * 60 * minute), '3h ago');
-  assert.equal(postedAgeText(0, 50 * 60 * minute), '2d ago');
+test('GitHub review items preserve submission times for the DOM shell', () => {
+  const submittedAt = '2026-09-28T12:00:00Z';
+  assert.deepEqual(githubReviewItems(draft(1, { githubReviews: [
+    { login: 'sarah', state: 'APPROVED', commit: HEAD, isViewer: false, submittedAt },
+    { login: 'me', state: 'COMMENTED', commit: HEAD, isViewer: true, submittedAt: null },
+  ] })), [
+    { text: 'you commented', submittedAt: null },
+    { text: 'approved by sarah', submittedAt },
+  ]);
 });
 
 test('a PR under review shows only under In review, even when an older draft exists', () => {
@@ -206,6 +212,23 @@ test('a ready row is rebuilt when its head or status changes', () => {
   assert.equal(readyRowSignature(draft(1)), readyRowSignature(draft(1, { body: 'edited upstream' })));
   assert.notEqual(readyRowSignature(draft(1)), readyRowSignature(draft(1, { reviewedHead: NEXT_HEAD })));
   assert.notEqual(readyRowSignature(draft(1)), readyRowSignature(draft(1, { status: 'stale' })));
+  assert.notEqual(readyRowSignature(draft(1)), readyRowSignature(draft(1, { githubReviews: [{ login: 'sarah', state: 'APPROVED', commit: HEAD, isViewer: false, submittedAt: '2026-09-28T12:00:00Z' }] })));
+});
+
+test('a ready row editor survives timestamp-only changes but not a new GitHub verdict', () => {
+  const approvedBySarah = (submittedAt: string) => draft(1, { githubReviews: [{ login: 'sarah', state: 'APPROVED', commit: HEAD, isViewer: false, submittedAt }] });
+  const changesRequestedBySarah = draft(1, { githubReviews: [{ login: 'sarah', state: 'CHANGES_REQUESTED', commit: HEAD, isViewer: false, submittedAt: '2026-09-28T12:00:00Z' }] });
+  assert.equal(readyRowSignature(draft(1)), readyRowSignature(draft(1, { reviewedAt: 1000 })));
+  assert.equal(readyRowSignature(draft(1)), readyRowSignature(draft(1, { prCreatedAt: '2026-09-26T12:00:00Z' })));
+  assert.equal(readyRowSignature(approvedBySarah('2026-09-28T12:00:00Z')), readyRowSignature(approvedBySarah('2026-09-28T13:00:00Z')));
+  assert.notEqual(readyRowSignature(approvedBySarah('2026-09-28T12:00:00Z')), readyRowSignature(changesRequestedBySarah));
+});
+
+test('the detail heading is refreshed when its ages or GitHub reviews change', () => {
+  assert.equal(detailHeadingSignature(draft(1)), detailHeadingSignature(draft(1, { body: 'edited upstream' })));
+  assert.notEqual(detailHeadingSignature(draft(1)), detailHeadingSignature(draft(1, { reviewedAt: 1000 })));
+  assert.notEqual(detailHeadingSignature(draft(1)), detailHeadingSignature(draft(1, { prCreatedAt: '2026-09-26T12:00:00Z' })));
+  assert.notEqual(detailHeadingSignature(draft(1)), detailHeadingSignature(draft(1, { githubReviews: [{ login: 'sarah', state: 'APPROVED', commit: HEAD, isViewer: false, submittedAt: '2026-09-28T12:00:00Z' }] })));
 });
 
 test('the action request pins the reviewed head and carries only the remaining comments', () => {

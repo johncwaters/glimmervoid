@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyStateText, groupMyPrs, chooseSelectedKey, parseMyPrsStatus, queueNotices, readinessRows, stageLabel, stageTone } from '../public/my-prs-view-core.ts';
+import { emptyStateText, groupMyPrs, chooseSelectedKey, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, stageLabel, stageTone, threadRows } from '../public/my-prs-view-core.ts';
 import { toMyPr } from '../server/core/my-prs-core.ts';
-import type { MyPr, MyPrSearchNode } from '../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrSearchNode, MyPrThread } from '../shared/contracts/my-prs.ts';
 
 const node: MyPrSearchNode = {
   __typename: 'PullRequest', number: 1, title: 'Fix', url: 'https://github.com/Acme/app/pull/1', isDraft: false,
-  state: 'OPEN', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z', baseRefName: 'main', headRefOid: 'a'.repeat(40),
+  state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z', baseRefName: 'main', headRefOid: 'a'.repeat(40),
   mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', repository: { nameWithOwner: 'Acme/app' },
-  commits: { nodes: [] }, reviewThreads: { nodes: [] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] },
+  commits: { nodes: [] }, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, latestReviews: { nodes: [] },
 };
 const base = toMyPr(node, 0);
 const pr = (stage: MyPr['stage'], number: number): MyPr => ({ ...base, stage, number, key: `Acme/app#${number}` });
@@ -84,4 +84,47 @@ test('queue notices list the refresh error before the truncation note', () => {
   assert.deepEqual(queueNotices(status), []);
   assert.deepEqual(queueNotices({ ...status, truncatedNote }), [{ text: truncatedNote, tone: 'info' }]);
   assert.deepEqual(queueNotices({ ...status, error: 'offline', truncatedNote }), [{ text: 'Could not refresh your pull requests: offline', tone: 'error' }, { text: truncatedNote, tone: 'info' }]);
+});
+
+function thread(overrides: Partial<MyPrThread>): MyPrThread {
+  return {
+    path: 'src/app.ts', line: 4, isOutdated: false, url: 'https://github.com/Acme/app/pull/1#discussion_r1', author: 'bob',
+    excerpt: 'Rename this', commentCount: 1, lastAuthor: 'bob', lastActivityAt: '2026-09-28T10:00:00Z', ...overrides,
+  };
+}
+
+test('thread rows list threads waiting on the viewer first, newest activity next', () => {
+  const threads = [
+    thread({ path: 'a.ts', lastAuthor: 'alice', commentCount: 2, lastActivityAt: '2026-09-28T12:00:00Z' }),
+    thread({ path: 'b.ts', lastActivityAt: '2026-09-28T09:00:00Z' }),
+    thread({ path: 'c.ts', line: null, isOutdated: true, commentCount: 4, lastAuthor: 'carol', lastActivityAt: '2026-09-28T11:00:00Z' }),
+  ];
+  const rows = threadRows({ ...base, unresolvedThreads: 3, threads }, 'alice');
+  assert.deepEqual(rows.map((row) => [row.location, row.waiting?.text, row.replySummary]), [
+    ['c.ts (outdated)', 'Waiting on you', '3 replies, last by carol'],
+    ['b.ts:4', 'Waiting on you', 'No replies'],
+    ['a.ts:4', 'Waiting on reviewer', '1 reply, last by alice'],
+  ]);
+  assert.equal(threadRows({ ...base, threads }, null)[0].waiting, null);
+});
+
+test('threads readiness says how many threads wait on the viewer', () => {
+  const row = (overrides: Partial<MyPr>, viewer: string | null) => readinessRows({ ...base, ...overrides }, viewer).find((item) => item.label === 'Threads');
+  const threads = [thread({}), thread({ lastAuthor: 'alice' })];
+  assert.deepEqual(row({ unresolvedThreads: 2, threads }, 'alice'), { label: 'Threads', tone: 'warn', text: '2 unresolved, 1 waiting on you' });
+  assert.deepEqual(row({ unresolvedThreads: 1, threads: [thread({ lastAuthor: 'alice' })] }, 'alice'), { label: 'Threads', tone: 'wait', text: '1 unresolved, all waiting on reviewers' });
+  assert.deepEqual(row({ unresolvedThreads: 2, threads }, null), { label: 'Threads', tone: 'warn', text: '2 unresolved' });
+});
+
+test('review rows list the newest review first with a readable verdict', () => {
+  const rows = reviewRows({ ...base, reviews: [
+    { reviewer: 'bob', state: 'APPROVED', submittedAt: '2026-09-27T10:00:00Z' },
+    { reviewer: null, state: 'CHANGES_REQUESTED', submittedAt: '2026-09-28T10:00:00Z' },
+    { reviewer: 'carol', state: 'COMMENTED', submittedAt: null },
+  ] });
+  assert.deepEqual(rows, [
+    { reviewer: 'a deleted account', text: 'Requested changes', tone: 'warn', submittedAt: '2026-09-28T10:00:00Z' },
+    { reviewer: 'bob', text: 'Approved', tone: 'ok', submittedAt: '2026-09-27T10:00:00Z' },
+    { reviewer: 'carol', text: 'Commented', tone: 'muted', submittedAt: null },
+  ]);
 });

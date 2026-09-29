@@ -3,7 +3,7 @@ import { el, externalLink } from './dom-helpers.ts';
 import { formatAgo } from './poll-ago.ts';
 import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createStateGlyph } from './state-glyph.ts';
-import { chooseSelectedKey, emptyStateText, groupMyPrs, parseMyPrsStatus, queueNotices, readinessRows, stageLabel, stageTone } from './my-prs-view-core.ts';
+import { chooseSelectedKey, emptyStateText, groupMyPrs, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
 
 let root: HTMLDivElement | null = null;
 let scopeTabs: HTMLElement | null = null;
@@ -44,7 +44,7 @@ function renderDetail(pr: MyPr | undefined): void {
   title.append(externalLink('pr-link', pr.key, pr.url), el('h2', null, pr.title));
   heading.append(title, stageChip(pr, { hasGlyph: true }));
   content.append(heading);
-  const readiness = readinessRows(pr);
+  const readiness = readinessRows(pr, latest?.viewer ?? null);
   if (readiness.length > 0) {
     const section = el('section', 'pr-readiness-section');
     section.append(el('h3', 'pr-section-heading', 'Merge readiness'));
@@ -65,7 +65,48 @@ function renderDetail(pr: MyPr | undefined): void {
     failed.append(list);
     content.append(failed);
   }
-  const time = el('p', 'pr-detail-meta', `${pr.state === 'MERGED' ? 'Merged' : 'Updated'} ${formatAgo(Date.parse(pr.state === 'MERGED' ? pr.mergedAt ?? '' : pr.updatedAt))}`);
+  const reviews = reviewRows(pr);
+  if (reviews.length > 0) {
+    const section = el('section', 'pr-readiness-section');
+    section.append(el('h3', 'pr-section-heading', 'Reviews'));
+    const list = el('ul', 'pr-readiness');
+    for (const review of reviews) {
+      const item = el('li', 'pr-readiness-row');
+      const submittedAtMs = Date.parse(review.submittedAt ?? '');
+      const when = Number.isFinite(submittedAtMs) ? `${review.text} ${formatAgo(submittedAtMs)}` : review.text;
+      item.append(createStateGlyph(review.tone), el('span', 'pr-readiness-value', review.reviewer), el('span', 'pr-readiness-value', when));
+      list.append(item);
+    }
+    section.append(list);
+    content.append(section);
+  }
+  const threads = threadRows(pr, latest?.viewer ?? null);
+  if (threads.length > 0) {
+    const section = el('section', 'my-pr-threads-section');
+    section.append(el('h3', 'pr-section-heading', 'Unresolved threads'));
+    const list = el('ul', 'my-pr-threads');
+    for (const thread of threads) {
+      const item = el('li', 'my-pr-thread');
+      const heading = el('div', 'my-pr-thread-heading');
+      heading.append(externalLink('my-pr-thread-location', thread.location, thread.url));
+      if (thread.waiting) {
+        const badge = el('span', 'my-pr-stage');
+        badge.dataset.tone = thread.waiting.tone;
+        badge.append(createStateGlyph(thread.waiting.tone), thread.waiting.text);
+        heading.append(badge);
+      }
+      const excerpt = el('p', 'my-pr-thread-excerpt');
+      excerpt.append(el('strong', null, thread.author), ` ${thread.excerpt}`);
+      const activity = Date.parse(thread.lastActivityAt);
+      const meta = el('p', 'my-pr-thread-meta', Number.isFinite(activity) ? `${thread.replySummary}, ${formatAgo(activity)}` : thread.replySummary);
+      item.append(heading, excerpt, meta);
+      list.append(item);
+    }
+    section.append(list);
+    content.append(section);
+  }
+  const time = el('p', 'pr-detail-meta');
+  time.append(el('span', null, `Opened ${formatAgo(Date.parse(pr.createdAt))}`), el('span', null, `${pr.state === 'MERGED' ? 'Merged' : 'Updated'} ${formatAgo(Date.parse(pr.state === 'MERGED' ? pr.mergedAt ?? '' : pr.updatedAt))}`));
   content.append(time);
   detail.replaceChildren(content);
 }
@@ -90,7 +131,7 @@ function render(): void {
       const top = el('span', 'pr-queue-top');
       top.append(el('strong', 'pr-queue-ref', pr.key), el('span', 'pr-queue-title', pr.title));
       const bottom = el('span', 'pr-queue-bottom');
-      bottom.append(stageChip(pr, { hasGlyph: false }));
+      bottom.append(stageChip(pr, { hasGlyph: false }), el('span', 'pr-queue-elapsed', `opened ${formatAgo(Date.parse(pr.createdAt))}`));
       row.append(glyph, top, bottom);
       row.addEventListener('click', () => {
         selectedKey = pr.key;

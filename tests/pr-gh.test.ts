@@ -59,6 +59,12 @@ test('search methods use raw search API and chunk twelve authors into three requ
   ]);
 });
 
+test('team search retains the PR creation time when supplied', async () => {
+  const createdAt = '2026-09-26T12:00:00Z';
+  const gh = createPrGh('/repo', async () => ({ ok: true, out: JSON.stringify({ items: [{ ...searchItem(7), created_at: createdAt }] }), err: '' }));
+  assert.equal((await gh.searchTeamRequested('Acme', 'docs')).items[0]?.created_at, createdAt);
+});
+
 function searchPageOf(firstNumber: number, count: number) {
   return JSON.stringify({ items: Array.from({ length: count }, (_unused, index) => searchItem(firstNumber + index)) });
 }
@@ -135,7 +141,7 @@ test('PR reads use exact argv and parse contract shapes', async () => {
 });
 
 function reviewQueryField(alias: string, owner: string, name: string, number: number): string {
-  return `${alias}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${number}) { headRefOid latestReviews(first: 20) { nodes { author { login } state commit { oid } } } } }`;
+  return `${alias}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${number}) { headRefOid latestReviews(first: 20) { nodes { author { login } state submittedAt commit { oid } } } } }`;
 }
 
 test('review snapshots batch aliased GraphQL fields, null empty commits and drop ghost authors', async () => {
@@ -144,8 +150,8 @@ test('review snapshots batch aliased GraphQL fields, null empty commits and drop
     calls.push(args);
     return { ok: true, out: JSON.stringify({ data: {
       pr0: { pullRequest: { headRefOid: HEAD_SHA, latestReviews: { nodes: [
-        { author: { login: 'sarah' }, state: 'APPROVED', commit: { oid: HEAD_SHA } },
-        { author: { login: 'copilot' }, state: 'COMMENTED', commit: { oid: '' } },
+        { author: { login: 'sarah' }, state: 'APPROVED', submittedAt: '2026-09-28T12:00:00Z', commit: { oid: HEAD_SHA } },
+        { author: { login: 'copilot' }, state: 'COMMENTED', submittedAt: null, commit: { oid: '' } },
         { author: null, state: 'APPROVED', commit: { oid: HEAD_SHA } },
       ] } } },
       pr1: { pullRequest: null },
@@ -155,8 +161,8 @@ test('review snapshots batch aliased GraphQL fields, null empty commits and drop
     { repo: 'Acme/repo', number: 7 }, { repo: '../repo', number: 8 }, { repo: 'Acme/other', number: 9 }, { repo: 'Acme/repo', number: 0 },
   ]);
   assert.deepEqual([...snapshots.entries()], [['Acme/repo#7', { head: HEAD_SHA, reviews: [
-    { login: 'sarah', state: 'APPROVED', commit: HEAD_SHA },
-    { login: 'copilot', state: 'COMMENTED', commit: null },
+    { login: 'sarah', state: 'APPROVED', commit: HEAD_SHA, submittedAt: '2026-09-28T12:00:00Z' },
+    { login: 'copilot', state: 'COMMENTED', commit: null, submittedAt: null },
   ] }]]);
   assert.deepEqual(calls, [['api', 'graphql', '-f', `query=query { ${reviewQueryField('pr0', 'Acme', 'repo', 7)} ${reviewQueryField('pr1', 'Acme', 'other', 9)} }`]]);
 });
@@ -358,9 +364,9 @@ test('viewIssue refuses a payload without a usable issue number', async () => {
 function myPrNode(number: number) {
   return {
     __typename: 'PullRequest', number, title: 'Fix', url: `https://github.com/Acme/app/pull/${number}`, isDraft: false,
-    state: 'OPEN', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z', baseRefName: 'main', headRefOid: HEAD_SHA,
+    state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z', baseRefName: 'main', headRefOid: HEAD_SHA,
     mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', repository: { nameWithOwner: 'Acme/app' },
-    commits: { nodes: [] }, reviewThreads: { nodes: [] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] },
+    commits: { nodes: [] }, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, latestReviews: { nodes: [] },
   };
 }
 
@@ -400,6 +406,80 @@ test('my PR search refuses partial GraphQL data with errors', async () => {
     ok: true, out: JSON.stringify({ data: { open: { issueCount: 1, nodes: [myPrNode(1)] }, merged: { issueCount: 0, nodes: [] } }, errors: [{ message: 'denied' }] }), err: '',
   }));
   assert.deepEqual(await gh.searchMyPrs('Acme', '2026-09-27'), { ok: false, items: [], totalCount: 0, error: 'gh graphql returned errors' });
+});
+
+test('reviewThreads queries one pull request and drops malformed threads', async () => {
+  const calls: string[][] = [];
+  const validThread = {
+    isResolved: false, isOutdated: false, path: 'src/app.ts', line: 3,
+    firstComment: { totalCount: 1, nodes: [{ author: { login: 'bob' }, bodyText: 'Rename', url: 'https://github.com/Acme/app/pull/7#discussion_r1', createdAt: '2026-09-28T00:00:00Z' }] },
+    lastComment: { nodes: [{ author: null, createdAt: '2026-09-28T00:00:00Z' }] },
+  };
+  const gh = createPrGh('/repo', async (_command, args) => {
+    calls.push(args);
+    return { ok: true, out: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [validThread, { isResolved: false }] } } } } }), err: '' };
+  });
+  assert.deepEqual(await gh.reviewThreads('Acme/app', 7), [validThread]);
+  assert.ok(!calls[0].some((arg) => arg.startsWith('cursor=')));
+  assert.ok(calls[0].includes('owner=Acme'));
+  assert.ok(calls[0].includes('name=app'));
+  assert.ok(calls[0].includes('number=7'));
+  assert.deepEqual(await gh.reviewThreads('Acme/app/extra', 7), []);
+  assert.deepEqual(await gh.reviewThreads('Acme/app', 0), []);
+  assert.equal(calls.length, 1);
+});
+
+function reviewThreadAt(path: string) {
+  return {
+    isResolved: false, isOutdated: false, path, line: 1,
+    firstComment: { totalCount: 1, nodes: [{ author: { login: 'bob' }, bodyText: 'Rename', url: 'https://github.com/Acme/app/pull/7#discussion_r1', createdAt: '2026-09-28T00:00:00Z' }] },
+    lastComment: { nodes: [{ author: null, createdAt: '2026-09-28T00:00:00Z' }] },
+  };
+}
+
+function reviewThreadPage(path: string, nextCursor: string | null): string {
+  const pageInfo = { hasNextPage: nextCursor !== null, endCursor: nextCursor };
+  return JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { pageInfo, nodes: [reviewThreadAt(path)] } } } } });
+}
+
+test('reviewThreads follows the cursor across pages', async () => {
+  const calls: string[][] = [];
+  const pages = [reviewThreadPage('a.ts', 'c1'), reviewThreadPage('b.ts', 'c2'), reviewThreadPage('c.ts', null)];
+  const gh = createPrGh('/repo', async (_command, args) => {
+    calls.push(args);
+    return { ok: true, out: pages[calls.length - 1], err: '' };
+  });
+  assert.deepEqual((await gh.reviewThreads('Acme/app', 7)).map((thread) => thread.path), ['a.ts', 'b.ts', 'c.ts']);
+  assert.equal(calls.length, 3);
+  assert.ok(!calls[0].some((arg) => arg.startsWith('cursor=')));
+  assert.ok(calls[1].includes('cursor=c1'));
+  assert.ok(calls[2].includes('cursor=c2'));
+});
+
+test('reviewThreads stops at the page cap', async () => {
+  let calls = 0;
+  const gh = createPrGh('/repo', async () => {
+    calls += 1;
+    return { ok: true, out: reviewThreadPage(`page${calls}.ts`, `c${calls}`), err: '' };
+  });
+  assert.equal((await gh.reviewThreads('Acme/app', 7)).length, 5);
+  assert.equal(calls, 5);
+});
+
+test('reviewThreads returns nothing when a later page fails', async () => {
+  let calls = 0;
+  const gh = createPrGh('/repo', async () => {
+    calls += 1;
+    if (calls === 1) return { ok: true, out: reviewThreadPage('a.ts', 'c1'), err: '' };
+    return { ok: false, out: '', err: 'rate limited' };
+  });
+  assert.deepEqual(await gh.reviewThreads('Acme/app', 7), []);
+  assert.equal(calls, 2);
+});
+
+test('reviewThreads returns nothing when GraphQL reports errors', async () => {
+  const gh = createPrGh('/repo', async () => ({ ok: true, out: JSON.stringify({ data: { repository: null }, errors: [{ message: 'denied' }] }), err: '' }));
+  assert.deepEqual(await gh.reviewThreads('Acme/app', 7), []);
 });
 
 test('behindBy validates repository, ref, and SHA before compare', async () => {

@@ -3,7 +3,7 @@ import type { FindingSeverity, InFlightReview, ReviewComment, ReviewDraft, TeamR
 import { createAttentionAck } from './attention-ack-core.ts';
 import { sendControlMsg } from './control-ws.ts';
 import { el, externalLink, isPanelHidden } from './dom-helpers.ts';
-import { createPollAgoTicker } from './poll-ago.ts';
+import { createPollAgoTicker, formatAgo } from './poll-ago.ts';
 import { createPrQueueColumns, createPrQueueHead } from './pr-queue-columns.ts';
 import { createStateGlyph, createSvgIcon as svgIcon, createSvgShape as svgShape } from './state-glyph.ts';
 import { formatTrailOffset } from './radar-core.ts';
@@ -11,8 +11,8 @@ import { createSettingsLink } from './settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
-  commentLocation, emptyStateText, githubReviewSummary, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
-  parseReviewComment, phaseLabel, postedAgeText, pullRequestLabel, queueRowStateLabel, queueRowTone, readyAttentionSignature, readyRowSignature, reviewFooterText,
+  commentLocation, emptyStateText, githubReviewItems, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  parseReviewComment, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText,
   reviewProgressSteps, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictSealText, verdictTone, withReviewerNote,
 } from './team-review-view-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
@@ -43,6 +43,7 @@ let _selectedKey: string | null = null;
 let _renderedDetailSignature: string | null = null;
 let _activityCallback: ((isActive: boolean) => void) | null = null;
 const _progressTicker = createPollAgoTicker(() => _root);
+const _ageTicker = createPollAgoTicker(() => _root);
 const _readyDetails = new Map<string, ActionDetailHandle>();
 const _requeueDetails = new Map<string, ActionDetailHandle>();
 const _pendingActions = new Map<string, PendingAction>();
@@ -118,6 +119,44 @@ function pullRequestLink(review: Pick<ReviewDraft, 'repo' | 'number' | 'url'>): 
   return externalLink('pr-link', pullRequestLabel(review.repo, review.number), review.url);
 }
 
+function ageTimestamp(timestamp: number | string | null | undefined): number | null {
+  const at = typeof timestamp === 'string' ? Date.parse(timestamp) : timestamp;
+  if (typeof at !== 'number' || !Number.isFinite(at) || at <= 0) return null;
+  return at;
+}
+
+function createAgeReadout(label: string, timestamp: number | string | null | undefined): HTMLElement | null {
+  const at = ageTimestamp(timestamp);
+  if (at === null) return null;
+  const readout = el('span', null, `${label}${label ? ' ' : ''}${formatAgo(at)}`);
+  readout.dataset.ageAt = String(at);
+  readout.dataset.ageLabel = label;
+  return readout;
+}
+
+function trackAges(root: Element | null): void {
+  if (!root) return;
+  for (const readout of root.querySelectorAll<HTMLElement>('[data-age-at]')) {
+    const at = Number(readout.dataset.ageAt);
+    const label = readout.dataset.ageLabel ?? '';
+    _ageTicker.track(readout, at, () => `${label}${label ? ' ' : ''}${formatAgo(at)}`);
+  }
+}
+
+function createGithubReviewSummary(draft: ReviewDraft, className: string, isViewerShown = true): HTMLElement | null {
+  const reviews = githubReviewItems(draft, { isViewerShown });
+  if (reviews.length === 0) return null;
+  const summary = el('span', className);
+  summary.append('GitHub: ');
+  for (const [index, review] of reviews.entries()) {
+    if (index > 0) summary.append(', ');
+    summary.append(review.text);
+    const age = createAgeReadout('', review.submittedAt);
+    if (age) summary.append(' (', age, ')');
+  }
+  return summary;
+}
+
 function createQueueRow(review: ReviewDraft | InFlightReview, kind: QueueRowKind): HTMLButtonElement {
   const row = el('button', 'pr-queue-row');
   row.type = 'button';
@@ -147,17 +186,28 @@ function createQueueRow(review: ReviewDraft | InFlightReview, kind: QueueRowKind
   }
   if (kind === 'posted') {
     const draft = review as ReviewDraft;
-    const postedAge = postedAgeText(draft.postedAt, Date.now());
     bottom.append(el('span', 'pr-attention-label pr-attention-label-posted', 'posted'), el('span', 'pr-queue-author', draft.author));
-    bottom.append(el('span', 'pr-queue-posted-detail', postedAge ? `${verdictLabel(draft.verdict)}, ${postedAge}` : verdictLabel(draft.verdict)));
+    bottom.append(el('span', 'pr-queue-posted-detail', verdictLabel(draft.verdict)));
+  }
+  const ages = el('span', 'pr-queue-github');
+  const openedAge = createAgeReadout('opened', review.prCreatedAt);
+  if (openedAge) ages.append(openedAge);
+  if ('reviewedHead' in review) {
+    const reviewedAge = createAgeReadout('reviewed', review.reviewedAt);
+    if (reviewedAge) ages.append(ages.childNodes.length ? ', ' : '', reviewedAge);
+    const postedAge = createAgeReadout('posted', review.postedAt);
+    if (postedAge) ages.append(ages.childNodes.length ? ', ' : '', postedAge);
   }
   row.append(glyph, top, bottom);
-  const githubSummary = kind === 'inReview' ? '' : githubReviewSummary(review as ReviewDraft, { isViewerShown: kind !== 'posted' });
-  if (githubSummary) row.append(el('span', 'pr-queue-github', `GitHub: ${githubSummary}`));
+  const githubSummary = kind === 'inReview' ? null : createGithubReviewSummary(review as ReviewDraft, 'pr-queue-github', kind !== 'posted');
+  if (githubSummary) ages.append(ages.childNodes.length ? ' | ' : '', ...githubSummary.childNodes);
+  if (ages.childNodes.length) row.append(ages);
   row.addEventListener('click', () => {
     _selectedKey = review.key;
     for (const button of _queue?.querySelectorAll<HTMLButtonElement>('button[data-review-key]') ?? []) button.setAttribute('aria-current', String(button.dataset.reviewKey === _selectedKey));
     renderSelectedDetail(groupDrafts(_latest));
+    _ageTicker.reset();
+    trackAges(_root);
     if (document.documentElement.dataset.layout === 'phone') _detail?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   });
   return row;
@@ -172,18 +222,38 @@ function createQueueSection(title: string, reviews: (ReviewDraft | InFlightRevie
 
 function createDetailHeading(review: ReviewDraft | InFlightReview): HTMLElement {
   const heading = el('div', 'pr-detail-heading');
+  heading.dataset.signature = detailHeadingSignature(review);
   const title = el('div', 'pr-detail-title');
   title.append(pullRequestLink(review), el('h2', null, review.title));
   const metadata = el('div', 'pr-detail-meta');
   metadata.append(el('span', null, review.author));
   const reasons = review.reasons.join(', ');
   metadata.append(el('span', null, reasons ? `${tierLabel(review.tier)} review: ${reasons}` : `${tierLabel(review.tier)} review`));
-  const githubSummary = 'reviewedHead' in review ? githubReviewSummary(review) : '';
-  if (githubSummary) metadata.append(el('span', 'pr-detail-github', `GitHub: ${githubSummary}`));
+  const openedAge = createAgeReadout('Opened', review.prCreatedAt);
+  if (openedAge) metadata.append(openedAge);
+  if ('reviewedHead' in review) {
+    const reviewedAge = createAgeReadout('Reviewed', review.reviewedAt);
+    if (reviewedAge) metadata.append(reviewedAge);
+    const postedAge = createAgeReadout('Posted', review.postedAt);
+    if (postedAge) metadata.append(postedAge);
+  }
+  const githubSummary = 'reviewedHead' in review ? createGithubReviewSummary(review, 'pr-detail-github') : null;
+  if (githubSummary) metadata.append(githubSummary);
   const head = 'reviewedHead' in review ? review.reviewedHead : review.head;
   metadata.append(el('span', null, `${'reviewedHead' in review ? 'reviewed at' : 'head'} ${head.slice(0, 7)}`));
   heading.append(title, metadata);
   return heading;
+}
+
+function refreshDetailHeading(detail: HTMLElement, draft: ReviewDraft): HTMLElement {
+  const heading = detail.querySelector<HTMLElement>(':scope > .pr-detail-heading');
+  if (!heading || heading.dataset.signature === detailHeadingSignature(draft)) return detail;
+  heading.replaceWith(createDetailHeading(draft));
+  return detail;
+}
+
+function requeueDetailSignature(draft: ReviewDraft): string {
+  return `${draft.status}:${draft.reviewedHead}:${draft.error ?? ''}`;
 }
 
 function appendSegments(element: HTMLElement, segments: ReturnType<typeof parseInlineSegments>): HTMLElement {
@@ -361,7 +431,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
 
 function readyDetailFor(draft: ReviewDraft): HTMLElement {
   const cached = _readyDetails.get(draft.key);
-  if (cached?.signature === readyRowSignature(draft)) return cached.element;
+  if (cached?.signature === readyRowSignature(draft)) return refreshDetailHeading(cached.element, draft);
   const handle = createReadyDetail(draft);
   _readyDetails.set(draft.key, handle);
   return handle.element;
@@ -425,14 +495,14 @@ function createOtherDetail(draft: ReviewDraft): HTMLElement {
   });
   footer.append(button, status);
   detail.append(footer);
-  _requeueDetails.set(draft.key, { signature: `${draft.status}:${draft.reviewedHead}:${draft.error ?? ''}`, element: detail, settle });
+  _requeueDetails.set(draft.key, { signature: requeueDetailSignature(draft), element: detail, settle });
   return detail;
 }
 
 function otherDetailFor(draft: ReviewDraft): HTMLElement {
   if (!hasRequeueFooter(draft.status)) return createOtherDetail(draft);
   const cached = _requeueDetails.get(draft.key);
-  if (cached && (_pendingActions.has(draft.key) || cached.signature === `${draft.status}:${draft.reviewedHead}:${draft.error ?? ''}`)) return cached.element;
+  if (cached && (_pendingActions.has(draft.key) || cached.signature === requeueDetailSignature(draft))) return refreshDetailHeading(cached.element, draft);
   return createOtherDetail(draft);
 }
 
@@ -442,8 +512,9 @@ function renderSelectedDetail(sections: TeamReviewSections): void {
   const ready = [...sections.ready, ...sections.noReviewNeeded].find((draft) => draft.key === _selectedKey && draft.status === 'ready');
   if (ready) {
     const signature = `ready:${readyRowSignature(ready)}`;
+    const readyDetail = readyDetailFor(ready);
     if (_renderedDetailSignature === signature) return;
-    _detail.replaceChildren(readyDetailFor(ready));
+    _detail.replaceChildren(readyDetail);
     _renderedDetailSignature = signature;
     return;
   }
@@ -508,6 +579,7 @@ function render(): void {
   const sections = groupDrafts(_latest);
   forgetDepartedDetails(new Set([...sections.ready, ...sections.noReviewNeeded].map((draft) => draft.key)));
   _progressTicker.reset();
+  _ageTicker.reset();
   if (!_latest?.configured || !hasAnyRow(sections)) {
     _root.replaceChildren(createPrQueueHead(_scopeTabs), buildEmptyState());
     _queue = null;
@@ -532,6 +604,7 @@ function render(): void {
   _queue.replaceChildren(...queueSections);
   restoreQueueFocus(focusedReviewKey);
   renderSelectedDetail(sections);
+  trackAges(_root);
 }
 
 function refreshActivity(): void {
@@ -554,6 +627,7 @@ export function mountTeamReviewView(parent: HTMLElement, scopeTabs: HTMLElement)
   _root = el('div', 'pr-content');
   parent.append(_root);
   _progressTicker.ensure();
+  _ageTicker.ensure();
   render();
   return _root;
 }
@@ -571,6 +645,7 @@ export function applyTeamReviewStatus(message: unknown): void {
 function replaceInReviewSection(): boolean {
   if (!_latest || !_inReviewSection?.isConnected) return false;
   _progressTicker.reset();
+  _ageTicker.reset();
   const focusedReviewKey = focusedQueueReviewKey();
   const sections = groupDrafts(_latest);
   const replacement = createQueueSection('In review', sections.inReview, 'inReview');
@@ -578,6 +653,7 @@ function replaceInReviewSection(): boolean {
   _inReviewSection = replacement;
   restoreQueueFocus(focusedReviewKey);
   if (sections.inReview.some((review) => review.key === _selectedKey)) renderSelectedDetail(sections);
+  trackAges(_root);
   return true;
 }
 

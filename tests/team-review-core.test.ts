@@ -85,7 +85,7 @@ function prDetail(repo: string, number: number, files: { path: string; additions
 
 test('search candidates union requested and authored PRs once, excluding self, drafts, and bots', () => {
   const requested = [
-    searchItem('PostHog/wizard', 1350, 'teammate'),
+    searchItem('PostHog/wizard', 1350, 'teammate', { created_at: '2026-09-26T12:00:00Z' }),
     searchItem('PostHog/wizard', 1351, 'Operator'),
     searchItem('PostHog/wizard', 1352, 'teammate', { draft: true }),
     searchItem('PostHog/wizard', 1353, 'dependabot[bot]'),
@@ -98,7 +98,7 @@ test('search candidates union requested and authored PRs once, excluding self, d
   ];
   assert.equal(repoFromSearchItem(requested[0]), 'PostHog/wizard');
   assert.deepEqual(selectCandidates(requested, authored, { self: 'operator', nowMs: 1000, skipIdleAfterMs: 14 * 86400000 }), [
-    { key: 'PostHog/wizard#1350', repo: 'PostHog/wizard', number: 1350, title: 'PR 1350', url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate' },
+    { key: 'PostHog/wizard#1350', repo: 'PostHog/wizard', number: 1350, title: 'PR 1350', url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate', prCreatedAt: '2026-09-26T12:00:00Z' },
     { key: 'PostHog/context-mill#405', repo: 'PostHog/context-mill', number: 405, title: 'PR 405', url: 'https://github.com/PostHog/context-mill/pull/405', author: 'colleague' },
   ]);
 });
@@ -375,16 +375,16 @@ test('drafts list newest first and leave out entries without one', () => {
 
 test('GitHub reviews keep every viewer review but only approvals and change requests from others', () => {
   const reviews = githubReviewsFrom([
-    { login: 'Me', state: 'COMMENTED', commit: HEAD },
+    { login: 'Me', state: 'COMMENTED', commit: HEAD, submittedAt: '2026-09-28T12:00:00Z' },
     { login: 'copilot-pull-request-reviewer', state: 'COMMENTED', commit: null },
-    { login: 'sarah', state: 'APPROVED', commit: HEAD },
+    { login: 'sarah', state: 'APPROVED', commit: HEAD, submittedAt: null },
     { login: 'gil', state: 'CHANGES_REQUESTED', commit: null },
     { login: 'dan', state: 'DISMISSED', commit: HEAD },
     { login: 'eve', state: 'PENDING', commit: HEAD },
   ], 'me');
   assert.deepEqual(reviews, [
-    { login: 'Me', state: 'COMMENTED', commit: HEAD, isViewer: true },
-    { login: 'sarah', state: 'APPROVED', commit: HEAD, isViewer: false },
+    { login: 'Me', state: 'COMMENTED', commit: HEAD, isViewer: true, submittedAt: '2026-09-28T12:00:00Z' },
+    { login: 'sarah', state: 'APPROVED', commit: HEAD, isViewer: false, submittedAt: null },
     { login: 'gil', state: 'CHANGES_REQUESTED', commit: null, isViewer: false },
   ]);
   assert.equal(hasViewerReviewedAt(reviews, HEAD), true);
@@ -392,13 +392,13 @@ test('GitHub reviews keep every viewer review but only approvals and change requ
   assert.equal(hasViewerReviewedAt(reviews.slice(1), HEAD), false);
 });
 
-test('published drafts carry the GitHub reviews and live head but never derive a posted time from the entry', () => {
+test('published drafts carry review completion, GitHub reviews and live head without deriving a posted time', () => {
   const reviews = [{ login: 'sarah', state: 'APPROVED' as const, commit: HEAD, isViewer: false }];
   const liveHead = 'b'.repeat(40);
   const ready = readyDraftAt(HEAD);
   const posted = { ...readyDraftAt(HEAD), key: 'PostHog/wizard#1351', number: 1351, status: 'posted' as const, postedAt: 7 };
   const drafts = draftsNewestFirst({
-    [ready.key]: stateEntry({ draft: ready, updatedAt: 1, githubReviews: reviews, liveHead }),
+    [ready.key]: stateEntry({ draft: ready, updatedAt: 1, reviewedAt: 3, githubReviews: reviews, liveHead }),
     [posted.key]: stateEntry({ draft: posted, updatedAt: 2 }),
   });
   assert.equal(drafts[0].postedAt, 7);
@@ -406,6 +406,7 @@ test('published drafts carry the GitHub reviews and live head but never derive a
   assert.equal(drafts[0].liveHead, undefined);
   assert.deepEqual(drafts[1].githubReviews, reviews);
   assert.equal(drafts[1].liveHead, liveHead);
+  assert.equal(drafts[1].reviewedAt, 3);
   assert.equal(drafts[1].postedAt, undefined);
 });
 

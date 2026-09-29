@@ -1,4 +1,4 @@
-import type { MyPr, MyPrSearchNode, MyPrsStatus, MyPrStage } from '../../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrSearchNode, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../shared/contracts/my-prs.ts';
 import type { TeamReviewSettings } from './team-review-core.ts';
 
 export const MY_PRS_LANE_ID = 'my-prs';
@@ -6,6 +6,7 @@ export const POLL_INTERVAL_MINUTES = 5;
 export const MERGED_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 const STAGE_ORDER: MyPrStage[] = ['conflicts', 'behind', 'checks-failing', 'changes-requested', 'unresolved-threads', 'checks-pending', 'needs-approval', 'unknown', 'ready', 'draft', 'merged'];
+const THREAD_EXCERPT_MAX_CHARACTERS = 200;
 const FAILING_CONCLUSIONS = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE']);
 
 export function mergedSinceDate(nowMs: number): string {
@@ -26,7 +27,33 @@ export function deriveStage(pr: MyPr): MyPrStage {
   return 'unknown';
 }
 
-export function toMyPr(node: MyPrSearchNode, behindBy: number | null): MyPr {
+export function hasUnresolvedThreads(node: MyPrSearchNode): boolean {
+  return node.reviewThreads.pageInfo.hasNextPage || node.reviewThreads.nodes.some((thread) => !thread.isResolved);
+}
+
+export function threadExcerpt(bodyText: string): string {
+  const characters = [...bodyText.replace(/\s+/g, ' ').trim()];
+  if (characters.length <= THREAD_EXCERPT_MAX_CHARACTERS) return characters.join('');
+  const truncated = characters.slice(0, THREAD_EXCERPT_MAX_CHARACTERS).join('');
+  const lastSpace = truncated.lastIndexOf(' ');
+  return `${(lastSpace > 0 ? truncated.slice(0, lastSpace) : truncated).trimEnd()}...`;
+}
+
+export function toMyPrThreads(threadNodes: readonly MyPrThreadNode[], pullRequestUrl: string): MyPrThread[] {
+  return threadNodes.flatMap((thread) => {
+    if (thread.isResolved) return [];
+    const firstComment = thread.firstComment.nodes[0];
+    const lastComment = thread.lastComment.nodes[0] ?? firstComment;
+    return [{
+      path: thread.path, line: thread.line, isOutdated: thread.isOutdated, url: firstComment?.url ?? pullRequestUrl,
+      author: firstComment?.author?.login ?? null, excerpt: threadExcerpt(firstComment?.bodyText ?? ''),
+      commentCount: Math.max(1, thread.firstComment.totalCount),
+      lastAuthor: lastComment?.author?.login ?? null, lastActivityAt: lastComment?.createdAt ?? '',
+    }];
+  });
+}
+
+export function toMyPr(node: MyPrSearchNode, behindBy: number | null, threadNodes: readonly MyPrThreadNode[] = []): MyPr {
   const contexts = node.commits.nodes.at(-1)?.commit.statusCheckRollup?.contexts.nodes ?? [];
   const failing = contexts.flatMap((check) => {
     if (check.__typename === 'CheckRun' && check.conclusion && FAILING_CONCLUSIONS.has(check.conclusion)) return [check.name];
@@ -43,14 +70,17 @@ export function toMyPr(node: MyPrSearchNode, behindBy: number | null): MyPr {
     if (requestedReviewer.__typename === 'Team') return [`${requestedReviewer.organization.login}/${requestedReviewer.slug}`];
     return [];
   });
+  const threads = toMyPrThreads(threadNodes, node.url);
   const pr: MyPr = {
     key: `${node.repository.nameWithOwner}#${node.number}`, repo: node.repository.nameWithOwner, number: node.number,
-    title: node.title, url: node.url, isDraft: node.isDraft, state: node.state, mergedAt: node.mergedAt,
+    title: node.title, url: node.url, isDraft: node.isDraft, state: node.state, createdAt: node.createdAt, mergedAt: node.mergedAt,
     updatedAt: node.updatedAt, baseRefName: node.baseRefName, mergeable: node.mergeable,
     mergeStateStatus: node.mergeStateStatus, reviewDecision: node.reviewDecision,
     checks: { state: node.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null, failing, pendingCount },
-    unresolvedThreads: node.reviewThreads.nodes.filter((thread) => !thread.isResolved).length,
+    unresolvedThreads: Math.max(node.reviewThreads.nodes.filter((thread) => !thread.isResolved).length, threads.length),
+    threads,
     behindBy, reviewRequests, approvals: node.latestOpinionatedReviews.nodes.filter((review) => review.state === 'APPROVED').length,
+    reviews: node.latestReviews.nodes.map((review) => ({ reviewer: review.author?.login ?? null, state: review.state, submittedAt: review.submittedAt })),
     stage: 'unknown',
   };
   pr.stage = deriveStage(pr);

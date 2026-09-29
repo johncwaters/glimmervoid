@@ -8,6 +8,7 @@ export const SearchedPr = z.object({
   title: z.string(),
   html_url: z.string(),
   draft: z.boolean().optional(),
+  created_at: z.string().optional(),
   updated_at: z.string().optional(),
   repository_url: z.string(),
   user: z.object({ login: z.string(), type: z.enum(['User', 'Bot']) }).passthrough(),
@@ -109,6 +110,7 @@ export const GithubReview = z.object({
   state: GithubReviewState,
   commit: CommitSha.nullable(),
   isViewer: z.boolean(),
+  submittedAt: z.string().nullable().optional(),
 });
 export type GithubReview = z.infer<typeof GithubReview>;
 
@@ -137,6 +139,8 @@ export const ReviewDraft = z.object({
   error: z.string().optional(),
   githubReviews: z.array(GithubReview).optional(),
   liveHead: CommitSha.optional(),
+  prCreatedAt: z.string().optional(),
+  reviewedAt: z.number().finite().optional(),
   postedAt: z.number().finite().optional(),
 });
 export type ReviewDraft = z.infer<typeof ReviewDraft>;
@@ -214,6 +218,7 @@ export const InFlightReview = z.object({
   deadlineAt: z.number().finite().nullable(),
   toolCalls: z.number().int().nonnegative(),
   recentSteps: z.array(ReviewProgressStep),
+  prCreatedAt: z.string().optional(),
 });
 export type InFlightReview = z.infer<typeof InFlightReview>;
 

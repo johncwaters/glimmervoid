@@ -5,7 +5,7 @@ import type { MyPr, MyPrsStatus } from '../shared/contracts/my-prs.ts';
 
 interface MyPrsPollerDependencies {
   org: string;
-  github: Pick<PrGh, 'viewer' | 'searchMyPrs' | 'behindBy'>;
+  github: Pick<PrGh, 'viewer' | 'searchMyPrs' | 'behindBy' | 'reviewThreads'>;
   onTickComplete: (status: MyPrsStatus) => void;
   now?: () => number;
   intervalMinutes?: number;
@@ -39,7 +39,9 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
       for (const node of search.items) {
         const behindBy = node.state === 'OPEN' ? await github.behindBy(node.repository.nameWithOwner, node.baseRefName, node.headRefOid) : null;
         if (loop.isStopped()) return { failed: false };
-        prs.push(core.toMyPr(node, behindBy));
+        const threadNodes = node.state === 'OPEN' && core.hasUnresolvedThreads(node) ? await github.reviewThreads(node.repository.nameWithOwner, node.number) : [];
+        if (loop.isStopped()) return { failed: false };
+        prs.push(core.toMyPr(node, behindBy, threadNodes));
       }
       previousPrs = core.sortedMyPrs(prs, timestamp);
       previousTruncatedNote = core.truncatedSearchNote(search.items.length, search.totalCount);

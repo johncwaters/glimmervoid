@@ -154,19 +154,9 @@ function describeGithubReview(review: GithubReview, head: string): string {
   return `you ${verb} (older commit)`;
 }
 
-export function githubReviewSummary(draft: ReviewDraft, { isViewerShown = true }: { isViewerShown?: boolean } = {}): string {
+export function githubReviewItems(draft: ReviewDraft, { isViewerShown = true }: { isViewerShown?: boolean } = {}): { text: string; submittedAt?: string | null }[] {
   const reviews = (draft.githubReviews ?? []).filter((review) => isViewerShown || !review.isViewer).sort((left, right) => Number(right.isViewer) - Number(left.isViewer));
-  return reviews.map((review) => describeGithubReview(review, currentHead(draft))).join(', ');
-}
-
-export function postedAgeText(postedAt: number | undefined, nowMs: number): string {
-  if (postedAt === undefined) return '';
-  const minutes = Math.floor(Math.max(0, nowMs - postedAt) / 60000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  return reviews.map((review) => ({ text: describeGithubReview(review, currentHead(draft)), submittedAt: review.submittedAt }));
 }
 
 export function hasAnyRow(sections: TeamReviewSections): boolean {
@@ -331,7 +321,12 @@ export function readyAttentionSignature(status: TeamReviewStatus | null | undefi
 }
 
 export function readyRowSignature(draft: ReviewDraft): string {
-  return `${draft.key}@${draft.reviewedHead}:${draft.status}:${draft.summary}:${githubReviewSummary(draft)}`;
+  return `${draft.key}@${draft.reviewedHead}:${draft.status}:${draft.summary}:${githubReviewItems(draft).map((review) => review.text).join(', ')}`;
+}
+
+export function detailHeadingSignature(review: ReviewDraft | InFlightReview): string {
+  if (!('reviewedHead' in review)) return JSON.stringify([review.prCreatedAt]);
+  return JSON.stringify([review.prCreatedAt, review.reviewedAt, review.postedAt, review.githubReviews, review.liveHead]);
 }
 
 export function isInFlightProgressOnlyChange(previous: TeamReviewStatus | null | undefined, next: TeamReviewStatus): boolean {
