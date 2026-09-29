@@ -8,6 +8,7 @@ import { sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { el } from './dom-helpers.ts';
 import { ensureNotificationPermission, notificationPermission, notificationsSupported } from './notifications.ts';
 import { formatAgo } from './poll-ago.ts';
+import { UPDATES_SECTION_ID } from './radar-core.ts';
 import type { SettingsSection, SettingsSetting, SettingsOption } from './settings-map.ts';
 import { SETTINGS_MAP, SETTINGS_SECTION_ALIASES } from './settings-map.ts';
 import {
@@ -48,7 +49,9 @@ import {
   latestUpdateDetails,
   projectUpdateProgress,
   reduceUpdateRequest,
+  shouldAutoCheckUpdates,
   updateActionAvailability,
+  updateSummary,
 } from './updates-view-core.ts';
 import type { UpdateRequestEvent, UpdateRequestState, UpdateStatusView } from './updates-view-core.ts';
 
@@ -118,6 +121,9 @@ let updateStatus: UpdateStatusView | null = null;
 let updateJournal: UpdateJournal | null = null;
 let updateRequest: UpdateRequestState = IDLE_UPDATE_REQUEST;
 let restartServer = () => {};
+let confirmUpdateAndRestart = (proceed: (confirmedSessionIds: string[]) => void) => { proceed([]); };
+let lastAutoUpdateCheckAt: number | null = null;
+let isAutoUpdateCheckAwaitingStatus = false;
 
 function browserPreferences() {
   return {
@@ -401,6 +407,13 @@ function renderFileOnly(setting: SettingsSetting) {
   return block;
 }
 
+function buildUpdateSummary() {
+  const summary = updateSummary(updateStatus, updateJournal);
+  const block = el('div', 'settings-readonly settings-update-readout settings-update-summary', summary.headline);
+  block.dataset.tone = summary.tone;
+  return block;
+}
+
 function buildInstalledUpdateStatus() {
   return el('div', 'settings-readonly settings-update-readout', installedUpdateText(updateStatus));
 }
@@ -431,20 +444,26 @@ function buildLastUpdateCheckStatus() {
   return block;
 }
 
-function buildUpdateAction(
+function buildUpdateButton(
   label: string,
   onClick: () => void,
-  decision: { enabled: boolean; reason: string | null } = { enabled: true, reason: null },
+  { decision = { enabled: true, reason: null }, isPrimary = false }: {
+    decision?: { enabled: boolean; reason: string | null };
+    isPrimary?: boolean;
+  } = {},
 ) {
-  const row = el('div', 'settings-update-action');
-  const button = el('button', 'btn-dialog btn-dialog-confirm settings-update-button', label);
+  const tone = isPrimary ? 'btn-dialog-confirm' : 'btn-dialog-cancel';
+  const button = el('button', `btn-dialog ${tone} settings-update-button`, label);
   button.type = 'button';
   button.disabled = !decision.enabled;
   button.addEventListener('click', onClick);
-  const status = el('span', 'settings-update-action-status', decision.reason ?? '');
+  return button;
+}
+
+function buildUpdateActionStatus(reason: string | null) {
+  const status = el('span', 'settings-update-action-status', reason ?? '');
   status.setAttribute('role', 'status');
-  row.append(button, status);
-  return row;
+  return status;
 }
 
 function dispatchUpdateRequest(event: UpdateRequestEvent) {
@@ -454,8 +473,29 @@ function dispatchUpdateRequest(event: UpdateRequestEvent) {
   refreshUpdateRows();
 }
 
-function requestUpdateApply() {
-  dispatchUpdateRequest(sendControlMsg({ type: 'update-apply' }) ? 'request-sent' : 'request-unsent');
+function requestUpdateApply({ restartWhenStaged, confirmedSessionIds }: { restartWhenStaged: boolean; confirmedSessionIds?: string[] }) {
+  const isSent = sendControlMsg({ type: 'update-apply', restartWhenStaged, confirmedSessionIds });
+  dispatchUpdateRequest(isSent ? 'request-sent' : 'request-unsent');
+}
+
+function requestUpdateCheck() {
+  lastAutoUpdateCheckAt = Date.now();
+  sendControlMsg({ type: 'update-check' });
+}
+
+function checkUpdatesIfStale() {
+  if (!updateStatus) {
+    isAutoUpdateCheckAwaitingStatus = true;
+    return;
+  }
+  isAutoUpdateCheckAwaitingStatus = false;
+  const isStale = shouldAutoCheckUpdates({
+    status: updateStatus,
+    checkForUpdates: settingsPayload.checkForUpdates,
+    now: Date.now(),
+    lastAutoCheckAt: lastAutoUpdateCheckAt,
+  });
+  if (isStale) requestUpdateCheck();
 }
 
 function buildUpdateActions() {
@@ -465,15 +505,23 @@ function buildUpdateActions() {
     request: updateRequest,
   });
   const actions = el('div', 'settings-update-actions settings-update-readout');
-  actions.append(
-    buildUpdateAction('Check for updates', () => sendControlMsg({ type: 'update-check' })),
-    buildUpdateAction('Update', requestUpdateApply, decisions.update),
-    buildUpdateAction('Restart', restartServer, decisions.restart),
+  const buttons = el('div', 'settings-update-buttons');
+  buttons.append(
+    buildUpdateButton(
+      'Update and restart',
+      () => confirmUpdateAndRestart((confirmedSessionIds) => requestUpdateApply({ restartWhenStaged: true, confirmedSessionIds })),
+      { decision: decisions.update, isPrimary: true },
+    ),
+    buildUpdateButton('Update without restart', () => requestUpdateApply({ restartWhenStaged: false }), { decision: decisions.update }),
+    buildUpdateButton('Check for updates', requestUpdateCheck),
+    buildUpdateButton('Restart', restartServer, { decision: decisions.restart }),
   );
+  actions.append(buttons, buildUpdateActionStatus(decisions.update.reason));
   return actions;
 }
 
 function renderReadonly(setting: SettingsSetting) {
+  if (setting.status === 'update-summary') return buildUpdateSummary();
   if (setting.status === 'update-installed') return buildInstalledUpdateStatus();
   if (setting.status === 'update-latest') return buildLatestUpdateStatus();
   if (setting.status === 'update-last-checked') return buildLastUpdateCheckStatus();
@@ -725,6 +773,7 @@ function selectSection(
   if (sectionButtonLevelEl) sectionButtonLevelEl.textContent = LEVEL_LABELS[selectedSection.level] || selectedSection.level;
   renderContent();
   if (isAlertSoundSection(selectedSection)) reloadCustomSounds();
+  if (selectedSection.id === UPDATES_SECTION_ID) checkUpdatesIfStale();
   if (updateHash) replaceSettingsHash(selectedSection.id, settingId);
   if (settingId) flashSetting(settingId);
   if (focusContent) contentEl?.querySelector('h1')?.focus();
@@ -885,9 +934,13 @@ function handleNavigationKeydown(event: KeyboardEvent) {
 
 export function mountSettingsView(
   container: HTMLElement,
-  { onRestart = () => {} }: { onRestart?: () => void } = {},
+  {
+    onRestart = () => {},
+    onConfirmUpdateAndRestart = (proceed: (confirmedSessionIds: string[]) => void) => { proceed([]); },
+  }: { onRestart?: () => void; onConfirmUpdateAndRestart?: (proceed: (confirmedSessionIds: string[]) => void) => void } = {},
 ) {
   restartServer = onRestart;
+  confirmUpdateAndRestart = onConfirmUpdateAndRestart;
   rootEl = container;
   rootEl.textContent = '';
   shellEl = el('div', 'settings-view-shell');
@@ -1029,7 +1082,7 @@ export function refreshSettingsStatus() {
 }
 
 function refreshUpdateRows() {
-  if (selectedSection.id !== 'machine-updates') return;
+  if (selectedSection.id !== UPDATES_SECTION_ID) return;
   for (const setting of selectedSection.settings || []) {
     if (!setting.status?.startsWith('update-')) continue;
     const row = settingRow(setting);
@@ -1043,6 +1096,7 @@ export function applySettingsUpdateStatus(status: unknown) {
   updateStatus = status as UpdateStatusView;
   updateRequest = reduceUpdateRequest(updateRequest, 'status-frame');
   refreshUpdateRows();
+  if (isAutoUpdateCheckAwaitingStatus && selectedSection.id === UPDATES_SECTION_ID) checkUpdatesIfStale();
 }
 
 export function applySettingsUpdateProgress(journal: unknown) {

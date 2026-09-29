@@ -441,6 +441,17 @@ test('update requests carry only their type beside the request envelope', () => 
   }
 });
 
+test('update-apply may ask for a restart once staged, as a boolean only', () => {
+  assert.equal(ClientMessage.parse({ type: 'update-apply', restartWhenStaged: true }).restartWhenStaged, true);
+  assert.equal(ClientMessage.safeParse({ type: 'update-apply', restartWhenStaged: 'yes' }).success, false);
+});
+
+test('update-apply carries the confirmed session ids as an array of non-empty strings', () => {
+  assert.deepEqual(ClientMessage.parse({ type: 'update-apply', restartWhenStaged: true, confirmedSessionIds: ['session-a', 'session-b'] }).confirmedSessionIds, ['session-a', 'session-b']);
+  assert.equal(ClientMessage.safeParse({ type: 'update-apply', restartWhenStaged: true, confirmedSessionIds: 'session-a' }).success, false);
+  assert.equal(ClientMessage.safeParse({ type: 'update-apply', restartWhenStaged: true, confirmedSessionIds: [''] }).success, false);
+});
+
 test('a malformed request receives its typed error reply with the Zod message', () => {
   const server = createControlServer(controlDeps({ projects: [] }));
   const connection = connectControl<ServerPayload>(server);

@@ -6529,11 +6529,29 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-e
   gap: 8px;
 }
 
-.settings-update-action {
-  display: grid;
-  grid-template-columns: minmax(130px, max-content) minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
+.settings-update-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-update-summary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.settings-update-summary[data-tone="available"],
+.settings-update-summary[data-tone="staged"] {
+  color: var(--state-waiting);
+}
+
+.settings-update-summary[data-tone="current"] {
+  color: var(--state-complete);
+}
+
+.settings-update-summary[data-tone="unknown"] {
+  color: var(--text-muted);
 }
 
 .settings-update-button:disabled {

@@ -21,12 +21,12 @@ Machine-wide session startup and diagnostics.
 
 ### Updates
 
-Inspect, stage and hand off Glimmervoid updates without opening a terminal.
+See which Glimmervoid version is running, which one is newest, and update in one step.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `updateChannel` | Channel | `"release"` | Track tagged releases or the upstream of the checked-out branch. |
-| `checkForUpdates` | Check for updates on startup | `true` | Check for a newer Glimmervoid at launch and while a dashboard is connected. |
+| `checkForUpdates` | Check for updates automatically | `true` | Check for a newer Glimmervoid at launch, while a dashboard is connected, and when this page opens. |
 
 ### Terminal
 

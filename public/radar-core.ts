@@ -468,16 +468,17 @@ export function shortSha(sha: unknown) {
   return text.slice(0, 7).toLowerCase();
 }
 
-function versionOrShortSha(version: unknown, sha: unknown) {
+export function versionLabel(version: unknown, sha: unknown) {
   const labelled = textOr(version, '');
-  if (labelled) return labelled;
-  return shortSha(sha);
+  if (labelled) return /^\d/.test(labelled) ? `v${labelled}` : labelled;
+  const short = shortSha(sha);
+  return short ? `commit ${short}` : '';
 }
 
 export function updateBannerText(update: RadarUpdateFeed | null | undefined) {
-  const current = versionOrShortSha(update?.current, update?.currentSha);
-  const latest = versionOrShortSha(update?.latest, update?.latestSha);
-  return `Update available: ${current} -> ${latest}`;
+  const current = versionLabel(update?.current, update?.currentSha);
+  const latest = versionLabel(update?.latest, update?.latestSha);
+  return `Update available: ${current} to ${latest}`;
 }
 
 function radarAttentionParts({ posthog }: { posthog?: RadarSnapshot | null } = {}) {

@@ -357,9 +357,9 @@ test('updateBannerText: renders only the version pair', () => {
     currentSha: '0123456789abcdef0123456789abcdef01234567',
     latestSha: 'fedcba9876543210fedcba9876543210fedcba98',
   };
-  assert.equal(updateBannerText({ ...shas, current: '1.2.0', latest: '1.2.0' }), 'Update available: 1.2.0 -> 1.2.0');
-  assert.equal(updateBannerText({ ...shas, current: '1.2.0', latest: '1.3.0' }), 'Update available: 1.2.0 -> 1.3.0');
-  assert.equal(updateBannerText({ current: '1.2.0', latest: '1.3.0' }), 'Update available: 1.2.0 -> 1.3.0');
+  assert.equal(updateBannerText({ ...shas, current: '1.2.0', latest: '1.2.0' }), 'Update available: v1.2.0 to v1.2.0');
+  assert.equal(updateBannerText({ ...shas, current: '1.2.0', latest: '1.3.0' }), 'Update available: v1.2.0 to v1.3.0');
+  assert.equal(updateBannerText({ current: '1.2.0', latest: '1.3.0' }), 'Update available: v1.2.0 to v1.3.0');
 });
 
 test('a main-channel status without versions labels both sides with short shas', () => {
@@ -372,9 +372,9 @@ test('a main-channel status without versions labels both sides with short shas',
     latestSha: 'FEDCBA9876543210fedcba9876543210fedcba98',
     command: 'git pull',
   };
-  assert.equal(updateBannerText(mainChannelStatus), 'Update available: 0.24.2 -> fedcba9');
+  assert.equal(updateBannerText(mainChannelStatus), 'Update available: v0.24.2 to commit fedcba9');
   const withoutVersions = { ...mainChannelStatus, current: null };
-  assert.equal(updateBannerText(withoutVersions), 'Update available: 0123456 -> fedcba9');
+  assert.equal(updateBannerText(withoutVersions), 'Update available: commit 0123456 to commit fedcba9');
 });
 
 test('shortSha: 7 lowercase chars for a hex sha, empty string otherwise', () => {

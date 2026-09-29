@@ -31,7 +31,7 @@ import { handleDebugStateRefresh, handleDebugStateResponse, onDebugModeChanged }
 import { findSessionUi, sessionUIs } from './session-card/card-registry.ts';
 import type { PlanResponse } from './plan/plan-face.ts';
 import type { SessionPlanChangedMessage, SessionPlanDraftMessage } from './session-card/lifecycle.ts';
-import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, getSessionCount, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionResume, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
+import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionResume, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { reconnectDataWs, syncGridOnEngagementEdge } from './session-card/terminal.ts';
@@ -625,7 +625,7 @@ mountHooksView(viewHooksEl);
 
 mountTraceView(viewTraceEl);
 
-mountSettingsView(viewSettingsEl, { onRestart: confirmServerRestart });
+mountSettingsView(viewSettingsEl, { onRestart: confirmServerRestart, onConfirmUpdateAndRestart: confirmUpdateAndRestart });
 
 const VIEW_TABS = [
   { view: 'focus', tab: tabFocus, el: viewFocusEl },
@@ -820,6 +820,23 @@ function confirmServerRestart() {
     confirmLabel: 'Restart',
     danger: false,
     onConfirm: () => sendControlMsg({ type: 'restart-server' }),
+  });
+}
+
+function confirmUpdateAndRestart(proceed: (confirmedSessionIds: string[]) => void) {
+  const confirmableSessionIds = getSessionIds();
+  const count = confirmableSessionIds.length;
+  if (count === 0) {
+    proceed(confirmableSessionIds);
+    return;
+  }
+  const suffix = count > 1 ? 's' : '';
+  openConfirmDialog({
+    title: 'Update and restart',
+    message: `Glimmervoid restarts once the update is staged, which kills ${count} running session${suffix}. Continue?`,
+    confirmLabel: 'Update and restart',
+    danger: false,
+    onConfirm: () => proceed(confirmableSessionIds),
   });
 }
 

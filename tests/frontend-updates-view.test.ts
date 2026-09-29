@@ -10,8 +10,10 @@ import {
   latestUpdateDetails,
   projectUpdateProgress,
   reduceUpdateRequest,
+  shouldAutoCheckUpdates,
   updateActionAvailability,
   updateBannerMode,
+  updateSummary,
 } from '../public/updates-view-core.ts';
 import type { UpdateStatusView } from '../public/updates-view-core.ts';
 
@@ -259,13 +261,18 @@ test('projectUpdateProgress renders each terminal journal state as one reason-be
 });
 
 test('update identity rows show installed state, latest metadata and main-channel distance', () => {
-  assert.equal(installedUpdateText(status()), '0.24.0 | 0123456 | main | clean');
+  assert.equal(installedUpdateText(status()), 'v0.24.0, commit 0123456 on main, clean checkout');
+  assert.equal(
+    installedUpdateText(status({ current: null, installedBranch: null, isTreeClean: false })),
+    'Unknown version, commit 0123456, uncommitted local changes',
+  );
+  assert.equal(latestUpdateDetails(status()).label, 'v0.25.0');
   assert.deepEqual(latestUpdateDetails(status({
     latest: null,
     channel: 'main',
     behindCount: 3,
   })), {
-    label: 'fedcba9',
+    label: 'commit fedcba9',
     behind: '3 commits behind',
     releaseUrl: 'https://example.test/releases/0.25.0',
   });
@@ -286,4 +293,44 @@ test('lastUpdateCheckText explains when the checkout already contains the releas
     }),
     'The checkout already contains the latest release. Restart to run it.',
   );
+});
+
+test('updateSummary names the running and target versions in one headline', () => {
+  assert.deepEqual(updateSummary(status(), null), {
+    tone: 'available',
+    headline: 'Update available: v0.24.0 to v0.25.0.',
+  });
+  assert.deepEqual(updateSummary(status({ latest: null, channel: 'main', behindCount: 1 }), null), {
+    tone: 'available',
+    headline: 'Update available: v0.24.0 to commit fedcba9 (1 commit behind).',
+  });
+  assert.deepEqual(updateSummary(status({ updateAvailable: false, latest: '0.24.0' }), null), {
+    tone: 'current',
+    headline: 'Up to date. Running v0.24.0.',
+  });
+  assert.deepEqual(updateSummary(status({ updateAvailable: false, reason: 'fetch-failed' }), null), {
+    tone: 'unknown',
+    headline: 'Running v0.24.0. The last check did not finish.',
+  });
+  assert.deepEqual(updateSummary(null, null), { tone: 'unknown', headline: 'No update check has run yet.' });
+});
+
+test('updateSummary follows the update run over the last check', () => {
+  assert.deepEqual(updateSummary(status(), journal('running')), {
+    tone: 'running',
+    headline: 'Updating to v0.25.0. Glimmervoid keeps running until the restart.',
+  });
+  assert.deepEqual(updateSummary(status({ updateAvailable: false }), journal('staged')), {
+    tone: 'staged',
+    headline: 'v0.25.0 is staged. Restart to finish updating.',
+  });
+});
+
+test('shouldAutoCheckUpdates checks on open only when the last check is stale and checks are on', () => {
+  const tenMinutes = 10 * 60_000;
+  assert.equal(shouldAutoCheckUpdates({ status: null, now: 5_000, lastAutoCheckAt: null }), true);
+  assert.equal(shouldAutoCheckUpdates({ status: status({ lastCheckAt: 1_000 }), now: 1_000 + tenMinutes - 1, lastAutoCheckAt: null }), false);
+  assert.equal(shouldAutoCheckUpdates({ status: status({ lastCheckAt: 1_000 }), now: 1_000 + tenMinutes, lastAutoCheckAt: null }), true);
+  assert.equal(shouldAutoCheckUpdates({ status: null, now: 5_000, lastAutoCheckAt: 4_000 }), false);
+  assert.equal(shouldAutoCheckUpdates({ status: null, checkForUpdates: false, now: 5_000, lastAutoCheckAt: null }), false);
 });

@@ -91,6 +91,8 @@ interface ControlRequest {
   days?: unknown;
   force?: unknown;
   fresh?: unknown;
+  restartWhenStaged?: boolean;
+  confirmedSessionIds?: string[];
   focused?: boolean;
   after?: number;
   endingAt?: number | 'tail';
@@ -1090,14 +1092,24 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     await checkNow();
   }
 
-  async function handleUpdateApply(_msg: ControlRequest, ws: ControlSocket): Promise<void> {
+  async function handleUpdateApply(msg: ControlRequest, ws: ControlSocket): Promise<void> {
     if (!applyUpdate) {
       sendError(ws, '[update-apply-unavailable] Update application is unavailable.');
       return;
     }
     const outcome = await applyUpdate();
-    if (outcome.ok) return;
-    sendError(ws, `[${outcome.reason || 'update-refused'}] ${outcome.message}`);
+    if (!outcome.ok) {
+      sendError(ws, `[${outcome.reason || 'update-refused'}] ${outcome.message}`);
+      return;
+    }
+    if (msg.restartWhenStaged !== true) return;
+    const confirmedSessionIds = new Set(msg.confirmedSessionIds ?? []);
+    const hasSessionsBeyondConsent = [...sessions.keys(), ...agentSessions.keys()].some((liveSessionId) => !confirmedSessionIds.has(liveSessionId));
+    if (hasSessionsBeyondConsent) {
+      sendError(ws, '[update-restart-skipped] The update is staged, but sessions started since you confirmed. Restart when ready.');
+      return;
+    }
+    handleRestart(msg, ws);
   }
 
   function handleRestart(_msg: ControlRequest, ws: ControlSocket): void {

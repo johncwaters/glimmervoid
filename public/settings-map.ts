@@ -145,21 +145,31 @@ export const SETTINGS_MAP = Object.freeze([
     id: 'machine-updates',
     level: 'machine',
     title: 'Updates',
-    description: 'Inspect, stage and hand off Glimmervoid updates without opening a terminal.',
+    description: 'See which Glimmervoid version is running, which one is newest, and update in one step.',
     settings: [
       {
-        id: 'update-installed', path: 'checkForUpdates', title: 'Installed',
-        description: 'Version, commit, branch and checkout state currently running.',
-        control: 'readonly', keywords: ['version', 'commit'], status: 'update-installed',
+        id: 'update-summary', path: 'checkForUpdates', title: 'Status',
+        description: 'Whether this install is up to date, and what an update would move it to.',
+        control: 'readonly', keywords: ['version', 'available', 'current'], status: 'update-summary',
       },
       {
-        id: 'update-latest', path: 'updateChannel', title: 'Latest',
-        description: 'Latest target found on the selected update channel.',
+        id: 'update-actions', path: 'checkForUpdates', title: 'Actions',
+        description: 'Update and restart stages the newest build, then restarts to run it. Update without restart stages it for a later restart.',
+        control: 'readonly', keywords: ['check', 'restart'], status: 'update-actions',
+      },
+      {
+        id: 'update-installed', path: 'checkForUpdates', title: 'Running version',
+        description: 'The version, commit, branch and checkout state running now.',
+        control: 'readonly', keywords: ['version', 'commit', 'installed'], status: 'update-installed',
+      },
+      {
+        id: 'update-latest', path: 'updateChannel', title: 'Latest version',
+        description: 'The newest target found on the selected update channel.',
         control: 'readonly', keywords: ['release', 'commit'], status: 'update-latest',
       },
       {
         id: 'update-last-checked', path: 'checkForUpdates', title: 'Last checked',
-        description: 'Most recent update check or the reason automatic checks are off.',
+        description: 'The most recent update check, or why automatic checks are off.',
         control: 'readonly', keywords: ['time', 'failure'], status: 'update-last-checked',
       },
       {
@@ -169,14 +179,9 @@ export const SETTINGS_MAP = Object.freeze([
         keywords: ['release', 'branch'], defaultValue: 'release',
       },
       {
-        id: 'check-updates', path: 'checkForUpdates', title: 'Check for updates on startup',
-        description: 'Check for a newer Glimmervoid at launch and while a dashboard is connected.',
+        id: 'check-updates', path: 'checkForUpdates', title: 'Check for updates automatically',
+        description: 'Check for a newer Glimmervoid at launch, while a dashboard is connected, and when this page opens.',
         control: 'toggle', keywords: ['release', 'github'], defaultValue: true,
-      },
-      {
-        id: 'update-actions', path: 'checkForUpdates', title: 'Actions',
-        description: 'Check immediately, stage the selected target, or restart to hand off a staged build.',
-        control: 'readonly', keywords: ['check', 'restart'], status: 'update-actions',
       },
     ],
   },

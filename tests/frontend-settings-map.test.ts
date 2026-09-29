@@ -101,12 +101,13 @@ test('the machine Updates section owns its alias, channel, status rows, actions 
   assert.equal(SETTINGS_SECTION_ALIASES.updates, 'machine-updates');
   const updateSettings: SettingsSetting[] = updates.settings;
   assert.deepEqual(updateSettings.map((setting) => setting.id), [
+    'update-summary',
+    'update-actions',
     'update-installed',
     'update-latest',
     'update-last-checked',
     'update-channel',
     'check-updates',
-    'update-actions',
   ]);
   assert.deepEqual(updateSettings.find((setting) => setting.id === 'update-channel')?.options, [
     { value: 'release', label: 'Release' },

@@ -1,6 +1,6 @@
 import type { UpdateStatus } from '#shared/contracts/control-messages.ts';
 import type { UpdateJournal, UpdateRunState, UpdateStepStatus } from '#shared/contracts/update-journal.ts';
-import { shortSha } from './radar-core.ts';
+import { shortSha, versionLabel } from './radar-core.ts';
 
 export type UpdateStatusView = Partial<UpdateStatus>;
 
@@ -167,13 +167,49 @@ export function projectUpdateProgress(journal: UpdateJournal | null | undefined)
   };
 }
 
+const AUTO_CHECK_STALE_MS = 10 * 60_000;
+
+export type UpdateSummaryTone = 'unknown' | 'current' | 'available' | 'running' | 'staged';
+
+export interface UpdateSummary {
+  tone: UpdateSummaryTone;
+  headline: string;
+}
+
+function behindText(status: UpdateStatusView): string {
+  if (status.channel !== 'main' || !Number.isInteger(status.behindCount)) return '';
+  return `${status.behindCount} ${status.behindCount === 1 ? 'commit' : 'commits'} behind`;
+}
+
+export function updateSummary(
+  status: UpdateStatusView | null | undefined,
+  journal: UpdateJournal | null | undefined,
+): UpdateSummary {
+  const runState = updateRunState(status, journal);
+  const target = versionLabel(journal?.toVersion, journal?.toSha)
+    || versionLabel(status?.latest, status?.latestSha)
+    || 'the update';
+  if (runState === 'running') return { tone: 'running', headline: `Updating to ${target}. Glimmervoid keeps running until the restart.` };
+  if (runState === 'staged') return { tone: 'staged', headline: `${target} is staged. Restart to finish updating.` };
+  if (!status) return { tone: 'unknown', headline: 'No update check has run yet.' };
+  const current = versionLabel(status.current, status.currentSha) || 'an unknown version';
+  if (status.updateAvailable) {
+    const latest = versionLabel(status.latest, status.latestSha) || 'a newer build';
+    const behind = behindText(status);
+    return { tone: 'available', headline: `Update available: ${current} to ${latest}${behind ? ` (${behind})` : ''}.` };
+  }
+  if (nonemptyText(status.reason)) return { tone: 'unknown', headline: `Running ${current}. The last check did not finish.` };
+  return { tone: 'current', headline: `Up to date. Running ${current}.` };
+}
+
 export function installedUpdateText(status: UpdateStatusView | null | undefined): string {
   if (!status) return 'Update status unavailable.';
-  const version = nonemptyText(status.current) || 'version unknown';
-  const sha = shortSha(status.currentSha) || 'sha unknown';
-  const branch = nonemptyText(status.installedBranch) || 'branch unknown';
-  const treeState = status.isTreeClean === true ? 'clean' : status.isTreeClean === false ? 'dirty' : 'tree state unknown';
-  return `${version} | ${sha} | ${branch} | ${treeState}`;
+  const version = versionLabel(status.current, null) || 'Unknown version';
+  const sha = shortSha(status.currentSha);
+  const branch = nonemptyText(status.installedBranch);
+  const location = [sha ? `commit ${sha}` : '', branch ? `on ${branch}` : ''].filter(Boolean).join(' ');
+  const treeState = status.isTreeClean === true ? 'clean checkout' : status.isTreeClean === false ? 'uncommitted local changes' : '';
+  return [version, location, treeState].filter(Boolean).join(', ');
 }
 
 export function latestUpdateDetails(status: UpdateStatusView | null | undefined): {
@@ -182,11 +218,25 @@ export function latestUpdateDetails(status: UpdateStatusView | null | undefined)
   releaseUrl: string;
 } {
   if (!status) return { label: 'Update status unavailable.', behind: '', releaseUrl: '' };
-  const label = nonemptyText(status.latest) || shortSha(status.latestSha) || 'latest target unknown';
-  const behind = status.channel === 'main' && Number.isInteger(status.behindCount)
-    ? `${status.behindCount} ${status.behindCount === 1 ? 'commit' : 'commits'} behind`
-    : '';
-  return { label, behind, releaseUrl: nonemptyText(status.releaseUrl) };
+  const label = versionLabel(status.latest, status.latestSha) || 'Latest target unknown';
+  return { label, behind: behindText(status), releaseUrl: nonemptyText(status.releaseUrl) };
+}
+
+export function shouldAutoCheckUpdates({
+  status,
+  checkForUpdates,
+  now,
+  lastAutoCheckAt,
+}: {
+  status?: UpdateStatusView | null;
+  checkForUpdates?: unknown;
+  now: number;
+  lastAutoCheckAt: number | null;
+}): boolean {
+  if (checkForUpdates === false) return false;
+  if (lastAutoCheckAt !== null && now - lastAutoCheckAt < AUTO_CHECK_STALE_MS) return false;
+  const lastCheckAt = typeof status?.lastCheckAt === 'number' ? status.lastCheckAt : null;
+  return lastCheckAt === null || now - lastCheckAt >= AUTO_CHECK_STALE_MS;
 }
 
 export function lastUpdateCheckText({

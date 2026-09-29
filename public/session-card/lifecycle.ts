@@ -189,6 +189,10 @@ export function getSessionCount() {
   return sessionUIs.size;
 }
 
+export function getSessionIds(): string[] {
+  return [...sessionUIs.keys()];
+}
+
 export function applyTerminalSettings(settings: unknown) {
 
   const terminalSettings = (settings || {}) as { cursorBlink?: boolean; debugMode?: boolean };
