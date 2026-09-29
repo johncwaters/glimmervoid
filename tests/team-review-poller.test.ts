@@ -311,6 +311,114 @@ test('requeue resets a failed review at its attempt limit and the next tick revi
   await poller.stop();
 });
 
+test('requeue of a posted draft reviews it again even though the viewer reviewed that head', async () => {
+  const key = `${REPO}#1`;
+  const { poller, github, spawned } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.ok(await poller.updateDraft(key, { reviewedHead: HEAD_ONE, status: 'ready' }, { status: 'posted' }));
+  github.reviews.set(1, [{ login: 'me', state: 'APPROVED', commit: HEAD_ONE }]);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 1);
+  assert.equal(await poller.requeue(key, HEAD_ONE), true);
+  assert.equal(poller.getDraft(key)?.status, 'posted');
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 2);
+  assert.equal(poller.getDraft(key)?.status, 'ready');
+  assert.equal(poller._state()[key]?.requeuedHead, undefined);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 2);
+  await poller.stop();
+});
+
+test('a requeued posted draft whose one review crashes is retried even though the viewer reviewed that head', async () => {
+  const key = `${REPO}#1`;
+  let isSpawnFailing = false;
+  const { poller, github, spawned } = setup({
+    spawnReview: async (args) => {
+      spawned.push(args);
+      if (isSpawnFailing) throw new Error('pty exploded');
+      return draftFor(args);
+    },
+  });
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.ok(await poller.updateDraft(key, { reviewedHead: HEAD_ONE, status: 'ready' }, { status: 'posted' }));
+  github.reviews.set(1, [{ login: 'me', state: 'APPROVED', commit: HEAD_ONE }]);
+  assert.equal(await poller.requeue(key, HEAD_ONE), true);
+  isSpawnFailing = true;
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 2);
+  assert.equal(poller.getDraft(key)?.status, 'error');
+  isSpawnFailing = false;
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 3);
+  assert.equal(poller.getDraft(key)?.status, 'ready');
+  assert.equal(poller._state()[key]?.requeuedHead, undefined);
+  await poller.stop();
+});
+
+test('a requeue left at an exhausted head does not auto-review a moved head the viewer already reviewed', async () => {
+  const key = `${REPO}#1`;
+  let isSpawnFailing = false;
+  const { poller, github, spawned, setNow } = setup({
+    spawnReview: async (args) => {
+      spawned.push(args);
+      if (isSpawnFailing) throw new Error('pty exploded');
+      return draftFor(args);
+    },
+  });
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.ok(await poller.updateDraft(key, { reviewedHead: HEAD_ONE, status: 'ready' }, { status: 'posted' }));
+  github.reviews.set(1, [{ login: 'me', state: 'APPROVED', commit: HEAD_ONE }]);
+  assert.equal(await poller.requeue(key, HEAD_ONE), true);
+  isSpawnFailing = true;
+  for (let tick = 0; tick < MAX_REVIEW_ATTEMPTS + 1; tick += 1) {
+    await poller.tick();
+    await settle();
+  }
+  const spawnedAtExhaustion = spawned.length;
+  assert.equal(poller.getDraft(key)?.status, 'error');
+  assert.equal(poller._state()[key]?.requeuedHead, HEAD_ONE);
+  isSpawnFailing = false;
+  github.heads.set(1, HEAD_TWO);
+  github.reviews.set(1, [{ login: 'me', state: 'APPROVED', commit: HEAD_TWO }]);
+  setNow(1000 + DEFAULT_RE_REVIEW_AFTER_HOURS * 3600000);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, spawnedAtExhaustion);
+  await poller.stop();
+});
+
+test('a requeued posted draft whose PR departed keeps posted retention', async () => {
+  const key = `${REPO}#1`;
+  const { poller, github, spawned } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.ok(await poller.updateDraft(key, { reviewedHead: HEAD_ONE, status: 'ready' }, { status: 'posted' }));
+  assert.equal(await poller.requeue(key, HEAD_ONE), true);
+  github.requested = [];
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 1);
+  assert.equal(poller.getDraft(key)?.status, 'posted');
+  await poller.stop();
+});
+
 test('requeue of a ready draft marks it stale at once and the next tick reviews it again', async () => {
   const key = `${REPO}#1`;
   const { poller, github, spawned } = setup();

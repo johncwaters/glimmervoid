@@ -181,6 +181,7 @@ export const TeamReviewStateEntry = z.object({
   reviewedAt: z.number().optional(),
   githubReviews: z.array(GithubReview).optional(),
   liveHead: CommitSha.optional(),
+  requeuedHead: CommitSha.optional(),
   updatedAt: z.number().finite(),
 });
 export type TeamReviewStateEntry = z.infer<typeof TeamReviewStateEntry>;

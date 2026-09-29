@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey, commentLocation, emptyStateText, githubReviewSummary, groupDrafts, postedAgeText, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTone, readyAttentionSignature, readyRowSignature, reviewFooterText, reviewProgressSteps,
-  severityCounts, severityPresentation, tierLabel, verdictLabel, verdictRecommendation, verdictSealKind, verdictSealText, verdictTone, withoutComment, legacySummaryHint,
+  severityCounts, severityPresentation, tierLabel, verdictLabel, verdictRecommendation, verdictSealKind, verdictSealText, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter,
 } from '../public/team-review-view-core.ts';
 import { InFlightReview, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type {
@@ -174,10 +174,13 @@ test('the verdict seal reads as a suggestion until the review is posted', () => 
   assert.equal(verdictSealText({ verdict: 'REQUEST CHANGES', status: 'posted' }), 'request changes');
 });
 
-test('the legacy summary hint offers a requeue only while the review is unposted', () => {
-  assert.match(legacySummaryHint('ready'), /Queue review to get a plain summary\.$/);
-  assert.doesNotMatch(legacySummaryHint('posted'), /Queue review/);
-  assert.match(legacySummaryHint('posted'), /audit log shows what it checked\.$/);
+test('the legacy summary hint offers a requeue', () => {
+  assert.match(LEGACY_SUMMARY_HINT, /Queue review to get a plain summary\.$/);
+});
+
+test('a posted, failed, stale or discarded review offers a requeue footer, a ready one uses its action row', () => {
+  for (const status of ['posted', 'error', 'stale', 'discarded'] as const) assert.equal(hasRequeueFooter(status), true, status);
+  assert.equal(hasRequeueFooter('ready'), false);
 });
 
 test('the empty state says whether the lane is off or simply has nothing yet', () => {

@@ -11,7 +11,7 @@ import { createSettingsLink } from './settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
-  commentLocation, emptyStateText, githubReviewSummary, groupDrafts, parseInlineSegments, hasAnyRow, legacySummaryHint, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  commentLocation, emptyStateText, githubReviewSummary, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, phaseLabel, postedAgeText, pullRequestLabel, queueRowStateLabel, queueRowTone, readyAttentionSignature, readyRowSignature, reviewFooterText,
   reviewProgressSteps, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictSealText, verdictTone,
 } from './team-review-view-core.ts';
@@ -219,7 +219,7 @@ function createVerdictBox(draft: ReviewDraft, isWithCounts: boolean): HTMLElemen
   if (!assessment) {
     const audit = el('details', 'pr-verdict-audit');
     audit.append(el('summary', null, 'Review audit'), el('p', 'pr-verdict-summary', draft.summary));
-    verdict.append(el('p', 'pr-verdict-legacy', legacySummaryHint(draft.status)), audit);
+    verdict.append(el('p', 'pr-verdict-legacy', LEGACY_SUMMARY_HINT), audit);
     return verdict;
   }
   verdict.append(appendInlineText(el('p', 'pr-verdict-summary pr-verdict-reason'), draft.summary));
@@ -392,12 +392,8 @@ function createInReviewDetail(review: InFlightReview): HTMLElement {
 function createOtherDetail(draft: ReviewDraft): HTMLElement {
   const detail = el('article', 'pr-detail');
   detail.append(createDetailHeading(draft));
-  if (draft.status === 'posted') {
-    detail.append(createVerdictBox(draft, false));
-    return detail;
-  }
-  detail.append(el('p', 'pr-attention-detail', attentionDetail(draft)));
-  if (draft.status !== 'error' && draft.status !== 'stale' && draft.status !== 'discarded') return detail;
+  detail.append(draft.status === 'posted' ? createVerdictBox(draft, false) : el('p', 'pr-attention-detail', attentionDetail(draft)));
+  if (!hasRequeueFooter(draft.status)) return detail;
   const footer = el('footer', 'pr-footer');
   const button = el('button', 'pr-action', 'Queue review');
   button.type = 'button';
@@ -425,7 +421,7 @@ function createOtherDetail(draft: ReviewDraft): HTMLElement {
 }
 
 function otherDetailFor(draft: ReviewDraft): HTMLElement {
-  if (draft.status !== 'error' && draft.status !== 'stale' && draft.status !== 'discarded') return createOtherDetail(draft);
+  if (!hasRequeueFooter(draft.status)) return createOtherDetail(draft);
   const cached = _requeueDetails.get(draft.key);
   if (cached && (_pendingActions.has(draft.key) || cached.signature === `${draft.status}:${draft.reviewedHead}:${draft.error ?? ''}`)) return cached.element;
   return createOtherDetail(draft);
@@ -465,7 +461,7 @@ function forgetDepartedDetails(readyKeys: Set<string>): void {
     if (readyKeys.has(key) || _pendingActions.has(key)) continue;
     _readyDetails.delete(key);
   }
-  const requeueKeys = new Set(_latest?.drafts.filter((draft) => draft.status === 'error' || draft.status === 'stale' || draft.status === 'discarded').map((draft) => draft.key) ?? []);
+  const requeueKeys = new Set(_latest?.drafts.filter((draft) => hasRequeueFooter(draft.status)).map((draft) => draft.key) ?? []);
   for (const key of _requeueDetails.keys()) {
     if (requeueKeys.has(key) || _pendingActions.has(key)) continue;
     _requeueDetails.delete(key);

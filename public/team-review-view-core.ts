@@ -251,10 +251,12 @@ export function verdictSealText(draft: Pick<ReviewDraft, 'verdict' | 'status'>):
   return draft.status === 'posted' ? verdictLabel(draft.verdict) : verdictRecommendation(draft.verdict);
 }
 
-const LEGACY_SUMMARY_EXPLANATION = 'This review ran before plain summaries existed, so only its verdict and findings remain. The audit log shows what it checked.';
+export const LEGACY_SUMMARY_HINT = 'This review ran before plain summaries existed, so only its verdict and findings remain. The audit log shows what it checked. Queue review to get a plain summary.';
 
-export function legacySummaryHint(status: ReviewDraft['status']): string {
-  return status === 'posted' ? LEGACY_SUMMARY_EXPLANATION : `${LEGACY_SUMMARY_EXPLANATION} Queue review to get a plain summary.`;
+const REQUEUEABLE_STATUSES: ReadonlySet<ReviewDraft['status']> = new Set(['error', 'stale', 'discarded', 'posted']);
+
+export function hasRequeueFooter(status: ReviewDraft['status']): boolean {
+  return REQUEUEABLE_STATUSES.has(status);
 }
 
 export function verdictLabel(verdict: ReviewDraft['verdict']): string {

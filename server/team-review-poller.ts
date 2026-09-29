@@ -59,6 +59,8 @@ interface TeamReviewPollerDependencies {
   skipIdleAfterMs?: number;
 }
 
+const REQUEUEABLE_STATUSES: ReadonlySet<ReviewDraftType['status']> = new Set(['error', 'ready', 'stale', 'discarded', 'posted']);
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -158,6 +160,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     }
     const draft = outcome;
     entry.resumable = null;
+    if (draft.status !== 'error') delete entry.requeuedHead;
     entry.reviewAttempts = core.reviewAttemptsAfter(entry, draft.reviewedHead);
     entry.draft = draft;
     entry.reviewedHead = draft.reviewedHead;
@@ -202,7 +205,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       const canAutoReview = core.shouldAutoReview(entry, head, now(), reReviewAfterMs);
       if (entry.reviewedHead !== head && entry.draft?.status === 'ready') entry.reviewedAt ??= entry.updatedAt;
       if (entry.reviewedHead !== head && core.markDraftStale(entry, now())) isDirty = true;
-      if (!canAutoReview || isReviewedByViewer) continue;
+      if (!canAutoReview || (isReviewedByViewer && entry.requeuedHead !== head)) continue;
       queue.push(candidate);
     }
     return { queue, isDirty };
@@ -245,6 +248,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
         if (resume) await discardResumable(resume);
         entry.reviewedHead = detail.headRefOid;
         entry.skipReason = triage.reasons.join(', ') || 'skipped';
+        delete entry.requeuedHead;
         continue;
       }
       entry.inFlight = true;
@@ -314,9 +318,10 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   async function requeue(key: string, head: string): Promise<boolean> {
     const entry = state[key];
     if (!entry?.draft || entry.inFlight || entry.draft.reviewedHead !== head) return false;
-    if (entry.draft.status !== 'error' && entry.draft.status !== 'ready' && entry.draft.status !== 'stale' && entry.draft.status !== 'discarded') return false;
+    if (!REQUEUEABLE_STATUSES.has(entry.draft.status)) return false;
     entry.reviewAttempts = 0;
     entry.reviewedHead = null;
+    entry.requeuedHead = head;
     if (entry.draft.status === 'discarded') entry.draft = { ...entry.draft, status: 'stale' };
     core.markDraftStale(entry, now());
     entry.updatedAt = now();
