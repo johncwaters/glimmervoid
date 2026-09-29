@@ -2687,6 +2687,8 @@ a.pr-link:hover { color: var(--text-head); text-decoration: underline; }
   line-height: 1.5;
 }
 
+.pr-note-input { min-height: 52px; }
+
 .pr-comment-card {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr);

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey, commentLocation, emptyStateText, githubReviewSummary, groupDrafts, postedAgeText, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, emptyStateText, githubReviewSummary, groupDrafts, postedAgeText, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTone, readyAttentionSignature, readyRowSignature, reviewFooterText, reviewProgressSteps,
   severityCounts, severityPresentation, tierLabel, verdictLabel, verdictRecommendation, verdictSealKind, verdictSealText, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter,
 } from '../public/team-review-view-core.ts';
@@ -221,6 +221,14 @@ test('the action request pins the reviewed head and carries only the remaining c
   });
   assert.equal(commentLocation(comments[0]), 'src/a.ts:3');
   assert.equal(commentLocation(comments[1]), 'src/a.ts:9 (old)');
+});
+
+test('the reviewer note posts above the automated-review note, and a blank note leaves the body untouched', () => {
+  const reviewBody = '> [!NOTE]\n> Automated review. Not written by a human.\n\nSummary.';
+  assert.equal(withReviewerNote('  Code review focused. Trying it out later.\n', reviewBody), `Code review focused. Trying it out later.\n\n${reviewBody}`);
+  assert.equal(withReviewerNote('First.\n\nSecond.', reviewBody), `First.\n\nSecond.\n\n${reviewBody}`);
+  assert.equal(withReviewerNote(' \n ', reviewBody), reviewBody);
+  assert.equal(withReviewerNote('Only mine.', '  '), 'Only mine.');
 });
 
 test('queue review sends an empty action payload and has stable progress and outcome text', () => {

@@ -301,6 +301,13 @@ export function withoutComment(comments: readonly ReviewComment[], removedIndex:
   return comments.filter((_comment, index) => index !== removedIndex);
 }
 
+export function withReviewerNote(reviewerNote: string, reviewBody: string): string {
+  const trimmedNote = reviewerNote.trim();
+  if (!trimmedNote) return reviewBody;
+  if (!reviewBody.trim()) return trimmedNote;
+  return `${trimmedNote}\n\n${reviewBody}`;
+}
+
 export function buildActionRequest(draft: ReviewDraft, action: TeamReviewAction, body: string, comments: readonly ReviewComment[]): TeamReviewActionRequest {
   return { key: draft.key, head: draft.reviewedHead, action, body, comments: [...comments] };
 }

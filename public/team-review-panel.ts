@@ -13,7 +13,7 @@ import {
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, emptyStateText, githubReviewSummary, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, phaseLabel, postedAgeText, pullRequestLabel, queueRowStateLabel, queueRowTone, readyAttentionSignature, readyRowSignature, reviewFooterText,
-  reviewProgressSteps, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictSealText, verdictTone,
+  reviewProgressSteps, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictSealText, verdictTone, withReviewerNote,
 } from './team-review-view-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
 import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
@@ -298,6 +298,15 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   const heading = el('div', 'pr-posts-heading');
   heading.append(el('h3', null, 'Posts to GitHub'), el('span', null, 'Each inline comment opens with the automated-review note.'));
   posts.append(heading);
+  const noteLabel = el('label', 'pr-body-label');
+  const noteTitle = el('span', 'pr-body-title');
+  noteTitle.append(createBodyGlyph(), 'Your note');
+  const noteInput = el('textarea', 'pr-body-input pr-note-input');
+  noteInput.rows = 2;
+  noteInput.spellcheck = true;
+  noteInput.placeholder = 'Posts above the automated-review note';
+  noteLabel.append(noteTitle, noteInput);
+  posts.append(noteLabel);
   const bodyLabel = el('label', 'pr-body-label');
   const bodyTitle = el('span', 'pr-body-title');
   bodyTitle.append(createBodyGlyph(), 'Review body');
@@ -340,7 +349,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
       status.dataset.tone = 'busy';
       status.textContent = actionProgressText(action);
       const comments = draft.comments.filter((_comment, index) => includedIndexes.has(index));
-      if (sendAction(draft, action, bodyInput.value, comments, settle)) return;
+      if (sendAction(draft, action, withReviewerNote(noteInput.value, bodyInput.value), comments, settle)) return;
       settle(false, 'Not connected to the server.');
     });
     buttons.push(button);
