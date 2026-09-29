@@ -445,12 +445,22 @@ test('the review prompt explains linked and missing dependency states', () => {
   const linked = reviewPromptFor({ dependencyState: 'linked' });
   assert.match(linked, /node_modules in the checkout is a read-only link/);
   assert.match(linked, /installed for that checkout's lockfile/);
-  assert.match(linked, /run the repository's typecheck, lint and tests/);
+  assert.match(linked, /run the repository's typecheck, lint, tests and build/);
+  assert.match(linked, /Tools that write caches into node_modules fail/);
+  assert.match(linked, /The checkout is read-only and is the only source of truth for reading and diffing/);
+  assert.ok(linked.includes('git -C /checkout archive HEAD | tar -x -C ./build'));
+  assert.ok(linked.includes('ln -s /checkout/node_modules ./build/node_modules'));
+  assert.match(linked, /Run builds and tests only in \.\/build/);
+  assert.doesNotMatch(linked, /writable/);
   assert.match(linked, /changes dependency manifests/);
   assert.match(linked, /name the mismatch under GAPS/);
   const none = reviewPromptFor({ dependencyState: 'none' });
   assert.match(none, /No dependencies are installed and package registries are unreachable/);
   assert.match(none, /Do not attempt an install/);
+  assert.match(none, /The checkout is read-only/);
+  assert.ok(none.includes('git -C /checkout archive HEAD | tar -x -C ./build'));
+  assert.doesNotMatch(none, /ln -s/);
+  assert.doesNotMatch(none, /writable/);
 });
 
 test('the review prompt declines posting, fences PR text as untrusted and pins the head', () => {

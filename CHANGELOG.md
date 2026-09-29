@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Team reviews can build the pull request**: the reviewer now builds and runs tests in a copy of the pull request inside its own review folder, with your clone's `node_modules` linked in read-only, so builds that write output such as `dist/`, `.next/` or snapshots work. The checkout it reviews stays read-only, so pull request scripts cannot change the code under review or its git metadata. Tools that cache inside `node_modules` still fail, and the reviewer says so.
+
 ## [0.28.1] - 2026-09-29
 
 ### Changed

@@ -643,10 +643,16 @@ function buildReviewPrompt({
     `- The head is the local ref ${headRef} and the base branch tip is the local ref ${baseRef}.`,
     `- BASE_SHA is the output of: git -C ${checkoutPath} merge-base ${baseRef} ${headRef}`,
     `- HEAD_SHA is ${head}.`,
+    '- The checkout is read-only and is the only source of truth for reading and diffing. Keep every write in the current directory.',
+    '- To run a build or tests that write into the repository, first copy the head into the current directory:',
+    `  mkdir ./build && git -C ${checkoutPath} archive HEAD | tar -x -C ./build`,
+    ...(dependencyState === 'linked' ? [`  then link the dependencies: ln -s ${checkoutPath}/node_modules ./build/node_modules`] : []),
+    '- Run builds and tests only in ./build, and never draw conclusions about the source from ./build.',
     ...(dependencyState === 'linked' ? [
       '- node_modules in the checkout is a read-only link to the operator\'s own checkout of this repository.',
+      '  Tools that write caches into node_modules fail; point their cache elsewhere or note it under GAPS.',
       '- Those dependencies were installed for that checkout\'s lockfile, which may differ from this pull request.',
-      '- Use them to run the repository\'s typecheck, lint and tests. If the pull request changes dependency manifests',
+      '- Use them to run the repository\'s typecheck, lint, tests and build. If the pull request changes dependency manifests',
       '  or lockfiles, name the mismatch under GAPS.',
     ] : [
       '- No dependencies are installed and package registries are unreachable from this session. Do not attempt an install.',
