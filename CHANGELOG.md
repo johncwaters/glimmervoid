@@ -7,9 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-09-28
+
 ### Changed
 
 - **A tighter Reviews layout**: the Team/Mine switch is now a pair of tabs in the queue's header, and Minimize is an icon button beside them, so both drop their own rows. A collapsed queue becomes a narrow strip of status marks you can still click through. Every queue row shows a status mark (cross, diamond, ring, check or dash) so state reads without relying on color. The Mine detail replaces its bullet list with a merge-readiness checklist of checks, review, threads, conflicts and base, which always agrees with the stage label. The session review sidebar no longer appears on the Reviews tab on desktop.
+- **Dependencies**: Vite 8 (Rolldown bundler), Biome 2.5, which now also lints the dashboard HTML, `ws` 8.22, `zod` 4.6, Tailwind 4.3, and GitHub Actions checkout and setup-node v7.
 
 ### Removed
 
@@ -19,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Unknown commands no longer start the server**: `glimmervoid <name>` with an unrecognised command, including the removed `pack` and `memory`, used to fall through and launch a full server. It now prints the usage and exits 1.
 - **Screen reader semantics in the dashboard shell**: the view tabs and session rail no longer sit inside `nav` landmarks that contradicted their tab list and list box roles, the rail resizer now always reports its width (including after a double-click reset), and the Add Session choices are proper grouped fields.
+- **Session Trace records subagents under a symlinked config directory**: when `~/.claude` or `CLAUDE_CONFIG_DIR` is reached through a symlink, every subagent transcript used to be refused as outside the projects root, so subagents never appeared in the trace. The root is now resolved before the containment check.
+- **Config reload ignores a late event for an unchanged file**: a delayed file-watch event for the initial `config.json` no longer re-applies the same config.
 
 ## [0.27.2] - 2026-09-28
 
