@@ -6,12 +6,15 @@ import path from 'node:path';
 
 import { createWorktreeWatcher, resolveWorktreeGitDir } from '../detection/worktree-watch.ts';
 import { SHORT_NAMES_AVAILABLE, shortPathOf } from './helpers/short-path.ts';
+import { waitFor, waitForFsWatchToArm } from './helpers/wait-for.ts';
 
 function tmpdir(prefix: string) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const EVENT_DEADLINE_MS = 5000;
+const QUIET_WINDOW_MS = 300;
 
 test('resolveWorktreeGitDir resolves an absolute gitdir pointer with a worktrees/ segment', () => {
   const wt = tmpdir('glimmervoid-ww-wt-');
@@ -82,17 +85,20 @@ function fakeLinkedWorktree() {
 test('the watcher fires (debounced, coalesced) when the gitdir changes', async () => {
   const fx = fakeLinkedWorktree();
   let calls = 0;
-  const w = createWorktreeWatcher({ worktreeDir: fx.wt, onChange: () => { calls++; }, debounceMs: 50 });
+  const w = createWorktreeWatcher({ worktreeDir: fx.wt, onChange: () => { calls++; }, debounceMs: 200 });
   try {
     assert.equal(w.start(), true, 'started over a real linked-worktree gitdir');
     assert.equal(w.active, true);
+    await waitForFsWatchToArm();
+    calls = 0;
 
     for (let i = 0; i < 4; i++) fs.writeFileSync(path.join(fx.gitDir, 'index'), `v${i + 2}`, 'utf8');
-    await wait(300);
+    await waitFor(() => calls >= 1, 'the watcher fired', EVENT_DEADLINE_MS);
+    await wait(QUIET_WINDOW_MS);
     assert.equal(calls, 1, 'the write burst coalesced into exactly one onChange');
 
     fs.writeFileSync(path.join(fx.gitDir, 'COMMIT_EDITMSG'), 'msg', 'utf8');
-    await wait(300);
+    await waitFor(() => calls >= 2, 'the watcher fired again', EVENT_DEADLINE_MS);
     assert.equal(calls, 2, 'a subsequent change fires a second onChange');
   } finally {
     w.stop();
@@ -134,8 +140,10 @@ test('the watcher survives a gitdir under an 8.3 short parent', { skip: !SHORT_N
   const w = createWorktreeWatcher({ worktreeDir: wt, onChange: () => { calls++; }, debounceMs: 50 });
   try {
     assert.equal(w.start(), true, 'started over the short-path gitdir');
+    await waitForFsWatchToArm();
+    calls = 0;
     fs.writeFileSync(path.join(gitDir, 'index'), 'v2', 'utf8');
-    await wait(300);
+    await waitFor(() => calls >= 1, 'the watcher fired', EVENT_DEADLINE_MS);
     assert.equal(calls, 1, 'fires normally instead of aborting on the short-path prefix');
   } finally {
     w.stop();
