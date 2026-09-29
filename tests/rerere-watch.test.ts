@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { createRerereWatcher, RR_CACHE_DIR } from '../detection/rerere-watch.ts';
 import { decideRerereCooldownClear } from '../session/core/rebase-gate.ts';
+import { waitForFsWatchToArm } from './helpers/wait-for.ts';
 
 function tempGitDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-rerere-'));
@@ -29,6 +30,7 @@ test('a resolution recorded in an existing rr-cache fires the listener', async (
   const watcher = createRerereWatcher({ commonGitDir: gitDir, onChange: () => { counter.count += 1; }, debounceMs: 20 });
   t.after(() => watcher.stop());
   assert.equal(watcher.start(), true);
+  await waitForFsWatchToArm();
 
   fs.mkdirSync(path.join(cacheDir, 'a1b2c3'));
   assert.equal(await waitForCalls(counter, 1), 1);
@@ -42,6 +44,7 @@ test('a repo with no rr-cache yet watches for it appearing and upgrades itself',
   const watcher = createRerereWatcher({ commonGitDir: gitDir, onChange: () => { counter.count += 1; }, debounceMs: 20 });
   t.after(() => watcher.stop());
   assert.equal(watcher.start(), true);
+  await waitForFsWatchToArm();
 
   const cacheDir = path.join(gitDir, RR_CACHE_DIR);
   fs.mkdirSync(cacheDir);
@@ -91,6 +94,7 @@ test('an outer event that fires before rr-cache exists does not disarm the watch
   const watcher = createRerereWatcher({ commonGitDir: gitDir, onChange: () => { counter.count += 1; }, debounceMs: 20 });
   t.after(() => watcher.stop());
   assert.equal(watcher.start(), true);
+  await waitForFsWatchToArm();
 
   fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n', 'utf8');
   await new Promise((resolve) => setTimeout(resolve, 120));

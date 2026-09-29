@@ -142,6 +142,14 @@ function projectsRoot(): string {
   return claudeProjectsDir(process.env, os.homedir());
 }
 
+async function realProjectsRoot(): Promise<string | null> {
+  try {
+    return await fs.promises.realpath(projectsRoot());
+  } catch {
+    return null;
+  }
+}
+
 async function pruneTraceFiles({
   traceDirectory,
   now = Date.now(),
@@ -636,12 +644,14 @@ function createTraceWiring({
     if (!rawPath) return;
     const subagentPath = path.resolve(rawPath);
     const subagentRoot = path.dirname(binding.transcriptPath);
-    if (!isPathInsideRoot(projectsRoot(), subagentRoot)) {
-      laneLog.warnOnce(`subagent:${binding.glimmervoidSessionId}:outside-root`, 'subagent transcript refused', {
+    const resolvedProjectsRoot = await realProjectsRoot();
+    if (!resolvedProjectsRoot || !isPathInsideRoot(resolvedProjectsRoot, subagentRoot)) {
+      const reason = resolvedProjectsRoot ? 'outside-root' : 'root-unresolvable';
+      laneLog.warnOnce(`subagent:${binding.glimmervoidSessionId}:${reason}`, 'subagent transcript refused', {
         session: binding.glimmervoidSessionId,
         path: subagentPath,
         root: subagentRoot,
-        reason: 'outside-root',
+        reason,
       });
       return;
     }

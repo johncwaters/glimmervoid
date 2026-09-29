@@ -14,7 +14,7 @@ import {
   MAX_TRANSCRIPT_READ_BYTES,
 } from '../server/core/trace-tail-core.ts';
 
-const claudeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-trace-home-'));
+const claudeHome = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-trace-home-')));
 process.env.CLAUDE_CONFIG_DIR = claudeHome;
 const projectsRoot = path.join(claudeHome, 'projects');
 fs.mkdirSync(projectsRoot, { recursive: true });
@@ -1836,6 +1836,35 @@ test('a subagent transcript past the read bound leaves a notice, not a raw line'
 
   await harness.wiring.stop();
   fs.rmSync(configDirectory, { recursive: true, force: true });
+});
+
+test('a subagent is captured when the Claude config directory is reached through a symlink', async (t) => {
+  const { configDirectory, projectDirectory } = makeWorkspace('symlinked-home');
+  const linkedClaudeHome = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-trace-link-')), 'claude-home');
+  fs.symlinkSync(claudeHome, linkedClaudeHome, 'dir');
+  process.env.CLAUDE_CONFIG_DIR = linkedClaudeHome;
+  t.after(() => {
+    process.env.CLAUDE_CONFIG_DIR = claudeHome;
+    fs.rmSync(path.dirname(linkedClaudeHome), { recursive: true, force: true });
+  });
+  const linkedProjectDirectory = path.join(linkedClaudeHome, 'projects', path.basename(projectDirectory));
+  const transcriptPath = path.join(linkedProjectDirectory, 'vendor-session.jsonl');
+  fs.writeFileSync(transcriptPath, '', 'utf8');
+  const subagentPath = writeSubagentTranscript(linkedProjectDirectory, 'subagent answer');
+  const harness = createHarness(configDirectory);
+  await harness.wiring.start();
+  const session = new TestTraceSession('glimmervoid-symlinked-home');
+  harness.wiring.attachSession(session);
+
+  session.emit('claude-session-id', { id: 'vendor-session', vendor: 'claude', transcriptPath });
+  await harness.wiring.whenIdle();
+  session.emit('hook-event', subagentStop(subagentPath));
+  await harness.wiring.whenIdle();
+  await harness.wiring.stop();
+
+  const records = readTrace(harness.tracePath('glimmervoid-symlinked-home'));
+  assert.deepEqual(records.map((record) => record.kind), ['session', 'assistant']);
+  assert.equal(records[1].agentId, 'a1');
 });
 
 after(() => {

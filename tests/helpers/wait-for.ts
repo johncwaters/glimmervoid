@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 
-async function waitFor(predicate: () => boolean, label = 'condition became true'): Promise<void> {
-  const deadline = Date.now() + 1000;
+const FS_WATCH_ARM_MS = 300;
+
+async function waitFor(predicate: () => boolean, label = 'condition became true', deadlineMs = 1000): Promise<void> {
+  const deadline = Date.now() + deadlineMs;
   while (Date.now() < deadline) {
     if (predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -9,4 +11,8 @@ async function waitFor(predicate: () => boolean, label = 'condition became true'
   assert.ok(predicate(), label);
 }
 
-export { waitFor };
+async function waitForFsWatchToArm(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, FS_WATCH_ARM_MS));
+}
+
+export { waitFor, waitForFsWatchToArm };

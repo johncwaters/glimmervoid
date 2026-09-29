@@ -13,6 +13,7 @@ import { ENV_SECRET_BINDINGS } from '../server/core/config-secrets-core.ts';
 import { getAdapter, setCustomAgents } from '../session/adapters/index.ts';
 import { ConfigUpdate } from '../shared/contracts/index.ts';
 import { SECRET_PRESENCE_SUFFIX as CLIENT_SECRET_PRESENCE_SUFFIX } from '../public/settings-view-core.ts';
+import { waitForFsWatchToArm } from './helpers/wait-for.ts';
 
 type ConfigFileContent = Record<string, unknown>;
 type StoreOptions = { settingsDefaults?: Partial<DefaultConfig> };
@@ -688,6 +689,7 @@ test('watchForChanges still sees a hand-edit after a save replaced the file inod
   await withStoreAsync({ projects: [] }, async (store, p) => {
     const reloads: GlimmervoidConfig[] = [];
     const stop = store.watchForChanges((cfg) => { reloads.push(cfg); });
+    await waitForFsWatchToArm();
     try {
       store.save((cfg) => { cfg.projects.push({ id: 'from-save', name: 's', path: 'C:/s' }); });
 
@@ -707,6 +709,7 @@ test('watchForChanges rejects invalid and wiped config edits', async () => {
   await withStoreAsync(richConfig(), async (store, p) => {
     const reloads: GlimmervoidConfig[] = [];
     const stop = store.watchForChanges((cfg) => { reloads.push(cfg); });
+    await waitForFsWatchToArm();
     try {
       fs.writeFileSync(p, JSON.stringify({ projects: [{ id: 'bad' }] }, null, 2), 'utf8');
       await sleep(1200);
@@ -729,6 +732,7 @@ test('watchForChanges ignores directory events for other files', async () => {
   await withStoreAsync({ projects: [] }, async (store, p) => {
     const reloads: GlimmervoidConfig[] = [];
     const stop = store.watchForChanges((cfg) => { reloads.push(cfg); });
+    await waitForFsWatchToArm();
     try {
       fs.writeFileSync(`${p}.tmp.9999`, 'not the config', 'utf8');
       fs.writeFileSync(path.join(path.dirname(p), 'unrelated.json'), '{}', 'utf8');
@@ -753,6 +757,7 @@ test('a hand-edit landing immediately after a self-write is applied, not swallow
   await withStoreAsync({ projects: [] }, async (store, p) => {
     const reloads: GlimmervoidConfig[] = [];
     const stop = store.watchForChanges((cfg) => { reloads.push(cfg); });
+    await waitForFsWatchToArm();
     try {
       store.save((cfg) => { cfg.projects.push({ id: 'from-save', name: 's', path: 'C:/s' }); });
 
@@ -771,6 +776,7 @@ test('a self-write is still suppressed, however many events it produces', async 
   await withStoreAsync({ projects: [] }, async (store) => {
     const reloads: GlimmervoidConfig[] = [];
     const stop = store.watchForChanges((cfg) => { reloads.push(cfg); });
+    await waitForFsWatchToArm();
     try {
       store.save((cfg) => { cfg.projects.push({ id: 'a', name: 'a', path: 'C:/a' }); });
       await sleep(1200);
@@ -787,6 +793,7 @@ test('reverting a hand-edit back to previously written bytes still reloads', asy
   await withStoreAsync({ projects: [] }, async (store, p) => {
     const reloads: GlimmervoidConfig[] = [];
     const stop = store.watchForChanges((cfg) => { reloads.push(cfg); });
+    await waitForFsWatchToArm();
     try {
       store.save((cfg) => { cfg.projects.push({ id: 'from-save', name: 's', path: 'C:/s' }); });
       await sleep(1200);
@@ -811,6 +818,7 @@ test('a duplicate event for content already applied is not re-applied', async ()
   await withStoreAsync({ projects: [] }, async (store, p) => {
     const reloads: GlimmervoidConfig[] = [];
     const stop = store.watchForChanges((cfg) => { reloads.push(cfg); });
+    await waitForFsWatchToArm();
     try {
       const edited = JSON.stringify({ projects: [{ id: 'hand', name: 'h', path: 'C:/h' }] }, null, 2);
       fs.writeFileSync(p, edited, 'utf8');
@@ -840,6 +848,7 @@ test('reverting to bytes that were applied before a save still reloads', async (
   await withStoreAsync({ projects: [] }, async (store, p) => {
     const reloads: GlimmervoidConfig[] = [];
     const stop = store.watchForChanges((cfg) => { reloads.push(cfg); });
+    await waitForFsWatchToArm();
     try {
       const handEdited = JSON.stringify({
         projects: [{ id: 'hand', name: 'h', path: 'C:/h' }], port: 4100,

@@ -209,6 +209,7 @@ test('real git: fixes a dirty file in a temp repo', { skip: !gitAvailable() }, a
     run(['init']);
     run(['config', 'user.email', 't@t.t']);
     run(['config', 'user.name', 'T']);
+    run(['config', 'commit.gpgsign', 'false']);
     const file = path.join(dir, 'note.txt');
     fs.writeFileSync(file, 'seed\n');
     run(['add', '.']);

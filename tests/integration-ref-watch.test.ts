@@ -6,8 +6,11 @@ import path from 'node:path';
 
 import { createIntegrationRefWatcher } from '../detection/integration-ref-watch.ts';
 import { SHORT_NAMES_AVAILABLE, shortPathOf } from './helpers/short-path.ts';
+import { waitFor, waitForFsWatchToArm } from './helpers/wait-for.ts';
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const EVENT_DEADLINE_MS = 5000;
+const QUIET_WINDOW_MS = 300;
 
 function fakeCommonGitDir(branches = ['develop']) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-irw-'));
@@ -25,17 +28,20 @@ function fakeCommonGitDir(branches = ['develop']) {
 test('fires (debounced, coalesced) when the integration branch reflog is appended', async () => {
   const fx = fakeCommonGitDir(['develop']);
   let calls = 0;
-  const w = createIntegrationRefWatcher({ commonGitDir: fx.dir, branch: 'develop', onChange: () => { calls++; }, debounceMs: 50 });
+  const w = createIntegrationRefWatcher({ commonGitDir: fx.dir, branch: 'develop', onChange: () => { calls++; }, debounceMs: 200 });
   try {
     assert.equal(w.start(), true, 'started over a real reflog dir');
     assert.equal(w.active, true);
+    await waitForFsWatchToArm();
+    calls = 0;
 
     for (let i = 0; i < 4; i++) fx.append('develop', `move ${i}`);
-    await wait(300);
+    await waitFor(() => calls >= 1, 'the watcher fired', EVENT_DEADLINE_MS);
+    await wait(QUIET_WINDOW_MS);
     assert.equal(calls, 1, 'the burst coalesced into exactly one onChange');
 
     fx.append('develop', 'later move');
-    await wait(300);
+    await waitFor(() => calls >= 2, 'the watcher fired', EVENT_DEADLINE_MS);
     assert.equal(calls, 2, 'a subsequent move fires again');
   } finally {
     w.stop();
@@ -49,11 +55,13 @@ test('ignores a sibling branch reflog (leaf filter)', async () => {
   const w = createIntegrationRefWatcher({ commonGitDir: fx.dir, branch: 'develop', onChange: () => { calls++; }, debounceMs: 50 });
   try {
     w.start();
+    await waitForFsWatchToArm();
+    calls = 0;
     fx.append('feature', 'a sibling commit');
-    await wait(250);
+    await wait(QUIET_WINDOW_MS);
     assert.equal(calls, 0, 'a sibling branch move does not fire the integration watcher');
     fx.append('develop', 'our move');
-    await wait(250);
+    await waitFor(() => calls >= 1, 'the watcher fired', EVENT_DEADLINE_MS);
     assert.equal(calls, 1, 'our branch move does fire');
   } finally {
     w.stop();
@@ -67,8 +75,10 @@ test('handles a nested integration branch (release/x)', async () => {
   const w = createIntegrationRefWatcher({ commonGitDir: fx.dir, branch: 'release/x', onChange: () => { calls++; }, debounceMs: 50 });
   try {
     assert.equal(w.start(), true, 'watches the nested reflog parent dir');
+    await waitForFsWatchToArm();
+    calls = 0;
     fx.append('release/x', 'move');
-    await wait(250);
+    await waitFor(() => calls >= 1, 'the watcher fired', EVENT_DEADLINE_MS);
     assert.equal(calls, 1);
   } finally {
     w.stop();
@@ -87,8 +97,10 @@ test('the watcher survives a commonGitDir under an 8.3 short parent', { skip: !S
   const w = createIntegrationRefWatcher({ commonGitDir: dir, branch: 'develop', onChange: () => { calls++; }, debounceMs: 50 });
   try {
     assert.equal(w.start(), true, 'started over the short-path reflog dir');
+    await waitForFsWatchToArm();
+    calls = 0;
     fs.appendFileSync(path.join(logsHeads, 'develop'), 'move\n', 'utf8');
-    await wait(300);
+    await waitFor(() => calls >= 1, 'the watcher fired', EVENT_DEADLINE_MS);
     assert.equal(calls, 1, 'fires normally instead of aborting on the short-path prefix');
   } finally {
     w.stop();
