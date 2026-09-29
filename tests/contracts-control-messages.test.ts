@@ -192,6 +192,9 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
     url: 'https://github.com/PostHog/wizard/pull/1351', author: 'teammate', tier: 'full', reasons: ['touches auth'],
     head: 'b'.repeat(40), phase: 'reviewing', startedAt: NOW, deadlineAt: NOW + 900000, toolCalls: 2,
     recentSteps: [{ at: NOW, tool: 'Read', detail: 'src/retry.ts' }],
+  }], queued: [{
+    key: 'PostHog/wizard#1352', repo: 'PostHog/wizard', number: 1352, title: 'Move files',
+    url: 'https://github.com/PostHog/wizard/pull/1352', author: 'teammate',
   }] },
   { type: 'my-prs-status', ts: NOW, configured: true, viewer: 'alice', prs: [], error: null },
   { type: 'branch-gc-status', ts: NOW, projects: [] },

@@ -80,8 +80,10 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   let state: TeamReviewState = {};
   let self: string | null = null;
   const progressByKey = new Map<string, InFlightReview>();
+  let waitingForSlot: TeamReviewCandidate[] = [];
   let lastEmitAt = Number.NEGATIVE_INFINITY;
   let pendingProgressEmit: NodeJS.Timeout | null = null;
+  let hasSlotFreedSinceSlotCount = false;
 
   const loop = createTickLoop({
     tag: core.TEAM_REVIEW_LANE_ID, intervalMs: (deps.intervalMinutes ?? core.POLL_INTERVAL_MINUTES) * 60000,
@@ -111,6 +113,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     lastEmitAt = now();
     onTickComplete(core.teamReviewStatus({
       ts: now(), configured: true, drafts: core.draftsNewestFirst(state), inFlight: inFlightReviews(),
+      queued: waitingForSlot.filter((candidate) => !state[candidate.key]?.inFlight),
     }));
   }
 
@@ -152,6 +155,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     }));
     const entry = entryFor(args.candidate.key);
     entry.inFlight = false;
+    hasSlotFreedSinceSlotCount = true;
     progressByKey.delete(args.candidate.key);
     if ('kind' in outcome) {
       if (outcome.resumable) entry.resumable = outcome.resumable;
@@ -178,6 +182,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     entry.draft.reviewedAt = entry.reviewedAt;
     await persist();
     emitStatus();
+    if (waitingForSlot.length > 0 && !loop.isStopped()) void loop.tick();
   }
 
   async function reviewSnapshotsFor(candidates: TeamReviewCandidate[]): Promise<Map<string, PrReviewSnapshot>> {
@@ -240,10 +245,16 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   }
 
   async function startReviews(queue: TeamReviewCandidate[]): Promise<boolean> {
+    hasSlotFreedSinceSlotCount = false;
     let freeSlots = maxConcurrentReviews - inFlightKeys().length;
     let isDirty = false;
-    for (const candidate of queue) {
-      if (freeSlots <= 0 || loop.isStopped()) break;
+    waitingForSlot = [];
+    for (const [index, candidate] of queue.entries()) {
+      if (loop.isStopped()) break;
+      if (freeSlots <= 0) {
+        waitingForSlot = queue.slice(index);
+        break;
+      }
       const detail = await github.viewPr(candidate.repo, candidate.number);
       if (!detail) continue;
       const triage = core.triagePr(detail);
@@ -311,6 +322,9 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     const isStarted = await startReviews(planned.queue);
     if (isPruned || planned.isDirty || isStarted) await persist();
     emitStatus();
+    if (hasSlotFreedSinceSlotCount && waitingForSlot.length > 0 && !loop.isStopped()) {
+      setTimeoutFn(() => { void loop.tick(); }, 0);
+    }
     return undefined;
   }
 

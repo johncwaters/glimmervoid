@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, emptyStateText, githubReviewItems, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText, reviewProgressSteps,
-  severityCounts, severityPresentation, tierLabel, verdictLabel, verdictRecommendation, verdictSealKind, verdictSealText, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, reviewScopeText,
+  severityCounts, severityPresentation, tierLabel, verdictLabel, verdictRecommendation, verdictSealKind, verdictSealText, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, reviewScopeText, queuedDetailText,
 } from '../public/team-review-view-core.ts';
 import { InFlightReview, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type {
@@ -386,4 +386,30 @@ test('progress tracker advances one active stage and leaves Draft ready pending'
 test('the review scope names a re-review and the head it picks up from', () => {
   assert.equal(reviewScopeText({ tier: 'full', reasons: ['touches auth'] }), 'full review: touches auth');
   assert.equal(reviewScopeText({ tier: 'stamp', reasons: [], priorReviewedHead: 'abcdef0123456789abcdef0123456789abcdef01' }), 'light re-review of changes since abcdef0');
+});
+
+test('a queued pull request gets its own section and hides its older draft', () => {
+  const status = TeamReviewStatus.parse({
+    type: 'team-review-status', ts: 1, configured: true, reason: null, inFlight: [],
+    drafts: [draft(7, { status: 'stale' })],
+    queued: [{ key: 'Acme/app#7', repo: 'Acme/app', number: 7, title: 'PR 7', url: 'https://github.com/Acme/app/pull/7', author: 'teammate' }],
+  });
+  const sections = groupDrafts(status);
+  assert.deepEqual(sections.queued.map((review) => review.key), ['Acme/app#7']);
+  assert.equal(sections.attention.length, 0);
+  assert.equal(hasAnyRow(sections), true);
+  assert.equal(queueRowStateLabel('queued', null), 'Queued');
+});
+
+test('the queued detail says what the pull request is waiting for', () => {
+  assert.match(queuedDetailText(0), /next poll/);
+  assert.match(queuedDetailText(1), /as soon as the review in progress finishes/);
+  assert.match(queuedDetailText(2), /one of the 2 reviews in progress/);
+});
+
+test('a change to the queued list is never treated as progress only', () => {
+  const before = status([draft(1)], [inFlightReview(2)]);
+  const queuedItem = { key: 'Acme/app#3', repo: 'Acme/app', number: 3, title: 'PR 3', url: 'https://github.com/Acme/app/pull/3', author: 'teammate' };
+  assert.equal(isInFlightProgressOnlyChange(before, { ...before, queued: [queuedItem] }), false);
+  assert.equal(isInFlightProgressOnlyChange(before, { ...before }), true);
 });

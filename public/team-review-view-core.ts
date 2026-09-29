@@ -1,24 +1,24 @@
 import { DECIDING_REVIEW_STATES, FindingSeverity } from '#shared/contracts/team-review.ts';
 import type {
-  GithubReview, GithubReviewState, InFlightReview, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus,
+  GithubReview, GithubReviewState, InFlightReview, QueuedReview, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus,
 } from '#shared/contracts/team-review.ts';
 import { findingSeveritiesIn, parseLeadingFindingHeader, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import { attentionSignature } from './attention-ack-core.ts';
 import { formatClockOffset } from './radar-core.ts';
 import type { StateTone } from './state-tone-core.ts';
 
-export type QueueRowKind = 'ready' | 'settled' | 'inReview' | 'attention' | 'posted' | 'discarded';
+export type QueueRowKind = 'ready' | 'settled' | 'inReview' | 'queued' | 'attention' | 'posted' | 'discarded';
 
 export function queueRowTone(kind: QueueRowKind, status: ReviewDraft['status'] | null): StateTone {
   if (kind === 'ready') return 'warn';
   if (kind === 'settled') return 'ok';
-  if (kind === 'inReview') return 'wait';
+  if (kind === 'inReview' || kind === 'queued') return 'wait';
   if (kind === 'attention') return status === 'error' ? 'danger' : 'warn';
   return 'muted';
 }
 
 const QUEUE_ROW_STATE_LABELS: Readonly<Record<QueueRowKind, string>> = {
-  ready: 'Ready', settled: 'No review needed', inReview: 'In review', attention: 'Needs attention', posted: 'Posted', discarded: 'Discarded',
+  ready: 'Ready', settled: 'No review needed', inReview: 'In review', queued: 'Queued', attention: 'Needs attention', posted: 'Posted', discarded: 'Discarded',
 };
 
 export function queueRowStateLabel(kind: QueueRowKind, status: ReviewDraft['status'] | null): string {
@@ -30,6 +30,7 @@ export interface TeamReviewSections {
   ready: ReviewDraft[];
   noReviewNeeded: ReviewDraft[];
   inReview: InFlightReview[];
+  queued: QueuedReview[];
   attention: ReviewDraft[];
   posted: ReviewDraft[];
   discarded: ReviewDraft[];
@@ -118,12 +119,14 @@ const ACTION_PROGRESS_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.
 });
 
 export function groupDrafts(status: TeamReviewStatus | null | undefined): TeamReviewSections {
-  const sections: TeamReviewSections = { ready: [], noReviewNeeded: [], inReview: [], attention: [], posted: [], discarded: [] };
+  const sections: TeamReviewSections = { ready: [], noReviewNeeded: [], inReview: [], queued: [], attention: [], posted: [], discarded: [] };
   if (!status) return sections;
   const inFlightKeys = new Set(status.inFlight.map((review) => review.key));
   sections.inReview.push(...status.inFlight);
+  sections.queued.push(...status.queued.filter((review) => !inFlightKeys.has(review.key)));
+  const queuedKeys = new Set(sections.queued.map((review) => review.key));
   for (const draft of status.drafts) {
-    if (inFlightKeys.has(draft.key)) continue;
+    if (inFlightKeys.has(draft.key) || queuedKeys.has(draft.key)) continue;
     const isSettled = (draft.status === 'ready' || draft.status === 'stale') && !isReviewNeeded(draft);
     if (isSettled) sections.noReviewNeeded.push(draft);
     if (draft.status === 'ready' && !isSettled) sections.ready.push(draft);
@@ -160,11 +163,11 @@ export function githubReviewItems(draft: ReviewDraft, { isViewerShown = true }: 
 }
 
 export function hasAnyRow(sections: TeamReviewSections): boolean {
-  return sections.ready.length + sections.noReviewNeeded.length + sections.inReview.length + sections.attention.length + sections.posted.length + sections.discarded.length > 0;
+  return sections.ready.length + sections.noReviewNeeded.length + sections.inReview.length + sections.queued.length + sections.attention.length + sections.posted.length + sections.discarded.length > 0;
 }
 
 export function chooseSelectedReviewKey(sections: TeamReviewSections, selectedKey: string | null): string | null {
-  const rows = [...sections.ready, ...sections.noReviewNeeded, ...sections.inReview, ...sections.attention, ...sections.posted, ...sections.discarded];
+  const rows = [...sections.ready, ...sections.inReview, ...sections.queued, ...sections.noReviewNeeded, ...sections.attention, ...sections.posted, ...sections.discarded];
   if (selectedKey && rows.some((row) => row.key === selectedKey)) return selectedKey;
   return rows[0]?.key ?? null;
 }
@@ -316,6 +319,12 @@ export function actionOutcomeText(action: TeamReviewAction): string {
   return ACTION_OUTCOME_TEXT[action];
 }
 
+export function queuedDetailText(runningCount: number): string {
+  if (runningCount === 0) return 'Picked for review. It starts on the next poll.';
+  const reviews = runningCount === 1 ? 'the review' : `one of the ${runningCount} reviews`;
+  return `Waiting for a free review slot. It starts as soon as ${reviews} in progress finishes.`;
+}
+
 export function emptyStateText(status: TeamReviewStatus | null | undefined): string {
   if (!status) return 'Waiting for the team review lane.';
   if (!status.configured) return status.reason ? `Team review is not running: ${status.reason}.` : 'Team review is off.';
@@ -341,5 +350,6 @@ export function isInFlightProgressOnlyChange(previous: TeamReviewStatus | null |
   const previousKeys = previous.inFlight.map((review) => review.key).join('\n');
   const nextKeys = next.inFlight.map((review) => review.key).join('\n');
   if (previousKeys !== nextKeys) return false;
+  if (JSON.stringify(previous.queued) !== JSON.stringify(next.queued)) return false;
   return JSON.stringify(previous.drafts) === JSON.stringify(next.drafts);
 }

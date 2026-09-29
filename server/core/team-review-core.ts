@@ -1,7 +1,7 @@
 import { DECIDING_REVIEW_STATES, FindingSeverity, GithubReviewState, PostingPlan, ReviewFinding, ReviewResult, ReviewVerdict } from '../../shared/contracts/team-review.ts';
 import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, withoutAutomatedNote } from '../../shared/team-review-markdown.ts';
 import type {
-  GithubReview, InFlightReview, PostingPlan as PostingPlanType, PrDetail, PriorReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
+  GithubReview, InFlightReview, PostingPlan as PostingPlanType, PrDetail, PriorReview, QueuedReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
   ReviewAssessment, ReviewResult as ReviewResultType, SearchedPr, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../../shared/contracts/team-review.ts';
 
@@ -364,10 +364,10 @@ function draftsNewestFirst(state: TeamReviewState): ReviewDraft[] {
     .flatMap((entry) => (entry.draft ? [presentedDraft(entry, entry.draft)] : []));
 }
 
-function teamReviewStatus({ ts, configured, reason = null, drafts = [], inFlight = [] }: {
-  ts: number; configured: boolean; reason?: string | null; drafts?: ReviewDraft[]; inFlight?: InFlightReview[];
+function teamReviewStatus({ ts, configured, reason = null, drafts = [], inFlight = [], queued = [] }: {
+  ts: number; configured: boolean; reason?: string | null; drafts?: ReviewDraft[]; inFlight?: InFlightReview[]; queued?: QueuedReview[];
 }): TeamReviewStatus {
-  return { type: 'team-review-status', ts, configured, reason, drafts, inFlight };
+  return { type: 'team-review-status', ts, configured, reason, drafts, inFlight, queued };
 }
 
 type ReviewProgressEvent =

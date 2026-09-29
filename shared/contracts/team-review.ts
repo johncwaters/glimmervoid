@@ -236,6 +236,17 @@ export const InFlightReview = z.object({
 });
 export type InFlightReview = z.infer<typeof InFlightReview>;
 
+export const QueuedReview = z.object({
+  key: z.string(),
+  repo: repoSlug,
+  number: z.number().int().positive(),
+  title: z.string(),
+  url: z.string(),
+  author: z.string(),
+  prCreatedAt: z.string().optional(),
+});
+export type QueuedReview = z.infer<typeof QueuedReview>;
+
 export const TeamReviewStatus = z.object({
   type: z.literal('team-review-status'),
   ts: z.number().finite(),
@@ -243,5 +254,6 @@ export const TeamReviewStatus = z.object({
   reason: z.string().nullable().optional(),
   drafts: z.array(ReviewDraft),
   inFlight: z.array(InFlightReview),
+  queued: z.array(QueuedReview).default([]),
 }).passthrough();
 export type TeamReviewStatus = z.infer<typeof TeamReviewStatus>;

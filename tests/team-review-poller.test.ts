@@ -630,6 +630,43 @@ test('the concurrency cap leaves the rest queued for a later tick', async () => 
   await poller.stop();
 });
 
+test('a review that finishes while a tick is still starting reviews frees its slot for the queued one without waiting for the poll', async () => {
+  const finishReviewByNumber = new Map<number, () => void>();
+  const secondDetailGate: { release?: () => void } = {};
+  const secondDetailReleased = new Promise<void>((resolve) => { secondDetailGate.release = resolve; });
+  const scheduledCallbacks: Array<() => void> = [];
+  const { poller, github, spawned } = setup({
+    maxConcurrentReviews: 2,
+    setTimeoutFn: (fn) => { scheduledCallbacks.push(fn); return {} as NodeJS.Timeout; },
+    spawnReview: async (args) => {
+      spawned.push(args);
+      await new Promise<void>((resolve) => { finishReviewByNumber.set(args.candidate.number, resolve); });
+      return draftFor(args);
+    },
+  });
+  github.requested = [searchItem(1, 'teammate'), searchItem(2, 'teammate'), searchItem(3, 'teammate')];
+  for (const number of [1, 2, 3]) github.heads.set(number, HEAD_ONE);
+  const viewPr = github.viewPr;
+  github.viewPr = async (repo, number) => {
+    if (number === 2) await secondDetailReleased;
+    return viewPr(repo, number);
+  };
+  const started = poller.start();
+  await settle();
+  assert.deepEqual(spawned.map((args) => args.candidate.number), [1]);
+  finishReviewByNumber.get(1)?.();
+  await settle();
+  secondDetailGate.release?.();
+  await started;
+  await settle();
+  assert.deepEqual(spawned.map((args) => args.candidate.number), [1, 2]);
+  for (const scheduledCallback of scheduledCallbacks.splice(0)) scheduledCallback();
+  await settle();
+  assert.deepEqual(spawned.map((args) => args.candidate.number), [1, 2, 3]);
+  for (const finishReview of finishReviewByNumber.values()) finishReview();
+  await poller.stop();
+});
+
 test('a skip-tier PR is recorded with its reason and never spawned', async () => {
   const { poller, github, spawned } = setup();
   github.requested = [searchItem(5, 'teammate')];
@@ -1251,5 +1288,34 @@ test('a re-review that crashes keeps the earlier review for its retry', async ()
   assert.equal(spawned[2].priorReview?.wasPosted, false);
   assert.equal(poller.getDraft(key)?.status, 'ready');
   assert.equal(poller.getDraft(key)?.priorReviewedHead, HEAD_ONE);
+  await poller.stop();
+});
+
+test('pull requests beyond the free review slots are reported as queued until a slot frees', async () => {
+  const pending: Array<() => void> = [];
+  const { poller, github, spawned, statuses } = setup({
+    maxConcurrentReviews: 1,
+    spawnReview: async (args) => {
+      spawned.push(args);
+      await new Promise<void>((resolve) => { pending.push(resolve); });
+      return draftFor(args);
+    },
+  });
+  github.requested = [searchItem(1, 'teammate'), searchItem(2, 'teammate'), searchItem(3, 'teammate')];
+  for (const number of [1, 2, 3]) github.heads.set(number, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.deepEqual(spawned.map((args) => args.candidate.number), [1]);
+  assert.deepEqual(statuses.at(-1)?.queued.map((review) => review.number), [2, 3]);
+  pending.shift()?.();
+  await settle();
+  assert.deepEqual(spawned.map((args) => args.candidate.number), [1, 2], 'a finished review starts the next queued one without waiting for the poll');
+  assert.deepEqual(statuses.at(-1)?.queued.map((review) => review.number), [3]);
+  pending.shift()?.();
+  await settle();
+  pending.shift()?.();
+  await settle();
+  assert.deepEqual(spawned.map((args) => args.candidate.number), [1, 2, 3]);
+  assert.deepEqual(statuses.at(-1)?.queued, []);
   await poller.stop();
 });
