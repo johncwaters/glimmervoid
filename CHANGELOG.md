@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Updates page names both versions and updates in one click**: Settings > Updates opens with a status line such as "Update available: v0.28.0 to v0.29.0", and its rows read Running version and Latest version instead of a pipe-joined string. The page checks for updates when opened if the last check is ten minutes old. One Update and restart button stages the newest build and restarts into it, asking first only when running sessions would be killed; the server restarts only if every live session, dashboard or agent API, is one you confirmed, and otherwise leaves the build staged and tells you to restart when ready. Update without restart, Check for updates and Restart remain. The update banner uses the same version wording.
 
+### Fixed
+
+- **A posted review can be queued again**: the detail of a posted team review showed only its verdict, with a hint to queue a review but no button. It now has Queue review, and the review actually runs: the poller used to skip any pull request you had already reviewed at its head, so a queued re-review of a posted one never started. The draft stays posted until the new review lands, so a pull request that merged or closed meanwhile keeps its posted record.
+
 ## [0.28.0] - 2026-09-28
 
 ### Changed
