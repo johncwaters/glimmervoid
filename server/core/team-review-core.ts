@@ -364,10 +364,10 @@ function draftsNewestFirst(state: TeamReviewState): ReviewDraft[] {
     .flatMap((entry) => (entry.draft ? [presentedDraft(entry, entry.draft)] : []));
 }
 
-function teamReviewStatus({ ts, configured, reason = null, drafts = [], inFlight = [], queued = [] }: {
-  ts: number; configured: boolean; reason?: string | null; drafts?: ReviewDraft[]; inFlight?: InFlightReview[]; queued?: QueuedReview[];
+function teamReviewStatus({ ts, configured, reason = null, drafts = [], inFlight = [], queued = [], team }: {
+  ts: number; configured: boolean; reason?: string | null; drafts?: ReviewDraft[]; inFlight?: InFlightReview[]; queued?: QueuedReview[]; team?: TeamReviewStatus['team'];
 }): TeamReviewStatus {
-  return { type: 'team-review-status', ts, configured, reason, drafts, inFlight, queued };
+  return { type: 'team-review-status', ts, configured, reason, drafts, inFlight, queued, team };
 }
 
 type ReviewProgressEvent =

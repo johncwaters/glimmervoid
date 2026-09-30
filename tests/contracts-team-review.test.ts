@@ -1,9 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { PrDetail, ReviewComment, ReviewDraft, ReviewResult, SearchedPr, TeamReviewStateEntry } from '../shared/contracts/team-review.ts';
+import { PrDetail, ReviewComment, ReviewDraft, ReviewResult, SearchedPr, TeamReviewStateEntry, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 
 const HEAD = 'a'.repeat(40);
+
+test('team review status accepts an optional team profile', () => {
+  const status = { type: 'team-review-status', ts: 1000, configured: true, drafts: [], inFlight: [] };
+  assert.equal(TeamReviewStatus.parse(status).team, undefined);
+  const team = { org: 'Acme', slug: 'core', name: 'Core', avatarUrl: 'https://avatars.githubusercontent.com/t/1' };
+  assert.deepEqual(TeamReviewStatus.parse({ ...status, team }).team, team);
+  assert.equal(TeamReviewStatus.parse({ ...status, team: null }).team, null);
+  assert.equal(TeamReviewStatus.safeParse({ ...status, team: { ...team, name: 12 } }).success, false);
+});
 
 test('saved review entries accept both legacy state and a resumable session', () => {
   const oldEntry = { draft: null, reviewedHead: null, inFlight: false, skipReason: null, reviewAttempts: 0, updatedAt: 1000 };

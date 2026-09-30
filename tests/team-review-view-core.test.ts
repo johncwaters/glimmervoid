@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, emptyStateText, githubReviewItems, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, emptyStateText, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText, reviewProgressSteps,
   severityCounts, severityPresentation, tierLabel, verdictLabel, verdictRecommendation, verdictSealKind, verdictSealText, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, reviewScopeText, queuedDetailText,
 } from '../public/team-review-view-core.ts';
@@ -130,9 +130,17 @@ test('GitHub review items preserve submission times for the DOM shell', () => {
     { login: 'sarah', state: 'APPROVED', commit: HEAD, isViewer: false, submittedAt },
     { login: 'me', state: 'COMMENTED', commit: HEAD, isViewer: true, submittedAt: null },
   ] })), [
-    { text: 'you commented', submittedAt: null },
-    { text: 'approved by sarah', submittedAt },
+    { login: 'me', tone: 'muted', text: 'you commented', submittedAt: null },
+    { login: 'sarah', tone: 'ok', text: 'approved by sarah', submittedAt },
   ]);
+});
+
+test('GitHub review tones and hover titles preserve state and older-commit wording', () => {
+  assert.equal(githubReviewTone('APPROVED'), 'ok');
+  assert.equal(githubReviewTone('CHANGES_REQUESTED'), 'warn');
+  assert.equal(githubReviewTone('COMMENTED'), 'muted');
+  assert.equal(githubReviewTitle('you approved (older commit)', '3h ago'), 'you approved (older commit), 3h ago');
+  assert.equal(githubReviewTitle('commented by alice', null), 'commented by alice');
 });
 
 test('a PR under review shows only under In review, even when an older draft exists', () => {

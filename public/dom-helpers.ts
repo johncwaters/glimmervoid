@@ -1,5 +1,7 @@
 import type { SessionState } from '#shared/states.ts';
 import { BADGE_LABELS, STATE_GLYPHS, STATES } from '#shared/states.ts';
+import { avatarUrlForLogin, monogramFor } from './avatar-core.ts';
+import type { StateTone } from './state-tone-core.ts';
 
 export type AdoptableElement = HTMLElement & { _adoptHome?: { parent: HTMLElement | null; next: Element | null } };
 
@@ -12,6 +14,44 @@ export function el<Tag extends keyof HTMLElementTagNameMap>(
   if (className) e.className = className;
   if (text != null) e.textContent = text;
   return e;
+}
+
+export function createAvatar({ login, url, cssPx }: { login: string; url?: string | null; cssPx: number }): HTMLElement {
+  const avatar = el('span', 'avatar');
+  avatar.style.width = `${cssPx}px`;
+  avatar.style.height = `${cssPx}px`;
+  const monogram = () => el('span', 'avatar-monogram', monogramFor(login));
+  const imageUrl = url === undefined ? avatarUrlForLogin(login, cssPx) : url;
+  if (!imageUrl) {
+    avatar.append(monogram());
+    return avatar;
+  }
+  const image = el('img');
+  image.src = imageUrl;
+  image.width = cssPx;
+  image.height = cssPx;
+  image.loading = 'lazy';
+  image.decoding = 'async';
+  image.referrerPolicy = 'no-referrer';
+  image.alt = '';
+  image.addEventListener('error', () => image.replaceWith(monogram()), { once: true });
+  avatar.append(image);
+  return avatar;
+}
+
+export function createReviewerStack(reviews: readonly { login: string; tone: StateTone; title: string; url?: string | null }[], cssPx: number): HTMLElement {
+  const stack = el('span', 'avatar-stack');
+  for (const review of reviews) {
+    const avatar = createAvatar({ login: review.login, url: review.url, cssPx });
+    avatar.title = review.title;
+    avatar.setAttribute('role', 'img');
+    avatar.setAttribute('aria-label', review.title);
+    const badge = el('span', 'avatar-badge');
+    badge.dataset.tone = review.tone;
+    avatar.append(badge);
+    stack.append(avatar);
+  }
+  return stack;
 }
 
 export function queryTag<Tag extends keyof HTMLElementTagNameMap>(

@@ -38,6 +38,23 @@ test('viewer and teamMembers use exact gh API arguments', async () => {
   ]);
 });
 
+test('teamProfile passes validated variables to graphql and rejects malformed responses', async () => {
+  const calls: string[][] = [];
+  const profile = { name: 'Core', avatarUrl: 'https://avatars.githubusercontent.com/t/1' };
+  const gh = createPrGh('/repo', async (_command, args) => {
+    calls.push(args);
+    return { ok: true, out: JSON.stringify({ data: { organization: { team: profile } } }), err: '' };
+  });
+  assert.deepEqual(await gh.teamProfile('Acme', 'core'), { org: 'Acme', slug: 'core', ...profile });
+  assert.deepEqual(calls, [['api', 'graphql', '-f', 'query=query($org: String!, $slug: String!) { organization(login: $org) { team(slug: $slug) { name avatarUrl } } }', '-f', 'org=Acme', '-f', 'slug=core']]);
+  assert.equal(await gh.teamProfile('Acme/bad', 'core'), null);
+  assert.equal(calls.length, 1);
+  const invalid = createPrGh('/repo', async () => ({ ok: true, out: '{"data":{"organization":{"team":{"name":12}}}}', err: '' }));
+  assert.equal(await invalid.teamProfile('Acme', 'core'), null);
+  const failed = createPrGh('/repo', async () => ({ ok: false, out: '', err: 'failure' }));
+  assert.equal(await failed.teamProfile('Acme', 'core'), null);
+});
+
 test('search methods use raw search API and chunk twelve authors into three requests', async () => {
   const calls: string[][] = [];
   const gh = createPrGh('/repo', async (_command, args) => {

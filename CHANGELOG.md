@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Team review avatars**: the Reviews tab's Team scope now shows pull request authors, GitHub reviewers and the team profile with avatars, review-state dots and hover details.
 - **PostHog light and dark themes**: Settings > Theme now offers PostHog (Light) and PostHog (Dark), built from the palette and surface tokens on posthog.com: the warm off-white and tan surfaces with a burnt-orange accent in light, and the charcoal surfaces with the PostHog orange accent in dark. Session states and terminal colors use the same brand palette.
 
 ### Fixed

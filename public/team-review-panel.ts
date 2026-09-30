@@ -2,7 +2,7 @@ import { TeamReviewStatus } from '#shared/contracts/team-review.ts';
 import type { FindingSeverity, InFlightReview, QueuedReview, ReviewComment, ReviewDraft, TeamReviewAction, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
 import { createAttentionAck } from './attention-ack-core.ts';
 import { sendControlMsg } from './control-ws.ts';
-import { el, externalLink, isPanelHidden } from './dom-helpers.ts';
+import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } from './dom-helpers.ts';
 import { createPollAgoTicker, formatAgo } from './poll-ago.ts';
 import { createPrQueueColumns, createPrQueueHead } from './pr-queue-columns.ts';
 import { createStateGlyph, createSvgIcon as svgIcon, createSvgShape as svgShape } from './state-glyph.ts';
@@ -11,7 +11,7 @@ import { createSettingsLink } from './settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
-  commentLocation, emptyStateText, githubReviewItems, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  commentLocation, emptyStateText, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, phaseLabel, pullRequestLabel, queuedDetailText, queueRowStateLabel, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText,
   reviewProgressSteps, reviewScopeText, severityCounts, severityPresentation, verdictLabel, verdictSealKind, verdictSealText, verdictTone, withReviewerNote,
 } from './team-review-view-core.ts';
@@ -138,23 +138,52 @@ function trackAges(root: Element | null): void {
   if (!root) return;
   for (const readout of root.querySelectorAll<HTMLElement>('[data-age-at]')) {
     const at = Number(readout.dataset.ageAt);
+    const reviewTitle = readout.dataset.reviewTitle;
+    if (reviewTitle !== undefined) {
+      const paintTitle = () => {
+        const title = githubReviewTitle(reviewTitle, formatAgo(at));
+        readout.title = title;
+        readout.setAttribute('aria-label', title);
+      };
+      paintTitle();
+      _ageTicker.onTick(paintTitle);
+      continue;
+    }
     const label = readout.dataset.ageLabel ?? '';
     _ageTicker.track(readout, at, () => `${label}${label ? ' ' : ''}${formatAgo(at)}`);
   }
 }
 
-function createGithubReviewSummary(draft: ReviewDraft, className: string, isViewerShown = true): HTMLElement | null {
+function createGithubReviewSummary(draft: ReviewDraft, className: string, avatarCssPx: number, isViewerShown = true): HTMLElement | null {
   const reviews = githubReviewItems(draft, { isViewerShown });
   if (reviews.length === 0) return null;
   const summary = el('span', className);
-  summary.append('GitHub: ');
+  const items = reviews.map((review) => ({
+    login: review.login, tone: review.tone,
+    title: githubReviewTitle(review.text, formatReviewAge(review.submittedAt)),
+  }));
+  const stack = createReviewerStack(items, avatarCssPx);
   for (const [index, review] of reviews.entries()) {
-    if (index > 0) summary.append(', ');
-    summary.append(review.text);
-    const age = createAgeReadout('', review.submittedAt);
-    if (age) summary.append(' (', age, ')');
+    const avatar = stack.children[index];
+    if (!(avatar instanceof HTMLElement) || !review.submittedAt) continue;
+    const at = ageTimestamp(review.submittedAt);
+    if (at === null) continue;
+    avatar.dataset.ageAt = String(at);
+    avatar.dataset.reviewTitle = review.text;
   }
+  summary.append(stack);
   return summary;
+}
+
+function formatReviewAge(submittedAt: string | null | undefined): string | null {
+  const timestamp = ageTimestamp(submittedAt);
+  return timestamp === null ? null : formatAgo(timestamp);
+}
+
+function createAuthor(login: string, cssPx: number, className: string): HTMLElement {
+  const author = el('span', className);
+  author.append(createAvatar({ login, cssPx }), el('span', null, login));
+  return author;
 }
 
 function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind): HTMLButtonElement {
@@ -171,23 +200,23 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
   const bottom = el('span', 'pr-queue-bottom');
   if (kind === 'inReview') {
     const inFlight = review as InFlightReview;
-    bottom.append(el('span', 'pr-phase-label', phaseLabel(inFlight.phase)), el('span', 'pr-queue-author', inFlight.author));
+    bottom.append(el('span', 'pr-phase-label', phaseLabel(inFlight.phase)), createAuthor(inFlight.author, 16, 'pr-queue-author'));
     const elapsed = el('span', 'pr-queue-elapsed');
     _progressTicker.track(elapsed, inFlight.startedAt, () => inFlightElapsedText(inFlight, Date.now()));
     bottom.append(elapsed);
   }
-  if (kind === 'queued') bottom.append(el('span', 'pr-phase-label', 'waiting for a slot'), el('span', 'pr-queue-author', review.author));
+  if (kind === 'queued') bottom.append(el('span', 'pr-phase-label', 'waiting for a slot'), createAuthor(review.author, 16, 'pr-queue-author'));
   if (kind === 'ready' || kind === 'settled') {
     const draft = review as ReviewDraft;
-    bottom.append(createVerdictSeal(draft), el('span', 'pr-queue-author', draft.author), createSeverityCounts(draft, true));
+    bottom.append(createVerdictSeal(draft), createAuthor(draft.author, 16, 'pr-queue-author'), createSeverityCounts(draft, true));
   }
   if (kind === 'attention' || kind === 'discarded') {
     const draft = review as ReviewDraft;
-    bottom.append(el('span', `pr-attention-label pr-attention-label-${draft.status}`, attentionStatusLabel(draft.status)), el('span', 'pr-queue-author', draft.author), el('span', 'pr-queue-reason', attentionDetail(draft)));
+    bottom.append(el('span', `pr-attention-label pr-attention-label-${draft.status}`, attentionStatusLabel(draft.status)), createAuthor(draft.author, 16, 'pr-queue-author'), el('span', 'pr-queue-reason', attentionDetail(draft)));
   }
   if (kind === 'posted') {
     const draft = review as ReviewDraft;
-    bottom.append(el('span', 'pr-attention-label pr-attention-label-posted', 'posted'), el('span', 'pr-queue-author', draft.author));
+    bottom.append(el('span', 'pr-attention-label pr-attention-label-posted', 'posted'), createAuthor(draft.author, 16, 'pr-queue-author'));
     bottom.append(el('span', 'pr-queue-posted-detail', verdictLabel(draft.verdict)));
   }
   const ages = el('span', 'pr-queue-github');
@@ -200,8 +229,8 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
     if (postedAge) ages.append(ages.childNodes.length ? ', ' : '', postedAge);
   }
   row.append(glyph, top, bottom);
-  const githubSummary = kind === 'inReview' || kind === 'queued' ? null : createGithubReviewSummary(review as ReviewDraft, 'pr-queue-github', kind !== 'posted');
-  if (githubSummary) ages.append(ages.childNodes.length ? ' | ' : '', ...githubSummary.childNodes);
+  const githubSummary = kind === 'inReview' || kind === 'queued' ? null : createGithubReviewSummary(review as ReviewDraft, 'pr-queue-reviewers', 16, kind !== 'posted');
+  if (githubSummary) ages.append(githubSummary);
   if (ages.childNodes.length) row.append(ages);
   row.addEventListener('click', () => {
     _selectedKey = review.key;
@@ -227,7 +256,7 @@ function createDetailHeading(review: ReviewDraft | InFlightReview): HTMLElement 
   const title = el('div', 'pr-detail-title');
   title.append(pullRequestLink(review), el('h2', null, review.title));
   const metadata = el('div', 'pr-detail-meta');
-  metadata.append(el('span', null, review.author));
+  metadata.append(createAuthor(review.author, 20, 'pr-detail-author'));
   metadata.append(el('span', null, reviewScopeText(review)));
   const openedAge = createAgeReadout('Opened', review.prCreatedAt);
   if (openedAge) metadata.append(openedAge);
@@ -237,7 +266,7 @@ function createDetailHeading(review: ReviewDraft | InFlightReview): HTMLElement 
     const postedAge = createAgeReadout('Posted', review.postedAt);
     if (postedAge) metadata.append(postedAge);
   }
-  const githubSummary = 'reviewedHead' in review ? createGithubReviewSummary(review, 'pr-detail-github') : null;
+  const githubSummary = 'reviewedHead' in review ? createGithubReviewSummary(review, 'pr-detail-github', 20) : null;
   if (githubSummary) metadata.append(githubSummary);
   const head = 'reviewedHead' in review ? review.reviewedHead : review.head;
   metadata.append(el('span', null, `${'reviewedHead' in review ? 'reviewed at' : 'head'} ${head.slice(0, 7)}`));
@@ -443,7 +472,7 @@ function createQueuedDetail(review: QueuedReview, runningCount: number): HTMLEle
   const title = el('div', 'pr-detail-title');
   title.append(pullRequestLink(review), el('h2', null, review.title));
   const metadata = el('div', 'pr-detail-meta');
-  metadata.append(el('span', null, review.author));
+  metadata.append(createAuthor(review.author, 20, 'pr-detail-author'));
   const openedAge = createAgeReadout('Opened', review.prCreatedAt);
   if (openedAge) metadata.append(openedAge);
   heading.append(title, metadata);
@@ -583,6 +612,16 @@ function ensureShell(): void {
   _renderedDetailSignature = null;
 }
 
+function syncTeamChip(head: HTMLElement | null): void {
+  if (!head) return;
+  head.querySelector('.pr-team-chip')?.remove();
+  const team = _latest?.team;
+  if (!team) return;
+  const chip = el('span', 'pr-team-chip');
+  chip.append(createAvatar({ login: team.slug, url: team.avatarUrl, cssPx: 16 }), el('span', null, team.name));
+  head.insertBefore(chip, head.querySelector('.pr-queue-toggle'));
+}
+
 function focusedQueueReviewKey(): string | null {
   const focused = document.activeElement;
   if (!(focused instanceof HTMLElement) || !_queue?.contains(focused)) return null;
@@ -603,7 +642,9 @@ function render(): void {
   _progressTicker.reset();
   _ageTicker.reset();
   if (!_latest?.configured || !hasAnyRow(sections)) {
-    _root.replaceChildren(createPrQueueHead(_scopeTabs), buildEmptyState());
+    const head = createPrQueueHead(_scopeTabs);
+    syncTeamChip(head);
+    _root.replaceChildren(head, buildEmptyState());
     _queue = null;
     _detail = null;
     _inReviewSection = null;
@@ -612,6 +653,7 @@ function render(): void {
   }
   ensureShell();
   if (!_queue) return;
+  syncTeamChip(_root.querySelector('.pr-queue-head'));
   _selectedKey = chooseSelectedReviewKey(sections, _selectedKey);
   const queueSections: HTMLElement[] = [];
   if (sections.ready.length) queueSections.push(createQueueSection('Ready', sections.ready, 'ready'));

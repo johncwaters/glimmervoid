@@ -66,6 +66,7 @@ function fakeGithub(): FakeGithub {
     authoredQueries: [],
     failViewer: false,
     viewer: async () => (github.failViewer ? null : 'me'),
+    teamProfile: async () => ({ org: 'Acme', slug: 'core', name: 'Core', avatarUrl: 'https://avatars.githubusercontent.com/t/1' }),
     teamMembers: async () => ['me', 'teammate', 'other'],
     searchTeamRequested: async () => ({ items: github.requested, complete: github.isRequestedComplete }),
     searchAuthoredBy: async (_org, logins) => {
@@ -127,9 +128,28 @@ test('requested and authored PRs are deduped and self, bots and drafts never rea
   assert.equal(spawned[0].tier, 'stamp');
   const latest = statuses.at(-1);
   assert.equal(latest?.type, 'team-review-status');
+  assert.deepEqual(latest?.team, { org: 'Acme', slug: 'core', name: 'Core', avatarUrl: 'https://avatars.githubusercontent.com/t/1' });
   assert.deepEqual(latest?.drafts.map((draft) => [draft.key, draft.status]), [[`${REPO}#1`, 'ready']]);
   assert.deepEqual(latest?.inFlight, []);
   for (const status of statuses) assert.equal(TeamReviewStatus.safeParse(status).success, true);
+  await poller.stop();
+});
+
+test('team profile is cached after success and retried after null', async () => {
+  const github = fakeGithub();
+  let profileCalls = 0;
+  github.teamProfile = async () => {
+    profileCalls += 1;
+    if (profileCalls === 1) return null;
+    return { org: 'Acme', slug: 'core', name: 'Core', avatarUrl: 'https://avatars.githubusercontent.com/t/1' };
+  };
+  const { poller, statuses } = setup({ github });
+  await poller.start();
+  await poller.tick();
+  await poller.tick();
+  assert.equal(profileCalls, 2);
+  assert.equal(statuses[0]?.team, null);
+  assert.equal(statuses.at(-1)?.team?.name, 'Core');
   await poller.stop();
 });
 

@@ -1320,7 +1320,7 @@ test('discarding a saved review reaps its processes before removing its director
       events.push('reap');
     },
     github: {
-      viewer: async () => null, teamMembers: async () => [], searchTeamRequested: async () => ({ items: [], complete: true }),
+      viewer: async () => null, teamProfile: async () => null, teamMembers: async () => [], searchTeamRequested: async () => ({ items: [], complete: true }),
       searchAuthoredBy: async () => ({ items: [], complete: true }), viewPr: async () => null, prHead: async () => null, prReviewSnapshots: async () => new Map(), prDiff: async () => null,
     },
     repoCache: {
@@ -1383,7 +1383,7 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
     reapProcesses: async () => {},
     log: { warn: () => {} },
     github: {
-      viewer: async () => null, teamMembers: async () => [], searchTeamRequested: async () => ({ items: [], complete: true }),
+      viewer: async () => null, teamProfile: async () => null, teamMembers: async () => [], searchTeamRequested: async () => ({ items: [], complete: true }),
       searchAuthoredBy: async () => ({ items: [], complete: true }), viewPr: async () => null, prHead: async () => null, prReviewSnapshots: async () => new Map(), prDiff: async () => 'diff\n',
     },
     repoCache: {

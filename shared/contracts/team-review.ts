@@ -255,5 +255,6 @@ export const TeamReviewStatus = z.object({
   drafts: z.array(ReviewDraft),
   inFlight: z.array(InFlightReview),
   queued: z.array(QueuedReview).default([]),
+  team: z.object({ org: z.string(), slug: z.string(), name: z.string(), avatarUrl: z.string() }).nullable().optional(),
 }).passthrough();
 export type TeamReviewStatus = z.infer<typeof TeamReviewStatus>;

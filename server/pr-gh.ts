@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { CommitSha, PrDetail, ReviewComment, SearchedPr } from '../shared/contracts/team-review.ts';
 import { MyPrSearchNode, MyPrSearchResponse, MyPrThreadNode, MyPrThreadsResponse } from '../shared/contracts/my-prs.ts';
 import type { MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode as MyPrThreadNodeType } from '../shared/contracts/my-prs.ts';
-import type { PrDetail as PrDetailType, ReviewComment as ReviewCommentType, SearchedPr as SearchedPrType } from '../shared/contracts/team-review.ts';
+import type { PrDetail as PrDetailType, ReviewComment as ReviewCommentType, SearchedPr as SearchedPrType, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 
 
 interface CommandResult {
@@ -78,6 +78,7 @@ interface PrGh {
   viewIssue(issueNumber: number | string): Promise<GithubIssueDetail>;
   viewer(): Promise<string | null>;
   teamMembers(org: string, team: string): Promise<string[]>;
+  teamProfile(org: string, team: string): Promise<NonNullable<TeamReviewStatus['team']> | null>;
   searchTeamRequested(org: string, team: string): Promise<PrSearchResult>;
   searchAuthoredBy(org: string, logins: string[]): Promise<PrSearchResult>;
   viewPr(repo: string, number: number): Promise<PrDetailType | null>;
@@ -137,6 +138,8 @@ const MY_PR_THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int
 }`;
 const GH_LOGIN = z.string().regex(GH_SEGMENT);
 const GH_MEMBERS = z.array(GH_LOGIN);
+const TEAM_PROFILE = z.object({ data: z.object({ organization: z.object({ team: z.object({ name: z.string(), avatarUrl: z.string().url() }).nullable() }).nullable() }), errors: z.array(z.unknown()).optional() });
+const TEAM_PROFILE_QUERY = 'query($org: String!, $slug: String!) { organization(login: $org) { team(slug: $slug) { name avatarUrl } } }';
 const SEARCH_RESPONSE = z.object({ items: z.array(SearchedPr) });
 const SEARCH_PAGE_SIZE = 100;
 const MAX_SEARCH_PAGES = 5;
@@ -347,6 +350,16 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       const members = response.out ? response.out.split(/\r?\n/) : [];
       const parsed = GH_MEMBERS.safeParse(members);
       return parsed.success ? parsed.data : [];
+    },
+
+    async teamProfile(org, team) {
+      if (!GH_SEGMENT.test(org) || !GH_SEGMENT.test(team)) return null;
+      const response = await runGh(['api', 'graphql', '-f', `query=${TEAM_PROFILE_QUERY}`, '-f', `org=${org}`, '-f', `slug=${team}`]);
+      if (!response.ok) return null;
+      const parsed = TEAM_PROFILE.safeParse(parseJson(response.out, null));
+      if (!parsed.success || parsed.data.errors?.length || !parsed.data.data.organization?.team) return null;
+      const profile = parsed.data.data.organization.team;
+      return { org, slug: team, name: profile.name, avatarUrl: profile.avatarUrl };
     },
 
     async searchTeamRequested(org, team) {

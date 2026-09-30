@@ -157,9 +157,19 @@ function describeGithubReview(review: GithubReview, head: string): string {
   return `you ${verb} (older commit)`;
 }
 
-export function githubReviewItems(draft: ReviewDraft, { isViewerShown = true }: { isViewerShown?: boolean } = {}): { text: string; submittedAt?: string | null }[] {
+export function githubReviewTone(state: GithubReviewState): StateTone {
+  if (state === 'APPROVED') return 'ok';
+  if (state === 'CHANGES_REQUESTED') return 'warn';
+  return 'muted';
+}
+
+export function githubReviewTitle(text: string, age: string | null): string {
+  return age ? `${text}, ${age}` : text;
+}
+
+export function githubReviewItems(draft: ReviewDraft, { isViewerShown = true }: { isViewerShown?: boolean } = {}): { login: string; tone: StateTone; text: string; submittedAt?: string | null }[] {
   const reviews = (draft.githubReviews ?? []).filter((review) => isViewerShown || !review.isViewer).sort((left, right) => Number(right.isViewer) - Number(left.isViewer));
-  return reviews.map((review) => ({ text: describeGithubReview(review, currentHead(draft)), submittedAt: review.submittedAt }));
+  return reviews.map((review) => ({ login: review.login, tone: githubReviewTone(review.state), text: describeGithubReview(review, currentHead(draft)), submittedAt: review.submittedAt }));
 }
 
 export function hasAnyRow(sections: TeamReviewSections): boolean {
@@ -346,6 +356,7 @@ export function detailHeadingSignature(review: ReviewDraft | InFlightReview): st
 
 export function isInFlightProgressOnlyChange(previous: TeamReviewStatus | null | undefined, next: TeamReviewStatus): boolean {
   if (!previous) return false;
+  if (JSON.stringify(previous.team) !== JSON.stringify(next.team)) return false;
   if (previous.configured !== next.configured || previous.reason !== next.reason) return false;
   const previousKeys = previous.inFlight.map((review) => review.key).join('\n');
   const nextKeys = next.inFlight.map((review) => review.key).join('\n');

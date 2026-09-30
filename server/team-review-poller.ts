@@ -12,6 +12,7 @@ import type {
 interface TeamReviewGithub {
   viewer(): Promise<string | null>;
   teamMembers(org: string, team: string): Promise<string[]>;
+  teamProfile(org: string, team: string): Promise<NonNullable<TeamReviewStatus['team']> | null>;
   searchTeamRequested(org: string, team: string): Promise<PrSearchResult>;
   searchAuthoredBy(org: string, logins: string[]): Promise<PrSearchResult>;
   viewPr(repo: string, number: number): Promise<PrDetail | null>;
@@ -79,6 +80,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   const skipIdleAfterMs = deps.skipIdleAfterMs ?? core.DEFAULT_SKIP_IDLE_AFTER_DAYS * 24 * 60 * 60 * 1000;
   let state: TeamReviewState = {};
   let self: string | null = null;
+  let teamProfile: TeamReviewStatus['team'] = null;
   const progressByKey = new Map<string, InFlightReview>();
   let waitingForSlot: TeamReviewCandidate[] = [];
   let lastEmitAt = Number.NEGATIVE_INFINITY;
@@ -112,7 +114,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     cancelPendingProgressEmit();
     lastEmitAt = now();
     onTickComplete(core.teamReviewStatus({
-      ts: now(), configured: true, drafts: core.draftsNewestFirst(state), inFlight: inFlightReviews(),
+      ts: now(), configured: true, team: teamProfile, drafts: core.draftsNewestFirst(state), inFlight: inFlightReviews(),
       queued: waitingForSlot.filter((candidate) => !state[candidate.key]?.inFlight),
     }));
   }
@@ -295,6 +297,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   }
 
   async function collectCandidates(): Promise<{ candidates: TeamReviewCandidate[]; isComplete: boolean } | null> {
+    if (teamProfile === null) teamProfile = await github.teamProfile(org, team);
     if (self === null) self = await github.viewer();
     const viewer = self;
     if (viewer === null) return null;
