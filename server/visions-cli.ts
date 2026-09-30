@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 
-import { createRelay } from '../session/visions-relay.ts';
 import { renderTable } from './core/ascii-figure-core.ts';
 import { buildSetupGuide, commandLine, recipeIds } from './core/editor-setup-core.ts';
 import { isExtensionInstalled } from './core/editor-extension-core.ts';
@@ -70,7 +69,8 @@ async function runStatus(): Promise<number> {
   return 0;
 }
 
-function runRelay(): Promise<never> {
+async function runRelay(): Promise<never> {
+  const { createRelay } = await import('../session/visions-relay.ts');
   createRelay().start();
   return new Promise(() => {});
 }

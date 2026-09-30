@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import WebSocket, { WebSocketServer } from 'ws';
+import { build } from 'vite';
 import type { ChildProcess } from 'node:child_process';
 import type { AddressInfo } from 'node:net';
 import type { Readable } from 'node:stream';
@@ -84,8 +85,8 @@ async function startDaemon(port = 0) {
   };
 }
 
-function startRelay(port: number) {
-  const child = spawn(process.execPath, [RELAY_PATH, '--port', String(port)], {
+function startRelay(port: number, relayPath = RELAY_PATH) {
+  const child = spawn(process.execPath, [relayPath, '--port', String(port)], {
     cwd: path.join(import.meta.dirname, '..'),
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
@@ -531,4 +532,23 @@ test('the configured port is read from the resolved config, never seeded', () =>
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('the vite-built relay entry still starts when an editor spawns it directly', async (t) => {
+  const repoRoot = path.join(import.meta.dirname, '..');
+  const outDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-relay-entry-')));
+  t.after(() => fs.rmSync(outDir, { recursive: true, force: true }));
+  await build({ configFile: path.join(repoRoot, 'vite.server.config.ts'), logLevel: 'silent', build: { outDir } });
+  fs.writeFileSync(path.join(outDir, 'package.json'), '{"type":"module"}\n', 'utf8');
+  fs.symlinkSync(path.join(repoRoot, 'node_modules'), path.join(outDir, 'node_modules'), 'junction');
+
+  const daemon = await startDaemon();
+  const relay = startRelay(daemon.port, path.join(outDir, 'session', 'visions-relay.js'));
+  t.after(async () => {
+    relay.child.kill();
+    await daemon.close();
+  });
+
+  const socket = await daemon.connections.next('the built relay never connected to the daemon');
+  assert.equal(socket.readyState, WebSocket.OPEN);
 });

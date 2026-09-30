@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Visions works again in VS Code-family editors**: since the 0.28 builds, the Visions extension failed to start in any newly opened editor window with "Cannot find module './tools/vscode-visions/visions-lsp-core.js'", so those windows sent nothing to Visions and showed no findings. Restart Glimmervoid to reinstall the fixed extension, then reload open editor windows.
+- **Visions works again in VS Code-family editors**: since the 0.28 builds, the Visions extension failed to start in any newly opened editor window with "Cannot find module './tools/vscode-visions/visions-lsp-core.js'", so those windows sent nothing to Visions and showed no findings. The relay the extension starts also exited as soon as it launched and restarted every 15 seconds without ever connecting. Restart Glimmervoid to reinstall the fixed extension, then reload open editor windows.
 - **Light themes no longer show a black Focus area**: with Compleated or PostHog (Light) selected and no session focused, the middle of the Focus view was black with dark text you could barely read. The page background now follows the theme.
 - **Terminal text no longer goes missing after the browser sleeps**: on a phone, returning to Chrome after it sat in the background for a while could leave the terminal showing only scattered letters until new output redrew each row. The dashboard now rebuilds every terminal's cached glyphs when the page becomes visible again, so the full screen comes back at once.
 
