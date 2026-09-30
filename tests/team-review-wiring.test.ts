@@ -677,8 +677,7 @@ test('the report becomes a draft rendered in the pr-review posting format', asyn
     assert.equal(draft.comments.length, 1);
     assert.equal(draft.comments[0]?.line, 2);
     assert.match(draft.comments[0]?.body ?? '', /\*\*\[code\/logic\] MEDIUM\*\*/);
-    assert.match(draft.body, /^> \[!NOTE\]/);
-    assert.match(draft.body, /Verdict: APPROVE WITH NITS/);
+    assert.equal(draft.body, AUTOMATED_REVIEW_NOTE);
   } finally {
     cleanup();
   }
@@ -708,7 +707,7 @@ test('a Step 4 posting plan from the skill becomes the draft verbatim, and a bad
     assert.equal(draft.verdict, 'APPROVE WITH NITS');
     assert.ok(withPlan.spawns[0].prompt.includes(path.join(withPlan.spawns[0].workDir, REVIEW_POSTING_FILENAME)));
     const fallback = await badPlan.review(reviewArgs('full'));
-    assert.match(fallback.body, /Verdict: APPROVE WITH NITS/);
+    assert.equal(fallback.body, AUTOMATED_REVIEW_NOTE);
     assert.match(warnings.join('\n'), /targets/);
   } finally {
     withPlan.cleanup();
