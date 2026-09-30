@@ -43,6 +43,20 @@ export function reacquireWebglIfStale(ui: SessionUi | null | undefined) {
   tryLoadWebGL(ui, { isForced: true });
 }
 
+export function rebuildWebglGlyphAtlases() {
+  for (const ui of _webglLru.keys()) {
+    const term = ui.term;
+    if (!ui.webglAddon || !term) continue;
+    try {
+      term.clearTextureAtlas();
+      term.refresh(0, term.rows - 1);
+    } catch {
+      releaseWebgl(ui);
+      ui.needsWebGLReload = true;
+    }
+  }
+}
+
 export function tryLoadWebGL(ui: SessionUi, options: { isForced?: boolean } = {}) {
   try {
     if (ui.webglAddon && !ui.needsWebGLReload && !options.isForced) {

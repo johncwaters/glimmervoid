@@ -36,6 +36,7 @@ import { resolvePlanTarget } from './plan/plan-link.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { reconnectDataWs, syncGridOnEngagementEdge } from './session-card/terminal.ts';
 import { showErrorToast } from './session-card/toast.ts';
+import { rebuildWebglGlyphAtlases } from './session-card/webgl-pool.ts';
 import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, clearSettingsUpdateRequest, mountSettingsView, refreshSettingsStatus, resolveSettingsTarget } from './settings-panel.ts';
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
@@ -941,11 +942,13 @@ async function checkWakeLiveness() {
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
+  rebuildWebglGlyphAtlases();
   checkWakeLiveness();
 });
 window.addEventListener('online', checkWakeLiveness);
 window.addEventListener('pageshow', (event) => {
   if (!event.persisted) return;
+  rebuildWebglGlyphAtlases();
   checkWakeLiveness();
 });
 

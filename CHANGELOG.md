@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **PostHog light and dark themes**: Settings > Theme now offers PostHog (Light) and PostHog (Dark), built from the palette and surface tokens on posthog.com: the warm off-white and tan surfaces with a burnt-orange accent in light, and the charcoal surfaces with the PostHog orange accent in dark. Session states and terminal colors use the same brand palette.
+
+### Fixed
+
+- **Terminal text no longer goes missing after the browser sleeps**: on a phone, returning to Chrome after it sat in the background for a while could leave the terminal showing only scattered letters until new output redrew each row. The dashboard now rebuilds every terminal's cached glyphs when the page becomes visible again, so the full screen comes back at once.
+
 ### Changed
 
 - **My PRs shows each unresolved thread**: selecting a pull request with unresolved review threads lists every one under Unresolved threads, with its file and line (linked to the comment on GitHub), who opened it, the start of the comment, how many replies it has, who replied last and when. Each thread says Waiting on you when someone else spoke last, or Waiting on reviewer when you did, and threads waiting on you come first. The Threads row under Merge readiness now reads, for example, "3 unresolved, 2 waiting on you".
