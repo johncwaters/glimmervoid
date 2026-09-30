@@ -403,6 +403,7 @@ test('my PR search uses one GraphQL call and drops invalid nodes', async () => {
   assert.ok(calls[0].includes('openQuery=is:pr is:open author:@me org:Acme sort:updated-desc'));
   assert.ok(calls[0].includes('mergedQuery=is:pr is:merged author:@me org:Acme merged:>=2026-09-27 sort:updated-desc'));
   assert.equal(calls[0].find((arg) => arg.startsWith('query='))?.match(/issueCount/g)?.length, 2);
+  assert.match(calls[0].find((arg) => arg.startsWith('query=')) ?? '', /\.\.\. on Team \{ slug avatarUrl organization \{ login \} \}/);
 });
 
 test('my PR search rejects invalid input and malformed whole responses', async () => {

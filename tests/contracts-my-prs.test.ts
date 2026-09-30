@@ -15,3 +15,17 @@ test('my PR contracts reject malformed reports and register the control message'
   assert.equal(MyPrSearchNode.safeParse({ number: 1 }).success, false);
   assert.equal(MyPr.safeParse({ key: 'wrong' }).success, false);
 });
+
+test('my PR contract parses requested reviewers with avatar metadata', () => {
+  const pr = {
+    key: 'Acme/app#1', repo: 'Acme/app', number: 1, title: 'Fix', url: 'https://github.com/Acme/app/pull/1',
+    isDraft: false, state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z',
+    baseRefName: 'main', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null,
+    checks: { state: null, failing: [], pendingCount: 0 }, unresolvedThreads: 0, threads: [], behindBy: 0,
+    reviewRequests: [{ name: 'Acme/docs', isTeam: true, avatarUrl: 'https://github.com/Acme.png' }, { name: 'ana', isTeam: false, avatarUrl: null }],
+    approvals: 0, reviews: [], stage: 'ready',
+  };
+  assert.deepEqual(MyPr.parse(pr).reviewRequests, pr.reviewRequests);
+  assert.equal(MyPr.safeParse({ ...pr, reviewRequests: ['Acme/docs'] }).success, false);
+  assert.equal(MyPr.safeParse({ ...pr, reviewRequests: [{ name: 'ana', isTeam: false }] }).success, false);
+});

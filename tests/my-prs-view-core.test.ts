@@ -12,6 +12,9 @@ const node: MyPrSearchNode = {
 };
 const base = toMyPr(node, 0);
 const pr = (stage: MyPr['stage'], number: number): MyPr => ({ ...base, stage, number, key: `Acme/app#${number}` });
+const teamRequest = { name: 'Acme/docs', isTeam: true, avatarUrl: 'https://github.com/Acme.png' };
+const appRequest = { name: 'Acme/app', isTeam: true, avatarUrl: null };
+const userRequest = { name: 'bob', isTeam: false, avatarUrl: null };
 
 test('groups every stage in fixed section order and preserves selection', () => {
   const sections = groupMyPrs([pr('merged', 5), pr('draft', 4), pr('ready', 3), pr('unknown', 2), pr('conflicts', 1)]);
@@ -54,13 +57,13 @@ test('readiness rows cover review, threads, conflicts and base outcomes', () => 
   assert.deepEqual(row('Review', { reviewDecision: 'APPROVED', approvals: 0 }), { label: 'Review', tone: 'ok', text: 'Approved' });
   assert.deepEqual(row('Review', { reviewDecision: 'APPROVED', mergeStateStatus: 'BLOCKED', approvals: 2 }), { label: 'Review', tone: 'wait', text: '2 approvals, merge blocked' });
   assert.deepEqual(row('Review', { reviewDecision: 'APPROVED', mergeStateStatus: 'BLOCKED', approvals: 0 }), { label: 'Review', tone: 'wait', text: 'Approved, merge blocked' });
-  assert.deepEqual(row('Review', { reviewDecision: null, reviewRequests: ['Acme/docs', 'Acme/app'] }), { label: 'Review', tone: 'wait', text: 'Requested: Acme/docs, Acme/app' });
+  assert.deepEqual(row('Review', { reviewDecision: null, reviewRequests: [teamRequest, appRequest] }), { label: 'Review', tone: 'wait', text: 'Requested: Acme/docs, Acme/app' });
   assert.deepEqual(row('Review', { reviewDecision: null, reviewRequests: [] }), { label: 'Review', tone: 'muted', text: 'No review requested' });
   assert.deepEqual(row('Review', { reviewDecision: 'REVIEW_REQUIRED', reviewRequests: [], approvals: 0 }), { label: 'Review', tone: 'wait', text: 'Approval required' });
   assert.deepEqual(row('Review', { reviewDecision: 'REVIEW_REQUIRED', reviewRequests: [], approvals: 1 }), { label: 'Review', tone: 'wait', text: 'Approval required, 1 approval' });
-  assert.deepEqual(row('Review', { reviewDecision: 'REVIEW_REQUIRED', reviewRequests: ['bob'], approvals: 2 }), { label: 'Review', tone: 'wait', text: 'Requested: bob, 2 approvals' });
+  assert.deepEqual(row('Review', { reviewDecision: 'REVIEW_REQUIRED', reviewRequests: [userRequest], approvals: 2 }), { label: 'Review', tone: 'wait', text: 'Requested: bob, 2 approvals' });
   assert.deepEqual(row('Review', { reviewDecision: null, mergeStateStatus: 'BLOCKED', reviewRequests: [], approvals: 0 }), { label: 'Review', tone: 'wait', text: 'Approval required' });
-  assert.deepEqual(row('Review', { reviewDecision: null, mergeStateStatus: 'BLOCKED', reviewRequests: ['bob'], approvals: 0 }), { label: 'Review', tone: 'wait', text: 'Requested: bob' });
+  assert.deepEqual(row('Review', { reviewDecision: null, mergeStateStatus: 'BLOCKED', reviewRequests: [userRequest], approvals: 0 }), { label: 'Review', tone: 'wait', text: 'Requested: bob' });
   assert.deepEqual(row('Review', { reviewDecision: 'CHANGES_REQUESTED', mergeStateStatus: 'BLOCKED' }), { label: 'Review', tone: 'warn', text: 'Changes requested' });
   assert.deepEqual(row('Threads', { unresolvedThreads: 2 }), { label: 'Threads', tone: 'warn', text: '2 unresolved' });
   assert.deepEqual(row('Threads', { unresolvedThreads: 0 }), { label: 'Threads', tone: 'ok', text: 'None open' });

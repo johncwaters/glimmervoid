@@ -1,5 +1,5 @@
 import type { MyPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
-import { el, externalLink } from './dom-helpers.ts';
+import { createAvatar, createReviewerStack, el, externalLink } from './dom-helpers.ts';
 import { formatAgo } from './poll-ago.ts';
 import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createStateGlyph } from './state-glyph.ts';
@@ -18,6 +18,21 @@ function stageChip(pr: MyPr, { hasGlyph }: { hasGlyph: boolean }): HTMLElement {
   if (hasGlyph) chip.append(createStateGlyph(stageTone(pr.stage)));
   chip.append(stageLabel(pr.stage));
   return chip;
+}
+
+function requestedReviewers(pr: MyPr, text: string): HTMLElement {
+  const requested = el('span', 'my-pr-requested');
+  requested.append(el('span', null, 'Requested'));
+  const avatars = el('span', 'avatar-stack');
+  for (const request of pr.reviewRequests) {
+    const avatar = createAvatar({ login: request.name, url: request.isTeam ? request.avatarUrl : undefined, cssPx: 16 });
+    avatar.title = request.name;
+    avatar.setAttribute('role', 'img');
+    avatar.setAttribute('aria-label', request.name);
+    avatars.append(avatar);
+  }
+  requested.append(avatars, el('span', 'my-pr-requested-names', text.slice('Requested: '.length)));
+  return requested;
 }
 
 function createShell(): void {
@@ -51,7 +66,10 @@ function renderDetail(pr: MyPr | undefined): void {
     const list = el('ul', 'pr-readiness');
     for (const readinessRow of readiness) {
       const item = el('li', 'pr-readiness-row');
-      item.append(createStateGlyph(readinessRow.tone), el('span', 'pr-readiness-label', readinessRow.label), el('span', 'pr-readiness-value', readinessRow.text));
+      const value = el('span', 'pr-readiness-value');
+      if (readinessRow.label === 'Review' && readinessRow.text.startsWith('Requested: ')) value.append(requestedReviewers(pr, readinessRow.text));
+      if (value.childNodes.length === 0) value.textContent = readinessRow.text;
+      item.append(createStateGlyph(readinessRow.tone), el('span', 'pr-readiness-label', readinessRow.label), value);
       list.append(item);
     }
     section.append(list);
@@ -74,7 +92,9 @@ function renderDetail(pr: MyPr | undefined): void {
       const item = el('li', 'pr-readiness-row');
       const submittedAtMs = Date.parse(review.submittedAt ?? '');
       const when = Number.isFinite(submittedAtMs) ? `${review.text} ${formatAgo(submittedAtMs)}` : review.text;
-      item.append(createStateGlyph(review.tone), el('span', 'pr-readiness-value', review.reviewer), el('span', 'pr-readiness-value', when));
+      const reviewer = el('span', 'my-pr-reviewer');
+      reviewer.append(createReviewerStack([{ login: review.reviewer, tone: review.tone, title: review.reviewer, url: review.reviewer === 'a deleted account' ? null : undefined }], 16), el('span', null, review.reviewer));
+      item.append(createStateGlyph(review.tone), reviewer, el('span', 'pr-readiness-value', when));
       list.append(item);
     }
     section.append(list);

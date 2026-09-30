@@ -22,7 +22,8 @@ export const MyPr = z.object({
   baseRefName: z.string(), mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']), mergeStateStatus: z.string(),
   reviewDecision: z.enum(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED']).nullable(),
   checks: z.object({ state: z.enum(['SUCCESS', 'FAILURE', 'PENDING', 'ERROR', 'EXPECTED']).nullable(), failing: z.array(z.string()), pendingCount: nonnegativeInteger }),
-  unresolvedThreads: nonnegativeInteger, threads: z.array(MyPrThread), behindBy: nonnegativeInteger.nullable(), reviewRequests: z.array(z.string()),
+  unresolvedThreads: nonnegativeInteger, threads: z.array(MyPrThread), behindBy: nonnegativeInteger.nullable(),
+  reviewRequests: z.array(z.object({ name: z.string(), isTeam: z.boolean(), avatarUrl: z.string().nullable() })),
   approvals: nonnegativeInteger, reviews: z.array(MyPrReview), stage: MyPrStage,
 }).refine((pr) => pr.key === `${pr.repo}#${pr.number}`);
 export type MyPr = z.infer<typeof MyPr>;
@@ -48,7 +49,7 @@ export const MyPrSearchNode = z.object({
   reviewThreads: z.object({ pageInfo: z.object({ hasNextPage: z.boolean() }), nodes: z.array(z.object({ isResolved: z.boolean() })) }),
   reviewRequests: z.object({ nodes: z.array(z.object({ requestedReviewer: z.discriminatedUnion('__typename', [
     z.object({ __typename: z.literal('User'), login: z.string() }),
-    z.object({ __typename: z.literal('Team'), slug: z.string(), organization: z.object({ login: z.string() }) }),
+    z.object({ __typename: z.literal('Team'), slug: z.string(), avatarUrl: z.string().nullable(), organization: z.object({ login: z.string() }) }),
     z.object({ __typename: z.enum(['Bot', 'Mannequin']) }),
   ]).nullable() })) }),
   latestOpinionatedReviews: z.object({ nodes: z.array(z.object({ state: z.string() })) }),

@@ -66,8 +66,8 @@ export function toMyPr(node: MyPrSearchNode, behindBy: number | null, threadNode
   }).length;
   const reviewRequests = node.reviewRequests.nodes.flatMap(({ requestedReviewer }) => {
     if (!requestedReviewer) return [];
-    if (requestedReviewer.__typename === 'User') return [requestedReviewer.login];
-    if (requestedReviewer.__typename === 'Team') return [`${requestedReviewer.organization.login}/${requestedReviewer.slug}`];
+    if (requestedReviewer.__typename === 'User') return [{ name: requestedReviewer.login, isTeam: false, avatarUrl: null }];
+    if (requestedReviewer.__typename === 'Team') return [{ name: `${requestedReviewer.organization.login}/${requestedReviewer.slug}`, isTeam: true, avatarUrl: requestedReviewer.avatarUrl }];
     return [];
   });
   const threads = toMyPrThreads(threadNodes, node.url);

@@ -125,7 +125,7 @@ fragment myPrFields on PullRequest {
     __typename ... on CheckRun { name conclusion status } ... on StatusContext { context state }
   } } } } } }
   reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { isResolved } }
-  reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug organization { login } } } } }
+  reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug avatarUrl organization { login } } } } }
   latestOpinionatedReviews(first: 20) { nodes { state } }
   latestReviews(first: 20) { nodes { state submittedAt author { login } } }
 }`;

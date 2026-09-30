@@ -26,11 +26,15 @@ test('normalizes failing checks, pending checks, requests, approvals, and unreso
     { __typename: 'StatusContext', context: 'test', state: 'ERROR' },
   ] } };
   node.reviewThreads.nodes.push({ isResolved: false });
-  node.reviewRequests.nodes.push({ requestedReviewer: { __typename: 'Team', slug: 'docs', organization: { login: 'Acme' } } });
+  node.reviewRequests.nodes.push({ requestedReviewer: { __typename: 'Team', slug: 'docs', avatarUrl: 'https://github.com/Acme.png', organization: { login: 'Acme' } } });
+  node.reviewRequests.nodes.push({ requestedReviewer: { __typename: 'User', login: 'ana' } });
   const pr = toMyPr(node, 3);
   assert.deepEqual(pr.checks, { state: 'FAILURE', failing: ['lint', 'test'], pendingCount: 1 });
   assert.equal(pr.unresolvedThreads, 1);
-  assert.deepEqual(pr.reviewRequests, ['Acme/docs']);
+  assert.deepEqual(pr.reviewRequests, [
+    { name: 'Acme/docs', isTeam: true, avatarUrl: 'https://github.com/Acme.png' },
+    { name: 'ana', isTeam: false, avatarUrl: null },
+  ]);
   assert.equal(pr.approvals, 1);
   assert.equal(pr.behindBy, 3);
   assert.equal(pr.stage, 'checks-failing');
@@ -71,7 +75,7 @@ test('a bot review request keeps the pull request and lists no reviewer for it',
   const node = { ...searchNode(), reviewRequests: { nodes: [{ requestedReviewer: { __typename: 'Bot' } }, { requestedReviewer: { __typename: 'User', login: 'ana' } }] } };
   const parsed = MyPrSearchNode.safeParse(node);
   assert.equal(parsed.success, true);
-  assert.deepEqual(parsed.success ? toMyPr(parsed.data, 0).reviewRequests : null, ['ana']);
+  assert.deepEqual(parsed.success ? toMyPr(parsed.data, 0).reviewRequests : null, [{ name: 'ana', isTeam: false, avatarUrl: null }]);
 });
 
 test('myPrsShouldStart refuses when team review is disabled', () => {

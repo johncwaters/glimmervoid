@@ -58,8 +58,12 @@ function approvalCountText(approvals: number): string {
   return `${approvals} ${approvals === 1 ? 'approval' : 'approvals'}`;
 }
 
+function requestedReviewerNames(pr: MyPr): string {
+  return pr.reviewRequests.map((request) => request.name).join(', ');
+}
+
 function approvalRequiredText(pr: MyPr): string {
-  const requestText = pr.reviewRequests.length > 0 ? `Requested: ${pr.reviewRequests.join(', ')}` : 'Approval required';
+  const requestText = pr.reviewRequests.length > 0 ? `Requested: ${requestedReviewerNames(pr)}` : 'Approval required';
   return pr.approvals > 0 ? `${requestText}, ${approvalCountText(pr.approvals)}` : requestText;
 }
 
@@ -73,7 +77,7 @@ function reviewReadiness(pr: MyPr): ReadinessRow {
   if (pr.reviewDecision === 'CHANGES_REQUESTED') return { label: 'Review', tone: 'warn', text: 'Changes requested' };
   if (pr.reviewDecision === 'APPROVED') return approvedReadiness(pr);
   if (pr.reviewDecision === 'REVIEW_REQUIRED' || pr.mergeStateStatus === 'BLOCKED') return { label: 'Review', tone: 'wait', text: approvalRequiredText(pr) };
-  if (pr.reviewRequests.length > 0) return { label: 'Review', tone: 'wait', text: `Requested: ${pr.reviewRequests.join(', ')}` };
+  if (pr.reviewRequests.length > 0) return { label: 'Review', tone: 'wait', text: `Requested: ${requestedReviewerNames(pr)}` };
   return { label: 'Review', tone: 'muted', text: 'No review requested' };
 }
 
