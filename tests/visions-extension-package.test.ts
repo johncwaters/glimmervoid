@@ -7,6 +7,7 @@ import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { once } from 'node:events';
 import { WebSocketServer } from 'ws';
+import { build } from 'vite';
 import type { AddressInfo } from 'node:net';
 
 import vscode from './helpers/vscode-stub.ts';
@@ -115,4 +116,17 @@ test('the packed extension carries every file it requires and the stamped relay 
   const message = await opened;
   assert.equal(message.params.textDocument.uri, 'file:///tmp/packed.md');
   assert.deepEqual(vscode.__test.state.errors, []);
+});
+
+test('the vite-built extension resolves its sibling modules from its own directory', async (t) => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-extension-build-'));
+  t.after(() => fs.rmSync(outDir, { recursive: true, force: true }));
+  await build({
+    configFile: path.join(import.meta.dirname, '..', 'vite.extension.config.ts'),
+    logLevel: 'silent',
+    build: { outDir },
+  });
+
+  const built: PackedExtension = requireFromHere(path.join(outDir, 'extension.js'));
+  assert.equal(typeof built.activate, 'function');
 });

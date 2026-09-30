@@ -41,6 +41,7 @@ export default defineConfig({
     sourcemap: false,
     rolldownOptions: {
       external: isExternal,
+      makeAbsoluteExternalsRelative: false,
       input: {
         extension: path.join(extensionSourceDir, 'extension.ts'),
         'lsp-convert': path.join(extensionSourceDir, 'lsp-convert.ts'),
