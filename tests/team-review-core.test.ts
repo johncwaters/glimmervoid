@@ -750,7 +750,7 @@ test('every server-rendered finding header round-trips through the dashboard par
   const inlineComment = parseReviewComment(comments[0]?.body ?? '');
   assert.equal(inlineComment.tag, 'code/logic');
   assert.equal(inlineComment.severity, 'HIGH');
-  assert.deepEqual(inlineComment.paragraphs.map((paragraph) => paragraph.segments.map((segment) => segment.text).join('')), ['Off by one: use <= here.']);
+  assert.deepEqual(inlineComment.paragraphs.map((paragraph) => (paragraph.kind === 'prose' ? paragraph.segments.map((segment) => segment.text).join('') : paragraph.code)), ['Off by one: use <= here.']);
   assert.deepEqual(severityCounts({ body, comments }), [{ severity: 'HIGH', count: 1 }, { severity: 'MEDIUM', count: 2 }]);
   for (const severity of FindingSeverity.options) {
     const finding = parseReviewComment(`${AUTOMATED_REVIEW_NOTE}\n\n${findingHeader('code/logic', severity)}\n\nBody.`);

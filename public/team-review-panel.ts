@@ -13,7 +13,7 @@ import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, emptyStateText, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
-  parseReviewComment, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText,
+  parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText,
   reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityCounts, severityPresentation, verdictLabel, verdictSealKind, verdictSealText, verdictTone, withReviewerNote,
 } from './team-review-view-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
@@ -304,7 +304,19 @@ function requeueDetailSignature(draft: ReviewDraft): string {
 }
 
 function appendSegments(element: HTMLElement, segments: ReturnType<typeof parseInlineSegments>): HTMLElement {
-  for (const segment of segments) element.append(segment.isCode ? el('code', null, segment.text) : document.createTextNode(segment.text));
+  for (const segment of segments) {
+    if (segment.kind === 'text') {
+      element.append(document.createTextNode(segment.text));
+      continue;
+    }
+    if (segment.kind === 'code') {
+      element.append(el('code', null, segment.text));
+      continue;
+    }
+    const citation = el('span', 'pr-citation', segment.text);
+    citation.title = segment.text;
+    element.append(citation);
+  }
   return element;
 }
 
@@ -358,6 +370,13 @@ function createCoverageDetails(draft: ReviewDraft): HTMLElement {
 }
 
 function createCommentParagraph(paragraph: ReturnType<typeof parseReviewComment>['paragraphs'][number]): HTMLElement {
+  if (paragraph.kind === 'code') {
+    const codeBlock = el('pre', 'pr-comment-code');
+    const code = el('code', null);
+    code.textContent = paragraph.code;
+    codeBlock.append(code);
+    return codeBlock;
+  }
   const element = el('p', 'pr-comment-paragraph');
   if (paragraph.lead) {
     const lead = el('strong', `pr-comment-lead pr-comment-lead-${paragraph.leadKind}`);
@@ -387,11 +406,7 @@ function createInlineComment(comment: DraftComment, index: number, includedIndex
   const severity = commentSeverity(comment);
   if (severity) header.append(createSeverityMeter(severity));
   header.append(el('span', 'pr-comment-location', commentLocation(comment)));
-  const firstParagraph = parsed.paragraphs[0];
-  const firstParagraphText = firstParagraph ? `${firstParagraph.lead} ${firstParagraph.segments.map((segment) => segment.text).join('')}`.trim() : '';
-  const sentenceEnd = firstParagraphText.search(/[.!?](?=\s|$)/);
-  const preview = sentenceEnd < 0 ? firstParagraphText : firstParagraphText.slice(0, sentenceEnd + 1);
-  header.append(el('span', 'pr-comment-preview', preview || 'Open comment'));
+  header.append(el('span', 'pr-comment-preview', reviewCommentPreview(parsed.paragraphs)));
   content.append(header);
   const paragraphs = el('div', 'pr-comment-paragraphs');
   for (const paragraph of parsed.paragraphs) paragraphs.append(createCommentParagraph(paragraph));

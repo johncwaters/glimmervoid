@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, emptyStateText, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
-  parseReviewComment, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText, reviewProgressSteps,
+  parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText, reviewProgressSteps,
   commentSeverity, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictRecommendation, verdictSealKind, verdictSealText, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailMetaText, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
 import { InFlightReview, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
@@ -417,17 +417,81 @@ test('comment parsing removes the posted note and heading while keeping paragrap
   assert.equal(parsed.tag, 'code/logic');
   assert.equal(parsed.severity, 'HIGH');
   assert.deepEqual(parsed.paragraphs, [
-    { lead: '', leadKind: null, segments: [{ text: 'First ', isCode: false }, { text: 'value', isCode: true }, { text: ' stays.', isCode: false }] },
-    { lead: 'Suggested fix:', leadKind: 'fix', segments: [{ text: 'update ', isCode: false }, { text: 'count', isCode: true }, { text: ' here.', isCode: false }] },
-    { lead: 'Open question.', leadKind: 'question', segments: [{ text: 'Does ', isCode: false }, { text: 'mode', isCode: true }, { text: ' matter?', isCode: false }] },
+    { kind: 'prose', lead: '', leadKind: null, segments: [{ text: 'First ', kind: 'text' }, { text: 'value', kind: 'code' }, { text: ' stays.', kind: 'text' }] },
+    { kind: 'prose', lead: 'Suggested fix:', leadKind: 'fix', segments: [{ text: 'update ', kind: 'text' }, { text: 'count', kind: 'code' }, { text: ' here.', kind: 'text' }] },
+    { kind: 'prose', lead: 'Open question.', leadKind: 'question', segments: [{ text: 'Does ', kind: 'text' }, { text: 'mode', kind: 'code' }, { text: ' matter?', kind: 'text' }] },
   ]);
 });
 
 test('comment parsing accepts fix and open question variants and plain comments', () => {
-  assert.deepEqual(parseReviewComment('Fix: Use a guard.').paragraphs[0], { lead: 'Fix:', leadKind: 'fix', segments: [{ text: 'Use a guard.', isCode: false }] });
-  assert.deepEqual(parseReviewComment('Open question, should this retry?').paragraphs[0], { lead: 'Open question,', leadKind: 'question', segments: [{ text: 'should this retry?', isCode: false }] });
-  assert.deepEqual(parseReviewComment('Open question: is this intended?').paragraphs[0], { lead: 'Open question:', leadKind: 'question', segments: [{ text: 'is this intended?', isCode: false }] });
+  assert.deepEqual(parseReviewComment('Fix: Use a guard.').paragraphs[0], { kind: 'prose', lead: 'Fix:', leadKind: 'fix', segments: [{ text: 'Use a guard.', kind: 'text' }] });
+  assert.deepEqual(parseReviewComment('Open question, should this retry?').paragraphs[0], { kind: 'prose', lead: 'Open question,', leadKind: 'question', segments: [{ text: 'should this retry?', kind: 'text' }] });
+  assert.deepEqual(parseReviewComment('Open question: is this intended?').paragraphs[0], { kind: 'prose', lead: 'Open question:', leadKind: 'question', segments: [{ text: 'is this intended?', kind: 'text' }] });
   assert.equal(parseReviewComment('Plain comment').severity, null);
+});
+
+test('inline segments distinguish prose, code and file citations', () => {
+  assert.deepEqual(parseInlineSegments('plain text'), [{ text: 'plain text', kind: 'text' }]);
+  assert.deepEqual(parseInlineSegments('`foo()`'), [{ text: 'foo()', kind: 'code' }]);
+  assert.deepEqual(parseInlineSegments('`a.ts:1`'), [{ text: 'a.ts:1', kind: 'citation' }]);
+  assert.deepEqual(parseInlineSegments('See `src/x/y.tsx:10-14` and `count`.'), [
+    { text: 'See ', kind: 'text' },
+    { text: 'src/x/y.tsx:10-14', kind: 'citation' },
+    { text: ' and ', kind: 'text' },
+    { text: 'count', kind: 'code' },
+    { text: '.', kind: 'text' },
+  ]);
+});
+
+test('only file paths followed by line numbers become citations', () => {
+  for (const citation of ['a.ts:1', 'src/x/y.tsx:10-14', '.github/workflows/ci.yml:12', 'package.json:26', 'SRC/App.TSX:4']) {
+    assert.equal(parseInlineSegments(`\`${citation}\``)[0]?.kind, 'citation', citation);
+  }
+  const nonCitations = [
+    'foo()', 'a:b', 'http://x:80', 'key: value', '0.1.3', 'Makefile:3', 'docs/Makefile:3', 'localhost:8080', '0.0.0.0:3000',
+    'postgres:16', 'node:22', 'example.com:443', 'api.github.com:443', 'redis.local:6379', 'bitnami/redis:7', 'ghcr.io/org/app:1',
+  ];
+  for (const code of nonCitations) {
+    assert.equal(parseInlineSegments(`\`${code}\``)[0]?.kind, 'code', code);
+  }
+});
+
+test('fenced code stays together across blank lines and preserves prose around it', () => {
+  assert.deepEqual(parseReviewComment('Before.\n\n```ts\nconst first = 1;\n\nconst second = 2;\n```\n\nAfter.').paragraphs, [
+    { kind: 'prose', lead: '', leadKind: null, segments: [{ text: 'Before.', kind: 'text' }] },
+    { kind: 'code', language: 'ts', code: 'const first = 1;\n\nconst second = 2;' },
+    { kind: 'prose', lead: '', leadKind: null, segments: [{ text: 'After.', kind: 'text' }] },
+  ]);
+  assert.deepEqual(parseReviewComment('```\nconst value = 1;\n```').paragraphs, [
+    { kind: 'code', language: null, code: 'const value = 1;' },
+  ]);
+});
+
+test('fences with any info string open a code block and name the first word as language', () => {
+  assert.deepEqual(parseReviewComment('```c++\nint x;\n```\n\nThis prose.\n\n```ts\nconst y=1;\n```').paragraphs, [
+    { kind: 'code', language: 'c++', code: 'int x;' },
+    { kind: 'prose', lead: '', leadKind: null, segments: [{ text: 'This prose.', kind: 'text' }] },
+    { kind: 'code', language: 'ts', code: 'const y=1;' },
+  ]);
+  assert.deepEqual(parseReviewComment('```ts title="x"\nconst value = 1;\n```').paragraphs, [
+    { kind: 'code', language: 'ts', code: 'const value = 1;' },
+  ]);
+});
+
+test('an unclosed fence remains prose without dropping its lines', () => {
+  const paragraphs = parseReviewComment('Before.\n\n```ts\nconst value = 1;\n\nAfter.').paragraphs;
+  assert.deepEqual(paragraphs, [
+    { kind: 'prose', lead: '', leadKind: null, segments: [{ text: 'Before.', kind: 'text' }] },
+    { kind: 'prose', lead: '', leadKind: null, segments: [{ text: '```ts\nconst value = 1;', kind: 'text' }] },
+    { kind: 'prose', lead: '', leadKind: null, segments: [{ text: 'After.', kind: 'text' }] },
+  ]);
+});
+
+test('comment preview uses the first prose paragraph after code', () => {
+  const paragraphs = parseReviewComment('```ts\ncall();\n```\n\nSuggested fix: Use a guard. More detail.').paragraphs;
+  assert.equal(reviewCommentPreview(paragraphs), 'Suggested fix: Use a guard.');
+  assert.equal(reviewCommentPreview(parseReviewComment('```\ncall();\n```').paragraphs), 'Open comment');
+  assert.equal(reviewCommentPreview([]), 'Open comment');
 });
 
 test('footer names the reviewed head and current included comment count', () => {

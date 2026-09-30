@@ -56,11 +56,21 @@ export interface TeamReviewSections {
   discarded: ReviewDraft[];
 }
 
-export interface ReviewParagraph {
+export interface ReviewInlineSegment {
+  text: string;
+  kind: 'text' | 'code' | 'citation';
+}
+
+export type ReviewParagraph = {
+  kind: 'prose';
   lead: string;
   leadKind: 'fix' | 'question' | null;
-  segments: { text: string; isCode: boolean }[];
-}
+  segments: ReviewInlineSegment[];
+} | {
+  kind: 'code';
+  language: string | null;
+  code: string;
+};
 
 export interface ParsedReviewComment {
   tag: string | null;
@@ -233,30 +243,71 @@ export function severityCounts(draft: Pick<ReviewDraft, 'body' | 'comments'>): {
   });
 }
 
-export function parseInlineSegments(value: string): ReviewParagraph['segments'] {
-  const segments: ReviewParagraph['segments'] = [];
+const CITABLE_FILE_EXTENSIONS: ReadonlySet<string> = new Set([
+  'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json', 'jsonc', 'css', 'scss', 'less', 'html', 'md', 'mdx',
+  'py', 'go', 'rs', 'rb', 'java', 'kt', 'kts', 'swift', 'c', 'h', 'cc', 'cpp', 'hpp', 'cs', 'php',
+  'sh', 'bash', 'zsh', 'yml', 'yaml', 'toml', 'ini', 'sql', 'vue', 'svelte', 'astro', 'lock', 'txt',
+  'ex', 'exs', 'erl', 'scala', 'dart', 'lua', 'tf', 'proto', 'graphql', 'gql', 'xml', 'gradle',
+]);
+const PATH_WITH_LINE_RANGE = /^([\w.@~/-]+):\d+(?:-\d+)?$/;
+
+function isCodeCitation(text: string): boolean {
+  const path = PATH_WITH_LINE_RANGE.exec(text)?.[1];
+  if (path === undefined) return false;
+  const fileName = path.slice(path.lastIndexOf('/') + 1);
+  const extensionStart = fileName.lastIndexOf('.');
+  if (extensionStart < 0) return false;
+  return CITABLE_FILE_EXTENSIONS.has(fileName.slice(extensionStart + 1).toLowerCase());
+}
+const FENCED_CODE_BLOCK = /^```([^\n`]*)\n([\s\S]*?)^```[ \t]*(?=\r?$)/gm;
+
+export function parseInlineSegments(value: string): ReviewInlineSegment[] {
+  const segments: ReviewInlineSegment[] = [];
   let offset = 0;
   for (const match of value.matchAll(/`([^`\n]+)`/g)) {
     const matchOffset = match.index ?? 0;
-    if (matchOffset > offset) segments.push({ text: value.slice(offset, matchOffset), isCode: false });
-    segments.push({ text: match[1] ?? '', isCode: true });
+    if (matchOffset > offset) segments.push({ text: value.slice(offset, matchOffset), kind: 'text' });
+    const text = match[1] ?? '';
+    segments.push({ text, kind: isCodeCitation(text) ? 'citation' : 'code' });
     offset = matchOffset + match[0].length;
   }
-  if (offset < value.length) segments.push({ text: value.slice(offset), isCode: false });
+  if (offset < value.length) segments.push({ text: value.slice(offset), kind: 'text' });
   return segments;
+}
+
+function parseProseParagraphs(content: string): ReviewParagraph[] {
+  return content.split(/\r?\n\s*\r?\n/).filter(Boolean).map((paragraph): ReviewParagraph => {
+    const leadMatch = paragraph.match(/^(Suggested fix:|Fix:|Open question[.,:])\s*/);
+    const lead = leadMatch?.[1] ?? '';
+    const leadKind = lead.startsWith('Open question') ? 'question' : lead ? 'fix' : null;
+    return { kind: 'prose', lead, leadKind, segments: parseInlineSegments(paragraph.slice(leadMatch?.[0].length ?? 0)) };
+  });
 }
 
 export function parseReviewComment(body: string): ParsedReviewComment {
   const withoutNote = withoutAutomatedNote(body);
   const header = parseLeadingFindingHeader(withoutNote);
   const content = header ? withoutNote.slice(header.length).trim() : withoutNote;
-  const paragraphs = content.split(/\r?\n\s*\r?\n/).filter(Boolean).map((paragraph): ReviewParagraph => {
-    const leadMatch = paragraph.match(/^(Suggested fix:|Fix:|Open question[.,:])\s*/);
-    const lead = leadMatch?.[1] ?? '';
-    const leadKind = lead.startsWith('Open question') ? 'question' : lead ? 'fix' : null;
-    return { lead, leadKind, segments: parseInlineSegments(paragraph.slice(leadMatch?.[0].length ?? 0)) };
-  });
+  const paragraphs: ReviewParagraph[] = [];
+  let offset = 0;
+  for (const match of content.matchAll(FENCED_CODE_BLOCK)) {
+    const matchOffset = match.index ?? 0;
+    paragraphs.push(...parseProseParagraphs(content.slice(offset, matchOffset).trim()));
+    const fenceLanguage = (match[1] ?? '').trim().split(/\s+/)[0] || null;
+    paragraphs.push({ kind: 'code', language: fenceLanguage, code: (match[2] ?? '').replace(/\r?\n$/, '') });
+    offset = matchOffset + match[0].length;
+  }
+  paragraphs.push(...parseProseParagraphs(content.slice(offset).trim()));
   return { tag: header?.reviewer ?? null, severity: header?.severity ?? null, paragraphs };
+}
+
+export function reviewCommentPreview(paragraphs: readonly ReviewParagraph[]): string {
+  const firstProseParagraph = paragraphs.find((paragraph) => paragraph.kind === 'prose');
+  if (!firstProseParagraph) return 'Open comment';
+  const firstParagraphText = `${firstProseParagraph.lead} ${firstProseParagraph.segments.map((segment) => segment.text).join('')}`.trim();
+  const sentenceEnd = firstParagraphText.search(/[.!?](?=\s|$)/);
+  const preview = sentenceEnd < 0 ? firstParagraphText : firstParagraphText.slice(0, sentenceEnd + 1);
+  return preview || 'Open comment';
 }
 
 export function reviewFooterText(reviewedHead: string, includedComments: number): string {

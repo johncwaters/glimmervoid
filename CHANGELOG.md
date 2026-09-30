@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Team review comments are easier to read**: file and line citations now appear as quiet text, while fenced code shows in a scrollable block with its line breaks intact.
 - **Team review rows show more at once**: each queue row now uses two lines, with one live age beside the pull request title and a compact status, author, severity counts and reviewer avatars below. Hovering a row shows its other ages, GitHub review details and attention reason.
 - **Team review drafts are easier to scan**: the detail now opens with a compact verdict and severity summary, followed by expandable inline comments. Review body, your note, and coverage stay available in collapsed sections. Severity also appears on comments written by the review agent even when their text has no severity heading.
 - **My PRs shows each unresolved thread**: selecting a pull request with unresolved review threads lists every one under Unresolved threads, with its file and line (linked to the comment on GitHub), who opened it, the start of the comment, how many replies it has, who replied last and when. Each thread says Waiting on you when someone else spoke last, or Waiting on reviewer when you did, and threads waiting on you come first. The Threads row under Merge readiness now reads, for example, "3 unresolved, 2 waiting on you".

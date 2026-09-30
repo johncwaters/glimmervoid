@@ -2777,7 +2777,10 @@ a.pr-link:hover { color: var(--text-head); text-decoration: underline; }
 .pr-comment-finding strong { font-weight: 700; }
 .pr-comment-location { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-head); }
 .pr-comment-paragraph { color: var(--text); font-size: 13px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
-.pr-comment-paragraph code, .pr-verdict-box code { padding: 1px 5px; border-radius: var(--radius); background: var(--bg-surface); color: var(--text-head); font-size: 12px; }
+.pr-comment-paragraph code, .pr-verdict-box code, .pr-coverage code { padding: 1px 5px; border-radius: var(--radius); background: var(--bg-surface); color: var(--text-head); font-size: 12px; }
+.pr-citation { color: var(--text-dim); font-size: 11px; overflow-wrap: anywhere; }
+.pr-comment-code { min-width: 0; max-width: 100%; max-height: 24em; margin: 0; padding: 10px 12px; overflow: auto; border-radius: var(--radius); background: var(--bg-surface); color: var(--text); font: 12px/1.5 var(--font-mono); }
+.pr-comment-code code { font: inherit; }
 .pr-comment-lead { color: var(--accent); }
 .pr-comment-lead-question { display: inline-flex; align-items: center; gap: 5px; color: var(--state-done); }
 
