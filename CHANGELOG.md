@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Light themes no longer show a black Focus area**: with Compleated or PostHog (Light) selected and no session focused, the middle of the Focus view was black with dark text you could barely read. The page background now follows the theme.
 - **Terminal text no longer goes missing after the browser sleeps**: on a phone, returning to Chrome after it sat in the background for a while could leave the terminal showing only scattered letters until new output redrew each row. The dashboard now rebuilds every terminal's cached glyphs when the page becomes visible again, so the full screen comes back at once.
 
 ### Changed
