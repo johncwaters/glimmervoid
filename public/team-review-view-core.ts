@@ -1,6 +1,6 @@
 import { DECIDING_REVIEW_STATES, FindingSeverity } from '#shared/contracts/team-review.ts';
 import type {
-  GithubReview, GithubReviewState, InFlightReview, QueuedReview, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus,
+  DraftComment, GithubReview, GithubReviewState, InFlightReview, QueuedReview, ReviewAssessment, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus,
 } from '#shared/contracts/team-review.ts';
 import { findingSeveritiesIn, parseLeadingFindingHeader, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import { attentionSignature } from './attention-ack-core.ts';
@@ -190,10 +190,22 @@ export function verdictSealKind(verdict: ReviewDraft['verdict']): 'check' | 'dot
   return VERDICT_SEALS[verdict];
 }
 
+function commentSeverities(comment: Pick<DraftComment, 'body' | 'severity'>): FindingSeverity[] {
+  const headerSeverities = findingSeveritiesIn(comment.body);
+  if (headerSeverities.length > 0) return headerSeverities;
+  return comment.severity ? [comment.severity] : [];
+}
+
+export function commentSeverity(comment: Pick<DraftComment, 'body' | 'severity'>): FindingSeverity | null {
+  const severities = commentSeverities(comment);
+  return FindingSeverity.options.find((severity) => severities.includes(severity)) ?? null;
+}
+
 export function severityCounts(draft: Pick<ReviewDraft, 'body' | 'comments'>): { severity: FindingSeverity; count: number }[] {
   const counts = new Map<FindingSeverity, number>();
-  for (const body of [draft.body, ...draft.comments.map((comment) => comment.body)]) {
-    for (const severity of findingSeveritiesIn(body)) counts.set(severity, (counts.get(severity) ?? 0) + 1);
+  for (const severity of findingSeveritiesIn(draft.body)) counts.set(severity, (counts.get(severity) ?? 0) + 1);
+  for (const comment of draft.comments) {
+    for (const severity of commentSeverities(comment)) counts.set(severity, (counts.get(severity) ?? 0) + 1);
   }
   return FindingSeverity.options.flatMap((severity) => {
     const count = counts.get(severity) ?? 0;
@@ -246,10 +258,28 @@ export function tierLabel(tier: ReviewDraft['tier']): string {
   return tier === 'full' ? 'full' : 'light';
 }
 
-export function reviewScopeText(review: Pick<ReviewDraft, 'tier' | 'reasons' | 'priorReviewedHead'>): string {
-  const kind = review.priorReviewedHead ? `${tierLabel(review.tier)} re-review of changes since ${review.priorReviewedHead.slice(0, 7)}` : `${tierLabel(review.tier)} review`;
-  const reasons = review.reasons.join(', ');
-  return reasons ? `${kind}: ${reasons}` : kind;
+export function detailMetaText(review: Pick<ReviewDraft, 'tier' | 'priorReviewedHead'>): string {
+  if (review.priorReviewedHead) return `${tierLabel(review.tier)} re-review since ${review.priorReviewedHead.slice(0, 7)}`;
+  return `${tierLabel(review.tier)} review`;
+}
+
+export function reviewScopeTitle(review: Pick<ReviewDraft, 'reasons'>): string {
+  return review.reasons.join(', ');
+}
+
+export function coverageSummaryText(assessment: ReviewAssessment | null | undefined): string {
+  if (!assessment) return 'No coverage notes';
+  const checks = assessment.checked.length;
+  const gaps = assessment.gaps.length;
+  const parts: string[] = [];
+  if (checks > 0) parts.push(`${checks} ${checks === 1 ? 'check' : 'checks'}`);
+  if (gaps > 0) parts.push(`${gaps} not covered`);
+  return parts.join(', ') || 'No coverage notes';
+}
+
+export function coverageDisclosureHeading(assessment: ReviewAssessment | null | undefined): { label: string; preview: string } {
+  if (!assessment) return { label: 'Review audit', preview: '' };
+  return { label: 'Coverage', preview: coverageSummaryText(assessment) };
 }
 
 export function verdictRecommendation(verdict: ReviewDraft['verdict']): string {
@@ -318,7 +348,7 @@ export function withReviewerNote(reviewerNote: string, reviewBody: string): stri
 }
 
 export function buildActionRequest(draft: ReviewDraft, action: TeamReviewAction, body: string, comments: readonly ReviewComment[]): TeamReviewActionRequest {
-  return { key: draft.key, head: draft.reviewedHead, action, body, comments: [...comments] };
+  return { key: draft.key, head: draft.reviewedHead, action, body, comments: comments.map(({ path, line, side, body: commentBody }) => ({ path, line, side, body: commentBody })) };
 }
 
 export function actionProgressText(action: TeamReviewAction): string {

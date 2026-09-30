@@ -62,6 +62,9 @@ const storedVerdict = z.preprocess(
 export const FindingSeverity = z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
 export type FindingSeverity = z.infer<typeof FindingSeverity>;
 
+export const DraftComment = ReviewComment.extend({ severity: FindingSeverity.optional() });
+export type DraftComment = z.infer<typeof DraftComment>;
+
 export const ReviewFinding = z.object({
   path: z.string().min(1),
   line: z.number().int().positive().nullable(),
@@ -144,7 +147,7 @@ export const ReviewDraft = z.object({
   summary: z.string(),
   assessment: ReviewAssessment.optional(),
   body: z.string(),
-  comments: z.array(ReviewComment),
+  comments: z.array(DraftComment),
   status: z.enum(['ready', 'stale', 'posted', 'discarded', 'error']),
   error: z.string().optional(),
   githubReviews: z.array(GithubReview).optional(),

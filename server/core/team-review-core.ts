@@ -1,7 +1,7 @@
 import { DECIDING_REVIEW_STATES, FindingSeverity, GithubReviewState, PostingPlan, ReviewFinding, ReviewResult, ReviewVerdict } from '../../shared/contracts/team-review.ts';
-import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, withoutAutomatedNote } from '../../shared/team-review-markdown.ts';
+import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, findingSeveritiesIn, withoutAutomatedNote } from '../../shared/team-review-markdown.ts';
 import type {
-  GithubReview, InFlightReview, PostingPlan as PostingPlanType, PrDetail, PriorReview, QueuedReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
+  DraftComment, FindingSeverity as FindingSeverityType, GithubReview, InFlightReview, PostingPlan as PostingPlanType, PrDetail, PriorReview, QueuedReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
   ReviewAssessment, ReviewResult as ReviewResultType, SearchedPr, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../../shared/contracts/team-review.ts';
 
@@ -602,10 +602,23 @@ function readyDraft(
   },
 ): ReviewDraft {
   const rendered = posting ? renderPostingPlan(posting, commentable) : renderReview(result, commentable);
+  const severityByLocation = new Map<string, FindingSeverityType>();
+  for (const finding of result.findings) {
+    if (finding.line === null) continue;
+    const location = `${finding.path}:${finding.line}:${finding.side}`;
+    const previousSeverity = severityByLocation.get(location);
+    if (previousSeverity && FindingSeverity.options.indexOf(previousSeverity) <= FindingSeverity.options.indexOf(finding.severity)) continue;
+    severityByLocation.set(location, finding.severity);
+  }
+  const comments: DraftComment[] = rendered.comments.map((comment) => {
+    if (findingSeveritiesIn(comment.body).length > 0) return comment;
+    const severity = severityByLocation.get(`${comment.path}:${comment.line}:${comment.side}`);
+    return severity ? { ...comment, severity } : comment;
+  });
   return {
     ...draftBase(candidate, tier, reasons, result.head),
     verdict: result.verdict, summary: result.summary, ...(result.assessment ? { assessment: result.assessment } : {}),
-    body: rendered.body, comments: rendered.comments, status: 'ready',
+    body: rendered.body, comments, status: 'ready',
   };
 }
 

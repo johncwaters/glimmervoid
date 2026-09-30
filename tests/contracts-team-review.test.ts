@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { PrDetail, ReviewComment, ReviewDraft, ReviewResult, SearchedPr, TeamReviewStateEntry, TeamReviewStatus } from '../shared/contracts/team-review.ts';
+import { DraftComment, PrDetail, ReviewComment, ReviewDraft, ReviewResult, SearchedPr, TeamReviewActionRequest, TeamReviewStateEntry, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 
 const HEAD = 'a'.repeat(40);
 
@@ -67,6 +67,15 @@ test('review comments default to the new side and require a positive line', () =
   assert.equal(ReviewComment.safeParse({ path: 'src/agent/index.ts', line: 4, side: 'CENTER', body: 'Check this' }).success, false);
 });
 
+test('draft comments accept optional severity while action comments omit it', () => {
+  const comment = { path: 'src/a.ts', line: 4, side: 'RIGHT', body: 'Check this' };
+  assert.deepEqual(DraftComment.parse(comment), comment);
+  assert.deepEqual(DraftComment.parse({ ...comment, severity: 'HIGH' }), { ...comment, severity: 'HIGH' });
+  assert.equal(DraftComment.safeParse({ ...comment, severity: 'UNKNOWN' }).success, false);
+  const action = TeamReviewActionRequest.parse({ key: 'Acme/app#1', head: HEAD, action: 'comment', body: '', comments: [{ ...comment, severity: 'HIGH' }] });
+  assert.deepEqual(action.comments, [comment]);
+});
+
 test('review result accepts code-review verdicts, typed findings and an exact lowercase commit SHA', () => {
   const finding = { path: 'src/a.ts', line: 4, side: 'RIGHT', severity: 'HIGH', reviewer: 'code/logic', disposition: 'ACTIONABLE', body: 'Off by one' };
   const result = { verdict: 'APPROVE WITH NITS', head: HEAD, summary: 'Spot checked', assessment: null, findings: [finding, { ...finding, line: null, disposition: null }] };
@@ -91,6 +100,9 @@ test('editable review draft requires a repository, tier, status, and reviewed he
     status: 'ready',
   };
   assert.deepEqual(ReviewDraft.parse(draft), draft);
+  assert.deepEqual(ReviewDraft.parse({ ...draft, comments: [{ ...draft.comments[0], severity: 'CRITICAL' }] }).comments, [{ ...draft.comments[0], severity: 'CRITICAL' }]);
+  const storedEntry = { draft, reviewedHead: HEAD, inFlight: false, skipReason: null, reviewAttempts: 0, updatedAt: 1000 };
+  assert.deepEqual(TeamReviewStateEntry.parse(storedEntry).draft?.comments, draft.comments);
   for (const invalid of [
     { ...draft, repo: 'wizard' },
     { ...draft, tier: 'skip' },

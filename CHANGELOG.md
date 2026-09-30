@@ -12,18 +12,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Team review avatars**: the Reviews tab's Team scope now shows pull request authors, GitHub reviewers and the team profile with avatars, review-state dots and hover details.
 - **PostHog light and dark themes**: Settings > Theme now offers PostHog (Light) and PostHog (Dark), built from the palette and surface tokens on posthog.com: the warm off-white and tan surfaces with a burnt-orange accent in light, and the charcoal surfaces with the PostHog orange accent in dark. Session states and terminal colors use the same brand palette.
 
-### Fixed
-
-- **Light themes no longer show a black Focus area**: with Compleated or PostHog (Light) selected and no session focused, the middle of the Focus view was black with dark text you could barely read. The page background now follows the theme.
-- **Terminal text no longer goes missing after the browser sleeps**: on a phone, returning to Chrome after it sat in the background for a while could leave the terminal showing only scattered letters until new output redrew each row. The dashboard now rebuilds every terminal's cached glyphs when the page becomes visible again, so the full screen comes back at once.
-
 ### Changed
 
+- **Team review drafts are easier to scan**: the detail now opens with a compact verdict and severity summary, followed by expandable inline comments. Review body, your note, and coverage stay available in collapsed sections. Severity also appears on comments written by the review agent even when their text has no severity heading.
 - **My PRs shows each unresolved thread**: selecting a pull request with unresolved review threads lists every one under Unresolved threads, with its file and line (linked to the comment on GitHub), who opened it, the start of the comment, how many replies it has, who replied last and when. Each thread says Waiting on you when someone else spoke last, or Waiting on reviewer when you did, and threads waiting on you come first. The Threads row under Merge readiness now reads, for example, "3 unresolved, 2 waiting on you".
 - **Reviews show how old each pull request and review is**: on the Mine tab, each pull request row says when it was opened, and the detail pane adds a Reviews list naming each reviewer's latest review (approved, requested changes or commented) and how long ago they submitted it, plus an Opened time beside Updated. On the Team tab, rows and the detail pane show when the pull request was opened, when the automated review finished and when it was posted, and each GitHub review listed there carries its age. Reviews finished before this update pick up their pull request's opened time on the next poll.
 - **Team re-reviews pick up where the last review stopped**: when a pull request Glimmervoid already reviewed gets new commits, whether you queue it again or the poller picks it up on its own, the reviewer now gets the earlier review's verdict and comments and the range of commits pushed since. It looks hardest at the new commits, says for each earlier finding whether it is resolved or still open, and does not repeat resolved ones. When the earlier review was posted, the new review body opens as a follow-up. After a force-push the reviewer covers the whole pull request instead. The Team tab labels these as a re-review of changes since the earlier head.
 - **See which team reviews are waiting**: the Team tab has a Queued section listing pull requests picked for review that are waiting for one of the two review slots, just below In review, which now sits right after Ready. When a review finishes, the next queued pull request starts right away instead of waiting up to 15 minutes for the next poll.
 - **Team reviews post a bare review body**: the body posted to GitHub no longer carries a summary, verdict line, recap of the change or "See inline comments". It holds only the automated-review note, your own note if you add one, and findings that cannot be placed on a changed line, one short bullet each. The plain summary still shows in the dashboard for you.
+
+### Fixed
+
+- **Light themes no longer show a black Focus area**: with Compleated or PostHog (Light) selected and no session focused, the middle of the Focus view was black with dark text you could barely read. The page background now follows the theme.
+- **Terminal text no longer goes missing after the browser sleeps**: on a phone, returning to Chrome after it sat in the background for a while could leave the terminal showing only scattered letters until new output redrew each row. The dashboard now rebuilds every terminal's cached glyphs when the page becomes visible again, so the full screen comes back at once.
 
 ## [0.28.2] - 2026-09-29
 

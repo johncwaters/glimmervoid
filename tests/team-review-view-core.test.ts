@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, emptyStateText, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText, reviewProgressSteps,
-  severityCounts, severityPresentation, tierLabel, verdictLabel, verdictRecommendation, verdictSealKind, verdictSealText, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, reviewScopeText, queuedDetailText,
+  commentSeverity, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictRecommendation, verdictSealKind, verdictSealText, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailMetaText, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
 import { InFlightReview, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type {
@@ -241,14 +241,14 @@ test('the detail heading is refreshed when its ages or GitHub reviews change', (
 
 test('the action request pins the reviewed head and carries only the remaining comments', () => {
   const comments = [
-    { path: 'src/a.ts', line: 3, side: 'RIGHT' as const, body: 'first' },
-    { path: 'src/a.ts', line: 9, side: 'LEFT' as const, body: 'second' },
+    { path: 'src/a.ts', line: 3, side: 'RIGHT' as const, body: 'first', severity: 'HIGH' as const },
+    { path: 'src/a.ts', line: 9, side: 'LEFT' as const, body: 'second', severity: 'LOW' as const },
   ];
   const remaining = withoutComment(comments, 0);
   assert.deepEqual(remaining, [comments[1]]);
   assert.equal(comments.length, 2);
   assert.deepEqual(buildActionRequest(draft(1, { comments }), 'approve', 'edited body', remaining), {
-    key: 'Acme/app#1', head: HEAD, action: 'approve', body: 'edited body', comments: [comments[1]],
+    key: 'Acme/app#1', head: HEAD, action: 'approve', body: 'edited body', comments: [{ path: 'src/a.ts', line: 9, side: 'LEFT', body: 'second' }],
   });
   assert.equal(commentLocation(comments[0]), 'src/a.ts:3');
   assert.equal(commentLocation(comments[1]), 'src/a.ts:9 (old)');
@@ -356,6 +356,34 @@ test('severity totals include folded body findings and every inline comment head
   assert.deepEqual(severityCounts(draft(2)), []);
 });
 
+test('severity totals count finding headers when present and fall back to structured comment severity', () => {
+  const review = draft(1, {
+    body: '**[body] LOW**\n\nBody finding.',
+    comments: [
+      { path: 'src/a.ts', line: 4, side: 'RIGHT', severity: 'CRITICAL', body: '**[old] HIGH**\n\nHeader wins.' },
+      { path: 'src/a.ts', line: 5, side: 'RIGHT', body: '**[legacy] MEDIUM**\n\nLegacy finding.' },
+      { path: 'src/a.ts', line: 6, side: 'RIGHT', severity: 'CRITICAL', body: 'Bare posting plan comment.' },
+    ],
+  });
+  assert.deepEqual(severityCounts(review), [
+    { severity: 'CRITICAL', count: 1 }, { severity: 'HIGH', count: 1 }, { severity: 'MEDIUM', count: 1 }, { severity: 'LOW', count: 1 },
+  ]);
+});
+
+test('severity totals count every finding header in a merged comment even when it carries a structured severity', () => {
+  const review = draft(1, {
+    body: '',
+    comments: [{ path: 'src/a.ts', line: 4, side: 'RIGHT', severity: 'HIGH', body: '**[logic] HIGH**\n\nFirst.\n\n**[security] MEDIUM**\n\nSecond.' }],
+  });
+  assert.deepEqual(severityCounts(review), [{ severity: 'HIGH', count: 1 }, { severity: 'MEDIUM', count: 1 }]);
+});
+
+test('comment severity takes the highest finding header and falls back to structured severity', () => {
+  assert.equal(commentSeverity({ severity: 'LOW', body: '**[logic] MEDIUM**\n\nFirst.\n\n**[security] HIGH**\n\nSecond.' }), 'HIGH');
+  assert.equal(commentSeverity({ severity: 'CRITICAL', body: 'Bare comment.' }), 'CRITICAL');
+  assert.equal(commentSeverity({ body: 'Bare comment.' }), null);
+});
+
 test('comment parsing removes the posted note and heading while keeping paragraphs and inline code', () => {
   const parsed = parseReviewComment('> [!NOTE]\n> Automated review. Not written by a human.\n\n**[code/logic] HIGH**\n\nFirst `value` stays.\n\nSuggested fix: update `count` here.\n\nOpen question. Does `mode` matter?');
   assert.equal(parsed.tag, 'code/logic');
@@ -391,9 +419,31 @@ test('progress tracker advances one active stage and leaves Draft ready pending'
   ]);
 });
 
-test('the review scope names a re-review and the head it picks up from', () => {
-  assert.equal(reviewScopeText({ tier: 'full', reasons: ['touches auth'] }), 'full review: touches auth');
-  assert.equal(reviewScopeText({ tier: 'stamp', reasons: [], priorReviewedHead: 'abcdef0123456789abcdef0123456789abcdef01' }), 'light re-review of changes since abcdef0');
+test('detail metadata names the scope and keeps raw reasons in the title', () => {
+  assert.equal(detailMetaText({ tier: 'full' }), 'full review');
+  assert.equal(detailMetaText({ tier: 'stamp' }), 'light review');
+  assert.equal(detailMetaText({ tier: 'full', priorReviewedHead: 'abcdef0123456789abcdef0123456789abcdef01' }), 'full re-review since abcdef0');
+  assert.equal(reviewScopeTitle({ reasons: ['touches auth', 'many files'] }), 'touches auth, many files');
+  assert.equal(reviewScopeTitle({ reasons: [] }), '');
+});
+
+test('coverage summaries omit empty counts and use singular checks', () => {
+  assert.equal(coverageSummaryText({ change: 'Updated flow', checked: Array(6).fill('check'), gaps: Array(3).fill('gap') }), '6 checks, 3 not covered');
+  assert.equal(coverageSummaryText({ change: '', checked: ['check'], gaps: [] }), '1 check');
+  assert.equal(coverageSummaryText({ change: '', checked: [], gaps: ['gap'] }), '1 not covered');
+  assert.equal(coverageSummaryText({ change: '', checked: [], gaps: [] }), 'No coverage notes');
+  assert.equal(coverageSummaryText(undefined), 'No coverage notes');
+});
+
+test('a legacy draft without an assessment labels its disclosure as the review audit with no preview', () => {
+  assert.deepEqual(coverageDisclosureHeading(undefined), { label: 'Review audit', preview: '' });
+  assert.deepEqual(coverageDisclosureHeading(null), { label: 'Review audit', preview: '' });
+  assert.match(LEGACY_SUMMARY_HINT, /audit log/);
+});
+
+test('a draft with an assessment labels its disclosure as coverage with the count preview', () => {
+  assert.deepEqual(coverageDisclosureHeading({ change: '', checked: ['check'], gaps: ['gap'] }), { label: 'Coverage', preview: '1 check, 1 not covered' });
+  assert.deepEqual(coverageDisclosureHeading({ change: '', checked: [], gaps: [] }), { label: 'Coverage', preview: 'No coverage notes' });
 });
 
 test('a queued pull request gets its own section and hides its older draft', () => {

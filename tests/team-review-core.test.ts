@@ -45,8 +45,8 @@ import {
   triagePr,
 } from '../server/core/team-review-core.ts';
 import { parseReviewComment, severityCounts } from '../public/team-review-view-core.ts';
-import { FindingSeverity, InFlightReview, PrDetail, ReviewDraft, SearchedPr, TeamReviewState } from '../shared/contracts/team-review.ts';
-import { findingHeader } from '../shared/team-review-markdown.ts';
+import { FindingSeverity, InFlightReview, PostingPlan, PrDetail, ReviewDraft, ReviewResult, SearchedPr, TeamReviewState } from '../shared/contracts/team-review.ts';
+import { findingHeader, findingSeveritiesIn } from '../shared/team-review-markdown.ts';
 import type { PriorReview, TeamReviewStateEntry } from '../shared/contracts/team-review.ts';
 
 test('prKey formats as repoSlug#prNumber', () => {
@@ -930,6 +930,35 @@ test('a posting plan body always starts with the automated-review note, kept onc
   if (!noted.ok || !empty.ok) return;
   assert.equal(renderPostingPlan(noted.plan, null).body, `${AUTOMATED_REVIEW_NOTE}\n\nLooks good.`);
   assert.equal(renderPostingPlan(empty.plan, null).body, AUTOMATED_REVIEW_NOTE);
+});
+
+test('ready drafts attach the strongest finding severity to matching posting plan comments', () => {
+  const finding = { path: 'src/a.ts', line: 4, side: 'RIGHT', severity: 'LOW', reviewer: 'logic', disposition: 'NIT', body: 'Check this' };
+  const result = ReviewResult.parse({
+    verdict: 'REQUEST CHANGES', head: HEAD, summary: 'Review summary', assessment: null,
+    findings: [finding, { ...finding, severity: 'CRITICAL' }, { ...finding, severity: 'MEDIUM' }, { ...finding, line: null, severity: 'HIGH' }],
+  });
+  const posting = PostingPlan.parse({
+    body: 'Review body', commit_id: HEAD,
+    comments: [
+      { path: 'src/a.ts', line: 4, side: 'RIGHT', body: 'Matched' },
+      { path: 'src/a.ts', line: 4, side: 'LEFT', body: 'Other side' },
+      { path: 'src/a.ts', line: 5, side: 'RIGHT', body: 'Other line' },
+    ],
+  });
+  const draft = readyDraft({ candidate: CANDIDATE, tier: 'full', reasons: [], result, posting });
+  assert.deepEqual(draft.comments.map((comment) => comment.severity), ['CRITICAL', undefined, undefined]);
+});
+
+test('fallback comments keep their own header severity and carry no structured severity, including duplicate locations', () => {
+  const finding = { path: 'src/a.ts', line: 4, side: 'RIGHT', severity: 'LOW', reviewer: 'logic', disposition: 'NIT', body: 'Check this' };
+  const result = ReviewResult.parse({
+    verdict: 'REQUEST CHANGES', head: HEAD, summary: 'Review summary', assessment: null,
+    findings: [finding, { ...finding, severity: 'HIGH' }, { ...finding, line: 5, side: 'LEFT', severity: 'MEDIUM' }, { ...finding, line: null, severity: 'CRITICAL' }],
+  });
+  const draft = readyDraft({ candidate: CANDIDATE, tier: 'full', reasons: [], result });
+  assert.deepEqual(draft.comments.map((comment) => comment.severity), [undefined, undefined, undefined]);
+  assert.deepEqual(draft.comments.map((comment) => findingSeveritiesIn(comment.body)), [['LOW'], ['HIGH'], ['MEDIUM']]);
 });
 
 test('an inline comment that lost its automated-review note gets it back, since it posts under the operator name', () => {

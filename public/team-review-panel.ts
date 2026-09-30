@@ -1,5 +1,6 @@
 import { TeamReviewStatus } from '#shared/contracts/team-review.ts';
-import type { FindingSeverity, InFlightReview, QueuedReview, ReviewComment, ReviewDraft, TeamReviewAction, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
+import type { DraftComment, FindingSeverity, InFlightReview, QueuedReview, ReviewComment, ReviewDraft, TeamReviewAction, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
+import { withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import { createAttentionAck } from './attention-ack-core.ts';
 import { sendControlMsg } from './control-ws.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } from './dom-helpers.ts';
@@ -13,7 +14,7 @@ import {
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, emptyStateText, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, phaseLabel, pullRequestLabel, queuedDetailText, queueRowStateLabel, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText,
-  reviewProgressSteps, reviewScopeText, severityCounts, severityPresentation, verdictLabel, verdictSealKind, verdictSealText, verdictTone, withReviewerNote,
+  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityCounts, severityPresentation, verdictLabel, verdictSealKind, verdictSealText, verdictTone, withReviewerNote,
 } from './team-review-view-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
 import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
@@ -96,12 +97,6 @@ function createQuestionGlyph(): SVGSVGElement {
   icon.append(svgShape('rect', { x: '1', y: '1', width: '14', height: '14', rx: '2', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.3' }));
   icon.append(svgShape('path', { d: 'M6 6.2C6 4.9 7 4.2 8 4.2C9.1 4.2 10 5 10 6C10 7.4 8 7.4 8 9.2', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.3', 'stroke-linecap': 'round' }));
   icon.append(svgShape('circle', { cx: '8', cy: '11.6', r: '0.9', fill: 'currentColor' }));
-  return icon;
-}
-
-function createBodyGlyph(): SVGSVGElement {
-  const icon = svgIcon(14, 14);
-  icon.append(svgShape('path', { d: 'M2 3.5H12M2 7H12M2 10.5H8', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round' }));
   return icon;
 }
 
@@ -257,7 +252,9 @@ function createDetailHeading(review: ReviewDraft | InFlightReview): HTMLElement 
   title.append(pullRequestLink(review), el('h2', null, review.title));
   const metadata = el('div', 'pr-detail-meta');
   metadata.append(createAuthor(review.author, 20, 'pr-detail-author'));
-  metadata.append(el('span', null, reviewScopeText(review)));
+  const scope = el('span', null, detailMetaText(review));
+  scope.title = reviewScopeTitle(review);
+  metadata.append(scope);
   const openedAge = createAgeReadout('Opened', review.prCreatedAt);
   if (openedAge) metadata.append(openedAge);
   if ('reviewedHead' in review) {
@@ -268,8 +265,6 @@ function createDetailHeading(review: ReviewDraft | InFlightReview): HTMLElement 
   }
   const githubSummary = 'reviewedHead' in review ? createGithubReviewSummary(review, 'pr-detail-github', 20) : null;
   if (githubSummary) metadata.append(githubSummary);
-  const head = 'reviewedHead' in review ? review.reviewedHead : review.head;
-  metadata.append(el('span', null, `${'reviewedHead' in review ? 'reviewed at' : 'head'} ${head.slice(0, 7)}`));
   heading.append(title, metadata);
   return heading;
 }
@@ -307,25 +302,36 @@ function createAssessmentList(items: readonly string[]): HTMLElement {
   return list;
 }
 
-function createVerdictBox(draft: ReviewDraft, isWithCounts: boolean): HTMLElement {
+function createSummaryStrip(draft: ReviewDraft, isWithCounts: boolean): HTMLElement {
   const verdict = el('section', 'pr-verdict-box');
   verdict.setAttribute('aria-label', 'Verdict');
   const verdictLine = el('div', 'pr-verdict-line');
   verdictLine.append(createVerdictSeal(draft));
   if (isWithCounts) verdictLine.append(createSeverityCounts(draft));
   verdict.append(verdictLine);
-  const { assessment } = draft;
-  if (!assessment) {
-    const audit = el('details', 'pr-verdict-audit');
-    audit.append(el('summary', null, 'Review audit'), el('p', 'pr-verdict-summary', draft.summary));
-    verdict.append(el('p', 'pr-verdict-legacy', LEGACY_SUMMARY_HINT), audit);
+  if (!draft.assessment) {
+    verdict.append(el('p', 'pr-verdict-legacy', LEGACY_SUMMARY_HINT));
     return verdict;
   }
   verdict.append(appendInlineText(el('p', 'pr-verdict-summary pr-verdict-reason'), draft.summary));
-  if (assessment.change) verdict.append(createAssessmentPart('What the PR changes', appendInlineText(el('p', 'pr-verdict-summary'), assessment.change)));
-  if (assessment.checked.length > 0) verdict.append(createAssessmentPart('What the review checked', createAssessmentList(assessment.checked)));
-  if (assessment.gaps.length > 0) verdict.append(createAssessmentPart('Not covered', createAssessmentList(assessment.gaps), 'warning'));
   return verdict;
+}
+
+function createCoverageDetails(draft: ReviewDraft): HTMLElement {
+  const details = el('details', 'pr-disclosure pr-coverage');
+  const summary = el('summary', 'pr-disclosure-summary');
+  const heading = coverageDisclosureHeading(draft.assessment);
+  summary.append(el('span', 'pr-disclosure-label', heading.label), el('span', 'pr-disclosure-preview', heading.preview));
+  details.append(summary);
+  const { assessment } = draft;
+  if (!assessment) {
+    details.append(appendInlineText(el('p', 'pr-verdict-summary'), draft.summary));
+    return details;
+  }
+  if (assessment.change) details.append(createAssessmentPart('What the PR changes', appendInlineText(el('p', 'pr-verdict-summary'), assessment.change)));
+  if (assessment.checked.length > 0) details.append(createAssessmentPart('What the review checked', createAssessmentList(assessment.checked)));
+  if (assessment.gaps.length > 0) details.append(createAssessmentPart('Not covered', createAssessmentList(assessment.gaps), 'warning'));
+  return details;
 }
 
 function createCommentParagraph(paragraph: ReturnType<typeof parseReviewComment>['paragraphs'][number]): HTMLElement {
@@ -339,7 +345,7 @@ function createCommentParagraph(paragraph: ReturnType<typeof parseReviewComment>
   return appendSegments(element, paragraph.segments);
 }
 
-function createInlineComment(comment: ReviewComment, index: number, includedIndexes: Set<number>, updateFooter: () => void): HTMLElement {
+function createInlineComment(comment: DraftComment, index: number, includedIndexes: Set<number>, updateFooter: () => void): HTMLElement {
   const card = el('article', 'pr-comment-card');
   const checkbox = el('input', 'pr-comment-checkbox');
   checkbox.type = 'checkbox';
@@ -352,18 +358,22 @@ function createInlineComment(comment: ReviewComment, index: number, includedInde
     updateFooter();
   });
   card.dataset.included = String(checkbox.checked);
-  const content = el('div', 'pr-comment-content');
-  const header = el('div', 'pr-comment-header');
+  const content = el('details', 'pr-comment-content');
+  const header = el('summary', 'pr-comment-header');
   const parsed = parseReviewComment(comment.body);
+  const severity = commentSeverity(comment);
+  if (severity) header.append(createSeverityMeter(severity));
   header.append(el('span', 'pr-comment-location', commentLocation(comment)));
-  if (parsed.severity && parsed.tag) {
-    const finding = el('span', 'pr-comment-finding');
-    finding.style.color = `var(${severityPresentation(parsed.severity).colorToken})`;
-    finding.append(createSeverityMeter(parsed.severity), el('strong', null, `[${parsed.tag}] ${parsed.severity}`));
-    header.append(finding);
-  }
+  const firstParagraph = parsed.paragraphs[0];
+  const firstParagraphText = firstParagraph ? `${firstParagraph.lead} ${firstParagraph.segments.map((segment) => segment.text).join('')}`.trim() : '';
+  const sentenceEnd = firstParagraphText.search(/[.!?](?=\s|$)/);
+  const preview = sentenceEnd < 0 ? firstParagraphText : firstParagraphText.slice(0, sentenceEnd + 1);
+  header.append(el('span', 'pr-comment-preview', preview || 'Open comment'));
   content.append(header);
-  for (const paragraph of parsed.paragraphs) content.append(createCommentParagraph(paragraph));
+  const paragraphs = el('div', 'pr-comment-paragraphs');
+  for (const paragraph of parsed.paragraphs) paragraphs.append(createCommentParagraph(paragraph));
+  content.append(paragraphs);
+  content.open = severity === 'HIGH' || severity === 'CRITICAL';
   card.append(checkbox, content);
   return card;
 }
@@ -389,32 +399,37 @@ function sendAction(draft: ReviewDraft, action: TeamReviewAction, body: string, 
 
 function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   const detail = el('article', 'pr-detail');
-  detail.append(createDetailHeading(draft));
-  detail.append(createVerdictBox(draft, true));
+  detail.append(createDetailHeading(draft), createSummaryStrip(draft, true));
 
   const posts = el('section', 'pr-posts');
-  posts.setAttribute('aria-label', 'What posts to GitHub');
+  posts.setAttribute('aria-label', 'Inline comments');
   const heading = el('div', 'pr-posts-heading');
-  heading.append(el('h3', null, 'Posts to GitHub'), el('span', null, 'Each inline comment opens with the automated-review note.'));
+  heading.append(el('h3', null, 'Inline comments'), el('span', null, String(draft.comments.length)));
   posts.append(heading);
-  const noteLabel = el('label', 'pr-body-label');
-  const noteTitle = el('span', 'pr-body-title');
-  noteTitle.append(createBodyGlyph(), 'Your note');
-  const noteInput = el('textarea', 'pr-body-input pr-note-input');
-  noteInput.rows = 2;
-  noteInput.spellcheck = true;
-  noteInput.placeholder = 'Posts above the automated-review note';
-  noteLabel.append(noteTitle, noteInput);
-  posts.append(noteLabel);
-  const bodyLabel = el('label', 'pr-body-label');
-  const bodyTitle = el('span', 'pr-body-title');
-  bodyTitle.append(createBodyGlyph(), 'Review body');
+  const bodyDetails = el('details', 'pr-disclosure');
+  const bodySummary = el('summary', 'pr-disclosure-summary');
+  const bodyPreview = el('span', 'pr-disclosure-preview');
+  bodySummary.append(el('span', 'pr-disclosure-label', 'Review body'), bodyPreview);
+  bodyDetails.append(bodySummary);
   const bodyInput = el('textarea', 'pr-body-input');
+  bodyInput.setAttribute('aria-label', 'Review body');
   bodyInput.value = draft.body;
   bodyInput.rows = Math.min(10, Math.max(3, draft.body.split('\n').length + 1));
   bodyInput.spellcheck = true;
-  bodyLabel.append(bodyTitle, bodyInput);
-  posts.append(bodyLabel);
+  const updateBodyPreview = () => {
+    bodyPreview.textContent = withoutAutomatedNote(bodyInput.value).split(/\r?\n/).map((line) => line.trim()).find(Boolean) || 'No review body';
+  };
+  bodyInput.addEventListener('input', updateBodyPreview);
+  updateBodyPreview();
+  bodyDetails.append(bodyInput);
+  const noteDetails = el('details', 'pr-disclosure');
+  noteDetails.append(el('summary', 'pr-disclosure-summary', 'Add a note'));
+  const noteInput = el('textarea', 'pr-body-input pr-note-input');
+  noteInput.setAttribute('aria-label', 'Your note');
+  noteInput.rows = 2;
+  noteInput.spellcheck = true;
+  noteInput.placeholder = 'Posts above the automated-review note';
+  noteDetails.append(noteInput);
 
   const includedIndexes = new Set(draft.comments.map((_comment, index) => index));
   const footer = el('footer', 'pr-footer');
@@ -427,7 +442,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     delete status.dataset.tone;
   };
   for (const [index, comment] of draft.comments.entries()) posts.append(createInlineComment(comment, index, includedIndexes, updateFooter));
-  detail.append(posts);
+  detail.append(posts, bodyDetails, noteDetails, createCoverageDetails(draft));
   const buttons: HTMLButtonElement[] = [];
   const setBusy = (isBusy: boolean) => {
     for (const button of buttons) button.disabled = isBusy;
@@ -514,7 +529,8 @@ function createInReviewDetail(review: InFlightReview): HTMLElement {
 function createOtherDetail(draft: ReviewDraft): HTMLElement {
   const detail = el('article', 'pr-detail');
   detail.append(createDetailHeading(draft));
-  detail.append(draft.status === 'posted' ? createVerdictBox(draft, false) : el('p', 'pr-attention-detail', attentionDetail(draft)));
+  if (draft.status === 'posted') detail.append(createSummaryStrip(draft, false), createCoverageDetails(draft));
+  if (draft.status !== 'posted') detail.append(el('p', 'pr-attention-detail', attentionDetail(draft)));
   if (!hasRequeueFooter(draft.status)) return detail;
   const footer = el('footer', 'pr-footer');
   const button = el('button', 'pr-action', 'Queue review');
