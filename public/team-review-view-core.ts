@@ -26,6 +26,26 @@ export function queueRowStateLabel(kind: QueueRowKind, status: ReviewDraft['stat
   return QUEUE_ROW_STATE_LABELS[kind];
 }
 
+export interface QueueRowAges {
+  opened?: string | null;
+  reviewed?: string | null;
+  posted?: string | null;
+  githubReviews?: readonly (string | null)[];
+}
+
+export function queueRowTitle(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind, ages: QueueRowAges): string {
+  const status = 'status' in review ? review.status : null;
+  const lines = [`${pullRequestLabel(review.repo, review.number)}: ${review.title}`, queueRowStateLabel(kind, status)];
+  if (ages.opened) lines.push(`Opened ${ages.opened}`);
+  if (ages.reviewed) lines.push(`Reviewed ${ages.reviewed}`);
+  if (ages.posted) lines.push(`Posted ${ages.posted}`);
+  if (!('reviewedHead' in review)) return lines.join('\n');
+  if (kind === 'attention' || kind === 'discarded') lines.push(attentionDetail(review));
+  const githubReviews = githubReviewItems(review, { isViewerShown: kind !== 'posted' });
+  for (const [index, githubReview] of githubReviews.entries()) lines.push(githubReviewTitle(githubReview.text, ages.githubReviews?.[index] ?? null));
+  return lines.join('\n');
+}
+
 export interface TeamReviewSections {
   ready: ReviewDraft[];
   noReviewNeeded: ReviewDraft[];

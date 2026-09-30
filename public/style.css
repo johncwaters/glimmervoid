@@ -2482,8 +2482,7 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue .pr-
 html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-row { display: grid; grid-template-columns: 1fr; place-items: center; width: 30px; min-height: 30px; height: 30px; padding: 0; border: 1px solid transparent; border-radius: 4px; }
 html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-row[aria-current="true"] { border-color: var(--border-hover); box-shadow: none; }
 html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-top,
-html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-bottom,
-html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-github { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-bottom { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 .pr-queue-section {
   display: flex;
@@ -2509,11 +2508,11 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-gith
   grid-template-rows: auto auto;
   align-content: center;
   column-gap: 10px;
-  row-gap: 6px;
+  row-gap: 3px;
   width: 100%;
   min-width: 0;
-  min-height: 54px;
-  padding: 10px 14px;
+  min-height: 48px;
+  padding: 6px 14px;
   border: 0;
   border-radius: var(--radius);
   background: transparent;
@@ -2523,7 +2522,7 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-gith
   cursor: pointer;
 }
 .pr-queue-glyph { grid-column: 1; grid-row: 1 / -1; align-self: center; display: grid; place-items: center; }
-.pr-queue-top, .pr-queue-bottom, .pr-queue-github { grid-column: 2; }
+.pr-queue-top, .pr-queue-bottom { grid-column: 2; }
 
 .pr-queue-row:hover { background: var(--bg-surface); }
 
@@ -2550,33 +2549,36 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-gith
 }
 
 .pr-queue-top { font-size: 12px; }
-.pr-queue-bottom { font-size: 11px; }
+.pr-queue-bottom { gap: 6px; font-size: 11px; }
 
 .pr-queue-ref {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--text-head);
 }
 
-.pr-queue-title,
-.pr-queue-reason {
+.pr-queue-title {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.pr-queue-title { flex: 1; }
-.pr-queue-reason { flex: 1; color: var(--text-muted); }
+.pr-queue-title { flex: 1 1 0; }
 .pr-queue-author, .pr-detail-author { display: inline-flex; align-items: center; gap: 5px; color: var(--text-dim); white-space: nowrap; }
-.pr-queue-reviewers { display: inline-flex; margin-left: 8px; vertical-align: middle; }
-.pr-queue-elapsed { margin-left: auto; color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pr-queue-author { flex: 1 1 0; min-width: 16px; overflow: hidden; }
+.pr-queue-author > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pr-queue-reviewers { display: inline-flex; flex: 0 1 auto; min-width: 0; margin-left: auto; overflow: hidden; vertical-align: middle; }
+.pr-queue-elapsed { flex: 0 0 auto; margin-left: auto; color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .pr-phase-label { color: var(--accent); white-space: nowrap; }
 .pr-attention-label { color: var(--state-waiting); text-transform: uppercase; font-weight: 700; }
 .pr-attention-label-error { color: var(--state-failed); }
 .pr-attention-label-discarded { color: var(--text-dim); }
 .pr-attention-label-posted { color: var(--text-muted); }
-.pr-queue-posted-detail { margin-left: auto; color: var(--text-muted); white-space: nowrap; }
-.pr-queue-github { width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 11px; }
+.pr-queue-posted-detail { color: var(--text-muted); white-space: nowrap; }
 
 .pr-verdict-seal {
   display: inline-flex;
@@ -2593,6 +2595,8 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-gith
 .pr-verdict-seal[data-tone="crit"] { color: var(--state-failed); }
 .pr-verdict-seal svg { flex: 0 0 auto; }
 .pr-queue-bottom .pr-verdict-seal svg { width: 16px; height: 16px; }
+.pr-queue-bottom .pr-verdict-seal { flex: 0 1 auto; min-width: 16px; overflow: hidden; }
+.pr-queue-bottom .pr-verdict-seal > span:last-child { overflow: hidden; text-overflow: ellipsis; }
 
 .pr-severity-counts {
   display: inline-flex;
@@ -2601,7 +2605,10 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-gith
   gap: 6px 14px;
 }
 
-.pr-queue-bottom .pr-severity-counts { margin-left: auto; flex-wrap: nowrap; }
+.pr-queue-bottom .pr-severity-counts { flex: 0 0 auto; flex-wrap: nowrap; gap: 4px; }
+.pr-queue-bottom .pr-severity-count { gap: 2px; }
+.pr-queue-bottom .pr-severity-meter { gap: 1px; }
+.pr-queue-bottom .pr-severity-meter svg { width: 7px; height: 9px; }
 .pr-severity-count { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .pr-severity-meter { display: inline-flex; align-items: center; gap: 2px; }
 .pr-severity-meter svg { flex: 0 0 auto; }
@@ -7540,7 +7547,10 @@ html[data-layout="phone"] .pr-queue { padding: 8px 0 16px; }
 html[data-layout="phone"] .pr-queue-pane { border-right: 0; border-bottom: 1px solid var(--border-dim); }
 html[data-layout="phone"] .pr-queue-resizer,
 html[data-layout="phone"] .pr-queue-toggle { display: none; }
-html[data-layout="phone"] .pr-queue-row { min-height: 56px; padding: 10px 16px; }
+html[data-layout="phone"] .pr-queue-row { min-height: 56px; column-gap: 8px; padding: 10px 12px; }
+html[data-layout="phone"] .pr-queue-top { gap: 5px; }
+html[data-layout="phone"] .pr-queue-bottom { gap: 4px; }
+html[data-layout="phone"] .pr-queue-ref { max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 html[data-layout="phone"] .pr-detail { padding: 20px 16px 0; }
 html[data-layout="phone"] .pr-footer { margin: 0 -16px; padding: 16px; }
 html[data-layout="phone"] .pr-action { min-height: 44px; }

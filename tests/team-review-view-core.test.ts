@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, emptyStateText, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
-  parseReviewComment, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText, reviewProgressSteps,
+  parseReviewComment, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText, reviewProgressSteps,
   commentSeverity, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictRecommendation, verdictSealKind, verdictSealText, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailMetaText, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
 import { InFlightReview, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
@@ -58,6 +58,34 @@ function inFlightReview(number: number, overrides: Partial<InFlightReviewType> =
 function status(drafts: ReviewDraftType[], inFlight: InFlightReviewType[] = [], configured = true): TeamReviewStatusType {
   return TeamReviewStatus.parse({ type: 'team-review-status', ts: 1000, configured, reason: null, drafts, inFlight });
 }
+
+test('queue row title keeps draft ages and GitHub review sentences', () => {
+  const review = draft(7, {
+    status: 'posted',
+    githubReviews: [
+      { login: 'me', state: 'COMMENTED', commit: HEAD, isViewer: true, submittedAt: '2026-09-27T12:00:00Z' },
+      { login: 'sarah', state: 'APPROVED', commit: HEAD, isViewer: false, submittedAt: '2026-09-28T12:00:00Z' },
+    ],
+  });
+  assert.equal(queueRowTitle(review, 'posted', { opened: '5d ago', reviewed: '1d ago', posted: '3h ago', githubReviews: ['2d ago'] }), [
+    'Acme/app#7: PR 7', 'Posted', 'Opened 5d ago', 'Reviewed 1d ago', 'Posted 3h ago', 'approved by sarah, 2d ago',
+  ].join('\n'));
+});
+
+test('queue row title names an in-progress review and a queued pull request', () => {
+  assert.equal(queueRowTitle(inFlightReview(8), 'inReview', { opened: '2d ago' }), 'Acme/app#8: PR 8\nIn review\nOpened 2d ago');
+  const queuedReview = TeamReviewStatus.parse({
+    type: 'team-review-status', ts: 1, configured: true, reason: null, drafts: [], inFlight: [],
+    queued: [{ key: 'Acme/app#9', repo: 'Acme/app', number: 9, title: 'PR 9', url: 'https://github.com/Acme/app/pull/9', author: 'teammate' }],
+  }).queued[0];
+  assert.ok(queuedReview);
+  assert.equal(queueRowTitle(queuedReview, 'queued', { opened: '4h ago' }), 'Acme/app#9: PR 9\nQueued\nOpened 4h ago');
+});
+
+test('queue row title retains the attention reason', () => {
+  assert.equal(queueRowTitle(draft(10, { status: 'error', error: 'review timed out' }), 'attention', { opened: '5d ago' }),
+    'Acme/app#10: PR 10\nerror\nOpened 5d ago\nreview timed out');
+});
 
 test('drafts group into ready, in review, needs attention, recently posted and discarded', () => {
   const sections = groupDrafts(status([
