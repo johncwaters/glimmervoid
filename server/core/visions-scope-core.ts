@@ -51,38 +51,40 @@ function pathOfFileUri(uri: unknown): string | null {
   return normalizeShapePath(pathname);
 }
 
-function isWithin(scopePath: string, uriPath: string): boolean {
+function isWithin(scopePath: string, uriPath: string, foldCase = false): boolean {
   if (!scopePath || !uriPath) return false;
-  if (uriPath === scopePath) return true;
-  const prefix = scopePath.endsWith('/') ? scopePath : `${scopePath}/`;
-  return uriPath.startsWith(prefix);
+  const scopeKey = foldCase ? scopePath.toLowerCase() : scopePath;
+  const uriKey = foldCase ? uriPath.toLowerCase() : uriPath;
+  if (uriKey === scopeKey) return true;
+  const prefix = scopeKey.endsWith('/') ? scopeKey : `${scopeKey}/`;
+  return uriKey.startsWith(prefix);
 }
 
-function isUriInProjects(uri: unknown, normalizedProjectPaths: string[] | null | undefined): boolean {
+function isUriInProjects(uri: unknown, normalizedProjectPaths: string[] | null | undefined, foldCase = false): boolean {
   const uriPath = pathOfFileUri(uri);
   if (!uriPath) return false;
-  return (Array.isArray(normalizedProjectPaths) ? normalizedProjectPaths : []).some((scopePath) => isWithin(scopePath, uriPath));
+  return (Array.isArray(normalizedProjectPaths) ? normalizedProjectPaths : []).some((scopePath) => isWithin(scopePath, uriPath, foldCase));
 }
 
-function deepestRootFor(normalizedPath: string, roots: unknown): string | null {
+function deepestRootFor(normalizedPath: string, roots: unknown, foldCase = false): string | null {
   let owner: string | null = null;
   for (const raw of Array.isArray(roots) ? roots : []) {
     const root = normalizeShapePath(raw);
-    if (!isWithin(root, normalizedPath)) continue;
+    if (!isWithin(root, normalizedPath, foldCase)) continue;
     if (owner && owner.length >= root.length) continue;
     owner = root;
   }
   return owner;
 }
 
-function projectForUri(uri: unknown, scopeProjects: ScopeProject[] | null | undefined): string | null {
+function projectForUri(uri: unknown, scopeProjects: ScopeProject[] | null | undefined, foldCase = false): string | null {
   if (!Array.isArray(scopeProjects) || scopeProjects.length === 0) return null;
   const uriPath = pathOfFileUri(uri);
   if (!uriPath) return null;
   const owned = scopeProjects
     .filter((entry): entry is { id: string; path?: unknown } => Boolean(entry) && typeof entry.id === 'string' && entry.id !== '')
     .map((entry) => ({ id: entry.id, path: normalizeShapePath(entry.path) }));
-  const root = deepestRootFor(uriPath, owned.map((entry) => entry.path));
+  const root = deepestRootFor(uriPath, owned.map((entry) => entry.path), foldCase);
   const owner = owned.find((entry) => entry.path === root);
   return owner ? owner.id : null;
 }

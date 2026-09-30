@@ -144,6 +144,7 @@ interface VisionsWiringOptions {
   contextDigest?: ((options: { scopes: null; budgetChars: number; now: number }) => unknown) | null;
   contextSeq?: (() => number | null) | null;
   scopeProjects?: ScopeProject[];
+  pathsFoldCase?: boolean;
   knownProjectIds?: string[] | null;
   onEditorEvent?: ((event: { method: string; uri: string }) => void) | null;
   intentStatePath?: string | null;
@@ -270,6 +271,7 @@ function createVisionsWiring({
   contextDigest = null,
   contextSeq = null,
   scopeProjects = [],
+  pathsFoldCase = process.platform === 'darwin',
   knownProjectIds = null,
   onEditorEvent = null,
   intentStatePath = null,
@@ -320,7 +322,7 @@ function createVisionsWiring({
   }
 
   function isUriInScope(uri: string | null): boolean {
-    return isUriInProjects(uri, scopePaths);
+    return isUriInProjects(uri, scopePaths, pathsFoldCase);
   }
 
   function reportEditorEvent(method: string, uri: string | null): void {
@@ -691,7 +693,7 @@ function createVisionsWiring({
       if (!doc || !isMarkdownDoc(doc)) return;
       const text = typeof doc.text === 'string' ? doc.text : '';
       const textHash = hashFn(text);
-      const projectId = projectForUri(uri, scopeProjects);
+      const projectId = projectForUri(uri, scopeProjects, pathsFoldCase);
       const seq = readContextSeq();
       const touchedRanges = touchedRangesFor(touchState, uri);
       const decision = decideDispatch({

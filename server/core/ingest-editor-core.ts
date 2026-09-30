@@ -18,6 +18,7 @@ export interface EditorNotification {
   method?: string;
   uri?: string;
   roots?: string[];
+  foldCase?: boolean;
   now?: number;
 }
 
@@ -45,7 +46,7 @@ function relativeTo(root: string | null | undefined, normalizedPath: string): st
 
 function applyEditorNotification(
   state: EditorState,
-  { method, uri, roots = [], now = 0 }: EditorNotification = {},
+  { method, uri, roots = [], foldCase = false, now = 0 }: EditorNotification = {},
 ): { state: EditorState; event: EditorEvent | null } {
   if (typeof method !== 'string' || typeof uri !== 'string') return { state, event: null };
   const kind = KIND_BY_METHOD[method];
@@ -58,7 +59,7 @@ function applyEditorNotification(
   if (kind === 'doc-open') state.openUris.add(uri);
   if (kind === 'doc-close') state.openUris.delete(uri);
 
-  const root = deepestRootFor(normalizedPath, roots);
+  const root = deepestRootFor(normalizedPath, roots, foldCase);
   return {
     state,
     event: {

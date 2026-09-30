@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  deepestRootFor,
   pathOfFileUri,
   normalizeShapePath,
   isUriInProjects,
@@ -52,6 +53,35 @@ test('isUriInProjects accepts exact and nested paths only on a segment boundary'
 test('isUriInProjects folds slashes and case for Windows and UNC shapes', () => {
   assert.equal(isUriInProjects('file:///C:/Repo/Sub/Doc.md', [normalizeShapePath('c:\\repo')]), true);
   assert.equal(isUriInProjects('file://SERVER/Share/Repo/Doc.md', [normalizeShapePath('\\\\server\\share\\repo')]), true);
+});
+
+test('case folding admits differently cased POSIX paths and preserves the configured owning root', () => {
+  const uri = 'file:///Users/me/projects/app/README.md';
+  const roots = ['/Users/me/Projects', '/Users/me/Projects/app'];
+  const projects = [{ id: 'outer', path: roots[0] }, { id: 'app', path: roots[1] }];
+  assert.equal(isUriInProjects(uri, roots, true), true);
+  assert.equal(projectForUri(uri, projects, true), 'app');
+  assert.equal(deepestRootFor('/Users/me/projects/app/README.md', roots, true), '/Users/me/Projects/app');
+});
+
+test('POSIX path case mismatches remain outside by default and with case folding disabled', () => {
+  const uri = 'file:///Users/me/projects/app/README.md';
+  const roots = ['/Users/me/Projects/app'];
+  const projects = [{ id: 'app', path: roots[0] }];
+  assert.equal(isUriInProjects(uri, roots), false);
+  assert.equal(isUriInProjects(uri, roots, false), false);
+  assert.equal(projectForUri(uri, projects), null);
+  assert.equal(projectForUri(uri, projects, false), null);
+  assert.equal(deepestRootFor('/Users/me/projects/app/README.md', roots), null);
+  assert.equal(deepestRootFor('/Users/me/projects/app/README.md', roots, false), null);
+});
+
+test('case folding preserves containment segment boundaries', () => {
+  const uri = 'file:///users/me/projects/application/x.md';
+  const roots = ['/Users/me/Projects/app'];
+  assert.equal(isUriInProjects(uri, roots, true), false);
+  assert.equal(projectForUri(uri, [{ id: 'app', path: roots[0] }], true), null);
+  assert.equal(deepestRootFor('/users/me/projects/application/x.md', roots, true), null);
 });
 
 test('isUriInProjects refuses everything outside the listed roots, and an empty list admits nothing', () => {

@@ -6,6 +6,7 @@ import type { LaneLogger } from './lane-log.ts';
 interface EditorIngestOptions {
   publish: (event: EditorEvent) => unknown;
   roots?: (() => string[]) | string[];
+  pathsFoldCase?: boolean;
   logger?: LaneLogger | null;
   nowFn?: () => number;
   debug?: boolean | (() => boolean);
@@ -25,6 +26,7 @@ interface EditorIngest {
 function createEditorIngest({
   publish,
   roots = () => [],
+  pathsFoldCase = process.platform === 'darwin',
   logger = console,
   nowFn = Date.now,
   debug = false,
@@ -50,6 +52,7 @@ function createEditorIngest({
       method: notification?.method,
       uri: notification?.uri,
       roots: currentRoots(),
+      foldCase: pathsFoldCase,
       now: nowFn(),
     });
     state = applied.state;

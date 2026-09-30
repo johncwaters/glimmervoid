@@ -59,3 +59,16 @@ test('a method the source does not publish, and an unusable uri, are both nothin
   assert.equal(applyEditorNotification(state, { method: 'textDocument/didOpen', uri: 'untitled:Untitled-1', roots: ROOTS }).event, null);
   assert.equal(applyEditorNotification(state, {}).event, null);
 });
+
+test('case folding scopes a lowercase editor URI to the configured capital root with a relative path', () => {
+  const event = applyEditorNotification(createEditorState(), {
+    method: 'textDocument/didSave',
+    uri: 'file:///Users/me/projects/app/docs/README.md',
+    roots: ['/Users/me/Projects/app'],
+    foldCase: true,
+    now: 1,
+  }).event;
+  assert.equal(event?.scope.root, '/Users/me/Projects/app');
+  assert.equal(event?.detail.path, 'docs/README.md');
+  assert.equal(event?.summary, 'saved docs/README.md');
+});
