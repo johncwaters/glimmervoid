@@ -59,6 +59,7 @@
     "typecheck": "tsc --project tsconfig.json && tsc --project tsconfig.public.json && tsc --project tsconfig.browser-harness.json",
     "test:browser": "node test/browser/harness.ts",
     "site:capture": "node test/site-capture/capture.ts",
+    "site:record": "node test/site-capture/record.ts",
     "site:dev": "npm --prefix site run dev",
     "site:build": "npm --prefix site run build",
     "test:container": "docker build -f test/container/Dockerfile -t glimmervoid-remote-test . && docker run --rm glimmervoid-remote-test",

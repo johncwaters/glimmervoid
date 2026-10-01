@@ -1,0 +1,40 @@
+{
+  "viewport": { "width": 1440, "height": 900 },
+  "model": "sonnet",
+  "projects": {
+    "web": "demo/web",
+    "billing": "demo/billing",
+    "ui": "demo/ui",
+    "api": "demo/api"
+  },
+  "sessions": [
+    {
+      "name": "flaky-upload-test",
+      "project": "web",
+      "dangerouslySkipPermissions": true,
+      "maxMinutes": 6,
+      "task": "The upload test in tests/upload.test.ts passes sometimes and fails sometimes. Run npm test a few times to see it, fix the race in src/upload.ts so receipts keep the input order (leave the test alone), run npm test three times to confirm, then commit with a conventional commit message such as fix(web): keep upload receipts in order."
+    },
+    {
+      "name": "migrate-billing-schema",
+      "project": "billing",
+      "dangerouslySkipPermissions": false,
+      "maxMinutes": 4,
+      "task": "Plan a backward compatible migration that replaces invoices.amount with amount_cents (BIGINT) and currency (TEXT, default USD). Write the plan to docs/migration-plan.md in under 25 lines, and do not write any SQL files yet."
+    },
+    {
+      "name": "rename-color-token",
+      "project": "ui",
+      "dangerouslySkipPermissions": true,
+      "maxMinutes": 4,
+      "task": "Rename the CSS custom property --color-primary to --color-accent everywhere under styles/, check with grep that the old name is gone, then commit with a conventional commit message."
+    },
+    {
+      "name": "bump-node-22",
+      "project": "api",
+      "dangerouslySkipPermissions": true,
+      "maxMinutes": 4,
+      "task": "Bump this service from Node 20 to Node 22: update .nvmrc, the engines field in package.json, the CI workflow and the Dockerfile base image, then commit with a conventional commit message."
+    }
+  ]
+}

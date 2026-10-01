@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import type { ReplayRecord } from '../../detection/replay.ts';
 import { HookPayload } from '../../shared/contracts/hooks.ts';
+import { MERGEABLE_LIVE_STATES, RESTARTABLE_STATES, STATES } from '../../shared/states.ts';
+import type { SessionState } from '../../shared/states.ts';
 
 export const Redaction = z.strictObject({
   from: z.string().min(1),
@@ -9,8 +11,13 @@ export const Redaction = z.strictObject({
   message: 'redaction replacement after trimming must fit the original length',
 });
 
+const sessionName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,63}$/);
+const projectSlug = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/);
+const viewport = z.strictObject({ width: z.number().int().positive(), height: z.number().int().positive() });
+const projectSeeds = z.record(projectSlug, z.string().min(1));
+
 const CaptureSession = z.strictObject({
-  name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,63}$/),
+  name: sessionName,
   project: z.string().trim().min(1),
   recording: z.string().min(1),
   patch: z.string().min(1).optional(),
@@ -18,7 +25,8 @@ const CaptureSession = z.strictObject({
 });
 
 export const CaptureManifest = z.strictObject({
-  viewport: z.strictObject({ width: z.number().int().positive(), height: z.number().int().positive() }),
+  viewport,
+  projects: projectSeeds.default({}),
   speed: z.number().finite().positive().default(1),
   maxIdleGapMs: z.number().finite().nonnegative().default(2500),
   redactions: z.array(Redaction).default([]),
@@ -47,6 +55,57 @@ export const CaptureManifest = z.strictObject({
 });
 
 export type CaptureManifest = z.infer<typeof CaptureManifest>;
+
+const RecordSession = z.strictObject({
+  name: projectSlug,
+  project: projectSlug,
+  task: z.string().trim().min(1).max(1500).regex(/^[^\r\n]+$/, 'task must be one line so Enter submits it'),
+  dangerouslySkipPermissions: z.boolean().default(false),
+  maxMinutes: z.number().finite().positive().max(30).default(5),
+});
+
+export const RecordManifest = z.strictObject({
+  viewport,
+  model: z.string().regex(/^[A-Za-z0-9._-]+$/).default('sonnet'),
+  projects: projectSeeds,
+  sessions: z.array(RecordSession).min(1),
+  outputDirectory: z.string().min(1).default('../recordings'),
+}).superRefine((manifest, context) => {
+  const sessionNames = new Set<string>();
+  for (const [index, session] of manifest.sessions.entries()) {
+    if (sessionNames.has(session.name)) context.addIssue({ code: 'custom', path: ['sessions', index, 'name'], message: 'duplicate session name' });
+    sessionNames.add(session.name);
+    if (!(session.project in manifest.projects)) context.addIssue({ code: 'custom', path: ['sessions', index, 'project'], message: 'project has no seed directory' });
+  }
+});
+
+export type RecordManifest = z.infer<typeof RecordManifest>;
+
+export function validateRecordManifest(document: unknown): RecordManifest {
+  return RecordManifest.parse(document);
+}
+
+export type ClaudeStartupScreen = 'trust-prompt' | 'trust-accept-selected' | 'ready' | 'starting';
+
+const promptGlyph = String.fromCharCode(0x276f);
+const inputPromptLine = new RegExp(`^\\s*${promptGlyph}(\\s|$)`);
+
+export function classifyClaudeStartup(screenLines: readonly string[]): ClaudeStartupScreen {
+  const compactScreen = screenLines.join('').replace(/\s+/g, '');
+  if (compactScreen.includes(`${promptGlyph}Yes,Itrustthisfolder`)) return 'trust-accept-selected';
+  if (compactScreen.includes('Itrustthisfolder')) return 'trust-prompt';
+  if (screenLines.some((line) => inputPromptLine.test(line))) return 'ready';
+  return 'starting';
+}
+
+const settledStates = new Set<SessionState>([...MERGEABLE_LIVE_STATES, ...RESTARTABLE_STATES]);
+
+export function hasRunSettled(statesSeen: readonly SessionState[]): boolean {
+  const firstRunningIndex = statesSeen.indexOf(STATES.RUNNING);
+  if (firstRunningIndex < 0) return false;
+  const latestState = statesSeen.at(-1);
+  return latestState !== undefined && settledStates.has(latestState);
+}
 export type Redaction = z.infer<typeof Redaction>;
 
 export const ReplayEnvironment = z.strictObject({
@@ -94,6 +153,26 @@ export function redactSameLength(text: string, redactions: readonly Redaction[])
   return redactedText;
 }
 
+export const RecordType = z.object({ type: z.string() }).passthrough();
+
+function parseJsonOrNull(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+export function isRecordingClosed(recordingText: string): boolean {
+  const lastNewlineIndex = recordingText.lastIndexOf('\n');
+  if (lastNewlineIndex < 0) return false;
+  const terminatedText = recordingText.slice(0, lastNewlineIndex);
+  const lastTerminatedLine = terminatedText.slice(terminatedText.lastIndexOf('\n') + 1);
+  const parsedRecord = RecordType.safeParse(parseJsonOrNull(lastTerminatedLine));
+  return parsedRecord.success && parsedRecord.data.type === 'footer';
+}
+const replayedOrHeaderTypes = new Set(['header', 'data', 'hook', 'resize']);
+
 const CaptureRecord = z.object({
   type: z.string(),
   ts: z.number().finite().nonnegative().optional(),
@@ -117,7 +196,9 @@ export function parseCaptureRecording(text: string): ReplayRecord[] {
   let agent: string | null = null;
   const records: ReplayRecord[] = [];
   for (const line of text.split(/\r?\n/).filter((line) => line.trim().length > 0)) {
-    const record = CaptureRecord.parse(JSON.parse(line));
+    const document: unknown = JSON.parse(line);
+    if (!replayedOrHeaderTypes.has(RecordType.parse(document).type)) continue;
+    const record = CaptureRecord.parse(document);
     if (record.type !== 'header') { records.push(record); continue; }
     agent = typeof record.agent === 'string' ? record.agent : null;
   }

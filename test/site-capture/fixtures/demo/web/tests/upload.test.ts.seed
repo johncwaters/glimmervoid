@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { uploadAll } from '../src/upload.ts';
+
+async function fakeSend(file: string) {
+  await sleep(Math.random() * 4);
+  return { file, url: `https://cdn.example.com/${file}` };
+}
+
+test('uploadAll returns one receipt per file in the order given', async () => {
+  const receipts = await uploadAll(['avatar.png', 'banner.png', 'logo.svg'], fakeSend);
+  assert.deepEqual(receipts.map((receipt) => receipt.file), ['avatar.png', 'banner.png', 'logo.svg']);
+});
