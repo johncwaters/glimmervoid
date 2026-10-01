@@ -31,3 +31,16 @@ export function deriveNyanGeometry({
     endXpx: 1.45 * viewportWidthPx,
   };
 }
+
+export type NyanGeometry = ReturnType<typeof deriveNyanGeometry>;
+
+export function nyanFlightStyleProperties(geometry: NyanGeometry, scaleMultiplier: number): Array<readonly [string, string]> {
+  return [
+    ['--nyan-top', `${geometry.topPx}px`],
+    ['--nyan-scale', String(geometry.scale * scaleMultiplier)],
+    ['--nyan-width', `${geometry.spriteWidthPx}px`],
+    ['--nyan-height', `${geometry.spriteHeightPx}px`],
+    ['--nyan-start-x', `${geometry.startXpx}px`],
+    ['--nyan-end-x', `${geometry.endXpx}px`],
+  ];
+}

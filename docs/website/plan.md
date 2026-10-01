@@ -11,11 +11,12 @@ State of the public website work as of 2026-10-01, written so another agent can 
 - Realism: any dashboard UI shown on the site must be the real dashboard, never a hand-built mock ("otherwise its just fake"). The chosen approach is replaying real recorded sessions through an isolated Glimmervoid and recording it with Playwright (see Capture below).
 - Install: one command, `npx glimmervoid`.
 
-## Draft page
+## Site
 
-- Source: `docs/website/draft.template.html`. Build with `node scripts/build-site-draft.ts`, which inlines the flying animal CSS from `public/style.css` (rescoped from `:root[data-flying-animals="true"]` to `.sky`) and writes `dist/site-draft.html`.
-- Every section carries a purple tag naming the Astro component it becomes: `Hero.astro + LiveConsole.astro`, `SignalFlow.astro`, `WorktreeFlow.astro`, `Features.astro`, `Agents.astro`, `Animals.astro`, `Install.astro`. Delete the tags and the top draft bar when porting.
-- `LiveConsole` in the hero is a hand-built mock and must be replaced by captured video and stills before launch. Everything else is a diagram, not a picture of the UI, so it may stay hand-built.
+- Lives in `site/`, an Astro static site that is its own npm package (`npm --prefix site install` once).
+- `npm run site:dev` serves it with reload; `npm run site:build` writes `site/dist/`.
+- The flying animals come from the dashboard at build time: `site/src/lib/animal-styles.ts` rescopes the block in `public/style.css` to `.sky`, and the animal list is `public/nyan-animals.ts`, so the site cannot drift from the product.
+- `LiveConsole.astro` in the hero is still a hand-built mock and must be replaced by captured video and stills before launch. Everything else is a diagram, not a picture of the UI, so it may stay hand-built.
 
 ## Capture tool
 
@@ -42,6 +43,6 @@ The current README demo GIF shows the old "GLISSA" wordmark and personal details
 ## Open issues before launch
 
 - The `glimmervoid` package is not on npm yet (`npm view glimmervoid` returns 404), so `npx glimmervoid` and the README's `npm install -g` both fail. The first publish is manual; see `distribution.md`.
-- Linux: npm 12 blocks install scripts, and the update flow adds `--allow-scripts=node-pty` for that reason. Check whether `npx glimmervoid` on Linux needs the same flag (`npx --allow-scripts=node-pty glimmervoid` or similar) and fix the draft's Linux block to match what actually works.
+- Linux: npm 12 blocks install scripts, and the update flow adds `--allow-scripts=node-pty` for that reason. Check whether `npx glimmervoid` on Linux needs the same flag (`npx --allow-scripts=node-pty glimmervoid` or similar) and fix the site's Linux block to match what actually works.
 - The update check knows global installs and clones only. Decide what it should offer to someone who launched with `npx`.
-- Offered to the operator, not yet accepted: setting the GitHub repo description and topics to match the new positioning, and scaffolding the Astro project.
+- Offered to the operator, not yet accepted: setting the GitHub repo description and topics to match the new positioning.

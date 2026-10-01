@@ -26,6 +26,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a lightweight Node.js 
 | `detection/`, `notifications/` | Status signals and notification lifecycle |
 | `shared/` | Shared constants and wire contracts |
 | `public/` | Browser dashboard (`public/AGENTS.md`) |
+| `site/` | Public Astro website, its own npm package; reads dashboard sprites from `public/` at build time |
 | `scripts/`, `tests/`, `test/` | Release scripts and tests |
 | `tools/`, `assets/`, `dist/` | Dev tools, static assets and generated build output |
 

@@ -1,0 +1,18 @@
+<section id="features">
+  <div class="bento">
+    <div class="tile reveal"><span class="glyph">&#x25c6;</span><h3>Notifications</h3><p>Browser or Telegram, the moment an agent is stuck.</p></div>
+    <div class="tile reveal"><span class="glyph">&#x25ad;</span><h3>Phone layout</h3><p>Triage every agent from your phone.</p></div>
+    <div class="tile reveal"><span class="glyph">&#x2713;</span><h3>Plan review</h3><p>Read and approve Claude Code plans anywhere.</p></div>
+    <div class="tile reveal"><span class="glyph">&#x25a4;</span><h3>Usage</h3><p>Tokens, cost and budgets per session.</p></div>
+    <div class="tile reveal"><span class="glyph">&#x21bb;</span><h3>Auto-resume</h3><p>Restart Glimmervoid. Sessions come back.</p></div>
+    <div class="tile reveal"><span class="glyph">&#x2302;</span><h3>Local first</h3><p>No cloud service. No account.</p></div>
+  </div>
+</section>
+
+<style>
+  .bento { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .tile { border: 1px solid var(--border-dim); border-radius: 6px; background: var(--bg-card); padding: 20px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .tile p { color: var(--text-dim); font-size: 14px; }
+  .tile .glyph { font-size: 18px; color: var(--accent); }
+  @media (max-width: 820px) { .bento { grid-template-columns: minmax(0, 1fr); } }
+</style>

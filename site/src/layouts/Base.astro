@@ -1,0 +1,31 @@
+---
+import '../styles/global.css';
+import dashboardStylesheet from '../../../public/style.css?raw';
+import { extractAnimalStyles } from '../lib/animal-styles.ts';
+import { extractDashboardTokens } from '../lib/dashboard-tokens.ts';
+
+const dashboardTokens = extractDashboardTokens(dashboardStylesheet);
+const animalStyles = extractAnimalStyles(dashboardStylesheet);
+---
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Glimmervoid</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;700&display=swap">
+    <style is:global set:html={dashboardTokens}></style>
+    <style is:global set:html={animalStyles}></style>
+    <style is:global>
+      .sky .nyan-flight { position: absolute; z-index: 1; }
+      .flying-animal-preview .nyan-trail { width: 100px; }
+      @media (prefers-reduced-motion: reduce) { .flying-animal-preview .nyan-sprite, .flying-animal-preview .nyan-trail { animation: none !important; } }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <slot />
+    </div>
+  </body>
+</html>

@@ -15,7 +15,7 @@ Design documents, postmortems, and operator guides. Background reading for why t
 | `distribution.md` | How Glimmervoid ships: npm registry package published by `publish.yml` from a release tag via trusted publishing, the release steps, the update check, and which test or workflow enforces each claim |
 | `testing-cli.md` | Manual CLI checks to run before a release (`--help`, `--version`, `--port`, `--config`, `doctor`, `pair`, tarball, global install); its `--help` block and every command it names are pinned by `tests/cli-docs.test.ts` |
 | `configuration.md` | GENERATED config and environment reference (`npm run docs:config`, `scripts/generate-config-docs.ts`); never edit by hand, `tests/config-docs.test.ts` fails on drift |
-| `website/plan.md` | Public website plan and handoff: operator decisions, the draft page (`website/draft.template.html`, built by `scripts/build-site-draft.ts`), the real-UI capture tool, open launch issues |
+| `website/plan.md` | Public website plan and handoff: operator decisions, the Astro site in `site/`, the real-UI capture tool, open launch issues |
 | `troubleshooting.md` | Install and startup failures: PATH, node-pty under npm 12's install-script policy, port and bind refusals, the legacy `github:` install |
 
 ## For AI Agents

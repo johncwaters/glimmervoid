@@ -1,0 +1,21 @@
+<section id="install">
+  <div class="section-head reveal">
+    <p class="eyebrow">Install</p>
+    <h2>Up in a minute.</h2>
+  </div>
+  <div class="install-grid reveal">
+<pre class="term-block"><span class="c"># Windows and macOS</span>
+npx glimmervoid</pre>
+<pre class="term-block"><span class="c"># Linux: build tools first</span>
+sudo apt install build-essential python3
+npx glimmervoid</pre>
+  </div>
+  <p style="margin-top:14px;font-size:14px;color:var(--text-dim)">Open <code>localhost:3000</code>. Needs Node 22.18+ and an agent CLI.</p>
+</section>
+
+<style>
+  .install-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+  pre.term-block { margin: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 16px 18px; overflow-x: auto; color: var(--text-head); font-size: 13px; line-height: 1.8; }
+  pre.term-block .c { color: var(--text-dim); }
+  @media (max-width: 820px) { .install-grid { grid-template-columns: minmax(0, 1fr); } }
+</style>

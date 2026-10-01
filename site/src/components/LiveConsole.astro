@@ -1,0 +1,254 @@
+<div class="console" role="img" aria-label="Animated Glimmervoid dashboard: five sessions in the rail, one asks for input and raises a notification, another finishes and its commit appears ready to merge.">
+  <div class="console-bar">
+    <span class="mark"><span>&#x25b8;</span>GLIMMERVOID</span>
+    <span class="tab on">Focus</span><span class="tab">Usage</span><span class="tab">Settings</span>
+    <span class="conn">Connected</span>
+  </div>
+  <div class="console-body">
+    <div class="rail" id="rail">
+      <div class="rail-head"><span>Sessions</span><span class="attn" id="attn" data-count="0">All clear</span></div>
+    </div>
+    <div class="term">
+      <div class="term-head"><span><b id="term-title">flaky-upload-test</b> web</span><span>claude</span></div>
+      <div class="term-lines" id="term-lines"></div>
+    </div>
+    <div class="review" id="review">
+      <div class="review-head">Review</div>
+      <div class="review-empty" id="review-empty">Working. Changes appear here when the agent commits.</div>
+      <div class="commit" id="commit" hidden>
+        <span class="review-head">Committed</span>
+        <span class="msg">fix(web): await upload stream</span>
+        <div class="diff">
+          <div class="del">- expect(res.ok).toBe(true)</div>
+          <div class="add">+ await res.body.done</div>
+          <div class="add">+ expect(res.ok).toBe(true)</div>
+          <div class="dim" style="color:var(--text-dim)">tests/upload.test.ts</div>
+        </div>
+        <div class="merge-row"><span class="merge">Merge</span><span class="merge-note">into main</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="toast" id="toast" aria-hidden="true">
+    <span class="g">&#x25c6;</span><b>migrate-billing-schema</b><span>Needs input: approve the migration plan</span>
+  </div>
+</div>
+
+<style>
+  .console {
+    position: relative; z-index: 2; margin-top: 44px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+    overflow: hidden; font-size: 12px; line-height: 1.5;
+    box-shadow: 0 30px 80px -30px color-mix(in srgb, var(--accent-dim) 45%, transparent);
+  }
+  .console-bar { display: flex; align-items: center; gap: 16px; padding: 9px 14px; background: var(--bg-header); border-bottom: 1px solid var(--border); }
+  .console-bar .mark { font-weight: 700; letter-spacing: 0.1em; color: var(--text-head); font-size: 11px; }
+  .console-bar .mark span { color: var(--accent); }
+  .console-bar .tab { color: var(--text-dim); font-size: 11px; }
+  .console-bar .tab.on { color: var(--text-head); border-bottom: 1px solid var(--accent); }
+  .console-bar .conn { margin-left: auto; font-size: 10px; color: var(--text-dim); border: 1px solid var(--border); border-radius: 3px; padding: 2px 8px; white-space: nowrap; }
+  .console-bar .conn::before { content: "\25cf"; color: var(--state-running); margin-right: 6px; }
+  .console-body { display: grid; grid-template-columns: 210px minmax(0, 1fr) 250px; height: 380px; }
+  .rail { border-right: 1px solid var(--border); padding: 10px 8px; display: flex; flex-direction: column; gap: 4px; background: var(--bg-header); min-width: 0; }
+  .rail-head { display: flex; justify-content: space-between; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: var(--text-dim); padding: 2px 6px 6px; }
+  .rail-head .attn { color: var(--state-waiting); }
+  .rail-head .attn[data-count="0"] { color: var(--text-dim); }
+
+  .term { padding: 12px 16px; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+  .term-head { display: flex; justify-content: space-between; gap: 8px; color: var(--text-dim); font-size: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border-dim); margin-bottom: 8px; }
+  .term-head b { color: var(--text-head); font-weight: 500; }
+  .term-lines { display: flex; flex-direction: column; gap: 1px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+  .review { border-left: 1px solid var(--border); padding: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; background: var(--bg-header); }
+  .review-head { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: var(--text-dim); }
+  .review-empty { color: var(--text-dim); font-size: 11px; }
+  .commit { border: 1px solid var(--border); border-radius: 4px; padding: 8px; background: var(--bg-card); display: flex; flex-direction: column; gap: 6px; }
+  .commit[hidden] { display: none; }
+  .commit .msg { color: var(--text-head); }
+  .diff { font-size: 11px; line-height: 1.45; }
+  .diff .add { color: var(--state-complete); }
+  .diff .del { color: var(--state-failed); }
+  .diff div { opacity: 0; transform: translateX(-6px); transition: opacity 300ms, transform 300ms; }
+  .review.ready .diff div { opacity: 1; transform: none; }
+  .review.ready .diff div:nth-child(2) { transition-delay: 120ms; }
+  .review.ready .diff div:nth-child(3) { transition-delay: 240ms; }
+  .review.ready .diff div:nth-child(4) { transition-delay: 360ms; }
+  .merge-row { display: flex; gap: 8px; align-items: center; }
+  .merge { font: inherit; font-size: 11px; color: var(--accent); background: transparent; border: 1px solid var(--accent-dim); border-radius: 3px; padding: 3px 12px; }
+  .review.ready .merge { box-shadow: 0 0 12px -2px var(--accent-dim); }
+  .merge-note { font-size: 10px; color: var(--text-dim); }
+
+  .toast {
+    position: absolute; top: 46px; right: 14px; z-index: 3; width: min(300px, calc(100% - 28px));
+    background: var(--bg-surface); border: 1px solid var(--state-waiting); border-radius: 5px; padding: 10px 12px;
+    display: grid; grid-template-columns: 1.2em minmax(0, 1fr); gap: 2px 8px;
+    box-shadow: 0 16px 40px -16px #000;
+    opacity: 0; transform: translateY(-10px); transition: opacity 300ms, transform 300ms;
+  }
+  .toast.show { opacity: 1; transform: none; }
+  .toast .g { color: var(--state-waiting); grid-row: span 2; }
+  .toast b { color: var(--text-head); font-weight: 500; }
+  .toast span { color: var(--text-dim); font-size: 11px; }
+
+  @media (max-width: 900px) {
+    .console-body { grid-template-columns: 190px minmax(0, 1fr); }
+    .review { display: none; }
+  }
+  @media (max-width: 600px) {
+    .console-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); height: 440px; }
+    .rail { flex-direction: row; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--border); }
+    .rail-head { display: none; }
+  }
+</style>
+
+<style is:global>
+  .console .pill { display: grid; grid-template-columns: 1.2em minmax(0, 1fr); gap: 2px 6px; padding: 6px 8px; border: 1px solid transparent; border-radius: 4px; }
+  .console .pill.selected { border-color: var(--accent-dim); background: var(--bg-surface); }
+  .console .pill .g { grid-row: span 2; text-align: center; }
+  .console .pill .n { color: var(--text-head); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .console .pill .s { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; }
+  .console .pill[data-state="RUNNING"] .g, .console .pill[data-state="RUNNING"] .s { color: var(--state-running); }
+  .console .pill[data-state="WAITING"] .g, .console .pill[data-state="WAITING"] .s { color: var(--state-waiting); }
+  .console .pill[data-state="COMPLETE"] .g, .console .pill[data-state="COMPLETE"] .s { color: var(--state-complete); }
+  .console .pill[data-state="STARTING"] .g, .console .pill[data-state="STARTING"] .s { color: var(--state-starting); }
+  .console .pill[data-state="WAITING"] { animation: waiting-pulse 1.6s ease-in-out infinite; }
+  @keyframes waiting-pulse { 0%, 100% { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--state-waiting) 25%, transparent); } 50% { box-shadow: inset 0 0 0 1px var(--state-waiting), 0 0 14px -4px var(--state-waiting); } }
+  .console .pill.flash .g { animation: glint 900ms ease-out; }
+  @keyframes glint { 0% { text-shadow: 0 0 12px currentColor; transform: scale(1.5); } 100% { text-shadow: none; transform: none; } }
+
+  .console .term-lines .prompt { color: var(--text-head); }
+  .console .term-lines .prompt::before { content: "> "; color: var(--accent); }
+  .console .term-lines .tool { color: var(--text); }
+  .console .term-lines .tool::before { content: "\25cf" " "; color: var(--state-running); }
+  .console .term-lines .dim { color: var(--text-dim); }
+  .console .term-lines .ok { color: var(--state-complete); }
+  .console .term-lines .bad { color: var(--state-failed); }
+  .console .cursor { display: inline-block; width: 7px; height: 13px; background: var(--accent); vertical-align: -2px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  @media (max-width: 600px) {
+    .console .pill { min-width: 150px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .console .pill[data-state="WAITING"], .console .cursor { animation: none; }
+  }
+</style>
+
+<script>
+  import { BADGE_LABELS, STATE_GLYPHS, type SessionState } from '../../../shared/states.ts';
+  import { createElement, prefersReducedMotion, runTimeline, type TimelineStep } from '../lib/dom.ts';
+
+  const SESSIONS: readonly (readonly [name: string, state: SessionState])[] = [
+    ['fix-auth-redirect', 'RUNNING'], ['migrate-billing-schema', 'RUNNING'], ['flaky-upload-test', 'RUNNING'],
+    ['dark-mode-tokens', 'COMPLETE'], ['bump-node-24', 'STARTING'],
+  ];
+  const TERMINAL_SCRIPT = [
+    ['prompt', 'fix the flaky upload test in web/'],
+    ['tool', 'Read tests/upload.test.ts'],
+    ['tool', 'Bash npm test -- upload'],
+    ['bad', '  1 failing: expected true, got false'],
+    ['dim', '  The assert runs before the stream ends.'],
+    ['tool', 'Edit tests/upload.test.ts'],
+    ['tool', 'Bash npm test -- upload'],
+    ['ok', '  42 passing'],
+    ['tool', 'Bash git commit -m "fix(web): await upload stream"'],
+    ['dim', 'Done. 1 file changed.'],
+  ] as const;
+  const CONSOLE_LOOP_MS = 14000;
+
+  function startLiveConsole(): void {
+    const rail = document.getElementById('rail');
+    const attention = document.getElementById('attn');
+    const terminalLines = document.getElementById('term-lines');
+    const review = document.getElementById('review');
+    const reviewEmpty = document.getElementById('review-empty');
+    const commit = document.getElementById('commit');
+    const toast = document.getElementById('toast');
+    if (!rail || !attention || !terminalLines || !review || !reviewEmpty || !commit || !toast) return;
+
+    const pillsByName = new Map<string, HTMLElement>();
+    for (const [name] of SESSIONS) {
+      const pill = createElement('div', 'pill');
+      pill.append(createElement('span', 'g'), createElement('span', 'n', name), createElement('span', 's'));
+      rail.append(pill);
+      pillsByName.set(name, pill);
+    }
+    pillsByName.get('flaky-upload-test')?.classList.add('selected');
+
+    const setState = (name: string, state: SessionState) => {
+      const pill = pillsByName.get(name);
+      if (!pill) return;
+      pill.dataset.state = state;
+      const glyph = pill.querySelector('.g');
+      const label = pill.querySelector('.s');
+      if (glyph) glyph.textContent = STATE_GLYPHS[state];
+      if (label) label.textContent = BADGE_LABELS[state];
+      pill.classList.remove('flash');
+      void pill.offsetWidth;
+      pill.classList.add('flash');
+      const waitingCount = [...pillsByName.values()].filter((candidate) => candidate.dataset.state === 'WAITING').length;
+      attention.dataset.count = String(waitingCount);
+      attention.textContent = waitingCount === 0 ? 'All clear' : `${waitingCount} needs you`;
+    };
+
+    const cursor = createElement('span', 'cursor');
+    const showLines = (count: number) => {
+      terminalLines.textContent = '';
+      for (const [kind, text] of TERMINAL_SCRIPT.slice(0, count)) terminalLines.append(createElement('div', kind, text));
+      terminalLines.append(cursor);
+    };
+
+    const showCommit = (isVisible: boolean) => {
+      commit.hidden = !isVisible;
+      reviewEmpty.hidden = isVisible;
+      if (!isVisible) {
+        review.classList.remove('ready');
+        return;
+      }
+      requestAnimationFrame(() => review.classList.add('ready'));
+    };
+
+    const resetConsole = () => {
+      for (const [name, state] of SESSIONS) setState(name, state);
+      showLines(1);
+      showCommit(false);
+      toast.classList.remove('show');
+    };
+
+    if (prefersReducedMotion()) {
+      for (const [name, state] of SESSIONS) setState(name, state);
+      setState('migrate-billing-schema', 'WAITING');
+      setState('bump-node-24', 'RUNNING');
+      setState('flaky-upload-test', 'COMPLETE');
+      showLines(TERMINAL_SCRIPT.length);
+      showCommit(true);
+      toast.classList.add('show');
+      return;
+    }
+
+    const consoleTimeline: TimelineStep[] = [
+      [700, () => showLines(2)],
+      [1500, () => showLines(3)],
+      [2300, () => showLines(4)],
+      [2600, () => setState('bump-node-24', 'RUNNING')],
+      [3300, () => showLines(5)],
+      [3800, () => {
+        setState('migrate-billing-schema', 'WAITING');
+        toast.classList.add('show');
+      }],
+      [4600, () => showLines(6)],
+      [5600, () => showLines(7)],
+      [6400, () => showLines(8)],
+      [6900, () => toast.classList.remove('show')],
+      [7400, () => showLines(9)],
+      [8200, () => {
+        showLines(10);
+        setState('flaky-upload-test', 'COMPLETE');
+        showCommit(true);
+      }],
+      [10200, () => setState('migrate-billing-schema', 'RUNNING')],
+      [11400, () => setState('fix-auth-redirect', 'COMPLETE')],
+    ];
+    runTimeline(consoleTimeline, CONSOLE_LOOP_MS, resetConsole);
+  }
+
+  startLiveConsole();
+</script>

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { ANIMALS } from '../public/nyan-animals.ts';
-import { deriveNyanGeometry } from '../public/nyan-geometry-core.ts';
+import { deriveNyanGeometry, nyanFlightStyleProperties } from '../public/nyan-geometry-core.ts';
 
 test('ANIMALS: 19 entries, all sprite/trail classes unique', () => {
   assert.equal(ANIMALS.length, 19);
@@ -50,6 +50,18 @@ test('deriveNyanGeometry: keeps vertical placement relative to the viewport acro
   const wideGeometry = deriveNyanGeometry({ viewportWidthPx: 1440, viewportHeightPx: 900, verticalProgress });
   const narrowGeometry = deriveNyanGeometry({ viewportWidthPx: 360, viewportHeightPx: 640, verticalProgress });
   assert.equal(wideGeometry.topPx / 900, narrowGeometry.topPx / 640);
+});
+
+test('nyanFlightStyleProperties: maps geometry onto the six nyan-fly custom properties', () => {
+  const geometry = { scale: 0.5, spriteWidthPx: 61.2, spriteHeightPx: 37.8, topPx: 120, startXpx: -648, endXpx: 2088 };
+  assert.deepEqual(nyanFlightStyleProperties(geometry, 1.5), [
+    ['--nyan-top', '120px'],
+    ['--nyan-scale', '0.75'],
+    ['--nyan-width', '61.2px'],
+    ['--nyan-height', '37.8px'],
+    ['--nyan-start-x', '-648px'],
+    ['--nyan-end-x', '2088px'],
+  ]);
 });
 
 function readDeclaration(css: string, selectorFragment: string, property: string) {

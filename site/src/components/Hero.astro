@@ -1,0 +1,118 @@
+---
+import { ANIMALS } from '../../../public/nyan-animals.ts';
+import LiveConsole from './LiveConsole.astro';
+
+const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, trail })));
+---
+<section class="hero" id="top">
+  <div class="sky" id="sky" aria-hidden="true" data-animals={skyAnimals}></div>
+  <div class="hero-copy">
+    <p class="eyebrow">Open source agent orchestrator</p>
+    <h1>Mission control for your <em>coding agents</em>.</h1>
+    <p class="lede">Run dozens of Claude Code, Codex and Grok sessions at once. Know which one needs you.</p>
+    <div class="install-line">
+      <code id="install-command">npx glimmervoid</code>
+      <button class="btn" type="button" id="copy-install">Copy</button>
+      <span class="copy-status" id="copy-status" role="status"></span>
+    </div>
+    <div class="hero-meta"><span>Windows, macOS, Linux</span><span>MIT</span><span>Runs locally</span></div>
+  </div>
+  <LiveConsole />
+</section>
+
+<style>
+  .hero { border-top: none; padding-block: 36px 72px; }
+  .hero-copy { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 18px; position: relative; z-index: 2; }
+  .lede { font-size: 16px; max-width: 46ch; color: var(--text); }
+  .install-line { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; align-items: center; max-width: 100%; }
+  .install-line code {
+    display: flex; align-items: center; gap: 10px; background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: 4px; padding: 10px 14px; font-size: 14px; max-width: 100%; overflow-x: auto; white-space: nowrap;
+  }
+  .install-line code::before { content: "$"; color: var(--accent-dim); }
+  .btn { font: inherit; font-size: 13px; cursor: pointer; background: transparent; color: var(--accent); border: 1px solid var(--accent-dim); border-radius: 4px; padding: 9px 18px; }
+  .btn:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .copy-status { font-size: 12px; color: var(--text-dim); min-width: 6ch; text-align: left; }
+  .hero-meta { font-size: 12px; color: var(--text-dim); display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 18px; }
+  .sky { position: absolute; inset: 0; pointer-events: none; z-index: 1; overflow: hidden; }
+  @media (prefers-reduced-motion: reduce) {
+    .sky { display: none; }
+  }
+</style>
+
+<script>
+  import { deriveNyanGeometry, nyanFlightStyleProperties } from '../../../public/nyan-geometry-core.ts';
+  import { createElement, prefersReducedMotion } from '../lib/dom.ts';
+
+  interface SkyAnimal {
+    sprite: string;
+    trail: string;
+  }
+
+  const FIRST_FLIGHT_DELAY_MS = 1500;
+  const FLIGHT_INTERVAL_MS = 11000;
+
+  function isSkyAnimal(candidate: unknown): candidate is SkyAnimal {
+    if (typeof candidate !== 'object' || candidate === null) return false;
+    return 'sprite' in candidate && typeof candidate.sprite === 'string' && 'trail' in candidate && typeof candidate.trail === 'string';
+  }
+
+  function readSkyAnimals(sky: HTMLElement): SkyAnimal[] {
+    const parsed: unknown = JSON.parse(sky.dataset.animals ?? '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isSkyAnimal);
+  }
+
+  function wireCopyButton(): void {
+    const copyButton = document.getElementById('copy-install');
+    const copyStatus = document.getElementById('copy-status');
+    const installCommand = document.getElementById('install-command');
+    if (!copyButton || !copyStatus || !installCommand) return;
+    const selectCommand = () => {
+      const range = document.createRange();
+      range.selectNodeContents(installCommand);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      copyStatus.textContent = 'Selected';
+    };
+    copyButton.addEventListener('click', () => {
+      if (!navigator.clipboard) {
+        selectCommand();
+        return;
+      }
+      navigator.clipboard.writeText(installCommand.textContent ?? '').then(() => {
+        copyStatus.textContent = 'Copied';
+      }, selectCommand);
+    });
+  }
+
+  function startSky(): void {
+    const sky = document.getElementById('sky');
+    if (!sky || prefersReducedMotion()) return;
+    const skyAnimals = readSkyAnimals(sky);
+    if (skyAnimals.length === 0) return;
+    const flyAnimal = () => {
+      const { sprite, trail } = skyAnimals[Math.floor(Math.random() * skyAnimals.length)];
+      const flight = createElement('div', 'nyan-flight');
+      flight.append(createElement('div', `nyan-trail ${trail}`), createElement('div', `nyan-sprite ${sprite}`));
+      const geometry = deriveNyanGeometry({ viewportWidthPx: sky.clientWidth, viewportHeightPx: sky.clientHeight, verticalProgress: 0 });
+      const skyGeometry = { ...geometry, scale: 1, topPx: 20 + Math.random() * 120 };
+      for (const [propertyName, value] of nyanFlightStyleProperties(skyGeometry, 1)) flight.style.setProperty(propertyName, value);
+      flight.style.top = 'var(--nyan-top)';
+      flight.style.left = '0';
+      flight.style.width = 'var(--nyan-width)';
+      flight.style.height = 'var(--nyan-height)';
+      flight.style.animation = `nyan-fly ${7 + Math.random() * 4}s linear`;
+      flight.addEventListener('animationend', (event) => {
+        if (event.target === flight) flight.remove();
+      });
+      sky.append(flight);
+    };
+    setTimeout(flyAnimal, FIRST_FLIGHT_DELAY_MS);
+    setInterval(flyAnimal, FLIGHT_INTERVAL_MS);
+  }
+
+  wireCopyButton();
+  startSky();
+</script>

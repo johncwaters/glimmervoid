@@ -25,7 +25,9 @@
     }
   },
   "javascript": {
-    "globals": ["__APP_VERSION__"]
+    "globals": [
+      "__APP_VERSION__"
+    ]
   },
   "linter": {
     "rules": {
@@ -51,7 +53,11 @@
   },
   "overrides": [
     {
-      "includes": ["**/*.ts", "**/*.mts", "**/*.cts"],
+      "includes": [
+        "**/*.ts",
+        "**/*.mts",
+        "**/*.cts"
+      ],
       "linter": {
         "rules": {
           "suspicious": {
@@ -87,7 +93,10 @@
       }
     },
     {
-      "includes": ["server/core/**", "session/core/**"],
+      "includes": [
+        "server/core/**",
+        "session/core/**"
+      ],
       "linter": {
         "rules": {
           "style": {
@@ -108,5 +117,8 @@
         }
       }
     }
-  ]
+  ],
+  "html": {
+    "experimentalFullSupportEnabled": true
+  }
 }

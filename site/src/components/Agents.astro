@@ -1,0 +1,22 @@
+<section id="agents">
+  <div class="section-head reveal">
+    <p class="eyebrow">Bring your own agent</p>
+    <h2>An orchestrator, not a harness.</h2>
+    <p>Your agents run unmodified, in real terminals.</p>
+  </div>
+  <div class="agents-row">
+    <div class="agent reveal"><span class="mono">CC</span><h3>Claude Code</h3><p>Full support</p></div>
+    <div class="agent reveal"><span class="mono">CX</span><h3>Codex CLI</h3><p>Hook status</p></div>
+    <div class="agent reveal"><span class="mono">GK</span><h3>Grok Build</h3><p>Hook status</p></div>
+    <div class="agent reveal"><span class="mono blank">&gt;_</span><h3>Any CLI</h3><p>Title status</p></div>
+  </div>
+</section>
+
+<style>
+  .agents-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .agent { border: 1px solid var(--border); border-radius: 6px; padding: 18px; display: flex; flex-direction: column; gap: 10px; background: var(--bg-card); min-width: 0; }
+  .agent .mono { width: 40px; height: 40px; border-radius: 6px; border: 1px solid var(--accent-dim); display: grid; place-items: center; color: var(--accent); font-weight: 700; }
+  .agent .mono.blank { border-style: dashed; border-color: var(--border); color: var(--text-dim); }
+  .agent p { font-size: 12px; color: var(--text-dim); }
+  @media (max-width: 820px) { .agents-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+</style>

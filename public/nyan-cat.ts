@@ -1,6 +1,6 @@
 import { isPhoneLayout } from './form-factor.ts';
 import { ANIMALS } from './nyan-animals.ts';
-import { deriveNyanGeometry } from './nyan-geometry-core.ts';
+import { deriveNyanGeometry, nyanFlightStyleProperties } from './nyan-geometry-core.ts';
 import { deriveFlyingAnimalLaunch, flyingAnimalsFlightBlockReason } from './flying-animals-core.ts';
 import { getFlyingAnimalsOptions, isFlyingAnimalsEnabled } from './ui-prefs.ts';
 
@@ -19,12 +19,7 @@ function updateFlightGeometry() {
     viewportHeightPx: document.documentElement.clientHeight,
     verticalProgress,
   });
-  flightElement.style.setProperty('--nyan-top', `${geometry.topPx}px`);
-  flightElement.style.setProperty('--nyan-scale', String(geometry.scale * flightScale));
-  flightElement.style.setProperty('--nyan-width', `${geometry.spriteWidthPx}px`);
-  flightElement.style.setProperty('--nyan-height', `${geometry.spriteHeightPx}px`);
-  flightElement.style.setProperty('--nyan-start-x', `${geometry.startXpx}px`);
-  flightElement.style.setProperty('--nyan-end-x', `${geometry.endXpx}px`);
+  for (const [propertyName, value] of nyanFlightStyleProperties(geometry, flightScale)) flightElement.style.setProperty(propertyName, value);
 }
 
 function clearScheduledFlight() {

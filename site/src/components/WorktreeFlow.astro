@@ -1,0 +1,73 @@
+<section id="worktrees">
+  <div class="section-head reveal">
+    <p class="eyebrow">Review and merge</p>
+    <h2>Every agent gets its own worktree.</h2>
+    <p>Review each diff. Merge in one click. Conflicts go back to the agent that wrote them.</p>
+  </div>
+  <div class="diagram git reveal">
+    <svg viewBox="0 0 860 250" role="img" aria-label="Three agent branches fork from main, add commits and merge back. The third branch hits a conflict, parks, is resolved in its session, then merges.">
+      <text class="lbl-main" x="20" y="36">main</text>
+      <path class="main" d="M70 40 L 840 40"/>
+      <path id="b1" class="branch b1" pathLength="1" d="M100 40 C 130 40, 130 95, 160 95 L 300 95 C 330 95, 330 40, 360 40"/>
+      <path id="b2" class="branch b2" pathLength="1" d="M220 40 C 250 40, 250 150, 280 150 L 450 150 C 480 150, 480 40, 510 40"/>
+      <path id="b3" class="branch b3" pathLength="1" d="M330 40 C 360 40, 360 205, 390 205 L 700 205 C 730 205, 730 40, 760 40"/>
+      <text class="lbl" x="20" y="99">fix-auth-redirect</text>
+      <text class="lbl" x="20" y="154">flaky-upload-test</text>
+      <text class="lbl" x="20" y="209">migrate-billing</text>
+      <g id="b1c1" class="dot"><circle class="commit-dot b1" cx="200" cy="95" r="6"/></g>
+      <g id="b1c2" class="dot"><circle class="commit-dot b1" cx="260" cy="95" r="6"/></g>
+      <g id="b1m" class="dot"><circle class="merged" cx="360" cy="40" r="7"/></g>
+      <g id="b2c1" class="dot"><circle class="commit-dot b2" cx="330" cy="150" r="6"/></g>
+      <g id="b2c2" class="dot"><circle class="commit-dot b2" cx="400" cy="150" r="6"/></g>
+      <g id="b2m" class="dot"><circle class="merged" cx="510" cy="40" r="7"/></g>
+      <g id="b3c1" class="dot"><circle class="commit-dot b3" cx="470" cy="205" r="6"/></g>
+      <g id="b3p" class="dot"><path class="parked" d="M560 193 L 572 205 L 560 217 L 548 205 Z"/><text class="note parked-note" x="582" y="190">conflict: parked</text></g>
+      <g id="b3r" class="dot"><circle class="commit-dot b3" cx="640" cy="205" r="6"/><text class="note resolved-note" x="560" y="240">resolved in session</text></g>
+      <g id="b3m" class="dot"><circle class="merged" cx="760" cy="40" r="7"/></g>
+    </svg>
+  </div>
+</section>
+
+<style>
+  .git .main { stroke: var(--text-dim); stroke-width: 3; fill: none; }
+  .git .branch { fill: none; stroke-width: 2.5; stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset 900ms ease-out; }
+  .git .branch.on { stroke-dashoffset: 0; }
+  .git .b1 { stroke: var(--state-running); }
+  .git .b2 { stroke: var(--state-starting); }
+  .git .b3 { stroke: var(--accent); }
+  .git .dot { opacity: 0; transition: opacity 300ms; }
+  .git .dot.on { opacity: 1; }
+  .git .commit-dot { fill: var(--bg-card); stroke-width: 2.5; }
+  .git .lbl { font-size: 11px; fill: var(--text-dim); }
+  .git .lbl-main { font-size: 12px; fill: var(--text-head); font-weight: 700; }
+  .git .parked { fill: var(--state-waiting); }
+  .git .merged { fill: var(--state-complete); }
+  .git .note { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; }
+  .git .parked-note { fill: var(--state-waiting); }
+  .git .resolved-note { fill: var(--accent); }
+</style>
+
+<script>
+  import { prefersReducedMotion, runTimeline, type TimelineStep } from '../lib/dom.ts';
+
+  const GIT_STEPS = [
+    [200, 'b1'], [900, 'b1c1'], [1300, 'b2'], [1700, 'b1c2'], [2100, 'b3'], [2500, 'b2c1'], [3000, 'b1m'],
+    [3400, 'b3c1'], [3800, 'b2c2'], [4500, 'b2m'], [5200, 'b3p'], [7000, 'b3r'], [8000, 'b3m'],
+  ] as const;
+  const GIT_LOOP_MS = 11000;
+
+  function startWorktreeFlow(): void {
+    const gitParts = GIT_STEPS.map(([, id]) => document.getElementById(id));
+    const setAllVisible = (isVisible: boolean) => {
+      for (const part of gitParts) part?.classList.toggle('on', isVisible);
+    };
+    if (prefersReducedMotion()) {
+      setAllVisible(true);
+      return;
+    }
+    const timeline: TimelineStep[] = GIT_STEPS.map(([atMs], index) => [atMs, () => gitParts[index]?.classList.add('on')]);
+    runTimeline(timeline, GIT_LOOP_MS, () => setAllVisible(false));
+  }
+
+  startWorktreeFlow();
+</script>

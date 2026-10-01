@@ -1,0 +1,35 @@
+---
+import { ANIMALS } from '../../../public/nyan-animals.ts';
+import { deriveNyanGeometry } from '../../../public/nyan-geometry-core.ts';
+
+const geometry = deriveNyanGeometry({ viewportWidthPx: 1440, viewportHeightPx: 900, verticalProgress: 0 });
+const spriteSizeStyle = `--nyan-width: ${geometry.spriteWidthPx}px; --nyan-height: ${geometry.spriteHeightPx}px`;
+---
+<section id="animals">
+  <div class="section-head reveal">
+    <p class="eyebrow">One more thing</p>
+    <h2>{ANIMALS.length} animals, on call.</h2>
+    <p>Optional pixel animals cross your dashboard while agents work. Pick your favorites in Settings.</p>
+  </div>
+  <div class="animal-grid">
+    {ANIMALS.map(({ name, sprite, trail }) => (
+      <div class="animal-tile">
+        <div class="flying-animal-preview" aria-hidden="true" style={spriteSizeStyle}>
+          <div class="flying-animal-preview-stage">
+            <div class={`nyan-trail ${trail}`}></div>
+            <div class={`nyan-sprite ${sprite}`}></div>
+          </div>
+        </div>
+        <div class="name">{name}</div>
+      </div>
+    ))}
+  </div>
+</section>
+
+<style>
+  .animal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .animal-tile { border: 1px solid var(--border-dim); border-radius: 5px; background: var(--bg-card); padding: 10px 12px 12px; min-width: 0; }
+  .animal-tile .name { font-size: 12px; color: var(--text-dim); }
+  .flying-animal-preview { position: relative; height: 64px; overflow: hidden; }
+  .flying-animal-preview-stage { position: absolute; left: calc(65% - var(--nyan-width) / 2); top: 13px; width: var(--nyan-width); height: var(--nyan-height); }
+</style>
