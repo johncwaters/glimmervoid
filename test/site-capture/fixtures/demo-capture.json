@@ -1,0 +1,27 @@
+{
+  "viewport": { "width": 1440, "height": 900 },
+  "speed": 1.5,
+  "maxIdleGapMs": 1200,
+  "projects": { "web": "demo/web", "billing": "demo/billing", "ui": "demo/ui", "api": "demo/api" },
+  "redactions": [
+    { "from": "john@johncwaters.com", "to": "demo@example.com" },
+    { "from": "/home/jwaters", "to": "/home/demo" },
+    { "from": "John C. Waters", "to": "Demo Developer" },
+    { "from": "johncwaters", "to": "demo" },
+    { "from": "jwaters", "to": "demo" },
+    { "from": "John", "to": "Demo" },
+    { "from": "Waters", "to": "Doe" }
+  ],
+  "sessions": [
+    { "name": "flaky-upload-test", "project": "web", "recording": "../recordings/flaky-upload-test.jsonl", "patch": "../recordings/flaky-upload-test.patch", "patchAtEvent": "stop" },
+    { "name": "migrate-billing-schema", "project": "billing", "recording": "../recordings/migrate-billing-schema.jsonl" },
+    { "name": "rename-color-token", "project": "ui", "recording": "../recordings/rename-color-token.jsonl", "patch": "../recordings/rename-color-token.patch", "patchAtEvent": "stop" },
+    { "name": "bump-node-22", "project": "api", "recording": "../recordings/bump-node-22.jsonl", "patch": "../recordings/bump-node-22.patch", "patchAtEvent": "stop" }
+  ],
+  "shots": [
+    { "atMs": 10900, "name": "hero", "selectSession": "rename-color-token" },
+    { "atMs": 12300, "name": "needs-input", "selectSession": "migrate-billing-schema" },
+    { "atMs": 13500, "name": "review", "selectSession": "flaky-upload-test" }
+  ],
+  "videoMs": 14000
+}

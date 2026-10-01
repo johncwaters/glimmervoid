@@ -1,25 +1,16 @@
-import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { promisify } from 'node:util';
-import type { Browser, BrowserContext, Page } from 'playwright-core';
-import type WebSocket from 'ws';
-import type { ViteDevServer } from 'vite';
-import { z } from 'zod';
+import type { Page } from 'playwright-core';
+import type { z } from 'zod';
 import { writeJsonAtomic } from '../../server/json-file.ts';
-import { SessionCardFields } from '../../shared/contracts/control-messages.ts';
 import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts';
-import { CARD_REGISTRY_URL, readGrid } from '../browser/probe.ts';
-import { connectControl, findFreeHighPort, removeHarnessTempDirectory, safeTextTail } from '../support/backend-harness.ts';
+import { safeTextTail } from '../support/backend-harness.ts';
+import { addSession, cancellation, createProject, listProcessesMentioning, prepareIsolatedEnvironment, quoteShell, refuseUnsupportedLaunch, runIsolatedDashboard, selectSession } from './isolated-glimmervoid.ts';
 import { ReplayStatus, parseCaptureRecording, redactRecording, validateManifest } from './manifest-core.ts';
 import type { ReplayEnvironment } from './manifest-core.ts';
 
-const repoRoot = path.resolve(import.meta.dirname, '../..');
 const replayAgentPath = path.join(import.meta.dirname, 'replay-agent.ts');
-const runCommand = promisify(execFile);
-const cancellation = new AbortController();
 
 function parseArguments(argv: string[]): { manifestPath: string; outputDirectory: string; executablePath?: string } {
   const manifestPath = argv[0];
@@ -36,76 +27,6 @@ function parseArguments(argv: string[]): { manifestPath: string; outputDirectory
     throw new Error(`unknown argument ${flag}`);
   }
   return { manifestPath: path.resolve(manifestPath), outputDirectory, executablePath };
-}
-
-async function git(repositoryPath: string, args: string[]): Promise<string> {
-  const { stdout } = await runCommand('git', ['-C', repositoryPath, '-c', 'core.hooksPath=/dev/null', ...args], {
-    timeout: 30_000, signal: cancellation.signal,
-    env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
-  });
-  return stdout;
-}
-
-async function createProject(tempDirectory: string, index: number): Promise<string> {
-  const projectPath = path.join(tempDirectory, 'projects', `project-${index}`);
-  const originPath = path.join(tempDirectory, 'origins', `project-${index}.git`);
-  await fs.mkdir(projectPath, { recursive: true });
-  await fs.mkdir(originPath, { recursive: true });
-  await git(originPath, ['init', '--bare', '--initial-branch=main']);
-  await git(projectPath, ['init', '--initial-branch=main']);
-  await git(projectPath, ['config', 'user.name', 'Site Capture']);
-  await git(projectPath, ['config', 'user.email', 'capture@example.invalid']);
-  await git(projectPath, ['commit', '--allow-empty', '-m', 'Capture baseline']);
-  await git(projectPath, ['remote', 'add', 'origin', originPath]);
-  await git(projectPath, ['push', '--set-upstream', 'origin', 'main']);
-  return projectPath;
-}
-
-async function addSession(socket: WebSocket, name: string, projectPath: string): Promise<string> {
-  const card = await new Promise<SessionCardFields>((resolve, reject) => {
-    const finish = (error?: Error, session?: SessionCardFields) => {
-      clearTimeout(timeout);
-      socket.off('message', onMessage);
-      socket.off('error', onError);
-      socket.off('close', onClose);
-      if (error) { reject(error); return; }
-      if (session) resolve(session);
-    };
-    const onError = (error: Error) => finish(error);
-    const onClose = () => finish(new Error('control socket closed while adding session'));
-    const onMessage = (raw: Buffer) => {
-      try {
-        const frame = z.object({ type: z.string(), session: z.string().optional(), message: z.string().optional(), error: z.string().optional() }).passthrough().parse(JSON.parse(raw.toString()));
-        if (frame.type === 'error') { finish(new Error(frame.message ?? frame.error ?? 'add-session failed')); return; }
-        if (frame.type !== 'session-added' || frame.session !== name) return;
-        finish(undefined, SessionCardFields.parse(frame));
-      } catch (error) {
-        finish(error instanceof Error ? error : new Error(String(error)));
-      }
-    };
-    const timeout = setTimeout(() => finish(new Error(`session ${name} was not created within 30s`)), 30_000);
-    socket.on('message', onMessage);
-    socket.once('error', onError);
-    socket.once('close', onClose);
-    socket.send(JSON.stringify({ type: 'add-session', name, path: projectPath, agent: 'claude-code', dangerouslySkipPermissions: false }));
-  });
-  return card.id;
-}
-
-async function selectSession(page: Page, sessionId: string): Promise<void> {
-  const phoneRow = page.locator(`button.phone-row[data-id="${sessionId}"]`);
-  const selectDesktop = async () => {
-    await page.locator('#tab-focus').click();
-    await page.locator(`button.focus-pill[data-id="${sessionId}"]`).click();
-  };
-  await (await phoneRow.isVisible() ? phoneRow.click() : selectDesktop());
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    const grid = await page.evaluate(readGrid, { sessionId, registryUrl: CARD_REGISTRY_URL });
-    if (grid?.dataWsState === 1 && grid.cols === grid.ptySize?.cols && grid.rows === grid.ptySize?.rows) return;
-    await sleep(20, undefined, { signal: cancellation.signal });
-  }
-  throw new Error(`terminal ${sessionId} did not negotiate its PTY size`);
 }
 
 async function refreshReview(page: Page, sessionId: string): Promise<void> {
@@ -140,8 +61,7 @@ async function waitUntil(atMs: number, environment: ReplayEnvironment): Promise<
 
 async function waitForReplayExit(tempDirectory: string): Promise<void> {
   for (let attempt = 0; attempt < 25; attempt += 1) {
-    const { stdout } = await runCommand('ps', ['-Ao', 'pid,args'], { maxBuffer: 8 * 1024 * 1024 });
-    const survivors = stdout.split('\n').filter((line) => line.includes(replayAgentPath) && line.includes(tempDirectory));
+    const survivors = (await listProcessesMentioning([replayAgentPath])).filter((line) => line.includes(tempDirectory));
     if (survivors.length === 0) { console.log('cleanup: no surviving replay agents'); return; }
     await sleep(200);
   }
@@ -149,8 +69,7 @@ async function waitForReplayExit(tempDirectory: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  if (process.platform === 'win32') throw new Error('site capture requires the POSIX shim on macOS or Linux');
-  if (['build', 'start', 'prepare', 'postinstall'].includes(process.env.npm_lifecycle_event ?? '')) throw new Error('site capture refuses build or server lifecycle scripts');
+  refuseUnsupportedLaunch('site capture');
   const options = parseArguments(process.argv.slice(2));
   const manifestDirectory = path.dirname(options.manifestPath);
   const manifest = validateManifest(JSON.parse(await fs.readFile(options.manifestPath, 'utf8')));
@@ -164,75 +83,33 @@ async function main(): Promise<void> {
     }
     return { ...session, recording, patch };
   }));
+  manifest.projects = Object.fromEntries(Object.entries(manifest.projects).map(([projectName, seedDirectory]) => [projectName, path.resolve(manifestDirectory, seedDirectory)]));
   await fs.mkdir(options.outputDirectory, { recursive: true });
-  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-site-capture-'));
-  const environment: ReplayEnvironment = { manifest, sessionsById: {}, tempDirectory };
-  const savedEnvironment = { ...process.env };
-  const restoreTranscriptHomes = isolateTranscriptHomes(tempDirectory);
-  let browser: Browser | undefined;
-  let context: BrowserContext | undefined;
-  let vite: ViteDevServer | undefined;
-  let socket: WebSocket | undefined;
-  let cleanupPromise: Promise<void> | undefined;
-  const cleanUp = (): Promise<void> => {
-    if (cleanupPromise) return cleanupPromise;
-    cleanupPromise = (async () => {
-      const failures: unknown[] = [];
-      for (const close of [async () => { if (context) await context.close(); }, async () => { if (browser) await browser.close(); },
-        async () => { socket?.terminate(); if (vite) await vite.close(); }, async () => waitForReplayExit(tempDirectory)]) {
-        try { await close(); } catch (error) { failures.push(error); }
-      }
-      removeHarnessTempDirectory(tempDirectory);
-      restoreTranscriptHomes();
-      for (const key of Object.keys(process.env)) if (!(key in savedEnvironment)) delete process.env[key];
-      Object.assign(process.env, savedEnvironment);
-      if (failures.length > 0) throw new AggregateError(failures, 'capture cleanup failed');
-    })();
-    return cleanupPromise;
-  };
-  const onSignal = () => cancellation.abort();
-  process.once('SIGINT', onSignal);
-  process.once('SIGTERM', onSignal);
-  try {
+  await runIsolatedDashboard({
+    label: 'site capture',
+    tempDirectoryPrefix: 'glimmervoid-site-capture-',
+    executablePath: options.executablePath,
+    isolateEnvironment: async (tempDirectory) => { isolateTranscriptHomes(tempDirectory); },
+    waitForAgentExit: waitForReplayExit,
+  }, async ({ tempDirectory, startServer, openDashboard, closeBrowserContext }) => {
+    const environment: ReplayEnvironment = { manifest, sessionsById: {}, tempDirectory };
+    const savedPath = process.env.PATH ?? '';
     const projectPaths = new Map<string, string>();
     for (const session of manifest.sessions) {
       if (projectPaths.has(session.project)) continue;
-      projectPaths.set(session.project, await createProject(tempDirectory, projectPaths.size));
+      const seedDirectory = manifest.projects[session.project];
+      const directoryName = seedDirectory ? session.project : `project-${projectPaths.size}`;
+      projectPaths.set(session.project, await createProject(tempDirectory, directoryName, seedDirectory));
     }
-    const port = await findFreeHighPort();
-    const configPath = path.join(tempDirectory, 'config.json');
-    await writeJsonAtomic(configPath, {
-      port, projects: [], teams: [], repoRoots: [...projectPaths.values()],
-      worktreeRoot: path.join(tempDirectory, 'worktrees'), integrationBranch: 'main',
-      autoResume: false, worktreeAutoRebase: false, worktreeSyncOnStart: false,
-      branchGc: { enabled: false }, usage: { enabled: false }, capture: { enabled: false },
-      recordSignals: false, postTurnChecks: { enabled: false }, checkForUpdates: false,
-      planReview: { enabled: false }, remote: { enabled: false },
-      posthog: { enabled: false }, telegram: { enabled: false }, teamReview: { enabled: false },
-    });
-    const captureHome = path.join(tempDirectory, 'home');
-    await fs.mkdir(captureHome);
+    const { port, configPath } = await prepareIsolatedEnvironment({ tempDirectory, repoRoots: [...projectPaths.values()], recordSessions: false });
     const mapPath = path.join(tempDirectory, 'replay-map.json');
     await writeJsonAtomic(mapPath, environment);
-    Object.assign(process.env, {
-      GLIMMERVOID_HOME: captureHome, GLIMMERVOID_CONFIG: configPath, GLIMMERVOID_PORT: String(port),
-      GLIMMERVOID_SITE_CAPTURE_MAP: mapPath, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
-    });
+    process.env.GLIMMERVOID_SITE_CAPTURE_MAP = mapPath;
     const shimDirectory = path.join(tempDirectory, 'shim');
     await fs.mkdir(shimDirectory);
-    const quoteShell = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
     await fs.writeFile(path.join(shimDirectory, 'claude'), `#!/bin/sh\nexec ${quoteShell(process.execPath)} ${quoteShell(replayAgentPath)} --site-capture-owner ${quoteShell(tempDirectory)} "$@"\n`, { mode: 0o755 });
-    process.env.PATH = `${shimDirectory}${path.delimiter}${savedEnvironment.PATH ?? ''}`;
-    const signalListeners = new Map(['SIGINT', 'SIGTERM'].map((signal) => [signal, new Set(process.listeners(signal))]));
-    const stdinEndListeners = new Set(process.stdin.listeners('end'));
-    const { createServer } = await import('vite');
-    vite = await createServer({ configFile: path.join(repoRoot, 'vite.config.ts'), server: { port, strictPort: true, host: '127.0.0.1' }, logLevel: 'warn', clearScreen: false });
-    for (const [signal, previousListeners] of signalListeners) {
-      for (const listener of process.listeners(signal)) if (!previousListeners.has(listener)) process.off(signal, listener);
-    }
-    for (const listener of process.stdin.listeners('end')) if (!stdinEndListeners.has(listener)) process.stdin.off('end', listener);
-    await vite.listen();
-    socket = await connectControl(port);
+    process.env.PATH = `${shimDirectory}${path.delimiter}${savedPath}`;
+    const { socket } = await startServer(port, configPath);
     const sessionIds = new Map<string, string>();
     for (const session of manifest.sessions) {
       const projectPath = projectPaths.get(session.project);
@@ -243,12 +120,7 @@ async function main(): Promise<void> {
       await writeJsonAtomic(mapPath, environment);
       console.log(`session: ${session.name} (${session.project})`);
     }
-    const { chromium } = await import('playwright-core');
-    browser = await chromium.launch({ headless: true, executablePath: options.executablePath, handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false });
-    context = await browser.newContext({ viewport: manifest.viewport, recordVideo: { dir: path.join(tempDirectory, 'video'), size: manifest.viewport } });
-    const page = await context.newPage();
-    await page.goto(`http://127.0.0.1:${port}/`, { timeout: 60_000 });
-    await page.locator('body.app-ready').waitFor({ timeout: 60_000 });
+    const page = await openDashboard(port, { viewport: manifest.viewport, recordVideo: { dir: path.join(tempDirectory, 'video'), size: manifest.viewport } });
     for (const sessionId of sessionIds.values()) await selectSession(page, sessionId);
     const firstId = sessionIds.values().next().value;
     if (firstId) await selectSession(page, firstId);
@@ -287,16 +159,11 @@ async function main(): Promise<void> {
     console.log(`replay: ${finalStatuses.filter((status) => status?.phase === 'complete').length} completed, ${finalStatuses.length} agents alive`);
     const video = page.video();
     if (!video) throw new Error('Playwright did not create a video');
-    await context.close();
-    context = undefined;
+    await closeBrowserContext();
     const videoPath = path.join(options.outputDirectory, 'capture.webm');
     await video.saveAs(videoPath);
     console.log(`video: ${videoPath} (${(await fs.stat(videoPath)).size} bytes)`);
-  } finally {
-    await cleanUp();
-    process.off('SIGINT', onSignal);
-    process.off('SIGTERM', onSignal);
-  }
+  });
 }
 
 try {

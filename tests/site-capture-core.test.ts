@@ -2,10 +2,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { compressTimeline, findHookEndpoint, parseCaptureRecording, redactRecording, redactSameLength, validateManifest } from '../test/site-capture/manifest-core.ts';
+import {
+  classifyClaudeStartup, compressTimeline, findHookEndpoint, hasRunSettled, isRecordingClosed, parseCaptureRecording, redactRecording, redactSameLength, validateManifest, validateRecordManifest,
+} from '../test/site-capture/manifest-core.ts';
 
 const fixtureDirectory = path.resolve(import.meta.dirname, '../test/site-capture/fixtures');
 const sampleManifest: unknown = JSON.parse(fs.readFileSync(path.join(fixtureDirectory, 'sample-manifest.json'), 'utf8'));
+const demoRecordManifest: unknown = JSON.parse(fs.readFileSync(path.join(fixtureDirectory, 'demo-record.json'), 'utf8'));
+const demoCaptureManifest: unknown = JSON.parse(fs.readFileSync(path.join(fixtureDirectory, 'demo-capture.json'), 'utf8'));
 
 test('capture manifest defaults replay settings and patch event', () => {
   const manifest = validateManifest({ viewport: { width: 1280, height: 800 }, sessions: [{ name: 'Capture', project: 'demo', recording: 'capture.jsonl' }], videoMs: 1000 });
@@ -122,4 +126,81 @@ test('hook endpoint discovery preserves bearer query and supports both settings 
   assert.throws(() => findHookEndpoint([], settings));
   assert.throws(() => findHookEndpoint(['--settings', 'file'], { hooks: {} }));
   assert.throws(() => findHookEndpoint(['--settings', 'file'], { hooks: { Stop: [{ hooks: [{ type: 'http', url: 'https://example.com/hook/session/Stop' }] }] } }));
+});
+
+test('capture manifest defaults to unseeded projects and accepts slug-named seed directories', () => {
+  assert.deepEqual(validateManifest(sampleManifest).projects, {});
+  const manifest = validateManifest({ ...validateManifest(sampleManifest), projects: { web: 'demo/web' } });
+  assert.deepEqual(manifest.projects, { web: 'demo/web' });
+  assert.throws(() => validateManifest({ ...manifest, projects: { 'Web App': 'demo/web' } }));
+});
+
+test('demo record and capture manifests stay valid and seed every project from an existing directory', () => {
+  const recordManifest = validateRecordManifest(demoRecordManifest);
+  const captureManifest = validateManifest(demoCaptureManifest);
+  for (const seedDirectory of [...Object.values(recordManifest.projects), ...Object.values(captureManifest.projects)]) {
+    assert.ok(fs.statSync(path.join(fixtureDirectory, seedDirectory)).isDirectory(), seedDirectory);
+  }
+  assert.deepEqual(captureManifest.projects, recordManifest.projects);
+  assert.deepEqual(captureManifest.viewport, recordManifest.viewport);
+});
+
+test('record manifest defaults model, permissions, time budget and output directory', () => {
+  const manifest = validateRecordManifest({ viewport: { width: 1440, height: 900 }, projects: { web: 'demo/web' }, sessions: [{ name: 'fix-upload', project: 'web', task: 'Fix the test.' }] });
+  assert.equal(manifest.model, 'sonnet');
+  assert.equal(manifest.outputDirectory, '../recordings');
+  assert.equal(manifest.sessions[0]?.dangerouslySkipPermissions, false);
+  assert.equal(manifest.sessions[0]?.maxMinutes, 5);
+});
+
+test('record manifest refuses unseeded projects, duplicate or unsafe names, multi-line tasks and runaway budgets', () => {
+  const manifest = validateRecordManifest(demoRecordManifest);
+  const [firstSession] = manifest.sessions;
+  assert.ok(firstSession);
+  assert.throws(() => validateRecordManifest({ ...manifest, sessions: [{ ...firstSession, project: 'missing' }] }), /project has no seed directory/);
+  assert.throws(() => validateRecordManifest({ ...manifest, sessions: [firstSession, firstSession] }), /duplicate session name/);
+  assert.throws(() => validateRecordManifest({ ...manifest, sessions: [{ ...firstSession, name: '../escape' }] }));
+  assert.throws(() => validateRecordManifest({ ...manifest, sessions: [{ ...firstSession, task: 'first line\nsecond line' }] }), /one line/);
+  assert.throws(() => validateRecordManifest({ ...manifest, sessions: [{ ...firstSession, task: '   ' }] }));
+  assert.throws(() => validateRecordManifest({ ...manifest, sessions: [{ ...firstSession, maxMinutes: 31 }] }));
+  assert.throws(() => validateRecordManifest({ ...manifest, model: 'sonnet; rm -rf' }));
+  assert.throws(() => validateRecordManifest({ ...manifest, sessions: [] }));
+});
+
+test('startup screen spots the folder trust prompt and its selected answer before the input prompt that shares its glyph', () => {
+  const promptGlyph = String.fromCharCode(0x276f);
+  assert.equal(classifyClaudeStartup([' Accessing workspace:', ` ${promptGlyph} No, exit`, '   Yes, I trust this folder']), 'trust-prompt');
+  assert.equal(classifyClaudeStartup(['   Yes, I trust', ' this folder']), 'trust-prompt');
+  assert.equal(classifyClaudeStartup(['   No, exit', ` ${promptGlyph} Yes, I trust this folder`]), 'trust-accept-selected');
+  assert.equal(classifyClaudeStartup([' Claude Code', `${promptGlyph} Try "edit <filepath> to..."`]), 'ready');
+  assert.equal(classifyClaudeStartup([promptGlyph]), 'ready');
+  assert.equal(classifyClaudeStartup([`${promptGlyph}${String.fromCharCode(0xa0)}Try "how do I log an error?"`]), 'ready');
+  assert.equal(classifyClaudeStartup(['', ' Claude Code']), 'starting');
+  assert.equal(classifyClaudeStartup([]), 'starting');
+});
+
+test('a run settles only once it has worked and its latest state is a resting one', () => {
+  assert.equal(hasRunSettled([]), false);
+  assert.equal(hasRunSettled(['IDLE']), false);
+  assert.equal(hasRunSettled(['IDLE', 'RUNNING']), false);
+  assert.equal(hasRunSettled(['IDLE', 'RUNNING', 'WAITING']), true);
+  assert.equal(hasRunSettled(['RUNNING', 'COMPLETE']), true);
+  assert.equal(hasRunSettled(['RUNNING', 'WAITING', 'RUNNING']), false);
+});
+
+test('capture recording drops recorder state, decision, input and footer records that replay never plays', () => {
+  const recorderOnlyLines = ['{"type":"state","ts":1,"event":"user_start"}', '{"type":"decision","ts":1,"event":null}', '{"type":"input","ts":1,"data":"typed"}', '{"type":"footer","ts":4}'];
+  const records = parseCaptureRecording([...recorderOnlyLines, '{"type":"data","ts":2,"data":"a"}', '{"type":"hook","ts":3,"event":"stop"}'].join('\n'));
+  assert.deepEqual(records.map((record) => record.type), ['data', 'hook']);
+  assert.throws(() => parseCaptureRecording('{"type":"data","ts":2,"data":"a"}\n{"type":"hook","ts":3,"event":"../stop"}'));
+});
+
+test('isRecordingClosed reads only the last newline-terminated recording line', () => {
+  const header = `${JSON.stringify({ type: 'header', agent: 'claude-code' })}\n`;
+  const footer = `${JSON.stringify({ type: 'footer', ts: 2 })}\n`;
+  assert.equal(isRecordingClosed(`${header}${footer}`), true);
+  assert.equal(isRecordingClosed(`${header}${JSON.stringify({ type: 'data', ts: 1, data: 'x' })}\n`), false);
+  assert.equal(isRecordingClosed(`${header}{"type":"foo`), false);
+  assert.equal(isRecordingClosed(`${header}{"type":"foo\n`), false);
+  assert.equal(isRecordingClosed(''), false);
 });

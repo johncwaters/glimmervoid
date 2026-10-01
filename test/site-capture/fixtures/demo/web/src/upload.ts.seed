@@ -1,0 +1,14 @@
+export interface UploadReceipt {
+  file: string;
+  url: string;
+}
+
+export type SendFile = (file: string) => Promise<UploadReceipt>;
+
+export async function uploadAll(files: string[], send: SendFile): Promise<UploadReceipt[]> {
+  const receipts: UploadReceipt[] = [];
+  await Promise.all(files.map(async (file) => {
+    receipts.push(await send(file));
+  }));
+  return receipts;
+}
