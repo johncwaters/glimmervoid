@@ -1,0 +1,98 @@
+name: release-tarball
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to attach the tarball to, for example v0.28.2
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-tarball-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  build:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: tagged commit is on main
+        shell: bash
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::tag $RELEASE_TAG points at $(git rev-parse HEAD), which is not on origin/main"
+            exit 1
+          fi
+      - name: tag matches package version
+        shell: bash
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          if [ "$RELEASE_TAG" != "v$PACKAGE_VERSION" ]; then
+            echo "::error::tag $RELEASE_TAG does not match package.json version v$PACKAGE_VERSION"
+            exit 1
+          fi
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: pack
+        shell: bash
+        run: node scripts/pack-release-tarballs.ts "$RUNNER_TEMP/release-assets"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-tarballs
+          path: ${{ runner.temp }}/release-assets/*.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  upload:
+    needs: build
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-tarballs
+          path: ${{ runner.temp }}/release-assets
+      - name: attach missing assets to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          EXISTING_ASSETS=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          shopt -s nullglob
+          PACKED_ASSETS=("$RUNNER_TEMP"/release-assets/*.tgz)
+          if [ "${#PACKED_ASSETS[@]}" -ne 2 ]; then
+            echo "::error::expected exactly two packed release assets, found ${#PACKED_ASSETS[@]}"
+            exit 1
+          fi
+          for ASSET_PATH in "${PACKED_ASSETS[@]}"; do
+            ASSET_NAME=$(basename "$ASSET_PATH")
+            if grep -Fxq "$ASSET_NAME" <<< "$EXISTING_ASSETS"; then
+              echo "$ASSET_NAME is already attached to $RELEASE_TAG, leaving it untouched"
+              continue
+            fi
+            gh release upload "$RELEASE_TAG" "$ASSET_PATH" --repo "$GITHUB_REPOSITORY"
+          done

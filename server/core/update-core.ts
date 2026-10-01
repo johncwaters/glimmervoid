@@ -1,17 +1,20 @@
+import { InstallFlavor } from '../../shared/contracts/control-messages.ts';
 import type { UpdateChannel } from '../../shared/contracts/update-journal.ts';
 import { REPO_SLUG } from '../../shared/repo.ts';
 
 const SHA_RE = /^[0-9a-f]{40}$/;
 const NPM_PACKAGE_NAME = 'glimmervoid';
 const NPM_GLOBAL_COMMAND = `npm install -g ${NPM_PACKAGE_NAME}@latest`;
-const LINUX_INSTALL_SCRIPT_FLAG = ' --allow-scripts=node-pty';
+const NODE_PTY_INSTALL_SCRIPT_FLAG = '--allow-scripts=node-pty';
+const NPX_CACHE_DIRECTORY_NAME = '_npx';
+const NPX_REMOTE_TARBALL_FLAG = '--allow-remote=root';
+const RELEASE_TARBALL_LATEST_URL = `https://github.com/${REPO_SLUG}/releases/latest/download/${NPM_PACKAGE_NAME}.tgz`;
 const CLONE_COMMAND = 'git pull --ff-only && npm ci && npm run build';
 const SHORT_SHA_LENGTH = 7;
-const INSTALL_FLAVORS = new Set<string>(['npm-global', 'clone', 'unknown']);
+const INSTALL_FLAVORS = new Set<string>(InstallFlavor.options);
 const TAG_VERSION_RE = /^v(\d+\.\d+\.\d+)$/;
 const UPDATE_CHANNELS = new Set<string>(['release', 'main']);
 
-export type InstallFlavor = 'npm-global' | 'clone' | 'unknown';
 export type ReleaseSource = 'npm-registry' | 'github-tags';
 
 export interface ReleaseTag {
@@ -73,13 +76,20 @@ function parseLsRemoteTags(stdout: unknown): { version: string; sha: string } | 
   return latest;
 }
 
-function decideInstallFlavor({ lockfileSha, gitHeadSha, hasGitDir, isInsideNodeModules }: {
+function isNpxCachePath(packageRoot: unknown): boolean {
+  if (typeof packageRoot !== 'string') return false;
+  return packageRoot.split(/[\\/]/).includes(NPX_CACHE_DIRECTORY_NAME);
+}
+
+function decideInstallFlavor({ packageRoot, lockfileSha, gitHeadSha, hasGitDir, isInsideNodeModules }: {
+  packageRoot?: unknown;
   lockfileSha?: unknown;
   gitHeadSha?: unknown;
   hasGitDir?: boolean;
   isInsideNodeModules?: boolean;
 } = {}): { flavor: InstallFlavor; installedSha: string | null } {
   const fromLockfile = normalizeSha(lockfileSha);
+  if (isNpxCachePath(packageRoot)) return { flavor: 'npx', installedSha: fromLockfile ?? normalizeSha(gitHeadSha) };
   if (fromLockfile) return { flavor: 'npm-global', installedSha: fromLockfile };
   const fromGitHead = normalizeSha(gitHeadSha);
   if (fromGitHead) return { flavor: 'npm-global', installedSha: fromGitHead };
@@ -88,12 +98,41 @@ function decideInstallFlavor({ lockfileSha, gitHeadSha, hasGitDir, isInsideNodeM
   return { flavor: 'unknown', installedSha: null };
 }
 
-function buildUpdateCommand(flavor: unknown, latestVersion: unknown, platform?: unknown): string {
-  if (flavor !== 'npm-global') return CLONE_COMMAND;
+function buildReleaseTarballUrl(version: unknown): string {
+  const releaseVersion = textOrNull(version);
+  if (!releaseVersion) return RELEASE_TARBALL_LATEST_URL;
+  return `https://github.com/${REPO_SLUG}/releases/download/v${releaseVersion}/${NPM_PACKAGE_NAME}-${releaseVersion}.tgz`;
+}
+
+function buildNpxCommand(latestVersion: unknown): string {
+  return `npx ${NPX_REMOTE_TARBALL_FLAG} ${NODE_PTY_INSTALL_SCRIPT_FLAG} ${buildReleaseTarballUrl(latestVersion)}`;
+}
+
+function buildNpmGlobalCommand(latestVersion: unknown, platform: unknown): string {
   const version = textOrNull(latestVersion);
   const installCommand = version ? `npm install -g ${NPM_PACKAGE_NAME}@${version}` : NPM_GLOBAL_COMMAND;
-  if (platform === 'linux') return `${installCommand}${LINUX_INSTALL_SCRIPT_FLAG}`;
+  if (platform === 'linux') return `${installCommand} ${NODE_PTY_INSTALL_SCRIPT_FLAG}`;
   return installCommand;
+}
+
+function buildUpdateCommand(flavor: unknown, latestVersion: unknown, platform?: unknown): string {
+  if (flavor === 'npx') return buildNpxCommand(latestVersion);
+  if (flavor === 'npm-global') return buildNpmGlobalCommand(latestVersion, platform);
+  return CLONE_COMMAND;
+}
+
+function releaseAssetUrlToProbe({ flavor, channel, currentVersion, latestVersion }: {
+  flavor?: unknown;
+  channel?: unknown;
+  currentVersion?: unknown;
+  latestVersion?: unknown;
+} = {}): string | null {
+  if (normalizeFlavor(flavor) !== 'npx') return null;
+  if (normalizeUpdateChannel(channel) !== 'release') return null;
+  const latest = textOrNull(latestVersion);
+  if (!latest) return null;
+  if (compareSemver(latest, textOrNull(currentVersion)) <= 0) return null;
+  return buildReleaseTarballUrl(latest);
 }
 
 function buildReleaseUrl(version: unknown): string | null {
@@ -172,7 +211,17 @@ function normalizeBehindCount(value: unknown): number | null {
   return count;
 }
 
-function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion, latestVersion, flavor, platform, channel, behindCount, reason, isLatestReleaseAncestorOfHead }: {
+function decideUpdateReason({ isReleaseAlreadyCheckedOut, isReleaseAssetPending, reason }: {
+  isReleaseAlreadyCheckedOut: boolean;
+  isReleaseAssetPending: boolean;
+  reason: unknown;
+}): string | null {
+  if (isReleaseAlreadyCheckedOut) return 'release-already-checked-out';
+  if (isReleaseAssetPending) return 'release-asset-pending';
+  return textOrNull(reason);
+}
+
+function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion, latestVersion, flavor, platform, channel, behindCount, reason, isLatestReleaseAncestorOfHead, isReleaseAssetAvailable }: {
   installedSha?: unknown;
   latestSha?: unknown;
   currentVersion?: unknown;
@@ -183,6 +232,7 @@ function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion
   behindCount?: unknown;
   reason?: unknown;
   isLatestReleaseAncestorOfHead?: unknown;
+  isReleaseAssetAvailable?: unknown;
 } = {}) {
   const currentSha = normalizeSha(installedSha);
   const latestSha = normalizeSha(remoteSha);
@@ -195,10 +245,12 @@ function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion
     && normalizedFlavor === 'clone'
     && isLatestReleaseAncestorOfHead === true
     && compareSemver(latest, current) > 0;
+  const isReleaseAssetPending = releaseAssetUrlToProbe({ flavor: normalizedFlavor, channel: normalizedChannel, currentVersion: current, latestVersion: latest }) !== null
+    && isReleaseAssetAvailable !== true;
   return {
     updateAvailable: normalizedChannel === 'main'
       ? normalizedBehindCount !== null && normalizedBehindCount > 0 && currentSha !== latestSha
-      : !isReleaseAlreadyCheckedOut && compareSemver(latest, current) > 0,
+      : !isReleaseAlreadyCheckedOut && !isReleaseAssetPending && compareSemver(latest, current) > 0,
     current,
     latest,
     currentSha,
@@ -208,7 +260,7 @@ function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion
     flavor: normalizedFlavor,
     channel: normalizedChannel,
     behindCount: normalizedBehindCount,
-    reason: isReleaseAlreadyCheckedOut ? 'release-already-checked-out' : textOrNull(reason),
+    reason: decideUpdateReason({ isReleaseAlreadyCheckedOut, isReleaseAssetPending, reason }),
   };
 }
 
@@ -221,4 +273,5 @@ function isCheckFresh(lastCheckAt: unknown, nowMs: unknown, ttlMs: unknown): boo
   return age < Number(ttlMs);
 }
 
-export { NPM_GLOBAL_COMMAND, CLONE_COMMAND, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, parseTagVersion, parseLsRemoteTags, decideInstallFlavor, buildUpdateCommand, buildReleaseUrl, compareSemver, parseLatestReleaseTag, decideReleaseSource, parseRegistryLatest, decideUpdateStatus, isCheckFresh };
+export type { InstallFlavor };
+export { NPM_GLOBAL_COMMAND, CLONE_COMMAND, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, parseTagVersion, parseLsRemoteTags, decideInstallFlavor, buildUpdateCommand, buildReleaseUrl, compareSemver, parseLatestReleaseTag, decideReleaseSource, parseRegistryLatest, releaseAssetUrlToProbe, decideUpdateStatus, isCheckFresh };

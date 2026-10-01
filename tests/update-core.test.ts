@@ -17,6 +17,7 @@ import {
   compareSemver,
   decideUpdateStatus,
   isCheckFresh,
+  releaseAssetUrlToProbe,
 } from '../server/core/update-core.ts';
 
 const SHA_A = '0123456789abcdef0123456789abcdef01234567';
@@ -113,6 +114,7 @@ test('parseRegistryLatest reads the published version and its gitHead', () => {
 
 test('decideReleaseSource sends only npm-global installs to the registry', () => {
   assert.equal(decideReleaseSource('npm-global'), 'npm-registry');
+  assert.equal(decideReleaseSource('npx'), 'github-tags');
   assert.equal(decideReleaseSource('clone'), 'github-tags');
   assert.equal(decideReleaseSource('unknown'), 'github-tags');
 });
@@ -140,6 +142,32 @@ test('decideInstallFlavor reads a package inside node_modules with no commit or 
   );
 });
 
+test('decideInstallFlavor reads a package under an npx cache directory as an npx launch on posix and windows paths', () => {
+  const posixRoot = '/home/operator/.npm/_npx/4f1c2a/node_modules/glimmervoid';
+  const windowsRoot = 'C:\\Users\\operator\\AppData\\Local\\npm-cache\\_npx\\4f1c2a\\node_modules\\glimmervoid';
+  assert.deepEqual(decideInstallFlavor({ packageRoot: posixRoot, isInsideNodeModules: true }), { flavor: 'npx', installedSha: null });
+  assert.deepEqual(decideInstallFlavor({ packageRoot: windowsRoot, isInsideNodeModules: true }), { flavor: 'npx', installedSha: null });
+});
+
+test('decideInstallFlavor lets an npx cache path beat the lockfile and node_modules npm-global inference', () => {
+  const npxRoot = '/home/operator/.npm/_npx/4f1c2a/node_modules/glimmervoid';
+  assert.deepEqual(
+    decideInstallFlavor({ packageRoot: npxRoot, lockfileSha: SHA_A, gitHeadSha: SHA_B, isInsideNodeModules: true }),
+    { flavor: 'npx', installedSha: SHA_A },
+  );
+  assert.deepEqual(
+    decideInstallFlavor({ packageRoot: npxRoot, gitHeadSha: SHA_B }),
+    { flavor: 'npx', installedSha: SHA_B },
+  );
+});
+
+test('decideInstallFlavor ignores a path segment that only contains the npx cache name', () => {
+  assert.deepEqual(
+    decideInstallFlavor({ packageRoot: '/srv/my_npx_tools/node_modules/glimmervoid', isInsideNodeModules: true }),
+    { flavor: 'npm-global', installedSha: null },
+  );
+});
+
 test('decideInstallFlavor ignores a truncated or non-hex commit', () => {
   assert.deepEqual(
     decideInstallFlavor({ lockfileSha: SHA_A.slice(0, 7), gitHeadSha: 'HEAD', hasGitDir: false }),
@@ -162,6 +190,20 @@ test('buildUpdateCommand allows the node-pty install script only on Linux', () =
   assert.equal(buildUpdateCommand('npm-global', '0.21.0', 'win32'), 'npm install -g glimmervoid@0.21.0');
   assert.equal(buildUpdateCommand('npm-global', '0.21.0', 'darwin'), 'npm install -g glimmervoid@0.21.0');
   assert.equal(buildUpdateCommand('clone', '0.21.0', 'linux'), CLONE_COMMAND);
+});
+
+test('buildUpdateCommand offers npx launches the versioned release tarball, or the latest one when the version is unknown', () => {
+  const npxFlags = 'npx --allow-remote=root --allow-scripts=node-pty';
+  for (const platform of ['linux', 'darwin', 'win32']) {
+    assert.equal(
+      buildUpdateCommand('npx', '0.21.0', platform),
+      `${npxFlags} https://github.com/johncwaters/glimmervoid/releases/download/v0.21.0/glimmervoid-0.21.0.tgz`,
+    );
+    assert.equal(
+      buildUpdateCommand('npx', null, platform),
+      `${npxFlags} https://github.com/johncwaters/glimmervoid/releases/latest/download/glimmervoid.tgz`,
+    );
+  }
 });
 
 test('buildReleaseUrl points at the release tag page', () => {
@@ -235,6 +277,37 @@ test('decideUpdateStatus reports updates by version only', () => {
 test('decideUpdateStatus passes the platform to the npm-global command', () => {
   const onLinux = decideUpdateStatus({ currentVersion: '0.20.0', latestVersion: '0.21.0', flavor: 'npm-global', platform: 'linux' });
   assert.equal(onLinux.command, 'npm install -g glimmervoid@0.21.0 --allow-scripts=node-pty');
+});
+
+test('releaseAssetUrlToProbe names the versioned tarball only for an npx launch behind a release', () => {
+  const versionedUrl = 'https://github.com/johncwaters/glimmervoid/releases/download/v0.21.0/glimmervoid-0.21.0.tgz';
+  assert.equal(releaseAssetUrlToProbe({ flavor: 'npx', channel: 'release', currentVersion: '0.20.0', latestVersion: '0.21.0' }), versionedUrl);
+  assert.equal(releaseAssetUrlToProbe({ flavor: 'npx', channel: 'release', currentVersion: '0.21.0', latestVersion: '0.21.0' }), null);
+  assert.equal(releaseAssetUrlToProbe({ flavor: 'npx', channel: 'release', currentVersion: '0.20.0', latestVersion: null }), null);
+  assert.equal(releaseAssetUrlToProbe({ flavor: 'npx', channel: 'main', currentVersion: '0.20.0', latestVersion: '0.21.0' }), null);
+  assert.equal(releaseAssetUrlToProbe({ flavor: 'npm-global', channel: 'release', currentVersion: '0.20.0', latestVersion: '0.21.0' }), null);
+  assert.equal(releaseAssetUrlToProbe({ flavor: 'clone', channel: 'release', currentVersion: '0.20.0', latestVersion: '0.21.0' }), null);
+});
+
+test('decideUpdateStatus holds an npx update back until its release tarball is available', () => {
+  const npxBehindRelease = { currentVersion: '0.20.0', latestVersion: '0.21.0', flavor: 'npx', channel: 'release' };
+  const pending = decideUpdateStatus(npxBehindRelease);
+  assert.equal(pending.updateAvailable, false);
+  assert.equal(pending.reason, 'release-asset-pending');
+  assert.equal(decideUpdateStatus({ ...npxBehindRelease, isReleaseAssetAvailable: false }).reason, 'release-asset-pending');
+
+  const published = decideUpdateStatus({ ...npxBehindRelease, isReleaseAssetAvailable: true });
+  assert.equal(published.updateAvailable, true);
+  assert.equal(published.reason, null);
+});
+
+test('decideUpdateStatus ignores release tarball availability outside an npx launch behind a release', () => {
+  const npmGlobal = decideUpdateStatus({ currentVersion: '0.20.0', latestVersion: '0.21.0', flavor: 'npm-global', isReleaseAssetAvailable: false });
+  assert.equal(npmGlobal.updateAvailable, true);
+  assert.equal(npmGlobal.reason, null);
+  const npxCurrent = decideUpdateStatus({ currentVersion: '0.21.0', latestVersion: '0.21.0', flavor: 'npx', isReleaseAssetAvailable: false });
+  assert.equal(npxCurrent.updateAvailable, false);
+  assert.equal(npxCurrent.reason, null);
 });
 
 test('decideUpdateStatus suppresses a release already contained by a clone checkout', () => {

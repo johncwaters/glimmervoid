@@ -92,6 +92,9 @@ export const CONTROL_FRAME_MAX_BYTES = CONTROL_FRAME_ENVELOPE_BYTES
 export const UpdateApplyRefusal = z.object({ reason: z.string(), message: z.string() });
 export type UpdateApplyRefusal = z.infer<typeof UpdateApplyRefusal>;
 
+export const InstallFlavor = z.enum(['npm-global', 'npx', 'clone', 'unknown']);
+export type InstallFlavor = z.infer<typeof InstallFlavor>;
+
 const updateStatusShape = {
   updateAvailable: z.boolean(),
   current: nullableString,
@@ -100,7 +103,7 @@ const updateStatusShape = {
   latestSha: nullableString,
   releaseUrl: nullableString,
   command: z.string(),
-  flavor: z.enum(['npm-global', 'clone', 'unknown']),
+  flavor: InstallFlavor,
   platform: z.string(),
   installedBranch: nullableString,
   upstream: nullableString,

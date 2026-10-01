@@ -5,12 +5,13 @@
   </div>
   <div class="install-grid reveal">
 <pre class="term-block"><span class="c"># Windows and macOS</span>
-npx glimmervoid</pre>
+npx --allow-remote=root --allow-scripts=node-pty https://github.com/johncwaters/glimmervoid/releases/latest/download/glimmervoid.tgz</pre>
 <pre class="term-block"><span class="c"># Linux: build tools first</span>
 sudo apt install build-essential python3
-npx glimmervoid</pre>
+npx --allow-remote=root --allow-scripts=node-pty https://github.com/johncwaters/glimmervoid/releases/latest/download/glimmervoid.tgz</pre>
   </div>
   <p style="margin-top:14px;font-size:14px;color:var(--text-dim)">Open <code>localhost:3000</code>. Needs Node 22.18+ and an agent CLI.</p>
+  <p style="margin-top:6px;font-size:14px;color:var(--text-dim)">To upgrade, run the versioned command the dashboard's update banner shows; rerunning this one keeps the version npx cached first.</p>
 </section>
 
 <style>

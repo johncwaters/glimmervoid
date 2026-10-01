@@ -266,6 +266,81 @@ test('a thrown npm registry request is advisory', async () => {
   assert.equal(status.updateAvailable, false);
 });
 
+test('an npx launch reads GitHub release tags, not the registry, and offers the release tarball command', async () => {
+  const fixture = makeTempRoot({ parentDirectory: path.join('_npx', '4f1c2a', 'node_modules') });
+  const status = statusOf(await checkForUpdate(baseOptions(fixture, {
+    fetchFn: fakeFetch({ version: '0.21.0', registryVersion: '0.19.0' }),
+  })));
+  assert.equal(status.flavor, 'npx');
+  assert.equal(status.latest, '0.21.0');
+  assert.equal(status.updateAvailable, true);
+  assert.equal(status.command, 'npx --allow-remote=root --allow-scripts=node-pty https://github.com/johncwaters/glimmervoid/releases/download/v0.21.0/glimmervoid-0.21.0.tgz');
+});
+
+const NPX_RELEASE_ASSET_URL = 'https://github.com/johncwaters/glimmervoid/releases/download/v0.21.0/glimmervoid-0.21.0.tgz';
+
+function npxFixture(): Fixture {
+  return makeTempRoot({ parentDirectory: path.join('_npx', '4f1c2a', 'node_modules') });
+}
+
+function releaseAssetFetch(assetResponse: () => Response): { fetchFn: typeof fetch; assetProbes: () => RequestInit[] } {
+  const probes: RequestInit[] = [];
+  return {
+    assetProbes: () => probes,
+    fetchFn: async (input, init) => {
+      if (String(input) !== NPX_RELEASE_ASSET_URL) throw new Error(`unexpected fetch ${String(input)}`);
+      probes.push(init ?? {});
+      return assetResponse();
+    },
+  };
+}
+
+test('an npx launch probes the versioned release tarball with a HEAD request before offering it', async () => {
+  const assetFetch = releaseAssetFetch(() => new Response(null, { status: 200 }));
+  const status = statusOf(await checkForUpdate(baseOptions(npxFixture(), { fetchFn: assetFetch.fetchFn })));
+  assert.equal(status.updateAvailable, true);
+  assert.equal(assetFetch.assetProbes().length, 1);
+  assert.equal(assetFetch.assetProbes()[0].method, 'HEAD');
+  assert.equal(assetFetch.assetProbes()[0].redirect, 'follow');
+});
+
+test('an npx launch reports the release as pending while its tarball is missing', async () => {
+  const assetFetch = releaseAssetFetch(() => new Response(null, { status: 404 }));
+  const status = statusOf(await checkForUpdate(baseOptions(npxFixture(), { fetchFn: assetFetch.fetchFn })));
+  assert.equal(status.latest, '0.21.0');
+  assert.equal(status.updateAvailable, false);
+  assert.equal(status.reason, 'release-asset-pending');
+});
+
+test('an npx launch reports the release as pending when the tarball probe fails', async () => {
+  const status = statusOf(await checkForUpdate(baseOptions(npxFixture(), {
+    fetchFn: async () => {
+      throw new Error('network down');
+    },
+  })));
+  assert.equal(status.updateAvailable, false);
+  assert.equal(status.reason, 'release-asset-pending');
+});
+
+test('an npx launch re-probes a pending tarball on a throttled check and offers it once it exists', async () => {
+  const fixture = npxFixture();
+  let isAssetUploaded = false;
+  const assetFetch = releaseAssetFetch(() => new Response(null, { status: isAssetUploaded ? 200 : 404 }));
+  const first = statusOf(await checkForUpdate(baseOptions(fixture, { fetchFn: assetFetch.fetchFn })));
+  assert.equal(first.reason, 'release-asset-pending');
+  isAssetUploaded = true;
+  const second = statusOf(await checkForUpdate(baseOptions(fixture, {
+    now: 2000,
+    fetchFn: assetFetch.fetchFn,
+    runCommand: async () => {
+      throw new Error('a throttled check must not list remote tags');
+    },
+  })));
+  assert.equal(second.updateAvailable, true);
+  assert.equal(second.reason, null);
+  assert.equal(assetFetch.assetProbes().length, 2);
+});
+
 test('an unresolvable installed commit still compares versions', async () => {
   const fixture = makeTempRoot({ parentDirectory: 'unpacked' });
   const result = await checkForUpdate(baseOptions(fixture));

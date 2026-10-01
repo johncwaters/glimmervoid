@@ -74,6 +74,14 @@ for (const refusal of REFUSALS) {
   });
 }
 
+test('decidePreflight refuses an npx launch as an unsupported flavor and tells the operator to run the command shown', () => {
+  const decision = decidePreflight({ ...READY_FACTS, flavor: 'npx' });
+  assert.equal(decision.ok, false);
+  if (decision.ok) throw new Error('the preflight unexpectedly passed');
+  assert.equal(decision.reason, 'unsupported-flavor');
+  assert.equal(decision.message, 'Glimmervoid runs from the npx cache. Stop Glimmervoid and run the command shown.');
+});
+
 test('decidePreflight requests a lockfile check when every guard passes', () => {
   assert.deepEqual(decidePreflight(READY_FACTS), { ok: true, lockfileCheckNeeded: true });
 });
