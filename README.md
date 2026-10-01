@@ -128,7 +128,7 @@ Navigate it from the keyboard with Cmd on a Mac and Alt elsewhere, never more th
 
 On first run Glimmervoid creates `~/.glimmervoid/config.json`. Most settings are edited from the dashboard's Settings view, and the server reloads the file when you edit it by hand. Every key, its default and every environment variable are in [docs/configuration.md](docs/configuration.md), which is generated from the code.
 
-Glimmervoid sends anonymous usage data by default; what it sends and how to turn it off are in [Telemetry](docs/configuration.md#telemetry).
+Glimmervoid sends anonymous usage and error data by default; what it sends and how to turn it off are in [Telemetry](docs/configuration.md#telemetry).
 
 ## Remote access
 

@@ -70,6 +70,7 @@ import type { PlanReadRequest, PlanReadResult } from './plan-review-wiring.ts';
 import type { TracePage, TracePageRequest } from './trace-wiring.ts';
 import { createChangeMapService } from './change-map-wiring.ts';
 import type { ChangeMapNarrator } from './change-map-wiring.ts';
+import type { Telemetry } from './telemetry.ts';
 
 interface ControlRequest {
   type: string;
@@ -160,6 +161,7 @@ interface ControlHandlerDeps {
   readTracePage?: ((glimmervoidSessionId: string, request: TracePageRequest) => Promise<TracePage>) | null;
   readPlanRevision?: ((sessionId: string, request: PlanReadRequest) => Promise<PlanReadResult | null>) | null;
   decidePlanReview?: ((sessionId: string, decision: PlanDecision) => string | null) | null;
+  telemetry?: Pick<Telemetry, 'captureException' | 'captureClientError'> | null;
 }
 
 function errorCode(error: unknown): string | undefined {
@@ -1256,6 +1258,10 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'update-check':     handleUpdateCheck,
     'update-apply':     handleUpdateApply,
     'focus-change':     (msg: ControlRequest, ws: ControlSocket) => { if (handleClientFocus) handleClientFocus(ws, !!msg.focused); },
+    'client-error':     (msg: ControlRequest) => {
+      if (typeof msg.name !== 'string' || typeof msg.stack !== 'string') return;
+      deps.telemetry?.captureClientError({ name: msg.name, stack: msg.stack });
+    },
     'request-health-snapshot': (_msg: ControlRequest, ws: ControlSocket) => {
       if (!buildHealthSnapshot) return;
       ws.send(JSON.stringify({ type: 'health-snapshot', stats: buildHealthSnapshot() }));
@@ -1335,6 +1341,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       if (result instanceof Promise) {
         return result.catch((err: unknown) => {
           console.warn(`[control] ${request.type} handler failed: ${errorMessage(err)}`);
+          deps.telemetry?.captureException(err, { handled: true });
         });
       }
       return undefined;

@@ -1,4 +1,5 @@
 import { BUILTIN_AGENT_IDS } from '../../shared/contracts/config.ts';
+import type { ClientErrorReport } from '../../shared/contracts/control-messages.ts';
 import { MAX_EXCEPTION_FRAMES, MAX_TEXT_LENGTH } from '../../shared/contracts/telemetry.ts';
 import type {
   ExceptionFrame, ExceptionProperties, SessionExitKind, TelemetryAdapter,
@@ -11,7 +12,7 @@ const TELEMETRY_BATCH_URL = `${POSTHOG_INGEST_HOST}/batch/`;
 const MAX_STACK_LENGTH = 16384;
 
 const FIRST_RUN_NOTICE = [
-  'Glimmervoid sends anonymous usage data to help improve it: app starts, daily activity, and session starts and ends with the agent kind, exit kind and duration. No paths, repository names, prompts or terminal output.',
+  'Glimmervoid sends anonymous usage and error data to help improve it: app starts, daily activity, session starts and ends with the agent kind, exit kind and duration, and errors as their type, error code and scrubbed stack frames. No error messages, paths, repository names, prompts or terminal output.',
   'Turn it off in Settings > Privacy, or set GLIMMERVOID_TELEMETRY=0 or DO_NOT_TRACK=1.',
 ].join('\n');
 
@@ -163,20 +164,106 @@ function errorParts(error: unknown): { type: string; code: string; stack: string
   return { type: 'NonError', code: '', stack: '' };
 }
 
+function exceptionPropertiesOf(
+  { type, code, handled, level, frames }:
+  { type: string; code: string; handled: boolean; level: ExceptionProperties['$exception_level']; frames: ExceptionFrame[] },
+): ExceptionProperties {
+  return {
+    $exception_list: [{
+      type: type.slice(0, MAX_TEXT_LENGTH),
+      value: code,
+      mechanism: { handled, synthetic: false, type: 'generic' },
+      stacktrace: { type: 'raw', frames },
+    }],
+    $exception_level: level,
+  };
+}
+
 function buildExceptionProperties(
   error: unknown,
   { handled, packageRoot }: { handled: boolean; packageRoot: string },
 ): ExceptionProperties {
   const parts = errorParts(error);
-  return {
-    $exception_list: [{
-      type: parts.type.slice(0, MAX_TEXT_LENGTH),
-      value: parts.code,
-      mechanism: { handled, synthetic: false, type: 'generic' },
-      stacktrace: { type: 'raw', frames: parseV8StackFrames(parts.stack, packageRoot) },
-    }],
-    $exception_level: handled ? 'error' : 'fatal',
-  };
+  return exceptionPropertiesOf({
+    type: parts.type,
+    code: parts.code,
+    handled,
+    level: handled ? 'error' : 'fatal',
+    frames: parseV8StackFrames(parts.stack, packageRoot),
+  });
+}
+
+const BROWSER_FRAME_GECKO = /^\s*([^@]*)@(.+?):(\d+):(\d+)$/;
+const URL_ORIGIN = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/]*/;
+const SAFE_ERROR_TYPE_NAME = /^[A-Za-z_$][\w$]{0,127}$/;
+
+function isWebUrl(rawUrl: string): boolean {
+  return /^https?:\/\//i.test(rawUrl);
+}
+
+function lastPathSegment(urlPath: string): string {
+  return urlPath.slice(urlPath.lastIndexOf('/') + 1);
+}
+
+function scrubWebPath(webPath: string): string {
+  const nodeModulesAt = webPath.lastIndexOf('/node_modules/');
+  if (nodeModulesAt >= 0) return webPath.slice(nodeModulesAt + 1);
+  if (webPath.startsWith('/@fs/')) return lastPathSegment(webPath);
+  return webPath;
+}
+
+function urlPathOnly(rawUrl: string): string {
+  const [withoutQueryOrHash] = rawUrl.split(/[?#]/, 1);
+  if (isWebUrl(withoutQueryOrHash)) return scrubWebPath(withoutQueryOrHash.replace(URL_ORIGIN, '') || '/');
+  return lastPathSegment(withoutQueryOrHash);
+}
+
+function matchBrowserFrame(stackLine: string): RawFrame | null {
+  const v8Frame = matchV8Frame(stackLine);
+  if (v8Frame) return v8Frame;
+  const gecko = BROWSER_FRAME_GECKO.exec(stackLine);
+  if (!gecko) return null;
+  return { functionName: gecko[1] || '?', filePath: gecko[2], line: gecko[3], column: gecko[4] };
+}
+
+function parseBrowserStackFrames(stack: string): ExceptionFrame[] {
+  const frames: ExceptionFrame[] = [];
+  for (const stackLine of stack.slice(0, MAX_STACK_LENGTH).split('\n')) {
+    const rawFrame = matchBrowserFrame(stackLine);
+    if (!rawFrame) continue;
+    frames.push({
+      platform: 'web:javascript',
+      function: rawFrame.functionName.slice(0, MAX_TEXT_LENGTH),
+      filename: urlPathOnly(rawFrame.filePath).slice(0, MAX_TEXT_LENGTH),
+      lineno: Number(rawFrame.line),
+      colno: Number(rawFrame.column),
+      in_app: isWebUrl(rawFrame.filePath),
+    });
+    if (frames.length >= MAX_EXCEPTION_FRAMES) break;
+  }
+  return frames.reverse();
+}
+
+function safeErrorTypeName(name: string): string {
+  return SAFE_ERROR_TYPE_NAME.test(name) ? name : 'Error';
+}
+
+function buildBrowserExceptionProperties({ name, stack }: ClientErrorReport): ExceptionProperties {
+  return exceptionPropertiesOf({
+    type: safeErrorTypeName(name),
+    code: '',
+    handled: false,
+    level: 'error',
+    frames: parseBrowserStackFrames(stack),
+  });
+}
+
+function exceptionFingerprint(properties: ExceptionProperties): string {
+  const [exception] = properties.$exception_list;
+  const inAppFrames = exception.stacktrace.frames
+    .filter((frame) => frame.in_app)
+    .map((frame) => `${frame.function}@${frame.filename}`);
+  return [exception.type, ...inAppFrames].join('|');
 }
 
 function isBuiltinAgentId(agentId: string | null | undefined): agentId is (typeof BUILTIN_AGENT_IDS)[number] {
@@ -202,7 +289,8 @@ function nodeMajorVersion(nodeVersion: string): number {
 
 export {
   FIRST_RUN_NOTICE, POSTHOG_PROJECT_TOKEN, TELEMETRY_BATCH_URL,
-  adapterBucket, buildExceptionProperties, classifySessionExit, decideTelemetryConsent, nodeMajorVersion,
-  parseV8StackFrames, resolveProjectToken, scrubLocalPath,
+  adapterBucket, buildBrowserExceptionProperties, buildExceptionProperties, classifySessionExit, decideTelemetryConsent,
+  exceptionFingerprint, nodeMajorVersion, parseBrowserStackFrames, parseV8StackFrames, resolveProjectToken, scrubLocalPath,
+  urlPathOnly,
 };
 export type { TelemetryConfig, TelemetryConsent, TelemetryEnvironment };

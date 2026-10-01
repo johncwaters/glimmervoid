@@ -81,11 +81,17 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'app_active', description: 'Once a day while the server runs, with how many sessions are live.' },
   { name: 'session_started', description: 'A session spawned, with which kind of agent (any custom agent counts as `custom`).' },
   { name: 'session_ended', description: 'A session exited: how it exited and how long it ran, in whole seconds.' },
+  { name: '$exception', description: 'An error in the server or the dashboard: its type, an error code when it has one, and stack frames with file paths cut to the package or URL path. Never the error message. Each distinct error is sent once per run, and a crash is sent on the next start.' },
 ]);
 
 export const TELEMETRY_BASE_PROPERTY_KEYS = Object.freeze([
   'app_version', 'os_platform', 'node_major', 'install_flavor', 'is_bundled',
 ] as const);
+
+export const PendingCrashReport = z.object({
+  timestamp: z.string(),
+  properties: ExceptionProperties,
+}).strict();
 
 export const TelemetryState = z.object({
   installId: z.uuid(),
@@ -97,3 +103,4 @@ export type ExceptionProperties = z.infer<typeof ExceptionProperties>;
 export type TelemetryAdapter = (typeof TELEMETRY_ADAPTERS)[number];
 export type SessionExitKind = (typeof SESSION_EXIT_KINDS)[number];
 export type TelemetryState = z.infer<typeof TelemetryState>;
+export type PendingCrashReport = z.infer<typeof PendingCrashReport>;

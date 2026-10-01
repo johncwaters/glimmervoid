@@ -1,12 +1,15 @@
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
 
-import { TELEMETRY_EVENT_SCHEMAS, TelemetryState } from '../shared/contracts/telemetry.ts';
-import type { TelemetryEventName, TelemetryEventProperties } from '../shared/contracts/telemetry.ts';
+import type { ClientErrorReport } from '../shared/contracts/control-messages.ts';
+import { PendingCrashReport, TELEMETRY_EVENT_SCHEMAS, TelemetryState } from '../shared/contracts/telemetry.ts';
+import type { ExceptionProperties, TelemetryEventName, TelemetryEventProperties } from '../shared/contracts/telemetry.ts';
 import {
-  TELEMETRY_BATCH_URL, buildExceptionProperties, decideTelemetryConsent, nodeMajorVersion, resolveProjectToken,
+  TELEMETRY_BATCH_URL, buildBrowserExceptionProperties, buildExceptionProperties, decideTelemetryConsent,
+  exceptionFingerprint, nodeMajorVersion, resolveProjectToken,
 } from './core/telemetry-core.ts';
 import type { TelemetryConfig, TelemetryEnvironment } from './core/telemetry-core.ts';
-import { createJsonStateStore } from './json-file.ts';
+import { createJsonStateStore, writeJsonAtomicSync } from './json-file.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
 
@@ -16,6 +19,8 @@ const FLUSH_INTERVAL_MS = 60_000;
 const SEND_TIMEOUT_MS = 5000;
 const STOP_SEND_TIMEOUT_MS = 2500;
 const ACTIVE_HEARTBEAT_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const MAX_REPORTED_EXCEPTION_FINGERPRINTS = 256;
+const CRASH_MONITOR_EVENT = 'uncaughtExceptionMonitor';
 
 interface QueuedEvent {
   event: TelemetryEventName;
@@ -23,11 +28,17 @@ interface QueuedEvent {
   properties: Record<string, unknown>;
 }
 
+interface CrashEventSource {
+  on(event: typeof CRASH_MONITOR_EVENT, listener: (error: unknown) => void): unknown;
+  off(event: typeof CRASH_MONITOR_EVENT, listener: (error: unknown) => void): unknown;
+}
+
 interface TelemetryOptions {
   config: TelemetryConfig;
   env: TelemetryEnvironment;
   fetchFn?: typeof fetch;
   stateFilePath: string | null;
+  pendingCrashFilePath?: string | null;
   packageRoot: string;
   version: string;
   installFlavor: string;
@@ -42,6 +53,10 @@ interface TelemetryOptions {
 interface Telemetry {
   capture<EventName extends TelemetryEventName>(event: EventName, properties: TelemetryEventProperties<EventName>): void;
   captureException(error: unknown, options: { handled: boolean }): void;
+  captureClientError(report: ClientErrorReport): void;
+  recordFatalCrash(error: unknown): void;
+  watchForCrashes(source?: CrashEventSource): void;
+  sendPendingCrash(): Promise<void>;
   flush(): Promise<void>;
   stop(): Promise<void>;
   consumeFirstRunNotice(): Promise<boolean>;
@@ -67,6 +82,9 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
   let flushTimer: NodeJS.Timeout | null = null;
   let inFlightFlush: Promise<void> | null = null;
   let isStopped = false;
+  let crashEventSource: CrashEventSource | null = null;
+  const reportedExceptionFingerprints = new Set<string>();
+  const pendingCrashFilePath = options.pendingCrashFilePath ?? null;
 
   const stateStore = createJsonStateStore<TelemetryState>({
     name: 'telemetry state',
@@ -139,11 +157,74 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     enqueue(event, parsed.data);
   }
 
-  function captureException(error: unknown, { handled }: { handled: boolean }): void {
-    capture('$exception', buildExceptionProperties(error, { handled, packageRoot: options.packageRoot }));
+  function captureExceptionOnce(properties: ExceptionProperties): void {
+    if (!isEnabled()) return;
+    const fingerprint = exceptionFingerprint(properties);
+    if (reportedExceptionFingerprints.has(fingerprint)) return;
+    if (reportedExceptionFingerprints.size >= MAX_REPORTED_EXCEPTION_FINGERPRINTS) return;
+    reportedExceptionFingerprints.add(fingerprint);
+    capture('$exception', properties);
   }
 
-  async function send(batch: QueuedEvent[], timeoutMs: number): Promise<void> {
+  function captureException(error: unknown, { handled }: { handled: boolean }): void {
+    captureExceptionOnce(buildExceptionProperties(error, { handled, packageRoot: options.packageRoot }));
+  }
+
+  function captureClientError(report: ClientErrorReport): void {
+    captureExceptionOnce(buildBrowserExceptionProperties(report));
+  }
+
+  function recordFatalCrash(error: unknown): void {
+    if (!pendingCrashFilePath || !isEnabled()) return;
+    const properties = buildExceptionProperties(error, { handled: false, packageRoot: options.packageRoot });
+    const report = PendingCrashReport.safeParse({ timestamp: now().toISOString(), properties });
+    if (!report.success) return;
+    try {
+      writeJsonAtomicSync(pendingCrashFilePath, report.data, { mkdir: true });
+    } catch (writeError) {
+      log.warnOnce('crash-write-failed', 'could not record the crash', { error: errorKind(writeError) });
+    }
+  }
+
+  function watchForCrashes(source: CrashEventSource = process): void {
+    if (crashEventSource) return;
+    crashEventSource = source;
+    source.on(CRASH_MONITOR_EVENT, recordFatalCrash);
+  }
+
+  function stopWatchingForCrashes(): void {
+    crashEventSource?.off(CRASH_MONITOR_EVENT, recordFatalCrash);
+    crashEventSource = null;
+  }
+
+  function errorKind(error: unknown): string {
+    return error instanceof Error ? error.name : 'NonError';
+  }
+
+  async function readPendingCrash(filePath: string): Promise<PendingCrashReport | null> {
+    try {
+      const report = PendingCrashReport.safeParse(JSON.parse(await fs.promises.readFile(filePath, 'utf8')));
+      if (!report.success) log.warnOnce('crash-invalid', 'dropped an unreadable pending crash report');
+      return report.success ? report.data : null;
+    } catch (readError) {
+      const isMissing = readError instanceof Error && Reflect.get(readError, 'code') === 'ENOENT';
+      if (!isMissing) log.warnOnce('crash-read-failed', 'could not read the pending crash report', { error: errorKind(readError) });
+      return null;
+    }
+  }
+
+  async function sendPendingCrash(): Promise<void> {
+    if (!pendingCrashFilePath) return;
+    const report = isEnabled() ? await readPendingCrash(pendingCrashFilePath) : null;
+    if (report && !await send([{ event: '$exception', timestamp: report.timestamp, properties: report.properties }], SEND_TIMEOUT_MS)) return;
+    try {
+      await fs.promises.rm(pendingCrashFilePath, { force: true });
+    } catch (removeError) {
+      log.warnOnce('crash-remove-failed', 'could not remove the pending crash report', { error: errorKind(removeError) });
+    }
+  }
+
+  async function send(batch: QueuedEvent[], timeoutMs: number): Promise<boolean> {
     try {
       const { installId } = await ensureInstallState();
       const response = await fetchFn(TELEMETRY_BATCH_URL, {
@@ -161,8 +242,10 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
         signal: AbortSignal.timeout(timeoutMs),
       });
       if (!response.ok) log.warnOnce(`status:${response.status}`, 'send rejected', { status: response.status });
+      return response.ok;
     } catch (error) {
       log.warnOnce('send-failed', 'send failed', { error: error instanceof Error ? error.name : String(error) });
+      return false;
     }
   }
 
@@ -176,7 +259,7 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     if (queue.length === 0) return Promise.resolve();
     const batch = queue;
     queue = [];
-    inFlightFlush = send(batch, timeoutMs).finally(() => {
+    inFlightFlush = send(batch, timeoutMs).then(() => undefined).finally(() => {
       inFlightFlush = null;
       if (queue.length > 0 && !isStopped) scheduleFlush();
     });
@@ -191,6 +274,7 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     if (isStopped) return;
     const isConsentGiven = isEnabled();
     isStopped = true;
+    stopWatchingForCrashes();
     clearInterval(heartbeatTimer);
     clearFlushTimer();
     const remaining = queue;
@@ -213,8 +297,11 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     clearFlushTimer();
   }
 
-  return { capture, captureException, flush, stop, consumeFirstRunNotice, applyConfig, isEnabled };
+  return {
+    capture, captureException, captureClientError, recordFatalCrash, watchForCrashes, sendPendingCrash,
+    flush, stop, consumeFirstRunNotice, applyConfig, isEnabled,
+  };
 }
 
-export { createTelemetry, MAX_QUEUED_EVENTS };
-export type { Telemetry, TelemetryOptions };
+export { createTelemetry, MAX_QUEUED_EVENTS, MAX_REPORTED_EXCEPTION_FINGERPRINTS };
+export type { CrashEventSource, Telemetry, TelemetryOptions };

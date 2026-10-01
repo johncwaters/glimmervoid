@@ -14,6 +14,7 @@ import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { UpdateStatus } from './backend-update.ts';
 import type { PlanReadResult } from './plan-review-wiring.ts';
 import type { TracePage, TracePageRequest } from './trace-wiring.ts';
+import type { Telemetry } from './telemetry.ts';
 
 interface SnapshotLane {
   snapshotMessage: () => Record<string, unknown>;
@@ -78,6 +79,7 @@ interface BackendControlDependencies {
   decidePlanReview: ((sessionId: string, decision: PlanDecision) => string | null) | null;
   changeMapNarrator: ChangeMapNarrator | null;
   serverBuild: () => string;
+  telemetry: Pick<Telemetry, 'captureException' | 'captureClientError'>;
   logger: Pick<Console, 'warn'>;
 }
 
@@ -127,6 +129,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     getMyPrsStatus: () => myPrs.getStatus(),
     teamReview,
     serverBuild: dependencies.serverBuild,
+    telemetry: dependencies.telemetry,
     getUsageSessions: () => usage.getSessionsMessage(),
     getUsageReport: () => usage.getCachedReport(),
     requestUsageReport: (args) => usage.requestReport(args),

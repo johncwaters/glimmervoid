@@ -46,7 +46,7 @@ interface SessionEventDependencies {
     attachSession: (session: Session) => void;
     latestPlanTitle: (sessionId: string) => string | null;
   } | null;
-  telemetry?: Pick<Telemetry, 'capture'> | null;
+  telemetry?: Pick<Telemetry, 'capture' | 'captureException'> | null;
   logger: Pick<Console, 'error' | 'log' | 'warn'>;
 }
 
@@ -123,6 +123,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     });
     session.on('error', (error: unknown) => {
       dependencies.logger.error(`[${session.name}] error: ${errorMessage(error)}`);
+      dependencies.telemetry?.captureException(error, { handled: true });
     });
     session.on('exit', ({ exitCode, signal, reason }: { exitCode: number | null; signal: unknown; reason?: string }) => {
       if (postTurnDebounce) {

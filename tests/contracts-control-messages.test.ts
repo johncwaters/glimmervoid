@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { z } from 'zod';
 
-import { ClientMessage, ServerMessage } from '../shared/contracts/index.ts';
+import { CLIENT_ERROR_NAME_MAX_CHARS, CLIENT_ERROR_STACK_MAX_CHARS, ClientMessage, ServerMessage } from '../shared/contracts/index.ts';
 import {
   CONTROL_FRAME_MAX_BYTES,
   DIFF_ANNOTATION_NOTE_MAX_CHARS,
@@ -513,4 +513,12 @@ test('the control WebSocket server is built with that budget, never a hand-writt
   assert.equal(parsed.data?.maxPayload, CONTROL_FRAME_MAX_BYTES);
   sockets.controlWss.close();
   sockets.dataWss.close();
+});
+
+test('a client-error report is accepted within its length limits and rejected beyond them', () => {
+  const within = { type: 'client-error', name: 'E'.repeat(CLIENT_ERROR_NAME_MAX_CHARS), stack: 's'.repeat(CLIENT_ERROR_STACK_MAX_CHARS) };
+  assert.equal(ClientMessage.safeParse(within).success, true);
+  assert.equal(ClientMessage.safeParse({ ...within, name: 'E'.repeat(CLIENT_ERROR_NAME_MAX_CHARS + 1) }).success, false);
+  assert.equal(ClientMessage.safeParse({ ...within, stack: 's'.repeat(CLIENT_ERROR_STACK_MAX_CHARS + 1) }).success, false);
+  assert.equal(ClientMessage.safeParse({ type: 'client-error', name: 'TypeError' }).success, false);
 });

@@ -80,12 +80,15 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     config,
     env: process.env,
     stateFilePath: path.join(glimmervoidHomeDir(), 'telemetry.json'),
+    pendingCrashFilePath: path.join(glimmervoidHomeDir(), 'telemetry-pending-crash.json'),
     packageRoot,
     version: packageJson.version,
     installFlavor: detectInstallFlavor(packageRoot).flavor,
     isBundled: bundled,
     getActiveSessionCount: () => sessions.size + agentSessions.size,
   });
+  telemetry.watchForCrashes();
+  void telemetry.sendPendingCrash();
 
   const outcomes = createOutcomesLane();
   const recordOutcome = outcomes.record;
@@ -415,6 +418,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     decidePlanReview: laneAssembly.planReview?.decide ?? null,
     changeMapNarrator: laneAssembly.changeMapNarrator,
     serverBuild: () => serverBuild,
+    telemetry,
     logger: console,
   });
 

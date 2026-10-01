@@ -166,7 +166,17 @@ export const CLIENT_MESSAGE_TYPES = Object.freeze([
   'request-health-snapshot',
   'update-check',
   'update-apply',
+  'client-error',
 ]);
+
+export const CLIENT_ERROR_NAME_MAX_CHARS = 128;
+export const CLIENT_ERROR_STACK_MAX_CHARS = 8192;
+
+export const ClientErrorReport = z.object({
+  name: z.string().max(CLIENT_ERROR_NAME_MAX_CHARS),
+  stack: z.string().max(CLIENT_ERROR_STACK_MAX_CHARS),
+}).strict();
+export type ClientErrorReport = z.infer<typeof ClientErrorReport>;
 
 const idOnlyClientTypes = [
   'remove-session', 'kill', 'start-session', 'restart', 'force-restart', 'dismiss', 'sleep', 'wake',
@@ -229,6 +239,7 @@ const clientVariants = [
     draft: z.boolean().optional(),
   }),
   loose('plan-decision', PlanDecision.shape),
+  loose('client-error', ClientErrorReport.shape),
   ...idOnlyClientTypes.map((type) => loose(type, { id: sessionId, force: z.unknown().optional() })),
 ] as const;
 

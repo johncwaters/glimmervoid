@@ -7,6 +7,7 @@ import { plainSession } from './helpers/fake-session.ts';
 function wiredSession() {
   const session = plainSession('telemetry-session', 'secret-project-name');
   const captured: Array<{ event: string; properties: Record<string, unknown> }> = [];
+  const capturedErrors: Array<{ error: unknown; handled: boolean }> = [];
   const config = { projects: [{ id: 'telemetry-session' } as Record<string, unknown>] };
   const wireSessionEvents = createSessionEventWiring({
     configStore: { save: () => config },
@@ -19,11 +20,14 @@ function wiredSession() {
     getIngestLane: () => null,
     tapIngestForSession: () => {},
     closeSessionDataClients: () => {},
-    telemetry: { capture: (event, properties) => { captured.push({ event, properties }); } },
+    telemetry: {
+      capture: (event, properties) => { captured.push({ event, properties }); },
+      captureException: (error, { handled }) => { capturedErrors.push({ error, handled }); },
+    },
     logger: { error: () => {}, log: () => {}, warn: () => {} },
   });
   wireSessionEvents(session);
-  return { session, captured };
+  return { session, captured, capturedErrors };
 }
 
 test('a spawn and its exit report the adapter, exit kind and duration and nothing naming the session', () => {
@@ -42,5 +46,13 @@ test('an exit with no recorded spawn reports nothing', () => {
   const { session, captured } = wiredSession();
   session.emit('exit', { exitCode: 1, signal: 0 });
   assert.deepEqual(captured, []);
+  session.destroy();
+});
+
+test('a session error is captured as a handled exception', () => {
+  const { session, capturedErrors } = wiredSession();
+  const error = new Error('spawn failed');
+  session.emit('error', error);
+  assert.deepEqual(capturedErrors, [{ error, handled: true }]);
   session.destroy();
 });

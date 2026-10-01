@@ -108,7 +108,7 @@ What Glimmervoid sends about itself.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `telemetry.enabled` | Send anonymous usage data | `true` | Version, platform, app starts, daily activity, and session starts and ends with agent kind, exit kind and duration, under a random install id. Never paths, repository or branch names, prompts or terminal output. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless. |
+| `telemetry.enabled` | Send anonymous usage and error data | `true` | Version, platform, app starts, daily activity, session starts and ends with agent kind, exit kind and duration, and errors as their type, error code and scrubbed stack frames, under a random install id. Never error messages, paths, repository or branch names, prompts or terminal output. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless. |
 
 ### Change map
 
@@ -228,7 +228,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_INSECURE_BIND` | operator | Set to `1` to allow a non-loopback `GLIMMERVOID_HOST`. The local listener has no authentication, so this exposes full control of the machine to anyone who can reach the port. |
 | `GLIMMERVOID_POSTHOG_API_KEY` | operator | Supplies `posthog.apiKey`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_TELEGRAM_BOT_TOKEN` | operator | Supplies `telegram.botToken`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
-| `GLIMMERVOID_TELEMETRY` | operator | Set to `0` to turn off anonymous usage telemetry whatever `telemetry.enabled` says. `DO_NOT_TRACK=1` and `CI=true` turn it off too. |
+| `GLIMMERVOID_TELEMETRY` | operator | Set to `0` to turn off anonymous usage and error telemetry (error type, error code and scrubbed stack frames, never messages or paths) whatever `telemetry.enabled` says. `DO_NOT_TRACK=1` and `CI=true` turn it off too. |
 | `GLIMMERVOID_TELEMETRY_PROJECT_TOKEN` | internal | Sends telemetry to another PostHog project instead of the Glimmervoid one, so end-to-end checks of a development build stay out of real usage data. Not an operator setting. |
 | `GLIMMERVOID_DEBUG_SPAWN` | operator | Any non-empty value logs which executable each agent command resolved to at spawn. |
 | `GLIMMERVOID_RTK_PATH` | internal | Set by Glimmervoid in the rtk hook relay environment to name the rtk binary. Not an operator setting. |
@@ -237,7 +237,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 
 ## Telemetry
 
-Glimmervoid sends anonymous usage events to its own PostHog project, under a random install id kept in `telemetry.json` in the Glimmervoid home (`~/.glimmervoid`, or `$GLIMMERVOID_HOME`). No person profile is created, and nothing names a path, repository, branch, session, prompt or terminal output. It prints a notice once on first start. Turn it off with `telemetry.enabled`, `GLIMMERVOID_TELEMETRY=0`, `DO_NOT_TRACK=1` or `CI=true`.
+Glimmervoid sends anonymous usage and error events to its own PostHog project, under a random install id kept in `telemetry.json` in the Glimmervoid home (`~/.glimmervoid`, or `$GLIMMERVOID_HOME`). No person profile is created, and nothing names a path, repository, branch, session, prompt, error message or terminal output. A crash is kept in `telemetry-pending-crash.json` beside it until the next start sends it, or deletes it unsent when telemetry is off. It prints a notice once on first start. Turn it off with `telemetry.enabled`, `GLIMMERVOID_TELEMETRY=0`, `DO_NOT_TRACK=1` or `CI=true`.
 
 Every event also carries `app_version`, `os_platform`, `node_major`, `install_flavor`, `is_bundled`.
 
@@ -247,6 +247,7 @@ Every event also carries `app_version`, `os_platform`, `node_major`, `install_fl
 | `app_active` | `active_session_count` | Once a day while the server runs, with how many sessions are live. |
 | `session_started` | `adapter` | A session spawned, with which kind of agent (any custom agent counts as `custom`). |
 | `session_ended` | `adapter`, `exit_kind`, `duration_seconds` | A session exited: how it exited and how long it ran, in whole seconds. |
+| `$exception` | `$exception_list`, `$exception_level` | An error in the server or the dashboard: its type, an error code when it has one, and stack frames with file paths cut to the package or URL path. Never the error message. Each distinct error is sent once per run, and a crash is sent on the next start. |
 
 ## Browser preferences
 

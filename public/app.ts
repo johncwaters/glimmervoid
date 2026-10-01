@@ -5,6 +5,7 @@ import type { IssuesReportPush, ServerMessage } from '#shared/contracts/control-
 import { shouldShowServerAction } from '#shared/client-trust.ts';
 import { STATES } from '#shared/states.ts';
 import { getBorrowedCardId } from './card-host.ts';
+import { createClientErrorReporter } from './client-error-core.ts';
 import { checkControlLiveness, connectControl, onControlMessage, sendControlMsg, sendControlRequest, setConnectionStateCallback } from './control-ws.ts';
 import { createAddSessionDialog } from './dialogs.ts';
 import { observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers.ts';
@@ -946,6 +947,9 @@ document.addEventListener('visibilitychange', () => {
   checkWakeLiveness();
 });
 window.addEventListener('online', checkWakeLiveness);
+const reportClientError = createClientErrorReporter(sendControlMsg);
+window.addEventListener('error', (event) => reportClientError(event.error));
+window.addEventListener('unhandledrejection', (event) => reportClientError(event.reason));
 window.addEventListener('pageshow', (event) => {
   if (!event.persisted) return;
   rebuildWebglGlyphAtlases();

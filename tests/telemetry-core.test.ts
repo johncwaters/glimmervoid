@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  POSTHOG_PROJECT_TOKEN, adapterBucket, buildExceptionProperties, classifySessionExit, decideTelemetryConsent,
-  nodeMajorVersion, parseV8StackFrames, resolveProjectToken, scrubLocalPath,
+  POSTHOG_PROJECT_TOKEN, adapterBucket, buildBrowserExceptionProperties, buildExceptionProperties, classifySessionExit,
+  decideTelemetryConsent, exceptionFingerprint, nodeMajorVersion, parseBrowserStackFrames, parseV8StackFrames,
+  resolveProjectToken, scrubLocalPath, urlPathOnly,
 } from '../server/core/telemetry-core.ts';
 import { TELEMETRY_EVENT_SCHEMAS, TELEMETRY_EVENTS } from '../shared/contracts/telemetry.ts';
 import type { TelemetryEventName } from '../shared/contracts/telemetry.ts';
@@ -138,7 +139,7 @@ test('every event schema refuses a property outside its allowlist', () => {
       $ai_input_tokens: 10, $ai_output_tokens: 5, $ai_total_cost_usd: 0.01, agent_adapter: 'claude-code',
     },
   };
-  const everyEventName: TelemetryEventName[] = [...TELEMETRY_EVENTS.map(({ name }) => name), '$exception', '$ai_generation'];
+  const everyEventName: TelemetryEventName[] = [...TELEMETRY_EVENTS.map(({ name }) => name), '$ai_generation'];
   for (const name of everyEventName) {
     const schema = TELEMETRY_EVENT_SCHEMAS[name];
     assert.equal(schema.safeParse(validByEvent[name]).success, true, `${name} accepts its allowlist`);
@@ -167,4 +168,57 @@ test('the node major version parses from a version string', () => {
   assert.equal(nodeMajorVersion('24.3.0'), 24);
   assert.equal(nodeMajorVersion('v22.18.0'), 22);
   assert.equal(nodeMajorVersion('nonsense'), 0);
+});
+
+test('a browser frame URL keeps only its path, and a non-web URL only its file name', () => {
+  assert.equal(urlPathOnly('https://alice:secret@localhost:4400/assets/app.js?v=1#top'), '/assets/app.js');
+  assert.equal(urlPathOnly('http://127.0.0.1:5173/public/app.ts'), '/public/app.ts');
+  assert.equal(urlPathOnly('http://localhost:4400'), '/');
+  assert.equal(urlPathOnly('file:///home/alice/repo/page.js'), 'page.js');
+  assert.equal(urlPathOnly('chrome-extension://abc/content.js?x=1'), 'content.js');
+});
+
+test('a Vite dev-server /@fs/ or node_modules frame URL never keeps the local checkout path', () => {
+  assert.equal(urlPathOnly('http://localhost:5173/@fs/home/alice/checkout/shared/x.ts?t=1'), 'x.ts');
+  assert.equal(urlPathOnly('http://localhost:5173/@fs/home/alice/checkout/node_modules/@xterm/xterm/lib/xterm.js'), 'node_modules/@xterm/xterm/lib/xterm.js');
+  assert.equal(urlPathOnly('http://localhost:5173/node_modules/.vite/deps/zod.js'), 'node_modules/.vite/deps/zod.js');
+  const properties = buildBrowserExceptionProperties({
+    name: 'TypeError',
+    stack: '    at parse (http://localhost:5173/@fs/home/alice/checkout/shared/contracts/x.ts:3:9)\nload@http://localhost:5173/@fs/home/alice/checkout/node_modules/ws/index.js:1:1',
+  });
+  const payload = JSON.stringify(properties);
+  assert.equal(payload.includes('alice'), false);
+  assert.equal(payload.includes('/home/'), false);
+});
+
+test('browser frames parse from V8 and Gecko stacks outermost first, in_app only for web URLs', () => {
+  const chromeFrames = parseBrowserStackFrames('    at render (http://localhost/assets/app.js:10:5)\n    at http://localhost/assets/vendor.js:2:1');
+  assert.deepEqual(chromeFrames.map((frame) => [frame.platform, frame.function, frame.filename, frame.lineno, frame.colno, frame.in_app]), [
+    ['web:javascript', '?', '/assets/vendor.js', 2, 1, true],
+    ['web:javascript', 'render', '/assets/app.js', 10, 5, true],
+  ]);
+  const geckoFrames = parseBrowserStackFrames('render@http://localhost/assets/app.js:10:5\n@moz-extension://abc/inject.js:1:1');
+  assert.deepEqual(geckoFrames.map((frame) => [frame.function, frame.filename, frame.in_app]), [
+    ['?', 'inject.js', false],
+    ['render', '/assets/app.js', true],
+  ]);
+});
+
+test('a browser exception keeps a safe type name, no value, and is unhandled at error level', () => {
+  const properties = buildBrowserExceptionProperties({ name: 'secret /home/alice name', stack: '' });
+  assert.equal(properties.$exception_list[0].type, 'Error');
+  assert.equal(properties.$exception_list[0].value, '');
+  assert.equal(properties.$exception_list[0].mechanism.handled, false);
+  assert.equal(properties.$exception_level, 'error');
+  assert.equal(TELEMETRY_EVENT_SCHEMAS.$exception.safeParse(properties).success, true);
+});
+
+test('the exception fingerprint is the type plus in-app frames and ignores the message and dependency frames', () => {
+  const stackFor = (message: string, dependencyFile: string) => {
+    const error = new TypeError(message);
+    error.stack = `TypeError: ${message}\n    at run (${POSIX_PACKAGE_ROOT}/server/a.ts:1:1)\n    at ${POSIX_PACKAGE_ROOT}/node_modules/${dependencyFile}:3:3`;
+    return buildExceptionProperties(error, { handled: true, packageRoot: POSIX_PACKAGE_ROOT });
+  };
+  assert.equal(exceptionFingerprint(stackFor('one', 'ws/a.js')), exceptionFingerprint(stackFor('two', 'ws/b.js')));
+  assert.equal(exceptionFingerprint(stackFor('one', 'ws/a.js')), 'TypeError|run@server/a.ts');
 });

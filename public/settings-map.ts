@@ -387,8 +387,8 @@ export const SETTINGS_MAP = Object.freeze([
     description: 'What Glimmervoid sends about itself.',
     settings: [
       {
-        id: 'telemetry-enabled', path: 'telemetry.enabled', title: 'Send anonymous usage data',
-        description: 'Version, platform, app starts, daily activity, and session starts and ends with agent kind, exit kind and duration, under a random install id. Never paths, repository or branch names, prompts or terminal output. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless.',
+        id: 'telemetry-enabled', path: 'telemetry.enabled', title: 'Send anonymous usage and error data',
+        description: 'Version, platform, app starts, daily activity, session starts and ends with agent kind, exit kind and duration, and errors as their type, error code and scrubbed stack frames, under a random install id. Never error messages, paths, repository or branch names, prompts or terminal output. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless.',
         control: 'toggle', keywords: ['telemetry', 'analytics', 'tracking', 'opt out'], defaultValue: true,
       },
     ],
