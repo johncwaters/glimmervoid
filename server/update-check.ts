@@ -177,15 +177,19 @@ async function cloneIdentity(
   };
 }
 
-async function resolveInstalledIdentity(
-  { packageRoot, runCommand, signal }: { packageRoot: string; runCommand: RunCommand; signal: AbortSignal },
-): Promise<InstalledIdentity> {
-  const decided = decideInstallFlavor({
+function detectInstallFlavor(packageRoot: string): ReturnType<typeof decideInstallFlavor> {
+  return decideInstallFlavor({
     lockfileSha: readLockfileSha(packageRoot),
     gitHeadSha: readPackageGitHead(packageRoot),
     hasGitDir: directoryExists(path.join(packageRoot, '.git')),
     isInsideNodeModules: path.basename(path.dirname(packageRoot)) === 'node_modules',
   });
+}
+
+async function resolveInstalledIdentity(
+  { packageRoot, runCommand, signal }: { packageRoot: string; runCommand: RunCommand; signal: AbortSignal },
+): Promise<InstalledIdentity> {
+  const decided = detectInstallFlavor(packageRoot);
   if (decided.flavor === 'clone') return cloneIdentity(packageRoot, runCommand, signal);
   return { ...decided, installedBranch: null, upstream: null, isTreeClean: null };
 }
@@ -429,6 +433,7 @@ export {
   STATE_FILE_NAME,
   STATE_TTL_MS,
   checkForUpdate,
+  detectInstallFlavor,
   probeBranchAndUpstream,
 };
 export type { CheckForUpdateOptions, FetchOrigin, GitCallResult, UpdateCheckStatus };

@@ -4,6 +4,7 @@ import type { Server } from 'node:http';
 import { createBackend } from './backend.ts';
 import { spawn } from './child-process-safe.ts';
 import { decideBindHost } from './core/remote-config.ts';
+import { FIRST_RUN_NOTICE } from './core/telemetry-core.ts';
 import { buildTitleClearSequence, buildTitleSequence } from './core/terminal-title.ts';
 import { createLifecycle } from './server-lifecycle.ts';
 
@@ -37,7 +38,7 @@ function createBackendOrExit(): ReturnType<typeof createBackend> {
 
 const backend = createBackendOrExit();
 
-const { shutdown, port, app } = backend;
+const { shutdown, port, app, telemetry } = backend;
 server.on('request', app);
 
 function writeTerminalTitle(sequence: string): void {
@@ -55,6 +56,11 @@ function isPortInUse(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'EADDRINUSE';
 }
 
+async function printFirstRunTelemetryNotice(): Promise<void> {
+  if (!(await telemetry.consumeFirstRunNotice())) return;
+  console.log(FIRST_RUN_NOTICE);
+}
+
 server.on('error', (err) => {
   if (isPortInUse(err)) {
     console.error(`Another Glimmervoid is already running on port ${port} - exiting.`);
@@ -66,6 +72,8 @@ server.on('error', (err) => {
 server.listen(port, bind.host, () => {
   const boundPort = listeningPort(server, port);
   console.log(`Glimmervoid server listening on http://${bind.host}:${boundPort}`);
+  void printFirstRunTelemetryNotice();
+  telemetry.capture('app_started', {});
   writeTerminalTitle(buildTitleSequence(`glimmervoid :${boundPort}`));
   if (bind.reason === 'insecure-bind') {
     console.warn(`WARNING: bound ${bind.host} with GLIMMERVOID_INSECURE_BIND=1 - this listener has NO authentication.`);

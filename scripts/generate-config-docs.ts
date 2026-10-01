@@ -5,6 +5,7 @@ import { SETTINGS_MAP } from '../public/settings-map.ts';
 import type { SettingsSection, SettingsSetting } from '../public/settings-map.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import { Config, HIDDEN_CONFIG_KEYS } from '../shared/contracts/config.ts';
+import { TELEMETRY_BASE_PROPERTY_KEYS, TELEMETRY_EVENT_SCHEMAS, TELEMETRY_EVENTS } from '../shared/contracts/telemetry.ts';
 
 interface EnvironmentVariable {
   name: string;
@@ -22,6 +23,8 @@ export const ENVIRONMENT_VARIABLES: readonly EnvironmentVariable[] = Object.free
   { name: 'GLIMMERVOID_INSECURE_BIND', audience: 'operator', description: 'Set to `1` to allow a non-loopback `GLIMMERVOID_HOST`. The local listener has no authentication, so this exposes full control of the machine to anyone who can reach the port.' },
   { name: 'GLIMMERVOID_POSTHOG_API_KEY', audience: 'operator', description: 'Supplies `posthog.apiKey`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it.' },
   { name: 'GLIMMERVOID_TELEGRAM_BOT_TOKEN', audience: 'operator', description: 'Supplies `telegram.botToken`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it.' },
+  { name: 'GLIMMERVOID_TELEMETRY', audience: 'operator', description: 'Set to `0` to turn off anonymous usage telemetry whatever `telemetry.enabled` says. `DO_NOT_TRACK=1` and `CI=true` turn it off too.' },
+  { name: 'GLIMMERVOID_TELEMETRY_PROJECT_TOKEN', audience: 'internal', description: 'Sends telemetry to another PostHog project instead of the Glimmervoid one, so end-to-end checks of a development build stay out of real usage data. Not an operator setting.' },
   { name: 'GLIMMERVOID_DEBUG_SPAWN', audience: 'operator', description: 'Any non-empty value logs which executable each agent command resolved to at spawn.' },
   { name: 'GLIMMERVOID_RTK_PATH', audience: 'internal', description: 'Set by Glimmervoid in the rtk hook relay environment to name the rtk binary. Not an operator setting.' },
   { name: 'GLIMMERVOID_HOOK_URL', audience: 'internal', description: 'Set by Glimmervoid in each session environment as the hook relay target. Not an operator setting.' },
@@ -138,6 +141,26 @@ function unlistedKeysMarkdown(sections: readonly SettingsSection[]): string[] {
   ];
 }
 
+function telemetryMarkdown(): string[] {
+  const rows = TELEMETRY_EVENTS.map((event) => {
+    const propertyKeys = Object.keys(TELEMETRY_EVENT_SCHEMAS[event.name].shape).map((key) => `\`${key}\``).join(', ');
+    return `| \`${event.name}\` | ${escapeCell(propertyKeys || 'none')} | ${escapeCell(event.description)} |`;
+  });
+  const baseKeys = TELEMETRY_BASE_PROPERTY_KEYS.map((key) => `\`${key}\``).join(', ');
+  return [
+    '## Telemetry',
+    '',
+    'Glimmervoid sends anonymous usage events to its own PostHog project, under a random install id kept in `telemetry.json` in the Glimmervoid home (`~/.glimmervoid`, or `$GLIMMERVOID_HOME`). No person profile is created, and nothing names a path, repository, branch, session, prompt or terminal output. It prints a notice once on first start. Turn it off with `telemetry.enabled`, `GLIMMERVOID_TELEMETRY=0`, `DO_NOT_TRACK=1` or `CI=true`.',
+    '',
+    `Every event also carries ${baseKeys}.`,
+    '',
+    '| Event | Properties | When |',
+    '|-------|------------|------|',
+    ...rows,
+    '',
+  ];
+}
+
 function environmentMarkdown(): string[] {
   const rows = ENVIRONMENT_VARIABLES.map((variable) => `| \`${variable.name}\` | ${variable.audience} | ${escapeCell(variable.description)} |`);
   return [
@@ -171,6 +194,7 @@ export function renderConfigurationDoc(): string {
     ...configSections.flatMap(sectionMarkdown),
     ...unlistedKeysMarkdown(sections),
     ...environmentMarkdown(),
+    ...telemetryMarkdown(),
     ...browserPreferencesMarkdown(sections),
   ];
   return `${lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`;

@@ -31,11 +31,13 @@ import { createBackendNotifications } from './backend-notifications.ts';
 import { createBackendControl } from './backend-control.ts';
 import { createBackendUpdateCheck } from './backend-update.ts';
 import { normalizeUpdateChannel } from './core/update-core.ts';
+import { detectInstallFlavor } from './update-check.ts';
 import type { CheckForUpdate } from './backend-update.ts';
 import { createBackendSessionRuntime } from './backend-session-runtime.ts';
 import { createOutcomesLane } from './outcomes-wiring.ts';
 import { createUpdateApplyLane } from './update-apply.ts';
-import { packageRoot } from './runtime-paths.ts';
+import { bundled, packageRoot } from './runtime-paths.ts';
+import { createTelemetry } from './telemetry.ts';
 
 interface CreateBackendOptions extends BackendLaneOptions {
   staticDir?: string | null;
@@ -73,6 +75,17 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   } = trust;
 
   const serverBuild = `${packageJson.version}+${crypto.randomBytes(4).toString('hex')}`;
+
+  const telemetry = createTelemetry({
+    config,
+    env: process.env,
+    stateFilePath: path.join(glimmervoidHomeDir(), 'telemetry.json'),
+    packageRoot,
+    version: packageJson.version,
+    installFlavor: detectInstallFlavor(packageRoot).flavor,
+    isBundled: bundled,
+    getActiveSessionCount: () => sessions.size + agentSessions.size,
+  });
 
   const outcomes = createOutcomesLane();
   const recordOutcome = outcomes.record;
@@ -238,6 +251,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     traceWiring,
     planReview: laneAssembly.planReview,
     closeSessionDataClients,
+    telemetry,
     logger: console,
   });
 
@@ -283,6 +297,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   function applySettingsReload(newConfig: GlimmervoidConfig): void {
     configStore.applySettings(newConfig);
+    telemetry.applyConfig();
     applyCustomAgents(newConfig);
     updateCheck.applySettings();
     for (const [, sess] of sessions) {
@@ -351,6 +366,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     telegramOutbox,
     heartbeat,
     outcomes,
+    telemetry,
     controlWss,
     dataWss,
   });
@@ -416,6 +432,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     shutdown,
     port,
     app,
+    telemetry,
     getSession: getSessionAny,
     getLane: laneAssembly.current,
     bindHost: bindDecision.host,

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Anonymous telemetry**: Glimmervoid now sends anonymous usage data so it can be improved: the version, platform, when the server starts, a daily count of live sessions, and when sessions start and end with their agent kind, how they exited and running time, all under a random install id with no person profile. It never sends paths, repository or branch names, prompts or terminal output. A notice prints once in the terminal on first start. Turn it off under Settings > Privacy, or set `GLIMMERVOID_TELEMETRY=0` or `DO_NOT_TRACK=1`; it is always off when `CI=true`. The full event list is in docs/configuration.md under Telemetry.
 - **Flying animals settings**: a new browser settings section previews every animal, lets you choose which may fly and launch one on demand, and offers timing, size and phone layout controls under Advanced. Animals now fly by every 20 to 40 seconds by default, down from every 4 to 20.
 
 - **Avatars in the Reviews tab**: pull request authors, GitHub reviewers and requested reviewers now show their GitHub avatars on both the Team and Mine tabs, and the Team tab header shows your review team's name and avatar. Each reviewer avatar carries a colored dot for their latest review (approved, requested changes or commented), and hovering it reads the review and its age. Avatars load straight from GitHub, so when GitHub is unreachable or the account is a bot, a letter stands in with no layout shift.

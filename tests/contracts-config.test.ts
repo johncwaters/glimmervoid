@@ -127,6 +127,17 @@ test('a settings update carries agentApi.enabled and nothing else inside the blo
   assert.equal(ConfigUpdate.safeParse({ agentApi: { enabled: 'true' } }).success, false);
 });
 
+test('telemetry.enabled is a boolean dashboard-writable setting that defaults on', () => {
+  assert.equal(DEFAULT_CONFIG.telemetry.enabled, true);
+  assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, telemetry: { enabled: false } }).success, true);
+  const refused = ConfigUpdate.safeParse({ telemetry: { enabled: 'false' } });
+  assert.equal(refused.success === false && configIssueMessage(refused.error), 'telemetry.enabled must be a boolean');
+  assert.equal(ConfigUpdate.safeParse({ telemetry: { enabled: false, installId: 'x' } }).success, false);
+  assert.equal(BrowserConfig.safeParse({ telemetry: { enabled: false, installId: 'x' } }).success, false);
+  assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, telemetry: { enabled: false, installId: 'x' } }).success, true);
+  assert.equal(CONFIG_BLOCK_KEYS.includes('telemetry'), true);
+});
+
 function withCustomAgents(customAgents: unknown) {
   return Config.safeParse({ ...DEFAULT_CONFIG, projects: [], customAgents });
 }

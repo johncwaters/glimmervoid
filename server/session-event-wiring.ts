@@ -5,8 +5,10 @@ import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
 import type { ControlMessageRecord } from './control-replay-core.ts';
 import { decideWasActiveFlip } from './core/session-registry-core.ts';
+import { adapterBucket, classifySessionExit } from './core/telemetry-core.ts';
 import { INTERACTIVE_LANE } from './core/usage-lane-core.ts';
 import { resolveCheckConfig, runPostTurnChecks } from './post-turn-checker.ts';
+import type { Telemetry } from './telemetry.ts';
 
 interface WiringProject extends Record<string, unknown> {
   id?: string;
@@ -44,6 +46,7 @@ interface SessionEventDependencies {
     attachSession: (session: Session) => void;
     latestPlanTitle: (sessionId: string) => string | null;
   } | null;
+  telemetry?: Pick<Telemetry, 'capture'> | null;
   logger: Pick<Console, 'error' | 'log' | 'warn'>;
 }
 
@@ -94,8 +97,19 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     let pendingAgentNote: string | null = null;
     const notifyGate = createNotifyGate();
     let lastPersistedWasActive: boolean | null = null;
+    let spawnedAtMs: number | null = null;
     const persistProjectField = (field: string, value: unknown) => {
       persistSessionField(dependencies.configStore, dependencies.config, session.id, field, value);
+    };
+    const captureSessionEnded = (exit: { exitCode: number | null; signal: unknown; reason?: string }) => {
+      if (spawnedAtMs === null) return;
+      const durationSeconds = Math.max(0, Math.round((Date.now() - spawnedAtMs) / 1000));
+      spawnedAtMs = null;
+      dependencies.telemetry?.capture('session_ended', {
+        adapter: adapterBucket(session.agentId),
+        exit_kind: classifySessionExit(exit),
+        duration_seconds: durationSeconds,
+      });
     };
 
     session.on('claude-session-id', ({ id, vendor, isResumeTarget }: ClaudeSessionIdEvent) => {
@@ -117,6 +131,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       }
       const reasonText = reason ? `, reason=${reason}` : '';
       dependencies.logger.log(`[${session.name}] exited (code=${exitCode}, signal=${signal}${reasonText})`);
+      captureSessionEnded({ exitCode, signal, reason });
     });
 
     const resolvePostTurn = () => {
@@ -152,6 +167,10 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       event: string;
       detail: { signal?: string | null } | null;
     }) => {
+      if (event === 'spawn_success') {
+        spawnedAtMs = Date.now();
+        dependencies.telemetry?.capture('session_started', { adapter: adapterBucket(session.agentId) });
+      }
       dependencies.telegramChannel.noteStateChange(session.id);
       dependencies.broadcastControl({
         type: 'state-change',

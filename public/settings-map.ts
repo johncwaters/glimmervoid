@@ -65,6 +65,8 @@ export const SETTINGS_SECTION_ALIASES = Object.freeze({
   'team-review': 'lanes-team-review',
   reviews: 'lanes-team-review',
   usage: 'machine-usage',
+  privacy: 'machine-privacy',
+  telemetry: 'machine-privacy',
   shortcuts: 'browser-shortcuts',
   animals: 'browser-flying-animals',
   'flying-animals': 'browser-flying-animals',
@@ -375,6 +377,19 @@ export const SETTINGS_MAP = Object.freeze([
         description: 'Estimated monthly spend ceiling. Zero or below means no ceiling.',
         control: 'number', range: 'USAGE_BUDGET_RANGE', keywords: ['spend', 'alert'], defaultValue: null,
         integer: false, nullable: true, zeroIsNull: true, step: 0.01,
+      },
+    ],
+  },
+  {
+    id: 'machine-privacy',
+    level: 'machine',
+    title: 'Privacy',
+    description: 'What Glimmervoid sends about itself.',
+    settings: [
+      {
+        id: 'telemetry-enabled', path: 'telemetry.enabled', title: 'Send anonymous usage data',
+        description: 'Version, platform, app starts, daily activity, and session starts and ends with agent kind, exit kind and duration, under a random install id. Never paths, repository or branch names, prompts or terminal output. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless.',
+        control: 'toggle', keywords: ['telemetry', 'analytics', 'tracking', 'opt out'], defaultValue: true,
       },
     ],
   },

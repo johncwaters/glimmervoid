@@ -228,3 +228,16 @@ test('Flying animals follows Appearance and owns its stable toggle and searchabl
   assert.equal(settings.filter((setting) => setting.control === 'number').every((setting) => setting.commitOnChange === true), true);
   assert.equal(settings.every((setting) => setting.path.startsWith('pref:')), true);
 });
+
+test('the machine Privacy section owns the telemetry toggle and the privacy deep link', async () => {
+  const { SETTINGS_MAP, SETTINGS_SECTION_ALIASES } = await loadMap();
+  const privacy = SETTINGS_MAP.find((section) => section.id === 'machine-privacy');
+  assert.ok(privacy);
+  assert.equal(privacy.level, 'machine');
+  assert.equal(SETTINGS_SECTION_ALIASES.privacy, 'machine-privacy');
+  const privacySettings: SettingsSetting[] = privacy.settings;
+  const toggle = privacySettings.find((setting) => setting.path === 'telemetry.enabled');
+  assert.equal(toggle?.control, 'toggle');
+  assert.equal(toggle?.defaultValue, DEFAULT_CONFIG.telemetry.enabled);
+  assert.equal(DASHBOARD_SETTING_PATH_SET.has('telemetry.enabled'), true);
+});

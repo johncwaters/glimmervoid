@@ -4,7 +4,7 @@ import * as ranges from '../settings-ranges.ts';
 import {
   AgentApiFileSettings, BranchGcControlSettings, ChangeMapSettings,
   createBrowserConfig, optionalBoolean, optionalLooseObject, optionalNumber,
-  PlanReviewSettings, TraceSettings,
+  PlanReviewSettings, TelemetryFileSettings, TraceSettings,
 } from './browser-config.ts';
 import type { BranchGcFileSettings as BranchGcFileSettingsSchema } from './browser-config.ts';
 
@@ -29,7 +29,7 @@ export const ConfigUpdate = z.object({
   worktreeRerere: optionalBoolean('worktreeRerere'),
 }).omit({ port: true, worktreeShare: true }).strict();
 const AGENT_ID_RE = /^[a-z][a-z0-9-]{1,31}$/;
-export const BUILTIN_AGENT_IDS = Object.freeze(['claude-code', 'codex', 'grok']);
+export const BUILTIN_AGENT_IDS = Object.freeze(['claude-code', 'codex', 'grok'] as const);
 export const AGENT_ID_SHAPE_MESSAGE = 'an agent id of 2 to 32 characters of lowercase letters, digits and dashes, starting with a letter';
 
 const AGENT_COMMAND_BASENAME_RE = /^[A-Za-z0-9._+-]+$/;
@@ -57,13 +57,13 @@ export const CustomAgentDeclaration = z.object({
 
 export const CustomAgentDeclarations = z.array(CustomAgentDeclaration, { error: 'customAgents must be an array' })
   .superRefine((declarations, ctx) => {
-    const claimedIds = new Set(BUILTIN_AGENT_IDS);
+    const claimedIds = new Set<string>(BUILTIN_AGENT_IDS);
     for (const [index, declaration] of declarations.entries()) {
       if (!claimedIds.has(declaration.id)) {
         claimedIds.add(declaration.id);
         continue;
       }
-      const message = BUILTIN_AGENT_IDS.includes(declaration.id)
+      const message = BUILTIN_AGENT_IDS.some((builtinAgentId) => builtinAgentId === declaration.id)
         ? `customAgents[${index}].id "${declaration.id}" collides with the builtin agent of the same id`
         : `customAgents[${index}].id "${declaration.id}" is declared more than once`;
       ctx.addIssue({ code: 'custom', path: [index, 'id'], message });
@@ -90,6 +90,7 @@ const FILE_CONFIG_SHAPE = {
   telegram: optionalLooseObject('telegram'),
   ingest: optionalLooseObject('ingest'),
   agentApi: AgentApiFileSettings,
+  telemetry: TelemetryFileSettings,
   trace: TraceSettings,
   planReview: PlanReviewSettings,
   customAgents: CustomAgentDeclarations.optional(),
@@ -128,7 +129,7 @@ export const Config = z.object({
 export const BROWSER_CONFIG_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE));
 export const CONFIG_BLOCK_KEYS = Object.freeze([
 'changeMap', 'branchGc', 'postTurnChecks', 'visions', 'teamReview', 'posthog', 'usage', 'telegram', 'ingest',
-  'agentApi',
+  'agentApi', 'telemetry',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {
   if (CONFIG_BLOCK_KEYS.includes(key)) return false;

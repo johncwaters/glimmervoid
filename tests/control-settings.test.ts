@@ -679,6 +679,15 @@ test('an agentApi block carrying an unknown key is rejected and nothing is persi
   assert.equal(h.reloadCalls.length, 0);
 });
 
+test('a telemetry save persists, echoes, and flips the live config telemetry reads', () => {
+  const h = harness({ projects: [], telemetry: { enabled: true } });
+  h.send({ type: 'update-settings', settings: { telemetry: { enabled: false } } });
+
+  assert.deepEqual(h.cfg.telemetry, { enabled: false });
+  assert.deepEqual(updatedFrom(h)?.settings?.telemetry, { enabled: false });
+  assert.equal(h.store.config.telemetry?.enabled, false);
+});
+
 test('the settings payload carries one summary row per declared custom agent, resolvability unknown until probed', () => {
   const declared = [{ id: 'opencode', label: 'OpenCode', command: '/nonexistent/opencode', args: ['--headless'] }];
   setCustomAgents(declared);

@@ -173,6 +173,10 @@ const agentApiShape = { enabled: optionalBoolean('agentApi.enabled') };
 const AgentApiSettings = z.object(agentApiShape, { error: 'agentApi must be an object' }).strict().optional();
 export const AgentApiFileSettings = z.object(agentApiShape, { error: 'agentApi must be an object' }).passthrough().optional();
 
+const telemetryShape = { enabled: optionalBoolean('telemetry.enabled') };
+const TelemetrySettings = z.object(telemetryShape, { error: 'telemetry must be an object' }).strict().optional();
+export const TelemetryFileSettings = z.object(telemetryShape, { error: 'telemetry must be an object' }).passthrough().optional();
+
 export const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean) => ({
   port: z.number().int().min(0).max(65535).optional(),
   autoRecoverSeconds: z.number().finite().nonnegative().optional(),
@@ -206,6 +210,7 @@ export const createBrowserConfigShape = (isAbsolutePath: (directory: string) => 
   telegram: TelegramSettings,
   ingest: IngestSettings,
   agentApi: AgentApiSettings,
+  telemetry: TelemetrySettings,
 });
 
 export const createBrowserConfig = (isAbsolutePath: (directory: string) => boolean) => z.object(createBrowserConfigShape(isAbsolutePath));

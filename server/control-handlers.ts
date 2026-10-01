@@ -293,6 +293,7 @@ const DASHBOARD_SETTING_PATHS = Object.freeze([
   ...USAGE_BUDGET_KEYS.map((key) => `usage.budget.${key}`),
   ...TELEGRAM_STRING_KEYS.map((key) => `telegram.${key}`),
   'agentApi.enabled',
+  'telemetry.enabled',
 ]);
 
 const USAGE_REPORT_MAX_DAYS = 3650;
@@ -731,6 +732,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       if (incoming.ingest != null) cfg.ingest = mergeSettingsBlock(cfg.ingest, incoming.ingest, INGEST_SPEC);
       if (s.telegram != null) cfg.telegram = mergeSettingsBlockOverStored(cfg.telegram, s.telegram);
       if (s.agentApi != null) cfg.agentApi = mergeSettingsBlockOverStored(cfg.agentApi, s.agentApi);
+      if (s.telemetry != null) cfg.telemetry = mergeSettingsBlockOverStored(cfg.telemetry, s.telemetry);
     });
     if (!freshConfig) return;
     applySettingsReload(freshConfig);

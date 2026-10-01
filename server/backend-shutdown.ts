@@ -39,6 +39,7 @@ interface BackendShutdownDependencies {
   telegramOutbox: { idle: () => unknown };
   heartbeat: { stop: () => void };
   outcomes?: Stoppable | null;
+  telemetry?: Stoppable | null;
   controlWss: { close: () => void };
   dataWss: { close: () => void };
 }
@@ -104,6 +105,8 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     destroySessions([dependencies.visionsSessions, dependencies.changeMapSessions], pendingReaps);
     const outcomes = dependencies.outcomes;
     if (outcomes) stoppers.add('outcomes', () => outcomes.stop());
+    const telemetry = dependencies.telemetry;
+    if (telemetry) stoppers.add('telemetry', () => telemetry.stop());
     dependencies.heartbeat.stop();
     dependencies.controlWss.close();
     dependencies.dataWss.close();

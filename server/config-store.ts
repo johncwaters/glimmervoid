@@ -54,6 +54,10 @@ const DEFAULT_CONFIG = {
     enabled: false,
   },
 
+  telemetry: {
+    enabled: true,
+  },
+
   checkForUpdates: true,
   updateChannel: 'release' as const,
 
@@ -425,6 +429,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       recordSignals: config.recordSignals ?? effectiveDefaults.recordSignals,
       trace: { enabled: config.trace?.enabled ?? DEFAULT_CONFIG.trace.enabled },
       agentApi: { enabled: config.agentApi?.enabled ?? DEFAULT_CONFIG.agentApi.enabled },
+      telemetry: { enabled: config.telemetry?.enabled ?? DEFAULT_CONFIG.telemetry.enabled },
       antiSlopPrompt: config.antiSlopPrompt ?? effectiveDefaults.antiSlopPrompt,
       rtk: config.rtk ?? effectiveDefaults.rtk,
       checkForUpdates: config.checkForUpdates ?? effectiveDefaults.checkForUpdates,
@@ -487,6 +492,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     if (newConfig.telegram != null) config.telegram = newConfig.telegram;
     if (newConfig.ingest != null) config.ingest = newConfig.ingest;
     if (newConfig.agentApi != null) config.agentApi = newConfig.agentApi;
+    if (newConfig.telemetry != null) config.telemetry = newConfig.telemetry;
     config.customAgents = newConfig.customAgents ?? [];
 
     config.hooks = Array.isArray(newConfig.hooks) ? newConfig.hooks : [];

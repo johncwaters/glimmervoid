@@ -5,6 +5,7 @@ export * from './data-messages.ts';
 export * from './hooks.ts';
 export * from './plan-review.ts';
 export * from './session.ts';
+export * from './telemetry.ts';
 export * from './trace.ts';
 export * from './team-review.ts';
 export * from './my-prs.ts';
