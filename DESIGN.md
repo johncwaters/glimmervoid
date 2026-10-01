@@ -219,7 +219,7 @@ Every interactive element ships default, hover, focus-visible, active, and disab
 - **Internal padding:** 20px to 28px on large panels; the session-card header and terminal pane carry their own rhythm.
 
 ### Navigation
-- **Primary view tabs:** mono 13px, 0.04em tracking, Muted Lavender at rest to Bright Lavender White when selected. The active tab draws a 2px orchid underline that animates in via `transform: scaleX` (ease-out-quart), never a layout shift. An optional activity dot pulses orchid when background work is running.
+- **Primary view tabs:** mono 13px, 0.04em tracking, Muted Lavender at rest to Bright Lavender White when selected. The active tab draws a 2px orchid underline that animates in via `transform: scaleX` (ease-out-quart), never a layout shift. An optional activity dot shows steady orchid when a tab has something new; it never pulses, because a tab dot that animates for minutes reads as noise.
 
 ### State Badge (signature)
 - Uppercase mono, 11px, 700, 0.08em tracking, colored by `data-state` and always preceded by a state glyph. The glyph plus the color plus the shape make state legible without relying on hue, satisfying the color-blind commitment. STARTING pulses.

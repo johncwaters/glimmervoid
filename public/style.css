@@ -241,7 +241,7 @@ body {
 
 .header-connection[data-state="disconnected"] .connection-dot {
   background: var(--state-failed);
-  animation: blink 1s ease-in-out infinite;
+  animation: blink 1s ease-in-out 3;
 }
 
 .header-connection[data-state="disconnected"] {
@@ -343,7 +343,7 @@ body {
   border-radius: inherit;
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--state-waiting) 35%, transparent), 0 0 30px color-mix(in oklab, var(--state-waiting) 15%, transparent);
   opacity: 0;
-  animation: waiting-pulse 2s ease-in-out infinite;
+  animation: waiting-pulse 2s ease-in-out 3;
   pointer-events: none;
 }
 
@@ -577,11 +577,6 @@ body {
   min-width: 0;
   flex: 0 1 auto;
   overflow: hidden;
-}
-
-@keyframes working-breathe {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.55; }
 }
 
 .session-actions {
@@ -5032,8 +5027,6 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
 }
 .tab-activity.active {
   background: var(--accent);
-  box-shadow: 0 0 6px var(--accent);
-  animation: tab-pulse 1.4s ease-in-out infinite;
 }
 
 .tab-activity.active[data-attention="hand"] {
@@ -5042,12 +5035,6 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   top: 3px;
   right: 3px;
   background: var(--state-waiting);
-  box-shadow: 0 0 6px var(--state-waiting);
-  animation: none;
-}
-@keyframes tab-pulse {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.35; }
 }
 
 #sessions-container { display: none; }
@@ -5551,13 +5538,6 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
   border-color: var(--state-waiting);
   background: color-mix(in oklch, var(--state-waiting) 12%, var(--bg-card));
 }
-@media (prefers-reduced-motion: no-preference) {
-  .focus-pill[data-state="WAITING"] { animation: focus-pill-pulse 2s ease-in-out infinite; }
-}
-@keyframes focus-pill-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 transparent; }
-  50%      { box-shadow: 0 0 0 3px color-mix(in oklch, var(--state-waiting) 22%, transparent); }
-}
 
 .focus-pill[data-state="COMPLETE"] {
   border-color: color-mix(in oklch, var(--state-complete) 35%, var(--border-dim));
@@ -5577,14 +5557,7 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
   100% { box-shadow: 0 0 0 0 transparent; }
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .focus-pill[data-state="RUNNING"] .focus-pill-glyph {
-    animation: working-breathe 2.4s ease-in-out infinite;
-  }
-}
-
 .focus-pill[data-state="RUNNING"][data-activity="quiet"] .focus-pill-glyph {
-  animation-duration: 3.8s;
   opacity: 0.55;
 }
 
@@ -5665,7 +5638,7 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
 .focus-centered[data-state="FAILED"]  .session-card-header::after { opacity: 1; }
 @media (prefers-reduced-motion: no-preference) {
   .focus-centered[data-state="WAITING"] .session-card-header::after {
-    animation: focus-toolbar-breathe 2.4s ease-in-out infinite;
+    animation: focus-toolbar-breathe 2.4s ease-in-out 3;
   }
   .focus-center .session-card.focus-centered.completion-flash[data-state="DONE"] .session-card-header::after {
     animation: focus-toolbar-flash 900ms ease-out;
@@ -6155,10 +6128,6 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-e
   border-color: color-mix(in oklab, var(--accent-dim) 50%, var(--border));
 }
 .review-btn:disabled .review-shortcut { opacity: 0.6; }
-
-@media (prefers-reduced-motion: reduce) {
-  .tab-activity.active { animation: none; }
-}
 
 .health-table {
   width: 100%;
@@ -7227,14 +7196,6 @@ html[data-layout="phone"] .phone-row-item {
 .phone-row[data-state="FAILED"] { background: color-mix(in oklab, var(--state-failed) 10%, transparent); }
 .phone-row[data-state="FAILED"] .phone-row-glyph,
 .phone-row[data-state="FAILED"] .phone-row-badge { color: var(--state-failed); }
-
-.phone-row[data-state="WAITING"] .phone-row-glyph {
-  animation: phone-glyph-breathe 2s ease-in-out infinite;
-}
-@keyframes phone-glyph-breathe {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.45; }
-}
 
 .phone-terminal { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
