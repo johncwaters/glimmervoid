@@ -16,7 +16,7 @@ State of the public website work as of 2026-10-01, written so another agent can 
 - Lives in `site/`, an Astro static site that is its own npm package (`npm --prefix site install` once).
 - `npm run site:dev` serves it with reload; `npm run site:build` writes `site/dist/`. `.github/workflows/site.yml` deploys every main push touching `site/`, `public/` or `shared/` to GitHub Pages at https://johncwaters.github.io/glimmervoid/ (Astro `base: '/glimmervoid'`), and the `site` job in `test.yml` builds it on every PR.
 - The flying animals come from the dashboard at build time: `site/src/lib/animal-styles.ts` rescopes the block in `public/style.css` to `.sky`, and the animal list is `public/nyan-animals.ts`, so the site cannot drift from the product.
-- `LiveConsole.astro` in the hero is still a hand-built mock and must be replaced by captured video and stills before launch. Everything else is a diagram, not a picture of the UI, so it may stay hand-built.
+- The hero plays `site/public/capture/dashboard.webm` (poster `hero.webp`) through `DashboardRecording.astro`: the real dashboard replaying recorded sessions. Everything else is a diagram, not a picture of the UI, so it may stay hand-built.
 
 ## Capture tool
 
@@ -31,14 +31,9 @@ Files under `test/site-capture/`:
 
 Status: built. `npm run site:capture -- test/site-capture/fixtures/sample-manifest.json` produces `capture.webm` and three PNGs of the real dashboard (states driven by replayed hooks, redaction applied, a real commit in the review sidebar). Known gaps: the synthetic fixture is 80x24 while a 1440x900 viewport gives the terminal 99x48, so real recordings must be made at the capture's terminal size; projects show as `project-0`/`project-1` rather than the manifest's names; Playwright video needs its ffmpeg once (`node node_modules/playwright-core/cli.js install ffmpeg`).
 
-## Recording real sessions (operator step)
+## Recording real sessions
 
-1. Make 3 or 4 throwaway demo repos with no private code or names in them.
-2. Turn on `capture: { enabled: true }` in the Glimmervoid config, restart when convenient, and run real Claude Code sessions on those repos with the terminal pane at the size the manifest viewport will use.
-3. Copy the JSONL files from `~/.glimmervoid/recordings` into an ignored folder, list them in a manifest, and add redactions for the operator's name, home path and anything else personal.
-4. Run the capture, pick the stills, and swap them into `Hero.astro` in place of `LiveConsole`.
-
-The current README demo GIF shows the old "GLISSA" wordmark and personal details; replace it from the same capture.
+`npm run site:record -- test/site-capture/fixtures/demo-record.json` seeds the demo repos in `fixtures/demo/`, boots its own isolated Glimmervoid (own home, config, port and TMPDIR), runs the real `claude` with the operator's login but no user settings, plugins or MCP servers, types each task, and writes recordings and patches to the gitignored `test/site-capture/recordings/`. Then `npm run site:capture -- test/site-capture/fixtures/demo-capture.json --out test/site-capture/out/demo` produces the stills and webm. The hero video is that webm with the first 5.25 seconds (loading and the folder-trust prompt) cut, re-encoded with Playwright's ffmpeg; the README GIF is frames 5.25s to 17s at 4 fps and 960 px.
 
 ## Open issues before launch
 

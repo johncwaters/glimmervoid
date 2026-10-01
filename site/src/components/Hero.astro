@@ -1,6 +1,6 @@
 ---
 import { ANIMALS } from '../../../public/nyan-animals.ts';
-import LiveConsole from './LiveConsole.astro';
+import DashboardRecording from './DashboardRecording.astro';
 
 const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, trail })));
 ---
@@ -17,7 +17,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
     </div>
     <div class="hero-meta"><span>Windows, macOS, Linux</span><span>MIT</span><span>Runs locally</span></div>
   </div>
-  <LiveConsole />
+  <DashboardRecording />
 </section>
 
 <style>

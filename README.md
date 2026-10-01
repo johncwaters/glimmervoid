@@ -13,7 +13,7 @@ Glimmervoid is an agent orchestrator, sometimes called an agent manager or an ag
 
 Glimmervoid is developed inside Glimmervoid.
 
-![Glimmervoid dashboard mid-run: two Claude Code sessions streaming live terminal output, one working, one flipping to Complete with its real output and worktree diff visible in the review sidebar](assets/pictures/glimmervoid-demo.gif)
+![Glimmervoid dashboard replaying recorded Claude Code sessions: one fixes a flaky upload test with its diff in the terminal, three more work on their own projects in the session rail](assets/pictures/glimmervoid-demo.gif)
 
 ## Quickstart
 

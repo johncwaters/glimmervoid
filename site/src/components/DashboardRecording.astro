@@ -1,0 +1,42 @@
+---
+const assetBase = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/capture`;
+---
+<figure class="recording">
+  <video
+    id="dashboard-recording"
+    class="recording-video"
+    src={`${assetBase}/dashboard.webm`}
+    poster={`${assetBase}/hero.webp`}
+    width="1440"
+    height="900"
+    muted
+    loop
+    playsinline
+    preload="metadata"
+    aria-label="The Glimmervoid dashboard replaying four recorded Claude Code sessions: one fixes a flaky upload test and commits, one stops for permission on a billing migration, two more finish small tasks."
+  ></video>
+  <figcaption>The real dashboard, replaying recorded Claude Code sessions.</figcaption>
+</figure>
+
+<style>
+  .recording { position: relative; z-index: 2; margin: 44px 0 0; }
+  .recording-video {
+    display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+    box-shadow: 0 30px 80px -30px color-mix(in srgb, var(--accent-dim) 45%, transparent);
+  }
+  figcaption { margin-top: 10px; font-size: 12px; color: var(--text-dim); text-align: center; }
+</style>
+
+<script>
+  import { prefersReducedMotion } from '../lib/dom.ts';
+
+  function startDashboardRecording(): void {
+    const recording = document.getElementById('dashboard-recording');
+    if (!(recording instanceof HTMLVideoElement) || prefersReducedMotion()) return;
+    recording.play().catch(() => {
+      recording.controls = true;
+    });
+  }
+
+  startDashboardRecording();
+</script>
