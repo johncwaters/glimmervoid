@@ -225,6 +225,7 @@ function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
 
   let state: PosthogState = {};
   const trails = new Map<string, InvestigationTrail>();
+  let lastTickStatus: { ts: number; projects: ProjectSummary[] } | null = null;
   const pendingActivityTimers = new Map<string, NodeJS.Timeout>();
   const activeRunIds = new Map<string, number>();
   let lastRunId = 0;
@@ -369,6 +370,7 @@ function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
       startedAt: trail?.startedAt ?? null,
       trail: trail?.steps ?? [],
     });
+    if (lastTickStatus) emitStatus(lastTickStatus.ts, lastTickStatus.projects);
     return persist();
   }
 
@@ -723,20 +725,26 @@ function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
     if (pruneInvestigationLog()) dirty = true;
     if (pruneSignatureRegistry()) dirty = true;
     if (dirty) await persist();
-    for (const summary of summaries) {
-      summary.issues = summary.issues.map((issue) => ({
+    emitStatus(now(), summaries);
+    return undefined;
+  }
+
+  function emitStatus(ts: number, summaries: ProjectSummary[]): void {
+    const projects = summaries.map((summary) => ({
+      ...summary,
+      issues: summary.issues.map((issue) => ({
         ...issue,
         ...issueStateFields(summary.projectId, issue.issueId),
-      }));
-    }
+      })),
+    }));
+    lastTickStatus = { ts, projects };
     onTickComplete({
       type: 'posthog-status',
-      ts: now(),
+      ts,
       intervalMinutes,
-      projects: summaries,
+      projects,
       investigations: currentInvestigations(),
     });
-    return undefined;
   }
 
   async function start(): Promise<void> {

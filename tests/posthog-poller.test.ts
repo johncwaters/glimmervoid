@@ -647,6 +647,36 @@ test('a hook that lands after the run finished publishes nothing, so a dead inve
   assert.deepEqual(issue?.trail, [{ at: 950, tool: 'Read', detail: 'a.ts' }], 'the late step never joins the trail the finished run left behind');
 });
 
+test('an investigation finishing between ticks re-emits the cached snapshot, so a dashboard that missed the finished frame stops showing it in flight', async () => {
+  const gate: { release: (() => void) | null } = { release: null };
+  const clock = { nowMs: 1000 };
+  const { poller, summaries } = harness({
+    now: () => clock.nowMs,
+    spawnInvestigation: async () => {
+      await new Promise<void>((resolve) => { gate.release = resolve; });
+      return { verdict: 'ROOT_CAUSE', summary: 'the retry path double-fires' };
+    },
+  });
+  await poller.start();
+  await flush();
+  const [running] = tickProject(summaries).issues as { inFlight?: unknown }[];
+  assert.equal(running?.inFlight, true);
+  const ticksBeforeFinish = summaries.length;
+
+  clock.nowMs = 5000;
+  gate.release?.();
+  await flush();
+  assert.equal(summaries.length, ticksBeforeFinish + 1);
+  const refreshed = lastTick(summaries);
+  assert.equal(refreshed.ts, 1000, 'the re-emit keeps the poll time, so the dashboard still says when PostHog was last polled');
+  const [finished] = tickProject(summaries).issues as { inFlight?: unknown; verdict?: unknown; summaryLine?: unknown }[];
+  assert.equal(finished?.inFlight, false);
+  assert.equal(finished?.verdict, 'ROOT_CAUSE');
+  assert.equal(finished?.summaryLine, 'the retry path double-fires');
+  const investigations = summaries.at(-1)?.investigations as { issueId?: unknown }[];
+  assert.equal(investigations.at(0)?.issueId, 'iss-1');
+});
+
 test('the tick snapshot carries each issue state at broadcast time, not at the moment its project was polled', async () => {
   const gate: { release: (() => void) | null } = { release: null };
   const polled: (string | number)[] = [];
