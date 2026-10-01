@@ -34,6 +34,7 @@ uploads/
 ita-test/
 # Browser harness output (screenshots and traces from a real Chromium run). Runtime output, not a deliverable.
 test/browser/artifacts/
+test/site-capture/out/
 
 # compiled-commit runner scratch
 .compiled-commit-tmp/

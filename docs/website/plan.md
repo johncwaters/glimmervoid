@@ -17,18 +17,18 @@ State of the public website work as of 2026-10-01, written so another agent can 
 - Every section carries a purple tag naming the Astro component it becomes: `Hero.astro + LiveConsole.astro`, `SignalFlow.astro`, `WorktreeFlow.astro`, `Features.astro`, `Agents.astro`, `Animals.astro`, `Install.astro`. Delete the tags and the top draft bar when porting.
 - `LiveConsole` in the hero is a hand-built mock and must be replaced by captured video and stills before launch. Everything else is a diagram, not a picture of the UI, so it may stay hand-built.
 
-## Capture tool (in progress)
+## Capture tool
 
 Goal: a repeatable `npm run site:capture -- <manifest.json>` that boots an isolated Glimmervoid (temp `GLIMMERVOID_HOME`, temp config, free high port, as `test/browser/harness.ts` does), runs sessions whose `claude` binary is a replay shim, and records the real dashboard to `capture.webm` plus PNG stills in `test/site-capture/out/` (gitignored).
 
-Planned files under `test/site-capture/`:
+Files under `test/site-capture/`:
 
 - `replay-agent.ts`: plays the `data` and `hook` records of a session recording (`session/session-recorder.ts` format) with idle gaps compressed, applies same-length redactions so terminal columns never shift, applies an optional `git format-patch` at a named hook event so the review sidebar shows a real commit, and warns when the live PTY size differs from the recording.
 - `manifest-core.ts`: Zod manifest (viewport, speed, maxIdleGapMs, redactions, sessions, shots, videoMs) plus pure `compressTimeline` and `redactSameLength`, tested in `tests/site-capture-core.test.ts`.
 - `capture.ts`: the runner. It never touches `~/.glimmervoid` or a running server.
 - `fixtures/`: one synthetic recording and `sample-manifest.json`. Real recordings are never committed.
 
-Status: being written by a Codex run in the worktree of the agent that wrote this file. If `test/site-capture/` is missing or incomplete on `main`, rebuild it from the bullets above. Done means `npm run typecheck`, `npm run lint` and `npm test` pass, and the sample manifest produces a non-empty webm and PNGs with no stray processes left.
+Status: built. `npm run site:capture -- test/site-capture/fixtures/sample-manifest.json` produces `capture.webm` and three PNGs of the real dashboard (states driven by replayed hooks, redaction applied, a real commit in the review sidebar). Known gaps: the synthetic fixture is 80x24 while a 1440x900 viewport gives the terminal 99x48, so real recordings must be made at the capture's terminal size; projects show as `project-0`/`project-1` rather than the manifest's names; Playwright video needs its ffmpeg once (`node node_modules/playwright-core/cli.js install ffmpeg`).
 
 ## Recording real sessions (operator step)
 

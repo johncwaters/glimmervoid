@@ -1,0 +1,10 @@
+{"type":"header","version":2,"agent":"claude-code","session":"synthetic-demo","records":"full","startedAt":1000,"cols":80,"rows":24}
+{"type":"resize","ts":1000,"cols":80,"rows":24}
+{"type":"data","ts":1200,"data":"\u001b[2J\u001b[H\u001b[36mClaude Code replay fixture\u001b[0m\r\n\r\nSynthetic pipeline verification, not a marketing recording.\r\nProject: private-project\r\n\r\n> Add the capture verification file\r\n\r\n"}
+{"type":"hook","ts":1400,"event":"UserPromptSubmit","payload":{"session_id":"00000000-0000-4000-8000-000000000001","prompt":"Add the capture verification file"}}
+{"type":"data","ts":2800,"data":"\u001b[33mWorking\u001b[0m\r\n  Checking the capture pipeline\r\n  Preparing a real commit for the review sidebar\r\n\r\n"}
+{"type":"hook","ts":4000,"event":"Notification","payload":{"notification_type":"permission_prompt","message":"Review the capture verification change"}}
+{"type":"data","ts":5500,"data":"\u001b[32mCapture verification change prepared.\u001b[0m\r\n\r\n"}
+{"type":"hook","ts":7000,"event":"Stop","payload":{"stop_hook_active":false}}
+{"type":"data","ts":7200,"data":"\u001b[36m> \u001b[0m"}
+{"type":"footer","ts":7300,"reason":"synthetic fixture complete","exitCode":0}

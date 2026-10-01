@@ -58,6 +58,7 @@
     "test": "node --import ./tests/helpers/isolate-home.ts --test \"tests/**/*.test.ts\"",
     "typecheck": "tsc --project tsconfig.json && tsc --project tsconfig.public.json && tsc --project tsconfig.browser-harness.json",
     "test:browser": "node test/browser/harness.ts",
+    "site:capture": "node test/site-capture/capture.ts",
     "test:container": "docker build -f test/container/Dockerfile -t glimmervoid-remote-test . && docker run --rm glimmervoid-remote-test",
     "dev": "vite",
     "build": "node scripts/build.mjs",

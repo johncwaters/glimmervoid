@@ -1,0 +1,17 @@
+{
+  "viewport": { "width": 1440, "height": 900 },
+  "speed": 1,
+  "maxIdleGapMs": 2500,
+  "redactions": [{ "from": "private-project", "to": "capture-demo" }],
+  "sessions": [
+    { "name": "Capture verification", "project": "Dashboard", "recording": "synthetic.jsonl", "patch": "synthetic.patch" },
+    { "name": "Terminal replay", "project": "Dashboard", "recording": "synthetic.jsonl" },
+    { "name": "Hook verification", "project": "Notifications", "recording": "synthetic.jsonl" }
+  ],
+  "shots": [
+    { "atMs": 2200, "name": "working", "selectSession": "Terminal replay" },
+    { "atMs": 3800, "name": "attention", "selectSession": "Hook verification" },
+    { "atMs": 10500, "name": "review", "selectSession": "Capture verification" }
+  ],
+  "videoMs": 12000
+}

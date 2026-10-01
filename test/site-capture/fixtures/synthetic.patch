@@ -1,0 +1,17 @@
+From 1111111111111111111111111111111111111111 Mon Sep 17 00:00:00 2001
+From: Site Capture <capture@example.invalid>
+Date: Thu, 1 Oct 2026 12:00:00 +0000
+Subject: [PATCH] Add capture verification
+
+---
+ capture-verification.txt | 1 +
+ 1 file changed, 1 insertion(+)
+ create mode 100644 capture-verification.txt
+
+diff --git a/capture-verification.txt b/capture-verification.txt
+new file mode 100644
+index 0000000..d95f3ad
+--- /dev/null
++++ b/capture-verification.txt
+@@ -0,0 +1 @@
++Real git commit applied during synthetic replay.
