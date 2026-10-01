@@ -4,7 +4,7 @@ This file is loaded into EVERY session, so it holds only what every session need
 
 ## Purpose
 
-Glimmervoid is a lightweight Node.js background process that spawns and manages Claude Code sessions via node-pty, streams terminal output to a browser dashboard over WebSockets, derives session status from structural signals (Claude Code hooks plus an OSC-0 title fallback, never screen scraping), and notifies the operator through browser notifications.
+Glimmervoid is a local agent orchestrator, not a harness: a lightweight Node.js background process that spawns and supervises coding agent sessions (Claude Code, Codex, Grok, custom CLIs) via node-pty, streams terminal output to a browser dashboard over WebSockets, derives session status from structural signals (Claude Code hooks plus an OSC-0 title fallback, never screen scraping), and notifies the operator through browser notifications.
 
 ## Architecture Map
 
@@ -34,7 +34,7 @@ Glimmervoid is a lightweight Node.js background process that spawns and manages 
 ### Working In This Directory
 
 - Everything is TypeScript ESM. Erasable syntax only (no enums, namespaces, parameter properties); relative imports carry explicit `.ts` extensions; the browser reaches `shared/` through the `#shared/*` imports map. Never `any`, never `as unknown as` (`tests/typecheck-gate.test.ts`).
-- Node >=22.18.0 (where type stripping is on by default, which source mode and the `.test.ts` suite depend on). Windows 11 and Linux, developed on v24.
+- Node >=22.18.0 (where type stripping is on by default, which source mode and the `.test.ts` suite depend on). Windows 11, Linux and macOS, developed on v24.
 - Do NOT add dependencies without explicit instruction.
 - Status detection is structural (hooks plus OSC-0 title). Never reintroduce PTY body or content scraping.
 - Spawn sessions with `pty.spawn`, never `child_process.spawn`, and never `shell: true`. Scrub env via `session/core/spawn-env.ts`.
@@ -91,7 +91,7 @@ Each subsystem states its own rules beside its code, so a rule is loaded when th
 
 ## Platform and Runtime
 
-Windows 11 (Linux supported). Node floor and module split are stated under Working In This Directory.
+Windows 11, Linux and macOS. Node floor and module split are stated under Working In This Directory.
 
 ## Dependencies
 

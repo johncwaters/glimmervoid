@@ -1,7 +1,7 @@
 {
   "name": "glimmervoid",
   "version": "0.28.2",
-  "description": "Spawn and manage Claude Code sessions on Windows and Linux with a browser dashboard and real-time xterm.js streaming",
+  "description": "Mission control for coding agents: run and supervise Claude Code, Codex and Grok sessions in parallel git worktrees from one local browser dashboard",
   "main": "dist/server/index.js",
   "type": "module",
   "imports": {
@@ -37,12 +37,20 @@
   "keywords": [
     "claude",
     "claude-code",
+    "codex",
+    "coding-agents",
+    "ai-agents",
+    "agent-orchestrator",
+    "agent-manager",
+    "parallel-agents",
+    "git-worktree",
     "terminal",
     "dashboard",
     "session-manager",
     "xterm",
     "windows",
-    "linux"
+    "linux",
+    "macos"
   ],
   "scripts": {
     "start": "node dist/server/index.js",

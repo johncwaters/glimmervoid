@@ -3,11 +3,13 @@
 [![CI](https://github.com/johncwaters/glimmervoid/actions/workflows/test.yml/badge.svg)](https://github.com/johncwaters/glimmervoid/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22.18-brightgreen.svg)](https://nodejs.org)
-[![Platform: Windows | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-0078d4)](https://github.com/johncwaters/glimmervoid)
+[![Platform: Windows | Linux | macOS](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-0078d4)](https://github.com/johncwaters/glimmervoid)
 
-**Run dozens of Claude Code agents at once. See every session. Miss nothing.**
+**Mission control for your coding agents. Run dozens of Claude Code, Codex and Grok sessions at once. See every one. Miss nothing.**
 
-Running more than a couple of Claude Code agents at once turns into alt-tabbing between terminal windows, missing the exact moment one finishes or silently blocks on a prompt, and merging work you never watched happen. Glimmervoid is one browser dashboard with live terminal output for every session, exact status instead of a guess, and per-agent git worktrees you can review and merge without leaving the page.
+Running more than a couple of coding agents at once turns into alt-tabbing between terminal windows, missing the exact moment one finishes or silently blocks on a prompt, and merging work you never watched happen. Glimmervoid is one browser dashboard with live terminal output for every session, exact status instead of a guess, a notification the moment an agent needs you, and per-agent git worktrees you can review and merge without leaving the page.
+
+Glimmervoid is an agent orchestrator, sometimes called an agent manager or an agentic development environment. It is not an agent harness: Claude Code, Codex and Grok are the harnesses, the loop that turns a model into an agent. Glimmervoid runs those harnesses unmodified, as real processes in real terminals on your own machine, and supervises all of them from one screen. No cloud service, no account.
 
 Glimmervoid is developed inside Glimmervoid.
 
@@ -15,7 +17,7 @@ Glimmervoid is developed inside Glimmervoid.
 
 ## Quickstart
 
-Windows:
+Windows and macOS:
 
 ```bash
 npm install -g glimmervoid
@@ -53,7 +55,7 @@ Update a clone with `git pull --ff-only && npm ci && npm run build`, then restar
 ## Requirements
 
 - **Node.js >= 22.18.0** (the `engines` floor). npm 12 itself needs Node 22.22.2 or newer; distro-packaged Node is usually older than either, so use nodesource, nvm or the official installer.
-- **Windows 11 or Linux.** macOS is untested.
+- **Windows 11, Linux or macOS.** CI runs on Linux; Windows and macOS are tested by hand.
 - **Claude Code CLI** on PATH, or another supported agent below.
 - **git** on PATH, for per-session worktrees.
 - **Linux only:** `build-essential` and `python3` for node-pty.
@@ -181,9 +183,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Limitations
 
-- **Windows 11 and Linux only.** macOS is untested.
 - **Local-first, with an opt-in remote door.** By default Glimmervoid binds `127.0.0.1` and has no login on the local listener, so any local process can drive it. That is a deliberate single-user choice, and it means the local port must never be exposed to the network. Remote access is a separate listener gated by single-use pairing tokens and cookies, meant to sit behind a reverse proxy; a pairing cookie grants full code execution as the server account.
-- **Requires an agent CLI.** Glimmervoid spawns and manages Claude Code (or another supported agent); it doesn't replace it.
+- **Requires an agent CLI.** Glimmervoid spawns and supervises Claude Code, Codex, Grok or another terminal agent; it does not replace them.
 
 ## Changelog
 

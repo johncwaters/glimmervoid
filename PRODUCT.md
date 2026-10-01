@@ -2,13 +2,13 @@
 
 ## Users
 
-A single power user: a developer running many Claude Code agents at once, on Windows or against a Linux server, often late and often tired. Their context is a 27-inch monitor in a dim room at 2am, several live terminals in view, attention split across sessions that each move at their own pace. They are not browsing; they are on watch.
+A single power user: a developer running many coding agents at once (Claude Code, Codex, Grok), on Windows, macOS or against a Linux server, often late and often tired. Their context is a 27-inch monitor in a dim room at 2am, several live terminals in view, attention split across sessions that each move at their own pace. They are not browsing; they are on watch.
 
-The job to be done: spawn, monitor, and steer dozens of Claude Code sessions from one screen without alt-tabbing between windows, losing track of which agent is waiting for input, or missing the moment one finishes or fails. Glimmervoid is local-first (localhost by default, single user, with opt-in paired remote access from their own phone), so the operator already trusts the machine; what they need from the interface is honest, legible state. The primary task on any given screen is triage: scan the board, find the session that needs a human, act, return to watching.
+The job to be done: spawn, monitor, and steer dozens of agent sessions from one screen without alt-tabbing between windows, losing track of which agent is waiting for input, or missing the moment one finishes or fails. Glimmervoid is local-first (localhost by default, single user, with opt-in paired remote access from their own phone), so the operator already trusts the machine; what they need from the interface is honest, legible state. The primary task on any given screen is triage: scan the board, find the session that needs a human, act, return to watching.
 
 ## Product Purpose
 
-Glimmervoid is a lightweight background process that spawns and manages Claude Code sessions, streams their live terminal output to a browser dashboard over WebSocket, and raises native browser notifications when a session needs attention, finishes, or fails. It exists because running multiple Claude Code sessions across separate terminal windows is chaos: work piles up during context-switches and the moment that matters (an agent waiting on input) is easy to miss.
+Glimmervoid is mission control for coding agents: a lightweight background process that spawns and supervises agent sessions, streams their live terminal output to a browser dashboard over WebSocket, and raises native browser notifications when a session needs attention, finishes, or fails. It is an orchestrator, not a harness: it runs the agent CLIs unmodified and never sits between an agent and its model. It exists because running multiple agent sessions across separate terminal windows is chaos: work piles up during context-switches and the moment that matters (an agent waiting on input) is easy to miss.
 
 Success looks like an operator keeping a dozen agents productive from one screen, never missing the instant a session needs them, and never having to interpret or second-guess what they are seeing. The interface earns its keep by disappearing: the terminal output is the product, and the chrome exists only to route attention to the right session at the right time.
 
