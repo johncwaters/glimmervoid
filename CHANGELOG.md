@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Flying animals settings**: a new browser settings section previews every animal, lets you choose which may fly and launch one on demand, and offers timing, size and phone layout controls under Advanced. Animals now fly by every 20 to 40 seconds by default, down from every 4 to 20.
+
 - **Avatars in the Reviews tab**: pull request authors, GitHub reviewers and requested reviewers now show their GitHub avatars on both the Team and Mine tabs, and the Team tab header shows your review team's name and avatar. Each reviewer avatar carries a colored dot for their latest review (approved, requested changes or commented), and hovering it reads the review and its age. Avatars load straight from GitHub, so when GitHub is unreachable or the account is a bot, a letter stands in with no layout shift.
 - **PostHog light and dark themes**: Settings > Theme now offers PostHog (Light) and PostHog (Dark), built from the palette and surface tokens on posthog.com: the warm off-white and tan surfaces with a burnt-orange accent in light, and the charcoal surfaces with the PostHog orange accent in dark. Session states and terminal colors use the same brand palette.
 

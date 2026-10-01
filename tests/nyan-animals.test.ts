@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { ANIMALS, pickAnimalIndex } from '../public/nyan-animals.ts';
+import { ANIMALS } from '../public/nyan-animals.ts';
 import { deriveNyanGeometry } from '../public/nyan-geometry-core.ts';
 
 test('ANIMALS: 19 entries, all sprite/trail classes unique', () => {
@@ -12,28 +12,8 @@ test('ANIMALS: 19 entries, all sprite/trail classes unique', () => {
   const trails = ANIMALS.map((animal) => animal.trail);
   assert.equal(new Set(sprites).size, 19);
   assert.equal(new Set(trails).size, 19);
-});
-
-test('pickAnimalIndex: never returns prevIndex across a sweep of rng values', () => {
-  const animalCount = ANIMALS.length;
-  for (let prevIndex = 0; prevIndex < animalCount; prevIndex++) {
-    const seen = new Set<number>();
-    for (let step = 0; step < 1000; step++) {
-      const picked = pickAnimalIndex(() => step / 1000, prevIndex);
-      assert.notEqual(picked, prevIndex);
-      seen.add(picked);
-    }
-    assert.equal(seen.size, animalCount - 1, `prevIndex ${prevIndex} should reach all other indices`);
-  }
-});
-
-test('pickAnimalIndex: an absent or out-of-range prevIndex allows every index', () => {
-  const animalCount = ANIMALS.length;
-  for (const prevIndex of [-1, 999, -5, animalCount]) {
-    const seen = new Set<number>();
-    for (let step = 0; step < 1000; step++) seen.add(pickAnimalIndex(() => step / 1000, prevIndex));
-    assert.equal(seen.size, animalCount, `prevIndex ${prevIndex} should allow all indices`);
-  }
+  assert.equal(new Set(ANIMALS.map((animal) => animal.name)).size, 19);
+  assert.ok(ANIMALS.every((animal) => animal.name.length > 0));
 });
 
 test('every roster sprite/trail class has a matching flying-animals CSS rule', () => {
@@ -47,6 +27,8 @@ test('every roster sprite/trail class has a matching flying-animals CSS rule', (
   for (const animal of ANIMALS) {
     assert.ok(css.includes(`.nyan-sprite.${animal.sprite}`), `missing sprite rule for ${animal.sprite}`);
     assert.ok(css.includes(`.nyan-trail.${animal.trail}`), `missing trail rule for ${animal.trail}`);
+    assert.ok(css.includes(`.flying-animal-preview .nyan-sprite.${animal.sprite}`));
+    assert.ok(css.includes(`.flying-animal-preview .nyan-trail.${animal.trail}`));
   }
 });
 

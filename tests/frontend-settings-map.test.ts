@@ -212,3 +212,19 @@ test('the Team review lane section owns its settings and deep link', async () =>
   assert.equal(teamReviewSettings.some((setting) => setting.id === TEAM_REVIEW_SETTINGS_SETTING_ID), true);
   for (const setting of teamReviewSettings) assert.equal(DASHBOARD_SETTING_PATH_SET.has(setting.path), true, setting.path);
 });
+
+test('Flying animals follows Appearance and owns its stable toggle and searchable advanced controls', async () => {
+  const { SETTINGS_MAP, SETTINGS_SECTION_ALIASES } = await loadMap();
+  const appearanceIndex = SETTINGS_MAP.findIndex((section) => section.id === 'browser-appearance');
+  const animals = SETTINGS_MAP[appearanceIndex + 1];
+  assert.equal(animals.id, 'browser-flying-animals');
+  assert.equal(animals.level, 'browser');
+  assert.equal(SETTINGS_SECTION_ALIASES.animals, animals.id);
+  assert.equal(SETTINGS_SECTION_ALIASES['flying-animals'], animals.id);
+  const settings: SettingsSetting[] = animals.settings;
+  assert.equal(settings.find((setting) => setting.id === 'flying-animals')?.path, 'pref:flyingAnimalsEnabled');
+  assert.equal(SETTINGS_MAP[appearanceIndex].settings.some((setting) => setting.id === 'flying-animals'), false);
+  assert.equal(settings.filter((setting) => setting.advanced).length, 6);
+  assert.equal(settings.filter((setting) => setting.control === 'number').every((setting) => setting.commitOnChange === true), true);
+  assert.equal(settings.every((setting) => setting.path.startsWith('pref:')), true);
+});

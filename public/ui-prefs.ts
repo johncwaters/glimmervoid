@@ -1,10 +1,12 @@
+import { FLYING_ANIMALS_DEFAULTS, normalizeExcludedSprites, normalizeFlyingAnimalsOptions } from './flying-animals-core.ts';
+import type { FlyingAnimalsOptions } from './flying-animals-core.ts';
 import { DEFAULT_SOUND_ID } from './alert-sound-core.ts';
 import { getJSON, setJSON } from './local-store.ts';
 
 const STORAGE_KEY = 'glimmervoid-ui-prefs';
 const SIDEBAR_WIDTH_KEY = 'glimmervoid:sidebar-width';
 
-export interface UiPrefs {
+export interface UiPrefs extends FlyingAnimalsOptions {
   soundEnabled: boolean;
   soundId: string;
   themeId: string;
@@ -31,6 +33,7 @@ const asBoolean = (fallback: boolean) => (value: unknown): boolean => (typeof va
 const asString = (fallback: string) => (value: unknown): string => (typeof value === 'string' ? value : fallback);
 const asNullableString = (value: unknown): string | null => (typeof value === 'string' && value ? value : null);
 const asNullableNumber = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+const asFiniteNumber = (fallback: number) => (value: unknown): number => asNullableNumber(value) ?? fallback;
 const asStringList = (value: unknown): string[] =>
   Array.isArray(value) ? [...new Set(value.filter((entry): entry is string => typeof entry === 'string' && entry !== ''))] : [];
 const asReviewSidebarView = (value: unknown): UiPrefs['reviewSidebarView'] => value === 'diff' ? 'diff' : 'map';
@@ -41,6 +44,13 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   soundId: asString(DEFAULT_SOUND_ID),
   themeId: asString('phyrexian'),
   flyingAnimalsEnabled: asBoolean(false),
+  flyingAnimalsMinGapSeconds: asFiniteNumber(FLYING_ANIMALS_DEFAULTS.flyingAnimalsMinGapSeconds),
+  flyingAnimalsMaxGapSeconds: asFiniteNumber(FLYING_ANIMALS_DEFAULTS.flyingAnimalsMaxGapSeconds),
+  flyingAnimalsMinDurationSeconds: asFiniteNumber(FLYING_ANIMALS_DEFAULTS.flyingAnimalsMinDurationSeconds),
+  flyingAnimalsMaxDurationSeconds: asFiniteNumber(FLYING_ANIMALS_DEFAULTS.flyingAnimalsMaxDurationSeconds),
+  flyingAnimalsScale: asFiniteNumber(FLYING_ANIMALS_DEFAULTS.flyingAnimalsScale),
+  flyingAnimalsOnPhone: asBoolean(FLYING_ANIMALS_DEFAULTS.flyingAnimalsOnPhone),
+  flyingAnimalsExcludedSprites: normalizeExcludedSprites,
   notificationsEnabled: asBoolean(true),
   activeView: asString('focus'),
   lastFocusedSessionId: asNullableString,
@@ -131,7 +141,6 @@ export const setPrsAttentionAck = (signature: string) => write('prsAttentionAck'
 export const getUsageAttentionAck = () => read('usageAttentionAck');
 export const setUsageAttentionAck = (signature: string) => write('usageAttentionAck', signature);
 
-
 export const getVisionsAttentionAck = () => read('visionsAttentionAck');
 export const setVisionsAttentionAck = (signature: string) => write('visionsAttentionAck', signature);
 
@@ -140,3 +149,26 @@ export const setLastFocusedSessionId = (id: string | null) => write('lastFocused
 
 export const getSidebarWidth = () => asNullableNumber(getJSON(SIDEBAR_WIDTH_KEY, null));
 export const setSidebarWidth = (px: number | null) => setJSON(SIDEBAR_WIDTH_KEY, asNullableNumber(px));
+
+export const setFlyingAnimalsMinGapSeconds = (value: number) => write('flyingAnimalsMinGapSeconds', value);
+
+export const setFlyingAnimalsMaxGapSeconds = (value: number) => write('flyingAnimalsMaxGapSeconds', value);
+
+export const setFlyingAnimalsMinDurationSeconds = (value: number) => write('flyingAnimalsMinDurationSeconds', value);
+
+export const setFlyingAnimalsMaxDurationSeconds = (value: number) => write('flyingAnimalsMaxDurationSeconds', value);
+
+export const setFlyingAnimalsScale = (value: number) => write('flyingAnimalsScale', value);
+
+export const setFlyingAnimalsOnPhone = (value: boolean) => write('flyingAnimalsOnPhone', value);
+
+export const setFlyingAnimalsExcludedSprites = (value: string[]) => write('flyingAnimalsExcludedSprites', value);
+
+export const getFlyingAnimalsOptions = () => normalizeFlyingAnimalsOptions(load());
+
+export const getFlyingAnimalsEnteredValues = () => {
+  const prefs = load();
+  return Object.fromEntries((Object.keys(FLYING_ANIMALS_DEFAULTS) as (keyof typeof FLYING_ANIMALS_DEFAULTS)[]).map((key) => [key, prefs[key]]));
+};
+
+export const resetFlyingAnimalsAdvanced = () => setJSON(STORAGE_KEY, { ...load(), ...FLYING_ANIMALS_DEFAULTS });

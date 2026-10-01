@@ -8,6 +8,10 @@ export interface SettingsRange {
 export const POSITIVE_NUMBER_RANGE: SettingsRange = Object.freeze({ min: 0, exclusiveMin: true, label: 'a positive number' });
 export const NON_NEGATIVE_NUMBER_RANGE: SettingsRange = Object.freeze({ min: 0, label: 'zero or more' });
 
+export const FLYING_ANIMALS_GAP_RANGE = Object.freeze({ min: 0, max: 300 });
+export const FLYING_ANIMALS_DURATION_RANGE = Object.freeze({ min: 1, max: 60 });
+export const FLYING_ANIMALS_SCALE_RANGE = Object.freeze({ min: 0.5, max: 2 });
+
 export const REPLAY_BUFFER_KB_RANGE = Object.freeze({ min: 64, max: 16384 });
 
 
@@ -49,6 +53,9 @@ export const USAGE_INTEGER_RANGES = Object.freeze({
 export const CHANGE_MAP_NARRATOR_TIMEOUT_RANGE = Object.freeze({ min: 15, max: 600 });
 
 export const SETTINGS_RANGES = Object.freeze({
+  FLYING_ANIMALS_GAP_RANGE,
+  FLYING_ANIMALS_DURATION_RANGE,
+  FLYING_ANIMALS_SCALE_RANGE,
   CHANGE_MAP_NARRATOR_TIMEOUT_RANGE,
   POSTHOG_ESCALATION_RANGE,
   POSTHOG_FIX_TIMEOUT_RANGE,

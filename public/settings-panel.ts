@@ -1,3 +1,5 @@
+import { renderFlyingAnimalsGallery } from './flying-animals-gallery.ts';
+import { onLayoutChange } from './form-factor.ts';
 import type { SettingsRange } from '#shared/settings-ranges.ts';
 import { SETTINGS_RANGES } from '#shared/settings-ranges.ts';
 import type { CustomAgentSummaryRow } from '#shared/contracts/control-messages.ts';
@@ -10,7 +12,7 @@ import { ensureNotificationPermission, notificationPermission, notificationsSupp
 import { formatAgo } from './poll-ago.ts';
 import { UPDATES_SECTION_ID } from './radar-core.ts';
 import type { SettingsSection, SettingsSetting, SettingsOption } from './settings-map.ts';
-import { SETTINGS_MAP, SETTINGS_SECTION_ALIASES } from './settings-map.ts';
+import { SETTINGS_MAP, SETTINGS_MOVED_SETTINGS, SETTINGS_SECTION_ALIASES } from './settings-map.ts';
 import {
   buildProjectSections,
   collectDirtyBlocks,
@@ -18,6 +20,7 @@ import {
   firstProjectPerPath,
   hydrateFromSettings,
   orderSections,
+  pairedSettingOf,
   parseSettingsHash,
   rehydratePreservingDirtySections,
   resolveEntry,
@@ -33,6 +36,14 @@ import { applyFlyingAnimals } from './flying-animals.ts';
 import { applyTheme, getThemeList } from './theme.ts';
 import {
   isFlyingAnimalsEnabled,
+  getFlyingAnimalsEnteredValues,
+  resetFlyingAnimalsAdvanced,
+  setFlyingAnimalsOnPhone,
+  setFlyingAnimalsMinGapSeconds,
+  setFlyingAnimalsMaxGapSeconds,
+  setFlyingAnimalsMinDurationSeconds,
+  setFlyingAnimalsMaxDurationSeconds,
+  setFlyingAnimalsScale,
   getSoundId,
   getThemeId,
   isNotificationsEnabled,
@@ -95,6 +106,8 @@ const LEVEL_LABELS: Readonly<Record<string, string>> = Object.freeze({
   projects: 'Projects',
 });
 
+let isAdvancedSettingsExpanded = false;
+
 let rootEl: HTMLElement | null = null;
 let settingsViewVisibilityObserver: IntersectionObserver | null = null;
 let shellEl: HTMLDivElement | null = null;
@@ -129,6 +142,7 @@ function browserPreferences() {
   return {
     themeId: getThemeId(),
     flyingAnimalsEnabled: isFlyingAnimalsEnabled(),
+    ...getFlyingAnimalsEnteredValues(),
     soundId: resolveSoundId(getSoundId()),
     notificationsEnabled: isNotificationsEnabled(),
   };
@@ -163,6 +177,12 @@ function replaceSettingsHash(sectionId: string, settingId: string | null = null)
 function flashSetting(settingId: string) {
   requestAnimationFrame(() => {
     const heading = document.getElementById(settingId);
+    const panel = heading?.closest<HTMLElement>('.settings-view-advanced-panel');
+    if (panel) {
+      isAdvancedSettingsExpanded = true;
+      panel.hidden = false;
+      contentEl?.querySelector('.settings-view-advanced-toggle')?.setAttribute('aria-expanded', 'true');
+    }
     const row = heading?.closest('.settings-view-setting');
     if (!row) return;
     row.scrollIntoView({ block: 'center' });
@@ -226,6 +246,22 @@ function renderAbout(container: HTMLElement) {
   container.appendChild(about);
 }
 
+function syncFlyingAnimalsValues() {
+  for (const [key, value] of Object.entries(getFlyingAnimalsEnteredValues())) {
+    if (originalValues) originalValues[`pref:${key}`] = value;
+    if (editedValues) editedValues[`pref:${key}`] = value;
+  }
+}
+
+const FLYING_ANIMALS_PREFERENCE_WRITERS: Record<string, (value: unknown) => void> = {
+  'pref:flyingAnimalsMinGapSeconds': (value) => setFlyingAnimalsMinGapSeconds(Number(value)),
+  'pref:flyingAnimalsMaxGapSeconds': (value) => setFlyingAnimalsMaxGapSeconds(Number(value)),
+  'pref:flyingAnimalsMinDurationSeconds': (value) => setFlyingAnimalsMinDurationSeconds(Number(value)),
+  'pref:flyingAnimalsMaxDurationSeconds': (value) => setFlyingAnimalsMaxDurationSeconds(Number(value)),
+  'pref:flyingAnimalsScale': (value) => setFlyingAnimalsScale(Number(value)),
+  'pref:flyingAnimalsOnPhone': (value) => setFlyingAnimalsOnPhone(value === true),
+};
+
 function applyBrowserPreference(setting: SettingsSetting, value: unknown) {
   if (setting.path === 'pref:themeId') {
     setThemeId(value as string);
@@ -235,6 +271,17 @@ function applyBrowserPreference(setting: SettingsSetting, value: unknown) {
   if (setting.path === 'pref:flyingAnimalsEnabled') {
     setFlyingAnimalsEnabled(value as boolean);
     applyFlyingAnimals(value as boolean);
+    return;
+  }
+  const writeFlyingAnimalsPreference = FLYING_ANIMALS_PREFERENCE_WRITERS[setting.path];
+  if (writeFlyingAnimalsPreference) {
+    const errors = validateLocally([selectedSection], editedValues ?? {}, RANGES_BY_NAME);
+    if (errors[setting.id]) return;
+    writeFlyingAnimalsPreference(value);
+    const pairedSetting = pairedSettingOf([selectedSection], setting);
+    const writePairedPreference = pairedSetting && FLYING_ANIMALS_PREFERENCE_WRITERS[pairedSetting.path];
+    if (pairedSetting && writePairedPreference && !errors[pairedSetting.id]) writePairedPreference(editedValues?.[pairedSetting.path]);
+    applyFlyingAnimals(isFlyingAnimalsEnabled());
     return;
   }
   if (setting.path === 'pref:soundId') {
@@ -250,7 +297,7 @@ function applyBrowserPreference(setting: SettingsSetting, value: unknown) {
 function refreshFooter() {
   if (!contentEl || !editedValues) return;
   contentEl.querySelector('.settings-view-footer')?.remove();
-  const errors = validateLocally([selectedSection], editedValues, SETTINGS_RANGES);
+  const errors = validateLocally([selectedSection], editedValues, RANGES_BY_NAME);
   const footer = renderFooter(errors);
   if (footer) contentEl.appendChild(footer);
 }
@@ -316,6 +363,10 @@ function renderNumber(setting: SettingsSetting) {
   if (range.max != null) input.max = String(range.max);
   input.autocomplete = 'off';
   input.setAttribute('aria-labelledby', setting.id);
+  if (setting.commitOnChange) {
+    input.addEventListener('change', () => setEditedValue(setting, input.value.trim() === '' ? setting.defaultValue : input.value));
+    return input;
+  }
   input.addEventListener('input', () => setEditedValue(setting, input.value, { rerender: false }));
   return input;
 }
@@ -642,7 +693,7 @@ function revertSelectedSection() {
 async function saveSelectedSection() {
   const section = selectedSection;
   const sectionMap = [section];
-  const errors = validateLocally(sectionMap, editedValues ?? {}, SETTINGS_RANGES);
+  const errors = validateLocally(sectionMap, editedValues ?? {}, RANGES_BY_NAME);
   if (Object.keys(errors).length > 0) {
     serverError = 'Fix the highlighted settings before saving.';
     renderContent();
@@ -720,6 +771,38 @@ function buildUsageStatus() {
   return block;
 }
 
+function renderFlyingAnimalsReset() {
+  const reset = el('button', 'btn-dialog btn-dialog-cancel', 'Reset to defaults');
+  reset.type = 'button';
+  reset.addEventListener('click', () => {
+    resetFlyingAnimalsAdvanced();
+    syncFlyingAnimalsValues();
+    applyFlyingAnimals(isFlyingAnimalsEnabled());
+    renderContent();
+  });
+  return reset;
+}
+
+function renderAdvancedSettings(advancedSettings: SettingsSetting[], errors: Record<string, string>) {
+  const advanced = el('div', 'settings-view-advanced');
+  const toggle = el('button', 'dialog-advanced-toggle settings-view-advanced-toggle', 'Advanced');
+  toggle.type = 'button';
+  toggle.setAttribute('aria-expanded', String(isAdvancedSettingsExpanded));
+  toggle.setAttribute('aria-controls', 'settings-view-advanced-panel');
+  const panel = el('div', 'dialog-advanced-panel settings-view-advanced-panel');
+  panel.id = 'settings-view-advanced-panel';
+  panel.hidden = !isAdvancedSettingsExpanded;
+  toggle.addEventListener('click', () => {
+    isAdvancedSettingsExpanded = !isAdvancedSettingsExpanded;
+    panel.hidden = !isAdvancedSettingsExpanded;
+    toggle.setAttribute('aria-expanded', String(isAdvancedSettingsExpanded));
+  });
+  for (const setting of advancedSettings) panel.append(renderSetting(setting, errors));
+  if (selectedSection.id === 'browser-flying-animals') panel.append(renderFlyingAnimalsReset());
+  advanced.append(toggle, panel);
+  return advanced;
+}
+
 function renderContent() {
   if (!contentEl || !editedValues) return;
   contentEl.textContent = '';
@@ -742,9 +825,12 @@ function renderContent() {
     return;
   }
 
-  const errors = validateLocally([selectedSection], editedValues, SETTINGS_RANGES);
+  const errors = validateLocally([selectedSection], editedValues, RANGES_BY_NAME);
   const stack = el('div', 'settings-view-stack');
-  for (const setting of selectedSection.settings) stack.appendChild(renderSetting(setting, errors));
+  for (const setting of selectedSection.settings.filter((entry) => !entry.advanced)) stack.appendChild(renderSetting(setting, errors));
+  if (selectedSection.id === 'browser-flying-animals') stack.append(renderFlyingAnimalsGallery());
+  const advancedSettings = selectedSection.settings.filter((entry) => entry.advanced);
+  if (advancedSettings.length > 0) stack.append(renderAdvancedSettings(advancedSettings, errors));
   for (const link of selectedSection.unattendedLinks || []) {
     const row = el('div', 'settings-view-unattended-link');
     row.append(document.createTextNode(`${link.title}: `));
@@ -762,6 +848,7 @@ function selectSection(
   sectionId: string,
   { focusContent = false, settingId = null, updateHash = true }: { focusContent?: boolean; settingId?: string | null; updateHash?: boolean } = {}
 ) {
+  if (selectedSection.id !== sectionId) isAdvancedSettingsExpanded = false;
   selectedSection = resolveEntry(SETTINGS_VIEW_MAP, sectionId) ?? selectedSection;
   serverError = '';
   markCurrentSection(navigationEl);
@@ -1035,7 +1122,7 @@ export function activateSettingsSection(sectionId: string | null = null, setting
 }
 
 export function resolveSettingsTarget(hash: unknown) {
-  return parseSettingsHash(hash, SETTINGS_VIEW_MAP, SETTINGS_SECTION_ALIASES);
+  return parseSettingsHash(hash, SETTINGS_VIEW_MAP, SETTINGS_SECTION_ALIASES, SETTINGS_MOVED_SETTINGS);
 }
 
 export function applySettingsBroadcast(freshSettings: unknown, options: { rehydrateSectionIds?: string[] } = {}) {
@@ -1114,3 +1201,11 @@ export function applySettingsProjects(projects: unknown) {
   rebuildSettingsMap();
   if (navigationEl) renderNavigation();
 }
+
+function refreshFlyingAnimalsAvailability() {
+  if (selectedSection.id !== 'browser-flying-animals') return;
+  renderContent();
+}
+
+window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', refreshFlyingAnimalsAvailability);
+onLayoutChange(refreshFlyingAnimalsAvailability);

@@ -232,6 +232,12 @@ Stored in each browser, not in `config.json`, so every device keeps its own.
 | Setting | Default | Notes |
 |---------|---------|-------|
 | Theme | `"phyrexian"` | Color scheme for the dashboard. |
-| Flying animals | `false` | Show animated animals flying across the dashboard. |
 | Alert sound | `"chime"` | Sound played when a session needs attention. Your own .ogg, .mp3, .wav, .m4a or .webm files dropped into the sounds folder of the Glimmervoid home (~/.glimmervoid/sounds/, or $GLIMMERVOID_HOME/sounds/) are listed after the built-in sounds. Glimmervoid never creates that folder, so make it yourself; new files show up the next time Settings opens. |
 | Desktop notifications | `true` | Raise a browser notification when a session needs attention while this dashboard is in the background. |
+| Flying animals | `false` | Show animated animals flying across the dashboard. |
+| Time between flights: minimum (seconds) | `20` | Shortest pause between flights. |
+| Time between flights: maximum (seconds) | `40` | Longest pause between flights. |
+| Flight duration: minimum (seconds) | `6.9` | Shortest flight, for faster animals. |
+| Flight duration: maximum (seconds) | `11.5` | Longest flight, for slower animals. |
+| Size multiplier | `1` | Scale applied on top of the viewport size. |
+| Show on phone layout | `true` | Allow flights on the phone layout. |

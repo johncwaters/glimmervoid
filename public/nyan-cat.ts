@@ -1,101 +1,105 @@
-import { ANIMALS, pickAnimalIndex } from './nyan-animals.ts';
+import { isPhoneLayout } from './form-factor.ts';
+import { ANIMALS } from './nyan-animals.ts';
 import { deriveNyanGeometry } from './nyan-geometry-core.ts';
+import { deriveFlyingAnimalLaunch, flyingAnimalsFlightBlockReason } from './flying-animals-core.ts';
+import { getFlyingAnimalsOptions, isFlyingAnimalsEnabled } from './ui-prefs.ts';
 
-const MIN_DURATION_S = 6.9;
-const MAX_DURATION_S = 11.5;
-const MIN_GAP_MS = 4000;
-const MAX_GAP_MS = 20000;
-
-function pickFlight(rng: () => number = Math.random) {
-  const durationS = MIN_DURATION_S + rng() * (MAX_DURATION_S - MIN_DURATION_S);
-  const gapMs = MIN_GAP_MS + rng() * (MAX_GAP_MS - MIN_GAP_MS);
-  const firstDelayS = rng() * durationS;
-  const verticalProgress = rng();
-  return { durationS, gapMs, firstDelayS, verticalProgress };
-}
-
-let _el: HTMLDivElement | null = null;
-let _sprite: HTMLDivElement | null = null;
-let _trail: HTMLDivElement | null = null;
-let _timeoutId: number | null = null;
-let _lastAnimal = -1;
-let _verticalProgress: number | null = null;
+let flightElement: HTMLDivElement | null = null;
+let spriteElement: HTMLDivElement | null = null;
+let trailElement: HTMLDivElement | null = null;
+let timeoutId: number | null = null;
+let lastAnimalIndex = -1;
+let verticalProgress: number | null = null;
+let flightScale = 1;
 
 function updateFlightGeometry() {
-  if (!_el || _verticalProgress === null) return;
+  if (!flightElement || verticalProgress === null) return;
   const geometry = deriveNyanGeometry({
     viewportWidthPx: document.documentElement.clientWidth,
     viewportHeightPx: document.documentElement.clientHeight,
-    verticalProgress: _verticalProgress,
+    verticalProgress,
   });
-  _el.style.setProperty('--nyan-top', `${geometry.topPx}px`);
-  _el.style.setProperty('--nyan-scale', String(geometry.scale));
-  _el.style.setProperty('--nyan-width', `${geometry.spriteWidthPx}px`);
-  _el.style.setProperty('--nyan-height', `${geometry.spriteHeightPx}px`);
-  _el.style.setProperty('--nyan-start-x', `${geometry.startXpx}px`);
-  _el.style.setProperty('--nyan-end-x', `${geometry.endXpx}px`);
+  flightElement.style.setProperty('--nyan-top', `${geometry.topPx}px`);
+  flightElement.style.setProperty('--nyan-scale', String(geometry.scale * flightScale));
+  flightElement.style.setProperty('--nyan-width', `${geometry.spriteWidthPx}px`);
+  flightElement.style.setProperty('--nyan-height', `${geometry.spriteHeightPx}px`);
+  flightElement.style.setProperty('--nyan-start-x', `${geometry.startXpx}px`);
+  flightElement.style.setProperty('--nyan-end-x', `${geometry.endXpx}px`);
 }
 
-function launchFlight(isFirst: boolean) {
-  if (!_el || !_sprite || !_trail) return;
-  const { durationS, gapMs, firstDelayS, verticalProgress } = pickFlight();
-  _verticalProgress = verticalProgress;
-  updateFlightGeometry();
-  const animalIndex = pickAnimalIndex(Math.random, _lastAnimal);
-  const animal = ANIMALS[animalIndex];
-  _sprite.className = `nyan-sprite ${animal.sprite}`;
-  _trail.className = `nyan-trail ${animal.trail}`;
-  _lastAnimal = animalIndex;
-  _el.style.animation = `nyan-fly ${durationS}s linear`;
-  if (isFirst) {
-    _el.style.animationDelay = `-${firstDelayS}s`;
+function clearScheduledFlight() {
+  if (timeoutId === null) return;
+  clearTimeout(timeoutId);
+  timeoutId = null;
+}
+
+export function currentFlightBlockReason(isEnabled = isFlyingAnimalsEnabled()) {
+  return flyingAnimalsFlightBlockReason({
+    isEnabled,
+    hasReducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    isPhone: isPhoneLayout(),
+    options: getFlyingAnimalsOptions(),
+  });
+}
+
+function launchFlight(isFirst: boolean, requestedSprite?: string) {
+  if (!flightElement || !spriteElement || !trailElement) return;
+  if (currentFlightBlockReason()) return;
+  const options = getFlyingAnimalsOptions();
+  clearScheduledFlight();
+  const launch = deriveFlyingAnimalLaunch(options, lastAnimalIndex, Math.random, requestedSprite);
+  flightElement.onanimationend = null;
+  flightElement.style.animation = 'none';
+  if (!launch) {
+    timeoutId = setTimeout(() => launchFlight(false), 1000);
+    return;
   }
-  _el.addEventListener(
-    'animationend',
-    () => {
-      if (!_el) return;
-      _el.style.animation = 'none';
-      _timeoutId = setTimeout(() => launchFlight(false), gapMs);
-    },
-    { once: true }
-  );
+  verticalProgress = launch.verticalProgress;
+  flightScale = options.flyingAnimalsScale;
+  updateFlightGeometry();
+  const animal = ANIMALS[launch.animalIndex];
+  spriteElement.className = `nyan-sprite ${animal.sprite}`;
+  trailElement.className = `nyan-trail ${animal.trail}`;
+  lastAnimalIndex = launch.animalIndex;
+  void flightElement.offsetWidth;
+  flightElement.style.animation = `nyan-fly ${launch.durationSeconds}s linear`;
+  if (isFirst) flightElement.style.animationDelay = `-${launch.firstDelaySeconds}s`;
+  flightElement.onanimationend = (event) => {
+    if (!flightElement || event.target !== flightElement) return;
+    flightElement.onanimationend = null;
+    flightElement.style.animation = 'none';
+    timeoutId = setTimeout(() => launchFlight(false), launch.gapMs);
+  };
 }
 
 export function startNyanCat() {
-  if (_el) return;
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-
-  const flight = document.createElement('div');
-  flight.className = 'nyan-flight';
-  const trail = document.createElement('div');
-  trail.className = 'nyan-trail';
-  const sprite = document.createElement('div');
-  sprite.className = 'nyan-sprite';
-  flight.appendChild(trail);
-  flight.appendChild(sprite);
-  document.body.appendChild(flight);
-  _el = flight;
-  _sprite = sprite;
-  _trail = trail;
-
+  if (flightElement) return;
+  if (currentFlightBlockReason()) return;
+  flightElement = document.createElement('div');
+  flightElement.className = 'nyan-flight';
+  flightElement.setAttribute('aria-hidden', 'true');
+  trailElement = document.createElement('div');
+  spriteElement = document.createElement('div');
+  flightElement.append(trailElement, spriteElement);
+  document.body.appendChild(flightElement);
   window.addEventListener('resize', updateFlightGeometry);
   window.addEventListener('orientationchange', updateFlightGeometry);
   launchFlight(true);
 }
 
+export function flyAnimalNow(sprite: string) {
+  startNyanCat();
+  launchFlight(false, sprite);
+}
+
 export function stopNyanCat() {
-  if (_timeoutId !== null) {
-    clearTimeout(_timeoutId);
-    _timeoutId = null;
-  }
+  clearScheduledFlight();
   window.removeEventListener('resize', updateFlightGeometry);
   window.removeEventListener('orientationchange', updateFlightGeometry);
-  if (_el) {
-    _el.remove();
-    _el = null;
-    _sprite = null;
-    _trail = null;
-  }
-  _lastAnimal = -1;
-  _verticalProgress = null;
+  flightElement?.remove();
+  flightElement = null;
+  spriteElement = null;
+  trailElement = null;
+  lastAnimalIndex = -1;
+  verticalProgress = null;
 }

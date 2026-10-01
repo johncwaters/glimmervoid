@@ -1,3 +1,5 @@
+import { FLYING_ANIMALS_DEFAULTS } from './flying-animals-core.ts';
+
 export interface SettingsOption {
   value: string;
   label: string;
@@ -18,10 +20,12 @@ export interface SettingsSetting {
   zeroIsNull?: boolean;
   step?: number;
   range?: string;
+  maximumSettingId?: string;
   valueKind?: string;
   warning?: string;
   danger?: boolean;
   advanced?: boolean;
+  commitOnChange?: boolean;
   fileOnly?: boolean;
   status?: string;
   projectId?: string;
@@ -62,7 +66,13 @@ export const SETTINGS_SECTION_ALIASES = Object.freeze({
   reviews: 'lanes-team-review',
   usage: 'machine-usage',
   shortcuts: 'browser-shortcuts',
+  animals: 'browser-flying-animals',
+  'flying-animals': 'browser-flying-animals',
   unattended: 'lanes-unattended',
+});
+
+export const SETTINGS_MOVED_SETTINGS: Readonly<Record<string, Readonly<Record<string, string>>>> = Object.freeze({
+  'browser-appearance': Object.freeze({ 'flying-animals': 'browser-flying-animals' }),
 });
 
 export const SETTINGS_MAP = Object.freeze([
@@ -83,15 +93,6 @@ export const SETTINGS_MAP = Object.freeze([
         defaultValue: 'phyrexian',
       },
       {
-        id: 'flying-animals',
-        path: 'pref:flyingAnimalsEnabled',
-        title: 'Flying animals',
-        description: 'Show animated animals flying across the dashboard.',
-        control: 'toggle',
-        keywords: ['animation', 'motion'],
-        defaultValue: false,
-      },
-      {
         id: 'alert-sound',
         path: 'pref:soundId',
         title: 'Alert sound',
@@ -109,6 +110,51 @@ export const SETTINGS_MAP = Object.freeze([
         control: 'toggle',
         keywords: ['browser', 'attention'],
         defaultValue: true,
+      },
+    ],
+  },
+  {
+    id: 'browser-flying-animals', level: 'browser', title: 'Flying animals',
+    description: 'Choose your flying animals. Changes apply immediately in this browser.',
+    settings: [
+      {
+        id: 'flying-animals',
+        path: 'pref:flyingAnimalsEnabled',
+        title: 'Flying animals',
+        description: 'Show animated animals flying across the dashboard.',
+        control: 'toggle',
+        keywords: ['animation', 'motion'],
+        defaultValue: false,
+      },
+      {
+        id: 'animals-min-gap', path: 'pref:flyingAnimalsMinGapSeconds', title: 'Time between flights: minimum (seconds)',
+        description: 'Shortest pause between flights.', control: 'number', advanced: true, commitOnChange: true, integer: false, step: 0.1,
+        range: 'FLYING_ANIMALS_GAP_RANGE', maximumSettingId: 'animals-max-gap', keywords: ['animals', 'frequency'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsMinGapSeconds,
+      },
+      {
+        id: 'animals-max-gap', path: 'pref:flyingAnimalsMaxGapSeconds', title: 'Time between flights: maximum (seconds)',
+        description: 'Longest pause between flights.', control: 'number', advanced: true, commitOnChange: true, integer: false, step: 0.1,
+        range: 'FLYING_ANIMALS_GAP_RANGE', keywords: ['animals', 'frequency'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsMaxGapSeconds,
+      },
+      {
+        id: 'animals-min-duration', path: 'pref:flyingAnimalsMinDurationSeconds', title: 'Flight duration: minimum (seconds)',
+        description: 'Shortest flight, for faster animals.', control: 'number', advanced: true, commitOnChange: true, integer: false, step: 0.1,
+        range: 'FLYING_ANIMALS_DURATION_RANGE', maximumSettingId: 'animals-max-duration', keywords: ['animals', 'speed'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsMinDurationSeconds,
+      },
+      {
+        id: 'animals-max-duration', path: 'pref:flyingAnimalsMaxDurationSeconds', title: 'Flight duration: maximum (seconds)',
+        description: 'Longest flight, for slower animals.', control: 'number', advanced: true, commitOnChange: true, integer: false, step: 0.1,
+        range: 'FLYING_ANIMALS_DURATION_RANGE', keywords: ['animals', 'speed'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsMaxDurationSeconds,
+      },
+      {
+        id: 'animals-scale', path: 'pref:flyingAnimalsScale', title: 'Size multiplier',
+        description: 'Scale applied on top of the viewport size.', control: 'number', advanced: true, commitOnChange: true, integer: false, step: 0.1,
+        range: 'FLYING_ANIMALS_SCALE_RANGE', keywords: ['animals', 'size'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsScale,
+      },
+      {
+        id: 'animals-on-phone', path: 'pref:flyingAnimalsOnPhone', title: 'Show on phone layout',
+        description: 'Allow flights on the phone layout.', control: 'toggle', advanced: true,
+        keywords: ['animals', 'mobile'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsOnPhone,
       },
     ],
   },

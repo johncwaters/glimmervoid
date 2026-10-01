@@ -222,3 +222,63 @@ test('a typed secret is sent and an emptied one is sent as a clear', async () =>
   emptied['telegram.botToken'] = '';
   assert.deepEqual(collectDirtyBlocks(SETTINGS_MAP, original, emptied), { telegram: { chatId: '123', botToken: '' } });
 });
+
+test('animal aliases and existing Appearance toggle links resolve to the new section', async () => {
+  const { SETTINGS_MAP, parseSettingsHash } = await load();
+  const { SETTINGS_SECTION_ALIASES, SETTINGS_MOVED_SETTINGS } = await import('../public/settings-map.ts');
+  for (const sectionId of ['animals', 'flying-animals', 'browser-flying-animals', 'browser-appearance']) {
+    assert.deepEqual(parseSettingsHash(`#settings/${sectionId}/flying-animals`, SETTINGS_MAP, SETTINGS_SECTION_ALIASES, SETTINGS_MOVED_SETTINGS), {
+      sectionId: 'browser-flying-animals', settingId: 'flying-animals', hash: '#settings/browser-flying-animals/flying-animals',
+    });
+  }
+});
+
+test('a moved setting redirects only through the moved-settings data it is given', async () => {
+  const { SETTINGS_MAP, parseSettingsHash } = await load();
+  assert.equal(parseSettingsHash('#settings/browser-appearance/flying-animals', SETTINGS_MAP), null);
+  const movedSettings = { 'machine-terminal': { 'auto-resume': 'machine-general' } };
+  assert.deepEqual(parseSettingsHash('#settings/machine-terminal/auto-resume', SETTINGS_MAP, {}, movedSettings), {
+    sectionId: 'machine-general', settingId: 'auto-resume', hash: '#settings/machine-general/auto-resume',
+  });
+  assert.deepEqual(parseSettingsHash('#settings/machine-terminal', SETTINGS_MAP, {}, movedSettings)?.sectionId, 'machine-terminal');
+});
+
+test('animal controls are searchable, range validated and excluded from machine save payloads', async () => {
+  const { SETTINGS_MAP, scoreSettingsSearch, hydrateFromSettings, collectDirtyBlocks, validateLocally } = await load();
+  const animals = SETTINGS_MAP.find((section) => section.id === 'browser-flying-animals');
+  assert.ok(animals);
+  for (const query of ['frequency', 'speed', 'size', 'mobile']) {
+    assert.ok(scoreSettingsSearch(SETTINGS_MAP, query).some((entry) => entry.section.id === animals.id));
+  }
+  const original = hydrateFromSettings([animals], {});
+  const edited = { ...original, 'pref:flyingAnimalsScale': 3, 'pref:flyingAnimalsOnPhone': false };
+  assert.deepEqual(collectDirtyBlocks([animals], original, edited), {});
+  assert.deepEqual(Object.keys(validateLocally([animals], edited, SETTINGS_RANGES)), ['animals-scale']);
+  assert.deepEqual(validateLocally([animals], original, SETTINGS_RANGES), {});
+});
+
+test('a reversed flying animals minimum and maximum pair reports an error on both fields', async () => {
+  const { SETTINGS_MAP, hydrateFromSettings, validateLocally, pairedSettingOf } = await load();
+  const animals = SETTINGS_MAP.find((section) => section.id === 'browser-flying-animals');
+  assert.ok(animals);
+  const original = hydrateFromSettings([animals], {});
+  const reversedGap = { ...original, 'pref:flyingAnimalsMinGapSeconds': 50, 'pref:flyingAnimalsMaxGapSeconds': 40 };
+  assert.deepEqual(validateLocally([animals], reversedGap, SETTINGS_RANGES), {
+    'animals-min-gap': 'Minimum must not exceed the maximum (40).',
+    'animals-max-gap': 'Maximum must not be below the minimum (50).',
+  });
+  const reversedDuration = { ...original, 'pref:flyingAnimalsMinDurationSeconds': 12, 'pref:flyingAnimalsMaxDurationSeconds': 8 };
+  assert.deepEqual(Object.keys(validateLocally([animals], reversedDuration, SETTINGS_RANGES)).sort(), ['animals-max-duration', 'animals-min-duration']);
+  const equalGap = { ...original, 'pref:flyingAnimalsMinGapSeconds': 30, 'pref:flyingAnimalsMaxGapSeconds': 30 };
+  assert.deepEqual(validateLocally([animals], equalGap, SETTINGS_RANGES), {});
+  const outOfRangeAndReversed = { ...original, 'pref:flyingAnimalsMinGapSeconds': 9999, 'pref:flyingAnimalsMaxGapSeconds': 40 };
+  assert.deepEqual(Object.keys(validateLocally([animals], outOfRangeAndReversed, SETTINGS_RANGES)), ['animals-min-gap']);
+  const settingById = (id: string) => animals.settings.find((setting) => setting.id === id);
+  const minimumGap = settingById('animals-min-gap');
+  const maximumGap = settingById('animals-max-gap');
+  const scale = settingById('animals-scale');
+  assert.ok(minimumGap && maximumGap && scale);
+  assert.equal(pairedSettingOf([animals], minimumGap)?.id, 'animals-max-gap');
+  assert.equal(pairedSettingOf([animals], maximumGap)?.id, 'animals-min-gap');
+  assert.equal(pairedSettingOf([animals], scale), undefined);
+});

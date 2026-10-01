@@ -262,7 +262,24 @@ export function validateLocally(map: readonly SettingsSection[], edited: Setting
     }
     if (error) errors[setting.id] = error;
   }
+  addReversedPairErrors(settingsOf(map), edited, errors);
   return errors;
+}
+
+function addReversedPairErrors(settings: readonly SettingsSetting[], edited: SettingsValues, errors: Record<string, string>) {
+  for (const minimumSetting of settings) {
+    const maximumSetting = settings.find((candidate) => candidate.id === minimumSetting.maximumSettingId);
+    if (!maximumSetting || errors[minimumSetting.id] || errors[maximumSetting.id]) continue;
+    const minimum = Number(edited[minimumSetting.path]);
+    const maximum = Number(edited[maximumSetting.path]);
+    if (!(minimum > maximum)) continue;
+    errors[minimumSetting.id] = `Minimum must not exceed the maximum (${maximum}).`;
+    errors[maximumSetting.id] = `Maximum must not be below the minimum (${minimum}).`;
+  }
+}
+
+export function pairedSettingOf(map: readonly SettingsSection[], setting: SettingsSetting): SettingsSetting | undefined {
+  return settingsOf(map).find((candidate) => candidate.id === setting.maximumSettingId || candidate.maximumSettingId === setting.id);
 }
 
 export function sectionsByLevel(map: readonly SettingsSection[]): Record<string, SettingsSection[]> {
@@ -297,7 +314,12 @@ export function scoreSettingsSearch(map: readonly SettingsSection[], query: unkn
     .slice(0, 30);
 }
 
-export function parseSettingsHash(hash: unknown, map: readonly SettingsSection[], aliases: Record<string, string> = {}) {
+export function parseSettingsHash(
+  hash: unknown,
+  map: readonly SettingsSection[],
+  aliases: Record<string, string> = {},
+  movedSettings: Readonly<Record<string, Readonly<Record<string, string>>>> = {},
+) {
   const match = /^#settings\/([^/]+)(?:\/([^/]+))?$/.exec(String(hash || ''));
   if (!match) return null;
   let requestedSectionId: string;
@@ -308,7 +330,8 @@ export function parseSettingsHash(hash: unknown, map: readonly SettingsSection[]
   } catch {
     return null;
   }
-  const sectionId = aliases[requestedSectionId] || requestedSectionId;
+  const movedSectionId = requestedSettingId ? movedSettings[requestedSectionId]?.[requestedSettingId] : undefined;
+  const sectionId = movedSectionId || aliases[requestedSectionId] || requestedSectionId;
   const section = map.find((entry) => entry.id === sectionId);
   if (!section) return null;
   const setting = requestedSettingId
