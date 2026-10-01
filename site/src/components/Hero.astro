@@ -11,7 +11,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
     <h1>Mission control for your <em>coding agents</em>.</h1>
     <p class="lede">Run dozens of Claude Code, Codex and Grok sessions at once. Know which one needs you.</p>
     <div class="install-line">
-      <code id="install-command">npx glimmervoid</code>
+      <code id="install-command">npx --allow-remote=root --allow-scripts=node-pty https://github.com/johncwaters/glimmervoid/releases/latest/download/glimmervoid.tgz</code>
       <button class="btn" type="button" id="copy-install">Copy</button>
       <span class="copy-status" id="copy-status" role="status"></span>
     </div>

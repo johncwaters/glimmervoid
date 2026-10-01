@@ -6,6 +6,8 @@ const dashboardDirectory = fileURLToPath(new URL('../public', import.meta.url));
 const sharedDirectory = fileURLToPath(new URL('../shared', import.meta.url));
 
 export default defineConfig({
+  site: 'https://johncwaters.github.io',
+  base: '/glimmervoid',
   vite: {
     server: {
       fs: {

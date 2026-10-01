@@ -143,6 +143,9 @@ function retireAtBoot(journal: UpdateJournal, { wasPersisted }: { wasPersisted: 
 }
 
 function decidePreflight(facts: PreflightFacts): PreflightDecision {
+  if (facts.flavor === 'npx') {
+    return { ok: false, reason: 'unsupported-flavor', message: 'Glimmervoid runs from the npx cache. Stop Glimmervoid and run the command shown.' };
+  }
   if (facts.flavor !== 'clone') {
     return { ok: false, reason: 'unsupported-flavor', message: 'Use the install command because dashboard updates require a clone.' };
   }

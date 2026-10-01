@@ -17,28 +17,28 @@ Glimmervoid is developed inside Glimmervoid.
 
 ## Quickstart
 
-Windows and macOS:
+Until the `glimmervoid` npm package is published, run the tarball attached to the latest GitHub release. Windows and macOS:
 
 ```bash
-npm install -g glimmervoid
-glimmervoid
+npx --allow-remote=root --allow-scripts=node-pty https://github.com/johncwaters/glimmervoid/releases/latest/download/glimmervoid.tgz
 ```
 
 Linux (node-pty ships no Linux prebuilds, so it compiles at install time):
 
 ```bash
 sudo apt install build-essential python3 git
-npm install -g glimmervoid --allow-scripts=node-pty
-glimmervoid
+npx --allow-remote=root --allow-scripts=node-pty https://github.com/johncwaters/glimmervoid/releases/latest/download/glimmervoid.tgz
 ```
 
-If `npm install -g` fails with `EACCES`, see [docs/troubleshooting.md](docs/troubleshooting.md#eacces-on-a-global-install); never use `sudo npm`.
+To upgrade, run the versioned command the dashboard's update banner shows (or the `glimmervoid-<version>.tgz` URL from the release page): npx caches by the literal command, so rerunning the command above keeps starting the version it first fetched.
+
+Once the package is published, `npm install -g glimmervoid` (plus `--allow-scripts=node-pty` on Linux) installs it globally; if that fails with `EACCES`, see [docs/troubleshooting.md](docs/troubleshooting.md#eacces-on-a-global-install) and never use `sudo npm`.
 
 Open http://localhost:3000. A fresh install knows no projects, so **+ Session** shows "No projects found" until you say where your repositories live: open **Settings**, then **Repositories**, and add the folder that holds your git checkouts under **Repository roots** (each subfolder becomes a project). For a one-off, **+ Session** then **Advanced options** takes a name and a path directly. That is the whole setup; everything else is optional.
 
 To check notifications, allow them when the dashboard asks (or turn on **Desktop notifications** under **Settings**, **Appearance and alerts**) and keep a dashboard tab open. A notification only appears while that tab is not focused, since a focused tab already shows the change. With no dashboard tab open anywhere, only Telegram reaches you (the `telegram` keys in [docs/configuration.md](docs/configuration.md)).
 
-The `--allow-scripts=node-pty` flag matters on npm 12, which blocks dependency install scripts by default. npm 10 and 11 run them by default (npm 11 prints a notice), so there the flag is unnecessary but harmless. If the native module still fails to load, the server refuses to start and prints the repair command; `glimmervoid doctor` runs the same check. See [docs/troubleshooting.md](docs/troubleshooting.md).
+Both flags matter on npm 12, which refuses tarball URLs (`EALLOWREMOTE`) and blocks dependency install scripts by default. npm 10 and 11 allow both by default (npm 11 prints a notice), so there the flags are unnecessary but harmless. If the native module still fails to load, the server refuses to start and prints the repair command; `glimmervoid doctor` runs the same check. See [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ### From source
 

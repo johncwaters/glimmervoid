@@ -1,9 +1,12 @@
 import { execSync } from 'node:child_process';
 import type { ExecSyncOptions } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import pkg from '../package.json' with { type: 'json' };
 import { REPO_SLUG } from '../shared/repo.ts';
+import { LATEST_ALIAS_ASSET_NAME, packReleaseTarballs, versionedAssetName } from './pack-release-tarballs.ts';
 
 function run(cmd: string, opts: ExecSyncOptions = {}): void {
   console.log(`  $ ${cmd}`);
@@ -105,9 +108,13 @@ if (hasGhCli) {
 
   const tmpFile = 'release-notes.tmp.md';
   fs.writeFileSync(tmpFile, notes);
+  const packDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-release-'));
   try {
-    run(`gh release create ${TAG} --title "Glimmervoid ${TAG}" --notes-file ${tmpFile}`);
+    console.log('\n==> Packing the release tarballs...');
+    const { latestAliasPath, versionedAssetPath } = packReleaseTarballs(packDirectory, VERSION);
+    run(`gh release create ${TAG} "${versionedAssetPath}" "${latestAliasPath}" --title "Glimmervoid ${TAG}" --notes-file ${tmpFile}`);
   } finally {
+    fs.rmSync(packDirectory, { recursive: true, force: true });
     try { fs.unlinkSync(tmpFile); } catch {  }
   }
 }
@@ -117,5 +124,11 @@ if (!hasGhCli) {
 }
 
 console.log(`\n==> Done! Tagged and pushed glimmervoid ${TAG}.`);
+if (hasGhCli) {
+  console.log(`   The release carries ${LATEST_ALIAS_ASSET_NAME} and ${versionedAssetName(VERSION)}, so the first-run tarball URL works immediately.`);
+}
+if (!hasGhCli) {
+  console.log(`   No tarballs were attached; once the release exists, run .github/workflows/release-tarball.yml with tag ${TAG} to attach them.`);
+}
 console.log(`   The tag push triggers .github/workflows/publish.yml, which publishes glimmervoid@${VERSION} to npm. Nothing is published locally.`);
 console.log(`   Watch it at https://github.com/${REPO_SLUG}/actions/workflows/publish.yml, then confirm with: npm view glimmervoid@${VERSION} version`);
