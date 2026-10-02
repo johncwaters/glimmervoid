@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { STATES } from '../states.ts';
 
+export const TASK_TITLE_MAX_LENGTH = 120;
+export const TASK_TITLE_CONTROL_CHARACTERS = /[\x00-\x1f\x7f-\x9f]/;
+export const TaskTitle = z.string().refine((title) => !TASK_TITLE_CONTROL_CHARACTERS.test(title)).trim().max(TASK_TITLE_MAX_LENGTH);
 export const SessionState = z.enum(STATES);
 export const PendingWakeup = z.object({
   at: z.number().finite().nullable(),
@@ -11,6 +14,8 @@ export const PendingWakeup = z.object({
 export const SessionSnapshot = z.object({
   id: z.string(),
   name: z.string(),
+  taskTitle: TaskTitle.nullable().default(null),
+  taskTitleIsCustom: z.boolean().default(false),
   path: z.string(),
   agent: z.string(),
   state: SessionState,

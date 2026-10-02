@@ -114,3 +114,13 @@ test('a flipped machine default recreates inheriting sessions but not ones with 
   assert.deepEqual(diff.modified.map((project) => project.id), ['project-1']);
   assert.deepEqual(diff.unchanged, ['project-2']);
 });
+
+ test('custom title changes stay in place instead of recreating the session', () => {
+  const diff = diffProjects(
+    new Map([['project-1', liveSession()]]),
+    [declaredProject({ customTitle: 'New title' })],
+    dependenciesWithFingerprints(null, null),
+  );
+  assert.deepEqual(diff.modified, []);
+  assert.deepEqual(diff.unchanged, ['project-1']);
+});

@@ -36,6 +36,7 @@ const titleProfile = {
   isIdleChar: isKnownIdleChar,
   dropsLeadingAscii: true,
   unknownGlyphHint: "If this is a new idle glyph, add it to KNOWN_IDLE_CODEPOINTS.",
+  taskTitle: { readsTranscriptTitle: true, genericTitles: ["Claude Code"], agentSuffix: null },
 };
 
 function notificationType(payload: HookPayload | null | undefined): string {

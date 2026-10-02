@@ -19,6 +19,11 @@ export interface SessionUi {
   dataWs: WebSocket | null;
   card: SessionCardElement;
   nameEl: HTMLSpanElement;
+  taskTitleEl: HTMLSpanElement;
+  taskTitle: string | null;
+  taskTitleIsCustom: boolean;
+  btnSetTitle: HTMLButtonElement;
+  titleTargetEl?: HTMLElement | null;
   elapsedEl: HTMLSpanElement;
   path: string;
   stateSince: number;

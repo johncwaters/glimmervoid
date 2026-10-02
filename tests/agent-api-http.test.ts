@@ -398,6 +398,8 @@ test('a spawned child reaches the dashboard as one session-added card', async ()
     assert.equal(typeof stateSince, 'number');
     assert.deepEqual(card, {
       type: 'session-added',
+      taskTitle: 'review the diff',
+      taskTitleIsCustom: false,
       id: reply.body.sessionId,
       session: reply.body.name,
       path: fixture.parent.path,
@@ -474,6 +476,8 @@ test('the shared session card projection carries exactly the session-added paylo
   assert.deepEqual(ephemeralCard, {
     id: 'child-id',
     session: 'child name',
+    taskTitle: null,
+    taskTitleIsCustom: false,
     path: '/repo',
     state: STATES.DORMANT,
     stateSince: 1700000000000,

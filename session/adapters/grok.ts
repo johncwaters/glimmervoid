@@ -142,7 +142,10 @@ function classifyTitle(title: string | null | undefined): string {
   return "unknown";
 }
 
-const titleProfile: AgentTitleProfile = { classifyTitle };
+const titleProfile: AgentTitleProfile = {
+  classifyTitle,
+  taskTitle: { readsTranscriptTitle: false, genericTitles: [ID], agentSuffix: ` - ${ID}` },
+};
 
 function grokHome(
   env: Record<string, string | undefined> = process.env,

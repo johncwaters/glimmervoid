@@ -46,6 +46,7 @@ function classifyTitle(title: string, { cwdBasename = null }: { cwdBasename?: st
 const titleProfile: AgentTitleProfile = {
   classifyTitle,
   quietUntilFirstPrompt: true,
+  taskTitle: { readsTranscriptTitle: false, genericTitles: [ID], agentSuffix: ` - ${ID}` },
 };
 
 function mapHookToSignal(event: string): string | null {

@@ -1,4 +1,5 @@
 
+import { TASK_TITLE_MAX_LENGTH } from '#shared/contracts/session.ts';
 import { STATES } from '#shared/states.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el, escapeHtml } from '../dom-helpers.ts';
@@ -52,6 +53,8 @@ function buildTagBadge({ cls, text = '', title, ariaLabel, ariaHidden }: TagBadg
 }
 
 export interface CardOptions {
+  taskTitle?: string | null;
+  taskTitleIsCustom?: boolean;
   skipPerms?: boolean;
   worktree?: boolean;
   workspace?: boolean;
@@ -77,7 +80,8 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const nameEl = el('span', 'session-name', sessionName);
   const permsBadge = options.skipPerms ? el('span', 'perms-badge', 'YOLO') : null;
   if (permsBadge) permsBadge.title = 'Running with --dangerously-skip-permissions';
-  const spacer = el('span', 'session-header-spacer');
+  const taskTitleEl = el('span', 'session-task-title', options.taskTitle ?? '');
+  taskTitleEl.title = options.taskTitle ?? '';
 
   const elapsedEl = el('span', 'card-elapsed');
   elapsedEl.setAttribute('aria-hidden', 'true');
@@ -95,6 +99,8 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   const btnRename = el('button', 'overflow-item overflow-rename', 'Rename');
   btnRename.setAttribute('role', 'menuitem');
+  const btnSetTitle = el('button', 'overflow-item overflow-set-title', 'Set title');
+  btnSetTitle.setAttribute('role', 'menuitem');
   const btnRestart = el('button', 'overflow-item overflow-restart', 'Restart');
   btnRestart.setAttribute('role', 'menuitem');
   const btnRestartFresh = el('button', 'overflow-item overflow-restart-fresh', 'Restart fresh');
@@ -108,7 +114,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   const btnRemove = el('button', 'overflow-item overflow-remove', 'Remove');
   btnRemove.setAttribute('role', 'menuitem');
-  overflowMenu.append(btnRename, btnRestart, btnRestartFresh, btnResume, btnTrace, btnOverflowPlan, btnRemove);
+  overflowMenu.append(btnRename, btnSetTitle, btnRestart, btnRestartFresh, btnResume, btnTrace, btnOverflowPlan, btnRemove);
   overflow.append(btnOverflow, overflowMenu);
 
   const btnDebug = el('button', 'btn-action btn-debug', '\u2699');
@@ -124,13 +130,49 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const tagChildren = TAG_BADGES.map((spec) => buildTagBadge(spec));
   if (permsBadge) tagChildren.push(permsBadge);
   tags.append(...tagChildren);
-  header.append(nameEl, elapsedEl, spacer, tags, actions);
+  header.append(nameEl, elapsedEl, taskTitleEl, tags, actions);
 
   const termWrap = el('div', 'terminal-wrap');
 
   card.append(header, termWrap);
 
-  return { card, header, nameEl, elapsedEl, btnRename, btnRestart, btnRestartFresh, btnResume, btnTrace, btnOverflowPlan, btnRemove, btnPlan, btnDebug, btnOverflow, overflowMenu, termWrap };
+  return { card, header, nameEl, elapsedEl, taskTitleEl, btnSetTitle, btnRename, btnRestart, btnRestartFresh, btnResume, btnTrace, btnOverflowPlan, btnRemove, btnPlan, btnDebug, btnOverflow, overflowMenu, termWrap };
+}
+
+export function startInlineTitleEdit(ui: SessionUi, sessionId: string) {
+  const targetEl = ui.titleTargetEl?.isConnected ? ui.titleTargetEl : ui.taskTitleEl;
+  if (targetEl.querySelector('input')) return;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'session-title-input';
+  input.setAttribute('aria-label', 'Task title');
+  input.value = ui.taskTitleIsCustom ? ui.taskTitle ?? '' : '';
+  input.placeholder = ui.taskTitle ?? 'Task title';
+  input.maxLength = TASK_TITLE_MAX_LENGTH;
+  targetEl.replaceChildren(input);
+  input.focus();
+  input.select();
+
+  function finish(shouldCommit: boolean) {
+    input.removeEventListener('blur', commit);
+    input.removeEventListener('keydown', onKey);
+    if (shouldCommit) sendControlMsg({ type: 'set-session-title', id: sessionId, title: input.value.trim() });
+    targetEl.textContent = ui.taskTitle ?? '';
+    targetEl.title = ui.taskTitle ?? '';
+  }
+
+  function commit() {
+    finish(true);
+  }
+
+  function onKey(event: KeyboardEvent) {
+    event.stopPropagation();
+    if (event.key === 'Enter') { event.preventDefault(); finish(true); }
+    if (event.key === 'Escape') { event.preventDefault(); finish(false); }
+  }
+
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', onKey);
 }
 
 const RENAME_INPUT_CLASS = 'session-rename-input';

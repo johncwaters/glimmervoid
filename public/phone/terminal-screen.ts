@@ -22,6 +22,8 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
 
   const identity = el('div', 'phone-terminal-identity');
   const nameEl = el('span', 'phone-terminal-name');
+  const taskTitleEl = el('span', 'session-task-title session-list-task-title');
+  const identityLine = el('span', 'phone-terminal-identity-line');
   const badgeEl = el('span', 'phone-terminal-badge');
   badgeEl.innerHTML = '<span class="phone-terminal-glyph" aria-hidden="true"></span>'
     + '<span class="phone-terminal-label"></span>'
@@ -29,7 +31,8 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
   const glyphEl = queryTag(badgeEl, '.phone-terminal-glyph', 'span');
   const labelEl = queryTag(badgeEl, '.phone-terminal-label', 'span');
   const elapsedEl = queryTag(badgeEl, '.phone-terminal-elapsed', 'span');
-  identity.append(nameEl, badgeEl);
+  identityLine.append(nameEl, taskTitleEl);
+  identity.append(identityLine, badgeEl);
 
   const actionSlot = el('div', 'phone-terminal-actions');
 
@@ -74,13 +77,17 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     identity.hidden = !hasSession;
     if (!hasSession) {
       topBar.removeAttribute('data-state');
+      topBar.removeAttribute('data-monitoring');
       return;
     }
     const state = ui.currentState || STATES.DORMANT;
     topBar.dataset.state = state;
+    const { glyph, label, isMonitoring } = stateChip(state, ui.awaitingBackgroundTasks);
+    topBar.toggleAttribute('data-monitoring', isMonitoring);
 
     if (!isRenameInProgress(nameEl)) nameEl.textContent = ui.card?.dataset.session || shownId;
-    const { glyph, label } = stateChip(state, ui.awaitingBackgroundTasks);
+    if (!taskTitleEl.querySelector('input')) taskTitleEl.textContent = ui.taskTitle ?? '';
+    taskTitleEl.title = ui.taskTitle ?? '';
     glyphEl.textContent = glyph;
     labelEl.textContent = label;
     elapsedEl.textContent = sessionElapsedText(ui);
@@ -89,6 +96,7 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
   function releaseBorrowedChrome() {
     if (renameTargetUi) {
       delete renameTargetUi.renameTargetEl;
+      delete renameTargetUi.titleTargetEl;
       renameTargetUi = null;
     }
 
@@ -117,6 +125,7 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     adoptElement(adoptedActions, actionSlot);
 
     ui.renameTargetEl = nameEl;
+    ui.titleTargetEl = taskTitleEl;
     renameTargetUi = ui;
     paint();
   }

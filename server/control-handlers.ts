@@ -9,6 +9,7 @@ import {
   ClientMessage, RUNTIME_CONFIG_SCALAR_KEYS, ConfigUpdate, configIssueMessage,
   type DiffAnnotation,
 } from '../shared/contracts/index.ts';
+import { TASK_TITLE_MAX_LENGTH, TaskTitle } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
 import { claudeProjectsDir, listRepoConversations } from '../session/core/conversation-history.ts';
 import type { Session } from '../session/sessions.ts';
@@ -78,6 +79,7 @@ interface ControlRequest {
   requestId?: string | null;
   name?: string;
   newName?: string;
+  title?: string;
   path?: string;
   repos?: string[];
   agent?: string;
@@ -581,6 +583,29 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     const freshConfig = configStore.save(cfg => {
       const project = cfg.projects.find(p => p.id === sess.id);
       if (project) project.name = newName;
+    });
+    if (freshConfig) applyConfigReload(freshConfig);
+  }
+
+  function handleSetSessionTitle(msg: ControlRequest, ws: ControlSocket): void {
+    const session = findSession(msg);
+    const parsedTitle = TaskTitle.safeParse(msg.title);
+    if (!session || !parsedTitle.success) {
+      sendError(ws, `Session and a title of at most ${TASK_TITLE_MAX_LENGTH} characters without control characters are required`);
+      return;
+    }
+    if (session.ephemeral) {
+      sendError(ws, 'This session cannot have a custom title');
+      return;
+    }
+    const freshConfig = configStore.save(config => {
+      const project = config.projects.find(project => project.id === session.id);
+      if (!project) return;
+      if (!parsedTitle.data) {
+        delete project.customTitle;
+        return;
+      }
+      project.customTitle = parsedTitle.data;
     });
     if (freshConfig) applyConfigReload(freshConfig);
   }
@@ -1135,6 +1160,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'resume-conversation': handleResumeConversation,
     'remove-session':   handleRemoveSession,
     'rename-session':   handleRenameSession,
+    'set-session-title': handleSetSessionTitle,
     'reorder-sessions': handleReorderSessions,
     'ping':             handlePing,
     'get-settings':     handleGetSettings,

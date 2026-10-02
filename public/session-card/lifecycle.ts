@@ -4,7 +4,7 @@ import type { SessionState } from '#shared/states.ts';
 import { KILLABLE_STATES, RESTARTABLE_STATES, STATES } from '#shared/states.ts';
 import { playAlertSound } from '../alert-sound.ts';
 import { sendControlMsg } from '../control-ws.ts';
-import { el } from '../dom-helpers.ts';
+import { el, isMonitoringState } from '../dom-helpers.ts';
 import { setHealthMonitorDebugMode } from '../health-monitor.ts';
 import { openPlanFeedbackDialog } from '../plan/plan-feedback-dialog.ts';
 import { createPlanFace, dropPlanBodyCache } from '../plan/plan-face.ts';
@@ -22,7 +22,7 @@ import { setRunningActivity } from './activity.ts';
 import { agentBadgeText } from './agent-core.ts';
 import { computeAggregate } from './aggregate-core.ts';
 import type { CardOptions } from './card-dom.ts';
-import { buildCardDOM, closeDebugOverlay, isDebugModeEnabled, isRenameInProgress, openDebugOverlay, setDebugMode, startInlineRename } from './card-dom.ts';
+import { buildCardDOM, closeDebugOverlay, isDebugModeEnabled, isRenameInProgress, openDebugOverlay, setDebugMode, startInlineRename, startInlineTitleEdit } from './card-dom.ts';
 import type { SessionUi } from './card-registry.ts';
 import { aggregateEl, container, findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
 import { preferredBorrowedFace } from './face-core.ts';
@@ -70,6 +70,7 @@ function updateButtonVisibility(ui: SessionUi) {
   ui.btnRestartFresh.classList.toggle('visible', canRestart);
 
   ui.btnRename.classList.add('visible');
+  ui.btnSetTitle.classList.add('visible');
   ui.btnResume.classList.add('visible');
   ui.btnTrace.classList.toggle('visible', isDebugModeEnabled());
   ui.btnPlan.classList.toggle('visible', ui.isBorrowed && ui.hasPlan && ui.face === 'terminal');
@@ -83,6 +84,10 @@ function closeOverflowMenu(ui: SessionUi) {
 }
 
 function wireCardEvents(ui: SessionUi, sessionId: string) {
+  ui.btnSetTitle.addEventListener('click', () => {
+    closeOverflowMenu(ui);
+    startInlineTitleEdit(ui, sessionId);
+  });
   ui.btnRename.addEventListener('click', () => {
     ui.overflowMenu.classList.remove('open');
     startInlineRename(ui, sessionId);
@@ -181,6 +186,18 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
   }, { signal: ui.abortController.signal });
 }
 
+export function setSessionTaskTitle(id: unknown, title: unknown, isCustom: unknown) {
+  const ui = findSessionUi(id);
+  if (!ui) return;
+  ui.taskTitle = typeof title === 'string' ? title : null;
+  ui.taskTitleIsCustom = isCustom === true;
+  for (const target of [ui.taskTitleEl, ui.titleTargetEl]) {
+    if (!target) continue;
+    target.title = ui.taskTitle ?? '';
+    if (!target.querySelector('input')) target.textContent = ui.taskTitle ?? '';
+  }
+}
+
 export function hasSession(id: unknown) {
   return typeof id === 'string' && sessionUIs.has(id);
 }
@@ -274,6 +291,10 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     dataWs: null,
     card: dom.card,
     nameEl: dom.nameEl,
+    taskTitleEl: dom.taskTitleEl,
+    taskTitle: options.taskTitle ?? null,
+    taskTitleIsCustom: options.taskTitleIsCustom ?? false,
+    btnSetTitle: dom.btnSetTitle,
     elapsedEl: dom.elapsedEl,
 
     path: asText(options.path),
@@ -456,7 +477,8 @@ export function setSessionAgents(sessionId: unknown, activeAgents: unknown, awai
   if (!ui) return;
   const n = Math.max(0, Number(activeAgents) || 0);
   ui.activeAgents = n;
-  ui.awaitingBackgroundTasks = ui.currentState === STATES.RUNNING && awaitingBackgroundTasks === true;
+  ui.awaitingBackgroundTasks = isMonitoringState(ui.currentState, awaitingBackgroundTasks === true);
+  ui.card.toggleAttribute('data-monitoring', ui.awaitingBackgroundTasks);
   paintCardBadge(ui, '.agents-badge', 'agents', {
     on: n > 0,
     value: String(n),
@@ -627,6 +649,7 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
   }
 
   ui.card.dataset.state = state;
+  ui.card.toggleAttribute('data-monitoring', isMonitoringState(state, ui.awaitingBackgroundTasks));
 
   updateButtonVisibility(ui);
 

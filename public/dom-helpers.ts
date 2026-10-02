@@ -86,10 +86,15 @@ export function externalLink(className: string, text: string, url: string | null
 
 export const MERGE_TAGS: Readonly<Record<string, string>> = { 'pending-review': 'REVIEW', parked: 'PARKED', merging: 'MERGING' };
 
+export function isMonitoringState(state: string | null | undefined, awaitingBackgroundTasks: boolean | undefined): boolean {
+  return state === STATES.RUNNING && awaitingBackgroundTasks === true;
+}
+
 export function stateChip(state: string, awaitingBackgroundTasks = false) {
   const knownState = state as SessionState;
-  const label = state === STATES.RUNNING && awaitingBackgroundTasks ? 'Monitoring' : BADGE_LABELS[knownState] || state;
-  return { glyph: STATE_GLYPHS[knownState] || '', label: label.toUpperCase() };
+  const isMonitoring = isMonitoringState(state, awaitingBackgroundTasks);
+  const label = isMonitoring ? 'Monitoring' : BADGE_LABELS[knownState] || state;
+  return { glyph: STATE_GLYPHS[knownState] || '', label: label.toUpperCase(), isMonitoring };
 }
 
 export function observeHeaderHeight(barEl: HTMLElement | null | undefined) {

@@ -33,7 +33,7 @@ import type { SettingsPayload, SettingsProject, SettingsValues } from './setting
 import { appendShortcutChord, SHORTCUT_PLATFORM } from './shortcuts.ts';
 import { shortcutGroupsFor } from './shortcuts-core.ts';
 import { applyFlyingAnimals } from './flying-animals.ts';
-import { applyTheme, getThemeList } from './theme.ts';
+import { applyCompactStatusLabels, applyTheme, getThemeList } from './theme.ts';
 import {
   isFlyingAnimalsEnabled,
   getFlyingAnimalsEnteredValues,
@@ -47,6 +47,8 @@ import {
   getSoundId,
   getThemeId,
   isNotificationsEnabled,
+  isCompactStatusLabels,
+  setCompactStatusLabels,
   setFlyingAnimalsEnabled,
   setNotificationsEnabled,
   setSoundId,
@@ -145,6 +147,7 @@ function browserPreferences() {
     ...getFlyingAnimalsEnteredValues(),
     soundId: resolveSoundId(getSoundId()),
     notificationsEnabled: isNotificationsEnabled(),
+    compactStatusLabels: isCompactStatusLabels(),
   };
 }
 
@@ -263,6 +266,11 @@ const FLYING_ANIMALS_PREFERENCE_WRITERS: Record<string, (value: unknown) => void
 };
 
 function applyBrowserPreference(setting: SettingsSetting, value: unknown) {
+  if (setting.path === 'pref:compactStatusLabels') {
+    setCompactStatusLabels(value === true);
+    applyCompactStatusLabels(value === true);
+    return;
+  }
   if (setting.path === 'pref:themeId') {
     setThemeId(value as string);
     applyTheme(value as string);

@@ -1,6 +1,8 @@
 import type { SessionCardFields } from "../../shared/contracts/control-messages.ts";
 
 interface SessionCardSource {
+  taskTitle?: string | null;
+  taskTitleIsCustom?: boolean;
   path: string;
   state: SessionCardFields["state"];
   stateSince: number;
@@ -23,6 +25,8 @@ function projectSessionCard(
   const card: SessionCardFields = {
     id,
     session: name,
+    taskTitle: source.taskTitle ?? null,
+    taskTitleIsCustom: source.taskTitleIsCustom ?? false,
     path: source.path,
     state: source.state,
     stateSince: source.stateSince,
@@ -36,6 +40,8 @@ function projectSessionCard(
 }
 
 interface SnapshotSource {
+  taskTitle?: string | null;
+  taskTitleIsCustom?: boolean;
   id: string;
   name: string;
   path: string;
@@ -66,6 +72,8 @@ function projectSessionSnapshots(source: SnapshotSource) {
   const wire = {
     id: source.id,
     name: source.name,
+    taskTitle: source.taskTitle ?? null,
+    taskTitleIsCustom: source.taskTitleIsCustom ?? false,
     path: source.path,
     agent: source.agent,
     state: source.state,

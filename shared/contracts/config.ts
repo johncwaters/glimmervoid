@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { z } from 'zod';
+import { TaskTitle } from './session.ts';
 import * as ranges from '../settings-ranges.ts';
 import {
   AgentApiFileSettings, BranchGcControlSettings, ChangeMapSettings,
@@ -73,6 +74,7 @@ export const CustomAgentDeclarations = z.array(CustomAgentDeclaration, { error: 
 export const ProjectConfig = z.object({
   id: z.string().optional(),
   name: z.string().optional(),
+  customTitle: TaskTitle.optional(),
   path: z.string(),
   repos: z.array(z.string()).min(2).optional(),
   agent: z.string({ error: 'projects[].agent must be a string' }).regex(AGENT_ID_RE, { error: `projects[].agent must be ${AGENT_ID_SHAPE_MESSAGE}` }).optional(),

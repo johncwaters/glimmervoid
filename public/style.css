@@ -23,6 +23,8 @@
   --text-muted:  #8579b1;
   --accent:      #c084fc;
   --accent-dim:  #9656d6;
+  --state-monitoring:   #22d3ee;
+  --state-monitoring-bg: color-mix(in oklab, var(--state-monitoring) 6%, transparent);
   --state-running:      #22c55e;
   --state-running-bg:   color-mix(in oklab, var(--state-running) 6%, transparent);
   --state-waiting:      #f59e0b;
@@ -330,6 +332,10 @@ body {
   border-color: color-mix(in oklab, var(--state-running) 20%, transparent);
 }
 
+.session-card[data-state="RUNNING"][data-monitoring] {
+  border-color: color-mix(in oklab, var(--state-monitoring) 20%, transparent);
+}
+
 .session-card[data-state="WAITING"] {
   border-color: var(--state-waiting);
   box-shadow: 0 0 0 1px var(--state-waiting-glow), 0 0 20px color-mix(in oklab, var(--state-waiting) 8%, transparent);
@@ -566,8 +572,32 @@ body {
   align-items: center;
 }
 
-.session-header-spacer {
-  flex: 1;
+.session-task-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.session-list-task-title {
+  margin-left: 8px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.session-title-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 1.2em;
+  padding: 0;
+  border: 0;
+  outline: 1px solid var(--accent);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
 }
 
 .session-card-tags {
@@ -5458,6 +5488,8 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
   color: var(--st, var(--text-dim));
   white-space: nowrap;
 }
+html[data-compact-status] .focus-pill-label { display: none; }
+
 .focus-pill-name {
   grid-column: 1;
   min-width: 0;
@@ -5479,6 +5511,7 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
 .focus-pill-merge:empty { display: none; }
 
 .focus-pill[data-state="RUNNING"]      { --st: var(--state-running); }
+.focus-pill[data-state="RUNNING"][data-monitoring] { --st: var(--state-monitoring); }
 .focus-pill[data-state="WAITING"]      { --st: var(--state-waiting); }
 .focus-pill[data-state="FAILED"]       { --st: var(--state-failed); }
 .focus-pill[data-state="DONE"]         { --st: var(--state-done); }
@@ -7196,6 +7229,8 @@ html[data-layout="phone"] .phone-row-item {
 .phone-row-elapsed:empty { display: none; }
 
 .phone-row[data-state="RUNNING"] .phone-row-glyph { color: var(--state-running); }
+.phone-row[data-state="RUNNING"][data-monitoring] .phone-row-glyph,
+.phone-row[data-state="RUNNING"][data-monitoring] .phone-row-badge { color: var(--state-monitoring); }
 .phone-row[data-state="IDLE"] .phone-row-glyph { color: var(--state-idle); }
 .phone-row[data-state="STARTING"] .phone-row-glyph { color: var(--state-starting); }
 .phone-row[data-state="DONE"] .phone-row-glyph { color: var(--state-done); }
@@ -7234,6 +7269,12 @@ html[data-layout="phone"] .phone-row-item {
 
 .phone-terminal-identity { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .phone-terminal-identity[hidden] { display: none; }
+[data-layout="phone"] .phone-terminal-identity-line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  font-size: 13px;
+}
 .phone-terminal-name {
   font-family: var(--font-mono);
   font-size: 13px;
@@ -7265,6 +7306,7 @@ html[data-layout="phone"] .phone-row-item {
 .phone-terminal-actions:empty { display: none; }
 
 .phone-terminal-bar[data-state="RUNNING"] .phone-terminal-badge { color: var(--state-running); }
+.phone-terminal-bar[data-state="RUNNING"][data-monitoring] .phone-terminal-badge { color: var(--state-monitoring); }
 .phone-terminal-bar[data-state="IDLE"] .phone-terminal-badge { color: var(--state-idle); }
 .phone-terminal-bar[data-state="STARTING"] .phone-terminal-badge { color: var(--state-starting); }
 .phone-terminal-bar[data-state="DONE"] .phone-terminal-badge { color: var(--state-done); }

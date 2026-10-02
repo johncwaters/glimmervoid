@@ -322,6 +322,7 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
     addSessions(diff.added, newConfig);
     modifySessions(diff.modified, newConfig);
     renameSessions(diff.renamed);
+    for (const project of newConfig.projects) sessions.get(project.id)?.setCustomTitle(project.customTitle ?? null);
     config.projects = newConfig.projects;
     dependencies.applySettingsReload(newConfig);
     if (!assigned) return;

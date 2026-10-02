@@ -98,6 +98,7 @@ class OscTitleSource extends EventEmitter {
   }
 
   _processTitle(title: string): void {
+    this.emit('title', title);
     const trimmed = title.replace(/^[\s\x00-\x1f]+/, '');
     if (!trimmed) return;
     const char = String.fromCodePoint(trimmed.codePointAt(0) ?? 0);

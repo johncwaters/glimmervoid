@@ -38,6 +38,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
     const session = new Session({
       id: project.id,
       name: project.name,
+      customTitle: project.customTitle,
       path: project.path,
       workspaceRepos: project.repos,
       dangerouslySkipPermissions: projectSkipsPermissions(project, machineSkipsPermissionsByDefault(config)),

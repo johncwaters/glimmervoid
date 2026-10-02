@@ -130,14 +130,18 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     const rowDetails = rowState.get(row);
     if (!rowDetails) return;
     const { ui, state, unseen } = entry;
-    const { glyph, label } = stateChip(state, ui.awaitingBackgroundTasks);
+    const { glyph, label, isMonitoring } = stateChip(state, ui.awaitingBackgroundTasks);
     const statusLabel = ui.pendingPromptKind === 'plan' ? 'Plan ready' : label;
     const name = entry.name;
     row.dataset.state = state;
+    row.toggleAttribute('data-monitoring', isMonitoring);
     row.dataset.prompt = ui.pendingPromptKind ?? '';
     row.toggleAttribute('data-unseen', unseen);
     rowDetails.refs.glyph.textContent = glyph;
     rowDetails.refs.name.textContent = name;
+    const taskTitle = el('span', 'session-list-task-title', ui.taskTitle ?? '');
+    rowDetails.refs.name.append(taskTitle);
+    rowDetails.refs.name.title = [name, ui.taskTitle].filter(Boolean).join(' | ');
     rowDetails.refs.badge.textContent = statusLabel;
 
     const merge = ui.card?.dataset.merge || '';

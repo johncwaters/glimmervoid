@@ -95,6 +95,15 @@ export const SETTINGS_MAP = Object.freeze([
         defaultValue: 'phyrexian',
       },
       {
+        id: 'compact-status',
+        path: 'pref:compactStatusLabels',
+        title: 'Hide status words in sidebar',
+        description: 'Show only the colored status dot in the sidebar. Phone status labels stay visible.',
+        control: 'toggle',
+        keywords: ['sidebar', 'status', 'compact'],
+        defaultValue: false,
+      },
+      {
         id: 'alert-sound',
         path: 'pref:soundId',
         title: 'Alert sound',

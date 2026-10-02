@@ -70,3 +70,13 @@ test("workspace sessions are marked on the wire snapshot and the session card", 
   assert.equal(projectSessionCard({ ...cardSource, isWorkspace: true }, identity).workspace, true);
   assert.equal("workspace" in projectSessionCard(cardSource, identity), false);
 });
+
+test('card and reconnect snapshots carry the effective title and its custom marker', () => {
+  const titledSource = { ...snapshotSource(), taskTitle: 'Fix dashboard', taskTitleIsCustom: true };
+  const wire = projectSessionSnapshots(titledSource).wire;
+  assert.equal(wire.taskTitle, 'Fix dashboard');
+  assert.equal(wire.taskTitleIsCustom, true);
+  const card = projectSessionCard({ ...titledSource, state: 'COMPLETE' }, { id: 's1', name: 'Session One' });
+  assert.equal(card.taskTitle, wire.taskTitle);
+  assert.equal(card.taskTitleIsCustom, wire.taskTitleIsCustom);
+});

@@ -1,4 +1,7 @@
 import fs from "node:fs";
+import { extractOscTaskTitle, extractPromptTaskTitle, resolveTaskTitle } from "./core/task-title-core.ts";
+import type { TaskTitleSources } from "./core/task-title-core.ts";
+import { readTranscriptTaskTitle } from "./session-task-title.ts";
 import os from "node:os";
 import path from "node:path";
 import pty from "node-pty";
@@ -106,6 +109,7 @@ type KillProc = (
 type SignalProc = (pid: number, signal: NodeJS.Signals | 0) => void;
 
 interface SessionOptions {
+  customTitle?: string;
   id: string;
   name: string;
   path: string;
@@ -169,6 +173,11 @@ interface ClaudeSessionIdEvent {
 }
 
 class Session extends EventEmitter {
+  customTitle: string | null;
+  taskTitle: string | null;
+  taskTitleIsCustom: boolean;
+  _taskTitleSources: TaskTitleSources;
+  _taskTitleReadSequence: number;
   id: string;
   name: string;
   path: string;
@@ -236,6 +245,7 @@ class Session extends EventEmitter {
   _statusSource: ReturnType<typeof createStatusSource>;
 
   constructor({
+    customTitle,
     id,
     name,
     path: projectPath,
@@ -322,6 +332,12 @@ class Session extends EventEmitter {
     super();
     this.id = id;
     this.name = name;
+    this.customTitle = customTitle || null;
+    this._taskTitleSources = { customTitle: this.customTitle, promptTitle: extractPromptTaskTitle(initialPrompt) };
+    const effectiveTitle = resolveTaskTitle(this._taskTitleSources);
+    this.taskTitle = effectiveTitle.taskTitle;
+    this.taskTitleIsCustom = effectiveTitle.isCustom;
+    this._taskTitleReadSequence = 0;
     this.path = projectPath;
     this.dangerouslySkipPermissions = dangerouslySkipPermissions;
     this.ptyProcess = null;
@@ -487,12 +503,50 @@ class Session extends EventEmitter {
       ...(statusConflictMs != null ? { conflictWindowMs: statusConflictMs } : {}),
       ...(statusDedupMs != null ? { dedupWindowMs: statusDedupMs } : {}),
     });
+    this._titleSource.on("title", (title: string) => {
+      const taskTitleVocabulary = this._adapter.titleProfile.taskTitle;
+      if (taskTitleVocabulary.readsTranscriptTitle) return;
+      const oscTitle = extractOscTaskTitle(title, path.basename(this.effectiveCwd()), taskTitleVocabulary);
+      if (!oscTitle) return;
+      this._taskTitleSources.oscTitle = oscTitle;
+      this._updateTaskTitle();
+    });
     this._titleSource.on("signal", (s) => {
       if (this._titleQuiet) return;
       this._statusSource.ingest(s);
     });
     this._statusSource.on("status", (s: ResolvedStatusSignal) => this._onStatus(s));
     this._statusSource.on("meta", (m: MetaStatusSignal) => this._onMeta(m));
+  }
+
+  setCustomTitle(title: string | null): void {
+    this.customTitle = title?.trim() || null;
+    this._taskTitleSources.customTitle = this.customTitle;
+    this._updateTaskTitle();
+  }
+
+  _updateTaskTitle(): void {
+    const effectiveTitle = resolveTaskTitle(this._taskTitleSources);
+    if (this.taskTitle === effectiveTitle.taskTitle && this.taskTitleIsCustom === effectiveTitle.isCustom) return;
+    this.taskTitle = effectiveTitle.taskTitle;
+    this.taskTitleIsCustom = effectiveTitle.isCustom;
+    this.emit("task-title-change", effectiveTitle);
+  }
+
+  _resetAutomaticTaskTitle(): void {
+    this._taskTitleReadSequence++;
+    this._taskTitleSources = { customTitle: this.customTitle };
+    this._updateTaskTitle();
+  }
+
+  async _refreshTranscriptTaskTitle(): Promise<void> {
+    if (!this._adapter.titleProfile.taskTitle.readsTranscriptTitle || !this._transcriptPath) return;
+    const transcriptPath = this._transcriptPath;
+    const readSequence = ++this._taskTitleReadSequence;
+    const aiTitle = await readTranscriptTaskTitle(transcriptPath);
+    if (this._destroyed || readSequence !== this._taskTitleReadSequence || transcriptPath !== this._transcriptPath || !aiTitle) return;
+    this._taskTitleSources.aiTitle = aiTitle;
+    this._updateTaskTitle();
   }
 
   setRecorder(recorder: SessionRecorderPort | null): void {
@@ -554,6 +608,14 @@ class Session extends EventEmitter {
         sessionIdOf(raw.payload), raw.payload.source, raw.payload.transcript_path, raw.signal, raw.confidence);
     }
 
+    if (raw.event === "UserPromptSubmit" && !this._taskTitleSources.promptTitle) {
+      this._taskTitleSources.promptTitle = extractPromptTaskTitle(raw.payload?.prompt);
+      this._updateTaskTitle();
+    }
+    if (raw.event === "Stop" && (this.state === STATES.IDLE || this.state === STATES.COMPLETE)) {
+      void this._refreshTranscriptTaskTitle();
+    }
+
     if (raw && raw.signal === "awaiting-input") this._setPendingPromptKind(raw.promptKind || null);
     if (raw && raw.signal === "session-start") this._onSessionStartHook(raw);
     if (raw && raw.signal === "resume") {
@@ -577,6 +639,7 @@ class Session extends EventEmitter {
     const payload = raw.payload || {};
     const src = String(payload.source || "").toLowerCase();
     if (src !== "clear" && src !== "compact") return;
+    if (src === "clear") this._resetAutomaticTaskTitle();
     this._resetDetectionSources({ quiet: true });
     this.backgroundTracking.clearGateHeldReady();
     this.backgroundTracking.resetTurnEvidence();
@@ -804,6 +867,7 @@ class Session extends EventEmitter {
 
     this._suppressResumeCapture = true;
     this.setResumeConversation(null);
+    this._resetAutomaticTaskTitle();
     this.emit("resume-cleared", { id: this.id });
   }
 
@@ -926,6 +990,8 @@ class Session extends EventEmitter {
     return projectSessionSnapshots({
       id: this.id,
       name: this.name,
+      taskTitle: this.taskTitle,
+      taskTitleIsCustom: this.taskTitleIsCustom,
       path: this.path,
       agent: this.agentId,
       state: this.state,
@@ -1002,6 +1068,7 @@ class Session extends EventEmitter {
 
     if (to === STATES.IDLE || to === STATES.COMPLETE) {
       this._titleSource.resyncWorkingLatch();
+      void this._refreshTranscriptTaskTitle();
     }
 
     const enteredAt = Date.now();

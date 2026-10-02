@@ -10,7 +10,7 @@ import {
   PlanResponseFrame,
 } from './plan-review.ts';
 import { ChangeMap } from './change-map.ts';
-import { PendingWakeup, SessionSnapshot, SessionState } from './session.ts';
+import { PendingWakeup, SessionSnapshot, SessionState, TaskTitle } from './session.ts';
 import { TraceRecord } from './trace.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
 import { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus } from './team-review.ts';
@@ -40,6 +40,8 @@ export type CustomAgentSummaryRow = z.infer<typeof CustomAgentSummaryRow>;
 export const SessionCardFields = z.object({
   id: sessionId,
   session: z.string(),
+  taskTitle: TaskTitle.nullable().optional(),
+  taskTitleIsCustom: z.boolean().optional(),
   path: z.string(),
   state: SessionState,
   stateSince: timestamp,
@@ -125,6 +127,7 @@ export const CLIENT_MESSAGE_TYPES = Object.freeze([
   'resume-conversation',
   'remove-session',
   'rename-session',
+  'set-session-title',
   'reorder-sessions',
   'ping',
   'get-settings',
@@ -198,6 +201,7 @@ const clientVariants = [
   loose('list-conversations', { id: sessionId, requestId }),
   loose('resume-conversation', { id: sessionId, conversationId: z.string() }),
   loose('rename-session', { id: sessionId, newName: z.string() }),
+  loose('set-session-title', { id: sessionId, title: TaskTitle }),
   loose('reorder-sessions', { order: z.array(sessionId) }),
   loose('ping', { requestId }),
   loose('get-settings', { requestId }),
@@ -258,6 +262,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'session-added',
   'session-removed',
   'session-renamed',
+  'session-title',
   'session-modified',
   'session-git',
   'session-resume',
@@ -358,6 +363,7 @@ const serverVariants = [
   loose('session-modified', SessionCardFields.shape),
   loose('session-removed', { id: sessionId, session: z.string() }),
   loose('session-renamed', { id: sessionId, oldName: z.string(), newName: z.string() }),
+  loose('session-title', { id: sessionId, taskTitle: TaskTitle.nullable(), isCustom: z.boolean() }),
   loose('session-git', { id: sessionId, worktree: z.boolean() }),
   loose('session-resume', { id: sessionId, resumeSessionId: z.string().nullable() }),
   loose('session-agents', { id: sessionId, activeAgents: z.number().int().nonnegative(), awaitingBackgroundTasks: z.boolean(), timestamp }),

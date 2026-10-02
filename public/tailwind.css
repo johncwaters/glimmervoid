@@ -16,6 +16,7 @@
     --color-text-muted: var(--text-muted);
     --color-accent: var(--accent);
     --color-accent-dim: var(--accent-dim);
+    --color-state-monitoring: var(--state-monitoring);
     --color-state-running: var(--state-running);
     --color-state-waiting: var(--state-waiting);
     --color-state-failed: var(--state-failed);

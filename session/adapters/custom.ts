@@ -40,7 +40,10 @@ function createCustomAdapter(declaration: CustomAgentDeclaration): AgentAdapter 
     return classifyAgentTitle(title, { cwdBasename }, { isSpinnerChar, busyTitle, idleTitle });
   }
 
-  const titleProfile: AgentTitleProfile = { classifyTitle };
+  const titleProfile: AgentTitleProfile = {
+    classifyTitle,
+    taskTitle: { readsTranscriptTitle: false, genericTitles: [declaration.id], agentSuffix: ` - ${declaration.id}` },
+  };
 
   function resolveCommand(
     { platform, execFile = execFileSync, pathExists = fs.existsSync }: AgentCommandOptions = {},

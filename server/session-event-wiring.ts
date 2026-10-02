@@ -280,6 +280,9 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       });
       dependencies.broadcastControl({ type: 'session-git', id: session.id, worktree: !!session.isWorktree });
     });
+    session.on('task-title-change', ({ taskTitle, isCustom }: { taskTitle: string | null; isCustom: boolean }) => {
+      dependencies.broadcastControl({ type: 'session-title', id: session.id, taskTitle, isCustom });
+    });
     session.on('worktree-changed', ({ sig }: { sig: string }) => {
       dependencies.broadcastControl({ type: 'session-changed', id: session.id, sig });
     });

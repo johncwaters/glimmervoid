@@ -8,6 +8,7 @@ export interface RegistryProject {
   [key: string]: unknown;
   id: string;
   name: string;
+  customTitle?: string;
   path: string;
   agent?: AgentId;
   codexBypassHookTrust?: boolean;

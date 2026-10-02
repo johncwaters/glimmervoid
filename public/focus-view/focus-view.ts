@@ -270,10 +270,16 @@ function paintPill(pill: FocusPill, id: string, ui: SessionUi) {
   if (state !== STATES.COMPLETE) pill.removeAttribute('data-unseen');
   if (state === STATES.COMPLETE && prev && prev !== STATES.COMPLETE) pill.dataset.unseen = '';
   pill.dataset.state = state;
-  const { glyph, label } = stateChip(state, ui.awaitingBackgroundTasks);
+  const { glyph, label, isMonitoring } = stateChip(state, ui.awaitingBackgroundTasks);
+  pill.toggleAttribute('data-monitoring', isMonitoring);
   pill._refs.glyph.textContent = glyph;
   pill._refs.label.textContent = label;
+  const accessibleLabel = [sessionName(ui), ui.taskTitle, label].filter(Boolean).join(', ');
+  pill.setAttribute('aria-label', accessibleLabel);
+  pill.title = accessibleLabel;
   pill._refs.name.textContent = sessionName(ui);
+  pill._refs.name.append(el('span', 'session-list-task-title', ui.taskTitle ?? ''));
+  pill._refs.name.title = [sessionName(ui), ui.taskTitle].filter(Boolean).join(' | ');
   const ms = mergeStatusById.get(id) || 'none';
   pill.dataset.merge = ms === 'none' ? '' : ms;
   pill._refs.merge.textContent = MERGE_TAGS[ms] || '';

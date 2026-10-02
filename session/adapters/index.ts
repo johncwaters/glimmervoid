@@ -7,6 +7,7 @@ import type { HookProfile } from "../../detection/hook-source.ts";
 import type { TitleProfile } from "../../detection/osc-title-source.ts";
 import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
+import type { TaskTitleVocabulary } from "../core/task-title-core.ts";
 import type { CustomAgentDeclaration, HookPayload } from "../../shared/contracts/index.ts";
 
 interface AgentCapabilities {
@@ -63,6 +64,7 @@ interface AgentHookProfile extends HookProfile {
 
 interface AgentTitleProfile extends TitleProfile {
   quietUntilFirstPrompt?: boolean;
+  taskTitle: TaskTitleVocabulary;
 }
 
 interface AgentArgsOptions {

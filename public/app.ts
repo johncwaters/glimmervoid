@@ -1,6 +1,7 @@
 import '@xterm/xterm/css/xterm.css';
 import './tailwind.css';
 
+import type { SessionSnapshot } from '#shared/contracts/session.ts';
 import type { IssuesReportPush, ServerMessage } from '#shared/contracts/control-messages.ts';
 import { shouldShowServerAction } from '#shared/client-trust.ts';
 import { STATES } from '#shared/states.ts';
@@ -32,7 +33,7 @@ import { handleDebugStateRefresh, handleDebugStateResponse, onDebugModeChanged }
 import { findSessionUi, sessionUIs } from './session-card/card-registry.ts';
 import type { PlanResponse } from './plan/plan-face.ts';
 import type { SessionPlanChangedMessage, SessionPlanDraftMessage } from './session-card/lifecycle.ts';
-import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionResume, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
+import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionResume, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { reconnectDataWs, syncGridOnEngagementEdge } from './session-card/terminal.ts';
@@ -46,16 +47,17 @@ import { SHORTCUT_PLATFORM } from './shortcuts.ts';
 import { resolveDashboardShortcut } from './shortcuts-core.ts';
 import type { ResolvedDashboardShortcut } from './shortcuts-core.ts';
 import { applyFlyingAnimals } from './flying-animals.ts';
-import { applyTheme } from './theme.ts';
+import { applyCompactStatusLabels, applyTheme } from './theme.ts';
 import { applyTraceChanged, applyTraceConnectionState, applyTraceError, applyTraceResponse, mountTraceView, openTraceForSession, refreshTraceView, setTraceNavigate, setTraceRequestSender, setTraceSessions } from './trace-panel.ts';
 import { shouldShowTelemetryNotice } from './telemetry-notice-core.ts';
-import { getActiveView as getSavedActiveView, getDismissedUpdate, getThemeId, isFlyingAnimalsEnabled, isSoundEnabled, isTelemetryNoticeDismissed, setActiveView, setDismissedUpdate, setSoundEnabled, setTelemetryNoticeDismissed } from './ui-prefs.ts';
+import { getActiveView as getSavedActiveView, getDismissedUpdate, getThemeId, isCompactStatusLabels, isFlyingAnimalsEnabled, isSoundEnabled, isTelemetryNoticeDismissed, setActiveView, setDismissedUpdate, setSoundEnabled, setTelemetryNoticeDismissed } from './ui-prefs.ts';
 import { getActiveView, uiState } from './ui-state-core.ts';
 import { updateBannerMode } from './updates-view-core.ts';
 import type { UpdateStatusView } from './updates-view-core.ts';
 import { acknowledgeUsageAttention, applyPlanLimits, applyUsageReport, applyUsageSessions, mountUsageView, refreshUsageView, requestUsageReport, setUsageActivityCallback, setUsageRequestSender } from './usage-panel.ts';
 
 applyTheme(getThemeId());
+applyCompactStatusLabels(isCompactStatusLabels());
 applyFlyingAnimals(isFlyingAnimalsEnabled());
 
 initFormFactor();
@@ -81,7 +83,7 @@ function revealApp() {
   setTimeout(removeLoading, 1000);
 }
 
-interface SnapshotSession {
+interface SnapshotSession extends Pick<SessionSnapshot, 'taskTitle' | 'taskTitleIsCustom'> {
   id: string;
   name: string;
   state: string;
@@ -179,6 +181,7 @@ function handleSnapshot(sessions: unknown) {
     if (exists) applyState(s.id, s.state, s.stateSince);
     if (!exists) createSessionCard(s.id, s.name, s.state, { skipPerms: !!s.dangerouslySkipPermissions, worktree: !!s.isWorktree, workspace: !!s.isWorkspace, path: s.path, resume: !!s.resumeSessionId, stateSince: s.stateSince });
 
+    setSessionTaskTitle(s.id, s.taskTitle, s.taskTitleIsCustom);
     setSessionAgent(s.id, s.agent);
 
     setSessionResume(s.id, s.resumeSessionId);
@@ -229,7 +232,7 @@ function handleStateChange(msg: ServerMessage) {
 
     const path = card ? card.dataset.path : undefined;
     removeSessionCard(msg.id);
-    createSessionCard(msg.id, msg.session, STATES.DORMANT, { skipPerms, path, stateSince: msg.timestamp });
+    createSessionCard(msg.id, msg.session, STATES.DORMANT, { skipPerms, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom });
     setSessionHasPlan(msg.id, hadPlan);
     restoreUsageChip(msg.id);
     if (isFocusActive()) refreshFocusRoster();
@@ -313,15 +316,16 @@ const messageHandlers = {
   'hooks-updated':      () => requestHooksReportIfVisible(),
 
   'state-change':       (msg) => handleStateChange(msg),
-  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, resume: !!msg.resumeSessionId, stateSince: msg.stateSince }); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); syncTraceSessionsFromCards(); },
+  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, resume: !!msg.resumeSessionId, stateSince: msg.stateSince, taskTitle: typeof msg.taskTitle === 'string' ? msg.taskTitle : null, taskTitleIsCustom: msg.taskTitleIsCustom === true }); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); syncTraceSessionsFromCards(); },
   'session-removed':    (msg) => { removeSessionCard(msg.id); forgetReviewSession(msg.id); refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); syncTraceSessionsFromCards(); },
+  'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); },
   'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshPhoneBoard(); syncTraceSessionsFromCards(); },
   'session-modified':   (msg) => {
     if (!msg.ephemeral) noteKnownProjectPath(msg.path);
     const hadPlan = sessionUIs.get(String(msg.id))?.hasPlan === true;
     removeSessionCard(msg.id);
     forgetReviewSession(msg.id);
-    createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, resume: !!msg.resumeSessionId, stateSince: msg.stateSince });
+    createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, resume: !!msg.resumeSessionId, stateSince: msg.stateSince, taskTitle: typeof msg.taskTitle === 'string' ? msg.taskTitle : null, taskTitleIsCustom: msg.taskTitleIsCustom === true });
     setSessionHasPlan(msg.id, hadPlan);
     restoreUsageChip(msg.id);
     refreshFavicon(sessionUIs);

@@ -1,6 +1,8 @@
 import { playNyanJingle } from './alert-sound.ts';
 
 const BASE_STATE_COLORS = {
+  '--state-monitoring':   '#22d3ee',
+  '--state-monitoring-bg': 'rgba(34, 211, 238, 0.06)',
   '--state-running':      '#22c55e',
   '--state-running-bg':   'rgba(34, 197, 94, 0.06)',
   '--state-waiting':      '#f59e0b',
@@ -54,6 +56,8 @@ const THEMES: Record<string, ThemeDefinition> = {
       '--accent-dim':  '#1a9a6e',
 
       ...BASE_STATE_COLORS,
+      '--state-monitoring':   '#22d3ee',
+      '--state-monitoring-bg': 'rgba(34, 211, 238, 0.08)',
       '--state-done':         '#2dd4a0',
       '--state-done-bg':      'rgba(45, 212, 160, 0.06)',
       '--state-starting':     '#a78bfa',
@@ -91,6 +95,8 @@ const THEMES: Record<string, ThemeDefinition> = {
       '--accent-dim':  '#3a54c0',
 
       ...BASE_STATE_COLORS,
+      '--state-monitoring':   '#22d3ee',
+      '--state-monitoring-bg': 'rgba(34, 211, 238, 0.08)',
       '--state-done':         '#3b82f6',
       '--state-done-bg':      'rgba(59, 130, 246, 0.06)',
       '--state-starting':     '#a855f7',
@@ -127,6 +133,8 @@ const THEMES: Record<string, ThemeDefinition> = {
       '--accent-dim':  '#9656d6',
 
       ...BASE_STATE_COLORS,
+      '--state-monitoring':   '#60a5fa',
+      '--state-monitoring-bg': 'rgba(96, 165, 250, 0.08)',
       '--state-done':         '#67e8f9',
       '--state-done-bg':      'rgba(103, 232, 249, 0.06)',
       '--state-starting':     '#f472b6',
@@ -168,6 +176,8 @@ const THEMES: Record<string, ThemeDefinition> = {
       '--state-waiting-bg':   'rgba(180, 83, 9, 0.08)',
       '--state-failed':       '#dc2626',
       '--state-failed-bg':    'rgba(220, 38, 38, 0.06)',
+      '--state-monitoring':   '#0e7490',
+      '--state-monitoring-bg': 'rgba(14, 116, 144, 0.08)',
       '--state-done':         '#1a1816',
       '--state-done-bg':      'rgba(26, 24, 22, 0.06)',
       '--state-initializing': '#6b7280',
@@ -225,6 +235,8 @@ const THEMES: Record<string, ThemeDefinition> = {
       '--state-waiting-bg':   'rgba(247, 159, 59, 0.10)',
       '--state-failed':       '#f05442',
       '--state-failed-bg':    'rgba(240, 84, 66, 0.13)',
+      '--state-monitoring':   '#2dd4bf',
+      '--state-monitoring-bg': 'rgba(45, 212, 191, 0.08)',
       '--state-done':         '#f04ca4',
       '--state-done-bg':      'rgba(240, 76, 164, 0.13)',
       '--state-initializing': '#8f87a6',
@@ -282,6 +294,8 @@ const THEMES: Record<string, ThemeDefinition> = {
       '--state-waiting-bg':   'rgba(177, 120, 22, 0.10)',
       '--state-failed':       '#8c0d3b',
       '--state-failed-bg':    'rgba(140, 13, 59, 0.07)',
+      '--state-monitoring':   '#0e7490',
+      '--state-monitoring-bg': 'rgba(14, 116, 144, 0.08)',
       '--state-done':         '#3e6b9e',
       '--state-done-bg':      'rgba(62, 107, 158, 0.08)',
       '--state-initializing': '#73756b',
@@ -339,6 +353,8 @@ const THEMES: Record<string, ThemeDefinition> = {
       '--state-waiting-bg':   'rgba(247, 165, 1, 0.09)',
       '--state-failed':       '#f35454',
       '--state-failed-bg':    'rgba(243, 84, 84, 0.09)',
+      '--state-monitoring':   '#22d3ee',
+      '--state-monitoring-bg': 'rgba(34, 211, 238, 0.08)',
       '--state-done':         '#589df8',
       '--state-done-bg':      'rgba(88, 157, 248, 0.08)',
       '--state-initializing': '#8f8f8c',
@@ -394,6 +410,10 @@ export function applyTheme(themeId: string) {
   if (themeId !== 'unicorn') return;
   if (prev === null || prev === 'unicorn') return;
   playNyanJingle();
+}
+
+export function applyCompactStatusLabels(isEnabled: boolean) {
+  document.documentElement.toggleAttribute('data-compact-status', isEnabled);
 }
 
 export function getTerminalTheme(): Record<string, string> {
