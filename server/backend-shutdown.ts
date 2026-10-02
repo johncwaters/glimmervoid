@@ -25,10 +25,12 @@ interface BackendShutdownDependencies {
   investigationSessions: Map<string, ShutdownSession>;
   visionsSessions: Map<string, ShutdownSession>;
   changeMapSessions: Map<string, ShutdownSession>;
+  benchmarkSessions?: Map<string, ShutdownSession>;
   branchGc: Stoppable;
   posthog: { stopPoller: () => unknown };
   teamReview?: { stopPoller: () => unknown } | null;
   myPrs?: { stopPoller: () => unknown } | null;
+  benchmarks?: Stoppable | null;
   usage: Stoppable;
   getIngestLane: () => Stoppable | null;
   getVisionsLane: () => Stoppable | null;
@@ -83,6 +85,8 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     const teamReview = dependencies.teamReview;
     if (teamReview) stoppers.add('team-review', () => teamReview.stopPoller());
     if (dependencies.myPrs) stoppers.add('my-prs', () => dependencies.myPrs?.stopPoller());
+    const benchmarks = dependencies.benchmarks;
+    if (benchmarks) stoppers.add('benchmarks', () => benchmarks.stop());
     stoppers.add('usage', () => dependencies.usage.stop());
     destroySessions([dependencies.investigationSessions], pendingReaps);
     stoppers.add('ingest', () => dependencies.getIngestLane()?.stop());
@@ -102,7 +106,7 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     if (planReview) stoppers.add('plan-review', () => planReview.stop());
 
     stoppers.add('telegram-outbox', () => dependencies.telegramOutbox.idle());
-    destroySessions([dependencies.visionsSessions, dependencies.changeMapSessions], pendingReaps);
+    destroySessions([dependencies.visionsSessions, dependencies.changeMapSessions, dependencies.benchmarkSessions ?? new Map()], pendingReaps);
     const outcomes = dependencies.outcomes;
     if (outcomes) stoppers.add('outcomes', () => outcomes.stop());
     const telemetry = dependencies.telemetry;

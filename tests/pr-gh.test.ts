@@ -645,3 +645,81 @@ test('reviewThreadsBatch reads first pages in one aliased query and pages only a
   assert.equal(queries.length, 2);
   assert.doesNotMatch(queries[0] ?? '', /number: 9\)/);
 });
+
+function mergedPrNode(number: number) {
+  return { number, title: `PR ${number}`, url: `https://github.com/Acme/repo/pull/${number}`, mergedAt: '2026-09-19T00:00:00Z', reviewThreads: { totalCount: 4 }, reviews: { totalCount: 1 } };
+}
+
+function mergedPrPage(numbers: number[], endCursor: string | null) {
+  return JSON.stringify({ data: { search: { pageInfo: { hasNextPage: endCursor !== null, endCursor }, nodes: [...numbers.map(mergedPrNode), {}] } } });
+}
+
+test('listMergedPrs searches merged pull requests by cursor until the limit and drops non pull request nodes', async () => {
+  const calls: string[][] = [];
+  const pages = [mergedPrPage([1, 2], 'cursor-1'), mergedPrPage([3], null)];
+  const gh = createPrGh('/repo', async (_command, args) => {
+    calls.push(args);
+    return { ok: true, out: pages[calls.length - 1] ?? '', err: '' };
+  });
+  const listed = await gh.listMergedPrs('Acme/repo', 27);
+  assert.deepEqual(listed.ok && listed.prs.map((pr) => pr.number), [1, 2, 3]);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].includes('searchQuery=repo:Acme/repo is:pr is:merged sort:updated-desc'), true);
+  assert.equal(calls[0].includes('first=27'), true);
+  assert.equal(calls[0].includes('cursor=cursor-1'), false);
+  assert.equal(calls[1].includes('first=25'), true);
+  assert.equal(calls[1].includes('cursor=cursor-1'), true);
+});
+
+test('listMergedPrs refuses a bad repository without calling gh and reports gh failures', async () => {
+  let callCount = 0;
+  const gh = createPrGh('/repo', async () => {
+    callCount += 1;
+    return { ok: false, out: '', err: 'rate limited' };
+  });
+  assert.deepEqual(await gh.listMergedPrs('--repo/evil', 10), { ok: false, reason: 'invalid repository' });
+  assert.equal(callCount, 0);
+  assert.deepEqual(await gh.listMergedPrs('Acme/repo', 10), { ok: false, reason: 'rate limited' });
+});
+
+function minedReviewData() {
+  return {
+    author: { __typename: 'User', login: 'alice' }, baseRefOid: 'b'.repeat(40),
+    reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] },
+    reviews: { pageInfo: { hasNextPage: false }, nodes: [] },
+    timelineItems: { pageInfo: { hasNextPage: false }, nodes: [] },
+  };
+}
+
+test('benchmarkReviewData reads ten pull requests per aliased query and drops malformed ones', async () => {
+  const queries: string[] = [];
+  const gh = createPrGh('/repo', async (_command, args) => {
+    const query = args.find((arg) => arg.startsWith('query=')) ?? '';
+    queries.push(query);
+    const aliasCount = query.match(/pr\d+: repository/g)?.length ?? 0;
+    const data = Object.fromEntries(Array.from({ length: aliasCount }, (_unused, index) => [`pr${index}`, { pullRequest: index === 1 ? { baseRefOid: 'bad' } : minedReviewData() }]));
+    return { ok: true, out: JSON.stringify({ data }), err: '' };
+  });
+  const numbers = Array.from({ length: 12 }, (_unused, index) => index + 1);
+  const dataByNumber = await gh.benchmarkReviewData('Acme/repo', numbers);
+  assert.equal(queries.length, 2);
+  assert.match(queries[0], /BASE_REF_FORCE_PUSHED_EVENT/);
+  assert.match(queries[0], /originalCommit \{ oid \}/);
+  assert.deepEqual([...dataByNumber.keys()], [1, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+});
+
+test('compareCommits asks for the merge base and file names and flags a capped file list', async () => {
+  const calls: string[][] = [];
+  const base = 'b'.repeat(40);
+  let fileCount = 2;
+  const gh = createPrGh('/repo', async (_command, args) => {
+    calls.push(args);
+    return { ok: true, out: JSON.stringify({ mergeBaseSha: 'c'.repeat(40), changedFiles: ['a.ts', 'b.ts'], fileCount }), err: '' };
+  });
+  assert.deepEqual(await gh.compareCommits('Acme/repo', base, HEAD_SHA), { mergeBaseSha: 'c'.repeat(40), changedFiles: ['a.ts', 'b.ts'], isFileListComplete: true });
+  assert.deepEqual(calls[0].slice(0, 2), ['api', `repos/Acme/repo/compare/${base}...${HEAD_SHA}`]);
+  fileCount = 300;
+  assert.equal((await gh.compareCommits('Acme/repo', base, HEAD_SHA))?.isFileListComplete, false);
+  assert.equal(await gh.compareCommits('Acme/repo', 'main', HEAD_SHA), null);
+  assert.equal(calls.length, 2);
+});

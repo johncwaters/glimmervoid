@@ -1,10 +1,13 @@
+import path from 'node:path';
 import type { WebSocket } from 'ws';
 import type { HookRouter } from '../detection/hook-source.ts';
 import type { Session } from '../session/sessions.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 import { comparableDirectoryPath } from '../shared/paths.ts';
+import { createBenchmarkWiring } from './benchmark-wiring.ts';
 import { createBranchGcWiring } from './branch-gc-wiring.ts';
-import { DEFAULT_CONFIG } from './config-store.ts';
+import { createClaudeCredentials } from './claude-credentials.ts';
+import { DEFAULT_CONFIG, glimmervoidHomeDir } from './config-store.ts';
 import type { ConfigStore, GlimmervoidConfig } from './config-store.ts';
 import { configSiblingPath } from './pairings-store.ts';
 import { createGitWorkspace, createGitWorkspaceSync } from './git-workspace.ts';
@@ -15,7 +18,10 @@ import { createPlanReviewWiring } from './plan-review-wiring.ts';
 import { createPosthogWiring } from './posthog-wiring.ts';
 import { createSpawnGate } from './spawn-gate.ts';
 import type { Telemetry } from './telemetry.ts';
-import { createTeamReviewWiring } from './team-review-wiring.ts';
+import { createTeamReviewSpawn, createTeamReviewWiring } from './team-review-wiring.ts';
+import { createPrGh } from './pr-gh.ts';
+import { createRepoCache } from './repo-cache.ts';
+import { commandFor } from '../session/adapters/index.ts';
 import { createMyPrsWiring } from './my-prs-wiring.ts';
 import { createGithubClock } from './github-clock.ts';
 import { GITHUB_CLOCK_INTERVAL_MINUTES } from './core/github-clock-core.ts';
@@ -97,6 +103,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     ...investigationSessions.values(),
     ...visionsSessions.values(),
     ...changeMapSessions.values(),
+    ...benchmarkSessions.values(),
   ];
   const branchGc = createBranchGcWiring({
     config,
@@ -121,6 +128,9 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     broadcast: broadcastControl,
   });
   const githubClock = createGithubClock({ baseIntervalMs: GITHUB_CLOCK_INTERVAL_MINUTES * 60000, log: logger });
+  const glimmervoidHome = glimmervoidHomeDir();
+  const sharedRepoCacheRoot = path.join(glimmervoidHome, 'team-review-repos');
+  const sharedRepoCache = createRepoCache({ rootDir: sharedRepoCacheRoot });
   const teamReview = createTeamReviewWiring({
     config,
     reviewSessions,
@@ -133,8 +143,31 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     broadcast: broadcastControl,
     log: logger,
     clock: githubClock,
+    repoCacheRoot: sharedRepoCacheRoot,
+    repoCache: sharedRepoCache,
   });
   const myPrs = createMyPrsWiring({ config, broadcast: broadcastControl, log: logger, clock: githubClock });
+  const benchmarkSessions = new Map<string, Session>();
+  const claudeCommand = () => commandFor('claude-code').path;
+  const benchmarks = createBenchmarkWiring({
+    benchmarksRoot: path.join(glimmervoidHome, 'benchmarks'),
+    isEnabled: () => configStore.config.benchmarks?.enabled === true,
+    broadcast: broadcastControl,
+    github: createPrGh(glimmervoidHome),
+    repoCache: sharedRepoCache,
+    gitWorkspace,
+    spawnSubject: createTeamReviewSpawn({
+      reviewSessions: benchmarkSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
+      replayBufferKB: config.replayBufferKB, laneName: 'benchmark',
+    }),
+    spawnJudge: createLaneSpawn({
+      sessions: benchmarkSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
+      replayBufferKB: config.replayBufferKB, laneName: 'benchmark',
+    }),
+    credentials: createClaudeCredentials({ claudeCommand }),
+    claudeCommand,
+    log: logger,
+  });
 
   let ingestConfig = resolveIngestConfig(config.ingest);
   let visionsConfig = resolveVisionsConfig(config.visions);
@@ -338,6 +371,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => posthog.startPoller(),
       () => teamReview.startPoller(),
       () => myPrs.startPoller(),
+      () => void benchmarks.sweepLeftovers().then(() => { void benchmarks.refreshStatus(); }),
       () => traceWiring?.start().catch((error: unknown) => logger.warn(`[trace] start failed: ${errorMessage(error)}`)),
       () => uploadsWiring.start().catch((error: unknown) => logger.warn(`[uploads] start failed: ${errorMessage(error)}`)),
       () => planReview?.start().catch((error: unknown) => logger.warn(`[plan-review] start failed: ${errorMessage(error)}`)),
@@ -352,12 +386,15 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => teamReview.restartIfConfigChanged(),
       () => myPrs.restartIfConfigChanged(),
       () => usage.restartIfConfigChanged(),
+      () => void benchmarks.refreshStatus(),
     ];
     for (const restart of restartSteps) restart();
   }
 
   return {
     allLiveSessions,
+    benchmarks,
+    benchmarkSessions,
     branchGc,
     changeMapNarrator,
     current,

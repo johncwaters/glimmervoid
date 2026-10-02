@@ -449,6 +449,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       postTurnChecks: config.postTurnChecks ? { ...config.postTurnChecks } : { ...DEFAULT_CONFIG.postTurnChecks },
       visions: config.visions ? { ...config.visions } : null,
       teamReview: config.teamReview ? { ...config.teamReview } : null,
+      benchmarks: config.benchmarks ? { ...config.benchmarks } : null,
 
       posthog: pickRedactedBlock(config.posthog, POSTHOG_SETTINGS_KEYS, POSTHOG_SECRET_KEYS),
 
@@ -489,6 +490,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     if (newConfig.branchGc != null) config.branchGc = resolveBranchGc(newConfig.branchGc);
     if (newConfig.visions != null) config.visions = newConfig.visions;
     if (newConfig.teamReview != null) config.teamReview = newConfig.teamReview;
+    if (newConfig.benchmarks != null) config.benchmarks = newConfig.benchmarks;
     if (newConfig.posthog != null) config.posthog = newConfig.posthog;
     if (newConfig.usage != null) config.usage = newConfig.usage;
     if (newConfig.telegram != null) config.telegram = newConfig.telegram;

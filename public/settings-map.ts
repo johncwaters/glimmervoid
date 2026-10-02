@@ -64,6 +64,7 @@ export const SETTINGS_SECTION_ALIASES = Object.freeze({
   posthog: 'lanes-posthog',
   'team-review': 'lanes-team-review',
   reviews: 'lanes-team-review',
+  benchmarks: 'lanes-benchmarks',
   usage: 'machine-usage',
   privacy: 'machine-privacy',
   telemetry: 'machine-privacy',
@@ -677,6 +678,19 @@ export const SETTINGS_MAP = Object.freeze([
         description: 'On each poll, rebase your open, non-draft pull requests that are behind their base branch. A pull request with conflicts or checks still running is left alone, and a failed rebase is not retried until you push again.',
         control: 'toggle', keywords: ['rebase', 'update branch', 'behind', 'my prs'], danger: true,
         warning: 'Enabling this control rewrites your pull request branches on GitHub. Pull before you push from a local checkout of one.', defaultValue: false,
+      },
+    ],
+  },
+  {
+    id: 'lanes-benchmarks',
+    level: 'lanes',
+    title: 'Benchmarks',
+    description: 'Compare agent setups on frozen cases from the suites in the benchmarks folder of the Glimmervoid home.',
+    settings: [
+      {
+        id: 'benchmarks-enabled', path: 'benchmarks.enabled', title: 'Enable benchmarks',
+        description: 'Show the Bench tab. Nothing runs until you choose Mine or Run there.',
+        control: 'toggle', keywords: ['eval', 'arms', 'recall', 'compare'], defaultValue: false,
       },
     ],
   },

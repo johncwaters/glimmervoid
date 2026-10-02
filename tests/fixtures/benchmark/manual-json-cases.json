@@ -1,0 +1,14 @@
+[
+  {
+    "id": "missing-field",
+    "input": { "text": "A record omits its required field", "budget": 2 },
+    "references": [{ "id": "r1", "text": "Required field is missing", "tags": ["required"] }],
+    "source": { "kind": "manual" }
+  },
+  {
+    "id": "duplicate-field",
+    "input": { "text": "A record repeats its unique field", "budget": 3 },
+    "references": [{ "id": "r2", "text": "Unique field is duplicated", "tags": ["unique"] }],
+    "source": { "kind": "manual" }
+  }
+]

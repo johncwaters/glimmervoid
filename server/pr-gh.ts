@@ -2,6 +2,8 @@ import { execFileAsync } from './child-process-safe.ts';
 import { GithubRateLimitResources, githubRateLimitWaitMs } from './core/github-rate-limit-core.ts';
 import { z } from 'zod';
 import { CommitSha, PrDetail, ReviewComment, SearchedPr } from '../shared/contracts/team-review.ts';
+import { CommitComparison, MergedPrListing, MinedPrReviewData } from '../shared/contracts/benchmark.ts';
+import type { CommitComparison as CommitComparisonType, MergedPrListing as MergedPrListingType, MinedPrReviewData as MinedPrReviewDataType } from '../shared/contracts/benchmark.ts';
 import { MyPrMergeMethod, MyPrMergeStateResponse, MyPrSearchNode, MyPrSearchResponse, MyPrThreadNode, MyPrThreadsResponse } from '../shared/contracts/my-prs.ts';
 import type { MyPrMergeKind, MyPrMergeMethod as MyPrMergeMethodType, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode as MyPrThreadNodeType } from '../shared/contracts/my-prs.ts';
 import type { PostedReviewEvent, PrDetail as PrDetailType, ReviewComment as ReviewCommentType, SearchedPr as SearchedPrType, TeamReviewStatus } from '../shared/contracts/team-review.ts';
@@ -87,6 +89,9 @@ interface PrGh {
   rateLimitWaitMs(nowMs: number, resourceNames: readonly string[]): Promise<number | null>;
   reviewThreads(repo: string, number: number): Promise<MyPrThreadNodeType[]>;
   reviewThreadsBatch(prs: readonly PrReference[]): Promise<Map<string, MyPrThreadNodeType[]>>;
+  listMergedPrs(repo: string, limit: number): Promise<{ ok: true; prs: MergedPrListingType[] } | { ok: false; reason: string }>;
+  benchmarkReviewData(repo: string, numbers: readonly number[]): Promise<Map<number, MinedPrReviewDataType>>;
+  compareCommits(repo: string, base: string, head: string): Promise<CommitComparisonType | null>;
   repoSlug(): Promise<string | null>;
   listIssues(): Promise<GithubIssueList>;
   viewIssue(issueNumber: number | string): Promise<GithubIssueDetail>;
@@ -174,6 +179,34 @@ function reviewThreadsBatchQuery(prs: readonly PrReference[]): string {
   const fields = prs.map((pr, index) => {
     const [owner, name] = repoParts(pr.repo) ?? ['', ''];
     return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { ${REVIEW_THREAD_FIELDS} } } } }`;
+  });
+  return `query { ${fields.join(' ')} }`;
+}
+const MERGED_PRS_PAGE_SIZE = 50;
+const MERGED_PRS_QUERY = `query($searchQuery: String!, $first: Int!, $cursor: String) {
+  search(type: ISSUE, query: $searchQuery, first: $first, after: $cursor) { pageInfo { hasNextPage endCursor } nodes {
+    ... on PullRequest { number title url mergedAt reviewThreads { totalCount } reviews { totalCount } }
+  } }
+}`;
+const MERGED_PRS_RESPONSE = z.object({ data: z.object({ search: z.object({
+  pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
+  nodes: z.array(z.unknown()),
+}) }) });
+const BENCHMARK_REVIEW_BATCH_SIZE = 10;
+const COMPARE_FILE_LIST_CAP = 300;
+const COMPARE_RESPONSE = z.object({ mergeBaseSha: CommitSha, changedFiles: z.array(z.string().min(1)), fileCount: z.number().int().nonnegative() });
+
+function benchmarkReviewDataQuery(prs: readonly PrReference[]): string {
+  const fields = prs.map((pr, index) => {
+    const [owner, name] = repoParts(pr.repo) ?? ['', ''];
+    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) {
+      author { __typename login } baseRefOid
+      reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { path line originalLine
+        comments(first: 1) { nodes { databaseId author { __typename login } body createdAt originalCommit { oid } } } } }
+      reviews(first: 100) { pageInfo { hasNextPage } nodes { databaseId author { __typename login } body submittedAt commit { oid } } }
+      timelineItems(first: 100, itemTypes: [BASE_REF_CHANGED_EVENT, BASE_REF_FORCE_PUSHED_EVENT]) { pageInfo { hasNextPage } nodes {
+        __typename ... on BaseRefChangedEvent { createdAt } ... on BaseRefForcePushedEvent { createdAt beforeCommit { oid } } } }
+    } }`;
   });
   return `query { ${fields.join(' ')} }`;
 }
@@ -301,9 +334,9 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     }
   }
 
-  async function forEachAliasedPr<Pr extends PrReference>(prs: readonly Pr[], buildQuery: (batch: readonly Pr[]) => string, visit: (pr: Pr, aliasValue: unknown) => void): Promise<void> {
-    for (let index = 0; index < prs.length; index += REVIEW_SNAPSHOT_BATCH_SIZE) {
-      const batch = prs.slice(index, index + REVIEW_SNAPSHOT_BATCH_SIZE);
+  async function forEachAliasedPr<Pr extends PrReference>(prs: readonly Pr[], buildQuery: (batch: readonly Pr[]) => string, visit: (pr: Pr, aliasValue: unknown) => void, batchSize = REVIEW_SNAPSHOT_BATCH_SIZE): Promise<void> {
+    for (let index = 0; index < prs.length; index += batchSize) {
+      const batch = prs.slice(index, index + batchSize);
       const response = await runGh(['api', 'graphql', '-f', `query=${buildQuery(batch)}`]);
       const parsed = GRAPHQL_RESPONSE.safeParse(parseJson<unknown>(response.out, null));
       const data = parsed.success ? parsed.data.data : null;
@@ -391,6 +424,53 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       });
       for (const pr of morePages) threadsByPr.set(reviewSnapshotKey(pr.repo, pr.number), await pagedReviewThreads(pr.repo, pr.number));
       return threadsByPr;
+    },
+
+    async listMergedPrs(repo, limit) {
+      if (!repoParts(repo)) return { ok: false, reason: 'invalid repository' };
+      const prs: MergedPrListingType[] = [];
+      let cursor: string | null = null;
+      while (prs.length < limit) {
+        const cursorArgs = cursor === null ? [] : ['-f', `cursor=${cursor}`];
+        const pageSize = Math.min(MERGED_PRS_PAGE_SIZE, limit - prs.length);
+        const response = await runGh(['api', 'graphql', '-f', `query=${MERGED_PRS_QUERY}`, '-f', `searchQuery=repo:${repo} is:pr is:merged sort:updated-desc`, '-F', `first=${pageSize}`, ...cursorArgs]);
+        if (!response.ok) return { ok: false, reason: response.err.trim() || 'gh graphql search failed' };
+        const parsed = MERGED_PRS_RESPONSE.safeParse(parseJson<unknown>(response.out, null));
+        if (!parsed.success) return { ok: false, reason: 'invalid gh graphql search response' };
+        const { pageInfo, nodes } = parsed.data.data.search;
+        prs.push(...nodes.flatMap((node) => {
+          const listing = MergedPrListing.safeParse(node);
+          return listing.success ? [listing.data] : [];
+        }));
+        if (!pageInfo.hasNextPage || !pageInfo.endCursor) return { ok: true, prs };
+        cursor = pageInfo.endCursor;
+      }
+      return { ok: true, prs: prs.slice(0, limit) };
+    },
+
+    async benchmarkReviewData(repo, numbers) {
+      const dataByNumber = new Map<number, MinedPrReviewDataType>();
+      const prs = uniqueValidPrs(numbers.map((number) => ({ repo, number })));
+      await forEachAliasedPr(prs, benchmarkReviewDataQuery, (pr, repository) => {
+        const pullRequest = z.object({ pullRequest: z.unknown() }).safeParse(repository);
+        const parsed = MinedPrReviewData.safeParse(pullRequest.success ? pullRequest.data.pullRequest : null);
+        if (parsed.success) dataByNumber.set(pr.number, parsed.data);
+      }, BENCHMARK_REVIEW_BATCH_SIZE);
+      return dataByNumber;
+    },
+
+    async compareCommits(repo, base, head) {
+      const parts = repoParts(repo);
+      if (!parts || !CommitSha.safeParse(base).success || !CommitSha.safeParse(head).success) return null;
+      const response = await runGh(['api', `repos/${parts[0]}/${parts[1]}/compare/${base}...${head}`, '--jq', '{mergeBaseSha: .merge_base_commit.sha, changedFiles: [.files[].filename], fileCount: (.files | length)}']);
+      if (!response.ok) return null;
+      const parsed = COMPARE_RESPONSE.safeParse(parseJson<unknown>(response.out, null));
+      if (!parsed.success) return null;
+      return CommitComparison.parse({
+        mergeBaseSha: parsed.data.mergeBaseSha,
+        changedFiles: parsed.data.changedFiles,
+        isFileListComplete: parsed.data.fileCount < COMPARE_FILE_LIST_CAP,
+      });
     },
 
     async behindCounts(prs) {

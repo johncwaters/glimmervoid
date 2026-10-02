@@ -31,6 +31,8 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `lane-spawn.ts` | Read-only ephemeral lane spawn on the lane-permissions seam (change-map narrator) |
 | `team-review-poller.ts` | Team review poller, IO-free |
 | `pr-gh.ts` | `gh` issue queries shared with the control plane |
+| `benchmark-wiring.ts` | Benchmark lane: suites under `~/.glimmervoid/benchmarks`, mining, one serial run (pure rules in `core/benchmark-core.ts`, `core/benchmark-mining-core.ts`) |
+| `claude-credentials.ts` | The operator's Claude Code access token for benchmark arms (decisions in `core/claude-credentials-core.ts`) |
 | `core/team-review-core.ts` | Pure team review decisions |
 | `core/branch-sync-core.ts` | Pure ahead/behind decisions for the branch-sync indicator |
 | `core/restart-strategy.ts` | Pure restart strategy, keyed on systemd's `INVOCATION_ID` |
@@ -76,6 +78,12 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - That sandbox still runs PR code (linked `node_modules`, tests, lint) as the operator, and `~/.codex` plugin cache and sqlite state stay writable because Codex writes them mid-run, and the linked clone's `.env` deny is root-level only; the lasting fix is a per-review `CODEX_HOME`.
 - PR text is untrusted data, fenced in the prompt (`tests/team-review-core.test.ts`).
 - Review dirs are deleted on every exit and swept at start, bar a shutdown's resume record (`tests/team-review-wiring.test.ts`).
+
+### Benchmarks (opt-in)
+
+- An arm's token rides only that cell's spawn env and never reaches a run record, status push or log; an arm that fails preflight fails the run, never scores zero recall (`tests/benchmark-wiring.test.ts`).
+- Arms never get the operator's refresh token: an arm's refresh could rotate it and log the operator out (`tests/claude-credentials.test.ts`).
+- The reviewed commit is the mode of the inline comments' commits and the base is the base tip at review time, so a stacked or force-pushed PR replays what reviewers saw (`tests/benchmark-mining-core.test.ts`).
 
 ### Usage Tracking
 
