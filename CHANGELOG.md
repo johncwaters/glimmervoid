@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.3] - 2026-10-02
+
 ### Added
 
 - **Compact sidebar status**: hide status words under Appearance and alerts to keep only colored status glyphs in the sidebar. Monitoring now has a distinct color across themes, sidebar, phone screens and session cards.
