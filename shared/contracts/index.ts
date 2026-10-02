@@ -1,3 +1,4 @@
+export * from './benchmark.ts';
 export * from './change-map.ts';
 export * from './config.ts';
 export * from './control-messages.ts';

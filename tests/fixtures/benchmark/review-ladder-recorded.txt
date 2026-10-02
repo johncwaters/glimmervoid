@@ -1,0 +1,15 @@
+10 finding(s) survived. Lanes run: code, security, redteam. Lanes skipped: structure, necessity, scale, external. Degraded: none. Router ratings and route: HIGH/HIGH.
+STRUCTURED_FINDINGS:
+- file: src/dispatch.ts | line: 853 | side: RIGHT | severity: HIGH | reviewer: convergent: code + security + redteam | body: Revocation runs on the request context, so a client that hangs up before the abort gate decides leaves the token live. (code/race, redteam/cancellable-effect) Revoke on a detached context with a bounded timeout and retry on failure. (security/prompt-injection, MEDIUM) Untrusted tool output can also persuade the model to emit the abort sentinel.
+- file: src/proxy/abort.ts | line: 185 | side: RIGHT | severity: HIGH | reviewer: convergent: redteam + security | body: The hold buffer is released before the first text frame when reasoning frames fill it, so a later sentinel passes through. (redteam/bound-fails-open) Count only text bytes toward the hold.
+- file: src/proxy/sniff.ts | line: 92 | side: RIGHT | severity: HIGH | reviewer: redteam/input-variant | body: A sentinel split across two stream chunks is never matched, because each chunk is scanned alone.
+- file: src/proxy/stream.ts | line: 147 | side: RIGHT | severity: HIGH | reviewer: redteam/coverage | body: The gate is installed only for chat completions; the responses bridge streams without it.
+- file: src/admission.ts | line: 613 | side: RIGHT | severity: HIGH | reviewer: redteam/bound-fails-open | body: A parse failure on the policy header admits the request with no policy armed.
+- file: src/admission.ts | line: 612 | side: RIGHT | severity: MEDIUM | reviewer: code/contract | body: The served-host bridge never consumes the abort gate, so a sentinel reply is returned as success.
+- file: src/policy/policy.ts | line: 19 | side: RIGHT | severity: MEDIUM | reviewer: code/unproven | body: AbortLine is declared but no test asserts the prompt contains it; the test fixture hardcodes the string instead of building it from the constant.
+- file: src/proxy/usage.ts | line: 234 | side: RIGHT | severity: MEDIUM | reviewer: code/unproven | body: No test proves a disconnected client is billed as unserved.
+- file: src/proxy/usage.ts | line: 158 | side: RIGHT | severity: MEDIUM | reviewer: code/logic | body: Text() copies the whole captured buffer on every event even after the gate has decided.
+- file: src/system_prompt.ts | line: 38 | side: RIGHT | severity: MEDIUM | reviewer: security/policy-bypass | body: Developer content typed input_text is not recognized, so stale policy blocks stack.
+
+OVERALL_SUMMARY:
+Ten findings across the abort gate, billing and policy handling. Degraded: none. Truncated lanes: none.

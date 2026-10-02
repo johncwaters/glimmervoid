@@ -47,6 +47,16 @@ test('change map narrator settings cross persisted, browser, and update contract
   }
 });
 
+test('benchmark settings cross persisted, browser, and update contracts', () => {
+  const benchmarks = { enabled: true };
+  assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, benchmarks }).success, true);
+  assert.equal(BrowserConfig.safeParse({ benchmarks }).success, true);
+  assert.equal(ConfigUpdate.safeParse({ benchmarks }).success, true);
+  assert.equal(CONFIG_BLOCK_KEYS.includes('benchmarks'), true);
+  assert.equal(ConfigUpdate.safeParse({ benchmarks: { enabled: 'yes' } }).success, false);
+  assert.equal(ConfigUpdate.safeParse({ benchmarks: [] }).success, false);
+});
+
 test('team review settings cross persisted, browser, and update contracts', () => {
   const teamReview = { enabled: true, org: 'PostHog', team: 'product-engineering', reReviewAfterHours: 24, skipIdleAfterDays: 14, skill: 'my-review' };
   assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, teamReview }).success, true);

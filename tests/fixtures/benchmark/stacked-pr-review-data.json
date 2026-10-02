@@ -1,0 +1,286 @@
+{
+  "author": {
+    "__typename": "User",
+    "login": "pr-author"
+  },
+  "baseRefOid": "3333333333333333333333333333333333333333",
+  "reviewThreads": {
+    "pageInfo": {
+      "hasNextPage": false
+    },
+    "nodes": [
+      {
+        "path": "src/limits.ts",
+        "line": 185,
+        "originalLine": 185,
+        "comments": {
+          "nodes": [
+            {
+              "databaseId": 1001,
+              "author": {
+                "__typename": "Bot",
+                "login": "review-bot"
+              },
+              "body": "**Low: size limit bypasses the gate**\nDetails.",
+              "createdAt": "2026-09-10T09:00:00Z",
+              "originalCommit": {
+                "oid": "1111111111111111111111111111111111111111"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "path": "src/dispatch.ts",
+        "line": 1107,
+        "originalLine": 853,
+        "comments": {
+          "nodes": [
+            {
+              "databaseId": 1002,
+              "author": {
+                "__typename": "Bot",
+                "login": "review-bot"
+              },
+              "body": "**Medium: cancellation skips revocation**",
+              "createdAt": "2026-09-10T09:01:00Z",
+              "originalCommit": {
+                "oid": "1111111111111111111111111111111111111111"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "path": "src/admission.ts",
+        "line": 840,
+        "originalLine": 612,
+        "comments": {
+          "nodes": [
+            {
+              "databaseId": 1003,
+              "author": {
+                "__typename": "User",
+                "login": "teammate"
+              },
+              "body": "the bridge never consumes this gate",
+              "createdAt": "2026-09-10T09:02:00Z",
+              "originalCommit": {
+                "oid": "1111111111111111111111111111111111111111"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "path": "src/stream.ts",
+        "line": 341,
+        "originalLine": 305,
+        "comments": {
+          "nodes": [
+            {
+              "databaseId": 1004,
+              "author": {
+                "__typename": "User",
+                "login": "teammate"
+              },
+              "body": "this replaces the billable response",
+              "createdAt": "2026-09-10T09:03:00Z",
+              "originalCommit": {
+                "oid": "1111111111111111111111111111111111111111"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "path": "src/usage.ts",
+        "line": null,
+        "originalLine": 497,
+        "comments": {
+          "nodes": [
+            {
+              "databaseId": 1005,
+              "author": {
+                "__typename": "User",
+                "login": "teammate"
+              },
+              "body": "copies the whole buffer on every event",
+              "createdAt": "2026-09-10T09:04:00Z",
+              "originalCommit": {
+                "oid": "1111111111111111111111111111111111111111"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "path": "src/fixture.ts",
+        "line": 18,
+        "originalLine": null,
+        "comments": {
+          "nodes": [
+            {
+              "databaseId": 1006,
+              "author": {
+                "__typename": "User",
+                "login": "teammate"
+              },
+              "body": "nit: build this from the shared constant",
+              "createdAt": "2026-09-10T09:05:00Z",
+              "originalCommit": {
+                "oid": "1111111111111111111111111111111111111111"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "path": "src/stream.ts",
+        "line": 341,
+        "originalLine": 341,
+        "comments": {
+          "nodes": [
+            {
+              "databaseId": 1007,
+              "author": {
+                "__typename": "Bot",
+                "login": "review-bot"
+              },
+              "body": "**Medium: aborted output escapes billing**",
+              "createdAt": "2026-09-18T19:00:00Z",
+              "originalCommit": {
+                "oid": "2222222222222222222222222222222222222222"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "path": "src/admission.ts",
+        "line": 700,
+        "originalLine": 650,
+        "comments": {
+          "nodes": [
+            {
+              "databaseId": 1008,
+              "author": {
+                "__typename": "User",
+                "login": "pr-author"
+              },
+              "body": "note to self: revisit this",
+              "createdAt": "2026-09-10T09:06:00Z",
+              "originalCommit": {
+                "oid": "1111111111111111111111111111111111111111"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "path": "src/empty.ts",
+        "line": 5,
+        "originalLine": 5,
+        "comments": {
+          "nodes": [
+            {
+              "databaseId": 1009,
+              "author": {
+                "__typename": "User",
+                "login": "teammate"
+              },
+              "body": "   ",
+              "createdAt": "2026-09-10T09:07:00Z",
+              "originalCommit": {
+                "oid": "1111111111111111111111111111111111111111"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "reviews": {
+    "pageInfo": {
+      "hasNextPage": false
+    },
+    "nodes": [
+      {
+        "databaseId": 2001,
+        "author": {
+          "__typename": "Bot",
+          "login": "review-bot"
+        },
+        "body": "",
+        "submittedAt": "2026-09-10T09:00:30Z",
+        "commit": {
+          "oid": "1111111111111111111111111111111111111111"
+        }
+      },
+      {
+        "databaseId": 2002,
+        "author": {
+          "__typename": "User",
+          "login": "teammate"
+        },
+        "body": "as a follow-up add a real-store test",
+        "submittedAt": "2026-09-10T09:10:00Z",
+        "commit": {
+          "oid": "1111111111111111111111111111111111111111"
+        }
+      },
+      {
+        "databaseId": 2003,
+        "author": {
+          "__typename": "User",
+          "login": "pr-author"
+        },
+        "body": "thanks, addressed",
+        "submittedAt": "2026-09-11T09:00:00Z",
+        "commit": {
+          "oid": "1111111111111111111111111111111111111111"
+        }
+      },
+      {
+        "databaseId": 2004,
+        "author": {
+          "__typename": "Bot",
+          "login": "review-bot"
+        },
+        "body": "Summary on the later push",
+        "submittedAt": "2026-09-18T19:00:30Z",
+        "commit": {
+          "oid": "2222222222222222222222222222222222222222"
+        }
+      }
+    ]
+  },
+  "timelineItems": {
+    "pageInfo": {
+      "hasNextPage": false
+    },
+    "nodes": [
+      {
+        "__typename": "BaseRefForcePushedEvent",
+        "createdAt": "2026-09-01T00:00:00Z",
+        "beforeCommit": {
+          "oid": "5555555555555555555555555555555555555555"
+        }
+      },
+      {
+        "__typename": "BaseRefForcePushedEvent",
+        "createdAt": "2026-09-18T14:55:00Z",
+        "beforeCommit": {
+          "oid": "4444444444444444444444444444444444444444"
+        }
+      },
+      {
+        "__typename": "BaseRefForcePushedEvent",
+        "createdAt": "2026-09-18T21:01:00Z",
+        "beforeCommit": {
+          "oid": "6666666666666666666666666666666666666666"
+        }
+      }
+    ]
+  }
+}

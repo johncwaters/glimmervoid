@@ -64,6 +64,8 @@ import { USAGE_VENDOR_KEYS, USAGE_BUDGET_KEYS } from '../shared/usage-config.ts'
 import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
 import type { ChangeMap } from '../shared/contracts/change-map.ts';
 import { TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
+import { BenchmarkActionRequest } from '../shared/contracts/benchmark.ts';
+import type { BenchmarkActionResult, BenchmarkStatus } from '../shared/contracts/benchmark.ts';
 import type { TeamReviewActionResult, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import { MyPrMergeRequest } from '../shared/contracts/my-prs.ts';
 import type { MyPrMergeResult, MyPrsStatus } from '../shared/contracts/my-prs.ts';
@@ -92,6 +94,11 @@ interface TeamReviewActionControl {
 
 interface MyPrMergeControl {
   mergePr(request: MyPrMergeRequest): Promise<Omit<MyPrMergeResult, 'key'>>;
+}
+
+interface BenchmarkControl {
+  getStatus(): BenchmarkStatus;
+  submitAction(request: BenchmarkActionRequest): Promise<BenchmarkActionResult>;
 }
 
 interface ControlHandlerDeps {
@@ -124,6 +131,8 @@ interface ControlHandlerDeps {
   getMyPrsStatus?: (() => MyPrsStatus | null) | null;
   teamReview?: TeamReviewActionControl | null;
   myPrs?: MyPrMergeControl | null;
+  getBenchmarkStatus?: (() => BenchmarkStatus | null) | null;
+  benchmarks?: BenchmarkControl | null;
   createGithubClient?: (cwd: string) => Pick<PrGh, 'listIssues' | 'viewIssue' | 'repoSlug'>;
   serverBuild?: () => string | null;
   getUsageSessions?: (() => unknown) | null;
@@ -263,6 +272,7 @@ const DASHBOARD_SETTING_PATHS = Object.freeze([
   ...TEAM_REVIEW_STRING_KEYS.map((key) => `teamReview.${key}`),
   'teamReview.reReviewAfterHours',
   'teamReview.skipIdleAfterDays',
+  'benchmarks.enabled',
   ...POSTHOG_BOOLEAN_KEYS.map((key) => `posthog.${key}`),
   ...POSTHOG_STRING_KEYS.map((key) => `posthog.${key}`),
   ...POSTHOG_VALUE_KEYS.map((key) => `posthog.${key}`),
@@ -318,6 +328,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'posthog-archive-investigation': () => ({ type: 'posthog-archive-investigation-result', requestId, ok: false, error: message }),
     'team-review-action': () => ({ type: 'team-review-action-result', requestId, key: typeof msg?.key === 'string' ? msg.key : '', ok: false, error: message }),
     'my-pr-merge': () => ({ type: 'my-pr-merge-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
+    'benchmark-action': () => ({ type: 'benchmark-action-result', requestId, suiteId: typeof msg?.suiteId === 'string' ? msg.suiteId : '', action: typeof msg?.action === 'string' ? msg.action : 'run', ok: false, error: message }),
     'request-usage-report': () => ({ type: 'usage-report', requestId, error: message }),
     'request-hooks-report': () => ({ type: 'hooks-report', requestId, error: message }),
     'save-hook': () => ({ type: 'save-hook-result', requestId, ok: false, error: message }),
@@ -381,6 +392,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     getMyPrsStatus = null,
     teamReview = null,
     myPrs = null,
+    getBenchmarkStatus = null,
+    benchmarks = null,
 
     createGithubClient = createPrGh,
 
@@ -736,6 +749,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       if (s.postTurnChecks != null) cfg.postTurnChecks = mergeSettingsBlockOverStored(cfg.postTurnChecks, s.postTurnChecks);
       if (s.visions != null) cfg.visions = s.visions;
       if (s.teamReview != null) cfg.teamReview = mergeSettingsBlockOverStored(cfg.teamReview, s.teamReview);
+      if (s.benchmarks != null) cfg.benchmarks = mergeSettingsBlockOverStored(cfg.benchmarks, s.benchmarks);
       if (s.posthog != null) cfg.posthog = mergeSettingsBlockOverStored(cfg.posthog, s.posthog);
       if (s.usage != null) cfg.usage = s.usage;
       if (incoming.ingest != null) cfg.ingest = mergeSettingsBlock(cfg.ingest, incoming.ingest, INGEST_SPEC);
@@ -992,6 +1006,19 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     reply(await myPrs.mergePr(parsed.data));
   }
 
+  async function handleBenchmarkAction(msg: ClientMessageOf<'benchmark-action'>, ws: ControlSocket): Promise<void> {
+    const parsed = BenchmarkActionRequest.safeParse(msg);
+    if (!parsed.success) {
+      replyTo(ws, msg, 'benchmark-action-result', { suiteId: String(msg.suiteId ?? ''), action: msg.action, ok: false, error: configIssueMessage(parsed.error) });
+      return;
+    }
+    if (!benchmarks) {
+      replyTo(ws, msg, 'benchmark-action-result', { ...parsed.data, ok: false, error: 'Benchmarks are not running' });
+      return;
+    }
+    replyTo(ws, msg, 'benchmark-action-result', await benchmarks.submitAction(parsed.data));
+  }
+
   async function handlePosthogArchiveInvestigation(msg: ClientMessageOf<'posthog-archive-investigation'>, ws: ControlSocket): Promise<void> {
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'posthog-archive-investigation-result', { ok: false, error: null, ...payload });
     const ref = posthogCore.validateInvestigationId(msg.id);
@@ -1165,6 +1192,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'posthog-archive-investigation': handlePosthogArchiveInvestigation,
     'team-review-action': handleTeamReviewAction,
     'my-pr-merge': handleMyPrMerge,
+    'benchmark-action': handleBenchmarkAction,
     'request-usage-report': handleRequestUsageReport,
     'request-hooks-report': handleRequestHooksReport,
     'save-hook': handleSaveHook,
@@ -1316,6 +1344,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (teamReviewStatus) ws.send(JSON.stringify(teamReviewStatus));
     const myPrsStatus = typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null;
     if (myPrsStatus) ws.send(JSON.stringify(myPrsStatus));
+    const benchmarkStatus = typeof getBenchmarkStatus === 'function' ? getBenchmarkStatus() : null;
+    if (benchmarkStatus) ws.send(JSON.stringify(benchmarkStatus));
 
     const usageSessions = typeof getUsageSessions === 'function' ? getUsageSessions() : null;
     if (usageSessions) {
@@ -1380,4 +1410,4 @@ export {
   VISIONS_INTENT_NUMERIC_RANGES,
   registerControlHandlers,
 };
-export type { ControlHandlerDeps, ControlRequest, MyPrMergeControl, TeamReviewActionControl };
+export type { BenchmarkControl, ControlHandlerDeps, ControlRequest, MyPrMergeControl, TeamReviewActionControl };

@@ -1,0 +1,144 @@
+{
+  "fixture": "Acme/gateway#464 (synthetic, mirrors a real hand-labeled review in shape only)",
+  "baseSha": "4444444444444444444444444444444444444444",
+  "reviewedSha": "1111111111111111111111111111111111111111",
+  "references": [
+    {
+      "id": "r1",
+      "tags": [
+        "human"
+      ],
+      "path": "src/admission.ts",
+      "line": 612,
+      "summary": "bridge never consumes the abort gate; sentinel returned as success"
+    },
+    {
+      "id": "r2",
+      "tags": [
+        "human"
+      ],
+      "path": "src/proxy/stream.ts",
+      "line": 305,
+      "summary": "forbidden response replaces a billable upstream success; generation is free"
+    },
+    {
+      "id": "r3",
+      "tags": [
+        "human"
+      ],
+      "path": "src/proxy/usage.ts",
+      "line": 497,
+      "summary": "Text() copies the full buffer on every event; quadratic"
+    },
+    {
+      "id": "r4",
+      "tags": [
+        "human"
+      ],
+      "path": "src/proxy/abort.ts",
+      "line": 215,
+      "summary": "client write error dropped; disconnected client billed as served"
+    },
+    {
+      "id": "r5",
+      "tags": [
+        "human"
+      ],
+      "path": "src/system_prompt.ts",
+      "line": 207,
+      "summary": "input_text developer content not recognized; stale policy stacks"
+    },
+    {
+      "id": "r6",
+      "tags": [
+        "human"
+      ],
+      "path": "src/bedrock.ts",
+      "line": 349,
+      "summary": "buffered gate should decide from parsed output; avoidable second copy"
+    },
+    {
+      "id": "r7",
+      "tags": [
+        "human"
+      ],
+      "path": "src/fixture.ts",
+      "line": 18,
+      "summary": "fixture duplicates the abort string instead of building from the constant"
+    },
+    {
+      "id": "r8",
+      "tags": [
+        "human"
+      ],
+      "path": null,
+      "line": null,
+      "summary": "review body: needs a real-store test proving the next request is refused"
+    },
+    {
+      "id": "r9",
+      "tags": [
+        "bot"
+      ],
+      "path": "src/proxy/abort.ts",
+      "line": 185,
+      "summary": "hold released early by reasoning frames; later sentinel passes"
+    },
+    {
+      "id": "r10",
+      "tags": [
+        "bot"
+      ],
+      "path": "src/dispatch.ts",
+      "line": 853,
+      "summary": "client cancellation cancels the revoke context; token stays live"
+    }
+  ],
+  "runs": [
+    {
+      "id": "baseline-maincheckout",
+      "labels": {
+        "r1": "partial",
+        "r2": "missed",
+        "r3": "missed",
+        "r4": "missed",
+        "r5": "missed",
+        "r6": "missed",
+        "r7": "found",
+        "r8": "missed",
+        "r9": "found",
+        "r10": "found"
+      }
+    },
+    {
+      "id": "inline-redteam",
+      "labels": {
+        "r1": "found",
+        "r2": "missed",
+        "r3": "missed",
+        "r4": "missed",
+        "r5": "missed",
+        "r6": "missed",
+        "r7": "missed",
+        "r8": "missed",
+        "r9": "found",
+        "r10": "found"
+      }
+    },
+    {
+      "id": "matched",
+      "labels": {
+        "r1": "found",
+        "r2": "missed",
+        "r3": "missed",
+        "r4": "missed",
+        "r5": "missed",
+        "r6": "missed",
+        "r7": "found",
+        "r8": "found",
+        "r9": "found",
+        "r10": "found"
+      }
+    }
+  ]
+}

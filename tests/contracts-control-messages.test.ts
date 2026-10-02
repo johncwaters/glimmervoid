@@ -185,6 +185,14 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'open-issue-session-result', requestId: 'issues-2', ok: true, error: null, sessionId: 'session-2', sessionName: 'issue-42-fix-reconnect', pending: false },
   { type: 'posthog-issue-action-result', requestId: 'posthog-3', ok: true, error: null, status: 'resolved' },
   { type: 'team-review-action-result', requestId: 'review-1', key: 'PostHog/wizard#1350', ok: true },
+  { type: 'benchmark-action-result', requestId: 'bench-1', suiteId: 'review-ladder', action: 'run', ok: true, runId: 'run-1' },
+  { type: 'benchmark-status', ts: NOW, configured: true, reason: null, suites: [{
+    id: 'review-ladder', title: 'Review ladder', error: null, caseCount: 5, candidateCount: 2,
+    armIds: ['baseline', 'candidate'], baselineArm: 'baseline', latestReport: null,
+  }], inFlight: {
+    suiteId: 'review-ladder', runId: 'run-1', caseId: '464', armId: 'candidate', trial: 1,
+    phase: 'subject', cellIndex: 3, cellCount: 10, startedAt: NOW,
+  } },
   { type: 'my-pr-merge-result', requestId: 'merge-1', key: 'PostHog/wizard#1350', ok: false, error: 'Checks are failing' },
   { type: 'posthog-archive-investigation-result', requestId: 'posthog-4', ok: true, error: null },
   { type: 'team-review-status', ts: NOW, configured: true, drafts: [{
@@ -274,6 +282,19 @@ test('team review actions carry editable text and diff comments', () => {
   assert.equal(ServerMessage.safeParse({ type: 'team-review-action-result', key: action.key, ok: false, error: 'stale head' }).success, true);
   assert.equal(ServerMessage.safeParse({ type: 'team-review-action-result', key: action.key, ok: true, warning: 'Do not post it again' }).success, true);
   assert.equal(ServerMessage.safeParse({ type: 'team-review-action-result', key: action.key, ok: true, warning: 4 }).success, false);
+});
+
+test('benchmark actions name a suite and one of the three actions', () => {
+  const action = { type: 'benchmark-action', requestId: 'bench-1', suiteId: 'review-ladder', action: 'mine' };
+  assert.deepEqual(ClientMessage.parse(action), action);
+  for (const invalid of [
+    { ...action, action: 'freeze' },
+    { ...action, suiteId: '../escape' },
+    { ...action, suiteId: '' },
+    { ...action, suiteId: undefined },
+  ]) assert.equal(ClientMessage.safeParse(invalid).success, false);
+  assert.equal(ServerMessage.safeParse({ type: 'benchmark-action-result', suiteId: 'review-ladder', action: 'cancel', ok: false, error: 'No run in flight' }).success, true);
+  assert.equal(ServerMessage.safeParse({ type: 'benchmark-action-result', suiteId: 'review-ladder', action: 'cancel', ok: 'no' }).success, false);
 });
 
 test('my pull request merges carry the repository, number and the head the dashboard saw', () => {

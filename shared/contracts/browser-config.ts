@@ -90,6 +90,10 @@ const TeamReviewSettings = optionalObject('teamReview', {
   skipIdleAfterDays: optionalNumber('teamReview.skipIdleAfterDays'),
 });
 
+const BenchmarksSettings = optionalObject('benchmarks', {
+  enabled: optionalBoolean('benchmarks.enabled'),
+});
+
 const posthogNumberRanges = {
   intervalMinutes: ranges.POSTHOG_INTERVAL_RANGE,
   maxConcurrentInvestigations: ranges.POSTHOG_MAX_CONCURRENT_RANGE,
@@ -206,6 +210,7 @@ export const createBrowserConfigShape = (isAbsolutePath: (directory: string) => 
   postTurnChecks: PostTurnChecksSettings,
   visions: VisionsSettings,
   teamReview: TeamReviewSettings,
+  benchmarks: BenchmarksSettings,
   posthog: PosthogSettings,
   usage: createUsageSettings(isAbsolutePath),
   telegram: TelegramSettings,

@@ -4,7 +4,7 @@ import type { ControlBroadcast, ControlSocket } from './backend-websockets.ts';
 import type { ChangeMapNarrator } from './change-map-wiring.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import { registerControlHandlers } from './control-handlers.ts';
-import type { MyPrMergeControl, TeamReviewActionControl } from './control-handlers.ts';
+import type { BenchmarkControl, MyPrMergeControl, TeamReviewActionControl } from './control-handlers.ts';
 import type { ReplayLog } from './control-replay-core.ts';
 import type { PlanDecision } from '../shared/contracts/plan-review.ts';
 import type { TeamReviewStatus } from '../shared/contracts/team-review.ts';
@@ -70,6 +70,7 @@ interface BackendControlDependencies {
   posthog: PosthogControl;
   teamReview: TeamReviewControl;
   myPrs: MyPrMergeControl & { getStatus: () => MyPrsStatus };
+  benchmarks: BenchmarkControl;
   usage: UsageControl;
   readTracePage: ((glimmervoidSessionId: string, request: TracePageRequest) => Promise<TracePage>) | null;
   readPlanRevision: ((
@@ -95,6 +96,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     posthog,
     teamReview,
     myPrs,
+    benchmarks,
     usage,
     logger,
   } = dependencies;
@@ -127,6 +129,8 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     posthogArchiveInvestigation: (args) => posthog.archiveInvestigation(args),
     getTeamReviewStatus: () => teamReview.getStatus(),
     getMyPrsStatus: () => myPrs.getStatus(),
+    getBenchmarkStatus: () => benchmarks.getStatus(),
+    benchmarks,
     teamReview,
     myPrs,
     serverBuild: dependencies.serverBuild,

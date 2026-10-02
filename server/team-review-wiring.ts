@@ -656,6 +656,7 @@ function createTeamReviewDispatcher({
 function createTeamReviewSpawn({
   reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane = null, replayBufferKB,
   makeSession = (options: SessionOptions) => new Session(options),
+  laneName = core.TEAM_REVIEW_LANE_ID,
 }: {
   reviewSessions: Map<string, unknown>;
   closeSessionDataClients: (id: string) => void;
@@ -665,6 +666,7 @@ function createTeamReviewSpawn({
   recordLane?: RecordLane | null;
   replayBufferKB?: number;
   makeSession?: (options: SessionOptions) => Session;
+  laneName?: string;
 }): TeamReviewSpawn {
   return async function spawnTeamReviewSession({ id, name, cwd, spawnEnv, extraClaudeArgs, settingsPermissions, settingsSandbox, signal, onToolStep, onSessionId, resumeSessionId, initialPrompt }) {
     const sess = makeSession({
@@ -685,7 +687,7 @@ function createTeamReviewSpawn({
       getHookPort,
     });
     registerEphemeralSession({
-      map: reviewSessions, id, sess, closeSessionDataClients, logPrefix: core.TEAM_REVIEW_LANE_ID, name, recordLane,
+      map: reviewSessions, id, sess, closeSessionDataClients, logPrefix: laneName, name, recordLane,
     });
     if (onSessionId) sess.on('claude-session-id', ({ id: capturedId }: { id: string }) => onSessionId(capturedId));
     if (onToolStep) {

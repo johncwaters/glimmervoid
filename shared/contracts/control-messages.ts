@@ -15,6 +15,7 @@ import { TraceRecord } from './trace.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
 import { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus } from './team-review.ts';
 import { MyPrMergeRequest, MyPrMergeResult, MyPrsStatus } from './my-prs.ts';
+import { BenchmarkActionRequest, BenchmarkActionResult, BenchmarkStatus } from './benchmark.ts';
 
 const requestId = z.string().nullable().optional();
 const sessionId = z.string();
@@ -149,6 +150,7 @@ export const CLIENT_MESSAGE_TYPES = Object.freeze([
   'open-issue-session',
   'posthog-issue-action',
   'team-review-action',
+  'benchmark-action',
   'my-pr-merge',
   'posthog-archive-investigation',
   'request-usage-report',
@@ -232,6 +234,7 @@ const clientVariants = [
   loose('open-issue-session', { requestId, projectId: z.string(), issueNumber: z.number().int().positive() }),
   loose('posthog-issue-action', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), action: z.string(), requestId }),
   loose('team-review-action', { ...TeamReviewActionRequest.shape, requestId }),
+  loose('benchmark-action', { ...BenchmarkActionRequest.shape, requestId }),
   loose('my-pr-merge', { ...MyPrMergeRequest.shape, requestId }),
   loose('posthog-archive-investigation', { id: z.unknown().optional(), requestId }),
   loose('request-usage-report', { requestId, days: z.unknown().optional(), force: z.unknown().optional() }),
@@ -328,9 +331,11 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'open-issue-session-result',
   'posthog-issue-action-result',
   'team-review-action-result',
+  'benchmark-action-result',
   'my-pr-merge-result',
   'posthog-archive-investigation-result',
   'team-review-status',
+  'benchmark-status',
   'my-prs-status',
   'branch-gc-status',
   'usage-sessions',
@@ -573,9 +578,11 @@ const serverVariants = [
     status: nullableString.optional(),
   }),
   loose('team-review-action-result', { ...TeamReviewActionResult.shape, requestId }),
+  loose('benchmark-action-result', { ...BenchmarkActionResult.shape, requestId }),
   loose('my-pr-merge-result', { ...MyPrMergeResult.shape, requestId }),
   loose('posthog-archive-investigation-result', { requestId, ok: z.boolean(), error: optionalError }),
   TeamReviewStatus,
+  BenchmarkStatus,
   MyPrsStatus,
 
   loose('branch-gc-status'),

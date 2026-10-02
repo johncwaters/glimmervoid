@@ -286,6 +286,18 @@ test('team review settings persist, echo, and reject invalid fields', () => {
   }
 });
 
+test('benchmark settings persist, echo, and reject a non-boolean enabled', () => {
+  const h = harness({ projects: [] });
+  h.send({ type: 'update-settings', settings: { benchmarks: { enabled: true, ignored: true } } });
+  assert.deepEqual(h.cfg.benchmarks, { enabled: true });
+  assert.deepEqual(updatedFrom(h)?.settings?.benchmarks, { enabled: true });
+
+  const invalid = harness({ projects: [] });
+  invalid.send({ type: 'update-settings', settings: { benchmarks: { enabled: 'yes' } } });
+  assert.match(String(errorFrom(invalid)?.message ?? ''), /benchmarks.enabled must be a boolean/);
+  assert.equal(invalid.cfg.benchmarks, undefined);
+});
+
 function posthogPayload(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     enabled: true,

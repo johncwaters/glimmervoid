@@ -23,6 +23,7 @@ import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneScr
 import { noteKnownProjectPath } from './project-registry.ts';
 import { applyTeamReviewActionResult, applyTeamReviewStatus, setTeamReviewActivityCallback } from './team-review-panel.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus } from './my-prs-panel.ts';
+import { applyBenchmarkActionResult, applyBenchmarkConnectionState, applyBenchmarkStatus, mountBenchmarkView, setBenchmarkRequestSender } from './benchmark-panel.ts';
 import { applyIssuesConnectionState, applyIssuesProjects, applyIssuesReport, applyOpenIssueSessionResult, mountIssuesView, setIssuesRequestSender } from './issues-panel.ts';
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID, updateBannerText } from './radar-core.ts';
@@ -94,6 +95,7 @@ setConnectionStateCallback((state, label) => {
   applyTraceConnectionState(state === 'connected');
   applyPlanConnectionState(state === 'connected');
   applyIssuesConnectionState(state === 'connected');
+  applyBenchmarkConnectionState(state === 'connected');
 
   if (state === 'connected') {
     if (shutdownScreen.classList.contains('active')) {
@@ -254,6 +256,7 @@ setUsageRequestSender(sendControlMsg);
 setHooksRequestSender(sendControlMsg);
 setTraceRequestSender(sendControlMsg);
 setIssuesRequestSender(sendControlMsg);
+setBenchmarkRequestSender(sendControlMsg);
 
 function isHooksSurfaceVisible() {
   if (isPhoneShellActive()) return isPhoneScreenActive('hooks');
@@ -334,6 +337,8 @@ const messageHandlers = {
   'posthog-investigation-finished': (msg) => applyInvestigationFinished(msg),
   'team-review-status': (msg) => applyTeamReviewStatus(msg),
   'my-prs-status': (msg) => applyMyPrsStatus(msg),
+  'benchmark-status': (msg) => applyBenchmarkStatus(msg),
+  'benchmark-action-result': (msg) => applyBenchmarkActionResult(msg),
   'my-pr-merge-result': (msg) => applyMyPrMergeResult(msg),
   'team-review-action-result': (msg) => applyTeamReviewActionResult(msg),
   'issues-report':      (msg) => applyIssuesReport(msg),
@@ -566,6 +571,7 @@ const viewUsageEl = queryTag(document, '#view-usage', 'section');
 const viewVisionsEl = queryTag(document, '#view-visions', 'section');
 const viewHooksEl = queryTag(document, '#view-hooks', 'section');
 const viewTraceEl = queryTag(document, '#view-trace', 'section');
+const viewBenchmarksEl = queryTag(document, '#view-benchmarks', 'section');
 const viewSettingsEl = queryTag(document, '#view-settings', 'section');
 const tabFocus = queryTag(document, '#tab-focus', 'button');
 const tabRadar = queryTag(document, '#tab-radar', 'button');
@@ -575,6 +581,7 @@ const tabUsage = queryTag(document, '#tab-usage', 'button');
 const tabVisions = queryTag(document, '#tab-visions', 'button');
 const tabHooks = queryTag(document, '#tab-hooks', 'button');
 const tabTrace = queryTag(document, '#tab-trace', 'button');
+const tabBenchmarks = queryTag(document, '#tab-benchmarks', 'button');
 const tabSettings = queryTag(document, '#tab-settings', 'button');
 const tabRadarActivityEl = queryTag(document, '#tab-radar-activity', 'span');
 const tabPrsActivityEl = queryTag(document, '#tab-prs-activity', 'span');
@@ -624,6 +631,8 @@ mountHooksView(viewHooksEl);
 
 mountTraceView(viewTraceEl);
 
+mountBenchmarkView(viewBenchmarksEl);
+
 mountSettingsView(viewSettingsEl, { onRestart: confirmServerRestart, onConfirmUpdateAndRestart: confirmUpdateAndRestart });
 
 const VIEW_TABS = [
@@ -635,6 +644,7 @@ const VIEW_TABS = [
   { view: 'visions', tab: tabVisions, el: viewVisionsEl },
   { view: 'hooks', tab: tabHooks, el: viewHooksEl },
   { view: 'trace', tab: tabTrace, el: viewTraceEl },
+  { view: 'benchmarks', tab: tabBenchmarks, el: viewBenchmarksEl },
   { view: 'settings', tab: tabSettings, el: viewSettingsEl },
 ];
 

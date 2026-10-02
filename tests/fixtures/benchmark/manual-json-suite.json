@@ -1,0 +1,11 @@
+{
+  "id": "manual-json",
+  "title": "Generic JSON findings",
+  "caseSource": { "kind": "manual" },
+  "workspace": { "kind": "none" },
+  "subject": { "promptTemplate": "Inspect {input.text} with budget {input.budget}", "output": "json", "timeoutSeconds": 60 },
+  "arms": [{ "id": "baseline" }, { "id": "variant", "extraArgs": ["--model", "alternative"] }],
+  "baselineArm": "baseline",
+  "trials": 2,
+  "scorer": { "kind": "llm-judge-match", "model": "judge-model" }
+}
