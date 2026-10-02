@@ -34,7 +34,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
   .btn:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
   .copy-status { font-size: 12px; color: var(--text-dim); min-width: 6ch; text-align: left; }
   .hero-meta { font-size: 12px; color: var(--text-dim); display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 18px; }
-  .sky { position: absolute; inset: 0; pointer-events: none; z-index: 1; overflow: hidden; }
+  .sky { position: absolute; inset-block: 0; inset-inline: calc(50% - 50vw); pointer-events: none; z-index: 1; overflow: hidden; }
   @media (prefers-reduced-motion: reduce) {
     .sky { display: none; }
   }
