@@ -23,6 +23,7 @@ export interface UiPrefs extends FlyingAnimalsOptions {
   keptProjects: string[];
   traceHiddenKinds: string[];
   dismissedUpdate: string | null;
+  telemetryNoticeDismissed: boolean;
   radarAttentionAck: string;
   prsAttentionAck: string;
   usageAttentionAck: string;
@@ -63,6 +64,7 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   keptProjects: asStringList,
   traceHiddenKinds: asStringList,
   dismissedUpdate: asNullableString,
+  telemetryNoticeDismissed: asBoolean(false),
   radarAttentionAck: asString(''),
   prsAttentionAck: asString(''),
   usageAttentionAck: asString(''),
@@ -131,6 +133,9 @@ export const setTraceHiddenKinds = (kinds: string[]) => write('traceHiddenKinds'
 
 export const getDismissedUpdate = () => read('dismissedUpdate');
 export const setDismissedUpdate = (key: string | null) => write('dismissedUpdate', key);
+
+export const isTelemetryNoticeDismissed = () => read('telemetryNoticeDismissed');
+export const setTelemetryNoticeDismissed = (dismissed: boolean) => write('telemetryNoticeDismissed', dismissed);
 
 export const getRadarAttentionAck = () => read('radarAttentionAck');
 export const setRadarAttentionAck = (signature: string) => write('radarAttentionAck', signature);

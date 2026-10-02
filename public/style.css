@@ -7805,6 +7805,10 @@ html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-nav { displa
   color: var(--text);
 }
 
+.telemetry-banner-dismiss {
+  margin-left: auto;
+}
+
 :root[data-flying-animals="true"] .nyan-flight {
   position: fixed;
 

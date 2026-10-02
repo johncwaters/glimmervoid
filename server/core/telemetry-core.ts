@@ -15,7 +15,7 @@ const TELEMETRY_BATCH_URL = `${POSTHOG_INGEST_HOST}/batch/`;
 const MAX_STACK_LENGTH = 16384;
 
 const FIRST_RUN_NOTICE = [
-  'Glimmervoid sends anonymous usage and error data to help improve it: app starts, daily activity, session starts and ends with the agent kind, exit kind and duration, and errors as their type, error code and scrubbed stack frames. No error messages, paths, repository names, prompts or terminal output.',
+  'Glimmervoid sends anonymous usage and error data to help improve it: app starts, daily activity, session starts and ends with the agent kind, exit kind and duration, errors as their type, error code and scrubbed stack frames, and per session token counts, models and estimated cost. No error messages, paths, repository names, prompts, model output or terminal output.',
   'Turn it off in Settings > Privacy, or set GLIMMERVOID_TELEMETRY=0 or DO_NOT_TRACK=1.',
 ].join('\n');
 
@@ -57,6 +57,10 @@ function decideTelemetryConsent(env: TelemetryEnvironment, config: TelemetryConf
   const configured = config.telemetry?.enabled;
   if (typeof configured === 'boolean') return { isEnabled: configured, source: 'config' };
   return { isEnabled: true, source: 'default' };
+}
+
+function isTelemetryForcedOff(env: TelemetryEnvironment): boolean {
+  return decideTelemetryConsent(env, { telemetry: { enabled: true } }).isEnabled === false;
 }
 
 function resolveProjectToken(env: TelemetryEnvironment): string {
@@ -336,7 +340,7 @@ function nodeMajorVersion(nodeVersion: string): number {
 export {
   FIRST_RUN_NOTICE, POSTHOG_PROJECT_TOKEN, TELEMETRY_BATCH_URL,
   adapterBucket, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties, classifySessionExit,
-  decideTelemetryConsent, exceptionFingerprint, nodeMajorVersion, parseBrowserStackFrames, parseV8StackFrames, resolveProjectToken,
+  decideTelemetryConsent, exceptionFingerprint, isTelemetryForcedOff, nodeMajorVersion, parseBrowserStackFrames, parseV8StackFrames, resolveProjectToken,
   scrubLocalPath, urlPathOnly,
 };
 export type { TelemetryConfig, TelemetryConsent, TelemetryEnvironment };

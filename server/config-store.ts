@@ -7,6 +7,7 @@ import { canonicalizePath, equalsIgnoringCaseOnWindows } from '../shared/paths.t
 import { DEFAULT_BRANCH_GC_PREFIXES } from './core/branch-gc-core.ts';
 import { decideConfigPath, glimmervoidHomeDir as resolveGlimmervoidHomeDir } from './core/config-path-core.ts';
 import { readEnvSecrets, withEnvSecrets, withoutEnvSecrets } from './core/config-secrets-core.ts';
+import { isTelemetryForcedOff } from './core/telemetry-core.ts';
 import { AGENT_ID_SHAPE_MESSAGE, BranchGcFileSettings, Config, configIssueMessage, RUNTIME_CONFIG_SCALAR_KEYS } from '../shared/contracts/index.ts';
 import type { CustomAgentDeclaration } from '../shared/contracts/index.ts';
 import { isPlainObject } from './core/usage-number-core.ts';
@@ -430,6 +431,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       trace: { enabled: config.trace?.enabled ?? DEFAULT_CONFIG.trace.enabled },
       agentApi: { enabled: config.agentApi?.enabled ?? DEFAULT_CONFIG.agentApi.enabled },
       telemetry: { enabled: config.telemetry?.enabled ?? DEFAULT_CONFIG.telemetry.enabled },
+      telemetryForcedOff: isTelemetryForcedOff(process.env),
       antiSlopPrompt: config.antiSlopPrompt ?? effectiveDefaults.antiSlopPrompt,
       rtk: config.rtk ?? effectiveDefaults.rtk,
       checkForUpdates: config.checkForUpdates ?? effectiveDefaults.checkForUpdates,

@@ -48,7 +48,8 @@ import type { ResolvedDashboardShortcut } from './shortcuts-core.ts';
 import { applyFlyingAnimals } from './flying-animals.ts';
 import { applyTheme } from './theme.ts';
 import { applyTraceChanged, applyTraceConnectionState, applyTraceError, applyTraceResponse, mountTraceView, openTraceForSession, refreshTraceView, setTraceNavigate, setTraceRequestSender, setTraceSessions } from './trace-panel.ts';
-import { getActiveView as getSavedActiveView, getDismissedUpdate, getThemeId, isFlyingAnimalsEnabled, isSoundEnabled, setActiveView, setDismissedUpdate, setSoundEnabled } from './ui-prefs.ts';
+import { shouldShowTelemetryNotice } from './telemetry-notice-core.ts';
+import { getActiveView as getSavedActiveView, getDismissedUpdate, getThemeId, isFlyingAnimalsEnabled, isSoundEnabled, isTelemetryNoticeDismissed, setActiveView, setDismissedUpdate, setSoundEnabled, setTelemetryNoticeDismissed } from './ui-prefs.ts';
 import { getActiveView, uiState } from './ui-state-core.ts';
 import { updateBannerMode } from './updates-view-core.ts';
 import type { UpdateStatusView } from './updates-view-core.ts';
@@ -139,6 +140,7 @@ setConnectionStateCallback((state, label) => {
         applySettingsBroadcast(msg.settings);
         applyVisionsSettings(msg.settings);
         applySurfaceSettings(msg.settings);
+        syncTelemetryBanner(msg.settings);
         if (getActiveView() === 'settings') activateSettingsHash(location.hash);
       })
       .catch(() => {});
@@ -354,7 +356,7 @@ const messageHandlers = {
   'update-progress':    (msg) => applySettingsUpdateProgress(msg.journal),
   'error':              (msg) => { clearSettingsUpdateRequest(); applyTraceError(msg); applySessionPlanError(msg); showErrorToast(msg.message, { persist: true }); },
   'session-error':      (msg) => { applySessionPlanError(msg); showErrorToast(`${msg.session}: ${msg.message}`, { persist: true }); },
-  'settings-updated':   (msg) => { if (msg.settings) { applyTerminalSettings(msg.settings); applySettingsBroadcast(msg.settings); applyVisionsSettings(msg.settings); applySurfaceSettings(msg.settings); } },
+  'settings-updated':   (msg) => { if (msg.settings) { applyTerminalSettings(msg.settings); applySettingsBroadcast(msg.settings); applyVisionsSettings(msg.settings); applySurfaceSettings(msg.settings); syncTelemetryBanner(msg.settings); } },
   'health-snapshot':    (msg) => { if (msg.stats) applyHealthSnapshot(msg.stats as HealthSnapshot); },
   'posthog-status':     (msg) => applyPosthogStatus(msg),
   'posthog-investigation-activity': (msg) => applyInvestigationActivity(msg),
@@ -464,6 +466,22 @@ function showUpdateBanner(msg: ServerMessage) {
     banner.hidden = true;
   };
 }
+
+const telemetryBanner = queryTag(document, '#telemetry-banner', 'div');
+
+function dismissTelemetryBanner() {
+  setTelemetryNoticeDismissed(true);
+  telemetryBanner.hidden = true;
+}
+
+function syncTelemetryBanner(settings: unknown) {
+  telemetryBanner.hidden = !shouldShowTelemetryNotice(settings, isTelemetryNoticeDismissed());
+}
+
+const telemetrySettingsLink = queryTag(document, '#telemetry-banner-settings', 'a');
+telemetrySettingsLink.href = createSettingsLink('privacy', 'telemetry-enabled', 'Open settings').href;
+telemetrySettingsLink.addEventListener('click', dismissTelemetryBanner);
+queryTag(document, '#telemetry-banner-dismiss', 'button').addEventListener('click', dismissTelemetryBanner);
 
 queryTag(document, '#btn-add-session-header', 'button').addEventListener('click', createAddSessionDialog);
 

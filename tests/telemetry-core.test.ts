@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   POSTHOG_PROJECT_TOKEN, adapterBucket, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties,
-  classifySessionExit, decideTelemetryConsent, exceptionFingerprint, nodeMajorVersion, parseBrowserStackFrames, parseV8StackFrames,
+  classifySessionExit, decideTelemetryConsent, exceptionFingerprint, isTelemetryForcedOff, nodeMajorVersion, parseBrowserStackFrames, parseV8StackFrames,
   resolveProjectToken, scrubLocalPath, urlPathOnly,
 } from '../server/core/telemetry-core.ts';
 import { AiGenerationProperties, TELEMETRY_EVENT_SCHEMAS, TELEMETRY_EVENTS } from '../shared/contracts/telemetry.ts';
@@ -286,4 +286,11 @@ test('ai generation events send a known model name and replace an unknown one wi
 test('ai generation rows with zero tokens are skipped', () => {
   const events = buildAiGenerationEvents([generationRow({ input: 0, output: 0, cacheRead: 0, cacheCreate: 0 })], 'install-a');
   assert.deepEqual(events, []);
+});
+
+test('telemetry counts as forced off only by DO_NOT_TRACK, GLIMMERVOID_TELEMETRY=0 or CI, never by config', () => {
+  assert.equal(isTelemetryForcedOff({}), false);
+  assert.equal(isTelemetryForcedOff({ DO_NOT_TRACK: '1' }), true);
+  assert.equal(isTelemetryForcedOff({ GLIMMERVOID_TELEMETRY: '0' }), true);
+  assert.equal(isTelemetryForcedOff({ CI: 'true' }), true);
 });
