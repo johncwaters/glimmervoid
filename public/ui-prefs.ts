@@ -15,7 +15,7 @@ export interface UiPrefs extends FlyingAnimalsOptions {
   activeView: string;
   lastFocusedSessionId: string | null;
   railWidth: number | null;
-  reviewSidebarCollapsed: boolean;
+  reviewSidebarExpanded: boolean;
   reviewSidebarView: 'map' | 'diff';
   prsQueueWidth: number | null;
   prsQueueCollapsed: boolean;
@@ -56,7 +56,7 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   activeView: asString('focus'),
   lastFocusedSessionId: asNullableString,
   railWidth: asNullableNumber,
-  reviewSidebarCollapsed: asBoolean(false),
+  reviewSidebarExpanded: asBoolean(false),
   reviewSidebarView: asReviewSidebarView,
   prsQueueWidth: asNullableNumber,
   prsQueueCollapsed: asBoolean(false),
@@ -113,8 +113,8 @@ export const setActiveView = (view: string) => write('activeView', view);
 export const getRailWidth = () => read('railWidth');
 export const setRailWidth = (px: number | null) => write('railWidth', px);
 
-export const isReviewSidebarCollapsed = () => read('reviewSidebarCollapsed');
-export const setReviewSidebarCollapsed = (collapsed: boolean) => write('reviewSidebarCollapsed', collapsed);
+export const isReviewSidebarExpanded = () => read('reviewSidebarExpanded');
+export const setReviewSidebarExpanded = (expanded: boolean) => write('reviewSidebarExpanded', expanded);
 export const getReviewSidebarView = () => read('reviewSidebarView');
 export const setReviewSidebarView = (view: UiPrefs['reviewSidebarView']) => write('reviewSidebarView', view);
 

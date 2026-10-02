@@ -10,7 +10,7 @@ import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { shortcutHint } from '../shortcuts-core.ts';
-import { getReviewSidebarView, getSidebarWidth, isReviewSidebarCollapsed, setReviewSidebarCollapsed, setReviewSidebarView, setSidebarWidth } from '../ui-prefs.ts';
+import { getReviewSidebarView, getSidebarWidth, isReviewSidebarExpanded, setReviewSidebarExpanded, setReviewSidebarView, setSidebarWidth } from '../ui-prefs.ts';
 import { buildChangeMapView } from './change-map-core.ts';
 import { renderChangeMapView } from './change-map-view.ts';
 import type { AnnotationTarget, DiffFile, SectionDiffText } from './diff-core.ts';
@@ -110,7 +110,7 @@ export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
   sessionNameEl = el('span', 'review-sidebar-session');
   const applyCollapsed = (isCollapsed: boolean) => {
     mountedPanel.toggleAttribute('data-collapsed', isCollapsed);
-    setReviewSidebarCollapsed(isCollapsed);
+    setReviewSidebarExpanded(!isCollapsed);
   };
 
   const minimizeBtn = el('button', 'review-btn review-sidebar-minimize', 'Minimize');
@@ -143,7 +143,7 @@ export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
   const handle = el('div', 'review-resize-handle');
   handle.setAttribute('aria-hidden', 'true');
   mountedPanel.append(expandBtn, head, branchSyncEl, controlsEl, notesEl, bodyEl, handle);
-  mountedPanel.toggleAttribute('data-collapsed', isReviewSidebarCollapsed());
+  mountedPanel.toggleAttribute('data-collapsed', !isReviewSidebarExpanded());
 
   let dragStartX = 0, dragStartWidth = 0;
 
