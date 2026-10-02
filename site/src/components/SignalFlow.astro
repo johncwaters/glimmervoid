@@ -10,7 +10,7 @@ const LEGEND_STATES = [STATES.RUNNING, STATES.WAITING, STATES.COMPLETE, STATES.F
     <p>Hooks report every state change. The terminal title fills the gaps. The screen is never scraped.</p>
   </div>
   <div class="diagram reveal">
-    <svg id="signal-flow" viewBox="0 0 860 270" role="img" aria-label="Signal flow: the agent CLI reports through a hook to the state machine, with the terminal title as a dashed fallback path, and the state machine updates the board.">
+    <svg class="diagram-wide" viewBox="0 0 860 270" role="img" aria-label="Signal flow: the agent CLI reports through a hook to the state machine, with the terminal title as a dashed fallback path, and the state machine updates the board.">
       <path id="wire-hook" class="wire hook" d="M190 120 C 240 120, 240 75, 300 75 L 470 75 C 530 75, 530 120, 580 120"/>
       <path id="wire-title" class="wire title" d="M190 150 C 240 150, 240 195, 300 195 L 470 195 C 530 195, 530 150, 580 150"/>
       <path id="wire-board" class="wire hook" d="M700 135 L 740 135"/>
@@ -18,17 +18,37 @@ const LEGEND_STATES = [STATES.RUNNING, STATES.WAITING, STATES.COMPLETE, STATES.F
       <g class="node"><rect x="300" y="45" width="170" height="60" rx="6"/><text class="t" x="318" y="72">Hook</text><text class="d" x="318" y="92">POST /hook/:id/:event</text></g>
       <g class="node"><rect x="300" y="165" width="170" height="60" rx="6"/><text class="t" x="318" y="192">Terminal title</text><text class="d" x="318" y="212">OSC-0 fallback</text></g>
       <g class="node"><rect x="580" y="95" width="120" height="80" rx="6"/><text class="t" x="598" y="125">State</text>
-        <g class="state-chip"><rect x="596" y="137" width="88" height="24" rx="3"/><text id="chip-text" x="640" y="154" text-anchor="middle" data-state={STATES.RUNNING}>{BADGE_LABELS[STATES.RUNNING].toUpperCase()}</text></g>
+        <g class="state-chip"><rect x="596" y="137" width="88" height="24" rx="3"/><text data-chip-text x="640" y="154" text-anchor="middle" data-state={STATES.RUNNING}>{BADGE_LABELS[STATES.RUNNING].toUpperCase()}</text></g>
       </g>
       <g class="node"><rect x="740" y="95" width="100" height="80" rx="6"/><text class="t" x="756" y="122">Board</text>
-        <circle id="board-dot-1" cx="762" cy="141" r="4" data-state={STATES.RUNNING}/><rect class="board-row" x="772" y="138" width="52" height="6" rx="2"/>
-        <circle id="board-dot-2" cx="762" cy="158" r="4" data-state={STATES.WAITING}/><rect class="board-row" x="772" y="155" width="40" height="6" rx="2"/>
+        <circle cx="762" cy="141" r="4" data-state={STATES.RUNNING}/><rect class="board-row" x="772" y="138" width="52" height="6" rx="2"/>
+        <circle data-board-dot cx="762" cy="158" r="4" data-state={STATES.WAITING}/><rect class="board-row" x="772" y="155" width="40" height="6" rx="2"/>
       </g>
       <circle class="pulse-hook" r="5"><animateMotion dur="2.4s" repeatCount="indefinite"><mpath href="#wire-hook"/></animateMotion></circle>
       <circle class="pulse-hook" r="5" opacity="0.6"><animateMotion dur="2.4s" begin="1.2s" repeatCount="indefinite"><mpath href="#wire-hook"/></animateMotion></circle>
       <circle class="pulse-title" r="4" opacity="0.7"><animateMotion dur="3.6s" repeatCount="indefinite"><mpath href="#wire-title"/></animateMotion></circle>
       <circle class="pulse-hook" r="4"><animateMotion dur="1.2s" repeatCount="indefinite"><mpath href="#wire-board"/></animateMotion></circle>
       <text class="caption" x="385" y="255" text-anchor="middle">hook wins a conflict</text>
+    </svg>
+    <svg class="diagram-compact" viewBox="0 0 260 452" role="img" aria-label="Signal flow: the agent CLI reports through a hook to the state machine, with the terminal title as a dashed fallback path, and the state machine updates the board.">
+      <path id="wire-hook-compact" class="wire hook" d="M70 68 C 70 82, 8 80, 8 96 L 8 262 C 8 280, 70 278, 70 296"/>
+      <path id="wire-title-compact" class="wire title" d="M190 68 C 190 82, 252 80, 252 96 L 252 262 C 252 280, 190 278, 190 296"/>
+      <path id="wire-board-compact" class="wire hook" d="M130 356 L 130 384"/>
+      <g class="node"><rect x="8" y="8" width="244" height="60" rx="6"/><text class="t" x="24" y="34">Agent CLI</text><text class="d" x="24" y="54">claude, codex, grok</text></g>
+      <g class="node"><rect x="8" y="96" width="200" height="60" rx="6"/><text class="t" x="24" y="122">Hook</text><text class="d" x="24" y="144">POST /hook/:id/:event</text></g>
+      <g class="node"><rect x="52" y="180" width="200" height="60" rx="6"/><text class="t" x="68" y="206">Terminal title</text><text class="d" x="68" y="228">OSC-0 fallback</text></g>
+      <g class="node"><rect x="8" y="296" width="244" height="60" rx="6"/><text class="t" x="24" y="331">State</text>
+        <g class="state-chip"><rect x="120" y="313" width="112" height="26" rx="3"/><text data-chip-text x="176" y="331" text-anchor="middle" data-state={STATES.RUNNING}>{BADGE_LABELS[STATES.RUNNING].toUpperCase()}</text></g>
+      </g>
+      <g class="node"><rect x="8" y="384" width="244" height="60" rx="6"/><text class="t" x="24" y="419">Board</text>
+        <circle cx="130" cy="405" r="4" data-state={STATES.RUNNING}/><rect class="board-row" x="142" y="402" width="70" height="6" rx="2"/>
+        <circle data-board-dot cx="130" cy="423" r="4" data-state={STATES.WAITING}/><rect class="board-row" x="142" y="420" width="54" height="6" rx="2"/>
+      </g>
+      <circle class="pulse-hook" r="5"><animateMotion dur="2.4s" repeatCount="indefinite"><mpath href="#wire-hook-compact"/></animateMotion></circle>
+      <circle class="pulse-hook" r="5" opacity="0.6"><animateMotion dur="2.4s" begin="1.2s" repeatCount="indefinite"><mpath href="#wire-hook-compact"/></animateMotion></circle>
+      <circle class="pulse-title" r="4" opacity="0.7"><animateMotion dur="3.6s" repeatCount="indefinite"><mpath href="#wire-title-compact"/></animateMotion></circle>
+      <circle class="pulse-hook" r="4"><animateMotion dur="1.2s" repeatCount="indefinite"><mpath href="#wire-board-compact"/></animateMotion></circle>
+      <text class="caption" x="130" y="272" text-anchor="middle">hook wins a conflict</text>
     </svg>
   </div>
   <div class="legend-row reveal">
@@ -52,6 +72,8 @@ const LEGEND_STATES = [STATES.RUNNING, STATES.WAITING, STATES.COMPLETE, STATES.F
   .legend-row { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 18px; font-size: 13px; color: var(--text-dim); }
   .legend-row b { font-weight: 400; }
   .board-row { fill: var(--border); }
+  .diagram-compact .node .t { font-size: 14px; }
+  .diagram-compact .node .d, .diagram-compact .caption { font-size: 12px; }
   [data-state="RUNNING"] { color: var(--state-running); fill: var(--state-running); }
   [data-state="WAITING"] { color: var(--state-waiting); fill: var(--state-waiting); }
   [data-state="COMPLETE"] { color: var(--state-complete); fill: var(--state-complete); }
@@ -66,21 +88,23 @@ const LEGEND_STATES = [STATES.RUNNING, STATES.WAITING, STATES.COMPLETE, STATES.F
   const CHIP_INTERVAL_MS = 2400;
 
   function startSignalFlow(): void {
-    const signalFlow = document.getElementById('signal-flow');
-    const chipText = document.getElementById('chip-text');
-    const boardDot = document.getElementById('board-dot-2');
-    if (!(signalFlow instanceof SVGSVGElement) || !chipText || !boardDot) return;
+    const signalFlowDiagrams = [...document.querySelectorAll<SVGSVGElement>('#signals svg')];
+    const chipTexts = [...document.querySelectorAll<SVGElement>('[data-chip-text]')];
+    const boardDots = [...document.querySelectorAll<SVGElement>('[data-board-dot]')];
+    if (signalFlowDiagrams.length === 0 || chipTexts.length === 0) return;
     if (prefersReducedMotion()) {
-      signalFlow.pauseAnimations();
+      for (const diagram of signalFlowDiagrams) diagram.pauseAnimations();
       return;
     }
     let chipIndex = 0;
     setInterval(() => {
       chipIndex = (chipIndex + 1) % CHIP_STATES.length;
       const chipState = CHIP_STATES[chipIndex];
-      chipText.textContent = BADGE_LABELS[chipState].toUpperCase();
-      chipText.dataset.state = chipState;
-      boardDot.dataset.state = chipState;
+      for (const chipText of chipTexts) {
+        chipText.textContent = BADGE_LABELS[chipState].toUpperCase();
+        chipText.dataset.state = chipState;
+      }
+      for (const boardDot of boardDots) boardDot.dataset.state = chipState;
     }, CHIP_INTERVAL_MS);
   }
 

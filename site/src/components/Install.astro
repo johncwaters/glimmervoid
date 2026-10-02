@@ -1,3 +1,6 @@
+---
+import InstallCommand from './InstallCommand.astro';
+---
 <section id="install">
   <div class="section-head reveal">
     <p class="eyebrow">Install</p>
@@ -5,10 +8,10 @@
   </div>
   <div class="install-grid reveal">
 <pre class="term-block"><span class="c"># Windows and macOS</span>
-npx --allow-remote=root --allow-scripts=node-pty https://github.com/johncwaters/glimmervoid/releases/latest/download/glimmervoid.tgz</pre>
+<InstallCommand class="cmd" /></pre>
 <pre class="term-block"><span class="c"># Linux: build tools first</span>
-sudo apt install build-essential python3
-npx --allow-remote=root --allow-scripts=node-pty https://github.com/johncwaters/glimmervoid/releases/latest/download/glimmervoid.tgz</pre>
+<span class="cmd">sudo apt install <span class="unbroken">build-essential</span> python3</span>
+<InstallCommand class="cmd" /></pre>
   </div>
   <p style="margin-top:14px;font-size:14px;color:var(--text-dim)">Open <code>localhost:3000</code>. Needs Node 22.18+ and an agent CLI.</p>
   <p style="margin-top:6px;font-size:14px;color:var(--text-dim)">To upgrade, run the versioned command the dashboard's update banner shows; rerunning this one keeps the version npx cached first.</p>
@@ -16,7 +19,12 @@ npx --allow-remote=root --allow-scripts=node-pty https://github.com/johncwaters/
 
 <style>
   .install-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
-  pre.term-block { margin: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 16px 18px; overflow-x: auto; color: var(--text-head); font-size: 13px; line-height: 1.8; }
+  pre.term-block { margin: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 16px 18px; overflow-x: auto; color: var(--text-head); font-family: inherit; font-size: 13px; line-height: 1.8; }
   pre.term-block .c { color: var(--text-dim); }
   @media (max-width: 820px) { .install-grid { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 640px) {
+    pre.term-block { white-space: pre-wrap; overflow-wrap: anywhere; padding: 14px; }
+    pre.term-block :global(.cmd) { display: inline-block; width: 100%; padding-left: 2ch; text-indent: -2ch; }
+    pre.term-block .unbroken { white-space: nowrap; }
+  }
 </style>

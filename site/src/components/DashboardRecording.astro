@@ -2,27 +2,35 @@
 const assetBase = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/capture`;
 ---
 <figure class="recording">
-  <video
-    id="dashboard-recording"
-    class="recording-video"
-    src={`${assetBase}/dashboard.webm`}
-    poster={`${assetBase}/hero.webp`}
-    width="1440"
-    height="900"
-    muted
-    loop
-    playsinline
-    preload="metadata"
-    aria-label="The Glimmervoid dashboard replaying four recorded Claude Code sessions: one fixes a flaky upload test and commits, one stops for permission on a billing migration, two more finish small tasks."
-  ></video>
+  <div class="recording-frame">
+    <video
+      id="dashboard-recording"
+      class="recording-video"
+      src={`${assetBase}/dashboard.webm`}
+      poster={`${assetBase}/hero.webp`}
+      width="1440"
+      height="900"
+      muted
+      loop
+      playsinline
+      preload="metadata"
+      aria-label="The Glimmervoid dashboard replaying four recorded Claude Code sessions: one fixes a flaky upload test and commits, one stops for permission on a billing migration, two more finish small tasks."
+    ></video>
+  </div>
   <figcaption>The real dashboard, replaying recorded Claude Code sessions.</figcaption>
 </figure>
 
 <style>
   .recording { position: relative; z-index: 2; margin: 44px 0 0; }
-  .recording-video {
-    display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+  .recording-frame {
+    overflow: hidden; border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
     box-shadow: 0 30px 80px -30px color-mix(in srgb, var(--accent-dim) 45%, transparent);
+  }
+  .recording-video { display: block; width: 100%; height: auto; }
+  @media (max-width: 640px) {
+    .recording { margin-top: 32px; }
+    .recording-frame { aspect-ratio: 1065 / 900; }
+    .recording-video { width: calc(100% * 1440 / 1065); max-width: none; }
   }
   figcaption { margin-top: 10px; font-size: 12px; color: var(--text-dim); text-align: center; }
 </style>

@@ -16,4 +16,10 @@
   nav.top ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: 13px; }
   nav.top ul a { color: var(--text-dim); text-decoration: none; }
   nav.top ul a:hover { color: var(--text-head); }
+  @media (pointer: coarse), (max-width: 640px) {
+    nav.top { padding-block: 8px; gap: 0 24px; }
+    .wordmark { display: inline-flex; align-items: center; min-height: 44px; }
+    nav.top ul { gap: 0; margin-inline: -8px; }
+    nav.top ul a { display: inline-flex; align-items: center; min-height: 44px; padding-inline: 8px; }
+  }
 </style>

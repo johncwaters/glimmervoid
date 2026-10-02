@@ -1,6 +1,7 @@
 ---
 import { ANIMALS } from '../../../public/nyan-animals.ts';
 import DashboardRecording from './DashboardRecording.astro';
+import InstallCommand from './InstallCommand.astro';
 
 const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, trail })));
 ---
@@ -11,7 +12,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
     <h1>Mission control for your <em>coding agents</em>.</h1>
     <p class="lede">Run dozens of Claude Code, Codex and Grok sessions at once. Know which one needs you.</p>
     <div class="install-line">
-      <code id="install-command">npx --allow-remote=root --allow-scripts=node-pty https://github.com/johncwaters/glimmervoid/releases/latest/download/glimmervoid.tgz</code>
+      <code id="install-command"><InstallCommand /></code>
       <button class="btn" type="button" id="copy-install">Copy</button>
       <span class="copy-status" id="copy-status" role="status"></span>
     </div>
@@ -30,6 +31,9 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
     border-radius: 4px; padding: 10px 14px; font-size: 14px; max-width: 100%; overflow-x: auto; white-space: nowrap;
   }
   .install-line code::before { content: "$"; color: var(--accent-dim); }
+  @media (max-width: 640px) {
+    .install-line code { align-items: flex-start; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; font-size: 13px; line-height: 1.6; }
+  }
   .btn { font: inherit; font-size: 13px; cursor: pointer; background: transparent; color: var(--accent); border: 1px solid var(--accent-dim); border-radius: 4px; padding: 9px 18px; }
   .btn:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
   .copy-status { font-size: 12px; color: var(--text-dim); min-width: 6ch; text-align: left; }

@@ -31,6 +31,12 @@ p { margin: 0; }
 .diagram { width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 18px; }
 .diagram svg { display: block; width: 100%; min-width: 640px; height: auto; }
 .diagram text { font-family: var(--font-mono); }
+.diagram svg.diagram-compact { display: none; }
+@media (max-width: 640px) {
+  .diagram { padding: 10px; }
+  .diagram svg.diagram-wide { display: none; }
+  .diagram svg.diagram-compact { display: block; min-width: 0; max-width: 340px; margin-inline: auto; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .reveal { animation: none; }

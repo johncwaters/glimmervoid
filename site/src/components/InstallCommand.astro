@@ -1,0 +1,19 @@
+---
+import { INSTALL_COMMAND, segmentInstallCommand } from '../lib/install-command.ts';
+
+interface Props {
+  class?: string;
+}
+
+const { class: className } = Astro.props;
+const segments = segmentInstallCommand(INSTALL_COMMAND);
+---
+<span class={className}>{segments.map((segment) => segment.kind === 'break-opportunity' ? <wbr /> : segment.kind === 'unbroken' ? <span class="unbroken">{segment.text}</span> : segment.text)}</span>
+
+<style>
+  wbr { display: none; }
+  @media (max-width: 640px) {
+    .unbroken { white-space: nowrap; }
+    wbr { display: inline; }
+  }
+</style>
