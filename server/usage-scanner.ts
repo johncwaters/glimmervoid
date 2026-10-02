@@ -14,12 +14,16 @@ import type { CodexUsageState } from './core/usage-codex-core.ts';
 import {
   dedupKeys,
   expandAdvisorIterations,
+  foldEntryIntoGenerationRollup,
+  foldReplacementIntoGenerationRollup,
   identityFromRelPath,
+  isWithinGenerationRecencyWindow,
+  mergeGenerationRollups,
   parseUsageLine,
   shouldReplace,
   totalTokensOf,
 } from './core/usage-entry-core.ts';
-import type { UsageEntry } from './core/usage-entry-core.ts';
+import type { UsageEntry, UsageGenerationRollupRow } from './core/usage-entry-core.ts';
 import { grokDedupIdentity, parseGrokUsageLine } from './core/usage-grok-core.ts';
 import { laneRollup } from './core/usage-lane-core.ts';
 import { costForEntry, lookupModelPrice } from './core/usage-pricing-core.ts';
@@ -152,6 +156,7 @@ interface PassResult {
   ioFailures: number;
   storeReset: boolean;
   durationMs: number;
+  generationRollup: UsageGenerationRollupRow[];
 }
 
 type StoredWarehouseRecords = NonNullable<Parameters<typeof pruneWarehouse>[0]>;
@@ -447,6 +452,8 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   const cachedRollupsByDays = new Map<number | undefined, ReturnType<typeof buildRollups>>();
   let cachedSessionTotals: Map<string, SessionTotal> | null = null;
   let currentFileJournal: FileJournalAction[] | null = null;
+  let currentFileGenerationRollup: Map<string, UsageGenerationRollupRow> | null = null;
+  let isHistoryCaughtUp = false;
   let warehouseRecords: WarehouseRecord[] = [];
   const warehouseStore = createJsonStateStore<StoredWarehouseRecords>({
     name: 'warehouse',
@@ -536,6 +543,10 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     return { ...entry, costUSD: priced.costUSD };
   }
 
+  function pricedModelKeyOf(entry: StoredEntry): string | null {
+    return lookupModelPrice(pricingTable, entry.model, { aliases })?.key ?? null;
+  }
+
   function storeEntry(entry: StoredEntry, syntheticPrimary: string | null = null): boolean {
     const keys = keysForEntry(entry, syntheticPrimary);
     const primaryHit = keys.primary === null ? undefined : primaryIndex.get(keys.primary);
@@ -548,6 +559,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
       const newIndex = entries.push(entry) - 1;
       recordJournal({ type: 'insert', index: newIndex, keys });
       indexEntry(newIndex, entry, keys);
+      if (currentFileGenerationRollup && isWithinGenerationRecencyWindow(entry, nowFn())) foldEntryIntoGenerationRollup(currentFileGenerationRollup, entry, pricedModelKeyOf(entry));
       return true;
     }
     if (hitIndex === undefined) return false;
@@ -557,6 +569,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     recordJournal({ type: 'replace', index: hitIndex, oldEntry, oldKeys, newKeys: keys });
     entries[hitIndex] = entry;
     reindexReplacement(hitIndex, oldKeys, keys, entry);
+    if (currentFileGenerationRollup && isWithinGenerationRecencyWindow(entry, nowFn())) foldReplacementIntoGenerationRollup(currentFileGenerationRollup, oldEntry, entry, pricedModelKeyOf(entry));
     markDirty();
     return false;
   }
@@ -910,7 +923,12 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     let bytesReadThisPass = 0;
     let skippedFileCount = 0;
     let didRollBackAnyFile = false;
-    if (force) resetStore();
+    const shouldCollectGenerations = isHistoryCaughtUp && !force;
+    const passGenerationRollup = new Map<string, UsageGenerationRollupRow>();
+    if (force) {
+      resetStore();
+      isHistoryCaughtUp = false;
+    }
     const resolved = await resolveProjectsDirsAsync({ fsPromises, env, extraProjectsDirs, homeDir, laneLog });
     claudeDirs = resolved.dirs;
     resolutionError = resolved.error;
@@ -934,6 +952,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
         break;
       }
       let fileNewEntryCount = 0;
+      currentFileGenerationRollup = shouldCollectGenerations ? new Map() : null;
       const fileResult = await scanFile({
         file: file.file,
         vendor: file.vendor,
@@ -950,7 +969,9 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
         didRollBackAnyFile = rollbackCurrentFile() || didRollBackAnyFile;
       }
       if (!fileResult.failed) newEntryCount += fileNewEntryCount;
+      if (!fileResult.failed && currentFileGenerationRollup) mergeGenerationRollups(passGenerationRollup, currentFileGenerationRollup);
       currentFileJournal = null;
+      currentFileGenerationRollup = null;
       bytesReadThisPass += fileResult.bytesRead;
       partial = partial || fileResult.partial;
       if (!fileResult.skipped) {
@@ -970,6 +991,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     if (newEntryCount > 0) markDirty();
     const outcome = passOutcome({ byteLimited: partial, ioFailures });
     lastOutcome = outcome;
+    if (outcome === 'complete') isHistoryCaughtUp = true;
     lastIoFailures = ioFailures;
     if (shouldPersistWarehouse({ outcome, storeReset: force })) await persistWarehouse();
     return {
@@ -981,6 +1003,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
       ioFailures,
       storeReset: force,
       durationMs: nowFn() - startedAt,
+      generationRollup: Array.from(passGenerationRollup.values()),
     };
   }
 

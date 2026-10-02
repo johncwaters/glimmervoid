@@ -23,6 +23,7 @@ import { getRtkPath } from './rtk-resolver.ts';
 import { sendTelegramMessage } from './telegram-transport.ts';
 import { loadPricing } from './usage-pricing.ts';
 import type { PricingResult } from './usage-pricing.ts';
+import type { Telemetry } from './telemetry.ts';
 import { createUsageScanner } from './usage-scanner.ts';
 import type { UsageScannerApi, UsageScannerOptions } from './usage-scanner.ts';
 
@@ -116,6 +117,7 @@ interface UsageWiringOptions {
   warehousePath?: string | null;
   budgetStatePath?: string | null;
   laneMap?: (() => Map<string, string>) | null;
+  telemetry?: Pick<Telemetry, 'captureAiGenerations'> | null;
   sendTelegram?: typeof sendTelegramMessage;
   telegramTimeoutMs?: number;
   fsPromises?: typeof nodeFsPromises;
@@ -214,6 +216,7 @@ function createUsageWiring({
   budgetStatePath = null,
 
   laneMap = null,
+  telemetry = null,
   sendTelegram = sendTelegramMessage,
   telegramTimeoutMs = TELEGRAM_TIMEOUT_MS,
   fsPromises = nodeFsPromises,
@@ -241,6 +244,7 @@ function createUsageWiring({
   let startRequested = false;
   let stopped = false;
   let passInFlight = false;
+  const telemetryCapturedPasses = new WeakSet<PassResult>();
   let intervalTimer: NodeJS.Timeout | null = null;
   let nudgeTimer: NodeJS.Timeout | null = null;
   let continueTimer: NodeJS.Timeout | null = null;
@@ -368,6 +372,12 @@ function createUsageWiring({
     if (result?.outcome === 'complete') {
       if (ioFailureStreak > 0) ioFailureStreakId += 1;
       ioFailureStreak = 0;
+    }
+
+    if (result && telemetry && !telemetryCapturedPasses.has(result)) {
+      telemetryCapturedPasses.add(result);
+      telemetry.captureAiGenerations(result.generationRollup)
+        .catch((error: unknown) => laneLog.warn('ai generation telemetry failed', { error: errorMessage(error) }));
     }
 
     const lostTheStore = result?.outcome === 'io-failed' && result.storeReset;

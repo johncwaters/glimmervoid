@@ -349,6 +349,7 @@ const PARTIAL_PASS: PassResult = {
   ioFailures: 0,
   storeReset: false,
   durationMs: 1,
+  generationRollup: [],
 };
 const COMPLETE_PASS: PassResult = {
   files: 1,
@@ -359,6 +360,7 @@ const COMPLETE_PASS: PassResult = {
   ioFailures: 0,
   storeReset: false,
   durationMs: 1,
+  generationRollup: [],
 };
 const IO_FAILED_PASS: PassResult = {
   files: 1,
@@ -369,6 +371,7 @@ const IO_FAILED_PASS: PassResult = {
   ioFailures: 1,
   storeReset: false,
   durationMs: 1,
+  generationRollup: [],
 };
 const FORCED_IO_FAILED_PASS: PassResult = { ...IO_FAILED_PASS, storeReset: true };
 
@@ -567,6 +570,7 @@ test('a settings restart during an in-flight start arms the NEW interval cadence
       ioFailures: 0,
       storeReset: false,
       durationMs: 1,
+      generationRollup: [],
     };
   };
   const config: { usage: Record<string, unknown> } = { usage: { scanIntervalMinutes: 1 } };

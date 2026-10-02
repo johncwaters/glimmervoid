@@ -14,6 +14,7 @@ import { createLaneSpawn } from './lane-spawn.ts';
 import { createPlanReviewWiring } from './plan-review-wiring.ts';
 import { createPosthogWiring } from './posthog-wiring.ts';
 import { createSpawnGate } from './spawn-gate.ts';
+import type { Telemetry } from './telemetry.ts';
 import { createTeamReviewWiring } from './team-review-wiring.ts';
 import { createMyPrsWiring } from './my-prs-wiring.ts';
 import { createUsageWiring, resolveUsageConfig } from './usage-wiring.ts';
@@ -51,6 +52,7 @@ interface BackendLaneDependencies {
     on(event: 'connection', listener: (socket: WebSocket) => void): unknown;
   };
   options: BackendLaneOptions;
+  telemetry: Telemetry;
   logger: Console;
 }
 
@@ -73,6 +75,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     broadcastLocalControl,
     controlWss,
     options,
+    telemetry,
     logger,
   } = dependencies;
   const spawnGate = createSpawnGate();
@@ -293,6 +296,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     controlClientCount: () => controlWss.clients.size,
     warehousePath: configSiblingPath(configStore.configPath, 'usage-warehouse.json'),
     laneMap: () => laneLedger.laneMap(),
+    telemetry,
     budgetStatePath: configSiblingPath(configStore.configPath, 'usage-budget-state.json'),
     logger,
     debug: () => configStore.getSettings().debugMode === true,

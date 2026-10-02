@@ -1,9 +1,12 @@
+import { createHash } from 'node:crypto';
+
 import { BUILTIN_AGENT_IDS } from '../../shared/contracts/config.ts';
 import type { ClientErrorReport } from '../../shared/contracts/control-messages.ts';
-import { MAX_EXCEPTION_FRAMES, MAX_TEXT_LENGTH } from '../../shared/contracts/telemetry.ts';
+import { MAX_AI_MODEL_LENGTH, MAX_AI_PROVIDER_LENGTH, MAX_EXCEPTION_FRAMES, MAX_TEXT_LENGTH } from '../../shared/contracts/telemetry.ts';
 import type {
-  ExceptionFrame, ExceptionProperties, SessionExitKind, TelemetryAdapter,
+  AiGenerationProperties, ExceptionFrame, ExceptionProperties, SessionExitKind, TelemetryAdapter,
 } from '../../shared/contracts/telemetry.ts';
+import type { UsageGenerationRollupRow } from './usage-entry-core.ts';
 
 const POSTHOG_INGEST_HOST = 'https://us.i.posthog.com';
 const POSTHOG_PROJECT_TOKEN = 'phc_s68t9vWmeGcrWkx4NkLQaEiVZ9sMBxv8GjQBbAcix2Sf';
@@ -282,6 +285,49 @@ function classifySessionExit({ exitCode, signal, reason }: ExitDetail): SessionE
   return 'error';
 }
 
+const AI_PROVIDER_BY_VENDOR: Readonly<Record<string, string>> = Object.freeze({
+  claude: 'anthropic',
+  codex: 'openai',
+  grok: 'xai',
+});
+
+const AGENT_ID_BY_VENDOR: Readonly<Record<string, string>> = Object.freeze({
+  claude: 'claude-code',
+  codex: 'codex',
+  grok: 'grok',
+});
+
+function aiTraceId(installId: string, sessionId: string): string {
+  return createHash('sha256').update(`${installId}${sessionId}`).digest('hex');
+}
+
+function wholeTokenCount(tokens: number): number {
+  return Math.max(0, Math.round(tokens));
+}
+
+function buildAiGenerationEvent(row: UsageGenerationRollupRow, installId: string): AiGenerationProperties {
+  const properties: AiGenerationProperties = {
+    $ai_trace_id: aiTraceId(installId, row.sessionId),
+    $ai_provider: (AI_PROVIDER_BY_VENDOR[row.vendor] ?? row.vendor).slice(0, MAX_AI_PROVIDER_LENGTH),
+    $ai_model: row.isModelKnown ? row.model.slice(0, MAX_AI_MODEL_LENGTH) : 'unknown',
+    $ai_input_tokens: wholeTokenCount(row.input),
+    $ai_output_tokens: wholeTokenCount(row.output),
+    $ai_cache_read_input_tokens: wholeTokenCount(row.cacheRead),
+    $ai_cache_creation_input_tokens: wholeTokenCount(row.cacheCreate),
+    agent_adapter: adapterBucket(AGENT_ID_BY_VENDOR[row.vendor]),
+  };
+  if (!row.hasKnownCost) return properties;
+  return { ...properties, $ai_total_cost_usd: Math.max(0, row.costUSD) };
+}
+
+function hasAnyTokens(row: UsageGenerationRollupRow): boolean {
+  return row.input + row.output + row.cacheRead + row.cacheCreate > 0;
+}
+
+function buildAiGenerationEvents(rows: readonly UsageGenerationRollupRow[], installId: string): AiGenerationProperties[] {
+  return rows.filter(hasAnyTokens).map((row) => buildAiGenerationEvent(row, installId));
+}
+
 function nodeMajorVersion(nodeVersion: string): number {
   const major = Number.parseInt(nodeVersion.replace(/^v/, ''), 10);
   return Number.isFinite(major) ? major : 0;
@@ -289,8 +335,8 @@ function nodeMajorVersion(nodeVersion: string): number {
 
 export {
   FIRST_RUN_NOTICE, POSTHOG_PROJECT_TOKEN, TELEMETRY_BATCH_URL,
-  adapterBucket, buildBrowserExceptionProperties, buildExceptionProperties, classifySessionExit, decideTelemetryConsent,
-  exceptionFingerprint, nodeMajorVersion, parseBrowserStackFrames, parseV8StackFrames, resolveProjectToken, scrubLocalPath,
-  urlPathOnly,
+  adapterBucket, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties, classifySessionExit,
+  decideTelemetryConsent, exceptionFingerprint, nodeMajorVersion, parseBrowserStackFrames, parseV8StackFrames, resolveProjectToken,
+  scrubLocalPath, urlPathOnly,
 };
 export type { TelemetryConfig, TelemetryConsent, TelemetryEnvironment };

@@ -10,6 +10,7 @@ import type { UsageWiringOptions } from '../server/usage-wiring.ts';
 import { createReplayLog } from '../server/control-replay-core.ts';
 import { sendTelegramMessage } from '../server/telegram-transport.ts';
 import type { PassOutcome } from '../server/core/usage-scan-core.ts';
+import { waitFor } from './helpers/wait-for.ts';
 
 type ScannerFactory = NonNullable<UsageWiringOptions['createScanner']>;
 type Scanner = ReturnType<ScannerFactory>;
@@ -22,7 +23,11 @@ const BUDGET_BLOCK = {
   rows: [{ scope: 'daily' as const, spentUsd: 12.4, budgetUsd: 16, pct: 77.5, tone: 'warn' as const }],
 };
 
-function fakeScanner({ outcome = 'complete', spend }: { outcome?: PassOutcome; spend: () => BudgetSpend }): Scanner {
+type GenerationRollup = Awaited<ReturnType<Scanner['runPass']>>['generationRollup'];
+
+function fakeScanner(
+  { outcome = 'complete', spend, generationRollup = [] }: { outcome?: PassOutcome; spend: () => BudgetSpend; generationRollup?: GenerationRollup },
+): Scanner {
   const isByteLimited = outcome === 'byte-limited';
   return {
     runPass: async (args?: { force?: boolean }) => ({
@@ -34,6 +39,7 @@ function fakeScanner({ outcome = 'complete', spend }: { outcome?: PassOutcome; s
       ioFailures: outcome === 'io-failed' ? 1 : 0,
       storeReset: args?.force === true,
       durationMs: 0,
+      generationRollup,
     }),
     sessionTotals: () => new Map(),
     stats: () => ({ dirs: [], files: 0, entries: 0, lastScanMs: 0, resolutionError: null }),
@@ -626,4 +632,78 @@ test('usage-budget-alert is not retained by the control replay log', () => {
   log.stamp({ type: 'notify', session: 's', category: 'complete' }, 1000);
   const replayed = log.entriesSince(0, 1000).entries.map((frame) => frame.type);
   assert.deepEqual(replayed, ['notify'], 'a moment is not replayed; a state is');
+});
+
+test('each pass hands its generation rollup to telemetry', async () => {
+  const generationRollup: GenerationRollup = [{
+    sessionId: 'session-a', model: 'claude-sonnet-4', vendor: 'claude',
+    input: 10, output: 2, cacheRead: 0, cacheCreate: 0, costUSD: 0.1, hasKnownCost: true, isModelKnown: true,
+  }];
+  const capturedRollups: GenerationRollup[] = [];
+  const wiring = createUsageWiring({
+    config: { usage: {} },
+    controlClientCount: () => 1,
+    createScanner: () => fakeScanner({
+      spend: () => ({ todayKey: TODAY, monthKey: MONTH, todayUsd: 0, monthUsd: 0 }),
+      generationRollup,
+    }),
+    loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
+    nowFn: () => 1,
+    setIntervalFn: inertInterval,
+    clearIntervalFn: (handle) => clearTimeout(handle),
+    logger: { warn: () => {}, log: () => {} },
+    telemetry: { captureAiGenerations: async (rows) => { capturedRollups.push([...rows]); } },
+  });
+  await wiring.start();
+  await wiring.stop();
+  assert.deepEqual(capturedRollups, [generationRollup]);
+});
+
+test('concurrent callers sharing one scan pass hand its generation rollup to telemetry once', async () => {
+  const generationRollup: GenerationRollup = [{
+    sessionId: 'session-a', model: 'claude-sonnet-4', vendor: 'claude',
+    input: 10, output: 2, cacheRead: 0, cacheCreate: 0, costUSD: 0.1, hasKnownCost: true, isModelKnown: true,
+  }];
+  const singlePassScanner = fakeScanner({
+    spend: () => ({ todayKey: TODAY, monthKey: MONTH, todayUsd: 0, monthUsd: 0 }),
+    generationRollup,
+  });
+  type SharedPass = ReturnType<Scanner['runPass']>;
+  let activePass: SharedPass | null = null;
+  let releaseActivePass: () => void = () => {};
+  const sharingScanner: Scanner = {
+    ...singlePassScanner,
+    runPass: (args) => {
+      if (activePass) return activePass;
+      const released = new Promise<void>((resolve) => { releaseActivePass = resolve; });
+      const pass: SharedPass = released.then(() => singlePassScanner.runPass(args)).finally(() => { activePass = null; });
+      activePass = pass;
+      return pass;
+    },
+  };
+  const capturedRollups: GenerationRollup[] = [];
+  const wiring = createUsageWiring({
+    config: { usage: {} },
+    controlClientCount: () => 1,
+    createScanner: () => sharingScanner,
+    loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
+    nowFn: () => 1,
+    setIntervalFn: inertInterval,
+    clearIntervalFn: (handle) => clearTimeout(handle),
+    logger: { warn: () => {}, log: () => {} },
+    telemetry: { captureAiGenerations: async (rows) => { capturedRollups.push([...rows]); } },
+  });
+  const started = wiring.start();
+  await waitFor(() => activePass !== null);
+  releaseActivePass();
+  await started;
+  capturedRollups.length = 0;
+
+  const firstReport = wiring.requestReport({ force: true });
+  const secondReport = wiring.requestReport({ force: true });
+  await waitFor(() => activePass !== null);
+  releaseActivePass();
+  await Promise.all([firstReport, secondReport]);
+  await wiring.stop();
+  assert.deepEqual(capturedRollups, [generationRollup]);
 });

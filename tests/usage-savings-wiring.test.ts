@@ -16,6 +16,7 @@ const COMPLETE_PASS: Awaited<ReturnType<UsageScannerApi['runPass']>> = {
   ioFailures: 0,
   storeReset: false,
   durationMs: 0,
+  generationRollup: [],
 };
 
 const RTK_JSON = JSON.stringify({

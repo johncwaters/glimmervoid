@@ -760,6 +760,173 @@ test('budgetSpend shares the report rollups when retainDays already covers the m
   assert.equal(spend.monthUsd > 0, true);
 });
 
+test('the first pass and a store reset pass report no generation rollup so history never replays', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  await writeLines(path.join(projectsDir, 'C--repo', 'session-a.jsonl'), [
+    usageLine({ messageId: 'message-a', requestId: 'request-a', input: 10, output: 2 }),
+  ]);
+  const scanner = makeScanner(root);
+
+  const first = await scanner.runPass();
+  assert.equal(first.newEntries, 1);
+  assert.deepEqual(first.generationRollup, []);
+
+  const reset = await scanner.runPass({ force: true });
+  assert.equal(reset.storeReset, true);
+  assert.equal(reset.newEntries, 1);
+  assert.deepEqual(reset.generationRollup, []);
+});
+
+test('a byte limited catch up pass keeps the generation rollup off until history is read', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  const transcript = path.join(projectsDir, 'C--repo', 'session-a.jsonl');
+  const firstLine = usageLine({ messageId: 'message-a', requestId: 'request-a', input: 10 });
+  await writeLines(transcript, [firstLine, usageLine({ messageId: 'message-b', requestId: 'request-b', input: 20 })]);
+  const scanner = makeScanner(root, { byteBudget: firstLine.length + 1 });
+
+  const partialPass = await scanner.runPass();
+  assert.equal(partialPass.partial, true);
+  const catchUpPass = await scanner.runPass();
+  assert.equal(catchUpPass.newEntries, 1);
+  assert.deepEqual(catchUpPass.generationRollup, []);
+});
+
+test('a file that failed to read during catch up never replays its history into the generation rollup', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  const readable = path.join(projectsDir, 'C--repo', 'session-a.jsonl');
+  const flakyFile = path.join(projectsDir, 'C--repo', 'session-b.jsonl');
+  await writeLines(readable, [usageLine({ messageId: 'message-a', requestId: 'request-a', input: 10, sessionId: 'session-a' })]);
+  await writeLines(flakyFile, [usageLine({ messageId: 'history-b', requestId: 'history-b', input: 20, sessionId: 'session-b' })]);
+  let isFlakyFileDenied = true;
+  const injectedFs = {
+    ...fs,
+    open: async (file: string, flags: string) => {
+      if (isFlakyFileDenied && file === flakyFile) throw new Error('denied');
+      return fs.open(file, flags);
+    },
+  };
+  const scanner = makeScanner(root, { fsPromises: injectedFs });
+
+  const failedPass = await scanner.runPass();
+  assert.equal(failedPass.outcome, 'io-failed');
+  isFlakyFileDenied = false;
+  const recoveredPass = await scanner.runPass();
+  assert.equal(recoveredPass.outcome, 'complete');
+  assert.equal(recoveredPass.newEntries, 1);
+  assert.deepEqual(recoveredPass.generationRollup, []);
+});
+
+test('a later pass sums new entries per session and model into the generation rollup', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  const sessionAFile = path.join(projectsDir, 'C--repo', 'session-a.jsonl');
+  const sessionBFile = path.join(projectsDir, 'C--repo', 'session-b.jsonl');
+  await writeLines(sessionAFile, [usageLine({ messageId: 'history-a', requestId: 'history-a', input: 1000, sessionId: 'session-a' })]);
+  const scanner = makeScanner(root);
+  await scanner.runPass();
+
+  await fs.appendFile(sessionAFile, `${[
+    usageLine({ messageId: 'message-a1', requestId: 'request-a1', input: 10, output: 1, sessionId: 'session-a' }),
+    usageLine({ messageId: 'message-a2', requestId: 'request-a2', input: 20, output: 2, sessionId: 'session-a' }),
+    usageLine({ messageId: 'message-a3', requestId: 'request-a3', input: 5, output: 5, sessionId: 'session-a', model: 'claude-opus-4-1' }),
+  ].join('\n')}\n`);
+  await writeLines(sessionBFile, [
+    usageLine({ messageId: 'message-b1', requestId: 'request-b1', input: 7, output: 3, sessionId: 'session-b' }),
+  ]);
+  const later = await scanner.runPass();
+
+  const rowsByKey = new Map(later.generationRollup.map((row) => [`${row.sessionId}|${row.model}`, row]));
+  assert.equal(rowsByKey.size, 3);
+  const sessionASonnet = rowsByKey.get('session-a|claude-sonnet-4-20250514');
+  assert.equal(sessionASonnet?.input, 30);
+  assert.equal(sessionASonnet?.output, 3);
+  assert.equal(sessionASonnet?.vendor, 'claude');
+  assert.equal(sessionASonnet?.hasKnownCost, true);
+  assert.equal(sessionASonnet?.costUSD, 30 * 1 + 3 * 2);
+  assert.equal(rowsByKey.get('session-a|unknown')?.input, 5);
+  assert.equal(rowsByKey.get('session-a|unknown')?.hasKnownCost, false);
+  assert.equal(rowsByKey.get('session-a|unknown')?.isModelKnown, false);
+  assert.equal(rowsByKey.get('session-b|claude-sonnet-4-20250514')?.output, 3);
+
+  const quiet = await scanner.runPass();
+  assert.deepEqual(quiet.generationRollup, []);
+});
+
+test('a file at a new path after a complete pass reports only its entries from the last 24 hours into the generation rollup', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  await writeLines(path.join(projectsDir, 'C--repo', 'session-a.jsonl'), [
+    usageLine({ messageId: 'history-a', requestId: 'history-a', input: 1000, sessionId: 'session-a' }),
+  ]);
+  const scanner = makeScanner(root);
+  const completePass = await scanner.runPass();
+  assert.equal(completePass.outcome, 'complete');
+
+  await writeLines(path.join(projectsDir, 'C--repo', 'archived', 'session-b.jsonl'), [
+    usageLine({ messageId: 'old-b1', requestId: 'old-b1', input: 400, sessionId: 'session-b', timestamp: '2026-08-17T10:00:00.000Z' }),
+    usageLine({ messageId: 'old-b2', requestId: 'old-b2', input: 300, sessionId: 'session-b', timestamp: '2026-08-18T11:59:00.000Z' }),
+  ]);
+  const oldOnlyPass = await scanner.runPass();
+  assert.equal(oldOnlyPass.newEntries, 2);
+  assert.deepEqual(oldOnlyPass.generationRollup, []);
+
+  await writeLines(path.join(projectsDir, 'C--repo', 'archived', 'session-c.jsonl'), [
+    usageLine({ messageId: 'old-c1', requestId: 'old-c1', input: 500, sessionId: 'session-c', timestamp: '2026-08-16T10:00:00.000Z' }),
+    usageLine({ messageId: 'recent-c1', requestId: 'recent-c1', input: 7, sessionId: 'session-c', timestamp: '2026-08-19T09:00:00.000Z' }),
+  ]);
+  const mixedPass = await scanner.runPass();
+  assert.equal(mixedPass.newEntries, 2);
+  assert.equal(mixedPass.generationRollup.length, 1);
+  assert.equal(mixedPass.generationRollup[0]?.sessionId, 'session-c');
+  assert.equal(mixedPass.generationRollup[0]?.input, 7);
+});
+
+test('a message rewritten with more tokens in a later pass reports only the growth so totals match the local report', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  const transcript = path.join(projectsDir, 'C--repo', 'session-a.jsonl');
+  await writeLines(transcript, [usageLine({ messageId: 'history-a', requestId: 'history-a', input: 1000 })]);
+  const scanner = makeScanner(root);
+  await scanner.runPass();
+
+  await fs.appendFile(transcript, `${usageLine({ messageId: 'message-a', requestId: 'request-a', input: 10, output: 1 })}\n`);
+  const streamingPass = await scanner.runPass();
+  await fs.appendFile(transcript, `${usageLine({ messageId: 'message-a', requestId: 'request-a', input: 10, output: 500 })}\n`);
+  const finalPass = await scanner.runPass();
+
+  const reportedRows = [...streamingPass.generationRollup, ...finalPass.generationRollup];
+  assert.equal(reportedRows.reduce((total, row) => total + row.output, 0), 500);
+  assert.equal(reportedRows.reduce((total, row) => total + row.input, 0), 10);
+  assert.equal(reportedRows.reduce((total, row) => total + row.costUSD, 0), 10 * 1 + 500 * 2);
+});
+
+test('gateway model aliases and inference profile arns reach the generation rollup only as a pricing table name or unknown', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  const transcript = path.join(projectsDir, 'C--repo', 'session-a.jsonl');
+  await writeLines(transcript, [usageLine({ messageId: 'history-a', requestId: 'history-a', input: 1000 })]);
+  const scanner = makeScanner(root);
+  await scanner.runPass();
+
+  await fs.appendFile(transcript, `${[
+    usageLine({ messageId: 'message-a1', requestId: 'request-a1', input: 10, model: 'arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123' }),
+    usageLine({ messageId: 'message-a2', requestId: 'request-a2', input: 20, model: 'corp-gateway-default' }),
+    usageLine({ messageId: 'message-a3', requestId: 'request-a3', input: 30, model: 'arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-sonnet-4-20250514-v1:0' }),
+  ].join('\n')}\n`);
+  const later = await scanner.runPass();
+
+  const rowsByModel = new Map(later.generationRollup.map((row) => [row.model, row]));
+  assert.deepEqual([...rowsByModel.keys()].sort(), ['claude-sonnet-4-20250514', 'unknown']);
+  assert.equal(rowsByModel.get('unknown')?.input, 30);
+  assert.equal(rowsByModel.get('claude-sonnet-4-20250514')?.input, 30);
+  assert.equal(rowsByModel.get('claude-sonnet-4-20250514')?.isModelKnown, true);
+  assert.equal(JSON.stringify(later.generationRollup).includes('123456789012'), false);
+  assert.equal(JSON.stringify(later.generationRollup).includes('corp-gateway'), false);
+});
+
 function makeScanner(root: string, overrides: UsageScannerOptions = {}): Scanner {
   return createUsageScanner({
     env: { HOME: root },

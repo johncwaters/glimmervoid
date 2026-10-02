@@ -5,10 +5,11 @@ import type { ClientErrorReport } from '../shared/contracts/control-messages.ts'
 import { PendingCrashReport, TELEMETRY_EVENT_SCHEMAS, TelemetryState } from '../shared/contracts/telemetry.ts';
 import type { ExceptionProperties, TelemetryEventName, TelemetryEventProperties } from '../shared/contracts/telemetry.ts';
 import {
-  TELEMETRY_BATCH_URL, buildBrowserExceptionProperties, buildExceptionProperties, decideTelemetryConsent,
+  TELEMETRY_BATCH_URL, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties, decideTelemetryConsent,
   exceptionFingerprint, nodeMajorVersion, resolveProjectToken,
 } from './core/telemetry-core.ts';
 import type { TelemetryConfig, TelemetryEnvironment } from './core/telemetry-core.ts';
+import type { UsageGenerationRollupRow } from './core/usage-entry-core.ts';
 import { createJsonStateStore, writeJsonAtomicSync } from './json-file.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
@@ -57,6 +58,7 @@ interface Telemetry {
   recordFatalCrash(error: unknown): void;
   watchForCrashes(source?: CrashEventSource): void;
   sendPendingCrash(): Promise<void>;
+  captureAiGenerations(rows: readonly UsageGenerationRollupRow[]): Promise<void>;
   flush(): Promise<void>;
   stop(): Promise<void>;
   consumeFirstRunNotice(): Promise<boolean>;
@@ -224,6 +226,12 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     }
   }
 
+  async function captureAiGenerations(rows: readonly UsageGenerationRollupRow[]): Promise<void> {
+    if (rows.length === 0 || !isEnabled()) return;
+    const { installId } = await ensureInstallState();
+    for (const properties of buildAiGenerationEvents(rows, installId)) capture('$ai_generation', properties);
+  }
+
   async function send(batch: QueuedEvent[], timeoutMs: number): Promise<boolean> {
     try {
       const { installId } = await ensureInstallState();
@@ -298,7 +306,7 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
   }
 
   return {
-    capture, captureException, captureClientError, recordFatalCrash, watchForCrashes, sendPendingCrash,
+    capture, captureException, captureClientError, captureAiGenerations, recordFatalCrash, watchForCrashes, sendPendingCrash,
     flush, stop, consumeFirstRunNotice, applyConfig, isEnabled,
   };
 }
