@@ -1559,6 +1559,7 @@ test('approve posts an APPROVE review pinned to the reviewed head and marks the 
     repo: 'Acme/app', number: 7, commitId: HEAD, event: 'APPROVE', body: 'Ship it', comments: [COMMENT_ON_ADDED_LINE],
   }]);
   assert.equal(h.currentDraft().status, 'posted');
+  assert.equal(h.currentDraft().postedEvent, 'APPROVE');
   assert.equal(h.currentDraft().body, 'Ship it');
   assert.deepEqual(h.currentDraft().comments, [COMMENT_ON_ADDED_LINE]);
   assert.deepEqual(h.dismissed, []);
@@ -1569,6 +1570,55 @@ test('comment posts a COMMENT review without re-reading the head afterwards', as
   assert.equal((await h.submit({ action: 'comment', body: 'A few notes' })).ok, true);
   assert.equal(h.posted[0]?.event, 'COMMENT');
   assert.equal(h.headLookups.length, 1);
+});
+
+test('approve after a posted comment review posts a bare APPROVE and keeps the posted comments', async () => {
+  const h = actionHarness({ headReads: [HEAD, HEAD, HEAD] });
+  assert.equal((await h.submit({ action: 'comment', body: 'Nits inline', comments: [COMMENT_ON_ADDED_LINE] })).ok, true);
+  assert.equal(h.currentDraft().postedEvent, 'COMMENT');
+  assert.deepEqual(await h.submit({ action: 'approve', body: '', comments: [] }), { ok: true });
+  assert.deepEqual(h.posted.map((review) => [review.event, review.body, review.comments.length]), [['COMMENT', 'Nits inline', 1], ['APPROVE', '', 0]]);
+  assert.equal(h.currentDraft().status, 'posted');
+  assert.equal(h.currentDraft().postedEvent, 'APPROVE');
+  assert.equal(h.currentDraft().body, 'Nits inline');
+  assert.deepEqual(h.currentDraft().comments, [COMMENT_ON_ADDED_LINE]);
+});
+
+test('a follow-up approval refuses to repost inline comments and a posted approval refuses another', async () => {
+  const h = actionHarness({ draft: { status: 'posted', postedEvent: 'COMMENT' } });
+  const withComments = await h.submit({ action: 'approve', body: '', comments: [COMMENT_ON_ADDED_LINE] });
+  assert.equal(withComments.ok, false);
+  assert.match(String(withComments.error), /already posted/);
+  assert.equal((await h.submit({ action: 'comment', body: 'More', comments: [] })).ok, false);
+  h.replaceDraft(actionDraft({ status: 'posted', postedEvent: 'APPROVE' }));
+  assert.equal((await h.submit({ action: 'approve', body: '', comments: [] })).ok, false);
+  assert.deepEqual(h.posted, []);
+  assert.deepEqual(h.headLookups, []);
+});
+
+test('a follow-up approval whose live head moved refuses without posting and the draft stays posted', async () => {
+  const h = actionHarness({ draft: { status: 'posted', postedEvent: 'COMMENT' }, headReads: [OTHER_HEAD] });
+  const outcome = await h.submit({ action: 'approve', body: '', comments: [] });
+  assert.equal(outcome.ok, false);
+  assert.match(String(outcome.error), /after the comments were posted, so nothing was approved/);
+  assert.deepEqual(h.posted, []);
+  assert.deepEqual(h.patches, []);
+  assert.equal(h.currentDraft().status, 'posted');
+  assert.equal(h.currentDraft().postedEvent, 'COMMENT');
+});
+
+test('a follow-up approval whose head moved during the post is dismissed and the draft stays posted', async () => {
+  const h = actionHarness({ draft: { status: 'posted', postedEvent: 'COMMENT' }, headReads: [HEAD, OTHER_HEAD] });
+  const outcome = await h.submit({ action: 'approve', body: '', comments: [] });
+  assert.equal(outcome.ok, false);
+  assert.match(String(outcome.error), /approval was dismissed/);
+  assert.match(String(outcome.error), /Queue a review|queue a review/);
+  assert.doesNotMatch(String(outcome.error), /reviewed again/);
+  assert.equal(h.posted.length, 1);
+  assert.equal(h.dismissed[0]?.reviewId, 99);
+  assert.deepEqual(h.patches, []);
+  assert.equal(h.currentDraft().status, 'posted');
+  assert.equal(h.currentDraft().postedEvent, 'COMMENT');
 });
 
 test('a clicked head that differs from the draft head is refused before GitHub is asked anything', async () => {

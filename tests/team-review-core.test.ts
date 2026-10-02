@@ -202,7 +202,21 @@ test('posting requires a ready draft at the current head', () => {
     { status: 'discarded' as const, head: HEAD, expected: false },
     { status: 'error' as const, head: HEAD, expected: false },
   ];
-  for (const item of cases) assert.equal(canPost({ ...draft, status: item.status }, HEAD, item.head), item.expected);
+  for (const item of cases) assert.equal(canPost({ ...draft, status: item.status }, HEAD, item.head, 'APPROVE'), item.expected);
+});
+
+test('a posted comment review accepts only a follow-up approval at the same head', () => {
+  const draft = ReviewDraft.parse({
+    key: 'PostHog/wizard#1350', repo: 'PostHog/wizard', number: 1350,
+    title: 'PR 1350', url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate',
+    tier: 'full', reasons: ['252 counted lines over 200'], reviewedHead: HEAD,
+    verdict: 'APPROVE WITH NITS', summary: 'Looks good', body: 'A review', comments: [], status: 'posted', postedEvent: 'COMMENT',
+  });
+  assert.equal(canPost(draft, HEAD, HEAD, 'APPROVE'), true);
+  assert.equal(canPost(draft, HEAD, HEAD, 'COMMENT'), false);
+  assert.equal(canPost(draft, HEAD, 'b'.repeat(40), 'APPROVE'), false);
+  assert.equal(canPost({ ...draft, postedEvent: 'APPROVE' }, HEAD, HEAD, 'APPROVE'), false);
+  assert.equal(canPost({ ...draft, postedEvent: undefined }, HEAD, HEAD, 'APPROVE'), false);
 });
 
 test('posting refuses a replaced draft the operator never saw', () => {
@@ -214,8 +228,8 @@ test('posting refuses a replaced draft the operator never saw', () => {
     tier: 'full', reasons: ['252 counted lines over 200'], reviewedHead: pushedHead,
     verdict: 'APPROVE WITH NITS', summary: 'Looks good', body: 'A review', comments: [], status: 'ready',
   });
-  assert.equal(canPost(replacedDraft, seenHead, pushedHead), false);
-  assert.equal(canPost(replacedDraft, pushedHead, pushedHead), true);
+  assert.equal(canPost(replacedDraft, seenHead, pushedHead, 'APPROVE'), false);
+  assert.equal(canPost(replacedDraft, pushedHead, pushedHead, 'APPROVE'), true);
 });
 
 test('action events map only postable actions', () => {
@@ -416,7 +430,7 @@ test('an error draft is a valid draft that can never be posted', () => {
   const draft = errorDraft({ candidate: CANDIDATE, tier: 'full', reasons: ['touches auth.ts'], reviewedHead: HEAD, error: 'timed out' });
   assert.equal(ReviewDraft.safeParse(draft).success, true);
   assert.equal(draft.status, 'error');
-  assert.equal(canPost(draft, HEAD, HEAD), false);
+  assert.equal(canPost(draft, HEAD, HEAD, 'APPROVE'), false);
   assert.equal(ReviewDraft.safeParse(readyDraftAt(HEAD)).success, true);
 });
 

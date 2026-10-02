@@ -1,4 +1,4 @@
-import { TeamReviewStatus } from '#shared/contracts/team-review.ts';
+import { canApproveAfterComment, TeamReviewStatus } from '#shared/contracts/team-review.ts';
 import type { DraftComment, FindingSeverity, InFlightReview, QueuedReview, ReviewComment, ReviewDraft, TeamReviewAction, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
 import { withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import { createAttentionAck } from './attention-ack-core.ts';
@@ -31,8 +31,11 @@ interface ActionDetailHandle {
 interface PendingAction {
   requestId: string;
   action: TeamReviewAction;
+  origin: DetailOrigin;
   timer: number;
 }
+
+type DetailOrigin = 'ready' | 'other';
 
 let _latest: TeamReviewStatusType | null = null;
 let _root: HTMLDivElement | null = null;
@@ -47,7 +50,7 @@ const _progressTicker = createPollAgoTicker(() => _root);
 const _ageTicker = createPollAgoTicker(() => _root);
 const _queueRowTitles = new WeakMap<HTMLElement, () => string>();
 const _readyDetails = new Map<string, ActionDetailHandle>();
-const _requeueDetails = new Map<string, ActionDetailHandle>();
+const _otherDetails = new Map<string, ActionDetailHandle>();
 const _pendingActions = new Map<string, PendingAction>();
 const _attention = createAttentionAck({
   getAck: getPrsAttentionAck,
@@ -299,8 +302,8 @@ function refreshDetailHeading(detail: HTMLElement, draft: ReviewDraft): HTMLElem
   return detail;
 }
 
-function requeueDetailSignature(draft: ReviewDraft): string {
-  return `${draft.status}:${draft.reviewedHead}:${draft.error ?? ''}`;
+function otherDetailSignature(draft: ReviewDraft): string {
+  return `${draft.status}:${draft.reviewedHead}:${draft.error ?? ''}:${draft.postedEvent ?? ''}`;
 }
 
 function appendSegments(element: HTMLElement, segments: ReturnType<typeof parseInlineSegments>): HTMLElement {
@@ -416,14 +419,11 @@ function createInlineComment(comment: DraftComment, index: number, includedIndex
   return card;
 }
 
-const ACTION_BUTTONS: readonly { label: string; action: TeamReviewAction }[] = [
-  { label: 'Approve', action: 'approve' },
-  { label: 'Comment', action: 'comment' },
-  { label: 'Discard', action: 'discard' },
-  { label: 'Queue review', action: 'requeue' },
-];
+const ACTION_LABELS: Readonly<Record<TeamReviewAction, string>> = { approve: 'Approve', comment: 'Comment', discard: 'Discard', requeue: 'Queue review' };
+const READY_ACTIONS: readonly TeamReviewAction[] = ['approve', 'comment', 'discard', 'requeue'];
+const FOLLOW_UP_APPROVAL_HINT = 'Your comments are on GitHub. Approve adds an approval without posting them again.';
 
-function sendAction(draft: ReviewDraft, action: TeamReviewAction, body: string, comments: ReviewComment[], settle: (isDone: boolean, text: string) => void): boolean {
+function sendAction(origin: DetailOrigin, draft: ReviewDraft, action: TeamReviewAction, body: string, comments: ReviewComment[], settle: (isDone: boolean, text: string) => void): boolean {
   const requestId = `team-review-action-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const isSent = sendControlMsg({ type: 'team-review-action', requestId, ...buildActionRequest(draft, action, body, comments) });
   if (!isSent) return false;
@@ -431,7 +431,7 @@ function sendAction(draft: ReviewDraft, action: TeamReviewAction, body: string, 
     _pendingActions.delete(draft.key);
     settle(false, 'No reply from the server. Check GitHub before trying again.');
   }, ACTION_REPLY_TIMEOUT_MS);
-  _pendingActions.set(draft.key, { requestId, action, timer });
+  _pendingActions.set(draft.key, { requestId, action, origin, timer });
   return true;
 }
 
@@ -491,8 +491,8 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     status.dataset.tone = isDone ? 'ok' : 'error';
     status.textContent = text;
   };
-  for (const { label, action } of ACTION_BUTTONS) {
-    const button = el('button', 'pr-action', label);
+  for (const action of READY_ACTIONS) {
+    const button = el('button', 'pr-action', ACTION_LABELS[action]);
     button.type = 'button';
     button.dataset.action = action;
     button.addEventListener('click', () => {
@@ -501,7 +501,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
       status.dataset.tone = 'busy';
       status.textContent = actionProgressText(action);
       const comments = draft.comments.filter((_comment, index) => includedIndexes.has(index));
-      if (sendAction(draft, action, withReviewerNote(noteInput.value, bodyInput.value), comments, settle)) return;
+      if (sendAction('ready', draft, action, withReviewerNote(noteInput.value, bodyInput.value), comments, settle)) return;
       settle(false, 'Not connected to the server.');
     });
     buttons.push(button);
@@ -571,35 +571,41 @@ function createOtherDetail(draft: ReviewDraft): HTMLElement {
   if (draft.status !== 'posted') detail.append(el('p', 'pr-attention-detail', attentionDetail(draft)));
   if (!hasRequeueFooter(draft.status)) return detail;
   const footer = el('footer', 'pr-footer');
-  const button = el('button', 'pr-action', 'Queue review');
-  button.type = 'button';
-  button.dataset.action = 'requeue';
-  const status = el('span', 'pr-action-status');
+  const isApprovable = canApproveAfterComment(draft);
+  const status = el('span', 'pr-action-status', isApprovable ? FOLLOW_UP_APPROVAL_HINT : '');
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
+  const actions: readonly TeamReviewAction[] = isApprovable ? ['approve', 'requeue'] : ['requeue'];
+  const buttons: HTMLButtonElement[] = [];
   const settle = (isDone: boolean, message: string) => {
-    button.disabled = isDone;
+    for (const button of buttons) button.disabled = isDone;
     status.dataset.tone = isDone ? 'ok' : 'error';
     status.textContent = message;
   };
-  button.addEventListener('click', () => {
-    if (_pendingActions.has(draft.key)) return;
-    button.disabled = true;
-    status.dataset.tone = 'busy';
-    status.textContent = actionProgressText('requeue');
-    if (sendAction(draft, 'requeue', '', [], settle)) return;
-    settle(false, 'Not connected to the server.');
-  });
-  footer.append(button, status);
+  for (const action of actions) {
+    const button = el('button', 'pr-action', ACTION_LABELS[action]);
+    button.type = 'button';
+    button.dataset.action = action;
+    button.addEventListener('click', () => {
+      if (_pendingActions.has(draft.key)) return;
+      for (const other of buttons) other.disabled = true;
+      status.dataset.tone = 'busy';
+      status.textContent = actionProgressText(action);
+      if (sendAction('other', draft, action, '', [], settle)) return;
+      settle(false, 'Not connected to the server.');
+    });
+    buttons.push(button);
+  }
+  footer.append(...buttons, status);
   detail.append(footer);
-  _requeueDetails.set(draft.key, { signature: requeueDetailSignature(draft), element: detail, settle });
+  _otherDetails.set(draft.key, { signature: otherDetailSignature(draft), element: detail, settle });
   return detail;
 }
 
 function otherDetailFor(draft: ReviewDraft): HTMLElement {
   if (!hasRequeueFooter(draft.status)) return createOtherDetail(draft);
-  const cached = _requeueDetails.get(draft.key);
-  if (cached && (_pendingActions.has(draft.key) || cached.signature === requeueDetailSignature(draft))) return refreshDetailHeading(cached.element, draft);
+  const cached = _otherDetails.get(draft.key);
+  if (cached && (_pendingActions.has(draft.key) || cached.signature === otherDetailSignature(draft))) return refreshDetailHeading(cached.element, draft);
   return createOtherDetail(draft);
 }
 
@@ -647,9 +653,9 @@ function forgetDepartedDetails(readyKeys: Set<string>): void {
     _readyDetails.delete(key);
   }
   const requeueKeys = new Set(_latest?.drafts.filter((draft) => hasRequeueFooter(draft.status)).map((draft) => draft.key) ?? []);
-  for (const key of _requeueDetails.keys()) {
+  for (const key of _otherDetails.keys()) {
     if (requeueKeys.has(key) || _pendingActions.has(key)) continue;
-    _requeueDetails.delete(key);
+    _otherDetails.delete(key);
   }
 }
 
@@ -784,10 +790,11 @@ export function applyTeamReviewActionResult(message: unknown): void {
   if (!pending || pending.requestId !== actionResult.requestId) return;
   window.clearTimeout(pending.timer);
   _pendingActions.delete(actionResult.key);
-  const handle = (pending.action === 'requeue' ? _requeueDetails.get(actionResult.key) : undefined) ?? _readyDetails.get(actionResult.key);
+  const owningCache = pending.origin === 'ready' ? _readyDetails : _otherDetails;
+  const handle = owningCache.get(actionResult.key);
   if (!handle) return;
   if (actionResult.ok === true) {
-    if (pending.action === 'requeue') _requeueDetails.delete(actionResult.key);
+    if (pending.origin === 'other') _otherDetails.delete(actionResult.key);
     handle.settle(true, typeof actionResult.warning === 'string' && actionResult.warning ? `${actionOutcomeText(pending.action)}. ${actionResult.warning}` : actionOutcomeText(pending.action));
     return;
   }

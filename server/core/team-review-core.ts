@@ -1,7 +1,7 @@
-import { DECIDING_REVIEW_STATES, FindingSeverity, GithubReviewState, PostingPlan, ReviewFinding, ReviewResult, ReviewVerdict } from '../../shared/contracts/team-review.ts';
+import { canApproveAfterComment, DECIDING_REVIEW_STATES, FindingSeverity, GithubReviewState, PostingPlan, ReviewFinding, ReviewResult, ReviewVerdict } from '../../shared/contracts/team-review.ts';
 import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, findingSeveritiesIn, withoutAutomatedNote } from '../../shared/team-review-markdown.ts';
 import type {
-  DraftComment, FindingSeverity as FindingSeverityType, GithubReview, InFlightReview, PostingPlan as PostingPlanType, PrDetail, PriorReview, QueuedReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
+  DraftComment, FindingSeverity as FindingSeverityType, GithubReview, InFlightReview, PostedReviewEvent, PostingPlan as PostingPlanType, PrDetail, PriorReview, QueuedReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
   ReviewAssessment, ReviewResult as ReviewResultType, SearchedPr, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../../shared/contracts/team-review.ts';
 
@@ -175,11 +175,16 @@ function triagePr(detail: PrDetail): { tier: 'skip' | 'stamp' | 'full'; reasons:
   return { tier: 'stamp', reasons: [`${countedLines} counted lines in ${countedFiles.length} files`] };
 }
 
-function canPost(draft: ReviewDraft, clickedHead: string, currentHead: string): boolean {
-  return draft.status === 'ready' && draft.reviewedHead === clickedHead && draft.reviewedHead === currentHead;
+function isPostableStatus(draft: ReviewDraft, event: PostedReviewEvent): boolean {
+  if (draft.status === 'ready') return true;
+  return event === 'APPROVE' && canApproveAfterComment(draft);
 }
 
-function eventForAction(action: string): 'APPROVE' | 'COMMENT' | null {
+function canPost(draft: ReviewDraft, clickedHead: string, currentHead: string, event: PostedReviewEvent): boolean {
+  return isPostableStatus(draft, event) && draft.reviewedHead === clickedHead && draft.reviewedHead === currentHead;
+}
+
+function eventForAction(action: string): PostedReviewEvent | null {
   if (action === 'approve') return 'APPROVE';
   if (action === 'comment') return 'COMMENT';
   return null;
@@ -819,7 +824,7 @@ export {
   REVIEW_TIMEOUT_SECONDS, RESUME_TTL_MS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS,
   TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME,
   REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE,
-  buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, hasViewerReviewedAt, invalidComments, isSameGithubReviews, isSettledAtHead, shouldAutoReview, markDraftStale, restoreDraftAtReviewedHead,
+  buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, isPostableStatus, hasViewerReviewedAt, invalidComments, isSameGithubReviews, isSettledAtHead, shouldAutoReview, markDraftStale, restoreDraftAtReviewedHead,
   applyReviewProgress, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, priorReviewFor, readyDraft, repoFromSearchItem, resumeDecision, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr,
 };
 export type { CommentableFileLines, CommentableLines, ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSettings, TeamReviewSettingsSource };

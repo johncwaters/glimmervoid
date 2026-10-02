@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { CommitSha, PrDetail, ReviewComment, SearchedPr } from '../shared/contracts/team-review.ts';
 import { MyPrSearchNode, MyPrSearchResponse, MyPrThreadNode, MyPrThreadsResponse } from '../shared/contracts/my-prs.ts';
 import type { MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode as MyPrThreadNodeType } from '../shared/contracts/my-prs.ts';
-import type { PrDetail as PrDetailType, ReviewComment as ReviewCommentType, SearchedPr as SearchedPrType, TeamReviewStatus } from '../shared/contracts/team-review.ts';
+import type { PostedReviewEvent, PrDetail as PrDetailType, ReviewComment as ReviewCommentType, SearchedPr as SearchedPrType, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 
 
 interface CommandResult {
@@ -85,7 +85,7 @@ interface PrGh {
   prDiff(repo: string, number: number): Promise<string | null>;
   prHead(repo: string, number: number): Promise<string | null>;
   prReviewSnapshots(prs: readonly PrReference[]): Promise<Map<string, PrReviewSnapshot>>;
-  postReview(review: { repo: string; number: number; commitId: string; event: 'APPROVE' | 'COMMENT'; body: string; comments: ReviewCommentType[] }): Promise<PostedReview>;
+  postReview(review: { repo: string; number: number; commitId: string; event: PostedReviewEvent; body: string; comments: ReviewCommentType[] }): Promise<PostedReview>;
   dismissReview(dismissal: { repo: string; number: number; reviewId: number; message: string }): Promise<{ ok: boolean; err: string }>;
 }
 
