@@ -6,7 +6,6 @@ import { playAlertSound } from '../alert-sound.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el, isMonitoringState } from '../dom-helpers.ts';
 import { setHealthMonitorDebugMode } from '../health-monitor.ts';
-import { openPlanFeedbackDialog } from '../plan/plan-feedback-dialog.ts';
 import { createPlanFace, dropPlanBodyCache } from '../plan/plan-face.ts';
 import type { PlanResponse } from '../plan/plan-face.ts';
 import { createPlanHash } from '../plan/plan-link.ts';
@@ -288,12 +287,13 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     updateButtonVisibility(sessionUi);
     ensureTerminalReady(sessionUi, id);
   }
+  const abortController = new AbortController();
   const planFace = createPlanFace({
+    signal: abortController.signal,
     requestPlan: (requestedId, agentId, revision) => sendControlMsg({ type: 'session-plan', id: requestedId, agentId, revision }),
     requestDraft: (requestedId, agentId) => sendControlMsg({ type: 'session-plan', id: requestedId, agentId, draft: true }),
     showTerminal: showTerminalFace,
     sendDecision: (requestedId, request) => sendControlMsg({ type: 'plan-decision', id: requestedId, ...request }),
-    promptFeedback: openPlanFeedbackDialog,
     reportProblem: (message: string) => showErrorToast(`${dom.nameEl.textContent || id}: ${message}`),
   });
   sessionUi = {
@@ -325,7 +325,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     btnRemove: dom.btnRemove,
     debugOverlay: null,
     debugOpen: false,
-    abortController: new AbortController(),
+    abortController,
     currentState: state,
     face: 'terminal',
     isBorrowed: false,

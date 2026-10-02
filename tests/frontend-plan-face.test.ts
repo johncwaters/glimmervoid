@@ -182,11 +182,18 @@ test('a plan summary landing after the plan prompt re-runs the one borrowed face
   assert.match(lifecycleSource, /export function setSessionHasPlan[\s\S]*?showPlanFaceWhenPreferred\(sessionId\)/);
 });
 
+interface FaceEvent {
+  key: string;
+  shiftKey: boolean;
+  preventDefault: () => void;
+  stopPropagation: () => void;
+}
+
 class PlanFaceElement {
   children: PlanFaceElement[] = [];
   readonly dataset: Record<string, string> = {};
   readonly attributes: Record<string, string> = {};
-  private readonly listenersByType = new Map<string, (() => void)[]>();
+  private readonly listenersByType = new Map<string, ((event: FaceEvent) => void)[]>();
   className = '';
   textContent = '';
   hidden = false;
@@ -195,6 +202,10 @@ class PlanFaceElement {
   type = '';
   title = '';
   value = '';
+  checked = false;
+  maxLength = 0;
+  tabIndex = 0;
+  parentElement: PlanFaceElement | null = null;
   tagName: string;
 
   constructor(tagName: string) {
@@ -205,27 +216,78 @@ class PlanFaceElement {
     this.attributes[name] = value;
   }
 
-  addEventListener(type: string, listener: () => void) {
+  addEventListener(type: string, listener: (event: FaceEvent) => void) {
     const listeners = this.listenersByType.get(type) ?? [];
     listeners.push(listener);
     this.listenersByType.set(type, listeners);
   }
 
-  fire(type: string) {
-    for (const listener of this.listenersByType.get(type) ?? []) listener();
+  fire(type: string, overrides: Partial<FaceEvent> = {}) {
+    if (type === 'click' && this.disabled) return;
+    const event = { key: '', shiftKey: false, preventDefault: () => {}, stopPropagation: () => {}, ...overrides };
+    for (const listener of this.listenersByType.get(type) ?? []) listener(event);
+  }
+
+  click() {
+    this.fire('click');
+  }
+
+  focus() {
+    Object.defineProperty(document, 'activeElement', { configurable: true, value: this });
   }
 
   append(...nodes: PlanFaceElement[]) {
-    this.children.push(...nodes);
+    for (const node of nodes) {
+      node.remove();
+      node.parentElement = this;
+      this.children.push(node);
+    }
+  }
+
+  remove() {
+    if (!this.parentElement) return;
+    this.parentElement.children = this.parentElement.children.filter((child) => child !== this);
+    this.parentElement = null;
   }
 
   replaceChildren(...nodes: PlanFaceElement[]) {
-    this.children = [...nodes];
+    for (const child of this.children) child.parentElement = null;
+    this.children = [];
+    this.append(...nodes);
   }
 
-  querySelector() {
-    return null;
+  getAttribute(name: string) {
+    return this.attributes[name] ?? null;
   }
+
+  removeAttribute(name: string) {
+    delete this.attributes[name];
+  }
+
+  contains(node: unknown) {
+    return node instanceof PlanFaceElement && planFaceElements(this).includes(node);
+  }
+
+  getClientRects() {
+    return this.hidden ? [] : [{}];
+  }
+
+  querySelectorAll(selector: string): PlanFaceElement[] {
+    return this.children.flatMap(planFaceElements).filter((node) => selector.split(',').some((part) => {
+      const trimmed = part.trim();
+      if (trimmed.startsWith('.')) return node.className.split(/\s+/).includes(trimmed.slice(1));
+      if (trimmed.startsWith('#')) return node.getAttribute('id') === trimmed.slice(1);
+      const attribute = /^\[([^=]+)="([^"]+)"\]$/.exec(trimmed);
+      if (attribute) return node.getAttribute(attribute[1]) === attribute[2];
+      if (trimmed === 'button:not(:disabled)') return node.tagName === 'button' && !node.disabled;
+      return node.tagName === trimmed;
+    }));
+  }
+
+  querySelector(selector: string) {
+    return this.querySelectorAll(selector)[0] ?? null;
+  }
+
 }
 
 interface TextBearingNode {
@@ -296,6 +358,33 @@ function decisionButton(root: unknown, kind: string): PlanFaceElement {
   return found;
 }
 
+function modeButton(root: unknown, mode: string): PlanFaceElement {
+  const button = byClass(root, 'plan-mode').find((candidate) => candidate.dataset.mode === mode);
+  if (!button) throw new Error(`no ${mode} mode`);
+  return button;
+}
+
+function selectRevision(root: unknown, revision: number) {
+  const button = byClass(root, 'plan-revision-option').find((candidate) => candidate.dataset.revision === String(revision));
+  assert.ok(button);
+  button.fire('click');
+}
+
+function saveComment(root: unknown, text: string) {
+  onlyByClass(root, 'plan-comment-input').value = text;
+  onlyByClass(root, 'plan-comment-save').fire('click');
+}
+
+async function loadedSectionedFace(id: string, plan = SECTIONED_PLAN) {
+  const harness = sectionedFace();
+  const { createPlanFace, dropPlanBodyCache } = await import('../public/plan/plan-face.ts');
+  const face = createPlanFace(harness.deps);
+  face.show(id);
+  face.update({ response: { id, reviews: [openMainReview], body: { agentId: null, revision: 2, plan, planFilePath: '/plans/a.md', receivedAt: 40 } } });
+  test.after(() => dropPlanBodyCache(id));
+  return { face, harness };
+}
+
 test('a shown plan face asks for the review index, then for the one body the index names', async () => {
   installPlanFaceDocument();
   const { createPlanFace, dropPlanBodyCache } = await import('../public/plan/plan-face.ts');
@@ -305,7 +394,6 @@ test('a shown plan face asks for the review index, then for the one body the ind
     requestDraft: () => true,
     showTerminal: () => {},
     sendDecision: () => true,
-    promptFeedback: () => {},
     reportProblem: () => {},
   });
 
@@ -335,7 +423,6 @@ test('a reply with no body stops the request loop and says the revision could no
     requestDraft: () => true,
     showTerminal: () => {},
     sendDecision: () => true,
-    promptFeedback: () => {},
     reportProblem: () => {},
   });
 
@@ -363,7 +450,6 @@ test('an error reply and a dropped send both leave the face able to ask again', 
     requestDraft: () => true,
     showTerminal: () => {},
     sendDecision: () => true,
-    promptFeedback: () => {},
     reportProblem: () => {},
   });
 
@@ -392,7 +478,6 @@ test('an approve click sends one decision, then every action disables until the 
     requestDraft: () => true,
     showTerminal: () => { terminalShows += 1; },
     sendDecision: (id, request) => { decisions.push({ id, request: { ...request } }); return true; },
-    promptFeedback: () => {},
     reportProblem: () => {},
   });
 
@@ -405,17 +490,17 @@ test('an approve click sends one decision, then every action disables until the 
     },
   });
   assert.equal(decisionButton(face.el, 'approve').disabled, false);
-  assert.equal(decisionButton(face.el, 'edit').disabled, false, 'the editor opens from the same guard as Approve');
+  assert.equal(modeButton(face.el, 'edit').disabled, false, 'the editor opens from the same guard as Approve');
 
   decisionButton(face.el, 'approve').fire('click');
   assert.deepEqual(decisions, [{ id: 'session-approve', request: { agentId: null, revision: 2, decision: 'approve' } }]);
-  for (const kind of ['approve', 'approve-accept-edits', 'revise', 'terminal']) {
+  for (const kind of ['approve', 'revise', 'terminal']) {
     assert.equal(decisionButton(face.el, kind).disabled, true, `${kind} is disabled while the decision is in flight`);
   }
-  assert.ok(planFaceTexts(face.el).some((text) => text.includes('sending your decision')));
+  assert.ok(planFaceTexts(face.el).some((text) => text.includes('Sending your decision')));
   assert.deepEqual(
     planFaceButtons(face.el).filter((button) => button.dataset.decision).map((button) => button.textContent),
-    ['Approve', 'Approve and accept edits', 'Send feedback', 'Answer in terminal', 'Edit plan'],
+    ['Answer in terminal', 'Send feedback', 'Approve'],
     'labels never change while a decision is in flight',
   );
 
@@ -455,7 +540,6 @@ test('an approval first confirmed by the closing push still returns the card to 
     requestDraft: () => true,
     showTerminal: () => { terminalShows += 1; },
     sendDecision: () => true,
-    promptFeedback: () => {},
     reportProblem: () => {},
   });
 
@@ -484,7 +568,6 @@ test('a refused approval or sent feedback leaves the card on the plan', async ()
     requestDraft: () => true,
     showTerminal: () => { terminalShows += 1; },
     sendDecision: () => true,
-    promptFeedback: (_request, onSubmit) => onSubmit('tighten step 2'),
     reportProblem: () => {},
   });
 
@@ -502,6 +585,8 @@ test('a refused approval or sent feedback leaves the card on the plan', async ()
   assert.equal(terminalShows, 0, 'a refused approval never switches the face');
 
   face.update({ state: { reviews: [openMainReview] } });
+  byClass(face.el, 'plan-section-comment')[0].fire('click');
+  saveComment(face.el, 'tighten step 2');
   decisionButton(face.el, 'revise').fire('click');
   face.update({ state: { reviews: [{ ...openMainReview, state: 'decided', openRevision: null, lastDecision: 'revise' }] } });
   assert.equal(terminalShows, 0, 'feedback keeps the plan on screen for the next revision');
@@ -518,7 +603,6 @@ test('a revision that reopens the review moves the face onto it, so no decision 
     requestDraft: () => true,
     showTerminal: () => {},
     sendDecision: (_id, request) => { decisions.push({ ...request }); return true; },
-    promptFeedback: () => {},
     reportProblem: () => {},
   });
 
@@ -553,78 +637,6 @@ test('a revision that reopens the review moves the face onto it, so no decision 
   dropPlanBodyCache('session-reopen');
 });
 
-test('Send feedback asks for text through the modal dep and sends it with the revise decision', async () => {
-  installPlanFaceDocument();
-  const { createPlanFace, dropPlanBodyCache } = await import('../public/plan/plan-face.ts');
-  const decisions: Record<string, unknown>[] = [];
-  const feedbackPrompts: ((feedback: string) => void)[] = [];
-  const face = createPlanFace({
-    requestPlan: () => true,
-    requestDraft: () => true,
-    showTerminal: () => {},
-    sendDecision: (_id, request) => { decisions.push({ ...request }); return true; },
-    promptFeedback: (_request, onSubmit) => { feedbackPrompts.push(onSubmit); },
-    reportProblem: () => {},
-  });
-
-  face.show('session-feedback');
-  face.update({
-    response: {
-      id: 'session-feedback',
-      reviews: [openMainReview],
-      body: { agentId: null, revision: 2, plan: '# Ship it', planFilePath: '/plans/a.md', receivedAt: 40 },
-    },
-  });
-  decisionButton(face.el, 'revise').fire('click');
-  assert.equal(decisions.length, 0, 'nothing is sent until the modal comes back');
-  assert.equal(feedbackPrompts.length, 1, 'the face asked for feedback through the dep');
-  feedbackPrompts[0]('step 2 must print the file');
-  assert.deepEqual(decisions, [{ agentId: null, revision: 2, decision: 'revise', feedback: 'step 2 must print the file' }]);
-  dropPlanBodyCache('session-feedback');
-});
-
-test('feedback names the revision whose button opened the modal, never one that arrived while it was open', async () => {
-  installPlanFaceDocument();
-  const { createPlanFace, dropPlanBodyCache } = await import('../public/plan/plan-face.ts');
-  const decisions: Record<string, unknown>[] = [];
-  const feedbackPrompts: ((feedback: string) => void)[] = [];
-  const face = createPlanFace({
-    requestPlan: () => true,
-    requestDraft: () => true,
-    showTerminal: () => {},
-    sendDecision: (_id, request) => { decisions.push({ ...request }); return true; },
-    promptFeedback: (_request, onSubmit) => { feedbackPrompts.push(onSubmit); },
-    reportProblem: () => {},
-  });
-
-  face.show('session-modal-race');
-  face.update({
-    response: {
-      id: 'session-modal-race',
-      reviews: [openMainReview],
-      body: { agentId: null, revision: 2, plan: '# Ship it', planFilePath: '/plans/a.md', receivedAt: 40 },
-    },
-  });
-  decisionButton(face.el, 'revise').fire('click');
-
-  face.update({
-    state: {
-      reviews: [{
-        ...openMainReview,
-        revisions: [...openMainReview.revisions, { revision: 3, receivedAt: 50, chars: 12, title: 'Ship it again' }],
-        openRevision: { revision: 3, since: 50 },
-      }],
-    },
-  });
-  feedbackPrompts[0]('step 2 must print the file');
-  assert.deepEqual(
-    decisions,
-    [{ agentId: null, revision: 2, decision: 'revise', feedback: 'step 2 must print the file' }],
-    'the server refuses the read revision rather than accepting feedback on bytes nobody saw',
-  );
-  dropPlanBodyCache('session-modal-race');
-});
-
 test('a refused decision re-enables the actions and pulls the review index again', async () => {
   installPlanFaceDocument();
   const { createPlanFace, dropPlanBodyCache } = await import('../public/plan/plan-face.ts');
@@ -634,7 +646,6 @@ test('a refused decision re-enables the actions and pulls the review index again
     requestDraft: () => true,
     showTerminal: () => {},
     sendDecision: () => true,
-    promptFeedback: () => {},
     reportProblem: () => {},
   });
 
@@ -664,7 +675,6 @@ test('showing the face and reconnecting both pull the review index, which backpr
     requestDraft: () => true,
     showTerminal: () => {},
     sendDecision: () => true,
-    promptFeedback: () => {},
     reportProblem: () => {},
   });
 
@@ -698,7 +708,6 @@ test('a repair pull carries the selected review, so showing the face again never
     requestDraft: () => true,
     showTerminal: () => {},
     sendDecision: () => true,
-    promptFeedback: () => {},
     reportProblem: () => {},
   });
 
@@ -728,7 +737,6 @@ test('a hidden plan face transfers no plan when the socket reconnects', async ()
     requestDraft: () => true,
     showTerminal: () => {},
     sendDecision: () => true,
-    promptFeedback: () => {},
     reportProblem: () => {},
   });
 
@@ -778,25 +786,16 @@ const twoRevisionReview = {
 
 const SECTIONED_PLAN = '# Ship it\n\nthe opening\n\n## Rollout\n\nstage it\n\n## Rollback\n\nown it\n';
 
-interface FacePrompt {
-  title: string;
-  value: string;
-  maxChars: number;
-  submit: (text: string) => void;
-}
-
 function sectionedFace() {
   installPlanFaceDocument();
   const requests: { agentId: string | null; revision: number | undefined }[] = [];
   const draftRequests: (string | null)[] = [];
   const decisions: Record<string, unknown>[] = [];
-  const prompts: FacePrompt[] = [];
   const problems: string[] = [];
   return {
     requests,
     draftRequests,
     decisions,
-    prompts,
     problems,
     deps: {
       requestPlan: (_id: string, agentId: string | null, revision?: number) => {
@@ -806,106 +805,58 @@ function sectionedFace() {
       requestDraft: (_id: string, agentId: string | null) => { draftRequests.push(agentId); return true; },
       showTerminal: () => {},
       sendDecision: (_id: string, request: Record<string, unknown>) => { decisions.push({ ...request }); return true; },
-      promptFeedback: (
-        { title, value, maxChars }: { title: string; value: string; maxChars: number },
-        submit: (text: string) => void,
-      ) => {
-        prompts.push({ title, value, maxChars, submit });
-      },
       reportProblem: (message: string) => { problems.push(message); },
     },
   };
 }
 
-test('a comment attaches to the section its affordance sits in, and rides the revise decision in document order', async () => {
-  const harness = sectionedFace();
-  const { createPlanFace, dropPlanBodyCache } = await import('../public/plan/plan-face.ts');
-  const face = createPlanFace(harness.deps);
-
-  face.show('session-comments');
-  face.update({
-    response: {
-      id: 'session-comments',
-      reviews: [openMainReview],
-      body: { agentId: null, revision: 2, plan: SECTIONED_PLAN, planFilePath: '/plans/a.md', receivedAt: 40 },
-    },
-  });
-
-  const commentButtons = byClass(face.el, 'plan-section-comment');
-  assert.equal(commentButtons.length, 3, 'one affordance per section');
-  assert.deepEqual(commentButtons.map((button) => button.textContent), ['Comment', 'Comment', 'Comment']);
-  assert.deepEqual(commentButtons.map((button) => button.dataset.commented), ['false', 'false', 'false']);
-
-  commentButtons[2].fire('click');
-  assert.equal(harness.prompts.at(-1)?.title, 'Comment on "Rollback"');
-  harness.prompts.at(-1)?.submit('name the owner');
-
+test('inline comments appear once, mark the outline and send only comments in document order', async () => {
+  const { face, harness } = await loadedSectionedFace('session-comments');
+  const buttons = byClass(face.el, 'plan-section-comment');
+  assert.equal(buttons.length, 3);
+  assert.ok(buttons.every((button) => button.textContent === 'Comment'));
+  buttons[2].fire('click');
+  assert.equal(onlyByClass(face.el, 'plan-comment-label').textContent, 'Comment on Rollback');
+  saveComment(face.el, ' name the owner ');
   byClass(face.el, 'plan-section-comment')[1].fire('click');
-  assert.equal(harness.prompts.at(-1)?.title, 'Comment on "Rollout"');
-  harness.prompts.at(-1)?.submit('stage it behind the flag');
-
-  assert.ok(planFaceTexts(face.el).some((text) => text.includes('2 comments pending')));
-  assert.deepEqual(
-    byClass(face.el, 'plan-section-comment').map((button) => button.dataset.commented),
-    ['false', 'true', 'true'],
-  );
-
+  saveComment(face.el, 'stage it behind the flag');
+  assert.equal(planFaceTexts(face.el).filter((text) => text === 'name the owner').length, 1);
+  assert.equal(byClass(face.el, 'plan-comment-card').length, 2);
+  assert.equal(byClass(face.el, 'plan-section-comment').length, 1);
+  assert.deepEqual(byClass(face.el, 'plan-heading-link').map((link) => link.dataset.commented), ['false', 'true', 'true']);
+  assert.equal(decisionButton(face.el, 'approve').disabled, true);
+  assert.equal(decisionButton(face.el, 'revise').disabled, false);
+  decisionButton(face.el, 'approve').fire('click');
+  assert.deepEqual(harness.decisions, []);
   decisionButton(face.el, 'revise').fire('click');
-  assert.equal(harness.prompts.at(-1)?.title, 'Send feedback');
-  harness.prompts.at(-1)?.submit('the whole thing is too long');
-
-  assert.deepEqual(harness.decisions, [{
-    agentId: null,
-    revision: 2,
-    decision: 'revise',
-    feedback: 'the whole thing is too long',
-    comments: [
-      { heading: 'Rollout', comment: 'stage it behind the flag' },
-      { heading: 'Rollback', comment: 'name the owner' },
-    ],
-  }]);
-  dropPlanBodyCache('session-comments');
+  assert.deepEqual(harness.decisions, [{ agentId: null, revision: 2, decision: 'revise', comments: [
+    { heading: 'Rollout', comment: 'stage it behind the flag' }, { heading: 'Rollback', comment: 'name the owner' },
+  ] }]);
+  assert.equal('feedback' in harness.decisions[0], false);
 });
 
-test('the preamble affordance comments on the plan as a whole, and clearing a comment drops it', async () => {
-  const harness = sectionedFace();
-  const { createPlanFace, dropPlanBodyCache } = await import('../public/plan/plan-face.ts');
-  const face = createPlanFace(harness.deps);
-
-  face.show('session-whole-plan');
-  face.update({
-    response: {
-      id: 'session-whole-plan',
-      reviews: [openMainReview],
-      body: { agentId: null, revision: 2, plan: `a note first\n\n${SECTIONED_PLAN}`, planFilePath: '/plans/a.md', receivedAt: 40 },
-    },
-  });
-
+test('Introduction keeps a null payload heading, supports edit, empty save and removal', async () => {
+  const { face, harness } = await loadedSectionedFace('session-introduction', `a note first\n\n${SECTIONED_PLAN}`);
   byClass(face.el, 'plan-section-comment')[0].fire('click');
-  assert.equal(harness.prompts.at(-1)?.title, 'Comment on the plan');
-  harness.prompts.at(-1)?.submit('no rollback story anywhere');
-  assert.ok(planFaceTexts(face.el).some((text) => text.includes('1 comment pending')));
-
+  assert.equal(onlyByClass(face.el, 'plan-comment-label').textContent, 'Comment on Introduction');
+  saveComment(face.el, 'no rollback story anywhere');
+  onlyByClass(face.el, 'plan-comment-edit').fire('click');
+  assert.equal(onlyByClass(face.el, 'plan-comment-input').value, 'no rollback story anywhere');
+  assert.equal(byClass(face.el, 'plan-comment-card').length, 0);
+  saveComment(face.el, '   ');
+  assert.equal(byClass(face.el, 'plan-comment-card').length, 0);
+  assert.equal(decisionButton(face.el, 'approve').disabled, false);
   byClass(face.el, 'plan-section-comment')[0].fire('click');
-  assert.equal(harness.prompts.at(-1)?.value, 'no rollback story anywhere', 'the affordance reopens what was written');
-  harness.prompts.at(-1)?.submit('   ');
-  assert.equal(planFaceTexts(face.el).some((text) => text.includes('comment pending')), false);
-
+  saveComment(face.el, 'try removing');
+  onlyByClass(face.el, 'plan-comment-remove').fire('click');
+  assert.equal(byClass(face.el, 'plan-comment-card').length, 0);
   byClass(face.el, 'plan-section-comment')[0].fire('click');
-  harness.prompts.at(-1)?.submit('no rollback story anywhere');
+  saveComment(face.el, 'no rollback story anywhere');
   decisionButton(face.el, 'revise').fire('click');
-  harness.prompts.at(-1)?.submit('');
-  assert.deepEqual(harness.decisions, [{
-    agentId: null,
-    revision: 2,
-    decision: 'revise',
-    feedback: '',
-    comments: [{ heading: null, comment: 'no rollback story anywhere' }],
-  }]);
-  dropPlanBodyCache('session-whole-plan');
+  assert.deepEqual(harness.decisions, [{ agentId: null, revision: 2, decision: 'revise', comments: [{ heading: null, comment: 'no rollback story anywhere' }] }]);
 });
 
-test('Edit plan swaps the reading column for the markdown, and approving from it sends the edited bytes', async () => {
+test('Edit mode swaps the reading column for the markdown, and approving from it sends the edited bytes', async () => {
   const harness = sectionedFace();
   const { createPlanFace, dropPlanBodyCache } = await import('../public/plan/plan-face.ts');
   const face = createPlanFace(harness.deps);
@@ -920,13 +871,14 @@ test('Edit plan swaps the reading column for the markdown, and approving from it
   });
   assert.equal(byClass(face.el, 'plan-editor').length, 0, 'the reading column is what a plan face opens on');
 
-  decisionButton(face.el, 'edit').fire('click');
+  modeButton(face.el, 'edit').fire('click');
   const editor = onlyByClass(face.el, 'plan-editor');
   assert.equal(editor.value, SECTIONED_PLAN, 'the editor opens on the markdown of the selected revision');
   assert.equal(byClass(face.el, 'plan-section-comment').length, 0, 'the reading column stepped aside');
 
   editor.value = `${SECTIONED_PLAN}\n## Rollforward\n\nland it\n`;
-  decisionButton(face.el, 'approve-accept-edits').fire('click');
+  onlyByClass(face.el, 'plan-accept-edits-checkbox').checked = true;
+  decisionButton(face.el, 'approve').fire('click');
   assert.deepEqual(harness.decisions, [{
     agentId: null,
     revision: 2,
@@ -934,6 +886,35 @@ test('Edit plan swaps the reading column for the markdown, and approving from it
     plan: `${SECTIONED_PLAN}\n## Rollforward\n\nland it\n`,
   }]);
   dropPlanBodyCache('session-editor');
+});
+
+test('a refused edited approval keeps the edits in the editor when Edit is chosen again', async () => {
+  const harness = sectionedFace();
+  const { createPlanFace, dropPlanBodyCache } = await import('../public/plan/plan-face.ts');
+  const face = createPlanFace(harness.deps);
+  const editedPlan = `${SECTIONED_PLAN}\n## Rollforward\n\nland it\n`;
+
+  face.show('session-editor-refused');
+  face.update({
+    response: {
+      id: 'session-editor-refused',
+      reviews: [openMainReview],
+      body: { agentId: null, revision: 2, plan: SECTIONED_PLAN, planFilePath: '/plans/a.md', receivedAt: 40 },
+    },
+  });
+
+  modeButton(face.el, 'edit').fire('click');
+  onlyByClass(face.el, 'plan-editor').value = editedPlan;
+  decisionButton(face.el, 'approve').fire('click');
+  assert.deepEqual(harness.decisions, [{ agentId: null, revision: 2, decision: 'approve', plan: editedPlan }]);
+
+  face.update({ decisionRefused: true });
+  modeButton(face.el, 'edit').fire('click');
+  assert.equal(onlyByClass(face.el, 'plan-editor').value, editedPlan);
+
+  decisionButton(face.el, 'approve').fire('click');
+  assert.deepEqual(harness.decisions[1], { agentId: null, revision: 2, decision: 'approve', plan: editedPlan });
+  dropPlanBodyCache('session-editor-refused');
 });
 
 test('leaving the editor sends nothing, and an untouched editor approves the bytes the server holds', async () => {
@@ -950,16 +931,16 @@ test('leaving the editor sends nothing, and an untouched editor approves the byt
     },
   });
 
-  decisionButton(face.el, 'edit').fire('click');
-  const readButton = onlyByClass(face.el, 'plan-read-button');
+  modeButton(face.el, 'edit').fire('click');
+  const readButton = modeButton(face.el, 'read');
   assert.equal(readButton.hidden, false);
-  assert.equal(readButton.textContent, 'Read plan');
+  assert.equal(readButton.textContent, 'Read');
   readButton.fire('click');
   assert.deepEqual(harness.decisions, [], 'leaving the editor decides nothing');
   assert.equal(byClass(face.el, 'plan-editor').length, 0);
-  assert.equal(onlyByClass(face.el, 'plan-read-button').hidden, true);
+  assert.equal(modeButton(face.el, 'read').attributes['aria-checked'], 'true');
 
-  decisionButton(face.el, 'edit').fire('click');
+  modeButton(face.el, 'edit').fire('click');
   decisionButton(face.el, 'approve').fire('click');
   assert.deepEqual(
     harness.decisions,
@@ -982,7 +963,7 @@ test('an editor emptied to nothing refuses the decision rather than approving th
       body: { agentId: null, revision: 2, plan: SECTIONED_PLAN, planFilePath: '/plans/a.md', receivedAt: 40 },
     },
   });
-  decisionButton(face.el, 'edit').fire('click');
+  modeButton(face.el, 'edit').fire('click');
   onlyByClass(face.el, 'plan-editor').value = '';
   decisionButton(face.el, 'approve').fire('click');
 
@@ -1003,7 +984,7 @@ test('an editor emptied to nothing refuses the decision rather than approving th
 
 test('a plan over the body cap, a comment over its own cap and a comment count over the wire max are all refused before sending', async () => {
   const harness = sectionedFace();
-  const { PLAN_BODY_CAP_BYTES, PLAN_COMMENTS_MAX, PLAN_COMMENT_MAX_CHARS, PLAN_FEEDBACK_MAX_CHARS } = await import('../shared/contracts/plan-review.ts');
+  const { PLAN_BODY_CAP_BYTES, PLAN_COMMENTS_MAX, PLAN_COMMENT_MAX_CHARS } = await import('../shared/contracts/plan-review.ts');
   const { createPlanFace, dropPlanBodyCache } = await import('../public/plan/plan-face.ts');
   const face = createPlanFace(harness.deps);
 
@@ -1016,23 +997,21 @@ test('a plan over the body cap, a comment over its own cap and a comment count o
     },
   });
 
-  decisionButton(face.el, 'edit').fire('click');
+  modeButton(face.el, 'edit').fire('click');
   onlyByClass(face.el, 'plan-editor').value = 'y'.repeat(PLAN_BODY_CAP_BYTES + 1);
   decisionButton(face.el, 'approve').fire('click');
   assert.deepEqual(harness.decisions, [], 'an oversized plan never reaches the socket');
   assert.deepEqual(harness.problems, ['the edited plan is over the plan size cap, so nothing was sent']);
-  onlyByClass(face.el, 'plan-read-button').fire('click');
+  modeButton(face.el, 'read').fire('click');
 
   byClass(face.el, 'plan-section-comment')[1].fire('click');
-  assert.equal(harness.prompts.at(-1)?.maxChars, PLAN_COMMENT_MAX_CHARS, 'the comment sheet caps what can be typed');
-  harness.prompts.at(-1)?.submit('z'.repeat(PLAN_COMMENT_MAX_CHARS + 1));
+  assert.equal(onlyByClass(face.el, 'plan-comment-input').maxLength, PLAN_COMMENT_MAX_CHARS);
+  saveComment(face.el, 'z'.repeat(PLAN_COMMENT_MAX_CHARS + 1));
   decisionButton(face.el, 'revise').fire('click');
-  assert.equal(harness.prompts.at(-1)?.maxChars, PLAN_FEEDBACK_MAX_CHARS, 'the feedback sheet carries its own cap');
-  harness.prompts.at(-1)?.submit('too much');
   assert.deepEqual(harness.decisions, [], 'an oversized comment never reaches the socket');
   assert.equal(harness.problems.at(-1), `a section comment is over ${PLAN_COMMENT_MAX_CHARS} characters, so nothing was sent`);
   assert.ok(
-    planFaceTexts(face.el).some((text) => text.includes('1 comment pending')),
+    planFaceTexts(face.el).some((text) => text.includes('1 comment to send')),
     'the refusal keeps the comment the carbon unit typed',
   );
 
@@ -1042,11 +1021,11 @@ test('a plan over the body cap, a comment over its own cap and a comment count o
     planLimitRefusal({ comments: tooMany }),
     `more than ${PLAN_COMMENTS_MAX} section comments are pending, so nothing was sent`,
   );
-  assert.equal(planLimitRefusal({ comments: tooMany.slice(1), plan: '# Ship it', feedback: 'go' }), null);
+  assert.equal(planLimitRefusal({ comments: tooMany.slice(1), plan: '# Ship it' }), null);
   dropPlanBodyCache('session-wire-limits');
 });
 
-test('the Diff toggle pulls the previous revision once and renders it without moving the selection', async () => {
+test('Changes mode pulls the previous revision once and renders it without moving the selection', async () => {
   const harness = sectionedFace();
   const { createPlanFace, dropPlanBodyCache } = await import('../public/plan/plan-face.ts');
   const face = createPlanFace(harness.deps);
@@ -1061,8 +1040,8 @@ test('the Diff toggle pulls the previous revision once and renders it without mo
   });
   const requestsBeforeDiff = harness.requests.length;
 
-  const diffToggle = onlyByClass(face.el, 'plan-diff-toggle');
-  assert.equal(diffToggle.textContent, 'Diff');
+  const diffToggle = modeButton(face.el, 'changes');
+  assert.equal(diffToggle.textContent, 'Changes');
   assert.equal(diffToggle.hidden, false);
   diffToggle.fire('click');
   assert.deepEqual(harness.requests.slice(requestsBeforeDiff), [{ agentId: null, revision: 1 }]);
@@ -1075,7 +1054,7 @@ test('the Diff toggle pulls the previous revision once and renders it without mo
       body: { agentId: null, revision: 1, plan: '# Ship it\n\nland it\n', planFilePath: '/plans/a.md', receivedAt: 40 },
     },
   });
-  assert.equal(diffToggle.attributes['aria-pressed'], 'true');
+  assert.equal(modeButton(face.el, 'changes').attributes['aria-checked'], 'true');
   assert.deepEqual(
     byClass(face.el, 'plan-diff-line').map((line) => line.className.replace('plan-diff-line ', '')),
     ['plan-diff-unchanged', 'plan-diff-unchanged', 'plan-diff-removed', 'plan-diff-added', 'plan-diff-unchanged'],
@@ -1088,7 +1067,7 @@ test('the Diff toggle pulls the previous revision once and renders it without mo
     'the diff base never becomes the revision a decision names',
   );
 
-  diffToggle.fire('click');
+  modeButton(face.el, 'read').fire('click');
   assert.equal(byClass(face.el, 'plan-diff-line').length, 0);
   dropPlanBodyCache('session-diff');
 });
@@ -1106,7 +1085,7 @@ test('the first revision offers no diff, because there is nothing behind it', as
       body: { agentId: 'sub-1', revision: 1, plan: '# Explore plan', planFilePath: '/plans/a.md', receivedAt: 30 },
     },
   });
-  assert.equal(onlyByClass(face.el, 'plan-diff-toggle').hidden, true);
+  assert.equal(modeButton(face.el, 'changes').disabled, true);
   dropPlanBodyCache('session-first-diff');
 });
 
@@ -1124,7 +1103,7 @@ test('the draft chip appears only while a draft is newer than the shown revision
     },
   });
   const chip = onlyByClass(face.el, 'plan-draft-chip');
-  assert.equal(chip.textContent, 'Draft updated');
+  assert.equal(chip.textContent, 'Peek draft');
   assert.equal(chip.hidden, true, 'no draft notice means no chip');
 
   face.update({ draft: { id: 'session-draft', agentId: null, planFilePath: '/plans/a.md', changedAt: 30 } });
@@ -1144,14 +1123,14 @@ test('the draft chip appears only while a draft is newer than the shown revision
       body: { agentId: null, revision: 0, plan: '# Ship it\n\nthe draft', planFilePath: '/plans/a.md', receivedAt: 91 },
     },
   });
-  assert.ok(planFaceTexts(face.el).some((text) => text.startsWith('Draft, ')));
-  for (const kind of ['approve', 'approve-accept-edits', 'revise', 'terminal', 'edit']) {
+  assert.ok(planFaceTexts(face.el).some((text) => text === 'Draft'));
+  for (const kind of ['approve', 'revise', 'terminal']) {
     assert.equal(decisionButton(face.el, kind).disabled, true, `${kind} is refused on a draft nobody submitted`);
   }
   assert.equal(chip.attributes['aria-pressed'], 'true');
 
   chip.fire('click');
-  assert.ok(planFaceTexts(face.el).some((text) => text.includes('Revision 1 of 1')));
+  assert.equal(onlyByClass(face.el, 'plan-status').textContent, '');
   assert.equal(decisionButton(face.el, 'approve').disabled, false, 'leaving the draft hands the revision back');
   dropPlanBodyCache('session-draft');
 });
@@ -1174,55 +1153,22 @@ test('a draft notice for another session never reaches this face', async () => {
   dropPlanBodyCache('session-mine');
 });
 
-test('a comment files against the revision its modal opened on, even when a newer one arrives first', async () => {
-  const harness = sectionedFace();
-  const { createPlanFace, dropPlanBodyCache } = await import('../public/plan/plan-face.ts');
-  const face = createPlanFace(harness.deps);
-
-  face.show('session-comment-race');
-  face.update({
-    response: {
-      id: 'session-comment-race',
-      reviews: [openMainReview],
-      body: { agentId: null, revision: 2, plan: SECTIONED_PLAN, planFilePath: '/plans/a.md', receivedAt: 40 },
-    },
-  });
+test('the inline composer captures its session, author and revision and closes on reopen', async () => {
+  const { face, harness } = await loadedSectionedFace('session-comment-race');
   byClass(face.el, 'plan-section-comment')[2].fire('click');
-
-  const reopened = {
-    ...openMainReview,
-    revisions: [...openMainReview.revisions, { revision: 3, receivedAt: 50, chars: 12, title: 'Ship it again' }],
-    openRevision: { revision: 3, since: 50 },
-  };
+  const openedField = onlyByClass(face.el, 'plan-comment-input');
+  const openedSave = onlyByClass(face.el, 'plan-comment-save');
+  openedField.value = 'name the owner';
+  const reopened = { ...openMainReview, revisions: [...openMainReview.revisions, { revision: 3, receivedAt: 50, chars: 12, title: 'Next' }], openRevision: { revision: 3, since: 50 } };
   face.update({ state: { reviews: [reopened] } });
-  harness.prompts.at(-1)?.submit('name the owner');
-  assert.equal(
-    planFaceTexts(face.el).some((text) => text.includes('comment pending')),
-    false,
-    'the revision that replaced the one on screen carries no comment nobody wrote against it',
-  );
-
-  face.update({
-    response: {
-      id: 'session-comment-race',
-      reviews: [reopened],
-      body: { agentId: null, revision: 3, plan: SECTIONED_PLAN, planFilePath: '/plans/a.md', receivedAt: 50 },
-    },
-  });
-  decisionButton(face.el, 'revise').fire('click');
-  harness.prompts.at(-1)?.submit('start again');
-  assert.deepEqual(harness.decisions, [{ agentId: null, revision: 3, decision: 'revise', feedback: 'start again' }]);
-
-  const picker = onlyByClass(face.el, 'plan-revision-picker');
-  picker.value = '2';
-  picker.fire('change');
-  assert.ok(planFaceTexts(face.el).some((text) => text.includes('1 comment pending')));
-  assert.deepEqual(
-    byClass(face.el, 'plan-section-comment').map((button) => button.dataset.commented),
-    ['false', 'false', 'true'],
-    'the comment waited in the bucket of the revision it was written against',
-  );
-  dropPlanBodyCache('session-comment-race');
+  assert.equal(byClass(face.el, 'plan-comment-composer').length, 0);
+  openedSave.fire('click');
+  face.update({ response: { id: 'session-comment-race', reviews: [reopened], body: { agentId: null, revision: 3, plan: SECTIONED_PLAN, planFilePath: '/plans/a.md', receivedAt: 50 } } });
+  assert.equal(byClass(face.el, 'plan-comment-card').length, 0);
+  assert.equal(decisionButton(face.el, 'revise').disabled, true);
+  assert.deepEqual(harness.decisions, []);
+  selectRevision(face.el, 2);
+  assert.equal(onlyByClass(face.el, 'plan-comment-text').textContent, 'name the owner');
 });
 
 test('a revise the socket refused keeps every comment for the retry that follows', async () => {
@@ -1246,44 +1192,40 @@ test('a revise the socket refused keeps every comment for the retry that follows
     },
   });
   byClass(face.el, 'plan-section-comment')[1].fire('click');
-  harness.prompts.at(-1)?.submit('stage it behind the flag');
+  saveComment(face.el, 'stage it behind the flag');
 
   decisionButton(face.el, 'revise').fire('click');
-  harness.prompts.at(-1)?.submit('the whole thing is too long');
   assert.deepEqual(harness.decisions, [], 'a dropped send never reaches the server');
   assert.ok(
-    planFaceTexts(face.el).some((text) => text.includes('1 comment pending')),
+    planFaceTexts(face.el).some((text) => text.includes('1 comment to send')),
     'the comments survive a send that never left the tab',
   );
 
   sending.succeeds = true;
   decisionButton(face.el, 'revise').fire('click');
-  harness.prompts.at(-1)?.submit('the whole thing is too long');
   const revise = {
     agentId: null,
     revision: 2,
     decision: 'revise',
-    feedback: 'the whole thing is too long',
     comments: [{ heading: 'Rollout', comment: 'stage it behind the flag' }],
   };
   assert.deepEqual(harness.decisions, [revise]);
   assert.ok(
-    planFaceTexts(face.el).some((text) => text.includes('1 comment pending')),
+    byClass(face.el, 'plan-comment-text').some((node) => node.textContent === 'stage it behind the flag'),
     'a send the server has not answered yet is no reason to forget the comment',
   );
 
   face.update({ decisionRefused: true });
   assert.ok(
-    planFaceTexts(face.el).some((text) => text.includes('1 comment pending')),
+    planFaceTexts(face.el).some((text) => text.includes('1 comment to send')),
     'a refused decision leaves the comment where the retry can find it',
   );
   decisionButton(face.el, 'revise').fire('click');
-  harness.prompts.at(-1)?.submit('the whole thing is too long');
   assert.deepEqual(harness.decisions, [revise, revise], 'the retry carries the same comment');
 
   face.update({ state: { reviews: [{ ...openMainReview, state: 'decided' as const, openRevision: null, lastDecision: 'revise' as const }] } });
   assert.equal(
-    planFaceTexts(face.el).some((text) => text.includes('comment pending')),
+    planFaceTexts(face.el).some((text) => text.includes('comment to send')),
     false,
     'the bucket empties once the review moved off the revision the comment named',
   );
@@ -1311,7 +1253,7 @@ test('a body nobody asked for is cached without moving the selection, and a refu
     },
   });
   assert.ok(
-    planFaceTexts(face.el).some((text) => text.includes('Revision 2 of 2')),
+    planFaceTexts(face.el).some((text) => text === 'Rev 2 of 2'),
     'a revision nobody asked for never becomes the one a decision would name',
   );
 
@@ -1348,9 +1290,7 @@ test('a draft refused while another request is in flight still frees the chip, n
     },
   });
 
-  const picker = onlyByClass(face.el, 'plan-revision-picker');
-  picker.value = '1';
-  picker.fire('change');
+  selectRevision(face.el, 1);
   face.update({ draft: { id: 'session-two-pending', agentId: null, planFilePath: '/plans/a.md', changedAt: 90 } });
   onlyByClass(face.el, 'plan-draft-chip').fire('click');
   assert.deepEqual(harness.draftRequests, [null], 'the selection pull and the draft pull are both in flight');
@@ -1405,7 +1345,7 @@ test('a draft on screen offers no comment affordance, since a draft carries no r
       body: { agentId: null, revision: 0, plan: `${SECTIONED_PLAN}\n## Rollforward\n\nland it\n`, planFilePath: '/plans/a.md', receivedAt: 91 },
     },
   });
-  assert.ok(planFaceTexts(face.el).some((text) => text.startsWith('Draft, ')));
+  assert.ok(planFaceTexts(face.el).some((text) => text === 'Draft'));
   assert.equal(byClass(face.el, 'plan-section-comment').length, 0);
   assert.ok(planFaceTexts(face.el).includes('Rollforward'), 'the draft body still reads');
 
@@ -1445,7 +1385,7 @@ test('a draft answered after the operator moved to another agent is cached, neve
     false,
     'the draft the main review asked for never renders under the subagent review',
   );
-  assert.equal(planFaceTexts(face.el).some((text) => text.startsWith('Draft, ')), false);
+  assert.equal(planFaceTexts(face.el).some((text) => text === 'Draft'), false);
   dropPlanBodyCache('session-draft-identity');
 });
 
@@ -1462,7 +1402,7 @@ test('a diff base answered after a reopen never drags the face back onto the rev
       body: { agentId: null, revision: 2, plan: '# Ship it\n\nstage it\n', planFilePath: '/plans/a.md', receivedAt: 50 },
     },
   });
-  onlyByClass(face.el, 'plan-diff-toggle').fire('click');
+  modeButton(face.el, 'changes').fire('click');
   assert.deepEqual(harness.requests.at(-1), { agentId: null, revision: 1 });
 
   const reopened = {
@@ -1480,8 +1420,262 @@ test('a diff base answered after a reopen never drags the face back onto the rev
   });
 
   assert.ok(
-    planFaceTexts(face.el).some((text) => text.includes('Revision 3 of 3')),
+    planFaceTexts(face.el).some((text) => text === 'Rev 3 of 3'),
     'the face stays on the revision that reopened the review',
   );
   dropPlanBodyCache('session-diff-identity');
+});
+
+
+test('the accept-edits checkbox chooses the approval kind without changing its label', async () => {
+  for (const isChecked of [false, true]) {
+    const { face, harness } = await loadedSectionedFace(`session-checkbox-${isChecked}`);
+    const checkbox = onlyByClass(face.el, 'plan-accept-edits-checkbox');
+    assert.equal(checkbox.disabled, false);
+    assert.equal(onlyByClass(face.el, 'plan-status').hidden, true);
+    checkbox.checked = isChecked;
+    decisionButton(face.el, 'approve').fire('click');
+    assert.deepEqual(harness.decisions, [{ agentId: null, revision: 2, decision: isChecked ? 'approve-accept-edits' : 'approve' }]);
+    assert.equal(decisionButton(face.el, 'approve').textContent, 'Approve');
+    assert.equal(onlyByClass(face.el, 'plan-accept-edits').hidden, true);
+    assert.equal(onlyByClass(face.el, 'plan-status').hidden, false);
+    assert.equal(onlyByClass(face.el, 'plan-status').textContent, 'Sending your decision');
+  }
+});
+
+test('only one inline composer opens, cancel preserves saved text and mode changes close it', async () => {
+  const { face } = await loadedSectionedFace('session-composer');
+  byClass(face.el, 'plan-section-comment')[0].fire('click');
+  onlyByClass(face.el, 'plan-comment-input').value = 'unsaved';
+  byClass(face.el, 'plan-section-comment')[0].fire('click');
+  assert.equal(byClass(face.el, 'plan-comment-composer').length, 1);
+  assert.equal(onlyByClass(face.el, 'plan-comment-input').value, '');
+  saveComment(face.el, 'saved');
+  onlyByClass(face.el, 'plan-comment-edit').fire('click');
+  onlyByClass(face.el, 'plan-comment-input').value = 'replacement';
+  onlyByClass(face.el, 'plan-comment-cancel').fire('click');
+  assert.equal(onlyByClass(face.el, 'plan-comment-text').textContent, 'saved');
+  onlyByClass(face.el, 'plan-comment-edit').fire('click');
+  modeButton(face.el, 'edit').fire('click');
+  assert.equal(byClass(face.el, 'plan-comment-composer').length, 0);
+  modeButton(face.el, 'read').fire('click');
+  assert.equal(onlyByClass(face.el, 'plan-comment-text').textContent, 'saved');
+});
+
+test('View opens an in-face dialog, Escape and Close restore its trigger and selection closes it', async () => {
+  const { face } = await loadedSectionedFace('session-sheet');
+  const trigger = onlyByClass(face.el, 'plan-view-button');
+  const panel = onlyByClass(face.el, 'plan-view-panel');
+  assert.equal(trigger.attributes['aria-haspopup'], 'dialog');
+  trigger.fire('click');
+  assert.equal(trigger.attributes['aria-expanded'], 'true');
+  assert.equal(panel.attributes.role, 'dialog');
+  assert.equal(panel.attributes['aria-modal'], 'true');
+  assert.equal(onlyByClass(face.el, 'plan-tabs').attributes.role, 'radiogroup');
+  assert.equal(document.activeElement, onlyByClass(face.el, 'plan-sheet-close'));
+  panel.fire('keydown', { key: 'Escape' });
+  assert.equal(trigger.attributes['aria-expanded'], 'false');
+  assert.equal(document.activeElement, trigger);
+  trigger.fire('click');
+  onlyByClass(face.el, 'plan-sheet-close').fire('click');
+  assert.equal(trigger.attributes['aria-expanded'], 'false');
+  trigger.fire('click');
+  selectRevision(face.el, 2);
+  assert.equal(trigger.attributes['aria-expanded'], 'false');
+  trigger.fire('click');
+  byClass(face.el, 'plan-tab')[0].fire('click');
+  assert.equal(trigger.attributes['aria-expanded'], 'false');
+});
+
+test('desktop stepper has constant icon labels, correct boundaries and hides a single revision', async () => {
+  const { face } = await loadedSectionedFace('session-stepper');
+  assert.equal(onlyByClass(face.el, 'plan-revision-stepper').hidden, true);
+  face.update({ state: { reviews: [twoRevisionReview] } });
+  assert.equal(onlyByClass(face.el, 'plan-revision-stepper').hidden, false);
+  const previous = onlyByClass(face.el, 'plan-revision-previous');
+  const next = onlyByClass(face.el, 'plan-revision-next');
+  assert.equal(previous.attributes['aria-label'], 'Previous revision');
+  assert.equal(next.attributes['aria-label'], 'Next revision');
+  assert.equal(next.disabled, true);
+  previous.fire('click');
+  assert.equal(previous.disabled, true);
+  assert.equal(next.disabled, false);
+  assert.equal(onlyByClass(face.el, 'plan-revision-label').textContent, 'Rev 1 of 2');
+  next.fire('click');
+  assert.equal(onlyByClass(face.el, 'plan-revision-label').textContent, 'Rev 2 of 2');
+});
+
+test('touch selects exactly one section and keeps comment buttons out of saved and composing sections', async () => {
+  const { face } = await loadedSectionedFace('session-touch');
+  const sections = byClass(face.el, 'plan-section');
+  sections[0].fire('click');
+  assert.deepEqual(sections.map((section) => section.dataset.selected), ['true', 'false', 'false']);
+  sections[1].fire('click');
+  assert.deepEqual(sections.map((section) => section.dataset.selected), ['false', 'true', 'false']);
+  byClass(face.el, 'plan-section-comment')[1].fire('click');
+  assert.equal(byClass(face.el, 'plan-section-comment').length, 2);
+  saveComment(face.el, 'saved');
+  assert.equal(byClass(face.el, 'plan-section-comment').length, 2);
+});
+
+test('tab and revision changes close composers while delayed saves stay with their captured targets', async () => {
+  const { face } = await loadedSectionedFace('session-comment-selection');
+  face.update({ state: { reviews: [twoRevisionReview, exploreReview] } });
+  byClass(face.el, 'plan-section-comment')[0].fire('click');
+  const mainField = onlyByClass(face.el, 'plan-comment-input');
+  const mainSave = onlyByClass(face.el, 'plan-comment-save');
+  mainField.value = 'main only';
+  byClass(face.el, 'plan-tab')[1].fire('click');
+  assert.equal(byClass(face.el, 'plan-comment-composer').length, 0);
+  mainSave.fire('click');
+  assert.equal(byClass(face.el, 'plan-comment-card').length, 0);
+  byClass(face.el, 'plan-tab')[0].fire('click');
+  assert.equal(onlyByClass(face.el, 'plan-comment-text').textContent, 'main only');
+  byClass(face.el, 'plan-section-comment')[0].fire('click');
+  const openedField = onlyByClass(face.el, 'plan-comment-input');
+  const openedSave = onlyByClass(face.el, 'plan-comment-save');
+  openedField.value = 'revision two';
+  selectRevision(face.el, 1);
+  assert.equal(byClass(face.el, 'plan-comment-composer').length, 0);
+  openedSave.fire('click');
+  selectRevision(face.el, 2);
+  assert.deepEqual(byClass(face.el, 'plan-comment-text').map((node) => node.textContent), ['main only', 'revision two']);
+});
+
+
+test('a response that reopens a review closes its composer and selects the new revision', async () => {
+  const { face, harness } = await loadedSectionedFace('session-response-reopen');
+  byClass(face.el, 'plan-section-comment')[1].fire('click');
+  const reopened = { ...twoRevisionReview, revisions: [...twoRevisionReview.revisions, { revision: 3, receivedAt: 90, chars: 10, title: 'Next' }], openRevision: { revision: 3, since: 90 } };
+  face.update({ response: { id: 'session-response-reopen', reviews: [reopened], body: null } });
+  assert.equal(byClass(face.el, 'plan-comment-composer').length, 0);
+  assert.equal(onlyByClass(face.el, 'plan-revision-label').textContent, 'Rev 3 of 3');
+  assert.equal(decisionButton(face.el, 'approve').disabled, true);
+  assert.deepEqual(harness.requests.at(-1), { agentId: null, revision: 3 });
+});
+
+test('a live layout change closes the shared sheet and releases the reading and decision surfaces', async () => {
+  const { face } = await loadedSectionedFace('session-layout-sheet');
+  const { uiState } = await import('../public/ui-state-core.ts');
+  onlyByClass(face.el, 'plan-view-button').fire('click');
+  uiState.dispatch('setLayout', 'phone');
+  assert.equal(onlyByClass(face.el, 'plan-view-button').attributes['aria-expanded'], 'false');
+  assert.equal(onlyByClass(face.el, 'plan-view-panel').attributes.role, undefined);
+  uiState.dispatch('setLayout', 'desktop');
+});
+
+test('mode radios support arrow keys and keep selection and keyboard focus together', async () => {
+  const { face } = await loadedSectionedFace('session-mode-keys');
+  modeButton(face.el, 'read').focus();
+  onlyByClass(face.el, 'plan-modes').fire('keydown', { key: 'ArrowRight' });
+  assert.equal(modeButton(face.el, 'edit').attributes['aria-checked'], 'true');
+  assert.equal(document.activeElement, modeButton(face.el, 'edit'));
+  onlyByClass(face.el, 'plan-modes').fire('keydown', { key: 'Home' });
+  assert.equal(modeButton(face.el, 'read').attributes['aria-checked'], 'true');
+  assert.equal(document.activeElement, modeButton(face.el, 'read'));
+});
+
+
+test('a delayed inline save keeps the session captured at open after the face shows another session', async () => {
+  const { face } = await loadedSectionedFace('session-comment-original');
+  byClass(face.el, 'plan-section-comment')[0].fire('click');
+  const field = onlyByClass(face.el, 'plan-comment-input');
+  const save = onlyByClass(face.el, 'plan-comment-save');
+  field.value = 'original session';
+  face.show('session-comment-other');
+  face.update({ response: { id: 'session-comment-other', reviews: [openMainReview], body: { agentId: null, revision: 2, plan: SECTIONED_PLAN, planFilePath: '/plans/b.md', receivedAt: 40 } } });
+  save.fire('click');
+  assert.equal(byClass(face.el, 'plan-comment-card').length, 0);
+  face.show('session-comment-original');
+  assert.equal(onlyByClass(face.el, 'plan-comment-text').textContent, 'original session');
+  const { dropPlanBodyCache } = await import('../public/plan/plan-face.ts');
+  dropPlanBodyCache('session-comment-other');
+});
+
+
+test('sheet mode clicks and asynchronous refreshes keep focus inside the dialog for Escape', async () => {
+  const { face } = await loadedSectionedFace('session-sheet-focus');
+  onlyByClass(face.el, 'plan-view-button').fire('click');
+  modeButton(face.el, 'edit').fire('click');
+  assert.equal(document.activeElement, modeButton(face.el, 'edit'));
+  face.update({ isConnected: false });
+  assert.equal(modeButton(face.el, 'read').tabIndex, 0);
+  assert.equal(document.activeElement, onlyByClass(face.el, 'plan-sheet-close'));
+  onlyByClass(face.el, 'plan-view-panel').fire('keydown', { key: 'Escape' });
+  assert.equal(onlyByClass(face.el, 'plan-view-button').attributes['aria-expanded'], 'false');
+});
+
+test('a problem shown beside the accept-edits checkbox leaves it visible, so approve never sends a kind nobody sees', async () => {
+  const { face, harness } = await loadedSectionedFace('session-checkbox-problem');
+  modeButton(face.el, 'edit').fire('click');
+  onlyByClass(face.el, 'plan-accept-edits-checkbox').checked = true;
+  onlyByClass(face.el, 'plan-editor').value = '';
+  decisionButton(face.el, 'approve').fire('click');
+  assert.deepEqual(harness.decisions, []);
+  assert.equal(onlyByClass(face.el, 'plan-accept-edits').hidden, false);
+  assert.equal(onlyByClass(face.el, 'plan-accept-edits-checkbox').checked, true);
+  assert.equal(onlyByClass(face.el, 'plan-status').hidden, false);
+  assert.equal(onlyByClass(face.el, 'plan-status').textContent, 'the edited plan is empty, so nothing was sent');
+  onlyByClass(face.el, 'plan-editor').value = '# Ship it, smaller';
+  decisionButton(face.el, 'approve').fire('click');
+  assert.deepEqual(harness.decisions, [{ agentId: null, revision: 2, decision: 'approve-accept-edits', plan: '# Ship it, smaller' }]);
+});
+
+test('typing in an open composer blocks approve and send until the comment is saved or cancelled', async () => {
+  const { face, harness } = await loadedSectionedFace('session-composer-unsaved');
+  byClass(face.el, 'plan-section-comment')[1].fire('click');
+  const field = onlyByClass(face.el, 'plan-comment-input');
+  field.value = 'stage it behind the flag';
+  field.fire('input');
+  assert.equal(onlyByClass(face.el, 'plan-comment-input'), field, 'typing never rebuilds the reading column under the cursor');
+  assert.equal(decisionButton(face.el, 'approve').disabled, true);
+  assert.equal(decisionButton(face.el, 'revise').disabled, true);
+  assert.equal(onlyByClass(face.el, 'plan-status').textContent, 'Save or cancel the open comment first.');
+  decisionButton(face.el, 'approve').fire('click');
+  assert.deepEqual(harness.decisions, []);
+  onlyByClass(face.el, 'plan-comment-cancel').fire('click');
+  assert.equal(decisionButton(face.el, 'approve').disabled, false);
+  assert.equal(onlyByClass(face.el, 'plan-status').hidden, true);
+});
+
+test('editing a saved comment blocks send until the edit is saved, so feedback never carries the stale text', async () => {
+  const { face, harness } = await loadedSectionedFace('session-composer-stale');
+  byClass(face.el, 'plan-section-comment')[1].fire('click');
+  saveComment(face.el, 'first thought');
+  onlyByClass(face.el, 'plan-comment-edit').fire('click');
+  const field = onlyByClass(face.el, 'plan-comment-input');
+  field.value = 'first thought';
+  field.fire('input');
+  assert.equal(decisionButton(face.el, 'revise').disabled, false, 'an unchanged edit is not unsaved');
+  field.value = 'second thought';
+  field.fire('input');
+  assert.equal(decisionButton(face.el, 'revise').disabled, true);
+  assert.equal(decisionButton(face.el, 'approve').disabled, true);
+  decisionButton(face.el, 'revise').fire('click');
+  assert.deepEqual(harness.decisions, []);
+  onlyByClass(face.el, 'plan-comment-save').fire('click');
+  decisionButton(face.el, 'revise').fire('click');
+  assert.deepEqual(harness.decisions, [{ agentId: null, revision: 2, decision: 'revise', comments: [{ heading: 'Rollout', comment: 'second thought' }] }]);
+});
+
+test('unsaved plan edits survive reselecting Edit and a Read or Changes round trip, and reset on a selection change', async () => {
+  const { face } = await loadedSectionedFace('session-editor-retained');
+  face.update({ state: { reviews: [twoRevisionReview] } });
+  modeButton(face.el, 'edit').fire('click');
+  onlyByClass(face.el, 'plan-editor').value = '# Ship it, edited';
+  modeButton(face.el, 'edit').fire('click');
+  assert.equal(onlyByClass(face.el, 'plan-editor').value, '# Ship it, edited');
+  modeButton(face.el, 'edit').focus();
+  onlyByClass(face.el, 'plan-modes').fire('keydown', { key: 'End' });
+  assert.equal(onlyByClass(face.el, 'plan-editor').value, '# Ship it, edited');
+  modeButton(face.el, 'read').fire('click');
+  modeButton(face.el, 'edit').fire('click');
+  assert.equal(onlyByClass(face.el, 'plan-editor').value, '# Ship it, edited');
+  modeButton(face.el, 'changes').fire('click');
+  modeButton(face.el, 'edit').fire('click');
+  assert.equal(onlyByClass(face.el, 'plan-editor').value, '# Ship it, edited');
+  selectRevision(face.el, 1);
+  selectRevision(face.el, 2);
+  modeButton(face.el, 'edit').fire('click');
+  assert.equal(onlyByClass(face.el, 'plan-editor').value, SECTIONED_PLAN);
 });

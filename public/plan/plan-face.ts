@@ -1,4 +1,4 @@
-import { PLAN_COMMENT_MAX_CHARS, PLAN_DRAFT_REVISION, PLAN_FEEDBACK_MAX_CHARS } from '#shared/contracts/plan-review.ts';
+import { PLAN_COMMENT_MAX_CHARS, PLAN_DRAFT_REVISION } from '#shared/contracts/plan-review.ts';
 import type {
   PlanDecisionKind,
   PlanDecisionRequest,
@@ -9,12 +9,13 @@ import type {
   PlanSectionComment,
 } from '#shared/contracts/plan-review.ts';
 import { el } from '../dom-helpers.ts';
+import { uiState } from '../ui-state-core.ts';
 import { diffPlanBodies } from './plan-diff-core.ts';
 import { parsePlanMarkdown, splitPlanSections } from './plan-markdown-core.ts';
 import type { PlanSection } from './plan-markdown-core.ts';
 import { renderPlanBlocks, renderPlanDiff, renderPlanSections } from './plan-render.ts';
-import { createPlanViewModel, currentHeadingIndex, isApprovalConfirmed, isApprovalDecision, openRevisionFor, planLimitRefusal, previousRevisionFor } from './plan-view-core.ts';
-import type { PlanActionKind, PlanDecisionExtras } from './plan-view-core.ts';
+import { createPlanViewModel, currentHeadingIndex, formatRelativeAge, isApprovalConfirmed, isApprovalDecision, openRevisionFor, planLimitRefusal, previousRevisionFor } from './plan-view-core.ts';
+import type { PlanActionKind, PlanDecisionExtras, PlanMode } from './plan-view-core.ts';
 
 export type PlanResponse = PlanResponseFrame;
 
@@ -27,18 +28,12 @@ export interface PlanFaceUpdate {
   decisionRefused?: boolean;
 }
 
-export interface PlanCommentRequest {
-  title: string;
-  value: string;
-  maxChars: number;
-}
-
 export interface PlanFaceDeps {
+  signal?: AbortSignal;
   requestPlan: (id: string, agentId: string | null, revision?: number) => boolean;
   requestDraft: (id: string, agentId: string | null) => boolean;
   showTerminal: () => void;
   sendDecision: (id: string, request: PlanDecisionRequest) => boolean;
-  promptFeedback: (request: PlanCommentRequest, onSubmit: (text: string) => void) => void;
   reportProblem: (message: string) => void;
 }
 
@@ -110,23 +105,57 @@ export function createPlanFace(deps: PlanFaceDeps) {
   root.hidden = true;
 
   const head = el('header', 'plan-head');
-  const tabs = el('div', 'plan-tabs');
-  tabs.setAttribute('role', 'tablist');
-  const revisionPicker = el('select', 'plan-revision-picker');
-  revisionPicker.setAttribute('aria-label', 'Plan revision');
-  const diffToggle = el('button', 'plan-head-toggle plan-diff-toggle', 'Diff');
-  diffToggle.type = 'button';
-  const draftChip = el('button', 'plan-head-toggle plan-draft-chip', 'Draft updated');
-  draftChip.type = 'button';
-  const readButton = el('button', 'plan-terminal-button plan-read-button', 'Read plan');
-  readButton.type = 'button';
-  const terminalButton = el('button', 'plan-terminal-button', 'Terminal');
-  terminalButton.type = 'button';
-  terminalButton.addEventListener('click', deps.showTerminal);
-  head.append(tabs, revisionPicker, diffToggle, draftChip, readButton, terminalButton);
-
   const narrowHeadingPicker = el('select', 'plan-heading-picker');
   narrowHeadingPicker.setAttribute('aria-label', 'Plan section');
+  const viewPanel = el('div', 'plan-view-panel');
+  const sheetHead = el('div', 'plan-sheet-head');
+  const closeSheetButton = el('button', 'plan-control plan-sheet-close', String.fromCharCode(215));
+  closeSheetButton.type = 'button';
+  closeSheetButton.setAttribute('aria-label', 'Close');
+  sheetHead.append(el('span', null, 'View'), closeSheetButton);
+  const authorGroup = el('div', 'plan-view-group plan-author-group');
+  const tabs = el('div', 'plan-tabs');
+  tabs.setAttribute('role', 'tablist');
+  tabs.setAttribute('aria-label', 'Plan author');
+  authorGroup.append(el('span', 'plan-sheet-label', 'Author'), tabs);
+  const revisionGroup = el('div', 'plan-view-group plan-revision-group');
+  const revisionStepper = el('div', 'plan-revision-stepper');
+  const previousRevisionButton = el('button', 'plan-control plan-revision-previous', String.fromCharCode(8249));
+  previousRevisionButton.type = 'button';
+  previousRevisionButton.setAttribute('aria-label', 'Previous revision');
+  const nextRevisionButton = el('button', 'plan-control plan-revision-next', String.fromCharCode(8250));
+  nextRevisionButton.type = 'button';
+  nextRevisionButton.setAttribute('aria-label', 'Next revision');
+  const revisionLabel = el('span', 'plan-revision-label');
+  const revisionAge = el('span', 'plan-revision-age');
+  revisionStepper.append(previousRevisionButton, revisionLabel, nextRevisionButton, revisionAge);
+  const revisionList = el('div', 'plan-revision-list');
+  revisionList.setAttribute('role', 'radiogroup');
+  revisionList.setAttribute('aria-label', 'Revision');
+  revisionGroup.append(el('span', 'plan-sheet-label', 'Revision'), revisionStepper, revisionList);
+  const modeGroup = el('div', 'plan-view-group plan-mode-group');
+  const modes = el('div', 'plan-modes');
+  modes.setAttribute('role', 'radiogroup');
+  modes.setAttribute('aria-label', 'Show');
+  modeGroup.append(el('span', 'plan-sheet-label', 'Show'), modes);
+  const spacer = el('div', 'plan-head-spacer');
+  const draftNotice = el('div', 'plan-draft-notice');
+  const draftDot = el('span', 'plan-draft-dot');
+  draftDot.setAttribute('aria-hidden', 'true');
+  const draftChip = el('button', 'plan-control plan-draft-chip', 'Peek draft');
+  draftChip.type = 'button';
+  draftNotice.append(draftDot, draftChip);
+  viewPanel.append(sheetHead, authorGroup, revisionGroup, modeGroup, spacer, draftNotice);
+  const viewButton = el('button', 'plan-control plan-view-button', 'View');
+  viewButton.type = 'button';
+  viewButton.setAttribute('aria-haspopup', 'dialog');
+  viewButton.setAttribute('aria-expanded', 'false');
+  const minimizeButton = el('button', 'plan-control plan-minimize-button', 'Minimize');
+  minimizeButton.type = 'button';
+  minimizeButton.addEventListener('click', deps.showTerminal);
+  head.append(narrowHeadingPicker, viewPanel, viewButton, minimizeButton);
+  const sheetBackdrop = el('div', 'plan-sheet-backdrop');
+
   const bodyLayout = el('div', 'plan-body-layout');
   const headingRail = el('nav', 'plan-heading-rail');
   headingRail.setAttribute('aria-label', 'Plan sections');
@@ -140,9 +169,25 @@ export function createPlanFace(deps: PlanFaceDeps) {
   const actionBar = el('footer', 'plan-action-bar');
   const status = el('span', 'plan-status');
   status.setAttribute('role', 'status');
-  const actions = el('div', 'plan-actions');
-  actionBar.append(status, actions);
-  root.append(head, narrowHeadingPicker, bodyLayout, actionBar);
+  const decisionSlot = el('div', 'plan-decision-slot');
+  const acceptEditsLabel = el('label', 'plan-accept-edits');
+  const acceptEditsCheckbox = el('input', 'plan-accept-edits-checkbox');
+  acceptEditsCheckbox.type = 'checkbox';
+  acceptEditsLabel.append(acceptEditsCheckbox, el('span', null, 'Accept edits'));
+  decisionSlot.append(acceptEditsLabel, status);
+  actionBar.append(decisionSlot);
+  const actionButtons = new Map<PlanActionKind, HTMLButtonElement>();
+  for (const [kind, label] of [['terminal', 'Answer in terminal'], ['revise', 'Send feedback'], ['approve', 'Approve']] as const) {
+    const button = el('button', 'plan-action', label);
+    button.type = 'button';
+    button.dataset.decision = kind;
+    button.addEventListener('click', () => {
+      if (!button.disabled) actOn(kind);
+    });
+    actionButtons.set(kind, button);
+    actionBar.append(button);
+  }
+  root.append(head, bodyLayout, actionBar, sheetBackdrop);
 
   let sessionId: string | null = null;
   let state: PlanReviewState = { reviews: [] };
@@ -156,6 +201,7 @@ export function createPlanFace(deps: PlanFaceDeps) {
   let isDecisionInFlight = false;
   let awaitedApproval: DecisionTarget | null = null;
   let isEditing = false;
+  let editorSelectionKey: string | null = null;
   let isDiffShown = false;
   let isDraftShown = false;
   let draftBody: string | null = null;
@@ -167,10 +213,103 @@ export function createPlanFace(deps: PlanFaceDeps) {
   const pendingRequestsByTarget = new Map<string, PlanRequestTarget>();
   let railLinks: HTMLButtonElement[] = [];
   let isHeadingSyncQueued = false;
+  let composer: { target: CommentTarget; element: HTMLElement; field: HTMLTextAreaElement } | null = null;
+  let isSheetOpen = false;
+
+  function setSheetOpen(isOpen: boolean, shouldFocus = true) {
+    isSheetOpen = isOpen;
+    viewPanel.replaceChildren(...(isOpen
+      ? [sheetHead, modeGroup, revisionGroup, authorGroup, draftNotice, spacer]
+      : [sheetHead, authorGroup, revisionGroup, modeGroup, spacer, draftNotice]));
+    tabs.setAttribute('role', isOpen ? 'radiogroup' : 'tablist');
+    for (const button of tabs.querySelectorAll('button')) {
+      const isSelected = button.getAttribute('aria-selected') === 'true' || button.getAttribute('aria-checked') === 'true';
+      button.setAttribute('role', isOpen ? 'radio' : 'tab');
+      button.removeAttribute(isOpen ? 'aria-selected' : 'aria-checked');
+      button.setAttribute(isOpen ? 'aria-checked' : 'aria-selected', String(isSelected));
+    }
+    viewPanel.dataset.open = String(isOpen);
+    sheetBackdrop.dataset.open = String(isOpen);
+    viewButton.setAttribute('aria-expanded', String(isOpen));
+    bodyLayout.inert = isOpen;
+    actionBar.inert = isOpen;
+    narrowHeadingPicker.inert = isOpen;
+    viewButton.inert = isOpen;
+    minimizeButton.inert = isOpen;
+    if (isOpen) {
+      viewPanel.setAttribute('role', 'dialog');
+      viewPanel.setAttribute('aria-label', 'Plan view');
+      viewPanel.setAttribute('aria-modal', 'true');
+      closeSheetButton.focus();
+      return;
+    }
+    viewPanel.removeAttribute('role');
+    viewPanel.removeAttribute('aria-modal');
+    if (shouldFocus) viewButton.focus();
+  }
+
+  function wireSelectionKeys(group: HTMLElement) {
+    group.addEventListener('keydown', (event) => {
+      const directions: Record<string, number> = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 };
+      const direction = directions[event.key];
+      if (direction === undefined && event.key !== 'Home' && event.key !== 'End') return;
+      const buttons = [...group.querySelectorAll<HTMLElement>('button:not(:disabled)')];
+      if (buttons.length === 0) return;
+      event.preventDefault();
+      const currentIndex = buttons.indexOf(document.activeElement as HTMLElement);
+      let nextIndex = (currentIndex + (direction ?? 0) + buttons.length) % buttons.length;
+      if (event.key === 'Home') nextIndex = 0;
+      if (event.key === 'End') nextIndex = buttons.length - 1;
+      const wasSheetOpen = isSheetOpen;
+      buttons[nextIndex].click();
+      if (wasSheetOpen && group !== modes) return;
+      if (group === modes || !isSheetOpen) {
+        const selected = group.querySelector<HTMLButtonElement>('[aria-checked="true"], [aria-selected="true"]');
+        selected?.focus();
+      }
+    });
+  }
+
+  const stopWatchingLayout = uiState.subscribe((_state, changedKeys) => {
+    if (!changedKeys.includes('layout') || !isSheetOpen) return;
+    setSheetOpen(false, false);
+  });
+  deps.signal?.addEventListener('abort', stopWatchingLayout, { once: true });
+
+  wireSelectionKeys(modes);
+  wireSelectionKeys(tabs);
+  wireSelectionKeys(revisionList);
+
+  viewButton.addEventListener('click', () => setSheetOpen(!isSheetOpen));
+  closeSheetButton.addEventListener('click', () => setSheetOpen(false));
+  sheetBackdrop.addEventListener('click', () => setSheetOpen(false));
+  viewPanel.addEventListener('keydown', (event) => {
+    if (!isSheetOpen) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      setSheetOpen(false);
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = [...viewPanel.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')]
+      .filter((button) => button.getClientRects().length > 0 && button.tabIndex >= 0);
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last?.focus();
+      return;
+    }
+    if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    }
+  });
 
   function scrollToHeading(id: string) {
     const heading = readingColumn.querySelector<HTMLElement>(`#${CSS.escape(id)}`);
-    heading?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    heading?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
   }
 
   narrowHeadingPicker.addEventListener('change', () => scrollToHeading(narrowHeadingPicker.value));
@@ -207,7 +346,9 @@ export function createPlanFace(deps: PlanFaceDeps) {
   readingColumn.addEventListener('scroll', queueHeadingSync, { passive: true });
 
   function leaveTransientViews() {
+    composer = null;
     isEditing = false;
+    isDiffShown = false;
     isDraftShown = false;
     draftBody = null;
   }
@@ -218,12 +359,23 @@ export function createPlanFace(deps: PlanFaceDeps) {
     render();
   }
 
-  revisionPicker.addEventListener('change', () => {
-    selectedRevision = Number(revisionPicker.value) || null;
+  function selectRevision(revision: number | null) {
+    selectedRevision = revision;
     problem = null;
     leaveTransientViews();
+    setSheetOpen(false, isSheetOpen);
     render();
-  });
+  }
+
+  function stepRevision(direction: number) {
+    const revisions = state.reviews.find((review) => review.agentId === selectedAgentId)?.revisions ?? [];
+    const selectedIndex = revisions.findIndex((revision) => revision.revision === selectedRevision);
+    const nextRevision = revisions[selectedIndex + direction];
+    if (nextRevision) selectRevision(nextRevision.revision);
+  }
+
+  previousRevisionButton.addEventListener('click', () => stepRevision(-1));
+  nextRevisionButton.addEventListener('click', () => stepRevision(1));
 
   function requestKeyFor(agentId: string | null, revision: number | null) {
     return `${sessionId ?? ''}:${agentId ?? 'main'}:${revision ?? 'latest'}`;
@@ -249,6 +401,12 @@ export function createPlanFace(deps: PlanFaceDeps) {
     return storedComments()?.size ?? 0;
   }
 
+  function hasUnsavedComment() {
+    if (composer === null) return false;
+    const savedText = commentsByRevision.get(composer.target.bucketKey)?.get(composer.target.sectionSlot) ?? '';
+    return composer.field.value.trim() !== savedText;
+  }
+
   function orderedComments(bucketKey: string): PlanSectionComment[] {
     const stored = commentsByRevision.get(bucketKey);
     if (!stored) return [];
@@ -271,10 +429,55 @@ export function createPlanFace(deps: PlanFaceDeps) {
   }
 
   function commentOn(section: PlanSection) {
+    if (isDraftShown || isDecisionInFlight) return;
     const target: CommentTarget = { bucketKey: selectedCommentsKey(), sectionSlot: sectionKey(section) };
-    const title = section.heading === null ? 'Comment on the plan' : `Comment on "${section.heading}"`;
-    const value = commentsByRevision.get(target.bucketKey)?.get(target.sectionSlot) ?? '';
-    deps.promptFeedback({ title, value, maxChars: PLAN_COMMENT_MAX_CHARS }, (comment) => noteComment(target, comment));
+    const element = el('div', 'plan-comment-composer');
+    const label = el('label', 'plan-comment-label', `Comment on ${section.heading ?? 'Introduction'}`);
+    const field = el('textarea', 'plan-comment-input');
+    field.maxLength = PLAN_COMMENT_MAX_CHARS;
+    field.value = commentsByRevision.get(target.bucketKey)?.get(target.sectionSlot) ?? '';
+    label.append(field);
+    const composerActions = el('div', 'plan-comment-actions');
+    const cancelButton = el('button', 'plan-control plan-comment-cancel', 'Cancel');
+    cancelButton.type = 'button';
+    const saveButton = el('button', 'plan-control plan-comment-save', 'Save comment');
+    saveButton.type = 'button';
+    composerActions.append(cancelButton, saveButton);
+    element.append(label, composerActions);
+    const openedComposer = { target, element, field };
+    composer = openedComposer;
+    field.addEventListener('input', refreshDecisionBar);
+    cancelButton.addEventListener('click', () => {
+      if (composer !== openedComposer) return;
+      composer = null;
+      render();
+    });
+    saveButton.addEventListener('click', () => {
+      if (composer === openedComposer) composer = null;
+      noteComment(target, field.value);
+    });
+    render();
+    field.focus();
+  }
+
+  function commentAttachmentFor(section: PlanSection): HTMLElement | null {
+    const target: CommentTarget = { bucketKey: selectedCommentsKey(), sectionSlot: sectionKey(section) };
+    if (composer?.target.bucketKey === target.bucketKey && composer.target.sectionSlot === target.sectionSlot) return composer.element;
+    const comment = storedComments()?.get(target.sectionSlot);
+    if (!comment) return null;
+    const card = el('div', 'plan-comment-card');
+    const commentHead = el('div', 'plan-comment-head');
+    const editButton = el('button', 'plan-control plan-comment-edit', 'Edit');
+    editButton.type = 'button';
+    editButton.addEventListener('click', () => commentOn(section));
+    const removeButton = el('button', 'plan-control plan-comment-remove', 'Remove');
+    removeButton.type = 'button';
+    removeButton.disabled = isDecisionInFlight;
+    editButton.disabled = isDecisionInFlight;
+    removeButton.addEventListener('click', () => noteComment(target, ''));
+    commentHead.append(el('span', 'plan-comment-label', 'Your comment'), editButton, removeButton);
+    card.append(commentHead, el('p', 'plan-comment-text', comment));
+    return card;
   }
 
   function submitDecision(decision: PlanDecisionKind, target: DecisionTarget, extras: PlanDecisionExtras = {}) {
@@ -303,30 +506,34 @@ export function createPlanFace(deps: PlanFaceDeps) {
   function sendFeedback(readRevision: DecisionTarget) {
     const bucketKey = commentsKeyFor(sessionId, readRevision.agentId, readRevision.revision);
     const comments = orderedComments(bucketKey);
-    deps.promptFeedback({ title: 'Send feedback', value: '', maxChars: PLAN_FEEDBACK_MAX_CHARS }, (feedback) => {
-      const isSent = submitDecision('revise', readRevision, { feedback, ...(comments.length > 0 ? { comments } : {}) });
-      if (!isSent || readRevision.revision === null) return;
-      sentComments = { bucketKey, agentId: readRevision.agentId, revision: readRevision.revision };
-      render();
-    });
+    if (comments.length === 0) return;
+    const isSent = submitDecision('revise', readRevision, { comments });
+    if (!isSent || readRevision.revision === null) return;
+    sentComments = { bucketKey, agentId: readRevision.agentId, revision: readRevision.revision };
+    render();
   }
 
   function actOn(kind: PlanActionKind) {
     const readRevision: DecisionTarget = { agentId: selectedAgentId, revision: selectedRevision };
-    if (kind === 'edit') {
-      isEditing = true;
-      isDiffShown = false;
-      isDraftShown = false;
-      problem = null;
-      editor.value = bodyFromCache(sessionId, selectedAgentId, selectedRevision) ?? '';
-      render();
-      return;
-    }
     if (kind === 'revise') {
       sendFeedback(readRevision);
       return;
     }
-    submitDecision(kind, readRevision, editedPlanFor(readRevision));
+    const isAcceptingEdits = kind === 'approve' && !acceptEditsLabel.hidden && acceptEditsCheckbox.checked;
+    const decision = isAcceptingEdits ? 'approve-accept-edits' : kind;
+    submitDecision(decision, readRevision, editedPlanFor(readRevision));
+  }
+
+  function selectMode(mode: PlanMode) {
+    composer = null;
+    isEditing = mode === 'edit';
+    isDiffShown = mode === 'changes';
+    if (isEditing && editorSelectionKey !== selectedCommentsKey()) {
+      editor.value = bodyFromCache(sessionId, selectedAgentId, selectedRevision) ?? '';
+      editorSelectionKey = selectedCommentsKey();
+    }
+    problem = null;
+    render();
   }
 
   function pendingTargetKey(target: PlanRequestTarget) {
@@ -432,41 +639,32 @@ export function createPlanFace(deps: PlanFaceDeps) {
       render();
       return;
     }
+    composer = null;
     isEditing = false;
     isDiffShown = false;
     requestDraftBody();
     render();
   }
 
-  function toggleDiff() {
-    leaveTransientViews();
-    isDiffShown = !isDiffShown;
-    render();
-  }
-
-  diffToggle.addEventListener('click', toggleDiff);
   draftChip.addEventListener('click', toggleDraft);
-  readButton.addEventListener('click', () => {
-    isEditing = false;
-    render();
-  });
 
   function renderHeadingRail(sections: readonly PlanSection[]) {
     headingRail.replaceChildren();
     narrowHeadingPicker.replaceChildren();
     railLinks = [];
     for (const section of sections) {
-      if (section.heading === null || section.id === null) continue;
-      const headingId = section.id;
-      const button = el('button', 'plan-heading-link', section.heading);
+      const headingId = section.id ?? 'plan-introduction';
+      const headingLabel = section.heading ?? 'Introduction';
+      const button = el('button', 'plan-heading-link', headingLabel);
       button.type = 'button';
       button.dataset.level = String(section.level);
       button.dataset.headingId = headingId;
-      button.title = section.heading;
+      button.title = headingLabel;
+      button.dataset.commented = String(storedComments()?.has(sectionKey(section)) === true);
       railLinks.push(button);
       button.addEventListener('click', () => scrollToHeading(headingId));
       headingRail.append(button);
-      const option = el('option', null, section.heading);
+      const option = el('option', null, headingLabel);
       option.value = headingId;
       narrowHeadingPicker.append(option);
     }
@@ -525,17 +723,21 @@ export function createPlanFace(deps: PlanFaceDeps) {
     const stored = storedComments();
     readingColumn.append(renderPlanSections(currentSections, {
       hasComment: (section) => stored?.has(sectionKey(section)) === true,
+      isComposing: (section) => composer?.target.bucketKey === selectedCommentsKey() && composer.target.sectionSlot === sectionKey(section),
       onComment: commentOn,
+      attachmentFor: commentAttachmentFor,
     }));
   }
 
   function renderTabs(model: ReturnType<typeof createPlanViewModel>) {
+    authorGroup.hidden = model.tabs.length < 2;
     tabs.replaceChildren();
     for (const tab of model.tabs) {
       const button = el('button', 'plan-tab', tab.label);
       button.type = 'button';
-      button.setAttribute('role', 'tab');
-      button.setAttribute('aria-selected', String(tab.selected));
+      button.setAttribute('role', isSheetOpen ? 'radio' : 'tab');
+      button.setAttribute(isSheetOpen ? 'aria-checked' : 'aria-selected', String(tab.selected));
+      button.tabIndex = tab.selected ? 0 : -1;
       button.addEventListener('click', () => {
         selectedAgentId = tab.agentId;
         selectedRevision = null;
@@ -545,18 +747,19 @@ export function createPlanFace(deps: PlanFaceDeps) {
         diffRequestKey = '';
         draftRequestKey = '';
         leaveTransientViews();
+        setSheetOpen(false, isSheetOpen);
         render();
       });
       tabs.append(button);
     }
   }
 
-  function render() {
-    const selection = createPlanViewModel({ state, selectedAgentId, selectedRevision, body: null, isConnected });
-    selectedAgentId = selection.selectedAgentId;
-    selectedRevision = selection.selectedRevision;
-    const body = isDraftShown ? draftBody : bodyFromCache(sessionId, selectedAgentId, selectedRevision);
-    const model = createPlanViewModel({
+  function shownBody() {
+    return isDraftShown ? draftBody : bodyFromCache(sessionId, selectedAgentId, selectedRevision);
+  }
+
+  function viewModelFor(body: string | null) {
+    return createPlanViewModel({
       state,
       selectedAgentId,
       selectedRevision,
@@ -565,55 +768,104 @@ export function createPlanFace(deps: PlanFaceDeps) {
       isDecisionInFlight,
       isDraft: isDraftShown,
       pendingCommentCount: pendingCommentCount(),
+      hasUnsavedComment: hasUnsavedComment(),
       problem,
     });
+  }
+
+  function renderDecisionBar(model: ReturnType<typeof createPlanViewModel>) {
+    status.textContent = model.status;
+    status.hidden = model.status.length === 0;
+    const canApprove = model.actions.some((action) => action.kind === 'approve' && action.enabled);
+    acceptEditsLabel.hidden = !canApprove;
+    acceptEditsCheckbox.disabled = !canApprove;
+    for (const action of model.actions) {
+      const button = actionButtons.get(action.kind);
+      if (button) button.disabled = !action.enabled;
+    }
+  }
+
+  function refreshDecisionBar() {
+    renderDecisionBar(viewModelFor(shownBody()));
+  }
+
+  function render() {
+    const shouldKeepSheetFocus = isSheetOpen && viewPanel.contains(document.activeElement);
+    const selection = createPlanViewModel({ state, selectedAgentId, selectedRevision, body: null, isConnected });
+    if (selectedAgentId !== selection.selectedAgentId || selectedRevision !== selection.selectedRevision) leaveTransientViews();
+    selectedAgentId = selection.selectedAgentId;
+    selectedRevision = selection.selectedRevision;
+    if (editorSelectionKey !== selectedCommentsKey()) editorSelectionKey = null;
+    const body = shownBody();
+    const model = viewModelFor(body);
 
     renderTabs(model);
 
-    revisionPicker.replaceChildren();
-    for (const revision of model.revisions) {
-      const option = el('option', null, revision.label);
-      option.value = String(revision.revision);
-      option.selected = revision.selected;
-      option.title = new Date(revision.receivedAt).toLocaleString();
-      revisionPicker.append(option);
-    }
-    revisionPicker.hidden = model.revisions.length < 2;
-    diffToggle.hidden = model.previousRevision === null;
-    diffToggle.setAttribute('aria-pressed', String(isDiffShown));
-    draftChip.hidden = !isDraftNewer() && !isDraftShown;
-    draftChip.setAttribute('aria-pressed', String(isDraftShown));
-    readButton.hidden = !isEditing;
-    status.textContent = model.status;
-
-    actions.replaceChildren();
-    for (const action of model.actions) {
-      const button = el('button', 'plan-action', action.label);
+    const selectedIndex = model.revisions.findIndex((revision) => revision.selected);
+    const selectedSummary = model.revisions[selectedIndex];
+    const now = Date.now();
+    revisionStepper.hidden = model.revisions.length < 2;
+    revisionLabel.textContent = `Rev ${selectedIndex + 1} of ${model.revisions.length}`;
+    revisionAge.textContent = selectedSummary ? formatRelativeAge(selectedSummary.receivedAt, now) : '';
+    previousRevisionButton.disabled = selectedIndex <= 0;
+    nextRevisionButton.disabled = selectedIndex < 0 || selectedIndex >= model.revisions.length - 1;
+    revisionList.replaceChildren();
+    for (const revision of [...model.revisions].reverse()) {
+      const button = el('button', 'plan-revision-option');
       button.type = 'button';
-      button.disabled = !action.enabled;
-      button.dataset.decision = action.kind;
-      button.addEventListener('click', () => actOn(action.kind));
-      actions.append(button);
+      button.dataset.revision = String(revision.revision);
+      button.setAttribute('role', 'radio');
+      button.setAttribute('aria-checked', String(revision.selected));
+      button.tabIndex = revision.selected ? 0 : -1;
+      button.append(el('span', 'plan-revision-name', revision.label), el('span', 'plan-revision-age', formatRelativeAge(revision.receivedAt, now)));
+      if (revision.isOpen) button.append(el('span', 'plan-revision-open', 'OPEN'));
+      button.addEventListener('click', () => selectRevision(revision.revision));
+      revisionList.append(button);
     }
-
+    modes.replaceChildren();
+    const selectedMode = isEditing ? 'edit' : isDiffShown ? 'changes' : 'read';
+    const focusableMode = model.modes.find((mode) => mode.kind === selectedMode && mode.enabled) ?? model.modes[0];
+    for (const mode of model.modes) {
+      const button = el('button', 'plan-control plan-mode', mode.label);
+      button.type = 'button';
+      button.dataset.mode = mode.kind;
+      button.disabled = !mode.enabled;
+      button.setAttribute('role', 'radio');
+      button.setAttribute('aria-checked', String(mode.kind === selectedMode));
+      button.tabIndex = mode.kind === focusableMode.kind ? 0 : -1;
+      button.addEventListener('click', () => {
+        if (button.disabled) return;
+        selectMode(mode.kind);
+        modes.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();
+      });
+      modes.append(button);
+    }
+    draftNotice.hidden = !isDraftNewer() && !isDraftShown;
+    draftChip.hidden = draftNotice.hidden;
+    draftChip.setAttribute('aria-pressed', String(isDraftShown));
+    renderDecisionBar(model);
     renderColumn(body);
-    narrowHeadingPicker.hidden = railLinks.length < 2;
+    narrowHeadingPicker.disabled = railLinks.length === 0;
     queueHeadingSync();
+    if (shouldKeepSheetFocus && !viewPanel.contains(document.activeElement)) closeSheetButton.focus();
   }
 
   function followConfirmedApproval(next: PlanReviewState) {
     if (awaitedApproval === null || !isApprovalConfirmed(next, awaitedApproval.agentId)) return;
     awaitedApproval = null;
+    editorSelectionKey = null;
     deps.showTerminal();
   }
 
   function show(id: string) {
+    composer = null;
     if (id !== sessionId) {
       awaitedApproval = null;
       isDecisionInFlight = false;
       problem = null;
       pendingRequestsByTarget.clear();
     }
+    setSheetOpen(false, false);
     sessionId = id;
     root.hidden = false;
     lastRequestKey = '';
@@ -623,6 +875,8 @@ export function createPlanFace(deps: PlanFaceDeps) {
   }
 
   function hide() {
+    composer = null;
+    setSheetOpen(false, false);
     root.hidden = true;
   }
 
@@ -655,9 +909,7 @@ export function createPlanFace(deps: PlanFaceDeps) {
 
   function adoptResponse(response: PlanResponse) {
     isDecisionInFlight = false;
-    state = { reviews: response.reviews };
-    confirmSentComments(state);
-    followConfirmedApproval(state);
+    adoptState({ reviews: response.reviews });
     const body = response.body;
     if (!body) {
       const refused = takeSolePendingRequest() ?? takePendingDraftRequest();

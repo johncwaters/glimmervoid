@@ -111,29 +111,41 @@ export function renderPlanBlocks(blocks: readonly PlanBlock[]): HTMLElement {
 
 export interface PlanSectionHandlers {
   hasComment: (section: PlanSection) => boolean;
+  isComposing: (section: PlanSection) => boolean;
   onComment: (section: PlanSection) => void;
+  attachmentFor: (section: PlanSection) => HTMLElement | null;
 }
 
 export function renderPlanSections(
   sections: readonly PlanSection[],
-  { hasComment, onComment }: PlanSectionHandlers,
+  { hasComment, isComposing, onComment, attachmentFor }: PlanSectionHandlers,
 ): HTMLElement {
   const root = el('div', 'plan-document');
+  const sectionElements: HTMLElement[] = [];
   for (const section of sections) {
     const wrap = el('section', 'plan-section');
+    wrap.dataset.selected = 'false';
+    wrap.addEventListener('click', () => {
+      for (const sectionElement of sectionElements) sectionElement.dataset.selected = String(sectionElement === wrap);
+    });
+    sectionElements.push(wrap);
     const head = el('div', 'plan-section-head');
-    const button = el('button', 'plan-section-comment', 'Comment');
-    button.type = 'button';
-    button.dataset.commented = String(hasComment(section));
-    button.setAttribute(
-      'aria-label',
-      section.heading === null ? 'Comment on the plan as a whole' : `Comment on ${section.heading}`,
-    );
-    button.addEventListener('click', () => onComment(section));
-    head.append(button);
+    const firstBlock = section.blocks[0];
+    const hasHeading = firstBlock?.type === 'heading';
+    if (hasHeading) appendBlocks(head, [firstBlock]);
+    if (!hasHeading) wrap.id = 'plan-introduction';
+    if (!hasComment(section) && !isComposing(section)) {
+      const button = el('button', 'plan-section-comment', 'Comment');
+      button.type = 'button';
+      button.setAttribute('aria-label', `Comment on ${section.heading ?? 'Introduction'}`);
+      button.addEventListener('click', () => onComment(section));
+      head.append(button);
+    }
     const body = el('div', 'plan-section-body');
-    appendBlocks(body, section.blocks);
+    appendBlocks(body, hasHeading ? section.blocks.slice(1) : section.blocks);
     wrap.append(head, body);
+    const attachment = attachmentFor(section);
+    if (attachment) wrap.append(attachment);
     root.append(wrap);
   }
   return root;

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PLAN_BODY_CAP_BYTES, PLAN_COMMENT_MAX_CHARS, PLAN_HOOK_OUTPUT_MAX_CHARS } from '../shared/contracts/plan-review.ts';
 import type { PlanReview, PlanReviewState } from '../shared/contracts/plan-review.ts';
-import { createPlanViewModel, currentHeadingIndex, mergePlanChanged, planLimitRefusal, previousRevisionFor } from '../public/plan/plan-view-core.ts';
+import { createPlanViewModel, currentHeadingIndex, formatRelativeAge, mergePlanChanged, planLimitRefusal, previousRevisionFor } from '../public/plan/plan-view-core.ts';
 import type { PlanChangedMessage, PlanViewInput } from '../public/plan/plan-view-core.ts';
 
 const state: PlanReviewState = {
@@ -39,15 +39,15 @@ test('plan view exposes main and subagent tabs with revision metadata', () => {
     body: 'x'.repeat(8400),
     isConnected: true,
   });
-  assert.deepEqual(view.tabs.map((tab) => tab.label), ['Plan', 'Explore']);
+  assert.deepEqual(view.tabs.map((tab) => tab.label), ['Main', 'Explore']);
   assert.deepEqual(view.revisions.map((revision) => [revision.label, revision.receivedAt]), [
-    ['Revision 1', 10],
-    ['Revision 2', 20],
+    ['Rev 1', 10],
+    ['Rev 2', 20],
   ]);
-  assert.equal(view.status, 'Revision 2 of 2, 8.4 KB, waiting for your decision');
+  assert.equal(view.status, '');
 });
 
-const CONSTANT_LABELS = ['Approve', 'Approve and accept edits', 'Send feedback', 'Answer in terminal', 'Edit plan'];
+const CONSTANT_LABELS = ['Approve', 'Send feedback', 'Answer in terminal'];
 
 function viewFor(overrides: Partial<PlanReview>, input: Partial<PlanViewInput> = {}) {
   const review: PlanReview = {
@@ -70,12 +70,12 @@ function viewFor(overrides: Partial<PlanReview>, input: Partial<PlanViewInput> =
   });
 }
 
-test('an open review enables every decision, and the editor opens under the same guard', () => {
+test('an open review without comments enables approval and terminal, and the editor shares their guard', () => {
   const view = viewFor({});
   assert.deepEqual(view.actions.map((action) => action.label), CONSTANT_LABELS);
   assert.deepEqual(
     view.actions.filter((action) => action.enabled).map((action) => action.kind),
-    ['approve', 'approve-accept-edits', 'revise', 'terminal', 'edit'],
+    ['approve', 'terminal'],
   );
 });
 
@@ -92,7 +92,7 @@ test('a review that is not open disables every action and says why, with labels 
     const view = viewFor({ openRevision: null, ...overrides });
     assert.deepEqual(view.actions.map((action) => action.label), CONSTANT_LABELS, 'labels never change with state');
     assert.equal(view.actions.every((action) => action.enabled === false), true, `${overrides.state} disables every action`);
-    assert.equal(view.status, `Revision 1 of 1, 4 B, ${status}`);
+    assert.equal(view.status, status);
   }
 });
 
@@ -109,7 +109,7 @@ test('a revision the open one has moved past disables every action and says whic
   );
   assert.deepEqual(view.actions.map((action) => action.label), CONSTANT_LABELS, 'labels never change with selection');
   assert.equal(view.actions.every((action) => action.enabled === false), true);
-  assert.equal(view.status, 'Revision 1 of 2, 4 B, Revision 2 is the one open');
+  assert.equal(view.status, 'Rev 2 is the one open');
 });
 
 test('the status describes the SELECTED revision, so an approved one reads approved under a reopened review', () => {
@@ -121,40 +121,40 @@ test('the status describes the SELECTED revision, so an approved one reads appro
     { revisions, state: 'open', openRevision: { revision: 2, since: 20 }, approvedRevision: 1 },
     { selectedRevision: 1 },
   );
-  assert.equal(approvedThenReopened.status, 'Revision 1 of 2, 4 B, Revision 2 is the one open');
+  assert.equal(approvedThenReopened.status, 'Rev 2 is the one open');
 
   const closedWithApproval = viewFor(
     { revisions, state: 'closed', openRevision: null, approvedRevision: 1 },
     { selectedRevision: 1 },
   );
-  assert.equal(closedWithApproval.status, 'Revision 1 of 2, 4 B, Approved');
+  assert.equal(closedWithApproval.status, 'Approved');
 
   const closedUnapprovedRevision = viewFor(
     { revisions, state: 'closed', openRevision: null, approvedRevision: 1 },
     { selectedRevision: 2 },
   );
-  assert.equal(closedUnapprovedRevision.status, 'Revision 2 of 2, 4 B, Closed');
+  assert.equal(closedUnapprovedRevision.status, 'Closed');
 });
 
 test('pending section comments are counted beside the state, never inside a button label', () => {
-  assert.equal(viewFor({}, { pendingCommentCount: 0 }).status, 'Revision 1 of 1, 4 B, waiting for your decision');
+  assert.equal(viewFor({}, { pendingCommentCount: 0 }).status, '');
   assert.equal(
     viewFor({}, { pendingCommentCount: 1 }).status,
-    'Revision 1 of 1, 4 B, waiting for your decision, 1 comment pending',
+    '1 comment to send. Remove it to approve.',
   );
   assert.equal(
     viewFor({}, { pendingCommentCount: 3 }).status,
-    'Revision 1 of 1, 4 B, waiting for your decision, 3 comments pending',
+    '3 comments to send. Remove them to approve.',
   );
   assert.deepEqual(viewFor({}, { pendingCommentCount: 3 }).actions.map((action) => action.label), CONSTANT_LABELS);
 });
 
 test('a draft on screen is labelled a draft and takes no decision, whatever the review says', () => {
   const view = viewFor({}, { isDraft: true, body: 'draft body' });
-  assert.equal(view.status, 'Draft, 10 B');
+  assert.equal(view.status, 'Draft');
   assert.equal(view.actions.every((action) => action.enabled === false), true, 'nobody approves bytes the agent has not submitted');
   assert.deepEqual(view.actions.map((action) => action.label), CONSTANT_LABELS);
-  assert.equal(viewFor({}, { isDraft: true, body: 'draft body', pendingCommentCount: 2 }).status, 'Draft, 10 B, 2 comments pending');
+  assert.equal(viewFor({}, { isDraft: true, body: 'draft body', pendingCommentCount: 2 }).status, 'Draft');
 });
 
 test('the previous revision is what a diff runs against, and the first revision has none', () => {
@@ -170,19 +170,19 @@ test('the previous revision is what a diff runs against, and the first revision 
 test('an open revision whose body has not loaded disables every action, so no click approves unread bytes', () => {
   const view = viewFor({}, { body: null });
   assert.equal(view.actions.every((action) => action.enabled === false), true);
-  assert.equal(view.status, 'Revision 1 of 1, 100 B, loading');
+  assert.equal(view.status, 'Loading');
 });
 
 test('a decision in flight disables every action and says so beside them', () => {
   const view = viewFor({}, { isDecisionInFlight: true });
   assert.equal(view.actions.every((action) => action.enabled === false), true);
-  assert.equal(view.status, 'Revision 1 of 1, 4 B, sending your decision');
+  assert.equal(view.status, 'Sending your decision');
 });
 
 test('a disconnected socket disables every action on an open review', () => {
   const view = viewFor({}, { isConnected: false });
   assert.equal(view.actions.every((action) => action.enabled === false), true);
-  assert.equal(view.status, 'Revision 1 of 1, 4 B, disconnected');
+  assert.equal(view.status, 'Disconnected');
 });
 
 function planChanged(overrides: Partial<PlanChangedMessage> = {}): PlanChangedMessage {
@@ -234,7 +234,7 @@ test('feedback composing past the hook output limit is refused before it is sent
   const refusal = planLimitRefusal({ comments });
   assert.ok(refusal);
   assert.match(refusal, new RegExp(String(PLAN_HOOK_OUTPUT_MAX_CHARS)));
-  assert.equal(planLimitRefusal({ comments: comments.slice(0, 2), feedback: 'and ship it' }), null);
+  assert.equal(planLimitRefusal({ comments: comments.slice(0, 2) }), null);
 });
 
 test('a decision serializing past one control frame is refused, since the socket would close on it', () => {
@@ -260,4 +260,52 @@ test('scrolling to the end marks the last heading, since a short final section n
 
 test('a plan without headings has no current heading', () => {
   assert.equal(currentHeadingIndex({ headingOffsets: [], scrollTop: 0, isScrolledToEnd: false, readingLineOffset: 48 }), null);
+});
+
+
+test('approval and feedback are mutually exclusive by pending comment count under every decision guard', () => {
+  for (const pendingCommentCount of [0, 1, 3]) {
+    const live = viewFor({}, { pendingCommentCount });
+    assert.equal(live.actions.find((action) => action.kind === 'approve')?.enabled, pendingCommentCount === 0);
+    assert.equal(live.actions.find((action) => action.kind === 'revise')?.enabled, pendingCommentCount > 0);
+    assert.equal(live.actions.find((action) => action.kind === 'terminal')?.enabled, true);
+    for (const guard of [{ isDraft: true }, { body: null }, { isConnected: false }, { isDecisionInFlight: true }]) {
+      const blocked = viewFor({}, { pendingCommentCount, ...guard });
+      assert.ok(blocked.actions.every((action) => !action.enabled));
+      assert.equal(blocked.modes.find((mode) => mode.kind === 'edit')?.enabled, false);
+    }
+  }
+});
+
+test('revision models identify the open revision and mode guards distinguish history from editing', () => {
+  const selected = createPlanViewModel({ state, selectedAgentId: null, selectedRevision: 1, body: 'old', isConnected: true });
+  assert.deepEqual(selected.revisions.map((revision) => revision.isOpen), [false, true]);
+  assert.deepEqual(selected.modes.map((mode) => [mode.label, mode.enabled]), [['Read', true], ['Changes', false], ['Edit', false]]);
+  assert.equal(viewFor({}).modes.find((mode) => mode.kind === 'edit')?.enabled, true);
+});
+
+test('relative revision ages use the supplied clock, including future and unit boundaries', () => {
+  const now = 200_000_000;
+  const cases: [number, string][] = [
+    [-1000, 'just now'], [0, 'just now'], [59_999, 'just now'], [60_000, '1 min ago'],
+    [120_000, '2 min ago'], [3_599_999, '59 min ago'], [3_600_000, '1 hr ago'],
+    [86_399_999, '23 hr ago'], [86_400_000, '1 day ago'], [172_800_000, '2 days ago'],
+  ];
+  for (const [elapsedMs, age] of cases) assert.equal(formatRelativeAge(now - elapsedMs, now), age);
+});
+
+test('status omits repeated metadata, handles no selection and appends a problem', () => {
+  const input = { state: { reviews: [] }, selectedAgentId: null, selectedRevision: null, body: null, isConnected: true };
+  assert.equal(createPlanViewModel(input).status, 'No plan revision selected');
+  assert.equal(createPlanViewModel({ ...input, isConnected: false }).status, 'Disconnected');
+  assert.equal(viewFor({}, { problem: 'send refused' }).status, 'send refused');
+  assert.equal(viewFor({}, { isDecisionInFlight: true, problem: 'send refused' }).status, 'Sending your decision, send refused');
+});
+
+test('an unsaved open comment disables approve and send but leaves the terminal, and says to save or cancel it', () => {
+  for (const pendingCommentCount of [0, 2]) {
+    const view = viewFor({}, { pendingCommentCount, hasUnsavedComment: true });
+    assert.deepEqual(view.actions.map((action) => [action.kind, action.enabled]), [['approve', false], ['revise', false], ['terminal', true]]);
+    assert.equal(view.status, 'Save or cancel the open comment first.');
+  }
 });

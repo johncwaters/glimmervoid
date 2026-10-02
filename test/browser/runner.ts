@@ -54,7 +54,7 @@ const DESKTOP_LEAVE_FOCUS_SELECTOR = '#tab-settings';
 const DESKTOP_ENTER_FOCUS_SELECTOR = '#tab-focus';
 const PHONE_BACK_SELECTOR = 'button.phone-back';
 const SELECTOR_BY_CONTROL: Record<CardControl, string> = {
-  'plan-terminal': 'button.plan-terminal-button:not(.plan-read-button)',
+  'plan-terminal': 'button.plan-minimize-button',
 };
 
 interface RememberedGrid {
