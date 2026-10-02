@@ -264,8 +264,6 @@ function paintPill(pill: FocusPill, id: string, ui: SessionUi) {
   pill.setAttribute('aria-label', accessibleLabel);
   pill.title = accessibleLabel;
   pill._refs.name.textContent = sessionName(ui);
-  pill._refs.name.append(el('span', 'session-list-task-title', ui.taskTitle ?? ''));
-  pill._refs.name.title = [sessionName(ui), ui.taskTitle].filter(Boolean).join(' | ');
   const ms = mergeStatusById.get(id) || 'none';
   pill.dataset.merge = ms === 'none' ? '' : ms;
   pill._refs.merge.textContent = MERGE_TAGS[ms] || '';

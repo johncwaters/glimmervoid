@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Sidebar shows names only**: the left sidebar no longer prints each session's task beside its name, where it crowded and truncated the name. Hover a session to see its task; cards still show it.
 - **Tidier Shortcuts and about page**: shortcut groups sit in an even grid with keys left-aligned and every description starting on the same line, each section gets a ruled heading and room to breathe, and the status color legend and version line line up with them.
 - **Calmer session card header**: the "resumed" and "N agents" badges are gone (Monitoring status is unchanged), and a new Restart fresh button sits beside the more-actions menu. It asks first when the agent is mid-turn, since a fresh restart ends that conversation.
 - **Approve and comment**: on a ready team review, the approve button now reads Approve and comment, since it has always posted one approving review carrying the review body and the ticked inline comments. A plain Approve stays only after a Comment post, where it approves without posting the comments again.
