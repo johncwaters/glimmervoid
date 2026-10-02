@@ -6,9 +6,9 @@ import type { MyPrSearchNode, MyPrsStatus } from '../shared/contracts/my-prs.ts'
 const NOW = Date.parse('2026-09-28T12:00:00Z');
 function node(state: 'OPEN' | 'MERGED'): MyPrSearchNode {
   return {
-    __typename: 'PullRequest', number: state === 'OPEN' ? 1 : 2, title: 'Fix', url: `https://github.com/Acme/app/pull/${state === 'OPEN' ? 1 : 2}`,
+    __typename: 'PullRequest', id: 'PR_node', number: state === 'OPEN' ? 1 : 2, title: 'Fix', url: `https://github.com/Acme/app/pull/${state === 'OPEN' ? 1 : 2}`,
     isDraft: false, state, createdAt: '2026-09-25T00:00:00Z', mergedAt: state === 'MERGED' ? '2026-09-28T10:00:00Z' : null,
-    updatedAt: '2026-09-28T11:00:00Z', baseRefName: 'main', headRefOid: 'a'.repeat(40),
+    updatedAt: '2026-09-28T11:00:00Z', baseRefName: 'main', headRefOid: 'a'.repeat(40), isInMergeQueue: false,
     mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', repository: { nameWithOwner: 'Acme/app' },
     commits: { nodes: [] }, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, latestReviews: { nodes: [] },
   };
@@ -37,6 +37,7 @@ test('polls viewer once, compares open PRs sequentially, and keeps the last repo
         calls.push(`threads:${repo}#${number}`);
         return [];
       },
+      async rebasePr() { calls.push('rebase'); return { ok: true, err: '' }; },
     },
   });
   await poller.start();
@@ -69,6 +70,7 @@ test('a stop during an in-flight tick emits no status afterward', async () => {
         return new Promise<number>((resolve) => { releaseCompare = resolve; });
       },
       async reviewThreads() { return []; },
+      async rebasePr() { return { ok: true, err: '' }; },
     },
   });
   const started = poller.start();
@@ -94,6 +96,7 @@ test('a search cut short reports a truncation note that survives a failed refres
       },
       async behindBy() { return 0; },
       async reviewThreads() { return []; },
+      async rebasePr() { return { ok: true, err: '' }; },
     },
   });
   await poller.start();
@@ -118,6 +121,7 @@ test('fetches thread detail only for open pull requests with unresolved threads'
       async viewer() { return 'alice'; },
       async searchMyPrs() { return { ok: true, items: [openWithThread, openResolved, mergedWithThread], totalCount: 3, error: '' }; },
       async behindBy() { return 0; },
+      async rebasePr() { return { ok: true, err: '' }; },
       async reviewThreads(repo, number) {
         threadRequests.push(`${repo}#${number}`);
         return [{
@@ -132,5 +136,77 @@ test('fetches thread detail only for open pull requests with unresolved threads'
   assert.deepEqual(threadRequests, ['Acme/app#1']);
   const withThread = statuses[0].prs.find((pr) => pr.number === 1);
   assert.deepEqual(withThread?.threads.map((thread) => [thread.path, thread.author]), [['src/app.ts', 'bob']]);
+  await poller.stop();
+});
+
+function autoRebaseHarness({ shouldAutoRebase, rebaseResult }: { shouldAutoRebase: boolean; rebaseResult: { ok: boolean; err: string } }) {
+  const rebases: string[] = [];
+  const statuses: MyPrsStatus[] = [];
+  const poller = createMyPrsPoller({
+    org: 'Acme', shouldAutoRebase, now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => statuses.push(status),
+    setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
+    log: { warn() {} },
+    github: {
+      async viewer() { return 'alice'; },
+      async searchMyPrs() { return { ok: true, items: [node('OPEN'), node('MERGED')], totalCount: 2, error: '' }; },
+      async behindBy() { return 4; },
+      async reviewThreads() { return []; },
+      async rebasePr(pullRequestId, expectedHeadSha) {
+        rebases.push(`${pullRequestId}@${expectedHeadSha}`);
+        return rebaseResult;
+      },
+    },
+  });
+  return { poller, rebases, statuses };
+}
+
+test('auto-rebase rebases a behind open pull request pinned to its polled head and reports it', async () => {
+  const { poller, rebases, statuses } = autoRebaseHarness({ shouldAutoRebase: true, rebaseResult: { ok: true, err: '' } });
+  await poller.start();
+  assert.deepEqual(rebases, [`PR_node@${'a'.repeat(40)}`]);
+  assert.deepEqual(statuses[0].prs.map((pr) => [pr.number, pr.autoRebase?.outcome ?? null]), [[1, 'rebased'], [2, null]]);
+  assert.equal(statuses[0].prs[0]?.autoRebase?.message, 'Rebased onto main');
+  await poller.stop();
+});
+
+test('a failed auto-rebase is reported and not retried at the same head', async () => {
+  const { poller, rebases, statuses } = autoRebaseHarness({ shouldAutoRebase: true, rebaseResult: { ok: false, err: 'gh: Protected branch update failed\nmore' } });
+  await poller.start();
+  await poller.tick();
+  assert.equal(rebases.length, 1);
+  assert.deepEqual(statuses.map((status) => status.prs[0]?.autoRebase), [
+    { outcome: 'failed', at: NOW, message: 'gh: Protected branch update failed' },
+    { outcome: 'failed', at: NOW, message: 'gh: Protected branch update failed' },
+  ]);
+  await poller.stop();
+});
+
+test('a failed auto-rebase record is dropped once a new head no longer needs a rebase', async () => {
+  const statuses: MyPrsStatus[] = [];
+  let currentHead = 'a'.repeat(40);
+  const poller = createMyPrsPoller({
+    org: 'Acme', shouldAutoRebase: true, now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => statuses.push(status),
+    setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
+    log: { warn() {} },
+    github: {
+      async viewer() { return 'alice'; },
+      async searchMyPrs() { return { ok: true, items: [{ ...node('OPEN'), headRefOid: currentHead }], totalCount: 1, error: '' }; },
+      async behindBy(_repo, _base, head) { return head === 'a'.repeat(40) ? 4 : 0; },
+      async reviewThreads() { return []; },
+      async rebasePr() { return { ok: false, err: 'gh: Protected branch update failed' }; },
+    },
+  });
+  await poller.start();
+  currentHead = 'c'.repeat(40);
+  await poller.tick();
+  assert.deepEqual(statuses.map((status) => status.prs[0]?.autoRebase?.outcome ?? null), ['failed', null]);
+  await poller.stop();
+});
+
+test('auto-rebase off never rebases', async () => {
+  const { poller, rebases, statuses } = autoRebaseHarness({ shouldAutoRebase: false, rebaseResult: { ok: true, err: '' } });
+  await poller.start();
+  assert.deepEqual(rebases, []);
+  assert.equal(statuses[0].prs[0]?.autoRebase, undefined);
   await poller.stop();
 });

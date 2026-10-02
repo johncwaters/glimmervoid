@@ -1,4 +1,4 @@
-import type { MyPr, MyPrSearchNode, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrAutoRebase, MyPrSearchNode, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../shared/contracts/my-prs.ts';
 import type { TeamReviewSettings } from './team-review-core.ts';
 
 export const MY_PRS_LANE_ID = 'my-prs';
@@ -25,6 +25,28 @@ export function deriveStage(pr: MyPr): MyPrStage {
   if (pr.reviewDecision === 'REVIEW_REQUIRED' || pr.mergeStateStatus === 'BLOCKED') return 'needs-approval';
   if (pr.mergeable === 'MERGEABLE' && ['CLEAN', 'HAS_HOOKS', 'UNSTABLE'].includes(pr.mergeStateStatus)) return 'ready';
   return 'unknown';
+}
+
+const CHECKS_STILL_RUNNING = new Set(['PENDING', 'EXPECTED']);
+
+export function autoRebaseAttemptKey(node: Pick<MyPrSearchNode, 'repository' | 'number' | 'headRefOid'>): string {
+  return `${node.repository.nameWithOwner}#${node.number}@${node.headRefOid}`;
+}
+
+export function shouldAutoRebase(node: MyPrSearchNode, behindBy: number | null, failedAttemptKeys: ReadonlySet<string>): boolean {
+  if (node.state !== 'OPEN' || node.isDraft) return false;
+  if (node.isInMergeQueue) return false;
+  if (behindBy === null || behindBy === 0) return false;
+  if (node.mergeable === 'CONFLICTING' || node.mergeStateStatus === 'DIRTY') return false;
+  const checksState = node.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null;
+  if (checksState !== null && CHECKS_STILL_RUNNING.has(checksState)) return false;
+  return !failedAttemptKeys.has(autoRebaseAttemptKey(node));
+}
+
+export function autoRebaseRecord(rebase: { ok: boolean; err: string }, baseRefName: string, at: number): MyPrAutoRebase {
+  if (rebase.ok) return { outcome: 'rebased', at, message: `Rebased onto ${baseRefName}` };
+  const firstLine = rebase.err.split('\n').map((line) => line.trim()).find(Boolean) ?? 'GitHub refused the rebase';
+  return { outcome: 'failed', at, message: firstLine };
 }
 
 export function hasUnresolvedThreads(node: MyPrSearchNode): boolean {
@@ -109,6 +131,10 @@ export function myPrsStatus({ ts, configured, reason = null, viewer = null, prs 
   ts: number; configured: boolean; reason?: string | null; viewer?: string | null; prs?: MyPr[]; error?: string | null; truncatedNote?: string | null;
 }): MyPrsStatus {
   return { type: 'my-prs-status', ts, configured, reason, viewer, prs, error, truncatedNote };
+}
+
+export function withAutoRebase(pr: MyPr, record: MyPrAutoRebase | undefined): MyPr {
+  return record ? { ...pr, autoRebase: record } : pr;
 }
 
 export function myPrsShouldStart(settings: Pick<TeamReviewSettings, 'enabled' | 'org'>): { start: boolean; reason?: string } {

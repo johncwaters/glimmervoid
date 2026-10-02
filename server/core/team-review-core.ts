@@ -56,6 +56,7 @@ interface TeamReviewSettings {
   reReviewAfterHours: number;
   skipIdleAfterDays: number;
   skill: string;
+  autoRebaseMyPrs: boolean;
 }
 
 function positiveFiniteOr(value: unknown, fallback: number): number {
@@ -71,6 +72,7 @@ function readTeamReviewSettings(config: TeamReviewSettingsSource): TeamReviewSet
     reReviewAfterHours: positiveFiniteOr(block?.reReviewAfterHours, DEFAULT_RE_REVIEW_AFTER_HOURS),
     skipIdleAfterDays: positiveFiniteOr(block?.skipIdleAfterDays, DEFAULT_SKIP_IDLE_AFTER_DAYS),
     skill: typeof block?.skill === 'string' ? block.skill.trim() : '',
+    autoRebaseMyPrs: block?.autoRebaseMyPrs === true,
   };
 }
 

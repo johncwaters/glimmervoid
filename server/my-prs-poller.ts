@@ -1,11 +1,12 @@
 import * as core from './core/my-prs-core.ts';
 import { createTickLoop } from './lane-runner.ts';
 import type { PrGh } from './pr-gh.ts';
-import type { MyPr, MyPrsStatus } from '../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrAutoRebase, MyPrsStatus } from '../shared/contracts/my-prs.ts';
 
 interface MyPrsPollerDependencies {
   org: string;
-  github: Pick<PrGh, 'viewer' | 'searchMyPrs' | 'behindBy' | 'reviewThreads'>;
+  shouldAutoRebase?: boolean;
+  github: Pick<PrGh, 'viewer' | 'searchMyPrs' | 'behindBy' | 'reviewThreads' | 'rebasePr'>;
   onTickComplete: (status: MyPrsStatus) => void;
   now?: () => number;
   intervalMinutes?: number;
@@ -15,11 +16,13 @@ interface MyPrsPollerDependencies {
 }
 
 export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
-  const { org, github, onTickComplete, now = Date.now, intervalMinutes = core.POLL_INTERVAL_MINUTES, setIntervalFn, clearIntervalFn, log } = dependencies;
+  const { org, shouldAutoRebase = false, github, onTickComplete, now = Date.now, intervalMinutes = core.POLL_INTERVAL_MINUTES, setIntervalFn, clearIntervalFn, log } = dependencies;
   let viewer: string | null = null;
   let hasLookedUpViewer = false;
   let previousPrs: MyPr[] = [];
   let previousTruncatedNote: string | null = null;
+  const autoRebaseByKey = new Map<string, MyPrAutoRebase>();
+  const failedAutoRebaseAttempts = new Set<string>();
   const loop = createTickLoop({
     tag: core.MY_PRS_LANE_ID, intervalMs: intervalMinutes * 60000, setIntervalFn, clearIntervalFn, log,
     tick: async () => {
@@ -39,9 +42,23 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
       for (const node of search.items) {
         const behindBy = node.state === 'OPEN' ? await github.behindBy(node.repository.nameWithOwner, node.baseRefName, node.headRefOid) : null;
         if (loop.isStopped()) return { failed: false };
+        const key = `${node.repository.nameWithOwner}#${node.number}`;
+        const isFailedRecordForAnotherHead = autoRebaseByKey.get(key)?.outcome === 'failed' && !failedAutoRebaseAttempts.has(core.autoRebaseAttemptKey(node));
+        if (isFailedRecordForAnotherHead) autoRebaseByKey.delete(key);
+        if (shouldAutoRebase && core.shouldAutoRebase(node, behindBy, failedAutoRebaseAttempts)) {
+          const rebase = await github.rebasePr(node.id, node.headRefOid);
+          if (loop.isStopped()) return { failed: false };
+          if (!rebase.ok) failedAutoRebaseAttempts.add(core.autoRebaseAttemptKey(node));
+          if (!rebase.ok) log?.warn(`[${core.MY_PRS_LANE_ID}] auto-rebase of ${key} failed: ${rebase.err.trim()}`);
+          autoRebaseByKey.set(key, core.autoRebaseRecord(rebase, node.baseRefName, now()));
+        }
         const threadNodes = node.state === 'OPEN' && core.hasUnresolvedThreads(node) ? await github.reviewThreads(node.repository.nameWithOwner, node.number) : [];
         if (loop.isStopped()) return { failed: false };
-        prs.push(core.toMyPr(node, behindBy, threadNodes));
+        prs.push(core.withAutoRebase(core.toMyPr(node, behindBy, threadNodes), autoRebaseByKey.get(key)));
+      }
+      const listedKeys = new Set(prs.map((pr) => pr.key));
+      for (const key of [...autoRebaseByKey.keys()]) {
+        if (!listedKeys.has(key)) autoRebaseByKey.delete(key);
       }
       previousPrs = core.sortedMyPrs(prs, timestamp);
       previousTruncatedNote = core.truncatedSearchNote(search.items.length, search.totalCount);

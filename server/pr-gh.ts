@@ -72,6 +72,7 @@ interface GithubIssueDetail {
 interface PrGh {
   searchMyPrs(org: string, mergedSince: string): Promise<{ ok: boolean; items: MyPrSearchNodeType[]; totalCount: number; error: string }>;
   behindBy(repo: string, base: string, headSha: string): Promise<number | null>;
+  rebasePr(pullRequestId: string, expectedHeadSha: string): Promise<{ ok: boolean; err: string }>;
   reviewThreads(repo: string, number: number): Promise<MyPrThreadNodeType[]>;
   repoSlug(): Promise<string | null>;
   listIssues(): Promise<GithubIssueList>;
@@ -119,7 +120,7 @@ const MY_PRS_QUERY = `query($openQuery: String!, $mergedQuery: String!) {
   merged: search(type: ISSUE, first: 50, query: $mergedQuery) { issueCount nodes { ...myPrFields } }
 }
 fragment myPrFields on PullRequest {
-  __typename number title url isDraft state createdAt mergedAt updatedAt baseRefName headRefOid mergeable mergeStateStatus reviewDecision
+  __typename id number title url isDraft state createdAt mergedAt updatedAt baseRefName headRefOid isInMergeQueue mergeable mergeStateStatus reviewDecision
   repository { nameWithOwner }
   commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 50) { nodes {
     __typename ... on CheckRun { name conclusion status } ... on StatusContext { context state }
@@ -129,6 +130,10 @@ fragment myPrFields on PullRequest {
   latestOpinionatedReviews(first: 20) { nodes { state } }
   latestReviews(first: 20) { nodes { state submittedAt author { login } } }
 }`;
+const REBASE_PR_MUTATION = `mutation($id: ID!, $head: GitObjectID!) {
+  updatePullRequestBranch(input: { pullRequestId: $id, expectedHeadOid: $head, updateMethod: REBASE }) { pullRequest { headRefOid } }
+}`;
+const PR_NODE_ID = /^[A-Za-z0-9_=-]+$/;
 const MY_PR_THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes {
     isResolved isOutdated path line
@@ -312,6 +317,15 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       const response = await runGh(['api', `repos/${parts[0]}/${parts[1]}/compare/${base}...${headSha}`, '--jq', '.behind_by']);
       if (!response.ok || !/^\d+$/.test(response.out)) return null;
       return Number(response.out);
+    },
+    async rebasePr(pullRequestId, expectedHeadSha) {
+      if (!PR_NODE_ID.test(pullRequestId) || !CommitSha.safeParse(expectedHeadSha).success) return { ok: false, err: 'invalid pull request id or head' };
+      const response = await runGh(['api', 'graphql', '-f', `query=${REBASE_PR_MUTATION}`, '-f', `id=${pullRequestId}`, '-f', `head=${expectedHeadSha}`]);
+      if (!response.ok) return { ok: false, err: response.err.trim() || 'gh graphql rebase failed' };
+      const parsed = parseJson<{ errors?: { message?: unknown }[] }>(response.out, {});
+      const firstError = parsed.errors?.[0]?.message;
+      if (firstError !== undefined) return { ok: false, err: String(firstError) };
+      return { ok: true, err: '' };
     },
     async repoSlug() {
       const r = await commandRunner('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], cwd);

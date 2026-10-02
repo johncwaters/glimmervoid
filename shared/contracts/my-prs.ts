@@ -16,6 +16,9 @@ export type MyPrThread = z.infer<typeof MyPrThread>;
 export const MyPrReview = z.object({ reviewer: z.string().nullable(), state: z.string(), submittedAt: z.string().nullable() });
 export type MyPrReview = z.infer<typeof MyPrReview>;
 
+export const MyPrAutoRebase = z.object({ outcome: z.enum(['rebased', 'failed']), at: z.number().finite(), message: z.string() });
+export type MyPrAutoRebase = z.infer<typeof MyPrAutoRebase>;
+
 export const MyPr = z.object({
   key: z.string(), repo: repositoryName, number: z.number().int().positive(), title: z.string(), url: z.url(),
   isDraft: z.boolean(), state: z.enum(['OPEN', 'MERGED', 'CLOSED']), createdAt: z.string(), mergedAt: z.string().nullable(), updatedAt: z.string(),
@@ -24,7 +27,7 @@ export const MyPr = z.object({
   checks: z.object({ state: z.enum(['SUCCESS', 'FAILURE', 'PENDING', 'ERROR', 'EXPECTED']).nullable(), failing: z.array(z.string()), pendingCount: nonnegativeInteger }),
   unresolvedThreads: nonnegativeInteger, threads: z.array(MyPrThread), behindBy: nonnegativeInteger.nullable(),
   reviewRequests: z.array(z.object({ name: z.string(), isTeam: z.boolean(), avatarUrl: z.string().nullable() })),
-  approvals: nonnegativeInteger, reviews: z.array(MyPrReview), stage: MyPrStage,
+  approvals: nonnegativeInteger, reviews: z.array(MyPrReview), stage: MyPrStage, autoRebase: MyPrAutoRebase.optional(),
 }).refine((pr) => pr.key === `${pr.repo}#${pr.number}`);
 export type MyPr = z.infer<typeof MyPr>;
 
@@ -37,9 +40,9 @@ export type MyPrsStatus = z.infer<typeof MyPrsStatus>;
 const CheckRun = z.object({ __typename: z.literal('CheckRun'), name: z.string(), conclusion: z.string().nullable(), status: z.string() });
 const StatusContext = z.object({ __typename: z.literal('StatusContext'), context: z.string(), state: z.string() });
 export const MyPrSearchNode = z.object({
-  __typename: z.literal('PullRequest'), number: z.number().int().positive(), title: z.string(), url: z.url(), isDraft: z.boolean(),
+  __typename: z.literal('PullRequest'), id: z.string().regex(/^[A-Za-z0-9_=-]+$/), number: z.number().int().positive(), title: z.string(), url: z.url(), isDraft: z.boolean(),
   state: z.enum(['OPEN', 'MERGED', 'CLOSED']), createdAt: z.string(), mergedAt: z.string().nullable(), updatedAt: z.string(), baseRefName: z.string(),
-  headRefOid: z.string().regex(/^[0-9a-f]{40}$/), mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']),
+  headRefOid: z.string().regex(/^[0-9a-f]{40}$/), isInMergeQueue: z.boolean(), mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']),
   mergeStateStatus: z.string(), reviewDecision: z.enum(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED']).nullable(),
   repository: z.object({ nameWithOwner: repositoryName }),
   commits: z.object({ nodes: z.array(z.object({ commit: z.object({ statusCheckRollup: z.object({

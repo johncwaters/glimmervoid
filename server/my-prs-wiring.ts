@@ -29,14 +29,14 @@ export function createMyPrsWiring({ config, broadcast, log = console, github = c
   const runner = createLaneRunner<MyPrsPoller>({
     tag: core.MY_PRS_LANE_ID,
     gate,
-    cfgKey: () => JSON.stringify({ enabled: settings().enabled, org: settings().org }),
+    cfgKey: () => JSON.stringify({ enabled: settings().enabled, org: settings().org, autoRebaseMyPrs: settings().autoRebaseMyPrs }),
     emptyStatus,
     broadcast: (status) => {
       const parsed = MyPrsStatus.safeParse(status);
       if (parsed.success) broadcast(parsed.data);
     },
     createPoller: ({ onTickComplete }) => createPoller({
-      org: settings().org, github, log, onTickComplete,
+      org: settings().org, shouldAutoRebase: settings().autoRebaseMyPrs, github, log, onTickComplete,
     }),
   });
   function getStatus(): MyPrsStatusType {

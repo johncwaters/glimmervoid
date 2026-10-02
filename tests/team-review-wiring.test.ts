@@ -1149,10 +1149,11 @@ test('the configured review skill reaches the prompt of each review as it is rea
 });
 
 test('team review settings use configurable positive review and idle windows', () => {
-  assert.deepEqual(readTeamReviewSettings({}), { enabled: false, org: '', team: '', reReviewAfterHours: 24, skipIdleAfterDays: 14, skill: '' });
-  assert.deepEqual(readTeamReviewSettings({ teamReview: { enabled: true, org: ' Acme ', team: ' core ', reReviewAfterHours: 6, skipIdleAfterDays: 3, skill: ' my-review ' } }), {
-    enabled: true, org: 'Acme', team: 'core', reReviewAfterHours: 6, skipIdleAfterDays: 3, skill: 'my-review',
+  assert.deepEqual(readTeamReviewSettings({}), { enabled: false, org: '', team: '', reReviewAfterHours: 24, skipIdleAfterDays: 14, skill: '', autoRebaseMyPrs: false });
+  assert.deepEqual(readTeamReviewSettings({ teamReview: { enabled: true, org: ' Acme ', team: ' core ', reReviewAfterHours: 6, skipIdleAfterDays: 3, skill: ' my-review ', autoRebaseMyPrs: true } }), {
+    enabled: true, org: 'Acme', team: 'core', reReviewAfterHours: 6, skipIdleAfterDays: 3, skill: 'my-review', autoRebaseMyPrs: true,
   });
+  assert.equal(readTeamReviewSettings({ teamReview: { autoRebaseMyPrs: 'yes' } }).autoRebaseMyPrs, false);
 });
 
 test('a failed worktree removal still deletes the checkout directory and prunes the cached clone', async () => {

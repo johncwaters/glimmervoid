@@ -654,6 +654,12 @@ export const SETTINGS_MAP = Object.freeze([
         description: 'Name of a Claude Code skill installed for the review agent, for example your own PR review skill. Leave empty to let the agent review with whatever skills it has.',
         control: 'text', keywords: ['skill', 'claude code', 'pr review'], defaultValue: '',
       },
+      {
+        id: 'team-review-auto-rebase-my-prs', path: 'teamReview.autoRebaseMyPrs', title: 'Keep my pull requests rebased',
+        description: 'On each poll, rebase your open, non-draft pull requests that are behind their base branch. A pull request with conflicts or checks still running is left alone, and a failed rebase is not retried until you push again.',
+        control: 'toggle', keywords: ['rebase', 'update branch', 'behind', 'my prs'], danger: true,
+        warning: 'Enabling this control rewrites your pull request branches on GitHub. Pull before you push from a local checkout of one.', defaultValue: false,
+      },
     ],
   },
   {

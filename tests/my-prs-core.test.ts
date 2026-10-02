@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deriveStage, hasUnresolvedThreads, mergedSinceDate, myPrsShouldStart, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/core/my-prs-core.ts';
+import { autoRebaseRecord, deriveStage, hasUnresolvedThreads, shouldAutoRebase, mergedSinceDate, myPrsShouldStart, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/core/my-prs-core.ts';
 import { MyPrSearchNode } from '../shared/contracts/my-prs.ts';
 import type { MyPr, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
 
@@ -8,8 +8,8 @@ const NOW = Date.parse('2026-09-28T12:00:00Z');
 const SHA = 'a'.repeat(40);
 function searchNode(): MyPrSearchNodeType {
   return {
-    __typename: 'PullRequest', number: 7, title: 'Fix', url: 'https://github.com/Acme/app/pull/7', isDraft: false,
-    state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T11:00:00Z', baseRefName: 'main', headRefOid: SHA,
+    __typename: 'PullRequest', id: 'PR_node', number: 7, title: 'Fix', url: 'https://github.com/Acme/app/pull/7', isDraft: false,
+    state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T11:00:00Z', baseRefName: 'main', headRefOid: SHA, isInMergeQueue: false,
     mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', repository: { nameWithOwner: 'Acme/app' },
     commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS', contexts: { nodes: [] } } } }] },
     reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [{ isResolved: true }] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [{ state: 'APPROVED' }] },
@@ -161,4 +161,33 @@ test('hasUnresolvedThreads asks for detail when the first page is all resolved b
   assert.equal(hasUnresolvedThreads(node), false);
   node.reviewThreads.pageInfo.hasNextPage = true;
   assert.equal(hasUnresolvedThreads(node), true);
+});
+
+test('auto-rebase picks only an open, ready, behind pull request without conflicts, running checks or a failed attempt at its head', () => {
+  const noFailures = new Set<string>();
+  assert.equal(shouldAutoRebase(searchNode(), 3, noFailures), true);
+  assert.equal(shouldAutoRebase(searchNode(), 0, noFailures), false);
+  assert.equal(shouldAutoRebase(searchNode(), null, noFailures), false);
+  assert.equal(shouldAutoRebase({ ...searchNode(), isDraft: true }, 3, noFailures), false);
+  assert.equal(shouldAutoRebase({ ...searchNode(), state: 'MERGED' }, 3, noFailures), false);
+  assert.equal(shouldAutoRebase({ ...searchNode(), isInMergeQueue: true }, 3, noFailures), false);
+  assert.equal(shouldAutoRebase({ ...searchNode(), mergeable: 'CONFLICTING' }, 3, noFailures), false);
+  assert.equal(shouldAutoRebase({ ...searchNode(), mergeStateStatus: 'DIRTY' }, 3, noFailures), false);
+  for (const state of ['PENDING', 'EXPECTED'] as const) {
+    const running = searchNode();
+    running.commits.nodes[0].commit.statusCheckRollup = { state, contexts: { nodes: [] } };
+    assert.equal(shouldAutoRebase(running, 3, noFailures), false, state);
+  }
+  const failing = searchNode();
+  failing.commits.nodes[0].commit.statusCheckRollup = { state: 'FAILURE', contexts: { nodes: [] } };
+  assert.equal(shouldAutoRebase(failing, 3, noFailures), true);
+  assert.equal(shouldAutoRebase({ ...searchNode(), commits: { nodes: [] } }, 3, noFailures), true);
+  assert.equal(shouldAutoRebase(searchNode(), 3, new Set([`Acme/app#7@${SHA}`])), false);
+  assert.equal(shouldAutoRebase(searchNode(), 3, new Set([`Acme/app#7@${'b'.repeat(40)}`])), true);
+});
+
+test('auto-rebase records name the base on success and the first error line on failure', () => {
+  assert.deepEqual(autoRebaseRecord({ ok: true, err: '' }, 'main', NOW), { outcome: 'rebased', at: NOW, message: 'Rebased onto main' });
+  assert.deepEqual(autoRebaseRecord({ ok: false, err: '\n  conflict in a.ts\nsecond' }, 'main', NOW), { outcome: 'failed', at: NOW, message: 'conflict in a.ts' });
+  assert.deepEqual(autoRebaseRecord({ ok: false, err: '' }, 'main', NOW), { outcome: 'failed', at: NOW, message: 'GitHub refused the rebase' });
 });

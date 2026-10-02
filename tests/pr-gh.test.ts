@@ -380,8 +380,8 @@ test('viewIssue refuses a payload without a usable issue number', async () => {
 
 function myPrNode(number: number) {
   return {
-    __typename: 'PullRequest', number, title: 'Fix', url: `https://github.com/Acme/app/pull/${number}`, isDraft: false,
-    state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z', baseRefName: 'main', headRefOid: HEAD_SHA,
+    __typename: 'PullRequest', id: `PR_node${number}`, number, title: 'Fix', url: `https://github.com/Acme/app/pull/${number}`, isDraft: false,
+    state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z', baseRefName: 'main', headRefOid: HEAD_SHA, isInMergeQueue: false,
     mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', repository: { nameWithOwner: 'Acme/app' },
     commits: { nodes: [] }, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, latestReviews: { nodes: [] },
   };
@@ -498,6 +498,25 @@ test('reviewThreads returns nothing when a later page fails', async () => {
 test('reviewThreads returns nothing when GraphQL reports errors', async () => {
   const gh = createPrGh('/repo', async () => ({ ok: true, out: JSON.stringify({ data: { repository: null }, errors: [{ message: 'denied' }] }), err: '' }));
   assert.deepEqual(await gh.reviewThreads('Acme/app', 7), []);
+});
+
+test('rebasePr sends a REBASE branch update pinned to the expected head and reports GraphQL errors', async () => {
+  const calls: string[][] = [];
+  let output = JSON.stringify({ data: { updatePullRequestBranch: { pullRequest: { headRefOid: HEAD_SHA } } } });
+  const gh = createPrGh('/repo', async (_command, args) => {
+    calls.push(args);
+    return { ok: true, out: output, err: '' };
+  });
+  assert.deepEqual(await gh.rebasePr('PR_kwDO1', HEAD_SHA), { ok: true, err: '' });
+  assert.equal(calls.length, 1);
+  assert.match(String(calls[0]?.[3]), /updateMethod: REBASE/);
+  assert.match(String(calls[0]?.[3]), /expectedHeadOid: \$head/);
+  assert.deepEqual(calls[0]?.slice(4), ['-f', 'id=PR_kwDO1', '-f', `head=${HEAD_SHA}`]);
+  output = JSON.stringify({ data: null, errors: [{ message: 'Head branch was modified' }] });
+  assert.deepEqual(await gh.rebasePr('PR_kwDO1', HEAD_SHA), { ok: false, err: 'Head branch was modified' });
+  assert.equal((await gh.rebasePr('bad id', HEAD_SHA)).ok, false);
+  assert.equal((await gh.rebasePr('PR_kwDO1', 'bad')).ok, false);
+  assert.equal(calls.length, 2);
 });
 
 test('behindBy validates repository, ref, and SHA before compare', async () => {

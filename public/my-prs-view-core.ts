@@ -8,7 +8,7 @@ export interface ThreadRow {
   waiting: { tone: StateTone; text: string } | null;
 }
 export interface ReviewRow { reviewer: string; text: string; tone: StateTone; submittedAt: string | null }
-export interface ReadinessRow { label: 'Checks' | 'Review' | 'Threads' | 'Conflicts' | 'Base'; tone: StateTone; text: string }
+export interface ReadinessRow { label: 'Checks' | 'Review' | 'Threads' | 'Conflicts' | 'Base' | 'Auto-rebase'; tone: StateTone; text: string }
 
 const SECTION_TITLES = ['Needs you', 'Waiting', 'Ready to merge', 'Drafts', 'Merged today'] as const;
 type SectionTitle = typeof SECTION_TITLES[number];
@@ -152,7 +152,9 @@ export function reviewRows(pr: MyPr): ReviewRow[] {
 
 export function readinessRows(pr: MyPr, viewer: string | null = null): ReadinessRow[] {
   if (pr.state === 'MERGED') return [];
-  return [checksReadiness(pr), reviewReadiness(pr), threadsReadiness(pr, viewer), conflictsReadiness(pr), baseReadiness(pr)];
+  const rows = [checksReadiness(pr), reviewReadiness(pr), threadsReadiness(pr, viewer), conflictsReadiness(pr), baseReadiness(pr)];
+  if (!pr.autoRebase) return rows;
+  return [...rows, { label: 'Auto-rebase', tone: pr.autoRebase.outcome === 'rebased' ? 'ok' : 'danger', text: pr.autoRebase.message }];
 }
 
 export function emptyStateText(status: MyPrsStatusType | null): string {

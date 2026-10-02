@@ -190,6 +190,7 @@ Draft reviews of teammates' pull requests for you to post from the Reviews tab.
 | `teamReview.reReviewAfterHours` | Re-review after (hours) | `24` | When a reviewed PR has a new head, review it again after this many hours since its last review. Queue review runs it at any time. |
 | `teamReview.skipIdleAfterDays` | Skip PRs idle for (days) | `14` | Leave pull requests without GitHub activity for this long out of automatic review. |
 | `teamReview.skill` | Review skill | `""` | Name of a Claude Code skill installed for the review agent, for example your own PR review skill. Leave empty to let the agent review with whatever skills it has. |
+| `teamReview.autoRebaseMyPrs` | Keep my pull requests rebased | `false` | On each poll, rebase your open, non-draft pull requests that are behind their base branch. A pull request with conflicts or checks still running is left alone, and a failed rebase is not retried until you push again. |
 
 ### Unattended actions
 

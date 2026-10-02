@@ -82,6 +82,7 @@ const VisionsSettings = optionalObject('visions', {
 
 const TeamReviewSettings = optionalObject('teamReview', {
   enabled: optionalBoolean('teamReview.enabled'),
+  autoRebaseMyPrs: optionalBoolean('teamReview.autoRebaseMyPrs'),
   org: optionalString('teamReview.org', true),
   team: optionalString('teamReview.team', true),
   skill: optionalString('teamReview.skill', true),

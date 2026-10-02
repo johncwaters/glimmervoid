@@ -5,8 +5,8 @@ import { toMyPr } from '../server/core/my-prs-core.ts';
 import type { MyPr, MyPrSearchNode, MyPrThread } from '../shared/contracts/my-prs.ts';
 
 const node: MyPrSearchNode = {
-  __typename: 'PullRequest', number: 1, title: 'Fix', url: 'https://github.com/Acme/app/pull/1', isDraft: false,
-  state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z', baseRefName: 'main', headRefOid: 'a'.repeat(40),
+  __typename: 'PullRequest', id: 'PR_node', number: 1, title: 'Fix', url: 'https://github.com/Acme/app/pull/1', isDraft: false,
+  state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z', baseRefName: 'main', headRefOid: 'a'.repeat(40), isInMergeQueue: false,
   mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', repository: { nameWithOwner: 'Acme/app' },
   commits: { nodes: [] }, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, latestReviews: { nodes: [] },
 };
@@ -130,4 +130,12 @@ test('review rows list the newest review first with a readable verdict', () => {
     { reviewer: 'bob', text: 'Approved', tone: 'ok', submittedAt: '2026-09-27T10:00:00Z' },
     { reviewer: 'carol', text: 'Commented', tone: 'muted', submittedAt: null },
   ]);
+});
+
+test('an auto-rebase outcome adds its own readiness row', () => {
+  const rebased = { ...toMyPr(node, 0), autoRebase: { outcome: 'rebased' as const, at: 1, message: 'Rebased onto main' } };
+  assert.deepEqual(readinessRows(rebased).at(-1), { label: 'Auto-rebase', tone: 'ok', text: 'Rebased onto main' });
+  const failed = { ...toMyPr(node, 0), autoRebase: { outcome: 'failed' as const, at: 1, message: 'Protected branch' } };
+  assert.deepEqual(readinessRows(failed).at(-1), { label: 'Auto-rebase', tone: 'danger', text: 'Protected branch' });
+  assert.equal(readinessRows(toMyPr(node, 0)).some((row) => row.label === 'Auto-rebase'), false);
 });
