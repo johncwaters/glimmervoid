@@ -3,6 +3,7 @@ import { AGENT_URL_ENV } from "../../shared/contracts/session.ts";
 import { HOOK_URL_ENV } from "./hook-relay-core.ts";
 
 const GLIMMERVOID_SCRUB_KEYS = ["GLIMMERVOID_PORT", "GLIMMERVOID_CONFIG", HOOK_URL_ENV, AGENT_URL_ENV];
+const LAUNCHING_TERMINAL_IDENTITY_KEYS = ["TERM_PROGRAM", "TERM_PROGRAM_VERSION"];
 
 type SpawnEnv = Record<string, string | undefined>;
 
@@ -63,6 +64,7 @@ function buildAgentEnv(
   const env: SpawnEnv = { ...baseEnv };
   for (const key of profile.scrub || []) delete env[key];
   for (const key of GLIMMERVOID_SCRUB_KEYS) delete env[key];
+  for (const key of LAUNCHING_TERMINAL_IDENTITY_KEYS) delete env[key];
   Object.assign(env, extraEnv || {});
   Object.assign(env, profile.set || {});
   prependPathDir(env, pathDir);

@@ -128,3 +128,22 @@ test('omitted or null prependPathDir leaves the path variable byte-identical', (
   assert.equal(claudeSpawnEnv(base).PATH, base.PATH);
   assert.equal(claudeSpawnEnv(base, null, { prependPathDir: null }).PATH, base.PATH);
 });
+
+test('the launching terminal identity never reaches an agent running inside the dashboard terminal', () => {
+  const launchedFromGhostty = { ...fullBase(), TERM_PROGRAM: 'ghostty', TERM_PROGRAM_VERSION: '1.3.1', TERM: 'xterm-256color' };
+  for (const env of [claudeSpawnEnv(launchedFromGhostty), buildAgentEnv(launchedFromGhostty, null, {})]) {
+    assert.equal('TERM_PROGRAM' in env, false);
+    assert.equal('TERM_PROGRAM_VERSION' in env, false);
+    assert.equal(env.TERM, 'xterm-256color');
+  }
+});
+
+test('only Claude Code is told the dashboard terminal renders hyperlinks, so other agents never leak link escapes into piped output', () => {
+  assert.equal(claudeSpawnEnv(fullBase()).FORCE_HYPERLINK, '1');
+  assert.equal('FORCE_HYPERLINK' in buildAgentEnv(fullBase(), null, {}), false);
+});
+
+test('an explicitly configured TERM_PROGRAM still reaches the agent', () => {
+  const env = claudeSpawnEnv({ ...fullBase(), TERM_PROGRAM: 'ghostty' }, { TERM_PROGRAM: 'custom' });
+  assert.equal(env.TERM_PROGRAM, 'custom');
+});

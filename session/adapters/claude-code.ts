@@ -21,7 +21,7 @@ const envProfile: AgentEnvProfile = {
     "CLAUDE_CODE_ENTRYPOINT",
     "CLAUDE_CODE_CHILD_SESSION",
   ],
-  set: { CLAUDE_CODE_NO_FLICKER: "1" },
+  set: { CLAUDE_CODE_NO_FLICKER: "1", FORCE_HYPERLINK: "1" },
 };
 
 const KNOWN_IDLE_CODEPOINTS = new Set([0x2733]);
