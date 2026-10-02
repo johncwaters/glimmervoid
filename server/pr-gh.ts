@@ -288,7 +288,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       const parsed = GRAPHQL_RESPONSE.safeParse(parseJson<unknown>(response.out, null));
       const data = parsed.success ? parsed.data.data : null;
       if (!data) continue;
-      batch.forEach((pr, position) => visit(pr, data[`pr${position}`]));
+      for (const [position, pr] of batch.entries()) visit(pr, data[`pr${position}`]);
     }
   }
 
