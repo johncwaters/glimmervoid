@@ -11,10 +11,10 @@ import { formatTrailOffset } from './radar-core.ts';
 import { createSettingsLink } from './settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
-  actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
+  aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
-  parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText,
-  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityCounts, severityPresentation, verdictLabel, verdictSealKind, verdictSealText, verdictTone, withReviewerNote,
+  parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
+  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityCounts, severityPresentation, verdictLabel, verdictSealKind, verdictTone, withReviewerNote,
 } from './team-review-view-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
 import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
@@ -81,7 +81,7 @@ function createSeverityMeter(severity: FindingSeverity): HTMLElement {
   return meter;
 }
 
-function createVerdictSeal(draft: ReviewDraft, isCompact = false): HTMLElement {
+function createVerdictSeal(draft: ReviewDraft): HTMLElement {
   const { verdict } = draft;
   const seal = el('span', 'pr-verdict-seal');
   seal.dataset.tone = verdictTone(verdict);
@@ -92,7 +92,7 @@ function createVerdictSeal(draft: ReviewDraft, isCompact = false): HTMLElement {
   if (kind === 'dot') icon.append(svgShape('circle', { cx: '10', cy: '10', r: '2.4', fill: 'currentColor' }));
   if (kind === 'bar') icon.append(svgShape('path', { d: 'M6 10H14', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round' }));
   if (kind === 'cross') icon.append(svgShape('path', { d: 'M7 7L13 13M13 7L7 13', stroke: 'var(--bg)', 'stroke-width': '1.8', 'stroke-linecap': 'round' }));
-  seal.append(icon, el('span', null, isCompact ? verdictLabel(verdict) : verdictSealText(draft)));
+  seal.append(icon, el('span', null, verdictLabel(verdict)));
   return seal;
 }
 
@@ -104,11 +104,11 @@ function createQuestionGlyph(): SVGSVGElement {
   return icon;
 }
 
-function createSeverityCounts(draft: ReviewDraft, isCompact = false): HTMLElement {
+function createRowSeverityCounts(draft: ReviewDraft): HTMLElement {
   const counts = el('span', 'pr-severity-counts');
   for (const { severity, count } of severityCounts(draft)) {
     const item = el('span', 'pr-severity-count');
-    item.append(createSeverityMeter(severity), el('span', null, isCompact ? String(count) : `${count} ${severity.toLowerCase()}`));
+    item.append(createSeverityMeter(severity), el('span', null, String(count)));
     counts.append(item);
   }
   return counts;
@@ -239,7 +239,7 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
   if (kind === 'queued') bottom.append(el('span', 'pr-phase-label', 'waiting for a slot'), createAuthor(review.author, 16, 'pr-queue-author'));
   if (kind === 'ready' || kind === 'settled') {
     const draft = review as ReviewDraft;
-    bottom.append(createVerdictSeal(draft, true), createAuthor(draft.author, 16, 'pr-queue-author'), createSeverityCounts(draft, true));
+    bottom.append(createVerdictSeal(draft), createAuthor(draft.author, 16, 'pr-queue-author'), createRowSeverityCounts(draft));
   }
   if (kind === 'attention' || kind === 'discarded') {
     const draft = review as ReviewDraft;
@@ -343,12 +343,24 @@ function createAssessmentList(items: readonly string[]): HTMLElement {
   return list;
 }
 
-function createSummaryStrip(draft: ReviewDraft, isWithCounts: boolean): HTMLElement {
+function createAboutPr(draft: ReviewDraft): HTMLElement[] {
+  const paragraphs = aboutPrParagraphs(draft.assessment);
+  if (paragraphs.length === 0) return [];
+  const section = el('section', 'pr-about-box');
+  section.setAttribute('aria-label', 'About this PR');
+  section.append(el('h3', 'pr-assessment-title', 'About this PR'));
+  for (const paragraph of paragraphs) {
+    const className = paragraph.kind === 'goal' ? 'pr-verdict-summary pr-about-goal' : 'pr-verdict-summary';
+    section.append(appendInlineText(el('p', className), paragraph.text));
+  }
+  return [section];
+}
+
+function createSummaryStrip(draft: ReviewDraft): HTMLElement {
   const verdict = el('section', 'pr-verdict-box');
   verdict.setAttribute('aria-label', 'Verdict');
   const verdictLine = el('div', 'pr-verdict-line');
   verdictLine.append(createVerdictSeal(draft));
-  if (isWithCounts) verdictLine.append(createSeverityCounts(draft));
   verdict.append(verdictLine);
   if (!draft.assessment) {
     verdict.append(el('p', 'pr-verdict-legacy', LEGACY_SUMMARY_HINT));
@@ -369,7 +381,6 @@ function createCoverageDetails(draft: ReviewDraft): HTMLElement {
     details.append(appendInlineText(el('p', 'pr-verdict-summary'), draft.summary));
     return details;
   }
-  if (assessment.change) details.append(createAssessmentPart('What the PR changes', appendInlineText(el('p', 'pr-verdict-summary'), assessment.change)));
   if (assessment.checked.length > 0) details.append(createAssessmentPart('What the review checked', createAssessmentList(assessment.checked)));
   if (assessment.gaps.length > 0) details.append(createAssessmentPart('Not covered', createAssessmentList(assessment.gaps), 'warning'));
   return details;
@@ -442,7 +453,7 @@ function sendAction(origin: DetailOrigin, draft: ReviewDraft, action: TeamReview
 
 let _moreMenuCount = 0;
 
-function createMoreActions(draft: ReviewDraft, actions: readonly TeamReviewAction[], runAction: (action: TeamReviewAction) => void): { element: HTMLElement; controls: HTMLButtonElement[] } {
+function createMoreActions(actions: readonly TeamReviewAction[], runAction: (action: TeamReviewAction) => void): { element: HTMLElement; controls: HTMLButtonElement[] } {
   const container = el('div', 'pr-detail-more');
   const toggle = el('button', 'review-icon-button review-more-button');
   toggle.type = 'button';
@@ -492,7 +503,7 @@ function createMoreActions(draft: ReviewDraft, actions: readonly TeamReviewActio
   });
   const controls: HTMLButtonElement[] = [toggle];
   for (const action of actions) {
-    const item = el('button', action === 'discard' ? 'review-btn review-btn-danger' : 'review-btn', actionLabel(draft, action));
+    const item = el('button', action === 'discard' ? 'review-btn review-btn-danger' : 'review-btn', actionLabel(action));
     item.type = 'button';
     item.dataset.action = action;
     item.setAttribute('role', 'menuitem');
@@ -507,8 +518,8 @@ function createMoreActions(draft: ReviewDraft, actions: readonly TeamReviewActio
   return { element: container, controls };
 }
 
-function createFooterButton(draft: ReviewDraft, action: TeamReviewAction, runAction: (action: TeamReviewAction) => void): HTMLButtonElement {
-  const button = el('button', 'pr-action', actionLabel(draft, action));
+function createFooterButton(action: TeamReviewAction, runAction: (action: TeamReviewAction) => void): HTMLButtonElement {
+  const button = el('button', 'pr-action', actionLabel(action));
   button.type = 'button';
   button.dataset.action = action;
   button.addEventListener('click', () => runAction(action));
@@ -521,7 +532,7 @@ function attachMoreActions(detail: HTMLElement, more: HTMLElement): void {
 
 function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   const detail = el('article', 'pr-detail');
-  detail.append(createDetailHeading(draft), createSummaryStrip(draft, true));
+  detail.append(createDetailHeading(draft), ...createAboutPr(draft), createSummaryStrip(draft));
 
   const posts = el('section', 'pr-posts');
   posts.setAttribute('aria-label', 'Inline comments');
@@ -555,12 +566,12 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
 
   const includedIndexes = new Set(draft.comments.flatMap((comment, index) => (isIncludedByDefault(comment) ? [index] : [])));
   const footer = el('footer', 'pr-footer');
-  const status = el('span', 'pr-action-status', reviewFooterText(draft.reviewedHead, includedIndexes.size));
+  const status = el('span', 'pr-action-status');
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
   const updateFooter = () => {
     if (_pendingActions.has(draft.key) || status.dataset.tone === 'ok') return;
-    status.textContent = reviewFooterText(draft.reviewedHead, includedIndexes.size);
+    status.textContent = '';
     delete status.dataset.tone;
   };
   for (const [index, comment] of draft.comments.entries()) posts.append(createInlineComment(comment, index, includedIndexes, updateFooter));
@@ -585,8 +596,8 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     settle(false, 'Not connected to the server.');
   };
   const layout = detailActionLayout(draft);
-  const footerButtons = layout.footer.map((action) => createFooterButton(draft, action, runAction));
-  const more = createMoreActions(draft, layout.more, runAction);
+  const footerButtons = layout.footer.map((action) => createFooterButton(action, runAction));
+  const more = createMoreActions(layout.more, runAction);
   buttons.push(...footerButtons, ...more.controls);
   attachMoreActions(detail, more.element);
   footer.append(...footerButtons, status);
@@ -649,13 +660,13 @@ function createInReviewDetail(review: InFlightReview): HTMLElement {
 
 function createOtherDetail(draft: ReviewDraft): HTMLElement {
   const detail = el('article', 'pr-detail');
-  detail.append(createDetailHeading(draft));
-  if (draft.status === 'posted') detail.append(createSummaryStrip(draft, false), createCoverageDetails(draft));
+  detail.append(createDetailHeading(draft), ...createAboutPr(draft));
+  if (draft.status === 'posted') detail.append(createSummaryStrip(draft), createCoverageDetails(draft));
   if (draft.status !== 'posted') detail.append(el('p', 'pr-attention-detail', attentionDetail(draft)));
   if (!hasRequeueFooter(draft.status)) return detail;
   const footer = el('footer', 'pr-footer');
   const layout = detailActionLayout(draft);
-  const status = el('span', 'pr-action-status', layout.footer.includes('approve') ? FOLLOW_UP_APPROVAL_HINT : '');
+  const status = el('span', 'pr-action-status', layout.footer.includes('approve-only') ? FOLLOW_UP_APPROVAL_HINT : '');
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
   const buttons: HTMLButtonElement[] = [];
@@ -672,10 +683,10 @@ function createOtherDetail(draft: ReviewDraft): HTMLElement {
     if (sendAction('other', draft, action, '', [], settle)) return;
     settle(false, 'Not connected to the server.');
   };
-  const footerButtons = layout.footer.map((action) => createFooterButton(draft, action, runAction));
+  const footerButtons = layout.footer.map((action) => createFooterButton(action, runAction));
   buttons.push(...footerButtons);
   if (layout.more.length > 0) {
-    const more = createMoreActions(draft, layout.more, runAction);
+    const more = createMoreActions(layout.more, runAction);
     buttons.push(...more.controls);
     attachMoreActions(detail, more.element);
   }

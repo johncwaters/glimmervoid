@@ -1,3 +1,4 @@
+import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { buildPanelSection, el, isPanelHidden, query, writeClipboardText } from './dom-helpers.ts';
 import { formatTrailOffset } from './radar-core.ts';
@@ -51,14 +52,7 @@ interface PendingTraceRequest {
   timeoutHandle: ReturnType<typeof setTimeout>;
 }
 
-interface TraceReply {
-  id: string;
-  records: TraceRecord[];
-  start: number;
-  next: number;
-  reset: boolean;
-  path: string;
-}
+type TraceReply = Pick<ServerMessageOf<'session-trace-response'>, 'id' | 'records' | 'start' | 'next' | 'reset' | 'path'>;
 
 interface TurnSection {
   section: HTMLElement;

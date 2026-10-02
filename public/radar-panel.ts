@@ -1,4 +1,4 @@
-import type { ServerMessage } from '#shared/contracts/control-messages.ts';
+import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { createAttentionAck } from './attention-ack-core.ts';
 import { buildPanelSection, buildStatChip, el, externalLink, isPanelHidden, projectsOf } from './dom-helpers.ts';
 import { createInvestigationDialog, createPosthogReportDialog } from './dialogs.ts';
@@ -36,7 +36,7 @@ import {
   summarizeIssues,
   verdictLabel,
 } from './radar-core.ts';
-import type { InvestigationActivityFrame, InvestigationFinishedFrame, RadarIssue, RadarLoadPhase, RadarProject, RadarProjectAlert, RadarSnapshot } from './radar-core.ts';
+import type { InvestigationFinishedFrame, RadarIssue, RadarLoadPhase, RadarProject, RadarProjectAlert, RadarSnapshot } from './radar-core.ts';
 
 type RadarProjectEntry = RadarProjectAlert & { project: RadarProject };
 
@@ -720,8 +720,7 @@ export function applyPosthogStatus(msg: unknown) {
   refreshOpenInvestigation();
 }
 
-export function applyInvestigationActivity(msg: unknown) {
-  const frame = msg as InvestigationActivityFrame;
+export function applyInvestigationActivity(frame: ServerMessageOf<'posthog-investigation-activity'>) {
   const wasInFlight = findIssueInSnapshot(_latest, frame.projectId, frame.issueId)?.inFlight === true;
   if (!patchInvestigationActivity(_latest, frame)) return;
   refreshOpenInvestigation();
@@ -736,8 +735,7 @@ function finishOpenInvestigationFromFrame(frame: InvestigationFinishedFrame) {
   _openInvestigation.dialog.update(finishedViewOf(frame));
 }
 
-export function applyInvestigationFinished(msg: unknown) {
-  const frame = msg as InvestigationFinishedFrame;
+export function applyInvestigationFinished(frame: ServerMessageOf<'posthog-investigation-finished'>) {
   if (!patchInvestigationFinished(_latest, frame)) {
     finishOpenInvestigationFromFrame(frame);
     return;

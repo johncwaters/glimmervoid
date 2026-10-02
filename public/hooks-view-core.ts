@@ -1,3 +1,4 @@
+import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 export const HOOKS_HINT = 'Claude Code hooks injected into every session Glimmervoid spawns.';
 export const HOOKS_LOADING_TEXT = 'Loading hooks';
 export const HOOKS_EMPTY_TEXT = 'No hooks yet. A hook runs a command, or calls a URL, when a Claude Code event fires in a Glimmervoid session. Start from one of these, or add your own.';
@@ -25,7 +26,7 @@ export const DEFAULT_TIMEOUT_TEXT = "Blank uses Claude Code's default for the ev
 
 export const DEFAULT_MAX_TIMEOUT_SEC = 600;
 
-export interface HookRecord {
+export type HookRecord = {
   id: string;
   name: string;
   event: string;
@@ -36,15 +37,9 @@ export interface HookRecord {
   timeout?: number;
   enabled?: boolean;
   projects?: string[];
-}
+};
 
-export interface HookEvent {
-  name: string;
-  description: string;
-
-  matcher?: string | null;
-  http?: boolean;
-}
+export type HookEvent = Pick<NonNullable<ServerMessageOf<'hooks-report'>['events']>[number], 'name' | 'description'> & Partial<Pick<NonNullable<ServerMessageOf<'hooks-report'>['events']>[number], 'matcher' | 'http'>>;
 
 export interface HookBuiltinRow {
   event: string;
@@ -52,21 +47,9 @@ export interface HookBuiltinRow {
   matcher?: string | null;
 }
 
-export interface HookProject {
-  id: string;
-  name: string;
-  agent?: string;
-}
+export type HookProject = Pick<NonNullable<ServerMessageOf<'hooks-report'>['projects']>[number], 'id' | 'name'> & Partial<Pick<NonNullable<ServerMessageOf<'hooks-report'>['projects']>[number], 'agent'>>;
 
-export interface HooksReport {
-  hooks?: HookRecord[];
-  builtin?: HookBuiltinRow[];
-  events?: HookEvent[];
-  projects?: HookProject[];
-  limits?: { maxTimeoutSec?: unknown } | null;
-  error?: unknown;
-  requestId?: unknown;
-}
+export type HooksReport = Pick<ServerMessageOf<'hooks-report'>, 'hooks' | 'builtin' | 'events' | 'projects' | 'limits' | 'error' | 'requestId'>;
 
 export interface HookDraft {
   id: string | null;
@@ -120,7 +103,7 @@ export const hooksOf = (report: HooksReport | null | undefined) => listOf(report
 export const builtinOf = (report: HooksReport | null | undefined) => listOf(report, 'builtin') as HookBuiltinRow[];
 export const eventsOf = (report: HooksReport | null | undefined) => listOf(report, 'events') as HookEvent[];
 
-export function maxTimeoutOf(report: HooksReport | null | undefined) {
+export function maxTimeoutOf(report: { limits?: Partial<NonNullable<HooksReport['limits']>> | null } | null | undefined) {
   const value = report?.limits?.maxTimeoutSec;
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : DEFAULT_MAX_TIMEOUT_SEC;
 }

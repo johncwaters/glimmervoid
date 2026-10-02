@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DraftComment, PrDetail, ReviewComment, ReviewDraft, ReviewResult, SearchedPr, TeamReviewActionRequest, TeamReviewStateEntry, TeamReviewStatus } from '../shared/contracts/team-review.ts';
+import { DraftComment, PrDetail, ReviewAssessment, ReviewComment, ReviewDraft, ReviewResult, SearchedPr, TeamReviewActionRequest, TeamReviewStateEntry, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 
 const HEAD = 'a'.repeat(40);
 
@@ -76,6 +76,11 @@ test('draft comments accept optional severity while action comments omit it', ()
   assert.deepEqual(action.comments, [comment]);
 });
 
+test('approve-only is accepted by the action request contract', () => {
+  const request = { key: 'Acme/app#1', head: HEAD, action: 'approve-only', body: '', comments: [] };
+  assert.deepEqual(TeamReviewActionRequest.parse(request), request);
+});
+
 test('review result accepts code-review verdicts, typed findings and an exact lowercase commit SHA', () => {
   const finding = { path: 'src/a.ts', line: 4, side: 'RIGHT', severity: 'HIGH', reviewer: 'code/logic', disposition: 'ACTIONABLE', body: 'Off by one' };
   const result = { verdict: 'APPROVE WITH NITS', head: HEAD, summary: 'Spot checked', assessment: null, findings: [finding, { ...finding, line: null, disposition: null }] };
@@ -109,4 +114,9 @@ test('editable review draft requires a repository, tier, status, and reviewed he
     { ...draft, reviewedHead: 'abc123' },
     { ...draft, status: 'pending' },
   ]) assert.equal(ReviewDraft.safeParse(invalid).success, false);
+});
+
+test('an old assessment without a goal parses with an empty goal', () => {
+  const oldAssessment = { change: 'Re-arm the timer.', checked: ['Old timer cleared.'], gaps: [] };
+  assert.deepEqual(ReviewAssessment.parse(oldAssessment), { goal: '', ...oldAssessment });
 });

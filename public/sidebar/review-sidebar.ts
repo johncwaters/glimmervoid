@@ -1,4 +1,4 @@
-import type { DiffAnnotation, ServerMessage } from '#shared/contracts/control-messages.ts';
+import type { DiffAnnotation, ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { ChangeMap } from '#shared/contracts/change-map.ts';
 import { DIFF_ANNOTATION_NOTE_MAX_CHARS, DIFF_ANNOTATIONS_MAX } from '#shared/contracts/control-messages.ts';
 import type { SessionState } from '#shared/states.ts';
@@ -26,33 +26,25 @@ import {
 } from './diff-core.ts';
 import {
   baseLabel,
+  branchSyncActionTitle,
+  branchSyncClickAction,
+  branchSyncLabel,
   decideMergeAction,
   decidePrimaryReviewAction,
+  hasReviewChanges,
   mergeActionTitle,
   mergeDisabledReason,
   mergeTargetText,
   parkedStatusText,
   reviewHeadline,
+  resyncOutcomeText,
+  shouldShowBranchSyncLabel,
+  shouldShowReviewHeaderCounts,
 } from './review-copy-core.ts';
-import type { MergeActionVerdict } from './review-copy-core.ts';
+import type { MergeActionVerdict, ReviewBranchSync as BranchSync } from './review-copy-core.ts';
 import { getSelectedId, onSelectionChange, setSelectedId } from './selection.ts';
 
-interface SessionDiffPayload {
-  committed?: { diff?: string } | null;
-  uncommitted?: { diff?: string } | null;
-  hasCommits?: boolean;
-}
-
-interface BranchSync {
-  branch?: string;
-  upstream?: string;
-  state?: string;
-  ahead?: number;
-  behind?: number;
-  fetched?: boolean | null;
-  action?: string;
-  error?: string | null;
-}
+type SessionDiffPayload = Pick<ServerMessageOf<'session-diff'>, 'committed' | 'uncommitted' | 'hasCommits'>;
 
 const REVIEWABLE = new Set(['pending-review', 'parked']);
 const MAX_FILE_LINES = 600;
@@ -302,8 +294,7 @@ export function seedReviewMergeStatus(id: string, mergeStatus: string, reason: s
   applyStatus(id, mergeStatus || 'none');
 }
 
-export function setReviewDiff(id: string, payload: unknown) {
-  const next = (payload || null) as SessionDiffPayload | null;
+export function setReviewDiff(id: string, next: SessionDiffPayload | null) {
   const previous = diffById.get(id) ?? null;
   diffById.set(id, next);
   if (id !== getSelectedId()) return;
@@ -336,9 +327,9 @@ function dropDraftsForChangedSections(previous: SessionDiffPayload | null, next:
   notesOutcome = `${stale.length} note${stale.length === 1 ? '' : 's'} dropped because the diff changed.`;
 }
 
-export function setReviewBranchSync(id: unknown, payload: unknown) {
+export function setReviewBranchSync(id: string, payload: BranchSync | null) {
   const key = sessionIdOf(id);
-  const sync = (payload || null) as BranchSync | null;
+  const sync = payload;
   syncById.set(key, sync);
   if (sync && sync.action !== undefined) applyResyncResult(key, sync);
   if (key === getSelectedId()) render();
@@ -347,6 +338,7 @@ export function setReviewBranchSync(id: unknown, payload: unknown) {
 function applyResyncResult(id: string, payload: BranchSync) {
   resyncingIds.delete(id);
   clearTimeout(resyncResultTimer ?? undefined);
+  resyncResultTimer = null;
   const text = resyncOutcomeText(payload);
   resyncResult = text ? { forId: id, text, isError: !!payload.error } : null;
   if (resyncResult && !resyncResult.isError) {
@@ -355,16 +347,6 @@ function applyResyncResult(id: string, payload: BranchSync) {
       render();
     }, 5000);
   }
-}
-
-function resyncOutcomeText(sync: BranchSync) {
-  if (sync.error) return `Resync failed: ${sync.error}`;
-  if (sync.action === 'fast-forwarded') return `Fast-forwarded ${sync.branch} to ${sync.upstream}.`;
-  if (sync.action === 'pushed') return `Pushed ${sync.branch} to ${sync.upstream}.`;
-  if (sync.state === 'diverged') return `${sync.branch} has diverged from ${sync.upstream}. Resolve manually.`;
-  if (sync.state === 'in-sync') return `${sync.branch} is already in sync with ${sync.upstream}.`;
-  if (sync.state === 'no-upstream') return `${sync.branch || 'The base branch'} has no upstream to resync against.`;
-  return 'Could not determine sync status.';
 }
 
 export function notifyWorktreeChanged(id: unknown) {
@@ -406,7 +388,14 @@ export function mergeSelectedSession() {
     reasonById.get(id) || null,
     isMergeableLive(ui.currentState, hasCommits),
   );
-  if (!mergeAction.isEnabled) return false;
+  const primaryAction = decidePrimaryReviewAction({
+    status: curStatus,
+    mergeReason: reasonById.get(id) || null,
+    live: isLive(ui.currentState),
+    isMergeRendered: mergeAction.isRendered,
+    hasChanges: sessionHasChanges(id),
+  });
+  if (primaryAction !== 'merge' || !mergeAction.isEnabled) return false;
   sendMergeContinue(id, ui.currentState);
   return true;
 }
@@ -423,6 +412,7 @@ export function resolveSelectedSession() {
     mergeReason,
     live: isLive(ui.currentState),
     isMergeRendered: decideMergeAction(status, mergeReason, false).isRendered,
+    hasChanges: sessionHasChanges(id),
   });
   if (primaryAction !== 'resolve') return false;
   sendControlMsg({ type: 'resolve-session-merge', id });
@@ -432,10 +422,22 @@ export function resolveSelectedSession() {
 export function resyncSelectedSession() {
   const id = getSelectedId();
   if (!id || !sessionUIs.has(id) || isWorkspaceSession(id)) return false;
-  if (resyncingIds.has(id)) return false;
-  if (resyncDisabledReason(syncById.get(id), false)) return false;
-  requestResyncBranch(id);
+  if (isBranchSyncBusy(id)) return false;
+  requestBranchSyncAction(id);
   return true;
+}
+
+function sessionHasChanges(id: string) {
+  const payload = diffById.get(id) ?? null;
+  const changedFiles = [
+    ...parseUnifiedDiff(payload?.committed?.diff || ''),
+    ...parseUnifiedDiff(payload?.uncommitted?.diff || ''),
+  ];
+  return hasReviewChanges({
+    fetched: diffById.has(id),
+    changedFileCount: summarizeFiles(changedFiles).files,
+    hasCommits: !!payload?.hasCommits,
+  });
 }
 
 function isMergeableLive(state: string, hasCommits: boolean) {
@@ -487,21 +489,22 @@ function requestResyncBranch(id: string) {
   if (id === getSelectedId()) render();
 }
 
-function branchSyncLabel(sync: BranchSync | null | undefined) {
-  if (!sync) return null;
-  const { branch, upstream, state, ahead, behind } = sync;
-  if (state === 'no-upstream') return `${branch}: no upstream`;
-  if (state === 'unknown') return `${branch}: sync state unknown vs ${upstream}`;
-  if (state === 'in-sync') return `${branch}: in sync with ${upstream}`;
-  if (state === 'ahead') return `${branch}: ${ahead} ahead of ${upstream}`;
-  if (state === 'behind') return `${branch}: ${behind} behind ${upstream}`;
-  if (state === 'diverged') return `${branch}: ${ahead} ahead, ${behind} behind ${upstream}`;
-  return null;
+function isBranchSyncBusy(id: string) {
+  return resyncingIds.has(id) || syncById.get(id) === null;
+}
+
+function requestBranchSyncAction(id: string) {
+  if (isBranchSyncBusy(id)) return;
+  if (branchSyncClickAction(syncById.get(id)) === 'resync') {
+    requestResyncBranch(id);
+    return;
+  }
+  requestBranchSync(id);
 }
 
 function resyncDisabledReason(sync: BranchSync | null | undefined, resyncing: boolean) {
   if (resyncing) return null;
-  if (!sync) return 'Checking branch sync...';
+  if (!sync) return null;
   if (sync.state === 'no-upstream') return 'No upstream configured.';
   if (sync.state === 'unknown') return 'Could not determine sync status.';
   return null;
@@ -511,7 +514,7 @@ function resyncStatusLine(id: string, sync: BranchSync | null | undefined, resyn
   if (resyncing) return { text: 'Resyncing...', loading: true, error: false };
   if (resyncResult && resyncResult.forId === id) return { text: resyncResult.text, loading: false, error: resyncResult.isError };
   const reason = resyncDisabledReason(sync, false);
-  return reason ? { text: reason, loading: !sync, error: false } : null;
+  return reason ? { text: reason, loading: false, error: false } : null;
 }
 
 function sessionName(ui: SessionUi | null | undefined, id: string) {
@@ -812,26 +815,44 @@ function render() {
 
   const effectiveBase = baseLabel(ui.effectiveBase);
   const totals = summarizeFiles([...committedFiles, ...uncommittedFiles]);
+  const hasChanges = hasReviewChanges({ fetched, changedFileCount: totals.files, hasCommits });
+  const primaryAction = decidePrimaryReviewAction({ status, mergeReason, live, hasChanges, isMergeRendered: mergeAction.isRendered });
   const headline = reviewHeadline({
     status, mergeReason, fetched, hasChanges: totals.files > 0 || hasCommits, hasCommits,
     canMerge: !isWorkspace && mergeAction.isEnabled, isWorkspace, live, effectiveBase,
   });
   const statusLine = el('div', 'review-status-headline');
   statusLine.append(el('span', 'review-status-text', headline.text));
+  if (!isWorkspace && !shouldShowBranchSyncLabel(sync)) {
+    const syncText = branchSyncLabel(sync);
+    if (syncText) {
+      statusLine.title = syncText;
+      const refreshButton = createReviewIconButton('Refresh branch sync', 'M13 6A5 5 0 1 0 13 10M13 2v4H9');
+      refreshButton.classList.add('review-branch-sync-refresh');
+      refreshButton.title = branchSyncActionTitle(sync, resolveShortcutHint, primaryAction !== 'resolve');
+      refreshButton.disabled = isBranchSyncBusy(id);
+      refreshButton.setAttribute('aria-description', syncText);
+      refreshButton.addEventListener('click', () => requestBranchSyncAction(id));
+      statusLine.append(el('span', 'sr-only', syncText), refreshButton);
+    }
+  }
   controlsEl.append(statusLine);
 
   const metadata = el('div', 'review-status-meta');
-  metadata.append(
+  if (shouldShowReviewHeaderCounts({
+    fetched, hasChanges, view: selectedView,
+    committedFiles: committedFiles.length, uncommittedFiles: uncommittedFiles.length,
+  })) metadata.append(
     el('span', 'review-status-files', `${totals.files} file${totals.files === 1 ? '' : 's'}`),
     el('span', 'review-status-added', `+${totals.added}`),
     el('span', 'review-status-removed', `-${totals.removed}`),
     el('span', 'review-status-spacer'),
   );
-  if (!isWorkspace) {
-    const branchSync = renderBranchSync(id);
+  if (!isWorkspace && shouldShowBranchSyncLabel(sync)) {
+    const branchSync = renderBranchSync(id, primaryAction !== 'resolve');
     if (branchSync) metadata.append(branchSync);
   }
-  controlsEl.append(metadata);
+  if (metadata.childElementCount > 0) controlsEl.append(metadata);
   if (status === 'parked') controlsEl.append(el('div', 'review-status-explanation', parkedStatusText(mergeReason)));
 
   if (railLabelEl) railLabelEl.hidden = false;
@@ -844,12 +865,12 @@ function render() {
   if (railRemovedEl) railRemovedEl.textContent = `-${totals.removed}`;
 
   const actions = isWorkspace ? null : renderActions(id, {
-    status, reviewable, mergeAction, live, state, sync, resyncing, effectiveBase, mergeReason,
+    status, reviewable, mergeAction, live, state, effectiveBase, primaryAction,
   });
   if (actions) controlsEl.append(actions);
 
   const resyncStatus = isWorkspace ? null : resyncStatusLine(id, sync, resyncing);
-  const mergeReasonText = !isWorkspace && mergeAction.isRendered && !mergeAction.isEnabled
+  const mergeReasonText = !isWorkspace && primaryAction === 'merge' && !mergeAction.isEnabled
     ? mergeDisabledReason({ status, mergeReason, fetched, hasCommits, live, state })
     : null;
   const hasMergeReason = !!mergeReasonText;
@@ -863,8 +884,10 @@ function render() {
     const resyncReasonLine = el('div', resyncStatus.loading ? 'review-control-reason review-loading' : 'review-control-reason', resyncStatus.text);
     resyncReasonLine.id = 'review-resync-reason';
     if (resyncStatus.error) resyncReasonLine.classList.add('review-control-reason-error');
-    controlsEl.append(resyncReasonLine);
-    controlsEl.querySelector('#review-resync-btn')?.setAttribute('aria-describedby', resyncReasonLine.id);
+    resyncReasonLine.setAttribute('role', 'status');
+    metadata.append(resyncReasonLine);
+    if (!metadata.isConnected) controlsEl.insertBefore(metadata, statusLine.nextSibling);
+    controlsEl.querySelector('.review-branch-sync-text, .review-branch-sync-refresh')?.setAttribute('aria-describedby', resyncReasonLine.id);
   }
 
   if (resolveJustSent && resolveJustSentFor === id) {
@@ -883,11 +906,11 @@ function render() {
   if (committedFiles.length > 0) {
     bodyEl.append(renderSection('committed', 'Committed', mergeTargetText(effectiveBase), committedFiles));
   }
-  if (committedFiles.length === 0 && !hasMergeReason) {
+  if (committedFiles.length === 0 && uncommittedFiles.length === 0 && !hasMergeReason) {
 
     const placeholder = !fetched && reviewable
       ? el('div', 'review-nochanges review-loading', 'Loading diff...')
-      : el('div', 'review-nochanges', uncommittedFiles.length > 0 ? 'No committed changes.' : 'No changes in this worktree.');
+      : el('div', 'review-nochanges', 'No changes in this worktree.');
     bodyEl.append(placeholder);
   }
 
@@ -903,22 +926,20 @@ function renderEmpty(title: string, desc: string) {
   bodyEl.append(wrap);
 }
 
-function renderBranchSync(id: string) {
+function renderBranchSync(id: string, shortcutResyncs: boolean) {
   const sync = syncById.get(id);
   if (sync === undefined) return null;
   if (sync === null) return el('span', 'review-branch-sync-text review-loading', 'Checking branch sync...');
-  const label = branchSyncLabel(sync);
-  if (!label) return null;
-  const row = el('button', 'review-branch-sync-text', label);
-  row.type = 'button';
-  row.dataset.syncState = sync.state;
-
-  const isStale = sync.fetched === false && sync.state !== 'no-upstream';
-  if (isStale) row.dataset.stale = 'true';
-  row.title = isStale
-    ? 'The last fetch against the remote failed; these counts may be stale. Click to retry.'
-    : 'Click to refresh';
-  row.addEventListener('click', () => requestBranchSync(id));
+  const label = branchSyncLabel(sync) || 'Base branch: sync state unknown';
+  const row = createReviewIconButton('Refresh branch sync', 'M13 6A5 5 0 1 0 13 10M13 2v4H9');
+  row.className = 'review-branch-sync-text';
+  row.removeAttribute('aria-label');
+  row.append(el('span', 'review-branch-sync-label', label));
+  row.disabled = resyncingIds.has(id);
+  if (sync.state) row.dataset.syncState = sync.state;
+  if (sync.fetched === false) row.dataset.stale = 'true';
+  row.title = branchSyncActionTitle(sync, resolveShortcutHint, shortcutResyncs);
+  row.addEventListener('click', () => requestBranchSyncAction(id));
   return row;
 }
 
@@ -1049,21 +1070,18 @@ function actionButton({ id, label, shortcut, title, disabled = false, danger = f
 }
 
 function renderActions(id: string, {
-  status, reviewable, mergeAction, live, state, sync, resyncing, effectiveBase, mergeReason,
+  status, reviewable, mergeAction, live, state, effectiveBase, primaryAction,
 }: {
   status: string;
   reviewable: boolean;
   mergeAction: MergeActionVerdict;
   live: boolean;
   state: string;
-  sync: BranchSync | null | undefined;
-  resyncing: boolean;
   effectiveBase: string;
-  mergeReason: string | null;
+  primaryAction: 'merge' | 'resolve' | 'none';
 }) {
   const actions = el('div', 'review-actions');
 
-  const primaryAction = decidePrimaryReviewAction({ status, mergeReason, live, isMergeRendered: mergeAction.isRendered });
   const resolveShown = primaryAction === 'resolve';
   if (primaryAction === 'merge') {
     actions.append(actionButton({
@@ -1092,6 +1110,8 @@ function renderActions(id: string, {
     }));
   }
 
+  if (!reviewable || live) return actions.childElementCount > 0 ? actions : null;
+
   const moreButton = createReviewIconButton('More review actions', 'M3 8h0.01M8 8h0.01M13 8h0.01');
   moreButton.classList.add('review-more-button');
   moreButton.setAttribute('aria-haspopup', 'menu');
@@ -1113,23 +1133,6 @@ function renderActions(id: string, {
   menu.id = 'review-more-menu';
   menu.setAttribute('role', 'menu');
   menu.setAttribute('aria-label', 'More review actions');
-  const resyncButton = actionButton({
-    id: 'review-resync-btn',
-    label: 'Resync base branch',
-    shortcut: resolveShown ? undefined : resolveShortcutHint,
-    title: resolveShown
-      ? 'Fetch and fast-forward/push the local base branch against its remote upstream'
-      : `Fetch and fast-forward/push the local base branch against its remote upstream (${resolveShortcutHint})`,
-    disabled: resyncing || !!resyncDisabledReason(sync, resyncing),
-    onClick: () => {
-      isMoreMenuOpen = false;
-      requestResyncBranch(id);
-    },
-  });
-  resyncButton.classList.remove('review-btn-primary');
-  resyncButton.setAttribute('role', 'menuitem');
-  menu.append(resyncButton);
-
   if (reviewable && !live) {
     const discardButton = actionButton({
       label: 'Discard worktree',

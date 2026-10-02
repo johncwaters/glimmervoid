@@ -7,6 +7,8 @@ import { z } from 'zod';
 
 import { CLIENT_ERROR_NAME_MAX_CHARS, CLIENT_ERROR_STACK_MAX_CHARS, ClientMessage, ServerMessage } from '../shared/contracts/index.ts';
 import {
+  type ClientMessageOf,
+  type ServerMessageOf,
   CONTROL_FRAME_MAX_BYTES,
   DIFF_ANNOTATION_NOTE_MAX_CHARS,
   DIFF_ANNOTATION_PATH_MAX_CHARS,
@@ -541,4 +543,71 @@ test('a client-error report is accepted within its length limits and rejected be
   assert.equal(ClientMessage.safeParse({ ...within, name: 'E'.repeat(CLIENT_ERROR_NAME_MAX_CHARS + 1) }).success, false);
   assert.equal(ClientMessage.safeParse({ ...within, stack: 's'.repeat(CLIENT_ERROR_STACK_MAX_CHARS + 1) }).success, false);
   assert.equal(ClientMessage.safeParse({ type: 'client-error', name: 'TypeError' }).success, false);
+});
+
+test('branch sync messages narrow to their literal discriminant and declared field types', () => {
+  const expected = {
+    type: 'branch-sync-status',
+    id: 'session',
+    branch: 'feature',
+    upstream: null,
+    state: 'ahead',
+    ahead: 2,
+    behind: 0,
+    fetched: null,
+    error: null,
+    extra: 'preserved',
+  } satisfies ServerMessageOf<'branch-sync-status'>;
+  const message = ServerMessage.parse(expected);
+  if (message.type !== 'branch-sync-status') assert.fail('Expected branch sync');
+  const branchSync: ServerMessageOf<'branch-sync-status'> = message;
+  const branch: string | null = branchSync.branch;
+  const ahead: number = branchSync.ahead;
+  const fetched: boolean | null = branchSync.fetched;
+  assert.equal(branch, 'feature');
+  assert.equal(ahead, 2);
+  assert.equal(fetched, null);
+  assert.deepEqual(branchSync, expected);
+});
+
+test('mapped ID-only client variants can be extracted independently and retain passthrough fields', () => {
+  const kill = { type: 'kill', id: 'session', force: true, extra: 'preserved' } satisfies ClientMessageOf<'kill'>;
+  const resync = { type: 'resync-branch', id: 'session' } satisfies ClientMessageOf<'resync-branch'>;
+  const message = ClientMessage.parse(kill);
+  if (message.type !== 'kill') assert.fail('Expected kill');
+  const killRequest: ClientMessageOf<'kill'> = message;
+  const id: string = killRequest.id;
+  const type: 'kill' = killRequest.type;
+  assert.equal(id, 'session');
+  assert.equal(type, 'kill');
+  assert.deepEqual(killRequest, kill);
+  assert.deepEqual(ClientMessage.parse(resync), resync);
+});
+
+test('no-shape messages retain literal types and passthrough fields', () => {
+  const expected = { type: 'shutdown', extra: 'preserved' } satisfies ClientMessageOf<'shutdown'>;
+  const message = ClientMessage.parse(expected);
+  if (message.type !== 'shutdown') assert.fail('Expected shutdown');
+  const shutdown: ClientMessageOf<'shutdown'> = message;
+  const type: 'shutdown' = shutdown.type;
+  assert.equal(type, 'shutdown');
+  assert.deepEqual(shutdown, expected);
+});
+
+test('nested open objects retain declared field types and passthrough fields', () => {
+  const expected = {
+    type: 'session-diff',
+    id: 'session',
+    committed: { stat: 'one file', diff: 'committed diff', extra: 'preserved' },
+    uncommitted: { stat: '', diff: '' },
+    hasCommits: true,
+    extra: 'preserved',
+  } satisfies ServerMessageOf<'session-diff'>;
+  const message = ServerMessage.parse(expected);
+  if (message.type !== 'session-diff') assert.fail('Expected session diff');
+  const stat: string = message.committed.stat;
+  const diff: string = message.uncommitted.diff;
+  assert.equal(stat, 'one file');
+  assert.equal(diff, '');
+  assert.deepEqual(message, expected);
 });

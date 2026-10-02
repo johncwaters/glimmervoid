@@ -77,6 +77,7 @@ export const ReviewFinding = z.object({
 export type ReviewFinding = z.infer<typeof ReviewFinding>;
 
 export const ReviewAssessment = z.object({
+  goal: z.string().default(''),
   change: z.string(),
   checked: z.array(z.string()),
   gaps: z.array(z.string()),
@@ -167,7 +168,7 @@ export function canApproveAfterComment(draft: Pick<ReviewDraft, 'status' | 'post
   return draft.status === 'posted' && draft.postedEvent === 'COMMENT';
 }
 
-export const TeamReviewAction = z.enum(['approve', 'comment', 'discard', 'requeue']);
+export const TeamReviewAction = z.enum(['approve', 'approve-only', 'comment', 'discard', 'requeue']);
 export type TeamReviewAction = z.infer<typeof TeamReviewAction>;
 
 export const TeamReviewActionRequest = z.object({

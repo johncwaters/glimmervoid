@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decidePrimaryReviewAction, reviewHeadline } from '../public/sidebar/review-copy-core.ts';
+import { branchSyncActionTitle, branchSyncClickAction, branchSyncLabel, decidePrimaryReviewAction, hasReviewChanges, resyncOutcomeText, reviewHeadline, shouldShowBranchSyncLabel, shouldShowReviewHeaderCounts } from '../public/sidebar/review-copy-core.ts';
 
 const headlineInputs = {
   status: 'pending-review',
@@ -85,17 +85,17 @@ test('review headline reports committed changes that cannot merge yet', () => {
 
 test('primary review action is resolve for a live conflict parked session', () => {
   for (const mergeReason of ['rebase-conflict', null]) {
-    assert.equal(decidePrimaryReviewAction({ status: 'parked', mergeReason, live: true, isMergeRendered: false }), 'resolve');
+    assert.equal(decidePrimaryReviewAction({ status: 'parked', mergeReason, live: true, hasChanges: true, isMergeRendered: false }), 'resolve');
   }
 });
 
 test('primary review action is merge for a diverged base or an ended parked session when merge renders', () => {
-  assert.equal(decidePrimaryReviewAction({ status: 'parked', mergeReason: 'base-diverged', live: true, isMergeRendered: true }), 'merge');
-  assert.equal(decidePrimaryReviewAction({ status: 'pending-review', mergeReason: null, live: true, isMergeRendered: true }), 'merge');
+  assert.equal(decidePrimaryReviewAction({ status: 'parked', mergeReason: 'base-diverged', live: true, hasChanges: true, isMergeRendered: true }), 'merge');
+  assert.equal(decidePrimaryReviewAction({ status: 'pending-review', mergeReason: null, live: true, hasChanges: true, isMergeRendered: true }), 'merge');
 });
 
 test('primary review action is none when neither resolve nor merge applies', () => {
-  assert.equal(decidePrimaryReviewAction({ status: 'parked', mergeReason: 'rebase-conflict', live: false, isMergeRendered: false }), 'none');
+  assert.equal(decidePrimaryReviewAction({ status: 'parked', mergeReason: 'rebase-conflict', live: false, hasChanges: true, isMergeRendered: false }), 'none');
 });
 
 test('review copy names the effective base and its push action', async () => {
@@ -147,4 +147,132 @@ test('loading, no changes, and inactive session outrank base-diverged copy', asy
   assert.equal(mergeDisabledReason({ ...baseDiverged, fetched: false }), 'Checking for changes...');
   assert.equal(mergeDisabledReason({ ...baseDiverged, hasCommits: false }), null);
   assert.equal(mergeDisabledReason({ ...baseDiverged, live: false }), 'Session ended.');
+});
+
+test('empty review hides Merge while parked and merging actions remain unchanged', () => {
+  const inputs = { status: 'pending-review', mergeReason: null, live: true, hasChanges: false, isMergeRendered: true };
+  for (const status of ['none', 'pending-review', 'merged']) {
+    assert.equal(decidePrimaryReviewAction({ ...inputs, status }), 'none');
+  }
+  assert.equal(decidePrimaryReviewAction({ ...inputs, status: 'merging' }), 'merge');
+  assert.equal(decidePrimaryReviewAction({ ...inputs, status: 'parked' }), 'resolve');
+  assert.equal(decidePrimaryReviewAction({ ...inputs, status: 'parked', mergeReason: 'base-diverged' }), 'merge');
+  assert.equal(decidePrimaryReviewAction({ ...inputs, hasChanges: true }), 'merge');
+});
+
+const freshSync = { branch: 'main', upstream: 'origin/main', state: 'in-sync', ahead: 0, behind: 0, fetched: true };
+
+test('only a fresh in-sync branch hides its visible sync label', () => {
+  for (const fetched of [true, null]) {
+    assert.equal(shouldShowBranchSyncLabel({ ...freshSync, fetched }), false);
+  }
+  assert.equal(shouldShowBranchSyncLabel({ ...freshSync, fetched: false }), true);
+  for (const state of ['ahead', 'behind', 'diverged', 'no-upstream', 'unknown']) {
+    assert.equal(shouldShowBranchSyncLabel({ ...freshSync, state }), true);
+  }
+  assert.equal(shouldShowBranchSyncLabel(null), true);
+  assert.equal(shouldShowBranchSyncLabel(undefined), true);
+});
+
+test('header counts omit fetched empty worktrees and single Diff sections', () => {
+  const inputs = { fetched: true, hasChanges: true, view: 'diff', committedFiles: 0, uncommittedFiles: 11 };
+  assert.equal(shouldShowReviewHeaderCounts(inputs), false);
+  assert.equal(shouldShowReviewHeaderCounts({ ...inputs, committedFiles: 2, uncommittedFiles: 0 }), false);
+  assert.equal(shouldShowReviewHeaderCounts({ ...inputs, committedFiles: 2 }), true);
+  for (const view of ['diff', 'map', 'notes']) {
+    assert.equal(shouldShowReviewHeaderCounts({ ...inputs, view, hasChanges: false, uncommittedFiles: 0 }), false);
+  }
+  for (const view of ['map', 'notes']) {
+    assert.equal(shouldShowReviewHeaderCounts({ ...inputs, view }), true);
+  }
+  assert.equal(shouldShowReviewHeaderCounts({ ...inputs, fetched: false, hasChanges: false, uncommittedFiles: 0 }), true);
+  assert.equal(shouldShowReviewHeaderCounts({ ...inputs, uncommittedFiles: 0 }), true);
+});
+
+test('unchanged resync is silent while all other outcomes keep their copy', () => {
+  const sync = { ...freshSync, action: 'none' };
+  assert.equal(resyncOutcomeText(sync), null);
+  assert.equal(resyncOutcomeText({ ...sync, action: 'fast-forwarded' }), 'Fast-forwarded main to origin/main.');
+  assert.equal(resyncOutcomeText({ ...sync, action: 'pushed' }), 'Pushed main to origin/main.');
+  assert.equal(resyncOutcomeText({ ...sync, state: 'diverged' }), 'main has diverged from origin/main. Resolve manually.');
+  assert.equal(resyncOutcomeText({ ...sync, state: 'no-upstream' }), 'main has no upstream to resync against.');
+  assert.equal(resyncOutcomeText({ ...sync, branch: null, upstream: null, state: 'no-upstream' }), 'The base branch has no upstream to resync against.');
+  assert.equal(resyncOutcomeText({ ...sync, upstream: null, action: 'pushed' }), 'Pushed main to its upstream.');
+  assert.equal(resyncOutcomeText({ ...sync, error: 'Fetch failed' }), 'Resync failed: Fetch failed');
+  assert.equal(resyncOutcomeText({ ...sync, state: 'unknown' }), 'Could not determine sync status.');
+});
+
+
+test('branch sync tooltip names the action and supplied platform shortcut', () => {
+  const sync = freshSync;
+  assert.equal(branchSyncActionTitle({ ...sync, state: 'behind' }, 'cmd-U', true), 'Click to fast-forward main to origin/main (cmd-U)');
+  assert.equal(branchSyncActionTitle({ ...sync, state: 'ahead' }, 'Alt+U', true), 'Click to push main to origin/main (Alt+U)');
+  for (const state of ['in-sync', 'diverged', 'no-upstream', 'unknown']) {
+    assert.equal(branchSyncActionTitle({ ...sync, state }, 'cmd-U', true), 'Click to fetch and check again (cmd-U)');
+  }
+  for (const state of ['behind', 'ahead', 'in-sync']) {
+    assert.equal(branchSyncActionTitle({ ...sync, state, fetched: false }, 'cmd-U', true), 'Click to fetch and check again (cmd-U)');
+  }
+  for (const missingSync of [null, undefined]) {
+    assert.equal(branchSyncActionTitle(missingSync, 'Alt+U', true), 'Click to fetch and check again (Alt+U)');
+  }
+  assert.equal(branchSyncActionTitle({ ...sync, state: 'behind', upstream: null }, 'cmd-U', true), 'Click to fast-forward main to its upstream (cmd-U)');
+});
+
+test('branch sync tooltip omits the shortcut hint when the shortcut resolves instead of resyncing', () => {
+  assert.equal(branchSyncActionTitle({ ...freshSync, state: 'behind' }, 'cmd-U', false), 'Click to fast-forward main to origin/main');
+  assert.equal(branchSyncActionTitle(null, 'cmd-U', false), 'Click to fetch and check again');
+  assert.equal(branchSyncActionTitle({ ...freshSync, state: 'behind' }, 'cmd-U', true), 'Click to fast-forward main to origin/main (cmd-U)');
+});
+
+test('branch sync click resyncs only a fresh ahead or behind reading and rechecks otherwise', () => {
+  for (const fetched of [true, null]) {
+    for (const state of ['ahead', 'behind']) {
+      assert.equal(branchSyncClickAction({ ...freshSync, state, fetched }), 'resync');
+    }
+    for (const state of ['in-sync', 'diverged', 'no-upstream', 'unknown']) {
+      assert.equal(branchSyncClickAction({ ...freshSync, state, fetched }), 'recheck');
+    }
+  }
+  for (const state of ['ahead', 'behind', 'in-sync', 'diverged', 'no-upstream', 'unknown']) {
+    assert.equal(branchSyncClickAction({ ...freshSync, state, fetched: false }), 'recheck');
+  }
+  assert.equal(branchSyncClickAction(null), 'recheck');
+  assert.equal(branchSyncClickAction(undefined), 'recheck');
+});
+
+test('branch sync tooltip promises a recheck exactly when the click rechecks', () => {
+  for (const fetched of [true, null, false]) {
+    for (const state of ['ahead', 'behind', 'in-sync', 'diverged', 'no-upstream', 'unknown']) {
+      const sync = { ...freshSync, state, fetched };
+      const promisesRecheck = branchSyncActionTitle(sync, 'cmd-U', true).startsWith('Click to fetch and check again');
+      assert.equal(promisesRecheck, branchSyncClickAction(sync) === 'recheck');
+    }
+  }
+});
+
+test('review changes count while loading, with changed files, or with commits', () => {
+  assert.equal(hasReviewChanges({ fetched: false, changedFileCount: 0, hasCommits: false }), true);
+  assert.equal(hasReviewChanges({ fetched: true, changedFileCount: 0, hasCommits: false }), false);
+  assert.equal(hasReviewChanges({ fetched: true, changedFileCount: 2, hasCommits: false }), true);
+  assert.equal(hasReviewChanges({ fetched: true, changedFileCount: 0, hasCommits: true }), true);
+});
+
+test('branch sync labels fall back to Base branch for every state with a missing branch', () => {
+  const labelsByState = {
+    'no-upstream': 'Base branch: no upstream',
+    unknown: 'Base branch: sync state unknown vs origin/main',
+    'in-sync': 'Base branch: in sync with origin/main',
+    ahead: 'Base branch: 2 ahead of origin/main',
+    behind: 'Base branch: 3 behind origin/main',
+    diverged: 'Base branch: 2 ahead, 3 behind origin/main',
+  };
+  for (const branch of [null, '']) {
+    for (const [state, label] of Object.entries(labelsByState)) {
+      assert.equal(branchSyncLabel({ ...freshSync, branch, state, ahead: 2, behind: 3 }), label);
+    }
+  }
+  assert.equal(branchSyncLabel({ ...freshSync, upstream: null, state: 'no-upstream' }), 'main: no upstream');
+  assert.equal(branchSyncLabel({ ...freshSync, upstream: null, state: 'behind', behind: 3 }), 'main: 3 behind its upstream');
+  assert.equal(branchSyncLabel(null), null);
 });

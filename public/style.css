@@ -216,12 +216,20 @@ body {
   font-size: 11px;
   letter-spacing: 0.02em;
   white-space: nowrap;
-  height: var(--header-control-height);
-  padding: 0 12px;
   color: var(--text-dim);
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+}
+
+.sr-only,
+.header-connection[data-state="connected"] .connection-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .header-connection {
@@ -2649,18 +2657,10 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-bott
 .pr-queue-bottom .pr-verdict-seal { flex: 0 1 auto; min-width: 16px; overflow: hidden; }
 .pr-queue-bottom .pr-verdict-seal > span:last-child { overflow: hidden; text-overflow: ellipsis; }
 
-.pr-severity-counts {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-}
-
-.pr-queue-bottom .pr-severity-counts { flex: 0 0 auto; flex-wrap: nowrap; gap: 4px; }
-.pr-queue-bottom .pr-severity-count { gap: 2px; }
+.pr-severity-counts { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; }
+.pr-severity-count { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
 .pr-queue-bottom .pr-severity-meter { gap: 1px; }
 .pr-queue-bottom .pr-severity-meter svg { width: 7px; height: 9px; }
-.pr-severity-count { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .pr-severity-meter { display: inline-flex; align-items: center; gap: 2px; }
 .pr-severity-meter svg { flex: 0 0 auto; }
 .pr-severity-halo { filter: drop-shadow(0 0 4px var(--state-failed)); }
@@ -2703,6 +2703,7 @@ a.pr-link:hover { color: var(--text-head); text-decoration: underline; }
 .pr-detail-title h2 { color: var(--text-head); font-size: 16px; font-weight: 700; }
 .pr-detail-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--text-dim); font-size: 12px; }
 
+.pr-about-box,
 .pr-verdict-box,
 .pr-progress {
   display: flex;
@@ -2717,6 +2718,7 @@ a.pr-link:hover { color: var(--text-head); text-decoration: underline; }
 .pr-verdict-line { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; }
 .pr-verdict-line .pr-verdict-seal { letter-spacing: 0.08em; }
 .pr-verdict-summary { color: var(--text); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.pr-about-goal { color: var(--text-head); }
 .pr-verdict-reason { color: var(--text-head); }
 .pr-verdict-legacy { color: var(--text-dim); font-size: 12px; }
 .pr-assessment-part { display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px solid var(--border-dim); }
@@ -5018,6 +5020,13 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   color: var(--text-muted);
 }
 
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
 .header-left {
   display: flex;
   align-items: center;
@@ -5813,7 +5822,12 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
 .review-more-button { width: 36px; height: 36px; }
 .review-more-menu { display: grid; gap: 4px; margin-top: 6px; padding: 5px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); }
 .review-more-menu .review-btn { width: 100%; text-align: left; }
+.review-branch-sync-refresh { opacity: 0; }
+.review-status-headline:is(:hover, :focus-within) .review-branch-sync-refresh { opacity: 1; }
 .review-branch-sync-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   appearance: none;
   border: none;
   background: none;
@@ -5827,11 +5841,17 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   max-width: 100%;
   overflow-wrap: anywhere;
 }
-.review-branch-sync-text:hover { color: var(--text-head); }
+.review-branch-sync-text svg { flex-shrink: 0; }
+.review-branch-sync-label { text-decoration: underline dotted; text-underline-offset: 3px; }
+.review-branch-sync-text:is(:hover, :focus-visible):not(:disabled) .review-branch-sync-label { text-decoration-style: solid; }
+.review-branch-sync-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.review-branch-sync-text:disabled { cursor: default; opacity: 0.7; }
+.review-status-meta .review-control-reason { margin-top: 0; }
 .review-branch-sync-text[data-sync-state="ahead"] { color: var(--accent); }
 .review-branch-sync-text[data-sync-state="behind"] { color: var(--state-waiting); }
 .review-branch-sync-text[data-sync-state="diverged"] { color: var(--state-failed); }
 .review-branch-sync-text[data-stale="true"] { opacity: 0.7; }
+.review-branch-sync-text:is(:hover, :focus-visible):not(:disabled) { color: var(--accent); }
 
 .review-controls {
   flex: 0 0 auto;

@@ -18,8 +18,17 @@ import { MyPrMergeRequest, MyPrMergeResult, MyPrsStatus } from './my-prs.ts';
 
 const requestId = z.string().nullable().optional();
 const sessionId = z.string();
-const loose = (type: string, shape: z.ZodRawShape = {}) => z.object({ type: z.literal(type), ...shape }).passthrough();
-const openObject = (shape: z.ZodRawShape = {}) => z.object(shape).passthrough();
+function loose<const Type extends string>(type: Type): z.ZodObject<{ type: z.ZodLiteral<Type> }, z.core.$loose>;
+function loose<const Type extends string, Shape extends z.ZodRawShape>(type: Type, shape: Shape): z.ZodObject<{ type: z.ZodLiteral<Type> } & Shape, z.core.$loose>;
+function loose(type: string, shape?: z.ZodRawShape) {
+  return z.looseObject({ type: z.literal(type), ...shape });
+}
+
+function openObject(): z.ZodObject<Record<never, never>, z.core.$loose>;
+function openObject<Shape extends z.ZodRawShape>(shape: Shape): z.ZodObject<Shape, z.core.$loose>;
+function openObject(shape: z.ZodRawShape = {}) {
+  return z.looseObject(shape);
+}
 const nullableString = z.string().nullable();
 const timestamp = z.number().finite();
 const optionalTimestamp = timestamp.optional();
@@ -174,7 +183,7 @@ export const CLIENT_MESSAGE_TYPES = Object.freeze([
   'update-check',
   'update-apply',
   'client-error',
-]);
+] as const);
 
 export const CLIENT_ERROR_NAME_MAX_CHARS = 128;
 export const CLIENT_ERROR_STACK_MAX_CHARS = 8192;
@@ -189,7 +198,15 @@ const idOnlyClientTypes = [
   'remove-session', 'kill', 'start-session', 'restart', 'force-restart', 'dismiss', 'sleep', 'wake',
   'merge-session', 'finish-session', 'merge-continue-session', 'discard-session-worktree',
   'resolve-session-merge', 'request-session-diff', 'request-change-map', 'request-branch-sync', 'resync-branch', 'debug-state',
-];
+] as const;
+
+function idOnlyClientVariant<const Type extends string>(type: Type) {
+  return loose(type, { id: sessionId, force: z.unknown().optional() });
+}
+
+const idOnlyClientVariants = idOnlyClientTypes.map(idOnlyClientVariant) as {
+  [Type in typeof idOnlyClientTypes[number]]: ReturnType<typeof idOnlyClientVariant<Type>>;
+}[typeof idOnlyClientTypes[number]][];
 
 const clientVariants = [
   loose('add-session', {
@@ -249,7 +266,7 @@ const clientVariants = [
   }),
   loose('plan-decision', PlanDecision.shape),
   loose('client-error', ClientErrorReport.shape),
-  ...idOnlyClientTypes.map((type) => loose(type, { id: sessionId, force: z.unknown().optional() })),
+  ...idOnlyClientVariants,
 ] as const;
 
 export const ClientMessage = z.discriminatedUnion('type', clientVariants);
@@ -332,7 +349,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'sessions-reordered',
   'shutting-down',
   'restarting',
-]);
+] as const);
 
 const serverVariants = [
   loose('snapshot', {
@@ -629,3 +646,6 @@ export const ServerMessage = z.discriminatedUnion('type', serverVariants);
 
 export type ClientMessage = z.infer<typeof ClientMessage>;
 export type ServerMessage = z.infer<typeof ServerMessage>;
+
+export type ClientMessageOf<Type extends ClientMessage['type']> = Extract<ClientMessage, { type: Type }>;
+export type ServerMessageOf<Type extends ServerMessage['type']> = Extract<ServerMessage, { type: Type }>;

@@ -236,6 +236,7 @@ test('posting refuses a replaced draft the operator never saw', () => {
 
 test('action events map only postable actions', () => {
   assert.equal(eventForAction('approve'), 'APPROVE');
+  assert.equal(eventForAction('approve-only'), 'APPROVE');
   assert.equal(eventForAction('comment'), 'COMMENT');
   assert.equal(eventForAction('discard'), null);
 });
@@ -634,6 +635,7 @@ test('a report with operator sections parses them apart from the verdict reason'
   if (!parsed.ok) return;
   assert.equal(parsed.result.summary, 'The off by one decides the verdict.');
   assert.deepEqual(parsed.result.assessment, {
+    goal: '',
     change: 'Re-arms the ask timeout per question.',
     checked: ['Is the old timer cleared before re-arming: yes, `src/bridge.ts:42`.', 'Can a settled question re-arm: no, guarded at `src/bridge.ts:57`.'],
     gaps: [],
@@ -658,6 +660,7 @@ test('operator section text written on the heading line is kept', () => {
   assert.equal(inline.result.summary, 'Nothing blocks this.');
   assert.equal(inline.result.findings.length, 0);
   assert.deepEqual(inline.result.assessment, {
+    goal: '',
     change: 'Re-arms the ask timeout per question.',
     checked: ['Is the old timer cleared: yes, `src/bridge.ts:42`.', 'Can a settled question re-arm: no.'],
     gaps: ['The Codex reviewer failed to start.'],
@@ -684,6 +687,7 @@ test('markdown-decorated headings, numbered items and wrapped items keep all the
   if (!decorated.ok) return;
   assert.equal(decorated.result.summary, 'Nothing blocks this.');
   assert.deepEqual(decorated.result.assessment, {
+    goal: '',
     change: 'Re-arms the timeout.',
     checked: ['Is the old timer cleared: yes, at `src/bridge.ts:42`.', 'Can a settled question re-arm: no.'],
     gaps: [],
@@ -706,17 +710,17 @@ test('a heading with its colon outside the emphasis still ends the previous sect
   ].join('\n'));
   assert.equal(colonOutside.ok, true, colonOutside.ok ? '' : colonOutside.reason);
   if (!colonOutside.ok) return;
-  assert.deepEqual(colonOutside.result.assessment, { change: 'Re-arms the timeout.', checked: ['a: yes'], gaps: ['reviewer failed'] });
+  assert.deepEqual(colonOutside.result.assessment, { goal: '', change: 'Re-arms the timeout.', checked: ['a: yes'], gaps: ['reviewer failed'] });
 });
 
 test('a section listing one item per line without markers keeps each line as its own item', () => {
   const unmarked = parseReviewReport(`${REPORT}\nGAPS:\nreviewer A failed\nfile B not read`);
-  assert.deepEqual(unmarked.ok && unmarked.result.assessment, { change: '', checked: [], gaps: ['reviewer A failed', 'file B not read'] });
+  assert.deepEqual(unmarked.ok && unmarked.result.assessment, { goal: '', change: '', checked: [], gaps: ['reviewer A failed', 'file B not read'] });
 });
 
 test('a report with only a gaps section still carries those gaps', () => {
   const gapsOnly = parseReviewReport(`${REPORT}\nGAPS:\n- The Codex reviewer failed to start.`);
-  assert.deepEqual(gapsOnly.ok && gapsOnly.result.assessment, { change: '', checked: [], gaps: ['The Codex reviewer failed to start.'] });
+  assert.deepEqual(gapsOnly.ok && gapsOnly.result.assessment, { goal: '', change: '', checked: [], gaps: ['The Codex reviewer failed to start.'] });
 });
 
 test('a report without operator sections has no assessment and its draft carries none', () => {
@@ -728,7 +732,8 @@ test('a report without operator sections has no assessment and its draft carries
 
 test('the prompt asks for every operator section the parser reads', () => {
   const prompt = reviewPromptFor();
-  for (const heading of ['CHANGE:', 'CHECKED:', 'GAPS:', 'OVERALL_SUMMARY:']) assert.match(prompt, new RegExp(`one line: ${heading}`));
+  for (const heading of ['GOAL:', 'CHANGE:', 'CHECKED:', 'GAPS:', 'OVERALL_SUMMARY:']) assert.match(prompt, new RegExp(`one line: ${heading}`));
+  assert.ok(prompt.indexOf('one line: GOAL:') < prompt.indexOf('one line: CHANGE:'));
 });
 
 test('a report with no findings parses, and a failed, headless or garbled report is refused', () => {
@@ -1093,4 +1098,31 @@ test('the prompt keeps the posted body to findings that cannot go inline', () =>
   assert.match(prompt, /body holds only the findings that cannot anchor to a diff line/);
   assert.match(prompt, /no summary, no recap of the change, no praise/);
   assert.match(prompt, /body is the empty string/);
+});
+
+test('goal sections parse without leaking into change or the verdict summary in either order', () => {
+  for (const heading of ['GOAL:', '**GOAL:**', '**GOAL**:', '## GOAL:']) {
+    const withGoal = parseReviewReport(ASSESSED_REPORT.replace('CHANGE:', `${heading} Avoid stuck requests.\n\nCHANGE:`));
+    assert.equal(withGoal.ok, true, withGoal.ok ? '' : withGoal.reason);
+    if (!withGoal.ok) continue;
+    assert.equal(withGoal.result.assessment?.goal, 'Avoid stuck requests.');
+    assert.equal(withGoal.result.assessment?.change, 'Re-arms the ask timeout per question.');
+    assert.equal(withGoal.result.summary, 'The off by one decides the verdict.');
+    for (const report of [`${ASSESSED_REPORT}\n${heading}\nAvoid stuck requests.`, ASSESSED_REPORT.replace('CHECKED:', `${heading}\nAvoid stuck requests.\nCHECKED:`)]) {
+      const reordered = parseReviewReport(report);
+      assert.equal(reordered.ok, true, reordered.ok ? '' : reordered.reason);
+      if (!reordered.ok) continue;
+      assert.equal(reordered.result.assessment?.goal, 'Avoid stuck requests.');
+      assert.equal(reordered.result.assessment?.change, 'Re-arms the ask timeout per question.');
+      assert.equal(reordered.result.summary, 'The off by one decides the verdict.');
+    }
+  }
+});
+
+test('a report with only a goal retains its assessment', () => {
+  const parsed = parseReviewReport(`${REPORT}\nGOAL:\nAvoid stuck requests.`);
+  assert.equal(parsed.ok, true, parsed.ok ? '' : parsed.reason);
+  if (!parsed.ok) return;
+  assert.deepEqual(parsed.result.assessment, { goal: 'Avoid stuck requests.', change: '', checked: [], gaps: [] });
+  assert.equal(parsed.result.summary, 'Pinned tree abc. Three findings.\nSecond line.');
 });

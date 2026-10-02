@@ -131,7 +131,15 @@
     <header class="header">
       <div class="header-inner">
         <div class="header-left">
-          <h1 class="header-title">Glimmervoid</h1>
+          <div class="header-brand">
+            <h1 class="header-title">Glimmervoid</h1>
+            <div class="status-indicator" id="status-indicator">
+              <span class="header-connection" id="connection-status" role="status" aria-label="Server connection">
+                <span class="connection-dot"></span>
+                <span class="connection-label">Connecting</span>
+              </span>
+            </div>
+          </div>
           <div class="header-tabs" id="header-tabs" role="tablist" aria-label="Primary views">
             <button class="header-tab" id="tab-focus" type="button" role="tab" aria-selected="true" aria-controls="view-focus" tabindex="0">Focus</button>
             <button class="header-tab" id="tab-prs" type="button" role="tab" aria-selected="false" aria-controls="view-prs" tabindex="-1">Reviews<span class="tab-activity" id="tab-prs-activity" aria-hidden="true"></span></button>
@@ -145,12 +153,6 @@
           </div>
         </div>
         <div class="header-right">
-          <div class="status-indicator" id="status-indicator">
-            <span class="header-connection" id="connection-status" role="status" aria-label="Server connection">
-              <span class="connection-dot"></span>
-              <span class="connection-label">Connecting</span>
-            </span>
-          </div>
           <span class="header-aggregate" id="aggregate-status" role="status" aria-live="polite"></span>
           <button class="btn-add-header" id="btn-add-session-header" type="button" title="Add a new session">+ Session</button>
           <button class="btn-help" id="btn-help" type="button" title="Keyboard shortcuts" aria-label="Keyboard shortcuts and version">?</button>

@@ -7,7 +7,7 @@ import type { WebSocket, WebSocketServer } from 'ws';
 import {
   BRANCH_GC_CONTROL_BOOLEAN_KEYS, BRANCH_GC_CONTROL_NUMERIC_KEYS,
   ClientMessage, RUNTIME_CONFIG_SCALAR_KEYS, ConfigUpdate, configIssueMessage,
-  type DiffAnnotation,
+  type ClientMessageOf,
 } from '../shared/contracts/index.ts';
 import { TASK_TITLE_MAX_LENGTH, TaskTitle } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
@@ -75,38 +75,8 @@ import { createChangeMapService } from './change-map-wiring.ts';
 import type { ChangeMapNarrator } from './change-map-wiring.ts';
 import type { Telemetry } from './telemetry.ts';
 
-interface ControlRequest {
-  type: string;
-  id?: string;
-  requestId?: string | null;
-  name?: string;
-  newName?: string;
-  title?: string;
-  path?: string;
-  repos?: string[];
-  agent?: string;
-  order?: string[];
-  conversationId?: string;
-  dangerouslySkipPermissions?: boolean;
-  settings?: Record<string, unknown>;
-  issueId?: string | number;
-  projectId?: string | number;
-  issueNumber?: number;
-  action?: string;
-  days?: unknown;
-  force?: unknown;
-  fresh?: unknown;
-  restartWhenStaged?: boolean;
-  confirmedSessionIds?: string[];
-  focused?: boolean;
-  after?: number;
-  endingAt?: number | 'tail';
-  hook?: Record<string, unknown>;
-  annotations?: DiffAnnotation[];
-  [key: string]: unknown;
-}
-
-type ControlHandler = (msg: ControlRequest, ws: ControlSocket) => unknown;
+type ControlRequest = ClientMessage;
+type ControlHandler<Type extends ClientMessage['type']> = (msg: ClientMessageOf<Type>, ws: ControlSocket) => unknown;
 
 interface PosthogLaneStatus {
   projects?: unknown;
@@ -455,7 +425,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     return buildSettingsPayloadFrom({ configStore, rtkInstallStatus: getRtkInstallStatus() });
   }
 
-  function findSession(msg: ControlRequest): Session | null {
+  function findSession(msg: Pick<ClientMessageOf<'kill'>, 'id'>): Session | null {
     if (!msg.id) return null;
     return sessions.get(msg.id) ?? agentSessions.get(msg.id) ?? null;
   }
@@ -491,7 +461,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
   const SESSION_NAME_RE = /^[a-zA-Z0-9_\-. ()]{1,64}$/;
 
-  function handleAddSession(msg: ControlRequest, ws: ControlSocket): void {
+  function handleAddSession(msg: ClientMessageOf<'add-session'>, ws: ControlSocket): void {
     const name = (msg.name || '').trim();
     const projectPath = (msg.path || '').trim();
     const repos = msg.repos;
@@ -537,7 +507,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     console.log(`[control] Added session via UI: ${name}${skipPerms ? ' (skip permissions)' : ' (permission prompts)'}`);
   }
 
-  function handleStartSession(msg: ControlRequest, ws: ControlSocket): void {
+  function handleStartSession(msg: ClientMessageOf<'start-session'>, ws: ControlSocket): void {
     const sess = findSession(msg);
     if (!sess) return;
     if (agentSessions.get(sess.id) === sess) {
@@ -548,7 +518,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     sess.start();
   }
 
-  function handleRemoveSession(msg: ControlRequest, ws: ControlSocket): void {
+  function handleRemoveSession(msg: ClientMessageOf<'remove-session'>, ws: ControlSocket): void {
     const sess = findSession(msg);
     if (!sess) {
       sendError(ws, 'Session not found');
@@ -568,7 +538,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     console.log(`[control] Removed session via UI: ${sess.name}`);
   }
 
-  function handleRenameSession(msg: ControlRequest, ws: ControlSocket): void {
+  function handleRenameSession(msg: ClientMessageOf<'rename-session'>, ws: ControlSocket): void {
     const sess = findSession(msg);
     const newName = (msg.newName || '').trim();
 
@@ -600,7 +570,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (freshConfig) applyConfigReload(freshConfig);
   }
 
-  function handleSetSessionTitle(msg: ControlRequest, ws: ControlSocket): void {
+  function handleSetSessionTitle(msg: ClientMessageOf<'set-session-title'>, ws: ControlSocket): void {
     const session = findSession(msg);
     const parsedTitle = TaskTitle.safeParse(msg.title);
     if (!session || !parsedTitle.success) {
@@ -623,7 +593,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (freshConfig) applyConfigReload(freshConfig);
   }
 
-  function handleReorderSessions(msg: ControlRequest, ws: ControlSocket): void {
+  function handleReorderSessions(msg: ClientMessageOf<'reorder-sessions'>, ws: ControlSocket): void {
     const order = msg.order;
     if (!Array.isArray(order) || order.length === 0) {
       sendError(ws, 'order must be a non-empty array');
@@ -665,7 +635,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     console.log(`[control] Sessions reordered`);
   }
 
-  async function handleListConversations(msg: ControlRequest, ws: ControlSocket): Promise<void> {
+  async function handleListConversations(msg: ClientMessageOf<'list-conversations'>, ws: ControlSocket): Promise<void> {
     const sess = findSession(msg);
     if (!sess) {
       ws.send(JSON.stringify({ type: 'conversations', requestId: msg.requestId || null, id: msg.id || null, conversations: [], error: 'Session not found' }));
@@ -692,7 +662,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     }));
   }
 
-  function handleResumeConversation(msg: ControlRequest, ws: ControlSocket): void {
+  function handleResumeConversation(msg: ClientMessageOf<'resume-conversation'>, ws: ControlSocket): void {
     const sess = findSession(msg);
     if (!sess) { sendError(ws, 'Session not found'); return; }
     if (sess.ephemeral) { sendError(ws, 'This session cannot resume a conversation'); return; }
@@ -718,7 +688,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     console.log(`[control] resume-conversation: id=${live.id} -> ${conversationId || '(cleared)'}`);
   }
 
-  function handleGetSettings(msg: ControlRequest, ws: ControlSocket): void {
+  function handleGetSettings(msg: ClientMessageOf<'get-settings'>, ws: ControlSocket): void {
     ws.send(JSON.stringify({
       type: 'settings',
       requestId: msg.requestId || null,
@@ -726,12 +696,12 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     }));
   }
 
-  function handlePing(msg: ControlRequest, ws: ControlSocket): void {
+  function handlePing(msg: ClientMessageOf<'ping'>, ws: ControlSocket): void {
     if (!msg.requestId) return;
     ws.send(JSON.stringify({ type: 'pong', requestId: msg.requestId }));
   }
 
-  function handleUpdateSettings(msg: ControlRequest, ws: ControlSocket): void {
+  function handleUpdateSettings(msg: ClientMessageOf<'update-settings'>, ws: ControlSocket): void {
     const parsedSettings = ConfigUpdate.safeParse(msg.settings || {});
     if (!parsedSettings.success) {
       sendError(ws, configIssueMessage(parsedSettings.error), { type: 'settings-error', requestId: msg.requestId || null });
@@ -790,7 +760,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     console.log('[control] Settings updated via UI');
   }
 
-  function handleListAgents(msg: ControlRequest, ws: ControlSocket): void {
+  function handleListAgents(msg: ClientMessageOf<'list-agents'>, ws: ControlSocket): void {
     const agents = listAgentIds().map((id) => {
       const { label, resolvable } = describeAgentResolvability(id);
       return { id, label, resolvable };
@@ -802,7 +772,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     }));
   }
 
-  function handleScanRepoRoots(msg: ControlRequest, ws: ControlSocket): void {
+  function handleScanRepoRoots(msg: ClientMessageOf<'scan-repo-roots'>, ws: ControlSocket): void {
     const directories = scanRepoRoots(config.repoRoots);
     ws.send(JSON.stringify({
       type: 'repo-roots-scanned',
@@ -811,7 +781,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     }));
   }
 
-  async function handleGetPosthogReport(msg: ControlRequest, ws: ControlSocket): Promise<void> {
+  async function handleGetPosthogReport(msg: ClientMessageOf<'get-posthog-report'>, ws: ControlSocket): Promise<void> {
     const result = await readPosthogReport(msg.issueId, { reportDir: posthogReportsDir || undefined });
     ws.send(JSON.stringify({
       type: 'posthog-report',
@@ -917,7 +887,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     return config.projects.find((project) => project.id === projectId) ?? null;
   }
 
-  async function handleRequestIssues(msg: ControlRequest, ws: ControlSocket): Promise<void> {
+  async function handleRequestIssues(msg: ClientMessageOf<'request-issues'>, ws: ControlSocket): Promise<void> {
     const projectId = typeof msg.projectId === 'string' ? msg.projectId : '';
     const reply = (issues: unknown[], error: string | null = null) => replyTo(ws, msg, 'issues-report', {
       ts: Date.now(), projectId, issues, error,
@@ -933,7 +903,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     }
   }
 
-  async function handleOpenIssueSession(msg: ControlRequest, ws: ControlSocket): Promise<void> {
+  async function handleOpenIssueSession(msg: ClientMessageOf<'open-issue-session'>, ws: ControlSocket): Promise<void> {
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'open-issue-session-result', { ok: false, error: null, ...payload });
     const project = findConfiguredProject(msg.projectId);
     if (!project) { reply({ error: 'Project not found' }); return; }
@@ -964,7 +934,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     }
   }
 
-  function handlePosthogOpenSession(msg: ControlRequest, ws: ControlSocket): void {
+  function handlePosthogOpenSession(msg: ClientMessageOf<'posthog-open-session'>, ws: ControlSocket): void {
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'posthog-open-session-result', { ok: false, error: null, ...payload });
     const ref = posthogCore.validateIssueRef(msg);
     if (!ref.ok) { reply({ error: ref.error }); return; }
@@ -990,7 +960,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     console.log(`[control] posthog-open-session: issue=${ref.issueId} -> session=${sess.name}`);
   }
 
-  async function handlePosthogIssueAction(msg: ControlRequest, ws: ControlSocket): Promise<void> {
+  async function handlePosthogIssueAction(msg: ClientMessageOf<'posthog-issue-action'>, ws: ControlSocket): Promise<void> {
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'posthog-issue-action-result', { ok: false, error: null, ...payload });
     const ref = posthogCore.validateIssueRef(msg);
     if (!ref.ok) { reply({ error: ref.error }); return; }
@@ -1005,7 +975,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     reply({ ok: res.ok === true, error: res.error || null, status: res.status || null });
   }
 
-  async function handleTeamReviewAction(msg: ControlRequest, ws: ControlSocket): Promise<void> {
+  async function handleTeamReviewAction(msg: ClientMessageOf<'team-review-action'>, ws: ControlSocket): Promise<void> {
     const requestedKey = typeof msg.key === 'string' ? msg.key : '';
     const reply = (outcome: TeamReviewActionOutcome) => replyTo(ws, msg, 'team-review-action-result', { key: requestedKey, ...outcome });
     const parsed = TeamReviewActionRequest.safeParse(msg);
@@ -1014,7 +984,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     reply(await teamReview.submitAction(parsed.data));
   }
 
-  async function handleMyPrMerge(msg: ControlRequest, ws: ControlSocket): Promise<void> {
+  async function handleMyPrMerge(msg: ClientMessageOf<'my-pr-merge'>, ws: ControlSocket): Promise<void> {
     const reply = (outcome: Omit<MyPrMergeResult, 'key'>) => replyTo(ws, msg, 'my-pr-merge-result', { key: myPrMergeKey(msg), ...outcome });
     const parsed = MyPrMergeRequest.safeParse(msg);
     if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
@@ -1022,7 +992,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     reply(await myPrs.mergePr(parsed.data));
   }
 
-  async function handlePosthogArchiveInvestigation(msg: ControlRequest, ws: ControlSocket): Promise<void> {
+  async function handlePosthogArchiveInvestigation(msg: ClientMessageOf<'posthog-archive-investigation'>, ws: ControlSocket): Promise<void> {
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'posthog-archive-investigation-result', { ok: false, error: null, ...payload });
     const ref = posthogCore.validateInvestigationId(msg.id);
     if (!ref.ok) { reply({ error: ref.error }); return; }
@@ -1031,7 +1001,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     reply({ ok: res.ok === true, error: res.error || null });
   }
 
-  function handleSendDiffAnnotations(msg: ControlRequest, ws: ControlSocket): void {
+  function handleSendDiffAnnotations(msg: ClientMessageOf<'send-diff-annotations'>, ws: ControlSocket): void {
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'send-diff-annotations-result', { ok: false, error: null, ...payload });
     const session = findSession(msg);
     if (!session) { reply({ error: 'Session not found' }); return; }
@@ -1042,7 +1012,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     reply({ ok: true, pending: pasted.deferred === true });
   }
 
-  async function handleRequestUsageReport(msg: ControlRequest, ws: ControlSocket): Promise<void> {
+  async function handleRequestUsageReport(msg: ClientMessageOf<'request-usage-report'>, ws: ControlSocket): Promise<void> {
     if (!requestUsageReport) {
       ws.send(JSON.stringify({ type: 'usage-report', requestId: msg.requestId || null, error: 'Usage tracking is not running' }));
       return;
@@ -1077,7 +1047,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       .map((project) => ({ id: project.id, name: project.name, agent: typeof project.agent === 'string' ? project.agent : DEFAULT_AGENT_ID }));
   }
 
-  function handleRequestHooksReport(msg: ControlRequest, ws: ControlSocket): void {
+  function handleRequestHooksReport(msg: ClientMessageOf<'request-hooks-report'>, ws: ControlSocket): void {
     replyTo(ws, msg, 'hooks-report', {
       ts: Date.now(),
       hooks: readStoredHooks(config.hooks),
@@ -1090,7 +1060,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     });
   }
 
-  function handleSaveHook(msg: ControlRequest, ws: ControlSocket): void {
+  function handleSaveHook(msg: ClientMessageOf<'save-hook'>, ws: ControlSocket): void {
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'save-hook-result', { ok: false, error: null, ...payload });
     const input = msg.hook && typeof msg.hook === 'object' ? msg.hook : {};
     const requestedId = typeof input.id === 'string' ? input.id : '';
@@ -1115,7 +1085,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     console.log(`[control] save-hook: ${normalized.hook.name} (${normalized.hook.event})`);
   }
 
-  function handleDeleteHook(msg: ControlRequest, ws: ControlSocket): void {
+  function handleDeleteHook(msg: ClientMessageOf<'delete-hook'>, ws: ControlSocket): void {
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'delete-hook-result', { ok: false, error: null, ...payload });
     const id = typeof msg.id === 'string' ? msg.id : '';
 
@@ -1133,7 +1103,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     console.log(`[control] delete-hook: ${id}`);
   }
 
-  async function handleUpdateCheck(_msg: ControlRequest, ws: ControlSocket): Promise<void> {
+  async function handleUpdateCheck(_msg: ClientMessageOf<'update-check'>, ws: ControlSocket): Promise<void> {
     if (!checkNow) {
       sendError(ws, '[update-check-unavailable] Update checking is unavailable.');
       return;
@@ -1141,7 +1111,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     await checkNow();
   }
 
-  async function handleUpdateApply(msg: ControlRequest, ws: ControlSocket): Promise<void> {
+  async function handleUpdateApply(msg: ClientMessageOf<'update-apply'>, ws: ControlSocket): Promise<void> {
     if (!applyUpdate) {
       sendError(ws, '[update-apply-unavailable] Update application is unavailable.');
       return;
@@ -1161,7 +1131,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     handleRestart(msg, ws);
   }
 
-  function handleRestart(_msg: ControlRequest, ws: ControlSocket): void {
+  function handleRestart(_msg: ClientMessageOf<'restart-server' | 'update-apply'>, ws: ControlSocket): void {
     if (isStaging?.()) {
       sendError(ws, '[update-staging] Wait for the update staging run to finish before restarting.');
       return;
@@ -1200,23 +1170,23 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'save-hook': handleSaveHook,
     'delete-hook': handleDeleteHook,
     'send-diff-annotations': handleSendDiffAnnotations,
-    'kill':             (msg: ControlRequest) => { const s = findSession(msg); if (s) s.killSession(); },
+    'kill':             (msg: ClientMessageOf<'kill'>) => { const s = findSession(msg); if (s) s.killSession(); },
     'start-session':    handleStartSession,
-    'restart':          (msg: ControlRequest) => { const s = findSession(msg); if (s) s.restart({ fresh: msg.fresh === true }); },
-    'force-restart':    (msg: ControlRequest) => { const s = findSession(msg); if (s) s.forceRestart({ fresh: msg.fresh === true }); },
-    'dismiss':          (msg: ControlRequest) => { const s = findSession(msg); if (s) s.dismiss(); },
-    'sleep':            (msg: ControlRequest) => { const s = findSession(msg); if (s) s.sleep(); },
-    'wake':             (msg: ControlRequest) => { const s = findSession(msg); if (s) s.wake(); },
+    'restart':          (msg: ClientMessageOf<'restart'>) => { const s = findSession(msg); if (s) s.restart({ fresh: msg.fresh === true }); },
+    'force-restart':    (msg: ClientMessageOf<'force-restart'>) => { const s = findSession(msg); if (s) s.forceRestart({ fresh: msg.fresh === true }); },
+    'dismiss':          (msg: ClientMessageOf<'dismiss'>) => { const s = findSession(msg); if (s) s.dismiss(); },
+    'sleep':            (msg: ClientMessageOf<'sleep'>) => { const s = findSession(msg); if (s) s.sleep(); },
+    'wake':             (msg: ClientMessageOf<'wake'>) => { const s = findSession(msg); if (s) s.wake(); },
 
-    'merge-session':              async (msg: ControlRequest, ws: ControlSocket) => { const s = findSession(msg); if (s) reportMergeRefusal(ws, s, await s.mergeWorktree()); },
+    'merge-session':              async (msg: ClientMessageOf<'merge-session'>, ws: ControlSocket) => { const s = findSession(msg); if (s) reportMergeRefusal(ws, s, await s.mergeWorktree()); },
 
-    'finish-session':             (msg: ControlRequest) => { const s = findSession(msg); if (s) s.finishAndMerge(); },
+    'finish-session':             (msg: ClientMessageOf<'finish-session'>) => { const s = findSession(msg); if (s) s.finishAndMerge(); },
 
-    'merge-continue-session':     async (msg: ControlRequest, ws: ControlSocket) => { const s = findSession(msg); if (s) reportMergeRefusal(ws, s, await s.mergeAndContinue({ force: msg.force === true })); },
-    'discard-session-worktree':   (msg: ControlRequest) => { const s = findSession(msg); if (s) s.discardWorktree(); },
+    'merge-continue-session':     async (msg: ClientMessageOf<'merge-continue-session'>, ws: ControlSocket) => { const s = findSession(msg); if (s) reportMergeRefusal(ws, s, await s.mergeAndContinue({ force: msg.force === true })); },
+    'discard-session-worktree':   (msg: ClientMessageOf<'discard-session-worktree'>) => { const s = findSession(msg); if (s) s.discardWorktree(); },
 
-    'resolve-session-merge':      (msg: ControlRequest) => { const s = findSession(msg); if (s) s.pasteMergePrompt(); },
-    'request-session-diff':       async (msg: ControlRequest, ws: ControlSocket) => {
+    'resolve-session-merge':      (msg: ClientMessageOf<'resolve-session-merge'>) => { const s = findSession(msg); if (s) s.pasteMergePrompt(); },
+    'request-session-diff':       async (msg: ClientMessageOf<'request-session-diff'>, ws: ControlSocket) => {
       const s = findSession(msg);
       if (!s) return;
 
@@ -1224,7 +1194,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       ws.send(JSON.stringify({ type: 'session-diff', id: s.id, committed, uncommitted, hasCommits }));
     },
 
-    'request-change-map':         async (msg: ControlRequest, ws: ControlSocket) => {
+    'request-change-map':         async (msg: ClientMessageOf<'request-change-map'>, ws: ControlSocket) => {
       const s = findSession(msg);
       if (!s) return;
       const map = await changeMaps.build(s).catch((error: unknown): ChangeMap => {
@@ -1237,25 +1207,25 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       ws.send(JSON.stringify({ type: 'change-map', id: s.id, map }));
     },
 
-    'request-branch-sync':        async (msg: ControlRequest, ws: ControlSocket) => {
+    'request-branch-sync':        async (msg: ClientMessageOf<'request-branch-sync'>, ws: ControlSocket) => {
       const s = findSession(msg);
       if (!s) return;
       const sync = await s.getBranchSync();
       ws.send(JSON.stringify({ type: 'branch-sync-status', id: s.id, ...sync }));
     },
 
-    'resync-branch':               async (msg: ControlRequest, ws: ControlSocket) => {
+    'resync-branch':               async (msg: ClientMessageOf<'resync-branch'>, ws: ControlSocket) => {
       const s = findSession(msg);
       if (!s) return;
       const sync = await s.resyncBranch();
       ws.send(JSON.stringify({ type: 'branch-sync-status', id: s.id, ...sync }));
     },
-    'debug-state':      (msg: ControlRequest, ws: ControlSocket) => {
+    'debug-state':      (msg: ClientMessageOf<'debug-state'>, ws: ControlSocket) => {
       const s = findSession(msg);
       if (!s) { sendError(ws, 'Session not found'); return; }
       ws.send(JSON.stringify({ type: 'debug-state-response', id: s.id, payload: s.getDebugState() }));
     },
-    'session-trace':    async (message: ControlRequest, ws: ControlSocket) => {
+    'session-trace':    async (message: ClientMessageOf<'session-trace'>, ws: ControlSocket) => {
       const requestedSessionId = message.id;
       const session = findSession(message);
       if (!session) return sendError(ws, 'Session not found', { id: requestedSessionId });
@@ -1268,7 +1238,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
         sendError(ws, `Session trace read failed: ${errorMessage(error)}`, { id: session.id });
       }
     },
-    'session-plan':     async (message: ControlRequest, ws: ControlSocket) => {
+    'session-plan':     async (message: ClientMessageOf<'session-plan'>, ws: ControlSocket) => {
       const requestedSessionId = String(message.id || '');
       if (!readPlanRevision) return sendError(ws, 'Plan review is not enabled', { id: requestedSessionId, scope: 'plan' });
       const agentId = typeof message.agentId === 'string' ? message.agentId : null;
@@ -1282,7 +1252,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
         sendError(ws, `Plan read failed: ${errorMessage(error)}`, { id: requestedSessionId, scope: 'plan' });
       }
     },
-    'plan-decision':    (message: ControlRequest, ws: ControlSocket) => {
+    'plan-decision':    (message: ClientMessageOf<'plan-decision'>, ws: ControlSocket) => {
       const requestedSessionId = String(message.id || '');
       const refuse = (reason: string) => sendError(ws, reason, { id: requestedSessionId, scope: 'plan-decision' });
       if (!decidePlanReview) return refuse('Plan review is not enabled');
@@ -1304,19 +1274,24 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'restart-server':   handleRestart,
     'update-check':     handleUpdateCheck,
     'update-apply':     handleUpdateApply,
-    'focus-change':     (msg: ControlRequest, ws: ControlSocket) => { if (handleClientFocus) handleClientFocus(ws, !!msg.focused); },
-    'client-error':     (msg: ControlRequest) => {
+    'focus-change':     (msg: ClientMessageOf<'focus-change'>, ws: ControlSocket) => { if (handleClientFocus) handleClientFocus(ws, !!msg.focused); },
+    'client-error':     (msg: ClientMessageOf<'client-error'>) => {
       if (typeof msg.name !== 'string' || typeof msg.stack !== 'string') return;
       deps.telemetry?.captureClientError({ name: msg.name, stack: msg.stack });
     },
-    'request-health-snapshot': (_msg: ControlRequest, ws: ControlSocket) => {
+    'request-health-snapshot': (_msg: ClientMessageOf<'request-health-snapshot'>, ws: ControlSocket) => {
       if (!buildHealthSnapshot) return;
       ws.send(JSON.stringify({ type: 'health-snapshot', stats: buildHealthSnapshot() }));
     },
   };
 
-  const handlerTable: Record<string, ControlHandler> = handlers;
+  const handlerTable: { [Type in ClientMessage['type']]?: ControlHandler<Type> } = handlers;
 
+  function dispatchControlRequest<Type extends ClientMessage['type']>(request: { [Variant in ClientMessage['type']]: ClientMessageOf<Variant> }[Type], ws: ControlSocket) {
+    const handler = handlerTable[request.type];
+    if (handler) return handler(request, ws);
+    return undefined;
+  }
   controlWss.on('connection', (socket: WebSocket, req) => {
     const ws = socket as ControlSocket;
     ws.send(JSON.stringify(buildSnapshot()));
@@ -1382,9 +1357,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       }
       const request: ControlRequest = parsedMessage.data;
       if (!Object.hasOwn(handlers, request.type)) return;
-      const handler = handlerTable[request.type];
 
-      const result = handler(request, ws);
+      const result = dispatchControlRequest(request, ws);
       if (result instanceof Promise) {
         return result.catch((err: unknown) => {
           console.warn(`[control] ${request.type} handler failed: ${errorMessage(err)}`);

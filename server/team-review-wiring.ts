@@ -741,8 +741,10 @@ function createTeamReviewActions({ drafts, github, log = console }: TeamReviewAc
     if (!event) return { ok: false, error: 'Unknown review action' };
     if (!core.isPostableStatus(draft, event)) return { ok: false, error: `The draft is ${draft.status}, so it cannot be posted` };
     const isFollowUpApproval = draft.status === 'posted';
-    if (isFollowUpApproval && request.comments.length > 0) return { ok: false, error: 'The inline comments were already posted, so the approval cannot carry them again' };
-    if (event === 'COMMENT' && !request.body.trim() && request.comments.length === 0) {
+    const body = request.action === 'approve-only' ? '' : request.body;
+    const comments = request.action === 'approve-only' ? [] : request.comments;
+    if (isFollowUpApproval && comments.length > 0) return { ok: false, error: 'The inline comments were already posted, so the approval cannot carry them again' };
+    if (event === 'COMMENT' && !body.trim() && comments.length === 0) {
       return { ok: false, error: 'A comment review needs a body or an inline comment' };
     }
     const liveHead = await github.prHead(draft.repo, draft.number);
@@ -752,16 +754,16 @@ function createTeamReviewActions({ drafts, github, log = console }: TeamReviewAc
       await markDraft(key, draft, { status: 'stale' });
       return { ok: false, error: `The pull request moved to ${liveHead.slice(0, 7)} after this review, so nothing was posted. It will be reviewed again` };
     }
-    const commentsError = await misplacedCommentsError(draft, request.comments);
+    const commentsError = await misplacedCommentsError(draft, comments);
     if (commentsError) return { ok: false, error: commentsError };
-    const postedBody = core.postedReviewBody(event, request.body);
+    const postedBody = core.postedReviewBody(event, body);
     const posted = await github.postReview({
-      repo: draft.repo, number: draft.number, commitId: draft.reviewedHead, event, body: postedBody, comments: request.comments,
+      repo: draft.repo, number: draft.number, commitId: draft.reviewedHead, event, body: postedBody, comments,
     });
     if (!posted.ok) return { ok: false, error: posted.err || 'GitHub refused the review' };
     const headAfterPost = event === 'APPROVE' ? await github.prHead(draft.repo, draft.number) : draft.reviewedHead;
     if (headAfterPost !== null && headAfterPost !== draft.reviewedHead) return retractApproval(key, draft, headAfterPost, posted.reviewId);
-    const postedPatch: DraftPatch = isFollowUpApproval ? { status: 'posted', postedEvent: event } : { status: 'posted', postedEvent: event, body: postedBody, comments: request.comments };
+    const postedPatch: DraftPatch = isFollowUpApproval ? { status: 'posted', postedEvent: event } : { status: 'posted', postedEvent: event, body: postedBody, comments };
     const marked = await markDraft(key, draft, postedPatch);
     const warnings = [
       headAfterPost === null ? 'Could not confirm the pull request head after approving. Check the approval on GitHub' : '',

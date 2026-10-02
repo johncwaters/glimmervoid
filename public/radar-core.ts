@@ -1,3 +1,4 @@
+import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 
 import { attentionSignature } from './attention-ack-core.ts';
 import { numberOr, textOr } from './coerce-core.ts';
@@ -20,28 +21,11 @@ export interface RadarIssue {
   status?: unknown;
 }
 
-export interface TrailStepRow {
-  at: number;
-  tool: string;
-  detail: string;
-}
+export type TrailStepRow = ServerMessageOf<'posthog-investigation-activity'>['trail'][number];
 
-export interface InvestigationActivityFrame {
-  projectId?: unknown;
-  issueId?: unknown;
-  inFlight?: unknown;
-  startedAt?: unknown;
-  trail?: unknown;
-}
+export type InvestigationActivityFrame = Partial<Pick<ServerMessageOf<'posthog-investigation-activity'>, 'projectId' | 'issueId' | 'inFlight' | 'startedAt' | 'trail'>>;
 
-export interface InvestigationFinishedFrame {
-  projectId?: unknown;
-  issueId?: unknown;
-  startedAt?: unknown;
-  trail?: unknown;
-  verdict?: unknown;
-  summaryLine?: unknown;
-}
+export type InvestigationFinishedFrame = Partial<Pick<ServerMessageOf<'posthog-investigation-finished'>, 'projectId' | 'issueId' | 'startedAt' | 'trail' | 'verdict' | 'summaryLine'>>;
 
 export interface InvestigationView {
   inFlight: boolean;

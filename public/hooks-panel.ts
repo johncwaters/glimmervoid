@@ -1,3 +1,4 @@
+import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { buildPanelSection, buildStatChip, el, isPanelHidden, projectsOf } from './dom-helpers.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { showErrorToast } from './session-card/toast.ts';
@@ -527,18 +528,16 @@ export function refreshHooksView() {
   render({ force: true });
 }
 
-export function applyHooksReport(msg: unknown) {
+export function applyHooksReport(msg: ServerMessageOf<'hooks-report'>) {
   if (!shouldApplyHooksReport(msg, _latestRequestId)) return;
-  _report = msg as HooksReport;
+  _report = msg;
   _busyIds.clear();
 
   _saving = false;
   render();
 }
 
-export function applySaveHookResult(msg: unknown) {
-  if (!msg || typeof msg !== 'object') return;
-  const result = msg as { requestId?: unknown; ok?: unknown; error?: unknown };
+export function applySaveHookResult(result: ServerMessageOf<'save-hook-result'>) {
   const wasEditorSave = _editorRequestId !== null && result.requestId === _editorRequestId;
   if (wasEditorSave) { _editorRequestId = null; _saving = false; }
   if (result.ok) {
@@ -552,9 +551,7 @@ export function applySaveHookResult(msg: unknown) {
   requestHooksReport();
 }
 
-export function applyDeleteHookResult(msg: unknown) {
-  if (!msg || typeof msg !== 'object') return;
-  const result = msg as { ok?: unknown; error?: unknown };
+export function applyDeleteHookResult(result: ServerMessageOf<'delete-hook-result'>) {
   if (!result.ok) showErrorToast(typeof result.error === 'string' && result.error ? result.error : 'Could not delete the hook', { persist: true });
   requestHooksReport();
 }

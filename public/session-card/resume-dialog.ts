@@ -1,3 +1,4 @@
+import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el, escapeHtml } from '../dom-helpers.ts';
 import { buildDialogShell } from './modal.ts';
@@ -17,13 +18,7 @@ function relTime(ms: number | null | undefined) {
   return `${d}d ago`;
 }
 
-interface ResumableConversation {
-  id: string;
-  title?: string;
-  worktreeName?: string;
-  gitBranch?: string;
-  mtime?: number;
-}
+type ResumableConversation = ServerMessageOf<'conversations'>['conversations'][number];
 
 function buildItem(conv: ResumableConversation, currentId: string | null, onPick: (conversationId: string) => void) {
   const item = el('button', 'resume-item');
@@ -80,7 +75,7 @@ export function openResumeDialog(sessionId: string, opts: { currentState?: strin
   sendControlRequest('list-conversations', { id: sessionId })
     .then((res) => {
       if (!overlay.isConnected) return;
-      const convs = Array.isArray(res.conversations) ? (res.conversations as ResumableConversation[]) : [];
+      const convs = res.type === 'conversations' ? res.conversations : [];
       listEl.innerHTML = '';
       if (res.error) {
         listEl.append(el('div', 'resume-empty', `Could not list conversations: ${res.error}`));
@@ -90,7 +85,7 @@ export function openResumeDialog(sessionId: string, opts: { currentState?: strin
         listEl.append(el('div', 'resume-empty', 'No prior conversations found for this repo.'));
         return;
       }
-      const currentId = typeof res.current === 'string' ? res.current : null;
+      const currentId = res.type === 'conversations' ? res.current ?? null : null;
       for (const conv of convs) listEl.append(buildItem(conv, currentId, apply));
     })
     .catch((err) => {

@@ -1566,6 +1566,19 @@ test('approve posts one APPROVE review carrying the hand-approval line, the body
   assert.deepEqual(h.dismissed, []);
 });
 
+test('approve-only ignores supplied body and comments and records only the hand approval', async () => {
+  const h = actionHarness({ diff: null });
+  assert.deepEqual(await h.submit({ action: 'approve-only', body: 'Ship it', comments: [COMMENT_ON_ADDED_LINE] }), { ok: true });
+  assert.deepEqual(h.posted, [{
+    repo: 'Acme/app', number: 7, commitId: HEAD, event: 'APPROVE', body: HAND_APPROVAL_LINE, comments: [],
+  }]);
+  assert.equal(h.currentDraft().status, 'posted');
+  assert.equal(h.currentDraft().postedEvent, 'APPROVE');
+  assert.equal(h.currentDraft().body, HAND_APPROVAL_LINE);
+  assert.deepEqual(h.currentDraft().comments, []);
+  assert.deepEqual(h.diffLookups, []);
+});
+
 test('comment posts a COMMENT review with the body unchanged and without re-reading the head afterwards', async () => {
   const h = actionHarness();
   assert.equal((await h.submit({ action: 'comment', body: 'A few notes' })).ok, true);
@@ -1574,11 +1587,11 @@ test('comment posts a COMMENT review with the body unchanged and without re-read
   assert.equal(h.headLookups.length, 1);
 });
 
-test('approve after a posted comment review posts an APPROVE with only the hand-approval line and keeps the posted comments', async () => {
+test('approve-only after a posted comment review posts an APPROVE with only the hand-approval line and keeps the posted comments', async () => {
   const h = actionHarness({ headReads: [HEAD, HEAD, HEAD] });
   assert.equal((await h.submit({ action: 'comment', body: 'Nits inline', comments: [COMMENT_ON_ADDED_LINE] })).ok, true);
   assert.equal(h.currentDraft().postedEvent, 'COMMENT');
-  assert.deepEqual(await h.submit({ action: 'approve', body: '', comments: [] }), { ok: true });
+  assert.deepEqual(await h.submit({ action: 'approve-only', body: 'Ignore this body', comments: [COMMENT_ON_ADDED_LINE] }), { ok: true });
   assert.deepEqual(h.posted.map((review) => [review.event, review.body, review.comments.length]), [['COMMENT', 'Nits inline', 1], ['APPROVE', HAND_APPROVAL_LINE, 0]]);
   assert.equal(h.currentDraft().status, 'posted');
   assert.equal(h.currentDraft().postedEvent, 'APPROVE');
@@ -1594,13 +1607,14 @@ test('a follow-up approval refuses to repost inline comments and a posted approv
   assert.equal((await h.submit({ action: 'comment', body: 'More', comments: [] })).ok, false);
   h.replaceDraft(actionDraft({ status: 'posted', postedEvent: 'APPROVE' }));
   assert.equal((await h.submit({ action: 'approve', body: '', comments: [] })).ok, false);
+  assert.equal((await h.submit({ action: 'approve-only', body: '', comments: [] })).ok, false);
   assert.deepEqual(h.posted, []);
   assert.deepEqual(h.headLookups, []);
 });
 
 test('a follow-up approval whose live head moved refuses without posting and the draft stays posted', async () => {
   const h = actionHarness({ draft: { status: 'posted', postedEvent: 'COMMENT' }, headReads: [OTHER_HEAD] });
-  const outcome = await h.submit({ action: 'approve', body: '', comments: [] });
+  const outcome = await h.submit({ action: 'approve-only', body: '', comments: [] });
   assert.equal(outcome.ok, false);
   assert.match(String(outcome.error), /after the comments were posted, so nothing was approved/);
   assert.deepEqual(h.posted, []);

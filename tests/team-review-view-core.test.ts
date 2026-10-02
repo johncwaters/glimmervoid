@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
-  parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText, reviewProgressSteps,
-  commentSeverity, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictRecommendation, verdictSealKind, verdictSealText, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
+  aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
+  commentSeverity, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
 import { InFlightReview, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type {
@@ -202,20 +202,6 @@ test('tier and verdict labels are short and lower case, with a tone per verdict'
   assert.equal(pullRequestLabel('Acme/app', 7), 'Acme/app#7');
 });
 
-test('an unposted verdict reads as the review suggestion, never as an action already taken', () => {
-  assert.equal(verdictRecommendation('APPROVE'), 'suggests approve');
-  assert.equal(verdictRecommendation('APPROVE WITH NITS'), 'suggests approve with nits');
-  assert.equal(verdictRecommendation('REQUEST CHANGES'), 'suggests changes');
-  assert.equal(verdictRecommendation('BLOCKED'), 'review blocked');
-});
-
-test('the verdict seal reads as a suggestion until the review is posted', () => {
-  assert.equal(verdictSealText({ verdict: 'APPROVE', status: 'ready' }), 'suggests approve');
-  assert.equal(verdictSealText({ verdict: 'REQUEST CHANGES', status: 'stale' }), 'suggests changes');
-  assert.equal(verdictSealText({ verdict: 'APPROVE', status: 'posted' }), 'approve');
-  assert.equal(verdictSealText({ verdict: 'REQUEST CHANGES', status: 'posted' }), 'request changes');
-});
-
 test('the legacy summary hint offers a requeue', () => {
   assert.match(LEGACY_SUMMARY_HINT, /Queue review to get a plain summary\.$/);
 });
@@ -297,6 +283,17 @@ test('the reviewer note posts above the automated-review note, and a blank note 
   assert.equal(withReviewerNote('Only mine.', '  '), 'Only mine.');
 });
 
+test('approve-only drops the edited body and selected comments and has stable action text', () => {
+  const review = draft(1, { comments: [{ path: 'src/a.ts', line: 9, side: 'RIGHT', body: 'Fix it' }] });
+  assert.deepEqual(buildActionRequest(review, 'approve-only', 'Edited body', review.comments), {
+    key: 'Acme/app#1', head: HEAD, action: 'approve-only', body: '', comments: [],
+  });
+  assert.equal(actionLabel('approve-only'), 'Approve');
+  assert.equal(actionLabel('approve'), 'Approve and comment');
+  assert.equal(actionProgressText('approve-only'), 'Posting the approval');
+  assert.equal(actionOutcomeText('approve-only'), 'Approved on GitHub');
+});
+
 test('queue review sends an empty action payload and has stable progress and outcome text', () => {
   assert.deepEqual(buildActionRequest(draft(1, { status: 'error' }), 'requeue', '', []), {
     key: 'Acme/app#1', head: HEAD, action: 'requeue', body: '', comments: [],
@@ -305,17 +302,17 @@ test('queue review sends an empty action payload and has stable progress and out
   assert.equal(actionOutcomeText('requeue'), 'Queued. The next poll reviews it again.');
 });
 
-test('a ready review posts with Comment or Approve and comment, and keeps Queue review and Discard in the More menu', () => {
+test('a ready review offers Comment, Approve and Approve and comment, and keeps Queue review and Discard in the More menu', () => {
   const ready = draft(1);
-  assert.deepEqual(detailActionLayout(ready), { footer: ['comment', 'approve'], more: ['requeue', 'discard'] });
-  assert.deepEqual(detailActionLayout(ready).footer.map((action) => actionLabel(ready, action)), ['Comment', 'Approve and comment']);
-  assert.deepEqual(detailActionLayout(ready).more.map((action) => actionLabel(ready, action)), ['Queue review', 'Discard']);
+  assert.deepEqual(detailActionLayout(ready), { footer: ['comment', 'approve-only', 'approve'], more: ['requeue', 'discard'] });
+  assert.deepEqual(detailActionLayout(ready).footer.map((action) => actionLabel(action)), ['Comment', 'Approve', 'Approve and comment']);
+  assert.deepEqual(detailActionLayout(ready).more.map((action) => actionLabel(action)), ['Queue review', 'Discard']);
 });
 
 test('a posted comment review offers a plain Approve with Queue review in the More menu', () => {
   const commented = draft(1, { status: 'posted', postedEvent: 'COMMENT' });
-  assert.deepEqual(detailActionLayout(commented), { footer: ['approve'], more: ['requeue'] });
-  assert.equal(actionLabel(commented, 'approve'), 'Approve');
+  assert.deepEqual(detailActionLayout(commented), { footer: ['approve-only'], more: ['requeue'] });
+  assert.equal(actionLabel('approve-only'), 'Approve');
 });
 
 test('a review with nothing to post keeps Queue review as its only footer action', () => {
@@ -529,12 +526,6 @@ test('comment preview uses the first prose paragraph after code', () => {
   assert.equal(reviewCommentPreview([]), 'Open comment');
 });
 
-test('footer names the reviewed head and current included comment count', () => {
-  assert.equal(reviewFooterText(HEAD, 0), 'Posts 1 review on aaaaaaa: the body plus 0 inline comments');
-  assert.equal(reviewFooterText(HEAD, 1), 'Posts 1 review on aaaaaaa: the body plus 1 inline comment');
-  assert.equal(reviewFooterText(HEAD, 2), 'Posts 1 review on aaaaaaa: the body plus 2 inline comments');
-});
-
 test('progress tracker advances one active stage and leaves Draft ready pending', () => {
   assert.deepEqual(reviewProgressSteps('preparing').map((step) => step.state), ['active', 'todo', 'todo', 'todo']);
   assert.deepEqual(reviewProgressSteps('checkout').map((step) => step.state), ['done', 'active', 'todo', 'todo']);
@@ -555,10 +546,10 @@ test('detail metadata names the scope and keeps raw reasons in the title', () =>
 });
 
 test('coverage summaries omit empty counts and use singular checks', () => {
-  assert.equal(coverageSummaryText({ change: 'Updated flow', checked: Array(6).fill('check'), gaps: Array(3).fill('gap') }), '6 checks, 3 not covered');
-  assert.equal(coverageSummaryText({ change: '', checked: ['check'], gaps: [] }), '1 check');
-  assert.equal(coverageSummaryText({ change: '', checked: [], gaps: ['gap'] }), '1 not covered');
-  assert.equal(coverageSummaryText({ change: '', checked: [], gaps: [] }), 'No coverage notes');
+  assert.equal(coverageSummaryText({ goal: '', change: 'Updated flow', checked: Array(6).fill('check'), gaps: Array(3).fill('gap') }), '6 checks, 3 not covered');
+  assert.equal(coverageSummaryText({ goal: '', change: '', checked: ['check'], gaps: [] }), '1 check');
+  assert.equal(coverageSummaryText({ goal: '', change: '', checked: [], gaps: ['gap'] }), '1 not covered');
+  assert.equal(coverageSummaryText({ goal: '', change: '', checked: [], gaps: [] }), 'No coverage notes');
   assert.equal(coverageSummaryText(undefined), 'No coverage notes');
 });
 
@@ -569,8 +560,8 @@ test('a legacy draft without an assessment labels its disclosure as the review a
 });
 
 test('a draft with an assessment labels its disclosure as coverage with the count preview', () => {
-  assert.deepEqual(coverageDisclosureHeading({ change: '', checked: ['check'], gaps: ['gap'] }), { label: 'Coverage', preview: '1 check, 1 not covered' });
-  assert.deepEqual(coverageDisclosureHeading({ change: '', checked: [], gaps: [] }), { label: 'Coverage', preview: 'No coverage notes' });
+  assert.deepEqual(coverageDisclosureHeading({ goal: '', change: '', checked: ['check'], gaps: ['gap'] }), { label: 'Coverage', preview: '1 check, 1 not covered' });
+  assert.deepEqual(coverageDisclosureHeading({ goal: '', change: '', checked: [], gaps: [] }), { label: 'Coverage', preview: 'No coverage notes' });
 });
 
 test('a queued pull request gets its own section and hides its older draft', () => {
@@ -597,4 +588,21 @@ test('a change to the queued list is never treated as progress only', () => {
   const queuedItem = { key: 'Acme/app#3', repo: 'Acme/app', number: 3, title: 'PR 3', url: 'https://github.com/Acme/app/pull/3', author: 'teammate' };
   assert.equal(isInFlightProgressOnlyChange(before, { ...before, queued: [queuedItem] }), false);
   assert.equal(isInFlightProgressOnlyChange(before, { ...before }), true);
+});
+
+test('About this PR paragraphs omit absent and blank assessments and preserve goal then change', () => {
+  assert.deepEqual(aboutPrParagraphs(undefined), []);
+  assert.deepEqual(aboutPrParagraphs(null), []);
+  assert.deepEqual(aboutPrParagraphs({ goal: '  ', change: '\n', checked: [], gaps: [] }), []);
+  assert.deepEqual(aboutPrParagraphs({ goal: ' Avoid stuck `requests`. ', change: ' Re-arm the timer. ', checked: [], gaps: [] }), [
+    { kind: 'goal', text: 'Avoid stuck `requests`.' }, { kind: 'change', text: 'Re-arm the timer.' },
+  ]);
+  assert.deepEqual(aboutPrParagraphs({ goal: '', change: 'Re-arm the timer.', checked: [], gaps: [] }), [{ kind: 'change', text: 'Re-arm the timer.' }]);
+  assert.deepEqual(aboutPrParagraphs({ goal: 'Avoid stuck requests.', change: '', checked: [], gaps: [] }), [{ kind: 'goal', text: 'Avoid stuck requests.' }]);
+});
+
+test('queue row title puts a draft goal immediately after the PR title and omits blank goals', () => {
+  const assessment = { goal: ' Avoid stuck requests. ', change: 'Re-arm the timer.', checked: [], gaps: [] };
+  assert.equal(queueRowTitle(draft(1, { assessment }), 'ready', { opened: '1d ago' }), 'Acme/app#1: PR 1\nAvoid stuck requests.\nReady\nOpened 1d ago');
+  assert.equal(queueRowTitle(draft(1, { assessment: { ...assessment, goal: ' ' } }), 'ready', {}), 'Acme/app#1: PR 1\nReady');
 });

@@ -1,3 +1,5 @@
+import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
+
 export interface MergeActionVerdict {
   isRendered: boolean;
   isEnabled: boolean;
@@ -40,13 +42,15 @@ export function reviewHeadline({
   return { text: 'Not ready to merge' };
 }
 
-export function decidePrimaryReviewAction({ status, mergeReason, live, isMergeRendered }: {
+export function decidePrimaryReviewAction({ status, mergeReason, live, isMergeRendered, hasChanges }: {
   status: string;
   mergeReason: string | null;
   live: boolean;
   isMergeRendered: boolean;
+  hasChanges: boolean;
 }): 'merge' | 'resolve' | 'none' {
   if (status === 'parked' && live && mergeReason !== 'base-diverged') return 'resolve';
+  if (!hasChanges && status !== 'parked' && status !== 'merging') return 'none';
   if (isMergeRendered) return 'merge';
   return 'none';
 }
@@ -101,4 +105,78 @@ export function mergeDisabledReason({
     return 'Starting up. Mergeable once the session is live.';
   }
   return null;
+}
+
+export type ReviewBranchSync = Pick<ServerMessageOf<'branch-sync-status'>, 'branch' | 'upstream' | 'state' | 'ahead' | 'behind' | 'fetched' | 'action' | 'error'>;
+
+export type BranchSyncClickAction = 'resync' | 'recheck';
+
+export function hasReviewChanges({ fetched, changedFileCount, hasCommits }: {
+  fetched: boolean;
+  changedFileCount: number;
+  hasCommits: boolean;
+}): boolean {
+  return !fetched || changedFileCount > 0 || hasCommits;
+}
+
+function upstreamLabel(upstream: string | null): string {
+  return upstream || 'its upstream';
+}
+
+export function branchSyncLabel(sync: ReviewBranchSync | null | undefined): string | null {
+  if (!sync) return null;
+  const branch = sync.branch || 'Base branch';
+  const { state, ahead, behind } = sync;
+  const upstream = upstreamLabel(sync.upstream);
+  if (state === 'no-upstream') return `${branch}: no upstream`;
+  if (state === 'unknown') return `${branch}: sync state unknown vs ${upstream}`;
+  if (state === 'in-sync') return `${branch}: in sync with ${upstream}`;
+  if (state === 'ahead') return `${branch}: ${ahead} ahead of ${upstream}`;
+  if (state === 'behind') return `${branch}: ${behind} behind ${upstream}`;
+  if (state === 'diverged') return `${branch}: ${ahead} ahead, ${behind} behind ${upstream}`;
+  return null;
+}
+
+export function branchSyncClickAction(sync: ReviewBranchSync | null | undefined): BranchSyncClickAction {
+  if (!sync || sync.fetched === false) return 'recheck';
+  if (sync.state === 'ahead' || sync.state === 'behind') return 'resync';
+  return 'recheck';
+}
+
+export function branchSyncActionTitle(sync: ReviewBranchSync | null | undefined, resolveShortcutHint: string, shortcutResyncs: boolean): string {
+  const suffix = shortcutResyncs ? ` (${resolveShortcutHint})` : '';
+  if (!sync || branchSyncClickAction(sync) === 'recheck') return `Click to fetch and check again${suffix}`;
+  const branch = sync.branch || 'Base branch';
+  const upstream = upstreamLabel(sync.upstream);
+  if (sync.state === 'behind') return `Click to fast-forward ${branch} to ${upstream}${suffix}`;
+  return `Click to push ${branch} to ${upstream}${suffix}`;
+}
+
+export function shouldShowBranchSyncLabel(sync: ReviewBranchSync | null | undefined): boolean {
+  return sync?.state !== 'in-sync' || sync.fetched === false;
+}
+
+export function shouldShowReviewHeaderCounts({ fetched, hasChanges, view, committedFiles, uncommittedFiles }: {
+  fetched: boolean;
+  hasChanges: boolean;
+  view: string;
+  committedFiles: number;
+  uncommittedFiles: number;
+}): boolean {
+  if (fetched && !hasChanges) return false;
+  if (view !== 'diff') return true;
+  const sectionCount = Number(committedFiles > 0) + Number(uncommittedFiles > 0);
+  return sectionCount !== 1;
+}
+
+export function resyncOutcomeText(sync: ReviewBranchSync): string | null {
+  if (sync.error) return `Resync failed: ${sync.error}`;
+  const branch = sync.branch || 'The base branch';
+  const upstream = upstreamLabel(sync.upstream);
+  if (sync.action === 'fast-forwarded') return `Fast-forwarded ${branch} to ${upstream}.`;
+  if (sync.action === 'pushed') return `Pushed ${branch} to ${upstream}.`;
+  if (sync.state === 'diverged') return `${branch} has diverged from ${upstream}. Resolve manually.`;
+  if (sync.state === 'in-sync') return null;
+  if (sync.state === 'no-upstream') return `${branch} has no upstream to resync against.`;
+  return 'Could not determine sync status.';
 }

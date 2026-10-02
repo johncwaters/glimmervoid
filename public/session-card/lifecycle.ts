@@ -1,4 +1,4 @@
-import type { ServerMessage } from '#shared/contracts/control-messages.ts';
+import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { PlanDraftPush } from '#shared/contracts/plan-review.ts';
 import type { SessionState } from '#shared/states.ts';
 import { KILLABLE_STATES, RESTARTABLE_STATES, STATES } from '#shared/states.ts';
@@ -56,12 +56,7 @@ const asText = (value: unknown) => (value == null ? '' : String(value));
 const isKillable = (state: string) => KILLABLE_STATES.includes(state as SessionState);
 const isRestartable = (state: string) => RESTARTABLE_STATES.includes(state as SessionState);
 
-interface PostTurnReport {
-  skipped?: boolean;
-  mode?: string;
-  filesFixed?: number;
-  findings?: { file?: string; rule: string; count?: number }[];
-}
+type PostTurnReport = ServerMessageOf<'post-turn-result'>;
 
 function updateButtonVisibility(ui: SessionUi) {
   const state = ui.currentState;
@@ -517,11 +512,10 @@ function formatWakeupChip(at: unknown) {
   return `sleeping until ~${hh}:${mm}`;
 }
 
-export function setSessionWakeup(sessionId: unknown, wakeup: unknown) {
+export function setSessionWakeup(sessionId: unknown, pending: ServerMessageOf<'session-wakeup'>['pendingWakeup']) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
 
-  const pending = wakeup as { kind?: string; at?: number; reason?: string } | null | undefined;
   paintCardBadge(ui, '.wakeup-badge', 'wakeup', {
     on: !!pending,
     value: pending?.kind || 'wakeup',
@@ -530,20 +524,19 @@ export function setSessionWakeup(sessionId: unknown, wakeup: unknown) {
   });
 }
 
-export function setSessionPostTurn(sessionId: unknown, report: unknown) {
+export function setSessionPostTurn(sessionId: unknown, report: PostTurnReport) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
 
-  const r = (report || {}) as PostTurnReport;
-  const findings = Array.isArray(r.findings) ? r.findings : [];
-  const fixed = r.filesFixed || 0;
+  const findings = Array.isArray(report.findings) ? report.findings : [];
+  const fixed = report.filesFixed || 0;
   let kind: 'fixed' | 'flagged' | null = null;
   let count = 0;
-  if (!r.skipped && r.mode === 'fix' && fixed > 0) {
+  if (!report.skipped && report.mode === 'fix' && fixed > 0) {
     kind = 'fixed';
     count = fixed;
   }
-  if (!r.skipped && r.mode === 'report' && findings.length > 0) {
+  if (!report.skipped && report.mode === 'report' && findings.length > 0) {
     kind = 'flagged';
     count = new Set(findings.map((f) => f.file)).size;
   }
@@ -579,7 +572,7 @@ export function seedSessionMergeStatus(sessionId: unknown, mergeStatus: unknown,
   seedReviewMergeStatus(sessionIdOf(sessionId), ms, asText(reason) || null);
 }
 
-export function setSessionDiff(sessionId: unknown, payload: unknown) {
+export function setSessionDiff(sessionId: unknown, payload: Pick<ServerMessageOf<'session-diff'>, 'committed' | 'uncommitted' | 'hasCommits'> | null) {
   setReviewDiff(sessionIdOf(sessionId), payload);
 }
 

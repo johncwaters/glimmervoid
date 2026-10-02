@@ -195,7 +195,7 @@ function postedReviewBody(event: PostedReviewEvent, body: string): string {
 }
 
 function eventForAction(action: string): PostedReviewEvent | null {
-  if (action === 'approve') return 'APPROVE';
+  if (action === 'approve' || action === 'approve-only') return 'APPROVE';
   if (action === 'comment') return 'COMMENT';
   return null;
 }
@@ -454,7 +454,7 @@ function parseFindingLine(line: string): UnvalidatedFinding | null {
   };
 }
 
-const REPORT_HEADINGS = ['HEAD_SHA:', 'VERDICT:', 'ACTIONABLE', 'TRUNCATED:', 'STRUCTURED_FINDINGS:', 'OVERALL_SUMMARY:', 'CHANGE:', 'CHECKED:', 'GAPS:'] as const;
+const REPORT_HEADINGS = ['HEAD_SHA:', 'VERDICT:', 'ACTIONABLE', 'TRUNCATED:', 'STRUCTURED_FINDINGS:', 'OVERALL_SUMMARY:', 'GOAL:', 'CHANGE:', 'CHECKED:', 'GAPS:'] as const;
 
 const COLON_WITH_EMPHASIS = /^[*_]*:[*_]*/;
 
@@ -514,11 +514,12 @@ function bulletsIn(sectionLines: readonly string[] | null): string[] {
 }
 
 function parseAssessment(lines: readonly string[]): ReviewAssessment | null {
+  const goal = (sectionAfter(lines, 'GOAL:') ?? []).join('\n').trim();
   const change = (sectionAfter(lines, 'CHANGE:') ?? []).join('\n').trim();
   const checked = bulletsIn(sectionAfter(lines, 'CHECKED:'));
   const gaps = bulletsIn(sectionAfter(lines, 'GAPS:'));
-  if (!change && checked.length === 0 && gaps.length === 0) return null;
-  return { change, checked, gaps };
+  if (!goal && !change && checked.length === 0 && gaps.length === 0) return null;
+  return { goal, change, checked, gaps };
 }
 
 function parseReviewReport(report: string): { ok: true; result: ReviewResultType } | { ok: false; reason: string } {
@@ -785,6 +786,9 @@ function buildReviewPrompt({
     'posts. Write them in plain words for a reader who has not opened the diff. Never put commit SHAs, ranges, lists of',
     'changed files, line counts, reviewer lane, router or model names, or finding counts in them: the dashboard shows',
     'the findings on their own, and none of that helps the operator judge the review.',
+    '- then one line: GOAL:',
+    '- then one sentence on why the pull request exists: the problem it solves or the outcome it is for, taken from its title, description and linked issue, or inferred from the diff when they do not say.',
+    '- then one blank line',
     '- then one line: CHANGE:',
     '- then one to three sentences on what the pull request changes and which behavior that affects.',
     '- then one blank line',
@@ -800,7 +804,7 @@ function buildReviewPrompt({
     '- then one line: OVERALL_SUMMARY:',
     '- then one or two sentences on why the verdict follows from CHECKED and the findings.',
     'No line inside these sections may start with VERDICT:, ACTIONABLE, TRUNCATED:, HEAD_SHA:, STRUCTURED_FINDINGS:,',
-    'OVERALL_SUMMARY:, CHANGE:, CHECKED: or GAPS:.',
+    'OVERALL_SUMMARY:, GOAL:, CHANGE:, CHECKED: or GAPS:.',
     'If the review cannot complete, still write the file, with the line VERDICT: FAILED in place of a verdict.',
     '',
     `Posting file: use the Write tool to write ${postingPath} with one JSON object, the review exactly as it would be posted:`,

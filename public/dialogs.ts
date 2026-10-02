@@ -15,16 +15,6 @@ interface OptionSettings {
   selected?: boolean;
 }
 
-interface RepoRootDirectory {
-  root: string;
-  projects: { name: string; path: string }[];
-}
-
-interface AgentChoice {
-  id: string;
-  label: string;
-}
-
 function option(text: string, { value, disabled = false, selected = false }: OptionSettings = {}) {
   const optionEl = el('option', null, text);
   if (value != null) optionEl.value = value;
@@ -89,7 +79,7 @@ export function createAddSessionDialog() {
       pickerEl.textContent = '';
       pickerEl.appendChild(option('-- Select a project --', { value: '', disabled: true, selected: true }));
       let hasProjects = false;
-      const directories = (message.directories as RepoRootDirectory[] | undefined) || [];
+      const directories = message.type === 'repo-roots-scanned' ? message.directories : [];
       for (const directory of directories) {
         if (directory.projects.length === 0) continue;
         const group = el('optgroup');
@@ -142,7 +132,7 @@ export function createAddSessionDialog() {
     .then((message) => {
       const availability = decideAgentAvailability(message);
       if (!availability.canSpawn) blockSpawnWithGuidance(availability.guidance);
-      const decision = decideAgentPicker((message.agents as AgentChoice[] | undefined) || []);
+      const decision = decideAgentPicker(message.type === 'agents-listed' ? message.agents : []);
       selectedAgentId = decision.selectedId;
       if (!decision.show) return;
       agentSelectEl.textContent = '';

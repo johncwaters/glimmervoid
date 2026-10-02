@@ -35,7 +35,10 @@ export interface QueueRowAges {
 
 export function queueRowTitle(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind, ages: QueueRowAges): string {
   const status = 'status' in review ? review.status : null;
-  const lines = [`${pullRequestLabel(review.repo, review.number)}: ${review.title}`, queueRowStateLabel(kind, status)];
+  const lines = [`${pullRequestLabel(review.repo, review.number)}: ${review.title}`];
+  const goal = 'reviewedHead' in review ? review.assessment?.goal.trim() : '';
+  if (goal) lines.push(goal);
+  lines.push(queueRowStateLabel(kind, status));
   if (ages.opened) lines.push(`Opened ${ages.opened}`);
   if (ages.reviewed) lines.push(`Reviewed ${ages.reviewed}`);
   if (ages.posted) lines.push(`Posted ${ages.posted}`);
@@ -102,13 +105,6 @@ const VERDICT_LABELS: Readonly<Record<ReviewDraft['verdict'], string>> = Object.
   BLOCKED: 'blocked',
 });
 
-const VERDICT_RECOMMENDATIONS: Readonly<Record<ReviewDraft['verdict'], string>> = Object.freeze({
-  APPROVE: 'suggests approve',
-  'APPROVE WITH NITS': 'suggests approve with nits',
-  'REQUEST CHANGES': 'suggests changes',
-  BLOCKED: 'review blocked',
-});
-
 const VERDICT_TONES: Readonly<Record<ReviewDraft['verdict'], string>> = Object.freeze({
   APPROVE: 'ok',
   'APPROVE WITH NITS': 'info',
@@ -136,6 +132,7 @@ const PHASE_LABELS: Readonly<Record<ReviewProgressPhase, string>> = Object.freez
 
 const ACTION_OUTCOME_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.freeze({
   approve: 'Approved on GitHub',
+  'approve-only': 'Approved on GitHub',
   comment: 'Comment posted on GitHub',
   discard: 'Draft discarded',
   requeue: 'Queued. The next poll reviews it again.',
@@ -143,6 +140,7 @@ const ACTION_OUTCOME_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.f
 
 const ACTION_PROGRESS_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.freeze({
   approve: 'Posting the approval',
+  'approve-only': 'Posting the approval',
   comment: 'Posting the comment',
   discard: 'Discarding the draft',
   requeue: 'Queueing the review',
@@ -314,11 +312,6 @@ export function reviewCommentPreview(paragraphs: readonly ReviewParagraph[]): st
   return preview || 'Open comment';
 }
 
-export function reviewFooterText(reviewedHead: string, includedComments: number): string {
-  const commentLabel = includedComments === 1 ? 'inline comment' : 'inline comments';
-  return `Posts 1 review on ${reviewedHead.slice(0, 7)}: the body plus ${includedComments} ${commentLabel}`;
-}
-
 export function reviewProgressSteps(phase: ReviewProgressPhase): { label: string; state: 'done' | 'active' | 'todo' }[] {
   const labels = ['Fetch the diff', 'Check out the head', 'Review', 'Draft ready'];
   const activeIndex = { preparing: 0, checkout: 1, reviewing: 2 }[phase];
@@ -342,6 +335,16 @@ export function reviewScopeTitle(review: Pick<ReviewDraft, 'reasons'>): string {
   return review.reasons.join(', ');
 }
 
+export function aboutPrParagraphs(assessment: ReviewAssessment | null | undefined): { kind: 'goal' | 'change'; text: string }[] {
+  if (!assessment) return [];
+  const paragraphs: { kind: 'goal' | 'change'; text: string }[] = [];
+  const goal = assessment.goal.trim();
+  const change = assessment.change.trim();
+  if (goal) paragraphs.push({ kind: 'goal', text: goal });
+  if (change) paragraphs.push({ kind: 'change', text: change });
+  return paragraphs;
+}
+
 export function coverageSummaryText(assessment: ReviewAssessment | null | undefined): string {
   if (!assessment) return 'No coverage notes';
   const checks = assessment.checked.length;
@@ -355,14 +358,6 @@ export function coverageSummaryText(assessment: ReviewAssessment | null | undefi
 export function coverageDisclosureHeading(assessment: ReviewAssessment | null | undefined): { label: string; preview: string } {
   if (!assessment) return { label: 'Review audit', preview: '' };
   return { label: 'Coverage', preview: coverageSummaryText(assessment) };
-}
-
-export function verdictRecommendation(verdict: ReviewDraft['verdict']): string {
-  return VERDICT_RECOMMENDATIONS[verdict] ?? verdictLabel(verdict);
-}
-
-export function verdictSealText(draft: Pick<ReviewDraft, 'verdict' | 'status'>): string {
-  return draft.status === 'posted' ? verdictLabel(draft.verdict) : verdictRecommendation(draft.verdict);
 }
 
 export const LEGACY_SUMMARY_HINT = 'This review ran before plain summaries existed, so only its verdict and findings remain. The audit log shows what it checked. Queue review to get a plain summary.';
@@ -432,31 +427,30 @@ export function withReviewerNote(reviewerNote: string, reviewBody: string): stri
 }
 
 export function buildActionRequest(draft: ReviewDraft, action: TeamReviewAction, body: string, comments: readonly ReviewComment[]): TeamReviewActionRequest {
+  if (action === 'approve-only') return { key: draft.key, head: draft.reviewedHead, action, body: '', comments: [] };
   return { key: draft.key, head: draft.reviewedHead, action, body, comments: comments.map(({ path, line, side, body: commentBody }) => ({ path, line, side, body: commentBody })) };
 }
 
 const ACTION_LABELS: Readonly<Record<TeamReviewAction, string>> = Object.freeze({
   approve: 'Approve and comment',
+  'approve-only': 'Approve',
   comment: 'Comment',
   discard: 'Discard',
   requeue: 'Queue review',
 });
-
-const FOLLOW_UP_APPROVE_LABEL = 'Approve';
 
 export interface DetailActionLayout {
   footer: readonly TeamReviewAction[];
   more: readonly TeamReviewAction[];
 }
 
-export function actionLabel(draft: Pick<ReviewDraft, 'status'>, action: TeamReviewAction): string {
-  if (action === 'approve' && draft.status !== 'ready') return FOLLOW_UP_APPROVE_LABEL;
+export function actionLabel(action: TeamReviewAction): string {
   return ACTION_LABELS[action];
 }
 
 export function detailActionLayout(draft: Pick<ReviewDraft, 'status' | 'postedEvent'>): DetailActionLayout {
-  if (draft.status === 'ready') return { footer: ['comment', 'approve'], more: ['requeue', 'discard'] };
-  if (canApproveAfterComment(draft)) return { footer: ['approve'], more: ['requeue'] };
+  if (draft.status === 'ready') return { footer: ['comment', 'approve-only', 'approve'], more: ['requeue', 'discard'] };
+  if (canApproveAfterComment(draft)) return { footer: ['approve-only'], more: ['requeue'] };
   if (hasRequeueFooter(draft.status)) return { footer: ['requeue'], more: [] };
   return { footer: [], more: [] };
 }

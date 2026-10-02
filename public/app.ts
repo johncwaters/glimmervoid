@@ -1,8 +1,7 @@
 import '@xterm/xterm/css/xterm.css';
 import './tailwind.css';
 
-import type { SessionSnapshot } from '#shared/contracts/session.ts';
-import type { IssuesReportPush, ServerMessage } from '#shared/contracts/control-messages.ts';
+import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { shouldShowServerAction } from '#shared/client-trust.ts';
 import { STATES } from '#shared/states.ts';
 import { getBorrowedCardId } from './card-host.ts';
@@ -31,8 +30,6 @@ import { acknowledgePrsViewAttention, mountPrsView } from './prs-view.ts';
 import { acknowledgeRadarAttention, applyInvestigationActivity, applyInvestigationFinished, applyPosthogStatus, mountRadarView, setRadarActivityCallback, setRadarTraceOpener } from './radar-panel.ts';
 import { handleDebugStateRefresh, handleDebugStateResponse, onDebugModeChanged } from './session-card/card-dom.ts';
 import { findSessionUi, sessionUIs } from './session-card/card-registry.ts';
-import type { PlanResponse } from './plan/plan-face.ts';
-import type { SessionPlanChangedMessage, SessionPlanDraftMessage } from './session-card/lifecycle.ts';
 import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
@@ -53,7 +50,6 @@ import { shouldShowTelemetryNotice } from './telemetry-notice-core.ts';
 import { getActiveView as getSavedActiveView, getDismissedUpdate, getThemeId, isCompactStatusLabels, isFlyingAnimalsEnabled, isSessionUsageChips, isSoundEnabled, isTelemetryNoticeDismissed, setActiveView, setDismissedUpdate, setSoundEnabled, setTelemetryNoticeDismissed } from './ui-prefs.ts';
 import { getActiveView, uiState } from './ui-state-core.ts';
 import { updateBannerMode } from './updates-view-core.ts';
-import type { UpdateStatusView } from './updates-view-core.ts';
 import { acknowledgeUsageAttention, applyPlanLimits, applyUsageReport, applyUsageSessions, mountUsageView, refreshUsageView, requestUsageReport, setUsageActivityCallback, setUsageRequestSender } from './usage-panel.ts';
 
 applyTheme(getThemeId());
@@ -84,32 +80,7 @@ function revealApp() {
   setTimeout(removeLoading, 1000);
 }
 
-interface SnapshotSession extends Pick<SessionSnapshot, 'taskTitle' | 'taskTitleIsCustom'> {
-  id: string;
-  name: string;
-  state: string;
-  stateSince?: number;
-  ephemeral?: boolean;
-  path?: string;
-  agent?: string;
-  dangerouslySkipPermissions?: boolean;
-  isWorktree?: boolean;
-  isWorkspace?: boolean;
-  mergeStatus?: string;
-  mergeReason?: string | null;
-  effectiveBase?: string;
-  activeAgents?: number;
-  awaitingBackgroundTasks?: boolean;
-  pendingWakeup?: unknown;
-  pendingPromptKind?: unknown;
-  hasPlan?: unknown;
-}
-
-interface SessionUsageChip {
-  tokens: unknown;
-  costUSD: unknown;
-  officialCostUSD: unknown;
-}
+type SessionUsageChip = Pick<ServerMessageOf<'usage-sessions'>['sessions'][number], 'tokens' | 'costUSD' | 'officialCostUSD'>;
 
 function showShutdownOverlay(message?: string) {
   if (message) shutdownStatus.textContent = message;
@@ -119,6 +90,7 @@ function showShutdownOverlay(message?: string) {
 setConnectionStateCallback((state, label) => {
   connectionEl.dataset.state = state;
   connectionLabel.textContent = label;
+  connectionEl.title = label;
   applyTraceConnectionState(state === 'connected');
   applyPlanConnectionState(state === 'connected');
   applyIssuesConnectionState(state === 'connected');
@@ -164,9 +136,7 @@ function noteServerBuild(serverBuild: unknown) {
   if (decision.reload) location.reload();
 }
 
-function handleSnapshot(sessions: unknown) {
-  const rows = (sessions || []) as SnapshotSession[];
-
+function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
   setVisionsProjectNames(new Map(rows.filter((s) => !s.ephemeral).map((s): [string, string] => [s.id, s.name])));
   applySettingsProjects(rows.filter((session) => !session.ephemeral).map((session) => ({
     id: session.id,
@@ -215,7 +185,7 @@ function syncTraceSessionsFromCards() {
   })));
 }
 
-function handleStateChange(msg: ServerMessage) {
+function handleStateChange(msg: ServerMessageOf<'state-change'>) {
   if (!hasSession(msg.id)) {
     createSessionCard(msg.id, msg.session, msg.to, { skipPerms: !!msg.skipPerms, stateSince: msg.timestamp });
     refreshFavicon(sessionUIs);
@@ -255,12 +225,11 @@ function handleStateChange(msg: ServerMessage) {
   }
 }
 
-const usageBySessionId = new Map<unknown, SessionUsageChip>();
+const usageBySessionId = new Map<string, SessionUsageChip>();
 
-function applyUsageSessionChips(rows: unknown) {
-  const seen = new Set<unknown>();
-  const usageRows: { id?: unknown; tokens?: unknown; costUSD?: unknown; officialCostUSD?: unknown }[] = Array.isArray(rows) ? rows : [];
-  for (const row of usageRows) {
+function applyUsageSessionChips(rows: ServerMessageOf<'usage-sessions'>['sessions']) {
+  const seen = new Set<string>();
+  for (const row of rows) {
     if (!row?.id) continue;
     seen.add(row.id);
     const usage = { tokens: row.tokens, costUSD: row.costUSD, officialCostUSD: row.officialCostUSD };
@@ -275,7 +244,7 @@ function applyUsageSessionChips(rows: unknown) {
   }
 }
 
-function restoreUsageChip(sessionId: unknown) {
+function restoreUsageChip(sessionId: string) {
   const usage = usageBySessionId.get(sessionId);
   if (!usage) return;
   setSessionUsage(sessionId, usage);
@@ -343,15 +312,15 @@ const messageHandlers = {
   'session-worktree-ready': (msg) => { setSessionEffectiveBase(msg.id, msg.base); },
   'session-diff':       (msg) => { setSessionDiff(msg.id, { committed: msg.committed, uncommitted: msg.uncommitted, hasCommits: msg.hasCommits }); },
   'change-map':         (msg) => setSessionChangeMap(msg.id, msg.map),
-  'branch-sync-status': (msg) => setReviewBranchSync(msg.id, { branch: msg.branch, upstream: msg.upstream, state: msg.state, ahead: msg.ahead, behind: msg.behind, fetched: msg.fetched, action: msg.action, error: msg.error }),
+  'branch-sync-status': (msg) => setReviewBranchSync(msg.id, msg),
   'session-changed':    (msg) => notifyWorktreeChanged(msg.id),
   'post-turn-result':   (msg) => setSessionPostTurn(msg.id, msg),
   'debug-state-response': (msg) => handleDebugStateResponse(msg),
   'session-trace-response': (msg) => applyTraceResponse(msg),
   'session-trace-changed': (msg) => applyTraceChanged(msg),
-  'session-plan-changed': (msg) => { applySessionPlanChanged(msg as ServerMessage & SessionPlanChangedMessage); refreshPhoneBoard(); },
-  'session-plan-draft': (msg) => { applySessionPlanDraft(msg as ServerMessage & SessionPlanDraftMessage); },
-  'session-plan-response': (msg) => { applySessionPlanResponse(msg as ServerMessage & PlanResponse); },
+  'session-plan-changed': (msg) => { applySessionPlanChanged(msg); refreshPhoneBoard(); },
+  'session-plan-draft': (msg) => { applySessionPlanDraft(msg); },
+  'session-plan-response': (msg) => { applySessionPlanResponse(msg); },
 
   'notify':             (msg) => { showDesktopNotification(msg); handleDebugStateRefresh(msg.session); },
   'update-status':      (msg) => { showUpdateBanner(msg); applySettingsUpdateStatus(msg); },
@@ -359,7 +328,7 @@ const messageHandlers = {
   'error':              (msg) => { clearSettingsUpdateRequest(); applyTraceError(msg); applySessionPlanError(msg); showErrorToast(msg.message, { persist: true }); },
   'session-error':      (msg) => { applySessionPlanError(msg); showErrorToast(`${msg.session}: ${msg.message}`, { persist: true }); },
   'settings-updated':   (msg) => { if (msg.settings) { applyTerminalSettings(msg.settings); applySettingsBroadcast(msg.settings); applyVisionsSettings(msg.settings); applySurfaceSettings(msg.settings); syncTelemetryBanner(msg.settings); } },
-  'health-snapshot':    (msg) => { if (msg.stats) applyHealthSnapshot(msg.stats as HealthSnapshot); },
+  'health-snapshot':    (msg) => { if (msg.stats) applyHealthSnapshot(msg.stats as HealthSnapshot & ServerMessageOf<'health-snapshot'>['stats']); },
   'posthog-status':     (msg) => applyPosthogStatus(msg),
   'posthog-investigation-activity': (msg) => applyInvestigationActivity(msg),
   'posthog-investigation-finished': (msg) => applyInvestigationFinished(msg),
@@ -367,7 +336,7 @@ const messageHandlers = {
   'my-prs-status': (msg) => applyMyPrsStatus(msg),
   'my-pr-merge-result': (msg) => applyMyPrMergeResult(msg),
   'team-review-action-result': (msg) => applyTeamReviewActionResult(msg),
-  'issues-report':      (msg) => applyIssuesReport(msg as ServerMessage & IssuesReportPush),
+  'issues-report':      (msg) => applyIssuesReport(msg),
   'open-issue-session-result': (msg) => applyOpenIssueSessionResult(msg),
   'usage-sessions':     (msg) => { applyUsageSessionChips(msg.sessions); applyUsageSessions(msg); requestUsageReportIfVisible(); },
   'usage-report':       (msg) => { applyUsageReport(msg); refreshSettingsStatus(); },
@@ -397,35 +366,42 @@ const messageHandlers = {
   'shutting-down':      () => {
     connectionEl.dataset.state = 'shutdown';
     connectionLabel.textContent = 'Shutting down...';
+    connectionEl.title = 'Shutting down...';
     queryTag(document, '#btn-power', 'button').disabled = true;
     showShutdownOverlay('Shutting down sessions...');
   },
   'restarting':         () => {
     connectionEl.dataset.state = 'shutdown';
     connectionLabel.textContent = 'Restarting...';
+    connectionEl.title = 'Restarting...';
     queryTag(document, '#btn-power', 'button').disabled = true;
     showShutdownOverlay('Restarting server...');
   },
-} satisfies Record<string, (msg: ServerMessage) => void>;
+} satisfies { [Type in ServerMessage['type']]?: (message: ServerMessageOf<Type>) => void };
+
+const handlersByType: { [Type in ServerMessage['type']]?: (message: ServerMessageOf<Type>) => void } = messageHandlers;
+
+function dispatchControlMessage<Type extends ServerMessage['type']>(message: { [Variant in ServerMessage['type']]: ServerMessageOf<Variant> }[Type]) {
+  const handler = handlersByType[message.type];
+  if (handler) handler(message);
+}
 
 onControlMessage((msg) => {
-  const handlersByType = messageHandlers as Record<string, ((msg: ServerMessage) => void) | undefined>;
-  const handler = handlersByType[msg.type];
-  if (handler) handler(msg);
+  dispatchControlMessage(msg);
 });
 
 let updateBannerDismissed = false;
 
 const UPDATES_SECTION_HREF = createSettingsLink(UPDATES_SECTION_ID, UPDATES_ACTIONS_SETTING_ID, 'Update').href;
 
-function updateIdentity(msg: ServerMessage) {
+function updateIdentity(msg: ServerMessageOf<'update-status'>) {
   const { latestSha, latest } = msg;
   if (typeof latest === 'string' && latest) return latest;
   if (typeof latestSha === 'string' && latestSha) return latestSha;
   return null;
 }
 
-function showUpdateBanner(msg: ServerMessage) {
+function showUpdateBanner(msg: ServerMessageOf<'update-status'>) {
   const banner = queryTag(document, '#update-banner', 'div');
   if (!msg.updateAvailable) {
     banner.hidden = true;
@@ -437,7 +413,7 @@ function showUpdateBanner(msg: ServerMessage) {
   const command = String(msg.command ?? '');
   queryTag(document, '#update-banner-text', 'span').textContent = updateBannerText(msg);
   queryTag(document, '#update-banner-cmd', 'code').textContent = command;
-  const mode = updateBannerMode(msg as UpdateStatusView);
+  const mode = updateBannerMode(msg);
   const updateLink = queryTag(document, '#update-banner-update', 'a');
   updateLink.href = UPDATES_SECTION_HREF;
   updateLink.hidden = mode !== 'link';

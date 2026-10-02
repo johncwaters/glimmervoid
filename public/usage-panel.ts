@@ -1,3 +1,4 @@
+import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { createAttentionAck } from './attention-ack-core.ts';
 import { buildPanelSection, el, isPanelHidden } from './dom-helpers.ts';
 import { createPollAgoTicker, formatAgo } from './poll-ago.ts';
@@ -94,10 +95,7 @@ import type { PlanLimits, SortState, UsageReport, UsageTotals, UsageWireRow } fr
 
 const REFRESH_STATUS_TIMEOUT_MS = 20000;
 
-interface UsageSessionsPush {
-  ts?: unknown;
-  pricingSource?: unknown;
-}
+type UsageSessionsPush = ServerMessageOf<'usage-sessions'>;
 
 type FocusTarget =
   | { kind: 'sort'; table: string; key: string }
@@ -1017,8 +1015,8 @@ export function refreshUsageView() {
   render({ force: true });
 }
 
-export function applyUsageSessions(msg: unknown) {
-  _sessions = msg as UsageSessionsPush;
+export function applyUsageSessions(msg: UsageSessionsPush) {
+  _sessions = msg;
 
   if (_report && !isUsageUnavailable(_report) && _sessionsTsEl?.isConnected) {
     paintSessionsTs();
