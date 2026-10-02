@@ -591,11 +591,11 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     const session = findSession(msg);
     const parsedTitle = TaskTitle.safeParse(msg.title);
     if (!session || !parsedTitle.success) {
-      sendError(ws, `Session and a title of at most ${TASK_TITLE_MAX_LENGTH} characters without control characters are required`);
+      sendError(ws, `Session and a task of at most ${TASK_TITLE_MAX_LENGTH} characters without control characters are required`);
       return;
     }
     if (session.ephemeral) {
-      sendError(ws, 'This session cannot have a custom title');
+      sendError(ws, 'This session cannot have a custom task');
       return;
     }
     const freshConfig = configStore.save(config => {

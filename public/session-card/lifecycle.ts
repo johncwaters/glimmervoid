@@ -22,7 +22,7 @@ import { setRunningActivity } from './activity.ts';
 import { agentBadgeText } from './agent-core.ts';
 import { computeAggregate } from './aggregate-core.ts';
 import type { CardOptions } from './card-dom.ts';
-import { buildCardDOM, closeDebugOverlay, isDebugModeEnabled, isRenameInProgress, openDebugOverlay, setDebugMode, startInlineRename, startInlineTitleEdit } from './card-dom.ts';
+import { buildCardDOM, closeDebugOverlay, isDebugModeEnabled, isRenameInProgress, makeTitleEditable, openDebugOverlay, paintTaskTitle, setDebugMode, startInlineRename, startInlineTitleEdit } from './card-dom.ts';
 import type { SessionUi } from './card-registry.ts';
 import { aggregateEl, container, findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
 import { preferredBorrowedFace } from './face-core.ts';
@@ -70,7 +70,6 @@ function updateButtonVisibility(ui: SessionUi) {
   ui.btnRestartFresh.classList.toggle('visible', canRestart);
 
   ui.btnRename.classList.add('visible');
-  ui.btnSetTitle.classList.add('visible');
   ui.btnResume.classList.add('visible');
   ui.btnTrace.classList.toggle('visible', isDebugModeEnabled());
   ui.btnPlan.classList.toggle('visible', ui.isBorrowed && ui.hasPlan && ui.face === 'terminal');
@@ -84,10 +83,7 @@ function closeOverflowMenu(ui: SessionUi) {
 }
 
 function wireCardEvents(ui: SessionUi, sessionId: string) {
-  ui.btnSetTitle.addEventListener('click', () => {
-    closeOverflowMenu(ui);
-    startInlineTitleEdit(ui, sessionId);
-  });
+  makeTitleEditable(ui.taskTitleEl, () => startInlineTitleEdit(ui, sessionId));
   ui.btnRename.addEventListener('click', () => {
     ui.overflowMenu.classList.remove('open');
     startInlineRename(ui, sessionId);
@@ -193,8 +189,7 @@ export function setSessionTaskTitle(id: unknown, title: unknown, isCustom: unkno
   ui.taskTitleIsCustom = isCustom === true;
   for (const target of [ui.taskTitleEl, ui.titleTargetEl]) {
     if (!target) continue;
-    target.title = ui.taskTitle ?? '';
-    if (!target.querySelector('input')) target.textContent = ui.taskTitle ?? '';
+    paintTaskTitle(target, ui.taskTitle);
   }
 }
 
@@ -294,7 +289,6 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     taskTitleEl: dom.taskTitleEl,
     taskTitle: options.taskTitle ?? null,
     taskTitleIsCustom: options.taskTitleIsCustom ?? false,
-    btnSetTitle: dom.btnSetTitle,
     elapsedEl: dom.elapsedEl,
 
     path: asText(options.path),

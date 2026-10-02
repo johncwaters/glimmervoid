@@ -80,8 +80,8 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const nameEl = el('span', 'session-name', sessionName);
   const permsBadge = options.skipPerms ? el('span', 'perms-badge', 'YOLO') : null;
   if (permsBadge) permsBadge.title = 'Running with --dangerously-skip-permissions';
-  const taskTitleEl = el('span', 'session-task-title', options.taskTitle ?? '');
-  taskTitleEl.title = options.taskTitle ?? '';
+  const taskTitleEl = el('span', 'session-task-title');
+  paintTaskTitle(taskTitleEl, options.taskTitle);
 
   const elapsedEl = el('span', 'card-elapsed');
   elapsedEl.setAttribute('aria-hidden', 'true');
@@ -99,8 +99,6 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   const btnRename = el('button', 'overflow-item overflow-rename', 'Rename');
   btnRename.setAttribute('role', 'menuitem');
-  const btnSetTitle = el('button', 'overflow-item overflow-set-title', 'Set title');
-  btnSetTitle.setAttribute('role', 'menuitem');
   const btnRestart = el('button', 'overflow-item overflow-restart', 'Restart');
   btnRestart.setAttribute('role', 'menuitem');
   const btnRestartFresh = el('button', 'overflow-item overflow-restart-fresh', 'Restart fresh');
@@ -114,7 +112,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   const btnRemove = el('button', 'overflow-item overflow-remove', 'Remove');
   btnRemove.setAttribute('role', 'menuitem');
-  overflowMenu.append(btnRename, btnSetTitle, btnRestart, btnRestartFresh, btnResume, btnTrace, btnOverflowPlan, btnRemove);
+  overflowMenu.append(btnRename, btnRestart, btnRestartFresh, btnResume, btnTrace, btnOverflowPlan, btnRemove);
   overflow.append(btnOverflow, overflowMenu);
 
   const btnDebug = el('button', 'btn-action btn-debug', '\u2699');
@@ -136,7 +134,26 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   card.append(header, termWrap);
 
-  return { card, header, nameEl, elapsedEl, taskTitleEl, btnSetTitle, btnRename, btnRestart, btnRestartFresh, btnResume, btnTrace, btnOverflowPlan, btnRemove, btnPlan, btnDebug, btnOverflow, overflowMenu, termWrap };
+  return { card, header, nameEl, elapsedEl, taskTitleEl, btnRename, btnRestart, btnRestartFresh, btnResume, btnTrace, btnOverflowPlan, btnRemove, btnPlan, btnDebug, btnOverflow, overflowMenu, termWrap };
+}
+
+export function makeTitleEditable(titleEl: HTMLElement, onActivate: () => void) {
+  titleEl.tabIndex = 0;
+  titleEl.setAttribute('role', 'button');
+  titleEl.addEventListener('click', onActivate);
+  titleEl.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    onActivate();
+  });
+}
+
+export function paintTaskTitle(titleEl: HTMLElement, taskTitle: string | null | undefined) {
+  titleEl.title = taskTitle ?? '';
+  if (taskTitle) titleEl.removeAttribute('aria-label');
+  if (!taskTitle) titleEl.setAttribute('aria-label', 'Describe the task');
+  if (titleEl.querySelector('input')) return;
+  titleEl.textContent = taskTitle ?? '';
 }
 
 export function startInlineTitleEdit(ui: SessionUi, sessionId: string) {
@@ -145,9 +162,9 @@ export function startInlineTitleEdit(ui: SessionUi, sessionId: string) {
   const input = document.createElement('input');
   input.type = 'text';
   input.className = 'session-title-input';
-  input.setAttribute('aria-label', 'Task title');
+  input.setAttribute('aria-label', 'Task');
   input.value = ui.taskTitleIsCustom ? ui.taskTitle ?? '' : '';
-  input.placeholder = ui.taskTitle ?? 'Task title';
+  input.placeholder = ui.taskTitle ?? 'What is this session working on?';
   input.maxLength = TASK_TITLE_MAX_LENGTH;
   targetEl.replaceChildren(input);
   input.focus();
@@ -157,8 +174,8 @@ export function startInlineTitleEdit(ui: SessionUi, sessionId: string) {
     input.removeEventListener('blur', commit);
     input.removeEventListener('keydown', onKey);
     if (shouldCommit) sendControlMsg({ type: 'set-session-title', id: sessionId, title: input.value.trim() });
-    targetEl.textContent = ui.taskTitle ?? '';
-    targetEl.title = ui.taskTitle ?? '';
+    targetEl.replaceChildren();
+    paintTaskTitle(targetEl, ui.taskTitle);
   }
 
   function commit() {

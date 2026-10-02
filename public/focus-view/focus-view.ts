@@ -2,7 +2,7 @@ import { STATES } from '#shared/states.ts';
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { wireColumnResizer } from '../column-resizer.ts';
 import { sendControlMsg } from '../control-ws.ts';
-import { el, MERGE_TAGS, query, stateChip } from '../dom-helpers.ts';
+import { el, MERGE_TAGS, query } from '../dom-helpers.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
 import { quickAddSession, requestSessionRemoval } from '../session-actions.ts';
 import { showSessionPlanFace } from '../session-card/lifecycle.ts';
@@ -19,6 +19,7 @@ import { uiState } from '../ui-state-core.ts';
 import { attentionSummaryText, countSessionsNeedingAttention, needsAttention, orderRoster, pickAdjacent, pickNextAttention } from './attention-core.ts';
 import type { RosterGroup } from './roster-groups.ts';
 import { groupRoster, NO_PATH_KEY, visibleOrder } from './roster-groups.ts';
+import { buildPillSkeleton, paintPillStatus } from './pill-dom.ts';
 
 interface RosterRow {
   id: string;
@@ -216,22 +217,11 @@ function sessionName(ui: SessionUi): string | null {
 }
 
 function buildPill(id: string) {
-  const button = el('button', 'focus-pill');
+  const { pill: button, refs } = buildPillSkeleton('button', 'focus-pill');
   button.type = 'button';
   button.dataset.id = id;
   button.setAttribute('role', 'option');
 
-  button.innerHTML = '<span class="focus-pill-name"></span>'
-    + '<span class="focus-pill-badge">'
-    + '<span class="focus-pill-glyph"></span><span class="focus-pill-label"></span></span>'
-    + '<span class="focus-pill-merge"></span>';
-
-  const refs = {
-    glyph: query(button, '.focus-pill-glyph'),
-    label: query(button, '.focus-pill-label'),
-    name: query(button, '.focus-pill-name'),
-    merge: query(button, '.focus-pill-merge'),
-  };
   const pill: HTMLButtonElement & { _refs: typeof refs; _row: HTMLElement | null } =
     Object.assign(button, { _refs: refs, _row: null });
   pill.addEventListener('click', () => onPillActivate(id));
@@ -269,11 +259,7 @@ function paintPill(pill: FocusPill, id: string, ui: SessionUi) {
   const prev = pill.dataset.state;
   if (state !== STATES.COMPLETE) pill.removeAttribute('data-unseen');
   if (state === STATES.COMPLETE && prev && prev !== STATES.COMPLETE) pill.dataset.unseen = '';
-  pill.dataset.state = state;
-  const { glyph, label, isMonitoring } = stateChip(state, ui.awaitingBackgroundTasks);
-  pill.toggleAttribute('data-monitoring', isMonitoring);
-  pill._refs.glyph.textContent = glyph;
-  pill._refs.label.textContent = label;
+  const label = paintPillStatus(pill, pill._refs, state, ui.awaitingBackgroundTasks);
   const accessibleLabel = [sessionName(ui), ui.taskTitle, label].filter(Boolean).join(', ');
   pill.setAttribute('aria-label', accessibleLabel);
   pill.title = accessibleLabel;

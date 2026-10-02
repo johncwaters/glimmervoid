@@ -22,7 +22,6 @@ export interface SessionUi {
   taskTitleEl: HTMLSpanElement;
   taskTitle: string | null;
   taskTitleIsCustom: boolean;
-  btnSetTitle: HTMLButtonElement;
   titleTargetEl?: HTMLElement | null;
   elapsedEl: HTMLSpanElement;
   path: string;

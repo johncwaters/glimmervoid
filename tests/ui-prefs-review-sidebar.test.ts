@@ -26,7 +26,7 @@ test('review sidebar remembers being opened', async () => {
 test('review sidebar remembers the notes view across preference reads', async () => {
   storedValueByKey.clear();
   const { getReviewSidebarView, setReviewSidebarView } = await import('../public/ui-prefs.ts');
-  assert.equal(getReviewSidebarView(), 'map');
+  assert.equal(getReviewSidebarView(), 'diff');
   setReviewSidebarView('notes');
   assert.equal(JSON.parse(storedValueByKey.get('glimmervoid-ui-prefs') ?? '{}').reviewSidebarView, 'notes');
   assert.equal(getReviewSidebarView(), 'notes');
@@ -36,8 +36,8 @@ test('review sidebar remembers the notes view across preference reads', async ()
   assert.equal(getReviewSidebarView(), 'map');
 });
 
-test('review sidebar falls back to map for an unknown stored view', async () => {
+test('review sidebar falls back to diff for an unknown stored view', async () => {
   storedValueByKey.set('glimmervoid-ui-prefs', JSON.stringify({ reviewSidebarView: 'unknown' }));
   const { getReviewSidebarView } = await import('../public/ui-prefs.ts');
-  assert.equal(getReviewSidebarView(), 'map');
+  assert.equal(getReviewSidebarView(), 'diff');
 });

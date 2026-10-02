@@ -1,7 +1,7 @@
 import { STATES } from '#shared/states.ts';
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { adoptElement, el, queryTag, releaseElement, stateChip } from '../dom-helpers.ts';
-import { isRenameInProgress } from '../session-card/card-dom.ts';
+import { isRenameInProgress, makeTitleEditable, paintTaskTitle, startInlineTitleEdit } from '../session-card/card-dom.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
@@ -23,6 +23,7 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
   const identity = el('div', 'phone-terminal-identity');
   const nameEl = el('span', 'phone-terminal-name');
   const taskTitleEl = el('span', 'session-task-title session-list-task-title');
+  makeTitleEditable(taskTitleEl, () => editShownTitle());
   const identityLine = el('span', 'phone-terminal-identity-line');
   const badgeEl = el('span', 'phone-terminal-badge');
   badgeEl.innerHTML = '<span class="phone-terminal-glyph" aria-hidden="true"></span>'
@@ -68,6 +69,12 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
 
   cardSlot.addEventListener('click', focusShownTerminal);
 
+  function editShownTitle() {
+    const ui = shownId ? sessionUIs.get(shownId) : null;
+    if (!ui || !shownId) return;
+    startInlineTitleEdit(ui, shownId);
+  }
+
   function paint() {
     const ui = shownId ? sessionUIs.get(shownId) : null;
     const hasSession = !!ui;
@@ -86,8 +93,7 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     topBar.toggleAttribute('data-monitoring', isMonitoring);
 
     if (!isRenameInProgress(nameEl)) nameEl.textContent = ui.card?.dataset.session || shownId;
-    if (!taskTitleEl.querySelector('input')) taskTitleEl.textContent = ui.taskTitle ?? '';
-    taskTitleEl.title = ui.taskTitle ?? '';
+    paintTaskTitle(taskTitleEl, ui.taskTitle);
     glyphEl.textContent = glyph;
     labelEl.textContent = label;
     elapsedEl.textContent = sessionElapsedText(ui);

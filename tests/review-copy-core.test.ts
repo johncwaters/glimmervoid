@@ -15,71 +15,71 @@ const headlineInputs = {
 };
 
 test('review headline names the merge target when changes are ready', () => {
-  assert.deepEqual(reviewHeadline(headlineInputs), { text: 'Ready to merge into main', tone: 'ready' });
-  assert.deepEqual(reviewHeadline({ ...headlineInputs, effectiveBase: 'trunk' }), { text: 'Ready to merge into trunk', tone: 'ready' });
-  assert.deepEqual(reviewHeadline({ ...headlineInputs, effectiveBase: null }), { text: 'Ready to merge into base', tone: 'ready' });
-  assert.deepEqual(reviewHeadline({ ...headlineInputs, effectiveBase: undefined }), { text: 'Ready to merge into base', tone: 'ready' });
+  assert.deepEqual(reviewHeadline(headlineInputs), { text: 'Ready to merge into main' });
+  assert.deepEqual(reviewHeadline({ ...headlineInputs, effectiveBase: 'trunk' }), { text: 'Ready to merge into trunk' });
+  assert.deepEqual(reviewHeadline({ ...headlineInputs, effectiveBase: null }), { text: 'Ready to merge into base' });
+  assert.deepEqual(reviewHeadline({ ...headlineInputs, effectiveBase: undefined }), { text: 'Ready to merge into base' });
 });
 
 test('review headline identifies a diverged base even while changes are loading', () => {
   assert.deepEqual(reviewHeadline({ ...headlineInputs, status: 'parked', mergeReason: 'base-diverged', fetched: false }), {
-    text: 'Parked: base branch diverged', tone: 'parked',
+    text: 'Parked: base branch diverged',
   });
 });
 
 test('review headline identifies merge conflicts and unknown parked reasons', () => {
   for (const mergeReason of ['rebase-conflict', 'merge-conflict', 'unknown', null]) {
     assert.deepEqual(reviewHeadline({ ...headlineInputs, status: 'parked', mergeReason, hasChanges: false }), {
-      text: 'Parked: merge conflict', tone: 'parked',
+      text: 'Parked: merge conflict',
     });
   }
 });
 
 test('review headline keeps merging visible while changes refresh', () => {
   assert.deepEqual(reviewHeadline({ ...headlineInputs, status: 'merging', fetched: false, hasChanges: false }), {
-    text: 'Merging', tone: 'busy',
+    text: 'Merging',
   });
 });
 
 test('review headline keeps merged visible after the diff cache is cleared', () => {
   assert.deepEqual(reviewHeadline({ ...headlineInputs, status: 'merged', fetched: false, hasChanges: false }), {
-    text: 'Merged', tone: 'merged',
+    text: 'Merged',
   });
 });
 
 test('review headline waits for changes before declaring an empty worktree', () => {
   assert.deepEqual(reviewHeadline({ ...headlineInputs, fetched: false, hasChanges: false }), {
-    text: 'Checking for changes', tone: 'idle',
+    text: 'Checking for changes',
   });
 });
 
 test('review headline identifies a fetched worktree without changes', () => {
   assert.deepEqual(reviewHeadline({ ...headlineInputs, status: 'none', hasChanges: false }), {
-    text: 'No changes yet', tone: 'idle',
+    text: 'No changes yet',
   });
 });
 
 test('review headline reports a workspace session without promising a merge', () => {
   assert.deepEqual(reviewHeadline({ ...headlineInputs, isWorkspace: true, canMerge: false }), {
-    text: 'Changes in this worktree', tone: 'idle',
+    text: 'Changes in this worktree',
   });
 });
 
 test('review headline reports an ended session instead of ready to merge', () => {
   assert.deepEqual(reviewHeadline({ ...headlineInputs, live: false, canMerge: false }), {
-    text: 'Session ended', tone: 'idle',
+    text: 'Session ended',
   });
 });
 
 test('review headline reports uncommitted only changes instead of ready to merge', () => {
   assert.deepEqual(reviewHeadline({ ...headlineInputs, hasCommits: false, canMerge: false }), {
-    text: 'Uncommitted changes', tone: 'idle',
+    text: 'Uncommitted changes',
   });
 });
 
 test('review headline reports committed changes that cannot merge yet', () => {
   assert.deepEqual(reviewHeadline({ ...headlineInputs, canMerge: false }), {
-    text: 'Not ready to merge', tone: 'idle',
+    text: 'Not ready to merge',
   });
 });
 

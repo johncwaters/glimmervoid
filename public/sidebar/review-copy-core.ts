@@ -24,20 +24,20 @@ export function reviewHeadline({
   isWorkspace: boolean;
   live: boolean;
   effectiveBase: string | null | undefined;
-}): { text: string; tone: 'ready' | 'parked' | 'busy' | 'merged' | 'idle' } {
+}): { text: string } {
   if (status === 'parked' && mergeReason === 'base-diverged') {
-    return { text: 'Parked: base branch diverged', tone: 'parked' };
+    return { text: 'Parked: base branch diverged' };
   }
-  if (status === 'parked') return { text: 'Parked: merge conflict', tone: 'parked' };
-  if (status === 'merging') return { text: 'Merging', tone: 'busy' };
-  if (status === 'merged') return { text: 'Merged', tone: 'merged' };
-  if (!fetched) return { text: 'Checking for changes', tone: 'idle' };
-  if (!hasChanges) return { text: 'No changes yet', tone: 'idle' };
-  if (isWorkspace) return { text: 'Changes in this worktree', tone: 'idle' };
-  if (canMerge) return { text: `Ready to merge into ${baseLabel(effectiveBase)}`, tone: 'ready' };
-  if (!live) return { text: 'Session ended', tone: 'idle' };
-  if (!hasCommits) return { text: 'Uncommitted changes', tone: 'idle' };
-  return { text: 'Not ready to merge', tone: 'idle' };
+  if (status === 'parked') return { text: 'Parked: merge conflict' };
+  if (status === 'merging') return { text: 'Merging' };
+  if (status === 'merged') return { text: 'Merged' };
+  if (!fetched) return { text: 'Checking for changes' };
+  if (!hasChanges) return { text: 'No changes yet' };
+  if (isWorkspace) return { text: 'Changes in this worktree' };
+  if (canMerge) return { text: `Ready to merge into ${baseLabel(effectiveBase)}` };
+  if (!live) return { text: 'Session ended' };
+  if (!hasCommits) return { text: 'Uncommitted changes' };
+  return { text: 'Not ready to merge' };
 }
 
 export function decidePrimaryReviewAction({ status, mergeReason, live, isMergeRendered }: {

@@ -78,12 +78,10 @@ let pendingOpenFilePath: string | null = null;
 let panelEl: HTMLElement | null = null;
 let controlsEl: HTMLElement | null = null;
 let bodyEl: HTMLElement | null = null;
-let sessionNameEl: HTMLElement | null = null;
 const viewButtonByView = new Map<UiPrefs['reviewSidebarView'], HTMLButtonElement>();
 let notesCountEl: HTMLElement | null = null;
 let railLabelEl: HTMLElement | null = null;
 let railStatusEl: HTMLElement | null = null;
-let railDotEl: HTMLElement | null = null;
 let railAddedEl: HTMLElement | null = null;
 let railRemovedEl: HTMLElement | null = null;
 let isMoreMenuOpen = false;
@@ -143,7 +141,6 @@ export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
 
   const head = el('div', 'review-sidebar-head');
   const title = el('span', 'review-sidebar-title', 'Review');
-  sessionNameEl = el('span', 'review-sidebar-session');
   const applyCollapsed = (isCollapsed: boolean) => {
     mountedPanel.toggleAttribute('data-collapsed', isCollapsed);
     setReviewSidebarExpanded(!isCollapsed);
@@ -165,18 +162,16 @@ export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
   const minimizeBtn = createReviewIconButton('Close review', 'M6 3L11 8L6 13');
   minimizeBtn.classList.add('review-sidebar-close');
   minimizeBtn.addEventListener('click', () => applyCollapsed(true));
-  head.append(title, sessionNameEl, viewTabs, minimizeBtn);
+  head.append(title, viewTabs, minimizeBtn);
 
   const rail = el('div', 'review-sidebar-rail');
   const expandBtn = createReviewIconButton('Open review', 'M10 3L5 8L10 13');
   expandBtn.classList.add('review-sidebar-open');
   expandBtn.addEventListener('click', () => applyCollapsed(false));
   railStatusEl = el('div', 'review-rail-status');
-  railDotEl = el('span', 'review-status-dot');
-  railDotEl.setAttribute('aria-hidden', 'true');
   railAddedEl = el('span', 'review-rail-added');
   railRemovedEl = el('span', 'review-rail-removed');
-  railStatusEl.append(railDotEl, railAddedEl, railRemovedEl);
+  railStatusEl.append(railAddedEl, railRemovedEl);
   railLabelEl = el('span', 'review-rail-label', 'Review');
   rail.append(expandBtn, railLabelEl, railStatusEl);
 
@@ -791,7 +786,6 @@ function render() {
   const id = getSelectedId();
   const ui = id ? sessionUIs.get(id) : null;
   if (!id || !ui) {
-    if (sessionNameEl) sessionNameEl.textContent = '';
     renderEmpty('No session selected', 'Click a session name to review its changes here.');
     return;
   }
@@ -816,8 +810,6 @@ function render() {
   const sync = syncById.get(id);
   const resyncing = resyncingIds.has(id);
 
-  if (sessionNameEl) sessionNameEl.textContent = sessionName(ui, id);
-
   const effectiveBase = baseLabel(ui.effectiveBase);
   const totals = summarizeFiles([...committedFiles, ...uncommittedFiles]);
   const headline = reviewHeadline({
@@ -825,10 +817,7 @@ function render() {
     canMerge: !isWorkspace && mergeAction.isEnabled, isWorkspace, live, effectiveBase,
   });
   const statusLine = el('div', 'review-status-headline');
-  const statusDot = el('span', 'review-status-dot');
-  statusDot.dataset.tone = headline.tone;
-  statusDot.setAttribute('aria-hidden', 'true');
-  statusLine.append(statusDot, el('span', 'review-status-text', headline.text));
+  statusLine.append(el('span', 'review-status-text', headline.text));
   controlsEl.append(statusLine);
 
   const metadata = el('div', 'review-status-meta');
@@ -851,7 +840,6 @@ function render() {
     railStatusEl.setAttribute('aria-label', `${headline.text}, +${totals.added}, -${totals.removed}`);
     railStatusEl.title = headline.text;
   }
-  if (railDotEl) railDotEl.dataset.tone = headline.tone;
   if (railAddedEl) railAddedEl.textContent = `+${totals.added}`;
   if (railRemovedEl) railRemovedEl.textContent = `-${totals.removed}`;
 

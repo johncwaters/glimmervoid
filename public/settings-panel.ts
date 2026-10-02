@@ -1,3 +1,4 @@
+import { renderCompactStatusPreview } from './compact-status-preview.ts';
 import { renderFlyingAnimalsGallery } from './flying-animals-gallery.ts';
 import { onLayoutChange } from './form-factor.ts';
 import type { SettingsRange } from '#shared/settings-ranges.ts';
@@ -682,6 +683,7 @@ function renderSetting(setting: SettingsSetting, errors: Record<string, string>)
   const article = el('article', 'settings-view-setting');
   article.append(renderSettingHeading(setting), el('p', 'settings-view-setting-description', setting.description));
   article.appendChild(renderControl(setting));
+  if (setting.id === 'compact-status') article.appendChild(renderCompactStatusPreview());
   if (shouldShowDangerWarning(setting, settingValue(setting))) article.appendChild(el('div', 'settings-view-warning settings-warning', setting.warning));
   const statusSlot = buildStatusSlot(setting);
   if (statusSlot) article.appendChild(statusSlot);

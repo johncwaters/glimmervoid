@@ -575,10 +575,17 @@ body {
 .session-task-title {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 1lh;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-muted);
+  cursor: text;
+}
+
+.session-task-title:empty:is(:hover, :focus-visible)::before {
+  content: "Click to describe the task";
+  opacity: 0.6;
 }
 
 .session-list-task-title {
@@ -5490,6 +5497,14 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
 }
 html[data-compact-status] .focus-pill-label { display: none; }
 
+.compact-status-preview {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  max-width: 280px;
+}
+.compact-status-preview-pill { cursor: default; }
+
 .focus-pill-name {
   grid-column: 1;
   min-width: 0;
@@ -5766,19 +5781,8 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
   color: var(--text-muted);
   flex: 0 0 auto;
 }
-.review-sidebar-session {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-}
-
-.review-header-tabs { display: flex; flex: 0 0 auto; align-items: center; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-.review-header-tab { padding: 0 5px; border: 0; background: transparent; color: var(--text-muted); font: 600 11px var(--font-mono); cursor: pointer; }
+.review-header-tabs { display: flex; flex: 0 0 auto; margin-left: auto; align-items: center; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.review-header-tab { width: calc(5ch + 12px); padding: 0; text-align: center; border: 0; background: transparent; color: var(--text-muted); font: 600 11px var(--font-mono); cursor: pointer; }
 .review-header-tab + .review-header-tab { border-left: 1px solid var(--border); }
 .review-header-tab[aria-pressed="true"] { color: var(--text-head); background: var(--bg-card); }
 .review-header-tab:hover { color: var(--text-head); }
@@ -5786,12 +5790,6 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
 .review-notes-count { margin-right: 5px; padding: 1px 4px; border-radius: 4px; background: var(--bg-surface); color: var(--text-dim); font: 10px var(--font-mono); }
 .review-notes-count[hidden] { display: none; }
 .review-status-headline { display: flex; align-items: center; gap: 8px; color: var(--text-head); font-size: 12px; line-height: 1.5; }
-.review-status-dot { display: inline-block; flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
-.review-status-dot[data-tone="ready"] { background: var(--state-complete); }
-.review-status-dot[data-tone="parked"] { background: var(--state-waiting); }
-.review-status-dot[data-tone="busy"] { background: var(--accent); }
-.review-status-dot[data-tone="merged"] { background: var(--state-done); }
-.review-status-dot[data-tone="idle"] { background: var(--text-muted); }
 .review-status-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; min-width: 0; color: var(--text-muted); font: 11px var(--font-mono); }
 .review-status-spacer { flex: 1; }
 .review-status-explanation { margin-top: 4px; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
