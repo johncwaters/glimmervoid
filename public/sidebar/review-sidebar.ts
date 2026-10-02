@@ -1110,7 +1110,9 @@ function renderActions(id: string, {
     }));
   }
 
-  if (!reviewable || live) return actions.childElementCount > 0 ? actions : null;
+  const actionControls = el('div', 'review-action-controls');
+  actionControls.append(actions);
+  if (!reviewable || live) return actions.childElementCount > 0 ? actionControls : null;
 
   const moreButton = createReviewIconButton('More review actions', 'M3 8h0.01M8 8h0.01M13 8h0.01');
   moreButton.classList.add('review-more-button');
@@ -1124,9 +1126,6 @@ function renderActions(id: string, {
     (focusTarget ?? controlsEl?.querySelector<HTMLButtonElement>('.review-more-button'))?.focus();
   });
   actions.append(moreButton);
-
-  const actionControls = el('div', 'review-action-controls');
-  actionControls.append(actions);
   if (!isMoreMenuOpen) return actionControls;
 
   const menu = el('div', 'review-more-menu');
