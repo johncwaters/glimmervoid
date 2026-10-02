@@ -23,7 +23,7 @@ import { initNotifications, showDesktopNotification } from './notifications.ts';
 import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneScreenActive, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen } from './phone/phone-shell.ts';
 import { noteKnownProjectPath } from './project-registry.ts';
 import { applyTeamReviewActionResult, applyTeamReviewStatus, setTeamReviewActivityCallback } from './team-review-panel.ts';
-import { applyMyPrsStatus } from './my-prs-panel.ts';
+import { applyMyPrMergeResult, applyMyPrsStatus } from './my-prs-panel.ts';
 import { applyIssuesConnectionState, applyIssuesProjects, applyIssuesReport, applyOpenIssueSessionResult, mountIssuesView, setIssuesRequestSender } from './issues-panel.ts';
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID, updateBannerText } from './radar-core.ts';
@@ -33,7 +33,7 @@ import { handleDebugStateRefresh, handleDebugStateResponse, onDebugModeChanged }
 import { findSessionUi, sessionUIs } from './session-card/card-registry.ts';
 import type { PlanResponse } from './plan/plan-face.ts';
 import type { SessionPlanChangedMessage, SessionPlanDraftMessage } from './session-card/lifecycle.ts';
-import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionResume, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
+import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { reconnectDataWs, syncGridOnEngagementEdge } from './session-card/terminal.ts';
@@ -47,10 +47,10 @@ import { SHORTCUT_PLATFORM } from './shortcuts.ts';
 import { resolveDashboardShortcut } from './shortcuts-core.ts';
 import type { ResolvedDashboardShortcut } from './shortcuts-core.ts';
 import { applyFlyingAnimals } from './flying-animals.ts';
-import { applyCompactStatusLabels, applyTheme } from './theme.ts';
+import { applyCompactStatusLabels, applySessionUsageChips, applyTheme } from './theme.ts';
 import { applyTraceChanged, applyTraceConnectionState, applyTraceError, applyTraceResponse, mountTraceView, openTraceForSession, refreshTraceView, setTraceNavigate, setTraceRequestSender, setTraceSessions } from './trace-panel.ts';
 import { shouldShowTelemetryNotice } from './telemetry-notice-core.ts';
-import { getActiveView as getSavedActiveView, getDismissedUpdate, getThemeId, isCompactStatusLabels, isFlyingAnimalsEnabled, isSoundEnabled, isTelemetryNoticeDismissed, setActiveView, setDismissedUpdate, setSoundEnabled, setTelemetryNoticeDismissed } from './ui-prefs.ts';
+import { getActiveView as getSavedActiveView, getDismissedUpdate, getThemeId, isCompactStatusLabels, isFlyingAnimalsEnabled, isSessionUsageChips, isSoundEnabled, isTelemetryNoticeDismissed, setActiveView, setDismissedUpdate, setSoundEnabled, setTelemetryNoticeDismissed } from './ui-prefs.ts';
 import { getActiveView, uiState } from './ui-state-core.ts';
 import { updateBannerMode } from './updates-view-core.ts';
 import type { UpdateStatusView } from './updates-view-core.ts';
@@ -58,6 +58,7 @@ import { acknowledgeUsageAttention, applyPlanLimits, applyUsageReport, applyUsag
 
 applyTheme(getThemeId());
 applyCompactStatusLabels(isCompactStatusLabels());
+applySessionUsageChips(isSessionUsageChips());
 applyFlyingAnimals(isFlyingAnimalsEnabled());
 
 initFormFactor();
@@ -94,7 +95,6 @@ interface SnapshotSession extends Pick<SessionSnapshot, 'taskTitle' | 'taskTitle
   dangerouslySkipPermissions?: boolean;
   isWorktree?: boolean;
   isWorkspace?: boolean;
-  resumeSessionId?: string | null;
   mergeStatus?: string;
   mergeReason?: string | null;
   effectiveBase?: string;
@@ -179,12 +179,11 @@ function handleSnapshot(sessions: unknown) {
     if (!s.ephemeral) noteKnownProjectPath(s.path);
     const exists = hasSession(s.id);
     if (exists) applyState(s.id, s.state, s.stateSince);
-    if (!exists) createSessionCard(s.id, s.name, s.state, { skipPerms: !!s.dangerouslySkipPermissions, worktree: !!s.isWorktree, workspace: !!s.isWorkspace, path: s.path, resume: !!s.resumeSessionId, stateSince: s.stateSince });
+    if (!exists) createSessionCard(s.id, s.name, s.state, { skipPerms: !!s.dangerouslySkipPermissions, worktree: !!s.isWorktree, workspace: !!s.isWorkspace, path: s.path, stateSince: s.stateSince });
 
     setSessionTaskTitle(s.id, s.taskTitle, s.taskTitleIsCustom);
     setSessionAgent(s.id, s.agent);
 
-    setSessionResume(s.id, s.resumeSessionId);
 
     seedSessionMergeStatus(s.id, s.mergeStatus, s.mergeReason);
     setSessionEffectiveBase(s.id, s.effectiveBase);
@@ -316,7 +315,7 @@ const messageHandlers = {
   'hooks-updated':      () => requestHooksReportIfVisible(),
 
   'state-change':       (msg) => handleStateChange(msg),
-  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, resume: !!msg.resumeSessionId, stateSince: msg.stateSince, taskTitle: typeof msg.taskTitle === 'string' ? msg.taskTitle : null, taskTitleIsCustom: msg.taskTitleIsCustom === true }); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); syncTraceSessionsFromCards(); },
+  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, stateSince: msg.stateSince, taskTitle: typeof msg.taskTitle === 'string' ? msg.taskTitle : null, taskTitleIsCustom: msg.taskTitleIsCustom === true }); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); syncTraceSessionsFromCards(); },
   'session-removed':    (msg) => { removeSessionCard(msg.id); forgetReviewSession(msg.id); refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); syncTraceSessionsFromCards(); },
   'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); },
   'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshPhoneBoard(); syncTraceSessionsFromCards(); },
@@ -325,7 +324,7 @@ const messageHandlers = {
     const hadPlan = sessionUIs.get(String(msg.id))?.hasPlan === true;
     removeSessionCard(msg.id);
     forgetReviewSession(msg.id);
-    createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, resume: !!msg.resumeSessionId, stateSince: msg.stateSince, taskTitle: typeof msg.taskTitle === 'string' ? msg.taskTitle : null, taskTitleIsCustom: msg.taskTitleIsCustom === true });
+    createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, stateSince: msg.stateSince, taskTitle: typeof msg.taskTitle === 'string' ? msg.taskTitle : null, taskTitleIsCustom: msg.taskTitleIsCustom === true });
     setSessionHasPlan(msg.id, hadPlan);
     restoreUsageChip(msg.id);
     refreshFavicon(sessionUIs);
@@ -334,7 +333,6 @@ const messageHandlers = {
     syncTraceSessionsFromCards();
   },
   'session-git':        (msg) => setSessionWorktree(msg.id, !!msg.worktree),
-  'session-resume':     (msg) => setSessionResume(msg.id, msg.resumeSessionId),
 
   'session-agents':     (msg) => { setSessionAgents(msg.id, msg.activeAgents, msg.awaitingBackgroundTasks); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); handleDebugStateRefresh(msg.id); },
   'session-wakeup':     (msg) => setSessionWakeup(msg.id, msg.pendingWakeup),
@@ -367,6 +365,7 @@ const messageHandlers = {
   'posthog-investigation-finished': (msg) => applyInvestigationFinished(msg),
   'team-review-status': (msg) => applyTeamReviewStatus(msg),
   'my-prs-status': (msg) => applyMyPrsStatus(msg),
+  'my-pr-merge-result': (msg) => applyMyPrMergeResult(msg),
   'team-review-action-result': (msg) => applyTeamReviewActionResult(msg),
   'issues-report':      (msg) => applyIssuesReport(msg as ServerMessage & IssuesReportPush),
   'open-issue-session-result': (msg) => applyOpenIssueSessionResult(msg),

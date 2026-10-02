@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyStateText, groupMyPrs, chooseSelectedKey, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, stageLabel, stageTone, threadRows } from '../public/my-prs-view-core.ts';
+import { emptyStateText, groupMyPrs, chooseSelectedKey, mergeConfirmMessage, mergeControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, stageLabel, stageTone, threadRows } from '../public/my-prs-view-core.ts';
 import { toMyPr } from '../server/core/my-prs-core.ts';
 import type { MyPr, MyPrSearchNode, MyPrThread } from '../shared/contracts/my-prs.ts';
 
 const node: MyPrSearchNode = {
   __typename: 'PullRequest', id: 'PR_node', number: 1, title: 'Fix', url: 'https://github.com/Acme/app/pull/1', isDraft: false,
   state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z', baseRefName: 'main', headRefOid: 'a'.repeat(40), isInMergeQueue: false,
-  mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', repository: { nameWithOwner: 'Acme/app' },
+  mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', repository: { nameWithOwner: 'Acme/app', viewerDefaultMergeMethod: 'SQUASH' },
   commits: { nodes: [] }, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, latestReviews: { nodes: [] },
 };
 const base = toMyPr(node, 0);
@@ -138,4 +138,42 @@ test('an auto-rebase outcome adds its own readiness row', () => {
   const failed = { ...toMyPr(node, 0), autoRebase: { outcome: 'failed' as const, at: 1, message: 'Protected branch' } };
   assert.deepEqual(readinessRows(failed).at(-1), { label: 'Auto-rebase', tone: 'danger', text: 'Protected branch' });
   assert.equal(readinessRows(toMyPr(node, 0)).some((row) => row.label === 'Auto-rebase'), false);
+});
+
+test('the merge control is hidden once merged and disabled with the blocking reason beside it', () => {
+  assert.equal(mergeControlState({ ...pr('merged', 1), state: 'MERGED' }, undefined).isVisible, false);
+  const ready = pr('ready', 1);
+  assert.deepEqual(mergeControlState(ready, undefined), { isVisible: true, isDisabled: false, statusText: 'Merges into main with squash and merge', tone: null });
+  assert.deepEqual(mergeControlState({ ...ready, isDraft: true, stage: 'draft' }, undefined), { isVisible: true, isDisabled: true, statusText: 'Drafts cannot be merged', tone: null });
+  assert.deepEqual(mergeControlState(pr('checks-pending', 1), undefined), { isVisible: true, isDisabled: true, statusText: 'Not ready to merge yet', tone: null });
+});
+
+test('the merge control tracks an attempt only for the head it was made at', () => {
+  const ready = pr('ready', 1);
+  const head = ready.headRefOid;
+  assert.deepEqual(mergeControlState(ready, { head, phase: 'pending', text: '' }), { isVisible: true, isDisabled: true, statusText: 'Merging on GitHub', tone: 'busy' });
+  assert.deepEqual(mergeControlState(ready, { head, phase: 'merged', text: '' }), { isVisible: true, isDisabled: true, statusText: 'Merged on GitHub. Refreshing the list.', tone: 'ok' });
+  assert.deepEqual(mergeControlState(ready, { head, phase: 'failed', text: 'Head branch was modified' }), { isVisible: true, isDisabled: false, statusText: 'Head branch was modified', tone: 'error' });
+  assert.equal(mergeControlState(ready, { head: 'b'.repeat(40), phase: 'merged', text: '' }).isDisabled, false);
+});
+
+test('a queued, auto-merge or unconfirmed attempt never claims a merge, even once the pull request shows in the queue', () => {
+  const ready = pr('ready', 1);
+  const head = ready.headRefOid;
+  const queuedPr = { ...ready, isInMergeQueue: true };
+  assert.deepEqual(mergeControlState(queuedPr, { head, phase: 'queued', text: '' }), { isVisible: true, isDisabled: true, statusText: 'Added to the merge queue. Refreshing the list.', tone: 'ok' });
+  assert.deepEqual(mergeControlState(ready, { head, phase: 'auto-merge', text: '' }), { isVisible: true, isDisabled: true, statusText: 'Auto-merge enabled. GitHub merges it once its requirements pass.', tone: 'ok' });
+  assert.deepEqual(mergeControlState(ready, { head, phase: 'unconfirmed', text: '' }), { isVisible: true, isDisabled: true, statusText: 'GitHub accepted the request but did not confirm a merge. Check GitHub.', tone: null });
+});
+
+test('the merge confirmation names the pull request, base branch and method', () => {
+  assert.equal(mergeConfirmMessage(pr('ready', 1)), 'Merge Acme/app#1 "Fix" into main with squash and merge, your default for this repository. Glimmervoid does not delete the branch.');
+});
+
+test('merge results parse only with a request id and a typed outcome', () => {
+  assert.deepEqual(parseMyPrMergeResult({ type: 'my-pr-merge-result', requestId: 'r1', key: 'Acme/app#1', ok: false, error: 'nope' }), { key: 'Acme/app#1', ok: false, error: 'nope', requestId: 'r1' });
+  assert.equal(parseMyPrMergeResult({ type: 'my-pr-merge-result', key: 'Acme/app#1', ok: true }), null);
+  assert.equal(parseMyPrMergeResult({ type: 'my-pr-merge-result', requestId: 'r1', key: 'Acme/app#1', ok: 'yes' }), null);
+  assert.deepEqual(parseMyPrMergeResult({ type: 'my-pr-merge-result', requestId: 'r1', key: 'Acme/app#1', ok: true, kind: 'queued' }), { key: 'Acme/app#1', ok: true, kind: 'queued', requestId: 'r1' });
+  assert.equal(parseMyPrMergeResult({ type: 'my-pr-merge-result', requestId: 'r1', key: 'Acme/app#1', ok: true, kind: 'pending' }), null);
 });

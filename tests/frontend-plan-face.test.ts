@@ -107,6 +107,7 @@ test('the borrowed card swaps to plan and release restores the terminal face thr
     btnRename: button,
     btnRestart: button,
     btnRestartFresh: button,
+    btnRestartFreshIcon: button,
     btnResume: button,
     btnTrace: button,
     btnPlan: button,

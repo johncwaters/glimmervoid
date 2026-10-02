@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Usage on session cards is now opt-in**: turn on Show usage on session cards under Settings > Appearance to see each card's token count and estimated API list-price cost. It is off by default.
+- **Status color reference**: Settings > Shortcuts now shows a Status colors legend above the version line, listing every session status with its glyph, color and a one-line meaning, Monitoring included. The colors follow the active theme.
+- **Merge from My PRs**: a pull request of yours that is ready to merge now has a Merge button under Merge readiness on the Reviews > Mine tab. It asks you to confirm, then merges on GitHub with your default merge method for that repository, only while the pull request is still at the head you saw. Glimmervoid does not delete the branch, though GitHub still does when the repository deletes head branches on merge. Where the base branch requires a merge queue or auto-merge, the status beside the button says the pull request was queued or set to auto-merge rather than claiming a merge. Drafts, pull requests in a merge queue, with conflicts or with failing checks are never merged; the reason shows beside the disabled button.
+
+### Changed
+
+- **Calmer session card header**: the "resumed" and "N agents" badges are gone (Monitoring status is unchanged), and a new Restart fresh button sits beside the more-actions menu. It asks first when the agent is mid-turn, since a fresh restart ends that conversation.
+- **Approve and comment**: on a ready team review, the approve button now reads Approve and comment, since it has always posted one approving review carrying the review body and the ticked inline comments. A plain Approve stays only after a Comment post, where it approves without posting the comments again.
+- **Approvals say they were made by hand**: every team review approval posted to GitHub now starts with "Approved by hand after checking the automated review.", so it does not read as a bot rubber stamp. Comment posts are unchanged.
+- **Discard and Queue review in a More menu**: on a ready team review, and on a commented one awaiting approval, Discard and Queue review moved off the posting row into a More menu in the review heading, so the footer holds only the buttons that post to GitHub.
+- **Nits start unticked**: low-severity inline comments start unticked on a ready review. Tick one to post it.
+- **Shorter comment locations**: each inline comment on a team review shows just the file name and line, so its preview has room. Hover the location for the full path.
+
 ## [0.28.3] - 2026-10-02
 
 ### Added

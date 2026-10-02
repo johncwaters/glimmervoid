@@ -1,4 +1,5 @@
 import type { MyPr, MyPrAutoRebase, MyPrSearchNode, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../shared/contracts/my-prs.ts';
+import { prKey } from './team-review-core.ts';
 import type { TeamReviewSettings } from './team-review-core.ts';
 
 export const MY_PRS_LANE_ID = 'my-prs';
@@ -94,9 +95,10 @@ export function toMyPr(node: MyPrSearchNode, behindBy: number | null, threadNode
   });
   const threads = toMyPrThreads(threadNodes, node.url);
   const pr: MyPr = {
-    key: `${node.repository.nameWithOwner}#${node.number}`, repo: node.repository.nameWithOwner, number: node.number,
+    key: prKey(node.repository.nameWithOwner, node.number), repo: node.repository.nameWithOwner, number: node.number,
     title: node.title, url: node.url, isDraft: node.isDraft, state: node.state, createdAt: node.createdAt, mergedAt: node.mergedAt,
-    updatedAt: node.updatedAt, baseRefName: node.baseRefName, mergeable: node.mergeable,
+    updatedAt: node.updatedAt, baseRefName: node.baseRefName, headRefOid: node.headRefOid, isInMergeQueue: node.isInMergeQueue,
+    mergeMethod: node.repository.viewerDefaultMergeMethod, mergeable: node.mergeable,
     mergeStateStatus: node.mergeStateStatus, reviewDecision: node.reviewDecision,
     checks: { state: node.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null, failing, pendingCount },
     unresolvedThreads: Math.max(node.reviewThreads.nodes.filter((thread) => !thread.isResolved).length, threads.length),

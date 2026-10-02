@@ -17,7 +17,7 @@ export function buildPillSkeleton<Tag extends 'button' | 'div'>(tagName: Tag, cl
   return { pill, refs };
 }
 
-export function paintPillStatus(pill: HTMLElement, refs: PillRefs, state: string, awaitingBackgroundTasks = false) {
+export function paintPillStatus(pill: HTMLElement, refs: Pick<PillRefs, 'glyph' | 'label'>, state: string, awaitingBackgroundTasks = false) {
   pill.dataset.state = state;
   const { glyph, label, isMonitoring } = stateChip(state, awaitingBackgroundTasks);
   pill.toggleAttribute('data-monitoring', isMonitoring);

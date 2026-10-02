@@ -1,10 +1,14 @@
 import { z } from 'zod';
+import { CommitSha } from './team-review.ts';
 
 export const MyPrStage = z.enum(['merged', 'draft', 'conflicts', 'behind', 'checks-failing', 'changes-requested', 'unresolved-threads', 'checks-pending', 'needs-approval', 'ready', 'unknown']);
 export type MyPrStage = z.infer<typeof MyPrStage>;
 
 const nonnegativeInteger = z.number().int().nonnegative();
 const repositoryName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/);
+
+export const MyPrMergeMethod = z.enum(['MERGE', 'SQUASH', 'REBASE']);
+export type MyPrMergeMethod = z.infer<typeof MyPrMergeMethod>;
 
 export const MyPrThread = z.object({
   path: z.string(), line: z.number().int().positive().nullable(), isOutdated: z.boolean(), url: z.url(),
@@ -22,7 +26,7 @@ export type MyPrAutoRebase = z.infer<typeof MyPrAutoRebase>;
 export const MyPr = z.object({
   key: z.string(), repo: repositoryName, number: z.number().int().positive(), title: z.string(), url: z.url(),
   isDraft: z.boolean(), state: z.enum(['OPEN', 'MERGED', 'CLOSED']), createdAt: z.string(), mergedAt: z.string().nullable(), updatedAt: z.string(),
-  baseRefName: z.string(), mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']), mergeStateStatus: z.string(),
+  baseRefName: z.string(), headRefOid: CommitSha, isInMergeQueue: z.boolean(), mergeMethod: MyPrMergeMethod, mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']), mergeStateStatus: z.string(),
   reviewDecision: z.enum(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED']).nullable(),
   checks: z.object({ state: z.enum(['SUCCESS', 'FAILURE', 'PENDING', 'ERROR', 'EXPECTED']).nullable(), failing: z.array(z.string()), pendingCount: nonnegativeInteger }),
   unresolvedThreads: nonnegativeInteger, threads: z.array(MyPrThread), behindBy: nonnegativeInteger.nullable(),
@@ -37,14 +41,23 @@ export const MyPrsStatus = z.object({
 }).passthrough();
 export type MyPrsStatus = z.infer<typeof MyPrsStatus>;
 
+export const MyPrMergeRequest = z.object({ repo: repositoryName, number: z.number().int().positive(), headRefOid: CommitSha });
+export type MyPrMergeRequest = z.infer<typeof MyPrMergeRequest>;
+
+export const MyPrMergeKind = z.enum(['merged', 'queued', 'auto-merge', 'unconfirmed']);
+export type MyPrMergeKind = z.infer<typeof MyPrMergeKind>;
+
+export const MyPrMergeResult = z.object({ key: z.string(), ok: z.boolean(), kind: MyPrMergeKind.optional(), error: z.string().optional() });
+export type MyPrMergeResult = z.infer<typeof MyPrMergeResult>;
+
 const CheckRun = z.object({ __typename: z.literal('CheckRun'), name: z.string(), conclusion: z.string().nullable(), status: z.string() });
 const StatusContext = z.object({ __typename: z.literal('StatusContext'), context: z.string(), state: z.string() });
 export const MyPrSearchNode = z.object({
   __typename: z.literal('PullRequest'), id: z.string().regex(/^[A-Za-z0-9_=-]+$/), number: z.number().int().positive(), title: z.string(), url: z.url(), isDraft: z.boolean(),
   state: z.enum(['OPEN', 'MERGED', 'CLOSED']), createdAt: z.string(), mergedAt: z.string().nullable(), updatedAt: z.string(), baseRefName: z.string(),
-  headRefOid: z.string().regex(/^[0-9a-f]{40}$/), isInMergeQueue: z.boolean(), mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']),
+  headRefOid: CommitSha, isInMergeQueue: z.boolean(), mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']),
   mergeStateStatus: z.string(), reviewDecision: z.enum(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED']).nullable(),
-  repository: z.object({ nameWithOwner: repositoryName }),
+  repository: z.object({ nameWithOwner: repositoryName, viewerDefaultMergeMethod: MyPrMergeMethod }),
   commits: z.object({ nodes: z.array(z.object({ commit: z.object({ statusCheckRollup: z.object({
     state: z.enum(['SUCCESS', 'FAILURE', 'PENDING', 'ERROR', 'EXPECTED']).nullable(),
     contexts: z.object({ nodes: z.array(z.union([CheckRun, StatusContext])) }),
@@ -70,6 +83,10 @@ export type MyPrThreadNode = z.infer<typeof MyPrThreadNode>;
 
 export const MyPrThreadsResponse = z.object({ data: z.object({ repository: z.object({ pullRequest: z.object({
   reviewThreads: z.object({ pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }), nodes: z.array(z.unknown()) }),
+}).nullable() }).nullable() }), errors: z.array(z.unknown()).optional() });
+
+export const MyPrMergeStateResponse = z.object({ data: z.object({ repository: z.object({ pullRequest: z.object({
+  state: z.string(), isInMergeQueue: z.boolean(), autoMergeRequest: z.object({ enabledAt: z.string().nullable() }).nullable(),
 }).nullable() }).nullable() }), errors: z.array(z.unknown()).optional() });
 
 export const MyPrSearchResponse = z.object({ data: z.object({

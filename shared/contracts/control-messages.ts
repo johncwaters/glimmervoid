@@ -14,7 +14,7 @@ import { PendingWakeup, SessionSnapshot, SessionState, TaskTitle } from './sessi
 import { TraceRecord } from './trace.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
 import { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus } from './team-review.ts';
-import { MyPrsStatus } from './my-prs.ts';
+import { MyPrMergeRequest, MyPrMergeResult, MyPrsStatus } from './my-prs.ts';
 
 const requestId = z.string().nullable().optional();
 const sessionId = z.string();
@@ -140,6 +140,7 @@ export const CLIENT_MESSAGE_TYPES = Object.freeze([
   'open-issue-session',
   'posthog-issue-action',
   'team-review-action',
+  'my-pr-merge',
   'posthog-archive-investigation',
   'request-usage-report',
   'request-hooks-report',
@@ -214,6 +215,7 @@ const clientVariants = [
   loose('open-issue-session', { requestId, projectId: z.string(), issueNumber: z.number().int().positive() }),
   loose('posthog-issue-action', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), action: z.string(), requestId }),
   loose('team-review-action', { ...TeamReviewActionRequest.shape, requestId }),
+  loose('my-pr-merge', { ...MyPrMergeRequest.shape, requestId }),
   loose('posthog-archive-investigation', { id: z.unknown().optional(), requestId }),
   loose('request-usage-report', { requestId, days: z.unknown().optional(), force: z.unknown().optional() }),
   loose('request-hooks-report', { requestId }),
@@ -265,7 +267,6 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'session-title',
   'session-modified',
   'session-git',
-  'session-resume',
   'session-agents',
   'session-wakeup',
   'session-prompt',
@@ -310,6 +311,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'open-issue-session-result',
   'posthog-issue-action-result',
   'team-review-action-result',
+  'my-pr-merge-result',
   'posthog-archive-investigation-result',
   'team-review-status',
   'my-prs-status',
@@ -365,7 +367,6 @@ const serverVariants = [
   loose('session-renamed', { id: sessionId, oldName: z.string(), newName: z.string() }),
   loose('session-title', { id: sessionId, taskTitle: TaskTitle.nullable(), isCustom: z.boolean() }),
   loose('session-git', { id: sessionId, worktree: z.boolean() }),
-  loose('session-resume', { id: sessionId, resumeSessionId: z.string().nullable() }),
   loose('session-agents', { id: sessionId, activeAgents: z.number().int().nonnegative(), awaitingBackgroundTasks: z.boolean(), timestamp }),
   loose('session-wakeup', { id: sessionId, pendingWakeup: PendingWakeup.nullable(), timestamp }),
   loose('session-prompt', { id: sessionId, pendingPromptKind: nullableString, timestamp }),
@@ -555,6 +556,7 @@ const serverVariants = [
     status: nullableString.optional(),
   }),
   loose('team-review-action-result', { ...TeamReviewActionResult.shape, requestId }),
+  loose('my-pr-merge-result', { ...MyPrMergeResult.shape, requestId }),
   loose('posthog-archive-investigation-result', { requestId, ok: z.boolean(), error: optionalError }),
   TeamReviewStatus,
   MyPrsStatus,

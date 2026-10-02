@@ -28,7 +28,7 @@ function harness(sessions: Map<string, Session>, config: GlimmervoidConfig) {
   return { send: connection.send, sent: connection.sent, broadcasts, saveCalls };
 }
 
-test('resume-conversation persists the id, sets it on the session, broadcasts + acks', () => {
+test('resume-conversation persists the id, sets it on the session and acks without a session-resume broadcast', () => {
   const s = plainSession('p1');
   const cfg: GlimmervoidConfig = { projects: [{ id: 'p1', name: 'p1', path: 'C:/repo' }] };
   const h = harness(new Map([['p1', s]]), cfg);
@@ -37,8 +37,7 @@ test('resume-conversation persists the id, sets it on the session, broadcasts + 
 
   assert.equal(cfg.projects[0].resumeSessionId, '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5', 'persisted on project record');
   assert.equal(s.resumeSessionId, '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5', 'set on live session');
-  const bc = h.broadcasts.find((m) => m.type === 'session-resume');
-  assert.ok(bc && bc.id === 'p1' && bc.resumeSessionId === '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5', 'broadcast session-resume');
+  assert.equal(h.broadcasts.some((m) => m.type === 'session-resume'), false);
   const ack = h.sent.find((m) => m.type === 'resume-conversation-ack');
   assert.ok(ack && ack.ok === true, 'acked ok');
 });

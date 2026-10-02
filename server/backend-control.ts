@@ -4,7 +4,7 @@ import type { ControlBroadcast, ControlSocket } from './backend-websockets.ts';
 import type { ChangeMapNarrator } from './change-map-wiring.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import { registerControlHandlers } from './control-handlers.ts';
-import type { TeamReviewActionControl } from './control-handlers.ts';
+import type { MyPrMergeControl, TeamReviewActionControl } from './control-handlers.ts';
 import type { ReplayLog } from './control-replay-core.ts';
 import type { PlanDecision } from '../shared/contracts/plan-review.ts';
 import type { TeamReviewStatus } from '../shared/contracts/team-review.ts';
@@ -69,7 +69,7 @@ interface BackendControlDependencies {
   laneAssembly: LaneReader;
   posthog: PosthogControl;
   teamReview: TeamReviewControl;
-  myPrs: { getStatus: () => MyPrsStatus };
+  myPrs: MyPrMergeControl & { getStatus: () => MyPrsStatus };
   usage: UsageControl;
   readTracePage: ((glimmervoidSessionId: string, request: TracePageRequest) => Promise<TracePage>) | null;
   readPlanRevision: ((
@@ -128,6 +128,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     getTeamReviewStatus: () => teamReview.getStatus(),
     getMyPrsStatus: () => myPrs.getStatus(),
     teamReview,
+    myPrs,
     serverBuild: dependencies.serverBuild,
     telemetry: dependencies.telemetry,
     getUsageSessions: () => usage.getSessionsMessage(),

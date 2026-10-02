@@ -754,13 +754,14 @@ function createTeamReviewActions({ drafts, github, log = console }: TeamReviewAc
     }
     const commentsError = await misplacedCommentsError(draft, request.comments);
     if (commentsError) return { ok: false, error: commentsError };
+    const postedBody = core.postedReviewBody(event, request.body);
     const posted = await github.postReview({
-      repo: draft.repo, number: draft.number, commitId: draft.reviewedHead, event, body: request.body, comments: request.comments,
+      repo: draft.repo, number: draft.number, commitId: draft.reviewedHead, event, body: postedBody, comments: request.comments,
     });
     if (!posted.ok) return { ok: false, error: posted.err || 'GitHub refused the review' };
     const headAfterPost = event === 'APPROVE' ? await github.prHead(draft.repo, draft.number) : draft.reviewedHead;
     if (headAfterPost !== null && headAfterPost !== draft.reviewedHead) return retractApproval(key, draft, headAfterPost, posted.reviewId);
-    const postedPatch: DraftPatch = isFollowUpApproval ? { status: 'posted', postedEvent: event } : { status: 'posted', postedEvent: event, body: request.body, comments: request.comments };
+    const postedPatch: DraftPatch = isFollowUpApproval ? { status: 'posted', postedEvent: event } : { status: 'posted', postedEvent: event, body: postedBody, comments: request.comments };
     const marked = await markDraft(key, draft, postedPatch);
     const warnings = [
       headAfterPost === null ? 'Could not confirm the pull request head after approving. Check the approval on GitHub' : '',

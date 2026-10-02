@@ -2,10 +2,17 @@ import { execFileAsync } from './child-process-safe.ts';
 import { GithubRateLimitResources, githubRateLimitWaitMs } from './core/github-rate-limit-core.ts';
 import { z } from 'zod';
 import { CommitSha, PrDetail, ReviewComment, SearchedPr } from '../shared/contracts/team-review.ts';
-import { MyPrSearchNode, MyPrSearchResponse, MyPrThreadNode, MyPrThreadsResponse } from '../shared/contracts/my-prs.ts';
-import type { MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode as MyPrThreadNodeType } from '../shared/contracts/my-prs.ts';
+import { MyPrMergeMethod, MyPrMergeStateResponse, MyPrSearchNode, MyPrSearchResponse, MyPrThreadNode, MyPrThreadsResponse } from '../shared/contracts/my-prs.ts';
+import type { MyPrMergeKind, MyPrMergeMethod as MyPrMergeMethodType, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode as MyPrThreadNodeType } from '../shared/contracts/my-prs.ts';
 import type { PostedReviewEvent, PrDetail as PrDetailType, ReviewComment as ReviewCommentType, SearchedPr as SearchedPrType, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 
+type GhMergeFlag = '--merge' | '--squash' | '--rebase';
+
+const GH_MERGE_FLAGS: Readonly<Record<MyPrMergeMethodType, GhMergeFlag>> = { MERGE: '--merge', SQUASH: '--squash', REBASE: '--rebase' };
+
+const MY_PR_MERGE_STATE_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) { state isInMergeQueue autoMergeRequest { enabledAt } } }
+}`;
 
 interface CommandResult {
   ok: boolean;
@@ -76,6 +83,7 @@ interface PrGh {
   searchMyPrs(org: string, mergedSince: string): Promise<{ ok: boolean; items: MyPrSearchNodeType[]; totalCount: number; error: string }>;
   behindCounts(prs: readonly PrHeadReference[]): Promise<Map<string, number>>;
   rebasePr(pullRequestId: string, expectedHeadSha: string): Promise<{ ok: boolean; err: string }>;
+  mergePr(merge: { repo: string; number: number; headSha: string; method: MyPrMergeMethodType }): Promise<{ ok: true; kind: MyPrMergeKind } | { ok: false; err: string }>;
   rateLimitWaitMs(nowMs: number, resourceNames: readonly string[]): Promise<number | null>;
   reviewThreads(repo: string, number: number): Promise<MyPrThreadNodeType[]>;
   reviewThreadsBatch(prs: readonly PrReference[]): Promise<Map<string, MyPrThreadNodeType[]>>;
@@ -111,6 +119,18 @@ async function run(cmd: string, args: string[], cwd: string, input?: string, pre
   }
 }
 
+function mergeKindFromPrState(prStateJson: string): MyPrMergeKind {
+  const parsed = MyPrMergeStateResponse.safeParse(parseJson<unknown>(prStateJson, null));
+  if (!parsed.success || parsed.data.errors?.length) return 'unconfirmed';
+  const pullRequest = parsed.data.data.repository?.pullRequest;
+  if (!pullRequest) return 'unconfirmed';
+  if (pullRequest.state === 'MERGED') return 'merged';
+  if (pullRequest.state !== 'OPEN') return 'unconfirmed';
+  if (pullRequest.isInMergeQueue) return 'queued';
+  if (pullRequest.autoMergeRequest !== null) return 'auto-merge';
+  return 'unconfirmed';
+}
+
 function parseJson<T>(text: string, fallback: T): T {
   try { return JSON.parse(text) as T; }
   catch { return fallback; }
@@ -125,7 +145,7 @@ const MY_PRS_QUERY = `query($openQuery: String!, $mergedQuery: String!) {
 }
 fragment myPrFields on PullRequest {
   __typename id number title url isDraft state createdAt mergedAt updatedAt baseRefName headRefOid isInMergeQueue mergeable mergeStateStatus reviewDecision
-  repository { nameWithOwner }
+  repository { nameWithOwner viewerDefaultMergeMethod }
   commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 50) { nodes {
     __typename ... on CheckRun { name conclusion status } ... on StatusContext { context state }
   } } } } } }
@@ -397,6 +417,17 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       const firstError = parsed.errors?.[0]?.message;
       if (firstError !== undefined) return { ok: false, err: String(firstError) };
       return { ok: true, err: '' };
+    },
+    async mergePr({ repo, number, headSha, method }) {
+      const parts = repoParts(repo);
+      if (!parts || !isPrNumber(number)) return { ok: false, err: 'invalid repository or pull request number' };
+      if (!CommitSha.safeParse(headSha).success) return { ok: false, err: 'invalid head commit' };
+      const parsedMethod = MyPrMergeMethod.safeParse(method);
+      if (!parsedMethod.success) return { ok: false, err: 'invalid merge method' };
+      const response = await runGh(['pr', 'merge', String(number), '--repo', repo, GH_MERGE_FLAGS[parsedMethod.data], '--match-head-commit', headSha]);
+      if (!response.ok) return { ok: false, err: response.err.trim() || 'gh pr merge failed' };
+      const prState = await runGh(['api', 'graphql', '-f', `query=${MY_PR_MERGE_STATE_QUERY}`, '-f', `owner=${parts[0]}`, '-f', `name=${parts[1]}`, '-F', `number=${number}`]);
+      return { ok: true, kind: prState.ok ? mergeKindFromPrState(prState.out) : 'unconfirmed' };
     },
     async repoSlug() {
       const r = await commandRunner('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], cwd);

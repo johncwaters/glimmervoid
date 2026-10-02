@@ -33,8 +33,9 @@ import {
 import type { SettingsPayload, SettingsProject, SettingsValues } from './settings-view-core.ts';
 import { appendShortcutChord, SHORTCUT_PLATFORM } from './shortcuts.ts';
 import { shortcutGroupsFor } from './shortcuts-core.ts';
+import { renderStatusLegend } from './status-legend.ts';
 import { applyFlyingAnimals } from './flying-animals.ts';
-import { applyCompactStatusLabels, applyTheme, getThemeList } from './theme.ts';
+import { applyCompactStatusLabels, applySessionUsageChips, applyTheme, getThemeList } from './theme.ts';
 import {
   isFlyingAnimalsEnabled,
   getFlyingAnimalsEnteredValues,
@@ -49,7 +50,9 @@ import {
   getThemeId,
   isNotificationsEnabled,
   isCompactStatusLabels,
+  isSessionUsageChips,
   setCompactStatusLabels,
+  setSessionUsageChips,
   setFlyingAnimalsEnabled,
   setNotificationsEnabled,
   setSoundId,
@@ -149,6 +152,7 @@ function browserPreferences() {
     soundId: resolveSoundId(getSoundId()),
     notificationsEnabled: isNotificationsEnabled(),
     compactStatusLabels: isCompactStatusLabels(),
+    sessionUsageChips: isSessionUsageChips(),
   };
 }
 
@@ -270,6 +274,11 @@ function applyBrowserPreference(setting: SettingsSetting, value: unknown) {
   if (setting.path === 'pref:compactStatusLabels') {
     setCompactStatusLabels(value === true);
     applyCompactStatusLabels(value === true);
+    return;
+  }
+  if (setting.path === 'pref:sessionUsageChips') {
+    setSessionUsageChips(value === true);
+    applySessionUsageChips(value === true);
     return;
   }
   if (setting.path === 'pref:themeId') {
@@ -831,6 +840,7 @@ function renderContent() {
     const groups = el('div', 'shortcut-groups settings-view-shortcuts');
     renderShortcutGroups(groups);
     contentEl.appendChild(groups);
+    contentEl.appendChild(renderStatusLegend());
     renderAbout(contentEl);
     return;
   }

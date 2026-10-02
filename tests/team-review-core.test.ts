@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   AUTOMATED_REVIEW_NOTE,
+  HAND_APPROVAL_LINE,
   MAX_REVIEW_ATTEMPTS,
   DEFAULT_RE_REVIEW_AFTER_HOURS,
   DEFAULT_SKIP_IDLE_AFTER_DAYS,
@@ -18,6 +19,7 @@ import {
   earlierReviewToKeep,
   errorDraft,
   eventForAction,
+  postedReviewBody,
   githubReviewsFrom,
   githubRepoSlugFromRemote,
   hasViewerReviewedAt,
@@ -236,6 +238,22 @@ test('action events map only postable actions', () => {
   assert.equal(eventForAction('approve'), 'APPROVE');
   assert.equal(eventForAction('comment'), 'COMMENT');
   assert.equal(eventForAction('discard'), null);
+});
+
+function occurrencesOf(needle: string, haystack: string): number {
+  return haystack.split(needle).length - 1;
+}
+
+test('an approval body states the hand approval exactly once and a comment body is left unchanged', () => {
+  const automatedBody = `${AUTOMATED_REVIEW_NOTE}\n\nLooks good.`;
+  assert.equal(HAND_APPROVAL_LINE, 'Approved by hand after checking the automated review.');
+  assert.equal(postedReviewBody('APPROVE', automatedBody), `${HAND_APPROVAL_LINE}\n\n${automatedBody}`);
+  assert.equal(postedReviewBody('APPROVE', ''), HAND_APPROVAL_LINE);
+  assert.equal(postedReviewBody('APPROVE', '  \n'), HAND_APPROVAL_LINE);
+  assert.equal(occurrencesOf(HAND_APPROVAL_LINE, postedReviewBody('APPROVE', postedReviewBody('APPROVE', automatedBody))), 1);
+  assert.equal(postedReviewBody('COMMENT', automatedBody), automatedBody);
+  assert.equal(postedReviewBody('COMMENT', ''), '');
+  assert.ok(postedReviewBody('APPROVE', automatedBody).includes(AUTOMATED_REVIEW_NOTE));
 });
 
 const CANDIDATE = {

@@ -36,9 +36,7 @@ interface TagBadgeSpec {
 const TAG_BADGES: TagBadgeSpec[] = [
   { cls: 'agent-badge', title: 'Agent CLI this session supervises' },
   { cls: 'worktree-badge', text: 'worktree', title: 'Running in a linked git worktree', ariaLabel: 'Linked git worktree' },
-  { cls: 'resume-badge', text: 'resumed', title: 'Resumes a saved conversation on next start', ariaLabel: 'Resumes a saved conversation' },
   { cls: 'post-turn-badge', ariaHidden: true },
-  { cls: 'agents-badge', title: 'Background sub-agents still running' },
   { cls: 'usage-badge', title: 'Tokens and estimated API list-price cost for this conversation' },
   { cls: 'wakeup-badge' },
   { cls: 'prompt-badge', title: 'Waiting on a permission or input prompt' },
@@ -58,7 +56,6 @@ export interface CardOptions {
   skipPerms?: boolean;
   worktree?: boolean;
   workspace?: boolean;
-  resume?: boolean;
   path?: unknown;
   stateSince?: unknown;
 }
@@ -72,7 +69,6 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   if (options.skipPerms) card.dataset.skipPerms = '';
   if (options.worktree) card.dataset.worktree = '';
   if (options.workspace) card.dataset.workspace = '';
-  if (options.resume) card.dataset.resume = '';
   if (options.path) card.dataset.path = String(options.path);
 
   const header = el('div', 'session-card-header');
@@ -119,11 +115,16 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   btnDebug.title = 'Debug state';
   btnDebug.setAttribute('aria-label', 'Debug session state');
 
+  const btnRestartFreshIcon = el('button', 'btn-action btn-restart-fresh', String.fromCharCode(0x21bb));
+  btnRestartFreshIcon.type = 'button';
+  btnRestartFreshIcon.title = 'Restart fresh';
+  btnRestartFreshIcon.setAttribute('aria-label', 'Restart fresh');
+
   const btnPlan = el('button', 'btn-action btn-face-plan', 'Plan');
   btnPlan.type = 'button';
   btnPlan.title = 'Show plan';
 
-  actions.append(btnPlan, btnDebug, overflow);
+  actions.append(btnPlan, btnDebug, btnRestartFreshIcon, overflow);
   const tags = el('div', 'session-card-tags');
   const tagChildren = TAG_BADGES.map((spec) => buildTagBadge(spec));
   if (permsBadge) tagChildren.push(permsBadge);
@@ -134,7 +135,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   card.append(header, termWrap);
 
-  return { card, header, nameEl, elapsedEl, taskTitleEl, btnRename, btnRestart, btnRestartFresh, btnResume, btnTrace, btnOverflowPlan, btnRemove, btnPlan, btnDebug, btnOverflow, overflowMenu, termWrap };
+  return { card, header, nameEl, elapsedEl, taskTitleEl, btnRename, btnRestart, btnRestartFresh, btnRestartFreshIcon, btnResume, btnTrace, btnOverflowPlan, btnRemove, btnPlan, btnDebug, btnOverflow, overflowMenu, termWrap };
 }
 
 export function makeTitleEditable(titleEl: HTMLElement, onActivate: () => void) {
@@ -166,6 +167,10 @@ export function startInlineTitleEdit(ui: SessionUi, sessionId: string) {
   input.value = ui.taskTitleIsCustom ? ui.taskTitle ?? '' : '';
   input.placeholder = ui.taskTitle ?? 'What is this session working on?';
   input.maxLength = TASK_TITLE_MAX_LENGTH;
+  const previousRole = targetEl.getAttribute('role');
+  const previousTabIndex = targetEl.getAttribute('tabindex');
+  targetEl.removeAttribute('role');
+  targetEl.removeAttribute('tabindex');
   targetEl.replaceChildren(input);
   input.focus();
   input.select();
@@ -175,6 +180,8 @@ export function startInlineTitleEdit(ui: SessionUi, sessionId: string) {
     input.removeEventListener('keydown', onKey);
     if (shouldCommit) sendControlMsg({ type: 'set-session-title', id: sessionId, title: input.value.trim() });
     targetEl.replaceChildren();
+    if (previousRole !== null) targetEl.setAttribute('role', previousRole);
+    if (previousTabIndex !== null) targetEl.setAttribute('tabindex', previousTabIndex);
     paintTaskTitle(targetEl, ui.taskTitle);
   }
 

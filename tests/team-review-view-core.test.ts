@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, emptyStateText, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText, reviewProgressSteps,
-  commentSeverity, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictRecommendation, verdictSealKind, verdictSealText, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailMetaText, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
+  commentSeverity, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictRecommendation, verdictSealKind, verdictSealText, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
 import { InFlightReview, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type {
@@ -282,6 +282,13 @@ test('the action request pins the reviewed head and carries only the remaining c
   assert.equal(commentLocation(comments[1]), 'src/a.ts:9 (old)');
 });
 
+test('the short comment location keeps only the file name and line, with the old-side marker', () => {
+  assert.equal(shortCommentLocation({ path: 'src/programs/detection/__tests__/agentic-progress.test.ts', line: 1, side: 'RIGHT' }), 'agentic-progress.test.ts:1');
+  assert.equal(shortCommentLocation({ path: 'README.md', line: 12, side: 'RIGHT' }), 'README.md:12');
+  assert.equal(shortCommentLocation({ path: 'src/a.ts', line: 9, side: 'LEFT' }), 'a.ts:9 (old)');
+  assert.equal(commentLocation({ path: 'src/a.ts', line: 9, side: 'LEFT' }), 'src/a.ts:9 (old)');
+});
+
 test('the reviewer note posts above the automated-review note, and a blank note leaves the body untouched', () => {
   const reviewBody = '> [!NOTE]\n> Automated review. Not written by a human.\n\nSummary.';
   assert.equal(withReviewerNote('  Code review focused. Trying it out later.\n', reviewBody), `Code review focused. Trying it out later.\n\n${reviewBody}`);
@@ -296,6 +303,34 @@ test('queue review sends an empty action payload and has stable progress and out
   });
   assert.equal(actionProgressText('requeue'), 'Queueing the review');
   assert.equal(actionOutcomeText('requeue'), 'Queued. The next poll reviews it again.');
+});
+
+test('a ready review posts with Comment or Approve and comment, and keeps Queue review and Discard in the More menu', () => {
+  const ready = draft(1);
+  assert.deepEqual(detailActionLayout(ready), { footer: ['comment', 'approve'], more: ['requeue', 'discard'] });
+  assert.deepEqual(detailActionLayout(ready).footer.map((action) => actionLabel(ready, action)), ['Comment', 'Approve and comment']);
+  assert.deepEqual(detailActionLayout(ready).more.map((action) => actionLabel(ready, action)), ['Queue review', 'Discard']);
+});
+
+test('a posted comment review offers a plain Approve with Queue review in the More menu', () => {
+  const commented = draft(1, { status: 'posted', postedEvent: 'COMMENT' });
+  assert.deepEqual(detailActionLayout(commented), { footer: ['approve'], more: ['requeue'] });
+  assert.equal(actionLabel(commented, 'approve'), 'Approve');
+});
+
+test('a review with nothing to post keeps Queue review as its only footer action', () => {
+  for (const settled of [draft(1, { status: 'posted', postedEvent: 'APPROVE' }), draft(1, { status: 'error', error: 'boom' }), draft(1, { status: 'stale' }), draft(1, { status: 'discarded' })]) {
+    assert.deepEqual(detailActionLayout(settled), { footer: ['requeue'], more: [] });
+  }
+});
+
+test('low-severity inline comments start excluded and every other comment starts included', () => {
+  const comment = (body: string, severity?: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW') => ({ body, ...(severity ? { severity } : {}) });
+  assert.equal(isIncludedByDefault(comment('**[style] LOW**\n\nRename it.')), false);
+  assert.equal(isIncludedByDefault(comment('Rename it.', 'LOW')), false);
+  assert.equal(isIncludedByDefault(comment('**[logic] MEDIUM**\n\nOff by one.')), true);
+  assert.equal(isIncludedByDefault(comment('**[style] LOW**\n\nNit.\n\n**[logic] HIGH**\n\nBug.')), true);
+  assert.equal(isIncludedByDefault(comment('No header at all.')), true);
 });
 
 test('attention rows explain a stale draft and surface the error of a failed one', () => {

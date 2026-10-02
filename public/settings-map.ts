@@ -104,6 +104,15 @@ export const SETTINGS_MAP = Object.freeze([
         defaultValue: false,
       },
       {
+        id: 'session-usage-chips',
+        path: 'pref:sessionUsageChips',
+        title: 'Show usage on session cards',
+        description: "Shows each card's token count and estimated API list-price cost.",
+        control: 'toggle',
+        keywords: ['usage', 'cost', 'tokens', 'card', 'price'],
+        defaultValue: false,
+      },
+      {
         id: 'alert-sound',
         path: 'pref:soundId',
         title: 'Alert sound',

@@ -416,6 +416,10 @@ export function applyCompactStatusLabels(isEnabled: boolean) {
   document.documentElement.toggleAttribute('data-compact-status', isEnabled);
 }
 
+export function applySessionUsageChips(isShown: boolean) {
+  document.documentElement.toggleAttribute('data-show-usage', isShown);
+}
+
 export function getTerminalTheme(): Record<string, string> {
   const theme = THEMES[_currentThemeId || DEFAULT_THEME];
   if (!theme) return {};

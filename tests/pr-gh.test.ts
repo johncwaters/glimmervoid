@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createPrGh } from '../server/pr-gh.ts';
+import type { CommandResult } from '../server/pr-gh.ts';
+import type { MyPrMergeKind } from '../shared/contracts/my-prs.ts';
 
 const HEAD_SHA = 'a'.repeat(40);
 
@@ -382,7 +384,7 @@ function myPrNode(number: number) {
   return {
     __typename: 'PullRequest', id: `PR_node${number}`, number, title: 'Fix', url: `https://github.com/Acme/app/pull/${number}`, isDraft: false,
     state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z', baseRefName: 'main', headRefOid: HEAD_SHA, isInMergeQueue: false,
-    mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', repository: { nameWithOwner: 'Acme/app' },
+    mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', repository: { nameWithOwner: 'Acme/app', viewerDefaultMergeMethod: 'SQUASH' },
     commits: { nodes: [] }, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, latestReviews: { nodes: [] },
   };
 }
@@ -404,6 +406,69 @@ test('my PR search uses one GraphQL call and drops invalid nodes', async () => {
   assert.ok(calls[0].includes('mergedQuery=is:pr is:merged author:@me org:Acme merged:>=2026-09-27 sort:updated-desc'));
   assert.equal(calls[0].find((arg) => arg.startsWith('query='))?.match(/issueCount/g)?.length, 2);
   assert.match(calls[0].find((arg) => arg.startsWith('query=')) ?? '', /\.\.\. on Team \{ slug avatarUrl organization \{ login \} \}/);
+  assert.match(calls[0].find((arg) => arg.startsWith('query=')) ?? '', /repository \{ nameWithOwner viewerDefaultMergeMethod \}/);
+  assert.equal(searched.items[0]?.repository.viewerDefaultMergeMethod, 'SQUASH');
+});
+
+function mergeGh(prStateAfterMerge: CommandResult) {
+  const calls: string[][] = [];
+  const gh = createPrGh('/repo', async (command, args) => {
+    calls.push([command, ...args]);
+    return args[1] === 'merge' ? { ok: true, out: '', err: '' } : prStateAfterMerge;
+  });
+  return { gh, calls };
+}
+
+function prStateJson(state: string, isInMergeQueue: boolean, autoMergeRequest: { enabledAt: string | null } | null): CommandResult {
+  return { ok: true, out: JSON.stringify({ data: { repository: { pullRequest: { state, isInMergeQueue, autoMergeRequest } } } }), err: '' };
+}
+
+test('mergePr runs gh pr merge with each method flag pinned to the expected head, then reads back what GitHub did', async () => {
+  const flagsByMethod = [['MERGE', '--merge'], ['SQUASH', '--squash'], ['REBASE', '--rebase']] as const;
+  for (const [method, flag] of flagsByMethod) {
+    const { gh, calls } = mergeGh(prStateJson('MERGED', false, null));
+    assert.deepEqual(await gh.mergePr({ repo: 'Acme/app', number: 7, headSha: HEAD_SHA, method }), { ok: true, kind: 'merged' });
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls[0], ['gh', 'pr', 'merge', '7', '--repo', 'Acme/app', flag, '--match-head-commit', HEAD_SHA]);
+    const [command, api, graphql, queryFlag, queryArg, ...variables] = calls[1] ?? [];
+    assert.deepEqual([command, api, graphql, queryFlag], ['gh', 'api', 'graphql', '-f']);
+    assert.match(String(queryArg), /^query=query\(\$owner: String!, \$name: String!, \$number: Int!\)/);
+    assert.match(String(queryArg), /repository\(owner: \$owner, name: \$name\) \{ pullRequest\(number: \$number\) \{ state isInMergeQueue autoMergeRequest \{ enabledAt \} \} \}/);
+    assert.deepEqual(variables, ['-f', 'owner=Acme', '-f', 'name=app', '-F', 'number=7']);
+    assert.ok(!calls[1]?.includes('view'));
+  }
+});
+
+test('mergePr reports a merge queue entry, an auto-merge request or an unconfirmed merge instead of claiming a merge', async () => {
+  const cases: [CommandResult, MyPrMergeKind][] = [
+    [prStateJson('OPEN', true, null), 'queued'],
+    [prStateJson('OPEN', false, { enabledAt: '2026-10-02T00:00:00Z' }), 'auto-merge'],
+    [prStateJson('OPEN', false, null), 'unconfirmed'],
+    [prStateJson('CLOSED', true, { enabledAt: '2026-10-02T00:00:00Z' }), 'unconfirmed'],
+    [{ ok: true, out: JSON.stringify({ data: { repository: { pullRequest: null } } }), err: '' }, 'unconfirmed'],
+    [{ ok: true, out: JSON.stringify({ data: { repository: null }, errors: [{ type: 'NOT_FOUND', message: 'Could not resolve to a Repository' }] }), err: '' }, 'unconfirmed'],
+    [{ ok: true, out: JSON.stringify({ state: 'MERGED', isInMergeQueue: false, autoMergeRequest: null }), err: '' }, 'unconfirmed'],
+    [{ ok: true, out: 'not json', err: '' }, 'unconfirmed'],
+    [{ ok: false, out: '', err: 'rate limited' }, 'unconfirmed'],
+  ];
+  for (const [prStateAfterMerge, kind] of cases) {
+    const { gh } = mergeGh(prStateAfterMerge);
+    assert.deepEqual(await gh.mergePr({ repo: 'Acme/app', number: 7, headSha: HEAD_SHA, method: 'SQUASH' }), { ok: true, kind }, prStateAfterMerge.out || prStateAfterMerge.err);
+  }
+});
+
+test('mergePr refuses invalid input without calling gh and reports gh failures', async () => {
+  let calls = 0;
+  const gh = createPrGh('/repo', async () => {
+    calls += 1;
+    return { ok: false, out: '', err: 'GraphQL: Head branch was modified\n' };
+  });
+  assert.equal((await gh.mergePr({ repo: 'Acme', number: 7, headSha: HEAD_SHA, method: 'MERGE' })).ok, false);
+  assert.equal((await gh.mergePr({ repo: 'Acme/app', number: 0, headSha: HEAD_SHA, method: 'MERGE' })).ok, false);
+  assert.equal((await gh.mergePr({ repo: 'Acme/app', number: 7, headSha: 'main', method: 'MERGE' })).ok, false);
+  assert.equal(calls, 0);
+  assert.deepEqual(await gh.mergePr({ repo: 'Acme/app', number: 7, headSha: HEAD_SHA, method: 'SQUASH' }), { ok: false, err: 'GraphQL: Head branch was modified' });
+  assert.equal(calls, 1);
 });
 
 test('my PR search rejects invalid input and malformed whole responses', async () => {

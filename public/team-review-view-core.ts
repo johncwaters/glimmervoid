@@ -1,4 +1,4 @@
-import { DECIDING_REVIEW_STATES, FindingSeverity } from '#shared/contracts/team-review.ts';
+import { canApproveAfterComment, DECIDING_REVIEW_STATES, FindingSeverity } from '#shared/contracts/team-review.ts';
 import type {
   DraftComment, GithubReview, GithubReviewState, InFlightReview, QueuedReview, ReviewAssessment, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus,
 } from '#shared/contracts/team-review.ts';
@@ -231,6 +231,10 @@ export function commentSeverity(comment: Pick<DraftComment, 'body' | 'severity'>
   return FindingSeverity.options.find((severity) => severities.includes(severity)) ?? null;
 }
 
+export function isIncludedByDefault(comment: Pick<DraftComment, 'body' | 'severity'>): boolean {
+  return commentSeverity(comment) !== 'LOW';
+}
+
 export function severityCounts(draft: Pick<ReviewDraft, 'body' | 'comments'>): { severity: FindingSeverity; count: number }[] {
   const counts = new Map<FindingSeverity, number>();
   for (const severity of findingSeveritiesIn(draft.body)) counts.set(severity, (counts.get(severity) ?? 0) + 1);
@@ -402,9 +406,18 @@ export function attentionDetail(draft: ReviewDraft): string {
   return draft.error || draft.summary || 'The review failed.';
 }
 
-export function commentLocation(comment: ReviewComment): string {
+function locationOf(path: string, comment: Pick<ReviewComment, 'line' | 'side'>): string {
   const sideSuffix = comment.side === 'LEFT' ? ' (old)' : '';
-  return `${comment.path}:${comment.line}${sideSuffix}`;
+  return `${path}:${comment.line}${sideSuffix}`;
+}
+
+export function commentLocation(comment: Pick<ReviewComment, 'path' | 'line' | 'side'>): string {
+  return locationOf(comment.path, comment);
+}
+
+export function shortCommentLocation(comment: Pick<ReviewComment, 'path' | 'line' | 'side'>): string {
+  const fileName = comment.path.split('/').filter(Boolean).at(-1) ?? comment.path;
+  return locationOf(fileName, comment);
 }
 
 export function withoutComment(comments: readonly ReviewComment[], removedIndex: number): ReviewComment[] {
@@ -420,6 +433,32 @@ export function withReviewerNote(reviewerNote: string, reviewBody: string): stri
 
 export function buildActionRequest(draft: ReviewDraft, action: TeamReviewAction, body: string, comments: readonly ReviewComment[]): TeamReviewActionRequest {
   return { key: draft.key, head: draft.reviewedHead, action, body, comments: comments.map(({ path, line, side, body: commentBody }) => ({ path, line, side, body: commentBody })) };
+}
+
+const ACTION_LABELS: Readonly<Record<TeamReviewAction, string>> = Object.freeze({
+  approve: 'Approve and comment',
+  comment: 'Comment',
+  discard: 'Discard',
+  requeue: 'Queue review',
+});
+
+const FOLLOW_UP_APPROVE_LABEL = 'Approve';
+
+export interface DetailActionLayout {
+  footer: readonly TeamReviewAction[];
+  more: readonly TeamReviewAction[];
+}
+
+export function actionLabel(draft: Pick<ReviewDraft, 'status'>, action: TeamReviewAction): string {
+  if (action === 'approve' && draft.status !== 'ready') return FOLLOW_UP_APPROVE_LABEL;
+  return ACTION_LABELS[action];
+}
+
+export function detailActionLayout(draft: Pick<ReviewDraft, 'status' | 'postedEvent'>): DetailActionLayout {
+  if (draft.status === 'ready') return { footer: ['comment', 'approve'], more: ['requeue', 'discard'] };
+  if (canApproveAfterComment(draft)) return { footer: ['approve'], more: ['requeue'] };
+  if (hasRequeueFooter(draft.status)) return { footer: ['requeue'], more: [] };
+  return { footer: [], more: [] };
 }
 
 export function actionProgressText(action: TeamReviewAction): string {

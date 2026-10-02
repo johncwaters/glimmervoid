@@ -25,6 +25,7 @@ import * as posthogCore from './core/posthog-core.ts';
 import { formatDiffAnnotationMessage } from './core/diff-annotations-core.ts';
 import { buildGithubIssuePrompt, deriveIssueSessionName } from './core/github-issues-core.ts';
 import { machineSkipsPermissionsByDefault } from './core/session-registry-core.ts';
+import { prKey } from './core/team-review-core.ts';
 import { createPrGh } from './pr-gh.ts';
 import type { PrGh } from './pr-gh.ts';
 import { buildSettingsPayload as buildSettingsPayloadFrom } from './settings-payload.ts';
@@ -64,7 +65,8 @@ import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
 import type { ChangeMap } from '../shared/contracts/change-map.ts';
 import { TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
 import type { TeamReviewActionResult, TeamReviewStatus } from '../shared/contracts/team-review.ts';
-import type { MyPrsStatus } from '../shared/contracts/my-prs.ts';
+import { MyPrMergeRequest } from '../shared/contracts/my-prs.ts';
+import type { MyPrMergeResult, MyPrsStatus } from '../shared/contracts/my-prs.ts';
 import type { UpdateStatus } from './backend-update.ts';
 import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { PlanReadRequest, PlanReadResult } from './plan-review-wiring.ts';
@@ -118,6 +120,10 @@ interface TeamReviewActionControl {
   submitAction(request: TeamReviewActionRequest): Promise<TeamReviewActionOutcome>;
 }
 
+interface MyPrMergeControl {
+  mergePr(request: MyPrMergeRequest): Promise<Omit<MyPrMergeResult, 'key'>>;
+}
+
 interface ControlHandlerDeps {
   sessions: Map<string, Session>;
   agentSessions?: Map<string, Session>;
@@ -147,6 +153,7 @@ interface ControlHandlerDeps {
   getTeamReviewStatus?: (() => TeamReviewStatus | null) | null;
   getMyPrsStatus?: (() => MyPrsStatus | null) | null;
   teamReview?: TeamReviewActionControl | null;
+  myPrs?: MyPrMergeControl | null;
   createGithubClient?: (cwd: string) => Pick<PrGh, 'listIssues' | 'viewIssue' | 'repoSlug'>;
   serverBuild?: () => string | null;
   getUsageSessions?: (() => unknown) | null;
@@ -319,6 +326,10 @@ function sendError(ws: ControlSocket, message: string, { type = 'error', request
   ws.send(JSON.stringify(payload));
 }
 
+function myPrMergeKey(msg: Record<string, unknown> | null | undefined): string {
+  return typeof msg?.repo === 'string' && typeof msg.number === 'number' ? prKey(msg.repo, msg.number) : '';
+}
+
 function requestValidationErrorReply(msg: Record<string, unknown> | null | undefined, message: string): Record<string, unknown> | null {
   const requestId = typeof msg?.requestId === 'string' ? msg.requestId : null;
   const builders: Record<string, () => Record<string, unknown>> = {
@@ -336,6 +347,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'posthog-issue-action': () => ({ type: 'posthog-issue-action-result', requestId, ok: false, error: message }),
     'posthog-archive-investigation': () => ({ type: 'posthog-archive-investigation-result', requestId, ok: false, error: message }),
     'team-review-action': () => ({ type: 'team-review-action-result', requestId, key: typeof msg?.key === 'string' ? msg.key : '', ok: false, error: message }),
+    'my-pr-merge': () => ({ type: 'my-pr-merge-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
     'request-usage-report': () => ({ type: 'usage-report', requestId, error: message }),
     'request-hooks-report': () => ({ type: 'hooks-report', requestId, error: message }),
     'save-hook': () => ({ type: 'save-hook-result', requestId, ok: false, error: message }),
@@ -398,6 +410,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     getTeamReviewStatus = null,
     getMyPrsStatus = null,
     teamReview = null,
+    myPrs = null,
 
     createGithubClient = createPrGh,
 
@@ -701,7 +714,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     const live = sessions.get(sess.id) || sess;
     live.setResumeConversation(conversationId);
 
-    broadcastControl({ type: 'session-resume', id: live.id, resumeSessionId: conversationId });
     ws.send(JSON.stringify({ type: 'resume-conversation-ack', id: live.id, resumeSessionId: conversationId, ok: true }));
     console.log(`[control] resume-conversation: id=${live.id} -> ${conversationId || '(cleared)'}`);
   }
@@ -1002,6 +1014,14 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     reply(await teamReview.submitAction(parsed.data));
   }
 
+  async function handleMyPrMerge(msg: ControlRequest, ws: ControlSocket): Promise<void> {
+    const reply = (outcome: Omit<MyPrMergeResult, 'key'>) => replyTo(ws, msg, 'my-pr-merge-result', { key: myPrMergeKey(msg), ...outcome });
+    const parsed = MyPrMergeRequest.safeParse(msg);
+    if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
+    if (!myPrs) { reply({ ok: false, error: 'My pull requests is not running' }); return; }
+    reply(await myPrs.mergePr(parsed.data));
+  }
+
   async function handlePosthogArchiveInvestigation(msg: ControlRequest, ws: ControlSocket): Promise<void> {
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'posthog-archive-investigation-result', { ok: false, error: null, ...payload });
     const ref = posthogCore.validateInvestigationId(msg.id);
@@ -1174,6 +1194,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'posthog-issue-action': handlePosthogIssueAction,
     'posthog-archive-investigation': handlePosthogArchiveInvestigation,
     'team-review-action': handleTeamReviewAction,
+    'my-pr-merge': handleMyPrMerge,
     'request-usage-report': handleRequestUsageReport,
     'request-hooks-report': handleRequestHooksReport,
     'save-hook': handleSaveHook,
@@ -1385,4 +1406,4 @@ export {
   VISIONS_INTENT_NUMERIC_RANGES,
   registerControlHandlers,
 };
-export type { ControlHandlerDeps, ControlRequest, TeamReviewActionControl };
+export type { ControlHandlerDeps, ControlRequest, MyPrMergeControl, TeamReviewActionControl };

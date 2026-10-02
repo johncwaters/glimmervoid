@@ -125,7 +125,6 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-title', id: 'session-1', taskTitle: 'Fix dashboard', isCustom: false },
   { type: 'session-modified', id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', state: STATES.DORMANT, stateSince: NOW, skipPerms: true, worktree: false, resumeSessionId: null },
   { type: 'session-git', id: 'session-1', worktree: true },
-  { type: 'session-resume', id: 'session-1', resumeSessionId: null },
   { type: 'session-agents', id: 'session-1', activeAgents: 2, awaitingBackgroundTasks: true, session: 'glimmervoid', timestamp: NOW },
   { type: 'session-wakeup', id: 'session-1', pendingWakeup: { at: NOW, kind: 'cron', reason: null }, session: 'glimmervoid', timestamp: NOW },
   { type: 'session-prompt', id: 'session-1', pendingPromptKind: 'permission', session: 'glimmervoid', timestamp: NOW },
@@ -184,6 +183,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'open-issue-session-result', requestId: 'issues-2', ok: true, error: null, sessionId: 'session-2', sessionName: 'issue-42-fix-reconnect', pending: false },
   { type: 'posthog-issue-action-result', requestId: 'posthog-3', ok: true, error: null, status: 'resolved' },
   { type: 'team-review-action-result', requestId: 'review-1', key: 'PostHog/wizard#1350', ok: true },
+  { type: 'my-pr-merge-result', requestId: 'merge-1', key: 'PostHog/wizard#1350', ok: false, error: 'Checks are failing' },
   { type: 'posthog-archive-investigation-result', requestId: 'posthog-4', ok: true, error: null },
   { type: 'team-review-status', ts: NOW, configured: true, drafts: [{
     key: 'PostHog/wizard#1350', repo: 'PostHog/wizard', number: 1350, title: 'Improve agent detection',
@@ -272,6 +272,23 @@ test('team review actions carry editable text and diff comments', () => {
   assert.equal(ServerMessage.safeParse({ type: 'team-review-action-result', key: action.key, ok: false, error: 'stale head' }).success, true);
   assert.equal(ServerMessage.safeParse({ type: 'team-review-action-result', key: action.key, ok: true, warning: 'Do not post it again' }).success, true);
   assert.equal(ServerMessage.safeParse({ type: 'team-review-action-result', key: action.key, ok: true, warning: 4 }).success, false);
+});
+
+test('my pull request merges carry the repository, number and the head the dashboard saw', () => {
+  const merge = { type: 'my-pr-merge', requestId: 'merge-1', repo: 'PostHog/wizard', number: 1350, headRefOid: 'a'.repeat(40) };
+  assert.deepEqual(ClientMessage.parse(merge), merge);
+  for (const invalid of [
+    { ...merge, headRefOid: undefined },
+    { ...merge, headRefOid: 'A'.repeat(40) },
+    { ...merge, headRefOid: 'a'.repeat(39) },
+    { ...merge, repo: 'wizard' },
+    { ...merge, repo: '--repo/evil' },
+    { ...merge, number: 0 },
+    { ...merge, number: '1350' },
+  ]) assert.equal(ClientMessage.safeParse(invalid).success, false);
+  assert.equal(ServerMessage.safeParse({ type: 'my-pr-merge-result', requestId: 'merge-1', key: 'PostHog/wizard#1350', ok: true }).success, true);
+  assert.equal(ServerMessage.safeParse({ type: 'my-pr-merge-result', key: 'PostHog/wizard#1350', ok: 'yes' }).success, false);
+  assert.equal(ServerMessage.safeParse({ type: 'my-pr-merge-result', key: 'PostHog/wizard#1350', ok: false, error: 4 }).success, false);
 });
 
 test('team review status carries typed drafts, not an opaque project list', () => {

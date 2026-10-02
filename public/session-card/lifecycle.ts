@@ -68,6 +68,7 @@ function updateButtonVisibility(ui: SessionUi) {
   const canRestart = isKillable(state) || isRestartable(state);
   ui.btnRestart.classList.toggle('visible', canRestart);
   ui.btnRestartFresh.classList.toggle('visible', canRestart);
+  ui.btnRestartFreshIcon.classList.toggle('visible', canRestart);
 
   ui.btnRename.classList.add('visible');
   ui.btnResume.classList.add('visible');
@@ -75,6 +76,11 @@ function updateButtonVisibility(ui: SessionUi) {
   ui.btnPlan.classList.toggle('visible', ui.isBorrowed && ui.hasPlan && ui.face === 'terminal');
   ui.btnOverflowPlan.classList.toggle('visible', ui.hasPlan);
   ui.btnRemove.classList.add('visible');
+}
+
+function sendRestartFresh(ui: SessionUi, sessionId: string) {
+  const type = isKillable(ui.currentState) ? 'force-restart' : 'restart';
+  sendControlMsg({ type, id: sessionId, fresh: true });
 }
 
 function closeOverflowMenu(ui: SessionUi) {
@@ -107,8 +113,18 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
 
   ui.btnRestartFresh.addEventListener('click', () => {
     ui.overflowMenu.classList.remove('open');
-    const type = isKillable(ui.currentState) ? 'force-restart' : 'restart';
-    sendControlMsg({ type, id: sessionId, fresh: true });
+    sendRestartFresh(ui, sessionId);
+  });
+
+  ui.btnRestartFreshIcon.addEventListener('click', () => {
+    if (ui.currentState !== STATES.RUNNING) { sendRestartFresh(ui, sessionId); return; }
+    openConfirmDialog({
+      title: 'Restart fresh',
+      message: 'This agent is mid-turn. A fresh restart ends this conversation and starts a new one. Restart anyway?',
+      confirmLabel: 'Restart fresh',
+      danger: true,
+      onConfirm: () => sendRestartFresh(ui, sessionId),
+    });
   });
 
   ui.btnResume.addEventListener('click', () => {
@@ -301,6 +317,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     btnRename: dom.btnRename,
     btnRestart: dom.btnRestart,
     btnRestartFresh: dom.btnRestartFresh,
+    btnRestartFreshIcon: dom.btnRestartFreshIcon,
     btnResume: dom.btnResume,
     btnTrace: dom.btnTrace,
     btnPlan: dom.btnPlan,
@@ -443,13 +460,6 @@ export function setSessionWorktree(sessionId: unknown, worktree: unknown) {
   delete ui.card.dataset.worktree;
 }
 
-export function setSessionResume(sessionId: unknown, resumeSessionId: unknown) {
-  const ui = findSessionUi(sessionId);
-  if (!ui) return;
-  if (resumeSessionId) { ui.card.dataset.resume = ''; return; }
-  delete ui.card.dataset.resume;
-}
-
 function paintCardBadge(ui: SessionUi, selector: string, datasetKey: string, badgeState: { on: boolean; value?: string; text?: string; title?: string }) {
   const { on, value = '', text, title } = badgeState;
   const badge = ui.card.querySelector<HTMLElement>(selector);
@@ -473,11 +483,6 @@ export function setSessionAgents(sessionId: unknown, activeAgents: unknown, awai
   ui.activeAgents = n;
   ui.awaitingBackgroundTasks = isMonitoringState(ui.currentState, awaitingBackgroundTasks === true);
   ui.card.toggleAttribute('data-monitoring', ui.awaitingBackgroundTasks);
-  paintCardBadge(ui, '.agents-badge', 'agents', {
-    on: n > 0,
-    value: String(n),
-    text: n === 1 ? '1 agent' : `${n} agents`,
-  });
 }
 
 export function setSessionUsage(sessionId: unknown, usage: UsageSessionUsage | null | undefined) {

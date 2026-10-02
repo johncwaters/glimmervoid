@@ -117,10 +117,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       dependencies.recordLane(id, INTERACTIVE_LANE, vendor);
       dependencies.usage.refreshSessions();
     });
-    session.on('resume-cleared', () => {
-      persistProjectField('resumeSessionId', null);
-      dependencies.broadcastControl({ type: 'session-resume', id: session.id, resumeSessionId: null });
-    });
+    session.on('resume-cleared', () => persistProjectField('resumeSessionId', null));
     session.on('error', (error: unknown) => {
       dependencies.logger.error(`[${session.name}] error: ${errorMessage(error)}`);
       dependencies.telemetry?.captureException(error, { handled: true });

@@ -1,5 +1,6 @@
-import { MyPrsStatus } from '#shared/contracts/my-prs.ts';
-import type { MyPr, MyPrStage, MyPrsStatus as MyPrsStatusType, MyPrThread } from '#shared/contracts/my-prs.ts';
+import { MyPrMergeResult, MyPrsStatus } from '#shared/contracts/my-prs.ts';
+import { mergeMethodLabel, myPrMergeBlocker } from '#shared/my-pr-merge.ts';
+import type { MyPr, MyPrMergeKind, MyPrStage, MyPrsStatus as MyPrsStatusType, MyPrThread } from '#shared/contracts/my-prs.ts';
 import type { StateTone } from './state-tone-core.ts';
 
 export interface MyPrSection { title: string; prs: MyPr[] }
@@ -176,4 +177,37 @@ export function chooseSelectedKey(sections: readonly MyPrSection[], previousKey:
   const prs = sections.flatMap((section) => section.prs);
   if (previousKey && prs.some((pr) => pr.key === previousKey)) return previousKey;
   return prs[0]?.key ?? null;
+}
+
+export interface MergeAttempt { head: string; phase: 'pending' | 'failed' | MyPrMergeKind; text: string }
+export interface MergeControlState { isVisible: boolean; isDisabled: boolean; statusText: string; tone: 'ok' | 'error' | 'busy' | null }
+
+const HIDDEN_MERGE_CONTROL: MergeControlState = { isVisible: false, isDisabled: true, statusText: '', tone: null };
+const MERGE_KIND_STATUS: Readonly<Record<MyPrMergeKind, Pick<MergeControlState, 'statusText' | 'tone'>>> = {
+  merged: { statusText: 'Merged on GitHub. Refreshing the list.', tone: 'ok' },
+  queued: { statusText: 'Added to the merge queue. Refreshing the list.', tone: 'ok' },
+  'auto-merge': { statusText: 'Auto-merge enabled. GitHub merges it once its requirements pass.', tone: 'ok' },
+  unconfirmed: { statusText: 'GitHub accepted the request but did not confirm a merge. Check GitHub.', tone: null },
+};
+
+export function mergeControlState(pr: MyPr, attempt: MergeAttempt | undefined): MergeControlState {
+  if (pr.state !== 'OPEN') return HIDDEN_MERGE_CONTROL;
+  const currentAttempt = attempt?.head === pr.headRefOid ? attempt : undefined;
+  if (currentAttempt?.phase === 'pending') return { isVisible: true, isDisabled: true, statusText: 'Merging on GitHub', tone: 'busy' };
+  if (currentAttempt && currentAttempt.phase !== 'failed') return { isVisible: true, isDisabled: true, ...MERGE_KIND_STATUS[currentAttempt.phase] };
+  const blocker = myPrMergeBlocker(pr);
+  if (blocker) return { isVisible: true, isDisabled: true, statusText: blocker, tone: null };
+  if (currentAttempt?.phase === 'failed') return { isVisible: true, isDisabled: false, statusText: currentAttempt.text, tone: 'error' };
+  return { isVisible: true, isDisabled: false, statusText: `Merges into ${pr.baseRefName} with ${mergeMethodLabel(pr.mergeMethod)}`, tone: null };
+}
+
+export function mergeConfirmMessage(pr: MyPr): string {
+  return `Merge ${pr.key} "${pr.title}" into ${pr.baseRefName} with ${mergeMethodLabel(pr.mergeMethod)}, your default for this repository. Glimmervoid does not delete the branch.`;
+}
+
+export function parseMyPrMergeResult(message: unknown): (MyPrMergeResult & { requestId: string }) | null {
+  const parsed = MyPrMergeResult.safeParse(message);
+  if (!parsed.success) return null;
+  const requestId = message && typeof message === 'object' && 'requestId' in message ? message.requestId : null;
+  return typeof requestId === 'string' ? { ...parsed.data, requestId } : null;
 }

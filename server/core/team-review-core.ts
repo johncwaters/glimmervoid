@@ -186,6 +186,14 @@ function canPost(draft: ReviewDraft, clickedHead: string, currentHead: string, e
   return isPostableStatus(draft, event) && draft.reviewedHead === clickedHead && draft.reviewedHead === currentHead;
 }
 
+const HAND_APPROVAL_LINE = 'Approved by hand after checking the automated review.';
+
+function postedReviewBody(event: PostedReviewEvent, body: string): string {
+  if (event !== 'APPROVE' || body.includes(HAND_APPROVAL_LINE)) return body;
+  if (!body.trim()) return HAND_APPROVAL_LINE;
+  return `${HAND_APPROVAL_LINE}\n\n${body}`;
+}
+
 function eventForAction(action: string): PostedReviewEvent | null {
   if (action === 'approve') return 'APPROVE';
   if (action === 'comment') return 'COMMENT';
@@ -826,7 +834,7 @@ export {
   REVIEW_TIMEOUT_SECONDS, RESUME_TTL_MS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS,
   TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME,
   REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE,
-  buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, isPostableStatus, hasViewerReviewedAt, invalidComments, isSameGithubReviews, isSettledAtHead, shouldAutoReview, markDraftStale, restoreDraftAtReviewedHead,
+  buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, HAND_APPROVAL_LINE, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isSameGithubReviews, isSettledAtHead, shouldAutoReview, markDraftStale, restoreDraftAtReviewedHead,
   applyReviewProgress, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, priorReviewFor, readyDraft, repoFromSearchItem, resumeDecision, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr,
 };
 export type { CommentableFileLines, CommentableLines, ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSettings, TeamReviewSettingsSource };

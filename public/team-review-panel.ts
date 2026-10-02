@@ -1,4 +1,4 @@
-import { canApproveAfterComment, TeamReviewStatus } from '#shared/contracts/team-review.ts';
+import { TeamReviewStatus } from '#shared/contracts/team-review.ts';
 import type { DraftComment, FindingSeverity, InFlightReview, QueuedReview, ReviewComment, ReviewDraft, TeamReviewAction, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
 import { withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import { createAttentionAck } from './attention-ack-core.ts';
@@ -11,9 +11,9 @@ import { formatTrailOffset } from './radar-core.ts';
 import { createSettingsLink } from './settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
-  actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
-  commentLocation, emptyStateText, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
-  parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText,
+  actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
+  commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewFooterText,
   reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityCounts, severityPresentation, verdictLabel, verdictSealKind, verdictSealText, verdictTone, withReviewerNote,
 } from './team-review-view-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
@@ -298,7 +298,10 @@ function createDetailHeading(review: ReviewDraft | InFlightReview): HTMLElement 
 function refreshDetailHeading(detail: HTMLElement, draft: ReviewDraft): HTMLElement {
   const heading = detail.querySelector<HTMLElement>(':scope > .pr-detail-heading');
   if (!heading || heading.dataset.signature === detailHeadingSignature(draft)) return detail;
-  heading.replaceWith(createDetailHeading(draft));
+  const freshHeading = createDetailHeading(draft);
+  const more = heading.querySelector(':scope > .pr-detail-title > .pr-detail-more');
+  if (more) freshHeading.querySelector(':scope > .pr-detail-title')?.append(more);
+  heading.replaceWith(freshHeading);
   return detail;
 }
 
@@ -408,7 +411,9 @@ function createInlineComment(comment: DraftComment, index: number, includedIndex
   const parsed = parseReviewComment(comment.body);
   const severity = commentSeverity(comment);
   if (severity) header.append(createSeverityMeter(severity));
-  header.append(el('span', 'pr-comment-location', commentLocation(comment)));
+  const location = el('span', 'pr-comment-location', shortCommentLocation(comment));
+  location.title = commentLocation(comment);
+  header.append(location);
   header.append(el('span', 'pr-comment-preview', reviewCommentPreview(parsed.paragraphs)));
   content.append(header);
   const paragraphs = el('div', 'pr-comment-paragraphs');
@@ -419,8 +424,8 @@ function createInlineComment(comment: DraftComment, index: number, includedIndex
   return card;
 }
 
-const ACTION_LABELS: Readonly<Record<TeamReviewAction, string>> = { approve: 'Approve', comment: 'Comment', discard: 'Discard', requeue: 'Queue review' };
-const READY_ACTIONS: readonly TeamReviewAction[] = ['approve', 'comment', 'discard', 'requeue'];
+const MORE_ACTIONS_LABEL = 'More review actions';
+const MORE_ICON_PATH = 'M3 8h0.01M8 8h0.01M13 8h0.01';
 const FOLLOW_UP_APPROVAL_HINT = 'Your comments are on GitHub. Approve adds an approval without posting them again.';
 
 function sendAction(origin: DetailOrigin, draft: ReviewDraft, action: TeamReviewAction, body: string, comments: ReviewComment[], settle: (isDone: boolean, text: string) => void): boolean {
@@ -433,6 +438,85 @@ function sendAction(origin: DetailOrigin, draft: ReviewDraft, action: TeamReview
   }, ACTION_REPLY_TIMEOUT_MS);
   _pendingActions.set(draft.key, { requestId, action, origin, timer });
   return true;
+}
+
+let _moreMenuCount = 0;
+
+function createMoreActions(draft: ReviewDraft, actions: readonly TeamReviewAction[], runAction: (action: TeamReviewAction) => void): { element: HTMLElement; controls: HTMLButtonElement[] } {
+  const container = el('div', 'pr-detail-more');
+  const toggle = el('button', 'review-icon-button review-more-button');
+  toggle.type = 'button';
+  toggle.title = MORE_ACTIONS_LABEL;
+  toggle.setAttribute('aria-label', MORE_ACTIONS_LABEL);
+  toggle.setAttribute('aria-haspopup', 'menu');
+  toggle.setAttribute('aria-expanded', 'false');
+  const icon = svgIcon(16, 16);
+  icon.append(svgShape('path', { d: MORE_ICON_PATH, fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+  toggle.append(icon);
+  _moreMenuCount += 1;
+  const menu = el('div', 'review-more-menu');
+  menu.id = `pr-more-menu-${_moreMenuCount}`;
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', MORE_ACTIONS_LABEL);
+  menu.hidden = true;
+  toggle.setAttribute('aria-controls', menu.id);
+  const closeOnEscape = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    closeMenu();
+    toggle.focus();
+  };
+  const closeOnOutsidePointer = (event: PointerEvent) => {
+    if (event.target instanceof Node && container.contains(event.target)) return;
+    closeMenu();
+  };
+  function closeMenu(): void {
+    menu.hidden = true;
+    toggle.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('keydown', closeOnEscape);
+    document.removeEventListener('pointerdown', closeOnOutsidePointer);
+  }
+  const openMenu = () => {
+    menu.hidden = false;
+    toggle.setAttribute('aria-expanded', 'true');
+    document.addEventListener('keydown', closeOnEscape);
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+  };
+  toggle.addEventListener('click', () => {
+    if (menu.hidden) {
+      openMenu();
+      return;
+    }
+    closeMenu();
+  });
+  const controls: HTMLButtonElement[] = [toggle];
+  for (const action of actions) {
+    const item = el('button', action === 'discard' ? 'review-btn review-btn-danger' : 'review-btn', actionLabel(draft, action));
+    item.type = 'button';
+    item.dataset.action = action;
+    item.setAttribute('role', 'menuitem');
+    item.addEventListener('click', () => {
+      closeMenu();
+      runAction(action);
+    });
+    controls.push(item);
+    menu.append(item);
+  }
+  container.append(toggle, menu);
+  return { element: container, controls };
+}
+
+function createFooterButton(draft: ReviewDraft, action: TeamReviewAction, runAction: (action: TeamReviewAction) => void): HTMLButtonElement {
+  const button = el('button', 'pr-action', actionLabel(draft, action));
+  button.type = 'button';
+  button.dataset.action = action;
+  button.addEventListener('click', () => runAction(action));
+  return button;
+}
+
+function attachMoreActions(detail: HTMLElement, more: HTMLElement): void {
+  detail.querySelector(':scope > .pr-detail-heading > .pr-detail-title')?.append(more);
 }
 
 function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
@@ -469,7 +553,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   noteInput.placeholder = 'Posts above the automated-review note';
   noteDetails.append(noteInput);
 
-  const includedIndexes = new Set(draft.comments.map((_comment, index) => index));
+  const includedIndexes = new Set(draft.comments.flatMap((comment, index) => (isIncludedByDefault(comment) ? [index] : [])));
   const footer = el('footer', 'pr-footer');
   const status = el('span', 'pr-action-status', reviewFooterText(draft.reviewedHead, includedIndexes.size));
   status.setAttribute('role', 'status');
@@ -491,22 +575,21 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     status.dataset.tone = isDone ? 'ok' : 'error';
     status.textContent = text;
   };
-  for (const action of READY_ACTIONS) {
-    const button = el('button', 'pr-action', ACTION_LABELS[action]);
-    button.type = 'button';
-    button.dataset.action = action;
-    button.addEventListener('click', () => {
-      if (_pendingActions.has(draft.key)) return;
-      setBusy(true);
-      status.dataset.tone = 'busy';
-      status.textContent = actionProgressText(action);
-      const comments = draft.comments.filter((_comment, index) => includedIndexes.has(index));
-      if (sendAction('ready', draft, action, withReviewerNote(noteInput.value, bodyInput.value), comments, settle)) return;
-      settle(false, 'Not connected to the server.');
-    });
-    buttons.push(button);
-  }
-  footer.append(...buttons, status);
+  const runAction = (action: TeamReviewAction) => {
+    if (_pendingActions.has(draft.key)) return;
+    setBusy(true);
+    status.dataset.tone = 'busy';
+    status.textContent = actionProgressText(action);
+    const comments = draft.comments.filter((_comment, index) => includedIndexes.has(index));
+    if (sendAction('ready', draft, action, withReviewerNote(noteInput.value, bodyInput.value), comments, settle)) return;
+    settle(false, 'Not connected to the server.');
+  };
+  const layout = detailActionLayout(draft);
+  const footerButtons = layout.footer.map((action) => createFooterButton(draft, action, runAction));
+  const more = createMoreActions(draft, layout.more, runAction);
+  buttons.push(...footerButtons, ...more.controls);
+  attachMoreActions(detail, more.element);
+  footer.append(...footerButtons, status);
   detail.append(footer);
   return { signature: readyRowSignature(draft), element: detail, settle };
 }
@@ -571,32 +654,32 @@ function createOtherDetail(draft: ReviewDraft): HTMLElement {
   if (draft.status !== 'posted') detail.append(el('p', 'pr-attention-detail', attentionDetail(draft)));
   if (!hasRequeueFooter(draft.status)) return detail;
   const footer = el('footer', 'pr-footer');
-  const isApprovable = canApproveAfterComment(draft);
-  const status = el('span', 'pr-action-status', isApprovable ? FOLLOW_UP_APPROVAL_HINT : '');
+  const layout = detailActionLayout(draft);
+  const status = el('span', 'pr-action-status', layout.footer.includes('approve') ? FOLLOW_UP_APPROVAL_HINT : '');
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
-  const actions: readonly TeamReviewAction[] = isApprovable ? ['approve', 'requeue'] : ['requeue'];
   const buttons: HTMLButtonElement[] = [];
   const settle = (isDone: boolean, message: string) => {
     for (const button of buttons) button.disabled = isDone;
     status.dataset.tone = isDone ? 'ok' : 'error';
     status.textContent = message;
   };
-  for (const action of actions) {
-    const button = el('button', 'pr-action', ACTION_LABELS[action]);
-    button.type = 'button';
-    button.dataset.action = action;
-    button.addEventListener('click', () => {
-      if (_pendingActions.has(draft.key)) return;
-      for (const other of buttons) other.disabled = true;
-      status.dataset.tone = 'busy';
-      status.textContent = actionProgressText(action);
-      if (sendAction('other', draft, action, '', [], settle)) return;
-      settle(false, 'Not connected to the server.');
-    });
-    buttons.push(button);
+  const runAction = (action: TeamReviewAction) => {
+    if (_pendingActions.has(draft.key)) return;
+    for (const button of buttons) button.disabled = true;
+    status.dataset.tone = 'busy';
+    status.textContent = actionProgressText(action);
+    if (sendAction('other', draft, action, '', [], settle)) return;
+    settle(false, 'Not connected to the server.');
+  };
+  const footerButtons = layout.footer.map((action) => createFooterButton(draft, action, runAction));
+  buttons.push(...footerButtons);
+  if (layout.more.length > 0) {
+    const more = createMoreActions(draft, layout.more, runAction);
+    buttons.push(...more.controls);
+    attachMoreActions(detail, more.element);
   }
-  footer.append(...buttons, status);
+  footer.append(...footerButtons, status);
   detail.append(footer);
   _otherDetails.set(draft.key, { signature: otherDetailSignature(draft), element: detail, settle });
   return detail;

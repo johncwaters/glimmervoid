@@ -3,7 +3,10 @@ import { createAvatar, createReviewerStack, el, externalLink } from './dom-helpe
 import { formatAgo } from './poll-ago.ts';
 import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createStateGlyph } from './state-glyph.ts';
-import { chooseSelectedKey, emptyStateText, groupMyPrs, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
+import { sendControlMsg } from './control-ws.ts';
+import { openConfirmDialog } from './session-card/modal.ts';
+import { chooseSelectedKey, emptyStateText, groupMyPrs, mergeConfirmMessage, mergeControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
+import type { MergeAttempt } from './my-prs-view-core.ts';
 
 let root: HTMLDivElement | null = null;
 let scopeTabs: HTMLElement | null = null;
@@ -11,6 +14,50 @@ let queue: HTMLElement | null = null;
 let detail: HTMLElement | null = null;
 let latest: MyPrsStatus | null = null;
 let selectedKey: string | null = null;
+const mergeAttempts = new Map<string, MergeAttempt>();
+const pendingMergeRequests = new Map<string, { requestId: string; head: string; timer: number }>();
+const MERGE_REPLY_TIMEOUT_MS = 60000;
+const MERGE_NO_REPLY_TEXT = 'No reply from the server. Check GitHub before trying again.';
+
+function settleMerge(key: string, head: string, phase: MergeAttempt['phase'], text: string): void {
+  mergeAttempts.set(key, { head, phase, text });
+  render();
+}
+
+function sendMerge(pr: MyPr): void {
+  if (pendingMergeRequests.has(pr.key)) return;
+  const requestId = `my-pr-merge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const isSent = sendControlMsg({ type: 'my-pr-merge', requestId, repo: pr.repo, number: pr.number, headRefOid: pr.headRefOid });
+  if (!isSent) {
+    settleMerge(pr.key, pr.headRefOid, 'failed', 'Not connected to the server.');
+    return;
+  }
+  const timer = window.setTimeout(() => {
+    pendingMergeRequests.delete(pr.key);
+    settleMerge(pr.key, pr.headRefOid, 'failed', MERGE_NO_REPLY_TEXT);
+  }, MERGE_REPLY_TIMEOUT_MS);
+  pendingMergeRequests.set(pr.key, { requestId, head: pr.headRefOid, timer });
+  mergeAttempts.set(pr.key, { head: pr.headRefOid, phase: 'pending', text: '' });
+  render();
+}
+
+function createMergeControl(pr: MyPr): HTMLElement | null {
+  const state = mergeControlState(pr, mergeAttempts.get(pr.key));
+  if (!state.isVisible) return null;
+  const control = el('div', 'my-pr-merge');
+  const button = el('button', 'pr-action', 'Merge');
+  button.type = 'button';
+  button.disabled = state.isDisabled;
+  const status = el('span', 'pr-action-status', state.statusText);
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  if (state.tone) status.dataset.tone = state.tone;
+  button.addEventListener('click', () => {
+    openConfirmDialog({ title: 'Merge pull request', message: mergeConfirmMessage(pr), confirmLabel: 'Merge', onConfirm: () => sendMerge(pr) });
+  });
+  control.append(button, status);
+  return control;
+}
 
 function stageChip(pr: MyPr, { hasGlyph }: { hasGlyph: boolean }): HTMLElement {
   const chip = el('span', 'my-pr-stage');
@@ -73,6 +120,8 @@ function renderDetail(pr: MyPr | undefined): void {
       list.append(item);
     }
     section.append(list);
+    const mergeControl = createMergeControl(pr);
+    if (mergeControl) section.append(mergeControl);
     content.append(section);
   }
   if (pr.checks.failing.length > 0) {
@@ -186,4 +235,18 @@ export function applyMyPrsStatus(message: unknown): void {
   if (!parsed) return;
   latest = parsed;
   render();
+}
+
+export function applyMyPrMergeResult(message: unknown): void {
+  const mergeResult = parseMyPrMergeResult(message);
+  if (!mergeResult) return;
+  const pending = pendingMergeRequests.get(mergeResult.key);
+  if (!pending || pending.requestId !== mergeResult.requestId) return;
+  window.clearTimeout(pending.timer);
+  pendingMergeRequests.delete(mergeResult.key);
+  if (!mergeResult.ok) {
+    settleMerge(mergeResult.key, pending.head, 'failed', mergeResult.error || 'The merge failed.');
+    return;
+  }
+  settleMerge(mergeResult.key, pending.head, mergeResult.kind ?? 'unconfirmed', '');
 }

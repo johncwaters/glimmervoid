@@ -7,7 +7,7 @@ import path from 'node:path';
 import { isDispatchWorkdir } from '../server/core/ingest-agent-core.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
-import { AUTOMATED_REVIEW_NOTE, FULL_MODEL, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_POSTING_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_REPORT_FILENAME, STAMP_MODEL } from '../server/core/team-review-core.ts';
+import { AUTOMATED_REVIEW_NOTE, FULL_MODEL, HAND_APPROVAL_LINE, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_POSTING_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_REPORT_FILENAME, STAMP_MODEL } from '../server/core/team-review-core.ts';
 import type { ReviewProgressEvent, ReviewTier } from '../server/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/team-review-poller.ts';
 import type { DraftPatch, SpawnReviewArgs } from '../server/team-review-poller.ts';
@@ -1553,32 +1553,33 @@ function actionHarness(options: ActionHarnessOptions = {}) {
   };
 }
 
-test('approve posts an APPROVE review pinned to the reviewed head and marks the draft posted', async () => {
+test('approve posts one APPROVE review carrying the hand-approval line, the body and the inline comments at the reviewed head', async () => {
   const h = actionHarness();
   assert.deepEqual(await h.submit({ action: 'approve', body: 'Ship it', comments: [COMMENT_ON_ADDED_LINE] }), { ok: true });
   assert.deepEqual(h.posted, [{
-    repo: 'Acme/app', number: 7, commitId: HEAD, event: 'APPROVE', body: 'Ship it', comments: [COMMENT_ON_ADDED_LINE],
+    repo: 'Acme/app', number: 7, commitId: HEAD, event: 'APPROVE', body: `${HAND_APPROVAL_LINE}\n\nShip it`, comments: [COMMENT_ON_ADDED_LINE],
   }]);
   assert.equal(h.currentDraft().status, 'posted');
   assert.equal(h.currentDraft().postedEvent, 'APPROVE');
-  assert.equal(h.currentDraft().body, 'Ship it');
+  assert.equal(h.currentDraft().body, `${HAND_APPROVAL_LINE}\n\nShip it`);
   assert.deepEqual(h.currentDraft().comments, [COMMENT_ON_ADDED_LINE]);
   assert.deepEqual(h.dismissed, []);
 });
 
-test('comment posts a COMMENT review without re-reading the head afterwards', async () => {
+test('comment posts a COMMENT review with the body unchanged and without re-reading the head afterwards', async () => {
   const h = actionHarness();
   assert.equal((await h.submit({ action: 'comment', body: 'A few notes' })).ok, true);
   assert.equal(h.posted[0]?.event, 'COMMENT');
+  assert.equal(h.posted[0]?.body, 'A few notes');
   assert.equal(h.headLookups.length, 1);
 });
 
-test('approve after a posted comment review posts a bare APPROVE and keeps the posted comments', async () => {
+test('approve after a posted comment review posts an APPROVE with only the hand-approval line and keeps the posted comments', async () => {
   const h = actionHarness({ headReads: [HEAD, HEAD, HEAD] });
   assert.equal((await h.submit({ action: 'comment', body: 'Nits inline', comments: [COMMENT_ON_ADDED_LINE] })).ok, true);
   assert.equal(h.currentDraft().postedEvent, 'COMMENT');
   assert.deepEqual(await h.submit({ action: 'approve', body: '', comments: [] }), { ok: true });
-  assert.deepEqual(h.posted.map((review) => [review.event, review.body, review.comments.length]), [['COMMENT', 'Nits inline', 1], ['APPROVE', '', 0]]);
+  assert.deepEqual(h.posted.map((review) => [review.event, review.body, review.comments.length]), [['COMMENT', 'Nits inline', 1], ['APPROVE', HAND_APPROVAL_LINE, 0]]);
   assert.equal(h.currentDraft().status, 'posted');
   assert.equal(h.currentDraft().postedEvent, 'APPROVE');
   assert.equal(h.currentDraft().body, 'Nits inline');
