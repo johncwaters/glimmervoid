@@ -519,17 +519,24 @@ test('rebasePr sends a REBASE branch update pinned to the expected head and repo
   assert.equal(calls.length, 2);
 });
 
-test('behindBy validates repository, ref, and SHA before compare', async () => {
-  const calls: string[][] = [];
+test('behindCounts asks GitHub for every valid pull request in one aliased compare query', async () => {
+  const queries: string[] = [];
   const gh = createPrGh('/repo', async (_command, args) => {
-    calls.push(args);
-    return { ok: true, out: '343', err: '' };
+    queries.push(String(args[3]));
+    return { ok: true, out: JSON.stringify({ data: {
+      pr0: { pullRequest: { baseRef: { compare: { behindBy: 343 } } } },
+      pr1: { pullRequest: { baseRef: null } },
+    } }), err: '' };
   });
-  assert.equal(await gh.behindBy('Acme/app', 'main', HEAD_SHA), 343);
-  assert.deepEqual(calls, [['api', `repos/Acme/app/compare/main...${HEAD_SHA}`, '--jq', '.behind_by']]);
-  for (const [repo, base, sha] of [
-    ['Acme/app/extra', 'main', HEAD_SHA], ['Acme/app', '-main', HEAD_SHA],
-    ['Acme/app', 'main..other', HEAD_SHA], ['Acme/app', 'main branch', HEAD_SHA], ['Acme/app', 'main', 'bad'],
-  ]) assert.equal(await gh.behindBy(repo, base, sha), null);
-  assert.equal(calls.length, 1);
+  const counts = await gh.behindCounts([
+    { repo: 'Acme/app', number: 7, headSha: HEAD_SHA }, { repo: 'Acme/lib', number: 8, headSha: HEAD_SHA },
+    { repo: 'Acme/app/extra', number: 9, headSha: HEAD_SHA }, { repo: 'Acme/app', number: 10, headSha: 'bad' },
+  ]);
+  assert.deepEqual([...counts], [['Acme/app#7', 343]]);
+  assert.equal(queries.length, 1);
+  assert.match(queries[0] ?? '', /pr0: repository\(owner: "Acme", name: "app"\) \{ pullRequest\(number: 7\) \{ baseRef \{ compare\(headRef: "[0-9a-f]{40}"\) \{ behindBy \} \} \} \}/);
+  assert.match(queries[0] ?? '', /pr1: repository\(owner: "Acme", name: "lib"\)/);
+  assert.doesNotMatch(queries[0] ?? '', /number: (9|10)\)/);
+  assert.deepEqual([...await gh.behindCounts([])], []);
+  assert.equal(queries.length, 1);
 });

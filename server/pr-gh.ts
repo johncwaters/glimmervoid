@@ -57,6 +57,8 @@ interface PrReference {
   number: number;
 }
 
+type PrHeadReference = PrReference & { headSha: string };
+
 interface GithubIssueList {
   ok: boolean;
   issues: GithubIssueWithoutBody[];
@@ -71,7 +73,7 @@ interface GithubIssueDetail {
 
 interface PrGh {
   searchMyPrs(org: string, mergedSince: string): Promise<{ ok: boolean; items: MyPrSearchNodeType[]; totalCount: number; error: string }>;
-  behindBy(repo: string, base: string, headSha: string): Promise<number | null>;
+  behindCounts(prs: readonly PrHeadReference[]): Promise<Map<string, number>>;
   rebasePr(pullRequestId: string, expectedHeadSha: string): Promise<{ ok: boolean; err: string }>;
   reviewThreads(repo: string, number: number): Promise<MyPrThreadNodeType[]>;
   repoSlug(): Promise<string | null>;
@@ -113,7 +115,6 @@ function parseJson<T>(text: string, fallback: T): T {
 
 const HEX_LABEL_COLOR = /^[0-9a-f]{6}$/i;
 const GH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-const SAFE_REF = /^(?!-)(?!.*\.\.)(?!.*\s)[A-Za-z0-9_./-]+$/;
 const MERGED_SINCE_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MY_PRS_QUERY = `query($openQuery: String!, $mergedQuery: String!) {
   open: search(type: ISSUE, first: 50, query: $openQuery) { issueCount nodes { ...myPrFields } }
@@ -166,6 +167,9 @@ const GRAPHQL_REVIEW_REPOSITORY = z.object({
     }).passthrough(),
   }).passthrough().nullable(),
 }).passthrough().nullable();
+const GRAPHQL_BEHIND_REPOSITORY = z.object({
+  pullRequest: z.object({ baseRef: z.object({ compare: z.object({ behindBy: z.number().int().nonnegative() }).nullable() }).nullable() }).nullable(),
+});
 const GRAPHQL_RESPONSE = z.object({ data: z.record(z.string(), z.unknown()).nullable() }).passthrough();
 const PR_DIFF = z.string().refine((diff) => Buffer.byteLength(diff, 'utf8') <= PR_DIFF_MAX_BYTES);
 
@@ -187,6 +191,14 @@ function reviewSnapshotQuery(prs: readonly PrReference[]): string {
   const fields = prs.map((pr, index) => {
     const [owner, name] = repoParts(pr.repo) ?? ['', ''];
     return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { headRefOid latestReviews(first: ${LATEST_REVIEWS_PER_PR}) { nodes { author { login } state submittedAt commit { oid } } } } }`;
+  });
+  return `query { ${fields.join(' ')} }`;
+}
+
+function behindCountsQuery(prs: readonly PrHeadReference[]): string {
+  const fields = prs.map((pr, index) => {
+    const [owner, name] = repoParts(pr.repo) ?? ['', ''];
+    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { baseRef { compare(headRef: "${pr.headSha}") { behindBy } } } }`;
   });
   return `query { ${fields.join(' ')} }`;
 }
@@ -254,6 +266,17 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     }
   }
 
+  async function forEachAliasedPr<Pr extends PrReference>(prs: readonly Pr[], buildQuery: (batch: readonly Pr[]) => string, visit: (pr: Pr, aliasValue: unknown) => void): Promise<void> {
+    for (let index = 0; index < prs.length; index += REVIEW_SNAPSHOT_BATCH_SIZE) {
+      const batch = prs.slice(index, index + REVIEW_SNAPSHOT_BATCH_SIZE);
+      const response = await runGh(['api', 'graphql', '-f', `query=${buildQuery(batch)}`]);
+      const parsed = GRAPHQL_RESPONSE.safeParse(parseJson<unknown>(response.out, null));
+      const data = parsed.success ? parsed.data.data : null;
+      if (!data) continue;
+      batch.forEach((pr, position) => visit(pr, data[`pr${position}`]));
+    }
+  }
+
   async function searchPage(query: string, page: number): Promise<SearchedPrType[] | null> {
     const response = await runGh(['api', '-X', 'GET', 'search/issues', '-f', `q=${query}`, '-f', `per_page=${SEARCH_PAGE_SIZE}`, '-f', `page=${page}`]);
     if (!response.ok) return null;
@@ -311,12 +334,15 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       return threads;
     },
 
-    async behindBy(repo, base, headSha) {
-      const parts = repoParts(repo);
-      if (!parts || !SAFE_REF.test(base) || !CommitSha.safeParse(headSha).success) return null;
-      const response = await runGh(['api', `repos/${parts[0]}/${parts[1]}/compare/${base}...${headSha}`, '--jq', '.behind_by']);
-      if (!response.ok || !/^\d+$/.test(response.out)) return null;
-      return Number(response.out);
+    async behindCounts(prs) {
+      const counts = new Map<string, number>();
+      const validPrs = prs.filter((pr) => repoParts(pr.repo) && isPrNumber(pr.number) && CommitSha.safeParse(pr.headSha).success);
+      await forEachAliasedPr(validPrs, behindCountsQuery, (pr, repository) => {
+        const comparison = GRAPHQL_BEHIND_REPOSITORY.safeParse(repository);
+        const behindBy = comparison.success ? comparison.data.pullRequest?.baseRef?.compare?.behindBy : undefined;
+        if (behindBy !== undefined) counts.set(reviewSnapshotKey(pr.repo, pr.number), behindBy);
+      });
+      return counts;
     },
     async rebasePr(pullRequestId, expectedHeadSha) {
       if (!PR_NODE_ID.test(pullRequestId) || !CommitSha.safeParse(expectedHeadSha).success) return { ok: false, err: 'invalid pull request id or head' };
@@ -413,17 +439,10 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     async prReviewSnapshots(prs) {
       const snapshots = new Map<string, PrReviewSnapshot>();
       const validPrs = uniqueValidPrs(prs);
-      for (let index = 0; index < validPrs.length; index += REVIEW_SNAPSHOT_BATCH_SIZE) {
-        const batch = validPrs.slice(index, index + REVIEW_SNAPSHOT_BATCH_SIZE);
-        const response = await runGh(['api', 'graphql', '-f', `query=${reviewSnapshotQuery(batch)}`]);
-        const parsed = GRAPHQL_RESPONSE.safeParse(parseJson<unknown>(response.out, null));
-        const data = parsed.success ? parsed.data.data : null;
-        if (!data) continue;
-        batch.forEach((pr, position) => {
-          const snapshot = reviewSnapshotFrom(data[`pr${position}`]);
-          if (snapshot) snapshots.set(reviewSnapshotKey(pr.repo, pr.number), snapshot);
-        });
-      }
+      await forEachAliasedPr(validPrs, reviewSnapshotQuery, (pr, repository) => {
+        const snapshot = reviewSnapshotFrom(repository);
+        if (snapshot) snapshots.set(reviewSnapshotKey(pr.repo, pr.number), snapshot);
+      });
       return snapshots;
     },
 
@@ -463,4 +482,4 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
 }
 
 export { createPrGh, normalizeIssue };
-export type { CommandResult, GithubIssue, GithubIssueDetail, GithubIssueLabel, GithubIssueList, GithubIssueWithoutBody, PostedReview, PrGh, PrReference, PrReviewSnapshot, PrSearchResult };
+export type { CommandResult, GithubIssue, GithubIssueDetail, GithubIssueLabel, GithubIssueList, GithubIssueWithoutBody, PostedReview, PrGh, PrHeadReference, PrReference, PrReviewSnapshot, PrSearchResult };

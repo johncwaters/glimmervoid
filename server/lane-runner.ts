@@ -9,6 +9,11 @@ interface TickOutcome {
   retryAfterMs?: number;
 }
 
+interface SharedClock {
+  schedule(run: () => Promise<void>, intervalMs: number): () => void;
+  exclusive<T>(work: () => Promise<T>): Promise<T>;
+}
+
 interface TickLoopOptions {
   tag: string;
   intervalMs: number;
@@ -16,6 +21,7 @@ interface TickLoopOptions {
   writeState?: () => Promise<void> | void;
   setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
   clearIntervalFn?: (handle: NodeJS.Timeout) => void;
+  clock?: SharedClock;
   backoffBaseMs?: number;
   backoffMaxMs?: number;
   now?: () => number;
@@ -40,6 +46,7 @@ function createTickLoop({
   writeState = async () => {},
   setIntervalFn = (fn: () => void, ms: number) => setInterval(fn, ms),
   clearIntervalFn = clearInterval,
+  clock,
   backoffBaseMs = Math.max(intervalMs, DEFAULT_BASE_MS),
   backoffMaxMs = DEFAULT_MAX_MS,
   now = Date.now,
@@ -47,6 +54,7 @@ function createTickLoop({
   log = console,
 }: TickLoopOptions): TickLoop {
   let timer: NodeJS.Timeout | null = null;
+  let unschedule: (() => void) | null = null;
   let stopped = false;
   let tickRunning = false;
   let persistChain: Promise<void> = Promise.resolve();
@@ -74,7 +82,7 @@ function createTickLoop({
     if (shouldSkipTick({ now: now(), backoffUntil })) return;
     tickRunning = true;
     try {
-      const outcome = await tickBody();
+      const outcome = clock ? await clock.exclusive(() => (stopped ? Promise.resolve(null) : tickBody())) : await tickBody();
       if (!outcome || outcome.failed !== true) {
         failureStreak = 0;
         backoffUntil = 0;
@@ -99,6 +107,10 @@ function createTickLoop({
     stopped = false;
     if (prelude) await prelude();
     await tick();
+    if (clock) {
+      unschedule = clock.schedule(tick, intervalMs);
+      return;
+    }
     timer = setIntervalFn(() => { void tick(); }, intervalMs);
     if (timer && typeof timer.unref === 'function') timer.unref();
   }
@@ -109,6 +121,8 @@ function createTickLoop({
     failureStreak = 0;
     if (timer) clearIntervalFn(timer);
     timer = null;
+    unschedule?.();
+    unschedule = null;
     await Promise.allSettled([...running]);
     await persistChain;
   }
@@ -213,4 +227,4 @@ function createLaneRunner<Poller extends RestartablePoller>({
 }
 
 export { createLaneRunner, createTickLoop };
-export type { LaneRunner, LaneRunnerGate, LaneRunnerOptions, LaneStatusRecord, RestartablePoller, TickLoop, TickLoopOptions, TickOutcome };
+export type { LaneRunner, LaneRunnerGate, LaneRunnerOptions, LaneStatusRecord, RestartablePoller, SharedClock, TickLoop, TickLoopOptions, TickOutcome };

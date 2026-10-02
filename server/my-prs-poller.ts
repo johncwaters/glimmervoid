@@ -1,22 +1,24 @@
 import * as core from './core/my-prs-core.ts';
 import { createTickLoop } from './lane-runner.ts';
+import type { SharedClock } from './lane-runner.ts';
 import type { PrGh } from './pr-gh.ts';
 import type { MyPr, MyPrAutoRebase, MyPrsStatus } from '../shared/contracts/my-prs.ts';
 
 interface MyPrsPollerDependencies {
   org: string;
   shouldAutoRebase?: boolean;
-  github: Pick<PrGh, 'viewer' | 'searchMyPrs' | 'behindBy' | 'reviewThreads' | 'rebasePr'>;
+  github: Pick<PrGh, 'viewer' | 'searchMyPrs' | 'behindCounts' | 'reviewThreads' | 'rebasePr'>;
   onTickComplete: (status: MyPrsStatus) => void;
   now?: () => number;
   intervalMinutes?: number;
   setIntervalFn?: (callback: () => void, milliseconds: number) => NodeJS.Timeout;
   clearIntervalFn?: (handle: NodeJS.Timeout) => void;
+  clock?: SharedClock;
   log?: Pick<Console, 'warn'>;
 }
 
 export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
-  const { org, shouldAutoRebase = false, github, onTickComplete, now = Date.now, intervalMinutes = core.POLL_INTERVAL_MINUTES, setIntervalFn, clearIntervalFn, log } = dependencies;
+  const { org, shouldAutoRebase = false, github, onTickComplete, now = Date.now, intervalMinutes = core.POLL_INTERVAL_MINUTES, setIntervalFn, clearIntervalFn, clock, log } = dependencies;
   let viewer: string | null = null;
   let hasLookedUpViewer = false;
   let previousPrs: MyPr[] = [];
@@ -24,7 +26,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   const autoRebaseByKey = new Map<string, MyPrAutoRebase>();
   const failedAutoRebaseAttempts = new Set<string>();
   const loop = createTickLoop({
-    tag: core.MY_PRS_LANE_ID, intervalMs: intervalMinutes * 60000, setIntervalFn, clearIntervalFn, log,
+    tag: core.MY_PRS_LANE_ID, intervalMs: intervalMinutes * 60000, setIntervalFn, clearIntervalFn, clock, log,
     tick: async () => {
       if (!hasLookedUpViewer) {
         viewer = await github.viewer();
@@ -38,11 +40,13 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
         onTickComplete(core.myPrsStatus({ ts: timestamp, configured: true, viewer, prs: previousPrs, error: search.error, truncatedNote: previousTruncatedNote }));
         return { failed: true };
       }
+      const openPrs = search.items.filter((node) => node.state === 'OPEN').map((node) => ({ repo: node.repository.nameWithOwner, number: node.number, headSha: node.headRefOid }));
+      const behindCounts = openPrs.length > 0 ? await github.behindCounts(openPrs) : new Map<string, number>();
+      if (loop.isStopped()) return { failed: false };
       const prs: MyPr[] = [];
       for (const node of search.items) {
-        const behindBy = node.state === 'OPEN' ? await github.behindBy(node.repository.nameWithOwner, node.baseRefName, node.headRefOid) : null;
-        if (loop.isStopped()) return { failed: false };
         const key = `${node.repository.nameWithOwner}#${node.number}`;
+        const behindBy = node.state === 'OPEN' ? behindCounts.get(key) ?? null : null;
         const isFailedRecordForAnotherHead = autoRebaseByKey.get(key)?.outcome === 'failed' && !failedAutoRebaseAttempts.has(core.autoRebaseAttemptKey(node));
         if (isFailedRecordForAnotherHead) autoRebaseByKey.delete(key);
         if (shouldAutoRebase && core.shouldAutoRebase(node, behindBy, failedAutoRebaseAttempts)) {

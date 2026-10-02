@@ -16,7 +16,7 @@ import {
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 import { createJsonStateStore } from './json-file.ts';
 import { createLaneRunner } from './lane-runner.ts';
-import type { LaneRunnerGate, LaneStatusRecord } from './lane-runner.ts';
+import type { LaneRunnerGate, LaneStatusRecord, SharedClock } from './lane-runner.ts';
 import { createPrGh } from './pr-gh.ts';
 import type { PrGh } from './pr-gh.ts';
 import { createRepoCache } from './repo-cache.ts';
@@ -150,6 +150,7 @@ interface TeamReviewWiringOptions {
   spawnSession?: TeamReviewSpawn;
   createPoller?: typeof createTeamReviewPoller;
   reapProcesses?: TeamReviewReap;
+  clock?: SharedClock;
 }
 
 type TeamReviewActionOutcome = Omit<TeamReviewActionResult, 'key'>;
@@ -840,6 +841,7 @@ function createTeamReviewWiring({
   }),
   createPoller = createTeamReviewPoller,
   reapProcesses = reapTeamReviewProcesses,
+  clock,
 }: TeamReviewWiringOptions) {
   const stateIo = createTeamReviewStateIo(path.join(homeDir, core.TEAM_REVIEW_STATE_FILENAME), log);
   const worktreeRoot = path.join(homeDir, 'team-review-worktrees');
@@ -893,6 +895,7 @@ function createTeamReviewWiring({
         writeState: stateIo.writeState,
         log,
         onTickComplete,
+        clock,
       });
     },
   });

@@ -17,6 +17,8 @@ import { createSpawnGate } from './spawn-gate.ts';
 import type { Telemetry } from './telemetry.ts';
 import { createTeamReviewWiring } from './team-review-wiring.ts';
 import { createMyPrsWiring } from './my-prs-wiring.ts';
+import { createGithubClock } from './github-clock.ts';
+import { GITHUB_CLOCK_INTERVAL_MINUTES } from './core/github-clock-core.ts';
 import { createUsageWiring, resolveUsageConfig } from './usage-wiring.ts';
 import { createLaneLedger } from './usage-lane-ledger.ts';
 import { createTraceWiring } from './trace-wiring.ts';
@@ -118,6 +120,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     gitWorkspace,
     broadcast: broadcastControl,
   });
+  const githubClock = createGithubClock({ baseIntervalMs: GITHUB_CLOCK_INTERVAL_MINUTES * 60000, log: logger });
   const teamReview = createTeamReviewWiring({
     config,
     reviewSessions,
@@ -129,8 +132,9 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     gitWorkspace,
     broadcast: broadcastControl,
     log: logger,
+    clock: githubClock,
   });
-  const myPrs = createMyPrsWiring({ config, broadcast: broadcastControl, log: logger });
+  const myPrs = createMyPrsWiring({ config, broadcast: broadcastControl, log: logger, clock: githubClock });
 
   let ingestConfig = resolveIngestConfig(config.ingest);
   let visionsConfig = resolveVisionsConfig(config.visions);

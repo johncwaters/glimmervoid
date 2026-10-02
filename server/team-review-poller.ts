@@ -2,7 +2,7 @@ import * as core from './core/team-review-core.ts';
 import type { ReviewProgressEvent, ReviewTier, TeamReviewCandidate } from './core/team-review-core.ts';
 import { firstLine } from './ephemeral-session.ts';
 import { createTickLoop } from './lane-runner.ts';
-import type { TickOutcome } from './lane-runner.ts';
+import type { SharedClock, TickOutcome } from './lane-runner.ts';
 import type { PrReference, PrReviewSnapshot, PrSearchResult } from './pr-gh.ts';
 import { ReviewDraft } from '../shared/contracts/team-review.ts';
 import type {
@@ -50,6 +50,7 @@ interface TeamReviewPollerDependencies {
   beforeStart?: (keepPaths: ReadonlySet<string>) => Promise<void>;
   setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
   clearIntervalFn?: (handle: NodeJS.Timeout) => void;
+  clock?: SharedClock;
   setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
   clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
   log?: Pick<Console, 'warn'>;
@@ -89,7 +90,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
 
   const loop = createTickLoop({
     tag: core.TEAM_REVIEW_LANE_ID, intervalMs: (deps.intervalMinutes ?? core.POLL_INTERVAL_MINUTES) * 60000,
-    tick: () => runTick(), writeState: () => writeState(state), setIntervalFn, clearIntervalFn, log,
+    tick: () => runTick(), writeState: () => writeState(state), setIntervalFn, clearIntervalFn, clock: deps.clock, log,
   });
   const persist = () => loop.persist();
 

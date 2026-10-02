@@ -3,6 +3,7 @@ import type { MyPrsStatus as MyPrsStatusType } from '../shared/contracts/my-prs.
 import { glimmervoidHomeDir } from './config-store.ts';
 import * as core from './core/my-prs-core.ts';
 import { createLaneRunner } from './lane-runner.ts';
+import type { SharedClock } from './lane-runner.ts';
 import { createMyPrsPoller } from './my-prs-poller.ts';
 import { createPrGh } from './pr-gh.ts';
 import { readTeamReviewSettings } from './core/team-review-core.ts';
@@ -17,9 +18,10 @@ interface MyPrsWiringOptions {
   log?: Pick<Console, 'warn'>;
   github?: MyPrsPollerDependencies['github'];
   createPoller?: (dependencies: MyPrsPollerDependencies) => MyPrsPoller;
+  clock?: SharedClock;
 }
 
-export function createMyPrsWiring({ config, broadcast, log = console, github = createPrGh(glimmervoidHomeDir()), createPoller = createMyPrsPoller }: MyPrsWiringOptions) {
+export function createMyPrsWiring({ config, broadcast, log = console, github = createPrGh(glimmervoidHomeDir()), createPoller = createMyPrsPoller, clock }: MyPrsWiringOptions) {
   const settings = () => readTeamReviewSettings(config);
   const gate = () => core.myPrsShouldStart(settings());
   const emptyStatus = () => {
@@ -36,7 +38,7 @@ export function createMyPrsWiring({ config, broadcast, log = console, github = c
       if (parsed.success) broadcast(parsed.data);
     },
     createPoller: ({ onTickComplete }) => createPoller({
-      org: settings().org, shouldAutoRebase: settings().autoRebaseMyPrs, github, log, onTickComplete,
+      org: settings().org, shouldAutoRebase: settings().autoRebaseMyPrs, github, log, onTickComplete, clock,
     }),
   });
   function getStatus(): MyPrsStatusType {

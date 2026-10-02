@@ -29,9 +29,9 @@ test('polls viewer once, compares open PRs sequentially, and keeps the last repo
         if (shouldFail) return { ok: false, items: [], totalCount: 0, error: 'offline' };
         return { ok: true, items: [node('OPEN'), node('MERGED')], totalCount: 2, error: '' };
       },
-      async behindBy(repo, base, headSha) {
-        calls.push(`compare:${repo}:${base}:${headSha}`);
-        return 3;
+      async behindCounts(prs) {
+        calls.push(`compare:${prs.map((pr) => `${pr.repo}#${pr.number}@${pr.headSha}`).join(',')}`);
+        return new Map(prs.map((pr) => [`${pr.repo}#${pr.number}`, 3]));
       },
       async reviewThreads(repo, number) {
         calls.push(`threads:${repo}#${number}`);
@@ -41,7 +41,7 @@ test('polls viewer once, compares open PRs sequentially, and keeps the last repo
     },
   });
   await poller.start();
-  assert.deepEqual(calls, ['viewer', 'search:Acme:2026-09-27', `compare:Acme/app:main:${'a'.repeat(40)}`]);
+  assert.deepEqual(calls, ['viewer', 'search:Acme:2026-09-27', `compare:Acme/app#1@${'a'.repeat(40)}`]);
   assert.equal(statuses[0].viewer, 'alice');
   assert.equal(statuses[0].truncatedNote, null);
   assert.deepEqual(statuses[0].prs.map((pr) => [pr.number, pr.behindBy]), [[1, 3], [2, null]]);
@@ -55,7 +55,7 @@ test('polls viewer once, compares open PRs sequentially, and keeps the last repo
 
 test('a stop during an in-flight tick emits no status afterward', async () => {
   const statuses: MyPrsStatus[] = [];
-  let releaseCompare: (behindBy: number) => void = () => {};
+  let releaseCompare: (counts: Map<string, number>) => void = () => {};
   let signalCompareStarted: () => void = () => {};
   const compareStarted = new Promise<void>((resolve) => { signalCompareStarted = resolve; });
   const poller = createMyPrsPoller({
@@ -65,9 +65,9 @@ test('a stop during an in-flight tick emits no status afterward', async () => {
     github: {
       async viewer() { return 'alice'; },
       async searchMyPrs() { return { ok: true, items: [node('OPEN')], totalCount: 1, error: '' }; },
-      behindBy() {
+      behindCounts() {
         signalCompareStarted();
-        return new Promise<number>((resolve) => { releaseCompare = resolve; });
+        return new Promise<Map<string, number>>((resolve) => { releaseCompare = resolve; });
       },
       async reviewThreads() { return []; },
       async rebasePr() { return { ok: true, err: '' }; },
@@ -76,7 +76,7 @@ test('a stop during an in-flight tick emits no status afterward', async () => {
   const started = poller.start();
   await compareStarted;
   await poller.stop();
-  releaseCompare(3);
+  releaseCompare(new Map([['Acme/app#1', 3]]));
   await started;
   assert.deepEqual(statuses, []);
 });
@@ -94,7 +94,7 @@ test('a search cut short reports a truncation note that survives a failed refres
         if (shouldFail) return { ok: false, items: [], totalCount: 0, error: 'offline' };
         return { ok: true, items: [node('OPEN'), node('MERGED')], totalCount: 73, error: '' };
       },
-      async behindBy() { return 0; },
+      async behindCounts(prs) { return new Map(prs.map((pr) => [`${pr.repo}#${pr.number}`, 0])); },
       async reviewThreads() { return []; },
       async rebasePr() { return { ok: true, err: '' }; },
     },
@@ -120,7 +120,7 @@ test('fetches thread detail only for open pull requests with unresolved threads'
     github: {
       async viewer() { return 'alice'; },
       async searchMyPrs() { return { ok: true, items: [openWithThread, openResolved, mergedWithThread], totalCount: 3, error: '' }; },
-      async behindBy() { return 0; },
+      async behindCounts(prs) { return new Map(prs.map((pr) => [`${pr.repo}#${pr.number}`, 0])); },
       async rebasePr() { return { ok: true, err: '' }; },
       async reviewThreads(repo, number) {
         threadRequests.push(`${repo}#${number}`);
@@ -149,7 +149,7 @@ function autoRebaseHarness({ shouldAutoRebase, rebaseResult }: { shouldAutoRebas
     github: {
       async viewer() { return 'alice'; },
       async searchMyPrs() { return { ok: true, items: [node('OPEN'), node('MERGED')], totalCount: 2, error: '' }; },
-      async behindBy() { return 4; },
+      async behindCounts(prs) { return new Map(prs.map((pr) => [`${pr.repo}#${pr.number}`, 4])); },
       async reviewThreads() { return []; },
       async rebasePr(pullRequestId, expectedHeadSha) {
         rebases.push(`${pullRequestId}@${expectedHeadSha}`);
@@ -191,7 +191,7 @@ test('a failed auto-rebase record is dropped once a new head no longer needs a r
     github: {
       async viewer() { return 'alice'; },
       async searchMyPrs() { return { ok: true, items: [{ ...node('OPEN'), headRefOid: currentHead }], totalCount: 1, error: '' }; },
-      async behindBy(_repo, _base, head) { return head === 'a'.repeat(40) ? 4 : 0; },
+      async behindCounts(prs) { return new Map(prs.map((pr) => [`${pr.repo}#${pr.number}`, pr.headSha === 'a'.repeat(40) ? 4 : 0])); },
       async reviewThreads() { return []; },
       async rebasePr() { return { ok: false, err: 'gh: Protected branch update failed' }; },
     },
