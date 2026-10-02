@@ -19,7 +19,7 @@ test('polls viewer once, compares open PRs sequentially, and keeps the last repo
   const statuses: MyPrsStatus[] = [];
   let shouldFail = false;
   const poller = createMyPrsPoller({
-    org: 'Acme', now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => statuses.push(status),
+    org: 'Acme', now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => { if (!status.isRefreshing) statuses.push(status); },
     setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
     log: { warn() {} },
     github: {
@@ -60,7 +60,7 @@ test('a stop during an in-flight tick emits no status afterward', async () => {
   let signalCompareStarted: () => void = () => {};
   const compareStarted = new Promise<void>((resolve) => { signalCompareStarted = resolve; });
   const poller = createMyPrsPoller({
-    org: 'Acme', now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => statuses.push(status),
+    org: 'Acme', now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => { if (!status.isRefreshing) statuses.push(status); },
     setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
     log: { warn() {} },
     github: {
@@ -87,7 +87,7 @@ test('a search cut short reports a truncation note that survives a failed refres
   const statuses: MyPrsStatus[] = [];
   let shouldFail = false;
   const poller = createMyPrsPoller({
-    org: 'Acme', now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => statuses.push(status),
+    org: 'Acme', now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => { if (!status.isRefreshing) statuses.push(status); },
     setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
     log: { warn() {} },
     github: {
@@ -117,7 +117,7 @@ test('fetches thread detail only for open pull requests with unresolved threads'
   const openResolved = { ...node('OPEN'), number: 3, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [{ isResolved: true }] } };
   const mergedWithThread = { ...node('MERGED'), reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [{ isResolved: false }] } };
   const poller = createMyPrsPoller({
-    org: 'Acme', now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => statuses.push(status),
+    org: 'Acme', now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => { if (!status.isRefreshing) statuses.push(status); },
     setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
     log: { warn() {} },
     github: {
@@ -147,7 +147,7 @@ function autoRebaseHarness({ shouldAutoRebase, rebaseResult }: { shouldAutoRebas
   const rebases: string[] = [];
   const statuses: MyPrsStatus[] = [];
   const poller = createMyPrsPoller({
-    org: 'Acme', shouldAutoRebase, now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => statuses.push(status),
+    org: 'Acme', shouldAutoRebase, now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => { if (!status.isRefreshing) statuses.push(status); },
     setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
     log: { warn() {} },
     github: {
@@ -190,7 +190,7 @@ test('a failed auto-rebase record is dropped once a new head no longer needs a r
   const statuses: MyPrsStatus[] = [];
   let currentHead = 'a'.repeat(40);
   const poller = createMyPrsPoller({
-    org: 'Acme', shouldAutoRebase: true, now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => statuses.push(status),
+    org: 'Acme', shouldAutoRebase: true, now: () => NOW, intervalMinutes: 1, onTickComplete: (status) => { if (!status.isRefreshing) statuses.push(status); },
     setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
     log: { warn() {} },
     github: {
@@ -254,5 +254,90 @@ test('a reported wait of a full hour backs off for the whole GitHub rate-limit w
   });
   await poller.start();
   assert.ok(warnings.some((message) => /backing off 3600s/.test(message)), warnings.join('\n'));
+  await poller.stop();
+});
+
+test('a rejected viewer lookup publishes its error and schedule, then manual refresh recovers', async () => {
+  const statuses: MyPrsStatus[] = [];
+  let viewerCalls = 0;
+  let searchCalls = 0;
+  const poller = createMyPrsPoller({
+    org: 'Acme', now: () => NOW, onTickComplete: (status) => statuses.push(status),
+    log: { warn() {} },
+    github: {
+      viewer: async () => {
+        viewerCalls += 1;
+        if (viewerCalls === 1) throw new Error('error connecting to api.github.com');
+        return 'alice';
+      },
+      searchMyPrs: async () => { searchCalls += 1; return { ok: true, items: [node('OPEN')], totalCount: 1, error: '' }; },
+      behindCounts: async () => new Map(), reviewThreadsBatch: async () => new Map(),
+      rebasePr: async () => ({ ok: true, err: '' }), rateLimitWaitMs: async () => null,
+    },
+  });
+  await poller.tick();
+  assert.equal(searchCalls, 0);
+  assert.equal(statuses[0]?.isRefreshing, true);
+  assert.equal(statuses.at(-1)?.error, 'error connecting to api.github.com');
+  assert.equal(statuses.at(-1)?.nextAttemptAt, NOW + 10_000);
+  assert.deepEqual(statuses.at(-1)?.retry, { attempt: 1, limit: 3 });
+  assert.equal((await poller.refresh()).ok, true);
+  assert.equal(viewerCalls, 2);
+  assert.equal(statuses.at(-1)?.error, null);
+  assert.equal(statuses.at(-1)?.nextAttemptAt, null);
+  assert.equal(statuses.at(-1)?.retry, null);
+  assert.equal(statuses.at(-1)?.prs.length, 1);
+  await poller.stop();
+});
+
+function viewerLookupGithub(viewerLogins: (string | null)[], searchError = '') {
+  const calls = { viewer: 0, search: 0 };
+  const github = {
+    viewer: async () => { calls.viewer += 1; return viewerLogins.shift() ?? null; },
+    searchMyPrs: async () => {
+      calls.search += 1;
+      if (searchError) return { ok: false as const, items: [], totalCount: 0, error: searchError };
+      return { ok: true as const, items: [node('OPEN')], totalCount: 1, error: '' };
+    },
+    behindCounts: async () => new Map<string, number>(), reviewThreadsBatch: async () => new Map(),
+    rebasePr: async () => ({ ok: true, err: '' }), rateLimitWaitMs: async () => null,
+  };
+  return { calls, github };
+}
+
+test('a viewer lookup that resolves to nothing reports an error and is looked up again on refresh', async () => {
+  const statuses: MyPrsStatus[] = [];
+  const { calls, github } = viewerLookupGithub([null, 'alice']);
+  const poller = createMyPrsPoller({ org: 'Acme', now: () => NOW, onTickComplete: (status) => statuses.push(status), log: { warn() {} }, github });
+  await poller.tick();
+  assert.equal(calls.search, 0);
+  assert.equal(statuses.at(-1)?.error, 'Could not look up your GitHub account.');
+  assert.deepEqual(statuses.at(-1)?.retry, { attempt: 1, limit: 3 });
+  assert.equal((await poller.refresh()).ok, true);
+  assert.equal(calls.viewer, 2);
+  assert.equal(statuses.at(-1)?.viewer, 'alice');
+  assert.equal(statuses.at(-1)?.error, null);
+  await poller.stop();
+});
+
+test('a viewer lookup that resolves to a login is not repeated on later ticks', async () => {
+  const { calls, github } = viewerLookupGithub(['alice']);
+  const poller = createMyPrsPoller({ org: 'Acme', now: () => NOW, onTickComplete: () => {}, log: { warn() {} }, github });
+  await poller.tick();
+  assert.equal((await poller.refresh()).ok, true);
+  assert.equal(calls.viewer, 1);
+  assert.equal(calls.search, 2);
+  await poller.stop();
+});
+
+test('a GitHub secondary rate limit on search waits a minute with no quick retries and refuses refresh', async () => {
+  const statuses: MyPrsStatus[] = [];
+  const { calls, github } = viewerLookupGithub(['alice'], 'HTTP 403: You have exceeded a secondary rate limit. Please wait a few minutes before you try again.');
+  const poller = createMyPrsPoller({ org: 'Acme', now: () => NOW, onTickComplete: (status) => statuses.push(status), log: { warn() {} }, github });
+  await poller.tick();
+  assert.equal(statuses.at(-1)?.retry, null);
+  assert.equal(statuses.at(-1)?.nextAttemptAt, NOW + 60_000);
+  assert.equal((await poller.refresh()).ok, false);
+  assert.equal(calls.search, 1);
   await poller.stop();
 });

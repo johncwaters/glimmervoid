@@ -910,6 +910,12 @@ function createTeamReviewWiring({
     return parsed.success ? parsed.data : emptyTeamReviewStatus(teamReviewShouldStart(config));
   }
 
+  async function refresh() {
+    const poller = runner.getPoller();
+    if (!poller) return { ok: false, error: 'Reviews polling is not running.' };
+    return poller.refresh();
+  }
+
   async function stopPoller(): Promise<void> {
     shutdownController.abort();
     await Promise.allSettled([drainPending(Promise.allSettled([...inFlightReviews])), runner.stopPoller()]);
@@ -955,6 +961,7 @@ function createTeamReviewWiring({
     stopPoller,
     restartIfConfigChanged: runner.restartIfConfigChanged,
     getStatus,
+    refresh,
     isRunning,
     submitAction: actions.submitAction,
   };

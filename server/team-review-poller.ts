@@ -1,5 +1,6 @@
 import * as core from './core/team-review-core.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
+import { secondaryRateLimitWaitMs } from './core/lane-backoff.ts';
 import type { ReviewProgressEvent, ReviewTier, TeamReviewCandidate } from './core/team-review-core.ts';
 import { firstLine } from './ephemeral-session.ts';
 import { createTickLoop } from './lane-runner.ts';
@@ -92,10 +93,22 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   let lastEmitAt = Number.NEGATIVE_INFINITY;
   let pendingProgressEmit: NodeJS.Timeout | null = null;
   let hasSlotFreedSinceSlotCount = false;
+  let pollingError: string | null = null;
 
   const loop = createTickLoop({
     tag: core.TEAM_REVIEW_LANE_ID, intervalMs: (deps.intervalMinutes ?? core.POLL_INTERVAL_MINUTES) * 60000,
-    tick: () => runTick(), writeState: () => writeState(state), setIntervalFn, clearIntervalFn, clock: deps.clock, firstTickDelayMs: deps.firstTickDelayMs, backoffMaxMs: GITHUB_RATE_LIMIT_WINDOW_MS, log,
+    tick: async () => {
+      try {
+        return await runTick();
+      } catch (error: unknown) {
+        pollingError = errorMessage(error);
+        log.warn(`[${core.TEAM_REVIEW_LANE_ID}] poll failed: ${pollingError}`);
+        return rateLimitedOutcome();
+      }
+    },
+    quickRetries: true, now, setTimeoutFn, clearTimeoutFn, onScheduleChange: emitStatus,
+    rateLimitWaitMs: () => github.rateLimitWaitMs(now(), TEAM_REVIEW_RATE_LIMIT_RESOURCES),
+    writeState: () => writeState(state), setIntervalFn, clearIntervalFn, clock: deps.clock, firstTickDelayMs: deps.firstTickDelayMs, backoffMaxMs: GITHUB_RATE_LIMIT_WINDOW_MS, log,
   });
   const persist = () => loop.persist();
 
@@ -119,10 +132,10 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   function emitStatus(): void {
     cancelPendingProgressEmit();
     lastEmitAt = now();
-    onTickComplete(core.teamReviewStatus({
+    onTickComplete({ ...core.teamReviewStatus({
       ts: now(), configured: true, team: teamProfile, drafts: core.draftsNewestFirst(state), inFlight: inFlightReviews(),
       queued: waitingForSlot.filter((candidate) => !state[candidate.key]?.inFlight),
-    }));
+    }), error: pollingError, ...loop.scheduleStatus() });
   }
 
   function progressReporter(key: string): (event: ReviewProgressEvent) => void {
@@ -317,30 +330,31 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   }
 
   async function rateLimitedOutcome(): Promise<TickOutcome> {
-    const rateLimitWaitMs = await github.rateLimitWaitMs(now(), TEAM_REVIEW_RATE_LIMIT_RESOURCES);
+    const rateLimitWaitMs = await github.rateLimitWaitMs(now(), TEAM_REVIEW_RATE_LIMIT_RESOURCES) ?? secondaryRateLimitWaitMs(pollingError);
     return rateLimitWaitMs === null ? { failed: true } : { failed: true, retryAfterMs: rateLimitWaitMs };
   }
 
   async function runTick(): Promise<TickOutcome | undefined> {
+    pollingError = null;
     const collected = await collectCandidates().catch((error: unknown) => {
-      log.warn(`[${core.TEAM_REVIEW_LANE_ID}] candidate search failed: ${errorMessage(error)}`);
+      pollingError = errorMessage(error);
+      log.warn(`[${core.TEAM_REVIEW_LANE_ID}] candidate search failed: ${pollingError}`);
       return null;
     });
     if (collected === null) {
-      emitStatus();
+      pollingError ??= 'Could not look up your GitHub account or team members.';
       return rateLimitedOutcome();
     }
     const { candidates, isComplete } = collected;
     const rateLimitWaitMs = isComplete ? null : await github.rateLimitWaitMs(now(), TEAM_REVIEW_RATE_LIMIT_RESOURCES);
     if (rateLimitWaitMs !== null) {
-      emitStatus();
+      pollingError = 'GitHub rate limit asks to wait.';
       return { failed: true, retryAfterMs: rateLimitWaitMs };
     }
     const isPruned = isComplete ? await pruneDeparted(new Set(candidates.map((candidate) => candidate.key))) : false;
     const planned = await headsToReview(candidates);
     const isStarted = await startReviews(planned.queue);
     if (isPruned || planned.isDirty || isStarted) await persist();
-    emitStatus();
     if (hasSlotFreedSinceSlotCount && waitingForSlot.length > 0 && !loop.isStopped()) {
       setTimeoutFn(() => { void loop.tick(); }, 0);
     }
@@ -405,7 +419,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     cancelPendingProgressEmit();
   }
 
-  return { start, stop, tick: loop.tick, getDraft, updateDraft, requeue, _state: () => state };
+  return { start, stop, tick: loop.tick, refresh: loop.refresh, getDraft, updateDraft, requeue, _state: () => state };
 }
 
 type TeamReviewPoller = ReturnType<typeof createTeamReviewPoller>;

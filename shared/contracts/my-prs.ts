@@ -1,3 +1,4 @@
+import { reviewsPollingShape } from './reviews.ts';
 import { z } from 'zod';
 import { CommitSha } from './team-review.ts';
 
@@ -36,8 +37,9 @@ export const MyPr = z.object({
 export type MyPr = z.infer<typeof MyPr>;
 
 export const MyPrsStatus = z.object({
+  ...reviewsPollingShape,
   type: z.literal('my-prs-status'), ts: z.number().finite(), configured: z.boolean(), reason: z.string().nullable().optional(),
-  viewer: z.string().nullable(), prs: z.array(MyPr), error: z.string().nullable().optional(), truncatedNote: z.string().nullable().optional(),
+  viewer: z.string().nullable(), prs: z.array(MyPr), truncatedNote: z.string().nullable().optional(),
 }).passthrough();
 export type MyPrsStatus = z.infer<typeof MyPrsStatus>;
 

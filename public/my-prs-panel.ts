@@ -1,9 +1,12 @@
+import { hasReviewsCountdown, reviewsErrorNotice, reviewsRefreshText } from './reviews-retry-core.ts';
+import type { ReviewsPollingStatus } from './reviews-retry-core.ts';
+import type { ReviewsRefreshRequest } from '#shared/contracts/reviews.ts';
 import type { MyPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
-import { createAvatar, createReviewerStack, el, externalLink } from './dom-helpers.ts';
+import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } from './dom-helpers.ts';
 import { formatAgo } from './poll-ago.ts';
 import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createStateGlyph } from './state-glyph.ts';
-import { sendControlMsg } from './control-ws.ts';
+import { sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { chooseSelectedKey, emptyStateText, groupMyPrs, mergeConfirmMessage, mergeControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
 import type { MergeAttempt } from './my-prs-view-core.ts';
@@ -14,10 +17,66 @@ let queue: HTMLElement | null = null;
 let detail: HTMLElement | null = null;
 let latest: MyPrsStatus | null = null;
 let selectedKey: string | null = null;
+let pollingControls: ReturnType<typeof createReviewsPollingControls> | null = null;
 const mergeAttempts = new Map<string, MergeAttempt>();
 const pendingMergeRequests = new Map<string, { requestId: string; head: string; timer: number }>();
 const MERGE_REPLY_TIMEOUT_MS = 60000;
 const MERGE_NO_REPLY_TEXT = 'No reply from the server. Check GitHub before trying again.';
+
+export function createReviewsPollingControls(lane: ReviewsRefreshRequest['lane'], panel: HTMLElement) {
+  const control = el('div', 'reviews-refresh-control');
+  const button = el('button', 'pr-action reviews-refresh-button', 'Refresh');
+  button.type = 'button';
+  const progress = el('span', 'reviews-refresh-status');
+  progress.setAttribute('role', 'status');
+  const notice = el('p', 'my-pr-error reviews-retry-notice');
+  control.append(button, progress);
+  let currentStatus: ReviewsPollingStatus | null = null;
+  let isPending = false;
+  let outcomeText = '';
+  let countdownTimer: number | null = null;
+
+  function updateCountdown(): void {
+    notice.textContent = reviewsErrorNotice(currentStatus, Date.now());
+    if (notice.hidden !== !currentStatus?.error) notice.hidden = !currentStatus?.error;
+    const shouldTick = notice.isConnected && !isPanelHidden(panel) && !document.hidden && notice.getClientRects().length > 0 && hasReviewsCountdown(currentStatus, Date.now());
+    if (!shouldTick && countdownTimer !== null) {
+      window.clearInterval(countdownTimer);
+      countdownTimer = null;
+    }
+    if (shouldTick && countdownTimer === null) countdownTimer = window.setInterval(updateCountdown, 1000);
+  }
+
+  function update(status: ReviewsPollingStatus | null): void {
+    if (status !== currentStatus) outcomeText = '';
+    currentStatus = status;
+    button.disabled = isPending || !!status?.isRefreshing || !status?.configured;
+    progress.textContent = reviewsRefreshText(status, isPending, outcomeText);
+    progress.hidden = !progress.textContent;
+    updateCountdown();
+  }
+
+  button.addEventListener('click', async () => {
+    if (isPending) return;
+    isPending = true;
+    outcomeText = '';
+    update(currentStatus);
+    try {
+      const response = await sendControlRequest('reviews-refresh', { lane });
+      if (response.type === 'reviews-refresh-result') outcomeText = response.ok ? 'Refreshed.' : response.error ?? 'Could not refresh from GitHub.';
+    } catch (error: unknown) {
+      outcomeText = error instanceof Error ? error.message : String(error);
+    } finally {
+      isPending = false;
+      update(currentStatus);
+    }
+  });
+  const visibilityObserver = new MutationObserver(updateCountdown);
+  visibilityObserver.observe(panel, { attributes: true, subtree: true, attributeFilter: ['hidden', 'data-queue-collapsed'] });
+  for (let ancestor: HTMLElement | null = panel.parentElement; ancestor; ancestor = ancestor.parentElement) visibilityObserver.observe(ancestor, { attributes: true, attributeFilter: ['hidden', 'data-queue-collapsed'] });
+  document.addEventListener('visibilitychange', updateCountdown);
+  return { control, notice, update };
+}
 
 function settleMerge(key: string, head: string, phase: MergeAttempt['phase'], text: string): void {
   mergeAttempts.set(key, { head, phase, text });
@@ -92,6 +151,8 @@ function createShell(): void {
   queue = shell.queue;
   detail = shell.detail;
   root.replaceChildren(shell.columns);
+  const head = root.querySelector('.pr-queue-head');
+  if (pollingControls && head) head.insertBefore(pollingControls.control, head.querySelector('.pr-queue-toggle'));
 }
 
 function renderDetail(pr: MyPr | undefined): void {
@@ -214,8 +275,12 @@ function render(): void {
   });
   if (sectionElements.length === 0) queue.replaceChildren(el('p', 'pr-empty', emptyStateText(latest)));
   if (sectionElements.length > 0) {
-    const noticeElements = queueNotices(latest).map((notice) => el('p', notice.tone === 'error' ? 'my-pr-error' : 'my-pr-note', notice.text));
+    const noticeElements = queueNotices(latest, Date.now()).filter((notice) => notice.tone !== 'error').map((notice) => el('p', notice.tone === 'error' ? 'my-pr-error' : 'my-pr-note', notice.text));
     queue.replaceChildren(...noticeElements, ...sectionElements);
+  }
+  if (pollingControls) {
+    queue.prepend(pollingControls.notice);
+    pollingControls.update(latest);
   }
   if (focusedKey) [...queue.querySelectorAll<HTMLButtonElement>('button[data-pr-key]')].find((row) => row.dataset.prKey === focusedKey)?.focus({ preventScroll: true });
   renderDetail(sections.flatMap((section) => section.prs).find((pr) => pr.key === selectedKey));
@@ -226,6 +291,7 @@ export function mountMyPrsView(parent: HTMLElement, tabs: HTMLElement): HTMLDivE
   scopeTabs = tabs;
   root = el('div', 'pr-content');
   parent.append(root);
+  pollingControls = createReviewsPollingControls('my-prs', root);
   render();
   return root;
 }

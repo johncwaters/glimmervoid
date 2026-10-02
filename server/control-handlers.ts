@@ -1,3 +1,4 @@
+import type { ReviewsRefreshResult } from '../shared/contracts/reviews.ts';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -86,11 +87,13 @@ interface PosthogLaneStatus {
 type TeamReviewActionOutcome = Omit<TeamReviewActionResult, 'key'>;
 
 interface TeamReviewActionControl {
+  refresh?: () => Promise<ReviewsRefreshResult>;
   isRunning(): boolean;
   submitAction(request: TeamReviewActionRequest): Promise<TeamReviewActionOutcome>;
 }
 
 interface MyPrMergeControl {
+  refresh?: () => Promise<ReviewsRefreshResult>;
   mergePr(request: MyPrMergeRequest): Promise<Omit<MyPrMergeResult, 'key'>>;
 }
 
@@ -317,6 +320,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'posthog-issue-action': () => ({ type: 'posthog-issue-action-result', requestId, ok: false, error: message }),
     'posthog-archive-investigation': () => ({ type: 'posthog-archive-investigation-result', requestId, ok: false, error: message }),
     'team-review-action': () => ({ type: 'team-review-action-result', requestId, key: typeof msg?.key === 'string' ? msg.key : '', ok: false, error: message }),
+    'reviews-refresh': () => ({ type: 'reviews-refresh-result', requestId, ok: false, error: message }),
     'my-pr-merge': () => ({ type: 'my-pr-merge-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
     'request-usage-report': () => ({ type: 'usage-report', requestId, error: message }),
     'request-hooks-report': () => ({ type: 'hooks-report', requestId, error: message }),
@@ -437,7 +441,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   };
 
   function reportMergeRefusal(ws: ControlSocket, s: Session, r: { refused?: boolean; reason?: string | null } | null | undefined): void {
-    if (!r || r.refused !== true) return;
+    if (r?.refused !== true) return;
     const detail = r.reason === 'not-continuable'
       ? `session state ${s.state} is not mergeable`
       : ((r.reason ? MERGE_REFUSAL_COPY[r.reason] : '') || r.reason);
@@ -984,6 +988,15 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     reply(await teamReview.submitAction(parsed.data));
   }
 
+  async function handleReviewsRefresh(msg: ClientMessageOf<'reviews-refresh'>, ws: ControlSocket): Promise<void> {
+    const lane = msg.lane === 'my-prs' ? myPrs : teamReview;
+    if (!lane?.refresh) {
+      replyTo(ws, msg, 'reviews-refresh-result', { ok: false, error: 'Reviews polling is not running.' });
+      return;
+    }
+    replyTo(ws, msg, 'reviews-refresh-result', await lane.refresh());
+  }
+
   async function handleMyPrMerge(msg: ClientMessageOf<'my-pr-merge'>, ws: ControlSocket): Promise<void> {
     const reply = (outcome: Omit<MyPrMergeResult, 'key'>) => replyTo(ws, msg, 'my-pr-merge-result', { key: myPrMergeKey(msg), ...outcome });
     const parsed = MyPrMergeRequest.safeParse(msg);
@@ -1165,6 +1178,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'posthog-archive-investigation': handlePosthogArchiveInvestigation,
     'team-review-action': handleTeamReviewAction,
     'my-pr-merge': handleMyPrMerge,
+    'reviews-refresh': handleReviewsRefresh,
     'request-usage-report': handleRequestUsageReport,
     'request-hooks-report': handleRequestHooksReport,
     'save-hook': handleSaveHook,

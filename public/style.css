@@ -2502,7 +2502,8 @@ a.radar-issue-title:hover {
   display: flex;
   align-items: stretch;
   justify-content: space-between;
-  flex: 0 0 40px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
   min-height: 40px;
   border-bottom: 1px solid var(--border-dim);
 }
@@ -8562,3 +8563,10 @@ html[data-layout="phone"][data-flying-animals="true"] .nyan-flight {
     animation: none;
   }
 }
+
+.reviews-refresh-control { display: contents; }
+.reviews-refresh-button { align-self: center; flex-shrink: 0; padding: 4px 8px; margin: 4px 6px 4px auto; }
+.reviews-refresh-status { order: 1; flex-basis: 100%; padding: 4px 12px 8px; color: var(--text-dim); font-size: 11px; overflow-wrap: anywhere; }
+.reviews-retry-notice { overflow-wrap: anywhere; }
+.pr-content > .reviews-retry-notice { margin: 12px; }
+html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .reviews-refresh-control { display: none; }

@@ -1,3 +1,4 @@
+import { reviewsPollingShape } from './reviews.ts';
 import { z } from 'zod';
 
 export const CommitSha = z.string().regex(/^[0-9a-f]{40}$/);
@@ -260,6 +261,7 @@ export const QueuedReview = z.object({
 export type QueuedReview = z.infer<typeof QueuedReview>;
 
 export const TeamReviewStatus = z.object({
+  ...reviewsPollingShape,
   type: z.literal('team-review-status'),
   ts: z.number().finite(),
   configured: z.boolean(),

@@ -185,6 +185,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'open-issue-session-result', requestId: 'issues-2', ok: true, error: null, sessionId: 'session-2', sessionName: 'issue-42-fix-reconnect', pending: false },
   { type: 'posthog-issue-action-result', requestId: 'posthog-3', ok: true, error: null, status: 'resolved' },
   { type: 'team-review-action-result', requestId: 'review-1', key: 'PostHog/wizard#1350', ok: true },
+  { type: 'reviews-refresh-result', requestId: 'refresh-1', ok: true },
   { type: 'my-pr-merge-result', requestId: 'merge-1', key: 'PostHog/wizard#1350', ok: false, error: 'Checks are failing' },
   { type: 'posthog-archive-investigation-result', requestId: 'posthog-4', ok: true, error: null },
   { type: 'team-review-status', ts: NOW, configured: true, drafts: [{

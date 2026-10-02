@@ -1,3 +1,4 @@
+import { ReviewsRefreshRequest, ReviewsRefreshResult } from './reviews.ts';
 import { z } from 'zod';
 import {
   PLAN_BODY_CAP_BYTES,
@@ -150,6 +151,7 @@ export const CLIENT_MESSAGE_TYPES = Object.freeze([
   'posthog-issue-action',
   'team-review-action',
   'my-pr-merge',
+  'reviews-refresh',
   'posthog-archive-investigation',
   'request-usage-report',
   'request-hooks-report',
@@ -233,6 +235,7 @@ const clientVariants = [
   loose('posthog-issue-action', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), action: z.string(), requestId }),
   loose('team-review-action', { ...TeamReviewActionRequest.shape, requestId }),
   loose('my-pr-merge', { ...MyPrMergeRequest.shape, requestId }),
+  loose('reviews-refresh', { ...ReviewsRefreshRequest.shape, requestId }),
   loose('posthog-archive-investigation', { id: z.unknown().optional(), requestId }),
   loose('request-usage-report', { requestId, days: z.unknown().optional(), force: z.unknown().optional() }),
   loose('request-hooks-report', { requestId }),
@@ -329,6 +332,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'posthog-issue-action-result',
   'team-review-action-result',
   'my-pr-merge-result',
+  'reviews-refresh-result',
   'posthog-archive-investigation-result',
   'team-review-status',
   'my-prs-status',
@@ -574,6 +578,7 @@ const serverVariants = [
   }),
   loose('team-review-action-result', { ...TeamReviewActionResult.shape, requestId }),
   loose('my-pr-merge-result', { ...MyPrMergeResult.shape, requestId }),
+  loose('reviews-refresh-result', { ...ReviewsRefreshResult.shape, requestId }),
   loose('posthog-archive-investigation-result', { requestId, ok: z.boolean(), error: optionalError }),
   TeamReviewStatus,
   MyPrsStatus,

@@ -1,3 +1,4 @@
+import { createReviewsPollingControls } from './my-prs-panel.ts';
 import { TeamReviewStatus } from '#shared/contracts/team-review.ts';
 import type { DraftComment, FindingSeverity, InFlightReview, QueuedReview, ReviewComment, ReviewDraft, TeamReviewAction, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
 import { withoutAutomatedNote } from '#shared/team-review-markdown.ts';
@@ -40,6 +41,7 @@ type DetailOrigin = 'ready' | 'other';
 let _latest: TeamReviewStatusType | null = null;
 let _root: HTMLDivElement | null = null;
 let _scopeTabs: HTMLElement | null = null;
+let pollingControls: ReturnType<typeof createReviewsPollingControls> | null = null;
 let _queue: HTMLElement | null = null;
 let _detail: HTMLElement | null = null;
 let _inReviewSection: HTMLElement | null = null;
@@ -768,6 +770,10 @@ function ensureShell(): void {
 
 function syncTeamChip(head: HTMLElement | null): void {
   if (!head) return;
+  if (pollingControls) {
+    head.insertBefore(pollingControls.control, head.querySelector('.pr-queue-toggle'));
+    pollingControls.update(_latest);
+  }
   head.querySelector('.pr-team-chip')?.remove();
   const team = _latest?.team;
   if (!team) return;
@@ -798,7 +804,8 @@ function render(): void {
   if (!_latest?.configured || !hasAnyRow(sections)) {
     const head = createPrQueueHead(_scopeTabs);
     syncTeamChip(head);
-    _root.replaceChildren(head, buildEmptyState());
+    _root.replaceChildren(head, ...(pollingControls ? [pollingControls.notice] : []), buildEmptyState());
+    pollingControls?.update(_latest);
     _queue = null;
     _detail = null;
     _inReviewSection = null;
@@ -820,7 +827,8 @@ function render(): void {
   if (sections.attention.length) queueSections.push(createQueueSection('Needs attention', sections.attention, 'attention'));
   if (sections.posted.length) queueSections.push(createQueueSection('Recently posted', sections.posted, 'posted'));
   if (sections.discarded.length) queueSections.push(createQueueSection('Discarded', sections.discarded, 'discarded'));
-  _queue.replaceChildren(...queueSections);
+  _queue.replaceChildren(...(pollingControls ? [pollingControls.notice] : []), ...queueSections);
+  pollingControls?.update(_latest);
   restoreQueueFocus(focusedReviewKey);
   renderSelectedDetail(sections);
   trackAges(_root);
@@ -845,6 +853,7 @@ export function mountTeamReviewView(parent: HTMLElement, scopeTabs: HTMLElement)
   _scopeTabs = scopeTabs;
   _root = el('div', 'pr-content');
   parent.append(_root);
+  pollingControls = createReviewsPollingControls('team-review', _root);
   _progressTicker.ensure();
   _ageTicker.ensure();
   render();

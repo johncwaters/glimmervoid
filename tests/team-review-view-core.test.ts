@@ -218,6 +218,7 @@ test('the empty state says whether the lane is off or simply has nothing yet', (
     'Team review is not running: teamReview needs both org and team.',
   );
   assert.match(emptyStateText(status([])), /No review drafts yet/);
+  assert.equal(emptyStateText({ ...status([]), error: 'GitHub unreachable' }), 'Review drafts will show here once GitHub answers.');
 });
 
 test('the badge signature tracks ready drafts by key and head only', () => {
@@ -605,4 +606,11 @@ test('queue row title puts a draft goal immediately after the PR title and omits
   const assessment = { goal: ' Avoid stuck requests. ', change: 'Re-arm the timer.', checked: [], gaps: [] };
   assert.equal(queueRowTitle(draft(1, { assessment }), 'ready', { opened: '1d ago' }), 'Acme/app#1: PR 1\nAvoid stuck requests.\nReady\nOpened 1d ago');
   assert.equal(queueRowTitle(draft(1, { assessment: { ...assessment, goal: ' ' } }), 'ready', {}), 'Acme/app#1: PR 1\nReady');
+});
+
+test('poll errors, retry schedules and refresh progress always render even when the drafts stay the same', () => {
+  const previous = status([]);
+  for (const patch of [{ error: 'offline' }, { nextAttemptAt: 11_000 }, { retry: { attempt: 1, limit: 3 } }, { isRefreshing: true }, { refreshNotice: 'A refresh is already running.' }]) {
+    assert.equal(isInFlightProgressOnlyChange(previous, { ...previous, ...patch }), false);
+  }
 });

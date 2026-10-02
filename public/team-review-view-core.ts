@@ -472,6 +472,7 @@ export function queuedDetailText(runningCount: number): string {
 export function emptyStateText(status: TeamReviewStatus | null | undefined): string {
   if (!status) return 'Waiting for the team review lane.';
   if (!status.configured) return status.reason ? `Team review is not running: ${status.reason}.` : 'Team review is off.';
+  if (status.error) return 'Review drafts will show here once GitHub answers.';
   return 'No review drafts yet. New teammate pull requests show up here after the next poll.';
 }
 
@@ -490,6 +491,8 @@ export function detailHeadingSignature(review: ReviewDraft | InFlightReview): st
 
 export function isInFlightProgressOnlyChange(previous: TeamReviewStatus | null | undefined, next: TeamReviewStatus): boolean {
   if (!previous) return false;
+  if (previous.error !== next.error || previous.nextAttemptAt !== next.nextAttemptAt || JSON.stringify(previous.retry) !== JSON.stringify(next.retry)) return false;
+  if (previous.isRefreshing !== next.isRefreshing || previous.refreshNotice !== next.refreshNotice) return false;
   if (JSON.stringify(previous.team) !== JSON.stringify(next.team)) return false;
   if (previous.configured !== next.configured || previous.reason !== next.reason) return false;
   const previousKeys = previous.inFlight.map((review) => review.key).join('\n');

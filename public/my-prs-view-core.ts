@@ -1,3 +1,4 @@
+import { reviewsErrorNotice } from './reviews-retry-core.ts';
 import { MyPrMergeResult, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { mergeMethodLabel, myPrMergeBlocker } from '#shared/my-pr-merge.ts';
 import type { MyPr, MyPrMergeKind, MyPrStage, MyPrsStatus as MyPrsStatusType, MyPrThread } from '#shared/contracts/my-prs.ts';
@@ -161,15 +162,16 @@ export function readinessRows(pr: MyPr, viewer: string | null = null): Readiness
 export function emptyStateText(status: MyPrsStatusType | null): string {
   if (!status) return 'Waiting for your pull requests.';
   if (!status.configured) return 'Enable Team review and set its GitHub organization in settings to see your pull requests.';
-  if (status.error) return `Could not refresh your pull requests: ${status.error}`;
+  if (status.error && status.prs.length === 0) return 'Pull requests will show here once GitHub answers.';
   return 'No open or recently merged pull requests found.';
 }
 
 export interface QueueNotice { text: string; tone: 'error' | 'info' }
 
-export function queueNotices(status: MyPrsStatusType | null): QueueNotice[] {
+export function queueNotices(status: MyPrsStatusType | null, nowMs = 0): QueueNotice[] {
   if (!status) return [];
-  const notices: QueueNotice[] = status.error ? [{ text: emptyStateText(status), tone: 'error' }] : [];
+  const errorNotice = reviewsErrorNotice(status, nowMs);
+  const notices: QueueNotice[] = errorNotice ? [{ text: errorNotice, tone: 'error' }] : [];
   return status.truncatedNote ? [...notices, { text: status.truncatedNote, tone: 'info' }] : notices;
 }
 

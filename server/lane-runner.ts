@@ -1,4 +1,5 @@
-import { DEFAULT_BASE_MS, DEFAULT_MAX_MS, nextBackoffMs, shouldSkipTick } from './core/lane-backoff.ts';
+import type { ReviewsRefreshResult, ReviewsRetry } from '../shared/contracts/reviews.ts';
+import { DEFAULT_BASE_MS, DEFAULT_MAX_MS, nextRetrySchedule, shouldSkipTick } from './core/lane-backoff.ts';
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -9,12 +10,17 @@ interface TickOutcome {
   retryAfterMs?: number;
 }
 
+type TickTrigger = 'interval' | 'retry' | 'manual';
+
 interface SharedClock {
   schedule(run: () => Promise<void>, intervalMs: number): () => void;
   exclusive<T>(work: () => Promise<T>): Promise<T>;
 }
 
 interface TickLoopOptions {
+  quickRetries?: boolean;
+  onScheduleChange?: () => void;
+  rateLimitWaitMs?: () => Promise<number | null>;
   tag: string;
   intervalMs: number;
   tick: () => Promise<TickOutcome | undefined | null>;
@@ -36,6 +42,8 @@ interface TickLoop {
   start(prelude?: (() => Promise<void> | void) | null): Promise<void>;
   stop(): Promise<void>;
   tick(): Promise<void>;
+  refresh(): Promise<ReviewsRefreshResult>;
+  scheduleStatus(): { nextAttemptAt: number | null; retry: ReviewsRetry | null; isRefreshing: boolean; refreshNotice: string | null };
   persist(): Promise<void>;
   track<T>(promise: Promise<T>): Promise<T>;
   isStopped(): boolean;
@@ -44,6 +52,9 @@ interface TickLoop {
 
 function createTickLoop({
   tag,
+  quickRetries = false,
+  onScheduleChange = () => {},
+  rateLimitWaitMs = async () => null,
   intervalMs,
   tick: tickBody,
   writeState = async () => {},
@@ -68,6 +79,13 @@ function createTickLoop({
 
   let backoffUntil = 0;
   let failureStreak = 0;
+  let quickRetryCount = 0;
+  let retryTimer: NodeJS.Timeout | null = null;
+  let nextAttemptAt: number | null = null;
+  let retry: ReviewsRetry | null = null;
+  let rateLimitedUntil = 0;
+  let isRefreshing = false;
+  let refreshNotice: string | null = null;
 
   const running = new Set<Promise<unknown>>();
 
@@ -84,30 +102,95 @@ function createTickLoop({
     return promise;
   }
 
-  async function tick(): Promise<void> {
-    if (tickRunning || stopped) return;
-    if (shouldSkipTick({ now: now(), backoffUntil })) return;
+  function clearRetryTimer(): void {
+    if (retryTimer) clearTimeoutFn(retryTimer);
+    retryTimer = null;
+  }
+
+  function scheduleAttempt(waitMs: number, scheduledRetry: ReviewsRetry | null): void {
+    clearRetryTimer();
+    backoffUntil = now() + waitMs;
+    nextAttemptAt = backoffUntil;
+    retry = scheduledRetry;
+    if (!quickRetries || stopped) return;
+    retryTimer = setTimeoutFn(() => {
+      retryTimer = null;
+      void runTick('retry');
+    }, waitMs);
+    retryTimer.unref?.();
+  }
+
+  function scheduleStatus() {
+    return { nextAttemptAt, retry, isRefreshing, refreshNotice };
+  }
+
+  async function runTick(trigger: TickTrigger): Promise<ReviewsRefreshResult> {
+    const isManual = trigger === 'manual';
+    if (stopped) return { ok: false, error: 'Reviews polling is stopped.' };
+    if (tickRunning) {
+      if (isManual) {
+        refreshNotice = 'A refresh is already running.';
+        onScheduleChange();
+      }
+      return { ok: false, error: 'A refresh is already running.' };
+    }
+    if (trigger === 'interval' && shouldSkipTick({ now: now(), backoffUntil })) return { ok: false };
+    if (isManual && rateLimitedUntil > now()) {
+      refreshNotice = 'GitHub rate limit asks to wait before refreshing.';
+      onScheduleChange();
+      return { ok: false, error: refreshNotice };
+    }
     tickRunning = true;
+    isRefreshing = true;
+    refreshNotice = null;
     try {
+      if (isManual) {
+        const waitMs = await rateLimitWaitMs();
+        if (stopped) return { ok: false, error: 'Reviews polling is stopped.' };
+        if (waitMs !== null && waitMs > 0) {
+          rateLimitedUntil = now() + waitMs;
+          scheduleAttempt(waitMs, null);
+          refreshNotice = 'GitHub rate limit asks to wait before refreshing.';
+          return { ok: false, error: refreshNotice };
+        }
+      }
+      clearRetryTimer();
+      nextAttemptAt = null;
+      retry = null;
+      onScheduleChange();
       const outcome = clock ? await clock.exclusive(() => (stopped ? Promise.resolve(null) : tickBody())) : await tickBody();
-      if (!outcome || outcome.failed !== true) {
+      if (stopped) return { ok: false, error: 'Reviews polling is stopped.' };
+      if (outcome?.failed !== true) {
         failureStreak = 0;
+        quickRetryCount = 0;
         backoffUntil = 0;
-        return;
+        rateLimitedUntil = 0;
+        refreshNotice = isManual ? 'Refreshed.' : null;
+        return { ok: true };
       }
       failureStreak += 1;
-      const waitMs = nextBackoffMs({
-        attempt: failureStreak,
-        baseMs: backoffBaseMs,
-        maxMs: backoffMaxMs,
-        retryAfterMs: outcome.retryAfterMs ?? null,
-        random,
+      const scheduled = nextRetrySchedule({
+        failureStreak, quickRetryCount, quickRetries, baseMs: backoffBaseMs, maxMs: backoffMaxMs,
+        retryAfterMs: outcome.retryAfterMs, random,
       });
-      backoffUntil = now() + waitMs;
-      log.warn(`[${tag}] poll failed (${failureStreak} in a row) - backing off ${Math.round(waitMs / 1000)}s`);
+      if (scheduled.retry) quickRetryCount += 1;
+      if (outcome.retryAfterMs && outcome.retryAfterMs > 0) rateLimitedUntil = now() + outcome.retryAfterMs;
+      scheduleAttempt(scheduled.waitMs, scheduled.retry);
+      log.warn(`[${tag}] poll failed (${failureStreak} in a row) - backing off ${Math.round(scheduled.waitMs / 1000)}s`);
+      return { ok: false, error: 'Could not refresh from GitHub.' };
     } finally {
       tickRunning = false;
+      isRefreshing = false;
+      if (!stopped) onScheduleChange();
     }
+  }
+
+  async function tick(): Promise<void> {
+    await runTick('interval');
+  }
+
+  function refresh(): Promise<ReviewsRefreshResult> {
+    return runTick('manual');
   }
 
   async function start(prelude: (() => Promise<void> | void) | null = null): Promise<void> {
@@ -140,6 +223,11 @@ function createTickLoop({
     stopped = true;
     backoffUntil = 0;
     failureStreak = 0;
+    quickRetryCount = 0;
+    rateLimitedUntil = 0;
+    nextAttemptAt = null;
+    retry = null;
+    clearRetryTimer();
     if (timer) clearIntervalFn(timer);
     timer = null;
     if (firstTickTimer) clearTimeoutFn(firstTickTimer);
@@ -150,7 +238,7 @@ function createTickLoop({
     await persistChain;
   }
 
-  return { start, stop, tick, persist, track, isStopped: () => stopped, backoffUntil: () => backoffUntil };
+  return { start, stop, tick, refresh, scheduleStatus, persist, track, isStopped: () => stopped, backoffUntil: () => backoffUntil };
 }
 
 interface LaneRunnerGate {

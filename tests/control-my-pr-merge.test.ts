@@ -55,6 +55,7 @@ async function harness({ trackedPrs = [toMyPr(readyNode(), 0)], ghOutcome = { ok
       start: async () => { onTickComplete(myPrsStatus({ ts: 1, configured: true, viewer: 'me', prs: trackedPrs })); },
       stop: async () => {},
       tick: async () => { refreshCount += 1; },
+      refresh: async () => { refreshCount += 1; return { ok: true }; },
     }),
   });
   myPrs.startPoller();

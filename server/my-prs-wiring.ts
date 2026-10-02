@@ -56,6 +56,12 @@ export function createMyPrsWiring({ config, broadcast, log = console, github = c
     const parsed = MyPrsStatus.safeParse(runner.getStatus());
     return parsed.success ? parsed.data : emptyStatus();
   }
+  async function refresh() {
+    const poller = runner.getPoller();
+    if (!poller) return { ok: false, error: 'Reviews polling is not running.' };
+    return poller.refresh();
+  }
+
   const mergesInFlight = new Set<string>();
   async function mergePr(request: MyPrMergeRequest): Promise<MyPrMergeOutcome> {
     const key = prKey(request.repo, request.number);
@@ -78,7 +84,7 @@ export function createMyPrsWiring({ config, broadcast, log = console, github = c
       mergesInFlight.delete(key);
     }
   }
-  return { startPoller: runner.startPoller, stopPoller: runner.stopPoller, restartIfConfigChanged: runner.restartIfConfigChanged, getStatus, mergePr };
+  return { startPoller: runner.startPoller, stopPoller: runner.stopPoller, restartIfConfigChanged: runner.restartIfConfigChanged, getStatus, mergePr, refresh };
 }
 
 export type { MyPrMergeOutcome };

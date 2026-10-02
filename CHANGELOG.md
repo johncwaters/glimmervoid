@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Reviews retry and refresh**: when GitHub cannot be reached, Reviews > Mine and Team now retry after 10 seconds, 30 seconds and 90 seconds before falling back to the regular schedule, and the notice counts down to the next try. A Refresh button beside the tabs checks GitHub right away, except while GitHub's rate limit asks to wait. Team now shows when it cannot reach GitHub instead of failing silently.
+
 - **Approve without comments**: a ready team review now has an Approve button beside Comment and Approve and comment. It posts only the approval, stating it was made by hand, with no review body and no inline comments.
 - **What a PR is for, at a glance**: a team review now opens with About this PR, stating the pull request's goal and what it changes, above the verdict. The goal also shows when you hover the PR in the list. Reviews made before this update show it after Queue review.
 - **Usage on session cards is now opt-in**: turn on Show usage on session cards under Settings > Appearance to see each card's token count and estimated API list-price cost. It is off by default.
@@ -29,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Discard and Queue review in a More menu**: on a ready team review, and on a commented one awaiting approval, Discard and Queue review moved off the posting row into a More menu in the review heading, so the footer holds only the buttons that post to GitHub.
 - **Nits start unticked**: low-severity inline comments start unticked on a ready review. Tick one to post it.
 - **Shorter comment locations**: each inline comment on a team review shows just the file name and line, so its preview has room. Hover the location for the full path.
+
+### Fixed
+
+- **Terminal links open once**: clicking a link in a session's terminal no longer opens two browser tabs when Glimmervoid was started from Ghostty or Warp. Sessions stop inheriting the launching terminal's identity, which made Claude Code open every clicked link a second time; Claude Code sessions keep clickable links. Restart Glimmervoid so sessions pick this up.
 
 ## [0.28.3] - 2026-10-02
 

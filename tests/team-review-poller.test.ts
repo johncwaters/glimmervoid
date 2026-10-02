@@ -1367,3 +1367,41 @@ test('an incomplete search without an exhausted rate limit still reviews what it
   assert.equal(spawned.length, 1);
   await poller.stop();
 });
+
+test('a candidate search failure reports its error and schedule without losing the last good drafts', async () => {
+  const { poller, github, statuses } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  const lastGoodDrafts = statuses.at(-1)?.drafts;
+  assert.equal(lastGoodDrafts?.length, 1);
+  const successfulSearch = github.searchTeamRequested;
+  github.searchTeamRequested = async () => { throw new Error('offline'); };
+  await poller.tick();
+  assert.equal(statuses.at(-1)?.error, 'offline');
+  assert.equal(statuses.at(-1)?.nextAttemptAt, 11_000);
+  assert.deepEqual(statuses.at(-1)?.retry, { attempt: 1, limit: 3 });
+  assert.deepEqual(statuses.at(-1)?.drafts, lastGoodDrafts);
+  github.searchTeamRequested = successfulSearch;
+  assert.equal((await poller.refresh()).ok, true);
+  assert.equal(statuses.at(-1)?.error, null);
+  assert.equal(statuses.at(-1)?.nextAttemptAt, null);
+  assert.equal(statuses.at(-1)?.retry, null);
+  await poller.stop();
+});
+
+test('a GitHub secondary rate limit on the candidate search waits a minute with no quick retries and refuses refresh', async () => {
+  const { poller, github, statuses } = setup();
+  let searchCount = 0;
+  github.searchTeamRequested = async () => {
+    searchCount += 1;
+    throw new Error('gh: You have triggered an abuse detection mechanism. Please wait a few minutes before you try again. (HTTP 403)');
+  };
+  await poller.tick();
+  assert.equal(statuses.at(-1)?.retry, null);
+  assert.equal(statuses.at(-1)?.nextAttemptAt, 61_000);
+  assert.equal((await poller.refresh()).ok, false);
+  assert.equal(searchCount, 1);
+  await poller.stop();
+});

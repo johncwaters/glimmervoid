@@ -32,7 +32,8 @@ test('labels, tones and empty messages reflect status', () => {
   assert.ok(status);
   assert.match(emptyStateText(status), /No open/);
   assert.match(emptyStateText({ ...status, configured: false }), /Team review/);
-  assert.match(emptyStateText({ ...status, error: 'offline' }), /offline/);
+  assert.equal(emptyStateText({ ...status, error: 'connection refused' }), 'Pull requests will show here once GitHub answers.');
+  assert.match(emptyStateText({ ...status, error: 'connection refused', prs: [base] }), /No open/);
   assert.equal(parseMyPrsStatus({ type: 'my-prs-status', ts: 1, configured: true, viewer: null, prs: [{}] }), null);
 });
 
@@ -86,7 +87,7 @@ test('queue notices list the refresh error before the truncation note', () => {
   assert.deepEqual(queueNotices(null), []);
   assert.deepEqual(queueNotices(status), []);
   assert.deepEqual(queueNotices({ ...status, truncatedNote }), [{ text: truncatedNote, tone: 'info' }]);
-  assert.deepEqual(queueNotices({ ...status, error: 'offline', truncatedNote }), [{ text: 'Could not refresh your pull requests: offline', tone: 'error' }, { text: truncatedNote, tone: 'info' }]);
+  assert.deepEqual(queueNotices({ ...status, error: 'offline', truncatedNote }), [{ text: 'Could not reach GitHub: offline.', tone: 'error' }, { text: truncatedNote, tone: 'info' }]);
 });
 
 function thread(overrides: Partial<MyPrThread>): MyPrThread {
