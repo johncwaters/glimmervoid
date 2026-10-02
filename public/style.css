@@ -2673,6 +2673,9 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-bott
 .pr-queue-bottom .pr-verdict-seal { flex: 0 1 auto; min-width: 16px; overflow: hidden; }
 .pr-queue-bottom .pr-verdict-seal > span:last-child { overflow: hidden; text-overflow: ellipsis; }
 
+.pr-rereview-tag { flex: 0 0 auto; padding: 1px 5px; border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border-dim)); border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 8%, transparent); color: color-mix(in srgb, var(--accent) 65%, var(--text-dim)); font-size: 10px; white-space: nowrap; }
+.pr-rereview-notice { color: var(--text-dim); font-size: 12px; line-height: 1.6; }
+
 .pr-severity-counts { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; }
 .pr-severity-count { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
 .pr-queue-bottom .pr-severity-meter { gap: 1px; }

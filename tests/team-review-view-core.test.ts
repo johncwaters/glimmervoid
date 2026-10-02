@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
-  commentSeverity, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
+  commentSeverity, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
 import { InFlightReview, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type {
@@ -541,7 +541,7 @@ test('progress tracker advances one active stage and leaves Draft ready pending'
 test('detail metadata names the scope and keeps raw reasons in the title', () => {
   assert.equal(detailMetaText({ tier: 'full' }), 'full review');
   assert.equal(detailMetaText({ tier: 'stamp' }), 'light review');
-  assert.equal(detailMetaText({ tier: 'full', priorReviewedHead: 'abcdef0123456789abcdef0123456789abcdef01' }), 'full re-review since abcdef0');
+  assert.equal(detailMetaText({ tier: 'full', priorReviewedHead: 'abcdef0123456789abcdef0123456789abcdef01' }), 'full review of changes since abcdef0');
   assert.equal(reviewScopeTitle({ reasons: ['touches auth', 'many files'] }), 'touches auth, many files');
   assert.equal(reviewScopeTitle({ reasons: [] }), '');
 });
@@ -613,4 +613,61 @@ test('poll errors, retry schedules and refresh progress always render even when 
   for (const patch of [{ error: 'offline' }, { nextAttemptAt: 11_000 }, { retry: { attempt: 1, limit: 3 } }, { isRefreshing: true }, { refreshNotice: 'A refresh is already running.' }]) {
     assert.equal(isInFlightProgressOnlyChange(previous, { ...previous, ...patch }), false);
   }
+});
+
+
+test('viewer approval context identifies an approval on an older commit', () => {
+  const approval = { login: 'me', state: 'APPROVED', commit: NEXT_HEAD, isViewer: true, submittedAt: '2026-09-28T12:00:00Z' } as const;
+  assert.deepEqual(viewerApprovalContext(draft(1, { githubReviews: [approval] })), { approvedCommit: NEXT_HEAD, submittedAt: approval.submittedAt, state: 'APPROVED', isReviewScopeSinceDecision: false });
+});
+
+test('viewer approval context omits current-head approvals, unknown commits and absent viewer decisions', () => {
+  const approval = { login: 'me', state: 'APPROVED', commit: HEAD, isViewer: true } as const;
+  assert.equal(viewerApprovalContext(draft(1, { githubReviews: [approval] })), null);
+  assert.equal(viewerApprovalContext(draft(1, { githubReviews: [{ ...approval, commit: null }] })), null);
+  assert.equal(viewerApprovalContext(draft(1, { githubReviews: [{ ...approval, isViewer: false, commit: NEXT_HEAD }] })), null);
+  assert.equal(viewerApprovalContext(draft(1, { githubReviews: [{ ...approval, state: 'COMMENTED', commit: NEXT_HEAD }] })), null);
+  assert.equal(viewerApprovalContext(draft(1)), null);
+});
+
+test('the latest viewer decision supersedes older approvals regardless of array order and ignores comments', () => {
+  const olderApproval = { login: 'me', state: 'APPROVED', commit: NEXT_HEAD, isViewer: true, submittedAt: '2026-09-27T12:00:00Z' } as const;
+  const currentApproval = { ...olderApproval, commit: HEAD, submittedAt: '2026-09-28T12:00:00Z' };
+  for (const githubReviews of [[olderApproval, currentApproval], [currentApproval, olderApproval]]) {
+    assert.equal(viewerApprovalContext(draft(1, { githubReviews })), null);
+  }
+  const requestedChanges = { ...olderApproval, state: 'CHANGES_REQUESTED', submittedAt: '2026-09-28T12:00:00Z' } as const;
+  const comment = { ...olderApproval, state: 'COMMENTED', submittedAt: '2026-09-29T12:00:00Z' } as const;
+  assert.deepEqual(viewerApprovalContext(draft(1, { githubReviews: [olderApproval, comment, requestedChanges] })), { approvedCommit: NEXT_HEAD, submittedAt: requestedChanges.submittedAt, state: 'CHANGES_REQUESTED', isReviewScopeSinceDecision: false });
+});
+
+test('re-review tooltips name the earlier viewer decision, commit, age and new commits', () => {
+  const approval = { login: 'me', state: 'APPROVED', commit: NEXT_HEAD, isViewer: true } as const;
+  assert.ok(queueRowTitle(draft(1, { githubReviews: [approval] }), 'ready', { viewerApproval: '2d ago' }).split('\n').includes('You approved at bbbbbbb 2d ago; new commits since.'));
+  assert.ok(queueRowTitle(draft(1, { githubReviews: [{ ...approval, state: 'CHANGES_REQUESTED' }] }), 'ready', {}).split('\n').includes('You requested changes at bbbbbbb; new commits since.'));
+});
+
+test('re-review notices explain the previous decision and the scope with optional age', () => {
+  const context = { approvedCommit: NEXT_HEAD, submittedAt: null, state: 'APPROVED', isReviewScopeSinceDecision: true } as const;
+  assert.equal(viewerApprovalNotice(context, '2d ago'), 'You approved this at bbbbbbb 2d ago. It has new commits since, so this review covers what changed after your approval.');
+  assert.equal(viewerApprovalNotice({ ...context, state: 'CHANGES_REQUESTED' }, null), 'You requested changes at bbbbbbb. It has new commits since, so this review covers what changed after your request for changes.');
+});
+
+test('re-review notices drop the scope clause when the review scope is not the changes since the decision', () => {
+  const approval = { login: 'me', state: 'APPROVED', commit: NEXT_HEAD, isViewer: true } as const;
+  const unrelatedScope = viewerApprovalContext(draft(1, { githubReviews: [approval] }));
+  assert.ok(unrelatedScope);
+  assert.equal(unrelatedScope.isReviewScopeSinceDecision, false);
+  assert.equal(viewerApprovalNotice(unrelatedScope, '2d ago'), 'You approved this at bbbbbbb 2d ago. It has new commits since.');
+  assert.equal(viewerApprovalNotice({ ...unrelatedScope, state: 'CHANGES_REQUESTED' }, null), 'You requested changes at bbbbbbb. It has new commits since.');
+  const matchingScope = viewerApprovalContext(draft(1, { githubReviews: [approval], priorReviewedHead: NEXT_HEAD }));
+  assert.equal(matchingScope?.isReviewScopeSinceDecision, true);
+});
+
+test('viewer approval context is null when the viewer decided on the live head or after the review ran', () => {
+  const approval = { login: 'me', state: 'APPROVED', commit: NEXT_HEAD, isViewer: true, submittedAt: '2026-09-28T12:00:00Z' } as const;
+  assert.equal(viewerApprovalContext(draft(1, { githubReviews: [approval], liveHead: NEXT_HEAD })), null);
+  const decidedAtMs = Date.parse(approval.submittedAt);
+  assert.equal(viewerApprovalContext(draft(1, { githubReviews: [approval], reviewedAt: decidedAtMs - 1000 })), null);
+  assert.ok(viewerApprovalContext(draft(1, { githubReviews: [approval], reviewedAt: decidedAtMs + 1000 })));
 });

@@ -31,6 +31,7 @@ export interface QueueRowAges {
   reviewed?: string | null;
   posted?: string | null;
   githubReviews?: readonly (string | null)[];
+  viewerApproval?: string | null;
 }
 
 export function queueRowTitle(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind, ages: QueueRowAges): string {
@@ -43,6 +44,8 @@ export function queueRowTitle(review: ReviewDraft | InFlightReview | QueuedRevie
   if (ages.reviewed) lines.push(`Reviewed ${ages.reviewed}`);
   if (ages.posted) lines.push(`Posted ${ages.posted}`);
   if (!('reviewedHead' in review)) return lines.join('\n');
+  const approvalContext = viewerApprovalContext(review);
+  if (approvalContext) lines.push(`You ${GITHUB_REVIEW_VERBS[approvalContext.state]} at ${approvalContext.approvedCommit.slice(0, 7)}${ages.viewerApproval ? ` ${ages.viewerApproval}` : ''}; new commits since.`);
   if (kind === 'attention' || kind === 'discarded') lines.push(attentionDetail(review));
   const githubReviews = githubReviewItems(review, { isViewerShown: kind !== 'posted' });
   for (const [index, githubReview] of githubReviews.entries()) lines.push(githubReviewTitle(githubReview.text, ages.githubReviews?.[index] ?? null));
@@ -183,6 +186,31 @@ function describeGithubReview(review: GithubReview, head: string): string {
   if (!review.isViewer) return `${verb} by ${review.login}`;
   if (review.commit === head) return `you ${verb}`;
   return `you ${verb} (older commit)`;
+}
+
+export interface ViewerApprovalContext {
+  approvedCommit: string;
+  submittedAt: GithubReview['submittedAt'];
+  state: 'APPROVED' | 'CHANGES_REQUESTED';
+  isReviewScopeSinceDecision: boolean;
+}
+
+export function viewerApprovalContext(draft: ReviewDraft): ViewerApprovalContext | null {
+  const decidingReviews = (draft.githubReviews ?? []).filter((review) => review.isViewer && DECIDING_REVIEW_STATES.has(review.state));
+  const latestReview = decidingReviews.sort((left, right) => (Date.parse(right.submittedAt ?? '') || 0) - (Date.parse(left.submittedAt ?? '') || 0)).at(0);
+  if (!latestReview?.commit || latestReview.commit === currentHead(draft)) return null;
+  if (latestReview.state === 'COMMENTED') return null;
+  const decidedAtMs = Date.parse(latestReview.submittedAt ?? '');
+  if (draft.reviewedAt !== undefined && decidedAtMs > draft.reviewedAt) return null;
+  return { approvedCommit: latestReview.commit, submittedAt: latestReview.submittedAt, state: latestReview.state, isReviewScopeSinceDecision: draft.priorReviewedHead === latestReview.commit };
+}
+
+export function viewerApprovalNotice(context: ViewerApprovalContext, age: string | null): string {
+  const action = context.state === 'APPROVED' ? 'approved this' : 'requested changes';
+  const previousReview = context.state === 'APPROVED' ? 'your approval' : 'your request for changes';
+  const decision = `You ${action} at ${context.approvedCommit.slice(0, 7)}${age ? ` ${age}` : ''}. It has new commits since`;
+  if (!context.isReviewScopeSinceDecision) return `${decision}.`;
+  return `${decision}, so this review covers what changed after ${previousReview}.`;
 }
 
 export function githubReviewTone(state: GithubReviewState): StateTone {
@@ -327,7 +355,7 @@ export function tierLabel(tier: ReviewDraft['tier']): string {
 }
 
 export function detailMetaText(review: Pick<ReviewDraft, 'tier' | 'priorReviewedHead'>): string {
-  if (review.priorReviewedHead) return `${tierLabel(review.tier)} re-review since ${review.priorReviewedHead.slice(0, 7)}`;
+  if (review.priorReviewedHead) return `${tierLabel(review.tier)} review of changes since ${review.priorReviewedHead.slice(0, 7)}`;
   return `${tierLabel(review.tier)} review`;
 }
 

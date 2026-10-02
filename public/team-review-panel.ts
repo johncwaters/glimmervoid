@@ -15,7 +15,7 @@ import {
   aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
-  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityCounts, severityPresentation, verdictLabel, verdictSealKind, verdictTone, withReviewerNote,
+  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityCounts, severityPresentation, verdictLabel, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
 } from './team-review-view-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
 import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
@@ -144,6 +144,14 @@ function trackAges(root: Element | null): void {
     paintTitle();
     _ageTicker.onTick(paintTitle);
   }
+  for (const notice of root.querySelectorAll<HTMLElement>('.pr-rereview-notice')) {
+    const draft = _latest?.drafts.find((review) => review.key === notice.dataset.reviewKey);
+    const context = draft ? viewerApprovalContext(draft) : null;
+    if (!context) continue;
+    const paintNotice = () => { notice.textContent = viewerApprovalNotice(context, formatTimestampAge(context.submittedAt)); };
+    paintNotice();
+    _ageTicker.onTick(paintNotice);
+  }
   for (const readout of root.querySelectorAll<HTMLElement>('[data-age-at]')) {
     const at = Number(readout.dataset.ageAt);
     const reviewTitle = readout.dataset.reviewTitle;
@@ -199,11 +207,13 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
   row.type = 'button';
   row.dataset.reviewKey = review.key;
   row.setAttribute('aria-current', String(review.key === _selectedKey));
+  const approvalContext = 'reviewedHead' in review ? viewerApprovalContext(review) : null;
   const reviewStatus = 'status' in review ? review.status : null;
   const title = () => queueRowTitle(review, kind, {
     opened: formatTimestampAge(review.prCreatedAt),
     reviewed: 'reviewedHead' in review ? formatTimestampAge(review.reviewedAt) : null,
     posted: 'reviewedHead' in review ? formatTimestampAge(review.postedAt) : null,
+    viewerApproval: formatTimestampAge(approvalContext?.submittedAt),
     githubReviews: 'reviewedHead' in review ? githubReviewItems(review, { isViewerShown: kind !== 'posted' }).map((item) => formatTimestampAge(item.submittedAt)) : [],
   });
   row.title = title();
@@ -241,7 +251,9 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
   if (kind === 'queued') bottom.append(el('span', 'pr-phase-label', 'waiting for a slot'), createAuthor(review.author, 16, 'pr-queue-author'));
   if (kind === 'ready' || kind === 'settled') {
     const draft = review as ReviewDraft;
-    bottom.append(createVerdictSeal(draft), createAuthor(draft.author, 16, 'pr-queue-author'), createRowSeverityCounts(draft));
+    bottom.append(createVerdictSeal(draft));
+    if (approvalContext) bottom.append(el('span', 'pr-rereview-tag', 'Re-review'));
+    bottom.append(createAuthor(draft.author, 16, 'pr-queue-author'), createRowSeverityCounts(draft));
   }
   if (kind === 'attention' || kind === 'discarded') {
     const draft = review as ReviewDraft;
@@ -252,6 +264,7 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
     bottom.append(el('span', 'pr-attention-label pr-attention-label-posted', 'posted'), createAuthor(draft.author, 16, 'pr-queue-author'));
     bottom.append(el('span', 'pr-queue-posted-detail', verdictLabel(draft.verdict)));
   }
+  if (approvalContext && kind !== 'ready' && kind !== 'settled') bottom.append(el('span', 'pr-rereview-tag', 'Re-review'));
   row.append(glyph, top, bottom);
   const githubSummary = kind === 'inReview' || kind === 'queued' ? null : createGithubReviewSummary(review as ReviewDraft, 'pr-queue-reviewers', 16, kind !== 'posted');
   if (githubSummary) bottom.append(githubSummary);
@@ -294,6 +307,12 @@ function createDetailHeading(review: ReviewDraft | InFlightReview): HTMLElement 
   const githubSummary = 'reviewedHead' in review ? createGithubReviewSummary(review, 'pr-detail-github', 20) : null;
   if (githubSummary) metadata.append(githubSummary);
   heading.append(title, metadata);
+  const approvalContext = 'reviewedHead' in review ? viewerApprovalContext(review) : null;
+  if (approvalContext) {
+    const notice = el('p', 'pr-rereview-notice', viewerApprovalNotice(approvalContext, formatTimestampAge(approvalContext.submittedAt)));
+    notice.dataset.reviewKey = review.key;
+    heading.append(notice);
+  }
   return heading;
 }
 
