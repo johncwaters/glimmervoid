@@ -1,7 +1,7 @@
 import { STATES } from '#shared/states.ts';
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { adoptElement, el, queryTag, releaseElement, stateChip } from '../dom-helpers.ts';
-import { isRenameInProgress, makeTitleEditable, paintTaskTitle, startInlineTitleEdit } from '../session-card/card-dom.ts';
+import { isRenameInProgress, makeTitleEditable, paintTaskTitle, startInlineRename, startInlineTitleEdit } from '../session-card/card-dom.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
@@ -22,6 +22,8 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
 
   const identity = el('div', 'phone-terminal-identity');
   const nameEl = el('span', 'phone-terminal-name');
+  nameEl.title = 'Tap to rename';
+  nameEl.addEventListener('click', () => renameShownSession());
   const taskTitleEl = el('span', 'session-task-title session-list-task-title');
   makeTitleEditable(taskTitleEl, () => editShownTitle());
   const identityLine = el('span', 'phone-terminal-identity-line');
@@ -68,6 +70,12 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
   }
 
   cardSlot.addEventListener('click', focusShownTerminal);
+
+  function renameShownSession() {
+    const ui = shownId ? sessionUIs.get(shownId) : null;
+    if (!ui || !shownId) return;
+    startInlineRename(ui, shownId);
+  }
 
   function editShownTitle() {
     const ui = shownId ? sessionUIs.get(shownId) : null;

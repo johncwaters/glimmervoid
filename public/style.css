@@ -709,11 +709,6 @@ body {
   align-items: stretch;
 }
 
-.btn-overflow {
-  font-size: 15px;
-  line-height: 1;
-}
-
 .session-overflow-menu {
   display: none;
   position: absolute;
@@ -759,19 +754,36 @@ body {
   display: flex;
 }
 
-.overflow-restart,
+.overflow-item:has(.restart-menu-hint) {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.restart-menu-hint {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+
 .overflow-restart-fresh {
-  color: var(--accent);
-}
-
-.overflow-restart:hover,
-.overflow-restart-fresh:hover {
-  background: color-mix(in oklab, var(--accent) 10%, transparent);
-}
-
-.overflow-remove:hover {
   color: var(--state-failed);
+}
+
+.overflow-restart-fresh:hover,
+.overflow-restart-fresh:focus-visible {
   background: color-mix(in oklab, var(--state-failed) 10%, transparent);
+}
+
+.btn-remove {
+  color: var(--text-muted);
+}
+
+.btn-remove:hover,
+.btn-remove:focus-visible {
+  color: var(--state-failed);
 }
 
 @keyframes dialogFadeIn {
@@ -7310,6 +7322,7 @@ html[data-layout="phone"] .phone-row-item {
   font-size: 13px;
 }
 .phone-terminal-name {
+  cursor: pointer;
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 700;
@@ -7744,7 +7757,7 @@ html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-nav { displa
   font-size: 12px;
 }
 
-.btn-restart-fresh {
+.btn-restart-menu {
   font-size: 13px;
 }
 

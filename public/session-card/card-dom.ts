@@ -74,6 +74,8 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const header = el('div', 'session-card-header');
 
   const nameEl = el('span', 'session-name', sessionName);
+  nameEl.title = 'Double-click or press F2 to rename';
+  nameEl.tabIndex = 0;
   const permsBadge = options.skipPerms ? el('span', 'perms-badge', 'YOLO') : null;
   if (permsBadge) permsBadge.title = 'Running with --dangerously-skip-permissions';
   const taskTitleEl = el('span', 'session-task-title');
@@ -84,47 +86,43 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   const actions = el('div', 'session-actions');
 
-  const overflow = el('div', 'session-overflow');
-  const btnOverflow = el('button', 'btn-action btn-overflow visible', '\u22ee');
-  btnOverflow.title = 'More actions';
-  btnOverflow.setAttribute('aria-label', 'More actions');
-  btnOverflow.setAttribute('aria-haspopup', 'menu');
-  btnOverflow.setAttribute('aria-expanded', 'false');
-  const overflowMenu = el('div', 'session-overflow-menu');
-  overflowMenu.setAttribute('role', 'menu');
+  const restartMenuWrap = el('div', 'session-overflow');
+  const btnRestartMenu = el('button', 'btn-action btn-restart-menu visible', String.fromCharCode(0x21bb));
+  btnRestartMenu.type = 'button';
+  btnRestartMenu.title = 'Restart';
+  btnRestartMenu.setAttribute('aria-label', 'Restart');
+  btnRestartMenu.setAttribute('aria-haspopup', 'menu');
+  btnRestartMenu.setAttribute('aria-expanded', 'false');
+  const restartMenu = el('div', 'session-overflow-menu');
+  restartMenu.id = `restart-menu-${sessionId}`;
+  restartMenu.setAttribute('role', 'menu');
+  btnRestartMenu.setAttribute('aria-controls', restartMenu.id);
 
-  const btnRename = el('button', 'overflow-item overflow-rename', 'Rename');
-  btnRename.setAttribute('role', 'menuitem');
-  const btnRestart = el('button', 'overflow-item overflow-restart', 'Restart');
-  btnRestart.setAttribute('role', 'menuitem');
-  const btnRestartFresh = el('button', 'overflow-item overflow-restart-fresh', 'Restart fresh');
-  btnRestartFresh.setAttribute('role', 'menuitem');
-  const btnResume = el('button', 'overflow-item overflow-resume', 'Resume conversation...');
-  btnResume.setAttribute('role', 'menuitem');
-  const btnTrace = el('button', 'overflow-item overflow-trace', 'Trace');
-  btnTrace.setAttribute('role', 'menuitem');
-  const btnOverflowPlan = el('button', 'overflow-item overflow-plan', 'Plan');
-  btnOverflowPlan.setAttribute('role', 'menuitem');
-
-  const btnRemove = el('button', 'overflow-item overflow-remove', 'Remove');
-  btnRemove.setAttribute('role', 'menuitem');
-  overflowMenu.append(btnRename, btnRestart, btnRestartFresh, btnResume, btnTrace, btnOverflowPlan, btnRemove);
-  overflow.append(btnOverflow, overflowMenu);
+  const btnRestart = buildRestartMenuItem('Restart', 'Keeps this conversation', 'overflow-restart');
+  const btnRestartFresh = buildRestartMenuItem('Restart fresh', 'Ends this conversation and starts a new one', 'overflow-restart-fresh');
+  const btnResume = buildRestartMenuItem('Resume conversation...', 'Pick an earlier conversation', 'overflow-resume');
+  restartMenu.append(btnRestart, btnRestartFresh, btnResume);
+  restartMenuWrap.append(btnRestartMenu, restartMenu);
 
   const btnDebug = el('button', 'btn-action btn-debug', '\u2699');
   btnDebug.title = 'Debug state';
   btnDebug.setAttribute('aria-label', 'Debug session state');
 
-  const btnRestartFreshIcon = el('button', 'btn-action btn-restart-fresh', String.fromCharCode(0x21bb));
-  btnRestartFreshIcon.type = 'button';
-  btnRestartFreshIcon.title = 'Restart fresh';
-  btnRestartFreshIcon.setAttribute('aria-label', 'Restart fresh');
+  const btnTrace = el('button', 'btn-action btn-trace', String.fromCharCode(0x2261));
+  btnTrace.type = 'button';
+  btnTrace.title = 'Trace';
+  btnTrace.setAttribute('aria-label', 'Trace');
+
+  const btnRemove = el('button', 'btn-action btn-remove visible', String.fromCharCode(0xd7));
+  btnRemove.type = 'button';
+  btnRemove.title = 'Remove session';
+  btnRemove.setAttribute('aria-label', 'Remove session');
 
   const btnPlan = el('button', 'btn-action btn-face-plan', 'Plan');
   btnPlan.type = 'button';
   btnPlan.title = 'Show plan';
 
-  actions.append(btnPlan, btnDebug, btnRestartFreshIcon, overflow);
+  actions.append(btnPlan, btnDebug, btnTrace, restartMenuWrap, btnRemove);
   const tags = el('div', 'session-card-tags');
   const tagChildren = TAG_BADGES.map((spec) => buildTagBadge(spec));
   if (permsBadge) tagChildren.push(permsBadge);
@@ -135,7 +133,16 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   card.append(header, termWrap);
 
-  return { card, header, nameEl, elapsedEl, taskTitleEl, btnRename, btnRestart, btnRestartFresh, btnRestartFreshIcon, btnResume, btnTrace, btnOverflowPlan, btnRemove, btnPlan, btnDebug, btnOverflow, overflowMenu, termWrap };
+  return { card, header, nameEl, elapsedEl, taskTitleEl, btnRestart, btnRestartFresh, btnRestartMenu, btnResume, btnTrace, btnRemove, btnPlan, btnDebug, restartMenu, termWrap };
+}
+
+function buildRestartMenuItem(label: string, hint: string, className: string) {
+  const button = el('button', `overflow-item ${className}`);
+  button.type = 'button';
+  button.setAttribute('role', 'menuitem');
+  button.setAttribute('aria-label', label);
+  button.append(el('span', 'restart-menu-label', label), el('span', 'restart-menu-hint', hint));
+  return button;
 }
 
 export function makeTitleEditable(titleEl: HTMLElement, onActivate: () => void) {
@@ -437,19 +444,17 @@ function updateDebugVisibility() {
     ui.btnTrace.classList.toggle('visible', _debugMode);
     if (_debugMode) continue;
     if (ui.debugOpen) closeDebugOverlay(ui);
-    ui.overflowMenu.classList.remove('open');
-    ui.btnOverflow.setAttribute('aria-expanded', 'false');
   }
 }
 
 export function handleDebugStateResponse(msg: Record<string, unknown>) {
   const ui = typeof msg.id === 'string' ? sessionUIs.get(msg.id) : undefined;
-  if (!ui || !ui.debugOpen) return;
+  if (!ui?.debugOpen) return;
   renderDebugOverlay(ui, msg.payload as DebugStatePayload);
 }
 
 export function handleDebugStateRefresh(sessionId: unknown) {
   const ui = findSessionUi(sessionId);
-  if (!ui || !ui.debugOpen) return;
+  if (!ui?.debugOpen) return;
   sendControlMsg({ type: 'debug-state', id: sessionId });
 }

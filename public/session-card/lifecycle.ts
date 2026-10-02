@@ -25,7 +25,9 @@ import type { CardOptions } from './card-dom.ts';
 import { buildCardDOM, closeDebugOverlay, isDebugModeEnabled, isRenameInProgress, makeTitleEditable, openDebugOverlay, paintTaskTitle, setDebugMode, startInlineRename, startInlineTitleEdit } from './card-dom.ts';
 import type { SessionUi } from './card-registry.ts';
 import { aggregateEl, container, findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
-import { preferredBorrowedFace } from './face-core.ts';
+import { decidePlanHeaderAction, preferredBorrowedFace } from './face-core.ts';
+import { runRestartChoice } from './restart-menu-core.ts';
+import type { RestartChoice } from './restart-menu-core.ts';
 import type { SessionCardFace } from './face-core.ts';
 import { openConfirmDialog } from './modal.ts';
 import { openResumeDialog } from './resume-dialog.ts';
@@ -63,33 +65,20 @@ function updateButtonVisibility(ui: SessionUi) {
   const canRestart = isKillable(state) || isRestartable(state);
   ui.btnRestart.classList.toggle('visible', canRestart);
   ui.btnRestartFresh.classList.toggle('visible', canRestart);
-  ui.btnRestartFreshIcon.classList.toggle('visible', canRestart);
 
-  ui.btnRename.classList.add('visible');
   ui.btnResume.classList.add('visible');
   ui.btnTrace.classList.toggle('visible', isDebugModeEnabled());
-  ui.btnPlan.classList.toggle('visible', ui.isBorrowed && ui.hasPlan && ui.face === 'terminal');
-  ui.btnOverflowPlan.classList.toggle('visible', ui.hasPlan);
+  ui.btnPlan.classList.toggle('visible', decidePlanHeaderAction(ui) !== 'hidden');
   ui.btnRemove.classList.add('visible');
 }
 
-function sendRestartFresh(ui: SessionUi, sessionId: string) {
-  const type = isKillable(ui.currentState) ? 'force-restart' : 'restart';
-  sendControlMsg({ type, id: sessionId, fresh: true });
-}
-
-function closeOverflowMenu(ui: SessionUi) {
-  ui.overflowMenu.classList.remove('open');
-  ui.btnOverflow.setAttribute('aria-expanded', 'false');
+function closeRestartMenu(ui: SessionUi) {
+  ui.restartMenu.classList.remove('open');
+  ui.btnRestartMenu.setAttribute('aria-expanded', 'false');
 }
 
 function wireCardEvents(ui: SessionUi, sessionId: string) {
   makeTitleEditable(ui.taskTitleEl, () => startInlineTitleEdit(ui, sessionId));
-  ui.btnRename.addEventListener('click', () => {
-    ui.overflowMenu.classList.remove('open');
-    startInlineRename(ui, sessionId);
-  });
-
   ui.nameEl.addEventListener('dblclick', (e) => {
     e.preventDefault();
     startInlineRename(ui, sessionId);
@@ -100,47 +89,45 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     setSelectedId(sessionId);
   });
 
-  ui.btnRestart.addEventListener('click', () => {
-    ui.overflowMenu.classList.remove('open');
-    const type = isKillable(ui.currentState) ? 'force-restart' : 'restart';
-    sendControlMsg({ type, id: sessionId });
+  ui.nameEl.addEventListener('keydown', (event) => {
+    if (event.target !== ui.nameEl) return;
+    if (event.key !== 'F2' && event.key !== 'Enter') return;
+    event.preventDefault();
+    startInlineRename(ui, sessionId);
   });
 
-  ui.btnRestartFresh.addEventListener('click', () => {
-    ui.overflowMenu.classList.remove('open');
-    sendRestartFresh(ui, sessionId);
-  });
-
-  ui.btnRestartFreshIcon.addEventListener('click', () => {
-    if (ui.currentState !== STATES.RUNNING) { sendRestartFresh(ui, sessionId); return; }
-    openConfirmDialog({
-      title: 'Restart fresh',
-      message: 'This agent is mid-turn. A fresh restart ends this conversation and starts a new one. Restart anyway?',
-      confirmLabel: 'Restart fresh',
-      danger: true,
-      onConfirm: () => sendRestartFresh(ui, sessionId),
+  function restartSession(action: RestartChoice) {
+    closeRestartMenu(ui);
+    ui.btnRestartMenu.focus();
+    runRestartChoice(action, sessionId, {
+      readState: () => ui.currentState,
+      send: sendControlMsg,
+      confirm: openConfirmDialog,
     });
-  });
+  }
+
+  ui.btnRestart.addEventListener('click', () => restartSession('restart'));
+  ui.btnRestartFresh.addEventListener('click', () => restartSession('restart-fresh'));
 
   ui.btnResume.addEventListener('click', () => {
-    ui.overflowMenu.classList.remove('open');
+    closeRestartMenu(ui);
     openResumeDialog(sessionId, { currentState: ui.currentState });
   });
 
   ui.btnTrace.addEventListener('click', () => {
-    closeOverflowMenu(ui);
+    closeRestartMenu(ui);
     openTraceForSession(sessionId);
   });
 
-  ui.btnPlan.addEventListener('click', () => showSessionPlanFace(sessionId));
-
-  ui.btnOverflowPlan.addEventListener('click', () => {
-    closeOverflowMenu(ui);
+  ui.btnPlan.addEventListener('click', () => {
+    const action = decidePlanHeaderAction(ui);
+    if (action === 'hidden') return;
+    if (action === 'face') { showSessionPlanFace(sessionId); return; }
     location.hash = createPlanHash(sessionId);
   });
 
   ui.btnRemove.addEventListener('click', () => {
-    ui.overflowMenu.classList.remove('open');
+    closeRestartMenu(ui);
     const name = ui.card.dataset.session;
 
     const merge = ui.card.dataset.merge;
@@ -155,23 +142,44 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     });
   });
 
-  ui.btnOverflow.addEventListener('click', (e) => {
-    e.stopPropagation();
+  ui.btnRestartMenu.addEventListener('click', (event) => {
+    event.stopPropagation();
     for (const [, other] of sessionUIs) {
-      if (other !== ui) {
-        other.overflowMenu.classList.remove('open');
-        other.btnOverflow.setAttribute('aria-expanded', 'false');
-      }
+      if (other !== ui) closeRestartMenu(other);
     }
-    const nowOpen = ui.overflowMenu.classList.toggle('open');
-    ui.btnOverflow.setAttribute('aria-expanded', String(nowOpen));
+    const isOpen = ui.restartMenu.classList.toggle('open');
+    ui.btnRestartMenu.setAttribute('aria-expanded', String(isOpen));
   });
 
-  document.addEventListener('click', (e) => {
-    const clicked = e.target instanceof Node ? e.target : null;
-    if (!ui.overflowMenu.contains(clicked) && clicked !== ui.btnOverflow) {
-      closeOverflowMenu(ui);
+  const menuItems = [ui.btnRestart, ui.btnRestartFresh, ui.btnResume];
+  function moveMenuFocus(event: KeyboardEvent) {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    event.preventDefault();
+    event.stopPropagation();
+    for (const [, other] of sessionUIs) {
+      if (other !== ui) closeRestartMenu(other);
     }
+    ui.restartMenu.classList.add('open');
+    ui.btnRestartMenu.setAttribute('aria-expanded', 'true');
+    const visibleItems = menuItems.filter((item) => item.classList.contains('visible'));
+    const focusedElement = document.activeElement;
+    const focusedIndex = focusedElement instanceof HTMLButtonElement ? visibleItems.indexOf(focusedElement) : -1;
+    const nextIndex = event.key === 'ArrowDown' ? focusedIndex + 1 : focusedIndex < 0 ? visibleItems.length - 1 : focusedIndex - 1;
+    visibleItems[(nextIndex + visibleItems.length) % visibleItems.length]?.focus();
+  }
+  ui.btnRestartMenu.addEventListener('keydown', moveMenuFocus);
+  ui.restartMenu.addEventListener('keydown', moveMenuFocus);
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !ui.restartMenu.classList.contains('open')) return;
+    event.preventDefault();
+    closeRestartMenu(ui);
+    ui.btnRestartMenu.focus();
+  }, { signal: ui.abortController.signal });
+
+  document.addEventListener('click', (event) => {
+    const clicked = event.target instanceof Node ? event.target : null;
+    if (!ui.restartMenu.contains(clicked) && clicked !== ui.btnRestartMenu) closeRestartMenu(ui);
   }, { signal: ui.abortController.signal });
 
   ui.termWrap.addEventListener('mousedown', () => {
@@ -305,18 +313,15 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     path: asText(options.path),
 
     stateSince: typeof options.stateSince === 'number' && Number.isFinite(options.stateSince) ? options.stateSince : Date.now(),
-    btnOverflow: dom.btnOverflow,
-    overflowMenu: dom.overflowMenu,
+    restartMenu: dom.restartMenu,
     termWrap: dom.termWrap,
     btnDebug: dom.btnDebug,
-    btnRename: dom.btnRename,
     btnRestart: dom.btnRestart,
     btnRestartFresh: dom.btnRestartFresh,
-    btnRestartFreshIcon: dom.btnRestartFreshIcon,
+    btnRestartMenu: dom.btnRestartMenu,
     btnResume: dom.btnResume,
     btnTrace: dom.btnTrace,
     btnPlan: dom.btnPlan,
-    btnOverflowPlan: dom.btnOverflowPlan,
     btnRemove: dom.btnRemove,
     debugOverlay: null,
     debugOpen: false,
@@ -370,14 +375,14 @@ function preferredFaceFor(ui: SessionUi): SessionCardFace {
 
 function showPlanFaceWhenPreferred(sessionId: unknown) {
   const ui = findSessionUi(sessionId);
-  if (!ui || !ui.isBorrowed) return false;
+  if (!ui?.isBorrowed) return false;
   if (preferredFaceFor(ui) !== 'plan') return false;
   return showSessionPlanFace(sessionId);
 }
 
 export function showSessionPlanFace(sessionId: unknown) {
   const ui = findSessionUi(sessionId);
-  if (!ui || !ui.isBorrowed || !ui.hasPlan) return false;
+  if (!ui?.isBorrowed || !ui.hasPlan) return false;
   ui.face = 'plan';
   ui.card.dataset.face = 'plan';
   ui.termWrap.hidden = true;

@@ -638,7 +638,7 @@ test('settings gate every trace entry point and exit hidden trace views', () => 
 
   assert.match(cardDomSource, /for \(const listener of debugModeListeners\) listener\(_debugMode\)/);
   assert.match(cardDomSource, /ui\.btnTrace\.classList\.toggle\('visible', _debugMode\)/);
-  assert.match(cardDomSource, /ui\.overflowMenu\.classList\.remove\('open'\)/);
+  assert.doesNotMatch(cardDomSource, /overflowMenu|btnOverflow/);
   assert.match(lifecycleSource, /ui\.btnTrace\.classList\.toggle\('visible', isDebugModeEnabled\(\)\)/);
   assert.match(appSource, /applySurfaceSettings\(msg\.settings\)/);
   assert.match(appSource, /onDebugModeChanged\(\(isDebugModeEnabled\) => setSurfaceAvailable\('trace', isDebugModeEnabled\)\);/);
