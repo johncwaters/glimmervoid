@@ -1332,27 +1332,23 @@ body {
 }
 
 .shortcut-groups {
-  columns: 2;
-  column-gap: 28px;
-
-  max-height: min(56vh, 420px);
-  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  align-items: start;
+  gap: 32px 48px;
 }
 
 .shortcut-group {
   display: flex;
   flex-direction: column;
-  gap: 7px;
-
-  break-inside: avoid;
-  margin-bottom: 18px;
+  gap: 10px;
 }
 
-.shortcut-group:last-child {
-  margin-bottom: 0;
-}
-
-.shortcut-group-title {
+.shortcut-group-title,
+.status-legend-title {
+  margin: 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-dim);
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 700;
@@ -1363,16 +1359,17 @@ body {
 
 .shortcut-rows {
   display: grid;
-  grid-template-columns: max-content 1fr;
-  column-gap: 10px;
-  row-gap: 6px;
+  grid-template-columns: var(--about-key-column) 1fr;
+  align-items: baseline;
+  column-gap: 14px;
+  row-gap: 8px;
   margin: 0;
 }
 
 .shortcut-keys {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   flex-wrap: wrap;
   gap: 4px;
 }
@@ -1406,32 +1403,22 @@ body {
 
 .status-legend {
   display: grid;
-  gap: 8px;
-  padding: 12px 0;
-  border-top: 1px solid var(--border-dim);
+  gap: 10px;
+  margin-top: 40px;
   font-family: var(--font-mono);
-}
-
-.status-legend-title {
-  margin: 0;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
 }
 
 .status-legend-rows {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   margin: 0;
 }
 
 .status-legend-row {
   display: grid;
-  grid-template-columns: 130px 1fr;
+  grid-template-columns: var(--about-key-column) 1fr;
   align-items: baseline;
-  gap: 12px;
+  column-gap: 14px;
   font-size: 11px;
 }
 
@@ -1466,7 +1453,8 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-top: 12px;
+  margin-top: 40px;
+  padding-top: 16px;
   border-top: 1px solid var(--border-dim);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -1494,12 +1482,6 @@ body {
 
 .settings-about-link:hover {
   text-decoration: underline;
-}
-
-@media (max-width: 560px) {
-  .shortcut-groups {
-    columns: 1;
-  }
 }
 
 .session-rename-input {
@@ -6355,6 +6337,7 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
 }
 
 .settings-view-content {
+  --about-key-column: 9.5rem;
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
@@ -6770,8 +6753,7 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
 }
 
 .settings-view-shortcuts {
-  margin-top: 22px;
-  max-height: none;
+  margin-top: 28px;
 }
 
 [data-layout="phone"] .settings-view-shell {
