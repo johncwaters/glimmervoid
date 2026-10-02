@@ -10,6 +10,8 @@ import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { shortcutHint } from '../shortcuts-core.ts';
+import { createSvgIcon, createSvgShape } from '../state-glyph.ts';
+import type { UiPrefs } from '../ui-prefs.ts';
 import { getReviewSidebarView, getSidebarWidth, isReviewSidebarExpanded, setReviewSidebarExpanded, setReviewSidebarView, setSidebarWidth } from '../ui-prefs.ts';
 import { buildChangeMapView } from './change-map-core.ts';
 import { renderChangeMapView } from './change-map-view.ts';
@@ -25,10 +27,12 @@ import {
 import {
   baseLabel,
   decideMergeAction,
+  decidePrimaryReviewAction,
   mergeActionTitle,
   mergeDisabledReason,
   mergeTargetText,
   parkedStatusText,
+  reviewHeadline,
 } from './review-copy-core.ts';
 import type { MergeActionVerdict } from './review-copy-core.ts';
 import { getSelectedId, onSelectionChange, setSelectedId } from './selection.ts';
@@ -72,10 +76,17 @@ let selectedView = getReviewSidebarView();
 let pendingOpenFilePath: string | null = null;
 
 let panelEl: HTMLElement | null = null;
-let branchSyncEl: HTMLElement | null = null;
 let controlsEl: HTMLElement | null = null;
 let bodyEl: HTMLElement | null = null;
 let sessionNameEl: HTMLElement | null = null;
+const viewButtonByView = new Map<UiPrefs['reviewSidebarView'], HTMLButtonElement>();
+let notesCountEl: HTMLElement | null = null;
+let railLabelEl: HTMLElement | null = null;
+let railStatusEl: HTMLElement | null = null;
+let railDotEl: HTMLElement | null = null;
+let railAddedEl: HTMLElement | null = null;
+let railRemovedEl: HTMLElement | null = null;
+let isMoreMenuOpen = false;
 let resolveJustSent = false;
 let resolveJustSentFor: string | null = null;
 let resolveSentTimer: ReturnType<typeof setTimeout> | null = null;
@@ -94,11 +105,36 @@ const annotatedLineByNoteKey = new Map<string, AnnotatedLine>();
 let notesEl: HTMLElement | null = null;
 let sendNotesBtn: HTMLButtonElement | null = null;
 let notesStatusEl: HTMLElement | null = null;
+let notesOutcomeEl: HTMLElement | null = null;
 let notesListEl: HTMLElement | null = null;
 const draftNoteByKey = new Map<string, DiffAnnotation>();
 let openEditorKey: string | null = null;
 let notesSendInFlight = false;
 let notesOutcome: string | null = null;
+
+function createReviewIconButton(label: string, strokePath: string) {
+  const button = el('button', 'review-icon-button');
+  button.type = 'button';
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  const icon = createSvgIcon(16, 16);
+  icon.append(createSvgShape('path', {
+    d: strokePath,
+    fill: 'none',
+    stroke: 'currentColor',
+    'stroke-width': '2',
+    'stroke-linecap': 'round',
+    'stroke-linejoin': 'round',
+  }));
+  button.append(icon);
+  return button;
+}
+
+function closeMoreMenu() {
+  isMoreMenuOpen = false;
+  controlsEl?.querySelector('.review-more-menu')?.remove();
+  controlsEl?.querySelector('.review-more-button')?.setAttribute('aria-expanded', 'false');
+}
 
 export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
   panelEl = panel;
@@ -113,37 +149,67 @@ export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
     setReviewSidebarExpanded(!isCollapsed);
   };
 
-  const minimizeBtn = el('button', 'review-btn review-sidebar-minimize', 'Minimize');
-  minimizeBtn.type = 'button';
-  minimizeBtn.title = 'Minimize the review sidebar to give the terminal more room';
+  const viewTabs = el('div', 'review-header-tabs');
+  viewTabs.setAttribute('role', 'group');
+  viewTabs.setAttribute('aria-label', 'Review view');
+  for (const [view, label] of [['map', 'Map'], ['diff', 'Diff'], ['notes', 'Notes']] as const) {
+    const button = el('button', 'review-header-tab', label);
+    button.type = 'button';
+    button.addEventListener('click', () => setSelectedView(view));
+    viewButtonByView.set(view, button);
+    viewTabs.append(button);
+  }
+  notesCountEl = el('span', 'review-notes-count');
+  viewTabs.append(notesCountEl);
+
+  const minimizeBtn = createReviewIconButton('Close review', 'M6 3L11 8L6 13');
+  minimizeBtn.classList.add('review-sidebar-close');
   minimizeBtn.addEventListener('click', () => applyCollapsed(true));
-  head.append(title, sessionNameEl, minimizeBtn);
+  head.append(title, sessionNameEl, viewTabs, minimizeBtn);
 
-  const expandBtn = el('button', 'review-sidebar-expand', 'Show review');
-  expandBtn.type = 'button';
-  expandBtn.title = 'Restore the review sidebar';
+  const rail = el('div', 'review-sidebar-rail');
+  const expandBtn = createReviewIconButton('Open review', 'M10 3L5 8L10 13');
+  expandBtn.classList.add('review-sidebar-open');
   expandBtn.addEventListener('click', () => applyCollapsed(false));
-
-  branchSyncEl = el('div', 'review-branch-sync');
+  railStatusEl = el('div', 'review-rail-status');
+  railDotEl = el('span', 'review-status-dot');
+  railDotEl.setAttribute('aria-hidden', 'true');
+  railAddedEl = el('span', 'review-rail-added');
+  railRemovedEl = el('span', 'review-rail-removed');
+  railStatusEl.append(railDotEl, railAddedEl, railRemovedEl);
+  railLabelEl = el('span', 'review-rail-label', 'Review');
+  rail.append(expandBtn, railLabelEl, railStatusEl);
 
   controlsEl = el('div', 'review-controls');
   bodyEl = el('div', 'review-sidebar-body');
 
-  notesEl = el('div', 'review-notes');
-  const notesBar = el('div', 'review-notes-bar');
+  notesEl = el('div', 'review-notes-footer');
   sendNotesBtn = el('button', 'review-btn review-btn-primary', 'Send notes');
   sendNotesBtn.type = 'button';
   sendNotesBtn.title = 'Paste the drafted review notes into this session as one message';
   sendNotesBtn.addEventListener('click', sendDraftAnnotations);
   notesStatusEl = el('div', 'review-notes-status');
-  notesBar.append(sendNotesBtn, notesStatusEl);
+  notesEl.append(notesStatusEl, sendNotesBtn);
   notesListEl = el('div', 'review-notes-list');
-  notesEl.append(notesBar, notesListEl);
+  notesOutcomeEl = el('div', 'review-notes-outcome');
+  notesOutcomeEl.setAttribute('role', 'status');
 
   const handle = el('div', 'review-resize-handle');
   handle.setAttribute('aria-hidden', 'true');
-  mountedPanel.append(expandBtn, head, branchSyncEl, controlsEl, notesEl, bodyEl, handle);
+  mountedPanel.append(rail, head, controlsEl, bodyEl, notesOutcomeEl, notesEl, handle);
   mountedPanel.toggleAttribute('data-collapsed', !isReviewSidebarExpanded());
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !isMoreMenuOpen) return;
+    event.preventDefault();
+    closeMoreMenu();
+    controlsEl?.querySelector<HTMLButtonElement>('.review-more-button')?.focus();
+  });
+  document.addEventListener('pointerdown', (event) => {
+    if (!isMoreMenuOpen || !(event.target instanceof Element)) return;
+    if (controlsEl?.contains(event.target) && event.target.closest('.review-more-button, .review-more-menu')) return;
+    closeMoreMenu();
+  });
 
   let dragStartX = 0, dragStartWidth = 0;
 
@@ -190,6 +256,7 @@ export function mountReviewSidebar({ panel }: { panel: HTMLElement | null }) {
 
   onSelectionChange((id) => {
 
+    isMoreMenuOpen = false;
     openFiles.clear();
     expanded.clear();
     pendingOpenFilePath = null;
@@ -354,9 +421,15 @@ export function resolveSelectedSession() {
   if (!id || isWorkspaceSession(id)) return false;
   const ui = sessionUIs.get(id);
   if (!ui) return false;
-  if ((statusById.get(id) || 'none') !== 'parked') return false;
-  if (reasonById.get(id) === 'base-diverged') return false;
-  if (!isLive(ui.currentState)) return false;
+  const status = statusById.get(id) || 'none';
+  const mergeReason = reasonById.get(id) || null;
+  const primaryAction = decidePrimaryReviewAction({
+    status,
+    mergeReason,
+    live: isLive(ui.currentState),
+    isMergeRendered: decideMergeAction(status, mergeReason, false).isRendered,
+  });
+  if (primaryAction !== 'resolve') return false;
   sendControlMsg({ type: 'resolve-session-merge', id });
   return true;
 }
@@ -462,9 +535,6 @@ function draftAnnotationFor(noteKey: string) {
 }
 
 function notesStatusText() {
-  if (notesSendInFlight) return 'Sending notes...';
-  if (notesOutcome) return notesOutcome;
-  if (draftNoteByKey.size === 0) return 'Annotate a diff line to draft a note.';
   return `${draftNoteByKey.size} note${draftNoteByKey.size === 1 ? '' : 's'} drafted`;
 }
 
@@ -491,10 +561,31 @@ function renderDraftList() {
 function updateNotesBar() {
   if (!notesEl || !sendNotesBtn || !notesStatusEl) return;
   const id = getSelectedId();
-  notesEl.hidden = !id || !sessionUIs.has(id);
+  const hasSelectedSession = !!id && sessionUIs.has(id);
+  notesEl.hidden = !hasSelectedSession || selectedView === 'map' || draftNoteByKey.size === 0;
   sendNotesBtn.disabled = notesSendInFlight || draftNoteByKey.size === 0;
   notesStatusEl.textContent = notesStatusText();
+  if (notesCountEl) {
+    notesCountEl.hidden = draftNoteByKey.size === 0;
+    notesCountEl.textContent = String(draftNoteByKey.size);
+    notesCountEl.setAttribute('aria-label', notesStatusText());
+  }
+  if (notesOutcomeEl) {
+    notesOutcomeEl.textContent = notesSendInFlight ? 'Sending notes...' : notesOutcome;
+    notesOutcomeEl.hidden = !hasSelectedSession || selectedView === 'map' || !notesOutcomeEl.textContent;
+  }
   renderDraftList();
+  if (selectedView === 'notes' && hasSelectedSession) renderNotesView();
+}
+
+function renderNotesView() {
+  if (!bodyEl || !notesListEl) return;
+  bodyEl.replaceChildren();
+  if (draftNoteByKey.size === 0) {
+    renderEmpty('No notes yet', 'Open the Diff tab and press note on a line to draft one.');
+    return;
+  }
+  bodyEl.append(notesListEl);
 }
 
 function sendDraftAnnotations() {
@@ -650,26 +741,11 @@ function removeDraftNote(noteKey: string) {
   updateNotesBar();
 }
 
-function setSelectedView(view: 'map' | 'diff') {
+function setSelectedView(view: UiPrefs['reviewSidebarView']) {
   selectedView = view;
-  if (view === 'map') pendingOpenFilePath = null;
+  if (view !== 'diff') pendingOpenFilePath = null;
   setReviewSidebarView(view);
   render();
-}
-
-function renderViewSwitch() {
-  const switcher = el('div', 'review-view-switch');
-  switcher.setAttribute('role', 'group');
-  switcher.setAttribute('aria-label', 'Review view');
-  for (const view of ['map', 'diff'] as const) {
-    const button = el('button', 'review-view-option', view === 'map' ? 'Map' : 'Diff');
-    button.type = 'button';
-    button.dataset.selected = String(selectedView === view);
-    button.setAttribute('aria-pressed', String(selectedView === view));
-    button.addEventListener('click', () => setSelectedView(view));
-    switcher.append(button);
-  }
-  return switcher;
 }
 
 function expandFileInDiff(path: string, payload: SessionDiffPayload | null | undefined) {
@@ -706,10 +782,11 @@ function render() {
   if (!controlsEl || !bodyEl) return;
   controlsEl.replaceChildren();
   bodyEl.replaceChildren();
-  bodyEl.append(renderViewSwitch());
+  for (const [view, button] of viewButtonByView) button.setAttribute('aria-pressed', String(selectedView === view));
   annotatedLineByNoteKey.clear();
   updateNotesBar();
-  if (branchSyncEl) branchSyncEl.replaceChildren();
+  if (railLabelEl) railLabelEl.hidden = true;
+  if (railStatusEl) railStatusEl.hidden = true;
 
   const id = getSelectedId();
   const ui = id ? sessionUIs.get(id) : null;
@@ -720,11 +797,6 @@ function render() {
   }
 
   const isWorkspace = isWorkspaceSession(id);
-  if (branchSyncEl && !isWorkspace) {
-    const row = renderBranchSync(id);
-    if (row) branchSyncEl.append(row);
-  }
-
   const status = statusById.get(id) || 'none';
   const mergeReason = reasonById.get(id) || null;
   const state = ui.currentState;
@@ -746,50 +818,72 @@ function render() {
 
   if (sessionNameEl) sessionNameEl.textContent = sessionName(ui, id);
 
-  const statusNoteText = status === 'parked' ? parkedStatusText(mergeReason)
-    : status === 'merging' ? 'Merging...'
-    : status === 'merged' ? 'Merged'
-    : null;
-  if (statusNoteText) {
-    const note = el('div', 'review-status-note');
-    note.dataset.merge = status;
-    note.textContent = statusNoteText;
-    controlsEl.append(note);
-  }
-
   const effectiveBase = baseLabel(ui.effectiveBase);
+  const totals = summarizeFiles([...committedFiles, ...uncommittedFiles]);
+  const headline = reviewHeadline({
+    status, mergeReason, fetched, hasChanges: totals.files > 0 || hasCommits, hasCommits,
+    canMerge: !isWorkspace && mergeAction.isEnabled, isWorkspace, live, effectiveBase,
+  });
+  const statusLine = el('div', 'review-status-headline');
+  const statusDot = el('span', 'review-status-dot');
+  statusDot.dataset.tone = headline.tone;
+  statusDot.setAttribute('aria-hidden', 'true');
+  statusLine.append(statusDot, el('span', 'review-status-text', headline.text));
+  controlsEl.append(statusLine);
+
+  const metadata = el('div', 'review-status-meta');
+  metadata.append(
+    el('span', 'review-status-files', `${totals.files} file${totals.files === 1 ? '' : 's'}`),
+    el('span', 'review-status-added', `+${totals.added}`),
+    el('span', 'review-status-removed', `-${totals.removed}`),
+    el('span', 'review-status-spacer'),
+  );
+  if (!isWorkspace) {
+    const branchSync = renderBranchSync(id);
+    if (branchSync) metadata.append(branchSync);
+  }
+  controlsEl.append(metadata);
+  if (status === 'parked') controlsEl.append(el('div', 'review-status-explanation', parkedStatusText(mergeReason)));
+
+  if (railLabelEl) railLabelEl.hidden = false;
+  if (railStatusEl) {
+    railStatusEl.hidden = false;
+    railStatusEl.setAttribute('aria-label', `${headline.text}, +${totals.added}, -${totals.removed}`);
+    railStatusEl.title = headline.text;
+  }
+  if (railDotEl) railDotEl.dataset.tone = headline.tone;
+  if (railAddedEl) railAddedEl.textContent = `+${totals.added}`;
+  if (railRemovedEl) railRemovedEl.textContent = `-${totals.removed}`;
+
   const actions = isWorkspace ? null : renderActions(id, {
     status, reviewable, mergeAction, live, state, sync, resyncing, effectiveBase, mergeReason,
   });
   if (actions) controlsEl.append(actions);
 
   const resyncStatus = isWorkspace ? null : resyncStatusLine(id, sync, resyncing);
-  if (resyncStatus) {
-    const r = el('div', resyncStatus.loading ? 'review-control-reason review-loading' : 'review-control-reason', resyncStatus.text);
-    if (resyncStatus.error) r.classList.add('review-control-reason-error');
-    r.id = 'review-resync-reason';
-    controlsEl.append(r);
-    const resyncBtn = actions?.querySelector('#review-resync-btn');
-    if (resyncBtn) resyncBtn.setAttribute('aria-describedby', 'review-resync-reason');
+  const mergeReasonText = !isWorkspace && mergeAction.isRendered && !mergeAction.isEnabled
+    ? mergeDisabledReason({ status, mergeReason, fetched, hasCommits, live, state })
+    : null;
+  const hasMergeReason = !!mergeReasonText;
+  if (mergeReasonText) {
+    const mergeReasonLine = el('div', fetched ? 'review-control-reason' : 'review-control-reason review-loading', mergeReasonText);
+    mergeReasonLine.id = 'review-merge-reason';
+    controlsEl.append(mergeReasonLine);
+    controlsEl.querySelector('#review-merge-btn')?.setAttribute('aria-describedby', mergeReasonLine.id);
   }
-
-  let reasonShown = false;
-  if (!isWorkspace && mergeAction.isRendered && !mergeAction.isEnabled) {
-    const reason = mergeDisabledReason({ status, mergeReason, fetched, hasCommits, live, state });
-    if (reason) {
-
-      const r = el('div', !fetched ? 'review-control-reason review-loading' : 'review-control-reason', reason);
-      r.id = 'review-merge-reason';
-      controlsEl.append(r);
-      reasonShown = true;
-      const mergeBtn = actions?.querySelector('#review-merge-btn');
-      if (mergeBtn) mergeBtn.setAttribute('aria-describedby', 'review-merge-reason');
-    }
+  if (resyncStatus?.text) {
+    const resyncReasonLine = el('div', resyncStatus.loading ? 'review-control-reason review-loading' : 'review-control-reason', resyncStatus.text);
+    resyncReasonLine.id = 'review-resync-reason';
+    if (resyncStatus.error) resyncReasonLine.classList.add('review-control-reason-error');
+    controlsEl.append(resyncReasonLine);
+    controlsEl.querySelector('#review-resync-btn')?.setAttribute('aria-describedby', resyncReasonLine.id);
   }
 
   if (resolveJustSent && resolveJustSentFor === id) {
     controlsEl.append(el('div', 'review-resolve-sent', 'Resolve prompt sent'));
   }
+
+  if (selectedView === 'notes') return;
 
   if (selectedView === 'map') {
     const changeMap = mapById.get(id);
@@ -801,7 +895,7 @@ function render() {
   if (committedFiles.length > 0) {
     bodyEl.append(renderSection('committed', 'Committed', mergeTargetText(effectiveBase), committedFiles));
   }
-  if (committedFiles.length === 0 && !reasonShown) {
+  if (committedFiles.length === 0 && !hasMergeReason) {
 
     const placeholder = !fetched && reviewable
       ? el('div', 'review-nochanges review-loading', 'Loading diff...')
@@ -981,7 +1075,9 @@ function renderActions(id: string, {
 }) {
   const actions = el('div', 'review-actions');
 
-  if (mergeAction.isRendered) {
+  const primaryAction = decidePrimaryReviewAction({ status, mergeReason, live, isMergeRendered: mergeAction.isRendered });
+  const resolveShown = primaryAction === 'resolve';
+  if (primaryAction === 'merge') {
     actions.append(actionButton({
       id: 'review-merge-btn',
       label: 'Merge',
@@ -992,7 +1088,6 @@ function renderActions(id: string, {
     }));
   }
 
-  const resolveShown = status === 'parked' && live && mergeReason !== 'base-diverged';
   if (resolveShown) {
     actions.append(actionButton({
       label: 'Resolve',
@@ -1009,23 +1104,52 @@ function renderActions(id: string, {
     }));
   }
 
-  actions.append(actionButton({
+  const moreButton = createReviewIconButton('More review actions', 'M3 8h0.01M8 8h0.01M13 8h0.01');
+  moreButton.classList.add('review-more-button');
+  moreButton.setAttribute('aria-haspopup', 'menu');
+  moreButton.setAttribute('aria-expanded', String(isMoreMenuOpen));
+  moreButton.setAttribute('aria-controls', 'review-more-menu');
+  moreButton.addEventListener('click', () => {
+    isMoreMenuOpen = !isMoreMenuOpen;
+    render();
+    const focusTarget = controlsEl?.querySelector<HTMLButtonElement>(isMoreMenuOpen ? '.review-more-menu button:not(:disabled)' : '.review-more-button');
+    (focusTarget ?? controlsEl?.querySelector<HTMLButtonElement>('.review-more-button'))?.focus();
+  });
+  actions.append(moreButton);
+
+  const actionControls = el('div', 'review-action-controls');
+  actionControls.append(actions);
+  if (!isMoreMenuOpen) return actionControls;
+
+  const menu = el('div', 'review-more-menu');
+  menu.id = 'review-more-menu';
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', 'More review actions');
+  const resyncButton = actionButton({
     id: 'review-resync-btn',
-    label: 'Resync',
+    label: 'Resync base branch',
     shortcut: resolveShown ? undefined : resolveShortcutHint,
     title: resolveShown
       ? 'Fetch and fast-forward/push the local base branch against its remote upstream'
       : `Fetch and fast-forward/push the local base branch against its remote upstream (${resolveShortcutHint})`,
     disabled: resyncing || !!resyncDisabledReason(sync, resyncing),
-    onClick: () => requestResyncBranch(id),
-  }));
+    onClick: () => {
+      isMoreMenuOpen = false;
+      requestResyncBranch(id);
+    },
+  });
+  resyncButton.classList.remove('review-btn-primary');
+  resyncButton.setAttribute('role', 'menuitem');
+  menu.append(resyncButton);
 
   if (reviewable && !live) {
-    actions.append(actionButton({
-      label: 'Discard',
+    const discardButton = actionButton({
+      label: 'Discard worktree',
       danger: true,
       disabled: status === 'merging',
       onClick: () => {
+        isMoreMenuOpen = false;
+        render();
         const ui = sessionUIs.get(id);
         const nm = sessionName(ui, id);
         openConfirmDialog({
@@ -1035,7 +1159,10 @@ function renderActions(id: string, {
           onConfirm: () => sendControlMsg({ type: 'discard-session-worktree', id }),
         });
       },
-    }));
+    });
+    discardButton.setAttribute('role', 'menuitem');
+    menu.append(discardButton);
   }
-  return actions;
+  actionControls.append(menu);
+  return actionControls;
 }

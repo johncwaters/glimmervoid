@@ -1,5 +1,102 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { decidePrimaryReviewAction, reviewHeadline } from '../public/sidebar/review-copy-core.ts';
+
+const headlineInputs = {
+  status: 'pending-review',
+  mergeReason: null,
+  fetched: true,
+  hasChanges: true,
+  hasCommits: true,
+  canMerge: true,
+  isWorkspace: false,
+  live: true,
+  effectiveBase: 'main',
+};
+
+test('review headline names the merge target when changes are ready', () => {
+  assert.deepEqual(reviewHeadline(headlineInputs), { text: 'Ready to merge into main', tone: 'ready' });
+  assert.deepEqual(reviewHeadline({ ...headlineInputs, effectiveBase: 'trunk' }), { text: 'Ready to merge into trunk', tone: 'ready' });
+  assert.deepEqual(reviewHeadline({ ...headlineInputs, effectiveBase: null }), { text: 'Ready to merge into base', tone: 'ready' });
+  assert.deepEqual(reviewHeadline({ ...headlineInputs, effectiveBase: undefined }), { text: 'Ready to merge into base', tone: 'ready' });
+});
+
+test('review headline identifies a diverged base even while changes are loading', () => {
+  assert.deepEqual(reviewHeadline({ ...headlineInputs, status: 'parked', mergeReason: 'base-diverged', fetched: false }), {
+    text: 'Parked: base branch diverged', tone: 'parked',
+  });
+});
+
+test('review headline identifies merge conflicts and unknown parked reasons', () => {
+  for (const mergeReason of ['rebase-conflict', 'merge-conflict', 'unknown', null]) {
+    assert.deepEqual(reviewHeadline({ ...headlineInputs, status: 'parked', mergeReason, hasChanges: false }), {
+      text: 'Parked: merge conflict', tone: 'parked',
+    });
+  }
+});
+
+test('review headline keeps merging visible while changes refresh', () => {
+  assert.deepEqual(reviewHeadline({ ...headlineInputs, status: 'merging', fetched: false, hasChanges: false }), {
+    text: 'Merging', tone: 'busy',
+  });
+});
+
+test('review headline keeps merged visible after the diff cache is cleared', () => {
+  assert.deepEqual(reviewHeadline({ ...headlineInputs, status: 'merged', fetched: false, hasChanges: false }), {
+    text: 'Merged', tone: 'merged',
+  });
+});
+
+test('review headline waits for changes before declaring an empty worktree', () => {
+  assert.deepEqual(reviewHeadline({ ...headlineInputs, fetched: false, hasChanges: false }), {
+    text: 'Checking for changes', tone: 'idle',
+  });
+});
+
+test('review headline identifies a fetched worktree without changes', () => {
+  assert.deepEqual(reviewHeadline({ ...headlineInputs, status: 'none', hasChanges: false }), {
+    text: 'No changes yet', tone: 'idle',
+  });
+});
+
+test('review headline reports a workspace session without promising a merge', () => {
+  assert.deepEqual(reviewHeadline({ ...headlineInputs, isWorkspace: true, canMerge: false }), {
+    text: 'Changes in this worktree', tone: 'idle',
+  });
+});
+
+test('review headline reports an ended session instead of ready to merge', () => {
+  assert.deepEqual(reviewHeadline({ ...headlineInputs, live: false, canMerge: false }), {
+    text: 'Session ended', tone: 'idle',
+  });
+});
+
+test('review headline reports uncommitted only changes instead of ready to merge', () => {
+  assert.deepEqual(reviewHeadline({ ...headlineInputs, hasCommits: false, canMerge: false }), {
+    text: 'Uncommitted changes', tone: 'idle',
+  });
+});
+
+test('review headline reports committed changes that cannot merge yet', () => {
+  assert.deepEqual(reviewHeadline({ ...headlineInputs, canMerge: false }), {
+    text: 'Not ready to merge', tone: 'idle',
+  });
+});
+
+test('primary review action is resolve for a live conflict parked session', () => {
+  for (const mergeReason of ['rebase-conflict', null]) {
+    assert.equal(decidePrimaryReviewAction({ status: 'parked', mergeReason, live: true, isMergeRendered: false }), 'resolve');
+  }
+});
+
+test('primary review action is merge for a diverged base or an ended parked session when merge renders', () => {
+  assert.equal(decidePrimaryReviewAction({ status: 'parked', mergeReason: 'base-diverged', live: true, isMergeRendered: true }), 'merge');
+  assert.equal(decidePrimaryReviewAction({ status: 'pending-review', mergeReason: null, live: true, isMergeRendered: true }), 'merge');
+});
+
+test('primary review action is none when neither resolve nor merge applies', () => {
+  assert.equal(decidePrimaryReviewAction({ status: 'parked', mergeReason: 'rebase-conflict', live: false, isMergeRendered: false }), 'none');
+});
 
 test('review copy names the effective base and its push action', async () => {
   const { baseLabel, mergeActionTitle, mergeTargetText, parkedStatusText } = await import('../public/sidebar/review-copy-core.ts');

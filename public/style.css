@@ -5664,31 +5664,44 @@ html[data-layout="phone"] .plan-action { min-height: 44px; }
   overflow: hidden;
 }
 
-.review-sidebar-minimize { flex: 0 0 auto; padding: 3px 8px; }
-.review-sidebar-expand { display: none; }
+.app-sidebar :is(.review-icon-button, .review-header-tab, .review-btn) { min-height: 32px; min-width: 32px; }
+.review-sidebar-rail { display: none; }
 html:not([data-layout="phone"]) body[data-active-view="prs"] #review-sidebar { display: none; }
-html:not([data-layout="phone"]) .app-sidebar[data-collapsed] { flex-basis: 28px; }
-html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > :not(.review-sidebar-expand) { display: none; }
-html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-expand {
-  display: block;
-  flex: 1 1 auto;
-  appearance: none;
-  border: none;
-  background: none;
-  padding: 12px 0;
-  writing-mode: vertical-rl;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  text-align: start;
+html:not([data-layout="phone"]) .app-sidebar[data-collapsed] { flex-basis: 44px; }
+html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > :not(.review-sidebar-rail) { display: none; }
+html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 44px;
+  padding-top: 4px;
+}
+.review-icon-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
   color: var(--text-dim);
   cursor: pointer;
 }
-html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-expand:hover { color: var(--text-head); background: color-mix(in oklab, var(--accent) 8%, transparent); }
-.review-sidebar-expand:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-[data-layout="phone"] .review-sidebar-minimize { display: none; }
+.review-icon-button:hover { color: var(--text-head); border-color: var(--border-hover); background: var(--bg-card); }
+.review-icon-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.review-sidebar-open { height: 44px; border-color: transparent; }
+.review-rail-label { writing-mode: vertical-rl; font: 700 10px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); }
+.review-rail-status { display: flex; flex-direction: column; align-items: center; gap: 7px; max-width: 100%; font: 10px var(--font-mono); overflow-wrap: anywhere; }
+.review-rail-status[hidden] { display: none; }
+.review-rail-added, .review-status-added { color: var(--state-complete); }
+.review-rail-removed, .review-status-removed { color: var(--state-failed); }
+[data-layout="phone"] .review-sidebar-close, [data-layout="phone"] .review-sidebar-rail { display: none; }
+[data-layout="phone"] .app-sidebar :is(.review-icon-button, .review-header-tab, .review-btn) { min-height: 44px; min-width: 44px; }
+[data-layout="phone"] .review-icon-button { width: 44px; height: 44px; }
 
 .review-resize-handle {
   position: absolute;
@@ -5706,18 +5719,18 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-e
   display: flex;
   align-items: center;
   flex: 0 0 auto;
-  padding: 10px 14px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--border-dim);
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 .review-sidebar-title {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-head);
+  color: var(--text-muted);
   flex: 0 0 auto;
 }
 .review-sidebar-session {
@@ -5731,12 +5744,28 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-e
   min-width: 0;
 }
 
-.review-branch-sync {
-  flex: 0 0 auto;
-  padding: 6px 14px;
-  border-bottom: 1px solid var(--border-dim);
-}
-.review-branch-sync:empty { display: none; }
+.review-header-tabs { display: flex; flex: 0 0 auto; align-items: center; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.review-header-tab { padding: 0 5px; border: 0; background: transparent; color: var(--text-muted); font: 600 11px var(--font-mono); cursor: pointer; }
+.review-header-tab + .review-header-tab { border-left: 1px solid var(--border); }
+.review-header-tab[aria-pressed="true"] { color: var(--text-head); background: var(--bg-card); }
+.review-header-tab:hover { color: var(--text-head); }
+.review-header-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.review-notes-count { margin-right: 5px; padding: 1px 4px; border-radius: 4px; background: var(--bg-surface); color: var(--text-dim); font: 10px var(--font-mono); }
+.review-notes-count[hidden] { display: none; }
+.review-status-headline { display: flex; align-items: center; gap: 8px; color: var(--text-head); font-size: 12px; line-height: 1.5; }
+.review-status-dot { display: inline-block; flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
+.review-status-dot[data-tone="ready"] { background: var(--state-complete); }
+.review-status-dot[data-tone="parked"] { background: var(--state-waiting); }
+.review-status-dot[data-tone="busy"] { background: var(--accent); }
+.review-status-dot[data-tone="merged"] { background: var(--state-done); }
+.review-status-dot[data-tone="idle"] { background: var(--text-muted); }
+.review-status-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; min-width: 0; color: var(--text-muted); font: 11px var(--font-mono); }
+.review-status-spacer { flex: 1; }
+.review-status-explanation { margin-top: 4px; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
+.review-action-controls { margin-top: 10px; }
+.review-more-button { width: 36px; height: 36px; }
+.review-more-menu { display: grid; gap: 4px; margin-top: 6px; padding: 5px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); }
+.review-more-menu .review-btn { width: 100%; text-align: left; }
 .review-branch-sync-text {
   appearance: none;
   border: none;
@@ -5746,7 +5775,10 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-e
   font-size: 11px;
   color: var(--text-dim);
   cursor: pointer;
-  text-align: left;
+  text-align: right;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .review-branch-sync-text:hover { color: var(--text-head); }
 .review-branch-sync-text[data-sync-state="ahead"] { color: var(--accent); }
@@ -5788,12 +5820,6 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-e
   padding: 12px 14px;
 }
 
-.review-view-switch { display: flex; margin-bottom: 12px; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
-.review-view-option { flex: 1; padding: 6px 8px; border: 0; background: transparent; color: var(--text-muted); font: 600 11px var(--font-mono); cursor: pointer; }
-.review-view-option + .review-view-option { border-left: 1px solid var(--border); }
-.review-view-option[data-selected="true"] { color: var(--accent); background: color-mix(in oklab, var(--accent) 10%, transparent); }
-.review-view-option:hover { color: var(--text-head); }
-.review-view-option:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .review-map { display: grid; gap: 14px; min-width: 0; }
 .review-map-repo { min-width: 0; border-top: 1px solid var(--border-dim); padding-top: 10px; }
 .review-map-repo-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 8px; align-items: baseline; }
@@ -5826,17 +5852,6 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-e
 @media (prefers-reduced-motion: no-preference) {
   .review-loading { animation: pulse 1.4s ease-in-out infinite; }
 }
-
-.review-status-note {
-  margin: 0 0 12px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--accent);
-}
-.review-status-note[data-merge="parked"] { color: var(--state-failed); }
-.review-status-note[data-merge="merged"] { color: var(--state-done); }
 
 .review-section {
 
@@ -5959,20 +5974,19 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-e
 .review-expand:hover { background: var(--bg-card); color: var(--text-head); }
 .review-expand:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
-.review-notes {
+.review-notes-footer {
+  position: sticky;
+  bottom: 0;
   flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--border-dim);
-}
-.review-notes[hidden] { display: none; }
-.review-notes-bar {
   display: flex;
   align-items: center;
   gap: 10px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border-dim);
+  background: var(--bg-header);
 }
+.review-notes-footer[hidden], .review-notes-outcome[hidden] { display: none; }
+.review-notes-outcome { flex: 0 0 auto; padding: 6px 14px; color: var(--text-muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .review-notes-status {
   flex: 1;
   min-width: 0;
@@ -5985,8 +5999,6 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-e
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 30vh;
-  overflow-y: auto;
 }
 .review-notes-list[hidden] { display: none; }
 .review-notes-entry {
@@ -6087,12 +6099,13 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-e
 .review-note-save:focus-visible,
 .review-note-cancel:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-.review-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.review-actions { display: flex; align-items: center; gap: 8px; }
+.review-actions .review-btn-primary { flex: 1; min-width: 0; }
 .review-btn {
   font-family: var(--font-mono);
   font-size: 11px;
   padding: 6px 12px;
-  border-radius: var(--radius);
+  border-radius: 6px;
   cursor: pointer;
   border: 1px solid var(--border);
   background: transparent;
@@ -6102,8 +6115,8 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-e
 .review-btn:hover:not(:disabled) { border-color: var(--border-hover); color: var(--text-head); }
 .review-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .review-btn:disabled { opacity: 0.5; cursor: default; }
-.review-btn-primary { color: var(--accent); border-color: var(--accent-dim); }
-.review-btn-primary:hover:not(:disabled) { background: color-mix(in oklab, var(--accent) 14%, transparent); }
+.review-btn-primary { min-height: 36px; color: var(--bg-header); border-color: var(--accent); background: var(--accent); }
+.review-btn-primary:hover:not(:disabled) { color: var(--bg-header); border-color: var(--accent); background: color-mix(in oklab, var(--accent) 85%, var(--text-head)); }
 .review-btn-danger {
   color: color-mix(in oklab, var(--state-failed) 65%, var(--text-dim));
   border-color: color-mix(in oklab, var(--state-failed) 35%, var(--border));
@@ -6124,8 +6137,8 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-e
   pointer-events: none;
 }
 .review-btn-primary .review-shortcut {
-  color: color-mix(in oklab, var(--accent) 60%, var(--text-muted));
-  border-color: color-mix(in oklab, var(--accent-dim) 50%, var(--border));
+  color: inherit;
+  border-color: currentColor;
 }
 .review-btn:disabled .review-shortcut { opacity: 0.6; }
 

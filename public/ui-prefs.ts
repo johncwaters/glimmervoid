@@ -16,7 +16,7 @@ export interface UiPrefs extends FlyingAnimalsOptions {
   lastFocusedSessionId: string | null;
   railWidth: number | null;
   reviewSidebarExpanded: boolean;
-  reviewSidebarView: 'map' | 'diff';
+  reviewSidebarView: 'map' | 'diff' | 'notes';
   prsQueueWidth: number | null;
   prsQueueCollapsed: boolean;
   prsMode: 'team' | 'mine';
@@ -37,7 +37,7 @@ const asNullableNumber = (value: unknown): number | null => (typeof value === 'n
 const asFiniteNumber = (fallback: number) => (value: unknown): number => asNullableNumber(value) ?? fallback;
 const asStringList = (value: unknown): string[] =>
   Array.isArray(value) ? [...new Set(value.filter((entry): entry is string => typeof entry === 'string' && entry !== ''))] : [];
-const asReviewSidebarView = (value: unknown): UiPrefs['reviewSidebarView'] => value === 'diff' ? 'diff' : 'map';
+const asReviewSidebarView = (value: unknown): UiPrefs['reviewSidebarView'] => value === 'diff' || value === 'notes' ? value : 'map';
 const asPrsMode = (value: unknown): UiPrefs['prsMode'] => value === 'mine' ? 'mine' : 'team';
 
 const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
