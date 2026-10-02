@@ -778,11 +778,14 @@ body {
 }
 
 .btn-remove {
-  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+  color: var(--text-dim);
 }
 
-.btn-remove:hover,
+.session-card[data-state] .btn-remove:hover,
 .btn-remove:focus-visible {
+  background: color-mix(in oklch, var(--state-failed) 20%, var(--bg-card));
   color: var(--state-failed);
 }
 
