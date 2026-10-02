@@ -209,7 +209,7 @@ function harness(over: HarnessOverrides = {}) {
     setTimeoutFn: over.setTimeoutFn || (() => heldTimer()),
     clearTimeoutFn: () => {},
     waitForTrafficRetry: over.waitForTrafficRetry,
-    log: { warn() {} },
+    log: over.log || { warn() {} },
     onTickComplete: (status) => { summaries.push(status); },
     onInvestigationActivity: over.onInvestigationActivity,
     now: over.now || (() => 1000),
@@ -535,6 +535,25 @@ test('a failed issue query reports that project without killing the cycle', asyn
   assert.deepEqual(reported.map((project) => project.projectId), [1, 2]);
   assert.equal(tickProject(summaries, 0).error, 'HTTP 500', 'the failure is reported, not hidden by omission');
   assert.equal(tickProject(summaries, 1).error, undefined);
+});
+
+test('a tick with a failed project query reports failure so the lane backs off', async () => {
+  const warnings: string[] = [];
+  const { poller } = harness({
+    log: { warn: (message: string) => { warnings.push(message); } },
+    api: { queryIssues: async () => ({ ok: false, error: 'HTTP 429' }) },
+  });
+  await poller.start();
+  await flush();
+  assert.ok(warnings.some((message) => /poll failed \(1 in a row\) - backing off/.test(message)), warnings.join('\n'));
+});
+
+test('a tick whose projects all succeed does not back off', async () => {
+  const warnings: string[] = [];
+  const { poller } = harness({ log: { warn: (message: string) => { warnings.push(message); } } });
+  await poller.start();
+  await flush();
+  assert.equal(warnings.some((message) => /backing off/.test(message)), false);
 });
 
 test('onTickComplete emits the dashboard broadcast payload', async () => {
@@ -1131,7 +1150,7 @@ test('a purge on an otherwise clean tick still persists', async () => {
         archived: true, archivedAt: 1000,
       }],
     },
-    api: { queryIssues: async () => ({ ok: false, error: 'down' }) },
+    api: { queryIssues: async () => apiOk({ results: [] }) },
     now: () => clock,
   });
   await poller.start();

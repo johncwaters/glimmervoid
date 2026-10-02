@@ -296,7 +296,6 @@ function createUsageWiring({
 
   function onIntervalTick(): void {
     if (stopped || !scanner) return;
-    if (controlClientCount() === 0) return;
     if (passInFlight) return;
     void runPassAndPush({ force: false });
   }
@@ -394,7 +393,6 @@ function createUsageWiring({
     const delayMs = continuationDelayMs({ outcome, ioFailureStreak, partialMs: partialContinueMs });
     if (delayMs === null) return;
     if (stopped || !scanner || continueTimer) return;
-    if (outcome === 'byte-limited' && controlClientCount() === 0) return;
     continueTimer = setTimeoutFn(() => {
       continueTimer = null;
       if (stopped || !scanner || passInFlight) return;

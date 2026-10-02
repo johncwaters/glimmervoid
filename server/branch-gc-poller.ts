@@ -79,6 +79,7 @@ interface BranchGcPollerDeps {
   intervalMs?: number;
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
+  firstTickDelayMs?: () => number;
   log?: Pick<Console, 'warn'>;
   decisionTrace?: (entry: Record<string, unknown>) => void;
   onTickComplete?: (summary: Record<string, unknown>) => void;
@@ -525,6 +526,7 @@ function createBranchGcPoller(deps: BranchGcPollerDeps): BranchGcPoller {
     tick: runTick,
     setIntervalFn,
     clearIntervalFn,
+    firstTickDelayMs: deps.firstTickDelayMs,
     log,
     now,
   });

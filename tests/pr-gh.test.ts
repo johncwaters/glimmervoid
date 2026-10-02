@@ -540,3 +540,43 @@ test('behindCounts asks GitHub for every valid pull request in one aliased compa
   assert.deepEqual([...await gh.behindCounts([])], []);
   assert.equal(queries.length, 1);
 });
+
+test('rateLimitWaitMs reads the free rate_limit endpoint and waits for the latest exhausted reset among the named resources', async () => {
+  const calls: string[][] = [];
+  let resources: unknown = { core: { remaining: 4000, reset: 2000 }, search: { remaining: 0, reset: 1100 }, graphql: { remaining: 0, reset: 1300 }, code_search: { remaining: 0, reset: 3000 } };
+  const gh = createPrGh('/repo', async (_command, args) => {
+    calls.push(args);
+    return { ok: true, out: JSON.stringify(resources), err: '' };
+  });
+  assert.equal(await gh.rateLimitWaitMs(1_000_000, ['search', 'graphql', 'core']), 300_000);
+  assert.equal(await gh.rateLimitWaitMs(1_000_000, ['search']), 100_000);
+  assert.deepEqual(calls[0], ['api', 'rate_limit', '--jq', '.resources']);
+  resources = { core: { remaining: 10, reset: 2000 } };
+  assert.equal(await gh.rateLimitWaitMs(1_000_000, ['core']), null);
+  resources = 'not json';
+  assert.equal(await gh.rateLimitWaitMs(1_000_000, ['core']), null);
+});
+
+test('reviewThreadsBatch reads first pages in one aliased query and pages only a pull request with more threads', async () => {
+  const queries: string[] = [];
+  const thread = (path: string) => ({
+    isResolved: false, isOutdated: false, path, line: 3,
+    firstComment: { totalCount: 1, nodes: [{ author: { login: 'bob' }, bodyText: 'Fix', url: 'https://github.com/Acme/app/pull/7#discussion_r1', createdAt: '2026-09-28T10:00:00Z' }] },
+    lastComment: { nodes: [{ author: { login: 'bob' }, createdAt: '2026-09-28T10:00:00Z' }] },
+  });
+  const gh = createPrGh('/repo', async (_command, args) => {
+    const query = String(args[3]);
+    queries.push(query);
+    if (query.includes('pr0:')) {
+      return { ok: true, out: JSON.stringify({ data: {
+        pr0: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [thread('a.ts'), { invalid: true }] } } },
+        pr1: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: true }, nodes: [thread('ignored.ts')] } } },
+      } }), err: '' };
+    }
+    return { ok: true, out: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [thread('b.ts'), thread('c.ts')] } } } } }), err: '' };
+  });
+  const threads = await gh.reviewThreadsBatch([{ repo: 'Acme/app', number: 7 }, { repo: 'Acme/app', number: 8 }, { repo: 'bad/repo/x', number: 9 }]);
+  assert.deepEqual([...threads].map(([key, nodes]) => [key, nodes.map((node) => node.path)]), [['Acme/app#7', ['a.ts']], ['Acme/app#8', ['b.ts', 'c.ts']]]);
+  assert.equal(queries.length, 2);
+  assert.doesNotMatch(queries[0] ?? '', /number: 9\)/);
+});

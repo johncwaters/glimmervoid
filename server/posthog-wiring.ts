@@ -24,6 +24,7 @@ import { writeJsonAtomic } from './json-file.ts';
 import { createPosthogApi } from './posthog-api.ts';
 import type { PosthogApi } from './posthog-api.ts';
 import { createPosthogPoller } from './posthog-poller.ts';
+import { bootStaggerDelay } from './boot-stagger.ts';
 import type { PosthogState, SpawnInvestigationArgs } from './posthog-poller.ts';
 import { DEFAULT_POSTHOG_REPORT_DIR } from './posthog-report.ts';
 import { sendTelegramMessage } from './telegram-transport.ts';
@@ -731,6 +732,7 @@ function createPosthogWiring({
       const chatId = telegramConfig.chatId;
       const api = createPosthogApi({ host: posthogConfig.host, apiKey: posthogConfig.apiKey });
       return createPosthogPoller({
+        firstTickDelayMs: bootStaggerDelay,
         api,
         host: posthogConfig.host,
         resolveProjects: makeResolveProjects(api, config),

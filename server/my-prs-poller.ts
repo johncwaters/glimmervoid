@@ -1,24 +1,28 @@
 import * as core from './core/my-prs-core.ts';
+import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
 import { createTickLoop } from './lane-runner.ts';
 import type { SharedClock } from './lane-runner.ts';
 import type { PrGh } from './pr-gh.ts';
-import type { MyPr, MyPrAutoRebase, MyPrsStatus } from '../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrAutoRebase, MyPrsStatus, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
+
+const MY_PRS_RATE_LIMIT_RESOURCES = ['graphql'] as const;
 
 interface MyPrsPollerDependencies {
   org: string;
   shouldAutoRebase?: boolean;
-  github: Pick<PrGh, 'viewer' | 'searchMyPrs' | 'behindCounts' | 'reviewThreads' | 'rebasePr'>;
+  github: Pick<PrGh, 'viewer' | 'searchMyPrs' | 'behindCounts' | 'reviewThreadsBatch' | 'rebasePr' | 'rateLimitWaitMs'>;
   onTickComplete: (status: MyPrsStatus) => void;
   now?: () => number;
   intervalMinutes?: number;
   setIntervalFn?: (callback: () => void, milliseconds: number) => NodeJS.Timeout;
   clearIntervalFn?: (handle: NodeJS.Timeout) => void;
   clock?: SharedClock;
+  firstTickDelayMs?: () => number;
   log?: Pick<Console, 'warn'>;
 }
 
 export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
-  const { org, shouldAutoRebase = false, github, onTickComplete, now = Date.now, intervalMinutes = core.POLL_INTERVAL_MINUTES, setIntervalFn, clearIntervalFn, clock, log } = dependencies;
+  const { org, shouldAutoRebase = false, github, onTickComplete, now = Date.now, intervalMinutes = core.POLL_INTERVAL_MINUTES, setIntervalFn, clearIntervalFn, clock, firstTickDelayMs, log } = dependencies;
   let viewer: string | null = null;
   let hasLookedUpViewer = false;
   let previousPrs: MyPr[] = [];
@@ -26,7 +30,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   const autoRebaseByKey = new Map<string, MyPrAutoRebase>();
   const failedAutoRebaseAttempts = new Set<string>();
   const loop = createTickLoop({
-    tag: core.MY_PRS_LANE_ID, intervalMs: intervalMinutes * 60000, setIntervalFn, clearIntervalFn, clock, log,
+    tag: core.MY_PRS_LANE_ID, intervalMs: intervalMinutes * 60000, setIntervalFn, clearIntervalFn, clock, firstTickDelayMs, backoffMaxMs: GITHUB_RATE_LIMIT_WINDOW_MS, log,
     tick: async () => {
       if (!hasLookedUpViewer) {
         viewer = await github.viewer();
@@ -38,10 +42,14 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
       if (loop.isStopped()) return { failed: false };
       if (!search.ok) {
         onTickComplete(core.myPrsStatus({ ts: timestamp, configured: true, viewer, prs: previousPrs, error: search.error, truncatedNote: previousTruncatedNote }));
-        return { failed: true };
+        const rateLimitWaitMs = await github.rateLimitWaitMs(now(), MY_PRS_RATE_LIMIT_RESOURCES);
+        return rateLimitWaitMs === null ? { failed: true } : { failed: true, retryAfterMs: rateLimitWaitMs };
       }
       const openPrs = search.items.filter((node) => node.state === 'OPEN').map((node) => ({ repo: node.repository.nameWithOwner, number: node.number, headSha: node.headRefOid }));
       const behindCounts = openPrs.length > 0 ? await github.behindCounts(openPrs) : new Map<string, number>();
+      if (loop.isStopped()) return { failed: false };
+      const threadedPrs = search.items.filter((node) => node.state === 'OPEN' && core.hasUnresolvedThreads(node)).map((node) => ({ repo: node.repository.nameWithOwner, number: node.number }));
+      const threadsByPr = threadedPrs.length > 0 ? await github.reviewThreadsBatch(threadedPrs) : new Map<string, MyPrThreadNode[]>();
       if (loop.isStopped()) return { failed: false };
       const prs: MyPr[] = [];
       for (const node of search.items) {
@@ -56,8 +64,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
           if (!rebase.ok) log?.warn(`[${core.MY_PRS_LANE_ID}] auto-rebase of ${key} failed: ${rebase.err.trim()}`);
           autoRebaseByKey.set(key, core.autoRebaseRecord(rebase, node.baseRefName, now()));
         }
-        const threadNodes = node.state === 'OPEN' && core.hasUnresolvedThreads(node) ? await github.reviewThreads(node.repository.nameWithOwner, node.number) : [];
-        if (loop.isStopped()) return { failed: false };
+        const threadNodes = threadsByPr.get(key) ?? [];
         prs.push(core.withAutoRebase(core.toMyPr(node, behindBy, threadNodes), autoRebaseByKey.get(key)));
       }
       const listedKeys = new Set(prs.map((pr) => pr.key));

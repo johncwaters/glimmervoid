@@ -33,11 +33,12 @@ test('polls viewer once, compares open PRs sequentially, and keeps the last repo
         calls.push(`compare:${prs.map((pr) => `${pr.repo}#${pr.number}@${pr.headSha}`).join(',')}`);
         return new Map(prs.map((pr) => [`${pr.repo}#${pr.number}`, 3]));
       },
-      async reviewThreads(repo, number) {
-        calls.push(`threads:${repo}#${number}`);
-        return [];
+      async reviewThreadsBatch(prs) {
+        calls.push(`threads:${prs.map((pr) => `${pr.repo}#${pr.number}`).join(',')}`);
+        return new Map();
       },
       async rebasePr() { calls.push('rebase'); return { ok: true, err: '' }; },
+      async rateLimitWaitMs() { return null; },
     },
   });
   await poller.start();
@@ -69,8 +70,9 @@ test('a stop during an in-flight tick emits no status afterward', async () => {
         signalCompareStarted();
         return new Promise<Map<string, number>>((resolve) => { releaseCompare = resolve; });
       },
-      async reviewThreads() { return []; },
+      async reviewThreadsBatch() { return new Map(); },
       async rebasePr() { return { ok: true, err: '' }; },
+      async rateLimitWaitMs() { return null; },
     },
   });
   const started = poller.start();
@@ -95,8 +97,9 @@ test('a search cut short reports a truncation note that survives a failed refres
         return { ok: true, items: [node('OPEN'), node('MERGED')], totalCount: 73, error: '' };
       },
       async behindCounts(prs) { return new Map(prs.map((pr) => [`${pr.repo}#${pr.number}`, 0])); },
-      async reviewThreads() { return []; },
+      async reviewThreadsBatch() { return new Map(); },
       async rebasePr() { return { ok: true, err: '' }; },
+      async rateLimitWaitMs() { return null; },
     },
   });
   await poller.start();
@@ -122,13 +125,14 @@ test('fetches thread detail only for open pull requests with unresolved threads'
       async searchMyPrs() { return { ok: true, items: [openWithThread, openResolved, mergedWithThread], totalCount: 3, error: '' }; },
       async behindCounts(prs) { return new Map(prs.map((pr) => [`${pr.repo}#${pr.number}`, 0])); },
       async rebasePr() { return { ok: true, err: '' }; },
-      async reviewThreads(repo, number) {
-        threadRequests.push(`${repo}#${number}`);
-        return [{
+      async rateLimitWaitMs() { return null; },
+      async reviewThreadsBatch(prs) {
+        threadRequests.push(...prs.map((pr) => `${pr.repo}#${pr.number}`));
+        return new Map(prs.map((pr) => [`${pr.repo}#${pr.number}`, [{
           isResolved: false, isOutdated: false, path: 'src/app.ts', line: 4,
           firstComment: { totalCount: 1, nodes: [{ author: { login: 'bob' }, bodyText: 'Rename this', url: 'https://github.com/Acme/app/pull/1#discussion_r1', createdAt: '2026-09-28T10:00:00Z' }] },
           lastComment: { nodes: [{ author: { login: 'bob' }, createdAt: '2026-09-28T10:00:00Z' }] },
-        }];
+        }]]));
       },
     },
   });
@@ -150,11 +154,12 @@ function autoRebaseHarness({ shouldAutoRebase, rebaseResult }: { shouldAutoRebas
       async viewer() { return 'alice'; },
       async searchMyPrs() { return { ok: true, items: [node('OPEN'), node('MERGED')], totalCount: 2, error: '' }; },
       async behindCounts(prs) { return new Map(prs.map((pr) => [`${pr.repo}#${pr.number}`, 4])); },
-      async reviewThreads() { return []; },
+      async reviewThreadsBatch() { return new Map(); },
       async rebasePr(pullRequestId, expectedHeadSha) {
         rebases.push(`${pullRequestId}@${expectedHeadSha}`);
         return rebaseResult;
       },
+      async rateLimitWaitMs() { return null; },
     },
   });
   return { poller, rebases, statuses };
@@ -192,8 +197,9 @@ test('a failed auto-rebase record is dropped once a new head no longer needs a r
       async viewer() { return 'alice'; },
       async searchMyPrs() { return { ok: true, items: [{ ...node('OPEN'), headRefOid: currentHead }], totalCount: 1, error: '' }; },
       async behindCounts(prs) { return new Map(prs.map((pr) => [`${pr.repo}#${pr.number}`, pr.headSha === 'a'.repeat(40) ? 4 : 0])); },
-      async reviewThreads() { return []; },
+      async reviewThreadsBatch() { return new Map(); },
       async rebasePr() { return { ok: false, err: 'gh: Protected branch update failed' }; },
+      async rateLimitWaitMs() { return null; },
     },
   });
   await poller.start();
@@ -208,5 +214,45 @@ test('auto-rebase off never rebases', async () => {
   await poller.start();
   assert.deepEqual(rebases, []);
   assert.equal(statuses[0].prs[0]?.autoRebase, undefined);
+  await poller.stop();
+});
+
+test('a failed search during an exhausted GitHub rate limit backs off until the reset', async () => {
+  const warnings: string[] = [];
+  const poller = createMyPrsPoller({
+    org: 'Acme', now: () => NOW, intervalMinutes: 1, onTickComplete: () => {},
+    setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
+    log: { warn: (message: string) => { warnings.push(message); } },
+    github: {
+      async viewer() { return 'alice'; },
+      async searchMyPrs() { return { ok: false, items: [], totalCount: 0, error: 'API rate limit exceeded' }; },
+      async behindCounts() { return new Map(); },
+      async reviewThreadsBatch() { return new Map(); },
+      async rebasePr() { return { ok: true, err: '' }; },
+      async rateLimitWaitMs(nowMs) { return nowMs === NOW ? 900_000 : null; },
+    },
+  });
+  await poller.start();
+  assert.ok(warnings.some((message) => /backing off 900s/.test(message)), warnings.join('\n'));
+  await poller.stop();
+});
+
+test('a reported wait of a full hour backs off for the whole GitHub rate-limit window', async () => {
+  const warnings: string[] = [];
+  const poller = createMyPrsPoller({
+    org: 'Acme', now: () => NOW, intervalMinutes: 1, onTickComplete: () => {},
+    setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
+    log: { warn: (message: string) => { warnings.push(message); } },
+    github: {
+      async viewer() { return 'alice'; },
+      async searchMyPrs() { return { ok: false, items: [], totalCount: 0, error: 'API rate limit exceeded' }; },
+      async behindCounts() { return new Map(); },
+      async reviewThreadsBatch() { return new Map(); },
+      async rebasePr() { return { ok: true, err: '' }; },
+      async rateLimitWaitMs() { return 60 * 60_000; },
+    },
+  });
+  await poller.start();
+  assert.ok(warnings.some((message) => /backing off 3600s/.test(message)), warnings.join('\n'));
   await poller.stop();
 });

@@ -5,6 +5,7 @@ import * as core from './core/my-prs-core.ts';
 import { createLaneRunner } from './lane-runner.ts';
 import type { SharedClock } from './lane-runner.ts';
 import { createMyPrsPoller } from './my-prs-poller.ts';
+import { bootStaggerDelay } from './boot-stagger.ts';
 import { createPrGh } from './pr-gh.ts';
 import { readTeamReviewSettings } from './core/team-review-core.ts';
 import type { TeamReviewSettingsSource } from './core/team-review-core.ts';
@@ -38,7 +39,7 @@ export function createMyPrsWiring({ config, broadcast, log = console, github = c
       if (parsed.success) broadcast(parsed.data);
     },
     createPoller: ({ onTickComplete }) => createPoller({
-      org: settings().org, shouldAutoRebase: settings().autoRebaseMyPrs, github, log, onTickComplete, clock,
+      org: settings().org, shouldAutoRebase: settings().autoRebaseMyPrs, github, log, onTickComplete, clock, firstTickDelayMs: bootStaggerDelay,
     }),
   });
   function getStatus(): MyPrsStatusType {

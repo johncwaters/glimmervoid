@@ -132,6 +132,7 @@ interface PosthogPollerDependencies {
   writeState?: (state: PosthogState) => Promise<void>;
   setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
   clearIntervalFn?: (handle: NodeJS.Timeout) => void;
+  firstTickDelayMs?: () => number;
   setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
   clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
   log?: Pick<Console, 'warn'>;
@@ -237,6 +238,7 @@ function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
     writeState: () => writeState(state),
     setIntervalFn,
     clearIntervalFn,
+    firstTickDelayMs: deps.firstTickDelayMs,
     log,
   });
   const persist = () => loop.persist();
@@ -707,8 +709,10 @@ function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
   }
 
   async function runTick(): Promise<TickOutcome | undefined> {
+    let failures = 0;
     const projects = await resolveProjects().catch((e: unknown) => {
       log.warn(`[posthog-poller] project resolution failed: ${errorMessage(e)}`);
+      failures += 1;
       return [];
     });
     let dirty = false;
@@ -718,6 +722,7 @@ function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
         log.warn(`[posthog-poller] tick failed for ${project?.projectId}: ${errorMessage(e)}`);
         return null;
       });
+      if (!res || res.summary.error) failures += 1;
       if (!res) continue;
       if (res.dirty) dirty = true;
       summaries.push(res.summary);
@@ -726,6 +731,7 @@ function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
     if (pruneSignatureRegistry()) dirty = true;
     if (dirty) await persist();
     emitStatus(now(), summaries);
+    if (failures > 0) return { failed: true };
     return undefined;
   }
 

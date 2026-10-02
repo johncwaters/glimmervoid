@@ -30,7 +30,7 @@ export function onSessionTick(notify: () => void) {
   return () => tickSubscribers.delete(notify);
 }
 
-setInterval(() => {
+function runSessionTick() {
   for (const [, ui] of sessionUIs) {
     refreshElapsed(ui);
     refreshSessionActivity(ui);
@@ -38,4 +38,14 @@ setInterval(() => {
   for (const notify of tickSubscribers) {
     try { notify(); } catch {  }
   }
+}
+
+setInterval(() => {
+  if (document.hidden) return;
+  runSessionTick();
 }, 1000);
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  runSessionTick();
+});

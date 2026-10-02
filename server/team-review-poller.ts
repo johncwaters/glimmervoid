@@ -1,4 +1,5 @@
 import * as core from './core/team-review-core.ts';
+import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
 import type { ReviewProgressEvent, ReviewTier, TeamReviewCandidate } from './core/team-review-core.ts';
 import { firstLine } from './ephemeral-session.ts';
 import { createTickLoop } from './lane-runner.ts';
@@ -9,6 +10,8 @@ import type {
   InFlightReview, PrDetail, PriorReview, ResumableReview, ReviewDraft as ReviewDraftType, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../shared/contracts/team-review.ts';
 
+const TEAM_REVIEW_RATE_LIMIT_RESOURCES = ['search', 'graphql', 'core'] as const;
+
 interface TeamReviewGithub {
   viewer(): Promise<string | null>;
   teamMembers(org: string, team: string): Promise<string[]>;
@@ -18,6 +21,7 @@ interface TeamReviewGithub {
   viewPr(repo: string, number: number): Promise<PrDetail | null>;
   prHead(repo: string, number: number): Promise<string | null>;
   prReviewSnapshots(prs: readonly PrReference[]): Promise<Map<string, PrReviewSnapshot>>;
+  rateLimitWaitMs(nowMs: number, resourceNames: readonly string[]): Promise<number | null>;
 }
 
 interface SpawnReviewArgs {
@@ -51,6 +55,7 @@ interface TeamReviewPollerDependencies {
   setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
   clearIntervalFn?: (handle: NodeJS.Timeout) => void;
   clock?: SharedClock;
+  firstTickDelayMs?: () => number;
   setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
   clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
   log?: Pick<Console, 'warn'>;
@@ -90,7 +95,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
 
   const loop = createTickLoop({
     tag: core.TEAM_REVIEW_LANE_ID, intervalMs: (deps.intervalMinutes ?? core.POLL_INTERVAL_MINUTES) * 60000,
-    tick: () => runTick(), writeState: () => writeState(state), setIntervalFn, clearIntervalFn, clock: deps.clock, log,
+    tick: () => runTick(), writeState: () => writeState(state), setIntervalFn, clearIntervalFn, clock: deps.clock, firstTickDelayMs: deps.firstTickDelayMs, backoffMaxMs: GITHUB_RATE_LIMIT_WINDOW_MS, log,
   });
   const persist = () => loop.persist();
 
@@ -311,6 +316,11 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     return { candidates, isComplete: requested.complete && authored.complete };
   }
 
+  async function rateLimitedOutcome(): Promise<TickOutcome> {
+    const rateLimitWaitMs = await github.rateLimitWaitMs(now(), TEAM_REVIEW_RATE_LIMIT_RESOURCES);
+    return rateLimitWaitMs === null ? { failed: true } : { failed: true, retryAfterMs: rateLimitWaitMs };
+  }
+
   async function runTick(): Promise<TickOutcome | undefined> {
     const collected = await collectCandidates().catch((error: unknown) => {
       log.warn(`[${core.TEAM_REVIEW_LANE_ID}] candidate search failed: ${errorMessage(error)}`);
@@ -318,9 +328,14 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     });
     if (collected === null) {
       emitStatus();
-      return { failed: true };
+      return rateLimitedOutcome();
     }
     const { candidates, isComplete } = collected;
+    const rateLimitWaitMs = isComplete ? null : await github.rateLimitWaitMs(now(), TEAM_REVIEW_RATE_LIMIT_RESOURCES);
+    if (rateLimitWaitMs !== null) {
+      emitStatus();
+      return { failed: true, retryAfterMs: rateLimitWaitMs };
+    }
     const isPruned = isComplete ? await pruneDeparted(new Set(candidates.map((candidate) => candidate.key))) : false;
     const planned = await headsToReview(candidates);
     const isStarted = await startReviews(planned.queue);

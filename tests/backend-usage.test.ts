@@ -501,13 +501,34 @@ test('io-failed passes retry with capped backoff and warn once per standing fail
   await wiring.stop();
 });
 
-test('a partial pass is not continued while no dashboard is connected', async () => {
-  const { wiring, passes } = stubScannerWiring({ passResults: [PARTIAL_PASS], clients: 0 });
+test('a partial pass is continued with no dashboard connected, so an unattended server finishes its scan', async () => {
+  const { wiring, passes } = stubScannerWiring({ passResults: [PARTIAL_PASS, COMPLETE_PASS], clients: 0 });
+  await wiring.start();
+  await waitUntil(() => passes.length === 2, 'the continuation to run with nobody watching');
+  await wiring.stop();
+});
+
+test('the interval tick scans with no dashboard connected', async () => {
+  const passes: PassArgs[] = [];
+  const scanner = scriptedScanner(passes, [COMPLETE_PASS, COMPLETE_PASS]);
+  let intervalTick: () => void = () => {};
+  const wiring = createUsageWiring({
+    config: {},
+    sessions: new Map(),
+    controlClientCount: () => 0,
+    createScanner: () => scanner,
+    loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
+    setIntervalFn: (fn: () => void) => {
+      intervalTick = fn;
+      return { unref() {} } as NodeJS.Timeout;
+    },
+    clearIntervalFn: () => {},
+    logger: { warn: () => {}, log: () => {} },
+  });
   await wiring.start();
   assert.equal(passes.length, 1);
-
-  await settle(80);
-  assert.equal(passes.length, 1, 'nobody is looking, so the tree is left for the next interval tick');
+  intervalTick();
+  await waitUntil(() => passes.length === 2, 'the interval pass to run with nobody watching');
   await wiring.stop();
 });
 

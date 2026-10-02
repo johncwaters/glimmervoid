@@ -22,6 +22,9 @@ interface TickLoopOptions {
   setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
   clearIntervalFn?: (handle: NodeJS.Timeout) => void;
   clock?: SharedClock;
+  firstTickDelayMs?: () => number;
+  setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
+  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
   backoffBaseMs?: number;
   backoffMaxMs?: number;
   now?: () => number;
@@ -47,6 +50,9 @@ function createTickLoop({
   setIntervalFn = (fn: () => void, ms: number) => setInterval(fn, ms),
   clearIntervalFn = clearInterval,
   clock,
+  firstTickDelayMs = () => 0,
+  setTimeoutFn = (fn: () => void, ms: number) => setTimeout(fn, ms),
+  clearTimeoutFn = clearTimeout,
   backoffBaseMs = Math.max(intervalMs, DEFAULT_BASE_MS),
   backoffMaxMs = DEFAULT_MAX_MS,
   now = Date.now,
@@ -55,6 +61,7 @@ function createTickLoop({
 }: TickLoopOptions): TickLoop {
   let timer: NodeJS.Timeout | null = null;
   let unschedule: (() => void) | null = null;
+  let firstTickTimer: NodeJS.Timeout | null = null;
   let stopped = false;
   let tickRunning = false;
   let persistChain: Promise<void> = Promise.resolve();
@@ -106,7 +113,21 @@ function createTickLoop({
   async function start(prelude: (() => Promise<void> | void) | null = null): Promise<void> {
     stopped = false;
     if (prelude) await prelude();
-    await tick();
+    const delayMs = firstTickDelayMs();
+    if (delayMs <= 0) {
+      await tick();
+      armRecurringTicks();
+      return;
+    }
+    firstTickTimer = setTimeoutFn(() => {
+      firstTickTimer = null;
+      if (stopped) return;
+      void tick().finally(() => { if (!stopped) armRecurringTicks(); });
+    }, delayMs);
+    if (typeof firstTickTimer.unref === 'function') firstTickTimer.unref();
+  }
+
+  function armRecurringTicks(): void {
     if (clock) {
       unschedule = clock.schedule(tick, intervalMs);
       return;
@@ -121,6 +142,8 @@ function createTickLoop({
     failureStreak = 0;
     if (timer) clearIntervalFn(timer);
     timer = null;
+    if (firstTickTimer) clearTimeoutFn(firstTickTimer);
+    firstTickTimer = null;
     unschedule?.();
     unschedule = null;
     await Promise.allSettled([...running]);

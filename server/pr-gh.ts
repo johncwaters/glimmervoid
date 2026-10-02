@@ -1,4 +1,5 @@
 import { execFileAsync } from './child-process-safe.ts';
+import { GithubRateLimitResources, githubRateLimitWaitMs } from './core/github-rate-limit-core.ts';
 import { z } from 'zod';
 import { CommitSha, PrDetail, ReviewComment, SearchedPr } from '../shared/contracts/team-review.ts';
 import { MyPrSearchNode, MyPrSearchResponse, MyPrThreadNode, MyPrThreadsResponse } from '../shared/contracts/my-prs.ts';
@@ -75,7 +76,9 @@ interface PrGh {
   searchMyPrs(org: string, mergedSince: string): Promise<{ ok: boolean; items: MyPrSearchNodeType[]; totalCount: number; error: string }>;
   behindCounts(prs: readonly PrHeadReference[]): Promise<Map<string, number>>;
   rebasePr(pullRequestId: string, expectedHeadSha: string): Promise<{ ok: boolean; err: string }>;
+  rateLimitWaitMs(nowMs: number, resourceNames: readonly string[]): Promise<number | null>;
   reviewThreads(repo: string, number: number): Promise<MyPrThreadNodeType[]>;
+  reviewThreadsBatch(prs: readonly PrReference[]): Promise<Map<string, MyPrThreadNodeType[]>>;
   repoSlug(): Promise<string | null>;
   listIssues(): Promise<GithubIssueList>;
   viewIssue(issueNumber: number | string): Promise<GithubIssueDetail>;
@@ -135,13 +138,25 @@ const REBASE_PR_MUTATION = `mutation($id: ID!, $head: GitObjectID!) {
   updatePullRequestBranch(input: { pullRequestId: $id, expectedHeadOid: $head, updateMethod: REBASE }) { pullRequest { headRefOid } }
 }`;
 const PR_NODE_ID = /^[A-Za-z0-9_=-]+$/;
+const REVIEW_THREAD_FIELDS = `isResolved isOutdated path line
+    firstComment: comments(first: 1) { totalCount nodes { author { login } bodyText url createdAt } }
+    lastComment: comments(last: 1) { nodes { author { login } createdAt } }`;
 const MY_PR_THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes {
-    isResolved isOutdated path line
-    firstComment: comments(first: 1) { totalCount nodes { author { login } bodyText url createdAt } }
-    lastComment: comments(last: 1) { nodes { author { login } createdAt } }
+    ${REVIEW_THREAD_FIELDS}
   } } } }
 }`;
+const GRAPHQL_THREADS_REPOSITORY = z.object({ pullRequest: z.object({
+  reviewThreads: z.object({ pageInfo: z.object({ hasNextPage: z.boolean() }), nodes: z.array(z.unknown()) }),
+}).nullable() });
+
+function reviewThreadsBatchQuery(prs: readonly PrReference[]): string {
+  const fields = prs.map((pr, index) => {
+    const [owner, name] = repoParts(pr.repo) ?? ['', ''];
+    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { ${REVIEW_THREAD_FIELDS} } } } }`;
+  });
+  return `query { ${fields.join(' ')} }`;
+}
 const GH_LOGIN = z.string().regex(GH_SEGMENT);
 const GH_MEMBERS = z.array(GH_LOGIN);
 const TEAM_PROFILE = z.object({ data: z.object({ organization: z.object({ team: z.object({ name: z.string(), avatarUrl: z.string().url() }).nullable() }).nullable() }), errors: z.array(z.unknown()).optional() });
@@ -277,6 +292,29 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     }
   }
 
+  async function pagedReviewThreads(repo: string, number: number): Promise<MyPrThreadNodeType[]> {
+    const parts = repoParts(repo);
+    if (!parts || !isPrNumber(number)) return [];
+    const threads: MyPrThreadNodeType[] = [];
+    let cursor: string | null = null;
+    for (let page = 1; page <= MAX_REVIEW_THREAD_PAGES; page += 1) {
+      const cursorArgs = cursor === null ? [] : ['-f', `cursor=${cursor}`];
+      const response = await runGh(['api', 'graphql', '-f', `query=${MY_PR_THREADS_QUERY}`, '-f', `owner=${parts[0]}`, '-f', `name=${parts[1]}`, '-F', `number=${number}`, ...cursorArgs]);
+      if (!response.ok) return [];
+      const parsed = MyPrThreadsResponse.safeParse(parseJson<unknown>(response.out, null));
+      if (!parsed.success || parsed.data.errors?.length) return [];
+      const reviewThreads = parsed.data.data.repository?.pullRequest?.reviewThreads;
+      if (!reviewThreads) return threads;
+      for (const thread of reviewThreads.nodes) {
+        const valid = MyPrThreadNode.safeParse(thread);
+        if (valid.success) threads.push(valid.data);
+      }
+      if (!reviewThreads.pageInfo.hasNextPage || !reviewThreads.pageInfo.endCursor) return threads;
+      cursor = reviewThreads.pageInfo.endCursor;
+    }
+    return threads;
+  }
+
   async function searchPage(query: string, page: number): Promise<SearchedPrType[] | null> {
     const response = await runGh(['api', '-X', 'GET', 'search/issues', '-f', `q=${query}`, '-f', `per_page=${SEARCH_PAGE_SIZE}`, '-f', `page=${page}`]);
     if (!response.ok) return null;
@@ -311,27 +349,28 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       return { ok: true, items, totalCount: open.issueCount + merged.issueCount, error: '' };
     },
 
-    async reviewThreads(repo, number) {
-      const parts = repoParts(repo);
-      if (!parts || !isPrNumber(number)) return [];
-      const threads: MyPrThreadNodeType[] = [];
-      let cursor: string | null = null;
-      for (let page = 1; page <= MAX_REVIEW_THREAD_PAGES; page += 1) {
-        const cursorArgs = cursor === null ? [] : ['-f', `cursor=${cursor}`];
-        const response = await runGh(['api', 'graphql', '-f', `query=${MY_PR_THREADS_QUERY}`, '-f', `owner=${parts[0]}`, '-f', `name=${parts[1]}`, '-F', `number=${number}`, ...cursorArgs]);
-        if (!response.ok) return [];
-        const parsed = MyPrThreadsResponse.safeParse(parseJson<unknown>(response.out, null));
-        if (!parsed.success || parsed.data.errors?.length) return [];
-        const reviewThreads = parsed.data.data.repository?.pullRequest?.reviewThreads;
-        if (!reviewThreads) return threads;
-        for (const thread of reviewThreads.nodes) {
-          const valid = MyPrThreadNode.safeParse(thread);
-          if (valid.success) threads.push(valid.data);
+    reviewThreads(repo, number) {
+      return pagedReviewThreads(repo, number);
+    },
+
+    async reviewThreadsBatch(prs) {
+      const threadsByPr = new Map<string, MyPrThreadNodeType[]>();
+      const morePages: PrReference[] = [];
+      await forEachAliasedPr(uniqueValidPrs(prs), reviewThreadsBatchQuery, (pr, repository) => {
+        const parsed = GRAPHQL_THREADS_REPOSITORY.safeParse(repository);
+        const reviewThreads = parsed.success ? parsed.data.pullRequest?.reviewThreads : undefined;
+        if (!reviewThreads) return;
+        if (reviewThreads.pageInfo.hasNextPage) {
+          morePages.push(pr);
+          return;
         }
-        if (!reviewThreads.pageInfo.hasNextPage || !reviewThreads.pageInfo.endCursor) return threads;
-        cursor = reviewThreads.pageInfo.endCursor;
-      }
-      return threads;
+        threadsByPr.set(reviewSnapshotKey(pr.repo, pr.number), reviewThreads.nodes.flatMap((thread) => {
+          const valid = MyPrThreadNode.safeParse(thread);
+          return valid.success ? [valid.data] : [];
+        }));
+      });
+      for (const pr of morePages) threadsByPr.set(reviewSnapshotKey(pr.repo, pr.number), await pagedReviewThreads(pr.repo, pr.number));
+      return threadsByPr;
     },
 
     async behindCounts(prs) {
@@ -343,6 +382,12 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
         if (behindBy !== undefined) counts.set(reviewSnapshotKey(pr.repo, pr.number), behindBy);
       });
       return counts;
+    },
+    async rateLimitWaitMs(nowMs, resourceNames) {
+      const response = await runGh(['api', 'rate_limit', '--jq', '.resources']);
+      if (!response.ok) return null;
+      const parsed = GithubRateLimitResources.safeParse(parseJson<unknown>(response.out, null));
+      return parsed.success ? githubRateLimitWaitMs(parsed.data, nowMs, resourceNames) : null;
     },
     async rebasePr(pullRequestId, expectedHeadSha) {
       if (!PR_NODE_ID.test(pullRequestId) || !CommitSha.safeParse(expectedHeadSha).success) return { ok: false, err: 'invalid pull request id or head' };

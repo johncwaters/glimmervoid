@@ -1,4 +1,5 @@
 import { DEFAULT_INTERVAL_MS, DEFAULT_STALE_DAYS, createBranchGcPoller } from './branch-gc-poller.ts';
+import { bootStaggerDelay } from './boot-stagger.ts';
 import { DEFAULT_BRANCH_GC_PREFIXES } from './core/branch-gc-core.ts';
 import type { BranchGcGitWorkspace, BranchGcPoller } from './branch-gc-poller.ts';
 import { createLaneRunner } from './lane-runner.ts';
@@ -66,6 +67,7 @@ function createBranchGcWiring({
       pruneWorktrees: config.branchGc?.worktrees !== false,
       dryRun: config.branchGc?.dryRun ?? false,
       intervalMs: config.branchGc?.intervalMs ?? DEFAULT_INTERVAL_MS,
+      firstTickDelayMs: bootStaggerDelay,
       log,
       decisionTrace,
       onTickComplete,

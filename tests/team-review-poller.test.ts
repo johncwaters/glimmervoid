@@ -52,6 +52,7 @@ interface FakeGithub extends TeamReviewGithub {
   snapshotBatches: number[][];
   authoredQueries: string[][];
   failViewer: boolean;
+  rateLimitWait: number | null;
 }
 
 function fakeGithub(): FakeGithub {
@@ -65,6 +66,8 @@ function fakeGithub(): FakeGithub {
     snapshotBatches: [],
     authoredQueries: [],
     failViewer: false,
+    rateLimitWait: null,
+    rateLimitWaitMs: async () => github.rateLimitWait,
     viewer: async () => (github.failViewer ? null : 'me'),
     teamProfile: async () => ({ org: 'Acme', slug: 'core', name: 'Core', avatarUrl: 'https://avatars.githubusercontent.com/t/1' }),
     teamMembers: async () => ['me', 'teammate', 'other'],
@@ -1337,5 +1340,30 @@ test('pull requests beyond the free review slots are reported as queued until a 
   await settle();
   assert.deepEqual(spawned.map((args) => args.candidate.number), [1, 2, 3]);
   assert.deepEqual(statuses.at(-1)?.queued, []);
+  await poller.stop();
+});
+
+test('an incomplete search with an exhausted GitHub rate limit backs off until the reset and starts no review', async () => {
+  const warnings: string[] = [];
+  const { poller, github, spawned } = setup({ log: { warn: (message: string) => { warnings.push(message); } } });
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, 'a'.repeat(40));
+  github.isRequestedComplete = false;
+  github.rateLimitWait = 120_000;
+  await poller.start();
+  await settle();
+  assert.equal(spawned.length, 0);
+  assert.ok(warnings.some((message) => /backing off 120s/.test(message)), warnings.join('\n'));
+  await poller.stop();
+});
+
+test('an incomplete search without an exhausted rate limit still reviews what it found', async () => {
+  const { poller, github, spawned } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, 'a'.repeat(40));
+  github.isRequestedComplete = false;
+  await poller.start();
+  await settle();
+  assert.equal(spawned.length, 1);
   await poller.stop();
 });

@@ -23,6 +23,7 @@ import { createRepoCache } from './repo-cache.ts';
 import { reapTeamReviewProcesses } from './team-review-reaper.ts';
 import type { TeamReviewReapOptions } from './team-review-reaper.ts';
 import { createTeamReviewPoller } from './team-review-poller.ts';
+import { bootStaggerDelay } from './boot-stagger.ts';
 import type { DraftExpectation, DraftPatch, ReviewOutcome, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller } from './team-review-poller.ts';
 import { TeamReviewStateEntry, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type {
@@ -896,6 +897,7 @@ function createTeamReviewWiring({
         log,
         onTickComplete,
         clock,
+        firstTickDelayMs: bootStaggerDelay,
       });
     },
   });
