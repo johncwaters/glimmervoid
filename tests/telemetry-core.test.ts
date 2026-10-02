@@ -2,11 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  POSTHOG_PROJECT_TOKEN, adapterBucket, buildBrowserExceptionProperties, buildExceptionProperties, classifySessionExit,
-  decideTelemetryConsent, exceptionFingerprint, nodeMajorVersion, parseBrowserStackFrames, parseV8StackFrames,
+  POSTHOG_PROJECT_TOKEN, adapterBucket, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties,
+  classifySessionExit, decideTelemetryConsent, exceptionFingerprint, nodeMajorVersion, parseBrowserStackFrames, parseV8StackFrames,
   resolveProjectToken, scrubLocalPath, urlPathOnly,
 } from '../server/core/telemetry-core.ts';
-import { TELEMETRY_EVENT_SCHEMAS, TELEMETRY_EVENTS } from '../shared/contracts/telemetry.ts';
+import { AiGenerationProperties, TELEMETRY_EVENT_SCHEMAS, TELEMETRY_EVENTS } from '../shared/contracts/telemetry.ts';
+import type { UsageGenerationRollupRow } from '../server/core/usage-entry-core.ts';
 import type { TelemetryEventName } from '../shared/contracts/telemetry.ts';
 
 const POSIX_PACKAGE_ROOT = '/home/alice/.npm-global/lib/node_modules/glimmervoid';
@@ -139,7 +140,7 @@ test('every event schema refuses a property outside its allowlist', () => {
       $ai_input_tokens: 10, $ai_output_tokens: 5, $ai_total_cost_usd: 0.01, agent_adapter: 'claude-code',
     },
   };
-  const everyEventName: TelemetryEventName[] = [...TELEMETRY_EVENTS.map(({ name }) => name), '$ai_generation'];
+  const everyEventName: TelemetryEventName[] = TELEMETRY_EVENTS.map(({ name }) => name);
   for (const name of everyEventName) {
     const schema = TELEMETRY_EVENT_SCHEMAS[name];
     assert.equal(schema.safeParse(validByEvent[name]).success, true, `${name} accepts its allowlist`);
@@ -221,4 +222,68 @@ test('the exception fingerprint is the type plus in-app frames and ignores the m
   };
   assert.equal(exceptionFingerprint(stackFor('one', 'ws/a.js')), exceptionFingerprint(stackFor('two', 'ws/b.js')));
   assert.equal(exceptionFingerprint(stackFor('one', 'ws/a.js')), 'TypeError|run@server/a.ts');
+});
+
+function generationRow(overrides: Partial<UsageGenerationRollupRow> = {}): UsageGenerationRollupRow {
+  return {
+    sessionId: 'session-secret-a',
+    model: 'claude-sonnet-4-20250514',
+    vendor: 'claude',
+    input: 100,
+    output: 20,
+    cacheRead: 300,
+    cacheCreate: 40,
+    costUSD: 0.25,
+    hasKnownCost: true,
+    isModelKnown: true,
+    ...overrides,
+  };
+}
+
+test('ai generation events validate against the allowlist and never carry the session id', () => {
+  const installId = '2f1c7c1e-9d7a-4c55-9a51-0e8d1d1b8a01';
+  const events = buildAiGenerationEvents([
+    generationRow(),
+    generationRow({ vendor: 'codex', model: 'gpt-5.6', hasKnownCost: false, costUSD: 0 }),
+    generationRow({ vendor: 'grok', model: 'grok-4' }),
+    generationRow({ vendor: 'my-vendor', model: 'local-model' }),
+  ], installId);
+  assert.equal(events.length, 4);
+  for (const event of events) {
+    assert.equal(AiGenerationProperties.safeParse(event).success, true);
+    assert.equal(JSON.stringify(event).includes('session-secret-a'), false);
+    assert.equal('$ai_input' in event, false);
+    assert.equal('$ai_output' in event, false);
+  }
+  assert.deepEqual(events.map((event) => event.$ai_provider), ['anthropic', 'openai', 'xai', 'my-vendor']);
+  assert.deepEqual(events.map((event) => event.agent_adapter), ['claude-code', 'codex', 'grok', 'custom']);
+  assert.equal(events[0].$ai_total_cost_usd, 0.25);
+  assert.equal('$ai_total_cost_usd' in events[1], false);
+  assert.equal(events[0].$ai_input_tokens, 100);
+  assert.equal(events[0].$ai_cache_read_input_tokens, 300);
+});
+
+test('ai generation trace ids are stable per install and session and differ across installs', () => {
+  const [first] = buildAiGenerationEvents([generationRow()], 'install-a');
+  const [again] = buildAiGenerationEvents([generationRow({ model: 'claude-opus-4' })], 'install-a');
+  const [otherInstall] = buildAiGenerationEvents([generationRow()], 'install-b');
+  assert.match(first.$ai_trace_id, /^[0-9a-f]{64}$/);
+  assert.equal(first.$ai_trace_id, again.$ai_trace_id);
+  assert.notEqual(first.$ai_trace_id, otherInstall.$ai_trace_id);
+});
+
+test('ai generation events send a known model name and replace an unknown one with unknown', () => {
+  const bedrockArn = 'arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123';
+  const [known, unknown] = buildAiGenerationEvents([
+    generationRow(),
+    generationRow({ model: bedrockArn, isModelKnown: false }),
+  ], 'install-a');
+  assert.equal(known.$ai_model, 'claude-sonnet-4-20250514');
+  assert.equal(unknown.$ai_model, 'unknown');
+  assert.equal(JSON.stringify(unknown).includes('123456789012'), false);
+});
+
+test('ai generation rows with zero tokens are skipped', () => {
+  const events = buildAiGenerationEvents([generationRow({ input: 0, output: 0, cacheRead: 0, cacheCreate: 0 })], 'install-a');
+  assert.deepEqual(events, []);
 });

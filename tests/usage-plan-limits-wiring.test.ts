@@ -14,6 +14,7 @@ const COMPLETE_PASS: Awaited<ReturnType<UsageScannerApi['runPass']>> = {
   ioFailures: 0,
   storeReset: false,
   durationMs: 0,
+  generationRollup: [],
 };
 
 const GLIMMERVOID_ID = 'a0000000-0000-4000-8000-000000000001';

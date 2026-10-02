@@ -66,6 +66,19 @@ export interface DedupIdentityEntry {
   cacheRead?: unknown;
 }
 
+export interface UsageGenerationRollupRow {
+  sessionId: string;
+  model: string;
+  vendor: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreate: number;
+  costUSD: number;
+  hasKnownCost: boolean;
+  isModelKnown: boolean;
+}
+
 export interface ReplaceCandidate extends TokenCountsSource {
   isSidechain?: boolean;
   speed?: string | null;
@@ -231,6 +244,94 @@ function totalTokensOf(entry: TokenCountsSource | null | undefined): number {
   return safeNumber(entry.input) + safeNumber(entry.output) + safeNumber(entry.cacheCreate) + safeNumber(entry.cacheRead);
 }
 
+const UNKNOWN_GENERATION_MODEL = 'unknown';
+const GENERATION_RECENCY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function isWithinGenerationRecencyWindow(entry: { timestampMs?: unknown }, nowMs: number): boolean {
+  const { timestampMs } = entry;
+  if (typeof timestampMs !== 'number' || !Number.isFinite(timestampMs)) return false;
+  return nowMs - timestampMs <= GENERATION_RECENCY_WINDOW_MS;
+}
+
+function addCountsToGenerationRollup(
+  rowsByKey: Map<string, UsageGenerationRollupRow>,
+  entry: UsageEntryLike,
+  pricedModelKey: string | null,
+  counts: Required<Omit<TokenCountsSource, 'costUSD'>> & { costUSD: number },
+): void {
+  const sessionId = entry.sessionId ?? '';
+  const model = pricedModelKey ?? UNKNOWN_GENERATION_MODEL;
+  const key = JSON.stringify([sessionId, model]);
+  const row = rowsByKey.get(key) ?? {
+    sessionId,
+    model,
+    vendor: entry.vendor?.trim() || 'claude',
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheCreate: 0,
+    costUSD: 0,
+    hasKnownCost: false,
+    isModelKnown: pricedModelKey !== null,
+  };
+  row.input += counts.input;
+  row.output += counts.output;
+  row.cacheRead += counts.cacheRead;
+  row.cacheCreate += counts.cacheCreate;
+  row.costUSD += counts.costUSD;
+  row.hasKnownCost = row.hasKnownCost || counts.costUSD > 0;
+  rowsByKey.set(key, row);
+}
+
+function foldEntryIntoGenerationRollup(
+  rowsByKey: Map<string, UsageGenerationRollupRow>,
+  entry: UsageEntryLike,
+  pricedModelKey: string | null,
+): void {
+  addCountsToGenerationRollup(rowsByKey, entry, pricedModelKey, {
+    input: safeNumber(entry.input),
+    output: safeNumber(entry.output),
+    cacheRead: safeNumber(entry.cacheRead),
+    cacheCreate: safeNumber(entry.cacheCreate),
+    costUSD: safeNumber(entry.costUSD),
+  });
+}
+
+function foldReplacementIntoGenerationRollup(
+  rowsByKey: Map<string, UsageGenerationRollupRow>,
+  replacedEntry: UsageEntryLike,
+  replacementEntry: UsageEntryLike,
+  pricedModelKey: string | null,
+): void {
+  const growthOf = (field: keyof TokenCountsSource) => Math.max(0, safeNumber(replacementEntry[field]) - safeNumber(replacedEntry[field]));
+  addCountsToGenerationRollup(rowsByKey, replacementEntry, pricedModelKey, {
+    input: growthOf('input'),
+    output: growthOf('output'),
+    cacheRead: growthOf('cacheRead'),
+    cacheCreate: growthOf('cacheCreate'),
+    costUSD: growthOf('costUSD'),
+  });
+}
+
+function mergeGenerationRollups(
+  targetRowsByKey: Map<string, UsageGenerationRollupRow>,
+  sourceRowsByKey: Map<string, UsageGenerationRollupRow>,
+): void {
+  for (const [key, sourceRow] of sourceRowsByKey) {
+    const targetRow = targetRowsByKey.get(key);
+    if (!targetRow) {
+      targetRowsByKey.set(key, { ...sourceRow });
+      continue;
+    }
+    targetRow.input += sourceRow.input;
+    targetRow.output += sourceRow.output;
+    targetRow.cacheRead += sourceRow.cacheRead;
+    targetRow.cacheCreate += sourceRow.cacheCreate;
+    targetRow.costUSD += sourceRow.costUSD;
+    targetRow.hasKnownCost = targetRow.hasKnownCost || sourceRow.hasKnownCost;
+  }
+}
+
 function emptyTotals(): UsageTotals {
   return { tokens: 0, costUSD: 0, input: 0, output: 0, cacheCreate: 0, cacheRead: 0 };
 }
@@ -337,4 +438,4 @@ function presentEmpty(value: unknown): boolean {
   return typeof value === 'string' && value.trim() === '';
 }
 
-export { addEntryToTotals, dedupKeys, emptyTotals, expandAdvisorIterations, identityFromRelPath, parseJsonLine, parseUsageLine, shouldReplace, totalTokensOf, vendorUsageEntry };
+export { addEntryToTotals, dedupKeys, emptyTotals, expandAdvisorIterations, foldEntryIntoGenerationRollup, foldReplacementIntoGenerationRollup, GENERATION_RECENCY_WINDOW_MS, identityFromRelPath, isWithinGenerationRecencyWindow, mergeGenerationRollups, parseJsonLine, parseUsageLine, shouldReplace, totalTokensOf, vendorUsageEntry };

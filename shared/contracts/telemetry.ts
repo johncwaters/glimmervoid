@@ -6,6 +6,8 @@ export const SESSION_EXIT_KINDS = Object.freeze(['clean', 'error', 'signal', 'no
 
 export const MAX_EXCEPTION_FRAMES = 64;
 export const MAX_TEXT_LENGTH = 512;
+export const MAX_AI_PROVIDER_LENGTH = 64;
+export const MAX_AI_MODEL_LENGTH = 128;
 
 const nonNegativeInteger = z.number().int().nonnegative();
 const boundedText = z.string().max(MAX_TEXT_LENGTH);
@@ -54,13 +56,13 @@ export const ExceptionProperties = z.object({
 
 export const AiGenerationProperties = z.object({
   $ai_trace_id: z.string().regex(/^[0-9a-f]{64}$/),
-  $ai_provider: z.string().max(64),
-  $ai_model: z.string().max(128),
+  $ai_provider: z.string().max(MAX_AI_PROVIDER_LENGTH),
+  $ai_model: z.string().max(MAX_AI_MODEL_LENGTH),
   $ai_input_tokens: nonNegativeInteger,
   $ai_output_tokens: nonNegativeInteger,
   $ai_cache_read_input_tokens: nonNegativeInteger.optional(),
   $ai_cache_creation_input_tokens: nonNegativeInteger.optional(),
-  $ai_total_cost_usd: z.number().finite().nonnegative(),
+  $ai_total_cost_usd: z.number().finite().nonnegative().optional(),
   agent_adapter: z.enum(TELEMETRY_ADAPTERS),
 }).strict();
 
@@ -82,6 +84,7 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'session_started', description: 'A session spawned, with which kind of agent (any custom agent counts as `custom`).' },
   { name: 'session_ended', description: 'A session exited: how it exited and how long it ran, in whole seconds.' },
   { name: '$exception', description: 'An error in the server or the dashboard: its type, an error code when it has one, and stack frames with file paths cut to the package or URL path. Never the error message. Each distinct error is sent once per run, and a crash is sent on the next start.' },
+  { name: '$ai_generation', description: 'Per agent session and model, after each usage scan, for usage recorded in the last 24 hours: token counts, the model name and estimated cost, under a one-way hash of the session. A model name outside the shipped pricing table is sent as unknown. No prompts or output.' },
 ]);
 
 export const TELEMETRY_BASE_PROPERTY_KEYS = Object.freeze([
@@ -100,6 +103,7 @@ export const TelemetryState = z.object({
 
 export type ExceptionFrame = z.infer<typeof ExceptionFrame>;
 export type ExceptionProperties = z.infer<typeof ExceptionProperties>;
+export type AiGenerationProperties = z.infer<typeof AiGenerationProperties>;
 export type TelemetryAdapter = (typeof TELEMETRY_ADAPTERS)[number];
 export type SessionExitKind = (typeof SESSION_EXIT_KINDS)[number];
 export type TelemetryState = z.infer<typeof TelemetryState>;

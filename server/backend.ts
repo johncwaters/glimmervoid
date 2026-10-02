@@ -205,6 +205,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     broadcastLocalControl,
     controlWss,
     options,
+    telemetry,
     logger: console,
   });
   const {

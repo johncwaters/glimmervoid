@@ -207,3 +207,32 @@ test('stop sends what is queued and nothing captured afterwards', async () => {
   assert.equal(sent.length, 1);
   assert.equal(sent[0].body.batch.length, 1);
 });
+
+test('ai generations post one hashed, content free event per rollup row', async () => {
+  const { sent, fetchFn } = recordingFetch();
+  const { telemetry } = buildTelemetry({ fetchFn });
+  await telemetry.captureAiGenerations([
+    { sessionId: 'session-secret', model: 'gpt-5.6', vendor: 'codex', input: 40, output: 4, cacheRead: 0, cacheCreate: 0, costUSD: 0.02, hasKnownCost: true, isModelKnown: true },
+    { sessionId: 'session-idle', model: 'gpt-5.6', vendor: 'codex', input: 0, output: 0, cacheRead: 0, cacheCreate: 0, costUSD: 0, hasKnownCost: false, isModelKnown: true },
+  ]);
+  await telemetry.flush();
+  await telemetry.stop();
+  const events = sent.flatMap((batch) => batch.body.batch);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].event, '$ai_generation');
+  assert.equal(events[0].properties.$ai_provider, 'openai');
+  assert.equal(events[0].properties.agent_adapter, 'codex');
+  assert.equal(JSON.stringify(events[0]).includes('session-secret'), false);
+});
+
+test('ai generations stay unsent and write no state when consent is off', async () => {
+  const { sent, fetchFn } = recordingFetch();
+  const stateFilePath = path.join(makeStateDir(), 'telemetry.json');
+  const { telemetry } = buildTelemetry({ fetchFn, stateFilePath, env: { GLIMMERVOID_TELEMETRY: '0' } });
+  await telemetry.captureAiGenerations([
+    { sessionId: 'session-a', model: 'gpt-5.6', vendor: 'codex', input: 40, output: 4, cacheRead: 0, cacheCreate: 0, costUSD: 0, hasKnownCost: false, isModelKnown: true },
+  ]);
+  await telemetry.stop();
+  assert.equal(sent.length, 0);
+  assert.equal(fs.existsSync(stateFilePath), false);
+});

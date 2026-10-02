@@ -108,7 +108,7 @@ What Glimmervoid sends about itself.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `telemetry.enabled` | Send anonymous usage and error data | `true` | Version, platform, app starts, daily activity, session starts and ends with agent kind, exit kind and duration, and errors as their type, error code and scrubbed stack frames, under a random install id. Never error messages, paths, repository or branch names, prompts or terminal output. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless. |
+| `telemetry.enabled` | Send anonymous usage and error data | `true` | Version, platform, app starts, daily activity, session starts and ends with agent kind, exit kind and duration, errors as their type, error code and scrubbed stack frames, and per session token counts, models and estimated costs from the usage scan, under a random install id. Never error messages, paths, repository or branch names, prompts or terminal output. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless. |
 
 ### Change map
 
@@ -248,6 +248,7 @@ Every event also carries `app_version`, `os_platform`, `node_major`, `install_fl
 | `session_started` | `adapter` | A session spawned, with which kind of agent (any custom agent counts as `custom`). |
 | `session_ended` | `adapter`, `exit_kind`, `duration_seconds` | A session exited: how it exited and how long it ran, in whole seconds. |
 | `$exception` | `$exception_list`, `$exception_level` | An error in the server or the dashboard: its type, an error code when it has one, and stack frames with file paths cut to the package or URL path. Never the error message. Each distinct error is sent once per run, and a crash is sent on the next start. |
+| `$ai_generation` | `$ai_trace_id`, `$ai_provider`, `$ai_model`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_cache_read_input_tokens`, `$ai_cache_creation_input_tokens`, `$ai_total_cost_usd`, `agent_adapter` | Per agent session and model, after each usage scan, for usage recorded in the last 24 hours: token counts, the model name and estimated cost, under a one-way hash of the session. A model name outside the shipped pricing table is sent as unknown. No prompts or output. |
 
 ## Browser preferences
 
