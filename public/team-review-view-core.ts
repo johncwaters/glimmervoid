@@ -13,8 +13,8 @@ type ReviewPriorityBand = 'blocking-others' | 'actionable' | 'waiting-on-author'
 type ReviewPriorityReason = 'direct-request' | 'team-request' | 'changes-requested' | 'checks-failing' | 'checks-pending' | 'draft' | 'review-available' | 'approved';
 
 export const REVIEW_PRIORITY_REASON_TEXT: Readonly<Record<ReviewPriorityReason, string>> = {
-  'direct-request': 'Blocking on your review', 'team-request': 'Ready for team review',
-  'changes-requested': 'Waiting on author', 'checks-failing': 'Checks failing', 'checks-pending': 'Checks running', draft: 'Draft', 'review-available': 'Ready for review', approved: 'Approved',
+  'direct-request': 'Needs you', 'team-request': 'Ready',
+  'changes-requested': 'Author to fix', 'checks-failing': 'Checks failing', 'checks-pending': 'Checks running', draft: 'Draft', 'review-available': 'Ready', approved: 'Approved',
 };
 
 export const REVIEW_PRIORITY_TONES: Readonly<Record<ReviewPriorityBand, StateTone>> = {
