@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 
 import {
   POSTHOG_PROJECT_TOKEN, adapterBucket, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties,
-  classifySessionExit, decideTelemetryConsent, exceptionFingerprint, isTelemetryForcedOff, nodeMajorVersion, parseBrowserStackFrames, parseV8StackFrames,
-  resolveProjectToken, scrubLocalPath, urlPathOnly,
+  classifySessionExit, decideIsDevInstall, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, isTelemetryForcedOff, nodeMajorVersion, parseBrowserStackFrames, parseV8StackFrames,
+  parsePosthogReleaseId, resolveProjectToken, scrubLocalPath, urlPathOnly,
 } from '../server/core/telemetry-core.ts';
 import { AiGenerationProperties, TELEMETRY_EVENT_SCHEMAS, TELEMETRY_EVENTS } from '../shared/contracts/telemetry.ts';
 import type { UsageGenerationRollupRow } from '../server/core/usage-entry-core.ts';
@@ -294,3 +294,42 @@ test('telemetry counts as forced off only by DO_NOT_TRACK, GLIMMERVOID_TELEMETRY
   assert.equal(isTelemetryForcedOff({ GLIMMERVOID_TELEMETRY: '0' }), true);
   assert.equal(isTelemetryForcedOff({ CI: 'true' }), true);
 });
+
+test('an install counts as dev for a clone, a source checkout or a non-default Glimmervoid home', () => {
+  const published = { installFlavor: 'npm-global', isBundled: true, homeDir: '/home/alice/.glimmervoid', defaultHomeDir: '/home/alice/.glimmervoid' };
+  assert.equal(decideIsDevInstall(published), false);
+  assert.equal(decideIsDevInstall({ ...published, homeDir: '/home/alice/.glimmervoid/' }), false);
+  assert.equal(decideIsDevInstall({ ...published, installFlavor: 'clone' }), true);
+  assert.equal(decideIsDevInstall({ ...published, isBundled: false }), true);
+  assert.equal(decideIsDevInstall({ ...published, homeDir: '/tmp/glimmervoid-scratch' }), true);
+  assert.equal(decideIsDevInstall({
+    ...published, homeDir: 'c:/Users/Alice/.glimmervoid', defaultHomeDir: 'C:\\Users\\Alice\\.glimmervoid',
+  }), false);
+});
+
+test('a release id is kept only when it is a non-empty id-shaped string', () => {
+  assert.equal(parsePosthogReleaseId('0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'), '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b');
+  assert.equal(parsePosthogReleaseId(''), null);
+  assert.equal(parsePosthogReleaseId(undefined), null);
+  assert.equal(parsePosthogReleaseId(42), null);
+  assert.equal(parsePosthogReleaseId('id with spaces'), null);
+  assert.equal(parsePosthogReleaseId('-leading-dash'), null);
+  assert.equal(parsePosthogReleaseId('a'.repeat(129)), null);
+});
+
+const KILL_SWITCH_CASES: Array<{ name: string; previous: 'enabled' | 'disabled'; response: unknown; expected: 'enabled' | 'disabled' }> = [
+  { name: 'explicitly disabled flag disables', previous: 'enabled', response: { flags: { 'telemetry-enabled': { key: 'telemetry-enabled', enabled: false } } }, expected: 'disabled' },
+  { name: 'enabled flag re-enables', previous: 'disabled', response: { flags: { 'telemetry-enabled': { key: 'telemetry-enabled', enabled: true, reason: { code: 'condition_match' } } }, requestId: 'r' }, expected: 'enabled' },
+  { name: 'missing flag keeps enabled', previous: 'enabled', response: { flags: {}, errorsWhileComputingFlags: false }, expected: 'enabled' },
+  { name: 'missing flag keeps disabled', previous: 'disabled', response: { flags: { other: { enabled: false } } }, expected: 'disabled' },
+  { name: 'errors while computing keep the previous state', previous: 'enabled', response: { flags: { 'telemetry-enabled': { enabled: false } }, errorsWhileComputingFlags: true }, expected: 'enabled' },
+  { name: 'no response keeps the previous state', previous: 'enabled', response: null, expected: 'enabled' },
+  { name: 'a malformed flag keeps the previous state', previous: 'enabled', response: { flags: { 'telemetry-enabled': { enabled: 'false' } } }, expected: 'enabled' },
+  { name: 'a v1 shaped response keeps the previous state', previous: 'enabled', response: { featureFlags: { 'telemetry-enabled': false } }, expected: 'enabled' },
+];
+
+for (const killSwitchCase of KILL_SWITCH_CASES) {
+  test(`remote kill switch: ${killSwitchCase.name}`, () => {
+    assert.equal(decideRemoteTelemetryState(killSwitchCase.previous, killSwitchCase.response), killSwitchCase.expected);
+  });
+}

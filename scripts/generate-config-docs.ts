@@ -5,7 +5,9 @@ import { SETTINGS_MAP } from '../public/settings-map.ts';
 import type { SettingsSection, SettingsSetting } from '../public/settings-map.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import { Config, HIDDEN_CONFIG_KEYS } from '../shared/contracts/config.ts';
-import { TELEMETRY_BASE_PROPERTY_KEYS, TELEMETRY_EVENT_SCHEMAS, TELEMETRY_EVENTS } from '../shared/contracts/telemetry.ts';
+import {
+  TELEMETRY_BASE_PROPERTY_KEYS, TELEMETRY_EVENT_SCHEMAS, TELEMETRY_EVENTS, TELEMETRY_KILL_SWITCH_FLAG, TELEMETRY_OPTIONAL_BASE_PROPERTY_KEYS,
+} from '../shared/contracts/telemetry.ts';
 
 interface EnvironmentVariable {
   name: string;
@@ -148,12 +150,15 @@ function telemetryMarkdown(): string[] {
     return `| \`${event.name}\` | ${escapeCell(propertyKeys || 'none')} | ${escapeCell(event.description)} |`;
   });
   const baseKeys = TELEMETRY_BASE_PROPERTY_KEYS.map((key) => `\`${key}\``).join(', ');
+  const optionalBaseKeys = TELEMETRY_OPTIONAL_BASE_PROPERTY_KEYS.map((key) => `\`${key}\``).join(', ');
   return [
     '## Telemetry',
     '',
     'Glimmervoid sends anonymous usage and error events to its own PostHog project, under a random install id kept in `telemetry.json` in the Glimmervoid home (`~/.glimmervoid`, or `$GLIMMERVOID_HOME`). No person profile is created, and nothing names a path, repository, branch, session, prompt, error message or terminal output. A crash is kept in `telemetry-pending-crash.json` beside it until the next start sends it, or deletes it unsent when telemetry is off. It prints a notice once on first start. Turn it off with `telemetry.enabled`, `GLIMMERVOID_TELEMETRY=0`, `DO_NOT_TRACK=1` or `CI=true`.',
     '',
-    `Every event also carries ${baseKeys}.`,
+    `At start and once a day it also asks PostHog for the \`${TELEMETRY_KILL_SWITCH_FLAG}\` flag for its install id. It also checks when telemetry is turned back on. Once that flag comes back disabled it sends nothing, across restarts too, until a later check returns it enabled; a failed check or a missing flag changes nothing. The maintainers stop all sending by setting the flag's rollout to 0%; deactivating or deleting the flag does not stop installs, because PostHog then leaves it out of the answer. That request is skipped whenever telemetry is off.`,
+    '',
+    `Every event also carries ${baseKeys}, where \`is_dev_install\` is true for a git clone, a source checkout or a Glimmervoid home other than \`~/.glimmervoid\`, plus ${optionalBaseKeys} on a published build linked to its PostHog release.`,
     '',
     '| Event | Properties | When |',
     '|-------|------------|------|',

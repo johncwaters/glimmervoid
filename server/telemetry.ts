@@ -5,10 +5,10 @@ import type { ClientErrorReport } from '../shared/contracts/control-messages.ts'
 import { PendingCrashReport, TELEMETRY_EVENT_SCHEMAS, TelemetryState } from '../shared/contracts/telemetry.ts';
 import type { ExceptionProperties, TelemetryEventName, TelemetryEventProperties } from '../shared/contracts/telemetry.ts';
 import {
-  TELEMETRY_BATCH_URL, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties, decideTelemetryConsent,
-  exceptionFingerprint, nodeMajorVersion, resolveProjectToken,
+  TELEMETRY_BATCH_URL, TELEMETRY_FLAGS_URL, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties,
+  decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, nodeMajorVersion, resolveProjectToken,
 } from './core/telemetry-core.ts';
-import type { TelemetryConfig, TelemetryEnvironment } from './core/telemetry-core.ts';
+import type { RemoteTelemetryState, TelemetryConfig, TelemetryEnvironment } from './core/telemetry-core.ts';
 import type { UsageGenerationRollupRow } from './core/usage-entry-core.ts';
 import { createJsonStateStore, writeJsonAtomicSync } from './json-file.ts';
 import { createLaneLog } from './lane-log.ts';
@@ -20,6 +20,7 @@ const FLUSH_INTERVAL_MS = 60_000;
 const SEND_TIMEOUT_MS = 5000;
 const STOP_SEND_TIMEOUT_MS = 2500;
 const ACTIVE_HEARTBEAT_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const REMOTE_SWITCH_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const MAX_REPORTED_EXCEPTION_FINGERPRINTS = 256;
 const CRASH_MONITOR_EVENT = 'uncaughtExceptionMonitor';
 
@@ -44,6 +45,8 @@ interface TelemetryOptions {
   version: string;
   installFlavor: string;
   isBundled: boolean;
+  isDevInstall: boolean;
+  releaseId?: string | null;
   platform?: string;
   nodeVersion?: string;
   getActiveSessionCount?: () => number;
@@ -59,6 +62,8 @@ interface Telemetry {
   watchForCrashes(source?: CrashEventSource): void;
   sendPendingCrash(): Promise<void>;
   captureAiGenerations(rows: readonly UsageGenerationRollupRow[]): Promise<void>;
+  checkRemoteSwitch(): Promise<void>;
+  startRemoteSwitchChecks(): void;
   flush(): Promise<void>;
   stop(): Promise<void>;
   consumeFirstRunNotice(): Promise<boolean>;
@@ -76,6 +81,8 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     node_major: nodeMajorVersion(options.nodeVersion ?? process.versions.node),
     install_flavor: options.installFlavor,
     is_bundled: options.isBundled,
+    is_dev_install: options.isDevInstall,
+    ...(options.releaseId ? { $release_id: options.releaseId } : {}),
     $lib: 'glimmervoid',
     $process_person_profile: false,
   };
@@ -84,6 +91,10 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
   let flushTimer: NodeJS.Timeout | null = null;
   let inFlightFlush: Promise<void> | null = null;
   let isStopped = false;
+  let remoteTelemetryState: RemoteTelemetryState = 'enabled';
+  let wasLocalConsentGiven = isLocalConsentGiven();
+  let remoteSwitchTimer: NodeJS.Timeout | null = null;
+  let firstRemoteSwitchCheck: Promise<void> | null = null;
   let crashEventSource: CrashEventSource | null = null;
   const reportedExceptionFingerprints = new Set<string>();
   const pendingCrashFilePath = options.pendingCrashFilePath ?? null;
@@ -97,6 +108,7 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     },
     adopt: (loaded) => {
       state = loaded;
+      remoteTelemetryState = loaded?.remoteDisabled === true ? 'disabled' : 'enabled';
     },
     warn: (message, fields) => log.warnOnce(message, message, fields),
   });
@@ -107,8 +119,16 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
   }, ACTIVE_HEARTBEAT_INTERVAL_MS);
   heartbeatTimer.unref();
 
+  function isLocalConsentGiven(): boolean {
+    return decideTelemetryConsent(options.env, options.config).isEnabled;
+  }
+
+  function isCaptureAllowed(): boolean {
+    return isLocalConsentGiven() && remoteTelemetryState === 'enabled';
+  }
+
   function isEnabled(): boolean {
-    return !isStopped && decideTelemetryConsent(options.env, options.config).isEnabled;
+    return !isStopped && isCaptureAllowed();
   }
 
   function persistState(nextState: TelemetryState): Promise<void> {
@@ -217,6 +237,9 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
 
   async function sendPendingCrash(): Promise<void> {
     if (!pendingCrashFilePath) return;
+    await stateStore.load();
+    await firstRemoteSwitchCheck;
+    if (isLocalConsentGiven() && remoteTelemetryState === 'disabled') return;
     const report = isEnabled() ? await readPendingCrash(pendingCrashFilePath) : null;
     if (report && !await send([{ event: '$exception', timestamp: report.timestamp, properties: report.properties }], SEND_TIMEOUT_MS)) return;
     try {
@@ -235,6 +258,7 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
   async function send(batch: QueuedEvent[], timeoutMs: number): Promise<boolean> {
     try {
       const { installId } = await ensureInstallState();
+      if (remoteTelemetryState === 'disabled') return false;
       const response = await fetchFn(TELEMETRY_BATCH_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -260,7 +284,7 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
   function flushWithin(timeoutMs: number): Promise<void> {
     if (inFlightFlush) return inFlightFlush;
     clearFlushTimer();
-    if (!decideTelemetryConsent(options.env, options.config).isEnabled) {
+    if (!isCaptureAllowed()) {
       queue = [];
       return Promise.resolve();
     }
@@ -278,12 +302,54 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     return flushWithin(SEND_TIMEOUT_MS);
   }
 
+  async function fetchFeatureFlags(): Promise<unknown> {
+    try {
+      const { installId } = await ensureInstallState();
+      const response = await fetchFn(TELEMETRY_FLAGS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: resolveProjectToken(options.env), distinct_id: installId }),
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        log.warnOnce(`flags-status:${response.status}`, 'flag check rejected', { status: response.status });
+        return null;
+      }
+      return await response.json();
+    } catch (error) {
+      log.warnOnce('flags-failed', 'flag check failed', { error: errorKind(error) });
+      return null;
+    }
+  }
+
+  async function checkRemoteSwitch(): Promise<void> {
+    if (isStopped || !isLocalConsentGiven()) return;
+    const featureFlags = await fetchFeatureFlags();
+    const nextRemoteTelemetryState = decideRemoteTelemetryState(remoteTelemetryState, featureFlags);
+    const hasRemoteStateChanged = nextRemoteTelemetryState !== remoteTelemetryState;
+    remoteTelemetryState = nextRemoteTelemetryState;
+    if (nextRemoteTelemetryState === 'disabled') {
+      queue = [];
+      clearFlushTimer();
+    }
+    if (!hasRemoteStateChanged || !state) return;
+    await persistState({ ...state, remoteDisabled: nextRemoteTelemetryState === 'disabled' });
+  }
+
+  function startRemoteSwitchChecks(): void {
+    if (remoteSwitchTimer || isStopped) return;
+    remoteSwitchTimer = setInterval(() => void checkRemoteSwitch(), REMOTE_SWITCH_CHECK_INTERVAL_MS);
+    remoteSwitchTimer.unref();
+    firstRemoteSwitchCheck = checkRemoteSwitch();
+  }
+
   async function stop(): Promise<void> {
     if (isStopped) return;
     const isConsentGiven = isEnabled();
     isStopped = true;
     stopWatchingForCrashes();
     clearInterval(heartbeatTimer);
+    if (remoteSwitchTimer) clearInterval(remoteSwitchTimer);
     clearFlushTimer();
     const remaining = queue;
     queue = [];
@@ -300,14 +366,18 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
   }
 
   function applyConfig(): void {
-    if (decideTelemetryConsent(options.env, options.config).isEnabled) return;
+    const isLocalConsentNowGiven = isLocalConsentGiven();
+    const isLocalConsentTurnedOn = isLocalConsentNowGiven && !wasLocalConsentGiven;
+    wasLocalConsentGiven = isLocalConsentNowGiven;
+    if (isLocalConsentTurnedOn) void checkRemoteSwitch();
+    if (isCaptureAllowed()) return;
     queue = [];
     clearFlushTimer();
   }
 
   return {
     capture, captureException, captureClientError, captureAiGenerations, recordFatalCrash, watchForCrashes, sendPendingCrash,
-    flush, stop, consumeFirstRunNotice, applyConfig, isEnabled,
+    checkRemoteSwitch, startRemoteSwitchChecks, flush, stop, consumeFirstRunNotice, applyConfig, isEnabled,
   };
 }
 

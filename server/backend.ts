@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import type { Server } from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import { customAgentFingerprint, resolveAdapter, setCustomAgents } from '../session/adapters/index.ts';
 import type { Session } from '../session/sessions.ts';
@@ -38,6 +39,8 @@ import { createOutcomesLane } from './outcomes-wiring.ts';
 import { createUpdateApplyLane } from './update-apply.ts';
 import { bundled, packageRoot } from './runtime-paths.ts';
 import { createTelemetry } from './telemetry.ts';
+import { glimmervoidHomeDir as resolveGlimmervoidHomeDir } from './core/config-path-core.ts';
+import { decideIsDevInstall, parsePosthogReleaseId } from './core/telemetry-core.ts';
 
 interface CreateBackendOptions extends BackendLaneOptions {
   staticDir?: string | null;
@@ -48,7 +51,10 @@ interface CreateBackendOptions extends BackendLaneOptions {
 
 function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const { staticDir = 'auto', settingsDefaults } = options;
-  const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as { version: string };
+  const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as {
+    version: string;
+    glimmervoid?: { posthogReleaseId?: unknown };
+  };
 
   const configStore = createConfigStore({ settingsDefaults });
   const { config } = configStore;
@@ -76,6 +82,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   const serverBuild = `${packageJson.version}+${crypto.randomBytes(4).toString('hex')}`;
 
+  const installFlavor = detectInstallFlavor(packageRoot).flavor;
   const telemetry = createTelemetry({
     config,
     env: process.env,
@@ -83,11 +90,19 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     pendingCrashFilePath: path.join(glimmervoidHomeDir(), 'telemetry-pending-crash.json'),
     packageRoot,
     version: packageJson.version,
-    installFlavor: detectInstallFlavor(packageRoot).flavor,
+    installFlavor,
     isBundled: bundled,
+    isDevInstall: decideIsDevInstall({
+      installFlavor,
+      isBundled: bundled,
+      homeDir: glimmervoidHomeDir(),
+      defaultHomeDir: resolveGlimmervoidHomeDir(os.homedir(), {}),
+    }),
+    releaseId: parsePosthogReleaseId(packageJson.glimmervoid?.posthogReleaseId),
     getActiveSessionCount: () => sessions.size + agentSessions.size,
   });
   telemetry.watchForCrashes();
+  telemetry.startRemoteSwitchChecks();
   void telemetry.sendPendingCrash();
 
   const outcomes = createOutcomesLane();

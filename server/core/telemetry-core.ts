@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 
 import { BUILTIN_AGENT_IDS } from '../../shared/contracts/config.ts';
 import type { ClientErrorReport } from '../../shared/contracts/control-messages.ts';
-import { MAX_AI_MODEL_LENGTH, MAX_AI_PROVIDER_LENGTH, MAX_EXCEPTION_FRAMES, MAX_TEXT_LENGTH } from '../../shared/contracts/telemetry.ts';
+import {
+  FeatureFlagsResponse, MAX_AI_MODEL_LENGTH, MAX_AI_PROVIDER_LENGTH, MAX_EXCEPTION_FRAMES, MAX_TEXT_LENGTH, TELEMETRY_KILL_SWITCH_FLAG,
+} from '../../shared/contracts/telemetry.ts';
 import type {
   AiGenerationProperties, ExceptionFrame, ExceptionProperties, SessionExitKind, TelemetryAdapter,
 } from '../../shared/contracts/telemetry.ts';
@@ -11,6 +13,7 @@ import type { UsageGenerationRollupRow } from './usage-entry-core.ts';
 const POSTHOG_INGEST_HOST = 'https://us.i.posthog.com';
 const POSTHOG_PROJECT_TOKEN = 'phc_s68t9vWmeGcrWkx4NkLQaEiVZ9sMBxv8GjQBbAcix2Sf';
 const TELEMETRY_BATCH_URL = `${POSTHOG_INGEST_HOST}/batch/`;
+const TELEMETRY_FLAGS_URL = `${POSTHOG_INGEST_HOST}/flags?v=2`;
 
 const MAX_STACK_LENGTH = 16384;
 
@@ -332,15 +335,39 @@ function buildAiGenerationEvents(rows: readonly UsageGenerationRollupRow[], inst
   return rows.filter(hasAnyTokens).map((row) => buildAiGenerationEvent(row, installId));
 }
 
+type RemoteTelemetryState = 'enabled' | 'disabled';
+
+function decideRemoteTelemetryState(previous: RemoteTelemetryState, response: unknown): RemoteTelemetryState {
+  const parsed = FeatureFlagsResponse.safeParse(response);
+  if (!parsed.success || parsed.data.errorsWhileComputingFlags === true) return previous;
+  const killSwitchFlag = parsed.data.flags[TELEMETRY_KILL_SWITCH_FLAG];
+  if (!killSwitchFlag) return previous;
+  return killSwitchFlag.enabled ? 'enabled' : 'disabled';
+}
+
+const POSTHOG_RELEASE_ID_SHAPE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
+function parsePosthogReleaseId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  return POSTHOG_RELEASE_ID_SHAPE.test(value) ? value : null;
+}
+
+function decideIsDevInstall(
+  { installFlavor, isBundled, homeDir, defaultHomeDir }: { installFlavor: string; isBundled: boolean; homeDir: string; defaultHomeDir: string },
+): boolean {
+  if (installFlavor === 'clone' || !isBundled) return true;
+  return comparablePath(homeDir) !== comparablePath(defaultHomeDir);
+}
+
 function nodeMajorVersion(nodeVersion: string): number {
   const major = Number.parseInt(nodeVersion.replace(/^v/, ''), 10);
   return Number.isFinite(major) ? major : 0;
 }
 
 export {
-  FIRST_RUN_NOTICE, POSTHOG_PROJECT_TOKEN, TELEMETRY_BATCH_URL,
+  FIRST_RUN_NOTICE, POSTHOG_PROJECT_TOKEN, TELEMETRY_BATCH_URL, TELEMETRY_FLAGS_URL,
   adapterBucket, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties, classifySessionExit,
-  decideTelemetryConsent, exceptionFingerprint, isTelemetryForcedOff, nodeMajorVersion, parseBrowserStackFrames, parseV8StackFrames, resolveProjectToken,
-  scrubLocalPath, urlPathOnly,
+  decideIsDevInstall, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, isTelemetryForcedOff, nodeMajorVersion,
+  parseBrowserStackFrames, parsePosthogReleaseId, parseV8StackFrames, resolveProjectToken, scrubLocalPath, urlPathOnly,
 };
-export type { TelemetryConfig, TelemetryConsent, TelemetryEnvironment };
+export type { RemoteTelemetryState, TelemetryConfig, TelemetryConsent, TelemetryEnvironment };

@@ -47,6 +47,7 @@ jobs:
         shell: bash
         run: |
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          echo "version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
           if npm view "glimmervoid@$PACKAGE_VERSION" version > /dev/null 2>&1; then
             echo "glimmervoid@$PACKAGE_VERSION is already published"
             echo "published=true" >> "$GITHUB_OUTPUT"
@@ -59,5 +60,46 @@ jobs:
         run: npm run build
       - if: steps.registry.outputs.published == 'false'
         run: env -u GLIMMERVOID_POSTHOG_API_KEY -u GLIMMERVOID_TELEGRAM_BOT_TOKEN npm test
+      - name: check for the PostHog release key
+        id: posthog-key
+        if: steps.registry.outputs.published == 'false'
+        shell: bash
+        env:
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+        run: |
+          if [ -n "$POSTHOG_CLI_API_KEY" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: resolve the PostHog release
+        id: posthog-release
+        if: steps.posthog-key.outputs.configured == 'true'
+        continue-on-error: true
+        uses: PostHog/resolve-release@52d3bea6f86a713545874057b7d4bfebb6b5f367 # v1.0.0
+        with:
+          api-key: ${{ secrets.POSTHOG_CLI_API_KEY }}
+          project-id: '640352'
+          release-name: glimmervoid
+          release-version: ${{ steps.registry.outputs.version }}
+      - name: ship the PostHog release id in package.json
+        if: steps.posthog-release.outputs.release-id != ''
+        continue-on-error: true
+        shell: bash
+        env:
+          POSTHOG_RELEASE_ID: ${{ steps.posthog-release.outputs.release-id }}
+        run: npm pkg set "glimmervoid.posthogReleaseId=$POSTHOG_RELEASE_ID"
       - if: steps.registry.outputs.published == 'false'
         run: npm publish --provenance --access public
+      - name: annotate the release in PostHog
+        if: steps.posthog-key.outputs.configured == 'true'
+        continue-on-error: true
+        shell: bash
+        env:
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+          PACKAGE_VERSION: ${{ steps.registry.outputs.version }}
+        run: |
+          DATE_MARKER=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          curl --fail-with-body --silent --show-error --max-time 30 \
+            -X POST "https://us.posthog.com/api/projects/640352/annotations/" \
+            -H "Authorization: Bearer $POSTHOG_CLI_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\":\"v$PACKAGE_VERSION released\",\"date_marker\":\"$DATE_MARKER\",\"scope\":\"project\"}"

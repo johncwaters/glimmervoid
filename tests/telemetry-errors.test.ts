@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { TELEMETRY_FLAGS_URL } from '../server/core/telemetry-core.ts';
 import { createTelemetry, MAX_REPORTED_EXCEPTION_FINGERPRINTS } from '../server/telemetry.ts';
 import type { TelemetryOptions } from '../server/telemetry.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
@@ -46,6 +47,7 @@ function buildTelemetry(overrides: Partial<TelemetryOptions> = {}) {
     version: '9.9.9',
     installFlavor: 'npm-global',
     isBundled: true,
+    isDevInstall: false,
     logger: { warn: () => {}, log: () => {} },
     ...overrides,
   });
@@ -126,6 +128,59 @@ test('a pending crash survives a boot whose send fails or is rejected, and the n
   await onlineBoot.telemetry.sendPendingCrash();
   await onlineBoot.telemetry.stop();
   assert.equal(onlineBoot.sentEvents().length, 1);
+  assert.equal(fs.existsSync(pendingCrashFilePath), false);
+});
+
+function remoteSwitchFetch(respondToFlags: () => Promise<Response>) {
+  const batchBodies: string[] = [];
+  const fetchFn: typeof fetch = (input, init) => {
+    if (String(input) === TELEMETRY_FLAGS_URL) return respondToFlags();
+    batchBodies.push(String(init?.body));
+    return Promise.resolve(new Response('{}', { status: 200 }));
+  };
+  return { batchBodies, fetchFn };
+}
+
+function telemetryEnabledFlag(enabled: boolean): () => Promise<Response> {
+  return () => Promise.resolve(Response.json({ flags: { 'telemetry-enabled': { key: 'telemetry-enabled', enabled } }, errorsWhileComputingFlags: false }));
+}
+
+async function recordPendingCrash(): Promise<string> {
+  const pendingCrashFilePath = path.join(makeStateDir(), 'telemetry-pending-crash.json');
+  const crashed = buildTelemetry({ pendingCrashFilePath });
+  crashed.telemetry.recordFatalCrash(appError('TypeError', 'boom'));
+  await crashed.telemetry.stop();
+  return pendingCrashFilePath;
+}
+
+async function bootWithRemoteSwitch(pendingCrashFilePath: string, respondToFlags: () => Promise<Response>): Promise<string[]> {
+  const { batchBodies, fetchFn } = remoteSwitchFetch(respondToFlags);
+  const { telemetry } = buildTelemetry({ pendingCrashFilePath, fetchFn });
+  telemetry.startRemoteSwitchChecks();
+  await telemetry.sendPendingCrash();
+  await telemetry.stop();
+  return batchBodies;
+}
+
+test('a pending crash is kept unsent while the first flag check says telemetry is disabled', async () => {
+  const pendingCrashFilePath = await recordPendingCrash();
+  const batchBodies = await bootWithRemoteSwitch(pendingCrashFilePath, telemetryEnabledFlag(false));
+  assert.equal(batchBodies.length, 0);
+  assert.equal(fs.existsSync(pendingCrashFilePath), true);
+});
+
+test('a pending crash is sent and removed once the first flag check says telemetry is enabled', async () => {
+  const pendingCrashFilePath = await recordPendingCrash();
+  const batchBodies = await bootWithRemoteSwitch(pendingCrashFilePath, telemetryEnabledFlag(true));
+  assert.equal(batchBodies.length, 1);
+  assert.equal(JSON.parse(batchBodies[0]).batch[0].event, '$exception');
+  assert.equal(fs.existsSync(pendingCrashFilePath), false);
+});
+
+test('a pending crash is sent after a failed first flag check on an install never told to stop', async () => {
+  const pendingCrashFilePath = await recordPendingCrash();
+  const batchBodies = await bootWithRemoteSwitch(pendingCrashFilePath, () => Promise.reject(new TypeError('fetch failed')));
+  assert.equal(batchBodies.length, 1);
   assert.equal(fs.existsSync(pendingCrashFilePath), false);
 });
 

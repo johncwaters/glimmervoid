@@ -88,8 +88,19 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
 ]);
 
 export const TELEMETRY_BASE_PROPERTY_KEYS = Object.freeze([
-  'app_version', 'os_platform', 'node_major', 'install_flavor', 'is_bundled',
+  'app_version', 'os_platform', 'node_major', 'install_flavor', 'is_bundled', 'is_dev_install',
 ] as const);
+
+export const TELEMETRY_OPTIONAL_BASE_PROPERTY_KEYS = Object.freeze(['$release_id'] as const);
+
+export const TELEMETRY_KILL_SWITCH_FLAG = 'telemetry-enabled';
+
+export const FeatureFlagsResponse = z.object({
+  flags: z.object({
+    [TELEMETRY_KILL_SWITCH_FLAG]: z.object({ enabled: z.boolean() }).passthrough().optional(),
+  }).passthrough(),
+  errorsWhileComputingFlags: z.boolean().optional(),
+}).passthrough();
 
 export const PendingCrashReport = z.object({
   timestamp: z.string(),
@@ -99,6 +110,7 @@ export const PendingCrashReport = z.object({
 export const TelemetryState = z.object({
   installId: z.uuid(),
   noticeShownAt: z.string().nullable().optional(),
+  remoteDisabled: z.boolean().optional(),
 });
 
 export type ExceptionFrame = z.infer<typeof ExceptionFrame>;
