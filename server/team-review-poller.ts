@@ -6,7 +6,7 @@ import { firstLine } from './ephemeral-session.ts';
 import { createTickLoop } from './lane-runner.ts';
 import type { SharedClock, TickOutcome } from './lane-runner.ts';
 import type { PrReference, PrReviewSnapshot, PrSearchResult } from './pr-gh.ts';
-import { ReviewDraft } from '../shared/contracts/team-review.ts';
+import { hasStandingViewerApproval, ReviewDraft } from '../shared/contracts/team-review.ts';
 import type {
   InFlightReview, PrDetail, PriorReview, ResumableReview, ReviewDraft as ReviewDraftType, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../shared/contracts/team-review.ts';
@@ -185,6 +185,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       return;
     }
     const draft = outcome;
+    const wasRequeuedAtReviewedHead = entry.requeuedHead === draft.reviewedHead;
     entry.resumable = null;
     if (draft.status !== 'error') {
       delete entry.requeuedHead;
@@ -195,6 +196,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       ...draft,
       ...(args.candidate.prCreatedAt ? { prCreatedAt: args.candidate.prCreatedAt } : {}),
       ...(args.priorReview ? { priorReviewedHead: args.priorReview.head } : {}),
+      ...(wasRequeuedAtReviewedHead ? { requeuedHead: draft.reviewedHead } : {}),
     };
     entry.reviewedHead = draft.reviewedHead;
     entry.skipReason = null;
@@ -223,7 +225,8 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       if (!snapshot) continue;
       const head = snapshot.head;
       const githubReviews = core.githubReviewsFrom(snapshot.reviews, self ?? '');
-      const isReviewedByViewer = core.hasViewerReviewedAt(githubReviews, head);
+      const reviewDecision = snapshot.reviewDecision ?? null;
+      const isReviewedByViewer = core.hasViewerReviewedAt(githubReviews, head) || hasStandingViewerApproval({ githubReviews, reviewDecision });
       if (!entry) {
         if (!isReviewedByViewer) queue.push(candidate);
         continue;
@@ -236,8 +239,17 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
         entry.githubReviews = githubReviews;
         isDirty = true;
       }
+      if ((entry.reviewDecision ?? null) !== reviewDecision) {
+        entry.reviewDecision = reviewDecision;
+        isDirty = true;
+      }
       if (entry.liveHead !== head) {
         entry.liveHead = head;
+        isDirty = true;
+      }
+      const isRequeuePending = entry.requeuedHead !== undefined && entry.reviewedHead === null;
+      if (isRequeuePending && entry.requeuedHead !== head) {
+        entry.requeuedHead = head;
         isDirty = true;
       }
       if (core.restoreDraftAtReviewedHead(entry, head, now())) isDirty = true;
@@ -385,7 +397,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     if (!REQUEUEABLE_STATUSES.has(entry.draft.status)) return false;
     entry.reviewAttempts = 0;
     entry.reviewedHead = null;
-    entry.requeuedHead = head;
+    entry.requeuedHead = entry.liveHead ?? head;
     if (entry.draft.status === 'discarded') {
       entry.discardedReviewHead = entry.draft.reviewedHead;
       entry.draft = { ...entry.draft, status: 'stale' };

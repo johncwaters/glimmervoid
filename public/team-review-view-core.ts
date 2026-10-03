@@ -1,4 +1,4 @@
-import { canApproveAfterComment, DECIDING_REVIEW_STATES, FindingSeverity } from '#shared/contracts/team-review.ts';
+import { canApproveAfterComment, DECIDING_REVIEW_STATES, FindingSeverity, hasStandingViewerApproval } from '#shared/contracts/team-review.ts';
 import type {
   DraftComment, GithubReview, GithubReviewState, InFlightReview, QueuedReview, ReviewAssessment, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus,
 } from '#shared/contracts/team-review.ts';
@@ -178,6 +178,7 @@ function currentHead(draft: ReviewDraft): string {
 }
 
 export function isReviewNeeded(draft: ReviewDraft): boolean {
+  if (hasStandingViewerApproval(draft)) return false;
   return !(draft.githubReviews ?? []).some((review) => settlesReview(review, currentHead(draft)));
 }
 
@@ -196,6 +197,7 @@ export interface ViewerApprovalContext {
 }
 
 export function viewerApprovalContext(draft: ReviewDraft): ViewerApprovalContext | null {
+  if (hasStandingViewerApproval(draft)) return null;
   const decidingReviews = (draft.githubReviews ?? []).filter((review) => review.isViewer && DECIDING_REVIEW_STATES.has(review.state));
   const latestReview = decidingReviews.sort((left, right) => (Date.parse(right.submittedAt ?? '') || 0) - (Date.parse(left.submittedAt ?? '') || 0)).at(0);
   if (!latestReview?.commit || latestReview.commit === currentHead(draft)) return null;

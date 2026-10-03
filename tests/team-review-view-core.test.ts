@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
   commentSeverity, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
@@ -619,6 +619,37 @@ test('poll errors, retry schedules and refresh progress always render even when 
 test('viewer approval context identifies an approval on an older commit', () => {
   const approval = { login: 'me', state: 'APPROVED', commit: NEXT_HEAD, isViewer: true, submittedAt: '2026-09-28T12:00:00Z' } as const;
   assert.deepEqual(viewerApprovalContext(draft(1, { githubReviews: [approval] })), { approvedCommit: NEXT_HEAD, submittedAt: approval.submittedAt, state: 'APPROVED', isReviewScopeSinceDecision: false });
+});
+
+test('an older approval GitHub still counts needs no review and carries no re-review context', () => {
+  const approval = { login: 'me', state: 'APPROVED', commit: NEXT_HEAD, isViewer: true, submittedAt: '2026-09-28T12:00:00Z' } as const;
+  const standing = draft(1, { githubReviews: [approval], reviewDecision: 'APPROVED' });
+  assert.equal(isReviewNeeded(standing), false);
+  assert.equal(viewerApprovalContext(standing), null);
+  assert.deepEqual(groupDrafts(status([standing])).noReviewNeeded.map((row) => row.key), [standing.key]);
+  const required = draft(2, { githubReviews: [approval], reviewDecision: 'REVIEW_REQUIRED' });
+  assert.equal(isReviewNeeded(required), true);
+  assert.notEqual(viewerApprovalContext(required), null);
+  assert.equal(isReviewNeeded(draft(3, { githubReviews: [{ ...approval, isViewer: false, login: 'sarah' }], reviewDecision: 'APPROVED' })), true);
+});
+
+test('a review the operator queued at its head stays ready with its re-review context despite an approval that still counts', () => {
+  const approval = { login: 'me', state: 'APPROVED', commit: NEXT_HEAD, isViewer: true, submittedAt: '2026-09-28T12:00:00Z' } as const;
+  const requeued = draft(1, { githubReviews: [approval], reviewDecision: 'APPROVED', requeuedHead: HEAD, priorReviewedHead: NEXT_HEAD });
+  assert.equal(isReviewNeeded(requeued), true);
+  assert.deepEqual(groupDrafts(status([requeued])).ready.map((row) => row.key), [requeued.key]);
+  assert.equal(viewerApprovalContext(requeued)?.isReviewScopeSinceDecision, true);
+  const requeuedElsewhere = draft(2, { githubReviews: [approval], reviewDecision: 'APPROVED', requeuedHead: NEXT_HEAD });
+  assert.deepEqual(groupDrafts(status([requeuedElsewhere])).noReviewNeeded.map((row) => row.key), [requeuedElsewhere.key]);
+});
+
+test('a review queued at an earlier head needs no review once the approval still counts after new commits', () => {
+  const approval = { login: 'me', state: 'APPROVED', commit: HEAD, isViewer: true, submittedAt: '2026-09-28T12:00:00Z' } as const;
+  const movedOn = draft(1, { githubReviews: [approval], reviewDecision: 'APPROVED', requeuedHead: HEAD, liveHead: NEXT_HEAD });
+  assert.equal(isReviewNeeded(movedOn), false);
+  assert.deepEqual(groupDrafts(status([movedOn])).noReviewNeeded.map((row) => row.key), [movedOn.key]);
+  const stillAtRequeuedHead = draft(2, { githubReviews: [approval], reviewDecision: 'APPROVED', requeuedHead: NEXT_HEAD, liveHead: NEXT_HEAD });
+  assert.equal(isReviewNeeded(stillAtRequeuedHead), true);
 });
 
 test('viewer approval context omits current-head approvals, unknown commits and absent viewer decisions', () => {

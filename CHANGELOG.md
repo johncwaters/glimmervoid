@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Your approval still counts, so no re-review**: a teammate pull request you approved no longer comes back as Re-review after new commits (such as a stack rebase) when GitHub still counts your approval. It moves to No review needed and is not reviewed again. Where the repository requires approval of the latest push, GitHub reports review required and it still comes back.
 - **Clearer re-reviews**: a team pull request you already approved that came back with new commits now carries a Re-review tag in the list and a line under its title saying when you approved it and that it has new commits since.
 - **Simpler plan review**: read, compare and edit from one view control, with a compact phone sheet. Comment directly under each section, then send feedback or approve; pending comments must be sent or removed before approval. Accept edits is now a checkbox.
 

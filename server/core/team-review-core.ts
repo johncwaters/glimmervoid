@@ -368,8 +368,10 @@ function isSameGithubReviews(left: readonly GithubReview[] | undefined, right: r
 function presentedDraft(entry: TeamReviewStateEntry, draft: ReviewDraft): ReviewDraft {
   const withReviewTime = entry.reviewedAt !== undefined ? { ...draft, reviewedAt: entry.reviewedAt } : draft;
   const withReviews = entry.githubReviews?.length ? { ...withReviewTime, githubReviews: entry.githubReviews } : withReviewTime;
-  if (!entry.liveHead) return withReviews;
-  return { ...withReviews, liveHead: entry.liveHead };
+  const withDecision = entry.reviewDecision ? { ...withReviews, reviewDecision: entry.reviewDecision } : withReviews;
+  const withRequeue = entry.requeuedHead ? { ...withDecision, requeuedHead: entry.requeuedHead } : withDecision;
+  if (!entry.liveHead) return withRequeue;
+  return { ...withRequeue, liveHead: entry.liveHead };
 }
 
 function draftsNewestFirst(state: TeamReviewState): ReviewDraft[] {

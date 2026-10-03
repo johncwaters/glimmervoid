@@ -113,6 +113,9 @@ export const GithubReviewState = z.enum(['APPROVED', 'CHANGES_REQUESTED', 'COMME
 export type GithubReviewState = z.infer<typeof GithubReviewState>;
 export const DECIDING_REVIEW_STATES: ReadonlySet<GithubReviewState> = new Set(['APPROVED', 'CHANGES_REQUESTED']);
 
+export const GithubReviewDecision = z.enum(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED']);
+export type GithubReviewDecision = z.infer<typeof GithubReviewDecision>;
+
 export const GithubReview = z.object({
   login: z.string().min(1),
   state: GithubReviewState,
@@ -121,6 +124,12 @@ export const GithubReview = z.object({
   submittedAt: z.string().nullable().optional(),
 });
 export type GithubReview = z.infer<typeof GithubReview>;
+
+export function hasStandingViewerApproval(draft: { githubReviews?: readonly GithubReview[]; reviewDecision?: GithubReviewDecision | null; reviewedHead?: string; liveHead?: string; requeuedHead?: string }): boolean {
+  if (draft.reviewDecision !== 'APPROVED') return false;
+  if (draft.requeuedHead !== undefined && draft.requeuedHead === (draft.liveHead ?? draft.reviewedHead)) return false;
+  return (draft.githubReviews ?? []).some((review) => review.isViewer && review.state === 'APPROVED');
+}
 
 export const PrReviewState = z.object({
   head: CommitSha,
@@ -156,12 +165,14 @@ export const ReviewDraft = z.object({
   status: z.enum(['ready', 'stale', 'posted', 'discarded', 'error']),
   error: z.string().optional(),
   githubReviews: z.array(GithubReview).optional(),
+  reviewDecision: GithubReviewDecision.nullable().optional(),
   liveHead: CommitSha.optional(),
   prCreatedAt: z.string().optional(),
   reviewedAt: z.number().finite().optional(),
   postedAt: z.number().finite().optional(),
   postedEvent: PostedReviewEvent.optional(),
   priorReviewedHead: CommitSha.optional(),
+  requeuedHead: CommitSha.optional(),
 });
 export type ReviewDraft = z.infer<typeof ReviewDraft>;
 
@@ -208,6 +219,7 @@ export const TeamReviewStateEntry = z.object({
   resumable: ResumableReview.nullable().optional(),
   reviewedAt: z.number().optional(),
   githubReviews: z.array(GithubReview).optional(),
+  reviewDecision: GithubReviewDecision.nullable().optional(),
   liveHead: CommitSha.optional(),
   requeuedHead: CommitSha.optional(),
   priorReview: PriorReview.optional(),

@@ -49,6 +49,7 @@ interface FakeGithub extends TeamReviewGithub {
   isAuthoredComplete: boolean;
   heads: Map<number, string>;
   reviews: Map<number, PrReviewSnapshot['reviews']>;
+  decisions: Map<number, NonNullable<PrReviewSnapshot['reviewDecision']>>;
   snapshotBatches: number[][];
   authoredQueries: string[][];
   failViewer: boolean;
@@ -63,6 +64,7 @@ function fakeGithub(): FakeGithub {
     isAuthoredComplete: true,
     heads: new Map(),
     reviews: new Map(),
+    decisions: new Map(),
     snapshotBatches: [],
     authoredQueries: [],
     failViewer: false,
@@ -85,7 +87,7 @@ function fakeGithub(): FakeGithub {
       github.snapshotBatches.push(prs.map((pr) => pr.number));
       return new Map(prs.flatMap((pr) => {
         const head = github.heads.get(pr.number);
-        return head ? [[`${pr.repo}#${pr.number}`, { head, reviews: github.reviews.get(pr.number) ?? [] }] as const] : [];
+        return head ? [[`${pr.repo}#${pr.number}`, { head, reviewDecision: github.decisions.get(pr.number) ?? null, reviews: github.reviews.get(pr.number) ?? [] }] as const] : [];
       }));
     },
   };
@@ -166,6 +168,126 @@ test('a PR the operator already reviewed on GitHub at its head is never auto-rev
   await poller.start();
   await settle();
   assert.deepEqual(spawned.map((args) => args.candidate.key), [`${REPO}#2`]);
+  await poller.stop();
+});
+
+test('an approval GitHub still counts after new commits keeps the pull request out of review', async () => {
+  const { poller, github, spawned } = setup();
+  github.requested = [searchItem(1, 'teammate'), searchItem(2, 'teammate')];
+  github.heads.set(1, HEAD_TWO);
+  github.heads.set(2, HEAD_TWO);
+  github.reviews.set(1, [{ login: 'me', state: 'APPROVED', commit: HEAD_ONE }]);
+  github.reviews.set(2, [{ login: 'me', state: 'APPROVED', commit: HEAD_ONE }]);
+  github.decisions.set(1, 'APPROVED');
+  github.decisions.set(2, 'REVIEW_REQUIRED');
+  await poller.start();
+  await settle();
+  assert.deepEqual(spawned.map((args) => args.candidate.key), [`${REPO}#2`]);
+  await poller.stop();
+});
+
+test('a reviewed pull request whose earlier approval still counts after new commits is not reviewed again', async () => {
+  const key = `${REPO}#1`;
+  const { poller, github, spawned, statuses, setNow } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.equal(spawned.length, 1);
+  github.reviews.set(1, [{ login: 'me', state: 'APPROVED', commit: HEAD_ONE }]);
+  github.heads.set(1, HEAD_TWO);
+  github.decisions.set(1, 'APPROVED');
+  setNow(1000 + DEFAULT_RE_REVIEW_AFTER_HOURS * 3600000);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 1);
+  const presented = statuses.at(-1)?.drafts.find((row) => row.key === key);
+  assert.equal(presented?.reviewDecision, 'APPROVED');
+  assert.equal(presented?.reviewedHead, HEAD_ONE);
+  await poller.stop();
+});
+
+test('a queued review overrides an approval that still counts and its draft records the requeued head', async () => {
+  const key = `${REPO}#1`;
+  const { poller, github, spawned, statuses } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_TWO);
+  github.reviews.set(1, [{ login: 'me', state: 'APPROVED', commit: HEAD_ONE }]);
+  github.decisions.set(1, 'REVIEW_REQUIRED');
+  await poller.start();
+  await settle();
+  assert.equal(spawned.length, 1);
+  assert.equal(poller.getDraft(key)?.requeuedHead, undefined);
+  github.decisions.set(1, 'APPROVED');
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 1);
+  assert.equal(await poller.requeue(key, HEAD_TWO), true);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 2);
+  const presented = statuses.at(-1)?.drafts.find((row) => row.key === key);
+  assert.equal(presented?.status, 'ready');
+  assert.equal(presented?.reviewedHead, HEAD_TWO);
+  assert.equal(presented?.requeuedHead, HEAD_TWO);
+  assert.equal(presented?.reviewDecision, 'APPROVED');
+  await poller.stop();
+});
+
+test('a review queued on a draft whose approval still counts after new commits reviews the live head', async () => {
+  const key = `${REPO}#1`;
+  const { poller, github, spawned, statuses } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.equal(spawned.length, 1);
+  github.reviews.set(1, [{ login: 'me', state: 'APPROVED', commit: HEAD_ONE }]);
+  github.heads.set(1, HEAD_TWO);
+  github.decisions.set(1, 'APPROVED');
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 1);
+  assert.equal(await poller.requeue(key, HEAD_ONE), true);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 2);
+  assert.equal(spawned.at(-1)?.detail.headRefOid, HEAD_TWO);
+  const presented = statuses.at(-1)?.drafts.find((row) => row.key === key);
+  assert.equal(presented?.reviewedHead, HEAD_TWO);
+  assert.equal(presented?.requeuedHead, HEAD_TWO);
+  await poller.stop();
+});
+
+test('a review queued under a standing approval follows a head pushed before the next tick', async () => {
+  const key = `${REPO}#1`;
+  const headThree = '3'.repeat(40);
+  const { poller, github, spawned, statuses } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.equal(spawned.length, 1);
+  github.reviews.set(1, [{ login: 'me', state: 'APPROVED', commit: HEAD_ONE }]);
+  github.heads.set(1, HEAD_TWO);
+  github.decisions.set(1, 'APPROVED');
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 1);
+  assert.equal(await poller.requeue(key, HEAD_ONE), true);
+  assert.equal(poller._state()[key]?.requeuedHead, HEAD_TWO);
+  github.heads.set(1, headThree);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 2);
+  assert.equal(spawned.at(-1)?.detail.headRefOid, headThree);
+  const presented = statuses.at(-1)?.drafts.find((row) => row.key === key);
+  assert.equal(presented?.status, 'ready');
+  assert.equal(presented?.reviewedHead, headThree);
+  assert.equal(presented?.requeuedHead, headThree);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 2);
   await poller.stop();
 });
 
