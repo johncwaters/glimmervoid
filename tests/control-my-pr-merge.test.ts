@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import { createMyPrsWiring } from '../server/my-prs-wiring.ts';
+import { createMyPrsPoller } from '../server/my-prs-poller.ts';
 import { createPrGh } from '../server/pr-gh.ts';
 import type { CommandResult } from '../server/pr-gh.ts';
 import { myPrsStatus, toMyPr } from '../server/core/my-prs-core.ts';
@@ -39,6 +43,84 @@ function mergeStateResponse(state: string, isInMergeQueue: boolean): CommandResu
 
 const MERGED_STATE = mergeStateResponse('MERGED', false);
 
+test('keep mergeable control reaches the real lane, persists across restarts, and does not dispatch the same head again', async () => {
+  const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'control-my-pr-keep-mergeable-'));
+  const fixes: string[] = [];
+  const statuses: ReturnType<typeof myPrsStatus>[] = [];
+  const github = {
+    ...createPrGh(homeDir),
+    viewer: async () => 'me',
+    searchMyPrs: async () => ({ ok: true as const, items: [readyNode({ mergeable: 'CONFLICTING' })], totalCount: 1, error: '' }),
+    behindCounts: async () => new Map<string, number>(),
+    reviewThreadsBatch: async () => new Map(),
+    rateLimitWaitMs: async () => null,
+  };
+  async function startWiring() {
+    let markPolled: () => void = () => {};
+    const firstPoll = new Promise<void>((resolve) => { markPolled = resolve; });
+    const wiring = createMyPrsWiring({
+      homeDir, config: { teamReview: { enabled: true, org: 'Acme' } }, github,
+      log: { warn() {} },
+      broadcast: (status) => { statuses.push(status); if (status.prs.length > 0 && !status.isRefreshing) markPolled(); },
+      createPoller: (dependencies) => createMyPrsPoller({
+        ...dependencies, firstTickDelayMs: () => 0,
+        setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
+      }),
+      fixMergeability: async (pr) => { fixes.push(`${pr.key}@${pr.headRefOid}`); },
+    });
+    wiring.startPoller();
+    await firstPoll;
+    return wiring;
+  }
+  const wiring = await startWiring();
+  try {
+    const server = createControlServer(controlDeps({ projects: [] }, { myPrs: wiring }));
+    const connection = connectControl<MergeFrame>(server);
+    connection.sent.length = 0;
+    const request = { type: 'my-pr-keep-mergeable', requestId: 'toggle-1', repo: 'Acme/app', number: 7, keepMergeable: true };
+    await connection.send(request);
+    assert.deepEqual(connection.sent.at(-1), { type: 'my-pr-keep-mergeable-result', requestId: 'toggle-1', key: KEY, ok: true });
+    assert.equal(statuses.at(-1)?.prs[0]?.keepMergeable, true);
+    assert.deepEqual(fixes, [`${KEY}@${SEEN_HEAD}`]);
+    const savedState = JSON.parse(await fs.readFile(path.join(homeDir, 'my-prs-state.json'), 'utf8'));
+    assert.deepEqual(savedState, { keepMergeableKeys: [KEY], keepMergeableAttemptKeys: [`${KEY}@${SEEN_HEAD}`] });
+    await wiring.stopPoller();
+    const restarted = await startWiring();
+    try {
+      assert.equal(statuses.at(-1)?.prs[0]?.keepMergeable, true);
+      assert.equal(fixes.length, 1);
+      const restartedServer = createControlServer(controlDeps({ projects: [] }, { myPrs: restarted }));
+      const restartedConnection = connectControl<MergeFrame>(restartedServer);
+      await restartedConnection.send({ ...request, requestId: 'toggle-off', keepMergeable: false });
+      assert.equal(restartedConnection.sent.at(-1)?.ok, true);
+      assert.equal(statuses.at(-1)?.prs[0]?.keepMergeable, false);
+      await restartedConnection.send({ ...request, requestId: 'unknown', number: 8 });
+      assert.equal(restartedConnection.sent.at(-1)?.ok, false);
+      assert.match(restartedConnection.sent.at(-1)?.error ?? '', /tracked/);
+      for (const keepMergeable of ['true', null, undefined]) {
+        await restartedConnection.send({ ...request, requestId: 'malformed', keepMergeable });
+        assert.equal(restartedConnection.sent.at(-1)?.type, 'my-pr-keep-mergeable-result');
+        assert.equal(restartedConnection.sent.at(-1)?.requestId, 'malformed');
+        assert.equal(restartedConnection.sent.at(-1)?.ok, false);
+      }
+      assert.equal(statuses.at(-1)?.prs[0]?.keepMergeable, false);
+      assert.equal(fixes.length, 1);
+    } finally {
+      await restarted.stopPoller();
+    }
+  } finally {
+    await wiring.stopPoller();
+    await fs.rm(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('keep mergeable control replies with its request ID when the lane is unavailable', async () => {
+  const server = createControlServer(controlDeps({ projects: [] }));
+  const connection = connectControl<MergeFrame>(server);
+  await connection.send({ type: 'my-pr-keep-mergeable', requestId: 'unavailable', repo: 'Acme/app', number: 7, keepMergeable: true });
+  assert.deepEqual(connection.sent.at(-1), { type: 'my-pr-keep-mergeable-result', requestId: 'unavailable', key: KEY, ok: false, error: 'My pull requests is not running' });
+});
+
 async function harness({ trackedPrs = [toMyPr(readyNode(), 0)], ghOutcome = { ok: true, out: '', err: '' }, prStateAfterMerge = MERGED_STATE }: { trackedPrs?: MyPr[]; ghOutcome?: CommandResult; prStateAfterMerge?: CommandResult } = {}) {
   const ghCalls: { command: string; args: string[] }[] = [];
   let refreshCount = 0;
@@ -56,6 +138,7 @@ async function harness({ trackedPrs = [toMyPr(readyNode(), 0)], ghOutcome = { ok
       stop: async () => {},
       tick: async () => { refreshCount += 1; },
       refresh: async () => { refreshCount += 1; return { ok: true }; },
+      setKeepMergeable: async () => ({ ok: false, error: 'Not available in this merge fixture' }),
     }),
   });
   myPrs.startPoller();

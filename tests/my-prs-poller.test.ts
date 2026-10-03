@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMyPrsPoller } from '../server/my-prs-poller.ts';
-import type { MyPrSearchNode, MyPrsStatus } from '../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrSearchNode, MyPrsState, MyPrsStatus } from '../shared/contracts/my-prs.ts';
 
 const NOW = Date.parse('2026-09-28T12:00:00Z');
 function node(state: 'OPEN' | 'MERGED'): MyPrSearchNode {
@@ -13,6 +13,215 @@ function node(state: 'OPEN' | 'MERGED'): MyPrSearchNode {
     commits: { nodes: [] }, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, latestReviews: { nodes: [] },
   };
 }
+
+function keepMergeableHarness({ savedState = { keepMergeableKeys: [], keepMergeableAttemptKeys: [] }, fixMergeability = async () => {} }: {
+  savedState?: MyPrsState;
+  fixMergeability?: (pr: MyPr, signal: AbortSignal) => Promise<void>;
+} = {}) {
+  let items: MyPrSearchNode[] = [{ ...node('OPEN'), mergeable: 'CONFLICTING' }];
+  let isSearchFailing = false;
+  let unreturnedResultCount = 0;
+  let saved = savedState;
+  const statuses: MyPrsStatus[] = [];
+  const fixes: string[] = [];
+  const warnings: string[] = [];
+  const github = {
+    async viewer() { return 'alice'; },
+    async searchMyPrs() {
+      if (isSearchFailing) return { ok: false as const, items: [], totalCount: 0, error: 'offline' };
+      return { ok: true as const, items, totalCount: items.length + unreturnedResultCount, error: '' };
+    },
+    async behindCounts() { return new Map(); },
+    async reviewThreadsBatch() { return new Map(); },
+    async rebasePr() { throw new Error('The keep mergeable path must not rebase'); },
+    async rateLimitWaitMs() { return null; },
+  };
+  function createPoller() {
+    return createMyPrsPoller({
+      org: 'Acme', now: () => NOW, github, onTickComplete: (status) => { statuses.push(status); },
+      log: { warn: (message: string) => { warnings.push(message); } },
+      readState: async () => saved,
+      writeState: async (state) => { saved = state; },
+      fixMergeability: async (pr, signal) => {
+        assert.ok(saved.keepMergeableAttemptKeys.includes(`${pr.key}@${pr.headRefOid}`));
+        fixes.push(`${pr.key}@${pr.headRefOid}`);
+        await fixMergeability(pr, signal);
+      },
+    });
+  }
+  return {
+    createPoller, fixes, statuses, warnings, savedState: () => saved,
+    setItems: (nextItems: MyPrSearchNode[]) => { items = nextItems; },
+    failSearch: () => { isSearchFailing = true; },
+    truncateSearch: (unreturnedCount: number) => { unreturnedResultCount = unreturnedCount; },
+  };
+}
+
+test('keep mergeable toggles, dispatches once per head even after failure, survives restart, and retries a new head', async () => {
+  const harness = keepMergeableHarness({ fixMergeability: async () => { throw new Error('Repair failed'); } });
+  const poller = harness.createPoller();
+  await poller.tick();
+  assert.deepEqual(harness.fixes, []);
+  assert.equal((await poller.setKeepMergeable({ repo: 'Acme/app', number: 1, keepMergeable: true })).ok, true);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  await poller.tick();
+  assert.equal(harness.fixes.length, 1);
+  assert.ok(harness.warnings.some((warning) => warning.includes('Repair failed')));
+  assert.equal(harness.statuses.at(-1)?.prs[0]?.keepMergeable, true);
+  await poller.setKeepMergeable({ repo: 'Acme/app', number: 1, keepMergeable: false });
+  await poller.setKeepMergeable({ repo: 'Acme/app', number: 1, keepMergeable: true });
+  assert.equal(harness.fixes.length, 1);
+  await poller.stop();
+  const restarted = harness.createPoller();
+  await restarted.tick();
+  assert.equal(harness.fixes.length, 1);
+  assert.equal(harness.statuses.at(-1)?.prs[0]?.keepMergeable, true);
+  harness.setItems([{ ...node('OPEN'), mergeable: 'CONFLICTING', headRefOid: 'b'.repeat(40) }]);
+  await restarted.tick();
+  assert.equal(harness.fixes.length, 2);
+  await restarted.stop();
+});
+
+test('keep mergeable dispatches failing and error checks and leaves a merely behind PR alone', async () => {
+  const harness = keepMergeableHarness({ savedState: { keepMergeableKeys: ['Acme/app#1'], keepMergeableAttemptKeys: [] } });
+  const poller = harness.createPoller();
+  harness.setItems([{ ...node('OPEN'), mergeStateStatus: 'BEHIND' }]);
+  await poller.tick();
+  assert.deepEqual(harness.fixes, []);
+  for (const state of ['FAILURE', 'ERROR'] as const) {
+    harness.setItems([{ ...node('OPEN'), headRefOid: (state === 'FAILURE' ? 'b' : 'c').repeat(40), commits: { nodes: [{ commit: { statusCheckRollup: { state, contexts: { nodes: [] } } } }] } }]);
+    await poller.tick();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  assert.equal(harness.fixes.length, 2);
+  await poller.stop();
+});
+
+test('keep mergeable retains saved flags during failed searches and prunes flags and attempts outside the displayed list', async () => {
+  const harness = keepMergeableHarness({ savedState: { keepMergeableKeys: ['Acme/app#1', 'Acme/app#9'], keepMergeableAttemptKeys: [`Acme/app#9@${'a'.repeat(40)}`] } });
+  const poller = harness.createPoller();
+  await poller.tick();
+  assert.deepEqual(harness.savedState().keepMergeableKeys, ['Acme/app#1']);
+  assert.deepEqual(harness.savedState().keepMergeableAttemptKeys, [`Acme/app#1@${'a'.repeat(40)}`]);
+  harness.setItems([]);
+  await poller.tick();
+  assert.deepEqual(harness.savedState(), { keepMergeableKeys: [], keepMergeableAttemptKeys: [] });
+  harness.setItems([{ ...node('OPEN'), mergeable: 'CONFLICTING' }]);
+  await poller.tick();
+  await poller.setKeepMergeable({ repo: 'Acme/app', number: 1, keepMergeable: true });
+  harness.failSearch();
+  await poller.refresh();
+  assert.deepEqual(harness.savedState().keepMergeableKeys, ['Acme/app#1']);
+  assert.equal(harness.statuses.at(-1)?.prs[0]?.keepMergeable, true);
+  await poller.stop();
+});
+
+test('keep mergeable keeps flags and head attempts for PRs cut from a truncated search', async () => {
+  const unlistedAttemptKey = `Acme/app#9@${'b'.repeat(40)}`;
+  const harness = keepMergeableHarness({ savedState: { keepMergeableKeys: ['Acme/app#9'], keepMergeableAttemptKeys: [unlistedAttemptKey] } });
+  harness.truncateSearch(60);
+  const poller = harness.createPoller();
+  await poller.tick();
+  assert.deepEqual(harness.savedState(), { keepMergeableKeys: ['Acme/app#9'], keepMergeableAttemptKeys: [unlistedAttemptKey] });
+  harness.truncateSearch(0);
+  await poller.tick();
+  assert.deepEqual(harness.savedState(), { keepMergeableKeys: [], keepMergeableAttemptKeys: [] });
+  await poller.stop();
+});
+
+test('keep mergeable does not overlap a repair when a new head arrives and stop aborts the session', async () => {
+  let repairSignal: AbortSignal | null = null;
+  const harness = keepMergeableHarness({
+    savedState: { keepMergeableKeys: ['Acme/app#1'], keepMergeableAttemptKeys: [] },
+    fixMergeability: async (_pr, signal) => {
+      repairSignal = signal;
+      await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+    },
+  });
+  const poller = harness.createPoller();
+  await poller.tick();
+  harness.setItems([{ ...node('OPEN'), mergeable: 'CONFLICTING', headRefOid: 'b'.repeat(40) }]);
+  await poller.tick();
+  assert.equal(harness.fixes.length, 1);
+  await poller.stop();
+  assert.ok(repairSignal);
+  assert.equal((repairSignal as AbortSignal).aborted, true);
+});
+
+test('stop returns within the drain cap even when a repair ignores its abort and never settles', async () => {
+  const harness = keepMergeableHarness({
+    savedState: { keepMergeableKeys: ['Acme/app#1'], keepMergeableAttemptKeys: [] },
+    fixMergeability: () => new Promise<void>(() => {}),
+  });
+  const poller = harness.createPoller();
+  await poller.tick();
+  await settleRepairs();
+  assert.equal(harness.fixes.length, 1);
+  const stopStartedAt = Date.now();
+  await poller.stop();
+  assert.ok(Date.now() - stopStartedAt < 10000);
+});
+
+function abortableRepair(signals: AbortSignal[]) {
+  return async (_pr: MyPr, signal: AbortSignal) => {
+    signals.push(signal);
+    if (!signal.aborted) await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+  };
+}
+
+async function settleRepairs(): Promise<void> {
+  for (let turn = 0; turn < 5; turn += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+test('keep mergeable flag off cancels the running session and a settled session frees the PR for its next head', async () => {
+  const signals: AbortSignal[] = [];
+  const harness = keepMergeableHarness({ savedState: { keepMergeableKeys: ['Acme/app#1'], keepMergeableAttemptKeys: [] }, fixMergeability: abortableRepair(signals) });
+  const poller = harness.createPoller();
+  await poller.tick();
+  await settleRepairs();
+  assert.equal(signals.length, 1);
+  assert.equal(signals[0].aborted, false);
+  await poller.setKeepMergeable({ repo: 'Acme/app', number: 1, keepMergeable: false });
+  assert.equal(signals[0].aborted, true);
+  await settleRepairs();
+  await poller.setKeepMergeable({ repo: 'Acme/app', number: 1, keepMergeable: true });
+  harness.setItems([{ ...node('OPEN'), mergeable: 'CONFLICTING', headRefOid: 'b'.repeat(40) }]);
+  await poller.tick();
+  await settleRepairs();
+  assert.equal(harness.fixes.length, 2);
+  await poller.stop();
+});
+
+test('keep mergeable cancels the running session when its PR is pruned from the list or merged', async () => {
+  for (const nextItems of [[], [{ ...node('MERGED'), number: 1 }]]) {
+    const signals: AbortSignal[] = [];
+    const harness = keepMergeableHarness({ savedState: { keepMergeableKeys: ['Acme/app#1'], keepMergeableAttemptKeys: [] }, fixMergeability: abortableRepair(signals) });
+    const poller = harness.createPoller();
+    await poller.tick();
+    await settleRepairs();
+    assert.equal(signals[0]?.aborted, false);
+    harness.setItems(nextItems);
+    await poller.tick();
+    assert.equal(signals[0].aborted, true);
+    await poller.stop();
+  }
+});
+
+test('keep mergeable refuses untracked or merged PRs and malformed persisted state fails closed', async () => {
+  const harness = keepMergeableHarness();
+  harness.setItems([node('MERGED')]);
+  const poller = harness.createPoller();
+  await poller.tick();
+  assert.equal((await poller.setKeepMergeable({ repo: 'Acme/app', number: 9, keepMergeable: true })).ok, false);
+  assert.equal((await poller.setKeepMergeable({ repo: 'Acme/app', number: 2, keepMergeable: true })).ok, false);
+  assert.deepEqual(harness.savedState().keepMergeableKeys, []);
+  await poller.stop();
+  const { github } = viewerLookupGithub(['alice']);
+  const invalid = createMyPrsPoller({ org: 'Acme', github, readState: async () => ({ keepMergeableKeys: ['bad'] }), onTickComplete: () => {}, log: { warn() {} } });
+  await invalid.tick();
+  await assert.rejects(invalid.setKeepMergeable({ repo: 'Acme/app', number: 1, keepMergeable: true }));
+  await invalid.stop();
+});
 
 test('polls viewer once, compares open PRs sequentially, and keeps the last report on failure', async () => {
   const calls: string[] = [];

@@ -1,7 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MyPr, MyPrSearchNode, MyPrSearchResponse, MyPrsStatus } from '../shared/contracts/my-prs.ts';
-import { ServerMessage, SERVER_MESSAGE_TYPES } from '../shared/contracts/control-messages.ts';
+import { MyPr, MyPrKeepMergeableRequest, MyPrSearchNode, MyPrSearchResponse, MyPrsState, MyPrsStatus } from '../shared/contracts/my-prs.ts';
+import { ClientMessage, ServerMessage, SERVER_MESSAGE_TYPES } from '../shared/contracts/control-messages.ts';
+
+test('keep mergeable state and control boundaries reject malformed flags and head attempts', () => {
+  const state = { keepMergeableKeys: ['Acme/app#7'], keepMergeableAttemptKeys: [`Acme/app#7@${'a'.repeat(40)}`] };
+  assert.deepEqual(MyPrsState.parse(state), state);
+  for (const raw of [{}, { ...state, extra: true }, { ...state, keepMergeableKeys: ['app#7'] }, { ...state, keepMergeableKeys: ['Acme/app#0'] }, { ...state, keepMergeableAttemptKeys: ['Acme/app#7@bad'] }, { ...state, keepMergeableAttemptKeys: [`Acme/app#7@${'A'.repeat(40)}`] }, { ...state, keepMergeableAttemptKeys: [`Acme/app#0@${'a'.repeat(40)}`] }, { ...state, keepMergeableAttemptKeys: [`app#7@${'a'.repeat(40)}`] }, { ...state, keepMergeableKeys: 'Acme/app#7' }]) {
+    assert.equal(MyPrsState.safeParse(raw).success, false);
+  }
+  const request = { type: 'my-pr-keep-mergeable', requestId: 'toggle-1', repo: 'Acme/app', number: 7, keepMergeable: true };
+  assert.equal(ClientMessage.safeParse(request).success, true);
+  assert.equal(MyPrKeepMergeableRequest.safeParse({ ...request, keepMergeable: 'true' }).success, false);
+  assert.equal(ClientMessage.safeParse({ ...request, keepMergeable: undefined }).success, false);
+  assert.equal(ServerMessage.safeParse({ type: 'my-pr-keep-mergeable-result', requestId: 'toggle-1', key: 'Acme/app#7', ok: true }).success, true);
+});
 
 test('my PR contracts reject malformed reports and register the control message', () => {
   const status = { type: 'my-prs-status', ts: 1, configured: false, viewer: null, prs: [], error: null };

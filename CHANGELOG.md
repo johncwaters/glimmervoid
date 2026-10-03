@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+**Keep mergeable**: toggle Keep mergeable in Reviews > Mine to have a sandboxed agent fix merge conflicts or failing checks on a local copy of that PR. The agent cannot push, merge, or reach GitHub. Glimmervoid pushes its commit to a new review branch, `glimmervoid/keep-mergeable/<number>-<short head>`, and never touches the PR branch itself. A repair that edits `.github/workflows/` is not pushed, and the server log names each review branch it pushes. A repair stops after 30 minutes, or when you turn the flag off or the PR leaves the list. The flag survives restarts, each head commit is attempted once, and saved flags are removed when the PR leaves the list. Behind branches still use the existing global auto-rebase setting.
+
 **Review request priorities**: Reviews > Team includes pull requests requested directly from you, labels Direct and Team requests, and puts blocking reviews first with chips for author changes, failing checks, running checks and drafts.
 
 **Stacked pull requests**: Reviews > Mine groups dependent pull requests beneath their parent, including across readiness sections, so you can follow a stack in order.

@@ -74,6 +74,10 @@ type TeamReviewSandbox = {
   filesystem: { allowWrite: string[]; denyWrite: string[]; denyRead: string[] };
 };
 
+type KeepMergeableSandbox = Omit<TeamReviewSandbox, 'network'> & {
+  network: { strictAllowlist: true; allowLocalBinding: true; allowAllUnixSockets: false; allowedDomains: string[] };
+};
+
 interface TeamReviewRepoCache {
   listRepos(): Promise<string[]>;
   ensureRepo(repo: string): Promise<string | null>;
@@ -102,7 +106,7 @@ type TeamReviewSpawn = (options: {
   spawnEnv: Record<string, string>;
   extraClaudeArgs: string[];
   settingsPermissions: { deny: string[]; defaultMode: string };
-  settingsSandbox: TeamReviewSandbox;
+  settingsSandbox: TeamReviewSandbox | KeepMergeableSandbox;
   signal: AbortSignal;
   onSessionId?: (id: string) => void;
   resumeSessionId?: string | null;
@@ -210,6 +214,18 @@ function teamReviewSandbox(workDir: string, linkedCheckout: string | null = null
       allowWrite: [CODEX_HOME_PATH, workDir],
       denyWrite: [...CODEX_HOME_DENY_WRITE_PATHS],
       denyRead: [...TEAM_REVIEW_DENY_READ_PATHS, ...linkedCheckoutDenyRead],
+    },
+  };
+}
+
+function keepMergeableSandbox(workDir: string): KeepMergeableSandbox {
+  const reviewSandbox = teamReviewSandbox(workDir);
+  return {
+    ...reviewSandbox,
+    network: {
+      ...reviewSandbox.network,
+      allowAllUnixSockets: false,
+      allowedDomains: reviewSandbox.network.allowedDomains.filter((domain) => !/github/i.test(domain)),
     },
   };
 }
@@ -974,10 +990,10 @@ type TeamReviewWiring = ReturnType<typeof createTeamReviewWiring>;
 export {
   TEAM_REVIEW_DENY_RULES,
   createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewStateIo, createTeamReviewWiring, makeTeamReviewWorkDir,
-  emptyTeamReviewStatus, readReviewReport, sweepLeftoverCheckouts, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewPermissions, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
+  emptyGhConfigDir, emptyTeamReviewStatus, keepMergeableSandbox, readReviewReport, sweepLeftoverCheckouts, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewPermissions, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
 };
 export { readTeamReviewSettings } from './core/team-review-core.ts';
 export type {
   TeamReviewActionGithub, TeamReviewActionOptions, TeamReviewActionOutcome, TeamReviewDispatchOptions, TeamReviewDraftStore, TeamReviewGitWorkspace, TeamReviewRepoCache, TeamReviewSandbox, TeamReviewSpawn, TeamReviewWiring,
-  TeamReviewWiringConfig, TeamReviewWiringOptions, TeamReviewWorkDir,
+  KeepMergeableSandbox, TeamReviewWiringConfig, TeamReviewWiringOptions, TeamReviewWorkDir,
 };

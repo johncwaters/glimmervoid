@@ -22,7 +22,7 @@ import { createTeamReviewSpawn, createTeamReviewWiring } from './team-review-wir
 import { createPrGh } from './pr-gh.ts';
 import { createRepoCache } from './repo-cache.ts';
 import { commandFor } from '../session/adapters/index.ts';
-import { createMyPrsWiring } from './my-prs-wiring.ts';
+import { createMyPrMergeabilityFix, createMyPrsWiring } from './my-prs-wiring.ts';
 import { createGithubClock } from './github-clock.ts';
 import { GITHUB_CLOCK_INTERVAL_MINUTES } from './core/github-clock-core.ts';
 import { createUsageWiring, resolveUsageConfig } from './usage-wiring.ts';
@@ -146,7 +146,18 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     repoCacheRoot: sharedRepoCacheRoot,
     repoCache: sharedRepoCache,
   });
-  const myPrs = createMyPrsWiring({ config, broadcast: broadcastControl, log: logger, clock: githubClock });
+  const myPrs = createMyPrsWiring({
+    config, broadcast: broadcastControl, log: logger, clock: githubClock,
+    fixMergeability: createMyPrMergeabilityFix({
+      workRoot: path.join(glimmervoidHome, 'my-prs-work'),
+      repoCache: sharedRepoCache,
+      log: logger,
+      spawnSession: createTeamReviewSpawn({
+        reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
+        replayBufferKB: config.replayBufferKB, laneName: 'my-prs',
+      }),
+    }),
+  });
   const benchmarkSessions = new Map<string, Session>();
   const claudeCommand = () => commandFor('claude-code').path;
   const benchmarks = createBenchmarkWiring({

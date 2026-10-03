@@ -7,6 +7,23 @@ export type MyPrStage = z.infer<typeof MyPrStage>;
 
 const nonnegativeInteger = z.number().int().nonnegative();
 const repositoryName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/);
+const pullRequestNumberText = z.string().regex(/^[1-9][0-9]*$/);
+const pullRequestKeyFormat = z.templateLiteral([repositoryName, '#', pullRequestNumberText]);
+const keepMergeableAttemptKeyFormat = z.templateLiteral([pullRequestKeyFormat, '@', CommitSha]);
+const pullRequestKey = z.string().refine((value) => pullRequestKeyFormat.safeParse(value).success);
+const keepMergeableAttemptKey = z.string().refine((value) => keepMergeableAttemptKeyFormat.safeParse(value).success);
+
+export const MyPrsState = z.strictObject({
+  keepMergeableKeys: z.array(pullRequestKey),
+  keepMergeableAttemptKeys: z.array(keepMergeableAttemptKey),
+});
+export type MyPrsState = z.infer<typeof MyPrsState>;
+
+export const MyPrKeepMergeableRequest = z.object({ repo: repositoryName, number: z.number().int().positive(), keepMergeable: z.boolean() });
+export type MyPrKeepMergeableRequest = z.infer<typeof MyPrKeepMergeableRequest>;
+
+export const MyPrKeepMergeableResult = z.object({ key: z.string(), ok: z.boolean(), error: z.string().optional() });
+export type MyPrKeepMergeableResult = z.infer<typeof MyPrKeepMergeableResult>;
 
 export const MyPrMergeMethod = z.enum(['MERGE', 'SQUASH', 'REBASE']);
 export type MyPrMergeMethod = z.infer<typeof MyPrMergeMethod>;
@@ -32,7 +49,7 @@ export const MyPr = z.object({
   checks: z.object({ state: z.enum(['SUCCESS', 'FAILURE', 'PENDING', 'ERROR', 'EXPECTED']).nullable(), failing: z.array(z.string()), pendingCount: nonnegativeInteger }),
   unresolvedThreads: nonnegativeInteger, threads: z.array(MyPrThread), behindBy: nonnegativeInteger.nullable(),
   reviewRequests: z.array(z.object({ name: z.string(), isTeam: z.boolean(), avatarUrl: z.string().nullable() })),
-  approvals: nonnegativeInteger, reviews: z.array(MyPrReview), stage: MyPrStage, autoRebase: MyPrAutoRebase.optional(),
+  approvals: nonnegativeInteger, reviews: z.array(MyPrReview), stage: MyPrStage, autoRebase: MyPrAutoRebase.optional(), keepMergeable: z.boolean().optional(),
 }).refine((pr) => pr.key === `${pr.repo}#${pr.number}`);
 export type MyPr = z.infer<typeof MyPr>;
 

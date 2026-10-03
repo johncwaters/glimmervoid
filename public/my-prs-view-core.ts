@@ -12,6 +12,15 @@ export interface ThreadRow {
 export interface ReviewRow { reviewer: string; text: string; tone: StateTone; submittedAt: string | null }
 export interface ReadinessRow { label: 'Checks' | 'Review' | 'Threads' | 'Conflicts' | 'Base' | 'Auto-rebase'; tone: StateTone; text: string }
 
+export function keepMergeableControlState(pr: MyPr, isPending: boolean, errorText = '') {
+  return {
+    isVisible: pr.state === 'OPEN' || !!pr.keepMergeable,
+    isPressed: !!pr.keepMergeable,
+    isDisabled: isPending,
+    statusText: errorText || (isPending ? 'Saving...' : pr.keepMergeable ? 'On' : 'Off'),
+  };
+}
+
 const SECTION_TITLES = ['Needs you', 'Waiting', 'Ready to merge', 'Drafts', 'Merged today'] as const;
 type SectionTitle = typeof SECTION_TITLES[number];
 const SECTION_BY_STAGE: Record<MyPrStage, SectionTitle> = {

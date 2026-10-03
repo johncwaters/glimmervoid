@@ -195,6 +195,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
     phase: 'subject', cellIndex: 3, cellCount: 10, startedAt: NOW,
   } },
   { type: 'my-pr-merge-result', requestId: 'merge-1', key: 'PostHog/wizard#1350', ok: false, error: 'Checks are failing' },
+  { type: 'my-pr-keep-mergeable-result', requestId: 'toggle-1', key: 'PostHog/wizard#1350', ok: true },
   { type: 'posthog-archive-investigation-result', requestId: 'posthog-4', ok: true, error: null },
   { type: 'team-review-status', ts: NOW, configured: true, drafts: [{
     key: 'PostHog/wizard#1350', repo: 'PostHog/wizard', number: 1350, title: 'Improve agent detection',

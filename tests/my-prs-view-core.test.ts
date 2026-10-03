@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyStateText, groupMyPrs, groupStackedMyPrs, chooseSelectedKey, mergeConfirmMessage, mergeControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from '../public/my-prs-view-core.ts';
+import { emptyStateText, groupMyPrs, groupStackedMyPrs, chooseSelectedKey, keepMergeableControlState, mergeConfirmMessage, mergeControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from '../public/my-prs-view-core.ts';
 import { toMyPr } from '../server/core/my-prs-core.ts';
 import type { MyPr, MyPrSearchNode, MyPrThread } from '../shared/contracts/my-prs.ts';
 
@@ -15,6 +15,15 @@ const pr = (stage: MyPr['stage'], number: number): MyPr => ({ ...base, stage, nu
 const teamRequest = { name: 'Acme/docs', isTeam: true, avatarUrl: 'https://github.com/Acme.png' };
 const appRequest = { name: 'Acme/app', isTeam: true, avatarUrl: null };
 const userRequest = { name: 'bob', isTeam: false, avatarUrl: null };
+
+test('keep mergeable exposes pressed state and separate save status for open and saved PRs', () => {
+  assert.deepEqual(keepMergeableControlState(base, false), { isVisible: true, isPressed: false, isDisabled: false, statusText: 'Off' });
+  assert.deepEqual(keepMergeableControlState({ ...base, keepMergeable: true }, false), { isVisible: true, isPressed: true, isDisabled: false, statusText: 'On' });
+  assert.deepEqual(keepMergeableControlState(base, true), { isVisible: true, isPressed: false, isDisabled: true, statusText: 'Saving...' });
+  assert.equal(keepMergeableControlState(base, false, 'Cannot save').statusText, 'Cannot save');
+  assert.equal(keepMergeableControlState({ ...base, state: 'MERGED' }, false).isVisible, false);
+  assert.equal(keepMergeableControlState({ ...base, state: 'MERGED', keepMergeable: true }, false).isVisible, true);
+});
 
 test('groups every stage in fixed section order and preserves selection', () => {
   const sections = groupMyPrs([pr('merged', 5), pr('draft', 4), pr('ready', 3), pr('unknown', 2), pr('conflicts', 1)]);

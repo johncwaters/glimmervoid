@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { autoRebaseRecord, deriveStage, hasUnresolvedThreads, shouldAutoRebase, mergedSinceDate, myPrsShouldStart, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/core/my-prs-core.ts';
+import { autoRebaseRecord, deriveStage, hasUnresolvedThreads, keepMergeableAttemptKey, keepMergeableBranchName, keepMergeableFixesToCancel, keepMergeableHandoff, keepMergeablePrompt, keepMergeablePushUrl, nulSeparatedPaths, shouldFixMergeability, shouldAutoRebase, mergedSinceDate, myPrsShouldStart, prunedKeepMergeableState, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/core/my-prs-core.ts';
 import { MyPrSearchNode } from '../shared/contracts/my-prs.ts';
 import type { MyPr, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
 
@@ -17,6 +17,87 @@ function searchNode(): MyPrSearchNodeType {
   };
 }
 function readyPr(): MyPr { return toMyPr(searchNode(), 0); }
+
+test('keep mergeable dispatches only flagged open conflicting or failing heads once per head', () => {
+  const pr = readyPr();
+  const flaggedKeys = new Set([pr.key]);
+  const conflict = { ...pr, mergeable: 'CONFLICTING' as const };
+  const attemptKey = keepMergeableAttemptKey(conflict);
+  assert.equal(attemptKey, `${pr.key}@${SHA}`);
+  assert.equal(shouldFixMergeability(conflict, new Set(), new Set()), false);
+  assert.equal(shouldFixMergeability(conflict, flaggedKeys, new Set()), true);
+  assert.equal(shouldFixMergeability(conflict, flaggedKeys, new Set([attemptKey])), false);
+  assert.equal(shouldFixMergeability({ ...conflict, headRefOid: 'b'.repeat(40) }, flaggedKeys, new Set([attemptKey])), true);
+  for (const state of ['FAILURE', 'ERROR'] as const) {
+    assert.equal(shouldFixMergeability({ ...pr, checks: { ...pr.checks, state } }, flaggedKeys, new Set()), true);
+  }
+  for (const state of ['SUCCESS', 'PENDING', 'EXPECTED', null] as const) {
+    assert.equal(shouldFixMergeability({ ...pr, checks: { ...pr.checks, state } }, flaggedKeys, new Set()), false);
+  }
+  assert.equal(shouldFixMergeability({ ...pr, mergeStateStatus: 'BEHIND', behindBy: 3 }, flaggedKeys, new Set()), false);
+  assert.equal(shouldFixMergeability({ ...pr, mergeStateStatus: 'DIRTY' }, flaggedKeys, new Set()), false);
+  for (const state of ['CLOSED', 'MERGED'] as const) {
+    assert.equal(shouldFixMergeability({ ...conflict, state }, flaggedKeys, new Set()), false);
+  }
+});
+
+test('keep mergeable prompt pins the local checkout and asks for repairs committed locally, never pushed or merged', () => {
+  const pr = { ...readyPr(), headRefName: 'fix/checks', isCrossRepository: true };
+  const prompt = keepMergeablePrompt(pr);
+  for (const text of [pr.key, pr.headRefName, pr.baseRefName, pr.headRefOid, 'Fix merge conflicts', 'fix failing checks', 'commit the repairs locally', 'Do not push and do not merge', 'no network access to GitHub', '.github/workflows/']) {
+    assert.ok(prompt.includes(text), text);
+  }
+  for (const text of ['gh repo clone', 'gh pr checkout', 'push to the PR head branch', 'fork remote']) {
+    assert.equal(prompt.includes(text), false, text);
+  }
+});
+
+test('keep mergeable review branch names carry the PR number and short head, and only GitHub slugs get a push url', () => {
+  assert.equal(keepMergeableBranchName({ number: 7, headRefOid: `1234abcd${'e'.repeat(32)}` }), 'glimmervoid/keep-mergeable/7-1234abcd');
+  assert.equal(keepMergeablePushUrl('Acme/app'), 'https://github.com/Acme/app.git');
+  for (const repo of ['Acme', 'Acme/app/extra', '-x/app', 'Acme/app.git --upload-pack=x', '../app']) assert.equal(keepMergeablePushUrl(repo), null, repo);
+});
+
+test('keep mergeable hands off only a new commit on top of the head that leaves workflows as head or base had them', () => {
+  const headSha = 'a'.repeat(40);
+  const resultSha = 'b'.repeat(40);
+  const handoff = (changedFromHead: string[], changedFromBase: string[], overrides: { resultSha?: string; isResultOnTopOfHead?: boolean } = {}) => keepMergeableHandoff({
+    headSha, resultSha: overrides.resultSha ?? resultSha, isResultOnTopOfHead: overrides.isResultOnTopOfHead ?? true, changedFromHead, changedFromBase,
+  });
+  assert.deepEqual(handoff(['src/a.ts'], ['src/a.ts']), { push: true });
+  assert.deepEqual(handoff(['.github/workflows/ci.yml', 'src/a.ts'], ['src/a.ts']), { push: true });
+  assert.deepEqual(handoff(['src/a.ts'], ['.github/workflows/ci.yml']), { push: true });
+  assert.equal(handoff(['.github/workflows/evil.yml'], ['.github/workflows/evil.yml']).push, false);
+  assert.match(JSON.stringify(handoff(['.github/workflows/evil.yml'], ['.github/workflows/evil.yml'])), /workflow/);
+  assert.equal(handoff([], [], { resultSha: headSha }).push, false);
+  assert.equal(handoff(['src/a.ts'], ['src/a.ts'], { isResultOnTopOfHead: false }).push, false);
+});
+
+test('keep mergeable refuses a change to the bare .github or .github/workflows entry, such as a committed symlink', () => {
+  const handoff = (changedPath: string) => keepMergeableHandoff({ headSha: 'a'.repeat(40), resultSha: 'b'.repeat(40), isResultOnTopOfHead: true, changedFromHead: [changedPath], changedFromBase: [changedPath] });
+  assert.equal(handoff('.github').push, false);
+  assert.equal(handoff('.github/workflows').push, false);
+  assert.equal(handoff('.github/CODEOWNERS').push, true);
+  assert.equal(handoff('.githubx').push, true);
+});
+
+test('keep mergeable reads NUL separated git paths verbatim so a non-ASCII, tab, quote or newline workflow path is still refused', () => {
+  const awkwardWorkflowPaths = ['.github/workflows/\u00e9.yml', '.github/workflows/a\tb.yml', '.github/workflows/"q".yml', '.github/workflows/line\nbreak.yml', '.github/workflows/trailing .yml '];
+  const gitOutput = `src/a.ts\0${awkwardWorkflowPaths.join('\0')}\0`;
+  const changedPaths = nulSeparatedPaths(gitOutput);
+  assert.deepEqual(changedPaths, ['src/a.ts', ...awkwardWorkflowPaths]);
+  for (const workflowPath of awkwardWorkflowPaths) {
+    const decision = keepMergeableHandoff({ headSha: 'a'.repeat(40), resultSha: 'b'.repeat(40), isResultOnTopOfHead: true, changedFromHead: ['src/a.ts', workflowPath], changedFromBase: changedPaths });
+    assert.equal(decision.push, false, JSON.stringify(workflowPath));
+  }
+  assert.deepEqual(nulSeparatedPaths(''), []);
+});
+
+test('keep mergeable cancels in-flight fixes whose flag is gone or whose PR is listed and no longer open', () => {
+  const flaggedKeys = new Set(['Acme/app#1', 'Acme/app#2', 'Acme/app#3']);
+  const prs = [{ key: 'Acme/app#1', state: 'OPEN' as const }, { key: 'Acme/app#2', state: 'MERGED' as const }];
+  assert.deepEqual(keepMergeableFixesToCancel(['Acme/app#1', 'Acme/app#2', 'Acme/app#3', 'Acme/app#4'], flaggedKeys, prs), ['Acme/app#2', 'Acme/app#4']);
+});
 
 test('normalizes failing checks, pending checks, requests, approvals, and unresolved threads', () => {
   const node = searchNode();
@@ -94,6 +175,16 @@ test('truncatedSearchNote names the shown and total counts only when the search 
   assert.equal(truncatedSearchNote(50, 73), 'Showing the 50 most recently updated of 73 pull requests.');
   assert.equal(truncatedSearchNote(12, 12), null);
   assert.equal(truncatedSearchNote(0, 0), null);
+});
+
+test('prunedKeepMergeableState drops flags and head attempts for unlisted PRs only when the search is complete', () => {
+  const listedHead = keepMergeableAttemptKey({ key: 'Acme/app#1', headRefOid: 'a'.repeat(40) });
+  const prefixTwinHead = keepMergeableAttemptKey({ key: 'Acme/app#10', headRefOid: 'b'.repeat(40) });
+  const saved = { keepMergeableKeys: ['Acme/app#1', 'Acme/app#10'], keepMergeableAttemptKeys: [listedHead, prefixTwinHead] };
+  const listedPrKeys = new Set(['Acme/app#1']);
+  assert.deepEqual(prunedKeepMergeableState({ ...saved, listedPrKeys, returnedCount: 1, totalCount: 1 }), { keepMergeableKeys: ['Acme/app#1'], keepMergeableAttemptKeys: [listedHead] });
+  assert.deepEqual(prunedKeepMergeableState({ ...saved, listedPrKeys, returnedCount: 50, totalCount: 73 }), saved);
+  assert.deepEqual(prunedKeepMergeableState({ ...saved, listedPrKeys: new Set(), returnedCount: 0, totalCount: 0 }), { keepMergeableKeys: [], keepMergeableAttemptKeys: [] });
 });
 
 function threadNode(overrides: Partial<MyPrThreadNode> = {}): MyPrThreadNode {

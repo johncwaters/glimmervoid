@@ -68,8 +68,8 @@ import { TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
 import { BenchmarkActionRequest } from '../shared/contracts/benchmark.ts';
 import type { BenchmarkActionResult, BenchmarkStatus } from '../shared/contracts/benchmark.ts';
 import type { TeamReviewActionResult, TeamReviewStatus } from '../shared/contracts/team-review.ts';
-import { MyPrMergeRequest } from '../shared/contracts/my-prs.ts';
-import type { MyPrMergeResult, MyPrsStatus } from '../shared/contracts/my-prs.ts';
+import { MyPrKeepMergeableRequest, MyPrMergeRequest } from '../shared/contracts/my-prs.ts';
+import type { MyPrKeepMergeableResult, MyPrMergeResult, MyPrsStatus } from '../shared/contracts/my-prs.ts';
 import type { UpdateStatus } from './backend-update.ts';
 import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { PlanReadRequest, PlanReadResult } from './plan-review-wiring.ts';
@@ -97,6 +97,7 @@ interface TeamReviewActionControl {
 interface MyPrMergeControl {
   refresh?: () => Promise<ReviewsRefreshResult>;
   mergePr(request: MyPrMergeRequest): Promise<Omit<MyPrMergeResult, 'key'>>;
+  setKeepMergeable?: (request: MyPrKeepMergeableRequest) => Promise<Omit<MyPrKeepMergeableResult, 'key'>>;
 }
 
 interface BenchmarkControl {
@@ -332,6 +333,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'team-review-action': () => ({ type: 'team-review-action-result', requestId, key: typeof msg?.key === 'string' ? msg.key : '', ok: false, error: message }),
     'reviews-refresh': () => ({ type: 'reviews-refresh-result', requestId, ok: false, error: message }),
     'my-pr-merge': () => ({ type: 'my-pr-merge-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
+    'my-pr-keep-mergeable': () => ({ type: 'my-pr-keep-mergeable-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
     'benchmark-action': () => ({ type: 'benchmark-action-result', requestId, suiteId: typeof msg?.suiteId === 'string' ? msg.suiteId : '', action: typeof msg?.action === 'string' ? msg.action : 'run', ok: false, error: message }),
     'request-usage-report': () => ({ type: 'usage-report', requestId, error: message }),
     'request-hooks-report': () => ({ type: 'hooks-report', requestId, error: message }),
@@ -1019,6 +1021,14 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     reply(await myPrs.mergePr(parsed.data));
   }
 
+  async function handleMyPrKeepMergeable(msg: ClientMessageOf<'my-pr-keep-mergeable'>, ws: ControlSocket): Promise<void> {
+    const reply = (outcome: Omit<MyPrKeepMergeableResult, 'key'>) => replyTo(ws, msg, 'my-pr-keep-mergeable-result', { key: myPrMergeKey(msg), ...outcome });
+    const parsed = MyPrKeepMergeableRequest.safeParse(msg);
+    if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
+    if (!myPrs?.setKeepMergeable) { reply({ ok: false, error: 'My pull requests is not running' }); return; }
+    reply(await myPrs.setKeepMergeable(parsed.data));
+  }
+
   async function handleBenchmarkAction(msg: ClientMessageOf<'benchmark-action'>, ws: ControlSocket): Promise<void> {
     const parsed = BenchmarkActionRequest.safeParse(msg);
     if (!parsed.success) {
@@ -1205,6 +1215,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'posthog-archive-investigation': handlePosthogArchiveInvestigation,
     'team-review-action': handleTeamReviewAction,
     'my-pr-merge': handleMyPrMerge,
+    'my-pr-keep-mergeable': handleMyPrKeepMergeable,
     'reviews-refresh': handleReviewsRefresh,
     'benchmark-action': handleBenchmarkAction,
     'request-usage-report': handleRequestUsageReport,

@@ -8,7 +8,7 @@ import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createStateGlyph } from './state-glyph.ts';
 import { sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
-import { chooseSelectedKey, emptyStateText, mergeConfirmMessage, mergeControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
+import { chooseSelectedKey, emptyStateText, keepMergeableControlState, mergeConfirmMessage, mergeControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
 import type { MergeAttempt } from './my-prs-view-core.ts';
 
 let root: HTMLDivElement | null = null;
@@ -20,6 +20,8 @@ let selectedKey: string | null = null;
 let pollingControls: ReturnType<typeof createReviewsPollingControls> | null = null;
 const mergeAttempts = new Map<string, MergeAttempt>();
 const pendingMergeRequests = new Map<string, { requestId: string; head: string; timer: number }>();
+const pendingKeepMergeableKeys = new Set<string>();
+const keepMergeableErrorsByKey = new Map<string, string>();
 const MERGE_REPLY_TIMEOUT_MS = 60000;
 const MERGE_NO_REPLY_TEXT = 'No reply from the server. Check GitHub before trying again.';
 
@@ -118,6 +120,37 @@ function createMergeControl(pr: MyPr): HTMLElement | null {
   return control;
 }
 
+function createKeepMergeableControl(pr: MyPr): HTMLElement | null {
+  const state = keepMergeableControlState(pr, pendingKeepMergeableKeys.has(pr.key), keepMergeableErrorsByKey.get(pr.key));
+  if (!state.isVisible) return null;
+  const control = el('div', 'my-pr-merge');
+  const button = el('button', 'pr-action', 'Keep mergeable');
+  button.type = 'button';
+  button.disabled = state.isDisabled;
+  button.setAttribute('aria-pressed', String(state.isPressed));
+  const indicator = el('span', 'pr-action-status', state.statusText);
+  indicator.setAttribute('role', 'status');
+  indicator.setAttribute('aria-live', 'polite');
+  button.addEventListener('click', async () => {
+    if (pendingKeepMergeableKeys.has(pr.key)) return;
+    pendingKeepMergeableKeys.add(pr.key);
+    keepMergeableErrorsByKey.delete(pr.key);
+    render();
+    try {
+      const response = await sendControlRequest('my-pr-keep-mergeable', { repo: pr.repo, number: pr.number, keepMergeable: !state.isPressed });
+      if (response.type !== 'my-pr-keep-mergeable-result' || response.key !== pr.key) throw new Error('Unexpected keep mergeable reply.');
+      if (!response.ok) keepMergeableErrorsByKey.set(pr.key, response.error ?? 'Could not save Keep mergeable.');
+    } catch (error: unknown) {
+      keepMergeableErrorsByKey.set(pr.key, error instanceof Error ? error.message : String(error));
+    } finally {
+      pendingKeepMergeableKeys.delete(pr.key);
+      render();
+    }
+  });
+  control.append(button, indicator);
+  return control;
+}
+
 function stageChip(pr: MyPr, { hasGlyph }: { hasGlyph: boolean }): HTMLElement {
   const chip = el('span', 'my-pr-stage');
   chip.dataset.tone = stageTone(pr.stage);
@@ -167,6 +200,8 @@ function renderDetail(pr: MyPr | undefined): void {
   title.append(externalLink('pr-link', pr.key, pr.url), el('h2', null, pr.title));
   heading.append(title, stageChip(pr, { hasGlyph: true }));
   content.append(heading);
+  const keepMergeableControl = createKeepMergeableControl(pr);
+  if (keepMergeableControl) content.append(keepMergeableControl);
   const readiness = readinessRows(pr, latest?.viewer ?? null);
   if (readiness.length > 0) {
     const section = el('section', 'pr-readiness-section');
