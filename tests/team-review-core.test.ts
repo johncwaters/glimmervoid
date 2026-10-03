@@ -101,9 +101,9 @@ test('search candidates union requested and authored PRs once, excluding self, d
     searchItem('PostHog/context-mill', 405, 'colleague'),
   ];
   assert.equal(repoFromSearchItem(requested[0]), 'PostHog/wizard');
-  assert.deepEqual(selectCandidates(requested, authored, { self: 'operator', nowMs: 1000, skipIdleAfterMs: 14 * 86400000 }), [
-    { key: 'PostHog/wizard#1350', repo: 'PostHog/wizard', number: 1350, title: 'PR 1350', url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate', prCreatedAt: '2026-09-26T12:00:00Z' },
-    { key: 'PostHog/context-mill#405', repo: 'PostHog/context-mill', number: 405, title: 'PR 405', url: 'https://github.com/PostHog/context-mill/pull/405', author: 'colleague' },
+  assert.deepEqual(selectCandidates([], requested, authored, { self: 'operator', nowMs: 1000, skipIdleAfterMs: 14 * 86400000 }), [
+    { key: 'PostHog/wizard#1350', repo: 'PostHog/wizard', number: 1350, title: 'PR 1350', url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate', requestSource: 'team', prCreatedAt: '2026-09-26T12:00:00Z' },
+    { key: 'PostHog/context-mill#405', repo: 'PostHog/context-mill', number: 405, title: 'PR 405', url: 'https://github.com/PostHog/context-mill/pull/405', author: 'colleague', requestSource: 'team' },
   ]);
 });
 
@@ -115,7 +115,7 @@ test('search candidates accept enterprise repository URLs and skip unparseable o
   assert.equal(repoFromSearchItem(enterprise), 'PostHog/wizard');
   assert.equal(repoFromSearchItem(malformed), null);
   assert.equal(repoFromSearchItem(notARepo), null);
-  assert.deepEqual(selectCandidates([malformed, enterprise, notARepo], [valid], { self: 'operator', nowMs: 1000, skipIdleAfterMs: 14 * 86400000 }).map((candidate) => candidate.key), [
+  assert.deepEqual(selectCandidates([], [malformed, enterprise, notARepo], [valid], { self: 'operator', nowMs: 1000, skipIdleAfterMs: 14 * 86400000 }).map((candidate) => candidate.key), [
     'PostHog/wizard#1360', 'PostHog/context-mill#405',
   ]);
 });
@@ -129,7 +129,7 @@ test('search candidates keep recent, missing and unparseable activity while drop
     searchItem('PostHog/wizard', 3, 'teammate'),
     searchItem('PostHog/wizard', 4, 'teammate', { updated_at: 'unparseable' }),
   ];
-  assert.deepEqual(selectCandidates(requested, [], { self: 'operator', nowMs, skipIdleAfterMs }).map((candidate) => candidate.number), [1, 3, 4]);
+  assert.deepEqual(selectCandidates([], requested, [], { self: 'operator', nowMs, skipIdleAfterMs }).map((candidate) => candidate.number), [1, 3, 4]);
 });
 
 test('triage uses sensitive paths and counted source size', () => {
@@ -192,7 +192,7 @@ test('triage excludes each non-source category from size but reviews sensitive p
 test('posting requires a ready draft at the current head', () => {
   const draft = ReviewDraft.parse({
     key: 'PostHog/wizard#1350', repo: 'PostHog/wizard', number: 1350,
-    title: 'PR 1350', url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate',
+    title: 'PR 1350', url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate', requestSource: 'team' as const,
     tier: 'full', reasons: ['252 counted lines over 200'], reviewedHead: HEAD,
     verdict: 'APPROVE WITH NITS', summary: 'Looks good', body: 'A review', comments: [], status: 'ready',
   });
@@ -210,7 +210,7 @@ test('posting requires a ready draft at the current head', () => {
 test('a posted comment review accepts only a follow-up approval at the same head', () => {
   const draft = ReviewDraft.parse({
     key: 'PostHog/wizard#1350', repo: 'PostHog/wizard', number: 1350,
-    title: 'PR 1350', url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate',
+    title: 'PR 1350', url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate', requestSource: 'team' as const,
     tier: 'full', reasons: ['252 counted lines over 200'], reviewedHead: HEAD,
     verdict: 'APPROVE WITH NITS', summary: 'Looks good', body: 'A review', comments: [], status: 'posted', postedEvent: 'COMMENT',
   });
@@ -226,7 +226,7 @@ test('posting refuses a replaced draft the operator never saw', () => {
   const pushedHead = 'b'.repeat(40);
   const replacedDraft = ReviewDraft.parse({
     key: 'PostHog/wizard#1350', repo: 'PostHog/wizard', number: 1350,
-    title: 'PR 1350', url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate',
+    title: 'PR 1350', url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate', requestSource: 'team' as const,
     tier: 'full', reasons: ['252 counted lines over 200'], reviewedHead: pushedHead,
     verdict: 'APPROVE WITH NITS', summary: 'Looks good', body: 'A review', comments: [], status: 'ready',
   });
@@ -259,7 +259,7 @@ test('an approval body states the hand approval exactly once and a comment body 
 
 const CANDIDATE = {
   key: 'PostHog/wizard#1350', repo: 'PostHog/wizard', number: 1350, title: 'PR 1350',
-  url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate',
+  url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate', requestSource: 'team' as const,
 };
 
 function stateEntry(overrides: Partial<TeamReviewStateEntry> = {}): TeamReviewStateEntry {
@@ -894,7 +894,7 @@ test('invalid comments are the ones whose path, side or line is outside the diff
   assert.deepEqual(invalidComments([], commentable), []);
 });
 
-const PROGRESS_CANDIDATE = { key: 'Acme/app#7', repo: 'Acme/app', number: 7, title: 'Fix it', url: 'https://github.com/Acme/app/pull/7', author: 'teammate' };
+const PROGRESS_CANDIDATE = { key: 'Acme/app#7', repo: 'Acme/app', number: 7, title: 'Fix it', url: 'https://github.com/Acme/app/pull/7', author: 'teammate', requestSource: 'team' as const };
 
 test('a started review is preparing with no deadline and no tool calls, and parses as the wire shape', () => {
   const progress = startReviewProgress({ candidate: PROGRESS_CANDIDATE, tier: 'stamp', reasons: ['small'], head: HEAD, at: 500 });
@@ -1125,4 +1125,12 @@ test('a report with only a goal retains its assessment', () => {
   if (!parsed.ok) return;
   assert.deepEqual(parsed.result.assessment, { goal: 'Avoid stuck requests.', change: '', checked: [], gaps: [] });
   assert.equal(parsed.result.summary, 'Pinned tree abc. Three findings.\nSecond line.');
+});
+
+test('direct review requests win deduplication over team and teammate searches', () => {
+  const sharedRequest = searchItem('Acme/app', 1, 'teammate');
+  const directRequest = searchItem('Acme/app', 2, 'outside-team');
+  const teamRequest = searchItem('Acme/app', 3, 'teammate');
+  const candidates = selectCandidates([sharedRequest, directRequest], [teamRequest, sharedRequest], [sharedRequest], { self: 'operator', nowMs: 1000, skipIdleAfterMs: 86400000 });
+  assert.deepEqual(candidates.map(({ number, requestSource }) => [number, requestSource]), [[1, 'direct'], [2, 'direct'], [3, 'team']]);
 });

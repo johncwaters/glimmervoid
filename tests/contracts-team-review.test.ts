@@ -104,7 +104,7 @@ test('editable review draft requires a repository, tier, status, and reviewed he
     comments: [{ path: 'src/agent/index.ts', line: 4, side: 'RIGHT', body: 'Check this' }],
     status: 'ready',
   };
-  assert.deepEqual(ReviewDraft.parse(draft), draft);
+  assert.deepEqual(ReviewDraft.parse(draft), { ...draft, requestSource: 'team' });
   assert.deepEqual(ReviewDraft.parse({ ...draft, comments: [{ ...draft.comments[0], severity: 'CRITICAL' }] }).comments, [{ ...draft.comments[0], severity: 'CRITICAL' }]);
   const storedEntry = { draft, reviewedHead: HEAD, inFlight: false, skipReason: null, reviewAttempts: 0, updatedAt: 1000 };
   assert.deepEqual(TeamReviewStateEntry.parse(storedEntry).draft?.comments, draft.comments);
@@ -119,4 +119,16 @@ test('editable review draft requires a repository, tier, status, and reviewed he
 test('an old assessment without a goal parses with an empty goal', () => {
   const oldAssessment = { change: 'Re-arm the timer.', checked: ['Old timer cleared.'], gaps: [] };
   assert.deepEqual(ReviewAssessment.parse(oldAssessment), { goal: '', ...oldAssessment });
+});
+
+test('request source and priority fields round trip through the review wire and fail closed', () => {
+  const review = {
+    key: 'Acme/app#1', repo: 'Acme/app', number: 1, title: 'Fix', url: 'https://github.com/Acme/app/pull/1', author: 'teammate',
+    requestSource: 'direct', isDraft: false, checksState: 'FAILURE', reviewDecision: 'REVIEW_REQUIRED',
+  };
+  const report = { type: 'team-review-status', ts: 1, configured: true, drafts: [], inFlight: [], queued: [review] };
+  assert.deepEqual(TeamReviewStatus.parse(report).queued[0], review);
+  assert.equal(TeamReviewStatus.safeParse({ ...report, queued: [{ ...review, requestSource: 'unknown' }] }).success, false);
+  assert.equal(TeamReviewStatus.safeParse({ ...report, queued: [{ ...review, checksState: 'unknown' }] }).success, false);
+  assert.equal(TeamReviewStatus.safeParse({ ...report, queued: [{ ...review, isDraft: 'true' }] }).success, false);
 });

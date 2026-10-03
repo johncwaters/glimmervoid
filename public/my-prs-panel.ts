@@ -8,7 +8,7 @@ import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createStateGlyph } from './state-glyph.ts';
 import { sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
-import { chooseSelectedKey, emptyStateText, groupMyPrs, mergeConfirmMessage, mergeControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
+import { chooseSelectedKey, emptyStateText, mergeConfirmMessage, mergeControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
 import type { MergeAttempt } from './my-prs-view-core.ts';
 
 let root: HTMLDivElement | null = null;
@@ -244,16 +244,18 @@ function renderDetail(pr: MyPr | undefined): void {
 function render(): void {
   createShell();
   if (!queue) return;
-  const sections = groupMyPrs(latest?.prs ?? []);
+  const prs = latest?.prs ?? [];
+  const sections = sectionStackedMyPrs(prs);
   selectedKey = chooseSelectedKey(sections, selectedKey);
   const focusedKey = document.activeElement instanceof HTMLElement && queue.contains(document.activeElement) ? document.activeElement.dataset.prKey : null;
-  const sectionElements = sections.filter((section) => section.prs.length > 0).map((section) => {
+  const sectionElements = sections.filter((section) => section.rows.length > 0).map((section) => {
     const sectionElement = el('section', 'pr-queue-section');
-    sectionElement.append(el('h3', 'pr-section-heading', `${section.title} ${section.prs.length}`));
-    for (const pr of section.prs) {
+    sectionElement.append(el('h3', 'pr-section-heading', `${section.title} ${section.rows.length}`));
+    for (const { pr, parentKey, depth } of section.rows) {
       const row = el('button', 'pr-queue-row');
       row.type = 'button';
       row.dataset.prKey = pr.key;
+      if (parentKey) row.style.paddingInlineStart = `${12 + Math.min(depth, 6) * 16}px`;
       row.setAttribute('aria-current', String(pr.key === selectedKey));
       row.title = `${pr.key}: ${stageLabel(pr.stage)}`;
       const glyph = el('span', 'pr-queue-glyph');
@@ -261,6 +263,7 @@ function render(): void {
       const top = el('span', 'pr-queue-top');
       top.append(el('strong', 'pr-queue-ref', pr.key), el('span', 'pr-queue-title', pr.title));
       const bottom = el('span', 'pr-queue-bottom');
+      if (parentKey) bottom.append(el('span', 'my-pr-stage', `Stacked on ${parentKey}`));
       bottom.append(stageChip(pr, { hasGlyph: false }), el('span', 'pr-queue-elapsed', `opened ${formatAgo(Date.parse(pr.createdAt))}`));
       row.append(glyph, top, bottom);
       row.addEventListener('click', () => {
@@ -283,7 +286,7 @@ function render(): void {
     pollingControls.update(latest);
   }
   if (focusedKey) [...queue.querySelectorAll<HTMLButtonElement>('button[data-pr-key]')].find((row) => row.dataset.prKey === focusedKey)?.focus({ preventScroll: true });
-  renderDetail(sections.flatMap((section) => section.prs).find((pr) => pr.key === selectedKey));
+  renderDetail(prs.find((pr) => pr.key === selectedKey));
 }
 
 export function mountMyPrsView(parent: HTMLElement, tabs: HTMLElement): HTMLDivElement {

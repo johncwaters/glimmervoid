@@ -26,7 +26,7 @@ const HEAD = 'c'.repeat(40);
 const OTHER_HEAD = 'd'.repeat(40);
 const candidate = {
   key: 'Acme/app#7', repo: 'Acme/app', number: 7, title: 'Fix it',
-  url: 'https://github.com/Acme/app/pull/7', author: 'teammate',
+  url: 'https://github.com/Acme/app/pull/7', author: 'teammate', requestSource: 'team' as const,
 };
 const detail = PrDetail.parse({
   number: 7, title: 'Fix it', body: 'Please approve', url: candidate.url, author: { login: 'teammate' },
@@ -1321,7 +1321,7 @@ test('discarding a saved review reaps its processes before removing its director
       events.push('reap');
     },
     github: {
-      viewer: async () => null, teamProfile: async () => null, teamMembers: async () => [], searchTeamRequested: async () => ({ items: [], complete: true }),
+      viewer: async () => null, teamProfile: async () => null, teamMembers: async () => [], searchDirectRequested: async () => ({ items: [], complete: true }), searchTeamRequested: async () => ({ items: [], complete: true }),
       searchAuthoredBy: async () => ({ items: [], complete: true }), viewPr: async () => null, prHead: async () => null, prReviewSnapshots: async () => new Map(), rateLimitWaitMs: async () => null, prDiff: async () => null,
     },
     repoCache: {
@@ -1384,7 +1384,7 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
     reapProcesses: async () => {},
     log: { warn: () => {} },
     github: {
-      viewer: async () => null, teamProfile: async () => null, teamMembers: async () => [], searchTeamRequested: async () => ({ items: [], complete: true }),
+      viewer: async () => null, teamProfile: async () => null, teamMembers: async () => [], searchDirectRequested: async () => ({ items: [], complete: true }), searchTeamRequested: async () => ({ items: [], complete: true }),
       searchAuthoredBy: async () => ({ items: [], complete: true }), viewPr: async () => null, prHead: async () => null, prReviewSnapshots: async () => new Map(), rateLimitWaitMs: async () => null, prDiff: async () => 'diff\n',
     },
     repoCache: {

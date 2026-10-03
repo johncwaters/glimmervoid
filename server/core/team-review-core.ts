@@ -36,6 +36,10 @@ const PRIOR_REVIEW_STATUSES: ReadonlySet<ReviewDraft['status']> = new Set(['post
 type ReviewTier = 'stamp' | 'full';
 
 interface TeamReviewCandidate {
+  requestSource: QueuedReview['requestSource'];
+  isDraft?: boolean;
+  checksState?: QueuedReview['checksState'];
+  reviewDecision?: QueuedReview['reviewDecision'];
   key: string;
   repo: string;
   number: number;
@@ -110,10 +114,15 @@ function remoteMatchesGithubRepo(remoteUrl: string, repo: string): boolean {
   return githubRepoSlugFromRemote(remoteUrl)?.toLowerCase() === repo.toLowerCase();
 }
 
-function selectCandidates(teamRequested: SearchedPr[], authored: SearchedPr[], { self, nowMs, skipIdleAfterMs }: { self: string; nowMs: number; skipIdleAfterMs: number }): TeamReviewCandidate[] {
+function selectCandidates(directRequested: SearchedPr[], teamRequested: SearchedPr[], authored: SearchedPr[], { self, nowMs, skipIdleAfterMs }: { self: string; nowMs: number; skipIdleAfterMs: number }): TeamReviewCandidate[] {
   const candidates: TeamReviewCandidate[] = [];
   const seenKeys = new Set<string>();
-  for (const item of [...teamRequested, ...authored]) {
+  const requests = [
+    ...directRequested.map((item) => ({ item, requestSource: 'direct' as const })),
+    ...teamRequested.map((item) => ({ item, requestSource: 'team' as const })),
+    ...authored.map((item) => ({ item, requestSource: 'team' as const })),
+  ];
+  for (const { item, requestSource } of requests) {
     if (item.user.login.toLowerCase() === self.toLowerCase()) continue;
     if (item.draft === true) continue;
     if (item.user.type === 'Bot' || item.user.login.toLowerCase().endsWith('[bot]')) continue;
@@ -124,7 +133,7 @@ function selectCandidates(teamRequested: SearchedPr[], authored: SearchedPr[], {
     const key = prKey(repo, item.number);
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
-    candidates.push({ key, repo, number: item.number, title: item.title, url: item.html_url, author: item.user.login, ...(item.created_at ? { prCreatedAt: item.created_at } : {}) });
+    candidates.push({ key, repo, number: item.number, title: item.title, url: item.html_url, author: item.user.login, requestSource, ...(item.created_at ? { prCreatedAt: item.created_at } : {}) });
   }
   return candidates;
 }
@@ -395,8 +404,8 @@ function startReviewProgress({ candidate, tier, reasons, head, at, priorReviewed
   candidate: TeamReviewCandidate; tier: ReviewTier; reasons: string[]; head: string; at: number; priorReviewedHead?: string;
 }): InFlightReview {
   return {
-    key: candidate.key, repo: candidate.repo, number: candidate.number, title: candidate.title,
-    url: candidate.url, author: candidate.author, tier, reasons, head, ...(candidate.prCreatedAt ? { prCreatedAt: candidate.prCreatedAt } : {}),
+    ...candidate,
+    tier, reasons, head,
     ...(priorReviewedHead ? { priorReviewedHead } : {}),
     phase: 'preparing', startedAt: at, deadlineAt: null, toolCalls: 0, recentSteps: [],
   };
@@ -413,8 +422,8 @@ function applyReviewProgress(progress: InFlightReview, event: ReviewProgressEven
 
 function draftBase(candidate: TeamReviewCandidate, tier: ReviewTier, reasons: string[], reviewedHead: string) {
   return {
-    key: candidate.key, repo: candidate.repo, number: candidate.number, title: candidate.title,
-    url: candidate.url, author: candidate.author, tier, reasons, reviewedHead, ...(candidate.prCreatedAt ? { prCreatedAt: candidate.prCreatedAt } : {}),
+    ...candidate,
+    tier, reasons, reviewedHead,
   };
 }
 

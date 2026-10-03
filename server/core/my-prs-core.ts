@@ -97,7 +97,7 @@ export function toMyPr(node: MyPrSearchNode, behindBy: number | null, threadNode
   const pr: MyPr = {
     key: prKey(node.repository.nameWithOwner, node.number), repo: node.repository.nameWithOwner, number: node.number,
     title: node.title, url: node.url, isDraft: node.isDraft, state: node.state, createdAt: node.createdAt, mergedAt: node.mergedAt,
-    updatedAt: node.updatedAt, baseRefName: node.baseRefName, headRefOid: node.headRefOid, isInMergeQueue: node.isInMergeQueue,
+    updatedAt: node.updatedAt, baseRefName: node.baseRefName, headRefName: node.headRefName, isCrossRepository: node.isCrossRepository, headRefOid: node.headRefOid, isInMergeQueue: node.isInMergeQueue,
     mergeMethod: node.repository.viewerDefaultMergeMethod, mergeable: node.mergeable,
     mergeStateStatus: node.mergeStateStatus, reviewDecision: node.reviewDecision,
     checks: { state: node.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null, failing, pendingCount },

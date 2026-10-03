@@ -41,6 +41,63 @@ export function groupMyPrs(prs: readonly MyPr[]): MyPrSection[] {
   return SECTION_TITLES.map((title) => ({ title, prs: prs.filter((pr) => SECTION_BY_STAGE[pr.stage] === title) }));
 }
 
+export interface MyPrStackRow { pr: MyPr; parentKey: string | null; depth: number }
+export interface MyPrStack { root: MyPr; rows: MyPrStackRow[] }
+
+export function groupStackedMyPrs(prs: readonly MyPr[]): MyPrStack[] {
+  const stackParentCandidates = prs.filter((pr) => pr.state === 'OPEN' && !pr.isCrossRepository);
+  const prByHeadBranch = new Map(stackParentCandidates.map((pr) => [JSON.stringify([pr.repo.toLowerCase(), pr.headRefName]), pr]));
+  const childrenByParentKey = new Map<string, MyPr[]>();
+  const roots: MyPr[] = [];
+  for (const pr of prs) {
+    const parent = pr.state === 'OPEN' ? prByHeadBranch.get(JSON.stringify([pr.repo.toLowerCase(), pr.baseRefName])) : undefined;
+    if (!parent || parent.key === pr.key) {
+      roots.push(pr);
+      continue;
+    }
+    const children = childrenByParentKey.get(parent.key) ?? [];
+    children.push(pr);
+    childrenByParentKey.set(parent.key, children);
+  }
+  const stacks: MyPrStack[] = [];
+  const visitedKeys = new Set<string>();
+  for (const root of [...roots, ...prs]) {
+    if (visitedKeys.has(root.key)) continue;
+    const rows: MyPrStackRow[] = [];
+    const pendingRows: MyPrStackRow[] = [{ pr: root, parentKey: null, depth: 0 }];
+    while (pendingRows.length > 0) {
+      const row = pendingRows.pop();
+      if (!row || visitedKeys.has(row.pr.key)) continue;
+      visitedKeys.add(row.pr.key);
+      rows.push(row);
+      const children = childrenByParentKey.get(row.pr.key) ?? [];
+      for (let index = children.length - 1; index >= 0; index -= 1) {
+        pendingRows.push({ pr: children[index], parentKey: row.pr.key, depth: row.depth + 1 });
+      }
+    }
+    stacks.push({ root, rows });
+  }
+  return stacks;
+}
+
+export interface MyPrStackSection extends MyPrSection { rows: MyPrStackRow[] }
+
+function mostUrgentSectionIndex(stack: MyPrStack): number {
+  return stack.rows.reduce((mostUrgentIndex, { pr }) => Math.min(mostUrgentIndex, SECTION_TITLES.indexOf(SECTION_BY_STAGE[pr.stage])), SECTION_TITLES.length - 1);
+}
+
+export function sectionStackedMyPrs(prs: readonly MyPr[]): MyPrStackSection[] {
+  const sections: MyPrStackSection[] = SECTION_TITLES.map((title) => ({ title, prs: [], rows: [] }));
+  for (const stack of groupStackedMyPrs(prs)) {
+    const section = sections[mostUrgentSectionIndex(stack)];
+    for (const row of stack.rows) {
+      section.rows.push(row);
+      section.prs.push(row.pr);
+    }
+  }
+  return sections;
+}
+
 export function stageLabel(stage: MyPrStage): string { return STAGE_LABELS[stage]; }
 export function stageTone(stage: MyPrStage): StateTone { return STAGE_TONES[stage]; }
 

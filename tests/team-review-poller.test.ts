@@ -43,6 +43,8 @@ function draftFor({ candidate, detail, tier, reasons }: SpawnReviewArgs): Review
 }
 
 interface FakeGithub extends TeamReviewGithub {
+  directRequested: SearchedPr[];
+  isDirectRequestedComplete: boolean;
   requested: SearchedPr[];
   authored: SearchedPr[];
   isRequestedComplete: boolean;
@@ -58,6 +60,8 @@ interface FakeGithub extends TeamReviewGithub {
 
 function fakeGithub(): FakeGithub {
   const github: FakeGithub = {
+    directRequested: [],
+    isDirectRequestedComplete: true,
     requested: [],
     authored: [],
     isRequestedComplete: true,
@@ -73,6 +77,7 @@ function fakeGithub(): FakeGithub {
     viewer: async () => (github.failViewer ? null : 'me'),
     teamProfile: async () => ({ org: 'Acme', slug: 'core', name: 'Core', avatarUrl: 'https://avatars.githubusercontent.com/t/1' }),
     teamMembers: async () => ['me', 'teammate', 'other'],
+    searchDirectRequested: async () => ({ items: github.directRequested, complete: github.isDirectRequestedComplete }),
     searchTeamRequested: async () => ({ items: github.requested, complete: github.isRequestedComplete }),
     searchAuthoredBy: async (_org, logins) => {
       github.authoredQueries.push(logins);
@@ -428,7 +433,7 @@ test('discarded draft stays settled after a new head until manually queued', asy
 
 test('saved drafts are published at start before the first GitHub search finishes', async () => {
   const key = `${REPO}#1`;
-  const candidate = { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate' };
+  const candidate = { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate', requestSource: 'team' as const };
   const draft = errorDraft({ candidate, tier: 'stamp', reasons: [], reviewedHead: HEAD_ONE, error: 'timed out' });
   const savedState: TeamReviewState = {
     [key]: { draft, reviewedHead: HEAD_ONE, inFlight: false, skipReason: null, reviewAttempts: MAX_REVIEW_ATTEMPTS, updatedAt: 1 },
@@ -445,7 +450,7 @@ test('saved drafts are published at start before the first GitHub search finishe
 
 test('requeue resets a failed review at its attempt limit and the next tick reviews it again', async () => {
   const key = `${REPO}#1`;
-  const candidate = { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate' };
+  const candidate = { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate', requestSource: 'team' as const };
   const draft = errorDraft({ candidate, tier: 'stamp', reasons: [], reviewedHead: HEAD_ONE, error: 'timed out' });
   const savedState: TeamReviewState = {
     [key]: { draft, reviewedHead: HEAD_ONE, inFlight: false, skipReason: null, reviewAttempts: MAX_REVIEW_ATTEMPTS, updatedAt: 1 },
@@ -681,7 +686,7 @@ test('a stale draft can be manually queued inside the review interval', async ()
 
 test('a legacy ready draft keeps its original review time after becoming stale', async () => {
   const key = `${REPO}#1`;
-  const candidate = { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate' };
+  const candidate = { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate', requestSource: 'team' as const };
   const draft = readyDraft({ candidate, tier: 'stamp', reasons: [], result: { verdict: 'APPROVE', head: HEAD_ONE, summary: 'fine', assessment: null, findings: [] } });
   const savedState: TeamReviewState = { [key]: { draft, reviewedHead: HEAD_ONE, inFlight: false, skipReason: null, reviewAttempts: 1, updatedAt: 1000 } };
   const { poller, github, spawned, setNow } = setup({ readState: async () => structuredClone(savedState) });
@@ -981,7 +986,7 @@ test('a review aborted by shutdown leaves no draft and is queued again on the ne
 test('a stopped review saves its resume record without changing the prior draft or attempts', async () => {
   const key = `${REPO}#1`;
   const previousDraft = errorDraft({
-    candidate: { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate' },
+    candidate: { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate', requestSource: 'team' as const },
     tier: 'stamp', reasons: [], reviewedHead: HEAD_ONE, error: 'previous failure',
   });
   const { poller, github, writes } = setup({
@@ -1065,7 +1070,7 @@ test('a resumed review that now triages as skipped discards its checkout', async
 test('a departed PR discards its saved checkout while retaining a posted draft', async () => {
   const key = `${REPO}#1`;
   const postedDraft = { ...draftFor({
-    candidate: { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate' },
+    candidate: { key, repo: REPO, number: 1, title: 'PR 1', url: `https://github.com/${REPO}/pull/1`, author: 'teammate', requestSource: 'team' as const },
     detail: prDetail(1, HEAD_ONE), tier: 'stamp', reasons: [],
   }), status: 'posted' as const };
   const discarded: string[] = [];
@@ -1525,5 +1530,43 @@ test('a GitHub secondary rate limit on the candidate search waits a minute with 
   assert.equal(statuses.at(-1)?.nextAttemptAt, 61_000);
   assert.equal((await poller.refresh()).ok, false);
   assert.equal(searchCount, 1);
+  await poller.stop();
+});
+
+test('direct requests reach review once and survive an incomplete direct search', async () => {
+  const { poller, github, spawned, statuses } = setup();
+  github.directRequested = [searchItem(1, 'outside-team')];
+  github.requested = [searchItem(1, 'outside-team')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  assert.equal(spawned.length, 1);
+  assert.equal(spawned[0]?.candidate.requestSource, 'direct');
+  assert.equal(statuses.at(-1)?.drafts[0]?.requestSource, 'direct');
+  github.directRequested = [];
+  github.requested = [];
+  github.isDirectRequestedComplete = false;
+  await poller.tick();
+  assert.ok(poller.getDraft(`${REPO}#1`));
+  github.isDirectRequestedComplete = true;
+  await poller.tick();
+  assert.equal(poller.getDraft(`${REPO}#1`), null);
+  await poller.stop();
+});
+
+test('existing draft priority refreshes when direct requests and CI change', async () => {
+  const { poller, github, spawned, statuses } = setup();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  await poller.start();
+  await settle();
+  github.directRequested = [searchItem(1, 'teammate')];
+  github.prReviewSnapshots = async () => new Map([[`${REPO}#1`, { head: HEAD_ONE, reviews: [], reviewDecision: 'REVIEW_REQUIRED', checksState: 'FAILURE', isDraft: false }]]);
+  await poller.tick();
+  const review = statuses.at(-1)?.drafts[0];
+  assert.equal(review?.requestSource, 'direct');
+  assert.equal(review?.checksState, 'FAILURE');
+  assert.equal(review?.reviewDecision, 'REVIEW_REQUIRED');
+  assert.equal(spawned.length, 1);
   await poller.stop();
 });

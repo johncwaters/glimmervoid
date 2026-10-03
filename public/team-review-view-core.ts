@@ -9,6 +9,28 @@ import type { StateTone } from './state-tone-core.ts';
 
 export type QueueRowKind = 'ready' | 'settled' | 'inReview' | 'queued' | 'attention' | 'posted' | 'discarded';
 
+type ReviewPriorityBand = 'blocking-others' | 'actionable' | 'waiting-on-author' | 'not-ready';
+type ReviewPriorityReason = 'direct-request' | 'team-request' | 'changes-requested' | 'checks-failing' | 'checks-pending' | 'draft' | 'review-available' | 'approved';
+
+export const REVIEW_PRIORITY_REASON_TEXT: Readonly<Record<ReviewPriorityReason, string>> = {
+  'direct-request': 'Blocking on your review', 'team-request': 'Ready for team review',
+  'changes-requested': 'Waiting on author', 'checks-failing': 'Checks failing', 'checks-pending': 'Checks running', draft: 'Draft', 'review-available': 'Ready for review', approved: 'Approved',
+};
+
+export const REVIEW_PRIORITY_TONES: Readonly<Record<ReviewPriorityBand, StateTone>> = {
+  'blocking-others': 'warn', actionable: 'ok', 'waiting-on-author': 'wait', 'not-ready': 'muted',
+};
+
+export function classifyReviewPriority(review: Pick<QueuedReview, 'requestSource' | 'isDraft' | 'checksState' | 'reviewDecision'>): { band: ReviewPriorityBand; reason: ReviewPriorityReason } {
+  if (review.isDraft) return { band: 'not-ready', reason: 'draft' };
+  if (review.reviewDecision === 'CHANGES_REQUESTED') return { band: 'waiting-on-author', reason: 'changes-requested' };
+  if (review.checksState === 'FAILURE' || review.checksState === 'ERROR') return { band: 'waiting-on-author', reason: 'checks-failing' };
+  if (review.checksState === 'PENDING' || review.checksState === 'EXPECTED') return { band: 'not-ready', reason: 'checks-pending' };
+  if (review.requestSource === 'direct' && review.reviewDecision === 'REVIEW_REQUIRED') return { band: 'blocking-others', reason: 'direct-request' };
+  if (review.reviewDecision === 'APPROVED') return { band: 'actionable', reason: 'approved' };
+  return { band: 'actionable', reason: review.requestSource === 'direct' ? 'review-available' : 'team-request' };
+}
+
 export function queueRowTone(kind: QueueRowKind, status: ReviewDraft['status'] | null): StateTone {
   if (kind === 'ready') return 'warn';
   if (kind === 'settled') return 'ok';
@@ -152,19 +174,27 @@ const ACTION_PROGRESS_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.
 export function groupDrafts(status: TeamReviewStatus | null | undefined): TeamReviewSections {
   const sections: TeamReviewSections = { ready: [], noReviewNeeded: [], inReview: [], queued: [], attention: [], posted: [], discarded: [] };
   if (!status) return sections;
+  const readyByBand: Record<ReviewPriorityBand, ReviewDraft[]> = { 'blocking-others': [], actionable: [], 'waiting-on-author': [], 'not-ready': [] };
+  const queuedByBand: Record<ReviewPriorityBand, QueuedReview[]> = { 'blocking-others': [], actionable: [], 'waiting-on-author': [], 'not-ready': [] };
+  const bandOrder: ReviewPriorityBand[] = ['blocking-others', 'actionable', 'waiting-on-author', 'not-ready'];
   const inFlightKeys = new Set(status.inFlight.map((review) => review.key));
   sections.inReview.push(...status.inFlight);
-  sections.queued.push(...status.queued.filter((review) => !inFlightKeys.has(review.key)));
+  for (const review of status.queued) {
+    if (inFlightKeys.has(review.key)) continue;
+    queuedByBand[classifyReviewPriority(review).band].push(review);
+  }
+  for (const band of bandOrder) sections.queued.push(...queuedByBand[band]);
   const queuedKeys = new Set(sections.queued.map((review) => review.key));
   for (const draft of status.drafts) {
     if (inFlightKeys.has(draft.key) || queuedKeys.has(draft.key)) continue;
     const isSettled = (draft.status === 'ready' || draft.status === 'stale') && !isReviewNeeded(draft);
     if (isSettled) sections.noReviewNeeded.push(draft);
-    if (draft.status === 'ready' && !isSettled) sections.ready.push(draft);
+    if (draft.status === 'ready' && !isSettled) readyByBand[classifyReviewPriority(draft).band].push(draft);
     if ((draft.status === 'stale' && !isSettled) || draft.status === 'error') sections.attention.push(draft);
     if (draft.status === 'posted') sections.posted.push(draft);
     if (draft.status === 'discarded') sections.discarded.push(draft);
   }
+  for (const band of bandOrder) sections.ready.push(...readyByBand[band]);
   return sections;
 }
 

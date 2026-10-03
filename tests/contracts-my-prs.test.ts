@@ -20,11 +20,14 @@ test('my PR contract parses requested reviewers with avatar metadata', () => {
   const pr = {
     key: 'Acme/app#1', repo: 'Acme/app', number: 1, title: 'Fix', url: 'https://github.com/Acme/app/pull/1',
     isDraft: false, state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z',
-    baseRefName: 'main', headRefOid: 'a'.repeat(40), isInMergeQueue: false, mergeMethod: 'SQUASH', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null,
+    baseRefName: 'main', headRefName: 'feature', isCrossRepository: false, headRefOid: 'a'.repeat(40), isInMergeQueue: false, mergeMethod: 'SQUASH', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null,
     checks: { state: null, failing: [], pendingCount: 0 }, unresolvedThreads: 0, threads: [], behindBy: 0,
     reviewRequests: [{ name: 'Acme/docs', isTeam: true, avatarUrl: 'https://github.com/Acme.png' }, { name: 'ana', isTeam: false, avatarUrl: null }],
     approvals: 0, reviews: [], stage: 'ready',
   };
+  assert.equal(MyPr.parse(pr).headRefName, 'feature');
+  assert.equal(MyPr.safeParse({ ...pr, headRefName: undefined }).success, false);
+  assert.equal(MyPr.safeParse({ ...pr, headRefName: '' }).success, false);
   assert.deepEqual(MyPr.parse(pr).reviewRequests, pr.reviewRequests);
   assert.equal(MyPr.safeParse({ ...pr, reviewRequests: ['Acme/docs'] }).success, false);
   assert.equal(MyPr.safeParse({ ...pr, reviewRequests: [{ name: 'ana', isTeam: false }] }).success, false);

@@ -1,12 +1,12 @@
 import { execFileAsync } from './child-process-safe.ts';
 import { GithubRateLimitResources, githubRateLimitWaitMs } from './core/github-rate-limit-core.ts';
 import { z } from 'zod';
-import { CommitSha, GithubReviewDecision, PrDetail, ReviewComment, SearchedPr } from '../shared/contracts/team-review.ts';
+import { CommitSha, GithubReviewDecision, PrDetail, ReviewChecksState, ReviewComment, SearchedPr } from '../shared/contracts/team-review.ts';
 import { CommitComparison, MergedPrListing, MinedPrReviewData } from '../shared/contracts/benchmark.ts';
 import type { CommitComparison as CommitComparisonType, MergedPrListing as MergedPrListingType, MinedPrReviewData as MinedPrReviewDataType } from '../shared/contracts/benchmark.ts';
 import { MyPrMergeMethod, MyPrMergeStateResponse, MyPrSearchNode, MyPrSearchResponse, MyPrThreadNode, MyPrThreadsResponse } from '../shared/contracts/my-prs.ts';
 import type { MyPrMergeKind, MyPrMergeMethod as MyPrMergeMethodType, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode as MyPrThreadNodeType } from '../shared/contracts/my-prs.ts';
-import type { GithubReviewDecision as GithubReviewDecisionType, PostedReviewEvent, PrDetail as PrDetailType, ReviewComment as ReviewCommentType, SearchedPr as SearchedPrType, TeamReviewStatus } from '../shared/contracts/team-review.ts';
+import type { GithubReviewDecision as GithubReviewDecisionType, PostedReviewEvent, PrDetail as PrDetailType, ReviewChecksState as ReviewChecksStateType, ReviewComment as ReviewCommentType, SearchedPr as SearchedPrType, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 
 type GhMergeFlag = '--merge' | '--squash' | '--rebase';
 
@@ -59,6 +59,8 @@ interface PrSearchResult {
 
 interface PrReviewSnapshot {
   head: string;
+  isDraft?: boolean;
+  checksState?: ReviewChecksStateType | null;
   reviewDecision?: GithubReviewDecisionType | null;
   reviews: { login: string; state: string; commit: string | null; submittedAt?: string | null }[];
 }
@@ -100,6 +102,7 @@ interface PrGh {
   teamMembers(org: string, team: string): Promise<string[]>;
   teamProfile(org: string, team: string): Promise<NonNullable<TeamReviewStatus['team']> | null>;
   searchTeamRequested(org: string, team: string): Promise<PrSearchResult>;
+  searchDirectRequested(org: string): Promise<PrSearchResult>;
   searchAuthoredBy(org: string, logins: string[]): Promise<PrSearchResult>;
   viewPr(repo: string, number: number): Promise<PrDetailType | null>;
   prDiff(repo: string, number: number): Promise<string | null>;
@@ -150,7 +153,7 @@ const MY_PRS_QUERY = `query($openQuery: String!, $mergedQuery: String!) {
   merged: search(type: ISSUE, first: 50, query: $mergedQuery) { issueCount nodes { ...myPrFields } }
 }
 fragment myPrFields on PullRequest {
-  __typename id number title url isDraft state createdAt mergedAt updatedAt baseRefName headRefOid isInMergeQueue mergeable mergeStateStatus reviewDecision
+  __typename id number title url isDraft state createdAt mergedAt updatedAt baseRefName headRefName isCrossRepository headRefOid isInMergeQueue mergeable mergeStateStatus reviewDecision
   repository { nameWithOwner viewerDefaultMergeMethod }
   commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 50) { nodes {
     __typename ... on CheckRun { name conclusion status } ... on StatusContext { context state }
@@ -226,6 +229,8 @@ const LATEST_REVIEWS_PER_PR = 20;
 const GRAPHQL_REVIEW_REPOSITORY = z.object({
   pullRequest: z.object({
     headRefOid: CommitSha,
+    isDraft: z.boolean().optional(),
+    commits: z.object({ nodes: z.array(z.object({ commit: z.object({ statusCheckRollup: z.object({ state: ReviewChecksState.nullable() }).nullable() }) })) }).optional(),
     reviewDecision: z.string().nullable().optional(),
     latestReviews: z.object({
       nodes: z.array(z.object({
@@ -260,7 +265,7 @@ function reviewSnapshotKey(repo: string, number: number): string {
 function reviewSnapshotQuery(prs: readonly PrReference[]): string {
   const fields = prs.map((pr, index) => {
     const [owner, name] = repoParts(pr.repo) ?? ['', ''];
-    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { headRefOid reviewDecision latestReviews(first: ${LATEST_REVIEWS_PER_PR}) { nodes { author { login } state submittedAt commit { oid } } } } }`;
+    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { headRefOid isDraft reviewDecision commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } latestReviews(first: ${LATEST_REVIEWS_PER_PR}) { nodes { author { login } state submittedAt commit { oid } } } } }`;
   });
   return `query { ${fields.join(' ')} }`;
 }
@@ -280,7 +285,7 @@ function reviewSnapshotFrom(repository: unknown): PrReviewSnapshot | null {
   const reviews = pullRequest.latestReviews.nodes.flatMap((review) => (review?.author
     ? [{ login: review.author.login, state: review.state, commit: CommitSha.safeParse(review.commit?.oid).data ?? null, ...(review.submittedAt !== undefined ? { submittedAt: review.submittedAt } : {}) }]
     : []));
-  return { head: pullRequest.headRefOid, reviewDecision: GithubReviewDecision.safeParse(pullRequest.reviewDecision).data ?? null, reviews };
+  return { head: pullRequest.headRefOid, ...(pullRequest.isDraft !== undefined ? { isDraft: pullRequest.isDraft } : {}), ...(pullRequest.commits ? { checksState: pullRequest.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null } : {}), reviewDecision: GithubReviewDecision.safeParse(pullRequest.reviewDecision).data ?? null, reviews };
 }
 
 function uniqueValidPrs(prs: readonly PrReference[]): PrReference[] {
@@ -563,6 +568,11 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     async searchTeamRequested(org, team) {
       if (!GH_SEGMENT.test(org) || !GH_SEGMENT.test(team)) return { items: [], complete: false };
       return search(`is:pr is:open draft:false org:${org} team-review-requested:${org}/${team}`);
+    },
+
+    async searchDirectRequested(org) {
+      if (!GH_SEGMENT.test(org)) return { items: [], complete: false };
+      return search(`is:pr is:open draft:false org:${org} user-review-requested:@me`);
     },
 
     async searchAuthoredBy(org, logins) {

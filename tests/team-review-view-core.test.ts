@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
   commentSeverity, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
@@ -76,7 +76,7 @@ test('queue row title names an in-progress review and a queued pull request', ()
   assert.equal(queueRowTitle(inFlightReview(8), 'inReview', { opened: '2d ago' }), 'Acme/app#8: PR 8\nIn review\nOpened 2d ago');
   const queuedReview = TeamReviewStatus.parse({
     type: 'team-review-status', ts: 1, configured: true, reason: null, drafts: [], inFlight: [],
-    queued: [{ key: 'Acme/app#9', repo: 'Acme/app', number: 9, title: 'PR 9', url: 'https://github.com/Acme/app/pull/9', author: 'teammate' }],
+    queued: [{ key: 'Acme/app#9', repo: 'Acme/app', number: 9, title: 'PR 9', url: 'https://github.com/Acme/app/pull/9', author: 'teammate', requestSource: 'team' }],
   }).queued[0];
   assert.ok(queuedReview);
   assert.equal(queueRowTitle(queuedReview, 'queued', { opened: '4h ago' }), 'Acme/app#9: PR 9\nQueued\nOpened 4h ago');
@@ -569,7 +569,7 @@ test('a queued pull request gets its own section and hides its older draft', () 
   const status = TeamReviewStatus.parse({
     type: 'team-review-status', ts: 1, configured: true, reason: null, inFlight: [],
     drafts: [draft(7, { status: 'stale' })],
-    queued: [{ key: 'Acme/app#7', repo: 'Acme/app', number: 7, title: 'PR 7', url: 'https://github.com/Acme/app/pull/7', author: 'teammate' }],
+    queued: [{ key: 'Acme/app#7', repo: 'Acme/app', number: 7, title: 'PR 7', url: 'https://github.com/Acme/app/pull/7', author: 'teammate', requestSource: 'team' }],
   });
   const sections = groupDrafts(status);
   assert.deepEqual(sections.queued.map((review) => review.key), ['Acme/app#7']);
@@ -586,7 +586,7 @@ test('the queued detail says what the pull request is waiting for', () => {
 
 test('a change to the queued list is never treated as progress only', () => {
   const before = status([draft(1)], [inFlightReview(2)]);
-  const queuedItem = { key: 'Acme/app#3', repo: 'Acme/app', number: 3, title: 'PR 3', url: 'https://github.com/Acme/app/pull/3', author: 'teammate' };
+  const queuedItem = { key: 'Acme/app#3', repo: 'Acme/app', number: 3, title: 'PR 3', url: 'https://github.com/Acme/app/pull/3', author: 'teammate', requestSource: 'team' as const };
   assert.equal(isInFlightProgressOnlyChange(before, { ...before, queued: [queuedItem] }), false);
   assert.equal(isInFlightProgressOnlyChange(before, { ...before }), true);
 });
@@ -701,4 +701,32 @@ test('viewer approval context is null when the viewer decided on the live head o
   const decidedAtMs = Date.parse(approval.submittedAt);
   assert.equal(viewerApprovalContext(draft(1, { githubReviews: [approval], reviewedAt: decidedAtMs - 1000 })), null);
   assert.ok(viewerApprovalContext(draft(1, { githubReviews: [approval], reviewedAt: decidedAtMs + 1000 })));
+});
+
+test('review priority classifies author blockers and readiness before request urgency', () => {
+  const directReview = draft(1, { requestSource: 'direct', reviewDecision: 'REVIEW_REQUIRED', checksState: 'SUCCESS' });
+  assert.deepEqual(classifyReviewPriority(directReview), { band: 'blocking-others', reason: 'direct-request' });
+  assert.deepEqual(classifyReviewPriority(draft(2)), { band: 'actionable', reason: 'team-request' });
+  assert.deepEqual(classifyReviewPriority({ ...directReview, isDraft: true }), { band: 'not-ready', reason: 'draft' });
+  assert.deepEqual(classifyReviewPriority({ ...directReview, reviewDecision: 'CHANGES_REQUESTED' }), { band: 'waiting-on-author', reason: 'changes-requested' });
+  for (const checksState of ['FAILURE', 'ERROR'] as const) assert.deepEqual(classifyReviewPriority({ ...directReview, checksState }), { band: 'waiting-on-author', reason: 'checks-failing' });
+  for (const checksState of ['PENDING', 'EXPECTED'] as const) assert.deepEqual(classifyReviewPriority({ ...directReview, checksState }), { band: 'not-ready', reason: 'checks-pending' });
+  assert.equal(classifyReviewPriority({ ...directReview, checksState: null }).band, 'blocking-others');
+  assert.equal(classifyReviewPriority({ ...directReview, reviewDecision: 'APPROVED' }).band, 'actionable');
+});
+
+test('ready and queued rows preserve incoming order within priority bands', () => {
+  const drafts = [draft(1, { checksState: 'PENDING' }), draft(2), draft(3, { checksState: 'FAILURE' }), draft(4, { requestSource: 'direct', reviewDecision: 'REVIEW_REQUIRED' }), draft(5), draft(6, { requestSource: 'direct', reviewDecision: 'REVIEW_REQUIRED' }), draft(7, { isDraft: true })];
+  const sections = groupDrafts(status(drafts));
+  assert.deepEqual(sections.ready.map((review) => review.number), [4, 6, 2, 5, 3, 1, 7]);
+  const queued = drafts.map(({ key, repo, number, title, url, author, requestSource, reviewDecision, checksState, isDraft }) => ({ key, repo, number, title, url, author, requestSource, reviewDecision, checksState, isDraft }));
+  assert.deepEqual(groupDrafts({ ...status([]), queued }).queued.map((review) => review.number), [4, 6, 2, 5, 3, 1, 7]);
+});
+
+test('a ready row editor survives request source, CI and approval changes', () => {
+  const review = draft(1);
+  assert.equal(readyRowSignature(review), readyRowSignature({ ...review, requestSource: 'direct' }));
+  assert.equal(readyRowSignature(review), readyRowSignature({ ...review, checksState: 'FAILURE' }));
+  assert.equal(readyRowSignature(review), readyRowSignature({ ...review, checksState: 'PENDING' }));
+  assert.equal(readyRowSignature(review), readyRowSignature({ ...review, reviewDecision: 'CHANGES_REQUESTED' }));
 });

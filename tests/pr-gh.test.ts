@@ -160,7 +160,7 @@ test('PR reads use exact argv and parse contract shapes', async () => {
 });
 
 function reviewQueryField(alias: string, owner: string, name: string, number: number): string {
-  return `${alias}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${number}) { headRefOid reviewDecision latestReviews(first: 20) { nodes { author { login } state submittedAt commit { oid } } } } }`;
+  return `${alias}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${number}) { headRefOid isDraft reviewDecision commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } latestReviews(first: 20) { nodes { author { login } state submittedAt commit { oid } } } } }`;
 }
 
 test('review snapshots batch aliased GraphQL fields, null empty commits and drop ghost authors', async () => {
@@ -383,7 +383,7 @@ test('viewIssue refuses a payload without a usable issue number', async () => {
 function myPrNode(number: number) {
   return {
     __typename: 'PullRequest', id: `PR_node${number}`, number, title: 'Fix', url: `https://github.com/Acme/app/pull/${number}`, isDraft: false,
-    state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z', baseRefName: 'main', headRefOid: HEAD_SHA, isInMergeQueue: false,
+    state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z', baseRefName: 'main', headRefName: 'feature', isCrossRepository: false, headRefOid: HEAD_SHA, isInMergeQueue: false,
     mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', repository: { nameWithOwner: 'Acme/app', viewerDefaultMergeMethod: 'SQUASH' },
     commits: { nodes: [] }, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, latestReviews: { nodes: [] },
   };
@@ -407,6 +407,9 @@ test('my PR search uses one GraphQL call and drops invalid nodes', async () => {
   assert.equal(calls[0].find((arg) => arg.startsWith('query='))?.match(/issueCount/g)?.length, 2);
   assert.match(calls[0].find((arg) => arg.startsWith('query=')) ?? '', /\.\.\. on Team \{ slug avatarUrl organization \{ login \} \}/);
   assert.match(calls[0].find((arg) => arg.startsWith('query=')) ?? '', /repository \{ nameWithOwner viewerDefaultMergeMethod \}/);
+  assert.match(calls[0].find((argument) => argument.startsWith('query=')) ?? '', /baseRefName headRefName isCrossRepository headRefOid/);
+  assert.equal(searched.items[0]?.headRefName, 'feature');
+  assert.equal(searched.items[0]?.isCrossRepository, false);
   assert.equal(searched.items[0]?.repository.viewerDefaultMergeMethod, 'SQUASH');
 });
 
@@ -722,4 +725,28 @@ test('compareCommits asks for the merge base and file names and flags a capped f
   assert.equal((await gh.compareCommits('Acme/repo', base, HEAD_SHA))?.isFileListComplete, false);
   assert.equal(await gh.compareCommits('Acme/repo', 'main', HEAD_SHA), null);
   assert.equal(calls.length, 2);
+});
+
+test('direct review request search shares paging bounds and fails closed', async () => {
+  const calls: string[][] = [];
+  const github = createPrGh('/repo', async (_command, args) => {
+    calls.push(args);
+    return { ok: true, out: searchPageOf((calls.length - 1) * 100 + 1, 100), err: '' };
+  });
+  const search = await github.searchDirectRequested('Acme');
+  assert.equal(calls.length, 5);
+  assert.equal(search.items.length, 500);
+  assert.equal(search.complete, false);
+  assert.ok(calls.every((args) => args.includes('q=is:pr is:open draft:false org:Acme user-review-requested:@me') && args.includes('per_page=100')));
+  assert.deepEqual(await github.searchDirectRequested('../Acme'), { items: [], complete: false });
+  assert.equal(calls.length, 5);
+});
+
+test('review snapshots carry validated draft and aggregate CI state', async () => {
+  const github = createPrGh('/repo', async () => ({ ok: true, out: JSON.stringify({ data: { pr0: { pullRequest: {
+    headRefOid: HEAD_SHA, isDraft: false, reviewDecision: 'REVIEW_REQUIRED', latestReviews: { nodes: [] },
+    commits: { nodes: [{ commit: { statusCheckRollup: { state: 'FAILURE' } } }] },
+  } } } }), err: '' }));
+  const snapshots = await github.prReviewSnapshots([{ repo: 'Acme/repo', number: 7 }]);
+  assert.deepEqual(snapshots.get('Acme/repo#7'), { head: HEAD_SHA, isDraft: false, reviewDecision: 'REVIEW_REQUIRED', reviews: [], checksState: 'FAILURE' });
 });

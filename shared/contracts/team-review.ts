@@ -116,6 +116,15 @@ export const DECIDING_REVIEW_STATES: ReadonlySet<GithubReviewState> = new Set(['
 export const GithubReviewDecision = z.enum(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED']);
 export type GithubReviewDecision = z.infer<typeof GithubReviewDecision>;
 
+export const ReviewChecksState = z.enum(['SUCCESS', 'FAILURE', 'PENDING', 'ERROR', 'EXPECTED']);
+export type ReviewChecksState = z.infer<typeof ReviewChecksState>;
+
+const reviewPriorityShape = {
+  requestSource: z.enum(['direct', 'team']).default('team'),
+  isDraft: z.boolean().optional(),
+  checksState: ReviewChecksState.nullable().optional(),
+};
+
 export const GithubReview = z.object({
   login: z.string().min(1),
   state: GithubReviewState,
@@ -148,6 +157,7 @@ export const PriorReview = z.object({
 export type PriorReview = z.infer<typeof PriorReview>;
 
 export const ReviewDraft = z.object({
+  ...reviewPriorityShape,
   key: z.string(),
   repo: repoSlug,
   number: z.number().int().positive(),
@@ -242,6 +252,8 @@ export const ReviewProgressStep = z.object({
 export type ReviewProgressStep = z.infer<typeof ReviewProgressStep>;
 
 export const InFlightReview = z.object({
+  ...reviewPriorityShape,
+  reviewDecision: GithubReviewDecision.nullable().optional(),
   key: z.string(),
   repo: repoSlug,
   number: z.number().int().positive(),
@@ -262,6 +274,8 @@ export const InFlightReview = z.object({
 export type InFlightReview = z.infer<typeof InFlightReview>;
 
 export const QueuedReview = z.object({
+  ...reviewPriorityShape,
+  reviewDecision: GithubReviewDecision.nullable().optional(),
   key: z.string(),
   repo: repoSlug,
   number: z.number().int().positive(),

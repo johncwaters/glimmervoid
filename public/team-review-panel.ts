@@ -11,7 +11,7 @@ import { createStateGlyph, createSvgIcon as svgIcon, createSvgShape as svgShape 
 import { formatTrailOffset } from './radar-core.ts';
 import { createSettingsLink } from './settings-link.ts';
 import {
-  TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
+  TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, REVIEW_PRIORITY_REASON_TEXT, REVIEW_PRIORITY_TONES, classifyReviewPriority,
   aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
@@ -244,6 +244,13 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
     }
   }
   const bottom = el('span', 'pr-queue-bottom');
+  const priority = classifyReviewPriority(review);
+  const requestChip = el('span', 'my-pr-stage', review.requestSource === 'direct' ? 'Direct' : 'Team');
+  requestChip.dataset.tone = 'muted';
+  const reasonChip = el('span', 'my-pr-stage');
+  reasonChip.dataset.tone = REVIEW_PRIORITY_TONES[priority.band];
+  reasonChip.append(createStateGlyph(REVIEW_PRIORITY_TONES[priority.band]), REVIEW_PRIORITY_REASON_TEXT[priority.reason]);
+  bottom.append(requestChip, reasonChip);
   if (kind === 'inReview') {
     const inFlight = review as InFlightReview;
     bottom.append(el('span', 'pr-phase-label', phaseLabel(inFlight.phase)), createAuthor(inFlight.author, 16, 'pr-queue-author'));

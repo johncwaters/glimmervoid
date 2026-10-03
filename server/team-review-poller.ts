@@ -18,6 +18,7 @@ interface TeamReviewGithub {
   teamMembers(org: string, team: string): Promise<string[]>;
   teamProfile(org: string, team: string): Promise<NonNullable<TeamReviewStatus['team']> | null>;
   searchTeamRequested(org: string, team: string): Promise<PrSearchResult>;
+  searchDirectRequested(org: string): Promise<PrSearchResult>;
   searchAuthoredBy(org: string, logins: string[]): Promise<PrSearchResult>;
   viewPr(repo: string, number: number): Promise<PrDetail | null>;
   prHead(repo: string, number: number): Promise<string | null>;
@@ -226,10 +227,21 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       const head = snapshot.head;
       const githubReviews = core.githubReviewsFrom(snapshot.reviews, self ?? '');
       const reviewDecision = snapshot.reviewDecision ?? null;
+      candidate.reviewDecision = reviewDecision;
+      candidate.isDraft = snapshot.isDraft;
+      candidate.checksState = snapshot.checksState;
       const isReviewedByViewer = core.hasViewerReviewedAt(githubReviews, head) || hasStandingViewerApproval({ githubReviews, reviewDecision });
       if (!entry) {
         if (!isReviewedByViewer) queue.push(candidate);
         continue;
+      }
+      if (entry.draft) {
+        const priority = { requestSource: candidate.requestSource, isDraft: candidate.isDraft, checksState: candidate.checksState, reviewDecision };
+        const previousPriority = { requestSource: entry.draft.requestSource, isDraft: entry.draft.isDraft, checksState: entry.draft.checksState, reviewDecision: entry.draft.reviewDecision ?? null };
+        if (JSON.stringify(priority) !== JSON.stringify(previousPriority)) {
+          entry.draft = { ...entry.draft, ...priority };
+          isDirty = true;
+        }
       }
       if (entry.draft && candidate.prCreatedAt && entry.draft.prCreatedAt !== candidate.prCreatedAt) {
         entry.draft.prCreatedAt = candidate.prCreatedAt;
@@ -335,10 +347,11 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     const members = await github.teamMembers(org, team);
     if (members.length === 0) return null;
     const teammates = members.filter((login) => login.toLowerCase() !== viewer.toLowerCase());
+    const directRequested = await github.searchDirectRequested(org);
     const requested = await github.searchTeamRequested(org, team);
     const authored = teammates.length > 0 ? await github.searchAuthoredBy(org, teammates) : { items: [], complete: true };
-    const candidates = core.selectCandidates(requested.items, authored.items, { self: viewer, nowMs: now(), skipIdleAfterMs });
-    return { candidates, isComplete: requested.complete && authored.complete };
+    const candidates = core.selectCandidates(directRequested.items, requested.items, authored.items, { self: viewer, nowMs: now(), skipIdleAfterMs });
+    return { candidates, isComplete: directRequested.complete && requested.complete && authored.complete };
   }
 
   async function rateLimitedOutcome(): Promise<TickOutcome> {
