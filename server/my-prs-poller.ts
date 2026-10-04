@@ -16,7 +16,7 @@ interface MyPrsPollerDependencies {
   shouldAutoRebase?: boolean;
   readState?: () => Promise<unknown>;
   writeState?: (state: MyPrsStateType) => Promise<void>;
-  fixMergeability?: (pr: MyPr, signal: AbortSignal, onPushStarted: () => void) => Promise<void>;
+  fixMergeability?: (pr: MyPr, signal: AbortSignal, onPushStarted: () => void, latestListedPr: () => MyPr | undefined, onRepairPushed: (pushedSha: string) => void) => Promise<void>;
   beforeStart?: () => Promise<void>;
   github: Pick<PrGh, 'viewer' | 'searchMyPrs' | 'behindCounts' | 'reviewThreadsBatch' | 'rebasePr' | 'rateLimitWaitMs'>;
   onTickComplete: (status: MyPrsStatus) => void;
@@ -159,8 +159,12 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     const forgetAbortedAttempt = () => { void forgetAttempt(attemptKey); };
     fixSignal.addEventListener('abort', forgetAbortedAttempt, { once: true });
     const keepAttemptOnceThePushStarts = () => { fixSignal.removeEventListener('abort', forgetAbortedAttempt); };
+    const neverRepairThePushedHead = (pushedSha: string) => {
+      keepMergeableAttemptKeys.add(core.keepMergeableAttemptKey({ key: pr.key, headRefOid: pushedSha }));
+      void loop.persist();
+    };
     const attemptSaved = loop.persist();
-    const fix = attemptSaved.then(() => (fixSignal.aborted ? undefined : fixMergeability(pr, fixSignal, keepAttemptOnceThePushStarts))).catch((error: unknown) => {
+    const fix = attemptSaved.then(() => (fixSignal.aborted ? undefined : fixMergeability(pr, fixSignal, keepAttemptOnceThePushStarts, () => previousPrs.find((listed) => listed.key === pr.key), neverRepairThePushedHead))).catch((error: unknown) => {
       log?.warn(`[${core.MY_PRS_LANE_ID}] keep mergeable fix for ${pr.key} failed: ${error instanceof Error ? error.message : String(error)}`);
     }).finally(() => {
       fixSignal.removeEventListener('abort', forgetAbortedAttempt);

@@ -19,7 +19,7 @@ import { createJsonStateStore } from './json-file.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { drainPending, firstLine, raceWithAbort } from './ephemeral-session.ts';
 import type { CommandResult } from './repo-cache.ts';
-import { emptyGhConfigDir, keepMergeableSandbox, keepMergeableSpawnEnv, makeTeamReviewWorkDir, sweepLeftoverCheckouts } from './team-review-wiring.ts';
+import { emptyGhConfigDir, hooksPathPinnedSpawnEnv, keepMergeableSandbox, makeTeamReviewWorkDir, sweepLeftoverCheckouts } from './team-review-wiring.ts';
 import type { TeamReviewGitWorkspace, TeamReviewRepoCache, TeamReviewSpawn } from './team-review-wiring.ts';
 import type { TeamReviewReapOptions } from './team-review-reaper.ts';
 import { CommitSha } from '../shared/contracts/team-review.ts';
@@ -155,9 +155,7 @@ export function createMyPrMergeabilityFix({
     return changed.ok ? nulSeparatedPaths(changed.out) : null;
   }
 
-  async function handOff(pr: MyPr, staged: { projectPath: string; baseSha: string }, checkoutPath: string, handoffRef: string, signal: AbortSignal, onPushStarted: () => void): Promise<void> {
-    const pushUrl = core.keepMergeablePushUrl(pr.repo);
-    if (!pushUrl) return warn(pr, `not pushed: ${pr.repo} is not a GitHub repository name`);
+  async function handOff(pr: MyPr, staged: { projectPath: string; baseSha: string }, checkoutPath: string, handoffRef: string, signal: AbortSignal, onPushStarted: () => void, latestListedPr: () => MyPr | undefined, onRepairPushed: (pushedSha: string) => void): Promise<void> {
     const fetched = await runGit(['fetch', '--quiet', '--no-tags', '--no-write-fetch-head', checkoutPath, `+HEAD:${handoffRef}`], staged.projectPath, signal);
     if (signal.aborted) return;
     if (!fetched.ok) return warn(pr, `not pushed: could not read the session commit ${fetched.err}`);
@@ -172,12 +170,15 @@ export function createMyPrMergeabilityFix({
     const decision = core.keepMergeableHandoff({ headSha: pr.headRefOid, resultSha: resultSha.data, isResultOnTopOfHead: onTopOfHead.ok, changedFromHead, addedFromHead, changedFromBase });
     if (!decision.push) return warn(pr, `not pushed: ${decision.reason}`);
     if (signal.aborted) return;
-    const branch = core.keepMergeableBranchName(pr);
+    const target = core.keepMergeablePushTarget(pr, latestListedPr());
+    if (!target.push) return warn(pr, `not pushed: ${target.reason}`);
     onPushStarted();
-    const pushed = await runGit(['push', '--no-verify', '--quiet', pushUrl, `${resultSha.data}:refs/heads/${branch}`], staged.projectPath, signal);
+    const pushed = await runGit(core.keepMergeablePushArgs(target.url, target.branch, pr.headRefOid, resultSha.data), staged.projectPath, signal);
+    if (pushed.ok) onRepairPushed(resultSha.data);
     if (signal.aborted) return;
-    if (!pushed.ok) return warn(pr, `pushing review branch ${branch} failed: ${pushed.err}`);
-    log.log(`[${core.MY_PRS_LANE_ID}] keep mergeable pushed review branch ${branch} for ${pr.key} at ${resultSha.data}`);
+    if (!pushed.ok && core.isMovedBranchPushRejection(pushed.err)) return warn(pr, `not pushed: ${target.branch} moved since the repair was staged, so the push was rejected and is not retried`);
+    if (!pushed.ok) return warn(pr, `pushing the repair to ${target.branch} failed: ${pushed.err}`);
+    log.log(`[${core.MY_PRS_LANE_ID}] keep mergeable pushed ${resultSha.data} to ${target.branch} for ${pr.key}`);
   }
 
   function runSession(pr: MyPr, workDir: string, cachedClone: string, signal: AbortSignal, onPending: (pending: Promise<unknown>) => void): Promise<KeepMergeableSessionOutcome> {
@@ -189,7 +190,7 @@ export function createMyPrMergeabilityFix({
         const sessionSignal = AbortSignal.any([deadlineSignal, signal]);
         return spawnSession({
           id: `${core.MY_PRS_LANE_ID}:${randomUUID()}`, name: `Keep mergeable ${pr.key}`, cwd: workDir,
-          spawnEnv: keepMergeableSpawnEnv(workDir),
+          spawnEnv: hooksPathPinnedSpawnEnv(workDir),
           extraClaudeArgs: core.keepMergeableClaudeArgs(),
           settingsPermissions: core.keepMergeablePermissions(),
           settingsSandbox: keepMergeableSandbox(workDir, { glimmervoidHome, cachedClone }),
@@ -199,8 +200,10 @@ export function createMyPrMergeabilityFix({
     });
   }
 
-  return async (pr: MyPr, signal: AbortSignal, onPushStarted: () => void = () => {}): Promise<void> => {
+  return async (pr: MyPr, signal: AbortSignal, onPushStarted: () => void = () => {}, latestListedPr: () => MyPr | undefined = () => pr, onRepairPushed: (pushedSha: string) => void = () => {}): Promise<void> => {
     if (signal.aborted) return;
+    const target = core.keepMergeablePushTarget(pr, latestListedPr());
+    if (!target.push) return warn(pr, `not started: ${target.reason}`);
     const workDir = await makeWorkDir(workRoot, pr.key);
     const handoffRef = `${KEEP_MERGEABLE_HANDOFF_REF_PREFIX}${pr.number}-${randomUUID()}`;
     let projectPath: string | null = null;
@@ -218,7 +221,7 @@ export function createMyPrMergeabilityFix({
       await drainPending(pendingSession);
       if (outcome === 'timed-out') return warn(pr, `not pushed: the session ran past its ${timeoutSeconds}s deadline`);
       if (outcome !== 'finished' || signal.aborted) return;
-      await handOff(pr, staged, path.join(workDir.dir, core.MY_PRS_FIX_CHECKOUT_DIRNAME), handoffRef, signal, onPushStarted);
+      await handOff(pr, staged, path.join(workDir.dir, core.MY_PRS_FIX_CHECKOUT_DIRNAME), handoffRef, signal, onPushStarted, latestListedPr, onRepairPushed);
     } finally {
       await drainPending(pendingSession);
       if (projectPath) await runGit(['update-ref', '-d', handoffRef], projectPath);

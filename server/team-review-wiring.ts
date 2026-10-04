@@ -7,6 +7,7 @@ import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { trailStepFromHook } from './core/investigation-trail-core.ts';
+import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES } from './core/lane-permissions-core.ts';
 import * as core from './core/team-review-core.ts';
 import type { CommentableLines, ReviewTier, TeamReviewCandidate, TeamReviewSettingsSource } from './core/team-review-core.ts';
 import {
@@ -40,6 +41,7 @@ const TEAM_REVIEW_DENY_RULES = Object.freeze([
   'WebFetch',
   'WebSearch',
 ]);
+const TEAM_REVIEW_SESSION_DENY_RULES = Object.freeze([...TEAM_REVIEW_DENY_RULES, ...LANE_CONFIG_EDIT_DENY_RULES]);
 const TEAM_REVIEW_ALLOWED_DOMAINS = Object.freeze([
   'api.github.com',
   'chatgpt.com',
@@ -201,6 +203,15 @@ function teamReviewPermissions(): { deny: string[]; defaultMode: string } {
   return { deny: [...TEAM_REVIEW_DENY_RULES], defaultMode: 'bypassPermissions' };
 }
 
+function teamReviewAcceptEditsPermissions(): { deny: string[]; defaultMode: string } {
+  return { deny: [...TEAM_REVIEW_SESSION_DENY_RULES], defaultMode: ACCEPT_EDITS_MODE };
+}
+
+function teamReviewReadAllowRules({ checkoutPath, linkedCheckout }: { checkoutPath: string; linkedCheckout: string | null }): string[] {
+  const readableDirectories = linkedCheckout === null ? [checkoutPath] : [checkoutPath, path.join(linkedCheckout, 'node_modules')];
+  return readableDirectories.map(core.absolutePathReadRule);
+}
+
 function teamReviewSandbox(workDir: string, linkedCheckout: string | null = null): TeamReviewSandbox {
   const linkedCheckoutDenyRead = linkedCheckout === null ? [] : LINKED_CHECKOUT_DENY_READ_ENTRIES.map((entry) => path.join(linkedCheckout, entry));
   return {
@@ -240,9 +251,9 @@ function keepMergeableSandbox(workDir: string, { glimmervoidHome, cachedClone }:
   };
 }
 
-function teamReviewClaudeArgs(tier: ReviewTier): string[] {
+function teamReviewClaudeArgs(tier: ReviewTier, readable: { checkoutPath: string; linkedCheckout: string | null }): string[] {
   const model = tier === 'full' ? core.FULL_MODEL : core.STAMP_MODEL;
-  return ['-p', '--strict-mcp-config', '--disallowedTools', ...TEAM_REVIEW_DENY_RULES, '--model', model];
+  return ['-p', '--allowedTools', ...teamReviewReadAllowRules(readable), '--strict-mcp-config', '--disallowedTools', ...TEAM_REVIEW_SESSION_DENY_RULES, '--model', model];
 }
 
 function emptyGhConfigDir(workDir: string): string {
@@ -272,7 +283,7 @@ function teamReviewSpawnEnv(workDir: string): Record<string, string> {
   };
 }
 
-function keepMergeableSpawnEnv(workDir: string): Record<string, string> {
+function hooksPathPinnedSpawnEnv(workDir: string): Record<string, string> {
   return {
     ...teamReviewSpawnEnv(workDir),
     GIT_CONFIG_COUNT: '3',
@@ -510,8 +521,8 @@ function createTeamReviewDispatcher({
   }
 
   function spawnWithTimeout(
-    { candidate, detail, tier, reasons, reportProgress, resume, workDir, linkedCheckout, reportPath, postingPath, commentable, onPending, onSessionId }: SpawnReviewArgs & {
-      workDir: string; linkedCheckout: string | null; reportPath: string; postingPath: string; commentable: CommentableLines | null;
+    { candidate, detail, tier, reasons, reportProgress, resume, workDir, checkoutPath, linkedCheckout, reportPath, postingPath, commentable, onPending, onSessionId }: SpawnReviewArgs & {
+      workDir: string; checkoutPath: string; linkedCheckout: string | null; reportPath: string; postingPath: string; commentable: CommentableLines | null;
       onPending: (pending: Promise<unknown>) => void;
       onSessionId: (id: string) => void;
     },
@@ -529,9 +540,9 @@ function createTeamReviewDispatcher({
         id: `${core.TEAM_REVIEW_LANE_ID}:${candidate.key}`,
         name: `Team review ${candidate.key}`,
         cwd: workDir,
-        spawnEnv: teamReviewSpawnEnv(workDir),
-        extraClaudeArgs: teamReviewClaudeArgs(tier),
-        settingsPermissions: teamReviewPermissions(),
+        spawnEnv: hooksPathPinnedSpawnEnv(workDir),
+        extraClaudeArgs: teamReviewClaudeArgs(tier, { checkoutPath, linkedCheckout }),
+        settingsPermissions: teamReviewAcceptEditsPermissions(),
         settingsSandbox: teamReviewSandbox(workDir, linkedCheckout),
         signal: shutdownSignal ? AbortSignal.any([signal, shutdownSignal]) : signal,
         onSessionId,
@@ -590,7 +601,7 @@ function createTeamReviewDispatcher({
             const remainingTimeoutSeconds = Math.max(0, (args.resume.deadlineAt - now()) / 1000);
             reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds: remainingTimeoutSeconds });
             return spawnWithTimeout({
-              ...args, workDir: args.resume.workDir, linkedCheckout: await resumedLinkedCheckout(candidate.repo, args.resume.worktreePath),
+              ...args, workDir: args.resume.workDir, checkoutPath: args.resume.worktreePath, linkedCheckout: await resumedLinkedCheckout(candidate.repo, args.resume.worktreePath),
               reportPath: path.join(args.resume.workDir, core.REVIEW_REPORT_FILENAME),
               postingPath: path.join(args.resume.workDir, core.REVIEW_POSTING_FILENAME),
               commentable: diff === null ? null : core.commentableLines(diff),
@@ -648,7 +659,7 @@ function createTeamReviewDispatcher({
       await fs.mkdir(emptyGhConfigDir(workDir), { recursive: true });
       reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds });
       return await spawnWithTimeout({
-        ...args, resume: undefined, workDir, linkedCheckout, reportPath, postingPath, commentable: diff === null ? null : core.commentableLines(diff),
+        ...args, resume: undefined, workDir, checkoutPath: worktreePath, linkedCheckout, reportPath, postingPath, commentable: diff === null ? null : core.commentableLines(diff),
         onPending: (pending) => { pendingSession = pending; },
         onSessionId: (id) => { sessionId = id; },
       });
@@ -1007,9 +1018,9 @@ function createTeamReviewWiring({
 type TeamReviewWiring = ReturnType<typeof createTeamReviewWiring>;
 
 export {
-  KEEP_MERGEABLE_EXTRA_DENY_READ_PATHS, TEAM_REVIEW_DENY_RULES,
+  KEEP_MERGEABLE_EXTRA_DENY_READ_PATHS, TEAM_REVIEW_DENY_RULES, TEAM_REVIEW_SESSION_DENY_RULES,
   createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewStateIo, createTeamReviewWiring, makeTeamReviewWorkDir,
-  emptyGhConfigDir, emptyTeamReviewStatus, keepMergeableSandbox, keepMergeableSpawnEnv, readReviewReport, sweepLeftoverCheckouts, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewPermissions, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
+  emptyGhConfigDir, emptyTeamReviewStatus, hooksPathPinnedSpawnEnv, keepMergeableSandbox, readReviewReport, sweepLeftoverCheckouts, teamReviewAcceptEditsPermissions, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewPermissions, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
 };
 export { readTeamReviewSettings } from './core/team-review-core.ts';
 export type {

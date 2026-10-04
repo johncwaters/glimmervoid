@@ -16,7 +16,7 @@ function node(state: 'OPEN' | 'MERGED'): MyPrSearchNode {
 
 function keepMergeableHarness({ savedState = { keepMergeableKeys: [], keepMergeableAttemptKeys: [] }, fixMergeability = async () => {}, beforeAttemptWrite = async () => {}, beforeStart }: {
   savedState?: MyPrsState;
-  fixMergeability?: (pr: MyPr, signal: AbortSignal, onPushStarted: () => void) => Promise<void>;
+  fixMergeability?: (pr: MyPr, signal: AbortSignal, onPushStarted: () => void, latestListedPr: () => MyPr | undefined, onRepairPushed: (pushedSha: string) => void) => Promise<void>;
   beforeAttemptWrite?: () => Promise<void>;
   beforeStart?: () => Promise<void>;
 } = {}) {
@@ -48,10 +48,10 @@ function keepMergeableHarness({ savedState = { keepMergeableKeys: [], keepMergea
         if (state.keepMergeableAttemptKeys.length > 0) await beforeAttemptWrite();
         saved = state;
       },
-      fixMergeability: async (pr, signal, onPushStarted) => {
+      fixMergeability: async (pr, signal, onPushStarted, latestListedPr, onRepairPushed) => {
         assert.ok(saved.keepMergeableAttemptKeys.includes(`${pr.key}@${pr.headRefOid}`));
         fixes.push(`${pr.key}@${pr.headRefOid}`);
-        await fixMergeability(pr, signal, onPushStarted);
+        await fixMergeability(pr, signal, onPushStarted, latestListedPr, onRepairPushed);
       },
     });
   }
@@ -152,6 +152,27 @@ test('keep mergeable does not overlap a repair when a new head arrives and stop 
   await poller.stop();
   assert.ok(repairSignal);
   assert.equal((repairSignal as AbortSignal).aborted, true);
+});
+
+test('a running repair reads the latest listed state of its pull request so a merge seen by a later tick blocks the push', async () => {
+  let latestListedPr: (() => MyPr | undefined) | null = null;
+  const harness = keepMergeableHarness({
+    savedState: { keepMergeableKeys: ['Acme/app#1'], keepMergeableAttemptKeys: [] },
+    fixMergeability: async (_pr, signal, _onPushStarted, readLatestListedPr) => {
+      latestListedPr = readLatestListedPr;
+      await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+    },
+  });
+  const poller = harness.createPoller();
+  await poller.tick();
+  await settleRepairs();
+  const readLatest = latestListedPr as (() => MyPr | undefined) | null;
+  assert.ok(readLatest);
+  assert.equal(readLatest()?.state, 'OPEN');
+  harness.setItems([{ ...node('OPEN'), state: 'MERGED', mergedAt: '2026-09-28T11:30:00Z' }]);
+  await poller.tick();
+  assert.equal(readLatest()?.state, 'MERGED');
+  await poller.stop();
 });
 
 test('stop returns within the drain cap even when a repair ignores its abort and never settles', async () => {
@@ -292,6 +313,38 @@ test('a finished repair keeps its head attempt so the same head is not repaired 
   assert.deepEqual(harness.fixes, [headA]);
   await poller.stop();
   assert.deepEqual(harness.savedState().keepMergeableAttemptKeys, [headA]);
+});
+
+test('a repair head Glimmervoid pushed is never repaired again even after a restart, a later head pushed by someone else gets one attempt, and both are pruned with the PR', async () => {
+  const headA = `Acme/app#1@${'a'.repeat(40)}`;
+  const pushedRepairSha = 'b'.repeat(40);
+  const pushedRepairHead = `Acme/app#1@${pushedRepairSha}`;
+  const operatorHead = `Acme/app#1@${'c'.repeat(40)}`;
+  const failingChecks = { nodes: [{ commit: { statusCheckRollup: { state: 'FAILURE' as const, contexts: { nodes: [] } } } }] };
+  const harness = keepMergeableHarness({
+    savedState: { keepMergeableKeys: ['Acme/app#1'], keepMergeableAttemptKeys: [] },
+    fixMergeability: async (_pr, _signal, onPushStarted, _latestListedPr, onRepairPushed) => { onPushStarted(); onRepairPushed(pushedRepairSha); },
+  });
+  const poller = harness.createPoller();
+  await poller.tick();
+  await settleRepairs();
+  assert.deepEqual(harness.savedState().keepMergeableAttemptKeys, [headA, pushedRepairHead]);
+  await poller.stop();
+  harness.setItems([{ ...node('OPEN'), headRefOid: pushedRepairSha, commits: failingChecks }]);
+  const restarted = harness.createPoller();
+  await restarted.tick();
+  await settleRepairs();
+  assert.deepEqual(harness.fixes, [headA]);
+  harness.setItems([{ ...node('OPEN'), headRefOid: 'c'.repeat(40), commits: failingChecks }]);
+  await restarted.tick();
+  await settleRepairs();
+  await restarted.tick();
+  await settleRepairs();
+  assert.deepEqual(harness.fixes, [headA, operatorHead]);
+  harness.setItems([]);
+  await restarted.tick();
+  assert.deepEqual(harness.savedState(), { keepMergeableKeys: [], keepMergeableAttemptKeys: [] });
+  await restarted.stop();
 });
 
 function heldAttemptWrite() {

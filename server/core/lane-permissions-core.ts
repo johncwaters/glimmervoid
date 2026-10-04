@@ -1,5 +1,12 @@
 const ACCEPT_EDITS_MODE = 'acceptEdits';
 
+const LANE_CONFIG_EDIT_DENY_RULES: readonly string[] = Object.freeze([
+  'Edit(**/.git/**)',
+  'Write(**/.git/**)',
+  'Edit(**/.claude/**)',
+  'Write(**/.claude/**)',
+]);
+
 const LANE_ENVIRONMENT_ARGS: readonly string[] = Object.freeze([
   '--strict-mcp-config',
   '--disable-slash-commands',
@@ -21,4 +28,4 @@ function buildLanePermissions({
   return { permissions: { deny: [...denyTools], defaultMode: ACCEPT_EDITS_MODE }, args };
 }
 
-export { ACCEPT_EDITS_MODE, LANE_ENVIRONMENT_ARGS, buildLanePermissions };
+export { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_ENVIRONMENT_ARGS, buildLanePermissions };

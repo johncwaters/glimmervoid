@@ -11,6 +11,7 @@ import {
   REVIEW_RESUME_PROMPT,
   RECENT_STEPS_SHOWN,
   RESUME_TTL_MS,
+  absolutePathReadRule,
   applyReviewProgress,
   buildReviewPrompt,
   canPost,
@@ -1133,4 +1134,10 @@ test('direct review requests win deduplication over team and teammate searches',
   const teamRequest = searchItem('Acme/app', 3, 'teammate');
   const candidates = selectCandidates([sharedRequest, directRequest], [teamRequest, sharedRequest], [sharedRequest], { self: 'operator', nowMs: 1000, skipIdleAfterMs: 86400000 });
   assert.deepEqual(candidates.map(({ number, requestSource }) => [number, requestSource]), [[1, 'direct'], [2, 'direct'], [3, 'team']]);
+});
+
+test('an absolute path becomes a double-slash Read rule over its whole tree, Windows drives in the POSIX form Claude Code matches', () => {
+  assert.equal(absolutePathReadRule('/home/operator/.glimmervoid/team-review-worktrees/wt-7'), 'Read(//home/operator/.glimmervoid/team-review-worktrees/wt-7/**)');
+  assert.equal(absolutePathReadRule('/home/operator/checkout/node_modules/'), 'Read(//home/operator/checkout/node_modules/**)');
+  assert.equal(absolutePathReadRule('C:\\Users\\operator\\.glimmervoid\\wt-7'), 'Read(//c/Users/operator/.glimmervoid/wt-7/**)');
 });

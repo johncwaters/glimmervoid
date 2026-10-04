@@ -7,14 +7,16 @@ import path from 'node:path';
 import { isDispatchWorkdir } from '../server/core/ingest-agent-core.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
+import { ACCEPT_EDITS_MODE } from '../server/core/lane-permissions-core.ts';
 import { AUTOMATED_REVIEW_NOTE, FULL_MODEL, HAND_APPROVAL_LINE, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_POSTING_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_REPORT_FILENAME, STAMP_MODEL } from '../server/core/team-review-core.ts';
 import type { ReviewProgressEvent, ReviewTier } from '../server/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/team-review-poller.ts';
 import type { DraftPatch, SpawnReviewArgs } from '../server/team-review-poller.ts';
 import type { PostedReview } from '../server/pr-gh.ts';
 import {
-  TEAM_REVIEW_DENY_RULES, createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewWiring, emptyTeamReviewStatus,
-  createTeamReviewStateIo, makeTeamReviewWorkDir, readTeamReviewSettings, sweepLeftoverCheckouts, teamReviewClaudeArgs, teamReviewPermissions, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
+  TEAM_REVIEW_SESSION_DENY_RULES, createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewWiring, emptyTeamReviewStatus,
+  createTeamReviewStateIo, makeTeamReviewWorkDir, readTeamReviewSettings, sweepLeftoverCheckouts, teamReviewClaudeArgs, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
+  hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions,
 } from '../server/team-review-wiring.ts';
 import type { TeamReviewActionGithub, TeamReviewDispatchOptions, TeamReviewSpawn } from '../server/team-review-wiring.ts';
 import { PrDetail, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
@@ -442,7 +444,8 @@ test('resume uses the saved cwd and session with the remaining timeout without s
     assert.equal(spawns[0]?.resumeSessionId, 'claude-1');
     assert.equal(spawns[0]?.initialPrompt, REVIEW_RESUME_PROMPT);
     assert.equal(spawns[0]?.cwd, workDir);
-    assert.deepEqual(spawns[0]?.spawnEnv, teamReviewSpawnEnv(workDir));
+    assert.deepEqual(spawns[0]?.spawnEnv, hooksPathPinnedSpawnEnv(workDir));
+    assert.deepEqual(spawns[0]?.extraClaudeArgs.slice(0, 3), ['-p', '--allowedTools', `Read(/${worktreePath}/**)`]);
     assert.equal(spawns[0]?.workDirFiles.includes('tmp'), false);
     assert.deepEqual(spawns[0]?.settingsSandbox, teamReviewSandbox(workDir));
     assert.deepEqual(timeouts, [78000]);
@@ -468,6 +471,10 @@ test('a resumed review whose checkout links a local clone still denies reads of 
     const outcome = await dispatch({ ...reviewArgs('full'), resume });
     if ('kind' in outcome) throw new Error('expected a draft');
     assert.deepEqual(spawns[0]?.settingsSandbox, teamReviewSandbox(workDir, localClone));
+    const args = spawns[0]?.extraClaudeArgs ?? [];
+    assert.deepEqual(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--strict-mcp-config')), [
+      `Read(/${worktreePath}/**)`, `Read(/${path.join(localClone, 'node_modules')}/**)`,
+    ]);
   } finally {
     cleanup();
     fs.rmSync(localClone, { recursive: true, force: true });
@@ -648,10 +655,11 @@ test('every tier runs the review from a throwaway work dir, and no argv entry na
       assert.deepEqual(hydrations, [`Acme/app#7@${HEAD}`]);
       assert.notEqual(spawns[0].cwd, expectedWorktree);
       assert.equal(spawns[0].cwd, spawns[0].workDir);
-      assert.equal(spawns[0].extraClaudeArgs.some((arg) => arg.includes(expectedWorktree)), false, 'the untrusted checkout is never an added dir');
+      assert.deepEqual(spawns[0].extraClaudeArgs.filter((arg) => arg.includes(expectedWorktree)), [`Read(/${expectedWorktree}/**)`], 'the untrusted checkout is granted to Read alone, never added as a dir');
       assert.equal(spawns[0].extraClaudeArgs.includes('--add-dir'), false);
       assert.deepEqual(spawns[0].workDirFiles, ['gh-config', REVIEW_PROMPT_FILENAME]);
-      assert.deepEqual(spawns[0].spawnEnv, teamReviewSpawnEnv(spawns[0].workDir));
+      assert.deepEqual(spawns[0].spawnEnv, hooksPathPinnedSpawnEnv(spawns[0].workDir));
+      assert.deepEqual(spawns[0].settingsPermissions, teamReviewAcceptEditsPermissions());
       assert.deepEqual(spawns[0].settingsSandbox, teamReviewSandbox(spawns[0].workDir));
       assert.match(spawns[0].prompt, /whatever review skills or tools you have available/);
       assert.ok(spawns[0].prompt.includes(`git -C ${expectedWorktree}`));
@@ -988,24 +996,30 @@ test('a review that linked a local clone also denies reads of that clone env fil
   assert.deepEqual(sandbox.filesystem.allowWrite, ['~/.codex', '/work/dir']);
 });
 
-test('the posture denies every GitHub path, loads no MCP server, runs without prompts, and pins the model last', () => {
-  const posture = teamReviewPermissions();
-  assert.equal(posture.defaultMode, 'bypassPermissions');
-  for (const rule of ['Bash(gh:*)', 'Bash(git push:*)', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch']) assert.ok(posture.deny.includes(rule), rule);
-  assert.deepEqual([...TEAM_REVIEW_DENY_RULES], posture.deny);
-  assert.equal(posture.deny.includes('Bash'), false, 'pr-review needs git in a shell');
+test('the posture accepts edits only inside the work dir, denies every GitHub path and config edit, loads no MCP server, and pins the model last', () => {
+  const posture = teamReviewAcceptEditsPermissions();
+  assert.deepEqual(posture, {
+    deny: [
+      'Bash(gh:*)', 'Bash(git push:*)', 'Bash(curl:*api.github.com*)', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch',
+      'Edit(**/.git/**)', 'Write(**/.git/**)', 'Edit(**/.claude/**)', 'Write(**/.claude/**)',
+    ],
+    defaultMode: ACCEPT_EDITS_MODE,
+  });
+  for (const bareTool of ['Bash', 'Read', 'Write', 'Glob', 'Grep']) assert.equal(posture.deny.includes(bareTool), false, bareTool);
   for (const tier of ['stamp', 'full'] as const) {
-    const args = teamReviewClaudeArgs(tier);
-    assert.deepEqual(args.slice(0, 3), ['-p', '--strict-mcp-config', '--disallowedTools']);
+    const args = teamReviewClaudeArgs(tier, { checkoutPath: '/reviews/checkout', linkedCheckout: null });
+    assert.deepEqual(args.slice(0, 4), ['-p', '--allowedTools', 'Read(//reviews/checkout/**)', '--strict-mcp-config']);
+    assert.equal(args.includes('bypassPermissions'), false);
+    assert.deepEqual(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--strict-mcp-config')), ['Read(//reviews/checkout/**)'], 'no bare Write, Edit, Bash or Read grant');
     assert.equal(args.includes('--add-dir'), false, 'an added dir loads its .claude/skills, so the checkout is reached by path only');
-    assert.deepEqual(args.slice(args.indexOf('--disallowedTools') + 1, -2), [...TEAM_REVIEW_DENY_RULES], 'the argv carries the denies even when no hook settings file is written');
+    assert.deepEqual(args.slice(args.indexOf('--disallowedTools') + 1, -2), [...TEAM_REVIEW_SESSION_DENY_RULES], 'the argv carries the denies even when no hook settings file is written');
     assert.deepEqual(args.slice(-2), ['--model', tier === 'full' ? FULL_MODEL : STAMP_MODEL]);
     assert.equal(args.includes('--setting-sources'), false, 'the operator profile carries the pr-review skill');
     assert.equal(args.includes('--disable-slash-commands'), false);
   }
 });
 
-test('the spawned session runs the constant bootstrap prompt with the given env, without permission prompts, attributed to the lane', async () => {
+test('the spawned session runs the constant bootstrap prompt with the given env, under acceptEdits without the skip-permissions flag, attributed to the lane', async () => {
   const created: SessionOptions[] = [];
   const recorded: string[] = [];
   const capturedIds: string[] = [];
@@ -1027,10 +1041,10 @@ test('the spawned session runs the constant bootstrap prompt with the given env,
       return session;
     },
   });
-  const posture = teamReviewPermissions();
+  const posture = teamReviewAcceptEditsPermissions();
   const request: Parameters<TeamReviewSpawn>[0] = {
     id: 'team-review:Acme/app#7', name: 'Team review Acme/app#7', cwd: '/tmp/x', spawnEnv: teamReviewSpawnEnv('/tmp/x'),
-    extraClaudeArgs: teamReviewClaudeArgs('stamp'), settingsPermissions: posture, settingsSandbox: teamReviewSandbox('/tmp/x'),
+    extraClaudeArgs: teamReviewClaudeArgs('stamp', { checkoutPath: '/tmp/checkout', linkedCheckout: null }), settingsPermissions: posture, settingsSandbox: teamReviewSandbox('/tmp/x'),
     signal: new AbortController().signal,
     onSessionId: (id) => { capturedIds.push(id); },
   };
@@ -1039,7 +1053,7 @@ test('the spawned session runs the constant bootstrap prompt with the given env,
   assert.equal(REVIEW_BOOTSTRAP_PROMPT, `Read ${REVIEW_PROMPT_FILENAME} and follow all instructions in that file`);
   assert.equal(created[0].path, '/tmp/x');
   assert.deepEqual(created[0].spawnEnv, teamReviewSpawnEnv('/tmp/x'));
-  assert.equal(created[0].dangerouslySkipPermissions, true);
+  assert.equal(created[0].dangerouslySkipPermissions, false);
   assert.deepEqual(created[0].settingsPermissions, posture);
   assert.deepEqual(created[0].settingsSandbox, teamReviewSandbox('/tmp/x'));
   assert.equal(created[0].ephemeral, true);
@@ -1098,7 +1112,7 @@ test('the spawned session forwards PreToolUse hook events as tool steps and igno
   });
   await spawn({
     id: 'team-review:Acme/app#7', name: 'Team review Acme/app#7', cwd: '/tmp/x', spawnEnv: teamReviewSpawnEnv('/tmp/x'),
-    extraClaudeArgs: teamReviewClaudeArgs('stamp'), settingsPermissions: teamReviewPermissions(), settingsSandbox: teamReviewSandbox('/tmp/x'),
+    extraClaudeArgs: teamReviewClaudeArgs('stamp', { checkoutPath: '/tmp/checkout', linkedCheckout: null }), settingsPermissions: teamReviewAcceptEditsPermissions(), settingsSandbox: teamReviewSandbox('/tmp/x'),
     signal: new AbortController().signal, onToolStep: (step) => { steps.push(step); },
   });
   assert.equal(created[0].observeToolCalls, true);

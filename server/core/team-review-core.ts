@@ -844,12 +844,20 @@ function buildReviewPrompt({
   ].join('\n');
 }
 
+function absolutePathReadRule(absolutePath: string): string {
+  const posixPath = absolutePath
+    .replace(/\\/g, '/')
+    .replace(/^([A-Za-z]):/, (_drive, driveLetter: string) => `/${driveLetter.toLowerCase()}`)
+    .replace(/\/+$/, '');
+  return `Read(/${posixPath}/**)`;
+}
+
 export {
   STAMP_MODEL, FULL_MODEL, STAMP_MAX_LINES, STAMP_MAX_FILES, MAX_CONCURRENT_REVIEWS, MAX_REVIEW_ATTEMPTS,
   REVIEW_TIMEOUT_SECONDS, RESUME_TTL_MS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS,
   TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME,
   REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE,
-  parseFindingLine, sectionAfter, fencedUntrusted,
+  parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule,
   buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, HAND_APPROVAL_LINE, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isSameGithubReviews, isSettledAtHead, shouldAutoReview, markDraftStale, restoreDraftAtReviewedHead,
   applyReviewProgress, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, priorReviewFor, readyDraft, repoFromSearchItem, resumeDecision, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr,
 };

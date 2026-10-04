@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { autoRebaseRecord, deriveStage, hasUnresolvedThreads, keepMergeableAttemptKey, keepMergeableBranchName, keepMergeableClaudeArgs, keepMergeablePermissions, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, keepMergeableFixesToCancel, keepMergeableHandoff, keepMergeablePrompt, keepMergeablePushUrl, shouldFixMergeability, shouldAutoRebase, mergedSinceDate, myPrsShouldStart, prunedKeepMergeableState, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/core/my-prs-core.ts';
+import { autoRebaseRecord, deriveStage, hasUnresolvedThreads, isMovedBranchPushRejection, keepMergeableAttemptKey, keepMergeableClaudeArgs, keepMergeablePermissions, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, keepMergeableFixesToCancel, keepMergeableHandoff, keepMergeablePrompt, keepMergeablePushArgs, keepMergeablePushTarget, keepMergeablePushUrl, shouldFixMergeability, shouldAutoRebase, mergedSinceDate, myPrsShouldStart, prunedKeepMergeableState, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/core/my-prs-core.ts';
 import { MyPrSearchNode } from '../shared/contracts/my-prs.ts';
 import type { MyPr, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
 
@@ -52,10 +52,51 @@ test('keep mergeable prompt pins the local checkout and asks for repairs committ
   }
 });
 
-test('keep mergeable review branch names carry the PR number and short head, and only GitHub slugs get a push url', () => {
-  assert.equal(keepMergeableBranchName({ number: 7, headRefOid: `1234abcd${'e'.repeat(32)}` }), 'glimmervoid/keep-mergeable/7-1234abcd');
+test('only GitHub slugs get a keep mergeable push url', () => {
   assert.equal(keepMergeablePushUrl('Acme/app'), 'https://github.com/Acme/app.git');
   for (const repo of ['Acme', 'Acme/app/extra', '-x/app', 'Acme/app.git --upload-pack=x', '../app']) assert.equal(keepMergeablePushUrl(repo), null, repo);
+});
+
+test('keep mergeable pushes with a lease pinned to the exact head the repair started from and never a plain force', () => {
+  const pushArgs = keepMergeablePushArgs('https://github.com/Acme/app.git', 'fix/checks', 'a'.repeat(40), 'b'.repeat(40));
+  assert.deepEqual(pushArgs, ['push', '--no-verify', '--quiet', `--force-with-lease=refs/heads/fix/checks:${'a'.repeat(40)}`, 'https://github.com/Acme/app.git', `${'b'.repeat(40)}:refs/heads/fix/checks`]);
+  assert.ok(!pushArgs.some((arg) => arg === '--force' || arg === '-f' || arg.startsWith('+')), pushArgs.join(' '));
+});
+
+test('keep mergeable pushes only to the open same-repository PR branch whose listed head is still the scheduled one', () => {
+  const pr = { ...readyPr(), headRefName: 'fix/checks' };
+  assert.deepEqual(keepMergeablePushTarget(pr, pr), { push: true, url: 'https://github.com/Acme/app.git', branch: 'fix/checks' });
+  const refusals: [string, ReturnType<typeof keepMergeablePushTarget>][] = [
+    ['fork', keepMergeablePushTarget({ ...pr, isCrossRepository: true }, { ...pr, isCrossRepository: true })],
+    ['fork', keepMergeablePushTarget({ ...pr, isCrossRepository: true }, undefined)],
+    ['fork', keepMergeablePushTarget(pr, { ...pr, isCrossRepository: true })],
+    ['no longer listed', keepMergeablePushTarget(pr, undefined)],
+    ['closed', keepMergeablePushTarget(pr, { ...pr, state: 'CLOSED' })],
+    ['merged', keepMergeablePushTarget(pr, { ...pr, state: 'MERGED' })],
+    ['head moved', keepMergeablePushTarget(pr, { ...pr, headRefOid: 'c'.repeat(40) })],
+    ['branch changed', keepMergeablePushTarget(pr, { ...pr, headRefName: 'other' })],
+    ['not a GitHub repository', keepMergeablePushTarget({ ...pr, repo: '../app' }, pr)],
+  ];
+  for (const [reason, decision] of refusals) {
+    assert.equal(decision.push, false, reason);
+    assert.match(JSON.stringify(decision), new RegExp(reason), reason);
+  }
+  for (const headRefName of ['-x', '+main', 'a..b', 'a b', 'a:b', 'a~1', 'a^', 'a?', 'a*', 'a[b', 'a\\b', 'a@{1}', 'a/', 'a.', 'a.lock', 'a//b', 'a/.b', '/a', '.a']) {
+    const branchPr = { ...pr, headRefName };
+    assert.equal(keepMergeablePushTarget(branchPr, branchPr).push, false, headRefName);
+  }
+  for (const headRefName of ['main', 'feature/x-1', 'release/2026.10', 'user@host']) {
+    const branchPr = { ...pr, headRefName };
+    assert.equal(keepMergeablePushTarget(branchPr, branchPr).push, true, headRefName);
+  }
+});
+
+test('keep mergeable recognises a moved branch push rejection from the non-fast-forward and lease wordings', () => {
+  assert.equal(isMovedBranchPushRejection(' ! [rejected]        abc -> fix/checks (non-fast-forward)\nerror: failed to push some refs'), true);
+  assert.equal(isMovedBranchPushRejection(' ! [rejected]        abc -> fix/checks (fetch first)\nerror: failed to push some refs'), true);
+  assert.equal(isMovedBranchPushRejection(' ! [rejected]        abc -> fix/checks (stale info)\nerror: failed to push some refs'), true);
+  assert.equal(isMovedBranchPushRejection('fatal: Authentication failed'), false);
+  assert.equal(isMovedBranchPushRejection(' ! [remote rejected] abc -> fix/checks (protected branch hook declined)'), false);
 });
 
 test('keep mergeable hands off only a new commit on top of the head that leaves workflows as head or base had them', () => {

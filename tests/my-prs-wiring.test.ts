@@ -7,7 +7,7 @@ import { execFileAsync } from '../server/child-process-safe.ts';
 import { createMyPrMergeabilityFix, createMyPrsStateIo, sweepKeepMergeableLeftovers } from '../server/my-prs-wiring.ts';
 import { createRepoCache } from '../server/repo-cache.ts';
 import type { CommandResult } from '../server/repo-cache.ts';
-import { KEEP_MERGEABLE_EXTRA_DENY_READ_PATHS, createTeamReviewSpawn, keepMergeableSandbox, keepMergeableSpawnEnv, teamReviewSandbox, teamReviewSpawnEnv } from '../server/team-review-wiring.ts';
+import { KEEP_MERGEABLE_EXTRA_DENY_READ_PATHS, createTeamReviewSpawn, hooksPathPinnedSpawnEnv, keepMergeableSandbox, teamReviewSandbox, teamReviewSpawnEnv } from '../server/team-review-wiring.ts';
 import type { TeamReviewSpawn } from '../server/team-review-wiring.ts';
 import {
   KEEP_MERGEABLE_SANDBOX_STUB_NAMES, MY_PRS_FIX_BASE_BRANCH, MY_PRS_FIX_BOOTSTRAP_PROMPT, MY_PRS_FIX_CHECKOUT_DIRNAME, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, MY_PRS_FIX_PROMPT_FILENAME,
@@ -98,11 +98,16 @@ async function fixHarness(root: string, { spawnSession, timeoutSeconds, setTimeo
       beforeGit(args);
       if (args[0] !== 'push') return tryGit(args, cwd);
       pushes.push(args);
-      return { ok: true, out: '', err: '' };
+      return tryGit(args.map((arg) => (arg === 'https://github.com/Acme/app.git' ? originDir : arg)), cwd);
     },
   });
   const cachedRepo = path.join(cacheRoot, 'Acme', 'app');
-  return { fix, pushes, logs, warnings, workRoot, headSha, cachedRepo, repoCache, glimmervoidHome };
+  return { fix, pushes, logs, warnings, workRoot, headSha, cachedRepo, repoCache, glimmervoidHome, originDir };
+}
+
+async function remoteRefs(originDir: string): Promise<Map<string, string>> {
+  const listed = await git(['for-each-ref', '--format=%(refname) %(objectname)'], originDir);
+  return new Map(listed.split('\n').filter(Boolean).map((line) => line.split(' ') as [string, string]));
 }
 
 test('My PRs state uses the existing atomic store and survives a new state IO instance', async () => {
@@ -137,7 +142,7 @@ test('My PRs state quarantines malformed saved flags and adopts no flags', async
   }
 });
 
-test('keep mergeable runs sandboxed with the review posture and the server pushes the session commit only to the review branch', async () => {
+test('keep mergeable runs sandboxed with the review posture and the server fast-forwards the PR branch to the session commit and nothing else', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-'));
   const createdSessions: SessionOptions[] = [];
   const recordedLanes: string[] = [];
@@ -162,7 +167,9 @@ test('keep mergeable runs sandboxed with the review posture and the server pushe
   try {
     const harness = await fixHarness(root, { spawnSession });
     const pr = conflictingPr(harness.headSha);
-    await harness.fix(pr, new AbortController().signal);
+    const remoteRefsBefore = await remoteRefs(harness.originDir);
+    const recordedPushedShas: string[] = [];
+    await harness.fix(pr, new AbortController().signal, () => {}, () => pr, (pushedSha) => { recordedPushedShas.push(pushedSha); });
     assert.equal(createdSessions.length, 1);
     const workDir = createdSessions[0].path;
     assert.match(createdSessions[0].id, /^my-prs:/);
@@ -170,7 +177,7 @@ test('keep mergeable runs sandboxed with the review posture and the server pushe
     assert.equal(createdSessions[0].initialPrompt, MY_PRS_FIX_BOOTSTRAP_PROMPT);
     assert.deepEqual(createdSessions[0].settingsSandbox, keepMergeableSandbox(workDir, { glimmervoidHome: harness.glimmervoidHome, cachedClone: harness.cachedRepo }));
     assert.deepEqual(createdSessions[0].spawnEnv, { ...teamReviewSpawnEnv(workDir), GIT_CONFIG_COUNT: '3', GIT_CONFIG_KEY_2: 'core.hooksPath', GIT_CONFIG_VALUE_2: '' });
-    assert.deepEqual(createdSessions[0].spawnEnv, keepMergeableSpawnEnv(workDir));
+    assert.deepEqual(createdSessions[0].spawnEnv, hooksPathPinnedSpawnEnv(workDir));
     assert.deepEqual(createdSessions[0].settingsPermissions, { deny: [...MY_PRS_FIX_DENY_RULES], defaultMode: 'acceptEdits' });
     assert.equal(createdSessions[0].dangerouslySkipPermissions, false, 'the skip flag would override the acceptEdits boundary');
     for (const rule of ['Bash(git push:*)', 'Bash(gh:*)', 'Edit(**/.github/workflows/**)', 'Edit(**/.git/**)', 'Write(**/.git/**)', 'Edit(**/.claude/**)', 'Write(**/.claude/**)']) assert.ok(MY_PRS_FIX_DENY_RULES.includes(rule), rule);
@@ -182,16 +189,25 @@ test('keep mergeable runs sandboxed with the review posture and the server pushe
     assert.equal(harness.pushes.length, 1);
     const [pushCommand, ...pushArgs] = harness.pushes[0];
     assert.equal(pushCommand, 'push');
-    assert.ok(!pushArgs.some((arg) => arg.startsWith('--force') || arg === '-f' || arg.includes('+')), pushArgs.join(' '));
+    assert.deepEqual(pushArgs.filter((arg) => arg.startsWith('--force') || arg === '-f' || arg.includes('+')), [`--force-with-lease=refs/heads/fix/checks:${harness.headSha}`], pushArgs.join(' '));
+    assert.ok(pushArgs.includes('--no-verify'));
     assert.ok(pushArgs.includes('https://github.com/Acme/app.git'));
     const refspec = pushArgs.at(-1) ?? '';
-    assert.match(refspec, new RegExp(`^[0-9a-f]{40}:refs/heads/glimmervoid/keep-mergeable/7-${harness.headSha.slice(0, 8)}$`));
-    assert.ok(!refspec.includes(pr.headRefName));
+    assert.match(refspec, /^[0-9a-f]{40}:refs\/heads\/fix\/checks$/);
     const pushedSha = refspec.split(':')[0];
     assert.notEqual(pushedSha, harness.headSha);
     assert.equal((await tryGit(['merge-base', '--is-ancestor', harness.headSha, pushedSha], harness.cachedRepo)).ok, true);
     assert.equal(await git(['for-each-ref', 'refs/glimmervoid-keep-mergeable/'], harness.cachedRepo), '');
-    assert.ok(harness.logs.some((line) => line.includes(`glimmervoid/keep-mergeable/7-${harness.headSha.slice(0, 8)}`)));
+    assert.ok(harness.logs.some((line) => line.includes(pushedSha) && line.includes('fix/checks')), harness.logs.join('\n'));
+    const remoteRefsAfter = await remoteRefs(harness.originDir);
+    assert.deepEqual([...remoteRefsAfter.keys()].sort(), [...remoteRefsBefore.keys()].sort(), 'the push creates no new remote ref');
+    assert.equal(remoteRefsAfter.get('refs/heads/fix/checks'), pushedSha);
+    assert.deepEqual(recordedPushedShas, [pushedSha]);
+    assert.equal(await git(['rev-list', '--count', pushedSha, '--not', harness.headSha, 'refs/heads/main'], harness.originDir), '1');
+    assert.equal(await git(['rev-parse', `${pushedSha}^1`], harness.originDir), harness.headSha);
+    for (const [refName, sha] of remoteRefsBefore) {
+      if (refName !== 'refs/heads/fix/checks') assert.equal(remoteRefsAfter.get(refName), sha, refName);
+    }
     assert.deepEqual(await fs.readdir(harness.workRoot), []);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
@@ -239,6 +255,7 @@ test('keep mergeable refuses to push a session commit that adds a workflow file'
     await harness.fix(conflictingPr(harness.headSha), new AbortController().signal);
     assert.deepEqual(harness.pushes, []);
     assert.ok(harness.warnings.some((warning) => warning.includes('.github/workflows/exfiltrate.yml')));
+    assert.equal(await git(['rev-parse', 'refs/heads/fix/checks'], harness.originDir), harness.headSha);
     assert.deepEqual(await fs.readdir(harness.workRoot), []);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
@@ -257,6 +274,105 @@ test('keep mergeable refuses to push a session commit that adds a credential-lik
     assert.equal(await git(['for-each-ref', 'refs/glimmervoid-keep-mergeable/'], harness.cachedRepo), '');
   } finally {
     await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('keep mergeable logs a PR branch that moved since staging as a rejected push and never retries or forces it', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-moved-'));
+  const steps: string[] = [];
+  let movedSha = '';
+  const sourceDir = path.join(root, 'source');
+  try {
+    const harness = await fixHarness(root, {
+      spawnSession: async ({ cwd }) => {
+        await resolveConflictAndCommit(path.join(cwd, MY_PRS_FIX_CHECKOUT_DIRNAME));
+        await git(['checkout', 'fix/checks'], sourceDir);
+        await fs.writeFile(path.join(sourceDir, 'later.txt'), 'pushed while the repair ran\n');
+        await git(['add', '-A'], sourceDir);
+        await git(['commit', '-m', 'later'], sourceDir);
+        movedSha = await git(['rev-parse', 'HEAD'], sourceDir);
+        await git(['push', path.join(root, 'origin.git'), 'fix/checks:refs/heads/fix/checks'], sourceDir);
+      },
+      beforeGit: (args) => { steps.push(args[0]); },
+    });
+    const recordedPushedShas: string[] = [];
+    const pr = conflictingPr(harness.headSha);
+    await harness.fix(pr, new AbortController().signal, () => { steps.push('push started'); }, () => pr, (pushedSha) => { recordedPushedShas.push(pushedSha); });
+    assert.deepEqual(recordedPushedShas, []);
+    assert.equal(harness.pushes.length, 1);
+    assert.ok(!harness.pushes[0].some((arg) => arg === '--force' || arg === '-f' || arg.startsWith('+')), harness.pushes[0].join(' '));
+    assert.equal(steps.filter((step) => step === 'push').length, 1);
+    assert.ok(steps.includes('push started'), 'the attempt stays recorded so this head is not retried');
+    assert.ok(harness.warnings.some((warning) => warning.includes('moved since the repair was staged') && warning.includes('not retried')), harness.warnings.join('\n'));
+    assert.deepEqual(harness.logs, []);
+    assert.equal(await git(['rev-parse', 'refs/heads/fix/checks'], harness.originDir), movedSha);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('keep mergeable refuses to push over a PR branch rewound to an ancestor during the repair and keeps the rewound sha', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-rewound-'));
+  const steps: string[] = [];
+  let rewoundSha = '';
+  const sourceDir = path.join(root, 'source');
+  try {
+    const harness = await fixHarness(root, {
+      spawnSession: async ({ cwd }) => {
+        await resolveConflictAndCommit(path.join(cwd, MY_PRS_FIX_CHECKOUT_DIRNAME));
+        rewoundSha = await git(['rev-parse', 'fix/checks^1'], sourceDir);
+        await git(['push', '--force', path.join(root, 'origin.git'), `${rewoundSha}:refs/heads/fix/checks`], sourceDir);
+      },
+      beforeGit: (args) => { steps.push(args[0]); },
+    });
+    await harness.fix(conflictingPr(harness.headSha), new AbortController().signal, () => { steps.push('push started'); });
+    assert.equal(harness.pushes.length, 1);
+    assert.equal(steps.filter((step) => step === 'push').length, 1);
+    assert.ok(steps.includes('push started'), 'the attempt stays recorded so this head is not retried');
+    assert.ok(harness.warnings.some((warning) => warning.includes('moved since the repair was staged') && warning.includes('not retried')), harness.warnings.join('\n'));
+    assert.deepEqual(harness.logs, []);
+    assert.equal(await git(['rev-parse', 'refs/heads/fix/checks'], harness.originDir), rewoundSha);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('keep mergeable never repairs or pushes a pull request from a fork', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-fork-'));
+  let spawnCount = 0;
+  try {
+    const harness = await fixHarness(root, { spawnSession: async () => { spawnCount += 1; } });
+    const forkPr = { ...conflictingPr(harness.headSha), isCrossRepository: true };
+    await harness.fix(forkPr, new AbortController().signal, () => {}, () => forkPr);
+    assert.equal(spawnCount, 0);
+    assert.deepEqual(harness.pushes, []);
+    assert.ok(harness.warnings.some((warning) => warning.includes('fork')), harness.warnings.join('\n'));
+    assert.equal(await git(['rev-parse', 'refs/heads/fix/checks'], harness.originDir), harness.headSha);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('keep mergeable never pushes when the live list shows the pull request closed or merged by the time the repair finishes', async () => {
+  for (const state of ['CLOSED', 'MERGED'] as const) {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-closed-'));
+    let hasRepairFinished = false;
+    try {
+      const harness = await fixHarness(root, {
+        spawnSession: async ({ cwd }) => {
+          await resolveConflictAndCommit(path.join(cwd, MY_PRS_FIX_CHECKOUT_DIRNAME));
+          hasRepairFinished = true;
+        },
+      });
+      const pr = conflictingPr(harness.headSha);
+      await harness.fix(pr, new AbortController().signal, () => {}, () => (hasRepairFinished ? { ...pr, state } : pr));
+      assert.equal(hasRepairFinished, true);
+      assert.deepEqual(harness.pushes, [], state);
+      assert.ok(harness.warnings.some((warning) => warning.includes(state.toLowerCase())), harness.warnings.join('\n'));
+      assert.equal(await git(['rev-parse', 'refs/heads/fix/checks'], harness.originDir), harness.headSha);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   }
 });
 
