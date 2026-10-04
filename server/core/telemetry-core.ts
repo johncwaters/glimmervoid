@@ -22,7 +22,7 @@ const FIRST_RUN_NOTICE = [
   'Turn it off in Settings > Privacy, or set GLIMMERVOID_TELEMETRY=0 or DO_NOT_TRACK=1.',
 ].join('\n');
 
-type TelemetryConsentSource = 'do-not-track' | 'environment' | 'ci' | 'config' | 'default';
+type TelemetryConsentSource = 'do-not-track' | 'environment' | 'ci' | 'test-runner' | 'config' | 'default';
 
 interface TelemetryConsent {
   isEnabled: boolean;
@@ -34,6 +34,7 @@ interface TelemetryEnvironment {
   GLIMMERVOID_TELEMETRY?: string;
   GLIMMERVOID_TELEMETRY_PROJECT_TOKEN?: string;
   CI?: string;
+  NODE_TEST_CONTEXT?: string;
 }
 
 interface TelemetryConfig {
@@ -57,6 +58,7 @@ function decideTelemetryConsent(env: TelemetryEnvironment, config: TelemetryConf
   if (TRUTHY_FLAGS.has(normalizedFlag(env.DO_NOT_TRACK))) return { isEnabled: false, source: 'do-not-track' };
   if (FALSY_FLAGS.has(normalizedFlag(env.GLIMMERVOID_TELEMETRY))) return { isEnabled: false, source: 'environment' };
   if (TRUTHY_FLAGS.has(normalizedFlag(env.CI))) return { isEnabled: false, source: 'ci' };
+  if (normalizedFlag(env.NODE_TEST_CONTEXT) !== '') return { isEnabled: false, source: 'test-runner' };
   const configured = config.telemetry?.enabled;
   if (typeof configured === 'boolean') return { isEnabled: configured, source: 'config' };
   return { isEnabled: true, source: 'default' };
