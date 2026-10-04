@@ -12,7 +12,22 @@ export type DashboardShortcutAction =
   | 'session-nth'
   | 'new-session'
   | 'merge'
-  | 'resolve-or-resync';
+  | 'resolve-or-resync'
+  | 'calm-home'
+  | 'calm-terminal';
+
+export interface ShortcutContext {
+  isCalmAvailable: boolean;
+  isCalmViewActive: boolean;
+}
+
+type ShortcutAvailability = 'always' | 'calm-surface' | 'calm-view';
+
+const isActiveByAvailability: Record<ShortcutAvailability, (context: ShortcutContext) => boolean> = {
+  always: () => true,
+  'calm-surface': (context) => context.isCalmAvailable,
+  'calm-view': (context) => context.isCalmAvailable && context.isCalmViewActive,
+};
 
 export interface ShortcutKeyEvent {
   code: string;
@@ -32,18 +47,26 @@ interface DashboardShortcut {
   keyCaptions: readonly string[];
   label: string;
   stepByCode: ReadonlyMap<string, number>;
+  availability: ShortcutAvailability;
+  unavailablePlatform?: ShortcutPlatform;
 }
 
 const SESSION_DIGIT_STEPS = Array.from({ length: 9 }, (_, index) => [`Digit${index + 1}`, index + 1] as const);
 
 const DASHBOARD_SHORTCUTS: readonly DashboardShortcut[] = [
-  { action: 'next-attention', keyCaptions: ['J'], label: 'Jump to the next session needing you', stepByCode: new Map([['KeyJ', 0]]) },
-  { action: 'rail-step', keyCaptions: [UP, DOWN], label: 'Previous / next session in the rail', stepByCode: new Map([['ArrowUp', -1], ['ArrowDown', 1]]) },
-  { action: 'session-nth', keyCaptions: ['1..9'], label: 'Jump to session 1 to 9', stepByCode: new Map(SESSION_DIGIT_STEPS) },
-  { action: 'new-session', keyCaptions: ['0'], label: 'Add a session', stepByCode: new Map([['Digit0', 0]]) },
-  { action: 'merge', keyCaptions: ['I'], label: 'Merge the selected session', stepByCode: new Map([['KeyI', 0]]) },
-  { action: 'resolve-or-resync', keyCaptions: ['U'], label: 'Resolve a parked merge, or resync the base branch', stepByCode: new Map([['KeyU', 0]]) },
+  { action: 'next-attention', keyCaptions: ['J'], label: 'Jump to the next session needing you', stepByCode: new Map([['KeyJ', 0]]), availability: 'always' },
+  { action: 'rail-step', keyCaptions: [UP, DOWN], label: 'Previous / next session in the rail', stepByCode: new Map([['ArrowUp', -1], ['ArrowDown', 1]]), availability: 'always' },
+  { action: 'session-nth', keyCaptions: ['1..9'], label: 'Jump to session 1 to 9', stepByCode: new Map(SESSION_DIGIT_STEPS), availability: 'always' },
+  { action: 'new-session', keyCaptions: ['0'], label: 'Add a session', stepByCode: new Map([['Digit0', 0]]), availability: 'always' },
+  { action: 'merge', keyCaptions: ['I'], label: 'Merge the selected session', stepByCode: new Map([['KeyI', 0]]), availability: 'always' },
+  { action: 'resolve-or-resync', keyCaptions: ['U'], label: 'Resolve a parked merge, or resync the base branch', stepByCode: new Map([['KeyU', 0]]), availability: 'always' },
+  { action: 'calm-home', keyCaptions: ['H'], label: 'Go to the Calm view (Calm layout)', stepByCode: new Map([['KeyH', 0]]), availability: 'calm-surface', unavailablePlatform: 'mac' },
+  { action: 'calm-terminal', keyCaptions: ['T'], label: 'Open the terminal of the open Calm panel (Calm layout)', stepByCode: new Map([['KeyT', 0]]), availability: 'calm-view', unavailablePlatform: 'mac' },
 ];
+
+function shortcutsOn(platform: ShortcutPlatform) {
+  return DASHBOARD_SHORTCUTS.filter((shortcut) => shortcut.unavailablePlatform !== platform);
+}
 
 export function shortcutPlatformFor(userAgent: string): ShortcutPlatform {
   return /Mac|iPhone|iPad/.test(userAgent) ? 'mac' : 'other';
@@ -55,9 +78,10 @@ function holdsOnlyShortcutModifier(event: ShortcutKeyEvent, platform: ShortcutPl
   return event.altKey && !event.metaKey;
 }
 
-export function resolveDashboardShortcut(event: ShortcutKeyEvent, platform: ShortcutPlatform): ResolvedDashboardShortcut | null {
+export function resolveDashboardShortcut(event: ShortcutKeyEvent, platform: ShortcutPlatform, context: ShortcutContext): ResolvedDashboardShortcut | null {
   if (!holdsOnlyShortcutModifier(event, platform)) return null;
-  for (const shortcut of DASHBOARD_SHORTCUTS) {
+  for (const shortcut of shortcutsOn(platform)) {
+    if (!isActiveByAvailability[shortcut.availability](context)) continue;
     const step = shortcut.stepByCode.get(event.code);
     if (step !== undefined) return { action: shortcut.action, step };
   }
@@ -94,7 +118,7 @@ export function shortcutGroupsFor(platform: ShortcutPlatform) {
   return [
     {
       title: 'Dashboard',
-      items: DASHBOARD_SHORTCUTS.map((shortcut) => ({
+      items: shortcutsOn(platform).map((shortcut) => ({
         combos: shortcut.keyCaptions.map((key) => [modifier, key]),
         label: shortcut.label,
       })),

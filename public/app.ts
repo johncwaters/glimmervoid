@@ -1,6 +1,6 @@
 import '@xterm/xterm/css/xterm.css';
 import './tailwind.css';
-import { activateCalmView, deactivateCalmView, mountCalmView, refreshCalmView, applyCalmSessionDiff, applyCalmTraceResponse, applyCalmError } from './calm/calm-view.ts';
+import { activateCalmView, clearQueueOrigin, deactivateCalmView, mountCalmView, mountNowPeek, openNextQueuePanel, openSelectedPanelTerminal, refreshCalmView, refreshNowPeek, applyCalmSessionDiff, applyCalmTraceResponse, applyCalmError } from './calm/calm-view.ts';
 
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { shouldShowServerAction } from '#shared/client-trust.ts';
@@ -13,7 +13,7 @@ import { observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers
 import { routeExternalAnchorsThroughHost } from './external-link.ts';
 import { availableSurfacesFromSettings } from './feature-surfaces-core.ts';
 import { refreshFavicon } from './favicon.ts';
-import { activateFocusView, centerSessionQuietly, deactivateFocusView, focusAdjacentInRail, focusNextAttention, focusNthInRail, getFocusedSessionId, isFocusActive, mountFocusView, openPlanInFocus, refreshFocusRoster, restoreFocusedSession, setFocusMergeStatus } from './focus-view/focus-view.ts';
+import { activateFocusView, centerSessionQuietly, deactivateFocusView, focusAdjacentInRail, focusNextAttention, focusNthInRail, getFocusedSessionId, getFocusHeaderAccessorySlot, isFocusActive, mountFocusView, openPlanInFocus, refreshFocusRoster, restoreFocusedSession, setFocusMergeStatus, setFocusRailShown } from './focus-view/focus-view.ts';
 import { initFormFactor, isPhoneLayout, onLayoutChange } from './form-factor.ts';
 import type { HealthSnapshot } from './health-monitor.ts';
 import { applyHealthSnapshot, mountHealthMonitor } from './health-monitor.ts';
@@ -43,7 +43,7 @@ import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects,
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
 import { createSettingsLink } from './settings-link.ts';
-import { SHORTCUT_PLATFORM } from './shortcuts.ts';
+import { currentShortcutContext, SHORTCUT_PLATFORM, setShortcutContextProvider } from './shortcuts.ts';
 import { resolveDashboardShortcut } from './shortcuts-core.ts';
 import type { ResolvedDashboardShortcut } from './shortcuts-core.ts';
 import { applyFlyingAnimals } from './flying-animals.ts';
@@ -135,6 +135,12 @@ setConnectionStateCallback((state, label) => {
 function refreshAttentionSurfaces() {
   refreshPhoneBoard();
   refreshCalmView();
+  refreshFocusNowPeek();
+}
+
+let isCalmSurfaceAvailable = false;
+function refreshFocusNowPeek() {
+  refreshNowPeek(isCalmSurfaceAvailable && isFocusActive() && !isPhoneLayout(), getFocusedSessionId());
 }
 
 let knownServerBuild: string | null | undefined = null;
@@ -648,7 +654,12 @@ mountBenchmarkView(viewBenchmarksEl);
 
 mountSettingsView(viewSettingsEl, { onRestart: confirmServerRestart, onConfirmUpdateAndRestart: confirmUpdateAndRestart });
 
-mountCalmView(viewCalmEl, { openTerminal: (id) => { activateView('focus'); centerSessionQuietly(id); }, openPlan: (id) => { activateView('focus'); openPlanInFocus(id); } });
+mountCalmView(viewCalmEl, { openTerminal: (id) => { activateView('focus'); centerSessionQuietly(id); }, openPlan: (id) => { activateView('focus'); openPlanInFocus(id); }, openCalm: () => activateView('calm') });
+const focusHeaderAccessorySlot = getFocusHeaderAccessorySlot();
+if (focusHeaderAccessorySlot) mountNowPeek(focusHeaderAccessorySlot);
+uiState.subscribe((_state, changedKeys) => {
+  if (changedKeys.includes('focusedSessionId')) refreshFocusNowPeek();
+});
 
 const VIEW_TABS = [
   { view: 'calm', tab: tabCalm, el: viewCalmEl },
@@ -720,6 +731,7 @@ function activateView(view: string, { section, setting, persist = true }: Activa
   if (prev === 'settings' && view !== 'settings') clearSettingsHash();
   if (view === 'settings' && section) activateSettingsSection(section, setting ?? null);
   acknowledgeViewAttention(view);
+  refreshFocusNowPeek();
 }
 
 let isTraceSurfaceAvailable = false;
@@ -744,6 +756,9 @@ function applySurfaceSettings(settings: Parameters<typeof availableSurfacesFromS
   const surfaces = availableSurfacesFromSettings(settings);
   const hasOperatorTurnedCalmOn = isLiveSettingsChange && lastAppliedCalmSurface === false && surfaces.calm;
   lastAppliedCalmSurface = surfaces.calm;
+  isCalmSurfaceAvailable = surfaces.calm;
+  setFocusRailShown(!surfaces.calm);
+  refreshFocusNowPeek();
   for (const [view, isAvailable] of Object.entries(surfaces)) setSurfaceAvailable(view, isAvailable);
   if (!hasOperatorTurnedCalmOn || getActiveView() !== 'focus' || isPhoneLayout() || resolvePlanTarget(location.hash)) return;
   activateView('calm');
@@ -824,6 +839,8 @@ function applyFormFactorLayout(layout: string) {
     const carriedSessionId = getFocusedSessionId();
     deactivateFocusView();
     deactivateCalmView();
+    clearQueueOrigin();
+    refreshFocusNowPeek();
     activatePhoneShell({ sessionId: carriedSessionId ?? undefined });
     return;
   }
@@ -918,6 +935,7 @@ function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
       document.getElementById('btn-add-session-header')?.click();
       return true;
     case 'next-attention':
+      if (getActiveView() === 'calm') return openNextQueuePanel();
       if (!isFocusActive()) return false;
       focusNextAttention();
       return true;
@@ -929,13 +947,21 @@ function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
       if (!isFocusActive()) return false;
       focusNthInRail(step);
       return true;
+    case 'calm-home':
+      if (isPhoneLayout()) return false;
+      activateView('calm');
+      return true;
+    case 'calm-terminal':
+      return openSelectedPanelTerminal();
   }
 }
+
+setShortcutContextProvider(() => ({ isCalmAvailable: isCalmSurfaceAvailable, isCalmViewActive: getActiveView() === 'calm' }));
 
 document.addEventListener('keydown', (e) => {
   if (e.repeat) return;
   if (isRealInputFocused()) return;
-  const shortcut = resolveDashboardShortcut(e, SHORTCUT_PLATFORM);
+  const shortcut = resolveDashboardShortcut(e, SHORTCUT_PLATFORM, currentShortcutContext());
   if (!shortcut) return;
   if (runDashboardShortcut(shortcut)) e.preventDefault();
 });

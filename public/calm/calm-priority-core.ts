@@ -1,6 +1,7 @@
 import type { PendingPromptDetail } from '#shared/contracts/session.ts';
 import { STATES } from '#shared/states.ts';
-import { needsAttention } from '../focus-view/attention-core.ts';
+import { needsAttention, pickNextAttention } from '../focus-view/attention-core.ts';
+import { formatMinutes } from '../usage-view-core.ts';
 import { hasPermissionKeys } from './permission-keys-core.ts';
 
 export type CalmTier = 'now' | 'next' | 'later' | 'working' | 'resting';
@@ -42,6 +43,62 @@ export function orderCalmQueue<Row extends CalmRow>(rows: readonly Row[]): Row[]
     .map((entry) => entry.row);
 }
 
+export function pickNowPeek<Row extends CalmRow>(rows: readonly Row[], focusedSessionId: string | null | undefined): Row | null {
+  return orderCalmQueue(rows).find((row) => tierOf(row) === 'now' && row.id !== focusedSessionId) ?? null;
+}
+
+export function pickNextQueueSessionId(rows: readonly CalmRow[], currentSessionId: string | null | undefined): string | null {
+  return pickNextAttention(orderCalmQueue(rows).map((row) => row.id), currentSessionId) ?? null;
+}
+
+export function pickSessionAfterSubmit(
+  submittedSessionId: string,
+  openedFromQueueSessionId: string | null,
+  rows: readonly CalmRow[],
+): string | null {
+  if (!openedFromQueueSessionId || submittedSessionId !== openedFromQueueSessionId) return null;
+  return pickNowPeek(rows, submittedSessionId)?.id ?? null;
+}
+
+export const ARMED_ADVANCE_LIFETIME_MS = 15000;
+
+export interface ArmedAdvance {
+  sessionId: string;
+  armedAtMs: number;
+  armedStateSince: number | null | undefined;
+  armedPromptSummary: string | undefined;
+}
+
+export interface ArmedSessionSnapshot {
+  state: string;
+  stateSince: number | null | undefined;
+  pendingPromptSummary: string | undefined;
+}
+
+export type ArmedAdvanceDecision = 'fire' | 'keep' | 'cancel';
+
+export function decideArmedAdvance(
+  armed: ArmedAdvance,
+  session: ArmedSessionSnapshot | null,
+  nowMs: number,
+  hasOtherInputArrived: boolean,
+): ArmedAdvanceDecision {
+  if (!session || hasOtherInputArrived) return 'cancel';
+  if (nowMs - armed.armedAtMs >= ARMED_ADVANCE_LIFETIME_MS) return 'cancel';
+  const isNewPrompt = session.pendingPromptSummary !== undefined && session.pendingPromptSummary !== armed.armedPromptSummary;
+  if (session.state === STATES.WAITING && isNewPrompt) return 'cancel';
+  if (session.stateSince === armed.armedStateSince) return 'keep';
+  return session.state === STATES.RUNNING ? 'fire' : 'cancel';
+}
+
+const MS_PER_MINUTE = 60000;
+
+export function formatWaitTime(elapsedMs: number): string {
+  const totalMinutes = Math.floor(Math.max(0, elapsedMs) / MS_PER_MINUTE);
+  if (totalMinutes < 1) return '<1m';
+  return formatMinutes(totalMinutes);
+}
+
 export function countByTier(rows: readonly CalmRow[]) {
   const counts = { now: 0, next: 0, later: 0, working: 0 };
   for (const row of rows) {
@@ -73,6 +130,28 @@ export function pickComponent(row: CalmRow): { component: CalmComponent; canAppr
     default:
       return { component: 'terminal', canApprove: false };
   }
+}
+
+const PANEL_CONTEXT_BY_COMPONENT: Record<Exclude<CalmComponent, 'terminal'>, string> = {
+  permission: 'wants to run',
+  plan: 'has a plan ready',
+  failure: 'failed',
+  review: 'finished',
+};
+
+const TERMINAL_PANEL_CONTEXT_BY_STATE = new Map<string, string>([
+  [STATES.RUNNING, 'is working'],
+  [STATES.STARTING, 'is working'],
+  [STATES.INITIALIZING, 'is working'],
+  [STATES.IDLE, 'is idle'],
+  [STATES.DONE, 'has exited'],
+  [STATES.DORMANT, 'is asleep'],
+  [STATES.COMPLETE, 'finished'],
+]);
+
+export function panelContextFor(row: CalmRow, component: CalmComponent): string {
+  if (component !== 'terminal') return PANEL_CONTEXT_BY_COMPONENT[component];
+  return TERMINAL_PANEL_CONTEXT_BY_STATE.get(row.state) ?? (tierOf(row) === 'now' ? 'needs you' : 'is quiet');
 }
 
 export function isSamePermissionPrompt(

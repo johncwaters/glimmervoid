@@ -7,19 +7,20 @@ import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { trapFocus } from '../session-card/modal.ts';
 import { restartMessage } from '../session-card/restart-menu-core.ts';
-import { ensureTerminalReady, sendTerminalInput } from '../session-card/terminal.ts';
+import { onSessionTick } from '../session-card/session-tick.ts';
+import { ensureTerminalReady, onTerminalInput, sendTerminalInput } from '../session-card/terminal.ts';
 import { parseUnifiedDiff, summarizeFiles } from '../sidebar/diff-core.ts';
 import { traceRowParts } from '../trace-view-core.ts';
+import { uiState } from '../ui-state-core.ts';
 import { LATER_RADIUS, NEXT_RADIUS, NOW_RADIUS, placeLights, shouldShowLabels } from './calm-field-core.ts';
 import { latestPendingReview } from './calm-plan-core.ts';
-import type { CalmRow } from './calm-priority-core.ts';
-import { countByTier, isSamePermissionPrompt, pickComponent, tierOf } from './calm-priority-core.ts';
+import type { ArmedAdvance, CalmRow } from './calm-priority-core.ts';
+import { countByTier, decideArmedAdvance, formatWaitTime, isSamePermissionPrompt, panelContextFor, pickComponent, pickNextQueueSessionId, pickNowPeek, pickSessionAfterSubmit, tierOf } from './calm-priority-core.ts';
 import type { TimedKeystroke } from './permission-keys-core.ts';
 import { approveKeystrokes, decideInstructionDelivery, INSTRUCTION_POLL_INTERVAL_MS, isAnyPromptShowing, rejectAndInstructKeystrokes } from './permission-keys-core.ts';
 
 const unseenTracker = createUnseenCompleteTracker();
 const glyphByTier = { now: '\u25b2', next: '\u25a0', later: '\u2713', working: '\u00b7', resting: '\u00b7' };
-const panelContextByComponent = { permission: 'wants to run', plan: 'has a plan ready', failure: 'failed', review: 'finished', terminal: 'needs you' };
 let root: HTMLElement | null = null;
 let field: HTMLDivElement | null = null;
 let panel: HTMLElement | null = null;
@@ -28,7 +29,13 @@ let selectedComponent: string | null = null;
 let selectedFingerprint = '';
 let primaryButton: HTMLButtonElement | null = null;
 let isActive = false;
-let navigation: { openTerminal: (id: string) => void; openPlan: (id: string) => void };
+let navigation: { openTerminal: (id: string) => void; openPlan: (id: string) => void; openCalm: () => void };
+let openedFromQueueSessionId: string | null = null;
+let armedAdvance: (ArmedAdvance & { hasOtherInputArrived: boolean }) | null = null;
+let queueCursorSessionId: string | null = null;
+let nowPeek: { card: HTMLElement; name: HTMLElement; context: HTMLElement; wait: HTMLElement } | null = null;
+let nowPeekSessionId: string | null = null;
+let nowPeekStateSince: number | null = null;
 let opener: HTMLElement | null = null;
 let pendingCalmRequest: { id: string; kind: 'trace' | 'diff' | 'plan' } | null = null;
 const calmStatusBySessionId = new Map<string, { text: string; recordedAtMs: number; promptSummary: string | undefined }>();
@@ -45,6 +52,11 @@ function readRows(): CalmRow[] {
   return rows.map((row) => ({ ...row, unseen: unseenTracker.isUnseen(row.id) }));
 }
 
+function findLight(sessionId: string | undefined) {
+  if (!field) return null;
+  return [...field.querySelectorAll<HTMLButtonElement>('.calm-light')].find((button) => button.dataset.sessionId === sessionId) ?? null;
+}
+
 function closePanel() {
   panel?.remove();
   root?.classList.remove('calm-has-panel');
@@ -56,9 +68,7 @@ function closePanel() {
   pendingCalmRequest = null;
   if (field) field.inert = false;
   if (opener?.isConnected) { opener.focus(); return; }
-  if (!field) return;
-  const previousSessionId = opener?.dataset.sessionId;
-  [...field.querySelectorAll<HTMLButtonElement>('.calm-light')].find((button) => button.dataset.sessionId === previousSessionId)?.focus();
+  findLight(opener?.dataset.sessionId)?.focus();
 }
 
 function reportCalmStatus(sessionId: string, text: string, promptSummary: string | undefined) {
@@ -160,14 +170,14 @@ function openPanel(row: CalmRow) {
   panel.setAttribute('aria-label', `${row.name}, ${choice.component}`);
   trapFocus(panel);
   const header = el('header', 'calm-panel-header');
-  const panelTitle = el('span', 'calm-panel-title', `${glyphByTier[tierOf(row)]} ${row.name} ${panelContextByComponent[choice.component]}`);
+  const panelTitle = el('span', 'calm-panel-title', `${glyphByTier[tierOf(row)]} ${row.name} ${panelContextFor(row, choice.component)}`);
   panelTitle.tabIndex = -1;
-  header.append(panelTitle, createButton('Terminal', 'calm-link', () => navigation.openTerminal(row.id)));
+  header.append(panelTitle, createButton('Terminal', 'calm-link', () => openTerminalFromQueue(row.id)));
   const body = el('div', 'calm-panel-body');
   const actions = el('div', 'calm-actions');
   const status = el('span', 'calm-status', readFreshCalmStatus(row.id, row.pendingPromptDetail?.summary));
   status.setAttribute('role', 'status');
-  const addPrimary = (label: string, action: () => boolean | void) => {
+  const addPrimary = (label: string, action: () => boolean) => {
     const button = createButton(label, 'calm-primary', () => {
       if (button.disabled) return;
       if (action() === false) { status.textContent = 'Unable to send. Open Terminal to continue.'; return; }
@@ -216,12 +226,12 @@ function openPanel(row: CalmRow) {
     body.append(el('p', 'calm-summary', title || 'Plan ready for review'));
     if (review && revision) addPrimary('Approve plan', () => {
       const latestReview = latestPendingReview(ui.planReviewState);
-      if (!latestReview?.openRevision) { navigation.openPlan(row.id); return; }
+      if (!latestReview?.openRevision) { navigation.openPlan(row.id); return true; }
       if (!sendControlMsg({ type: 'plan-decision', id: row.id, agentId: latestReview.agentId, revision: latestReview.openRevision.revision, decision: 'approve' })) return false;
       pendingCalmRequest = { id: row.id, kind: 'plan' };
       return true;
     });
-    if (!review || !revision) addPrimary('Open plan', () => navigation.openPlan(row.id));
+    if (!review || !revision) addPrimary('Open plan', () => { navigation.openPlan(row.id); return true; });
     actions.append(createButton('Open plan', 'calm-link', () => navigation.openPlan(row.id)));
   }
   if (choice.component === 'failure') {
@@ -238,7 +248,7 @@ function openPanel(row: CalmRow) {
     const isDiffRequested = sendControlMsg({ type: 'request-session-diff', id: row.id });
     if (isDiffRequested) pendingCalmRequest = { id: row.id, kind: 'diff' };
     if (!isDiffRequested) body.textContent = 'Diff unavailable. Open review to continue.';
-    addPrimary('Open review', () => { unseenTracker.acknowledge(row.id); navigation.openTerminal(row.id); });
+    addPrimary('Open review', () => { unseenTracker.acknowledge(row.id); navigation.openTerminal(row.id); return true; });
   }
   actions.append(status);
   panel.append(header, body, actions);
@@ -260,6 +270,7 @@ export function applyCalmSessionDiff(reply: ServerMessageOf<'session-diff'>) {
 }
 
 export function refreshCalmView() {
+  if (settleArmedAdvance()) return;
   const rows = readRows();
   forgetRemovedSessionStatuses();
   if (!isActive || !root || isPhoneLayout()) return;
@@ -317,12 +328,125 @@ export function refreshCalmView() {
   field = nextField;
   field.inert = panel !== null;
   root.prepend(field);
-  if (focusedId && !panel) [...field.querySelectorAll<HTMLButtonElement>('.calm-light')].find((button) => button.dataset.sessionId === focusedId)?.focus();
+  if (focusedId && !panel) findLight(focusedId)?.focus();
   if (!selectedSessionId) return;
   const selectedRow = rowsById.get(selectedSessionId);
   if (!selectedRow) { closePanel(); return; }
   const ui = sessionUIs.get(selectedSessionId);
   if (JSON.stringify([selectedRow, ui?.planReviewState]) !== selectedFingerprint) openPanel(selectedRow);
+}
+
+function openTerminalFromQueue(sessionId: string) {
+  navigation.openTerminal(sessionId);
+  if (uiState.snapshot().focusedSessionId !== sessionId) return;
+  openedFromQueueSessionId = sessionId;
+}
+
+function openPanelAtLight(row: CalmRow) {
+  openPanel(row);
+  opener = findLight(row.id);
+}
+
+export function openCalmPanelForSession(sessionId: string) {
+  navigation.openCalm();
+  if (!isActive) return false;
+  const row = readRows().find((entry) => entry.id === sessionId);
+  if (!row) return false;
+  openPanelAtLight(row);
+  return true;
+}
+
+export function openSelectedPanelTerminal() {
+  if (!isActive || !panel || !selectedSessionId) return false;
+  openTerminalFromQueue(selectedSessionId);
+  return true;
+}
+
+export function openNextQueuePanel() {
+  if (!isActive || isPhoneLayout()) return false;
+  const rows = readRows();
+  const nextSessionId = pickNextQueueSessionId(rows, selectedSessionId ?? queueCursorSessionId);
+  const nextRow = rows.find((row) => row.id === nextSessionId);
+  if (!nextRow) return false;
+  queueCursorSessionId = nextRow.id;
+  openPanelAtLight(nextRow);
+  return true;
+}
+
+function advanceAfterReply(repliedSessionId: string) {
+  const nextSessionId = pickSessionAfterSubmit(repliedSessionId, openedFromQueueSessionId, readRows());
+  if (!nextSessionId) return false;
+  openedFromQueueSessionId = null;
+  openCalmPanelForSession(nextSessionId);
+  return true;
+}
+
+function settleArmedAdvance() {
+  if (!armedAdvance) return false;
+  const ui = sessionUIs.get(armedAdvance.sessionId);
+  const armedSession = ui ? { state: ui.currentState, stateSince: ui.stateSince, pendingPromptSummary: ui.pendingPromptDetail?.summary } : null;
+  const decision = decideArmedAdvance(armedAdvance, armedSession, Date.now(), armedAdvance.hasOtherInputArrived);
+  if (decision === 'keep') return false;
+  const repliedSessionId = armedAdvance.sessionId;
+  armedAdvance = null;
+  if (decision === 'cancel' || isPhoneLayout()) return false;
+  return advanceAfterReply(repliedSessionId);
+}
+
+function armAdvanceAfterSubmit(submittedSessionId: string) {
+  const ui = sessionUIs.get(submittedSessionId);
+  if (!ui || isPhoneLayout() || submittedSessionId !== openedFromQueueSessionId) return;
+  armedAdvance = { sessionId: submittedSessionId, armedAtMs: Date.now(), armedStateSince: ui.stateSince, armedPromptSummary: ui.pendingPromptDetail?.summary, hasOtherInputArrived: false };
+}
+
+function noteTerminalInput(sessionId: string, isSubmit: boolean) {
+  if (isSubmit) { armAdvanceAfterSubmit(sessionId); return; }
+  if (armedAdvance?.sessionId !== sessionId) return;
+  armedAdvance.hasOtherInputArrived = true;
+  settleArmedAdvance();
+}
+
+export function clearQueueOrigin() {
+  openedFromQueueSessionId = null;
+  armedAdvance = null;
+}
+
+function refreshNowPeekWait() {
+  if (!nowPeek || nowPeek.card.hidden) return;
+  nowPeek.wait.textContent = nowPeekStateSince === null ? '' : `waiting ${formatWaitTime(Date.now() - nowPeekStateSince)}`;
+}
+
+export function mountNowPeek(host: HTMLElement) {
+  const card = el('div', 'focus-now-peek');
+  card.hidden = true;
+  const details = el('span', 'focus-now-peek-details');
+  details.id = 'focus-now-peek-details';
+  const glyph = el('span', 'focus-now-peek-glyph', glyphByTier.now);
+  glyph.setAttribute('aria-hidden', 'true');
+  const name = el('span', 'focus-now-peek-name');
+  const context = el('span', 'focus-now-peek-context');
+  const wait = el('span', 'focus-now-peek-wait');
+  details.append(glyph, name, context, wait);
+  const openButton = createButton('Open in Calm', 'focus-now-peek-open', () => {
+    if (nowPeekSessionId) openCalmPanelForSession(nowPeekSessionId);
+  });
+  openButton.setAttribute('aria-describedby', details.id);
+  card.append(details, openButton);
+  host.append(card);
+  nowPeek = { card, name, context, wait };
+  onSessionTick(refreshNowPeekWait);
+}
+
+export function refreshNowPeek(isShown: boolean, focusedSessionId: string | null) {
+  if (!nowPeek) return;
+  const peekRow = isShown ? pickNowPeek(readRows(), focusedSessionId) : null;
+  nowPeek.card.hidden = !peekRow;
+  nowPeekSessionId = peekRow?.id ?? null;
+  nowPeekStateSince = peekRow?.stateSince ?? null;
+  if (!peekRow) return;
+  nowPeek.name.textContent = peekRow.name;
+  nowPeek.context.textContent = panelContextFor(peekRow, pickComponent(peekRow).component);
+  refreshNowPeekWait();
 }
 
 function isAnotherDialogOpen() {
@@ -334,6 +458,14 @@ export function mountCalmView(element: HTMLElement, actions: typeof navigation) 
   root = element;
   navigation = actions;
   new ResizeObserver(() => refreshCalmView()).observe(root);
+  onTerminalInput(noteTerminalInput);
+  uiState.subscribe((state, changedKeys) => {
+    const hasLeftFocusView = changedKeys.includes('activeView') && state.activeView !== 'focus';
+    const hasFocusMovedOffArmedSession = changedKeys.includes('focusedSessionId') && state.focusedSessionId !== armedAdvance?.sessionId;
+    if (hasLeftFocusView || hasFocusMovedOffArmedSession) armedAdvance = null;
+    if (!changedKeys.includes('focusedSessionId') || state.focusedSessionId === openedFromQueueSessionId) return;
+    openedFromQueueSessionId = null;
+  });
   document.addEventListener('keydown', (event) => {
     if (!isActive || !panel || isPhoneLayout() || event.isComposing || event.key !== 'Escape') return;
     const isFromPanelOrBody = event.target === document.body || (event.target instanceof Node && panel.contains(event.target));
