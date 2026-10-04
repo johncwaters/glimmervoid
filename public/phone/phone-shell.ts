@@ -1,5 +1,6 @@
 
 import { STATES } from '#shared/states.ts';
+import { activatePhoneCalmView, deactivatePhoneCalmView } from '../calm/calm-view.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import type { AdoptableElement } from '../dom-helpers.ts';
 import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
@@ -82,6 +83,11 @@ const SOFT_KEYBOARD_OPEN_DELTA_PX = 120;
 let keyboardClosedBaselineHeightPx = 0;
 let baselineViewportWidthPx = 0;
 let pushedHistoryEntry = false;
+let isCalmAvailable = false;
+const phoneCalmNavigation = {
+  openTerminal: (sessionId: string) => openSession(sessionId),
+  openPlan: (sessionId: string) => { showPhonePlan(sessionId); },
+};
 
 function resetSoftKeyboardBaseline() {
   keyboardClosedBaselineHeightPx = 0;
@@ -218,6 +224,7 @@ function build() {
   if (shellEl) return;
 
   boardScreen = createBoardScreen({ onSelectSession: (id) => openSession(id) });
+  boardScreen.setCalmShown(isCalmAvailable);
   terminalScreen = createTerminalScreen({ onBack: () => showScreen(BOARD) });
   reviewMountEl = el('div', 'phone-review');
   radarMountEl = el('div', 'phone-radar');
@@ -344,6 +351,7 @@ function applyScreen(screenId: string) {
   for (const [id, section] of screenElById) {
     section.hidden = id !== screenId;
   }
+  syncPhoneCalm();
   syncCurrent(navButtonById, screenId);
   const isNestedActive = menuButtonById.has(screenId);
   if (isNestedActive) moreButtonEl.setAttribute('aria-current', 'page');
@@ -415,6 +423,7 @@ export function deactivatePhoneShell() {
   if (!active) return;
   if (!shellEl || !terminalScreen) throw new Error('Phone shell is not built');
   active = false;
+  syncPhoneCalm();
   closeSettingsSectionPicker({ returnFocus: false });
   terminalScreen.clear();
   reparentReviewPanel(null);
@@ -432,6 +441,22 @@ export function deactivatePhoneShell() {
   shellEl.removeAttribute('data-keyboard');
   resetSoftKeyboardBaseline();
   surrenderHistoryEntry();
+}
+
+function syncPhoneCalm() {
+  if (!boardScreen) return;
+  const isCalmShown = active && isCalmAvailable && uiState.snapshot().phoneScreen === BOARD;
+  if (!isCalmShown) {
+    deactivatePhoneCalmView();
+    return;
+  }
+  activatePhoneCalmView(boardScreen.calmEl, phoneCalmNavigation);
+}
+
+export function setPhoneCalmAvailable(isAvailable: boolean) {
+  isCalmAvailable = isAvailable;
+  boardScreen?.setCalmShown(isAvailable);
+  syncPhoneCalm();
 }
 
 export function showPhonePlan(sessionId: string) {

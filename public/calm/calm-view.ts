@@ -15,21 +15,24 @@ import { uiState } from '../ui-state-core.ts';
 import { LATER_RADIUS, NEXT_RADIUS, NOW_RADIUS, placeLights, shouldShowLabels } from './calm-field-core.ts';
 import { latestPendingReview } from './calm-plan-core.ts';
 import type { ArmedAdvance, CalmRow } from './calm-priority-core.ts';
-import { countByTier, decideArmedAdvance, formatWaitTime, isSamePermissionPrompt, panelContextFor, pickComponent, pickNextQueueSessionId, pickNowPeek, pickSessionAfterSubmit, tierOf } from './calm-priority-core.ts';
+import { countByTier, decideArmedAdvance, formatWaitTime, isSamePermissionPrompt, orderCalmQueue, panelContextFor, pickComponent, pickNextQueueSessionId, pickNowPeek, pickSessionAfterSubmit, tierOf } from './calm-priority-core.ts';
 import type { TimedKeystroke } from './permission-keys-core.ts';
 import { approveKeystrokes, decideInstructionDelivery, INSTRUCTION_POLL_INTERVAL_MS, isAnyPromptShowing, rejectAndInstructKeystrokes } from './permission-keys-core.ts';
 
 const unseenTracker = createUnseenCompleteTracker();
 const glyphByTier = { now: '\u25b2', next: '\u25a0', later: '\u2713', working: '\u00b7', resting: '\u00b7' };
-let root: HTMLElement | null = null;
+interface CalmNavigation { openTerminal: (id: string) => void; openPlan: (id: string) => void }
+interface CalmSurface { kind: 'desktop' | 'phone'; root: HTMLElement; navigation: CalmNavigation }
+let desktopSurface: CalmSurface | null = null;
+let openDesktopCalm: () => void = () => {};
+let surface: CalmSurface | null = null;
 let field: HTMLDivElement | null = null;
 let panel: HTMLElement | null = null;
+let sheetScrim: HTMLDivElement | null = null;
 let selectedSessionId: string | null = null;
 let selectedComponent: string | null = null;
 let selectedFingerprint = '';
 let primaryButton: HTMLButtonElement | null = null;
-let isActive = false;
-let navigation: { openTerminal: (id: string) => void; openPlan: (id: string) => void; openCalm: () => void };
 let openedFromQueueSessionId: string | null = null;
 let armedAdvance: (ArmedAdvance & { hasOtherInputArrived: boolean }) | null = null;
 let queueCursorSessionId: string | null = null;
@@ -42,6 +45,15 @@ const calmStatusBySessionId = new Map<string, { text: string; recordedAtMs: numb
 
 const CALM_STATUS_LIFETIME_MS = 15000;
 const PROMPT_STILL_OPEN_STATUS = 'The prompt is still open. Open Terminal to continue.';
+const PHONE_RING_SCALE = 50;
+const FOOTER_TEXT_BY_SURFACE = {
+  desktop: 'Click a light for its action. Faint field lights are working sessions.',
+  phone: 'Tap a light or a row for its action. Faint field lights are working sessions.',
+};
+
+function isDesktopSurfaceActive() {
+  return surface !== null && surface === desktopSurface && !isPhoneLayout();
+}
 
 function readRows(): CalmRow[] {
   const rows = [...sessionUIs].map(([id, ui]) => ({
@@ -58,8 +70,10 @@ function findLight(sessionId: string | undefined) {
 }
 
 function closePanel() {
+  panel?.parentElement?.classList.remove('calm-has-panel');
   panel?.remove();
-  root?.classList.remove('calm-has-panel');
+  sheetScrim?.remove();
+  sheetScrim = null;
   panel = null;
   selectedSessionId = null;
   selectedComponent = null;
@@ -69,6 +83,11 @@ function closePanel() {
   if (field) field.inert = false;
   if (opener?.isConnected) { opener.focus(); return; }
   findLight(opener?.dataset.sessionId)?.focus();
+}
+
+function dismissPanel() {
+  if (selectedSessionId) calmStatusBySessionId.delete(selectedSessionId);
+  closePanel();
 }
 
 function reportCalmStatus(sessionId: string, text: string, promptSummary: string | undefined) {
@@ -116,7 +135,7 @@ function renderTrace(id: string, body: HTMLElement) {
 
 export function applyCalmTraceResponse(reply: ServerMessageOf<'session-trace-response'>) {
   if (!claimPendingCalmRequest(reply.id, ['trace'])) return;
-  if (!isActive || selectedSessionId !== reply.id || !panel) return;
+  if (!surface || selectedSessionId !== reply.id || !panel) return;
   if (selectedComponent !== 'failure' && selectedComponent !== 'terminal') return;
   const body = panel.querySelector('.calm-trace');
   if (!body) return;
@@ -130,7 +149,7 @@ export function applyCalmTraceResponse(reply: ServerMessageOf<'session-trace-res
 export function applyCalmError(reply: ServerMessageOf<'error'>) {
   const isPlanDecisionError = reply.scope === 'plan-decision';
   if (!claimPendingCalmRequest(reply.id, isPlanDecisionError ? ['plan'] : ['trace', 'diff'])) return;
-  if (!isActive || selectedSessionId !== reply.id || !panel) return;
+  if (!surface || selectedSessionId !== reply.id || !panel) return;
   const target = panel.querySelector(isPlanDecisionError ? '.calm-status' : '.calm-trace, .calm-diff');
   if (target) target.textContent = reply.message;
 }
@@ -156,7 +175,9 @@ function sendInstructionOncePromptCloses(sessionId: string, ui: SessionUi, steps
 
 function openPanel(row: CalmRow) {
   const ui = sessionUIs.get(row.id);
-  if (!root || !ui) return;
+  const activeSurface = surface;
+  if (!activeSurface || !ui) return;
+  const { root, navigation } = activeSurface;
   closePanel();
   opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   selectedSessionId = row.id;
@@ -173,6 +194,7 @@ function openPanel(row: CalmRow) {
   const panelTitle = el('span', 'calm-panel-title', `${glyphByTier[tierOf(row)]} ${row.name} ${panelContextFor(row, choice.component)}`);
   panelTitle.tabIndex = -1;
   header.append(panelTitle, createButton('Terminal', 'calm-link', () => openTerminalFromQueue(row.id)));
+  if (activeSurface.kind === 'phone') header.append(createButton('Close', 'calm-link', dismissPanel));
   const body = el('div', 'calm-panel-body');
   const actions = el('div', 'calm-actions');
   const status = el('span', 'calm-status', readFreshCalmStatus(row.id, row.pendingPromptDetail?.summary));
@@ -253,6 +275,7 @@ function openPanel(row: CalmRow) {
   actions.append(status);
   panel.append(header, body, actions);
   root.classList.add('calm-has-panel');
+  if (activeSurface.kind === 'phone') root.append(buildSheetScrim());
   root.append(panel);
   if (field) field.inert = true;
   panelTitle.focus();
@@ -260,7 +283,7 @@ function openPanel(row: CalmRow) {
 
 export function applyCalmSessionDiff(reply: ServerMessageOf<'session-diff'>) {
   if (!claimPendingCalmRequest(reply.id, ['diff'])) return;
-  if (!isActive || selectedComponent !== 'review' || selectedSessionId !== reply.id || !panel) return;
+  if (!surface || selectedComponent !== 'review' || selectedSessionId !== reply.id || !panel) return;
   const body = panel.querySelector('.calm-diff');
   if (!body) return;
   const files = parseUnifiedDiff(`${reply.committed.diff}\n${reply.uncommitted.diff}`);
@@ -269,11 +292,14 @@ export function applyCalmSessionDiff(reply: ServerMessageOf<'session-diff'>) {
     ...files.map((file) => el('div', 'calm-file', `${file.path}  +${file.added} -${file.removed}`)));
 }
 
-export function refreshCalmView() {
-  if (settleArmedAdvance()) return;
-  const rows = readRows();
-  forgetRemovedSessionStatuses();
-  if (!isActive || !root || isPhoneLayout()) return;
+function buildSheetScrim() {
+  sheetScrim = el('div', 'calm-sheet-scrim');
+  sheetScrim.setAttribute('aria-hidden', 'true');
+  sheetScrim.addEventListener('click', dismissPanel);
+  return sheetScrim;
+}
+
+function buildTierHeader(rows: readonly CalmRow[]) {
   const counts = countByTier(rows);
   const header = el('header', 'calm-header');
   for (const tier of ['now', 'next', 'later', 'working'] as const) {
@@ -281,8 +307,16 @@ export function refreshCalmView() {
     count.dataset.tier = tier;
     header.append(count);
   }
-  const ringScale = root.clientWidth <= 640 ? 34 : 50;
-  const home = el('div', 'calm-home');
+  return header;
+}
+
+function ringScaleFor(activeSurface: CalmSurface) {
+  if (activeSurface.kind === 'phone') return PHONE_RING_SCALE;
+  return activeSurface.root.clientWidth <= 640 ? 34 : 50;
+}
+
+function buildRings(rows: readonly CalmRow[], activeSurface: CalmSurface) {
+  const ringScale = ringScaleFor(activeSurface);
   const rings = el('div', 'calm-rings');
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 100 100');
@@ -297,7 +331,7 @@ export function refreshCalmView() {
   }
   rings.prepend(svg);
   const rowsById = new Map(rows.map((row) => [row.id, row]));
-  const showLabels = shouldShowLabels(root.clientWidth);
+  const showLabels = activeSurface.kind === 'desktop' && shouldShowLabels(activeSurface.root.clientWidth);
   for (const light of placeLights(rows.map((row) => ({ id: row.id, tier: tierOf(row) })), 0.24)) {
     const row = rowsById.get(light.id);
     if (!row) continue;
@@ -315,30 +349,80 @@ export function refreshCalmView() {
     }
     rings.append(button);
   }
-  home.append(rings);
+  return rings;
+}
+
+function buildDesktopNowList(rows: readonly CalmRow[]) {
   const nowList = el('div', 'calm-now-list');
   nowList.setAttribute('aria-label', 'NOW sessions');
-  for (const row of rows.filter((entry) => tierOf(entry) === 'now')) nowList.append(createButton(`${glyphByTier.now} ${row.name}`, 'calm-now-row', () => openPanel(row)));
-  home.append(nowList);
-  const footer = el('footer', 'calm-footer', 'Click a light for its action. Faint field lights are working sessions.');
+  for (const row of orderCalmQueue(rows).filter((entry) => tierOf(entry) === 'now')) nowList.append(createButton(`${glyphByTier.now} ${row.name}`, 'calm-now-row', () => openPanel(row)));
+  return nowList;
+}
+
+function waitTextSince(stateSince: number) {
+  return formatWaitTime(Date.now() - stateSince);
+}
+
+function buildPhoneNowList(rows: readonly CalmRow[]) {
+  const nowList = el('div', 'calm-now-list');
+  nowList.setAttribute('aria-label', 'NOW sessions');
+  for (const row of orderCalmQueue(rows).filter((entry) => tierOf(entry) === 'now')) {
+    const context = panelContextFor(row, pickComponent(row).component);
+    const button = createButton('', 'calm-now-row', () => openPanel(row));
+    button.setAttribute('aria-label', `${row.name}, ${context}`);
+    const glyph = el('span', 'calm-now-glyph', glyphByTier.now);
+    glyph.setAttribute('aria-hidden', 'true');
+    const details = el('span', 'calm-now-details');
+    details.append(el('span', 'calm-now-name', row.name), el('span', 'calm-now-context', context));
+    const wait = el('span', 'calm-now-wait');
+    wait.setAttribute('aria-hidden', 'true');
+    if (typeof row.stateSince === 'number') {
+      wait.dataset.stateSince = String(row.stateSince);
+      wait.textContent = waitTextSince(row.stateSince);
+    }
+    button.append(glyph, details, wait);
+    nowList.append(button);
+  }
+  return nowList;
+}
+
+function refreshNowRowWaits() {
+  if (!field || surface?.kind !== 'phone') return;
+  for (const wait of field.querySelectorAll<HTMLElement>('.calm-now-wait[data-state-since]')) {
+    wait.textContent = waitTextSince(Number(wait.dataset.stateSince));
+  }
+}
+
+export function refreshCalmView() {
+  if (settleArmedAdvance()) return;
+  const rows = readRows();
+  forgetRemovedSessionStatuses();
+  const activeSurface = surface;
+  if (!activeSurface || (activeSurface.kind === 'desktop' && isPhoneLayout())) return;
+  const home = el('div', 'calm-home');
+  home.append(buildRings(rows, activeSurface));
+  home.append(activeSurface.kind === 'phone' ? buildPhoneNowList(rows) : buildDesktopNowList(rows));
+  const footer = el('footer', 'calm-footer', FOOTER_TEXT_BY_SURFACE[activeSurface.kind]);
   const nextField = el('div', 'calm-field');
-  nextField.append(header, home, footer);
+  nextField.append(buildTierHeader(rows), home, footer);
   const focusedId = document.activeElement instanceof HTMLElement ? document.activeElement.dataset.sessionId : null;
   field?.remove();
   field = nextField;
   field.inert = panel !== null;
-  root.prepend(field);
+  activeSurface.root.prepend(field);
   if (focusedId && !panel) findLight(focusedId)?.focus();
   if (!selectedSessionId) return;
-  const selectedRow = rowsById.get(selectedSessionId);
+  const selectedRow = rows.find((row) => row.id === selectedSessionId);
   if (!selectedRow) { closePanel(); return; }
   const ui = sessionUIs.get(selectedSessionId);
   if (JSON.stringify([selectedRow, ui?.planReviewState]) !== selectedFingerprint) openPanel(selectedRow);
 }
 
 function openTerminalFromQueue(sessionId: string) {
-  navigation.openTerminal(sessionId);
-  if (uiState.snapshot().focusedSessionId !== sessionId) return;
+  const activeSurface = surface;
+  if (!activeSurface) return;
+  activeSurface.navigation.openTerminal(sessionId);
+  if (activeSurface.kind !== 'desktop' || uiState.snapshot().focusedSessionId !== sessionId) return;
   openedFromQueueSessionId = sessionId;
 }
 
@@ -348,8 +432,8 @@ function openPanelAtLight(row: CalmRow) {
 }
 
 export function openCalmPanelForSession(sessionId: string) {
-  navigation.openCalm();
-  if (!isActive) return false;
+  openDesktopCalm();
+  if (!isDesktopSurfaceActive()) return false;
   const row = readRows().find((entry) => entry.id === sessionId);
   if (!row) return false;
   openPanelAtLight(row);
@@ -357,13 +441,13 @@ export function openCalmPanelForSession(sessionId: string) {
 }
 
 export function openSelectedPanelTerminal() {
-  if (!isActive || !panel || !selectedSessionId) return false;
+  if (!isDesktopSurfaceActive() || !panel || !selectedSessionId) return false;
   openTerminalFromQueue(selectedSessionId);
   return true;
 }
 
 export function openNextQueuePanel() {
-  if (!isActive || isPhoneLayout()) return false;
+  if (!isDesktopSurfaceActive()) return false;
   const rows = readRows();
   const nextSessionId = pickNextQueueSessionId(rows, selectedSessionId ?? queueCursorSessionId);
   const nextRow = rows.find((row) => row.id === nextSessionId);
@@ -454,11 +538,12 @@ function isAnotherDialogOpen() {
     .some((dialog) => dialog !== panel && dialog.getClientRects().length > 0);
 }
 
-export function mountCalmView(element: HTMLElement, actions: typeof navigation) {
-  root = element;
-  navigation = actions;
-  new ResizeObserver(() => refreshCalmView()).observe(root);
+export function mountCalmView(element: HTMLElement, { openCalm, ...navigation }: CalmNavigation & { openCalm: () => void }) {
+  desktopSurface = { kind: 'desktop', root: element, navigation };
+  openDesktopCalm = openCalm;
+  new ResizeObserver(() => refreshCalmView()).observe(element);
   onTerminalInput(noteTerminalInput);
+  onSessionTick(refreshNowRowWaits);
   uiState.subscribe((state, changedKeys) => {
     const hasLeftFocusView = changedKeys.includes('activeView') && state.activeView !== 'focus';
     const hasFocusMovedOffArmedSession = changedKeys.includes('focusedSessionId') && state.focusedSessionId !== armedAdvance?.sessionId;
@@ -467,21 +552,36 @@ export function mountCalmView(element: HTMLElement, actions: typeof navigation) 
     openedFromQueueSessionId = null;
   });
   document.addEventListener('keydown', (event) => {
-    if (!isActive || !panel || isPhoneLayout() || event.isComposing || event.key !== 'Escape') return;
+    if (!isDesktopSurfaceActive() || !panel || event.isComposing || event.key !== 'Escape') return;
     const isFromPanelOrBody = event.target === document.body || (event.target instanceof Node && panel.contains(event.target));
     if (!isFromPanelOrBody || isAnotherDialogOpen()) return;
     event.preventDefault();
-    if (selectedSessionId) calmStatusBySessionId.delete(selectedSessionId);
-    closePanel();
+    dismissPanel();
   });
 }
 
 export function activateCalmView() {
-  isActive = true;
+  if (!desktopSurface || surface?.kind === 'phone') return;
+  surface = desktopSurface;
   refreshCalmView();
 }
 
 export function deactivateCalmView() {
-  isActive = false;
+  if (surface?.kind !== 'desktop') return;
   closePanel();
+  surface = null;
+}
+
+export function activatePhoneCalmView(element: HTMLElement, navigation: CalmNavigation) {
+  if (surface?.kind !== 'phone' || surface.root !== element) {
+    closePanel();
+    surface = { kind: 'phone', root: element, navigation };
+  }
+  refreshCalmView();
+}
+
+export function deactivatePhoneCalmView() {
+  if (surface?.kind !== 'phone') return;
+  closePanel();
+  surface = null;
 }

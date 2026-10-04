@@ -20,7 +20,7 @@ import { applyHealthSnapshot, mountHealthMonitor } from './health-monitor.ts';
 import { acknowledgeVisionsAttention, applyIngestActivity, applyIngestSnapshot, applyVisionsComments, applyVisionsFindings, applyVisionsFix, applyVisionsHand, applyVisionsIntent, applyVisionsSettings, applyVisionsSnapshot, mountVisionsView, refreshVisionsView, setVisionsActivityCallback, setVisionsProjectNames } from './visions-panel.ts';
 import { applyDeleteHookResult, applyHooksReport, applySaveHookResult, mountHooksView, refreshHooksView, requestHooksReport, setHooksRequestSender } from './hooks-panel.ts';
 import { initNotifications, showDesktopNotification } from './notifications.ts';
-import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneScreenActive, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen } from './phone/phone-shell.ts';
+import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneScreenActive, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneCalmAvailable, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen } from './phone/phone-shell.ts';
 import { noteKnownProjectPath } from './project-registry.ts';
 import { applyTeamReviewActionResult, applyTeamReviewStatus, setTeamReviewActivityCallback } from './team-review-panel.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus } from './my-prs-panel.ts';
@@ -757,6 +757,7 @@ function applySurfaceSettings(settings: Parameters<typeof availableSurfacesFromS
   const hasOperatorTurnedCalmOn = isLiveSettingsChange && lastAppliedCalmSurface === false && surfaces.calm;
   lastAppliedCalmSurface = surfaces.calm;
   isCalmSurfaceAvailable = surfaces.calm;
+  setPhoneCalmAvailable(surfaces.calm);
   setFocusRailShown(!surfaces.calm);
   refreshFocusNowPeek();
   for (const [view, isAvailable] of Object.entries(surfaces)) setSurfaceAvailable(view, isAvailable);
