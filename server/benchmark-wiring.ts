@@ -11,6 +11,8 @@ import { absolutePathReadRule } from './core/team-review-core.ts';
 import { writeJsonAtomic } from './json-file.ts';
 import type { LaneSpawn } from './lane-spawn.ts';
 import type { PrGh } from './pr-gh.ts';
+import { allowSandboxedSpawn } from './sandbox-deps.ts';
+import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 import { TEAM_REVIEW_SESSION_DENY_RULES, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions, teamReviewSandbox } from './team-review-wiring.ts';
 import type { TeamReviewRepoCache, TeamReviewSpawn } from './team-review-wiring.ts';
 import {
@@ -55,6 +57,7 @@ interface BenchmarkWiringOptions {
   credentials: { resolveArmToken(cellTimeoutSeconds: number, signal?: AbortSignal): Promise<{ ok: true; token: string } | { ok: false; reason: string }> };
   claudeCommand: () => string | null;
   runArmCommand?: ArmCommandRunner;
+  sandboxRefusal?: SandboxSpawnRefusal;
   baseEnv?: NodeJS.ProcessEnv;
   now?: () => number;
   randomSuffix?: () => string;
@@ -179,6 +182,7 @@ async function readBoundedText(filePath: string): Promise<string | null> {
 function createBenchmarkWiring({
   benchmarksRoot, isEnabled, broadcast, github, repoCache, gitWorkspace, spawnSubject, spawnJudge, credentials, claudeCommand,
   runArmCommand = runArmCommandSafely,
+  sandboxRefusal = allowSandboxedSpawn,
   baseEnv = process.env,
   now = () => Date.now(),
   randomSuffix = () => randomBytes(4).toString('hex'),
@@ -497,6 +501,8 @@ function createBenchmarkWiring({
   async function startRun(suiteId: string): Promise<Omit<BenchmarkActionResult, 'suiteId' | 'action'>> {
     await leftoverSweep;
     if (activeRun) return { ok: false, error: `A run of ${activeRun.suiteId} is already in flight` };
+    const sandboxRefusalReason = sandboxRefusal();
+    if (sandboxRefusalReason !== null) return { ok: false, error: sandboxRefusalReason };
     const loaded = await loadSuite(suiteId);
     if (!loaded.ok) return { ok: false, error: loaded.reason };
     const cases = await loadCases(suiteId, 'cases');

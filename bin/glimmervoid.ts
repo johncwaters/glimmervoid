@@ -11,6 +11,8 @@ import { renderTable } from '../server/core/ascii-figure-core.ts';
 import { decideConfigPath, glimmervoidHomeDir } from '../server/core/config-path-core.ts';
 import { nodePtyRebuildHint } from '../server/core/node-pty-preflight-core.ts';
 import { probeNodePty } from '../server/node-pty-preflight.ts';
+import { sandboxDoctorRows } from '../server/core/sandbox-deps-core.ts';
+import { probeSandboxDependencies } from '../server/sandbox-deps.ts';
 import { packageRoot } from '../server/runtime-paths.ts';
 import { formatPathNotice, npmGlobalBinDir, onPath, pnpmGlobalBinDir } from './path-doctor.ts';
 
@@ -225,6 +227,9 @@ async function runDoctor(): Promise<void> {
     line('reason', nodePty.reason);
     line('hint', nodePtyRebuildHint(platform));
   }
+
+  switchSection('Sandbox');
+  for (const [label, value] of sandboxDoctorRows(probeSandboxDependencies({ platform, exec: execSync }))) line(label, value);
 
   switchSection('Config');
   line('resolved config', resolveConfigPathReadOnly());

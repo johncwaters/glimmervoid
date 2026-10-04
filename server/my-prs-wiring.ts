@@ -22,6 +22,8 @@ import type { CommandResult } from './repo-cache.ts';
 import { emptyGhConfigDir, hooksPathPinnedSpawnEnv, keepMergeableSandbox, makeTeamReviewWorkDir, sweepLeftoverCheckouts } from './team-review-wiring.ts';
 import type { TeamReviewGitWorkspace, TeamReviewRepoCache, TeamReviewSpawn } from './team-review-wiring.ts';
 import type { TeamReviewReapOptions } from './team-review-reaper.ts';
+import { allowSandboxedSpawn } from './sandbox-deps.ts';
+import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 import { CommitSha } from '../shared/contracts/team-review.ts';
 
 type MyPrsPoller = ReturnType<typeof createMyPrsPoller>;
@@ -178,9 +180,10 @@ export function createSandboxedPrStaging({
 
 export function createMyPrMergeabilityFix({
   spawnSession, repoCache, workRoot, glimmervoidHome = glimmervoidHomeDir(), makeWorkDir = makeTeamReviewWorkDir, runGit = runTrustedGit, log = console,
-  timeoutSeconds = defaultSessionTimeoutSeconds, setTimeoutFn, clearTimeoutFn,
+  timeoutSeconds = defaultSessionTimeoutSeconds, setTimeoutFn, clearTimeoutFn, sandboxRefusal = allowSandboxedSpawn,
 }: SandboxedPrStagingOptions & {
   workRoot: string;
+  sandboxRefusal?: SandboxSpawnRefusal;
   makeWorkDir?: typeof makeTeamReviewWorkDir;
   log?: Pick<Console, 'log' | 'warn'>;
 }) {
@@ -225,6 +228,8 @@ export function createMyPrMergeabilityFix({
     if (signal.aborted) return;
     const target = core.keepMergeablePushTarget(pr, latestListedPr());
     if (!target.push) return warn(pr, `not started: ${target.reason}`);
+    const sandboxRefusalReason = sandboxRefusal();
+    if (sandboxRefusalReason !== null) return warn(pr, sandboxRefusalReason);
     const workDir = await makeWorkDir(workRoot, pr.key);
     const handoffRef = `${KEEP_MERGEABLE_HANDOFF_REF_PREFIX}${pr.number}-${randomUUID()}`;
     let projectPath: string | null = null;

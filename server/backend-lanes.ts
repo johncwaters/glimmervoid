@@ -16,6 +16,7 @@ import { createChangeNarrator } from './change-narrator.ts';
 import { createLaneSpawn } from './lane-spawn.ts';
 import { createPlanReviewWiring } from './plan-review-wiring.ts';
 import { createPosthogWiring } from './posthog-wiring.ts';
+import { checkSandboxDependencies } from './sandbox-deps.ts';
 import { createSpawnGate } from './spawn-gate.ts';
 import type { Telemetry } from './telemetry.ts';
 import { createTeamReviewSpawn, createTeamReviewWiring, sweepLeftoverCheckouts } from './team-review-wiring.ts';
@@ -131,6 +132,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     gitWorkspace,
     broadcast: broadcastControl,
   });
+  const sandboxRefusal = checkSandboxDependencies({ log: logger });
   const githubClock = createGithubClock({ baseIntervalMs: GITHUB_CLOCK_INTERVAL_MINUTES * 60000, log: logger });
   const glimmervoidHome = glimmervoidHomeDir();
   const sharedRepoCacheRoot = path.join(glimmervoidHome, 'team-review-repos');
@@ -149,6 +151,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     clock: githubClock,
     repoCacheRoot: sharedRepoCacheRoot,
     repoCache: sharedRepoCache,
+    sandboxRefusal,
   });
   const myPrsWorkRoot = path.join(glimmervoidHome, 'my-prs-work');
   const myPrs = createMyPrsWiring({
@@ -160,6 +163,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       timeoutSeconds: () => keepMergeableTimeoutSeconds(config),
       repoCache: sharedRepoCache,
       log: logger,
+      sandboxRefusal,
       spawnSession: createTeamReviewSpawn({
         reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
         replayBufferKB: config.replayBufferKB, laneName: 'my-prs',
@@ -173,6 +177,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     spawnSession: createWorkflowSpawn({
       workRoot: workflowsWorkRoot,
       log: logger,
+      sandboxRefusal,
       staging: createSandboxedPrStaging({
         glimmervoidHome,
         repoCache: sharedRepoCache,
@@ -202,6 +207,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     }),
     credentials: createClaudeCredentials({ claudeCommand }),
     claudeCommand,
+    sandboxRefusal,
     log: logger,
   });
 

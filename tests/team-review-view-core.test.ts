@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
   commentSeverity, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
@@ -219,6 +219,15 @@ test('the empty state says whether the lane is off or simply has nothing yet', (
   );
   assert.match(emptyStateText(status([])), /No review drafts yet/);
   assert.equal(emptyStateText({ ...status([]), error: 'GitHub unreachable' }), 'Review drafts will show here once GitHub answers.');
+});
+
+test('a running lane surfaces its reason as a notice and an unconfigured lane keeps the empty state', () => {
+  assert.equal(laneNotice({ ...status([]), reason: 'sandbox dependencies missing' }), 'sandbox dependencies missing');
+  assert.equal(laneNotice(status([])), null);
+  assert.equal(laneNotice({ ...status([]), reason: '' }), null);
+  assert.equal(laneNotice({ ...status([], [], false), reason: 'teamReview needs both org and team' }), null);
+  assert.equal(laneNotice(null), null);
+  assert.equal(emptyStateText({ ...status([]), reason: 'sandbox dependencies missing' }), 'No review drafts yet. New teammate pull requests show up here after the next poll.');
 });
 
 test('the badge signature tracks ready drafts by key and head only', () => {

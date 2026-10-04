@@ -59,6 +59,7 @@ Update a clone with `git pull --ff-only && npm ci && npm run build`, then restar
 - **Claude Code CLI** on PATH, or another supported agent below.
 - **git** on PATH, for per-session worktrees.
 - **Linux only:** `build-essential` and `python3` for node-pty.
+- **Linux only:** `bubblewrap` (`bwrap`) and `socat` for Claude Code's sandbox, which team review, Keep mergeable, workflow sessions and benchmark runs use (`sudo apt install bubblewrap socat`). `glimmervoid doctor` reports both.
 
 ## Supported agents
 

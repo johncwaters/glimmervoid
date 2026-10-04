@@ -357,6 +357,29 @@ test('a workflows rule toggle for a rule renamed on disk since the last load fai
   });
 });
 
+test('a save the config store refuses replies settings-error and broadcasts nothing', () => {
+  const cfg: GlimmervoidConfig = { projects: [] };
+  const h = harness(cfg, testConfigStore(cfg, { saveFails: true }));
+  h.send({ type: 'update-settings', requestId: 'r-1', settings: { cursorBlink: true } });
+  const refusal = h.sent.find((message) => message.type === 'settings-error');
+  assert.match(String(refusal?.message ?? ''), /Settings were not saved/);
+  assert.equal(Object.getOwnPropertyDescriptor(refusal, 'requestId')?.value, 'r-1');
+  assert.equal(updatedFrom(h), undefined);
+  assert.equal(h.broadcasts.length, 0);
+  assert.equal(h.reloadCalls.length, 0);
+});
+
+test('a save over an unreadable config file on disk replies settings-error', () => {
+  withRealStore({ projects: [] }, undefined, (h) => {
+    const configPath = process.env.GLIMMERVOID_CONFIG;
+    assert.ok(configPath);
+    fs.writeFileSync(configPath, '{ not json', 'utf8');
+    h.send({ type: 'update-settings', settings: { cursorBlink: true } });
+    assert.match(String(errorFrom(h)?.message ?? ''), /Settings were not saved/);
+    assert.equal(updatedFrom(h), undefined);
+  });
+});
+
 test('benchmark settings persist, echo, and reject a non-boolean enabled', () => {
   const h = harness({ projects: [] });
   h.send({ type: 'update-settings', settings: { benchmarks: { enabled: true, ignored: true } } });

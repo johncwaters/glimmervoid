@@ -6,6 +6,8 @@ import { firstLine } from './ephemeral-session.ts';
 import { createTickLoop } from './lane-runner.ts';
 import type { SharedClock, TickOutcome } from './lane-runner.ts';
 import type { PrReference, PrReviewSnapshot, PrSearchResult } from './pr-gh.ts';
+import { allowSandboxedSpawn } from './sandbox-deps.ts';
+import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 import { hasStandingViewerApproval, ReviewDraft } from '../shared/contracts/team-review.ts';
 import type {
   InFlightReview, PrDetail, PriorReview, ResumableReview, ReviewDraft as ReviewDraftType, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
@@ -54,6 +56,7 @@ interface TeamReviewPollerDependencies {
   readState?: () => Promise<TeamReviewState>;
   writeState?: (state: TeamReviewState) => Promise<void>;
   beforeStart?: (keepPaths: ReadonlySet<string>) => Promise<void>;
+  sandboxRefusal?: SandboxSpawnRefusal;
   setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
   clearIntervalFn?: (handle: NodeJS.Timeout) => void;
   clock?: SharedClock;
@@ -78,7 +81,7 @@ function errorMessage(error: unknown): string {
 function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   const {
     org, team, github, spawnReview, discardResumable = async () => {},
-    readState = async () => ({}), writeState = async () => {}, beforeStart = async () => {},
+    readState = async () => ({}), writeState = async () => {}, beforeStart = async () => {}, sandboxRefusal = allowSandboxedSpawn,
     setIntervalFn = (fn, ms) => setInterval(fn, ms), clearIntervalFn = clearInterval,
     setTimeoutFn = (fn, ms) => setTimeout(fn, ms), clearTimeoutFn = clearTimeout,
     log = console, onTickComplete = () => {}, now = () => Date.now(),
@@ -134,7 +137,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     cancelPendingProgressEmit();
     lastEmitAt = now();
     onTickComplete({ ...core.teamReviewStatus({
-      ts: now(), configured: true, team: teamProfile, drafts: core.draftsNewestFirst(state), inFlight: inFlightReviews(),
+      ts: now(), configured: true, reason: sandboxRefusal(), team: teamProfile, drafts: core.draftsNewestFirst(state), inFlight: inFlightReviews(),
       queued: waitingForSlot.filter((candidate) => !state[candidate.key]?.inFlight),
     }), error: pollingError, ...loop.scheduleStatus() });
   }
@@ -339,6 +342,12 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     return isDirty;
   }
 
+  async function startReviewsUnlessSandboxRefused(queue: TeamReviewCandidate[]): Promise<boolean> {
+    if (sandboxRefusal() === null) return startReviews(queue);
+    waitingForSlot = [];
+    return false;
+  }
+
   async function collectCandidates(): Promise<{ candidates: TeamReviewCandidate[]; isComplete: boolean } | null> {
     if (teamProfile === null) teamProfile = await github.teamProfile(org, team);
     if (self === null) self = await github.viewer();
@@ -378,7 +387,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     }
     const isPruned = isComplete ? await pruneDeparted(new Set(candidates.map((candidate) => candidate.key))) : false;
     const planned = await headsToReview(candidates);
-    const isStarted = await startReviews(planned.queue);
+    const isStarted = await startReviewsUnlessSandboxRefused(planned.queue);
     if (isPruned || planned.isDirty || isStarted) await persist();
     if (hasSlotFreedSinceSlotCount && waitingForSlot.length > 0 && !loop.isStopped()) {
       setTimeoutFn(() => { void loop.tick(); }, 0);

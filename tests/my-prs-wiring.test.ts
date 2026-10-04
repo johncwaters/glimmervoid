@@ -644,3 +644,24 @@ test('keep mergeable cleanup runs after a failed spawn and an aborted dispatch c
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test('keep mergeable refuses with the sandbox reason in its log line before staging when the cached sandbox probe found binaries missing', async () => {
+  const warnings: string[] = [];
+  const calls: string[] = [];
+  const fix = createMyPrMergeabilityFix({
+    workRoot: '/unused',
+    log: { log: () => {}, warn: (message: string) => { warnings.push(message); } },
+    sandboxRefusal: () => 'not started: the Claude Code sandbox needs bwrap and socat, and bwrap and socat are not on PATH. Install bubblewrap and socat',
+    makeWorkDir: async () => { calls.push('workdir'); return { dir: '/unused/work', cleanup: async () => {} }; },
+    repoCache: {
+      ensureRepo: async () => { calls.push('ensure'); return null; },
+      fetchPr: async () => ({ ok: false, headSha: null, err: 'unused' }),
+      hydrateRange: async () => ({ ok: false, err: 'unused' }),
+    },
+    spawnSession: async () => { calls.push('spawn'); },
+    runGit: async () => { calls.push('git'); return { ok: false, out: '', err: 'unused' }; },
+  });
+  await fix(conflictingPr(), new AbortController().signal);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(warnings, ['[my-prs] keep mergeable for Acme/app#7: not started: the Claude Code sandbox needs bwrap and socat, and bwrap and socat are not on PATH. Install bubblewrap and socat']);
+});

@@ -536,6 +536,11 @@ export function emptyStateText(status: TeamReviewStatus | null | undefined): str
   return 'No review drafts yet. New teammate pull requests show up here after the next poll.';
 }
 
+export function laneNotice(status: TeamReviewStatus | null | undefined): string | null {
+  if (!status?.configured) return null;
+  return status.reason || null;
+}
+
 export function readyAttentionSignature(status: TeamReviewStatus | null | undefined): string {
   return attentionSignature(groupDrafts(status).ready.map((draft) => `${draft.key}@${draft.reviewedHead}`));
 }

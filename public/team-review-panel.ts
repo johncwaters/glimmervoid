@@ -13,7 +13,7 @@ import { createSettingsLink } from './settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, REVIEW_PRIORITY_REASON_TEXT, REVIEW_PRIORITY_TONES, classifyReviewPriority,
   aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
-  commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
   reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityCounts, severityPresentation, verdictLabel, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
 } from './team-review-view-core.ts';
@@ -769,6 +769,11 @@ function buildEmptyState(): HTMLElement {
   return empty;
 }
 
+function laneNoticeElements(): HTMLElement[] {
+  const text = laneNotice(_latest);
+  return text ? [el('p', 'my-pr-note', text)] : [];
+}
+
 function forgetDepartedDetails(readyKeys: Set<string>): void {
   for (const key of [..._readyDetails.keys()]) {
     if (readyKeys.has(key) || _pendingActions.has(key)) continue;
@@ -830,7 +835,7 @@ function render(): void {
   if (!_latest?.configured || !hasAnyRow(sections)) {
     const head = createPrQueueHead(_scopeTabs);
     syncTeamChip(head);
-    _root.replaceChildren(head, ...(pollingControls ? [pollingControls.notice] : []), buildEmptyState());
+    _root.replaceChildren(head, ...(pollingControls ? [pollingControls.notice] : []), ...laneNoticeElements(), buildEmptyState());
     pollingControls?.update(_latest);
     _queue = null;
     _detail = null;
@@ -853,7 +858,7 @@ function render(): void {
   if (sections.attention.length) queueSections.push(createQueueSection('Needs attention', sections.attention, 'attention'));
   if (sections.posted.length) queueSections.push(createQueueSection('Recently posted', sections.posted, 'posted'));
   if (sections.discarded.length) queueSections.push(createQueueSection('Discarded', sections.discarded, 'discarded'));
-  _queue.replaceChildren(...(pollingControls ? [pollingControls.notice] : []), ...queueSections);
+  _queue.replaceChildren(...(pollingControls ? [pollingControls.notice] : []), ...laneNoticeElements(), ...queueSections);
   pollingControls?.update(_latest);
   restoreQueueFocus(focusedReviewKey);
   renderSelectedDetail(sections);

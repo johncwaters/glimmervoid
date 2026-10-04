@@ -195,7 +195,8 @@ const BRANCH_GC_NUMERIC_RANGES = Object.freeze({
   staleDays: BRANCH_GC_STALE_DAYS_RANGE,
   intervalMs: BRANCH_GC_INTERVAL_MS_RANGE,
 });
-const VISIONS_BOOLEAN_KEYS = Object.freeze(['enabled', 'autoFix']);
+const SETTINGS_NOT_SAVED_MESSAGE = 'Settings were not saved: the config file could not be read, validated or written. The server log names the cause.';
+const VISIONS_BOOLEAN_KEYS =Object.freeze(['enabled', 'autoFix']);
 const TEAM_REVIEW_BOOLEAN_KEYS = Object.freeze(['enabled', 'autoRebaseMyPrs', 'keepMergeableEnabled', 'mergeQueueEnabled']);
 const TEAM_REVIEW_STRING_KEYS = Object.freeze(['org', 'team', 'skill']);
 const VISIONS_VALUE_KEYS = Object.freeze(['projects']);
@@ -791,7 +792,10 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       sendError(ws, inSaveWorkflowsFailure.error, { type: 'settings-error', requestId: msg.requestId || null });
       return;
     }
-    if (!freshConfig) return;
+    if (!freshConfig) {
+      sendError(ws, SETTINGS_NOT_SAVED_MESSAGE, { type: 'settings-error', requestId: msg.requestId || null });
+      return;
+    }
     applySettingsReload(freshConfig);
     if (machineSkipsPermissionsByDefault(freshConfig) !== skippedPermissionsByDefault) applyConfigReload(freshConfig);
     const updatedSettings = buildSettingsPayload();

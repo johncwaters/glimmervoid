@@ -191,6 +191,19 @@ test('actions are refused while benchmarks are off, and mining a manual suite or
   assert.deepEqual(await on.wiring.submitAction({ suiteId: 'ladder', action: 'cancel' }), { suiteId: 'ladder', action: 'cancel', ok: false, error: 'No run of this suite is in flight' });
 });
 
+test('a refused sandbox probe refuses the run with its reason before any arm command, subject or run record', async () => {
+  const root = tempRoot();
+  const refusal = 'not started: the Claude Code sandbox needs bwrap and socat, and bwrap is not on PATH. Install bubblewrap and socat';
+  const { wiring, subjectRequests, judgeRequests, armCommands } = harness({
+    root, suite: manualSuite(), cases: [manualCase('case-1')], overrides: { sandboxRefusal: () => refusal },
+  });
+  assert.deepEqual(await wiring.submitAction({ suiteId: 'ladder', action: 'run' }), { suiteId: 'ladder', action: 'run', ok: false, error: refusal });
+  assert.deepEqual(armCommands, []);
+  assert.deepEqual(subjectRequests, []);
+  assert.deepEqual(judgeRequests, []);
+  assert.equal(fs.existsSync(path.join(root, 'ladder', 'runs')), false);
+});
+
 function reviewedChangeRepo(): { repo: string; baseSha: string; reviewedSha: string } {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-bench-repo-'));
   git(['init', '-q', '-b', 'main'], repo);

@@ -26,6 +26,8 @@ import type { TeamReviewReapOptions } from './team-review-reaper.ts';
 import { createTeamReviewPoller } from './team-review-poller.ts';
 import { bootStaggerDelay } from './boot-stagger.ts';
 import type { DraftExpectation, DraftPatch, ReviewOutcome, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller } from './team-review-poller.ts';
+import { allowSandboxedSpawn } from './sandbox-deps.ts';
+import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 import { TeamReviewStateEntry, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type {
   PostingPlan, PrDetail, ResumableReview, ReviewComment, ReviewResult, ReviewDraft, TeamReviewActionRequest, TeamReviewActionResult,
@@ -161,6 +163,7 @@ interface TeamReviewWiringOptions {
   spawnSession?: TeamReviewSpawn;
   createPoller?: typeof createTeamReviewPoller;
   reapProcesses?: TeamReviewReap;
+  sandboxRefusal?: SandboxSpawnRefusal;
   clock?: SharedClock;
 }
 
@@ -889,6 +892,7 @@ function createTeamReviewWiring({
   }),
   createPoller = createTeamReviewPoller,
   reapProcesses = reapTeamReviewProcesses,
+  sandboxRefusal = allowSandboxedSpawn,
   clock,
 }: TeamReviewWiringOptions) {
   const stateIo = createTeamReviewStateIo(path.join(homeDir, core.TEAM_REVIEW_STATE_FILENAME), log);
@@ -929,6 +933,7 @@ function createTeamReviewWiring({
         skipIdleAfterMs: settings.skipIdleAfterDays * 24 * 60 * 60 * 1000,
         github,
         spawnReview: trackReview,
+        sandboxRefusal,
         beforeStart: (keepPaths) => sweepLeftoverCheckouts({ worktreeRoot, workRoot, keepPaths, repoCache, gitWorkspace, reapProcesses, log }),
         discardResumable: async (record) => {
           if (!isOwnedResumable(record, { workRoot, worktreeRoot })) return;

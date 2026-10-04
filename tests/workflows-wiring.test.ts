@@ -252,3 +252,21 @@ test('queued workflow spawns launch only while workflows and their rule stay on,
     await fs.rm(homeDir, { recursive: true, force: true });
   }
 });
+
+test('a spawn action refuses with the sandbox reason in the workflows log before staging when the cached sandbox probe found binaries missing', async () => {
+  const warnings: string[] = [];
+  const calls: string[] = [];
+  const spawn = createWorkflowSpawn({
+    workRoot: '/unused',
+    log: { warn: (message) => { warnings.push(message); } },
+    sandboxRefusal: () => 'not started: the Claude Code sandbox needs bwrap and socat, and bwrap is not on PATH. Install bubblewrap and socat',
+    makeWorkDir: async () => { calls.push('workdir'); return { dir: '/unused/work', cleanup: async () => {} }; },
+    staging: {
+      stageCheckout: async () => { calls.push('stage'); return { projectPath: '/cache/acme-app', baseSha: 'b'.repeat(40) }; },
+      runSession: async () => { calls.push('run'); return 'finished'; },
+    },
+  });
+  await spawn(spawnAction(), new AbortController().signal);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(warnings, ['[workflows] triage session for Acme/app#7: not started: the Claude Code sandbox needs bwrap and socat, and bwrap is not on PATH. Install bubblewrap and socat']);
+});

@@ -1848,3 +1848,43 @@ test('a first review never fetches an earlier range', async () => {
     cleanup();
   }
 });
+
+test('the wiring hands its cached sandbox refusal to the poller, whose status then carries the reason', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-sandbox-test-'));
+  const refusal = 'not started: the Claude Code sandbox needs bwrap and socat, and socat is not on PATH. Install bubblewrap and socat';
+  const pollerStarted = deferredSignal();
+  let pollerRefusal: string | null | undefined;
+  const wiring = createTeamReviewWiring({
+    config: { teamReview: { enabled: true, org: 'Acme', team: 'core' } },
+    reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
+    spawnGate: { run: async (task) => task() }, homeDir, log: { warn: () => {} },
+    reapProcesses: async () => {},
+    sandboxRefusal: () => refusal,
+    github: {
+      viewer: async () => null, teamProfile: async () => null, teamMembers: async () => [], searchDirectRequested: async () => ({ items: [], complete: true }), searchTeamRequested: async () => ({ items: [], complete: true }),
+      searchAuthoredBy: async () => ({ items: [], complete: true }), viewPr: async () => null, prHead: async () => null, prReviewSnapshots: async () => new Map(), rateLimitWaitMs: async () => null, prDiff: async () => null,
+    },
+    repoCache: {
+      listRepos: async () => [], ensureRepo: async () => null,
+      fetchPr: async () => ({ ok: false, headSha: null, err: '' }), hydrateRange: async () => ({ ok: false, err: '' }), hydrateSince: async () => false,
+    },
+    gitWorkspace: {
+      stageDetachedWorktree: async () => ({ ok: false }), removeWorktreeByPath: async () => ({ ok: false }),
+      pruneWorktrees: async () => ({ ok: true }), originUrl: async () => null, populate: async () => {},
+    },
+    createPoller: (dependencies) => {
+      pollerRefusal = dependencies.sandboxRefusal?.();
+      const poller = createTeamReviewPoller({ ...dependencies, beforeStart: async () => {} });
+      return { ...poller, start: async () => { await poller.start(); pollerStarted.resolve(); } };
+    },
+  });
+  try {
+    wiring.startPoller();
+    await pollerStarted.promise;
+    assert.equal(pollerRefusal, refusal);
+    assert.equal(wiring.getStatus().reason, refusal);
+  } finally {
+    await wiring.stopPoller();
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
