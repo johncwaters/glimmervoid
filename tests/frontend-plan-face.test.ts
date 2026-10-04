@@ -118,6 +118,7 @@ test('the borrowed card swaps to plan and release restores the terminal face thr
     isBorrowed: false,
     hasPlan: true,
     pendingPromptKind: 'plan',
+    pendingPromptDetail: null,
     planReviewState: { reviews: [] },
     planFace: {
       el: document.createElement('section'),

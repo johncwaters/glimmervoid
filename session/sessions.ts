@@ -12,7 +12,7 @@ import { requireExecutableSpawnHelper } from "../server/node-pty-preflight.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
 import { AGENT_ATTENTION_NOTE_SEPARATOR, AGENT_URL_ENV } from "../shared/contracts/session.ts";
-import type { AgentAttentionReply } from "../shared/contracts/session.ts";
+import type { AgentAttentionReply, PendingPromptDetail } from "../shared/contracts/session.ts";
 import { generateToken } from "../detection/settings-injector.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
 import { createStatusSource } from "../detection/status-source.ts";
@@ -61,6 +61,34 @@ function signalablePid(pid: unknown): number | null {
   if (!Number.isInteger(parsed)) return null;
   if (parsed < 2) return null;
   return parsed;
+}
+
+function nextPendingPromptDetail(
+  currentKind: string | null,
+  currentDetail: PendingPromptDetail | null,
+  nextKind: string | null,
+  incomingDetail: PendingPromptDetail | null,
+  mayInheritCurrentDetail: boolean,
+): PendingPromptDetail | null {
+  if (nextKind !== "permission") return null;
+  if (incomingDetail) return incomingDetail;
+  if (mayInheritCurrentDetail && currentKind === "permission") return currentDetail;
+  return null;
+}
+
+function isSamePromptDetail(left: PendingPromptDetail | null, right: PendingPromptDetail | null): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return left.toolName === right.toolName && left.summary === right.summary && left.isComplete === right.isComplete;
+}
+
+function isDifferentPermissionDialog(
+  currentKind: string | null,
+  currentDetail: PendingPromptDetail | null,
+  incomingDetail: PendingPromptDetail | null,
+): boolean {
+  if (currentKind !== "permission" || !currentDetail || !incomingDetail) return false;
+  return currentDetail.toolName !== incomingDetail.toolName || currentDetail.summary !== incomingDetail.summary;
 }
 
 const DISMISSIBLE_STATES: Set<SessionState> = new Set([STATES.WAITING, STATES.COMPLETE]);
@@ -214,6 +242,8 @@ class Session extends EventEmitter {
   _hookSeen: boolean;
   _lastSignal: Record<string, unknown> | null;
   _pendingPromptKind: string | null;
+  _pendingPromptDetail: PendingPromptDetail | null;
+  _hasQueuedPermissionDialogsThisEpisode: boolean;
   _pendingAttentionNotes: string[];
   _titleQuiet: boolean;
   _spawnCommand: ResolvedCommand | null;
@@ -394,6 +424,8 @@ class Session extends EventEmitter {
     this._lastSignal = null;
 
     this._pendingPromptKind = null;
+    this._pendingPromptDetail = null;
+    this._hasQueuedPermissionDialogsThisEpisode = false;
     this._pendingAttentionNotes = [];
 
     this._titleQuiet = false;
@@ -616,7 +648,17 @@ class Session extends EventEmitter {
       void this._refreshTranscriptTaskTitle();
     }
 
-    if (raw && raw.signal === "awaiting-input") this._setPendingPromptKind(raw.promptKind || null);
+    if (raw && raw.signal === "awaiting-input") {
+      const isNotificationInSameWaitingEpisode = String(raw.event || "").toLowerCase() === "notification" && this.state === STATES.WAITING;
+      const incomingDetail = raw.promptDetail ?? null;
+      if (this.state === STATES.WAITING && isDifferentPermissionDialog(this._pendingPromptKind, this._pendingPromptDetail, incomingDetail)) {
+        this._hasQueuedPermissionDialogsThisEpisode = true;
+      }
+      const detailForDisplay = incomingDetail && this._hasQueuedPermissionDialogsThisEpisode
+        ? { ...incomingDetail, isComplete: false }
+        : incomingDetail;
+      this._setPendingPromptKind(raw.promptKind || null, detailForDisplay, isNotificationInSameWaitingEpisode);
+    }
     if (raw && raw.signal === "session-start") this._onSessionStartHook(raw);
     if (raw && raw.signal === "resume") {
       this._titleQuiet = false;
@@ -688,11 +730,13 @@ class Session extends EventEmitter {
     this.emit("claude-session-id", event);
   }
 
-  _setPendingPromptKind(kind: string | null): void {
+  _setPendingPromptKind(kind: string | null, detail: PendingPromptDetail | null = null, mayInheritCurrentDetail = false): void {
     const next = kind || null;
-    if (next === this._pendingPromptKind) return;
+    const nextDetail = nextPendingPromptDetail(this._pendingPromptKind, this._pendingPromptDetail, next, detail, mayInheritCurrentDetail);
+    if (next === this._pendingPromptKind && isSamePromptDetail(nextDetail, this._pendingPromptDetail)) return;
     this._pendingPromptKind = next;
-    this.emit("prompt-kind-change", { pendingPromptKind: next });
+    this._pendingPromptDetail = nextDetail;
+    this.emit("prompt-kind-change", { pendingPromptKind: next, pendingPromptDetail: nextDetail });
   }
 
   _pushAuditEntry(entry: Record<string, unknown>): void {
@@ -1006,6 +1050,7 @@ class Session extends EventEmitter {
       awaitingBackgroundTasks: this.backgroundTracking.awaitingBackgroundTasks(),
       pendingWakeup: this.backgroundTracking.pendingWakeup(),
       pendingPromptKind: this._pendingPromptKind,
+      pendingPromptDetail: this._pendingPromptDetail,
       hasPlan: this._planReviewPort?.hasPlan(this.id) === true,
       mergeStatus: this.mergeStatus,
       mergeReason: this.mergeReason,
@@ -1057,7 +1102,10 @@ class Session extends EventEmitter {
       exitHook(this);
     }
 
-    if (from === STATES.WAITING) this._setPendingPromptKind(null);
+    if (from === STATES.WAITING) {
+      this._hasQueuedPermissionDialogsThisEpisode = false;
+      this._setPendingPromptKind(null);
+    }
 
     this.state = to;
 

@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import { STATES } from '../states.ts';
+import { TOOL_DETAIL_MAX_CHARS } from '../tool-detail.ts';
 
 export const TASK_TITLE_MAX_LENGTH = 120;
 export const TASK_TITLE_CONTROL_CHARACTERS = /[\x00-\x1f\x7f-\x9f]/;
+export const PROMPT_DETAIL_HIDDEN_CHARACTERS = new RegExp(`${TASK_TITLE_CONTROL_CHARACTERS.source}|[\\p{Cf}\\u2028\\u2029]`, 'u');
 export const TaskTitle = z.string().refine((title) => !TASK_TITLE_CONTROL_CHARACTERS.test(title)).trim().max(TASK_TITLE_MAX_LENGTH);
 export const SessionState = z.enum(STATES);
 export const PendingWakeup = z.object({
@@ -10,6 +12,12 @@ export const PendingWakeup = z.object({
   kind: z.string(),
   reason: z.string().nullable(),
 }).passthrough();
+
+export const PendingPromptDetail = z.object({
+  toolName: z.string().max(TOOL_DETAIL_MAX_CHARS),
+  summary: z.string().max(TOOL_DETAIL_MAX_CHARS),
+  isComplete: z.boolean(),
+});
 
 export const SessionSnapshot = z.object({
   id: z.string(),
@@ -30,6 +38,7 @@ export const SessionSnapshot = z.object({
   awaitingBackgroundTasks: z.boolean(),
   pendingWakeup: PendingWakeup.nullable(),
   pendingPromptKind: z.string().nullable(),
+  pendingPromptDetail: PendingPromptDetail.nullable().default(null),
   hasPlan: z.boolean().default(false),
   mergeStatus: z.string().nullable(),
   mergeReason: z.string().nullable(),
@@ -41,6 +50,7 @@ export const SessionSnapshot = z.object({
 export type SessionState = z.infer<typeof SessionState>;
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>;
 export type PendingWakeup = z.infer<typeof PendingWakeup>;
+export type PendingPromptDetail = z.infer<typeof PendingPromptDetail>;
 
 export const AGENT_URL_ENV = 'GLIMMERVOID_AGENT_URL';
 export const AGENT_API_VERBS = ['spawn', 'attention', 'board'] as const;

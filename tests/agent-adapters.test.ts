@@ -245,6 +245,66 @@ test('the adapter hook table reproduces every pre-extraction mapping', () => {
   }
 });
 
+test('a Bash PermissionRequest carries its command as the prompt detail; plans and notifications carry none', () => {
+  const mapPromptDetail = claudeCode.mapHookPromptDetail;
+  assert.deepEqual(
+    mapPromptDetail('PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'rm -rf build\necho done' } }),
+    { toolName: 'Bash', summary: 'rm -rf build', isComplete: false },
+  );
+  assert.deepEqual(mapPromptDetail('PermissionRequest', { tool_name: 'mcp__docs__search', tool_input: { q: 'x' } }), { toolName: 'mcp__docs__search', summary: '', isComplete: false });
+  assert.equal(mapPromptDetail('PermissionRequest', { tool_name: 'ExitPlanMode', tool_input: { plan: 'Ship it' } }), null);
+  assert.equal(mapPromptDetail('Notification', { notification_type: 'permission_prompt' }), null);
+  assert.equal(mapPromptDetail('PermissionRequest', {}), null);
+});
+
+test('a permission detail is complete only when the summary is the whole single-line untruncated field', () => {
+  const mapPromptDetail = claudeCode.mapHookPromptDetail;
+  const completenessOf = (toolName: string, toolInput: Record<string, unknown>) => mapPromptDetail('PermissionRequest', { tool_name: toolName, tool_input: toolInput })?.isComplete;
+  assert.equal(completenessOf('Bash', { command: 'npm test' }), true);
+  assert.equal(completenessOf('Bash', { command: "cat <<'EOF' > notes.txt\nhello\nEOF" }), false);
+  assert.equal(completenessOf('Bash', { command: `echo ${'a'.repeat(195)}` }), false);
+  assert.equal(completenessOf('mcp__docs__search', { q: 'npm test' }), false);
+});
+
+test('a permission detail is never complete for a tool other than Bash, whose approved request holds more than the shown field', () => {
+  const mapPromptDetail = claudeCode.mapHookPromptDetail;
+  const completenessOf = (toolName: string, toolInput: Record<string, unknown>) => mapPromptDetail('PermissionRequest', { tool_name: toolName, tool_input: toolInput })?.isComplete;
+  assert.equal(completenessOf('Write', { file_path: '/repo/a.ts', content: 'x' }), false);
+  assert.equal(completenessOf('Edit', { file_path: '/repo/a.ts', old_string: 'a', new_string: 'b' }), false);
+  assert.equal(completenessOf('Task', { description: 'Explore', prompt: 'do things' }), false);
+  assert.equal(completenessOf('Grep', { pattern: 'needle', path: '/' }), false);
+});
+
+test('a Bash permission detail is complete only when every tool_input key is command, description or timeout', () => {
+  const mapPromptDetail = claudeCode.mapHookPromptDetail;
+  const completenessOf = (toolInput: Record<string, unknown>) => mapPromptDetail('PermissionRequest', { tool_name: 'Bash', tool_input: toolInput })?.isComplete;
+  assert.equal(completenessOf({ command: 'npm test', dangerouslyDisableSandbox: true }), false);
+  assert.equal(completenessOf({ command: 'npm test', run_in_background: true }), false);
+  assert.equal(completenessOf({ command: 'npm test', someFutureField: 'x' }), false);
+  assert.equal(completenessOf({ command: 'npm test', description: 'Run the tests', timeout: 60000 }), true);
+});
+
+test('a Bash command holding a bidi override or a lone carriage return is never complete', () => {
+  const mapPromptDetail = claudeCode.mapHookPromptDetail;
+  const completenessOf = (command: string) => mapPromptDetail('PermissionRequest', { tool_name: 'Bash', tool_input: { command } })?.isComplete;
+  assert.equal(completenessOf(`echo safe ${String.fromCharCode(0x202e)}fr- mr`), false);
+  assert.equal(completenessOf(`echo safe${String.fromCharCode(0x0d)}rm -rf ~`), false);
+  assert.equal(completenessOf(`echo ${String.fromCharCode(0x200b)}hi`), false);
+  assert.equal(completenessOf(`echo ${String.fromCharCode(0x1b)}[2K`), false);
+});
+
+test('HookRouter attaches the permission detail to the awaiting-input signal it emits', () => {
+  const router = new HookRouter();
+  const seen: HookSignal[] = [];
+  router.register('s1', { token: 'tok', onSignal: (s) => seen.push(s), hooks: claudeCode.hooks });
+  router.handle({ glimmervoidId: 's1', event: 'PermissionRequest', token: 'tok', payload: { tool_name: 'Bash', tool_input: { command: 'npm test' } } });
+  router.handle({ glimmervoidId: 's1', event: 'Notification', token: 'tok', payload: { notification_type: 'permission_prompt' } });
+  assert.deepEqual(seen.map((s) => [s.promptKind, s.promptDetail ?? null]), [
+    ['permission', { toolName: 'Bash', summary: 'npm test', isComplete: true }],
+    ['permission', null],
+  ]);
+});
+
 test('HookRouter translates with the hook profile the registration names', () => {
   const router = new HookRouter();
   const seen: HookSignal[] = [];

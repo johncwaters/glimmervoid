@@ -22,10 +22,15 @@ export function firstDetailLine(text: string): string {
   return `${line.slice(0, TOOL_DETAIL_MAX_CHARS - 3)}...`;
 }
 
-export function toolDetailLine(toolName: string, toolInput: unknown): string {
+export function toolDetailFieldValue(toolName: string, toolInput: unknown): string | null {
   const field = DETAIL_FIELD_BY_TOOL[toolName];
-  if (!field) return '';
-  if (!toolInput || typeof toolInput !== 'object' || Array.isArray(toolInput)) return '';
+  if (!field) return null;
+  if (!toolInput || typeof toolInput !== 'object' || Array.isArray(toolInput)) return null;
   const value = (toolInput as Record<string, unknown>)[field];
-  return typeof value === 'string' ? firstDetailLine(value) : '';
+  return typeof value === 'string' ? value : null;
+}
+
+export function toolDetailLine(toolName: string, toolInput: unknown): string {
+  const fieldValue = toolDetailFieldValue(toolName, toolInput);
+  return fieldValue === null ? '' : firstDetailLine(fieldValue);
 }

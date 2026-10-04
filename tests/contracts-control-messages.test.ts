@@ -110,6 +110,7 @@ const SESSION = {
   awaitingBackgroundTasks: false,
   pendingWakeup: null,
   pendingPromptKind: null,
+  pendingPromptDetail: null,
   hasPlan: false,
   mergeStatus: 'none',
   mergeReason: null,
@@ -252,6 +253,19 @@ test('real server payloads round-trip through every server contract variant', ()
     assert.equal(parsed.success, true, `${payload.type}: ${parsed.error?.issues[0]?.message || 'invalid'}`);
     assert.deepEqual(parsed.data, payload, payload.type);
   }
+});
+
+test('session-prompt parses with and without a pending prompt detail and rejects a malformed one', () => {
+  const prompt = { type: 'session-prompt', id: 'session-1', pendingPromptKind: 'permission', session: 'glimmervoid', timestamp: NOW };
+  assert.equal(ServerMessage.safeParse(prompt).success, true);
+  assert.equal(ServerMessage.safeParse({ ...prompt, pendingPromptDetail: null }).success, true);
+  const detailed = { ...prompt, pendingPromptDetail: { toolName: 'Bash', summary: 'npm test', isComplete: true } };
+  assert.deepEqual(ServerMessage.parse(detailed), detailed);
+  assert.equal(ServerMessage.safeParse({ ...prompt, pendingPromptDetail: 'npm test' }).success, false);
+  assert.equal(ServerMessage.safeParse({ ...prompt, pendingPromptDetail: { toolName: 'Bash', isComplete: true } }).success, false);
+  assert.equal(ServerMessage.safeParse({ ...prompt, pendingPromptDetail: { toolName: 'Bash', summary: 'npm test' } }).success, false);
+  assert.equal(ServerMessage.safeParse({ ...prompt, pendingPromptDetail: { toolName: 'Bash', summary: 'npm test', isComplete: 'yes' } }).success, false);
+  assert.equal(ServerMessage.safeParse({ ...prompt, pendingPromptDetail: { toolName: 'Bash', summary: 'x'.repeat(161), isComplete: false } }).success, false);
 });
 
 test('GitHub issue client requests validate their bounded fields', () => {

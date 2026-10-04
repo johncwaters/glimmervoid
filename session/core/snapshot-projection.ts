@@ -1,4 +1,5 @@
 import type { SessionCardFields } from "../../shared/contracts/control-messages.ts";
+import type { PendingPromptDetail } from "../../shared/contracts/session.ts";
 
 interface SessionCardSource {
   taskTitle?: string | null;
@@ -58,6 +59,7 @@ interface SnapshotSource {
   awaitingBackgroundTasks: boolean;
   pendingWakeup: Record<string, unknown> | null;
   pendingPromptKind: string | null;
+  pendingPromptDetail: PendingPromptDetail | null;
   hasPlan: boolean;
   mergeStatus: string;
   mergeReason: string | null;
@@ -88,6 +90,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     awaitingBackgroundTasks: source.awaitingBackgroundTasks,
     pendingWakeup: source.pendingWakeup,
     pendingPromptKind: source.pendingPromptKind,
+    pendingPromptDetail: source.pendingPromptDetail,
     hasPlan: source.hasPlan,
     mergeStatus: source.mergeStatus,
     mergeReason: source.mergeReason,

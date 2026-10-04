@@ -1,5 +1,6 @@
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { PlanDraftPush } from '#shared/contracts/plan-review.ts';
+import type { PendingPromptDetail } from '#shared/contracts/session.ts';
 import type { SessionState } from '#shared/states.ts';
 import { KILLABLE_STATES, RESTARTABLE_STATES, STATES } from '#shared/states.ts';
 import { playAlertSound } from '../alert-sound.ts';
@@ -331,6 +332,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     isBorrowed: false,
     hasPlan: false,
     pendingPromptKind: null,
+    pendingPromptDetail: null,
     planReviewState: { reviews: [] },
     planFace,
   };
@@ -497,10 +499,11 @@ export function setSessionUsage(sessionId: unknown, usage: UsageSessionUsage | n
   });
 }
 
-export function setSessionPrompt(sessionId: unknown, kind: unknown) {
+export function setSessionPrompt(sessionId: unknown, kind: unknown, detail: PendingPromptDetail | null = null) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
   ui.pendingPromptKind = typeof kind === 'string' ? kind : null;
+  ui.pendingPromptDetail = detail;
   paintCardBadge(ui, '.prompt-badge', 'prompt', {
     on: !!kind,
     value: asText(kind),

@@ -236,6 +236,110 @@ test('awaiting-input with promptKind sets pendingPromptKind, surfaces in snapsho
   s.destroy();
 });
 
+const BASH_DETAIL = { toolName: 'Bash', summary: 'npm test', isComplete: true };
+
+test('a permission request surfaces its detail in the snapshot and on prompt-kind-change', () => {
+  const s = makeSession(STATES.RUNNING);
+  const deltas: unknown[] = [];
+  s.on('prompt-kind-change', (e) => deltas.push(e));
+  hook(s, 'awaiting-input', { promptKind: 'permission', promptDetail: BASH_DETAIL });
+  assert.deepEqual(s.toSnapshot().pendingPromptDetail, BASH_DETAIL);
+  assert.deepEqual(deltas, [{ pendingPromptKind: 'permission', pendingPromptDetail: BASH_DETAIL }]);
+  s.destroy();
+});
+
+test('a later permission notification keeps the detail of the pending permission request', () => {
+  const s = makeSession(STATES.RUNNING);
+  const deltas: unknown[] = [];
+  s.on('prompt-kind-change', (e) => deltas.push(e));
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: BASH_DETAIL });
+  hook(s, 'awaiting-input', { event: 'Notification', promptKind: 'permission' });
+  assert.deepEqual(s.toSnapshot().pendingPromptDetail, BASH_DETAIL);
+  assert.equal(deltas.length, 1);
+  s.destroy();
+});
+
+test('a permission request without a detail clears the detail of the earlier request', () => {
+  const s = makeSession(STATES.RUNNING);
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: BASH_DETAIL });
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission' });
+  assert.equal(s.toSnapshot().pendingPromptKind, 'permission');
+  assert.equal(s.toSnapshot().pendingPromptDetail, null);
+  s.destroy();
+});
+
+test('a permission detail does not survive into a new waiting episode', () => {
+  const s = makeSession(STATES.RUNNING);
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: BASH_DETAIL });
+  assert.equal(s.state, STATES.WAITING);
+  title(s, 'working');
+  assert.notEqual(s.state, STATES.WAITING);
+  assert.equal(s.toSnapshot().pendingPromptDetail, null);
+  hook(s, 'awaiting-input', { event: 'Notification', promptKind: 'permission' });
+  assert.equal(s.toSnapshot().pendingPromptKind, 'permission');
+  assert.equal(s.toSnapshot().pendingPromptDetail, null);
+  s.destroy();
+});
+
+test('two permission details that differ only in completeness emit twice and store the second', () => {
+  const s = makeSession(STATES.RUNNING);
+  const details: unknown[] = [];
+  s.on('prompt-kind-change', (e) => details.push(e.pendingPromptDetail));
+  const incompleteBashDetail = { ...BASH_DETAIL, isComplete: false };
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: BASH_DETAIL });
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: incompleteBashDetail });
+  assert.deepEqual(details, [BASH_DETAIL, incompleteBashDetail]);
+  assert.deepEqual(s.toSnapshot().pendingPromptDetail, incompleteBashDetail);
+  s.destroy();
+});
+
+test('a second permission request with a different detail emits again', () => {
+  const s = makeSession(STATES.RUNNING);
+  const details: unknown[] = [];
+  s.on('prompt-kind-change', (e) => details.push(e.pendingPromptDetail));
+  hook(s, 'awaiting-input', { promptKind: 'permission', promptDetail: BASH_DETAIL });
+  hook(s, 'awaiting-input', { promptKind: 'permission', promptDetail: { toolName: 'Write', summary: '/repo/a.ts', isComplete: false } });
+  assert.deepEqual(details, [BASH_DETAIL, { toolName: 'Write', summary: '/repo/a.ts', isComplete: false }]);
+  s.destroy();
+});
+
+test('two different permission requests in one waiting episode keep the detail incomplete for the rest of it', () => {
+  const s = makeSession(STATES.RUNNING);
+  const writeDetail = { toolName: 'Write', summary: '/repo/a.ts', isComplete: true };
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: writeDetail });
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: BASH_DETAIL });
+  assert.deepEqual(s.toSnapshot().pendingPromptDetail, { ...BASH_DETAIL, isComplete: false });
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: BASH_DETAIL });
+  assert.deepEqual(s.toSnapshot().pendingPromptDetail, { ...BASH_DETAIL, isComplete: false });
+  hook(s, 'awaiting-input', { event: 'Notification', promptKind: 'permission' });
+  assert.deepEqual(s.toSnapshot().pendingPromptDetail, { ...BASH_DETAIL, isComplete: false });
+  s.destroy();
+});
+
+test('a single complete permission request in a new waiting episode is complete again after a queued one', () => {
+  const s = makeSession(STATES.RUNNING);
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: { toolName: 'Write', summary: '/repo/a.ts', isComplete: true } });
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: BASH_DETAIL });
+  title(s, 'working');
+  assert.notEqual(s.state, STATES.WAITING);
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: BASH_DETAIL });
+  assert.equal(s.state, STATES.WAITING);
+  assert.deepEqual(s.toSnapshot().pendingPromptDetail, BASH_DETAIL);
+  s.destroy();
+});
+
+test('the prompt detail clears when the kind changes away from permission', () => {
+  const s = makeSession(STATES.RUNNING);
+  hook(s, 'awaiting-input', { promptKind: 'permission', promptDetail: BASH_DETAIL });
+  hook(s, 'awaiting-input', { promptKind: 'elicitation', promptDetail: BASH_DETAIL });
+  assert.equal(s.toSnapshot().pendingPromptDetail, null);
+  hook(s, 'awaiting-input', { promptKind: 'permission', promptDetail: BASH_DETAIL });
+  title(s, 'working');
+  assert.equal(s.toSnapshot().pendingPromptKind, null);
+  assert.equal(s.toSnapshot().pendingPromptDetail, null);
+  s.destroy();
+});
+
 test('awaiting-input with no promptKind leaves pendingPromptKind null (no false chip)', () => {
   const s = makeSession(STATES.RUNNING);
   const deltas: unknown[] = [];

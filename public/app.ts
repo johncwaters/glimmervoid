@@ -164,7 +164,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
 
     setSessionWakeup(s.id, s.pendingWakeup);
 
-    setSessionPrompt(s.id, s.pendingPromptKind);
+    setSessionPrompt(s.id, s.pendingPromptKind, s.pendingPromptDetail);
 
     setSessionHasPlan(s.id, s.hasPlan);
 
@@ -308,7 +308,7 @@ const messageHandlers = {
 
   'session-agents':     (msg) => { setSessionAgents(msg.id, msg.activeAgents, msg.awaitingBackgroundTasks); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); handleDebugStateRefresh(msg.id); },
   'session-wakeup':     (msg) => setSessionWakeup(msg.id, msg.pendingWakeup),
-  'session-prompt':     (msg) => { setSessionPrompt(msg.id, msg.pendingPromptKind); refreshPhoneBoard(); },
+  'session-prompt':     (msg) => { setSessionPrompt(msg.id, msg.pendingPromptKind, msg.pendingPromptDetail ?? null); refreshPhoneBoard(); },
   'session-merge-status': (msg) => { setSessionMergeStatus(msg.id, msg.mergeStatus, msg.reason); setFocusMergeStatus(msg.id, msg.mergeStatus); refreshPhoneBoard(); },
   'session-worktree-blocked': (msg) => { showErrorToast(`${msg.session}: ${msg.notice || 'integration branch not found'}`, { persist: true }); },
   'session-worktree-warning': (msg) => { showErrorToast(`${msg.session}: ${msg.notice || 'base branch warning'}`); },

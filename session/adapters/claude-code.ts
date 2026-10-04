@@ -9,7 +9,8 @@ import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-e
 import { execFileSync } from "../../server/child-process-safe.ts";
 import type { AgentAdapterShape, AgentArgsOptions, AgentHookProfile, AgentSpawnCommandOptions } from "./index.ts";
 import { PLAN_TOOL_NAME } from "../../shared/contracts/index.ts";
-import type { HookPayload } from "../../shared/contracts/index.ts";
+import { PROMPT_DETAIL_HIDDEN_CHARACTERS, type HookPayload, type PendingPromptDetail } from "../../shared/contracts/index.ts";
+import { firstDetailLine, toolDetailFieldValue } from "../../shared/tool-detail.ts";
 
 const ID = "claude-code";
 const COMMAND_NAME = "claude";
@@ -63,6 +64,31 @@ function mapHookPromptKind(event: string, payload?: HookPayload): string | null 
   return null;
 }
 
+function mapHookPromptDetail(event: string, payload?: HookPayload): PendingPromptDetail | null {
+  if (String(event || "").toLowerCase() !== "permissionrequest") return null;
+  if (mapHookPromptKind(event, payload) !== "permission") return null;
+  const toolName = payload?.tool_name;
+  if (typeof toolName !== "string" || !toolName) return null;
+  const fieldValue = toolDetailFieldValue(toolName, payload?.tool_input);
+  const summary = fieldValue === null ? "" : firstDetailLine(fieldValue);
+  const isComplete = isWholeBashCommandShown(toolName, payload?.tool_input, fieldValue, summary);
+  return { toolName: firstDetailLine(toolName), summary, isComplete };
+}
+
+const DISPLAY_IRRELEVANT_BASH_INPUT_KEYS = new Set(["command", "description", "timeout"]);
+
+function hasOnlyDisplayIrrelevantBashInputKeys(toolInput: unknown): boolean {
+  if (!toolInput || typeof toolInput !== "object") return false;
+  return Reflect.ownKeys(toolInput).every((key) => typeof key === "string" && DISPLAY_IRRELEVANT_BASH_INPUT_KEYS.has(key));
+}
+
+function isWholeBashCommandShown(toolName: string, toolInput: unknown, fieldValue: string | null, summary: string): boolean {
+  if (toolName !== "Bash" || fieldValue === null) return false;
+  if (!hasOnlyDisplayIrrelevantBashInputKeys(toolInput)) return false;
+  if (PROMPT_DETAIL_HIDDEN_CHARACTERS.test(fieldValue)) return false;
+  return summary === fieldValue;
+}
+
 function mapHookToSignal(event: string, payload?: HookPayload): string | null {
   const e = String(event || "").toLowerCase();
   switch (e) {
@@ -108,6 +134,7 @@ const hooks: AgentHookProfile = {
   mapSignal: mapHookToSignal,
   mapConfidence: mapHookConfidence,
   mapPromptKind: mapHookPromptKind,
+  mapPromptDetail: mapHookPromptDetail,
   injection: { kind: "settings-file" },
 };
 
@@ -189,6 +216,7 @@ const claudeCode = {
   mapHookToSignal,
   mapHookConfidence,
   mapHookPromptKind,
+  mapHookPromptDetail,
 } satisfies AgentAdapterShape;
 
 export default claudeCode;

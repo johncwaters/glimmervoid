@@ -11,7 +11,7 @@ import {
   PlanResponseFrame,
 } from './plan-review.ts';
 import { ChangeMap } from './change-map.ts';
-import { PendingWakeup, SessionSnapshot, SessionState, TaskTitle } from './session.ts';
+import { PendingPromptDetail, PendingWakeup, SessionSnapshot, SessionState, TaskTitle } from './session.ts';
 import { TraceRecord } from './trace.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
 import { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus } from './team-review.ts';
@@ -401,7 +401,7 @@ const serverVariants = [
   loose('session-git', { id: sessionId, worktree: z.boolean() }),
   loose('session-agents', { id: sessionId, activeAgents: z.number().int().nonnegative(), awaitingBackgroundTasks: z.boolean(), timestamp }),
   loose('session-wakeup', { id: sessionId, pendingWakeup: PendingWakeup.nullable(), timestamp }),
-  loose('session-prompt', { id: sessionId, pendingPromptKind: nullableString, timestamp }),
+  loose('session-prompt', { id: sessionId, pendingPromptKind: nullableString, pendingPromptDetail: PendingPromptDetail.nullable().optional(), timestamp }),
 
   loose('session-sleep'),
   loose('session-wake'),
