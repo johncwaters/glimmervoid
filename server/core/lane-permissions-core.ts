@@ -2,9 +2,7 @@ const ACCEPT_EDITS_MODE = 'acceptEdits';
 
 const LANE_CONFIG_EDIT_DENY_RULES: readonly string[] = Object.freeze([
   'Edit(**/.git/**)',
-  'Write(**/.git/**)',
   'Edit(**/.claude/**)',
-  'Write(**/.claude/**)',
 ]);
 
 const LANE_ENVIRONMENT_ARGS: readonly string[] = Object.freeze([

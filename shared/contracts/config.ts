@@ -7,6 +7,7 @@ import {
   createBrowserConfig, optionalBoolean, optionalLooseObject, optionalNumber,
   PlanReviewSettings, TelemetryFileSettings, TraceSettings,
 } from './browser-config.ts';
+import { WorkflowsSettingsUpdate } from './workflows.ts';
 import type { BranchGcFileSettings as BranchGcFileSettingsSchema } from './browser-config.ts';
 
 export {
@@ -28,7 +29,8 @@ export const ConfigUpdate = z.object({
   worktreeAutoRebase: optionalBoolean('worktreeAutoRebase'),
   worktreeSyncOnStart: optionalBoolean('worktreeSyncOnStart'),
   worktreeRerere: optionalBoolean('worktreeRerere'),
-}).omit({ port: true, worktreeShare: true, workflows: true }).strict();
+  workflows: WorkflowsSettingsUpdate.optional(),
+}).omit({ port: true, worktreeShare: true }).strict();
 const AGENT_ID_RE = /^[a-z][a-z0-9-]{1,31}$/;
 export const BUILTIN_AGENT_IDS = Object.freeze(['claude-code', 'codex', 'grok'] as const);
 export const AGENT_ID_SHAPE_MESSAGE = 'an agent id of 2 to 32 characters of lowercase letters, digits and dashes, starting with a letter';

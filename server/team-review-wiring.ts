@@ -199,10 +199,6 @@ function emptyTeamReviewStatus(gate: LaneRunnerGate): TeamReviewStatusType {
   return core.teamReviewStatus({ ts: Date.now(), configured: gate.start, reason: gate.reason ?? null });
 }
 
-function teamReviewPermissions(): { deny: string[]; defaultMode: string } {
-  return { deny: [...TEAM_REVIEW_DENY_RULES], defaultMode: 'bypassPermissions' };
-}
-
 function teamReviewAcceptEditsPermissions(): { deny: string[]; defaultMode: string } {
   return { deny: [...TEAM_REVIEW_SESSION_DENY_RULES], defaultMode: ACCEPT_EDITS_MODE };
 }
@@ -1020,7 +1016,7 @@ type TeamReviewWiring = ReturnType<typeof createTeamReviewWiring>;
 export {
   KEEP_MERGEABLE_EXTRA_DENY_READ_PATHS, TEAM_REVIEW_DENY_RULES, TEAM_REVIEW_SESSION_DENY_RULES,
   createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewStateIo, createTeamReviewWiring, makeTeamReviewWorkDir,
-  emptyGhConfigDir, emptyTeamReviewStatus, hooksPathPinnedSpawnEnv, keepMergeableSandbox, readReviewReport, sweepLeftoverCheckouts, teamReviewAcceptEditsPermissions, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewPermissions, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
+  emptyGhConfigDir, emptyTeamReviewStatus, hooksPathPinnedSpawnEnv, keepMergeableSandbox, readReviewReport, sweepLeftoverCheckouts, teamReviewAcceptEditsPermissions, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
 };
 export { readTeamReviewSettings } from './core/team-review-core.ts';
 export type {

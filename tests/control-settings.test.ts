@@ -286,6 +286,77 @@ test('team review settings persist, echo, and reject invalid fields', () => {
   }
 });
 
+test('the My PRs feature switches and repair deadline persist over the stored team review block and reject values out of range', () => {
+  const h = harness({ projects: [], teamReview: { enabled: true, org: 'Acme' } });
+  h.send({ type: 'update-settings', settings: { teamReview: { keepMergeableEnabled: false, mergeQueueEnabled: false, keepMergeableTimeoutMinutes: 45 } } });
+  const expected = { enabled: true, org: 'Acme', keepMergeableEnabled: false, mergeQueueEnabled: false, keepMergeableTimeoutMinutes: 45 };
+  assert.deepEqual(h.cfg.teamReview, expected);
+  assert.deepEqual(updatedFrom(h)?.settings?.teamReview, expected);
+
+  const cases: [Record<string, unknown>, RegExp][] = [
+    [{ keepMergeableEnabled: 'no' }, /teamReview.keepMergeableEnabled must be a boolean/],
+    [{ mergeQueueEnabled: 1 }, /teamReview.mergeQueueEnabled must be a boolean/],
+    [{ keepMergeableTimeoutMinutes: 4 }, /teamReview.keepMergeableTimeoutMinutes must be an integer between 5 and 120/],
+    [{ keepMergeableTimeoutMinutes: 121 }, /teamReview.keepMergeableTimeoutMinutes must be an integer between 5 and 120/],
+    [{ keepMergeableTimeoutMinutes: 30.5 }, /teamReview.keepMergeableTimeoutMinutes must be an integer between 5 and 120/],
+  ];
+  for (const [teamReview, message] of cases) {
+    const invalid = harness({ projects: [] });
+    invalid.send({ type: 'update-settings', settings: { teamReview } });
+    assert.match(String(errorFrom(invalid)?.message ?? ''), message);
+    assert.equal(invalid.cfg.teamReview, undefined);
+  }
+});
+
+function storedWorkflowRule(id: string, enabled: boolean) {
+  return { id, name: `Rule ${id}`, enabled, repos: ['Acme/app'], trigger: 'opened', actions: [{ type: 'spawn', promptTemplate: 'Look at {{url}}' }] };
+}
+
+test('workflow limits and rule toggles persist by rule id and leave every other rule field as the file has it', () => {
+  const stored = { rules: [storedWorkflowRule('one', false), storedWorkflowRule('two', true)] };
+  const h = harness({ projects: [], workflows: stored });
+  h.send({ type: 'update-settings', settings: { workflows: { enabled: false, maxConcurrentSessions: 3, maxActionsPerPoll: 50, rules: [{ id: 'one', enabled: true }] } } });
+  const expected = { enabled: false, maxConcurrentSessions: 3, maxActionsPerPoll: 50, rules: [storedWorkflowRule('one', true), storedWorkflowRule('two', true)] };
+  assert.equal(errorFrom(h), undefined);
+  assert.deepEqual(h.cfg.workflows, expected);
+  assert.deepEqual(updatedFrom(h)?.settings?.workflows, expected);
+});
+
+test('a workflows update that names an unknown rule, writes another rule field, or leaves a limit out of range is rejected and stores nothing', () => {
+  const stored = { rules: [storedWorkflowRule('one', false)] };
+  const cases: [Record<string, unknown>, RegExp][] = [
+    [{ rules: [{ id: 'ghost', enabled: true }] }, /workflows.rules has no rule with id "ghost"/],
+    [{ rules: [{ id: 'one', enabled: true, actions: [{ type: 'notify' }] }] }, /carries only id and enabled/],
+    [{ rules: [{ id: 'one', enabled: true, name: 'Renamed' }] }, /carries only id and enabled/],
+    [{ maxConcurrentSessions: 0 }, /workflows.maxConcurrentSessions must be an integer between 1 and 5/],
+    [{ maxConcurrentSessions: 6 }, /workflows.maxConcurrentSessions must be an integer between 1 and 5/],
+    [{ maxActionsPerPoll: 0 }, /workflows.maxActionsPerPoll must be an integer between 1 and 50/],
+    [{ maxActionsPerPoll: 51 }, /workflows.maxActionsPerPoll must be an integer between 1 and 50/],
+    [{ maxActionsPerPoll: 2.5 }, /workflows.maxActionsPerPoll must be an integer between 1 and 50/],
+    [{ enabled: 'off' }, /workflows.enabled must be a boolean/],
+  ];
+  for (const [workflows, message] of cases) {
+    const invalid = harness({ projects: [], workflows: structuredClone(stored) });
+    invalid.send({ type: 'update-settings', settings: { workflows } });
+    assert.match(String(errorFrom(invalid)?.message ?? ''), message, JSON.stringify(workflows));
+    assert.deepEqual(invalid.cfg.workflows, stored);
+  }
+});
+
+test('a workflows rule toggle for a rule renamed on disk since the last load fails the whole save and stores nothing', () => {
+  const stored = { rules: [storedWorkflowRule('one', false)] };
+  withRealStore({ projects: [], workflows: stored }, undefined, (h, _store, readDisk) => {
+    const configPath = process.env.GLIMMERVOID_CONFIG;
+    assert.ok(configPath);
+    const renamedOnDisk = { projects: [], workflows: { rules: [storedWorkflowRule('renamed', false)] } };
+    fs.writeFileSync(configPath, JSON.stringify(renamedOnDisk, null, 2), 'utf8');
+    h.send({ type: 'update-settings', settings: { cursorBlink: true, workflows: { rules: [{ id: 'one', enabled: true }] } } });
+    assert.match(String(errorFrom(h)?.message ?? ''), /workflows.rules has no rule with id "one"/);
+    assert.equal(updatedFrom(h), undefined);
+    assert.deepEqual(readDisk(), renamedOnDisk);
+  });
+});
+
 test('benchmark settings persist, echo, and reject a non-boolean enabled', () => {
   const h = harness({ projects: [] });
   h.send({ type: 'update-settings', settings: { benchmarks: { enabled: true, ignored: true } } });

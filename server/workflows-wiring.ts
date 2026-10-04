@@ -91,14 +91,18 @@ export function createWorkflowsWiring({
   config, notificationManager, spawnSession, log = console, homeDir = glimmervoidHomeDir(), github = createPrGh(homeDir), clock, sweepLeftovers, createPoller = createWorkflowsPoller,
 }: WorkflowsWiringOptions) {
   const stateIo = createWorkflowsStateIo(path.join(homeDir, core.WORKFLOWS_STATE_FILENAME), log);
-  const sessions = createWorkflowSessionQueue({ spawnSession, log });
+  const settings = () => core.resolveWorkflowsSettings(config.workflows);
+  const isSpawnStillAllowed = ({ rule }: SpawnAction): boolean => {
+    const resolved = settings();
+    return resolved.ok && resolved.enabled && core.enabledWorkflowRules(resolved.rules).some((enabledRule) => enabledRule.id === rule.id);
+  };
+  const sessions = createWorkflowSessionQueue({ spawnSession, log, maxConcurrentSessions: () => core.workflowSessionLimit(settings()), isSpawnStillAllowed });
   let hasSweptLeftovers = false;
   const sweepLeftoversBeforeFirstStart = async (): Promise<void> => {
     if (hasSweptLeftovers || !sweepLeftovers) return;
     hasSweptLeftovers = true;
     await sweepLeftovers();
   };
-  const settings = () => core.resolveWorkflowsSettings(config.workflows);
   const teamName = () => core.workflowTeamName(readTeamReviewSettings(config));
   const gate = () => core.workflowsShouldStart(settings());
   const runner = createLaneRunner<WorkflowsPoller>({
@@ -110,6 +114,7 @@ export function createWorkflowsWiring({
       const resolved = settings();
       return createPoller({
         rules: resolved.ok ? core.enabledWorkflowRules(resolved.rules) : [],
+        maxActionsPerPoll: resolved.ok ? resolved.maxActionsPerPoll : core.DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL,
         teamName: teamName(),
         github, log, onTickComplete, clock, firstTickDelayMs: bootStaggerDelay, beforeStart: sweepLeftoversBeforeFirstStart,
         readState: stateIo.readState, writeState: stateIo.writeState,

@@ -14,17 +14,25 @@ export interface ReadinessRow { label: 'Checks' | 'Review' | 'Threads' | 'Confli
 
 export interface ToggleControlState { isVisible: boolean; isPressed: boolean; isDisabled: boolean; statusText: string }
 
-function toggleControlState(pr: MyPr, isOn: boolean, isPending: boolean, errorText: string, settledText: string): ToggleControlState {
+function toggleControlState(pr: MyPr, isOn: boolean, isPending: boolean, errorText: string, settledText: string, isFeatureEnabled: boolean): ToggleControlState {
   return {
-    isVisible: pr.state === 'OPEN' || isOn,
+    isVisible: isFeatureEnabled && (pr.state === 'OPEN' || isOn),
     isPressed: isOn,
     isDisabled: isPending,
     statusText: errorText || (isPending ? 'Saving...' : settledText),
   };
 }
 
-export function keepMergeableControlState(pr: MyPr, isPending: boolean, errorText = ''): ToggleControlState {
-  return toggleControlState(pr, !!pr.keepMergeable, isPending, errorText, pr.keepMergeable ? 'On' : 'Off');
+export function keepMergeableControlState(pr: MyPr, isPending: boolean, errorText = '', isFeatureEnabled = true): ToggleControlState {
+  return toggleControlState(pr, !!pr.keepMergeable, isPending, errorText, pr.keepMergeable ? 'On' : 'Off', isFeatureEnabled);
+}
+
+export function isKeepMergeableFeatureEnabled(status: MyPrsStatusType | null): boolean {
+  return status?.isKeepMergeableEnabled !== false;
+}
+
+export function isMergeQueueFeatureEnabled(status: MyPrsStatusType | null): boolean {
+  return status?.isMergeQueueEnabled !== false;
 }
 
 const ORDINAL_SUFFIXES: Readonly<Record<string, string>> = { one: 'st', two: 'nd', few: 'rd', other: 'th' };
@@ -40,9 +48,9 @@ function mergeQueueStatusText(position: number | null, isHeldForRepairPush: bool
   return `Queued, ${ordinal(position)} in line for this repository`;
 }
 
-export function mergeWhenReadyControlState(pr: MyPr, isPending: boolean, errorText = ''): ToggleControlState {
+export function mergeWhenReadyControlState(pr: MyPr, isPending: boolean, errorText = '', isFeatureEnabled = true): ToggleControlState {
   const position = pr.mergeQueuePosition ?? null;
-  return toggleControlState(pr, position !== null, isPending, errorText, mergeQueueStatusText(position, !!pr.isMergeQueueHeldForRepairPush));
+  return toggleControlState(pr, position !== null, isPending, errorText, mergeQueueStatusText(position, !!pr.isMergeQueueHeldForRepairPush), isFeatureEnabled);
 }
 
 const SECTION_TITLES = ['Needs you', 'Waiting', 'Ready to merge', 'Drafts', 'Merged today'] as const;

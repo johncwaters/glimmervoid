@@ -1,13 +1,14 @@
-import { WorkflowsSettings } from '../../shared/contracts/workflows.ts';
-import type { WorkflowAction, WorkflowPr, WorkflowRepoSnapshot, WorkflowRule, WorkflowSearchNode, WorkflowsState, WorkflowTrigger } from '../../shared/contracts/workflows.ts';
+import { DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS, WorkflowsSettings } from '../../shared/contracts/workflows.ts';
+import type {
+  WorkflowAction, WorkflowPr, WorkflowRepoSnapshot, WorkflowRule, WorkflowSearchNode, WorkflowsSettings as WorkflowsSettingsType, WorkflowsSettingsUpdate, WorkflowsState, WorkflowTrigger,
+} from '../../shared/contracts/workflows.ts';
 import { MERGED_RETENTION_MS } from './my-prs-core.ts';
 import { prKey } from './team-review-core.ts';
 
 export const WORKFLOWS_LANE_ID = 'workflows';
 export const WORKFLOWS_STATE_FILENAME = 'workflows-state.json';
 export const WORKFLOWS_POLL_INTERVAL_MINUTES = 5;
-export const MAX_WORKFLOW_ACTIONS_PER_TICK = 20;
-export const MAX_CONCURRENT_WORKFLOW_SESSIONS = 2;
+export { DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS };
 export const MAX_DEFERRED_WORKFLOW_SPAWNS = 20;
 export const WORKFLOW_SEARCH_LAG_GRACE_MS = 10 * 60 * 1000;
 export const WORKFLOW_NOTIFY_CATEGORY = 'workflow';
@@ -37,13 +38,44 @@ export interface PlannedWorkflowAction {
   event: WorkflowEvent;
 }
 
-export type WorkflowsSettingsResolution = { ok: true; rules: WorkflowRule[] } | { ok: false; reason: string };
+export type WorkflowsSettingsResolution = ({ ok: true } & WorkflowsSettingsType) | { ok: false; reason: string };
 
 export function resolveWorkflowsSettings(block: unknown): WorkflowsSettingsResolution {
-  if (block === null || block === undefined) return { ok: true, rules: [] };
-  const parsed = WorkflowsSettings.safeParse(block);
+  const parsed = WorkflowsSettings.safeParse(block ?? {});
   if (!parsed.success) return { ok: false, reason: parsed.error.issues[0]?.message ?? 'workflows settings are invalid' };
-  return { ok: true, rules: parsed.data.rules };
+  return { ok: true, ...parsed.data };
+}
+
+export function workflowSessionLimit(resolution: WorkflowsSettingsResolution): number {
+  return resolution.ok ? resolution.maxConcurrentSessions : DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function mergeWorkflowsUpdateOverStored(stored: unknown, update: WorkflowsSettingsUpdate): { ok: true; workflows: Record<string, unknown> } | { ok: false; error: string } {
+  const storedBlock = isPlainRecord(stored) ? stored : {};
+  const storedRules: unknown[] = Array.isArray(storedBlock.rules) ? storedBlock.rules : [];
+  const storedRuleIds = new Set(storedRules.map((rule) => (isPlainRecord(rule) ? rule.id : undefined)));
+  const ruleToggles = update.rules ?? [];
+  const unknownToggle = ruleToggles.find((toggle) => !storedRuleIds.has(toggle.id));
+  if (unknownToggle) return { ok: false, error: `workflows.rules has no rule with id "${unknownToggle.id}"` };
+  const enabledByRuleId = new Map(ruleToggles.map((toggle) => [toggle.id, toggle.enabled]));
+  const merged: Record<string, unknown> = { ...storedBlock };
+  for (const key of ['enabled', 'maxConcurrentSessions', 'maxActionsPerPoll'] as const) {
+    if (update[key] !== undefined) merged[key] = update[key];
+  }
+  if (update.rules) {
+    merged.rules = storedRules.map((rule) => {
+      if (!isPlainRecord(rule) || typeof rule.id !== 'string') return rule;
+      const enabled = enabledByRuleId.get(rule.id);
+      return enabled === undefined ? rule : { ...rule, enabled };
+    });
+  }
+  const parsed = WorkflowsSettings.safeParse(merged);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? 'workflows settings are invalid' };
+  return { ok: true, workflows: merged };
 }
 
 export function enabledWorkflowRules(rules: readonly WorkflowRule[]): WorkflowRule[] {
@@ -52,6 +84,7 @@ export function enabledWorkflowRules(rules: readonly WorkflowRule[]): WorkflowRu
 
 export function workflowsShouldStart(resolution: WorkflowsSettingsResolution): { start: boolean; reason?: string } {
   if (!resolution.ok) return { start: false, reason: `workflows are not run because the config is invalid: ${resolution.reason}` };
+  if (!resolution.enabled) return { start: false, reason: 'Workflows are turned off in Settings' };
   if (enabledWorkflowRules(resolution.rules).length === 0) return { start: false };
   return { start: true };
 }
@@ -192,7 +225,7 @@ function isUntrustedForkSpawn(rule: WorkflowRule, action: WorkflowAction, pr: Wo
   return action.type === 'spawn' && pr.isCrossRepository && !isAuthorRestricted;
 }
 
-export function matchRules(events: readonly WorkflowEvent[], rules: readonly WorkflowRule[], context: { viewer: string | null; teamName: string | null }): { planned: PlannedWorkflowAction[]; droppedCount: number; refusedSpawnCount: number } {
+export function matchRules(events: readonly WorkflowEvent[], rules: readonly WorkflowRule[], context: { viewer: string | null; teamName: string | null }, maxActionsPerPoll = DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL): { planned: PlannedWorkflowAction[]; droppedCount: number; refusedSpawnCount: number } {
   const candidates = events.flatMap((event) => enabledWorkflowRules(rules)
     .filter((rule) => rule.trigger === event.trigger && ruleMatchesEvent(rule, event, context))
     .flatMap((rule) => rule.actions.map((action) => ({
@@ -201,8 +234,8 @@ export function matchRules(events: readonly WorkflowEvent[], rules: readonly Wor
     }))));
   const matched = candidates.filter((candidate) => !candidate.isRefused).map((candidate) => candidate.planned);
   return {
-    planned: matched.slice(0, MAX_WORKFLOW_ACTIONS_PER_TICK),
-    droppedCount: Math.max(0, matched.length - MAX_WORKFLOW_ACTIONS_PER_TICK),
+    planned: matched.slice(0, maxActionsPerPoll),
+    droppedCount: Math.max(0, matched.length - maxActionsPerPoll),
     refusedSpawnCount: candidates.length - matched.length,
   };
 }
@@ -250,8 +283,8 @@ export function workflowSpawnPrompt(promptTemplate: string, event: WorkflowEvent
   ].join('\n');
 }
 
-export function hasFreeWorkflowSessionSlot(runningSessionCount: number): boolean {
-  return runningSessionCount < MAX_CONCURRENT_WORKFLOW_SESSIONS;
+export function hasFreeWorkflowSessionSlot(runningSessionCount: number, maxConcurrentSessions: number): boolean {
+  return runningSessionCount < maxConcurrentSessions;
 }
 
 export function emptyWorkflowsState(): WorkflowsState {

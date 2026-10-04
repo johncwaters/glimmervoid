@@ -9,7 +9,9 @@ import type { BenchmarkWiringOptions } from '../server/benchmark-wiring.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
 import claudeCode from '../session/adapters/claude-code.ts';
 import type { LaneSpawn } from '../server/lane-spawn.ts';
-import { TEAM_REVIEW_DENY_RULES } from '../server/team-review-wiring.ts';
+import { LANE_CONFIG_EDIT_DENY_RULES } from '../server/core/lane-permissions-core.ts';
+import { absolutePathReadRule } from '../server/core/team-review-core.ts';
+import { TEAM_REVIEW_SESSION_DENY_RULES } from '../server/team-review-wiring.ts';
 import type { TeamReviewSpawn } from '../server/team-review-wiring.ts';
 import { BenchmarkRun, BenchmarkStatus } from '../shared/contracts/benchmark.ts';
 import type { BenchmarkStatus as BenchmarkStatusType } from '../shared/contracts/benchmark.ts';
@@ -189,8 +191,7 @@ test('actions are refused while benchmarks are off, and mining a manual suite or
   assert.deepEqual(await on.wiring.submitAction({ suiteId: 'ladder', action: 'cancel' }), { suiteId: 'ladder', action: 'cancel', ok: false, error: 'No run of this suite is in flight' });
 });
 
-test('a subject that dirties the checkout invalidates its cell and the next cell gets a fresh checkout', { skip: !hasGit() }, async () => {
-  const root = tempRoot();
+function reviewedChangeRepo(): { repo: string; baseSha: string; reviewedSha: string } {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-bench-repo-'));
   git(['init', '-q', '-b', 'main'], repo);
   git(['config', 'user.email', 'bench@example.com'], repo);
@@ -203,12 +204,19 @@ test('a subject that dirties the checkout invalidates its cell and the next cell
   fs.writeFileSync(path.join(repo, 'change.txt'), 'change\n');
   git(['add', '.'], repo);
   git(['commit', '-q', '-m', 'change'], repo);
-  const reviewedSha = git(['rev-parse', 'HEAD'], repo).trim();
+  return { repo, baseSha, reviewedSha: git(['rev-parse', 'HEAD'], repo).trim() };
+}
+
+const CHECKOUT_PROMPT_TEMPLATE = 'Review {repoPath} from {baseSha} and write to {resultPath}.';
+
+test('a subject that dirties the checkout invalidates its cell and the next cell gets a fresh checkout', { skip: !hasGit() }, async () => {
+  const root = tempRoot();
+  const { repo, baseSha, reviewedSha } = reviewedChangeRepo();
   const checkoutPaths: string[] = [];
   let subjectCount = 0;
   const { wiring, statuses } = harness({
     root,
-    suite: manualSuite({ workspace: { kind: 'pr-checkout' }, subject: { promptTemplate: 'Review {repoPath} from {baseSha} and write to {resultPath}.', output: 'review-findings', timeoutSeconds: 60 } }),
+    suite: manualSuite({ workspace: { kind: 'pr-checkout' }, subject: { promptTemplate: CHECKOUT_PROMPT_TEMPLATE, output: 'review-findings', timeoutSeconds: 60 } }),
     cases: [manualCase('case-1', { repo: 'Acme/gateway', number: 7, reviewedSha, baseSha, changedFiles: ['change.txt'] })],
     overrides: {
       repoCache: { ensureRepo: async () => repo, hydrateSince: async () => true },
@@ -247,7 +255,7 @@ test('the subject argv ends the variadic deny list with an option, so the bootst
   await runToCompletion(wiring, statuses);
   const baselineSpawn = subjectRequests.find((request) => request.spawnEnv.CLAUDE_CONFIG_DIR === '/stage/baseline/.claude');
   const args = baselineSpawn?.extraClaudeArgs ?? [];
-  const lastDenyRule = args.lastIndexOf(TEAM_REVIEW_DENY_RULES.at(-1) ?? '');
+  const lastDenyRule = args.lastIndexOf(TEAM_REVIEW_SESSION_DENY_RULES.at(-1) ?? '');
   assert.ok(lastDenyRule > 0);
   assert.match(args[lastDenyRule + 1] ?? '', /^--/);
 });
@@ -276,7 +284,51 @@ test('the subject Read permission rules deny every suite answer-key folder', asy
     const absoluteFolder = path.join(root, 'ladder', folder).split(path.sep).join('/').replace(/^\/+/, '');
     assert.ok(deny.includes(`Read(//${absoluteFolder}/**)`), folder);
   }
-  for (const rule of TEAM_REVIEW_DENY_RULES) assert.ok(deny.includes(rule), rule);
+  for (const rule of TEAM_REVIEW_SESSION_DENY_RULES) assert.ok(deny.includes(rule), rule);
+});
+
+test('the subject runs under acceptEdits with the lane config edit denies, the hooksPath pin and no skip flag', async () => {
+  const root = tempRoot();
+  const { wiring, subjectRequests, statuses } = harness({ root, suite: manualSuite(), cases: [manualCase('case-1')] });
+  await runToCompletion(wiring, statuses);
+  assert.equal(subjectRequests.length, 2);
+  for (const request of subjectRequests) {
+    assert.equal(request.settingsPermissions.defaultMode, 'acceptEdits');
+    assert.equal(JSON.stringify(request).includes('bypassPermissions'), false);
+    assert.equal(request.extraClaudeArgs.includes('--dangerously-skip-permissions'), false);
+    for (const rule of LANE_CONFIG_EDIT_DENY_RULES) assert.ok(request.settingsPermissions.deny.includes(rule), rule);
+    assert.deepEqual(request.extraClaudeArgs.slice(request.extraClaudeArgs.indexOf('--disallowedTools') + 1, -1), [...TEAM_REVIEW_SESSION_DENY_RULES]);
+    assert.equal(request.extraClaudeArgs.includes('--allowedTools'), false);
+    assert.equal(request.spawnEnv.GIT_CONFIG_KEY_2, 'core.hooksPath');
+    assert.equal(request.spawnEnv.GIT_CONFIG_VALUE_2, '');
+  }
+});
+
+test('a checkout subject is allowed to Read exactly its staged checkout', { skip: !hasGit() }, async () => {
+  const root = tempRoot();
+  const { repo, baseSha, reviewedSha } = reviewedChangeRepo();
+  const allowedReadRules: string[][] = [];
+  const checkoutPaths: string[] = [];
+  const { wiring, statuses } = harness({
+    root,
+    suite: manualSuite({ workspace: { kind: 'pr-checkout' }, subject: { promptTemplate: CHECKOUT_PROMPT_TEMPLATE, output: 'review-findings', timeoutSeconds: 60 } }),
+    cases: [manualCase('case-1', { repo: 'Acme/gateway', number: 7, reviewedSha, baseSha, changedFiles: ['change.txt'] })],
+    overrides: {
+      repoCache: { ensureRepo: async () => repo, hydrateSince: async () => true },
+      spawnSubject: async (request) => {
+        const prompt = fs.readFileSync(path.join(request.cwd, 'subject-prompt.md'), 'utf8');
+        checkoutPaths.push(/Review (\S+) from/.exec(prompt)?.[1] ?? '');
+        const args = request.extraClaudeArgs;
+        allowedReadRules.push(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--strict-mcp-config')));
+        fs.writeFileSync(path.join(request.cwd, 'subject-output.md'), FINDINGS_OUTPUT);
+      },
+    },
+  });
+  await runToCompletion(wiring, statuses);
+  assert.equal(allowedReadRules.length, 2);
+  allowedReadRules.forEach((rules, index) => {
+    assert.deepEqual(rules, [absolutePathReadRule(checkoutPaths[index] ?? '')]);
+  });
 });
 
 test('the subject sandbox cannot read the suite answer key or reach GitHub', async () => {

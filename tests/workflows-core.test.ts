@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  diffPrEvents, fillPromptTemplate, matchRules, MAX_WORKFLOW_ACTIONS_PER_TICK, nextRepoSnapshot, resolveWorkflowsSettings, toWorkflowPr,
-  watchedWorkflowRepos, withOwnPostedComment, WORKFLOW_SEARCH_LAG_GRACE_MS, workflowNotification, workflowSpawnPrompt, workflowSpawnQueueKey, workflowsShouldStart, workflowTeamName,
+  DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, diffPrEvents, fillPromptTemplate, matchRules, mergeWorkflowsUpdateOverStored, nextRepoSnapshot, resolveWorkflowsSettings, toWorkflowPr,
+  watchedWorkflowRepos, withOwnPostedComment, WORKFLOW_SEARCH_LAG_GRACE_MS, workflowNotification, workflowSpawnPrompt, workflowSessionLimit, workflowSpawnQueueKey, workflowsShouldStart, workflowTeamName,
 } from '../server/core/workflows-core.ts';
 import { MERGED_RETENTION_MS } from '../server/core/my-prs-core.ts';
 import type { WorkflowEvent } from '../server/core/workflows-core.ts';
@@ -211,15 +211,15 @@ test('a queued spawn is keyed by rule and pull request', () => {
 });
 
 test('matchRules caps the actions planned in one poll and counts the rest', () => {
-  const events = Array.from({ length: MAX_WORKFLOW_ACTIONS_PER_TICK + 5 }, (_unused, index) => event('opened', { number: index + 1 }));
+  const events = Array.from({ length: DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL + 5 }, (_unused, index) => event('opened', { number: index + 1 }));
   const { planned, droppedCount } = matchRules(events, [rule()], NO_CONTEXT);
-  assert.equal(planned.length, MAX_WORKFLOW_ACTIONS_PER_TICK);
+  assert.equal(planned.length, DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL);
   assert.equal(droppedCount, 5);
-  assert.deepEqual(planned.map((action) => action.event.pr.number), Array.from({ length: MAX_WORKFLOW_ACTIONS_PER_TICK }, (_unused, index) => index + 1));
+  assert.deepEqual(planned.map((action) => action.event.pr.number), Array.from({ length: DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL }, (_unused, index) => index + 1));
 });
 
 test('settings resolve to rules, an absent block to none, and an invalid block to a reason that keeps the lane off', () => {
-  assert.deepEqual(resolveWorkflowsSettings(undefined), { ok: true, rules: [] });
+  assert.deepEqual(resolveWorkflowsSettings(undefined), { ok: true, enabled: true, maxConcurrentSessions: 2, maxActionsPerPoll: 20, rules: [] });
   assert.deepEqual(workflowsShouldStart(resolveWorkflowsSettings(null)), { start: false });
   assert.deepEqual(workflowsShouldStart(resolveWorkflowsSettings({ rules: [{ ...rule(), enabled: false }] })), { start: false });
   assert.deepEqual(workflowsShouldStart(resolveWorkflowsSettings({ rules: [rule()] })), { start: true });
@@ -227,6 +227,43 @@ test('settings resolve to rules, an absent block to none, and an invalid block t
   assert.equal(invalid.ok, false);
   assert.equal(workflowsShouldStart(invalid).start, false);
   assert.match(workflowsShouldStart(invalid).reason ?? '', /config is invalid: workflows\.rules\[\]\.trigger/);
+});
+
+test('matchRules caps the actions at the configured maximum per poll', () => {
+  assert.equal(DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, 20);
+  const events = Array.from({ length: 4 }, (_unused, index) => event('opened', { number: index + 1 }));
+  const { planned, droppedCount } = matchRules(events, [rule()], NO_CONTEXT, 3);
+  assert.deepEqual(planned.map((action) => action.event.pr.number), [1, 2, 3]);
+  assert.equal(droppedCount, 1);
+});
+
+test('the master switch keeps the lane off with every rule enabled, and the limits resolve from config', () => {
+  const off = resolveWorkflowsSettings({ enabled: false, rules: [rule()] });
+  assert.deepEqual(workflowsShouldStart(off), { start: false, reason: 'Workflows are turned off in Settings' });
+  const limited = resolveWorkflowsSettings({ maxConcurrentSessions: 4, maxActionsPerPoll: 7, rules: [rule()] });
+  assert.equal(limited.ok && limited.maxActionsPerPoll, 7);
+  assert.equal(workflowSessionLimit(limited), 4);
+  assert.equal(workflowSessionLimit(resolveWorkflowsSettings({ maxConcurrentSessions: 6 })), 2);
+  for (const block of [{ maxConcurrentSessions: 0 }, { maxConcurrentSessions: 1.5 }, { maxActionsPerPoll: 51 }, { maxActionsPerPoll: 0 }, { enabled: 'yes' }]) {
+    assert.equal(resolveWorkflowsSettings(block).ok, false, JSON.stringify(block));
+  }
+});
+
+test('a workflows update merges rule toggles by id, changes no other rule field, and keeps file-only fields', () => {
+  const stored = { rules: [rule({ id: 'one', enabled: false }), rule({ id: 'two', enabled: true, name: 'Two' })], maxActionsPerPoll: 9 };
+  const merged = mergeWorkflowsUpdateOverStored(stored, { enabled: false, maxConcurrentSessions: 3, rules: [{ id: 'one', enabled: true }] });
+  assert.equal(merged.ok, true);
+  assert.deepEqual(merged.ok && merged.workflows, {
+    enabled: false, maxConcurrentSessions: 3, maxActionsPerPoll: 9,
+    rules: [{ ...stored.rules[0], enabled: true }, stored.rules[1]],
+  });
+  const limitsOnly = mergeWorkflowsUpdateOverStored(stored, { maxActionsPerPoll: 12 });
+  assert.deepEqual(limitsOnly.ok && limitsOnly.workflows.rules, stored.rules);
+  assert.deepEqual(mergeWorkflowsUpdateOverStored(stored, { rules: [{ id: 'ghost', enabled: true }] }), { ok: false, error: 'workflows.rules has no rule with id "ghost"' });
+  assert.deepEqual(mergeWorkflowsUpdateOverStored(undefined, { rules: [{ id: 'one', enabled: true }] }), { ok: false, error: 'workflows.rules has no rule with id "one"' });
+  assert.deepEqual(mergeWorkflowsUpdateOverStored(undefined, { enabled: false }), { ok: true, workflows: { enabled: false } });
+  const invalidStored = { rules: [{ ...rule({ id: 'one' }), trigger: 'pushed' }] };
+  assert.equal(mergeWorkflowsUpdateOverStored(invalidStored, { rules: [{ id: 'one', enabled: true }] }).ok, false);
 });
 
 test('watched repos are the enabled rules repos, deduplicated ignoring case', () => {

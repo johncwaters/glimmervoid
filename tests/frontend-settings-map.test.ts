@@ -209,6 +209,9 @@ test('the Team review lane section owns its settings and deep link', async () =>
     ['team-review-skip-idle-after-days', 'teamReview.skipIdleAfterDays', 'number'],
     ['team-review-skill', 'teamReview.skill', 'text'],
     ['team-review-auto-rebase-my-prs', 'teamReview.autoRebaseMyPrs', 'toggle'],
+    ['team-review-keep-mergeable-enabled', 'teamReview.keepMergeableEnabled', 'toggle'],
+    ['team-review-keep-mergeable-timeout', 'teamReview.keepMergeableTimeoutMinutes', 'number'],
+    ['team-review-merge-queue-enabled', 'teamReview.mergeQueueEnabled', 'toggle'],
   ]);
   assert.equal(teamReviewSettings.some((setting) => setting.id === TEAM_REVIEW_SETTINGS_SETTING_ID), true);
   for (const setting of teamReviewSettings) assert.equal(DASHBOARD_SETTING_PATH_SET.has(setting.path), true, setting.path);
@@ -255,4 +258,38 @@ test('the workflows summary lists each rule read-only and says so when there are
     'Thanks  disabled  Acme/app  merged  comment',
   ]);
   assert.match(workflowRuleSummaryLines({ rules: [{ id: 'x', name: 'X', repos: ['Acme/app'], trigger: 'pushed', actions: [{ type: 'notify' }] }] })[0] ?? '', /^The workflows block is invalid, so no rule runs: workflows\.rules\[\]\.trigger must be one of/);
+});
+
+test('the Workflows section owns the master switch and limits, whose save never carries rule definitions', async () => {
+  const { SETTINGS_MAP, withoutWorkflowRuleDefinitions } = await loadMap();
+  const section = SETTINGS_MAP.find((entry) => entry.id === 'lanes-workflows');
+  assert.ok(section);
+  const workflowSettings: SettingsSetting[] = section.settings;
+  assert.deepEqual(workflowSettings.map((setting) => [setting.path, setting.control, setting.defaultValue]), [
+    ['workflows.enabled', 'toggle', DEFAULT_CONFIG.workflows.enabled],
+    ['workflows.maxConcurrentSessions', 'number', DEFAULT_CONFIG.workflows.maxConcurrentSessions],
+    ['workflows.maxActionsPerPoll', 'number', DEFAULT_CONFIG.workflows.maxActionsPerPoll],
+    ['workflows', 'readonly', undefined],
+  ]);
+  for (const setting of workflowSettings.filter((entry) => !entry.fileOnly)) assert.equal(DASHBOARD_SETTING_PATH_SET.has(setting.path), true, setting.path);
+
+  const { collectDirtyBlocks, hydrateFromSettings } = await import('../public/settings-view-core.ts');
+  const stored = { workflows: { maxActionsPerPoll: 9, rules: [{ id: 'one', name: 'One', enabled: true, repos: ['Acme/app'], trigger: 'opened', actions: [{ type: 'notify' }] }] } };
+  const original = hydrateFromSettings([section], stored);
+  const edited = { ...original, 'workflows.enabled': false };
+  assert.deepEqual(withoutWorkflowRuleDefinitions(collectDirtyBlocks([section], original, edited)), { workflows: { maxActionsPerPoll: 9, enabled: false } });
+  assert.deepEqual(withoutWorkflowRuleDefinitions({ telegram: { chatId: '1' } }), { telegram: { chatId: '1' } });
+});
+
+test('workflow rule toggle rows carry each rule id and state, and none for an absent or invalid block', async () => {
+  const { workflowRuleToggleRows } = await loadMap();
+  assert.deepEqual(workflowRuleToggleRows(null), []);
+  assert.deepEqual(workflowRuleToggleRows({ rules: [{ id: 'x', name: 'X', repos: ['Acme/app'], trigger: 'pushed', actions: [{ type: 'notify' }] }] }), []);
+  assert.deepEqual(workflowRuleToggleRows({ rules: [
+    { id: 'ci', name: 'CI watch', enabled: true, repos: ['Acme/app'], trigger: 'checks-failed', actions: [{ type: 'notify' }] },
+    { id: 'thanks', name: 'Thanks', repos: ['Acme/app'], trigger: 'merged', actions: [{ type: 'comment', body: 'Thanks' }] },
+  ] }), [
+    { id: 'ci', name: 'CI watch', isEnabled: true, summary: 'Acme/app  checks-failed  notify' },
+    { id: 'thanks', name: 'Thanks', isEnabled: false, summary: 'Acme/app  merged  comment' },
+  ]);
 });

@@ -1,5 +1,6 @@
 import { FLYING_ANIMALS_DEFAULTS } from './flying-animals-core.ts';
 import { WorkflowsSettings } from '#shared/contracts/workflows.ts';
+import type { WorkflowRule } from '#shared/contracts/workflows.ts';
 
 export interface SettingsOption {
   value: string;
@@ -681,6 +682,21 @@ export const SETTINGS_MAP = Object.freeze([
         control: 'toggle', keywords: ['rebase', 'update branch', 'behind', 'my prs'], danger: true,
         warning: 'Enabling this control rewrites your pull request branches on GitHub. Pull before you push from a local checkout of one.', defaultValue: false,
       },
+      {
+        id: 'team-review-keep-mergeable-enabled', path: 'teamReview.keepMergeableEnabled', title: 'Keep mergeable',
+        description: 'Offer Keep mergeable on your pull requests: a sandboxed agent repairs conflicts and failing checks and pushes the repair. Off hides the control and starts no repair; the pull requests you chose stay chosen for when you turn it back on.',
+        control: 'toggle', keywords: ['repair', 'conflicts', 'my prs'], defaultValue: true,
+      },
+      {
+        id: 'team-review-keep-mergeable-timeout', path: 'teamReview.keepMergeableTimeoutMinutes', title: 'Keep mergeable deadline (minutes)',
+        description: 'Longest a Keep mergeable repair session may run before it is stopped and nothing is pushed.',
+        control: 'number', range: 'KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE', keywords: ['timeout', 'repair'], defaultValue: 30,
+      },
+      {
+        id: 'team-review-merge-queue-enabled', path: 'teamReview.mergeQueueEnabled', title: 'Merge when ready',
+        description: 'Offer Merge when ready on your pull requests: queued pull requests are rebased when behind and merged once ready, one per repository per poll. Off hides the control and merges nothing; the queue is kept for when you turn it back on.',
+        control: 'toggle', keywords: ['merge queue', 'auto merge', 'my prs'], defaultValue: true,
+      },
     ],
   },
   {
@@ -703,8 +719,23 @@ export const SETTINGS_MAP = Object.freeze([
     description: 'Rules that act on pull request events in the repositories you choose.',
     settings: [
       {
+        id: 'workflows-enabled', path: 'workflows.enabled', title: 'Run workflows',
+        description: 'Poll the repositories your enabled rules watch and run their actions. Off stops polling and every action, whatever each rule says.',
+        control: 'toggle', keywords: ['pull requests', 'automation', 'master switch'], defaultValue: true,
+      },
+      {
+        id: 'workflows-max-concurrent-sessions', path: 'workflows.maxConcurrentSessions', title: 'Concurrent agent sessions',
+        description: 'Most workflow agent sessions running at once. Later spawns wait for a free slot.',
+        control: 'number', range: 'WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE', keywords: ['parallel', 'spawn'], defaultValue: 2,
+      },
+      {
+        id: 'workflows-max-actions-per-poll', path: 'workflows.maxActionsPerPoll', title: 'Actions per poll',
+        description: 'Most actions run in one poll. The rest are dropped and logged.',
+        control: 'number', range: 'WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE', keywords: ['cap', 'rate limit'], defaultValue: 20,
+      },
+      {
         id: 'workflows-rules', path: 'workflows', title: 'Workflow rules',
-        description: 'Each rule watches repositories for one pull request event (opened, checks-failed, review-requested, approved, commented or merged), narrows it by author, labels, base branch, your own pull requests or a review request to your team, and then notifies you, labels or comments on the pull request, or starts a sandboxed agent session that pushes nothing. Rules start disabled.',
+        description: 'Each rule watches repositories for one pull request event (opened, checks-failed, review-requested, approved, commented or merged), narrows it by author, labels, base branch, your own pull requests or a review request to your team, and then notifies you, labels or comments on the pull request, or starts a sandboxed agent session that pushes nothing. Rules start disabled. Turn each rule on or off here; everything else about a rule is set in config.json.',
         control: 'readonly', keywords: ['pull requests', 'automation', 'github', 'rules'], fileOnly: true, status: 'workflows',
       },
     ],
@@ -752,18 +783,35 @@ export const SETTINGS_MAP = Object.freeze([
   },
 ]);
 
+export interface WorkflowRuleToggleRow {
+  id: string;
+  name: string;
+  isEnabled: boolean;
+  summary: string;
+}
+
+function workflowRuleSummary(rule: WorkflowRule): string {
+  return [rule.repos.join(', '), rule.trigger, rule.actions.map((action) => action.type).join(', ')].join('  ');
+}
+
 export function workflowRuleSummaryLines(workflows: unknown): string[] {
   if (workflows === null || workflows === undefined) return ['No rules. Add workflows.rules to config.json.'];
   const parsed = WorkflowsSettings.safeParse(workflows);
   if (!parsed.success) return [`The workflows block is invalid, so no rule runs: ${parsed.error.issues[0]?.message ?? 'unknown problem'}`];
   if (parsed.data.rules.length === 0) return ['No rules. Add workflows.rules to config.json.'];
-  return parsed.data.rules.map((rule) => [
-    rule.name,
-    rule.enabled ? 'enabled' : 'disabled',
-    rule.repos.join(', '),
-    rule.trigger,
-    rule.actions.map((action) => action.type).join(', '),
-  ].join('  '));
+  return parsed.data.rules.map((rule) => [rule.name, rule.enabled ? 'enabled' : 'disabled', workflowRuleSummary(rule)].join('  '));
+}
+
+export function workflowRuleToggleRows(workflows: unknown): WorkflowRuleToggleRow[] {
+  const parsed = WorkflowsSettings.safeParse(workflows ?? {});
+  if (!parsed.success) return [];
+  return parsed.data.rules.map((rule) => ({ id: rule.id, name: rule.name, isEnabled: rule.enabled, summary: workflowRuleSummary(rule) }));
+}
+
+export function withoutWorkflowRuleDefinitions(settings: Record<string, unknown>): Record<string, unknown> {
+  const workflows = settings.workflows;
+  if (typeof workflows !== 'object' || workflows === null || Array.isArray(workflows)) return settings;
+  return { ...settings, workflows: Object.fromEntries(Object.entries(workflows).filter(([key]) => key !== 'rules')) };
 }
 
 export default SETTINGS_MAP;

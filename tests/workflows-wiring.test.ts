@@ -119,6 +119,35 @@ test('the lane starts only with an enabled rule and passes only enabled rules an
   }
 });
 
+test('workflows.enabled false keeps the lane from polling, and the per-poll action limit reaches the poller from config', async () => {
+  const created: WorkflowsPollerDependencies[] = [];
+  const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'workflows-wiring-'));
+  try {
+    const rule = { id: 'on', name: 'On', enabled: true, repos: ['Acme/app'], trigger: 'merged', actions: [{ type: 'notify' }] };
+    const config: { workflows?: unknown; teamReview?: Record<string, unknown> | null } = { workflows: { enabled: false, maxActionsPerPoll: 7, rules: [rule] } };
+    const wiring = createWorkflowsWiring({
+      config, homeDir, log: { warn: () => {} },
+      notificationManager: { trigger: () => {} },
+      spawnSession: async () => {},
+      createPoller: (dependencies) => {
+        created.push(dependencies);
+        return { start: async () => {}, stop: async () => {}, tick: async () => {} };
+      },
+    });
+    wiring.startPoller();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(created.length, 0);
+    config.workflows = { enabled: true, maxActionsPerPoll: 7, rules: [rule] };
+    wiring.restartIfConfigChanged();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(created.length, 1);
+    assert.equal(created[0]?.maxActionsPerPoll, 7);
+    await wiring.stopPoller();
+  } finally {
+    await fs.rm(homeDir, { recursive: true, force: true });
+  }
+});
+
 function enabledRule(id: string) {
   return { id, name: id, enabled: true, repos: ['Acme/app'], trigger: 'opened', actions: [{ type: 'spawn', promptTemplate: 'Look at {{url}}' }] };
 }
@@ -135,7 +164,7 @@ test('a rule edit restart keeps running workflow sessions and queued spawns and 
     const signals: AbortSignal[] = [];
     const finishers: (() => void)[] = [];
     let sweeps = 0;
-    const config: { workflows?: unknown; teamReview?: Record<string, unknown> | null } = { workflows: { rules: [enabledRule('first')] } };
+    const config: { workflows?: unknown; teamReview?: Record<string, unknown> | null } = { workflows: { rules: [enabledRule('triage')] } };
     const wiring = createWorkflowsWiring({
       config, homeDir, log: { warn: () => {} },
       notificationManager: { trigger: () => {} },
@@ -154,7 +183,7 @@ test('a rule edit restart keeps running workflow sessions and queued spawns and 
     await new Promise<void>((resolve) => setImmediate(resolve));
     for (const number of [1, 2, 3]) created[0]?.startSession(spawnActionFor(number));
     assert.deepEqual(started, [1, 2]);
-    config.workflows = { rules: [enabledRule('first'), enabledRule('second')] };
+    config.workflows = { rules: [enabledRule('triage'), enabledRule('second')] };
     wiring.restartIfConfigChanged();
     await new Promise<void>((resolve) => setImmediate(resolve));
     assert.equal(created.length, 2);
@@ -169,6 +198,56 @@ test('a rule edit restart keeps running workflow sessions and queued spawns and 
     await stopped;
     created[1]?.startSession(spawnActionFor(4));
     assert.deepEqual(started, [1, 2, 3]);
+  } finally {
+    await fs.rm(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('queued workflow spawns launch only while workflows and their rule stay on, and running sessions keep running', async () => {
+  const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'workflows-wiring-'));
+  try {
+    const created: WorkflowsPollerDependencies[] = [];
+    const started: number[] = [];
+    const signals: AbortSignal[] = [];
+    const finishers: (() => void)[] = [];
+    const warnings: string[] = [];
+    const config: { workflows?: unknown; teamReview?: Record<string, unknown> | null } = { workflows: { maxConcurrentSessions: 1, rules: [enabledRule('triage')] } };
+    const wiring = createWorkflowsWiring({
+      config, homeDir, log: { warn: (message) => { warnings.push(message); } },
+      notificationManager: { trigger: () => {} },
+      spawnSession: ({ event }, signal) => new Promise<void>((resolve) => {
+        started.push(event.pr.number);
+        signals.push(signal);
+        finishers.push(resolve);
+      }),
+      createPoller: (dependencies) => {
+        created.push(dependencies);
+        return { start: async () => {}, stop: async () => {}, tick: async () => {} };
+      },
+    });
+    const finishOldestSession = async () => {
+      finishers.shift()?.();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    };
+    wiring.startPoller();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    for (const number of [1, 2, 3, 4]) created[0]?.startSession(spawnActionFor(number));
+    assert.deepEqual(started, [1]);
+    await finishOldestSession();
+    assert.deepEqual(started, [1, 2]);
+    config.workflows = { enabled: false, maxConcurrentSessions: 1, rules: [enabledRule('triage')] };
+    await finishOldestSession();
+    assert.deepEqual(started, [1, 2]);
+    assert.ok(signals.every((signal) => !signal.aborted));
+    assert.ok(warnings.some((warning) => warning.includes('triage session for Acme/app#3 was discarded because workflows or its rule are turned off')));
+    config.workflows = { maxConcurrentSessions: 1, rules: [enabledRule('triage')] };
+    for (const number of [5, 6]) created[0]?.startSession(spawnActionFor(number));
+    assert.deepEqual(started, [1, 2, 5]);
+    config.workflows = { maxConcurrentSessions: 1, rules: [{ ...enabledRule('triage'), enabled: false }] };
+    await finishOldestSession();
+    assert.deepEqual(started, [1, 2, 5]);
+    assert.ok(warnings.some((warning) => warning.includes('triage session for Acme/app#6 was discarded')));
+    await wiring.stopPoller();
   } finally {
     await fs.rm(homeDir, { recursive: true, force: true });
   }

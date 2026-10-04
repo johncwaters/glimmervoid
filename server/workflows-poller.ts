@@ -15,7 +15,9 @@ const WORKFLOWS_RATE_LIMIT_RESOURCES = ['graphql'] as const;
 type SpawnPlannedAction = PlannedWorkflowAction & { action: { type: 'spawn'; promptTemplate: string } };
 type SpawnSession = (planned: SpawnPlannedAction, signal: AbortSignal) => Promise<void>;
 
-export function createWorkflowSessionQueue({ spawnSession, log = console }: { spawnSession: SpawnSession; log?: Pick<Console, 'warn'> }) {
+export function createWorkflowSessionQueue({ spawnSession, log = console, maxConcurrentSessions = () => core.DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS, isSpawnStillAllowed = () => true }: {
+  spawnSession: SpawnSession; log?: Pick<Console, 'warn'>; maxConcurrentSessions?: () => number; isSpawnStillAllowed?: (planned: SpawnPlannedAction) => boolean;
+}) {
   const pendingSessions = new Set<Promise<void>>();
   const deferredSpawnsByKey = new Map<string, SpawnPlannedAction>();
   const shutdownController = new AbortController();
@@ -31,11 +33,15 @@ export function createWorkflowSessionQueue({ spawnSession, log = console }: { sp
   }
 
   function startDeferredSessions(): void {
-    while (!shutdownController.signal.aborted && core.hasFreeWorkflowSessionSlot(pendingSessions.size)) {
+    while (!shutdownController.signal.aborted && core.hasFreeWorkflowSessionSlot(pendingSessions.size, maxConcurrentSessions())) {
       const nextDeferred = deferredSpawnsByKey.entries().next();
       if (nextDeferred.done) return;
       const [queueKey, planned] = nextDeferred.value;
       deferredSpawnsByKey.delete(queueKey);
+      if (!isSpawnStillAllowed(planned)) {
+        log.warn(`[${core.WORKFLOWS_LANE_ID}] ${planned.rule.id} session for ${planned.event.pr.repo}#${planned.event.pr.number} was discarded because workflows or its rule are turned off`);
+        continue;
+      }
       launchSession(planned);
     }
   }
@@ -50,8 +56,9 @@ export function createWorkflowSessionQueue({ spawnSession, log = console }: { sp
       return;
     }
     deferredSpawnsByKey.set(queueKey, planned);
-    const isDeferred = deferredSpawnsByKey.size > 1 || !core.hasFreeWorkflowSessionSlot(pendingSessions.size);
-    if (isDeferred) log.warn(`[${core.WORKFLOWS_LANE_ID}] ${planned.rule.id} session for ${prLabel} waits for one of ${core.MAX_CONCURRENT_WORKFLOW_SESSIONS} running workflow sessions to finish`);
+    const sessionLimit = maxConcurrentSessions();
+    const isDeferred = deferredSpawnsByKey.size > 1 || !core.hasFreeWorkflowSessionSlot(pendingSessions.size, sessionLimit);
+    if (isDeferred) log.warn(`[${core.WORKFLOWS_LANE_ID}] ${planned.rule.id} session for ${prLabel} waits for one of ${sessionLimit} running workflow sessions to finish`);
     startDeferredSessions();
   }
 
@@ -69,6 +76,7 @@ export type WorkflowSessionQueue = ReturnType<typeof createWorkflowSessionQueue>
 interface WorkflowsPollerDependencies {
   rules: readonly WorkflowRule[];
   teamName: string | null;
+  maxActionsPerPoll?: number;
   github: Pick<PrGh, 'viewer' | 'searchRepoPrs' | 'addPrLabel' | 'commentOnPr' | 'rateLimitWaitMs'>;
   readState: () => Promise<WorkflowsStateType | null>;
   writeState: (state: WorkflowsStateType) => Promise<void>;
@@ -88,7 +96,7 @@ interface WorkflowsPollerDependencies {
 }
 
 export function createWorkflowsPoller(dependencies: WorkflowsPollerDependencies) {
-  const { rules, teamName, github, notify, startSession, onTickComplete, now = Date.now, intervalMinutes = core.WORKFLOWS_POLL_INTERVAL_MINUTES, log = console } = dependencies;
+  const { rules, teamName, maxActionsPerPoll = core.DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, github, notify, startSession, onTickComplete, now = Date.now, intervalMinutes = core.WORKFLOWS_POLL_INTERVAL_MINUTES, log = console } = dependencies;
   let snapshot: WorkflowsStateType = core.emptyWorkflowsState();
   let stateLoad: Promise<void> | null = null;
   let viewer: string | null = null;
@@ -177,8 +185,8 @@ export function createWorkflowsPoller(dependencies: WorkflowsPollerDependencies)
       nextRepos[repoKey] = core.nextRepoSnapshot(previousRepo, search.items.map(core.toWorkflowPr), search.isComplete, polledAtMs);
     }
     const events = core.diffPrEvents(snapshot.repos, nextRepos);
-    const { planned, droppedCount, refusedSpawnCount } = core.matchRules(events, rules, { viewer, teamName });
-    if (droppedCount > 0) log.warn(`[${core.WORKFLOWS_LANE_ID}] ${droppedCount} actions over the cap of ${core.MAX_WORKFLOW_ACTIONS_PER_TICK} per poll were not run`);
+    const { planned, droppedCount, refusedSpawnCount } = core.matchRules(events, rules, { viewer, teamName }, maxActionsPerPoll);
+    if (droppedCount > 0) log.warn(`[${core.WORKFLOWS_LANE_ID}] ${droppedCount} actions over the cap of ${maxActionsPerPoll} per poll were not run`);
     if (refusedSpawnCount > 0) log.warn(`[${core.WORKFLOWS_LANE_ID}] ${refusedSpawnCount} spawn actions on pull requests from forks were refused because their rule does not restrict authors or set mine`);
     let reposToSave = nextRepos;
     for (const plannedAction of planned) {

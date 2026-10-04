@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { MAX_CONCURRENT_WORKFLOW_SESSIONS, MAX_DEFERRED_WORKFLOW_SPAWNS } from '../server/core/workflows-core.ts';
+import { DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS, MAX_DEFERRED_WORKFLOW_SPAWNS } from '../server/core/workflows-core.ts';
 import { createWorkflowSessionQueue, createWorkflowsPoller } from '../server/workflows-poller.ts';
 import type { SpawnPlannedAction, SpawnSession } from '../server/workflows-poller.ts';
 import { createWorkflowsStateIo } from '../server/workflows-wiring.ts';
@@ -192,7 +192,7 @@ function controlledSpawns() {
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 test('spawns past the concurrent session cap wait in order and start as running sessions finish, each exactly once', async () => {
-  assert.equal(MAX_CONCURRENT_WORKFLOW_SESSIONS, 2);
+  assert.equal(DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS, 2);
   const spawns = controlledSpawns();
   const lane = harness({ actions: [{ type: 'spawn', promptTemplate: 'Look at {{url}}' }], spawnSession: spawns.spawnSession });
   await lane.poller.tick();
@@ -269,6 +269,29 @@ test('a newer event for the same rule and pull request replaces the queued spawn
   finishers.shift()?.();
   await settle();
   assert.deepEqual(titlesStarted, ['1 PR 1', '2 PR 2', '3 second', '4 replaced at the cap']);
+  const stopped = sessions.stop();
+  for (const finish of finishers) finish();
+  await stopped;
+});
+
+test('the session queue reads its concurrent session limit from config each time a slot frees', async () => {
+  let sessionLimit = 1;
+  const titlesStarted: string[] = [];
+  const finishers: (() => void)[] = [];
+  const sessions = createWorkflowSessionQueue({
+    spawnSession: ({ event }) => new Promise<void>((resolve) => {
+      titlesStarted.push(String(event.pr.number));
+      finishers.push(resolve);
+    }),
+    log: { warn: () => {} },
+    maxConcurrentSessions: () => sessionLimit,
+  });
+  for (const number of [1, 2, 3, 4]) sessions.enqueue(plannedSpawn('a', number));
+  assert.deepEqual(titlesStarted, ['1']);
+  sessionLimit = 3;
+  finishers.shift()?.();
+  await settle();
+  assert.deepEqual(titlesStarted, ['1', '2', '3', '4']);
   const stopped = sessions.stop();
   for (const finish of finishers) finish();
   await stopped;

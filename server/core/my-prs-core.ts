@@ -1,7 +1,8 @@
 import type { MyPr, MyPrAutoRebase, MyPrSearchNode, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../shared/contracts/my-prs.ts';
 import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_ENVIRONMENT_ARGS } from './lane-permissions-core.ts';
 import { prKey } from './team-review-core.ts';
-import type { TeamReviewSettings } from './team-review-core.ts';
+import type { TeamReviewSettings, TeamReviewSettingsSource } from './team-review-core.ts';
+import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE } from '../../shared/settings-ranges.ts';
 import { isCredentialLikePath, isGithubDirectoryPath } from './git-changed-paths-core.ts';
 import { myPrMergeBlocker } from '../../shared/my-pr-merge.ts';
 
@@ -14,7 +15,7 @@ export const MY_PRS_FIX_BOOTSTRAP_PROMPT = `Read ${MY_PRS_FIX_PROMPT_FILENAME} a
 export const MY_PRS_FIX_CHECKOUT_DIRNAME = 'repo';
 export const MY_PRS_FIX_WORK_BRANCH = 'keep-mergeable';
 export const MY_PRS_FIX_BASE_BRANCH = 'pr-base';
-export const MY_PRS_FIX_TIMEOUT_SECONDS = 30 * 60;
+export const DEFAULT_KEEP_MERGEABLE_TIMEOUT_MINUTES = 30;
 export const MY_PRS_FIX_DENY_RULES: readonly string[] = Object.freeze([
   'Bash(git push:*)',
   'Bash(gh:*)',
@@ -332,10 +333,36 @@ export function truncatedSearchNote(returnedCount: number, totalCount: number): 
   return `Showing the ${returnedCount} most recently updated of ${totalCount} pull requests.`;
 }
 
-export function myPrsStatus({ ts, configured, reason = null, viewer = null, prs = [], error = null, truncatedNote = null }: {
+export function myPrsStatus({ ts, configured, reason = null, viewer = null, prs = [], error = null, truncatedNote = null, isKeepMergeableEnabled = true, isMergeQueueEnabled = true }: {
   ts: number; configured: boolean; reason?: string | null; viewer?: string | null; prs?: MyPr[]; error?: string | null; truncatedNote?: string | null;
+  isKeepMergeableEnabled?: boolean; isMergeQueueEnabled?: boolean;
 }): MyPrsStatus {
-  return { type: 'my-prs-status', ts, configured, reason, viewer, prs, error, truncatedNote };
+  return { type: 'my-prs-status', ts, configured, reason, viewer, prs, error, truncatedNote, isKeepMergeableEnabled, isMergeQueueEnabled };
+}
+
+export interface MyPrsFeatureSettings {
+  isKeepMergeableEnabled: boolean;
+  isMergeQueueEnabled: boolean;
+  keepMergeableTimeoutMinutes: number;
+}
+
+function isKeepMergeableTimeoutInRange(value: unknown): value is number {
+  if (typeof value !== 'number' || !Number.isInteger(value)) return false;
+  return value >= KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE.min && value <= KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE.max;
+}
+
+export function readMyPrsFeatureSettings(config: TeamReviewSettingsSource): MyPrsFeatureSettings {
+  const block = config.teamReview;
+  const timeoutMinutes = block?.keepMergeableTimeoutMinutes;
+  return {
+    isKeepMergeableEnabled: block?.keepMergeableEnabled !== false,
+    isMergeQueueEnabled: block?.mergeQueueEnabled !== false,
+    keepMergeableTimeoutMinutes: isKeepMergeableTimeoutInRange(timeoutMinutes) ? timeoutMinutes : DEFAULT_KEEP_MERGEABLE_TIMEOUT_MINUTES,
+  };
+}
+
+export function keepMergeableTimeoutSeconds(config: TeamReviewSettingsSource): number {
+  return readMyPrsFeatureSettings(config).keepMergeableTimeoutMinutes * 60;
 }
 
 export function withAutoRebase(pr: MyPr, record: MyPrAutoRebase | undefined): MyPr {

@@ -8,7 +8,7 @@ import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createStateGlyph } from './state-glyph.ts';
 import { sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
-import { chooseSelectedKey, emptyStateText, keepMergeableControlState, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
+import { chooseSelectedKey, emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
 import type { MergeAttempt, ToggleControlState } from './my-prs-view-core.ts';
 
 let root: HTMLDivElement | null = null;
@@ -24,12 +24,13 @@ interface PrToggle {
   label: string;
   pendingKeys: Set<string>;
   errorsByKey: Map<string, string>;
-  controlState: (pr: MyPr, isPending: boolean, errorText?: string) => ToggleControlState;
+  controlState: (pr: MyPr, isPending: boolean, errorText: string | undefined, isFeatureEnabled: boolean) => ToggleControlState;
+  isFeatureEnabled: (status: MyPrsStatus | null) => boolean;
   save: (pr: MyPr, isTurningOn: boolean) => Promise<string | null>;
 }
 
 const keepMergeableToggle: PrToggle = {
-  label: 'Keep mergeable', pendingKeys: new Set(), errorsByKey: new Map(), controlState: keepMergeableControlState,
+  label: 'Keep mergeable', pendingKeys: new Set(), errorsByKey: new Map(), controlState: keepMergeableControlState, isFeatureEnabled: isKeepMergeableFeatureEnabled,
   save: async (pr, isTurningOn) => {
     const response = await sendControlRequest('my-pr-keep-mergeable', { repo: pr.repo, number: pr.number, keepMergeable: isTurningOn });
     if (response.type !== 'my-pr-keep-mergeable-result' || response.key !== pr.key) throw new Error('Unexpected keep mergeable reply.');
@@ -38,7 +39,7 @@ const keepMergeableToggle: PrToggle = {
 };
 
 const mergeWhenReadyToggle: PrToggle = {
-  label: 'Merge when ready', pendingKeys: new Set(), errorsByKey: new Map(), controlState: mergeWhenReadyControlState,
+  label: 'Merge when ready', pendingKeys: new Set(), errorsByKey: new Map(), controlState: mergeWhenReadyControlState, isFeatureEnabled: isMergeQueueFeatureEnabled,
   save: async (pr, isTurningOn) => {
     const response = await sendControlRequest('my-pr-merge-when-ready', { repo: pr.repo, number: pr.number, mergeWhenReady: isTurningOn });
     if (response.type !== 'my-pr-merge-when-ready-result' || response.key !== pr.key) throw new Error('Unexpected merge when ready reply.');
@@ -144,7 +145,7 @@ function createMergeControl(pr: MyPr): HTMLElement | null {
 }
 
 function createToggleControl(pr: MyPr, toggle: PrToggle): HTMLElement | null {
-  const state = toggle.controlState(pr, toggle.pendingKeys.has(pr.key), toggle.errorsByKey.get(pr.key));
+  const state = toggle.controlState(pr, toggle.pendingKeys.has(pr.key), toggle.errorsByKey.get(pr.key), toggle.isFeatureEnabled(latest));
   if (!state.isVisible) return null;
   const control = el('div', 'my-pr-merge');
   const button = el('button', 'pr-action', toggle.label);

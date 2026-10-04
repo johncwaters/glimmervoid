@@ -84,6 +84,9 @@ const VisionsSettings = optionalObject('visions', {
 const TeamReviewSettings = optionalObject('teamReview', {
   enabled: optionalBoolean('teamReview.enabled'),
   autoRebaseMyPrs: optionalBoolean('teamReview.autoRebaseMyPrs'),
+  keepMergeableEnabled: optionalBoolean('teamReview.keepMergeableEnabled'),
+  mergeQueueEnabled: optionalBoolean('teamReview.mergeQueueEnabled'),
+  keepMergeableTimeoutMinutes: optionalInteger('teamReview.keepMergeableTimeoutMinutes', ranges.KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE),
   org: optionalString('teamReview.org', true),
   team: optionalString('teamReview.team', true),
   skill: optionalString('teamReview.skill', true),

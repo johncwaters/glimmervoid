@@ -1,16 +1,27 @@
 import { z } from 'zod';
 import { CommitSha } from './team-review.ts';
 import { MyPrSearchNode, repositoryName } from './my-prs.ts';
+import { WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE, WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE } from '../settings-ranges.ts';
 
 export const WORKFLOW_TRIGGERS = Object.freeze(['opened', 'checks-failed', 'review-requested', 'approved', 'commented', 'merged'] as const);
 export const WORKFLOW_ACTION_TYPES = Object.freeze(['notify', 'spawn', 'label', 'comment'] as const);
 export const WORKFLOW_PROMPT_TEMPLATE_MAX_CHARACTERS = 20000;
 export const WORKFLOW_COMMENT_BODY_MAX_CHARACTERS = 65536;
 export const WORKFLOW_LABEL_NAME_MAX_CHARACTERS = 50;
+export const DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS = 2;
+export const DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL = 20;
 
 const RULE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const GITHUB_LOGIN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const UNSAFE_LABEL_NAME = /[\x00-\x1f\x7f,]|^-/;
+
+const integerInRange = (field: string, range: { min: number; max: number }) => {
+  const message = `${field} must be an integer between ${range.min} and ${range.max}`;
+  return z.number({ error: message }).int({ error: message }).min(range.min, { error: message }).max(range.max, { error: message });
+};
+const workflowsEnabled = z.boolean({ error: 'workflows.enabled must be a boolean' });
+const workflowsMaxConcurrentSessions = integerInRange('workflows.maxConcurrentSessions', WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE);
+const workflowsMaxActionsPerPoll = integerInRange('workflows.maxActionsPerPoll', WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE);
 
 const nonEmptyList = <Item extends z.ZodType>(field: string, item: Item) => z.array(item, { error: `${field} must be an array` })
   .min(1, { error: `${field} must list at least one entry when present` });
@@ -54,14 +65,17 @@ export const WorkflowFilters = z.strictObject({
 }, { error: 'workflows.rules[].filters must be an object' });
 export type WorkflowFilters = z.infer<typeof WorkflowFilters>;
 
+const WorkflowRuleId = z.string({ error: 'workflows.rules[].id must be a string' })
+  .regex(RULE_ID, { error: 'workflows.rules[].id must be 1 to 64 lowercase letters, digits and dashes, starting with a letter or digit' });
+const WorkflowRuleEnabled = z.boolean({ error: 'workflows.rules[].enabled must be a boolean' });
+
 export const WorkflowRule = z.strictObject({
-  id: z.string({ error: 'workflows.rules[].id must be a string' })
-    .regex(RULE_ID, { error: 'workflows.rules[].id must be 1 to 64 lowercase letters, digits and dashes, starting with a letter or digit' }),
+  id: WorkflowRuleId,
   name: z.string({ error: 'workflows.rules[].name must be a string' })
     .trim()
     .min(1, { error: 'workflows.rules[].name must not be empty' })
     .max(80, { error: 'workflows.rules[].name must be at most 80 characters' }),
-  enabled: z.boolean({ error: 'workflows.rules[].enabled must be a boolean' }).default(false),
+  enabled: WorkflowRuleEnabled.default(false),
   repos: nonEmptyList('workflows.rules[].repos', repositoryName),
   filters: WorkflowFilters.default({}),
   trigger: WorkflowTrigger,
@@ -70,6 +84,9 @@ export const WorkflowRule = z.strictObject({
 export type WorkflowRule = z.infer<typeof WorkflowRule>;
 
 export const WorkflowsSettings = z.strictObject({
+  enabled: workflowsEnabled.default(true),
+  maxConcurrentSessions: workflowsMaxConcurrentSessions.default(DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS),
+  maxActionsPerPoll: workflowsMaxActionsPerPoll.default(DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL),
   rules: z.array(WorkflowRule, { error: 'workflows.rules must be an array' }).default([]),
 }, { error: 'workflows must be an object' }).superRefine((settings, ctx) => {
   const claimedIds = new Set<string>();
@@ -82,6 +99,19 @@ export const WorkflowsSettings = z.strictObject({
   }
 });
 export type WorkflowsSettings = z.infer<typeof WorkflowsSettings>;
+
+export const WorkflowRuleToggle = z.strictObject({
+  id: WorkflowRuleId,
+  enabled: WorkflowRuleEnabled,
+}, { error: 'a dashboard update of workflows.rules[] carries only id and enabled' });
+
+export const WorkflowsSettingsUpdate = z.strictObject({
+  enabled: workflowsEnabled.optional(),
+  maxConcurrentSessions: workflowsMaxConcurrentSessions.optional(),
+  maxActionsPerPoll: workflowsMaxActionsPerPoll.optional(),
+  rules: z.array(WorkflowRuleToggle, { error: 'workflows.rules must be an array' }).optional(),
+}, { error: 'a dashboard update of workflows carries only enabled, maxConcurrentSessions, maxActionsPerPoll and rule toggles' });
+export type WorkflowsSettingsUpdate = z.infer<typeof WorkflowsSettingsUpdate>;
 
 const nonnegativeInteger = z.number().int().nonnegative();
 const checksState = z.enum(['SUCCESS', 'FAILURE', 'PENDING', 'ERROR', 'EXPECTED']).nullable();

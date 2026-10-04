@@ -14,8 +14,9 @@ function node(state: 'OPEN' | 'MERGED'): MyPrSearchNode {
   };
 }
 
-function keepMergeableHarness({ savedState = { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [] }, fixMergeability = async () => {}, beforeAttemptWrite = async () => {}, beforeStart }: {
+function keepMergeableHarness({ savedState = { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [] }, fixMergeability = async () => {}, beforeAttemptWrite = async () => {}, beforeStart, isKeepMergeableEnabled }: {
   savedState?: MyPrsState;
+  isKeepMergeableEnabled?: boolean;
   fixMergeability?: (pr: MyPr, signal: AbortSignal, onPushStarted: (repairSha: string) => Promise<void>, latestListedPr: () => MyPr | undefined) => Promise<void>;
   beforeAttemptWrite?: () => Promise<void>;
   beforeStart?: () => Promise<void>;
@@ -40,7 +41,7 @@ function keepMergeableHarness({ savedState = { keepMergeableKeys: [], keepMergea
   };
   function createPoller() {
     return createMyPrsPoller({
-      org: 'Acme', now: () => NOW, github, onTickComplete: (status) => { statuses.push(status); },
+      org: 'Acme', now: () => NOW, github, isKeepMergeableEnabled, onTickComplete: (status) => { statuses.push(status); },
       log: { warn: (message: string) => { warnings.push(message); } },
       setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {}, beforeStart,
       readState: async () => saved,
@@ -829,7 +830,8 @@ function queueNode(repo: string, number: number, overrides: Partial<MyPrSearchNo
   return { ...node('OPEN'), id: `PR_${number}`, number, url: `https://github.com/${repo}/pull/${number}`, repository: { nameWithOwner: repo, viewerDefaultMergeMethod: 'SQUASH' }, ...overrides };
 }
 
-function mergeQueueHarness({ items, mergeOutcome = { ok: true, kind: 'merged' }, behindByKey = new Map<string, number>(), savedQueue = [], savedPushedHeadKeys = [], isAutoRebaseOn = false, beforeMergeReturns = async () => {}, beforeRebaseReturns = async () => {} }: {
+function mergeQueueHarness({ items, mergeOutcome = { ok: true, kind: 'merged' }, behindByKey = new Map<string, number>(), savedQueue = [], savedPushedHeadKeys = [], isAutoRebaseOn = false, isMergeQueueEnabled, beforeMergeReturns = async () => {}, beforeRebaseReturns = async () => {} }: {
+  isMergeQueueEnabled?: boolean;
   items: MyPrSearchNode[]; mergeOutcome?: { ok: true; kind: 'merged' } | { ok: false; error: string }; behindByKey?: Map<string, number>; savedQueue?: string[]; savedPushedHeadKeys?: string[];
   isAutoRebaseOn?: boolean; beforeMergeReturns?: (pr: MyPr) => Promise<void>; beforeRebaseReturns?: (pullRequestId: string) => Promise<void>;
 }) {
@@ -840,7 +842,7 @@ function mergeQueueHarness({ items, mergeOutcome = { ok: true, kind: 'merged' },
   const rebases: string[] = [];
   const warnings: string[] = [];
   const poller = createMyPrsPoller({
-    org: 'Acme', shouldAutoRebase: isAutoRebaseOn, now: () => NOW, onTickComplete: (status) => { if (!status.isRefreshing) statuses.push(status); },
+    org: 'Acme', shouldAutoRebase: isAutoRebaseOn, isMergeQueueEnabled, now: () => NOW, onTickComplete: (status) => { if (!status.isRefreshing) statuses.push(status); },
     setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
     log: { warn: (message: string) => { warnings.push(message); } },
     readState: async () => saved,
@@ -1041,5 +1043,41 @@ test('a PR taken out of the queue while an earlier queued rebase is in flight is
   await harness.poller.tick();
   assert.deepEqual(harness.rebases, [`PR_1@${'a'.repeat(40)}`]);
   assert.deepEqual(harness.savedState().mergeQueueKeys, ['Acme/app#1']);
+  await harness.poller.stop();
+});
+
+test('keep mergeable turned off in Settings dispatches no repair, refuses the toggle, and keeps saved flags and attempts untouched until it is back on', async () => {
+  const savedState = { keepMergeableKeys: ['Acme/app#1', 'Acme/app#9'], keepMergeableAttemptKeys: [`Acme/app#9@${'a'.repeat(40)}`], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [] };
+  const harness = keepMergeableHarness({ savedState, isKeepMergeableEnabled: false });
+  const poller = harness.createPoller();
+  await poller.tick();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(harness.fixes, []);
+  assert.deepEqual(harness.savedState(), savedState);
+  assert.equal(harness.statuses.at(-1)?.isKeepMergeableEnabled, false);
+  assert.deepEqual(await poller.setKeepMergeable({ repo: 'Acme/app', number: 1, keepMergeable: false }), { ok: false, error: 'Keep mergeable is turned off in Settings' });
+  assert.deepEqual(harness.savedState().keepMergeableKeys, ['Acme/app#1', 'Acme/app#9']);
+  await poller.stop();
+  const resumed = keepMergeableHarness({ savedState: harness.savedState() });
+  const resumedPoller = resumed.createPoller();
+  await resumedPoller.tick();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(resumed.fixes, [`Acme/app#1@${'a'.repeat(40)}`]);
+  await resumedPoller.stop();
+});
+
+test('merge when ready turned off in Settings merges nothing, rebases no queued PR, refuses the toggle, and keeps the saved queue', async () => {
+  const behind = { mergeStateStatus: 'BEHIND' };
+  const harness = mergeQueueHarness({
+    items: [queueNode('Acme/app', 1), queueNode('Acme/app', 2, behind), queueNode('Acme/app', 3, { state: 'MERGED', mergedAt: '2026-09-28T11:00:00Z' })],
+    behindByKey: new Map([['Acme/app#2', 3]]), savedQueue: ['Acme/app#1', 'Acme/app#2', 'Acme/app#3'], isMergeQueueEnabled: false,
+  });
+  await harness.poller.tick();
+  assert.deepEqual(harness.merges, []);
+  assert.deepEqual(harness.rebases, []);
+  assert.deepEqual(harness.savedState().mergeQueueKeys, ['Acme/app#1', 'Acme/app#2', 'Acme/app#3']);
+  assert.equal(harness.statuses.at(-1)?.isMergeQueueEnabled, false);
+  assert.deepEqual(await harness.poller.setMergeWhenReady({ repo: 'Acme/app', number: 1, mergeWhenReady: false }), { ok: false, error: 'Merge when ready is turned off in Settings' });
+  assert.deepEqual(harness.savedState().mergeQueueKeys, ['Acme/app#1', 'Acme/app#2', 'Acme/app#3']);
   await harness.poller.stop();
 });

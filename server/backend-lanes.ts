@@ -23,6 +23,7 @@ import { createPrGh } from './pr-gh.ts';
 import { createRepoCache } from './repo-cache.ts';
 import { commandFor } from '../session/adapters/index.ts';
 import { createMyPrMergeabilityFix, createMyPrsWiring, createSandboxedPrStaging, sweepKeepMergeableLeftovers } from './my-prs-wiring.ts';
+import { keepMergeableTimeoutSeconds } from './core/my-prs-core.ts';
 import { createWorkflowSpawn, createWorkflowsWiring } from './workflows-wiring.ts';
 import { createGithubClock } from './github-clock.ts';
 import { GITHUB_CLOCK_INTERVAL_MINUTES } from './core/github-clock-core.ts';
@@ -156,6 +157,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     fixMergeability: createMyPrMergeabilityFix({
       workRoot: myPrsWorkRoot,
       glimmervoidHome,
+      timeoutSeconds: () => keepMergeableTimeoutSeconds(config),
       repoCache: sharedRepoCache,
       log: logger,
       spawnSession: createTeamReviewSpawn({

@@ -191,6 +191,9 @@ Draft reviews of teammates' pull requests for you to post from the Reviews tab.
 | `teamReview.skipIdleAfterDays` | Skip PRs idle for (days) | `14` | Leave pull requests without GitHub activity for this long out of automatic review. |
 | `teamReview.skill` | Review skill | `""` | Name of a Claude Code skill installed for the review agent, for example your own PR review skill. Leave empty to let the agent review with whatever skills it has. |
 | `teamReview.autoRebaseMyPrs` | Keep my pull requests rebased | `false` | On each poll, rebase your open, non-draft pull requests that are behind their base branch. A pull request with conflicts or checks still running is left alone, and a failed rebase is not retried until you push again. |
+| `teamReview.keepMergeableEnabled` | Keep mergeable | `true` | Offer Keep mergeable on your pull requests: a sandboxed agent repairs conflicts and failing checks and pushes the repair. Off hides the control and starts no repair; the pull requests you chose stay chosen for when you turn it back on. |
+| `teamReview.keepMergeableTimeoutMinutes` | Keep mergeable deadline (minutes) | `30` | Longest a Keep mergeable repair session may run before it is stopped and nothing is pushed. |
+| `teamReview.mergeQueueEnabled` | Merge when ready | `true` | Offer Merge when ready on your pull requests: queued pull requests are rebased when behind and merged once ready, one per repository per poll. Off hides the control and merges nothing; the queue is kept for when you turn it back on. |
 
 ### Benchmarks
 
@@ -206,7 +209,10 @@ Rules that act on pull request events in the repositories you choose.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `workflows` | Workflow rules | `{"rules":[]}` | Each rule watches repositories for one pull request event (opened, checks-failed, review-requested, approved, commented or merged), narrows it by author, labels, base branch, your own pull requests or a review request to your team, and then notifies you, labels or comments on the pull request, or starts a sandboxed agent session that pushes nothing. Rules start disabled. **File-only.** |
+| `workflows.enabled` | Run workflows | `true` | Poll the repositories your enabled rules watch and run their actions. Off stops polling and every action, whatever each rule says. |
+| `workflows.maxConcurrentSessions` | Concurrent agent sessions | `2` | Most workflow agent sessions running at once. Later spawns wait for a free slot. |
+| `workflows.maxActionsPerPoll` | Actions per poll | `20` | Most actions run in one poll. The rest are dropped and logged. |
+| `workflows` | Workflow rules | `{"enabled":true,"maxConcurrentSessions":2,"maxActionsPerPoll":20,"rules":[]}` | Each rule watches repositories for one pull request event (opened, checks-failed, review-requested, approved, commented or merged), narrows it by author, labels, base branch, your own pull requests or a review request to your team, and then notifies you, labels or comments on the pull request, or starts a sandboxed agent session that pushes nothing. Rules start disabled. Turn each rule on or off here; everything else about a rule is set in config.json. **File-only.** |
 
 ### Unattended actions
 

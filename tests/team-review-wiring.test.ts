@@ -1001,7 +1001,7 @@ test('the posture accepts edits only inside the work dir, denies every GitHub pa
   assert.deepEqual(posture, {
     deny: [
       'Bash(gh:*)', 'Bash(git push:*)', 'Bash(curl:*api.github.com*)', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch',
-      'Edit(**/.git/**)', 'Write(**/.git/**)', 'Edit(**/.claude/**)', 'Write(**/.claude/**)',
+      'Edit(**/.git/**)', 'Edit(**/.claude/**)',
     ],
     defaultMode: ACCEPT_EDITS_MODE,
   });

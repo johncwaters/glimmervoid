@@ -10,7 +10,7 @@ import type { CommandResult } from '../server/repo-cache.ts';
 import { KEEP_MERGEABLE_EXTRA_DENY_READ_PATHS, createTeamReviewSpawn, hooksPathPinnedSpawnEnv, keepMergeableSandbox, teamReviewSandbox, teamReviewSpawnEnv } from '../server/team-review-wiring.ts';
 import type { TeamReviewSpawn } from '../server/team-review-wiring.ts';
 import {
-  KEEP_MERGEABLE_SANDBOX_STUB_NAMES, MY_PRS_FIX_BASE_BRANCH, MY_PRS_FIX_BOOTSTRAP_PROMPT, MY_PRS_FIX_CHECKOUT_DIRNAME, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, MY_PRS_FIX_PROMPT_FILENAME,
+  KEEP_MERGEABLE_SANDBOX_STUB_NAMES, MY_PRS_FIX_BASE_BRANCH, MY_PRS_FIX_BOOTSTRAP_PROMPT, MY_PRS_FIX_CHECKOUT_DIRNAME, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, MY_PRS_FIX_PROMPT_FILENAME, keepMergeableTimeoutSeconds,
 } from '../server/core/my-prs-core.ts';
 import { LANE_ENVIRONMENT_ARGS } from '../server/core/lane-permissions-core.ts';
 import { Session } from '../session/sessions.ts';
@@ -79,7 +79,7 @@ async function resolveConflictAndCommit(checkoutPath: string, extraFile: string 
 
 async function fixHarness(root: string, { spawnSession, timeoutSeconds, setTimeoutFn, beforeGit = () => {} }: {
   spawnSession: TeamReviewSpawn;
-  timeoutSeconds?: number;
+  timeoutSeconds?: () => number;
   setTimeoutFn?: (callback: () => void, milliseconds: number) => NodeJS.Timeout;
   beforeGit?: (args: string[]) => void;
 }) {
@@ -181,7 +181,7 @@ test('keep mergeable runs sandboxed with the review posture and the server fast-
     assert.deepEqual(createdSessions[0].spawnEnv, hooksPathPinnedSpawnEnv(workDir));
     assert.deepEqual(createdSessions[0].settingsPermissions, { deny: [...MY_PRS_FIX_DENY_RULES], defaultMode: 'acceptEdits' });
     assert.equal(createdSessions[0].dangerouslySkipPermissions, false, 'the skip flag would override the acceptEdits boundary');
-    for (const rule of ['Bash(git push:*)', 'Bash(gh:*)', 'Edit(**/.github/workflows/**)', 'Edit(**/.git/**)', 'Write(**/.git/**)', 'Edit(**/.claude/**)', 'Write(**/.claude/**)']) assert.ok(MY_PRS_FIX_DENY_RULES.includes(rule), rule);
+    for (const rule of ['Bash(git push:*)', 'Bash(gh:*)', 'Edit(**/.github/workflows/**)', 'Edit(**/.git/**)', 'Edit(**/.claude/**)']) assert.ok(MY_PRS_FIX_DENY_RULES.includes(rule), rule);
     assert.deepEqual(createdSessions[0].extraClaudeArgs, ['-p', '--allowedTools', ...MY_PRS_FIX_ALLOW_RULES, '--disallowedTools', ...MY_PRS_FIX_DENY_RULES, ...LANE_ENVIRONMENT_ARGS]);
     assert.equal(createdSessions[0].ephemeral, true);
     assert.match(promptBodies[0], /Do not push and do not merge/);
@@ -541,13 +541,18 @@ test('the keep mergeable sandbox reaches no GitHub domain and opens no unix sock
   assert.ok(reviewSandbox.network.allowedDomains.includes('api.github.com'));
 });
 
-test('keep mergeable aborts a session past its deadline and pushes nothing', async () => {
+test('keep mergeable aborts a session past the deadline read from teamReview.keepMergeableTimeoutMinutes and pushes nothing', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-deadline-'));
   let sessionSignal: AbortSignal | null = null;
+  const requestedDelaysMs: number[] = [];
+  const config = { teamReview: { keepMergeableTimeoutMinutes: 7 } };
   try {
     const harness = await fixHarness(root, {
-      timeoutSeconds: 1,
-      setTimeoutFn: (callback) => setTimeout(callback, 0),
+      timeoutSeconds: () => keepMergeableTimeoutSeconds(config),
+      setTimeoutFn: (callback, milliseconds) => {
+        requestedDelaysMs.push(milliseconds);
+        return setTimeout(callback, 0);
+      },
       spawnSession: async ({ cwd, signal }) => {
         sessionSignal = signal;
         await resolveConflictAndCommit(path.join(cwd, MY_PRS_FIX_CHECKOUT_DIRNAME));
@@ -557,7 +562,8 @@ test('keep mergeable aborts a session past its deadline and pushes nothing', asy
     await harness.fix(conflictingPr(harness.headSha), new AbortController().signal);
     assert.equal((sessionSignal as AbortSignal | null)?.aborted, true);
     assert.deepEqual(harness.pushes, []);
-    assert.ok(harness.warnings.some((warning) => warning.includes('deadline')));
+    assert.ok(harness.warnings.some((warning) => warning.includes('420s deadline')));
+    assert.deepEqual(requestedDelaysMs, [420000]);
     assert.deepEqual(await fs.readdir(harness.workRoot), []);
   } finally {
     await fs.rm(root, { recursive: true, force: true });

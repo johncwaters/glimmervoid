@@ -15,6 +15,7 @@ import { STATES } from '../shared/states.ts';
 import { claudeProjectsDir, listRepoConversations } from '../session/core/conversation-history.ts';
 import type { Session } from '../session/sessions.ts';
 import type { ControlSocket } from './backend-websockets.ts';
+import { ABORT_CONFIG_SAVE } from './config-store.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord, ReplayLog } from './control-replay-core.ts';
 import { normalizeClientTrust } from './core/request-trust.ts';
@@ -27,6 +28,7 @@ import { formatDiffAnnotationMessage } from './core/diff-annotations-core.ts';
 import { buildGithubIssuePrompt, deriveIssueSessionName } from './core/github-issues-core.ts';
 import { machineSkipsPermissionsByDefault } from './core/session-registry-core.ts';
 import { prKey } from './core/team-review-core.ts';
+import { mergeWorkflowsUpdateOverStored } from './core/workflows-core.ts';
 import { createPrGh } from './pr-gh.ts';
 import type { PrGh } from './pr-gh.ts';
 import { buildSettingsPayload as buildSettingsPayloadFrom } from './settings-payload.ts';
@@ -194,7 +196,7 @@ const BRANCH_GC_NUMERIC_RANGES = Object.freeze({
   intervalMs: BRANCH_GC_INTERVAL_MS_RANGE,
 });
 const VISIONS_BOOLEAN_KEYS = Object.freeze(['enabled', 'autoFix']);
-const TEAM_REVIEW_BOOLEAN_KEYS = Object.freeze(['enabled', 'autoRebaseMyPrs']);
+const TEAM_REVIEW_BOOLEAN_KEYS = Object.freeze(['enabled', 'autoRebaseMyPrs', 'keepMergeableEnabled', 'mergeQueueEnabled']);
 const TEAM_REVIEW_STRING_KEYS = Object.freeze(['org', 'team', 'skill']);
 const VISIONS_VALUE_KEYS = Object.freeze(['projects']);
 const VISIONS_DISPATCH_BOOLEAN_KEYS = Object.freeze(['enabled']);
@@ -277,7 +279,11 @@ const DASHBOARD_SETTING_PATHS = Object.freeze([
   ...TEAM_REVIEW_STRING_KEYS.map((key) => `teamReview.${key}`),
   'teamReview.reReviewAfterHours',
   'teamReview.skipIdleAfterDays',
+  'teamReview.keepMergeableTimeoutMinutes',
   'benchmarks.enabled',
+  'workflows.enabled',
+  'workflows.maxConcurrentSessions',
+  'workflows.maxActionsPerPoll',
   ...POSTHOG_BOOLEAN_KEYS.map((key) => `posthog.${key}`),
   ...POSTHOG_STRING_KEYS.map((key) => `posthog.${key}`),
   ...POSTHOG_VALUE_KEYS.map((key) => `posthog.${key}`),
@@ -744,6 +750,14 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       return;
     }
 
+    const workflowsUpdate = s.workflows;
+    const workflowsMerge = workflowsUpdate ? mergeWorkflowsUpdateOverStored(config.workflows, workflowsUpdate) : null;
+    if (workflowsMerge && !workflowsMerge.ok) {
+      sendError(ws, workflowsMerge.error, { type: 'settings-error', requestId: msg.requestId || null });
+      return;
+    }
+
+    const inSaveWorkflowsFailure: { error: string | null } = { error: null };
     const skippedPermissionsByDefault = machineSkipsPermissionsByDefault(config);
     const freshConfig = configStore.save(cfg => {
       for (const key of RUNTIME_CONFIG_SCALAR_KEYS) {
@@ -764,7 +778,19 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       if (s.telegram != null) cfg.telegram = mergeSettingsBlockOverStored(cfg.telegram, s.telegram);
       if (s.agentApi != null) cfg.agentApi = mergeSettingsBlockOverStored(cfg.agentApi, s.agentApi);
       if (s.telemetry != null) cfg.telemetry = mergeSettingsBlockOverStored(cfg.telemetry, s.telemetry);
+      if (!workflowsUpdate) return undefined;
+      const storedWorkflowsMerge = mergeWorkflowsUpdateOverStored(cfg.workflows, workflowsUpdate);
+      if (!storedWorkflowsMerge.ok) {
+        inSaveWorkflowsFailure.error = storedWorkflowsMerge.error;
+        return ABORT_CONFIG_SAVE;
+      }
+      cfg.workflows = storedWorkflowsMerge.workflows;
+      return undefined;
     });
+    if (inSaveWorkflowsFailure.error !== null) {
+      sendError(ws, inSaveWorkflowsFailure.error, { type: 'settings-error', requestId: msg.requestId || null });
+      return;
+    }
     if (!freshConfig) return;
     applySettingsReload(freshConfig);
     if (machineSkipsPermissionsByDefault(freshConfig) !== skippedPermissionsByDefault) applyConfigReload(freshConfig);

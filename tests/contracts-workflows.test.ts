@@ -56,7 +56,7 @@ test('a label that gh would split or read as a flag is refused', () => {
   }
 });
 
-test('the workflows block is file-only: config.json keeps it, the browser mirror validates it, a dashboard update cannot write it', () => {
+test('the workflows block is file-only: config.json keeps it, the browser mirror validates it, a dashboard update writes only the switch, limits and rule toggles', () => {
   const workflows = { rules: [validRule()] };
   assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, workflows }).success, true);
   assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, workflows: { rules: [validRule({ trigger: 'pushed' })] } }).success, true);
@@ -64,6 +64,7 @@ test('the workflows block is file-only: config.json keeps it, the browser mirror
   assert.equal(BrowserConfig.safeParse({ workflows }).success, true);
   assert.equal(BrowserConfig.safeParse({ workflows: { rules: [validRule({ trigger: 'pushed' })] } }).success, false);
   assert.equal(ConfigUpdate.safeParse({ workflows }).success, false);
+  assert.equal(ConfigUpdate.safeParse({ workflows: { enabled: false, maxConcurrentSessions: 5, maxActionsPerPoll: 1, rules: [{ id: validRule().id, enabled: true }] } }).success, true);
   assert.equal(CONFIG_BLOCK_KEYS.includes('workflows'), true);
   assert.equal(CONFIG_SCALAR_KEYS.includes('workflows'), false);
 });

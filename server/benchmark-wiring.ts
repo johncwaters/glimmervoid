@@ -7,10 +7,11 @@ import { OVERRIDE_TOKEN_ENV } from './claude-credentials.ts';
 import { pairedReport, runBenchmark } from './core/benchmark-core.ts';
 import type { BenchmarkRunnerDependencies, PlannedCell } from './core/benchmark-core.ts';
 import { mineCandidates } from './core/benchmark-mining-core.ts';
+import { absolutePathReadRule } from './core/team-review-core.ts';
 import { writeJsonAtomic } from './json-file.ts';
 import type { LaneSpawn } from './lane-spawn.ts';
 import type { PrGh } from './pr-gh.ts';
-import { TEAM_REVIEW_DENY_RULES, teamReviewPermissions, teamReviewSandbox, teamReviewSpawnEnv } from './team-review-wiring.ts';
+import { TEAM_REVIEW_SESSION_DENY_RULES, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions, teamReviewSandbox } from './team-review-wiring.ts';
 import type { TeamReviewRepoCache, TeamReviewSpawn } from './team-review-wiring.ts';
 import {
   BenchmarkCase, BenchmarkId, BenchmarkRun, BenchmarkStatus, BenchmarkSuite, PrCheckoutCaseInput,
@@ -129,14 +130,14 @@ function subjectUnreadableFolders(suiteDirectory: string): string[] {
   return SUBJECT_UNREADABLE_SUITE_FOLDERS.map((folder) => path.join(suiteDirectory, folder));
 }
 
-function absolutePathReadRule(absolutePath: string): string {
-  const forwardSlashPath = absolutePath.split(path.sep).join('/').replace(/^\/+/, '');
-  return `Read(//${forwardSlashPath}/**)`;
+function benchmarkSubjectPermissions(suiteDirectory: string): { deny: string[]; defaultMode: string } {
+  const permissions = teamReviewAcceptEditsPermissions();
+  return { ...permissions, deny: [...permissions.deny, ...subjectUnreadableFolders(suiteDirectory).map(absolutePathReadRule)] };
 }
 
-function benchmarkSubjectPermissions(suiteDirectory: string): { deny: string[]; defaultMode: string } {
-  const permissions = teamReviewPermissions();
-  return { ...permissions, deny: [...permissions.deny, ...subjectUnreadableFolders(suiteDirectory).map(absolutePathReadRule)] };
+function benchmarkSubjectClaudeArgs(armExtraArgs: readonly string[], checkoutPath: string | null): string[] {
+  const readAllowArgs = checkoutPath === null ? [] : ['--allowedTools', absolutePathReadRule(checkoutPath)];
+  return ['-p', ...armExtraArgs, '--disallowedTools', ...TEAM_REVIEW_SESSION_DENY_RULES, ...readAllowArgs, '--strict-mcp-config'];
 }
 
 function benchmarkSubjectSandbox(workDir: string, suiteDirectory: string) {
@@ -430,7 +431,7 @@ function createBenchmarkWiring({
     const resultPath = path.join(staged.workDir, SUBJECT_RESULT_FILENAME);
     await fs.rm(resultPath, { force: true });
     await fs.writeFile(path.join(staged.workDir, SUBJECT_PROMPT_FILENAME), prompt, 'utf8');
-    const baseSpawnEnv = teamReviewSpawnEnv(staged.workDir);
+    const baseSpawnEnv = hooksPathPinnedSpawnEnv(staged.workDir);
     await fs.mkdir(baseSpawnEnv.GH_CONFIG_DIR, { recursive: true });
     const subjectController = new AbortController();
     const stopSubject = () => subjectController.abort();
@@ -450,7 +451,7 @@ function createBenchmarkWiring({
         name: `Benchmark ${cell.caseId} ${arm.id} trial ${cell.trial}`,
         cwd: staged.workDir,
         spawnEnv: { ...baseSpawnEnv, ...(arm.env ?? {}), [OVERRIDE_TOKEN_ENV]: '', CLAUDE_CODE_OAUTH_TOKEN: token.token },
-        extraClaudeArgs: ['-p', ...(arm.extraArgs ?? []), '--disallowedTools', ...TEAM_REVIEW_DENY_RULES, '--strict-mcp-config'],
+        extraClaudeArgs: benchmarkSubjectClaudeArgs(arm.extraArgs ?? [], staged.worktreePath),
         settingsPermissions: benchmarkSubjectPermissions(suiteDirectory),
         settingsSandbox: benchmarkSubjectSandbox(staged.workDir, suiteDirectory),
         signal: subjectController.signal,

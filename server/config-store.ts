@@ -10,6 +10,7 @@ import { readEnvSecrets, withEnvSecrets, withoutEnvSecrets } from './core/config
 import { isTelemetryForcedOff } from './core/telemetry-core.ts';
 import { AGENT_ID_SHAPE_MESSAGE, BranchGcFileSettings, Config, configIssueMessage, RUNTIME_CONFIG_SCALAR_KEYS } from '../shared/contracts/index.ts';
 import type { CustomAgentDeclaration } from '../shared/contracts/index.ts';
+import { DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS } from '../shared/contracts/workflows.ts';
 import type { WorkflowRule } from '../shared/contracts/workflows.ts';
 import { isPlainObject } from './core/usage-number-core.ts';
 import { INGEST_SPEC, pickSettingsBlock } from './core/settings-block-core.ts';
@@ -111,13 +112,20 @@ const DEFAULT_CONFIG = {
 
     allowedOrigins: [] as string[],
   },
-  workflows: { rules: [] as WorkflowRule[] },
+  workflows: {
+    enabled: true,
+    maxConcurrentSessions: DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS,
+    maxActionsPerPoll: DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL,
+    rules: [] as WorkflowRule[],
+  },
   projects: [] as ProjectEntry[],
 };
 
 type DefaultConfig = typeof DEFAULT_CONFIG;
 
 const DEFAULT_CONFIG_BY_KEY: GlimmervoidConfig = DEFAULT_CONFIG;
+
+const ABORT_CONFIG_SAVE = 'abort-config-save';
 
 const CONFIG_DIR_MODE = 0o700;
 const CONFIG_FILE_MODE = 0o600;
@@ -371,7 +379,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
   let _lastWrittenContent: string | null = null;
   let _lastAppliedContent: string | null = loadedConfig.loadedContent;
 
-  function save(mutatorFn: (config: GlimmervoidConfig) => void): GlimmervoidConfig | null {
+  function save(mutatorFn: (config: GlimmervoidConfig) => void | typeof ABORT_CONFIG_SAVE): GlimmervoidConfig | null {
     let loaded: LoadedConfig | FailedConfigLoad;
     try {
       loaded = loadConfigFile(configPath, { exitOnError: false });
@@ -394,7 +402,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       warnSuspectedWipe('save config.json');
       return null;
     }
-    mutatorFn(freshConfig);
+    if (mutatorFn(freshConfig) === ABORT_CONFIG_SAVE) return null;
     const effectiveConfig = withEnvSecrets(freshConfig, envSecrets);
     const mutatedValidation = validateConfig(effectiveConfig);
     if (!mutatedValidation.ok) {
@@ -582,6 +590,6 @@ type ConfigStore = ReturnType<typeof createConfigStore>;
 
 export {
   createConfigStore, resolveConfigPath, glimmervoidHomeDir, generateProjectId, ensureProjectIds, validateConfig, loadConfigFile,
-  DEFAULT_CONFIG, CONFIG_DIR_MODE, CONFIG_FILE_MODE, SECRET_PRESENCE_SUFFIX,
+  ABORT_CONFIG_SAVE, DEFAULT_CONFIG, CONFIG_DIR_MODE, CONFIG_FILE_MODE, SECRET_PRESENCE_SUFFIX,
 };
 export type { BranchGcBlock, ConfigStore, DefaultConfig, GlimmervoidConfig, LoadedConfig, ProjectEntry };

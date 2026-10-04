@@ -68,6 +68,7 @@ export const MyPrsStatus = z.object({
   ...reviewsPollingShape,
   type: z.literal('my-prs-status'), ts: z.number().finite(), configured: z.boolean(), reason: z.string().nullable().optional(),
   viewer: z.string().nullable(), prs: z.array(MyPr), truncatedNote: z.string().nullable().optional(),
+  isKeepMergeableEnabled: z.boolean().optional(), isMergeQueueEnabled: z.boolean().optional(),
 }).passthrough();
 export type MyPrsStatus = z.infer<typeof MyPrsStatus>;
 

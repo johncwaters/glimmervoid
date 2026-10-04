@@ -102,13 +102,17 @@ interface SandboxedPrStagingOptions {
   repoCache: Pick<TeamReviewRepoCache, 'ensureRepo' | 'fetchPr' | 'hydrateRange'>;
   glimmervoidHome?: string;
   runGit?: KeepMergeableGitRunner;
-  timeoutSeconds?: number;
+  timeoutSeconds?: () => number;
   setTimeoutFn?: (callback: () => void, milliseconds: number) => NodeJS.Timeout;
   clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
 }
 
+function defaultSessionTimeoutSeconds(): number {
+  return core.DEFAULT_KEEP_MERGEABLE_TIMEOUT_MINUTES * 60;
+}
+
 export function createSandboxedPrStaging({
-  spawnSession, repoCache, glimmervoidHome = glimmervoidHomeDir(), runGit = runTrustedGit, timeoutSeconds = core.MY_PRS_FIX_TIMEOUT_SECONDS, setTimeoutFn, clearTimeoutFn,
+  spawnSession, repoCache, glimmervoidHome = glimmervoidHomeDir(), runGit = runTrustedGit, timeoutSeconds = defaultSessionTimeoutSeconds, setTimeoutFn, clearTimeoutFn,
 }: SandboxedPrStagingOptions) {
   async function stageCheckout(pr: SandboxedPr, workDir: string, signal: AbortSignal): Promise<{ projectPath: string; baseSha: string } | { error: string }> {
     const stopped = { error: 'stopped' };
@@ -152,7 +156,7 @@ export function createSandboxedPrStaging({
     idPrefix: string; name: string; workDir: string; cachedClone: string; signal: AbortSignal; onPending: (pending: Promise<unknown>) => void; initialPrompt: string;
   }): Promise<KeepMergeableSessionOutcome> {
     return raceWithAbort<KeepMergeableSessionOutcome>({
-      timeoutMs: timeoutSeconds * 1000, setTimeoutFn, clearTimeoutFn, onPending,
+      timeoutMs: timeoutSeconds() * 1000, setTimeoutFn, clearTimeoutFn, onPending,
       onTimeout: () => 'timed-out',
       onEmpty: () => 'failed',
       start: (deadlineSignal) => {
@@ -174,7 +178,7 @@ export function createSandboxedPrStaging({
 
 export function createMyPrMergeabilityFix({
   spawnSession, repoCache, workRoot, glimmervoidHome = glimmervoidHomeDir(), makeWorkDir = makeTeamReviewWorkDir, runGit = runTrustedGit, log = console,
-  timeoutSeconds = core.MY_PRS_FIX_TIMEOUT_SECONDS, setTimeoutFn, clearTimeoutFn,
+  timeoutSeconds = defaultSessionTimeoutSeconds, setTimeoutFn, clearTimeoutFn,
 }: SandboxedPrStagingOptions & {
   workRoot: string;
   makeWorkDir?: typeof makeTeamReviewWorkDir;
@@ -239,7 +243,7 @@ export function createMyPrMergeabilityFix({
         onPending: (pending) => { pendingSession = pending; }, initialPrompt: core.MY_PRS_FIX_BOOTSTRAP_PROMPT,
       });
       await drainPending(pendingSession);
-      if (outcome === 'timed-out') return warn(pr, `not pushed: the session ran past its ${timeoutSeconds}s deadline`);
+      if (outcome === 'timed-out') return warn(pr, `not pushed: the session ran past its ${timeoutSeconds()}s deadline`);
       if (outcome !== 'finished' || signal.aborted) return;
       await handOff(pr, staged, path.join(workDir.dir, core.MY_PRS_FIX_CHECKOUT_DIRNAME), handoffRef, signal, onPushStarted, latestListedPr);
     } finally {
@@ -270,6 +274,7 @@ interface MyPrsWiringOptions {
 export function createMyPrsWiring({ config, broadcast, log = console, homeDir = glimmervoidHomeDir(), github = createPrGh(homeDir), createPoller = createMyPrsPoller, clock, fixMergeability, sweepLeftovers }: MyPrsWiringOptions) {
   const stateIo = createMyPrsStateIo(path.join(homeDir, core.MY_PRS_STATE_FILENAME), log);
   const settings = () => readTeamReviewSettings(config);
+  const features = () => core.readMyPrsFeatureSettings(config);
   const gate = () => core.myPrsShouldStart(settings());
   const emptyStatus = () => {
     const verdict = gate();
@@ -278,14 +283,18 @@ export function createMyPrsWiring({ config, broadcast, log = console, homeDir = 
   const runner = createLaneRunner<MyPrsPoller>({
     tag: core.MY_PRS_LANE_ID,
     gate,
-    cfgKey: () => JSON.stringify({ enabled: settings().enabled, org: settings().org, autoRebaseMyPrs: settings().autoRebaseMyPrs }),
+    cfgKey: () => JSON.stringify({
+      enabled: settings().enabled, org: settings().org, autoRebaseMyPrs: settings().autoRebaseMyPrs,
+      isKeepMergeableEnabled: features().isKeepMergeableEnabled, isMergeQueueEnabled: features().isMergeQueueEnabled,
+    }),
     emptyStatus,
     broadcast: (status) => {
       const parsed = MyPrsStatus.safeParse(status);
       if (parsed.success) broadcast(parsed.data);
     },
     createPoller: ({ onTickComplete }) => createPoller({
-      org: settings().org, shouldAutoRebase: settings().autoRebaseMyPrs, github, log, onTickComplete, clock, firstTickDelayMs: bootStaggerDelay,
+      org: settings().org, shouldAutoRebase: settings().autoRebaseMyPrs,
+      isKeepMergeableEnabled: features().isKeepMergeableEnabled, isMergeQueueEnabled: features().isMergeQueueEnabled, github, log, onTickComplete, clock, firstTickDelayMs: bootStaggerDelay,
       readState: stateIo.readState, writeState: stateIo.writeState, fixMergeability, beforeStart: sweepLeftovers,
       mergePr: (queuedPr) => mergeTrackedPr(queuedPr.key, queuedPr, queuedPr.headRefOid),
     }),

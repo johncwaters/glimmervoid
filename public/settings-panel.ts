@@ -12,8 +12,10 @@ import { el } from './dom-helpers.ts';
 import { ensureNotificationPermission, notificationPermission, notificationsSupported } from './notifications.ts';
 import { formatAgo } from './poll-ago.ts';
 import { UPDATES_SECTION_ID } from './radar-core.ts';
-import type { SettingsSection, SettingsSetting, SettingsOption } from './settings-map.ts';
-import { SETTINGS_MAP, SETTINGS_MOVED_SETTINGS, SETTINGS_SECTION_ALIASES, workflowRuleSummaryLines } from './settings-map.ts';
+import type { SettingsSection, SettingsSetting, SettingsOption, WorkflowRuleToggleRow } from './settings-map.ts';
+import {
+  SETTINGS_MAP, SETTINGS_MOVED_SETTINGS, SETTINGS_SECTION_ALIASES, withoutWorkflowRuleDefinitions, workflowRuleSummaryLines, workflowRuleToggleRows,
+} from './settings-map.ts';
 import {
   buildProjectSections,
   collectDirtyBlocks,
@@ -143,6 +145,8 @@ let restartServer = () => {};
 let confirmUpdateAndRestart = (proceed: (confirmedSessionIds: string[]) => void) => { proceed([]); };
 let lastAutoUpdateCheckAt: number | null = null;
 let isAutoUpdateCheckAwaitingStatus = false;
+const pendingWorkflowRuleIds = new Set<string>();
+const workflowRuleSaveErrorsById = new Map<string, string>();
 
 function browserPreferences() {
   return {
@@ -719,7 +723,7 @@ async function saveSelectedSection() {
     renderContent();
     return;
   }
-  const settings = collectDirtyBlocks(sectionMap, originalValues ?? {}, editedValues ?? {});
+  const settings = withoutWorkflowRuleDefinitions(collectDirtyBlocks(sectionMap, originalValues ?? {}, editedValues ?? {}));
   if (Object.keys(settings).length === 0) return;
   try {
     const message = await sendControlRequest('update-settings', { settings });
@@ -783,9 +787,54 @@ function buildCustomAgentsStatus() {
   return block;
 }
 
+async function saveWorkflowRuleToggle(rule: WorkflowRuleToggleRow, isTurningOn: boolean) {
+  pendingWorkflowRuleIds.add(rule.id);
+  workflowRuleSaveErrorsById.delete(rule.id);
+  refreshSettingsStatus();
+  try {
+    const message = await sendControlRequest('update-settings', { settings: { workflows: { rules: [{ id: rule.id, enabled: isTurningOn }] } } });
+    if (message.type === 'settings-error') workflowRuleSaveErrorsById.set(rule.id, String(message.message));
+    pendingWorkflowRuleIds.delete(rule.id);
+    if (message.type !== 'settings-error' && message.settings) {
+      applySettingsBroadcast(message.settings);
+      return;
+    }
+  } catch (error) {
+    workflowRuleSaveErrorsById.set(rule.id, (error as Error)?.message || 'Failed to save the rule.');
+  }
+  pendingWorkflowRuleIds.delete(rule.id);
+  refreshSettingsStatus();
+}
+
+function workflowRuleStatusText(rule: WorkflowRuleToggleRow): string {
+  if (pendingWorkflowRuleIds.has(rule.id)) return 'Saving';
+  return workflowRuleSaveErrorsById.get(rule.id) ?? '';
+}
+
+function buildWorkflowRuleToggle(rule: WorkflowRuleToggleRow) {
+  const row = el('div', 'settings-view-toggle-wrap');
+  const label = el('label', 'settings-view-toggle');
+  const input = el('input', 'settings-view-checkbox');
+  input.type = 'checkbox';
+  input.checked = rule.isEnabled;
+  input.disabled = pendingWorkflowRuleIds.has(rule.id);
+  input.setAttribute('aria-label', `Run rule ${rule.name}`);
+  input.addEventListener('change', () => { void saveWorkflowRuleToggle(rule, input.checked); });
+  label.append(input, el('span', 'settings-view-toggle-state', rule.isEnabled ? 'On' : 'Off'), el('span', 'settings-readonly', `${rule.name}  ${rule.summary}`));
+  const status = el('span', 'settings-view-copy-status', workflowRuleStatusText(rule));
+  status.setAttribute('role', 'status');
+  row.append(label, status);
+  return row;
+}
+
 function buildWorkflowsStatus() {
   const block = el('div', 'settings-view-status-block settings-view-status-slot');
   block.appendChild(el('div', 'settings-section-title', 'Rules'));
+  const rules = workflowRuleToggleRows(settingsPayload.workflows);
+  if (rules.length > 0) {
+    for (const rule of rules) block.appendChild(buildWorkflowRuleToggle(rule));
+    return block;
+  }
   for (const line of workflowRuleSummaryLines(settingsPayload.workflows)) block.appendChild(el('div', 'settings-readonly', line));
   return block;
 }

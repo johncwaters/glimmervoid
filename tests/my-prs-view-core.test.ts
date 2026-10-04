@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyStateText, groupMyPrs, groupStackedMyPrs, chooseSelectedKey, keepMergeableControlState, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from '../public/my-prs-view-core.ts';
+import { emptyStateText, groupMyPrs, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, groupStackedMyPrs, chooseSelectedKey, keepMergeableControlState, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from '../public/my-prs-view-core.ts';
 import { toMyPr } from '../server/core/my-prs-core.ts';
 import type { MyPr, MyPrSearchNode, MyPrThread } from '../shared/contracts/my-prs.ts';
 
@@ -40,6 +40,18 @@ test('merge when ready exposes queued state through aria-pressed and the queue p
 test('merge when ready shows a queued head Keep mergeable pushed as held for the operator', () => {
   assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 1, isMergeQueueHeldForRepairPush: true }, false), { isVisible: true, isPressed: true, isDisabled: false, statusText: 'Repair pushed, waiting for you' });
   assert.equal(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 1, isMergeQueueHeldForRepairPush: false }, false).statusText, 'Queued, 1st in line for this repository');
+});
+
+test('a feature turned off in Settings hides its toggle even for a PR it still holds, and a status without the flags keeps both shown', () => {
+  const offStatus = parseMyPrsStatus({ type: 'my-prs-status', ts: 1, configured: true, viewer: 'alice', prs: [], isKeepMergeableEnabled: false, isMergeQueueEnabled: false });
+  assert.equal(isKeepMergeableFeatureEnabled(offStatus), false);
+  assert.equal(isMergeQueueFeatureEnabled(offStatus), false);
+  assert.equal(keepMergeableControlState({ ...base, keepMergeable: true }, false, '', isKeepMergeableFeatureEnabled(offStatus)).isVisible, false);
+  assert.equal(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 1 }, false, '', isMergeQueueFeatureEnabled(offStatus)).isVisible, false);
+  const legacyStatus = parseMyPrsStatus({ type: 'my-prs-status', ts: 1, configured: true, viewer: 'alice', prs: [] });
+  assert.equal(isKeepMergeableFeatureEnabled(legacyStatus), true);
+  assert.equal(isMergeQueueFeatureEnabled(null), true);
+  assert.equal(keepMergeableControlState(base, false, '', isKeepMergeableFeatureEnabled(legacyStatus)).isVisible, true);
 });
 
 test('groups every stage in fixed section order and preserves selection', () => {

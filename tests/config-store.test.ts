@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  createConfigStore, ensureProjectIds, validateConfig, loadConfigFile, DEFAULT_CONFIG,
+  ABORT_CONFIG_SAVE, createConfigStore, ensureProjectIds, validateConfig, loadConfigFile, DEFAULT_CONFIG,
   CONFIG_FILE_MODE, SECRET_PRESENCE_SUFFIX,
 } from '../server/config-store.ts';
 import type { ConfigStore, DefaultConfig, GlimmervoidConfig } from '../server/config-store.ts';
@@ -297,6 +297,17 @@ test('save refuses an invalid mutation result without writing', () => {
   });
 });
 
+test('save writes nothing when the mutator aborts it', () => {
+  withStore(richConfig(), (store, p) => {
+    const before = fs.readFileSync(p, 'utf8');
+    assert.equal(store.save((cfg) => {
+      cfg.port = 4124;
+      return ABORT_CONFIG_SAVE;
+    }), null);
+    assert.equal(fs.readFileSync(p, 'utf8'), before);
+  });
+});
+
 test('save refuses a suspected external wipe without laundering it', () => {
   withStore(richConfig(), (store, p) => {
     const wipedContent = JSON.stringify({ projects: [] }, null, 2);
@@ -403,7 +414,7 @@ test('applySettings applies each runtime scalar it is handed', () => {
 
 test('workflow rules default to none, reach the dashboard read-only and apply live from a config.json edit', () => {
   withStore({ projects: [] }, (store) => {
-    assert.deepEqual(DEFAULT_CONFIG.workflows, { rules: [] });
+    assert.deepEqual(DEFAULT_CONFIG.workflows, { enabled: true, maxConcurrentSessions: 2, maxActionsPerPoll: 20, rules: [] });
     assert.equal(store.getSettings().workflows, null);
     const workflows = { rules: [{ id: 'greet', name: 'Greet', enabled: true, repos: ['acme/app'], trigger: 'opened', actions: [{ type: 'notify' }] }] };
     store.applySettings({ projects: [], workflows });
