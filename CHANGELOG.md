@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-**Keep mergeable**: toggle Keep mergeable in Reviews > Mine to have a sandboxed agent fix merge conflicts or failing checks on a local copy of that PR. The agent cannot push, merge, or reach GitHub. Glimmervoid pushes its commit to a new review branch, `glimmervoid/keep-mergeable/<number>-<short head>`, and never touches the PR branch itself. A repair that edits `.github/workflows/` is not pushed, and the server log names each review branch it pushes. A repair stops after 30 minutes, or when you turn the flag off or the PR leaves the list. The flag survives restarts, each head commit is attempted once, and saved flags are removed when the PR leaves the list. Behind branches still use the existing global auto-rebase setting.
+**Keep mergeable**: toggle Keep mergeable in Reviews > Mine to have a sandboxed agent fix merge conflicts or failing checks on a local copy of that PR. The agent has no network access to GitHub, can write files only inside its own working folder, skips the repository's git hooks, and pushes nothing itself. Glimmervoid pushes its commit to a new review branch, `glimmervoid/keep-mergeable/<number>-<short head>`, and never touches the PR branch itself. Its shell cannot read your credential and tool config folders (`~/.ssh`, `~/.aws`, `~/.config`, `~/.claude`, `~/.codex`, `~/.glimmervoid` and similar). A repair that edits anything under `.github/` or adds a credential-like file (`.env`, `*.pem`, `*.key`, `id_rsa`, `.npmrc`, `.netrc`, `credentials*`) is not pushed, and the server log names each review branch it pushes. A repair stops after 30 minutes, or when you turn the flag off or the PR leaves the list. The flag survives restarts, each head commit is attempted once (a repair cut short by turning the flag off or by a restart is tried again), saved flags are removed when the PR leaves the list, and work folders a crash left behind are cleaned up when My PRs starts. Behind branches still use the existing global auto-rebase setting.
 
 **Review request priorities**: Reviews > Team includes pull requests requested directly from you, labels Direct and Team requests, and puts blocking reviews first with chips for author changes, failing checks, running checks and drafts.
 
@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **PostHog status when PostHog is off**: with PostHog disabled or not fully set up, the dashboard no longer logs `Dropped invalid server message` for the PostHog status and shows the lane as off.
+- **Radar fixes never push a workflow change under an unusual file name**: a PostHog auto-fix that touches `.github/workflows/` through a file name with accents, tabs or quotes, that renames a workflow out of that folder, or that replaces `.github` or `.github/workflows` itself (for example with a symlink), is now held for you instead of pushed.
 - **Terminal links open once**: clicking a link in a session's terminal no longer opens two browser tabs when Glimmervoid was started from Ghostty or Warp. Sessions stop inheriting the launching terminal's identity, which made Claude Code open every clicked link a second time; Claude Code sessions keep clickable links. Restart Glimmervoid so sessions pick this up.
 
 ## [0.28.3] - 2026-10-02

@@ -1,4 +1,6 @@
+import { isWorkflowPath } from './git-changed-paths-core.ts';
 
+const DEFAULT_INTERVAL_MINUTES = 15;
 const DEFAULT_USER_ESCALATION_THRESHOLD = 25;
 const DEFAULT_MIN_USERS_TO_INVESTIGATE = 1;
 const DEFAULT_ENTRY_RETENTION_DAYS = 7;
@@ -116,7 +118,6 @@ const PING_LABELS: Record<string, string> = {
 
 const JOB_MODES: Readonly<Record<string, string>> = Object.freeze({ investigate: 'investigate', fix: 'fix' });
 const FIX_VERDICTS: readonly string[] = Object.freeze(['FIXED', 'NEEDS_HUMAN', 'TRANSIENT', 'ERROR']);
-const WORKFLOW_PATH_PREFIX = '.github/workflows/';
 const MAX_PR_TITLE_CHARS = 120;
 const MAX_PR_BODY_CHARS = 4000;
 const PR_URL_RE = /^https:\/\/[^\s"'<>]{1,300}$/;
@@ -243,7 +244,7 @@ function decideFixHandoff({
   const files = Array.isArray(changedFiles)
     ? changedFiles.map((file) => String(file ?? '').trim()).filter(Boolean)
     : [];
-  const workflow = files.find((file) => file.replace(/\\/g, '/').startsWith(WORKFLOW_PATH_PREFIX));
+  const workflow = files.find(isWorkflowPath);
   if (workflow) {
     return {
       ok: false,
@@ -667,6 +668,7 @@ export {
   INVESTIGATIONS_KEY,
   INVESTIGATION_LOG_CAP,
   DEFAULT_ARCHIVED_RETENTION_DAYS,
+  DEFAULT_INTERVAL_MINUTES,
   DEFAULT_USER_ESCALATION_THRESHOLD,
   DEFAULT_MIN_USERS_TO_INVESTIGATE,
   DEFAULT_ENTRY_RETENTION_DAYS,

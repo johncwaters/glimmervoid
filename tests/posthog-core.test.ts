@@ -249,6 +249,13 @@ test('decideFixHandoff: a workflow-touching diff needs a carbon unit and names t
   assert.equal(backslashed.verdict, 'NEEDS_HUMAN', 'a windows-shaped path is the same path');
 });
 
+test('decideFixHandoff: a bare .github or .github/workflows entry needs a carbon unit', () => {
+  for (const bareEntry of ['.github', '.github/workflows', '.github\\workflows']) {
+    assert.equal(decideFixHandoff({ changedFiles: [bareEntry], commitsAhead: 1 }).verdict, 'NEEDS_HUMAN', bareEntry);
+  }
+  assert.deepEqual(decideFixHandoff({ changedFiles: ['.github/CODEOWNERS', '.githubx'], commitsAhead: 1 }), { ok: true });
+});
+
 test('decideFixHandoff: a FIXED verdict with nothing committed is an ERROR, not an empty branch', () => {
   for (const commitsAhead of [0, '', null, 'x']) {
     const res = decideFixHandoff({ changedFiles: [], commitsAhead });

@@ -4,14 +4,15 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileAsync } from '../server/child-process-safe.ts';
-import { createMyPrMergeabilityFix, createMyPrsStateIo } from '../server/my-prs-wiring.ts';
+import { createMyPrMergeabilityFix, createMyPrsStateIo, sweepKeepMergeableLeftovers } from '../server/my-prs-wiring.ts';
 import { createRepoCache } from '../server/repo-cache.ts';
 import type { CommandResult } from '../server/repo-cache.ts';
-import { createTeamReviewSpawn, keepMergeableSandbox, teamReviewSandbox, teamReviewSpawnEnv } from '../server/team-review-wiring.ts';
+import { KEEP_MERGEABLE_EXTRA_DENY_READ_PATHS, createTeamReviewSpawn, keepMergeableSandbox, keepMergeableSpawnEnv, teamReviewSandbox, teamReviewSpawnEnv } from '../server/team-review-wiring.ts';
 import type { TeamReviewSpawn } from '../server/team-review-wiring.ts';
 import {
-  MY_PRS_FIX_BASE_BRANCH, MY_PRS_FIX_BOOTSTRAP_PROMPT, MY_PRS_FIX_CHECKOUT_DIRNAME, MY_PRS_FIX_DENY_RULES, MY_PRS_FIX_PROMPT_FILENAME,
+  KEEP_MERGEABLE_SANDBOX_STUB_NAMES, MY_PRS_FIX_BASE_BRANCH, MY_PRS_FIX_BOOTSTRAP_PROMPT, MY_PRS_FIX_CHECKOUT_DIRNAME, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, MY_PRS_FIX_PROMPT_FILENAME,
 } from '../server/core/my-prs-core.ts';
+import { LANE_ENVIRONMENT_ARGS } from '../server/core/lane-permissions-core.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import type { MyPr } from '../shared/contracts/my-prs.ts';
@@ -89,8 +90,9 @@ async function fixHarness(root: string, { spawnSession, timeoutSeconds, setTimeo
   const pushes: string[][] = [];
   const logs: string[] = [];
   const warnings: string[] = [];
+  const glimmervoidHome = path.join(root, 'glimmervoid-home');
   const fix = createMyPrMergeabilityFix({
-    spawnSession, repoCache, workRoot, timeoutSeconds, setTimeoutFn,
+    spawnSession, repoCache, workRoot, glimmervoidHome, timeoutSeconds, setTimeoutFn,
     log: { log: (message: string) => { logs.push(message); }, warn: (message: string) => { warnings.push(message); } },
     runGit: async (args, cwd) => {
       beforeGit(args);
@@ -100,7 +102,7 @@ async function fixHarness(root: string, { spawnSession, timeoutSeconds, setTimeo
     },
   });
   const cachedRepo = path.join(cacheRoot, 'Acme', 'app');
-  return { fix, pushes, logs, warnings, workRoot, headSha, cachedRepo };
+  return { fix, pushes, logs, warnings, workRoot, headSha, cachedRepo, repoCache, glimmervoidHome };
 }
 
 test('My PRs state uses the existing atomic store and survives a new state IO instance', async () => {
@@ -166,11 +168,13 @@ test('keep mergeable runs sandboxed with the review posture and the server pushe
     assert.match(createdSessions[0].id, /^my-prs:/);
     assert.ok(workDir.startsWith(harness.workRoot));
     assert.equal(createdSessions[0].initialPrompt, MY_PRS_FIX_BOOTSTRAP_PROMPT);
-    assert.deepEqual(createdSessions[0].settingsSandbox, keepMergeableSandbox(workDir));
-    assert.deepEqual(createdSessions[0].spawnEnv, teamReviewSpawnEnv(workDir));
-    assert.deepEqual(createdSessions[0].settingsPermissions, { deny: [...MY_PRS_FIX_DENY_RULES], defaultMode: 'bypassPermissions' });
-    for (const rule of ['Bash(git push:*)', 'Bash(gh:*)', 'Edit(**/.github/workflows/**)']) assert.ok(MY_PRS_FIX_DENY_RULES.includes(rule), rule);
-    assert.deepEqual(createdSessions[0].extraClaudeArgs, ['-p', '--strict-mcp-config', '--disallowedTools', ...MY_PRS_FIX_DENY_RULES]);
+    assert.deepEqual(createdSessions[0].settingsSandbox, keepMergeableSandbox(workDir, { glimmervoidHome: harness.glimmervoidHome, cachedClone: harness.cachedRepo }));
+    assert.deepEqual(createdSessions[0].spawnEnv, { ...teamReviewSpawnEnv(workDir), GIT_CONFIG_COUNT: '3', GIT_CONFIG_KEY_2: 'core.hooksPath', GIT_CONFIG_VALUE_2: '' });
+    assert.deepEqual(createdSessions[0].spawnEnv, keepMergeableSpawnEnv(workDir));
+    assert.deepEqual(createdSessions[0].settingsPermissions, { deny: [...MY_PRS_FIX_DENY_RULES], defaultMode: 'acceptEdits' });
+    assert.equal(createdSessions[0].dangerouslySkipPermissions, false, 'the skip flag would override the acceptEdits boundary');
+    for (const rule of ['Bash(git push:*)', 'Bash(gh:*)', 'Edit(**/.github/workflows/**)', 'Edit(**/.git/**)', 'Write(**/.git/**)', 'Edit(**/.claude/**)', 'Write(**/.claude/**)']) assert.ok(MY_PRS_FIX_DENY_RULES.includes(rule), rule);
+    assert.deepEqual(createdSessions[0].extraClaudeArgs, ['-p', '--allowedTools', ...MY_PRS_FIX_ALLOW_RULES, '--disallowedTools', ...MY_PRS_FIX_DENY_RULES, ...LANE_ENVIRONMENT_ARGS]);
     assert.equal(createdSessions[0].ephemeral, true);
     assert.match(promptBodies[0], /Do not push and do not merge/);
     assert.deepEqual(recordedLanes, ['my-prs']);
@@ -194,6 +198,38 @@ test('keep mergeable runs sandboxed with the review posture and the server pushe
   }
 });
 
+test('keep mergeable excludes sandbox stub files from the checkout so a git add -A never pushes them', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-stubs-'));
+  const spawnSession = createTeamReviewSpawn({
+    reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
+    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', recordLane: () => {},
+    makeSession: (options) => {
+      const session = new Session(options);
+      session.start = async () => {
+        const checkoutPath = path.join(options.path, MY_PRS_FIX_CHECKOUT_DIRNAME);
+        for (const stubName of KEEP_MERGEABLE_SANDBOX_STUB_NAMES) {
+          const stubPath = path.join(checkoutPath, stubName.endsWith('/') ? `${stubName}stub` : stubName);
+          await fs.mkdir(path.dirname(stubPath), { recursive: true });
+          await fs.writeFile(stubPath, '');
+        }
+        await resolveConflictAndCommit(checkoutPath);
+        session.emit('exit');
+      };
+      return session;
+    },
+  });
+  try {
+    const harness = await fixHarness(root, { spawnSession });
+    await harness.fix(conflictingPr(harness.headSha), new AbortController().signal);
+    assert.equal(harness.pushes.length, 1);
+    const pushedSha = (harness.pushes[0].at(-1) ?? '').split(':')[0];
+    const pushedFiles = (await git(['ls-tree', '-r', '--name-only', pushedSha], harness.cachedRepo)).split('\n');
+    assert.deepEqual(pushedFiles.sort(), ['.github/workflows/ci.yml', 'shared.txt']);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('keep mergeable refuses to push a session commit that adds a workflow file', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-workflow-'));
   try {
@@ -204,6 +240,122 @@ test('keep mergeable refuses to push a session commit that adds a workflow file'
     assert.deepEqual(harness.pushes, []);
     assert.ok(harness.warnings.some((warning) => warning.includes('.github/workflows/exfiltrate.yml')));
     assert.deepEqual(await fs.readdir(harness.workRoot), []);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('keep mergeable refuses to push a session commit that adds a credential-like file and cleans its handoff ref', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-credential-'));
+  try {
+    const harness = await fixHarness(root, {
+      spawnSession: async ({ cwd }) => { await resolveConflictAndCommit(path.join(cwd, MY_PRS_FIX_CHECKOUT_DIRNAME), 'deploy/.env.production'); },
+    });
+    await harness.fix(conflictingPr(harness.headSha), new AbortController().signal);
+    assert.deepEqual(harness.pushes, []);
+    assert.ok(harness.warnings.some((warning) => warning.includes('deploy/.env.production') && warning.includes('credential')), harness.warnings.join('\n'));
+    assert.equal(await git(['for-each-ref', 'refs/glimmervoid-keep-mergeable/'], harness.cachedRepo), '');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('keep mergeable refuses to push a session commit that edits a local composite action under .github', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-action-'));
+  try {
+    const harness = await fixHarness(root, {
+      spawnSession: async ({ cwd }) => { await resolveConflictAndCommit(path.join(cwd, MY_PRS_FIX_CHECKOUT_DIRNAME), '.github/actions/setup/action.yml'); },
+    });
+    await harness.fix(conflictingPr(harness.headSha), new AbortController().signal);
+    assert.deepEqual(harness.pushes, []);
+    assert.ok(harness.warnings.some((warning) => warning.includes('.github/actions/setup/action.yml')), harness.warnings.join('\n'));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+async function repairAbortedAtGitStep(root: string, abortingGitStep: string) {
+  const repairController = new AbortController();
+  const steps: string[] = [];
+  const harness = await fixHarness(root, {
+    spawnSession: async ({ cwd }) => { await resolveConflictAndCommit(path.join(cwd, MY_PRS_FIX_CHECKOUT_DIRNAME)); },
+    beforeGit: (args) => {
+      steps.push(args[0]);
+      if (args[0] === abortingGitStep) repairController.abort();
+    },
+  });
+  await harness.fix(conflictingPr(harness.headSha), repairController.signal, () => { steps.push('push started'); });
+  return { steps, pushes: harness.pushes };
+}
+
+test('keep mergeable reports the hand-off push as started before an abort lands during the push', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-abort-push-'));
+  try {
+    const { steps, pushes } = await repairAbortedAtGitStep(root, 'push');
+    assert.equal(pushes.length, 1);
+    assert.deepEqual(steps.filter((step) => step === 'push started' || step === 'push'), ['push started', 'push']);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('keep mergeable reports the hand-off push as started when an abort lands during the cleanup after the push', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-abort-cleanup-'));
+  try {
+    const { steps, pushes } = await repairAbortedAtGitStep(root, 'update-ref');
+    assert.equal(pushes.length, 1);
+    assert.deepEqual(steps.filter((step) => step === 'push started' || step === 'push' || step === 'update-ref'), ['push started', 'push', 'update-ref']);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('keep mergeable never reports the hand-off push as started when an abort lands before the push', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-abort-before-push-'));
+  try {
+    const { steps, pushes } = await repairAbortedAtGitStep(root, 'fetch');
+    assert.deepEqual(pushes, []);
+    assert.ok(steps.includes('fetch'));
+    assert.ok(!steps.includes('push started'));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('the keep mergeable start sweep deletes leftover work folders and handoff refs and keeps other refs', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-sweep-'));
+  try {
+    const harness = await fixHarness(root, { spawnSession: async () => {} });
+    assert.ok(await harness.repoCache.ensureRepo('Acme/app'));
+    await git(['update-ref', 'refs/glimmervoid-keep-mergeable/7-left-behind', harness.headSha], harness.cachedRepo);
+    await git(['update-ref', 'refs/glimmervoid-keep-mergeable/8-left-behind', harness.headSha], harness.cachedRepo);
+    await git(['update-ref', 'refs/heads/keep-me', harness.headSha], harness.cachedRepo);
+    const leftoverWorkDir = path.join(harness.workRoot, 'glimmervoid-wt-team-review-Acme-app-7-abc');
+    await fs.mkdir(path.join(leftoverWorkDir, MY_PRS_FIX_CHECKOUT_DIRNAME), { recursive: true });
+    const reapedRoots: string[][] = [];
+    const prunedClones: string[] = [];
+    await sweepKeepMergeableLeftovers({
+      workRoot: harness.workRoot, repoCache: harness.repoCache, log: { warn() {} },
+      reapProcesses: async ({ reviewRoots, scope }) => { assert.equal(scope, 'sweep'); reapedRoots.push([...reviewRoots]); },
+      gitWorkspace: { pruneWorktrees: async ({ projectPath }) => { prunedClones.push(projectPath); return { ok: true }; } },
+    });
+    assert.deepEqual(await fs.readdir(harness.workRoot), []);
+    assert.equal(await git(['for-each-ref', 'refs/glimmervoid-keep-mergeable/'], harness.cachedRepo), '');
+    assert.equal(await git(['rev-parse', 'refs/heads/keep-me'], harness.cachedRepo), harness.headSha);
+    assert.deepEqual(reapedRoots, [[harness.workRoot, harness.workRoot]]);
+    assert.deepEqual(prunedClones, [harness.cachedRepo]);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('the keep mergeable start sweep tolerates a missing work root and an empty clone cache', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-sweep-empty-'));
+  try {
+    await sweepKeepMergeableLeftovers({
+      workRoot: path.join(root, 'missing'), repoCache: { listRepos: async () => [] }, log: { warn() {} },
+      reapProcesses: async () => {}, gitWorkspace: { pruneWorktrees: async () => ({ ok: true }) },
+    });
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -225,8 +377,20 @@ test('keep mergeable refuses a workflow file whose name git would print C-quoted
   }
 });
 
+test('the keep mergeable sandbox hides operator credential and config homes from Bash but re-opens its own work dir and cached clone', () => {
+  const sandbox = keepMergeableSandbox('/home/op/.glimmervoid/my-prs-work/wt', { glimmervoidHome: '/srv/glimmervoid', cachedClone: '/home/op/.glimmervoid/team-review-repos/Acme/app' });
+  for (const deniedPath of ['~/.ssh', '~/.config/gh', '~/.git-credentials', '~/.claude', '~/.codex', '~/.grok', '~/.glimmervoid', '~/.aws', '~/.gnupg', '~/.config', '~/.npmrc', '~/.netrc', '~/.docker', '~/.kube', '/srv/glimmervoid']) {
+    assert.ok(sandbox.filesystem.denyRead.includes(deniedPath), deniedPath);
+  }
+  for (const deniedPath of KEEP_MERGEABLE_EXTRA_DENY_READ_PATHS) assert.ok(sandbox.filesystem.denyRead.includes(deniedPath), deniedPath);
+  assert.equal(new Set(sandbox.filesystem.denyRead).size, sandbox.filesystem.denyRead.length);
+  assert.deepEqual(sandbox.filesystem.allowRead, ['/home/op/.glimmervoid/my-prs-work/wt', '/home/op/.glimmervoid/team-review-repos/Acme/app']);
+  assert.deepEqual(sandbox.filesystem.allowWrite, ['/home/op/.glimmervoid/my-prs-work/wt'], 'a denied ~/.codex is never writable');
+  assert.deepEqual(teamReviewSandbox('/work/dir').filesystem.denyRead, ['~/.ssh', '~/.config/gh', '~/Library/Keychains', '~/.git-credentials']);
+});
+
 test('the keep mergeable sandbox reaches no GitHub domain and opens no unix socket while the review sandbox stays as it was', () => {
-  const sandbox = keepMergeableSandbox('/work/dir');
+  const sandbox = keepMergeableSandbox('/work/dir', { glimmervoidHome: '/home/op/.glimmervoid', cachedClone: '/clone' });
   const reviewSandbox = teamReviewSandbox('/work/dir');
   assert.equal(sandbox.network.allowAllUnixSockets, false);
   assert.equal(sandbox.network.strictAllowlist, true);
@@ -234,7 +398,7 @@ test('the keep mergeable sandbox reaches no GitHub domain and opens no unix sock
   assert.deepEqual(sandbox.network.allowedDomains, reviewSandbox.network.allowedDomains.filter((domain) => !/github/i.test(domain)));
   assert.equal(sandbox.failIfUnavailable, true);
   assert.equal(sandbox.allowUnsandboxedCommands, false);
-  assert.deepEqual(sandbox.filesystem, reviewSandbox.filesystem);
+  assert.deepEqual(sandbox.filesystem.denyWrite, reviewSandbox.filesystem.denyWrite);
   assert.equal(reviewSandbox.network.allowAllUnixSockets, true);
   assert.ok(reviewSandbox.network.allowedDomains.includes('api.github.com'));
 });

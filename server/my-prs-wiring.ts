@@ -6,6 +6,7 @@ import type { MyPr, MyPrKeepMergeableResult, MyPrMergeRequest, MyPrMergeResult, 
 import { myPrMergeRefusal } from '../shared/my-pr-merge.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import * as core from './core/my-prs-core.ts';
+import { nulSeparatedPaths } from './core/git-changed-paths-core.ts';
 import { createLaneRunner } from './lane-runner.ts';
 import type { SharedClock } from './lane-runner.ts';
 import { createMyPrsPoller } from './my-prs-poller.ts';
@@ -18,8 +19,9 @@ import { createJsonStateStore } from './json-file.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { drainPending, firstLine, raceWithAbort } from './ephemeral-session.ts';
 import type { CommandResult } from './repo-cache.ts';
-import { emptyGhConfigDir, keepMergeableSandbox, makeTeamReviewWorkDir, teamReviewSpawnEnv } from './team-review-wiring.ts';
-import type { TeamReviewRepoCache, TeamReviewSpawn } from './team-review-wiring.ts';
+import { emptyGhConfigDir, keepMergeableSandbox, keepMergeableSpawnEnv, makeTeamReviewWorkDir, sweepLeftoverCheckouts } from './team-review-wiring.ts';
+import type { TeamReviewGitWorkspace, TeamReviewRepoCache, TeamReviewSpawn } from './team-review-wiring.ts';
+import type { TeamReviewReapOptions } from './team-review-reaper.ts';
 import { CommitSha } from '../shared/contracts/team-review.ts';
 
 type MyPrsPoller = ReturnType<typeof createMyPrsPoller>;
@@ -67,13 +69,40 @@ async function runTrustedGit(args: string[], cwd: string, signal?: AbortSignal):
   }
 }
 
+async function deleteHandoffRefs(projectPath: string, runGit: KeepMergeableGitRunner, log: Pick<Console, 'warn'>): Promise<void> {
+  const listed = await runGit(['for-each-ref', '--format=%(refname)', KEEP_MERGEABLE_HANDOFF_REF_PREFIX], projectPath);
+  if (!listed.ok) return log.warn(`[${core.MY_PRS_LANE_ID}] could not list leftover handoff refs in ${projectPath}: ${firstLine(listed.err)}`);
+  const leftoverRefs = listed.out.split('\n').map((line) => line.trim()).filter((refName) => refName.startsWith(KEEP_MERGEABLE_HANDOFF_REF_PREFIX));
+  for (const refName of leftoverRefs) {
+    const deleted = await runGit(['update-ref', '-d', refName], projectPath);
+    if (!deleted.ok) log.warn(`[${core.MY_PRS_LANE_ID}] could not delete leftover handoff ref ${refName} in ${projectPath}: ${firstLine(deleted.err)}`);
+  }
+}
+
+export async function sweepKeepMergeableLeftovers({ workRoot, repoCache, gitWorkspace, runGit = runTrustedGit, reapProcesses, log = console }: {
+  workRoot: string;
+  repoCache: Pick<TeamReviewRepoCache, 'listRepos'>;
+  gitWorkspace: Pick<TeamReviewGitWorkspace, 'pruneWorktrees'>;
+  runGit?: KeepMergeableGitRunner;
+  reapProcesses?: (options: Required<TeamReviewReapOptions>) => Promise<void>;
+  log?: Pick<Console, 'warn'>;
+}): Promise<void> {
+  await sweepLeftoverCheckouts({ worktreeRoot: workRoot, workRoot, keepPaths: new Set(), repoCache, gitWorkspace, reapProcesses, log });
+  const cachedClones = await repoCache.listRepos().catch((error: unknown) => {
+    log.warn(`[${core.MY_PRS_LANE_ID}] could not list cached clones: ${error instanceof Error ? error.message : String(error)}`);
+    return [];
+  });
+  for (const projectPath of cachedClones) await deleteHandoffRefs(projectPath, runGit, log);
+}
+
 export function createMyPrMergeabilityFix({
-  spawnSession, repoCache, workRoot, makeWorkDir = makeTeamReviewWorkDir, runGit = runTrustedGit, log = console,
+  spawnSession, repoCache, workRoot, glimmervoidHome = glimmervoidHomeDir(), makeWorkDir = makeTeamReviewWorkDir, runGit = runTrustedGit, log = console,
   timeoutSeconds = core.MY_PRS_FIX_TIMEOUT_SECONDS, setTimeoutFn, clearTimeoutFn,
 }: {
   spawnSession: TeamReviewSpawn;
   repoCache: Pick<TeamReviewRepoCache, 'ensureRepo' | 'fetchPr' | 'hydrateRange'>;
   workRoot: string;
+  glimmervoidHome?: string;
   makeWorkDir?: typeof makeTeamReviewWorkDir;
   runGit?: KeepMergeableGitRunner;
   log?: Pick<Console, 'log' | 'warn'>;
@@ -115,15 +144,18 @@ export function createMyPrMergeabilityFix({
       if (signal.aborted) return stopped;
       if (!staged.ok) return { error: `could not stage the checkout ${staged.err}` };
     }
+    const excludePath = path.join(checkoutPath, '.git', 'info', 'exclude');
+    await fs.mkdir(path.dirname(excludePath), { recursive: true });
+    await fs.appendFile(excludePath, core.keepMergeableExcludeLines(), 'utf8');
     return { projectPath, baseSha: baseSha.data };
   }
 
-  async function changedPaths(projectPath: string, fromSha: string, toSha: string): Promise<string[] | null> {
-    const changed = await runGit(['diff', '--name-only', '-z', '--no-renames', fromSha, toSha], projectPath);
-    return changed.ok ? core.nulSeparatedPaths(changed.out) : null;
+  async function changedPaths(projectPath: string, fromSha: string, toSha: string, diffFilterArgs: string[] = []): Promise<string[] | null> {
+    const changed = await runGit(['diff', '--name-only', '-z', '--no-renames', ...diffFilterArgs, fromSha, toSha], projectPath);
+    return changed.ok ? nulSeparatedPaths(changed.out) : null;
   }
 
-  async function handOff(pr: MyPr, staged: { projectPath: string; baseSha: string }, checkoutPath: string, handoffRef: string, signal: AbortSignal): Promise<void> {
+  async function handOff(pr: MyPr, staged: { projectPath: string; baseSha: string }, checkoutPath: string, handoffRef: string, signal: AbortSignal, onPushStarted: () => void): Promise<void> {
     const pushUrl = core.keepMergeablePushUrl(pr.repo);
     if (!pushUrl) return warn(pr, `not pushed: ${pr.repo} is not a GitHub repository name`);
     const fetched = await runGit(['fetch', '--quiet', '--no-tags', '--no-write-fetch-head', checkoutPath, `+HEAD:${handoffRef}`], staged.projectPath, signal);
@@ -134,19 +166,21 @@ export function createMyPrMergeabilityFix({
     if (!result.ok || !resultSha.success) return warn(pr, `not pushed: could not read the session commit ${result.err}`);
     const onTopOfHead = await runGit(['merge-base', '--is-ancestor', pr.headRefOid, resultSha.data], staged.projectPath);
     const changedFromHead = await changedPaths(staged.projectPath, pr.headRefOid, resultSha.data);
+    const addedFromHead = await changedPaths(staged.projectPath, pr.headRefOid, resultSha.data, ['--diff-filter=A']);
     const changedFromBase = await changedPaths(staged.projectPath, staged.baseSha, resultSha.data);
-    if (!changedFromHead || !changedFromBase) return warn(pr, 'not pushed: could not list the changed files');
-    const decision = core.keepMergeableHandoff({ headSha: pr.headRefOid, resultSha: resultSha.data, isResultOnTopOfHead: onTopOfHead.ok, changedFromHead, changedFromBase });
+    if (!changedFromHead || !addedFromHead || !changedFromBase) return warn(pr, 'not pushed: could not list the changed files');
+    const decision = core.keepMergeableHandoff({ headSha: pr.headRefOid, resultSha: resultSha.data, isResultOnTopOfHead: onTopOfHead.ok, changedFromHead, addedFromHead, changedFromBase });
     if (!decision.push) return warn(pr, `not pushed: ${decision.reason}`);
     if (signal.aborted) return;
     const branch = core.keepMergeableBranchName(pr);
+    onPushStarted();
     const pushed = await runGit(['push', '--no-verify', '--quiet', pushUrl, `${resultSha.data}:refs/heads/${branch}`], staged.projectPath, signal);
     if (signal.aborted) return;
     if (!pushed.ok) return warn(pr, `pushing review branch ${branch} failed: ${pushed.err}`);
     log.log(`[${core.MY_PRS_LANE_ID}] keep mergeable pushed review branch ${branch} for ${pr.key} at ${resultSha.data}`);
   }
 
-  function runSession(pr: MyPr, workDir: string, signal: AbortSignal, onPending: (pending: Promise<unknown>) => void): Promise<KeepMergeableSessionOutcome> {
+  function runSession(pr: MyPr, workDir: string, cachedClone: string, signal: AbortSignal, onPending: (pending: Promise<unknown>) => void): Promise<KeepMergeableSessionOutcome> {
     return raceWithAbort<KeepMergeableSessionOutcome>({
       timeoutMs: timeoutSeconds * 1000, setTimeoutFn, clearTimeoutFn, onPending,
       onTimeout: () => 'timed-out',
@@ -155,17 +189,17 @@ export function createMyPrMergeabilityFix({
         const sessionSignal = AbortSignal.any([deadlineSignal, signal]);
         return spawnSession({
           id: `${core.MY_PRS_LANE_ID}:${randomUUID()}`, name: `Keep mergeable ${pr.key}`, cwd: workDir,
-          spawnEnv: teamReviewSpawnEnv(workDir),
-          extraClaudeArgs: ['-p', '--strict-mcp-config', '--disallowedTools', ...core.MY_PRS_FIX_DENY_RULES],
-          settingsPermissions: { deny: [...core.MY_PRS_FIX_DENY_RULES], defaultMode: 'bypassPermissions' },
-          settingsSandbox: keepMergeableSandbox(workDir),
+          spawnEnv: keepMergeableSpawnEnv(workDir),
+          extraClaudeArgs: core.keepMergeableClaudeArgs(),
+          settingsPermissions: core.keepMergeablePermissions(),
+          settingsSandbox: keepMergeableSandbox(workDir, { glimmervoidHome, cachedClone }),
           signal: sessionSignal, initialPrompt: core.MY_PRS_FIX_BOOTSTRAP_PROMPT,
         }).then((): KeepMergeableSessionOutcome => (sessionSignal.aborted ? 'stopped' : 'finished'));
       },
     });
   }
 
-  return async (pr: MyPr, signal: AbortSignal): Promise<void> => {
+  return async (pr: MyPr, signal: AbortSignal, onPushStarted: () => void = () => {}): Promise<void> => {
     if (signal.aborted) return;
     const workDir = await makeWorkDir(workRoot, pr.key);
     const handoffRef = `${KEEP_MERGEABLE_HANDOFF_REF_PREFIX}${pr.number}-${randomUUID()}`;
@@ -180,11 +214,11 @@ export function createMyPrMergeabilityFix({
       if (signal.aborted) return;
       await fs.writeFile(path.join(workDir.dir, core.MY_PRS_FIX_PROMPT_FILENAME), core.keepMergeablePrompt(pr), 'utf8');
       await fs.mkdir(emptyGhConfigDir(workDir.dir), { recursive: true });
-      const outcome = await runSession(pr, workDir.dir, signal, (pending) => { pendingSession = pending; });
+      const outcome = await runSession(pr, workDir.dir, staged.projectPath, signal, (pending) => { pendingSession = pending; });
       await drainPending(pendingSession);
       if (outcome === 'timed-out') return warn(pr, `not pushed: the session ran past its ${timeoutSeconds}s deadline`);
       if (outcome !== 'finished' || signal.aborted) return;
-      await handOff(pr, staged, path.join(workDir.dir, core.MY_PRS_FIX_CHECKOUT_DIRNAME), handoffRef, signal);
+      await handOff(pr, staged, path.join(workDir.dir, core.MY_PRS_FIX_CHECKOUT_DIRNAME), handoffRef, signal, onPushStarted);
     } finally {
       await drainPending(pendingSession);
       if (projectPath) await runGit(['update-ref', '-d', handoffRef], projectPath);
@@ -207,9 +241,10 @@ interface MyPrsWiringOptions {
   clock?: SharedClock;
   homeDir?: string;
   fixMergeability?: MyPrsPollerDependencies['fixMergeability'];
+  sweepLeftovers?: MyPrsPollerDependencies['beforeStart'];
 }
 
-export function createMyPrsWiring({ config, broadcast, log = console, homeDir = glimmervoidHomeDir(), github = createPrGh(homeDir), createPoller = createMyPrsPoller, clock, fixMergeability }: MyPrsWiringOptions) {
+export function createMyPrsWiring({ config, broadcast, log = console, homeDir = glimmervoidHomeDir(), github = createPrGh(homeDir), createPoller = createMyPrsPoller, clock, fixMergeability, sweepLeftovers }: MyPrsWiringOptions) {
   const stateIo = createMyPrsStateIo(path.join(homeDir, core.MY_PRS_STATE_FILENAME), log);
   const settings = () => readTeamReviewSettings(config);
   const gate = () => core.myPrsShouldStart(settings());
@@ -228,7 +263,7 @@ export function createMyPrsWiring({ config, broadcast, log = console, homeDir = 
     },
     createPoller: ({ onTickComplete }) => createPoller({
       org: settings().org, shouldAutoRebase: settings().autoRebaseMyPrs, github, log, onTickComplete, clock, firstTickDelayMs: bootStaggerDelay,
-      readState: stateIo.readState, writeState: stateIo.writeState, fixMergeability,
+      readState: stateIo.readState, writeState: stateIo.writeState, fixMergeability, beforeStart: sweepLeftovers,
     }),
   });
   function getStatus(): MyPrsStatusType {

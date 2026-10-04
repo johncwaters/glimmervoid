@@ -16,7 +16,8 @@ interface MyPrsPollerDependencies {
   shouldAutoRebase?: boolean;
   readState?: () => Promise<unknown>;
   writeState?: (state: MyPrsStateType) => Promise<void>;
-  fixMergeability?: (pr: MyPr, signal: AbortSignal) => Promise<void>;
+  fixMergeability?: (pr: MyPr, signal: AbortSignal, onPushStarted: () => void) => Promise<void>;
+  beforeStart?: () => Promise<void>;
   github: Pick<PrGh, 'viewer' | 'searchMyPrs' | 'behindCounts' | 'reviewThreadsBatch' | 'rebasePr' | 'rateLimitWaitMs'>;
   onTickComplete: (status: MyPrsStatus) => void;
   now?: () => number;
@@ -46,6 +47,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   const fixControllersByKey = new Map<string, AbortController>();
   const shutdownController = new AbortController();
   let stateLoad: Promise<void> | null = null;
+  let isLeftoverSweepRunning = false;
 
   async function loadState(): Promise<void> {
     if (stateLoad) return stateLoad;
@@ -142,36 +144,43 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     return { failed: false };
   }
 
-  async function launchFix(pr: MyPr, fixMergeability: NonNullable<MyPrsPollerDependencies['fixMergeability']>): Promise<boolean> {
-    keepMergeableAttemptKeys.add(core.keepMergeableAttemptKey(pr));
-    await loop.persist();
-    if (loop.isStopped() || !keepMergeableKeys.has(pr.key)) return false;
+  function forgetAttempt(attemptKey: string): Promise<void> {
+    keepMergeableAttemptKeys.delete(attemptKey);
+    return loop.persist();
+  }
+
+  function launchFix(pr: MyPr, fixMergeability: NonNullable<MyPrsPollerDependencies['fixMergeability']>): Promise<void> | null {
+    if (loop.isStopped() || !keepMergeableKeys.has(pr.key)) return null;
+    const attemptKey = core.keepMergeableAttemptKey(pr);
     const fixController = new AbortController();
     fixControllersByKey.set(pr.key, fixController);
     const fixSignal = AbortSignal.any([shutdownController.signal, fixController.signal]);
-    const fix = Promise.resolve().then(() => fixMergeability(pr, fixSignal)).catch((error: unknown) => {
+    keepMergeableAttemptKeys.add(attemptKey);
+    const forgetAbortedAttempt = () => { void forgetAttempt(attemptKey); };
+    fixSignal.addEventListener('abort', forgetAbortedAttempt, { once: true });
+    const keepAttemptOnceThePushStarts = () => { fixSignal.removeEventListener('abort', forgetAbortedAttempt); };
+    const attemptSaved = loop.persist();
+    const fix = attemptSaved.then(() => (fixSignal.aborted ? undefined : fixMergeability(pr, fixSignal, keepAttemptOnceThePushStarts))).catch((error: unknown) => {
       log?.warn(`[${core.MY_PRS_LANE_ID}] keep mergeable fix for ${pr.key} failed: ${error instanceof Error ? error.message : String(error)}`);
     }).finally(() => {
+      fixSignal.removeEventListener('abort', forgetAbortedAttempt);
       fixesInFlight.delete(pr.key);
       if (fixControllersByKey.get(pr.key) === fixController) fixControllersByKey.delete(pr.key);
       pendingFixes.delete(fix);
     });
     pendingFixes.add(fix);
-    return true;
+    return attemptSaved;
   }
 
   async function dispatchFixes(): Promise<void> {
     const fixMergeability = dependencies.fixMergeability;
-    if (!fixMergeability || loop.isStopped()) return;
+    if (!fixMergeability || loop.isStopped() || isLeftoverSweepRunning) return;
     for (const pr of previousPrs) {
       if (fixesInFlight.has(pr.key) || !core.shouldFixMergeability(pr, keepMergeableKeys, keepMergeableAttemptKeys)) continue;
+      const attemptSaved = launchFix(pr, fixMergeability);
+      if (!attemptSaved) continue;
       fixesInFlight.add(pr.key);
-      let isLaunched = false;
-      try {
-        isLaunched = await launchFix(pr, fixMergeability);
-      } finally {
-        if (!isLaunched) fixesInFlight.delete(pr.key);
-      }
+      await attemptSaved;
       if (loop.isStopped()) return;
     }
   }
@@ -203,5 +212,19 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     await drainPending(Promise.allSettled([...pendingFixes]));
   }
 
-  return { start: loop.start, stop, tick: loop.tick, refresh: loop.refresh, setKeepMergeable };
+  async function sweepLeftoversBeforeAnyRepair(beforeStart: () => Promise<void>): Promise<void> {
+    isLeftoverSweepRunning = true;
+    try {
+      await beforeStart();
+    } finally {
+      isLeftoverSweepRunning = false;
+    }
+  }
+
+  function start(): Promise<void> {
+    const beforeStart = dependencies.beforeStart;
+    return loop.start(beforeStart ? () => sweepLeftoversBeforeAnyRepair(beforeStart) : null);
+  }
+
+  return { start, stop, tick: loop.tick, refresh: loop.refresh, setKeepMergeable };
 }

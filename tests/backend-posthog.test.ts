@@ -24,9 +24,11 @@ import { createSpawnGate } from '../server/spawn-gate.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
+import { execFileAsync } from '../server/child-process-safe.ts';
 import { readEnvSecrets, withEnvSecrets } from '../server/core/config-secrets-core.ts';
 import type { InvestigationTrail } from '../server/core/investigation-trail-core.ts';
 import { safePathSegment } from '../shared/paths.ts';
+import { ServerMessage } from '../shared/contracts/index.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import { recordingSessionFactory } from './helpers/fake-session.ts';
 
@@ -85,6 +87,8 @@ function assertPosthogStatusShape(status: Record<string, unknown>, { configured,
   assert.equal(status.reason, reason);
   assert.deepEqual(status.projects, []);
   assert.ok(typeof status.ts === 'number' && Number.isFinite(status.ts));
+  const contractParse = ServerMessage.safeParse(status);
+  assert.equal(contractParse.error?.message, undefined);
 }
 
 test('PostHog getStatus: disabled config synthesizes an off status', () => {
@@ -93,6 +97,16 @@ test('PostHog getStatus: disabled config synthesizes an off status', () => {
     ...inertWiringDeps(),
   });
   assertPosthogStatusShape(wiring.getStatus(), { configured: false, reason: null });
+});
+
+test('PostHog getStatus: an off status carries the configured interval and no investigations', () => {
+  const wiring = createPosthogWiring({
+    config: { posthog: { enabled: false, intervalMinutes: 30 }, replayBufferKB: 256 },
+    ...inertWiringDeps(),
+  });
+  const status = wiring.getStatus();
+  assert.equal(status.intervalMinutes, 30);
+  assert.deepEqual(status.investigations, []);
 });
 
 test('PostHog getStatus: enabled without telegram synthesizes a misconfigured status', () => {
@@ -725,7 +739,7 @@ function fakeRun(script: Record<string, CliResult> = {}) {
 }
 
 const CLEAN_SCRIPT: Record<string, CliResult> = {
-  'git diff': { ok: true, out: 'src/app.js\ntests/app.test.js', err: '' },
+  'git diff': { ok: true, out: 'src/app.js\0tests/app.test.js\0', err: '' },
   'git rev-list': { ok: true, out: '2', err: '' },
   'git push': { ok: true, out: '', err: '' },
   'gh repo': { ok: true, out: 'owner/repo', err: '' },
@@ -779,7 +793,7 @@ test('pushFixBranch reports FIXED with no url when gh printed nothing usable', a
 test('pushFixBranch refuses a workflow-touching diff, pushes nothing, and needs a carbon unit', async () => {
   const { res, calls } = await handoff({
     ...CLEAN_SCRIPT,
-    'git diff': { ok: true, out: 'src/app.js\n.github/workflows/ci.yml', err: '' },
+    'git diff': { ok: true, out: 'src/app.js\0.github/workflows/ci.yml\0', err: '' },
   });
   assert.equal(res.verdict, 'NEEDS_HUMAN');
   assert.equal(res.prUrl, null);
@@ -787,6 +801,57 @@ test('pushFixBranch refuses a workflow-touching diff, pushes nothing, and needs 
   assert.match(res.summary, /\.github\/workflows\/ci\.yml/);
   assert.equal(calls.some((c) => c.key === 'git push'), false, 'nothing left the machine');
   assert.equal(calls.some((c) => c.cmd === 'gh'), false);
+});
+
+test('pushFixBranch refuses a non-ASCII workflow path that unquoted name-only output would have C-quoted', async () => {
+  const { res, calls } = await handoff({
+    ...CLEAN_SCRIPT,
+    'git diff': { ok: true, out: 'src/app.js\0.github/workflows/\u00e9 \t"x".yml\0', err: '' },
+  });
+  assert.equal(res.verdict, 'NEEDS_HUMAN');
+  assert.equal(calls.some((c) => c.key === 'git push'), false);
+});
+
+test('pushFixBranch refuses a real commit that renames a workflow out of .github/workflows', async () => {
+  const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-ph-rename-'));
+  const runGit = async (args: string[]) => (await execFileAsync('git', args, { cwd: repoDir, encoding: 'utf8' })).stdout.trim();
+  try {
+    await runGit(['init', '--quiet', '-b', 'main']);
+    await runGit(['config', 'user.email', 'radar@example.test']);
+    await runGit(['config', 'user.name', 'Radar']);
+    fs.mkdirSync(path.join(repoDir, '.github', 'workflows'), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, '.github', 'workflows', 'ci.yml'), 'name: ci\non: push\njobs: {}\n');
+    await runGit(['add', '-A']);
+    await runGit(['commit', '--quiet', '-m', 'base']);
+    const baseSha = await runGit(['rev-parse', 'HEAD']);
+    await runGit(['mv', '.github/workflows/ci.yml', 'ci.yml']);
+    await runGit(['commit', '--quiet', '-m', 'move the workflow away']);
+    const outsideCalls: string[] = [];
+    const run = async (cmd: string, args: string[], cwd: string): Promise<CliResult> => {
+      if (cmd !== 'git' || args[0] === 'push') {
+        outsideCalls.push(`${cmd} ${args[0]}`);
+        return { ok: true, out: '', err: '' };
+      }
+      try {
+        const { stdout } = await execFileAsync(cmd, args, { cwd, encoding: 'utf8' });
+        return { ok: true, out: stdout.trim(), err: '' };
+      } catch (error) {
+        return { ok: false, out: '', err: error instanceof Error ? error.message : String(error) };
+      }
+    };
+    const res = await pushFixBranch({ run, repoPath: repoDir, workspace: { ...WORKSPACE, cwd: repoDir, baseSha }, prTitle: 'fix', prBody: 'body' });
+    assert.equal(res.verdict, 'NEEDS_HUMAN');
+    assert.match(res.summary ?? '', /\.github\/workflows\/ci\.yml/);
+    assert.deepEqual(outsideCalls, []);
+  } finally {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  }
+});
+
+test('pushFixBranch refuses a diff that replaces .github with a bare entry such as a symlink', async () => {
+  const { res, calls } = await handoff({ ...CLEAN_SCRIPT, 'git diff': { ok: true, out: '.github\0', err: '' } });
+  assert.equal(res.verdict, 'NEEDS_HUMAN');
+  assert.equal(calls.some((c) => c.key === 'git push'), false);
 });
 
 test('pushFixBranch turns a FIXED verdict that committed nothing into an ERROR', async () => {
@@ -831,7 +896,7 @@ test('pushFixBranch reports an unresolvable repository as ERROR before it can gu
 
 test('pushFixBranch compares against the fork sha it was given, never a moved branch name', async () => {
   const { calls } = await handoff(CLEAN_SCRIPT);
-  assert.deepEqual(calls[0].args, ['diff', '--name-only', 'deadbeef...HEAD']);
+  assert.deepEqual(calls[0].args, ['diff', '-z', '--name-only', '--no-renames', 'deadbeef...HEAD']);
   assert.deepEqual(calls[1].args, ['rev-list', '--count', 'deadbeef..HEAD']);
 });
 

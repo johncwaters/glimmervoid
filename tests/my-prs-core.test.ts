@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { autoRebaseRecord, deriveStage, hasUnresolvedThreads, keepMergeableAttemptKey, keepMergeableBranchName, keepMergeableFixesToCancel, keepMergeableHandoff, keepMergeablePrompt, keepMergeablePushUrl, nulSeparatedPaths, shouldFixMergeability, shouldAutoRebase, mergedSinceDate, myPrsShouldStart, prunedKeepMergeableState, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/core/my-prs-core.ts';
+import { autoRebaseRecord, deriveStage, hasUnresolvedThreads, keepMergeableAttemptKey, keepMergeableBranchName, keepMergeableClaudeArgs, keepMergeablePermissions, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, keepMergeableFixesToCancel, keepMergeableHandoff, keepMergeablePrompt, keepMergeablePushUrl, shouldFixMergeability, shouldAutoRebase, mergedSinceDate, myPrsShouldStart, prunedKeepMergeableState, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/core/my-prs-core.ts';
 import { MyPrSearchNode } from '../shared/contracts/my-prs.ts';
 import type { MyPr, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
 
@@ -44,7 +44,7 @@ test('keep mergeable dispatches only flagged open conflicting or failing heads o
 test('keep mergeable prompt pins the local checkout and asks for repairs committed locally, never pushed or merged', () => {
   const pr = { ...readyPr(), headRefName: 'fix/checks', isCrossRepository: true };
   const prompt = keepMergeablePrompt(pr);
-  for (const text of [pr.key, pr.headRefName, pr.baseRefName, pr.headRefOid, 'Fix merge conflicts', 'fix failing checks', 'commit the repairs locally', 'Do not push and do not merge', 'no network access to GitHub', '.github/workflows/']) {
+  for (const text of [pr.key, pr.headRefName, pr.baseRefName, pr.headRefOid, 'Fix merge conflicts', 'fix failing checks', 'commit the repairs locally', 'Do not push and do not merge', 'no network access to GitHub', 'anything under .github/', 'CODEOWNERS', 'credential or secret files']) {
     assert.ok(prompt.includes(text), text);
   }
   for (const text of ['gh repo clone', 'gh pr checkout', 'push to the PR head branch', 'fork remote']) {
@@ -62,7 +62,7 @@ test('keep mergeable hands off only a new commit on top of the head that leaves 
   const headSha = 'a'.repeat(40);
   const resultSha = 'b'.repeat(40);
   const handoff = (changedFromHead: string[], changedFromBase: string[], overrides: { resultSha?: string; isResultOnTopOfHead?: boolean } = {}) => keepMergeableHandoff({
-    headSha, resultSha: overrides.resultSha ?? resultSha, isResultOnTopOfHead: overrides.isResultOnTopOfHead ?? true, changedFromHead, changedFromBase,
+    headSha, resultSha: overrides.resultSha ?? resultSha, isResultOnTopOfHead: overrides.isResultOnTopOfHead ?? true, changedFromHead, addedFromHead: [], changedFromBase,
   });
   assert.deepEqual(handoff(['src/a.ts'], ['src/a.ts']), { push: true });
   assert.deepEqual(handoff(['.github/workflows/ci.yml', 'src/a.ts'], ['src/a.ts']), { push: true });
@@ -73,24 +73,38 @@ test('keep mergeable hands off only a new commit on top of the head that leaves 
   assert.equal(handoff(['src/a.ts'], ['src/a.ts'], { isResultOnTopOfHead: false }).push, false);
 });
 
-test('keep mergeable refuses a change to the bare .github or .github/workflows entry, such as a committed symlink', () => {
-  const handoff = (changedPath: string) => keepMergeableHandoff({ headSha: 'a'.repeat(40), resultSha: 'b'.repeat(40), isResultOnTopOfHead: true, changedFromHead: [changedPath], changedFromBase: [changedPath] });
-  assert.equal(handoff('.github').push, false);
-  assert.equal(handoff('.github/workflows').push, false);
-  assert.equal(handoff('.github/CODEOWNERS').push, true);
+test('keep mergeable refuses a change anywhere in the .github tree, including the bare entry, and allows a lookalike sibling', () => {
+  const handoff = (changedPath: string) => keepMergeableHandoff({ headSha: 'a'.repeat(40), resultSha: 'b'.repeat(40), isResultOnTopOfHead: true, changedFromHead: [changedPath], addedFromHead: [], changedFromBase: [changedPath] });
+  for (const githubPath of ['.github', '.github/workflows', '.github/CODEOWNERS', '.github/dependabot.yml', '.github/actions/setup/action.yml', '.github\\actions\\setup\\action.yml']) {
+    assert.equal(handoff(githubPath).push, false, githubPath);
+  }
+  assert.match(JSON.stringify(handoff('.github/actions/setup/action.yml')), /\.github\/actions\/setup\/action\.yml/);
   assert.equal(handoff('.githubx').push, true);
+  assert.equal(handoff('docs/.github/notes.md').push, true);
 });
 
-test('keep mergeable reads NUL separated git paths verbatim so a non-ASCII, tab, quote or newline workflow path is still refused', () => {
+test('keep mergeable refuses a session commit that adds a credential-like file neither head nor base had', () => {
+  const handoff = ({ addedFromHead, changedFromBase }: { addedFromHead: string[]; changedFromBase: string[] }) => keepMergeableHandoff({
+    headSha: 'a'.repeat(40), resultSha: 'b'.repeat(40), isResultOnTopOfHead: true, changedFromHead: addedFromHead, addedFromHead, changedFromBase,
+  });
+  for (const credentialPath of ['.env', '.env.local', 'config/server.pem', 'keys/id_rsa', 'keys/id_rsa.pub', '.npmrc', 'home/.netrc', 'credentials.json', 'tls/server.key', 'nested\\dir\\.env']) {
+    const decision = handoff({ addedFromHead: ['src/a.ts', credentialPath], changedFromBase: ['src/a.ts', credentialPath] });
+    assert.equal(decision.push, false, credentialPath);
+    assert.match(JSON.stringify(decision), /credential/, credentialPath);
+  }
+  assert.deepEqual(handoff({ addedFromHead: ['.env.example'], changedFromBase: [] }), { push: true }, 'a credential-like file the merge brought from base is allowed');
+  assert.deepEqual(handoff({ addedFromHead: ['src/env.ts', 'src/keys.ts', 'docs/credential-rotation.md'], changedFromBase: ['src/env.ts', 'src/keys.ts', 'docs/credential-rotation.md'] }), { push: true });
+  const modifiedNotAdded = keepMergeableHandoff({ headSha: 'a'.repeat(40), resultSha: 'b'.repeat(40), isResultOnTopOfHead: true, changedFromHead: ['.env.example'], addedFromHead: [], changedFromBase: ['.env.example'] });
+  assert.deepEqual(modifiedNotAdded, { push: true }, 'editing a file head already had is not an add');
+});
+
+test('keep mergeable refuses a non-ASCII, tab, quote or newline workflow path', () => {
   const awkwardWorkflowPaths = ['.github/workflows/\u00e9.yml', '.github/workflows/a\tb.yml', '.github/workflows/"q".yml', '.github/workflows/line\nbreak.yml', '.github/workflows/trailing .yml '];
-  const gitOutput = `src/a.ts\0${awkwardWorkflowPaths.join('\0')}\0`;
-  const changedPaths = nulSeparatedPaths(gitOutput);
-  assert.deepEqual(changedPaths, ['src/a.ts', ...awkwardWorkflowPaths]);
+  const changedPaths = ['src/a.ts', ...awkwardWorkflowPaths];
   for (const workflowPath of awkwardWorkflowPaths) {
-    const decision = keepMergeableHandoff({ headSha: 'a'.repeat(40), resultSha: 'b'.repeat(40), isResultOnTopOfHead: true, changedFromHead: ['src/a.ts', workflowPath], changedFromBase: changedPaths });
+    const decision = keepMergeableHandoff({ headSha: 'a'.repeat(40), resultSha: 'b'.repeat(40), isResultOnTopOfHead: true, changedFromHead: ['src/a.ts', workflowPath], addedFromHead: [], changedFromBase: changedPaths });
     assert.equal(decision.push, false, JSON.stringify(workflowPath));
   }
-  assert.deepEqual(nulSeparatedPaths(''), []);
 });
 
 test('keep mergeable cancels in-flight fixes whose flag is gone or whose PR is listed and no longer open', () => {
@@ -281,4 +295,21 @@ test('auto-rebase records name the base on success and the first error line on f
   assert.deepEqual(autoRebaseRecord({ ok: true, err: '' }, 'main', NOW), { outcome: 'rebased', at: NOW, message: 'Rebased onto main' });
   assert.deepEqual(autoRebaseRecord({ ok: false, err: '\n  conflict in a.ts\nsecond' }, 'main', NOW), { outcome: 'failed', at: NOW, message: 'conflict in a.ts' });
   assert.deepEqual(autoRebaseRecord({ ok: false, err: '' }, 'main', NOW), { outcome: 'failed', at: NOW, message: 'GitHub refused the rebase' });
+});
+
+test('keep mergeable is bounded by acceptEdits with only the probed git allow rules and never a bare Write allow', () => {
+  const permissions = keepMergeablePermissions();
+  assert.equal(permissions.defaultMode, 'acceptEdits');
+  assert.notEqual(permissions.defaultMode, 'bypassPermissions');
+  assert.deepEqual(permissions.deny, [...MY_PRS_FIX_DENY_RULES]);
+  assert.equal(Object.hasOwn(permissions, 'allow'), false);
+  assert.deepEqual([...MY_PRS_FIX_ALLOW_RULES], ['Bash(git status:*)', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git add:*)', 'Bash(git commit:*)', 'Bash(git merge:*)']);
+  for (const rule of MY_PRS_FIX_ALLOW_RULES) assert.equal(/^(Write|Edit|Bash)$|^(Write|Edit)\(/.test(rule), false, rule);
+});
+
+test('keep mergeable ends its variadic tool lists with an option, or the bootstrap prompt is eaten as a rule', () => {
+  const args = keepMergeableClaudeArgs();
+  assert.deepEqual(args, ['-p', '--allowedTools', ...MY_PRS_FIX_ALLOW_RULES, '--disallowedTools', ...MY_PRS_FIX_DENY_RULES, '--strict-mcp-config', '--disable-slash-commands', '--setting-sources', 'project,local']);
+  assert.equal(args[args.indexOf('--disallowedTools') + MY_PRS_FIX_DENY_RULES.length + 1], '--strict-mcp-config', 'probed: a trailing --disallowedTools list ate the prompt with "Input must be provided"');
+  assert.equal(args.includes('--dangerously-skip-permissions'), false);
 });

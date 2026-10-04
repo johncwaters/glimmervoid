@@ -22,7 +22,7 @@ import { createTeamReviewSpawn, createTeamReviewWiring } from './team-review-wir
 import { createPrGh } from './pr-gh.ts';
 import { createRepoCache } from './repo-cache.ts';
 import { commandFor } from '../session/adapters/index.ts';
-import { createMyPrMergeabilityFix, createMyPrsWiring } from './my-prs-wiring.ts';
+import { createMyPrMergeabilityFix, createMyPrsWiring, sweepKeepMergeableLeftovers } from './my-prs-wiring.ts';
 import { createGithubClock } from './github-clock.ts';
 import { GITHUB_CLOCK_INTERVAL_MINUTES } from './core/github-clock-core.ts';
 import { createUsageWiring, resolveUsageConfig } from './usage-wiring.ts';
@@ -146,10 +146,13 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     repoCacheRoot: sharedRepoCacheRoot,
     repoCache: sharedRepoCache,
   });
+  const myPrsWorkRoot = path.join(glimmervoidHome, 'my-prs-work');
   const myPrs = createMyPrsWiring({
     config, broadcast: broadcastControl, log: logger, clock: githubClock,
+    sweepLeftovers: () => sweepKeepMergeableLeftovers({ workRoot: myPrsWorkRoot, repoCache: sharedRepoCache, gitWorkspace, log: logger }),
     fixMergeability: createMyPrMergeabilityFix({
-      workRoot: path.join(glimmervoidHome, 'my-prs-work'),
+      workRoot: myPrsWorkRoot,
+      glimmervoidHome,
       repoCache: sharedRepoCache,
       log: logger,
       spawnSession: createTeamReviewSpawn({

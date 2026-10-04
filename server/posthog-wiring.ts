@@ -11,6 +11,7 @@ import { glimmervoidHomeDir } from './config-store.ts';
 import { stableConfigKey } from './core/config-secrets-core.ts';
 import { appendTrailStep, createInvestigationTrail, trailStepFromHook } from './core/investigation-trail-core.ts';
 import type { InvestigationTrail } from './core/investigation-trail-core.ts';
+import { nulSeparatedPaths } from './core/git-changed-paths-core.ts';
 import * as core from './core/posthog-core.ts';
 import type { PosthogIssue } from './core/posthog-core.ts';
 import {
@@ -373,13 +374,13 @@ async function pushFixBranch(
 ): Promise<HandoffResult> {
   const branch = workspace.branch;
   const baseRef = workspace.baseSha || workspace.base;
-  const changed = await run('git', ['diff', '--name-only', `${baseRef}...HEAD`], workspace.cwd);
+  const changed = await run('git', ['diff', '-z', '--name-only', '--no-renames', `${baseRef}...HEAD`], workspace.cwd);
   if (!changed.ok) return handoffFailure('reading the branch diff', changed.err, { pushed: false, branch });
   const ahead = await run('git', ['rev-list', '--count', `${baseRef}..HEAD`], workspace.cwd);
   if (!ahead.ok) return handoffFailure('counting the branch commits', ahead.err, { pushed: false, branch });
 
   const decision = core.decideFixHandoff({
-    changedFiles: changed.out.split(/\r?\n/),
+    changedFiles: nulSeparatedPaths(changed.out),
     commitsAhead: Number(ahead.out),
   });
   if (!decision.ok) return { verdict: decision.verdict ?? 'ERROR', prUrl: null, summary: decision.summary ?? null };
@@ -719,7 +720,11 @@ function createPosthogWiring({
       return { start: verdict.start };
     },
     cfgKey: () => posthogCfgKey(config),
-    emptyStatus: () => emptyLaneStatus('posthog-status', posthogShouldStart(config)),
+    emptyStatus: () => ({
+      ...emptyLaneStatus('posthog-status', posthogShouldStart(config)),
+      intervalMinutes: config.posthog?.intervalMinutes || core.DEFAULT_INTERVAL_MINUTES,
+      investigations: [],
+    }),
     broadcast,
     beforeStop: clearForcedTickTimer,
     createPoller: ({ onTickComplete }) => {
@@ -740,7 +745,7 @@ function createPosthogWiring({
         telegram: (text: string) => { void sendTelegramMessage({ botToken, chatId, text, tag: 'posthog' }); },
         readState: readPosthogState,
         writeState: writePosthogState,
-        intervalMinutes: posthogConfig.intervalMinutes || 15,
+        intervalMinutes: posthogConfig.intervalMinutes || core.DEFAULT_INTERVAL_MINUTES,
         maxConcurrentInvestigations: posthogConfig.maxConcurrentInvestigations || 2,
         investigationTimeoutSeconds: posthogConfig.investigationTimeoutSeconds || 900,
         autoFix: posthogConfig.autoFix === true,

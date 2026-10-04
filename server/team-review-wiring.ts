@@ -51,6 +51,9 @@ const TEAM_REVIEW_ALLOWED_DOMAINS = Object.freeze([
 const TEAM_REVIEW_DENY_READ_PATHS = Object.freeze(['~/.ssh', '~/.config/gh', '~/Library/Keychains', '~/.git-credentials']);
 const CODEX_HOME_PATH = '~/.codex';
 const CODEX_HOME_DENY_WRITE_PATHS = Object.freeze(['config.toml', 'AGENTS.md', 'skills', 'rules', 'prompts', 'hooks.json'].map((entry) => `${CODEX_HOME_PATH}/${entry}`));
+const KEEP_MERGEABLE_EXTRA_DENY_READ_PATHS = Object.freeze([
+  '~/.claude', '~/.codex', '~/.grok', '~/.glimmervoid', '~/.aws', '~/.gnupg', '~/.config', '~/.npmrc', '~/.netrc', '~/.docker', '~/.kube',
+]);
 const LINKED_CHECKOUT_DENY_READ_ENTRIES = Object.freeze(['.env', '.env.*', '.claude']);
 const RESULT_MAX_BYTES = 1024 * 1024;
 const EMPTY_GH_CONFIG_DIRNAME = 'gh-config';
@@ -74,8 +77,9 @@ type TeamReviewSandbox = {
   filesystem: { allowWrite: string[]; denyWrite: string[]; denyRead: string[] };
 };
 
-type KeepMergeableSandbox = Omit<TeamReviewSandbox, 'network'> & {
+type KeepMergeableSandbox = Omit<TeamReviewSandbox, 'network' | 'filesystem'> & {
   network: { strictAllowlist: true; allowLocalBinding: true; allowAllUnixSockets: false; allowedDomains: string[] };
+  filesystem: { allowWrite: string[]; denyWrite: string[]; denyRead: string[]; allowRead: string[] };
 };
 
 interface TeamReviewRepoCache {
@@ -218,7 +222,7 @@ function teamReviewSandbox(workDir: string, linkedCheckout: string | null = null
   };
 }
 
-function keepMergeableSandbox(workDir: string): KeepMergeableSandbox {
+function keepMergeableSandbox(workDir: string, { glimmervoidHome, cachedClone }: { glimmervoidHome: string; cachedClone: string }): KeepMergeableSandbox {
   const reviewSandbox = teamReviewSandbox(workDir);
   return {
     ...reviewSandbox,
@@ -226,6 +230,12 @@ function keepMergeableSandbox(workDir: string): KeepMergeableSandbox {
       ...reviewSandbox.network,
       allowAllUnixSockets: false,
       allowedDomains: reviewSandbox.network.allowedDomains.filter((domain) => !/github/i.test(domain)),
+    },
+    filesystem: {
+      allowWrite: [workDir],
+      denyWrite: [...reviewSandbox.filesystem.denyWrite],
+      denyRead: [...new Set([...reviewSandbox.filesystem.denyRead, ...KEEP_MERGEABLE_EXTRA_DENY_READ_PATHS, glimmervoidHome])],
+      allowRead: [workDir, cachedClone],
     },
   };
 }
@@ -259,6 +269,15 @@ function teamReviewSpawnEnv(workDir: string): Record<string, string> {
     GLIMMERVOID_POSTHOG_API_KEY: '',
     GLIMMERVOID_TELEGRAM_BOT_TOKEN: '',
     CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0',
+  };
+}
+
+function keepMergeableSpawnEnv(workDir: string): Record<string, string> {
+  return {
+    ...teamReviewSpawnEnv(workDir),
+    GIT_CONFIG_COUNT: '3',
+    GIT_CONFIG_KEY_2: 'core.hooksPath',
+    GIT_CONFIG_VALUE_2: '',
   };
 }
 
@@ -690,7 +709,7 @@ function createTeamReviewSpawn({
       name,
       path: cwd,
       spawnEnv,
-      dangerouslySkipPermissions: true,
+      dangerouslySkipPermissions: settingsPermissions.defaultMode === 'bypassPermissions',
       extraClaudeArgs,
       initialPrompt: initialPrompt ?? core.REVIEW_BOOTSTRAP_PROMPT,
       resumeSessionId,
@@ -988,9 +1007,9 @@ function createTeamReviewWiring({
 type TeamReviewWiring = ReturnType<typeof createTeamReviewWiring>;
 
 export {
-  TEAM_REVIEW_DENY_RULES,
+  KEEP_MERGEABLE_EXTRA_DENY_READ_PATHS, TEAM_REVIEW_DENY_RULES,
   createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewStateIo, createTeamReviewWiring, makeTeamReviewWorkDir,
-  emptyGhConfigDir, emptyTeamReviewStatus, keepMergeableSandbox, readReviewReport, sweepLeftoverCheckouts, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewPermissions, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
+  emptyGhConfigDir, emptyTeamReviewStatus, keepMergeableSandbox, keepMergeableSpawnEnv, readReviewReport, sweepLeftoverCheckouts, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewPermissions, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
 };
 export { readTeamReviewSettings } from './core/team-review-core.ts';
 export type {
