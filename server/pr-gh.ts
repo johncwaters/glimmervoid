@@ -6,6 +6,8 @@ import { CommitComparison, MergedPrListing, MinedPrReviewData } from '../shared/
 import type { CommitComparison as CommitComparisonType, MergedPrListing as MergedPrListingType, MinedPrReviewData as MinedPrReviewDataType } from '../shared/contracts/benchmark.ts';
 import { MyPrMergeMethod, MyPrMergeStateResponse, MyPrSearchNode, MyPrSearchResponse, MyPrThreadNode, MyPrThreadsResponse } from '../shared/contracts/my-prs.ts';
 import type { MyPrMergeKind, MyPrMergeMethod as MyPrMergeMethodType, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode as MyPrThreadNodeType } from '../shared/contracts/my-prs.ts';
+import { WorkflowCommentBody, WorkflowLabelName, WorkflowSearchNode } from '../shared/contracts/workflows.ts';
+import type { WorkflowSearchNode as WorkflowSearchNodeType } from '../shared/contracts/workflows.ts';
 import type { GithubReviewDecision as GithubReviewDecisionType, PostedReviewEvent, PrDetail as PrDetailType, ReviewChecksState as ReviewChecksStateType, ReviewComment as ReviewCommentType, SearchedPr as SearchedPrType, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 
 type GhMergeFlag = '--merge' | '--squash' | '--rebase';
@@ -84,7 +86,17 @@ interface GithubIssueDetail {
   error: string;
 }
 
+interface RepoPrSearch {
+  ok: boolean;
+  items: WorkflowSearchNodeType[];
+  isComplete: boolean;
+  error: string;
+}
+
 interface PrGh {
+  searchRepoPrs(repo: string, mergedSince: string): Promise<RepoPrSearch>;
+  addPrLabel(label: { repo: string; number: number; name: string }): Promise<{ ok: boolean; err: string }>;
+  commentOnPr(comment: { repo: string; number: number; body: string }): Promise<{ ok: boolean; err: string }>;
   searchMyPrs(org: string, mergedSince: string): Promise<{ ok: boolean; items: MyPrSearchNodeType[]; totalCount: number; error: string }>;
   behindCounts(prs: readonly PrHeadReference[]): Promise<Map<string, number>>;
   rebasePr(pullRequestId: string, expectedHeadSha: string): Promise<{ ok: boolean; err: string }>;
@@ -148,11 +160,7 @@ function parseJson<T>(text: string, fallback: T): T {
 const HEX_LABEL_COLOR = /^[0-9a-f]{6}$/i;
 const GH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const MERGED_SINCE_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const MY_PRS_QUERY = `query($openQuery: String!, $mergedQuery: String!) {
-  open: search(type: ISSUE, first: 50, query: $openQuery) { issueCount nodes { ...myPrFields } }
-  merged: search(type: ISSUE, first: 50, query: $mergedQuery) { issueCount nodes { ...myPrFields } }
-}
-fragment myPrFields on PullRequest {
+const MY_PR_FIELDS_FRAGMENT = `fragment myPrFields on PullRequest {
   __typename id number title url isDraft state createdAt mergedAt updatedAt baseRefName headRefName isCrossRepository headRefOid isInMergeQueue mergeable mergeStateStatus reviewDecision
   repository { nameWithOwner viewerDefaultMergeMethod }
   commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 50) { nodes {
@@ -163,6 +171,20 @@ fragment myPrFields on PullRequest {
   latestOpinionatedReviews(first: 20) { nodes { state } }
   latestReviews(first: 20) { nodes { state submittedAt author { login } } }
 }`;
+const WORKFLOW_PR_FIELDS_FRAGMENT = `fragment workflowPrFields on PullRequest {
+  author { login } labels(first: 50) { nodes { name } } comments { totalCount }
+}`;
+
+function openAndMergedSearchQuery(nodeFields: string, fragments: string): string {
+  return `query($openQuery: String!, $mergedQuery: String!) {
+  open: search(type: ISSUE, first: 50, query: $openQuery) { issueCount nodes { ${nodeFields} } }
+  merged: search(type: ISSUE, first: 50, query: $mergedQuery) { issueCount nodes { ${nodeFields} } }
+}
+${fragments}`;
+}
+
+const MY_PRS_QUERY = openAndMergedSearchQuery('...myPrFields', MY_PR_FIELDS_FRAGMENT);
+const WORKFLOW_PRS_QUERY = openAndMergedSearchQuery('...myPrFields ...workflowPrFields', `${MY_PR_FIELDS_FRAGMENT}\n${WORKFLOW_PR_FIELDS_FRAGMENT}`);
 const REBASE_PR_MUTATION = `mutation($id: ID!, $head: GitObjectID!) {
   updatePullRequestBranch(input: { pullRequestId: $id, expectedHeadOid: $head, updateMethod: REBASE }) { pullRequest { headRefOid } }
 }`;
@@ -409,6 +431,39 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       return { ok: true, items, totalCount: open.issueCount + merged.issueCount, error: '' };
     },
 
+    async searchRepoPrs(repo, mergedSince) {
+      if (!repoParts(repo) || !MERGED_SINCE_DATE.test(mergedSince)) return { ok: false, items: [], isComplete: false, error: 'invalid repository or date' };
+      const response = await runGh(['api', 'graphql', '-H', 'Accept: application/vnd.github.merge-info-preview+json', '-f', `query=${WORKFLOW_PRS_QUERY}`, '-f', `openQuery=is:pr is:open repo:${repo} sort:updated-desc`, '-f', `mergedQuery=is:pr is:merged repo:${repo} merged:>=${mergedSince} sort:updated-desc`]);
+      if (!response.ok) return { ok: false, items: [], isComplete: false, error: response.err.trim() || 'gh graphql search failed' };
+      const parsed = MyPrSearchResponse.safeParse(parseJson<unknown>(response.out, null));
+      if (!parsed.success) return { ok: false, items: [], isComplete: false, error: 'invalid gh graphql response' };
+      if (parsed.data.errors?.length) return { ok: false, items: [], isComplete: false, error: 'gh graphql returned errors' };
+      const { open, merged } = parsed.data.data;
+      const nodes = [...open.nodes, ...merged.nodes];
+      const items = nodes.flatMap((node) => {
+        const valid = WorkflowSearchNode.safeParse(node);
+        return valid.success ? [valid.data] : [];
+      });
+      const isComplete = items.length === nodes.length && open.issueCount <= open.nodes.length && merged.issueCount <= merged.nodes.length;
+      return { ok: true, items, isComplete, error: '' };
+    },
+
+    async addPrLabel({ repo, number, name }) {
+      if (!repoParts(repo) || !isPrNumber(number)) return { ok: false, err: 'invalid repository or pull request number' };
+      const label = WorkflowLabelName.safeParse(name);
+      if (!label.success) return { ok: false, err: 'invalid label name' };
+      const response = await runGh(['pr', 'edit', String(number), '--repo', repo, '--add-label', label.data]);
+      return { ok: response.ok, err: response.ok ? '' : response.err.trim() || 'gh pr edit failed' };
+    },
+
+    async commentOnPr({ repo, number, body }) {
+      if (!repoParts(repo) || !isPrNumber(number)) return { ok: false, err: 'invalid repository or pull request number' };
+      const comment = WorkflowCommentBody.safeParse(body);
+      if (!comment.success) return { ok: false, err: 'invalid comment body' };
+      const response = await runGh(['pr', 'comment', String(number), '--repo', repo, '--body-file', '-'], comment.data);
+      return { ok: response.ok, err: response.ok ? '' : response.err.trim() || 'gh pr comment failed' };
+    },
+
     reviewThreads(repo, number) {
       return pagedReviewThreads(repo, number);
     },
@@ -650,4 +705,4 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
 }
 
 export { createPrGh, normalizeIssue };
-export type { CommandResult, GithubIssue, GithubIssueDetail, GithubIssueLabel, GithubIssueList, GithubIssueWithoutBody, PostedReview, PrGh, PrHeadReference, PrReference, PrReviewSnapshot, PrSearchResult };
+export type { CommandResult, RepoPrSearch, GithubIssue, GithubIssueDetail, GithubIssueLabel, GithubIssueList, GithubIssueWithoutBody, PostedReview, PrGh, PrHeadReference, PrReference, PrReviewSnapshot, PrSearchResult };

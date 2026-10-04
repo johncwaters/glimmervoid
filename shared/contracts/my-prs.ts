@@ -6,7 +6,7 @@ export const MyPrStage = z.enum(['merged', 'draft', 'conflicts', 'behind', 'chec
 export type MyPrStage = z.infer<typeof MyPrStage>;
 
 const nonnegativeInteger = z.number().int().nonnegative();
-const repositoryName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/);
+export const repositoryName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/);
 const pullRequestNumberText = z.string().regex(/^[1-9][0-9]*$/);
 const pullRequestKeyFormat = z.templateLiteral([repositoryName, '#', pullRequestNumberText]);
 const keepMergeableAttemptKeyFormat = z.templateLiteral([pullRequestKeyFormat, '@', CommitSha]);

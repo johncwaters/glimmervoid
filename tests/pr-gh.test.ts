@@ -750,3 +750,87 @@ test('review snapshots carry validated draft and aggregate CI state', async () =
   const snapshots = await github.prReviewSnapshots([{ repo: 'Acme/repo', number: 7 }]);
   assert.deepEqual(snapshots.get('Acme/repo#7'), { head: HEAD_SHA, isDraft: false, reviewDecision: 'REVIEW_REQUIRED', reviews: [], checksState: 'FAILURE' });
 });
+
+function workflowNode(number: number) {
+  return { ...myPrNode(number), author: { login: 'alice' }, labels: { nodes: [{ name: 'bug' }] }, comments: { totalCount: 2 } };
+}
+
+test('repo PR search asks one GraphQL call for open and recently merged pull requests with the workflow fields', async () => {
+  const calls: string[][] = [];
+  const gh = createPrGh('/repo', async (_command, args) => {
+    calls.push(args);
+    return { ok: true, out: JSON.stringify({ data: { open: { issueCount: 1, nodes: [workflowNode(1)] }, merged: { issueCount: 1, nodes: [workflowNode(3)] } } }), err: '' };
+  });
+  const searched = await gh.searchRepoPrs('Acme/app', '2026-09-27');
+  assert.deepEqual({ ok: searched.ok, isComplete: searched.isComplete, numbers: searched.items.map((item) => item.number) }, { ok: true, isComplete: true, numbers: [1, 3] });
+  assert.equal(searched.items[0]?.author?.login, 'alice');
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].includes('openQuery=is:pr is:open repo:Acme/app sort:updated-desc'));
+  assert.ok(calls[0].includes('mergedQuery=is:pr is:merged repo:Acme/app merged:>=2026-09-27 sort:updated-desc'));
+  const query = calls[0].find((argument) => argument.startsWith('query=')) ?? '';
+  assert.match(query, /nodes \{ \.\.\.myPrFields \.\.\.workflowPrFields \}/);
+  assert.match(query, /fragment workflowPrFields on PullRequest \{\n\s+author \{ login \} labels\(first: 50\) \{ nodes \{ name \} \} comments \{ totalCount \}/);
+  assert.match(query, /fragment myPrFields on PullRequest \{/);
+});
+
+test('repo PR search reports itself incomplete when a cap truncates it or a node is malformed', async () => {
+  const truncated = createPrGh('/repo', async () => ({ ok: true, out: JSON.stringify({ data: { open: { issueCount: 80, nodes: [workflowNode(1)] }, merged: { issueCount: 0, nodes: [] } } }), err: '' }));
+  assert.equal((await truncated.searchRepoPrs('Acme/app', '2026-09-27')).isComplete, false);
+  const malformed = createPrGh('/repo', async () => ({ ok: true, out: JSON.stringify({ data: { open: { issueCount: 2, nodes: [workflowNode(1), myPrNode(2)] }, merged: { issueCount: 0, nodes: [] } } }), err: '' }));
+  const searched = await malformed.searchRepoPrs('Acme/app', '2026-09-27');
+  assert.deepEqual([searched.ok, searched.isComplete, searched.items.length], [true, false, 1]);
+});
+
+test('repo PR search refuses bad input without calling gh and fails closed on bad responses', async () => {
+  let calls = 0;
+  const gh = createPrGh('/repo', async () => {
+    calls += 1;
+    return { ok: true, out: JSON.stringify({ data: { open: { issueCount: 0, nodes: [] }, merged: { issueCount: 0, nodes: [] } }, errors: [{ message: 'x' }] }), err: '' };
+  });
+  assert.equal((await gh.searchRepoPrs('Acme', '2026-09-27')).ok, false);
+  assert.equal((await gh.searchRepoPrs('Acme/app repo:Other/secret', '2026-09-27')).ok, false);
+  assert.equal((await gh.searchRepoPrs('Acme/app', 'today')).ok, false);
+  assert.equal(calls, 0);
+  assert.deepEqual(await gh.searchRepoPrs('Acme/app', '2026-09-27'), { ok: false, items: [], isComplete: false, error: 'gh graphql returned errors' });
+  const failed = createPrGh('/repo', async () => ({ ok: false, out: '', err: 'rate limited\n' }));
+  assert.equal((await failed.searchRepoPrs('Acme/app', '2026-09-27')).error, 'rate limited');
+});
+
+test('addPrLabel runs gh pr edit with the label as one argument after its flag', async () => {
+  const calls: { args: string[]; input: string | undefined }[] = [];
+  const gh = createPrGh('/repo', async (_command, args, _cwd, input) => {
+    calls.push({ args, input });
+    return { ok: true, out: '', err: '' };
+  });
+  assert.deepEqual(await gh.addPrLabel({ repo: 'Acme/app', number: 7, name: 'needs review' }), { ok: true, err: '' });
+  assert.deepEqual(calls, [{ args: ['pr', 'edit', '7', '--repo', 'Acme/app', '--add-label', 'needs review'], input: undefined }]);
+});
+
+test('commentOnPr passes the body on stdin through --body-file, never as an argument', async () => {
+  const calls: { args: string[]; input: string | undefined }[] = [];
+  const gh = createPrGh('/repo', async (_command, args, _cwd, input) => {
+    calls.push({ args, input });
+    return { ok: true, out: '', err: '' };
+  });
+  const body = '--repo Other/secret\nThanks for the fix';
+  assert.deepEqual(await gh.commentOnPr({ repo: 'Acme/app', number: 7, body }), { ok: true, err: '' });
+  assert.deepEqual(calls, [{ args: ['pr', 'comment', '7', '--repo', 'Acme/app', '--body-file', '-'], input: body }]);
+});
+
+test('label and comment helpers refuse bad input without calling gh and report gh failures', async () => {
+  let calls = 0;
+  const gh = createPrGh('/repo', async () => {
+    calls += 1;
+    return { ok: false, out: '', err: 'HTTP 403\n' };
+  });
+  assert.equal((await gh.addPrLabel({ repo: 'Acme', number: 7, name: 'bug' })).ok, false);
+  assert.equal((await gh.addPrLabel({ repo: 'Acme/app', number: 0, name: 'bug' })).ok, false);
+  assert.equal((await gh.addPrLabel({ repo: 'Acme/app', number: 7, name: '--remove-label' })).ok, false);
+  assert.equal((await gh.addPrLabel({ repo: 'Acme/app', number: 7, name: 'bug,urgent' })).ok, false);
+  assert.equal((await gh.commentOnPr({ repo: 'Acme/app', number: 1.5, body: 'hi' })).ok, false);
+  assert.equal((await gh.commentOnPr({ repo: 'Acme/app', number: 7, body: '  ' })).ok, false);
+  assert.equal(calls, 0);
+  assert.deepEqual(await gh.addPrLabel({ repo: 'Acme/app', number: 7, name: 'bug' }), { ok: false, err: 'HTTP 403' });
+  assert.deepEqual(await gh.commentOnPr({ repo: 'Acme/app', number: 7, body: 'hi' }), { ok: false, err: 'HTTP 403' });
+  assert.equal(calls, 2);
+});

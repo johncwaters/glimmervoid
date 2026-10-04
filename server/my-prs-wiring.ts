@@ -95,24 +95,22 @@ export async function sweepKeepMergeableLeftovers({ workRoot, repoCache, gitWork
   for (const projectPath of cachedClones) await deleteHandoffRefs(projectPath, runGit, log);
 }
 
-export function createMyPrMergeabilityFix({
-  spawnSession, repoCache, workRoot, glimmervoidHome = glimmervoidHomeDir(), makeWorkDir = makeTeamReviewWorkDir, runGit = runTrustedGit, log = console,
-  timeoutSeconds = core.MY_PRS_FIX_TIMEOUT_SECONDS, setTimeoutFn, clearTimeoutFn,
-}: {
+type SandboxedPr = Pick<MyPr, 'key' | 'repo' | 'number' | 'baseRefName' | 'headRefOid'>;
+
+interface SandboxedPrStagingOptions {
   spawnSession: TeamReviewSpawn;
   repoCache: Pick<TeamReviewRepoCache, 'ensureRepo' | 'fetchPr' | 'hydrateRange'>;
-  workRoot: string;
   glimmervoidHome?: string;
-  makeWorkDir?: typeof makeTeamReviewWorkDir;
   runGit?: KeepMergeableGitRunner;
-  log?: Pick<Console, 'log' | 'warn'>;
   timeoutSeconds?: number;
   setTimeoutFn?: (callback: () => void, milliseconds: number) => NodeJS.Timeout;
   clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
-}) {
-  const warn = (pr: MyPr, message: string) => log.warn(`[${core.MY_PRS_LANE_ID}] keep mergeable for ${pr.key}: ${firstLine(message)}`);
+}
 
-  async function stageCheckout(pr: MyPr, workDir: string, signal: AbortSignal): Promise<{ projectPath: string; baseSha: string } | { error: string }> {
+export function createSandboxedPrStaging({
+  spawnSession, repoCache, glimmervoidHome = glimmervoidHomeDir(), runGit = runTrustedGit, timeoutSeconds = core.MY_PRS_FIX_TIMEOUT_SECONDS, setTimeoutFn, clearTimeoutFn,
+}: SandboxedPrStagingOptions) {
+  async function stageCheckout(pr: SandboxedPr, workDir: string, signal: AbortSignal): Promise<{ projectPath: string; baseSha: string } | { error: string }> {
     const stopped = { error: 'stopped' };
     const projectPath = await repoCache.ensureRepo(pr.repo);
     if (signal.aborted) return stopped;
@@ -150,6 +148,41 @@ export function createMyPrMergeabilityFix({
     return { projectPath, baseSha: baseSha.data };
   }
 
+  function runSession({ idPrefix, name, workDir, cachedClone, signal, onPending, initialPrompt }: {
+    idPrefix: string; name: string; workDir: string; cachedClone: string; signal: AbortSignal; onPending: (pending: Promise<unknown>) => void; initialPrompt: string;
+  }): Promise<KeepMergeableSessionOutcome> {
+    return raceWithAbort<KeepMergeableSessionOutcome>({
+      timeoutMs: timeoutSeconds * 1000, setTimeoutFn, clearTimeoutFn, onPending,
+      onTimeout: () => 'timed-out',
+      onEmpty: () => 'failed',
+      start: (deadlineSignal) => {
+        const sessionSignal = AbortSignal.any([deadlineSignal, signal]);
+        return spawnSession({
+          id: `${idPrefix}:${randomUUID()}`, name, cwd: workDir,
+          spawnEnv: hooksPathPinnedSpawnEnv(workDir),
+          extraClaudeArgs: core.keepMergeableClaudeArgs(),
+          settingsPermissions: core.keepMergeablePermissions(),
+          settingsSandbox: keepMergeableSandbox(workDir, { glimmervoidHome, cachedClone }),
+          signal: sessionSignal, initialPrompt,
+        }).then((): KeepMergeableSessionOutcome => (sessionSignal.aborted ? 'stopped' : 'finished'));
+      },
+    });
+  }
+
+  return { stageCheckout, runSession };
+}
+
+export function createMyPrMergeabilityFix({
+  spawnSession, repoCache, workRoot, glimmervoidHome = glimmervoidHomeDir(), makeWorkDir = makeTeamReviewWorkDir, runGit = runTrustedGit, log = console,
+  timeoutSeconds = core.MY_PRS_FIX_TIMEOUT_SECONDS, setTimeoutFn, clearTimeoutFn,
+}: SandboxedPrStagingOptions & {
+  workRoot: string;
+  makeWorkDir?: typeof makeTeamReviewWorkDir;
+  log?: Pick<Console, 'log' | 'warn'>;
+}) {
+  const warn = (pr: MyPr, message: string) => log.warn(`[${core.MY_PRS_LANE_ID}] keep mergeable for ${pr.key}: ${firstLine(message)}`);
+  const { stageCheckout, runSession } = createSandboxedPrStaging({ spawnSession, repoCache, glimmervoidHome, runGit, timeoutSeconds, setTimeoutFn, clearTimeoutFn });
+
   async function changedPaths(projectPath: string, fromSha: string, toSha: string, diffFilterArgs: string[] = []): Promise<string[] | null> {
     const changed = await runGit(['diff', '--name-only', '-z', '--no-renames', ...diffFilterArgs, fromSha, toSha], projectPath);
     return changed.ok ? nulSeparatedPaths(changed.out) : null;
@@ -184,25 +217,6 @@ export function createMyPrMergeabilityFix({
     log.log(`[${core.MY_PRS_LANE_ID}] keep mergeable pushed ${resultSha.data} to ${target.branch} for ${pr.key}`);
   }
 
-  function runSession(pr: MyPr, workDir: string, cachedClone: string, signal: AbortSignal, onPending: (pending: Promise<unknown>) => void): Promise<KeepMergeableSessionOutcome> {
-    return raceWithAbort<KeepMergeableSessionOutcome>({
-      timeoutMs: timeoutSeconds * 1000, setTimeoutFn, clearTimeoutFn, onPending,
-      onTimeout: () => 'timed-out',
-      onEmpty: () => 'failed',
-      start: (deadlineSignal) => {
-        const sessionSignal = AbortSignal.any([deadlineSignal, signal]);
-        return spawnSession({
-          id: `${core.MY_PRS_LANE_ID}:${randomUUID()}`, name: `Keep mergeable ${pr.key}`, cwd: workDir,
-          spawnEnv: hooksPathPinnedSpawnEnv(workDir),
-          extraClaudeArgs: core.keepMergeableClaudeArgs(),
-          settingsPermissions: core.keepMergeablePermissions(),
-          settingsSandbox: keepMergeableSandbox(workDir, { glimmervoidHome, cachedClone }),
-          signal: sessionSignal, initialPrompt: core.MY_PRS_FIX_BOOTSTRAP_PROMPT,
-        }).then((): KeepMergeableSessionOutcome => (sessionSignal.aborted ? 'stopped' : 'finished'));
-      },
-    });
-  }
-
   return async (pr: MyPr, signal: AbortSignal, onPushStarted: (repairSha: string) => Promise<void> = async () => {}, latestListedPr: () => MyPr | undefined = () => pr): Promise<void> => {
     if (signal.aborted) return;
     const target = core.keepMergeablePushTarget(pr, latestListedPr());
@@ -220,7 +234,10 @@ export function createMyPrMergeabilityFix({
       if (signal.aborted) return;
       await fs.writeFile(path.join(workDir.dir, core.MY_PRS_FIX_PROMPT_FILENAME), core.keepMergeablePrompt(pr), 'utf8');
       await fs.mkdir(emptyGhConfigDir(workDir.dir), { recursive: true });
-      const outcome = await runSession(pr, workDir.dir, staged.projectPath, signal, (pending) => { pendingSession = pending; });
+      const outcome = await runSession({
+        idPrefix: core.MY_PRS_LANE_ID, name: `Keep mergeable ${pr.key}`, workDir: workDir.dir, cachedClone: staged.projectPath, signal,
+        onPending: (pending) => { pendingSession = pending; }, initialPrompt: core.MY_PRS_FIX_BOOTSTRAP_PROMPT,
+      });
       await drainPending(pendingSession);
       if (outcome === 'timed-out') return warn(pr, `not pushed: the session ran past its ${timeoutSeconds}s deadline`);
       if (outcome !== 'finished' || signal.aborted) return;

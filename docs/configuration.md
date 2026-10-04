@@ -200,6 +200,14 @@ Compare agent setups on frozen cases from the suites in the benchmarks folder of
 |-----|---------|---------|-------|
 | `benchmarks.enabled` | Enable benchmarks | `false` | Show the Bench tab. Nothing runs until you choose Mine or Run there. |
 
+### Workflows
+
+Rules that act on pull request events in the repositories you choose.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `workflows` | Workflow rules | `{"rules":[]}` | Each rule watches repositories for one pull request event (opened, checks-failed, review-requested, approved, commented or merged), narrows it by author, labels, base branch, your own pull requests or a review request to your team, and then notifies you, labels or comments on the pull request, or starts a sandboxed agent session that pushes nothing. Rules start disabled. **File-only.** |
+
 ### Unattended actions
 
 Controls that let automated work change repositories or install executable tooling.

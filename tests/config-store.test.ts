@@ -401,6 +401,26 @@ test('applySettings applies each runtime scalar it is handed', () => {
   });
 });
 
+test('workflow rules default to none, reach the dashboard read-only and apply live from a config.json edit', () => {
+  withStore({ projects: [] }, (store) => {
+    assert.deepEqual(DEFAULT_CONFIG.workflows, { rules: [] });
+    assert.equal(store.getSettings().workflows, null);
+    const workflows = { rules: [{ id: 'greet', name: 'Greet', enabled: true, repos: ['acme/app'], trigger: 'opened', actions: [{ type: 'notify' }] }] };
+    store.applySettings({ projects: [], workflows });
+    assert.deepEqual(store.config.workflows, workflows);
+    assert.deepEqual(store.getSettings().workflows, workflows);
+  });
+});
+
+test('a config.json reload without the workflows block clears the live rules', () => {
+  withStore({ projects: [] }, (store) => {
+    store.applySettings({ projects: [], workflows: { rules: [{ id: 'greet', name: 'Greet', enabled: true, repos: ['acme/app'], trigger: 'opened', actions: [{ type: 'notify' }] }] } });
+    store.applySettings({ projects: [], cursorBlink: true });
+    assert.equal('workflows' in store.config, false);
+    assert.equal(store.getSettings().workflows, null);
+  });
+});
+
 test('applySettings stores an empty or null integration branch as auto', () => {
   withStore({ projects: [], integrationBranch: 'release' }, (store) => {
     store.applySettings({ integrationBranch: '' });

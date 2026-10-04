@@ -18,11 +18,12 @@ import { createPlanReviewWiring } from './plan-review-wiring.ts';
 import { createPosthogWiring } from './posthog-wiring.ts';
 import { createSpawnGate } from './spawn-gate.ts';
 import type { Telemetry } from './telemetry.ts';
-import { createTeamReviewSpawn, createTeamReviewWiring } from './team-review-wiring.ts';
+import { createTeamReviewSpawn, createTeamReviewWiring, sweepLeftoverCheckouts } from './team-review-wiring.ts';
 import { createPrGh } from './pr-gh.ts';
 import { createRepoCache } from './repo-cache.ts';
 import { commandFor } from '../session/adapters/index.ts';
-import { createMyPrMergeabilityFix, createMyPrsWiring, sweepKeepMergeableLeftovers } from './my-prs-wiring.ts';
+import { createMyPrMergeabilityFix, createMyPrsWiring, createSandboxedPrStaging, sweepKeepMergeableLeftovers } from './my-prs-wiring.ts';
+import { createWorkflowSpawn, createWorkflowsWiring } from './workflows-wiring.ts';
 import { createGithubClock } from './github-clock.ts';
 import { GITHUB_CLOCK_INTERVAL_MINUTES } from './core/github-clock-core.ts';
 import { createUsageWiring, resolveUsageConfig } from './usage-wiring.ts';
@@ -60,6 +61,7 @@ interface BackendLaneDependencies {
     on(event: 'connection', listener: (socket: WebSocket) => void): unknown;
   };
   options: BackendLaneOptions;
+  notificationManager: { trigger(sessionName: string, category: string, message: string): unknown };
   telemetry: Telemetry;
   logger: Console;
 }
@@ -83,6 +85,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     broadcastLocalControl,
     controlWss,
     options,
+    notificationManager,
     telemetry,
     logger,
   } = dependencies;
@@ -158,6 +161,23 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       spawnSession: createTeamReviewSpawn({
         reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
         replayBufferKB: config.replayBufferKB, laneName: 'my-prs',
+      }),
+    }),
+  });
+  const workflowsWorkRoot = path.join(glimmervoidHome, 'workflows-work');
+  const workflows = createWorkflowsWiring({
+    config, notificationManager, log: logger, clock: githubClock,
+    sweepLeftovers: () => sweepLeftoverCheckouts({ worktreeRoot: workflowsWorkRoot, workRoot: workflowsWorkRoot, keepPaths: new Set(), repoCache: sharedRepoCache, gitWorkspace, log: logger }),
+    spawnSession: createWorkflowSpawn({
+      workRoot: workflowsWorkRoot,
+      log: logger,
+      staging: createSandboxedPrStaging({
+        glimmervoidHome,
+        repoCache: sharedRepoCache,
+        spawnSession: createTeamReviewSpawn({
+          reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
+          replayBufferKB: config.replayBufferKB, laneName: 'workflows',
+        }),
       }),
     }),
   });
@@ -361,6 +381,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     posthog,
     'team-review': teamReview,
     'my-prs': myPrs,
+    workflows,
     usage,
     trace: traceWiring,
     'plan-review': planReview,
@@ -385,6 +406,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => posthog.startPoller(),
       () => teamReview.startPoller(),
       () => myPrs.startPoller(),
+      () => workflows.startPoller(),
       () => void benchmarks.sweepLeftovers().then(() => { void benchmarks.refreshStatus(); }),
       () => traceWiring?.start().catch((error: unknown) => logger.warn(`[trace] start failed: ${errorMessage(error)}`)),
       () => uploadsWiring.start().catch((error: unknown) => logger.warn(`[uploads] start failed: ${errorMessage(error)}`)),
@@ -399,6 +421,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => posthog.restartIfConfigChanged(),
       () => teamReview.restartIfConfigChanged(),
       () => myPrs.restartIfConfigChanged(),
+      () => workflows.restartIfConfigChanged(),
       () => usage.restartIfConfigChanged(),
       () => void benchmarks.refreshStatus(),
     ];
@@ -427,6 +450,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     spawnGate,
     teamReview,
     myPrs,
+    workflows,
     startRuntimeLanes,
     tapIngestForSession,
     traceWiring,

@@ -28,7 +28,7 @@ export const ConfigUpdate = z.object({
   worktreeAutoRebase: optionalBoolean('worktreeAutoRebase'),
   worktreeSyncOnStart: optionalBoolean('worktreeSyncOnStart'),
   worktreeRerere: optionalBoolean('worktreeRerere'),
-}).omit({ port: true, worktreeShare: true }).strict();
+}).omit({ port: true, worktreeShare: true, workflows: true }).strict();
 const AGENT_ID_RE = /^[a-z][a-z0-9-]{1,31}$/;
 export const BUILTIN_AGENT_IDS = Object.freeze(['claude-code', 'codex', 'grok'] as const);
 export const AGENT_ID_SHAPE_MESSAGE = 'an agent id of 2 to 32 characters of lowercase letters, digits and dashes, starting with a letter';
@@ -92,6 +92,7 @@ const FILE_CONFIG_SHAPE = {
   usage: optionalLooseObject('usage'),
   telegram: optionalLooseObject('telegram'),
   ingest: optionalLooseObject('ingest'),
+  workflows: optionalLooseObject('workflows'),
   agentApi: AgentApiFileSettings,
   telemetry: TelemetryFileSettings,
   trace: TraceSettings,
@@ -132,7 +133,7 @@ export const Config = z.object({
 export const BROWSER_CONFIG_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE));
 export const CONFIG_BLOCK_KEYS = Object.freeze([
 'changeMap', 'branchGc', 'postTurnChecks', 'visions', 'teamReview', 'benchmarks', 'posthog', 'usage', 'telegram', 'ingest',
-  'agentApi', 'telemetry',
+  'agentApi', 'telemetry', 'workflows',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {
   if (CONFIG_BLOCK_KEYS.includes(key)) return false;

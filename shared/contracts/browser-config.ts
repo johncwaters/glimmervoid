@@ -2,6 +2,7 @@ import { z } from 'zod';
 import * as ranges from '../settings-ranges.ts';
 import type { SettingsRange } from '../settings-ranges.ts';
 import { USAGE_COST_MODES, USAGE_VENDOR_KEYS, USAGE_BUDGET_KEYS } from '../usage-config.ts';
+import { WorkflowsSettings } from './workflows.ts';
 
 export const optionalBoolean = (field: string) => z.boolean({ error: `${field} must be a boolean` }).optional();
 const optionalString = (field: string, trim = false) => {
@@ -217,6 +218,7 @@ export const createBrowserConfigShape = (isAbsolutePath: (directory: string) => 
   ingest: IngestSettings,
   agentApi: AgentApiSettings,
   telemetry: TelemetrySettings,
+  workflows: WorkflowsSettings.nullable().optional(),
 });
 
 export const createBrowserConfig = (isAbsolutePath: (directory: string) => boolean) => z.object(createBrowserConfigShape(isAbsolutePath));

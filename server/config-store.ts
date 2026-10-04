@@ -10,6 +10,7 @@ import { readEnvSecrets, withEnvSecrets, withoutEnvSecrets } from './core/config
 import { isTelemetryForcedOff } from './core/telemetry-core.ts';
 import { AGENT_ID_SHAPE_MESSAGE, BranchGcFileSettings, Config, configIssueMessage, RUNTIME_CONFIG_SCALAR_KEYS } from '../shared/contracts/index.ts';
 import type { CustomAgentDeclaration } from '../shared/contracts/index.ts';
+import type { WorkflowRule } from '../shared/contracts/workflows.ts';
 import { isPlainObject } from './core/usage-number-core.ts';
 import { INGEST_SPEC, pickSettingsBlock } from './core/settings-block-core.ts';
 import { writeJsonAtomicSync, writeTextAtomicSync } from './json-file.ts';
@@ -110,6 +111,7 @@ const DEFAULT_CONFIG = {
 
     allowedOrigins: [] as string[],
   },
+  workflows: { rules: [] as WorkflowRule[] },
   projects: [] as ProjectEntry[],
 };
 
@@ -450,6 +452,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       visions: config.visions ? { ...config.visions } : null,
       teamReview: config.teamReview ? { ...config.teamReview } : null,
       benchmarks: config.benchmarks ? { ...config.benchmarks } : null,
+      workflows: config.workflows ?? null,
 
       posthog: pickRedactedBlock(config.posthog, POSTHOG_SETTINGS_KEYS, POSTHOG_SECRET_KEYS),
 
@@ -497,6 +500,8 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     if (newConfig.ingest != null) config.ingest = newConfig.ingest;
     if (newConfig.agentApi != null) config.agentApi = newConfig.agentApi;
     if (newConfig.telemetry != null) config.telemetry = newConfig.telemetry;
+    if (newConfig.workflows == null) delete config.workflows;
+    if (newConfig.workflows != null) config.workflows = newConfig.workflows;
     config.customAgents = newConfig.customAgents ?? [];
 
     config.hooks = Array.isArray(newConfig.hooks) ? newConfig.hooks : [];

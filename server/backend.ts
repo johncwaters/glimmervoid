@@ -220,6 +220,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     broadcastLocalControl,
     controlWss,
     options,
+    notificationManager,
     telemetry,
     logger: console,
   });
@@ -376,6 +377,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     posthog,
     teamReview,
     myPrs,
+    workflows: laneAssembly.workflows,
     benchmarks: laneAssembly.benchmarks,
     usage,
     getIngestLane: getCurrentIngestLane,

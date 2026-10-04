@@ -242,3 +242,17 @@ test('the machine Privacy section owns the telemetry toggle and the privacy deep
   assert.equal(toggle?.defaultValue, DEFAULT_CONFIG.telemetry.enabled);
   assert.equal(DASHBOARD_SETTING_PATH_SET.has('telemetry.enabled'), true);
 });
+
+test('the workflows summary lists each rule read-only and says so when there are none or the block is invalid', async () => {
+  const { workflowRuleSummaryLines } = await loadMap();
+  assert.deepEqual(workflowRuleSummaryLines(undefined), ['No rules. Add workflows.rules to config.json.']);
+  assert.deepEqual(workflowRuleSummaryLines({ rules: [] }), ['No rules. Add workflows.rules to config.json.']);
+  assert.deepEqual(workflowRuleSummaryLines({ rules: [
+    { id: 'ci', name: 'CI watch', enabled: true, repos: ['Acme/app', 'Acme/web'], trigger: 'checks-failed', actions: [{ type: 'notify' }, { type: 'spawn', promptTemplate: 'Fix {{url}}' }] },
+    { id: 'thanks', name: 'Thanks', repos: ['Acme/app'], trigger: 'merged', actions: [{ type: 'comment', body: 'Thanks' }] },
+  ] }), [
+    'CI watch  enabled  Acme/app, Acme/web  checks-failed  notify, spawn',
+    'Thanks  disabled  Acme/app  merged  comment',
+  ]);
+  assert.match(workflowRuleSummaryLines({ rules: [{ id: 'x', name: 'X', repos: ['Acme/app'], trigger: 'pushed', actions: [{ type: 'notify' }] }] })[0] ?? '', /^The workflows block is invalid, so no rule runs: workflows\.rules\[\]\.trigger must be one of/);
+});

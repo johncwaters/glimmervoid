@@ -30,6 +30,7 @@ interface BackendShutdownDependencies {
   posthog: { stopPoller: () => unknown };
   teamReview?: { stopPoller: () => unknown } | null;
   myPrs?: { stopPoller: () => unknown } | null;
+  workflows?: { stopPoller: () => unknown } | null;
   benchmarks?: Stoppable | null;
   usage: Stoppable;
   getIngestLane: () => Stoppable | null;
@@ -85,6 +86,8 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     const teamReview = dependencies.teamReview;
     if (teamReview) stoppers.add('team-review', () => teamReview.stopPoller());
     if (dependencies.myPrs) stoppers.add('my-prs', () => dependencies.myPrs?.stopPoller());
+    const workflows = dependencies.workflows;
+    if (workflows) stoppers.add('workflows', () => workflows.stopPoller());
     const benchmarks = dependencies.benchmarks;
     if (benchmarks) stoppers.add('benchmarks', () => benchmarks.stop());
     stoppers.add('usage', () => dependencies.usage.stop());

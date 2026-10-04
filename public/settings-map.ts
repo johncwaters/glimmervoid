@@ -1,4 +1,5 @@
 import { FLYING_ANIMALS_DEFAULTS } from './flying-animals-core.ts';
+import { WorkflowsSettings } from '#shared/contracts/workflows.ts';
 
 export interface SettingsOption {
   value: string;
@@ -65,6 +66,7 @@ export const SETTINGS_SECTION_ALIASES = Object.freeze({
   'team-review': 'lanes-team-review',
   reviews: 'lanes-team-review',
   benchmarks: 'lanes-benchmarks',
+  workflows: 'lanes-workflows',
   usage: 'machine-usage',
   privacy: 'machine-privacy',
   telemetry: 'machine-privacy',
@@ -695,6 +697,19 @@ export const SETTINGS_MAP = Object.freeze([
     ],
   },
   {
+    id: 'lanes-workflows',
+    level: 'lanes',
+    title: 'Workflows',
+    description: 'Rules that act on pull request events in the repositories you choose.',
+    settings: [
+      {
+        id: 'workflows-rules', path: 'workflows', title: 'Workflow rules',
+        description: 'Each rule watches repositories for one pull request event (opened, checks-failed, review-requested, approved, commented or merged), narrows it by author, labels, base branch, your own pull requests or a review request to your team, and then notifies you, labels or comments on the pull request, or starts a sandboxed agent session that pushes nothing. Rules start disabled.',
+        control: 'readonly', keywords: ['pull requests', 'automation', 'github', 'rules'], fileOnly: true, status: 'workflows',
+      },
+    ],
+  },
+  {
     id: 'lanes-unattended',
     level: 'lanes',
     title: 'Unattended actions',
@@ -736,5 +751,19 @@ export const SETTINGS_MAP = Object.freeze([
     ],
   },
 ]);
+
+export function workflowRuleSummaryLines(workflows: unknown): string[] {
+  if (workflows === null || workflows === undefined) return ['No rules. Add workflows.rules to config.json.'];
+  const parsed = WorkflowsSettings.safeParse(workflows);
+  if (!parsed.success) return [`The workflows block is invalid, so no rule runs: ${parsed.error.issues[0]?.message ?? 'unknown problem'}`];
+  if (parsed.data.rules.length === 0) return ['No rules. Add workflows.rules to config.json.'];
+  return parsed.data.rules.map((rule) => [
+    rule.name,
+    rule.enabled ? 'enabled' : 'disabled',
+    rule.repos.join(', '),
+    rule.trigger,
+    rule.actions.map((action) => action.type).join(', '),
+  ].join('  '));
+}
 
 export default SETTINGS_MAP;

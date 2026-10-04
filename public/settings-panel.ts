@@ -13,7 +13,7 @@ import { ensureNotificationPermission, notificationPermission, notificationsSupp
 import { formatAgo } from './poll-ago.ts';
 import { UPDATES_SECTION_ID } from './radar-core.ts';
 import type { SettingsSection, SettingsSetting, SettingsOption } from './settings-map.ts';
-import { SETTINGS_MAP, SETTINGS_MOVED_SETTINGS, SETTINGS_SECTION_ALIASES } from './settings-map.ts';
+import { SETTINGS_MAP, SETTINGS_MOVED_SETTINGS, SETTINGS_SECTION_ALIASES, workflowRuleSummaryLines } from './settings-map.ts';
 import {
   buildProjectSections,
   collectDirtyBlocks,
@@ -625,6 +625,7 @@ function statusText(setting: SettingsSetting) {
 
 function buildStatusSlot(setting: SettingsSetting) {
   if (setting.status === 'custom-agents') return buildCustomAgentsStatus();
+  if (setting.status === 'workflows') return buildWorkflowsStatus();
   if (setting.status === 'usage-last-report') return buildUsageStatus();
   if (setting.status === 'update-actions') return buildUpdateProgress();
   if (setting.status?.startsWith('update-')) return null;
@@ -779,6 +780,13 @@ function buildCustomAgentsStatus() {
   const block = el('div', 'settings-view-status-block settings-view-status-slot');
   block.appendChild(el('div', 'settings-section-title', 'Declared agents'));
   for (const line of customAgentLines()) block.appendChild(el('div', 'settings-readonly', line));
+  return block;
+}
+
+function buildWorkflowsStatus() {
+  const block = el('div', 'settings-view-status-block settings-view-status-slot');
+  block.appendChild(el('div', 'settings-section-title', 'Rules'));
+  for (const line of workflowRuleSummaryLines(settingsPayload.workflows)) block.appendChild(el('div', 'settings-readonly', line));
   return block;
 }
 
