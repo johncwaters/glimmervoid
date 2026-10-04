@@ -1,4 +1,5 @@
 import { STATES } from '#shared/states.ts';
+import { createUnseenCompleteTracker } from '../focus-view/unseen-complete-core.ts';
 import { el, MERGE_TAGS, observeHeaderHeight, queryTag, stateChip } from '../dom-helpers.ts';
 import { attentionSummaryText, countSessionsNeedingAttention, orderRoster } from '../focus-view/attention-core.ts';
 import type { RosterGroup } from '../focus-view/roster-groups.ts';
@@ -177,29 +178,7 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     rows.setAttribute('aria-label', `${group.label} sessions`);
   }
 
-  const lastStateById = new Map<string, string>();
-  const unseenCompleteIds = new Set<string>();
-
-  function noteStateTransitions(entries: readonly BoardRow[]) {
-    for (const { id, state } of entries) {
-      const previousState = lastStateById.get(id);
-      lastStateById.set(id, state);
-      if (state !== STATES.COMPLETE) {
-        unseenCompleteIds.delete(id);
-        continue;
-      }
-      if (previousState && previousState !== STATES.COMPLETE) unseenCompleteIds.add(id);
-    }
-    for (const id of [...lastStateById.keys()]) {
-      if (sessionUIs.has(id)) continue;
-      lastStateById.delete(id);
-      unseenCompleteIds.delete(id);
-    }
-  }
-
-  function acknowledge(id: string) {
-    unseenCompleteIds.delete(id);
-  }
+  const { noteStates, acknowledge, isUnseen } = createUnseenCompleteTracker();
 
   function currentOrderedRows() {
     const entries = [...sessionUIs.entries()].map(([id, ui]) => ({
@@ -210,8 +189,8 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
       state: ui.currentState || STATES.DORMANT,
       unseen: false,
     }));
-    noteStateTransitions(entries);
-    for (const entry of entries) entry.unseen = unseenCompleteIds.has(entry.id);
+    noteStates(entries);
+    for (const entry of entries) entry.unseen = isUnseen(entry.id);
     return orderRoster(entries);
   }
 
