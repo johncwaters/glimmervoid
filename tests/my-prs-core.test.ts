@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { autoRebaseRecord, deriveStage, hasUnresolvedThreads, isMovedBranchPushRejection, keepMergeableAttemptKey, keepMergeableClaudeArgs, keepMergeablePermissions, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, keepMergeableFixesToCancel, keepMergeableHandoff, keepMergeablePrompt, keepMergeablePushArgs, keepMergeablePushTarget, keepMergeablePushUrl, shouldFixMergeability, shouldAutoRebase, mergedSinceDate, myPrsShouldStart, prunedKeepMergeableState, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/core/my-prs-core.ts';
+import { autoRebaseRecord, deriveStage, hasUnresolvedThreads, isHeadPushedByKeepMergeable, isMovedBranchPushRejection, keepMergeableAttemptKey, keepMergeableClaudeArgs, keepMergeablePermissions, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, keepMergeableFixesToCancel, keepMergeableHandoff, keepMergeablePrompt, keepMergeablePushArgs, keepMergeablePushTarget, keepMergeablePushUrl, mergeAttemptKey, mergeQueuePositions, mergeQueuePrsToMerge, prunedMergeQueueKeys, shouldFixMergeability, shouldAutoRebase, shouldRebaseMyPr, mergedSinceDate, myPrsShouldStart, prunedKeepMergeableState, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/core/my-prs-core.ts';
 import { MyPrSearchNode } from '../shared/contracts/my-prs.ts';
 import type { MyPr, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
 
@@ -50,6 +50,122 @@ test('keep mergeable prompt pins the local checkout and asks for repairs committ
   for (const text of ['gh repo clone', 'gh pr checkout', 'push to the PR head branch', 'fork remote']) {
     assert.equal(prompt.includes(text), false, text);
   }
+});
+
+test('keep mergeable prompt names the merge commit after the real base and head branches, not the local stand-ins', () => {
+  const pr = { ...readyPr(), baseRefName: 'release/2026', headRefName: 'fix/checks' };
+  const prompt = keepMergeablePrompt(pr);
+  assert.ok(prompt.includes(JSON.stringify('Merge release/2026 into fix/checks')));
+  assert.ok(prompt.includes('-m'));
+  assert.equal(prompt.includes('Merge pr-base into keep-mergeable'), false);
+});
+
+const noQueueExclusions = { attemptedMergeKeys: new Set<string>(), keepMergeablePushedHeadKeys: new Set<string>(), rebasedThisTickKeys: new Set<string>() };
+
+function queuedPr(repo: string, number: number, overrides: Partial<MyPr> = {}): MyPr {
+  return { ...readyPr(), repo, number, key: `${repo}#${number}`, ...overrides };
+}
+
+test('merge queue picks the first ready PR per repo in queue order, one merge per repo per tick', () => {
+  const first = queuedPr('Acme/app', 1);
+  const second = queuedPr('Acme/app', 2);
+  const other = queuedPr('Acme/web', 3);
+  const keys = [second.key, other.key, first.key];
+  assert.deepEqual(mergeQueuePrsToMerge(keys, [first, second, other], noQueueExclusions).map((pr) => pr.key), [second.key, other.key]);
+  assert.deepEqual(mergeQueuePrsToMerge([first.key, second.key], [first, second], noQueueExclusions).map((pr) => pr.key), [first.key]);
+  assert.deepEqual(mergeQueuePrsToMerge([], [first, second, other], noQueueExclusions), []);
+  assert.deepEqual(mergeQueuePrsToMerge(['Acme/app#99', other.key], [first, other], noQueueExclusions).map((pr) => pr.key), [other.key]);
+});
+
+test('merge queue skips blocked or not ready PRs without blocking a later ready PR in the same or another repo', () => {
+  const blockedPrs = [
+    queuedPr('Acme/app', 1, { stage: 'checks-pending', checks: { state: 'PENDING', failing: [], pendingCount: 1 } }),
+    queuedPr('Acme/app', 2, { stage: 'behind', mergeStateStatus: 'BEHIND', behindBy: 2 }),
+    queuedPr('Acme/app', 3, { isDraft: true, stage: 'draft' }),
+    queuedPr('Acme/app', 4, { isInMergeQueue: true }),
+    queuedPr('Acme/app', 5, { state: 'MERGED', stage: 'merged' }),
+    queuedPr('Acme/app', 6, { checks: { state: 'SUCCESS', failing: ['lint'], pendingCount: 0 } }),
+  ];
+  const sameRepoReady = queuedPr('Acme/app', 7);
+  const otherRepoReady = queuedPr('Acme/web', 8);
+  const keys = [...blockedPrs, sameRepoReady, otherRepoReady].map((pr) => pr.key);
+  assert.deepEqual(mergeQueuePrsToMerge(keys, [...blockedPrs, sameRepoReady, otherRepoReady], noQueueExclusions).map((pr) => pr.key), [sameRepoReady.key, otherRepoReady.key]);
+});
+
+test('merge queue never retries a merge at a head it already attempted but does at a new head', () => {
+  const pr = queuedPr('Acme/app', 1);
+  const attempted = { ...noQueueExclusions, attemptedMergeKeys: new Set([mergeAttemptKey(pr)]) };
+  assert.deepEqual(mergeQueuePrsToMerge([pr.key], [pr], attempted), []);
+  const nextInRepo = queuedPr('Acme/app', 2);
+  assert.deepEqual(mergeQueuePrsToMerge([pr.key, nextInRepo.key], [pr, nextInRepo], attempted).map((candidate) => candidate.key), [nextInRepo.key]);
+  assert.deepEqual(mergeQueuePrsToMerge([pr.key], [{ ...pr, headRefOid: 'b'.repeat(40) }], attempted).map((candidate) => candidate.key), [pr.key]);
+});
+
+test('merge queue drops merged and closed PRs always and unlisted PRs only when the search is complete, keeping order', () => {
+  const prs = [queuedPr('Acme/app', 1), queuedPr('Acme/app', 2, { state: 'MERGED' }), queuedPr('Acme/app', 3, { state: 'CLOSED' }), queuedPr('Acme/web', 4)];
+  const mergeQueueKeys = ['Acme/web#4', 'Acme/app#2', 'Acme/app#9', 'Acme/app#1', 'Acme/app#3'];
+  assert.deepEqual(prunedMergeQueueKeys({ mergeQueueKeys, prs, returnedCount: 4, totalCount: 4 }), ['Acme/web#4', 'Acme/app#1']);
+  assert.deepEqual(prunedMergeQueueKeys({ mergeQueueKeys, prs, returnedCount: 4, totalCount: 60 }), ['Acme/web#4', 'Acme/app#9', 'Acme/app#1']);
+});
+
+test('a queued PR GitHub reports BEHIND is rebased even with auto-rebase off, and an unqueued one only with it on', () => {
+  const noFailures = new Set<string>();
+  const queued = { isAutoRebaseOn: false, mergeQueueKeys: new Set(['Acme/app#7']), keepMergeablePushedHeadKeys: new Set<string>() };
+  const behindNode = { ...searchNode(), mergeStateStatus: 'BEHIND' };
+  assert.equal(shouldRebaseMyPr(behindNode, 3, noFailures, queued), true);
+  assert.equal(shouldRebaseMyPr(behindNode, 3, noFailures, { ...queued, mergeQueueKeys: new Set() }), false);
+  assert.equal(shouldRebaseMyPr(searchNode(), 3, noFailures, { ...queued, isAutoRebaseOn: true, mergeQueueKeys: new Set() }), true);
+  assert.equal(shouldRebaseMyPr(behindNode, 0, noFailures, queued), false);
+  assert.equal(shouldRebaseMyPr({ ...behindNode, mergeable: 'CONFLICTING' }, 3, noFailures, queued), false);
+  assert.equal(shouldRebaseMyPr(behindNode, 3, new Set([`Acme/app#7@${SHA}`]), queued), false);
+});
+
+test('a queued PR GitHub would merge while behind is not force-rebased with auto-rebase off', () => {
+  const queued = { isAutoRebaseOn: false, mergeQueueKeys: new Set(['Acme/app#7']), keepMergeablePushedHeadKeys: new Set<string>() };
+  assert.equal(shouldRebaseMyPr(searchNode(), 3, new Set(), queued), false);
+  assert.equal(shouldRebaseMyPr({ ...searchNode(), mergeStateStatus: 'UNSTABLE' }, 3, new Set(), queued), false);
+});
+
+test('a queued PR GitHub would merge while behind goes to merge, not rebase, even with global auto-rebase on', () => {
+  const queuedWithAutoRebaseOn = { isAutoRebaseOn: true, mergeQueueKeys: new Set(['Acme/app#7']), keepMergeablePushedHeadKeys: new Set<string>() };
+  assert.equal(shouldRebaseMyPr({ ...searchNode(), mergeStateStatus: 'CLEAN' }, 3, new Set(), queuedWithAutoRebaseOn), false);
+  assert.equal(shouldRebaseMyPr({ ...searchNode(), mergeStateStatus: 'BEHIND' }, 3, new Set(), queuedWithAutoRebaseOn), true);
+  assert.equal(shouldRebaseMyPr({ ...searchNode(), mergeStateStatus: 'CLEAN' }, 3, new Set(), { ...queuedWithAutoRebaseOn, mergeQueueKeys: new Set() }), true);
+});
+
+test('the queue never force-rebases a queued head Keep mergeable pushed', () => {
+  const behindNode = { ...searchNode(), mergeStateStatus: 'BEHIND' };
+  const pushedHeads = new Set([keepMergeableAttemptKey({ key: 'Acme/app#7', headRefOid: SHA })]);
+  assert.equal(shouldRebaseMyPr(behindNode, 3, new Set(), { isAutoRebaseOn: false, mergeQueueKeys: new Set(['Acme/app#7']), keepMergeablePushedHeadKeys: pushedHeads }), false);
+});
+
+test('global auto-rebase never rebases a head Keep mergeable pushed, and rebases again once the operator pushes a new head', () => {
+  const behindNode = { ...searchNode(), mergeStateStatus: 'BEHIND' };
+  const autoRebaseOn = { isAutoRebaseOn: true, mergeQueueKeys: new Set(['Acme/app#7']), keepMergeablePushedHeadKeys: new Set([keepMergeableAttemptKey({ key: 'Acme/app#7', headRefOid: SHA })]) };
+  assert.equal(shouldRebaseMyPr(behindNode, 3, new Set(), autoRebaseOn), false);
+  assert.equal(shouldRebaseMyPr(behindNode, 3, new Set(), { ...autoRebaseOn, mergeQueueKeys: new Set() }), false);
+  assert.equal(shouldRebaseMyPr({ ...behindNode, headRefOid: 'd'.repeat(40) }, 3, new Set(), autoRebaseOn), true);
+});
+
+test('merge queue skips a PR rebased this tick without holding up the rest of its repo', () => {
+  const rebased = queuedPr('Acme/app', 1);
+  const next = queuedPr('Acme/app', 2);
+  const exclusions = { ...noQueueExclusions, rebasedThisTickKeys: new Set([rebased.key]) };
+  assert.deepEqual(mergeQueuePrsToMerge([rebased.key, next.key], [rebased, next], exclusions).map((pr) => pr.key), [next.key]);
+});
+
+test('merge queue never merges a head Keep mergeable pushed, and merges again once a new head lands', () => {
+  const pr = queuedPr('Acme/app', 1);
+  const exclusions = { ...noQueueExclusions, keepMergeablePushedHeadKeys: new Set([keepMergeableAttemptKey(pr)]) };
+  assert.equal(isHeadPushedByKeepMergeable(pr, exclusions.keepMergeablePushedHeadKeys), true);
+  assert.deepEqual(mergeQueuePrsToMerge([pr.key], [pr], exclusions), []);
+  assert.deepEqual(mergeQueuePrsToMerge([pr.key], [{ ...pr, headRefOid: 'c'.repeat(40) }], exclusions).map((candidate) => candidate.key), [pr.key]);
+});
+
+test('merge queue positions count from 1 among listed PRs of the same repo in queue order', () => {
+  const prs = [queuedPr('Acme/app', 1), queuedPr('Acme/web', 2), queuedPr('Acme/app', 3), queuedPr('Acme/app', 4)];
+  const positions = mergeQueuePositions(['Acme/web#2', 'Acme/app#9', 'Acme/app#3', 'Acme/app#1'], prs);
+  assert.deepEqual(Object.fromEntries(positions), { 'Acme/web#2': 1, 'Acme/app#3': 1, 'Acme/app#1': 2 });
 });
 
 test('only GitHub slugs get a keep mergeable push url', () => {
@@ -235,11 +351,11 @@ test('truncatedSearchNote names the shown and total counts only when the search 
 test('prunedKeepMergeableState drops flags and head attempts for unlisted PRs only when the search is complete', () => {
   const listedHead = keepMergeableAttemptKey({ key: 'Acme/app#1', headRefOid: 'a'.repeat(40) });
   const prefixTwinHead = keepMergeableAttemptKey({ key: 'Acme/app#10', headRefOid: 'b'.repeat(40) });
-  const saved = { keepMergeableKeys: ['Acme/app#1', 'Acme/app#10'], keepMergeableAttemptKeys: [listedHead, prefixTwinHead] };
+  const saved = { keepMergeableKeys: ['Acme/app#1', 'Acme/app#10'], keepMergeableAttemptKeys: [listedHead, prefixTwinHead], keepMergeablePushedHeadKeys: [listedHead, prefixTwinHead] };
   const listedPrKeys = new Set(['Acme/app#1']);
-  assert.deepEqual(prunedKeepMergeableState({ ...saved, listedPrKeys, returnedCount: 1, totalCount: 1 }), { keepMergeableKeys: ['Acme/app#1'], keepMergeableAttemptKeys: [listedHead] });
+  assert.deepEqual(prunedKeepMergeableState({ ...saved, listedPrKeys, returnedCount: 1, totalCount: 1 }), { keepMergeableKeys: ['Acme/app#1'], keepMergeableAttemptKeys: [listedHead], keepMergeablePushedHeadKeys: [listedHead] });
   assert.deepEqual(prunedKeepMergeableState({ ...saved, listedPrKeys, returnedCount: 50, totalCount: 73 }), saved);
-  assert.deepEqual(prunedKeepMergeableState({ ...saved, listedPrKeys: new Set(), returnedCount: 0, totalCount: 0 }), { keepMergeableKeys: [], keepMergeableAttemptKeys: [] });
+  assert.deepEqual(prunedKeepMergeableState({ ...saved, listedPrKeys: new Set(), returnedCount: 0, totalCount: 0 }), { keepMergeableKeys: [], keepMergeableAttemptKeys: [], keepMergeablePushedHeadKeys: [] });
 });
 
 function threadNode(overrides: Partial<MyPrThreadNode> = {}): MyPrThreadNode {

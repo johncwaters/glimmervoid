@@ -2,12 +2,12 @@ import * as core from './core/my-prs-core.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
 import { secondaryRateLimitWaitMs } from './core/lane-backoff.ts';
 import { prKey } from './core/team-review-core.ts';
-import { drainPending } from './ephemeral-session.ts';
+import { drainPending, firstLine } from './ephemeral-session.ts';
 import { createTickLoop } from './lane-runner.ts';
 import type { SharedClock } from './lane-runner.ts';
 import type { PrGh } from './pr-gh.ts';
 import { MyPrsState } from '../shared/contracts/my-prs.ts';
-import type { MyPr, MyPrAutoRebase, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrsState as MyPrsStateType, MyPrsStatus, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrAutoRebase, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsState as MyPrsStateType, MyPrsStatus, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
 
 const MY_PRS_RATE_LIMIT_RESOURCES = ['graphql'] as const;
 
@@ -16,9 +16,10 @@ interface MyPrsPollerDependencies {
   shouldAutoRebase?: boolean;
   readState?: () => Promise<unknown>;
   writeState?: (state: MyPrsStateType) => Promise<void>;
-  fixMergeability?: (pr: MyPr, signal: AbortSignal, onPushStarted: () => void, latestListedPr: () => MyPr | undefined, onRepairPushed: (pushedSha: string) => void) => Promise<void>;
+  fixMergeability?: (pr: MyPr, signal: AbortSignal, onPushStarted: (repairSha: string) => Promise<void>, latestListedPr: () => MyPr | undefined) => Promise<void>;
   beforeStart?: () => Promise<void>;
   github: Pick<PrGh, 'viewer' | 'searchMyPrs' | 'behindCounts' | 'reviewThreadsBatch' | 'rebasePr' | 'rateLimitWaitMs'>;
+  mergePr?: (pr: MyPr) => Promise<Omit<MyPrMergeResult, 'key'>>;
   onTickComplete: (status: MyPrsStatus) => void;
   now?: () => number;
   intervalMinutes?: number;
@@ -42,6 +43,9 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   const failedAutoRebaseAttempts = new Set<string>();
   const keepMergeableKeys = new Set<string>();
   const keepMergeableAttemptKeys = new Set<string>();
+  const keepMergeablePushedHeadKeys = new Set<string>();
+  let mergeQueueKeys: string[] = [];
+  const attemptedMergeKeys = new Set<string>();
   const fixesInFlight = new Set<string>();
   const pendingFixes = new Set<Promise<void>>();
   const fixControllersByKey = new Map<string, AbortController>();
@@ -52,9 +56,11 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   async function loadState(): Promise<void> {
     if (stateLoad) return stateLoad;
     stateLoad = (async () => {
-      const state = MyPrsState.parse(await dependencies.readState?.() ?? { keepMergeableKeys: [], keepMergeableAttemptKeys: [] });
+      const state = MyPrsState.parse(await dependencies.readState?.() ?? { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [] });
       for (const key of state.keepMergeableKeys) keepMergeableKeys.add(key);
       for (const key of state.keepMergeableAttemptKeys) keepMergeableAttemptKeys.add(key);
+      for (const key of state.keepMergeablePushedHeadKeys) keepMergeablePushedHeadKeys.add(key);
+      mergeQueueKeys = [...new Set(state.mergeQueueKeys)];
     })();
     return stateLoad;
   }
@@ -63,11 +69,15 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     onTickComplete({ ...core.myPrsStatus({ ts: now(), configured: true, viewer, prs: previousPrs, error: pollingError, truncatedNote: previousTruncatedNote }), ...loop.scheduleStatus() });
   }
 
+  async function writeCurrentState(): Promise<void> {
+    await dependencies.writeState?.(MyPrsState.parse({ keepMergeableKeys: [...keepMergeableKeys], keepMergeableAttemptKeys: [...keepMergeableAttemptKeys], mergeQueueKeys, keepMergeablePushedHeadKeys: [...keepMergeablePushedHeadKeys] }));
+  }
+
   const loop = createTickLoop({
     tag: core.MY_PRS_LANE_ID, intervalMs: intervalMinutes * 60000, setIntervalFn, clearIntervalFn, clock, firstTickDelayMs, setTimeoutFn, clearTimeoutFn, now, quickRetries: true,
     rateLimitWaitMs: () => github.rateLimitWaitMs(now(), MY_PRS_RATE_LIMIT_RESOURCES),
     onScheduleChange: publishStatus,
-    writeState: () => dependencies.writeState?.(MyPrsState.parse({ keepMergeableKeys: [...keepMergeableKeys], keepMergeableAttemptKeys: [...keepMergeableAttemptKeys] })),
+    writeState: writeCurrentState,
     backoffMaxMs: GITHUB_RATE_LIMIT_WINDOW_MS, log,
     tick: async () => {
       try {
@@ -108,14 +118,16 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     const threadsByPr = threadedPrs.length > 0 ? await github.reviewThreadsBatch(threadedPrs) : new Map<string, MyPrThreadNode[]>();
     if (loop.isStopped()) return { failed: false };
     const prs: MyPr[] = [];
+    const rebasedThisTickKeys = new Set<string>();
     for (const node of search.items) {
       const key = `${node.repository.nameWithOwner}#${node.number}`;
       const behindBy = node.state === 'OPEN' ? behindCounts.get(key) ?? null : null;
       const isFailedRecordForAnotherHead = autoRebaseByKey.get(key)?.outcome === 'failed' && !failedAutoRebaseAttempts.has(core.autoRebaseAttemptKey(node));
       if (isFailedRecordForAnotherHead) autoRebaseByKey.delete(key);
-      if (shouldAutoRebase && core.shouldAutoRebase(node, behindBy, failedAutoRebaseAttempts)) {
+      if (core.shouldRebaseMyPr(node, behindBy, failedAutoRebaseAttempts, { isAutoRebaseOn: shouldAutoRebase, mergeQueueKeys: new Set(mergeQueueKeys), keepMergeablePushedHeadKeys })) {
         const rebase = await github.rebasePr(node.id, node.headRefOid);
         if (loop.isStopped()) return { failed: false };
+        if (rebase.ok) rebasedThisTickKeys.add(key);
         if (!rebase.ok) failedAutoRebaseAttempts.add(core.autoRebaseAttemptKey(node));
         if (!rebase.ok) log?.warn(`[${core.MY_PRS_LANE_ID}] auto-rebase of ${key} failed: ${rebase.err.trim()}`);
         autoRebaseByKey.set(key, core.autoRebaseRecord(rebase, node.baseRefName, now()));
@@ -129,19 +141,44 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     }
     previousPrs = core.sortedMyPrs(prs, timestamp);
     const prunedState = core.prunedKeepMergeableState({
-      keepMergeableKeys, keepMergeableAttemptKeys, listedPrKeys: new Set(previousPrs.map((pr) => pr.key)), returnedCount: search.items.length, totalCount: search.totalCount,
+      keepMergeableKeys, keepMergeableAttemptKeys, keepMergeablePushedHeadKeys, listedPrKeys: new Set(previousPrs.map((pr) => pr.key)), returnedCount: search.items.length, totalCount: search.totalCount,
     });
     keepMergeableKeys.clear();
     for (const key of prunedState.keepMergeableKeys) keepMergeableKeys.add(key);
     keepMergeableAttemptKeys.clear();
     for (const attemptKey of prunedState.keepMergeableAttemptKeys) keepMergeableAttemptKeys.add(attemptKey);
-    previousPrs = previousPrs.map((pr) => ({ ...pr, keepMergeable: keepMergeableKeys.has(pr.key) }));
+    keepMergeablePushedHeadKeys.clear();
+    for (const pushedHeadKey of prunedState.keepMergeablePushedHeadKeys) keepMergeablePushedHeadKeys.add(pushedHeadKey);
+    mergeQueueKeys = core.prunedMergeQueueKeys({ mergeQueueKeys, prs, returnedCount: search.items.length, totalCount: search.totalCount });
+    previousPrs = withOperatorFlags(previousPrs);
     cancelFixes(core.keepMergeableFixesToCancel(fixControllersByKey.keys(), keepMergeableKeys, previousPrs));
     previousTruncatedNote = core.truncatedSearchNote(search.items.length, search.totalCount);
     pollingError = null;
+    await mergeQueuedPrs(rebasedThisTickKeys);
+    if (loop.isStopped()) return { failed: false };
     await loop.persist();
     await dispatchFixes();
     return { failed: false };
+  }
+
+  function withOperatorFlags(prs: MyPr[]): MyPr[] {
+    const queuePositionByKey = core.mergeQueuePositions(mergeQueueKeys, prs);
+    return prs.map((pr) => ({
+      ...pr, keepMergeable: keepMergeableKeys.has(pr.key), mergeQueuePosition: queuePositionByKey.get(pr.key) ?? null,
+      isMergeQueueHeldForRepairPush: queuePositionByKey.has(pr.key) && core.isHeadPushedByKeepMergeable(pr, keepMergeablePushedHeadKeys),
+    }));
+  }
+
+  async function mergeQueuedPrs(rebasedThisTickKeys: ReadonlySet<string>): Promise<void> {
+    const mergePr = dependencies.mergePr;
+    if (!mergePr) return;
+    for (const pr of core.mergeQueuePrsToMerge(mergeQueueKeys, previousPrs, { attemptedMergeKeys, keepMergeablePushedHeadKeys, rebasedThisTickKeys })) {
+      if (loop.isStopped()) return;
+      if (!mergeQueueKeys.includes(pr.key)) continue;
+      attemptedMergeKeys.add(core.mergeAttemptKey(pr));
+      const merged = await mergePr(pr);
+      if (!merged.ok) log?.warn(`[${core.MY_PRS_LANE_ID}] merge when ready for ${pr.key} failed and waits for a new head: ${firstLine(merged.error ?? '')}`);
+    }
   }
 
   function forgetAttempt(attemptKey: string): Promise<void> {
@@ -158,13 +195,15 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     keepMergeableAttemptKeys.add(attemptKey);
     const forgetAbortedAttempt = () => { void forgetAttempt(attemptKey); };
     fixSignal.addEventListener('abort', forgetAbortedAttempt, { once: true });
-    const keepAttemptOnceThePushStarts = () => { fixSignal.removeEventListener('abort', forgetAbortedAttempt); };
-    const neverRepairThePushedHead = (pushedSha: string) => {
-      keepMergeableAttemptKeys.add(core.keepMergeableAttemptKey({ key: pr.key, headRefOid: pushedSha }));
-      void loop.persist();
+    const holdTheRepairHeadBeforeThePush = (repairSha: string): Promise<void> => {
+      fixSignal.removeEventListener('abort', forgetAbortedAttempt);
+      const repairHeadKey = core.keepMergeableAttemptKey({ key: pr.key, headRefOid: repairSha });
+      keepMergeableAttemptKeys.add(repairHeadKey);
+      keepMergeablePushedHeadKeys.add(repairHeadKey);
+      return loop.persist().then(writeCurrentState);
     };
     const attemptSaved = loop.persist();
-    const fix = attemptSaved.then(() => (fixSignal.aborted ? undefined : fixMergeability(pr, fixSignal, keepAttemptOnceThePushStarts, () => previousPrs.find((listed) => listed.key === pr.key), neverRepairThePushedHead))).catch((error: unknown) => {
+    const fix = attemptSaved.then(() => (fixSignal.aborted ? undefined : fixMergeability(pr, fixSignal, holdTheRepairHeadBeforeThePush, () => previousPrs.find((listed) => listed.key === pr.key)))).catch((error: unknown) => {
       log?.warn(`[${core.MY_PRS_LANE_ID}] keep mergeable fix for ${pr.key} failed: ${error instanceof Error ? error.message : String(error)}`);
     }).finally(() => {
       fixSignal.removeEventListener('abort', forgetAbortedAttempt);
@@ -193,19 +232,39 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     for (const key of keys) fixControllersByKey.get(key)?.abort();
   }
 
-  async function setKeepMergeable(request: MyPrKeepMergeableRequest): Promise<Omit<MyPrKeepMergeableResult, 'key'>> {
+  async function toggleRefusal(request: { repo: string; number: number }, isTurningOn: boolean): Promise<string | null> {
     await loadState();
-    if (loop.isStopped()) return { ok: false, error: 'My pull requests is not running' };
+    if (loop.isStopped()) return 'My pull requests is not running';
+    const pr = previousPrs.find((candidate) => candidate.key === prKey(request.repo, request.number));
+    if (!pr) return 'That pull request is not one of your tracked pull requests';
+    if (isTurningOn && pr.state !== 'OPEN') return 'That pull request is no longer open';
+    return null;
+  }
+
+  async function saveAndPublishFlags(): Promise<void> {
+    previousPrs = withOperatorFlags(previousPrs);
+    await loop.persist();
+    if (!loop.isStopped()) publishStatus();
+  }
+
+  async function setMergeWhenReady(request: MyPrMergeWhenReadyRequest): Promise<Omit<MyPrMergeWhenReadyResult, 'key'>> {
+    const refusal = await toggleRefusal(request, request.mergeWhenReady);
+    if (refusal) return { ok: false, error: refusal };
     const key = prKey(request.repo, request.number);
-    const pr = previousPrs.find((candidate) => candidate.key === key);
-    if (!pr) return { ok: false, error: 'That pull request is not one of your tracked pull requests' };
-    if (request.keepMergeable && pr.state !== 'OPEN') return { ok: false, error: 'That pull request is no longer open' };
+    if (request.mergeWhenReady && !mergeQueueKeys.includes(key)) mergeQueueKeys = [...mergeQueueKeys, key];
+    if (!request.mergeWhenReady) mergeQueueKeys = mergeQueueKeys.filter((queuedKey) => queuedKey !== key);
+    await saveAndPublishFlags();
+    return { ok: true };
+  }
+
+  async function setKeepMergeable(request: MyPrKeepMergeableRequest): Promise<Omit<MyPrKeepMergeableResult, 'key'>> {
+    const refusal = await toggleRefusal(request, request.keepMergeable);
+    if (refusal) return { ok: false, error: refusal };
+    const key = prKey(request.repo, request.number);
     if (request.keepMergeable) keepMergeableKeys.add(key);
     if (!request.keepMergeable) keepMergeableKeys.delete(key);
     if (!request.keepMergeable) cancelFixes([key]);
-    previousPrs = previousPrs.map((candidate) => ({ ...candidate, keepMergeable: keepMergeableKeys.has(candidate.key) }));
-    await loop.persist();
-    if (!loop.isStopped()) publishStatus();
+    await saveAndPublishFlags();
     await dispatchFixes();
     return { ok: true };
   }
@@ -230,5 +289,5 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     return loop.start(beforeStart ? () => sweepLeftoversBeforeAnyRepair(beforeStart) : null);
   }
 
-  return { start, stop, tick: loop.tick, refresh: loop.refresh, setKeepMergeable };
+  return { start, stop, tick: loop.tick, refresh: loop.refresh, setKeepMergeable, setMergeWhenReady };
 }

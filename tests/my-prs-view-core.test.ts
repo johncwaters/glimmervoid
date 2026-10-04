@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyStateText, groupMyPrs, groupStackedMyPrs, chooseSelectedKey, keepMergeableControlState, mergeConfirmMessage, mergeControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from '../public/my-prs-view-core.ts';
+import { emptyStateText, groupMyPrs, groupStackedMyPrs, chooseSelectedKey, keepMergeableControlState, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from '../public/my-prs-view-core.ts';
 import { toMyPr } from '../server/core/my-prs-core.ts';
 import type { MyPr, MyPrSearchNode, MyPrThread } from '../shared/contracts/my-prs.ts';
 
@@ -23,6 +23,23 @@ test('keep mergeable exposes pressed state and separate save status for open and
   assert.equal(keepMergeableControlState(base, false, 'Cannot save').statusText, 'Cannot save');
   assert.equal(keepMergeableControlState({ ...base, state: 'MERGED' }, false).isVisible, false);
   assert.equal(keepMergeableControlState({ ...base, state: 'MERGED', keepMergeable: true }, false).isVisible, true);
+});
+
+test('merge when ready exposes queued state through aria-pressed and the queue position in a separate status line', () => {
+  assert.deepEqual(mergeWhenReadyControlState(base, false), { isVisible: true, isPressed: false, isDisabled: false, statusText: 'Not queued' });
+  assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: null }, false), { isVisible: true, isPressed: false, isDisabled: false, statusText: 'Not queued' });
+  assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 1 }, false), { isVisible: true, isPressed: true, isDisabled: false, statusText: 'Queued, 1st in line for this repository' });
+  const positionTexts = [2, 3, 4, 11, 12, 13, 21, 22, 23].map((position) => mergeWhenReadyControlState({ ...base, mergeQueuePosition: position }, false).statusText);
+  assert.deepEqual(positionTexts, ['2nd', '3rd', '4th', '11th', '12th', '13th', '21st', '22nd', '23rd'].map((place) => `Queued, ${place} in line for this repository`));
+  assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 2 }, true), { isVisible: true, isPressed: true, isDisabled: true, statusText: 'Saving...' });
+  assert.equal(mergeWhenReadyControlState(base, false, 'Cannot save').statusText, 'Cannot save');
+  assert.equal(mergeWhenReadyControlState({ ...base, state: 'MERGED' }, false).isVisible, false);
+  assert.equal(mergeWhenReadyControlState({ ...base, state: 'CLOSED', mergeQueuePosition: 1 }, false).isVisible, true);
+});
+
+test('merge when ready shows a queued head Keep mergeable pushed as held for the operator', () => {
+  assert.deepEqual(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 1, isMergeQueueHeldForRepairPush: true }, false), { isVisible: true, isPressed: true, isDisabled: false, statusText: 'Repair pushed, waiting for you' });
+  assert.equal(mergeWhenReadyControlState({ ...base, mergeQueuePosition: 1, isMergeQueueHeldForRepairPush: false }, false).statusText, 'Queued, 1st in line for this repository');
 });
 
 test('groups every stage in fixed section order and preserves selection', () => {

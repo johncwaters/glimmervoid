@@ -12,13 +12,37 @@ export interface ThreadRow {
 export interface ReviewRow { reviewer: string; text: string; tone: StateTone; submittedAt: string | null }
 export interface ReadinessRow { label: 'Checks' | 'Review' | 'Threads' | 'Conflicts' | 'Base' | 'Auto-rebase'; tone: StateTone; text: string }
 
-export function keepMergeableControlState(pr: MyPr, isPending: boolean, errorText = '') {
+export interface ToggleControlState { isVisible: boolean; isPressed: boolean; isDisabled: boolean; statusText: string }
+
+function toggleControlState(pr: MyPr, isOn: boolean, isPending: boolean, errorText: string, settledText: string): ToggleControlState {
   return {
-    isVisible: pr.state === 'OPEN' || !!pr.keepMergeable,
-    isPressed: !!pr.keepMergeable,
+    isVisible: pr.state === 'OPEN' || isOn,
+    isPressed: isOn,
     isDisabled: isPending,
-    statusText: errorText || (isPending ? 'Saving...' : pr.keepMergeable ? 'On' : 'Off'),
+    statusText: errorText || (isPending ? 'Saving...' : settledText),
   };
+}
+
+export function keepMergeableControlState(pr: MyPr, isPending: boolean, errorText = ''): ToggleControlState {
+  return toggleControlState(pr, !!pr.keepMergeable, isPending, errorText, pr.keepMergeable ? 'On' : 'Off');
+}
+
+const ORDINAL_SUFFIXES: Readonly<Record<string, string>> = { one: 'st', two: 'nd', few: 'rd', other: 'th' };
+const ordinalRules = new Intl.PluralRules('en-US', { type: 'ordinal' });
+
+function ordinal(count: number): string {
+  return `${count}${ORDINAL_SUFFIXES[ordinalRules.select(count)] ?? 'th'}`;
+}
+
+function mergeQueueStatusText(position: number | null, isHeldForRepairPush: boolean): string {
+  if (position === null) return 'Not queued';
+  if (isHeldForRepairPush) return 'Repair pushed, waiting for you';
+  return `Queued, ${ordinal(position)} in line for this repository`;
+}
+
+export function mergeWhenReadyControlState(pr: MyPr, isPending: boolean, errorText = ''): ToggleControlState {
+  const position = pr.mergeQueuePosition ?? null;
+  return toggleControlState(pr, position !== null, isPending, errorText, mergeQueueStatusText(position, !!pr.isMergeQueueHeldForRepairPush));
 }
 
 const SECTION_TITLES = ['Needs you', 'Waiting', 'Ready to merge', 'Drafts', 'Merged today'] as const;

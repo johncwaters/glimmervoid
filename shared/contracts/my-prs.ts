@@ -16,14 +16,24 @@ const keepMergeableAttemptKey = z.string().refine((value) => keepMergeableAttemp
 export const MyPrsState = z.strictObject({
   keepMergeableKeys: z.array(pullRequestKey),
   keepMergeableAttemptKeys: z.array(keepMergeableAttemptKey),
+  mergeQueueKeys: z.array(pullRequestKey).default([]),
+  keepMergeablePushedHeadKeys: z.array(keepMergeableAttemptKey).default([]),
 });
 export type MyPrsState = z.infer<typeof MyPrsState>;
 
 export const MyPrKeepMergeableRequest = z.object({ repo: repositoryName, number: z.number().int().positive(), keepMergeable: z.boolean() });
 export type MyPrKeepMergeableRequest = z.infer<typeof MyPrKeepMergeableRequest>;
 
-export const MyPrKeepMergeableResult = z.object({ key: z.string(), ok: z.boolean(), error: z.string().optional() });
+const MyPrToggleResult = z.object({ key: z.string(), ok: z.boolean(), error: z.string().optional() });
+
+export const MyPrKeepMergeableResult = MyPrToggleResult;
 export type MyPrKeepMergeableResult = z.infer<typeof MyPrKeepMergeableResult>;
+
+export const MyPrMergeWhenReadyRequest = z.object({ repo: repositoryName, number: z.number().int().positive(), mergeWhenReady: z.boolean() });
+export type MyPrMergeWhenReadyRequest = z.infer<typeof MyPrMergeWhenReadyRequest>;
+
+export const MyPrMergeWhenReadyResult = MyPrToggleResult;
+export type MyPrMergeWhenReadyResult = z.infer<typeof MyPrMergeWhenReadyResult>;
 
 export const MyPrMergeMethod = z.enum(['MERGE', 'SQUASH', 'REBASE']);
 export type MyPrMergeMethod = z.infer<typeof MyPrMergeMethod>;
@@ -50,6 +60,7 @@ export const MyPr = z.object({
   unresolvedThreads: nonnegativeInteger, threads: z.array(MyPrThread), behindBy: nonnegativeInteger.nullable(),
   reviewRequests: z.array(z.object({ name: z.string(), isTeam: z.boolean(), avatarUrl: z.string().nullable() })),
   approvals: nonnegativeInteger, reviews: z.array(MyPrReview), stage: MyPrStage, autoRebase: MyPrAutoRebase.optional(), keepMergeable: z.boolean().optional(),
+  mergeQueuePosition: z.number().int().positive().nullable().optional(), isMergeQueueHeldForRepairPush: z.boolean().optional(),
 }).refine((pr) => pr.key === `${pr.repo}#${pr.number}`);
 export type MyPr = z.infer<typeof MyPr>;
 

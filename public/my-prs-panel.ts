@@ -8,8 +8,8 @@ import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createStateGlyph } from './state-glyph.ts';
 import { sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
-import { chooseSelectedKey, emptyStateText, keepMergeableControlState, mergeConfirmMessage, mergeControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
-import type { MergeAttempt } from './my-prs-view-core.ts';
+import { chooseSelectedKey, emptyStateText, keepMergeableControlState, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
+import type { MergeAttempt, ToggleControlState } from './my-prs-view-core.ts';
 
 let root: HTMLDivElement | null = null;
 let scopeTabs: HTMLElement | null = null;
@@ -20,8 +20,31 @@ let selectedKey: string | null = null;
 let pollingControls: ReturnType<typeof createReviewsPollingControls> | null = null;
 const mergeAttempts = new Map<string, MergeAttempt>();
 const pendingMergeRequests = new Map<string, { requestId: string; head: string; timer: number }>();
-const pendingKeepMergeableKeys = new Set<string>();
-const keepMergeableErrorsByKey = new Map<string, string>();
+interface PrToggle {
+  label: string;
+  pendingKeys: Set<string>;
+  errorsByKey: Map<string, string>;
+  controlState: (pr: MyPr, isPending: boolean, errorText?: string) => ToggleControlState;
+  save: (pr: MyPr, isTurningOn: boolean) => Promise<string | null>;
+}
+
+const keepMergeableToggle: PrToggle = {
+  label: 'Keep mergeable', pendingKeys: new Set(), errorsByKey: new Map(), controlState: keepMergeableControlState,
+  save: async (pr, isTurningOn) => {
+    const response = await sendControlRequest('my-pr-keep-mergeable', { repo: pr.repo, number: pr.number, keepMergeable: isTurningOn });
+    if (response.type !== 'my-pr-keep-mergeable-result' || response.key !== pr.key) throw new Error('Unexpected keep mergeable reply.');
+    return response.ok ? null : response.error ?? 'Could not save Keep mergeable.';
+  },
+};
+
+const mergeWhenReadyToggle: PrToggle = {
+  label: 'Merge when ready', pendingKeys: new Set(), errorsByKey: new Map(), controlState: mergeWhenReadyControlState,
+  save: async (pr, isTurningOn) => {
+    const response = await sendControlRequest('my-pr-merge-when-ready', { repo: pr.repo, number: pr.number, mergeWhenReady: isTurningOn });
+    if (response.type !== 'my-pr-merge-when-ready-result' || response.key !== pr.key) throw new Error('Unexpected merge when ready reply.');
+    return response.ok ? null : response.error ?? 'Could not save Merge when ready.';
+  },
+};
 const MERGE_REPLY_TIMEOUT_MS = 60000;
 const MERGE_NO_REPLY_TEXT = 'No reply from the server. Check GitHub before trying again.';
 
@@ -120,11 +143,11 @@ function createMergeControl(pr: MyPr): HTMLElement | null {
   return control;
 }
 
-function createKeepMergeableControl(pr: MyPr): HTMLElement | null {
-  const state = keepMergeableControlState(pr, pendingKeepMergeableKeys.has(pr.key), keepMergeableErrorsByKey.get(pr.key));
+function createToggleControl(pr: MyPr, toggle: PrToggle): HTMLElement | null {
+  const state = toggle.controlState(pr, toggle.pendingKeys.has(pr.key), toggle.errorsByKey.get(pr.key));
   if (!state.isVisible) return null;
   const control = el('div', 'my-pr-merge');
-  const button = el('button', 'pr-action', 'Keep mergeable');
+  const button = el('button', 'pr-action', toggle.label);
   button.type = 'button';
   button.disabled = state.isDisabled;
   button.setAttribute('aria-pressed', String(state.isPressed));
@@ -132,18 +155,17 @@ function createKeepMergeableControl(pr: MyPr): HTMLElement | null {
   indicator.setAttribute('role', 'status');
   indicator.setAttribute('aria-live', 'polite');
   button.addEventListener('click', async () => {
-    if (pendingKeepMergeableKeys.has(pr.key)) return;
-    pendingKeepMergeableKeys.add(pr.key);
-    keepMergeableErrorsByKey.delete(pr.key);
+    if (toggle.pendingKeys.has(pr.key)) return;
+    toggle.pendingKeys.add(pr.key);
+    toggle.errorsByKey.delete(pr.key);
     render();
     try {
-      const response = await sendControlRequest('my-pr-keep-mergeable', { repo: pr.repo, number: pr.number, keepMergeable: !state.isPressed });
-      if (response.type !== 'my-pr-keep-mergeable-result' || response.key !== pr.key) throw new Error('Unexpected keep mergeable reply.');
-      if (!response.ok) keepMergeableErrorsByKey.set(pr.key, response.error ?? 'Could not save Keep mergeable.');
+      const errorText = await toggle.save(pr, !state.isPressed);
+      if (errorText) toggle.errorsByKey.set(pr.key, errorText);
     } catch (error: unknown) {
-      keepMergeableErrorsByKey.set(pr.key, error instanceof Error ? error.message : String(error));
+      toggle.errorsByKey.set(pr.key, error instanceof Error ? error.message : String(error));
     } finally {
-      pendingKeepMergeableKeys.delete(pr.key);
+      toggle.pendingKeys.delete(pr.key);
       render();
     }
   });
@@ -200,8 +222,10 @@ function renderDetail(pr: MyPr | undefined): void {
   title.append(externalLink('pr-link', pr.key, pr.url), el('h2', null, pr.title));
   heading.append(title, stageChip(pr, { hasGlyph: true }));
   content.append(heading);
-  const keepMergeableControl = createKeepMergeableControl(pr);
-  if (keepMergeableControl) content.append(keepMergeableControl);
+  for (const toggle of [keepMergeableToggle, mergeWhenReadyToggle]) {
+    const toggleControl = createToggleControl(pr, toggle);
+    if (toggleControl) content.append(toggleControl);
+  }
   const readiness = readinessRows(pr, latest?.viewer ?? null);
   if (readiness.length > 0) {
     const section = el('section', 'pr-readiness-section');

@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { MyPrKeepMergeableRequest, MyPrsState, MyPrsStatus } from '../shared/contracts/my-prs.ts';
-import type { MyPr, MyPrKeepMergeableResult, MyPrMergeRequest, MyPrMergeResult, MyPrsState as MyPrsStateType, MyPrsStatus as MyPrsStatusType } from '../shared/contracts/my-prs.ts';
+import { MyPrKeepMergeableRequest, MyPrMergeWhenReadyRequest, MyPrsState, MyPrsStatus } from '../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrKeepMergeableResult, MyPrMergeRequest, MyPrMergeResult, MyPrMergeWhenReadyResult, MyPrsState as MyPrsStateType, MyPrsStatus as MyPrsStatusType } from '../shared/contracts/my-prs.ts';
 import { myPrMergeRefusal } from '../shared/my-pr-merge.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import * as core from './core/my-prs-core.ts';
@@ -34,14 +34,14 @@ const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 const KEEP_MERGEABLE_HANDOFF_REF_PREFIX = 'refs/glimmervoid-keep-mergeable/';
 
 export function createMyPrsStateIo(statePath: string, log: Pick<Console, 'warn'>) {
-  let loaded: MyPrsStateType = { keepMergeableKeys: [], keepMergeableAttemptKeys: [] };
+  let loaded: MyPrsStateType = { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [] };
   const store = createJsonStateStore<MyPrsStateType>({
     name: 'my-prs state', filePath: statePath,
     parse: (raw) => {
       const parsed = MyPrsState.safeParse(raw);
       return parsed.success ? parsed.data : null;
     },
-    adopt: (state) => { loaded = state ?? { keepMergeableKeys: [], keepMergeableAttemptKeys: [] }; },
+    adopt: (state) => { loaded = state ?? { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [] }; },
     warn: (message, fields) => log.warn(`[${core.MY_PRS_LANE_ID}] ${message} ${JSON.stringify(fields)}`),
   });
   return {
@@ -155,7 +155,7 @@ export function createMyPrMergeabilityFix({
     return changed.ok ? nulSeparatedPaths(changed.out) : null;
   }
 
-  async function handOff(pr: MyPr, staged: { projectPath: string; baseSha: string }, checkoutPath: string, handoffRef: string, signal: AbortSignal, onPushStarted: () => void, latestListedPr: () => MyPr | undefined, onRepairPushed: (pushedSha: string) => void): Promise<void> {
+  async function handOff(pr: MyPr, staged: { projectPath: string; baseSha: string }, checkoutPath: string, handoffRef: string, signal: AbortSignal, onPushStarted: (repairSha: string) => Promise<void>, latestListedPr: () => MyPr | undefined): Promise<void> {
     const fetched = await runGit(['fetch', '--quiet', '--no-tags', '--no-write-fetch-head', checkoutPath, `+HEAD:${handoffRef}`], staged.projectPath, signal);
     if (signal.aborted) return;
     if (!fetched.ok) return warn(pr, `not pushed: could not read the session commit ${fetched.err}`);
@@ -172,9 +172,12 @@ export function createMyPrMergeabilityFix({
     if (signal.aborted) return;
     const target = core.keepMergeablePushTarget(pr, latestListedPr());
     if (!target.push) return warn(pr, `not pushed: ${target.reason}`);
-    onPushStarted();
+    const isRepairHeadHeld = await onPushStarted(resultSha.data).then(() => true, (error: unknown) => {
+      warn(pr, `not pushed: the hold on repair head ${resultSha.data} could not be saved ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    });
+    if (!isRepairHeadHeld) return;
     const pushed = await runGit(core.keepMergeablePushArgs(target.url, target.branch, pr.headRefOid, resultSha.data), staged.projectPath, signal);
-    if (pushed.ok) onRepairPushed(resultSha.data);
     if (signal.aborted) return;
     if (!pushed.ok && core.isMovedBranchPushRejection(pushed.err)) return warn(pr, `not pushed: ${target.branch} moved since the repair was staged, so the push was rejected and is not retried`);
     if (!pushed.ok) return warn(pr, `pushing the repair to ${target.branch} failed: ${pushed.err}`);
@@ -200,7 +203,7 @@ export function createMyPrMergeabilityFix({
     });
   }
 
-  return async (pr: MyPr, signal: AbortSignal, onPushStarted: () => void = () => {}, latestListedPr: () => MyPr | undefined = () => pr, onRepairPushed: (pushedSha: string) => void = () => {}): Promise<void> => {
+  return async (pr: MyPr, signal: AbortSignal, onPushStarted: (repairSha: string) => Promise<void> = async () => {}, latestListedPr: () => MyPr | undefined = () => pr): Promise<void> => {
     if (signal.aborted) return;
     const target = core.keepMergeablePushTarget(pr, latestListedPr());
     if (!target.push) return warn(pr, `not started: ${target.reason}`);
@@ -221,7 +224,7 @@ export function createMyPrMergeabilityFix({
       await drainPending(pendingSession);
       if (outcome === 'timed-out') return warn(pr, `not pushed: the session ran past its ${timeoutSeconds}s deadline`);
       if (outcome !== 'finished' || signal.aborted) return;
-      await handOff(pr, staged, path.join(workDir.dir, core.MY_PRS_FIX_CHECKOUT_DIRNAME), handoffRef, signal, onPushStarted, latestListedPr, onRepairPushed);
+      await handOff(pr, staged, path.join(workDir.dir, core.MY_PRS_FIX_CHECKOUT_DIRNAME), handoffRef, signal, onPushStarted, latestListedPr);
     } finally {
       await drainPending(pendingSession);
       if (projectPath) await runGit(['update-ref', '-d', handoffRef], projectPath);
@@ -267,6 +270,7 @@ export function createMyPrsWiring({ config, broadcast, log = console, homeDir = 
     createPoller: ({ onTickComplete }) => createPoller({
       org: settings().org, shouldAutoRebase: settings().autoRebaseMyPrs, github, log, onTickComplete, clock, firstTickDelayMs: bootStaggerDelay,
       readState: stateIo.readState, writeState: stateIo.writeState, fixMergeability, beforeStart: sweepLeftovers,
+      mergePr: (queuedPr) => mergeTrackedPr(queuedPr.key, queuedPr, queuedPr.headRefOid),
     }),
   });
   function getStatus(): MyPrsStatusType {
@@ -287,29 +291,42 @@ export function createMyPrsWiring({ config, broadcast, log = console, homeDir = 
     return poller.setKeepMergeable(parsed.data);
   }
 
-  const mergesInFlight = new Set<string>();
-  async function mergePr(request: MyPrMergeRequest): Promise<MyPrMergeOutcome> {
-    const key = prKey(request.repo, request.number);
+  async function setMergeWhenReady(request: MyPrMergeWhenReadyRequest): Promise<Omit<MyPrMergeWhenReadyResult, 'key'>> {
+    const parsed = MyPrMergeWhenReadyRequest.safeParse(request);
+    if (!parsed.success) return { ok: false, error: 'Invalid merge when ready request' };
     const poller = runner.getPoller();
     if (!poller) return { ok: false, error: 'My pull requests is not running' };
+    return poller.setMergeWhenReady(parsed.data);
+  }
+
+  const mergesInFlight = new Set<string>();
+  async function mergeTrackedPr(key: string, tracked: MyPr | undefined, seenHeadRefOid: string): Promise<MyPrMergeOutcome> {
     if (mergesInFlight.has(key)) return { ok: false, error: 'A merge for this pull request is already running' };
-    const tracked = getStatus().prs.find((pr) => pr.key === key);
-    const refusal = myPrMergeRefusal(tracked, request.headRefOid);
+    const refusal = myPrMergeRefusal(tracked, seenHeadRefOid);
     if (refusal || !tracked) return { ok: false, error: refusal ?? 'That pull request is not one of your tracked pull requests' };
     mergesInFlight.add(key);
     try {
       const merged = await github.mergePr({ repo: tracked.repo, number: tracked.number, headSha: tracked.headRefOid, method: tracked.mergeMethod });
-      if (!merged.ok) {
-        log.warn(`[${core.MY_PRS_LANE_ID}] merge of ${key} failed: ${firstErrorLine(merged.err)}`);
-        return { ok: false, error: firstErrorLine(merged.err) };
-      }
-      poller.tick().catch((error: unknown) => log.warn(`[${core.MY_PRS_LANE_ID}] refresh after merging ${key} failed: ${error instanceof Error ? error.message : String(error)}`));
+      if (!merged.ok) return { ok: false, error: firstErrorLine(merged.err) };
       return { ok: true, kind: merged.kind };
     } finally {
       mergesInFlight.delete(key);
     }
   }
-  return { startPoller: runner.startPoller, stopPoller: runner.stopPoller, restartIfConfigChanged: runner.restartIfConfigChanged, getStatus, mergePr, refresh, setKeepMergeable };
+
+  async function mergePr(request: MyPrMergeRequest): Promise<MyPrMergeOutcome> {
+    const key = prKey(request.repo, request.number);
+    const poller = runner.getPoller();
+    if (!poller) return { ok: false, error: 'My pull requests is not running' };
+    const merged = await mergeTrackedPr(key, getStatus().prs.find((pr) => pr.key === key), request.headRefOid);
+    if (!merged.ok) {
+      log.warn(`[${core.MY_PRS_LANE_ID}] merge of ${key} failed: ${merged.error}`);
+      return merged;
+    }
+    poller.tick().catch((error: unknown) => log.warn(`[${core.MY_PRS_LANE_ID}] refresh after merging ${key} failed: ${error instanceof Error ? error.message : String(error)}`));
+    return merged;
+  }
+  return { startPoller: runner.startPoller, stopPoller: runner.stopPoller, restartIfConfigChanged: runner.restartIfConfigChanged, getStatus, mergePr, refresh, setKeepMergeable, setMergeWhenReady };
 }
 
 export type { MyPrMergeOutcome };

@@ -15,7 +15,7 @@ import { PendingWakeup, SessionSnapshot, SessionState, TaskTitle } from './sessi
 import { TraceRecord } from './trace.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
 import { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus } from './team-review.ts';
-import { MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrMergeRequest, MyPrMergeResult, MyPrsStatus } from './my-prs.ts';
+import { MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrMergeRequest, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsStatus } from './my-prs.ts';
 import { BenchmarkActionRequest, BenchmarkActionResult, BenchmarkStatus } from './benchmark.ts';
 
 const requestId = z.string().nullable().optional();
@@ -154,6 +154,7 @@ export const CLIENT_MESSAGE_TYPES = Object.freeze([
   'benchmark-action',
   'my-pr-merge',
   'my-pr-keep-mergeable',
+  'my-pr-merge-when-ready',
   'reviews-refresh',
   'posthog-archive-investigation',
   'request-usage-report',
@@ -240,6 +241,7 @@ const clientVariants = [
   loose('benchmark-action', { ...BenchmarkActionRequest.shape, requestId }),
   loose('my-pr-merge', { ...MyPrMergeRequest.shape, requestId }),
   loose('my-pr-keep-mergeable', { ...MyPrKeepMergeableRequest.shape, requestId }),
+  loose('my-pr-merge-when-ready', { ...MyPrMergeWhenReadyRequest.shape, requestId }),
   loose('reviews-refresh', { ...ReviewsRefreshRequest.shape, requestId }),
   loose('posthog-archive-investigation', { id: z.unknown().optional(), requestId }),
   loose('request-usage-report', { requestId, days: z.unknown().optional(), force: z.unknown().optional() }),
@@ -339,6 +341,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'benchmark-action-result',
   'my-pr-merge-result',
   'my-pr-keep-mergeable-result',
+  'my-pr-merge-when-ready-result',
   'reviews-refresh-result',
   'posthog-archive-investigation-result',
   'team-review-status',
@@ -588,6 +591,7 @@ const serverVariants = [
   loose('benchmark-action-result', { ...BenchmarkActionResult.shape, requestId }),
   loose('my-pr-merge-result', { ...MyPrMergeResult.shape, requestId }),
   loose('my-pr-keep-mergeable-result', { ...MyPrKeepMergeableResult.shape, requestId }),
+  loose('my-pr-merge-when-ready-result', { ...MyPrMergeWhenReadyResult.shape, requestId }),
   loose('reviews-refresh-result', { ...ReviewsRefreshResult.shape, requestId }),
   loose('posthog-archive-investigation-result', { requestId, ok: z.boolean(), error: optionalError }),
   TeamReviewStatus,
