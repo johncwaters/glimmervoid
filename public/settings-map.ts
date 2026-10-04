@@ -205,6 +205,11 @@ export const SETTINGS_MAP = Object.freeze([
         description: 'Show session-card diagnostics for state, transitions and detection signals.',
         control: 'toggle', keywords: ['diagnostics', 'state'], defaultValue: false,
       },
+      {
+        id: 'calm-layout', path: 'calmLayout', title: 'Calm layout (experimental)',
+        description: 'Replace the Focus rail with a priority view that surfaces only sessions needing you. Applies to every browser on this machine.',
+        control: 'toggle', keywords: ['experimental', 'attention', 'priority'], defaultValue: false,
+      },
     ],
     unattendedLinks: [
       { settingId: 'skip-permissions-by-default', title: 'Skip permission prompts by default' },

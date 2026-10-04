@@ -196,6 +196,7 @@ export const createBrowserConfigShape = (isAbsolutePath: (directory: string) => 
   replayBufferKB: optionalNumber('replayBufferKB', { ...ranges.REPLAY_BUFFER_KB_RANGE, min: 0 }),
   cursorBlink: optionalBoolean('cursorBlink'),
   debugMode: optionalBoolean('debugMode'),
+  calmLayout: optionalBoolean('calmLayout'),
   detectBackgroundAgents: optionalBoolean('detectBackgroundAgents'),
   recordSignals: optionalBoolean('recordSignals'),
   antiSlopPrompt: optionalBoolean('antiSlopPrompt'),

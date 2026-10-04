@@ -20,6 +20,19 @@ test('DEFAULT_CONFIG satisfies the persisted Config contract', () => {
   assert.deepEqual(DEFAULT_CONFIG.changeMap.narrator, { enabled: false, engine: 'claude', model: '', timeoutSeconds: 90 });
 });
 
+test('calmLayout crosses persisted, browser and update contracts as an optional boolean', () => {
+  for (const contract of [Config, BrowserConfig, ConfigUpdate]) {
+    const requiredSettings = contract === Config ? { projects: [] } : {};
+    assert.equal(contract.safeParse(requiredSettings).success, true);
+    for (const calmLayout of [true, false]) {
+      assert.equal(contract.parse({ ...requiredSettings, calmLayout }).calmLayout, calmLayout);
+    }
+    for (const calmLayout of ['true', 1, null]) {
+      assert.equal(contract.safeParse({ ...requiredSettings, calmLayout }).success, false);
+    }
+  }
+});
+
 test('change map narrator settings cross persisted, browser, and update contracts', () => {
   const changeMap = { narrator: { enabled: true, model: 'sonnet', timeoutSeconds: 15 } };
   assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, changeMap }).success, true);

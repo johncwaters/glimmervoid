@@ -348,11 +348,27 @@ test('getSettings falls back to DEFAULT_CONFIG for absent keys', () => {
   withStore({ projects: [] }, (store) => {
     const s = store.getSettings();
     assert.equal(s.cursorBlink, DEFAULT_CONFIG.cursorBlink);
+    assert.equal(DEFAULT_CONFIG.calmLayout, false);
+    assert.equal(s.calmLayout, false);
     assert.equal(s.detectBackgroundAgents, DEFAULT_CONFIG.detectBackgroundAgents);
     assert.equal(s.rtk, DEFAULT_CONFIG.rtk);
     assert.equal(s.updateChannel, 'release');
     assert.equal(s.integrationBranch, DEFAULT_CONFIG.integrationBranch);
     assert.deepEqual(s.worktreeShare, DEFAULT_CONFIG.worktreeShare);
+  });
+});
+
+test('calmLayout round-trips through save, reload and hot application', () => {
+  withStore({ projects: [] }, (store, configPath) => {
+    for (const calmLayout of [true, false]) {
+      const saved = store.save((config) => { config.calmLayout = calmLayout; });
+      assert.ok(saved);
+      assert.equal(saved.calmLayout, calmLayout);
+      store.applySettings(saved);
+      assert.equal(store.getSettings().calmLayout, calmLayout);
+      assert.equal(readJson(configPath).calmLayout, calmLayout);
+      assert.equal(createConfigStore().getSettings().calmLayout, calmLayout);
+    }
   });
 });
 

@@ -10,6 +10,21 @@ import type { SettingsSetting } from '../public/settings-map.ts';
 
 const loadMap = () => import('../public/settings-map.ts');
 
+test('calm layout is a default-off toggle after debug mode in machine General', async () => {
+  const { SETTINGS_MAP } = await loadMap();
+  const general = SETTINGS_MAP.find((section) => section.id === 'machine-general');
+  assert.ok(general);
+  assert.equal(general.level, 'machine');
+  const generalSettings: SettingsSetting[] = general.settings;
+  const debugModeIndex = generalSettings.findIndex((setting) => setting.id === 'debug-mode');
+  assert.ok(debugModeIndex >= 0);
+  assert.deepEqual(generalSettings[debugModeIndex + 1], {
+    id: 'calm-layout', path: 'calmLayout', title: 'Calm layout (experimental)',
+    description: 'Replace the Focus rail with a priority view that surfaces only sessions needing you. Applies to every browser on this machine.',
+    control: 'toggle', keywords: ['experimental', 'attention', 'priority'], defaultValue: false,
+  });
+});
+
 const DASHBOARD_SETTING_PATH_SET = new Set(DASHBOARD_SETTING_PATHS);
 const OPTION_CATALOGS = new Set(['sounds', 'themes']);
 

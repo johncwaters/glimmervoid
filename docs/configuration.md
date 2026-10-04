@@ -18,6 +18,7 @@ Machine-wide session startup and diagnostics.
 |-----|---------|---------|-------|
 | `autoResume` | Auto-resume sessions on startup | `true` | Resume conversations that were live when Glimmervoid last shut down or crashed. |
 | `debugMode` | Debug mode | `false` | Show session-card diagnostics for state, transitions and detection signals. |
+| `calmLayout` | Calm layout (experimental) | `false` | Replace the Focus rail with a priority view that surfaces only sessions needing you. Applies to every browser on this machine. |
 
 ### Updates
 
