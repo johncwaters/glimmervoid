@@ -1,5 +1,6 @@
 import '@xterm/xterm/css/xterm.css';
 import './tailwind.css';
+import { activateCalmView, deactivateCalmView, mountCalmView, refreshCalmView, applyCalmSessionDiff, applyCalmTraceResponse, applyCalmError } from './calm/calm-view.ts';
 
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { shouldShowServerAction } from '#shared/client-trust.ts';
@@ -30,7 +31,8 @@ import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID, updateBannerText } from
 import { acknowledgePrsViewAttention, mountPrsView } from './prs-view.ts';
 import { acknowledgeRadarAttention, applyInvestigationActivity, applyInvestigationFinished, applyPosthogStatus, mountRadarView, setRadarActivityCallback, setRadarTraceOpener } from './radar-panel.ts';
 import { handleDebugStateRefresh, handleDebugStateResponse, onDebugModeChanged } from './session-card/card-dom.ts';
-import { findSessionUi, sessionUIs } from './session-card/card-registry.ts';
+import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
+import type { SessionUi } from './session-card/card-registry.ts';
 import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
@@ -130,6 +132,11 @@ setConnectionStateCallback((state, label) => {
   if (!appRevealed) loadingStatus.textContent = 'Reconnecting to server...';
 });
 
+function refreshAttentionSurfaces() {
+  refreshPhoneBoard();
+  refreshCalmView();
+}
+
 let knownServerBuild: string | null | undefined = null;
 
 function noteServerBuild(serverBuild: unknown) {
@@ -175,7 +182,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
 
   if (isFocusActive()) { refreshFocusRoster(); restoreFocusedSession(); }
 
-  refreshPhoneBoard();
+  refreshAttentionSurfaces();
   syncTraceSessionsFromCards();
   activatePlanHash(location.hash);
 }
@@ -183,8 +190,13 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
 function syncTraceSessionsFromCards() {
   setTraceSessions([...sessionUIs].map(([id, sessionUi]) => ({
     id,
-    name: sessionUi.card.dataset.session || sessionUi.nameEl.textContent || id,
+    name: sessionName(sessionUi) || id,
   })));
+}
+
+function carryOverClientSessionFields(sessionId: string, previousUi: SessionUi | undefined) {
+  setSessionHasPlan(sessionId, previousUi?.hasPlan === true);
+  restoreUsageChip(sessionId);
 }
 
 function handleStateChange(msg: ServerMessageOf<'state-change'>) {
@@ -196,7 +208,6 @@ function handleStateChange(msg: ServerMessageOf<'state-change'>) {
 
   if (msg.to === STATES.DORMANT && msg.from !== STATES.DORMANT) {
     const previousUi = sessionUIs.get(String(msg.id));
-    const hadPlan = previousUi?.hasPlan === true;
     const matchedCard = document.querySelector(`.session-card[data-id="${CSS.escape(String(msg.id))}"]`);
     const card = matchedCard instanceof HTMLElement ? matchedCard : null;
     const skipPerms = card ? card.dataset.skipPerms !== undefined : false;
@@ -204,10 +215,10 @@ function handleStateChange(msg: ServerMessageOf<'state-change'>) {
     const path = card ? card.dataset.path : undefined;
     removeSessionCard(msg.id);
     createSessionCard(msg.id, msg.session, STATES.DORMANT, { skipPerms, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom });
-    setSessionHasPlan(msg.id, hadPlan);
-    restoreUsageChip(msg.id);
+    setSessionAgent(msg.id, previousUi?.agent);
+    carryOverClientSessionFields(msg.id, previousUi);
     if (isFocusActive()) refreshFocusRoster();
-    refreshPhoneBoard();
+    refreshAttentionSurfaces();
     refreshReviewSidebar(msg.id);
     refreshFavicon(sessionUIs);
     return;
@@ -218,7 +229,7 @@ function handleStateChange(msg: ServerMessageOf<'state-change'>) {
 
   refreshReviewSidebar(msg.id);
   if (isFocusActive()) refreshFocusRoster();
-  refreshPhoneBoard();
+  refreshAttentionSurfaces();
 
   handleDebugStateRefresh(msg.id);
 
@@ -287,50 +298,50 @@ const messageHandlers = {
   'hooks-updated':      () => requestHooksReportIfVisible(),
 
   'state-change':       (msg) => handleStateChange(msg),
-  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, stateSince: msg.stateSince, taskTitle: typeof msg.taskTitle === 'string' ? msg.taskTitle : null, taskTitleIsCustom: msg.taskTitleIsCustom === true }); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); syncTraceSessionsFromCards(); },
-  'session-removed':    (msg) => { removeSessionCard(msg.id); forgetReviewSession(msg.id); refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); syncTraceSessionsFromCards(); },
-  'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); },
-  'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshPhoneBoard(); syncTraceSessionsFromCards(); },
+  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, stateSince: msg.stateSince, taskTitle: typeof msg.taskTitle === 'string' ? msg.taskTitle : null, taskTitleIsCustom: msg.taskTitleIsCustom === true }); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-removed':    (msg) => { removeSessionCard(msg.id); forgetReviewSession(msg.id); refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); },
+  'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-modified':   (msg) => {
     if (!msg.ephemeral) noteKnownProjectPath(msg.path);
-    const hadPlan = sessionUIs.get(String(msg.id))?.hasPlan === true;
+    const previousUi = sessionUIs.get(String(msg.id));
     removeSessionCard(msg.id);
     forgetReviewSession(msg.id);
     createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, stateSince: msg.stateSince, taskTitle: typeof msg.taskTitle === 'string' ? msg.taskTitle : null, taskTitleIsCustom: msg.taskTitleIsCustom === true });
-    setSessionHasPlan(msg.id, hadPlan);
-    restoreUsageChip(msg.id);
+    setSessionAgent(msg.id, msg.agent);
+    carryOverClientSessionFields(msg.id, previousUi);
     refreshFavicon(sessionUIs);
     if (isFocusActive()) refreshFocusRoster();
-    refreshPhoneBoard();
+    refreshAttentionSurfaces();
     syncTraceSessionsFromCards();
   },
   'session-git':        (msg) => setSessionWorktree(msg.id, !!msg.worktree),
 
-  'session-agents':     (msg) => { setSessionAgents(msg.id, msg.activeAgents, msg.awaitingBackgroundTasks); if (isFocusActive()) refreshFocusRoster(); refreshPhoneBoard(); handleDebugStateRefresh(msg.id); },
+  'session-agents':     (msg) => { setSessionAgents(msg.id, msg.activeAgents, msg.awaitingBackgroundTasks); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); handleDebugStateRefresh(msg.id); },
   'session-wakeup':     (msg) => setSessionWakeup(msg.id, msg.pendingWakeup),
-  'session-prompt':     (msg) => { setSessionPrompt(msg.id, msg.pendingPromptKind, msg.pendingPromptDetail ?? null); refreshPhoneBoard(); },
-  'session-merge-status': (msg) => { setSessionMergeStatus(msg.id, msg.mergeStatus, msg.reason); setFocusMergeStatus(msg.id, msg.mergeStatus); refreshPhoneBoard(); },
+  'session-prompt':     (msg) => { setSessionPrompt(msg.id, msg.pendingPromptKind, msg.pendingPromptDetail ?? null); refreshAttentionSurfaces(); },
+  'session-merge-status': (msg) => { setSessionMergeStatus(msg.id, msg.mergeStatus, msg.reason); setFocusMergeStatus(msg.id, msg.mergeStatus); refreshAttentionSurfaces(); },
   'session-worktree-blocked': (msg) => { showErrorToast(`${msg.session}: ${msg.notice || 'integration branch not found'}`, { persist: true }); },
   'session-worktree-warning': (msg) => { showErrorToast(`${msg.session}: ${msg.notice || 'base branch warning'}`); },
   'session-worktree-ready': (msg) => { setSessionEffectiveBase(msg.id, msg.base); },
-  'session-diff':       (msg) => { setSessionDiff(msg.id, { committed: msg.committed, uncommitted: msg.uncommitted, hasCommits: msg.hasCommits }); },
+  'session-diff':       (msg) => { applyCalmSessionDiff(msg); setSessionDiff(msg.id, { committed: msg.committed, uncommitted: msg.uncommitted, hasCommits: msg.hasCommits }); },
   'change-map':         (msg) => setSessionChangeMap(msg.id, msg.map),
   'branch-sync-status': (msg) => setReviewBranchSync(msg.id, msg),
   'session-changed':    (msg) => notifyWorktreeChanged(msg.id),
   'post-turn-result':   (msg) => setSessionPostTurn(msg.id, msg),
   'debug-state-response': (msg) => handleDebugStateResponse(msg),
-  'session-trace-response': (msg) => applyTraceResponse(msg),
+  'session-trace-response': (msg) => { applyCalmTraceResponse(msg); applyTraceResponse(msg); },
   'session-trace-changed': (msg) => applyTraceChanged(msg),
-  'session-plan-changed': (msg) => { applySessionPlanChanged(msg); refreshPhoneBoard(); },
+  'session-plan-changed': (msg) => { applySessionPlanChanged(msg); refreshAttentionSurfaces(); },
   'session-plan-draft': (msg) => { applySessionPlanDraft(msg); },
   'session-plan-response': (msg) => { applySessionPlanResponse(msg); },
 
   'notify':             (msg) => { showDesktopNotification(msg); handleDebugStateRefresh(msg.session); },
   'update-status':      (msg) => { showUpdateBanner(msg); applySettingsUpdateStatus(msg); },
   'update-progress':    (msg) => applySettingsUpdateProgress(msg.journal),
-  'error':              (msg) => { clearSettingsUpdateRequest(); applyTraceError(msg); applySessionPlanError(msg); showErrorToast(msg.message, { persist: true }); },
+  'error':              (msg) => { applyCalmError(msg); clearSettingsUpdateRequest(); applyTraceError(msg); applySessionPlanError(msg); showErrorToast(msg.message, { persist: true }); },
   'session-error':      (msg) => { applySessionPlanError(msg); showErrorToast(`${msg.session}: ${msg.message}`, { persist: true }); },
-  'settings-updated':   (msg) => { if (msg.settings) { applyTerminalSettings(msg.settings); applySettingsBroadcast(msg.settings); applyVisionsSettings(msg.settings); applySurfaceSettings(msg.settings); syncTelemetryBanner(msg.settings); } },
+  'settings-updated':   (msg) => { if (msg.settings) { applyTerminalSettings(msg.settings); applySettingsBroadcast(msg.settings); applyVisionsSettings(msg.settings); applySurfaceSettings(msg.settings, { isLiveSettingsChange: true }); syncTelemetryBanner(msg.settings); } },
   'health-snapshot':    (msg) => { if (msg.stats) applyHealthSnapshot(msg.stats as HealthSnapshot & ServerMessageOf<'health-snapshot'>['stats']); },
   'posthog-status':     (msg) => applyPosthogStatus(msg),
   'posthog-investigation-activity': (msg) => applyInvestigationActivity(msg),
@@ -563,6 +574,8 @@ queryTag(document, '#btn-help', 'button').addEventListener('click', () => {
   openSettings('browser-shortcuts');
 });
 
+const viewCalmEl = queryTag(document, '#view-calm', 'section');
+const tabCalm = queryTag(document, '#tab-calm', 'button');
 const viewFocusEl = queryTag(document, '#view-focus', 'section');
 const viewRadarEl = queryTag(document, '#view-radar', 'section');
 const viewPrsEl = queryTag(document, '#view-prs', 'section');
@@ -635,7 +648,10 @@ mountBenchmarkView(viewBenchmarksEl);
 
 mountSettingsView(viewSettingsEl, { onRestart: confirmServerRestart, onConfirmUpdateAndRestart: confirmUpdateAndRestart });
 
+mountCalmView(viewCalmEl, { openTerminal: (id) => { activateView('focus'); centerSessionQuietly(id); }, openPlan: (id) => { activateView('focus'); openPlanInFocus(id); } });
+
 const VIEW_TABS = [
+  { view: 'calm', tab: tabCalm, el: viewCalmEl },
   { view: 'focus', tab: tabFocus, el: viewFocusEl },
   { view: 'prs', tab: tabPrs, el: viewPrsEl },
   { view: 'issues', tab: tabIssues, el: viewIssuesEl },
@@ -689,6 +705,8 @@ function activateView(view: string, { section, setting, persist = true }: Activa
 
   if (prev === 'focus' && view !== 'focus') deactivateFocusView();
   if (view === 'focus') activateFocusView();
+  if (prev === 'calm' && view !== 'calm') deactivateCalmView();
+  if (view === 'calm') activateCalmView();
 
   if (view === 'usage') {
     refreshUsageView();
@@ -721,9 +739,14 @@ function setSurfaceAvailable(view: string, isAvailable: boolean) {
   activateView(view);
 }
 
-function applySurfaceSettings(settings: Parameters<typeof availableSurfacesFromSettings>[0]) {
+let lastAppliedCalmSurface: boolean | null = null;
+function applySurfaceSettings(settings: Parameters<typeof availableSurfacesFromSettings>[0], { isLiveSettingsChange = false } = {}) {
   const surfaces = availableSurfacesFromSettings(settings);
+  const hasOperatorTurnedCalmOn = isLiveSettingsChange && lastAppliedCalmSurface === false && surfaces.calm;
+  lastAppliedCalmSurface = surfaces.calm;
   for (const [view, isAvailable] of Object.entries(surfaces)) setSurfaceAvailable(view, isAvailable);
+  if (!hasOperatorTurnedCalmOn || getActiveView() !== 'focus' || isPhoneLayout() || resolvePlanTarget(location.hash)) return;
+  activateView('calm');
 }
 
 for (const view of Object.keys(availableSurfacesFromSettings(null))) setSurfaceAvailable(view, false);
@@ -800,6 +823,7 @@ function applyFormFactorLayout(layout: string) {
   if (layout === 'phone') {
     const carriedSessionId = getFocusedSessionId();
     deactivateFocusView();
+    deactivateCalmView();
     activatePhoneShell({ sessionId: carriedSessionId ?? undefined });
     return;
   }

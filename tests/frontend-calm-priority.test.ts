@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { countByTier, orderCalmQueue, pickComponent, tierOf } from '../public/calm/calm-priority-core.ts';
+import { countByTier, isSamePermissionPrompt, orderCalmQueue, pickComponent, tierOf } from '../public/calm/calm-priority-core.ts';
 import type { CalmRow, CalmTier, CalmComponent } from '../public/calm/calm-priority-core.ts';
 
 const makeRow = (state: string, overrides: Partial<CalmRow> = {}): CalmRow => ({ id: state, name: state, state, ...overrides });
@@ -102,4 +102,14 @@ test('pickComponent chooses a component consistent with the tier of every row', 
     assert.ok(componentsAllowedByTier[tier].includes(pickComponent(row).component), `${row.state} in tier ${tier}`);
   }
   assert.deepEqual([...tiersSeen].sort(), Object.keys(componentsAllowedByTier).sort());
+});
+
+test('isSamePermissionPrompt only matches the identical pending permission while waiting', () => {
+  const shown = { toolName: 'Bash', summary: 'npm test', isComplete: true };
+  assert.equal(isSamePermissionPrompt('WAITING', 'permission', { ...shown }, shown), true);
+  assert.equal(isSamePermissionPrompt('RUNNING', 'permission', { ...shown }, shown), false);
+  assert.equal(isSamePermissionPrompt('WAITING', 'plan', { ...shown }, shown), false);
+  assert.equal(isSamePermissionPrompt('WAITING', 'permission', { ...shown, summary: 'rm -rf dist' }, shown), false);
+  assert.equal(isSamePermissionPrompt('WAITING', 'permission', { ...shown, isComplete: false }, shown), false);
+  assert.equal(isSamePermissionPrompt('WAITING', 'permission', null, shown), false);
 });

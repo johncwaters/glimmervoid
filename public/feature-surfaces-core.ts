@@ -1,6 +1,6 @@
 import type { BrowserConfig } from '#shared/contracts/browser-config.ts';
 
-type FeatureSurfaceSettings = Partial<Pick<BrowserConfig, 'teamReview' | 'benchmarks' | 'posthog' | 'visions' | 'usage'>>;
+type FeatureSurfaceSettings = Partial<Pick<BrowserConfig, 'teamReview' | 'benchmarks' | 'posthog' | 'visions' | 'usage' | 'calmLayout'>>;
 
 export function availableSurfacesFromSettings(settings: FeatureSurfaceSettings | null | undefined) {
   return {
@@ -9,5 +9,6 @@ export function availableSurfacesFromSettings(settings: FeatureSurfaceSettings |
     visions: settings?.visions?.enabled === true,
     usage: settings?.usage?.enabled !== false,
     benchmarks: settings?.benchmarks?.enabled === true,
+    calm: settings?.calmLayout === true,
   };
 }

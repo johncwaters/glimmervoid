@@ -122,11 +122,11 @@ const SESSION = {
 const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'snapshot', sessions: [SESSION], serverBuild: 'build-1' },
   { type: 'state-change', id: 'session-1', session: 'glimmervoid', from: STATES.IDLE, to: STATES.RUNNING, event: 'user_input', timestamp: NOW },
-  { type: 'session-added', id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', state: STATES.DORMANT, stateSince: NOW, skipPerms: true, worktree: false, resumeSessionId: null },
+  { type: 'session-added', id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', agent: 'claude-code', state: STATES.DORMANT, stateSince: NOW, skipPerms: true, worktree: false, resumeSessionId: null },
   { type: 'session-removed', id: 'session-1', session: 'glimmervoid' },
   { type: 'session-renamed', id: 'session-1', oldName: 'old', newName: 'glimmervoid' },
   { type: 'session-title', id: 'session-1', taskTitle: 'Fix dashboard', isCustom: false },
-  { type: 'session-modified', id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', state: STATES.DORMANT, stateSince: NOW, skipPerms: true, worktree: false, resumeSessionId: null },
+  { type: 'session-modified', id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', agent: 'claude-code', state: STATES.DORMANT, stateSince: NOW, skipPerms: true, worktree: false, resumeSessionId: null },
   { type: 'session-git', id: 'session-1', worktree: true },
   { type: 'session-agents', id: 'session-1', activeAgents: 2, awaitingBackgroundTasks: true, session: 'glimmervoid', timestamp: NOW },
   { type: 'session-wakeup', id: 'session-1', pendingWakeup: { at: NOW, kind: 'cron', reason: null }, session: 'glimmervoid', timestamp: NOW },
@@ -252,6 +252,15 @@ test('real server payloads round-trip through every server contract variant', ()
     const parsed = ServerMessage.safeParse(payload);
     assert.equal(parsed.success, true, `${payload.type}: ${parsed.error?.issues[0]?.message || 'invalid'}`);
     assert.deepEqual(parsed.data, payload, payload.type);
+  }
+});
+
+test('session-added and session-modified reject a card that does not name its agent', () => {
+  for (const type of ['session-added', 'session-modified']) {
+    const card = { type, id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', agent: 'codex', state: STATES.DORMANT, stateSince: NOW, skipPerms: false, worktree: false, resumeSessionId: null };
+    assert.equal(ServerMessage.parse(card).agent, 'codex', type);
+    const { agent: _omittedAgent, ...cardWithoutAgent } = card;
+    assert.equal(ServerMessage.safeParse(cardWithoutAgent).success, false, type);
   }
 });
 

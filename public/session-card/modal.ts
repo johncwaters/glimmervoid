@@ -83,7 +83,7 @@ export function openConfirmDialog({ title, message, confirmLabel = 'Confirm', da
   requestAnimationFrame(() => btnCancel.focus());
 }
 
-function trapFocus(dialog: HTMLElement) {
+export function trapFocus(dialog: HTMLElement) {
   dialog.addEventListener('keydown', (e) => {
     if (e.key !== 'Tab') return;
     const focusable = [...dialog.querySelectorAll<HTMLElement>('button, input, select, textarea, [tabindex]:not([tabindex="-1"])')];

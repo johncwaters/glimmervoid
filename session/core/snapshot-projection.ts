@@ -5,6 +5,7 @@ interface SessionCardSource {
   taskTitle?: string | null;
   taskTitleIsCustom?: boolean;
   path: string;
+  agentId: string;
   state: SessionCardFields["state"];
   stateSince: number;
   dangerouslySkipPermissions?: boolean;
@@ -29,6 +30,7 @@ function projectSessionCard(
     taskTitle: source.taskTitle ?? null,
     taskTitleIsCustom: source.taskTitleIsCustom ?? false,
     path: source.path,
+    agent: source.agentId,
     state: source.state,
     stateSince: source.stateSince,
     skipPerms: !!source.dangerouslySkipPermissions,

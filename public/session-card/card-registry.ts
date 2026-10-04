@@ -41,6 +41,7 @@ export interface SessionUi {
   debugOpen: boolean;
   abortController: AbortController;
   currentState: string;
+  agent?: string | null;
   face: SessionCardFace;
   isBorrowed: boolean;
   hasPlan: boolean;
@@ -75,6 +76,10 @@ export interface SessionUi {
 }
 
 export const sessionUIs = new Map<string, SessionUi>();
+
+export function sessionName(ui: SessionUi) {
+  return ui.card?.dataset.session || ui.nameEl?.textContent || '';
+}
 
 export function sessionIdOf(value: unknown): string {
   return typeof value === 'string' ? value : String(value);

@@ -403,6 +403,7 @@ test('a spawned child reaches the dashboard as one session-added card', async ()
       id: reply.body.sessionId,
       session: reply.body.name,
       path: fixture.parent.path,
+      agent: fixture.parent.agentId,
       state: STATES.DORMANT,
       skipPerms: true,
       worktree: fixture.parent.isWorktree,
@@ -466,6 +467,7 @@ test('the shared session card projection carries exactly the session-added paylo
   const source = {
     path: '/repo',
     state: STATES.DORMANT,
+    agentId: 'codex',
     stateSince: 1700000000000,
     dangerouslySkipPermissions: true,
     isWorktree: false,
@@ -479,6 +481,7 @@ test('the shared session card projection carries exactly the session-added paylo
     taskTitle: null,
     taskTitleIsCustom: false,
     path: '/repo',
+    agent: 'codex',
     state: STATES.DORMANT,
     stateSince: 1700000000000,
     skipPerms: true,

@@ -451,6 +451,7 @@ export function setSessionEffectiveBase(sessionId: unknown, base: unknown) {
 export function setSessionAgent(sessionId: unknown, agent: unknown) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
+  ui.agent = typeof agent === 'string' ? agent : null;
   const text = agentBadgeText(agent);
   paintCardBadge(ui, '.agent-badge', 'agent', { on: text !== '', value: text, text });
 }

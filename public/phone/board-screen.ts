@@ -7,7 +7,7 @@ import { NO_PATH_KEY } from '../focus-view/roster-groups.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
 import { quickAddSession, requestSessionRemoval } from '../session-actions.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
-import { sessionUIs } from '../session-card/card-registry.ts';
+import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
 import { groupSessionsForBoard } from './board-groups-core.ts';
 
@@ -121,10 +121,6 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     section.append(header, rows);
     groupRefs.set(section, { header, label, count, addButton, forgetButton, rows });
     return section;
-  }
-
-  function sessionName(ui: SessionUi) {
-    return ui.card?.dataset.session || ui.nameEl?.textContent || '';
   }
 
   function paintRow(row: HTMLButtonElement, entry: BoardRow) {

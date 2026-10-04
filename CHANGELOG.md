@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Calm layout (experimental)**: turn on Settings > General > Calm layout to get a Calm tab where sessions sit on three priority rings instead of a list: sessions waiting on you closest to the center, then failed ones, then finished ones you have not looked at, with working sessions as faint lights outside. Clicking a light opens one panel with a single action (Approve for a plain Bash command, Approve plan, Resume, or Open review) and a Terminal button that is always there. Approve only appears when the whole command is shown. Off by default.
+
 ## [0.29.0] - 2026-10-04
 
 ### Added

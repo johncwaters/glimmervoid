@@ -1,6 +1,7 @@
 import type { PendingPromptDetail } from '#shared/contracts/session.ts';
 import { STATES } from '#shared/states.ts';
 import { needsAttention } from '../focus-view/attention-core.ts';
+import { hasPermissionKeys } from './permission-keys-core.ts';
 
 export type CalmTier = 'now' | 'next' | 'later' | 'working' | 'resting';
 
@@ -55,7 +56,7 @@ export type CalmComponent = 'permission' | 'plan' | 'failure' | 'review' | 'term
 
 function pickPromptComponent(row: CalmRow): { component: CalmComponent; canApprove: boolean } {
   if (row.pendingPromptKind === 'plan') return { component: 'plan', canApprove: false };
-  if (row.pendingPromptKind === 'permission' && row.agent === 'claude-code') {
+  if (row.pendingPromptKind === 'permission' && hasPermissionKeys(row.agent)) {
     return { component: 'permission', canApprove: row.pendingPromptDetail?.isComplete === true };
   }
   return { component: 'terminal', canApprove: false };
@@ -72,4 +73,17 @@ export function pickComponent(row: CalmRow): { component: CalmComponent; canAppr
     default:
       return { component: 'terminal', canApprove: false };
   }
+}
+
+export function isSamePermissionPrompt(
+  currentState: string,
+  currentKind: string | null | undefined,
+  currentDetail: PendingPromptDetail | null | undefined,
+  shownDetail: PendingPromptDetail | null | undefined,
+): boolean {
+  if (currentState !== STATES.WAITING || currentKind !== 'permission') return false;
+  if (!currentDetail || !shownDetail) return false;
+  return currentDetail.toolName === shownDetail.toolName
+    && currentDetail.summary === shownDetail.summary
+    && currentDetail.isComplete === shownDetail.isComplete;
 }
