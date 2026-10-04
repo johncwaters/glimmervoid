@@ -380,7 +380,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
   let _lastWrittenContent: string | null = null;
   let _lastAppliedContent: string | null = loadedConfig.loadedContent;
 
-  function save(mutatorFn: (config: GlimmervoidConfig) => void | typeof ABORT_CONFIG_SAVE): GlimmervoidConfig | null {
+  function save(mutatorFn: (config: GlimmervoidConfig) => unknown): GlimmervoidConfig | null {
     let loaded: LoadedConfig | FailedConfigLoad;
     try {
       loaded = loadConfigFile(configPath, { exitOnError: false });
