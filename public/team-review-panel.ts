@@ -44,12 +44,14 @@ let _root: HTMLDivElement | null = null;
 let _scopeTabs: HTMLElement | null = null;
 let pollingControls: ReturnType<typeof createReviewsPollingControls> | null = null;
 let _queue: HTMLElement | null = null;
+let _renderedQueueSignature: string | null = null;
 let _detail: HTMLElement | null = null;
 let _inReviewSection: HTMLElement | null = null;
 let _selectedKey: string | null = null;
 let _renderedDetailSignature: string | null = null;
 let _activityCallback: ((isActive: boolean) => void) | null = null;
 const _progressTicker = createPollAgoTicker(() => _root);
+const _detailProgressTicker = createPollAgoTicker(() => _root);
 const _ageTicker = createPollAgoTicker(() => _root);
 const _queueRowTitles = new WeakMap<HTMLElement, () => string>();
 const _readyDetails = new Map<string, ActionDetailHandle>();
@@ -299,7 +301,9 @@ function createHandReviewSection(reviews: QueuedReview[], hasMultipleRepos: bool
   section.append(el('h3', 'pr-section-heading', `Review by hand ${reviews.length}`));
   for (const review of reviews) {
     const row = externalLink('pr-queue-row', '', review.url);
-    row.title = queueRowTitle(review, 'handReview', { opened: formatTimestampAge(review.prCreatedAt) });
+    const title = () => queueRowTitle(review, 'handReview', { opened: formatTimestampAge(review.prCreatedAt) });
+    row.title = title();
+    _queueRowTitles.set(row, title);
     const handReviewGlyph = queueRowGlyph(review, 'handReview');
     const glyph = el('span', 'pr-queue-glyph');
     glyph.title = handReviewGlyph.meaning;
@@ -709,7 +713,7 @@ function createInReviewDetail(review: InFlightReview): HTMLElement {
     tracker.append(item);
   }
   const progressText = el('div', 'pr-progress-text');
-  _progressTicker.track(progressText, review.startedAt, () => inFlightProgressText(review, Date.now()));
+  _detailProgressTicker.track(progressText, review.startedAt, () => inFlightProgressText(review, Date.now()));
   progress.append(tracker, progressText);
   detail.append(progress);
   const steps = el('section', 'pr-steps');
@@ -848,6 +852,7 @@ function renderSelectedDetail(sections: TeamReviewSections): void {
   }
   const inReview = sections.inReview.find((review) => review.key === _selectedKey);
   if (inReview) {
+    _detailProgressTicker.reset();
     _detail.replaceChildren(createInReviewDetail(inReview));
     _renderedDetailSignature = `inReview:${inReview.key}`;
     return;
@@ -900,6 +905,7 @@ function ensureShell(): void {
   _detail = shell.detail;
   _root.replaceChildren(shell.columns);
   _renderedDetailSignature = null;
+  _renderedQueueSignature = null;
 }
 
 function syncTeamChip(head: HTMLElement | null): void {
@@ -933,14 +939,16 @@ function render(): void {
   const focusedReviewKey = focusedQueueReviewKey();
   const sections = groupDrafts(_latest);
   forgetDepartedDetails(new Set([...sections.ready, ...sections.noReviewNeeded].map((draft) => draft.key)));
-  _progressTicker.reset();
   _ageTicker.reset();
   if (!_latest?.configured || !hasAnyRow(sections)) {
+    _progressTicker.reset();
+    _detailProgressTicker.reset();
     const head = createPrQueueHead(_scopeTabs);
     syncTeamChip(head);
     _root.replaceChildren(head, ...(pollingControls ? [pollingControls.notice] : []), ...laneNoticeElements(), buildEmptyState());
     pollingControls?.update(_latest);
     _queue = null;
+    _renderedQueueSignature = null;
     _detail = null;
     _inReviewSection = null;
     _renderedDetailSignature = null;
@@ -951,6 +959,15 @@ function render(): void {
   syncTeamChip(_root.querySelector('.pr-queue-head'));
   _selectedKey = chooseSelectedReviewKey(sections, _selectedKey);
   const hasMultipleRepos = hasMultipleQueueRepos(sections);
+  const queueSignature = JSON.stringify([sections, hasMultipleRepos, _selectedKey, laneNotice(_latest)]);
+  if (queueSignature === _renderedQueueSignature) {
+    pollingControls?.update(_latest);
+    renderSelectedDetail(sections);
+    trackAges(_root);
+    return;
+  }
+  _renderedQueueSignature = queueSignature;
+  _progressTicker.reset();
   const queueSections: HTMLElement[] = [];
   const caughtUp = caughtUpDetail(sections);
   if (caughtUp) queueSections.push(createCaughtUpBanner(caughtUp));
@@ -993,6 +1010,7 @@ export function mountTeamReviewView(parent: HTMLElement, scopeTabs: HTMLElement)
   parent.append(_root);
   pollingControls = createReviewsPollingControls('team-review', _root);
   _progressTicker.ensure();
+  _detailProgressTicker.ensure();
   _ageTicker.ensure();
   render();
   return _root;

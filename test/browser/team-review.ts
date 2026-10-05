@@ -72,13 +72,14 @@ async function verifyRows(page: Page): Promise<void> {
     title: button.getAttribute('title'),
     accessibleName: button.getAttribute('aria-label'),
     children: button.children.length,
-    removedParts: button.querySelectorAll('.pr-queue-glyph, .pr-verdict-seal, .pr-severity-meter, .pr-rereview-tag').length,
+    removedParts: button.querySelectorAll('.pr-verdict-seal, .pr-severity-meter, .pr-rereview-tag').length,
   })));
   assert.equal(rows.length, 10);
   for (const row of rows) {
     assert.equal(row.removedParts, 0);
-    assert.equal(row.children, 2);
-    assert.equal(row.authorAvatars, 1);
+    const isDiscardedRow = row.key === 'Acme/app#6';
+    assert.equal(row.children, isDiscardedRow ? 1 : 3);
+    assert.equal(row.authorAvatars, isDiscardedRow ? 0 : 1);
     assert.equal(row.accessibleName, row.title);
     assert.equal(row.ref, row.key?.replace('Acme/app', ''));
   }
@@ -87,9 +88,9 @@ async function verifyRows(page: Page): Promise<void> {
   ]);
   const nits = rows.find((row) => row.key === 'Acme/app#2');
   assert.ok(nits);
-  assert.equal(nits.count, `${String.fromCharCode(0x00b7)} 2`);
+  assert.equal(nits.count, '2 comments');
   assert.match(nits.bottom ?? '', /since approval/);
-  assert.match(nits.title ?? '', /Acme\/app#2:.*\nReady\n/s);
+  assert.match(nits.title ?? '', /Acme\/app#2:.*\nWaits on you\n/s);
   assert.match(nits.accessibleName ?? '', /Nits, 2 comments/);
   assert.equal(nits.reviewerAvatars, 2);
   assert.equal(rows[0]?.count, undefined);
@@ -130,21 +131,59 @@ async function verifyLayout(page: Page): Promise<void> {
 }
 
 async function verifyCollapsedRailShowsNumbers(page: Page): Promise<void> {
-  const nitsRow = page.locator('.pr-queue-row[data-review-key="Acme/app#2"]');
+  const discardedRow = page.locator('.pr-queue-row[data-review-key="Acme/app#6"]');
   await page.locator('.pr-mode-root:not([hidden]) .pr-queue-toggle').click();
-  const compactRef = nitsRow.locator('.pr-queue-ref-compact');
+  const compactRef = discardedRow.locator('.pr-queue-ref-compact');
   assert.ok(await compactRef.isVisible());
-  assert.equal(await compactRef.textContent(), '#2');
+  assert.equal(await compactRef.textContent(), '#6');
   await page.waitForFunction(() => {
-    const ref = document.querySelector('.pr-queue-row[data-review-key="Acme/app#2"] .pr-queue-ref-compact');
+    const ref = document.querySelector('.pr-queue-row[data-review-key="Acme/app#6"] .pr-queue-ref-compact');
     return ref !== null && ref.scrollWidth <= ref.clientWidth && ref.getBoundingClientRect().width > 8;
   }, undefined, { timeout: 2_000 });
-  assert.equal(await nitsRow.locator('.pr-queue-ref').isVisible(), false);
-  assert.equal(await nitsRow.locator('.pr-queue-title').isVisible(), false);
+  assert.equal(await discardedRow.locator('.pr-queue-ref').isVisible(), false);
+  assert.equal(await discardedRow.locator('.pr-queue-title').isVisible(), false);
   await page.locator('.pr-mode-root:not([hidden]) .pr-queue-toggle').click();
-  await nitsRow.locator('.pr-queue-title').waitFor({ state: 'visible' });
+  await discardedRow.locator('.pr-queue-title').waitFor({ state: 'visible' });
   assert.equal(await compactRef.isVisible(), false);
   await verifyLayout(page);
+}
+
+async function readInReviewElapsedTexts(page: Page): Promise<{ row: string | null; detail: string | null }> {
+  return page.evaluate(() => ({
+    row: document.querySelector('.pr-queue-row[data-review-key="Acme/app#9"] .pr-queue-elapsed')?.textContent ?? null,
+    detail: document.querySelector('.pr-detail .pr-progress-text')?.textContent ?? null,
+  }));
+}
+
+async function verifyUnchangedQueueKeepsRowNodes(page: Page, status: TeamReviewStatus): Promise<void> {
+  await page.locator('.pr-queue-row[data-review-key="Acme/app#9"]').click();
+  await applyStatus(page, { ...status, isRefreshing: true });
+  const firstRowBefore = await page.locator('.pr-queue-row').first().elementHandle();
+  assert.ok(firstRowBefore);
+  await applyStatus(page, { ...status, nextAttemptAt: Date.now() + 60_000 });
+  const isSameConnectedRow = await page.evaluate((row) => row.isConnected && row === document.querySelector('.pr-queue-row'), firstRowBefore);
+  assert.equal(isSameConnectedRow, true);
+  const elapsedBeforeSkippedRender = await readInReviewElapsedTexts(page);
+  assert.ok(elapsedBeforeSkippedRender.row);
+  assert.ok(elapsedBeforeSkippedRender.detail);
+  await applyStatus(page, { ...status, isRefreshing: false });
+  assert.equal(await page.evaluate((row) => row === document.querySelector('.pr-queue-row'), firstRowBefore), true);
+  await page.waitForFunction((before) => {
+    const row = document.querySelector('.pr-queue-row[data-review-key="Acme/app#9"] .pr-queue-elapsed')?.textContent ?? null;
+    const detail = document.querySelector('.pr-detail .pr-progress-text')?.textContent ?? null;
+    return row !== null && detail !== null && row !== before.row && detail !== before.detail;
+  }, elapsedBeforeSkippedRender, { timeout: 5_000 });
+}
+
+async function verifyQueueRebuildsAfterEmptyStatus(page: Page, status: TeamReviewStatus): Promise<void> {
+  const firstRowBefore = await page.locator('.pr-queue-row').first().elementHandle();
+  assert.ok(firstRowBefore);
+  await applyStatus(page, { ...status, drafts: [], inFlight: [], queued: [] });
+  assert.equal(await page.locator('.pr-queue-row').count(), 0);
+  await applyStatus(page, status);
+  assert.equal(await page.locator('.pr-queue-row').count(), 10);
+  const isFirstRowRebuilt = await page.evaluate((row) => !row.isConnected && row !== document.querySelector('.pr-queue-row'), firstRowBefore);
+  assert.equal(isFirstRowRebuilt, true);
 }
 
 export async function verifyTeamReviewRows(page: Page, layout: Layout): Promise<void> {
@@ -175,7 +214,7 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout): Promise<
   await nitsRow.focus();
   await page.keyboard.press('Enter');
   assert.equal(await nitsRow.getAttribute('aria-current'), 'true');
-  assert.equal(await page.locator('.pr-detail .pr-verdict-seal').textContent(), 'approve with nits');
+  assert.equal(await page.locator('.pr-detail .pr-verdict-seal').textContent(), 'Approve with nits');
   assert.equal(await page.locator('.pr-detail .pr-verdict-seal svg').count(), 1);
   assert.ok(await page.locator('.pr-detail .pr-severity-meter').count() > 0);
   const mixed = { ...status, drafts: [...status.drafts, createDraft(11, { key: 'Acme/docs#11', repo: 'Acme/docs' })] };
@@ -188,4 +227,6 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout): Promise<
   await applyStatus(page, status);
   assert.equal(await nitsRow.locator('.pr-queue-ref').textContent(), '#2');
   if (layout === 'desktop') await verifyCollapsedRailShowsNumbers(page);
+  await verifyUnchangedQueueKeepsRowNodes(page, status);
+  await verifyQueueRebuildsAfterEmptyStatus(page, status);
 }
