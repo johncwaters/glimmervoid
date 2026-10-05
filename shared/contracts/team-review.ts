@@ -134,6 +134,13 @@ export const GithubReview = z.object({
 });
 export type GithubReview = z.infer<typeof GithubReview>;
 
+export function decisionAsIfApprovalRequired(githubDecision: GithubReviewDecision | null, opinionatedWriterReviewStates: readonly string[]): GithubReviewDecision {
+  if (githubDecision) return githubDecision;
+  if (opinionatedWriterReviewStates.includes('CHANGES_REQUESTED')) return 'CHANGES_REQUESTED';
+  if (opinionatedWriterReviewStates.includes('APPROVED')) return 'APPROVED';
+  return 'REVIEW_REQUIRED';
+}
+
 export function hasStandingViewerApproval(draft: { githubReviews?: readonly GithubReview[]; reviewDecision?: GithubReviewDecision | null; reviewedHead?: string; liveHead?: string; requeuedHead?: string }): boolean {
   if (draft.reviewDecision !== 'APPROVED') return false;
   if (draft.requeuedHead !== undefined && draft.requeuedHead === (draft.liveHead ?? draft.reviewedHead)) return false;

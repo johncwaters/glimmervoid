@@ -1,7 +1,7 @@
 import { execFileAsync } from './child-process-safe.ts';
 import { GithubRateLimitResources, githubRateLimitWaitMs } from './core/github-rate-limit-core.ts';
 import { z } from 'zod';
-import { CommitSha, TeamReviewThreadCommentsResponse, TeamReviewThreadsRepository, TeamReviewResolveResponse, ReviewThreadId, TeamReviewCompareFiles, GithubReviewDecision, PrDetail, ReviewChecksState, ReviewComment, SearchedPr } from '../shared/contracts/team-review.ts';
+import { CommitSha, TeamReviewThreadCommentsResponse, TeamReviewThreadsRepository, TeamReviewResolveResponse, ReviewThreadId, TeamReviewCompareFiles, GithubReviewDecision, decisionAsIfApprovalRequired, PrDetail, ReviewChecksState, ReviewComment, SearchedPr } from '../shared/contracts/team-review.ts';
 import { CommitComparison, MergedPrListing, MinedPrReviewData } from '../shared/contracts/benchmark.ts';
 import type { CommitComparison as CommitComparisonType, MergedPrListing as MergedPrListingType, MinedPrReviewData as MinedPrReviewDataType } from '../shared/contracts/benchmark.ts';
 import { MyPrMergeMethod, MyPrMergeStateResponse, MyPrSearchNode, MyPrSearchResponse, MyPrThreadNode, MyPrThreadsResponse } from '../shared/contracts/my-prs.ts';
@@ -277,6 +277,7 @@ const GRAPHQL_REVIEW_REPOSITORY = z.object({
         commit: z.object({ oid: z.string() }).passthrough().nullable().optional(),
       }).passthrough().nullable()),
     }).passthrough(),
+    latestOpinionatedReviews: z.object({ nodes: z.array(z.object({ state: z.string() }).passthrough().nullable()) }).passthrough().nullable().optional(),
   }).passthrough().nullable(),
 }).passthrough().nullable();
 const GRAPHQL_BEHIND_REPOSITORY = z.object({
@@ -313,7 +314,7 @@ function reviewSnapshotKey(repo: string, number: number): string {
 function reviewSnapshotQuery(prs: readonly PrReference[]): string {
   const fields = prs.map((pr, index) => {
     const [owner, name] = repoParts(pr.repo) ?? ['', ''];
-    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { headRefOid isDraft reviewDecision commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } latestReviews(first: ${LATEST_REVIEWS_PER_PR}) { nodes { author { login } state submittedAt commit { oid } } } } }`;
+    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { headRefOid isDraft reviewDecision commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } latestReviews(first: ${LATEST_REVIEWS_PER_PR}) { nodes { author { login } state submittedAt commit { oid } } } latestOpinionatedReviews(first: ${LATEST_REVIEWS_PER_PR}, writersOnly: true) { nodes { state } } } }`;
   });
   return `query { ${fields.join(' ')} }`;
 }
@@ -333,7 +334,8 @@ function reviewSnapshotFrom(repository: unknown): PrReviewSnapshot | null {
   const reviews = pullRequest.latestReviews.nodes.flatMap((review) => (review?.author
     ? [{ login: review.author.login, state: review.state, commit: CommitSha.safeParse(review.commit?.oid).data ?? null, ...(review.submittedAt !== undefined ? { submittedAt: review.submittedAt } : {}) }]
     : []));
-  return { head: pullRequest.headRefOid, ...(pullRequest.isDraft !== undefined ? { isDraft: pullRequest.isDraft } : {}), ...(pullRequest.commits ? { checksState: pullRequest.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null } : {}), reviewDecision: GithubReviewDecision.safeParse(pullRequest.reviewDecision).data ?? null, reviews };
+  const opinionatedWriterReviewStates = (pullRequest.latestOpinionatedReviews?.nodes ?? []).flatMap((review) => (review ? [review.state] : []));
+  return { head: pullRequest.headRefOid, ...(pullRequest.isDraft !== undefined ? { isDraft: pullRequest.isDraft } : {}), ...(pullRequest.commits ? { checksState: pullRequest.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null } : {}), reviewDecision: decisionAsIfApprovalRequired(GithubReviewDecision.safeParse(pullRequest.reviewDecision).data ?? null, opinionatedWriterReviewStates), reviews };
 }
 
 function uniqueValidPrs(prs: readonly PrReference[]): PrReference[] {

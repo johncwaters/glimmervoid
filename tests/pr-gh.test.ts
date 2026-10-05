@@ -161,7 +161,7 @@ test('PR reads use exact argv and parse contract shapes', async () => {
 });
 
 function reviewQueryField(alias: string, owner: string, name: string, number: number): string {
-  return `${alias}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${number}) { headRefOid isDraft reviewDecision commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } latestReviews(first: 20) { nodes { author { login } state submittedAt commit { oid } } } } }`;
+  return `${alias}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${number}) { headRefOid isDraft reviewDecision commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } latestReviews(first: 20) { nodes { author { login } state submittedAt commit { oid } } } latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state } } } }`;
 }
 
 test('review snapshots batch aliased GraphQL fields, null empty commits and drop ghost authors', async () => {
@@ -750,6 +750,41 @@ test('review snapshots carry validated draft and aggregate CI state', async () =
   } } } }), err: '' }));
   const snapshots = await github.prReviewSnapshots([{ repo: 'Acme/repo', number: 7 }]);
   assert.deepEqual(snapshots.get('Acme/repo#7'), { head: HEAD_SHA, isDraft: false, reviewDecision: 'REVIEW_REQUIRED', reviews: [], checksState: 'FAILURE' });
+});
+
+test('a repository without required reviews reports the decision it would have if approval were required', async () => {
+  const snapshotWith = async (opinionatedStates: string[] | undefined, latestStates: string[] = []) => {
+    const github = createPrGh('/repo', async () => ({ ok: true, out: JSON.stringify({ data: { pr0: { pullRequest: {
+      headRefOid: HEAD_SHA, reviewDecision: null,
+      latestReviews: { nodes: latestStates.map((state, index) => ({ author: { login: `reviewer${index}` }, state, commit: { oid: HEAD_SHA } })) },
+      ...(opinionatedStates ? { latestOpinionatedReviews: { nodes: opinionatedStates.map((state) => ({ state })) } } : {}),
+    } } } }), err: '' }));
+    return (await github.prReviewSnapshots([{ repo: 'Acme/repo', number: 7 }])).get('Acme/repo#7')?.reviewDecision;
+  };
+  assert.equal(await snapshotWith(['APPROVED']), 'APPROVED');
+  assert.equal(await snapshotWith(['APPROVED', 'CHANGES_REQUESTED']), 'CHANGES_REQUESTED');
+  assert.equal(await snapshotWith([]), 'REVIEW_REQUIRED');
+  assert.equal(await snapshotWith(undefined), 'REVIEW_REQUIRED');
+});
+
+test('a writer who requested changes and later only commented still blocks a repository without required reviews', async () => {
+  const github = createPrGh('/repo', async () => ({ ok: true, out: JSON.stringify({ data: { pr0: { pullRequest: {
+    headRefOid: HEAD_SHA, reviewDecision: null,
+    latestReviews: { nodes: [{ author: { login: 'reviewer' }, state: 'COMMENTED', commit: { oid: HEAD_SHA } }] },
+    latestOpinionatedReviews: { nodes: [{ state: 'CHANGES_REQUESTED' }] },
+  } } } }), err: '' }));
+  const snapshot = (await github.prReviewSnapshots([{ repo: 'Acme/repo', number: 7 }])).get('Acme/repo#7');
+  assert.equal(snapshot?.reviewDecision, 'CHANGES_REQUESTED');
+  assert.deepEqual(snapshot?.reviews.map((review) => review.state), ['COMMENTED']);
+});
+
+test('approvals visible only in latest reviews do not satisfy a repository without required reviews', async () => {
+  const github = createPrGh('/repo', async () => ({ ok: true, out: JSON.stringify({ data: { pr0: { pullRequest: {
+    headRefOid: HEAD_SHA, reviewDecision: null,
+    latestReviews: { nodes: [{ author: { login: 'outsider' }, state: 'APPROVED', commit: { oid: HEAD_SHA } }] },
+    latestOpinionatedReviews: { nodes: [] },
+  } } } }), err: '' }));
+  assert.equal((await github.prReviewSnapshots([{ repo: 'Acme/repo', number: 7 }])).get('Acme/repo#7')?.reviewDecision, 'REVIEW_REQUIRED');
 });
 
 function workflowNode(number: number) {
