@@ -32,6 +32,7 @@ export interface SettingsHookEntry {
 }
 
 export interface SessionPermissions {
+  allow?: string[];
   deny?: string[];
   defaultMode?: string;
 }
@@ -179,10 +180,12 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
   }
   appendUserHooks(hooks, Array.isArray(userHooks) ? userHooks : []);
   const settings: HookSettings = { hooks };
+  const allowRules = permissions && Array.isArray(permissions.allow) ? permissions.allow.slice() : [];
   const denyRules = permissions && Array.isArray(permissions.deny) ? permissions.deny.slice() : [];
   const defaultMode = permissions && typeof permissions.defaultMode === 'string' ? permissions.defaultMode : null;
-  if (denyRules.length > 0 || defaultMode) {
+  if (allowRules.length > 0 || denyRules.length > 0 || defaultMode) {
     settings.permissions = {};
+    if (allowRules.length > 0) settings.permissions.allow = allowRules;
     if (denyRules.length > 0) settings.permissions.deny = denyRules;
     if (defaultMode) settings.permissions.defaultMode = defaultMode;
   }
