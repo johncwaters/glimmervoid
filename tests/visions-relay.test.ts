@@ -150,9 +150,12 @@ async function closeRelay(child: ChildProcess) {
 async function runRelayScenario(fn: (scenario: RelayScenario) => Promise<void>) {
   let daemon = await startDaemon();
   const relay = startRelay(daemon.port);
-  const initialSocket = await daemon.connections.next('relay did not connect to daemon');
 
   try {
+    const initialSocket = await daemon.connections.next('relay did not connect to daemon');
+    const relayReady = once(initialSocket, 'pong');
+    initialSocket.ping();
+    await withTimeout(relayReady, TEST_TIMEOUT_MS, 'relay did not complete the websocket handshake');
     await fn({ daemon, initialSocket, relay, restartDaemon: async () => {
       await daemon.close();
       daemon = await startDaemon(daemon.port);

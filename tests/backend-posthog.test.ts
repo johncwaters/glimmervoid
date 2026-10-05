@@ -819,6 +819,7 @@ test('pushFixBranch refuses a real commit that renames a workflow out of .github
     await runGit(['init', '--quiet', '-b', 'main']);
     await runGit(['config', 'user.email', 'radar@example.test']);
     await runGit(['config', 'user.name', 'Radar']);
+    await runGit(['config', 'commit.gpgsign', 'false']);
     fs.mkdirSync(path.join(repoDir, '.github', 'workflows'), { recursive: true });
     fs.writeFileSync(path.join(repoDir, '.github', 'workflows', 'ci.yml'), 'name: ci\non: push\njobs: {}\n');
     await runGit(['add', '-A']);

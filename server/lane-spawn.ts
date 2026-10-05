@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -41,14 +40,17 @@ interface LaneSpawnOptions {
   createSession?: (options: SessionOptions) => Session;
 }
 
-function writeStandaloneDenySettings(permissions: unknown): { args: string[]; cleanup(): void } {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), SETTINGS_DIR_PREFIX));
-  const settingsPath = path.join(dir, 'settings.json');
-  fs.writeFileSync(settingsPath, JSON.stringify({ permissions }, null, 2), 'utf8');
-  return {
-    args: ['--settings', settingsPath],
-    cleanup() { try { fs.rmSync(dir, { recursive: true, force: true }); } catch {  } },
-  };
+async function writeStandaloneDenySettings(permissions: unknown): Promise<{ args: string[]; cleanup(): Promise<void> }> {
+  const settingsDirectory = await fsPromises.mkdtemp(path.join(os.tmpdir(), SETTINGS_DIR_PREFIX));
+  const settingsPath = path.join(settingsDirectory, 'settings.json');
+  const removeSettingsDirectory = () => fsPromises.rm(settingsDirectory, { recursive: true, force: true }).catch(() => {});
+  try {
+    await fsPromises.writeFile(settingsPath, JSON.stringify({ permissions }, null, 2), 'utf8');
+  } catch (error) {
+    await removeSettingsDirectory();
+    throw error;
+  }
+  return { args: ['--settings', settingsPath], cleanup: removeSettingsDirectory };
 }
 
 function createLaneSpawn({
@@ -59,7 +61,7 @@ function createLaneSpawn({
   return async function spawnLaneSession({ id, name, prompt, cwd, agent = DEFAULT_AGENT_ID, extraArgs = [], model = null, signal = null }) {
     const isCodex = agent === 'codex';
     const posture = isCodex ? null : buildLanePermissions({ denyTools: LANE_SPAWN_DENY_TOOLS, allowTools });
-    const standalone = !hookRouter && posture ? writeStandaloneDenySettings(posture.permissions) : null;
+    const standalone = !hookRouter && posture ? await writeStandaloneDenySettings(posture.permissions) : null;
     const extraClaudeArgs = isCodex ? extraArgs : ['-p', ...(posture?.args ?? []), ...(standalone ? standalone.args : [])];
     if (!isCodex && model) extraClaudeArgs.push('--model', model);
     const options: SessionOptions = {
@@ -76,14 +78,14 @@ function createLaneSpawn({
       hookRouter,
       getHookPort,
     };
-    const laneSession = createSession(options);
-    registerEphemeralSession({
-      map: sessions, id, sess: laneSession, closeSessionDataClients, logPrefix: laneName, name, recordLane,
-    });
     try {
+      const laneSession = createSession(options);
+      registerEphemeralSession({
+        map: sessions, id, sess: laneSession, closeSessionDataClients, logPrefix: laneName, name, recordLane,
+      });
       await awaitSessionExit(laneSession, { signal, spawnGate });
     } finally {
-      if (standalone) standalone.cleanup();
+      if (standalone) await standalone.cleanup();
     }
   };
 }

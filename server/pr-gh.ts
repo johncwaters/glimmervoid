@@ -570,6 +570,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     async teamReviewCompare(repo, base, head) {
       if (!repoParts(repo) || !CommitSha.safeParse(base).success || !CommitSha.safeParse(head).success) return { ok: true, comparison: null };
       const response = await runGh(['api', `repos/${repo}/compare/${base}...${head}`]);
+      if (!response.ok && /\bHTTP 404\b/.test(response.err) && /\bNo common ancestor between\b/i.test(response.err)) return { ok: true, comparison: null };
       if (!response.ok) return { ok: false, err: response.err || 'GitHub compare failed' };
       const parsed = TeamReviewCompareFiles.safeParse(parseJson<unknown>(response.out, null));
       if (!parsed.success) return { ok: false, err: 'GitHub returned an unreadable comparison' };

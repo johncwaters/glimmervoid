@@ -16,6 +16,7 @@ import { LANE_ENVIRONMENT_ARGS } from '../server/core/lane-permissions-core.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import type { MyPr } from '../shared/contracts/my-prs.ts';
+import { manualTimers } from './helpers/manual-timers.ts';
 
 const GIT_IDENTITY = ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false'];
 
@@ -77,10 +78,11 @@ async function resolveConflictAndCommit(checkoutPath: string, extraFile: string 
   await git(['commit', '--no-edit', '-m', 'merge base'], checkoutPath);
 }
 
-async function fixHarness(root: string, { spawnSession, timeoutSeconds, setTimeoutFn, beforeGit = () => {} }: {
+async function fixHarness(root: string, { spawnSession, timeoutSeconds, setTimeoutFn, clearTimeoutFn, beforeGit = () => {} }: {
   spawnSession: TeamReviewSpawn;
   timeoutSeconds?: () => number;
   setTimeoutFn?: (callback: () => void, milliseconds: number) => NodeJS.Timeout;
+  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
   beforeGit?: (args: string[]) => void;
 }) {
   const { originDir, headSha } = await conflictingOrigin(root);
@@ -92,7 +94,7 @@ async function fixHarness(root: string, { spawnSession, timeoutSeconds, setTimeo
   const warnings: string[] = [];
   const glimmervoidHome = path.join(root, 'glimmervoid-home');
   const fix = createMyPrMergeabilityFix({
-    spawnSession, repoCache, workRoot, glimmervoidHome, timeoutSeconds, setTimeoutFn,
+    spawnSession, repoCache, workRoot, glimmervoidHome, timeoutSeconds, setTimeoutFn, clearTimeoutFn,
     log: { log: (message: string) => { logs.push(message); }, warn: (message: string) => { warnings.push(message); } },
     runGit: async (args, cwd) => {
       beforeGit(args);
@@ -544,26 +546,28 @@ test('the keep mergeable sandbox reaches no GitHub domain and opens no unix sock
 test('keep mergeable aborts a session past the deadline read from teamReview.keepMergeableTimeoutMinutes and pushes nothing', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-deadline-'));
   let sessionSignal: AbortSignal | null = null;
-  const requestedDelaysMs: number[] = [];
+  const timers = manualTimers();
   const config = { teamReview: { keepMergeableTimeoutMinutes: 7 } };
   try {
     const harness = await fixHarness(root, {
       timeoutSeconds: () => keepMergeableTimeoutSeconds(config),
-      setTimeoutFn: (callback, milliseconds) => {
-        requestedDelaysMs.push(milliseconds);
-        return setTimeout(callback, 0);
-      },
+      setTimeoutFn: timers.setTimeoutFn,
+      clearTimeoutFn: timers.clearTimeoutFn,
       spawnSession: async ({ cwd, signal }) => {
         sessionSignal = signal;
         await resolveConflictAndCommit(path.join(cwd, MY_PRS_FIX_CHECKOUT_DIRNAME));
-        if (!signal.aborted) await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+        assert.equal(signal.aborted, false);
+        const aborted = new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+        timers.fireAll();
+        await aborted;
       },
     });
     await harness.fix(conflictingPr(harness.headSha), new AbortController().signal);
     assert.equal((sessionSignal as AbortSignal | null)?.aborted, true);
     assert.deepEqual(harness.pushes, []);
     assert.ok(harness.warnings.some((warning) => warning.includes('420s deadline')));
-    assert.deepEqual(requestedDelaysMs, [420000]);
+    assert.deepEqual(timers.pending.map((timer) => timer.ms), [420000]);
+    assert.ok(timers.pending.every((timer) => timer.cleared));
     assert.deepEqual(await fs.readdir(harness.workRoot), []);
   } finally {
     await fs.rm(root, { recursive: true, force: true });

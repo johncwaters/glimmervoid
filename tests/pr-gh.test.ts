@@ -970,10 +970,24 @@ test('thread comparison rejects a force-pushed base and preserves renamed file p
   assert.deepEqual(await github.teamReviewCompare('Acme/app', base, HEAD_SHA), { ok: true, comparison: { merge_base_commit: { sha: base }, files } });
 });
 
+test('thread comparison is unavailable only when GitHub reports unrelated histories', async () => {
+  const github = createPrGh('/repo', async () => ({ ok: false, out: '', err: 'HTTP 404: No common ancestor between commits (https://api.github.com/repos/Acme/app/compare/base...head)' }));
+  assert.deepEqual(await github.teamReviewCompare('Acme/app', 'b'.repeat(40), HEAD_SHA), { ok: true, comparison: null });
+});
+
+test('thread comparison retries a 404 that is not about unrelated histories', async () => {
+  for (const errorOutput of ['gh: Not Found (HTTP 404)', `gh: No commit found for SHA: ${HEAD_SHA} (HTTP 404)`]) {
+    const github = createPrGh('/repo', async () => ({ ok: false, out: '', err: errorOutput }));
+    assert.deepEqual(await github.teamReviewCompare('Acme/app', 'b'.repeat(40), HEAD_SHA), { ok: false, err: errorOutput });
+  }
+});
+
 test('thread comparison reports a failed or unreadable gh call as transient rather than rewritten history', async () => {
   const base = 'b'.repeat(40);
-  const failing = createPrGh('/repo', async () => ({ ok: false, out: '', err: 'HTTP 403: API rate limit exceeded' }));
-  assert.deepEqual(await failing.teamReviewCompare('Acme/app', base, HEAD_SHA), { ok: false, err: 'HTTP 403: API rate limit exceeded' });
+  for (const errorOutput of ['HTTP 403: API rate limit exceeded', 'gh: Too Many Requests (HTTP 429)', 'gh: Service Unavailable (HTTP 503)', 'connect ECONNREFUSED', 'exit status 1', 'failed to connect to port 4040']) {
+    const failing = createPrGh('/repo', async () => ({ ok: false, out: '', err: errorOutput }));
+    assert.deepEqual(await failing.teamReviewCompare('Acme/app', base, HEAD_SHA), { ok: false, err: errorOutput });
+  }
   const throwing = createPrGh('/repo', async () => { throw new Error('network down'); });
   assert.deepEqual(await throwing.teamReviewCompare('Acme/app', base, HEAD_SHA), { ok: false, err: 'network down' });
   const unreadable = createPrGh('/repo', async () => ({ ok: true, out: 'not json', err: '' }));
