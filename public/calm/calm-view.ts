@@ -16,7 +16,7 @@ import { uiState } from '../ui-state-core.ts';
 import { LATER_RADIUS, NEXT_RADIUS, NOW_RADIUS, placeLights, shouldShowLabels, OUTER_BAND_MAX_RADIUS } from './calm-field-core.ts';
 import { latestPendingReview } from './calm-plan-core.ts';
 import type { ArmedAdvance, CalmRow } from './calm-priority-core.ts';
-import { canReplyToFinishedSession, countByTier, decideArmedAdvance, formatWaitTime, isSamePermissionPrompt, offersNextInstructionInput, offersReplyInput, orderCalmQueue, panelContextFor, pickComponent, pickNextQueueSessionId, pickNowPeek, pickSessionAfterSubmit, tierOf } from './calm-priority-core.ts';
+import { canReplyToFinishedSession, countByTier, decideArmedAdvance, formatWaitTime, isSamePermissionPrompt, latestAgentMessageText, offersNextInstructionInput, offersReplyInput, orderCalmQueue, panelContextFor, pickComponent, pickNextQueueSessionId, pickNowPeek, pickSessionAfterSubmit, tierOf } from './calm-priority-core.ts';
 import type { TimedKeystroke } from './permission-keys-core.ts';
 import { answerWithOptionKeystrokes, answerWithTextKeystrokes, approveKeystrokes, decideInstructionDelivery, INSTRUCTION_POLL_INTERVAL_MS, isAnyPromptShowing, rejectAndInstructKeystrokes, replyKeystrokes } from './permission-keys-core.ts';
 
@@ -52,7 +52,6 @@ const QUESTION_CHANGED_STATUS = 'The question changed. Open Terminal to continue
 const SESSION_BUSY_STATUS = 'The session is busy. Open Terminal to continue.';
 const PHONE_RING_SCALE = 50;
 const DESKTOP_RING_SCALE = 46 / OUTER_BAND_MAX_RADIUS;
-const LIGHT_GAP_RADIANS = 0.5;
 const FOOTER_TEXT_BY_SURFACE = {
   desktop: 'Click a light for its action. Hollow outer lights are ready for an instruction; faint ones are working.',
   phone: 'Tap a light or a row for its action. Hollow outer lights are ready for an instruction; faint ones are working.',
@@ -164,6 +163,8 @@ export function applyCalmTraceResponse(reply: ServerMessageOf<'session-trace-res
   if (!body) return;
   const toolCalls = reply.records.filter((record) => record.kind === 'tool_call');
   const toolCallByUseId = new Map(toolCalls.map((record) => [record.toolUseId, record]));
+  const agentMessage = panel.dataset.tier === 'ready' ? latestAgentMessageText(reply.records) : null;
+  if (agentMessage) { body.replaceChildren(el('div', 'calm-agent-message', agentMessage)); return; }
   const records = selectedComponent === 'failure' ? toolCalls : reply.records;
   body.replaceChildren(...records.slice(-3).map((record) => el('div', 'calm-trace-row', traceRowParts(record, toolCallByUseId).text)));
   if (!records.length) body.textContent = 'No trace has been recorded.';
@@ -303,7 +304,7 @@ function openPanel(row: CalmRow) {
   const panelTitle = el('span', 'calm-panel-title', `${glyphByTier[tierOf(row)]} ${row.name} ${panelContextFor(row, choice.component)}`);
   panelTitle.tabIndex = -1;
   header.append(panelTitle, createButton('Terminal', 'calm-link', () => openTerminalFromQueue(row.id)));
-  if (activeSurface.kind === 'phone') header.append(createButton('Close', 'calm-link', dismissPanel));
+  header.append(createButton('Close', 'calm-link', dismissPanel));
   const body = el('div', 'calm-panel-body');
   const actions = el('div', 'calm-actions');
   const status = el('span', 'calm-status', readFreshCalmStatus(row.id, promptStatusKeyOf(row.pendingPromptDetail)));
@@ -381,7 +382,7 @@ function openPanel(row: CalmRow) {
   actions.append(status);
   panel.append(header, body, actions);
   root.classList.add('calm-has-panel');
-  if (activeSurface.kind === 'phone') root.append(buildSheetScrim());
+  root.append(buildSheetScrim());
   root.append(panel);
   if (field) field.inert = true;
   panelTitle.focus();
@@ -438,7 +439,7 @@ function buildRings(rows: readonly CalmRow[], activeSurface: CalmSurface) {
   rings.prepend(svg);
   const rowsById = new Map(rows.map((row) => [row.id, row]));
   const showLabels = activeSurface.kind === 'desktop' && shouldShowLabels(activeSurface.root.clientWidth);
-  for (const light of placeLights(rows.map((row) => ({ id: row.id, tier: tierOf(row) })), LIGHT_GAP_RADIANS)) {
+  for (const light of placeLights(rows.map((row) => ({ id: row.id, tier: tierOf(row) })))) {
     const row = rowsById.get(light.id);
     if (!row) continue;
     const button = createButton('', 'calm-light', () => openPanel(row));

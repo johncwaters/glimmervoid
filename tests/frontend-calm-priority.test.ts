@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ARMED_ADVANCE_LIFETIME_MS, canReplyToFinishedSession, countByTier, decideArmedAdvance, formatWaitTime, isSamePermissionPrompt, offersNextInstructionInput, offersReplyInput, orderCalmQueue, panelContextFor, pickComponent, pickNextQueueSessionId, pickNowPeek, pickSessionAfterSubmit, tierOf } from '../public/calm/calm-priority-core.ts';
+import { ARMED_ADVANCE_LIFETIME_MS, canReplyToFinishedSession, countByTier, decideArmedAdvance, formatWaitTime, isSamePermissionPrompt, latestAgentMessageText, offersNextInstructionInput, offersReplyInput, orderCalmQueue, panelContextFor, pickComponent, pickNextQueueSessionId, pickNowPeek, pickSessionAfterSubmit, tierOf } from '../public/calm/calm-priority-core.ts';
 import type { CalmRow, CalmTier, CalmComponent } from '../public/calm/calm-priority-core.ts';
 
 const makeRow = (state: string, overrides: Partial<CalmRow> = {}): CalmRow => ({ id: state, name: state, state, ...overrides });
@@ -293,4 +293,18 @@ test('panelContextFor names the prompt, failure or review for non-terminal panel
   assert.equal(panelContextFor(makeRow('WAITING'), 'plan'), 'has a plan ready');
   assert.equal(panelContextFor(makeRow('FAILED'), 'failure'), 'failed');
   assert.equal(panelContextFor(makeRow('COMPLETE', { unseen: true }), 'review'), 'finished');
+});
+
+test('latestAgentMessageText returns the newest top-level assistant message in full', () => {
+  const base = { ts: 0, uuid: null, parentUuid: null, vendorSessionId: 'vendor' };
+  const longText = `First line of the reply.\n${'Pick option A or B. '.repeat(20)}`;
+  assert.equal(latestAgentMessageText([
+    { ...base, kind: 'assistant', text: 'older reply' },
+    { ...base, kind: 'assistant', text: `  ${longText}  ` },
+    { ...base, kind: 'assistant', text: 'subagent chatter', agentType: 'Explore' },
+    { ...base, kind: 'assistant', text: '   ' },
+    { ...base, kind: 'tool_call', toolUseId: 'tool', name: 'Bash', input: {} },
+  ]), longText.trim());
+  assert.equal(latestAgentMessageText([{ ...base, kind: 'prompt', text: 'hello' }]), null);
+  assert.equal(latestAgentMessageText([]), null);
 });

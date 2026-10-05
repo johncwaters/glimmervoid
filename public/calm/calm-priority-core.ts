@@ -1,4 +1,5 @@
 import { ASK_USER_QUESTION_TOOL_NAME, isSamePromptQuestion, type PendingPromptDetail } from '#shared/contracts/session.ts';
+import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { STATES } from '#shared/states.ts';
 import { needsAttention, pickNextAttention } from '../focus-view/attention-core.ts';
 import { formatMinutes } from '../usage-view-core.ts';
@@ -186,4 +187,12 @@ export function offersReplyInput(row: Pick<CalmRow, 'agent'>): boolean {
 
 export function offersNextInstructionInput(row: CalmRow): boolean {
   return pickComponent(row).component === 'terminal' && tierOf(row) === 'ready' && offersReplyInput(row);
+}
+
+export function latestAgentMessageText(records: readonly TraceRecord[]): string | null {
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    const record = records[index];
+    if (record.kind === 'assistant' && !record.agentType && record.text.trim()) return record.text.trim();
+  }
+  return null;
 }

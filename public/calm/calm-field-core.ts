@@ -24,34 +24,26 @@ interface CalmLight {
   radius: number;
 }
 
-export function placeLights(entries: readonly { id: string; tier: CalmTier }[], minGapRadians: number): CalmLight[] {
+function radiusOf(id: string, tier: Exclude<CalmTier, 'resting'>): number {
+  if (tier === 'working' || tier === 'ready') return OUTER_BAND_MIN_RADIUS + hashUnit(id, 1) * (OUTER_BAND_MAX_RADIUS - OUTER_BAND_MIN_RADIUS);
+  return RING_RADIUS_BY_TIER[tier];
+}
+
+export function placeLights(entries: readonly { id: string; tier: CalmTier }[]): CalmLight[] {
   const lights: CalmLight[] = [];
-  const rings: Record<keyof typeof RING_RADIUS_BY_TIER | 'outerBand', CalmLight[]> = { now: [], next: [], later: [], outerBand: [] };
   for (const { id, tier } of entries) {
     if (tier === 'resting') continue;
-    const isOuterBand = tier === 'working' || tier === 'ready';
-    const radius = isOuterBand
-      ? OUTER_BAND_MIN_RADIUS + hashUnit(id, 1) * (OUTER_BAND_MAX_RADIUS - OUTER_BAND_MIN_RADIUS)
-      : RING_RADIUS_BY_TIER[tier];
-    const light = { id, tier, angle: hashUnit(id) * FULL_TURN_RADIANS, radius };
-    lights.push(light);
-    rings[isOuterBand ? 'outerBand' : tier].push(light);
+    lights.push({ id, tier, angle: hashUnit(id) * FULL_TURN_RADIANS, radius: radiusOf(id, tier) });
   }
-  for (const [ringName, ring] of Object.entries(rings)) {
-    if (ring.length < 2) continue;
-    ring.sort((first, second) => first.angle - second.angle);
-    const requestedGapRadians = ringName === 'outerBand' ? FULL_TURN_RADIANS : minGapRadians;
-    const gapRadians = Math.min(requestedGapRadians, FULL_TURN_RADIANS / ring.length);
-    const firstAngle = ring.reduce((startAngle, light, index) => Math.max(
-      startAngle, light.angle - FULL_TURN_RADIANS + (ring.length - index) * gapRadians,
-    ), ring[0].angle);
-    let previousAngle = firstAngle - gapRadians;
-    for (const light of ring) {
-      const spacedAngle = Math.max(light.angle, previousAngle + gapRadians);
-      previousAngle = spacedAngle;
-      light.angle = spacedAngle % FULL_TURN_RADIANS;
-    }
-  }
+  if (lights.length < 2) return lights;
+  const lightsByAngle = [...lights].sort((first, second) => first.angle - second.angle);
+  const gapRadians = FULL_TURN_RADIANS / lightsByAngle.length;
+  const firstAngle = lightsByAngle.reduce((startAngle, light, index) => Math.max(
+    startAngle, light.angle - FULL_TURN_RADIANS + (lightsByAngle.length - index) * gapRadians,
+  ), lightsByAngle[0].angle);
+  lightsByAngle.forEach((light, index) => {
+    light.angle = (firstAngle + index * gapRadians) % FULL_TURN_RADIANS;
+  });
   return lights;
 }
 
