@@ -188,7 +188,7 @@ test('judge prompts shuffle deterministically and hide lane and reference proven
   assert.notDeepEqual(first.shownToOriginal, buildJudgePrompt({ references, findings, seed: 2 }).shownToOriginal);
   assert.deepEqual(first.shownToOriginal.toSorted((left, right) => left - right), Array.from({ length: 10 }, (_, index) => index));
   assert.doesNotMatch(first.prompt, /code\/race|security\/logic|reviewer:|human|bot/);
-  assert.match(first.prompt, /Rr1/);
+  assert.match(first.prompt, /^referenceId: r1$/m);
   assert.match(first.prompt, /one.ts/);
   assert.match(first.prompt, /call returns null/);
   assert.match(first.prompt, /ONLY with JSON/);
@@ -530,4 +530,10 @@ test('paired totals average tag recall only over cases every arm scored that con
   assert.deepEqual(report.totals.baseline.recallByTag, { first: 1, both: 1, second: null, third: null });
   assert.deepEqual(report.totals.variant.recallByTag, { first: 0, both: 0, second: null, third: null });
   assert.equal(report.totals.baseline.trials, 3);
+});
+
+test('the judge prompt names each reference by its exact id with no prefix a judge could copy into it', () => {
+  const { prompt } = buildJudgePrompt({ references: [{ id: 'c3931176569', text: 'Duplicate key copies', tags: ['human'] }], findings: [], seed: 0 });
+  assert.match(prompt, /^referenceId: c3931176569$/m);
+  assert.doesNotMatch(prompt, /Rc3931176569/);
 });
