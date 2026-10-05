@@ -8847,6 +8847,7 @@ html:not([data-layout="phone"]) .calm-rings { width: min(760px, max(calc(100cqw 
 .calm-panel-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 12px; }
 .calm-panel-title { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .calm-sheet-scrim { position: absolute; inset: 0; }
+.calm-diff:not(:empty) { margin-top: 12px; }
 .calm-agent-message { max-height: 45vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-head); }
 .calm-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .calm-primary, .calm-input { min-height: 44px; border: 1px solid var(--accent); border-radius: 4px; font: inherit; font-size: 14px; }

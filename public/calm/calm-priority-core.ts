@@ -1,7 +1,7 @@
 import { ASK_USER_QUESTION_TOOL_NAME, isSamePromptQuestion, type PendingPromptDetail } from '#shared/contracts/session.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { STATES } from '#shared/states.ts';
-import { needsAttention, pickNextAttention } from '../focus-view/attention-core.ts';
+import { pickNextAttention } from '../focus-view/attention-core.ts';
 import { formatMinutes } from '../usage-view-core.ts';
 import { hasPermissionKeys } from './permission-keys-core.ts';
 
@@ -16,15 +16,19 @@ export interface CalmRow {
   pendingPromptKind?: string | null;
   pendingPromptDetail?: PendingPromptDetail | null;
   unseen?: boolean;
+  hasEndedTurn?: boolean;
+}
+
+function hasEndedTurn(row: CalmRow): boolean {
+  return row.state === STATES.COMPLETE || (row.state === STATES.IDLE && row.hasEndedTurn === true);
 }
 
 export function tierOf(row: CalmRow): CalmTier {
   if (row.state === STATES.WAITING) return 'now';
   if (row.state === STATES.FAILED) return 'next';
-  if (needsAttention(row)) return 'later';
+  if (hasEndedTurn(row)) return 'later';
   switch (row.state) {
     case STATES.IDLE:
-    case STATES.COMPLETE:
       return 'ready';
     case STATES.RUNNING:
     case STATES.STARTING:
@@ -144,17 +148,16 @@ const PANEL_CONTEXT_BY_COMPONENT: Record<Exclude<CalmComponent, 'terminal'>, str
   question: 'asks',
   plan: 'has a plan ready',
   failure: 'failed',
-  review: 'finished',
+  review: 'waits for you',
 };
 
 const TERMINAL_PANEL_CONTEXT_BY_STATE = new Map<string, string>([
   [STATES.RUNNING, 'is working'],
   [STATES.STARTING, 'is working'],
   [STATES.INITIALIZING, 'is working'],
-  [STATES.IDLE, 'is idle'],
+  [STATES.IDLE, 'has no task'],
   [STATES.DONE, 'has exited'],
   [STATES.DORMANT, 'is asleep'],
-  [STATES.COMPLETE, 'finished'],
 ]);
 
 export function panelContextFor(row: CalmRow, component: CalmComponent): string {

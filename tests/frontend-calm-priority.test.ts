@@ -7,7 +7,7 @@ const makeRow = (state: string, overrides: Partial<CalmRow> = {}): CalmRow => ({
 
 const tierCases: [string, boolean | undefined, CalmTier][] = [
   ['WAITING', false, 'now'], ['FAILED', false, 'next'], ['COMPLETE', true, 'later'],
-  ['COMPLETE', false, 'ready'], ['COMPLETE', undefined, 'ready'],
+  ['COMPLETE', false, 'later'], ['COMPLETE', undefined, 'later'],
   ['RUNNING', true, 'working'], ['IDLE', false, 'ready'], ['STARTING', false, 'working'],
   ['INITIALIZING', false, 'working'], ['DORMANT', true, 'resting'], ['DONE', true, 'resting'],
   ['UNKNOWN', true, 'resting'],
@@ -32,14 +32,20 @@ test('orderCalmQueue orders tiers before wait time, puts missing waits last and 
   ];
   const originalRows = [...rows];
   assert.deepEqual(orderCalmQueue(rows).map((row) => row.id),
-    ['oldest', 'newer', 'tie', 'missing', 'null', 'FAILED', 'COMPLETE']);
+    ['oldest', 'newer', 'tie', 'missing', 'null', 'FAILED', 'COMPLETE', 'seen']);
   assert.deepEqual(rows, originalRows);
   assert.deepEqual(orderCalmQueue([]), []);
 });
 
+test('tierOf puts every ended turn on the later ring, dismissed or not', () => {
+  assert.equal(tierOf(makeRow('IDLE', { hasEndedTurn: true })), 'later');
+  assert.equal(tierOf(makeRow('IDLE', { hasEndedTurn: false })), 'ready');
+  assert.equal(tierOf(makeRow('COMPLETE', { unseen: false, hasEndedTurn: true })), 'later');
+});
+
 test('countByTier counts each active tier and excludes resting sessions', () => {
   assert.deepEqual(countByTier(tierCases.map(([state, unseen]) => makeRow(state, { unseen }))),
-    { now: 1, next: 1, later: 1, ready: 3, working: 3 });
+    { now: 1, next: 1, later: 3, ready: 1, working: 3 });
   assert.deepEqual(countByTier([]), { now: 0, next: 0, later: 0, ready: 0, working: 0 });
 });
 
@@ -84,8 +90,8 @@ const componentCases: [string, CalmRow, CalmComponent, boolean][] = [
   ['missing prompt', makeRow('WAITING'), 'terminal', false],
   ['failure', makeRow('FAILED', { pendingPromptKind: 'plan' }), 'failure', false],
   ['unseen completion', makeRow('COMPLETE', { unseen: true }), 'review', false],
-  ['seen completion', makeRow('COMPLETE', { unseen: false }), 'terminal', false],
-  ['completion without unseen', makeRow('COMPLETE'), 'terminal', false],
+  ['seen completion', makeRow('COMPLETE', { unseen: false }), 'review', false],
+  ['completion without unseen', makeRow('COMPLETE'), 'review', false],
   ['running permission', makeRow('RUNNING', { pendingPromptKind: 'permission', agent: 'claude-code',
     pendingPromptDetail: { toolName: 'Bash', summary: 'Run tests', isComplete: true } }), 'terminal', false],
   ['unknown state', makeRow('UNKNOWN'), 'terminal', false],
@@ -160,13 +166,14 @@ test('offersReplyInput is true only for an agent with permission keys', () => {
   assert.equal(offersReplyInput({ agent: undefined }), false);
 });
 
-test('offersNextInstructionInput is true for an idle or seen complete session of a keyed agent', () => {
+test('offersNextInstructionInput is true for an idle session of a keyed agent that has no task yet', () => {
   assert.equal(offersNextInstructionInput(makeRow('IDLE', { agent: 'claude-code' })), true);
-  assert.equal(offersNextInstructionInput(makeRow('COMPLETE', { agent: 'claude-code', unseen: false })), true);
-  assert.equal(offersNextInstructionInput(makeRow('COMPLETE', { agent: 'claude-code', unseen: undefined })), true);
+  assert.equal(offersNextInstructionInput(makeRow('IDLE', { agent: 'claude-code', hasEndedTurn: false })), true);
 });
 
-test('offersNextInstructionInput is false for busy, unseen complete or unkeyed agent sessions', () => {
+test('offersNextInstructionInput is false for busy, ended-turn or unkeyed agent sessions', () => {
+  assert.equal(offersNextInstructionInput(makeRow('COMPLETE', { agent: 'claude-code', unseen: false })), false);
+  assert.equal(offersNextInstructionInput(makeRow('IDLE', { agent: 'claude-code', hasEndedTurn: true })), false);
   assert.equal(offersNextInstructionInput(makeRow('RUNNING', { agent: 'claude-code' })), false);
   assert.equal(offersNextInstructionInput(makeRow('STARTING', { agent: 'claude-code' })), false);
   assert.equal(offersNextInstructionInput(makeRow('COMPLETE', { agent: 'claude-code', unseen: true })), false);
@@ -277,8 +284,8 @@ test('formatWaitTime rounds down to whole minutes and hours', () => {
 
 const terminalContextCases: [string, string][] = [
   ['RUNNING', 'is working'], ['STARTING', 'is working'], ['INITIALIZING', 'is working'],
-  ['IDLE', 'is idle'], ['DONE', 'has exited'], ['DORMANT', 'is asleep'],
-  ['COMPLETE', 'finished'], ['WAITING', 'needs you'], ['UNKNOWN', 'is quiet'],
+  ['IDLE', 'has no task'], ['DONE', 'has exited'], ['DORMANT', 'is asleep'],
+  ['COMPLETE', 'is quiet'], ['WAITING', 'needs you'], ['UNKNOWN', 'is quiet'],
 ];
 
 for (const [state, context] of terminalContextCases) {
@@ -292,7 +299,7 @@ test('panelContextFor names the prompt, failure or review for non-terminal panel
   assert.equal(panelContextFor(makeRow('WAITING'), 'question'), 'asks');
   assert.equal(panelContextFor(makeRow('WAITING'), 'plan'), 'has a plan ready');
   assert.equal(panelContextFor(makeRow('FAILED'), 'failure'), 'failed');
-  assert.equal(panelContextFor(makeRow('COMPLETE', { unseen: true }), 'review'), 'finished');
+  assert.equal(panelContextFor(makeRow('COMPLETE', { unseen: true }), 'review'), 'waits for you');
 });
 
 test('latestAgentMessageText returns the newest top-level assistant message in full', () => {

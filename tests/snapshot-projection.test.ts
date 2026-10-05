@@ -18,6 +18,7 @@ function snapshotSource() {
     resumeSessionId: "resume-1",
     activeAgents: 0,
     awaitingBackgroundTasks: false,
+    hasEndedTurn: true,
     pendingWakeup: null,
     pendingPromptKind: null,
     pendingPromptDetail: null,
@@ -37,6 +38,7 @@ test("wire and debug snapshots share state and the recent transitions", () => {
   assert.equal(debug.state, wire.state);
   assert.equal(wire.effectiveBase, "main");
   assert.equal(wire.awaitingBackgroundTasks, false);
+  assert.equal(wire.hasEndedTurn, true);
   assert.deepEqual(debug.transitions, [{
     from: "RUNNING",
     to: "COMPLETE",

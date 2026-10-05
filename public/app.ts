@@ -33,7 +33,7 @@ import { acknowledgeRadarAttention, applyInvestigationActivity, applyInvestigati
 import { handleDebugStateRefresh, handleDebugStateResponse, onDebugModeChanged } from './session-card/card-dom.ts';
 import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
-import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
+import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionEndedTurn, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { reconnectDataWs, syncGridOnEngagementEdge } from './session-card/terminal.ts';
@@ -174,6 +174,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
     setSessionEffectiveBase(s.id, s.effectiveBase);
 
     setSessionAgents(s.id, s.activeAgents, s.awaitingBackgroundTasks);
+    setSessionEndedTurn(s.id, s.hasEndedTurn);
 
     setSessionWakeup(s.id, s.pendingWakeup);
 
@@ -231,6 +232,7 @@ function handleStateChange(msg: ServerMessageOf<'state-change'>) {
   }
 
   applyState(msg.id, msg.to, msg.timestamp);
+  if (msg.hasEndedTurn !== undefined) setSessionEndedTurn(msg.id, msg.hasEndedTurn);
   refreshFavicon(sessionUIs);
 
   refreshReviewSidebar(msg.id);

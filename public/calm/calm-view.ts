@@ -42,7 +42,7 @@ let nowPeek: { card: HTMLElement; name: HTMLElement; context: HTMLElement; wait:
 let nowPeekSessionId: string | null = null;
 let nowPeekStateSince: number | null = null;
 let opener: HTMLElement | null = null;
-let pendingCalmRequest: { id: string; kind: 'trace' | 'diff' | 'plan' } | null = null;
+let pendingCalmRequests: { id: string; kind: 'trace' | 'diff' | 'plan' }[] = [];
 const calmStatusBySessionId = new Map<string, { text: string; recordedAtMs: number; promptSummary: string | undefined }>();
 
 const CALM_STATUS_LIFETIME_MS = 15000;
@@ -53,8 +53,8 @@ const SESSION_BUSY_STATUS = 'The session is busy. Open Terminal to continue.';
 const PHONE_RING_SCALE = 50;
 const DESKTOP_RING_SCALE = 46 / OUTER_BAND_MAX_RADIUS;
 const FOOTER_TEXT_BY_SURFACE = {
-  desktop: 'Click a light for its action. Hollow outer lights are ready for an instruction; faint ones are working.',
-  phone: 'Tap a light or a row for its action. Hollow outer lights are ready for an instruction; faint ones are working.',
+  desktop: 'Click a light for its action. Lights on the rings are waiting for you; hollow outer lights are free for a new task; faint ones are working.',
+  phone: 'Tap a light or a row for its action. Lights on the rings are waiting for you; hollow outer lights are free for a new task; faint ones are working.',
 };
 
 function isDesktopSurfaceActive() {
@@ -65,6 +65,7 @@ function readRows(): CalmRow[] {
   const rows = [...sessionUIs].map(([id, ui]) => ({
     id, name: sessionName(ui), state: ui.currentState, stateSince: ui.stateSince,
     agent: ui.agent, pendingPromptKind: ui.pendingPromptKind, pendingPromptDetail: ui.pendingPromptDetail,
+    hasEndedTurn: ui.hasEndedTurn,
   }));
   unseenTracker.noteStates(rows);
   return rows.map((row) => ({ ...row, unseen: unseenTracker.isUnseen(row.id) }));
@@ -85,7 +86,7 @@ function detachPanel() {
   selectedComponent = null;
   selectedFingerprint = '';
   primaryButton = null;
-  pendingCalmRequest = null;
+  pendingCalmRequests = [];
   if (field) field.inert = false;
   if (opener?.isConnected) { opener.focus(); return; }
   findLight(opener?.dataset.sessionId)?.focus();
@@ -142,25 +143,28 @@ function createButton(label: string, className: string, action: () => void) {
   return button;
 }
 
+const ERROR_TARGET_BY_REQUEST_KIND = { trace: '.calm-trace', diff: '.calm-diff', plan: '.calm-status' };
+
 function claimPendingCalmRequest(id: string | undefined, kinds: readonly string[]) {
-  if (!pendingCalmRequest || pendingCalmRequest.id !== id || !kinds.includes(pendingCalmRequest.kind)) return false;
-  pendingCalmRequest = null;
-  return true;
+  const claimedIndex = pendingCalmRequests.findIndex((request) => request.id === id && kinds.includes(request.kind));
+  if (claimedIndex < 0) return null;
+  return pendingCalmRequests.splice(claimedIndex, 1)[0].kind;
 }
 
 function renderTrace(id: string, body: HTMLElement) {
   body.classList.add('calm-trace');
   body.textContent = 'Loading trace...';
   if (!sendControlMsg({ type: 'session-trace', id, endingAt: 'tail' })) { body.textContent = 'Trace unavailable. Open Terminal to continue.'; return; }
-  pendingCalmRequest = { id, kind: 'trace' };
+  pendingCalmRequests.push({ id, kind: 'trace' });
 }
 
 export function applyCalmTraceResponse(reply: ServerMessageOf<'session-trace-response'>) {
   if (!claimPendingCalmRequest(reply.id, ['trace'])) return;
   if (!surface || selectedSessionId !== reply.id || !panel) return;
-  if (selectedComponent !== 'failure' && selectedComponent !== 'terminal') return;
+  if (selectedComponent !== 'failure' && selectedComponent !== 'terminal' && selectedComponent !== 'review') return;
   const body = panel.querySelector('.calm-trace');
   if (!body) return;
+  if (selectedComponent === 'review') { body.textContent = latestAgentMessageText(reply.records) ?? 'No message has been recorded.'; return; }
   const toolCalls = reply.records.filter((record) => record.kind === 'tool_call');
   const toolCallByUseId = new Map(toolCalls.map((record) => [record.toolUseId, record]));
   const agentMessage = panel.dataset.tier === 'ready' ? latestAgentMessageText(reply.records) : null;
@@ -172,9 +176,10 @@ export function applyCalmTraceResponse(reply: ServerMessageOf<'session-trace-res
 
 export function applyCalmError(reply: ServerMessageOf<'error'>) {
   const isPlanDecisionError = reply.scope === 'plan-decision';
-  if (!claimPendingCalmRequest(reply.id, isPlanDecisionError ? ['plan'] : ['trace', 'diff'])) return;
+  const claimedKind = claimPendingCalmRequest(reply.id, isPlanDecisionError ? ['plan'] : ['trace', 'diff']);
+  if (!claimedKind) return;
   if (!surface || selectedSessionId !== reply.id || !panel) return;
-  const target = panel.querySelector(isPlanDecisionError ? '.calm-status' : '.calm-trace, .calm-diff');
+  const target = panel.querySelector(ERROR_TARGET_BY_REQUEST_KIND[claimedKind]);
   if (target) target.textContent = reply.message;
 }
 
@@ -355,7 +360,7 @@ function openPanel(row: CalmRow) {
       const latestReview = latestPendingReview(ui.planReviewState);
       if (!latestReview?.openRevision) { navigation.openPlan(row.id); return true; }
       if (!sendControlMsg({ type: 'plan-decision', id: row.id, agentId: latestReview.agentId, revision: latestReview.openRevision.revision, decision: 'approve' })) return false;
-      pendingCalmRequest = { id: row.id, kind: 'plan' };
+      pendingCalmRequests.push({ id: row.id, kind: 'plan' });
       return true;
     });
     if (!review || !revision) addPrimary('Open plan', () => { navigation.openPlan(row.id); return true; });
@@ -371,11 +376,13 @@ function openPanel(row: CalmRow) {
   if (choice.component === 'terminal') renderTrace(row.id, body);
   if (offersNextInstructionInput(row)) appendReplyInput(row, ui, actions);
   if (choice.component === 'review') {
-    body.classList.add('calm-diff');
-    body.textContent = 'Loading files...';
+    const agentMessage = el('div', 'calm-agent-message');
+    const diff = el('div', 'calm-diff', 'Loading files...');
+    body.append(agentMessage, diff);
+    renderTrace(row.id, agentMessage);
     const isDiffRequested = sendControlMsg({ type: 'request-session-diff', id: row.id });
-    if (isDiffRequested) pendingCalmRequest = { id: row.id, kind: 'diff' };
-    if (!isDiffRequested) body.textContent = 'Diff unavailable. Open review to continue.';
+    if (isDiffRequested) pendingCalmRequests.push({ id: row.id, kind: 'diff' });
+    if (!isDiffRequested) diff.textContent = 'Diff unavailable. Open review to continue.';
     addPrimary('Open review', () => { unseenTracker.acknowledge(row.id); navigation.openTerminal(row.id); return true; });
     if (offersReplyInput(row)) appendReplyInput(row, ui, actions);
   }
@@ -396,6 +403,7 @@ export function applyCalmSessionDiff(reply: ServerMessageOf<'session-diff'>) {
   if (!body) return;
   const files = parseUnifiedDiff(`${reply.committed.diff}\n${reply.uncommitted.diff}`);
   const summary = summarizeFiles(files);
+  if (!files.length) { body.replaceChildren(); return; }
   body.replaceChildren(el('p', 'calm-summary', `${summary.files} files / +${summary.added} -${summary.removed}`),
     ...files.map((file) => el('div', 'calm-file', `${file.path}  +${file.added} -${file.removed}`)));
 }

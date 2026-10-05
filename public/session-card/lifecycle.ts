@@ -309,6 +309,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     taskTitleEl: dom.taskTitleEl,
     taskTitle: options.taskTitle ?? null,
     taskTitleIsCustom: options.taskTitleIsCustom ?? false,
+    hasEndedTurn: false,
     elapsedEl: dom.elapsedEl,
 
     path: asText(options.path),
@@ -477,6 +478,12 @@ function paintCardBadge(ui: SessionUi, selector: string, datasetKey: string, bad
   if (!badge) return;
   if (text !== undefined) badge.textContent = text;
   if (title !== undefined) badge.title = title;
+}
+
+export function setSessionEndedTurn(sessionId: unknown, hasEndedTurn: boolean) {
+  const ui = findSessionUi(sessionId);
+  if (!ui) return;
+  ui.hasEndedTurn = hasEndedTurn;
 }
 
 export function setSessionAgents(sessionId: unknown, activeAgents: unknown, awaitingBackgroundTasks: unknown = false) {

@@ -109,6 +109,7 @@ test('normal restart keeps the captured resume id in spawn args', async () => {
     const resumeIndex = args.indexOf('--resume');
     assert.notEqual(resumeIndex, -1, 'restart spawned with --resume');
     assert.equal(args[resumeIndex + 1], resumeSessionId);
+    assert.equal(s.hasEndedTurn, true, 'a resumed conversation waits for the operator');
   } finally {
     s.destroy();
   }
@@ -141,6 +142,7 @@ test('a missing Claude transcript spawns without --resume and keeps the bound re
     assert.equal(calls.length, 1, 'spawned once');
     assert.equal(calls[0].args.includes('--resume'), false, 'spawned without the stale resume id');
     assert.equal(s.resumeSessionId, resumeSessionId, 'bound resume id survives the probe miss');
+    assert.equal(s.hasEndedTurn, false, 'a fresh spawn has not ended a turn');
     assert.deepEqual(cleared, []);
     assert.equal(warnings.length, 1);
     assert.match(

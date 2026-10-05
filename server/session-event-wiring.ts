@@ -178,6 +178,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         to,
         event,
         timestamp: Date.now(),
+        hasEndedTurn: session.hasEndedTurn,
       });
 
       const nextWasActive = decideWasActiveFlip(to, event, session.pendingRestart);

@@ -50,6 +50,7 @@ export const SessionSnapshot = z.object({
   resumeSessionId: z.string().nullable(),
   activeAgents: z.number().int().nonnegative(),
   awaitingBackgroundTasks: z.boolean(),
+  hasEndedTurn: z.boolean().default(false),
   pendingWakeup: PendingWakeup.nullable(),
   pendingPromptKind: z.string().nullable(),
   pendingPromptDetail: PendingPromptDetail.nullable().default(null),
