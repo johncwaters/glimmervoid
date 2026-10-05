@@ -1,0 +1,75 @@
+---
+import Base from './Base.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+import { formatDate } from '../lib/format-date.ts';
+import { sitePath } from '../lib/site-path.ts';
+
+type Props = {
+  slug: string;
+  title: string;
+  description: string;
+  pubDate: Date;
+  tags: string[];
+};
+
+const { slug, title, description, pubDate, tags } = Astro.props;
+---
+<Base title={title} description={description} socialImagePath={`blog/${slug}.png`} pageType="article">
+  <Nav />
+  <article class="post">
+    <header class="post-header">
+      <p class="eyebrow"><a href={sitePath('blog/')}>Blog</a></p>
+      <h1>{title}</h1>
+      <p class="post-meta">
+        <span>John C. Waters</span>
+        <time datetime={pubDate.toISOString()}>{formatDate(pubDate)}</time>
+        {tags.map((tag) => <span>#{tag}</span>)}
+      </p>
+    </header>
+    <div class="post-body">
+      <slot />
+    </div>
+    <aside class="post-cta">
+      <p>Glimmervoid is free, MIT licensed and runs on your own machine.</p>
+      <p><a href={`${sitePath('')}#install`}>Install it with one command</a> or read the code on <a href="https://github.com/johncwaters/glimmervoid">GitHub</a>.</p>
+    </aside>
+  </article>
+  <Footer />
+</Base>
+
+<style>
+  .post { border-top: 1px solid var(--border-dim); padding-block: 48px 64px; max-width: 72ch; margin-inline: auto; display: flex; flex-direction: column; gap: 36px; }
+  .post-header { display: flex; flex-direction: column; gap: 14px; }
+  .post-header h1 { font-size: clamp(28px, 4.6vw, 42px); line-height: 1.15; }
+  .post-header .eyebrow a { color: var(--text-dim); }
+  .post-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; color: var(--text-dim); }
+  .post-body { display: flex; flex-direction: column; gap: 22px; font-size: 16px; line-height: 1.75; }
+  .post-body :global(h2) { margin-top: 18px; font-size: clamp(20px, 2.6vw, 24px); }
+  .post-body :global(strong) { color: var(--text-head); }
+  .post-body :global(code) { font-size: 0.9em; background: var(--bg-surface); padding: 1px 5px; border-radius: 3px; }
+  .post-body :global(figure) { margin: 8px 0; display: flex; flex-direction: column; gap: 10px; }
+  .post-body :global(figure img), .post-body :global(figure video) { display: block; width: 100%; max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); }
+  .post-body :global(figcaption) { font-size: 13px; color: var(--text-dim); }
+  .post-body :global(.chrome) { color: var(--state-failed); text-decoration: line-through; text-decoration-thickness: 1.5px; }
+  .post-body :global(.stack) { border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); overflow: hidden; }
+  .post-body :global(.stack-row) { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: baseline; padding: 10px 14px; border-bottom: 1px solid var(--border-dim); font-size: 13px; line-height: 1.5; }
+  .post-body :global(.stack-row:last-child) { border-bottom: 0; }
+  .post-body :global(.stack-row span:last-child) { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .post-body :global(.stack-row.gone span:first-child) { color: var(--text-dim); text-decoration: line-through; }
+  .post-body :global(.stack-row.gone span:last-child) { color: var(--state-failed); }
+  .post-body :global(.stack-row.kept span:first-child) { color: var(--text-head); }
+  .post-body :global(.stack-row.kept span:last-child) { color: var(--state-running); }
+  .post-body :global(.diffstat) { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 10px 14px; border-left: 2px solid var(--border); font-size: 14px; }
+  .post-body :global(.diffstat .del) { color: var(--state-failed); }
+  .post-body :global(.diffstat .add) { color: var(--state-running); }
+  .post-body :global(.diffstat .meta) { color: var(--text-dim); }
+  .post-body :global(.incident) { border-left: 2px solid var(--state-waiting); padding-left: 14px; }
+  .post-body :global(.button-line) { color: var(--text-head); font-size: 17px; border-top: 1px solid var(--border-dim); padding-top: 22px; }
+  .post-cta { border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 18px 20px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+  .post-cta p:first-child { color: var(--text-head); }
+  @media (max-width: 640px) {
+    .post { padding-block: 32px 48px; gap: 28px; }
+    .post-body { font-size: 15px; }
+  }
+</style>

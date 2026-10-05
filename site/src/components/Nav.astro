@@ -1,10 +1,16 @@
+---
+import { sitePath } from '../lib/site-path.ts';
+
+const home = sitePath('');
+---
 <nav class="top" aria-label="Site">
-  <a class="wordmark" href="#top"><span>&#x25b8;</span>GLIMMERVOID</a>
+  <a class="wordmark" href={home}><span>&#x25b8;</span>GLIMMERVOID</a>
   <ul>
-    <li><a href="#signals">How it works</a></li>
-    <li><a href="#worktrees">Worktrees</a></li>
-    <li><a href="#animals">Animals</a></li>
-    <li><a href="#install">Install</a></li>
+    <li><a href={`${home}#signals`}>How it works</a></li>
+    <li><a href={`${home}#worktrees`}>Worktrees</a></li>
+    <li><a href={`${home}#animals`}>Animals</a></li>
+    <li><a href={`${home}#install`}>Install</a></li>
+    <li><a href={sitePath('blog/')}>Blog</a></li>
     <li><a href="https://github.com/johncwaters/glimmervoid">GitHub</a></li>
   </ul>
 </nav>
