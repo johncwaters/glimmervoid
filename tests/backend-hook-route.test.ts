@@ -198,3 +198,78 @@ test('oversize body (>64KB) is aborted and the server survives', async () => {
   const after = await fetch(`${base}/hook/no-such-session/Stop`, { method: 'POST', body: '{}' });
   assert.equal(after.status, 404, 'server is still alive and routing after the aborted request');
 });
+
+test('compact SessionStart uses the registered current task title', async () => {
+  const { base, token, session } = ctx();
+  const previousTitle = session.taskTitle;
+  session.taskTitle = 'Fix command relay';
+  try {
+    for (const source of ['compact', 'startup', 'resume', 'clear']) {
+      const response = await fetch(`${base}/hook/${SESSION_ID}/sessionstart?t=${encodeURIComponent(token)}`, {
+        method: 'POST', body: JSON.stringify({ source }), headers: { 'content-type': 'application/json' },
+      });
+      assert.equal(response.status, 200);
+      const reply = await response.json();
+      if (source !== 'compact') {
+        assert.equal(reply.hookSpecificOutput, undefined);
+        continue;
+      }
+      assert.deepEqual(reply.hookSpecificOutput, {
+        hookEventName: 'SessionStart',
+        additionalContext: 'Context was just compacted. Current task: "Fix command relay". Before your next step, check it still serves this intent and drop work that does not.',
+      });
+    }
+  } finally {
+    session.taskTitle = previousTitle;
+  }
+});
+
+test('refocus lookups run only for accepted compact SessionStart and preserve plan decisions', async () => {
+  const lookedUpSessionIds: string[] = [];
+  const app = createBackendHttpApp({
+    staticDir: null,
+    configStore: { configPath: path.join(ctx().tmpDir, 'config.json') },
+    remote: { allowedOrigins: [] },
+    remoteAuth: null,
+    allowedHosts: [],
+    listenerPortsFor: () => [],
+    pageToken: 'page-token',
+    hookRouter: { handle: (input) => ({ status: input.token === 'accepted' ? 200 : 403, reason: 'test' }) },
+    getSession: () => null,
+    getUsage: () => ({ ingestStatusline: () => {} }),
+    getPlanReview: () => ({ hookBodyCapBytes: () => 0, onHookEvent: () => Promise.resolve({ decision: 'allow' }) }),
+    refocusContextFor: (sessionId) => {
+      lookedUpSessionIds.push(sessionId);
+      return { taskTitle: 'Fix relay', latestPlanTitle: 'Return context' };
+    },
+  });
+  const server = http.createServer(app);
+  await listenOnLoopback(server);
+  try {
+    for (const { event, source, token, hasReminder } of [
+      { event: 'SessionStart', source: 'compact', token: 'accepted', hasReminder: true },
+      { event: 'sessionstart', source: 'startup', token: 'accepted', hasReminder: false },
+      { event: 'sessionstart', source: 'compact', token: 'rejected', hasReminder: false },
+      { event: 'statusline', source: 'compact', token: 'accepted', hasReminder: false },
+    ]) {
+      const response = await fetch(`http://127.0.0.1:${boundPort(server)}/hook/${SESSION_ID}/${event}?t=${token}`, {
+        method: 'POST', body: JSON.stringify({ source }), headers: { 'content-type': 'application/json' },
+      });
+      assert.equal(response.status, token === 'accepted' ? 200 : 403);
+      const reply = await response.json();
+      assert.equal(reply.decision, 'allow');
+      if (!hasReminder) {
+        assert.equal(reply.hookSpecificOutput, undefined);
+        continue;
+      }
+      assert.deepEqual(reply.hookSpecificOutput, {
+        hookEventName: 'SessionStart',
+        additionalContext: 'Context was just compacted. Current task: "Fix relay". Latest plan: "Return context". Before your next step, check it still serves this intent and drop work that does not.',
+      });
+    }
+    assert.deepEqual(lookedUpSessionIds, [SESSION_ID]);
+  } finally {
+    server.closeAllConnections();
+    await closeServer(server);
+  }
+});

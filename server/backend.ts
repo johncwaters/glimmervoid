@@ -141,6 +141,10 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getSession: getSessionAny,
     getUsage: () => usage,
     getPlanReview: () => laneAssembly.planReview,
+    refocusContextFor: (glimmervoidId) => ({
+      taskTitle: getSessionAny(glimmervoidId)?.taskTitle ?? null,
+      latestPlanTitle: laneAssembly.planReview?.latestPlanTitle(glimmervoidId) ?? null,
+    }),
     getAgentApi: () => agentApi,
     recordOutcome,
     logger: console,

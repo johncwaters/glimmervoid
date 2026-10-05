@@ -8,6 +8,8 @@ import type { Express, Request, RequestHandler, Response } from 'express';
 import { HOOK_EVENTS } from '../detection/settings-injector.ts';
 import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT } from '../shared/contracts/plan-review.ts';
 import type { Session } from '../session/sessions.ts';
+import { refocusReplyFor } from '../session/core/refocus-core.ts';
+import type { RefocusContext } from '../session/core/refocus-core.ts';
 import type { AgentApiPort } from './agent-api-wiring.ts';
 import { decideAgentRequest, REFUSAL_REASON, REFUSAL_STATUS } from './core/agent-api-core.ts';
 import { decideHostAllowed } from './core/host-policy.ts';
@@ -134,6 +136,7 @@ interface BackendHttpDependencies {
   getSession: (id: string) => Session | null;
   getUsage: () => { ingestStatusline: (payload: object) => void };
   getPlanReview?: () => PlanReviewHookPort | null;
+  refocusContextFor?: (glimmervoidId: string) => RefocusContext;
   getAgentApi?: () => AgentApiPort | null;
   recordOutcome?: OutcomeRecorder;
   logger?: Pick<Console, 'warn'>;
@@ -289,6 +292,7 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
     getSession,
     getUsage,
     getPlanReview = () => null,
+    refocusContextFor = () => ({ taskTitle: null, latestPlanTitle: null }),
     getAgentApi = () => null,
     recordOutcome = () => {},
     logger = console,
@@ -345,7 +349,13 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
       if (output.status === 200 && isStatuslineEvent(req.params.event)) {
         getUsage().ingestStatusline(payload);
       }
-      const reply: Record<string, unknown> = { ok: output.status === 200, reason: output.reason };
+      const refocusReply = refocusReplyFor({
+        accepted: output.status === 200,
+        event: req.params.event,
+        payload,
+        readContext: () => refocusContextFor(req.params.glimmervoidId),
+      });
+      const reply: Record<string, unknown> = { ok: output.status === 200, reason: output.reason, ...refocusReply };
       const answer = (decision: Record<string, unknown> | null) => {
         if (res.headersSent || res.writableEnded || res.destroyed) return;
         res.status(output.status).json(decision ? { ...reply, ...decision } : reply);

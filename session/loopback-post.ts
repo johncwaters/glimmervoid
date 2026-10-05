@@ -1,25 +1,35 @@
 import http from 'node:http';
+import { MAX_RESPONSE_BYTES } from './core/hook-relay-core.ts';
 
 const POST_TIMEOUT_MS = 1500;
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', '[::1]', 'localhost']);
 
-function postPayload(url: string, body: Buffer): Promise<void> {
+interface LoopbackPostOutcome {
+  reason: string;
+  responseBody: string | null;
+}
+
+function postToLoopback(url: string, body: Buffer): Promise<LoopbackPostOutcome> {
   return new Promise((resolve) => {
     let settled = false;
-    const done = (): void => {
+    const done = (reason: string, responseBody: string | null = null): void => {
       if (settled) return;
       settled = true;
-      resolve();
+      resolve({ reason, responseBody });
     };
     let target: URL;
     try {
       target = new URL(url);
     } catch {
-      done();
+      done('bad-url');
       return;
     }
-    if (target.protocol !== 'http:' || !LOOPBACK_HOSTS.has(target.hostname)) {
-      done();
+    if (target.protocol !== 'http:') {
+      done('not-http');
+      return;
+    }
+    if (!LOOPBACK_HOSTS.has(target.hostname)) {
+      done('not-loopback');
       return;
     }
     try {
@@ -35,21 +45,39 @@ function postPayload(url: string, body: Buffer): Promise<void> {
           },
         },
         (response) => {
-          response.resume();
-          response.on('end', done);
-          response.on('error', done);
+          const chunks: Buffer[] = [];
+          let responseBytes = 0;
+          response.on('data', (chunk: Buffer) => {
+            if (settled) return;
+            responseBytes += chunk.length;
+            if (responseBytes > MAX_RESPONSE_BYTES) {
+              response.destroy();
+              done('response-too-large');
+              return;
+            }
+            chunks.push(chunk);
+          });
+          response.on('end', () => done(`status-${response.statusCode}`, Buffer.concat(chunks).toString('utf8')));
+          response.on('error', () => done('response-error'));
+          response.on('close', () => done('response-error'));
         },
       );
-      request.on('error', done);
+      request.on('error', () => done('request-error'));
       request.setTimeout(POST_TIMEOUT_MS, () => {
         request.destroy();
-        done();
+        done('timeout');
       });
       request.end(body);
     } catch {
-      done();
+      done('request-throw');
     }
   });
 }
 
-export { postPayload, POST_TIMEOUT_MS };
+async function postPayload(url: string, body: Buffer): Promise<string | null> {
+  const outcome = await postToLoopback(url, body);
+  return outcome.responseBody;
+}
+
+export { postPayload, postToLoopback, POST_TIMEOUT_MS };
+export type { LoopbackPostOutcome };

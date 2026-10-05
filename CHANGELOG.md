@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Compaction reminders**: Claude sessions now receive a one-line reminder of their current task and latest plan after compaction.
 - **Calm layout (experimental)**: turn on Settings > General > Calm layout to get a Calm tab where sessions sit on three priority rings instead of a list: sessions waiting on you closest to the center, then failed ones, then finished ones you have not looked at, with working sessions as faint lights outside. Clicking a light opens one panel with a single action (Approve for a plain Bash command, Approve plan, Resume, or Open review) and a Terminal button that is always there. Approve only appears when the whole command is shown. While the layout is on, Focus drops its session rail, a corner card points at the next session waiting on you, Alt+H returns to Calm, Alt+T opens the current panel's terminal, and replying in a terminal opened from Calm moves you to the next waiting session. Off by default. On a phone the Board becomes the Calm home: the rings and a list of sessions waiting on you sit above your sessions, and tapping one opens the same single-action panel as a bottom sheet.
 
 ## [0.29.0] - 2026-10-04
