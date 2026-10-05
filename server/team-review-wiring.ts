@@ -95,6 +95,7 @@ interface TeamReviewRepoCache {
   listRepos(): Promise<string[]>;
   ensureRepo(repo: string): Promise<string | null>;
   fetchPr(repo: string, number: number, baseRef: string): Promise<{ ok: boolean; headSha: string | null; err: string }>;
+  hydrateTree(repo: string, headSha: string): Promise<{ ok: boolean; err: string }>;
   hydrateRange(repo: string, number: number, headSha: string): Promise<{ ok: boolean; err: string }>;
   hydrateSince(repo: string, sinceSha: string, headSha: string): Promise<boolean>;
 }
@@ -522,6 +523,9 @@ function createTeamReviewDispatcher({
     if (fetched.headSha !== detail.headRefOid) {
       return { error: `fetched head ${fetched.headSha} is not the triaged head ${detail.headRefOid}` };
     }
+    const hydrated = await repoCache.hydrateTree(candidate.repo, detail.headRefOid)
+      .catch((error: unknown) => ({ ok: false, err: errorMessage(error) }));
+    if (!hydrated.ok) return { error: `could not fetch the file contents of ${candidate.key}${hydrated.err ? `: ${firstLine(hydrated.err)}` : ''}` };
     return { projectPath };
   }
 

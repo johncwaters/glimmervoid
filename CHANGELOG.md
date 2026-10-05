@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Glyph-led review rows**: each team review row leads with one state glyph (hover the glyph or the row to see what it means): a check when you approved or no review is needed, a dash when you commented, a diamond when it waits on you or is out of date, a ring when it is not ready yet or waiting on the author after you requested changes, a cross when a review failed. The Team and Ready chips are gone; a small @ marks a direct request, and only exceptions (Checks failing, Author to fix, Draft, Checks running) get words. What you did on GitHub is read from your latest review or the review you posted, whichever is newer.
 - **Quieter review list**: Team review rows now use two quiet lines with distinct verdict words and the inline comment count. Pull request refs omit the repo when the list contains only one repo, and reviews after an earlier approval show plain "since approval" text.
 
+### Fixed
+
+- Team PR reviews of very large repositories no longer fail with "could not stage a checkout: timed out".
+
 ## [0.29.0] - 2026-10-04
 
 ### Added

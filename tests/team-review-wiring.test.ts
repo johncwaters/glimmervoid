@@ -63,7 +63,7 @@ function workDirOf(call: Parameters<TeamReviewSpawn>[0]): string {
 
 function setup(overrides: Partial<TeamReviewDispatchOptions> & {
   writeReport?: (workDir: string) => void; diff?: string | null; fetchedHead?: string; fetchedErr?: string; hydrated?: boolean; hydratedErr?: string;
-  isPriorHeadFetchable?: boolean;
+  isPriorHeadFetchable?: boolean; treeHydrated?: boolean; treeHydratedErr?: string; treeHydrationError?: Error;
 } = {}) {
   const worktreeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-wt-test-'));
   const workRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-work-test-'));
@@ -71,6 +71,7 @@ function setup(overrides: Partial<TeamReviewDispatchOptions> & {
   const removed: string[] = [];
   const pruned: string[] = [];
   const hydrations: string[] = [];
+  const checkoutEvents: string[] = [];
   const spawns: SpawnCall[] = [];
   const writeReport = overrides.writeReport ?? ((workDir: string) => fs.writeFileSync(path.join(workDir, REVIEW_REPORT_FILENAME), reportText()));
   const options: TeamReviewDispatchOptions = {
@@ -79,6 +80,11 @@ function setup(overrides: Partial<TeamReviewDispatchOptions> & {
       listRepos: async () => [],
       ensureRepo: async () => '/cache/Acme/app',
       fetchPr: async () => ({ ok: !overrides.fetchedErr, headSha: overrides.fetchedErr ? null : (overrides.fetchedHead ?? HEAD), err: overrides.fetchedErr ?? '' }),
+      hydrateTree: async (repo, headSha) => {
+        checkoutEvents.push(`hydrate:${repo}@${headSha}`);
+        if (overrides.treeHydrationError) throw overrides.treeHydrationError;
+        return { ok: overrides.treeHydrated ?? true, err: overrides.treeHydratedErr ?? '' };
+      },
       hydrateRange: async (repo, number, headSha) => {
         hydrations.push(`${repo}#${number}@${headSha}`);
         return { ok: overrides.hydrated ?? true, err: overrides.hydratedErr ?? '' };
@@ -89,7 +95,7 @@ function setup(overrides: Partial<TeamReviewDispatchOptions> & {
       },
     },
     gitWorkspace: {
-      stageDetachedWorktree: async ({ worktreePath }) => { staged.push(String(worktreePath)); return { ok: true }; },
+      stageDetachedWorktree: async ({ worktreePath }) => { checkoutEvents.push('stage'); staged.push(String(worktreePath)); return { ok: true }; },
       removeWorktreeByPath: async ({ cwd }) => { removed.push(String(cwd)); return { ok: true }; },
       pruneWorktrees: async ({ projectPath }) => { pruned.push(projectPath); return { ok: true }; },
       originUrl: async () => null,
@@ -121,7 +127,7 @@ function setup(overrides: Partial<TeamReviewDispatchOptions> & {
     fs.rmSync(worktreeRoot, { recursive: true, force: true });
     fs.rmSync(workRoot, { recursive: true, force: true });
   };
-  return { review, dispatch, staged, removed, pruned, hydrations, spawns, worktreeRoot, workRoot, cleanup };
+  return { review, dispatch, staged, removed, pruned, hydrations, checkoutEvents, spawns, worktreeRoot, workRoot, cleanup };
 }
 
 function reviewArgs(tier: ReviewTier) {
@@ -336,7 +342,7 @@ test('local checkout sharing excludes the cache clone and both review roots', as
       listRepos: async () => [],
       ensureRepo: async () => cached,
       fetchPr: async () => ({ ok: true, headSha: HEAD, err: '' }),
-      hydrateRange: async () => ({ ok: true, err: '' }),
+      hydrateTree: async () => ({ ok: true, err: '' }), hydrateRange: async () => ({ ok: true, err: '' }),
       hydrateSince: async () => true,
     },
     readLocalCheckoutConfig: () => ({ projects: [cached, path.join(workRoot, 'clone'), path.join(worktreeRoot, 'clone')].map((checkoutPath) => ({ path: checkoutPath })) }),
@@ -973,6 +979,36 @@ test('a failed worktree stage still runs the removal and never spawns', async ()
   }
 });
 
+test('the head tree is hydrated before the detached worktree is staged', async () => {
+  const { review, checkoutEvents, cleanup } = setup();
+  try {
+    assert.equal((await review(reviewArgs('full'))).status, 'ready');
+    assert.deepEqual(checkoutEvents, [`hydrate:Acme/app@${HEAD}`, 'stage']);
+  } finally {
+    cleanup();
+  }
+});
+
+for (const hydrationFailure of [
+  { treeHydrated: false, treeHydratedErr: 'fatal: missing blob\nmore detail' },
+  { treeHydrationError: new Error('fatal: missing blob\nmore detail') },
+  { treeHydrated: false, treeHydratedErr: '' },
+]) {
+  test(`a head tree hydration failure never stages or spawns: ${Object.keys(hydrationFailure).join(', ')}`, async () => {
+    const { review, staged, spawns, cleanup } = setup(hydrationFailure);
+    try {
+      const draft = await review(reviewArgs('full'));
+      assert.equal(draft.status, 'error');
+      const detail = hydrationFailure.treeHydratedErr === '' ? '' : ': fatal: missing blob';
+      assert.equal(draft.error, `could not fetch the file contents of Acme/app#7${detail}`);
+      assert.deepEqual(staged, []);
+      assert.deepEqual(spawns, []);
+    } finally {
+      cleanup();
+    }
+  });
+}
+
 test('a failed blob hydration is an error draft that never spawns, and the checkout is still removed', async () => {
   const { review, staged, removed, spawns, cleanup } = setup({ hydrated: false, hydratedErr: 'fatal: missing blob\nmore detail' });
   try {
@@ -1440,7 +1476,7 @@ test('discarding a saved review reaps its processes before removing its director
     },
     repoCache: {
       listRepos: async () => [], ensureRepo: async () => null,
-      fetchPr: async () => ({ ok: false, headSha: null, err: '' }), hydrateRange: async () => ({ ok: false, err: '' }), hydrateSince: async () => false,
+      fetchPr: async () => ({ ok: false, headSha: null, err: '' }), hydrateTree: async () => ({ ok: true, err: '' }), hydrateRange: async () => ({ ok: false, err: '' }), hydrateSince: async () => false,
     },
     gitWorkspace: {
       stageDetachedWorktree: async () => ({ ok: false }), removeWorktreeByPath: async () => ({ ok: false }),
@@ -1505,7 +1541,7 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
       listRepos: async () => [],
       ensureRepo: async () => '/cache/Acme/app',
       fetchPr: async () => ({ ok: true, headSha: HEAD, err: '' }),
-      hydrateRange: async () => ({ ok: true, err: '' }),
+      hydrateTree: async () => ({ ok: true, err: '' }), hydrateRange: async () => ({ ok: true, err: '' }),
       hydrateSince: async () => true,
     },
     gitWorkspace: {
@@ -1966,7 +2002,7 @@ test('the wiring hands its cached sandbox refusal to the poller, whose status th
     },
     repoCache: {
       listRepos: async () => [], ensureRepo: async () => null,
-      fetchPr: async () => ({ ok: false, headSha: null, err: '' }), hydrateRange: async () => ({ ok: false, err: '' }), hydrateSince: async () => false,
+      fetchPr: async () => ({ ok: false, headSha: null, err: '' }), hydrateTree: async () => ({ ok: true, err: '' }), hydrateRange: async () => ({ ok: false, err: '' }), hydrateSince: async () => false,
     },
     gitWorkspace: {
       stageDetachedWorktree: async () => ({ ok: false }), removeWorktreeByPath: async () => ({ ok: false }),

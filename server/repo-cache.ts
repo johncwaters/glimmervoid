@@ -1,4 +1,5 @@
 import path from 'node:path';
+import os from 'node:os';
 import { lstat, mkdir, readdir } from 'node:fs/promises';
 import { execFileAsync } from './child-process-safe.ts';
 import { prBaseRef, prHeadRef } from './core/team-review-core.ts';
@@ -11,7 +12,7 @@ interface CommandResult {
   err: string;
 }
 
-type CommandRunner = (args: string[], cwd: string, env?: Record<string, string>) => Promise<CommandResult>;
+type CommandRunner = (args: string[], cwd: string, env?: Record<string, string>, timeoutMs?: number) => Promise<CommandResult>;
 
 interface RepoCacheOptions {
   rootDir: string;
@@ -20,6 +21,8 @@ interface RepoCacheOptions {
 }
 
 const NETWORK_GIT_ENV: Record<string, string> = { GIT_TERMINAL_PROMPT: '0' };
+const GIT_COMMAND_TIMEOUT_MS = 120000;
+const HEAD_TREE_HYDRATE_TIMEOUT_MS = 10 * 60 * 1000;
 const GH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 function repoParts(repo: string): [string, string] | null {
@@ -49,10 +52,10 @@ async function childDirectoryNames(directory: string): Promise<string[]> {
   return entries.filter((entry) => entry.isDirectory() && GH_SEGMENT.test(entry.name)).map((entry) => entry.name);
 }
 
-async function runGit(args: string[], cwd: string, env?: Record<string, string>): Promise<CommandResult> {
+async function runGit(args: string[], cwd: string, env?: Record<string, string>, timeoutMs = GIT_COMMAND_TIMEOUT_MS): Promise<CommandResult> {
   try {
     const childEnv = env ? { env: { ...process.env, ...env } } : {};
-    const { stdout } = await execFileAsync('git', args, { cwd, encoding: 'utf8', timeout: 120000, ...childEnv });
+    const { stdout } = await execFileAsync('git', args, { cwd, encoding: 'utf8', timeout: timeoutMs, ...childEnv });
     return { ok: true, out: stdout.trim(), err: '' };
   } catch (error) {
     const failure = error instanceof Error ? error : new Error(String(error));
@@ -72,9 +75,9 @@ function createRepoCache({ rootDir, commandRunner = runGit, remoteUrlFor = (repo
     return queue;
   }
 
-  async function run(args: string[], cwd: string, env?: Record<string, string>): Promise<CommandResult> {
+  async function run(args: string[], cwd: string, env?: Record<string, string>, timeoutMs = GIT_COMMAND_TIMEOUT_MS): Promise<CommandResult> {
     try {
-      return await commandRunner(args, cwd, env);
+      return await commandRunner(args, cwd, env, timeoutMs);
     } catch (error) {
       return { ok: false, out: '', err: error instanceof Error ? error.message : String(error) };
     }
@@ -139,6 +142,19 @@ function createRepoCache({ rootDir, commandRunner = runGit, remoteUrlFor = (repo
         const parsed = CommitSha.safeParse(head.out);
         if (!head.ok || !parsed.success) return { ok: false, headSha: null, err: head.err };
         return { ok: true, headSha: parsed.data, err: '' };
+      });
+    },
+
+    async hydrateTree(repo: string, headSha: string): Promise<{ ok: boolean; err: string }> {
+      const parts = repoParts(repo);
+      if (!parts || !CommitSha.safeParse(headSha).success) return { ok: false, err: '' };
+      return queueFor(repo).run(async () => {
+        const repoDir = await ensureRepoUnlocked(repo, parts);
+        if (!repoDir) return { ok: false, err: '' };
+        const emptyTree = await run(['hash-object', '-t', 'tree', os.devNull], repoDir);
+        if (!emptyTree.ok) return { ok: false, err: emptyTree.err };
+        const hydrated = await run(['diff', '--shortstat', emptyTree.out, headSha], repoDir, NETWORK_GIT_ENV, HEAD_TREE_HYDRATE_TIMEOUT_MS);
+        return { ok: hydrated.ok, err: hydrated.err };
       });
     },
 
