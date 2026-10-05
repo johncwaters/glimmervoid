@@ -270,6 +270,8 @@ test('a blobless cached checkout exposes only reviewed refs, keeps the base diff
         const prompt = fs.readFileSync(path.join(request.cwd, 'subject-prompt.md'), 'utf8');
         const checkoutPath = /Review (\S+) from/.exec(prompt)?.[1] ?? '';
         checkoutPaths.push(checkoutPath);
+        assert.deepEqual(request.settingsSandbox.filesystem.allowRead, [path.join(cachedRepo, '.git', 'objects')]);
+        assert.ok(request.settingsSandbox.filesystem.denyRead.includes(repoCacheRootFor(root)));
         assert.equal(request.cwd, path.join(path.dirname(checkoutPath), 'work'));
         assert.deepEqual(git(['for-each-ref', '--format=%(refname)'], checkoutPath).trim().split('\n'), ['refs/benchmark/base', 'refs/heads/review']);
         assert.equal(git(['remote'], checkoutPath).trim(), '');
@@ -297,6 +299,44 @@ test('a blobless cached checkout exposes only reviewed refs, keeps the base diff
   assert.equal(fs.existsSync(checkoutPaths[1]), false);
   assert.equal(git(['worktree', 'list', '--porcelain'], cachedRepo).includes(checkoutPaths[1]), false);
 });
+
+for (const [variant, alternatesText] of [['missing', null], ['whitespace-only', ' \n\n']] as const) {
+  test(`a staged checkout with a ${variant} alternates file is refused as invalid, removed, and never reaches a subject`, async (context) => {
+    const root = tempRoot();
+    context.after(() => {
+      for (const directory of [root, runsRootFor(root)]) fs.rmSync(directory, { recursive: true, force: true });
+    });
+    const stagedCheckoutPaths: string[] = [];
+    const { wiring, subjectRequests, statuses } = harness({
+      root,
+      suite: manualSuite({ workspace: { kind: 'pr-checkout' }, subject: { promptTemplate: CHECKOUT_PROMPT_TEMPLATE, output: 'review-findings', timeoutSeconds: 60 } }),
+      cases: [manualCase('case-1', { repo: 'Acme/gateway', number: 7, reviewedSha: 'b'.repeat(40), baseSha: 'a'.repeat(40), changedFiles: ['change.txt'] })],
+      overrides: {
+        repoCache: { ensureRepo: async () => path.join(root, 'cached-repo'), hydrateSince: async () => true },
+        gitWorkspace: {
+          ...createGitWorkspace({}),
+          stageIsolatedCheckout: async ({ checkoutPath = '' }) => {
+            stagedCheckoutPaths.push(checkoutPath);
+            const objectsInfoDir = path.join(checkoutPath, '.git', 'objects', 'info');
+            fs.mkdirSync(objectsInfoDir, { recursive: true });
+            if (alternatesText !== null) fs.writeFileSync(path.join(objectsInfoDir, 'alternates'), alternatesText);
+            return { ok: true };
+          },
+        },
+      },
+    });
+    const runId = await runToCompletion(wiring, statuses);
+    const run = BenchmarkRun.parse(JSON.parse(fs.readFileSync(path.join(root, 'ladder', 'runs', `${runId}.json`), 'utf8')));
+    assert.ok(run.cells.length > 0);
+    for (const cell of run.cells) {
+      assert.equal(cell.status, 'invalid');
+      assert.match(String(cell.error), /the staged checkout names no shared object store/);
+    }
+    assert.ok(stagedCheckoutPaths.length > 0);
+    for (const checkoutPath of stagedCheckoutPaths) assert.equal(fs.existsSync(checkoutPath), false);
+    assert.equal(subjectRequests.length, 0);
+  });
+}
 
 function blockingSubject() {
   const started = { value: false };
@@ -401,23 +441,23 @@ test('the subject sandbox cannot read the suite answer key or reach GitHub', asy
   assert.equal(sandbox?.network.allowedDomains.some((domain) => /github/i.test(domain)), false);
 });
 
-test('the subject sandbox hides the shared repo cache refs but keeps its objects readable for alternates', async () => {
+test('a subject without a checkout hides the shared repo cache and re-allows no object store', async () => {
   const root = tempRoot();
   const { wiring, subjectRequests, statuses } = harness({ root, suite: manualSuite(), cases: [manualCase('case-1')] });
   await runToCompletion(wiring, statuses);
   const sandbox = subjectRequests[0]?.settingsSandbox;
   assert.ok(sandbox?.filesystem.denyRead.includes(repoCacheRootFor(root)));
-  assert.deepEqual(sandbox?.filesystem.allowRead, [path.join(repoCacheRootFor(root), '**', '.git', 'objects')]);
+  assert.deepEqual(sandbox?.filesystem.allowRead, []);
   const reviewSandbox = teamReviewSandbox('/review-work');
   assert.equal(reviewSandbox.filesystem.allowRead, undefined);
   assert.equal(reviewSandbox.filesystem.denyRead.includes(repoCacheRootFor(root)), false);
 });
 
-test('the subject may run codex exec while team review permissions allow nothing', async () => {
+test('the subject may run codex exec, write its dispatch prompt and read its answer while team review permissions allow nothing', async () => {
   const root = tempRoot();
   const { wiring, subjectRequests, statuses } = harness({ root, suite: manualSuite(), cases: [manualCase('case-1')] });
   await runToCompletion(wiring, statuses);
-  assert.deepEqual(subjectRequests[0]?.settingsPermissions.allow, ['Bash(codex exec *)']);
+  assert.deepEqual(subjectRequests[0]?.settingsPermissions.allow, ['Bash(codex exec *)', 'Edit(//tmp/codex-dispatch-*.txt)', 'Read(//tmp/codex-dispatch-*.out)']);
   assert.equal(Object.hasOwn(teamReviewAcceptEditsPermissions(), 'allow'), false);
 });
 

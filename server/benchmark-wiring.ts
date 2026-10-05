@@ -37,6 +37,7 @@ const PERSISTED_LINE_MAX_CHARS = 400;
 const REDACTED_SECRET = '[redacted]';
 const SUBJECT_UNREADABLE_SUITE_FOLDERS = Object.freeze(['cases', 'candidates', 'runs']);
 const SUBJECT_UNSANDBOXED_COMMANDS = Object.freeze(['codex exec *']);
+const CODEX_DISPATCH_FILE_ALLOW_RULES = Object.freeze(['Edit(//tmp/codex-dispatch-*.txt)', 'Read(//tmp/codex-dispatch-*.out)']);
 
 type ArmCommandRunner = (command: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number; signal: AbortSignal }) => Promise<{ ok: boolean; stdout: string; stderr: string }>;
 
@@ -69,6 +70,7 @@ interface BenchmarkWiringOptions {
 
 interface StagedCase {
   checkoutPath: string | null;
+  sharedObjectsPath: string | null;
   caseDir: string;
   workDir: string;
   reviewedSha: string | null;
@@ -140,7 +142,7 @@ function benchmarkSubjectPermissions(suiteDirectory: string): { deny: string[]; 
   const permissions = teamReviewAcceptEditsPermissions();
   return {
     ...permissions,
-    allow: SUBJECT_UNSANDBOXED_COMMANDS.map((command) => `Bash(${command})`),
+    allow: [...SUBJECT_UNSANDBOXED_COMMANDS.map((command) => `Bash(${command})`), ...CODEX_DISPATCH_FILE_ALLOW_RULES],
     deny: [...permissions.deny, ...subjectUnreadableFolders(suiteDirectory).map(absolutePathReadRule)],
   };
 }
@@ -150,7 +152,7 @@ function benchmarkSubjectClaudeArgs(armExtraArgs: readonly string[], checkoutPat
   return ['-p', ...armExtraArgs, '--disallowedTools', ...TEAM_REVIEW_SESSION_DENY_RULES, ...readAllowArgs, '--strict-mcp-config'];
 }
 
-function benchmarkSubjectSandbox(workDir: string, suiteDirectory: string, repoCacheRoot: string) {
+function benchmarkSubjectSandbox(workDir: string, suiteDirectory: string, repoCacheRoot: string, sharedObjectsPath: string | null) {
   const sandbox = teamReviewSandbox(workDir);
   return {
     ...sandbox,
@@ -159,7 +161,7 @@ function benchmarkSubjectSandbox(workDir: string, suiteDirectory: string, repoCa
     filesystem: {
       ...sandbox.filesystem,
       denyRead: [...sandbox.filesystem.denyRead, ...subjectUnreadableFolders(suiteDirectory), repoCacheRoot],
-      allowRead: [path.join(repoCacheRoot, '**', '.git', 'objects')],
+      allowRead: sharedObjectsPath === null ? [] : [sharedObjectsPath],
     },
   };
 }
@@ -353,6 +355,7 @@ function createBenchmarkWiring({
       if (!staged.checkoutPath) return;
       const checkoutPath = staged.checkoutPath;
       staged.checkoutPath = null;
+      staged.sharedObjectsPath = null;
       await removeDirectoryOrWarn(checkoutPath);
     }
 
@@ -371,7 +374,14 @@ function createBenchmarkWiring({
         await removeDirectoryOrWarn(checkoutPath);
         return { ok: false, reason: `could not stage a checkout: ${firstLine(created.err ?? '') || 'the isolated checkout failed'}` };
       }
+      const alternates = await fs.readFile(path.join(checkoutPath, '.git', 'objects', 'info', 'alternates'), 'utf8').catch(() => '');
+      const sharedObjectsPath = firstLine(alternates);
+      if (!sharedObjectsPath) {
+        await removeDirectoryOrWarn(checkoutPath);
+        return { ok: false, reason: 'the staged checkout names no shared object store' };
+      }
       staged.checkoutPath = checkoutPath;
+      staged.sharedObjectsPath = sharedObjectsPath;
       staged.reviewedSha = input.data.reviewedSha;
       return { ok: true };
     }
@@ -382,7 +392,7 @@ function createBenchmarkWiring({
       const caseDir = path.join(runDir, benchmarkCase.id);
       const workDir = path.join(caseDir, 'work');
       await fs.mkdir(workDir, { recursive: true });
-      const staged: StagedCase = { checkoutPath: null, caseDir, workDir, reviewedSha: null };
+      const staged: StagedCase = { checkoutPath: null, sharedObjectsPath: null, caseDir, workDir, reviewedSha: null };
       stagedCases.set(benchmarkCase.id, staged);
       return staged;
     }
@@ -472,7 +482,7 @@ function createBenchmarkWiring({
         spawnEnv: { ...baseSpawnEnv, ...(arm.env ?? {}), [OVERRIDE_TOKEN_ENV]: '', CLAUDE_CODE_OAUTH_TOKEN: token.token },
         extraClaudeArgs: benchmarkSubjectClaudeArgs(arm.extraArgs ?? [], staged.checkoutPath),
         settingsPermissions: benchmarkSubjectPermissions(suiteDirectory),
-        settingsSandbox: benchmarkSubjectSandbox(staged.workDir, suiteDirectory, repoCacheRoot),
+        settingsSandbox: benchmarkSubjectSandbox(staged.workDir, suiteDirectory, repoCacheRoot, staged.sharedObjectsPath),
         signal: subjectController.signal,
         initialPrompt: SUBJECT_BOOTSTRAP_PROMPT,
       });
