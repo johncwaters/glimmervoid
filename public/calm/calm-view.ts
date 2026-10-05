@@ -2,7 +2,6 @@ import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { PendingPromptDetail } from '#shared/contracts/session.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
-import { createUnseenCompleteTracker } from '../focus-view/unseen-complete-core.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
@@ -20,7 +19,6 @@ import { canReplyToFinishedSession, countByTier, decideArmedAdvance, formatWaitT
 import type { TimedKeystroke } from './permission-keys-core.ts';
 import { answerWithOptionKeystrokes, answerWithTextKeystrokes, approveKeystrokes, decideInstructionDelivery, INSTRUCTION_POLL_INTERVAL_MS, isAnyPromptShowing, rejectAndInstructKeystrokes, replyKeystrokes } from './permission-keys-core.ts';
 
-const unseenTracker = createUnseenCompleteTracker();
 const glyphByTier = { now: '\u25b2', next: '\u25a0', later: '\u2713', ready: '\u25cb', working: '\u00b7', resting: '\u00b7' };
 interface CalmNavigation { openTerminal: (id: string) => void; openPlan: (id: string) => void; onSheetOpenChange?: (isOpen: boolean) => void }
 interface CalmSurface { kind: 'desktop' | 'phone'; root: HTMLElement; navigation: CalmNavigation }
@@ -62,13 +60,11 @@ function isDesktopSurfaceActive() {
 }
 
 function readRows(): CalmRow[] {
-  const rows = [...sessionUIs].map(([id, ui]) => ({
+  return [...sessionUIs].map(([id, ui]) => ({
     id, name: sessionName(ui), state: ui.currentState, stateSince: ui.stateSince,
     agent: ui.agent, pendingPromptKind: ui.pendingPromptKind, pendingPromptDetail: ui.pendingPromptDetail,
     hasEndedTurn: ui.hasEndedTurn,
   }));
-  unseenTracker.noteStates(rows);
-  return rows.map((row) => ({ ...row, unseen: unseenTracker.isUnseen(row.id) }));
 }
 
 function findLight(sessionId: string | undefined) {
@@ -161,7 +157,6 @@ function renderTrace(id: string, body: HTMLElement) {
 export function applyCalmTraceResponse(reply: ServerMessageOf<'session-trace-response'>) {
   if (!claimPendingCalmRequest(reply.id, ['trace'])) return;
   if (!surface || selectedSessionId !== reply.id || !panel) return;
-  if (selectedComponent !== 'failure' && selectedComponent !== 'terminal' && selectedComponent !== 'review') return;
   const body = panel.querySelector('.calm-trace');
   if (!body) return;
   if (selectedComponent === 'review') { body.textContent = latestAgentMessageText(reply.records) ?? 'No message has been recorded.'; return; }
@@ -282,7 +277,6 @@ function appendReplyInput(row: CalmRow, ui: SessionUi, actions: HTMLElement) {
       failedStatus: UNABLE_TO_SEND_STATUS,
       blockedStatusBefore: (currentUi, stepIndex) => (stepIndex === 0 && !isReadyForReply(currentUi) ? SESSION_BUSY_STATUS : null),
     }, reportReplyStatus);
-    unseenTracker.acknowledge(row.id);
     reportReplyStatus('Sending instruction...');
   });
   actions.append(input);
@@ -383,7 +377,7 @@ function openPanel(row: CalmRow) {
     const isDiffRequested = sendControlMsg({ type: 'request-session-diff', id: row.id });
     if (isDiffRequested) pendingCalmRequests.push({ id: row.id, kind: 'diff' });
     if (!isDiffRequested) diff.textContent = 'Diff unavailable. Open review to continue.';
-    addPrimary('Open review', () => { unseenTracker.acknowledge(row.id); navigation.openTerminal(row.id); return true; });
+    addPrimary('Open review', () => { navigation.openTerminal(row.id); return true; });
     if (offersReplyInput(row)) appendReplyInput(row, ui, actions);
   }
   actions.append(status);

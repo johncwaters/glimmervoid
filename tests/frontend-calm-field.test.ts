@@ -29,7 +29,7 @@ const assertEvenlySpaced = (angles: readonly number[]) => {
   }
 };
 
-test('every light across all tiers shares one even angular spread so labels on different rings never meet', () => {
+test('every light across all tiers shares one even angular spread', () => {
   const tiers: CalmTier[] = ['now', 'next', 'later', 'ready', 'working'];
   for (const lightsPerTier of [1, 2, 5]) {
     const entries = tiers.flatMap((tier) => Array.from({ length: lightsPerTier }, (_, index) => ({ id: `${tier}-${index}`, tier })));
@@ -46,6 +46,7 @@ test('placement is deterministic, keeps input order and uses tier radii', () => 
   const entries = tiers.map((tier) => ({ id: tier, tier }));
   const lights = placeLights(entries);
   assert.deepEqual(placeLights(entries), lights);
+  assert.deepEqual(placeLights(entries.toReversed()).toReversed(), lights);
   assert.deepEqual(lights.map((light) => light.id), tiers);
   assert.deepEqual(lights.slice(0, 3).map((light) => light.radius), [NOW_RADIUS, NEXT_RADIUS, LATER_RADIUS]);
   for (const outerLight of lights.slice(3)) {
@@ -61,6 +62,8 @@ test('a single light keeps its hashed angle', () => {
 test('resting entries are omitted and empty fields stay empty', () => {
   assert.deepEqual(placeLights([{ id: 'rest', tier: 'resting' }]), []);
   assert.deepEqual(placeLights([]), []);
+  const activeEntries = [{ id: 'waiting', tier: 'now' }, { id: 'working', tier: 'working' }] as const;
+  assert.deepEqual(placeLights([...activeEntries, { id: 'rest', tier: 'resting' }]), placeLights(activeEntries));
 });
 
 test('labels appear only above the 640 pixel narrow-layout breakpoint', () => {

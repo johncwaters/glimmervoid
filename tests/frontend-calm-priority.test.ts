@@ -5,34 +5,33 @@ import type { CalmRow, CalmTier, CalmComponent } from '../public/calm/calm-prior
 
 const makeRow = (state: string, overrides: Partial<CalmRow> = {}): CalmRow => ({ id: state, name: state, state, ...overrides });
 
-const tierCases: [string, boolean | undefined, CalmTier][] = [
-  ['WAITING', false, 'now'], ['FAILED', false, 'next'], ['COMPLETE', true, 'later'],
-  ['COMPLETE', false, 'later'], ['COMPLETE', undefined, 'later'],
-  ['RUNNING', true, 'working'], ['IDLE', false, 'ready'], ['STARTING', false, 'working'],
-  ['INITIALIZING', false, 'working'], ['DORMANT', true, 'resting'], ['DONE', true, 'resting'],
-  ['UNKNOWN', true, 'resting'],
+const tierCases: [string, CalmTier][] = [
+  ['WAITING', 'now'], ['FAILED', 'next'], ['COMPLETE', 'later'],
+  ['RUNNING', 'working'], ['IDLE', 'ready'], ['STARTING', 'working'],
+  ['INITIALIZING', 'working'], ['DORMANT', 'resting'], ['DONE', 'resting'],
+  ['UNKNOWN', 'resting'],
 ];
 
-for (const [state, unseen, tier] of tierCases) {
-  test(`tierOf maps ${state} with unseen ${unseen} to ${tier}`, () => {
-    assert.equal(tierOf(makeRow(state, { unseen })), tier);
+for (const [state, tier] of tierCases) {
+  test(`tierOf maps ${state} to ${tier}`, () => {
+    assert.equal(tierOf(makeRow(state)), tier);
   });
 }
 
 test('orderCalmQueue orders tiers before wait time, puts missing waits last and preserves ties', () => {
   const rows = [
-    makeRow('COMPLETE', { unseen: true, stateSince: 0 }),
+    makeRow('COMPLETE', { stateSince: 0 }),
     makeRow('WAITING', { id: 'missing' }),
     makeRow('FAILED', { stateSince: 0 }),
     makeRow('WAITING', { id: 'newer', stateSince: 10 }),
     makeRow('WAITING', { id: 'oldest', stateSince: 0 }),
     makeRow('WAITING', { id: 'tie', stateSince: 10 }),
     makeRow('WAITING', { id: 'null', stateSince: null }),
-    makeRow('RUNNING'), makeRow('COMPLETE', { id: 'seen' }), makeRow('DONE'),
+    makeRow('RUNNING'), makeRow('IDLE', { id: 'dismissed', hasEndedTurn: true }), makeRow('IDLE'), makeRow('DONE'),
   ];
   const originalRows = [...rows];
   assert.deepEqual(orderCalmQueue(rows).map((row) => row.id),
-    ['oldest', 'newer', 'tie', 'missing', 'null', 'FAILED', 'COMPLETE', 'seen']);
+    ['oldest', 'newer', 'tie', 'missing', 'null', 'FAILED', 'COMPLETE', 'dismissed']);
   assert.deepEqual(rows, originalRows);
   assert.deepEqual(orderCalmQueue([]), []);
 });
@@ -40,23 +39,29 @@ test('orderCalmQueue orders tiers before wait time, puts missing waits last and 
 test('tierOf puts every ended turn on the later ring, dismissed or not', () => {
   assert.equal(tierOf(makeRow('IDLE', { hasEndedTurn: true })), 'later');
   assert.equal(tierOf(makeRow('IDLE', { hasEndedTurn: false })), 'ready');
-  assert.equal(tierOf(makeRow('COMPLETE', { unseen: false, hasEndedTurn: true })), 'later');
+  for (const hasEndedTurn of [true, false, undefined]) {
+    assert.equal(tierOf(makeRow('COMPLETE', { hasEndedTurn })), 'later', String(hasEndedTurn));
+  }
+  for (const [state, tier] of tierCases) {
+    if (state === 'IDLE') continue;
+    assert.equal(tierOf(makeRow(state, { hasEndedTurn: true })), tier, state);
+  }
 });
 
 test('countByTier counts each active tier and excludes resting sessions', () => {
-  assert.deepEqual(countByTier(tierCases.map(([state, unseen]) => makeRow(state, { unseen }))),
-    { now: 1, next: 1, later: 3, ready: 1, working: 3 });
+  const rows = [...tierCases.map(([state]) => makeRow(state)), makeRow('IDLE', { id: 'dismissed', hasEndedTurn: true })];
+  assert.deepEqual(countByTier(rows), { now: 1, next: 1, later: 2, ready: 1, working: 3 });
   assert.deepEqual(countByTier([]), { now: 0, next: 0, later: 0, ready: 0, working: 0 });
 });
 
 for (const state of ['WAITING', 'FAILED', 'COMPLETE']) {
   test(`orderCalmQueue sorts ${state} by wait and preserves missing and equal wait order`, () => {
     const rows = [
-      makeRow(state, { id: 'missing', unseen: true }),
-      makeRow(state, { id: 'newer', unseen: true, stateSince: 20 }),
-      makeRow(state, { id: 'older', unseen: true, stateSince: 10 }),
-      makeRow(state, { id: 'equal', unseen: true, stateSince: 20 }),
-      makeRow(state, { id: 'null', unseen: true, stateSince: null }),
+      makeRow(state, { id: 'missing' }),
+      makeRow(state, { id: 'newer', stateSince: 20 }),
+      makeRow(state, { id: 'older', stateSince: 10 }),
+      makeRow(state, { id: 'equal', stateSince: 20 }),
+      makeRow(state, { id: 'null', stateSince: null }),
     ];
     assert.deepEqual(orderCalmQueue(rows).map((row) => row.id), ['older', 'newer', 'equal', 'missing', 'null']);
   });
@@ -89,9 +94,9 @@ const componentCases: [string, CalmRow, CalmComponent, boolean][] = [
   ['null prompt', makeRow('WAITING', { pendingPromptKind: null }), 'terminal', false],
   ['missing prompt', makeRow('WAITING'), 'terminal', false],
   ['failure', makeRow('FAILED', { pendingPromptKind: 'plan' }), 'failure', false],
-  ['unseen completion', makeRow('COMPLETE', { unseen: true }), 'review', false],
-  ['seen completion', makeRow('COMPLETE', { unseen: false }), 'review', false],
-  ['completion without unseen', makeRow('COMPLETE'), 'review', false],
+  ['completion', makeRow('COMPLETE'), 'review', false],
+  ['dismissed completion', makeRow('IDLE', { hasEndedTurn: true }), 'review', false],
+  ['idle without a task', makeRow('IDLE'), 'terminal', false],
   ['running permission', makeRow('RUNNING', { pendingPromptKind: 'permission', agent: 'claude-code',
     pendingPromptDetail: { toolName: 'Bash', summary: 'Run tests', isComplete: true } }), 'terminal', false],
   ['unknown state', makeRow('UNKNOWN'), 'terminal', false],
@@ -113,7 +118,7 @@ const componentsAllowedByTier: Record<CalmTier, readonly CalmComponent[]> = {
 };
 
 test('pickComponent chooses a component consistent with the tier of every row', () => {
-  const rows = [...tierCases.map(([state, unseen]) => makeRow(state, { unseen })), ...componentCases.map(([, row]) => row)];
+  const rows = [...tierCases.map(([state]) => makeRow(state)), ...componentCases.map(([, row]) => row)];
   const tiersSeen = new Set<CalmTier>();
   for (const row of rows) {
     const tier = tierOf(row);
@@ -172,18 +177,17 @@ test('offersNextInstructionInput is true for an idle session of a keyed agent th
 });
 
 test('offersNextInstructionInput is false for busy, ended-turn or unkeyed agent sessions', () => {
-  assert.equal(offersNextInstructionInput(makeRow('COMPLETE', { agent: 'claude-code', unseen: false })), false);
+  assert.equal(offersNextInstructionInput(makeRow('COMPLETE', { agent: 'claude-code' })), false);
   assert.equal(offersNextInstructionInput(makeRow('IDLE', { agent: 'claude-code', hasEndedTurn: true })), false);
   assert.equal(offersNextInstructionInput(makeRow('RUNNING', { agent: 'claude-code' })), false);
   assert.equal(offersNextInstructionInput(makeRow('STARTING', { agent: 'claude-code' })), false);
-  assert.equal(offersNextInstructionInput(makeRow('COMPLETE', { agent: 'claude-code', unseen: true })), false);
   assert.equal(offersNextInstructionInput(makeRow('IDLE', { agent: 'codex' })), false);
   assert.equal(offersNextInstructionInput(makeRow('IDLE', { agent: undefined })), false);
 });
 
 const queueRows = (): CalmRow[] => [
   makeRow('RUNNING', { id: 'working' }),
-  makeRow('COMPLETE', { id: 'finished', unseen: true, stateSince: 0 }),
+  makeRow('COMPLETE', { id: 'finished', stateSince: 0 }),
   makeRow('WAITING', { id: 'newer', stateSince: 30 }),
   makeRow('FAILED', { id: 'failed', stateSince: 5 }),
   makeRow('WAITING', { id: 'oldest', stateSince: 10 }),
@@ -197,7 +201,7 @@ test('pickNowPeek picks the longest waiting NOW session other than the focused o
 
 test('pickNowPeek shows nothing when the focused session is the only one waiting', () => {
   assert.equal(pickNowPeek([makeRow('WAITING', { id: 'only' }), makeRow('FAILED')], 'only'), null);
-  assert.equal(pickNowPeek([makeRow('FAILED'), makeRow('COMPLETE', { unseen: true })], null), null);
+  assert.equal(pickNowPeek([makeRow('FAILED'), makeRow('COMPLETE')], null), null);
   assert.equal(pickNowPeek([], null), null);
 });
 
@@ -226,7 +230,7 @@ test('pickSessionAfterSubmit stays put when the terminal was not opened from the
 });
 
 test('pickSessionAfterSubmit stays put when no other session is waiting', () => {
-  const rows = [makeRow('WAITING', { id: 'only' }), makeRow('FAILED'), makeRow('COMPLETE', { unseen: true })];
+  const rows = [makeRow('WAITING', { id: 'only' }), makeRow('FAILED'), makeRow('COMPLETE')];
   assert.equal(pickSessionAfterSubmit('only', 'only', rows), null);
 });
 
@@ -299,7 +303,8 @@ test('panelContextFor names the prompt, failure or review for non-terminal panel
   assert.equal(panelContextFor(makeRow('WAITING'), 'question'), 'asks');
   assert.equal(panelContextFor(makeRow('WAITING'), 'plan'), 'has a plan ready');
   assert.equal(panelContextFor(makeRow('FAILED'), 'failure'), 'failed');
-  assert.equal(panelContextFor(makeRow('COMPLETE', { unseen: true }), 'review'), 'waits for you');
+  assert.equal(panelContextFor(makeRow('COMPLETE'), 'review'), 'waits for you');
+  assert.equal(panelContextFor(makeRow('IDLE', { hasEndedTurn: true }), 'review'), 'waits for you');
 });
 
 test('latestAgentMessageText returns the newest top-level assistant message in full', () => {
@@ -309,9 +314,11 @@ test('latestAgentMessageText returns the newest top-level assistant message in f
     { ...base, kind: 'assistant', text: 'older reply' },
     { ...base, kind: 'assistant', text: `  ${longText}  ` },
     { ...base, kind: 'assistant', text: 'subagent chatter', agentType: 'Explore' },
+    { ...base, kind: 'assistant', text: 'untyped subagent chatter', agentId: 'agent-1' },
     { ...base, kind: 'assistant', text: '   ' },
     { ...base, kind: 'tool_call', toolUseId: 'tool', name: 'Bash', input: {} },
   ]), longText.trim());
   assert.equal(latestAgentMessageText([{ ...base, kind: 'prompt', text: 'hello' }]), null);
+  assert.equal(latestAgentMessageText([{ ...base, kind: 'assistant', text: 'subagent only', agentId: 'agent-1' }]), null);
   assert.equal(latestAgentMessageText([]), null);
 });

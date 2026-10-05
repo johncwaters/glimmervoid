@@ -24,22 +24,25 @@ test('a fresh session has not ended a turn', () => {
 
 test('finishing a turn sets the flag and dismissing back to IDLE keeps it', () => {
   withSession(STATES.RUNNING, null, (session) => {
+    const endedTurnAtStateChange: boolean[] = [];
+    session.on('state-change', () => endedTurnAtStateChange.push(session.hasEndedTurn));
     assert.equal(session.transition('task_complete'), true);
     assert.equal(session.hasEndedTurn, true);
     assert.equal(session.transition('user_dismiss'), true);
     assert.equal(session.state, STATES.IDLE);
     assert.equal(session.toSnapshot().hasEndedTurn, true);
+    assert.deepEqual(endedTurnAtStateChange, [true, true]);
   });
 });
 
-test('a spawn resuming a conversation counts as an ended turn and a fresh spawn clears it', () => {
+test('entering INITIALIZING seeds the ended-turn flag from the configured resume id', () => {
   withSession(STATES.DORMANT, 'vendor-conversation', (session) => {
     assert.equal(session.transition('user_start'), true);
     assert.equal(session.hasEndedTurn, true);
   });
   withSession(STATES.RUNNING, null, (session) => {
-    session.transition('task_complete');
-    session.transition('user_kill');
+    assert.equal(session.transition('task_complete'), true);
+    assert.equal(session.transition('user_kill'), true);
     assert.equal(session.transition('user_restart'), true);
     assert.equal(session.hasEndedTurn, false);
   });

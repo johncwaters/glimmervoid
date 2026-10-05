@@ -15,18 +15,17 @@ export interface CalmRow {
   agent?: string | null;
   pendingPromptKind?: string | null;
   pendingPromptDetail?: PendingPromptDetail | null;
-  unseen?: boolean;
   hasEndedTurn?: boolean;
 }
 
-function hasEndedTurn(row: CalmRow): boolean {
+function isWaitingForNextStep(row: CalmRow): boolean {
   return row.state === STATES.COMPLETE || (row.state === STATES.IDLE && row.hasEndedTurn === true);
 }
 
 export function tierOf(row: CalmRow): CalmTier {
   if (row.state === STATES.WAITING) return 'now';
   if (row.state === STATES.FAILED) return 'next';
-  if (hasEndedTurn(row)) return 'later';
+  if (isWaitingForNextStep(row)) return 'later';
   switch (row.state) {
     case STATES.IDLE:
       return 'ready';
@@ -189,13 +188,15 @@ export function offersReplyInput(row: Pick<CalmRow, 'agent'>): boolean {
 }
 
 export function offersNextInstructionInput(row: CalmRow): boolean {
-  return pickComponent(row).component === 'terminal' && tierOf(row) === 'ready' && offersReplyInput(row);
+  return tierOf(row) === 'ready' && offersReplyInput(row);
 }
 
 export function latestAgentMessageText(records: readonly TraceRecord[]): string | null {
   for (let index = records.length - 1; index >= 0; index -= 1) {
     const record = records[index];
-    if (record.kind === 'assistant' && !record.agentType && record.text.trim()) return record.text.trim();
+    if (record.kind !== 'assistant' || record.agentId || record.agentType) continue;
+    const messageText = record.text.trim();
+    if (messageText) return messageText;
   }
   return null;
 }
