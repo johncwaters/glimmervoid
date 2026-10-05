@@ -129,6 +129,7 @@ type QueuedGitResult = GitResult & { admissionRefused?: boolean };
 type WorktreeDirtyProbe = { ok: boolean; dirty: boolean; headSha: string | null; err?: string; admissionRefused?: boolean };
 type MergeProbeEnvArgs = { projectPath: string; timeoutMs?: number };
 type StageDetachedWorktreeArgs = { projectPath: string; worktreePath?: string; sha?: string };
+type StageIsolatedCheckoutArgs = { projectPath: string; checkoutPath?: string; sha?: string; baseSha?: string };
 type MergeFastForwardArgs = {
   projectPath: string;
   expectedHead?: string;
@@ -148,6 +149,9 @@ type MergeTreeArgs = {
 const MERGE_PROBE_TIMEOUT_MS = 30000;
 const REMOTE_REF_PREFIX = 'refs/remotes/origin/';
 const REMOTE_BRANCH_LISTING_MAX_BUFFER = 64 * 1024 * 1024;
+const ISOLATED_CHECKOUT_HYDRATE_TIMEOUT_MS = 10 * 60 * 1000;
+const ISOLATED_CHECKOUT_REVIEW_REF = 'refs/heads/review';
+const ISOLATED_CHECKOUT_BASE_REF = 'refs/benchmark/base';
 
 function gitChildEnv(extra?: GitExtraOptions): { env?: Record<string, string | undefined> } {
   if (extra?.replaceEnv) return { env: extra.replaceEnv };
@@ -920,6 +924,56 @@ function createGitWorkspace(opts: {
     return run(['worktree', 'add', '--detach', worktreePath, sha], projectPath);
   }
 
+  function isolatedCheckoutRefusal({ checkoutPath, sha, baseSha }: StageIsolatedCheckoutArgs): GitResult | null {
+    if (!checkoutPath) return { ok: false, out: '', err: 'an isolated checkout needs a path' };
+    if (normalizeSha(sha) !== sha || normalizeSha(baseSha) !== baseSha) {
+      return { ok: false, out: '', err: 'an isolated checkout sha and base sha must be 40 lowercase hexadecimal characters' };
+    }
+    return null;
+  }
+
+  async function hydrateCheckoutTree(projectPath: string, sha: string): Promise<GitResult> {
+    const emptyTree = await run(['hash-object', '-t', 'tree', os.devNull], projectPath);
+    if (!emptyTree.ok) return emptyTree;
+    return run(['diff', '--shortstat', emptyTree.out, sha], projectPath, {
+      timeout: ISOLATED_CHECKOUT_HYDRATE_TIMEOUT_MS,
+      env: { GIT_TERMINAL_PROMPT: '0' },
+    });
+  }
+
+  async function stageIsolatedCheckoutBody({ projectPath, checkoutPath = '', sha = '', baseSha = '' }: StageIsolatedCheckoutArgs): Promise<GitResult> {
+    const commonDir = await run(['rev-parse', '--git-common-dir'], projectPath);
+    if (!commonDir.ok || !commonDir.out) return { ok: false, out: '', err: commonDir.err || 'the source repository has no git dir' };
+    const sourceObjectsDir = path.join(path.resolve(projectPath, commonDir.out), 'objects');
+    await fsp.mkdir(path.dirname(checkoutPath), { recursive: true });
+    await fsp.mkdir(checkoutPath);
+    const initialized = await run(['init', '--quiet', '--template='], checkoutPath);
+    if (!initialized.ok) return initialized;
+    const alternatesPath = path.join(checkoutPath, '.git', 'objects', 'info', 'alternates');
+    await fsp.mkdir(path.dirname(alternatesPath), { recursive: true });
+    await fsp.writeFile(alternatesPath, `${sourceObjectsDir}\n`, 'utf8');
+    for (const [ref, refSha] of [[ISOLATED_CHECKOUT_REVIEW_REF, sha], [ISOLATED_CHECKOUT_BASE_REF, baseSha]]) {
+      const updated = await run(['update-ref', ref, refSha], checkoutPath);
+      if (!updated.ok) return updated;
+    }
+    const checkedOut = await run(['checkout', '--quiet', '--detach', ISOLATED_CHECKOUT_REVIEW_REF], checkoutPath);
+    if (!checkedOut.ok) return checkedOut;
+    const status = await run(WORKTREE_STATUS_ARGS, checkoutPath);
+    if (!status.ok) return status;
+    if (status.out !== '') return { ok: false, out: '', err: 'the isolated checkout reports changes right after checkout' };
+    return okResult('');
+  }
+
+  const stageIsolatedCheckoutQueued = serialized(stageIsolatedCheckoutBody);
+
+  async function stageIsolatedCheckout(args: StageIsolatedCheckoutArgs): Promise<GitResult> {
+    const refusal = isolatedCheckoutRefusal(args);
+    if (refusal) return refusal;
+    const hydrated = await hydrateCheckoutTree(args.projectPath, args.sha ?? '');
+    if (!hydrated.ok) return { ok: false, out: '', err: hydrated.err || 'the reviewed tree could not be fetched' };
+    return stageIsolatedCheckoutQueued(args).catch(errResult);
+  }
+
   async function mergeFastForwardToBody({ projectPath, expectedHead, sha, timeoutMs }: MergeFastForwardArgs): Promise<MergeFastForwardResult> {
     if (normalizeSha(sha) !== sha) {
       return {
@@ -1229,6 +1283,7 @@ function createGitWorkspace(opts: {
     fetchOrigin: serialized(fetchOriginBody),
     pruneWorktrees: serialized(pruneWorktreesBody),
     stageDetachedWorktree: serialized(stageDetachedWorktreeBody),
+    stageIsolatedCheckout,
     mergeFastForwardTo,
     resetKeepTo: admitted(resetKeepToBody, (args: ResetKeepArgs): QueuedGitResult => ({
       ok: false,

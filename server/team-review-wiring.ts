@@ -78,7 +78,8 @@ type TeamReviewSandbox = {
   allowUnsandboxedCommands: false;
   enableWeakerNetworkIsolation: true;
   network: { strictAllowlist: true; allowLocalBinding: true; allowAllUnixSockets: true; allowedDomains: string[] };
-  filesystem: { allowWrite: string[]; denyWrite: string[]; denyRead: string[] };
+  filesystem: { allowWrite: string[]; denyWrite: string[]; denyRead: string[]; allowRead?: string[] };
+  excludedCommands?: string[];
 };
 
 type KeepMergeableSandbox = Omit<TeamReviewSandbox, 'network' | 'filesystem'> & {
@@ -113,7 +114,7 @@ type TeamReviewSpawn = (options: {
   cwd: string;
   spawnEnv: Record<string, string>;
   extraClaudeArgs: string[];
-  settingsPermissions: { deny: string[]; defaultMode: string };
+  settingsPermissions: { deny: string[]; defaultMode: string; allow?: string[] };
   settingsSandbox: TeamReviewSandbox | KeepMergeableSandbox;
   signal: AbortSignal;
   onSessionId?: (id: string) => void;

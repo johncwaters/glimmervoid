@@ -3,15 +3,17 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { createBenchmarkWiring } from '../server/benchmark-wiring.ts';
 import type { BenchmarkWiringOptions } from '../server/benchmark-wiring.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
+import { createRepoCache } from '../server/repo-cache.ts';
 import claudeCode from '../session/adapters/claude-code.ts';
 import type { LaneSpawn } from '../server/lane-spawn.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES } from '../server/core/lane-permissions-core.ts';
 import { absolutePathReadRule } from '../server/core/team-review-core.ts';
-import { TEAM_REVIEW_SESSION_DENY_RULES } from '../server/team-review-wiring.ts';
+import { TEAM_REVIEW_SESSION_DENY_RULES, teamReviewAcceptEditsPermissions, teamReviewSandbox } from '../server/team-review-wiring.ts';
 import type { TeamReviewSpawn } from '../server/team-review-wiring.ts';
 import { BenchmarkRun, BenchmarkStatus } from '../shared/contracts/benchmark.ts';
 import type { BenchmarkStatus as BenchmarkStatusType } from '../shared/contracts/benchmark.ts';
@@ -63,6 +65,14 @@ const FINDINGS_OUTPUT = [
   'One finding. Degraded: none.',
 ].join('\n');
 
+function runsRootFor(root: string): string {
+  return `${root}-runs`;
+}
+
+function repoCacheRootFor(root: string): string {
+  return `${root}-repo-cache`;
+}
+
 function harness({ root, suite, cases, overrides = {} }: { root: string; suite: Record<string, unknown>; cases: Record<string, unknown>[]; overrides?: Partial<BenchmarkWiringOptions> }) {
   writeJson(path.join(root, 'ladder', 'suite.json'), suite);
   for (const benchmarkCase of cases) writeJson(path.join(root, 'ladder', 'cases', `${String(benchmarkCase.id)}.json`), benchmarkCase);
@@ -72,6 +82,7 @@ function harness({ root, suite, cases, overrides = {} }: { root: string; suite: 
   const armCommands: { command: string; args: string[]; env: NodeJS.ProcessEnv; signal: AbortSignal }[] = [];
   const wiring = createBenchmarkWiring({
     benchmarksRoot: root,
+    runsRoot: runsRootFor(root),
     isEnabled: () => true,
     broadcast: (status) => statuses.push(BenchmarkStatus.parse(status)),
     github: {
@@ -80,6 +91,7 @@ function harness({ root, suite, cases, overrides = {} }: { root: string; suite: 
       compareCommits: async () => null,
     },
     repoCache: { ensureRepo: async () => null, hydrateSince: async () => false },
+    repoCacheRoot: repoCacheRootFor(root),
     gitWorkspace: createGitWorkspace({}),
     spawnSubject: async (request) => {
       subjectRequests.push(request);
@@ -210,11 +222,16 @@ function reviewedChangeRepo(): { repo: string; baseSha: string; reviewedSha: str
   git(['config', 'user.email', 'bench@example.com'], repo);
   git(['config', 'user.name', 'Bench'], repo);
   git(['config', 'commit.gpgsign', 'false'], repo);
+  git(['config', 'uploadpack.allowFilter', 'true'], repo);
   fs.writeFileSync(path.join(repo, 'base.txt'), 'base\n');
+  fs.writeFileSync(path.join(repo, 'change.txt'), 'before review\n');
+  fs.writeFileSync(path.join(repo, 'deleted.txt'), 'removed during review\n');
+  fs.writeFileSync(path.join(repo, 'binary.bin'), Buffer.from([0, 1, 2, 3]));
   git(['add', '.'], repo);
   git(['commit', '-q', '-m', 'base'], repo);
   const baseSha = git(['rev-parse', 'HEAD'], repo).trim();
   fs.writeFileSync(path.join(repo, 'change.txt'), 'change\n');
+  fs.rmSync(path.join(repo, 'deleted.txt'));
   git(['add', '.'], repo);
   git(['commit', '-q', '-m', 'change'], repo);
   return { repo, baseSha, reviewedSha: git(['rev-parse', 'HEAD'], repo).trim() };
@@ -222,22 +239,46 @@ function reviewedChangeRepo(): { repo: string; baseSha: string; reviewedSha: str
 
 const CHECKOUT_PROMPT_TEMPLATE = 'Review {repoPath} from {baseSha} and write to {resultPath}.';
 
-test('a subject that dirties the checkout invalidates its cell and the next cell gets a fresh checkout', { skip: !hasGit() }, async () => {
+test('a blobless cached checkout exposes only reviewed refs, keeps the base diff, and replaces a dirtied checkout', { skip: !hasGit() }, async (context) => {
   const root = tempRoot();
   const { repo, baseSha, reviewedSha } = reviewedChangeRepo();
+  const cacheRoot = `${root}-cache`;
+  context.after(() => {
+    for (const directory of [root, repo, cacheRoot, runsRootFor(root)]) fs.rmSync(directory, { recursive: true, force: true });
+  });
+  fs.writeFileSync(path.join(repo, 'change.txt'), 'the post-review fix\n');
+  git(['add', '.'], repo);
+  git(['commit', '-q', '-m', 'post-review fix'], repo);
+  const postReviewSha = git(['rev-parse', 'HEAD'], repo).trim();
+  const repoCache = createRepoCache({ rootDir: cacheRoot, remoteUrlFor: () => pathToFileURL(repo).href });
+  const cachedRepo = await repoCache.ensureRepo('Acme/gateway');
+  assert.ok(cachedRepo);
+  assert.match(git(['rev-list', '--objects', '--all', '--missing=print'], cachedRepo), /^\?/m);
   const checkoutPaths: string[] = [];
+  const reachableCommitsBySubject: string[][] = [];
+  const baseDiffsBySubject: string[] = [];
+  const changeTextBySubject: string[] = [];
   let subjectCount = 0;
   const { wiring, statuses } = harness({
     root,
     suite: manualSuite({ workspace: { kind: 'pr-checkout' }, subject: { promptTemplate: CHECKOUT_PROMPT_TEMPLATE, output: 'review-findings', timeoutSeconds: 60 } }),
     cases: [manualCase('case-1', { repo: 'Acme/gateway', number: 7, reviewedSha, baseSha, changedFiles: ['change.txt'] })],
     overrides: {
-      repoCache: { ensureRepo: async () => repo, hydrateSince: async () => true },
+      repoCache,
       spawnSubject: async (request) => {
         subjectCount += 1;
         const prompt = fs.readFileSync(path.join(request.cwd, 'subject-prompt.md'), 'utf8');
         const checkoutPath = /Review (\S+) from/.exec(prompt)?.[1] ?? '';
         checkoutPaths.push(checkoutPath);
+        assert.equal(request.cwd, path.join(path.dirname(checkoutPath), 'work'));
+        assert.deepEqual(git(['for-each-ref', '--format=%(refname)'], checkoutPath).trim().split('\n'), ['refs/benchmark/base', 'refs/heads/review']);
+        assert.equal(git(['remote'], checkoutPath).trim(), '');
+        assert.match(git(['diff', `${baseSha}...HEAD`], checkoutPath), /-before review/);
+        assert.equal(fs.readFileSync(path.join(checkoutPath, 'base.txt'), 'utf8'), 'base\n');
+        assert.deepEqual(fs.readFileSync(path.join(checkoutPath, 'binary.bin')), Buffer.from([0, 1, 2, 3]));
+        reachableCommitsBySubject.push(git(['log', '--all', '--format=%H'], checkoutPath).trim().split('\n').sort());
+        baseDiffsBySubject.push(git(['diff', '--name-only', `${baseSha}...HEAD`], checkoutPath).trim());
+        changeTextBySubject.push(fs.readFileSync(path.join(checkoutPath, 'change.txt'), 'utf8'));
         if (subjectCount === 1) fs.writeFileSync(path.join(checkoutPath, 'change.txt'), 'edited by the subject\n');
         fs.writeFileSync(path.join(request.cwd, 'subject-output.md'), FINDINGS_OUTPUT);
       },
@@ -247,10 +288,14 @@ test('a subject that dirties the checkout invalidates its cell and the next cell
   const run = BenchmarkRun.parse(JSON.parse(fs.readFileSync(path.join(root, 'ladder', 'runs', `${runId}.json`), 'utf8')));
   assert.deepEqual(run.cells.map((cell) => cell.status), ['invalid', 'scored']);
   assert.match(String(run.cells[0].error), /changed files in the checkout/);
-  assert.notEqual(checkoutPaths[0], checkoutPaths[1]);
-  assert.equal(fs.existsSync(checkoutPaths[0]), false);
+  assert.equal(path.relative(runsRootFor(root), checkoutPaths[0]).split(path.sep).join('/'), `ladder/${runId}/case-1/checkout`);
+  const reviewedHistory = [reviewedSha, baseSha].sort();
+  assert.deepEqual(reachableCommitsBySubject, [reviewedHistory, reviewedHistory]);
+  assert.ok(reachableCommitsBySubject.every((commits) => !commits.includes(postReviewSha)));
+  assert.deepEqual(baseDiffsBySubject, ['change.txt\ndeleted.txt', 'change.txt\ndeleted.txt']);
+  assert.deepEqual(changeTextBySubject, ['change\n', 'change\n']);
   assert.equal(fs.existsSync(checkoutPaths[1]), false);
-  assert.equal(git(['worktree', 'list', '--porcelain'], repo).includes(checkoutPaths[1]), false);
+  assert.equal(git(['worktree', 'list', '--porcelain'], cachedRepo).includes(checkoutPaths[1]), false);
 });
 
 function blockingSubject() {
@@ -350,8 +395,30 @@ test('the subject sandbox cannot read the suite answer key or reach GitHub', asy
   await runToCompletion(wiring, statuses);
   const sandbox = subjectRequests[0]?.settingsSandbox;
   for (const folder of ['cases', 'candidates', 'runs']) assert.ok(sandbox?.filesystem.denyRead.includes(path.join(root, 'ladder', folder)), folder);
+  assert.deepEqual(sandbox?.excludedCommands, ['codex exec *']);
+  assert.equal(teamReviewSandbox('/review-work').excludedCommands, undefined);
   assert.ok(sandbox?.filesystem.denyRead.includes('~/.ssh'));
   assert.equal(sandbox?.network.allowedDomains.some((domain) => /github/i.test(domain)), false);
+});
+
+test('the subject sandbox hides the shared repo cache refs but keeps its objects readable for alternates', async () => {
+  const root = tempRoot();
+  const { wiring, subjectRequests, statuses } = harness({ root, suite: manualSuite(), cases: [manualCase('case-1')] });
+  await runToCompletion(wiring, statuses);
+  const sandbox = subjectRequests[0]?.settingsSandbox;
+  assert.ok(sandbox?.filesystem.denyRead.includes(repoCacheRootFor(root)));
+  assert.deepEqual(sandbox?.filesystem.allowRead, [path.join(repoCacheRootFor(root), '**', '.git', 'objects')]);
+  const reviewSandbox = teamReviewSandbox('/review-work');
+  assert.equal(reviewSandbox.filesystem.allowRead, undefined);
+  assert.equal(reviewSandbox.filesystem.denyRead.includes(repoCacheRootFor(root)), false);
+});
+
+test('the subject may run codex exec while team review permissions allow nothing', async () => {
+  const root = tempRoot();
+  const { wiring, subjectRequests, statuses } = harness({ root, suite: manualSuite(), cases: [manualCase('case-1')] });
+  await runToCompletion(wiring, statuses);
+  assert.deepEqual(subjectRequests[0]?.settingsPermissions.allow, ['Bash(codex exec *)']);
+  assert.equal(Object.hasOwn(teamReviewAcceptEditsPermissions(), 'allow'), false);
 });
 
 test('the override token never reaches an arm command or a subject spawn env', async () => {
@@ -424,21 +491,34 @@ test('cancelling during arm setup aborts the arm command and spawns no subject',
   assert.equal(subjectRequests.length, 0);
 });
 
-test('the startup sweep marks stale running records interrupted and deletes leftover work and worktree dirs', async () => {
+test('the startup sweep interrupts stale runs and removes scratch dirs and legacy worktree registrations', { skip: !hasGit() }, async (context) => {
   const root = tempRoot();
+  context.after(() => {
+    for (const directory of [root, runsRootFor(root)]) fs.rmSync(directory, { recursive: true, force: true });
+  });
   const { wiring } = harness({ root, suite: manualSuite(), cases: [manualCase('case-1')] });
   const staleRunPath = path.join(root, 'ladder', 'runs', 'stale.json');
   writeJson(staleRunPath, { id: 'stale', suiteId: 'ladder', status: 'running', startedAt: 1, finishedAt: null, error: null, cells: [] });
-  const leftoverWorkDir = path.join(root, 'ladder', 'work', 'old-run', 'case-1');
-  const leftoverWorktree = path.join(root, 'ladder', 'worktrees', 'case-1-dead');
-  fs.mkdirSync(leftoverWorkDir, { recursive: true });
-  fs.mkdirSync(leftoverWorktree, { recursive: true });
+  const leftoverCaseDir = path.join(runsRootFor(root), 'ladder', 'old-run', 'case-1');
+  const legacyWorkDir = path.join(root, 'ladder', 'work', 'old-run', 'case-1');
+  const legacyWorktree = path.join(root, 'ladder', 'worktrees', 'case-1-dead');
+  for (const directory of [path.join(leftoverCaseDir, 'checkout'), path.join(leftoverCaseDir, 'work'), legacyWorkDir]) fs.mkdirSync(directory, { recursive: true });
+  const repo = path.join(root, 'legacy-cache');
+  fs.mkdirSync(repo);
+  git(['init', '-q'], repo);
+  git(['-c', 'user.name=Bench', '-c', 'user.email=bench@example.com', '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-qm', 'base'], repo);
+  const sha = git(['rev-parse', 'HEAD'], repo).trim();
+  assert.equal((await createGitWorkspace({}).stageDetachedWorktree({ projectPath: repo, worktreePath: legacyWorktree, sha })).ok, true);
   await wiring.sweepLeftovers();
   const settled = BenchmarkRun.parse(JSON.parse(fs.readFileSync(staleRunPath, 'utf8')));
   assert.equal(settled.status, 'interrupted');
   assert.equal(typeof settled.finishedAt, 'number');
+  assert.equal(fs.existsSync(runsRootFor(root)), false);
   assert.equal(fs.existsSync(path.join(root, 'ladder', 'work')), false);
-  assert.equal(fs.existsSync(leftoverWorktree), false);
+  assert.equal(fs.existsSync(path.join(root, 'ladder', 'worktrees')), false);
+  assert.ok(fs.existsSync(path.join(root, 'ladder', 'suite.json')));
+  assert.equal(git(['worktree', 'list', '--porcelain'], repo).includes(legacyWorktree), false);
+  assert.equal(fs.existsSync(path.join(repo, '.git', 'worktrees')), false);
 });
 
 test('a subject that echoes its token leaves no trace of it in the run record and bounds each persisted line', async () => {

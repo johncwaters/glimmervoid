@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { execFileAsync } from '../server/child-process-safe.ts';
 
 import { createGitWorkspace, createGitWorkspaceSync } from '../server/git-workspace.ts';
 import type { WorkspaceHandle } from '../server/git-workspace.ts';
@@ -197,6 +198,48 @@ test('stageDetachedWorktree refuses a non-lowercase full sha without running git
   const staged = await gitWorkspace.stageDetachedWorktree({ projectPath: '/repo', worktreePath: '/stage', sha: 'A'.repeat(40) });
   assert.equal(staged.ok, false);
   assert.deepEqual(calls, []);
+});
+
+test('stageIsolatedCheckout refuses a non-lowercase full sha or base sha without running git', async () => {
+  const calls: string[][] = [];
+  const gitWorkspace = createGitWorkspace({ git: (args) => { calls.push(args); return ''; } });
+  const badSha = await gitWorkspace.stageIsolatedCheckout({ projectPath: '/repo', checkoutPath: '/stage', sha: 'A'.repeat(40), baseSha: 'b'.repeat(40) });
+  const badBase = await gitWorkspace.stageIsolatedCheckout({ projectPath: '/repo', checkoutPath: '/stage', sha: 'a'.repeat(40), baseSha: 'main' });
+  assert.equal(badSha.ok, false);
+  assert.equal(badBase.ok, false);
+  assert.deepEqual(calls, []);
+});
+
+test('stageIsolatedCheckout does not import refs or remotes from configured Git templates', { skip: !GIT }, async (context) => {
+  const repo = initRepoOnMain('glimmervoid-isolated-');
+  context.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const sha = git(['rev-parse', 'HEAD'], repo).trim();
+  const templateDir = path.join(repo, 'template');
+  fs.mkdirSync(path.join(templateDir, 'refs', 'heads'), { recursive: true });
+  fs.writeFileSync(path.join(templateDir, 'refs', 'heads', 'leaked'), `${sha}\n`);
+  fs.writeFileSync(path.join(templateDir, 'config'), '[remote "origin"]\nurl = https://example.com/repo.git\n');
+  const checkoutPath = path.join(repo, 'checkout');
+  const gitWorkspace = createGitWorkspace({
+    git: async (args, cwd) => {
+      const { stdout } = await execFileAsync('git', ['-c', `init.templateDir=${templateDir}`, ...args], { cwd, encoding: 'utf8' });
+      return stdout;
+    },
+  });
+  const staged = await gitWorkspace.stageIsolatedCheckout({ projectPath: repo, checkoutPath, sha, baseSha: sha });
+  assert.equal(staged.ok, true, staged.err ?? 'checkout staging failed');
+  assert.equal(git(['remote'], checkoutPath).trim(), '');
+  assert.deepEqual(git(['for-each-ref', '--format=%(refname)'], checkoutPath).trim().split('\n'), ['refs/benchmark/base', 'refs/heads/review']);
+});
+
+test('stageIsolatedCheckout refuses an existing destination without changing its repository', { skip: !GIT }, async (context) => {
+  const repo = initRepoOnMain('glimmervoid-isolated-existing-');
+  context.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const sha = git(['rev-parse', 'HEAD'], repo).trim();
+  const staged = await createGitWorkspace({}).stageIsolatedCheckout({ projectPath: repo, checkoutPath: repo, sha, baseSha: sha });
+  assert.equal(staged.ok, false);
+  assert.match(staged.err ?? '', /EEXIST/);
+  assert.equal(git(['symbolic-ref', '--short', 'HEAD'], repo).trim(), 'main');
+  assert.equal(fs.existsSync(path.join(repo, '.git', 'objects', 'info', 'alternates')), false);
 });
 
 test('mergeFastForwardTo refuses when the sampled head differs from expectedHead', async () => {

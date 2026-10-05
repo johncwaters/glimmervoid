@@ -158,6 +158,17 @@ test('finding extraction detects lane death and unhealthy degradation without co
   assert.deepEqual(healthy.degradedReasons, []);
 });
 
+test('degraded text quoted inside a finding body does not mark the trial degraded', () => {
+  const findingQuotingDegraded = '- file: src/a.ts | line: 3 | severity: HIGH | reviewer: code | body: The log prints "Degraded: lane x died. LANE_DEATH: x" on retry.';
+  const healthy = extractFindings(`STRUCTURED_FINDINGS:\n${findingQuotingDegraded}\n\nOVERALL_SUMMARY:\nDone. Degraded: none.`, 'review-findings');
+  assert.ok('findings' in healthy);
+  assert.equal(healthy.findings.length, 1);
+  assert.deepEqual(healthy.degradedReasons, []);
+  const degraded = extractFindings(`STRUCTURED_FINDINGS:\n${findingQuotingDegraded}\n\nOVERALL_SUMMARY:\nDone. Degraded: code lane failed.`, 'review-findings');
+  assert.ok('findings' in degraded);
+  assert.deepEqual(degraded.degradedReasons, ['Degraded: code lane failed']);
+});
+
 test('json findings accept arrays and fenced objects and reject other shapes or malformed text', () => {
   const array = extractFindings('["plain",{"message":"defect"},null,5]', 'json');
   assert.ok('findings' in array);
@@ -233,7 +244,7 @@ test('paired reports preserve case order compare recalls and total only cases ev
     id: 'run-1', suiteId: suite.id, status: 'completed', startedAt: 100, finishedAt: 500, error: null,
     cells: [
       scoredCell('second', 'baseline', 'found', { costUsd: 1 }),
-      scoredCell('second', 'variant', 'partial', { degradedReasons: ['LANE_DEATH: security'], costUsd: 2 }),
+      scoredCell('second', 'variant', 'partial', { costUsd: 2 }),
       scoredCell('second', 'baseline', 'missed', { trial: 2, costUsd: 0 }),
       scoredCell('first', 'baseline', 'found'),
       scoredCell('first', 'variant', 'missed', { status: 'invalid', error: 'Dirty workspace', costUsd: 3 }),
@@ -249,13 +260,29 @@ test('paired reports preserve case order compare recalls and total only cases ev
   assert.deepEqual(report.rows[1].arms.variant.recallByTag, { human: null, shared: null });
   assert.equal(report.rows[2].arms.variant.costUsd, null);
   assert.deepEqual(report.totals.baseline, { trials: 3, recall: 0.5, recallByTag: { human: 0.5, shared: 0.5 }, degraded: 0, invalid: 1, costUsd: 1 });
-  assert.deepEqual(report.totals.variant, { trials: 1, recall: 0.5, recallByTag: { human: 0.5, shared: 0.5 }, degraded: 1, invalid: 1, costUsd: 5 });
+  assert.deepEqual(report.totals.variant, { trials: 1, recall: 0.5, recallByTag: { human: 0.5, shared: 0.5 }, degraded: 0, invalid: 1, costUsd: 5 });
   const different = pairedReport({ suite, run: { ...run, cells: [scoredCell('first', 'baseline', 'partial'), scoredCell('first', 'variant', 'found')] }, referencesByCase: { first: oneReference } });
   assert.equal(different.rows[0].deltaVsBaseline.variant, 0.5);
   const empty = pairedReport({ suite, run: { ...run, cells: [] }, referencesByCase: {} });
   assert.deepEqual(empty.rows, []);
   assert.equal(empty.totals.baseline.recall, null);
   assert.equal(empty.totals.baseline.costUsd, null);
+});
+
+test('a degraded scored cell is left out of recall but still counted as degraded', () => {
+  const run = BenchmarkRun.parse({
+    id: 'run-1', suiteId: suite.id, status: 'completed', startedAt: 100, finishedAt: 500, error: null,
+    cells: [
+      scoredCell('only', 'baseline', 'found'),
+      scoredCell('only', 'variant', 'missed'),
+      scoredCell('only', 'variant', 'found', { trial: 2, degradedReasons: ['LANE_DEATH: security'] }),
+    ],
+  });
+  const report = pairedReport({ suite, run, referencesByCase: { only: [references[0]] } });
+  assert.deepEqual(report.rows[0].arms.variant, { trials: 1, recall: 0, recallByTag: { human: 0, shared: 0 }, degraded: 1, invalid: 0, costUsd: null });
+  assert.equal(report.rows[0].deltaVsBaseline.variant, -1);
+  assert.equal(report.totals.variant.recall, 0);
+  assert.equal(report.totals.variant.degraded, 1);
 });
 
 test('judge agreement matches the hand labels and one flipped verdict drops agreement to ninety percent', () => {

@@ -36,21 +36,24 @@ const RESULT_MAX_BYTES = 1024 * 1024;
 const PERSISTED_LINE_MAX_CHARS = 400;
 const REDACTED_SECRET = '[redacted]';
 const SUBJECT_UNREADABLE_SUITE_FOLDERS = Object.freeze(['cases', 'candidates', 'runs']);
+const SUBJECT_UNSANDBOXED_COMMANDS = Object.freeze(['codex exec *']);
 
 type ArmCommandRunner = (command: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number; signal: AbortSignal }) => Promise<{ ok: boolean; stdout: string; stderr: string }>;
 
 interface BenchmarkGitWorkspace {
-  stageDetachedWorktree(args: { projectPath: string; worktreePath?: string; sha?: string }): Promise<{ ok: boolean; err?: string }>;
+  stageIsolatedCheckout(args: { projectPath: string; checkoutPath?: string; sha?: string; baseSha?: string }): Promise<{ ok: boolean; err?: string }>;
   removeWorktreeByPath(args: { projectPath: string; cwd?: string | null }): Promise<{ ok: boolean; err?: string }>;
   probeWorktreeDirty(args: { projectPath: string; cwd: string; branch: string }): Promise<{ ok: boolean; dirty: boolean; headSha: string | null; err?: string }>;
 }
 
 interface BenchmarkWiringOptions {
   benchmarksRoot: string;
+  runsRoot: string;
   isEnabled: () => boolean;
   broadcast: (status: BenchmarkStatusType) => void;
   github: Pick<PrGh, 'listMergedPrs' | 'benchmarkReviewData' | 'compareCommits'>;
   repoCache: Pick<TeamReviewRepoCache, 'ensureRepo' | 'hydrateSince'>;
+  repoCacheRoot: string;
   gitWorkspace: BenchmarkGitWorkspace;
   spawnSubject: TeamReviewSpawn;
   spawnJudge: LaneSpawn;
@@ -65,8 +68,8 @@ interface BenchmarkWiringOptions {
 }
 
 interface StagedCase {
-  projectPath: string | null;
-  worktreePath: string | null;
+  checkoutPath: string | null;
+  caseDir: string;
   workDir: string;
   reviewedSha: string | null;
 }
@@ -133,9 +136,13 @@ function subjectUnreadableFolders(suiteDirectory: string): string[] {
   return SUBJECT_UNREADABLE_SUITE_FOLDERS.map((folder) => path.join(suiteDirectory, folder));
 }
 
-function benchmarkSubjectPermissions(suiteDirectory: string): { deny: string[]; defaultMode: string } {
+function benchmarkSubjectPermissions(suiteDirectory: string): { deny: string[]; defaultMode: string; allow: string[] } {
   const permissions = teamReviewAcceptEditsPermissions();
-  return { ...permissions, deny: [...permissions.deny, ...subjectUnreadableFolders(suiteDirectory).map(absolutePathReadRule)] };
+  return {
+    ...permissions,
+    allow: SUBJECT_UNSANDBOXED_COMMANDS.map((command) => `Bash(${command})`),
+    deny: [...permissions.deny, ...subjectUnreadableFolders(suiteDirectory).map(absolutePathReadRule)],
+  };
 }
 
 function benchmarkSubjectClaudeArgs(armExtraArgs: readonly string[], checkoutPath: string | null): string[] {
@@ -143,14 +150,16 @@ function benchmarkSubjectClaudeArgs(armExtraArgs: readonly string[], checkoutPat
   return ['-p', ...armExtraArgs, '--disallowedTools', ...TEAM_REVIEW_SESSION_DENY_RULES, ...readAllowArgs, '--strict-mcp-config'];
 }
 
-function benchmarkSubjectSandbox(workDir: string, suiteDirectory: string) {
+function benchmarkSubjectSandbox(workDir: string, suiteDirectory: string, repoCacheRoot: string) {
   const sandbox = teamReviewSandbox(workDir);
   return {
     ...sandbox,
+    excludedCommands: [...SUBJECT_UNSANDBOXED_COMMANDS],
     network: { ...sandbox.network, allowedDomains: sandbox.network.allowedDomains.filter((domain) => !/github/i.test(domain)) },
     filesystem: {
       ...sandbox.filesystem,
-      denyRead: [...sandbox.filesystem.denyRead, ...subjectUnreadableFolders(suiteDirectory)],
+      denyRead: [...sandbox.filesystem.denyRead, ...subjectUnreadableFolders(suiteDirectory), repoCacheRoot],
+      allowRead: [path.join(repoCacheRoot, '**', '.git', 'objects')],
     },
   };
 }
@@ -180,7 +189,7 @@ async function readBoundedText(filePath: string): Promise<string | null> {
 }
 
 function createBenchmarkWiring({
-  benchmarksRoot, isEnabled, broadcast, github, repoCache, gitWorkspace, spawnSubject, spawnJudge, credentials, claudeCommand,
+  benchmarksRoot, runsRoot, isEnabled, broadcast, github, repoCache, repoCacheRoot, gitWorkspace, spawnSubject, spawnJudge, credentials, claudeCommand,
   runArmCommand = runArmCommandSafely,
   sandboxRefusal = allowSandboxedSpawn,
   baseEnv = process.env,
@@ -194,6 +203,11 @@ function createBenchmarkWiring({
   let leftoverSweep: Promise<void> = Promise.resolve();
 
   const suiteDir = (suiteId: string) => path.join(benchmarksRoot, suiteId);
+
+  async function removeDirectoryOrWarn(directory: string): Promise<void> {
+    await fs.rm(directory, { recursive: true, force: true })
+      .catch((error: unknown) => log.warn(`[${BENCHMARK_LANE_ID}] could not remove ${directory}: ${firstLine(errorMessage(error))}`));
+  }
 
   function currentStatus(): BenchmarkStatusType {
     return BenchmarkStatus.parse({
@@ -330,18 +344,16 @@ function createBenchmarkWiring({
     dependencies: BenchmarkRunnerDependencies;
     cleanup: () => Promise<void>;
   } {
-    const runDir = path.join(suiteDir(suite.id), 'work', runId);
-    const worktreesDir = path.join(suiteDir(suite.id), 'worktrees');
+    const runDir = path.join(runsRoot, suite.id, runId);
     const runsDir = path.join(suiteDir(suite.id), 'runs');
     const stagedCases = new Map<string, StagedCase>();
     const usedTokens = new Set<string>();
 
     async function removeCheckout(staged: StagedCase): Promise<void> {
-      if (!staged.projectPath || !staged.worktreePath) return;
-      const removal = await gitWorkspace.removeWorktreeByPath({ projectPath: staged.projectPath, cwd: staged.worktreePath })
-        .catch((error: unknown) => ({ ok: false, err: errorMessage(error) }));
-      if (!removal.ok) log.warn(`[${BENCHMARK_LANE_ID}] could not remove ${staged.worktreePath}: ${firstLine(removal.err ?? '')}`);
-      staged.worktreePath = null;
+      if (!staged.checkoutPath) return;
+      const checkoutPath = staged.checkoutPath;
+      staged.checkoutPath = null;
+      await removeDirectoryOrWarn(checkoutPath);
     }
 
     async function stageCheckout(benchmarkCase: BenchmarkCaseType, staged: StagedCase): Promise<{ ok: true } | { ok: false; reason: string }> {
@@ -351,12 +363,15 @@ function createBenchmarkWiring({
       if (!projectPath) return { ok: false, reason: `could not clone ${input.data.repo}` };
       const isReviewedRangeAvailable = await repoCache.hydrateSince(input.data.repo, input.data.baseSha, input.data.reviewedSha);
       if (!isReviewedRangeAvailable) return { ok: false, reason: 'the reviewed commit could not be fetched, or the base is not its ancestor' };
-      const worktreePath = path.join(worktreesDir, `${benchmarkCase.id}-${randomSuffix()}`);
-      await fs.mkdir(worktreesDir, { recursive: true });
-      const created = await gitWorkspace.stageDetachedWorktree({ projectPath, worktreePath, sha: input.data.reviewedSha });
-      if (!created.ok) return { ok: false, reason: `could not stage a checkout: ${firstLine(created.err ?? '') || 'git worktree add failed'}` };
-      staged.projectPath = projectPath;
-      staged.worktreePath = worktreePath;
+      const checkoutPath = path.join(staged.caseDir, 'checkout');
+      const cleared = await fs.rm(checkoutPath, { recursive: true, force: true }).then(() => null, (error: unknown) => errorMessage(error));
+      if (cleared !== null) return { ok: false, reason: `could not clear the previous checkout: ${firstLine(cleared)}` };
+      const created = await gitWorkspace.stageIsolatedCheckout({ projectPath, checkoutPath, sha: input.data.reviewedSha, baseSha: input.data.baseSha });
+      if (!created.ok) {
+        await removeDirectoryOrWarn(checkoutPath);
+        return { ok: false, reason: `could not stage a checkout: ${firstLine(created.err ?? '') || 'the isolated checkout failed'}` };
+      }
+      staged.checkoutPath = checkoutPath;
       staged.reviewedSha = input.data.reviewedSha;
       return { ok: true };
     }
@@ -364,9 +379,10 @@ function createBenchmarkWiring({
     async function stagedCaseFor(benchmarkCase: BenchmarkCaseType): Promise<StagedCase> {
       const existing = stagedCases.get(benchmarkCase.id);
       if (existing) return existing;
-      const workDir = path.join(runDir, benchmarkCase.id);
+      const caseDir = path.join(runDir, benchmarkCase.id);
+      const workDir = path.join(caseDir, 'work');
       await fs.mkdir(workDir, { recursive: true });
-      const staged: StagedCase = { projectPath: null, worktreePath: null, workDir, reviewedSha: null };
+      const staged: StagedCase = { checkoutPath: null, caseDir, workDir, reviewedSha: null };
       stagedCases.set(benchmarkCase.id, staged);
       return staged;
     }
@@ -383,20 +399,20 @@ function createBenchmarkWiring({
         const resultPath = path.join(staged.workDir, SUBJECT_RESULT_FILENAME);
         const workspaceVariables: Record<string, string> = { resultPath };
         if (suite.workspace.kind === 'none') return { ok: true, variables: workspaceVariables };
-        if (!staged.worktreePath) {
+        if (!staged.checkoutPath) {
           const checkout = await stageCheckout(benchmarkCase, staged);
           if (!checkout.ok) return checkout;
         }
         const input = PrCheckoutCaseInput.parse(benchmarkCase.input);
         return {
           ok: true,
-          variables: { resultPath, repoPath: staged.worktreePath ?? '', baseSha: input.baseSha, changedFiles: input.changedFiles.join('\n') },
+          variables: { resultPath, repoPath: staged.checkoutPath ?? '', baseSha: input.baseSha, changedFiles: input.changedFiles.join('\n') },
         };
       },
       async verifyWorkspace(benchmarkCase) {
         const staged = stagedCases.get(benchmarkCase.id);
-        if (suite.workspace.kind === 'none' || !staged?.projectPath || !staged.worktreePath) return { clean: true };
-        const probe = await gitWorkspace.probeWorktreeDirty({ projectPath: staged.projectPath, cwd: staged.worktreePath, branch: '' });
+        if (suite.workspace.kind === 'none' || !staged?.checkoutPath) return { clean: true };
+        const probe = await gitWorkspace.probeWorktreeDirty({ projectPath: staged.checkoutPath, cwd: staged.checkoutPath, branch: '' });
         const isUntouched = probe.ok && !probe.dirty && probe.headSha === staged.reviewedSha;
         if (isUntouched) return { clean: true };
         await removeCheckout(staged);
@@ -418,8 +434,7 @@ function createBenchmarkWiring({
     };
 
     async function cleanup(): Promise<void> {
-      for (const staged of stagedCases.values()) await removeCheckout(staged);
-      await fs.rm(runDir, { recursive: true, force: true }).catch(() => {});
+      await removeDirectoryOrWarn(runDir);
     }
 
     return { dependencies, cleanup };
@@ -455,9 +470,9 @@ function createBenchmarkWiring({
         name: `Benchmark ${cell.caseId} ${arm.id} trial ${cell.trial}`,
         cwd: staged.workDir,
         spawnEnv: { ...baseSpawnEnv, ...(arm.env ?? {}), [OVERRIDE_TOKEN_ENV]: '', CLAUDE_CODE_OAUTH_TOKEN: token.token },
-        extraClaudeArgs: benchmarkSubjectClaudeArgs(arm.extraArgs ?? [], staged.worktreePath),
+        extraClaudeArgs: benchmarkSubjectClaudeArgs(arm.extraArgs ?? [], staged.checkoutPath),
         settingsPermissions: benchmarkSubjectPermissions(suiteDirectory),
-        settingsSandbox: benchmarkSubjectSandbox(staged.workDir, suiteDirectory),
+        settingsSandbox: benchmarkSubjectSandbox(staged.workDir, suiteDirectory, repoCacheRoot),
         signal: subjectController.signal,
         initialPrompt: SUBJECT_BOOTSTRAP_PROMPT,
       });
@@ -550,7 +565,7 @@ function createBenchmarkWiring({
       const removal = await gitWorkspace.removeWorktreeByPath({ projectPath, cwd: worktreePath }).catch((error: unknown) => ({ ok: false, err: errorMessage(error) }));
       if (!removal.ok) log.warn(`[${BENCHMARK_LANE_ID}] could not remove leftover ${worktreePath}: ${firstLine(removal.err ?? '')}`);
     }
-    await fs.rm(worktreePath, { recursive: true, force: true }).catch(() => {});
+    await removeDirectoryOrWarn(worktreePath);
   }
 
   async function settleStaleRuns(runsDir: string): Promise<void> {
@@ -568,12 +583,14 @@ function createBenchmarkWiring({
     for (const entry of worktreeEntries) {
       if (entry.isDirectory()) await removeLeftoverWorktree(path.join(worktreesDir, entry.name));
     }
-    await fs.rm(path.join(suiteDir(suiteId), 'work'), { recursive: true, force: true }).catch(() => {});
+    await removeDirectoryOrWarn(worktreesDir);
+    await removeDirectoryOrWarn(path.join(suiteDir(suiteId), 'work'));
     await settleStaleRuns(path.join(suiteDir(suiteId), 'runs'));
   }
 
   async function sweepAllLeftovers(): Promise<void> {
     if (activeRun) return;
+    await removeDirectoryOrWarn(runsRoot);
     const entries = await fs.readdir(benchmarksRoot, { withFileTypes: true }).catch(() => []);
     const suiteIds = entries.filter((entry) => entry.isDirectory() && BenchmarkId.safeParse(entry.name).success).map((entry) => entry.name);
     for (const suiteId of suiteIds) {

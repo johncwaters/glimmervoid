@@ -101,11 +101,20 @@ function degradedReasonsIn(output: string): string[] {
   return reasons;
 }
 
+function linesOutsideSection(lines: readonly string[], heading: string): string[] {
+  const headingIndex = lines.findIndex((line) => sectionAfter([line], heading) !== null);
+  if (headingIndex === -1) return [...lines];
+  const linesAfterHeading = lines.slice(headingIndex + 1);
+  const sectionBodyLength = sectionAfter([heading, ...linesAfterHeading], heading)?.length ?? 0;
+  return [...lines.slice(0, headingIndex), ...linesAfterHeading.slice(sectionBodyLength)];
+}
+
 function extractFindings(output: string, kind: BenchmarkSubjectOutput): ExtractedFindings {
-  const degradedReasons = degradedReasonsIn(output);
   if (kind === 'review-findings') {
-    const section = sectionAfter(output.split(/\r?\n/), 'STRUCTURED_FINDINGS:');
+    const outputLines = output.split(/\r?\n/);
+    const section = sectionAfter(outputLines, 'STRUCTURED_FINDINGS:');
     if (section === null) return { error: 'Missing STRUCTURED_FINDINGS heading' };
+    const degradedReasons = degradedReasonsIn(linesOutsideSection(outputLines, 'STRUCTURED_FINDINGS:').join('\n'));
     const findings: BenchmarkFinding[] = [];
     for (const line of section) {
       if (!line.trim() || line.trim() === '(none)') continue;
@@ -115,6 +124,7 @@ function extractFindings(output: string, kind: BenchmarkSubjectOutput): Extracte
     }
     return { findings, degradedReasons };
   }
+  const degradedReasons = degradedReasonsIn(output);
   const decoded = decodeJson(output);
   if (!decoded.ok) return { error: decoded.reason };
   const parsed = z.union([z.array(z.unknown()), z.object({ findings: z.array(z.unknown()) })]).safeParse(decoded.value);
@@ -227,7 +237,7 @@ function sumCosts(costs: readonly (number | null)[]): number | null {
 }
 
 function armScore(cells: readonly BenchmarkCellResult[], references: readonly BenchmarkReference[]): BenchmarkArmScore {
-  const scores = cells.filter((cell) => cell.status === 'scored').map((cell) => scoreCell(cell.judgements, references));
+  const scores = cells.filter((cell) => cell.status === 'scored' && cell.degradedReasons.length === 0).map((cell) => scoreCell(cell.judgements, references));
   const tags = new Set(references.flatMap((reference) => reference.tags));
   return {
     trials: scores.length, recall: mean(scores.map((score) => score.recall)),

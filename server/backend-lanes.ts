@@ -192,10 +192,12 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const claudeCommand = () => commandFor('claude-code').path;
   const benchmarks = createBenchmarkWiring({
     benchmarksRoot: path.join(glimmervoidHome, 'benchmarks'),
+    runsRoot: path.join(glimmervoidHome, 'benchmark-runs'),
     isEnabled: () => configStore.config.benchmarks?.enabled === true,
     broadcast: broadcastControl,
     github: createPrGh(glimmervoidHome),
     repoCache: sharedRepoCache,
+    repoCacheRoot: sharedRepoCacheRoot,
     gitWorkspace,
     spawnSubject: createTeamReviewSpawn({
       reviewSessions: benchmarkSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
