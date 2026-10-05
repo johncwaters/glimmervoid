@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  detailThreadItems, postedOutcome, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  detailThreadItems, postedOutcome, queueRowGlyph, queueRowExceptionReason, commentCountText, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTitle, queueRowVerdictLabel, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
   commentSeverity, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
@@ -874,4 +874,33 @@ test('hand review rows replace older drafts and queued rows while active reviews
   const activeSections = groupDrafts({ ...snapshot, inFlight: [inFlightReview(5)] });
   assert.deepEqual(activeSections.handReview, []);
   assert.equal(activeSections.inReview.length, 1);
+});
+
+test('queue row glyphs name the operator outcome on posted rows and the next step elsewhere', () => {
+  const posted = draft(1, { status: 'posted', postedEvent: 'APPROVE', postedAt: 1 });
+  assert.deepEqual(queueRowGlyph(posted, 'posted'), { tone: 'ok', meaning: 'You approved' });
+  assert.deepEqual(queueRowGlyph({ ...posted, postedEvent: 'COMMENT' }, 'posted'), { tone: 'muted', meaning: 'You commented' });
+  const viewerRequestedChanges = { login: 'me', state: 'CHANGES_REQUESTED', commit: HEAD, isViewer: true, submittedAt: '2026-10-03T10:00:00Z' } as const;
+  assert.deepEqual(queueRowGlyph({ ...posted, githubReviews: [viewerRequestedChanges] }, 'posted'), { tone: 'wait', meaning: 'You requested changes' });
+  assert.deepEqual(queueRowGlyph({ ...posted, postedEvent: undefined }, 'posted'), { tone: 'muted', meaning: 'Posted' });
+  assert.deepEqual(queueRowGlyph(draft(2), 'ready'), { tone: 'warn', meaning: 'Waits on you' });
+  assert.deepEqual(queueRowGlyph(draft(3, { checksState: 'FAILURE' }), 'ready'), { tone: 'wait', meaning: 'Checks failing' });
+  assert.deepEqual(queueRowGlyph(draft(4), 'settled'), { tone: 'ok', meaning: 'No review needed' });
+  assert.deepEqual(queueRowGlyph(draft(5, { status: 'error' }), 'attention'), { tone: 'danger', meaning: 'Review failed' });
+  assert.deepEqual(queueRowGlyph(draft(6, { status: 'stale' }), 'attention'), { tone: 'warn', meaning: 'Out of date' });
+  assert.deepEqual(queueRowGlyph(draft(7), 'handReview'), { tone: 'warn', meaning: 'Review by hand' });
+});
+
+test('only exceptional priority reasons earn row text, so plain team and ready requests stay silent', () => {
+  assert.equal(queueRowExceptionReason({ requestSource: 'team' }), null);
+  assert.equal(queueRowExceptionReason({ requestSource: 'direct', reviewDecision: 'REVIEW_REQUIRED' }), null);
+  assert.equal(queueRowExceptionReason({ requestSource: 'team', reviewDecision: 'APPROVED' }), null);
+  assert.equal(queueRowExceptionReason({ requestSource: 'team', isDraft: true }), 'Draft');
+  assert.equal(queueRowExceptionReason({ requestSource: 'team', reviewDecision: 'CHANGES_REQUESTED' }), 'Author to fix');
+  assert.equal(queueRowExceptionReason({ requestSource: 'team', checksState: 'PENDING' }), 'Checks running');
+});
+
+test('comment counts read as words', () => {
+  assert.equal(commentCountText(1), '1 comment');
+  assert.equal(commentCountText(3), '3 comments');
 });

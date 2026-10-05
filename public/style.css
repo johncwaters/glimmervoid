@@ -2671,9 +2671,9 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-row-
 .pr-attention-label { color: var(--state-waiting); white-space: nowrap; }
 .pr-attention-label-error { color: var(--state-failed); }
 .pr-attention-label-discarded { color: var(--text-dim); }
-.pr-attention-label-posted { color: var(--text-muted); }
-.pr-queue-posted-detail { color: var(--text-muted); white-space: nowrap; }
 .pr-queue-verdict { color: var(--accent); white-space: nowrap; }
+.pr-queue-direct { color: var(--accent); font-weight: 700; }
+.pr-queue-exception { color: var(--text-dim); white-space: nowrap; }
 .pr-queue-comment-count,
 .pr-queue-approval-context { flex: 0 0 auto; color: var(--text-muted); white-space: nowrap; }
 
@@ -2690,7 +2690,6 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-row-
 .pr-verdict-seal[data-tone="ok"], .pr-queue-verdict[data-tone="ok"] { color: var(--state-complete); }
 .pr-verdict-seal[data-tone="warn"], .pr-queue-verdict[data-tone="warn"] { color: var(--state-waiting); }
 .pr-verdict-seal[data-tone="crit"], .pr-queue-verdict[data-tone="crit"] { color: var(--state-failed); }
-.pr-queue-verdict[data-tone="muted"] { color: var(--text-muted); }
 .pr-verdict-seal svg { flex: 0 0 auto; }
 
 .pr-rereview-notice { color: var(--text-dim); font-size: 12px; line-height: 1.6; }

@@ -17,10 +17,6 @@ export const REVIEW_PRIORITY_REASON_TEXT: Readonly<Record<ReviewPriorityReason, 
   'changes-requested': 'Author to fix', 'checks-failing': 'Checks failing', 'checks-pending': 'Checks running', draft: 'Draft', 'review-available': 'Ready', approved: 'Approved',
 };
 
-export const REVIEW_PRIORITY_TONES: Readonly<Record<ReviewPriorityBand, StateTone>> = {
-  'blocking-others': 'warn', actionable: 'ok', 'waiting-on-author': 'wait', 'not-ready': 'muted',
-};
-
 export function classifyReviewPriority(review: Pick<QueuedReview, 'requestSource' | 'isDraft' | 'checksState' | 'reviewDecision'>): { band: ReviewPriorityBand; reason: ReviewPriorityReason } {
   if (review.isDraft) return { band: 'not-ready', reason: 'draft' };
   if (review.reviewDecision === 'CHANGES_REQUESTED') return { band: 'waiting-on-author', reason: 'changes-requested' };
@@ -60,7 +56,7 @@ const POSTED_EVENT_OUTCOMES: Readonly<Record<PostedReviewEvent, PostedOutcome>> 
 
 const VIEWER_REVIEW_OUTCOMES: Readonly<Record<GithubReviewState, PostedOutcome>> = {
   APPROVED: { label: 'You approved', tone: 'ok' },
-  CHANGES_REQUESTED: { label: 'You requested changes', tone: 'warn' },
+  CHANGES_REQUESTED: { label: 'You requested changes', tone: 'wait' },
   COMMENTED: { label: 'You commented', tone: 'muted' },
 };
 
@@ -73,6 +69,43 @@ export function postedOutcome(draft: ReviewDraft): PostedOutcome | null {
   const isPostedEventNewer = Number.isNaN(latestViewerReviewAtMs) || (draft.postedAt !== undefined && draft.postedAt > latestViewerReviewAtMs);
   if (isPostedEventNewer) return POSTED_EVENT_OUTCOMES[draft.postedEvent];
   return VIEWER_REVIEW_OUTCOMES[latestViewerReview.state];
+}
+
+export interface QueueRowGlyph {
+  tone: StateTone;
+  meaning: string;
+}
+
+const EXCEPTION_REASONS: ReadonlySet<ReviewPriorityReason> = new Set(['changes-requested', 'checks-failing', 'checks-pending', 'draft']);
+
+export function queueRowExceptionReason(review: Pick<QueuedReview, 'requestSource' | 'isDraft' | 'checksState' | 'reviewDecision'>): string | null {
+  const { reason } = classifyReviewPriority(review);
+  return EXCEPTION_REASONS.has(reason) ? REVIEW_PRIORITY_REASON_TEXT[reason] : null;
+}
+
+const FIXED_ROW_GLYPHS: Readonly<Partial<Record<QueueRowKind, QueueRowGlyph>>> = {
+  settled: { tone: 'ok', meaning: 'No review needed' },
+  inReview: { tone: 'wait', meaning: 'In review' },
+  queued: { tone: 'muted', meaning: 'Queued' },
+  discarded: { tone: 'muted', meaning: 'Discarded' },
+  handReview: { tone: 'warn', meaning: 'Review by hand' },
+};
+
+export function queueRowGlyph(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind): QueueRowGlyph {
+  const fixedGlyph = FIXED_ROW_GLYPHS[kind];
+  if (fixedGlyph) return fixedGlyph;
+  if (kind === 'posted' && 'reviewedHead' in review) {
+    const outcome = postedOutcome(review);
+    return outcome ? { tone: outcome.tone, meaning: outcome.label } : { tone: 'muted', meaning: 'Posted' };
+  }
+  if (kind === 'attention' && 'status' in review) return review.status === 'error' ? { tone: 'danger', meaning: 'Review failed' } : { tone: 'warn', meaning: 'Out of date' };
+  const exceptionReason = queueRowExceptionReason(review);
+  if (exceptionReason) return { tone: 'wait', meaning: exceptionReason };
+  return { tone: 'warn', meaning: 'Waits on you' };
+}
+
+export function commentCountText(count: number): string {
+  return `${count} ${count === 1 ? 'comment' : 'comments'}`;
 }
 
 export function queueRowTitle(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind, ages: QueueRowAges): string {

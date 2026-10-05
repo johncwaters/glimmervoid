@@ -7,15 +7,15 @@ import { sendControlMsg } from './control-ws.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } from './dom-helpers.ts';
 import { createPollAgoTicker, formatAgo } from './poll-ago.ts';
 import { createPrQueueColumns, createPrQueueHead } from './pr-queue-columns.ts';
-import { createSvgIcon as svgIcon, createSvgShape as svgShape } from './state-glyph.ts';
+import { createStateGlyph, createSvgIcon as svgIcon, createSvgShape as svgShape } from './state-glyph.ts';
 import { formatTrailOffset } from './radar-core.ts';
 import { createSettingsLink } from './settings-link.ts';
 import {
-  TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, REVIEW_PRIORITY_REASON_TEXT, REVIEW_PRIORITY_TONES, classifyReviewPriority,
+  TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
   answeredNonNitThreads, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, queueRowVerdictLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
-  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, postedOutcome, verdictLabel, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
+  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, queueRowGlyph, queueRowExceptionReason, commentCountText, verdictLabel, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
 } from './team-review-view-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
 import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
@@ -240,43 +240,33 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
     selectReviewOnClick(row, review.key);
     return row;
   }
+  row.classList.remove('pr-queue-row-quiet');
+  const rowGlyph = queueRowGlyph(review, kind);
+  const glyph = el('span', 'pr-queue-glyph');
+  glyph.title = rowGlyph.meaning;
+  glyph.append(createStateGlyph(rowGlyph.tone));
   const bottom = el('span', 'pr-queue-bottom');
-  const priority = classifyReviewPriority(review);
-  const requestChip = el('span', 'my-pr-stage', review.requestSource === 'direct' ? 'Direct' : 'Team');
-  requestChip.dataset.tone = 'muted';
-  const reasonChip = el('span', 'my-pr-stage');
-  reasonChip.dataset.tone = REVIEW_PRIORITY_TONES[priority.band];
-  reasonChip.append(REVIEW_PRIORITY_REASON_TEXT[priority.reason]);
-  bottom.append(requestChip, reasonChip);
-  if (kind === 'inReview') {
-    const inFlight = review as InFlightReview;
-    bottom.append(el('span', 'pr-phase-label', phaseLabel(inFlight.phase)));
+  bottom.append(createAuthor(review.author, 16, 'pr-queue-author'));
+  if (review.requestSource === 'direct') {
+    const directMarker = el('span', 'pr-queue-direct', '@');
+    directMarker.title = 'Requested from you directly';
+    bottom.append(directMarker);
   }
+  if (kind === 'inReview') bottom.append(el('span', 'pr-phase-label', phaseLabel((review as InFlightReview).phase)));
   if (kind === 'queued') bottom.append(el('span', 'pr-phase-label', 'waiting for a slot'));
   if ((kind === 'ready' || kind === 'settled') && 'status' in review && review.status !== 'error') {
-    const draft = review as ReviewDraft;
-    const verdict = el('span', 'pr-queue-verdict', queueRowVerdictLabel(draft.verdict));
-    verdict.dataset.tone = verdictTone(draft.verdict);
+    const verdict = el('span', 'pr-queue-verdict', queueRowVerdictLabel(review.verdict));
+    verdict.dataset.tone = verdictTone(review.verdict);
     bottom.append(verdict);
   }
-  if (kind === 'attention') {
-    const draft = review as ReviewDraft;
-    bottom.append(el('span', `pr-attention-label pr-attention-label-${draft.status}`, attentionStatusLabel(draft.status)));
-  }
-  const outcome = kind === 'posted' ? postedOutcome(review as ReviewDraft) : null;
-  if (outcome) {
-    const outcomeLabel = el('span', 'pr-queue-verdict', outcome.label);
-    outcomeLabel.dataset.tone = outcome.tone;
-    bottom.append(outcomeLabel);
-  }
-  if (kind === 'posted' && !outcome) bottom.append(el('span', 'pr-attention-label pr-attention-label-posted', 'posted'));
-  if ('reviewedHead' in review && review.comments.length > 0) bottom.append(el('span', 'pr-queue-comment-count', `\u00b7 ${review.comments.length}`));
+  const exceptionReason = kind === 'posted' ? null : queueRowExceptionReason(review);
+  if (exceptionReason) bottom.append(el('span', 'pr-queue-exception', exceptionReason));
+  if (kind === 'attention' && 'status' in review) bottom.append(el('span', `pr-attention-label pr-attention-label-${review.status}`, attentionStatusLabel(review.status)));
+  if ('reviewedHead' in review && review.comments.length > 0) bottom.append(el('span', 'pr-queue-comment-count', commentCountText(review.comments.length)));
   const replyCount = 'reviewedHead' in review ? answeredNonNitThreads(review).length : 0;
   if (replyCount > 0) bottom.append(el('span', 'pr-queue-comment-count', `${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}`));
   if (approvalContext) bottom.append(el('span', 'pr-queue-approval-context', 'since approval'));
-  bottom.append(createAuthor(review.author, 16, 'pr-queue-author'));
-  if (kind === 'posted' && !outcome) bottom.append(el('span', 'pr-queue-posted-detail', verdictLabel((review as ReviewDraft).verdict)));
-  row.append(top, bottom);
+  row.append(glyph, top, bottom);
   const githubSummary = kind === 'inReview' || kind === 'queued' ? null : createGithubReviewSummary(review as ReviewDraft, 'pr-queue-reviewers', 16, kind !== 'posted');
   if (githubSummary) bottom.append(githubSummary);
   selectReviewOnClick(row, review.key);
@@ -308,11 +298,15 @@ function createHandReviewSection(reviews: QueuedReview[], hasMultipleRepos: bool
   const section = el('section', 'pr-queue-section');
   section.append(el('h3', 'pr-section-heading', `Review by hand ${reviews.length}`));
   for (const review of reviews) {
-    const row = externalLink('pr-queue-row pr-queue-row-quiet', '', review.url);
+    const row = externalLink('pr-queue-row', '', review.url);
     row.title = queueRowTitle(review, 'handReview', { opened: formatTimestampAge(review.prCreatedAt) });
+    const handReviewGlyph = queueRowGlyph(review, 'handReview');
+    const glyph = el('span', 'pr-queue-glyph');
+    glyph.title = handReviewGlyph.meaning;
+    glyph.append(createStateGlyph(handReviewGlyph.tone));
     const bottom = el('span', 'pr-queue-bottom');
-    bottom.append(createAuthor(review.author, 16, 'pr-queue-author'), el('span', 'pr-queue-posted-detail', 'Review by hand'));
-    row.append(createQueueRowTop(review, hasMultipleRepos), bottom);
+    bottom.append(createAuthor(review.author, 16, 'pr-queue-author'), el('span', 'pr-queue-exception', 'From a fork'));
+    row.append(glyph, createQueueRowTop(review, hasMultipleRepos), bottom);
     section.append(row);
   }
   return section;
