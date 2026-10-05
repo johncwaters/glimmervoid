@@ -303,6 +303,34 @@ test('a second permission request with a different detail emits again', () => {
   s.destroy();
 });
 
+const QUESTION_DETAIL = { toolName: 'AskUserQuestion', summary: '', isComplete: false, question: { text: 'Which database?', options: ['Postgres', 'SQLite'], multiSelect: false } };
+
+test('a second AskUserQuestion with a different question emits again and stores the new question', () => {
+  const s = makeSession(STATES.RUNNING);
+  const details: unknown[] = [];
+  s.on('prompt-kind-change', (e) => details.push(e.pendingPromptDetail));
+  const nextQuestionDetail = { ...QUESTION_DETAIL, question: { ...QUESTION_DETAIL.question, text: 'Which cache?' } };
+  const reorderedOptionsDetail = { ...nextQuestionDetail, question: { ...nextQuestionDetail.question, options: ['SQLite', 'Postgres'] } };
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: QUESTION_DETAIL });
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: { ...QUESTION_DETAIL } });
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: nextQuestionDetail });
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: reorderedOptionsDetail });
+  assert.deepEqual(details, [QUESTION_DETAIL, nextQuestionDetail, reorderedOptionsDetail]);
+  assert.deepEqual(s.toSnapshot().pendingPromptDetail, reorderedOptionsDetail);
+  s.destroy();
+});
+
+test('an AskUserQuestion that loses its answerable question emits again', () => {
+  const s = makeSession(STATES.RUNNING);
+  const details: unknown[] = [];
+  s.on('prompt-kind-change', (e) => details.push(e.pendingPromptDetail));
+  const unanswerableDetail = { ...QUESTION_DETAIL, question: null };
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: QUESTION_DETAIL });
+  hook(s, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: unanswerableDetail });
+  assert.deepEqual(details, [QUESTION_DETAIL, unanswerableDetail]);
+  s.destroy();
+});
+
 test('two different permission requests in one waiting episode keep the detail incomplete for the rest of it', () => {
   const s = makeSession(STATES.RUNNING);
   const writeDetail = { toolName: 'Write', summary: '/repo/a.ts', isComplete: true };

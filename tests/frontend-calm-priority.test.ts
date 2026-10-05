@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ARMED_ADVANCE_LIFETIME_MS, countByTier, decideArmedAdvance, formatWaitTime, isSamePermissionPrompt, orderCalmQueue, panelContextFor, pickComponent, pickNextQueueSessionId, pickNowPeek, pickSessionAfterSubmit, tierOf } from '../public/calm/calm-priority-core.ts';
+import { ARMED_ADVANCE_LIFETIME_MS, canReplyToFinishedSession, countByTier, decideArmedAdvance, formatWaitTime, isSamePermissionPrompt, offersReplyInput, orderCalmQueue, panelContextFor, pickComponent, pickNextQueueSessionId, pickNowPeek, pickSessionAfterSubmit, tierOf } from '../public/calm/calm-priority-core.ts';
 import type { CalmRow, CalmTier, CalmComponent } from '../public/calm/calm-priority-core.ts';
 
 const makeRow = (state: string, overrides: Partial<CalmRow> = {}): CalmRow => ({ id: state, name: state, state, ...overrides });
@@ -56,7 +56,19 @@ for (const state of ['WAITING', 'FAILED', 'COMPLETE']) {
   });
 }
 
+const QUESTION = { text: 'Which database?', options: ['Postgres', 'SQLite'], multiSelect: false };
+const questionDetail = (question: typeof QUESTION | null) => ({ toolName: 'AskUserQuestion', summary: '', isComplete: false, question });
+
 const componentCases: [string, CalmRow, CalmComponent, boolean][] = [
+  ['answerable question', makeRow('WAITING', { pendingPromptKind: 'permission', agent: 'claude-code', pendingPromptDetail: questionDetail(QUESTION) }), 'question', false],
+  ['multiSelect question', makeRow('WAITING', { pendingPromptKind: 'permission', agent: 'claude-code',
+    pendingPromptDetail: questionDetail({ ...QUESTION, multiSelect: true }) }), 'terminal', false],
+  ['unanswerable question', makeRow('WAITING', { pendingPromptKind: 'permission', agent: 'claude-code', pendingPromptDetail: questionDetail(null) }), 'terminal', false],
+  ['question without a question field', makeRow('WAITING', { pendingPromptKind: 'permission', agent: 'claude-code',
+    pendingPromptDetail: { toolName: 'AskUserQuestion', summary: '', isComplete: true } }), 'terminal', false],
+  ['other agent question', makeRow('WAITING', { pendingPromptKind: 'permission', agent: 'codex', pendingPromptDetail: questionDetail(QUESTION) }), 'terminal', false],
+  ['question on a plan prompt', makeRow('WAITING', { pendingPromptKind: 'plan', agent: 'claude-code', pendingPromptDetail: questionDetail(QUESTION) }), 'plan', false],
+  ['question on an elicitation', makeRow('WAITING', { pendingPromptKind: 'elicitation', agent: 'claude-code', pendingPromptDetail: questionDetail(QUESTION) }), 'terminal', false],
   ['plan', makeRow('WAITING', { pendingPromptKind: 'plan' }), 'plan', false],
   ['complete permission', makeRow('WAITING', { pendingPromptKind: 'permission', agent: 'claude-code',
     pendingPromptDetail: { toolName: 'Bash', summary: 'Run tests', isComplete: true } }), 'permission', true],
@@ -86,7 +98,7 @@ for (const [description, row, component, canApprove] of componentCases) {
 }
 
 const componentsAllowedByTier: Record<CalmTier, readonly CalmComponent[]> = {
-  now: ['plan', 'permission', 'terminal'],
+  now: ['plan', 'permission', 'question', 'terminal'],
   next: ['failure'],
   later: ['review'],
   working: ['terminal'],
@@ -112,6 +124,39 @@ test('isSamePermissionPrompt only matches the identical pending permission while
   assert.equal(isSamePermissionPrompt('WAITING', 'permission', { ...shown, summary: 'rm -rf dist' }, shown), false);
   assert.equal(isSamePermissionPrompt('WAITING', 'permission', { ...shown, isComplete: false }, shown), false);
   assert.equal(isSamePermissionPrompt('WAITING', 'permission', null, shown), false);
+});
+
+test('isSamePermissionPrompt treats a different, reordered or vanished question as a different prompt', () => {
+  const shown = questionDetail(QUESTION);
+  assert.equal(isSamePermissionPrompt('WAITING', 'permission', questionDetail({ ...QUESTION, options: [...QUESTION.options] }), shown), true);
+  assert.equal(isSamePermissionPrompt('WAITING', 'permission', questionDetail({ ...QUESTION, text: 'Which cache?' }), shown), false);
+  assert.equal(isSamePermissionPrompt('WAITING', 'permission', questionDetail({ ...QUESTION, options: ['SQLite', 'Postgres'] }), shown), false);
+  assert.equal(isSamePermissionPrompt('WAITING', 'permission', questionDetail({ ...QUESTION, options: ['Postgres'] }), shown), false);
+  assert.equal(isSamePermissionPrompt('WAITING', 'permission', questionDetail({ ...QUESTION, multiSelect: true }), shown), false);
+  assert.equal(isSamePermissionPrompt('WAITING', 'permission', questionDetail(null), shown), false);
+  assert.equal(isSamePermissionPrompt('RUNNING', 'permission', questionDetail(QUESTION), shown), false);
+});
+
+test('isSamePermissionPrompt treats a missing and a null question alike', () => {
+  const withoutQuestion = { toolName: 'Bash', summary: 'npm test', isComplete: true };
+  assert.equal(isSamePermissionPrompt('WAITING', 'permission', { ...withoutQuestion, question: null }, withoutQuestion), true);
+});
+
+test('canReplyToFinishedSession allows a reply only to a COMPLETE or IDLE session with no prompt pending', () => {
+  assert.equal(canReplyToFinishedSession('COMPLETE', null), true);
+  assert.equal(canReplyToFinishedSession('IDLE', null), true);
+  assert.equal(canReplyToFinishedSession('COMPLETE', undefined), true);
+  assert.equal(canReplyToFinishedSession('COMPLETE', 'permission'), false);
+  assert.equal(canReplyToFinishedSession('IDLE', 'elicitation'), false);
+  for (const busyState of ['RUNNING', 'WAITING', 'STARTING', 'INITIALIZING', 'FAILED', 'DONE', 'DORMANT']) {
+    assert.equal(canReplyToFinishedSession(busyState, null), false, busyState);
+  }
+});
+
+test('offersReplyInput is true only for an agent with permission keys', () => {
+  assert.equal(offersReplyInput({ agent: 'claude-code' }), true);
+  assert.equal(offersReplyInput({ agent: 'codex' }), false);
+  assert.equal(offersReplyInput({ agent: undefined }), false);
 });
 
 const queueRows = (): CalmRow[] => [
@@ -229,6 +274,7 @@ for (const [state, context] of terminalContextCases) {
 
 test('panelContextFor names the prompt, failure or review for non-terminal panels', () => {
   assert.equal(panelContextFor(makeRow('WAITING'), 'permission'), 'wants to run');
+  assert.equal(panelContextFor(makeRow('WAITING'), 'question'), 'asks');
   assert.equal(panelContextFor(makeRow('WAITING'), 'plan'), 'has a plan ready');
   assert.equal(panelContextFor(makeRow('FAILED'), 'failure'), 'failed');
   assert.equal(panelContextFor(makeRow('COMPLETE', { unseen: true }), 'review'), 'finished');

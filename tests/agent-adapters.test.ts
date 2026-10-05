@@ -249,12 +249,72 @@ test('a Bash PermissionRequest carries its command as the prompt detail; plans a
   const mapPromptDetail = claudeCode.mapHookPromptDetail;
   assert.deepEqual(
     mapPromptDetail('PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'rm -rf build\necho done' } }),
-    { toolName: 'Bash', summary: 'rm -rf build', isComplete: false },
+    { toolName: 'Bash', summary: 'rm -rf build', isComplete: false, question: null },
   );
-  assert.deepEqual(mapPromptDetail('PermissionRequest', { tool_name: 'mcp__docs__search', tool_input: { q: 'x' } }), { toolName: 'mcp__docs__search', summary: '', isComplete: false });
+  assert.deepEqual(mapPromptDetail('PermissionRequest', { tool_name: 'mcp__docs__search', tool_input: { q: 'x' } }), { toolName: 'mcp__docs__search', summary: '', isComplete: false, question: null });
   assert.equal(mapPromptDetail('PermissionRequest', { tool_name: 'ExitPlanMode', tool_input: { plan: 'Ship it' } }), null);
   assert.equal(mapPromptDetail('Notification', { notification_type: 'permission_prompt' }), null);
   assert.equal(mapPromptDetail('PermissionRequest', {}), null);
+});
+
+const askUserQuestionInput = (overrides: Record<string, unknown> = {}) => ({
+  questions: [{ question: 'Which database?', header: 'Database', options: [{ label: 'Postgres', description: 'relational' }, { label: 'SQLite' }], multiSelect: false, ...overrides }],
+});
+const questionOf = (toolInput: unknown) => claudeCode.mapHookPromptDetail('PermissionRequest', { tool_name: 'AskUserQuestion', tool_input: toolInput })?.question;
+
+test('a single-question AskUserQuestion carries its question text, option labels and selection mode, and stays incomplete', () => {
+  assert.deepEqual(
+    claudeCode.mapHookPromptDetail('PermissionRequest', { tool_name: 'AskUserQuestion', tool_input: askUserQuestionInput() }),
+    { toolName: 'AskUserQuestion', summary: '', isComplete: false, question: { text: 'Which database?', options: ['Postgres', 'SQLite'], multiSelect: false } },
+  );
+  assert.deepEqual(questionOf(askUserQuestionInput({ multiSelect: true })), { text: 'Which database?', options: ['Postgres', 'SQLite'], multiSelect: true });
+  assert.equal(questionOf(askUserQuestionInput({ multiSelect: 'yes' }))?.multiSelect, false);
+});
+
+test('an AskUserQuestion question is accepted at exactly 300 characters, 80 per label and 8 options', () => {
+  const eightOptions = Array.from({ length: 8 }, (_, index) => ({ label: `${index}`.padEnd(80, 'x') }));
+  const question = questionOf(askUserQuestionInput({ question: 'q'.repeat(300), options: eightOptions }));
+  assert.equal(question?.text.length, 300);
+  assert.equal(question?.options.length, 8);
+});
+
+const unanswerableQuestionCases: [string, unknown][] = [
+  ['no tool input', undefined],
+  ['tool input as an array', []],
+  ['questions missing', {}],
+  ['questions not an array', { questions: 'Which database?' }],
+  ['no questions', { questions: [] }],
+  ['two questions', { questions: [askUserQuestionInput().questions[0], askUserQuestionInput().questions[0]] }],
+  ['a question entry that is not an object', { questions: ['Which database?'] }],
+  ['question text missing', askUserQuestionInput({ question: undefined })],
+  ['question text not a string', askUserQuestionInput({ question: 42 })],
+  ['empty question text', askUserQuestionInput({ question: '' })],
+  ['question text over 300 characters', askUserQuestionInput({ question: 'q'.repeat(301) })],
+  ['options missing', askUserQuestionInput({ options: undefined })],
+  ['no options', askUserQuestionInput({ options: [] })],
+  ['nine options', askUserQuestionInput({ options: Array.from({ length: 9 }, (_, index) => ({ label: `option ${index}` })) })],
+  ['an option without a label', askUserQuestionInput({ options: [{ label: 'Postgres' }, { description: 'no label' }] })],
+  ['an option label not a string', askUserQuestionInput({ options: [{ label: 'Postgres' }, { label: 7 }] })],
+  ['an option that is a bare string', askUserQuestionInput({ options: ['Postgres'] })],
+  ['an empty option label', askUserQuestionInput({ options: [{ label: '' }] })],
+  ['an option label over 80 characters', askUserQuestionInput({ options: [{ label: 'x'.repeat(81) }] })],
+  ['a bidi override in the question text', askUserQuestionInput({ question: `Which ${String.fromCharCode(0x202e)}database?` })],
+  ['a newline in the question text', askUserQuestionInput({ question: 'Which\ndatabase?' })],
+  ['an escape in an option label', askUserQuestionInput({ options: [{ label: `Postgres${String.fromCharCode(0x1b)}[2K` }] })],
+  ['a zero-width space in an option label', askUserQuestionInput({ options: [{ label: `SQ${String.fromCharCode(0x200b)}Lite` }] })],
+];
+
+for (const [description, toolInput] of unanswerableQuestionCases) {
+  test(`an AskUserQuestion with ${description} carries a null question`, () => {
+    const detail = claudeCode.mapHookPromptDetail('PermissionRequest', { tool_name: 'AskUserQuestion', tool_input: toolInput });
+    assert.equal(detail?.toolName, 'AskUserQuestion');
+    assert.equal(detail?.question, null);
+    assert.equal(detail?.isComplete, false);
+  });
+}
+
+test('only AskUserQuestion carries a question, whatever another tool puts in its input', () => {
+  assert.equal(claudeCode.mapHookPromptDetail('PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'npm test', ...askUserQuestionInput() } })?.question, null);
 });
 
 test('a permission detail is complete only when the summary is the whole single-line untruncated field', () => {
@@ -300,7 +360,7 @@ test('HookRouter attaches the permission detail to the awaiting-input signal it 
   router.handle({ glimmervoidId: 's1', event: 'PermissionRequest', token: 'tok', payload: { tool_name: 'Bash', tool_input: { command: 'npm test' } } });
   router.handle({ glimmervoidId: 's1', event: 'Notification', token: 'tok', payload: { notification_type: 'permission_prompt' } });
   assert.deepEqual(seen.map((s) => [s.promptKind, s.promptDetail ?? null]), [
-    ['permission', { toolName: 'Bash', summary: 'npm test', isComplete: true }],
+    ['permission', { toolName: 'Bash', summary: 'npm test', isComplete: true, question: null }],
     ['permission', null],
   ]);
 });

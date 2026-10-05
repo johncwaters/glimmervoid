@@ -1,3 +1,4 @@
+import { PROMPT_QUESTION_MAX_OPTIONS } from '#shared/contracts/session.ts';
 import { STATES } from '#shared/states.ts';
 
 export interface PermissionKeystroke {
@@ -17,6 +18,9 @@ interface PermissionKeys {
   approve: readonly PermissionKeystroke[];
   dismissPrompt: readonly PermissionKeystroke[];
   instruct: (instruction: string) => readonly TimedKeystroke[];
+  answerWithOption: (optionIndex: number) => readonly PermissionKeystroke[];
+  answerWithText: (optionCount: number, text: string) => readonly TimedKeystroke[];
+  reply: (text: string) => readonly TimedKeystroke[];
 }
 
 const ESCAPE = String.fromCharCode(27);
@@ -26,6 +30,13 @@ const PERMISSION_KEYS_BY_AGENT: Readonly<Record<string, PermissionKeys>> = Objec
     approve: [{ data: '\r' }],
     dismissPrompt: [{ data: ESCAPE }],
     instruct: (instruction: string) => [{ data: instruction, delayBeforeMs: 0 }, { data: '\r', delayBeforeMs: 800 }],
+    answerWithOption: (optionIndex: number) => [{ data: String(optionIndex + 1) }],
+    answerWithText: (optionCount: number, text: string) => [
+      { data: String(optionCount + 1), delayBeforeMs: 0 },
+      { data: text, delayBeforeMs: 800 },
+      { data: '\r', delayBeforeMs: 800 },
+    ],
+    reply: (text: string) => [{ data: text, delayBeforeMs: 0 }, { data: '\r', delayBeforeMs: 300 }],
   },
 });
 
@@ -49,6 +60,39 @@ export function rejectAndInstructKeystrokes(agent: string | null | undefined, in
   const keys = permissionKeysFor(agent);
   if (!keys) return null;
   return { dismissPrompt: keys.dismissPrompt, instruct: keys.instruct(instruction) };
+}
+
+function isAnswerableOptionCount(optionCount: number): boolean {
+  return Number.isInteger(optionCount) && optionCount >= 1 && optionCount <= PROMPT_QUESTION_MAX_OPTIONS;
+}
+
+export function answerWithOptionKeystrokes(
+  agent: string | null | undefined,
+  optionIndex: number,
+  optionCount: number,
+  isMultiSelect: boolean,
+): readonly PermissionKeystroke[] | null {
+  const keys = permissionKeysFor(agent);
+  if (!keys || isMultiSelect || !isAnswerableOptionCount(optionCount)) return null;
+  if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= optionCount) return null;
+  return keys.answerWithOption(optionIndex);
+}
+
+export function answerWithTextKeystrokes(
+  agent: string | null | undefined,
+  optionCount: number,
+  text: string,
+  isMultiSelect: boolean,
+): readonly TimedKeystroke[] | null {
+  const keys = permissionKeysFor(agent);
+  if (!keys || isMultiSelect || !isAnswerableOptionCount(optionCount) || !text.trim()) return null;
+  return keys.answerWithText(optionCount, text);
+}
+
+export function replyKeystrokes(agent: string | null | undefined, text: string): readonly TimedKeystroke[] | null {
+  const keys = permissionKeysFor(agent);
+  if (!keys || !text.trim()) return null;
+  return keys.reply(text);
 }
 
 export function isAnyPromptShowing(currentState: string, pendingPromptKind: string | null | undefined): boolean {

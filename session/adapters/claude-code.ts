@@ -9,7 +9,7 @@ import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-e
 import { execFileSync } from "../../server/child-process-safe.ts";
 import type { AgentAdapterShape, AgentArgsOptions, AgentHookProfile, AgentSpawnCommandOptions } from "./index.ts";
 import { PLAN_TOOL_NAME } from "../../shared/contracts/index.ts";
-import { PROMPT_DETAIL_HIDDEN_CHARACTERS, type HookPayload, type PendingPromptDetail } from "../../shared/contracts/index.ts";
+import { ASK_USER_QUESTION_TOOL_NAME, PendingPromptQuestion, PROMPT_DETAIL_HIDDEN_CHARACTERS, type HookPayload, type PendingPromptDetail } from "../../shared/contracts/index.ts";
 import { firstDetailLine, toolDetailFieldValue } from "../../shared/tool-detail.ts";
 
 const ID = "claude-code";
@@ -72,7 +72,23 @@ function mapHookPromptDetail(event: string, payload?: HookPayload): PendingPromp
   const fieldValue = toolDetailFieldValue(toolName, payload?.tool_input);
   const summary = fieldValue === null ? "" : firstDetailLine(fieldValue);
   const isComplete = isWholeBashCommandShown(toolName, payload?.tool_input, fieldValue, summary);
-  return { toolName: firstDetailLine(toolName), summary, isComplete };
+  return { toolName: firstDetailLine(toolName), summary, isComplete, question: answerableQuestionOf(toolName, payload?.tool_input) };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function answerableQuestionOf(toolName: string, toolInput: unknown): PendingPromptQuestion | null {
+  if (toolName !== ASK_USER_QUESTION_TOOL_NAME || !isRecord(toolInput)) return null;
+  const questions = toolInput.questions;
+  if (!Array.isArray(questions) || questions.length !== 1) return null;
+  const [entry] = questions;
+  if (!isRecord(entry) || typeof entry.question !== "string" || !Array.isArray(entry.options)) return null;
+  const optionLabels = entry.options.flatMap((option) => (isRecord(option) && typeof option.label === "string" ? [option.label] : []));
+  if (optionLabels.length !== entry.options.length) return null;
+  const parsedQuestion = PendingPromptQuestion.safeParse({ text: entry.question, options: optionLabels, multiSelect: entry.multiSelect === true });
+  return parsedQuestion.success ? parsedQuestion.data : null;
 }
 
 const DISPLAY_IRRELEVANT_BASH_INPUT_KEYS = new Set(["command", "description", "timeout"]);

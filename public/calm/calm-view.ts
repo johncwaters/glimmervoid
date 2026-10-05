@@ -1,4 +1,5 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
+import type { PendingPromptDetail } from '#shared/contracts/session.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { createUnseenCompleteTracker } from '../focus-view/unseen-complete-core.ts';
@@ -15,9 +16,9 @@ import { uiState } from '../ui-state-core.ts';
 import { LATER_RADIUS, NEXT_RADIUS, NOW_RADIUS, placeLights, shouldShowLabels } from './calm-field-core.ts';
 import { latestPendingReview } from './calm-plan-core.ts';
 import type { ArmedAdvance, CalmRow } from './calm-priority-core.ts';
-import { countByTier, decideArmedAdvance, formatWaitTime, isSamePermissionPrompt, orderCalmQueue, panelContextFor, pickComponent, pickNextQueueSessionId, pickNowPeek, pickSessionAfterSubmit, tierOf } from './calm-priority-core.ts';
+import { canReplyToFinishedSession, countByTier, decideArmedAdvance, formatWaitTime, isSamePermissionPrompt, offersReplyInput, orderCalmQueue, panelContextFor, pickComponent, pickNextQueueSessionId, pickNowPeek, pickSessionAfterSubmit, tierOf } from './calm-priority-core.ts';
 import type { TimedKeystroke } from './permission-keys-core.ts';
-import { approveKeystrokes, decideInstructionDelivery, INSTRUCTION_POLL_INTERVAL_MS, isAnyPromptShowing, rejectAndInstructKeystrokes } from './permission-keys-core.ts';
+import { answerWithOptionKeystrokes, answerWithTextKeystrokes, approveKeystrokes, decideInstructionDelivery, INSTRUCTION_POLL_INTERVAL_MS, isAnyPromptShowing, rejectAndInstructKeystrokes, replyKeystrokes } from './permission-keys-core.ts';
 
 const unseenTracker = createUnseenCompleteTracker();
 const glyphByTier = { now: '\u25b2', next: '\u25a0', later: '\u2713', working: '\u00b7', resting: '\u00b7' };
@@ -46,6 +47,9 @@ const calmStatusBySessionId = new Map<string, { text: string; recordedAtMs: numb
 
 const CALM_STATUS_LIFETIME_MS = 15000;
 const PROMPT_STILL_OPEN_STATUS = 'The prompt is still open. Open Terminal to continue.';
+const UNABLE_TO_SEND_STATUS = 'Unable to send. Open Terminal to continue.';
+const QUESTION_CHANGED_STATUS = 'The question changed. Open Terminal to continue.';
+const SESSION_BUSY_STATUS = 'The session is busy. Open Terminal to continue.';
 const PHONE_RING_SCALE = 50;
 const FOOTER_TEXT_BY_SURFACE = {
   desktop: 'Click a light for its action. Faint field lights are working sessions.',
@@ -110,6 +114,10 @@ function reportCalmStatus(sessionId: string, text: string, promptSummary: string
   if (liveStatus) liveStatus.textContent = text;
 }
 
+function promptStatusKeyOf(detail: PendingPromptDetail | null | undefined) {
+  return detail?.question?.text ?? detail?.summary;
+}
+
 function readFreshCalmStatus(sessionId: string, pendingPromptSummary: string | undefined) {
   const recorded = calmStatusBySessionId.get(sessionId);
   if (!recorded) return '';
@@ -167,14 +175,27 @@ export function applyCalmError(reply: ServerMessageOf<'error'>) {
   if (target) target.textContent = reply.message;
 }
 
-function sendInstructionSteps(sessionId: string, ui: SessionUi, steps: readonly TimedKeystroke[], reportStatus: (text: string) => void) {
-  const [step, ...remainingSteps] = steps;
-  if (!step) { reportStatus('Instruction sent.'); return; }
+interface KeystrokeDelivery {
+  sentStatus: string;
+  failedStatus: string;
+  blockedStatusBefore: (ui: SessionUi, stepIndex: number) => string | null;
+}
+
+const INSTRUCTION_DELIVERY: KeystrokeDelivery = {
+  sentStatus: 'Instruction sent.',
+  failedStatus: 'Unable to send instruction.',
+  blockedStatusBefore: (ui) => (isAnyPromptShowing(ui.currentState, ui.pendingPromptKind) ? PROMPT_STILL_OPEN_STATUS : null),
+};
+
+function sendTimedKeystrokes(sessionId: string, ui: SessionUi, steps: readonly TimedKeystroke[], delivery: KeystrokeDelivery, reportStatus: (text: string) => void, stepIndex = 0) {
+  const step = steps[stepIndex];
+  if (!step) { reportStatus(delivery.sentStatus); return; }
   setTimeout(() => {
-    if (sessionUIs.get(sessionId) !== ui) { reportStatus('Unable to send instruction.'); return; }
-    if (isAnyPromptShowing(ui.currentState, ui.pendingPromptKind)) { reportStatus(PROMPT_STILL_OPEN_STATUS); return; }
-    if (!sendTerminalInput(ui, step.data)) { reportStatus('Unable to send instruction.'); return; }
-    sendInstructionSteps(sessionId, ui, remainingSteps, reportStatus);
+    if (sessionUIs.get(sessionId) !== ui) { reportStatus(delivery.failedStatus); return; }
+    const blockedStatus = delivery.blockedStatusBefore(ui, stepIndex);
+    if (blockedStatus) { reportStatus(blockedStatus); return; }
+    if (!sendTerminalInput(ui, step.data)) { reportStatus(delivery.failedStatus); return; }
+    sendTimedKeystrokes(sessionId, ui, steps, delivery, reportStatus, stepIndex + 1);
   }, step.delayBeforeMs);
 }
 
@@ -182,8 +203,81 @@ function sendInstructionOncePromptCloses(sessionId: string, ui: SessionUi, steps
   if (sessionUIs.get(sessionId) !== ui) { reportStatus('Unable to send instruction.'); return; }
   const delivery = decideInstructionDelivery({ currentState: ui.currentState, pendingPromptKind: ui.pendingPromptKind, elapsedMs: Date.now() - waitStartedAt });
   if (delivery === 'give-up') { reportStatus(PROMPT_STILL_OPEN_STATUS); return; }
-  if (delivery === 'send') { sendInstructionSteps(sessionId, ui, steps, reportStatus); return; }
+  if (delivery === 'send') { sendTimedKeystrokes(sessionId, ui, steps, INSTRUCTION_DELIVERY, reportStatus); return; }
   setTimeout(() => sendInstructionOncePromptCloses(sessionId, ui, steps, waitStartedAt, reportStatus), INSTRUCTION_POLL_INTERVAL_MS);
+}
+
+function buildAnswerInput(placeholder: string, label: string, onSubmit: (input: HTMLInputElement) => void) {
+  const input = el('input', 'calm-input');
+  input.type = 'text';
+  input.placeholder = placeholder;
+  input.setAttribute('aria-label', label);
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' || event.isComposing || !input.value.trim()) return;
+    event.preventDefault();
+    onSubmit(input);
+  });
+  return input;
+}
+
+function appendQuestionAnswer(row: CalmRow, ui: SessionUi, body: HTMLElement, actions: HTMLElement) {
+  const question = row.pendingPromptDetail?.question;
+  if (!question) return;
+  const reportAnswerStatus = (text: string) => reportCalmStatus(row.id, text, promptStatusKeyOf(row.pendingPromptDetail));
+  const isSameQuestionStillShowing = () => isSamePermissionPrompt(ui.currentState, ui.pendingPromptKind, ui.pendingPromptDetail, row.pendingPromptDetail);
+  const answerControls: (HTMLButtonElement | HTMLInputElement)[] = [];
+  const disableAnswerControls = () => { for (const control of answerControls) control.disabled = true; };
+  const optionList = el('div', 'calm-options');
+  question.options.forEach((label, optionIndex) => {
+    const button = createButton(label, 'calm-option', () => {
+      if (button.disabled) return;
+      const keystrokes = answerWithOptionKeystrokes(row.agent, optionIndex, question.options.length, question.multiSelect);
+      if (!keystrokes) { reportAnswerStatus(UNABLE_TO_SEND_STATUS); return; }
+      if (!isSameQuestionStillShowing()) { reportAnswerStatus(QUESTION_CHANGED_STATUS); return; }
+      ensureTerminalReady(ui, row.id);
+      if (!keystrokes.every((keystroke) => sendTerminalInput(ui, keystroke.data))) { reportAnswerStatus(UNABLE_TO_SEND_STATUS); return; }
+      disableAnswerControls();
+      reportAnswerStatus('Answer sent.');
+    });
+    answerControls.push(button);
+    optionList.append(button);
+  });
+  const input = buildAnswerInput('or type your own answer', 'Or type your own answer', (answerInput) => {
+    const steps = answerWithTextKeystrokes(row.agent, question.options.length, answerInput.value, question.multiSelect);
+    if (!steps) { reportAnswerStatus(UNABLE_TO_SEND_STATUS); return; }
+    if (!isSameQuestionStillShowing()) { reportAnswerStatus(QUESTION_CHANGED_STATUS); return; }
+    ensureTerminalReady(ui, row.id);
+    disableAnswerControls();
+    reportAnswerStatus('Sending answer...');
+    sendTimedKeystrokes(row.id, ui, steps, {
+      sentStatus: 'Answer sent.',
+      failedStatus: UNABLE_TO_SEND_STATUS,
+      blockedStatusBefore: (_currentUi, stepIndex) => (stepIndex === 0 && !isSameQuestionStillShowing() ? QUESTION_CHANGED_STATUS : null),
+    }, reportAnswerStatus);
+  });
+  answerControls.push(input);
+  body.append(el('h2', 'calm-question', question.text), optionList);
+  actions.append(input);
+}
+
+function appendReplyInput(row: CalmRow, ui: SessionUi, actions: HTMLElement) {
+  const reportReplyStatus = (text: string) => reportCalmStatus(row.id, text, promptStatusKeyOf(row.pendingPromptDetail));
+  const isReadyForReply = (currentUi: SessionUi) => canReplyToFinishedSession(currentUi.currentState, currentUi.pendingPromptKind);
+  const input = buildAnswerInput('next instruction', 'Next instruction', (replyInput) => {
+    const steps = replyKeystrokes(row.agent, replyInput.value);
+    if (!steps) { reportReplyStatus(UNABLE_TO_SEND_STATUS); return; }
+    if (!isReadyForReply(ui)) { reportReplyStatus(SESSION_BUSY_STATUS); return; }
+    ensureTerminalReady(ui, row.id);
+    replyInput.disabled = true;
+    sendTimedKeystrokes(row.id, ui, steps, {
+      sentStatus: 'Instruction sent.',
+      failedStatus: UNABLE_TO_SEND_STATUS,
+      blockedStatusBefore: (currentUi, stepIndex) => (stepIndex === 0 && !isReadyForReply(currentUi) ? SESSION_BUSY_STATUS : null),
+    }, reportReplyStatus);
+    unseenTracker.acknowledge(row.id);
+    reportReplyStatus('Sending instruction...');
+  });
+  actions.append(input);
 }
 
 function openPanel(row: CalmRow) {
@@ -210,12 +304,12 @@ function openPanel(row: CalmRow) {
   if (activeSurface.kind === 'phone') header.append(createButton('Close', 'calm-link', dismissPanel));
   const body = el('div', 'calm-panel-body');
   const actions = el('div', 'calm-actions');
-  const status = el('span', 'calm-status', readFreshCalmStatus(row.id, row.pendingPromptDetail?.summary));
+  const status = el('span', 'calm-status', readFreshCalmStatus(row.id, promptStatusKeyOf(row.pendingPromptDetail)));
   status.setAttribute('role', 'status');
   const addPrimary = (label: string, action: () => boolean) => {
     const button = createButton(label, 'calm-primary', () => {
       if (button.disabled) return;
-      if (action() === false) { status.textContent = 'Unable to send. Open Terminal to continue.'; return; }
+      if (action() === false) { status.textContent = UNABLE_TO_SEND_STATUS; return; }
       button.disabled = true;
       status.textContent = 'Action sent.';
     });
@@ -227,26 +321,20 @@ function openPanel(row: CalmRow) {
     if (!choice.canApprove) body.append(el('p', 'calm-caption', 'Review the full request in the terminal.'));
     const isSamePromptStillShowing = () => isSamePermissionPrompt(ui.currentState, ui.pendingPromptKind, ui.pendingPromptDetail, row.pendingPromptDetail);
     const approveKeys = approveKeystrokes(row.agent);
-    const reportInstructionStatus = (text: string) => reportCalmStatus(row.id, text, row.pendingPromptDetail?.summary);
+    const reportInstructionStatus = (text: string) => reportCalmStatus(row.id, text, promptStatusKeyOf(row.pendingPromptDetail));
     if (choice.canApprove && approveKeys) {
       addPrimary('Approve', () => {
         if (!isSamePromptStillShowing()) return false;
         ensureTerminalReady(ui, row.id);
         return approveKeys.every((keystroke) => sendTerminalInput(ui, keystroke.data));
       });
-      const input = el('input', 'calm-input');
-      input.type = 'text';
-      input.placeholder = 'or tell it what to do instead';
-      input.setAttribute('aria-label', 'Or tell it what to do instead');
-      input.addEventListener('keydown', (event) => {
-        if (event.key !== 'Enter' || event.isComposing || !input.value.trim()) return;
-        event.preventDefault();
-        const redirectPlan = rejectAndInstructKeystrokes(row.agent, input.value);
-        if (!redirectPlan) { reportInstructionStatus('Unable to send. Open Terminal to continue.'); return; }
+      const input = buildAnswerInput('or tell it what to do instead', 'Or tell it what to do instead', (redirectInput) => {
+        const redirectPlan = rejectAndInstructKeystrokes(row.agent, redirectInput.value);
+        if (!redirectPlan) { reportInstructionStatus(UNABLE_TO_SEND_STATUS); return; }
         if (!isSamePromptStillShowing()) { reportInstructionStatus('The prompt changed. Open Terminal to continue.'); return; }
         ensureTerminalReady(ui, row.id);
-        if (!redirectPlan.dismissPrompt.every((keystroke) => sendTerminalInput(ui, keystroke.data))) { reportInstructionStatus('Unable to send. Open Terminal to continue.'); return; }
-        input.disabled = true;
+        if (!redirectPlan.dismissPrompt.every((keystroke) => sendTerminalInput(ui, keystroke.data))) { reportInstructionStatus(UNABLE_TO_SEND_STATUS); return; }
+        redirectInput.disabled = true;
         if (primaryButton) primaryButton.disabled = true;
         reportInstructionStatus('Sending instruction...');
         sendInstructionOncePromptCloses(row.id, ui, redirectPlan.instruct, Date.now(), reportInstructionStatus);
@@ -254,6 +342,7 @@ function openPanel(row: CalmRow) {
       actions.append(input);
     }
   }
+  if (choice.component === 'question') appendQuestionAnswer(row, ui, body, actions);
   if (choice.component === 'plan') {
     const review = latestPendingReview(ui.planReviewState);
     const revision = review?.openRevision?.revision;
@@ -284,6 +373,7 @@ function openPanel(row: CalmRow) {
     if (isDiffRequested) pendingCalmRequest = { id: row.id, kind: 'diff' };
     if (!isDiffRequested) body.textContent = 'Diff unavailable. Open review to continue.';
     addPrimary('Open review', () => { unseenTracker.acknowledge(row.id); navigation.openTerminal(row.id); return true; });
+    if (offersReplyInput(row)) appendReplyInput(row, ui, actions);
   }
   actions.append(status);
   panel.append(header, body, actions);

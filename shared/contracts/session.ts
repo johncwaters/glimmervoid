@@ -13,10 +13,24 @@ export const PendingWakeup = z.object({
   reason: z.string().nullable(),
 }).passthrough();
 
+export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion';
+export const PROMPT_QUESTION_MAX_CHARS = 300;
+export const PROMPT_QUESTION_OPTION_MAX_CHARS = 80;
+export const PROMPT_QUESTION_MAX_OPTIONS = 8;
+
+const hasNoHiddenCharacters = (text: string) => !PROMPT_DETAIL_HIDDEN_CHARACTERS.test(text);
+
+export const PendingPromptQuestion = z.object({
+  text: z.string().min(1).max(PROMPT_QUESTION_MAX_CHARS).refine(hasNoHiddenCharacters),
+  options: z.array(z.string().min(1).max(PROMPT_QUESTION_OPTION_MAX_CHARS).refine(hasNoHiddenCharacters)).min(1).max(PROMPT_QUESTION_MAX_OPTIONS),
+  multiSelect: z.boolean(),
+});
+
 export const PendingPromptDetail = z.object({
   toolName: z.string().max(TOOL_DETAIL_MAX_CHARS),
   summary: z.string().max(TOOL_DETAIL_MAX_CHARS),
   isComplete: z.boolean(),
+  question: PendingPromptQuestion.nullable().optional(),
 });
 
 export const SessionSnapshot = z.object({
@@ -51,6 +65,15 @@ export type SessionState = z.infer<typeof SessionState>;
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>;
 export type PendingWakeup = z.infer<typeof PendingWakeup>;
 export type PendingPromptDetail = z.infer<typeof PendingPromptDetail>;
+export type PendingPromptQuestion = z.infer<typeof PendingPromptQuestion>;
+
+export function isSamePromptQuestion(left: PendingPromptQuestion | null | undefined, right: PendingPromptQuestion | null | undefined): boolean {
+  if (!left || !right) return !left && !right;
+  return left.text === right.text
+    && left.multiSelect === right.multiSelect
+    && left.options.length === right.options.length
+    && left.options.every((option, index) => option === right.options[index]);
+}
 
 export const AGENT_URL_ENV = 'GLIMMERVOID_AGENT_URL';
 export const AGENT_API_VERBS = ['spawn', 'attention', 'board'] as const;

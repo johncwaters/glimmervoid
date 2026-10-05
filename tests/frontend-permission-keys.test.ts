@@ -2,12 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { pickComponent } from '../public/calm/calm-priority-core.ts';
 import {
+  answerWithOptionKeystrokes,
+  answerWithTextKeystrokes,
   approveKeystrokes,
   decideInstructionDelivery,
   hasPermissionKeys,
   INSTRUCTION_WAIT_TIMEOUT_MS,
   isAnyPromptShowing,
   rejectAndInstructKeystrokes,
+  replyKeystrokes,
 } from '../public/calm/permission-keys-core.ts';
 
 const ESCAPE = String.fromCharCode(27);
@@ -29,8 +32,52 @@ for (const agent of ['codex', 'grok', 'custom', 'constructor', '__proto__', '', 
     assert.equal(hasPermissionKeys(agent), false);
     assert.equal(approveKeystrokes(agent), null);
     assert.equal(rejectAndInstructKeystrokes(agent, 'anything'), null);
+    assert.equal(answerWithOptionKeystrokes(agent, 0, 2, false), null);
+    assert.equal(answerWithTextKeystrokes(agent, 2, 'anything', false), null);
+    assert.equal(replyKeystrokes(agent, 'anything'), null);
   });
 }
+
+test('claude-code answers a question option with the single digit of its one-based position', () => {
+  assert.deepEqual(answerWithOptionKeystrokes('claude-code', 0, 2, false), [{ data: '1' }]);
+  assert.deepEqual(answerWithOptionKeystrokes('claude-code', 1, 2, false), [{ data: '2' }]);
+  assert.deepEqual(answerWithOptionKeystrokes('claude-code', 7, 8, false), [{ data: '8' }]);
+});
+
+test('answerWithOptionKeystrokes refuses multiSelect, more than eight options and an index outside the options', () => {
+  assert.equal(answerWithOptionKeystrokes('claude-code', 0, 2, true), null);
+  assert.equal(answerWithOptionKeystrokes('claude-code', 0, 9, false), null);
+  assert.equal(answerWithOptionKeystrokes('claude-code', 0, 0, false), null);
+  assert.equal(answerWithOptionKeystrokes('claude-code', 2, 2, false), null);
+  assert.equal(answerWithOptionKeystrokes('claude-code', -1, 2, false), null);
+  assert.equal(answerWithOptionKeystrokes('claude-code', 0.5, 2, false), null);
+});
+
+test('claude-code types an answer by picking the type-something row, then typing and submitting after pauses', () => {
+  assert.deepEqual(answerWithTextKeystrokes('claude-code', 2, 'use DuckDB', false), [
+    { data: '3', delayBeforeMs: 0 },
+    { data: 'use DuckDB', delayBeforeMs: 800 },
+    { data: '\r', delayBeforeMs: 800 },
+  ]);
+  assert.deepEqual(answerWithTextKeystrokes('claude-code', 8, 'other', false)?.[0], { data: '9', delayBeforeMs: 0 });
+});
+
+test('answerWithTextKeystrokes refuses multiSelect, empty text and more than eight options', () => {
+  assert.equal(answerWithTextKeystrokes('claude-code', 2, 'use DuckDB', true), null);
+  assert.equal(answerWithTextKeystrokes('claude-code', 2, '', false), null);
+  assert.equal(answerWithTextKeystrokes('claude-code', 2, '   ', false), null);
+  assert.equal(answerWithTextKeystrokes('claude-code', 9, 'use DuckDB', false), null);
+  assert.equal(answerWithTextKeystrokes('claude-code', 0, 'use DuckDB', false), null);
+});
+
+test('claude-code replies to a finished session by typing the instruction and submitting it after a short pause', () => {
+  assert.deepEqual(replyKeystrokes('claude-code', 'now add tests'), [{ data: 'now add tests', delayBeforeMs: 0 }, { data: '\r', delayBeforeMs: 300 }]);
+});
+
+test('replyKeystrokes refuses empty text', () => {
+  assert.equal(replyKeystrokes('claude-code', ''), null);
+  assert.equal(replyKeystrokes('claude-code', ' \t '), null);
+});
 
 for (const agent of ['claude-code', 'codex', 'grok', null]) {
   test(`pickComponent offers the permission panel for ${String(agent)} only when the keystroke table has an entry`, () => {

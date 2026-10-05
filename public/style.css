@@ -8827,6 +8827,9 @@ html:not([data-layout="phone"]) body[data-active-view="calm"] #review-sidebar { 
 .calm-link { min-height: 44px; padding: 0 4px; background: transparent; border: 0; color: var(--text-dim); font: inherit; font-size: 12px; text-decoration: underline; cursor: pointer; }
 .calm-summary { margin: 0; font: inherit; color: var(--text-head); white-space: pre-wrap; overflow-wrap: anywhere; }
 .calm-tool-name, .calm-caption, .calm-status { color: var(--text-muted); font-size: 11px; }
+.calm-question { margin: 0 0 12px; font: inherit; font-size: 14px; font-weight: 700; color: var(--text-head); white-space: pre-wrap; overflow-wrap: anywhere; }
+.calm-options { display: flex; flex-direction: column; gap: 8px; }
+.calm-option { min-height: 44px; padding: 8px 14px; background: transparent; color: var(--text-head); border: 1px solid var(--border); border-radius: 4px; font: inherit; font-size: 13px; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
 .calm-panel-body { font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
 .calm-now-list { display: none; }
 .calm-now-row { min-height: 44px; background: transparent; color: var(--state-waiting); border: 1px solid var(--border); border-radius: 4px; font: inherit; text-align: left; padding: 8px 12px; cursor: pointer; }
@@ -8885,6 +8888,7 @@ html[data-layout="phone"] .phone-calm .calm-panel-header { justify-content: flex
 html[data-layout="phone"] .phone-calm .calm-panel-title { flex: 1 1 auto; min-width: 0; }
 html[data-layout="phone"] .phone-calm .calm-actions { flex-direction: column; align-items: stretch; }
 html[data-layout="phone"] .phone-calm .calm-primary { width: 100%; min-height: 48px; }
+html[data-layout="phone"] .phone-calm .calm-option { min-height: 48px; }
 html[data-layout="phone"] .phone-calm .calm-input { flex: 0 0 auto; width: 100%; min-height: 48px; box-sizing: border-box; font-size: 16px; }
 html[data-layout="phone"] .phone-calm .calm-link { align-self: flex-start; }
 html[data-layout="phone"] .phone-calm .calm-panel-header .calm-link { align-self: auto; }

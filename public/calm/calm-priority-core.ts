@@ -1,4 +1,4 @@
-import type { PendingPromptDetail } from '#shared/contracts/session.ts';
+import { ASK_USER_QUESTION_TOOL_NAME, isSamePromptQuestion, type PendingPromptDetail } from '#shared/contracts/session.ts';
 import { STATES } from '#shared/states.ts';
 import { needsAttention, pickNextAttention } from '../focus-view/attention-core.ts';
 import { formatMinutes } from '../usage-view-core.ts';
@@ -109,14 +109,18 @@ export function countByTier(rows: readonly CalmRow[]) {
   return counts;
 }
 
-export type CalmComponent = 'permission' | 'plan' | 'failure' | 'review' | 'terminal';
+export type CalmComponent = 'permission' | 'question' | 'plan' | 'failure' | 'review' | 'terminal';
+
+function isAnswerableQuestion(detail: PendingPromptDetail | null | undefined): boolean {
+  return detail?.question?.multiSelect === false;
+}
 
 function pickPromptComponent(row: CalmRow): { component: CalmComponent; canApprove: boolean } {
   if (row.pendingPromptKind === 'plan') return { component: 'plan', canApprove: false };
-  if (row.pendingPromptKind === 'permission' && hasPermissionKeys(row.agent)) {
-    return { component: 'permission', canApprove: row.pendingPromptDetail?.isComplete === true };
-  }
-  return { component: 'terminal', canApprove: false };
+  if (row.pendingPromptKind !== 'permission' || !hasPermissionKeys(row.agent)) return { component: 'terminal', canApprove: false };
+  if (isAnswerableQuestion(row.pendingPromptDetail)) return { component: 'question', canApprove: false };
+  if (row.pendingPromptDetail?.toolName === ASK_USER_QUESTION_TOOL_NAME) return { component: 'terminal', canApprove: false };
+  return { component: 'permission', canApprove: row.pendingPromptDetail?.isComplete === true };
 }
 
 export function pickComponent(row: CalmRow): { component: CalmComponent; canApprove: boolean } {
@@ -134,6 +138,7 @@ export function pickComponent(row: CalmRow): { component: CalmComponent; canAppr
 
 const PANEL_CONTEXT_BY_COMPONENT: Record<Exclude<CalmComponent, 'terminal'>, string> = {
   permission: 'wants to run',
+  question: 'asks',
   plan: 'has a plan ready',
   failure: 'failed',
   review: 'finished',
@@ -164,5 +169,15 @@ export function isSamePermissionPrompt(
   if (!currentDetail || !shownDetail) return false;
   return currentDetail.toolName === shownDetail.toolName
     && currentDetail.summary === shownDetail.summary
-    && currentDetail.isComplete === shownDetail.isComplete;
+    && currentDetail.isComplete === shownDetail.isComplete
+    && isSamePromptQuestion(currentDetail.question, shownDetail.question);
+}
+
+export function canReplyToFinishedSession(currentState: string, pendingPromptKind: string | null | undefined): boolean {
+  const isFinished = currentState === STATES.COMPLETE || currentState === STATES.IDLE;
+  return isFinished && (pendingPromptKind === null || pendingPromptKind === undefined);
+}
+
+export function offersReplyInput(row: Pick<CalmRow, 'agent'>): boolean {
+  return hasPermissionKeys(row.agent);
 }

@@ -12,7 +12,7 @@ import { requireExecutableSpawnHelper } from "../server/node-pty-preflight.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
 import { AGENT_ATTENTION_NOTE_SEPARATOR, AGENT_URL_ENV } from "../shared/contracts/session.ts";
-import type { AgentAttentionReply, PendingPromptDetail } from "../shared/contracts/session.ts";
+import { isSamePromptQuestion, type AgentAttentionReply, type PendingPromptDetail } from "../shared/contracts/session.ts";
 import { generateToken } from "../detection/settings-injector.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
 import { createStatusSource } from "../detection/status-source.ts";
@@ -79,7 +79,10 @@ function nextPendingPromptDetail(
 function isSamePromptDetail(left: PendingPromptDetail | null, right: PendingPromptDetail | null): boolean {
   if (left === right) return true;
   if (!left || !right) return false;
-  return left.toolName === right.toolName && left.summary === right.summary && left.isComplete === right.isComplete;
+  return left.toolName === right.toolName
+    && left.summary === right.summary
+    && left.isComplete === right.isComplete
+    && isSamePromptQuestion(left.question, right.question);
 }
 
 function isDifferentPermissionDialog(
@@ -88,7 +91,9 @@ function isDifferentPermissionDialog(
   incomingDetail: PendingPromptDetail | null,
 ): boolean {
   if (currentKind !== "permission" || !currentDetail || !incomingDetail) return false;
-  return currentDetail.toolName !== incomingDetail.toolName || currentDetail.summary !== incomingDetail.summary;
+  return currentDetail.toolName !== incomingDetail.toolName
+    || currentDetail.summary !== incomingDetail.summary
+    || !isSamePromptQuestion(currentDetail.question, incomingDetail.question);
 }
 
 const DISMISSIBLE_STATES: Set<SessionState> = new Set([STATES.WAITING, STATES.COMPLETE]);
