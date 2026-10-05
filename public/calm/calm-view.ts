@@ -21,7 +21,7 @@ import { approveKeystrokes, decideInstructionDelivery, INSTRUCTION_POLL_INTERVAL
 
 const unseenTracker = createUnseenCompleteTracker();
 const glyphByTier = { now: '\u25b2', next: '\u25a0', later: '\u2713', working: '\u00b7', resting: '\u00b7' };
-interface CalmNavigation { openTerminal: (id: string) => void; openPlan: (id: string) => void }
+interface CalmNavigation { openTerminal: (id: string) => void; openPlan: (id: string) => void; onSheetOpenChange?: (isOpen: boolean) => void }
 interface CalmSurface { kind: 'desktop' | 'phone'; root: HTMLElement; navigation: CalmNavigation }
 let desktopSurface: CalmSurface | null = null;
 let openDesktopCalm: () => void = () => {};
@@ -29,6 +29,7 @@ let surface: CalmSurface | null = null;
 let field: HTMLDivElement | null = null;
 let panel: HTMLElement | null = null;
 let sheetScrim: HTMLDivElement | null = null;
+let isSheetOpenReported = false;
 let selectedSessionId: string | null = null;
 let selectedComponent: string | null = null;
 let selectedFingerprint = '';
@@ -69,7 +70,7 @@ function findLight(sessionId: string | undefined) {
   return [...field.querySelectorAll<HTMLButtonElement>('.calm-light')].find((button) => button.dataset.sessionId === sessionId) ?? null;
 }
 
-function closePanel() {
+function detachPanel() {
   panel?.parentElement?.classList.remove('calm-has-panel');
   panel?.remove();
   sheetScrim?.remove();
@@ -83,6 +84,18 @@ function closePanel() {
   if (field) field.inert = false;
   if (opener?.isConnected) { opener.focus(); return; }
   findLight(opener?.dataset.sessionId)?.focus();
+}
+
+function reportSheetOpenChange() {
+  const isSheetOpen = panel !== null && surface?.kind === 'phone';
+  if (isSheetOpen === isSheetOpenReported) return;
+  isSheetOpenReported = isSheetOpen;
+  surface?.navigation.onSheetOpenChange?.(isSheetOpen);
+}
+
+function closePanel() {
+  detachPanel();
+  reportSheetOpenChange();
 }
 
 function dismissPanel() {
@@ -178,7 +191,7 @@ function openPanel(row: CalmRow) {
   const activeSurface = surface;
   if (!activeSurface || !ui) return;
   const { root, navigation } = activeSurface;
-  closePanel();
+  detachPanel();
   opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   selectedSessionId = row.id;
   const choice = pickComponent(row);
@@ -279,6 +292,7 @@ function openPanel(row: CalmRow) {
   root.append(panel);
   if (field) field.inert = true;
   panelTitle.focus();
+  reportSheetOpenChange();
 }
 
 export function applyCalmSessionDiff(reply: ServerMessageOf<'session-diff'>) {
@@ -578,6 +592,11 @@ export function activatePhoneCalmView(element: HTMLElement, navigation: CalmNavi
     surface = { kind: 'phone', root: element, navigation };
   }
   refreshCalmView();
+}
+
+export function dismissPhoneCalmSheet() {
+  if (surface?.kind !== 'phone' || !panel) return;
+  dismissPanel();
 }
 
 export function deactivatePhoneCalmView() {

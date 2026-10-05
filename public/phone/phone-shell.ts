@@ -1,6 +1,6 @@
 
 import { STATES } from '#shared/states.ts';
-import { activatePhoneCalmView, deactivatePhoneCalmView } from '../calm/calm-view.ts';
+import { activatePhoneCalmView, deactivatePhoneCalmView, dismissPhoneCalmSheet } from '../calm/calm-view.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import type { AdoptableElement } from '../dom-helpers.ts';
 import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
@@ -13,6 +13,8 @@ import { uiState } from '../ui-state-core.ts';
 import { closeSettingsSectionPicker } from '../settings-panel.ts';
 import { getLastFocusedSessionId, setLastFocusedSessionId } from '../ui-prefs.ts';
 import { createBoardScreen } from './board-screen.ts';
+import type { PushedPhoneHistoryEntry } from './phone-history-core.ts';
+import { CALM_SHEET_HISTORY_STATE, decideCalmSheetOpened, decidePhonePopState, isCalmSheetHistoryState, shouldConsumeCalmSheetEntry } from './phone-history-core.ts';
 import { createTerminalScreen } from './terminal-screen.ts';
 
 const BOARD = 'board';
@@ -82,11 +84,14 @@ let active = false;
 const SOFT_KEYBOARD_OPEN_DELTA_PX = 120;
 let keyboardClosedBaselineHeightPx = 0;
 let baselineViewportWidthPx = 0;
-let pushedHistoryEntry = false;
+let pushedHistoryEntry: PushedPhoneHistoryEntry = 'none';
+let isCalmSheetOpen = false;
+let isOwnSheetPopPending = false;
 let isCalmAvailable = false;
 const phoneCalmNavigation = {
   openTerminal: (sessionId: string) => openSession(sessionId),
   openPlan: (sessionId: string) => { showPhonePlan(sessionId); },
+  onSheetOpenChange: (isOpen: boolean) => onCalmSheetOpenChange(isOpen),
 };
 
 function resetSoftKeyboardBaseline() {
@@ -290,35 +295,63 @@ function openSession(sessionId: string) {
 
 function pushHistoryFor(screenId: string) {
   if (screenId === BOARD) {
-    if (!pushedHistoryEntry) return;
-    pushedHistoryEntry = false;
+    if (pushedHistoryEntry === 'none') return;
+    pushedHistoryEntry = 'none';
     history.back();
     return;
   }
   const state = { glimmervoidScreen: screenId };
-  if (pushedHistoryEntry) {
+  if (pushedHistoryEntry !== 'none') {
     history.replaceState(state, '');
+    pushedHistoryEntry = 'screen';
     return;
   }
   history.pushState(state, '');
-  pushedHistoryEntry = true;
+  pushedHistoryEntry = 'screen';
 }
 
 function adoptInheritedHistory() {
+  if (isCalmSheetHistoryState(history.state)) {
+    pushedHistoryEntry = 'calm-sheet';
+    consumeCalmSheetHistoryEntry();
+    return BOARD;
+  }
   const inherited = screenIdFromHistoryState(history.state);
   if (inherited && screenElById.has(inherited) && !unavailableScreenIds.has(inherited)) {
-    pushedHistoryEntry = true;
+    pushedHistoryEntry = 'screen';
     return inherited;
   }
   if (inherited) history.replaceState(null, '');
-  pushedHistoryEntry = false;
+  pushedHistoryEntry = 'none';
   return BOARD;
 }
 
 function surrenderHistoryEntry() {
-  if (!pushedHistoryEntry) return;
-  pushedHistoryEntry = false;
+  if (pushedHistoryEntry === 'none') return;
+  pushedHistoryEntry = 'none';
   history.back();
+}
+
+function pushCalmSheetHistoryEntry() {
+  if (decideCalmSheetOpened({ pushedEntry: pushedHistoryEntry, isOwnSheetPopPending }) !== 'push-sheet-entry') return;
+  history.pushState(CALM_SHEET_HISTORY_STATE, '');
+  pushedHistoryEntry = 'calm-sheet';
+}
+
+function consumeCalmSheetHistoryEntry() {
+  if (!shouldConsumeCalmSheetEntry({ pushedEntry: pushedHistoryEntry, topState: history.state, isOwnSheetPopPending })) return;
+  pushedHistoryEntry = 'none';
+  isOwnSheetPopPending = true;
+  history.back();
+}
+
+function onCalmSheetOpenChange(isOpen: boolean) {
+  isCalmSheetOpen = isOpen;
+  if (isOpen) {
+    pushCalmSheetHistoryEntry();
+    return;
+  }
+  consumeCalmSheetHistoryEntry();
 }
 
 function screenIdFromHistoryState(state: unknown): string | null {
@@ -327,9 +360,30 @@ function screenIdFromHistoryState(state: unknown): string | null {
 }
 
 function onPopState(event: PopStateEvent) {
+  const wasOwnSheetPop = isOwnSheetPopPending;
+  isOwnSheetPopPending = false;
   if (!active) return;
+  const decision = decidePhonePopState({ poppedState: event.state, isCalmSheetOpen, isOwnSheetPopPending: wasOwnSheetPop });
+  if (decision === 'own-sheet-pop') {
+    if (isCalmSheetOpen) pushCalmSheetHistoryEntry();
+    return;
+  }
+  if (decision === 'adopt-sheet-entry') {
+    pushedHistoryEntry = 'calm-sheet';
+    return;
+  }
+  if (decision === 'consume-stray-sheet-entry') {
+    pushedHistoryEntry = 'calm-sheet';
+    consumeCalmSheetHistoryEntry();
+    return;
+  }
+  if (decision === 'close-sheet') {
+    pushedHistoryEntry = 'none';
+    dismissPhoneCalmSheet();
+    return;
+  }
   const target = screenIdFromHistoryState(event.state);
-  pushedHistoryEntry = !!target;
+  pushedHistoryEntry = target ? 'screen' : 'none';
   applyScreen(target && screenElById.has(target) && !unavailableScreenIds.has(target) ? target : BOARD);
 }
 

@@ -8862,6 +8862,7 @@ html:not([data-layout="phone"]) body[data-active-view="calm"] #review-sidebar { 
 html[data-layout="phone"] .phone-board[data-calm] { overflow-y: auto; overscroll-behavior: contain; }
 html[data-layout="phone"] .phone-board[data-calm] > .phone-topbar { position: sticky; top: 0; z-index: 2; }
 html[data-layout="phone"] .phone-board[data-calm] > .phone-board-list { flex: 0 0 auto; overflow: visible; }
+html[data-layout="phone"] .phone-board[data-calm] > .phone-attention { display: none; }
 html[data-layout="phone"] .phone-calm { position: static; flex: 0 0 auto; overflow: hidden; }
 html[data-layout="phone"] .phone-calm .calm-field { min-height: 0; }
 html[data-layout="phone"] .phone-calm .calm-header { gap: 12px; padding: 12px 16px 0; font-size: 11px; }
