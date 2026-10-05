@@ -7,15 +7,15 @@ import { sendControlMsg } from './control-ws.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } from './dom-helpers.ts';
 import { createPollAgoTicker, formatAgo } from './poll-ago.ts';
 import { createPrQueueColumns, createPrQueueHead } from './pr-queue-columns.ts';
-import { createStateGlyph, createSvgIcon as svgIcon, createSvgShape as svgShape } from './state-glyph.ts';
+import { createSvgIcon as svgIcon, createSvgShape as svgShape } from './state-glyph.ts';
 import { formatTrailOffset } from './radar-core.ts';
 import { createSettingsLink } from './settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, REVIEW_PRIORITY_REASON_TEXT, REVIEW_PRIORITY_TONES, classifyReviewPriority,
   aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
-  parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
-  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityCounts, severityPresentation, verdictLabel, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
+  parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, queueRowVerdictLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
+  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, verdictLabel, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
 } from './team-review-view-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
 import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
@@ -106,16 +106,6 @@ function createQuestionGlyph(): SVGSVGElement {
   return icon;
 }
 
-function createRowSeverityCounts(draft: ReviewDraft): HTMLElement {
-  const counts = el('span', 'pr-severity-counts');
-  for (const { severity, count } of severityCounts(draft)) {
-    const item = el('span', 'pr-severity-count');
-    item.append(createSeverityMeter(severity), el('span', null, String(count)));
-    counts.append(item);
-  }
-  return counts;
-}
-
 function pullRequestLink(review: Pick<ReviewDraft, 'repo' | 'number' | 'url'>): HTMLElement {
   return externalLink('pr-link', pullRequestLabel(review.repo, review.number), review.url);
 }
@@ -140,7 +130,10 @@ function trackAges(root: Element | null): void {
   for (const row of root.querySelectorAll<HTMLElement>('.pr-queue-row')) {
     const title = _queueRowTitles.get(row);
     if (!title) continue;
-    const paintTitle = () => { row.title = title(); };
+    const paintTitle = () => {
+      row.title = title();
+      row.setAttribute('aria-label', row.title);
+    };
     paintTitle();
     _ageTicker.onTick(paintTitle);
   }
@@ -202,13 +195,12 @@ function createAuthor(login: string, cssPx: number, className: string): HTMLElem
   return author;
 }
 
-function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind): HTMLButtonElement {
-  const row = el('button', 'pr-queue-row');
+function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind, hasMultipleRepos: boolean): HTMLButtonElement {
+  const row = el('button', 'pr-queue-row pr-queue-row-quiet');
   row.type = 'button';
   row.dataset.reviewKey = review.key;
   row.setAttribute('aria-current', String(review.key === _selectedKey));
   const approvalContext = 'reviewedHead' in review ? viewerApprovalContext(review) : null;
-  const reviewStatus = 'status' in review ? review.status : null;
   const title = () => queueRowTitle(review, kind, {
     opened: formatTimestampAge(review.prCreatedAt),
     reviewed: 'reviewedHead' in review ? formatTimestampAge(review.reviewedAt) : null,
@@ -217,11 +209,14 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
     githubReviews: 'reviewedHead' in review ? githubReviewItems(review, { isViewerShown: kind !== 'posted' }).map((item) => formatTimestampAge(item.submittedAt)) : [],
   });
   row.title = title();
+  row.setAttribute('aria-label', row.title);
   _queueRowTitles.set(row, title);
-  const glyph = el('span', 'pr-queue-glyph');
-  glyph.append(createStateGlyph(queueRowTone(kind, reviewStatus)));
   const top = el('span', 'pr-queue-top');
-  top.append(el('strong', 'pr-queue-ref', pullRequestLabel(review.repo, review.number)), el('span', 'pr-queue-title', review.title));
+  top.append(
+    el('strong', 'pr-queue-ref', queueRowRefLabel(review.repo, review.number, hasMultipleRepos)),
+    el('strong', 'pr-queue-ref-compact', queueRowRefLabel(review.repo, review.number, false)),
+    el('span', 'pr-queue-title', review.title),
+  );
   if (kind === 'inReview') {
     const inFlight = review as InFlightReview;
     const elapsed = el('span', 'pr-queue-elapsed');
@@ -249,30 +244,31 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
   requestChip.dataset.tone = 'muted';
   const reasonChip = el('span', 'my-pr-stage');
   reasonChip.dataset.tone = REVIEW_PRIORITY_TONES[priority.band];
-  reasonChip.append(createStateGlyph(REVIEW_PRIORITY_TONES[priority.band]), REVIEW_PRIORITY_REASON_TEXT[priority.reason]);
+  reasonChip.append(REVIEW_PRIORITY_REASON_TEXT[priority.reason]);
   bottom.append(requestChip, reasonChip);
   if (kind === 'inReview') {
     const inFlight = review as InFlightReview;
-    bottom.append(el('span', 'pr-phase-label', phaseLabel(inFlight.phase)), createAuthor(inFlight.author, 16, 'pr-queue-author'));
+    bottom.append(el('span', 'pr-phase-label', phaseLabel(inFlight.phase)));
   }
-  if (kind === 'queued') bottom.append(el('span', 'pr-phase-label', 'waiting for a slot'), createAuthor(review.author, 16, 'pr-queue-author'));
+  if (kind === 'queued') bottom.append(el('span', 'pr-phase-label', 'waiting for a slot'));
   if (kind === 'ready' || kind === 'settled') {
     const draft = review as ReviewDraft;
-    bottom.append(createVerdictSeal(draft));
-    if (approvalContext) bottom.append(el('span', 'pr-rereview-tag', 'Re-review'));
-    bottom.append(createAuthor(draft.author, 16, 'pr-queue-author'), createRowSeverityCounts(draft));
+    const verdict = el('span', 'pr-queue-verdict', queueRowVerdictLabel(draft.verdict));
+    verdict.dataset.tone = verdictTone(draft.verdict);
+    bottom.append(verdict);
   }
   if (kind === 'attention' || kind === 'discarded') {
     const draft = review as ReviewDraft;
-    bottom.append(el('span', `pr-attention-label pr-attention-label-${draft.status}`, attentionStatusLabel(draft.status)), createAuthor(draft.author, 16, 'pr-queue-author'));
+    bottom.append(el('span', `pr-attention-label pr-attention-label-${draft.status}`, attentionStatusLabel(draft.status)));
   }
   if (kind === 'posted') {
-    const draft = review as ReviewDraft;
-    bottom.append(el('span', 'pr-attention-label pr-attention-label-posted', 'posted'), createAuthor(draft.author, 16, 'pr-queue-author'));
-    bottom.append(el('span', 'pr-queue-posted-detail', verdictLabel(draft.verdict)));
+    bottom.append(el('span', 'pr-attention-label pr-attention-label-posted', 'posted'));
   }
-  if (approvalContext && kind !== 'ready' && kind !== 'settled') bottom.append(el('span', 'pr-rereview-tag', 'Re-review'));
-  row.append(glyph, top, bottom);
+  if ('reviewedHead' in review && review.comments.length > 0) bottom.append(el('span', 'pr-queue-comment-count', `\u00b7 ${review.comments.length}`));
+  if (approvalContext) bottom.append(el('span', 'pr-queue-approval-context', 'since approval'));
+  bottom.append(createAuthor(review.author, 16, 'pr-queue-author'));
+  if (kind === 'posted') bottom.append(el('span', 'pr-queue-posted-detail', verdictLabel((review as ReviewDraft).verdict)));
+  row.append(top, bottom);
   const githubSummary = kind === 'inReview' || kind === 'queued' ? null : createGithubReviewSummary(review as ReviewDraft, 'pr-queue-reviewers', 16, kind !== 'posted');
   if (githubSummary) bottom.append(githubSummary);
   row.addEventListener('click', () => {
@@ -286,10 +282,10 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
   return row;
 }
 
-function createQueueSection(title: string, reviews: (ReviewDraft | InFlightReview | QueuedReview)[], kind: QueueRowKind): HTMLElement {
+function createQueueSection(title: string, reviews: (ReviewDraft | InFlightReview | QueuedReview)[], kind: QueueRowKind, hasMultipleRepos: boolean): HTMLElement {
   const section = el('section', 'pr-queue-section');
   section.append(el('h3', 'pr-section-heading', `${title} ${reviews.length}`));
-  for (const review of reviews) section.append(createQueueRow(review, kind));
+  for (const review of reviews) section.append(createQueueRow(review, kind, hasMultipleRepos));
   return section;
 }
 
@@ -847,17 +843,18 @@ function render(): void {
   if (!_queue) return;
   syncTeamChip(_root.querySelector('.pr-queue-head'));
   _selectedKey = chooseSelectedReviewKey(sections, _selectedKey);
+  const hasMultipleRepos = hasMultipleQueueRepos(sections);
   const queueSections: HTMLElement[] = [];
-  if (sections.ready.length) queueSections.push(createQueueSection('Ready', sections.ready, 'ready'));
+  if (sections.ready.length) queueSections.push(createQueueSection('Ready', sections.ready, 'ready', hasMultipleRepos));
   if (sections.inReview.length) {
-    _inReviewSection = createQueueSection('In review', sections.inReview, 'inReview');
+    _inReviewSection = createQueueSection('In review', sections.inReview, 'inReview', hasMultipleRepos);
     queueSections.push(_inReviewSection);
   }
-  if (sections.queued.length) queueSections.push(createQueueSection('Queued', sections.queued, 'queued'));
-  if (sections.noReviewNeeded.length) queueSections.push(createQueueSection('No review needed', sections.noReviewNeeded, 'settled'));
-  if (sections.attention.length) queueSections.push(createQueueSection('Needs attention', sections.attention, 'attention'));
-  if (sections.posted.length) queueSections.push(createQueueSection('Recently posted', sections.posted, 'posted'));
-  if (sections.discarded.length) queueSections.push(createQueueSection('Discarded', sections.discarded, 'discarded'));
+  if (sections.queued.length) queueSections.push(createQueueSection('Queued', sections.queued, 'queued', hasMultipleRepos));
+  if (sections.noReviewNeeded.length) queueSections.push(createQueueSection('No review needed', sections.noReviewNeeded, 'settled', hasMultipleRepos));
+  if (sections.attention.length) queueSections.push(createQueueSection('Needs attention', sections.attention, 'attention', hasMultipleRepos));
+  if (sections.posted.length) queueSections.push(createQueueSection('Recently posted', sections.posted, 'posted', hasMultipleRepos));
+  if (sections.discarded.length) queueSections.push(createQueueSection('Discarded', sections.discarded, 'discarded', hasMultipleRepos));
   _queue.replaceChildren(...(pollingControls ? [pollingControls.notice] : []), ...laneNoticeElements(), ...queueSections);
   pollingControls?.update(_latest);
   restoreQueueFocus(focusedReviewKey);
@@ -907,7 +904,7 @@ function replaceInReviewSection(): boolean {
   _ageTicker.reset();
   const focusedReviewKey = focusedQueueReviewKey();
   const sections = groupDrafts(_latest);
-  const replacement = createQueueSection('In review', sections.inReview, 'inReview');
+  const replacement = createQueueSection('In review', sections.inReview, 'inReview', hasMultipleQueueRepos(sections));
   _inReviewSection.replaceWith(replacement);
   _inReviewSection = replacement;
   restoreQueueFocus(focusedReviewKey);

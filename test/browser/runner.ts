@@ -7,6 +7,7 @@ import { safeTextTail } from '../support/backend-harness.ts';
 import { heightWithKeyboardUp, layoutFor } from './cases-core.ts';
 import type { CardControl, HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from './cases-core.ts';
 import { expectedRows, parseStatusRow } from './frame-core.ts';
+import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, dispatchWindowBlur, dropDataSocket, pillIds, readDocumentEngagement, readGrid, readLayout, readTerminalFocus, setDocumentEngagement } from './probe.ts';
 import type { GridReading } from './probe.ts';
 import { caseKey } from './report-core.ts';
@@ -634,6 +635,10 @@ export async function runCase({
 
   const runStep = async (step: ResolvedStep): Promise<StepOutcome> => {
     const viewer = await viewerFor(step.viewer ?? 'a');
+    if (step.kind === 'assert-team-review') {
+      await verifyTeamReviewRows(viewer.page, viewer.layout);
+      return passedOutcome('team-review-rows', 'quiet rows, accessible names, repo refs and detail presentation verified');
+    }
     if (step.kind === 'open') return runOpen(viewer, sessionId, deadlines);
     if (step.kind === 'back') return runBack(viewer, sessionId, deadlines);
     if (step.kind === 'resize') {

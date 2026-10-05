@@ -12,12 +12,13 @@ import {
   companionFor,
   heightWithKeyboardUp,
   layoutFor,
+  needsTeamReview,
 } from '../test/browser/cases-core.ts';
 import type { HarnessCase, Scenario, Step, Viewport } from '../test/browser/cases-core.ts';
 import { BURST_CAP } from '../test/browser/frame-core.ts';
 
-const DEFAULT_CASE_COUNT = 56;
-const PROVE_FAILURE_CASE_COUNT = 58;
+const DEFAULT_CASE_COUNT = 58;
+const PROVE_FAILURE_CASE_COUNT = 60;
 
 function viewportNamed(name: string): Viewport {
   const found = VIEWPORTS.find((viewport) => viewport.name === name);
@@ -47,12 +48,12 @@ test('the default matrix is pinned so a silently dropped case fails the suite', 
   assert.equal(casesFor({}).length, DEFAULT_CASE_COUNT);
 });
 
-test('every scenario reaches a fixpoint before the harness stops looking', () => {
+test('every scenario verifies its final state before the harness stops looking', () => {
   for (const scenario of SCENARIOS) {
     const last = lastSteadyStep(scenario.steps);
     assert.ok(
-      last.kind === 'settle' || last.kind === 'assert-grid',
-      `${scenario.name} ends on ${last.kind}, so a screenshot could catch a mid-flight grid`,
+      last.kind === 'settle' || last.kind === 'assert-grid' || last.kind === 'assert-team-review',
+      `${scenario.name} ends on ${last.kind}, without verifying its final state`,
     );
   }
 });
@@ -125,6 +126,11 @@ test('a soft keyboard step never runs on a viewport with no keyboard height', ()
     if (!usesKeyboard) continue;
     assert.notEqual(harnessCase.viewport.keyboardHeight, undefined, harnessCase.viewport.name);
   }
+});
+
+test('only a scenario that asserts team review rows turns team review on', () => {
+  const teamReviewScenarioNames = SCENARIOS.filter(needsTeamReview).map((scenario) => scenario.name);
+  assert.deepEqual(teamReviewScenarioNames, ['team-review']);
 });
 
 test('no burst asks for more lines than the relay is pinned to carry', () => {
@@ -262,6 +268,7 @@ test('cases come out in viewport order then scenario order', () => {
     (harnessCase) => harnessCase.scenario.name,
   );
   assert.deepEqual(firstViewportScenarios, [
+    'team-review',
     'cold-open',
     'reopen-x3',
     'resize-storm',
@@ -301,4 +308,12 @@ test('every scenario name is unique and every viewport name is unique', () => {
   assert.equal(new Set(SCENARIOS.map((scenario) => scenario.name)).size, SCENARIOS.length);
   assert.equal(new Set(VIEWPORTS.map((viewport) => viewport.name)).size, VIEWPORTS.length);
   assert.equal(VIEWPORTS.filter((viewport) => PAIR_VIEWPORTS.includes(viewport.name)).length, 2);
+});
+
+test('team review rows run through the shared harness on phone and desktop', () => {
+  const reviewCases = casesFor({ only: ['team-review'] });
+  assert.deepEqual(reviewCases.map((harnessCase) => harnessCase.viewport.name), [...PAIR_VIEWPORTS]);
+  for (const harnessCase of reviewCases) {
+    assert.equal(lastSteadyStep(harnessCase.scenario.steps).kind, 'assert-team-review');
+  }
 });

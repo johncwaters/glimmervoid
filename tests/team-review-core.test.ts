@@ -47,7 +47,7 @@ import {
   startReviewProgress,
   triagePr,
 } from '../server/core/team-review-core.ts';
-import { parseReviewComment, severityCounts } from '../public/team-review-view-core.ts';
+import { parseReviewComment } from '../public/team-review-view-core.ts';
 import { FindingSeverity, InFlightReview, PostingPlan, PrDetail, ReviewDraft, ReviewResult, SearchedPr, TeamReviewState } from '../shared/contracts/team-review.ts';
 import { findingHeader, findingSeveritiesIn } from '../shared/team-review-markdown.ts';
 import type { PriorReview, TeamReviewStateEntry } from '../shared/contracts/team-review.ts';
@@ -789,7 +789,7 @@ test('every server-rendered finding header round-trips through the dashboard par
   assert.equal(inlineComment.tag, 'code/logic');
   assert.equal(inlineComment.severity, 'HIGH');
   assert.deepEqual(inlineComment.paragraphs.map((paragraph) => (paragraph.kind === 'prose' ? paragraph.segments.map((segment) => segment.text).join('') : paragraph.code)), ['Off by one: use <= here.']);
-  assert.deepEqual(severityCounts({ body, comments }), [{ severity: 'HIGH', count: 1 }, { severity: 'MEDIUM', count: 2 }]);
+  assert.deepEqual([body, ...comments.map((comment) => comment.body)].flatMap((text) => findingSeveritiesIn(text)).sort(), ['HIGH', 'MEDIUM', 'MEDIUM']);
   for (const severity of FindingSeverity.options) {
     const finding = parseReviewComment(`${AUTOMATED_REVIEW_NOTE}\n\n${findingHeader('code/logic', severity)}\n\nBody.`);
     assert.deepEqual([finding.tag, finding.severity], ['code/logic', severity]);

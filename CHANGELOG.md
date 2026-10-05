@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Compaction reminders**: Claude sessions now receive a one-line reminder of their current task and latest plan after compaction.
 - **Calm layout (experimental)**: turn on Settings > General > Calm layout to get a Calm tab where sessions sit on three priority rings instead of a list: sessions waiting on you closest to the center, then failed ones, then finished ones you have not looked at, with working sessions as faint lights outside. Clicking a light opens one panel with a single action (Approve for a plain Bash command, Approve plan, Resume, or Open review) and a Terminal button that is always there. Approve only appears when the whole command is shown. While the layout is on, Focus drops its session rail, a corner card points at the next session waiting on you, Alt+H returns to Calm, Alt+T opens the current panel's terminal, and replying in a terminal opened from Calm moves you to the next waiting session. Off by default. On a phone the Board becomes the Calm home: the rings and a list of sessions waiting on you sit above your sessions, and tapping one opens the same single-action panel as a bottom sheet. A question from Claude (AskUserQuestion) can be answered from its panel by tapping an option or typing an answer, and a finished session's panel takes your next instruction.
 
+### Changed
+
+- **Quieter review list**: Team review rows now use two quiet lines with distinct verdict words and the inline comment count. Pull request refs omit the repo when the list contains only one repo, and reviews after an earlier approval show plain "since approval" text.
+
 ## [0.29.0] - 2026-10-04
 
 ### Added

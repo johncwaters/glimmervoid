@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 
 import {
   classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
-  parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTitle, queueRowTone, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
-  commentSeverity, severityCounts, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
+  parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTitle, queueRowVerdictLabel, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
+  commentSeverity, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
 import { InFlightReview, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type {
@@ -17,16 +17,6 @@ const NEXT_HEAD = 'b'.repeat(40);
 function githubReviewTexts(review: ReviewDraft, options: { isViewerShown?: boolean } = {}): string {
   return githubReviewItems(review, options).map((item) => item.text).join(', ');
 }
-
-test('queue row tones distinguish pending, settled and failed reviews', () => {
-  assert.equal(queueRowTone('ready', 'ready'), 'warn');
-  assert.equal(queueRowTone('settled', 'ready'), 'ok');
-  assert.equal(queueRowTone('inReview', null), 'wait');
-  assert.equal(queueRowTone('attention', 'error'), 'danger');
-  assert.equal(queueRowTone('attention', 'stale'), 'warn');
-  assert.equal(queueRowTone('posted', 'posted'), 'muted');
-  assert.equal(queueRowTone('discarded', 'discarded'), 'muted');
-});
 
 test('queue row state labels name each kind and defer attention to its status', () => {
   assert.equal(queueRowStateLabel('ready', 'ready'), 'Ready');
@@ -68,7 +58,7 @@ test('queue row title keeps draft ages and GitHub review sentences', () => {
     ],
   });
   assert.equal(queueRowTitle(review, 'posted', { opened: '5d ago', reviewed: '1d ago', posted: '3h ago', githubReviews: ['2d ago'] }), [
-    'Acme/app#7: PR 7', 'Posted', 'Opened 5d ago', 'Reviewed 1d ago', 'Posted 3h ago', 'approved by sarah, 2d ago',
+    'Acme/app#7: PR 7', 'Posted', 'Opened 5d ago', 'Reviewed 1d ago', 'Posted 3h ago', 'Approve, 0 comments', 'approved by sarah, 2d ago',
   ].join('\n'));
 });
 
@@ -82,9 +72,51 @@ test('queue row title names an in-progress review and a queued pull request', ()
   assert.equal(queueRowTitle(queuedReview, 'queued', { opened: '4h ago' }), 'Acme/app#9: PR 9\nQueued\nOpened 4h ago');
 });
 
-test('queue row title retains the attention reason', () => {
-  assert.equal(queueRowTitle(draft(10, { status: 'error', error: 'review timed out' }), 'attention', { opened: '5d ago' }),
+test('queue row title retains the attention reason and names no verdict for a review that never ran', () => {
+  assert.equal(queueRowTitle(draft(10, { status: 'error', error: 'review timed out', verdict: 'BLOCKED', comments: [] }), 'attention', { opened: '5d ago' }),
     'Acme/app#10: PR 10\nerror\nOpened 5d ago\nreview timed out');
+});
+
+test('queue verdict words distinguish approvals, nits, changes and blocked reviews', () => {
+  assert.equal(queueRowVerdictLabel('APPROVE'), 'Approve');
+  assert.equal(queueRowVerdictLabel('APPROVE WITH NITS'), 'Nits');
+  assert.equal(queueRowVerdictLabel('REQUEST CHANGES'), 'Changes');
+  assert.equal(queueRowVerdictLabel('BLOCKED'), 'Blocked');
+});
+
+test('queue refs omit the repo for empty and single-repo rendered groups', () => {
+  assert.equal(hasMultipleQueueRepos(groupDrafts(null)), false);
+  const sections = groupDrafts(status([draft(1), draft(2, { status: 'posted' })], [inFlightReview(3)]));
+  assert.equal(hasMultipleQueueRepos(sections), false);
+  assert.equal(queueRowRefLabel('Acme/app', 1, hasMultipleQueueRepos(sections)), '#1');
+});
+
+test('queue refs keep the repo when any rendered group contains another repo', () => {
+  const otherRepoDraft = draft(1, { key: 'Acme/docs#1', repo: 'Acme/docs' });
+  for (const draftStatus of ['ready', 'stale', 'error', 'posted', 'discarded'] as const) {
+    const sections = groupDrafts(status([draft(2), { ...otherRepoDraft, status: draftStatus }]));
+    assert.equal(hasMultipleQueueRepos(sections), true);
+    assert.equal(queueRowRefLabel('Acme/app', 2, hasMultipleQueueRepos(sections)), 'Acme/app#2');
+  }
+  const settled = draft(1, { ...otherRepoDraft, githubReviews: [{ login: 'me', state: 'APPROVED', commit: HEAD, isViewer: true }] });
+  assert.equal(hasMultipleQueueRepos(groupDrafts(status([draft(2), settled]))), true);
+  assert.equal(hasMultipleQueueRepos(groupDrafts(status([draft(2)], [inFlightReview(1, { repo: 'Acme/docs', key: 'Acme/docs#1' })]))), true);
+  const queued = { key: 'Acme/docs#1', repo: 'Acme/docs', number: 1, title: 'PR 1', url: 'https://github.com/Acme/docs/pull/1', author: 'teammate', requestSource: 'team' as const };
+  assert.equal(hasMultipleQueueRepos(groupDrafts({ ...status([draft(2)]), queued: [queued] })), true);
+});
+
+test('queue repo prefixes depend on rendered rows after older drafts are hidden', () => {
+  const sections = groupDrafts(status([draft(1, { repo: 'Acme/old' })], [inFlightReview(1)]));
+  assert.equal(sections.ready.length, 0);
+  assert.equal(hasMultipleQueueRepos(sections), false);
+});
+
+test('queue row titles retain the full repo ref, verdict and the inline comment count the detail shows', () => {
+  const inlineComment = { path: 'src/a.ts', line: 1, side: 'RIGHT' as const, body: 'A finding.' };
+  const review = draft(1, { verdict: 'APPROVE WITH NITS', body: '**[logic] HIGH**\n\nA body finding.', comments: [inlineComment] });
+  assert.equal(queueRowTitle(review, 'ready', {}), 'Acme/app#1: PR 1\nReady\nNits, 1 comment');
+  assert.match(queueRowTitle({ ...review, comments: [inlineComment, { ...inlineComment, line: 2 }] }, 'ready', {}), /Nits, 2 comments/);
+  assert.match(queueRowTitle({ ...review, comments: [] }, 'ready', {}), /Nits, 0 comments/);
 });
 
 test('drafts group into ready, in review, needs attention, recently posted and discarded', () => {
@@ -412,42 +444,6 @@ test('each verdict selects its one seal mark', () => {
   assert.equal(verdictSealKind('BLOCKED'), 'cross');
 });
 
-test('severity totals include folded body findings and every inline comment header', () => {
-  const review = draft(1, {
-    body: '**[body] HIGH**\n\nFirst.\n\n- **[folded] MEDIUM** `src/a.ts:3`: second.',
-    comments: [
-      { path: 'src/a.ts', line: 4, side: 'RIGHT', body: '> [!NOTE]\n> Automated review. Not written by a human.\n\n**[logic] HIGH**\n\nThird.' },
-      { path: 'src/b.ts', line: 5, side: 'LEFT', body: '**[security] CRITICAL**\n\nFourth.' },
-    ],
-  });
-  assert.deepEqual(severityCounts(review), [
-    { severity: 'CRITICAL', count: 1 }, { severity: 'HIGH', count: 2 }, { severity: 'MEDIUM', count: 1 },
-  ]);
-  assert.deepEqual(severityCounts(draft(2)), []);
-});
-
-test('severity totals count finding headers when present and fall back to structured comment severity', () => {
-  const review = draft(1, {
-    body: '**[body] LOW**\n\nBody finding.',
-    comments: [
-      { path: 'src/a.ts', line: 4, side: 'RIGHT', severity: 'CRITICAL', body: '**[old] HIGH**\n\nHeader wins.' },
-      { path: 'src/a.ts', line: 5, side: 'RIGHT', body: '**[legacy] MEDIUM**\n\nLegacy finding.' },
-      { path: 'src/a.ts', line: 6, side: 'RIGHT', severity: 'CRITICAL', body: 'Bare posting plan comment.' },
-    ],
-  });
-  assert.deepEqual(severityCounts(review), [
-    { severity: 'CRITICAL', count: 1 }, { severity: 'HIGH', count: 1 }, { severity: 'MEDIUM', count: 1 }, { severity: 'LOW', count: 1 },
-  ]);
-});
-
-test('severity totals count every finding header in a merged comment even when it carries a structured severity', () => {
-  const review = draft(1, {
-    body: '',
-    comments: [{ path: 'src/a.ts', line: 4, side: 'RIGHT', severity: 'HIGH', body: '**[logic] HIGH**\n\nFirst.\n\n**[security] MEDIUM**\n\nSecond.' }],
-  });
-  assert.deepEqual(severityCounts(review), [{ severity: 'HIGH', count: 1 }, { severity: 'MEDIUM', count: 1 }]);
-});
-
 test('comment severity takes the highest finding header and falls back to structured severity', () => {
   assert.equal(commentSeverity({ severity: 'LOW', body: '**[logic] MEDIUM**\n\nFirst.\n\n**[security] HIGH**\n\nSecond.' }), 'HIGH');
   assert.equal(commentSeverity({ severity: 'CRITICAL', body: 'Bare comment.' }), 'CRITICAL');
@@ -613,8 +609,8 @@ test('About this PR paragraphs omit absent and blank assessments and preserve go
 
 test('queue row title puts a draft goal immediately after the PR title and omits blank goals', () => {
   const assessment = { goal: ' Avoid stuck requests. ', change: 'Re-arm the timer.', checked: [], gaps: [] };
-  assert.equal(queueRowTitle(draft(1, { assessment }), 'ready', { opened: '1d ago' }), 'Acme/app#1: PR 1\nAvoid stuck requests.\nReady\nOpened 1d ago');
-  assert.equal(queueRowTitle(draft(1, { assessment: { ...assessment, goal: ' ' } }), 'ready', {}), 'Acme/app#1: PR 1\nReady');
+  assert.equal(queueRowTitle(draft(1, { assessment }), 'ready', { opened: '1d ago' }), 'Acme/app#1: PR 1\nAvoid stuck requests.\nReady\nOpened 1d ago\nApprove, 0 comments');
+  assert.equal(queueRowTitle(draft(1, { assessment: { ...assessment, goal: ' ' } }), 'ready', {}), 'Acme/app#1: PR 1\nReady\nApprove, 0 comments');
 });
 
 test('poll errors, retry schedules and refresh progress always render even when the drafts stay the same', () => {

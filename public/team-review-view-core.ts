@@ -31,14 +31,6 @@ export function classifyReviewPriority(review: Pick<QueuedReview, 'requestSource
   return { band: 'actionable', reason: review.requestSource === 'direct' ? 'review-available' : 'team-request' };
 }
 
-export function queueRowTone(kind: QueueRowKind, status: ReviewDraft['status'] | null): StateTone {
-  if (kind === 'ready') return 'warn';
-  if (kind === 'settled') return 'ok';
-  if (kind === 'inReview' || kind === 'queued') return 'wait';
-  if (kind === 'attention') return status === 'error' ? 'danger' : 'warn';
-  return 'muted';
-}
-
 const QUEUE_ROW_STATE_LABELS: Readonly<Record<QueueRowKind, string>> = {
   ready: 'Ready', settled: 'No review needed', inReview: 'In review', queued: 'Queued', attention: 'Needs attention', posted: 'Posted', discarded: 'Discarded',
 };
@@ -66,6 +58,8 @@ export function queueRowTitle(review: ReviewDraft | InFlightReview | QueuedRevie
   if (ages.reviewed) lines.push(`Reviewed ${ages.reviewed}`);
   if (ages.posted) lines.push(`Posted ${ages.posted}`);
   if (!('reviewedHead' in review)) return lines.join('\n');
+  const commentCount = review.comments.length;
+  if (review.status !== 'error') lines.push(`${queueRowVerdictLabel(review.verdict)}, ${commentCount} ${commentCount === 1 ? 'comment' : 'comments'}`);
   const approvalContext = viewerApprovalContext(review);
   if (approvalContext) lines.push(`You ${GITHUB_REVIEW_VERBS[approvalContext.state]} at ${approvalContext.approvedCommit.slice(0, 7)}${ages.viewerApproval ? ` ${ages.viewerApproval}` : ''}; new commits since.`);
   if (kind === 'attention' || kind === 'discarded') lines.push(attentionDetail(review));
@@ -82,6 +76,17 @@ export interface TeamReviewSections {
   attention: ReviewDraft[];
   posted: ReviewDraft[];
   discarded: ReviewDraft[];
+}
+
+export function hasMultipleQueueRepos(sections: TeamReviewSections): boolean {
+  const reviews = [...sections.ready, ...sections.noReviewNeeded, ...sections.inReview, ...sections.queued, ...sections.attention, ...sections.posted, ...sections.discarded];
+  const repos = new Set(reviews.map((review) => review.repo));
+  return repos.size > 1;
+}
+
+export function queueRowRefLabel(repo: string, number: number, hasMultipleRepos: boolean): string {
+  if (hasMultipleRepos) return pullRequestLabel(repo, number);
+  return `#${number}`;
 }
 
 export interface ReviewInlineSegment {
@@ -129,6 +134,17 @@ const VERDICT_LABELS: Readonly<Record<ReviewDraft['verdict'], string>> = Object.
   'REQUEST CHANGES': 'request changes',
   BLOCKED: 'blocked',
 });
+
+const QUEUE_ROW_VERDICT_LABELS: Readonly<Record<ReviewDraft['verdict'], string>> = {
+  APPROVE: 'Approve',
+  'APPROVE WITH NITS': 'Nits',
+  'REQUEST CHANGES': 'Changes',
+  BLOCKED: 'Blocked',
+};
+
+export function queueRowVerdictLabel(verdict: ReviewDraft['verdict']): string {
+  return QUEUE_ROW_VERDICT_LABELS[verdict];
+}
 
 const VERDICT_TONES: Readonly<Record<ReviewDraft['verdict'], string>> = Object.freeze({
   APPROVE: 'ok',
@@ -291,18 +307,6 @@ export function commentSeverity(comment: Pick<DraftComment, 'body' | 'severity'>
 
 export function isIncludedByDefault(comment: Pick<DraftComment, 'body' | 'severity'>): boolean {
   return commentSeverity(comment) !== 'LOW';
-}
-
-export function severityCounts(draft: Pick<ReviewDraft, 'body' | 'comments'>): { severity: FindingSeverity; count: number }[] {
-  const counts = new Map<FindingSeverity, number>();
-  for (const severity of findingSeveritiesIn(draft.body)) counts.set(severity, (counts.get(severity) ?? 0) + 1);
-  for (const comment of draft.comments) {
-    for (const severity of commentSeverities(comment)) counts.set(severity, (counts.get(severity) ?? 0) + 1);
-  }
-  return FindingSeverity.options.flatMap((severity) => {
-    const count = counts.get(severity) ?? 0;
-    return count > 0 ? [{ severity, count }] : [];
-  });
 }
 
 const CITABLE_FILE_EXTENSIONS: ReadonlySet<string> = new Set([

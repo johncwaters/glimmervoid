@@ -5,6 +5,7 @@ export type ViewerId = 'a' | 'b';
 export type CardControl = 'plan-terminal';
 
 export type Step =
+  | { kind: 'assert-team-review'; viewer?: ViewerId }
   | { kind: 'open'; viewer?: ViewerId }
   | { kind: 'back'; viewer?: ViewerId }
   | { kind: 'resize'; width: number; height: number; viewer?: ViewerId }
@@ -99,6 +100,10 @@ const RESIZE_STORM_STEPS: readonly Step[] = [
 ];
 
 export const SCENARIOS: readonly Scenario[] = [
+  {
+    name: 'team-review',
+    steps: [{ kind: 'assert-team-review' }, { kind: 'shot', name: 'team-review' }],
+  },
   {
     name: 'cold-open',
     fullMatrix: true,
@@ -491,6 +496,10 @@ export function companionFor(viewport: Viewport, scenario: Scenario): Viewport |
 
 function needsSoftKeyboard(scenario: Scenario): boolean {
   return scenario.steps.some((step) => step.kind === 'keyboard');
+}
+
+export function needsTeamReview(scenario: Scenario): boolean {
+  return scenario.steps.some((step) => step.kind === 'assert-team-review');
 }
 
 function scenarioRunsOnViewport(scenario: Scenario, viewport: Viewport, layout: Layout, proveFailure: boolean): boolean {
