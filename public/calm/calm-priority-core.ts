@@ -4,7 +4,7 @@ import { needsAttention, pickNextAttention } from '../focus-view/attention-core.
 import { formatMinutes } from '../usage-view-core.ts';
 import { hasPermissionKeys } from './permission-keys-core.ts';
 
-export type CalmTier = 'now' | 'next' | 'later' | 'working' | 'resting';
+export type CalmTier = 'now' | 'next' | 'later' | 'ready' | 'working' | 'resting';
 
 export interface CalmRow {
   id: string;
@@ -22,8 +22,10 @@ export function tierOf(row: CalmRow): CalmTier {
   if (row.state === STATES.FAILED) return 'next';
   if (needsAttention(row)) return 'later';
   switch (row.state) {
-    case STATES.RUNNING:
     case STATES.IDLE:
+    case STATES.COMPLETE:
+      return 'ready';
+    case STATES.RUNNING:
     case STATES.STARTING:
     case STATES.INITIALIZING:
       return 'working';
@@ -32,11 +34,11 @@ export function tierOf(row: CalmRow): CalmTier {
   }
 }
 
-const QUEUE_RANK_BY_TIER = { now: 0, next: 1, later: 2, working: 3, resting: 4 };
+const QUEUE_RANK_BY_TIER = { now: 0, next: 1, later: 2, ready: 3, working: 4, resting: 5 };
 
 export function orderCalmQueue<Row extends CalmRow>(rows: readonly Row[]): Row[] {
   return rows.map((row, index) => ({ row, index, rank: QUEUE_RANK_BY_TIER[tierOf(row)] }))
-    .filter((entry) => entry.rank < QUEUE_RANK_BY_TIER.working)
+    .filter((entry) => entry.rank < QUEUE_RANK_BY_TIER.ready)
     .sort((first, second) => first.rank - second.rank
       || (first.row.stateSince ?? Infinity) - (second.row.stateSince ?? Infinity)
       || first.index - second.index)
@@ -100,7 +102,7 @@ export function formatWaitTime(elapsedMs: number): string {
 }
 
 export function countByTier(rows: readonly CalmRow[]) {
-  const counts = { now: 0, next: 0, later: 0, working: 0 };
+  const counts = { now: 0, next: 0, later: 0, ready: 0, working: 0 };
   for (const row of rows) {
     const tier = tierOf(row);
     if (tier === 'resting') continue;
@@ -180,4 +182,8 @@ export function canReplyToFinishedSession(currentState: string, pendingPromptKin
 
 export function offersReplyInput(row: Pick<CalmRow, 'agent'>): boolean {
   return hasPermissionKeys(row.agent);
+}
+
+export function offersNextInstructionInput(row: CalmRow): boolean {
+  return pickComponent(row).component === 'terminal' && tierOf(row) === 'ready' && offersReplyInput(row);
 }

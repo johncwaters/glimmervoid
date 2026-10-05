@@ -13,15 +13,15 @@ import { ensureTerminalReady, onTerminalInput, sendTerminalInput } from '../sess
 import { parseUnifiedDiff, summarizeFiles } from '../sidebar/diff-core.ts';
 import { traceRowParts } from '../trace-view-core.ts';
 import { uiState } from '../ui-state-core.ts';
-import { LATER_RADIUS, NEXT_RADIUS, NOW_RADIUS, placeLights, shouldShowLabels } from './calm-field-core.ts';
+import { LATER_RADIUS, NEXT_RADIUS, NOW_RADIUS, placeLights, shouldShowLabels, OUTER_BAND_MAX_RADIUS } from './calm-field-core.ts';
 import { latestPendingReview } from './calm-plan-core.ts';
 import type { ArmedAdvance, CalmRow } from './calm-priority-core.ts';
-import { canReplyToFinishedSession, countByTier, decideArmedAdvance, formatWaitTime, isSamePermissionPrompt, offersReplyInput, orderCalmQueue, panelContextFor, pickComponent, pickNextQueueSessionId, pickNowPeek, pickSessionAfterSubmit, tierOf } from './calm-priority-core.ts';
+import { canReplyToFinishedSession, countByTier, decideArmedAdvance, formatWaitTime, isSamePermissionPrompt, offersNextInstructionInput, offersReplyInput, orderCalmQueue, panelContextFor, pickComponent, pickNextQueueSessionId, pickNowPeek, pickSessionAfterSubmit, tierOf } from './calm-priority-core.ts';
 import type { TimedKeystroke } from './permission-keys-core.ts';
 import { answerWithOptionKeystrokes, answerWithTextKeystrokes, approveKeystrokes, decideInstructionDelivery, INSTRUCTION_POLL_INTERVAL_MS, isAnyPromptShowing, rejectAndInstructKeystrokes, replyKeystrokes } from './permission-keys-core.ts';
 
 const unseenTracker = createUnseenCompleteTracker();
-const glyphByTier = { now: '\u25b2', next: '\u25a0', later: '\u2713', working: '\u00b7', resting: '\u00b7' };
+const glyphByTier = { now: '\u25b2', next: '\u25a0', later: '\u2713', ready: '\u25cb', working: '\u00b7', resting: '\u00b7' };
 interface CalmNavigation { openTerminal: (id: string) => void; openPlan: (id: string) => void; onSheetOpenChange?: (isOpen: boolean) => void }
 interface CalmSurface { kind: 'desktop' | 'phone'; root: HTMLElement; navigation: CalmNavigation }
 let desktopSurface: CalmSurface | null = null;
@@ -51,9 +51,11 @@ const UNABLE_TO_SEND_STATUS = 'Unable to send. Open Terminal to continue.';
 const QUESTION_CHANGED_STATUS = 'The question changed. Open Terminal to continue.';
 const SESSION_BUSY_STATUS = 'The session is busy. Open Terminal to continue.';
 const PHONE_RING_SCALE = 50;
+const DESKTOP_RING_SCALE = 46 / OUTER_BAND_MAX_RADIUS;
+const LIGHT_GAP_RADIANS = 0.5;
 const FOOTER_TEXT_BY_SURFACE = {
-  desktop: 'Click a light for its action. Faint field lights are working sessions.',
-  phone: 'Tap a light or a row for its action. Faint field lights are working sessions.',
+  desktop: 'Click a light for its action. Hollow outer lights are ready for an instruction; faint ones are working.',
+  phone: 'Tap a light or a row for its action. Hollow outer lights are ready for an instruction; faint ones are working.',
 };
 
 function isDesktopSurfaceActive() {
@@ -366,6 +368,7 @@ function openPanel(row: CalmRow) {
     addPrimary('Resume', () => sendControlMsg(restartMessage('restart', ui.currentState, row.id)));
   }
   if (choice.component === 'terminal') renderTrace(row.id, body);
+  if (offersNextInstructionInput(row)) appendReplyInput(row, ui, actions);
   if (choice.component === 'review') {
     body.classList.add('calm-diff');
     body.textContent = 'Loading files...';
@@ -406,7 +409,7 @@ function buildSheetScrim() {
 function buildTierHeader(rows: readonly CalmRow[]) {
   const counts = countByTier(rows);
   const header = el('header', 'calm-header');
-  for (const tier of ['now', 'next', 'later', 'working'] as const) {
+  for (const tier of ['now', 'next', 'later', 'ready', 'working'] as const) {
     const count = el('span', 'calm-count', `${glyphByTier[tier]} ${counts[tier]} ${tier}`);
     count.dataset.tier = tier;
     header.append(count);
@@ -415,8 +418,7 @@ function buildTierHeader(rows: readonly CalmRow[]) {
 }
 
 function ringScaleFor(activeSurface: CalmSurface) {
-  if (activeSurface.kind === 'phone') return PHONE_RING_SCALE;
-  return activeSurface.root.clientWidth <= 640 ? 34 : 50;
+  return activeSurface.kind === 'phone' ? PHONE_RING_SCALE : DESKTOP_RING_SCALE;
 }
 
 function buildRings(rows: readonly CalmRow[], activeSurface: CalmSurface) {
@@ -436,19 +438,21 @@ function buildRings(rows: readonly CalmRow[], activeSurface: CalmSurface) {
   rings.prepend(svg);
   const rowsById = new Map(rows.map((row) => [row.id, row]));
   const showLabels = activeSurface.kind === 'desktop' && shouldShowLabels(activeSurface.root.clientWidth);
-  for (const light of placeLights(rows.map((row) => ({ id: row.id, tier: tierOf(row) })), 0.24)) {
+  for (const light of placeLights(rows.map((row) => ({ id: row.id, tier: tierOf(row) })), LIGHT_GAP_RADIANS)) {
     const row = rowsById.get(light.id);
     if (!row) continue;
     const button = createButton('', 'calm-light', () => openPanel(row));
     button.dataset.tier = light.tier;
     button.dataset.sessionId = row.id;
     button.setAttribute('aria-label', `${row.name}, ${light.tier}`);
+    button.title = row.name;
     button.style.left = `${50 + Math.cos(light.angle) * light.radius * ringScale}%`;
+    button.dataset.labelSide = Math.cos(light.angle) < 0 ? 'left' : 'right';
     button.style.top = `${50 + Math.sin(light.angle) * light.radius * ringScale}%`;
     button.append(el('span', 'calm-light-dot'));
-    if (showLabels && light.tier !== 'working') {
+    if (showLabels) {
       const label = el('span', 'calm-light-label', row.name);
-      label.append(el('span', 'calm-light-context', row.pendingPromptKind || row.state.toLowerCase()));
+      label.append(el('span', 'calm-light-context', panelContextFor(row, pickComponent(row).component)));
       button.append(label);
     }
     rings.append(button);

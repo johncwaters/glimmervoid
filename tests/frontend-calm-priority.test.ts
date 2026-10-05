@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ARMED_ADVANCE_LIFETIME_MS, canReplyToFinishedSession, countByTier, decideArmedAdvance, formatWaitTime, isSamePermissionPrompt, offersReplyInput, orderCalmQueue, panelContextFor, pickComponent, pickNextQueueSessionId, pickNowPeek, pickSessionAfterSubmit, tierOf } from '../public/calm/calm-priority-core.ts';
+import { ARMED_ADVANCE_LIFETIME_MS, canReplyToFinishedSession, countByTier, decideArmedAdvance, formatWaitTime, isSamePermissionPrompt, offersNextInstructionInput, offersReplyInput, orderCalmQueue, panelContextFor, pickComponent, pickNextQueueSessionId, pickNowPeek, pickSessionAfterSubmit, tierOf } from '../public/calm/calm-priority-core.ts';
 import type { CalmRow, CalmTier, CalmComponent } from '../public/calm/calm-priority-core.ts';
 
 const makeRow = (state: string, overrides: Partial<CalmRow> = {}): CalmRow => ({ id: state, name: state, state, ...overrides });
 
 const tierCases: [string, boolean | undefined, CalmTier][] = [
   ['WAITING', false, 'now'], ['FAILED', false, 'next'], ['COMPLETE', true, 'later'],
-  ['COMPLETE', false, 'resting'], ['COMPLETE', undefined, 'resting'],
-  ['RUNNING', true, 'working'], ['IDLE', false, 'working'], ['STARTING', false, 'working'],
+  ['COMPLETE', false, 'ready'], ['COMPLETE', undefined, 'ready'],
+  ['RUNNING', true, 'working'], ['IDLE', false, 'ready'], ['STARTING', false, 'working'],
   ['INITIALIZING', false, 'working'], ['DORMANT', true, 'resting'], ['DONE', true, 'resting'],
   ['UNKNOWN', true, 'resting'],
 ];
@@ -39,8 +39,8 @@ test('orderCalmQueue orders tiers before wait time, puts missing waits last and 
 
 test('countByTier counts each active tier and excludes resting sessions', () => {
   assert.deepEqual(countByTier(tierCases.map(([state, unseen]) => makeRow(state, { unseen }))),
-    { now: 1, next: 1, later: 1, working: 4 });
-  assert.deepEqual(countByTier([]), { now: 0, next: 0, later: 0, working: 0 });
+    { now: 1, next: 1, later: 1, ready: 3, working: 3 });
+  assert.deepEqual(countByTier([]), { now: 0, next: 0, later: 0, ready: 0, working: 0 });
 });
 
 for (const state of ['WAITING', 'FAILED', 'COMPLETE']) {
@@ -101,6 +101,7 @@ const componentsAllowedByTier: Record<CalmTier, readonly CalmComponent[]> = {
   now: ['plan', 'permission', 'question', 'terminal'],
   next: ['failure'],
   later: ['review'],
+  ready: ['terminal'],
   working: ['terminal'],
   resting: ['terminal'],
 };
@@ -157,6 +158,20 @@ test('offersReplyInput is true only for an agent with permission keys', () => {
   assert.equal(offersReplyInput({ agent: 'claude-code' }), true);
   assert.equal(offersReplyInput({ agent: 'codex' }), false);
   assert.equal(offersReplyInput({ agent: undefined }), false);
+});
+
+test('offersNextInstructionInput is true for an idle or seen complete session of a keyed agent', () => {
+  assert.equal(offersNextInstructionInput(makeRow('IDLE', { agent: 'claude-code' })), true);
+  assert.equal(offersNextInstructionInput(makeRow('COMPLETE', { agent: 'claude-code', unseen: false })), true);
+  assert.equal(offersNextInstructionInput(makeRow('COMPLETE', { agent: 'claude-code', unseen: undefined })), true);
+});
+
+test('offersNextInstructionInput is false for busy, unseen complete or unkeyed agent sessions', () => {
+  assert.equal(offersNextInstructionInput(makeRow('RUNNING', { agent: 'claude-code' })), false);
+  assert.equal(offersNextInstructionInput(makeRow('STARTING', { agent: 'claude-code' })), false);
+  assert.equal(offersNextInstructionInput(makeRow('COMPLETE', { agent: 'claude-code', unseen: true })), false);
+  assert.equal(offersNextInstructionInput(makeRow('IDLE', { agent: 'codex' })), false);
+  assert.equal(offersNextInstructionInput(makeRow('IDLE', { agent: undefined })), false);
 });
 
 const queueRows = (): CalmRow[] => [
