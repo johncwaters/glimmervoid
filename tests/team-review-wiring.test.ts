@@ -403,6 +403,48 @@ test('shutdown keeps a captured review session and its two directories', async (
   }
 });
 
+test('shutdown saves the awake budget left after capped clock jumps, even when the wall-clock deadline has passed', async (context) => {
+  context.mock.timers.enable({ apis: ['setInterval'] });
+  const shutdownController = new AbortController();
+  let nowMs = 1000;
+  let markSpawnStarted = () => {};
+  const spawnStarted = new Promise<void>((resolve) => { markSpawnStarted = resolve; });
+  const { dispatch, cleanup } = setup({
+    shutdownSignal: shutdownController.signal,
+    timeoutSeconds: 600,
+    now: () => nowMs,
+    gitWorkspace: {
+      stageDetachedWorktree: async ({ worktreePath }) => { fs.mkdirSync(String(worktreePath), { recursive: true }); return { ok: true }; },
+      removeWorktreeByPath: async () => { throw new Error('checkout must remain'); },
+      pruneWorktrees: async () => ({ ok: true }),
+      originUrl: async () => null,
+      populate: async () => {},
+    },
+    spawnSession: ({ signal, onSessionId }) => new Promise<void>((resolve) => {
+      onSessionId?.('claude-1');
+      signal.addEventListener('abort', () => resolve(), { once: true });
+      markSpawnStarted();
+    }),
+  });
+  try {
+    const pendingOutcome = dispatch(reviewArgs('full'));
+    await spawnStarted;
+    for (let tickIndex = 0; tickIndex < 3; tickIndex += 1) {
+      nowMs += 30 * 60 * 1000;
+      context.mock.timers.tick(15000);
+    }
+    shutdownController.abort();
+    const outcome = await pendingOutcome;
+    if (!('kind' in outcome)) throw new Error('expected stopped review');
+    assert.equal(outcome.kind, 'stopped');
+    assert.equal(outcome.resumable?.deadlineAt, 601000);
+    assert.equal(outcome.resumable?.remainingAwakeMs, 600000 - 3 * 30000);
+    assert.equal(outcome.resumable?.savedAt, nowMs);
+  } finally {
+    cleanup();
+  }
+});
+
 test('shutdown without a captured session removes the review directories', async () => {
   const shutdownController = new AbortController();
   const { dispatch, removed, workRoot, worktreeRoot, cleanup } = setup({
@@ -451,6 +493,29 @@ test('resume uses the saved cwd and session with the remaining timeout without s
     assert.equal(spawns[0]?.workDirFiles.includes('tmp'), false);
     assert.deepEqual(spawns[0]?.settingsSandbox, teamReviewSandbox(workDir));
     assert.deepEqual(timeouts, [78000]);
+  } finally {
+    cleanup();
+    fs.rmSync(workDir, { recursive: true, force: true });
+    fs.rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
+
+test('resume with a saved awake budget uses that budget even when the wall-clock deadline has passed', async () => {
+  const timeouts: number[] = [];
+  const { dispatch, workRoot, worktreeRoot, cleanup } = setup({
+    now: () => 3000,
+    makeWorkDir: async () => { throw new Error('resume must use the saved work dir'); },
+    setTimeoutFn: (_fn, timeoutMs) => { timeouts.push(timeoutMs); return setTimeout(() => {}, 100000); },
+  });
+  const workDir = fs.mkdtempSync(path.join(workRoot, 'resume-work-'));
+  const worktreePath = fs.mkdtempSync(path.join(worktreeRoot, 'resume-tree-'));
+  fs.writeFileSync(path.join(workDir, REVIEW_PROMPT_FILENAME), 'original prompt');
+  const resume = { sessionId: 'claude-1', workDir, worktreePath, head: HEAD, deadlineAt: 2000, remainingAwakeMs: 45000, savedAt: 1000 };
+  try {
+    const outcome = await dispatch({ ...reviewArgs('full'), resume });
+    if ('kind' in outcome) throw new Error('expected a draft');
+    assert.equal(outcome.status, 'ready');
+    assert.deepEqual(timeouts, [45000]);
   } finally {
     cleanup();
     fs.rmSync(workDir, { recursive: true, force: true });
@@ -768,6 +833,39 @@ test('a review removes the worktree when it times out', async () => {
     assert.match(draft.error ?? '', /timed out/);
     assert.equal(wasAborted, true);
     assert.equal(removed.length, 1);
+  } finally {
+    cleanup();
+  }
+});
+
+test('the default dispatcher timeout counts capped awake time, so a 30 minute clock jump per tick does not time the review out early', async (context) => {
+  context.mock.timers.enable({ apis: ['setInterval'] });
+  let nowMs = 1000;
+  let wasAborted = false;
+  let markSpawnStarted = () => {};
+  const spawnStarted = new Promise<void>((resolve) => { markSpawnStarted = resolve; });
+  const { review, cleanup } = setup({
+    timeoutSeconds: 120,
+    now: () => nowMs,
+    spawnSession: ({ signal }) => new Promise<void>((resolve) => {
+      signal.addEventListener('abort', () => { wasAborted = true; resolve(); }, { once: true });
+      markSpawnStarted();
+    }),
+  });
+  try {
+    const pendingDraft = review(reviewArgs('full'));
+    await spawnStarted;
+    for (let tickIndex = 0; tickIndex < 3; tickIndex += 1) {
+      nowMs += 30 * 60 * 1000;
+      context.mock.timers.tick(15000);
+      assert.equal(wasAborted, false);
+    }
+    nowMs += 30 * 60 * 1000;
+    context.mock.timers.tick(15000);
+    assert.equal(wasAborted, true);
+    const draft = await pendingDraft;
+    assert.equal(draft.status, 'error');
+    assert.match(draft.error ?? '', /timed out after 120s/);
   } finally {
     cleanup();
   }

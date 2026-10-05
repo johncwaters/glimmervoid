@@ -7,7 +7,7 @@ import { DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, MAX_REVIEW
 import { createTeamReviewPoller } from '../server/team-review-poller.ts';
 import type { PrReviewSnapshot } from '../server/pr-gh.ts';
 import type { SpawnReviewArgs, TeamReviewGithub, TeamReviewPollerDependencies } from '../server/team-review-poller.ts';
-import { PrDetail, SearchedPr, TeamReviewStatus } from '../shared/contracts/team-review.ts';
+import { PrDetail, SearchedPr, TeamReviewStateEntry, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type { ReviewDraft, TeamReviewState, TeamReviewStatus as TeamReviewStatusType } from '../shared/contracts/team-review.ts';
 
 const REPO = 'Acme/app';
@@ -819,17 +819,119 @@ test('a review that finishes while a tick is still starting reviews frees its sl
   await poller.stop();
 });
 
-test('a skip-tier PR is recorded with its reason and never spawned', async () => {
-  const { poller, github, spawned } = setup();
+test('a fork appears for hand review and drops after the viewer reviews its head', async () => {
+  const { poller, github, spawned, statuses } = setup();
   github.requested = [searchItem(5, 'teammate')];
   github.heads.set(5, HEAD_ONE);
   github.viewPr = async (_repo, number) => prDetail(number, HEAD_ONE, { isCrossRepository: true });
   await poller.start();
   await settle();
+  assert.equal(statuses.at(-1)?.handReview[0]?.key, `${REPO}#5`);
   await poller.tick();
   await settle();
   assert.equal(spawned.length, 0);
-  assert.deepEqual(poller._state()[`${REPO}#5`], { draft: null, reviewedHead: HEAD_ONE, inFlight: false, skipReason: 'fork', reviewAttempts: 0, liveHead: HEAD_ONE, updatedAt: 1000 });
+  const handReview = statuses.at(-1)?.handReview;
+  assert.equal(handReview?.length, 1);
+  assert.equal(handReview?.[0].key, `${REPO}#5`);
+  assert.equal(poller._state()[`${REPO}#5`]?.skipReason, 'fork');
+  github.reviews.set(5, [{ state: 'COMMENTED', commit: HEAD_ONE, login: 'me' }]);
+  await poller.tick();
+  await settle();
+  assert.deepEqual(statuses.at(-1)?.handReview, []);
+  assert.equal(spawned.length, 0);
+  await poller.stop();
+});
+
+test('legacy skipped forks gain hand review rows without another triage and settle on standing approval', async () => {
+  const key = `${REPO}#5`;
+  const { poller, github, spawned, statuses } = setup({
+    readState: async () => ({ [key]: { draft: null, reviewedHead: HEAD_ONE, inFlight: false, skipReason: 'fork', reviewAttempts: 0, liveHead: HEAD_ONE, updatedAt: 1000 } }),
+  });
+  github.requested = [searchItem(5, 'teammate')];
+  github.heads.set(5, HEAD_ONE);
+  let viewPrCalls = 0;
+  github.viewPr = async (_repo, number) => { viewPrCalls += 1; return prDetail(number, HEAD_ONE, { isCrossRepository: true }); };
+  await poller.start();
+  await settle();
+  assert.equal(statuses.at(-1)?.handReview[0]?.key, key);
+  assert.equal(viewPrCalls, 0);
+  github.reviews.set(5, [{ state: 'APPROVED', commit: HEAD_TWO, login: 'me' }]);
+  github.decisions.set(5, 'APPROVED');
+  await poller.tick();
+  await settle();
+  assert.deepEqual(statuses.at(-1)?.handReview, []);
+  assert.equal(viewPrCalls, 0);
+  assert.equal(spawned.length, 0);
+  await poller.stop();
+});
+
+test('a saved hand review row survives the state schema round trip without being rewritten each poll', async () => {
+  const key = `${REPO}#5`;
+  const first = setup();
+  first.github.requested = [searchItem(5, 'teammate')];
+  first.github.heads.set(5, HEAD_ONE);
+  first.github.viewPr = async (_repo, number) => prDetail(number, HEAD_ONE, { isCrossRepository: true });
+  await first.poller.start();
+  await settle();
+  await first.poller.stop();
+  const savedEntry = TeamReviewStateEntry.parse(JSON.parse(JSON.stringify(first.writes.at(-1)?.[key])));
+  assert.equal(savedEntry.handReview?.key, key);
+  const { poller, github, writes, statuses } = setup({ readState: async () => ({ [key]: savedEntry }) });
+  github.requested = [searchItem(5, 'teammate')];
+  github.heads.set(5, HEAD_ONE);
+  await poller.start();
+  await settle();
+  await poller.tick();
+  await settle();
+  assert.equal(statuses.at(-1)?.handReview[0]?.key, key);
+  assert.deepEqual(writes, []);
+  await poller.stop();
+});
+
+test('a fork head change refreshes its hand review row and a non-fork head clears it before spawning', async () => {
+  const key = `${REPO}#5`;
+  const { poller, github, spawned, statuses } = setup({
+    spawnReview: async (args) => {
+      assert.equal(poller._state()[key]?.handReview, undefined);
+      assert.equal(poller._state()[key]?.skipReason, null);
+      spawned.push(args);
+      return draftFor(args);
+    },
+  });
+  github.requested = [searchItem(5, 'teammate')];
+  github.heads.set(5, HEAD_ONE);
+  github.viewPr = async (_repo, number) => prDetail(number, github.heads.get(number) ?? HEAD_ONE, { isCrossRepository: true });
+  await poller.start();
+  await settle();
+  github.heads.set(5, HEAD_TWO);
+  github.requested = [searchItem(5, 'teammate', { title: 'Updated fork' })];
+  await poller.tick();
+  assert.equal(statuses.at(-1)?.handReview[0]?.title, 'Updated fork');
+  assert.equal(poller._state()[key]?.reviewedHead, HEAD_TWO);
+  assert.equal(spawned.length, 0);
+  github.heads.set(5, HEAD_ONE);
+  github.viewPr = async (_repo, number) => prDetail(number, HEAD_ONE);
+  await poller.tick();
+  await settle();
+  assert.equal(spawned.length, 1);
+  assert.deepEqual(statuses.at(-1)?.handReview, []);
+  assert.equal(poller._state()[key]?.handReview, undefined);
+  await poller.stop();
+});
+
+test('a changed fork head does not retain a hand review row when fresh triage is unavailable', async () => {
+  const key = `${REPO}#5`;
+  const { poller, github, statuses } = setup();
+  github.requested = [searchItem(5, 'teammate')];
+  github.heads.set(5, HEAD_ONE);
+  github.viewPr = async (_repo, number) => prDetail(number, HEAD_ONE, { isCrossRepository: true });
+  await poller.start();
+  await settle();
+  github.heads.set(5, HEAD_TWO);
+  github.viewPr = async () => null;
+  await poller.tick();
+  assert.deepEqual(statuses.at(-1)?.handReview, []);
+  assert.equal(poller._state()[key]?.handReview, undefined);
   await poller.stop();
 });
 

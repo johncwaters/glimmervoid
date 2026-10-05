@@ -1,9 +1,9 @@
-import { canApproveAfterComment, DECIDING_REVIEW_STATES, FindingSeverity, GithubReviewState, PostingPlan, ReviewFinding, ReviewResult, ReviewVerdict } from '../../shared/contracts/team-review.ts';
+import { hasStandingViewerApproval, canApproveAfterComment, DECIDING_REVIEW_STATES, FindingSeverity, GithubReviewState, PostingPlan, QueuedReview, ReviewFinding, ReviewResult, ReviewVerdict } from '../../shared/contracts/team-review.ts';
 import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, findingSeveritiesIn, withoutAutomatedNote } from '../../shared/team-review-markdown.ts';
 import { isThreadPlaceholderDraft } from './team-review-threads-core.ts';
 import type {
-  DraftComment, FindingSeverity as FindingSeverityType, GithubReview, InFlightReview, PostedReviewEvent, PostingPlan as PostingPlanType, PrDetail, PriorReview, QueuedReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
-  ReviewAssessment, ReviewResult as ReviewResultType, SearchedPr, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
+  DraftComment, FindingSeverity as FindingSeverityType, GithubReview, InFlightReview, PostedReviewEvent, PostingPlan as PostingPlanType, PrDetail, PriorReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
+  ResumableReview, ReviewAssessment, ReviewResult as ReviewResultType, SearchedPr, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../../shared/contracts/team-review.ts';
 
 const STAMP_MODEL = 'sonnet';
@@ -13,6 +13,13 @@ const STAMP_MAX_FILES = 10;
 const MAX_CONCURRENT_REVIEWS = 2;
 const MAX_REVIEW_ATTEMPTS = 3;
 const REVIEW_TIMEOUT_SECONDS = 2400;
+
+function advanceAwakeElapsed({ awakeElapsedMs, previousTickAt, nowMs, tickMs }: {
+  awakeElapsedMs: number; previousTickAt: number; nowMs: number; tickMs: number;
+}): number {
+  return awakeElapsedMs + Math.min(Math.max(0, nowMs - previousTickAt), 2 * tickMs);
+}
+
 const RESUME_TTL_MS = 2 * 60 * 60 * 1000;
 const POLL_INTERVAL_MINUTES = 15;
 const DEFAULT_RE_REVIEW_AFTER_HOURS = 24;
@@ -300,8 +307,13 @@ function resumeDecision(entry: TeamReviewStateEntry, currentHead: string, nowMs:
   if (!record) return 'none';
   if (record.head !== currentHead) return 'discard';
   if (nowMs - record.savedAt > RESUME_TTL_MS) return 'discard';
-  if (record.deadlineAt <= nowMs) return 'discard';
+  if (resumeTimeoutMs(record, nowMs) <= 0) return 'discard';
   return 'resume';
+}
+
+function resumeTimeoutMs(record: Pick<ResumableReview, 'deadlineAt' | 'remainingAwakeMs'>, nowMs: number): number {
+  if (record.remainingAwakeMs !== undefined) return record.remainingAwakeMs;
+  return Math.max(0, record.deadlineAt - nowMs);
 }
 
 function reviewAttemptsAfter(entry: TeamReviewStateEntry, reviewedHead: string): number {
@@ -393,10 +405,25 @@ function draftsNewestFirst(state: TeamReviewState): ReviewDraft[] {
     .flatMap((entry) => (entry.draft ? [presentedDraft(entry, entry.draft)] : []));
 }
 
-function teamReviewStatus({ ts, configured, reason = null, drafts = [], inFlight = [], queued = [], team }: {
-  ts: number; configured: boolean; reason?: string | null; drafts?: ReviewDraft[]; inFlight?: InFlightReview[]; queued?: QueuedReview[]; team?: TeamReviewStatus['team'];
+const QUEUED_REVIEW_FIELDS = Object.keys(QueuedReview.shape);
+
+function isSameQueuedReview(left: QueuedReview | undefined, right: QueuedReview): boolean {
+  return JSON.stringify(left ?? null, QUEUED_REVIEW_FIELDS) === JSON.stringify(right, QUEUED_REVIEW_FIELDS);
+}
+
+function handReviewRows(state: TeamReviewState): QueuedReview[] {
+  return Object.values(state).flatMap((entry) => {
+    if (!entry.handReview || !entry.liveHead || entry.inFlight || entry.skipReason !== 'fork' || entry.reviewedHead !== entry.liveHead) return [];
+    if (hasViewerReviewedAt(entry.githubReviews, entry.liveHead)) return [];
+    if (hasStandingViewerApproval({ githubReviews: entry.githubReviews, reviewDecision: entry.reviewDecision, liveHead: entry.liveHead, requeuedHead: entry.requeuedHead })) return [];
+    return [entry.handReview];
+  });
+}
+
+function teamReviewStatus({ ts, configured, reason = null, drafts = [], inFlight = [], queued = [], handReview = [], team }: {
+  ts: number; configured: boolean; reason?: string | null; drafts?: ReviewDraft[]; inFlight?: InFlightReview[]; queued?: QueuedReview[]; handReview?: QueuedReview[]; team?: TeamReviewStatus['team'];
 }): TeamReviewStatus {
-  return { type: 'team-review-status', ts, configured, reason, drafts, inFlight, queued, team };
+  return { type: 'team-review-status', ts, configured, reason, drafts, inFlight, queued, handReview, team };
 }
 
 type ReviewProgressEvent =
@@ -857,11 +884,11 @@ function absolutePathReadRule(absolutePath: string): string {
 
 export {
   STAMP_MODEL, FULL_MODEL, STAMP_MAX_LINES, STAMP_MAX_FILES, MAX_CONCURRENT_REVIEWS, MAX_REVIEW_ATTEMPTS,
-  REVIEW_TIMEOUT_SECONDS, RESUME_TTL_MS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS,
+  advanceAwakeElapsed, handReviewRows, REVIEW_TIMEOUT_SECONDS, RESUME_TTL_MS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS,
   TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME,
   REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE,
   parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule,
-  buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, HAND_APPROVAL_LINE, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isSameGithubReviews, isSettledAtHead, shouldAutoReview, markDraftStale, restoreDraftAtReviewedHead,
-  applyReviewProgress, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, priorReviewFor, readyDraft, repoFromSearchItem, resumeDecision, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr,
+  buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, HAND_APPROVAL_LINE, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isSameGithubReviews, isSameQueuedReview, isSettledAtHead, shouldAutoReview, markDraftStale, restoreDraftAtReviewedHead,
+  applyReviewProgress, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, priorReviewFor, readyDraft, repoFromSearchItem, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr,
 };
 export type { CommentableFileLines, CommentableLines, ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSettings, TeamReviewSettingsSource };

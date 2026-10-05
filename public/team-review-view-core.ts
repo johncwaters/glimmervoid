@@ -1,13 +1,13 @@
 import { canApproveAfterComment, DECIDING_REVIEW_STATES, FindingSeverity, hasStandingViewerApproval } from '#shared/contracts/team-review.ts';
 import type {
-  DraftComment, GithubReview, GithubReviewState, InFlightReview, QueuedReview, ReviewAssessment, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus, TeamReviewThread,
+  DraftComment, GithubReview, GithubReviewState, InFlightReview, PostedReviewEvent, QueuedReview, ReviewAssessment, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus, TeamReviewThread,
 } from '#shared/contracts/team-review.ts';
 import { findingSeveritiesIn, parseLeadingFindingHeader, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import { attentionSignature } from './attention-ack-core.ts';
 import { formatClockOffset } from './radar-core.ts';
 import type { StateTone } from './state-tone-core.ts';
 
-export type QueueRowKind = 'ready' | 'settled' | 'inReview' | 'queued' | 'attention' | 'posted' | 'discarded';
+export type QueueRowKind = 'ready' | 'settled' | 'inReview' | 'queued' | 'attention' | 'posted' | 'discarded' | 'handReview';
 
 type ReviewPriorityBand = 'blocking-others' | 'actionable' | 'waiting-on-author' | 'not-ready';
 type ReviewPriorityReason = 'direct-request' | 'team-request' | 'changes-requested' | 'checks-failing' | 'checks-pending' | 'draft' | 'review-available' | 'approved';
@@ -32,7 +32,7 @@ export function classifyReviewPriority(review: Pick<QueuedReview, 'requestSource
 }
 
 const QUEUE_ROW_STATE_LABELS: Readonly<Record<QueueRowKind, string>> = {
-  ready: 'Ready', settled: 'No review needed', inReview: 'In review', queued: 'Queued', attention: 'Needs attention', posted: 'Posted', discarded: 'Discarded',
+  ready: 'Ready', settled: 'No review needed', inReview: 'In review', queued: 'Queued', attention: 'Needs attention', posted: 'Posted', discarded: 'Discarded', handReview: 'Review by hand',
 };
 
 export function queueRowStateLabel(kind: QueueRowKind, status: ReviewDraft['status'] | null): string {
@@ -48,6 +48,13 @@ export interface QueueRowAges {
   viewerApproval?: string | null;
 }
 
+const POSTED_OUTCOME_LABELS: Readonly<Record<PostedReviewEvent, string>> = { APPROVE: 'Approved', COMMENT: 'Commented' };
+
+export function postedOutcomeLabel(draft: ReviewDraft): string {
+  if (draft.postedEvent) return POSTED_OUTCOME_LABELS[draft.postedEvent];
+  return verdictLabel(draft.verdict);
+}
+
 export function queueRowTitle(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind, ages: QueueRowAges): string {
   const status = 'status' in review ? review.status : null;
   const lines = [`${pullRequestLabel(review.repo, review.number)}: ${review.title}`];
@@ -59,7 +66,7 @@ export function queueRowTitle(review: ReviewDraft | InFlightReview | QueuedRevie
   if (ages.posted) lines.push(`Posted ${ages.posted}`);
   if (!('reviewedHead' in review)) return lines.join('\n');
   const commentCount = review.comments.length;
-  if (review.status !== 'error') lines.push(`${queueRowVerdictLabel(review.verdict)}, ${commentCount} ${commentCount === 1 ? 'comment' : 'comments'}`);
+  if (review.status !== 'error') lines.push(`${kind === 'posted' && review.postedEvent ? postedOutcomeLabel(review) : queueRowVerdictLabel(review.verdict)}, ${commentCount} ${commentCount === 1 ? 'comment' : 'comments'}`);
   const approvalContext = viewerApprovalContext(review);
   if (approvalContext) lines.push(`You ${GITHUB_REVIEW_VERBS[approvalContext.state]} at ${approvalContext.approvedCommit.slice(0, 7)}${ages.viewerApproval ? ` ${ages.viewerApproval}` : ''}; new commits since.`);
   if (kind === 'attention' || kind === 'discarded') lines.push(attentionDetail(review));
@@ -73,13 +80,14 @@ export interface TeamReviewSections {
   noReviewNeeded: ReviewDraft[];
   inReview: InFlightReview[];
   queued: QueuedReview[];
+  handReview: QueuedReview[];
   attention: ReviewDraft[];
   posted: ReviewDraft[];
   discarded: ReviewDraft[];
 }
 
 export function hasMultipleQueueRepos(sections: TeamReviewSections): boolean {
-  const reviews = [...sections.ready, ...sections.noReviewNeeded, ...sections.inReview, ...sections.queued, ...sections.attention, ...sections.posted, ...sections.discarded];
+  const reviews = [...sections.ready, ...sections.noReviewNeeded, ...sections.inReview, ...sections.queued, ...sections.handReview, ...sections.attention, ...sections.posted, ...sections.discarded];
   const repos = new Set(reviews.map((review) => review.repo));
   return repos.size > 1;
 }
@@ -190,29 +198,32 @@ const ACTION_PROGRESS_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.
 });
 
 export function groupDrafts(status: TeamReviewStatus | null | undefined): TeamReviewSections {
-  const sections: TeamReviewSections = { ready: [], noReviewNeeded: [], inReview: [], queued: [], attention: [], posted: [], discarded: [] };
+  const sections: TeamReviewSections = { ready: [], noReviewNeeded: [], inReview: [], queued: [], handReview: [], attention: [], posted: [], discarded: [] };
   if (!status) return sections;
   const readyByBand: Record<ReviewPriorityBand, ReviewDraft[]> = { 'blocking-others': [], actionable: [], 'waiting-on-author': [], 'not-ready': [] };
   const queuedByBand: Record<ReviewPriorityBand, QueuedReview[]> = { 'blocking-others': [], actionable: [], 'waiting-on-author': [], 'not-ready': [] };
   const bandOrder: ReviewPriorityBand[] = ['blocking-others', 'actionable', 'waiting-on-author', 'not-ready'];
   const inFlightKeys = new Set(status.inFlight.map((review) => review.key));
   sections.inReview.push(...status.inFlight);
+  const answeredThreadDraftKeys = new Set(status.drafts.filter((draft) => answeredNonNitThreads(draft).length > 0).map((draft) => draft.key));
+  sections.handReview.push(...status.handReview.filter((review) => !inFlightKeys.has(review.key) && !answeredThreadDraftKeys.has(review.key)));
+  const handReviewKeys = new Set(sections.handReview.map((review) => review.key));
   for (const review of status.queued) {
-    if (inFlightKeys.has(review.key)) continue;
+    if (inFlightKeys.has(review.key) || handReviewKeys.has(review.key)) continue;
     queuedByBand[classifyReviewPriority(review).band].push(review);
   }
   for (const band of bandOrder) sections.queued.push(...queuedByBand[band]);
   const queuedKeys = new Set(sections.queued.map((review) => review.key));
   for (const draft of status.drafts) {
-    if (inFlightKeys.has(draft.key) || queuedKeys.has(draft.key)) continue;
+    if (inFlightKeys.has(draft.key) || queuedKeys.has(draft.key) || handReviewKeys.has(draft.key)) continue;
     if (answeredNonNitThreads(draft).length > 0) {
       readyByBand.actionable.push(draft);
       continue;
     }
-    const isSettled = (draft.status === 'ready' || draft.status === 'stale') && !isReviewNeeded(draft);
+    const isSettled = (draft.status === 'ready' || draft.status === 'stale' || draft.status === 'error') && !isReviewNeeded(draft);
     if (isSettled) sections.noReviewNeeded.push(draft);
     if (draft.status === 'ready' && !isSettled) readyByBand[classifyReviewPriority(draft).band].push(draft);
-    if ((draft.status === 'stale' && !isSettled) || draft.status === 'error') sections.attention.push(draft);
+    if ((draft.status === 'stale' || draft.status === 'error') && !isSettled) sections.attention.push(draft);
     if (draft.status === 'posted') sections.posted.push(draft);
     if (draft.status === 'discarded') sections.discarded.push(draft);
   }
@@ -307,7 +318,7 @@ export function githubReviewItems(draft: ReviewDraft, { isViewerShown = true }: 
 }
 
 export function hasAnyRow(sections: TeamReviewSections): boolean {
-  return sections.ready.length + sections.noReviewNeeded.length + sections.inReview.length + sections.queued.length + sections.attention.length + sections.posted.length + sections.discarded.length > 0;
+  return sections.ready.length + sections.noReviewNeeded.length + sections.inReview.length + sections.queued.length + sections.handReview.length + sections.attention.length + sections.posted.length + sections.discarded.length > 0;
 }
 
 export function chooseSelectedReviewKey(sections: TeamReviewSections, selectedKey: string | null): string | null {
@@ -480,7 +491,8 @@ export function inFlightElapsedText(review: InFlightReview, nowMs: number): stri
 
 export function inFlightProgressText(review: InFlightReview, nowMs: number): string {
   const parts = [inFlightElapsedText(review, nowMs)];
-  if (review.deadlineAt !== null) parts.push(`times out in ${formatClockOffset(review.deadlineAt - nowMs)}`);
+  const remainingMs = review.deadlineAt === null ? 0 : review.deadlineAt - nowMs;
+  if (remainingMs > 0) parts.push(`times out in ${formatClockOffset(remainingMs)}`);
   if (review.phase === 'reviewing') parts.push(`${review.toolCalls} ${review.toolCalls === 1 ? 'tool call' : 'tool calls'}`);
   return parts.join(', ');
 }
@@ -598,6 +610,7 @@ export function isInFlightProgressOnlyChange(previous: TeamReviewStatus | null |
   const previousKeys = previous.inFlight.map((review) => review.key).join('\n');
   const nextKeys = next.inFlight.map((review) => review.key).join('\n');
   if (previousKeys !== nextKeys) return false;
+  if (JSON.stringify(previous.handReview) !== JSON.stringify(next.handReview)) return false;
   if (JSON.stringify(previous.queued) !== JSON.stringify(next.queued)) return false;
   return JSON.stringify(previous.drafts) === JSON.stringify(next.drafts);
 }

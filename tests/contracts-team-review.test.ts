@@ -24,6 +24,15 @@ test('saved review entries accept both legacy state and a resumable session', ()
   assert.equal(TeamReviewStateEntry.safeParse({ ...oldEntry, resumable: { ...resumable, head: 'bad' } }).success, false);
 });
 
+test('saved review records parse with and without a remaining awake budget', () => {
+  const oldEntry = { draft: null, reviewedHead: null, inFlight: false, skipReason: null, reviewAttempts: 0, updatedAt: 1000 };
+  const legacyResumable = { sessionId: 'claude-1', workDir: '/work/review', worktreePath: '/work/tree', head: HEAD, deadlineAt: 9000, savedAt: 1000 };
+  const budgetedResumable = { ...legacyResumable, remainingAwakeMs: 120000 };
+  assert.equal(TeamReviewStateEntry.parse({ ...oldEntry, resumable: legacyResumable }).resumable?.remainingAwakeMs, undefined);
+  assert.equal(TeamReviewStateEntry.parse({ ...oldEntry, resumable: budgetedResumable }).resumable?.remainingAwakeMs, 120000);
+  assert.equal(TeamReviewStateEntry.safeParse({ ...oldEntry, resumable: { ...legacyResumable, remainingAwakeMs: -1 } }).success, false);
+});
+
 test('search items require the fields needed to identify a PR while retaining GitHub fields', () => {
   const item = {
     number: 1350,
@@ -131,4 +140,15 @@ test('request source and priority fields round trip through the review wire and 
   assert.equal(TeamReviewStatus.safeParse({ ...report, queued: [{ ...review, requestSource: 'unknown' }] }).success, false);
   assert.equal(TeamReviewStatus.safeParse({ ...report, queued: [{ ...review, checksState: 'unknown' }] }).success, false);
   assert.equal(TeamReviewStatus.safeParse({ ...report, queued: [{ ...review, isDraft: 'true' }] }).success, false);
+});
+
+
+test('hand review contracts parse new fields and default legacy status to no hand reviews', () => {
+  const handReview = { key: 'Acme/app#1', repo: 'Acme/app', number: 1, title: 'Fork change', url: 'https://github.com/Acme/app/pull/1', author: 'contributor', requestSource: 'team' };
+  const entry = { draft: null, reviewedHead: HEAD, inFlight: false, skipReason: 'fork', reviewAttempts: 0, updatedAt: 1000 };
+  assert.deepEqual(TeamReviewStateEntry.parse({ ...entry, handReview }).handReview, handReview);
+  assert.equal(TeamReviewStateEntry.parse(entry).handReview, undefined);
+  const snapshot = { type: 'team-review-status', ts: 1000, configured: true, drafts: [], inFlight: [] };
+  assert.deepEqual(TeamReviewStatus.parse({ ...snapshot, handReview: [handReview] }).handReview, [handReview]);
+  assert.deepEqual(TeamReviewStatus.parse(snapshot).handReview, []);
 });

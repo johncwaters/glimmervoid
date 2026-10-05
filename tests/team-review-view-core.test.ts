@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  detailThreadItems, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  detailThreadItems, postedOutcomeLabel, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTitle, queueRowVerdictLabel, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
   commentSeverity, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
-import { answeredViewerThreads } from '../server/core/team-review-threads-core.ts';
+import { answeredViewerThreads, THREAD_PLACEHOLDER_ERROR } from '../server/core/team-review-threads-core.ts';
 import { threadNode } from './helpers/team-review-thread-fixture.ts';
 import { InFlightReview, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type {
@@ -166,7 +166,7 @@ test('the GitHub summary names the operator first and flags a review of an older
   ] }), { isViewerShown: false }), 'approved by sarah');
 });
 
-test('a stale draft the operator reviewed at the live head leaves Needs attention, an error draft stays', () => {
+test('stale and error drafts reviewed by the operator at the live head leave Needs attention', () => {
   const liveHead = 'c'.repeat(40);
   const reviewedAtLiveHead = [{ login: 'me', state: 'COMMENTED' as const, commit: liveHead, isViewer: true }];
   const sections = groupDrafts(status([
@@ -175,8 +175,8 @@ test('a stale draft the operator reviewed at the live head leaves Needs attentio
     draft(3, { status: 'error', error: 'timed out', liveHead, githubReviews: reviewedAtLiveHead }),
     draft(4, { liveHead, githubReviews: [{ login: 'sarah', state: 'APPROVED', commit: HEAD, isViewer: false }] }),
   ]));
-  assert.deepEqual(sections.noReviewNeeded.map((row) => row.number), [1]);
-  assert.deepEqual(sections.attention.map((row) => row.number), [2, 3]);
+  assert.deepEqual(sections.noReviewNeeded.map((row) => row.number), [1, 3]);
+  assert.deepEqual(sections.attention.map((row) => row.number), [2]);
   assert.deepEqual(sections.ready.map((row) => row.number), [4]);
 });
 
@@ -400,9 +400,9 @@ test('elapsed text is the leading part of the progress text on its own', () => {
   assert.ok(inFlightProgressText(reviewing, 125000).startsWith(inFlightElapsedText(reviewing, 125000)));
 });
 
-test('progress text never counts below zero once the deadline passes', () => {
+test('progress text drops the countdown once the wall-clock deadline passes', () => {
   const overdue = inFlightReview(1, { phase: 'reviewing', startedAt: 0, deadlineAt: 1000, toolCalls: 0 });
-  assert.equal(inFlightProgressText(overdue, 5000), '0:05 elapsed, times out in 0:00, 0 tool calls');
+  assert.equal(inFlightProgressText(overdue, 5000), '0:05 elapsed, 0 tool calls');
 });
 
 test('a status that only advances in-flight progress is a progress-only change', () => {
@@ -791,4 +791,55 @@ test('an in-flight or queued review keeps precedence over the answered threads o
   const grouped = groupDrafts(status([review], [inFlightReview(1)]));
   assert.equal(grouped.inReview.length, 1);
   assert.equal(grouped.ready.length, 0);
+});
+
+test('an error with standing approval settles without attention', () => {
+  const review = draft(1388, {
+    status: 'error', reviewDecision: 'APPROVED', liveHead: NEXT_HEAD,
+    githubReviews: [{ login: 'me', state: 'APPROVED', commit: HEAD, isViewer: true }],
+  });
+  const sections = groupDrafts(status([review]));
+  assert.deepEqual(sections.noReviewNeeded, [review]);
+  assert.deepEqual(sections.attention, []);
+});
+
+test('posted outcome overrides the automated verdict and falls back for legacy drafts', () => {
+  const review = draft(1337, { status: 'posted', verdict: 'REQUEST CHANGES', postedEvent: 'APPROVE' });
+  assert.equal(postedOutcomeLabel(review), 'Approved');
+  assert.match(queueRowTitle(review, 'posted', {}), /Approved, 0 comments/);
+  assert.equal(postedOutcomeLabel({ ...review, postedEvent: 'COMMENT' }), 'Commented');
+  assert.equal(postedOutcomeLabel({ ...review, postedEvent: undefined }), 'request changes');
+  assert.match(queueRowTitle({ ...review, postedEvent: undefined }, 'posted', {}), /Changes, 0 comments/);
+});
+
+test('hand review rows populate their section and keep a hand-only list visible', () => {
+  const review = draft(19911, { repo: 'Acme/fork', key: 'Acme/fork#19911' });
+  const snapshot = TeamReviewStatus.parse({ ...status([]), handReview: [review] });
+  const sections = groupDrafts(snapshot);
+  assert.deepEqual(sections.handReview, snapshot.handReview);
+  assert.equal(hasAnyRow(sections), true);
+  assert.equal(queueRowStateLabel('handReview', null), 'Review by hand');
+  assert.equal(hasMultipleQueueRepos(groupDrafts({ ...snapshot, drafts: [draft(1)] })), true);
+  assert.equal(isInFlightProgressOnlyChange(status([]), snapshot), false);
+});
+
+test('a fork placeholder draft with an answered thread lands in Ready instead of its hand review row', () => {
+  const placeholder = draft(19911, { repo: 'Acme/fork', key: 'Acme/fork#19911', status: 'error', error: THREAD_PLACEHOLDER_ERROR, threads: answeredViewerThreads([threadNode()], [], HEAD) });
+  const handReviewRow = draft(19911, { repo: 'Acme/fork', key: 'Acme/fork#19911' });
+  const sections = groupDrafts(TeamReviewStatus.parse({ ...status([placeholder]), handReview: [handReviewRow] }));
+  assert.deepEqual(sections.ready.map((review) => review.key), [placeholder.key]);
+  assert.deepEqual(sections.handReview, []);
+});
+
+test('hand review rows replace older drafts and queued rows while active reviews take precedence', () => {
+  const review = draft(5, { status: 'stale' });
+  const snapshot = TeamReviewStatus.parse({ ...status([review]), queued: [review], handReview: [review] });
+  const sections = groupDrafts(snapshot);
+  assert.equal(sections.handReview.length, 1);
+  assert.deepEqual(sections.queued, []);
+  assert.deepEqual(sections.attention, []);
+  assert.equal(chooseSelectedReviewKey(sections, review.key), null);
+  const activeSections = groupDrafts({ ...snapshot, inFlight: [inFlightReview(5)] });
+  assert.deepEqual(activeSections.handReview, []);
+  assert.equal(activeSections.inReview.length, 1);
 });

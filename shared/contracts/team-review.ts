@@ -276,15 +276,30 @@ export const ResumableReview = z.object({
   worktreePath: z.string().min(1),
   head: CommitSha,
   deadlineAt: z.number(),
+  remainingAwakeMs: z.number().nonnegative().optional(),
   savedAt: z.number(),
 });
 export type ResumableReview = z.infer<typeof ResumableReview>;
+
+export const QueuedReview = z.object({
+  ...reviewPriorityShape,
+  reviewDecision: GithubReviewDecision.nullable().optional(),
+  key: z.string(),
+  repo: repoSlug,
+  number: z.number().int().positive(),
+  title: z.string(),
+  url: z.string(),
+  author: z.string(),
+  prCreatedAt: z.string().optional(),
+});
+export type QueuedReview = z.infer<typeof QueuedReview>;
 
 export const TeamReviewStateEntry = z.object({
   draft: ReviewDraft.nullable(),
   reviewedHead: CommitSha.nullable(),
   inFlight: z.boolean(),
   skipReason: z.string().nullable(),
+  handReview: QueuedReview.optional(),
   reviewAttempts: z.number().int().nonnegative().default(0),
   resumable: ResumableReview.nullable().optional(),
   reviewedAt: z.number().optional(),
@@ -335,18 +350,6 @@ export const InFlightReview = z.object({
 });
 export type InFlightReview = z.infer<typeof InFlightReview>;
 
-export const QueuedReview = z.object({
-  ...reviewPriorityShape,
-  reviewDecision: GithubReviewDecision.nullable().optional(),
-  key: z.string(),
-  repo: repoSlug,
-  number: z.number().int().positive(),
-  title: z.string(),
-  url: z.string(),
-  author: z.string(),
-  prCreatedAt: z.string().optional(),
-});
-export type QueuedReview = z.infer<typeof QueuedReview>;
 
 export const TeamReviewStatus = z.object({
   ...reviewsPollingShape,
@@ -357,6 +360,7 @@ export const TeamReviewStatus = z.object({
   drafts: z.array(ReviewDraft),
   inFlight: z.array(InFlightReview),
   queued: z.array(QueuedReview).default([]),
+  handReview: z.array(QueuedReview).default([]),
   team: z.object({ org: z.string(), slug: z.string(), name: z.string(), avatarUrl: z.string() }).nullable().optional(),
 }).passthrough();
 export type TeamReviewStatus = z.infer<typeof TeamReviewStatus>;

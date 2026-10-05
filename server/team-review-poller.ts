@@ -140,6 +140,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     lastEmitAt = now();
     onTickComplete({ ...core.teamReviewStatus({
       ts: now(), configured: true, reason: sandboxRefusal(), team: teamProfile, drafts: core.draftsNewestFirst(state), inFlight: inFlightReviews(),
+      handReview: core.handReviewRows(state),
       queued: waitingForSlot.filter((candidate) => !state[candidate.key]?.inFlight),
     }), error: pollingError, ...loop.scheduleStatus() });
   }
@@ -243,6 +244,14 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       if (!entry) {
         entry = entryFor(candidate.key);
         entry.reviewedHead = isReviewedByViewer ? head : null;
+        isDirty = true;
+      }
+      if (entry.handReview && (entry.skipReason !== 'fork' || entry.reviewedHead !== head)) {
+        delete entry.handReview;
+        isDirty = true;
+      }
+      if (entry.skipReason === 'fork' && entry.reviewedHead === head && !core.isSameQueuedReview(entry.handReview, candidate)) {
+        entry.handReview = { ...candidate };
         isDirty = true;
       }
       if (entry.draft) {
@@ -401,14 +410,18 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
         await persist();
       }
       entry.updatedAt = now();
+      delete entry.handReview;
       isDirty = true;
       if (triage.tier === 'skip') {
         if (resume) await discardResumable(resume);
         entry.reviewedHead = detail.headRefOid;
+        entry.liveHead = detail.headRefOid;
         entry.skipReason = triage.reasons.join(', ') || 'skipped';
+        if (triage.reasons.includes('fork')) entry.handReview = { ...candidate };
         delete entry.requeuedHead;
         continue;
       }
+      entry.skipReason = null;
       const priorReview = core.priorReviewFor(entry, detail.headRefOid) ?? undefined;
       const earlierReviewKept = core.earlierReviewToKeep(entry, detail.headRefOid);
       delete entry.priorReview;

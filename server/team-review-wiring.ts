@@ -5,6 +5,7 @@ import path from 'node:path';
 import type { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
+import { type AwakeStopwatch, createAwakeTimeoutFn, startAwakeStopwatch } from './awake-timer.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { trailStepFromHook } from './core/investigation-trail-core.ts';
 import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES } from './core/lane-permissions-core.ts';
@@ -466,10 +467,10 @@ function createTeamReviewDispatcher({
   github, repoCache, gitWorkspace, spawnSession, worktreeRoot, workRoot, repoCacheRoot = null,
   timeoutSeconds = core.REVIEW_TIMEOUT_SECONDS,
   makeWorkDir = makeTeamReviewWorkDir,
-  setTimeoutFn = (fn, ms) => setTimeout(fn, ms),
   clearTimeoutFn = clearTimeout,
   randomSuffix = () => randomBytes(4).toString('hex'),
   now = () => Date.now(),
+  setTimeoutFn = createAwakeTimeoutFn({ now }),
   shutdownSignal = null,
   readReviewSkill = () => '',
   readLocalCheckoutConfig = () => ({}),
@@ -525,16 +526,15 @@ function createTeamReviewDispatcher({
   }
 
   function spawnWithTimeout(
-    { candidate, detail, tier, reasons, reportProgress, resume, workDir, checkoutPath, linkedCheckout, reportPath, postingPath, commentable, onPending, onSessionId }: SpawnReviewArgs & {
-      workDir: string; checkoutPath: string; linkedCheckout: string | null; reportPath: string; postingPath: string; commentable: CommentableLines | null;
+    { candidate, detail, tier, reasons, reportProgress, resume, timeoutMs, workDir, checkoutPath, linkedCheckout, reportPath, postingPath, commentable, onPending, onSessionId }: SpawnReviewArgs & {
+      timeoutMs: number; workDir: string; checkoutPath: string; linkedCheckout: string | null; reportPath: string; postingPath: string; commentable: CommentableLines | null;
       onPending: (pending: Promise<unknown>) => void;
       onSessionId: (id: string) => void;
     },
   ): Promise<ReviewDraft> {
     const failed = (error: string) => core.errorDraft({ candidate, tier, reasons, reviewedHead: detail.headRefOid, error });
-    const remainingTimeoutMs = resume ? Math.max(0, resume.deadlineAt - now()) : timeoutSeconds * 1000;
     return raceWithAbort<ReviewDraft>({
-      timeoutMs: remainingTimeoutMs,
+      timeoutMs,
       setTimeoutFn,
       clearTimeoutFn,
       onPending,
@@ -584,7 +584,8 @@ function createTeamReviewDispatcher({
     const startedAt = now();
     let sessionId = args.resume?.sessionId ?? null;
     let deadlineAt = startedAt + timeoutSeconds * 1000;
-    const resources: { workDirHandle: TeamReviewWorkDir | null; checkout: { projectPath: string; worktreePath: string } | null } = { workDirHandle: null, checkout: null };
+    let timeoutBudgetMs = timeoutSeconds * 1000;
+    const resources: { workDirHandle: TeamReviewWorkDir | null; checkout: { projectPath: string; worktreePath: string } | null; awakeStopwatch: AwakeStopwatch | null } = { workDirHandle: null, checkout: null, awakeStopwatch: null };
     let pendingSession: Promise<unknown> | null = null;
     let shouldPreserve = false;
     let draft: ReviewDraft;
@@ -596,16 +597,17 @@ function createTeamReviewDispatcher({
         if (hasWorkDir && hasWorktree) {
           const projectPath = await repoCache.ensureRepo(candidate.repo);
           if (projectPath) {
-            deadlineAt = args.resume.deadlineAt;
+            timeoutBudgetMs = core.resumeTimeoutMs(args.resume, now());
+            deadlineAt = now() + timeoutBudgetMs;
             const resumedWorkDir = args.resume.workDir;
             resources.workDirHandle = { dir: resumedWorkDir, cleanup: () => deleteDirectory(resumedWorkDir, log) };
             resources.checkout = { projectPath, worktreePath: args.resume.worktreePath };
             await reapProcesses({ ownedDirectories: [resumedWorkDir, args.resume.worktreePath], reviewRoots: [workRoot, worktreeRoot], scope: 'run', log }).catch((error: unknown) => log.warn(`[${core.TEAM_REVIEW_LANE_ID}] process reap failed: ${errorMessage(error)}`));
             const diff = await github.prDiff(candidate.repo, detail.number);
-            const remainingTimeoutSeconds = Math.max(0, (args.resume.deadlineAt - now()) / 1000);
-            reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds: remainingTimeoutSeconds });
+            reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds: timeoutBudgetMs / 1000 });
+            resources.awakeStopwatch = startAwakeStopwatch({ now });
             return spawnWithTimeout({
-              ...args, workDir: args.resume.workDir, checkoutPath: args.resume.worktreePath, linkedCheckout: await resumedLinkedCheckout(candidate.repo, args.resume.worktreePath),
+              ...args, timeoutMs: timeoutBudgetMs, workDir: args.resume.workDir, checkoutPath: args.resume.worktreePath, linkedCheckout: await resumedLinkedCheckout(candidate.repo, args.resume.worktreePath),
               reportPath: path.join(args.resume.workDir, core.REVIEW_REPORT_FILENAME),
               postingPath: path.join(args.resume.workDir, core.REVIEW_POSTING_FILENAME),
               commentable: diff === null ? null : core.commentableLines(diff),
@@ -662,8 +664,9 @@ function createTeamReviewDispatcher({
       await fs.writeFile(path.join(workDir, core.REVIEW_PROMPT_FILENAME), prompt, 'utf8');
       await fs.mkdir(emptyGhConfigDir(workDir), { recursive: true });
       reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds });
+      resources.awakeStopwatch = startAwakeStopwatch({ now });
       return await spawnWithTimeout({
-        ...args, resume: undefined, workDir, checkoutPath: worktreePath, linkedCheckout, reportPath, postingPath, commentable: diff === null ? null : core.commentableLines(diff),
+        ...args, resume: undefined, timeoutMs: timeoutBudgetMs, workDir, checkoutPath: worktreePath, linkedCheckout, reportPath, postingPath, commentable: diff === null ? null : core.commentableLines(diff),
         onPending: (pending) => { pendingSession = pending; },
         onSessionId: (id) => { sessionId = id; },
       });
@@ -683,6 +686,7 @@ function createTeamReviewDispatcher({
           return { kind: 'stopped', resumable: {
             sessionId, workDir, worktreePath, head: detail.headRefOid,
             deadlineAt,
+            remainingAwakeMs: Math.max(0, timeoutBudgetMs - (resources.awakeStopwatch?.awakeElapsedMs() ?? 0)),
             savedAt: now(),
           } };
         }
@@ -690,6 +694,7 @@ function createTeamReviewDispatcher({
       }
       return draft;
     } finally {
+      resources.awakeStopwatch?.stop();
       const reviewWorkDir = resources.workDirHandle?.dir;
       if (reviewWorkDir !== undefined) {
         await reapProcesses({ ownedDirectories: [reviewWorkDir, resources.checkout?.worktreePath].filter((directory): directory is string => directory !== undefined), reviewRoots: [workRoot, worktreeRoot], scope: 'run', log })

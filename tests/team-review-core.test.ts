@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  advanceAwakeElapsed,
   AUTOMATED_REVIEW_NOTE,
   HAND_APPROVAL_LINE,
   MAX_REVIEW_ATTEMPTS,
@@ -24,7 +25,9 @@ import {
   githubReviewsFrom,
   githubRepoSlugFromRemote,
   hasViewerReviewedAt,
+  handReviewRows,
   invalidComments,
+  isSameQueuedReview,
   isSettledAtHead,
   markDraftStale,
   parsePostingPlan,
@@ -40,6 +43,7 @@ import {
   remoteMatchesGithubRepo,
   restoreDraftAtReviewedHead,
   resumeDecision,
+  resumeTimeoutMs,
   reviewAttemptsAfter,
   selectCandidates,
   shouldAutoReview,
@@ -48,7 +52,7 @@ import {
   triagePr,
 } from '../server/core/team-review-core.ts';
 import { parseReviewComment } from '../public/team-review-view-core.ts';
-import { FindingSeverity, InFlightReview, PostingPlan, PrDetail, ReviewDraft, ReviewResult, SearchedPr, TeamReviewState } from '../shared/contracts/team-review.ts';
+import { FindingSeverity, InFlightReview, PostingPlan, PrDetail, QueuedReview, ReviewDraft, ReviewResult, SearchedPr, TeamReviewState } from '../shared/contracts/team-review.ts';
 import { findingHeader, findingSeveritiesIn } from '../shared/team-review-markdown.ts';
 import type { PriorReview, TeamReviewStateEntry } from '../shared/contracts/team-review.ts';
 
@@ -275,6 +279,21 @@ test('resume decisions check the head, age and original deadline', () => {
   assert.equal(resumeDecision(stateEntry({ resumable: { ...resumable, deadlineAt: RESUME_TTL_MS * 2 + 2000 } }), HEAD, RESUME_TTL_MS + 1001), 'discard');
   assert.equal(resumeDecision(stateEntry({ resumable }), HEAD, RESUME_TTL_MS + 2000), 'discard');
   assert.equal(isSettledAtHead(stateEntry({ draft: readyDraftAt(HEAD), resumable }), HEAD), false);
+});
+
+test('resume decisions use the saved awake budget instead of the wall-clock deadline when present', () => {
+  const resumable = { sessionId: 'claude-1', workDir: '/work', worktreePath: '/tree', head: HEAD, deadlineAt: 2000, savedAt: 1000 };
+  assert.equal(resumeDecision(stateEntry({ resumable }), HEAD, 3000), 'discard');
+  assert.equal(resumeDecision(stateEntry({ resumable: { ...resumable, remainingAwakeMs: 60000 } }), HEAD, 3000), 'resume');
+  assert.equal(resumeDecision(stateEntry({ resumable: { ...resumable, deadlineAt: RESUME_TTL_MS * 2, remainingAwakeMs: 0 } }), HEAD, 3000), 'discard');
+  assert.equal(resumeDecision(stateEntry({ resumable: { ...resumable, remainingAwakeMs: 60000 } }), HEAD, RESUME_TTL_MS + 1001), 'discard');
+});
+
+test('a resumed review times out after its saved awake budget, or the wall-clock remainder for a legacy record', () => {
+  const resumable = { sessionId: 'claude-1', workDir: '/work', worktreePath: '/tree', head: HEAD, deadlineAt: 81000, savedAt: 1000 };
+  assert.equal(resumeTimeoutMs({ ...resumable, remainingAwakeMs: 45000 }, 30 * 60 * 1000), 45000);
+  assert.equal(resumeTimeoutMs(resumable, 3000), 78000);
+  assert.equal(resumeTimeoutMs(resumable, 90000), 0);
 });
 
 function readyDraftAt(head: string) {
@@ -1140,4 +1159,36 @@ test('an absolute path becomes a double-slash Read rule over its whole tree, Win
   assert.equal(absolutePathReadRule('/home/operator/.glimmervoid/team-review-worktrees/wt-7'), 'Read(//home/operator/.glimmervoid/team-review-worktrees/wt-7/**)');
   assert.equal(absolutePathReadRule('/home/operator/checkout/node_modules/'), 'Read(//home/operator/checkout/node_modules/**)');
   assert.equal(absolutePathReadRule('C:\\Users\\operator\\.glimmervoid\\wt-7'), 'Read(//c/Users/operator/.glimmervoid/wt-7/**)');
+});
+
+
+test('awake elapsed accumulates normal ticks and caps a suspension gap', () => {
+  const tickMs = 15000;
+  const firstTick = advanceAwakeElapsed({ awakeElapsedMs: 0, previousTickAt: 1000, nowMs: 16000, tickMs });
+  assert.equal(firstTick, tickMs);
+  const secondTick = advanceAwakeElapsed({ awakeElapsedMs: firstTick, previousTickAt: 16000, nowMs: 31000, tickMs });
+  assert.equal(secondTick, 2 * tickMs);
+  assert.equal(advanceAwakeElapsed({ awakeElapsedMs: secondTick, previousTickAt: 31000, nowMs: 1831000, tickMs }), 4 * tickMs);
+  assert.equal(advanceAwakeElapsed({ awakeElapsedMs: secondTick, previousTickAt: 31000, nowMs: 1000, tickMs }), secondTick);
+});
+
+test('hand review rows require a current fork triage and no active automated review', () => {
+  const key = 'Acme/app#5';
+  const handReview: QueuedReview = { key, repo: 'Acme/app', number: 5, title: 'Fork change', url: 'https://github.com/Acme/app/pull/5', author: 'teammate', requestSource: 'team' };
+  const entry: TeamReviewStateEntry = {
+    draft: null, reviewedHead: HEAD, liveHead: HEAD, inFlight: false, skipReason: 'fork', reviewAttempts: 0, updatedAt: 1000, handReview,
+  };
+  assert.deepEqual(handReviewRows({ [key]: entry }), [handReview]);
+  for (const changes of [{ liveHead: 'b'.repeat(40) }, { skipReason: null }, { inFlight: true }]) {
+    assert.deepEqual(handReviewRows({ [key]: { ...entry, ...changes } }), []);
+  }
+});
+
+test('a queued review compares equal to its schema-parsed copy whatever the key order', () => {
+  const fresh: QueuedReview = { key: 'Acme/app#5', repo: 'Acme/app', number: 5, title: 'Fork change', url: 'https://github.com/Acme/app/pull/5', author: 'teammate', requestSource: 'team', reviewDecision: null, isDraft: false };
+  const parsed = QueuedReview.parse(JSON.parse(JSON.stringify(fresh)));
+  assert.notEqual(JSON.stringify(parsed), JSON.stringify(fresh));
+  assert.equal(isSameQueuedReview(parsed, fresh), true);
+  assert.equal(isSameQueuedReview(undefined, fresh), false);
+  assert.equal(isSameQueuedReview(parsed, { ...fresh, title: 'Renamed' }), false);
 });

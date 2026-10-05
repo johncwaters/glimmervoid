@@ -15,7 +15,7 @@ import {
   answeredNonNitThreads, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, queueRowVerdictLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
-  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, verdictLabel, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
+  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, postedOutcomeLabel, verdictLabel, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
 } from './team-review-view-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
 import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
@@ -212,12 +212,7 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
   row.title = title();
   row.setAttribute('aria-label', row.title);
   _queueRowTitles.set(row, title);
-  const top = el('span', 'pr-queue-top');
-  top.append(
-    el('strong', 'pr-queue-ref', queueRowRefLabel(review.repo, review.number, hasMultipleRepos)),
-    el('strong', 'pr-queue-ref-compact', queueRowRefLabel(review.repo, review.number, false)),
-    el('span', 'pr-queue-title', review.title),
-  );
+  const top = createQueueRowTop(review, hasMultipleRepos);
   if (kind === 'inReview') {
     const inFlight = review as InFlightReview;
     const elapsed = el('span', 'pr-queue-elapsed');
@@ -270,7 +265,7 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
   if (replyCount > 0) bottom.append(el('span', 'pr-queue-comment-count', `${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}`));
   if (approvalContext) bottom.append(el('span', 'pr-queue-approval-context', 'since approval'));
   bottom.append(createAuthor(review.author, 16, 'pr-queue-author'));
-  if (kind === 'posted') bottom.append(el('span', 'pr-queue-posted-detail', verdictLabel((review as ReviewDraft).verdict)));
+  if (kind === 'posted') bottom.append(el('span', 'pr-queue-posted-detail', postedOutcomeLabel(review as ReviewDraft)));
   row.append(top, bottom);
   const githubSummary = kind === 'inReview' || kind === 'queued' ? null : createGithubReviewSummary(review as ReviewDraft, 'pr-queue-reviewers', 16, kind !== 'posted');
   if (githubSummary) bottom.append(githubSummary);
@@ -283,6 +278,30 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
     if (document.documentElement.dataset.layout === 'phone') _detail?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   });
   return row;
+}
+
+function createQueueRowTop(review: ReviewDraft | InFlightReview | QueuedReview, hasMultipleRepos: boolean): HTMLSpanElement {
+  const top = el('span', 'pr-queue-top');
+  top.append(
+    el('strong', 'pr-queue-ref', queueRowRefLabel(review.repo, review.number, hasMultipleRepos)),
+    el('strong', 'pr-queue-ref-compact', queueRowRefLabel(review.repo, review.number, false)),
+    el('span', 'pr-queue-title', review.title),
+  );
+  return top;
+}
+
+function createHandReviewSection(reviews: QueuedReview[], hasMultipleRepos: boolean): HTMLElement {
+  const section = el('section', 'pr-queue-section');
+  section.append(el('h3', 'pr-section-heading', `Review by hand ${reviews.length}`));
+  for (const review of reviews) {
+    const row = externalLink('pr-queue-row pr-queue-row-quiet', '', review.url);
+    row.title = queueRowTitle(review, 'handReview', { opened: formatTimestampAge(review.prCreatedAt) });
+    const bottom = el('span', 'pr-queue-bottom');
+    bottom.append(createAuthor(review.author, 16, 'pr-queue-author'), el('span', 'pr-queue-posted-detail', 'Review by hand'));
+    row.append(createQueueRowTop(review, hasMultipleRepos), bottom);
+    section.append(row);
+  }
+  return section;
 }
 
 function createQueueSection(title: string, reviews: (ReviewDraft | InFlightReview | QueuedReview)[], kind: QueueRowKind, hasMultipleRepos: boolean): HTMLElement {
@@ -787,6 +806,11 @@ function otherDetailFor(draft: ReviewDraft): HTMLElement {
 function renderSelectedDetail(sections: TeamReviewSections): void {
   if (!_detail) return;
   _selectedKey = chooseSelectedReviewKey(sections, _selectedKey);
+  if (!_selectedKey) {
+    _detail.replaceChildren();
+    _renderedDetailSignature = null;
+    return;
+  }
   const threadDraft = sections.ready.find((draft) => draft.key === _selectedKey && answeredNonNitThreads(draft).length > 0);
   if (threadDraft && threadDraft.status !== 'ready') {
     const signature = `threads:${otherDetailSignature(threadDraft)}`;
@@ -918,6 +942,7 @@ function render(): void {
   }
   if (sections.queued.length) queueSections.push(createQueueSection('Queued', sections.queued, 'queued', hasMultipleRepos));
   if (sections.noReviewNeeded.length) queueSections.push(createQueueSection('No review needed', sections.noReviewNeeded, 'settled', hasMultipleRepos));
+  if (sections.handReview.length) queueSections.push(createHandReviewSection(sections.handReview, hasMultipleRepos));
   if (sections.attention.length) queueSections.push(createQueueSection('Needs attention', sections.attention, 'attention', hasMultipleRepos));
   if (sections.posted.length) queueSections.push(createQueueSection('Recently posted', sections.posted, 'posted', hasMultipleRepos));
   if (sections.discarded.length) queueSections.push(createQueueSection('Discarded', sections.discarded, 'discarded', hasMultipleRepos));
