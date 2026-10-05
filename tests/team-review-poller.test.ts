@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { threadNode, THREAD_BASE } from './helpers/team-review-thread-fixture.ts';
+import { THREAD_PLACEHOLDER_ERROR } from '../server/core/team-review-threads-core.ts';
 import { DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, MAX_REVIEW_ATTEMPTS, POSTED_RETENTION_MS, errorDraft, readyDraft } from '../server/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/team-review-poller.ts';
 import type { PrReviewSnapshot } from '../server/pr-gh.ts';
@@ -1617,4 +1619,342 @@ test('after a boot whose sandbox probe passes, held reviews start and the saved 
   assert.equal(poller.getDraft(`${REPO}#2`)?.status, 'ready');
   assert.equal(statuses.at(-1)?.reason, null);
   await poller.stop();
+});
+
+
+async function answeredThreadHarness(severity: string, isResolveSuccessful = true, isJudgeSuccessful = true) {
+  let node = threadNode(severity);
+  let judgeCalls = 0;
+  let resolveCalls = 0;
+  let compareCalls = 0;
+  const harness = setup({ judgeThread: async () => { judgeCalls += 1; return isJudgeSuccessful ? { addressed: true, reason: 'Guard added' } : null; } });
+  harness.github.requested = [searchItem(1, 'teammate')];
+  harness.github.heads.set(1, HEAD_ONE);
+  await harness.poller.start();
+  await settle();
+  harness.github.reviews.set(1, [{ login: 'me', state: 'APPROVED', commit: HEAD_ONE }]);
+  harness.github.decisions.set(1, 'APPROVED');
+  harness.github.teamReviewThreads = async (prs) => {
+    assert.deepEqual(prs.map((pr) => pr.number), [1]);
+    return new Map([[`${REPO}#1`, [structuredClone(node)]]]);
+  };
+  harness.github.resolveReviewThread = async () => {
+    resolveCalls += 1;
+    if (isResolveSuccessful) node.isResolved = true;
+    return { ok: isResolveSuccessful, err: isResolveSuccessful ? '' : 'denied' };
+  };
+  harness.github.teamReviewCompare = async (_repo, base, head) => {
+    assert.equal(base, THREAD_BASE);
+    assert.equal(head, harness.github.heads.get(1));
+    compareCalls += 1;
+    return { ok: true, comparison: { merge_base_commit: { sha: THREAD_BASE }, files: [{ filename: 'src/app.ts', patch: '@@ -1 +1 @@\n+guard' }] } };
+  };
+  await harness.poller.tick();
+  return { ...harness, counts: () => ({ judgeCalls, resolveCalls, compareCalls }), replaceNode: (replacement: typeof node) => { node = replacement; } };
+}
+
+test('answered nit is automatically resolved once without invoking a judge', async () => {
+  const harness = await answeredThreadHarness('LOW');
+  try {
+    await harness.poller.tick();
+    assert.deepEqual(harness.counts(), { judgeCalls: 0, resolveCalls: 1, compareCalls: 0 });
+    assert.ok(harness.writes.some((state) => state[`${REPO}#1`]?.threads?.[0]?.resolveAttemptReplyAt));
+  } finally { await harness.poller.stop(); }
+});
+
+test('automatic resolve failure persists and does not repeat until a new reply', async () => {
+  const harness = await answeredThreadHarness('LOW', false);
+  try {
+    await harness.poller.tick();
+    assert.equal(harness.counts().resolveCalls, 1);
+    assert.equal(harness.poller._state()[`${REPO}#1`].threads?.[0].resolveError, 'denied');
+    const updated = threadNode('LOW');
+    updated.comments.nodes[1].createdAt = '2026-10-02T12:00:00Z';
+    harness.replaceNode(updated);
+    await harness.poller.tick();
+    assert.equal(harness.counts().resolveCalls, 2);
+  } finally { await harness.poller.stop(); }
+});
+
+test('non-nit judgement is reused only for the same head and reply and never resolves automatically', async () => {
+  const harness = await answeredThreadHarness('MEDIUM');
+  try {
+    await harness.poller.tick();
+    assert.deepEqual(harness.counts(), { judgeCalls: 1, resolveCalls: 0, compareCalls: 1 });
+    assert.equal(harness.statuses.at(-1)?.drafts[0].threads?.[0].judgement?.addressed, true);
+    harness.github.heads.set(1, HEAD_TWO);
+    await harness.poller.tick();
+    assert.equal(harness.counts().judgeCalls, 2);
+    const updated = threadNode();
+    updated.comments.nodes[1].createdAt = '2026-10-02T12:00:00Z';
+    harness.replaceNode(updated);
+    await harness.poller.tick();
+    assert.equal(harness.counts().judgeCalls, 3);
+    assert.equal(harness.counts().resolveCalls, 0);
+  } finally { await harness.poller.stop(); }
+});
+
+test('judge failure produces no judgement or resolution and backs off before trying again', async () => {
+  const harness = await answeredThreadHarness('HIGH', true, false);
+  try {
+    await harness.poller.tick();
+    assert.equal(harness.counts().judgeCalls, 1);
+    assert.equal(harness.poller._state()[`${REPO}#1`].threads?.[0].judgement, undefined);
+    harness.setNow(1000 + 15 * 60 * 1000);
+    await harness.poller.tick();
+    assert.equal(harness.counts().judgeCalls, 2);
+    assert.equal(harness.counts().resolveCalls, 0);
+  } finally { await harness.poller.stop(); }
+});
+
+
+test('viewer threads are presented even when GitHub approval predates any local draft', async () => {
+  const github = fakeGithub();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  github.reviews.set(1, [{ login: 'me', state: 'APPROVED', commit: HEAD_ONE }]);
+  github.decisions.set(1, 'APPROVED');
+  github.teamReviewThreads = async () => new Map([[`${REPO}#1`, [threadNode()]]]);
+  github.resolveReviewThread = async () => { throw new Error('non-nit must not auto resolve'); };
+  const harness = setup({ github });
+  try {
+    await harness.poller.start();
+    await settle();
+    assert.equal(harness.spawned.length, 0);
+    assert.equal(harness.statuses.at(-1)?.drafts[0].threads?.length, 1);
+  } finally { await harness.poller.stop(); }
+});
+
+test('a thread with no new hunks is judged with empty patch evidence and unavailable comparisons back off', async () => {
+  for (const comparison of [{ merge_base_commit: { sha: THREAD_BASE }, files: [] }, null]) {
+    let judgeCalls = 0;
+    const harness = await answeredThreadHarness('MEDIUM');
+    try {
+      harness.github.heads.set(1, HEAD_TWO);
+      harness.github.teamReviewCompare = async () => ({ ok: true, comparison });
+      const node = threadNode();
+      node.comments.nodes[1].createdAt = '2026-10-02T12:00:00Z';
+      harness.replaceNode(node);
+      const priorCalls = harness.counts().judgeCalls;
+      await harness.poller.tick();
+      judgeCalls = harness.counts().judgeCalls - priorCalls;
+      assert.equal(judgeCalls, comparison === null ? 0 : 1);
+      await harness.poller.tick();
+      assert.equal(harness.counts().judgeCalls - priorCalls, judgeCalls);
+    } finally { await harness.poller.stop(); }
+  }
+});
+
+test('threads sharing an original commit use one comparison and run judges serially', async () => {
+  const github = fakeGithub();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  github.reviews.set(1, [{ login: 'me', state: 'APPROVED', commit: HEAD_ONE }]);
+  github.decisions.set(1, 'APPROVED');
+  const nodes = [threadNode(), threadNode('HIGH', { id: 'PRRT_acme_2' })];
+  github.teamReviewThreads = async () => new Map([[`${REPO}#1`, nodes]]);
+  github.resolveReviewThread = async () => { throw new Error('non-nit must not resolve automatically'); };
+  let comparisons = 0;
+  github.teamReviewCompare = async () => { comparisons += 1; return { ok: true, comparison: { merge_base_commit: { sha: THREAD_BASE }, files: [{ filename: 'src/app.ts', patch: '+guard' }] } }; };
+  let activeJudges = 0;
+  let judgeCalls = 0;
+  const harness = setup({ github, judgeThread: async () => {
+    activeJudges += 1;
+    judgeCalls += 1;
+    assert.equal(activeJudges, 1);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    activeJudges -= 1;
+    return { addressed: false, reason: 'Guard is insufficient' };
+  } });
+  try {
+    await harness.poller.start();
+    await settle();
+    assert.equal(comparisons, 1);
+    assert.equal(judgeCalls, 2);
+    assert.equal(harness.poller._state()[`${REPO}#1`].threads?.length, 2);
+    await harness.poller.tick();
+    assert.equal(comparisons, 1);
+    assert.equal(judgeCalls, 2);
+  } finally { await harness.poller.stop(); }
+});
+
+test('a failed commit group cannot starve threads from another original commit', async () => {
+  const github = fakeGithub();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  github.reviews.set(1, [{ login: 'me', state: 'APPROVED', commit: HEAD_ONE }]);
+  const secondBase = 'c'.repeat(40);
+  const second = threadNode('HIGH', { id: 'PRRT_acme_2' });
+  second.comments.nodes[0].originalCommit = { oid: secondBase };
+  github.teamReviewThreads = async () => new Map([[`${REPO}#1`, [threadNode(), second]]]);
+  github.resolveReviewThread = async () => { throw new Error('must not resolve'); };
+  const bases: string[] = [];
+  github.teamReviewCompare = async (_repo, base) => {
+    bases.push(base);
+    if (base === THREAD_BASE) return { ok: true, comparison: null };
+    return { ok: true, comparison: { merge_base_commit: { sha: base }, files: [{ filename: 'src/renamed.ts', previous_filename: 'src/app.ts', patch: '+guard' }] } };
+  };
+  let judgeCalls = 0;
+  const harness = setup({ github, judgeThread: async (prompt) => {
+    judgeCalls += 1;
+    assert.match(prompt, /\+guard/);
+    return { addressed: true, reason: 'Guard added in renamed file' };
+  } });
+  try {
+    await harness.poller.start();
+    await settle();
+    assert.deepEqual(bases, [THREAD_BASE]);
+    harness.setNow(1000 + 15 * 60 * 1000);
+    await harness.poller.tick();
+    assert.deepEqual(bases, [THREAD_BASE, secondBase]);
+    assert.equal(judgeCalls, 1);
+    assert.equal(harness.poller._state()[`${REPO}#1`].threads?.[1].judgement?.addressed, true);
+  } finally { await harness.poller.stop(); }
+});
+
+test('viewer reviews at an older head qualify for thread handling before a new local review', async () => {
+  const github = fakeGithub();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_TWO);
+  github.reviews.set(1, [{ login: 'me', state: 'COMMENTED', commit: HEAD_ONE }]);
+  github.teamReviewThreads = async () => new Map([[`${REPO}#1`, [threadNode('LOW')]]]);
+  let resolveCalls = 0;
+  github.resolveReviewThread = async () => { resolveCalls += 1; return { ok: true, err: '' }; };
+  const harness = setup({ github });
+  try {
+    await harness.poller.start();
+    await settle();
+    assert.equal(resolveCalls, 1);
+    assert.equal(harness.spawned.length, 1);
+  } finally { await harness.poller.stop(); }
+});
+
+function approvedWithoutDraft(nodes: () => ReturnType<typeof threadNode>[]) {
+  const github = fakeGithub();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  github.reviews.set(1, [{ login: 'me', state: 'APPROVED', commit: HEAD_ONE }]);
+  github.decisions.set(1, 'APPROVED');
+  github.teamReviewThreads = async () => new Map([[`${REPO}#1`, nodes()]]);
+  return github;
+}
+
+test('a placeholder draft exists only while an answered thread needs the operator', async () => {
+  const github = approvedWithoutDraft(() => [threadNode()]);
+  github.resolveReviewThread = async () => { throw new Error('non-nit must not auto resolve'); };
+  const harness = setup({ github });
+  try {
+    await harness.poller.start();
+    await settle();
+    const entry = () => harness.poller._state()[`${REPO}#1`];
+    assert.equal(harness.spawned.length, 0);
+    assert.equal(entry().draft?.error, THREAD_PLACEHOLDER_ERROR);
+    assert.equal(harness.statuses.at(-1)?.drafts[0].threads?.length, 1);
+    assert.equal(await harness.poller.updateThread(`${REPO}#1`, 'PRRT_acme_1', { isResolved: true }), true);
+    assert.equal(entry().draft, null);
+    assert.equal(harness.statuses.at(-1)?.drafts.length, 0);
+  } finally { await harness.poller.stop(); }
+});
+
+test('an operator resolve of a nit whose automatic resolve failed clears its error and the placeholder draft', async () => {
+  const github = approvedWithoutDraft(() => [threadNode('LOW')]);
+  github.resolveReviewThread = async () => ({ ok: false, err: 'denied' });
+  const harness = setup({ github });
+  try {
+    await harness.poller.start();
+    await settle();
+    const entry = () => harness.poller._state()[`${REPO}#1`];
+    assert.equal(entry().threads?.[0].resolveError, 'denied');
+    assert.equal(entry().draft?.error, THREAD_PLACEHOLDER_ERROR);
+    assert.equal(await harness.poller.updateThread(`${REPO}#1`, 'PRRT_acme_1', { isResolved: true }), true);
+    assert.equal(entry().threads?.[0].resolveError, undefined);
+    assert.equal(entry().draft, null);
+  } finally { await harness.poller.stop(); }
+});
+
+test('a nit resolved on its first tick never leaves a placeholder draft behind', async () => {
+  const node = threadNode('LOW');
+  const github = approvedWithoutDraft(() => [structuredClone(node)]);
+  let resolveCalls = 0;
+  github.resolveReviewThread = async () => { resolveCalls += 1; node.isResolved = true; return { ok: true, err: '' }; };
+  const harness = setup({ github });
+  try {
+    await harness.poller.start();
+    await settle();
+    assert.equal(resolveCalls, 1);
+    assert.equal(harness.poller._state()[`${REPO}#1`].draft, null);
+    await harness.poller.tick();
+    assert.equal(harness.poller._state()[`${REPO}#1`].draft, null);
+    assert.equal(harness.statuses.at(-1)?.drafts.length, 0);
+  } finally { await harness.poller.stop(); }
+});
+
+test('a nit reopened on GitHub after its automatic resolve is never resolved again and is handed to the operator', async () => {
+  const harness = await answeredThreadHarness('LOW');
+  try {
+    await harness.poller.tick();
+    assert.equal(harness.counts().resolveCalls, 1);
+    await harness.poller.tick();
+    assert.equal(harness.poller._state()[`${REPO}#1`].threads?.length, 0);
+    harness.replaceNode(threadNode('LOW'));
+    await harness.poller.tick();
+    await harness.poller.tick();
+    assert.equal(harness.counts().resolveCalls, 1);
+    assert.deepEqual(harness.poller._state()[`${REPO}#1`].autoResolvedThreadIds, ['PRRT_acme_1']);
+    assert.ok(harness.writes.at(-1)?.[`${REPO}#1`]?.autoResolvedThreadIds?.includes('PRRT_acme_1'));
+    assert.equal(harness.statuses.at(-1)?.drafts[0].threads?.[0].isNit, false);
+  } finally { await harness.poller.stop(); }
+});
+
+test('an answered thread on a PR the viewer commented on never delays reviewing a new head', async () => {
+  const github = fakeGithub();
+  github.requested = [searchItem(1, 'teammate')];
+  github.heads.set(1, HEAD_ONE);
+  github.reviews.set(1, [{ login: 'me', state: 'COMMENTED', commit: HEAD_ONE }]);
+  github.teamReviewThreads = async () => new Map([[`${REPO}#1`, [threadNode()]]]);
+  github.resolveReviewThread = async () => { throw new Error('non-nit must not auto resolve'); };
+  const harness = setup({ github });
+  try {
+    await harness.poller.start();
+    await settle();
+    assert.equal(harness.spawned.length, 0);
+    assert.equal(harness.poller._state()[`${REPO}#1`].draft?.error, THREAD_PLACEHOLDER_ERROR);
+    github.heads.set(1, HEAD_TWO);
+    await harness.poller.tick();
+    await settle();
+    assert.equal(harness.spawned.length, 1);
+    assert.equal(harness.spawned[0].detail.headRefOid, HEAD_TWO);
+  } finally { await harness.poller.stop(); }
+});
+
+test('an unjudgeable thread records its reason and is not retried until the head or reply changes, while transient compare failures back off', async () => {
+  for (const failure of ['rewritten', 'thrown', 'transport'] as const) {
+    const isTransient = failure !== 'rewritten';
+    const github = approvedWithoutDraft(() => [threadNode()]);
+    github.resolveReviewThread = async () => { throw new Error('non-nit must not auto resolve'); };
+    let compareCalls = 0;
+    github.teamReviewCompare = async () => {
+      compareCalls += 1;
+      if (failure === 'thrown') throw new Error('network down');
+      if (failure === 'transport') return { ok: false, err: 'HTTP 502: Bad Gateway' };
+      return { ok: true, comparison: null };
+    };
+    let judgeCalls = 0;
+    const harness = setup({ github, judgeThread: async () => { judgeCalls += 1; return { addressed: true, reason: 'Guard added' }; } });
+    try {
+      await harness.poller.start();
+      await settle();
+      const thread = () => harness.poller._state()[`${REPO}#1`].threads?.[0];
+      assert.equal(compareCalls, 1);
+      assert.equal(judgeCalls, 0);
+      assert.equal(thread()?.unjudgeable?.reason.startsWith('History was rewritten'), isTransient ? undefined : true);
+      if (!isTransient) assert.equal(harness.statuses.at(-1)?.drafts[0].threads?.[0].unjudgeable?.head, HEAD_ONE);
+      harness.setNow(1000 + 15 * 60 * 1000);
+      await harness.poller.tick();
+      assert.equal(compareCalls, isTransient ? 2 : 1);
+      github.heads.set(1, HEAD_TWO);
+      await harness.poller.tick();
+      assert.equal(compareCalls, isTransient ? 3 : 2);
+    } finally { await harness.poller.stop(); }
+  }
 });

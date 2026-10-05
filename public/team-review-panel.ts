@@ -12,7 +12,7 @@ import { formatTrailOffset } from './radar-core.ts';
 import { createSettingsLink } from './settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, REVIEW_PRIORITY_REASON_TEXT, REVIEW_PRIORITY_TONES, classifyReviewPriority,
-  aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
+  answeredNonNitThreads, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, queueRowVerdictLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
   reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, verdictLabel, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
@@ -34,6 +34,7 @@ interface PendingAction {
   action: TeamReviewAction;
   origin: DetailOrigin;
   timer: number;
+  settle?: (isDone: boolean, text: string) => void;
 }
 
 type DetailOrigin = 'ready' | 'other';
@@ -251,7 +252,7 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
     bottom.append(el('span', 'pr-phase-label', phaseLabel(inFlight.phase)));
   }
   if (kind === 'queued') bottom.append(el('span', 'pr-phase-label', 'waiting for a slot'));
-  if (kind === 'ready' || kind === 'settled') {
+  if ((kind === 'ready' || kind === 'settled') && 'status' in review && review.status !== 'error') {
     const draft = review as ReviewDraft;
     const verdict = el('span', 'pr-queue-verdict', queueRowVerdictLabel(draft.verdict));
     verdict.dataset.tone = verdictTone(draft.verdict);
@@ -265,6 +266,8 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
     bottom.append(el('span', 'pr-attention-label pr-attention-label-posted', 'posted'));
   }
   if ('reviewedHead' in review && review.comments.length > 0) bottom.append(el('span', 'pr-queue-comment-count', `\u00b7 ${review.comments.length}`));
+  const replyCount = 'reviewedHead' in review ? answeredNonNitThreads(review).length : 0;
+  if (replyCount > 0) bottom.append(el('span', 'pr-queue-comment-count', `${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}`));
   if (approvalContext) bottom.append(el('span', 'pr-queue-approval-context', 'since approval'));
   bottom.append(createAuthor(review.author, 16, 'pr-queue-author'));
   if (kind === 'posted') bottom.append(el('span', 'pr-queue-posted-detail', verdictLabel((review as ReviewDraft).verdict)));
@@ -330,7 +333,7 @@ function refreshDetailHeading(detail: HTMLElement, draft: ReviewDraft): HTMLElem
 }
 
 function otherDetailSignature(draft: ReviewDraft): string {
-  return `${draft.status}:${draft.reviewedHead}:${draft.error ?? ''}:${draft.postedEvent ?? ''}`;
+  return `${JSON.stringify(draft.threads)}:${draft.liveHead}:${draft.status}:${draft.reviewedHead}:${draft.error ?? ''}:${draft.postedEvent ?? ''}`;
 }
 
 function appendSegments(element: HTMLElement, segments: ReturnType<typeof parseInlineSegments>): HTMLElement {
@@ -463,15 +466,15 @@ const MORE_ACTIONS_LABEL = 'More review actions';
 const MORE_ICON_PATH = 'M3 8h0.01M8 8h0.01M13 8h0.01';
 const FOLLOW_UP_APPROVAL_HINT = 'Your comments are on GitHub. Approve adds an approval without posting them again.';
 
-function sendAction(origin: DetailOrigin, draft: ReviewDraft, action: TeamReviewAction, body: string, comments: ReviewComment[], settle: (isDone: boolean, text: string) => void): boolean {
+function sendAction(origin: DetailOrigin, draft: ReviewDraft, action: TeamReviewAction, body: string, comments: ReviewComment[], settle: (isDone: boolean, text: string) => void, threadId?: string): boolean {
   const requestId = `team-review-action-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const isSent = sendControlMsg({ type: 'team-review-action', requestId, ...buildActionRequest(draft, action, body, comments) });
+  const isSent = sendControlMsg({ type: 'team-review-action', requestId, ...buildActionRequest(draft, action, body, comments, threadId) });
   if (!isSent) return false;
   const timer = window.setTimeout(() => {
     _pendingActions.delete(draft.key);
     settle(false, 'No reply from the server. Check GitHub before trying again.');
   }, ACTION_REPLY_TIMEOUT_MS);
-  _pendingActions.set(draft.key, { requestId, action, origin, timer });
+  _pendingActions.set(draft.key, { requestId, action, origin, timer, settle });
   return true;
 }
 
@@ -556,7 +559,10 @@ function attachMoreActions(detail: HTMLElement, more: HTMLElement): void {
 
 function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   const detail = el('article', 'pr-detail');
-  detail.append(createDetailHeading(draft), ...createAboutPr(draft), createSummaryStrip(draft));
+  const threads = el('div');
+  threads.dataset.reviewThreads = '';
+  detail.append(createDetailHeading(draft), ...createAboutPr(draft), threads, createSummaryStrip(draft));
+  refreshThreadDetails(detail, draft);
 
   const posts = el('section', 'pr-posts');
   posts.setAttribute('aria-label', 'Inline comments');
@@ -631,7 +637,10 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
 
 function readyDetailFor(draft: ReviewDraft): HTMLElement {
   const cached = _readyDetails.get(draft.key);
-  if (cached?.signature === readyRowSignature(draft)) return refreshDetailHeading(cached.element, draft);
+  if (cached && (_pendingActions.has(draft.key) || cached.signature === readyRowSignature(draft))) {
+    refreshThreadDetails(cached.element, draft);
+    return refreshDetailHeading(cached.element, draft);
+  }
   const handle = createReadyDetail(draft);
   _readyDetails.set(draft.key, handle);
   return handle.element;
@@ -682,12 +691,60 @@ function createInReviewDetail(review: InFlightReview): HTMLElement {
   return detail;
 }
 
+function refreshThreadDetails(detail: HTMLElement, draft: ReviewDraft): void {
+  if (_pendingActions.has(draft.key)) return;
+  const threads = detail.querySelector<HTMLElement>(':scope > [data-review-threads]');
+  const signature = JSON.stringify([draft.liveHead, draft.threads]);
+  if (!threads || threads.dataset.reviewThreads === signature) return;
+  threads.replaceChildren(...createThreadDetails(draft));
+  threads.dataset.reviewThreads = signature;
+}
+
+function createThreadDetails(draft: ReviewDraft): HTMLElement[] {
+  const items = detailThreadItems(draft);
+  if (items.length === 0) return [];
+  const section = el('section', 'my-pr-threads-section');
+  section.append(el('h3', 'pr-section-heading', 'Answered threads'));
+  const list = el('div', 'my-pr-threads');
+  for (const item of items) {
+    const row = el('div', 'my-pr-thread');
+    const reply = el('div', 'pr-detail-meta', `Reply by ${item.thread.lastReplyAuthor}`);
+    const age = createAgeReadout('', item.thread.lastReplyAt);
+    if (age) reply.append(age);
+    const status = el('span', 'pr-action-status', item.judgementText);
+    status.setAttribute('role', 'status');
+    const button = el('button', 'pr-action', 'Resolve');
+    button.type = 'button';
+    button.disabled = !item.canResolve || _pendingActions.has(draft.key);
+    const settle = (isDone: boolean, text: string) => {
+      button.disabled = isDone || !item.canResolve;
+      status.textContent = text;
+      status.dataset.tone = isDone ? 'ok' : 'error';
+    };
+    button.addEventListener('click', () => {
+      if (_pendingActions.has(draft.key)) return;
+      button.disabled = true;
+      status.textContent = actionProgressText('resolve-thread');
+      if (sendAction('other', draft, 'resolve-thread', '', [], settle, item.thread.id)) return;
+      settle(false, 'Not connected to the server.');
+    });
+    row.append(externalLink('pr-link', item.location, item.thread.url), reply, button, status);
+    if (item.thread.resolveError) row.append(el('p', 'pr-attention-detail', item.thread.resolveError));
+    list.append(row);
+  }
+  section.append(list);
+  return [section];
+}
+
 function createOtherDetail(draft: ReviewDraft): HTMLElement {
   const detail = el('article', 'pr-detail');
-  detail.append(createDetailHeading(draft), ...createAboutPr(draft));
+  detail.append(createDetailHeading(draft), ...createAboutPr(draft), ...createThreadDetails(draft));
   if (draft.status === 'posted') detail.append(createSummaryStrip(draft), createCoverageDetails(draft));
   if (draft.status !== 'posted') detail.append(el('p', 'pr-attention-detail', attentionDetail(draft)));
-  if (!hasRequeueFooter(draft.status)) return detail;
+  if (!hasRequeueFooter(draft.status)) {
+    _otherDetails.set(draft.key, { signature: otherDetailSignature(draft), element: detail, settle: () => {} });
+    return detail;
+  }
   const footer = el('footer', 'pr-footer');
   const layout = detailActionLayout(draft);
   const status = el('span', 'pr-action-status', layout.footer.includes('approve-only') ? FOLLOW_UP_APPROVAL_HINT : '');
@@ -721,7 +778,7 @@ function createOtherDetail(draft: ReviewDraft): HTMLElement {
 }
 
 function otherDetailFor(draft: ReviewDraft): HTMLElement {
-  if (!hasRequeueFooter(draft.status)) return createOtherDetail(draft);
+  if (!hasRequeueFooter(draft.status) && detailThreadItems(draft).length === 0) return createOtherDetail(draft);
   const cached = _otherDetails.get(draft.key);
   if (cached && (_pendingActions.has(draft.key) || cached.signature === otherDetailSignature(draft))) return refreshDetailHeading(cached.element, draft);
   return createOtherDetail(draft);
@@ -730,6 +787,15 @@ function otherDetailFor(draft: ReviewDraft): HTMLElement {
 function renderSelectedDetail(sections: TeamReviewSections): void {
   if (!_detail) return;
   _selectedKey = chooseSelectedReviewKey(sections, _selectedKey);
+  const threadDraft = sections.ready.find((draft) => draft.key === _selectedKey && answeredNonNitThreads(draft).length > 0);
+  if (threadDraft && threadDraft.status !== 'ready') {
+    const signature = `threads:${otherDetailSignature(threadDraft)}`;
+    const threadDetail = otherDetailFor(threadDraft);
+    if (_renderedDetailSignature === signature && _detail.firstElementChild === threadDetail) return;
+    _detail.replaceChildren(threadDetail);
+    _renderedDetailSignature = signature;
+    return;
+  }
   const ready = [...sections.ready, ...sections.noReviewNeeded].find((draft) => draft.key === _selectedKey && draft.status === 'ready');
   if (ready) {
     const signature = `ready:${readyRowSignature(ready)}`;
@@ -921,6 +987,13 @@ export function applyTeamReviewActionResult(message: unknown): void {
   if (!pending || pending.requestId !== actionResult.requestId) return;
   window.clearTimeout(pending.timer);
   _pendingActions.delete(actionResult.key);
+  if (pending.action === 'resolve-thread') {
+    pending.settle?.(actionResult.ok === true, typeof actionResult.error === 'string' ? actionResult.error : actionOutcomeText(pending.action));
+    _otherDetails.delete(actionResult.key);
+    _renderedDetailSignature = null;
+    if (actionResult.ok === true) render();
+    return;
+  }
   const owningCache = pending.origin === 'ready' ? _readyDetails : _otherDetails;
   const handle = owningCache.get(actionResult.key);
   if (!handle) return;

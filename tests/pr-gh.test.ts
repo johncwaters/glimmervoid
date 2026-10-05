@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { threadNode } from './helpers/team-review-thread-fixture.ts';
 import { createPrGh } from '../server/pr-gh.ts';
 import type { CommandResult } from '../server/pr-gh.ts';
 import type { MyPrMergeKind } from '../shared/contracts/my-prs.ts';
@@ -833,4 +834,126 @@ test('label and comment helpers refuse bad input without calling gh and report g
   assert.deepEqual(await gh.addPrLabel({ repo: 'Acme/app', number: 7, name: 'bug' }), { ok: false, err: 'HTTP 403' });
   assert.deepEqual(await gh.commentOnPr({ repo: 'Acme/app', number: 7, body: 'hi' }), { ok: false, err: 'HTTP 403' });
   assert.equal(calls, 2);
+});
+
+test('team thread batches request Markdown, viewer ownership, resolve permission and original commits', async () => {
+  const calls: string[][] = [];
+  const gh = createPrGh('/repo', async (_command, args) => {
+    calls.push(args);
+    return { ok: true, out: JSON.stringify({ data: { pr0: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [threadNode()] } } } } }), err: '' };
+  });
+  assert.equal((await gh.teamReviewThreads([{ repo: 'Acme/app', number: 1 }])).get('Acme/app#1')?.[0].id, 'PRRT_acme_1');
+  const query = calls[0].join(' ');
+  for (const field of ['viewerCanResolve', 'viewerDidAuthor', 'body author', 'originalCommit { oid }', 'id path line isResolved']) assert.ok(query.includes(field));
+  assert.ok(!query.includes('bodyText'));
+});
+
+test('thread resolution validates ids and requires a confirmed mutation result without GraphQL errors', async () => {
+  const calls: string[][] = [];
+  let isError = false;
+  const gh = createPrGh('/repo', async (_command, args) => {
+    calls.push(args);
+    return { ok: true, out: JSON.stringify({ data: { resolveReviewThread: { thread: { id: 'PRRT_acme_1', isResolved: true } } }, ...(isError ? { errors: [{ message: 'denied' }] } : {}) }), err: '' };
+  });
+  assert.equal((await gh.resolveReviewThread('bad id')).ok, false);
+  assert.equal(calls.length, 0);
+  assert.equal((await gh.resolveReviewThread('PRRT_acme_1')).ok, true);
+  assert.ok(calls[0].includes('id=PRRT_acme_1'));
+  assert.match(calls[0].join(' '), /resolveReviewThread\(input: \{ threadId: \$id \}\)/);
+  isError = true;
+  assert.equal((await gh.resolveReviewThread('PRRT_acme_1')).ok, false);
+});
+
+test('team comparison fetches changed file patches through the validated compare endpoint', async () => {
+  const calls: string[][] = [];
+  const gh = createPrGh('/repo', async (_command, args) => {
+    calls.push(args);
+    return { ok: true, out: JSON.stringify({ merge_base_commit: { sha: 'b'.repeat(40) }, files: [{ filename: 'src/app.ts', patch: '+guard' }] }), err: '' };
+  });
+  assert.deepEqual(await gh.teamReviewCompare('Acme/app', 'b'.repeat(40), HEAD_SHA), { ok: true, comparison: { merge_base_commit: { sha: 'b'.repeat(40) }, files: [{ filename: 'src/app.ts', patch: '+guard' }] } });
+  assert.deepEqual(calls[0], ['api', `repos/Acme/app/compare/${'b'.repeat(40)}...${HEAD_SHA}`]);
+  assert.deepEqual(await gh.teamReviewCompare('Acme/app', 'bad', HEAD_SHA), { ok: true, comparison: null });
+  assert.equal(calls.length, 1);
+});
+
+test('team thread pagination keeps the complete set and rejects a failed or partial GraphQL response', async () => {
+  const calls: string[][] = [];
+  const first = threadNode();
+  const second = threadNode('LOW', { id: 'PRRT_acme_2' });
+  const gh = createPrGh('/repo', async (_command, args) => {
+    calls.push(args);
+    if (calls.length === 1) return { ok: true, out: JSON.stringify({ data: { pr0: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: true, endCursor: 'next' }, nodes: [first] } } } } }), err: '' };
+    return { ok: true, out: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [second] } } } } }), err: '' };
+  });
+  assert.equal((await gh.teamReviewThreads([{ repo: 'Acme/app', number: 1 }])).get('Acme/app#1')?.length, 2);
+  assert.ok(calls[1].includes('cursor=next'));
+  for (const isFailed of [true, false]) {
+    const rejected = createPrGh('/repo', async () => ({ ok: !isFailed, out: JSON.stringify({ data: { pr0: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [first] } } } }, errors: [{ message: 'incomplete' }] }), err: '' }));
+    assert.equal((await rejected.teamReviewThreads([{ repo: 'Acme/app', number: 1 }])).size, 0);
+  }
+});
+
+test('team thread comment pagination includes the actual latest reply before classification', async () => {
+  const node = threadNode();
+  node.comments.nodes.pop();
+  node.comments.pageInfo = { hasNextPage: true, endCursor: 'comment-next' };
+  const calls: string[][] = [];
+  const gh = createPrGh('/repo', async (_command, args) => {
+    calls.push(args);
+    if (calls.length === 1) return { ok: true, out: JSON.stringify({ data: { pr0: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [node] } } } } }), err: '' };
+    return { ok: true, out: JSON.stringify({ data: { node: { comments: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [threadNode().comments.nodes[1]] } } } }), err: '' };
+  });
+  const threads = (await gh.teamReviewThreads([{ repo: 'Acme/app', number: 1 }])).get('Acme/app#1');
+  assert.equal(threads?.[0].comments.nodes.length, 2);
+  assert.equal(threads?.[0].comments.pageInfo.hasNextPage, false);
+  assert.ok(calls[1].includes('id=PRRT_acme_1'));
+  assert.ok(calls[1].includes('cursor=comment-next'));
+});
+
+test('incomplete viewer comment pages omit the PR so saved attempts survive a failed refresh', async () => {
+  for (const hasCursor of [true, false]) {
+    const node = threadNode('LOW');
+    node.comments.pageInfo = { hasNextPage: true, endCursor: hasCursor ? 'next' : null };
+    let calls = 0;
+    const github = createPrGh('/repo', async () => {
+      calls += 1;
+      if (calls > 1) return { ok: false, out: '', err: 'Unavailable' };
+      return { ok: true, out: JSON.stringify({ data: { pr0: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [node] } } } } }), err: '' };
+    });
+    assert.equal((await github.teamReviewThreads([{ repo: 'Acme/app', number: 1 }])).size, 0);
+    assert.equal(calls, hasCursor ? 2 : 1);
+  }
+});
+
+test('thread comparison rejects a force-pushed base and preserves renamed file paths', async () => {
+  const base = 'b'.repeat(40);
+  let mergeBase = 'c'.repeat(40);
+  const files = [{ filename: 'src/renamed.ts', previous_filename: 'src/app.ts', patch: '+guard' }];
+  const github = createPrGh('/repo', async () => ({ ok: true, out: JSON.stringify({ merge_base_commit: { sha: mergeBase }, files }), err: '' }));
+  assert.deepEqual(await github.teamReviewCompare('Acme/app', base, HEAD_SHA), { ok: true, comparison: null });
+  mergeBase = base;
+  assert.deepEqual(await github.teamReviewCompare('Acme/app', base, HEAD_SHA), { ok: true, comparison: { merge_base_commit: { sha: base }, files } });
+});
+
+test('thread comparison reports a failed or unreadable gh call as transient rather than rewritten history', async () => {
+  const base = 'b'.repeat(40);
+  const failing = createPrGh('/repo', async () => ({ ok: false, out: '', err: 'HTTP 403: API rate limit exceeded' }));
+  assert.deepEqual(await failing.teamReviewCompare('Acme/app', base, HEAD_SHA), { ok: false, err: 'HTTP 403: API rate limit exceeded' });
+  const throwing = createPrGh('/repo', async () => { throw new Error('network down'); });
+  assert.deepEqual(await throwing.teamReviewCompare('Acme/app', base, HEAD_SHA), { ok: false, err: 'network down' });
+  const unreadable = createPrGh('/repo', async () => ({ ok: true, out: 'not json', err: '' }));
+  assert.equal((await unreadable.teamReviewCompare('Acme/app', base, HEAD_SHA)).ok, false);
+});
+
+test('a GraphQL error on one PR alias drops only that PR and keeps the rest of the batch', async () => {
+  for (const isExitOk of [true, false]) {
+    const repository = { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [threadNode()] } } };
+    const gh = createPrGh('/repo', async () => ({
+      ok: isExitOk,
+      out: JSON.stringify({ data: { pr0: repository, pr1: repository, pr2: null }, errors: [{ message: 'timeout', path: ['pr1', 'pullRequest', 'reviewThreads'] }, { message: 'not found', path: ['pr2'] }] }),
+      err: '',
+    }));
+    const threads = await gh.teamReviewThreads([{ repo: 'Acme/app', number: 1 }, { repo: 'Acme/app', number: 2 }, { repo: 'Acme/app', number: 3 }]);
+    assert.deepEqual([...threads.keys()], ['Acme/app#1'], `exit ok: ${isExitOk}`);
+  }
 });

@@ -1,6 +1,6 @@
 import { canApproveAfterComment, DECIDING_REVIEW_STATES, FindingSeverity, hasStandingViewerApproval } from '#shared/contracts/team-review.ts';
 import type {
-  DraftComment, GithubReview, GithubReviewState, InFlightReview, QueuedReview, ReviewAssessment, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus,
+  DraftComment, GithubReview, GithubReviewState, InFlightReview, QueuedReview, ReviewAssessment, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus, TeamReviewThread,
 } from '#shared/contracts/team-review.ts';
 import { findingSeveritiesIn, parseLeadingFindingHeader, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import { attentionSignature } from './attention-ack-core.ts';
@@ -177,6 +177,7 @@ const ACTION_OUTCOME_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.f
   comment: 'Comment posted on GitHub',
   discard: 'Draft discarded',
   requeue: 'Queued. The next poll reviews it again.',
+  'resolve-thread': 'Thread resolved on GitHub',
 });
 
 const ACTION_PROGRESS_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.freeze({
@@ -185,6 +186,7 @@ const ACTION_PROGRESS_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.
   comment: 'Posting the comment',
   discard: 'Discarding the draft',
   requeue: 'Queueing the review',
+  'resolve-thread': 'Resolving thread',
 });
 
 export function groupDrafts(status: TeamReviewStatus | null | undefined): TeamReviewSections {
@@ -203,6 +205,10 @@ export function groupDrafts(status: TeamReviewStatus | null | undefined): TeamRe
   const queuedKeys = new Set(sections.queued.map((review) => review.key));
   for (const draft of status.drafts) {
     if (inFlightKeys.has(draft.key) || queuedKeys.has(draft.key)) continue;
+    if (answeredNonNitThreads(draft).length > 0) {
+      readyByBand.actionable.push(draft);
+      continue;
+    }
     const isSettled = (draft.status === 'ready' || draft.status === 'stale') && !isReviewNeeded(draft);
     if (isSettled) sections.noReviewNeeded.push(draft);
     if (draft.status === 'ready' && !isSettled) readyByBand[classifyReviewPriority(draft).band].push(draft);
@@ -223,7 +229,31 @@ function currentHead(draft: ReviewDraft): string {
   return draft.liveHead ?? draft.reviewedHead;
 }
 
+export function answeredNonNitThreads(draft: Pick<ReviewDraft, 'threads'>): TeamReviewThread[] {
+  return (draft.threads ?? []).filter((thread) => !thread.isNit && !thread.isResolved);
+}
+
+function threadJudgementText(thread: TeamReviewThread, head: string): string {
+  if (thread.isNit) return 'Automatic resolution failed';
+  const judgement = thread.judgement?.head === head && thread.judgement.lastReplyAt === thread.lastReplyAt ? thread.judgement : undefined;
+  if (judgement) return `${judgement.addressed ? 'Addressed' : 'Not addressed'}: ${judgement.reason}`;
+  const unjudgeable = thread.unjudgeable?.head === head && thread.unjudgeable.lastReplyAt === thread.lastReplyAt ? thread.unjudgeable : undefined;
+  if (unjudgeable) return `Not judged: ${unjudgeable.reason}`;
+  return 'Judging';
+}
+
+export function detailThreadItems(draft: ReviewDraft): { thread: TeamReviewThread; location: string; judgementText: string; canResolve: boolean }[] {
+  return (draft.threads ?? []).filter((thread) => !thread.isResolved && (!thread.isNit || thread.resolveError)).map((thread) => {
+    return {
+      thread, location: thread.line === null ? thread.path : `${thread.path}:${thread.line}`,
+      judgementText: threadJudgementText(thread, currentHead(draft)),
+      canResolve: thread.viewerCanResolve,
+    };
+  });
+}
+
 export function isReviewNeeded(draft: ReviewDraft): boolean {
+  if (answeredNonNitThreads(draft).length > 0) return true;
   if (hasStandingViewerApproval(draft)) return false;
   return !(draft.githubReviews ?? []).some((review) => settlesReview(review, currentHead(draft)));
 }
@@ -490,9 +520,9 @@ export function withReviewerNote(reviewerNote: string, reviewBody: string): stri
   return `${trimmedNote}\n\n${reviewBody}`;
 }
 
-export function buildActionRequest(draft: ReviewDraft, action: TeamReviewAction, body: string, comments: readonly ReviewComment[]): TeamReviewActionRequest {
+export function buildActionRequest(draft: ReviewDraft, action: TeamReviewAction, body: string, comments: readonly ReviewComment[], threadId?: string): TeamReviewActionRequest {
   if (action === 'approve-only') return { key: draft.key, head: draft.reviewedHead, action, body: '', comments: [] };
-  return { key: draft.key, head: draft.reviewedHead, action, body, comments: comments.map(({ path, line, side, body: commentBody }) => ({ path, line, side, body: commentBody })) };
+  return { key: draft.key, head: draft.reviewedHead, action, body, ...(threadId ? { threadId } : {}), comments: comments.map(({ path, line, side, body: commentBody }) => ({ path, line, side, body: commentBody })) };
 }
 
 const ACTION_LABELS: Readonly<Record<TeamReviewAction, string>> = Object.freeze({
@@ -501,6 +531,7 @@ const ACTION_LABELS: Readonly<Record<TeamReviewAction, string>> = Object.freeze(
   comment: 'Comment',
   discard: 'Discard',
   requeue: 'Queue review',
+  'resolve-thread': 'Resolve',
 });
 
 export interface DetailActionLayout {

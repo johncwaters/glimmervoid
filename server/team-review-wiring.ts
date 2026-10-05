@@ -18,6 +18,9 @@ import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 import { createJsonStateStore } from './json-file.ts';
 import { createLaneRunner } from './lane-runner.ts';
 import type { LaneRunnerGate, LaneStatusRecord, SharedClock } from './lane-runner.ts';
+import { THREAD_JUDGE_TOOLS, createThreadJudge } from './team-review-thread-judge.ts';
+import { createLaneSpawn } from './lane-spawn.ts';
+import { TeamReviewActionRequest as ActionRequestSchema } from '../shared/contracts/team-review.ts';
 import { createPrGh } from './pr-gh.ts';
 import type { PrGh } from './pr-gh.ts';
 import { createRepoCache } from './repo-cache.ts';
@@ -174,9 +177,10 @@ interface TeamReviewDraftStore {
   getDraft(key: string): ReviewDraft | null;
   updateDraft(key: string, expected: DraftExpectation, patch: DraftPatch): Promise<ReviewDraft | null>;
   requeue(key: string, head: string): Promise<boolean>;
+  updateThread?: (key: string, threadId: string, patch: { isResolved?: boolean; resolveError?: string }) => Promise<boolean>;
 }
 
-type TeamReviewActionGithub = Pick<PrGh, 'prHead' | 'prDiff' | 'postReview' | 'dismissReview'>;
+type TeamReviewActionGithub = Pick<PrGh, 'prHead' | 'prDiff' | 'postReview' | 'dismissReview'> & Partial<Pick<PrGh, 'teamReviewThreads' | 'resolveReviewThread'>>;
 
 interface TeamReviewActionOptions {
   drafts: TeamReviewDraftStore;
@@ -820,10 +824,31 @@ function createTeamReviewActions({ drafts, github, log = console }: TeamReviewAc
     return warnings.length > 0 ? { ok: true, warning: warnings.join('. ') } : { ok: true };
   }
 
+  async function resolveThread(draft: ReviewDraft, request: TeamReviewActionRequest): Promise<TeamReviewActionOutcome> {
+    if (!request.threadId || !github.teamReviewThreads || !github.resolveReviewThread || !drafts.updateThread) return { ok: false, error: 'Thread resolution is unavailable' };
+    const stored = draft.threads?.find((thread) => thread.id === request.threadId);
+    if (!stored) return { ok: false, error: 'That answered thread no longer exists' };
+    if (stored.isResolved) return { ok: false, error: 'That thread is already resolved' };
+    if (stored.isNit && stored.resolveError === undefined) return { ok: false, error: 'That nit is resolved automatically' };
+    const fetched = await github.teamReviewThreads([{ repo: draft.repo, number: draft.number }]);
+    const thread = fetched.get(draft.key)?.find((thread) => thread.id === request.threadId);
+    if (!thread) return { ok: false, error: 'That thread is no longer on the pull request' };
+    if (thread.isResolved) return { ok: false, error: 'That thread is already resolved on GitHub' };
+    if (!thread.viewerCanResolve) return { ok: false, error: 'You do not have permission to resolve that thread' };
+    const first = thread.comments.nodes.at(0);
+    const last = thread.comments.nodes.at(-1);
+    if (thread.comments.pageInfo.hasNextPage || !first?.viewerDidAuthor || !last || last.viewerDidAuthor || first === last) return { ok: false, error: 'That thread no longer has an unanswered reply for you' };
+    if (stored.lastReplyAt !== last.createdAt) return { ok: false, error: 'A new reply arrived. Read it before resolving' };
+    const resolved = await github.resolveReviewThread(thread.id);
+    await drafts.updateThread(request.key, thread.id, resolved.ok ? { isResolved: true } : { resolveError: resolved.err || 'GitHub refused to resolve the thread' });
+    return resolved.ok ? { ok: true } : { ok: false, error: resolved.err || 'GitHub refused to resolve the thread' };
+  }
+
   async function runAction(request: TeamReviewActionRequest): Promise<TeamReviewActionOutcome> {
     const draft = drafts.getDraft(request.key);
     if (!draft) return { ok: false, error: 'That review draft no longer exists' };
     if (draft.reviewedHead !== request.head) return { ok: false, error: REPLACED_DRAFT_ERROR };
+    if (request.action === 'resolve-thread') return resolveThread(draft, request);
     if (request.action === 'discard') return discard(request.key, draft);
     if (request.action === 'requeue') {
       const isQueued = await drafts.requeue(request.key, request.head);
@@ -833,6 +858,8 @@ function createTeamReviewActions({ drafts, github, log = console }: TeamReviewAc
   }
 
   async function submitAction(request: TeamReviewActionRequest): Promise<TeamReviewActionOutcome> {
+    const parsed = ActionRequestSchema.safeParse(request);
+    if (!parsed.success) return { ok: false, error: 'Invalid review action or thread id' };
     if (actionsInFlight.has(request.key)) return { ok: false, error: 'An action for this pull request is already running' };
     actionsInFlight.add(request.key);
     try {
@@ -934,6 +961,7 @@ function createTeamReviewWiring({
         skipIdleAfterMs: settings.skipIdleAfterDays * 24 * 60 * 60 * 1000,
         github,
         spawnReview: trackReview,
+        judgeThread: createThreadJudge(createLaneSpawn({ laneName: 'team-review', sessions: reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB, allowTools: THREAD_JUDGE_TOOLS }), shutdownController.signal),
         sandboxRefusal,
         beforeStart: (keepPaths) => sweepLeftoverCheckouts({ worktreeRoot, workRoot, keepPaths, repoCache, gitWorkspace, reapProcesses, log }),
         discardResumable: async (record) => {
@@ -981,6 +1009,10 @@ function createTeamReviewWiring({
     return poller.updateDraft(key, expected, patch);
   }
 
+  async function updateThread(key: string, threadId: string, patch: { isResolved?: boolean; resolveError?: string }): Promise<boolean> {
+    return (await runner.getPoller()?.updateThread(key, threadId, patch)) ?? false;
+  }
+
   async function requeue(key: string, head: string): Promise<boolean> {
     return (await runner.getPoller()?.requeue(key, head)) ?? false;
   }
@@ -990,8 +1022,10 @@ function createTeamReviewWiring({
   }
 
   const actions = createTeamReviewActions({
-    drafts: { getDraft, updateDraft, requeue },
+    drafts: { getDraft, updateDraft, updateThread, requeue },
     github: {
+      teamReviewThreads: github.teamReviewThreads?.bind(github),
+      resolveReviewThread: github.resolveReviewThread?.bind(github),
       prHead: (repo, number) => github.prHead(repo, number),
       prDiff: (repo, number) => github.prDiff(repo, number),
       postReview: async (review) => {

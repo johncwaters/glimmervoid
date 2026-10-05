@@ -60,3 +60,17 @@ test('a malformed action is answered with a failed result for its key', async ()
   assert.equal(h.results()[0]?.key, KEY);
   assert.deepEqual(h.submitted, []);
 });
+
+
+test('resolve-thread requires a valid thread id and forwards it to the lane', async () => {
+  for (const threadId of [undefined, '', 'bad id', 'bad;mutation']) {
+    const h = harness();
+    await h.send({ action: 'resolve-thread', threadId });
+    assert.equal(h.results()[0]?.ok, false);
+    assert.equal(h.submitted.length, 0);
+  }
+  const h = harness();
+  await h.send({ action: 'resolve-thread', threadId: 'PRRT_acme_1' });
+  assert.equal(h.submitted[0]?.threadId, 'PRRT_acme_1');
+  assert.equal(h.results()[0]?.ok, true);
+});

@@ -1,7 +1,7 @@
 import { execFileAsync } from './child-process-safe.ts';
 import { GithubRateLimitResources, githubRateLimitWaitMs } from './core/github-rate-limit-core.ts';
 import { z } from 'zod';
-import { CommitSha, GithubReviewDecision, PrDetail, ReviewChecksState, ReviewComment, SearchedPr } from '../shared/contracts/team-review.ts';
+import { CommitSha, TeamReviewThreadCommentsResponse, TeamReviewThreadsRepository, TeamReviewResolveResponse, ReviewThreadId, TeamReviewCompareFiles, GithubReviewDecision, PrDetail, ReviewChecksState, ReviewComment, SearchedPr } from '../shared/contracts/team-review.ts';
 import { CommitComparison, MergedPrListing, MinedPrReviewData } from '../shared/contracts/benchmark.ts';
 import type { CommitComparison as CommitComparisonType, MergedPrListing as MergedPrListingType, MinedPrReviewData as MinedPrReviewDataType } from '../shared/contracts/benchmark.ts';
 import { MyPrMergeMethod, MyPrMergeStateResponse, MyPrSearchNode, MyPrSearchResponse, MyPrThreadNode, MyPrThreadsResponse } from '../shared/contracts/my-prs.ts';
@@ -9,6 +9,8 @@ import type { MyPrMergeKind, MyPrMergeMethod as MyPrMergeMethodType, MyPrSearchN
 import { WorkflowCommentBody, WorkflowLabelName, WorkflowSearchNode } from '../shared/contracts/workflows.ts';
 import type { WorkflowSearchNode as WorkflowSearchNodeType } from '../shared/contracts/workflows.ts';
 import type { GithubReviewDecision as GithubReviewDecisionType, PostedReviewEvent, PrDetail as PrDetailType, ReviewChecksState as ReviewChecksStateType, ReviewComment as ReviewCommentType, SearchedPr as SearchedPrType, TeamReviewStatus } from '../shared/contracts/team-review.ts';
+
+import type { TeamReviewThreadNode as ThreadNode, TeamReviewCompareFiles as CompareFiles } from '../shared/contracts/team-review.ts';
 
 type GhMergeFlag = '--merge' | '--squash' | '--rebase';
 
@@ -102,6 +104,9 @@ interface PrGh {
   rebasePr(pullRequestId: string, expectedHeadSha: string): Promise<{ ok: boolean; err: string }>;
   mergePr(merge: { repo: string; number: number; headSha: string; method: MyPrMergeMethodType }): Promise<{ ok: true; kind: MyPrMergeKind } | { ok: false; err: string }>;
   rateLimitWaitMs(nowMs: number, resourceNames: readonly string[]): Promise<number | null>;
+  teamReviewThreads(prs: readonly PrReference[]): Promise<Map<string, ThreadNode[]>>;
+  resolveReviewThread(threadId: string): Promise<{ ok: boolean; err: string }>;
+  teamReviewCompare(repo: string, base: string, head: string): Promise<{ ok: true; comparison: CompareFiles | null } | { ok: false; err: string }>;
   reviewThreads(repo: string, number: number): Promise<MyPrThreadNodeType[]>;
   reviewThreadsBatch(prs: readonly PrReference[]): Promise<Map<string, MyPrThreadNodeType[]>>;
   listMergedPrs(repo: string, limit: number): Promise<{ ok: true; prs: MergedPrListingType[] } | { ok: false; reason: string }>;
@@ -188,6 +193,16 @@ const WORKFLOW_PRS_QUERY = openAndMergedSearchQuery('...myPrFields ...workflowPr
 const REBASE_PR_MUTATION = `mutation($id: ID!, $head: GitObjectID!) {
   updatePullRequestBranch(input: { pullRequestId: $id, expectedHeadOid: $head, updateMethod: REBASE }) { pullRequest { headRefOid } }
 }`;
+const RESOLVE_THREAD_MUTATION = `mutation($id: ID!) {
+  resolveReviewThread(input: { threadId: $id }) { thread { id isResolved } }
+}`;
+const TEAM_THREAD_COMMENT_FIELDS = `pageInfo { hasNextPage endCursor } nodes { body author { login } viewerDidAuthor createdAt url originalCommit { oid } }`;
+const TEAM_THREAD_FIELDS = `id path line isResolved viewerCanResolve comments(first: 100) { ${TEAM_THREAD_COMMENT_FIELDS} }`;
+
+function teamThreadsQuery(prs: readonly PrReference[]): string {
+  return reviewThreadsBatchQuery(prs).replaceAll(REVIEW_THREAD_FIELDS, TEAM_THREAD_FIELDS).replaceAll('pageInfo { hasNextPage }', 'pageInfo { hasNextPage endCursor }');
+}
+
 const PR_NODE_ID = /^[A-Za-z0-9_=-]+$/;
 const REVIEW_THREAD_FIELDS = `isResolved isOutdated path line
     firstComment: comments(first: 1) { totalCount nodes { author { login } bodyText url createdAt } }
@@ -267,8 +282,19 @@ const GRAPHQL_REVIEW_REPOSITORY = z.object({
 const GRAPHQL_BEHIND_REPOSITORY = z.object({
   pullRequest: z.object({ baseRef: z.object({ compare: z.object({ behindBy: z.number().int().nonnegative() }).nullable() }).nullable() }).nullable(),
 });
-const GRAPHQL_RESPONSE = z.object({ data: z.record(z.string(), z.unknown()).nullable() }).passthrough();
+const GRAPHQL_RESPONSE = z.object({ data: z.record(z.string(), z.unknown()).nullable(), errors: z.array(z.unknown()).optional() }).passthrough();
+const GRAPHQL_ERROR_ALIAS = z.object({ path: z.tuple([z.string()]).rest(z.union([z.string(), z.number()])) });
 const PR_DIFF = z.string().refine((diff) => Buffer.byteLength(diff, 'utf8') <= PR_DIFF_MAX_BYTES);
+
+function aliasesOfErrors(errors: readonly unknown[]): Set<string> | null {
+  const aliases = new Set<string>();
+  for (const error of errors) {
+    const parsed = GRAPHQL_ERROR_ALIAS.safeParse(error);
+    if (!parsed.success) return null;
+    aliases.add(parsed.data.path[0]);
+  }
+  return aliases;
+}
 
 function repoParts(repo: string): [string, string] | null {
   const parts = repo.split('/');
@@ -363,14 +389,21 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     }
   }
 
-  async function forEachAliasedPr<Pr extends PrReference>(prs: readonly Pr[], buildQuery: (batch: readonly Pr[]) => string, visit: (pr: Pr, aliasValue: unknown) => void, batchSize = REVIEW_SNAPSHOT_BATCH_SIZE): Promise<void> {
+  async function forEachAliasedPr<Pr extends PrReference>(prs: readonly Pr[], buildQuery: (batch: readonly Pr[]) => string, visit: (pr: Pr, aliasValue: unknown) => void, batchSize = REVIEW_SNAPSHOT_BATCH_SIZE, requireComplete = false): Promise<void> {
     for (let index = 0; index < prs.length; index += batchSize) {
       const batch = prs.slice(index, index + batchSize);
       const response = await runGh(['api', 'graphql', '-f', `query=${buildQuery(batch)}`]);
       const parsed = GRAPHQL_RESPONSE.safeParse(parseJson<unknown>(response.out, null));
+      const errors = parsed.success ? parsed.data.errors ?? [] : [];
+      const erroredAliases = requireComplete ? aliasesOfErrors(errors) : new Set<string>();
+      if (erroredAliases === null) continue;
+      if (requireComplete && !response.ok && errors.length === 0) continue;
       const data = parsed.success ? parsed.data.data : null;
       if (!data) continue;
-      for (const [position, pr] of batch.entries()) visit(pr, data[`pr${position}`]);
+      for (const [position, pr] of batch.entries()) {
+        if (erroredAliases.has(`pr${position}`)) continue;
+        visit(pr, data[`pr${position}`]);
+      }
     }
   }
 
@@ -395,6 +428,24 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       cursor = reviewThreads.pageInfo.endCursor;
     }
     return threads;
+  }
+
+  async function completeTeamThreadComments(thread: ThreadNode): Promise<ThreadNode> {
+    if (thread.isResolved || !thread.comments.nodes[0]?.viewerDidAuthor) return thread;
+    for (let page = 1; page < MAX_REVIEW_THREAD_PAGES && thread.comments.pageInfo.hasNextPage; page += 1) {
+      const cursor = thread.comments.pageInfo.endCursor;
+      if (!cursor) break;
+      const query = `query($id: ID!, $cursor: String!) { node(id: $id) { ... on PullRequestReviewThread { comments(first: 100, after: $cursor) { ${TEAM_THREAD_COMMENT_FIELDS} } } } }`;
+      const response = await runGh(['api', 'graphql', '-f', `query=${query}`, '-f', `id=${thread.id}`, '-f', `cursor=${cursor}`]);
+      const raw: unknown = parseJson<unknown>(response.out, null);
+      const graphql = GRAPHQL_RESPONSE.safeParse(raw);
+      const parsed = TeamReviewThreadCommentsResponse.safeParse(raw);
+      const comments = parsed.success ? parsed.data.data?.node?.comments : null;
+      if (!response.ok || !comments || (graphql.success && graphql.data.errors?.length)) break;
+      thread.comments.nodes.push(...comments.nodes);
+      thread.comments.pageInfo = comments.pageInfo;
+    }
+    return thread;
   }
 
   async function searchPage(query: string, page: number): Promise<SearchedPrType[] | null> {
@@ -462,6 +513,63 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       if (!comment.success) return { ok: false, err: 'invalid comment body' };
       const response = await runGh(['pr', 'comment', String(number), '--repo', repo, '--body-file', '-'], comment.data);
       return { ok: response.ok, err: response.ok ? '' : response.err.trim() || 'gh pr comment failed' };
+    },
+
+    async teamReviewThreads(prs) {
+      const threadsByPr = new Map<string, ThreadNode[]>();
+      const paged: { pr: PrReference; cursor: string; threads: ThreadNode[] }[] = [];
+      await forEachAliasedPr(uniqueValidPrs(prs), teamThreadsQuery, (pr, repository) => {
+        const parsed = TeamReviewThreadsRepository.safeParse(repository);
+        const connection = parsed.success ? parsed.data.pullRequest?.reviewThreads : null;
+        if (!connection) return;
+        if (!connection.pageInfo.hasNextPage) {
+          threadsByPr.set(reviewSnapshotKey(pr.repo, pr.number), connection.nodes);
+          return;
+        }
+        if (connection.pageInfo.endCursor) paged.push({ pr, cursor: connection.pageInfo.endCursor, threads: connection.nodes });
+      }, REVIEW_SNAPSHOT_BATCH_SIZE, true);
+      for (const pending of paged) {
+        const parts = repoParts(pending.pr.repo);
+        if (!parts) continue;
+        let cursor = pending.cursor;
+        for (let page = 1; page < MAX_REVIEW_THREAD_PAGES; page += 1) {
+          const query = MY_PR_THREADS_QUERY.replace(REVIEW_THREAD_FIELDS, TEAM_THREAD_FIELDS);
+          const response = await runGh(['api', 'graphql', '-f', `query=${query}`, '-f', `owner=${parts[0]}`, '-f', `name=${parts[1]}`, '-F', `number=${pending.pr.number}`, '-f', `cursor=${cursor}`]);
+          const parsed = GRAPHQL_RESPONSE.safeParse(parseJson<unknown>(response.out, null));
+          const repository = TeamReviewThreadsRepository.safeParse(parsed.success ? parsed.data.data?.repository : null);
+          const connection = repository.success ? repository.data.pullRequest?.reviewThreads : null;
+          if (!response.ok || !connection || (parsed.success && parsed.data.errors?.length)) break;
+          pending.threads.push(...connection.nodes);
+          if (!connection.pageInfo.hasNextPage) {
+            threadsByPr.set(reviewSnapshotKey(pending.pr.repo, pending.pr.number), pending.threads);
+            break;
+          }
+          if (!connection.pageInfo.endCursor) break;
+          cursor = connection.pageInfo.endCursor;
+        }
+      }
+      for (const [key, threads] of threadsByPr) {
+        for (const thread of threads) await completeTeamThreadComments(thread);
+        if (threads.some((thread) => !thread.isResolved && thread.comments.nodes[0]?.viewerDidAuthor && thread.comments.pageInfo.hasNextPage)) threadsByPr.delete(key);
+      }
+      return threadsByPr;
+    },
+
+    async resolveReviewThread(threadId) {
+      if (!ReviewThreadId.safeParse(threadId).success) return { ok: false, err: 'invalid review thread id' };
+      const response = await runGh(['api', 'graphql', '-f', `query=${RESOLVE_THREAD_MUTATION}`, '-f', `id=${threadId}`]);
+      const parsed = TeamReviewResolveResponse.safeParse(parseJson<unknown>(response.out, null));
+      const isResolved = response.ok && parsed.success && !parsed.data.errors?.length && parsed.data.data?.resolveReviewThread.thread.id === threadId;
+      return { ok: Boolean(isResolved), err: isResolved ? '' : response.err || 'GitHub did not confirm the thread was resolved' };
+    },
+
+    async teamReviewCompare(repo, base, head) {
+      if (!repoParts(repo) || !CommitSha.safeParse(base).success || !CommitSha.safeParse(head).success) return { ok: true, comparison: null };
+      const response = await runGh(['api', `repos/${repo}/compare/${base}...${head}`]);
+      if (!response.ok) return { ok: false, err: response.err || 'GitHub compare failed' };
+      const parsed = TeamReviewCompareFiles.safeParse(parseJson<unknown>(response.out, null));
+      if (!parsed.success) return { ok: false, err: 'GitHub returned an unreadable comparison' };
+      return { ok: true, comparison: parsed.data.merge_base_commit.sha === base ? parsed.data : null };
     },
 
     reviewThreads(repo, number) {

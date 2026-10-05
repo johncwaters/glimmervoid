@@ -2,10 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  detailThreadItems, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTitle, queueRowVerdictLabel, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
   commentSeverity, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
+import { answeredViewerThreads } from '../server/core/team-review-threads-core.ts';
+import { threadNode } from './helpers/team-review-thread-fixture.ts';
 import { InFlightReview, ReviewDraft, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type {
   InFlightReview as InFlightReviewType, ReviewDraft as ReviewDraftType, TeamReviewStatus as TeamReviewStatusType,
@@ -734,4 +736,59 @@ test('a ready row editor survives request source, CI and approval changes', () =
   assert.equal(readyRowSignature(review), readyRowSignature({ ...review, checksState: 'FAILURE' }));
   assert.equal(readyRowSignature(review), readyRowSignature({ ...review, checksState: 'PENDING' }));
   assert.equal(readyRowSignature(review), readyRowSignature({ ...review, reviewDecision: 'CHANGES_REQUESTED' }));
+});
+
+
+test('answered non-nit threads take Ready precedence over standing approval, posted and discarded drafts', () => {
+  for (const draftStatus of ['ready', 'posted', 'stale', 'discarded'] as const) {
+    const review = draft(1, { status: draftStatus, reviewDecision: 'APPROVED', githubReviews: [{ login: 'viewer', state: 'APPROVED', commit: HEAD, isViewer: true }], threads: answeredViewerThreads([threadNode()], [], HEAD) });
+    const grouped = groupDrafts(status([review]));
+    assert.deepEqual(grouped.ready, [review]);
+    assert.equal(grouped.noReviewNeeded.length + grouped.posted.length + grouped.attention.length + grouped.discarded.length, 0);
+    assert.equal(isReviewNeeded(review), true);
+  }
+  assert.equal(groupDrafts(status([draft(1, { status: 'posted', threads: answeredViewerThreads([threadNode('LOW')], [], HEAD) })])).ready.length, 0);
+});
+
+test('detail threads expose location, judge status and current judgement, and resolve regardless of judgement', () => {
+  const review = draft(1, { threads: answeredViewerThreads([threadNode()], [], HEAD) });
+  assert.equal(detailThreadItems(review)[0].location, 'src/app.ts:2');
+  assert.equal(detailThreadItems(review)[0].judgementText, 'Judging');
+  assert.equal(detailThreadItems(review)[0].canResolve, true);
+  const thread = review.threads?.[0];
+  assert.ok(thread);
+  thread.judgement = { addressed: false, reason: 'Guard missing', head: HEAD, lastReplyAt: thread.lastReplyAt, judgedAt: 1 };
+  assert.equal(detailThreadItems(review)[0].judgementText, 'Not addressed: Guard missing');
+  assert.equal(detailThreadItems(review)[0].canResolve, true);
+  const signature = readyRowSignature(review);
+  review.liveHead = NEXT_HEAD;
+  assert.equal(detailThreadItems(review)[0].judgementText, 'Judging');
+  assert.equal(detailThreadItems(review)[0].canResolve, true);
+  assert.equal(readyRowSignature(review), signature);
+  thread.unjudgeable = { head: NEXT_HEAD, lastReplyAt: thread.lastReplyAt, reason: 'Thread or diff too large to judge' };
+  assert.equal(detailThreadItems(review)[0].judgementText, 'Not judged: Thread or diff too large to judge');
+  assert.equal(detailThreadItems(review)[0].canResolve, true);
+  thread.viewerCanResolve = false;
+  assert.equal(detailThreadItems(review)[0].canResolve, false);
+  thread.isResolved = true;
+  assert.equal(detailThreadItems(review).length, 0);
+});
+
+test('a nit whose automatic resolve failed is listed with an operator Resolve while a pending nit stays hidden', () => {
+  const review = draft(1, { threads: answeredViewerThreads([threadNode('LOW')], [], HEAD) });
+  const thread = review.threads?.[0];
+  assert.ok(thread);
+  assert.equal(detailThreadItems(review).length, 0);
+  thread.resolveError = 'denied';
+  assert.equal(detailThreadItems(review)[0].judgementText, 'Automatic resolution failed');
+  assert.equal(detailThreadItems(review)[0].canResolve, true);
+  thread.viewerCanResolve = false;
+  assert.equal(detailThreadItems(review)[0].canResolve, false);
+});
+
+test('an in-flight or queued review keeps precedence over the answered threads of its own draft', () => {
+  const review = draft(1, { status: 'stale', threads: answeredViewerThreads([threadNode()], [], HEAD) });
+  const grouped = groupDrafts(status([review], [inFlightReview(1)]));
+  assert.equal(grouped.inReview.length, 1);
+  assert.equal(grouped.ready.length, 0);
 });

@@ -77,6 +77,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - The review runs in Claude Code's Bash sandbox (strict egress allowlist, credential paths unreadable, no secret in env); a session that cannot apply it never spawns (`tests/session-hook-lifecycle.test.ts`, `tests/team-review-wiring.test.ts`).
 - That sandbox still runs PR code (linked `node_modules`, tests, lint) as the operator, and `~/.codex` plugin cache and sqlite state stay writable because Codex writes them mid-run, and the linked clone's `.env` deny is root-level only; the lasting fix is a per-review `CODEX_HOME`.
 - PR text is untrusted data, fenced in the prompt (`tests/team-review-core.test.ts`).
+- Thread resolution also acts under the operator's name: only answered nit threads resolve without a click and each at most once, a judge failure never resolves, and the judge reading untrusted replies gets only Read and Write (`tests/team-review-poller.test.ts`, `tests/team-review-thread-judge.test.ts`).
 - Review dirs are deleted on every exit and swept at start, bar a shutdown's resume record (`tests/team-review-wiring.test.ts`).
 
 ### Benchmarks (opt-in)

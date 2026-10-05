@@ -156,6 +156,64 @@ export const PriorReview = z.object({
 });
 export type PriorReview = z.infer<typeof PriorReview>;
 
+export const ReviewThreadId = z.string().min(1).max(256).regex(/^[A-Za-z0-9_=-]+$/);
+export const TeamReviewThreadResult = z.object({ addressed: z.boolean(), reason: z.string().trim().min(1).max(4000) }).strict();
+export type TeamReviewThreadResult = z.infer<typeof TeamReviewThreadResult>;
+
+export const TeamReviewThreadNode = z.object({
+  id: ReviewThreadId,
+  path: z.string(),
+  line: z.number().int().positive().nullable(),
+  isResolved: z.boolean(),
+  viewerCanResolve: z.boolean(),
+  comments: z.object({
+    pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable().optional() }),
+    nodes: z.array(z.object({
+      body: z.string(),
+      author: z.object({ login: z.string() }).nullable(),
+      viewerDidAuthor: z.boolean(),
+      createdAt: z.string().datetime(),
+      url: z.string().url(),
+      originalCommit: z.object({ oid: CommitSha }).nullable(),
+    })),
+  }),
+});
+export type TeamReviewThreadNode = z.infer<typeof TeamReviewThreadNode>;
+
+export const TeamReviewThreadCommentsResponse = z.object({ data: z.object({ node: z.object({ comments: TeamReviewThreadNode.shape.comments }).nullable() }).nullable() });
+
+export const TeamReviewThreadsRepository = z.object({ pullRequest: z.object({ reviewThreads: z.object({
+  pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable().optional() }),
+  nodes: z.array(TeamReviewThreadNode),
+}) }).nullable() });
+export const TeamReviewResolveResponse = z.object({
+  data: z.object({ resolveReviewThread: z.object({ thread: z.object({ id: ReviewThreadId, isResolved: z.literal(true) }) }) }).nullable(),
+  errors: z.array(z.unknown()).optional(),
+});
+
+export const TeamReviewThread = z.object({
+  id: ReviewThreadId,
+  path: z.string(),
+  line: z.number().int().positive().nullable(),
+  isResolved: z.boolean(),
+  viewerCanResolve: z.boolean(),
+  isNit: z.boolean(),
+  url: z.string().url(),
+  lastReplyAuthor: z.string(),
+  lastReplyAt: z.string().datetime(),
+  judgement: TeamReviewThreadResult.extend({ head: CommitSha, judgedAt: z.number().finite(), lastReplyAt: z.string().datetime() }).optional(),
+  resolveError: z.string().optional(),
+  resolveAttemptReplyAt: z.string().optional(),
+  judgeAttempt: z.object({ head: CommitSha, lastReplyAt: z.string(), retryAt: z.number().finite() }).optional(),
+  unjudgeable: z.object({ head: CommitSha, lastReplyAt: z.string(), reason: z.string().min(1) }).optional(),
+});
+export type TeamReviewThread = z.infer<typeof TeamReviewThread>;
+export const TeamReviewCompareFiles = z.object({
+  merge_base_commit: z.object({ sha: CommitSha }),
+  files: z.array(z.object({ filename: z.string(), previous_filename: z.string().optional(), patch: z.string().optional() })).max(300),
+});
+export type TeamReviewCompareFiles = z.infer<typeof TeamReviewCompareFiles>;
+
 export const ReviewDraft = z.object({
   ...reviewPriorityShape,
   key: z.string(),
@@ -174,6 +232,7 @@ export const ReviewDraft = z.object({
   comments: z.array(DraftComment),
   status: z.enum(['ready', 'stale', 'posted', 'discarded', 'error']),
   error: z.string().optional(),
+  threads: z.array(TeamReviewThread).optional(),
   githubReviews: z.array(GithubReview).optional(),
   reviewDecision: GithubReviewDecision.nullable().optional(),
   liveHead: CommitSha.optional(),
@@ -190,16 +249,17 @@ export function canApproveAfterComment(draft: Pick<ReviewDraft, 'status' | 'post
   return draft.status === 'posted' && draft.postedEvent === 'COMMENT';
 }
 
-export const TeamReviewAction = z.enum(['approve', 'approve-only', 'comment', 'discard', 'requeue']);
+export const TeamReviewAction = z.enum(['approve', 'approve-only', 'comment', 'discard', 'requeue', 'resolve-thread']);
 export type TeamReviewAction = z.infer<typeof TeamReviewAction>;
 
 export const TeamReviewActionRequest = z.object({
   key: z.string().min(1),
   head: CommitSha,
   action: TeamReviewAction,
+  threadId: ReviewThreadId.optional(),
   body: z.string(),
   comments: z.array(ReviewComment),
-});
+}).refine((request) => request.action !== 'resolve-thread' || request.threadId !== undefined, { message: 'resolve-thread requires threadId', path: ['threadId'] });
 export type TeamReviewActionRequest = z.infer<typeof TeamReviewActionRequest>;
 
 export const TeamReviewActionResult = z.object({
@@ -228,6 +288,8 @@ export const TeamReviewStateEntry = z.object({
   reviewAttempts: z.number().int().nonnegative().default(0),
   resumable: ResumableReview.nullable().optional(),
   reviewedAt: z.number().optional(),
+  threads: z.array(TeamReviewThread).optional(),
+  autoResolvedThreadIds: z.array(ReviewThreadId).optional(),
   githubReviews: z.array(GithubReview).optional(),
   reviewDecision: GithubReviewDecision.nullable().optional(),
   liveHead: CommitSha.optional(),

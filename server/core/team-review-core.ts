@@ -1,5 +1,6 @@
 import { canApproveAfterComment, DECIDING_REVIEW_STATES, FindingSeverity, GithubReviewState, PostingPlan, ReviewFinding, ReviewResult, ReviewVerdict } from '../../shared/contracts/team-review.ts';
 import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, findingSeveritiesIn, withoutAutomatedNote } from '../../shared/team-review-markdown.ts';
+import { isThreadPlaceholderDraft } from './team-review-threads-core.ts';
 import type {
   DraftComment, FindingSeverity as FindingSeverityType, GithubReview, InFlightReview, PostedReviewEvent, PostingPlan as PostingPlanType, PrDetail, PriorReview, QueuedReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
   ReviewAssessment, ReviewResult as ReviewResultType, SearchedPr, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
@@ -284,8 +285,9 @@ function isSettledAtHead(entry: TeamReviewStateEntry | undefined, head: string):
   return entry.draft !== null || entry.skipReason !== null;
 }
 
-function shouldAutoReview(entry: TeamReviewStateEntry | undefined, currentHead: string, nowMs: number, reReviewAfterMs: number): boolean {
-  if (!entry) return true;
+function shouldAutoReview(storedEntry: TeamReviewStateEntry | undefined, currentHead: string, nowMs: number, reReviewAfterMs: number): boolean {
+  if (!storedEntry) return true;
+  const entry = isThreadPlaceholderDraft(storedEntry.draft) ? { ...storedEntry, draft: null } : storedEntry;
   if (isSettledAtHead(entry, currentHead)) return false;
   if (!entry.draft) return true;
   if (entry.resumable || entry.reviewedHead === null) return true;
@@ -375,6 +377,7 @@ function isSameGithubReviews(left: readonly GithubReview[] | undefined, right: r
 }
 
 function presentedDraft(entry: TeamReviewStateEntry, draft: ReviewDraft): ReviewDraft {
+  draft = { ...draft, ...(entry.threads ? { threads: entry.threads } : {}) };
   const withReviewTime = entry.reviewedAt !== undefined ? { ...draft, reviewedAt: entry.reviewedAt } : draft;
   const withReviews = entry.githubReviews?.length ? { ...withReviewTime, githubReviews: entry.githubReviews } : withReviewTime;
   const withDecision = entry.reviewDecision ? { ...withReviews, reviewDecision: entry.reviewDecision } : withReviews;

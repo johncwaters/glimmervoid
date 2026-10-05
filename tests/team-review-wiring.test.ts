@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { answeredViewerThreads } from '../server/core/team-review-threads-core.ts';
+import { threadNode } from './helpers/team-review-thread-fixture.ts';
 import { isDispatchWorkdir } from '../server/core/ingest-agent-core.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
@@ -1886,5 +1888,78 @@ test('the wiring hands its cached sandbox refusal to the poller, whose status th
   } finally {
     await wiring.stopPoller();
     fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
+
+test('resolve action rechecks permissions and reply before mutating, and needs neither a judgement nor an unchanged head', async () => {
+  for (const scenario of ['success', 'resolved', 'permission', 'head', 'reply', 'failure', 'no-judgement'] as const) {
+    const node = threadNode();
+    const threads = answeredViewerThreads([node], [], HEAD);
+    const thread = threads[0];
+    thread.judgement = { addressed: true, reason: 'Guard added', head: HEAD, lastReplyAt: thread.lastReplyAt, judgedAt: 1 };
+    const draft = actionDraft({ threads, status: 'posted' });
+    let mutations = 0;
+    const patches: { isResolved?: boolean; resolveError?: string }[] = [];
+    if (scenario === 'resolved') node.isResolved = true;
+    if (scenario === 'permission') node.viewerCanResolve = false;
+    if (scenario === 'reply') node.comments.nodes[1].createdAt = '2026-10-02T12:00:00Z';
+    if (scenario === 'no-judgement') delete draft.threads?.[0].judgement;
+    const actions = createTeamReviewActions({
+      drafts: { getDraft: () => draft, updateDraft: async () => draft, requeue: async () => false, updateThread: async (_key, _id, patch) => { patches.push(patch); return true; } },
+      github: {
+        prHead: async () => scenario === 'head' ? OTHER_HEAD : HEAD,
+        prDiff: async () => null,
+        postReview: async () => { throw new Error('must not post a review'); },
+        dismissReview: async () => { throw new Error('must not dismiss a review'); },
+        teamReviewThreads: async () => new Map([[draft.key, [node]]]),
+        resolveReviewThread: async () => { mutations += 1; return { ok: scenario !== 'failure', err: scenario === 'failure' ? 'denied' : '' }; },
+      },
+    });
+    const outcome = await actions.submitAction({ key: draft.key, head: HEAD, action: 'resolve-thread', threadId: node.id, body: '', comments: [] });
+    const isResolvable = scenario === 'success' || scenario === 'head' || scenario === 'no-judgement';
+    assert.equal(outcome.ok, isResolvable, scenario);
+    assert.equal(mutations, isResolvable || scenario === 'failure' ? 1 : 0, scenario);
+    if (isResolvable) assert.deepEqual(patches, [{ isResolved: true }], scenario);
+    if (scenario === 'failure') assert.deepEqual(patches, [{ resolveError: 'denied' }]);
+    assert.equal((await actions.submitAction({ key: draft.key, head: HEAD, action: 'resolve-thread', threadId: 'bad id', body: '', comments: [] })).ok, false);
+  }
+});
+
+test('a nit whose automatic resolve failed resolves by hand, and each refusal names its cause', async () => {
+  const cases = [
+    { scenario: 'failed-nit', error: undefined },
+    { scenario: 'pending-nit', error: 'That nit is resolved automatically' },
+    { scenario: 'stored-resolved', error: 'That thread is already resolved' },
+    { scenario: 'missing-stored', error: 'That answered thread no longer exists' },
+    { scenario: 'missing-remote', error: 'That thread is no longer on the pull request' },
+    { scenario: 'remote-resolved', error: 'That thread is already resolved on GitHub' },
+    { scenario: 'permission', error: 'You do not have permission to resolve that thread' },
+  ] as const;
+  for (const { scenario, error } of cases) {
+    const node = threadNode('LOW');
+    const threads = answeredViewerThreads([node], [], HEAD);
+    if (scenario !== 'pending-nit') threads[0].resolveError = 'denied';
+    if (scenario === 'stored-resolved') threads[0].isResolved = true;
+    if (scenario === 'remote-resolved') node.isResolved = true;
+    if (scenario === 'permission') node.viewerCanResolve = false;
+    const draft = actionDraft({ threads: scenario === 'missing-stored' ? [] : threads, status: 'posted' });
+    const patches: { isResolved?: boolean; resolveError?: string }[] = [];
+    let mutations = 0;
+    const actions = createTeamReviewActions({
+      drafts: { getDraft: () => draft, updateDraft: async () => draft, requeue: async () => false, updateThread: async (_key, _id, patch) => { patches.push(patch); return true; } },
+      github: {
+        prHead: async () => HEAD,
+        prDiff: async () => null,
+        postReview: async () => { throw new Error('must not post a review'); },
+        dismissReview: async () => { throw new Error('must not dismiss a review'); },
+        teamReviewThreads: async () => new Map([[draft.key, scenario === 'missing-remote' ? [] : [node]]]),
+        resolveReviewThread: async () => { mutations += 1; return { ok: true, err: '' }; },
+      },
+    });
+    const outcome = await actions.submitAction({ key: draft.key, head: HEAD, action: 'resolve-thread', threadId: node.id, body: '', comments: [] });
+    assert.deepEqual(outcome, error === undefined ? { ok: true } : { ok: false, error }, scenario);
+    assert.equal(mutations, error === undefined ? 1 : 0, scenario);
+    assert.deepEqual(patches, error === undefined ? [{ isResolved: true }] : [], scenario);
   }
 });

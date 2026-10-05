@@ -1,3 +1,4 @@
+import { hasPresentableThreads, isThreadPlaceholderDraft, answeredViewerThreads, shouldAutoResolveThread, shouldJudgeThread, buildThreadJudgePrompt, parseThreadJudgeResult, threadJudgePatch, THREAD_JUDGE_BACKOFF_MS, THREAD_PLACEHOLDER_ERROR } from './core/team-review-threads-core.ts';
 import * as core from './core/team-review-core.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
 import { secondaryRateLimitWaitMs } from './core/lane-backoff.ts';
@@ -5,7 +6,7 @@ import type { ReviewProgressEvent, ReviewTier, TeamReviewCandidate } from './cor
 import { firstLine } from './ephemeral-session.ts';
 import { createTickLoop } from './lane-runner.ts';
 import type { SharedClock, TickOutcome } from './lane-runner.ts';
-import type { PrReference, PrReviewSnapshot, PrSearchResult } from './pr-gh.ts';
+import type { PrReference, PrReviewSnapshot, PrSearchResult, PrGh } from './pr-gh.ts';
 import { allowSandboxedSpawn } from './sandbox-deps.ts';
 import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 import { hasStandingViewerApproval, ReviewDraft } from '../shared/contracts/team-review.ts';
@@ -15,7 +16,7 @@ import type {
 
 const TEAM_REVIEW_RATE_LIMIT_RESOURCES = ['search', 'graphql', 'core'] as const;
 
-interface TeamReviewGithub {
+interface TeamReviewGithub extends Partial<Pick<PrGh, 'teamReviewThreads' | 'resolveReviewThread' | 'teamReviewCompare'>> {
   viewer(): Promise<string | null>;
   teamMembers(org: string, team: string): Promise<string[]>;
   teamProfile(org: string, team: string): Promise<NonNullable<TeamReviewStatus['team']> | null>;
@@ -51,6 +52,7 @@ interface TeamReviewPollerDependencies {
   org: string;
   team: string;
   github: TeamReviewGithub;
+  judgeThread?: (prompt: string) => Promise<unknown>;
   spawnReview: (args: SpawnReviewArgs) => Promise<ReviewOutcome>;
   discardResumable?: (record: ResumableReview) => Promise<void>;
   readState?: () => Promise<TeamReviewState>;
@@ -223,7 +225,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     let isDirty = false;
     const snapshots = await reviewSnapshotsFor(candidates);
     for (const candidate of candidates) {
-      const entry = state[candidate.key];
+      let entry = state[candidate.key];
       if (entry?.inFlight) continue;
       const snapshot = snapshots.get(core.prKey(candidate.repo, candidate.number));
       if (!snapshot) continue;
@@ -234,9 +236,14 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       candidate.isDraft = snapshot.isDraft;
       candidate.checksState = snapshot.checksState;
       const isReviewedByViewer = core.hasViewerReviewedAt(githubReviews, head) || hasStandingViewerApproval({ githubReviews, reviewDecision });
-      if (!entry) {
-        if (!isReviewedByViewer) queue.push(candidate);
+      if (!entry && !githubReviews.some((review) => review.isViewer)) {
+        queue.push(candidate);
         continue;
+      }
+      if (!entry) {
+        entry = entryFor(candidate.key);
+        entry.reviewedHead = isReviewedByViewer ? head : null;
+        isDirty = true;
       }
       if (entry.draft) {
         const priority = { requestSource: candidate.requestSource, isDraft: candidate.isDraft, checksState: candidate.checksState, reviewDecision };
@@ -275,6 +282,85 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       queue.push(candidate);
     }
     return { queue, isDirty };
+  }
+
+  async function handleAnsweredThreads(candidates: TeamReviewCandidate[]): Promise<boolean> {
+    if (!github.teamReviewThreads || !github.resolveReviewThread) return false;
+    const eligible = candidates.filter(({ key }) => {
+      const entry = state[key];
+      return entry?.githubReviews?.some((review) => review.isViewer) || entry?.draft?.status === 'posted';
+    });
+    if (eligible.length === 0) return false;
+    const fetched = await github.teamReviewThreads(eligible);
+    let isDirty = false;
+    for (const candidate of eligible) {
+      if (loop.isStopped()) break;
+      const entry = state[candidate.key];
+      const nodes = fetched.get(candidate.key);
+      const head = entry?.liveHead;
+      if (!entry || !nodes || !head) continue;
+      const threads = answeredViewerThreads(nodes, entry.threads ?? [], head, entry.autoResolvedThreadIds);
+      if (JSON.stringify(threads) !== JSON.stringify(entry.threads)) isDirty = true;
+      entry.threads = threads;
+      for (const thread of threads) {
+        if (loop.isStopped()) break;
+        if (!shouldAutoResolveThread(thread)) continue;
+        thread.resolveAttemptReplyAt = thread.lastReplyAt;
+        isDirty = true;
+        await persist();
+        const resolution = await github.resolveReviewThread(thread.id).catch((error: unknown) => ({ ok: false, err: errorMessage(error) }));
+        if (resolution.ok) {
+          thread.isResolved = true;
+          entry.autoResolvedThreadIds = [...(entry.autoResolvedThreadIds ?? []), thread.id];
+        }
+        if (!resolution.ok) thread.resolveError = resolution.err || 'GitHub refused to resolve the thread';
+      }
+      if (reconcileThreadPlaceholder(entry, candidate, head)) isDirty = true;
+      if (!deps.judgeThread || !github.teamReviewCompare || sandboxRefusal() !== null) continue;
+      const pending = threads.filter((thread) => shouldJudgeThread(thread, head, now()))
+        .sort((left, right) => (left.judgeAttempt?.retryAt ?? 0) - (right.judgeAttempt?.retryAt ?? 0));
+      if (pending.length === 0) continue;
+      const base = nodes.find((node) => node.id === pending[0].id)?.comments.nodes[0]?.originalCommit?.oid;
+      const comparisonOutcome = base ? await github.teamReviewCompare(candidate.repo, base, head).catch((error: unknown) => ({ ok: false as const, err: errorMessage(error) })) : { ok: true as const, comparison: null };
+      for (const thread of pending) {
+        if (loop.isStopped()) break;
+        const node = nodes.find((node) => node.id === thread.id);
+        if (!node || node.comments.nodes[0]?.originalCommit?.oid !== base) continue;
+        thread.judgeAttempt = { head, lastReplyAt: thread.lastReplyAt, retryAt: now() + THREAD_JUDGE_BACKOFF_MS };
+        isDirty = true;
+        await persist();
+        if (!comparisonOutcome.ok) continue;
+        const evidence = threadJudgePatch(node, comparisonOutcome.comparison);
+        if ('unjudgeableReason' in evidence) {
+          thread.unjudgeable = { head, lastReplyAt: thread.lastReplyAt, reason: evidence.unjudgeableReason };
+          delete thread.judgeAttempt;
+          continue;
+        }
+        emitStatus();
+        const raw = await deps.judgeThread(buildThreadJudgePrompt(node, head, evidence.patch)).catch(() => null);
+        const judgement = parseThreadJudgeResult(raw);
+        if (judgement && state[candidate.key] === entry && entry.liveHead === head && entry.threads?.includes(thread)) {
+          thread.judgement = { ...judgement, head, lastReplyAt: thread.lastReplyAt, judgedAt: now() };
+          delete thread.judgeAttempt;
+        }
+        await persist();
+        emitStatus();
+      }
+    }
+    return isDirty;
+  }
+
+  function reconcileThreadPlaceholder(entry: TeamReviewStateEntry, candidate: TeamReviewCandidate, head: string): boolean {
+    const isPresentable = hasPresentableThreads(entry.threads ?? []);
+    if (!entry.draft && isPresentable) {
+      entry.draft = { ...core.errorDraft({ candidate, tier: 'full', reasons: [], reviewedHead: head, error: THREAD_PLACEHOLDER_ERROR }), summary: '' };
+      return true;
+    }
+    if (!isPresentable && isThreadPlaceholderDraft(entry.draft)) {
+      entry.draft = null;
+      return true;
+    }
+    return false;
   }
 
   async function pruneDeparted(candidateKeys: Set<string>): Promise<boolean> {
@@ -388,7 +474,8 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     const isPruned = isComplete ? await pruneDeparted(new Set(candidates.map((candidate) => candidate.key))) : false;
     const planned = await headsToReview(candidates);
     const isStarted = await startReviewsUnlessSandboxRefused(planned.queue);
-    if (isPruned || planned.isDirty || isStarted) await persist();
+    const areThreadsChanged = await handleAnsweredThreads(candidates);
+    if (isPruned || planned.isDirty || areThreadsChanged || isStarted) await persist();
     if (hasSlotFreedSinceSlotCount && waitingForSlot.length > 0 && !loop.isStopped()) {
       setTimeoutFn(() => { void loop.tick(); }, 0);
     }
@@ -396,7 +483,9 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   }
 
   function getDraft(key: string): ReviewDraftType | null {
-    return state[key]?.draft ?? null;
+    const entry = state[key];
+    if (!entry?.draft) return null;
+    return { ...entry.draft, threads: entry.threads, liveHead: entry.liveHead ?? entry.draft.liveHead };
   }
 
   async function updateDraft(key: string, expected: DraftExpectation, patch: DraftPatch): Promise<ReviewDraftType | null> {
@@ -411,6 +500,18 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     await persist();
     emitStatus();
     return parsed.data;
+  }
+
+  async function updateThread(key: string, threadId: string, patch: { isResolved?: boolean; resolveError?: string }): Promise<boolean> {
+    const entry = state[key];
+    const thread = entry?.threads?.find((thread) => thread.id === threadId);
+    if (!entry || !thread) return false;
+    Object.assign(thread, patch);
+    if (patch.isResolved) delete thread.resolveError;
+    if (!hasPresentableThreads(entry.threads ?? []) && isThreadPlaceholderDraft(entry.draft)) entry.draft = null;
+    await persist();
+    emitStatus();
+    return true;
   }
 
   async function requeue(key: string, head: string): Promise<boolean> {
@@ -453,7 +554,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     cancelPendingProgressEmit();
   }
 
-  return { start, stop, tick: loop.tick, refresh: loop.refresh, getDraft, updateDraft, requeue, _state: () => state };
+  return { start, stop, tick: loop.tick, refresh: loop.refresh, getDraft, updateDraft, updateThread, requeue, _state: () => state };
 }
 
 type TeamReviewPoller = ReturnType<typeof createTeamReviewPoller>;
