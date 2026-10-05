@@ -19,7 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Approval works the same in every repository**: team review now treats every pull request as if its repository required approval. In a repository without required reviews, your approval still counts after new commits unless someone requests changes, so the pull request no longer comes back for re-review.
 - **Review timeouts**: team reviews count only time the machine is awake, so a laptop sleeping overnight no longer times reviews out and uses up their attempts, including a review resumed after Glimmervoid restarts. Review progress drops its countdown once the wall-clock deadline has passed while the review still runs.
 - **Failed reviews you already handled**: a failed review moves to No review needed when your approval still stands or you reviewed the current commit.
-- **Posted review outcomes**: Recently posted rows show what you posted (Approved or Commented) instead of the automated verdict.
+- **Compact discarded reviews**: Discarded rows in the team review list take one line each (pull request and title); select one to see its details and Queue review.
+- **Posted review outcomes**: Recently posted rows show what you did on GitHub (You approved, You commented, You requested changes), read from your latest GitHub review, in place of the automated verdict.
 - **Quieter review list**: Team review rows now use two quiet lines with distinct verdict words and the inline comment count. Pull request refs omit the repo when the list contains only one repo, and reviews after an earlier approval show plain "since approval" text.
 
 ## [0.29.0] - 2026-10-04

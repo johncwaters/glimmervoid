@@ -48,11 +48,31 @@ export interface QueueRowAges {
   viewerApproval?: string | null;
 }
 
-const POSTED_OUTCOME_LABELS: Readonly<Record<PostedReviewEvent, string>> = { APPROVE: 'Approved', COMMENT: 'Commented' };
+export interface PostedOutcome {
+  label: string;
+  tone: StateTone;
+}
 
-export function postedOutcomeLabel(draft: ReviewDraft): string {
-  if (draft.postedEvent) return POSTED_OUTCOME_LABELS[draft.postedEvent];
-  return verdictLabel(draft.verdict);
+const POSTED_EVENT_OUTCOMES: Readonly<Record<PostedReviewEvent, PostedOutcome>> = {
+  APPROVE: { label: 'You approved', tone: 'ok' },
+  COMMENT: { label: 'You commented', tone: 'muted' },
+};
+
+const VIEWER_REVIEW_OUTCOMES: Readonly<Record<GithubReviewState, PostedOutcome>> = {
+  APPROVED: { label: 'You approved', tone: 'ok' },
+  CHANGES_REQUESTED: { label: 'You requested changes', tone: 'warn' },
+  COMMENTED: { label: 'You commented', tone: 'muted' },
+};
+
+export function postedOutcome(draft: ReviewDraft): PostedOutcome | null {
+  const viewerReviews = (draft.githubReviews ?? []).filter((review) => review.isViewer);
+  const latestViewerReview = viewerReviews.sort((left, right) => (Date.parse(right.submittedAt ?? '') || 0) - (Date.parse(left.submittedAt ?? '') || 0)).at(0);
+  if (!draft.postedEvent) return latestViewerReview ? VIEWER_REVIEW_OUTCOMES[latestViewerReview.state] : null;
+  if (!latestViewerReview) return POSTED_EVENT_OUTCOMES[draft.postedEvent];
+  const latestViewerReviewAtMs = Date.parse(latestViewerReview.submittedAt ?? '');
+  const isPostedEventNewer = Number.isNaN(latestViewerReviewAtMs) || (draft.postedAt !== undefined && draft.postedAt > latestViewerReviewAtMs);
+  if (isPostedEventNewer) return POSTED_EVENT_OUTCOMES[draft.postedEvent];
+  return VIEWER_REVIEW_OUTCOMES[latestViewerReview.state];
 }
 
 export function queueRowTitle(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind, ages: QueueRowAges): string {
@@ -66,7 +86,7 @@ export function queueRowTitle(review: ReviewDraft | InFlightReview | QueuedRevie
   if (ages.posted) lines.push(`Posted ${ages.posted}`);
   if (!('reviewedHead' in review)) return lines.join('\n');
   const commentCount = review.comments.length;
-  if (review.status !== 'error') lines.push(`${kind === 'posted' && review.postedEvent ? postedOutcomeLabel(review) : queueRowVerdictLabel(review.verdict)}, ${commentCount} ${commentCount === 1 ? 'comment' : 'comments'}`);
+  if (review.status !== 'error') lines.push(`${(kind === 'posted' ? postedOutcome(review)?.label : undefined) ?? queueRowVerdictLabel(review.verdict)}, ${commentCount} ${commentCount === 1 ? 'comment' : 'comments'}`);
   const approvalContext = viewerApprovalContext(review);
   if (approvalContext) lines.push(`You ${GITHUB_REVIEW_VERBS[approvalContext.state]} at ${approvalContext.approvedCommit.slice(0, 7)}${ages.viewerApproval ? ` ${ages.viewerApproval}` : ''}; new commits since.`);
   if (kind === 'attention' || kind === 'discarded') lines.push(attentionDetail(review));

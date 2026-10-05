@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  detailThreadItems, postedOutcomeLabel, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  detailThreadItems, postedOutcome, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTitle, queueRowVerdictLabel, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
   commentSeverity, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
@@ -60,7 +60,7 @@ test('queue row title keeps draft ages and GitHub review sentences', () => {
     ],
   });
   assert.equal(queueRowTitle(review, 'posted', { opened: '5d ago', reviewed: '1d ago', posted: '3h ago', githubReviews: ['2d ago'] }), [
-    'Acme/app#7: PR 7', 'Posted', 'Opened 5d ago', 'Reviewed 1d ago', 'Posted 3h ago', 'Approve, 0 comments', 'approved by sarah, 2d ago',
+    'Acme/app#7: PR 7', 'Posted', 'Opened 5d ago', 'Reviewed 1d ago', 'Posted 3h ago', 'You commented, 0 comments', 'approved by sarah, 2d ago',
   ].join('\n'));
 });
 
@@ -803,13 +803,45 @@ test('an error with standing approval settles without attention', () => {
   assert.deepEqual(sections.attention, []);
 });
 
-test('posted outcome overrides the automated verdict and falls back for legacy drafts', () => {
+test('posted outcome comes from the viewer GitHub review or the posted event, and is null without either', () => {
   const review = draft(1337, { status: 'posted', verdict: 'REQUEST CHANGES', postedEvent: 'APPROVE' });
-  assert.equal(postedOutcomeLabel(review), 'Approved');
-  assert.match(queueRowTitle(review, 'posted', {}), /Approved, 0 comments/);
-  assert.equal(postedOutcomeLabel({ ...review, postedEvent: 'COMMENT' }), 'Commented');
-  assert.equal(postedOutcomeLabel({ ...review, postedEvent: undefined }), 'request changes');
-  assert.match(queueRowTitle({ ...review, postedEvent: undefined }, 'posted', {}), /Changes, 0 comments/);
+  assert.deepEqual(postedOutcome(review), { label: 'You approved', tone: 'ok' });
+  assert.match(queueRowTitle(review, 'posted', {}), /You approved, 0 comments/);
+  assert.deepEqual(postedOutcome({ ...review, postedEvent: 'COMMENT' }), { label: 'You commented', tone: 'muted' });
+  const legacy = { ...review, postedEvent: undefined };
+  assert.equal(postedOutcome(legacy), null);
+  assert.match(queueRowTitle(legacy, 'posted', {}), /Changes, 0 comments/);
+  const approvedOnGithub = { ...legacy, githubReviews: [
+    { login: 'me', state: 'COMMENTED' as const, commit: HEAD, isViewer: true, submittedAt: '2026-10-01T10:00:00Z' },
+    { login: 'me', state: 'APPROVED' as const, commit: HEAD, isViewer: true, submittedAt: '2026-10-02T10:00:00Z' },
+    { login: 'other', state: 'CHANGES_REQUESTED' as const, commit: HEAD, isViewer: false, submittedAt: '2026-10-03T10:00:00Z' },
+  ] };
+  assert.deepEqual(postedOutcome(approvedOnGithub), { label: 'You approved', tone: 'ok' });
+  assert.match(queueRowTitle(approvedOnGithub, 'posted', {}), /You approved, 0 comments/);
+});
+
+test('posted outcome prefers a comment posted after an older viewer approval snapshot', () => {
+  const review = draft(1338, {
+    status: 'posted', postedEvent: 'COMMENT', postedAt: Date.parse('2026-10-03T10:00:00Z'),
+    githubReviews: [{ login: 'me', state: 'APPROVED', commit: HEAD, isViewer: true, submittedAt: '2026-10-02T10:00:00Z' }],
+  });
+  assert.deepEqual(postedOutcome(review), { label: 'You commented', tone: 'muted' });
+});
+
+test('posted outcome prefers a viewer approval submitted after the posted comment', () => {
+  const review = draft(1339, {
+    status: 'posted', postedEvent: 'COMMENT', postedAt: Date.parse('2026-10-02T10:00:00Z'),
+    githubReviews: [{ login: 'me', state: 'APPROVED', commit: HEAD, isViewer: true, submittedAt: '2026-10-03T10:00:00Z' }],
+  });
+  assert.deepEqual(postedOutcome(review), { label: 'You approved', tone: 'ok' });
+});
+
+test('posted outcome prefers the posted event when the viewer review has no submitted time', () => {
+  const review = draft(1340, {
+    status: 'posted', postedEvent: 'COMMENT', postedAt: Date.parse('2026-10-02T10:00:00Z'),
+    githubReviews: [{ login: 'me', state: 'APPROVED', commit: HEAD, isViewer: true, submittedAt: null }],
+  });
+  assert.deepEqual(postedOutcome(review), { label: 'You commented', tone: 'muted' });
 });
 
 test('hand review rows populate their section and keep a hand-only list visible', () => {

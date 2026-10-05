@@ -15,7 +15,7 @@ import {
   answeredNonNitThreads, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, queueRowVerdictLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
-  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, postedOutcomeLabel, verdictLabel, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
+  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, postedOutcome, verdictLabel, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
 } from './team-review-view-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
 import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
@@ -234,6 +234,12 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
       top.append(visibleAge);
     }
   }
+  if (kind === 'discarded') {
+    row.classList.add('pr-queue-row-compact');
+    row.append(top);
+    selectReviewOnClick(row, review.key);
+    return row;
+  }
   const bottom = el('span', 'pr-queue-bottom');
   const priority = classifyReviewPriority(review);
   const requestChip = el('span', 'my-pr-stage', review.requestSource === 'direct' ? 'Direct' : 'Team');
@@ -253,31 +259,39 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
     verdict.dataset.tone = verdictTone(draft.verdict);
     bottom.append(verdict);
   }
-  if (kind === 'attention' || kind === 'discarded') {
+  if (kind === 'attention') {
     const draft = review as ReviewDraft;
     bottom.append(el('span', `pr-attention-label pr-attention-label-${draft.status}`, attentionStatusLabel(draft.status)));
   }
-  if (kind === 'posted') {
-    bottom.append(el('span', 'pr-attention-label pr-attention-label-posted', 'posted'));
+  const outcome = kind === 'posted' ? postedOutcome(review as ReviewDraft) : null;
+  if (outcome) {
+    const outcomeLabel = el('span', 'pr-queue-verdict', outcome.label);
+    outcomeLabel.dataset.tone = outcome.tone;
+    bottom.append(outcomeLabel);
   }
+  if (kind === 'posted' && !outcome) bottom.append(el('span', 'pr-attention-label pr-attention-label-posted', 'posted'));
   if ('reviewedHead' in review && review.comments.length > 0) bottom.append(el('span', 'pr-queue-comment-count', `\u00b7 ${review.comments.length}`));
   const replyCount = 'reviewedHead' in review ? answeredNonNitThreads(review).length : 0;
   if (replyCount > 0) bottom.append(el('span', 'pr-queue-comment-count', `${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}`));
   if (approvalContext) bottom.append(el('span', 'pr-queue-approval-context', 'since approval'));
   bottom.append(createAuthor(review.author, 16, 'pr-queue-author'));
-  if (kind === 'posted') bottom.append(el('span', 'pr-queue-posted-detail', postedOutcomeLabel(review as ReviewDraft)));
+  if (kind === 'posted' && !outcome) bottom.append(el('span', 'pr-queue-posted-detail', verdictLabel((review as ReviewDraft).verdict)));
   row.append(top, bottom);
   const githubSummary = kind === 'inReview' || kind === 'queued' ? null : createGithubReviewSummary(review as ReviewDraft, 'pr-queue-reviewers', 16, kind !== 'posted');
   if (githubSummary) bottom.append(githubSummary);
+  selectReviewOnClick(row, review.key);
+  return row;
+}
+
+function selectReviewOnClick(row: HTMLButtonElement, reviewKey: string): void {
   row.addEventListener('click', () => {
-    _selectedKey = review.key;
+    _selectedKey = reviewKey;
     for (const button of _queue?.querySelectorAll<HTMLButtonElement>('button[data-review-key]') ?? []) button.setAttribute('aria-current', String(button.dataset.reviewKey === _selectedKey));
     renderSelectedDetail(groupDrafts(_latest));
     _ageTicker.reset();
     trackAges(_root);
     if (document.documentElement.dataset.layout === 'phone') _detail?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   });
-  return row;
 }
 
 function createQueueRowTop(review: ReviewDraft | InFlightReview | QueuedReview, hasMultipleRepos: boolean): HTMLSpanElement {
