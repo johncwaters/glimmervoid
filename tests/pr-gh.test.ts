@@ -161,7 +161,7 @@ test('PR reads use exact argv and parse contract shapes', async () => {
 });
 
 function reviewQueryField(alias: string, owner: string, name: string, number: number): string {
-  return `${alias}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${number}) { headRefOid isDraft reviewDecision commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } latestReviews(first: 20) { nodes { author { login } state submittedAt commit { oid } } } latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state } } } }`;
+  return `${alias}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${number}) { headRefOid state isDraft reviewDecision commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } latestReviews(first: 20) { nodes { author { login } state submittedAt commit { oid } } } latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state } } } }`;
 }
 
 test('review snapshots batch aliased GraphQL fields, null empty commits and drop ghost authors', async () => {
@@ -169,7 +169,7 @@ test('review snapshots batch aliased GraphQL fields, null empty commits and drop
   const gh = createPrGh('/repo', async (_command, args) => {
     calls.push(args);
     return { ok: true, out: JSON.stringify({ data: {
-      pr0: { pullRequest: { headRefOid: HEAD_SHA, reviewDecision: 'APPROVED', latestReviews: { nodes: [
+      pr0: { pullRequest: { headRefOid: HEAD_SHA, state: 'MERGED', reviewDecision: 'APPROVED', latestReviews: { nodes: [
         { author: { login: 'sarah' }, state: 'APPROVED', submittedAt: '2026-09-28T12:00:00Z', commit: { oid: HEAD_SHA } },
         { author: { login: 'copilot' }, state: 'COMMENTED', submittedAt: null, commit: { oid: '' } },
         { author: null, state: 'APPROVED', commit: { oid: HEAD_SHA } },
@@ -180,7 +180,7 @@ test('review snapshots batch aliased GraphQL fields, null empty commits and drop
   const snapshots = await gh.prReviewSnapshots([
     { repo: 'Acme/repo', number: 7 }, { repo: '../repo', number: 8 }, { repo: 'Acme/other', number: 9 }, { repo: 'Acme/repo', number: 0 },
   ]);
-  assert.deepEqual([...snapshots.entries()], [['Acme/repo#7', { head: HEAD_SHA, reviewDecision: 'APPROVED', reviews: [
+  assert.deepEqual([...snapshots.entries()], [['Acme/repo#7', { head: HEAD_SHA, isOpen: false, reviewDecision: 'APPROVED', reviews: [
     { login: 'sarah', state: 'APPROVED', commit: HEAD_SHA, submittedAt: '2026-09-28T12:00:00Z' },
     { login: 'copilot', state: 'COMMENTED', commit: null, submittedAt: null },
   ] }]]);

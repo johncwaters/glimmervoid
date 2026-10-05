@@ -63,6 +63,7 @@ interface PrSearchResult {
 
 interface PrReviewSnapshot {
   head: string;
+  isOpen?: boolean;
   isDraft?: boolean;
   checksState?: ReviewChecksStateType | null;
   reviewDecision?: GithubReviewDecisionType | null;
@@ -266,6 +267,7 @@ const LATEST_REVIEWS_PER_PR = 20;
 const GRAPHQL_REVIEW_REPOSITORY = z.object({
   pullRequest: z.object({
     headRefOid: CommitSha,
+    state: z.enum(['OPEN', 'CLOSED', 'MERGED']).optional(),
     isDraft: z.boolean().optional(),
     commits: z.object({ nodes: z.array(z.object({ commit: z.object({ statusCheckRollup: z.object({ state: ReviewChecksState.nullable() }).nullable() }) })) }).optional(),
     reviewDecision: z.string().nullable().optional(),
@@ -314,7 +316,7 @@ function reviewSnapshotKey(repo: string, number: number): string {
 function reviewSnapshotQuery(prs: readonly PrReference[]): string {
   const fields = prs.map((pr, index) => {
     const [owner, name] = repoParts(pr.repo) ?? ['', ''];
-    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { headRefOid isDraft reviewDecision commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } latestReviews(first: ${LATEST_REVIEWS_PER_PR}) { nodes { author { login } state submittedAt commit { oid } } } latestOpinionatedReviews(first: ${LATEST_REVIEWS_PER_PR}, writersOnly: true) { nodes { state } } } }`;
+    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { headRefOid state isDraft reviewDecision commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } latestReviews(first: ${LATEST_REVIEWS_PER_PR}) { nodes { author { login } state submittedAt commit { oid } } } latestOpinionatedReviews(first: ${LATEST_REVIEWS_PER_PR}, writersOnly: true) { nodes { state } } } }`;
   });
   return `query { ${fields.join(' ')} }`;
 }
@@ -335,7 +337,7 @@ function reviewSnapshotFrom(repository: unknown): PrReviewSnapshot | null {
     ? [{ login: review.author.login, state: review.state, commit: CommitSha.safeParse(review.commit?.oid).data ?? null, ...(review.submittedAt !== undefined ? { submittedAt: review.submittedAt } : {}) }]
     : []));
   const opinionatedWriterReviewStates = (pullRequest.latestOpinionatedReviews?.nodes ?? []).flatMap((review) => (review ? [review.state] : []));
-  return { head: pullRequest.headRefOid, ...(pullRequest.isDraft !== undefined ? { isDraft: pullRequest.isDraft } : {}), ...(pullRequest.commits ? { checksState: pullRequest.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null } : {}), reviewDecision: decisionAsIfApprovalRequired(GithubReviewDecision.safeParse(pullRequest.reviewDecision).data ?? null, opinionatedWriterReviewStates), reviews };
+  return { head: pullRequest.headRefOid, ...(pullRequest.state !== undefined ? { isOpen: pullRequest.state === 'OPEN' } : {}), ...(pullRequest.isDraft !== undefined ? { isDraft: pullRequest.isDraft } : {}), ...(pullRequest.commits ? { checksState: pullRequest.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null } : {}), reviewDecision: decisionAsIfApprovalRequired(GithubReviewDecision.safeParse(pullRequest.reviewDecision).data ?? null, opinionatedWriterReviewStates), reviews };
 }
 
 function uniqueValidPrs(prs: readonly PrReference[]): PrReference[] {

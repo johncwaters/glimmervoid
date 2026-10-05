@@ -372,15 +372,23 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     return false;
   }
 
+  async function closedPostedKeys(candidateKeys: Set<string>): Promise<Set<string>> {
+    const departedPosted = Object.entries(state).filter(([key, entry]) => !candidateKeys.has(key) && !entry.inFlight && entry.draft?.status === 'posted');
+    if (departedPosted.length === 0) return new Set();
+    const snapshots = await github.prReviewSnapshots(departedPosted.flatMap(([, entry]) => (entry.draft ? [{ repo: entry.draft.repo, number: entry.draft.number }] : [])));
+    return new Set(departedPosted.filter(([key]) => snapshots.get(key)?.isOpen === false).map(([key]) => key));
+  }
+
   async function pruneDeparted(candidateKeys: Set<string>): Promise<boolean> {
     let isDirty = false;
+    const closedKeys = await closedPostedKeys(candidateKeys);
     for (const [key, entry] of Object.entries(state)) {
       if (!candidateKeys.has(key) && entry.resumable) {
         await discardResumable(entry.resumable);
         entry.resumable = null;
         isDirty = true;
       }
-      if (!core.shouldPruneEntry(entry, candidateKeys.has(key), now())) continue;
+      if (!core.shouldPruneEntry(entry, candidateKeys.has(key), now(), closedKeys.has(key))) continue;
       delete state[key];
       isDirty = true;
     }

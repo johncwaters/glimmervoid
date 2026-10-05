@@ -15,7 +15,7 @@ import {
   answeredNonNitThreads, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, queueRowVerdictLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
-  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, queueRowGlyph, queueRowExceptionReason, commentCountText, verdictLabel, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
+  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, caughtUpDetail, queueRowGlyph, queueRowExceptionReason, commentCountText, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
 } from './team-review-view-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
 import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
@@ -95,7 +95,7 @@ function createVerdictSeal(draft: ReviewDraft): HTMLElement {
   if (kind === 'dot') icon.append(svgShape('circle', { cx: '10', cy: '10', r: '2.4', fill: 'currentColor' }));
   if (kind === 'bar') icon.append(svgShape('path', { d: 'M6 10H14', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round' }));
   if (kind === 'cross') icon.append(svgShape('path', { d: 'M7 7L13 13M13 7L7 13', stroke: 'var(--bg)', 'stroke-width': '1.8', 'stroke-linecap': 'round' }));
-  seal.append(icon, el('span', null, verdictLabel(verdict)));
+  seal.append(icon, el('span', null, verdictHeading(verdict)));
   return seal;
 }
 
@@ -310,6 +310,15 @@ function createHandReviewSection(reviews: QueuedReview[], hasMultipleRepos: bool
     section.append(row);
   }
   return section;
+}
+
+function createCaughtUpBanner(detail: string): HTMLElement {
+  const banner = el('section', 'pr-caught-up');
+  banner.setAttribute('role', 'status');
+  const heading = el('strong', 'pr-caught-up-title');
+  heading.append(createStateGlyph('ok'), el('span', null, 'All caught up'));
+  banner.append(heading, el('p', 'pr-caught-up-detail', detail));
+  return banner;
 }
 
 function createQueueSection(title: string, reviews: (ReviewDraft | InFlightReview | QueuedReview)[], kind: QueueRowKind, hasMultipleRepos: boolean): HTMLElement {
@@ -943,6 +952,8 @@ function render(): void {
   _selectedKey = chooseSelectedReviewKey(sections, _selectedKey);
   const hasMultipleRepos = hasMultipleQueueRepos(sections);
   const queueSections: HTMLElement[] = [];
+  const caughtUp = caughtUpDetail(sections);
+  if (caughtUp) queueSections.push(createCaughtUpBanner(caughtUp));
   if (sections.ready.length) queueSections.push(createQueueSection('Ready', sections.ready, 'ready', hasMultipleRepos));
   if (sections.inReview.length) {
     _inReviewSection = createQueueSection('In review', sections.inReview, 'inReview', hasMultipleRepos);

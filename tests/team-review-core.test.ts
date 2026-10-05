@@ -415,6 +415,8 @@ test('departed PRs are pruned, except in-flight ones and posted ones inside the 
   const posted = stateEntry({ draft: { ...readyDraftAt(HEAD), status: 'posted' } });
   assert.equal(shouldPruneEntry(posted, false, now), false);
   assert.equal(shouldPruneEntry(posted, false, now + 1), true);
+  assert.equal(shouldPruneEntry(posted, false, now, true), true);
+  assert.equal(shouldPruneEntry({ ...posted, inFlight: true }, false, now, true), false);
 });
 
 test('drafts list newest first and leave out entries without one', () => {

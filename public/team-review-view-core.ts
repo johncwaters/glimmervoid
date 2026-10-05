@@ -27,15 +27,6 @@ export function classifyReviewPriority(review: Pick<QueuedReview, 'requestSource
   return { band: 'actionable', reason: review.requestSource === 'direct' ? 'review-available' : 'team-request' };
 }
 
-const QUEUE_ROW_STATE_LABELS: Readonly<Record<QueueRowKind, string>> = {
-  ready: 'Ready', settled: 'No review needed', inReview: 'In review', queued: 'Queued', attention: 'Needs attention', posted: 'Posted', discarded: 'Discarded', handReview: 'Review by hand',
-};
-
-export function queueRowStateLabel(kind: QueueRowKind, status: ReviewDraft['status'] | null): string {
-  if (kind === 'attention' && status) return attentionStatusLabel(status);
-  return QUEUE_ROW_STATE_LABELS[kind];
-}
-
 export interface QueueRowAges {
   opened?: string | null;
   reviewed?: string | null;
@@ -109,17 +100,16 @@ export function commentCountText(count: number): string {
 }
 
 export function queueRowTitle(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind, ages: QueueRowAges): string {
-  const status = 'status' in review ? review.status : null;
   const lines = [`${pullRequestLabel(review.repo, review.number)}: ${review.title}`];
   const goal = 'reviewedHead' in review ? review.assessment?.goal.trim() : '';
   if (goal) lines.push(goal);
-  lines.push(queueRowStateLabel(kind, status));
+  lines.push(queueRowGlyph(review, kind).meaning);
   if (ages.opened) lines.push(`Opened ${ages.opened}`);
   if (ages.reviewed) lines.push(`Reviewed ${ages.reviewed}`);
   if (ages.posted) lines.push(`Posted ${ages.posted}`);
   if (!('reviewedHead' in review)) return lines.join('\n');
   const commentCount = review.comments.length;
-  if (review.status !== 'error') lines.push(`${(kind === 'posted' ? postedOutcome(review)?.label : undefined) ?? queueRowVerdictLabel(review.verdict)}, ${commentCount} ${commentCount === 1 ? 'comment' : 'comments'}`);
+  if (review.status !== 'error') lines.push(`Automated review: ${queueRowVerdictLabel(review.verdict)}, ${commentCountText(commentCount)}`);
   const approvalContext = viewerApprovalContext(review);
   if (approvalContext) lines.push(`You ${GITHUB_REVIEW_VERBS[approvalContext.state]} at ${approvalContext.approvedCommit.slice(0, 7)}${ages.viewerApproval ? ` ${ages.viewerApproval}` : ''}; new commits since.`);
   if (kind === 'attention' || kind === 'discarded') lines.push(attentionDetail(review));
@@ -137,6 +127,13 @@ export interface TeamReviewSections {
   attention: ReviewDraft[];
   posted: ReviewDraft[];
   discarded: ReviewDraft[];
+}
+
+export function caughtUpDetail(sections: TeamReviewSections): string | null {
+  if (sections.ready.length + sections.attention.length + sections.handReview.length > 0) return null;
+  const runningCount = sections.inReview.length + sections.queued.length;
+  if (runningCount === 0) return 'Nothing needs you right now.';
+  return `Nothing needs you right now. ${runningCount} ${runningCount === 1 ? 'review is' : 'reviews are'} still running.`;
 }
 
 export function hasMultipleQueueRepos(sections: TeamReviewSections): boolean {
@@ -524,6 +521,11 @@ const REQUEUEABLE_STATUSES: ReadonlySet<ReviewDraft['status']> = new Set(['error
 
 export function hasRequeueFooter(status: ReviewDraft['status']): boolean {
   return REQUEUEABLE_STATUSES.has(status);
+}
+
+export function verdictHeading(verdict: ReviewDraft['verdict']): string {
+  const label = verdictLabel(verdict);
+  return `${label.charAt(0).toUpperCase()}${label.slice(1)}`;
 }
 
 export function verdictLabel(verdict: ReviewDraft['verdict']): string {

@@ -55,6 +55,7 @@ interface FakeGithub extends TeamReviewGithub {
   reviews: Map<number, PrReviewSnapshot['reviews']>;
   decisions: Map<number, NonNullable<PrReviewSnapshot['reviewDecision']>>;
   snapshotBatches: number[][];
+  closedNumbers: Set<number>;
   authoredQueries: string[][];
   failViewer: boolean;
   rateLimitWait: number | null;
@@ -72,6 +73,7 @@ function fakeGithub(): FakeGithub {
     reviews: new Map(),
     decisions: new Map(),
     snapshotBatches: [],
+    closedNumbers: new Set(),
     authoredQueries: [],
     failViewer: false,
     rateLimitWait: null,
@@ -94,7 +96,7 @@ function fakeGithub(): FakeGithub {
       github.snapshotBatches.push(prs.map((pr) => pr.number));
       return new Map(prs.flatMap((pr) => {
         const head = github.heads.get(pr.number);
-        return head ? [[`${pr.repo}#${pr.number}`, { head, reviewDecision: github.decisions.get(pr.number) ?? null, reviews: github.reviews.get(pr.number) ?? [] }] as const] : [];
+        return head ? [[`${pr.repo}#${pr.number}`, { head, isOpen: !github.closedNumbers.has(pr.number), reviewDecision: github.decisions.get(pr.number) ?? null, reviews: github.reviews.get(pr.number) ?? [] }] as const] : [];
       }));
     },
   };
@@ -1001,6 +1003,21 @@ test('departed PRs are pruned, posted ones only after seven days', async () => {
   await poller.tick();
   await settle();
   assert.deepEqual(Object.keys(poller._state()), [`${REPO}#3`]);
+  await poller.stop();
+});
+
+test('a posted review of a merged or closed PR leaves the list without waiting out retention', async () => {
+  const { poller, github } = setup();
+  github.requested = [searchItem(1, 'teammate'), searchItem(2, 'teammate')];
+  for (const number of [1, 2]) github.heads.set(number, HEAD_ONE);
+  await poller.start();
+  await settle();
+  for (const number of [1, 2]) await poller.updateDraft(`${REPO}#${number}`, { reviewedHead: HEAD_ONE, status: 'ready' }, { status: 'posted' });
+  github.requested = [];
+  github.closedNumbers.add(1);
+  await poller.tick();
+  await settle();
+  assert.deepEqual(Object.keys(poller._state()), [`${REPO}#2`]);
   await poller.stop();
 });
 

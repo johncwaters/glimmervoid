@@ -364,9 +364,10 @@ function earlierReviewToKeep(entry: TeamReviewStateEntry, currentHead: string): 
   return null;
 }
 
-function shouldPruneEntry(entry: TeamReviewStateEntry, isStillCandidate: boolean, nowMs: number): boolean {
+function shouldPruneEntry(entry: TeamReviewStateEntry, isStillCandidate: boolean, nowMs: number, isPullRequestClosed = false): boolean {
   if (isStillCandidate || entry.inFlight) return false;
   if (entry.draft?.status !== 'posted') return true;
+  if (isPullRequestClosed) return true;
   return nowMs - entry.updatedAt > POSTED_RETENTION_MS;
 }
 

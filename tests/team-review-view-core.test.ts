@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  detailThreadItems, postedOutcome, queueRowGlyph, queueRowExceptionReason, commentCountText, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
-  parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowStateLabel, queueRowTitle, queueRowVerdictLabel, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
-  commentSeverity, severityPresentation, tierLabel, verdictLabel, verdictSealKind, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
+  detailThreadItems, caughtUpDetail, postedOutcome, queueRowGlyph, queueRowExceptionReason, commentCountText, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowTitle, queueRowVerdictLabel, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
+  commentSeverity, severityPresentation, tierLabel, verdictHeading, verdictLabel, verdictSealKind, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
 import { answeredViewerThreads, THREAD_PLACEHOLDER_ERROR } from '../server/core/team-review-threads-core.ts';
 import { threadNode } from './helpers/team-review-thread-fixture.ts';
@@ -19,17 +19,6 @@ const NEXT_HEAD = 'b'.repeat(40);
 function githubReviewTexts(review: ReviewDraft, options: { isViewerShown?: boolean } = {}): string {
   return githubReviewItems(review, options).map((item) => item.text).join(', ');
 }
-
-test('queue row state labels name each kind and defer attention to its status', () => {
-  assert.equal(queueRowStateLabel('ready', 'ready'), 'Ready');
-  assert.equal(queueRowStateLabel('settled', 'ready'), 'No review needed');
-  assert.equal(queueRowStateLabel('inReview', null), 'In review');
-  assert.equal(queueRowStateLabel('attention', 'stale'), attentionStatusLabel('stale'));
-  assert.equal(queueRowStateLabel('attention', 'error'), attentionStatusLabel('error'));
-  assert.equal(queueRowStateLabel('attention', null), 'Needs attention');
-  assert.equal(queueRowStateLabel('posted', 'posted'), 'Posted');
-  assert.equal(queueRowStateLabel('discarded', 'discarded'), 'Discarded');
-});
 
 function draft(number: number, overrides: Partial<ReviewDraftType> = {}): ReviewDraftType {
   return ReviewDraft.parse({
@@ -60,7 +49,7 @@ test('queue row title keeps draft ages and GitHub review sentences', () => {
     ],
   });
   assert.equal(queueRowTitle(review, 'posted', { opened: '5d ago', reviewed: '1d ago', posted: '3h ago', githubReviews: ['2d ago'] }), [
-    'Acme/app#7: PR 7', 'Posted', 'Opened 5d ago', 'Reviewed 1d ago', 'Posted 3h ago', 'You commented, 0 comments', 'approved by sarah, 2d ago',
+    'Acme/app#7: PR 7', 'You commented', 'Opened 5d ago', 'Reviewed 1d ago', 'Posted 3h ago', 'Automated review: Approve, 0 comments', 'approved by sarah, 2d ago',
   ].join('\n'));
 });
 
@@ -76,7 +65,7 @@ test('queue row title names an in-progress review and a queued pull request', ()
 
 test('queue row title retains the attention reason and names no verdict for a review that never ran', () => {
   assert.equal(queueRowTitle(draft(10, { status: 'error', error: 'review timed out', verdict: 'BLOCKED', comments: [] }), 'attention', { opened: '5d ago' }),
-    'Acme/app#10: PR 10\nerror\nOpened 5d ago\nreview timed out');
+    'Acme/app#10: PR 10\nReview failed\nOpened 5d ago\nreview timed out');
 });
 
 test('queue verdict words distinguish approvals, nits, changes and blocked reviews', () => {
@@ -116,7 +105,7 @@ test('queue repo prefixes depend on rendered rows after older drafts are hidden'
 test('queue row titles retain the full repo ref, verdict and the inline comment count the detail shows', () => {
   const inlineComment = { path: 'src/a.ts', line: 1, side: 'RIGHT' as const, body: 'A finding.' };
   const review = draft(1, { verdict: 'APPROVE WITH NITS', body: '**[logic] HIGH**\n\nA body finding.', comments: [inlineComment] });
-  assert.equal(queueRowTitle(review, 'ready', {}), 'Acme/app#1: PR 1\nReady\nNits, 1 comment');
+  assert.equal(queueRowTitle(review, 'ready', {}), 'Acme/app#1: PR 1\nWaits on you\nAutomated review: Nits, 1 comment');
   assert.match(queueRowTitle({ ...review, comments: [inlineComment, { ...inlineComment, line: 2 }] }, 'ready', {}), /Nits, 2 comments/);
   assert.match(queueRowTitle({ ...review, comments: [] }, 'ready', {}), /Nits, 0 comments/);
 });
@@ -230,6 +219,7 @@ test('tier and verdict labels are short and lower case, with a tone per verdict'
   assert.equal(verdictLabel('APPROVE WITH NITS'), 'approve with nits');
   assert.equal(verdictLabel('REQUEST CHANGES'), 'request changes');
   assert.equal(verdictLabel('BLOCKED'), 'blocked');
+  assert.equal(verdictHeading('APPROVE WITH NITS'), 'Approve with nits');
   assert.equal(verdictTone('APPROVE'), 'ok');
   assert.equal(verdictTone('REQUEST CHANGES'), 'warn');
   assert.equal(verdictTone('BLOCKED'), 'crit');
@@ -582,7 +572,6 @@ test('a queued pull request gets its own section and hides its older draft', () 
   assert.deepEqual(sections.queued.map((review) => review.key), ['Acme/app#7']);
   assert.equal(sections.attention.length, 0);
   assert.equal(hasAnyRow(sections), true);
-  assert.equal(queueRowStateLabel('queued', null), 'Queued');
 });
 
 test('the queued detail says what the pull request is waiting for', () => {
@@ -611,8 +600,8 @@ test('About this PR paragraphs omit absent and blank assessments and preserve go
 
 test('queue row title puts a draft goal immediately after the PR title and omits blank goals', () => {
   const assessment = { goal: ' Avoid stuck requests. ', change: 'Re-arm the timer.', checked: [], gaps: [] };
-  assert.equal(queueRowTitle(draft(1, { assessment }), 'ready', { opened: '1d ago' }), 'Acme/app#1: PR 1\nAvoid stuck requests.\nReady\nOpened 1d ago\nApprove, 0 comments');
-  assert.equal(queueRowTitle(draft(1, { assessment: { ...assessment, goal: ' ' } }), 'ready', {}), 'Acme/app#1: PR 1\nReady\nApprove, 0 comments');
+  assert.equal(queueRowTitle(draft(1, { assessment }), 'ready', { opened: '1d ago' }), 'Acme/app#1: PR 1\nAvoid stuck requests.\nWaits on you\nOpened 1d ago\nAutomated review: Approve, 0 comments');
+  assert.equal(queueRowTitle(draft(1, { assessment: { ...assessment, goal: ' ' } }), 'ready', {}), 'Acme/app#1: PR 1\nWaits on you\nAutomated review: Approve, 0 comments');
 });
 
 test('poll errors, retry schedules and refresh progress always render even when the drafts stay the same', () => {
@@ -806,18 +795,18 @@ test('an error with standing approval settles without attention', () => {
 test('posted outcome comes from the viewer GitHub review or the posted event, and is null without either', () => {
   const review = draft(1337, { status: 'posted', verdict: 'REQUEST CHANGES', postedEvent: 'APPROVE' });
   assert.deepEqual(postedOutcome(review), { label: 'You approved', tone: 'ok' });
-  assert.match(queueRowTitle(review, 'posted', {}), /You approved, 0 comments/);
+  assert.match(queueRowTitle(review, 'posted', {}), /^Acme\/app#1337: PR 1337\nYou approved\n/);
   assert.deepEqual(postedOutcome({ ...review, postedEvent: 'COMMENT' }), { label: 'You commented', tone: 'muted' });
   const legacy = { ...review, postedEvent: undefined };
   assert.equal(postedOutcome(legacy), null);
-  assert.match(queueRowTitle(legacy, 'posted', {}), /Changes, 0 comments/);
+  assert.match(queueRowTitle(legacy, 'posted', {}), /\nPosted\nAutomated review: Changes, 0 comments/);
   const approvedOnGithub = { ...legacy, githubReviews: [
     { login: 'me', state: 'COMMENTED' as const, commit: HEAD, isViewer: true, submittedAt: '2026-10-01T10:00:00Z' },
     { login: 'me', state: 'APPROVED' as const, commit: HEAD, isViewer: true, submittedAt: '2026-10-02T10:00:00Z' },
     { login: 'other', state: 'CHANGES_REQUESTED' as const, commit: HEAD, isViewer: false, submittedAt: '2026-10-03T10:00:00Z' },
   ] };
   assert.deepEqual(postedOutcome(approvedOnGithub), { label: 'You approved', tone: 'ok' });
-  assert.match(queueRowTitle(approvedOnGithub, 'posted', {}), /You approved, 0 comments/);
+  assert.match(queueRowTitle(approvedOnGithub, 'posted', {}), /\nYou approved\n/);
 });
 
 test('posted outcome prefers a comment posted after an older viewer approval snapshot', () => {
@@ -850,7 +839,6 @@ test('hand review rows populate their section and keep a hand-only list visible'
   const sections = groupDrafts(snapshot);
   assert.deepEqual(sections.handReview, snapshot.handReview);
   assert.equal(hasAnyRow(sections), true);
-  assert.equal(queueRowStateLabel('handReview', null), 'Review by hand');
   assert.equal(hasMultipleQueueRepos(groupDrafts({ ...snapshot, drafts: [draft(1)] })), true);
   assert.equal(isInFlightProgressOnlyChange(status([]), snapshot), false);
 });
@@ -903,4 +891,12 @@ test('only exceptional priority reasons earn row text, so plain team and ready r
 test('comment counts read as words', () => {
   assert.equal(commentCountText(1), '1 comment');
   assert.equal(commentCountText(3), '3 comments');
+});
+
+test('the caught-up banner shows only when nothing is ready, failed or waiting on a hand review', () => {
+  assert.equal(caughtUpDetail(groupDrafts(status([draft(1, { status: 'posted' })]))), 'Nothing needs you right now.');
+  assert.equal(caughtUpDetail(groupDrafts(status([draft(1, { status: 'posted' })], [inFlightReview(2)]))), 'Nothing needs you right now. 1 review is still running.');
+  assert.equal(caughtUpDetail(groupDrafts(status([draft(1)]))), null);
+  assert.equal(caughtUpDetail(groupDrafts(status([draft(1, { status: 'error' })]))), null);
+  assert.equal(caughtUpDetail(groupDrafts(TeamReviewStatus.parse({ ...status([]), handReview: [draft(3)] }))), null);
 });
