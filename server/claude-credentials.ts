@@ -10,6 +10,8 @@ const OVERRIDE_TOKEN_ENV = 'GLIMMERVOID_CLAUDE_OAUTH_TOKEN';
 const LOGIN_REFRESH_TIMEOUT_MS = 120_000;
 const ARM_ONLY_ENV_KEYS = Object.freeze(['CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'ANTHROPIC_API_KEY']);
 
+type Sleeper = (durationMs: number, signal: AbortSignal | undefined) => Promise<void>;
+
 type CommandRunner = (command: string, args: string[], options: { env?: NodeJS.ProcessEnv; timeoutMs: number; signal?: AbortSignal }) => Promise<{ ok: boolean; stdout: string }>;
 
 interface ClaudeCredentialsOptions {
@@ -20,6 +22,7 @@ interface ClaudeCredentialsOptions {
   claudeCommand: () => string | null;
   runCommand?: CommandRunner;
   readTextFile?: (filePath: string) => Promise<string | null>;
+  sleep?: Sleeper;
 }
 
 async function runCommandSafely(command: string, args: string[], { env, timeoutMs, signal }: { env?: NodeJS.ProcessEnv; timeoutMs: number; signal?: AbortSignal }): Promise<{ ok: boolean; stdout: string }> {
@@ -33,6 +36,22 @@ async function runCommandSafely(command: string, args: string[], { env, timeoutM
 
 async function readTextFileOrNull(filePath: string): Promise<string | null> {
   return fs.readFile(filePath, 'utf8').catch(() => null);
+}
+
+function sleepUnlessAborted(durationMs: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const finish = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, durationMs);
+    signal?.addEventListener('abort', finish, { once: true });
+  });
 }
 
 function loginEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -49,6 +68,7 @@ function createClaudeCredentials({
   claudeCommand,
   runCommand = runCommandSafely,
   readTextFile = readTextFileOrNull,
+  sleep = sleepUnlessAborted,
 }: ClaudeCredentialsOptions) {
   const overrideToken = env[OVERRIDE_TOKEN_ENV] || null;
   delete env[OVERRIDE_TOKEN_ENV];
@@ -62,24 +82,32 @@ function createClaudeCredentials({
     return stored === null ? null : parseStoredCredentials(stored);
   }
 
-  async function refreshLogin(signal: AbortSignal | undefined): Promise<void> {
-    const command = claudeCommand();
-    if (!command) return;
+  async function refreshLogin(command: string, signal: AbortSignal | undefined): Promise<void> {
     await runCommand(command, ['-p', 'Reply with OK.'], { env: loginEnvironment(env), timeoutMs: LOGIN_REFRESH_TIMEOUT_MS, signal });
   }
 
   async function resolveArmToken(cellTimeoutSeconds: number, signal?: AbortSignal): Promise<{ ok: true; token: string } | { ok: false; reason: string }> {
     if (overrideToken) return { ok: true, token: overrideToken };
+    const cancelled = { ok: false as const, reason: 'the run was cancelled before the login was refreshed' };
+    const commandMissing = { ok: false as const, reason: 'the claude command could not be found, so the Claude Code login cannot be refreshed' };
     let hasRefreshed = false;
+    let hasWaitedForExpiry = false;
     let expiresAtBeforeRefresh: number | null = null;
     for (;;) {
       const login = await readLoginToken();
-      const decision = decideArmToken({ login, nowMs: now(), cellTimeoutSeconds, hasRefreshed, expiresAtBeforeRefresh });
+      const decision = decideArmToken({ login, nowMs: now(), cellTimeoutSeconds, hasRefreshed, expiresAtBeforeRefresh, hasWaitedForExpiry });
       if (decision.kind === 'use') return { ok: true, token: decision.token };
       if (decision.kind === 'unavailable') return { ok: false, reason: decision.reason };
-      if (signal?.aborted) return { ok: false, reason: 'the run was cancelled before the login was refreshed' };
+      if (signal?.aborted) return cancelled;
+      const refreshCommand = claudeCommand();
+      if (!refreshCommand) return commandMissing;
+      if (decision.kind === 'wait') {
+        await sleep(Math.max(0, decision.untilMs - now()), signal);
+        if (signal?.aborted) return cancelled;
+        hasWaitedForExpiry = true;
+      }
       expiresAtBeforeRefresh = login?.expiresAt ?? null;
-      await refreshLogin(signal);
+      await refreshLogin(refreshCommand, signal);
       hasRefreshed = true;
     }
   }
@@ -88,4 +116,4 @@ function createClaudeCredentials({
 }
 
 export { OVERRIDE_TOKEN_ENV, createClaudeCredentials };
-export type { ClaudeCredentialsOptions, CommandRunner };
+export type { ClaudeCredentialsOptions, CommandRunner, Sleeper };

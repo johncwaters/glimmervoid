@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Team PR reviews of very large repositories no longer fail with "could not stage a checkout: timed out".
+- **Benchmark runs near login expiry**: when a refresh does not extend your Claude Code login, a benchmark run now waits for the login token to expire and Claude Code to renew it, instead of failing every cell in roughly the last hour of each token's lifetime. Cancel still stops the wait. A cell fails only if the renewed token is still too short, and its error still suggests `GLIMMERVOID_CLAUDE_OAUTH_TOKEN`.
 
 ## [0.29.0] - 2026-10-04
 

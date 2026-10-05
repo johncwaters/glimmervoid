@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createClaudeCredentials } from '../server/claude-credentials.ts';
-import type { CommandRunner } from '../server/claude-credentials.ts';
-import { LOGIN_REFRESH_MARGIN_MS, decideArmToken, parseStoredCredentials } from '../server/core/claude-credentials-core.ts';
+import type { CommandRunner, Sleeper } from '../server/claude-credentials.ts';
+import { EXPIRY_WAIT_GRACE_MS, LOGIN_REFRESH_MARGIN_MS, decideArmToken, parseStoredCredentials } from '../server/core/claude-credentials-core.ts';
 
 const NOW = 1_800_000_000_000;
 const CELL_TIMEOUT_SECONDS = 1800;
@@ -38,9 +38,9 @@ test('an exhausted login reason says whether the refresh extended the token, and
     });
     return decision.kind === 'unavailable' ? decision.reason : '';
   };
-  const unchanged = exhausted(NOW + 5 * 60_000, NOW + 5 * 60_000);
-  assert.match(unchanged, /a refresh did not extend it/);
-  assert.match(unchanged, /GLIMMERVOID_CLAUDE_OAUTH_TOKEN from claude setup-token/);
+  const neverRefreshedBefore = exhausted(NOW + 5 * 60_000, null);
+  assert.match(neverRefreshedBefore, /a refresh did not extend it/);
+  assert.match(neverRefreshedBefore, /GLIMMERVOID_CLAUDE_OAUTH_TOKEN from claude setup-token/);
   const extended = exhausted(NOW + 20 * 60_000, NOW + 5 * 60_000);
   assert.match(extended, /a refresh extended it to 20 minutes, still too soon/);
   assert.doesNotMatch(extended, /did not extend/);
@@ -51,6 +51,34 @@ test('no login after a refresh is unavailable with a named cause', () => {
   const decision = decideArmToken({ login: null, nowMs: NOW, cellTimeoutSeconds: CELL_TIMEOUT_SECONDS, hasRefreshed: true });
   assert.equal(decision.kind, 'unavailable');
   assert.match(decision.kind === 'unavailable' ? decision.reason : '', /no Claude Code login/);
+});
+
+test('a refresh that left the token unchanged waits until just past its expiry before refreshing again', () => {
+  const expiresAt = NOW + 5 * 60_000;
+  const decision = decideArmToken({
+    login: { accessToken: 'login-access-token', expiresAt }, nowMs: NOW, cellTimeoutSeconds: CELL_TIMEOUT_SECONDS, hasRefreshed: true, expiresAtBeforeRefresh: expiresAt, hasWaitedForExpiry: false,
+  });
+  assert.deepEqual(decision, { kind: 'wait', untilMs: expiresAt + EXPIRY_WAIT_GRACE_MS });
+  assert.equal(EXPIRY_WAIT_GRACE_MS, 5000);
+});
+
+test('a token still short after waiting for its expiry is unavailable and names the setup token', () => {
+  const expiresAt = NOW + 5 * 60_000;
+  const decision = decideArmToken({
+    login: { accessToken: 'login-access-token', expiresAt }, nowMs: expiresAt + EXPIRY_WAIT_GRACE_MS, cellTimeoutSeconds: CELL_TIMEOUT_SECONDS, hasRefreshed: true, expiresAtBeforeRefresh: expiresAt, hasWaitedForExpiry: true,
+  });
+  assert.equal(decision.kind, 'unavailable');
+  const reason = decision.kind === 'unavailable' ? decision.reason : '';
+  assert.match(reason, /a refresh after it expired did not renew it/);
+  assert.match(reason, /GLIMMERVOID_CLAUDE_OAUTH_TOKEN from claude setup-token/);
+  assert.doesNotMatch(reason, /login-access-token/);
+});
+
+test('a refresh that extended the token but not far enough is unavailable without waiting', () => {
+  const decision = decideArmToken({
+    login: { accessToken: 'login-access-token', expiresAt: NOW + 20 * 60_000 }, nowMs: NOW, cellTimeoutSeconds: CELL_TIMEOUT_SECONDS, hasRefreshed: true, expiresAtBeforeRefresh: NOW + 5 * 60_000, hasWaitedForExpiry: false,
+  });
+  assert.equal(decision.kind, 'unavailable');
 });
 
 function recordingRunner(keychainReplies: string[]) {
@@ -75,13 +103,77 @@ test('a near-expiry keychain token triggers one refresh on the operator default 
   assert.deepEqual(calls[1].env, { PATH: '/bin' });
 });
 
-test('a refresh that does not extend the token fails with a named cause instead of looping', async () => {
-  const { calls, runCommand } = recordingRunner([storedCredentials(NOW + 60_000), storedCredentials(NOW + 60_000)]);
-  const credentials = createClaudeCredentials({ platform: 'darwin', env: {}, now: () => NOW, claudeCommand: () => 'claude', runCommand });
+function recordingSleeper(onSleep: () => void = () => {}) {
+  const durations: number[] = [];
+  const sleep: Sleeper = async (durationMs) => {
+    durations.push(durationMs);
+    onSleep();
+  };
+  return { durations, sleep };
+}
+
+test('a refresh that does not extend the token waits for its expiry, then a second refresh renews it and it is used', async () => {
+  const staleExpiresAt = NOW + 60_000;
+  const { calls, runCommand } = recordingRunner([storedCredentials(staleExpiresAt, 'stale-token'), storedCredentials(staleExpiresAt, 'stale-token'), storedCredentials(ENOUGH + 120_000, 'renewed-token')]);
+  let clock = NOW;
+  const { durations, sleep } = recordingSleeper(() => {
+    clock = staleExpiresAt + EXPIRY_WAIT_GRACE_MS;
+  });
+  const credentials = createClaudeCredentials({ platform: 'darwin', env: {}, now: () => clock, claudeCommand: () => 'claude', runCommand, sleep });
+  assert.deepEqual(await credentials.resolveArmToken(CELL_TIMEOUT_SECONDS), { ok: true, token: 'renewed-token' });
+  assert.deepEqual(durations, [60_000 + EXPIRY_WAIT_GRACE_MS]);
+  assert.deepEqual(calls.map((call) => call.command), ['security', 'claude', 'security', 'claude', 'security']);
+});
+
+test('a token still short after waiting for its expiry fails with a named cause instead of looping', async () => {
+  const { calls, runCommand } = recordingRunner([storedCredentials(NOW + 60_000), storedCredentials(NOW + 60_000), storedCredentials(NOW + 60_000)]);
+  const { durations, sleep } = recordingSleeper();
+  const credentials = createClaudeCredentials({ platform: 'darwin', env: {}, now: () => NOW, claudeCommand: () => 'claude', runCommand, sleep });
   const resolved = await credentials.resolveArmToken(CELL_TIMEOUT_SECONDS);
   assert.equal(resolved.ok, false);
-  assert.match(resolved.ok ? '' : resolved.reason, /GLIMMERVOID_CLAUDE_OAUTH_TOKEN/);
+  const reason = resolved.ok ? '' : resolved.reason;
+  assert.match(reason, /a refresh after it expired did not renew it/);
+  assert.match(reason, /GLIMMERVOID_CLAUDE_OAUTH_TOKEN/);
+  assert.doesNotMatch(reason, /login-access-token/);
+  assert.equal(durations.length, 1);
+  assert.equal(calls.length, 5);
+});
+
+test('cancelling the run during the expiry wait returns the cancelled reason without a second refresh', async () => {
+  const { calls, runCommand } = recordingRunner([storedCredentials(NOW + 60_000), storedCredentials(NOW + 60_000)]);
+  const controller = new AbortController();
+  const { durations, sleep } = recordingSleeper(() => controller.abort());
+  const credentials = createClaudeCredentials({ platform: 'darwin', env: {}, now: () => NOW, claudeCommand: () => 'claude', runCommand, sleep });
+  assert.deepEqual(await credentials.resolveArmToken(CELL_TIMEOUT_SECONDS, controller.signal), { ok: false, reason: 'the run was cancelled before the login was refreshed' });
+  assert.equal(durations.length, 1);
+  assert.deepEqual(calls.map((call) => call.command), ['security', 'claude', 'security']);
+});
+
+test('the default expiry wait ends as soon as the run is cancelled', async () => {
+  const { calls, runCommand } = recordingRunner([storedCredentials(NOW + 60_000), storedCredentials(NOW + 60_000)]);
+  const controller = new AbortController();
+  const credentials = createClaudeCredentials({ platform: 'darwin', env: {}, now: () => NOW, claudeCommand: () => 'claude', runCommand });
+  const resolving = credentials.resolveArmToken(CELL_TIMEOUT_SECONDS, controller.signal);
+  setTimeout(() => controller.abort(), 20);
+  assert.deepEqual(await resolving, { ok: false, reason: 'the run was cancelled before the login was refreshed' });
   assert.equal(calls.length, 3);
+});
+
+test('a too-short token with no claude command fails at once with a named cause and never sleeps', async () => {
+  const { calls, runCommand } = recordingRunner([storedCredentials(NOW + 60_000)]);
+  const { durations, sleep } = recordingSleeper();
+  const credentials = createClaudeCredentials({ platform: 'darwin', env: {}, now: () => NOW, claudeCommand: () => null, runCommand, sleep });
+  assert.deepEqual(await credentials.resolveArmToken(CELL_TIMEOUT_SECONDS), { ok: false, reason: 'the claude command could not be found, so the Claude Code login cannot be refreshed' });
+  assert.deepEqual(durations, []);
+  assert.deepEqual(calls.map((call) => call.command), ['security']);
+});
+
+test('a long-valid token is used even when the claude command is missing', async () => {
+  const { runCommand } = recordingRunner([storedCredentials(ENOUGH, 'usable-token')]);
+  const { durations, sleep } = recordingSleeper();
+  const credentials = createClaudeCredentials({ platform: 'darwin', env: {}, now: () => NOW, claudeCommand: () => null, runCommand, sleep });
+  assert.deepEqual(await credentials.resolveArmToken(CELL_TIMEOUT_SECONDS), { ok: true, token: 'usable-token' });
+  assert.deepEqual(durations, []);
 });
 
 test('the override env token wins over the login and skips the keychain entirely', async () => {
