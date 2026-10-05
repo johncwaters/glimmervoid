@@ -22,7 +22,7 @@ It's an orchestrator, not a harness. Claude Code and Codex are the harnesses, th
 
 ## Four things it does that a row of terminals can't
 
-**It knows which agent needs you.** Every session sits in a rail on the left, grouped by project, and the ones waiting on you collect in a "needs you" queue at the top. `Alt+J` jumps to the next one. Status comes from the agent's own lifecycle hooks, not from reading its screen, so when the rail turns amber, a session really is waiting. Getting that right took a full rewrite, which deserves [its own post](../deleting-the-screen-scraper/).
+**It knows which agent needs you.** Every session sits in a rail on the left, grouped by project, and the ones waiting on you collect in a "needs you" queue at the top. `Alt+J` jumps to the next one. Status comes from the agent's own lifecycle hooks, not from reading its screen, so when the rail turns amber, a session really is waiting. Getting that right took a full rewrite, which deserves [its own post](https://www.johncwaters.com/blog/my-terminal-congratulated-me-for-clearing-the-screen/).
 
 **Every agent gets its own worktree.** Each session in a git repo runs in its own git worktree, so five agents in one repo never trample each other or your checkout. A review sidebar shows what the selected agent has committed and what it hasn't, and merges its work back with one click while the agent keeps running. If the merge conflicts, one button hands the conflict back to the agent that wrote the code.
 
