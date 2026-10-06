@@ -1,3 +1,4 @@
+import { desktopNotificationOptions } from './desktop-notification-core.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
 import { createPlanHash } from './plan/plan-link.ts';
 import { isNotificationsEnabled } from './ui-prefs.ts';
@@ -51,12 +52,7 @@ export function showDesktopNotification({
 
   if (!claimNotification(window.localStorage, claimKey(session, category), Date.now())) return;
   try {
-    const options = {
-      body: String(message || 'Session needs attention'),
-      tag: `glimmervoid-${session || ''}-${category || ''}`,
-      renotify: true,
-    } as NotificationOptions;
-    const n = new notificationApi('Glimmervoid', options);
+    const n = new notificationApi('Glimmervoid', desktopNotificationOptions(session, category, message));
     n.onclick = () => {
       window.focus();
       if (kind === 'plan' && typeof session === 'string') {

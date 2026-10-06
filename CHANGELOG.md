@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Doubled alert sound**: desktop notifications are now silent, so a session alert plays only your chosen alert sound instead of that sound plus the system notification sound.
+
 ## [0.29.1] - 2026-10-06
 
 ### Added
