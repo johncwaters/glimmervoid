@@ -977,7 +977,7 @@ function render(): void {
     queueSections.push(_inReviewSection);
   }
   if (sections.queued.length) queueSections.push(createQueueSection('Queued', sections.queued, 'queued', hasMultipleRepos));
-  if (sections.noReviewNeeded.length) queueSections.push(createQueueSection('No review needed', sections.noReviewNeeded, 'settled', hasMultipleRepos));
+  if (sections.noReviewNeeded.length) queueSections.push(createQueueSection('Already reviewed', sections.noReviewNeeded, 'settled', hasMultipleRepos));
   if (sections.handReview.length) queueSections.push(createHandReviewSection(sections.handReview, hasMultipleRepos));
   if (sections.attention.length) queueSections.push(createQueueSection('Needs attention', sections.attention, 'attention', hasMultipleRepos));
   if (sections.posted.length) queueSections.push(createQueueSection('Recently posted', sections.posted, 'posted', hasMultipleRepos));
