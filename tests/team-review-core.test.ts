@@ -250,16 +250,27 @@ function occurrencesOf(needle: string, haystack: string): number {
   return haystack.split(needle).length - 1;
 }
 
-test('an approval body states the hand approval exactly once and a comment body is left unchanged', () => {
-  const automatedBody = `${AUTOMATED_REVIEW_NOTE}\n\nLooks good.`;
+test('an approval body keeps only operator text above the automated note and ends with the hand approval', () => {
+  const automatedBody = `${AUTOMATED_REVIEW_NOTE}\n\n- **[code] MEDIUM** \`a.ts:3\`: Off by one.`;
   assert.equal(HAND_APPROVAL_LINE, 'Approved by hand after checking the automated review.');
-  assert.equal(postedReviewBody('APPROVE', automatedBody), `${HAND_APPROVAL_LINE}\n\n${automatedBody}`);
-  assert.equal(postedReviewBody('APPROVE', ''), HAND_APPROVAL_LINE);
-  assert.equal(postedReviewBody('APPROVE', '  \n'), HAND_APPROVAL_LINE);
+  assert.equal(postedReviewBody('APPROVE', automatedBody), `${automatedBody}\n\n${HAND_APPROVAL_LINE}`);
+  assert.equal(postedReviewBody('APPROVE', `Small PR, HUGE impact.\n\n${AUTOMATED_REVIEW_NOTE}`), `Small PR, HUGE impact.\n\n${AUTOMATED_REVIEW_NOTE}\n\n${HAND_APPROVAL_LINE}`);
+  assert.equal(postedReviewBody('APPROVE', `Ship it.\n\n${automatedBody}`), `Ship it.\n\n${automatedBody}\n\n${HAND_APPROVAL_LINE}`);
+  assert.equal(postedReviewBody('APPROVE', 'Small PR, HUGE impact.'), `Small PR, HUGE impact.\n\n${AUTOMATED_REVIEW_NOTE}\n\n${HAND_APPROVAL_LINE}`);
+  assert.equal(postedReviewBody('APPROVE', ''), `${AUTOMATED_REVIEW_NOTE}\n\n${HAND_APPROVAL_LINE}`);
+  assert.equal(postedReviewBody('APPROVE', '  \n'), `${AUTOMATED_REVIEW_NOTE}\n\n${HAND_APPROVAL_LINE}`);
   assert.equal(occurrencesOf(HAND_APPROVAL_LINE, postedReviewBody('APPROVE', postedReviewBody('APPROVE', automatedBody))), 1);
   assert.equal(postedReviewBody('COMMENT', automatedBody), automatedBody);
   assert.equal(postedReviewBody('COMMENT', ''), '');
-  assert.ok(postedReviewBody('APPROVE', automatedBody).includes(AUTOMATED_REVIEW_NOTE));
+});
+
+test('an approval body whose automated text quotes the hand approval mid-text is still rebuilt with the hand line last', () => {
+  const quotingBody = `${AUTOMATED_REVIEW_NOTE}\n\nThe PR asks reviewers to write "${HAND_APPROVAL_LINE}" in their review.`;
+  const posted = postedReviewBody('APPROVE', `Ship it.\n\n${quotingBody}`);
+  assert.equal(posted, `Ship it.\n\n${quotingBody}\n\n${HAND_APPROVAL_LINE}`);
+  assert.ok(posted.startsWith('Ship it.'));
+  assert.ok(postedReviewBody('APPROVE', quotingBody).startsWith(AUTOMATED_REVIEW_NOTE));
+  assert.equal(postedReviewBody('APPROVE', posted), posted);
 });
 
 const CANDIDATE = {

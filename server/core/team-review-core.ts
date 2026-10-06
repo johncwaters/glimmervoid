@@ -206,9 +206,11 @@ function canPost(draft: ReviewDraft, clickedHead: string, currentHead: string, e
 const HAND_APPROVAL_LINE = 'Approved by hand after checking the automated review.';
 
 function postedReviewBody(event: PostedReviewEvent, body: string): string {
-  if (event !== 'APPROVE' || body.includes(HAND_APPROVAL_LINE)) return body;
-  if (!body.trim()) return HAND_APPROVAL_LINE;
-  return `${HAND_APPROVAL_LINE}\n\n${body}`;
+  if (event !== 'APPROVE' || body.trimEnd().endsWith(HAND_APPROVAL_LINE)) return body;
+  const noteStart = body.indexOf(AUTOMATED_REVIEW_NOTE);
+  const operatorText = noteStart === -1 ? body.trim() : body.slice(0, noteStart).trim();
+  const automatedText = noteStart === -1 ? '' : body.slice(noteStart + AUTOMATED_REVIEW_NOTE.length).trim();
+  return [operatorText, AUTOMATED_REVIEW_NOTE, automatedText, HAND_APPROVAL_LINE].filter(Boolean).join('\n\n');
 }
 
 function eventForAction(action: string): PostedReviewEvent | null {

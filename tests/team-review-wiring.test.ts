@@ -1707,11 +1707,11 @@ test('approve posts one APPROVE review carrying the hand-approval line, the body
   const h = actionHarness();
   assert.deepEqual(await h.submit({ action: 'approve', body: 'Ship it', comments: [COMMENT_ON_ADDED_LINE] }), { ok: true });
   assert.deepEqual(h.posted, [{
-    repo: 'Acme/app', number: 7, commitId: HEAD, event: 'APPROVE', body: `${HAND_APPROVAL_LINE}\n\nShip it`, comments: [COMMENT_ON_ADDED_LINE],
+    repo: 'Acme/app', number: 7, commitId: HEAD, event: 'APPROVE', body: `Ship it\n\n${AUTOMATED_REVIEW_NOTE}\n\n${HAND_APPROVAL_LINE}`, comments: [COMMENT_ON_ADDED_LINE],
   }]);
   assert.equal(h.currentDraft().status, 'posted');
   assert.equal(h.currentDraft().postedEvent, 'APPROVE');
-  assert.equal(h.currentDraft().body, `${HAND_APPROVAL_LINE}\n\nShip it`);
+  assert.equal(h.currentDraft().body, `Ship it\n\n${AUTOMATED_REVIEW_NOTE}\n\n${HAND_APPROVAL_LINE}`);
   assert.deepEqual(h.currentDraft().comments, [COMMENT_ON_ADDED_LINE]);
   assert.deepEqual(h.dismissed, []);
 });
@@ -1720,11 +1720,11 @@ test('approve-only ignores supplied body and comments and records only the hand 
   const h = actionHarness({ diff: null });
   assert.deepEqual(await h.submit({ action: 'approve-only', body: 'Ship it', comments: [COMMENT_ON_ADDED_LINE] }), { ok: true });
   assert.deepEqual(h.posted, [{
-    repo: 'Acme/app', number: 7, commitId: HEAD, event: 'APPROVE', body: HAND_APPROVAL_LINE, comments: [],
+    repo: 'Acme/app', number: 7, commitId: HEAD, event: 'APPROVE', body: `${AUTOMATED_REVIEW_NOTE}\n\n${HAND_APPROVAL_LINE}`, comments: [],
   }]);
   assert.equal(h.currentDraft().status, 'posted');
   assert.equal(h.currentDraft().postedEvent, 'APPROVE');
-  assert.equal(h.currentDraft().body, HAND_APPROVAL_LINE);
+  assert.equal(h.currentDraft().body, `${AUTOMATED_REVIEW_NOTE}\n\n${HAND_APPROVAL_LINE}`);
   assert.deepEqual(h.currentDraft().comments, []);
   assert.deepEqual(h.diffLookups, []);
 });
@@ -1742,7 +1742,7 @@ test('approve-only after a posted comment review posts an APPROVE with only the 
   assert.equal((await h.submit({ action: 'comment', body: 'Nits inline', comments: [COMMENT_ON_ADDED_LINE] })).ok, true);
   assert.equal(h.currentDraft().postedEvent, 'COMMENT');
   assert.deepEqual(await h.submit({ action: 'approve-only', body: 'Ignore this body', comments: [COMMENT_ON_ADDED_LINE] }), { ok: true });
-  assert.deepEqual(h.posted.map((review) => [review.event, review.body, review.comments.length]), [['COMMENT', 'Nits inline', 1], ['APPROVE', HAND_APPROVAL_LINE, 0]]);
+  assert.deepEqual(h.posted.map((review) => [review.event, review.body, review.comments.length]), [['COMMENT', 'Nits inline', 1], ['APPROVE', `${AUTOMATED_REVIEW_NOTE}\n\n${HAND_APPROVAL_LINE}`, 0]]);
   assert.equal(h.currentDraft().status, 'posted');
   assert.equal(h.currentDraft().postedEvent, 'APPROVE');
   assert.equal(h.currentDraft().body, 'Nits inline');
