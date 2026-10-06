@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Your review comments**: team review rows and pull request details show how many of your comment threads are resolved. Rows show a short count such as 2/5 resolved. When all are resolved, the row reads Comments resolved, in the same color as Waits on you, and the pull request needs you again unless your approval still stands. The automated review's own comment count now reads N drafted so the two counts are not confused.
 - Team review now resolves answered nit threads automatically (once: a nit you reopen on GitHub stays open for you) and judges other answered threads. Each answered thread has a Resolve control whether or not it has been judged, since the judgement is advice, a nit that could not be resolved automatically gets the same Resolve control, and a thread that cannot be judged says why. A temporary GitHub comparison failure is retried later rather than marking threads unjudgeable; a comparison GitHub reports as unrelated history marks the thread unjudgeable until its head or last reply changes.
 - **Fork reviews**: pull requests from forks now show under Review by hand with a link to GitHub. Glimmervoid still never runs an automated review on fork code.
 - **Compaction reminders**: Claude sessions now receive a one-line reminder of their current task and latest plan after compaction.

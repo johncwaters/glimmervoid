@@ -221,6 +221,9 @@ export const TeamReviewCompareFiles = z.object({
 });
 export type TeamReviewCompareFiles = z.infer<typeof TeamReviewCompareFiles>;
 
+export const ViewerThreadTally = z.object({ total: z.number().int().nonnegative(), resolved: z.number().int().nonnegative() });
+export type ViewerThreadTally = z.infer<typeof ViewerThreadTally>;
+
 export const ReviewDraft = z.object({
   ...reviewPriorityShape,
   key: z.string(),
@@ -240,6 +243,7 @@ export const ReviewDraft = z.object({
   status: z.enum(['ready', 'stale', 'posted', 'discarded', 'error']),
   error: z.string().optional(),
   threads: z.array(TeamReviewThread).optional(),
+  viewerThreads: ViewerThreadTally.optional(),
   githubReviews: z.array(GithubReview).optional(),
   reviewDecision: GithubReviewDecision.nullable().optional(),
   liveHead: CommitSha.optional(),
@@ -311,6 +315,7 @@ export const TeamReviewStateEntry = z.object({
   resumable: ResumableReview.nullable().optional(),
   reviewedAt: z.number().optional(),
   threads: z.array(TeamReviewThread).optional(),
+  viewerThreads: ViewerThreadTally.optional(),
   autoResolvedThreadIds: z.array(ReviewThreadId).optional(),
   githubReviews: z.array(GithubReview).optional(),
   reviewDecision: GithubReviewDecision.nullable().optional(),

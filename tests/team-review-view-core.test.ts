@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  detailThreadItems, caughtUpDetail, postedOutcome, queueRowGlyph, queueRowExceptionReason, commentCountText, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  viewerThreadsText, detailThreadItems, caughtUpDetail, postedOutcome, queueRowGlyph, queueRowExceptionReason, commentCountText, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowTitle, queueRowVerdictLabel, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
   commentSeverity, severityPresentation, tierLabel, verdictHeading, verdictLabel, verdictSealKind, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
@@ -906,4 +906,80 @@ test('the caught-up banner shows only when nothing is ready, failed or waiting o
   assert.equal(caughtUpDetail(groupDrafts(status([draft(1)]))), null);
   assert.equal(caughtUpDetail(groupDrafts(status([draft(1, { status: 'error' })]))), null);
   assert.equal(caughtUpDetail(groupDrafts(TeamReviewStatus.parse({ ...status([]), handReview: [draft(3)] }))), null);
+});
+
+
+test('viewer thread sentences distinguish zero, partial, complete and singular tallies', () => {
+  assert.equal(viewerThreadsText(undefined), null);
+  assert.equal(viewerThreadsText({ total: 0, resolved: 0 }), null);
+  assert.equal(viewerThreadsText({ total: 5, resolved: 2 }), '2 of 5 of your comments resolved');
+  assert.equal(viewerThreadsText({ total: 5, resolved: 5 }), 'All 5 of your comments resolved');
+  assert.equal(viewerThreadsText({ total: 1, resolved: 0 }), 'Your 1 comment unresolved');
+  assert.equal(viewerThreadsText({ total: 1, resolved: 1 }), 'Your 1 comment resolved');
+});
+
+test('all viewer threads resolved needs review despite a current comment or teammate approval', () => {
+  const reviewed = draft(1, { githubReviews: [
+    { login: 'me', state: 'COMMENTED', commit: HEAD, isViewer: true },
+    { login: 'teammate', state: 'APPROVED', commit: HEAD, isViewer: false },
+  ] });
+  for (const viewerThreads of [undefined, { total: 0, resolved: 0 }, { total: 5, resolved: 2 }]) {
+    const sections = groupDrafts(status([{ ...reviewed, viewerThreads }]));
+    assert.equal(sections.noReviewNeeded.length, 1);
+    assert.equal(sections.ready.length, 0);
+  }
+  for (const draftStatus of ['ready', 'stale', 'error'] as const) {
+    const review = { ...reviewed, status: draftStatus, viewerThreads: { total: 5, resolved: 5 } };
+    const sections = groupDrafts(status([review]));
+    assert.equal(isReviewNeeded(review), true);
+    assert.equal(sections.noReviewNeeded.length, 0);
+    assert.equal(sections.ready.length, draftStatus === 'ready' ? 1 : 0);
+    assert.equal(sections.attention.length, draftStatus === 'ready' ? 0 : 1);
+  }
+});
+
+test('standing approval settles resolved threads while answered threads still need review first', () => {
+  const review = draft(1, { viewerThreads: { total: 5, resolved: 5 }, reviewDecision: 'APPROVED', githubReviews: [{ login: 'me', state: 'APPROVED', commit: HEAD, isViewer: true }] });
+  assert.equal(isReviewNeeded(review), false);
+  assert.equal(groupDrafts(status([review])).noReviewNeeded.length, 1);
+  review.threads = answeredViewerThreads([threadNode()], [], HEAD);
+  assert.equal(isReviewNeeded(review), true);
+  assert.equal(groupDrafts(status([review])).ready.length, 1);
+});
+
+test('resolved thread glyph respects exceptions and hover and heading reflect counts', () => {
+  const review = draft(1, { viewerThreads: { total: 5, resolved: 5 } });
+  assert.deepEqual(queueRowGlyph(review, 'ready'), { meaning: 'Comments resolved', tone: 'warn' });
+  assert.deepEqual(queueRowGlyph({ ...review, checksState: 'FAILURE' }, 'ready'), { meaning: 'Checks failing', tone: 'wait' });
+  assert.deepEqual(queueRowGlyph({ ...review, isDraft: true }, 'ready'), { meaning: 'Draft', tone: 'wait' });
+  assert.deepEqual(queueRowGlyph({ ...review, viewerThreads: { total: 5, resolved: 2 } }, 'ready'), { meaning: 'Waits on you', tone: 'warn' });
+  assert.match(queueRowTitle(review, 'ready', {}), /All 5 of your comments resolved/);
+  assert.notEqual(detailHeadingSignature(review), detailHeadingSignature({ ...review, viewerThreads: { total: 5, resolved: 2 } }));
+});
+
+test('a posted review whose comments are all resolved says so unless your approval stands', () => {
+  const posted = draft(1, { status: 'posted', postedEvent: 'COMMENT', viewerThreads: { total: 3, resolved: 3 } });
+  assert.deepEqual(queueRowGlyph(posted, 'posted'), { meaning: 'Comments resolved', tone: 'warn' });
+  assert.notDeepEqual(queueRowGlyph({ ...posted, viewerThreads: { total: 3, resolved: 1 } }, 'posted'), { meaning: 'Comments resolved', tone: 'warn' });
+  const approved = { ...posted, reviewDecision: 'APPROVED' as const, githubReviews: [{ login: 'me', state: 'APPROVED' as const, commit: HEAD, isViewer: true }] };
+  assert.notDeepEqual(queueRowGlyph(approved, 'posted'), { meaning: 'Comments resolved', tone: 'warn' });
+});
+
+test('your approval at the current head settles resolved comments without a standing review decision', () => {
+  const viewerApproval = { login: 'me', state: 'APPROVED' as const, commit: HEAD, isViewer: true };
+  for (const reviewDecision of [null, 'REVIEW_REQUIRED'] as const) {
+    const review = draft(1, { viewerThreads: { total: 5, resolved: 5 }, reviewDecision, githubReviews: [viewerApproval] });
+    assert.equal(isReviewNeeded(review), false);
+    assert.equal(groupDrafts(status([review])).noReviewNeeded.length, 1);
+    assert.notDeepEqual(queueRowGlyph(review, 'ready'), { meaning: 'Comments resolved', tone: 'warn' });
+    const posted = { ...review, status: 'posted' as const, postedEvent: 'APPROVE' as const };
+    assert.notDeepEqual(queueRowGlyph(posted, 'posted'), { meaning: 'Comments resolved', tone: 'warn' });
+  }
+});
+
+test('your approval at an older commit leaves resolved comments waiting on you', () => {
+  const review = draft(1, { viewerThreads: { total: 5, resolved: 5 }, reviewDecision: null, liveHead: NEXT_HEAD, githubReviews: [{ login: 'me', state: 'APPROVED', commit: HEAD, isViewer: true }] });
+  assert.equal(isReviewNeeded(review), true);
+  assert.equal(groupDrafts(status([review])).ready.length, 1);
+  assert.deepEqual(queueRowGlyph(review, 'ready'), { meaning: 'Comments resolved', tone: 'warn' });
 });

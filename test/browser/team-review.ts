@@ -93,7 +93,7 @@ async function verifyRows(page: Page): Promise<void> {
   ]);
   const nits = rows.find((row) => row.key === 'Acme/app#2');
   assert.ok(nits);
-  assert.equal(nits.count, '2 comments');
+  assert.equal(nits.count, '2 drafted');
   assert.equal(nits.stateWord, 'Waits on you');
   assert.match(nits.bottom ?? '', /since approval/);
   assert.match(nits.title ?? '', /Acme\/app#2:.*\nWaits on you\n/s);
@@ -192,6 +192,48 @@ async function verifyQueueRebuildsAfterEmptyStatus(page: Page, status: TeamRevie
   assert.equal(isFirstRowRebuilt, true);
 }
 
+async function verifyViewerThreadCounts(page: Page, snapshot: TeamReviewStatus): Promise<void> {
+  const review = createDraft(1, {
+    viewerThreads: { total: 5, resolved: 2 },
+    comments: [{ path: 'src/a.ts', line: 1, side: 'RIGHT', body: 'Drafted finding.' }],
+    githubReviews: [{ login: 'me', state: 'COMMENTED', commit: REVIEWED_HEAD, isViewer: true }],
+  });
+  const withDraft = (draft: ReviewDraft) => ({ ...snapshot, drafts: [draft], inFlight: [], queued: [] });
+  await applyStatus(page, withDraft(review));
+  const row = page.locator('.pr-queue-row[data-review-key="Acme/app#1"]');
+  const count = row.locator('.pr-queue-comment-count[title]');
+  assert.equal(await row.locator('.pr-queue-comment-count').first().textContent(), '1 drafted');
+  assert.equal(await count.textContent(), '2/5 resolved');
+  assert.equal(await count.getAttribute('title'), '2 of 5 of your comments resolved');
+  assert.equal(await count.getAttribute('data-state'), null);
+  const sectionHeading = () => row.evaluate((element) => element.closest('.pr-queue-section')?.querySelector('.pr-section-heading')?.textContent);
+  assert.match(await sectionHeading() ?? '', /Already reviewed/);
+  await row.click();
+  assert.equal(await page.locator('.pr-detail-heading .pr-viewer-threads').textContent(), '2 of 5 of your comments resolved');
+  const resolved = { ...review, viewerThreads: { total: 5, resolved: 5 } };
+  await applyStatus(page, withDraft(resolved));
+  assert.equal(await count.textContent(), '5/5 resolved');
+  assert.equal(await count.getAttribute('data-state'), 'all-resolved');
+  assert.doesNotMatch(await sectionHeading() ?? '', /Already reviewed/);
+  assert.equal(await row.locator('.pr-queue-state').textContent(), 'Comments resolved');
+  assert.equal(await page.locator('.pr-detail-heading .pr-viewer-threads').textContent(), 'All 5 of your comments resolved');
+  assert.match(await row.getAttribute('title') ?? '', /All 5 of your comments resolved/);
+  const colorMatchesWarning = await count.evaluate((element) => {
+    const expected = document.createElement('span');
+    expected.style.color = 'var(--state-waiting)';
+    element.append(expected);
+    const matches = getComputedStyle(element).color === getComputedStyle(expected).color;
+    expected.remove();
+    return matches;
+  });
+  assert.equal(colorMatchesWarning, true);
+  await applyStatus(page, withDraft({ ...resolved, viewerThreads: { total: 5, resolved: 3 } }));
+  assert.equal(await page.locator('.pr-detail-heading .pr-viewer-threads').textContent(), '3 of 5 of your comments resolved');
+  await applyStatus(page, withDraft({ ...resolved, reviewDecision: 'APPROVED', githubReviews: [{ login: 'me', state: 'APPROVED', commit: REVIEWED_HEAD, isViewer: true }] }));
+  assert.match(await sectionHeading() ?? '', /Already reviewed/);
+  await applyStatus(page, snapshot);
+}
+
 export async function verifyTeamReviewRows(page: Page, layout: Layout): Promise<void> {
   await page.locator('#loading-screen').waitFor({ state: 'hidden' });
   await page.route('https://avatars.githubusercontent.com/**', (route) => route.fulfill({ status: 204 }));
@@ -235,4 +277,5 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout): Promise<
   if (layout === 'desktop') await verifyCollapsedRailShowsNumbers(page);
   await verifyUnchangedQueueKeepsRowNodes(page, status);
   await verifyQueueRebuildsAfterEmptyStatus(page, status);
+  await verifyViewerThreadCounts(page, status);
 }

@@ -15,7 +15,7 @@ import {
   answeredNonNitThreads, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, queueRowVerdictLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
-  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, caughtUpDetail, queueRowGlyph, commentCountText, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
+  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, caughtUpDetail, queueRowGlyph, viewerThreadsText, hasAllViewerThreadsResolved, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
 } from './team-review-view-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
 import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
@@ -259,7 +259,17 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
     verdict.dataset.tone = verdictTone(review.verdict);
     bottom.append(verdict);
   }
-  if ('reviewedHead' in review && review.comments.length > 0) bottom.append(el('span', 'pr-queue-comment-count', commentCountText(review.comments.length)));
+  if ('reviewedHead' in review && review.comments.length > 0) bottom.append(el('span', 'pr-queue-comment-count', `${review.comments.length} drafted`));
+  if ('reviewedHead' in review) {
+    const tally = review.viewerThreads;
+    const tallyText = viewerThreadsText(tally);
+    if (tally && tallyText) {
+      const count = el('span', 'pr-queue-comment-count', `${tally.resolved}/${tally.total} resolved`);
+      count.title = tallyText;
+      if (hasAllViewerThreadsResolved(review)) count.dataset.state = 'all-resolved';
+      bottom.append(count);
+    }
+  }
   const replyCount = 'reviewedHead' in review ? answeredNonNitThreads(review).length : 0;
   if (replyCount > 0) bottom.append(el('span', 'pr-queue-comment-count', `${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}`));
   if (approvalContext) bottom.append(el('span', 'pr-queue-approval-context', 'since approval'));
@@ -353,6 +363,14 @@ function createDetailHeading(review: ReviewDraft | InFlightReview): HTMLElement 
   const githubSummary = 'reviewedHead' in review ? createGithubReviewSummary(review, 'pr-detail-github', 20) : null;
   if (githubSummary) metadata.append(githubSummary);
   heading.append(title, metadata);
+  if ('reviewedHead' in review) {
+    const tallyText = viewerThreadsText(review.viewerThreads);
+    if (tallyText) {
+      const tally = el('p', 'pr-viewer-threads', tallyText);
+      if (hasAllViewerThreadsResolved(review)) tally.dataset.state = 'all-resolved';
+      heading.append(tally);
+    }
+  }
   const approvalContext = 'reviewedHead' in review ? viewerApprovalContext(review) : null;
   if (approvalContext) {
     const notice = el('p', 'pr-rereview-notice', viewerApprovalNotice(approvalContext, formatTimestampAge(approvalContext.submittedAt)));

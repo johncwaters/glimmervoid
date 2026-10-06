@@ -2077,3 +2077,36 @@ test('an unjudgeable thread records its reason and is not retried until the head
     } finally { await harness.poller.stop(); }
   }
 });
+
+
+test('viewer thread tally persists and reaches both draft paths and changes only with thread counts', async () => {
+  const harness = await answeredThreadHarness('HIGH', true, false);
+  try {
+    const key = `${REPO}#1`;
+    assert.deepEqual(harness.poller._state()[key].viewerThreads, { total: 1, resolved: 0 });
+    assert.deepEqual(harness.poller.getDraft(key)?.viewerThreads, { total: 1, resolved: 0 });
+    assert.deepEqual(harness.statuses.at(-1)?.drafts[0].viewerThreads, { total: 1, resolved: 0 });
+    assert.ok(harness.writes.some((state) => state[key].viewerThreads?.total === 1));
+    const writesBefore = harness.writes.length;
+    await harness.poller.tick();
+    assert.equal(harness.writes.length, writesBefore);
+    harness.replaceNode(threadNode('HIGH', { isResolved: true }));
+    await harness.poller.tick();
+    assert.deepEqual(harness.poller._state()[key].viewerThreads, { total: 1, resolved: 1 });
+    assert.deepEqual(harness.poller.getDraft(key)?.viewerThreads, { total: 1, resolved: 1 });
+    assert.deepEqual(harness.statuses.at(-1)?.drafts[0].viewerThreads, { total: 1, resolved: 1 });
+    assert.ok(harness.writes.length > writesBefore);
+  } finally {
+    await harness.poller.stop();
+  }
+});
+
+test('automatic nit resolution updates viewer counts in the same poll', async () => {
+  const harness = await answeredThreadHarness('LOW');
+  try {
+    assert.deepEqual(harness.poller.getDraft(`${REPO}#1`)?.viewerThreads, { total: 1, resolved: 1 });
+    assert.deepEqual(harness.statuses.at(-1)?.drafts[0].viewerThreads, { total: 1, resolved: 1 });
+  } finally {
+    await harness.poller.stop();
+  }
+});

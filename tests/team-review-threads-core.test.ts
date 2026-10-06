@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { answeredViewerThreads, buildThreadJudgePrompt, parseThreadJudgeResult, shouldAutoResolveThread, shouldJudgeThread, threadJudgePatch, THREAD_PROMPT_MAX_CHARS } from '../server/core/team-review-threads-core.ts';
+import { viewerThreadTally, answeredViewerThreads, buildThreadJudgePrompt, parseThreadJudgeResult, shouldAutoResolveThread, shouldJudgeThread, threadJudgePatch, THREAD_PROMPT_MAX_CHARS } from '../server/core/team-review-threads-core.ts';
 import { threadNode, THREAD_BASE, THREAD_HEAD, THREAD_REPLY_AT } from './helpers/team-review-thread-fixture.ts';
 
 const classify = (node = threadNode()) => answeredViewerThreads([node], [], THREAD_HEAD);
@@ -108,4 +108,18 @@ test('unjudgeable evidence yields an operator-readable reason and stops judging 
   const replied = threadNode();
   replied.comments.nodes[1].createdAt = '2026-10-02T12:00:00Z';
   assert.equal(answeredViewerThreads([replied], [thread], THREAD_HEAD)[0].unjudgeable, undefined);
+});
+
+
+test('viewer thread tally counts only viewer-started threads including resolved and unanswered ones', () => {
+  assert.deepEqual(viewerThreadTally([]), { total: 0, resolved: 0 });
+  const unresolved = threadNode();
+  unresolved.comments.nodes.pop();
+  const resolved = threadNode('HIGH', { isResolved: true });
+  resolved.comments.pageInfo.hasNextPage = true;
+  const otherAccount = threadNode('HIGH', { isResolved: true });
+  otherAccount.comments.nodes[0].viewerDidAuthor = false;
+  const empty = threadNode();
+  empty.comments.nodes = [];
+  assert.deepEqual(viewerThreadTally([unresolved, resolved, otherAccount, empty]), { total: 2, resolved: 1 });
 });

@@ -2677,6 +2677,10 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-row-
 .pr-queue-comment-count,
 .pr-queue-approval-context { flex: 0 0 auto; color: var(--text-muted); white-space: nowrap; }
 
+.pr-queue-comment-count[data-state="all-resolved"],
+.pr-viewer-threads[data-state="all-resolved"] { color: var(--state-waiting); }
+.pr-viewer-threads { color: var(--text-muted); font-size: 12px; line-height: 1.55; letter-spacing: 0.02em; }
+
 .pr-verdict-seal {
   display: inline-flex;
   align-items: center;

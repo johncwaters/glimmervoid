@@ -1,6 +1,6 @@
 import { canApproveAfterComment, DECIDING_REVIEW_STATES, FindingSeverity, hasStandingViewerApproval } from '#shared/contracts/team-review.ts';
 import type {
-  DraftComment, GithubReview, GithubReviewState, InFlightReview, PostedReviewEvent, QueuedReview, ReviewAssessment, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus, TeamReviewThread,
+  DraftComment, GithubReview, GithubReviewState, InFlightReview, PostedReviewEvent, QueuedReview, ReviewAssessment, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus, TeamReviewThread, ViewerThreadTally,
 } from '#shared/contracts/team-review.ts';
 import { findingSeveritiesIn, parseLeadingFindingHeader, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import { attentionSignature } from './attention-ack-core.ts';
@@ -91,6 +91,8 @@ function isViewerOutcomeCurrent(draft: ReviewDraft): boolean {
   return viewerReviews.some((review) => review.commit === currentHead(draft));
 }
 
+const COMMENTS_RESOLVED_GLYPH: QueueRowGlyph = { tone: 'warn', meaning: 'Comments resolved' };
+
 export function queueRowGlyph(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind): QueueRowGlyph {
   const fixedGlyph = FIXED_ROW_GLYPHS[kind];
   if (fixedGlyph) return fixedGlyph;
@@ -100,6 +102,7 @@ export function queueRowGlyph(review: ReviewDraft | InFlightReview | QueuedRevie
     const outcome = isViewerOutcomeCurrent(review) ? postedOutcome(review) : null;
     return outcome ? { tone: outcome.tone, meaning: outcome.label } : { tone: 'ok', meaning: 'Others reviewed' };
   }
+  if (kind === 'posted' && 'reviewedHead' in review && isAwaitingViewerAfterResolvedComments(review)) return COMMENTS_RESOLVED_GLYPH;
   if (kind === 'posted' && 'reviewedHead' in review) {
     const outcome = postedOutcome(review);
     return outcome ? { tone: outcome.tone, meaning: outcome.label } : { tone: 'muted', meaning: 'Posted' };
@@ -107,7 +110,27 @@ export function queueRowGlyph(review: ReviewDraft | InFlightReview | QueuedRevie
   if (kind === 'attention' && 'status' in review) return review.status === 'error' ? { tone: 'danger', meaning: 'Review failed' } : { tone: 'warn', meaning: 'Out of date' };
   const exceptionReason = queueRowExceptionReason(review);
   if (exceptionReason) return { tone: 'wait', meaning: exceptionReason };
+  if (kind === 'ready' && 'reviewedHead' in review && isAwaitingViewerAfterResolvedComments(review)) return COMMENTS_RESOLVED_GLYPH;
   return { tone: 'warn', meaning: 'Waits on you' };
+}
+
+export function hasAllViewerThreadsResolved(draft: Pick<ReviewDraft, 'viewerThreads'>): boolean {
+  const tally = draft.viewerThreads;
+  return tally !== undefined && tally.total > 0 && tally.resolved === tally.total;
+}
+
+export function isAwaitingViewerAfterResolvedComments(draft: ReviewDraft): boolean {
+  if (!hasAllViewerThreadsResolved(draft)) return false;
+  if (hasStandingViewerApproval(draft)) return false;
+  const head = currentHead(draft);
+  return !(draft.githubReviews ?? []).some((review) => review.isViewer && review.state === 'APPROVED' && review.commit === head);
+}
+
+export function viewerThreadsText(tally: ViewerThreadTally | undefined): string | null {
+  if (!tally || tally.total === 0) return null;
+  if (tally.total === 1) return tally.resolved === 1 ? 'Your 1 comment resolved' : 'Your 1 comment unresolved';
+  if (tally.resolved === tally.total) return `All ${tally.total} of your comments resolved`;
+  return `${tally.resolved} of ${tally.total} of your comments resolved`;
 }
 
 export function commentCountText(count: number): string {
@@ -123,6 +146,8 @@ export function queueRowTitle(review: ReviewDraft | InFlightReview | QueuedRevie
   if (ages.reviewed) lines.push(`Reviewed ${ages.reviewed}`);
   if (ages.posted) lines.push(`Posted ${ages.posted}`);
   if (!('reviewedHead' in review)) return lines.join('\n');
+  const viewerThreadText = viewerThreadsText(review.viewerThreads);
+  if (viewerThreadText) lines.push(viewerThreadText);
   const commentCount = review.comments.length;
   if (review.status !== 'error') lines.push(`Automated review: ${queueRowVerdictLabel(review.verdict)}, ${commentCountText(commentCount)}`);
   const approvalContext = viewerApprovalContext(review);
@@ -331,6 +356,7 @@ export function detailThreadItems(draft: ReviewDraft): { thread: TeamReviewThrea
 export function isReviewNeeded(draft: ReviewDraft): boolean {
   if (answeredNonNitThreads(draft).length > 0) return true;
   if (hasStandingViewerApproval(draft)) return false;
+  if (isAwaitingViewerAfterResolvedComments(draft)) return true;
   return !(draft.githubReviews ?? []).some((review) => settlesReview(review, currentHead(draft)));
 }
 
@@ -668,7 +694,7 @@ export function readyRowSignature(draft: ReviewDraft): string {
 
 export function detailHeadingSignature(review: ReviewDraft | InFlightReview): string {
   if (!('reviewedHead' in review)) return JSON.stringify([review.prCreatedAt, review.priorReviewedHead]);
-  return JSON.stringify([review.prCreatedAt, review.reviewedAt, review.postedAt, review.githubReviews, review.liveHead, review.priorReviewedHead]);
+  return JSON.stringify([review.prCreatedAt, review.reviewedAt, review.postedAt, review.githubReviews, review.liveHead, review.priorReviewedHead, review.viewerThreads]);
 }
 
 export function isInFlightProgressOnlyChange(previous: TeamReviewStatus | null | undefined, next: TeamReviewStatus): boolean {

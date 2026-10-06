@@ -390,7 +390,7 @@ function isSameGithubReviews(left: readonly GithubReview[] | undefined, right: r
 }
 
 function presentedDraft(entry: TeamReviewStateEntry, draft: ReviewDraft): ReviewDraft {
-  draft = { ...draft, ...(entry.threads ? { threads: entry.threads } : {}) };
+  draft = { ...draft, ...(entry.threads ? { threads: entry.threads } : {}), ...(entry.viewerThreads ? { viewerThreads: entry.viewerThreads } : {}) };
   const withReviewTime = entry.reviewedAt !== undefined ? { ...draft, reviewedAt: entry.reviewedAt } : draft;
   const withReviews = entry.githubReviews?.length ? { ...withReviewTime, githubReviews: entry.githubReviews } : withReviewTime;
   const withDecision = entry.reviewDecision ? { ...withReviews, reviewDecision: entry.reviewDecision } : withReviews;

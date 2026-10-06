@@ -152,3 +152,22 @@ test('hand review contracts parse new fields and default legacy status to no han
   assert.deepEqual(TeamReviewStatus.parse({ ...snapshot, handReview: [handReview] }).handReview, [handReview]);
   assert.deepEqual(TeamReviewStatus.parse(snapshot).handReview, []);
 });
+
+
+test('viewer thread counts remain optional and round-trip through draft and saved entry contracts', () => {
+  const draft = {
+    key: 'Acme/app#1', repo: 'Acme/app', number: 1, title: 'PR', url: 'https://github.com/Acme/app/pull/1',
+    author: 'teammate', tier: 'full', reasons: [], reviewedHead: HEAD, verdict: 'APPROVE', summary: 'Fine', body: 'Fine', comments: [], status: 'ready',
+  };
+  const entry = { draft: null, reviewedHead: null, inFlight: false, skipReason: null, updatedAt: 1000 };
+  assert.equal(ReviewDraft.parse(draft).viewerThreads, undefined);
+  assert.equal(TeamReviewStateEntry.parse(entry).viewerThreads, undefined);
+  for (const viewerThreads of [{ total: 0, resolved: 0 }, { total: 5, resolved: 2 }, { total: 5, resolved: 5 }]) {
+    assert.deepEqual(ReviewDraft.parse({ ...draft, viewerThreads }).viewerThreads, viewerThreads);
+    assert.deepEqual(TeamReviewStateEntry.parse({ ...entry, viewerThreads }).viewerThreads, viewerThreads);
+  }
+  for (const viewerThreads of [{ total: -1, resolved: 0 }, { total: 1, resolved: -1 }, { total: 1.5, resolved: 0 }, { total: 1, resolved: 0.5 }, { total: '1', resolved: 0 }]) {
+    assert.equal(ReviewDraft.safeParse({ ...draft, viewerThreads }).success, false);
+    assert.equal(TeamReviewStateEntry.safeParse({ ...entry, viewerThreads }).success, false);
+  }
+});

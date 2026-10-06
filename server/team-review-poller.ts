@@ -1,4 +1,4 @@
-import { hasPresentableThreads, isThreadPlaceholderDraft, answeredViewerThreads, shouldAutoResolveThread, shouldJudgeThread, buildThreadJudgePrompt, parseThreadJudgeResult, threadJudgePatch, THREAD_JUDGE_BACKOFF_MS, THREAD_PLACEHOLDER_ERROR } from './core/team-review-threads-core.ts';
+import { viewerThreadTally, hasPresentableThreads, isThreadPlaceholderDraft, answeredViewerThreads, shouldAutoResolveThread, shouldJudgeThread, buildThreadJudgePrompt, parseThreadJudgeResult, threadJudgePatch, THREAD_JUDGE_BACKOFF_MS, THREAD_PLACEHOLDER_ERROR } from './core/team-review-threads-core.ts';
 import * as core from './core/team-review-core.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
 import { secondaryRateLimitWaitMs } from './core/lane-backoff.ts';
@@ -308,6 +308,11 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       const nodes = fetched.get(candidate.key);
       const head = entry?.liveHead;
       if (!entry || !nodes || !head) continue;
+      const viewerThreads = viewerThreadTally(nodes);
+      if (viewerThreads.total !== entry.viewerThreads?.total || viewerThreads.resolved !== entry.viewerThreads?.resolved) {
+        entry.viewerThreads = viewerThreads;
+        isDirty = true;
+      }
       const threads = answeredViewerThreads(nodes, entry.threads ?? [], head, entry.autoResolvedThreadIds);
       if (JSON.stringify(threads) !== JSON.stringify(entry.threads)) isDirty = true;
       entry.threads = threads;
@@ -320,6 +325,8 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
         const resolution = await github.resolveReviewThread(thread.id).catch((error: unknown) => ({ ok: false, err: errorMessage(error) }));
         if (resolution.ok) {
           thread.isResolved = true;
+          viewerThreads.resolved += 1;
+          entry.viewerThreads = viewerThreads;
           entry.autoResolvedThreadIds = [...(entry.autoResolvedThreadIds ?? []), thread.id];
         }
         if (!resolution.ok) thread.resolveError = resolution.err || 'GitHub refused to resolve the thread';
@@ -506,7 +513,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   function getDraft(key: string): ReviewDraftType | null {
     const entry = state[key];
     if (!entry?.draft) return null;
-    return { ...entry.draft, threads: entry.threads, liveHead: entry.liveHead ?? entry.draft.liveHead };
+    return { ...entry.draft, threads: entry.threads, viewerThreads: entry.viewerThreads, liveHead: entry.liveHead ?? entry.draft.liveHead };
   }
 
   async function updateDraft(key: string, expected: DraftExpectation, patch: DraftPatch): Promise<ReviewDraftType | null> {

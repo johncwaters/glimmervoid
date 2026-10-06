@@ -1,5 +1,5 @@
 import { TeamReviewThreadResult } from '../../shared/contracts/team-review.ts';
-import type { ReviewDraft, TeamReviewCompareFiles, TeamReviewThread, TeamReviewThreadNode, TeamReviewThreadResult as ThreadResult } from '../../shared/contracts/team-review.ts';
+import type { ReviewDraft, TeamReviewCompareFiles, TeamReviewThread, TeamReviewThreadNode, TeamReviewThreadResult as ThreadResult, ViewerThreadTally } from '../../shared/contracts/team-review.ts';
 import { parseLeadingFindingHeader, withoutAutomatedNote } from '../../shared/team-review-markdown.ts';
 import { contentMarker } from './visions-dispatch-core.ts';
 
@@ -9,6 +9,11 @@ export const THREAD_PLACEHOLDER_ERROR = 'No local review draft. Review the answe
 const THREAD_COMMENTS_MAX_CHARS = 20000;
 const THREAD_PATCH_MAX_CHARS = 24000;
 const COMPARE_FILES_MAX = 300;
+
+export function viewerThreadTally(nodes: readonly TeamReviewThreadNode[]): ViewerThreadTally {
+  const viewerThreads = nodes.filter((node) => node.comments.nodes[0]?.viewerDidAuthor);
+  return { total: viewerThreads.length, resolved: viewerThreads.filter((node) => node.isResolved).length };
+}
 
 export function answeredViewerThreads(nodes: readonly TeamReviewThreadNode[], previous: readonly TeamReviewThread[], head: string, autoResolvedThreadIds: readonly string[] = []): TeamReviewThread[] {
   return nodes.flatMap((node) => {
