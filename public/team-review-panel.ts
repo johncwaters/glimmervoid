@@ -12,10 +12,10 @@ import { formatTrailOffset } from './radar-core.ts';
 import { createSettingsLink } from './settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
-  answeredNonNitThreads, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, chooseSelectedReviewKey,
+  answeredNonNitThreads, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, queueRowVerdictLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
-  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, caughtUpDetail, queueRowGlyph, queueRowExceptionReason, commentCountText, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
+  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, caughtUpDetail, queueRowGlyph, commentCountText, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
 } from './team-review-view-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
 import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
@@ -245,25 +245,20 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
   row.classList.remove('pr-queue-row-quiet');
   const rowGlyph = queueRowGlyph(review, kind);
   const glyph = el('span', 'pr-queue-glyph');
-  glyph.title = rowGlyph.meaning;
   glyph.append(createStateGlyph(rowGlyph.tone));
   const bottom = el('span', 'pr-queue-bottom');
-  bottom.append(createAuthor(review.author, 16, 'pr-queue-author'));
+  bottom.append(createRowStateWord(rowGlyph), createAuthor(review.author, 16, 'pr-queue-author'));
   if (review.requestSource === 'direct') {
     const directMarker = el('span', 'pr-queue-direct', '@');
     directMarker.title = 'Requested from you directly';
     bottom.append(directMarker);
   }
   if (kind === 'inReview') bottom.append(el('span', 'pr-phase-label', phaseLabel((review as InFlightReview).phase)));
-  if (kind === 'queued') bottom.append(el('span', 'pr-phase-label', 'waiting for a slot'));
   if ((kind === 'ready' || kind === 'settled') && 'status' in review && review.status !== 'error') {
     const verdict = el('span', 'pr-queue-verdict', queueRowVerdictLabel(review.verdict));
     verdict.dataset.tone = verdictTone(review.verdict);
     bottom.append(verdict);
   }
-  const exceptionReason = kind === 'posted' ? null : queueRowExceptionReason(review);
-  if (exceptionReason) bottom.append(el('span', 'pr-queue-exception', exceptionReason));
-  if (kind === 'attention' && 'status' in review) bottom.append(el('span', `pr-attention-label pr-attention-label-${review.status}`, attentionStatusLabel(review.status)));
   if ('reviewedHead' in review && review.comments.length > 0) bottom.append(el('span', 'pr-queue-comment-count', commentCountText(review.comments.length)));
   const replyCount = 'reviewedHead' in review ? answeredNonNitThreads(review).length : 0;
   if (replyCount > 0) bottom.append(el('span', 'pr-queue-comment-count', `${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}`));
@@ -286,6 +281,12 @@ function selectReviewOnClick(row: HTMLButtonElement, reviewKey: string): void {
   });
 }
 
+function createRowStateWord(rowGlyph: { tone: string; meaning: string }): HTMLSpanElement {
+  const stateWord = el('span', 'my-pr-stage pr-queue-state', rowGlyph.meaning);
+  stateWord.dataset.tone = rowGlyph.tone;
+  return stateWord;
+}
+
 function createQueueRowTop(review: ReviewDraft | InFlightReview | QueuedReview, hasMultipleRepos: boolean): HTMLSpanElement {
   const top = el('span', 'pr-queue-top');
   top.append(
@@ -306,10 +307,9 @@ function createHandReviewSection(reviews: QueuedReview[], hasMultipleRepos: bool
     _queueRowTitles.set(row, title);
     const handReviewGlyph = queueRowGlyph(review, 'handReview');
     const glyph = el('span', 'pr-queue-glyph');
-    glyph.title = handReviewGlyph.meaning;
     glyph.append(createStateGlyph(handReviewGlyph.tone));
     const bottom = el('span', 'pr-queue-bottom');
-    bottom.append(createAuthor(review.author, 16, 'pr-queue-author'), el('span', 'pr-queue-exception', 'From a fork'));
+    bottom.append(createRowStateWord(handReviewGlyph), createAuthor(review.author, 16, 'pr-queue-author'));
     row.append(glyph, createQueueRowTop(review, hasMultipleRepos), bottom);
     section.append(row);
   }

@@ -67,6 +67,9 @@ async function verifyRows(page: Page): Promise<void> {
     tone: button.querySelector('.pr-queue-verdict')?.getAttribute('data-tone'),
     bottom: button.querySelector('.pr-queue-bottom')?.textContent,
     count: button.querySelector('.pr-queue-comment-count')?.textContent,
+    stateWord: button.querySelector('.pr-queue-state')?.textContent,
+    stateTone: button.querySelector('.pr-queue-state')?.getAttribute('data-tone'),
+    glyphTone: button.querySelector('.pr-queue-glyph .state-glyph')?.getAttribute('data-tone'),
     authorAvatars: button.querySelectorAll('.pr-queue-author .avatar').length,
     reviewerAvatars: button.querySelectorAll('.pr-queue-reviewers .avatar').length,
     title: button.getAttribute('title'),
@@ -82,6 +85,8 @@ async function verifyRows(page: Page): Promise<void> {
     assert.equal(row.authorAvatars, isDiscardedRow ? 0 : 1);
     assert.equal(row.accessibleName, row.title);
     assert.equal(row.ref, row.key?.replace('Acme/app', ''));
+    assert.equal(row.stateTone, row.glyphTone);
+    assert.equal(Boolean(row.stateWord), !isDiscardedRow);
   }
   assert.deepEqual(rows.slice(0, 4).map((row) => [row.verdict, row.tone]), [
     ['Approve', 'ok'], ['Nits', 'info'], ['Changes', 'warn'], ['Blocked', 'crit'],
@@ -89,6 +94,7 @@ async function verifyRows(page: Page): Promise<void> {
   const nits = rows.find((row) => row.key === 'Acme/app#2');
   assert.ok(nits);
   assert.equal(nits.count, '2 comments');
+  assert.equal(nits.stateWord, 'Waits on you');
   assert.match(nits.bottom ?? '', /since approval/);
   assert.match(nits.title ?? '', /Acme\/app#2:.*\nWaits on you\n/s);
   assert.match(nits.accessibleName ?? '', /Nits, 2 comments/);

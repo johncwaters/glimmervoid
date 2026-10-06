@@ -873,10 +873,17 @@ test('queue row glyphs name the operator outcome on posted rows and the next ste
   assert.deepEqual(queueRowGlyph({ ...posted, postedEvent: undefined }, 'posted'), { tone: 'muted', meaning: 'Posted' });
   assert.deepEqual(queueRowGlyph(draft(2), 'ready'), { tone: 'warn', meaning: 'Waits on you' });
   assert.deepEqual(queueRowGlyph(draft(3, { checksState: 'FAILURE' }), 'ready'), { tone: 'wait', meaning: 'Checks failing' });
-  assert.deepEqual(queueRowGlyph(draft(4), 'settled'), { tone: 'ok', meaning: 'No review needed' });
+  assert.deepEqual(queueRowGlyph(draft(4), 'settled'), { tone: 'ok', meaning: 'Others reviewed' });
+  assert.deepEqual(queueRowGlyph(draft(4, { postedEvent: 'APPROVE', postedAt: 1 }), 'settled'), { tone: 'ok', meaning: 'You approved' });
+  assert.deepEqual(queueRowGlyph(draft(4, { githubReviews: [{ ...viewerRequestedChanges, commit: 'b'.repeat(40) }, { login: 'teammate', state: 'APPROVED', commit: HEAD, isViewer: false, submittedAt: '2026-10-04T10:00:00Z' }] }), 'settled'), { tone: 'ok', meaning: 'Others reviewed' });
+  const teammateApprovalAtHead = { login: 'teammate', state: 'APPROVED', commit: HEAD, isViewer: false, submittedAt: '2026-10-04T10:00:00Z' } as const;
+  assert.deepEqual(queueRowGlyph(draft(4, { reviewDecision: 'APPROVED', githubReviews: [{ login: 'me', state: 'APPROVED', commit: 'b'.repeat(40), isViewer: true, submittedAt: '2026-10-03T10:00:00Z' }, teammateApprovalAtHead] }), 'settled'), { tone: 'ok', meaning: 'You approved' });
+  assert.deepEqual(queueRowGlyph(draft(4, { githubReviews: [{ login: 'me', state: 'COMMENTED', commit: HEAD, isViewer: true, submittedAt: '2026-10-03T10:00:00Z' }, teammateApprovalAtHead] }), 'settled'), { tone: 'muted', meaning: 'You commented' });
+  assert.equal(queueRowGlyph(draft(8, { isDraft: true }), 'queued').meaning, 'Queued, Draft');
+  assert.equal(queueRowGlyph(draft(9, { checksState: 'FAILURE' }), 'inReview').meaning, 'In review, Checks failing');
   assert.deepEqual(queueRowGlyph(draft(5, { status: 'error' }), 'attention'), { tone: 'danger', meaning: 'Review failed' });
   assert.deepEqual(queueRowGlyph(draft(6, { status: 'stale' }), 'attention'), { tone: 'warn', meaning: 'Out of date' });
-  assert.deepEqual(queueRowGlyph(draft(7), 'handReview'), { tone: 'warn', meaning: 'Review by hand' });
+  assert.deepEqual(queueRowGlyph(draft(7), 'handReview'), { tone: 'warn', meaning: 'From a fork' });
 });
 
 test('only exceptional priority reasons earn row text, so plain team and ready requests stay silent', () => {

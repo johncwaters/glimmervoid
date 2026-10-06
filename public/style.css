@@ -2603,7 +2603,6 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-row-
   cursor: pointer;
 }
 .pr-queue-glyph { grid-column: 1; grid-row: 1 / -1; align-self: center; display: grid; place-items: center; }
-.pr-queue-glyph[title] { cursor: help; }
 .pr-caught-up { display: flex; flex-direction: column; gap: 4px; margin: 4px 14px 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-surface); }
 .pr-caught-up-title { display: flex; align-items: center; gap: 8px; color: var(--state-complete); font-size: 12px; }
 .pr-caught-up-detail { color: var(--text-dim); font-size: 11px; }
@@ -2673,12 +2672,8 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .pr-queue-row-
 .pr-queue-reviewers { display: inline-flex; flex: 0 1 auto; min-width: 0; margin-left: auto; overflow: hidden; vertical-align: middle; }
 .pr-queue-elapsed { flex: 0 0 auto; margin-left: auto; color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .pr-phase-label { color: var(--accent); white-space: nowrap; }
-.pr-attention-label { color: var(--state-waiting); white-space: nowrap; }
-.pr-attention-label-error { color: var(--state-failed); }
-.pr-attention-label-discarded { color: var(--text-dim); }
 .pr-queue-verdict { color: var(--accent); white-space: nowrap; }
 .pr-queue-direct { color: var(--accent); font-weight: 700; }
-.pr-queue-exception { color: var(--text-dim); white-space: nowrap; }
 .pr-queue-comment-count,
 .pr-queue-approval-context { flex: 0 0 auto; color: var(--text-muted); white-space: nowrap; }
 

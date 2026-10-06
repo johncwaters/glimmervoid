@@ -75,16 +75,31 @@ export function queueRowExceptionReason(review: Pick<QueuedReview, 'requestSourc
 }
 
 const FIXED_ROW_GLYPHS: Readonly<Partial<Record<QueueRowKind, QueueRowGlyph>>> = {
-  settled: { tone: 'ok', meaning: 'No review needed' },
-  inReview: { tone: 'wait', meaning: 'In review' },
-  queued: { tone: 'muted', meaning: 'Queued' },
   discarded: { tone: 'muted', meaning: 'Discarded' },
-  handReview: { tone: 'warn', meaning: 'Review by hand' },
+  handReview: { tone: 'warn', meaning: 'From a fork' },
 };
+
+function withExceptionReason(stateWord: string, review: Parameters<typeof queueRowExceptionReason>[0]): string {
+  const exceptionReason = queueRowExceptionReason(review);
+  return exceptionReason ? `${stateWord}, ${exceptionReason}` : stateWord;
+}
+
+function isViewerOutcomeCurrent(draft: ReviewDraft): boolean {
+  if (hasStandingViewerApproval(draft)) return true;
+  const viewerReviews = (draft.githubReviews ?? []).filter((review) => review.isViewer);
+  if (viewerReviews.length === 0) return true;
+  return viewerReviews.some((review) => review.commit === currentHead(draft));
+}
 
 export function queueRowGlyph(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind): QueueRowGlyph {
   const fixedGlyph = FIXED_ROW_GLYPHS[kind];
   if (fixedGlyph) return fixedGlyph;
+  if (kind === 'inReview') return { tone: 'wait', meaning: withExceptionReason('In review', review) };
+  if (kind === 'queued') return { tone: 'muted', meaning: withExceptionReason('Queued', review) };
+  if (kind === 'settled' && 'reviewedHead' in review) {
+    const outcome = isViewerOutcomeCurrent(review) ? postedOutcome(review) : null;
+    return outcome ? { tone: outcome.tone, meaning: outcome.label } : { tone: 'ok', meaning: 'Others reviewed' };
+  }
   if (kind === 'posted' && 'reviewedHead' in review) {
     const outcome = postedOutcome(review);
     return outcome ? { tone: outcome.tone, meaning: outcome.label } : { tone: 'muted', meaning: 'Posted' };
