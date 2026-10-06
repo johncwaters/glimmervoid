@@ -36,7 +36,7 @@ async function tryGit(args: string[], cwd: string): Promise<CommandResult> {
 function conflictingPr(headRefOid = 'a'.repeat(40)): MyPr {
   return {
     key: 'Acme/app#7', repo: 'Acme/app', number: 7, title: 'Fix', url: 'https://github.com/Acme/app/pull/7',
-    isDraft: false, state: 'OPEN', createdAt: '', mergedAt: null, updatedAt: '', baseRefName: 'main', headRefName: 'fix/checks',
+    isDraft: false, state: 'OPEN', createdAt: '', mergedAt: null, updatedAt: '', baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefName: 'fix/checks',
     isCrossRepository: false, headRefOid, isInMergeQueue: false, mergeMethod: 'SQUASH', mergeable: 'CONFLICTING',
     mergeStateStatus: 'DIRTY', reviewDecision: null, checks: { state: 'FAILURE', failing: ['lint'], pendingCount: 0 },
     unresolvedThreads: 0, threads: [], behindBy: 1, reviewRequests: [], approvals: 0, reviews: [], stage: 'conflicts', keepMergeable: true,
@@ -116,9 +116,9 @@ test('My PRs state uses the existing atomic store and survives a new state IO in
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-state-'));
   try {
     const statePath = path.join(root, 'my-prs-state.json');
-    const state = { keepMergeableKeys: ['Acme/app#7'], keepMergeableAttemptKeys: [`Acme/app#7@${'a'.repeat(40)}`], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [] };
+    const state = { keepMergeableKeys: ['Acme/app#7'], keepMergeableAttemptKeys: [`Acme/app#7@${'a'.repeat(40)}`], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [] };
     const stateIo = createMyPrsStateIo(statePath, { warn() {} });
-    assert.deepEqual(await stateIo.readState(), { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [] });
+    assert.deepEqual(await stateIo.readState(), { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [] });
     await stateIo.writeState(state);
     assert.deepEqual(await stateIo.readState(), state);
     assert.deepEqual(await createMyPrsStateIo(statePath, { warn() {} }).readState(), state);
@@ -135,7 +135,7 @@ test('My PRs state quarantines malformed saved flags and adopts no flags', async
     const statePath = path.join(root, 'my-prs-state.json');
     await fs.writeFile(statePath, JSON.stringify({ keepMergeableKeys: ['Acme/app#7'], keepMergeableAttemptKeys: ['bad'] }));
     const stateIo = createMyPrsStateIo(statePath, { warn: (message: string) => { warnings.push(message); } });
-    assert.deepEqual(await stateIo.readState(), { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [] });
+    assert.deepEqual(await stateIo.readState(), { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [] });
     assert.ok(warnings.some((warning) => warning.includes('quarantined')));
     assert.equal((await fs.readdir(root)).length, 1);
     assert.notEqual((await fs.readdir(root))[0], 'my-prs-state.json');
@@ -172,7 +172,8 @@ test('keep mergeable runs sandboxed with the review posture and the server fast-
     const remoteRefsBefore = await remoteRefs(harness.originDir);
     const heldRepairShas: string[] = [];
     const pushCountsWhenHeld: number[] = [];
-    await harness.fix(pr, new AbortController().signal, async (repairSha) => { heldRepairShas.push(repairSha); pushCountsWhenHeld.push(harness.pushes.length); }, () => pr);
+    const repairOutcome = await harness.fix(pr, new AbortController().signal, async (repairSha) => { heldRepairShas.push(repairSha); pushCountsWhenHeld.push(harness.pushes.length); }, () => pr);
+    assert.deepEqual(repairOutcome, { outcome: 'pushed' });
     assert.equal(createdSessions.length, 1);
     const workDir = createdSessions[0].path;
     assert.match(createdSessions[0].id, /^my-prs:/);
@@ -562,7 +563,7 @@ test('keep mergeable aborts a session past the deadline read from teamReview.kee
         await aborted;
       },
     });
-    await harness.fix(conflictingPr(harness.headSha), new AbortController().signal);
+    assert.deepEqual(await harness.fix(conflictingPr(harness.headSha), new AbortController().signal), { outcome: 'timed-out', reason: 'not pushed: the session ran past its 420s deadline' });
     assert.equal((sessionSignal as AbortSignal | null)?.aborted, true);
     assert.deepEqual(harness.pushes, []);
     assert.ok(harness.warnings.some((warning) => warning.includes('420s deadline')));
@@ -585,7 +586,7 @@ test('keep mergeable stops a session when its dispatch is cancelled and pushes n
         assert.equal(signal.aborted, true);
       },
     });
-    await harness.fix(conflictingPr(harness.headSha), cancel.signal);
+    assert.deepEqual(await harness.fix(conflictingPr(harness.headSha), cancel.signal), { outcome: 'stopped', reason: 'The repair was stopped' });
     assert.deepEqual(harness.pushes, []);
     assert.deepEqual(await fs.readdir(harness.workRoot), []);
   } finally {
@@ -665,7 +666,20 @@ test('keep mergeable refuses with the sandbox reason in its log line before stag
     spawnSession: async () => { calls.push('spawn'); },
     runGit: async () => { calls.push('git'); return { ok: false, out: '', err: 'unused' }; },
   });
-  await fix(conflictingPr(), new AbortController().signal);
+  assert.deepEqual(await fix(conflictingPr(), new AbortController().signal), { outcome: 'failed', reason: 'not started: the Claude Code sandbox needs bwrap and socat, and bwrap and socat are not on PATH. Install bubblewrap and socat' });
   assert.deepEqual(calls, []);
   assert.deepEqual(warnings, ['[my-prs] keep mergeable for Acme/app#7: not started: the Claude Code sandbox needs bwrap and socat, and bwrap and socat are not on PATH. Install bubblewrap and socat']);
+});
+
+test('keep mergeable returns no-change with the logged reason when the session commits nothing', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-no-change-'));
+  try {
+    const harness = await fixHarness(root, { spawnSession: async () => {} });
+    assert.deepEqual(await harness.fix(conflictingPr(harness.headSha), new AbortController().signal), { outcome: 'no-change', reason: 'not pushed: the session committed nothing' });
+    assert.deepEqual(harness.pushes, []);
+    assert.ok(harness.warnings.some((warning) => warning.endsWith('not pushed: the session committed nothing')));
+    assert.deepEqual(await fs.readdir(harness.workRoot), []);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });

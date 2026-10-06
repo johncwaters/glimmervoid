@@ -1,4 +1,4 @@
-import type { MyPr, MyPrAutoRebase, MyPrSearchNode, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrAutoRebase, MyPrKeepMergeableAttemptRecord, MyPrSearchNode, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../shared/contracts/my-prs.ts';
 import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_ENVIRONMENT_ARGS } from './lane-permissions-core.ts';
 import { prKey } from './team-review-core.ts';
 import type { TeamReviewSettings, TeamReviewSettingsSource } from './team-review-core.ts';
@@ -73,14 +73,15 @@ export function keepMergeableAttemptKey(pr: Pick<MyPr, 'key' | 'headRefOid'>): s
   return `${keepMergeableAttemptKeyPrefix(pr.key)}${pr.headRefOid}`;
 }
 
-export function prunedKeepMergeableState({ keepMergeableKeys, keepMergeableAttemptKeys, keepMergeablePushedHeadKeys, listedPrKeys, returnedCount, totalCount }: {
-  keepMergeableKeys: Iterable<string>; keepMergeableAttemptKeys: Iterable<string>; keepMergeablePushedHeadKeys: Iterable<string>; listedPrKeys: ReadonlySet<string>; returnedCount: number; totalCount: number;
-}): { keepMergeableKeys: string[]; keepMergeableAttemptKeys: string[]; keepMergeablePushedHeadKeys: string[] } {
-  const savedState = { keepMergeableKeys: [...keepMergeableKeys], keepMergeableAttemptKeys: [...keepMergeableAttemptKeys], keepMergeablePushedHeadKeys: [...keepMergeablePushedHeadKeys] };
+export function prunedKeepMergeableState({ keepMergeableKeys, keepMergeableAttemptKeys, keepMergeablePushedHeadKeys, keepMergeableAttempts = [], listedPrKeys, returnedCount, totalCount }: {
+  keepMergeableAttempts?: Iterable<MyPrKeepMergeableAttemptRecord>; keepMergeableKeys: Iterable<string>; keepMergeableAttemptKeys: Iterable<string>; keepMergeablePushedHeadKeys: Iterable<string>; listedPrKeys: ReadonlySet<string>; returnedCount: number; totalCount: number;
+}): { keepMergeableKeys: string[]; keepMergeableAttemptKeys: string[]; keepMergeablePushedHeadKeys: string[]; keepMergeableAttempts: MyPrKeepMergeableAttemptRecord[] } {
+  const savedState = { keepMergeableAttempts: [...keepMergeableAttempts], keepMergeableKeys: [...keepMergeableKeys], keepMergeableAttemptKeys: [...keepMergeableAttemptKeys], keepMergeablePushedHeadKeys: [...keepMergeablePushedHeadKeys] };
   if (isSearchTruncated(returnedCount, totalCount)) return savedState;
   const listedAttemptKeyPrefixes = [...listedPrKeys].map(keepMergeableAttemptKeyPrefix);
   const isListedHeadKey = (headKey: string) => listedAttemptKeyPrefixes.some((prefix) => headKey.startsWith(prefix));
   return {
+    keepMergeableAttempts: savedState.keepMergeableAttempts.filter((attempt) => listedPrKeys.has(attempt.key)),
     keepMergeableKeys: savedState.keepMergeableKeys.filter((key) => listedPrKeys.has(key)),
     keepMergeableAttemptKeys: savedState.keepMergeableAttemptKeys.filter(isListedHeadKey),
     keepMergeablePushedHeadKeys: savedState.keepMergeablePushedHeadKeys.filter(isListedHeadKey),
@@ -137,9 +138,19 @@ export function mergeQueuePositions(mergeQueueKeys: readonly string[], prs: read
   return positionByKey;
 }
 
-export function shouldFixMergeability(pr: MyPr, keepMergeableKeys: ReadonlySet<string>, attemptedHeads: ReadonlySet<string>): boolean {
+function isAttemptedHeadRetryable(pr: MyPr, keepMergeablePushedHeadKeys: ReadonlySet<string>, lastAttempt: MyPrKeepMergeableAttemptRecord | undefined): boolean {
+  if (isHeadPushedByKeepMergeable(pr, keepMergeablePushedHeadKeys)) return false;
+  const isLastAttemptForThisHead = lastAttempt !== undefined && lastAttempt.key === pr.key && lastAttempt.headRefOid === pr.headRefOid;
+  if (!isLastAttemptForThisHead) return true;
+  if (lastAttempt.outcome === 'stopped') return false;
+  return lastAttempt.baseRefOid !== pr.baseRefOid;
+}
+
+export function shouldFixMergeability(pr: MyPr, keepMergeableKeys: ReadonlySet<string>, { attemptedHeadKeys, keepMergeablePushedHeadKeys, lastAttempt }: {
+  attemptedHeadKeys: ReadonlySet<string>; keepMergeablePushedHeadKeys: ReadonlySet<string>; lastAttempt?: MyPrKeepMergeableAttemptRecord;
+}): boolean {
   if (!keepMergeableKeys.has(pr.key) || pr.state !== 'OPEN') return false;
-  if (attemptedHeads.has(keepMergeableAttemptKey(pr))) return false;
+  if (attemptedHeadKeys.has(keepMergeableAttemptKey(pr)) && !isAttemptedHeadRetryable(pr, keepMergeablePushedHeadKeys, lastAttempt)) return false;
   return pr.mergeable === 'CONFLICTING' || pr.checks.state === 'FAILURE' || pr.checks.state === 'ERROR';
 }
 
@@ -297,7 +308,7 @@ export function toMyPr(node: MyPrSearchNode, behindBy: number | null, threadNode
   const pr: MyPr = {
     key: prKey(node.repository.nameWithOwner, node.number), repo: node.repository.nameWithOwner, number: node.number,
     title: node.title, url: node.url, isDraft: node.isDraft, state: node.state, createdAt: node.createdAt, mergedAt: node.mergedAt,
-    updatedAt: node.updatedAt, baseRefName: node.baseRefName, headRefName: node.headRefName, isCrossRepository: node.isCrossRepository, headRefOid: node.headRefOid, isInMergeQueue: node.isInMergeQueue,
+    updatedAt: node.updatedAt, baseRefName: node.baseRefName, baseRefOid: node.baseRefOid, headRefName: node.headRefName, isCrossRepository: node.isCrossRepository, headRefOid: node.headRefOid, isInMergeQueue: node.isInMergeQueue,
     mergeMethod: node.repository.viewerDefaultMergeMethod, mergeable: node.mergeable,
     mergeStateStatus: node.mergeStateStatus, reviewDecision: node.reviewDecision,
     checks: { state: node.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null, failing, pendingCount },
@@ -363,6 +374,11 @@ export function readMyPrsFeatureSettings(config: TeamReviewSettingsSource): MyPr
 
 export function keepMergeableTimeoutSeconds(config: TeamReviewSettingsSource): number {
   return readMyPrsFeatureSettings(config).keepMergeableTimeoutMinutes * 60;
+}
+
+export function currentKeepMergeableAttempt(pr: Pick<MyPr, 'key' | 'headRefOid'>, attempt: MyPrKeepMergeableAttemptRecord | undefined): MyPr['keepMergeableAttempt'] {
+  if (!attempt || attempt.key !== pr.key || attempt.headRefOid !== pr.headRefOid) return undefined;
+  return { outcome: attempt.outcome, reason: attempt.reason, at: attempt.at };
 }
 
 export function withAutoRebase(pr: MyPr, record: MyPrAutoRebase | undefined): MyPr {

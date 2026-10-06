@@ -280,7 +280,7 @@ test('the team name needs both an organization and a team', () => {
 test('a search node becomes a snapshot entry with user and team review requests', () => {
   const node: WorkflowSearchNode = {
     __typename: 'PullRequest', id: 'PR_1', number: 7, title: 'Fix', url: 'https://github.com/Acme/app/pull/7', isDraft: true, state: 'OPEN',
-    createdAt: '2026-10-04T11:00:00Z', mergedAt: null, updatedAt: '', baseRefName: 'main', headRefName: 'fix', isCrossRepository: true, headRefOid: 'b'.repeat(40),
+    createdAt: '2026-10-04T11:00:00Z', mergedAt: null, updatedAt: '', baseRefName: 'main', baseRefOid: 'c'.repeat(40), headRefName: 'fix', isCrossRepository: true, headRefOid: 'b'.repeat(40),
     isInMergeQueue: false, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED',
     repository: { nameWithOwner: 'Acme/app', viewerDefaultMergeMethod: 'SQUASH' },
     commits: { nodes: [{ commit: { statusCheckRollup: { state: 'FAILURE', contexts: { nodes: [] } } } }] },

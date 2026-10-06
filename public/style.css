@@ -8789,8 +8789,10 @@ html[data-layout="phone"][data-flying-animals="true"] .nyan-flight {
 }
 
 .reviews-refresh-control { display: contents; }
-.reviews-refresh-button { align-self: center; flex-shrink: 0; padding: 4px 8px; margin: 4px 6px 4px auto; }
-.reviews-refresh-status { order: 1; flex-basis: 100%; padding: 4px 12px 8px; color: var(--text-dim); font-size: 11px; overflow-wrap: anywhere; }
+.reviews-refresh-button { order: 2; align-self: center; flex-shrink: 0; padding: 4px 8px; margin: 4px 6px; }
+.reviews-refresh-status { order: 1; flex: 1 1 0; min-width: 0; align-self: center; padding-left: 8px; text-align: right; color: var(--text-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reviews-refresh-status[hidden] { display: block; }
+.pr-queue-head > .pr-queue-toggle { order: 3; }
 .reviews-retry-notice { overflow-wrap: anywhere; }
 .pr-content > .reviews-retry-notice { margin: 12px; }
 html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .reviews-refresh-control { display: none; }

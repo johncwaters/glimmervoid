@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyStateText, groupMyPrs, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, groupStackedMyPrs, chooseSelectedKey, keepMergeableControlState, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from '../public/my-prs-view-core.ts';
+import { emptyStateText, groupMyPrs, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, groupStackedMyPrs, chooseSelectedKey, keepMergeableControlState, keepMergeableRowLabel, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from '../public/my-prs-view-core.ts';
 import { toMyPr } from '../server/core/my-prs-core.ts';
 import type { MyPr, MyPrSearchNode, MyPrThread } from '../shared/contracts/my-prs.ts';
 
 const node: MyPrSearchNode = {
   __typename: 'PullRequest', id: 'PR_node', number: 1, title: 'Fix', url: 'https://github.com/Acme/app/pull/1', isDraft: false,
-  state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z', baseRefName: 'main', headRefName: 'feature', isCrossRepository: false, headRefOid: 'a'.repeat(40), isInMergeQueue: false,
+  state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z', baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefName: 'feature', isCrossRepository: false, headRefOid: 'a'.repeat(40), isInMergeQueue: false,
   mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', repository: { nameWithOwner: 'Acme/app', viewerDefaultMergeMethod: 'SQUASH' },
   commits: { nodes: [] }, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, latestReviews: { nodes: [] },
 };
@@ -304,4 +304,30 @@ test('a long stack is walked without recursive rendering or losing rows', () => 
   assert.equal(stacks.length, 1);
   assert.equal(stacks[0]?.rows.length, 10000);
   assert.equal(stacks[0]?.rows.at(-1)?.depth, 9999);
+});
+
+test('keep mergeable shows failure reasons and age beside the constant control label and gives running and saving priority', () => {
+  for (const outcome of ['failed', 'timed-out', 'no-change'] as const) {
+    const failedPr = { ...base, keepMergeable: true, keepMergeableAttempt: { outcome, reason: 'Could not fetch the base', at: 1234 } };
+    assert.equal(keepMergeableControlState(failedPr, false, '', true, '2m ago').statusText, 'Keep mergeable failed: Could not fetch the base (2m ago)');
+    assert.equal(keepMergeableControlState(failedPr, false).statusText, 'Keep mergeable failed: Could not fetch the base');
+    assert.equal(keepMergeableControlState({ ...failedPr, isKeepMergeableFixInFlight: true }, false).statusText, 'Keep mergeable is running');
+    assert.equal(keepMergeableControlState(failedPr, true).statusText, 'Saving...');
+    assert.equal(keepMergeableControlState(failedPr, false, 'Could not save').statusText, 'Could not save');
+    assert.equal(keepMergeableControlState({ ...failedPr, keepMergeable: false }, false).statusText, 'Off');
+    assert.equal(keepMergeableControlState(failedPr, false, '', false).isVisible, false);
+  }
+  for (const outcome of ['pushed', 'stopped'] as const) {
+    assert.equal(keepMergeableControlState({ ...base, keepMergeable: true, keepMergeableAttempt: { outcome, at: 1234 } }, false).statusText, 'On');
+  }
+  assert.equal(keepMergeableControlState({ ...base, keepMergeable: true, keepMergeableAttempt: { outcome: 'no-change', at: 1234 } }, false).statusText, 'Keep mergeable failed: The attempt produced no repair');
+});
+
+test('keep mergeable row label names a failed or running repair and carries the full status as its title', () => {
+  const pr = { ...base, keepMergeable: true, keepMergeableAttempt: { outcome: 'failed' as const, reason: 'not started: could not fetch', at: 1 } };
+  assert.deepEqual(keepMergeableRowLabel(pr, true, '2m ago'), { text: 'Repair failed', tone: 'danger', title: 'Keep mergeable failed: not started: could not fetch (2m ago)' });
+  assert.deepEqual(keepMergeableRowLabel({ ...pr, isKeepMergeableFixInFlight: true }, true), { text: 'Repairing', tone: 'warn', title: 'Keep mergeable is running' });
+  assert.equal(keepMergeableRowLabel({ ...pr, keepMergeableAttempt: { outcome: 'pushed' as const, at: 1 } }, true), null);
+  assert.equal(keepMergeableRowLabel({ ...pr, keepMergeable: false }, true), null);
+  assert.equal(keepMergeableRowLabel(pr, false), null);
 });

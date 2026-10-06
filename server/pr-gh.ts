@@ -167,7 +167,7 @@ const HEX_LABEL_COLOR = /^[0-9a-f]{6}$/i;
 const GH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const MERGED_SINCE_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MY_PR_FIELDS_FRAGMENT = `fragment myPrFields on PullRequest {
-  __typename id number title url isDraft state createdAt mergedAt updatedAt baseRefName headRefName isCrossRepository headRefOid isInMergeQueue mergeable mergeStateStatus reviewDecision
+  __typename id number title url isDraft state createdAt mergedAt updatedAt baseRefName baseRefOid headRefName isCrossRepository headRefOid isInMergeQueue mergeable mergeStateStatus reviewDecision
   repository { nameWithOwner viewerDefaultMergeMethod }
   commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 50) { nodes {
     __typename ... on CheckRun { name conclusion status } ... on StatusContext { context state }

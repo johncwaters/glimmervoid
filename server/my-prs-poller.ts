@@ -7,7 +7,7 @@ import { createTickLoop } from './lane-runner.ts';
 import type { SharedClock } from './lane-runner.ts';
 import type { PrGh } from './pr-gh.ts';
 import { MyPrsState } from '../shared/contracts/my-prs.ts';
-import type { MyPr, MyPrAutoRebase, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsState as MyPrsStateType, MyPrsStatus, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrAutoRebase, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrKeepMergeableAttemptRecord, MyPrMergeabilityFixResult, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsState as MyPrsStateType, MyPrsStatus, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
 
 const MY_PRS_RATE_LIMIT_RESOURCES = ['graphql'] as const;
 
@@ -18,7 +18,7 @@ interface MyPrsPollerDependencies {
   isMergeQueueEnabled?: boolean;
   readState?: () => Promise<unknown>;
   writeState?: (state: MyPrsStateType) => Promise<void>;
-  fixMergeability?: (pr: MyPr, signal: AbortSignal, onPushStarted: (repairSha: string) => Promise<void>, latestListedPr: () => MyPr | undefined) => Promise<void>;
+  fixMergeability?: (pr: MyPr, signal: AbortSignal, onPushStarted: (repairSha: string) => Promise<void>, latestListedPr: () => MyPr | undefined) => Promise<MyPrMergeabilityFixResult>;
   beforeStart?: () => Promise<void>;
   github: Pick<PrGh, 'viewer' | 'searchMyPrs' | 'behindCounts' | 'reviewThreadsBatch' | 'rebasePr' | 'rateLimitWaitMs'>;
   mergePr?: (pr: MyPr) => Promise<Omit<MyPrMergeResult, 'key'>>;
@@ -45,6 +45,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   const failedAutoRebaseAttempts = new Set<string>();
   const keepMergeableKeys = new Set<string>();
   const keepMergeableAttemptKeys = new Set<string>();
+  const keepMergeableAttemptsByKey = new Map<string, MyPrKeepMergeableAttemptRecord>();
   const keepMergeablePushedHeadKeys = new Set<string>();
   let mergeQueueKeys: string[] = [];
   const attemptedMergeKeys = new Set<string>();
@@ -62,6 +63,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
       for (const key of state.keepMergeableKeys) keepMergeableKeys.add(key);
       for (const key of state.keepMergeableAttemptKeys) keepMergeableAttemptKeys.add(key);
       for (const key of state.keepMergeablePushedHeadKeys) keepMergeablePushedHeadKeys.add(key);
+      for (const attempt of state.keepMergeableAttempts) keepMergeableAttemptsByKey.set(attempt.key, attempt);
       mergeQueueKeys = [...new Set(state.mergeQueueKeys)];
     })();
     return stateLoad;
@@ -75,7 +77,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   }
 
   async function writeCurrentState(): Promise<void> {
-    await dependencies.writeState?.(MyPrsState.parse({ keepMergeableKeys: [...keepMergeableKeys], keepMergeableAttemptKeys: [...keepMergeableAttemptKeys], mergeQueueKeys, keepMergeablePushedHeadKeys: [...keepMergeablePushedHeadKeys] }));
+    await dependencies.writeState?.(MyPrsState.parse({ keepMergeableKeys: [...keepMergeableKeys], keepMergeableAttemptKeys: [...keepMergeableAttemptKeys], mergeQueueKeys, keepMergeablePushedHeadKeys: [...keepMergeablePushedHeadKeys], keepMergeableAttempts: [...keepMergeableAttemptsByKey.values()] }));
   }
 
   const loop = createTickLoop({
@@ -161,8 +163,10 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   function pruneKeepMergeableState(returnedCount: number, totalCount: number): void {
     if (!isKeepMergeableEnabled) return;
     const prunedState = core.prunedKeepMergeableState({
-      keepMergeableKeys, keepMergeableAttemptKeys, keepMergeablePushedHeadKeys, listedPrKeys: new Set(previousPrs.map((pr) => pr.key)), returnedCount, totalCount,
+      keepMergeableKeys, keepMergeableAttemptKeys, keepMergeablePushedHeadKeys, keepMergeableAttempts: keepMergeableAttemptsByKey.values(), listedPrKeys: new Set(previousPrs.map((pr) => pr.key)), returnedCount, totalCount,
     });
+    keepMergeableAttemptsByKey.clear();
+    for (const attempt of prunedState.keepMergeableAttempts) keepMergeableAttemptsByKey.set(attempt.key, attempt);
     keepMergeableKeys.clear();
     for (const key of prunedState.keepMergeableKeys) keepMergeableKeys.add(key);
     keepMergeableAttemptKeys.clear();
@@ -174,7 +178,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   function withOperatorFlags(prs: MyPr[]): MyPr[] {
     const queuePositionByKey = core.mergeQueuePositions(mergeQueueKeys, prs);
     return prs.map((pr) => ({
-      ...pr, keepMergeable: keepMergeableKeys.has(pr.key), mergeQueuePosition: queuePositionByKey.get(pr.key) ?? null,
+      ...pr, keepMergeableAttempt: core.currentKeepMergeableAttempt(pr, keepMergeableAttemptsByKey.get(pr.key)), isKeepMergeableFixInFlight: fixesInFlight.has(pr.key), keepMergeable: keepMergeableKeys.has(pr.key), mergeQueuePosition: queuePositionByKey.get(pr.key) ?? null,
       isMergeQueueHeldForRepairPush: queuePositionByKey.has(pr.key) && core.isHeadPushedByKeepMergeable(pr, keepMergeablePushedHeadKeys),
     }));
   }
@@ -203,6 +207,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     fixControllersByKey.set(pr.key, fixController);
     const fixSignal = AbortSignal.any([shutdownController.signal, fixController.signal]);
     keepMergeableAttemptKeys.add(attemptKey);
+    fixesInFlight.add(pr.key);
     const forgetAbortedAttempt = () => { void forgetAttempt(attemptKey); };
     fixSignal.addEventListener('abort', forgetAbortedAttempt, { once: true });
     const holdTheRepairHeadBeforeThePush = (repairSha: string): Promise<void> => {
@@ -213,15 +218,30 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
       return loop.persist().then(writeCurrentState);
     };
     const attemptSaved = loop.persist();
-    const fix = attemptSaved.then(() => (fixSignal.aborted ? undefined : fixMergeability(pr, fixSignal, holdTheRepairHeadBeforeThePush, () => previousPrs.find((listed) => listed.key === pr.key)))).catch((error: unknown) => {
-      log?.warn(`[${core.MY_PRS_LANE_ID}] keep mergeable fix for ${pr.key} failed: ${error instanceof Error ? error.message : String(error)}`);
-    }).finally(() => {
+    const fix = attemptSaved.then((): Promise<MyPrMergeabilityFixResult> | MyPrMergeabilityFixResult => {
+      if (fixSignal.aborted) return { outcome: 'stopped', reason: 'The repair was stopped' };
+      return fixMergeability(pr, fixSignal, holdTheRepairHeadBeforeThePush, () => previousPrs.find((listed) => listed.key === pr.key));
+    }).catch((error: unknown): MyPrMergeabilityFixResult => {
+      const reason = (error instanceof Error ? error.message : String(error)) || 'The repair failed';
+      log?.warn(`[${core.MY_PRS_LANE_ID}] keep mergeable fix for ${pr.key} failed: ${reason}`);
+      return { outcome: 'failed', reason };
+    }).then(async (repairOutcome) => {
+      if (fixSignal.aborted) return;
+      if (repairOutcome.outcome === 'stopped') await forgetAttempt(attemptKey);
+      keepMergeableAttemptsByKey.set(pr.key, { key: pr.key, headRefOid: pr.headRefOid, baseRefOid: pr.baseRefOid, ...repairOutcome, at: now() });
+      await loop.persist();
+    }).finally(async () => {
       fixSignal.removeEventListener('abort', forgetAbortedAttempt);
       fixesInFlight.delete(pr.key);
       if (fixControllersByKey.get(pr.key) === fixController) fixControllersByKey.delete(pr.key);
       pendingFixes.delete(fix);
+      previousPrs = withOperatorFlags(previousPrs);
+      if (!loop.isStopped()) publishStatus();
+      if (fixSignal.aborted) await dispatchFixes();
     });
     pendingFixes.add(fix);
+    previousPrs = withOperatorFlags(previousPrs);
+    publishStatus();
     return attemptSaved;
   }
 
@@ -229,10 +249,9 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     const fixMergeability = dependencies.fixMergeability;
     if (!isKeepMergeableEnabled || !fixMergeability || loop.isStopped() || isLeftoverSweepRunning) return;
     for (const pr of previousPrs) {
-      if (fixesInFlight.has(pr.key) || !core.shouldFixMergeability(pr, keepMergeableKeys, keepMergeableAttemptKeys)) continue;
+      if (fixesInFlight.has(pr.key) || !core.shouldFixMergeability(pr, keepMergeableKeys, { attemptedHeadKeys: keepMergeableAttemptKeys, keepMergeablePushedHeadKeys, lastAttempt: keepMergeableAttemptsByKey.get(pr.key) })) continue;
       const attemptSaved = launchFix(pr, fixMergeability);
       if (!attemptSaved) continue;
-      fixesInFlight.add(pr.key);
       await attemptSaved;
       if (loop.isStopped()) return;
     }
@@ -273,7 +292,13 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     const refusal = await toggleRefusal(request, request.keepMergeable);
     if (refusal) return { ok: false, error: refusal };
     const key = prKey(request.repo, request.number);
-    if (request.keepMergeable) keepMergeableKeys.add(key);
+    if (request.keepMergeable) {
+      keepMergeableKeys.add(key);
+      const pr = previousPrs.find((candidate) => candidate.key === key);
+      const canClearAttempt = !fixesInFlight.has(key) || fixControllersByKey.get(key)?.signal.aborted === true;
+      if (pr && canClearAttempt) keepMergeableAttemptKeys.delete(core.keepMergeableAttemptKey(pr));
+      if (canClearAttempt) keepMergeableAttemptsByKey.delete(key);
+    }
     if (!request.keepMergeable) keepMergeableKeys.delete(key);
     if (!request.keepMergeable) cancelFixes([key]);
     await saveAndPublishFlags();

@@ -23,8 +23,24 @@ function toggleControlState(pr: MyPr, isOn: boolean, isPending: boolean, errorTe
   };
 }
 
-export function keepMergeableControlState(pr: MyPr, isPending: boolean, errorText = '', isFeatureEnabled = true): ToggleControlState {
-  return toggleControlState(pr, !!pr.keepMergeable, isPending, errorText, pr.keepMergeable ? 'On' : 'Off', isFeatureEnabled);
+export function keepMergeableRowLabel(pr: MyPr, isFeatureEnabled: boolean, attemptAgeText = ''): { text: string; tone: 'warn' | 'danger'; title: string } | null {
+  if (!isFeatureEnabled || !pr.keepMergeable) return null;
+  const title = keepMergeableControlState(pr, false, '', true, attemptAgeText).statusText;
+  if (pr.isKeepMergeableFixInFlight) return { text: 'Repairing', tone: 'warn', title };
+  const attempt = pr.keepMergeableAttempt;
+  if (!attempt || attempt.outcome === 'pushed' || attempt.outcome === 'stopped') return null;
+  return { text: 'Repair failed', tone: 'danger', title };
+}
+
+export function keepMergeableControlState(pr: MyPr, isPending: boolean, errorText = '', isFeatureEnabled = true, attemptAgeText = ''): ToggleControlState {
+  const attempt = pr.keepMergeableAttempt;
+  let settledText = pr.keepMergeable ? 'On' : 'Off';
+  if (pr.keepMergeable && attempt && attempt.outcome !== 'pushed' && attempt.outcome !== 'stopped') {
+    const age = attemptAgeText ? ` (${attemptAgeText})` : '';
+    settledText = `Keep mergeable failed: ${attempt.reason ?? 'The attempt produced no repair'}${age}`;
+  }
+  if (pr.isKeepMergeableFixInFlight) settledText = 'Keep mergeable is running';
+  return toggleControlState(pr, !!pr.keepMergeable, isPending, errorText, settledText, isFeatureEnabled);
 }
 
 export function isKeepMergeableFeatureEnabled(status: MyPrsStatusType | null): boolean {

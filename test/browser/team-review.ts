@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import type { Page } from 'playwright-core';
 import { ReviewDraft, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import type { Layout } from './cases-core.ts';
+import { verifyMyPrKeepMergeable } from './my-prs.ts';
 
 const REVIEWED_HEAD = 'a'.repeat(40);
 const PREVIOUS_HEAD = 'b'.repeat(40);
@@ -285,4 +286,5 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout): Promise<
   await verifyUnchangedQueueKeepsRowNodes(page, status);
   await verifyQueueRebuildsAfterEmptyStatus(page, status);
   await verifyViewerThreadCounts(page, status);
+  await verifyMyPrKeepMergeable(page);
 }

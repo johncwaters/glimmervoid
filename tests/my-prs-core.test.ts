@@ -1,15 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { autoRebaseRecord, deriveStage, hasUnresolvedThreads, isHeadPushedByKeepMergeable, isMovedBranchPushRejection, keepMergeableAttemptKey, keepMergeableClaudeArgs, keepMergeablePermissions, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, keepMergeableFixesToCancel, keepMergeableHandoff, keepMergeablePrompt, keepMergeablePushArgs, keepMergeablePushTarget, keepMergeablePushUrl, mergeAttemptKey, mergeQueuePositions, mergeQueuePrsToMerge, prunedMergeQueueKeys, shouldFixMergeability, shouldAutoRebase, shouldRebaseMyPr, mergedSinceDate, myPrsShouldStart, prunedKeepMergeableState, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/core/my-prs-core.ts';
+import { autoRebaseRecord, currentKeepMergeableAttempt, deriveStage, hasUnresolvedThreads, isHeadPushedByKeepMergeable, isMovedBranchPushRejection, keepMergeableAttemptKey, keepMergeableClaudeArgs, keepMergeablePermissions, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, keepMergeableFixesToCancel, keepMergeableHandoff, keepMergeablePrompt, keepMergeablePushArgs, keepMergeablePushTarget, keepMergeablePushUrl, mergeAttemptKey, mergeQueuePositions, mergeQueuePrsToMerge, prunedMergeQueueKeys, shouldFixMergeability, shouldAutoRebase, shouldRebaseMyPr, mergedSinceDate, myPrsShouldStart, prunedKeepMergeableState, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/core/my-prs-core.ts';
 import { MyPrSearchNode } from '../shared/contracts/my-prs.ts';
-import type { MyPr, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode, MyPrKeepMergeableAttemptRecord } from '../shared/contracts/my-prs.ts';
 
 const NOW = Date.parse('2026-09-28T12:00:00Z');
 const SHA = 'a'.repeat(40);
 function searchNode(): MyPrSearchNodeType {
   return {
     __typename: 'PullRequest', id: 'PR_node', number: 7, title: 'Fix', url: 'https://github.com/Acme/app/pull/7', isDraft: false,
-    state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T11:00:00Z', baseRefName: 'main', headRefName: 'feature', isCrossRepository: false, headRefOid: SHA, isInMergeQueue: false,
+    state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T11:00:00Z', baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefName: 'feature', isCrossRepository: false, headRefOid: SHA, isInMergeQueue: false,
     mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', repository: { nameWithOwner: 'Acme/app', viewerDefaultMergeMethod: 'SQUASH' },
     commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS', contexts: { nodes: [] } } } }] },
     reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [{ isResolved: true }] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [{ state: 'APPROVED' }] },
@@ -24,21 +24,66 @@ test('keep mergeable dispatches only flagged open conflicting or failing heads o
   const conflict = { ...pr, mergeable: 'CONFLICTING' as const };
   const attemptKey = keepMergeableAttemptKey(conflict);
   assert.equal(attemptKey, `${pr.key}@${SHA}`);
-  assert.equal(shouldFixMergeability(conflict, new Set(), new Set()), false);
-  assert.equal(shouldFixMergeability(conflict, flaggedKeys, new Set()), true);
-  assert.equal(shouldFixMergeability(conflict, flaggedKeys, new Set([attemptKey])), false);
-  assert.equal(shouldFixMergeability({ ...conflict, headRefOid: 'b'.repeat(40) }, flaggedKeys, new Set([attemptKey])), true);
+  assert.equal(shouldFixMergeability(conflict, new Set(), { attemptedHeadKeys: new Set(), keepMergeablePushedHeadKeys: new Set() }), false);
+  assert.equal(shouldFixMergeability(conflict, flaggedKeys, { attemptedHeadKeys: new Set(), keepMergeablePushedHeadKeys: new Set() }), true);
+  const failedAtThisBase: MyPrKeepMergeableAttemptRecord = { key: pr.key, headRefOid: pr.headRefOid, baseRefOid: pr.baseRefOid, outcome: 'failed', reason: 'No repair', at: NOW };
+  assert.equal(shouldFixMergeability(conflict, flaggedKeys, { attemptedHeadKeys: new Set([attemptKey]), keepMergeablePushedHeadKeys: new Set(), lastAttempt: failedAtThisBase }), false);
+  assert.equal(shouldFixMergeability({ ...conflict, headRefOid: 'b'.repeat(40) }, flaggedKeys, { attemptedHeadKeys: new Set([attemptKey]), keepMergeablePushedHeadKeys: new Set() }), true);
   for (const state of ['FAILURE', 'ERROR'] as const) {
-    assert.equal(shouldFixMergeability({ ...pr, checks: { ...pr.checks, state } }, flaggedKeys, new Set()), true);
+    assert.equal(shouldFixMergeability({ ...pr, checks: { ...pr.checks, state } }, flaggedKeys, { attemptedHeadKeys: new Set(), keepMergeablePushedHeadKeys: new Set() }), true);
   }
   for (const state of ['SUCCESS', 'PENDING', 'EXPECTED', null] as const) {
-    assert.equal(shouldFixMergeability({ ...pr, checks: { ...pr.checks, state } }, flaggedKeys, new Set()), false);
+    assert.equal(shouldFixMergeability({ ...pr, checks: { ...pr.checks, state } }, flaggedKeys, { attemptedHeadKeys: new Set(), keepMergeablePushedHeadKeys: new Set() }), false);
   }
-  assert.equal(shouldFixMergeability({ ...pr, mergeStateStatus: 'BEHIND', behindBy: 3 }, flaggedKeys, new Set()), false);
-  assert.equal(shouldFixMergeability({ ...pr, mergeStateStatus: 'DIRTY' }, flaggedKeys, new Set()), false);
+  assert.equal(shouldFixMergeability({ ...pr, mergeStateStatus: 'BEHIND', behindBy: 3 }, flaggedKeys, { attemptedHeadKeys: new Set(), keepMergeablePushedHeadKeys: new Set() }), false);
+  assert.equal(shouldFixMergeability({ ...pr, mergeStateStatus: 'DIRTY' }, flaggedKeys, { attemptedHeadKeys: new Set(), keepMergeablePushedHeadKeys: new Set() }), false);
   for (const state of ['CLOSED', 'MERGED'] as const) {
-    assert.equal(shouldFixMergeability({ ...conflict, state }, flaggedKeys, new Set()), false);
+    assert.equal(shouldFixMergeability({ ...conflict, state }, flaggedKeys, { attemptedHeadKeys: new Set(), keepMergeablePushedHeadKeys: new Set() }), false);
   }
+});
+
+test('a failed head retries once per changed base and only for its own last attempt', () => {
+  const pr = { ...readyPr(), mergeable: 'CONFLICTING' as const };
+  const keys = new Set([pr.key]);
+  const attemptedHeads = new Set([keepMergeableAttemptKey(pr)]);
+  const attempt: MyPrKeepMergeableAttemptRecord = { key: pr.key, headRefOid: pr.headRefOid, baseRefOid: pr.baseRefOid, outcome: 'failed', reason: 'No repair', at: NOW };
+  const movedBase = { ...pr, baseRefOid: 'c'.repeat(40) };
+  for (const outcome of ['failed', 'timed-out', 'no-change'] as const) {
+    const failedAttempt = { ...attempt, outcome };
+    assert.equal(shouldFixMergeability(pr, keys, { attemptedHeadKeys: attemptedHeads, keepMergeablePushedHeadKeys: new Set(), lastAttempt: failedAttempt }), false);
+    assert.equal(shouldFixMergeability(movedBase, keys, { attemptedHeadKeys: attemptedHeads, keepMergeablePushedHeadKeys: new Set(), lastAttempt: failedAttempt }), true);
+    const retriedAttempt = { ...failedAttempt, baseRefOid: movedBase.baseRefOid };
+    assert.equal(shouldFixMergeability(movedBase, keys, { attemptedHeadKeys: attemptedHeads, keepMergeablePushedHeadKeys: new Set(), lastAttempt: retriedAttempt }), false);
+    assert.equal(shouldFixMergeability({ ...movedBase, baseRefOid: 'd'.repeat(40) }, keys, { attemptedHeadKeys: attemptedHeads, keepMergeablePushedHeadKeys: new Set(), lastAttempt: retriedAttempt }), true);
+  }
+  const pushedAttempt = { ...attempt, outcome: 'pushed' as const };
+  assert.equal(shouldFixMergeability(pr, keys, { attemptedHeadKeys: attemptedHeads, keepMergeablePushedHeadKeys: new Set(), lastAttempt: pushedAttempt }), false);
+  assert.equal(shouldFixMergeability(movedBase, keys, { attemptedHeadKeys: attemptedHeads, keepMergeablePushedHeadKeys: new Set(), lastAttempt: pushedAttempt }), true);
+  assert.equal(shouldFixMergeability(movedBase, keys, { attemptedHeadKeys: attemptedHeads, keepMergeablePushedHeadKeys: new Set(), lastAttempt: { ...attempt, outcome: 'stopped' } }), false);
+  assert.equal(shouldFixMergeability(movedBase, new Set(), { attemptedHeadKeys: attemptedHeads, keepMergeablePushedHeadKeys: new Set(), lastAttempt: attempt }), false);
+  assert.equal(shouldFixMergeability({ ...movedBase, state: 'CLOSED' }, keys, { attemptedHeadKeys: attemptedHeads, keepMergeablePushedHeadKeys: new Set(), lastAttempt: attempt }), false);
+  assert.equal(shouldFixMergeability({ ...movedBase, mergeable: 'MERGEABLE' }, keys, { attemptedHeadKeys: attemptedHeads, keepMergeablePushedHeadKeys: new Set(), lastAttempt: attempt }), false);
+});
+
+test('a held head with no last attempt of its own retries as a failure at an unknown base', () => {
+  const pr = { ...readyPr(), mergeable: 'CONFLICTING' as const };
+  const keys = new Set([pr.key]);
+  const attemptedHeadKeys = new Set([keepMergeableAttemptKey(pr)]);
+  const attempt: MyPrKeepMergeableAttemptRecord = { key: pr.key, headRefOid: pr.headRefOid, baseRefOid: pr.baseRefOid, outcome: 'failed', reason: 'No repair', at: NOW };
+  assert.equal(shouldFixMergeability(pr, keys, { attemptedHeadKeys, keepMergeablePushedHeadKeys: new Set() }), true);
+  assert.equal(shouldFixMergeability(pr, keys, { attemptedHeadKeys, keepMergeablePushedHeadKeys: new Set(), lastAttempt: { ...attempt, headRefOid: 'd'.repeat(40) } }), true);
+  assert.equal(shouldFixMergeability(pr, keys, { attemptedHeadKeys, keepMergeablePushedHeadKeys: new Set(), lastAttempt: { ...attempt, key: 'Acme/app#70' } }), true);
+  assert.equal(shouldFixMergeability(pr, keys, { attemptedHeadKeys, keepMergeablePushedHeadKeys: new Set(), lastAttempt: attempt }), false);
+});
+
+test('a held head that keep mergeable pushed itself is never repaired again', () => {
+  const pr = { ...readyPr(), mergeable: 'CONFLICTING' as const };
+  const keys = new Set([pr.key]);
+  const pushedHeadKeys = new Set([keepMergeableAttemptKey(pr)]);
+  const attempt: MyPrKeepMergeableAttemptRecord = { key: pr.key, headRefOid: pr.headRefOid, baseRefOid: pr.baseRefOid, outcome: 'failed', reason: 'No repair', at: NOW };
+  assert.equal(shouldFixMergeability(pr, keys, { attemptedHeadKeys: pushedHeadKeys, keepMergeablePushedHeadKeys: pushedHeadKeys }), false);
+  assert.equal(shouldFixMergeability(pr, keys, { attemptedHeadKeys: pushedHeadKeys, keepMergeablePushedHeadKeys: pushedHeadKeys, lastAttempt: { ...attempt, headRefOid: 'd'.repeat(40) } }), false);
+  assert.equal(shouldFixMergeability({ ...pr, baseRefOid: 'c'.repeat(40) }, keys, { attemptedHeadKeys: pushedHeadKeys, keepMergeablePushedHeadKeys: pushedHeadKeys, lastAttempt: attempt }), false);
 });
 
 test('keep mergeable prompt pins the local checkout and asks for repairs committed locally, never pushed or merged', () => {
@@ -351,11 +396,12 @@ test('truncatedSearchNote names the shown and total counts only when the search 
 test('prunedKeepMergeableState drops flags and head attempts for unlisted PRs only when the search is complete', () => {
   const listedHead = keepMergeableAttemptKey({ key: 'Acme/app#1', headRefOid: 'a'.repeat(40) });
   const prefixTwinHead = keepMergeableAttemptKey({ key: 'Acme/app#10', headRefOid: 'b'.repeat(40) });
-  const saved = { keepMergeableKeys: ['Acme/app#1', 'Acme/app#10'], keepMergeableAttemptKeys: [listedHead, prefixTwinHead], keepMergeablePushedHeadKeys: [listedHead, prefixTwinHead] };
+  const attempts: MyPrKeepMergeableAttemptRecord[] = ['Acme/app#1', 'Acme/app#10'].map((key) => ({ key, headRefOid: SHA, baseRefOid: 'b'.repeat(40), outcome: 'failed', reason: 'No repair', at: NOW }));
+  const saved = { keepMergeableKeys: ['Acme/app#1', 'Acme/app#10'], keepMergeableAttemptKeys: [listedHead, prefixTwinHead], keepMergeablePushedHeadKeys: [listedHead, prefixTwinHead], keepMergeableAttempts: attempts };
   const listedPrKeys = new Set(['Acme/app#1']);
-  assert.deepEqual(prunedKeepMergeableState({ ...saved, listedPrKeys, returnedCount: 1, totalCount: 1 }), { keepMergeableKeys: ['Acme/app#1'], keepMergeableAttemptKeys: [listedHead], keepMergeablePushedHeadKeys: [listedHead] });
+  assert.deepEqual(prunedKeepMergeableState({ ...saved, listedPrKeys, returnedCount: 1, totalCount: 1 }), { keepMergeableKeys: ['Acme/app#1'], keepMergeableAttemptKeys: [listedHead], keepMergeablePushedHeadKeys: [listedHead], keepMergeableAttempts: [attempts[0]] });
   assert.deepEqual(prunedKeepMergeableState({ ...saved, listedPrKeys, returnedCount: 50, totalCount: 73 }), saved);
-  assert.deepEqual(prunedKeepMergeableState({ ...saved, listedPrKeys: new Set(), returnedCount: 0, totalCount: 0 }), { keepMergeableKeys: [], keepMergeableAttemptKeys: [], keepMergeablePushedHeadKeys: [] });
+  assert.deepEqual(prunedKeepMergeableState({ ...saved, listedPrKeys: new Set(), returnedCount: 0, totalCount: 0 }), { keepMergeableKeys: [], keepMergeableAttemptKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [] });
 });
 
 function threadNode(overrides: Partial<MyPrThreadNode> = {}): MyPrThreadNode {
@@ -469,4 +515,13 @@ test('keep mergeable ends its variadic tool lists with an option, or the bootstr
   assert.deepEqual(args, ['-p', '--allowedTools', ...MY_PRS_FIX_ALLOW_RULES, '--disallowedTools', ...MY_PRS_FIX_DENY_RULES, '--strict-mcp-config', '--disable-slash-commands', '--setting-sources', 'project,local']);
   assert.equal(args[args.indexOf('--disallowedTools') + MY_PRS_FIX_DENY_RULES.length + 1], '--strict-mcp-config', 'probed: a trailing --disallowedTools list ate the prompt with "Input must be provided"');
   assert.equal(args.includes('--dangerously-skip-permissions'), false);
+});
+
+test('the browser sees only the last attempt for the current PR head without persisted commit fields', () => {
+  const pr = readyPr();
+  const attempt: MyPrKeepMergeableAttemptRecord = { key: pr.key, headRefOid: pr.headRefOid, baseRefOid: pr.baseRefOid, outcome: 'failed', reason: 'Could not fetch', at: NOW };
+  assert.deepEqual(currentKeepMergeableAttempt(pr, attempt), { outcome: 'failed', reason: 'Could not fetch', at: NOW });
+  assert.equal(currentKeepMergeableAttempt(pr, undefined), undefined);
+  assert.equal(currentKeepMergeableAttempt(pr, { ...attempt, key: 'Acme/app#70' }), undefined);
+  assert.equal(currentKeepMergeableAttempt(pr, { ...attempt, headRefOid: 'd'.repeat(40) }), undefined);
 });

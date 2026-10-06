@@ -8,7 +8,7 @@ import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createStateGlyph } from './state-glyph.ts';
 import { sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
-import { chooseSelectedKey, emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
+import { chooseSelectedKey, emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
 import type { MergeAttempt, ToggleControlState } from './my-prs-view-core.ts';
 
 let root: HTMLDivElement | null = null;
@@ -30,7 +30,7 @@ interface PrToggle {
 }
 
 const keepMergeableToggle: PrToggle = {
-  label: 'Keep mergeable', pendingKeys: new Set(), errorsByKey: new Map(), controlState: keepMergeableControlState, isFeatureEnabled: isKeepMergeableFeatureEnabled,
+  label: 'Keep mergeable', pendingKeys: new Set(), errorsByKey: new Map(), controlState: (pr, isPending, errorText, isFeatureEnabled) => keepMergeableControlState(pr, isPending, errorText, isFeatureEnabled, formatAgo(pr.keepMergeableAttempt?.at)), isFeatureEnabled: isKeepMergeableFeatureEnabled,
   save: async (pr, isTurningOn) => {
     const response = await sendControlRequest('my-pr-keep-mergeable', { repo: pr.repo, number: pr.number, keepMergeable: isTurningOn });
     if (response.type !== 'my-pr-keep-mergeable-result' || response.key !== pr.key) throw new Error('Unexpected keep mergeable reply.');
@@ -325,6 +325,13 @@ function render(): void {
       const bottom = el('span', 'pr-queue-bottom');
       if (parentKey) bottom.append(el('span', 'my-pr-stage', `Stacked on ${parentKey}`));
       bottom.append(stageChip(pr, { hasGlyph: false }), el('span', 'pr-queue-elapsed', `opened ${formatAgo(Date.parse(pr.createdAt))}`));
+      const repairLabel = keepMergeableRowLabel(pr, keepMergeableToggle.isFeatureEnabled(latest), formatAgo(pr.keepMergeableAttempt?.at));
+      if (repairLabel) {
+        const repairChip = el('span', 'my-pr-stage', repairLabel.text);
+        repairChip.dataset.tone = repairLabel.tone;
+        repairChip.title = repairLabel.title;
+        bottom.append(repairChip);
+      }
       row.append(glyph, top, bottom);
       row.addEventListener('click', () => {
         selectedKey = pr.key;

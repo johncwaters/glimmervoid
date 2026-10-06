@@ -384,7 +384,7 @@ test('viewIssue refuses a payload without a usable issue number', async () => {
 function myPrNode(number: number) {
   return {
     __typename: 'PullRequest', id: `PR_node${number}`, number, title: 'Fix', url: `https://github.com/Acme/app/pull/${number}`, isDraft: false,
-    state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z', baseRefName: 'main', headRefName: 'feature', isCrossRepository: false, headRefOid: HEAD_SHA, isInMergeQueue: false,
+    state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T00:00:00Z', baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefName: 'feature', isCrossRepository: false, headRefOid: HEAD_SHA, isInMergeQueue: false,
     mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', repository: { nameWithOwner: 'Acme/app', viewerDefaultMergeMethod: 'SQUASH' },
     commits: { nodes: [] }, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, latestReviews: { nodes: [] },
   };
@@ -408,7 +408,7 @@ test('my PR search uses one GraphQL call and drops invalid nodes', async () => {
   assert.equal(calls[0].find((arg) => arg.startsWith('query='))?.match(/issueCount/g)?.length, 2);
   assert.match(calls[0].find((arg) => arg.startsWith('query=')) ?? '', /\.\.\. on Team \{ slug avatarUrl organization \{ login \} \}/);
   assert.match(calls[0].find((arg) => arg.startsWith('query=')) ?? '', /repository \{ nameWithOwner viewerDefaultMergeMethod \}/);
-  assert.match(calls[0].find((argument) => argument.startsWith('query=')) ?? '', /baseRefName headRefName isCrossRepository headRefOid/);
+  assert.match(calls[0].find((argument) => argument.startsWith('query=')) ?? '', /baseRefName baseRefOid headRefName isCrossRepository headRefOid/);
   assert.equal(searched.items[0]?.headRefName, 'feature');
   assert.equal(searched.items[0]?.isCrossRepository, false);
   assert.equal(searched.items[0]?.repository.viewerDefaultMergeMethod, 'SQUASH');

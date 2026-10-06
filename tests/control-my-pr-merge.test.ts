@@ -28,7 +28,7 @@ interface MergeFrame {
 function readyNode(overrides: Partial<MyPrSearchNode> = {}): MyPrSearchNode {
   return {
     __typename: 'PullRequest', id: 'PR_node', number: 7, title: 'Fix', url: 'https://github.com/Acme/app/pull/7', isDraft: false,
-    state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T11:00:00Z', baseRefName: 'main', headRefName: 'feature', isCrossRepository: false, headRefOid: SEEN_HEAD, isInMergeQueue: false,
+    state: 'OPEN', createdAt: '2026-09-25T00:00:00Z', mergedAt: null, updatedAt: '2026-09-28T11:00:00Z', baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefName: 'feature', isCrossRepository: false, headRefOid: SEEN_HEAD, isInMergeQueue: false,
     mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED', repository: { nameWithOwner: 'Acme/app', viewerDefaultMergeMethod: 'SQUASH' },
     commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS', contexts: { nodes: [] } } } }] },
     reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] }, reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [{ state: 'APPROVED' }] },
@@ -47,6 +47,8 @@ test('keep mergeable control reaches the real lane, persists across restarts, an
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'control-my-pr-keep-mergeable-'));
   const fixes: string[] = [];
   const statuses: ReturnType<typeof myPrsStatus>[] = [];
+  let markRepairFinished = () => {};
+  const repairFinished = new Promise<void>((resolve) => { markRepairFinished = resolve; });
   const github = {
     ...createPrGh(homeDir),
     viewer: async () => 'me',
@@ -61,12 +63,12 @@ test('keep mergeable control reaches the real lane, persists across restarts, an
     const wiring = createMyPrsWiring({
       homeDir, config: { teamReview: { enabled: true, org: 'Acme' } }, github,
       log: { warn() {} },
-      broadcast: (status) => { statuses.push(status); if (status.prs.length > 0 && !status.isRefreshing) markPolled(); },
+      broadcast: (status) => { statuses.push(status); if (status.prs[0]?.keepMergeableAttempt?.outcome === 'pushed' && !status.prs[0]?.isKeepMergeableFixInFlight) markRepairFinished(); if (status.prs.length > 0 && !status.isRefreshing) markPolled(); },
       createPoller: (dependencies) => createMyPrsPoller({
         ...dependencies, firstTickDelayMs: () => 0,
         setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {},
       }),
-      fixMergeability: async (pr) => { fixes.push(`${pr.key}@${pr.headRefOid}`); },
+      fixMergeability: async (pr) => { fixes.push(`${pr.key}@${pr.headRefOid}`); return { outcome: 'pushed' }; },
     });
     wiring.startPoller();
     await firstPoll;
@@ -82,8 +84,9 @@ test('keep mergeable control reaches the real lane, persists across restarts, an
     assert.deepEqual(connection.sent.at(-1), { type: 'my-pr-keep-mergeable-result', requestId: 'toggle-1', key: KEY, ok: true });
     assert.equal(statuses.at(-1)?.prs[0]?.keepMergeable, true);
     assert.deepEqual(fixes, [`${KEY}@${SEEN_HEAD}`]);
+    await repairFinished;
     const savedState = JSON.parse(await fs.readFile(path.join(homeDir, 'my-prs-state.json'), 'utf8'));
-    assert.deepEqual(savedState, { keepMergeableKeys: [KEY], keepMergeableAttemptKeys: [`${KEY}@${SEEN_HEAD}`], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [] });
+    assert.deepEqual(savedState, { keepMergeableKeys: [KEY], keepMergeableAttemptKeys: [`${KEY}@${SEEN_HEAD}`], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [{ key: KEY, headRefOid: SEEN_HEAD, baseRefOid: 'b'.repeat(40), outcome: 'pushed', at: statuses.at(-1)?.prs[0]?.keepMergeableAttempt?.at }] });
     await wiring.stopPoller();
     const restarted = await startWiring();
     try {
@@ -158,7 +161,7 @@ test('merge when ready control reaches the real lane and persists the queue', as
     assert.deepEqual(connection.sent.at(-1), { type: 'my-pr-merge-when-ready-result', requestId: 'queue-1', key: KEY, ok: true });
     assert.equal(statuses.at(-1)?.prs[0]?.mergeQueuePosition, 1);
     const savedState = JSON.parse(await fs.readFile(path.join(homeDir, 'my-prs-state.json'), 'utf8'));
-    assert.deepEqual(savedState, { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [KEY], keepMergeablePushedHeadKeys: [] });
+    assert.deepEqual(savedState, { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [KEY], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [] });
   } finally {
     await wiring.stopPoller();
     await fs.rm(homeDir, { recursive: true, force: true });

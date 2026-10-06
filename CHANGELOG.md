@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Keep mergeable**: failed attempts now show their reason beside the control and on the Mine tab row, retry once when the base branch gains new commits, and retry right away when you turn Keep mergeable on again.
+- **Refresh status stays put**: the Refreshing text in the Reviews tabs now sits beside the Refresh button instead of pushing the list down while a refresh runs.
 - Team PR reviews of very large repositories no longer fail with "could not stage a checkout: timed out".
 - **Benchmark runs near login expiry**: when a refresh does not extend your Claude Code login, a benchmark run now waits for the login token to expire and Claude Code to renew it, instead of failing every cell in roughly the last hour of each token's lifetime. Cancel still stops the wait. A cell fails only if the renewed token is still too short, and its error still suggests `GLIMMERVOID_CLAUDE_OAUTH_TOKEN`.
 

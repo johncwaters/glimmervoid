@@ -17,7 +17,7 @@ const CREATED_AFTER_NOW = '2026-10-04T12:01:00Z';
 function searchNode(number: number, overrides: Partial<WorkflowSearchNode> = {}): WorkflowSearchNode {
   return {
     __typename: 'PullRequest', id: `PR_${number}`, number, title: `PR ${number}`, url: `https://github.com/Acme/app/pull/${number}`, isDraft: false, state: 'OPEN',
-    createdAt: CREATED_AFTER_NOW, mergedAt: null, updatedAt: '', baseRefName: 'main', headRefName: `branch-${number}`, isCrossRepository: false, headRefOid: 'a'.repeat(40),
+    createdAt: CREATED_AFTER_NOW, mergedAt: null, updatedAt: '', baseRefName: 'main', baseRefOid: 'c'.repeat(40), headRefName: `branch-${number}`, isCrossRepository: false, headRefOid: 'a'.repeat(40),
     isInMergeQueue: false, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null,
     repository: { nameWithOwner: 'Acme/app', viewerDefaultMergeMethod: 'SQUASH' },
     commits: { nodes: [] }, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] }, reviewRequests: { nodes: [] },
