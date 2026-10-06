@@ -957,12 +957,15 @@ test('resolved thread glyph respects exceptions and hover and heading reflect co
   assert.notEqual(detailHeadingSignature(review), detailHeadingSignature({ ...review, viewerThreads: { total: 5, resolved: 2 } }));
 });
 
-test('a posted review whose comments are all resolved says so unless your approval stands', () => {
+test('a posted review whose comments are all resolved moves to Ready unless your approval stands', () => {
   const posted = draft(1, { status: 'posted', postedEvent: 'COMMENT', viewerThreads: { total: 3, resolved: 3 } });
-  assert.deepEqual(queueRowGlyph(posted, 'posted'), { meaning: 'Comments resolved', tone: 'warn' });
-  assert.notDeepEqual(queueRowGlyph({ ...posted, viewerThreads: { total: 3, resolved: 1 } }, 'posted'), { meaning: 'Comments resolved', tone: 'warn' });
+  const sections = groupDrafts(status([posted]));
+  assert.equal(sections.posted.length, 0);
+  assert.deepEqual(sections.ready.map((review) => review.key), [posted.key]);
+  assert.deepEqual(queueRowGlyph(posted, 'ready'), { meaning: 'Comments resolved', tone: 'warn' });
+  assert.equal(groupDrafts(status([{ ...posted, viewerThreads: { total: 3, resolved: 1 } }])).posted.length, 1);
   const approved = { ...posted, reviewDecision: 'APPROVED' as const, githubReviews: [{ login: 'me', state: 'APPROVED' as const, commit: HEAD, isViewer: true }] };
-  assert.notDeepEqual(queueRowGlyph(approved, 'posted'), { meaning: 'Comments resolved', tone: 'warn' });
+  assert.equal(groupDrafts(status([approved])).posted.length, 1);
 });
 
 test('your approval at the current head settles resolved comments without a standing review decision', () => {
@@ -973,7 +976,7 @@ test('your approval at the current head settles resolved comments without a stan
     assert.equal(groupDrafts(status([review])).noReviewNeeded.length, 1);
     assert.notDeepEqual(queueRowGlyph(review, 'ready'), { meaning: 'Comments resolved', tone: 'warn' });
     const posted = { ...review, status: 'posted' as const, postedEvent: 'APPROVE' as const };
-    assert.notDeepEqual(queueRowGlyph(posted, 'posted'), { meaning: 'Comments resolved', tone: 'warn' });
+    assert.equal(groupDrafts(status([posted])).posted.length, 1);
   }
 });
 

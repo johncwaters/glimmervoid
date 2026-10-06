@@ -102,7 +102,6 @@ export function queueRowGlyph(review: ReviewDraft | InFlightReview | QueuedRevie
     const outcome = isViewerOutcomeCurrent(review) ? postedOutcome(review) : null;
     return outcome ? { tone: outcome.tone, meaning: outcome.label } : { tone: 'ok', meaning: 'Others reviewed' };
   }
-  if (kind === 'posted' && 'reviewedHead' in review && isAwaitingViewerAfterResolvedComments(review)) return COMMENTS_RESOLVED_GLYPH;
   if (kind === 'posted' && 'reviewedHead' in review) {
     const outcome = postedOutcome(review);
     return outcome ? { tone: outcome.tone, meaning: outcome.label } : { tone: 'muted', meaning: 'Posted' };
@@ -117,6 +116,10 @@ export function queueRowGlyph(review: ReviewDraft | InFlightReview | QueuedRevie
 export function hasAllViewerThreadsResolved(draft: Pick<ReviewDraft, 'viewerThreads'>): boolean {
   const tally = draft.viewerThreads;
   return tally !== undefined && tally.total > 0 && tally.resolved === tally.total;
+}
+
+export function isPostedAwaitingViewer(draft: ReviewDraft): boolean {
+  return draft.status === 'posted' && isAwaitingViewerAfterResolvedComments(draft);
 }
 
 export function isAwaitingViewerAfterResolvedComments(draft: ReviewDraft): boolean {
@@ -306,7 +309,7 @@ export function groupDrafts(status: TeamReviewStatus | null | undefined): TeamRe
   const queuedKeys = new Set(sections.queued.map((review) => review.key));
   for (const draft of status.drafts) {
     if (inFlightKeys.has(draft.key) || queuedKeys.has(draft.key) || handReviewKeys.has(draft.key)) continue;
-    if (answeredNonNitThreads(draft).length > 0) {
+    if (answeredNonNitThreads(draft).length > 0 || isPostedAwaitingViewer(draft)) {
       readyByBand.actionable.push(draft);
       continue;
     }

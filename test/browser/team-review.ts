@@ -231,6 +231,13 @@ async function verifyViewerThreadCounts(page: Page, snapshot: TeamReviewStatus):
   assert.equal(await page.locator('.pr-detail-heading .pr-viewer-threads').textContent(), '3 of 5 of your comments resolved');
   await applyStatus(page, withDraft({ ...resolved, reviewDecision: 'APPROVED', githubReviews: [{ login: 'me', state: 'APPROVED', commit: REVIEWED_HEAD, isViewer: true }] }));
   assert.match(await sectionHeading() ?? '', /Already reviewed/);
+  await applyStatus(page, withDraft({ ...resolved, status: 'posted', postedEvent: 'COMMENT', postedAt: Date.now() }));
+  assert.match(await sectionHeading() ?? '', /Ready/);
+  assert.equal(await row.locator('.pr-queue-state').textContent(), 'Comments resolved');
+  await row.click();
+  assert.equal(await page.locator('.pr-detail-heading .pr-viewer-threads').textContent(), 'All 5 of your comments resolved');
+  await applyStatus(page, withDraft({ ...review, status: 'posted', postedEvent: 'COMMENT', postedAt: Date.now() }));
+  assert.match(await sectionHeading() ?? '', /Waiting on author/);
   await applyStatus(page, snapshot);
 }
 

@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Your review comments**: team review rows and pull request details show how many of your comment threads are resolved. Rows show a short count such as 2/5 resolved. When all are resolved, the row reads Comments resolved, in the same color as Waits on you, and the pull request needs you again unless your approval still stands. The automated review's own comment count now reads N drafted so the two counts are not confused.
+- **Your review comments**: team review rows and pull request details show how many of your comment threads are resolved. Rows show a short count such as 2/5 resolved. When all are resolved, the row reads Comments resolved, in the same color as Waits on you, and the pull request needs you again unless your approval still stands: a review you posted moves back to Ready. The automated review's own comment count now reads N drafted so the two counts are not confused.
 - Team review now resolves answered nit threads automatically (once: a nit you reopen on GitHub stays open for you) and judges other answered threads. Each answered thread has a Resolve control whether or not it has been judged, since the judgement is advice, a nit that could not be resolved automatically gets the same Resolve control, and a thread that cannot be judged says why. A temporary GitHub comparison failure is retried later rather than marking threads unjudgeable; a comparison GitHub reports as unrelated history marks the thread unjudgeable until its head or last reply changes.
 - **Fork reviews**: pull requests from forks now show under Review by hand with a link to GitHub. Glimmervoid still never runs an automated review on fork code.
 - **Compaction reminders**: Claude sessions now receive a one-line reminder of their current task and latest plan after compaction.
@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Waiting on author**: the Recently posted section in team review is now Waiting on author, since a posted review usually waits on the author's reply or new commits.
 - **Approvals keep your words on top**: an approval posted from Reviews now reads your own text first, then the automated-review note, then any automated findings, and ends with "Approved by hand after checking the automated review.", so nothing above the note is machine-written. A one-click approval posts the note and that line.
 - **Approval works the same in every repository**: team review now treats every pull request as if its repository required approval. In a repository without required reviews, your approval still counts after new commits unless someone requests changes, so the pull request no longer comes back for re-review.
 - **Review timeouts**: team reviews count only time the machine is awake, so a laptop sleeping overnight no longer times reviews out and uses up their attempts, including a review resumed after Glimmervoid restarts. Review progress drops its countdown once the wall-clock deadline has passed while the review still runs.

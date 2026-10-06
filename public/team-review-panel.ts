@@ -15,7 +15,7 @@ import {
   answeredNonNitThreads, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, queueRowVerdictLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
-  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, caughtUpDetail, queueRowGlyph, viewerThreadsText, hasAllViewerThreadsResolved, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
+  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, caughtUpDetail, queueRowGlyph, viewerThreadsText, hasAllViewerThreadsResolved, isPostedAwaitingViewer, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
 } from './team-review-view-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
 import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
@@ -850,7 +850,7 @@ function renderSelectedDetail(sections: TeamReviewSections): void {
     _renderedDetailSignature = null;
     return;
   }
-  const threadDraft = sections.ready.find((draft) => draft.key === _selectedKey && answeredNonNitThreads(draft).length > 0);
+  const threadDraft = sections.ready.find((draft) => draft.key === _selectedKey && (answeredNonNitThreads(draft).length > 0 || isPostedAwaitingViewer(draft)));
   if (threadDraft && threadDraft.status !== 'ready') {
     const signature = `threads:${otherDetailSignature(threadDraft)}`;
     const threadDetail = otherDetailFor(threadDraft);
@@ -998,7 +998,7 @@ function render(): void {
   if (sections.noReviewNeeded.length) queueSections.push(createQueueSection('Already reviewed', sections.noReviewNeeded, 'settled', hasMultipleRepos));
   if (sections.handReview.length) queueSections.push(createHandReviewSection(sections.handReview, hasMultipleRepos));
   if (sections.attention.length) queueSections.push(createQueueSection('Needs attention', sections.attention, 'attention', hasMultipleRepos));
-  if (sections.posted.length) queueSections.push(createQueueSection('Recently posted', sections.posted, 'posted', hasMultipleRepos));
+  if (sections.posted.length) queueSections.push(createQueueSection('Waiting on author', sections.posted, 'posted', hasMultipleRepos));
   if (sections.discarded.length) queueSections.push(createQueueSection('Discarded', sections.discarded, 'discarded', hasMultipleRepos));
   _queue.replaceChildren(...(pollingControls ? [pollingControls.notice] : []), ...laneNoticeElements(), ...queueSections);
   pollingControls?.update(_latest);
