@@ -310,7 +310,7 @@ async function makeTeamReviewWorkDir(root: string, prefix: string): Promise<Team
   };
 }
 
-async function readReviewReport(reportPath: string, expectedHead: string): Promise<{ ok: true; result: ReviewResult } | { ok: false; reason: string }> {
+async function readReviewReport(reportPath: string, expectedHead: string, isReReview: boolean): Promise<{ ok: true; result: ReviewResult } | { ok: false; reason: string }> {
   let report: string;
   try {
     const stat = await fs.stat(reportPath);
@@ -319,7 +319,7 @@ async function readReviewReport(reportPath: string, expectedHead: string): Promi
   } catch {
     return { ok: false, reason: 'no review report' };
   }
-  const parsed = core.parseReviewReport(report);
+  const parsed = core.parseReviewReport(report, { isReReview });
   if (!parsed.ok) return { ok: false, reason: firstLine(parsed.reason) };
   if (parsed.result.head !== expectedHead) return { ok: false, reason: `report head ${parsed.result.head} is not the reviewed head ${expectedHead}` };
   return parsed;
@@ -532,7 +532,7 @@ function createTeamReviewDispatcher({
   }
 
   function spawnWithTimeout(
-    { candidate, detail, tier, reasons, reportProgress, resume, timeoutMs, workDir, checkoutPath, linkedCheckout, reportPath, postingPath, commentable, onPending, onSessionId }: SpawnReviewArgs & {
+    { candidate, detail, tier, reasons, reportProgress, resume, priorReview, timeoutMs, workDir, checkoutPath, linkedCheckout, reportPath, postingPath, commentable, onPending, onSessionId }: SpawnReviewArgs & {
       timeoutMs: number; workDir: string; checkoutPath: string; linkedCheckout: string | null; reportPath: string; postingPath: string; commentable: CommentableLines | null;
       onPending: (pending: Promise<unknown>) => void;
       onSessionId: (id: string) => void;
@@ -563,10 +563,12 @@ function createTeamReviewDispatcher({
         .then(async () => {
           if (signal.aborted) return undefined;
           if (shutdownSignal?.aborted) return failed('review stopped by shutdown');
-          const outcome = await readReviewReport(reportPath, detail.headRefOid);
+          const isReReview = priorReview != null;
+          const outcome = await readReviewReport(reportPath, detail.headRefOid, isReReview);
           if (!outcome.ok) return failed(outcome.reason);
           const posting = await readPostingPlan(postingPath, detail.headRefOid, log);
-          return core.readyDraft({ candidate, tier, reasons, result: outcome.result, commentable, posting });
+          const filteredReview = core.reReviewResult(outcome.result, { priorReview: priorReview ?? null, posting });
+          return core.readyDraft({ candidate, tier, reasons, ...filteredReview, commentable });
         })
         .catch((error: unknown) => failed(firstLine(errorMessage(error)) || 'review session failed')),
     });

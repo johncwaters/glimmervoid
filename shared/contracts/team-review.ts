@@ -71,6 +71,7 @@ export const ReviewFinding = z.object({
   line: z.number().int().positive().nullable(),
   side: z.enum(['RIGHT', 'LEFT']),
   severity: FindingSeverity,
+  origin: z.enum(['EARLIER', 'NEW']).optional(),
   reviewer: z.string().min(1),
   disposition: z.enum(['ACTIONABLE', 'NIT', 'AMBIGUOUS']).nullable(),
   body: z.string().min(1),

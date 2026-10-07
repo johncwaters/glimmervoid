@@ -2005,6 +2005,100 @@ test('a re-review fetches the range since the earlier head and tells the reviewe
   }
 });
 
+test('a re-review run filters legacy new nits and the posting plan before producing an approved draft', async () => {
+  const { review, cleanup } = setup({
+    writeReport: (workDir) => {
+      fs.writeFileSync(path.join(workDir, REVIEW_REPORT_FILENAME), reportText().replace('OVERALL_SUMMARY:', 'NITS:\nDrop report nit\n\nOVERALL_SUMMARY:'));
+      fs.writeFileSync(path.join(workDir, REVIEW_POSTING_FILENAME), JSON.stringify({
+        body: '## Nits\nDrop posting nit', commit_id: HEAD,
+        comments: [{ path: 'src/a.ts', line: 2, side: 'RIGHT', body: 'Drop inline nit' }],
+      }));
+    },
+  });
+  try {
+    const draft = await review({ ...reviewArgs('full'), priorReview: PRIOR_REVIEW });
+    assert.equal(draft.status, 'ready');
+    assert.equal(draft.verdict, 'APPROVE');
+    assert.deepEqual(draft.comments, []);
+    assert.equal(draft.body, AUTOMATED_REVIEW_NOTE);
+    assert.equal(draft.summary, 'one nit');
+  } finally {
+    cleanup();
+  }
+});
+
+test('a re-review run renders only the retained earlier MEDIUM finding, ignoring the posting plan, and requests changes', async () => {
+  const { review, cleanup } = setup({
+    writeReport: (workDir) => {
+      const findings = [
+        '- file: src/a.ts | line: 2 | side: RIGHT | severity: MEDIUM | origin: EARLIER | reviewer: logic | disposition: ACTIONABLE | body: Still open',
+        '- file: src/a.ts | line: 3 | side: RIGHT | severity: MEDIUM | origin: NEW | reviewer: logic | disposition: ACTIONABLE | body: Drop new medium',
+        '- file: src/a.ts | line: 1 | side: RIGHT | severity: LOW | origin: EARLIER | reviewer: logic | disposition: NIT | body: Drop earlier low',
+      ];
+      fs.writeFileSync(path.join(workDir, REVIEW_REPORT_FILENAME), [
+        `HEAD_SHA: ${HEAD}`, 'VERDICT: APPROVE WITH NITS', 'STRUCTURED_FINDINGS:', ...findings, 'OVERALL_SUMMARY:', 'Still open',
+      ].join('\n'));
+      fs.writeFileSync(path.join(workDir, REVIEW_POSTING_FILENAME), JSON.stringify({
+        body: '', commit_id: HEAD,
+        comments: [
+          { path: 'src/a.ts', line: 2, side: 'RIGHT', body: 'Still open' },
+          { path: 'src/a.ts', line: 3, side: 'RIGHT', body: 'Drop new medium' },
+          { path: 'src/a.ts', line: 1, side: 'RIGHT', body: 'Drop earlier low' },
+          { path: 'src/other.ts', line: 2, side: 'RIGHT', body: 'Drop unmatched' },
+        ],
+      }));
+    },
+  });
+  try {
+    const draft = await review({ ...reviewArgs('full'), priorReview: PRIOR_REVIEW });
+    assert.equal(draft.status, 'ready');
+    assert.equal(draft.verdict, 'REQUEST CHANGES');
+    assert.deepEqual(draft.comments, [{ path: 'src/a.ts', line: 2, side: 'RIGHT', body: `${AUTOMATED_REVIEW_NOTE}\n\n**[logic] MEDIUM**\n\nStill open` }]);
+    assert.equal(draft.body, AUTOMATED_REVIEW_NOTE);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a re-review run blocks on a new CRITICAL finding even when the agent approves', async () => {
+  const { review, cleanup } = setup({
+    writeReport: (workDir) => fs.writeFileSync(path.join(workDir, REVIEW_REPORT_FILENAME), reportText()
+      .replace('VERDICT: APPROVE WITH NITS', 'VERDICT: APPROVE')
+      .replace('severity: MEDIUM |', 'severity: CRITICAL | origin: NEW |')
+      .replace('disposition: NIT', 'disposition: ACTIONABLE')),
+  });
+  try {
+    const draft = await review({ ...reviewArgs('full'), priorReview: PRIOR_REVIEW });
+    assert.equal(draft.status, 'ready');
+    assert.equal(draft.verdict, 'BLOCKED');
+    assert.equal(draft.comments.length, 1);
+    assert.match(draft.comments[0].body, /CRITICAL/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a resumed re-review applies the finding filter without staging another checkout', async () => {
+  const { review, staged, spawns, workRoot, worktreeRoot, cleanup } = setup({
+    now: () => 3000,
+    makeWorkDir: async () => { throw new Error('resume must use the saved work dir'); },
+  });
+  const workDir = fs.mkdtempSync(path.join(workRoot, 'resume-work-'));
+  const worktreePath = fs.mkdtempSync(path.join(worktreeRoot, 'resume-tree-'));
+  fs.writeFileSync(path.join(workDir, REVIEW_PROMPT_FILENAME), 'original re-review prompt');
+  const resume = { sessionId: 'claude-1', workDir, worktreePath, head: HEAD, deadlineAt: 81000, savedAt: 1000 };
+  try {
+    const draft = await review({ ...reviewArgs('full'), priorReview: PRIOR_REVIEW, resume });
+    assert.equal(draft.status, 'ready');
+    assert.equal(draft.verdict, 'APPROVE');
+    assert.deepEqual(draft.comments, []);
+    assert.deepEqual(staged, []);
+    assert.equal(spawns[0]?.resumeSessionId, 'claude-1');
+  } finally {
+    cleanup();
+  }
+});
+
 test('a re-review whose earlier head cannot be fetched reviews the whole range', async () => {
   const { review, spawns, cleanup } = setup({ isPriorHeadFetchable: false });
   try {
