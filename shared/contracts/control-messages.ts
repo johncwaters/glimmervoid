@@ -71,6 +71,7 @@ const githubIssueRow = z.object({
   number: z.number().int().positive(),
   title: z.string(),
   labels: z.array(z.object({ name: z.string(), color: z.string() }).passthrough()),
+  assignees: z.array(z.string()).optional(),
   url: z.string(),
   updatedAt: z.string(),
 }).passthrough();

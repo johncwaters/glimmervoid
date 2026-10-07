@@ -1,6 +1,22 @@
 import { buildPanelSection, buildStatChip, el, externalLink } from './dom-helpers.ts';
 import type { IssuesReportPush } from '#shared/contracts/control-messages.ts';
-import { type IssueRow, issuesPlaceholder, summarizeIssues } from './issues-view-core.ts';
+import {
+  type IssueFilter,
+  type IssueRow,
+  type LabelMatch,
+  ISSUES_NO_MATCH_TEXT,
+  ISSUES_SEARCH_PLACEHOLDER,
+  LABEL_MATCH_TITLES,
+  assigneeOptions,
+  emptyIssueFilter,
+  filterIssues,
+  isIssueFilterActive,
+  issuesPlaceholder,
+  issuesShownText,
+  labelFacets,
+  summarizeIssues,
+  toggleIssueLabel,
+} from './issues-view-core.ts';
 import { formatAgo } from './poll-ago.ts';
 
 interface IssuesProject {
@@ -27,7 +43,15 @@ interface PendingOpenRequest {
   timeoutHandle: ReturnType<typeof setTimeout>;
 }
 
+interface SearchFocus {
+  start: number | null;
+  end: number | null;
+}
+
 const ISSUES_REQUEST_TIMEOUT_MS = 45000;
+const SEARCH_INPUT_CLASS = 'issues-search-input';
+const LABEL_MATCH_ORDER: LabelMatch[] = ['any', 'all'];
+const LABEL_MATCH_TEXT: Record<LabelMatch, string> = { any: 'Any', all: 'All' };
 
 let root: HTMLDivElement | null = null;
 let projects: IssuesProject[] = [];
@@ -39,10 +63,19 @@ const reportsByProjectId = new Map<string, IssuesReport>();
 const openRequestById = new Map<string, PendingOpenRequest>();
 const openOutcomeByIssue = new Map<string, string>();
 const refreshOutcomeByProjectId = new Map<string, string>();
+const filterByProjectId = new Map<string, IssueFilter>();
 
 function nextRequestId(prefix: string): string {
   requestSeq += 1;
   return `${prefix}-${requestSeq}`;
+}
+
+function filterFor(projectId: string): IssueFilter {
+  return filterByProjectId.get(projectId) ?? emptyIssueFilter();
+}
+
+function setFilter(projectId: string, filter: IssueFilter): void {
+  filterByProjectId.set(projectId, filter);
 }
 
 function clearPendingRefresh(): void {
@@ -84,7 +117,21 @@ function issueAge(updatedAt: string): string {
   return `updated ${formatAgo(timestamp)}`;
 }
 
-function buildIssueRow(projectId: string, issue: IssueRow): HTMLDivElement {
+function buildLabelToggle(className: string, text: string, color: string, pressed: boolean, onToggle: () => void): HTMLButtonElement {
+  const chip = el('button', className, text);
+  chip.type = 'button';
+  chip.setAttribute('aria-pressed', String(pressed));
+  if (color) chip.style.setProperty('--issue-label-color', `#${color}`);
+  chip.addEventListener('click', onToggle);
+  return chip;
+}
+
+function toggleLabelFilter(projectId: string, name: string): void {
+  setFilter(projectId, toggleIssueLabel(filterFor(projectId), name));
+  render();
+}
+
+function buildIssueRow(projectId: string, issue: IssueRow, filter: IssueFilter): HTMLDivElement {
   const row = el('div', 'issue-row');
   const number = el('span', 'issue-number', `#${issue.number}`);
   const title = externalLink('issue-title', issue.title || 'Untitled issue', issue.url);
@@ -93,11 +140,11 @@ function buildIssueRow(projectId: string, issue: IssueRow): HTMLDivElement {
 
   const labels = el('div', 'issue-labels');
   for (const issueLabel of issue.labels) {
-    const chip = el('span', 'issue-label-chip', issueLabel.name);
-    if (issueLabel.color) chip.style.setProperty('--issue-label-color', `#${issueLabel.color}`);
-    labels.append(chip);
+    const isSelected = filter.labels.includes(issueLabel.name);
+    labels.append(buildLabelToggle('issue-label-chip', issueLabel.name, issueLabel.color, isSelected, () => toggleLabelFilter(projectId, issueLabel.name)));
   }
-  if (issue.labels.length > 0) row.append(labels);
+  for (const login of issue.assignees ?? []) labels.append(el('span', 'issue-assignee', `@${login}`));
+  if (labels.childElementCount > 0) row.append(labels);
 
   const action = el('div', 'issue-action');
   const button = el('button', 'issue-open-button', 'Open session');
@@ -127,6 +174,99 @@ function buildIssueRow(projectId: string, issue: IssueRow): HTMLDivElement {
   return row;
 }
 
+function fillIssueRows(projectId: string, issues: IssueRow[], rows: HTMLElement, count: HTMLElement): void {
+  const filter = filterFor(projectId);
+  const shown = filterIssues(issues, filter);
+  count.textContent = issuesShownText(shown.length, issues.length);
+  rows.textContent = '';
+  if (shown.length === 0) {
+    rows.append(el('p', 'issues-empty', ISSUES_NO_MATCH_TEXT));
+    return;
+  }
+  for (const issue of shown) rows.append(buildIssueRow(projectId, issue, filter));
+}
+
+function buildMatchToggle(projectId: string, filter: IssueFilter): HTMLDivElement {
+  const group = el('div', 'issues-match-toggle');
+  group.setAttribute('role', 'group');
+  group.setAttribute('aria-label', 'Match selected labels');
+  group.append(el('span', 'issues-filter-label', 'Labels'));
+  for (const match of LABEL_MATCH_ORDER) {
+    const option = el('button', 'issues-match-option', LABEL_MATCH_TEXT[match]);
+    option.type = 'button';
+    option.title = LABEL_MATCH_TITLES[match];
+    option.setAttribute('aria-pressed', String(filter.labelMatch === match));
+    option.addEventListener('click', () => {
+      setFilter(projectId, { ...filterFor(projectId), labelMatch: match });
+      render();
+    });
+    group.append(option);
+  }
+  return group;
+}
+
+function buildAssigneePicker(projectId: string, issues: IssueRow[], filter: IssueFilter): HTMLSelectElement {
+  const picker = el('select', 'issues-assignee-picker');
+  picker.setAttribute('aria-label', 'Filter by assignee');
+  for (const choice of assigneeOptions(issues)) {
+    const option = el('option', null, `${choice.label} (${choice.count})`);
+    option.value = choice.value;
+    option.selected = choice.value === filter.assignee;
+    picker.append(option);
+  }
+  picker.addEventListener('change', () => {
+    setFilter(projectId, { ...filterFor(projectId), assignee: picker.value });
+    render();
+  });
+  return picker;
+}
+
+function buildFacets(projectId: string, issues: IssueRow[], filter: IssueFilter): HTMLDivElement {
+  const facets = el('div', 'issues-facets');
+  for (const facet of labelFacets(issues, filter.labels)) {
+    const group = el('div', 'issues-facet');
+    group.append(el('span', 'issues-facet-title', facet.title));
+    const chips = el('div', 'issues-facet-labels');
+    for (const label of facet.labels) {
+      const isSelected = filter.labels.includes(label.name);
+      const chip = buildLabelToggle('issues-filter-chip', '', label.color, isSelected, () => toggleLabelFilter(projectId, label.name));
+      chip.title = label.name;
+      chip.append(el('span', 'issues-filter-chip-name', label.shortName), el('span', 'issues-filter-chip-count', String(label.count)));
+      chips.append(chip);
+    }
+    group.append(chips);
+    facets.append(group);
+  }
+  return facets;
+}
+
+function buildFilters(projectId: string, issues: IssueRow[], rows: HTMLElement, count: HTMLElement): HTMLDivElement {
+  const filter = filterFor(projectId);
+  const panel = el('div', 'issues-filters');
+  const bar = el('div', 'issues-filter-bar');
+  const clear = el('button', 'issues-clear-filters', 'Clear');
+  clear.type = 'button';
+  clear.disabled = !isIssueFilterActive(filter);
+  clear.addEventListener('click', () => {
+    setFilter(projectId, emptyIssueFilter());
+    render();
+  });
+  const search = el('input', SEARCH_INPUT_CLASS);
+  search.type = 'search';
+  search.placeholder = ISSUES_SEARCH_PLACEHOLDER;
+  search.setAttribute('aria-label', 'Search issues');
+  search.value = filter.text;
+  search.addEventListener('input', () => {
+    setFilter(projectId, { ...filterFor(projectId), text: search.value });
+    fillIssueRows(projectId, issues, rows, count);
+    clear.disabled = !isIssueFilterActive(filterFor(projectId));
+  });
+  count.setAttribute('role', 'status');
+  bar.append(search, buildAssigneePicker(projectId, issues, filter), buildMatchToggle(projectId, filter), count, clear);
+  panel.append(bar, buildFacets(projectId, issues, filter));
+  return panel;
+}
+
 function buildReport(projectId: string, report: IssuesReport): HTMLElement {
   const card = el('div', 'issues-project');
   const summary = summarizeIssues(report.issues);
@@ -146,13 +286,29 @@ function buildReport(projectId: string, report: IssuesReport): HTMLElement {
     return card;
   }
   const rows = el('div', 'issue-rows');
-  for (const issue of report.issues) rows.append(buildIssueRow(projectId, issue));
-  card.append(rows);
+  const count = el('span', 'issues-filter-count');
+  card.append(buildFilters(projectId, report.issues, rows, count), rows);
+  fillIssueRows(projectId, report.issues, rows, count);
   return card;
+}
+
+function captureSearchFocus(): SearchFocus | null {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLInputElement) || !active.classList.contains(SEARCH_INPUT_CLASS) || !root?.contains(active)) return null;
+  return { start: active.selectionStart, end: active.selectionEnd };
+}
+
+function restoreSearchFocus(focus: SearchFocus | null): void {
+  if (!focus || !root) return;
+  const search = root.querySelector<HTMLInputElement>(`.${SEARCH_INPUT_CLASS}`);
+  if (!search) return;
+  search.focus();
+  if (focus.start !== null && focus.end !== null) search.setSelectionRange(focus.start, focus.end);
 }
 
 function render(): void {
   if (!root) return;
+  const focus = captureSearchFocus();
   root.textContent = '';
   const section = buildPanelSection('issues', 'GitHub issues', 'Open issues ordered by last update on GitHub.');
   const controls = el('div', 'issues-controls');
@@ -203,6 +359,7 @@ function render(): void {
     return;
   }
   root.append(buildReport(selectedProjectId, report));
+  restoreSearchFocus(focus);
 }
 
 export function setIssuesRequestSender(sender: IssuesRequestSender): void {
@@ -233,6 +390,26 @@ export function applyIssuesProjects(nextProjects: IssuesProject[]): void {
   projects = nextProjects;
   if (!projects.some((project) => project.id === selectedProjectId)) selectedProjectId = projects[0]?.id || '';
   render();
+}
+
+export function upsertIssuesProject(project: IssuesProject): void {
+  if (projects.some((known) => known.id === project.id)) {
+    applyIssuesProjects(projects.map((known) => (known.id === project.id ? project : known)));
+    return;
+  }
+  applyIssuesProjects([...projects, project]);
+}
+
+export function removeIssuesProject(projectId: string): void {
+  if (!projects.some((project) => project.id === projectId)) return;
+  reportsByProjectId.delete(projectId);
+  filterByProjectId.delete(projectId);
+  applyIssuesProjects(projects.filter((project) => project.id !== projectId));
+}
+
+export function renameIssuesProject(projectId: string, name: string): void {
+  if (!projects.some((project) => project.id === projectId)) return;
+  upsertIssuesProject({ id: projectId, name });
 }
 
 export function applyIssuesReport(message: IssuesReportPush): void {

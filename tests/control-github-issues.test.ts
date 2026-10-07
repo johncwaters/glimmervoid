@@ -11,6 +11,7 @@ const ISSUE_ROW = {
   number: 42,
   title: 'Reconnect drops queued writes',
   labels: [{ name: 'bug', color: 'ff0000' }],
+  assignees: ['octo-cat'],
   url: 'https://github.com/acme/socket/issues/42',
   updatedAt: '2026-09-13T10:00:00Z',
 };

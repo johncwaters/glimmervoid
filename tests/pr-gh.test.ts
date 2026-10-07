@@ -277,6 +277,7 @@ test('listIssues asks gh for no body and drops any body gh still returns', async
     title: 'Fix reconnect',
     body: 'The socket stalls.',
     labels: [{ name: 'bug', color: 'ff0000' }],
+    assignees: [{ login: 'octo-cat', name: 'Octo' }],
     url: 'https://github.test/acme/repo/issues/17',
     updatedAt: '2026-09-13T10:00:00Z',
   }];
@@ -294,11 +295,12 @@ test('listIssues asks gh for no body and drops any body gh still returns', async
       labels: [{ name: 'bug', color: 'ff0000' }],
       url: 'https://github.test/acme/repo/issues/17',
       updatedAt: '2026-09-13T10:00:00Z',
+      assignees: ['octo-cat'],
     }],
   });
   assert.deepEqual(calls, [{
     cmd: 'gh',
-    args: ['issue', 'list', '--state', 'open', '-L', '50', '--search', 'sort:updated-desc', '--json', 'number,title,labels,url,updatedAt'],
+    args: ['issue', 'list', '--state', 'open', '-L', '200', '--search', 'sort:updated-desc', '--json', 'number,title,labels,assignees,url,updatedAt'],
     cwd: '/repo',
   }]);
 });
@@ -316,8 +318,22 @@ test('listIssues normalizes label shapes and drops rows without a usable number'
   assert.deepEqual(await gh.listIssues(), {
     ok: true,
     error: '',
-    issues: [{ number: 8, title: 'Padded', labels: [{ name: 'bug', color: '' }], url: '', updatedAt: '' }],
+    issues: [{ number: 8, title: 'Padded', labels: [{ name: 'bug', color: '' }], url: '', updatedAt: '', assignees: [] }],
   });
+});
+
+test('listIssues keeps only well-formed, distinct assignee logins', async () => {
+  const gh = createPrGh('/repo', async () => ({
+    ok: true,
+    err: '',
+    out: JSON.stringify([
+      { number: 9, title: 'Assigned', assignees: [{ login: 'alice' }, { login: ' alice ' }, { login: 'bad login' }, { name: 'no login' }, 'bob', null, { login: 'carol-2' }] },
+      { number: 10, title: 'Odd shape', assignees: 'alice' },
+    ]),
+  }));
+
+  const listed = await gh.listIssues();
+  assert.deepEqual(listed.issues.map((issue) => [issue.number, issue.assignees]), [[9, ['alice', 'carol-2']], [10, []]]);
 });
 
 test('listIssues reports the gh failure instead of an empty list', async () => {

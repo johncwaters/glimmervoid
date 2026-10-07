@@ -27,7 +27,7 @@ import { applyTeamReviewActionResult, applyTeamReviewStatus, setTeamReviewActivi
 import { applyMyPrMergeResult, applyMyPrsStatus } from './my-prs-panel.ts';
 import { applyFactoryConnectionState, applyFactoryState, mountFactoryView } from './factory/factory-view.ts';
 import { applyBenchmarkActionResult, applyBenchmarkConnectionState, applyBenchmarkStatus, mountBenchmarkView, setBenchmarkRequestSender } from './benchmark-panel.ts';
-import { applyIssuesConnectionState, applyIssuesProjects, applyIssuesReport, applyOpenIssueSessionResult, mountIssuesView, setIssuesRequestSender } from './issues-panel.ts';
+import { applyIssuesConnectionState, applyIssuesProjects, applyIssuesReport, applyOpenIssueSessionResult, mountIssuesView, removeIssuesProject, renameIssuesProject, setIssuesRequestSender, upsertIssuesProject } from './issues-panel.ts';
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID, updateBannerText } from './radar-core.ts';
 import { acknowledgePrsViewAttention, mountPrsView } from './prs-view.ts';
@@ -344,10 +344,10 @@ const messageHandlers = {
   'hooks-updated':      () => requestHooksReportIfVisible(),
 
   'state-change':       (msg) => handleStateChange(msg),
-  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, saneYolo: !!msg.saneYolo, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, stateSince: msg.stateSince, taskTitle: typeof msg.taskTitle === 'string' ? msg.taskTitle : null, taskTitleIsCustom: msg.taskTitleIsCustom === true }); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
-  'session-removed':    (msg) => { removeSessionCard(msg.id); forgetReviewSession(msg.id); refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); if (!msg.ephemeral) upsertIssuesProject({ id: msg.id, name: msg.session }); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, saneYolo: !!msg.saneYolo, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, stateSince: msg.stateSince, taskTitle: typeof msg.taskTitle === 'string' ? msg.taskTitle : null, taskTitleIsCustom: msg.taskTitleIsCustom === true }); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-removed':    (msg) => { removeSessionCard(msg.id); removeIssuesProject(msg.id); forgetReviewSession(msg.id); refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); },
-  'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); renameIssuesProject(msg.id, msg.newName); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-modified':   (msg) => {
     if (!msg.ephemeral) noteKnownProjectPath(msg.path);
     const previousUi = sessionUIs.get(String(msg.id));

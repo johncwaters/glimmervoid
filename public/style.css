@@ -3445,6 +3445,168 @@ a.issue-title:hover {
   gap: 6px;
 }
 
+button.issue-label-chip {
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+button.issue-label-chip:hover,
+button.issue-label-chip[aria-pressed="true"] {
+  color: var(--text);
+  background: color-mix(in oklab, var(--issue-label-color, var(--accent)) 22%, transparent);
+}
+
+.issue-assignee {
+  padding: 1px 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.issues-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.issues-filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.issues-search-input {
+  flex: 1 1 260px;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.issues-search-input:focus-visible,
+.issues-assignee-picker:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 0;
+}
+
+.issues-assignee-picker {
+  max-width: 220px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.issues-match-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.issues-filter-label,
+.issues-facet-title {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.issues-filter-label {
+  margin-right: 2px;
+}
+
+.issues-match-option,
+.issues-clear-filters {
+  padding: 4px 8px;
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.issues-match-option[aria-pressed="true"] {
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+.issues-clear-filters:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.issues-filter-count {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.issues-facets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.issues-facet {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+}
+
+.issues-facet-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.issues-filter-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 1px 6px;
+  border: 1px solid var(--issue-label-color, var(--border-dim));
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.issues-filter-chip:hover {
+  color: var(--text);
+}
+
+.issues-filter-chip[aria-pressed="true"] {
+  color: var(--text);
+  background: color-mix(in oklab, var(--issue-label-color, var(--accent)) 28%, transparent);
+}
+
+.issues-filter-chip-count {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+[data-layout="phone"] .issues-facet {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+
 .hooks-view {
   flex: 1;
   min-height: 0;
