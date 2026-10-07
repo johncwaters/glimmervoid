@@ -61,7 +61,6 @@ test('planWindowLanes splits Claude spend by lane over the active block and the 
 
   const lanes = scanner.buildReport({ days: 1 }).planWindowLanes;
   assert.ok(lanes);
-  const tokensByLane = (rows: { lane: string; tokens: number }[] | null) => Object.fromEntries((rows || []).map((row) => [row.lane, row.tokens]));
   assert.deepEqual(tokensByLane(lanes.fiveHour), { 'team-review': 30, other: 70 });
   assert.deepEqual(tokensByLane(lanes.sevenDay), { 'team-review': 130, other: 70 });
 });
@@ -97,7 +96,7 @@ test('planWindowLanes follows the official plan windows when their resets are kn
   assert.deepEqual(tokensByLane(local?.sevenDay), { 'team-review': 150, other: 70 });
 });
 
-test('planWindowLanes fallback five hour window ignores the report range', async () => {
+test('planWindowLanes fallback five hour window ignores the report range and configured block length', async () => {
   const root = await makeTempRoot();
   const projectsDir = await makeProjectsDir(root);
   const hourlyStartMs = Date.parse('2026-08-18T09:30:00.000Z');
@@ -108,14 +107,16 @@ test('planWindowLanes fallback five hour window ignores the report range', async
     timestamp: new Date(hourlyStartMs + hourIndex * 60 * 60 * 1000).toISOString(),
   }));
   await writeLines(path.join(projectsDir, 'C--repo', 'review.jsonl'), hourlyLines);
-  const scanner = makeScanner(root, { laneMap: () => new Map([['claude:review', 'team-review']]) });
-  await scanner.runPass();
+  for (const blockHours of [1, 5, 12]) {
+    const scanner = makeScanner(root, { blockHours, laneMap: () => new Map([['claude:review', 'team-review']]) });
+    await scanner.runPass();
 
-  const oneDay = scanner.buildReport({ days: 1 }).planWindowLanes;
-  const thirtyDays = scanner.buildReport({ days: 30 }).planWindowLanes;
+    const oneDay = scanner.buildReport({ days: 1 }).planWindowLanes;
+    const thirtyDays = scanner.buildReport({ days: 30 }).planWindowLanes;
 
-  assert.deepEqual(tokensByLane(oneDay?.fiveHour), { 'team-review': 2 });
-  assert.deepEqual(oneDay?.fiveHour, thirtyDays?.fiveHour);
+    assert.deepEqual(tokensByLane(oneDay?.fiveHour), { 'team-review': 2 });
+    assert.deepEqual(oneDay?.fiveHour, thirtyDays?.fiveHour);
+  }
 });
 
 test('planWindowLanes reports no seven day window when retained entries cover less than seven days', async () => {

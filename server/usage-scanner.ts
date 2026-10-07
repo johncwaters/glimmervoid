@@ -25,7 +25,7 @@ import {
 } from './core/usage-entry-core.ts';
 import type { UsageEntry, UsageGenerationRollupRow } from './core/usage-entry-core.ts';
 import { grokDedupIdentity, parseGrokUsageLine } from './core/usage-grok-core.ts';
-import { SEVEN_DAY_WINDOW_MS, laneRollup, laneRollupSince } from './core/usage-lane-core.ts';
+import { FIVE_HOUR_WINDOW_MS, SEVEN_DAY_WINDOW_MS, laneRollup, laneRollupSince } from './core/usage-lane-core.ts';
 import type { PlanWindowStarts } from './core/usage-lane-core.ts';
 import { costForEntry, lookupModelPrice } from './core/usage-pricing-core.ts';
 import type { ModelPrice } from './core/usage-pricing-core.ts';
@@ -63,6 +63,7 @@ const LINE_YIELD_INTERVAL = 5000;
 const FILE_YIELD_INTERVAL = 64;
 const SYNTHETIC_PRIMARY = Symbol('syntheticPrimary');
 const ANOMALY_BASELINE_DAYS = 30;
+const MS_PER_HOUR = 60 * 60 * 1000;
 
 const noopLogger = Object.freeze({ warn: () => {} });
 
@@ -848,7 +849,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     };
   }
 
-  function recordedLanes(): Map<string, string> | null {
+  function getRecordedLanes(): Map<string, string> | null {
     if (typeof laneMap !== 'function') return null;
     const lanes = laneMap();
     if (!(lanes instanceof Map) || lanes.size === 0) return null;
@@ -856,16 +857,16 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   }
 
   function buildLaneRows(reportRetainDays: number, now: number) {
-    const lanes = recordedLanes();
+    const lanes = getRecordedLanes();
     if (!lanes) return null;
     return laneRollup(entriesWithinDays(entries, { now, retainDays: reportRetainDays }), lanes);
   }
 
   function buildPlanWindowLanes(planWindowStarts: PlanWindowStarts | null | undefined, now: number) {
-    const lanes = recordedLanes();
+    const lanes = getRecordedLanes();
     if (!lanes) return null;
     const claudeEntries = entries.filter((entry) => isClaudeEntry(entry));
-    const fiveHourStartMs = planWindowStarts?.fiveHour ?? buildBlocks(claudeEntries, { blockHours, now }).activeBlock?.startTs ?? null;
+    const fiveHourStartMs = planWindowStarts?.fiveHour ?? buildBlocks(claudeEntries, { blockHours: FIVE_HOUR_WINDOW_MS / MS_PER_HOUR, now }).activeBlock?.startTs ?? null;
     const sevenDayStartMs = planWindowStarts?.sevenDay ?? now - SEVEN_DAY_WINDOW_MS;
     const retainedSinceMs = now - entryRetentionDays() * 24 * 60 * 60 * 1000;
     const rollupWhenRetained = (windowStartMs: number | null) => (

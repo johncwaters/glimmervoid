@@ -419,6 +419,7 @@ const LANE_LABELS: Readonly<Record<string, string>> = Object.freeze({
   visions: 'Visions',
   benchmark: 'Benchmarks',
   'agent-spawn': 'Agent API',
+  'task-title': 'Task titles',
   other: 'Other',
 });
 
@@ -437,7 +438,7 @@ export function laneRows(report: UsageReport | null | undefined): UsageLaneRow[]
   return (rows as UsageLaneRow[]).filter((row) => row && typeof row.lane === 'string');
 }
 
-export function isGlimmervoidLane(lane: unknown) {
+function isGlimmervoidLane(lane: unknown) {
   if (typeof lane !== 'string') return false;
   const key = lane.trim();
   return key !== '' && key !== 'interactive' && key !== 'other';
@@ -466,7 +467,7 @@ export interface OverheadWindow {
 
 const OVERHEAD_WINDOW_LABELS: Readonly<Record<'fiveHour' | 'sevenDay', string>> = Object.freeze({
   fiveHour: 'This 5 hour block',
-  sevenDay: 'Last 7 days',
+  sevenDay: '7 day window',
 });
 
 function livePlanUsedPct(planLimits: PlanLimits | null | undefined, key: 'fiveHour' | 'sevenDay', now: number) {
@@ -485,14 +486,14 @@ function overheadWindowOf(
 ): OverheadWindow | null {
   if (!Array.isArray(rawRows)) return null;
   const rows = (rawRows as UsageLaneRow[]).filter((row) => row && typeof row.lane === 'string');
-  const allCost = rows.reduce((sum, row) => sum + (finiteNumber(row.costUSD) ?? 0), 0);
-  const allTokens = rows.reduce((sum, row) => sum + (finiteNumber(row.tokens) ?? 0), 0);
+  const totalCostUSD = rows.reduce((sum, row) => sum + (finiteNumber(row.costUSD) ?? 0), 0);
+  const totalTokens = rows.reduce((sum, row) => sum + (finiteNumber(row.tokens) ?? 0), 0);
   const lanes = rows
     .filter((row) => isGlimmervoidLane(row.lane))
     .map((row) => ({ lane: String(row.lane), label: laneLabel(row.lane), tokens: finiteNumber(row.tokens) ?? 0, costUSD: finiteNumber(row.costUSD) ?? 0 }));
   const costUSD = lanes.reduce((sum, lane) => sum + lane.costUSD, 0);
   const tokens = lanes.reduce((sum, lane) => sum + lane.tokens, 0);
-  const sharePct = allCost > 0 ? percentOfTotal(costUSD, allCost) : percentOfTotal(tokens, allTokens);
+  const sharePct = totalCostUSD > 0 ? percentOfTotal(costUSD, totalCostUSD) : percentOfTotal(tokens, totalTokens);
   const planUsedPct = livePlanUsedPct(planLimits, key, now);
   const planPct = sharePct === null || planUsedPct === null ? null : (sharePct / 100) * planUsedPct;
   return { key, label: OVERHEAD_WINDOW_LABELS[key], tokens, costUSD, sharePct, planPct, lanes };

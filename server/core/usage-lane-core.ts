@@ -150,6 +150,7 @@ function compareEntries(a: LaneLedgerEntry, b: LaneLedgerEntry): number {
 }
 
 export {
+  FIVE_HOUR_WINDOW_MS,
   INTERACTIVE_LANE,
   OTHER_LANE,
   SEVEN_DAY_WINDOW_MS,

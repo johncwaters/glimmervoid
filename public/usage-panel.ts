@@ -389,12 +389,12 @@ function buildOverheadSection() {
   const windows = glimmervoidOverhead(_report, _planLimits);
   const lanesTable = buildLanesTable();
   if (windows.length === 0 && !lanesTable) return null;
-  const section = buildSection('Glimmervoid overhead', windows.length > 0 ? OVERHEAD_SCOPE_HINT : LANE_SCOPE_HINT);
+  const section = buildSection('Glimmervoid overhead', windows.length > 0 ? OVERHEAD_SCOPE_HINT : null);
   if (windows.length > 0) {
     const tiles = el('div', 'usage-tiles');
     for (const window of windows) {
-      const sub = [overheadPlanText(window), formatUsd(window.costUSD)].filter(Boolean).join(', ');
-      tiles.append(buildTile(`${window.label}, share of Claude use`, formatPercent(window.sharePct), sub).tile);
+      const detail = [overheadPlanText(window), formatUsd(window.costUSD)].filter(Boolean).join(', ');
+      tiles.append(buildTile(`${window.label}, share of Claude use`, formatPercent(window.sharePct), detail).tile);
     }
     section.append(tiles);
     for (const window of windows) {
