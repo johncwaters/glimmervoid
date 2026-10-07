@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  viewerThreadsText, detailThreadItems, caughtUpDetail, postedOutcome, queueRowGlyph, queueRowExceptionReason, commentCountText, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  attentionOrder, nextAttentionKey, caughtUpSelectionView, planActionReply, viewerThreadsText, detailThreadItems, caughtUpDetail, postedOutcome, queueRowGlyph, queueRowExceptionReason, commentCountText, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowTitle, queueRowVerdictLabel, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
   commentSeverity, severityPresentation, tierLabel, verdictHeading, verdictLabel, verdictSealKind, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
@@ -985,4 +985,87 @@ test('your approval at an older commit leaves resolved comments waiting on you',
   assert.equal(isReviewNeeded(review), true);
   assert.equal(groupDrafts(status([review])).ready.length, 1);
   assert.deepEqual(queueRowGlyph(review, 'ready'), { meaning: 'Comments resolved', tone: 'warn' });
+});
+
+
+test('attention order contains selectable ready rows by priority followed by attention rows', () => {
+  const sections = groupDrafts({ ...status([
+    draft(1), draft(2, { requestSource: 'direct', reviewDecision: 'REVIEW_REQUIRED' }),
+    draft(3, { status: 'error' }), draft(4, { status: 'posted' }), draft(5, { status: 'discarded' }),
+  ], [inFlightReview(6)]), handReview: [draft(7)] });
+  assert.deepEqual(attentionOrder(sections), ['Acme/app#2', 'Acme/app#1', 'Acme/app#3']);
+});
+
+test('next attention key follows the captured order despite current priority changes', () => {
+  const capturedOrder = attentionOrder(groupDrafts(status([draft(1), draft(2), draft(3)])));
+  const groups = groupDrafts(status([draft(3, { requestSource: 'direct', reviewDecision: 'REVIEW_REQUIRED' }), draft(2), draft(1)]));
+  assert.equal(nextAttentionKey({ capturedOrder, actedKey: 'Acme/app#1', groups }), 'Acme/app#2');
+});
+
+test('next attention key skips reviews that are no longer actionable', () => {
+  const capturedOrder = attentionOrder(groupDrafts(status([draft(1), draft(2), draft(3), draft(4), draft(5)])));
+  const groups = groupDrafts(status([draft(1), draft(2, { status: 'posted' }), draft(3, { status: 'discarded' }), draft(5, { status: 'stale' })], [inFlightReview(4)]));
+  assert.equal(nextAttentionKey({ capturedOrder, actedKey: 'Acme/app#1', groups }), 'Acme/app#5');
+});
+
+test('next attention key falls back to the first remaining captured key after the last review', () => {
+  const capturedOrder = attentionOrder(groupDrafts(status([draft(1), draft(2), draft(3)])));
+  const groups = groupDrafts(status([draft(2), draft(1), draft(3, { status: 'discarded' })]));
+  assert.equal(nextAttentionKey({ capturedOrder, actedKey: 'Acme/app#3', groups }), 'Acme/app#1');
+});
+
+test('next attention key includes newly arrived attention when no captured key remains', () => {
+  const groups = groupDrafts(status([draft(1, { status: 'posted' }), draft(2, { status: 'error' })]));
+  assert.equal(nextAttentionKey({ capturedOrder: ['Acme/app#1'], actedKey: 'Acme/app#1', groups }), 'Acme/app#2');
+});
+
+test('next attention key excludes the acted review even before the status broadcast', () => {
+  const groups = groupDrafts(status([draft(1)]));
+  assert.equal(nextAttentionKey({ capturedOrder: ['Acme/app#1'], actedKey: 'Acme/app#1', groups }), null);
+  assert.equal(nextAttentionKey({ capturedOrder: ['Acme/app#1'], actedKey: 'Acme/app#1', groups: groupDrafts(status([draft(1, { status: 'posted' })], [inFlightReview(2)])) }), null);
+});
+
+test('caught-up selection survives posted rows and background arrivals until a row is selected', () => {
+  const groups = groupDrafts(status([draft(1, { status: 'posted' })]));
+  assert.equal(chooseSelectedReviewKey(groups, null, true), null);
+  assert.equal(chooseSelectedReviewKey(groups, null), 'Acme/app#1');
+  const withArrival = groupDrafts(status([draft(2), draft(1, { status: 'posted' })]));
+  assert.equal(chooseSelectedReviewKey(withArrival, null, true), null);
+  assert.equal(chooseSelectedReviewKey(withArrival, 'Acme/app#2'), 'Acme/app#2');
+});
+
+test('caught-up selection prompts a pick when new attention arrives but ignores the acted review', () => {
+  const pickPrompt = { title: 'New pull requests need you', detail: 'Pick one from the queue.' };
+  assert.deepEqual(caughtUpSelectionView(groupDrafts(status([draft(1, { status: 'posted' }), draft(2)])), null), pickPrompt);
+  assert.deepEqual(caughtUpSelectionView(groupDrafts(status([draft(2, { status: 'error' })])), null), pickPrompt);
+  assert.deepEqual(caughtUpSelectionView(groupDrafts(status([draft(1)])), 'Acme/app#1'), { title: 'All caught up', detail: 'Nothing needs you right now.' });
+});
+
+test('caught-up selection names the pull requests left to review by hand', () => {
+  const oneByHand = groupDrafts(TeamReviewStatus.parse({ ...status([draft(1, { status: 'posted' })]), handReview: [draft(3)] }));
+  assert.deepEqual(caughtUpSelectionView(oneByHand, null), { title: 'Drafts all handled', detail: '1 pull request needs review by hand.' });
+  const twoByHand = groupDrafts(TeamReviewStatus.parse({ ...status([]), handReview: [draft(3), draft(4)] }));
+  assert.equal(caughtUpSelectionView(twoByHand, null).detail, '2 pull requests need review by hand.');
+});
+
+test('caught-up selection counts reviews still running when nothing needs the operator', () => {
+  assert.deepEqual(caughtUpSelectionView(groupDrafts(status([], [inFlightReview(2)])), null), { title: 'All caught up', detail: 'Nothing needs you right now. 1 review is still running.' });
+});
+
+test('an ok action reply advances the selected review and names the outcome', () => {
+  assert.deepEqual(planActionReply({ action: 'approve', pullRequest: 'Acme/app#1', warning: '', isActedSelected: true }), {
+    statusText: 'Approved on GitHub', shouldAdvance: true, notice: { text: 'Acme/app#1: Approved on GitHub.', tone: 'ok' },
+  });
+  assert.equal(planActionReply({ action: 'requeue', pullRequest: 'Acme/app#1', warning: '', isActedSelected: true }).notice?.text, 'Acme/app#1: Queued. The next poll reviews it again.');
+});
+
+test('an ok action reply carrying a warning stays on the acted review and keeps the warning', () => {
+  assert.deepEqual(planActionReply({ action: 'approve', pullRequest: 'Acme/app#1', warning: 'Check the approval on GitHub', isActedSelected: true }), {
+    statusText: 'Approved on GitHub', shouldAdvance: false, notice: { text: 'Acme/app#1: Approved on GitHub. Check the approval on GitHub.', tone: 'error' },
+  });
+  assert.equal(planActionReply({ action: 'approve', pullRequest: 'Acme/app#1', warning: 'Check the approval on GitHub', isActedSelected: false }).notice?.tone, 'error');
+});
+
+test('an ok action reply for a review no longer selected neither advances nor raises a notice', () => {
+  assert.deepEqual(planActionReply({ action: 'comment', pullRequest: 'Acme/app#1', warning: '  ', isActedSelected: false }), { statusText: 'Comment posted on GitHub', shouldAdvance: false, notice: null });
 });

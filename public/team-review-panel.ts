@@ -12,12 +12,12 @@ import { formatTrailOffset } from './radar-core.ts';
 import { createSettingsLink } from './settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
-  answeredNonNitThreads, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, buildActionRequest, chooseSelectedReviewKey,
+  answeredNonNitThreads, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionOrder, nextAttentionKey, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
-  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, caughtUpDetail, queueRowGlyph, viewerThreadsText, hasAllViewerThreadsResolved, isPostedAwaitingViewer, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
+  reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, caughtUpDetail, caughtUpSelectionView, planActionReply, queueRowGlyph, viewerThreadsText, hasAllViewerThreadsResolved, isPostedAwaitingViewer, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
 } from './team-review-view-core.ts';
-import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
+import type { ActionReplyNotice, CaughtUpSelectionView, QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
 import { getPrsAttentionAck, setPrsAttentionAck } from './ui-prefs.ts';
 
 const ACTION_REPLY_TIMEOUT_MS = 120000;
@@ -33,6 +33,8 @@ interface PendingAction {
   requestId: string;
   action: TeamReviewAction;
   origin: DetailOrigin;
+  capturedOrder: string[];
+  pullRequest: string;
   timer: number;
   settle?: (isDone: boolean, text: string) => void;
 }
@@ -48,6 +50,9 @@ let _renderedQueueSignature: string | null = null;
 let _detail: HTMLElement | null = null;
 let _inReviewSection: HTMLElement | null = null;
 let _selectedKey: string | null = null;
+let _caughtUpSelection: { actedKey: string | null } | null = null;
+let _actionNotice: ActionReplyNotice | null = null;
+let _actionNoticeLine: HTMLElement | null = null;
 let _renderedDetailSignature: string | null = null;
 let _activityCallback: ((isActive: boolean) => void) | null = null;
 const _progressTicker = createPollAgoTicker(() => _root);
@@ -264,6 +269,8 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
 function selectReviewOnClick(row: HTMLButtonElement, reviewKey: string): void {
   row.addEventListener('click', () => {
     _selectedKey = reviewKey;
+    _caughtUpSelection = null;
+    showActionNotice(null);
     for (const button of _queue?.querySelectorAll<HTMLButtonElement>('button[data-review-key]') ?? []) button.setAttribute('aria-current', String(button.dataset.reviewKey === _selectedKey));
     renderSelectedDetail(groupDrafts(_latest));
     _ageTicker.reset();
@@ -307,13 +314,21 @@ function createHandReviewSection(reviews: QueuedReview[], hasMultipleRepos: bool
   return section;
 }
 
-function createCaughtUpBanner(detail: string): HTMLElement {
+function createCaughtUpBanner({ title, detail }: CaughtUpSelectionView): HTMLElement {
   const banner = el('section', 'pr-caught-up');
   banner.setAttribute('role', 'status');
   const heading = el('strong', 'pr-caught-up-title');
-  heading.append(createStateGlyph('ok'), el('span', null, 'All caught up'));
+  heading.append(createStateGlyph('ok'), el('span', null, title));
   banner.append(heading, el('p', 'pr-caught-up-detail', detail));
   return banner;
+}
+
+function showActionNotice(notice: ActionReplyNotice | null): void {
+  _actionNotice = notice;
+  if (!_actionNoticeLine) return;
+  _actionNoticeLine.hidden = notice === null;
+  _actionNoticeLine.textContent = notice?.text ?? '';
+  if (notice) _actionNoticeLine.dataset.tone = notice.tone;
 }
 
 function createQueueSection(title: string, reviews: (ReviewDraft | InFlightReview | QueuedReview)[], kind: QueueRowKind, hasMultipleRepos: boolean): HTMLElement {
@@ -506,6 +521,8 @@ const MORE_ICON_PATH = 'M3 8h0.01M8 8h0.01M13 8h0.01';
 const FOLLOW_UP_APPROVAL_HINT = 'Your comments are on GitHub. Approve adds an approval without posting them again.';
 
 function sendAction(origin: DetailOrigin, draft: ReviewDraft, action: TeamReviewAction, body: string, comments: ReviewComment[], settle: (isDone: boolean, text: string) => void, threadId?: string): boolean {
+  const capturedOrder = attentionOrder(groupDrafts(_latest));
+  showActionNotice(null);
   const requestId = `team-review-action-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const isSent = sendControlMsg({ type: 'team-review-action', requestId, ...buildActionRequest(draft, action, body, comments, threadId) });
   if (!isSent) return false;
@@ -513,7 +530,7 @@ function sendAction(origin: DetailOrigin, draft: ReviewDraft, action: TeamReview
     _pendingActions.delete(draft.key);
     settle(false, 'No reply from the server. Check GitHub before trying again.');
   }, ACTION_REPLY_TIMEOUT_MS);
-  _pendingActions.set(draft.key, { requestId, action, origin, timer, settle });
+  _pendingActions.set(draft.key, { requestId, action, origin, capturedOrder, pullRequest: pullRequestLabel(draft.repo, draft.number), timer, settle });
   return true;
 }
 
@@ -825,8 +842,15 @@ function otherDetailFor(draft: ReviewDraft): HTMLElement {
 
 function renderSelectedDetail(sections: TeamReviewSections): void {
   if (!_detail) return;
-  _selectedKey = chooseSelectedReviewKey(sections, _selectedKey);
+  _selectedKey = chooseSelectedReviewKey(sections, _selectedKey, _caughtUpSelection !== null);
   if (!_selectedKey) {
+    if (_caughtUpSelection !== null) {
+      const actedKey = _caughtUpSelection.actedKey;
+      if (actedKey && ![...sections.ready, ...sections.attention].some((review) => review.key === actedKey)) _caughtUpSelection = { actedKey: null };
+      _detail.replaceChildren(createCaughtUpBanner(caughtUpSelectionView(sections, _caughtUpSelection.actedKey)));
+      _renderedDetailSignature = null;
+      return;
+    }
     _detail.replaceChildren();
     _renderedDetailSignature = null;
     return;
@@ -901,7 +925,12 @@ function ensureShell(): void {
     resizerLabel: 'Resize review queue',
   });
   _queue = shell.queue;
-  _detail = shell.detail;
+  _actionNoticeLine = el('p', 'pr-action-status pr-action-notice');
+  _actionNoticeLine.setAttribute('role', 'status');
+  _actionNoticeLine.setAttribute('aria-live', 'polite');
+  _detail = el('div', 'pr-detail-body');
+  shell.detail.append(_actionNoticeLine, _detail);
+  showActionNotice(_actionNotice);
   _root.replaceChildren(shell.columns);
   _renderedDetailSignature = null;
   _renderedQueueSignature = null;
@@ -939,7 +968,7 @@ function render(): void {
   const sections = groupDrafts(_latest);
   forgetDepartedDetails(new Set([...sections.ready, ...sections.noReviewNeeded].map((draft) => draft.key)));
   _ageTicker.reset();
-  if (!_latest?.configured || !hasAnyRow(sections)) {
+  if (!_latest?.configured || (!hasAnyRow(sections) && _caughtUpSelection === null)) {
     _progressTicker.reset();
     _detailProgressTicker.reset();
     const head = createPrQueueHead(_scopeTabs);
@@ -949,6 +978,7 @@ function render(): void {
     _queue = null;
     _renderedQueueSignature = null;
     _detail = null;
+    _actionNoticeLine = null;
     _inReviewSection = null;
     _renderedDetailSignature = null;
     return;
@@ -956,7 +986,7 @@ function render(): void {
   ensureShell();
   if (!_queue) return;
   syncTeamChip(_root.querySelector('.pr-queue-head'));
-  _selectedKey = chooseSelectedReviewKey(sections, _selectedKey);
+  _selectedKey = chooseSelectedReviewKey(sections, _selectedKey, _caughtUpSelection !== null);
   const hasMultipleRepos = hasMultipleQueueRepos(sections);
   const queueSignature = JSON.stringify([sections, hasMultipleRepos, _selectedKey, laneNotice(_latest)]);
   if (queueSignature === _renderedQueueSignature) {
@@ -969,7 +999,7 @@ function render(): void {
   _progressTicker.reset();
   const queueSections: HTMLElement[] = [];
   const caughtUp = caughtUpDetail(sections);
-  if (caughtUp) queueSections.push(createCaughtUpBanner(caughtUp));
+  if (caughtUp) queueSections.push(createCaughtUpBanner({ title: 'All caught up', detail: caughtUp }));
   if (sections.ready.length) queueSections.push(createQueueSection('Ready', sections.ready, 'ready', hasMultipleRepos));
   if (sections.inReview.length) {
     _inReviewSection = createQueueSection('In review', sections.inReview, 'inReview', hasMultipleRepos);
@@ -1057,11 +1087,21 @@ export function applyTeamReviewActionResult(message: unknown): void {
   }
   const owningCache = pending.origin === 'ready' ? _readyDetails : _otherDetails;
   const handle = owningCache.get(actionResult.key);
-  if (!handle) return;
   if (actionResult.ok === true) {
     if (pending.origin === 'other') _otherDetails.delete(actionResult.key);
-    handle.settle(true, typeof actionResult.warning === 'string' && actionResult.warning ? `${actionOutcomeText(pending.action)}. ${actionResult.warning}` : actionOutcomeText(pending.action));
+    const reply = planActionReply({
+      action: pending.action,
+      pullRequest: pending.pullRequest,
+      warning: typeof actionResult.warning === 'string' ? actionResult.warning : '',
+      isActedSelected: _selectedKey === actionResult.key,
+    });
+    (handle?.settle ?? pending.settle)?.(true, reply.statusText);
+    if (reply.notice) showActionNotice(reply.notice);
+    if (!reply.shouldAdvance) return;
+    _selectedKey = nextAttentionKey({ capturedOrder: pending.capturedOrder, actedKey: actionResult.key, groups: groupDrafts(_latest) });
+    if (_selectedKey === null) _caughtUpSelection = { actedKey: actionResult.key };
+    render();
     return;
   }
-  handle.settle(false, typeof actionResult.error === 'string' && actionResult.error ? actionResult.error : 'The action failed.');
+  (handle?.settle ?? pending.settle)?.(false, typeof actionResult.error === 'string' && actionResult.error ? actionResult.error : 'The action failed.');
 }

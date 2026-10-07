@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright-core';
 import { ReviewDraft, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
+import type { TeamReviewAction } from '../../shared/contracts/team-review.ts';
 import type { Layout } from './cases-core.ts';
 import { verifyMyPrKeepMergeable } from './my-prs.ts';
 
@@ -9,6 +10,7 @@ const PREVIOUS_HEAD = 'b'.repeat(40);
 
 interface TeamReviewPanelModule {
   applyTeamReviewStatus(message: unknown): void;
+  applyTeamReviewActionResult(message: unknown): void;
 }
 
 function createDraft(number: number, overrides: Partial<ReviewDraft> = {}): ReviewDraft {
@@ -209,6 +211,129 @@ async function verifyViewerThreadCounts(page: Page, snapshot: TeamReviewStatus):
   await applyStatus(page, snapshot);
 }
 
+interface ActionCaptureWindow extends Window {
+  teamReviewOriginalSend?: WebSocket['send'];
+}
+
+async function replyToCapturedAction(page: Page, ok: boolean, warning?: string): Promise<void> {
+  await page.evaluate(async ({ isOk, warning }) => {
+    const requestText = document.documentElement.dataset.teamReviewAction;
+    if (!requestText) throw new Error('No review action was sent');
+    const request = JSON.parse(requestText) as { key: string; requestId: string };
+    const panelUrl = '/team-review-panel.ts';
+    const panel: TeamReviewPanelModule = await import(panelUrl);
+    panel.applyTeamReviewActionResult({ type: 'team-review-action-result', key: request.key, requestId: request.requestId, ok: isOk, error: isOk ? undefined : 'Action rejected', warning });
+    delete document.documentElement.dataset.teamReviewAction;
+  }, { isOk: ok, warning });
+}
+
+async function clickReviewAction(page: Page, action: TeamReviewAction): Promise<void> {
+  const control = page.locator(`.pr-detail button[data-action="${action}"]`);
+  if (!await control.isVisible()) await page.locator('.pr-detail .review-more-button').click();
+  const labelBeforeAction = await control.textContent();
+  await control.click();
+  assert.equal(await control.textContent(), labelBeforeAction);
+}
+
+async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): Promise<void> {
+  await page.evaluate(() => {
+    const captureWindow = window as ActionCaptureWindow;
+    const originalSend = WebSocket.prototype.send;
+    captureWindow.teamReviewOriginalSend = originalSend;
+    WebSocket.prototype.send = function(message) {
+      if (typeof message === 'string') {
+        const request = JSON.parse(message) as { type?: string };
+        if (request.type === 'team-review-action') {
+          document.documentElement.dataset.teamReviewAction = message;
+          return;
+        }
+      }
+      originalSend.call(this, message);
+    };
+  });
+  const reviewRow = (number: number) => page.locator(`.pr-queue-row[data-review-key="Acme/app#${number}"]`);
+  const withDrafts = (drafts: ReviewDraft[]) => ({ ...snapshot, drafts, inFlight: [], queued: [] });
+  const actionNotice = page.locator('.pr-detail-host .pr-action-notice');
+  const caughtUpTitle = page.locator('.pr-detail-host .pr-caught-up-title');
+  const caughtUpDetailText = page.locator('.pr-detail-host .pr-caught-up-detail');
+  try {
+    for (const action of ['approve', 'approve-only', 'comment', 'discard', 'requeue'] as const) {
+      await applyStatus(page, withDrafts([createDraft(1), createDraft(2), createDraft(3)]));
+      await reviewRow(1).click();
+      await clickReviewAction(page, action);
+      await applyStatus(page, { ...withDrafts([createDraft(3, { requestSource: 'direct', reviewDecision: 'REVIEW_REQUIRED' }), createDraft(2), createDraft(1, { status: action === 'discard' ? 'discarded' : 'posted' })]), queued: action === 'requeue' ? [createDraft(1)] : [] });
+      assert.equal(await reviewRow(1).getAttribute('aria-current'), 'true');
+      await replyToCapturedAction(page, true);
+      assert.equal(await reviewRow(2).getAttribute('aria-current'), 'true');
+      assert.match(await actionNotice.textContent() ?? '', /^Acme\/app#1: /);
+      assert.equal(await actionNotice.isVisible(), true);
+    }
+    await reviewRow(3).click();
+    assert.equal(await actionNotice.isVisible(), false);
+    await applyStatus(page, withDrafts([createDraft(1), createDraft(2), createDraft(3)]));
+    await reviewRow(1).click();
+    await clickReviewAction(page, 'approve');
+    await applyStatus(page, withDrafts([createDraft(1, { status: 'posted' }), createDraft(2), createDraft(3)]));
+    await replyToCapturedAction(page, true, 'Could not confirm the pull request head after approving. Check the approval on GitHub');
+    assert.equal(await reviewRow(1).getAttribute('aria-current'), 'true');
+    assert.equal(await actionNotice.textContent(), 'Acme/app#1: Approved on GitHub. Could not confirm the pull request head after approving. Check the approval on GitHub.');
+    assert.equal(await actionNotice.getAttribute('data-tone'), 'error');
+    await applyStatus(page, withDrafts([createDraft(4, { status: 'posted', threads: [{
+      id: 'PRRT_acme_4', path: 'src/app.ts', line: 2, isResolved: false, viewerCanResolve: true,
+      isNit: false, url: 'https://github.com/Acme/app/pull/4#discussion_r4',
+      lastReplyAuthor: 'teammate', lastReplyAt: '2026-10-01T12:00:00Z',
+    }] }), createDraft(2)]));
+    await reviewRow(4).click();
+    await page.locator('.pr-detail').getByRole('button', { name: 'Resolve', exact: true }).click();
+    await replyToCapturedAction(page, true);
+    assert.equal(await reviewRow(4).getAttribute('aria-current'), 'true');
+    await applyStatus(page, withDrafts([createDraft(1), createDraft(2), createDraft(3)]));
+    await reviewRow(1).click();
+    await clickReviewAction(page, 'approve');
+    await reviewRow(3).click();
+    await replyToCapturedAction(page, true);
+    assert.equal(await reviewRow(3).getAttribute('aria-current'), 'true');
+    await applyStatus(page, withDrafts([createDraft(1, { summary: 'A fresh draft' }), createDraft(2)]));
+    await reviewRow(1).click();
+    await clickReviewAction(page, 'approve');
+    await replyToCapturedAction(page, false);
+    assert.equal(await reviewRow(1).getAttribute('aria-current'), 'true');
+    assert.equal(await page.locator('.pr-detail .pr-action-status').textContent(), 'Action rejected');
+    await clickReviewAction(page, 'approve');
+    await applyStatus(page, withDrafts([createDraft(1, { status: 'posted' }), createDraft(2, { status: 'discarded' })]));
+    await replyToCapturedAction(page, true);
+    assert.equal(await page.locator('.pr-queue-row[aria-current="true"]').count(), 0);
+    assert.equal(await caughtUpTitle.textContent(), 'All caught up');
+    assert.equal(await actionNotice.textContent(), 'Acme/app#1: Approved on GitHub.');
+    await applyStatus(page, { ...withDrafts([createDraft(1, { status: 'posted' }), createDraft(2, { status: 'discarded' })]), handReview: [createDraft(12)] });
+    assert.equal(await caughtUpTitle.textContent(), 'Drafts all handled');
+    assert.equal(await caughtUpDetailText.textContent(), '1 pull request needs review by hand.');
+    await applyStatus(page, withDrafts([createDraft(1, { status: 'posted' }), createDraft(2)]));
+    assert.equal(await page.locator('.pr-queue-row[aria-current="true"]').count(), 0);
+    assert.equal(await caughtUpTitle.textContent(), 'New pull requests need you');
+    assert.equal(await caughtUpDetailText.textContent(), 'Pick one from the queue.');
+    await reviewRow(2).click();
+    assert.equal(await reviewRow(2).getAttribute('aria-current'), 'true');
+    assert.equal(await page.locator('.pr-detail-host .pr-caught-up').count(), 0);
+    await clickReviewAction(page, 'approve');
+    await replyToCapturedAction(page, true);
+    await applyStatus(page, withDrafts([]));
+    assert.equal(await caughtUpTitle.textContent(), 'All caught up');
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    throw error;
+  } finally {
+    await page.evaluate(() => {
+      const captureWindow = window as ActionCaptureWindow;
+      if (captureWindow.teamReviewOriginalSend) WebSocket.prototype.send = captureWindow.teamReviewOriginalSend;
+      delete captureWindow.teamReviewOriginalSend;
+      delete document.documentElement.dataset.teamReviewAction;
+    });
+    await applyStatus(page, snapshot);
+    await reviewRow(1).click();
+  }
+}
+
 export async function verifyTeamReviewRows(page: Page, layout: Layout): Promise<void> {
   await page.locator('#loading-screen').waitFor({ state: 'hidden' });
   await page.route('https://avatars.githubusercontent.com/**', (route) => route.fulfill({ status: 204 }));
@@ -253,5 +378,6 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout): Promise<
   await verifyUnchangedQueueKeepsRowNodes(page, status);
   await verifyQueueRebuildsAfterEmptyStatus(page, status);
   await verifyViewerThreadCounts(page, status);
+  await verifyActionAdvancement(page, status);
   await verifyMyPrKeepMergeable(page);
 }
