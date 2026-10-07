@@ -54,10 +54,31 @@ export interface CardOptions {
   taskTitle?: string | null;
   taskTitleIsCustom?: boolean;
   skipPerms?: boolean;
+  saneYolo?: boolean;
   worktree?: boolean;
   workspace?: boolean;
   path?: unknown;
   stateSince?: unknown;
+}
+
+function paintPermsBadge(permsBadge: HTMLElement, saneYolo: boolean) {
+  permsBadge.textContent = saneYolo ? 'SANE YOLO' : 'YOLO';
+  permsBadge.title = saneYolo
+    ? 'Skips permission prompts; Sane YOLO blocks catastrophic commands'
+    : 'Running with --dangerously-skip-permissions';
+}
+
+export function applyCardSaneYolo(card: HTMLElement, saneYolo: boolean) {
+  if (saneYolo) card.dataset.saneYolo = '';
+  if (!saneYolo) delete card.dataset.saneYolo;
+  const permsBadge = card.querySelector<HTMLElement>('.perms-badge');
+  if (permsBadge) paintPermsBadge(permsBadge, saneYolo);
+}
+
+export function setSessionSaneYolo(sessionId: unknown, saneYolo: boolean) {
+  const ui = findSessionUi(sessionId);
+  if (!ui) return;
+  applyCardSaneYolo(ui.card, saneYolo);
 }
 
 export function buildCardDOM(sessionId: string, sessionName: string, initialState: string, options: CardOptions = {}) {
@@ -67,6 +88,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   card.dataset.session = sessionName;
   card.dataset.state = state;
   if (options.skipPerms) card.dataset.skipPerms = '';
+  if (options.saneYolo) card.dataset.saneYolo = '';
   if (options.worktree) card.dataset.worktree = '';
   if (options.workspace) card.dataset.workspace = '';
   if (options.path) card.dataset.path = String(options.path);
@@ -76,8 +98,8 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const nameEl = el('span', 'session-name', sessionName);
   nameEl.title = 'Double-click or press F2 to rename';
   nameEl.tabIndex = 0;
-  const permsBadge = options.skipPerms ? el('span', 'perms-badge', 'YOLO') : null;
-  if (permsBadge) permsBadge.title = 'Running with --dangerously-skip-permissions';
+  const permsBadge = options.skipPerms ? el('span', 'perms-badge') : null;
+  if (permsBadge) paintPermsBadge(permsBadge, options.saneYolo === true);
   const taskTitleEl = el('span', 'session-task-title');
   paintTaskTitle(taskTitleEl, options.taskTitle);
 

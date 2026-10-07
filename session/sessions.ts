@@ -266,6 +266,7 @@ class Session extends EventEmitter {
   _antiSlopPrompt: boolean;
   _spawnEnv: Record<string, string> | null;
   _hookTools: ResolvedHookTool[];
+  _isSaneYoloActive: boolean;
   _planLimits: boolean;
   _planReviewPort: SessionPlanReviewPort | null;
   _hooks: ReturnType<typeof createSessionHookLifecycle>;
@@ -469,6 +470,7 @@ class Session extends EventEmitter {
     this.ephemeral = !!ephemeral;
     this._spawnEnv = spawnEnv;
     this._hookTools = hookTools.filter((tool) => this._can(HOOK_TOOLS[tool.id].capability));
+    this._isSaneYoloActive = false;
     this._planLimits = planLimits === true && this._can("statusLine");
     this._planReviewPort = planReviewPort;
     this._hooks = createSessionHookLifecycle({
@@ -954,6 +956,10 @@ class Session extends EventEmitter {
     return this._resumeSessionId;
   }
 
+  get saneYolo(): boolean {
+    return this._isSaneYoloActive;
+  }
+
   get hasEndedTurn(): boolean {
     return this._hasEndedTurn;
   }
@@ -1094,6 +1100,7 @@ class Session extends EventEmitter {
       stateSince: this.stateSince,
       sleeping: this._sleeping,
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
+      saneYolo: this.saneYolo,
       ephemeral: this.ephemeral,
       isWorktree: this.isWorktree,
       isWorkspace: this.isWorkspace,
@@ -1239,7 +1246,9 @@ class Session extends EventEmitter {
     this._resetDetectionSources({ quiet: false });
 
     const hookInjection = this._hooks.inject();
+    this._isSaneYoloActive = hookInjection.isSaneYoloActive;
     if (this._hooks.isRequiredSandboxMissing()) {
+      this._isSaneYoloActive = false;
       this._hooks.cleanup();
       const refusal = new Error(SANDBOX_UNAPPLIED_ERROR);
       this.transition("spawn_fail", { error: refusal.message });
@@ -1305,6 +1314,7 @@ class Session extends EventEmitter {
         env,
       });
     } catch (err) {
+      this._isSaneYoloActive = false;
       this._hooks.cleanup();
       this.transition("spawn_fail", { error: err instanceof Error ? err.message : String(err) });
       this.emit("error", err);
@@ -1319,6 +1329,7 @@ class Session extends EventEmitter {
       this.ptyProcess.onExit(({ exitCode, signal }) =>
         this._handlePtyExit(exitCode, signal),
       );
+      this._isSaneYoloActive = false;
       this._hooks.cleanup();
       this.transition("spawn_fail", { reason: "spawn_cwd_missing" });
       this.kill();

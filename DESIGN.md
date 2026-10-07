@@ -234,7 +234,7 @@ The collapsed dock at the bottom of the screen. It sits in-flow below the sessio
 - **Color-blind safe by construction:** amber-plus-motion versus green-plus-steady differ on hue, saturation, and animation at once. This is the Earned Signal and Flat-By-Default rules at miniature scale.
 
 ### Permissions Badge
-A small uppercase warning chip on any session spawned with skip-permissions. 11px, 700, 0.08em uppercase in the perms-warn amber-orange (#d97706), with a full 1px border and a 16% tinted fill at 2px radius. Quiet but unmistakable. Note the full border: it deliberately replaced an earlier colored `border-left`, per the side-stripe ban.
+A small uppercase warning chip on any session spawned with skip-permissions. 11px, 700, 0.08em uppercase in the perms-warn amber-orange (#d97706), with a full 1px border and a 16% tinted fill at 2px radius. Quiet but unmistakable. The chip reads SANE YOLO when the guard is active, retaining amber to signal skipped permission prompts. Note the full border: it deliberately replaced an earlier colored `border-left`, per the side-stripe ban.
 
 ### Dropdown Menu
 The header overflow menu. An Ink Violet panel with a 1px lifted border, 4px radius, and shadow-lg to lift it off the plane; min-width 180px; scales in over 100ms.

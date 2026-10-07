@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Sane YOLO is on by default for sessions that skip permission prompts in Claude Code, Codex and Grok. It blocks catastrophic commands without asking for approval. Turn it off with the Sane YOLO toggle or `saneYolo: false`. Codex requires trusted hooks; rerun `glimmervoid agent setup grok` to enable it for Grok.
+- Sane YOLO is on by default for sessions that skip permission prompts in Claude Code, Codex and Grok. It blocks catastrophic commands without asking for approval; guarded sessions show SANE YOLO on their amber permission badge. Turn it off with the Sane YOLO toggle or `saneYolo: false`. Codex requires trusted hooks; rerun `glimmervoid agent setup grok` to enable it for Grok.
 - **Task titles follow the conversation**: a session card's title now tracks what the session is working on instead of keeping the name from its first prompt. The card shows your latest substantive prompt as soon as you send it, then Haiku keeps or rewrites the title when the turn ends. Codex, Grok and custom agents keep their live terminal titles when Haiku keeps the title, a title you set yourself always wins, and pasted content no longer shows up in titles. Turn refinement off or pick another model under `taskTitle.refiner` in `config.json`.
 
 ### Changed

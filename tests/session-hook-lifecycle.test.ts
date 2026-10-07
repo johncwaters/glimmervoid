@@ -230,6 +230,7 @@ test('each harness inherits Sane YOLO policy and bin env through its hook inject
       const session = new Session({
         id: `guard-${agentId}`, name: `guard-${agentId}`, path: directory, agent: agentId,
         hookTools: [{ id: 'saneYolo', binPath: '/g/guard.js' }],
+        bypassHookTrust: agentId === 'codex',
         hookRouter: new HookRouter(), getHookPort: () => PORT, hooksBaseDir: directory,
         spawnCommand: { path: process.execPath, kind: 'exe' },
         ptySpawn: (file, args, opts) => { calls.push({ file, args, opts: opts as SpawnCall['opts'] }); return fakePty(); },
@@ -302,5 +303,109 @@ test('a Grok Sane YOLO session on a pre-Sane-YOLO hooks file warns once per sess
     assert.equal(spawnCount, 2);
     assert.equal(saneYoloWarnings.length, expectedWarnings, warnings.join('\n'));
     for (const message of saneYoloWarnings) assert.match(message, /glimmervoid agent setup grok/);
+  }
+});
+
+interface SaneYoloSpawnCase {
+  agentId: string;
+  grokHooksContents?: string | null;
+  bypassHookTrust?: boolean;
+  hasCodexHooksFile?: boolean;
+  hookRouter?: HookRouter | null;
+  isHooksBaseDirBlocked?: boolean;
+  hookTools?: { id: 'saneYolo' | 'rtk'; binPath: string }[];
+}
+
+interface SaneYoloSpawnOutcome {
+  beforeStart: boolean;
+  afterStart: boolean;
+  spawnEnv: Record<string, string | undefined> | null;
+}
+
+async function saneYoloFlagsAroundStart(spawnCase: SaneYoloSpawnCase): Promise<SaneYoloSpawnOutcome> {
+  let flags: SaneYoloSpawnOutcome = { beforeStart: true, afterStart: true, spawnEnv: null };
+  const calls: SpawnCall[] = [];
+  await withTempDir(async (directory) => {
+    const priorGrokHome = process.env.GROK_HOME;
+    process.env.GROK_HOME = path.join(directory, 'grok');
+    const hooksPath = grok.hooksFilePath(process.env);
+    if (typeof spawnCase.grokHooksContents === 'string') {
+      fs.mkdirSync(path.dirname(hooksPath), { recursive: true });
+      fs.writeFileSync(hooksPath, spawnCase.grokHooksContents);
+    }
+    const sessionDir = path.join(directory, 'project');
+    fs.mkdirSync(sessionDir);
+    if (spawnCase.hasCodexHooksFile) {
+      fs.mkdirSync(path.join(sessionDir, '.codex'));
+      fs.writeFileSync(path.join(sessionDir, '.codex', 'hooks.json'), '{}');
+    }
+    const hooksBaseDir = path.join(directory, 'hooks');
+    if (spawnCase.isHooksBaseDirBlocked) fs.writeFileSync(hooksBaseDir, 'not a directory');
+    const session = new Session({
+      id: `sane-yolo-${spawnCase.agentId}`, name: `sane-yolo-${spawnCase.agentId}`, path: sessionDir, agent: spawnCase.agentId,
+      hookTools: spawnCase.hookTools ?? [{ id: 'saneYolo', binPath: '/g/guard.js' }],
+      bypassHookTrust: spawnCase.bypassHookTrust === true,
+      hookRouter: spawnCase.hookRouter === undefined ? new HookRouter() : spawnCase.hookRouter,
+      getHookPort: () => PORT, hooksBaseDir,
+      spawnCommand: { path: process.execPath, kind: 'exe' },
+      ptySpawn: (file, args, opts) => { calls.push({ file, args, opts: opts as SpawnCall['opts'] }); return fakePty(); },
+    });
+    const originalWarn = console.warn;
+    console.warn = () => {};
+    try {
+      const beforeStart = session.saneYolo;
+      await session.start();
+      flags = { beforeStart, afterStart: session.saneYolo, spawnEnv: calls[0]?.opts.env ?? null };
+    } finally {
+      console.warn = originalWarn;
+      session.destroy();
+      if (priorGrokHome === undefined) delete process.env.GROK_HOME;
+      if (priorGrokHome !== undefined) process.env.GROK_HOME = priorGrokHome;
+    }
+  });
+  return flags;
+}
+
+test('Sane YOLO reads active only after a spawn that actually placed the guard hook', async () => {
+  const currentGrokContents = grok.hooks.injection.kind === 'home-hooks-file' ? grok.hooks.injection.expectedContents() : null;
+  const preSaneYoloGrokContents = renderGrokHooksFile({ relayPath: grok.RELAY_PATH, events: grok.HOOK_EVENTS });
+  const cases: { label: string; spawnCase: SaneYoloSpawnCase; isActive: boolean }[] = [
+    { label: 'claude settings written', spawnCase: { agentId: 'claude-code' }, isActive: true },
+    { label: 'claude settings write failed', spawnCase: { agentId: 'claude-code', isHooksBaseDirBlocked: true }, isActive: false },
+    { label: 'claude without a hook router', spawnCase: { agentId: 'claude-code', hookRouter: null }, isActive: false },
+    { label: 'claude with the guard off', spawnCase: { agentId: 'claude-code', hookTools: [] }, isActive: false },
+    { label: 'codex with the trust bypass applied', spawnCase: { agentId: 'codex', bypassHookTrust: true }, isActive: true },
+    { label: 'codex without the trust bypass', spawnCase: { agentId: 'codex' }, isActive: false },
+    { label: 'codex with the trust bypass refused', spawnCase: { agentId: 'codex', bypassHookTrust: true, hasCodexHooksFile: true }, isActive: false },
+    { label: 'grok with a current hooks file', spawnCase: { agentId: 'grok', grokHooksContents: currentGrokContents }, isActive: true },
+    { label: 'grok with a pre-Sane-YOLO hooks file', spawnCase: { agentId: 'grok', grokHooksContents: preSaneYoloGrokContents }, isActive: false },
+    { label: 'grok with no hooks file', spawnCase: { agentId: 'grok', grokHooksContents: null }, isActive: false },
+  ];
+  for (const { label, spawnCase, isActive } of cases) {
+    const flags = await saneYoloFlagsAroundStart(spawnCase);
+    assert.equal(flags.beforeStart, false, `${label}: before start`);
+    assert.equal(flags.afterStart, isActive, `${label}: after start`);
+    assert.ok(flags.spawnEnv, `${label}: spawned`);
+    assert.equal(flags.spawnEnv.GLIMMERVOID_SANE_YOLO_PATH !== undefined, isActive, `${label}: Sane YOLO bin env`);
+    const expectedSafetyNetHome = isActive ? saneYoloHomeDir() : process.env.CC_SAFETY_NET_HOME;
+    assert.equal(flags.spawnEnv.CC_SAFETY_NET_HOME, expectedSafetyNetHome, `${label}: Sane YOLO policy env`);
+  }
+});
+
+test('an unguarded Codex spawn keeps the inherited cc-safety-net env untouched', async () => {
+  const inheritedSafetyNetEnv = { CC_SAFETY_NET_HOME: '/operator/safety-net', CC_SAFETY_NET_PARANOID: '1' };
+  const priorSafetyNetEnv = { CC_SAFETY_NET_HOME: process.env.CC_SAFETY_NET_HOME, CC_SAFETY_NET_PARANOID: process.env.CC_SAFETY_NET_PARANOID };
+  Object.assign(process.env, inheritedSafetyNetEnv);
+  try {
+    const flags = await saneYoloFlagsAroundStart({ agentId: 'codex' });
+    assert.equal(flags.afterStart, false);
+    assert.ok(flags.spawnEnv);
+    assert.equal(flags.spawnEnv.CC_SAFETY_NET_HOME, inheritedSafetyNetEnv.CC_SAFETY_NET_HOME);
+    assert.equal(flags.spawnEnv.CC_SAFETY_NET_PARANOID, inheritedSafetyNetEnv.CC_SAFETY_NET_PARANOID);
+  } finally {
+    for (const [key, value] of Object.entries(priorSafetyNetEnv)) {
+      if (value === undefined) delete process.env[key];
+      if (value !== undefined) process.env[key] = value;
+    }
   }
 });

@@ -30,7 +30,7 @@ import { applyIssuesConnectionState, applyIssuesProjects, applyIssuesReport, app
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID, updateBannerText } from './radar-core.ts';
 import { acknowledgePrsViewAttention, mountPrsView } from './prs-view.ts';
 import { acknowledgeRadarAttention, applyInvestigationActivity, applyInvestigationFinished, applyPosthogStatus, mountRadarView, setRadarActivityCallback, setRadarTraceOpener } from './radar-panel.ts';
-import { handleDebugStateRefresh, handleDebugStateResponse, onDebugModeChanged } from './session-card/card-dom.ts';
+import { handleDebugStateRefresh, handleDebugStateResponse, onDebugModeChanged, setSessionSaneYolo } from './session-card/card-dom.ts';
 import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionEndedTurn, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
@@ -164,7 +164,8 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
     if (!s.ephemeral) noteKnownProjectPath(s.path);
     const exists = hasSession(s.id);
     if (exists) applyState(s.id, s.state, s.stateSince);
-    if (!exists) createSessionCard(s.id, s.name, s.state, { skipPerms: !!s.dangerouslySkipPermissions, worktree: !!s.isWorktree, workspace: !!s.isWorkspace, path: s.path, stateSince: s.stateSince });
+    if (exists) setSessionSaneYolo(s.id, !!s.saneYolo);
+    if (!exists) createSessionCard(s.id, s.name, s.state, { skipPerms: !!s.dangerouslySkipPermissions, saneYolo: !!s.saneYolo, worktree: !!s.isWorktree, workspace: !!s.isWorkspace, path: s.path, stateSince: s.stateSince });
 
     setSessionTaskTitle(s.id, s.taskTitle, s.taskTitleIsCustom);
     setSessionAgent(s.id, s.agent);
@@ -208,7 +209,7 @@ function carryOverClientSessionFields(sessionId: string, previousUi: SessionUi |
 
 function handleStateChange(msg: ServerMessageOf<'state-change'>) {
   if (!hasSession(msg.id)) {
-    createSessionCard(msg.id, msg.session, msg.to, { skipPerms: !!msg.skipPerms, stateSince: msg.timestamp });
+    createSessionCard(msg.id, msg.session, msg.to, { skipPerms: !!msg.skipPerms, saneYolo: !!msg.saneYolo, stateSince: msg.timestamp });
     refreshFavicon(sessionUIs);
     return;
   }
@@ -218,10 +219,11 @@ function handleStateChange(msg: ServerMessageOf<'state-change'>) {
     const matchedCard = document.querySelector(`.session-card[data-id="${CSS.escape(String(msg.id))}"]`);
     const card = matchedCard instanceof HTMLElement ? matchedCard : null;
     const skipPerms = card ? card.dataset.skipPerms !== undefined : false;
+    const saneYolo = msg.saneYolo ?? (card ? card.dataset.saneYolo !== undefined : false);
 
     const path = card ? card.dataset.path : undefined;
     removeSessionCard(msg.id);
-    createSessionCard(msg.id, msg.session, STATES.DORMANT, { skipPerms, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom });
+    createSessionCard(msg.id, msg.session, STATES.DORMANT, { skipPerms, saneYolo, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom });
     setSessionAgent(msg.id, previousUi?.agent);
     carryOverClientSessionFields(msg.id, previousUi);
     if (isFocusActive()) refreshFocusRoster();
@@ -233,6 +235,7 @@ function handleStateChange(msg: ServerMessageOf<'state-change'>) {
 
   applyState(msg.id, msg.to, msg.timestamp);
   if (msg.hasEndedTurn !== undefined) setSessionEndedTurn(msg.id, msg.hasEndedTurn);
+  if (msg.saneYolo !== undefined) setSessionSaneYolo(msg.id, msg.saneYolo);
   refreshFavicon(sessionUIs);
 
   refreshReviewSidebar(msg.id);
@@ -306,7 +309,7 @@ const messageHandlers = {
   'hooks-updated':      () => requestHooksReportIfVisible(),
 
   'state-change':       (msg) => handleStateChange(msg),
-  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, stateSince: msg.stateSince, taskTitle: typeof msg.taskTitle === 'string' ? msg.taskTitle : null, taskTitleIsCustom: msg.taskTitleIsCustom === true }); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, saneYolo: !!msg.saneYolo, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, stateSince: msg.stateSince, taskTitle: typeof msg.taskTitle === 'string' ? msg.taskTitle : null, taskTitleIsCustom: msg.taskTitleIsCustom === true }); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-removed':    (msg) => { removeSessionCard(msg.id); forgetReviewSession(msg.id); refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); },
   'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
@@ -315,7 +318,7 @@ const messageHandlers = {
     const previousUi = sessionUIs.get(String(msg.id));
     removeSessionCard(msg.id);
     forgetReviewSession(msg.id);
-    createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, stateSince: msg.stateSince, taskTitle: typeof msg.taskTitle === 'string' ? msg.taskTitle : null, taskTitleIsCustom: msg.taskTitleIsCustom === true });
+    createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, saneYolo: !!msg.saneYolo, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, stateSince: msg.stateSince, taskTitle: typeof msg.taskTitle === 'string' ? msg.taskTitle : null, taskTitleIsCustom: msg.taskTitleIsCustom === true });
     setSessionAgent(msg.id, msg.agent);
     carryOverClientSessionFields(msg.id, previousUi);
     refreshFavicon(sessionUIs);

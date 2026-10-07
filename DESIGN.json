@@ -171,7 +171,7 @@
       "name": "Permissions Badge",
       "kind": "chip",
       "refersTo": null,
-      "description": "Skip-permissions warning chip. Full 1px border (it replaced a border-left stripe), amber-orange, tinted fill.",
+      "description": "Skip-permissions warning chip, labeled SANE YOLO when the guard is active. Full 1px border (it replaced a border-left stripe), amber-orange, tinted fill.",
       "html": "<span class=\"ds-perms\">skip-perms</span>",
       "css": ".ds-perms { display: inline-flex; align-items: center; font-family: 'Cascadia Code', monospace; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 0 6px; line-height: 18px; border-radius: 2px; color: var(--perms-warn); border: 1px solid var(--perms-warn); background: color-mix(in srgb, var(--perms-warn) 16%, transparent); }"
     },
