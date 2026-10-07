@@ -17,22 +17,20 @@ Glimmervoid is developed inside Glimmervoid.
 
 ## Quickstart
 
-Until the `glimmervoid` npm package is published, run the tarball attached to the latest GitHub release. Windows and macOS:
+Windows and macOS:
 
 ```bash
-npx --allow-remote=root --allow-scripts=node-pty https://github.com/johncwaters/glimmervoid/releases/latest/download/glimmervoid.tgz
+npx glimmervoid@latest
 ```
 
-Linux (node-pty ships no Linux prebuilds, so it compiles at install time):
+Linux (node-pty ships no Linux prebuilds, so it compiles at install time, and npm runs that build only when allowed):
 
 ```bash
 sudo apt install build-essential python3 git
-npx --allow-remote=root --allow-scripts=node-pty https://github.com/johncwaters/glimmervoid/releases/latest/download/glimmervoid.tgz
+npx --allow-scripts=node-pty glimmervoid@latest
 ```
 
-To upgrade, run the versioned command the dashboard's update banner shows (or the `glimmervoid-<version>.tgz` URL from the release page): npx caches by the literal command, so rerunning the command above keeps starting the version it first fetched.
-
-Once the package is published, `npm install -g glimmervoid` (plus `--allow-scripts=node-pty` on Linux) installs it globally; if that fails with `EACCES`, see [docs/troubleshooting.md](docs/troubleshooting.md#eacces-on-a-global-install) and never use `sudo npm`.
+To install it globally instead, run `npm install -g glimmervoid` (add `--allow-scripts=node-pty` on Linux); if that fails with `EACCES`, see [docs/troubleshooting.md](docs/troubleshooting.md#eacces-on-a-global-install) and never use `sudo npm`.
 
 Open http://localhost:3000. A fresh install knows no projects, so **+ Session** shows "No projects found" until you say where your repositories live: open **Settings**, then **Repositories**, and add the folder that holds your git checkouts under **Repository roots** (each subfolder becomes a project). For a one-off, **+ Session** then **Advanced options** takes a name and a path directly. That is the whole setup; everything else is optional.
 

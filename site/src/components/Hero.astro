@@ -16,6 +16,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
       <button class="btn" type="button" id="copy-install">Copy</button>
       <span class="copy-status" id="copy-status" role="status"></span>
     </div>
+    <p class="install-platform-note">Windows and macOS. On Linux, use the <a href="#install">Linux command</a>.</p>
     <div class="hero-meta"><span>Windows, macOS, Linux</span><span>MIT</span><span>Runs locally</span></div>
   </div>
   <DashboardRecording />
@@ -25,6 +26,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
   .hero { border-top: none; padding-block: 36px 72px; }
   .hero-copy { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 18px; position: relative; z-index: 2; }
   .lede { font-size: 16px; max-width: 46ch; color: var(--text); }
+  .install-platform-note { margin: 8px 0 0; font-size: 13px; color: var(--text-dim); }
   .install-line { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; align-items: center; max-width: 100%; }
   .install-line code {
     display: flex; align-items: center; gap: 10px; background: var(--bg-surface); border: 1px solid var(--border);

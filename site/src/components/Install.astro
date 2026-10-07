@@ -1,5 +1,6 @@
 ---
 import InstallCommand from './InstallCommand.astro';
+import { LINUX_INSTALL_COMMAND } from '../lib/install-command.ts';
 ---
 <section id="install">
   <div class="section-head reveal">
@@ -11,10 +12,9 @@ import InstallCommand from './InstallCommand.astro';
 <InstallCommand class="cmd" /></pre>
 <pre class="term-block"><span class="c"># Linux: build tools first</span>
 <span class="cmd">sudo apt install <span class="unbroken">build-essential</span> python3</span>
-<InstallCommand class="cmd" /></pre>
+<InstallCommand class="cmd" command={LINUX_INSTALL_COMMAND} /></pre>
   </div>
   <p style="margin-top:14px;font-size:14px;color:var(--text-dim)">Open <code>localhost:3000</code>. Needs Node 22.18+ and an agent CLI.</p>
-  <p style="margin-top:6px;font-size:14px;color:var(--text-dim)">To upgrade, run the versioned command the dashboard's update banner shows; rerunning this one keeps the version npx cached first.</p>
 </section>
 
 <style>

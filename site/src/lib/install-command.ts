@@ -1,5 +1,5 @@
-export const INSTALL_COMMAND =
-  'npx --allow-remote=root --allow-scripts=node-pty https://github.com/johncwaters/glimmervoid/releases/latest/download/glimmervoid.tgz';
+export const INSTALL_COMMAND = 'npx glimmervoid@latest';
+export const LINUX_INSTALL_COMMAND = 'npx --allow-scripts=node-pty glimmervoid@latest';
 
 export type InstallCommandSegment =
   | { kind: 'text'; text: string }

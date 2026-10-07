@@ -3,10 +3,11 @@ import { INSTALL_COMMAND, segmentInstallCommand } from '../lib/install-command.t
 
 interface Props {
   class?: string;
+  command?: string;
 }
 
-const { class: className } = Astro.props;
-const segments = segmentInstallCommand(INSTALL_COMMAND);
+const { class: className, command = INSTALL_COMMAND } = Astro.props;
+const segments = segmentInstallCommand(command);
 ---
 <span class={className}>{segments.map((segment) => segment.kind === 'break-opportunity' ? <wbr /> : segment.kind === 'unbroken' ? <span class="unbroken">{segment.text}</span> : segment.text)}</span>
 

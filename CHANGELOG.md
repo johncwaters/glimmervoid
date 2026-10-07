@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Task titles follow the conversation**: a session card's title now tracks what the session is working on instead of keeping the name from its first prompt. The card shows your latest substantive prompt as soon as you send it, then Haiku keeps or rewrites the title when the turn ends. Codex, Grok and custom agents keep their live terminal titles when Haiku keeps the title, a title you set yourself always wins, and pasted content no longer shows up in titles. Turn refinement off or pick another model under `taskTitle.refiner` in `config.json`.
 
+### Changed
+
+- **Install from npm**: Glimmervoid is now on the npm registry, so the website and README install it with `npx glimmervoid@latest` (Linux adds `--allow-scripts=node-pty` so node-pty can compile) instead of the long GitHub release tarball command.
+
 ## [0.29.1] - 2026-10-07
 
 ### Added
