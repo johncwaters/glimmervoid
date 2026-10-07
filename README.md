@@ -142,7 +142,7 @@ Remote access is off by default. It is a second loopback listener meant to sit b
    ```
 
 2. Restart Glimmervoid (stop and start it, or `systemctl --user restart glimmervoid` when it runs as a service). The log line `Glimmervoid remote listener on http://127.0.0.1:3456 (paired devices only)` confirms the listener is up.
-3. Point an HTTPS reverse proxy at that port. With Tailscale, `tailscale serve --bg 3456` serves `https://<machine>.<tailnet>.ts.net`, which is the name `publicHost` should hold.
+3. Point an HTTPS reverse proxy at that port. With Tailscale, `tailscale serve --bg 3456` serves `https://<machine>.<tailnet>.ts.net`, which is the name `publicHost` should hold. When the port is reached solely through HTTP-mode `tailscale serve`, also set `"ownerLogin": "you@example.com"` in the `remote` block: the listener then refuses every request and WebSocket whose `Tailscale-User-Login` is not that login, including Funnel and tagged-device traffic, which carry none. Only HTTP-mode `tailscale serve` strips a client-sent `Tailscale-User-Login`; behind any other proxy, or `tailscale serve --tcp` or `--tls-terminated-tcp`, a client can forge it, so `ownerLogin` proves nothing there. It works on top of pairing, never instead of it.
 4. Verify from the device: `https://<publicHost>/` should answer with Glimmervoid's "Pairing required" page.
 5. On the host, run `glimmervoid pair --name phone`. It prints a single-use URL valid for 10 minutes that sets an auth cookie when opened on the device.
 

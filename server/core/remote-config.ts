@@ -3,6 +3,7 @@ export interface RemoteConfig {
   port: number | null;
   publicHost: string;
   allowedOrigins: string[];
+  ownerLogin: string;
 }
 
 function toPort(value: unknown): number | null {
@@ -18,14 +19,15 @@ function normalizeRemoteConfig(raw: unknown): RemoteConfig {
   const enabled = src.enabled === true;
   const port = toPort(src.port);
   const publicHost = typeof src.publicHost === 'string' ? src.publicHost.trim() : '';
-  if (!enabled) return { enabled, port, publicHost, allowedOrigins: [] };
+  const ownerLogin = typeof src.ownerLogin === 'string' ? src.ownerLogin.trim().toLowerCase() : '';
+  if (!enabled) return { enabled, port, publicHost, allowedOrigins: [], ownerLogin };
   const listed = Array.isArray(src.allowedOrigins)
     ? src.allowedOrigins.filter((o): o is string => typeof o === 'string' && o.trim() !== '').map((o) => o.trim())
     : [];
   if (listed.length === 0 && publicHost !== '') {
-    return { enabled, port, publicHost, allowedOrigins: [`https://${publicHost}`] };
+    return { enabled, port, publicHost, allowedOrigins: [`https://${publicHost}`], ownerLogin };
   }
-  return { enabled, port, publicHost, allowedOrigins: listed };
+  return { enabled, port, publicHost, allowedOrigins: listed, ownerLogin };
 }
 
 function validateRemoteConfig(

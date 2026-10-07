@@ -114,6 +114,7 @@ export const Config = z.object({
     port: z.number().int().min(1).max(65535).nullable().optional(),
     publicHost: z.string().optional(),
     allowedOrigins: z.array(z.string()).optional(),
+    ownerLogin: z.string().optional(),
   }).passthrough().optional(),
   projects: z.array(ProjectConfig),
 }).passthrough().superRefine((config, ctx) => {

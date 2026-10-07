@@ -8,7 +8,7 @@ import {
 test('an absent remote block normalizes to the inert default', () => {
   for (const raw of [undefined, null, 'nonsense', 42, []]) {
     assert.deepEqual(normalizeRemoteConfig(raw), {
-      enabled: false, port: null, publicHost: '', allowedOrigins: [],
+      enabled: false, port: null, publicHost: '', allowedOrigins: [], ownerLogin: '',
     });
   }
 });
@@ -30,6 +30,12 @@ test('allowedOrigins defaults to https://<publicHost> when a host is set and the
   const remote = normalizeRemoteConfig({ enabled: true, port: 3001, publicHost: 'glimmervoid.test' });
   assert.deepEqual(remote.allowedOrigins, ['https://glimmervoid.test']);
   assert.deepEqual(normalizeRemoteConfig({ publicHost: '  glimmervoid.test  ' }).publicHost, 'glimmervoid.test');
+});
+
+test('ownerLogin is trimmed and lowercased, and anything but a string means no owner check', () => {
+  assert.equal(normalizeRemoteConfig({ enabled: true, port: 3001, ownerLogin: '  Owner@Example.com ' }).ownerLogin, 'owner@example.com');
+  assert.equal(normalizeRemoteConfig({ enabled: true, port: 3001, ownerLogin: 7 }).ownerLogin, '');
+  assert.equal(normalizeRemoteConfig({ enabled: true, port: 3001 }).ownerLogin, '');
 });
 
 test('an explicit allowedOrigins list wins over the publicHost default', () => {

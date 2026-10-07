@@ -9,18 +9,13 @@ import {
 import {
   DEFAULT_DEVICE_MAX_AGE_MS, decideDeviceAuth, deviceNameFromUserAgent, hashSecret,
 } from './core/pairing-token.ts';
-import { classifyRequestOrigin, decideRequestAccess, normalizePathname } from './core/request-trust.ts';
+import type { RemoteConfig } from './core/remote-config.ts';
+import { classifyRequestOrigin, decideOwnerAccess, decideRequestAccess, normalizePathname } from './core/request-trust.ts';
 import type { RequestTrust } from './core/request-trust.ts';
 import type { PairedDevice, PairingsStore, SeenStore } from './pairings-store.ts';
 
 const DEVICE_COOKIE_MAX_AGE_SECONDS = Math.floor(DEFAULT_DEVICE_MAX_AGE_MS / 1000);
-
-interface RemoteConfig {
-  enabled: boolean;
-  port: number | null;
-  publicHost: string;
-  allowedOrigins: string[];
-}
+const TAILSCALE_USER_LOGIN_HEADER = 'tailscale-user-login';
 
 interface AuthOutcome {
   ok: boolean;
@@ -78,6 +73,11 @@ function hashesMatch(a: unknown, b: unknown): boolean {
   }
 }
 
+function describeOwnerCheck(ownerLogin: string): string {
+  if (ownerLogin === '') return '[remote] owner check off: set remote.ownerLogin to answer only your Tailscale login';
+  return `[remote] owner check on: only Tailscale login ${ownerLogin} is answered`;
+}
+
 function createRemoteAuth({
   remote,
   pairingsStore,
@@ -87,6 +87,8 @@ function createRemoteAuth({
   log = console.log,
 }: RemoteAuthOptions): RemoteAuth {
   const remoteListenerPort = remote?.enabled ? remote.port : null;
+  const ownerLogin = remote?.ownerLogin ?? '';
+  if (remote?.enabled) log(describeOwnerCheck(ownerLogin));
   const stopWatch = pairingsStore.watch(() => {
     log('[remote] pairings.json changed - device list reloaded');
   });
@@ -103,6 +105,13 @@ function createRemoteAuth({
     return { ok: true, reason: null, device };
   }
 
+  function isOwner(req: IncomingMessage): boolean {
+    return decideOwnerAccess({
+      ownerLogin,
+      presentedLogin: req.headers?.[TAILSCALE_USER_LOGIN_HEADER],
+    });
+  }
+
   function trustOf(req: IncomingMessage): RequestTrust {
     return classifyRequestOrigin({
       localPort: req.socket ? req.socket.localPort : null,
@@ -113,16 +122,24 @@ function createRemoteAuth({
   function httpMiddleware(req: Request, res: Response, next: NextFunction): void {
     const trust = trustOf(req);
 
-    const authenticated = trust === 'remote' ? authenticate(req).ok : false;
+    const ownerOk = trust === 'remote' ? isOwner(req) : false;
+    const authenticated = trust === 'remote' && ownerOk ? authenticate(req).ok : false;
 
     const decision = decideRequestAccess({
       remoteEnabled: Boolean(remote?.enabled),
       trust,
       pathname: normalizePathname(req.url).pathname,
       authenticated,
+      ownerOk,
     });
     if (decision.allow) {
       next();
+      return;
+    }
+    if (decision.action === 'not-owner') {
+      res.status(403)
+        .type('html')
+        .send(htmlPage('Not the owner', 'This Glimmervoid only answers its owner\'s Tailscale login.'));
       return;
     }
     res.status(401)
@@ -131,6 +148,7 @@ function createRemoteAuth({
   }
 
   function isUpgradeAuthorized(req: IncomingMessage): boolean {
+    if (!isOwner(req)) return false;
     return authenticate(req).ok;
   }
 
@@ -171,4 +189,4 @@ function createRemoteAuth({
 }
 
 export { DEVICE_COOKIE_MAX_AGE_SECONDS, createRemoteAuth };
-export type { AuthOutcome, RemoteAuth, RemoteAuthOptions, RemoteConfig };
+export type { AuthOutcome, RemoteAuth, RemoteAuthOptions };

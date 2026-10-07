@@ -238,7 +238,7 @@ Edit these in `config.json` unless the note names another dashboard surface.
 | `planReview` | `{"enabled":true}` | Hold Claude Code plan approvals (`ExitPlanMode`) so the plan can be read and approved from the dashboard or phone (`planReview.enabled`). |
 | `worktreeSyncOnStart` | `true` | Fetch origin and fast-forward the local integration branch before a session starts its worktree. |
 | `hooks` |  | Operator-defined hooks per project, managed from the dashboard Hooks panel. |
-| `remote` | `{"enabled":false,"port":null,"publicHost":"","allowedOrigins":[]}` | Opt-in remote listener: `enabled`, `port` (required when enabled, must differ from the local port), `publicHost` and `allowedOrigins`. See [Remote access](../README.md#remote-access). |
+| `remote` | `{"enabled":false,"port":null,"publicHost":"","allowedOrigins":[]}` | Opt-in remote listener: `enabled`, `port` (required when enabled, must differ from the local port), `publicHost`, `allowedOrigins` and `ownerLogin` (when set, only that Tailscale login is answered; trustworthy only when the remote port is reached solely through HTTP-mode `tailscale serve`, since any other proxy, or `tailscale serve --tcp` or `--tls-terminated-tcp`, lets a client send its own `Tailscale-User-Login`). See [Remote access](../README.md#remote-access). |
 | `projects` | `[]` | Projects shown in the dashboard, added from the Add Session dialog. Each entry has `path` (required), optional `name`, `repos` (two or more member repositories for a workspace session), `agent` (an agent id, see `customAgents`) and `codexBypassHookTrust` (file-only, default off). |
 
 ## Environment variables

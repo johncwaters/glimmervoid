@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Remote access answers only its owner**: when the remote port is reached solely through HTTP-mode `tailscale serve`, set `remote.ownerLogin` to your Tailscale login and the remote listener refuses every request and WebSocket whose `Tailscale-User-Login` header is missing or different, including the pairing page. Funnel and tagged-device traffic carry no login and are refused too. Behind any other proxy a client can send that header itself, so the check proves nothing there. A paired device is still required; leave `ownerLogin` unset to keep the previous behavior. The remote listener logs at startup whether the owner check is on.
 - **Glimmervoid secrets stay out of sessions**: `GLIMMERVOID_POSTHOG_API_KEY`, `GLIMMERVOID_TELEGRAM_BOT_TOKEN` and `GLIMMERVOID_CLAUDE_OAUTH_TOKEN` are no longer passed to the agent sessions Glimmervoid starts, so an agent can no longer read them from its environment.
 
 ## [0.29.1] - 2026-10-07

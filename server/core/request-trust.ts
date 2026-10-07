@@ -36,14 +36,82 @@ function isPairPath(pathname: unknown): boolean {
   return normalized.pathname === '/pair' || normalized.pathname.startsWith(PAIR_PATH_PREFIX);
 }
 
-function decideRequestAccess({ remoteEnabled, trust, pathname, authenticated }: {
+const ENCODED_WORD_SHAPE = /=\?[^?]*\?[^?]*\?[^?]*\?=/;
+const ENCODED_WORD_PARTS = /^=\?([^?]*)\?([^?]*)\?([^?]*)\?=$/;
+const LINEAR_WHITESPACE = /[ \t]+/;
+const HEX_BYTE_PATTERN = /^[0-9a-f]{2}$/i;
+
+function decodeQEncodedBytes(encodedText: string): number[] | null {
+  const bytes: number[] = [];
+  for (let index = 0; index < encodedText.length; index += 1) {
+    const character = encodedText[index];
+    if (character === '_') {
+      bytes.push(0x20);
+      continue;
+    }
+    if (character !== '=') {
+      const characterCode = encodedText.charCodeAt(index);
+      if (characterCode < 0x21 || characterCode > 0x7e) return null;
+      bytes.push(characterCode);
+      continue;
+    }
+    const hexPair = encodedText.slice(index + 1, index + 3);
+    if (!HEX_BYTE_PATTERN.test(hexPair)) return null;
+    bytes.push(Number.parseInt(hexPair, 16));
+    index += 2;
+  }
+  return bytes;
+}
+
+function decodeEncodedWordBytes(encodedWord: string): number[] | null {
+  const wordParts = ENCODED_WORD_PARTS.exec(encodedWord);
+  if (!wordParts) return null;
+  const [, charset, encoding, encodedText] = wordParts;
+  if (charset.toLowerCase() !== 'utf-8' || encoding.toLowerCase() !== 'q') return null;
+  return decodeQEncodedBytes(encodedText);
+}
+
+function decodeUtf8Strictly(bytes: number[]): string | null {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(bytes));
+  } catch {
+    return null;
+  }
+}
+
+function decodePresentedLogin(presentedLogin: string): string | null {
+  const trimmedLogin = presentedLogin.trim();
+  if (!ENCODED_WORD_SHAPE.test(trimmedLogin)) return trimmedLogin;
+  const loginBytes: number[] = [];
+  for (const encodedWord of trimmedLogin.split(LINEAR_WHITESPACE)) {
+    const wordBytes = decodeEncodedWordBytes(encodedWord);
+    if (wordBytes === null) return null;
+    loginBytes.push(...wordBytes);
+  }
+  return decodeUtf8Strictly(loginBytes);
+}
+
+function decideOwnerAccess({ ownerLogin, presentedLogin }: {
+  ownerLogin: string;
+  presentedLogin: unknown;
+}): boolean {
+  if (ownerLogin === '') return true;
+  if (typeof presentedLogin !== 'string') return false;
+  const decodedLogin = decodePresentedLogin(presentedLogin);
+  if (decodedLogin === null) return false;
+  return decodedLogin.trim().toLowerCase() === ownerLogin;
+}
+
+function decideRequestAccess({ remoteEnabled, trust, pathname, authenticated, ownerOk }: {
   remoteEnabled?: boolean;
   trust?: string;
   pathname?: unknown;
   authenticated?: unknown;
+  ownerOk?: unknown;
 }): { allow: boolean; action: string } {
   if (!remoteEnabled) return { allow: true, action: 'allow' };
   if (trust !== 'remote') return { allow: true, action: 'allow' };
+  if (ownerOk !== true) return { allow: false, action: 'not-owner' };
   if (isPairPath(pathname)) return { allow: true, action: 'pair-page' };
   if (authenticated === true) return { allow: true, action: 'allow' };
   return { allow: false, action: 'unauthorized' };
@@ -77,6 +145,7 @@ function decideUpgradeAccess({
 
 export {
   classifyRequestOrigin,
+  decideOwnerAccess,
   decideRequestAccess,
   decideUpgradeAccess,
   isPairPath,
