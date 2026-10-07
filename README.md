@@ -36,7 +36,7 @@ Open http://localhost:3000. A fresh install knows no projects, so **+ Session** 
 
 To check notifications, allow them when the dashboard asks (or turn on **Desktop notifications** under **Settings**, **Appearance and alerts**) and keep a dashboard tab open. A notification only appears while that tab is not focused, since a focused tab already shows the change. With no dashboard tab open anywhere, only Telegram reaches you (the `telegram` keys in [docs/configuration.md](docs/configuration.md)).
 
-Both flags matter on npm 12, which refuses tarball URLs (`EALLOWREMOTE`) and blocks dependency install scripts by default. npm 10 and 11 allow both by default (npm 11 prints a notice), so there the flags are unnecessary but harmless. If the native module still fails to load, the server refuses to start and prints the repair command; `glimmervoid doctor` runs the same check. See [docs/troubleshooting.md](docs/troubleshooting.md).
+The Linux flag matters on npm 12, which blocks dependency install scripts by default; npm 10 and 11 run them (npm 11 prints a notice), so there it is harmless. Keep `@latest` so npx checks for a new release instead of rerunning the version it cached first. If the native module still fails to load, the server refuses to start and prints the repair command; `glimmervoid doctor` runs the same check. See [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ### From source
 
