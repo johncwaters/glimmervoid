@@ -14,9 +14,8 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
   <div class="hero-copy">
     <p class="eyebrow">Open source agent orchestrator</p>
     <h1>Mission control for your <em>coding agents</em>.</h1>
-    <p class="lede">Run dozens of Claude Code, Codex and Grok sessions at once. Know which one needs you.</p>
     <div class="install-line">
-      <code id="install-command"><span data-install-for="default"><InstallCommand /></span><span data-install-for="linux" hidden><InstallCommand command={LINUX_INSTALL_COMMAND} /></span></code>
+      <code id="install-command" title="Click to copy"><span data-install-for="default"><InstallCommand /></span><span data-install-for="linux" hidden><InstallCommand command={LINUX_INSTALL_COMMAND} /></span></code>
       <button class="btn" type="button" id="copy-install">Copy</button>
       <span class="copy-status" id="copy-status" role="status"></span>
     </div>
@@ -25,7 +24,6 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
     </div>
     <p class="install-platform-note" id="install-platform-note">Windows and macOS. On Linux, use the <a href="#install">Linux command</a>.</p>
     <p class="install-platform-note" id="linux-build-note" hidden>Install build tools first: <code>sudo apt install build-essential python3</code></p>
-    <div class="hero-meta"><span>Windows, macOS, Linux</span><span>MIT</span><span>Runs locally</span></div>
   </div>
   <DashboardRecording />
 </section>
@@ -33,7 +31,6 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
 <style>
   .hero { border-top: none; padding-block: 36px 72px; }
   .hero-copy { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 18px; position: relative; z-index: 2; }
-  .lede { font-size: 16px; max-width: 46ch; color: var(--text); }
   .install-platform-note { margin: 0; font-size: 13px; color: var(--text-dim); }
   .install-platform-note code { color: var(--text); }
   .platform-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
@@ -46,8 +43,9 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
   .install-line { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; align-items: center; max-width: 100%; }
   .install-line code {
     display: flex; align-items: center; gap: 10px; background: var(--bg-surface); border: 1px solid var(--border);
-    border-radius: 4px; padding: 10px 14px; font-size: 14px; max-width: 100%; overflow-x: auto; white-space: nowrap;
+    border-radius: 4px; padding: 10px 14px; font-size: 14px; max-width: 100%; overflow-x: auto; white-space: nowrap; cursor: copy;
   }
+  .install-line code:hover { border-color: var(--accent-dim); }
   .install-line code::before { content: "$"; color: var(--accent-dim); }
   @media (max-width: 640px) {
     .install-line code { align-items: flex-start; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; font-size: 13px; line-height: 1.6; }
@@ -55,7 +53,6 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
   .btn { font: inherit; font-size: 13px; cursor: pointer; background: transparent; color: var(--accent); border: 1px solid var(--accent-dim); border-radius: 4px; padding: 9px 18px; }
   .btn:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
   .copy-status { font-size: 12px; color: var(--text-dim); min-width: 6ch; text-align: left; }
-  .hero-meta { font-size: 12px; color: var(--text-dim); display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 18px; }
   .sky { position: absolute; inset-block: 0; inset-inline: calc(50% - 50vw); pointer-events: none; z-index: 1; overflow: hidden; }
   @media (prefers-reduced-motion: reduce) {
     .sky { display: none; }
@@ -64,7 +61,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
 
 <script>
   import { deriveNyanGeometry, nyanFlightStyleProperties } from '../../../public/nyan-geometry-core.ts';
-  import { createElement, prefersReducedMotion } from '../lib/dom.ts';
+  import { copyText, createElement, hasTextSelectedIn, prefersReducedMotion } from '../lib/dom.ts';
   import { detectInstallPlatform, INSTALL_PLATFORMS, installPlatformView } from '../lib/install-platform.ts';
   import type { InstallPlatform } from '../lib/install-platform.ts';
 
@@ -129,25 +126,31 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
   function wireCopyButton(): void {
     const copyButton = document.getElementById('copy-install');
     const copyStatus = document.getElementById('copy-status');
-    if (!copyButton || !copyStatus) return;
-    const selectCommand = () => {
-      const installCommand = visibleInstallCommand();
-      if (!installCommand) return;
+    const installCommand = document.getElementById('install-command');
+    if (!copyButton || !copyStatus || !installCommand) return;
+    const selectCommand = (command: HTMLElement) => {
       const range = document.createRange();
-      range.selectNodeContents(installCommand);
+      range.selectNodeContents(command);
       const selection = window.getSelection();
       selection?.removeAllRanges();
       selection?.addRange(range);
       copyStatus.textContent = 'Selected';
     };
-    copyButton.addEventListener('click', () => {
-      if (!navigator.clipboard) {
-        selectCommand();
-        return;
-      }
-      navigator.clipboard.writeText(visibleInstallCommand()?.textContent ?? '').then(() => {
+    const copyVisibleCommand = () => {
+      const command = visibleInstallCommand();
+      if (!command) return;
+      void copyText(command.textContent ?? '').then((isCopied) => {
+        if (!isCopied) {
+          selectCommand(command);
+          return;
+        }
         copyStatus.textContent = 'Copied';
-      }, selectCommand);
+      });
+    };
+    copyButton.addEventListener('click', copyVisibleCommand);
+    installCommand.addEventListener('click', () => {
+      if (hasTextSelectedIn(installCommand)) return;
+      copyVisibleCommand();
     });
   }
 

@@ -19,3 +19,14 @@ export function runTimeline(timeline: readonly TimelineStep[], loopMs: number, r
   };
   startCycle();
 }
+
+export function hasTextSelectedIn(element: Element): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || selection.toString().trim() === '') return false;
+  return element.contains(selection.anchorNode) || element.contains(selection.focusNode);
+}
+
+export function copyText(text: string): Promise<boolean> {
+  if (!navigator.clipboard) return Promise.resolve(false);
+  return navigator.clipboard.writeText(text).then(() => true, () => false);
+}
