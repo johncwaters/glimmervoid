@@ -7,11 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Task titles follow the conversation**: a session card's title now tracks what the session is working on instead of keeping the name from its first prompt. The card shows your latest substantive prompt as soon as you send it, then Haiku keeps or rewrites the title when the turn ends. Codex, Grok and custom agents keep their live terminal titles when Haiku keeps the title, a title you set yourself always wins, and pasted content no longer shows up in titles. Turn refinement off or pick another model under `taskTitle.refiner` in `config.json`.
+
 ## [0.29.1] - 2026-10-07
 
 ### Added
 
-- **Task titles follow the conversation**: session cards show the latest substantive prompt immediately, then refine the title with Haiku after a turn ends. Custom titles stay in control, and pasted content envelopes no longer appear in prompt titles. Configure or disable refinement under `taskTitle.refiner` in `config.json`.
 - **Glimmervoid overhead in Usage**: the Usage tab's Glimmervoid lanes section is now Glimmervoid overhead. It shows how much of your Claude use in the current 5 hour block and the last 7 days went to sessions Glimmervoid spawned for its own work (PR reviews, keep mergeable, workflows, change map, visions, benchmarks), with an estimate of how much of each plan limit that is and which lanes it went to. The per-lane table for the selected range stays below it.
 - **Your review comments**: a pull request's details and its row hover show how many of your comment threads are resolved. When all are resolved, the row reads Comments resolved, in the same color as Waits on you, and the pull request needs you again unless your approval still stands: a review you posted moves back to Ready.
 - **Answered threads**: team review now resolves answered nit threads automatically (once: a nit you reopen on GitHub stays open for you) and judges other answered threads. Each answered thread has a Resolve control whether or not it has been judged, since the judgement is advice, a nit that could not be resolved automatically gets the same Resolve control, and a thread that cannot be judged says why. A temporary GitHub comparison failure is retried later rather than marking threads unjudgeable; a comparison GitHub reports as unrelated history marks the thread unjudgeable until its head or last reply changes.
