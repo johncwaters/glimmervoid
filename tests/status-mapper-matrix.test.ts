@@ -21,7 +21,7 @@ test('high-confidence ready completes a RUNNING, WAITING or IDLE session', () =>
   assert.equal(mapSignalToEvent('ready', STATES.IDLE, 'high', 0), 'task_complete');
 });
 
-test('awaiting-input raises a prompt from RUNNING, IDLE or COMPLETE', () => {
+test('awaiting-input raises a prompt from RUNNING, IDLE or COMPLETE whatever the confidence or agent count', () => {
   assert.equal(mapSignalToEvent('awaiting-input', STATES.RUNNING, 'high', 0), 'prompt_detected');
   assert.equal(mapSignalToEvent('awaiting-input', STATES.IDLE, 'low', 0), 'prompt_detected');
   assert.equal(mapSignalToEvent('awaiting-input', STATES.COMPLETE, 'high', 1), 'prompt_detected');
