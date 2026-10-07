@@ -638,19 +638,16 @@ test('an fs event surfaces in the digest as one line', async (t) => {
 
 test('a real @parcel/watcher subscription reports a real write and refuses an ignored tree', { skip: !PARCEL }, async (t) => {
   const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-ingest-fs-')));
-  t.after(() => {
-    try {
-      fs.rmSync(dir, { recursive: true, force: true });
-    } catch {
-    }
-  });
   const published: FsIngestEvent[] = [];
   const source = createFsIngest({
     publish: (event) => published.push(event),
     sourceConfig: { batchMs: 50, roots: [dir] },
     logger: { warn: () => {} },
   });
-  t.after(() => source.stop());
+  t.after(async () => {
+    await source.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
   await source.start();
   assert.deepEqual(source.roots, [dir], 'the real subscription installed');
 
