@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright-core';
 import { ReviewDraft, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
-import type { TeamReviewAction } from '../../shared/contracts/team-review.ts';
+import type { TeamReviewAction, TeamReviewThread } from '../../shared/contracts/team-review.ts';
 import type { Layout } from './cases-core.ts';
 import { verifyMyPrKeepMergeable } from './my-prs.ts';
 
@@ -211,6 +211,84 @@ async function verifyViewerThreadCounts(page: Page, snapshot: TeamReviewStatus):
   await applyStatus(page, snapshot);
 }
 
+async function verifyAnsweredThreadConversation(page: Page, snapshot: TeamReviewStatus): Promise<void> {
+  const viewerComment = 'Please preserve empty input.\n<script>untrusted comment</script>\n' + 'Original concern.\n'.repeat(8);
+  const replyBody = 'Added an empty input guard.\n<img src=x onerror=alert(1)>\n' + 'Reply evidence.\n'.repeat(12);
+  const thread = {
+    id: 'PRRT_acme_1', path: 'src/app.ts', line: 2, isResolved: false, viewerCanResolve: true,
+    isNit: false, url: 'https://github.com/Acme/app/pull/1#discussion_r1',
+    lastReplyAuthor: 'teammate', lastReplyAt: new Date(Date.now() - 2_400_000).toISOString(),
+    viewerComment, lastReplyBody: replyBody,
+    unjudgeable: { head: REVIEWED_HEAD, lastReplyAt: new Date(Date.now() - 2_400_000).toISOString(), reason: 'Too many changed files to judge' },
+  };
+  thread.unjudgeable.lastReplyAt = thread.lastReplyAt;
+  const showThread = async (bodies: Partial<TeamReviewThread>) => {
+    await applyStatus(page, { ...snapshot, drafts: [createDraft(1, { threads: [{ ...thread, ...bodies }] })], inFlight: [], queued: [] });
+    await page.locator('.pr-queue-row[data-review-key="Acme/app#1"]').click();
+  };
+  await showThread({});
+  const card = page.locator('.pr-thread-card');
+  const replyPreview = card.locator('.pr-thread-message:not(.pr-thread-message-muted) > .pr-thread-preview');
+  assert.equal(await replyPreview.textContent(), replyBody);
+  assert.equal(await replyPreview.isVisible(), true);
+  assert.equal(await card.locator('.pr-thread-message-muted > .pr-thread-preview').textContent(), viewerComment);
+  assert.equal(await card.locator('.pr-thread-chip').textContent(), 'Auto-check skipped');
+  assert.match(await card.textContent() ?? '', /Too many changed files to judge/);
+  assert.match(await card.locator('.pr-thread-reply-meta').textContent() ?? '', /teammate replied/);
+  assert.equal(await card.locator('script, img').count(), 0);
+  const button = card.getByRole('button', { name: 'Resolve', exact: true });
+  const geometry = await button.evaluate((control) => ({
+    width: control.getBoundingClientRect().width,
+    cardWidth: control.closest('.pr-thread-card')?.getBoundingClientRect().width ?? 0,
+    footerRight: control.parentElement?.getBoundingClientRect().right ?? 0,
+    right: control.getBoundingClientRect().right,
+    statusIsSibling: control.previousElementSibling?.classList.contains('pr-action-status'),
+  }));
+  assert.ok(geometry.width < geometry.cardWidth / 2);
+  assert.ok(Math.abs(geometry.right - geometry.footerRight) < 1);
+  assert.equal(geometry.statusIsSibling, true);
+  assert.equal(await card.locator('.pr-thread-continues').count(), 0);
+  await card.getByText('Expand reply', { exact: true }).click();
+  assert.equal(await card.locator('.pr-thread-message:not(.pr-thread-message-muted) details').getAttribute('open'), '');
+  assert.equal(await replyPreview.isVisible(), false);
+  assert.equal(await card.locator('.pr-thread-message:not(.pr-thread-message-muted) details > .pr-thread-body').textContent(), replyBody);
+  await card.getByText('Expand comment', { exact: true }).click();
+  assert.equal(await card.locator('.pr-thread-message-muted details > .pr-thread-body').isVisible(), true);
+  await showThread({ viewerComment: undefined, lastReplyBody: undefined });
+  assert.equal(await card.locator('.pr-thread-message').count(), 0);
+  assert.equal(await button.isVisible(), true);
+  await showThread({ viewerComment: 'Short comment', lastReplyBody: 'Short reply' });
+  assert.equal(await card.locator('.pr-thread-disclosure').count(), 0);
+  assert.equal(await replyPreview.textContent(), 'Short reply');
+  await showThread({ lastReplyTruncated: true });
+  const continuation = card.locator('.pr-thread-message:not(.pr-thread-message-muted) .pr-thread-continues');
+  await card.getByText('Expand reply', { exact: true }).click();
+  assert.equal(await continuation.textContent(), 'Reply continues on GitHub');
+  assert.equal(await continuation.getAttribute('href'), thread.url);
+  assert.equal(await continuation.isVisible(), true);
+  assert.equal(await card.locator('.pr-thread-message-muted .pr-thread-continues').count(), 0);
+  await verifyThreadDisclosureAfterHiddenRebuild(page, snapshot, thread);
+  await applyStatus(page, snapshot);
+}
+
+async function verifyThreadDisclosureAfterHiddenRebuild(page: Page, snapshot: TeamReviewStatus, thread: TeamReviewThread): Promise<void> {
+  const setTeamRootHidden = (isHidden: boolean) => page.locator('.pr-queue-row[data-review-key="Acme/app#1"]').evaluate((row, hidden) => {
+    const teamRoot = row.closest('.pr-mode-root');
+    if (teamRoot instanceof HTMLElement) teamRoot.hidden = hidden;
+  }, isHidden);
+  const longReply = 'Rebuilt while hidden.\n' + 'Hidden reply evidence.\n'.repeat(12);
+  await setTeamRootHidden(true);
+  await applyStatus(page, { ...snapshot, drafts: [createDraft(1, { threads: [{ ...thread, lastReplyBody: longReply, lastReplyTruncated: undefined }] })], inFlight: [], queued: [] });
+  assert.equal(await page.locator('.pr-thread-card').isVisible(), false);
+  await setTeamRootHidden(false);
+  const replyMessage = page.locator('.pr-thread-card .pr-thread-message:not(.pr-thread-message-muted)');
+  const expand = replyMessage.getByText('Expand reply', { exact: true });
+  assert.equal(await expand.isVisible(), true);
+  await expand.click();
+  assert.equal(await replyMessage.locator('details > .pr-thread-body').isVisible(), true);
+  assert.equal(await replyMessage.locator('details > .pr-thread-body').textContent(), longReply);
+}
+
 interface ActionCaptureWindow extends Window {
   teamReviewOriginalSend?: WebSocket['send'];
 }
@@ -378,6 +456,7 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout): Promise<
   await verifyUnchangedQueueKeepsRowNodes(page, status);
   await verifyQueueRebuildsAfterEmptyStatus(page, status);
   await verifyViewerThreadCounts(page, status);
+  await verifyAnsweredThreadConversation(page, status);
   await verifyActionAdvancement(page, status);
   await verifyMyPrKeepMergeable(page);
 }

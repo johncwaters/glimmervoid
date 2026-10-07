@@ -11,7 +11,7 @@ import { createStateGlyph, createSvgIcon as svgIcon, createSvgShape as svgShape 
 import { formatTrailOffset } from './radar-core.ts';
 import { createSettingsLink } from './settings-link.ts';
 import {
-  TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
+  TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES, threadBodyOverflowsPreview,
   answeredNonNitThreads, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionOrder, nextAttentionKey, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
@@ -756,6 +756,18 @@ function refreshThreadDetails(detail: HTMLElement, draft: ReviewDraft): void {
   threads.dataset.reviewThreads = signature;
 }
 
+function createThreadBody(body: string, isViewerComment: boolean, isTruncated: boolean, threadUrl: string): HTMLElement {
+  const content = el('div', isViewerComment ? 'pr-thread-message pr-thread-message-muted' : 'pr-thread-message');
+  content.append(el('p', 'pr-thread-body pr-thread-preview', body));
+  const previewLines = isViewerComment ? THREAD_COMMENT_PREVIEW_LINES : THREAD_REPLY_PREVIEW_LINES;
+  if (!isTruncated && !threadBodyOverflowsPreview(body, previewLines)) return content;
+  const disclosure = el('details', 'pr-thread-disclosure');
+  disclosure.append(el('summary', 'pr-thread-expand', isViewerComment ? 'Expand comment' : 'Expand reply'), el('p', 'pr-thread-body', body));
+  if (isTruncated) disclosure.append(externalLink('pr-link pr-thread-continues', isViewerComment ? 'Comment continues on GitHub' : 'Reply continues on GitHub', threadUrl));
+  content.append(disclosure);
+  return content;
+}
+
 function createThreadDetails(draft: ReviewDraft): HTMLElement[] {
   const items = detailThreadItems(draft);
   if (items.length === 0) return [];
@@ -763,11 +775,20 @@ function createThreadDetails(draft: ReviewDraft): HTMLElement[] {
   section.append(el('h3', 'pr-section-heading', 'Answered threads'));
   const list = el('div', 'my-pr-threads');
   for (const item of items) {
-    const row = el('div', 'my-pr-thread');
-    const reply = el('div', 'pr-detail-meta', `Reply by ${item.thread.lastReplyAuthor}`);
+    const row = el('div', 'my-pr-thread pr-thread-card');
+    const heading = el('div', 'my-pr-thread-heading pr-thread-heading');
+    const chip = el('span', 'pr-thread-chip', item.judgementLabel);
+    chip.dataset.tone = item.judgementTone;
+    heading.append(externalLink('pr-link my-pr-thread-location', item.location, item.thread.url), chip);
+    row.append(heading);
+    if (item.judgementReason) row.append(el('p', 'my-pr-thread-meta', item.judgementReason));
+    if (item.thread.viewerComment) {
+      row.append(el('div', 'my-pr-thread-meta', 'Your comment'), createThreadBody(item.thread.viewerComment, true, item.thread.viewerCommentTruncated === true, item.thread.url));
+    }
+    const reply = el('div', 'pr-detail-meta pr-thread-reply-meta', `${item.thread.lastReplyAuthor} replied`);
     const age = createAgeReadout('', item.thread.lastReplyAt);
     if (age) reply.append(age);
-    const status = el('span', 'pr-action-status', item.judgementText);
+    const status = el('span', 'pr-action-status');
     status.setAttribute('role', 'status');
     const button = el('button', 'pr-action', 'Resolve');
     button.type = 'button';
@@ -784,7 +805,11 @@ function createThreadDetails(draft: ReviewDraft): HTMLElement[] {
       if (sendAction('other', draft, 'resolve-thread', '', [], settle, item.thread.id)) return;
       settle(false, 'Not connected to the server.');
     });
-    row.append(externalLink('pr-link', item.location, item.thread.url), reply, button, status);
+    row.append(reply);
+    if (item.thread.lastReplyBody) row.append(createThreadBody(item.thread.lastReplyBody, false, item.thread.lastReplyTruncated === true, item.thread.url));
+    const footer = el('footer', 'pr-thread-footer');
+    footer.append(status, button);
+    row.append(footer);
     if (item.thread.resolveError) row.append(el('p', 'pr-attention-detail', item.thread.resolveError));
     list.append(row);
   }

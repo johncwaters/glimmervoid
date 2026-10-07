@@ -374,23 +374,34 @@ export function answeredNonNitThreads(draft: Pick<ReviewDraft, 'threads'>): Team
   return (draft.threads ?? []).filter((thread) => !thread.isNit && !thread.isResolved);
 }
 
-function threadJudgementText(thread: TeamReviewThread, head: string): string {
-  if (thread.isNit) return 'Automatic resolution failed';
+function threadJudgement(thread: TeamReviewThread, head: string): { label: string; reason: string; tone: 'ok' | 'warn' | 'muted' } {
+  if (thread.isNit) return { label: 'Automatic resolution failed', reason: '', tone: 'warn' };
   const judgement = thread.judgement?.head === head && thread.judgement.lastReplyAt === thread.lastReplyAt ? thread.judgement : undefined;
-  if (judgement) return `${judgement.addressed ? 'Addressed' : 'Not addressed'}: ${judgement.reason}`;
+  if (judgement) return { label: judgement.addressed ? 'Addressed' : 'Not addressed', reason: judgement.reason, tone: judgement.addressed ? 'ok' : 'warn' };
   const unjudgeable = thread.unjudgeable?.head === head && thread.unjudgeable.lastReplyAt === thread.lastReplyAt ? thread.unjudgeable : undefined;
-  if (unjudgeable) return `Not judged: ${unjudgeable.reason}`;
-  return 'Judging';
+  if (unjudgeable) return { label: 'Auto-check skipped', reason: unjudgeable.reason, tone: 'muted' };
+  return { label: 'Auto-check pending', reason: '', tone: 'muted' };
 }
 
-export function detailThreadItems(draft: ReviewDraft): { thread: TeamReviewThread; location: string; judgementText: string; canResolve: boolean }[] {
+export function detailThreadItems(draft: ReviewDraft) {
   return (draft.threads ?? []).filter((thread) => !thread.isResolved && (!thread.isNit || thread.resolveError)).map((thread) => {
+    const judgement = threadJudgement(thread, currentHead(draft));
     return {
       thread, location: thread.line === null ? thread.path : `${thread.path}:${thread.line}`,
-      judgementText: threadJudgementText(thread, currentHead(draft)),
+      judgementLabel: judgement.label, judgementReason: judgement.reason, judgementTone: judgement.tone,
+      judgementText: judgement.reason ? `${judgement.label}: ${judgement.reason}` : judgement.label,
       canResolve: thread.viewerCanResolve,
     };
   });
+}
+
+export const THREAD_REPLY_PREVIEW_LINES = 8;
+export const THREAD_COMMENT_PREVIEW_LINES = 3;
+const NARROWEST_THREAD_LINE_CHARS = 40;
+
+export function threadBodyOverflowsPreview(body: string, previewLines: number): boolean {
+  const wrappedLineCount = body.split('\n').reduce((total, line) => total + Math.max(1, Math.ceil(line.length / NARROWEST_THREAD_LINE_CHARS)), 0);
+  return wrappedLineCount > previewLines;
 }
 
 export function isReviewNeeded(draft: ReviewDraft): boolean {

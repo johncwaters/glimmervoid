@@ -2027,7 +2027,7 @@ test('a re-review run filters legacy new nits and the posting plan before produc
   }
 });
 
-test('a re-review run renders only the retained earlier MEDIUM finding, ignoring the posting plan, and requests changes', async () => {
+test('a re-review run drops still-open earlier MEDIUM findings and the posting plan and approves', async () => {
   const { review, cleanup } = setup({
     writeReport: (workDir) => {
       const findings = [
@@ -2052,11 +2052,33 @@ test('a re-review run renders only the retained earlier MEDIUM finding, ignoring
   try {
     const draft = await review({ ...reviewArgs('full'), priorReview: PRIOR_REVIEW });
     assert.equal(draft.status, 'ready');
-    assert.equal(draft.verdict, 'REQUEST CHANGES');
-    assert.deepEqual(draft.comments, [{ path: 'src/a.ts', line: 2, side: 'RIGHT', body: `${AUTOMATED_REVIEW_NOTE}\n\n**[logic] MEDIUM**\n\nStill open` }]);
+    assert.equal(draft.verdict, 'APPROVE');
+    assert.deepEqual(draft.comments, []);
     assert.equal(draft.body, AUTOMATED_REVIEW_NOTE);
   } finally {
     cleanup();
+  }
+});
+
+test('a re-review run keeps HIGH findings of either legacy origin and drops HIGH nits', async () => {
+  for (const origin of ['EARLIER', 'NEW']) {
+    for (const disposition of ['ACTIONABLE', 'NIT']) {
+      const { review, cleanup } = setup({
+        writeReport: (workDir) => fs.writeFileSync(path.join(workDir, REVIEW_REPORT_FILENAME), reportText()
+          .replace('severity: MEDIUM |', `severity: HIGH | origin: ${origin} |`)
+          .replace('disposition: NIT', `disposition: ${disposition}`)),
+      });
+      try {
+        const draft = await review({ ...reviewArgs('full'), priorReview: PRIOR_REVIEW });
+        assert.equal(draft.status, 'ready');
+        assert.equal(draft.verdict, disposition === 'NIT' ? 'APPROVE' : 'REQUEST CHANGES');
+        assert.equal(draft.comments.length, disposition === 'NIT' ? 0 : 1);
+        if (disposition === 'NIT') continue;
+        assert.match(draft.comments[0].body, /HIGH/);
+      } finally {
+        cleanup();
+      }
+    }
   }
 });
 

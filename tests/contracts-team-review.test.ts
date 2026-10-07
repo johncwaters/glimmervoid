@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DraftComment, PrDetail, ReviewAssessment, ReviewComment, ReviewDraft, ReviewResult, SearchedPr, TeamReviewActionRequest, TeamReviewStateEntry, TeamReviewStatus } from '../shared/contracts/team-review.ts';
+import { DraftComment, PrDetail, ReviewAssessment, ReviewComment, ReviewDraft, ReviewResult, SearchedPr, TeamReviewActionRequest, TeamReviewStateEntry, TeamReviewStatus, TeamReviewThread } from '../shared/contracts/team-review.ts';
 
 const HEAD = 'a'.repeat(40);
 
@@ -169,5 +169,30 @@ test('viewer thread counts remain optional and round-trip through draft and save
   for (const viewerThreads of [{ total: -1, resolved: 0 }, { total: 1, resolved: -1 }, { total: 1.5, resolved: 0 }, { total: 1, resolved: 0.5 }, { total: '1', resolved: 0 }]) {
     assert.equal(ReviewDraft.safeParse({ ...draft, viewerThreads }).success, false);
     assert.equal(TeamReviewStateEntry.safeParse({ ...entry, viewerThreads }).success, false);
+  }
+});
+
+test('thread conversation bodies remain optional and reject invalid persisted shapes', () => {
+  const thread = {
+    id: 'PRRT_acme_1', path: 'src/app.ts', line: 2, isResolved: false, viewerCanResolve: true,
+    isNit: false, url: 'https://github.com/Acme/app/pull/1#discussion_r1',
+    lastReplyAuthor: 'teammate', lastReplyAt: '2026-10-01T12:00:00Z',
+  };
+  assert.deepEqual(TeamReviewThread.parse(thread), thread);
+  const bodies = { viewerComment: 'Check empty input.', lastReplyBody: 'Added a guard.\nCovered by a test.' };
+  assert.deepEqual(TeamReviewThread.parse({ ...thread, ...bodies }), { ...thread, ...bodies });
+  const entry = { draft: null, reviewedHead: null, inFlight: false, skipReason: null, reviewAttempts: 0, updatedAt: 1000 };
+  for (const fields of [{}, bodies, { viewerComment: '' }, { lastReplyBody: 'r'.repeat(1500) }, { ...bodies, viewerCommentTruncated: true, lastReplyTruncated: true }]) {
+    assert.deepEqual(TeamReviewStateEntry.parse({ ...entry, threads: [{ ...thread, ...fields }] }).threads, [{ ...thread, ...fields }]);
+  }
+  for (const field of ['viewerComment', 'lastReplyBody']) {
+    for (const invalidBody of [null, 12, {}, [], 'x'.repeat(1501)]) {
+      const invalidThread = { ...thread, [field]: invalidBody };
+      assert.equal(TeamReviewThread.safeParse(invalidThread).success, false);
+      assert.equal(TeamReviewStateEntry.safeParse({ ...entry, threads: [invalidThread] }).success, false);
+    }
+  }
+  for (const field of ['viewerCommentTruncated', 'lastReplyTruncated']) {
+    for (const invalidFlag of [null, 1, 'true']) assert.equal(TeamReviewThread.safeParse({ ...thread, [field]: invalidFlag }).success, false);
   }
 });

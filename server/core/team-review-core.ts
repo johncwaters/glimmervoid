@@ -1,5 +1,5 @@
 import { hasStandingViewerApproval, canApproveAfterComment, DECIDING_REVIEW_STATES, FindingSeverity, GithubReviewState, PostingPlan, QueuedReview, ReviewFinding, ReviewResult, ReviewVerdict } from '../../shared/contracts/team-review.ts';
-import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, findingSeveritiesIn, parseLeadingFindingHeader, withoutAutomatedNote } from '../../shared/team-review-markdown.ts';
+import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, findingSeveritiesIn, withoutAutomatedNote } from '../../shared/team-review-markdown.ts';
 import { isThreadPlaceholderDraft } from './team-review-threads-core.ts';
 import type {
   DraftComment, FindingSeverity as FindingSeverityType, GithubReview, InFlightReview, PostedReviewEvent, PostingPlan as PostingPlanType, PrDetail, PriorReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
@@ -471,14 +471,13 @@ function errorDraft(
   };
 }
 
-const FINDING_LINE = /^- file: (.+?) \| line: (\d+|general) \|(?: side: (\w+) \|)? severity: (\w+) \|(?: origin: (\w+) \|)? reviewer: (.+?) \|(?: disposition: (\w+) \|)? body: (.+)$/;
+const FINDING_LINE = /^- file: (.+?) \| line: (\d+|general) \|(?: side: (\w+) \|)? severity: (\w+) \|(?: origin: \w+ \|)? reviewer: (.+?) \|(?: disposition: (\w+) \|)? body: (.+)$/;
 
 interface UnvalidatedFinding {
   path: string;
   line: number | null;
   side: string;
   severity: string;
-  origin?: string;
   reviewer: string;
   disposition: string | null;
   body: string;
@@ -487,13 +486,12 @@ interface UnvalidatedFinding {
 function parseFindingLine(line: string): UnvalidatedFinding | null {
   const match = FINDING_LINE.exec(line.trim());
   if (!match) return null;
-  const [, path, lineText, side, severity, origin, reviewer, disposition, body] = match;
+  const [, path, lineText, side, severity, reviewer, disposition, body] = match;
   return {
     path: path.trim(),
     line: lineText === 'general' ? null : Number(lineText),
     side: side ?? 'RIGHT',
     severity,
-    ...(origin ? { origin } : {}),
     reviewer: reviewer.trim(),
     disposition: disposition ?? null,
     body: body.trim(),
@@ -649,50 +647,15 @@ function parseReviewReport(report: string, { isReReview = false }: { isReReview?
   return { ok: true, result: parsed.data };
 }
 
-const EARLIER_LINE_WINDOW = 5;
-const EARLIER_LEADING_TEXT_CHARS = 40;
-
-function normalizedLeadingText(text: string): string {
-  return text.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, EARLIER_LEADING_TEXT_CHARS);
-}
-
-function earlierCommentText(body: string): string {
-  const withoutNote = withoutAutomatedNote(body);
-  const header = parseLeadingFindingHeader(withoutNote);
-  return header ? withoutNote.slice(header.length) : withoutNote;
-}
-
-function sharesLeadingText(findingBody: string, earlierText: string): boolean {
-  const findingLead = normalizedLeadingText(findingBody);
-  const earlierLead = normalizedLeadingText(earlierText);
-  if (!findingLead || !earlierLead) return false;
-  return findingLead.startsWith(earlierLead) || earlierLead.startsWith(findingLead);
-}
-
-function matchesEarlierReview(finding: ReviewFinding, priorReview: PriorReview): boolean {
-  const matchesEarlierComment = priorReview.comments.some((comment) => comment.path === finding.path && (
-    (finding.line !== null && Math.abs(comment.line - finding.line) <= EARLIER_LINE_WINDOW)
-    || sharesLeadingText(finding.body, earlierCommentText(comment.body))
-  ));
-  if (matchesEarlierComment) return true;
-  const findingLead = normalizedLeadingText(finding.body);
-  if (!findingLead) return false;
-  return withoutAutomatedNote(priorReview.body).split(/\r?\n/)
-    .some((line) => line.includes(finding.path) && line.toLowerCase().replace(/\s+/g, ' ').includes(findingLead));
-}
-
-function isRetainedOnReReview(finding: ReviewFinding, priorReview: PriorReview): boolean {
-  if (finding.disposition === 'NIT' || finding.severity === 'LOW') return false;
-  if (finding.severity === 'HIGH' || finding.severity === 'CRITICAL') return true;
-  const origin = finding.origin ?? (matchesEarlierReview(finding, priorReview) ? 'EARLIER' : 'NEW');
-  return origin === 'EARLIER';
+function isRetainedOnReReview(finding: ReviewFinding): boolean {
+  return finding.disposition !== 'NIT' && (finding.severity === 'HIGH' || finding.severity === 'CRITICAL');
 }
 
 function reReviewResult(result: ReviewResultType, { priorReview, posting = null }: {
   priorReview: PriorReview | null; posting?: PostingPlanType | null;
 }): { result: ReviewResultType; posting: PostingPlanType | null } {
   if (!priorReview) return { result, posting };
-  const findings = result.findings.filter((finding) => isRetainedOnReReview(finding, priorReview));
+  const findings = result.findings.filter(isRetainedOnReReview);
   const verdict = findings.length === 0 ? 'APPROVE' : findings.some((finding) => finding.severity === 'CRITICAL') ? 'BLOCKED' : 'REQUEST CHANGES';
   return { result: { ...result, findings, verdict, summary: withoutNitsSections(result.summary) }, posting: null };
 }
@@ -843,9 +806,9 @@ function priorReviewSection(priorReview: PriorReview | null, isPriorHeadAvailabl
     `- Glimmervoid reviewed this pull request before, at head ${priorReview.head}, and ${postedState}.`,
     '  The author has pushed changes since.',
     ...rangeLines,
-    '- For every earlier finding, decide whether the current head resolves it. Report every still-open earlier finding',
-    '  with origin EARLIER, except LOW findings. Never repeat resolved findings or LOW findings of any origin.',
-    '- Report new findings only at HIGH or CRITICAL severity, with origin NEW. Never report new MEDIUM or LOW findings.',
+    '- For every earlier finding, decide whether the current head resolves it. Never repeat resolved findings.',
+    '- Report only HIGH or CRITICAL issues, whether still-open earlier findings or new findings.',
+    '  Never report MEDIUM or LOW findings, or findings with disposition NIT.',
     '- Never use APPROVE WITH NITS on a re-review. Use APPROVE when nothing remains, BLOCKED when any finding is CRITICAL,',
     '  and REQUEST CHANGES otherwise. Do not include a dedicated nits section in either file.',
     '- In CHECKED, add one line per earlier finding in the form "- <earlier finding>: resolved | still open", citing evidence.',
@@ -931,14 +894,11 @@ function buildReviewPrompt({
     '- then one blank line',
     '- then one line: STRUCTURED_FINDINGS:',
     '- then one line per finding, in exactly this form:',
-    priorReview
-      ? '  - file: <path> | line: <line> | side: <side> | severity: <severity> | origin: <origin> | reviewer: <reviewer> | disposition: <disposition> | body: <body>'
-      : '  - file: <path> | line: <line> | side: <side> | severity: <severity> | reviewer: <reviewer> | disposition: <disposition> | body: <body>',
+    '  - file: <path> | line: <line> | side: <side> | severity: <severity> | reviewer: <reviewer> | disposition: <disposition> | body: <body>',
     '  where <path> is the file path relative to the repository root;',
     '  <line> is a positive line number in that file, or the word general for a finding not tied to one line;',
     `  <side> is one of ${sides} (RIGHT for the head version, LEFT for a deleted base line);`,
     `  <severity> is one of ${oneOf(FindingSeverity.options)};`,
-    ...(priorReview ? [`  <origin> is one of ${oneOf(ReviewFinding.shape.origin.unwrap().options)}; include it on every finding in a re-review;`] : []),
     '  <reviewer> is a short label for what found it, containing no | character;',
     `  <disposition> is one of ${oneOf(ReviewFinding.shape.disposition.unwrap().options)};`,
     '  <body> is the finding on that same single line, with no line breaks.',

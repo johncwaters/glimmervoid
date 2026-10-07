@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   attentionOrder, nextAttentionKey, caughtUpSelectionView, planActionReply, viewerThreadsText, detailThreadItems, caughtUpDetail, postedOutcome, queueRowGlyph, queueRowExceptionReason, commentCountText, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowTitle, queueRowVerdictLabel, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
+  threadBodyOverflowsPreview, THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES,
   commentSeverity, severityPresentation, tierLabel, verdictHeading, verdictLabel, verdictSealKind, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
 import { answeredViewerThreads, THREAD_PLACEHOLDER_ERROR } from '../server/core/team-review-threads-core.ts';
@@ -742,20 +743,29 @@ test('answered non-nit threads take Ready precedence over standing approval, pos
 test('detail threads expose location, judge status and current judgement, and resolve regardless of judgement', () => {
   const review = draft(1, { threads: answeredViewerThreads([threadNode()], [], HEAD) });
   assert.equal(detailThreadItems(review)[0].location, 'src/app.ts:2');
-  assert.equal(detailThreadItems(review)[0].judgementText, 'Judging');
+  assert.equal(detailThreadItems(review)[0].judgementText, 'Auto-check pending');
   assert.equal(detailThreadItems(review)[0].canResolve, true);
   const thread = review.threads?.[0];
   assert.ok(thread);
   thread.judgement = { addressed: false, reason: 'Guard missing', head: HEAD, lastReplyAt: thread.lastReplyAt, judgedAt: 1 };
   assert.equal(detailThreadItems(review)[0].judgementText, 'Not addressed: Guard missing');
+  assert.equal(detailThreadItems(review)[0].judgementLabel, 'Not addressed');
+  assert.equal(detailThreadItems(review)[0].judgementReason, 'Guard missing');
+  assert.equal(detailThreadItems(review)[0].judgementTone, 'warn');
+  thread.judgement.addressed = true;
+  assert.equal(detailThreadItems(review)[0].judgementLabel, 'Addressed');
+  assert.equal(detailThreadItems(review)[0].judgementTone, 'ok');
+  assert.equal(detailThreadItems(review)[0].thread.lastReplyBody, 'Added an empty input guard.');
   assert.equal(detailThreadItems(review)[0].canResolve, true);
   const signature = readyRowSignature(review);
   review.liveHead = NEXT_HEAD;
-  assert.equal(detailThreadItems(review)[0].judgementText, 'Judging');
+  assert.equal(detailThreadItems(review)[0].judgementText, 'Auto-check pending');
   assert.equal(detailThreadItems(review)[0].canResolve, true);
   assert.equal(readyRowSignature(review), signature);
   thread.unjudgeable = { head: NEXT_HEAD, lastReplyAt: thread.lastReplyAt, reason: 'Thread or diff too large to judge' };
-  assert.equal(detailThreadItems(review)[0].judgementText, 'Not judged: Thread or diff too large to judge');
+  assert.equal(detailThreadItems(review)[0].judgementText, 'Auto-check skipped: Thread or diff too large to judge');
+  assert.equal(detailThreadItems(review)[0].judgementLabel, 'Auto-check skipped');
+  assert.equal(detailThreadItems(review)[0].judgementTone, 'muted');
   assert.equal(detailThreadItems(review)[0].canResolve, true);
   thread.viewerCanResolve = false;
   assert.equal(detailThreadItems(review)[0].canResolve, false);
@@ -1068,4 +1078,15 @@ test('an ok action reply carrying a warning stays on the acted review and keeps 
 
 test('an ok action reply for a review no longer selected neither advances nor raises a notice', () => {
   assert.deepEqual(planActionReply({ action: 'comment', pullRequest: 'Acme/app#1', warning: '  ', isActedSelected: false }), { statusText: 'Comment posted on GitHub', shouldAdvance: false, notice: null });
+});
+
+test('thread body overflow is decided from the text against the preview clamp, never from layout', () => {
+  assert.equal(threadBodyOverflowsPreview('Short reply', THREAD_REPLY_PREVIEW_LINES), false);
+  assert.equal(threadBodyOverflowsPreview('line\n'.repeat(7) + 'line', THREAD_REPLY_PREVIEW_LINES), false);
+  assert.equal(threadBodyOverflowsPreview('line\n'.repeat(8) + 'line', THREAD_REPLY_PREVIEW_LINES), true);
+  assert.equal(threadBodyOverflowsPreview('one\ntwo\nthree', THREAD_COMMENT_PREVIEW_LINES), false);
+  assert.equal(threadBodyOverflowsPreview('one\ntwo\nthree\nfour', THREAD_COMMENT_PREVIEW_LINES), true);
+  assert.equal(threadBodyOverflowsPreview('w'.repeat(120), THREAD_COMMENT_PREVIEW_LINES), false);
+  assert.equal(threadBodyOverflowsPreview('w'.repeat(121), THREAD_COMMENT_PREVIEW_LINES), true);
+  assert.equal(threadBodyOverflowsPreview('w'.repeat(81) + '\nshort', THREAD_COMMENT_PREVIEW_LINES), true);
 });

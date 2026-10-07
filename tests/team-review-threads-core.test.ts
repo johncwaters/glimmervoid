@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { viewerThreadTally, answeredViewerThreads, buildThreadJudgePrompt, parseThreadJudgeResult, shouldAutoResolveThread, shouldJudgeThread, threadJudgePatch, THREAD_PROMPT_MAX_CHARS } from '../server/core/team-review-threads-core.ts';
+import { AUTOMATED_REVIEW_NOTE } from '../shared/team-review-markdown.ts';
 import { threadNode, THREAD_BASE, THREAD_HEAD, THREAD_REPLY_AT } from './helpers/team-review-thread-fixture.ts';
 
 const classify = (node = threadNode()) => answeredViewerThreads([node], [], THREAD_HEAD);
@@ -122,4 +123,52 @@ test('viewer thread tally counts only viewer-started threads including resolved 
   const empty = threadNode();
   empty.comments.nodes = [];
   assert.deepEqual(viewerThreadTally([unresolved, resolved, otherAccount, empty]), { total: 2, resolved: 1 });
+});
+
+test('answered threads retain trimmed first comment and last reply bodies even with a prior judgement', () => {
+  const node = threadNode();
+  node.comments.nodes[0].body = '  Your original comment.\n ';
+  node.comments.nodes[1].body = '  First reply.  ';
+  node.comments.nodes.push({ ...node.comments.nodes[1], body: '  Final reply.\nWith details.  ', createdAt: '2026-10-02T12:00:00Z' });
+  const thread = classify(node)[0];
+  assert.equal(thread.viewerComment, 'Your original comment.');
+  assert.equal(thread.lastReplyBody, 'Final reply.\nWith details.');
+  thread.judgement = { addressed: true, reason: 'Guard added', head: THREAD_HEAD, lastReplyAt: thread.lastReplyAt, judgedAt: 1 };
+  const refreshed = answeredViewerThreads([node], [{ ...thread, viewerComment: undefined, lastReplyBody: undefined }], THREAD_HEAD)[0];
+  assert.equal(refreshed.viewerComment, thread.viewerComment);
+  assert.equal(refreshed.lastReplyBody, thread.lastReplyBody);
+  assert.deepEqual(refreshed.judgement, thread.judgement);
+});
+
+test('thread bodies cap at 1500 code units without cutting a supplementary character', () => {
+  const node = threadNode();
+  const supplementaryCharacter = String.fromCodePoint(0x1d306);
+  node.comments.nodes[0].body = `  ${'a'.repeat(1499)}${supplementaryCharacter}tail  `;
+  node.comments.nodes[1].body = `  ${'b'.repeat(1498)}${supplementaryCharacter}tail  `;
+  const thread = classify(node)[0];
+  assert.equal(thread.viewerComment, 'a'.repeat(1499));
+  assert.equal(thread.lastReplyBody, 'b'.repeat(1498) + supplementaryCharacter);
+  assert.equal(thread.viewerCommentTruncated, true);
+  assert.equal(thread.lastReplyTruncated, true);
+  node.comments.nodes[0].body = 'c'.repeat(2000);
+  assert.equal(classify(node)[0].viewerComment, 'c'.repeat(1500));
+});
+
+test('thread bodies at exactly the cap carry no truncation flag', () => {
+  const node = threadNode();
+  node.comments.nodes[0].body = `  ${'a'.repeat(1500)}  `;
+  node.comments.nodes[1].body = 'b'.repeat(1501);
+  const thread = classify(node)[0];
+  assert.equal('viewerCommentTruncated' in thread, false);
+  assert.equal(thread.lastReplyTruncated, true);
+  assert.equal(thread.lastReplyBody, 'b'.repeat(1500));
+});
+
+test('viewer comment preview drops the automated review note this lane prepends to inline findings', () => {
+  const node = threadNode();
+  node.comments.nodes[0].body = `${AUTOMATED_REVIEW_NOTE}\n\n**[code/logic] MEDIUM**\n\nCheck the empty input.`;
+  const thread = classify(node)[0];
+  assert.equal(thread.viewerComment, '**[code/logic] MEDIUM**\n\nCheck the empty input.');
+  node.comments.nodes[0].body = `${AUTOMATED_REVIEW_NOTE}\n\n**[code/logic] MEDIUM**\n\n${'d'.repeat(1500 - '**[code/logic] MEDIUM**\n\n'.length)}`;
+  assert.equal('viewerCommentTruncated' in classify(node)[0], false);
 });

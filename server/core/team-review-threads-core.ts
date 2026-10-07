@@ -15,6 +15,15 @@ export function viewerThreadTally(nodes: readonly TeamReviewThreadNode[]): Viewe
   return { total: viewerThreads.length, resolved: viewerThreads.filter((node) => node.isResolved).length };
 }
 
+function threadBodyPreview(body: string): { text: string; isTruncated: boolean } {
+  const trimmedBody = body.trim();
+  const preview = trimmedBody.slice(0, 1500);
+  const isTruncated = trimmedBody.length > preview.length;
+  const lastCodeUnit = preview.charCodeAt(preview.length - 1);
+  if (isTruncated && lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff) return { text: preview.slice(0, -1).trimEnd(), isTruncated };
+  return { text: preview.trimEnd(), isTruncated };
+}
+
 export function answeredViewerThreads(nodes: readonly TeamReviewThreadNode[], previous: readonly TeamReviewThread[], head: string, autoResolvedThreadIds: readonly string[] = []): TeamReviewThread[] {
   return nodes.flatMap((node) => {
     const first = node.comments.nodes.at(0);
@@ -22,9 +31,13 @@ export function answeredViewerThreads(nodes: readonly TeamReviewThreadNode[], pr
     if (node.isResolved || node.comments.pageInfo.hasNextPage || !first?.viewerDidAuthor || !last || last === first || last.viewerDidAuthor) return [];
     const prior = previous.find((thread) => thread.id === node.id);
     const isSameReply = prior?.lastReplyAt === last.createdAt;
+    const viewerComment = threadBodyPreview(withoutAutomatedNote(first.body));
+    const lastReply = threadBodyPreview(last.body);
     const thread: TeamReviewThread = {
       id: node.id, path: node.path, line: node.line, isResolved: node.isResolved, viewerCanResolve: node.viewerCanResolve,
       isNit: parseLeadingFindingHeader(withoutAutomatedNote(first.body))?.severity === 'LOW' && !autoResolvedThreadIds.includes(node.id),
+      viewerComment: viewerComment.text, lastReplyBody: lastReply.text,
+      ...(viewerComment.isTruncated ? { viewerCommentTruncated: true } : {}), ...(lastReply.isTruncated ? { lastReplyTruncated: true } : {}),
       url: first.url, lastReplyAuthor: last.author?.login ?? 'Deleted account', lastReplyAt: last.createdAt,
     };
     if (!isSameReply) return [thread];
