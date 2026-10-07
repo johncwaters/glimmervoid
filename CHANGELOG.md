@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Click the command to copy it**: on the website, clicking the main install command copies it. Selecting part of it to copy by hand still works.
 - **Simpler website hero**: the hero keeps only the headline, the install command and the OS switch; the tagline under the headline and the platforms, license and runs-locally line are gone.
 
+### Security
+
+- **Glimmervoid secrets stay out of sessions**: `GLIMMERVOID_POSTHOG_API_KEY`, `GLIMMERVOID_TELEGRAM_BOT_TOKEN` and `GLIMMERVOID_CLAUDE_OAUTH_TOKEN` are no longer passed to the agent sessions Glimmervoid starts, so an agent can no longer read them from its environment.
+
 ## [0.29.1] - 2026-10-07
 
 ### Added

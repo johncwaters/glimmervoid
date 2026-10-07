@@ -6,6 +6,8 @@ import path from 'node:path';
 import { buildAgentEnv } from '../session/core/spawn-env.ts';
 import type { AgentEnvOptions, SpawnEnv } from '../session/core/spawn-env.ts';
 import claudeCodeAdapter from '../session/adapters/claude-code.ts';
+import { ENV_SECRET_BINDINGS } from '../server/core/config-secrets-core.ts';
+import { OVERRIDE_TOKEN_ENV } from '../server/claude-credentials.ts';
 
 function claudeSpawnEnv(baseEnv: SpawnEnv, extraEnv?: SpawnEnv | null, options?: AgentEnvOptions) {
   return buildAgentEnv(baseEnv, extraEnv, claudeCodeAdapter.envProfile, options);
@@ -181,6 +183,22 @@ test('the launching terminal identity never reaches an agent running inside the 
 test('only Claude Code is told the dashboard terminal renders hyperlinks, so other agents never leak link escapes into piped output', () => {
   assert.equal(claudeSpawnEnv(fullBase()).FORCE_HYPERLINK, '1');
   assert.equal('FORCE_HYPERLINK' in buildAgentEnv(fullBase(), null, {}), false);
+});
+
+const GLIMMERVOID_SECRET_ENV_NAMES = [...ENV_SECRET_BINDINGS.map((binding) => binding.environmentVariable), OVERRIDE_TOKEN_ENV];
+const GLIMMERVOID_SECRETS = Object.fromEntries(GLIMMERVOID_SECRET_ENV_NAMES.map((secretKey) => [secretKey, `${secretKey}-value`]));
+
+test('Glimmervoid secrets never reach any agent session env', () => {
+  const inherited = { ...fullBase(), ...GLIMMERVOID_SECRETS };
+  for (const env of [claudeSpawnEnv(inherited), buildAgentEnv(inherited, null, {})]) {
+    for (const secretKey of Object.keys(GLIMMERVOID_SECRETS)) assert.equal(secretKey in env, false, `${secretKey} must be scrubbed`);
+  }
+});
+
+test('a lane that deliberately sets a Glimmervoid secret key in extraEnv still wins over the scrub', () => {
+  const env = buildAgentEnv({ ...fullBase(), ...GLIMMERVOID_SECRETS }, { GLIMMERVOID_CLAUDE_OAUTH_TOKEN: '' }, {});
+  assert.equal(env.GLIMMERVOID_CLAUDE_OAUTH_TOKEN, '');
+  assert.equal('GLIMMERVOID_POSTHOG_API_KEY' in env, false);
 });
 
 test('an explicitly configured TERM_PROGRAM still reaches the agent', () => {
