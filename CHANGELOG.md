@@ -7,24 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.1] - 2026-10-07
+
 ### Added
 
 - **Glimmervoid overhead in Usage**: the Usage tab's Glimmervoid lanes section is now Glimmervoid overhead. It shows how much of your Claude use in the current 5 hour block and the last 7 days went to sessions Glimmervoid spawned for its own work (PR reviews, keep mergeable, workflows, change map, visions, benchmarks), with an estimate of how much of each plan limit that is and which lanes it went to. The per-lane table for the selected range stays below it.
-
-### Changed
-
-- **Quieter review rows**: team review rows in the left list no longer show the automated verdict (such as Nits), the drafted comment count, your resolved-comment count, reply counts or since approval. Each row keeps its state word, author and reviewers; the details are in the row's hover and the pull request view.
-
-### Fixed
-
-- **Doubled alert sound**: desktop notifications are now silent, so a session alert plays only your chosen alert sound instead of that sound plus the system notification sound.
-- **Custom alert sounds play like built-in ones**: a custom sound file now plays through the same audio path as Chime, Soft ping and Beep, so it follows the same browser rules and never plays together with the Chime. The Chime plays instead only when the custom file cannot be loaded.
-
-## [0.29.1] - 2026-10-06
-
-### Added
-
-- **Your review comments**: team review rows and pull request details show how many of your comment threads are resolved. Rows show a short count such as 2/5 resolved. When all are resolved, the row reads Comments resolved, in the same color as Waits on you, and the pull request needs you again unless your approval still stands: a review you posted moves back to Ready. The automated review's own comment count now reads N drafted so the two counts are not confused.
+- **Your review comments**: a pull request's details and its row hover show how many of your comment threads are resolved. When all are resolved, the row reads Comments resolved, in the same color as Waits on you, and the pull request needs you again unless your approval still stands: a review you posted moves back to Ready.
 - **Answered threads**: team review now resolves answered nit threads automatically (once: a nit you reopen on GitHub stays open for you) and judges other answered threads. Each answered thread has a Resolve control whether or not it has been judged, since the judgement is advice, a nit that could not be resolved automatically gets the same Resolve control, and a thread that cannot be judged says why. A temporary GitHub comparison failure is retried later rather than marking threads unjudgeable; a comparison GitHub reports as unrelated history marks the thread unjudgeable until its head or last reply changes.
 - **Fork reviews**: pull requests from forks now show under Review by hand with a link to GitHub. Glimmervoid still never runs an automated review on fork code.
 - **Compaction reminders**: Claude sessions now receive a one-line reminder of their current task and latest plan after compaction.
@@ -32,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Quieter review rows**: team review rows in the left list no longer show the automated verdict (such as Nits), the inline comment count, reply counts or since approval. Each row keeps its state word, author and reviewers; the details are in the row's hover and the pull request view.
 - **Waiting on author**: the Recently posted section in team review is now Waiting on author, since a posted review usually waits on the author's reply or new commits.
 - **Approvals keep your words on top**: an approval posted from Reviews now reads your own text first, then the automated-review note, then any automated findings, and ends with "Approved by hand after checking the automated review.", so nothing above the note is machine-written. A one-click approval posts the note and that line.
 - **Approval works the same in every repository**: team review now treats every pull request as if its repository required approval. In a repository without required reviews, your approval still counts after new commits unless someone requests changes, so the pull request no longer comes back for re-review.
@@ -45,10 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Review list hovers stay put**: the team review list no longer rebuilds every row on each status push when nothing in it changed, so hovering a glyph or row now shows its tooltip instead of the row being replaced before the tooltip appears.
 - **Merged reviews leave the list**: a posted review drops out of Waiting on author as soon as its pull request is merged or closed, instead of lingering for seven days.
 - **Glyph-led review rows**: each team review row leads with one state glyph (hover the glyph or the row to see what it means): a check when you approved or the pull request is already reviewed, a dash when you commented, a diamond when it waits on you or is out of date, a ring when it is not ready yet or waiting on the author after you requested changes, a cross when a review failed. The Team and Ready chips are gone; a small @ marks a direct request, and only exceptions (Checks failing, Author to fix, Draft, Checks running) get words. What you did on GitHub is read from your latest review or the review you posted, whichever is newer.
-- **Quieter review list**: Team review rows now use two quiet lines with distinct verdict words and the inline comment count. Pull request refs omit the repo when the list contains only one repo, and reviews after an earlier approval show plain "since approval" text.
+- **Quieter review list**: team review rows now use two quiet lines, and pull request refs omit the repo when the list contains only one repo.
 
 ### Fixed
 
+- **Doubled alert sound**: desktop notifications are now silent, so a session alert plays only your chosen alert sound instead of that sound plus the system notification sound.
+- **Custom alert sounds play like built-in ones**: a custom sound file now plays through the same audio path as Chime, Soft ping and Beep, so it follows the same browser rules and never plays together with the Chime. The Chime plays instead only when the custom file cannot be loaded.
 - **Keep mergeable**: failed attempts now show their reason beside the control and on the Mine tab row, retry once when the base branch gains new commits, and retry right away when you turn Keep mergeable on again.
 - **Refresh status stays put**: the Refreshing text in the Reviews tabs now sits beside the Refresh button instead of pushing the list down while a refresh runs.
 - **Large repository reviews**: team PR reviews of very large repositories no longer fail with "could not stage a checkout: timed out".
