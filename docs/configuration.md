@@ -222,6 +222,7 @@ Controls that let automated work change repositories or install executable tooli
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `skipPermissionsByDefault` | Skip permission prompts by default | `false` | Start sessions whose project sets no permission choice with the agent CLI permission bypass flag. |
+| `saneYolo` | Sane YOLO | `true` | Block catastrophic commands (deleting home or root, discarding uncommitted work, force pushes, disk wipes, infrastructure destroy) in sessions that skip permission prompts. Applies to sessions created after the change. |
 | `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no merge proof. Off keeps every unmerged branch. |
 | `postTurnChecks.mode` | Post-turn checks mode | `"report"` | Report findings or let post-turn checks fix eligible files. |
 | `agentApi.enabled` | Agent API | `false` | Expose the per-session agent endpoint to running sessions. |
@@ -257,6 +258,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_TELEMETRY` | operator | Set to `0` to turn off anonymous usage and error telemetry (error type, error code and scrubbed stack frames, never messages or paths) whatever `telemetry.enabled` says. `DO_NOT_TRACK=1` and `CI=true` turn it off too. |
 | `GLIMMERVOID_TELEMETRY_PROJECT_TOKEN` | internal | Sends telemetry to another PostHog project instead of the Glimmervoid one, so end-to-end checks of a development build stay out of real usage data. Not an operator setting. |
 | `GLIMMERVOID_DEBUG_SPAWN` | operator | Any non-empty value logs which executable each agent command resolved to at spawn. |
+| `GLIMMERVOID_SANE_YOLO_PATH` | internal | Names the Sane YOLO binary only in supervised sessions, so an installed Grok hook stays inert outside Glimmervoid. Not an operator setting. |
 | `GLIMMERVOID_RTK_PATH` | internal | Set by Glimmervoid in the rtk hook relay environment to name the rtk binary. Not an operator setting. |
 | `GLIMMERVOID_HOOK_URL` | internal | Set by Glimmervoid in each session environment as the hook relay target. Not an operator setting. |
 | `GLIMMERVOID_AGENT_URL` | internal | Set by Glimmervoid in each session environment when `agentApi.enabled` is on; `glimmervoid spawn`, `attention` and `board` read it. Not an operator setting. |

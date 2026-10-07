@@ -4,9 +4,11 @@ import path from 'node:path';
 
 import {
   buildRtkHookEntry,
+  HOOK_TOOLS,
+  mergeCodexPreToolUse,
   resolveRtkPath,
-} from '../session/core/rtk-command.ts';
-import type { StatApi } from '../session/core/rtk-command.ts';
+} from '../session/core/hook-tools.ts';
+import type { StatApi } from '../session/core/hook-tools.ts';
 import { getRtkPath, resetRtkPathCache } from '../server/rtk-resolver.ts';
 import { MAX_RTK_STDOUT_BYTES, normalizeRtkHookResponse } from '../session/core/rtk-hook-core.ts';
 
@@ -181,4 +183,31 @@ test('an oversize verdict is refused rather than forwarded', () => {
     hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { command: 'x'.repeat(MAX_RTK_STDOUT_BYTES) } },
   });
   assert.equal(normalizeRtkHookResponse(padded), '');
+});
+
+test('Sane YOLO runs node from PATH with the quoted bin path and preserves the tool matcher', () => {
+  assert.deepEqual(HOOK_TOOLS.saneYolo.claudeEntry({ id: 'saneYolo', binPath: 'C:\\Program Files\\guard.js' }), {
+    matcher: 'Bash|PowerShell|Monitor',
+    hooks: [{ type: 'command', command: 'node "C:/Program Files/guard.js" hook --coding-cli' }],
+  });
+});
+
+test('Codex merges the two tools under one override and rejects unsafe paths', () => {
+  const rtk = HOOK_TOOLS.rtk.codexGroup({ id: 'rtk', binPath: '/bin/rtk' }, '/g/hook-tool-relay.js');
+  const guard = HOOK_TOOLS.saneYolo.codexGroup({ id: 'saneYolo', binPath: '/g/guard.js' }, '/unused');
+  assert.ok(rtk);
+  assert.ok(guard);
+  assert.deepEqual(mergeCodexPreToolUse([rtk, guard]), ['-c', `hooks.PreToolUse=[${rtk},${guard}]`]);
+  assert.deepEqual(mergeCodexPreToolUse([]), []);
+  assert.equal(HOOK_TOOLS.saneYolo.codexGroup({ id: 'saneYolo', binPath: '/$(id)/guard.js' }, '/unused'), null);
+});
+
+test('hook tool environments keep the guard policy and blocked audit logs together', () => {
+  assert.deepEqual(HOOK_TOOLS.saneYolo.env({ id: 'saneYolo', binPath: '/g/guard.js' }, '/g/policy'), {
+    GLIMMERVOID_SANE_YOLO_PATH: '/g/guard.js',
+    CC_SAFETY_NET_HOME: '/g/policy',
+    CC_SAFETY_NET_AUDIT_HOME: '/g/policy',
+    CC_SAFETY_NET_AUDIT_SCOPE: 'blocked',
+    CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY: '1',
+  });
 });

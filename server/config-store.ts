@@ -74,6 +74,7 @@ const DEFAULT_CONFIG = {
 
   antiSlopPrompt: false,
   rtk: false,
+  saneYolo: true,
 
   telegramNotifications: false,
 
@@ -449,6 +450,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       telemetryForcedOff: isTelemetryForcedOff(process.env),
       antiSlopPrompt: config.antiSlopPrompt ?? effectiveDefaults.antiSlopPrompt,
       rtk: config.rtk ?? effectiveDefaults.rtk,
+      saneYolo: config.saneYolo ?? effectiveDefaults.saneYolo,
       checkForUpdates: config.checkForUpdates ?? effectiveDefaults.checkForUpdates,
       updateChannel: config.updateChannel ?? effectiveDefaults.updateChannel,
       autoResume: config.autoResume ?? effectiveDefaults.autoResume,

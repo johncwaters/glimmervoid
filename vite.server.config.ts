@@ -32,7 +32,7 @@ export default defineConfig({
         'session/hook-relay': path.join(repoRoot, 'session', 'hook-relay.ts'),
         'session/command-hook-relay': path.join(repoRoot, 'session', 'command-hook-relay.ts'),
         'session/statusline-relay': path.join(repoRoot, 'session', 'statusline-relay.ts'),
-        'session/rtk-relay': path.join(repoRoot, 'session', 'rtk-relay.ts'),
+        'session/hook-tool-relay': path.join(repoRoot, 'session', 'hook-tool-relay.ts'),
         'session/visions-relay': path.join(repoRoot, 'session', 'visions-relay.ts'),
         'scripts/postinstall-path-check': path.join(repoRoot, 'scripts', 'postinstall-path-check.ts'),
       },

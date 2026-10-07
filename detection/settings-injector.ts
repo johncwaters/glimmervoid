@@ -4,7 +4,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 
 import { relayPath } from '../server/runtime-paths.ts';
-import { buildRtkHookEntry } from '../session/core/rtk-command.ts';
+import { HOOK_TOOLS } from '../session/core/hook-tools.ts';
+import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { appendUserHooks } from '../session/core/user-hooks-core.ts';
 import type { UserHook } from '../session/core/user-hooks-core.ts';
 import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT, PLAN_TOOL_NAME } from '../shared/contracts/plan-review.ts';
@@ -55,7 +56,7 @@ export interface BuildHookSettingsOptions {
   detectScheduledWakeups?: boolean;
   observeToolCalls?: boolean;
   enableProjectMcp?: boolean;
-  rtkPath?: string | null;
+  hookTools?: ResolvedHookTool[];
   planLimits?: boolean;
   planReview?: boolean;
   userSettingsPath?: string | null;
@@ -132,7 +133,7 @@ function buildCommandHookCommand(
   return `node ${shellQuote(toForwardSlashes(relayPath))} ${shellQuote(postUrl)}`;
 }
 
-function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, sandbox = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, rtkPath = null, planLimits = false, planReview = false, userSettingsPath = null, relayPath = RELAY_PATH, commandHookRelayPath = COMMAND_HOOK_RELAY_PATH, userHooks = [] }: BuildHookSettingsOptions): HookSettings {
+function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, sandbox = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, userSettingsPath = null, relayPath = RELAY_PATH, commandHookRelayPath = COMMAND_HOOK_RELAY_PATH, userHooks = [] }: BuildHookSettingsOptions): HookSettings {
   if (!port || !glimmervoidId || !token) {
     throw new Error('buildHookSettings requires port, glimmervoidId, token');
   }
@@ -174,7 +175,7 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
   if (observeToolCalls) {
     preToolUse.push({ hooks: [{ type: 'http', url: hookUrl('PreToolUse'), timeout: timeoutSec }] });
   }
-  if (rtkPath) preToolUse.push(buildRtkHookEntry(rtkPath));
+  for (const tool of hookTools) preToolUse.push(HOOK_TOOLS[tool.id].claudeEntry(tool));
   if (preToolUse.length > 0) {
     hooks.PreToolUse = preToolUse;
   }
@@ -210,15 +211,18 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
 }
 
 function describeBuiltinHooks(
-  { detectScheduledWakeups = true, observeToolCalls = false, rtkPath = null, planReview = false }:
-    { detectScheduledWakeups?: boolean; observeToolCalls?: boolean; rtkPath?: string | null; planReview?: boolean } = {},
+  { detectScheduledWakeups = true, observeToolCalls = false, hookTools = [], planReview = false }:
+    { detectScheduledWakeups?: boolean; observeToolCalls?: boolean; hookTools?: ResolvedHookTool[]; planReview?: boolean } = {},
 ): { event: string; matcher: string | null; purpose: string }[] {
   const rows = HOOK_EVENTS.map((event) => ({ event, matcher: null as string | null, purpose: 'Status detection: POST to the Glimmervoid hook router' }));
   if (planReview) rows.push({ event: 'PermissionRequest', matcher: PLAN_TOOL_MATCHER, purpose: 'Plan review: POST the plan to the Glimmervoid plan endpoint' });
   if (detectScheduledWakeups) rows.push({ event: 'PostToolUse', matcher: WAKEUP_TOOL_MATCHER, purpose: 'Scheduled wakeup tracking' });
   if (planReview) rows.push({ event: 'PostToolUse', matcher: PLAN_TOOL_MATCHER, purpose: 'Plan review: record the approved plan' });
   if (observeToolCalls) rows.push({ event: 'PreToolUse', matcher: null, purpose: 'Investigation trail: POST every tool call to the Glimmervoid hook router' });
-  if (rtkPath) rows.push({ event: 'PreToolUse', matcher: buildRtkHookEntry(rtkPath).matcher, purpose: 'rtk command rewriting' });
+  for (const tool of hookTools) {
+    const descriptor = HOOK_TOOLS[tool.id];
+    rows.push({ event: 'PreToolUse', matcher: descriptor.claudeEntry(tool).matcher, purpose: descriptor.purpose });
+  }
   return rows;
 }
 

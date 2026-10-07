@@ -25,6 +25,8 @@ import { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
+import type { resolveHookTools as resolveSharedHookTools } from '../server/hook-tools.ts';
+import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { readEnvSecrets, withEnvSecrets } from '../server/core/config-secrets-core.ts';
 import type { InvestigationTrail } from '../server/core/investigation-trail-core.ts';
 import { safePathSegment } from '../shared/paths.ts';
@@ -295,7 +297,7 @@ function fixWiringHarness({ createResult }: { createResult?: PosthogWorkspace } 
   return { repoDir, calls, gitWorkspace, config, lane };
 }
 
-async function runFixSpawn(harness: FixHarness) {
+async function runFixSpawn(harness: FixHarness, resolveHookTools?: typeof resolveSharedHookTools) {
   const { makeSession, constructed, created } = recordingSessionFactory();
   const wiring = createPosthogWiring({
     config: harness.config,
@@ -303,6 +305,7 @@ async function runFixSpawn(harness: FixHarness) {
     gitWorkspace: harness.gitWorkspace,
     runCommand: harness.runCommand,
     makeSession,
+    resolveHookTools,
   });
   const controller = new AbortController();
   controller.abort();
@@ -401,6 +404,29 @@ test('a lane with no repo configured never reaches the worktree at all', async (
     assert.equal(harness.calls.create.length, 0);
   } finally {
     fs.rmSync(harness.repoDir, { recursive: true, force: true });
+  }
+});
+
+test('fix and investigation sessions resolve Sane YOLO hook tools as skip-permissions sessions honoring the opt-out', async () => {
+  const saneYoloTool: ResolvedHookTool = { id: 'saneYolo', binPath: '/bin/guard.js' };
+  for (const [saneYolo, repoPath, expectedMode] of [[undefined, null, 'fix'], [false, null, 'fix'], [undefined, '', 'investigate']] as const) {
+    const harness = fixWiringHarness();
+    harness.config.saneYolo = saneYolo;
+    if (repoPath !== null) harness.lane.repoPath = repoPath;
+    const resolverCalls: { config: { rtk?: boolean; saneYolo?: boolean }; skipPermissions: boolean }[] = [];
+    const resolveHookTools: typeof resolveSharedHookTools = (config, { skipPermissions }) => {
+      resolverCalls.push({ config, skipPermissions });
+      return config.saneYolo === false ? [] : [saneYoloTool];
+    };
+    try {
+      const { result, constructed } = await runFixSpawn(harness, resolveHookTools);
+      assert.equal(result.mode, expectedMode);
+      assert.deepEqual(resolverCalls, [{ config: { saneYolo }, skipPermissions: true }]);
+      assert.equal(constructed[0].dangerouslySkipPermissions, true);
+      assert.deepEqual(constructed[0].hookTools, saneYolo === false ? [] : [saneYoloTool]);
+    } finally {
+      fs.rmSync(harness.repoDir, { recursive: true, force: true });
+    }
   }
 });
 

@@ -7,6 +7,7 @@ import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import { type AwakeStopwatch, createAwakeTimeoutFn, startAwakeStopwatch } from './awake-timer.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
+import { resolveHookTools as resolveSharedHookTools } from './hook-tools.ts';
 import { trailStepFromHook } from './core/investigation-trail-core.ts';
 import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES } from './core/lane-permissions-core.ts';
 import * as core from './core/team-review-core.ts';
@@ -72,6 +73,7 @@ const UNMARKED_POST_WARNING = 'The review was posted on GitHub, but its draft co
 
 interface TeamReviewWiringConfig extends TeamReviewSettingsSource {
   replayBufferKB?: number;
+  saneYolo?: boolean;
   projects?: { path: string }[];
   repoRoots?: string[];
 }
@@ -716,6 +718,8 @@ function createTeamReviewSpawn({
   reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane = null, replayBufferKB,
   makeSession = (options: SessionOptions) => new Session(options),
   laneName = core.TEAM_REVIEW_LANE_ID,
+  hookToolConfig = null,
+  resolveHookTools = resolveSharedHookTools,
 }: {
   reviewSessions: Map<string, unknown>;
   closeSessionDataClients: (id: string) => void;
@@ -726,14 +730,18 @@ function createTeamReviewSpawn({
   replayBufferKB?: number;
   makeSession?: (options: SessionOptions) => Session;
   laneName?: string;
+  hookToolConfig?: { saneYolo?: boolean } | null;
+  resolveHookTools?: typeof resolveSharedHookTools;
 }): TeamReviewSpawn {
   return async function spawnTeamReviewSession({ id, name, cwd, spawnEnv, extraClaudeArgs, settingsPermissions, settingsSandbox, signal, onToolStep, onSessionId, resumeSessionId, initialPrompt }) {
+    const skipPermissions = settingsPermissions.defaultMode === 'bypassPermissions';
     const sess = makeSession({
       id,
       name,
       path: cwd,
       spawnEnv,
-      dangerouslySkipPermissions: settingsPermissions.defaultMode === 'bypassPermissions',
+      dangerouslySkipPermissions: skipPermissions,
+      hookTools: hookToolConfig ? resolveHookTools({ saneYolo: hookToolConfig.saneYolo }, { skipPermissions }) : [],
       extraClaudeArgs,
       initialPrompt: initialPrompt ?? core.REVIEW_BOOTSTRAP_PROMPT,
       resumeSessionId,
@@ -925,7 +933,7 @@ function createTeamReviewWiring({
   repoCache = createRepoCache({ rootDir: repoCacheRoot }),
   spawnSession = createTeamReviewSpawn({
     reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-    replayBufferKB: config.replayBufferKB,
+    replayBufferKB: config.replayBufferKB, hookToolConfig: config,
   }),
   createPoller = createTeamReviewPoller,
   reapProcesses = reapTeamReviewProcesses,

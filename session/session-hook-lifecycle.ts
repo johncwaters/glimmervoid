@@ -3,7 +3,9 @@ import path from "node:path";
 import { writeSessionSettings, generateToken } from "../detection/settings-injector.ts";
 import type { HookRegistration, HookSignal } from "../detection/hook-source.ts";
 import { HOOK_URL_ENV } from "./core/hook-relay-core.ts";
-import { RTK_PATH_ENV } from "./core/rtk-hook-core.ts";
+import { HOOK_TOOLS } from "./core/hook-tools.ts";
+import type { ResolvedHookTool } from "./core/hook-tools.ts";
+import { saneYoloHomeDir } from "../server/hook-tools.ts";
 import type { UserHook } from "./core/user-hooks-core.ts";
 import type { DecisionEntry } from "./core/decision-log.ts";
 import { hookProfileOf } from "./adapters/index.ts";
@@ -43,7 +45,7 @@ interface SessionHookOptions {
   detectScheduledWakeups: boolean;
   observeToolCalls: boolean;
   enableProjectMcp: boolean;
-  rtkPath: string | null;
+  hookTools: ResolvedHookTool[];
   planLimits: boolean;
   planReview: boolean;
   getUserHooks?: (() => UserHook[]) | null;
@@ -76,6 +78,11 @@ function errorMessage(error: unknown): string {
 function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLifecycle {
   let token: string | null = null;
   let settingsHandle: ReturnType<typeof writeSessionSettings> | null = null;
+  let hasWarnedSaneYoloHookMissing = false;
+
+  function hookToolEnv(): Record<string, string> {
+    return Object.assign({}, ...options.hookTools.map((tool) => HOOK_TOOLS[tool.id].env(tool, saneYoloHomeDir())));
+  }
 
   function cleanup(): void {
     if (!token && !settingsHandle) return;
@@ -132,7 +139,6 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   function registerRelayHooks(
     port: number,
     args: string[],
-    relayEnv: Record<string, string> | null = null,
   ): HookInjectionResult {
     if (!options.hookRouter) return NO_HOOK_INJECTION;
     const nextToken = generateToken();
@@ -145,7 +151,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         onEvent: options.observeHook,
         hooks: hookProfileOf(options.adapter),
       });
-      return { args, env: { [HOOK_URL_ENV]: hookUrl, ...(relayEnv || {}) } };
+      return { args, env: { [HOOK_URL_ENV]: hookUrl, ...hookToolEnv() } };
     } catch (error) {
       console.warn(`[session:${options.name}] hook injection failed: ${errorMessage(error)} - falling back to OSC title only`);
       cleanup();
@@ -156,14 +162,21 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   function injectRelayHooks(port: number, injection: ArgvConfigInjection): HookInjectionResult {
     const args = injection.buildHookArgs({
       bypassHookTrust: decideTrustBypass(injection),
-      rtkRewrites: options.rtkPath !== null,
+      hookTools: options.hookTools,
     });
     if (!args) {
       console.warn(`[session:${options.name}] hook injection skipped: the relay path cannot be expressed for ${options.agentId} - falling back to OSC title only`);
       return NO_HOOK_INJECTION;
     }
-    const relayEnv = options.rtkPath ? { [RTK_PATH_ENV]: options.rtkPath } : null;
-    return registerRelayHooks(port, args, relayEnv);
+    return registerRelayHooks(port, args);
+  }
+
+  function warnIfSaneYoloHookMissing(hooksPath: string, contents: string, injection: HomeHooksFileInjection): void {
+    if (hasWarnedSaneYoloHookMissing) return;
+    if (!options.hookTools.some((tool) => tool.id === "saneYolo")) return;
+    if (contents === injection.expectedContents()) return;
+    hasWarnedSaneYoloHookMissing = true;
+    console.warn(`[session:${options.name}] Sane YOLO is not active: ${hooksPath} has no Sane YOLO PreToolUse hook; run "glimmervoid agent setup grok"`);
   }
 
   function injectHomeRelayHooks(port: number, injection: HomeHooksFileInjection): HookInjectionResult {
@@ -197,6 +210,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
       console.warn(`[session:${options.name}] Grok hook injection skipped: ${hooksPath} is ${classification}; run "glimmervoid agent setup grok"`);
       return NO_HOOK_INJECTION;
     }
+    warnIfSaneYoloHookMissing(hooksPath, contents, injection);
     return registerRelayHooks(port, []);
   }
 
@@ -234,7 +248,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         detectScheduledWakeups: options.detectScheduledWakeups,
         observeToolCalls: options.observeToolCalls,
         enableProjectMcp: options.enableProjectMcp,
-        rtkPath: options.rtkPath,
+        hookTools: options.hookTools,
         planLimits: options.planLimits,
         planReview: options.planReview,
         userHooks: typeof options.getUserHooks === "function" ? options.getUserHooks() : [],
@@ -247,7 +261,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         onEvent: options.observeHook,
         hooks: hookProfileOf(options.adapter),
       });
-      return { args: buildSettingsArgs(nextSettingsHandle.settingsPath), env: {} };
+      return { args: buildSettingsArgs(nextSettingsHandle.settingsPath), env: hookToolEnv() };
     } catch (error) {
       console.warn(`[session:${options.name}] hook injection failed: ${errorMessage(error)} - falling back to OSC title only`);
       cleanup();

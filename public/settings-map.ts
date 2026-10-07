@@ -759,6 +759,11 @@ export const SETTINGS_MAP = Object.freeze([
         defaultValue: false,
       },
       {
+        id: 'sane-yolo', path: 'saneYolo', title: 'Sane YOLO',
+        description: 'Block catastrophic commands (deleting home or root, discarding uncommitted work, force pushes, disk wipes, infrastructure destroy) in sessions that skip permission prompts. Applies to sessions created after the change.',
+        control: 'toggle', keywords: ['permissions', 'yolo', 'safety'], defaultValue: true,
+      },
+      {
         id: 'branch-gc-delete-unmerged', path: 'branchGc.deleteUnmerged', title: 'Delete unmerged branches',
         description: 'Also delete stale remote branches with no merge proof. Off keeps every unmerged branch.',
         control: 'toggle', keywords: ['git', 'cleanup', 'orphan'], danger: true,

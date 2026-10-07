@@ -28,7 +28,7 @@ test('a user hook on an event Glimmervoid subscribes to lands after the Glimmerv
 });
 
 test('a user PreToolUse hook does not displace the rtk entry', () => {
-  const settings = buildHookSettings({ ...base, rtkPath: '/usr/bin/rtk', userHooks: [
+  const settings = buildHookSettings({ ...base, hookTools: [{ id: 'rtk', binPath: '/usr/bin/rtk' }], userHooks: [
     { id: 'a', name: 'a', event: 'PreToolUse', matcher: 'Edit', type: 'command', command: 'echo', enabled: true },
   ] });
   assert.equal(settings.hooks.PreToolUse.length, 2);
@@ -46,7 +46,7 @@ test('observeToolCalls posts every tool call to the relay and is off for an ordi
 });
 
 test('the trail hook and the rtk entry coexist, the trail first', () => {
-  const settings = buildHookSettings({ ...base, observeToolCalls: true, rtkPath: '/usr/bin/rtk' });
+  const settings = buildHookSettings({ ...base, observeToolCalls: true, hookTools: [{ id: 'rtk', binPath: '/usr/bin/rtk' }] });
   assert.deepEqual(settings.hooks.PreToolUse.map((entry) => entry.hooks[0].type), ['http', 'command']);
   assert.equal(settings.hooks.PreToolUse[1].matcher, 'Bash');
 });
@@ -62,13 +62,14 @@ test('describeBuiltinHooks rows are exactly the entries buildHookSettings writes
   for (const options of [
     {},
     { detectScheduledWakeups: false },
-    { rtkPath: '/usr/bin/rtk' },
+    { hookTools: [{ id: 'rtk', binPath: '/usr/bin/rtk' }] },
     { observeToolCalls: true },
-    { observeToolCalls: true, rtkPath: '/usr/bin/rtk' },
-    { detectScheduledWakeups: false, rtkPath: '/usr/bin/rtk' },
+    { observeToolCalls: true, hookTools: [{ id: 'rtk', binPath: '/usr/bin/rtk' }] },
+    { detectScheduledWakeups: false, hookTools: [{ id: 'rtk', binPath: '/usr/bin/rtk' }] },
     { planReview: true },
-    { planReview: true, rtkPath: '/usr/bin/rtk' },
-  ]) {
+    { hookTools: [{ id: 'rtk', binPath: '/usr/bin/rtk' }, { id: 'saneYolo', binPath: '/g/guard.js' }] },
+    { planReview: true, hookTools: [{ id: 'rtk', binPath: '/usr/bin/rtk' }] },
+  ] satisfies Parameters<typeof describeBuiltinHooks>[0][]) {
     const settings = buildHookSettings({ ...base, ...options });
     const written: { event: string; matcher: string | null }[] = [];
     for (const [event, entries] of Object.entries(settings.hooks)) {

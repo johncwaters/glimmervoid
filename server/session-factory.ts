@@ -1,3 +1,4 @@
+import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import path from 'node:path';
 
 import type { HookRouter } from '../detection/hook-source.ts';
@@ -20,7 +21,7 @@ interface SessionFactoryDependencies {
   getHookPort: () => number | null;
   getGitWorkspace: () => GitWorkspace | null;
   getPlanReviewPort: () => SessionPlanReviewPort | null;
-  rtkPathForConfig: (config: GlimmervoidConfig) => string | null;
+  resolveHookTools: (config: GlimmervoidConfig, options: { skipPermissions: boolean }) => ResolvedHookTool[];
   getUserHooks: (projectId: string) => UserHook[];
 }
 
@@ -35,13 +36,14 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
     config: GlimmervoidConfig,
     overrides: SessionSpawnOverrides = {},
   ): Session {
+    const skipPermissions = projectSkipsPermissions(project, machineSkipsPermissionsByDefault(config));
     const session = new Session({
       id: project.id,
       name: project.name,
       customTitle: project.customTitle,
       path: project.path,
       workspaceRepos: project.repos,
-      dangerouslySkipPermissions: projectSkipsPermissions(project, machineSkipsPermissionsByDefault(config)),
+      dangerouslySkipPermissions: skipPermissions,
       agent: project.agent,
       bypassHookTrust: project.codexBypassHookTrust === true,
       replayBufferKB: config.replayBufferKB,
@@ -57,7 +59,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       detectBackgroundAgents: config.detectBackgroundAgents,
       detectScheduledWakeups: config.detectScheduledWakeups,
       antiSlopPrompt: config.antiSlopPrompt,
-      rtkPath: dependencies.rtkPathForConfig(config),
+      hookTools: dependencies.resolveHookTools(config, { skipPermissions }),
       resumeSessionId: (project.resumeSessionId as string | null | undefined) || null,
       planReviewPort: dependencies.getPlanReviewPort(),
       planLimits: planLimitsEnabled(config),

@@ -7,6 +7,7 @@ import type { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import { execFileAsync } from './child-process-safe.ts';
+import { resolveHookTools as resolveSharedHookTools } from './hook-tools.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { stableConfigKey } from './core/config-secrets-core.ts';
 import { appendTrailStep, createInvestigationTrail, trailStepFromHook } from './core/investigation-trail-core.ts';
@@ -92,6 +93,7 @@ interface PosthogWiringConfig {
   replayBufferKB?: number;
   worktreeRoot?: string;
   integrationBranch?: string | null;
+  saneYolo?: boolean;
   posthog?: PosthogLaneConfig | null;
   telegram?: { botToken?: string; chatId?: string } | null;
 }
@@ -140,6 +142,7 @@ interface PosthogWiringOptions {
   broadcast?: (message: LaneStatusRecord) => void;
   recordLane?: RecordLane | null;
   makeSession?: (options: SessionOptions) => Session;
+  resolveHookTools?: typeof resolveSharedHookTools;
 }
 
 interface ResolvedProject {
@@ -469,6 +472,7 @@ function createPosthogWiring({
   broadcast = () => {},
   recordLane = null,
   makeSession = (options: SessionOptions) => new Session(options),
+  resolveHookTools = resolveSharedHookTools,
 }: PosthogWiringOptions) {
   function activePosthogConfig(): PosthogLaneConfig & { host: string; apiKey: string } {
     const posthogConfig = config.posthog;
@@ -494,6 +498,7 @@ function createPosthogWiring({
       name,
       path: cwd,
       dangerouslySkipPermissions: true,
+      hookTools: resolveHookTools({ saneYolo: config.saneYolo }, { skipPermissions: true }),
       extraClaudeArgs: ['-p'],
       initialPrompt,
       ephemeral: true,

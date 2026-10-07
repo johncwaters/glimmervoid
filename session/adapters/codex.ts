@@ -1,3 +1,5 @@
+import { HOOK_TOOLS, mergeCodexPreToolUse } from '../core/hook-tools.ts';
+import type { ResolvedHookTool } from '../core/hook-tools.ts';
 
 import fs from "node:fs";
 import { execFileSync } from "../../server/child-process-safe.ts";
@@ -21,9 +23,7 @@ const ID = "codex";
 const COMMAND_NAME = "codex";
 
 const RELAY_PATH = relayPath("hook-relay");
-const RTK_RELAY_PATH = relayPath("rtk-relay");
-const RTK_HOOK_EVENT = "PreToolUse";
-const RTK_TOOL_MATCHER = "Bash";
+const HOOK_TOOL_RELAY_PATH = relayPath("hook-tool-relay");
 
 const HOOK_EVENTS = ["SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "PermissionRequest"];
 
@@ -97,25 +97,31 @@ function buildHookArgs({
   relayPath = RELAY_PATH,
   events = HOOK_EVENTS,
   bypassHookTrust = false,
-  rtkRewrites = false,
-  rtkRelayPath = RTK_RELAY_PATH,
+  hookTools = [],
+  hookToolRelayPath = HOOK_TOOL_RELAY_PATH,
 }: {
   relayPath?: string;
   events?: string[];
   bypassHookTrust?: boolean;
-  rtkRewrites?: boolean;
-  rtkRelayPath?: string;
+  hookTools?: ResolvedHookTool[];
+  hookToolRelayPath?: string;
 } = {}): string[] | null {
   const args = bypassHookTrust ? [TRUST_BYPASS_FLAG] : [];
+  const preToolUseGroups: string[] = [];
   for (const event of events) {
     const command = buildHookCommand(relayPath, event);
     if (!command) return null;
+    if (event === "PreToolUse") {
+      preToolUseGroups.push(`{hooks=[{type='command',command='${command}'}]}`);
+      continue;
+    }
     args.push("-c", `hooks.${event}=[{hooks=[{type='command',command='${command}'}]}]`);
   }
-  if (!rtkRewrites) return args;
-  const rtkCommand = buildHookCommand(rtkRelayPath, RTK_HOOK_EVENT);
-  if (!rtkCommand) return args;
-  args.push("-c", `hooks.${RTK_HOOK_EVENT}=[{matcher='${RTK_TOOL_MATCHER}',hooks=[{type='command',command='${rtkCommand}'}]}]`);
+  const groups = hookTools.flatMap((tool) => {
+    const group = HOOK_TOOLS[tool.id].codexGroup(tool, hookToolRelayPath);
+    return group ? [group] : [];
+  });
+  args.push(...mergeCodexPreToolUse([...preToolUseGroups, ...groups]));
   return args;
 }
 
@@ -204,7 +210,7 @@ const codex = {
   sessionIdOf,
   HOOK_EVENTS,
   RELAY_PATH,
-  RTK_RELAY_PATH,
+  HOOK_TOOL_RELAY_PATH,
   TRUST_BYPASS_FLAG,
   SKIP_PERMISSIONS_ARGS,
   UPDATE_CHECK_ARGS,
@@ -215,6 +221,7 @@ const codex = {
     resume: true,
     statusLine: false,
     rtk: true,
+    saneYolo: true,
     antiSlop: false,
     compactQuiet: false,
     skipPermissionsFlag: true,

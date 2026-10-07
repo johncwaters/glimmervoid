@@ -13,7 +13,7 @@ const REQUIRED_OUTPUTS = [
   'session/hook-relay.js',
   'session/command-hook-relay.js',
   'session/statusline-relay.js',
-  'session/rtk-relay.js',
+  'session/hook-tool-relay.js',
   'session/visions-relay.js',
   'scripts/postinstall-path-check.js',
   'tools/vscode-visions/extension.js',

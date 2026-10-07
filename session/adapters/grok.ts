@@ -20,6 +20,7 @@ import type { HookPayload } from "../../shared/contracts/index.ts";
 const ID = "grok";
 const COMMAND_NAME = "grok";
 const RELAY_PATH = relayPath("hook-relay");
+const HOOK_TOOL_RELAY_PATH = relayPath("hook-tool-relay");
 const HOOK_EVENTS = [
   "UserPromptSubmit",
   "Stop",
@@ -238,11 +239,12 @@ const hooks: AgentHookProfile = {
   injection: {
     kind: "home-hooks-file",
     filePath: hooksFilePath,
-    expectedContents: () => renderGrokHooksFile({ relayPath: RELAY_PATH, events: HOOK_EVENTS }),
+    expectedContents: () => renderGrokHooksFile({ relayPath: RELAY_PATH, events: HOOK_EVENTS, hookToolRelayPath: HOOK_TOOL_RELAY_PATH }),
     classifyContents: (contents: string) => classifyGrokHooksFile(contents, {
       relayPath: RELAY_PATH,
       events: HOOK_EVENTS,
       managedEventSets: MANAGED_HOOK_EVENT_SETS,
+      hookToolRelayPath: HOOK_TOOL_RELAY_PATH,
     }),
     projectConfigCandidates: PROJECT_CONFIG_CANDIDATES,
     mayContributeHooks,
@@ -273,6 +275,7 @@ const grok = {
   mayContributeHooks,
   PROJECT_CONFIG_CANDIDATES,
   CLAUDE_COMPAT_HOOKS_ENV,
+  HOOK_TOOL_RELAY_PATH,
   HOOK_EVENTS,
   MANAGED_HOOK_EVENT_SETS,
   RELAY_PATH,
@@ -284,6 +287,7 @@ const grok = {
     resume: true,
     statusLine: false,
     rtk: false,
+    saneYolo: true,
     antiSlop: false,
     compactQuiet: false,
     skipPermissionsFlag: true,

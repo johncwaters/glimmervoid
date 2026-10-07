@@ -50,7 +50,7 @@ test('an unknown agent id warns and falls back to the default rather than failin
 test('claude-code declares every capability, since it is the reference implementation', () => {
   assert.deepEqual(Object.keys(claudeCode.capabilities).sort(), [
     'antiSlop', 'awaitingInput', 'backgroundAgents', 'compactQuiet', 'headless', 'hooks',
-    'resume', 'rtk', 'skipPermissionsFlag', 'statusLine',
+    'resume', 'rtk', 'saneYolo', 'skipPermissionsFlag', 'statusLine',
   ]);
   assert.equal(Object.values(claudeCode.capabilities).every((v) => v === true), true);
 });
@@ -150,7 +150,7 @@ test('the settings file a session injects is byte-identical to the injector run 
       permissions: null,
       detectScheduledWakeups: true,
       enableProjectMcp: false,
-      rtkPath: null,
+      hookTools: [],
       planLimits: true,
     });
     assert.equal(written, fs.readFileSync(expected.settingsPath, 'utf8'));

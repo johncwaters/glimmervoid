@@ -94,6 +94,7 @@ test("the registry exposes the Grok adapter with the honest capability set", () 
     resume: true,
     statusLine: false,
     rtk: false,
+    saneYolo: true,
     antiSlop: false,
     compactQuiet: false,
     skipPermissionsFlag: true,
@@ -508,5 +509,26 @@ test("a missing or foreign home hook file never mints a token", async () => {
       console.warn = originalWarn;
     }
     assert.equal(warnings.filter((warning) => warning.includes("glimmervoid agent setup grok")).length, 2);
+  });
+});
+
+test('Grok setup upgrades the previous current status hooks to include Sane YOLO', async () => {
+  await withGrokHome(async (grokHome) => {
+    const target = path.join(grokHome, 'hooks', 'glimmervoid.json');
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    const previous = renderGrokHooksFile({ relayPath: grok.RELAY_PATH, events: grok.HOOK_EVENTS });
+    assert.ok(previous);
+    fs.writeFileSync(target, previous);
+    const injection = grok.hooks.injection;
+    assert.equal(injection.kind, 'home-hooks-file');
+    if (injection.kind !== 'home-hooks-file') throw new Error('Grok requires a home hooks file');
+    assert.equal(injection.classifyContents(previous), 'current');
+    assert.equal(inspectGrokAgentSetup({ env: process.env }).saneYoloReady, false);
+    assert.equal(runAgentSetupCli(['setup', 'grok'], { env: process.env, log: () => {} }), 0);
+    const installed = fs.readFileSync(target, 'utf8');
+    assert.match(installed, /hook-tool-relay\.ts saneYolo/);
+    assert.equal(injection.classifyContents(installed), 'current');
+    assert.equal(inspectGrokAgentSetup({ env: process.env }).saneYoloReady, true);
+    assert.equal(injection.classifyContents(installed.replace('saneYolo', 'rtk')), 'foreign');
   });
 });

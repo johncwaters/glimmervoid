@@ -10,6 +10,9 @@ import { SANDBOX_UNAPPLIED_ERROR, Session } from '../session/sessions.ts';
 import { buildAgentEnv } from '../session/core/spawn-env.ts';
 import { HOOK_URL_ENV } from '../session/core/hook-relay-core.ts';
 import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
+import grok from '../session/adapters/grok.ts';
+import { renderGrokHooksFile } from '../session/core/grok-hooks-file-core.ts';
+import { saneYoloHomeDir } from '../server/hook-tools.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import type { SpawnCall } from './helpers/fake-pty.ts';
 
@@ -208,4 +211,96 @@ test('a freshly injected hook url survives the scrub that removes an inherited o
   );
   assert.equal(env[HOOK_URL_ENV], fresh);
   assert.equal(env[AGENT_URL_ENV], 'http://127.0.0.1:1/agent/session-2?t=fresh');
+});
+
+test('each harness inherits Sane YOLO policy and bin env through its hook injection', async () => {
+  for (const agentId of ['claude-code', 'codex', 'grok']) {
+    await withTempDir(async (directory) => {
+      const priorGrokHome = process.env.GROK_HOME;
+      process.env.GROK_HOME = path.join(directory, 'grok');
+      const grokInjection = grok.hooks.injection;
+      assert.equal(grokInjection.kind, 'home-hooks-file');
+      if (grokInjection.kind !== 'home-hooks-file') throw new Error('Grok requires home hook injection');
+      const hooksPath = grokInjection.filePath(process.env);
+      fs.mkdirSync(path.dirname(hooksPath), { recursive: true });
+      const expectedContents = grokInjection.expectedContents();
+      assert.ok(expectedContents);
+      fs.writeFileSync(hooksPath, expectedContents);
+      const calls: SpawnCall[] = [];
+      const session = new Session({
+        id: `guard-${agentId}`, name: `guard-${agentId}`, path: directory, agent: agentId,
+        hookTools: [{ id: 'saneYolo', binPath: '/g/guard.js' }],
+        hookRouter: new HookRouter(), getHookPort: () => PORT, hooksBaseDir: directory,
+        spawnCommand: { path: process.execPath, kind: 'exe' },
+        ptySpawn: (file, args, opts) => { calls.push({ file, args, opts: opts as SpawnCall['opts'] }); return fakePty(); },
+      });
+      try {
+        await session.start();
+        const env = calls[0].opts.env;
+        assert.equal(env.GLIMMERVOID_SANE_YOLO_PATH, '/g/guard.js', agentId);
+        assert.equal(env.CC_SAFETY_NET_HOME, saneYoloHomeDir(), agentId);
+        assert.equal(env.CC_SAFETY_NET_AUDIT_HOME, env.CC_SAFETY_NET_HOME, agentId);
+        assert.equal(env.CC_SAFETY_NET_AUDIT_SCOPE, 'blocked', agentId);
+        assert.equal(env.CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY, '1', agentId);
+      } finally {
+        session.destroy();
+        if (priorGrokHome === undefined) delete process.env.GROK_HOME;
+        if (priorGrokHome !== undefined) process.env.GROK_HOME = priorGrokHome;
+      }
+    });
+  }
+});
+
+async function grokSaneYoloWarnings(
+  hooksContents: string | null,
+  hookTools: { id: 'saneYolo' | 'rtk'; binPath: string }[],
+  warn: (message: string) => void,
+): Promise<number> {
+  let spawnCount = 0;
+  await withTempDir(async (directory) => {
+    const priorGrokHome = process.env.GROK_HOME;
+    process.env.GROK_HOME = path.join(directory, 'grok');
+    const hooksPath = grok.hooksFilePath(process.env);
+    fs.mkdirSync(path.dirname(hooksPath), { recursive: true });
+    assert.ok(hooksContents);
+    fs.writeFileSync(hooksPath, hooksContents);
+    const session = new Session({
+      id: 'grok-sane-yolo-warning', name: 'grok-sane-yolo-warning', path: directory, agent: 'grok',
+      hookTools,
+      hookRouter: new HookRouter(), getHookPort: () => PORT, hooksBaseDir: directory,
+      spawnCommand: { path: process.execPath, kind: 'exe' },
+      ptySpawn: () => { spawnCount += 1; return fakePty(); },
+    });
+    const originalWarn = console.warn;
+    console.warn = warn;
+    try {
+      await session.start();
+      await session.start();
+    } finally {
+      console.warn = originalWarn;
+      session.destroy();
+      if (priorGrokHome === undefined) delete process.env.GROK_HOME;
+      if (priorGrokHome !== undefined) process.env.GROK_HOME = priorGrokHome;
+    }
+  });
+  return spawnCount;
+}
+
+test('a Grok Sane YOLO session on a pre-Sane-YOLO hooks file warns once per session naming the setup command', async () => {
+  const saneYoloTool = { id: 'saneYolo' as const, binPath: '/g/guard.js' };
+  const preSaneYoloContents = renderGrokHooksFile({ relayPath: grok.RELAY_PATH, events: grok.HOOK_EVENTS });
+  const currentContents = grok.hooks.injection.kind === 'home-hooks-file' ? grok.hooks.injection.expectedContents() : null;
+  const cases = [
+    { contents: preSaneYoloContents, hookTools: [saneYoloTool], expectedWarnings: 1 },
+    { contents: currentContents, hookTools: [saneYoloTool], expectedWarnings: 0 },
+    { contents: preSaneYoloContents, hookTools: [], expectedWarnings: 0 },
+  ];
+  for (const { contents, hookTools, expectedWarnings } of cases) {
+    const warnings: string[] = [];
+    const spawnCount = await grokSaneYoloWarnings(contents, hookTools, (message) => { warnings.push(message); });
+    const saneYoloWarnings = warnings.filter((message) => message.includes('Sane YOLO'));
+    assert.equal(spawnCount, 2);
+    assert.equal(saneYoloWarnings.length, expectedWarnings, warnings.join('\n'));
+    for (const message of saneYoloWarnings) assert.match(message, /glimmervoid agent setup grok/);
+  }
 });

@@ -25,6 +25,8 @@ import { PrDetail, ReviewDraft, TeamReviewStatus } from '../shared/contracts/tea
 import type { ResumableReview, ReviewComment, ReviewDraft as ReviewDraftType, TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
 import { SANDBOX_UNAPPLIED_ERROR, Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
+import type { resolveHookTools as resolveSharedHookTools } from '../server/hook-tools.ts';
+import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 
 const HEAD = 'c'.repeat(40);
 const OTHER_HEAD = 'd'.repeat(40);
@@ -1199,6 +1201,46 @@ test('the spawned session runs the constant bootstrap prompt with the given env,
   await spawn({ ...request, id: 'team-review:Acme/app#7:resume', resumeSessionId: 'claude-1', initialPrompt: REVIEW_RESUME_PROMPT });
   assert.equal(created[1].resumeSessionId, 'claude-1');
   assert.equal(created[1].initialPrompt, REVIEW_RESUME_PROMPT);
+});
+
+test('the spawned session resolves Sane YOLO hook tools from the held config with the real skip-permissions value', async () => {
+  const saneYoloTool: ResolvedHookTool = { id: 'saneYolo', binPath: '/bin/guard.js' };
+  const cases = [
+    { hookToolConfig: { saneYolo: undefined }, defaultMode: 'bypassPermissions', expectedCalls: [{ config: { saneYolo: undefined }, skipPermissions: true }], expectedTools: [saneYoloTool] },
+    { hookToolConfig: { saneYolo: false }, defaultMode: 'bypassPermissions', expectedCalls: [{ config: { saneYolo: false }, skipPermissions: true }], expectedTools: [] },
+    { hookToolConfig: { saneYolo: true }, defaultMode: ACCEPT_EDITS_MODE, expectedCalls: [{ config: { saneYolo: true }, skipPermissions: false }], expectedTools: [] },
+    { hookToolConfig: null, defaultMode: 'bypassPermissions', expectedCalls: [], expectedTools: [] },
+  ];
+  for (const { hookToolConfig, defaultMode, expectedCalls, expectedTools } of cases) {
+    const created: SessionOptions[] = [];
+    const resolverCalls: { config: { rtk?: boolean; saneYolo?: boolean }; skipPermissions: boolean }[] = [];
+    const resolveHookTools: typeof resolveSharedHookTools = (config, { skipPermissions }) => {
+      resolverCalls.push({ config, skipPermissions });
+      return skipPermissions && config.saneYolo !== false ? [saneYoloTool] : [];
+    };
+    const spawn = createTeamReviewSpawn({
+      reviewSessions: new Map<string, unknown>(),
+      closeSessionDataClients: () => {},
+      hookRouter: null,
+      getHookPort: null,
+      spawnGate: { run: async (task) => task() },
+      hookToolConfig,
+      resolveHookTools,
+      makeSession: (options) => {
+        created.push(options);
+        const session = new Session(options);
+        session.start = async () => { session.emit('exit'); };
+        return session;
+      },
+    });
+    await spawn({
+      id: 'team-review:Acme/app#7', name: 'Team review Acme/app#7', cwd: '/tmp/x', spawnEnv: teamReviewSpawnEnv('/tmp/x'),
+      extraClaudeArgs: [], settingsPermissions: { deny: [], defaultMode }, settingsSandbox: teamReviewSandbox('/tmp/x'),
+      signal: new AbortController().signal,
+    });
+    assert.deepEqual(resolverCalls, expectedCalls);
+    assert.deepEqual(created[0].hookTools, expectedTools);
+  }
 });
 
 test('a review whose sandbox cannot be applied ends as an error draft without spawning an agent', async () => {

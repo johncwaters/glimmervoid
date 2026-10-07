@@ -1,3 +1,5 @@
+import { HOOK_TOOLS } from './core/hook-tools.ts';
+import type { ResolvedHookTool } from './core/hook-tools.ts';
 import fs from "node:fs";
 import { cleanTaskPrompt, extractOscTaskTitle, extractPromptTaskTitle, isSubstantivePrompt, resolveRefocusTaskTitle, resolveTaskTitle } from "./core/task-title-core.ts";
 import type { TaskTitleRefinementResult, TaskTitleSources } from "./core/task-title-core.ts";
@@ -175,7 +177,7 @@ interface SessionOptions {
   settingsSandbox?: Record<string, unknown> | null;
   spawnEnv?: Record<string, string> | null;
   enableProjectMcp?: boolean;
-  rtkPath?: string | null;
+  hookTools?: ResolvedHookTool[];
   planReviewPort?: SessionPlanReviewPort | null;
   planLimits?: boolean;
   getUserHooks?: (() => UserHook[]) | null;
@@ -263,7 +265,7 @@ class Session extends EventEmitter {
   _suppressResumeCapture: boolean;
   _antiSlopPrompt: boolean;
   _spawnEnv: Record<string, string> | null;
-  _rtkPath: string | null;
+  _hookTools: ResolvedHookTool[];
   _planLimits: boolean;
   _planReviewPort: SessionPlanReviewPort | null;
   _hooks: ReturnType<typeof createSessionHookLifecycle>;
@@ -334,7 +336,7 @@ class Session extends EventEmitter {
     spawnEnv = null,
 
     enableProjectMcp = false,
-    rtkPath = null,
+    hookTools = [],
 
     planReviewPort = null,
 
@@ -466,7 +468,7 @@ class Session extends EventEmitter {
     this._antiSlopPrompt = !!antiSlopPrompt && this._can("antiSlop");
     this.ephemeral = !!ephemeral;
     this._spawnEnv = spawnEnv;
-    this._rtkPath = (this._can("rtk") && rtkPath) || null;
+    this._hookTools = hookTools.filter((tool) => this._can(HOOK_TOOLS[tool.id].capability));
     this._planLimits = planLimits === true && this._can("statusLine");
     this._planReviewPort = planReviewPort;
     this._hooks = createSessionHookLifecycle({
@@ -482,7 +484,7 @@ class Session extends EventEmitter {
       detectScheduledWakeups,
       observeToolCalls: observeToolCalls === true,
       enableProjectMcp: !!enableProjectMcp,
-      rtkPath: this._rtkPath,
+      hookTools: this._hookTools,
       planLimits: this._planLimits,
       planReview: planReviewPort !== null,
       getUserHooks,
@@ -1255,8 +1257,9 @@ class Session extends EventEmitter {
       ? { ...(this._spawnEnv || {}), ...injectedEnv }
       : this._spawnEnv;
 
+    const rtkTool = this._hookTools.find((tool) => tool.id === "rtk");
     const env = this._buildSpawnEnv({
-      prependPathDir: this._rtkPath ? path.dirname(this._rtkPath) : null,
+      prependPathDir: rtkTool ? path.dirname(rtkTool.binPath) : null,
       extraEnv: spawnExtraEnv,
     });
 

@@ -56,6 +56,7 @@ test('capabilities claim only what a live probe verified', () => {
     resume: true,
     statusLine: false,
     rtk: true,
+    saneYolo: true,
     antiSlop: false,
     compactQuiet: false,
     skipPermissionsFlag: true,
@@ -123,18 +124,18 @@ test('rtk rewrites add one matched PreToolUse group, pointed at the rtk relay, a
   const off = codex.buildHookArgs({ relayPath: '/opt/glimmervoid/session/hook-relay.ts' }) ?? [];
   assert.equal(off.some((a) => a.startsWith('hooks.PreToolUse')), false, 'off unless asked for');
 
-  const on = codex.buildHookArgs({ relayPath: '/opt/glimmervoid/session/hook-relay.ts', rtkRewrites: true }) ?? [];
+  const on = codex.buildHookArgs({ relayPath: '/opt/glimmervoid/session/hook-relay.ts', hookTools: [{ id: 'rtk', binPath: '/bin/rtk' }] }) ?? [];
   assert.equal(on.filter((a) => a === '-c').length, 6, 'the five detection events plus rtk');
   const rtkArg = on.filter((a) => a.startsWith('hooks.'))[5];
   assert.equal(
     rtkArg,
-    `hooks.PreToolUse=[{matcher='Bash',hooks=[{type='command',command='node ${codex.RTK_RELAY_PATH} PreToolUse'}]}]`,
+    `hooks.PreToolUse=[{matcher='Bash',hooks=[{type='command',command='node ${codex.HOOK_TOOL_RELAY_PATH} rtk'}]}]`,
   );
   assert.equal(rtkArg.includes('"'), false, 'no double quotes reach a cmd.exe re-parse');
 });
 
 test('an unexpressible rtk relay path costs the rewrites only, never the detection hooks', () => {
-  const args = codex.buildHookArgs({ rtkRewrites: true, rtkRelayPath: '/opt/g/$(id)/rtk-relay.js' }) ?? [];
+  const args = codex.buildHookArgs({ hookTools: [{ id: 'rtk', binPath: '/bin/rtk' }], hookToolRelayPath: '/opt/g/$(id)/hook-tool-relay.js' }) ?? [];
   assert.equal(args.filter((a) => a.startsWith('hooks.')).length, 5);
   assert.equal(args.some((a) => a.startsWith('hooks.PreToolUse')), false);
 });
@@ -252,11 +253,11 @@ test('an rtk-enabled codex spawn carries the rewrite hook on argv and the binary
   fs.writeFileSync(rtkPath, '', 'utf8');
   const { hookRouter, getHookPort } = hookRouterFor();
   try {
-    const withRtk = makeCodexSession({ id: 'codex-rtk-on', hookRouter, getHookPort, rtkPath });
+    const withRtk = makeCodexSession({ id: 'codex-rtk-on', hookRouter, getHookPort, hookTools: [{ id: 'rtk', binPath: rtkPath }] });
     await withRtk.session.start();
     const { args, env } = withRtk.calls[0];
     assert.equal(args.filter((a) => a.startsWith('hooks.PreToolUse')).length, 1);
-    assert.equal(args.some((a) => a.includes('rtk-relay.ts')), true);
+    assert.equal(args.some((a) => a.includes('hook-tool-relay.ts')), true);
     assert.equal(env.GLIMMERVOID_RTK_PATH, rtkPath, 'the binary rides the env, never the command line');
     assert.equal(args.some((a) => a.includes(rtkDir)), false);
     assert.equal((env.PATH || env.Path || '').startsWith(rtkDir), true, 'bare `rtk <cmd>` resolves in the session');
@@ -480,4 +481,22 @@ test('no settings file is written for a codex session', async () => {
   assert.equal(fs.existsSync(path.join(hooksBaseDir, 'codex-nofile')), false);
   session.destroy();
   fs.rmSync(hooksBaseDir, { recursive: true, force: true });
+});
+
+test('Sane YOLO and rtk coexist in a single Codex PreToolUse override', () => {
+  const args = codex.buildHookArgs({ hookTools: [{ id: 'rtk', binPath: '/bin/rtk' }, { id: 'saneYolo', binPath: '/g/guard.js' }] });
+  assert.ok(args);
+  const preToolUse = args.filter((argument) => argument.startsWith('hooks.PreToolUse='));
+  assert.equal(preToolUse.length, 1);
+  assert.match(preToolUse[0], /hook-tool-relay\.ts rtk/);
+  assert.match(preToolUse[0], /node \/g\/guard\.js hook --codex/);
+  assert.equal(args.includes('--dangerously-bypass-hook-trust'), false);
+});
+
+test('a requested Codex PreToolUse status relay shares the hook-tool override', () => {
+  const args = codex.buildHookArgs({ events: ['PreToolUse'], hookTools: [{ id: 'saneYolo', binPath: '/g/guard.js' }] });
+  assert.ok(args);
+  assert.equal(args.filter((argument) => argument.startsWith('hooks.PreToolUse=')).length, 1);
+  assert.match(args[1], /hook-relay\.ts PreToolUse/);
+  assert.match(args[1], /guard\.js hook --codex/);
 });

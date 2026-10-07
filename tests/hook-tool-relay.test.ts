@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
-import { main, runRtk } from '../session/rtk-relay.ts';
+import { main, runRtk, runHookTool } from '../session/hook-tool-relay.ts';
 import { RTK_PATH_ENV } from '../session/core/rtk-hook-core.ts';
 const ENVELOPE = '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git log"}}';
 const REWRITE = JSON.stringify({
@@ -40,6 +40,7 @@ test('a rewrite is completed with permissionDecision and written as one line', a
   const stdout = fakeStdout();
   const seen: RtkInvocation[] = [];
   const result = await main(
+    'rtk',
     { [RTK_PATH_ENV]: '/home/carbon/.local/bin/rtk' },
     fakeStdin(ENVELOPE),
     stdout,
@@ -56,7 +57,7 @@ test('a rewrite is completed with permissionDecision and written as one line', a
 test('without the env target nothing is written and rtk is never run', async () => {
   const stdout = fakeStdout();
   const seen: RtkInvocation[] = [];
-  const result = await main({}, fakeStdin(ENVELOPE), stdout, fakeRtk(REWRITE, seen));
+  const result = await main('rtk', {}, fakeStdin(ENVELOPE), stdout, fakeRtk(REWRITE, seen));
   assert.equal(result.code, 0);
   assert.deepEqual(seen, []);
   assert.deepEqual(stdout.written, []);
@@ -70,7 +71,7 @@ test('an empty payload, an rtk failure and unusable output all emit nothing and 
   ];
   for (const [payload, rtkStdout] of cases) {
     const stdout = fakeStdout();
-    const result = await main({ [RTK_PATH_ENV]: '/bin/rtk' }, fakeStdin(payload), stdout, fakeRtk(rtkStdout));
+    const result = await main('rtk', { [RTK_PATH_ENV]: '/bin/rtk' }, fakeStdin(payload), stdout, fakeRtk(rtkStdout));
     assert.equal(result.code, 0);
     assert.deepEqual(stdout.written, [], `${payload}|${rtkStdout}`);
   }
@@ -82,7 +83,7 @@ test('runRtk resolves the empty verdict when the binary does not exist', async (
 });
 
 test('runRtk pipes the envelope to the child and keeps only a clean exit', { skip: process.platform === 'win32' }, async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-rtk-relay-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-hook-tool-relay-'));
   const writeExecutable = (name: string, script: string) => {
     const scriptPath = path.join(dir, `${name}.cjs`);
     fs.writeFileSync(scriptPath, script, 'utf8');
@@ -98,5 +99,35 @@ test('runRtk pipes the envelope to the child and keeps only a clean exit', { ski
     assert.equal(await runRtk(failing, Buffer.from(ENVELOPE, 'utf8')), '');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Sane YOLO forwards Grok verdicts byte for byte and passes the envelope untouched', async () => {
+  for (const verdict of ['{"decision":"deny","reason":"blocked"}\n', '{"decision":"allow"}\n']) {
+    const stdout = fakeStdout();
+    const seen: RtkInvocation[] = [];
+    const outcome = await main('saneYolo', { GLIMMERVOID_SANE_YOLO_PATH: '/g/guard.js' }, fakeStdin(ENVELOPE), stdout, fakeRtk(verdict, seen));
+    assert.equal(outcome.code, 0);
+    assert.deepEqual(stdout.written, [verdict]);
+    assert.deepEqual(seen, [{ rtkPath: '/g/guard.js', body: ENVELOPE }]);
+  }
+});
+
+test('Sane YOLO is inert without its own bin env even when rtk is configured', async () => {
+  const stdout = fakeStdout();
+  const seen: RtkInvocation[] = [];
+  await main('saneYolo', { [RTK_PATH_ENV]: '/bin/rtk' }, fakeStdin(ENVELOPE), stdout, fakeRtk(REWRITE, seen));
+  assert.deepEqual(seen, []);
+  assert.deepEqual(stdout.written, []);
+});
+
+test('Sane YOLO runner uses Node and the Grok host flag', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-guard-relay-'));
+  try {
+    const scriptPath = path.join(directory, 'guard.cjs');
+    fs.writeFileSync(scriptPath, 'process.stdin.resume(); process.stdin.on("end", () => process.stdout.write(JSON.stringify(process.argv.slice(2))));');
+    assert.equal(await runHookTool('saneYolo', scriptPath, Buffer.from(ENVELOPE)), '["hook","--grok-build"]');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
   }
 });

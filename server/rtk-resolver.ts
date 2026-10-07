@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 
-import { resolveRtkPath } from '../session/core/rtk-command.ts';
+import { resolveRtkPath } from '../session/core/hook-tools.ts';
 import { execSync } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './core/config-path-core.ts';
 

@@ -210,6 +210,7 @@ export const createBrowserConfigShape = (isAbsolutePath: (directory: string) => 
   recordSignals: optionalBoolean('recordSignals'),
   antiSlopPrompt: optionalBoolean('antiSlopPrompt'),
   rtk: optionalBoolean('rtk'),
+  saneYolo: optionalBoolean('saneYolo'),
   skipPermissionsByDefault: optionalBoolean('skipPermissionsByDefault'),
   checkForUpdates: optionalBoolean('checkForUpdates'),
   updateChannel: z.enum(['release', 'main'], { error: 'updateChannel must be one of release, main' }).optional(),

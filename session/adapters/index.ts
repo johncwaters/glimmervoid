@@ -1,3 +1,4 @@
+import type { ResolvedHookTool } from '../core/hook-tools.ts';
 import claudeCode from "./claude-code.ts";
 import codex from "./codex.ts";
 import grok from "./grok.ts";
@@ -17,6 +18,7 @@ interface AgentCapabilities {
   resume: boolean;
   statusLine: boolean;
   rtk: boolean;
+  saneYolo: boolean;
   antiSlop: boolean;
   compactQuiet: boolean;
   skipPermissionsFlag: boolean;
@@ -40,8 +42,8 @@ interface ArgvConfigInjection {
     relayPath?: string;
     events?: string[];
     bypassHookTrust?: boolean;
-    rtkRewrites?: boolean;
-    rtkRelayPath?: string;
+    hookTools?: ResolvedHookTool[];
+    hookToolRelayPath?: string;
   }): string[] | null;
   projectConfigCandidates: readonly ProjectConfigCandidate[];
   mayContributeHooks(configText: unknown): boolean;

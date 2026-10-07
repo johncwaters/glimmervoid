@@ -255,7 +255,7 @@ test('buildHookSettings adds the rtk PreToolUse hook only when an rtk path is su
   const off = buildHookSettings(base);
   assert.equal('PreToolUse' in off.hooks, false, 'no empty PreToolUse key when rtk is off');
 
-  const on = buildHookSettings({ ...base, rtkPath: 'C:\\Users\\johnw\\.glimmervoid\\bin\\rtk.exe' });
+  const on = buildHookSettings({ ...base, hookTools: [{ id: 'rtk', binPath: 'C:\\Users\\johnw\\.glimmervoid\\bin\\rtk.exe' }] });
   assert.deepEqual(on.hooks.PreToolUse, [{
     matcher: 'Bash',
     hooks: [{ type: 'command', command: 'C:/Users/johnw/.glimmervoid/bin/rtk.exe hook claude' }],
@@ -285,7 +285,7 @@ test('writeSessionSettings writes the rtk PreToolUse block when opted in', () =>
     port: 5173,
     glimmervoidId: 'sess-rtk',
     baseDir,
-    rtkPath: 'C:\\Program Files\\rtk\\rtk.exe',
+    hookTools: [{ id: 'rtk', binPath: 'C:\\Program Files\\rtk\\rtk.exe' }],
   });
   const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
   assert.deepEqual(parsed.hooks.PreToolUse, [{

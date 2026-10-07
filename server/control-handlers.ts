@@ -1,3 +1,5 @@
+import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
+import { resolvePackageBin } from './runtime-paths.ts';
 import type { ReviewsRefreshResult } from '../shared/contracts/reviews.ts';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -1123,9 +1125,14 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   }
 
   function builtinHooksReport() {
+    const hookTools: ResolvedHookTool[] = [];
+    const rtkPath = config.rtk ? resolveRtkPath() : null;
+    if (rtkPath) hookTools.push({ id: 'rtk', binPath: rtkPath });
+    const saneYoloPath = config.saneYolo !== false ? resolvePackageBin('cc-safety-net', 'cc-safety-net') : null;
+    if (saneYoloPath) hookTools.push({ id: 'saneYolo', binPath: saneYoloPath });
     return describeBuiltinHooks({
       detectScheduledWakeups: config.detectScheduledWakeups !== false,
-      rtkPath: config.rtk ? resolveRtkPath() : null,
+      hookTools,
       planReview: config.planReview?.enabled !== false,
     });
   }

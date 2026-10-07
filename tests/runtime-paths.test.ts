@@ -117,3 +117,15 @@ test('the shipped launcher starts the server through the recovering bootstrap', 
   assert.ok(!/['"]\.\.\/server\/main\.ts['"]/.test(launcherSource), 'the launcher never reaches main ahead of recovery');
 });
 
+
+test('package bins resolve from the package root and reject missing packages or bins', async () => {
+  const { resolvePackageBin } = await import('../server/runtime-paths.ts');
+  const binPath = resolvePackageBin('cc-safety-net', 'cc-safety-net');
+  assert.ok(binPath);
+  assert.equal(fs.statSync(binPath).isFile(), true);
+  assert.equal(path.isAbsolute(binPath), true);
+  assert.equal(resolvePackageBin('cc-safety-net', 'ccsn'), binPath);
+  assert.equal(resolvePackageBin('cc-safety-net', 'missing-bin'), null);
+  assert.equal(resolvePackageBin('missing-glimmervoid-package', 'missing-bin'), null);
+  assert.equal(resolvePackageBin('cc-safety-net', 'cc-safety-net'), binPath);
+});

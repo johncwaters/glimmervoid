@@ -25,6 +25,7 @@ interface GrokSetupInspection {
   filePath: string;
   classification: string;
   reason?: string;
+  saneYoloReady?: boolean;
 }
 
 function errorCode(error: unknown): string | undefined {
@@ -40,6 +41,7 @@ function setupInputs(env: NodeJS.ProcessEnv = process.env) {
   return {
     filePath: grok.hooksFilePath(env),
     relayPath: grok.RELAY_PATH,
+    hookToolRelayPath: grok.HOOK_TOOL_RELAY_PATH,
     events: grok.HOOK_EVENTS,
     managedEventSets: grok.MANAGED_HOOK_EVENT_SETS,
   };
@@ -60,6 +62,7 @@ function inspectGrokAgentSetup({ env = process.env, readFileSync = fs.readFileSy
   return {
     filePath: inputs.filePath,
     classification: classifyGrokHooksFile(contents, inputs),
+    saneYoloReady: contents === renderGrokHooksFile(inputs),
   };
 }
 
@@ -126,7 +129,7 @@ function runGrokSetup({ env, fileSystem, log, error }: Required<AgentSetupDeps>)
     return 1;
   }
   const inspection = inspectGrokAgentSetup({ env, readFileSync: fileSystem.readFileSync });
-  if (inspection.classification === "current") {
+  if (inspection.classification === "current" && inspection.saneYoloReady) {
     log(`Grok hooks are already current at ${inputs.filePath}`);
     return 0;
   }

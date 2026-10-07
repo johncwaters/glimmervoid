@@ -1,6 +1,7 @@
 import { cachedAgentResolvability } from '../session/adapters/index.ts';
 import type { CustomAgentDeclaration, CustomAgentSummaryRow } from '../shared/contracts/index.ts';
 import { getRtkPath } from './rtk-resolver.ts';
+import { resolvePackageBin } from './runtime-paths.ts';
 
 interface SettingsPayloadOptions {
   configStore: {
@@ -27,6 +28,7 @@ function buildSettingsPayload({
   return {
     ...configStore.getSettings(),
     rtkAvailable: !!resolveRtk(),
+    saneYoloAvailable: !!resolvePackageBin('cc-safety-net', 'cc-safety-net'),
     rtkInstall: rtkInstallStatus || { status: 'idle' },
     customAgents: summarizeCustomAgents(configStore.config.customAgents ?? []),
   };

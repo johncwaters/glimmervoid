@@ -213,10 +213,23 @@ async function runDoctor(): Promise<void> {
   switchSection('rtk');
   try {
     const { getRtkPath } = await import('../server/rtk-resolver.ts');
-    const rtkPath = getRtkPath();
-    line('rtk', rtkPath || 'not installed (Glimmervoid installs it when the rtk setting is on)');
+    line('rtk', getRtkPath() || 'not installed (Glimmervoid installs it when the rtk setting is on)');
   } catch (err) {
     line('rtk', `probe failed: ${firstLineOf(err)}`);
+  }
+
+  switchSection('Sane YOLO');
+  try {
+    const { resolvePackageBin } = await import('../server/runtime-paths.ts');
+    const { execFileSync } = await import('../server/child-process-safe.ts');
+    const { inspectGrokAgentSetup } = await import('../server/agent-setup-cli.ts');
+    const binPath = resolvePackageBin('cc-safety-net', 'cc-safety-net');
+    line('Sane YOLO', binPath || 'not installed');
+    if (binPath) line('cc-safety-net version', execFileSync(process.execPath, [binPath, '--version'], { encoding: 'utf8', timeout: 3000 }).trim());
+    line('Codex hook trust', 'Sane YOLO is inactive unless Codex trusts the injected hooks.');
+    line('Grok Sane YOLO', inspectGrokAgentSetup().saneYoloReady ? 'installed' : 'inactive; run glimmervoid agent setup grok');
+  } catch (err) {
+    line('Sane YOLO', `probe failed: ${firstLineOf(err)}`);
   }
 
   switchSection('Native module');

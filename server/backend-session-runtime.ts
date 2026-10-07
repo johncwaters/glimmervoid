@@ -8,7 +8,7 @@ import type { ControlBroadcast } from './backend-websockets.ts';
 import type { ConfigStore, GlimmervoidConfig } from './config-store.ts';
 import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import { createRtkInstallWiring } from './rtk-install-wiring.ts';
-import { getRtkPath } from './rtk-resolver.ts';
+import { resolveHookTools } from './hook-tools.ts';
 import { createSessionFactory } from './session-factory.ts';
 import { buildSettingsPayload } from './settings-payload.ts';
 
@@ -34,19 +34,6 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     sweepOrphans();
   } catch {}
 
-  let hasWarnedMissingRtk = false;
-  function rtkPathForConfig(config: { rtk?: unknown }): string | null {
-    if (!config.rtk) return null;
-    const rtkPath = getRtkPath();
-    if (rtkPath) return rtkPath;
-    if (hasWarnedMissingRtk) return null;
-    hasWarnedMissingRtk = true;
-    dependencies.logger.warn(
-      '[rtk] config.rtk is true, but no rtk binary was found. Sessions will spawn without rtk hooks.',
-    );
-    return null;
-  }
-
   const rtkInstall = createRtkInstallWiring({
     config: dependencies.config,
     onStatusChange: (status) => {
@@ -64,7 +51,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     getHookPort,
     getGitWorkspace: dependencies.getGitWorkspace,
     getPlanReviewPort: dependencies.getPlanReviewPort || (() => null),
-    rtkPathForConfig,
+    resolveHookTools: (config, options) => resolveHookTools(config, { ...options, warn: dependencies.logger.warn.bind(dependencies.logger) }),
     getUserHooks: (projectId: string) => hooksForProject(dependencies.config.hooks, projectId),
   });
 

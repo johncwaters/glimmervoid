@@ -76,11 +76,11 @@ test('rtk off: no PreToolUse hook and no PATH prepend, even with a resolved bina
   const rtkPath = path.join(rtkDir, 'rtk.exe');
   await fsp.writeFile(rtkPath, '', 'utf8');
   try {
-    await withHooks({ id: 'rtk-on', name: 'rtk-on', rtkPath }, ({ settings, calls }) => {
+    await withHooks({ id: 'rtk-on', name: 'rtk-on', hookTools: [{ id: 'rtk', binPath: rtkPath }] }, ({ settings, calls }) => {
       assert.ok(settings.hooks.PreToolUse, 'the control: claude-code still injects the rtk hook');
       assert.ok(calls[0].env.PATH?.startsWith(rtkDir) || calls[0].env.Path?.startsWith(rtkDir));
     });
-    await withHooks({ id: 'rtk-off', name: 'rtk-off', rtkPath, adapter: agentWithout('rtk') }, ({ settings, calls }) => {
+    await withHooks({ id: 'rtk-off', name: 'rtk-off', hookTools: [{ id: 'rtk', binPath: rtkPath }], adapter: agentWithout('rtk') }, ({ settings, calls }) => {
       assert.equal('PreToolUse' in settings.hooks, false);
       const pathValue = calls[0].env.PATH || calls[0].env.Path || '';
       assert.equal(pathValue.startsWith(rtkDir), false);
@@ -185,4 +185,18 @@ test('a non-default agent stamps its decision records, so a recording says which
     session.destroy();
     await fsp.rm(recorderBase, { recursive: true, force: true });
   }
+});
+
+test('Sane YOLO capability filters both the Claude hook and its environment', async () => {
+  const hookTools: NonNullable<SessionOptions['hookTools']> = [{ id: 'saneYolo', binPath: '/g/guard.js' }];
+  await withHooks({ id: 'guard-on', name: 'guard-on', hookTools }, ({ settings, calls }) => {
+    assert.ok(settings.hooks.PreToolUse);
+    assert.equal(calls[0].env.GLIMMERVOID_SANE_YOLO_PATH, '/g/guard.js');
+    assert.equal(calls[0].env.CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY, '1');
+  });
+  await withHooks({ id: 'guard-off', name: 'guard-off', hookTools, adapter: agentWithout('saneYolo') }, ({ settings, calls }) => {
+    assert.equal('PreToolUse' in settings.hooks, false);
+    assert.equal(calls[0].env.GLIMMERVOID_SANE_YOLO_PATH, undefined);
+    assert.equal(calls[0].env.CC_SAFETY_NET_HOME, undefined);
+  });
 });

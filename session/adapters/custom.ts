@@ -25,6 +25,7 @@ const TITLE_ONLY_CAPABILITIES: AgentCapabilities = Object.freeze({
   resume: false,
   statusLine: false,
   rtk: false,
+    saneYolo: false,
   antiSlop: false,
   compactQuiet: false,
   skipPermissionsFlag: false,

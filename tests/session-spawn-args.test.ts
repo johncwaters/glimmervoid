@@ -254,3 +254,27 @@ test('binding and clearing the resume id updates the session and its snapshot', 
     session.destroy();
   }
 });
+
+test('session factory resolves hook tools with the effective project permission choice', async () => {
+  const { createSessionFactory } = await import('../server/session-factory.ts');
+  const requests: boolean[] = [];
+  const makeSession = createSessionFactory({
+    configStore: { configPath: path.join(claudeConfigDir, 'config.json') },
+    hookRouter: null, getHookPort: () => null, getGitWorkspace: () => null, getPlanReviewPort: () => null,
+    getUserHooks: () => [],
+    resolveHookTools: (_config, { skipPermissions }) => {
+      requests.push(skipPermissions);
+      return skipPermissions ? [{ id: 'saneYolo', binPath: '/g/guard.js' }] : [];
+    },
+  });
+  const project = { id: 'factory-guard', name: 'factory-guard', path: claudeConfigDir };
+  for (const [machineDefault, projectChoice, expected] of [[true, undefined, true], [true, false, false], [false, true, true], [false, undefined, false]] as const) {
+    const session = makeSession({ ...project, dangerouslySkipPermissions: projectChoice }, { projects: [], skipPermissionsByDefault: machineDefault, recordSignals: false });
+    try {
+      assert.equal(requests.at(-1), expected);
+      assert.equal(session._hookTools.length, expected ? 1 : 0);
+    } finally {
+      session.destroy();
+    }
+  }
+});
