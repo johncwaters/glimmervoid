@@ -9,6 +9,7 @@ export type ShortcutPlatform = 'mac' | 'other';
 export type DashboardShortcutAction =
   | 'next-attention'
   | 'rail-step'
+  | 'view-step'
   | 'session-nth'
   | 'new-session'
   | 'merge'
@@ -56,6 +57,8 @@ const SESSION_DIGIT_STEPS = Array.from({ length: 9 }, (_, index) => [`Digit${ind
 const DASHBOARD_SHORTCUTS: readonly DashboardShortcut[] = [
   { action: 'next-attention', keyCaptions: ['J'], label: 'Jump to the next session needing you', stepByCode: new Map([['KeyJ', 0]]), availability: 'always' },
   { action: 'rail-step', keyCaptions: [UP, DOWN], label: 'Previous / next session in the rail', stepByCode: new Map([['ArrowUp', -1], ['ArrowDown', 1]]), availability: 'always' },
+  { action: 'view-step', keyCaptions: [LEFT, RIGHT], label: 'Previous / next view tab', stepByCode: new Map([['ArrowLeft', -1], ['ArrowRight', 1]]), availability: 'always', unavailablePlatform: 'other' },
+  { action: 'view-step', keyCaptions: ['PgUp', 'PgDn'], label: 'Previous / next view tab', stepByCode: new Map([['PageUp', -1], ['PageDown', 1]]), availability: 'always', unavailablePlatform: 'mac' },
   { action: 'session-nth', keyCaptions: ['1..9'], label: 'Jump to session 1 to 9', stepByCode: new Map(SESSION_DIGIT_STEPS), availability: 'always' },
   { action: 'new-session', keyCaptions: ['0'], label: 'Add a session', stepByCode: new Map([['Digit0', 0]]), availability: 'always' },
   { action: 'merge', keyCaptions: ['I'], label: 'Merge the selected session', stepByCode: new Map([['KeyI', 0]]), availability: 'always' },
@@ -92,14 +95,14 @@ export function shortcutModifierCaption(platform: ShortcutPlatform) {
   return platform === 'mac' ? MAC_COMMAND : 'Alt';
 }
 
-function findShortcut(action: DashboardShortcutAction) {
-  const shortcut = DASHBOARD_SHORTCUTS.find((candidate) => candidate.action === action);
+function findShortcut(action: DashboardShortcutAction, platform: ShortcutPlatform) {
+  const shortcut = shortcutsOn(platform).find((candidate) => candidate.action === action);
   if (!shortcut) throw new Error(`Unknown dashboard shortcut: ${action}`);
   return shortcut;
 }
 
 export function shortcutChord(action: DashboardShortcutAction, platform: ShortcutPlatform): string[] {
-  return [shortcutModifierCaption(platform), findShortcut(action).keyCaptions.join(' ')];
+  return [shortcutModifierCaption(platform), findShortcut(action, platform).keyCaptions.join(' ')];
 }
 
 export function shortcutHint(action: DashboardShortcutAction, platform: ShortcutPlatform) {

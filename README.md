@@ -121,7 +121,7 @@ Glimmervoid centers on one session at a time. A left **roster rail** lists one p
 
 Every git-repo session runs in its own git worktree forked from the integration branch, so an agent's edits stay out of your main checkout until you review them. `integrationBranch` is unset by default, which means each repo's own default branch: `origin/HEAD`, then `main`, then `master`. The sidebar splits **Committed** (the mergeable unit) from **Uncommitted** work, keeps the diff live, and merges into the integration branch with one click while the session keeps running. If a merge hits conflicts it parks, and **Resolve in session** hands the conflict back to the agent that owns the worktree with a ready-to-run prompt.
 
-Navigate it from the keyboard with Cmd on a Mac and Alt elsewhere, never more than two keys: `Cmd/Alt+J` steps through the sessions needing attention, `Cmd/Alt+1`..`9` jump to a session, `Cmd/Alt+Up`/`Down` move through the rail, `Cmd/Alt+I` merges the selected one, `Cmd/Alt+U` resolves or resyncs it, and `Cmd/Alt+0` opens Add Session.
+Navigate it from the keyboard with Cmd on a Mac and Alt elsewhere, never more than two keys: `Cmd/Alt+J` steps through the sessions needing attention, `Cmd/Alt+1`..`9` jump to a session, `Cmd/Alt+Up`/`Down` move through the rail, `Cmd/Alt+I` merges the selected one, `Cmd/Alt+U` resolves or resyncs it, `Cmd/Alt+0` opens Add Session, and `Cmd+Left`/`Right` (`Alt+PgUp`/`PgDn` off a Mac) switch view tabs.
 
 ## Configuration
 

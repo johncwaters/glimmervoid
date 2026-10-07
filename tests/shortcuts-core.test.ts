@@ -50,6 +50,21 @@ test('each dashboard action resolves from its physical key under the platform mo
   }
 });
 
+test('Command plus Left or Right steps the view tabs on a Mac', () => {
+  const held = shortcutModifierHeld('mac');
+  assert.deepEqual(resolveDashboardShortcut(keyEvent('ArrowLeft', held), 'mac', CALM_OFF), { action: 'view-step', step: -1 });
+  assert.deepEqual(resolveDashboardShortcut(keyEvent('ArrowRight', held), 'mac', CALM_OFF), { action: 'view-step', step: 1 });
+  assert.equal(resolveDashboardShortcut(keyEvent('PageUp', held), 'mac', CALM_OFF), null);
+  assert.equal(shortcutHint('view-step', 'mac'), `${MAC_COMMAND}${String.fromCharCode(0x2190)} ${String.fromCharCode(0x2192)}`);
+});
+
+test('Alt plus Page Up or Page Down steps the view tabs off a Mac, leaving Alt plus arrows to the terminal', () => {
+  const held = shortcutModifierHeld('other');
+  assert.deepEqual(resolveDashboardShortcut(keyEvent('PageUp', held), 'other', CALM_OFF), { action: 'view-step', step: -1 });
+  assert.deepEqual(resolveDashboardShortcut(keyEvent('PageDown', held), 'other', CALM_OFF), { action: 'view-step', step: 1 });
+  assert.equal(shortcutHint('view-step', 'other'), 'Alt+PgUp PgDn');
+});
+
 test('Option on a Mac never fires a shortcut, so Option-typed characters reach the terminal', () => {
   for (const code of ['KeyJ', 'KeyI', 'KeyU', 'Digit5', 'Digit7', 'ArrowDown']) {
     assert.equal(resolveDashboardShortcut(keyEvent(code, { altKey: true }), 'mac', CALM_OFF), null, code);

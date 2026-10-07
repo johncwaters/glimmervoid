@@ -777,18 +777,27 @@ setTraceNavigate(() => {
   activateView('trace');
 });
 
+function stepViewTab(fromView: string, direction: number) {
+  const availableTabs = VIEW_TABS.filter((viewTab) => !viewTab.tab.hidden);
+  const fromIndex = availableTabs.findIndex((viewTab) => viewTab.view === fromView);
+  const nextTab = availableTabs[(fromIndex + direction + availableTabs.length) % availableTabs.length];
+  activateView(nextTab.view);
+  return nextTab.tab;
+}
+
+function focusViewTabIfFocused(tab: HTMLElement) {
+  if (!VIEW_TABS.some((viewTab) => viewTab.tab === document.activeElement)) return;
+  tab.focus();
+}
+
 for (let i = 0; i < VIEW_TABS.length; i++) {
   const { view, tab } = VIEW_TABS[i];
   tab.addEventListener('click', () => activateView(view));
   tab.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    if (e.metaKey || e.altKey || e.ctrlKey || e.shiftKey) return;
     e.preventDefault();
-    const dir = e.key === 'ArrowRight' ? 1 : -1;
-    const availableTabs = VIEW_TABS.filter((viewTab) => !viewTab.tab.hidden);
-    const availableIndex = availableTabs.findIndex((viewTab) => viewTab.tab === tab);
-    const next = (availableIndex + dir + availableTabs.length) % availableTabs.length;
-    activateView(availableTabs[next].view);
-    availableTabs[next].tab.focus();
+    stepViewTab(getActiveView(), e.key === 'ArrowRight' ? 1 : -1).focus();
   });
 }
 
@@ -945,6 +954,10 @@ function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
     case 'rail-step':
       if (!isFocusActive()) return false;
       focusAdjacentInRail(step);
+      return true;
+    case 'view-step':
+      if (isPhoneLayout()) return false;
+      focusViewTabIfFocused(stepViewTab(getActiveView(), step));
       return true;
     case 'session-nth':
       if (!isFocusActive()) return false;
