@@ -17,6 +17,7 @@ type Scanner = ReturnType<ScannerFactory>;
 type BudgetSpend = ReturnType<Scanner['budgetSpend']>;
 
 const LANE_ROWS = [{ lane: 'pr-review', costUSD: 4.2, tokens: 1000, sessions: 2 }];
+const PLAN_WINDOW_LANES = { fiveHour: LANE_ROWS, sevenDay: LANE_ROWS };
 const BUDGET_BLOCK = {
   dailyUsd: 16,
   monthlyUsd: null,
@@ -56,6 +57,7 @@ function fakeScanner(
       activeBlock: null,
       anomaly: { daily: null, burn: null },
       byLane: LANE_ROWS,
+      planWindowLanes: PLAN_WINDOW_LANES,
       budget: BUDGET_BLOCK,
       tokenLimit: null,
       pricing: { missing: [] },
@@ -613,12 +615,13 @@ test('budgetAlertText: the one wording, plain and dash free', () => {
   }
 });
 
-test('byLane and budget reach the wire on a pulled report', async () => {
+test('byLane, planWindowLanes and budget reach the wire on a pulled report', async () => {
   const root = await makeTempRoot();
   const h = harness({ root });
   const report = await h.wiring.requestReport({ requestId: 'r1' });
   assert.equal(report.type, 'usage-report');
   assert.deepEqual(report.byLane, LANE_ROWS);
+  assert.deepEqual(report.planWindowLanes, PLAN_WINDOW_LANES);
   assert.deepEqual(report.budget, BUDGET_BLOCK);
   const cached = h.wiring.getCachedReport();
   assert.ok(cached, 'a pulled report is cached for the next connect');

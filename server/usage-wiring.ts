@@ -8,6 +8,7 @@ import type { UsageVendorKey } from '../shared/usage-config.ts';
 import { execFileAsync as defaultExecFileAsync } from './child-process-safe.ts';
 import { evaluateBudget, markFired, mergeFiredState, normalizeBudgetConfig } from './core/usage-budget-core.ts';
 import type { BudgetAlert, BudgetConfig, BudgetFiredState } from './core/usage-budget-core.ts';
+import { planWindowStartsMs } from './core/usage-lane-core.ts';
 import { continuationDelayMs, shouldEvaluateDespiteIoFailures } from './core/usage-scan-core.ts';
 import type { PassOutcome } from './core/usage-scan-core.ts';
 import { computeCacheSavings, normalizeRtkGain } from './core/usage-savings-core.ts';
@@ -614,7 +615,8 @@ function createUsageWiring({
     if (force) await runPassAndPush({ force: allowForce });
     let report: ReturnType<ReturnType<typeof createUsageScanner>['buildReport']>;
     try {
-      report = scanner.buildReport({ days });
+      const officialRateLimits = cfg.planLimits ? planLimits?.rateLimits : null;
+      report = scanner.buildReport({ days, planWindowStarts: planWindowStartsMs(officialRateLimits, nowFn()) });
     } catch (error) {
       laneLog.warn('report build failed', { error: errorMessage(error) });
       return unavailableReport(requestId, `Usage report failed: ${errorMessage(error)}`);
@@ -635,6 +637,7 @@ function createUsageWiring({
       activeBlock: report.activeBlock,
       anomaly: report.anomaly,
       byLane: report.byLane,
+      planWindowLanes: report.planWindowLanes,
       budget: report.budget,
       savings,
       tokenLimit: report.tokenLimit,

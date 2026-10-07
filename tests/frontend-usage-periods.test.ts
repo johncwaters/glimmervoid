@@ -390,6 +390,39 @@ test('the lanes section stays hidden until a real automation lane has spend', as
   assert.equal(hasLaneAttribution(null), false);
 });
 
+test('glimmervoidOverhead: Glimmervoid lane share per plan window, scaled onto the official plan percent', async () => {
+  const { glimmervoidOverhead, overheadPlanText, overheadLanesText } = await importCore();
+  const report = { planWindowLanes: {
+    fiveHour: [
+      { lane: 'team-review', tokens: 300, costUSD: 3, sessions: 2 },
+      { lane: 'change-map', tokens: 100, costUSD: 1, sessions: 1 },
+      { lane: 'interactive', tokens: 500, costUSD: 4, sessions: 1 },
+      { lane: 'other', tokens: 100, costUSD: 2, sessions: 1 },
+    ],
+    sevenDay: [{ lane: 'other', tokens: 100, costUSD: 0, sessions: 1 }, { lane: 'visions', tokens: 300, costUSD: 0, sessions: 1 }],
+  } };
+  const [fiveHour, sevenDay] = glimmervoidOverhead(report, { fiveHour: { pct: 50, resetsAtMs: 1 } });
+
+  assert.equal(fiveHour.key, 'fiveHour');
+  assert.equal(fiveHour.costUSD, 4);
+  assert.equal(fiveHour.sharePct, 40);
+  assert.equal(fiveHour.planPct, 20);
+  assert.equal(overheadLanesText(fiveHour), 'PR reviews $3.00, Change map $1.00');
+
+  assert.equal(sevenDay.sharePct, 75);
+  assert.equal(sevenDay.planPct, null);
+  assert.equal(overheadPlanText(sevenDay), '');
+  assert.equal(overheadLanesText(sevenDay), 'Visions 300');
+});
+
+test('glimmervoidOverhead skips a window with no rows and returns nothing without the field', async () => {
+  const { glimmervoidOverhead } = await importCore();
+  assert.deepEqual(glimmervoidOverhead({}, null), []);
+  assert.deepEqual(glimmervoidOverhead({ planWindowLanes: null }, null), []);
+  const windows = glimmervoidOverhead({ planWindowLanes: { fiveHour: null, sevenDay: [] } }, null);
+  assert.deepEqual(windows.map((window) => [window.key, window.sharePct]), [['sevenDay', null]]);
+});
+
 test('laneSessionsText and the scope hint say what is and is not counted', async () => {
   const { laneSessionsText, LANE_SCOPE_HINT } = await importCore();
   assert.equal(laneSessionsText(1), '1 session');

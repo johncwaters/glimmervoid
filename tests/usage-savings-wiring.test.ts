@@ -96,6 +96,8 @@ function savingsOf(report: Record<string, unknown>): {
   return { rtk: blockAt(savings, 'rtk'), cache };
 }
 
+type BuildReportRequest = Parameters<UsageScannerApi['buildReport']>[0];
+
 interface HarnessOptions {
   usage?: Record<string, unknown>;
   models?: ModelRow[];
@@ -112,32 +114,37 @@ function harness({
   const execCalls: ExecCall[] = [];
   let rtkPathCalls = 0;
   const clock = { now: 1_800_000_000_000 };
+  const buildReportRequests: BuildReportRequest[] = [];
   const scanner = {
     runPass: async () => COMPLETE_PASS,
     sessionTotals: () => new Map(),
     stats: () => ({ dirs: [], files: 0, entries: 0, lastScanMs: 0, resolutionError: null }),
     budgetSpend: () => ({ todayKey: '2026-08-21', monthKey: '2026-08', todayUsd: 0, monthUsd: 0 }),
-    buildReport: () => ({
-      ts: clock.now,
-      tz: 'UTC',
-      blockHours: 5,
-      totals: { tokens: 0, costUSD: 0, input: 0, output: 0, cacheCreate: 0, cacheRead: 0, byVendor: {} },
-      daily: [],
-      models,
-      sessions: [],
-      blocks: [],
-      activeBlock: null,
-      anomaly: { daily: null, burn: null },
-      byLane: [{ lane: 'pr-review', costUSD: 4.2, tokens: 1000, sessions: 2 }],
-      budget: {
-        dailyUsd: 16,
-        monthlyUsd: null,
-        rows: [{ scope: 'daily' as const, spentUsd: 12.4, budgetUsd: 16, pct: 77.5, tone: 'warn' as const }],
-      },
-      tokenLimit: null,
-      pricing: { missing: [] },
-      scan: { dirs: [], files: 0, entries: 0, lastScanMs: 0, partial: false, outcome: COMPLETE_PASS.outcome, ioFailures: 0, resolutionError: null },
-    }),
+    buildReport: (request: BuildReportRequest) => {
+      buildReportRequests.push(request);
+      return {
+        ts: clock.now,
+        tz: 'UTC',
+        blockHours: 5,
+        totals: { tokens: 0, costUSD: 0, input: 0, output: 0, cacheCreate: 0, cacheRead: 0, byVendor: {} },
+        daily: [],
+        models,
+        sessions: [],
+        blocks: [],
+        activeBlock: null,
+        anomaly: { daily: null, burn: null },
+        byLane: [{ lane: 'pr-review', costUSD: 4.2, tokens: 1000, sessions: 2 }],
+        planWindowLanes: null,
+        budget: {
+          dailyUsd: 16,
+          monthlyUsd: null,
+          rows: [{ scope: 'daily' as const, spentUsd: 12.4, budgetUsd: 16, pct: 77.5, tone: 'warn' as const }],
+        },
+        tokenLimit: null,
+        pricing: { missing: [] },
+        scan: { dirs: [], files: 0, entries: 0, lastScanMs: 0, partial: false, outcome: COMPLETE_PASS.outcome, ioFailures: 0, resolutionError: null },
+      };
+    },
   };
   const wiring = createUsageWiring({
     config: { usage },
@@ -164,7 +171,7 @@ function harness({
       return execResult;
     },
   });
-  return { wiring, execCalls, clock, rtkPathCallCount: () => rtkPathCalls };
+  return { wiring, execCalls, clock, buildReportRequests, rtkPathCallCount: () => rtkPathCalls };
 }
 
 test('a report carries both savings halves, with rtk parsed off its own JSON', async () => {
@@ -282,4 +289,34 @@ test('byLane and budget survive the report projection onto the wire', async () =
   const report = await lane.wiring.requestReport({});
   assert.deepEqual(report.byLane, [{ lane: 'pr-review', costUSD: 4.2, tokens: 1000, sessions: 2 }]);
   assert.deepEqual(blockAt(report, 'budget').rows, [{ scope: 'daily', spentUsd: 12.4, budgetUsd: 16, pct: 77.5, tone: 'warn' }]);
+});
+
+const FIVE_HOUR_RESETS_AT_SECONDS = 1_800_003_600;
+const SEVEN_DAY_RESETS_AT_SECONDS = 1_800_400_000;
+
+function statuslineWithPlanResets() {
+  return {
+    session_id: 'claude-session',
+    rate_limits: {
+      five_hour: { used_percentage: 12, resets_at: FIVE_HOUR_RESETS_AT_SECONDS },
+      seven_day: { used_percentage: 68, resets_at: SEVEN_DAY_RESETS_AT_SECONDS },
+    },
+  };
+}
+
+test('a report asks the scanner for plan windows that start one window length before the official resets', async () => {
+  const planWindows = harness();
+  planWindows.wiring.ingestStatusline(statuslineWithPlanResets());
+  await planWindows.wiring.requestReport({});
+  assert.deepEqual(planWindows.buildReportRequests.at(-1)?.planWindowStarts, {
+    fiveHour: FIVE_HOUR_RESETS_AT_SECONDS * 1000 - 5 * 60 * 60 * 1000,
+    sevenDay: SEVEN_DAY_RESETS_AT_SECONDS * 1000 - 7 * 24 * 60 * 60 * 1000,
+  });
+});
+
+test('usage.planLimits false sends the scanner no official plan window starts', async () => {
+  const planWindows = harness({ usage: { planLimits: false } });
+  planWindows.wiring.ingestStatusline(statuslineWithPlanResets());
+  await planWindows.wiring.requestReport({});
+  assert.deepEqual(planWindows.buildReportRequests.at(-1)?.planWindowStarts, { fiveHour: null, sevenDay: null });
 });

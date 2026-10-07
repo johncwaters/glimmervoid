@@ -11,7 +11,9 @@ import {
   OTHER_LANE,
   laneMapFromLedger,
   laneRollup,
+  laneRollupSince,
   normalizeLedger,
+  planWindowStartsMs,
   pruneLedger,
 } from '../server/core/usage-lane-core.ts';
 import type { LaneRollupRow } from '../server/core/usage-lane-core.ts';
@@ -90,6 +92,36 @@ test('laneRollup joins entries to lanes and counts distinct sessions', () => {
   assert.equal(laneRowOf(rows, 'pr-review').sessions, 2);
   assert.equal(laneRowOf(rows, INTERACTIVE_LANE).sessions, 1);
   assert.equal(rows[0].lane, 'pr-review');
+});
+
+test('laneRollupSince counts only entries at or after the window start', () => {
+  const lanes = laneMapFromLedger([{ sessionId: 'review', lane: 'team-review', ts: 1 }]);
+  const rows = laneRollupSince([
+    { ...entry({ sessionId: 'review', costUSD: 5 }), timestampMs: NOW - 2 * DAY_MS },
+    { ...entry({ sessionId: 'review', costUSD: 2 }), timestampMs: NOW - DAY_MS },
+    { ...entry({ sessionId: 'mine', costUSD: 3 }), timestampMs: NOW },
+  ], lanes, NOW - DAY_MS);
+  assert.equal(laneRowOf(rows, 'team-review').costUSD, 2);
+  assert.equal(laneRowOf(rows, OTHER_LANE).costUSD, 3);
+  assert.deepEqual(laneRollupSince(null, lanes, NOW), []);
+});
+
+test('planWindowStartsMs starts each official window one window length before its reset', () => {
+  const HOUR_MS = 60 * 60 * 1000;
+  const starts = planWindowStartsMs({
+    fiveHour: { pct: 40, resetsAtMs: NOW + HOUR_MS },
+    sevenDay: { pct: 10, resetsAtMs: NOW + DAY_MS },
+  }, NOW);
+  assert.deepEqual(starts, { fiveHour: NOW - 4 * HOUR_MS, sevenDay: NOW - 6 * DAY_MS });
+});
+
+test('planWindowStartsMs has no start for a missing, unknown or already reset window', () => {
+  assert.deepEqual(planWindowStartsMs(null, NOW), { fiveHour: null, sevenDay: null });
+  assert.deepEqual(planWindowStartsMs({
+    fiveHour: { pct: 40, resetsAtMs: NOW },
+    sevenDay: { pct: 10, resetsAtMs: null },
+  }, NOW), { fiveHour: null, sevenDay: null });
+  assert.deepEqual(planWindowStartsMs({ fiveHour: null, sevenDay: { pct: 10, resetsAtMs: NOW - 1 } }, NOW), { fiveHour: null, sevenDay: null });
 });
 
 test('an unknown session id is other, never inferred', () => {

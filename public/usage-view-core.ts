@@ -109,6 +109,7 @@ export interface UsageReport {
   error?: unknown;
   warning?: unknown;
   byLane?: unknown;
+  planWindowLanes?: { fiveHour?: unknown; sevenDay?: unknown } | null;
   budget?: { rows?: unknown } | null;
   tokenLimit?: UsageTokenLimit | null;
   activeBlock?: UsageBlock | null;
@@ -412,10 +413,17 @@ const LANE_LABELS: Readonly<Record<string, string>> = Object.freeze({
   'pr-review': 'PR review',
   'team-review': 'PR reviews',
   posthog: 'PostHog',
+  'my-prs': 'Keep mergeable',
+  workflows: 'Workflows',
+  'change-map': 'Change map',
+  visions: 'Visions',
+  benchmark: 'Benchmarks',
+  'agent-spawn': 'Agent API',
   other: 'Other',
 });
 
 export const LANE_SCOPE_HINT = 'Sessions spawned by Glimmervoid; terminal sessions count as other';
+export const OVERHEAD_SCOPE_HINT = 'Claude sessions Glimmervoid spawned for its own work; plan share is estimated pro rata by cost';
 
 export function laneLabel(lane: unknown) {
   const key = typeof lane === 'string' ? lane.trim() : '';
@@ -429,8 +437,76 @@ export function laneRows(report: UsageReport | null | undefined): UsageLaneRow[]
   return (rows as UsageLaneRow[]).filter((row) => row && typeof row.lane === 'string');
 }
 
+export function isGlimmervoidLane(lane: unknown) {
+  if (typeof lane !== 'string') return false;
+  const key = lane.trim();
+  return key !== '' && key !== 'interactive' && key !== 'other';
+}
+
 export function hasLaneAttribution(report: UsageReport | null | undefined) {
-  return laneRows(report).some((row) => row.lane !== 'interactive' && row.lane !== 'other');
+  return laneRows(report).some((row) => isGlimmervoidLane(row.lane));
+}
+
+export interface OverheadLane {
+  lane: string;
+  label: string;
+  tokens: number;
+  costUSD: number;
+}
+
+export interface OverheadWindow {
+  key: 'fiveHour' | 'sevenDay';
+  label: string;
+  tokens: number;
+  costUSD: number;
+  sharePct: number | null;
+  planPct: number | null;
+  lanes: OverheadLane[];
+}
+
+const OVERHEAD_WINDOW_LABELS: Readonly<Record<'fiveHour' | 'sevenDay', string>> = Object.freeze({
+  fiveHour: 'This 5 hour block',
+  sevenDay: 'Last 7 days',
+});
+
+function overheadWindowOf(
+  key: 'fiveHour' | 'sevenDay',
+  rawRows: unknown,
+  planLimits: PlanLimits | null | undefined,
+): OverheadWindow | null {
+  if (!Array.isArray(rawRows)) return null;
+  const rows = (rawRows as UsageLaneRow[]).filter((row) => row && typeof row.lane === 'string');
+  const allCost = rows.reduce((sum, row) => sum + (finiteNumber(row.costUSD) ?? 0), 0);
+  const allTokens = rows.reduce((sum, row) => sum + (finiteNumber(row.tokens) ?? 0), 0);
+  const lanes = rows
+    .filter((row) => isGlimmervoidLane(row.lane))
+    .map((row) => ({ lane: String(row.lane), label: laneLabel(row.lane), tokens: finiteNumber(row.tokens) ?? 0, costUSD: finiteNumber(row.costUSD) ?? 0 }));
+  const costUSD = lanes.reduce((sum, lane) => sum + lane.costUSD, 0);
+  const tokens = lanes.reduce((sum, lane) => sum + lane.tokens, 0);
+  const sharePct = allCost > 0 ? percentOfTotal(costUSD, allCost) : percentOfTotal(tokens, allTokens);
+  const planUsedPct = planWindowOf(planLimits, key)?.pct ?? null;
+  const planPct = sharePct === null || planUsedPct === null ? null : (sharePct / 100) * planUsedPct;
+  return { key, label: OVERHEAD_WINDOW_LABELS[key], tokens, costUSD, sharePct, planPct, lanes };
+}
+
+export function glimmervoidOverhead(report: UsageReport | null | undefined, planLimits: PlanLimits | null | undefined): OverheadWindow[] {
+  const windows = report?.planWindowLanes;
+  if (!windows || typeof windows !== 'object') return [];
+  return PLAN_WINDOWS
+    .map((spec) => overheadWindowOf(spec.key, windows[spec.key], planLimits))
+    .filter((window): window is OverheadWindow => window !== null);
+}
+
+export function overheadPlanText(window: OverheadWindow) {
+  if (window.planPct === null) return '';
+  return `about ${formatPercent(window.planPct)} of plan`;
+}
+
+export function overheadLanesText(window: OverheadWindow) {
+  return window.lanes
+    .filter((lane) => lane.costUSD > 0 || lane.tokens > 0)
+    .map((lane) => `${lane.label} ${lane.costUSD > 0 ? formatUsd(lane.costUSD) : formatTokens(lane.tokens)}`)
+    .join(', ');
 }
 
 const PR_REVIEWS_LANE = 'team-review';

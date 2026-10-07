@@ -1,4 +1,5 @@
 import { safeNumber, stringOrNull } from './usage-number-core.ts';
+import type { RateLimitWindow, RateLimitWindows } from './usage-statusline-core.ts';
 
 export interface LaneLedgerEntry {
   vendor: string;
@@ -19,6 +20,7 @@ interface RawLaneLedgerEntry {
 
 interface LaneUsageEntry {
   vendor?: unknown;
+  timestampMs?: number;
   sessionId?: unknown;
   input?: number;
   output?: number;
@@ -34,8 +36,15 @@ export interface LaneRollupRow {
   sessions: number;
 }
 
+export interface PlanWindowStarts {
+  fiveHour: number | null;
+  sevenDay: number | null;
+}
+
 const INTERACTIVE_LANE = 'interactive';
 const OTHER_LANE = 'other';
+const FIVE_HOUR_WINDOW_MS = 5 * 60 * 60 * 1000;
+const SEVEN_DAY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 function vendorOf(value: unknown): string {
   const vendor = stringOrNull(value);
@@ -109,6 +118,28 @@ function laneRollup(
     .sort((a, b) => b.costUSD - a.costUSD || b.tokens - a.tokens || a.lane.localeCompare(b.lane));
 }
 
+function laneRollupSince(
+  entries: LaneUsageEntry[] | null | undefined,
+  laneById: Map<string, string> | null | undefined,
+  sinceMs: number,
+): LaneRollupRow[] {
+  const windowEntries = (entries || []).filter((entry) => safeNumber(entry.timestampMs) >= sinceMs);
+  return laneRollup(windowEntries, laneById);
+}
+
+function officialWindowStartMs(window: RateLimitWindow | null | undefined, windowLengthMs: number, nowMs: number): number | null {
+  const resetsAtMs = window?.resetsAtMs;
+  if (typeof resetsAtMs !== 'number' || !Number.isFinite(resetsAtMs) || resetsAtMs <= nowMs) return null;
+  return resetsAtMs - windowLengthMs;
+}
+
+function planWindowStartsMs(rateLimits: RateLimitWindows | null | undefined, nowMs: number): PlanWindowStarts {
+  return {
+    fiveHour: officialWindowStartMs(rateLimits?.fiveHour, FIVE_HOUR_WINDOW_MS, nowMs),
+    sevenDay: officialWindowStartMs(rateLimits?.sevenDay, SEVEN_DAY_WINDOW_MS, nowMs),
+  };
+}
+
 function totalTokensOf(entry: LaneUsageEntry | null | undefined): number {
   return safeNumber(entry?.input) + safeNumber(entry?.output) + safeNumber(entry?.cacheCreate) + safeNumber(entry?.cacheRead);
 }
@@ -118,4 +149,15 @@ function compareEntries(a: LaneLedgerEntry, b: LaneLedgerEntry): number {
   return laneKey(a.vendor, a.sessionId).localeCompare(laneKey(b.vendor, b.sessionId));
 }
 
-export { INTERACTIVE_LANE, OTHER_LANE, laneKey, laneMapFromLedger, laneRollup, normalizeLedger, pruneLedger };
+export {
+  INTERACTIVE_LANE,
+  OTHER_LANE,
+  SEVEN_DAY_WINDOW_MS,
+  laneKey,
+  laneMapFromLedger,
+  laneRollup,
+  laneRollupSince,
+  normalizeLedger,
+  planWindowStartsMs,
+  pruneLedger,
+};

@@ -12,6 +12,7 @@ import {
   DEFAULT_SESSION_SORT,
   HEATMAP_DAY_LABELS,
   LANE_SCOPE_HINT,
+  OVERHEAD_SCOPE_HINT,
   PERIOD_VIEWS,
   PLAN_WINDOWS,
   RANGE_OPTIONS,
@@ -40,6 +41,7 @@ import {
   formatPercent,
   formatTokens,
   formatUsd,
+  glimmervoidOverhead,
   hasAnomaly,
   hasLaneAttribution,
   hasMultiVendorUsage,
@@ -58,6 +60,8 @@ import {
   modelLabel,
   modelRowPrefix,
   nextSortState,
+  overheadLanesText,
+  overheadPlanText,
   percentOfTotal,
   periodLabel,
   periodRows,
@@ -381,10 +385,33 @@ function paintPlanAge() {
   _planAgeEl.textContent = age ? `Plan ${age}` : '';
 }
 
-function buildLanesSection() {
+function buildOverheadSection() {
+  const windows = glimmervoidOverhead(_report, _planLimits);
+  const lanesTable = buildLanesTable();
+  if (windows.length === 0 && !lanesTable) return null;
+  const section = buildSection('Glimmervoid overhead', windows.length > 0 ? OVERHEAD_SCOPE_HINT : LANE_SCOPE_HINT);
+  if (windows.length > 0) {
+    const tiles = el('div', 'usage-tiles');
+    for (const window of windows) {
+      const sub = [overheadPlanText(window), formatUsd(window.costUSD)].filter(Boolean).join(', ');
+      tiles.append(buildTile(`${window.label}, share of Claude use`, formatPercent(window.sharePct), sub).tile);
+    }
+    section.append(tiles);
+    for (const window of windows) {
+      const lanesText = overheadLanesText(window);
+      if (lanesText) section.append(el('p', 'usage-meta', `${window.label}: ${lanesText}`));
+    }
+  }
+  if (lanesTable) {
+    section.append(el('p', 'usage-meta', `Selected range by lane. ${LANE_SCOPE_HINT}`));
+    section.append(lanesTable);
+  }
+  return section;
+}
+
+function buildLanesTable() {
   if (!hasLaneAttribution(_report)) return null;
   const rows = laneRows(_report);
-  const section = buildSection('Glimmervoid lanes', LANE_SCOPE_HINT);
   const totalCost = rows.reduce((sum, row) => sum + (typeof row.costUSD === 'number' && Number.isFinite(row.costUSD) ? row.costUSD : 0), 0);
   const { wrap, body } = buildTable(
     [
@@ -410,8 +437,7 @@ function buildLanesSection() {
     ]);
     body.append(tr);
   }
-  section.append(wrap);
-  return section;
+  return wrap;
 }
 
 function buildActiveBlockSection() {
@@ -926,8 +952,8 @@ function buildBody() {
   _root.append(bandOf('usage-band-spend', buildTotalsSection(), spendSide));
   const trendSide = [buildBlockHistorySection()].filter((section) => section !== null);
   _root.append(bandOf('usage-band-trend', buildDailySection(), trendSide));
-  const lanes = buildLanesSection();
-  if (lanes) _root.append(lanes);
+  const overhead = buildOverheadSection();
+  if (overhead) _root.append(overhead);
   _root.append(buildModelsSection(), buildSessionsSection());
 }
 

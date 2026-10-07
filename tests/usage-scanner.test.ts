@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 
 import { createUsageScanner } from '../server/usage-scanner.ts';
 import type { UsageScannerOptions } from '../server/usage-scanner.ts';
+import { planWindowStartsMs } from '../server/core/usage-lane-core.ts';
 import { normalizePricingTable } from '../server/core/usage-pricing-core.ts';
 
 type Scanner = ReturnType<typeof createUsageScanner>;
@@ -42,6 +43,140 @@ test('runPass ingests a fixture tree and append reruns ingest only new entries',
   assert.equal(second.newEntries, 1);
   assert.equal(scanner.sessionTotals().get('inline-a')?.tokens, 63);
   assert.ok((await fs.stat(transcript)).size > firstSize);
+});
+
+test('planWindowLanes splits Claude spend by lane over the active block and the last 7 days', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  await writeLines(path.join(projectsDir, 'C--repo', 'review.jsonl'), [
+    usageLine({ messageId: 'old-review', requestId: 'r1', input: 100, sessionId: 'review', timestamp: '2026-08-15T10:00:00.000Z' }),
+    usageLine({ messageId: 'now-review', requestId: 'r2', input: 30, sessionId: 'review', timestamp: '2026-08-19T10:00:00.000Z' }),
+  ]);
+  await writeLines(path.join(projectsDir, 'C--repo', 'mine.jsonl'), [
+    usageLine({ messageId: 'now-mine', requestId: 'r3', input: 70, sessionId: 'mine', timestamp: '2026-08-19T11:00:00.000Z' }),
+    usageLine({ messageId: 'stale-mine', requestId: 'r4', input: 500, sessionId: 'mine', timestamp: '2026-08-01T11:00:00.000Z' }),
+  ]);
+  const scanner = makeScanner(root, { laneMap: () => new Map([['claude:review', 'team-review']]) });
+  await scanner.runPass();
+
+  const lanes = scanner.buildReport({ days: 1 }).planWindowLanes;
+  assert.ok(lanes);
+  const tokensByLane = (rows: { lane: string; tokens: number }[] | null) => Object.fromEntries((rows || []).map((row) => [row.lane, row.tokens]));
+  assert.deepEqual(tokensByLane(lanes.fiveHour), { 'team-review': 30, other: 70 });
+  assert.deepEqual(tokensByLane(lanes.sevenDay), { 'team-review': 130, other: 70 });
+});
+
+function tokensByLane(rows: { lane: string; tokens: number }[] | null | undefined) {
+  return Object.fromEntries((rows || []).map((row) => [row.lane, row.tokens]));
+}
+
+test('planWindowLanes follows the official plan windows when their resets are known', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  await writeLines(path.join(projectsDir, 'C--repo', 'review.jsonl'), [
+    usageLine({ messageId: 'before-week', requestId: 'r1', input: 100, sessionId: 'review', timestamp: '2026-08-13T00:00:00.000Z' }),
+    usageLine({ messageId: 'before-block', requestId: 'r2', input: 20, sessionId: 'review', timestamp: '2026-08-19T08:30:00.000Z' }),
+    usageLine({ messageId: 'in-block', requestId: 'r3', input: 30, sessionId: 'review', timestamp: '2026-08-19T09:00:00.000Z' }),
+  ]);
+  await writeLines(path.join(projectsDir, 'C--repo', 'mine.jsonl'), [
+    usageLine({ messageId: 'mine', requestId: 'r4', input: 70, sessionId: 'mine', timestamp: '2026-08-19T11:00:00.000Z' }),
+  ]);
+  const scanner = makeScanner(root, { laneMap: () => new Map([['claude:review', 'team-review']]) });
+  await scanner.runPass();
+  const planWindowStarts = planWindowStartsMs({
+    fiveHour: { pct: 50, resetsAtMs: Date.parse('2026-08-19T14:00:00.000Z') },
+    sevenDay: { pct: 20, resetsAtMs: Date.parse('2026-08-20T12:00:00.000Z') },
+  }, Date.parse('2026-08-19T12:00:00.000Z'));
+
+  const official = scanner.buildReport({ days: 30, planWindowStarts }).planWindowLanes;
+  const local = scanner.buildReport({ days: 30 }).planWindowLanes;
+
+  assert.deepEqual(tokensByLane(official?.fiveHour), { 'team-review': 30, other: 70 });
+  assert.deepEqual(tokensByLane(official?.sevenDay), { 'team-review': 50, other: 70 });
+  assert.deepEqual(tokensByLane(local?.fiveHour), { 'team-review': 50, other: 70 });
+  assert.deepEqual(tokensByLane(local?.sevenDay), { 'team-review': 150, other: 70 });
+});
+
+test('planWindowLanes fallback five hour window ignores the report range', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  const hourlyStartMs = Date.parse('2026-08-18T09:30:00.000Z');
+  const hourlyLines = Array.from({ length: 27 }, (_, hourIndex) => usageLine({
+    messageId: `hourly-${hourIndex}`,
+    requestId: `r-${hourIndex}`,
+    sessionId: 'review',
+    timestamp: new Date(hourlyStartMs + hourIndex * 60 * 60 * 1000).toISOString(),
+  }));
+  await writeLines(path.join(projectsDir, 'C--repo', 'review.jsonl'), hourlyLines);
+  const scanner = makeScanner(root, { laneMap: () => new Map([['claude:review', 'team-review']]) });
+  await scanner.runPass();
+
+  const oneDay = scanner.buildReport({ days: 1 }).planWindowLanes;
+  const thirtyDays = scanner.buildReport({ days: 30 }).planWindowLanes;
+
+  assert.deepEqual(tokensByLane(oneDay?.fiveHour), { 'team-review': 2 });
+  assert.deepEqual(oneDay?.fiveHour, thirtyDays?.fiveHour);
+});
+
+test('planWindowLanes reports no seven day window when retained entries cover less than seven days', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  await writeLines(path.join(projectsDir, 'C--repo', 'review.jsonl'), [
+    usageLine({ messageId: 'in-block', requestId: 'r1', input: 30, sessionId: 'review', timestamp: '2026-08-19T11:00:00.000Z' }),
+  ]);
+  const scanner = makeScanner(root, { retainDays: 3, laneMap: () => new Map([['claude:review', 'team-review']]) });
+  await scanner.runPass();
+
+  const localWindows = scanner.buildReport().planWindowLanes;
+  const officialWindows = scanner.buildReport({
+    planWindowStarts: { fiveHour: Date.parse('2026-08-19T09:00:00.000Z'), sevenDay: Date.parse('2026-08-14T00:00:00.000Z') },
+  }).planWindowLanes;
+
+  assert.equal(localWindows?.sevenDay, null);
+  assert.equal(officialWindows?.sevenDay, null);
+  assert.deepEqual(tokensByLane(localWindows?.fiveHour), { 'team-review': 30 });
+  assert.deepEqual(tokensByLane(officialWindows?.fiveHour), { 'team-review': 30 });
+});
+
+test('planWindowLanes counts only Claude use while byLane still attributes a Codex session in the same window', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  await writeLines(path.join(projectsDir, 'C--repo', 'claude-work.jsonl'), [
+    usageLine({ messageId: 'claude-turn', requestId: 'r1', input: 30, sessionId: 'claude-work', timestamp: '2026-08-19T10:00:00.000Z' }),
+  ]);
+  const codexSessionId = '019f43ea-76ac-7041-bd4b-6362e85f6630';
+  await writeLines(path.join(root, '.codex', 'sessions', '2026', '08', '19', `rollout-2026-08-19T10-30-00-${codexSessionId}.jsonl`), [
+    JSON.stringify({ timestamp: '2026-08-19T10:30:00.000Z', type: 'turn_context', payload: { turn_id: 'turn-1', model: 'gpt-5.5', cwd: 'C:/repo' } }),
+    JSON.stringify({
+      timestamp: '2026-08-19T10:30:05.000Z',
+      type: 'event_msg',
+      payload: {
+        type: 'token_count',
+        info: {
+          total_token_usage: { input_tokens: 1000, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 50, reasoning_output_tokens: 0, total_tokens: 1050 },
+          model_context_window: 258400,
+        },
+      },
+    }),
+  ]);
+  const scanner = makeScanner(root, {
+    laneMap: () => new Map([['claude:claude-work', 'claude-lane'], [`codex:${codexSessionId}`, 'codex-lane']]),
+  });
+  await scanner.runPass();
+
+  const report = scanner.buildReport({ days: 1 });
+
+  assert.ok(tokensByLane(report.byLane)['codex-lane'] > 0);
+  assert.deepEqual(tokensByLane(report.planWindowLanes?.fiveHour), { 'claude-lane': 30 });
+  assert.deepEqual(tokensByLane(report.planWindowLanes?.sevenDay), { 'claude-lane': 30 });
+});
+
+test('planWindowLanes is null without a lane ledger', async () => {
+  const root = await makeTempRoot();
+  await makeProjectsDir(root);
+  const scanner = makeScanner(root);
+  await scanner.runPass();
+  assert.equal(scanner.buildReport().planWindowLanes, null);
 });
 
 test('runPass batches yields for unchanged files without changing results', async () => {

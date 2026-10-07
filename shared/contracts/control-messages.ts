@@ -624,6 +624,7 @@ const serverVariants = [
     activeBlock: z.unknown().nullable().optional(),
     anomaly: z.unknown().nullable().optional(),
     byLane: z.unknown().optional(),
+    planWindowLanes: z.unknown().nullable().optional(),
     budget: z.unknown().optional(),
     savings: z.unknown().optional(),
     tokenLimit: z.unknown().nullable().optional(),

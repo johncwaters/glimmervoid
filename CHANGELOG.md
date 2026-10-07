@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Glimmervoid overhead in Usage**: the Usage tab's Glimmervoid lanes section is now Glimmervoid overhead. It shows how much of your Claude use in the current 5 hour block and the last 7 days went to sessions Glimmervoid spawned for its own work (PR reviews, keep mergeable, workflows, change map, visions, benchmarks), with an estimate of how much of each plan limit that is and which lanes it went to. The per-lane table for the selected range stays below it.
+
 ### Changed
 
 - **Quieter review rows**: team review rows in the left list no longer show the automated verdict (such as Nits), the drafted comment count, your resolved-comment count, reply counts or since approval. Each row keeps its state word, author and reviewers; the details are in the row's hover and the pull request view.

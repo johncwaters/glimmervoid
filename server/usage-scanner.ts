@@ -25,7 +25,8 @@ import {
 } from './core/usage-entry-core.ts';
 import type { UsageEntry, UsageGenerationRollupRow } from './core/usage-entry-core.ts';
 import { grokDedupIdentity, parseGrokUsageLine } from './core/usage-grok-core.ts';
-import { laneRollup } from './core/usage-lane-core.ts';
+import { SEVEN_DAY_WINDOW_MS, laneRollup, laneRollupSince } from './core/usage-lane-core.ts';
+import type { PlanWindowStarts } from './core/usage-lane-core.ts';
 import { costForEntry, lookupModelPrice } from './core/usage-pricing-core.ts';
 import type { ModelPrice } from './core/usage-pricing-core.ts';
 import {
@@ -847,14 +848,38 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     };
   }
 
-  function buildLaneRows(reportRetainDays: number, now: number) {
+  function recordedLanes(): Map<string, string> | null {
     if (typeof laneMap !== 'function') return null;
     const lanes = laneMap();
     if (!(lanes instanceof Map) || lanes.size === 0) return null;
+    return lanes;
+  }
+
+  function buildLaneRows(reportRetainDays: number, now: number) {
+    const lanes = recordedLanes();
+    if (!lanes) return null;
     return laneRollup(entriesWithinDays(entries, { now, retainDays: reportRetainDays }), lanes);
   }
 
-  function buildReport({ days }: { days?: number } = {}) {
+  function buildPlanWindowLanes(planWindowStarts: PlanWindowStarts | null | undefined, now: number) {
+    const lanes = recordedLanes();
+    if (!lanes) return null;
+    const claudeEntries = entries.filter((entry) => isClaudeEntry(entry));
+    const fiveHourStartMs = planWindowStarts?.fiveHour ?? buildBlocks(claudeEntries, { blockHours, now }).activeBlock?.startTs ?? null;
+    const sevenDayStartMs = planWindowStarts?.sevenDay ?? now - SEVEN_DAY_WINDOW_MS;
+    const retainedSinceMs = now - entryRetentionDays() * 24 * 60 * 60 * 1000;
+    const rollupWhenRetained = (windowStartMs: number | null) => (
+      windowStartMs === null || windowStartMs < retainedSinceMs ? null : laneRollupSince(claudeEntries, lanes, windowStartMs)
+    );
+    return {
+      fiveHour: rollupWhenRetained(fiveHourStartMs),
+      sevenDay: rollupWhenRetained(sevenDayStartMs),
+    };
+  }
+
+  function buildReport(
+    { days, planWindowStarts }: { days?: number; planWindowStarts?: PlanWindowStarts | null } = {},
+  ) {
     const reportRetainDays = days == null ? retainDays : days;
     const rollups = cachedRollupsForDays(days, reportRetainDays);
     const now = nowFn();
@@ -879,6 +904,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
       anomaly: buildAnomaly(daily, blockSummary, activeBlock),
       budget: buildBudget(),
       byLane: buildLaneRows(reportRetainDays, now),
+      planWindowLanes: buildPlanWindowLanes(planWindowStarts, now),
       tokenLimit: blockSummary.tokenLimit,
       pricing: { missing: Array.from(missingModels).sort() },
       scan: {
