@@ -14,7 +14,7 @@ import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
   answeredNonNitThreads, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, buildActionRequest, chooseSelectedReviewKey,
   commentLocation, detailActionLayout, isIncludedByDefault, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, parseInlineSegments, hasAnyRow, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
-  parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, queueRowVerdictLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
+  parseReviewComment, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature,
   reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, coverageDisclosureHeading, severityPresentation, caughtUpDetail, queueRowGlyph, viewerThreadsText, hasAllViewerThreadsResolved, isPostedAwaitingViewer, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice, withReviewerNote,
 } from './team-review-view-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './team-review-view-core.ts';
@@ -254,25 +254,6 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
     bottom.append(directMarker);
   }
   if (kind === 'inReview') bottom.append(el('span', 'pr-phase-label', phaseLabel((review as InFlightReview).phase)));
-  if ((kind === 'ready' || kind === 'settled') && 'status' in review && review.status !== 'error') {
-    const verdict = el('span', 'pr-queue-verdict', queueRowVerdictLabel(review.verdict));
-    verdict.dataset.tone = verdictTone(review.verdict);
-    bottom.append(verdict);
-  }
-  if ('reviewedHead' in review && review.comments.length > 0) bottom.append(el('span', 'pr-queue-comment-count', `${review.comments.length} drafted`));
-  if ('reviewedHead' in review) {
-    const tally = review.viewerThreads;
-    const tallyText = viewerThreadsText(tally);
-    if (tally && tallyText) {
-      const count = el('span', 'pr-queue-comment-count', `${tally.resolved}/${tally.total} resolved`);
-      count.title = tallyText;
-      if (hasAllViewerThreadsResolved(review)) count.dataset.state = 'all-resolved';
-      bottom.append(count);
-    }
-  }
-  const replyCount = 'reviewedHead' in review ? answeredNonNitThreads(review).length : 0;
-  if (replyCount > 0) bottom.append(el('span', 'pr-queue-comment-count', `${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}`));
-  if (approvalContext) bottom.append(el('span', 'pr-queue-approval-context', 'since approval'));
   row.append(glyph, top, bottom);
   const githubSummary = kind === 'inReview' || kind === 'queued' ? null : createGithubReviewSummary(review as ReviewDraft, 'pr-queue-reviewers', 16, kind !== 'posted');
   if (githubSummary) bottom.append(githubSummary);

@@ -64,10 +64,7 @@ async function verifyRows(page: Page): Promise<void> {
   const rows = await page.locator('.pr-queue-row').evaluateAll((buttons) => buttons.map((button) => ({
     key: button.getAttribute('data-review-key'),
     ref: button.querySelector('.pr-queue-ref')?.textContent,
-    verdict: button.querySelector('.pr-queue-verdict')?.textContent,
-    tone: button.querySelector('.pr-queue-verdict')?.getAttribute('data-tone'),
     bottom: button.querySelector('.pr-queue-bottom')?.textContent,
-    count: button.querySelector('.pr-queue-comment-count')?.textContent,
     stateWord: button.querySelector('.pr-queue-state')?.textContent,
     stateTone: button.querySelector('.pr-queue-state')?.getAttribute('data-tone'),
     glyphTone: button.querySelector('.pr-queue-glyph .state-glyph')?.getAttribute('data-tone'),
@@ -89,19 +86,13 @@ async function verifyRows(page: Page): Promise<void> {
     assert.equal(row.stateTone, row.glyphTone);
     assert.equal(Boolean(row.stateWord), !isDiscardedRow);
   }
-  assert.deepEqual(rows.slice(0, 4).map((row) => [row.verdict, row.tone]), [
-    ['Approve', 'ok'], ['Nits', 'info'], ['Changes', 'warn'], ['Blocked', 'crit'],
-  ]);
   const nits = rows.find((row) => row.key === 'Acme/app#2');
   assert.ok(nits);
-  assert.equal(nits.count, '2 drafted');
   assert.equal(nits.stateWord, 'Waits on you');
-  assert.match(nits.bottom ?? '', /since approval/);
+  assert.doesNotMatch(nits.bottom ?? '', /since approval|drafted|resolved|Nits|Approve|Changes|Blocked/);
   assert.match(nits.title ?? '', /Acme\/app#2:.*\nWaits on you\n/s);
   assert.match(nits.accessibleName ?? '', /Nits, 2 comments/);
   assert.equal(nits.reviewerAvatars, 2);
-  assert.equal(rows[0]?.count, undefined);
-  assert.equal(rows.find((row) => row.key === 'Acme/app#8')?.verdict, 'Approve');
 }
 
 async function verifyLayout(page: Page): Promise<void> {
@@ -110,27 +101,17 @@ async function verifyLayout(page: Page): Promise<void> {
     const bottom = row.querySelector('.pr-queue-bottom');
     const title = row.querySelector('.pr-queue-title');
     const age = row.querySelector('.pr-queue-elapsed');
-    const verdict = row.querySelector('.pr-queue-verdict');
-    if (!top || !bottom || !title || !age || !verdict) throw new Error('The row is missing its two lines, verdict or age');
-    const toneToken = { ok: '--state-complete', info: '--accent', warn: '--state-waiting', crit: '--state-failed' }[verdict.getAttribute('data-tone') ?? ''];
-    const expectedColor = document.createElement('span');
-    expectedColor.style.color = `var(${toneToken})`;
-    row.append(expectedColor);
-    const verdictColor = getComputedStyle(verdict).color;
-    const expectedVerdictColor = getComputedStyle(expectedColor).color;
-    expectedColor.remove();
+    if (!top || !bottom || !title || !age) throw new Error('The row is missing its two lines or age');
     return {
       top: top.getBoundingClientRect().toJSON(), bottom: bottom.getBoundingClientRect().toJSON(),
       row: row.getBoundingClientRect().toJSON(), age: age.getBoundingClientRect().toJSON(),
       titleOverflow: getComputedStyle(title).textOverflow,
       titleIsTruncated: title.scrollWidth > title.clientWidth,
-      verdictColor, expectedVerdictColor,
       bottomOverflows: bottom.scrollWidth > bottom.clientWidth,
     };
   });
   assert.equal(layout.titleOverflow, 'ellipsis');
   assert.equal(layout.titleIsTruncated, true);
-  assert.equal(layout.verdictColor, layout.expectedVerdictColor);
   assert.equal(layout.bottomOverflows, false);
   assert.ok(layout.bottom.y >= layout.top.bottom);
   assert.ok(layout.bottom.right <= layout.row.right);
@@ -202,32 +183,18 @@ async function verifyViewerThreadCounts(page: Page, snapshot: TeamReviewStatus):
   const withDraft = (draft: ReviewDraft) => ({ ...snapshot, drafts: [draft], inFlight: [], queued: [] });
   await applyStatus(page, withDraft(review));
   const row = page.locator('.pr-queue-row[data-review-key="Acme/app#1"]');
-  const count = row.locator('.pr-queue-comment-count[title]');
-  assert.equal(await row.locator('.pr-queue-comment-count').first().textContent(), '1 drafted');
-  assert.equal(await count.textContent(), '2/5 resolved');
-  assert.equal(await count.getAttribute('title'), '2 of 5 of your comments resolved');
-  assert.equal(await count.getAttribute('data-state'), null);
+  assert.doesNotMatch(await row.locator('.pr-queue-bottom').textContent() ?? '', /drafted|resolved/);
+  assert.match(await row.getAttribute('title') ?? '', /2 of 5 of your comments resolved/);
   const sectionHeading = () => row.evaluate((element) => element.closest('.pr-queue-section')?.querySelector('.pr-section-heading')?.textContent);
   assert.match(await sectionHeading() ?? '', /Already reviewed/);
   await row.click();
   assert.equal(await page.locator('.pr-detail-heading .pr-viewer-threads').textContent(), '2 of 5 of your comments resolved');
   const resolved = { ...review, viewerThreads: { total: 5, resolved: 5 } };
   await applyStatus(page, withDraft(resolved));
-  assert.equal(await count.textContent(), '5/5 resolved');
-  assert.equal(await count.getAttribute('data-state'), 'all-resolved');
   assert.doesNotMatch(await sectionHeading() ?? '', /Already reviewed/);
   assert.equal(await row.locator('.pr-queue-state').textContent(), 'Comments resolved');
   assert.equal(await page.locator('.pr-detail-heading .pr-viewer-threads').textContent(), 'All 5 of your comments resolved');
   assert.match(await row.getAttribute('title') ?? '', /All 5 of your comments resolved/);
-  const colorMatchesWarning = await count.evaluate((element) => {
-    const expected = document.createElement('span');
-    expected.style.color = 'var(--state-waiting)';
-    element.append(expected);
-    const matches = getComputedStyle(element).color === getComputedStyle(expected).color;
-    expected.remove();
-    return matches;
-  });
-  assert.equal(colorMatchesWarning, true);
   await applyStatus(page, withDraft({ ...resolved, viewerThreads: { total: 5, resolved: 3 } }));
   assert.equal(await page.locator('.pr-detail-heading .pr-viewer-threads').textContent(), '3 of 5 of your comments resolved');
   await applyStatus(page, withDraft({ ...resolved, reviewDecision: 'APPROVED', githubReviews: [{ login: 'me', state: 'APPROVED', commit: REVIEWED_HEAD, isViewer: true }] }));
