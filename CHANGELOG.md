@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Doubled alert sound**: desktop notifications are now silent, so a session alert plays only your chosen alert sound instead of that sound plus the system notification sound.
+- **Custom alert sounds play like built-in ones**: a custom sound file now plays through the same audio path as Chime, Soft ping and Beep, so it follows the same browser rules and never plays together with the Chime. The Chime plays instead only when the custom file cannot be loaded.
 
 ## [0.29.1] - 2026-10-06
 

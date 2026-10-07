@@ -30,10 +30,19 @@ export async function loadCustomSounds(): Promise<void> {
   }
 }
 
-function playTones(soundId: string) {
-  const sound = TONES_BY_SOUND_ID[soundId] ?? TONES_BY_SOUND_ID[DEFAULT_SOUND_ID];
+function openAlertAudioContext() {
   const audioContext = new AudioContext();
   if (audioContext.state === 'suspended') audioContext.resume();
+  return audioContext;
+}
+
+function closeAfterSeconds(audioContext: AudioContext, seconds: number) {
+  setTimeout(() => audioContext.close().catch(() => {}), (seconds + 0.1) * 1000);
+}
+
+function playTones(soundId: string) {
+  const sound = TONES_BY_SOUND_ID[soundId] ?? TONES_BY_SOUND_ID[DEFAULT_SOUND_ID];
+  const audioContext = openAlertAudioContext();
   const master = audioContext.createGain();
   master.gain.value = sound.peakGain;
   master.connect(audioContext.destination);
@@ -55,7 +64,38 @@ function playTones(soundId: string) {
     oscillator.stop(end);
     lastEndSeconds = Math.max(lastEndSeconds, tone.startSeconds + tone.durationSeconds);
   }
-  setTimeout(() => audioContext.close().catch(() => {}), (lastEndSeconds + 0.1) * 1000);
+  closeAfterSeconds(audioContext, lastEndSeconds);
+}
+
+async function fetchCustomSoundBytes(fileName: string): Promise<ArrayBuffer | null> {
+  try {
+    const response = await fetch(customSoundUrl(fileName), { credentials: 'same-origin' });
+    if (!response.ok) return null;
+    return await response.arrayBuffer();
+  } catch {
+    return null;
+  }
+}
+
+async function playCustomSound(fileName: string): Promise<boolean> {
+  const encodedSound = await fetchCustomSoundBytes(fileName);
+  if (!encodedSound) return false;
+  const audioContext = openAlertAudioContext();
+  try {
+    const decodedSound = await audioContext.decodeAudioData(encodedSound);
+    const volume = audioContext.createGain();
+    volume.gain.value = CUSTOM_SOUND_VOLUME;
+    volume.connect(audioContext.destination);
+    const source = audioContext.createBufferSource();
+    source.buffer = decodedSound;
+    source.connect(volume);
+    source.start();
+    closeAfterSeconds(audioContext, decodedSound.duration);
+    return true;
+  } catch {
+    audioContext.close().catch(() => {});
+    return false;
+  }
 }
 
 const NYAN_NOTES = [
@@ -115,9 +155,9 @@ export function playAlertSound(soundId: string) {
       playTones(resolvedSoundId);
       return;
     }
-    const audio = new Audio(customSoundUrl(fileName));
-    audio.volume = CUSTOM_SOUND_VOLUME;
-    audio.play().catch(playDefaultSoundInstead);
+    void playCustomSound(fileName).then((wasPlayed) => {
+      if (!wasPlayed) playDefaultSoundInstead();
+    });
   } catch {
   }
 }
