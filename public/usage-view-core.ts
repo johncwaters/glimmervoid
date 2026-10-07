@@ -469,10 +469,19 @@ const OVERHEAD_WINDOW_LABELS: Readonly<Record<'fiveHour' | 'sevenDay', string>> 
   sevenDay: 'Last 7 days',
 });
 
+function livePlanUsedPct(planLimits: PlanLimits | null | undefined, key: 'fiveHour' | 'sevenDay', now: number) {
+  const planWindow = planWindowOf(planLimits, key);
+  if (!planWindow) return null;
+  const hasWindowReset = planWindow.resetsAtMs !== null && planWindow.resetsAtMs <= now;
+  if (hasWindowReset) return null;
+  return planWindow.pct;
+}
+
 function overheadWindowOf(
   key: 'fiveHour' | 'sevenDay',
   rawRows: unknown,
   planLimits: PlanLimits | null | undefined,
+  now: number,
 ): OverheadWindow | null {
   if (!Array.isArray(rawRows)) return null;
   const rows = (rawRows as UsageLaneRow[]).filter((row) => row && typeof row.lane === 'string');
@@ -484,16 +493,20 @@ function overheadWindowOf(
   const costUSD = lanes.reduce((sum, lane) => sum + lane.costUSD, 0);
   const tokens = lanes.reduce((sum, lane) => sum + lane.tokens, 0);
   const sharePct = allCost > 0 ? percentOfTotal(costUSD, allCost) : percentOfTotal(tokens, allTokens);
-  const planUsedPct = planWindowOf(planLimits, key)?.pct ?? null;
+  const planUsedPct = livePlanUsedPct(planLimits, key, now);
   const planPct = sharePct === null || planUsedPct === null ? null : (sharePct / 100) * planUsedPct;
   return { key, label: OVERHEAD_WINDOW_LABELS[key], tokens, costUSD, sharePct, planPct, lanes };
 }
 
-export function glimmervoidOverhead(report: UsageReport | null | undefined, planLimits: PlanLimits | null | undefined): OverheadWindow[] {
+export function glimmervoidOverhead(
+  report: UsageReport | null | undefined,
+  planLimits: PlanLimits | null | undefined,
+  now = Date.now(),
+): OverheadWindow[] {
   const windows = report?.planWindowLanes;
   if (!windows || typeof windows !== 'object') return [];
   return PLAN_WINDOWS
-    .map((spec) => overheadWindowOf(spec.key, windows[spec.key], planLimits))
+    .map((spec) => overheadWindowOf(spec.key, windows[spec.key], planLimits, now))
     .filter((window): window is OverheadWindow => window !== null);
 }
 

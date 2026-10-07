@@ -401,7 +401,7 @@ test('glimmervoidOverhead: Glimmervoid lane share per plan window, scaled onto t
     ],
     sevenDay: [{ lane: 'other', tokens: 100, costUSD: 0, sessions: 1 }, { lane: 'visions', tokens: 300, costUSD: 0, sessions: 1 }],
   } };
-  const [fiveHour, sevenDay] = glimmervoidOverhead(report, { fiveHour: { pct: 50, resetsAtMs: 1 } });
+  const [fiveHour, sevenDay] = glimmervoidOverhead(report, { fiveHour: { pct: 50, resetsAtMs: 2_000 } }, 1_000);
 
   assert.equal(fiveHour.key, 'fiveHour');
   assert.equal(fiveHour.costUSD, 4);
@@ -413,6 +413,16 @@ test('glimmervoidOverhead: Glimmervoid lane share per plan window, scaled onto t
   assert.equal(sevenDay.planPct, null);
   assert.equal(overheadPlanText(sevenDay), '');
   assert.equal(overheadLanesText(sevenDay), 'Visions 300');
+});
+
+test('glimmervoidOverhead drops the plan percent of a window that already reset but keeps its share', async () => {
+  const { glimmervoidOverhead } = await importCore();
+  const report = { planWindowLanes: { fiveHour: [{ lane: 'team-review', tokens: 100, costUSD: 1, sessions: 1 }, { lane: 'other', tokens: 100, costUSD: 1, sessions: 1 }] } };
+  const [expiredWindow] = glimmervoidOverhead(report, { fiveHour: { pct: 90, resetsAtMs: 1_000 } }, 1_000);
+  assert.equal(expiredWindow.sharePct, 50);
+  assert.equal(expiredWindow.planPct, null);
+  const [windowWithoutReset] = glimmervoidOverhead(report, { fiveHour: { pct: 90 } }, 1_000);
+  assert.equal(windowWithoutReset.planPct, 45);
 });
 
 test('glimmervoidOverhead skips a window with no rows and returns nothing without the field', async () => {
