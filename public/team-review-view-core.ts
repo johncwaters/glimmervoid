@@ -179,6 +179,43 @@ export function caughtUpDetail(sections: TeamReviewSections): string | null {
   return `Nothing needs you right now. ${runningCount} ${runningCount === 1 ? 'review is' : 'reviews are'} still running.`;
 }
 
+export interface CaughtUpSelectionView {
+  title: string;
+  detail: string;
+}
+
+export function caughtUpSelectionView(sections: TeamReviewSections, actedKey: string | null): CaughtUpSelectionView {
+  const waitingCount = [...sections.ready, ...sections.attention].filter((review) => review.key !== actedKey).length;
+  if (waitingCount > 0) return { title: 'New pull requests need you', detail: 'Pick one from the queue.' };
+  const handReviewCount = sections.handReview.length;
+  if (handReviewCount > 0) return { title: 'Drafts all handled', detail: `${handReviewCount} ${handReviewCount === 1 ? 'pull request needs' : 'pull requests need'} review by hand.` };
+  return { title: 'All caught up', detail: caughtUpDetail({ ...sections, ready: [], attention: [] }) ?? '' };
+}
+
+export interface ActionReplyNotice {
+  text: string;
+  tone: 'ok' | 'error';
+}
+
+export interface ActionReplyPlan {
+  statusText: string;
+  shouldAdvance: boolean;
+  notice: ActionReplyNotice | null;
+}
+
+function asSentence(text: string): string {
+  const trimmed = text.trim();
+  return trimmed.endsWith('.') ? trimmed : `${trimmed}.`;
+}
+
+export function planActionReply({ action, pullRequest, warning, isActedSelected }: { action: TeamReviewAction; pullRequest: string; warning: string; isActedSelected: boolean }): ActionReplyPlan {
+  const statusText = actionOutcomeText(action);
+  const outcome = `${pullRequest}: ${asSentence(statusText)}`;
+  if (warning.trim()) return { statusText, shouldAdvance: false, notice: { text: `${outcome} ${asSentence(warning)}`, tone: 'error' } };
+  if (!isActedSelected) return { statusText, shouldAdvance: false, notice: null };
+  return { statusText, shouldAdvance: true, notice: { text: outcome, tone: 'ok' } };
+}
+
 export function hasMultipleQueueRepos(sections: TeamReviewSections): boolean {
   const reviews = [...sections.ready, ...sections.noReviewNeeded, ...sections.inReview, ...sections.queued, ...sections.handReview, ...sections.attention, ...sections.posted, ...sections.discarded];
   const repos = new Set(reviews.map((review) => review.repo));
@@ -415,7 +452,20 @@ export function hasAnyRow(sections: TeamReviewSections): boolean {
   return sections.ready.length + sections.noReviewNeeded.length + sections.inReview.length + sections.queued.length + sections.handReview.length + sections.attention.length + sections.posted.length + sections.discarded.length > 0;
 }
 
-export function chooseSelectedReviewKey(sections: TeamReviewSections, selectedKey: string | null): string | null {
+export function attentionOrder(sections: TeamReviewSections): string[] {
+  return [...sections.ready, ...sections.attention].map((review) => review.key);
+}
+
+export function nextAttentionKey({ capturedOrder, actedKey, groups }: { capturedOrder: readonly string[]; actedKey: string; groups: TeamReviewSections }): string | null {
+  const remainingKeys = attentionOrder(groups).filter((key) => key !== actedKey);
+  const remainingKeySet = new Set(remainingKeys);
+  const nextKey = capturedOrder.slice(capturedOrder.indexOf(actedKey) + 1).find((key) => remainingKeySet.has(key));
+  if (nextKey) return nextKey;
+  return capturedOrder.find((key) => remainingKeySet.has(key)) ?? remainingKeys[0] ?? null;
+}
+
+export function chooseSelectedReviewKey(sections: TeamReviewSections, selectedKey: string | null, isCaughtUp = false): string | null {
+  if (isCaughtUp && selectedKey === null) return null;
   const rows = [...sections.ready, ...sections.inReview, ...sections.queued, ...sections.noReviewNeeded, ...sections.attention, ...sections.posted, ...sections.discarded];
   if (selectedKey && rows.some((row) => row.key === selectedKey)) return selectedKey;
   return rows[0]?.key ?? null;
