@@ -45,6 +45,7 @@ export const SessionSnapshot = z.object({
   stateSince: z.number(),
   sleeping: z.boolean(),
   dangerouslySkipPermissions: z.boolean(),
+  saneYolo: z.boolean().default(false),
   ephemeral: z.boolean(),
   isWorktree: z.boolean(),
   isWorkspace: z.boolean().default(false),

@@ -49,6 +49,46 @@ test('negative: no CLAUDECODE-exact or GLIMMERVOID_* keys survive', () => {
   assert.equal(keys.includes('CLAUDE_CODE_ENTRYPOINT'), false);
 });
 
+const GUARDED_SESSION_ENV = {
+  GLIMMERVOID_SANE_YOLO_PATH: '/session/cc-safety-net.js',
+  CC_SAFETY_NET_HOME: '/session/sane-yolo',
+  CC_SAFETY_NET_AUDIT_HOME: '/session/sane-yolo',
+  CC_SAFETY_NET_AUDIT_SCOPE: 'blocked',
+  CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY: '1',
+};
+
+test('the relay-arming paths never reach any session, guarded or not', () => {
+  const inheritedRelayPaths = { GLIMMERVOID_RTK_PATH: '/parent/rtk', GLIMMERVOID_SANE_YOLO_PATH: '/parent/cc-safety-net.js' };
+  const unguarded = claudeSpawnEnv({ ...fullBase(), ...inheritedRelayPaths });
+  const guarded = claudeSpawnEnv({ ...fullBase(), ...inheritedRelayPaths }, { CC_SAFETY_NET_HOME: '/session/sane-yolo' });
+  for (const key of Object.keys(inheritedRelayPaths)) {
+    assert.equal(key in unguarded, false, `${key} must be scrubbed from an unguarded session`);
+    assert.equal(key in guarded, false, `${key} must be scrubbed from a guarded session`);
+  }
+});
+
+test("an unguarded session keeps the operator's own cc-safety-net configuration", () => {
+  const env = claudeSpawnEnv({ ...fullBase(), CC_SAFETY_NET_HOME: '/operator/safety-net', SAFETY_NET_STRICT: '1' });
+  assert.equal(env.CC_SAFETY_NET_HOME, '/operator/safety-net');
+  assert.equal(env.SAFETY_NET_STRICT, '1');
+});
+
+test('a guarded session drops every inherited safety-net key and keeps its own values', () => {
+  const inherited = {
+    CC_SAFETY_NET_HOME: '/parent/sane-yolo',
+    CC_SAFETY_NET_WORKTREE: '1',
+    CC_SAFETY_NET_LEVEL: 'off',
+    SAFETY_NET_WORKTREE: '1',
+    SAFETY_NET_STRICT: '0',
+    cc_safety_net_paranoid: '0',
+  };
+  const env = claudeSpawnEnv({ ...fullBase(), ...inherited }, GUARDED_SESSION_ENV);
+  for (const key of ['CC_SAFETY_NET_WORKTREE', 'CC_SAFETY_NET_LEVEL', 'SAFETY_NET_WORKTREE', 'SAFETY_NET_STRICT', 'cc_safety_net_paranoid']) {
+    assert.equal(key in env, false, `${key} must be scrubbed from a guarded session`);
+  }
+  for (const [key, value] of Object.entries(GUARDED_SESSION_ENV)) assert.equal(env[key], value, key);
+});
+
 test('preserves unrelated vars (including an inherited ANTHROPIC_BASE_URL)', () => {
   const env = claudeSpawnEnv({ ...fullBase(), ANTHROPIC_BASE_URL: 'http://user-proxy:9999' });
   assert.equal(env.PATH, '/usr/bin');

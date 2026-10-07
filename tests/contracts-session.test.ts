@@ -14,6 +14,7 @@ test('SessionSnapshot preserves nested extension fields', () => {
     stateSince: 1,
     sleeping: false,
     dangerouslySkipPermissions: false,
+    saneYolo: true,
     ephemeral: false,
     isWorktree: false,
     resumeSessionId: null,
@@ -29,6 +30,7 @@ test('SessionSnapshot preserves nested extension fields', () => {
     extension: true,
   });
 
+  assert.equal(parsed.saneYolo, true);
   assert.equal(parsed.hasPlan, false);
   assert.equal(parsed.extension, true);
   assert.equal(parsed.pendingWakeup?.extension, true);

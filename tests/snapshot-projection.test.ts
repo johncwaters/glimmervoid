@@ -90,3 +90,15 @@ test('the session card carries the same agent id the reconnect snapshot does', (
   assert.equal(card.agent, 'codex');
   assert.equal(card.agent, projectSessionSnapshots(codexSource).wire.agent);
 });
+
+
+test('card events and reconnect snapshots carry the resolved Sane YOLO state', () => {
+  for (const saneYolo of [true, false, undefined]) {
+    const source = { ...snapshotSource(), dangerouslySkipPermissions: true, saneYolo, agentId: 'claude-code', state: 'COMPLETE' as const };
+    const card = projectSessionCard(source, { id: source.id, name: source.name });
+    const snapshot = projectSessionSnapshots(source).wire;
+    assert.equal(card.saneYolo, saneYolo === true);
+    assert.equal(snapshot.saneYolo, card.saneYolo);
+    assert.equal(card.skipPerms, true);
+  }
+});

@@ -189,14 +189,16 @@ test('a non-default agent stamps its decision records, so a recording says which
 
 test('Sane YOLO capability filters both the Claude hook and its environment', async () => {
   const hookTools: NonNullable<SessionOptions['hookTools']> = [{ id: 'saneYolo', binPath: '/g/guard.js' }];
-  await withHooks({ id: 'guard-on', name: 'guard-on', hookTools }, ({ settings, calls }) => {
+  await withHooks({ id: 'guard-on', name: 'guard-on', hookTools }, ({ session, settings, calls }) => {
+    assert.equal(session.toSnapshot().saneYolo, true);
     assert.ok(settings.hooks.PreToolUse);
     assert.equal(calls[0].env.GLIMMERVOID_SANE_YOLO_PATH, '/g/guard.js');
     assert.equal(calls[0].env.CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY, '1');
   });
-  await withHooks({ id: 'guard-off', name: 'guard-off', hookTools, adapter: agentWithout('saneYolo') }, ({ settings, calls }) => {
+  await withHooks({ id: 'guard-off', name: 'guard-off', hookTools, adapter: agentWithout('saneYolo') }, ({ session, settings, calls }) => {
+    assert.equal(session.toSnapshot().saneYolo, false);
     assert.equal('PreToolUse' in settings.hooks, false);
     assert.equal(calls[0].env.GLIMMERVOID_SANE_YOLO_PATH, undefined);
-    assert.equal(calls[0].env.CC_SAFETY_NET_HOME, undefined);
+    assert.equal(calls[0].env.CC_SAFETY_NET_HOME, process.env.CC_SAFETY_NET_HOME);
   });
 });

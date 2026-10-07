@@ -9,6 +9,7 @@ interface SessionCardSource {
   state: SessionCardFields["state"];
   stateSince: number;
   dangerouslySkipPermissions?: boolean;
+  saneYolo?: boolean;
   isWorktree?: boolean;
   isWorkspace?: boolean;
   resumeSessionId?: string | null;
@@ -34,6 +35,7 @@ function projectSessionCard(
     state: source.state,
     stateSince: source.stateSince,
     skipPerms: !!source.dangerouslySkipPermissions,
+    saneYolo: !!source.saneYolo,
     worktree: !!source.isWorktree,
     resumeSessionId: source.resumeSessionId || null,
     ...(source.isWorkspace ? { workspace: true } : {}),
@@ -53,6 +55,7 @@ interface SnapshotSource {
   stateSince: number;
   sleeping: boolean;
   dangerouslySkipPermissions: boolean;
+  saneYolo?: boolean;
   ephemeral: boolean;
   isWorktree: boolean;
   isWorkspace: boolean;
@@ -85,6 +88,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     stateSince: source.stateSince,
     sleeping: source.sleeping,
     dangerouslySkipPermissions: source.dangerouslySkipPermissions,
+    saneYolo: !!source.saneYolo,
     ephemeral: source.ephemeral,
     isWorktree: source.isWorktree,
     isWorkspace: source.isWorkspace,

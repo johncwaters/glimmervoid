@@ -1,8 +1,12 @@
 import path from "node:path";
 import { AGENT_URL_ENV } from "../../shared/contracts/session.ts";
 import { HOOK_URL_ENV } from "./hook-relay-core.ts";
+import { RTK_PATH_ENV } from "./rtk-hook-core.ts";
+import { SANE_YOLO_PATH_ENV, saneYoloEnv } from "./sane-yolo.ts";
 
-const GLIMMERVOID_SCRUB_KEYS = ["GLIMMERVOID_PORT", "GLIMMERVOID_CONFIG", HOOK_URL_ENV, AGENT_URL_ENV];
+const GLIMMERVOID_SCRUB_KEYS = ["GLIMMERVOID_PORT", "GLIMMERVOID_CONFIG", HOOK_URL_ENV, AGENT_URL_ENV, RTK_PATH_ENV, SANE_YOLO_PATH_ENV];
+const SANE_YOLO_GUARD_KEYS = [SANE_YOLO_PATH_ENV, ...Object.keys(saneYoloEnv(""))];
+const SAFETY_NET_ENV_PREFIXES = ["CC_SAFETY_NET_", "SAFETY_NET_"];
 const LAUNCHING_TERMINAL_IDENTITY_KEYS = ["TERM_PROGRAM", "TERM_PROGRAM_VERSION"];
 
 type SpawnEnv = Record<string, string | undefined>;
@@ -55,6 +59,22 @@ function prependPathDir(env: SpawnEnv, prependPathDirValue: string | null | unde
   env[pathKey] = `${prependPathDirValue}${path.delimiter}${existingPath}`;
 }
 
+function isSafetyNetKey(key: string): boolean {
+  const upperKey = key.toUpperCase();
+  return SAFETY_NET_ENV_PREFIXES.some((prefix) => upperKey.startsWith(prefix));
+}
+
+function isSaneYoloGuarded(extraEnv: SpawnEnv | null | undefined): boolean {
+  if (!extraEnv) return false;
+  return SANE_YOLO_GUARD_KEYS.some((key) => extraEnv[key] !== undefined);
+}
+
+function scrubInheritedSafetyNetEnv(env: SpawnEnv): void {
+  for (const key of Object.keys(env)) {
+    if (isSafetyNetKey(key)) delete env[key];
+  }
+}
+
 function buildAgentEnv(
   baseEnv: SpawnEnv,
   extraEnv: SpawnEnv | null | undefined,
@@ -65,6 +85,7 @@ function buildAgentEnv(
   for (const key of profile.scrub || []) delete env[key];
   for (const key of GLIMMERVOID_SCRUB_KEYS) delete env[key];
   for (const key of LAUNCHING_TERMINAL_IDENTITY_KEYS) delete env[key];
+  if (isSaneYoloGuarded(extraEnv)) scrubInheritedSafetyNetEnv(env);
   Object.assign(env, extraEnv || {});
   Object.assign(env, profile.set || {});
   prependPathDir(env, pathDir);

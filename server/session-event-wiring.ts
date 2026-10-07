@@ -181,6 +181,8 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         to,
         event,
         timestamp: Date.now(),
+        skipPerms: session.dangerouslySkipPermissions,
+        saneYolo: session.saneYolo,
         hasEndedTurn: session.hasEndedTurn,
       });
 
