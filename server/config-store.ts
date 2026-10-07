@@ -50,6 +50,9 @@ const DEFAULT_CONFIG = {
     enabled: true,
   },
 
+  taskTitle: {
+    refiner: { enabled: true, model: 'haiku', minIntervalSeconds: 60, timeoutSeconds: 60 },
+  },
   changeMap: {
     narrator: { enabled: false, engine: 'claude', model: '', timeoutSeconds: 90 },
   },
@@ -456,6 +459,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       worktreeShare: config.worktreeShare ?? effectiveDefaults.worktreeShare,
       repoRoots: config.repoRoots,
 
+      taskTitle: config.taskTitle ? { ...config.taskTitle } : { ...DEFAULT_CONFIG.taskTitle },
       changeMap: config.changeMap ? { ...config.changeMap } : null,
       branchGc: { ...config.branchGc },
       postTurnChecks: config.postTurnChecks ? { ...config.postTurnChecks } : { ...DEFAULT_CONFIG.postTurnChecks },
@@ -499,6 +503,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
 
     if (newConfig.postTurnChecks != null) config.postTurnChecks = newConfig.postTurnChecks;
     if (newConfig.worktreeShare != null) config.worktreeShare = newConfig.worktreeShare;
+    if (newConfig.taskTitle != null) config.taskTitle = newConfig.taskTitle;
     if (newConfig.changeMap != null) config.changeMap = newConfig.changeMap;
     if (newConfig.branchGc != null) config.branchGc = resolveBranchGc(newConfig.branchGc);
     if (newConfig.visions != null) config.visions = newConfig.visions;

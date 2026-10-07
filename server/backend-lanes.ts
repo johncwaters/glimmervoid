@@ -13,6 +13,7 @@ import { configSiblingPath } from './pairings-store.ts';
 import { createGitWorkspace, createGitWorkspaceSync } from './git-workspace.ts';
 import { createIngestLane } from './ingest-wiring.ts';
 import { createChangeNarrator } from './change-narrator.ts';
+import { TASK_TITLE_LANE_TOOLS, createTaskTitleRefiner } from './task-title-refiner.ts';
 import { createLaneSpawn } from './lane-spawn.ts';
 import { createPlanReviewWiring } from './plan-review-wiring.ts';
 import { createPosthogWiring } from './posthog-wiring.ts';
@@ -108,6 +109,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     ...investigationSessions.values(),
     ...visionsSessions.values(),
     ...changeMapSessions.values(),
+    ...taskTitleSessions.values(),
     ...benchmarkSessions.values(),
   ];
   const branchGc = createBranchGcWiring({
@@ -268,6 +270,16 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     }),
   });
 
+  const taskTitleSessions = new Map<string, Session>();
+  const taskTitleRefiner = createTaskTitleRefiner({
+    getConfig: () => configStore.config,
+    logger,
+    spawnLane: createLaneSpawn({
+      sessions: taskTitleSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
+      replayBufferKB: config.replayBufferKB, laneName: 'task-title', allowTools: TASK_TITLE_LANE_TOOLS,
+    }),
+  });
+
   let ingestLane: ReturnType<typeof createIngestLane> | null = null;
   let visionsLane: ReturnType<typeof createVisionsWiring> | null = null;
   const visionsSessions = new Map<string, Session>();
@@ -393,6 +405,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     'my-prs': myPrs,
     workflows,
     usage,
+    'task-title': taskTitleRefiner,
     trace: traceWiring,
     'plan-review': planReview,
   };
@@ -444,6 +457,8 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     benchmarkSessions,
     branchGc,
     changeMapNarrator,
+    taskTitleRefiner,
+    taskTitleSessions,
     current,
     currentIngest,
     currentVisions,

@@ -39,6 +39,7 @@ export const UNLISTED_KEY_NOTES: Readonly<Record<string, string>> = Object.freez
   remote: 'Opt-in remote listener: `enabled`, `port` (required when enabled, must differ from the local port), `publicHost` and `allowedOrigins`. See [Remote access](../README.md#remote-access).',
   hooks: 'Operator-defined hooks per project, managed from the dashboard Hooks panel.',
   worktreeSyncOnStart: 'Fetch origin and fast-forward the local integration branch before a session starts its worktree.',
+  taskTitle: 'The refiner keeps session card titles useful when prompts change topic; its model and timing remain file-only to keep advanced tuning out of Settings.',
   planReview: 'Hold Claude Code plan approvals (`ExitPlanMode`) so the plan can be read and approved from the dashboard or phone (`planReview.enabled`).',
 });
 

@@ -6,6 +6,7 @@ export const TASK_TITLE_MAX_LENGTH = 120;
 export const TASK_TITLE_CONTROL_CHARACTERS = /[\x00-\x1f\x7f-\x9f]/;
 export const PROMPT_DETAIL_HIDDEN_CHARACTERS = new RegExp(`${TASK_TITLE_CONTROL_CHARACTERS.source}|[\\p{Cf}\\u2028\\u2029]`, 'u');
 export const TaskTitle = z.string().refine((title) => !TASK_TITLE_CONTROL_CHARACTERS.test(title)).trim().max(TASK_TITLE_MAX_LENGTH);
+export const RefinedTaskTitle = z.object({ title: z.string().nullable() }).strict();
 export const SessionState = z.enum(STATES);
 export const PendingWakeup = z.object({
   at: z.number().finite().nullable(),

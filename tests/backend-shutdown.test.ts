@@ -44,3 +44,16 @@ test('shutdown without a workflows lane registers no workflows stopper', () => {
   const outcome = createBackendShutdown(shutdownDependencies([], { workflows: null }))();
   assert.equal(outcome.stoppers.some((entry) => entry.name === 'workflows'), false);
 });
+
+test('shutdown aborts and awaits title refinement and destroys its ephemeral sessions', async () => {
+  let hasStopped = false;
+  let hasDestroyed = false;
+  const outcome = createBackendShutdown(shutdownDependencies([], {
+    taskTitleRefiner: { stop: async () => { await Promise.resolve(); hasStopped = true; } },
+    taskTitleSessions: new Map([['title-lane', { destroy: () => { hasDestroyed = true; } }]]),
+  }))();
+  await Promise.all(outcome.stoppers.map((entry) => entry.promise));
+  assert.equal(hasStopped, true);
+  assert.equal(hasDestroyed, true);
+  assert.ok(outcome.stoppers.some((entry) => entry.name === 'task-title'));
+});

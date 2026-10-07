@@ -258,12 +258,12 @@ function mergeSettingsBlockOverStored(stored: unknown, incoming: Record<string, 
   }
   return merged;
 }
-function mergeChangeMapOverStored(stored: unknown, incoming: Record<string, unknown>): Record<string, unknown> {
+function mergeNestedSettingsOverStored(stored: unknown, incoming: Record<string, unknown>, nestedKey: string): Record<string, unknown> {
   const merged = mergeSettingsBlockOverStored(stored, incoming);
-  const storedNarrator = stored && typeof stored === 'object' ? Object.getOwnPropertyDescriptor(stored, 'narrator')?.value : undefined;
-  const incomingNarrator = incoming.narrator;
-  if (!incomingNarrator || typeof incomingNarrator !== 'object') return merged;
-  merged.narrator = mergeSettingsBlockOverStored(storedNarrator, { ...incomingNarrator });
+  const storedSettings = stored && typeof stored === 'object' ? Object.getOwnPropertyDescriptor(stored, nestedKey)?.value : undefined;
+  const incomingSettings = incoming[nestedKey];
+  if (!incomingSettings || typeof incomingSettings !== 'object') return merged;
+  merged[nestedKey] = mergeSettingsBlockOverStored(storedSettings, { ...incomingSettings });
   return merged;
 }
 const DASHBOARD_SETTING_PATHS = Object.freeze([
@@ -767,7 +767,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
         cfg[key] = incoming[key];
       }
       if (s.repoRoots != null) cfg.repoRoots = s.repoRoots;
-      if (s.changeMap != null) cfg.changeMap = mergeChangeMapOverStored(cfg.changeMap, s.changeMap);
+      if (s.taskTitle != null) cfg.taskTitle = mergeNestedSettingsOverStored(cfg.taskTitle, s.taskTitle, 'refiner');
+      if (s.changeMap != null) cfg.changeMap = mergeNestedSettingsOverStored(cfg.changeMap, s.changeMap, 'narrator');
       if (s.branchGc != null) cfg.branchGc = mergeSettingsBlockOverStored(cfg.branchGc, s.branchGc);
       if (s.postTurnChecks != null) cfg.postTurnChecks = mergeSettingsBlockOverStored(cfg.postTurnChecks, s.postTurnChecks);
       if (s.visions != null) cfg.visions = s.visions;

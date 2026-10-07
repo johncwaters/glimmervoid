@@ -233,6 +233,7 @@ Edit these in `config.json` unless the note names another dashboard surface.
 
 | Key | Default | Notes |
 |-----|---------|-------|
+| `taskTitle` | `{"refiner":{"enabled":true,"model":"haiku","minIntervalSeconds":60,"timeoutSeconds":60}}` | The refiner keeps session card titles useful when prompts change topic; its model and timing remain file-only to keep advanced tuning out of Settings. |
 | `planReview` | `{"enabled":true}` | Hold Claude Code plan approvals (`ExitPlanMode`) so the plan can be read and approved from the dashboard or phone (`planReview.enabled`). |
 | `worktreeSyncOnStart` | `true` | Fetch origin and fast-forward the local integration branch before a session starts its worktree. |
 | `hooks` |  | Operator-defined hooks per project, managed from the dashboard Hooks panel. |

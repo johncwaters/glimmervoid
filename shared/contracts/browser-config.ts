@@ -40,6 +40,15 @@ export const ChangeMapSettings = optionalObject('changeMap', {
   }),
 });
 
+export const TaskTitleSettings = z.object({
+  refiner: z.object({
+    enabled: optionalBoolean('taskTitle.refiner.enabled'),
+    model: optionalString('taskTitle.refiner.model', true),
+    minIntervalSeconds: optionalNumber('taskTitle.refiner.minIntervalSeconds', { min: 0 }),
+    timeoutSeconds: optionalNumber('taskTitle.refiner.timeoutSeconds', { min: 0, exclusiveMin: true, max: 2_147_483_647 / 1000 }),
+  }, { error: 'taskTitle.refiner must be an object' }).nullable().optional(),
+}, { error: 'taskTitle must be an object' }).nullable().optional();
+
 const BRANCH_GC_SETTINGS_SHAPE = {
   enabled: optionalBoolean('branchGc.enabled'),
   worktrees: optionalBoolean('branchGc.worktrees'),
@@ -211,6 +220,7 @@ export const createBrowserConfigShape = (isAbsolutePath: (directory: string) => 
   worktreeShare: z.array(z.string()).optional(),
   repoRoots: z.array(z.string()).optional(),
   changeMap: ChangeMapSettings,
+  taskTitle: TaskTitleSettings,
   branchGc: BranchGcSettings,
   postTurnChecks: PostTurnChecksSettings,
   visions: VisionsSettings,

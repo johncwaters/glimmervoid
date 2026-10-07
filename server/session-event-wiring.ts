@@ -41,6 +41,7 @@ interface SessionEventDependencies {
   getIngestLane: () => WiringIngestLane | null;
   tapIngestForSession: (session: Session) => void;
   closeSessionDataClients: (id: string) => void;
+  taskTitleRefiner?: { attachSession: (session: Session) => void; onTurnEnd: (session: Session) => void } | null;
   traceWiring?: { attachSession: (session: Session) => void } | null;
   planReview?: {
     attachSession: (session: Session) => void;
@@ -91,6 +92,7 @@ function persistSessionField(
 function createSessionEventWiring(dependencies: SessionEventDependencies): (session: Session) => void {
   return function wireSessionEvents(session: Session): void {
     dependencies.traceWiring?.attachSession(session);
+    dependencies.taskTitleRefiner?.attachSession(session);
     dependencies.planReview?.attachSession(session);
     let postTurnDebounce: NodeJS.Timeout | null = null;
     let pendingPromptKind: string | null = null;
@@ -138,12 +140,12 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     };
     session.on('post-turn-check', () => {
       const config = resolvePostTurn();
-      if (!config || !config.enabled) return;
+      if (!config?.enabled) return;
       if (postTurnDebounce) clearTimeout(postTurnDebounce);
       postTurnDebounce = setTimeout(() => {
         postTurnDebounce = null;
         const runConfig = resolvePostTurn();
-        if (!runConfig || !runConfig.enabled) return;
+        if (!runConfig?.enabled) return;
         runPostTurnChecks({ cwd: session.effectiveCwd(), config: runConfig, sessionId: session.id })
           .then((report) => {
             dependencies.broadcastControl({
@@ -165,6 +167,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       event: string;
       detail: { signal?: string | null } | null;
     }) => {
+      if (to === STATES.IDLE || to === STATES.COMPLETE) dependencies.taskTitleRefiner?.onTurnEnd(session);
       if (event === 'spawn_success') {
         spawnedAtMs = Date.now();
         dependencies.telemetry?.capture('session_started', { adapter: adapterBucket(session.agentId) });

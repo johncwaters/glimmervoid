@@ -1,6 +1,6 @@
 import fs from "node:fs";
-import { extractOscTaskTitle, extractPromptTaskTitle, resolveTaskTitle } from "./core/task-title-core.ts";
-import type { TaskTitleSources } from "./core/task-title-core.ts";
+import { cleanTaskPrompt, extractOscTaskTitle, extractPromptTaskTitle, isSubstantivePrompt, resolveRefocusTaskTitle, resolveTaskTitle } from "./core/task-title-core.ts";
+import type { TaskTitleRefinementResult, TaskTitleSources } from "./core/task-title-core.ts";
 import { readTranscriptTaskTitle } from "./session-task-title.ts";
 import os from "node:os";
 import path from "node:path";
@@ -211,6 +211,8 @@ class Session extends EventEmitter {
   taskTitleIsCustom: boolean;
   _taskTitleSources: TaskTitleSources;
   _taskTitleReadSequence: number;
+  _recentTaskPrompts: string[];
+  taskTitlePromptRevision: number;
   id: string;
   name: string;
   path: string;
@@ -374,6 +376,8 @@ class Session extends EventEmitter {
     this.taskTitle = effectiveTitle.taskTitle;
     this.taskTitleIsCustom = effectiveTitle.isCustom;
     this._taskTitleReadSequence = 0;
+    this._recentTaskPrompts = [];
+    this.taskTitlePromptRevision = 0;
     this.path = projectPath;
     this.dangerouslySkipPermissions = dangerouslySkipPermissions;
     this.ptyProcess = null;
@@ -564,6 +568,29 @@ class Session extends EventEmitter {
     this._updateTaskTitle();
   }
 
+  get settledTaskTitle(): string | null {
+    return resolveTaskTitle({ ...this._taskTitleSources, pendingPromptTitle: null }).taskTitle;
+  }
+
+  get refocusTaskTitle(): string | null {
+    return resolveRefocusTaskTitle(this._taskTitleSources);
+  }
+
+  get recentTaskPrompts(): readonly string[] {
+    return [...this._recentTaskPrompts];
+  }
+
+  setPendingTaskTitle(prompt: string | null): void {
+    this._taskTitleSources.pendingPromptTitle = extractPromptTaskTitle(prompt);
+    this._updateTaskTitle();
+  }
+
+  applyTaskTitleRefinement(refinement: TaskTitleRefinementResult): void {
+    if (refinement.action === "replace") this._taskTitleSources.refinedTitle = refinement.title;
+    this._taskTitleSources.pendingPromptTitle = null;
+    this._updateTaskTitle();
+  }
+
   _updateTaskTitle(): void {
     const effectiveTitle = resolveTaskTitle(this._taskTitleSources);
     if (this.taskTitle === effectiveTitle.taskTitle && this.taskTitleIsCustom === effectiveTitle.isCustom) return;
@@ -575,6 +602,9 @@ class Session extends EventEmitter {
   _resetAutomaticTaskTitle(): void {
     this._taskTitleReadSequence++;
     this._taskTitleSources = { customTitle: this.customTitle };
+    this._recentTaskPrompts = [];
+    this.taskTitlePromptRevision++;
+    this.emit("task-title-reset");
     this._updateTaskTitle();
   }
 
@@ -620,7 +650,7 @@ class Session extends EventEmitter {
   ingestHookSignal(raw: HookSignal): void {
     if (this._destroyed) return;
     this._hookSeen = true;
-    if (this._recorder && raw && raw.event) {
+    if (this._recorder && raw?.event) {
       this._recorder.writeHook(raw.event, raw.payload);
     }
 
@@ -647,9 +677,18 @@ class Session extends EventEmitter {
         sessionIdOf(raw.payload), raw.payload.source, raw.payload.transcript_path, raw.signal, raw.confidence);
     }
 
-    if (raw.event === "UserPromptSubmit" && !this._taskTitleSources.promptTitle) {
-      this._taskTitleSources.promptTitle = extractPromptTaskTitle(raw.payload?.prompt);
-      this._updateTaskTitle();
+    if (raw.event === "UserPromptSubmit") {
+      const prompt = raw.payload?.prompt;
+      if (!this._taskTitleSources.promptTitle) {
+        this._taskTitleSources.promptTitle = extractPromptTaskTitle(prompt);
+        this._updateTaskTitle();
+      }
+      if (typeof prompt === "string" && isSubstantivePrompt(prompt)) {
+        const cleanedPrompt = cleanTaskPrompt(prompt);
+        this._recentTaskPrompts = [...this._recentTaskPrompts, cleanedPrompt].slice(-5);
+        this.taskTitlePromptRevision++;
+        this.emit("task-prompt", { prompt: cleanedPrompt });
+      }
     }
     if (raw.event === "Stop" && (this.state === STATES.IDLE || this.state === STATES.COMPLETE)) {
       void this._refreshTranscriptTaskTitle();

@@ -201,8 +201,8 @@ test('oversize body (>64KB) is aborted and the server survives', async () => {
 
 test('compact SessionStart uses the registered current task title', async () => {
   const { base, token, session } = ctx();
-  const previousTitle = session.taskTitle;
-  session.taskTitle = 'Fix command relay';
+  const previousCustomTitle = session.customTitle;
+  session.setCustomTitle('Fix command relay');
   try {
     for (const source of ['compact', 'startup', 'resume', 'clear']) {
       const response = await fetch(`${base}/hook/${SESSION_ID}/sessionstart?t=${encodeURIComponent(token)}`, {
@@ -220,7 +220,25 @@ test('compact SessionStart uses the registered current task title', async () => 
       });
     }
   } finally {
-    session.taskTitle = previousTitle;
+    session.setCustomTitle(previousCustomTitle);
+  }
+});
+
+test('compact SessionStart never injects a refined task title into the agent context', async () => {
+  const { base, token, session } = ctx();
+  const previousRefinedTitle = session._taskTitleSources.refinedTitle ?? null;
+  session.applyTaskTitleRefinement({ action: 'replace', title: 'Injected refined title' });
+  try {
+    assert.equal(session.taskTitle, 'Injected refined title');
+    const response = await fetch(`${base}/hook/${SESSION_ID}/sessionstart?t=${encodeURIComponent(token)}`, {
+      method: 'POST', body: JSON.stringify({ source: 'compact' }), headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(response.status, 200);
+    const reply = await response.json();
+    assert.doesNotMatch(JSON.stringify(reply), /Injected refined title/);
+  } finally {
+    session._taskTitleSources.refinedTitle = previousRefinedTitle;
+    session._updateTaskTitle();
   }
 });
 

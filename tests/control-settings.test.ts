@@ -847,3 +847,13 @@ test('a settings payload build reads the resolution cache and spawns no PATH pro
     resetCommandCache();
   }
 });
+
+test('task title refiner partial updates preserve stored tuning and echo the merged settings', () => {
+  const taskTitle = { refiner: { enabled: true, model: 'sonnet', minIntervalSeconds: 120, timeoutSeconds: 30 } };
+  const updated = harness({ projects: [], taskTitle });
+  updated.send({ type: 'update-settings', settings: { taskTitle: { refiner: { enabled: false } } } });
+  const expected = { refiner: { ...taskTitle.refiner, enabled: false } };
+  assert.deepEqual(updated.cfg.taskTitle, expected);
+  assert.deepEqual(updatedFrom(updated)?.settings?.taskTitle, expected);
+  assert.equal(updated.reloadCalls.length, 1);
+});

@@ -141,3 +141,67 @@ test('Claude /clear drops automatic titles so the next prompt titles the new con
     session.destroy();
   }
 });
+
+test('sessions retain and emit only the last five cleaned substantive prompts', () => {
+  const session = new Session({ id: 's1', name: 'project', path: '/project' });
+  try {
+    const emittedPrompts: string[] = [];
+    session.on('task-prompt', ({ prompt }: { prompt: string }) => emittedPrompts.push(prompt));
+    for (let index = 0; index < 7; index++) {
+      session.ingestHookSignal({ event: 'UserPromptSubmit', signal: 'resume', source: 'hook', ts: index, payload: { prompt: `<pasted_content id="x">Hidden</pasted_content> Implement task number ${index}` } });
+    }
+    session.ingestHookSignal({ event: 'UserPromptSubmit', signal: 'resume', source: 'hook', ts: 8, payload: { prompt: 'yes please continue' } });
+    assert.equal(emittedPrompts.length, 7);
+    assert.deepEqual(session.recentTaskPrompts, emittedPrompts.slice(-5));
+    assert.equal(session.taskTitle, 'Implement task number 0');
+    assert.equal(session.taskTitlePromptRevision, 7);
+  } finally {
+    session.destroy();
+  }
+});
+
+test('pending titles are explicit and refinement keep, replace and invalid results all clear pending', () => {
+  const session = new Session({ id: 's1', name: 'project', path: '/project', initialPrompt: 'First task prompt' });
+  try {
+    session.setPendingTaskTitle('Latest task prompt');
+    assert.equal(session.taskTitle, 'Latest task prompt');
+    session.applyTaskTitleRefinement({ action: 'keep' });
+    assert.equal(session.taskTitle, 'First task prompt');
+    session.setPendingTaskTitle('Latest task prompt');
+    session.applyTaskTitleRefinement({ action: 'replace', title: 'Refined task title' });
+    assert.equal(session.taskTitle, 'Refined task title');
+    session.setPendingTaskTitle('Another task prompt');
+    session.applyTaskTitleRefinement({ action: 'invalid' });
+    assert.equal(session.taskTitle, 'Refined task title');
+    session.setCustomTitle('Custom');
+    session.setPendingTaskTitle('Another task prompt');
+    session.applyTaskTitleRefinement({ action: 'replace', title: 'New refined title' });
+    assert.equal(session.taskTitle, 'Custom');
+    session.setCustomTitle(null);
+    assert.equal(session.taskTitle, 'New refined title');
+  } finally {
+    session.destroy();
+  }
+});
+
+for (const reset of ['clear', 'fresh'] as const) {
+  test(`${reset} resets prompt history, pending and refined titles while preserving custom titles`, () => {
+    const session = new Session({ id: 's1', name: 'project', path: '/project' });
+    try {
+      session.ingestHookSignal({ event: 'UserPromptSubmit', signal: 'resume', source: 'hook', ts: 1, payload: { prompt: 'Old substantive task prompt' } });
+      session.applyTaskTitleRefinement({ action: 'replace', title: 'Old refined title' });
+      session.setPendingTaskTitle('Old pending title');
+      session.setCustomTitle('Custom');
+      const priorRevision = session.taskTitlePromptRevision;
+      if (reset === 'clear') session.ingestHookSignal({ event: 'SessionStart', signal: 'session-start', source: 'hook', ts: 2, payload: { source: 'clear' } });
+      if (reset === 'fresh') session._prepareRestart({ fresh: true });
+      assert.deepEqual(session.recentTaskPrompts, []);
+      assert.ok(session.taskTitlePromptRevision > priorRevision);
+      assert.equal(session.taskTitle, 'Custom');
+      session.setCustomTitle(null);
+      assert.equal(session.taskTitle, null);
+    } finally {
+      session.destroy();
+    }
+  });
+}

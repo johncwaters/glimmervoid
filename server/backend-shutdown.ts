@@ -25,6 +25,8 @@ interface BackendShutdownDependencies {
   investigationSessions: Map<string, ShutdownSession>;
   visionsSessions: Map<string, ShutdownSession>;
   changeMapSessions: Map<string, ShutdownSession>;
+  taskTitleSessions?: Map<string, ShutdownSession>;
+  taskTitleRefiner?: Stoppable | null;
   benchmarkSessions?: Map<string, ShutdownSession>;
   branchGc: Stoppable;
   posthog: { stopPoller: () => unknown };
@@ -80,6 +82,7 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     dependencies.telegramChannel.destroy();
     const pendingReaps: Promise<unknown>[] = [];
     destroySessions([dependencies.sessions], pendingReaps);
+    if (dependencies.taskTitleRefiner) stoppers.add('task-title', () => dependencies.taskTitleRefiner?.stop());
     stoppers.add('branch-gc', () => dependencies.branchGc.stop());
     destroySessions([dependencies.agentSessions, dependencies.reviewSessions], pendingReaps);
     stoppers.add('posthog', () => dependencies.posthog.stopPoller());
@@ -109,7 +112,7 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     if (planReview) stoppers.add('plan-review', () => planReview.stop());
 
     stoppers.add('telegram-outbox', () => dependencies.telegramOutbox.idle());
-    destroySessions([dependencies.visionsSessions, dependencies.changeMapSessions, dependencies.benchmarkSessions ?? new Map()], pendingReaps);
+    destroySessions([dependencies.visionsSessions, dependencies.changeMapSessions, dependencies.taskTitleSessions ?? new Map(), dependencies.benchmarkSessions ?? new Map()], pendingReaps);
     const outcomes = dependencies.outcomes;
     if (outcomes) stoppers.add('outcomes', () => outcomes.stop());
     const telemetry = dependencies.telemetry;

@@ -927,3 +927,21 @@ test('a saved config.json, and its backup, are owner-only', { skip: process.plat
     assert.equal(JSON.parse(fs.readFileSync(p, 'utf8')).port, 4999, 'and the content still landed');
   });
 });
+
+test('task title refiner settings project defaults and hot apply configured tuning', () => {
+  const temporaryConfig = writeTmpConfig({ projects: [] });
+  const priorConfigPath = process.env.GLIMMERVOID_CONFIG;
+  process.env.GLIMMERVOID_CONFIG = temporaryConfig.p;
+  try {
+    const store = createConfigStore();
+    assert.deepEqual(store.getSettings().taskTitle, DEFAULT_CONFIG.taskTitle);
+    const taskTitle = { refiner: { enabled: false, model: 'sonnet', minIntervalSeconds: 120, timeoutSeconds: 30 } };
+    store.applySettings({ taskTitle });
+    assert.deepEqual(store.config.taskTitle, taskTitle);
+    assert.deepEqual(store.getSettings().taskTitle, taskTitle);
+  } finally {
+    if (priorConfigPath == null) delete process.env.GLIMMERVOID_CONFIG;
+    if (priorConfigPath != null) process.env.GLIMMERVOID_CONFIG = priorConfigPath;
+    fs.rmSync(temporaryConfig.dir, { recursive: true, force: true });
+  }
+});
