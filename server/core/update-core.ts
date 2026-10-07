@@ -7,8 +7,6 @@ const NPM_PACKAGE_NAME = 'glimmervoid';
 const NPM_GLOBAL_COMMAND = `npm install -g ${NPM_PACKAGE_NAME}@latest`;
 const NODE_PTY_INSTALL_SCRIPT_FLAG = '--allow-scripts=node-pty';
 const NPX_CACHE_DIRECTORY_NAME = '_npx';
-const NPX_REMOTE_TARBALL_FLAG = '--allow-remote=root';
-const RELEASE_TARBALL_LATEST_URL = `https://github.com/${REPO_SLUG}/releases/latest/download/${NPM_PACKAGE_NAME}.tgz`;
 const CLONE_COMMAND = 'git pull --ff-only && npm ci && npm run build';
 const SHORT_SHA_LENGTH = 7;
 const INSTALL_FLAVORS = new Set<string>(InstallFlavor.options);
@@ -98,14 +96,10 @@ function decideInstallFlavor({ packageRoot, lockfileSha, gitHeadSha, hasGitDir, 
   return { flavor: 'unknown', installedSha: null };
 }
 
-function buildReleaseTarballUrl(version: unknown): string {
-  const releaseVersion = textOrNull(version);
-  if (!releaseVersion) return RELEASE_TARBALL_LATEST_URL;
-  return `https://github.com/${REPO_SLUG}/releases/download/v${releaseVersion}/${NPM_PACKAGE_NAME}-${releaseVersion}.tgz`;
-}
-
-function buildNpxCommand(latestVersion: unknown): string {
-  return `npx ${NPX_REMOTE_TARBALL_FLAG} ${NODE_PTY_INSTALL_SCRIPT_FLAG} ${buildReleaseTarballUrl(latestVersion)}`;
+function buildNpxCommand(latestVersion: unknown, platform: unknown): string {
+  const packageSpec = `${NPM_PACKAGE_NAME}@${textOrNull(latestVersion) ?? 'latest'}`;
+  if (platform === 'linux') return `npx ${NODE_PTY_INSTALL_SCRIPT_FLAG} ${packageSpec}`;
+  return `npx ${packageSpec}`;
 }
 
 function buildNpmGlobalCommand(latestVersion: unknown, platform: unknown): string {
@@ -116,23 +110,9 @@ function buildNpmGlobalCommand(latestVersion: unknown, platform: unknown): strin
 }
 
 function buildUpdateCommand(flavor: unknown, latestVersion: unknown, platform?: unknown): string {
-  if (flavor === 'npx') return buildNpxCommand(latestVersion);
+  if (flavor === 'npx') return buildNpxCommand(latestVersion, platform);
   if (flavor === 'npm-global') return buildNpmGlobalCommand(latestVersion, platform);
   return CLONE_COMMAND;
-}
-
-function releaseAssetUrlToProbe({ flavor, channel, currentVersion, latestVersion }: {
-  flavor?: unknown;
-  channel?: unknown;
-  currentVersion?: unknown;
-  latestVersion?: unknown;
-} = {}): string | null {
-  if (normalizeFlavor(flavor) !== 'npx') return null;
-  if (normalizeUpdateChannel(channel) !== 'release') return null;
-  const latest = textOrNull(latestVersion);
-  if (!latest) return null;
-  if (compareSemver(latest, textOrNull(currentVersion)) <= 0) return null;
-  return buildReleaseTarballUrl(latest);
 }
 
 function buildReleaseUrl(version: unknown): string | null {
@@ -173,7 +153,7 @@ function parseLatestReleaseTag(doc: unknown): ReleaseTag | null {
 }
 
 function decideReleaseSource(flavor: unknown): ReleaseSource {
-  if (flavor === 'npm-global') return 'npm-registry';
+  if (flavor === 'npm-global' || flavor === 'npx') return 'npm-registry';
   return 'github-tags';
 }
 
@@ -211,17 +191,15 @@ function normalizeBehindCount(value: unknown): number | null {
   return count;
 }
 
-function decideUpdateReason({ isReleaseAlreadyCheckedOut, isReleaseAssetPending, reason }: {
+function decideUpdateReason({ isReleaseAlreadyCheckedOut, reason }: {
   isReleaseAlreadyCheckedOut: boolean;
-  isReleaseAssetPending: boolean;
   reason: unknown;
 }): string | null {
   if (isReleaseAlreadyCheckedOut) return 'release-already-checked-out';
-  if (isReleaseAssetPending) return 'release-asset-pending';
   return textOrNull(reason);
 }
 
-function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion, latestVersion, flavor, platform, channel, behindCount, reason, isLatestReleaseAncestorOfHead, isReleaseAssetAvailable }: {
+function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion, latestVersion, flavor, platform, channel, behindCount, reason, isLatestReleaseAncestorOfHead }: {
   installedSha?: unknown;
   latestSha?: unknown;
   currentVersion?: unknown;
@@ -232,7 +210,6 @@ function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion
   behindCount?: unknown;
   reason?: unknown;
   isLatestReleaseAncestorOfHead?: unknown;
-  isReleaseAssetAvailable?: unknown;
 } = {}) {
   const currentSha = normalizeSha(installedSha);
   const latestSha = normalizeSha(remoteSha);
@@ -245,12 +222,10 @@ function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion
     && normalizedFlavor === 'clone'
     && isLatestReleaseAncestorOfHead === true
     && compareSemver(latest, current) > 0;
-  const isReleaseAssetPending = releaseAssetUrlToProbe({ flavor: normalizedFlavor, channel: normalizedChannel, currentVersion: current, latestVersion: latest }) !== null
-    && isReleaseAssetAvailable !== true;
   return {
     updateAvailable: normalizedChannel === 'main'
       ? normalizedBehindCount !== null && normalizedBehindCount > 0 && currentSha !== latestSha
-      : !isReleaseAlreadyCheckedOut && !isReleaseAssetPending && compareSemver(latest, current) > 0,
+      : !isReleaseAlreadyCheckedOut && compareSemver(latest, current) > 0,
     current,
     latest,
     currentSha,
@@ -260,7 +235,7 @@ function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion
     flavor: normalizedFlavor,
     channel: normalizedChannel,
     behindCount: normalizedBehindCount,
-    reason: decideUpdateReason({ isReleaseAlreadyCheckedOut, isReleaseAssetPending, reason }),
+    reason: decideUpdateReason({ isReleaseAlreadyCheckedOut, reason }),
   };
 }
 
@@ -274,4 +249,4 @@ function isCheckFresh(lastCheckAt: unknown, nowMs: unknown, ttlMs: unknown): boo
 }
 
 export type { InstallFlavor };
-export { NPM_GLOBAL_COMMAND, CLONE_COMMAND, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, parseTagVersion, parseLsRemoteTags, decideInstallFlavor, buildUpdateCommand, buildReleaseUrl, compareSemver, parseLatestReleaseTag, decideReleaseSource, parseRegistryLatest, releaseAssetUrlToProbe, decideUpdateStatus, isCheckFresh };
+export { NPM_GLOBAL_COMMAND, CLONE_COMMAND, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, parseTagVersion, parseLsRemoteTags, decideInstallFlavor, buildUpdateCommand, buildReleaseUrl, compareSemver, parseLatestReleaseTag, decideReleaseSource, parseRegistryLatest, decideUpdateStatus, isCheckFresh };

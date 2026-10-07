@@ -125,10 +125,10 @@ if (!hasGhCli) {
 
 console.log(`\n==> Done! Tagged and pushed glimmervoid ${TAG}.`);
 if (hasGhCli) {
-  console.log(`   The release carries ${LATEST_ALIAS_ASSET_NAME} and ${versionedAssetName(VERSION)}, so the first-run tarball URL works immediately.`);
+  console.log(`   The release carries ${LATEST_ALIAS_ASSET_NAME} and ${versionedAssetName(VERSION)} to keep pre-0.29.1 tarball installs updatable.`);
 }
 if (!hasGhCli) {
-  console.log(`   No tarballs were attached; once the release exists, run .github/workflows/release-tarball.yml with tag ${TAG} to attach them.`);
+  console.log(`   No tarballs were attached; once the release exists, run .github/workflows/release-tarball.yml with tag ${TAG} to keep pre-0.29.1 tarball installs updatable.`);
 }
 console.log(`   The tag push triggers .github/workflows/publish.yml, which publishes glimmervoid@${VERSION} to npm. Nothing is published locally.`);
 console.log(`   Watch it at https://github.com/${REPO_SLUG}/actions/workflows/publish.yml, then confirm with: npm view glimmervoid@${VERSION} version`);

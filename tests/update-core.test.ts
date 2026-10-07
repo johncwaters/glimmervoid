@@ -17,7 +17,6 @@ import {
   compareSemver,
   decideUpdateStatus,
   isCheckFresh,
-  releaseAssetUrlToProbe,
 } from '../server/core/update-core.ts';
 
 const SHA_A = '0123456789abcdef0123456789abcdef01234567';
@@ -112,9 +111,9 @@ test('parseRegistryLatest reads the published version and its gitHead', () => {
   assert.equal(parseRegistryLatest(null), null);
 });
 
-test('decideReleaseSource sends only npm-global installs to the registry', () => {
+test('decideReleaseSource sends npm-global and npx installs to the registry', () => {
   assert.equal(decideReleaseSource('npm-global'), 'npm-registry');
-  assert.equal(decideReleaseSource('npx'), 'github-tags');
+  assert.equal(decideReleaseSource('npx'), 'npm-registry');
   assert.equal(decideReleaseSource('clone'), 'github-tags');
   assert.equal(decideReleaseSource('unknown'), 'github-tags');
 });
@@ -192,18 +191,22 @@ test('buildUpdateCommand allows the node-pty install script only on Linux', () =
   assert.equal(buildUpdateCommand('clone', '0.21.0', 'linux'), CLONE_COMMAND);
 });
 
-test('buildUpdateCommand offers npx launches the versioned release tarball, or the latest one when the version is unknown', () => {
-  const npxFlags = 'npx --allow-remote=root --allow-scripts=node-pty';
-  for (const platform of ['linux', 'darwin', 'win32']) {
+test('buildUpdateCommand pins npx to the registry version and allows the node-pty install script only on Linux', () => {
+  const commandByPlatform = {
+    linux: 'npx --allow-scripts=node-pty',
+    darwin: 'npx',
+    win32: 'npx',
+  };
+  for (const [platform, command] of Object.entries(commandByPlatform)) {
     assert.equal(
       buildUpdateCommand('npx', '0.21.0', platform),
-      `${npxFlags} https://github.com/johncwaters/glimmervoid/releases/download/v0.21.0/glimmervoid-0.21.0.tgz`,
+      `${command} glimmervoid@0.21.0`,
     );
-    assert.equal(
-      buildUpdateCommand('npx', null, platform),
-      `${npxFlags} https://github.com/johncwaters/glimmervoid/releases/latest/download/glimmervoid.tgz`,
-    );
+    for (const latestVersion of [null, undefined, '', '   ']) {
+      assert.equal(buildUpdateCommand('npx', latestVersion, platform), `${command} glimmervoid@latest`);
+    }
   }
+  assert.equal(buildUpdateCommand('npx', ' 0.21.0 '), 'npx glimmervoid@0.21.0');
 });
 
 test('buildReleaseUrl points at the release tag page', () => {
@@ -279,35 +282,18 @@ test('decideUpdateStatus passes the platform to the npm-global command', () => {
   assert.equal(onLinux.command, 'npm install -g glimmervoid@0.21.0 --allow-scripts=node-pty');
 });
 
-test('releaseAssetUrlToProbe names the versioned tarball only for an npx launch behind a release', () => {
-  const versionedUrl = 'https://github.com/johncwaters/glimmervoid/releases/download/v0.21.0/glimmervoid-0.21.0.tgz';
-  assert.equal(releaseAssetUrlToProbe({ flavor: 'npx', channel: 'release', currentVersion: '0.20.0', latestVersion: '0.21.0' }), versionedUrl);
-  assert.equal(releaseAssetUrlToProbe({ flavor: 'npx', channel: 'release', currentVersion: '0.21.0', latestVersion: '0.21.0' }), null);
-  assert.equal(releaseAssetUrlToProbe({ flavor: 'npx', channel: 'release', currentVersion: '0.20.0', latestVersion: null }), null);
-  assert.equal(releaseAssetUrlToProbe({ flavor: 'npx', channel: 'main', currentVersion: '0.20.0', latestVersion: '0.21.0' }), null);
-  assert.equal(releaseAssetUrlToProbe({ flavor: 'npm-global', channel: 'release', currentVersion: '0.20.0', latestVersion: '0.21.0' }), null);
-  assert.equal(releaseAssetUrlToProbe({ flavor: 'clone', channel: 'release', currentVersion: '0.20.0', latestVersion: '0.21.0' }), null);
-});
-
-test('decideUpdateStatus holds an npx update back until its release tarball is available', () => {
-  const npxBehindRelease = { currentVersion: '0.20.0', latestVersion: '0.21.0', flavor: 'npx', channel: 'release' };
-  const pending = decideUpdateStatus(npxBehindRelease);
-  assert.equal(pending.updateAvailable, false);
-  assert.equal(pending.reason, 'release-asset-pending');
-  assert.equal(decideUpdateStatus({ ...npxBehindRelease, isReleaseAssetAvailable: false }).reason, 'release-asset-pending');
-
-  const published = decideUpdateStatus({ ...npxBehindRelease, isReleaseAssetAvailable: true });
-  assert.equal(published.updateAvailable, true);
-  assert.equal(published.reason, null);
-});
-
-test('decideUpdateStatus ignores release tarball availability outside an npx launch behind a release', () => {
-  const npmGlobal = decideUpdateStatus({ currentVersion: '0.20.0', latestVersion: '0.21.0', flavor: 'npm-global', isReleaseAssetAvailable: false });
-  assert.equal(npmGlobal.updateAvailable, true);
-  assert.equal(npmGlobal.reason, null);
-  const npxCurrent = decideUpdateStatus({ currentVersion: '0.21.0', latestVersion: '0.21.0', flavor: 'npx', isReleaseAssetAvailable: false });
-  assert.equal(npxCurrent.updateAvailable, false);
-  assert.equal(npxCurrent.reason, null);
+test('decideUpdateStatus offers an npx registry update with the platform command as soon as a newer version is known', () => {
+  for (const [platform, command] of [
+    ['linux', 'npx --allow-scripts=node-pty glimmervoid@0.21.0'],
+    ['darwin', 'npx glimmervoid@0.21.0'],
+    ['win32', 'npx glimmervoid@0.21.0'],
+  ]) {
+    const status = decideUpdateStatus({ currentVersion: '0.20.0', latestVersion: '0.21.0', flavor: 'npx', platform });
+    assert.equal(status.updateAvailable, true);
+    assert.equal(status.reason, null);
+    assert.equal(status.command, command);
+  }
+  assert.equal(decideUpdateStatus({ currentVersion: '0.21.0', latestVersion: '0.21.0', flavor: 'npx' }).updateAvailable, false);
 });
 
 test('decideUpdateStatus suppresses a release already contained by a clone checkout', () => {

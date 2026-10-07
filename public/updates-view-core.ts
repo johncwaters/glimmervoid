@@ -52,7 +52,6 @@ const CHECK_FAILURE_TEXT: Readonly<Record<string, string>> = Object.freeze({
   'no-branch': 'The last update check found no checked-out branch.',
   'no-upstream': 'The checked-out branch has no upstream.',
   'release-already-checked-out': 'The checkout already contains the latest release. Restart to run it.',
-  'release-asset-pending': 'A new release is out, but its npx package is not attached yet. The next check offers it.',
   'release-check-failed': 'The last release check failed.',
   'remote-tip-unavailable': 'The last update check could not resolve the upstream branch tip.',
   'update-check-failed': 'The last update check failed.',

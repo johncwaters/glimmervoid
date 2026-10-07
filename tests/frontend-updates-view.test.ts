@@ -295,16 +295,6 @@ test('lastUpdateCheckText explains when the checkout already contains the releas
   );
 });
 
-test('lastUpdateCheckText explains a release whose npx package is not attached yet', () => {
-  assert.equal(
-    lastUpdateCheckText({
-      status: status({ flavor: 'npx', reason: 'release-asset-pending', updateAvailable: false }),
-      relativeTime: '1m ago',
-    }),
-    'A new release is out, but its npx package is not attached yet. The next check offers it.',
-  );
-});
-
 test('updateSummary names the running and target versions in one headline', () => {
   assert.deepEqual(updateSummary(status(), null), {
     tone: 'available',

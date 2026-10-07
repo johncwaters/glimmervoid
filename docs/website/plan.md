@@ -9,7 +9,7 @@ State of the public website work as of 2026-10-01, written so another agent can 
 - Copy: short. The operator rejected the first draft as "very wordy". Prefer graphics and animation over prose.
 - Visuals: HTML, CSS and SVG animation, no stock video. The 19 real flying animal sprites from the dashboard appear on the site.
 - Realism: any dashboard UI shown on the site must be the real dashboard, never a hand-built mock ("otherwise its just fake"). The chosen approach is replaying real recorded sessions through an isolated Glimmervoid and recording it with Playwright (see Capture below).
-- Install: one command, `npx glimmervoid` once the package is on npm. Until then every surface shows the release tarball command (below).
+- Install: the registry quickstart is `npx glimmervoid@latest`; Linux needs `npx --allow-scripts=node-pty glimmervoid@latest` because node-pty has no Linux prebuild (`tests/site-install-command.test.ts`).
 
 ## Site
 
@@ -37,5 +37,5 @@ Status: built. `npm run site:capture -- test/site-capture/fixtures/sample-manife
 
 ## Open issues before launch
 
-- The `glimmervoid` package is not on npm yet. Until the first manual publish (see `distribution.md`), `.github/workflows/release-tarball.yml` attaches `glimmervoid.tgz` to each release and the site, README and the update check for npx launches use `npx --allow-remote=root --allow-scripts=node-pty <release tarball url>`, verified on Linux with npm 10, 11 and 12 (npm 12 refuses remote tarballs without `--allow-remote`, and skips the node-pty build without `--allow-scripts`). After the publish, switch all three back to `npx glimmervoid`: the URL builders in `server/core/update-core.ts`, `INSTALL_COMMAND` in `site/src/lib/install-command.ts`, and the README quickstart.
-- Windows and macOS have not run the tarball command yet.
+- Registry publishing is complete: `glimmervoid@0.29.1` shipped through `publish.yml` trusted publishing. Release tarball assets stay only to migrate pre-0.29.1 tarball installs whose cached banners still name them. Drop `scripts/pack-release-tarballs.ts`, `.github/workflows/release-tarball.yml` and the `scripts/release.ts` upload one release after 0.29.1's successor ships (see `../distribution.md`).
+- Windows and macOS still need a registry quickstart smoke test to cover native startup beyond the command checks in `tests/site-install-command.test.ts`.

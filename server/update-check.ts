@@ -16,7 +16,6 @@ import {
   parseLsRemoteTags,
   parseRegistryLatest,
   parseResolvedSha,
-  releaseAssetUrlToProbe,
 } from './core/update-core.ts';
 import type { InstallFlavor, ReleaseSource } from './core/update-core.ts';
 import { writeJsonAtomicSync } from './json-file.ts';
@@ -29,7 +28,6 @@ const DEFAULT_TIMEOUT_MS = 8000;
 const GIT_HEAD_TIMEOUT_MS = 3000;
 const LS_REMOTE_TIMEOUT_MS = 5000;
 const RELEASE_ANCESTRY_TIMEOUT_MS = 3000;
-const RELEASE_ASSET_TIMEOUT_MS = 3000;
 const MAIN_CHANNEL_BUDGET_MS = DEFAULT_TIMEOUT_MS;
 const MAIN_FETCH_TIMEOUT_MS = Math.floor(MAIN_CHANNEL_BUDGET_MS / 2);
 const MAIN_REMOTE_TIP_TIMEOUT_MS = Math.floor(MAIN_CHANNEL_BUDGET_MS / 4);
@@ -205,7 +203,7 @@ async function resolveLatestRegistryVersion(
       signal,
       headers: { Accept: 'application/json', 'User-Agent': 'glimmervoid-update-check' },
     });
-    if (!response || !response.ok) return { version: null, sha: null, behindCount: null, reason: 'release-check-failed' };
+    if (!response?.ok) return { version: null, sha: null, behindCount: null, reason: 'release-check-failed' };
     const published = parseRegistryLatest(await response.json());
     if (!published) return { version: null, sha: null, behindCount: null, reason: 'release-check-failed' };
     return { ...published, behindCount: null, reason: null };
@@ -229,7 +227,7 @@ async function resolveLatestRelease(
       signal,
       headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'glimmervoid-update-check' },
     });
-    if (!response || !response.ok) return { version: null, sha: null, behindCount: null, reason: 'release-check-failed' };
+    if (!response?.ok) return { version: null, sha: null, behindCount: null, reason: 'release-check-failed' };
     const release = parseLatestReleaseTag(await response.json());
     if (!release) return { version: null, sha: null, behindCount: null, reason: 'release-check-failed' };
     return { ...release, behindCount: null, reason: null };
@@ -307,20 +305,6 @@ function writeCheckState(statePath: string, state: Record<string, unknown>): voi
   }
 }
 
-async function isReleaseAssetReachable(assetUrl: string, fetchFn: typeof fetch, signal: AbortSignal): Promise<boolean> {
-  try {
-    const response = await fetchFn(assetUrl, {
-      method: 'HEAD',
-      redirect: 'follow',
-      signal: AbortSignal.any([signal, AbortSignal.timeout(RELEASE_ASSET_TIMEOUT_MS)]),
-      headers: { 'User-Agent': 'glimmervoid-update-check' },
-    });
-    return Boolean(response?.ok);
-  } catch {
-    return false;
-  }
-}
-
 async function finish(
   installed: InstalledIdentity,
   latestTarget: LatestTarget,
@@ -330,7 +314,6 @@ async function finish(
   lastCheckAt: number,
   packageRoot: string,
   runCommand: RunCommand,
-  fetchFn: typeof fetch,
   signal: AbortSignal,
 ): Promise<UpdateCheckStatus> {
   let isLatestReleaseAncestorOfHead = false;
@@ -343,8 +326,6 @@ async function finish(
     );
     isLatestReleaseAncestorOfHead = ancestry.ok;
   }
-  const assetUrl = releaseAssetUrlToProbe({ flavor: installed.flavor, channel, currentVersion, latestVersion: latestTarget.version });
-  const isReleaseAssetAvailable = assetUrl !== null && await isReleaseAssetReachable(assetUrl, fetchFn, signal);
   return {
     ...decideUpdateStatus({
       installedSha: installed.installedSha,
@@ -357,7 +338,6 @@ async function finish(
       behindCount: latestTarget.behindCount,
       reason: latestTarget.reason,
       isLatestReleaseAncestorOfHead,
-      isReleaseAssetAvailable,
     }),
     installedBranch: installed.installedBranch,
     upstream: installed.upstream,
@@ -409,7 +389,7 @@ async function checkForUpdate({
     const expectedReleaseSource: ReleaseSource | null = updateChannel === 'release' ? decideReleaseSource(installed.flavor) : null;
     const isCacheFromSameSource = expectedReleaseSource === null || cached?.releaseSource === expectedReleaseSource;
     if (cached?.channel === updateChannel && isCacheFromSameSource && !cacheOutrunByInstall && isCheckFresh(cached.lastCheckAt, now, ttlMs)) {
-      return finish(installed, targetFromCache(cached), currentVersion, updateChannel, platform, now, packageRoot, runCommand, fetchFn, signal);
+      return finish(installed, targetFromCache(cached), currentVersion, updateChannel, platform, now, packageRoot, runCommand, signal);
     }
     signal.throwIfAborted();
     const latestTarget = updateChannel === 'main'
@@ -428,7 +408,7 @@ async function checkForUpdate({
         reason: latestTarget.reason,
       });
     }
-    return finish(installed, latestTarget, currentVersion, updateChannel, platform, now, packageRoot, runCommand, fetchFn, signal);
+    return finish(installed, latestTarget, currentVersion, updateChannel, platform, now, packageRoot, runCommand, signal);
   } catch {
     return finish(
       installed,
@@ -439,7 +419,6 @@ async function checkForUpdate({
       now,
       packageRoot,
       runCommand,
-      fetchFn,
       signal,
     );
   } finally {

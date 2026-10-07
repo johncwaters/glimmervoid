@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **npx updates from npm**: the dashboard update banner for an npx launch now checks npm for new versions and offers `npx glimmervoid@<version>` (`npx --allow-scripts=node-pty glimmervoid@<version>` on Linux).
 - **Install from npm**: Glimmervoid is now on the npm registry, so the website and README install it with `npx glimmervoid@latest` (Linux adds `--allow-scripts=node-pty` so node-pty can compile) instead of the long GitHub release tarball command.
 
 ## [0.29.1] - 2026-10-07
