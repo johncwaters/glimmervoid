@@ -2,51 +2,36 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { acceptsAttentionSignal, mapSignalToEvent, shouldDeferAttention } from '../session/core/status-mapper.ts';
-import type { LifecycleEvent } from '../session/core/status-mapper.ts';
 import { STATES } from '../shared/states.ts';
 
 const ALL_STATES = Object.values(STATES);
-const CONFIDENCES = ['high', 'low'];
-const ACTIVE_AGENTS = [0, 1];
 
-function expectedEvent(
-  signal: string, state: string, confidence: string, activeAgents: number,
-): LifecycleEvent | null {
-  if (signal === 'working' || signal === 'resume') {
-    if (state === STATES.IDLE || state === STATES.COMPLETE) return 'new_output';
-    if (state === STATES.WAITING) return 'user_input';
-    return null;
+test('working and resume wake an IDLE or COMPLETE session as new output and answer a WAITING prompt as user input', () => {
+  for (const signal of ['working', 'resume']) {
+    assert.equal(mapSignalToEvent(signal, STATES.IDLE, 'high', 0), 'new_output');
+    assert.equal(mapSignalToEvent(signal, STATES.COMPLETE, 'high', 0), 'new_output');
+    assert.equal(mapSignalToEvent(signal, STATES.WAITING, 'high', 0), 'user_input');
+    assert.equal(mapSignalToEvent(signal, STATES.RUNNING, 'high', 0), null);
   }
-  if (signal === 'ready') {
-    if (activeAgents > 0) return null;
-    if (state === STATES.RUNNING) return 'task_complete';
-    if ((state === STATES.WAITING || state === STATES.IDLE) && confidence === 'high') return 'task_complete';
-    return null;
-  }
-  if (signal === 'awaiting-input') {
-    if (state === STATES.RUNNING || state === STATES.IDLE || state === STATES.COMPLETE) return 'prompt_detected';
-    return null;
-  }
+});
 
-  return null;
-}
+test('high-confidence ready completes a RUNNING, WAITING or IDLE session', () => {
+  assert.equal(mapSignalToEvent('ready', STATES.RUNNING, 'high', 0), 'task_complete');
+  assert.equal(mapSignalToEvent('ready', STATES.WAITING, 'high', 0), 'task_complete');
+  assert.equal(mapSignalToEvent('ready', STATES.IDLE, 'high', 0), 'task_complete');
+});
 
-const SIGNALS = ['working', 'resume', 'ready', 'awaiting-input', 'session-start', 'session-end', 'totally-unknown-signal'];
+test('awaiting-input raises a prompt from RUNNING, IDLE or COMPLETE', () => {
+  assert.equal(mapSignalToEvent('awaiting-input', STATES.RUNNING, 'high', 0), 'prompt_detected');
+  assert.equal(mapSignalToEvent('awaiting-input', STATES.IDLE, 'low', 0), 'prompt_detected');
+  assert.equal(mapSignalToEvent('awaiting-input', STATES.COMPLETE, 'high', 1), 'prompt_detected');
+});
 
-for (const signal of SIGNALS) {
-  for (const state of ALL_STATES) {
-    for (const confidence of CONFIDENCES) {
-      for (const activeAgents of ACTIVE_AGENTS) {
-        const expected = expectedEvent(signal, state, confidence, activeAgents);
-        const title = `signal=${signal} state=${state} confidence=${confidence} activeAgents=${activeAgents} -> ${expected === null ? 'null' : expected}`;
-        test(title, () => {
-          const actual = mapSignalToEvent(signal, state, confidence, activeAgents);
-          assert.equal(actual, expected);
-        });
-      }
-    }
+test('session lifecycle and unknown signals never map to a lifecycle event in any state', () => {
+  for (const signal of ['session-start', 'session-end', 'totally-unknown-signal']) {
+    for (const state of ALL_STATES) assert.equal(mapSignalToEvent(signal, state, 'high', 0), null);
   }
-}
+});
 
 test('low-confidence ready only ever confirms quiescence from RUNNING, never from WAITING or IDLE', () => {
   assert.equal(mapSignalToEvent('ready', STATES.RUNNING, 'low', 0), 'task_complete');

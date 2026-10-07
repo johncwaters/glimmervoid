@@ -8,6 +8,7 @@ import { POSTHOG_PROJECT_TOKEN, TELEMETRY_BATCH_URL, TELEMETRY_FLAGS_URL } from 
 import { createTelemetry, MAX_QUEUED_EVENTS } from '../server/telemetry.ts';
 import type { TelemetryOptions } from '../server/telemetry.ts';
 import { TELEMETRY_BASE_PROPERTY_KEYS } from '../shared/contracts/telemetry.ts';
+import { waitFor } from './helpers/wait-for.ts';
 
 interface SentBatch {
   url: string;
@@ -111,9 +112,11 @@ test('an event carrying a property outside its allowlist is dropped', async () =
 test('twenty queued events flush without waiting for the timer', async () => {
   const { sent, fetchFn } = recordingFetch();
   const { telemetry } = buildTelemetry({ fetchFn });
-  for (let index = 0; index < 20; index += 1) telemetry.capture('app_active', { active_session_count: index });
-  await telemetry.flush();
-  assert.equal(sent.length, 1);
+  for (let index = 0; index < 19; index += 1) telemetry.capture('app_active', { active_session_count: index });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(sent.length, 0);
+  telemetry.capture('app_active', { active_session_count: 19 });
+  await waitFor(() => sent.length === 1, 'the twentieth event triggered a send');
   assert.equal(sent[0].body.batch.length, 20);
   await telemetry.stop();
 });

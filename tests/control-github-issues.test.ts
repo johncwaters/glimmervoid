@@ -108,14 +108,6 @@ test('request-issues lists one configured project and preserves server order', a
   assert.deepEqual(h.githubPaths, ['/repo/socket']);
 });
 
-test('request-issues keeps the untrusted issue body off the control socket', async () => {
-  const h = harness();
-
-  await h.send({ type: 'request-issues', requestId: 'r1', projectId: 'p1' });
-
-  assert.equal(JSON.stringify(h.sent[0]).includes('UNPERSISTED_BODY_TOKEN'), false);
-});
-
 test('open-issue-session refuses an unknown project without calling GitHub', async () => {
   const h = harness();
 

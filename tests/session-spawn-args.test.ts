@@ -238,3 +238,18 @@ test('a hook transcript path the derived candidates cannot reproduce still resum
     s.destroy();
   }
 });
+
+test('setResumeConversation binds and clears the resume id, reflected in toSnapshot', () => {
+  const session = new Session({ id: 's', name: 's', path: process.cwd() });
+  try {
+    assert.equal(session.resumeSessionId, null);
+    assert.equal(session.toSnapshot().resumeSessionId, null);
+    session.setResumeConversation('abcd1234-0000-0000-0000-abcdabcdabcd');
+    assert.equal(session.resumeSessionId, 'abcd1234-0000-0000-0000-abcdabcdabcd');
+    assert.equal(session.toSnapshot().resumeSessionId, 'abcd1234-0000-0000-0000-abcdabcdabcd');
+    session.setResumeConversation(null);
+    assert.equal(session.resumeSessionId, null);
+  } finally {
+    session.destroy();
+  }
+});

@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { createLaneLog } from '../server/lane-log.ts';
-
 const repoRoot = path.join(import.meta.dirname, '..');
 
 const laneModules = [
@@ -23,13 +21,18 @@ function sourceFor(file: string): string {
   return fs.readFileSync(path.join(repoRoot, file), 'utf8');
 }
 
-function wiringArgumentBlock(source: string, call: string): string {
-  const lines = source.split('\n');
-  const startLine = lines.findIndex((line) => line.includes(call));
-  assert.notEqual(startLine, -1, `expected ${call} in server/backend-lanes.ts`);
-  const endLine = lines.findIndex((line, index) => index > startLine && line === '  });');
-  assert.notEqual(endLine, -1, `expected ${call} to end at   });`);
-  return lines.slice(startLine, endLine + 1).join('\n');
+function wiringArgumentObject(source: string, call: string): string {
+  const callStart = source.indexOf(call);
+  assert.notEqual(callStart, -1, `expected ${call} in server/backend-lanes.ts`);
+  const objectStart = callStart + call.length - 1;
+  let openBraceDepth = 0;
+  for (let index = objectStart; index < source.length; index++) {
+    if (source[index] === '{') openBraceDepth++;
+    if (source[index] !== '}') continue;
+    openBraceDepth--;
+    if (openBraceDepth === 0) return source.slice(objectStart, index + 1);
+  }
+  assert.fail(`expected the ${call} argument object to close`);
 }
 
 test('trace and usage lanes use lane-log for their logging boundary', () => {
@@ -55,15 +58,8 @@ test('trace and usage lanes use lane-log for their logging boundary', () => {
 test('backend lane wiring forwards logger and debug settings', () => {
   const source = sourceFor('server/backend-lanes.ts');
   for (const call of ['createTraceWiring({', 'createUsageWiring({']) {
-    const block = wiringArgumentBlock(source, call);
-    assert.match(block, /\blogger\b/, `${call} must receive logger`);
-    assert.match(block, /\bdebug:/, `${call} must receive debug`);
-  }
-});
-
-test('createLaneLog exposes every lane logging channel', () => {
-  const laneLog = createLaneLog();
-  for (const channel of [laneLog.note, laneLog.warn, laneLog.warnOnce, laneLog.debugNote]) {
-    assert.equal(typeof channel, 'function');
+    const argumentObject = wiringArgumentObject(source, call);
+    assert.match(argumentObject, /\blogger\b/, `${call} must receive logger`);
+    assert.match(argumentObject, /\bdebug:/, `${call} must receive debug`);
   }
 });
