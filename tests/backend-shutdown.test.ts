@@ -17,6 +17,7 @@ function shutdownDependencies(stoppedLanes: string[], overrides: Partial<Backend
     telegramChannel: { destroy: () => {} },
     sessions: new Map(), agentSessions: new Map(), reviewSessions: new Map(), investigationSessions: new Map(), visionsSessions: new Map(), changeMapSessions: new Map(),
     branchGc: idle,
+    coderActivity: idle,
     posthog: lane('posthog'),
     teamReview: lane('team-review'),
     myPrs: lane('my-prs'),
@@ -56,4 +57,14 @@ test('shutdown aborts and awaits title refinement and destroys its ephemeral ses
   assert.equal(hasStopped, true);
   assert.equal(hasDestroyed, true);
   assert.ok(outcome.stoppers.some((entry) => entry.name === 'task-title'));
+});
+
+test('shutdown stops and awaits coder activity as a named stopper', async () => {
+  let hasStopped = false;
+  const outcome = createBackendShutdown(shutdownDependencies([], {
+    coderActivity: { stop: async () => { await Promise.resolve(); hasStopped = true; } },
+  }))();
+  await Promise.all(outcome.stoppers.map((entry) => entry.promise));
+  assert.equal(hasStopped, true);
+  assert.ok(outcome.stoppers.some((entry) => entry.name === 'coder-activity'));
 });

@@ -231,6 +231,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const {
     allLiveSessions,
     branchGc,
+    coderActivity,
     changeMapSessions,
     gitWorkspace: assembledGitWorkspace,
     gitWorkspaceSync,
@@ -380,6 +381,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     taskTitleSessions: laneAssembly.taskTitleSessions,
     benchmarkSessions: laneAssembly.benchmarkSessions,
     branchGc,
+    coderActivity,
     posthog,
     teamReview,
     myPrs,

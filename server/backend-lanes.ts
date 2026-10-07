@@ -5,6 +5,8 @@ import type { Session } from '../session/sessions.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 import { comparableDirectoryPath } from '../shared/paths.ts';
 import { createBenchmarkWiring } from './benchmark-wiring.ts';
+import { STATES } from '../shared/states.ts';
+import { createCoderActivityWiring } from './coder-activity-wiring.ts';
 import { createBranchGcWiring } from './branch-gc-wiring.ts';
 import { createClaudeCredentials } from './claude-credentials.ts';
 import { DEFAULT_CONFIG, glimmervoidHomeDir } from './config-store.ts';
@@ -122,6 +124,11 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       .filter((sessionDirectory): sessionDirectory is string => Boolean(sessionDirectory))
       .map((sessionDirectory) => comparableDirectoryPath(sessionDirectory)))),
     ...(options.branchGcWiringOptions || {}),
+  });
+  const coderActivity = createCoderActivityWiring({
+    config,
+    countRunningSessions: () => allLiveSessions().filter((session) => session.state === STATES.RUNNING).length,
+    log: logger,
   });
   const posthog = createPosthogWiring({
     config,
@@ -426,6 +433,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     const startSteps = [
       () => void visionsSetup.maybeApply(),
       () => branchGc.start(),
+      () => coderActivity.start(),
       () => posthog.startPoller(),
       () => teamReview.startPoller(),
       () => myPrs.startPoller(),
@@ -441,6 +449,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   function restartServiceLanes(): void {
     const restartSteps = [
       () => branchGc.restartIfConfigChanged(),
+      () => coderActivity.restartIfConfigChanged(),
       () => posthog.restartIfConfigChanged(),
       () => teamReview.restartIfConfigChanged(),
       () => myPrs.restartIfConfigChanged(),
@@ -456,6 +465,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     benchmarks,
     benchmarkSessions,
     branchGc,
+    coderActivity,
     changeMapNarrator,
     taskTitleRefiner,
     taskTitleSessions,

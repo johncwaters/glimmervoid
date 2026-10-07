@@ -448,6 +448,15 @@ test('a config.json reload without the workflows block clears the live rules', (
   });
 });
 
+test('applySettings applies a changed coder block and clears a removed one', () => {
+  withStore({ projects: [], coder: { appSlug: 'first-app' } }, (store) => {
+    store.applySettings({ projects: [], coder: { appSlug: 'second-app' } });
+    assert.deepEqual(store.config.coder, { appSlug: 'second-app' });
+    store.applySettings({ projects: [], cursorBlink: true });
+    assert.equal('coder' in store.config, false);
+  });
+});
+
 test('applySettings stores an empty or null integration branch as auto', () => {
   withStore({ projects: [], integrationBranch: 'release' }, (store) => {
     store.applySettings({ integrationBranch: '' });

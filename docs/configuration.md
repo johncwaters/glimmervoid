@@ -235,6 +235,7 @@ Edit these in `config.json` unless the note names another dashboard surface.
 | Key | Default | Notes |
 |-----|---------|-------|
 | `taskTitle` | `{"refiner":{"enabled":true,"model":"haiku","minIntervalSeconds":60,"timeoutSeconds":60}}` | The refiner keeps session card titles useful when prompts change topic; its model and timing remain file-only to keep advanced tuning out of Settings. |
+| `coder` |  | **File-only.** Set `coder.appSlug` to an existing `coder_app` slug on the workspace agent to prevent Coder autostop while Glimmervoid sessions are running. Requires `CODER_AGENT_URL` and `CODER_AGENT_TOKEN` (or `CODER_AGENT_TOKEN_FILE`) in the environment; Coder supplies them when started from a workspace terminal or startup script. |
 | `planReview` | `{"enabled":true}` | Hold Claude Code plan approvals (`ExitPlanMode`) so the plan can be read and approved from the dashboard or phone (`planReview.enabled`). |
 | `worktreeSyncOnStart` | `true` | Fetch origin and fast-forward the local integration branch before a session starts its worktree. |
 | `hooks` |  | Operator-defined hooks per project, managed from the dashboard Hooks panel. |

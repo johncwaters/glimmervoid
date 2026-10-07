@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Coder workspaces stay up while sessions run**: set `coder.appSlug` to an existing `coder_app` slug to keep a Coder workspace from autostopping while Glimmervoid sessions are running. Glimmervoid needs `CODER_AGENT_URL` plus `CODER_AGENT_TOKEN` (or `CODER_AGENT_TOKEN_FILE`) in its environment, which Coder provides when Glimmervoid starts from a workspace terminal or startup script.
 - **Answered threads show the conversation**: each answered thread in a review now shows your comment and the author's reply, whether the automatic check thinks it was addressed and why, and a normal-size Resolve button, so you can decide without opening GitHub.
 - **Re-reviews stop nitpicking**: when Glimmervoid reviews a pull request again after new commits, it only raises high or critical issues, including earlier findings that are still open. Nits and all medium or low findings are dropped, and a re-review never comes back as approve with nits.
 - **Reviews move on after you act**: approving, commenting, discarding or requeueing the open pull request opens the next one that needs you and shows what just happened above it. When nothing is left the pane says you are all caught up, and a reply that carries a warning keeps you on that pull request so you can check GitHub.

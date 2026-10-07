@@ -519,6 +519,8 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     if (newConfig.telemetry != null) config.telemetry = newConfig.telemetry;
     if (newConfig.workflows == null) delete config.workflows;
     if (newConfig.workflows != null) config.workflows = newConfig.workflows;
+    if (newConfig.coder == null) delete config.coder;
+    if (newConfig.coder != null) config.coder = newConfig.coder;
     config.customAgents = newConfig.customAgents ?? [];
 
     config.hooks = Array.isArray(newConfig.hooks) ? newConfig.hooks : [];
