@@ -8,7 +8,8 @@ import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createStateGlyph } from './state-glyph.ts';
 import { sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
-import { chooseSelectedKey, emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
+import { celebrateMerge } from './merge-celebration.ts';
+import { chooseSelectedKey, emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, mergeConfirmMessage, mergeControlState, mergeCelebrationText, mergeWhenReadyControlState, newlyMergedPrs, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
 import type { MergeAttempt, ToggleControlState } from './my-prs-view-core.ts';
 
 let root: HTMLDivElement | null = null;
@@ -19,6 +20,7 @@ let latest: MyPrsStatus | null = null;
 let selectedKey: string | null = null;
 let pollingControls: ReturnType<typeof createReviewsPollingControls> | null = null;
 const mergeAttempts = new Map<string, MergeAttempt>();
+const celebratedMergeKeys = new Set<string>();
 const pendingMergeRequests = new Map<string, { requestId: string; head: string; timer: number }>();
 interface PrToggle {
   label: string;
@@ -369,8 +371,17 @@ export function mountMyPrsView(parent: HTMLElement, tabs: HTMLElement): HTMLDivE
 export function applyMyPrsStatus(message: unknown): void {
   const parsed = parseMyPrsStatus(message);
   if (!parsed) return;
+  const mergedSinceLastStatus = newlyMergedPrs(latest?.prs ?? null, parsed.prs);
   latest = parsed;
   render();
+  celebrateMergedPrs(mergedSinceLastStatus);
+}
+
+function celebrateMergedPrs(mergedPrs: readonly MyPr[]): void {
+  const uncelebratedPrs = mergedPrs.filter((pr) => !celebratedMergeKeys.has(pr.key));
+  if (uncelebratedPrs.length === 0) return;
+  for (const pr of uncelebratedPrs) celebratedMergeKeys.add(pr.key);
+  celebrateMerge(mergeCelebrationText(uncelebratedPrs));
 }
 
 export function applyMyPrMergeResult(message: unknown): void {
@@ -385,4 +396,7 @@ export function applyMyPrMergeResult(message: unknown): void {
     return;
   }
   settleMerge(mergeResult.key, pending.head, mergeResult.kind ?? 'unconfirmed', '');
+  if (mergeResult.kind !== 'merged') return;
+  const mergedPr = latest?.prs.find((pr) => pr.key === mergeResult.key);
+  if (mergedPr) celebrateMergedPrs([mergedPr]);
 }

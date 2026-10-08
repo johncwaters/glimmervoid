@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyStateText, groupMyPrs, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, groupStackedMyPrs, chooseSelectedKey, keepMergeableControlState, keepMergeableRowLabel, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from '../public/my-prs-view-core.ts';
+import { emptyStateText, groupMyPrs, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, groupStackedMyPrs, chooseSelectedKey, keepMergeableControlState, keepMergeableRowLabel, mergeCelebrationText, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, newlyMergedPrs, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from '../public/my-prs-view-core.ts';
 import { toMyPr } from '../server/core/my-prs-core.ts';
 import type { MyPr, MyPrSearchNode, MyPrThread } from '../shared/contracts/my-prs.ts';
 
@@ -54,13 +54,13 @@ test('a feature turned off in Settings hides its toggle even for a PR it still h
   assert.equal(keepMergeableControlState(base, false, '', isKeepMergeableFeatureEnabled(legacyStatus)).isVisible, true);
 });
 
-test('groups every stage in fixed section order and preserves selection', () => {
+test('groups every stage with Ready to merge first and preserves selection', () => {
   const sections = groupMyPrs([pr('merged', 5), pr('draft', 4), pr('ready', 3), pr('unknown', 2), pr('conflicts', 1)]);
   assert.deepEqual(sections.map((section) => [section.title, section.prs.map((item) => item.number)]), [
-    ['Needs you', [1]], ['Waiting', [2]], ['Ready to merge', [3]], ['Drafts', [4]], ['Merged today', [5]],
+    ['Ready to merge', [3]], ['Needs you', [1]], ['Waiting', [2]], ['Drafts', [4]], ['Merged today', [5]],
   ]);
-  assert.equal(chooseSelectedKey(sections, 'Acme/app#3'), 'Acme/app#3');
-  assert.equal(chooseSelectedKey(sections, 'gone'), 'Acme/app#1');
+  assert.equal(chooseSelectedKey(sections, 'Acme/app#1'), 'Acme/app#1');
+  assert.equal(chooseSelectedKey(sections, 'gone'), 'Acme/app#3');
 });
 
 test('labels, tones and empty messages reflect status', () => {
@@ -273,7 +273,7 @@ test('a conflicts child stacked on a needs-approval parent puts the whole stack 
   const waitingAlone = { ...pr('checks-pending', 3), headRefName: 'unrelated', baseRefName: 'main' };
   const sections = sectionStackedMyPrs([waitingAlone, conflictsChild, parent]);
   assert.deepEqual(sections.map((section) => [section.title, section.rows.map(({ pr }) => pr.number)]), [
-    ['Needs you', [1, 2]], ['Waiting', [3]], ['Ready to merge', []], ['Drafts', []], ['Merged today', []],
+    ['Ready to merge', []], ['Needs you', [1, 2]], ['Waiting', [3]], ['Drafts', []], ['Merged today', []],
   ]);
 });
 
@@ -330,4 +330,27 @@ test('keep mergeable row label names a failed or running repair and carries the 
   assert.equal(keepMergeableRowLabel({ ...pr, keepMergeableAttempt: { outcome: 'pushed' as const, at: 1 } }, true), null);
   assert.equal(keepMergeableRowLabel({ ...pr, keepMergeable: false }, true), null);
   assert.equal(keepMergeableRowLabel(pr, false), null);
+});
+
+test('a ready parent with a failing child stays under Needs you even though Ready to merge renders first', () => {
+  const readyParent = { ...pr('ready', 1), headRefName: 'foundation', baseRefName: 'main' };
+  const failingChild = { ...pr('checks-failing', 2), headRefName: 'followup', baseRefName: 'foundation' };
+  const readyAlone = { ...pr('ready', 3), headRefName: 'unrelated', baseRefName: 'main' };
+  const sections = sectionStackedMyPrs([failingChild, readyParent, readyAlone]);
+  assert.deepEqual(sections.slice(0, 2).map((section) => [section.title, section.rows.map(({ pr }) => pr.number)]), [
+    ['Ready to merge', [3]], ['Needs you', [1, 2]],
+  ]);
+});
+
+test('newly merged PRs are only those that were open in the previous status', () => {
+  const merged = (number: number): MyPr => ({ ...pr('merged', number), state: 'MERGED' });
+  const previous = [pr('ready', 1), pr('ready', 2), merged(3)];
+  const next = [merged(1), pr('ready', 2), merged(3), merged(4)];
+  assert.deepEqual(newlyMergedPrs(previous, next).map((item) => item.number), [1]);
+  assert.deepEqual(newlyMergedPrs(null, next), []);
+});
+
+test('merge celebration text names one PR or counts several', () => {
+  assert.equal(mergeCelebrationText([pr('merged', 7)]), 'Merged Acme/app#7');
+  assert.equal(mergeCelebrationText([pr('merged', 7), pr('merged', 8)]), 'Merged 2 pull requests');
 });

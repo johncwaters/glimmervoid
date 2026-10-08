@@ -69,8 +69,9 @@ export function mergeWhenReadyControlState(pr: MyPr, isPending: boolean, errorTe
   return toggleControlState(pr, position !== null, isPending, errorText, mergeQueueStatusText(position, !!pr.isMergeQueueHeldForRepairPush), isFeatureEnabled);
 }
 
-const SECTION_TITLES = ['Needs you', 'Waiting', 'Ready to merge', 'Drafts', 'Merged today'] as const;
-type SectionTitle = typeof SECTION_TITLES[number];
+const SECTION_TITLES_BY_URGENCY = ['Needs you', 'Waiting', 'Ready to merge', 'Drafts', 'Merged today'] as const;
+type SectionTitle = typeof SECTION_TITLES_BY_URGENCY[number];
+const SECTION_TITLES_IN_DISPLAY_ORDER: readonly SectionTitle[] = ['Ready to merge', 'Needs you', 'Waiting', 'Drafts', 'Merged today'];
 const SECTION_BY_STAGE: Record<MyPrStage, SectionTitle> = {
   conflicts: 'Needs you', behind: 'Needs you', 'checks-failing': 'Needs you', 'changes-requested': 'Needs you', 'unresolved-threads': 'Needs you',
   'checks-pending': 'Waiting', 'needs-approval': 'Waiting', unknown: 'Waiting',
@@ -95,7 +96,7 @@ export function parseMyPrsStatus(message: unknown): MyPrsStatusType | null {
 }
 
 export function groupMyPrs(prs: readonly MyPr[]): MyPrSection[] {
-  return SECTION_TITLES.map((title) => ({ title, prs: prs.filter((pr) => SECTION_BY_STAGE[pr.stage] === title) }));
+  return SECTION_TITLES_IN_DISPLAY_ORDER.map((title) => ({ title, prs: prs.filter((pr) => SECTION_BY_STAGE[pr.stage] === title) }));
 }
 
 export interface MyPrStackRow { pr: MyPr; parentKey: string | null; depth: number }
@@ -139,20 +140,22 @@ export function groupStackedMyPrs(prs: readonly MyPr[]): MyPrStack[] {
 
 export interface MyPrStackSection extends MyPrSection { rows: MyPrStackRow[] }
 
-function mostUrgentSectionIndex(stack: MyPrStack): number {
-  return stack.rows.reduce((mostUrgentIndex, { pr }) => Math.min(mostUrgentIndex, SECTION_TITLES.indexOf(SECTION_BY_STAGE[pr.stage])), SECTION_TITLES.length - 1);
+function mostUrgentSectionTitle(stack: MyPrStack): SectionTitle {
+  const mostUrgentIndex = stack.rows.reduce((urgentIndex, { pr }) => Math.min(urgentIndex, SECTION_TITLES_BY_URGENCY.indexOf(SECTION_BY_STAGE[pr.stage])), SECTION_TITLES_BY_URGENCY.length - 1);
+  return SECTION_TITLES_BY_URGENCY[mostUrgentIndex];
 }
 
 export function sectionStackedMyPrs(prs: readonly MyPr[]): MyPrStackSection[] {
-  const sections: MyPrStackSection[] = SECTION_TITLES.map((title) => ({ title, prs: [], rows: [] }));
+  const sectionsByTitle = new Map(SECTION_TITLES_BY_URGENCY.map((title): [SectionTitle, MyPrStackSection] => [title, { title, prs: [], rows: [] }]));
   for (const stack of groupStackedMyPrs(prs)) {
-    const section = sections[mostUrgentSectionIndex(stack)];
+    const section = sectionsByTitle.get(mostUrgentSectionTitle(stack));
+    if (!section) continue;
     for (const row of stack.rows) {
       section.rows.push(row);
       section.prs.push(row.pr);
     }
   }
-  return sections;
+  return SECTION_TITLES_IN_DISPLAY_ORDER.flatMap((title) => sectionsByTitle.get(title) ?? []);
 }
 
 export function stageLabel(stage: MyPrStage): string { return STAGE_LABELS[stage]; }
@@ -293,6 +296,17 @@ export function chooseSelectedKey(sections: readonly MyPrSection[], previousKey:
   const prs = sections.flatMap((section) => section.prs);
   if (previousKey && prs.some((pr) => pr.key === previousKey)) return previousKey;
   return prs[0]?.key ?? null;
+}
+
+export function newlyMergedPrs(previous: readonly MyPr[] | null, next: readonly MyPr[]): MyPr[] {
+  if (!previous) return [];
+  const openKeys = new Set(previous.filter((pr) => pr.state === 'OPEN').map((pr) => pr.key));
+  return next.filter((pr) => pr.state === 'MERGED' && openKeys.has(pr.key));
+}
+
+export function mergeCelebrationText(mergedPrs: readonly MyPr[]): string {
+  if (mergedPrs.length === 1) return `Merged ${mergedPrs[0].key}`;
+  return `Merged ${mergedPrs.length} pull requests`;
 }
 
 export interface MergeAttempt { head: string; phase: 'pending' | 'failed' | MyPrMergeKind; text: string }
