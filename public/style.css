@@ -130,6 +130,19 @@ body {
   color: var(--accent);
 }
 
+:is(.header-brand, .phone-topbar):has(.header-connection[data-reconnected]) .header-title::before {
+  animation: header-reconnected-pulse 1.4s ease-in-out 2;
+}
+
+@keyframes header-reconnected-pulse {
+  0%, 100% { color: var(--accent); text-shadow: none; }
+  50%      { color: var(--state-running); text-shadow: 0 0 6px color-mix(in oklab, var(--state-running) 45%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.header-brand, .phone-topbar):has(.header-connection[data-reconnected]) .header-title::before { animation: none; }
+}
+
 .header-right {
   display: flex;
   align-items: center;

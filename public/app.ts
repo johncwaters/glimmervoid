@@ -91,7 +91,9 @@ function showShutdownOverlay(message?: string) {
 }
 
 setConnectionStateCallback((state, label) => {
+  const isReconnect = state === 'connected' && connectionEl.dataset.state === 'disconnected';
   connectionEl.dataset.state = state;
+  connectionEl.toggleAttribute('data-reconnected', isReconnect);
   connectionLabel.textContent = label;
   connectionEl.title = label;
   applyTraceConnectionState(state === 'connected');

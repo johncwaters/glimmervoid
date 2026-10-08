@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Quieter header**: the green connection dot next to the Glimmervoid logo is gone while the dashboard is connected. The dot and its label still appear while connecting, after a disconnect, or once the server shuts down.
+- **Quieter header**: the green connection dot next to the Glimmervoid logo is gone while the dashboard is connected. The dot and its label still appear while connecting, after a disconnect, or once the server shuts down. When the connection comes back after a drop, the arrow before the logo pulses green twice.
 
 ## [0.30.0] - 2026-10-08
 
