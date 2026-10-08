@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { Browser, BrowserContext, ConsoleMessage, Page } from 'playwright-core';
+import type { Browser, BrowserContext, ConsoleMessage, Page, WebSocketRoute } from 'playwright-core';
 
 import { safeTextTail } from '../support/backend-harness.ts';
-import { heightWithKeyboardUp, layoutFor } from './cases-core.ts';
+import { heightWithKeyboardUp, layoutFor, needsSocketRoute } from './cases-core.ts';
 import type { CardControl, HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from './cases-core.ts';
 import { expectedRows, parseStatusRow } from './frame-core.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
@@ -92,6 +92,11 @@ interface Viewer {
   width: number;
   height: number;
   restoreHeight: number;
+  silenceOpenSockets: () => number;
+}
+
+interface RoutedSocket {
+  isSilenced: boolean;
 }
 
 interface CaseLog {
@@ -539,6 +544,53 @@ async function takeShot(viewer: Viewer, artifacts: ArtifactPaths, key: string, n
   return { ...passedOutcome('screenshot', shotPath), shot: shotPath };
 }
 
+function isDashboardSocketUrl(url: URL): boolean {
+  return url.pathname === '/control' || url.pathname.startsWith('/terminals/');
+}
+
+function isSendableCloseCode(code: number | undefined): code is number {
+  if (code === undefined) return false;
+  return code === 1000 || (code >= 3000 && code <= 4999);
+}
+
+function forwardClose(target: WebSocketRoute, code: number | undefined, reason: string | undefined): void {
+  if (!isSendableCloseCode(code)) {
+    void target.close();
+    return;
+  }
+  void target.close({ code, reason });
+}
+
+async function routeDashboardSockets(page: Page): Promise<() => number> {
+  const routedSockets: RoutedSocket[] = [];
+  await page.routeWebSocket(isDashboardSocketUrl, (pageSide) => {
+    const serverSide = pageSide.connectToServer();
+    const routed: RoutedSocket = { isSilenced: false };
+    routedSockets.push(routed);
+    pageSide.onMessage((message) => { if (!routed.isSilenced) serverSide.send(message); });
+    serverSide.onMessage((message) => { if (!routed.isSilenced) pageSide.send(message); });
+    pageSide.onClose((code, reason) => { if (!routed.isSilenced) forwardClose(serverSide, code, reason); });
+    serverSide.onClose((code, reason) => { if (!routed.isSilenced) forwardClose(pageSide, code, reason); });
+  });
+  return () => {
+    let newlySilencedCount = 0;
+    for (const routed of routedSockets) {
+      if (routed.isSilenced) continue;
+      routed.isSilenced = true;
+      newlySilencedCount += 1;
+    }
+    return newlySilencedCount;
+  };
+}
+
+async function runSuspend(viewer: Viewer): Promise<StepOutcome> {
+  const silencedCount = viewer.silenceOpenSockets();
+  if (silencedCount === 0) return failedOutcome('sockets-silenced', 'no routed dashboard socket was open to silence');
+  const backgrounded = await runEngagement(viewer, false, false);
+  if (!backgrounded.ok) return backgrounded;
+  return passedOutcome('sockets-silenced', `${silencedCount} dashboard sockets held open with no traffic, page hidden`);
+}
+
 async function createViewer(
   browser: Browser,
   viewerId: ViewerId,
@@ -546,6 +598,7 @@ async function createViewer(
   layout: Layout,
   baseUrl: string,
   log: CaseLog,
+  shouldRouteSockets: boolean,
 ): Promise<Viewer> {
   const context = await browser.newContext({
     viewport: { width: viewport.width, height: viewport.height },
@@ -566,6 +619,7 @@ async function createViewer(
     pushBoundedLine(log.lines, line);
     pushBoundedLine(log.pageErrors, line);
   });
+  const silenceOpenSockets = shouldRouteSockets ? await routeDashboardSockets(page) : () => 0;
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   return {
     id: viewerId,
@@ -576,6 +630,7 @@ async function createViewer(
     width: viewport.width,
     height: viewport.height,
     restoreHeight: viewport.height,
+    silenceOpenSockets,
   };
 }
 
@@ -606,11 +661,12 @@ export async function runCase({
   let viewerB: Viewer | null = null;
 
   const companionLayout = harnessCase.companion ? layoutFor(harnessCase.companion) : null;
+  const shouldRouteSockets = needsSocketRoute(harnessCase.scenario);
 
   const viewerFor = async (viewerId: ViewerId): Promise<Viewer> => {
     if (viewerId === 'a') {
       if (viewerA) return viewerA;
-      viewerA = await createViewer(browser, 'a', harnessCase.viewport, harnessCase.expectedLayout, baseUrl, log);
+      viewerA = await createViewer(browser, 'a', harnessCase.viewport, harnessCase.expectedLayout, baseUrl, log, shouldRouteSockets);
       const ready = await waitForPageReady(viewerA, harnessCase.expectedLayout, deadlines);
       const layout = await viewerA.page.evaluate(readLayout);
       observedLayout = layout.layout;
@@ -621,7 +677,7 @@ export async function runCase({
     const companion = harnessCase.companion;
     if (!companion) throw new Error(`${key} asks for a companion viewer but declares no companion viewport`);
     const layout = companionLayout ?? 'desktop';
-    viewerB = await createViewer(browser, 'b', companion, layout, baseUrl, log);
+    viewerB = await createViewer(browser, 'b', companion, layout, baseUrl, log, shouldRouteSockets);
     const ready = await waitForPageReady(viewerB, layout, {
       ...deadlines,
       pageReadyMs: Math.min(deadlines.pageReadyMs, DEFAULT_DEADLINES.pageReadyMs),
@@ -666,6 +722,7 @@ export async function runCase({
       return passedOutcome('waited', `${step.durationMs}ms passed`);
     }
     if (step.kind === 'background') return runEngagement(viewer, false, step.quiet === true);
+    if (step.kind === 'suspend') return runSuspend(viewer);
     if (step.kind === 'window-blur') return runWindowBlur(viewer);
     if (step.kind === 'tap-terminal') return runTapTerminal(viewer, deadlines);
     if (step.kind === 'remember') return runRemember(viewer, sessionId, step.label, rememberedGridByKey);

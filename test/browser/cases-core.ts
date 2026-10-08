@@ -18,6 +18,7 @@ export type Step =
   | { kind: 'foreground'; quiet?: boolean; viewer?: ViewerId }
   | { kind: 'wait'; durationMs: number; viewer?: ViewerId }
   | { kind: 'background'; quiet?: boolean; viewer?: ViewerId }
+  | { kind: 'suspend'; viewer?: ViewerId }
   | { kind: 'window-blur'; viewer?: ViewerId }
   | { kind: 'tap-terminal'; viewer?: ViewerId }
   | { kind: 'remember'; label: string; viewer?: ViewerId }
@@ -446,6 +447,32 @@ export const SCENARIOS: readonly Scenario[] = [
     ],
   },
   {
+    name: 'resume-after-long-hide',
+    phoneOnly: true,
+    steps: [
+      { kind: 'open' },
+      { kind: 'settle' },
+      { kind: 'suspend' },
+      { kind: 'wait', durationMs: 11000 },
+      { kind: 'foreground' },
+      { kind: 'burst', lines: 5 },
+      { kind: 'settle' },
+    ],
+  },
+  {
+    name: 'resume-after-short-hide',
+    phoneOnly: true,
+    steps: [
+      { kind: 'open' },
+      { kind: 'settle' },
+      { kind: 'suspend' },
+      { kind: 'wait', durationMs: 1000 },
+      { kind: 'foreground' },
+      { kind: 'burst', lines: 5 },
+      { kind: 'settle' },
+    ],
+  },
+  {
     name: 'self-check-must-fail',
     proveFailure: true,
     steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-grid', tickOffset: 1 }],
@@ -496,6 +523,10 @@ export function companionFor(viewport: Viewport, scenario: Scenario): Viewport |
 
 function needsSoftKeyboard(scenario: Scenario): boolean {
   return scenario.steps.some((step) => step.kind === 'keyboard');
+}
+
+export function needsSocketRoute(scenario: Pick<Scenario, 'steps'>): boolean {
+  return scenario.steps.some((step) => step.kind === 'suspend');
 }
 
 export function needsTeamReview(scenario: Scenario): boolean {

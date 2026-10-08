@@ -36,7 +36,7 @@ import type { SessionUi } from './session-card/card-registry.ts';
 import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionEndedTurn, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
-import { reconnectDataWs, syncGridOnEngagementEdge } from './session-card/terminal.ts';
+import { holdTerminalInputDuringWakeCheck, reconnectDataWs, releaseHeldTerminalInput, syncGridOnEngagementEdge } from './session-card/terminal.ts';
 import { showErrorToast } from './session-card/toast.ts';
 import { rebuildWebglGlyphAtlases } from './session-card/webgl-pool.ts';
 import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, clearSettingsUpdateRequest, mountSettingsView, refreshSettingsStatus, resolveSettingsTarget } from './settings-panel.ts';
@@ -1005,21 +1005,36 @@ window.addEventListener('blur', noteViewerFocusEdge);
 document.addEventListener('visibilitychange', noteViewerFocusEdge);
 
 let _wakeLivenessCheckRunning = false;
+let _hiddenSinceMs: number | null = null;
+
+function takeHiddenForMs() {
+  if (document.visibilityState !== 'visible') return 0;
+  const hiddenSinceMs = _hiddenSinceMs;
+  _hiddenSinceMs = null;
+  if (hiddenSinceMs === null) return 0;
+  return Date.now() - hiddenSinceMs;
+}
 
 async function checkWakeLiveness() {
+  const hiddenForMs = takeHiddenForMs();
   if (_wakeLivenessCheckRunning) return;
   _wakeLivenessCheckRunning = true;
+  holdTerminalInputDuringWakeCheck();
   try {
-    const state = await checkControlLiveness();
-    if (state !== 'dead') return;
+    const state = await checkControlLiveness(hiddenForMs);
+    if (state === 'ok') return;
     for (const id of sessionUIs.keys()) reconnectDataWs(id);
   } finally {
+    releaseHeldTerminalInput();
     _wakeLivenessCheckRunning = false;
   }
 }
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible') return;
+  if (document.visibilityState !== 'visible') {
+    _hiddenSinceMs ??= Date.now();
+    return;
+  }
   rebuildWebglGlyphAtlases();
   checkWakeLiveness();
 });

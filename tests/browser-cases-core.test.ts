@@ -12,13 +12,14 @@ import {
   companionFor,
   heightWithKeyboardUp,
   layoutFor,
+  needsSocketRoute,
   needsTeamReview,
 } from '../test/browser/cases-core.ts';
 import type { HarnessCase, Scenario, Step, Viewport } from '../test/browser/cases-core.ts';
 import { BURST_CAP } from '../test/browser/frame-core.ts';
 
-const DEFAULT_CASE_COUNT = 58;
-const PROVE_FAILURE_CASE_COUNT = 60;
+const DEFAULT_CASE_COUNT = 60;
+const PROVE_FAILURE_CASE_COUNT = 62;
 
 function viewportNamed(name: string): Viewport {
   const found = VIEWPORTS.find((viewport) => viewport.name === name);
@@ -131,6 +132,11 @@ test('a soft keyboard step never runs on a viewport with no keyboard height', ()
 test('only a scenario that asserts team review rows turns team review on', () => {
   const teamReviewScenarioNames = SCENARIOS.filter(needsTeamReview).map((scenario) => scenario.name);
   assert.deepEqual(teamReviewScenarioNames, ['team-review']);
+});
+
+test('only a scenario that suspends a viewer routes its dashboard sockets', () => {
+  const routedScenarioNames = SCENARIOS.filter(needsSocketRoute).map((scenario) => scenario.name);
+  assert.deepEqual(routedScenarioNames, ['resume-after-long-hide', 'resume-after-short-hide']);
 });
 
 test('no burst asks for more lines than the relay is pinned to carry', () => {
@@ -292,6 +298,8 @@ test('cases come out in viewport order then scenario order', () => {
     'keyboard-down-with-focus-in-card',
     'hidden-phone-never-steals',
     'blurred-viewer-never-steals',
+    'resume-after-long-hide',
+    'resume-after-short-hide',
   ]);
 });
 

@@ -72,6 +72,23 @@ function reportClipboardFailure(source: string, err: unknown) {
 }
 
 
+function isStillCurrentAndDetached(sessionId: string, ui: SessionUi) {
+  return sessionUIs.get(sessionId) === ui && !ui.dataWs;
+}
+
+function detachThenReconnect(sessionId: string, ui: SessionUi, term: Terminal, delayMs: number) {
+  renderScheduler.unregister(sessionId);
+  ui.dataWs = null;
+  ui._resetGridClaim?.();
+  setTimeout(() => {
+    if (!isStillCurrentAndDetached(sessionId, ui)) return;
+    void loadPageToken().catch(() => {}).then(() => {
+      if (!isStillCurrentAndDetached(sessionId, ui)) return;
+      connectDataWs(sessionId, ui, term);
+    });
+  }, delayMs);
+}
+
 function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   const url = buildWebSocketUrl(location, withPageToken(`/terminals/${encodeURIComponent(sessionId)}`));
   const ws = new WebSocket(url);
@@ -83,6 +100,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   renderScheduler.register(sessionId, (data, cb) => term.write(data, cb));
 
   ws.addEventListener('message', (event) => {
+    if (ui.dataWs !== ws) return;
     const frame = readDataFrame(event.data, frameState);
     if (frame.kind === 'bytes') {
       noteSessionOutput(ui);
@@ -108,19 +126,10 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
 
   ws.addEventListener('close', () => {
     if (ui.dataWs !== ws) return;
-    renderScheduler.unregister(sessionId);
-    ui.dataWs = null;
-    ui._resetGridClaim?.();
     if (!hasEverOpened) clearPageToken();
     const retryDelayMs = nextReconnectDelayMs(ui._dataWsRetryAttempt || 0);
     ui._dataWsRetryAttempt = (ui._dataWsRetryAttempt || 0) + 1;
-    setTimeout(() => {
-      if (sessionUIs.get(sessionId) !== ui) return;
-      void loadPageToken().catch(() => {}).then(() => {
-        if (sessionUIs.get(sessionId) !== ui) return;
-        connectDataWs(sessionId, ui, term);
-      });
-    }, retryDelayMs);
+    detachThenReconnect(sessionId, ui, term, retryDelayMs);
   });
 
   ws.addEventListener('open', () => {
@@ -129,30 +138,46 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
 
     ui._retryOwedGridClaim?.();
 
-    const queued = ui._inputQueue;
-    if (queued && queued.length > 0) {
-      setTimeout(() => {
-        if (ws.readyState !== WebSocket.OPEN) return;
-        for (const data of queued) {
-          ws.send(JSON.stringify({ type: 'input', data }));
-        }
-        queued.length = 0;
-      }, 50);
-    }
+    if (!ui._inputQueue?.length) return;
+    setTimeout(() => {
+      if (ui.dataWs !== ws) return;
+      sendQueuedInput(ui);
+    }, 50);
   });
+}
+
+let isInputHeldForWakeCheck = false;
+
+function sendQueuedInput(ui: SessionUi) {
+  const queued = ui._inputQueue;
+  const ws = ui.dataWs;
+  if (isInputHeldForWakeCheck || !queued?.length || ws?.readyState !== WebSocket.OPEN) return;
+  for (const data of queued) ws.send(JSON.stringify({ type: 'input', data }));
+  queued.length = 0;
+}
+
+export function holdTerminalInputDuringWakeCheck() {
+  isInputHeldForWakeCheck = true;
+}
+
+export function releaseHeldTerminalInput() {
+  isInputHeldForWakeCheck = false;
+  for (const ui of sessionUIs.values()) sendQueuedInput(ui);
 }
 
 export function reconnectDataWs(id: unknown) {
   const ui = findSessionUi(id);
-  if (ui?.dataWs) {
-    ui.dataWs.close();
-  }
+  if (typeof id !== 'string' || !ui?.term) return;
+  const abandonedSocket = ui.dataWs;
+  ui._dataWsRetryAttempt = 0;
+  detachThenReconnect(id, ui, ui.term, 0);
+  abandonedSocket?.close();
 }
 
 export function sendTerminalInput(ui: SessionUi | null | undefined, data: string | null | undefined, options?: { fromSoftKeyboard?: boolean }) {
   if (!ui || data == null || data === '') return false;
   if (!options?.fromSoftKeyboard) ui._resetSoftKeyboardBuffer?.();
-  if (ui.dataWs?.readyState === WebSocket.OPEN) {
+  if (!isInputHeldForWakeCheck && !ui._inputQueue?.length && ui.dataWs?.readyState === WebSocket.OPEN) {
     ui.dataWs.send(JSON.stringify({ type: 'input', data }));
     return true;
   }

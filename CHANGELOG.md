@@ -65,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Resuming the dashboard on a phone**: coming back to Chrome after the phone slept or switched apps no longer leaves terminals frozen until a refresh. After 10 seconds or more in the background the dashboard reconnects at once, after a shorter switch it checks the connection first, and anything you type while it checks is delivered once the connection is confirmed instead of being lost.
 - **Doubled alert sound**: desktop notifications are now silent, so a session alert plays only your chosen alert sound instead of that sound plus the system notification sound.
 - **Custom alert sounds play like built-in ones**: a custom sound file now plays through the same audio path as Chime, Soft ping and Beep, so it follows the same browser rules and never plays together with the Chime. The Chime plays instead only when the custom file cannot be loaded.
 - **Keep mergeable**: failed attempts now show their reason beside the control and on the Mine tab row, retry once when the base branch gains new commits, and retry right away when you turn Keep mergeable on again.

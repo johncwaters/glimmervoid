@@ -60,6 +60,23 @@ export function sendControlRequest(type: string, payload?: Record<string, unknow
   });
 }
 
+function rejectPendingRequests(reason: string) {
+  for (const pending of pendingRequests.values()) {
+    clearTimeout(pending.timer);
+    pending.reject(new Error(reason));
+  }
+  pendingRequests.clear();
+}
+
+function replaceControlSocket() {
+  const abandonedSocket = controlWs;
+  controlWs = null;
+  rejectPendingRequests('Connection replaced');
+  abandonedSocket?.close();
+  controlRetryAttempt = 0;
+  connectControl();
+}
+
 export function connectControl() {
   if (controlRetryTimer !== null) {
     if (controlRetryTimer !== null) clearTimeout(controlRetryTimer);
@@ -90,6 +107,7 @@ export function connectControl() {
   });
 
   ws.addEventListener('message', (event: MessageEvent<string>) => {
+    if (controlWs !== ws) return;
     let rawMessage: unknown;
     try {
       rawMessage = JSON.parse(event.data);
@@ -126,12 +144,7 @@ export function connectControl() {
   ws.addEventListener('close', () => {
     if (controlWs !== ws) return;
     controlWs = null;
-
-    for (const pending of pendingRequests.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(new Error('Connection closed'));
-    }
-    pendingRequests.clear();
+    rejectPendingRequests('Connection closed');
 
     if (!hasEverOpened) clearPageToken();
     if (_connectionStateCallback) _connectionStateCallback('disconnected', 'Reconnecting');
@@ -141,13 +154,14 @@ export function connectControl() {
   });
 }
 
-export async function checkControlLiveness() {
+export async function checkControlLiveness(hiddenForMs?: number) {
   if (livenessProbePromise) return livenessProbePromise;
   const action = decideLivenessAction({
     hasSocket: !!controlWs,
     readyState: controlWs?.readyState ?? null,
     retryPending: controlRetryTimer !== null,
     connectingAgeMs: Date.now() - connectingSince,
+    hiddenForMs,
   });
   if (action === 'retry-now') {
     if (controlRetryTimer !== null) clearTimeout(controlRetryTimer);
@@ -157,9 +171,7 @@ export async function checkControlLiveness() {
     return 'reconnecting';
   }
   if (action === 'connect') {
-    controlWs?.close();
-    controlRetryAttempt = 0;
-    connectControl();
+    replaceControlSocket();
     return 'reconnecting';
   }
   if (action === 'wait') return 'reconnecting';
@@ -167,7 +179,7 @@ export async function checkControlLiveness() {
   livenessProbePromise = sendControlRequest('ping', {})
     .then((): 'ok' => 'ok')
     .catch((): 'dead' => {
-      if (controlWs === probedSocket && probedSocket) probedSocket.close();
+      if (controlWs === probedSocket && probedSocket) replaceControlSocket();
       return 'dead';
     })
     .finally(() => {
