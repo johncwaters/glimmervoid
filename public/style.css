@@ -273,6 +273,11 @@ body {
   color: var(--state-failed);
 }
 
+.header-connection[data-state="connecting"] .connection-dot {
+  background: var(--state-waiting);
+  animation: blink 1s ease-in-out infinite;
+}
+
 .header-connection[data-state="shutdown"] .connection-dot {
   background: var(--text-muted);
 }
@@ -666,11 +671,50 @@ body {
 }
 
 .terminal-wrap {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow: hidden;
 
   background: var(--bg-card);
+}
+
+.terminal-wrap::before,
+.terminal-wrap::after {
+  position: absolute;
+  z-index: 10;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity var(--transition-med), visibility 0s linear 250ms;
+}
+
+.terminal-wrap::before {
+  content: '';
+  inset: 0;
+  background: color-mix(in oklab, var(--bg-card) 88%, transparent);
+}
+
+.terminal-wrap::after {
+  content: 'Connecting';
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 6px 12px;
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  color: var(--text-head);
+}
+
+.session-card[data-link="connecting"] .terminal-wrap::before,
+.session-card[data-link="connecting"] .terminal-wrap::after {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity var(--transition-med) 300ms, visibility 0s linear 300ms;
 }
 
 .terminal-wrap .xterm {

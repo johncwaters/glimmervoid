@@ -23,6 +23,7 @@ import {
 } from './ime-core.ts';
 import { osc8LinkHandler, registerUrlLinkProvider } from './terminal-links.ts';
 import { isTerminalSubmitKeystroke } from './terminal-submit-core.ts';
+import { decideTerminalLinkState } from './terminal-link-core.ts';
 import { showErrorToast } from './toast.ts';
 import { wireTouchScroll } from './touch-scroll.ts';
 import { reacquireWebglIfStale, releaseWebgl, tryLoadWebGL } from './webgl-pool.ts';
@@ -76,9 +77,23 @@ function isStillCurrentAndDetached(sessionId: string, ui: SessionUi) {
   return sessionUIs.get(sessionId) === ui && !ui.dataWs;
 }
 
+function refreshTerminalLink(ui: SessionUi) {
+  const linkState = decideTerminalLinkState({
+    hasTerminal: ui.term !== null,
+    isSocketOpen: ui.dataWs?.readyState === WebSocket.OPEN,
+    isInputHeld: isInputHeldForWakeCheck,
+  });
+  if (linkState === 'none') {
+    delete ui.card.dataset.link;
+    return;
+  }
+  ui.card.dataset.link = linkState;
+}
+
 function detachThenReconnect(sessionId: string, ui: SessionUi, term: Terminal, delayMs: number) {
   renderScheduler.unregister(sessionId);
   ui.dataWs = null;
+  refreshTerminalLink(ui);
   ui._resetGridClaim?.();
   setTimeout(() => {
     if (!isStillCurrentAndDetached(sessionId, ui)) return;
@@ -94,6 +109,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   const ws = new WebSocket(url);
   ws.binaryType = 'arraybuffer';
   ui.dataWs = ws;
+  refreshTerminalLink(ui);
   let hasEverOpened = false;
   const frameState: DataFrameState = { hasSeenSize: false, lastSeq: 0 };
 
@@ -135,6 +151,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   ws.addEventListener('open', () => {
     hasEverOpened = true;
     ui._dataWsRetryAttempt = 0;
+    refreshTerminalLink(ui);
 
     ui._retryOwedGridClaim?.();
 
@@ -158,11 +175,15 @@ function sendQueuedInput(ui: SessionUi) {
 
 export function holdTerminalInputDuringWakeCheck() {
   isInputHeldForWakeCheck = true;
+  for (const ui of sessionUIs.values()) refreshTerminalLink(ui);
 }
 
 export function releaseHeldTerminalInput() {
   isInputHeldForWakeCheck = false;
-  for (const ui of sessionUIs.values()) sendQueuedInput(ui);
+  for (const ui of sessionUIs.values()) {
+    refreshTerminalLink(ui);
+    sendQueuedInput(ui);
+  }
 }
 
 export function reconnectDataWs(id: unknown) {

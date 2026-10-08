@@ -155,6 +155,7 @@ export function connectControl() {
 }
 
 export async function checkControlLiveness(hiddenForMs?: number) {
+  if (_connectionStateCallback) _connectionStateCallback('connecting', 'Connecting');
   if (livenessProbePromise) return livenessProbePromise;
   const action = decideLivenessAction({
     hasSocket: !!controlWs,
@@ -177,7 +178,10 @@ export async function checkControlLiveness(hiddenForMs?: number) {
   if (action === 'wait') return 'reconnecting';
   const probedSocket = controlWs;
   livenessProbePromise = sendControlRequest('ping', {})
-    .then((): 'ok' => 'ok')
+    .then((): 'ok' => {
+      if (_connectionStateCallback) _connectionStateCallback('verified', 'Connected');
+      return 'ok';
+    })
     .catch((): 'dead' => {
       if (controlWs === probedSocket && probedSocket) replaceControlSocket();
       return 'dead';

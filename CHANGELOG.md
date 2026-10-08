@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Connecting indicator**: while the dashboard reconnects after you come back to it, each terminal shows a Connecting label and the header dot pulses until the logo arrow flashes green, so a terminal that is catching up no longer looks frozen. Anything you type meanwhile is still delivered once the connection is back.
+
 ### Changed
 
 - **Monospace everywhere**: the dashboard no longer falls back to a sans font for text without its own font rule, such as session task descriptions, header buttons, the update and telemetry banners, and the Focus empty state. In the focused card the task description and its timer now match the name's 12px size.

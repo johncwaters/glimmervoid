@@ -177,6 +177,7 @@ function describeStep(step: Step): string {
   if (step.kind === 'wait') return `wait ${step.durationMs}ms`;
   if (step.kind === 'assert-grid') return `assert-grid tick+${step.tickOffset ?? 0}`;
   if (step.kind === 'expect-face') return `expect-face ${step.value}`;
+  if (step.kind === 'expect-link') return `expect-link ${step.value}`;
   if (step.kind === 'click') return `click ${step.control}`;
   if (step.kind === 'shot') return `shot ${step.name}`;
   return step.kind;
@@ -255,6 +256,9 @@ async function probeSettled(
       reading,
       detail: `pty is ${authoritative.cols}x${authoritative.rows} while the grid is ${reading.cols}x${reading.rows}`,
     };
+  }
+  if (reading.link !== 'live') {
+    return { ok: false, reading, detail: `data-link is ${String(reading.link)}, wanted live` };
   }
   if (reading.dataGrid !== expectGrid) {
     return { ok: false, reading, detail: `data-grid is ${String(reading.dataGrid)}, wanted ${expectGrid}` };
@@ -507,6 +511,21 @@ async function runAssertGrid(
   return { ok: false, predicate: 'grid-assertion', detail, grid, shot: null, mismatch, diffPath };
 }
 
+async function runExpectLink(
+  viewer: Viewer,
+  sessionId: string,
+  value: 'live' | 'connecting',
+  deadlines: Deadlines,
+): Promise<StepOutcome> {
+  const linked = await pollUntil(async () => {
+    const reading = await readGridOf(viewer, sessionId);
+    if (!reading) return { ok: false, detail: 'the session card carries no terminal yet' };
+    if (reading.link !== value) return { ok: false, reading, detail: `data-link is ${String(reading.link)}, wanted ${value}` };
+    return { ok: true, reading, detail: `data-link is ${value}` };
+  }, { label: `link ${value} for viewer ${viewer.id}`, timeoutMs: deadlines.stepMs, intervalMs: deadlines.pollIntervalMs });
+  return outcomeFor('card-link', linked);
+}
+
 async function runExpectFace(
   viewer: Viewer,
   sessionId: string,
@@ -738,6 +757,7 @@ export async function runCase({
       return runAssertGrid(viewer, sessionId, step.tickOffset ?? 0, artifacts, key);
     }
     if (step.kind === 'expect-face') return runExpectFace(viewer, sessionId, step.value, deadlines);
+    if (step.kind === 'expect-link') return runExpectLink(viewer, sessionId, step.value, deadlines);
     if (step.kind === 'click') return runClick(viewer, step.control, deadlines);
     const shot = await takeShot(viewer, artifacts, key, step.name);
     if (shot.shot) shots.push(shot.shot);

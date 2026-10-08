@@ -90,12 +90,32 @@ function showShutdownOverlay(message?: string) {
   shutdownScreen.classList.add('active');
 }
 
-setConnectionStateCallback((state, label) => {
-  const isReconnect = state === 'connected' && connectionEl.dataset.state === 'disconnected';
+const RECOVERING_CONNECTION_STATES = new Set(['disconnected', 'connecting']);
+
+function renderConnectionHeader(state: string, label: string, isReconnect: boolean) {
   connectionEl.dataset.state = state;
   connectionEl.toggleAttribute('data-reconnected', isReconnect);
   connectionLabel.textContent = label;
   connectionEl.title = label;
+}
+
+function showConnectionState(state: string, label: string) {
+  const isReconnect = state === 'connected' && RECOVERING_CONNECTION_STATES.has(connectionEl.dataset.state ?? '');
+  renderConnectionHeader(state, label, isReconnect);
+}
+
+function showLivenessProbeState(state: string, label: string) {
+  if (connectionEl.dataset.state === 'shutdown') return;
+  const headerState = state === 'verified' ? 'connected' : state;
+  renderConnectionHeader(headerState, label, false);
+}
+
+setConnectionStateCallback((state, label) => {
+  if (state === 'connecting' || state === 'verified') {
+    showLivenessProbeState(state, label);
+    return;
+  }
+  showConnectionState(state, label);
   applyTraceConnectionState(state === 'connected');
   applyPlanConnectionState(state === 'connected');
   applyIssuesConnectionState(state === 'connected');

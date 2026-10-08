@@ -25,6 +25,7 @@ export type Step =
   | { kind: 'settle'; viewer?: ViewerId; expectGrid?: 'exact' | 'following'; expectRemembered?: string }
   | { kind: 'assert-grid'; viewer?: ViewerId; tickOffset?: number }
   | { kind: 'expect-face'; value: 'plan' | 'terminal'; viewer?: ViewerId }
+  | { kind: 'expect-link'; value: 'live' | 'connecting'; viewer?: ViewerId }
   | { kind: 'click'; control: CardControl; viewer?: ViewerId }
   | { kind: 'shot'; name: string; viewer?: ViewerId };
 
@@ -468,6 +469,9 @@ export const SCENARIOS: readonly Scenario[] = [
       { kind: 'suspend' },
       { kind: 'wait', durationMs: 1000 },
       { kind: 'foreground' },
+      { kind: 'expect-link', value: 'connecting' },
+      { kind: 'wait', durationMs: 600 },
+      { kind: 'shot', name: 'connecting' },
       { kind: 'burst', lines: 5 },
       { kind: 'settle' },
     ],
