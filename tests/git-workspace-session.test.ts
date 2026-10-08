@@ -200,6 +200,33 @@ test('stageDetachedWorktree refuses a non-lowercase full sha without running git
   assert.deepEqual(calls, []);
 });
 
+test('checkoutDetached validates the SHA and serializes moving the detached head after staging', async () => {
+  const calls: { args: string[]; cwd: string }[] = [];
+  const staging = deferredResolve();
+  const gitWorkspace = createGitWorkspace({
+    git: async (args, cwd) => {
+      calls.push({ args, cwd });
+      if (args[0] === 'worktree') await staging.promise;
+      return '';
+    },
+  });
+  const firstSha = 'a'.repeat(40);
+  const secondSha = 'b'.repeat(40);
+  const staged = gitWorkspace.stageDetachedWorktree({ projectPath: '/repo', worktreePath: '/control', sha: firstSha });
+  const moved = gitWorkspace.checkoutDetached({ worktreePath: '/control', sha: secondSha });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(calls.length, 1);
+  staging.resolve();
+  assert.equal((await staged).ok, true);
+  assert.equal((await moved).ok, true);
+  assert.deepEqual(calls[1], { args: ['checkout', '--quiet', '--detach', secondSha], cwd: '/control' });
+  for (const sha of ['A'.repeat(40), 'main', '--force', 'a'.repeat(39)]) {
+    assert.equal((await gitWorkspace.checkoutDetached({ worktreePath: '/control', sha })).ok, false);
+  }
+  assert.equal((await gitWorkspace.checkoutDetached({ worktreePath: '', sha: secondSha })).ok, false);
+  assert.equal(calls.length, 2);
+});
+
 test('stageIsolatedCheckout refuses a non-lowercase full sha or base sha without running git', async () => {
   const calls: string[][] = [];
   const gitWorkspace = createGitWorkspace({ git: (args) => { calls.push(args); return ''; } });

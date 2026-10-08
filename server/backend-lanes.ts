@@ -6,6 +6,7 @@ import type { ControlBroadcast } from './backend-websockets.ts';
 import { comparableDirectoryPath } from '../shared/paths.ts';
 import { createBenchmarkWiring } from './benchmark-wiring.ts';
 import { STATES } from '../shared/states.ts';
+import { createFactoryWiring } from './factory-wiring.ts';
 import { createCoderActivityWiring } from './coder-activity-wiring.ts';
 import { createBranchGcWiring } from './branch-gc-wiring.ts';
 import { createClaudeCredentials } from './claude-credentials.ts';
@@ -130,6 +131,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     countRunningSessions: () => allLiveSessions().filter((session) => session.state === STATES.RUNNING).length,
     log: logger,
   });
+  const factory = createFactoryWiring({ config, gitWorkspace, broadcast: broadcastControl, log: logger });
   const posthog = createPosthogWiring({
     config,
     investigationSessions,
@@ -434,6 +436,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => void visionsSetup.maybeApply(),
       () => branchGc.start(),
       () => coderActivity.start(),
+      () => factory.start(),
       () => posthog.startPoller(),
       () => teamReview.startPoller(),
       () => myPrs.startPoller(),
@@ -450,6 +453,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     const restartSteps = [
       () => branchGc.restartIfConfigChanged(),
       () => coderActivity.restartIfConfigChanged(),
+      () => factory.restartIfConfigChanged(),
       () => posthog.restartIfConfigChanged(),
       () => teamReview.restartIfConfigChanged(),
       () => myPrs.restartIfConfigChanged(),
@@ -466,6 +470,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     benchmarkSessions,
     branchGc,
     coderActivity,
+    factory,
     changeMapNarrator,
     taskTitleRefiner,
     taskTitleSessions,

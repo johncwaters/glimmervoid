@@ -24,6 +24,7 @@ import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneScr
 import { noteKnownProjectPath } from './project-registry.ts';
 import { applyTeamReviewActionResult, applyTeamReviewStatus, setTeamReviewActivityCallback } from './team-review-panel.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus } from './my-prs-panel.ts';
+import { applyFactoryConnectionState, applyFactoryState, mountFactoryView } from './factory/factory-view.ts';
 import { applyBenchmarkActionResult, applyBenchmarkConnectionState, applyBenchmarkStatus, mountBenchmarkView, setBenchmarkRequestSender } from './benchmark-panel.ts';
 import { applyIssuesConnectionState, applyIssuesProjects, applyIssuesReport, applyOpenIssueSessionResult, mountIssuesView, setIssuesRequestSender } from './issues-panel.ts';
 
@@ -120,6 +121,7 @@ setConnectionStateCallback((state, label) => {
   applyPlanConnectionState(state === 'connected');
   applyIssuesConnectionState(state === 'connected');
   applyBenchmarkConnectionState(state === 'connected');
+  applyFactoryConnectionState(state === 'connected');
 
   if (state === 'connected') {
     if (shutdownScreen.classList.contains('active')) {
@@ -381,6 +383,7 @@ const messageHandlers = {
   'posthog-investigation-finished': (msg) => applyInvestigationFinished(msg),
   'team-review-status': (msg) => applyTeamReviewStatus(msg),
   'my-prs-status': (msg) => applyMyPrsStatus(msg),
+  'factory-state': (msg) => applyFactoryState(msg),
   'benchmark-status': (msg) => applyBenchmarkStatus(msg),
   'benchmark-action-result': (msg) => applyBenchmarkActionResult(msg),
   'my-pr-merge-result': (msg) => applyMyPrMergeResult(msg),
@@ -617,6 +620,7 @@ const viewUsageEl = queryTag(document, '#view-usage', 'section');
 const viewVisionsEl = queryTag(document, '#view-visions', 'section');
 const viewHooksEl = queryTag(document, '#view-hooks', 'section');
 const viewTraceEl = queryTag(document, '#view-trace', 'section');
+const viewFactoryEl = queryTag(document, '#view-factory', 'section');
 const viewBenchmarksEl = queryTag(document, '#view-benchmarks', 'section');
 const viewSettingsEl = queryTag(document, '#view-settings', 'section');
 const tabFocus = queryTag(document, '#tab-focus', 'button');
@@ -627,6 +631,7 @@ const tabUsage = queryTag(document, '#tab-usage', 'button');
 const tabVisions = queryTag(document, '#tab-visions', 'button');
 const tabHooks = queryTag(document, '#tab-hooks', 'button');
 const tabTrace = queryTag(document, '#tab-trace', 'button');
+const tabFactory = queryTag(document, '#tab-factory', 'button');
 const tabBenchmarks = queryTag(document, '#tab-benchmarks', 'button');
 const tabSettings = queryTag(document, '#tab-settings', 'button');
 const tabRadarActivityEl = queryTag(document, '#tab-radar-activity', 'span');
@@ -679,6 +684,8 @@ mountTraceView(viewTraceEl);
 
 mountBenchmarkView(viewBenchmarksEl);
 
+mountFactoryView(viewFactoryEl);
+
 mountSettingsView(viewSettingsEl, { onRestart: confirmServerRestart, onConfirmUpdateAndRestart: confirmUpdateAndRestart });
 
 mountCalmView(viewCalmEl, { openTerminal: (id) => { activateView('focus'); centerSessionQuietly(id); }, openPlan: (id) => { activateView('focus'); openPlanInFocus(id); }, openCalm: () => activateView('calm') });
@@ -699,6 +706,7 @@ const VIEW_TABS = [
   { view: 'hooks', tab: tabHooks, el: viewHooksEl },
   { view: 'trace', tab: tabTrace, el: viewTraceEl },
   { view: 'benchmarks', tab: tabBenchmarks, el: viewBenchmarksEl },
+  { view: 'factory', tab: tabFactory, el: viewFactoryEl },
   { view: 'settings', tab: tabSettings, el: viewSettingsEl },
 ];
 

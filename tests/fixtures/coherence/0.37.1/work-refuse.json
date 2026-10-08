@@ -1,0 +1,10 @@
+{
+  "error": "s-f0e59b1dcece612e4a437a7dfbab9f9e59eb1a3a9967532e1cc1d2ae6d43b83b.jsonl:2 is malformed JSON",
+  "usage": [
+    "usage: coherence work create \"<objective>\" --success \"<criterion>\" --risk <low|medium|high|critical> --authority <user-directed|orchestrator-delegated|agent-local|external-approved> --granted-by <actor> --boundary \"<authority boundary>\" --session S [--write-scope p] [--json]",
+    "       coherence work transition <id> <open|active|blocked> --because \"<reason>\" --session S [--evidence E] [--json]",
+    "       coherence work handoff <id> --owner-session S --owner-agent A --because \"<reason>\" --session S [--json]",
+    "       coherence work close <id> <completed|cancelled> --because \"<reason>\" --session S [--evidence E] [--synthesized <child>] [--json]",
+    "       coherence work inspect [<id>] [--state <state>] [--json]"
+  ]
+}

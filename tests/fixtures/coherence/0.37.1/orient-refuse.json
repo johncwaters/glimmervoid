@@ -1,0 +1,67 @@
+{
+  "action": "refuse",
+  "reasons": [
+    "work: work ledger refused: s-f0e59b1dcece612e4a437a7dfbab9f9e59eb1a3a9967532e1cc1d2ae6d43b83b.jsonl:2 is malformed JSON"
+  ],
+  "sources": [
+    {
+      "name": "decisions",
+      "ok": true,
+      "detail": "0 trusted row(s); 0 addressed subject(s)"
+    },
+    {
+      "name": "work",
+      "ok": false,
+      "detail": "work ledger refused: s-f0e59b1dcece612e4a437a7dfbab9f9e59eb1a3a9967532e1cc1d2ae6d43b83b.jsonl:2 is malformed JSON"
+    },
+    {
+      "name": "experiments",
+      "ok": true,
+      "detail": "0 experiment(s)"
+    },
+    {
+      "name": "defects",
+      "ok": true,
+      "detail": "0 defect(s)"
+    },
+    {
+      "name": "consequences",
+      "ok": true,
+      "detail": "0 explicit link(s)"
+    },
+    {
+      "name": "verification",
+      "ok": true,
+      "detail": "no verification report has been filed"
+    }
+  ],
+  "decisions": {
+    "standing": 0,
+    "historicalBlockedReports": 0,
+    "openConjectures": 0,
+    "positions": [],
+    "contested": [],
+    "needsRatification": []
+  },
+  "work": null,
+  "consequences": {
+    "links": 0,
+    "dangling": [],
+    "uncheckedVerificationRefs": [],
+    "unverifiedCompletedWork": []
+  },
+  "verification": {
+    "state": "never",
+    "at": null,
+    "commit": null,
+    "failures": null,
+    "tier": null
+  },
+  "limitations": [
+    "orientation selects one heading from recorded evidence; it neither executes work nor proves semantic correctness",
+    "historical journal blocked reports remain visible evidence but only closeable work state selects a live unblock heading",
+    "pending child results select synthesis only after that parent's direct children are terminal",
+    "verification references remain unchecked until verification receipts become append-only identities",
+    "shared paths, commits, and timestamps never create consequence links"
+  ]
+}

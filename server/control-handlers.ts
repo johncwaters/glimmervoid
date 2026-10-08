@@ -1,3 +1,4 @@
+import type { FactoryState } from '../shared/contracts/factory.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { resolvePackageBin } from './runtime-paths.ts';
 import type { ReviewsRefreshResult } from '../shared/contracts/reviews.ts';
@@ -140,6 +141,7 @@ interface ControlHandlerDeps {
   getMyPrsStatus?: (() => MyPrsStatus | null) | null;
   teamReview?: TeamReviewActionControl | null;
   myPrs?: MyPrMergeControl | null;
+  getFactoryState?: (() => FactoryState | null) | null;
   getBenchmarkStatus?: (() => BenchmarkStatus | null) | null;
   benchmarks?: BenchmarkControl | null;
   createGithubClient?: (cwd: string) => Pick<PrGh, 'listIssues' | 'viewIssue' | 'repoSlug'>;
@@ -284,6 +286,7 @@ const DASHBOARD_SETTING_PATHS = Object.freeze([
   'teamReview.skipIdleAfterDays',
   'teamReview.keepMergeableTimeoutMinutes',
   'benchmarks.enabled',
+  'factory.enabled',
   'workflows.enabled',
   'workflows.maxConcurrentSessions',
   'workflows.maxActionsPerPoll',
@@ -410,6 +413,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     teamReview = null,
     myPrs = null,
     getBenchmarkStatus = null,
+    getFactoryState = null,
     benchmarks = null,
 
     createGithubClient = createPrGh,
@@ -776,6 +780,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       if (s.visions != null) cfg.visions = s.visions;
       if (s.teamReview != null) cfg.teamReview = mergeSettingsBlockOverStored(cfg.teamReview, s.teamReview);
       if (s.benchmarks != null) cfg.benchmarks = mergeSettingsBlockOverStored(cfg.benchmarks, s.benchmarks);
+      if (s.factory != null) cfg.factory = mergeSettingsBlockOverStored(cfg.factory, s.factory);
       if (s.posthog != null) cfg.posthog = mergeSettingsBlockOverStored(cfg.posthog, s.posthog);
       if (s.usage != null) cfg.usage = s.usage;
       if (incoming.ingest != null) cfg.ingest = mergeSettingsBlock(cfg.ingest, incoming.ingest, INGEST_SPEC);
@@ -1420,6 +1425,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (myPrsStatus) ws.send(JSON.stringify(myPrsStatus));
     const benchmarkStatus = typeof getBenchmarkStatus === 'function' ? getBenchmarkStatus() : null;
     if (benchmarkStatus) ws.send(JSON.stringify(benchmarkStatus));
+    const factoryState = getFactoryState?.() ?? null;
+    if (factoryState) ws.send(JSON.stringify(factoryState));
 
     const usageSessions = typeof getUsageSessions === 'function' ? getUsageSessions() : null;
     if (usageSessions) {

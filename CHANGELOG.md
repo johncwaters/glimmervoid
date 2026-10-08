@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Connecting indicator**: while the dashboard reconnects after you come back to it, each terminal shows a Connecting label and the header dot pulses until the logo arrow flashes green, so a terminal that is catching up no longer looks frozen. Anything you type meanwhile is still delivered once the connection is back.
+- **Factory tab**: turn on the Factory setting to get a Factory tab that shows the coherence ledger of each repo whose integration branch holds a coherence.config.json as a live floor: the active intent and its criteria, the queue, working agents, review and shipped work. Read-only for now. Glimmervoid ships the `@danilocampos/coherence` ledger CLI (0.37.1) for it.
 
 ### Changed
 

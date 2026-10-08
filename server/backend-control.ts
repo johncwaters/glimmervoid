@@ -1,3 +1,4 @@
+import type { FactoryState } from '../shared/contracts/factory.ts';
 import type { WebSocket, WebSocketServer } from 'ws';
 import type { Session } from '../session/sessions.ts';
 import type { ControlBroadcast, ControlSocket } from './backend-websockets.ts';
@@ -71,6 +72,7 @@ interface BackendControlDependencies {
   teamReview: TeamReviewControl;
   myPrs: MyPrMergeControl & { getStatus: () => MyPrsStatus };
   benchmarks: BenchmarkControl;
+  factory?: { getState: () => FactoryState | null };
   usage: UsageControl;
   readTracePage: ((glimmervoidSessionId: string, request: TracePageRequest) => Promise<TracePage>) | null;
   readPlanRevision: ((
@@ -130,6 +132,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     getTeamReviewStatus: () => teamReview.getStatus(),
     getMyPrsStatus: () => myPrs.getStatus(),
     getBenchmarkStatus: () => benchmarks.getStatus(),
+    getFactoryState: () => dependencies.factory?.getState() ?? null,
     benchmarks,
     teamReview,
     myPrs,
