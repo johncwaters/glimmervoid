@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **CommitMono everywhere**: the dashboard and its terminals now use the bundled CommitMono font, so text looks the same on every machine instead of depending on which monospace fonts happen to be installed. CommitMono is used under the SIL Open Font License 1.1, shipped beside the font files.
 - **Monospace everywhere**: the dashboard no longer falls back to a sans font for text without its own font rule, such as session task descriptions, header buttons, the update and telemetry banners, and the Focus empty state. In the focused card the task description and its timer now match the name's 12px size.
 - **Quieter header**: the green connection dot next to the Glimmervoid logo is gone while the dashboard is connected. The dot and its label still appear while connecting, after a disconnect, or once the server shuts down. When the connection comes back after a drop, the arrow before the logo pulses green twice.
 

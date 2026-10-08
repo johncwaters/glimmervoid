@@ -25,31 +25,31 @@ colors:
   state-initializing: "#6b7280"
 typography:
   headline:
-    fontFamily: "Cascadia Code, Fira Code, Consolas, Menlo, monospace"
+    fontFamily: "CommitMono, Cascadia Code, Fira Code, Consolas, Menlo, monospace"
     fontSize: "16px"
     fontWeight: 700
     lineHeight: 1.2
     letterSpacing: "0.1em"
   title:
-    fontFamily: "Cascadia Code, Fira Code, Consolas, Menlo, monospace"
+    fontFamily: "CommitMono, Cascadia Code, Fira Code, Consolas, Menlo, monospace"
     fontSize: "14px"
     fontWeight: 700
     lineHeight: 1.3
     letterSpacing: "0.04em"
   body:
-    fontFamily: "Cascadia Code, Fira Code, Consolas, Menlo, monospace"
+    fontFamily: "CommitMono, Cascadia Code, Fira Code, Consolas, Menlo, monospace"
     fontSize: "14px"
     fontWeight: 400
     lineHeight: 1.5
     letterSpacing: "normal"
   caption:
-    fontFamily: "Cascadia Code, Fira Code, Consolas, Menlo, monospace"
+    fontFamily: "CommitMono, Cascadia Code, Fira Code, Consolas, Menlo, monospace"
     fontSize: "12px"
     fontWeight: 400
     lineHeight: 1.55
     letterSpacing: "0.02em"
   label:
-    fontFamily: "Cascadia Code, Fira Code, Consolas, Menlo, monospace"
+    fontFamily: "CommitMono, Cascadia Code, Fira Code, Consolas, Menlo, monospace"
     fontSize: "10px"
     fontWeight: 700
     lineHeight: 1.2
@@ -158,7 +158,7 @@ Always paired with a glyph or shape; never carried by hue alone.
 ## 3. Typography
 
 **Display Font:** none. The system is mono-forward.
-**Body / UI Font:** Cascadia Code (with Fira Code, Consolas, Menlo, monospace fallbacks).
+**Body / UI Font:** CommitMono, bundled as woff2 in `assets/fonts/` under the SIL OFL 1.1 so every machine renders the same face (Cascadia Code, Fira Code, Consolas, Menlo, monospace remain as fallbacks).
 **Sans fallback:** Segoe UI / system-ui, available via a `--font-ui` token but rarely used; the console speaks in monospace.
 
 **Character:** One programmer's-typeface voice for everything. It reads as an instrument readout, not a document. Because the family is fixed and the size range is narrow, hierarchy is carried by weight, letter-spacing, color, and uppercase, not by large type.
@@ -253,7 +253,7 @@ A primary view with a 220px grouped sidebar and one scrolling section page.
 ### Do:
 - **Do** keep Iridescent Orchid (#c084fc) to ~10% of any screen. One voice, used rarely (the One Voice Rule).
 - **Do** carry state with a glyph plus shape plus color, never hue alone. State must read for a color-blind operator.
-- **Do** speak in monospace (Cascadia Code) for all UI text, and build hierarchy from weight, tracking, color, and case rather than size.
+- **Do** speak in monospace (CommitMono) for all UI text, and build hierarchy from weight, tracking, color, and case rather than size.
 - **Do** keep surfaces flat at rest; convey depth with the canvas/card/surface tonal ramp and 1px borders.
 - **Do** reserve glow and motion for genuine state changes (running, waiting, complete, failed, connecting).
 - **Do** tint every neutral toward violet; use Bright Lavender White (#e8e0ff), never #fff, and Near-Black Violet (#0a0810), never #000.

@@ -24,7 +24,7 @@
     --color-state-idle: var(--state-idle);
     --color-state-starting: var(--state-starting);
     --color-state-initializing: var(--state-initializing);
-    --font-family-mono: 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace;
+    --font-family-mono: 'CommitMono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace;
     --font-family-ui: 'Segoe UI', system-ui, sans-serif;
     --radius: 4px;
     --radius-lg: 5px;

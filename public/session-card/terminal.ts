@@ -1,6 +1,7 @@
 
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
+import { currentTerminalFontFamily } from '../mono-font.ts';
 import type { SessionUi } from './card-registry.ts';
 import { el, writeClipboardText } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
@@ -238,7 +239,7 @@ export function setupTerminal(termWrap: HTMLElement, ui: SessionUi) {
   const term = new Terminal({
     cursorBlink: _terminalCursorBlink,
     fontSize,
-    fontFamily: "'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace",
+    fontFamily: currentTerminalFontFamily(),
     theme: getTerminalTheme(),
     scrollback: TERMINAL_SCROLLBACK,
     allowProposedApi: true,

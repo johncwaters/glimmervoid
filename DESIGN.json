@@ -109,7 +109,7 @@
       "refersTo": "button-primary",
       "description": "Accent-outline action: Run, Add, Save, primary CTA.",
       "html": "<button class=\"ds-btn-primary\">Run now</button>",
-      "css": ".ds-btn-primary { font-family: 'Cascadia Code', monospace; font-size: 13px; letter-spacing: 0.03em; padding: 8px 18px; color: var(--accent); background: transparent; border: 1px solid var(--accent); border-radius: 4px; cursor: pointer; transition: background 250ms cubic-bezier(0.22,1,0.36,1); } .ds-btn-primary:hover { background: color-mix(in oklab, var(--accent) 14%, transparent); } .ds-btn-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; } .ds-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }"
+      "css": ".ds-btn-primary { font-family: 'CommitMono', monospace; font-size: 13px; letter-spacing: 0.03em; padding: 8px 18px; color: var(--accent); background: transparent; border: 1px solid var(--accent); border-radius: 4px; cursor: pointer; transition: background 250ms cubic-bezier(0.22,1,0.36,1); } .ds-btn-primary:hover { background: color-mix(in oklab, var(--accent) 14%, transparent); } .ds-btn-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; } .ds-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }"
     },
     {
       "name": "Ghost Button",
@@ -117,7 +117,7 @@
       "refersTo": "button-ghost",
       "description": "Secondary/quiet action: Edit, Remove, Cancel. Remove hovers to Signal Red.",
       "html": "<button class=\"ds-btn-ghost\">Edit</button>",
-      "css": ".ds-btn-ghost { font-family: 'Cascadia Code', monospace; font-size: 12px; padding: 6px 12px; color: var(--text-dim); background: transparent; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; transition: border-color 250ms cubic-bezier(0.22,1,0.36,1), color 250ms cubic-bezier(0.22,1,0.36,1); } .ds-btn-ghost:hover { border-color: var(--border-hover); color: var(--text-head); } .ds-btn-ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }"
+      "css": ".ds-btn-ghost { font-family: 'CommitMono', monospace; font-size: 12px; padding: 6px 12px; color: var(--text-dim); background: transparent; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; transition: border-color 250ms cubic-bezier(0.22,1,0.36,1), color 250ms cubic-bezier(0.22,1,0.36,1); } .ds-btn-ghost:hover { border-color: var(--border-hover); color: var(--text-head); } .ds-btn-ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }"
     },
     {
       "name": "Text Input",
@@ -125,7 +125,7 @@
       "refersTo": "input",
       "description": "Single-line field. Focus shifts the border to orchid, no glow.",
       "html": "<input class=\"ds-input\" placeholder=\"Session name\" />",
-      "css": ".ds-input { font-family: 'Cascadia Code', monospace; font-size: 13px; padding: 8px 12px; color: var(--text-head); background: var(--bg-surface); border: 1px solid var(--border); border-radius: 4px; outline: none; transition: border-color 150ms cubic-bezier(0.22,1,0.36,1); } .ds-input::placeholder { color: var(--text-muted); } .ds-input:focus { border-color: var(--accent); }"
+      "css": ".ds-input { font-family: 'CommitMono', monospace; font-size: 13px; padding: 8px 12px; color: var(--text-head); background: var(--bg-surface); border: 1px solid var(--border); border-radius: 4px; outline: none; transition: border-color 150ms cubic-bezier(0.22,1,0.36,1); } .ds-input::placeholder { color: var(--text-muted); } .ds-input:focus { border-color: var(--accent); }"
     },
     {
       "name": "Card",
@@ -133,7 +133,7 @@
       "refersTo": "card",
       "description": "Flat container on the canvas. Border lifts on hover; no resting shadow. Never nest cards.",
       "html": "<div class=\"ds-card\"><div class=\"ds-card-title\">api-server</div><p class=\"ds-card-body\">One Claude Code session bound to one project.</p></div>",
-      "css": ".ds-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 5px; padding: 20px 28px; color: var(--text); transition: border-color 250ms cubic-bezier(0.22,1,0.36,1); } .ds-card:hover { border-color: var(--border-hover); } .ds-card-title { font-family: 'Cascadia Code', monospace; font-size: 16px; font-weight: 700; letter-spacing: 0.03em; color: var(--text-head); } .ds-card-body { font-family: 'Cascadia Code', monospace; font-size: 12px; line-height: 1.55; color: var(--text-dim); margin: 8px 0 0; }"
+      "css": ".ds-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 5px; padding: 20px 28px; color: var(--text); transition: border-color 250ms cubic-bezier(0.22,1,0.36,1); } .ds-card:hover { border-color: var(--border-hover); } .ds-card-title { font-family: 'CommitMono', monospace; font-size: 16px; font-weight: 700; letter-spacing: 0.03em; color: var(--text-head); } .ds-card-body { font-family: 'CommitMono', monospace; font-size: 12px; line-height: 1.55; color: var(--text-dim); margin: 8px 0 0; }"
     },
     {
       "name": "State Badge",
@@ -141,7 +141,7 @@
       "refersTo": "badge",
       "description": "Session state. Color plus glyph plus shape, so state never relies on hue alone.",
       "html": "<span class=\"ds-badge\"><span class=\"ds-badge-glyph\">●</span>Running</span>",
-      "css": ".ds-badge { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border-radius: 2px; font-family: 'Cascadia Code', monospace; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--state-running); background: transparent; } .ds-badge .ds-badge-glyph { font-size: 11px; line-height: 1; }"
+      "css": ".ds-badge { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border-radius: 2px; font-family: 'CommitMono', monospace; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--state-running); background: transparent; } .ds-badge .ds-badge-glyph { font-size: 11px; line-height: 1; }"
     },
     {
       "name": "Nav Tab",
@@ -149,7 +149,7 @@
       "refersTo": null,
       "description": "Primary view tab. Active tab draws an orchid underline that scales in, never a layout shift.",
       "html": "<button class=\"ds-tab\" aria-selected=\"true\">Sessions</button>",
-      "css": ".ds-tab { position: relative; appearance: none; background: none; border: none; cursor: pointer; font-family: 'Cascadia Code', monospace; font-size: 13px; letter-spacing: 0.04em; color: var(--text-head); padding: 6px 10px 8px; } .ds-tab[aria-selected=\"false\"] { color: var(--text-muted); } .ds-tab::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: 0; height: 2px; border-radius: 2px; background: var(--accent); transform: scaleX(1); transform-origin: center; transition: transform 180ms cubic-bezier(0.22,1,0.36,1); } .ds-tab[aria-selected=\"false\"]::after { transform: scaleX(0); } .ds-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }"
+      "css": ".ds-tab { position: relative; appearance: none; background: none; border: none; cursor: pointer; font-family: 'CommitMono', monospace; font-size: 13px; letter-spacing: 0.04em; color: var(--text-head); padding: 6px 10px 8px; } .ds-tab[aria-selected=\"false\"] { color: var(--text-muted); } .ds-tab::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: 0; height: 2px; border-radius: 2px; background: var(--accent); transform: scaleX(1); transform-origin: center; transition: transform 180ms cubic-bezier(0.22,1,0.36,1); } .ds-tab[aria-selected=\"false\"]::after { transform: scaleX(0); } .ds-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }"
     },
     {
       "name": "Attention Callout",
@@ -157,7 +157,7 @@
       "refersTo": null,
       "description": "Amber attention block for a real blocker (setup needed). Each file is an open-in-editor button. Full border plus tinted fill, never a side-stripe.",
       "html": "<div class=\"ds-callout\"><p class=\"ds-callout-head\">Setup needed: fill this project's pack, then run.</p><div class=\"ds-callout-files\"><button class=\"ds-callout-file\">voice-guide.md</button><button class=\"ds-callout-file\">brand.md</button></div></div>",
-      "css": ".ds-callout { padding: 13px 15px; border: 1px solid color-mix(in oklab, var(--state-waiting) 32%, var(--border)); border-radius: 4px; background: color-mix(in oklab, var(--state-waiting) 7%, var(--bg-surface)); font-family: 'Cascadia Code', monospace; } .ds-callout-head { font-size: 12px; letter-spacing: 0.02em; color: var(--text-dim); margin: 0 0 10px; } .ds-callout-files { display: flex; flex-wrap: wrap; gap: 8px; } .ds-callout-file { font-size: 12px; padding: 4px 11px; color: var(--text-dim); background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; transition: border-color 250ms cubic-bezier(0.22,1,0.36,1), color 250ms cubic-bezier(0.22,1,0.36,1); } .ds-callout-file:hover { border-color: var(--accent); color: var(--accent); }"
+      "css": ".ds-callout { padding: 13px 15px; border: 1px solid color-mix(in oklab, var(--state-waiting) 32%, var(--border)); border-radius: 4px; background: color-mix(in oklab, var(--state-waiting) 7%, var(--bg-surface)); font-family: 'CommitMono', monospace; } .ds-callout-head { font-size: 12px; letter-spacing: 0.02em; color: var(--text-dim); margin: 0 0 10px; } .ds-callout-files { display: flex; flex-wrap: wrap; gap: 8px; } .ds-callout-file { font-size: 12px; padding: 4px 11px; color: var(--text-dim); background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; transition: border-color 250ms cubic-bezier(0.22,1,0.36,1), color 250ms cubic-bezier(0.22,1,0.36,1); } .ds-callout-file:hover { border-color: var(--accent); color: var(--accent); }"
     },
     {
       "name": "Minimized Session Cards",
@@ -165,7 +165,7 @@
       "refersTo": null,
       "description": "Collapsed dock chips. State rides border color plus a dot, not badges. RUNNING is steady green; WAITING is loud amber. Color-blind safe by hue, saturation, and motion.",
       "html": "<div class=\"ds-mini-row\"><span class=\"ds-mini\" data-state=\"running\"><span class=\"ds-mini-dot\"></span><span class=\"ds-mini-name\">api-server</span></span><span class=\"ds-mini\" data-state=\"waiting\"><span class=\"ds-mini-dot\"></span><span class=\"ds-mini-name\">db-migrate</span></span><span class=\"ds-mini\"><span class=\"ds-mini-dot\"></span><span class=\"ds-mini-name\">worker</span></span></div>",
-      "css": ".ds-mini-row { display: flex; flex-wrap: wrap; gap: 6px; } .ds-mini { display: flex; align-items: center; gap: 6px; width: 120px; padding: 2px 8px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; opacity: 0.85; font-family: 'Cascadia Code', monospace; font-size: 11px; } .ds-mini:hover { opacity: 1; border-color: var(--border-hover); } .ds-mini-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); opacity: 0.45; flex-shrink: 0; } .ds-mini-name { flex: 1; text-align: center; color: var(--text-head); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-mini[data-state=\"running\"] { opacity: 1; border-color: color-mix(in oklab, var(--state-running) 55%, transparent); } .ds-mini[data-state=\"running\"] .ds-mini-dot { background: var(--state-running); opacity: 1; box-shadow: 0 0 5px color-mix(in oklab, var(--state-running) 25%, transparent); } .ds-mini[data-state=\"waiting\"] { opacity: 1; border-color: var(--state-waiting); background: color-mix(in oklab, var(--state-waiting) 12%, var(--bg-card)); } .ds-mini[data-state=\"waiting\"] .ds-mini-dot { background: var(--state-waiting); }"
+      "css": ".ds-mini-row { display: flex; flex-wrap: wrap; gap: 6px; } .ds-mini { display: flex; align-items: center; gap: 6px; width: 120px; padding: 2px 8px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; opacity: 0.85; font-family: 'CommitMono', monospace; font-size: 11px; } .ds-mini:hover { opacity: 1; border-color: var(--border-hover); } .ds-mini-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); opacity: 0.45; flex-shrink: 0; } .ds-mini-name { flex: 1; text-align: center; color: var(--text-head); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-mini[data-state=\"running\"] { opacity: 1; border-color: color-mix(in oklab, var(--state-running) 55%, transparent); } .ds-mini[data-state=\"running\"] .ds-mini-dot { background: var(--state-running); opacity: 1; box-shadow: 0 0 5px color-mix(in oklab, var(--state-running) 25%, transparent); } .ds-mini[data-state=\"waiting\"] { opacity: 1; border-color: var(--state-waiting); background: color-mix(in oklab, var(--state-waiting) 12%, var(--bg-card)); } .ds-mini[data-state=\"waiting\"] .ds-mini-dot { background: var(--state-waiting); }"
     },
     {
       "name": "Permissions Badge",
@@ -173,7 +173,7 @@
       "refersTo": null,
       "description": "Skip-permissions warning chip, labeled SANE YOLO when the guard is active. Full 1px border (it replaced a border-left stripe), amber-orange, tinted fill.",
       "html": "<span class=\"ds-perms\">skip-perms</span>",
-      "css": ".ds-perms { display: inline-flex; align-items: center; font-family: 'Cascadia Code', monospace; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 0 6px; line-height: 18px; border-radius: 2px; color: var(--perms-warn); border: 1px solid var(--perms-warn); background: color-mix(in srgb, var(--perms-warn) 16%, transparent); }"
+      "css": ".ds-perms { display: inline-flex; align-items: center; font-family: 'CommitMono', monospace; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 0 6px; line-height: 18px; border-radius: 2px; color: var(--perms-warn); border: 1px solid var(--perms-warn); background: color-mix(in srgb, var(--perms-warn) 16%, transparent); }"
     },
     {
       "name": "Dropdown Menu",
@@ -181,7 +181,7 @@
       "refersTo": null,
       "description": "Header overflow menu. Lifted off the plane with shadow-lg. Items have a mono-safe glyph column; danger variant recolors to Signal Red.",
       "html": "<div class=\"ds-menu\"><button class=\"ds-menu-item\"><span class=\"ds-menu-glyph\">+</span>New session</button><button class=\"ds-menu-item\"><span class=\"ds-menu-glyph\">@</span>Settings</button><div class=\"ds-menu-divider\"></div><button class=\"ds-menu-item ds-menu-item-danger\"><span class=\"ds-menu-glyph\">x</span>Kill all</button></div>",
-      "css": ".ds-menu { min-width: 180px; padding: 4px 0; background: var(--bg-card); border: 1px solid var(--border-hover); border-radius: 4px; box-shadow: 0 8px 24px color-mix(in srgb, color-mix(in oklab, #c084fc 15%, oklch(0.06 0 0)) 65%, transparent); font-family: 'Cascadia Code', monospace; } .ds-menu-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 14px; border: none; background: transparent; font-family: inherit; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--text); cursor: pointer; text-align: left; transition: background 150ms cubic-bezier(0.22,1,0.36,1), color 150ms cubic-bezier(0.22,1,0.36,1); } .ds-menu-item:hover { background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text-head); } .ds-menu-item-danger { color: var(--state-failed); } .ds-menu-item-danger:hover { background: color-mix(in oklab, var(--state-failed) 10%, transparent); color: var(--state-failed); } .ds-menu-glyph { display: inline-block; width: 1.2em; text-align: center; color: var(--text-dim); flex-shrink: 0; } .ds-menu-item:hover .ds-menu-glyph { color: inherit; } .ds-menu-divider { height: 1px; margin: 4px 8px; background: var(--border); }"
+      "css": ".ds-menu { min-width: 180px; padding: 4px 0; background: var(--bg-card); border: 1px solid var(--border-hover); border-radius: 4px; box-shadow: 0 8px 24px color-mix(in srgb, color-mix(in oklab, #c084fc 15%, oklch(0.06 0 0)) 65%, transparent); font-family: 'CommitMono', monospace; } .ds-menu-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 14px; border: none; background: transparent; font-family: inherit; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--text); cursor: pointer; text-align: left; transition: background 150ms cubic-bezier(0.22,1,0.36,1), color 150ms cubic-bezier(0.22,1,0.36,1); } .ds-menu-item:hover { background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text-head); } .ds-menu-item-danger { color: var(--state-failed); } .ds-menu-item-danger:hover { background: color-mix(in oklab, var(--state-failed) 10%, transparent); color: var(--state-failed); } .ds-menu-glyph { display: inline-block; width: 1.2em; text-align: center; color: var(--text-dim); flex-shrink: 0; } .ds-menu-item:hover .ds-menu-glyph { color: inherit; } .ds-menu-divider { height: 1px; margin: 4px 8px; background: var(--border); }"
     },
     {
       "name": "Settings View",
@@ -189,7 +189,7 @@
       "refersTo": null,
       "description": "Primary settings view with exact-token search, anchored rows, grouped levels and a sticky dirty-state footer.",
       "html": "<div class=\"ds-settings\"><nav class=\"ds-settings-nav\"><input aria-label=\"Search settings\" /><button aria-current=\"page\">General</button></nav><main class=\"ds-settings-content\"><h2>General</h2><span class=\"ds-settings-level\">Machine</span></main></div>",
-      "css": ".ds-settings { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: 320px; border: 1px solid var(--border); background: var(--bg); font-family: 'Cascadia Code', monospace; } .ds-settings-nav { display: flex; flex-direction: column; gap: 3px; padding: 16px 12px; border-right: 1px solid var(--border); background: var(--bg-header); } .ds-settings-nav button { padding: 8px 10px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--text-dim); text-align: left; } .ds-settings-nav button[aria-current=\"page\"] { border-color: var(--accent); color: var(--accent); background: color-mix(in oklab, var(--accent) 8%, transparent); } .ds-settings-content { padding: 24px; color: var(--text); } .ds-settings-level { padding: 2px 6px; border: 1px solid var(--border); border-radius: 2px; color: var(--text-muted); font-size: 10px; text-transform: uppercase; }"
+      "css": ".ds-settings { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: 320px; border: 1px solid var(--border); background: var(--bg); font-family: 'CommitMono', monospace; } .ds-settings-nav { display: flex; flex-direction: column; gap: 3px; padding: 16px 12px; border-right: 1px solid var(--border); background: var(--bg-header); } .ds-settings-nav button { padding: 8px 10px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--text-dim); text-align: left; } .ds-settings-nav button[aria-current=\"page\"] { border-color: var(--accent); color: var(--accent); background: color-mix(in oklab, var(--accent) 8%, transparent); } .ds-settings-content { padding: 24px; color: var(--text); } .ds-settings-level { padding: 2px 6px; border: 1px solid var(--border); border-radius: 2px; color: var(--text-muted); font-size: 10px; text-transform: uppercase; }"
     }
   ],
   "narrative": {
@@ -215,7 +215,7 @@
     "dos": [
       "Do keep Iridescent Orchid (#c084fc) to ~10% of any screen. One voice, used rarely.",
       "Do carry state with a glyph plus shape plus color, never hue alone.",
-      "Do speak in monospace (Cascadia Code) for all UI text, and build hierarchy from weight, tracking, color, and case rather than size.",
+      "Do speak in monospace (CommitMono) for all UI text, and build hierarchy from weight, tracking, color, and case rather than size.",
       "Do keep surfaces flat at rest; convey depth with the canvas/card/surface tonal ramp and 1px borders.",
       "Do reserve glow and motion for genuine state changes.",
       "Do tint every neutral toward violet; use Bright Lavender White (#e8e0ff), never #fff, and Near-Black Violet (#0a0810), never #000.",

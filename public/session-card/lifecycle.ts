@@ -42,6 +42,8 @@ import {
   wireTerminalIO,
 } from './terminal.ts';
 import { releaseWebgl } from './webgl-pool.ts';
+import { currentTerminalFontFamily } from '../mono-font.ts';
+import { applyTerminalFontFamily } from '../mono-font-core.ts';
 
 const AGGREGATE_GLYPHS: Record<string, string> = {
   critical: '✕',
@@ -236,6 +238,10 @@ export function applyTerminalSettings(settings: unknown) {
     if (!ui.term) continue;
     if (terminalSettings.cursorBlink != null) ui.term.options.cursorBlink = terminalSettings.cursorBlink;
   }
+}
+
+export function refreshTerminalFonts() {
+  applyTerminalFontFamily(sessionUIs.values(), currentTerminalFontFamily());
 }
 
 export function updateAggregateStatus() {
