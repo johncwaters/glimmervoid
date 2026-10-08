@@ -128,6 +128,7 @@ type MergeFastForwardResult = GitResult & {
 type QueuedGitResult = GitResult & { admissionRefused?: boolean };
 type WorktreeDirtyProbe = { ok: boolean; dirty: boolean; headSha: string | null; err?: string; admissionRefused?: boolean };
 type MergeProbeEnvArgs = { projectPath: string; timeoutMs?: number };
+type CheckoutDetachedArgs = { worktreePath: string; sha: string };
 type StageDetachedWorktreeArgs = { projectPath: string; worktreePath?: string; sha?: string };
 type StageIsolatedCheckoutArgs = { projectPath: string; checkoutPath?: string; sha?: string; baseSha?: string };
 type MergeFastForwardArgs = {
@@ -924,6 +925,12 @@ function createGitWorkspace(opts: {
     return run(['worktree', 'add', '--detach', worktreePath, sha], projectPath);
   }
 
+  async function checkoutDetachedBody({ worktreePath, sha }: CheckoutDetachedArgs): Promise<GitResult> {
+    if (!worktreePath) return { ok: false, out: '', err: 'a detached worktree needs a path' };
+    if (normalizeSha(sha) !== sha) return { ok: false, out: '', err: 'a detached worktree sha must be 40 lowercase hexadecimal characters' };
+    return run(['checkout', '--quiet', '--detach', sha], worktreePath);
+  }
+
   function isolatedCheckoutRefusal({ checkoutPath, sha, baseSha }: StageIsolatedCheckoutArgs): GitResult | null {
     if (!checkoutPath) return { ok: false, out: '', err: 'an isolated checkout needs a path' };
     if (normalizeSha(sha) !== sha || normalizeSha(baseSha) !== baseSha) {
@@ -1283,6 +1290,7 @@ function createGitWorkspace(opts: {
     fetchOrigin: serialized(fetchOriginBody),
     pruneWorktrees: serialized(pruneWorktreesBody),
     stageDetachedWorktree: serialized(stageDetachedWorktreeBody),
+    checkoutDetached: serialized(checkoutDetachedBody),
     stageIsolatedCheckout,
     mergeFastForwardTo,
     resetKeepTo: admitted(resetKeepToBody, (args: ResetKeepArgs): QueuedGitResult => ({

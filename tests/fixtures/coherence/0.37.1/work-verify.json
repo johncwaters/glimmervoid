@@ -1,0 +1,188 @@
+{
+  "work": [
+    {
+      "work": "wrk-803663417ea7d714",
+      "opened": {
+        "version": 1,
+        "event": "opened",
+        "at": "2026-10-08T10:26:42.155Z",
+        "session": "gv-fixture",
+        "agent": "main",
+        "job": "main",
+        "work": "wrk-803663417ea7d714",
+        "parent": null,
+        "objective": "retry settle",
+        "criteria": [
+          "retry test passes"
+        ],
+        "constraints": [],
+        "nonGoals": [],
+        "authority": {
+          "kind": "orchestrator-delegated",
+          "grantedBy": "glimmervoid",
+          "boundary": "src/a.ts"
+        },
+        "owner": {
+          "session": "s-1",
+          "agent": "claude"
+        },
+        "dependsOn": [],
+        "readScopes": [],
+        "writeScopes": [
+          "src/a.ts"
+        ],
+        "risk": "high",
+        "state": "open",
+        "id": "wev-b3efb6d7a07346ef"
+      },
+      "records": [
+        {
+          "version": 1,
+          "event": "opened",
+          "at": "2026-10-08T10:26:42.155Z",
+          "session": "gv-fixture",
+          "agent": "main",
+          "job": "main",
+          "work": "wrk-803663417ea7d714",
+          "parent": null,
+          "objective": "retry settle",
+          "criteria": [
+            "retry test passes"
+          ],
+          "constraints": [],
+          "nonGoals": [],
+          "authority": {
+            "kind": "orchestrator-delegated",
+            "grantedBy": "glimmervoid",
+            "boundary": "src/a.ts"
+          },
+          "owner": {
+            "session": "s-1",
+            "agent": "claude"
+          },
+          "dependsOn": [],
+          "readScopes": [],
+          "writeScopes": [
+            "src/a.ts"
+          ],
+          "risk": "high",
+          "state": "open",
+          "id": "wev-b3efb6d7a07346ef"
+        },
+        {
+          "version": 1,
+          "event": "transitioned",
+          "at": "2026-10-08T10:26:42.268Z",
+          "work": "wrk-803663417ea7d714",
+          "session": "s-1",
+          "agent": "main",
+          "job": "main",
+          "reason": "spawned",
+          "previous": "wev-b3efb6d7a07346ef",
+          "from": "open",
+          "to": "active",
+          "evidence": [],
+          "id": "wev-9095c3cbeb77aeec"
+        },
+        {
+          "version": 1,
+          "event": "closed",
+          "at": "2026-10-08T10:26:42.384Z",
+          "work": "wrk-803663417ea7d714",
+          "session": "s-1",
+          "agent": "main",
+          "job": "main",
+          "reason": "done",
+          "previous": "wev-9095c3cbeb77aeec",
+          "from": "active",
+          "to": "completed",
+          "resultEvidence": [
+            "sha abc"
+          ],
+          "synthesizedChildren": [],
+          "id": "wev-54cb70e7774696e5"
+        }
+      ],
+      "last": {
+        "version": 1,
+        "event": "closed",
+        "at": "2026-10-08T10:26:42.384Z",
+        "work": "wrk-803663417ea7d714",
+        "session": "s-1",
+        "agent": "main",
+        "job": "main",
+        "reason": "done",
+        "previous": "wev-9095c3cbeb77aeec",
+        "from": "active",
+        "to": "completed",
+        "resultEvidence": [
+          "sha abc"
+        ],
+        "synthesizedChildren": [],
+        "id": "wev-54cb70e7774696e5"
+      },
+      "state": "completed",
+      "owner": {
+        "session": "s-1",
+        "agent": "claude"
+      },
+      "closed": {
+        "version": 1,
+        "event": "closed",
+        "at": "2026-10-08T10:26:42.384Z",
+        "work": "wrk-803663417ea7d714",
+        "session": "s-1",
+        "agent": "main",
+        "job": "main",
+        "reason": "done",
+        "previous": "wev-9095c3cbeb77aeec",
+        "from": "active",
+        "to": "completed",
+        "resultEvidence": [
+          "sha abc"
+        ],
+        "synthesizedChildren": [],
+        "id": "wev-54cb70e7774696e5"
+      },
+      "readiness": "done",
+      "blockedBy": [],
+      "conflictsWith": []
+    }
+  ],
+  "stats": {
+    "total": 1,
+    "roots": 1,
+    "dependencies": 0,
+    "states": {
+      "open": 0,
+      "active": 0,
+      "blocked": 0,
+      "completed": 1,
+      "cancelled": 0
+    },
+    "readiness": {
+      "ready": 0,
+      "waiting": 0,
+      "active": 0,
+      "blocked": 0,
+      "done": 1
+    },
+    "risks": {
+      "low": 0,
+      "medium": 0,
+      "high": 1,
+      "critical": 0
+    },
+    "graphProblems": 0,
+    "scopeOverlaps": 0,
+    "scopeConflicts": 0,
+    "orphans": 0,
+    "unsynthesizedChildren": 0
+  },
+  "validation": {
+    "valid": true,
+    "problems": []
+  },
+  "scopeConflicts": [],
+  "unsynthesized": []
+}

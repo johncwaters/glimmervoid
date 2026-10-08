@@ -1,0 +1,106 @@
+{
+  "action": "dispatch",
+  "reasons": [
+    "wrk-803663417ea7d714 is ready and dependency-clear"
+  ],
+  "sources": [
+    {
+      "name": "decisions",
+      "ok": true,
+      "detail": "0 trusted row(s); 0 addressed subject(s)"
+    },
+    {
+      "name": "work",
+      "ok": true,
+      "detail": "1 work order(s); 0 active write conflict(s)"
+    },
+    {
+      "name": "experiments",
+      "ok": true,
+      "detail": "0 experiment(s)"
+    },
+    {
+      "name": "defects",
+      "ok": true,
+      "detail": "0 defect(s)"
+    },
+    {
+      "name": "consequences",
+      "ok": true,
+      "detail": "0 explicit link(s)"
+    },
+    {
+      "name": "verification",
+      "ok": true,
+      "detail": "no verification report has been filed"
+    }
+  ],
+  "decisions": {
+    "standing": 0,
+    "historicalBlockedReports": 0,
+    "openConjectures": 0,
+    "positions": [],
+    "contested": [],
+    "needsRatification": []
+  },
+  "work": {
+    "stats": {
+      "total": 1,
+      "roots": 1,
+      "dependencies": 0,
+      "states": {
+        "open": 1,
+        "active": 0,
+        "blocked": 0,
+        "completed": 0,
+        "cancelled": 0
+      },
+      "readiness": {
+        "ready": 1,
+        "waiting": 0,
+        "active": 0,
+        "blocked": 0,
+        "done": 0
+      },
+      "risks": {
+        "low": 0,
+        "medium": 0,
+        "high": 1,
+        "critical": 0
+      },
+      "graphProblems": 0,
+      "scopeOverlaps": 0,
+      "scopeConflicts": 0,
+      "orphans": 0,
+      "unsynthesizedChildren": 0
+    },
+    "ready": [
+      "wrk-803663417ea7d714"
+    ],
+    "active": [],
+    "blocked": [],
+    "completed": [],
+    "conflicts": [],
+    "unsynthesized": []
+  },
+  "consequences": {
+    "links": 0,
+    "dangling": [],
+    "uncheckedVerificationRefs": [],
+    "unverifiedCompletedWork": []
+  },
+  "verification": {
+    "state": "never",
+    "at": null,
+    "commit": null,
+    "failures": null,
+    "tier": null
+  },
+  "limitations": [
+    "orientation selects one heading from recorded evidence; it neither executes work nor proves semantic correctness",
+    "historical journal blocked reports remain visible evidence but only closeable work state selects a live unblock heading",
+    "pending child results select synthesis only after that parent's direct children are terminal",
+    "verification references remain unchecked until verification receipts become append-only identities",
+    "shared paths, commits, and timestamps never create consequence links"
+  ]
+}

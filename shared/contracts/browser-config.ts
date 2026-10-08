@@ -107,6 +107,10 @@ const BenchmarksSettings = optionalObject('benchmarks', {
   enabled: optionalBoolean('benchmarks.enabled'),
 });
 
+const FactorySettings = optionalObject('factory', {
+  enabled: optionalBoolean('factory.enabled'),
+});
+
 const posthogNumberRanges = {
   intervalMinutes: ranges.POSTHOG_INTERVAL_RANGE,
   maxConcurrentInvestigations: ranges.POSTHOG_MAX_CONCURRENT_RANGE,
@@ -227,6 +231,7 @@ export const createBrowserConfigShape = (isAbsolutePath: (directory: string) => 
   visions: VisionsSettings,
   teamReview: TeamReviewSettings,
   benchmarks: BenchmarksSettings,
+  factory: FactorySettings,
   posthog: PosthogSettings,
   usage: createUsageSettings(isAbsolutePath),
   telegram: TelegramSettings,

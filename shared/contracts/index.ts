@@ -1,5 +1,7 @@
 export * from './benchmark.ts';
 export * from './change-map.ts';
+export * from './coherence.ts';
+export * from './factory.ts';
 export * from './config.ts';
 export * from './control-messages.ts';
 export * from './data-messages.ts';

@@ -204,6 +204,14 @@ Compare agent setups on frozen cases from the suites in the benchmarks folder of
 |-----|---------|---------|-------|
 | `benchmarks.enabled` | Enable benchmarks | `false` | Show the Bench tab. Nothing runs until you choose Mine or Run there. |
 
+### Factory
+
+Let a master orchestrator work a queue of intents in repos that hold a coherence.config.json, with glimmervoid enforcing guardrails.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `factory.enabled` | Enable the factory | `false` | Show the Factory tab. Off by default. |
+
 ### Workflows
 
 Rules that act on pull request events in the repositories you choose.

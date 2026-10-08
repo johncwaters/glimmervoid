@@ -1,5 +1,6 @@
 import { ReviewsRefreshRequest, ReviewsRefreshResult } from './reviews.ts';
 import { z } from 'zod';
+import { FactoryState } from './factory.ts';
 import {
   PLAN_BODY_CAP_BYTES,
   PLAN_COMMENTS_MAX,
@@ -348,6 +349,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'posthog-archive-investigation-result',
   'team-review-status',
   'benchmark-status',
+  'factory-state',
   'my-prs-status',
   'branch-gc-status',
   'usage-sessions',
@@ -600,6 +602,7 @@ const serverVariants = [
   loose('posthog-archive-investigation-result', { requestId, ok: z.boolean(), error: optionalError }),
   TeamReviewStatus,
   BenchmarkStatus,
+  loose('factory-state', FactoryState.shape),
   MyPrsStatus,
 
   loose('branch-gc-status'),

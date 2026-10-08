@@ -1,0 +1,113 @@
+{
+  "action": "resolve-conflict",
+  "reasons": [
+    "wrk-6ef3eb55fea44034 and wrk-803663417ea7d714 concurrently claim src/a.ts ↔ src/a.ts"
+  ],
+  "sources": [
+    {
+      "name": "decisions",
+      "ok": true,
+      "detail": "0 trusted row(s); 0 addressed subject(s)"
+    },
+    {
+      "name": "work",
+      "ok": true,
+      "detail": "2 work order(s); 1 active write conflict(s)"
+    },
+    {
+      "name": "experiments",
+      "ok": true,
+      "detail": "0 experiment(s)"
+    },
+    {
+      "name": "defects",
+      "ok": true,
+      "detail": "0 defect(s)"
+    },
+    {
+      "name": "consequences",
+      "ok": true,
+      "detail": "0 explicit link(s)"
+    },
+    {
+      "name": "verification",
+      "ok": true,
+      "detail": "no verification report has been filed"
+    }
+  ],
+  "decisions": {
+    "standing": 0,
+    "historicalBlockedReports": 0,
+    "openConjectures": 0,
+    "positions": [],
+    "contested": [],
+    "needsRatification": []
+  },
+  "work": {
+    "stats": {
+      "total": 2,
+      "roots": 2,
+      "dependencies": 0,
+      "states": {
+        "open": 2,
+        "active": 0,
+        "blocked": 0,
+        "completed": 0,
+        "cancelled": 0
+      },
+      "readiness": {
+        "ready": 0,
+        "waiting": 0,
+        "active": 0,
+        "blocked": 2,
+        "done": 0
+      },
+      "risks": {
+        "low": 0,
+        "medium": 1,
+        "high": 1,
+        "critical": 0
+      },
+      "graphProblems": 0,
+      "scopeOverlaps": 1,
+      "scopeConflicts": 1,
+      "orphans": 0,
+      "unsynthesizedChildren": 0
+    },
+    "ready": [],
+    "active": [],
+    "blocked": [
+      "wrk-6ef3eb55fea44034",
+      "wrk-803663417ea7d714"
+    ],
+    "completed": [],
+    "conflicts": [
+      {
+        "left": "wrk-6ef3eb55fea44034",
+        "right": "wrk-803663417ea7d714",
+        "scope": "src/a.ts ↔ src/a.ts"
+      }
+    ],
+    "unsynthesized": []
+  },
+  "consequences": {
+    "links": 0,
+    "dangling": [],
+    "uncheckedVerificationRefs": [],
+    "unverifiedCompletedWork": []
+  },
+  "verification": {
+    "state": "never",
+    "at": null,
+    "commit": null,
+    "failures": null,
+    "tier": null
+  },
+  "limitations": [
+    "orientation selects one heading from recorded evidence; it neither executes work nor proves semantic correctness",
+    "historical journal blocked reports remain visible evidence but only closeable work state selects a live unblock heading",
+    "pending child results select synthesis only after that parent's direct children are terminal",
+    "verification references remain unchecked until verification receipts become append-only identities",
+    "shared paths, commits, and timestamps never create consequence links"
+  ]
+}

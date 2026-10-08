@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Factory tab**: turn on the Factory setting to get a Factory tab that shows the coherence ledger of each repo whose integration branch holds a coherence.config.json as a live floor: the active intent and its criteria, the queue, working agents, review and shipped work. Read-only for now. Glimmervoid ships the `@danilocampos/coherence` ledger CLI (0.37.1) for it.
+
 ### Changed
 
 - **Monospace everywhere**: the dashboard no longer falls back to a sans font for text without its own font rule, such as session task descriptions, header buttons, the update and telemetry banners, and the Focus empty state. In the focused card the task description and its timer now match the name's 12px size.

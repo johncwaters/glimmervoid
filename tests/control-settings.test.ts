@@ -392,6 +392,26 @@ test('benchmark settings persist, echo, and reject a non-boolean enabled', () =>
   assert.equal(invalid.cfg.benchmarks, undefined);
 });
 
+test('factory settings save to disk, hot-apply, echo, and reload through get-settings', () => {
+  withRealStore({ projects: [] }, undefined, (settings, store, readDisk) => {
+    assert.equal(store.getSettings().factory, null);
+    for (const enabled of [true, false]) {
+      settings.sent.length = 0;
+      settings.send({ type: 'update-settings', settings: { factory: { enabled, ignored: true } } });
+      assert.equal(errorFrom(settings), undefined);
+      assert.deepEqual(readDisk().factory, { enabled });
+      assert.deepEqual(store.config.factory, { enabled });
+      assert.deepEqual(updatedFrom(settings)?.settings?.factory, { enabled });
+      settings.send({ type: 'get-settings' });
+      assert.deepEqual(settings.sent.find((frame) => frame.type === 'settings')?.settings?.factory, { enabled });
+    }
+    settings.sent.length = 0;
+    settings.send({ type: 'update-settings', settings: { factory: { enabled: 'yes' } } });
+    assert.match(String(errorFrom(settings)?.message ?? ''), /factory.enabled must be a boolean/);
+    assert.deepEqual(readDisk().factory, { enabled: false });
+  });
+});
+
 function posthogPayload(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     enabled: true,

@@ -1,0 +1,153 @@
+{
+  "work": [
+    {
+      "work": "wrk-803663417ea7d714",
+      "opened": {
+        "version": 1,
+        "event": "opened",
+        "at": "2026-10-08T10:26:41.057Z",
+        "session": "gv-fixture",
+        "agent": "main",
+        "job": "main",
+        "work": "wrk-803663417ea7d714",
+        "parent": null,
+        "objective": "retry settle",
+        "criteria": [
+          "retry test passes"
+        ],
+        "constraints": [],
+        "nonGoals": [],
+        "authority": {
+          "kind": "orchestrator-delegated",
+          "grantedBy": "glimmervoid",
+          "boundary": "src/a.ts"
+        },
+        "owner": {
+          "session": "s-1",
+          "agent": "claude"
+        },
+        "dependsOn": [],
+        "readScopes": [],
+        "writeScopes": [
+          "src/a.ts"
+        ],
+        "risk": "high",
+        "state": "open",
+        "id": "wev-80de1b0db40ea9e0"
+      },
+      "records": [
+        {
+          "version": 1,
+          "event": "opened",
+          "at": "2026-10-08T10:26:41.057Z",
+          "session": "gv-fixture",
+          "agent": "main",
+          "job": "main",
+          "work": "wrk-803663417ea7d714",
+          "parent": null,
+          "objective": "retry settle",
+          "criteria": [
+            "retry test passes"
+          ],
+          "constraints": [],
+          "nonGoals": [],
+          "authority": {
+            "kind": "orchestrator-delegated",
+            "grantedBy": "glimmervoid",
+            "boundary": "src/a.ts"
+          },
+          "owner": {
+            "session": "s-1",
+            "agent": "claude"
+          },
+          "dependsOn": [],
+          "readScopes": [],
+          "writeScopes": [
+            "src/a.ts"
+          ],
+          "risk": "high",
+          "state": "open",
+          "id": "wev-80de1b0db40ea9e0"
+        }
+      ],
+      "last": {
+        "version": 1,
+        "event": "opened",
+        "at": "2026-10-08T10:26:41.057Z",
+        "session": "gv-fixture",
+        "agent": "main",
+        "job": "main",
+        "work": "wrk-803663417ea7d714",
+        "parent": null,
+        "objective": "retry settle",
+        "criteria": [
+          "retry test passes"
+        ],
+        "constraints": [],
+        "nonGoals": [],
+        "authority": {
+          "kind": "orchestrator-delegated",
+          "grantedBy": "glimmervoid",
+          "boundary": "src/a.ts"
+        },
+        "owner": {
+          "session": "s-1",
+          "agent": "claude"
+        },
+        "dependsOn": [],
+        "readScopes": [],
+        "writeScopes": [
+          "src/a.ts"
+        ],
+        "risk": "high",
+        "state": "open",
+        "id": "wev-80de1b0db40ea9e0"
+      },
+      "state": "open",
+      "owner": {
+        "session": "s-1",
+        "agent": "claude"
+      },
+      "closed": null,
+      "readiness": "ready",
+      "blockedBy": [],
+      "conflictsWith": []
+    }
+  ],
+  "stats": {
+    "total": 1,
+    "roots": 1,
+    "dependencies": 0,
+    "states": {
+      "open": 1,
+      "active": 0,
+      "blocked": 0,
+      "completed": 0,
+      "cancelled": 0
+    },
+    "readiness": {
+      "ready": 1,
+      "waiting": 0,
+      "active": 0,
+      "blocked": 0,
+      "done": 0
+    },
+    "risks": {
+      "low": 0,
+      "medium": 0,
+      "high": 1,
+      "critical": 0
+    },
+    "graphProblems": 0,
+    "scopeOverlaps": 0,
+    "scopeConflicts": 0,
+    "orphans": 0,
+    "unsynthesizedChildren": 0
+  },
+  "validation": {
+    "valid": true,
+    "problems": []
+  },
+  "scopeConflicts": [],
+  "unsynthesized": []
+}

@@ -67,6 +67,7 @@ export const SETTINGS_SECTION_ALIASES = Object.freeze({
   'team-review': 'lanes-team-review',
   reviews: 'lanes-team-review',
   benchmarks: 'lanes-benchmarks',
+  factory: 'lanes-factory',
   workflows: 'lanes-workflows',
   usage: 'machine-usage',
   privacy: 'machine-privacy',
@@ -714,6 +715,19 @@ export const SETTINGS_MAP = Object.freeze([
         id: 'benchmarks-enabled', path: 'benchmarks.enabled', title: 'Enable benchmarks',
         description: 'Show the Bench tab. Nothing runs until you choose Mine or Run there.',
         control: 'toggle', keywords: ['eval', 'arms', 'recall', 'compare'], defaultValue: false,
+      },
+    ],
+  },
+  {
+    id: 'lanes-factory',
+    level: 'lanes',
+    title: 'Factory',
+    description: 'Let a master orchestrator work a queue of intents in repos that hold a coherence.config.json, with glimmervoid enforcing guardrails.',
+    settings: [
+      {
+        id: 'factory-enabled', path: 'factory.enabled', title: 'Enable the factory',
+        description: 'Show the Factory tab. Off by default.',
+        control: 'toggle', keywords: ['orchestrator', 'intents', 'queue', 'coherence', 'guardrails'], defaultValue: false,
       },
     ],
   },

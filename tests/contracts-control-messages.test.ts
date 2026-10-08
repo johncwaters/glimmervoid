@@ -190,6 +190,12 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'team-review-action-result', requestId: 'review-1', key: 'PostHog/wizard#1350', ok: true },
   { type: 'reviews-refresh-result', requestId: 'refresh-1', ok: true },
   { type: 'benchmark-action-result', requestId: 'bench-1', suiteId: 'review-ladder', action: 'run', ok: true, runId: 'run-1' },
+  { type: 'factory-state', ts: NOW, projects: [{
+    projectId: 'project-1', projectName: 'Factory', headSha: 'a'.repeat(40), error: null,
+    heading: { action: 'dispatch', reasons: ['ready work'] },
+    orders: [{ id: 'work-1', objective: 'Fix retries', criteria: ['Retry test passes'], risk: 'high', state: 'open', readiness: 'ready', parent: null, dependsOn: [], writeScopes: ['src/retry.ts'], owner: 'session-1', lastEvent: null }],
+    conflicts: [], unverifiedCompletedWork: [],
+  }] },
   { type: 'benchmark-status', ts: NOW, configured: true, reason: null, suites: [{
     id: 'review-ladder', title: 'Review ladder', error: null, caseCount: 5, candidateCount: 2,
     armIds: ['baseline', 'candidate'], baselineArm: 'baseline', latestReport: null,
@@ -667,6 +673,16 @@ test('no-shape messages retain literal types and passthrough fields', () => {
   const type: 'shutdown' = shutdown.type;
   assert.equal(type, 'shutdown');
   assert.deepEqual(shutdown, expected);
+});
+
+test('factory snapshots are sent on connect only when the lane has state', () => {
+  const snapshot = { type: 'factory-state' as const, ts: NOW, projects: [] };
+  for (const state of [null, snapshot]) {
+    const server = createControlServer(controlDeps({ projects: [] }, { getFactoryState: () => state }));
+    const connection = connectControl<ServerPayload>(server);
+    assert.deepEqual(connection.sent.filter((message) => message.type === 'factory-state'), state ? [state] : []);
+    server.close();
+  }
 });
 
 test('nested open objects retain declared field types and passthrough fields', () => {

@@ -1,0 +1,39 @@
+{
+  "work": [],
+  "stats": {
+    "total": 0,
+    "roots": 0,
+    "dependencies": 0,
+    "states": {
+      "open": 0,
+      "active": 0,
+      "blocked": 0,
+      "completed": 0,
+      "cancelled": 0
+    },
+    "readiness": {
+      "ready": 0,
+      "waiting": 0,
+      "active": 0,
+      "blocked": 0,
+      "done": 0
+    },
+    "risks": {
+      "low": 0,
+      "medium": 0,
+      "high": 0,
+      "critical": 0
+    },
+    "graphProblems": 0,
+    "scopeOverlaps": 0,
+    "scopeConflicts": 0,
+    "orphans": 0,
+    "unsynthesizedChildren": 0
+  },
+  "validation": {
+    "valid": true,
+    "problems": []
+  },
+  "scopeConflicts": [],
+  "unsynthesized": []
+}
