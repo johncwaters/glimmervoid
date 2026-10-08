@@ -841,6 +841,7 @@ mountPhoneShell({
   },
 
   headerControls: [
+    queryTag(document, '.header-title', 'h1'),
     queryTag(document, '#status-indicator', 'div'),
     queryTag(document, '#btn-add-session-header', 'button'),
     queryTag(document, '#btn-help', 'button'),

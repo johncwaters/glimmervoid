@@ -7359,6 +7359,7 @@ html[data-layout="phone"] .phone-shell[hidden] { display: none; }
 }
 
 .phone-topbar > .btn-add-header { margin-left: auto; }
+.phone-topbar > .header-title { flex: 0 0 auto; font-size: 14px; white-space: nowrap; }
 .phone-topbar > .status-indicator,
 .phone-topbar .header-connection { min-width: 0; overflow: hidden; }
 
