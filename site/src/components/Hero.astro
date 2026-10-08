@@ -19,9 +19,9 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
       <button class="btn" type="button" id="copy-install">Copy</button>
       <span class="copy-status" id="copy-status" role="status"></span>
     </div>
-    <div class="platform-switch" id="platform-switch" role="group" aria-label="Your operating system" hidden>
+    <fieldset class="platform-switch" id="platform-switch" aria-label="Your operating system" hidden>
       {INSTALL_PLATFORMS.map((platform) => <button type="button" data-platform={platform} aria-pressed="false">{PLATFORM_LABELS[platform]}</button>)}
-    </div>
+    </fieldset>
     <p class="install-platform-note" id="install-platform-note">Windows and macOS. On Linux, use the <a href="#install">Linux command</a>.</p>
     <p class="install-platform-note" id="linux-build-note" hidden>Install build tools first: <code>sudo apt install build-essential python3</code></p>
   </div>
@@ -33,7 +33,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
   .hero-copy { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 18px; position: relative; z-index: 2; }
   .install-platform-note { margin: 0; font-size: 13px; color: var(--text-dim); }
   .install-platform-note code { color: var(--text); }
-  .platform-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  .platform-switch { display: inline-flex; margin: 0; padding: 0; min-inline-size: 0; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
   .platform-switch[hidden] { display: none; }
   .platform-switch button { font: inherit; font-size: 12px; cursor: pointer; background: transparent; color: var(--text-dim); border: 0; padding: 6px 14px; }
   .platform-switch button + button { border-left: 1px solid var(--border); }

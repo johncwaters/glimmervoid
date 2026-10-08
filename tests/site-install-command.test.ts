@@ -22,7 +22,7 @@ test('the hero carries every markup hook its platform switch script applies the 
   const hero = fs.readFileSync(path.join(SITE_COMPONENTS, 'Hero.astro'), 'utf8');
   assert.match(hero, /<code id="install-command" title="Click to copy"><span data-install-for="default">/);
   assert.match(hero, /<span data-install-for="linux" hidden>/);
-  assert.match(hero, /<div class="platform-switch" id="platform-switch"[^>]*>\s*\{INSTALL_PLATFORMS\.map\(\(platform\) => <button type="button" data-platform=\{platform\}/);
+  assert.match(hero, /<fieldset class="platform-switch" id="platform-switch"[^>]*>\s*\{INSTALL_PLATFORMS\.map\(\(platform\) => <button type="button" data-platform=\{platform\}/);
   assert.match(hero, /id="linux-build-note" hidden/);
   assert.deepEqual([...INSTALL_PLATFORMS].sort(), ['linux', 'macos', 'windows']);
 });
