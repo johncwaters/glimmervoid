@@ -254,6 +254,35 @@ test('keep mergeable runs sandboxed with the review posture and the server fast-
   }
 });
 
+test('keep mergeable pushes the commit on the keep-mergeable branch even when the session leaves HEAD detached at the old head', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-detached-'));
+  const spawnSession = createTeamReviewSpawn({
+    reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
+    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', recordLane: () => {},
+    makeSession: (options) => {
+      const session = new Session(options);
+      session.start = async () => {
+        const checkoutPath = path.join(options.path, MY_PRS_FIX_CHECKOUT_DIRNAME);
+        const scheduledHead = await git(['rev-parse', 'HEAD'], checkoutPath);
+        await resolveConflictAndCommit(checkoutPath);
+        await git(['checkout', '--quiet', '--detach', scheduledHead], checkoutPath);
+        session.emit('exit');
+      };
+      return session;
+    },
+  });
+  try {
+    const harness = await fixHarness(root, { spawnSession });
+    const pr = conflictingPr(harness.headSha);
+    const repairOutcome = await harness.fix(pr, new AbortController().signal, async () => {}, () => pr);
+    assert.deepEqual(repairOutcome, { outcome: 'pushed' }, harness.warnings.join('\n'));
+    const pushedSha = (harness.pushes[0].at(-1) ?? '').split(':')[0];
+    assert.equal(await git(['rev-parse', `${pushedSha}^1`], harness.originDir), harness.headSha);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('keep mergeable hands off a repair over pull request history whose file contents the partial cache never fetched', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-partial-'));
   const spawnSession = createTeamReviewSpawn({

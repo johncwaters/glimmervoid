@@ -35,6 +35,7 @@ const MERGE_ERROR_MAX_CHARACTERS = 300;
 const TRUSTED_GIT_TIMEOUT_MS = 10 * 60 * 1000;
 const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 const KEEP_MERGEABLE_HANDOFF_REF_PREFIX = 'refs/glimmervoid-keep-mergeable/';
+const KEEP_MERGEABLE_WORK_BRANCH_REF = `refs/heads/${core.MY_PRS_FIX_WORK_BRANCH}`;
 
 export function createMyPrsStateIo(statePath: string, log: Pick<Console, 'warn'>) {
   let loaded: MyPrsStateType = { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [] };
@@ -252,16 +253,16 @@ export function createMyPrMergeabilityFix({
     const bundleDir = await fs.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-keep-mergeable-'));
     try {
       const bundlePath = path.join(bundleDir, 'session.bundle');
-      const bundled = await runGit(['bundle', 'create', '--quiet', bundlePath, 'HEAD', `^${headSha}`, `^${staged.baseSha}`], checkoutPath, signal);
+      const bundled = await runGit(['bundle', 'create', '--quiet', bundlePath, KEEP_MERGEABLE_WORK_BRANCH_REF, `^${headSha}`, `^${staged.baseSha}`], checkoutPath, signal);
       if (!bundled.ok || signal.aborted) return bundled;
-      return await runGit(['fetch', '--quiet', '--no-tags', '--no-write-fetch-head', bundlePath, `+HEAD:${handoffRef}`], staged.projectPath, signal);
+      return await runGit(['fetch', '--quiet', '--no-tags', '--no-write-fetch-head', bundlePath, `+${KEEP_MERGEABLE_WORK_BRANCH_REF}:${handoffRef}`], staged.projectPath, signal);
     } finally {
       await fs.rm(bundleDir, { recursive: true, force: true });
     }
   }
 
   async function handOff(pr: MyPr, staged: { projectPath: string; baseSha: string }, checkoutPath: string, handoffRef: string, signal: AbortSignal, onPushStarted: (repairSha: string) => Promise<void>, latestListedPr: () => MyPr | undefined): Promise<MyPrMergeabilityFixResult> {
-    const sessionHead = await runGit(['rev-parse', '--verify', 'HEAD^{commit}'], checkoutPath, signal);
+    const sessionHead = await runGit(['rev-parse', '--verify', `${KEEP_MERGEABLE_WORK_BRANCH_REF}^{commit}`], checkoutPath, signal);
     if (signal.aborted) return stopped;
     if (!sessionHead.ok) return reportRepairFailure(pr, `not pushed: could not read the session commit ${sessionHead.err}`);
     if (sessionHead.out === pr.headRefOid) return reportRepairFailure(pr, 'not pushed: the session committed nothing', 'no-change');
