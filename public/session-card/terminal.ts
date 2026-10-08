@@ -2,7 +2,7 @@
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import type { SessionUi } from './card-registry.ts';
-import { writeClipboardText } from '../dom-helpers.ts';
+import { el, writeClipboardText } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { currentShortcutContext, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { resolveDashboardShortcut } from '../shortcuts-core.ts';
@@ -27,6 +27,7 @@ import { decideTerminalLinkState } from './terminal-link-core.ts';
 import { showErrorToast } from './toast.ts';
 import { wireTouchScroll } from './touch-scroll.ts';
 import { reacquireWebglIfStale, releaseWebgl, tryLoadWebGL } from './webgl-pool.ts';
+import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from '../flying-animal-preview.ts';
 
 
 const INPUT_QUEUE_MAX = 1024;
@@ -77,6 +78,26 @@ function isStillCurrentAndDetached(sessionId: string, ui: SessionUi) {
   return sessionUIs.get(sessionId) === ui && !ui.dataWs;
 }
 
+function findConnectingOverlay(termWrap: HTMLElement) {
+  return termWrap.querySelector(':scope > .terminal-connecting');
+}
+
+function ensureConnectingOverlay(termWrap: HTMLElement) {
+  if (findConnectingOverlay(termWrap)) return;
+  const overlay = el('div', 'terminal-connecting');
+  overlay.append(el('span', 'terminal-connecting-label', 'Connecting'));
+  termWrap.append(overlay);
+}
+
+function swapConnectingAnimal(termWrap: HTMLElement) {
+  const overlay = findConnectingOverlay(termWrap);
+  if (!overlay) return;
+  overlay.querySelector(':scope > .terminal-connecting-animal')?.remove();
+  const animal = pickRandomIncludedAnimal();
+  if (!animal) return;
+  overlay.prepend(buildFlyingAnimalPreview(animal, 'terminal-connecting-animal'));
+}
+
 function refreshTerminalLink(ui: SessionUi) {
   const linkState = decideTerminalLinkState({
     hasTerminal: ui.term !== null,
@@ -87,7 +108,9 @@ function refreshTerminalLink(ui: SessionUi) {
     delete ui.card.dataset.link;
     return;
   }
+  const isStartingToConnect = linkState === 'connecting' && ui.card.dataset.link !== 'connecting';
   ui.card.dataset.link = linkState;
+  if (isStartingToConnect) swapConnectingAnimal(ui.termWrap);
 }
 
 function detachThenReconnect(sessionId: string, ui: SessionUi, term: Terminal, delayMs: number) {
@@ -224,6 +247,7 @@ export function setupTerminal(termWrap: HTMLElement, ui: SessionUi) {
 
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
+  ensureConnectingOverlay(termWrap);
   term.open(termWrap);
   registerUrlLinkProvider(term);
 

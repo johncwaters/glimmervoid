@@ -7,6 +7,7 @@ import { shouldShowServerAction } from '#shared/client-trust.ts';
 import { STATES } from '#shared/states.ts';
 import { getBorrowedCardId } from './card-host.ts';
 import { createClientErrorReporter } from './client-error-core.ts';
+import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from './flying-animal-preview.ts';
 import { checkControlLiveness, connectControl, onControlMessage, sendControlMsg, sendControlRequest, setConnectionStateCallback } from './control-ws.ts';
 import { createAddSessionDialog } from './dialogs.ts';
 import { observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers.ts';
@@ -72,6 +73,15 @@ const loadingStatus = queryTag(document, '#loading-status', 'div');
 const shutdownScreen = queryTag(document, '#shutdown-screen', 'div');
 const shutdownStatus = queryTag(document, '#shutdown-status', 'div');
 let appRevealed = false;
+
+function showLoadingAnimal() {
+  const animal = pickRandomIncludedAnimal();
+  const spinner = loadingScreen.querySelector('.loading-spinner');
+  if (!animal || !spinner) return;
+  spinner.replaceWith(buildFlyingAnimalPreview(animal, 'loading-animal'));
+}
+
+showLoadingAnimal();
 
 function revealApp() {
   if (appRevealed) return;

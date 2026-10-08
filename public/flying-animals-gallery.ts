@@ -2,8 +2,8 @@ import { el } from './dom-helpers.ts';
 import { hasIncludedAnimals } from './flying-animals-core.ts';
 import { applyFlyingAnimals } from './flying-animals.ts';
 import { currentFlightBlockReason, flyAnimalNow } from './nyan-cat.ts';
+import { buildFlyingAnimalPreview } from './flying-animal-preview.ts';
 import { ANIMALS } from './nyan-animals.ts';
-import { deriveNyanGeometry } from './nyan-geometry-core.ts';
 import { getFlyingAnimalsOptions, isFlyingAnimalsEnabled, setFlyingAnimalsExcludedSprites } from './ui-prefs.ts';
 
 export function renderFlyingAnimalsGallery() {
@@ -21,16 +21,9 @@ export function renderFlyingAnimalsGallery() {
     for (const button of flightButtons) button.disabled = blockReason !== null;
   };
   const options = getFlyingAnimalsOptions();
-  const geometry = deriveNyanGeometry({ viewportWidthPx: 1440, viewportHeightPx: 900, verticalProgress: 0 });
   for (const animal of ANIMALS) {
     const tile = el('article', 'flying-animal-tile');
-    const preview = el('div', 'flying-animal-preview');
-    preview.setAttribute('aria-hidden', 'true');
-    preview.style.setProperty('--nyan-width', `${geometry.spriteWidthPx}px`);
-    preview.style.setProperty('--nyan-height', `${geometry.spriteHeightPx}px`);
-    const stage = el('div', 'flying-animal-preview-stage');
-    stage.append(el('div', `nyan-trail ${animal.trail}`), el('div', `nyan-sprite ${animal.sprite}`));
-    preview.append(stage);
+    const preview = buildFlyingAnimalPreview(animal);
     const include = el('label', 'flying-animal-include');
     const checkbox = el('input', 'settings-view-checkbox');
     checkbox.type = 'checkbox';

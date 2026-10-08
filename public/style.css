@@ -680,7 +680,7 @@ body {
 }
 
 .terminal-wrap::before,
-.terminal-wrap::after {
+.terminal-connecting {
   position: absolute;
   z-index: 10;
   opacity: 0;
@@ -695,15 +695,44 @@ body {
   background: color-mix(in oklab, var(--bg-card) 88%, transparent);
 }
 
-.terminal-wrap::after {
-  content: 'Connecting';
+.terminal-connecting {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  padding: 6px 12px;
-  border: 1px solid var(--border-hover);
-  border-radius: var(--radius-lg);
-  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.flying-animal-preview.terminal-connecting-animal {
+  width: 180px;
+}
+
+.terminal-connecting-animal .flying-animal-preview-stage {
+  left: calc(70% - var(--nyan-width) / 2);
+}
+
+.terminal-connecting-animal .nyan-trail {
+  width: 110px;
+}
+
+.flying-animal-preview.loading-animal {
+  width: 300px;
+  height: 120px;
+}
+
+.loading-animal .flying-animal-preview-stage {
+  top: 41px;
+  left: calc(72% - var(--nyan-width) / 2);
+  transform: scale(1.6);
+}
+
+.loading-animal .nyan-trail {
+  width: 120px;
+}
+
+.terminal-connecting-label {
   font-family: var(--font-mono);
   font-size: 14px;
   letter-spacing: 0.02em;
@@ -711,7 +740,7 @@ body {
 }
 
 .session-card[data-link="connecting"] .terminal-wrap::before,
-.session-card[data-link="connecting"] .terminal-wrap::after {
+.session-card[data-link="connecting"] .terminal-connecting {
   opacity: 1;
   visibility: visible;
   transition: opacity var(--transition-med) 300ms, visibility 0s linear 300ms;
