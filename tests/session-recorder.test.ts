@@ -410,6 +410,147 @@ test('a live session records its hook payloads and transitions in signals mode',
   }
 });
 
+function whenStreamFinished(recorder: SessionRecorder): Promise<void> {
+  const stream = recorder._stream;
+  if (!stream) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    stream.once('finish', () => resolve());
+  });
+}
+
+test('a session respawned after its process exits records into a fresh file and releases the first', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-08T10:00:00.000Z') });
+  const baseDir = makeBaseDir();
+  try {
+    const recorder = new SessionRecorder({ name: 'respawned-session', baseDir });
+    const s = new Session({ id: 'respawn-id', name: 'respawned-session', path: process.cwd() });
+    s.setRecorder(recorder);
+    s.state = STATES.RUNNING;
+    recorder.writeHeader({ agent: 'claude' });
+    const firstRunPath = recorder._filepath as string;
+    const firstRunFinished = whenStreamFinished(recorder);
+    await s._handlePtyExit(0, 9);
+    await firstRunFinished;
+    assert.equal(recorder._stream, null, 'the exit finishes the first run stream');
+
+    t.mock.timers.setTime(Date.parse('2026-10-08T10:05:00.000Z'));
+    recorder.writeHeader({ agent: 'claude' });
+    recorder.writeHook('PermissionRequest', { session_id: 'after-respawn' });
+    const secondRunPath = recorder._filepath as string;
+    await closeAndFlush(recorder);
+    s.destroy();
+
+    assert.notEqual(secondRunPath, firstRunPath);
+    const firstRunRecords = readLines(firstRunPath);
+    assert.equal(firstRunRecords.at(-1)?.type, 'footer', 'the first run file ends with the exit footer');
+    assert.equal(firstRunRecords.at(-1)?.reason, 'pty_exit');
+    const secondRunRecords = readLines(secondRunPath);
+    assert.equal(secondRunRecords[0]?.type, 'header', 'the respawn opens its own file with a header');
+    const hook = secondRunRecords.find((r) => r.type === 'hook');
+    assert.equal((hook?.payload as Record<string, unknown> | undefined)?.session_id, 'after-respawn');
+  } finally {
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
+test('a run started while the previous exit is still settling its worktree records only into its own file', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-08T10:00:00.000Z') });
+  const baseDir = makeBaseDir();
+  try {
+    const recorder = new SessionRecorder({ name: 'settling-session', baseDir });
+    const s = new Session({ id: 'settling-id', name: 'settling-session', path: process.cwd() });
+    s.setRecorder(recorder);
+    s.state = STATES.RUNNING;
+    let finishWorktreeSettle = () => {};
+    s._settleWorktreeOnExit = () => new Promise<void>((resolve) => { finishWorktreeSettle = resolve; });
+    recorder.writeHeader({ agent: 'claude', run: 'first' });
+    const firstRunPath = recorder._filepath as string;
+    const firstRunFinished = whenStreamFinished(recorder);
+    const exitHandled = s._handlePtyExit(0, 9);
+
+    t.mock.timers.setTime(Date.parse('2026-10-08T10:05:00.000Z'));
+    recorder.writeHeader({ agent: 'claude', run: 'second' });
+    recorder.writeHook('PermissionRequest', { session_id: 'second-run' });
+    const secondRunPath = recorder._filepath as string;
+    finishWorktreeSettle();
+    await exitHandled;
+    await firstRunFinished;
+    recorder.writeHook('Stop', { session_id: 'second-run' });
+    await closeAndFlush(recorder);
+    s.destroy();
+
+    assert.notEqual(secondRunPath, firstRunPath);
+    const firstRunRecords = readLines(firstRunPath);
+    assert.equal(firstRunRecords.at(-1)?.type, 'footer', 'the first run file ends with its exit footer');
+    assert.equal(firstRunRecords.some((r) => r.type === 'hook'), false, 'no second-run record lands in the first file');
+    const secondRunRecords = readLines(secondRunPath);
+    assert.equal(secondRunRecords[0]?.type, 'header');
+    assert.equal(secondRunRecords.filter((r) => r.type === 'hook').length, 2, 'every second-run hook stays in its own file');
+    assert.equal(secondRunRecords.some((r) => r.type === 'footer' && r.reason === 'pty_exit'), false, 'the stale exit writes no footer into the second file');
+  } finally {
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
+test('a finished recording file is no longer held open, so the byte budget can evict it', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-08T10:00:00.000Z') });
+  const baseDir = makeBaseDir();
+  const recorder = new SessionRecorder({ name: 'finished', baseDir, retainDays: 0, retainFiles: 0, retainBytes: 50 });
+  try {
+    recorder.writeHeader({ padding: 'a'.repeat(200) });
+    await recorder.retentionDone;
+    const finishedPath = recorder._filepath as string;
+    const finishedStream = whenStreamFinished(recorder);
+    recorder.finishRecordingFile();
+    await finishedStream;
+    fs.utimesSync(finishedPath, new Date('2026-01-01'), new Date('2026-01-01'));
+
+    t.mock.timers.setTime(Date.parse('2026-10-08T10:05:00.000Z'));
+    recorder.writeHeader({});
+    await recorder.retentionDone;
+    await whenStreamOpen(recorder);
+
+    assert.equal(fs.existsSync(finishedPath), false, 'the finished over-budget file is evicted');
+    assert.equal(fs.existsSync(recorder._filepath as string), true, 'the fresh file survives');
+  } finally {
+    await closeAndFlush(recorder);
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
+test('records written after a finished run are dropped until the next run header opens a fresh file', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-08T10:00:00.000Z') });
+  const baseDir = makeBaseDir();
+  const recorder = new SessionRecorder({ name: 'exited', baseDir, retainDays: 0, retainFiles: 0, retainBytes: 0 });
+  try {
+    recorder.writeHeader({ agent: 'claude' });
+    const finishedPath = recorder._filepath as string;
+    const finishedStream = whenStreamFinished(recorder);
+    recorder.finishRecordingFile();
+    await finishedStream;
+
+    t.mock.timers.setTime(Date.parse('2026-10-08T10:05:00.000Z'));
+    recorder.writeDecision({ ts: Date.now(), kind: 'phone-escalation' });
+    recorder.writeState(STATES.DONE, STATES.FAILED, 'late', null);
+    assert.equal(recorder._stream, null, 'a late decision or state opens no stream');
+    assert.deepEqual(fs.readdirSync(baseDir), [path.basename(finishedPath)], 'a late decision or state creates no file');
+
+    recorder.writeHeader({ agent: 'claude' });
+    recorder.writeDecision({ ts: Date.now(), kind: 'after-respawn' });
+    const freshPath = recorder._filepath as string;
+    await closeAndFlush(recorder);
+
+    assert.notEqual(freshPath, finishedPath);
+    const freshRecords = readLines(freshPath);
+    assert.equal(freshRecords[0]?.type, 'header', 'the next run file starts with its header');
+    assert.deepEqual(freshRecords.filter((r) => r.type === 'decision').map((r) => r.kind), ['after-respawn']);
+    assert.equal(readLines(finishedPath).some((r) => r.type === 'decision' || r.type === 'state'), false);
+  } finally {
+    await closeAndFlush(recorder);
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
 test('retention prunes recordings older than retainDays', async () => {
   const baseDir = makeBaseDir();
   try {

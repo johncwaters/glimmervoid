@@ -116,6 +116,7 @@ interface SessionRecorderPort {
   writeInput(data: string): void;
   writeResize(cols: number, rows: number): void;
   writeFooter(reason: string, exitCode: number | null | undefined): void;
+  finishRecordingFile(): void;
   close(): void;
 }
 
@@ -1451,13 +1452,13 @@ class Session extends EventEmitter {
     const reason = detail.reason || null;
     this.transition(event, detail);
 
-    try { await this._settleWorktreeOnExit(); }
-    catch {}
-
     if (this._recorder) {
       this._recorder.writeFooter("pty_exit", exitCode);
-      this._recorder.close();
+      this._recorder.finishRecordingFile();
     }
+
+    try { await this._settleWorktreeOnExit(); }
+    catch {}
 
     this.emit("exit", { exitCode, signal, reason });
   }

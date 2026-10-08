@@ -71,6 +71,7 @@ class SessionRecorder {
   _opened: boolean;
   _closed: boolean;
   _disabled: boolean;
+  _isAwaitingRunHeader: boolean;
   retentionDone: Promise<void>;
 
   constructor({ name, baseDir, recordData = false, maxFileSize, retainDays, retainFiles, retainBytes }: SessionRecorderOptions) {
@@ -88,6 +89,7 @@ class SessionRecorder {
     this._opened = false;
     this._closed = false;
     this._disabled = false;
+    this._isAwaitingRunHeader = false;
     this.retentionDone = Promise.resolve();
   }
 
@@ -109,6 +111,7 @@ class SessionRecorder {
 
   writeHeader(config: { agent?: string | null; cols?: number; rows?: number } & Record<string, unknown> = {}): void {
     const { agent = null, ...rest } = config;
+    this._isAwaitingRunHeader = false;
     this._write({
       type: "header",
       version: 2,
@@ -155,6 +158,19 @@ class SessionRecorder {
     this._write(record);
   }
 
+  finishRecordingFile(): void {
+    if (this._closed) return;
+    this._isAwaitingRunHeader = true;
+    if (!this._opened) return;
+    this._releaseOpenPath();
+    this._opened = false;
+    this._filepath = null;
+    this._currentSize = 0;
+    if (!this._stream) return;
+    this._stream.end();
+    this._stream = null;
+  }
+
   close(): void {
     if (this._closed) return;
     this._closed = true;
@@ -169,7 +185,7 @@ class SessionRecorder {
 
 
   _write(record: Record<string, unknown>): void {
-    if (this._disabled || this._closed) return;
+    if (this._disabled || this._closed || this._isAwaitingRunHeader) return;
     if (!this._opened) this.open();
     if (!this._stream) return;
     try {
