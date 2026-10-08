@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { MyPrKeepMergeableRequest, MyPrMergeWhenReadyRequest, MyPrsState, MyPrsStatus } from '../shared/contracts/my-prs.ts';
 import type { MyPr, MyPrKeepMergeableResult, MyPrMergeabilityFixResult, MyPrMergeRequest, MyPrMergeResult, MyPrMergeWhenReadyResult, MyPrsState as MyPrsStateType, MyPrsStatus as MyPrsStatusType } from '../shared/contracts/my-prs.ts';
@@ -247,8 +248,24 @@ export function createMyPrMergeabilityFix({
     return { ok: true, sha: signedResultSha };
   }
 
+  async function fetchSessionCommits(staged: { projectPath: string; baseSha: string }, checkoutPath: string, headSha: string, handoffRef: string, signal: AbortSignal): Promise<CommandResult> {
+    const bundleDir = await fs.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-keep-mergeable-'));
+    try {
+      const bundlePath = path.join(bundleDir, 'session.bundle');
+      const bundled = await runGit(['bundle', 'create', '--quiet', bundlePath, 'HEAD', `^${headSha}`, `^${staged.baseSha}`], checkoutPath, signal);
+      if (!bundled.ok || signal.aborted) return bundled;
+      return await runGit(['fetch', '--quiet', '--no-tags', '--no-write-fetch-head', bundlePath, `+HEAD:${handoffRef}`], staged.projectPath, signal);
+    } finally {
+      await fs.rm(bundleDir, { recursive: true, force: true });
+    }
+  }
+
   async function handOff(pr: MyPr, staged: { projectPath: string; baseSha: string }, checkoutPath: string, handoffRef: string, signal: AbortSignal, onPushStarted: (repairSha: string) => Promise<void>, latestListedPr: () => MyPr | undefined): Promise<MyPrMergeabilityFixResult> {
-    const fetched = await runGit(['fetch', '--quiet', '--no-tags', '--no-write-fetch-head', checkoutPath, `+HEAD:${handoffRef}`], staged.projectPath, signal);
+    const sessionHead = await runGit(['rev-parse', '--verify', 'HEAD^{commit}'], checkoutPath, signal);
+    if (signal.aborted) return stopped;
+    if (!sessionHead.ok) return reportRepairFailure(pr, `not pushed: could not read the session commit ${sessionHead.err}`);
+    if (sessionHead.out === pr.headRefOid) return reportRepairFailure(pr, 'not pushed: the session committed nothing', 'no-change');
+    const fetched = await fetchSessionCommits(staged, checkoutPath, pr.headRefOid, handoffRef, signal);
     if (signal.aborted) return stopped;
     if (!fetched.ok) return reportRepairFailure(pr, `not pushed: could not read the session commit ${fetched.err}`);
     const result = await runGit(['rev-parse', '--verify', `${handoffRef}^{commit}`], staged.projectPath);

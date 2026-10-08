@@ -20,8 +20,6 @@ export const MY_PRS_FIX_DENY_RULES: readonly string[] = Object.freeze([
   'Bash(git push:*)',
   'Bash(gh:*)',
   'Bash(curl:*api.github.com*)',
-  'Edit(**/.github/workflows/**)',
-  'Write(**/.github/workflows/**)',
   'Edit(**/.git/hooks/**)',
   'Edit(**/.git/config)',
   'Edit(**/.claude/**)',

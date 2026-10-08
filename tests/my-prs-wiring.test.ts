@@ -45,7 +45,7 @@ function conflictingPr(headRefOid = 'a'.repeat(40)): MyPr {
   };
 }
 
-async function conflictingOrigin(root: string): Promise<{ originDir: string; headSha: string }> {
+async function conflictingOrigin(root: string, { draftHistory = false }: { draftHistory?: boolean } = {}): Promise<{ originDir: string; headSha: string }> {
   const originDir = path.join(root, 'origin.git');
   const sourceDir = path.join(root, 'source');
   await git(['init', '--bare', originDir], root);
@@ -59,12 +59,24 @@ async function conflictingOrigin(root: string): Promise<{ originDir: string; hea
   await git(['commit', '-m', 'start'], sourceDir);
   await git(['branch', '-M', 'main'], sourceDir);
   await git(['checkout', '-b', 'fix/checks'], sourceDir);
+  if (draftHistory) {
+    await fs.writeFile(path.join(sourceDir, 'draft.txt'), 'first draft only in an earlier pull request commit\n');
+    await git(['add', '-A'], sourceDir);
+    await git(['commit', '-m', 'first draft'], sourceDir);
+    await fs.writeFile(path.join(sourceDir, 'draft.txt'), 'final draft\n');
+    await git(['commit', '-am', 'final draft'], sourceDir);
+  }
   await fs.writeFile(path.join(sourceDir, 'shared.txt'), 'pull request\n');
   await git(['commit', '-am', 'pull request'], sourceDir);
   const headSha = await git(['rev-parse', 'HEAD'], sourceDir);
   await git(['checkout', 'main'], sourceDir);
   await fs.writeFile(path.join(sourceDir, 'shared.txt'), 'base moved\n');
   await git(['commit', '-am', 'base moved'], sourceDir);
+  const laterBaseCommitCount = draftHistory ? 40 : 0;
+  for (let baseCommitIndex = 0; baseCommitIndex < laterBaseCommitCount; baseCommitIndex += 1) {
+    const laterDate = `${2100000000 + baseCommitIndex} +0000`;
+    await git(['commit', '--allow-empty', '-m', `later base ${baseCommitIndex}`], sourceDir, { env: { GIT_COMMITTER_DATE: laterDate, GIT_AUTHOR_DATE: laterDate } });
+  }
   await git(['push', originDir, 'main:refs/heads/main', `${headSha}:refs/heads/fix/checks`, `${headSha}:refs/pull/7/head`], sourceDir);
   return { originDir, headSha };
 }
@@ -80,15 +92,16 @@ async function resolveConflictAndCommit(checkoutPath: string, extraFile: string 
   await git(['commit', '--no-edit', '-m', 'merge base'], checkoutPath);
 }
 
-async function fixHarness(root: string, { spawnSession, timeoutSeconds, setTimeoutFn, clearTimeoutFn, beforeGit = () => {}, trustedGitConfig = [] }: {
+async function fixHarness(root: string, { spawnSession, timeoutSeconds, setTimeoutFn, clearTimeoutFn, beforeGit = () => {}, trustedGitConfig = [], draftHistory = false }: {
   spawnSession: TeamReviewSpawn;
+  draftHistory?: boolean;
   trustedGitConfig?: string[];
   timeoutSeconds?: () => number;
   setTimeoutFn?: (callback: () => void, milliseconds: number) => NodeJS.Timeout;
   clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
   beforeGit?: (args: string[]) => void;
 }) {
-  const { originDir, headSha } = await conflictingOrigin(root);
+  const { originDir, headSha } = await conflictingOrigin(root, { draftHistory });
   const workRoot = path.join(root, 'work');
   const cacheRoot = path.join(root, 'cache');
   const repoCache = createRepoCache({ rootDir: cacheRoot, remoteUrlFor: () => `file://${originDir}` });
@@ -204,7 +217,8 @@ test('keep mergeable runs sandboxed with the review posture and the server fast-
     assert.deepEqual(createdSessions[0].spawnEnv, { ...hooksPathPinnedSpawnEnv(workDir), GIT_CONFIG_COUNT: '4', GIT_CONFIG_KEY_3: 'commit.gpgsign', GIT_CONFIG_VALUE_3: 'false' });
     assert.deepEqual(createdSessions[0].settingsPermissions, { deny: [...MY_PRS_FIX_DENY_RULES], defaultMode: 'acceptEdits' });
     assert.equal(createdSessions[0].dangerouslySkipPermissions, false, 'the skip flag would override the acceptEdits boundary');
-    for (const rule of ['Bash(git push:*)', 'Bash(gh:*)', 'Edit(**/.github/workflows/**)', 'Edit(**/.git/hooks/**)', 'Edit(**/.git/config)', 'Edit(**/.claude/**)']) assert.ok(MY_PRS_FIX_DENY_RULES.includes(rule), rule);
+    for (const rule of ['Bash(git push:*)', 'Bash(gh:*)', 'Edit(**/.git/hooks/**)', 'Edit(**/.git/config)', 'Edit(**/.claude/**)']) assert.ok(MY_PRS_FIX_DENY_RULES.includes(rule), rule);
+    assert.ok(!MY_PRS_FIX_DENY_RULES.some((rule) => rule.includes('.github/workflows')), 'an Edit deny becomes a sandbox write block, so a merge could not check out a workflow the base changed; the handoff refuses any .github change instead');
     assert.ok(!MY_PRS_FIX_DENY_RULES.includes('Edit(**/.git/**)'), 'Claude Code folds Edit deny rules into the sandbox denyWrite, so a whole-.git deny leaves the repair unable to commit');
     assert.deepEqual(createdSessions[0].extraClaudeArgs, ['-p', '--allowedTools', ...MY_PRS_FIX_ALLOW_RULES, '--disallowedTools', ...MY_PRS_FIX_DENY_RULES, ...LANE_ENVIRONMENT_ARGS]);
     assert.equal(createdSessions[0].ephemeral, true);
@@ -235,6 +249,32 @@ test('keep mergeable runs sandboxed with the review posture and the server fast-
       if (refName !== 'refs/heads/fix/checks') assert.equal(remoteRefsAfter.get(refName), sha, refName);
     }
     assert.deepEqual(await fs.readdir(harness.workRoot), []);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('keep mergeable hands off a repair over pull request history whose file contents the partial cache never fetched', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-partial-'));
+  const spawnSession = createTeamReviewSpawn({
+    reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
+    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', recordLane: () => {},
+    makeSession: (options) => {
+      const session = new Session(options);
+      session.start = async () => {
+        await resolveConflictAndCommit(path.join(options.path, MY_PRS_FIX_CHECKOUT_DIRNAME));
+        session.emit('exit');
+      };
+      return session;
+    },
+  });
+  try {
+    const harness = await fixHarness(root, { spawnSession, draftHistory: true });
+    const pr = conflictingPr(harness.headSha);
+    const repairOutcome = await harness.fix(pr, new AbortController().signal, async () => {}, () => pr);
+    assert.deepEqual(repairOutcome, { outcome: 'pushed' }, harness.warnings.join('\n'));
+    const pushedSha = (harness.pushes[0].at(-1) ?? '').split(':')[0];
+    assert.equal(await git(['rev-parse', `${pushedSha}^1`], harness.originDir), harness.headSha);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
