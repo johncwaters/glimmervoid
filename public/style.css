@@ -44,7 +44,6 @@
   --state-dormant:      #5a527a;
   --state-dormant-bg:   color-mix(in oklab, var(--state-dormant) 6%, transparent);
 
-  --state-running-glow:  color-mix(in oklab, var(--state-running) 25%, transparent);
   --state-waiting-glow:  color-mix(in oklab, var(--state-waiting) 25%, transparent);
   --state-failed-glow:   color-mix(in oklab, var(--state-failed) 25%, transparent);
   --state-done-glow:     color-mix(in oklab, var(--state-done) 25%, transparent);
@@ -245,8 +244,11 @@ body {
 }
 
 .header-connection[data-state="connected"] .connection-dot {
-  background: var(--state-running);
-  box-shadow: 0 0 6px var(--state-running-glow);
+  display: none;
+}
+
+.header-brand:has(.header-connection[data-state="connected"]) {
+  gap: 0;
 }
 
 .header-connection[data-state="disconnected"] .connection-dot {
