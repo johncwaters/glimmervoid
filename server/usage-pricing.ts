@@ -84,8 +84,38 @@ function trimAnthropicModels(raw: unknown): ModelTable | null {
   return models;
 }
 
-function overlaySnapshot(models: ModelTable | null): { models: Record<string, unknown> } {
-  return { models: { ...(pricingSnapshot.models || {}), ...(models || {}) } };
+const LONG_CONTEXT_TIER_FIELDS: readonly string[] = Object.freeze([
+  'long_context_threshold',
+  'input_cost_per_token_above_200k_tokens',
+  'output_cost_per_token_above_200k_tokens',
+  'cache_creation_input_token_cost_above_200k_tokens',
+  'cache_read_input_token_cost_above_200k_tokens',
+]);
+
+function withSnapshotLongContextTier(
+  fetchedRow: Record<string, unknown>,
+  snapshotRow: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!fetchedRow || typeof fetchedRow !== 'object') return fetchedRow;
+  if (!snapshotRow || !Object.hasOwn(snapshotRow, 'long_context_threshold')) return fetchedRow;
+  if (Object.hasOwn(fetchedRow, 'long_context_threshold')) return fetchedRow;
+  const merged = Object.fromEntries(
+    Object.entries(fetchedRow).filter(([field]) => !LONG_CONTEXT_TIER_FIELDS.includes(field)),
+  );
+  for (const field of LONG_CONTEXT_TIER_FIELDS) {
+    if (!Object.hasOwn(snapshotRow, field)) continue;
+    merged[field] = snapshotRow[field];
+  }
+  return merged;
+}
+
+function overlaySnapshot(models: ModelTable | null): { models: ModelTable } {
+  const snapshotModels: ModelTable = pricingSnapshot.models || {};
+  const overlaid: ModelTable = { ...snapshotModels };
+  for (const [key, fetchedRow] of Object.entries(models || {})) {
+    overlaid[key] = withSnapshotLongContextTier(fetchedRow, snapshotModels[key]);
+  }
+  return { models: overlaid };
 }
 
 function pricedResult(models: ModelTable | null, source: string, fetchedAt: string | number | null): PricingResult {

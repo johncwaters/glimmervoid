@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { loadPricing } from '../server/usage-pricing.ts';
 import type { LoadPricingOptions } from '../server/usage-pricing.ts';
+import { costForEntry } from '../server/core/usage-pricing-core.ts';
 import type { ModelPrice } from '../server/core/usage-pricing-core.ts';
 
 type PricingFileSystem = NonNullable<LoadPricingOptions['fsPromises']>;
@@ -271,6 +272,87 @@ test('fetch receives AbortSignal and timeout falls back to snapshot', async () =
   assert.ok(seen, 'the pricing fetch carried an abort signal');
   assert.equal(seen.aborted, true);
   assert.equal(pricing.source, 'snapshot');
+});
+
+const HAIKU_UPPER_CARD_COST_FOR_150K_PROMPT = 150000 * 5e-7 + 1000 * 0.0000025;
+
+function costOf150kPrompt(price: ModelPrice): number {
+  return costForEntry({ input: 150000, output: 1000 }, price, { costMode: 'calculate' }).costUSD;
+}
+
+async function pricingWithFetchedHaiku(fetchedHaikuRow: Record<string, unknown>): Promise<ModelPrice> {
+  const pricing = await loadPricing({
+    fetchEnabled: true,
+    fsPromises: fakeFs(),
+    fetchFn: async () => okResponse({ 'claude-haiku-5-5': { litellm_provider: 'anthropic', ...fetchedHaikuRow } }),
+  });
+  assert.equal(pricing.source, 'fetched');
+  return priceOf(pricing.table, 'claude-haiku-5-5');
+}
+
+test('a fetched base-rate-only row keeps the snapshot long context threshold and tier rates', async () => {
+  const haiku = await pricingWithFetchedHaiku({ input_cost_per_token: 1e-7, output_cost_per_token: 5e-7 });
+
+  assert.equal(haiku.long_context_threshold, 100000);
+  assert.equal(haiku.input_cost_per_token_above_200k_tokens, 5e-7);
+  assert.equal(haiku.output_cost_per_token_above_200k_tokens, 0.0000025);
+  assert.equal(haiku.cache_creation_input_token_cost_above_200k_tokens, 6.25e-7);
+  assert.equal(haiku.cache_read_input_token_cost_above_200k_tokens, 5e-8);
+  assert.ok(Math.abs(costOf150kPrompt(haiku) - HAIKU_UPPER_CARD_COST_FOR_150K_PROMPT) < 1e-12);
+});
+
+test('a fetched row with marginal above_200k rates but no threshold takes the snapshot tier as a pair', async () => {
+  const haiku = await pricingWithFetchedHaiku({
+    input_cost_per_token: 2e-7,
+    output_cost_per_token: 5e-7,
+    input_cost_per_token_above_200k_tokens: 9e-7,
+    output_cost_per_token_above_200k_tokens: 0.000009,
+    cache_creation_input_token_cost_above_200k_tokens: 0.000001,
+    cache_read_input_token_cost_above_200k_tokens: 9e-8,
+  });
+
+  assert.equal(haiku.input_cost_per_token, 2e-7, 'base rates keep fetched precedence');
+  assert.equal(haiku.long_context_threshold, 100000);
+  assert.equal(haiku.input_cost_per_token_above_200k_tokens, 5e-7);
+  assert.equal(haiku.output_cost_per_token_above_200k_tokens, 0.0000025);
+  assert.equal(haiku.cache_creation_input_token_cost_above_200k_tokens, 6.25e-7);
+  assert.equal(haiku.cache_read_input_token_cost_above_200k_tokens, 5e-8);
+  assert.ok(Math.abs(costOf150kPrompt(haiku) - HAIKU_UPPER_CARD_COST_FOR_150K_PROMPT) < 1e-12);
+});
+
+test('a fetched row carrying its own long context threshold is left untouched', async () => {
+  const haiku = await pricingWithFetchedHaiku({
+    input_cost_per_token: 2e-7,
+    output_cost_per_token: 5e-7,
+    long_context_threshold: 300000,
+    input_cost_per_token_above_200k_tokens: 9e-7,
+    output_cost_per_token_above_200k_tokens: 0.000009,
+  });
+
+  assert.equal(haiku.long_context_threshold, 300000);
+  assert.equal(haiku.input_cost_per_token_above_200k_tokens, 9e-7);
+  assert.equal(haiku.output_cost_per_token_above_200k_tokens, 0.000009);
+  assert.equal(haiku.cache_creation_input_token_cost_above_200k_tokens, undefined);
+  assert.equal(haiku.cache_read_input_token_cost_above_200k_tokens, undefined);
+});
+
+test('a cached base-rate-only row keeps the snapshot long context tier', async () => {
+  const pricing = await loadPricing({
+    fetchEnabled: true,
+    fsPromises: fakeFs({
+      readFile: async () => JSON.stringify({
+        fetchedAt: '2026-08-19T11:00:00.000Z',
+        models: { 'claude-haiku-5-5': { litellm_provider: 'anthropic', input_cost_per_token: 1e-7, output_cost_per_token: 5e-7 } },
+      }),
+    }),
+    fetchFn: async () => okResponse({}),
+    nowFn: () => Date.parse('2026-08-19T12:00:00.000Z'),
+  });
+
+  assert.equal(pricing.source, 'cache');
+  const haiku = priceOf(pricing.table, 'claude-haiku-5-5');
+  assert.equal(haiku.long_context_threshold, 100000);
+  assert.ok(Math.abs(costOf150kPrompt(haiku) - HAIKU_UPPER_CARD_COST_FOR_150K_PROMPT) < 1e-12);
 });
 
 function fakeFs(overrides: Partial<PricingFileSystem> = {}): PricingFileSystem {

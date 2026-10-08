@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Monospace everywhere**: the dashboard no longer falls back to a sans font for text without its own font rule, such as session task descriptions, header buttons, the update and telemetry banners, and the Focus empty state. In the focused card the task description and its timer now match the name's 12px size.
 - **Quieter header**: the green connection dot next to the Glimmervoid logo is gone while the dashboard is connected. The dot and its label still appear while connecting, after a disconnect, or once the server shuts down. When the connection comes back after a drop, the arrow before the logo pulses green twice.
 
+### Fixed
+
+- **Claude Haiku 5.5 is priced**: the Usage tab no longer reports "No price for 1 model: claude-haiku-5-5" and counts its cost as zero. Haiku 5.5 is priced at its two rate cards, $0.10 / $0.50 per million tokens up to a 100K-token prompt and $0.50 / $2.50 above, and the bundled price list also gains Opus 5.5, Sonnet 5.5, Fable 5.1 and Mythos 5.1 so offline installs price them correctly instead of borrowing an older model's rate.
+
 ## [0.30.0] - 2026-10-08
 
 ### Added
