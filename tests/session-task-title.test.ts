@@ -125,6 +125,24 @@ test('a fresh restart drops automatic titles from the previous conversation and 
   }
 });
 
+test('a fresh Claude restart never rereads the previous conversation transcript title', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-title-fresh-'));
+  const session = new Session({ id: 's1', name: 'project', path: directory });
+  try {
+    const previousTranscriptPath = path.join(directory, 'previous.jsonl');
+    await writeFile(previousTranscriptPath, '{"type":"ai-title","aiTitle":"Previous conversation task"}\n');
+    session._transcriptPath = previousTranscriptPath;
+    await session._refreshTranscriptTaskTitle();
+    assert.equal(session.taskTitle, 'Previous conversation task');
+    session._prepareRestart({ fresh: true });
+    await session._refreshTranscriptTaskTitle();
+    assert.equal(session.taskTitle, null);
+  } finally {
+    session.destroy();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('Claude /clear drops automatic titles so the next prompt titles the new conversation, while compact keeps them', () => {
   const session = new Session({ id: 's1', name: 'project', path: '/project' });
   try {

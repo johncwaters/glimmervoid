@@ -969,6 +969,7 @@ class Session extends EventEmitter {
 
     this._suppressResumeCapture = true;
     this.setResumeConversation(null);
+    this._transcriptPath = null;
     this._resetAutomaticTaskTitle();
     this.emit("resume-cleared", { id: this.id });
   }
