@@ -572,6 +572,8 @@ body {
 }
 
 .session-task-title {
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
   flex: 1 1 auto;
   min-width: 0;
   min-height: 1lh;
@@ -5970,6 +5972,10 @@ html[data-compact-status] .focus-pill-label { display: none; }
   font-weight: 700;
   color: var(--text-head);
   letter-spacing: 0.03em;
+}
+
+.focus-center .session-card.focus-centered :is(.session-task-title, .card-elapsed) {
+  font-size: 12px;
 }
 
 .focus-center .session-card.focus-centered .perms-badge,
