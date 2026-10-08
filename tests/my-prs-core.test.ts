@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { autoRebaseRecord, currentKeepMergeableAttempt, deriveStage, hasUnresolvedThreads, isHeadPushedByKeepMergeable, isMovedBranchPushRejection, keepMergeableAttemptKey, keepMergeableClaudeArgs, keepMergeablePermissions, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, keepMergeableFixesToCancel, keepMergeableHandoff, keepMergeablePrompt, keepMergeablePushArgs, keepMergeablePushTarget, keepMergeablePushUrl, mergeAttemptKey, mergeQueuePositions, mergeQueuePrsToMerge, prunedMergeQueueKeys, shouldFixMergeability, shouldAutoRebase, shouldRebaseMyPr, mergedSinceDate, myPrsShouldStart, prunedKeepMergeableState, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/core/my-prs-core.ts';
+import { autoRebaseRecord, consecutiveKeepMergeableAttempts, currentKeepMergeableAttempt, deriveStage, hasUnresolvedThreads, isHeadPushedByKeepMergeable, isMovedBranchPushRejection, keepMergeableAttemptKey, keepMergeableClaudeArgs, keepMergeablePermissions, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, keepMergeableFixesToCancel, keepMergeableHandoff, keepMergeablePrompt, keepMergeablePushArgs, keepMergeablePushTarget, keepMergeablePushUrl, mergeAttemptKey, mergeQueuePositions, mergeQueuePrsToMerge, prunedMergeQueueKeys, shouldFixMergeability, shouldAutoRebase, shouldRebaseMyPr, mergedSinceDate, myPrsShouldStart, prunedKeepMergeableState, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/core/my-prs-core.ts';
 import { MyPrSearchNode } from '../shared/contracts/my-prs.ts';
 import type { MyPr, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode, MyPrKeepMergeableAttemptRecord } from '../shared/contracts/my-prs.ts';
 
@@ -40,6 +40,38 @@ test('keep mergeable dispatches only flagged open conflicting or failing heads o
   for (const state of ['CLOSED', 'MERGED'] as const) {
     assert.equal(shouldFixMergeability({ ...conflict, state }, flaggedKeys, { attemptedHeadKeys: new Set(), keepMergeablePushedHeadKeys: new Set() }), false);
   }
+});
+
+test('a failed or empty attempt on an unchanged head retries on a doubling backoff, because GitHub keeps baseRefOid at the last head push', () => {
+  const conflict = { ...readyPr(), mergeable: 'CONFLICTING' as const };
+  const flaggedKeys = new Set([conflict.key]);
+  const attemptedHeadKeys = new Set([keepMergeableAttemptKey(conflict)]);
+  const hourMs = 60 * 60 * 1000;
+  const retryAllowed = (lastAttempt: MyPrKeepMergeableAttemptRecord, nowMs: number | undefined) =>
+    shouldFixMergeability(conflict, flaggedKeys, { attemptedHeadKeys, keepMergeablePushedHeadKeys: new Set(), lastAttempt, nowMs });
+  for (const outcome of ['no-change', 'failed', 'timed-out'] as const) {
+    const firstAttempt: MyPrKeepMergeableAttemptRecord = { key: conflict.key, headRefOid: conflict.headRefOid, baseRefOid: conflict.baseRefOid, outcome, reason: 'nothing committed', at: NOW };
+    assert.equal(retryAllowed(firstAttempt, NOW + 6 * hourMs - 1), false, outcome);
+    assert.equal(retryAllowed(firstAttempt, NOW + 6 * hourMs), true, outcome);
+    assert.equal(retryAllowed(firstAttempt, undefined), false, outcome);
+    const secondAttempt = { ...firstAttempt, consecutiveAttempts: 2 };
+    assert.equal(retryAllowed(secondAttempt, NOW + 12 * hourMs - 1), false, outcome);
+    assert.equal(retryAllowed(secondAttempt, NOW + 12 * hourMs), true, outcome);
+    assert.equal(retryAllowed({ ...firstAttempt, consecutiveAttempts: 10 }, NOW + 48 * hourMs), true, outcome);
+  }
+  for (const outcome of ['stopped', 'pushed'] as const) {
+    const attempt: MyPrKeepMergeableAttemptRecord = { key: conflict.key, headRefOid: conflict.headRefOid, baseRefOid: conflict.baseRefOid, outcome, at: NOW };
+    assert.equal(retryAllowed(attempt, NOW + 100 * hourMs), false, outcome);
+  }
+});
+
+test('consecutive keep mergeable attempts count up only on the same head', () => {
+  const pr = readyPr();
+  const previous: MyPrKeepMergeableAttemptRecord = { key: pr.key, headRefOid: pr.headRefOid, baseRefOid: pr.baseRefOid, outcome: 'no-change', reason: 'nothing committed', at: NOW };
+  assert.equal(consecutiveKeepMergeableAttempts(pr, undefined), 1);
+  assert.equal(consecutiveKeepMergeableAttempts(pr, previous), 2);
+  assert.equal(consecutiveKeepMergeableAttempts(pr, { ...previous, consecutiveAttempts: 3 }), 4);
+  assert.equal(consecutiveKeepMergeableAttempts({ ...pr, headRefOid: 'b'.repeat(40) }, previous), 1);
 });
 
 test('a failed head retries once per changed base and only for its own last attempt', () => {

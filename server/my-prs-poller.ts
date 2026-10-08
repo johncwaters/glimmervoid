@@ -228,7 +228,8 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     }).then(async (repairOutcome) => {
       if (fixSignal.aborted) return;
       if (repairOutcome.outcome === 'stopped') await forgetAttempt(attemptKey);
-      keepMergeableAttemptsByKey.set(pr.key, { key: pr.key, headRefOid: pr.headRefOid, baseRefOid: pr.baseRefOid, ...repairOutcome, at: now() });
+      const consecutiveAttempts = core.consecutiveKeepMergeableAttempts(pr, keepMergeableAttemptsByKey.get(pr.key));
+      keepMergeableAttemptsByKey.set(pr.key, { key: pr.key, headRefOid: pr.headRefOid, baseRefOid: pr.baseRefOid, ...repairOutcome, at: now(), consecutiveAttempts });
       await loop.persist();
     }).finally(async () => {
       fixSignal.removeEventListener('abort', forgetAbortedAttempt);
@@ -249,7 +250,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     const fixMergeability = dependencies.fixMergeability;
     if (!isKeepMergeableEnabled || !fixMergeability || loop.isStopped() || isLeftoverSweepRunning) return;
     for (const pr of previousPrs) {
-      if (fixesInFlight.has(pr.key) || !core.shouldFixMergeability(pr, keepMergeableKeys, { attemptedHeadKeys: keepMergeableAttemptKeys, keepMergeablePushedHeadKeys, lastAttempt: keepMergeableAttemptsByKey.get(pr.key) })) continue;
+      if (fixesInFlight.has(pr.key) || !core.shouldFixMergeability(pr, keepMergeableKeys, { attemptedHeadKeys: keepMergeableAttemptKeys, keepMergeablePushedHeadKeys, lastAttempt: keepMergeableAttemptsByKey.get(pr.key), nowMs: now() })) continue;
       const attemptSaved = launchFix(pr, fixMergeability);
       if (!attemptSaved) continue;
       await attemptSaved;

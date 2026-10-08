@@ -140,19 +140,33 @@ export function mergeQueuePositions(mergeQueueKeys: readonly string[], prs: read
   return positionByKey;
 }
 
-function isAttemptedHeadRetryable(pr: MyPr, keepMergeablePushedHeadKeys: ReadonlySet<string>, lastAttempt: MyPrKeepMergeableAttemptRecord | undefined): boolean {
+export const KEEP_MERGEABLE_FIRST_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
+export const KEEP_MERGEABLE_MAX_RETRY_DELAY_MS = 48 * 60 * 60 * 1000;
+
+export function keepMergeableRetryDelayMs(consecutiveAttempts: number): number {
+  return Math.min(KEEP_MERGEABLE_FIRST_RETRY_DELAY_MS * 2 ** Math.max(0, consecutiveAttempts - 1), KEEP_MERGEABLE_MAX_RETRY_DELAY_MS);
+}
+
+export function consecutiveKeepMergeableAttempts(pr: Pick<MyPr, 'key' | 'headRefOid'>, previous: MyPrKeepMergeableAttemptRecord | undefined): number {
+  const isRetryOfThisHead = previous !== undefined && previous.key === pr.key && previous.headRefOid === pr.headRefOid;
+  return isRetryOfThisHead ? (previous.consecutiveAttempts ?? 1) + 1 : 1;
+}
+
+function isAttemptedHeadRetryable(pr: MyPr, keepMergeablePushedHeadKeys: ReadonlySet<string>, lastAttempt: MyPrKeepMergeableAttemptRecord | undefined, nowMs: number | undefined): boolean {
   if (isHeadPushedByKeepMergeable(pr, keepMergeablePushedHeadKeys)) return false;
   const isLastAttemptForThisHead = lastAttempt !== undefined && lastAttempt.key === pr.key && lastAttempt.headRefOid === pr.headRefOid;
   if (!isLastAttemptForThisHead) return true;
   if (lastAttempt.outcome === 'stopped') return false;
-  return lastAttempt.baseRefOid !== pr.baseRefOid;
+  if (lastAttempt.baseRefOid !== pr.baseRefOid) return true;
+  if (nowMs === undefined || lastAttempt.outcome === 'pushed') return false;
+  return nowMs - lastAttempt.at >= keepMergeableRetryDelayMs(lastAttempt.consecutiveAttempts ?? 1);
 }
 
-export function shouldFixMergeability(pr: MyPr, keepMergeableKeys: ReadonlySet<string>, { attemptedHeadKeys, keepMergeablePushedHeadKeys, lastAttempt }: {
-  attemptedHeadKeys: ReadonlySet<string>; keepMergeablePushedHeadKeys: ReadonlySet<string>; lastAttempt?: MyPrKeepMergeableAttemptRecord;
+export function shouldFixMergeability(pr: MyPr, keepMergeableKeys: ReadonlySet<string>, { attemptedHeadKeys, keepMergeablePushedHeadKeys, lastAttempt, nowMs }: {
+  attemptedHeadKeys: ReadonlySet<string>; keepMergeablePushedHeadKeys: ReadonlySet<string>; lastAttempt?: MyPrKeepMergeableAttemptRecord; nowMs?: number;
 }): boolean {
   if (!keepMergeableKeys.has(pr.key) || pr.state !== 'OPEN') return false;
-  if (attemptedHeadKeys.has(keepMergeableAttemptKey(pr)) && !isAttemptedHeadRetryable(pr, keepMergeablePushedHeadKeys, lastAttempt)) return false;
+  if (attemptedHeadKeys.has(keepMergeableAttemptKey(pr)) && !isAttemptedHeadRetryable(pr, keepMergeablePushedHeadKeys, lastAttempt, nowMs)) return false;
   return pr.mergeable === 'CONFLICTING' || pr.checks.state === 'FAILURE' || pr.checks.state === 'ERROR';
 }
 

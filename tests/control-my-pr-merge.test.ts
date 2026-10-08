@@ -86,7 +86,7 @@ test('keep mergeable control reaches the real lane, persists across restarts, an
     assert.deepEqual(fixes, [`${KEY}@${SEEN_HEAD}`]);
     await repairFinished;
     const savedState = JSON.parse(await fs.readFile(path.join(homeDir, 'my-prs-state.json'), 'utf8'));
-    assert.deepEqual(savedState, { keepMergeableKeys: [KEY], keepMergeableAttemptKeys: [`${KEY}@${SEEN_HEAD}`], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [{ key: KEY, headRefOid: SEEN_HEAD, baseRefOid: 'b'.repeat(40), outcome: 'pushed', at: statuses.at(-1)?.prs[0]?.keepMergeableAttempt?.at }] });
+    assert.deepEqual(savedState, { keepMergeableKeys: [KEY], keepMergeableAttemptKeys: [`${KEY}@${SEEN_HEAD}`], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [{ key: KEY, headRefOid: SEEN_HEAD, baseRefOid: 'b'.repeat(40), outcome: 'pushed', at: statuses.at(-1)?.prs[0]?.keepMergeableAttempt?.at, consecutiveAttempts: 1 }] });
     await wiring.stopPoller();
     const restarted = await startWiring();
     try {

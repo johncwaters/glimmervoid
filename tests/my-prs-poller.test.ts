@@ -15,8 +15,9 @@ function node(state: 'OPEN' | 'MERGED'): MyPrSearchNode {
   };
 }
 
-function keepMergeableHarness({ savedState = { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [] }, fixMergeability = async (): Promise<MyPrMergeabilityFixResult> => ({ outcome: 'pushed' }), beforeAttemptWrite = async () => {}, beforeStart, isKeepMergeableEnabled }: {
+function keepMergeableHarness({ savedState = { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [] }, fixMergeability = async (): Promise<MyPrMergeabilityFixResult> => ({ outcome: 'pushed' }), beforeAttemptWrite = async () => {}, beforeStart, isKeepMergeableEnabled, now = () => NOW }: {
   savedState?: MyPrsState;
+  now?: () => number;
   isKeepMergeableEnabled?: boolean;
   fixMergeability?: (pr: MyPr, signal: AbortSignal, onPushStarted: (repairSha: string) => Promise<void>, latestListedPr: () => MyPr | undefined) => Promise<MyPrMergeabilityFixResult>;
   beforeAttemptWrite?: () => Promise<void>;
@@ -42,7 +43,7 @@ function keepMergeableHarness({ savedState = { keepMergeableKeys: [], keepMergea
   };
   function createPoller() {
     return createMyPrsPoller({
-      org: 'Acme', now: () => NOW, github, isKeepMergeableEnabled, onTickComplete: (status) => { statuses.push(status); },
+      org: 'Acme', now, github, isKeepMergeableEnabled, onTickComplete: (status) => { statuses.push(status); },
       log: { warn: (message: string) => { warnings.push(message); } },
       setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {}, beforeStart,
       readState: async () => saved,
@@ -1102,7 +1103,7 @@ test('retryable outcomes persist and retry only once for each changed base acros
     await poller.tick();
     await settleRepairs();
     assert.equal(harness.fixes.length, 1);
-    assert.deepEqual(harness.savedState().keepMergeableAttempts, [{ key: 'Acme/app#1', headRefOid: 'a'.repeat(40), baseRefOid: 'b'.repeat(40), outcome, reason: 'Could not repair this head', at: NOW }]);
+    assert.deepEqual(harness.savedState().keepMergeableAttempts, [{ key: 'Acme/app#1', headRefOid: 'a'.repeat(40), baseRefOid: 'b'.repeat(40), outcome, reason: 'Could not repair this head', at: NOW, consecutiveAttempts: 1 }]);
     assert.deepEqual(harness.statuses.at(-1)?.prs[0]?.keepMergeableAttempt, { outcome, reason: 'Could not repair this head', at: NOW });
     assert.equal(harness.statuses.at(-1)?.prs[0]?.isKeepMergeableFixInFlight, false);
     await poller.stop();
@@ -1123,6 +1124,34 @@ test('retryable outcomes persist and retry only once for each changed base acros
     }
     await restarted.stop();
   }
+});
+
+test('an unpushed repair heals on its own after the backoff even when the head and listed base never change', async () => {
+  const hourMs = 60 * 60 * 1000;
+  let currentTimeMs = NOW;
+  const harness = keepMergeableHarness({
+    savedState: { keepMergeableKeys: ['Acme/app#1'], keepMergeableAttemptKeys: [], keepMergeableAttempts: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [] },
+    fixMergeability: async () => ({ outcome: 'no-change', reason: 'not pushed: the session committed nothing' }),
+    now: () => currentTimeMs,
+  });
+  const poller = harness.createPoller();
+  const tickAndSettle = async () => { await poller.tick(); await settleRepairs(); };
+  await tickAndSettle();
+  assert.equal(harness.fixes.length, 1);
+  currentTimeMs = NOW + 6 * hourMs - 1;
+  await tickAndSettle();
+  assert.equal(harness.fixes.length, 1);
+  currentTimeMs = NOW + 6 * hourMs;
+  await tickAndSettle();
+  assert.equal(harness.fixes.length, 2);
+  assert.equal(harness.savedState().keepMergeableAttempts[0]?.consecutiveAttempts, 2);
+  currentTimeMs += 12 * hourMs - 1;
+  await tickAndSettle();
+  assert.equal(harness.fixes.length, 2);
+  currentTimeMs += 1;
+  await tickAndSettle();
+  assert.equal(harness.fixes.length, 3);
+  await poller.stop();
 });
 
 test('a legacy held head with no last attempt retries once and then waits for its base to move', async () => {

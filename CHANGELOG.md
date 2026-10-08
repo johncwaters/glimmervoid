@@ -20,7 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Keep mergeable repairs commit again**: a repair session could not write inside its checkout's `.git`, so every merge failed and the Reviews tab showed "the session committed nothing" even for a conflicted pull request. The session can now commit (`.git/hooks` and `.git/config` stay locked), and when you sign your commits, Glimmervoid signs the repair commits itself before pushing, because the sandbox cannot reach your SSH agent. To retry a pull request stuck on that message, turn Keep mergeable off and back on for it.
+- **Keep mergeable repairs commit again**: a repair session could not write inside its checkout's `.git`, so every merge failed and the Reviews tab showed "the session committed nothing" even for a conflicted pull request. The session can now commit (`.git/hooks` and `.git/config` stay locked), and when you sign your commits, Glimmervoid signs the repair commits itself before pushing, because the sandbox cannot reach your SSH agent.
+- **Keep mergeable heals on its own**: a repair that failed or changed nothing is retried 6 hours later, then after 12 and 24 hours and every 48 hours after that, even when nothing new is pushed. Before, it waited for the base branch to move as GitHub reports it, which only updates on a push to the pull request, so a stuck repair never came back.
 - **Claude Haiku 5.5 is priced**: the Usage tab no longer reports "No price for 1 model: claude-haiku-5-5" and counts its cost as zero. Haiku 5.5 is priced at its two rate cards, $0.10 / $0.50 per million tokens up to a 100K-token prompt and $0.50 / $2.50 above, and the bundled price list also gains Opus 5.5, Sonnet 5.5, Fable 5.1 and Mythos 5.1 so offline installs price them correctly instead of borrowing an older model's rate.
 
 ## [0.30.0] - 2026-10-08

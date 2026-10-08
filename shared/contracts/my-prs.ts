@@ -24,7 +24,7 @@ export const MyPrKeepMergeableAttempt = z.strictObject({
 });
 export type MyPrKeepMergeableAttempt = z.infer<typeof MyPrKeepMergeableAttempt>;
 
-export const MyPrKeepMergeableAttemptRecord = MyPrKeepMergeableAttempt.extend({ key: pullRequestKey, headRefOid: CommitSha, baseRefOid: CommitSha });
+export const MyPrKeepMergeableAttemptRecord = MyPrKeepMergeableAttempt.extend({ key: pullRequestKey, headRefOid: CommitSha, baseRefOid: CommitSha, consecutiveAttempts: z.number().int().min(1).optional() });
 export type MyPrKeepMergeableAttemptRecord = z.infer<typeof MyPrKeepMergeableAttemptRecord>;
 
 export const MyPrsState = z.strictObject({
