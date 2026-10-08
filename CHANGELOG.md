@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Readable task descriptions**: the description beside a session's name now uses the same monospace font as the name, and in the focused card the description and its timer share the 12px size, instead of a smaller sans font.
+- **Monospace everywhere**: the dashboard no longer falls back to a sans font for text without its own font rule, such as session task descriptions, header buttons, the update and telemetry banners, and the Focus empty state. In the focused card the task description and its timer now match the name's 12px size.
 - **Quieter header**: the green connection dot next to the Glimmervoid logo is gone while the dashboard is connected. The dot and its label still appear while connecting, after a disconnect, or once the server shuts down. When the connection comes back after a drop, the arrow before the logo pulses green twice.
 
 ## [0.30.0] - 2026-10-08

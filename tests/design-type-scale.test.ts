@@ -5,6 +5,7 @@ import path from 'node:path';
 
 const REPO_ROOT = path.join(import.meta.dirname, '..');
 const dashboardStylesheet = fs.readFileSync(path.join(REPO_ROOT, 'public', 'style.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+const dashboardMarkup = fs.readFileSync(path.join(REPO_ROOT, 'public', 'index.html'), 'utf8');
 
 const DESIGN_FONT_SIZES = new Set(['10px', '11px', '12px', '14px', '16px']);
 const DESIGN_FONT_WEIGHTS = new Set(['400', '700']);
@@ -76,4 +77,10 @@ test('10px type is reserved for bold or uppercase labels, so captions start at 1
     .filter((rule) => !/text-transform:\s*uppercase/.test(rule.declarations) && !/font-weight:\s*700/.test(rule.declarations) && !shorthandSizesAndWeights(rule).weights.includes('700'))
     .map((rule) => rule.selector);
   assert.deepEqual(smallCaptions, []);
+});
+
+test('the dashboard shell inline styles only ever set the monospace stack, since they outrank the layered stylesheet', () => {
+  const inlineStyles = [...dashboardMarkup.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((match) => match[1]).join('\n');
+  const nonMonospaceFamilies = [...inlineStyles.matchAll(/font-family:\s*([^;}]+)/g)].map((match) => match[1].trim()).filter((family) => !/monospace\)?$/.test(family));
+  assert.deepEqual(nonMonospaceFamilies, []);
 });

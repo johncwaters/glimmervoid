@@ -572,7 +572,6 @@ body {
 }
 
 .session-task-title {
-  font-family: var(--font-mono);
   letter-spacing: 0.02em;
   flex: 1 1 auto;
   min-width: 0;
