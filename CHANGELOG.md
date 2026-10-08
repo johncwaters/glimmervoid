@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-10-08
+
 ### Added
 
 - **Ready to merge comes first in My PRs**: pull requests you can merge now sit at the top of the Mine list, and the dashboard throws confetti when one of yours merges, whether you pressed Merge or GitHub merged it later. Reduced-motion setups get the message without the confetti.
