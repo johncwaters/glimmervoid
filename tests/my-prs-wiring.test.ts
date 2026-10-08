@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileAsync } from '../server/child-process-safe.ts';
+import { execFileAsync, execFileSync } from '../server/child-process-safe.ts';
 import { createMyPrMergeabilityFix, createMyPrsStateIo, sweepKeepMergeableLeftovers } from '../server/my-prs-wiring.ts';
 import { createRepoCache } from '../server/repo-cache.ts';
 import type { CommandResult } from '../server/repo-cache.ts';
@@ -20,14 +20,16 @@ import { manualTimers } from './helpers/manual-timers.ts';
 
 const GIT_IDENTITY = ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false'];
 
-async function git(args: string[], cwd: string): Promise<string> {
-  const { stdout } = await execFileAsync('git', [...GIT_IDENTITY, ...args], { cwd, encoding: 'utf8' });
+interface ExtraGitSettings { config?: string[]; env?: Record<string, string> }
+
+async function git(args: string[], cwd: string, { config = [], env = {} }: ExtraGitSettings = {}): Promise<string> {
+  const { stdout } = await execFileAsync('git', [...GIT_IDENTITY, ...config, ...args], { cwd, encoding: 'utf8', env: { ...process.env, ...env } });
   return stdout.trim();
 }
 
-async function tryGit(args: string[], cwd: string): Promise<CommandResult> {
+async function tryGit(args: string[], cwd: string, extraSettings: ExtraGitSettings = {}): Promise<CommandResult> {
   try {
-    return { ok: true, out: await git(args, cwd), err: '' };
+    return { ok: true, out: await git(args, cwd, extraSettings), err: '' };
   } catch (error) {
     return { ok: false, out: '', err: error instanceof Error ? error.message : String(error) };
   }
@@ -78,8 +80,9 @@ async function resolveConflictAndCommit(checkoutPath: string, extraFile: string 
   await git(['commit', '--no-edit', '-m', 'merge base'], checkoutPath);
 }
 
-async function fixHarness(root: string, { spawnSession, timeoutSeconds, setTimeoutFn, clearTimeoutFn, beforeGit = () => {} }: {
+async function fixHarness(root: string, { spawnSession, timeoutSeconds, setTimeoutFn, clearTimeoutFn, beforeGit = () => {}, trustedGitConfig = [] }: {
   spawnSession: TeamReviewSpawn;
+  trustedGitConfig?: string[];
   timeoutSeconds?: () => number;
   setTimeoutFn?: (callback: () => void, milliseconds: number) => NodeJS.Timeout;
   clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
@@ -96,15 +99,32 @@ async function fixHarness(root: string, { spawnSession, timeoutSeconds, setTimeo
   const fix = createMyPrMergeabilityFix({
     spawnSession, repoCache, workRoot, glimmervoidHome, timeoutSeconds, setTimeoutFn, clearTimeoutFn,
     log: { log: (message: string) => { logs.push(message); }, warn: (message: string) => { warnings.push(message); } },
-    runGit: async (args, cwd) => {
+    runGit: async (args, cwd, _signal, env = {}) => {
       beforeGit(args);
-      if (args[0] !== 'push') return tryGit(args, cwd);
+      if (args[0] !== 'push') return tryGit(args, cwd, { config: trustedGitConfig, env });
       pushes.push(args);
-      return tryGit(args.map((arg) => (arg === 'https://github.com/Acme/app.git' ? originDir : arg)), cwd);
+      return tryGit(args.map((arg) => (arg === 'https://github.com/Acme/app.git' ? originDir : arg)), cwd, { config: trustedGitConfig, env });
     },
   });
   const cachedRepo = path.join(cacheRoot, 'Acme', 'app');
   return { fix, pushes, logs, warnings, workRoot, headSha, cachedRepo, repoCache, glimmervoidHome, originDir };
+}
+
+function sshKeygenMissingReason(): string | false {
+  try {
+    execFileSync('ssh-keygen', ['-?'], { stdio: 'ignore' });
+    return false;
+  } catch (error) {
+    return error instanceof Error && 'code' in error && error.code === 'ENOENT' ? 'ssh-keygen is not on PATH, so no SSH signing key can be made' : false;
+  }
+}
+
+const SSH_KEYGEN_MISSING_REASON = sshKeygenMissingReason();
+
+async function sshSigningGitConfig(root: string): Promise<string[]> {
+  const signingKeyPath = path.join(root, 'signing-key');
+  await execFileAsync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', signingKeyPath]);
+  return ['-c', 'commit.gpgsign=true', '-c', 'gpg.format=ssh', '-c', 'gpg.ssh.program=ssh-keygen', '-c', `user.signingkey=${signingKeyPath}`];
 }
 
 async function remoteRefs(originDir: string): Promise<Map<string, string>> {
@@ -180,11 +200,12 @@ test('keep mergeable runs sandboxed with the review posture and the server fast-
     assert.ok(workDir.startsWith(harness.workRoot));
     assert.equal(createdSessions[0].initialPrompt, MY_PRS_FIX_BOOTSTRAP_PROMPT);
     assert.deepEqual(createdSessions[0].settingsSandbox, keepMergeableSandbox(workDir, { glimmervoidHome: harness.glimmervoidHome, cachedClone: harness.cachedRepo }));
-    assert.deepEqual(createdSessions[0].spawnEnv, { ...teamReviewSpawnEnv(workDir), GIT_CONFIG_COUNT: '3', GIT_CONFIG_KEY_2: 'core.hooksPath', GIT_CONFIG_VALUE_2: '' });
-    assert.deepEqual(createdSessions[0].spawnEnv, hooksPathPinnedSpawnEnv(workDir));
+    assert.deepEqual(createdSessions[0].spawnEnv, { ...teamReviewSpawnEnv(workDir), GIT_CONFIG_COUNT: '4', GIT_CONFIG_KEY_2: 'core.hooksPath', GIT_CONFIG_VALUE_2: '', GIT_CONFIG_KEY_3: 'commit.gpgsign', GIT_CONFIG_VALUE_3: 'false' });
+    assert.deepEqual(createdSessions[0].spawnEnv, { ...hooksPathPinnedSpawnEnv(workDir), GIT_CONFIG_COUNT: '4', GIT_CONFIG_KEY_3: 'commit.gpgsign', GIT_CONFIG_VALUE_3: 'false' });
     assert.deepEqual(createdSessions[0].settingsPermissions, { deny: [...MY_PRS_FIX_DENY_RULES], defaultMode: 'acceptEdits' });
     assert.equal(createdSessions[0].dangerouslySkipPermissions, false, 'the skip flag would override the acceptEdits boundary');
-    for (const rule of ['Bash(git push:*)', 'Bash(gh:*)', 'Edit(**/.github/workflows/**)', 'Edit(**/.git/**)', 'Edit(**/.claude/**)']) assert.ok(MY_PRS_FIX_DENY_RULES.includes(rule), rule);
+    for (const rule of ['Bash(git push:*)', 'Bash(gh:*)', 'Edit(**/.github/workflows/**)', 'Edit(**/.git/hooks/**)', 'Edit(**/.git/config)', 'Edit(**/.claude/**)']) assert.ok(MY_PRS_FIX_DENY_RULES.includes(rule), rule);
+    assert.ok(!MY_PRS_FIX_DENY_RULES.includes('Edit(**/.git/**)'), 'Claude Code folds Edit deny rules into the sandbox denyWrite, so a whole-.git deny leaves the repair unable to commit');
     assert.deepEqual(createdSessions[0].extraClaudeArgs, ['-p', '--allowedTools', ...MY_PRS_FIX_ALLOW_RULES, '--disallowedTools', ...MY_PRS_FIX_DENY_RULES, ...LANE_ENVIRONMENT_ARGS]);
     assert.equal(createdSessions[0].ephemeral, true);
     assert.match(promptBodies[0], /Do not push and do not merge/);
@@ -214,6 +235,110 @@ test('keep mergeable runs sandboxed with the review posture and the server fast-
       if (refName !== 'refs/heads/fix/checks') assert.equal(remoteRefsAfter.get(refName), sha, refName);
     }
     assert.deepEqual(await fs.readdir(harness.workRoot), []);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('keep mergeable re-signs the session commits in the trusted handoff when the operator signs commits', { skip: SSH_KEYGEN_MISSING_REASON }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-sign-'));
+  const sessionShas: string[] = [];
+  const spawnSession = createTeamReviewSpawn({
+    reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
+    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', recordLane: () => {},
+    makeSession: (options) => {
+      const session = new Session(options);
+      session.start = async () => {
+        const checkoutPath = path.join(options.path, MY_PRS_FIX_CHECKOUT_DIRNAME);
+        await resolveConflictAndCommit(checkoutPath);
+        sessionShas.push(await git(['rev-parse', 'HEAD'], checkoutPath));
+        session.emit('exit');
+      };
+      return session;
+    },
+  });
+  try {
+    const harness = await fixHarness(root, { spawnSession, trustedGitConfig: await sshSigningGitConfig(root) });
+    const pr = conflictingPr(harness.headSha);
+    const heldRepairShas: string[] = [];
+    const repairOutcome = await harness.fix(pr, new AbortController().signal, async (repairSha) => { heldRepairShas.push(repairSha); }, () => pr);
+    assert.deepEqual(repairOutcome, { outcome: 'pushed' }, harness.warnings.join('\n'));
+    const pushedSha = (harness.pushes[0].at(-1) ?? '').split(':')[0];
+    const [sessionSha] = sessionShas;
+    assert.notEqual(pushedSha, sessionSha);
+    assert.deepEqual(heldRepairShas, [pushedSha]);
+    assert.doesNotMatch(await git(['cat-file', 'commit', sessionSha], harness.cachedRepo), /^gpgsig /m);
+    assert.match(await git(['cat-file', 'commit', pushedSha], harness.originDir), /^gpgsig -----BEGIN SSH SIGNATURE-----/m);
+    assert.equal(await git(['rev-parse', `${pushedSha}^{tree}`], harness.originDir), await git(['rev-parse', `${sessionSha}^{tree}`], harness.cachedRepo));
+    assert.equal(await git(['rev-parse', `${pushedSha}^1`], harness.originDir), harness.headSha);
+    assert.equal(await git(['rev-parse', `${pushedSha}^2`], harness.originDir), await git(['rev-parse', 'refs/heads/main'], harness.originDir));
+    const formatOf = (sha: string, repo: string) => git(['log', '-1', '--format=%an %ae %ad%n%B', '--date=raw', sha], repo);
+    assert.equal(await formatOf(pushedSha, harness.originDir), await formatOf(sessionSha, harness.cachedRepo));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('keep mergeable refuses to re-sign and push a session commit whose message is not UTF-8', { skip: SSH_KEYGEN_MISSING_REASON }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-sign-latin1-'));
+  const spawnSession = createTeamReviewSpawn({
+    reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
+    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', recordLane: () => {},
+    makeSession: (options) => {
+      const session = new Session(options);
+      session.start = async () => {
+        const checkoutPath = path.join(options.path, MY_PRS_FIX_CHECKOUT_DIRNAME);
+        await resolveConflictAndCommit(checkoutPath);
+        const latin1MessagePath = path.join(options.path, 'latin1-message.txt');
+        await fs.writeFile(latin1MessagePath, Buffer.from(`r${String.fromCharCode(0xe9)}parer\n`, 'latin1'));
+        await git(['commit', '--amend', '-F', latin1MessagePath], checkoutPath, { config: ['-c', 'i18n.commitEncoding=ISO-8859-1'] });
+        session.emit('exit');
+      };
+      return session;
+    },
+  });
+  try {
+    const harness = await fixHarness(root, { spawnSession, trustedGitConfig: await sshSigningGitConfig(root) });
+    const remoteRefsBefore = await remoteRefs(harness.originDir);
+    const repairOutcome = await harness.fix(conflictingPr(harness.headSha), new AbortController().signal);
+    assert.equal(repairOutcome.outcome, 'failed');
+    assert.match(repairOutcome.reason ?? '', /could not sign the session commits .*ISO-8859-1/);
+    assert.deepEqual(harness.pushes, []);
+    assert.deepEqual(await remoteRefs(harness.originDir), remoteRefsBefore);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('keep mergeable refuses to re-sign and push a session commit whose author name is not UTF-8', { skip: SSH_KEYGEN_MISSING_REASON }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-sign-latin1-author-'));
+  const spawnSession = createTeamReviewSpawn({
+    reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
+    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', recordLane: () => {},
+    makeSession: (options) => {
+      const session = new Session(options);
+      session.start = async () => {
+        const checkoutPath = path.join(options.path, MY_PRS_FIX_CHECKOUT_DIRNAME);
+        await resolveConflictAndCommit(checkoutPath);
+        const utf8RawCommit = await git(['cat-file', 'commit', 'HEAD'], checkoutPath);
+        const latin1AuthorRawCommit = `${utf8RawCommit.replace(/^author Test /m, `author T${String.fromCharCode(0xe9)}st `)}\n`;
+        const latin1AuthorCommitPath = path.join(options.path, 'latin1-author-commit.txt');
+        await fs.writeFile(latin1AuthorCommitPath, Buffer.from(latin1AuthorRawCommit, 'latin1'));
+        const latin1AuthorSha = await git(['hash-object', '-t', 'commit', '-w', '--literally', latin1AuthorCommitPath], checkoutPath);
+        await git(['reset', '--soft', latin1AuthorSha], checkoutPath);
+        session.emit('exit');
+      };
+      return session;
+    },
+  });
+  try {
+    const harness = await fixHarness(root, { spawnSession, trustedGitConfig: await sshSigningGitConfig(root) });
+    const remoteRefsBefore = await remoteRefs(harness.originDir);
+    const repairOutcome = await harness.fix(conflictingPr(harness.headSha), new AbortController().signal);
+    assert.equal(repairOutcome.outcome, 'failed');
+    assert.match(repairOutcome.reason ?? '', /could not sign the session commits .*author that is not valid UTF-8/);
+    assert.deepEqual(harness.pushes, []);
+    assert.deepEqual(await remoteRefs(harness.originDir), remoteRefsBefore);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

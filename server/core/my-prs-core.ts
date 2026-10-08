@@ -1,5 +1,5 @@
 import type { MyPr, MyPrAutoRebase, MyPrKeepMergeableAttemptRecord, MyPrSearchNode, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../shared/contracts/my-prs.ts';
-import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_ENVIRONMENT_ARGS } from './lane-permissions-core.ts';
+import { ACCEPT_EDITS_MODE, LANE_ENVIRONMENT_ARGS } from './lane-permissions-core.ts';
 import { prKey } from './team-review-core.ts';
 import type { TeamReviewSettings, TeamReviewSettingsSource } from './team-review-core.ts';
 import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE } from '../../shared/settings-ranges.ts';
@@ -22,7 +22,9 @@ export const MY_PRS_FIX_DENY_RULES: readonly string[] = Object.freeze([
   'Bash(curl:*api.github.com*)',
   'Edit(**/.github/workflows/**)',
   'Write(**/.github/workflows/**)',
-  ...LANE_CONFIG_EDIT_DENY_RULES,
+  'Edit(**/.git/hooks/**)',
+  'Edit(**/.git/config)',
+  'Edit(**/.claude/**)',
   'WebFetch',
   'WebSearch',
 ]);

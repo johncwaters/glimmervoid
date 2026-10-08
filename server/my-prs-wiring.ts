@@ -59,12 +59,12 @@ export function createMyPrsStateIo(statePath: string, log: Pick<Console, 'warn'>
   };
 }
 
-type KeepMergeableGitRunner = (args: string[], cwd: string, signal?: AbortSignal) => Promise<CommandResult>;
+type KeepMergeableGitRunner = (args: string[], cwd: string, signal?: AbortSignal, env?: Record<string, string>) => Promise<CommandResult>;
 type KeepMergeableSessionOutcome = 'finished' | 'timed-out' | 'stopped' | 'failed';
 
-async function runTrustedGit(args: string[], cwd: string, signal?: AbortSignal): Promise<CommandResult> {
+async function runTrustedGit(args: string[], cwd: string, signal?: AbortSignal, env: Record<string, string> = {}): Promise<CommandResult> {
   try {
-    const { stdout } = await execFileAsync('git', args, { cwd, encoding: 'utf8', timeout: TRUSTED_GIT_TIMEOUT_MS, signal, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
+    const { stdout } = await execFileAsync('git', args, { cwd, encoding: 'utf8', timeout: TRUSTED_GIT_TIMEOUT_MS, signal, env: { ...process.env, ...env, GIT_TERMINAL_PROMPT: '0' } });
     return { ok: true, out: stdout.trim(), err: '' };
   } catch (error) {
     return { ok: false, out: '', err: error instanceof Error ? error.message : String(error) };
@@ -107,6 +107,10 @@ interface SandboxedPrStagingOptions {
   timeoutSeconds?: () => number;
   setTimeoutFn?: (callback: () => void, milliseconds: number) => NodeJS.Timeout;
   clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+}
+
+function keepMergeableSpawnEnv(workDir: string): Record<string, string> {
+  return { ...hooksPathPinnedSpawnEnv(workDir), GIT_CONFIG_COUNT: '4', GIT_CONFIG_KEY_3: 'commit.gpgsign', GIT_CONFIG_VALUE_3: 'false' };
 }
 
 function defaultSessionTimeoutSeconds(): number {
@@ -165,7 +169,7 @@ export function createSandboxedPrStaging({
         const sessionSignal = AbortSignal.any([deadlineSignal, signal]);
         return spawnSession({
           id: `${idPrefix}:${randomUUID()}`, name, cwd: workDir,
-          spawnEnv: hooksPathPinnedSpawnEnv(workDir),
+          spawnEnv: keepMergeableSpawnEnv(workDir),
           extraClaudeArgs: core.keepMergeableClaudeArgs(),
           settingsPermissions: core.keepMergeablePermissions(),
           settingsSandbox: keepMergeableSandbox(workDir, { glimmervoidHome, cachedClone }),
@@ -176,6 +180,22 @@ export function createSandboxedPrStaging({
   }
 
   return { stageCheckout, runSession };
+}
+
+const UNICODE_REPLACEMENT_CHARACTER = '\uFFFD';
+
+function isLossyUtf8Decode(decodedText: string): boolean {
+  return decodedText.includes(UNICODE_REPLACEMENT_CHARACTER);
+}
+
+function utf8CommitMessage(rawCommit: string): { ok: true; text: string } | { ok: false; err: string } {
+  const headerEnd = rawCommit.indexOf('\n\n');
+  const header = headerEnd === -1 ? rawCommit : rawCommit.slice(0, headerEnd);
+  const declaredEncoding = header.split('\n').find((headerLine) => headerLine.startsWith('encoding '))?.slice('encoding '.length).trim();
+  if (declaredEncoding !== undefined && declaredEncoding.toLowerCase() !== 'utf-8') return { ok: false, err: `has a message in the ${declaredEncoding} encoding, which re-signing would corrupt` };
+  const text = headerEnd === -1 ? '' : rawCommit.slice(headerEnd + 2);
+  if (isLossyUtf8Decode(text)) return { ok: false, err: 'has a message that is not valid UTF-8, which re-signing would corrupt' };
+  return { ok: true, text };
 }
 
 export function createMyPrMergeabilityFix({
@@ -200,6 +220,33 @@ export function createMyPrMergeabilityFix({
     return changed.ok ? nulSeparatedPaths(changed.out) : null;
   }
 
+  async function signSessionCommits(projectPath: string, { headSha, baseSha, resultSha }: { headSha: string; baseSha: string; resultSha: string }, signal: AbortSignal): Promise<{ ok: true; sha: string } | { ok: false; err: string }> {
+    const signingSetting = await runGit(['config', '--bool', 'commit.gpgsign'], projectPath, signal);
+    if (!signingSetting.ok || signingSetting.out !== 'true') return { ok: true, sha: resultSha };
+    const listed = await runGit(['rev-list', '--reverse', '--topo-order', '--parents', resultSha, '--not', headSha, baseSha], projectPath, signal);
+    if (!listed.ok) return { ok: false, err: listed.err };
+    const signedShaByOriginal = new Map<string, string>();
+    for (const line of listed.out.split('\n').filter(Boolean)) {
+      const [originalSha = '', ...parentShas] = line.trim().split(' ');
+      const tree = await runGit(['rev-parse', '--verify', `${originalSha}^{tree}`], projectPath, signal);
+      const author = await runGit(['log', '-1', '--format=%an%x00%ae%x00%ad', '--date=raw', originalSha], projectPath, signal);
+      const rawCommit = await runGit(['cat-file', 'commit', originalSha], projectPath, signal);
+      if (!tree.ok || !author.ok || !rawCommit.ok) return { ok: false, err: tree.err || author.err || rawCommit.err };
+      const [authorName = '', authorEmail = '', authorDate = ''] = author.out.split('\0');
+      if (isLossyUtf8Decode(authorName) || isLossyUtf8Decode(authorEmail)) return { ok: false, err: `${originalSha} has an author that is not valid UTF-8, which re-signing would corrupt` };
+      const message = utf8CommitMessage(rawCommit.out);
+      if (!message.ok) return { ok: false, err: `${originalSha} ${message.err}` };
+      const parentArgs = parentShas.flatMap((parentSha) => ['-p', signedShaByOriginal.get(parentSha) ?? parentSha]);
+      const signed = await runGit(['commit-tree', tree.out, ...parentArgs, '-S', '-m', message.text], projectPath, signal, { GIT_AUTHOR_NAME: authorName, GIT_AUTHOR_EMAIL: authorEmail, GIT_AUTHOR_DATE: authorDate });
+      const signedSha = CommitSha.safeParse(signed.out);
+      if (!signed.ok || !signedSha.success) return { ok: false, err: signed.err };
+      signedShaByOriginal.set(originalSha, signedSha.data);
+    }
+    const signedResultSha = signedShaByOriginal.get(resultSha);
+    if (!signedResultSha) return { ok: false, err: `${resultSha} was not among the session commits` };
+    return { ok: true, sha: signedResultSha };
+  }
+
   async function handOff(pr: MyPr, staged: { projectPath: string; baseSha: string }, checkoutPath: string, handoffRef: string, signal: AbortSignal, onPushStarted: (repairSha: string) => Promise<void>, latestListedPr: () => MyPr | undefined): Promise<MyPrMergeabilityFixResult> {
     const fetched = await runGit(['fetch', '--quiet', '--no-tags', '--no-write-fetch-head', checkoutPath, `+HEAD:${handoffRef}`], staged.projectPath, signal);
     if (signal.aborted) return stopped;
@@ -219,15 +266,19 @@ export function createMyPrMergeabilityFix({
     if (signal.aborted) return stopped;
     const target = core.keepMergeablePushTarget(pr, latestListedPr());
     if (!target.push) return reportRepairFailure(pr, `not pushed: ${target.reason}`);
-    const holdFailure = await onPushStarted(resultSha.data).then(() => null, (error: unknown) =>
-      reportRepairFailure(pr, `not pushed: the hold on repair head ${resultSha.data} could not be saved ${error instanceof Error ? error.message : String(error)}`));
+    const signed = await signSessionCommits(staged.projectPath, { headSha: pr.headRefOid, baseSha: staged.baseSha, resultSha: resultSha.data }, signal);
+    if (signal.aborted) return stopped;
+    if (!signed.ok) return reportRepairFailure(pr, `not pushed: could not sign the session commits ${signed.err}`);
+    const repairSha = signed.sha;
+    const holdFailure = await onPushStarted(repairSha).then(() => null, (error: unknown) =>
+      reportRepairFailure(pr, `not pushed: the hold on repair head ${repairSha} could not be saved ${error instanceof Error ? error.message : String(error)}`));
     if (signal.aborted) return stopped;
     if (holdFailure) return holdFailure;
-    const pushed = await runGit(core.keepMergeablePushArgs(target.url, target.branch, pr.headRefOid, resultSha.data), staged.projectPath, signal);
+    const pushed = await runGit(core.keepMergeablePushArgs(target.url, target.branch, pr.headRefOid, repairSha), staged.projectPath, signal);
     if (signal.aborted) return stopped;
     if (!pushed.ok && core.isMovedBranchPushRejection(pushed.err)) return reportRepairFailure(pr, `not pushed: ${target.branch} moved since the repair was staged, so the push was rejected and is not retried`);
     if (!pushed.ok) return reportRepairFailure(pr, `pushing the repair to ${target.branch} failed: ${pushed.err}`);
-    log.log(`[${core.MY_PRS_LANE_ID}] keep mergeable pushed ${resultSha.data} to ${target.branch} for ${pr.key}`);
+    log.log(`[${core.MY_PRS_LANE_ID}] keep mergeable pushed ${repairSha} to ${target.branch} for ${pr.key}`);
     return { outcome: 'pushed' };
   }
 
