@@ -8,6 +8,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+ENV GLIMMERVOID_TELEMETRY=0
 
 COPY . .
 RUN npm ci

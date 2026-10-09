@@ -1,3 +1,4 @@
+import '../support/disable-telemetry.ts';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -143,6 +144,7 @@ export async function prepareIsolatedEnvironment({ tempDirectory, repoRoots, rec
     recordSignals: recordSessions, postTurnChecks: { enabled: false }, checkForUpdates: false,
     planReview: { enabled: false }, remote: { enabled: false },
     posthog: { enabled: false }, telegram: { enabled: false }, teamReview: { enabled: false },
+    telemetry: { enabled: false },
   });
   const isolatedHome = path.join(tempDirectory, 'home');
   const isolatedTemp = path.join(tempDirectory, 'tmp');

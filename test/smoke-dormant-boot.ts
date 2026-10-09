@@ -1,3 +1,4 @@
+import './support/disable-telemetry.ts';
 import http from 'node:http';
 import WebSocket from 'ws';
 

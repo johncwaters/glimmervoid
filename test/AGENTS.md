@@ -25,6 +25,7 @@ Manual smoke tests and harnesses run directly with `node`, separate from the aut
 - New AUTOMATED tests go in `../tests/` (node:test). This directory is for run-by-hand smoke scripts only.
 - A hand-run harness may keep its pure decision logic in a sibling module; that module's unit test still belongs in `../tests/` and requires across, so the logic is pinned by `npm test` while the billed harness around it stays hand-run.
 - Smoke scripts must shut down cleanly (in-process server, no orphan listeners).
+- A harness that boots a backend imports `support/disable-telemetry.ts` first: its throwaway home mints a fresh install id, so a run otherwise counts as new users in the live telemetry project (`tests/hand-run-harness-telemetry.test.ts`).
 
 ### Testing Requirements
 - Run directly: `node test/smoke-dormant-boot.ts`.

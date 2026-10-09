@@ -1,3 +1,4 @@
+import '../../test/support/disable-telemetry.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -18,4 +19,3 @@ function resolveIsolatedTestHome(): string {
 for (const binding of ENV_SECRET_BINDINGS) delete process.env[binding.environmentVariable];
 
 process.env.GLIMMERVOID_HOME = resolveIsolatedTestHome();
-process.env.GLIMMERVOID_TELEMETRY = '0';

@@ -1,0 +1,1 @@
+process.env.GLIMMERVOID_TELEMETRY = '0';

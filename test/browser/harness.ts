@@ -1,3 +1,4 @@
+import '../support/disable-telemetry.ts';
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -144,6 +145,7 @@ function writeConfigDocument(configPath: string, port: number, cases: HarnessCas
     postTurnChecks: { enabled: false },
     checkForUpdates: false,
     planReview: { enabled: true },
+    telemetry: { enabled: false },
   };
   fs.writeFileSync(configPath, `${JSON.stringify(configDocument, null, 2)}\n`, 'utf8');
 }
