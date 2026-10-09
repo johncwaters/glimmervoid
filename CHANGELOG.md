@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Needs input holds while you answer**: a Claude Code card stays on Needs input while you move through or scroll a question or permission prompt, and changes once the question is answered. Escape at any prompt, or Enter or an option number key at a permission or plan prompt, moves the card on right away, so rejecting a prompt no longer leaves it stuck on Needs input. Moving through the prompt still quiets its notification, so it does not escalate to your phone while you are at it.
 - **Reconnecting status fits small screens**: on a phone or a window under 900px wide, the header shows only the blinking status dot while the connection recovers, instead of a "Reconnecting" label that overlapped the + Session button. Screen readers still announce the status.
 - Session titles survive a Glimmervoid restart.
 - **Phone terminal reconnect**: the phone keeps its fitted grid claim across reconnects, so a temporarily unavailable size measurement on resume no longer leaves the terminal clipped to a desktop-sized grid. Touch scrolling also keeps working in applications such as Claude Code after reconnecting.

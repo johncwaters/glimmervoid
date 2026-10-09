@@ -18,7 +18,7 @@ import { requireExecutableSpawnHelper } from "../server/node-pty-preflight.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
 import { AGENT_ATTENTION_NOTE_SEPARATOR, AGENT_URL_ENV } from "../shared/contracts/session.ts";
-import { isSamePromptQuestion, type AgentAttentionReply, type PendingPromptDetail } from "../shared/contracts/session.ts";
+import { ASK_USER_QUESTION_TOOL_NAME, isSamePromptQuestion, type AgentAttentionReply, type PendingPromptDetail } from "../shared/contracts/session.ts";
 import { generateToken } from "../detection/settings-injector.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
 import { createStatusSource } from "../detection/status-source.ts";
@@ -35,6 +35,7 @@ import {
   EXIT_HOOKS,
 } from "./core/state-machine.ts";
 import { acceptsAttentionSignal, mapSignalToEvent, shouldDeferAttention } from "./core/status-mapper.ts";
+import { decideWaitingInput } from "./core/waiting-input-core.ts";
 import { decideExitTransition } from "./core/exit-transition.ts";
 import type { ExitSignal } from "./core/exit-transition.ts";
 import * as agentTracker from "./core/agent-tracker.ts";
@@ -1572,6 +1573,21 @@ class Session extends EventEmitter {
     if (this.ptyProcess && this._ptyAlive) {
       this.ptyProcess.write(text);
     }
+  }
+
+  noteOperatorInput(input: string): void {
+    const decision = decideWaitingInput({
+      state: this.state,
+      hasHookAwaitingInput: this._can("hooks") && this._can("awaitingInput"),
+      pendingPromptKind: this._pendingPromptKind,
+      isQuestionPrompt: this._pendingPromptDetail?.toolName === ASK_USER_QUESTION_TOOL_NAME,
+      input,
+    });
+    if (decision === "end-waiting") {
+      this.transition("user_input");
+      return;
+    }
+    if (decision === "acknowledge") this.emit("waiting-input-acknowledged");
   }
 
   resize(cols: number, rows: number): void {

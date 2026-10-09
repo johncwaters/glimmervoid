@@ -262,6 +262,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       if (isAcknowledgeDeferredForCompaction) dependencies.notificationManager.acknowledge(session.id);
       isAcknowledgeDeferredForCompaction = false;
     });
+    session.on('waiting-input-acknowledged', () => dependencies.notificationManager.acknowledge(session.id));
     session.on('prompt-kind-change', ({ pendingPromptKind: nextKind }: { pendingPromptKind: string | null }) => {
       pendingPromptKind = nextKind;
     });

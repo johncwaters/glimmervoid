@@ -6,7 +6,6 @@ import type { Session } from '../session/sessions.ts';
 import { CONTROL_FRAME_MAX_BYTES } from '../shared/contracts/control-messages.ts';
 import { parseDataClientMessage } from '../shared/contracts/data-messages.ts';
 import type { PtySizeFrame } from '../shared/contracts/data-messages.ts';
-import { STATES } from '../shared/states.ts';
 import { createReplayLog } from './control-replay-core.ts';
 import type { ControlMessageRecord, ReplayLog } from './control-replay-core.ts';
 import { decideControlSend } from './core/control-send-core.ts';
@@ -207,7 +206,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
           }
           session.write(message.data);
           sender.markInputFlush();
-          if (session.state === STATES.WAITING) session.transition('user_input');
+          session.noteOperatorInput(message.data);
           return;
         }
         if (message.type === 'claim') {
