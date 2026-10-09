@@ -1,5 +1,6 @@
 import { createNotifyGate, decideAcknowledge, explainNotification } from '../session/core/notify-gate.ts';
 import type { ClaudeSessionIdEvent, Session } from '../session/sessions.ts';
+import type { PersistedTaskTitle } from '../shared/contracts/config.ts';
 import { AGENT_ATTENTION_NOTE_SEPARATOR } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
@@ -29,7 +30,7 @@ interface WiringIngestLane {
 }
 
 interface SessionEventDependencies {
-  configStore: { save: (mutator: (config: WiringConfig) => void) => unknown };
+  configStore: SessionPersistenceStore;
   config: WiringConfig;
   recordLane: (sessionId: string, lane: string, vendor?: string) => void;
   usage: { refreshSessions: () => void; nudgeSession: () => void };
@@ -69,21 +70,32 @@ const NOTIFY_MESSAGES: Record<string, (name: string, context: NotifyCopyContext)
   failed: (name) => `${name} failed`,
 };
 
+interface SessionPersistenceStore {
+  save: (mutator: (config: WiringConfig) => void) => unknown;
+  saveAsync?: (mutator: (config: WiringConfig) => void) => Promise<unknown>;
+}
+
 function persistSessionField(
-  configStore: { save: (mutator: (config: WiringConfig) => void) => unknown },
+  configStore: SessionPersistenceStore,
   liveConfig: WiringConfig,
   sessionId: string,
   field: string,
   value: unknown,
-): void {
-  const freshConfig = configStore.save((config) => {
+): void | Promise<void> {
+  const mutator = (config: WiringConfig) => {
     const project = config.projects.find((candidate) => candidate.id === sessionId);
     if (!project) return;
+    if (value === undefined) {
+      delete project[field];
+      return;
+    }
     project[field] = value;
-  });
-  if (!freshConfig) return;
-  const project = liveConfig.projects.find((candidate) => candidate.id === sessionId);
-  if (project) project[field] = value;
+  };
+  const applySavedField = (freshConfig: unknown) => {
+    if (freshConfig) mutator(liveConfig);
+  };
+  if (configStore.saveAsync) return configStore.saveAsync(mutator).then(applySavedField);
+  applySavedField(configStore.save(mutator));
 }
 
 function createSessionEventWiring(dependencies: SessionEventDependencies): (session: Session) => void {
@@ -99,7 +111,8 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     let lastPersistedWasActive: boolean | null = null;
     let spawnedAtMs: number | null = null;
     const persistProjectField = (field: string, value: unknown) => {
-      persistSessionField(dependencies.configStore, dependencies.config, session.id, field, value);
+      void Promise.resolve(persistSessionField(dependencies.configStore, dependencies.config, session.id, field, value))
+        .catch((error: unknown) => dependencies.logger.warn(`[config] Failed to persist ${field}: ${errorMessage(error)}`));
     };
     const captureSessionEnded = (exit: { exitCode: number | null; signal: unknown; reason?: string }) => {
       if (spawnedAtMs === null) return;
@@ -118,6 +131,14 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       dependencies.usage.refreshSessions();
     });
     session.on('resume-cleared', () => persistProjectField('resumeSessionId', null));
+    session.on('task-title-state-change', (titleState: PersistedTaskTitle | undefined) => {
+      if (session.ephemeral) return;
+      persistProjectField('taskTitleState', titleState);
+    });
+    const savedTitleState = dependencies.config.projects.find((project) => project.id === session.id)?.taskTitleState;
+    if (!session.ephemeral && JSON.stringify(savedTitleState) !== JSON.stringify(session.persistedTaskTitle)) {
+      persistProjectField('taskTitleState', session.persistedTaskTitle);
+    }
     session.on('error', (error: unknown) => {
       dependencies.logger.error(`[${session.name}] error: ${errorMessage(error)}`);
       dependencies.telemetry?.captureException(error, { handled: true });

@@ -45,21 +45,6 @@ after(() => {
   fs.rmSync(claudeConfigDir, { recursive: true, force: true });
 });
 
-function withStore<T>(cfg: Record<string, unknown>, fn: (store: ConfigStore, configPath: string) => T): T {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-autoresume-'));
-  const p = path.join(dir, 'config.json');
-  fs.writeFileSync(p, JSON.stringify(cfg, null, 2), 'utf8');
-  const prev = process.env.GLIMMERVOID_CONFIG;
-  process.env.GLIMMERVOID_CONFIG = p;
-  try {
-    return fn(createConfigStore(), p);
-  } finally {
-    if (prev == null) delete process.env.GLIMMERVOID_CONFIG;
-    if (prev != null) process.env.GLIMMERVOID_CONFIG = prev;
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-}
-
 async function withStoreAsync<T>(
   cfg: Record<string, unknown>,
   fn: (store: ConfigStore, configPath: string) => Promise<T>,
@@ -108,37 +93,37 @@ test('decideWasActiveFlip: an unrelated transition never flips', () => {
   assert.equal(decideWasActiveFlip(STATES.COMPLETE, 'task_complete', false), null);
 });
 
-test('persistSessionField writes the field to disk and to the in-memory config', () => {
-  withStore({ projects: [{ id: 'p1', name: 'proj', path: 'C:/proj' }] }, (store, p) => {
-    persistSessionField(store, store.config, 'p1', 'resumeSessionId', 'abcd1234-0000-0000-0000-abcdabcdabcd');
+test('persistSessionField writes the field to disk and to the in-memory config', async () => {
+  await withStoreAsync({ projects: [{ id: 'p1', name: 'proj', path: 'C:/proj' }] }, async (store, p) => {
+    await persistSessionField(store, store.config, 'p1', 'resumeSessionId', 'abcd1234-0000-0000-0000-abcdabcdabcd');
     const onDisk = JSON.parse(fs.readFileSync(p, 'utf8'));
     assert.equal(onDisk.projects[0].resumeSessionId, 'abcd1234-0000-0000-0000-abcdabcdabcd');
     assert.equal(store.config.projects[0].resumeSessionId, 'abcd1234-0000-0000-0000-abcdabcdabcd', 'in-memory config updated too');
   });
 });
 
-test('persistSessionField no-ops for an id absent from cfg.projects (ephemeral sessions never written)', () => {
-  withStore({ projects: [{ id: 'p1', name: 'proj', path: 'C:/proj' }] }, (store, p) => {
+test('persistSessionField no-ops for an id absent from cfg.projects (ephemeral sessions never written)', async () => {
+  await withStoreAsync({ projects: [{ id: 'p1', name: 'proj', path: 'C:/proj' }] }, async (store, p) => {
     const before = fs.readFileSync(p, 'utf8');
-    persistSessionField(store, store.config, 'ephemeral-not-in-config', 'resumeSessionId', 'abcd1234-0000-0000-0000-abcdabcdabcd');
+    await persistSessionField(store, store.config, 'ephemeral-not-in-config', 'resumeSessionId', 'abcd1234-0000-0000-0000-abcdabcdabcd');
     const after = fs.readFileSync(p, 'utf8');
     assert.equal(after, before, 'disk untouched for an unknown session id');
     assert.equal(store.config.projects.length, 1, 'no phantom project added in memory');
   });
 });
 
-test('persistSessionField flips wasActive true/false', () => {
-  withStore({ projects: [{ id: 'p1', name: 'proj', path: 'C:/proj' }] }, (store, p) => {
-    persistSessionField(store, store.config, 'p1', 'wasActive', true);
+test('persistSessionField flips wasActive true/false', async () => {
+  await withStoreAsync({ projects: [{ id: 'p1', name: 'proj', path: 'C:/proj' }] }, async (store, p) => {
+    await persistSessionField(store, store.config, 'p1', 'wasActive', true);
     assert.equal(JSON.parse(fs.readFileSync(p, 'utf8')).projects[0].wasActive, true);
-    persistSessionField(store, store.config, 'p1', 'wasActive', false);
+    await persistSessionField(store, store.config, 'p1', 'wasActive', false);
     assert.equal(JSON.parse(fs.readFileSync(p, 'utf8')).projects[0].wasActive, false);
   });
 });
 
-test('persistSessionField clears resumeSessionId with null', () => {
-  withStore({ projects: [{ id: 'p1', name: 'proj', path: 'C:/proj', resumeSessionId: 'abcd1234-0000-0000-0000-abcdabcdabcd' }] }, (store, p) => {
-    persistSessionField(store, store.config, 'p1', 'resumeSessionId', null);
+test('persistSessionField clears resumeSessionId with null', async () => {
+  await withStoreAsync({ projects: [{ id: 'p1', name: 'proj', path: 'C:/proj', resumeSessionId: 'abcd1234-0000-0000-0000-abcdabcdabcd' }] }, async (store, p) => {
+    await persistSessionField(store, store.config, 'p1', 'resumeSessionId', null);
     assert.equal(JSON.parse(fs.readFileSync(p, 'utf8')).projects[0].resumeSessionId, null);
     assert.equal(store.config.projects[0].resumeSessionId, null, 'in-memory config cleared too');
   });
@@ -397,6 +382,7 @@ test('forceRestart never persists wasActive:false during its transient kill-then
       try {
         await sess.start();
         assert.deepEqual(writes, [true]);
+        await store.idle();
         assert.equal(JSON.parse(fs.readFileSync(p, 'utf8')).projects[0].wasActive, true);
 
         sess.state = STATES.RUNNING;
@@ -405,12 +391,14 @@ test('forceRestart never persists wasActive:false during its transient kill-then
         assert.equal(sess.state, STATES.DONE);
         assert.equal(sess.pendingRestart, true, 'restart is pending across the kill');
         assert.deepEqual(writes, [true], 'the transient user_kill/DONE was NOT persisted as false');
+        await store.idle();
         assert.equal(JSON.parse(fs.readFileSync(p, 'utf8')).projects[0].wasActive, true, 'still true on disk mid-restart');
 
         await sess._handlePtyExit(0, null);
         assert.equal(sess.pendingRestart, false);
 
         assert.deepEqual(writes, [true], 'never flipped false across the whole restart cycle');
+        await store.idle();
         assert.equal(JSON.parse(fs.readFileSync(p, 'utf8')).projects[0].wasActive, true);
       } finally {
         if (sess._killPollTimer) clearTimeout(sess._killPollTimer);
@@ -432,6 +420,7 @@ test('a genuine kill (not a restart) still persists wasActive:false', async () =
         sess.killSession();
         assert.equal(sess.pendingRestart, false);
         assert.deepEqual(writes, [true, false], 'an intentional kill still clears wasActive');
+        await store.idle();
         assert.equal(JSON.parse(fs.readFileSync(p, 'utf8')).projects[0].wasActive, false);
       } finally {
         if (sess._killPollTimer) clearTimeout(sess._killPollTimer);

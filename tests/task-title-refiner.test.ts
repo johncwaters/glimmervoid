@@ -574,3 +574,34 @@ test('an invalid result logs a warning and keeps the prompt eligible for the nex
     session.destroy();
   }
 });
+
+test('a restart in the middle of a turn restores the refined title instead of pinning the pending prompt', async () => {
+  const firstSession = makeSession('mid-turn-restart');
+  const firstRefiner = createTaskTitleRefiner({
+    getConfig: () => ({ taskTitle: { refiner: { minIntervalSeconds: 0 } } }),
+    spawnLane: async (request) => writeTitle(request, 'Refined task title'),
+  });
+  let restoredSession: Session | null = null;
+  const restoredRefiner = createTaskTitleRefiner({ getConfig: () => ({}), spawnLane: async () => {} });
+  try {
+    firstRefiner.attachSession(firstSession);
+    submitPrompt(firstSession, 'Implement the first task');
+    endTurn(firstSession, firstRefiner);
+    await waitFor(() => firstSession.taskTitle === 'Refined task title');
+    firstSession.state = STATES.RUNNING;
+    submitPrompt(firstSession, 'Implement the interrupted follow up task');
+    assert.equal(firstSession.taskTitle, 'Implement the interrupted follow up task');
+    const taskTitleState = firstSession.persistedTaskTitle;
+    firstSession.destroy();
+    restoredSession = new Session({ id: 'mid-turn-restart', name: 'mid-turn-restart', path: '/project', taskTitleState, resumeSessionId: 'conversation' });
+    restoredRefiner.attachSession(restoredSession);
+    assert.equal(restoredSession.taskTitle, 'Refined task title');
+    endTurn(restoredSession, restoredRefiner);
+    assert.equal(restoredSession.taskTitle, 'Refined task title');
+  } finally {
+    await firstRefiner.stop();
+    await restoredRefiner.stop();
+    firstSession.destroy();
+    restoredSession?.destroy();
+  }
+});

@@ -4,7 +4,8 @@ import type { CompactionTracking } from "./core/compaction-core.ts";
 import { HOOK_TOOLS } from './core/hook-tools.ts';
 import type { ResolvedHookTool } from './core/hook-tools.ts';
 import fs from "node:fs";
-import { cleanTaskPrompt, extractOscTaskTitle, extractPromptTaskTitle, isSubstantivePrompt, resolveRefocusTaskTitle, resolveTaskTitle } from "./core/task-title-core.ts";
+import { buildPersistedTaskTitle, cleanTaskPrompt, extractOscTaskTitle, extractPromptTaskTitle, isSubstantivePrompt, resolveRefocusTaskTitle, resolveTaskTitle, seedTaskTitleSources } from "./core/task-title-core.ts";
+import type { PersistedTaskTitle } from "../shared/contracts/config.ts";
 import type { TaskTitleRefinementResult, TaskTitleSources } from "./core/task-title-core.ts";
 import { readTranscriptTaskTitle } from "./session-task-title.ts";
 import os from "node:os";
@@ -149,6 +150,7 @@ type SignalProc = (pid: number, signal: NodeJS.Signals | 0) => void;
 
 interface SessionOptions {
   customTitle?: string;
+  taskTitleState?: PersistedTaskTitle;
   id: string;
   name: string;
   path: string;
@@ -216,6 +218,7 @@ class Session extends EventEmitter {
   taskTitle: string | null;
   taskTitleIsCustom: boolean;
   _taskTitleSources: TaskTitleSources;
+  _taskTitleStateSignature: string | undefined;
   _taskTitleReadSequence: number;
   _recentTaskPrompts: string[];
   taskTitlePromptRevision: number;
@@ -333,6 +336,7 @@ class Session extends EventEmitter {
     ephemeral = false,
 
     resumeSessionId = null,
+    taskTitleState = undefined,
 
     antiSlopPrompt = false,
 
@@ -379,7 +383,8 @@ class Session extends EventEmitter {
     this.id = id;
     this.name = name;
     this.customTitle = customTitle || null;
-    this._taskTitleSources = { customTitle: this.customTitle, promptTitle: extractPromptTaskTitle(initialPrompt) };
+    this._taskTitleSources = seedTaskTitleSources({ persistedTitle: taskTitleState, resumeSessionId, customTitle: this.customTitle, initialPrompt });
+    this._taskTitleStateSignature = JSON.stringify(buildPersistedTaskTitle(this._taskTitleSources));
     const effectiveTitle = resolveTaskTitle(this._taskTitleSources);
     this.taskTitle = effectiveTitle.taskTitle;
     this.taskTitleIsCustom = effectiveTitle.isCustom;
@@ -582,6 +587,10 @@ class Session extends EventEmitter {
     return resolveTaskTitle({ ...this._taskTitleSources, pendingPromptTitle: null }).taskTitle;
   }
 
+  get persistedTaskTitle(): PersistedTaskTitle | undefined {
+    return buildPersistedTaskTitle(this._taskTitleSources);
+  }
+
   get refocusTaskTitle(): string | null {
     return resolveRefocusTaskTitle(this._taskTitleSources);
   }
@@ -603,10 +612,16 @@ class Session extends EventEmitter {
 
   _updateTaskTitle(): void {
     const effectiveTitle = resolveTaskTitle(this._taskTitleSources);
-    if (this.taskTitle === effectiveTitle.taskTitle && this.taskTitleIsCustom === effectiveTitle.isCustom) return;
-    this.taskTitle = effectiveTitle.taskTitle;
-    this.taskTitleIsCustom = effectiveTitle.isCustom;
-    this.emit("task-title-change", effectiveTitle);
+    if (this.taskTitle !== effectiveTitle.taskTitle || this.taskTitleIsCustom !== effectiveTitle.isCustom) {
+      this.taskTitle = effectiveTitle.taskTitle;
+      this.taskTitleIsCustom = effectiveTitle.isCustom;
+      this.emit("task-title-change", effectiveTitle);
+    }
+    const titleState = buildPersistedTaskTitle(this._taskTitleSources);
+    const signature = JSON.stringify(titleState);
+    if (signature === this._taskTitleStateSignature) return;
+    this._taskTitleStateSignature = signature;
+    this.emit("task-title-state-change", titleState);
   }
 
   _resetAutomaticTaskTitle(): void {

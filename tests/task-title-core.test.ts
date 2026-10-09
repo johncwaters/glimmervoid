@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTaskTitleRefinementPrompt, cleanTaskPrompt, decideTaskTitleRefinement, extractAiTitle, extractOscTaskTitle, extractPromptTaskTitle, isSubstantivePrompt, parseRefinedTaskTitle, resolveRefocusTaskTitle, resolveTaskTitle } from '../session/core/task-title-core.ts';
+import { buildPersistedTaskTitle, seedTaskTitleSources, buildTaskTitleRefinementPrompt, cleanTaskPrompt, decideTaskTitleRefinement, extractAiTitle, extractOscTaskTitle, extractPromptTaskTitle, isSubstantivePrompt, parseRefinedTaskTitle, resolveRefocusTaskTitle, resolveTaskTitle } from '../session/core/task-title-core.ts';
 import type { TaskTitleVocabulary } from '../session/core/task-title-core.ts';
 
 const vocabularyFor = (agentName: string, genericTitles: string[] = [agentName]): TaskTitleVocabulary =>
@@ -139,5 +139,45 @@ test('refined title parser keeps null, normalizes replacements and refuses malfo
   assert.deepEqual(parseRefinedTaskTitle('{"title":" Fix   task titles "}'), { action: 'replace', title: 'Fix task titles' });
   for (const raw of [null, {}, '{broken', { title: 2 }, { title: '' }, { title: 'One two three four five six seven eight nine' }, { title: 'Task\nname' }, { title: 'Task\rname' }, { title: 'Task', extra: true }]) {
     assert.deepEqual(parseRefinedTaskTitle(raw), { action: 'invalid' });
+  }
+});
+
+
+test('persisted title sources drop the transient pending prompt and keep settled and refocus precedence on resume', () => {
+  const sources = { pendingPromptTitle: 'Pending task', refinedTitle: 'Refined task', aiTitle: 'AI task', oscTitle: 'OSC task', promptTitle: 'First task' };
+  const persistedTitle = buildPersistedTaskTitle(sources);
+  assert.equal(persistedTitle?.taskTitle, 'Refined task');
+  assert.equal(persistedTitle?.sources.pendingPromptTitle, undefined);
+  const seededSources = seedTaskTitleSources({ persistedTitle, resumeSessionId: 'conversation' });
+  assert.deepEqual(resolveTaskTitle(seededSources), { taskTitle: 'Refined task', isCustom: false });
+  assert.equal(resolveRefocusTaskTitle(seededSources), 'AI task');
+  assert.equal(resolveTaskTitle({ ...seededSources, pendingPromptTitle: null, refinedTitle: null, aiTitle: 'New AI task' }).taskTitle, 'New AI task');
+});
+
+test('a previously saved pending prompt title is not restored over durable sources', () => {
+  const savedWithPending = { taskTitle: 'Pending task', isCustom: false, sources: { pendingPromptTitle: 'Pending task', aiTitle: 'AI task' } };
+  assert.deepEqual(resolveTaskTitle(seedTaskTitleSources({ persistedTitle: savedWithPending, resumeSessionId: 'conversation' })), { taskTitle: 'AI task', isCustom: false });
+});
+
+test('fresh conversations ignore persisted sources and use only their initial prompt and custom title', () => {
+  const persistedTitle = buildPersistedTaskTitle({ refinedTitle: 'Old task' });
+  assert.equal(resolveTaskTitle(seedTaskTitleSources({ persistedTitle })).taskTitle, null);
+  assert.equal(resolveTaskTitle(seedTaskTitleSources({ persistedTitle, initialPrompt: 'New initial task' })).taskTitle, 'New initial task');
+  assert.equal(resolveTaskTitle(seedTaskTitleSources({ persistedTitle, customTitle: 'Custom' })).isCustom, true);
+});
+
+test('custom title config takes precedence over saved sources and its removal restores the automatic fallback', () => {
+  const persistedTitle = buildPersistedTaskTitle({ customTitle: 'Custom', refinedTitle: 'Automatic task' });
+  assert.equal(persistedTitle?.isCustom, true);
+  assert.equal(resolveTaskTitle(seedTaskTitleSources({ persistedTitle, resumeSessionId: 'conversation', customTitle: 'Custom' })).taskTitle, 'Custom');
+  assert.deepEqual(resolveTaskTitle(seedTaskTitleSources({ persistedTitle, resumeSessionId: 'conversation', customTitle: null })), { taskTitle: 'Automatic task', isCustom: false });
+});
+
+test('persisted titles normalize sources, drop invalid states and omit an empty title', () => {
+  assert.equal(buildPersistedTaskTitle({}), undefined);
+  const persistedTitle = buildPersistedTaskTitle({ aiTitle: '  Fix\n  layout  ', promptTitle: '' });
+  assert.deepEqual(persistedTitle, { taskTitle: 'Fix layout', isCustom: false, sources: { aiTitle: 'Fix layout' } });
+  for (const invalidTitle of [42, { ...persistedTitle, isCustom: true }, { ...persistedTitle, taskTitle: 'Mismatch' }]) {
+    assert.equal(resolveTaskTitle(seedTaskTitleSources({ persistedTitle: invalidTitle, resumeSessionId: 'conversation' })).taskTitle, null);
   }
 });

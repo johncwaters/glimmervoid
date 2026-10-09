@@ -1,14 +1,9 @@
 import crypto from 'node:crypto';
 import { RefinedTaskTitle, TASK_TITLE_CONTROL_CHARACTERS, TASK_TITLE_MAX_LENGTH } from '../../shared/contracts/session.ts';
+import { PersistedTaskTitle, TASK_TITLE_SOURCE_PRIORITY } from '../../shared/contracts/config.ts';
+import type { TaskTitleSources } from '../../shared/contracts/config.ts';
 
-export interface TaskTitleSources {
-  customTitle?: string | null;
-  pendingPromptTitle?: string | null;
-  refinedTitle?: string | null;
-  aiTitle?: string | null;
-  oscTitle?: string | null;
-  promptTitle?: string | null;
-}
+export type { TaskTitleSources } from '../../shared/contracts/config.ts';
 
 export interface TaskTitleVocabulary {
   readsTranscriptTitle: boolean;
@@ -63,18 +58,42 @@ export function extractPromptTaskTitle(prompt: unknown): string | null {
 }
 
 export function resolveTaskTitle(sources: TaskTitleSources): { taskTitle: string | null; isCustom: boolean } {
-  for (const [title, isCustom] of [
-    [sources.customTitle, true], [sources.pendingPromptTitle, false], [sources.refinedTitle, false], [sources.aiTitle, false], [sources.oscTitle, false], [sources.promptTitle, false],
-  ] as const) {
+  for (const source of TASK_TITLE_SOURCE_PRIORITY) {
+    const title = sources[source];
     if (!title) continue;
     const taskTitle = normalizeTaskTitle(title);
-    if (taskTitle) return { taskTitle, isCustom };
+    if (taskTitle) return { taskTitle, isCustom: source === 'customTitle' };
   }
   return { taskTitle: null, isCustom: false };
 }
 
 export function resolveRefocusTaskTitle(sources: TaskTitleSources): string | null {
   return resolveTaskTitle({ ...sources, pendingPromptTitle: null, refinedTitle: null }).taskTitle;
+}
+
+export function buildPersistedTaskTitle(sources: TaskTitleSources): PersistedTaskTitle | undefined {
+  const durableSources: TaskTitleSources = { ...sources, pendingPromptTitle: null };
+  const effectiveTitle = resolveTaskTitle(durableSources);
+  if (!effectiveTitle.taskTitle) return undefined;
+  const normalizedSources: TaskTitleSources = {};
+  for (const source of Object.keys(durableSources) as (keyof TaskTitleSources)[]) {
+    const title = durableSources[source];
+    if (title) normalizedSources[source] = normalizeTaskTitle(title);
+  }
+  return { ...effectiveTitle, taskTitle: effectiveTitle.taskTitle, sources: normalizedSources };
+}
+
+export function seedTaskTitleSources({ persistedTitle, resumeSessionId, customTitle, initialPrompt }: {
+  persistedTitle?: unknown;
+  resumeSessionId?: string | null;
+  customTitle?: string | null;
+  initialPrompt?: string | null;
+}): TaskTitleSources {
+  const freshSources = { customTitle, promptTitle: extractPromptTaskTitle(initialPrompt) };
+  if (!resumeSessionId) return freshSources;
+  const parsed = PersistedTaskTitle.safeParse(persistedTitle);
+  if (!parsed.success) return freshSources;
+  return { ...parsed.data.sources, pendingPromptTitle: null, customTitle };
 }
 
 const PROMPT_ENVELOPE_PATTERNS = ['pasted_content', 'system-reminder'].map((tag) => new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?</${tag}\\s*>`, 'gi'));

@@ -365,6 +365,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   });
   let stopConfigWatch: (() => void) | null = null;
   const shutdown = createBackendShutdown({
+    configStore,
     cancelAutoResume: sessionRegistry.cancelAutoResume,
     healthInterval,
     getStopConfigWatch: () => stopConfigWatch,

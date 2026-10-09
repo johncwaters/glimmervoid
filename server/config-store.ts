@@ -14,7 +14,7 @@ import { DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, DEFAULT_WORKFLOW_MAX_CONCURRENT_
 import type { WorkflowRule } from '../shared/contracts/workflows.ts';
 import { isPlainObject } from './core/usage-number-core.ts';
 import { INGEST_SPEC, pickSettingsBlock } from './core/settings-block-core.ts';
-import { writeJsonAtomicSync, writeTextAtomicSync } from './json-file.ts';
+import { writeJsonAtomicSync, writeTextAtomic, writeTextAtomicSync } from './json-file.ts';
 import { errorMessage } from './core/text-core.ts';
 
 type ProjectEntry = Config['projects'][number] & { id: string; name: string };
@@ -380,21 +380,11 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
 
   let _lastWrittenContent: string | null = null;
   let _lastAppliedContent: string | null = loadedConfig.loadedContent;
+  let synchronousWriteRevision = 0;
+  let lastSynchronousContent: string | null = null;
+  let pendingSaves: Promise<unknown> = Promise.resolve();
 
-  function save(mutatorFn: (config: GlimmervoidConfig) => unknown): GlimmervoidConfig | null {
-    let loaded: LoadedConfig | FailedConfigLoad;
-    try {
-      loaded = loadConfigFile(configPath, { exitOnError: false });
-    } catch (err) {
-      console.warn('[config] Failed to read config.json for save:', errorCode(err));
-      return null;
-    }
-    if ('error' in loaded) {
-      console.warn(loaded.message);
-      return null;
-    }
-    const freshConfig = loaded.config;
-    const freshContent = loaded.loadedContent;
+  function prepareSave(freshConfig: GlimmervoidConfig, mutatorFn: (config: GlimmervoidConfig) => unknown): GlimmervoidConfig | null {
     const freshValidation = validateConfig(freshConfig);
     if (!freshValidation.ok) {
       warnInvalidConfig('save config.json', freshValidation);
@@ -411,6 +401,25 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       warnInvalidConfig('save config.json', mutatedValidation);
       return null;
     }
+    return mutatedValidation.config;
+  }
+
+  function save(mutatorFn: (config: GlimmervoidConfig) => unknown): GlimmervoidConfig | null {
+    let loaded: LoadedConfig | FailedConfigLoad;
+    try {
+      loaded = loadConfigFile(configPath, { exitOnError: false });
+    } catch (err) {
+      console.warn('[config] Failed to read config.json for save:', errorCode(err));
+      return null;
+    }
+    if ('error' in loaded) {
+      console.warn(loaded.message);
+      return null;
+    }
+    const freshConfig = loaded.config;
+    const freshContent = loaded.loadedContent;
+    const effectiveConfig = prepareSave(freshConfig, mutatorFn);
+    if (!effectiveConfig) return null;
     try {
       const nextContent = JSON.stringify(withoutEnvSecrets(effectiveConfig, envSecrets), null, 2);
       if (freshContent !== nextContent) writeBackupContent(`${configPath}.bak`, freshContent);
@@ -420,11 +429,59 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       _lastAppliedContent = null;
 
       writeTextAtomicSync(configPath, nextContent, { mode: CONFIG_FILE_MODE });
+      lastSynchronousContent = nextContent;
+      synchronousWriteRevision++;
     } catch (err) {
       console.warn('[config] Failed to write config.json:', errorCode(err));
       return null;
     }
-    return mutatedValidation.config;
+    return effectiveConfig;
+  }
+
+  function saveAsync(mutatorFn: (config: GlimmervoidConfig) => unknown): Promise<GlimmervoidConfig | null> {
+    const scheduledSave = pendingSaves.then(async () => {
+      let concurrentContent: string | null = null;
+      for (;;) {
+        const revision = synchronousWriteRevision;
+        try {
+          const diskContent = await fs.promises.readFile(configPath, 'utf8');
+          if (revision !== synchronousWriteRevision) {
+            concurrentContent = lastSynchronousContent;
+            continue;
+          }
+          const freshContent = concurrentContent ?? diskContent;
+          const freshConfig = withEnvSecrets(normalizeConfigFile(JSON.parse(freshContent)), envSecrets);
+          const effectiveConfig = prepareSave(freshConfig, mutatorFn);
+          if (!effectiveConfig) return null;
+          const nextContent = JSON.stringify(withoutEnvSecrets(effectiveConfig, envSecrets), null, 2);
+          if (freshContent !== nextContent) {
+            try {
+              await fs.promises.writeFile(`${configPath}.bak`, freshContent, { encoding: 'utf8', mode: CONFIG_FILE_MODE });
+              if (process.platform !== 'win32') await fs.promises.chmod(`${configPath}.bak`, CONFIG_FILE_MODE);
+            } catch (error) {
+              console.warn(`[config] Failed to write backup ${configPath}.bak:`, errorCode(error));
+            }
+          }
+          if (revision !== synchronousWriteRevision) {
+            concurrentContent = lastSynchronousContent;
+            continue;
+          }
+          await writeTextAtomic(configPath, nextContent, { mode: CONFIG_FILE_MODE });
+          if (revision !== synchronousWriteRevision) {
+            concurrentContent = lastSynchronousContent;
+            continue;
+          }
+          _lastWrittenContent = nextContent;
+          _lastAppliedContent = null;
+          return effectiveConfig;
+        } catch (error) {
+          console.warn('[config] Failed to save config.json asynchronously:', errorMessage(error));
+          return null;
+        }
+      }
+    });
+    pendingSaves = scheduledSave;
+    return scheduledSave;
   }
 
   function getSettings() {
@@ -590,6 +647,8 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     config,
     configPath,
     save,
+    saveAsync,
+    idle: () => pendingSaves,
     getSettings,
     applySettings,
     isUnchosenLaunchDefault,

@@ -954,3 +954,87 @@ test('task title refiner settings project defaults and hot apply configured tuni
     fs.rmSync(temporaryConfig.dir, { recursive: true, force: true });
   }
 });
+
+test('async config saves serialize resume and title changes without synchronous filesystem calls', async () => {
+  const { dir, p: configPath } = writeTmpConfig(richConfig());
+  const previousConfigPath = process.env.GLIMMERVOID_CONFIG;
+  process.env.GLIMMERVOID_CONFIG = configPath;
+  const originalReadFileSync = fs.readFileSync;
+  const originalWriteFileSync = fs.writeFileSync;
+  const originalRenameSync = fs.renameSync;
+  let synchronousCalls = 0;
+  try {
+    const store = createConfigStore();
+    const rejectSynchronousCall = () => { synchronousCalls++; throw new Error('Unexpected synchronous filesystem call'); };
+    fs.readFileSync = rejectSynchronousCall;
+    fs.writeFileSync = rejectSynchronousCall;
+    fs.renameSync = rejectSynchronousCall;
+    const saves = [
+      store.saveAsync((config) => { config.projects[0].resumeSessionId = 'conversation'; }),
+      store.saveAsync((config) => { config.projects[0].wasActive = true; }),
+      store.saveAsync((config) => { config.projects[0].taskTitleState = { taskTitle: 'Newest task', isCustom: false, sources: { refinedTitle: 'Newest task' } }; }),
+    ];
+    assert.ok((await Promise.all(saves)).every(Boolean));
+    await store.idle();
+    const persistedConfig = JSON.parse(await fs.promises.readFile(configPath, 'utf8'));
+    assert.equal(persistedConfig.projects[0].resumeSessionId, 'conversation');
+    assert.equal(persistedConfig.projects[0].wasActive, true);
+    assert.equal(persistedConfig.projects[0].taskTitleState.taskTitle, 'Newest task');
+    assert.equal(synchronousCalls, 0);
+  } finally {
+    fs.readFileSync = originalReadFileSync;
+    fs.writeFileSync = originalWriteFileSync;
+    fs.renameSync = originalRenameSync;
+    if (previousConfigPath === undefined) delete process.env.GLIMMERVOID_CONFIG;
+    if (previousConfigPath !== undefined) process.env.GLIMMERVOID_CONFIG = previousConfigPath;
+    await fs.promises.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a synchronous settings save during an async atomic rename keeps both changes', async () => {
+  const { dir, p: configPath } = writeTmpConfig(richConfig());
+  const previousConfigPath = process.env.GLIMMERVOID_CONFIG;
+  process.env.GLIMMERVOID_CONFIG = configPath;
+  const originalRename = fs.promises.rename;
+  let hasSavedSettings = false;
+  try {
+    const store = createConfigStore();
+    fs.promises.rename = async (from, to) => {
+      if (to === configPath && !hasSavedSettings) {
+        hasSavedSettings = true;
+        assert.ok(store.save((config) => { config.cursorBlink = true; config.projects[0].name = 'Renamed project'; }));
+      }
+      await originalRename(from, to);
+    };
+    assert.ok(await store.saveAsync((config) => { config.projects[0].resumeSessionId = 'conversation'; }));
+    const persistedConfig = JSON.parse(await fs.promises.readFile(configPath, 'utf8'));
+    assert.equal(hasSavedSettings, true);
+    assert.equal(persistedConfig.cursorBlink, true);
+    assert.equal(persistedConfig.projects[0].name, 'Renamed project');
+    assert.equal(persistedConfig.projects[0].resumeSessionId, 'conversation');
+  } finally {
+    fs.promises.rename = originalRename;
+    if (previousConfigPath === undefined) delete process.env.GLIMMERVOID_CONFIG;
+    if (previousConfigPath !== undefined) process.env.GLIMMERVOID_CONFIG = previousConfigPath;
+    await fs.promises.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('an async save refuses invalid config, then accepts a repaired file without poisoning the queue', async () => {
+  const { dir, p: configPath } = writeTmpConfig(richConfig());
+  const previousConfigPath = process.env.GLIMMERVOID_CONFIG;
+  process.env.GLIMMERVOID_CONFIG = configPath;
+  try {
+    const store = createConfigStore();
+    await fs.promises.writeFile(configPath, '{broken');
+    assert.equal(await store.saveAsync((config) => { config.projects[0].wasActive = true; }), null);
+    assert.equal(await fs.promises.readFile(configPath, 'utf8'), '{broken');
+    await fs.promises.writeFile(configPath, JSON.stringify(richConfig()));
+    assert.ok(await store.saveAsync((config) => { config.projects[0].wasActive = true; }));
+    assert.equal(JSON.parse(await fs.promises.readFile(configPath, 'utf8')).projects[0].wasActive, true);
+  } finally {
+    if (previousConfigPath === undefined) delete process.env.GLIMMERVOID_CONFIG;
+    if (previousConfigPath !== undefined) process.env.GLIMMERVOID_CONFIG = previousConfigPath;
+    await fs.promises.rm(dir, { recursive: true, force: true });
+  }
+});

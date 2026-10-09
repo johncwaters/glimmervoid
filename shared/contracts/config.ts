@@ -73,10 +73,32 @@ export const CustomAgentDeclarations = z.array(CustomAgentDeclaration, { error: 
     }
   });
 
+export const TaskTitleSources = z.object({
+  customTitle: TaskTitle.nullable().optional(),
+  pendingPromptTitle: TaskTitle.nullable().optional(),
+  refinedTitle: TaskTitle.nullable().optional(),
+  aiTitle: TaskTitle.nullable().optional(),
+  oscTitle: TaskTitle.nullable().optional(),
+  promptTitle: TaskTitle.nullable().optional(),
+}).strict();
+
+export const TASK_TITLE_SOURCE_PRIORITY = ['customTitle', 'pendingPromptTitle', 'refinedTitle', 'aiTitle', 'oscTitle', 'promptTitle'] as const;
+
+export const PersistedTaskTitle = z.object({
+  taskTitle: TaskTitle.min(1),
+  isCustom: z.boolean(),
+  sources: TaskTitleSources,
+}).strict().refine(({ taskTitle, isCustom, sources }) => {
+  const source = TASK_TITLE_SOURCE_PRIORITY.find((candidate) => sources[candidate]?.trim());
+  if (!source) return false;
+  return sources[source]?.replace(/\s+/g, ' ').trim() === taskTitle && isCustom === (source === 'customTitle');
+});
+
 export const ProjectConfig = z.object({
   id: z.string().optional(),
   name: z.string().optional(),
   customTitle: TaskTitle.optional(),
+  taskTitleState: PersistedTaskTitle.optional().catch(undefined),
   path: z.string(),
   repos: z.array(z.string()).min(2).optional(),
   agent: z.string({ error: 'projects[].agent must be a string' }).regex(AGENT_ID_RE, { error: `projects[].agent must be ${AGENT_ID_SHAPE_MESSAGE}` }).optional(),
@@ -170,3 +192,5 @@ export type BrowserConfig = z.infer<typeof BrowserConfig>;
 export type ConfigUpdate = z.infer<typeof ConfigUpdate>;
 export type ProjectConfig = z.infer<typeof ProjectConfig>;
 export type CustomAgentDeclaration = z.infer<typeof CustomAgentDeclaration>;
+export type TaskTitleSources = z.infer<typeof TaskTitleSources>;
+export type PersistedTaskTitle = z.infer<typeof PersistedTaskTitle>;

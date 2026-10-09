@@ -44,6 +44,7 @@ interface BackendShutdownDependencies {
   traceChangeBroadcast?: Stoppable | null;
   planReview?: Stoppable | null;
   telegramOutbox: { idle: () => unknown };
+  configStore?: { idle: () => unknown };
   heartbeat: { stop: () => void };
   outcomes?: Stoppable | null;
   telemetry?: Stoppable | null;
@@ -124,6 +125,7 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     dependencies.heartbeat.stop();
     dependencies.controlWss.close();
     dependencies.dataWss.close();
+    if (dependencies.configStore) stoppers.add('config-store', () => dependencies.configStore?.idle());
     return { reaps: pendingReaps, stoppers: stoppers.entries() };
   };
 }

@@ -426,3 +426,36 @@ test('dropping the customAgents key from config.json clears the overlay rather t
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+
+test('project title state round-trips through config and old configs need no title field', () => {
+  for (const sources of [{ aiTitle: 'Automatic task' }, { customTitle: 'Custom task', refinedTitle: 'Automatic task' }]) {
+    const isCustom = 'customTitle' in sources;
+    const taskTitleState = { taskTitle: isCustom ? 'Custom task' : 'Automatic task', isCustom, sources };
+    const config = Config.parse({ projects: [{ path: '/repo', taskTitleState }] });
+    assert.deepEqual(config.projects[0].taskTitleState, taskTitleState);
+  }
+  assert.equal(Config.parse({ projects: [{ path: '/repo' }] }).projects[0].taskTitleState, undefined);
+});
+
+test('invalid persisted title state is dropped without rejecting the project or config', () => {
+  const validTitle = { taskTitle: 'Task', isCustom: false, sources: { aiTitle: 'Task' } };
+  for (const taskTitleState of [
+    null, 'Task', 42, {},
+    { ...validTitle, taskTitle: '' },
+    { ...validTitle, taskTitle: 'a'.repeat(121) },
+    { ...validTitle, taskTitle: 'Task\n' },
+    { ...validTitle, isCustom: 'false' },
+    { ...validTitle, isCustom: true },
+    { ...validTitle, taskTitle: 'Mismatch' },
+    { ...validTitle, sources: { aiTitle: 42 } },
+    { ...validTitle, sources: { aiTitle: 'Task', refinedTitle: 'Invalid\n' } },
+    { ...validTitle, sources: { aiTitle: 'Task', unknownTitle: 'Task' } },
+    { ...validTitle, extra: true },
+  ]) {
+    const parsed = Config.parse({ projects: [{ path: '/repo', taskTitleState, packs: ['house-rules'] }] });
+    assert.equal(parsed.projects[0].taskTitleState, undefined);
+    assert.equal(parsed.projects[0].path, '/repo');
+    assert.deepEqual(parsed.projects[0].packs, ['house-rules']);
+  }
+});

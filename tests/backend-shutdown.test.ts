@@ -68,3 +68,15 @@ test('shutdown stops and awaits coder activity as a named stopper', async () => 
   assert.equal(hasStopped, true);
   assert.ok(outcome.stoppers.some((entry) => entry.name === 'coder-activity'));
 });
+
+test('shutdown awaits config persistence queued by session teardown', async () => {
+  let hasDrained = false;
+  let hasDestroyed = false;
+  const outcome = createBackendShutdown(shutdownDependencies([], {
+    sessions: new Map([['session', { destroy: () => { hasDestroyed = true; } }]]),
+    configStore: { idle: async () => { assert.equal(hasDestroyed, true); await Promise.resolve(); hasDrained = true; } },
+  }))();
+  await Promise.all(outcome.stoppers.map((entry) => entry.promise));
+  assert.equal(hasDrained, true);
+  assert.ok(outcome.stoppers.some((entry) => entry.name === 'config-store'));
+});
