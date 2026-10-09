@@ -1,8 +1,13 @@
+import { runGit } from "../server/git-exec.ts";
+import type { RunGitOptions } from "../server/git-exec.ts";
+import { errorMessage } from "../shared/text.ts";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { execFileSync, execFile } from "../server/child-process-safe.ts";
+import { execFileSync } from "../server/child-process-safe.ts";
 import { isSameDirectoryPath } from "../shared/paths.ts";
+import { createCoalescedTimer } from "../shared/coalesce-timer.ts";
+import type { CoalescedTimer } from "../shared/coalesce-timer.ts";
 import { STATES, MERGEABLE_LIVE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
 import { createWorktreeWatcher, readWorktreeGitdirPointer } from "../detection/worktree-watch.ts";
@@ -153,7 +158,7 @@ interface WorktreeLifecycleState {
   worktreeWatcher: ReturnType<typeof createWorktreeWatcher> | null;
   integrationWatcher: ReturnType<typeof createIntegrationRefWatcher> | null;
   rerereWatcher: ReturnType<typeof createRerereWatcher> | null;
-  checkTimer: NodeJS.Timeout | null;
+  checkTimer: CoalescedTimer;
   lastSignature: string | null;
   provisionedMembers: WorkspaceMember[] | null;
 }
@@ -199,29 +204,19 @@ interface WorktreeSignature {
   targetSha: string | null;
 }
 
-type GitOptions = Record<string, unknown>;
-
 type MergeEngineOutcome =
   | { result: MergeResult; failure?: undefined }
   | { result?: undefined; failure: MergeResult };
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+async function gitOut(args: string[], options: RunGitOptions): Promise<string> {
+  const command = await runGit(args, { ...options, trim: false, keepStdoutOnFailure: true });
+  return command.out;
 }
 
-function gitOut(args: string[], opts: GitOptions): Promise<string> {
-  return new Promise((resolve) => {
-    execFile("git", args, opts, (_error: unknown, stdout: unknown) => resolve(stdout != null ? String(stdout) : ""));
-  });
-}
-
-function gitStrict(args: string[], opts: GitOptions): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile("git", args, opts, (error: unknown, stdout: unknown) => {
-      if (error) return reject(error);
-      resolve(stdout != null ? String(stdout) : "");
-    });
-  });
+async function gitStrict(args: string[], options: RunGitOptions): Promise<string> {
+  const command = await runGit(args, { ...options, trim: false });
+  if (!command.ok) throw command.error;
+  return command.out;
 }
 
 function stopWatcher(watcher: { stop: () => void } | null): null {
@@ -302,7 +297,13 @@ function createSessionWorktreeLifecycle({
     worktreeWatcher: null,
     integrationWatcher: null,
     rerereWatcher: null,
-    checkTimer: null,
+    checkTimer: createCoalescedTimer({
+      mode: "leading",
+      delayMs: WORKTREE_CHECK_DEBOUNCE_MS,
+      run: () => {
+        api.checkWorktreeChange().catch(() => {});
+      },
+    }),
     lastSignature: null,
     provisionedMembers: null,
   };
@@ -325,7 +326,7 @@ function createSessionWorktreeLifecycle({
       isWorkspace: workspaceMembers !== null,
       isAutoRebasing: lifecycleState.autoRebasing,
       hasConflictCooldown: Boolean(lifecycleState.rebaseConflictKey),
-      hasPendingCheck: lifecycleState.checkTimer !== null,
+      hasPendingCheck: lifecycleState.checkTimer.isArmed,
     };
   }
 
@@ -373,20 +374,14 @@ function createSessionWorktreeLifecycle({
   }
 
   function clearCheckTimer(): void {
-    if (!lifecycleState.checkTimer) return;
-    clearTimeout(lifecycleState.checkTimer);
-    lifecycleState.checkTimer = null;
+    lifecycleState.checkTimer.cancel();
   }
 
   function scheduleCheck(): void {
     const session = port.state();
-    if (session.isDestroyed || lifecycleState.checkTimer) return;
+    if (session.isDestroyed) return;
     if (!lifecycleState.worktreeDir && !lifecycleState.provisionedMembers) return;
-    lifecycleState.checkTimer = setTimeout(() => {
-      lifecycleState.checkTimer = null;
-      api.checkWorktreeChange().catch(() => {});
-    }, WORKTREE_CHECK_DEBOUNCE_MS);
-    lifecycleState.checkTimer.unref?.();
+    lifecycleState.checkTimer.schedule();
   }
 
   function stopWatching(): void {
@@ -681,7 +676,7 @@ function createSessionWorktreeLifecycle({
     }));
   }
 
-  async function resolveEffectiveBase(opts: GitOptions): Promise<string | null> {
+  async function resolveEffectiveBase(opts: RunGitOptions): Promise<string | null> {
     if (lifecycleState.workspace?.base) {
       lifecycleState.effectiveBase = lifecycleState.workspace.base;
       return lifecycleState.effectiveBase;
@@ -699,7 +694,7 @@ function createSessionWorktreeLifecycle({
 
   async function resolveVerifiedBaseRef(
     run: (args: string[]) => Promise<string>,
-    opts: GitOptions,
+    opts: RunGitOptions,
     { swallowResolveError = false }: { swallowResolveError?: boolean } = {},
   ): Promise<{ ref: string; verified: true } | { ref: string | null; verified: false }> {
     let verifiedRef: string | null = null;
@@ -713,11 +708,11 @@ function createSessionWorktreeLifecycle({
     return { ref: lifecycleState.baseSha || null, verified: false };
   }
 
-  function diffGitOptions(cwd: string): GitOptions {
-    return { cwd, encoding: "utf8", timeout: 15000, maxBuffer: 64 * 1024 * 1024 };
+  function diffGitOptions(cwd: string): RunGitOptions {
+    return { cwd, timeoutMs: 15000, maxBuffer: 64 * 1024 * 1024 };
   }
 
-  async function resolveDiffBase(run: (args: string[]) => Promise<string>, opts: GitOptions): Promise<{ base: string; aheadCount: string }> {
+  async function resolveDiffBase(run: (args: string[]) => Promise<string>, opts: RunGitOptions): Promise<{ base: string; aheadCount: string }> {
     const { ref: baseRef, verified } = await resolveVerifiedBaseRef(run, opts);
     if (verified) {
       return {
@@ -831,17 +826,17 @@ function createSessionWorktreeLifecycle({
     };
   }
 
-  async function branchUpstream(branch: string, opts: GitOptions): Promise<string | null> {
+  async function branchUpstream(branch: string, opts: RunGitOptions): Promise<string | null> {
     const upstream = (await gitOut(["rev-parse", "--abbrev-ref", "--symbolic-full-name", `${branch}@{upstream}`], opts)).trim();
     return upstream && !upstream.includes("@{") ? upstream : null;
   }
 
-  async function fetchBranch(remote: string, branch: string, opts: GitOptions): Promise<boolean> {
+  async function fetchBranch(remote: string, branch: string, opts: RunGitOptions): Promise<boolean> {
     try {
       await gitStrict(["fetch", "--quiet", remote, branch], {
         ...opts,
-        timeout: GIT_FETCH_TIMEOUT_MS,
-        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+        timeoutMs: GIT_FETCH_TIMEOUT_MS,
+        replaceEnv: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
       });
       return true;
     } catch {
@@ -849,7 +844,7 @@ function createSessionWorktreeLifecycle({
     }
   }
 
-  async function branchCounts(upstream: string, branch: string, opts: GitOptions) {
+  async function branchCounts(upstream: string, branch: string, opts: RunGitOptions) {
     const counts = parseLeftRightCount(await gitOut(["rev-list", "--left-right", "--count", `${upstream}...${branch}`], opts));
     return {
       ahead: counts ? counts.ahead : 0,
@@ -871,7 +866,7 @@ function createSessionWorktreeLifecycle({
   async function getBranchSync() {
     const branch = effectiveIntegrationBranch();
     if (!branch || !currentProjectPath()) return noUpstream(branch);
-    const opts = { cwd: currentProjectPath(), encoding: "utf8", timeout: 10000 };
+    const opts: RunGitOptions = { cwd: currentProjectPath(), timeoutMs: 10000 };
     const upstream = await branchUpstream(branch, opts);
     if (!upstream) return noUpstream(branch);
     const fetched = await fetchBranch(parseRemoteFromUpstream(upstream), branch, opts);
@@ -881,7 +876,7 @@ function createSessionWorktreeLifecycle({
   async function resyncBranchBody(): Promise<BranchSyncResult> {
     const branch = effectiveIntegrationBranch();
     if (!branch || !currentProjectPath()) return { ...noUpstream(branch), action: "none", error: null };
-    const opts = { cwd: currentProjectPath(), encoding: "utf8", timeout: 10000 };
+    const opts: RunGitOptions = { cwd: currentProjectPath(), timeoutMs: 10000 };
     const upstream = await branchUpstream(branch, opts);
     if (!upstream) return { ...noUpstream(branch), action: "none", error: null };
     const remote = parseRemoteFromUpstream(upstream);
@@ -891,10 +886,10 @@ function createSessionWorktreeLifecycle({
     const decision = decideResyncAction(before.state, checkedOut === branch);
     let action = "none";
     let error: string | null = null;
-    const command = buildResyncCommand(decision, { upstream, branch, remote, opts });
+    const command = buildResyncCommand(decision, { upstream, branch, remote });
     if (command) {
       try {
-        await gitStrict(command.args, command.opts);
+        await gitStrict(command.args, { ...opts, timeoutMs: command.timeoutMs ?? opts.timeoutMs });
         action = command.successAction;
       } catch (commandError) {
         error = firstGitErrorLine(commandError);
@@ -912,7 +907,7 @@ function createSessionWorktreeLifecycle({
   async function computeWorktreeSignature(): Promise<WorktreeSignature | null> {
     const worktreeDir = lifecycleState.worktreeDir;
     if (!worktreeDir) return null;
-    const opts = { cwd: worktreeDir, encoding: "utf8", timeout: 10000, maxBuffer: 16 * 1024 * 1024 };
+    const opts: RunGitOptions = { cwd: worktreeDir, timeoutMs: 10000, maxBuffer: 16 * 1024 * 1024 };
     const run = (args: string[]): Promise<string> => gitStrict(["--no-optional-locks", ...args], opts);
     let status: string;
     let head: string;

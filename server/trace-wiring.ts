@@ -37,8 +37,8 @@ import { createLaneLog } from './lane-log.ts';
 import { configSiblingPath } from './pairings-store.ts';
 import { pruneAgedFiles } from './prune-files.ts';
 import { errorMessage } from '../shared/text.ts';
-import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
-import type { ClearIntervalFn, SetIntervalFn } from './core/timer-deps.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
+import type { ClearIntervalFn, SetIntervalFn } from '../shared/timer-deps.ts';
 import { isPathInside } from '../shared/paths.ts';
 import { createSerialQueue } from './spawn-gate.ts';
 

@@ -1,6 +1,7 @@
 import type { UsageEntryLike, UsageTotals } from './usage-entry-core.ts';
 import { addEntryToTotals, dedupKeys, emptyTotals, totalTokensOf } from './usage-entry-core.ts';
 import { numberOr } from '../../shared/coerce.ts';
+import { localDayKey } from '../../shared/display-text.ts';
 
 interface VendorTotals {
   tokens: number;
@@ -69,7 +70,7 @@ function buildUsageReport(
   for (const entry of keptEntries) {
     addEntryToTotals(totals, entry);
     addEntryToVendorTotals(byVendor, entry);
-    const day = localDay(entry.timestampMs);
+    const day = localDayKey(entry.timestampMs);
     addEntryToDailyBucket(dailyByDay, day, entry);
     addEntryToModelBucket(modelByName, entry.model || '<unknown>', entry);
     addEntryToSessionBucket(sessionById, entry, sessionsById);
@@ -181,13 +182,4 @@ function serializeDailyBucket(bucket: DailyBucket): SerializedDailyBucket {
   };
 }
 
-function localDay(timestampMs: number): string {
-  const date = new Date(timestampMs);
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
-}
-
-function pad2(value: number): string {
-  return String(value).padStart(2, '0');
-}
-
-export { buildUsageReport, pruneEntries, localDay as localDayKey, vendorOf };
+export { buildUsageReport, pruneEntries, vendorOf };

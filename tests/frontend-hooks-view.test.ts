@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { HookEvent, HookRecord } from '../public/hooks-view-core.ts';
+import { MAX_TIMEOUT_SEC } from '../shared/contracts/hooks.ts';
 
 const importCore = () => import('../public/hooks-view-core.ts');
 
@@ -76,9 +77,9 @@ test('draftProblem names the first blocking problem and nothing when the draft i
 });
 
 test('the timeout ceiling comes from the report, with the server default as the fallback', async () => {
-  const { draftProblem, emptyDraft, maxTimeoutOf, DEFAULT_MAX_TIMEOUT_SEC } = await importCore();
-  assert.equal(maxTimeoutOf(null), DEFAULT_MAX_TIMEOUT_SEC);
-  assert.equal(maxTimeoutOf({ limits: {} }), DEFAULT_MAX_TIMEOUT_SEC);
+  const { draftProblem, emptyDraft, maxTimeoutOf } = await importCore();
+  assert.equal(maxTimeoutOf(null), MAX_TIMEOUT_SEC);
+  assert.equal(maxTimeoutOf({ limits: {} }), MAX_TIMEOUT_SEC);
   assert.equal(maxTimeoutOf({ limits: { maxTimeoutSec: 120 } }), 120);
   const good = { ...emptyDraft(EVENTS), name: 'x', command: 'echo', timeout: '300' };
   assert.equal(draftProblem(good, EVENTS, 120), 'Timeout must be a whole number of seconds from 1 to 120.');

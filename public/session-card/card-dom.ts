@@ -3,7 +3,8 @@ import { TASK_TITLE_MAX_LENGTH } from '#shared/contracts/session.ts';
 import { localClockText } from '#shared/display-text.ts';
 import { STATES } from '#shared/states.ts';
 import { sendControlMsg } from '../control-ws.ts';
-import { el, escapeHtml } from '../dom-helpers.ts';
+import { escapeMarkup } from '#shared/escape-markup.ts';
+import { el } from '../dom-helpers.ts';
 import type { SessionUi } from './card-registry.ts';
 import { findSessionUi, sessionUIs } from './card-registry.ts';
 import { showErrorToast } from './toast.ts';
@@ -354,8 +355,8 @@ function gateEvidence(d: DecisionEntry) {
 function formatDecision(d: DecisionEntry) {
   const at = `<span class="debug-dim">${formatTimestamp(d.ts)}</span>`;
   if (d.kind === 'signal') {
-    const from = escapeHtml([d.signal, d.source].filter(Boolean).join('/'));
-    if (d.action === 'transition') return `${at} ${from} → <span class="debug-label">${escapeHtml(d.event || '')}</span>`;
+    const from = escapeMarkup([d.signal, d.source].filter(Boolean).join('/'));
+    if (d.action === 'transition') return `${at} ${from} → <span class="debug-label">${escapeMarkup(d.event || '')}</span>`;
     if (d.action === 'gate-held') return `${at} ${from} → held <span class="debug-dim">(${Number(d.active) || 0} bg)</span>`;
     return `${at} ${from} → <span class="debug-dim">no-op</span>`;
   }
@@ -363,17 +364,17 @@ function formatDecision(d: DecisionEntry) {
     const repeats = (d.repeats ?? 0) > 1 ? ` <span class="debug-dim">x${Number(d.repeats)}</span>` : '';
     const evidence = gateEvidence(d);
     const why = evidence ? ` <span class="debug-dim">${evidence}</span>` : '';
-    return `${at} gate <span class="debug-label">${escapeHtml(d.decision || '?')}</span>${why}${repeats}`;
+    return `${at} gate <span class="debug-label">${escapeMarkup(d.decision || '?')}</span>${why}${repeats}`;
   }
   if (d.kind === 'notify') {
-    const what = escapeHtml(d.category || d.to || '?');
+    const what = escapeMarkup(d.category || d.to || '?');
     if (d.category) return `${at} notify <span class="debug-label">${what}</span>: fired`;
-    return `${at} notify ${what}: <span class="debug-dim">silent (${escapeHtml(d.reason || '')})</span>`;
+    return `${at} notify ${what}: <span class="debug-dim">silent (${escapeMarkup(d.reason || '')})</span>`;
   }
   if (d.kind === 'notify-state') {
-    return `${at} notify ${escapeHtml(d.category || '?')}: <span class="debug-dim">${escapeHtml(d.from || '?')} → ${escapeHtml(d.to || '?')}</span>`;
+    return `${at} notify ${escapeMarkup(d.category || '?')}: <span class="debug-dim">${escapeMarkup(d.from || '?')} → ${escapeMarkup(d.to || '?')}</span>`;
   }
-  return `${at} <span class="debug-dim">${escapeHtml(d.kind || 'decision')}</span>`;
+  return `${at} <span class="debug-dim">${escapeMarkup(d.kind || 'decision')}</span>`;
 }
 
 function renderDebugOverlay(ui: SessionUi, payload: DebugStatePayload) {
@@ -382,7 +383,7 @@ function renderDebugOverlay(ui: SessionUi, payload: DebugStatePayload) {
 
   let html = DEBUG_CLOSE_BTN;
   html += `<div class="debug-section"><div class="debug-section-title">State</div>`;
-  html += `<div class="debug-field"><span class="debug-label">Current:</span> <span class="debug-value">${escapeHtml(p.state)}</span></div>`;
+  html += `<div class="debug-field"><span class="debug-label">Current:</span> <span class="debug-value">${escapeMarkup(p.state)}</span></div>`;
   html += `</div>`;
 
   html += `<div class="debug-section"><div class="debug-section-title">Transitions (last ${p.transitions.length})</div>`;
@@ -393,8 +394,8 @@ function renderDebugOverlay(ui: SessionUi, payload: DebugStatePayload) {
     for (const t of p.transitions) {
       const d = t.detail && typeof t.detail === 'object' ? t.detail : null;
       const tagParts = d ? [d.signal, d.source, d.deferred ? 'deferred' : null].filter(Boolean) : [];
-      const tag = tagParts.length > 0 ? ` <span class="debug-dim">${escapeHtml(tagParts.join('/'))}</span>` : '';
-      html += `<div class="debug-field"><span class="debug-dim">${formatTimestamp(t.timestamp)}</span> ${escapeHtml(t.from)} → ${escapeHtml(t.to)} <span class="debug-label">${escapeHtml(t.event)}</span>${tag}</div>`;
+      const tag = tagParts.length > 0 ? ` <span class="debug-dim">${escapeMarkup(tagParts.join('/'))}</span>` : '';
+      html += `<div class="debug-field"><span class="debug-dim">${formatTimestamp(t.timestamp)}</span> ${escapeMarkup(t.from)} → ${escapeMarkup(t.to)} <span class="debug-label">${escapeMarkup(t.event)}</span>${tag}</div>`;
     }
   }
   html += `</div>`;
@@ -403,10 +404,10 @@ function renderDebugOverlay(ui: SessionUi, payload: DebugStatePayload) {
   const ls = det.lastSignal;
   const ts = det.titleState || {};
   html += `<div class="debug-section"><div class="debug-section-title">Detection</div>`;
-  html += `<div class="debug-field"><span class="debug-label">Last signal:</span> <span class="debug-value">${ls ? `${escapeHtml(ls.signal)} (${escapeHtml(ls.source || '?')}${ls.confidence ? `/${escapeHtml(ls.confidence)}` : ''})` : 'none'}</span></div>`;
+  html += `<div class="debug-field"><span class="debug-label">Last signal:</span> <span class="debug-value">${ls ? `${escapeMarkup(ls.signal)} (${escapeMarkup(ls.source || '?')}${ls.confidence ? `/${escapeMarkup(ls.confidence)}` : ''})` : 'none'}</span></div>`;
   html += `<div class="debug-field"><span class="debug-label">Hooks injected:</span> <span class="debug-value">${det.hooksInjected ? 'yes' : 'no'}</span></div>`;
   html += `<div class="debug-field"><span class="debug-label">Hook seen:</span> <span class="debug-value">${det.hookSeen ? 'yes' : 'no (degraded → title)'}</span></div>`;
-  html += `<div class="debug-field"><span class="debug-label">Title state:</span> <span class="debug-value">${escapeHtml(ts.lastKind || 'none')}${ts.hasSeenSpinner ? ' · spun' : ''}</span></div>`;
+  html += `<div class="debug-field"><span class="debug-label">Title state:</span> <span class="debug-value">${escapeMarkup(ts.lastKind || 'none')}${ts.hasSeenSpinner ? ' · spun' : ''}</span></div>`;
   html += `</div>`;
 
   const agents = det.agents || {};
@@ -417,7 +418,7 @@ function renderDebugOverlay(ui: SessionUi, payload: DebugStatePayload) {
   const gateText = gate
     ? `held ${formatSeconds(gate.heldForMs)} (seq ${Number(gate.seq) || 0}, lastActivity ${Number(gate.lastActivitySeq) || 0})`
     : 'none';
-  html += `<div class="debug-field"><span class="debug-label">Gate:</span> <span class="debug-value">${escapeHtml(gateText)}</span></div>`;
+  html += `<div class="debug-field"><span class="debug-label">Gate:</span> <span class="debug-value">${escapeMarkup(gateText)}</span></div>`;
   html += `</div>`;
 
   const decisions = Array.isArray(p.decisions) ? p.decisions : [];

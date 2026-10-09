@@ -1,3 +1,4 @@
+import { isRecord } from "../../shared/coerce.ts";
 import { buildHookCommand } from "./hook-command-core.ts";
 
 interface HookHandler {
@@ -38,7 +39,7 @@ function renderGrokHooksFile({ relayPath, events, hookToolRelayPath }: GrokHooks
 }
 
 function hasOnlyKeys(value: unknown, expectedKeys: string[]): value is Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (!isRecord(value)) return false;
   const actualKeys = Object.keys(value).sort();
   const sortedExpectedKeys = [...expectedKeys].sort();
   return actualKeys.length === sortedExpectedKeys.length
@@ -88,7 +89,7 @@ function classifyGrokHooksFile(
   if (!hasOnlyKeys(parsed, ["hooks"])) return "foreign";
   const hooksValue = parsed.hooks;
   if (hooksValue === null || hooksValue === undefined) throw new TypeError("hooks must be an object");
-  if (typeof hooksValue !== "object" || Array.isArray(hooksValue)) return "foreign";
+  if (!isRecord(hooksValue)) return "foreign";
   const actualEvents = Object.keys(hooksValue);
   if (!hasOnlyKeys(hooksValue, actualEvents)) return "foreign";
   const hooks = hooksValue;

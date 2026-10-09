@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { main, fallbackLine, decodeChainCommand, parsePayload, NO_CHAIN } from '../session/statusline-relay.ts';
+import { main, fallbackLine, decodeChainCommand, NO_CHAIN } from '../session/statusline-relay.ts';
+import { parseJsonRecord } from '../server/core/json-core.ts';
 import * as statuslineRelay from '../session/statusline-relay.ts';
 function fakeStdin(text: string) {
   return Readable.from([Buffer.from(text, 'utf8')]);
@@ -30,12 +31,12 @@ test('decodeChainCommand: base64 in, command out, and every absent form is null'
   assert.equal(decodeChainCommand(Buffer.from('   ', 'utf8').toString('base64')), null);
 });
 
-test('parsePayload: an object or null, never a throw', () => {
-  assert.deepEqual(parsePayload('{"a":1}'), { a: 1 });
-  assert.equal(parsePayload('{ not json'), null);
-  assert.equal(parsePayload(''), null);
-  assert.equal(parsePayload('[1,2]'), null, 'an array is not a payload');
-  assert.equal(parsePayload('42'), null);
+test('parseJsonRecord: a statusline payload is an object or null, never a throw', () => {
+  assert.deepEqual(parseJsonRecord('{"a":1}'), { a: 1 });
+  assert.equal(parseJsonRecord('{ not json'), null);
+  assert.equal(parseJsonRecord(''), null);
+  assert.equal(parseJsonRecord('[1,2]'), null, 'an array is not a payload');
+  assert.equal(parseJsonRecord('42'), null);
 });
 
 test('fallbackLine: model and cost, no dashes and no emoji', () => {

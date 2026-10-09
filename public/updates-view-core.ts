@@ -1,7 +1,8 @@
 import type { UpdateStatus } from '#shared/contracts/control-messages.ts';
 import type { UpdateJournal, UpdateRunState, UpdateStepStatus } from '#shared/contracts/update-journal.ts';
-import { shortSha, versionLabel } from './radar-core.ts';
-import { textOr } from './coerce-core.ts';
+import { textOr } from '#shared/coerce.ts';
+import { shortSha } from '#shared/git-text.ts';
+import { versionLabel } from './radar-core.ts';
 
 export type UpdateStatusView = Partial<UpdateStatus>;
 
@@ -201,7 +202,7 @@ export function updateSummary(
 export function installedUpdateText(status: UpdateStatusView | null | undefined): string {
   if (!status) return 'Update status unavailable.';
   const version = versionLabel(status.current, null) || 'Unknown version';
-  const sha = shortSha(status.currentSha);
+  const sha = shortSha(status.currentSha, { validate: true });
   const branch = textOr(status.installedBranch, '');
   const location = [sha ? `commit ${sha}` : '', branch ? `on ${branch}` : ''].filter(Boolean).join(' ');
   const treeState = status.isTreeClean === true ? 'clean checkout' : status.isTreeClean === false ? 'uncommitted local changes' : '';

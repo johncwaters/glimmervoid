@@ -1,3 +1,4 @@
+import { errorMessage } from "../shared/text.ts";
 import claudeCode from '../session/adapters/claude-code.ts';
 import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import { HookEnvelope } from '../shared/contracts/index.ts';
@@ -96,7 +97,7 @@ class HookRouter {
       try {
         entry.onEvent(event, mappedPayload);
       } catch (err) {
-        console.warn(`[hook-source] onEvent threw for ${glimmervoidId}: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(`[hook-source] onEvent threw for ${glimmervoidId}: ${errorMessage(err)}`);
       }
     }
     if (!signal) {
@@ -116,7 +117,7 @@ class HookRouter {
         ts: Date.now(), event, payload: mappedPayload,
       });
     } catch (err) {
-      console.warn(`[hook-source] onSignal threw for ${glimmervoidId}: ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(`[hook-source] onSignal threw for ${glimmervoidId}: ${errorMessage(err)}`);
     }
     return { status: 200, signal, reason: 'ok' };
   }

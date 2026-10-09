@@ -1,3 +1,4 @@
+import { errorMessage, isMissingFileError } from "../shared/text.ts";
 
 import fs from "node:fs";
 import fsp from "node:fs/promises";
@@ -292,7 +293,7 @@ class SessionRecorder {
         await fsp.unlink(path.join(this._baseDir, entry.entry));
         totalBytes -= entry.size;
       } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === "ENOENT") totalBytes -= entry.size;
+        if (isMissingFileError(err, { includeNotDir: false })) totalBytes -= entry.size;
       }
     }
   }
@@ -300,7 +301,7 @@ class SessionRecorder {
   _disableWithWarning(context: string, err: unknown): void {
     if (this._disabled) return;
     this._disabled = true;
-    console.warn(`[session-recorder:${this._name}] Recording disabled (${context}): ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(`[session-recorder:${this._name}] Recording disabled (${context}): ${errorMessage(err)}`);
     this._releaseOpenPath();
     if (this._stream) {
       try { this._stream.end(); } catch {  }

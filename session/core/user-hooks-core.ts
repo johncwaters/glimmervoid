@@ -1,10 +1,11 @@
+import { isRecord, textOr } from '../../shared/coerce.ts';
+import { HTTP_URL_RE, MAX_TIMEOUT_SEC } from '../../shared/contracts/hooks.ts';
+
 const MAX_NAME_LENGTH = 64;
 const MAX_MATCHER_LENGTH = 200;
 const MAX_COMMAND_LENGTH = 4000;
 const MAX_URL_LENGTH = 2000;
-const MAX_TIMEOUT_SEC = 600;
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
-const HTTP_URL_RE = /^https?:\/\/\S+$/i;
 
 interface HookEventEntry {
   name: string;
@@ -103,17 +104,13 @@ function fail(error: string): Failure {
   return { ok: false, error };
 }
 
-function trimmedString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
 function optionalMatcher(
   input: HookInput,
   catalogEntry: HookEventEntry,
 ): { ok: true; matcher: string | null } | Failure {
   const raw = input.matcher;
   if (raw !== undefined && raw !== null && typeof raw !== 'string') return fail('matcher must be a string');
-  const matcher = trimmedString(raw);
+  const matcher = textOr(raw, '');
   if (!matcher) return { ok: true, matcher: null };
   if (matcher.length > MAX_MATCHER_LENGTH) return fail(`matcher is longer than ${MAX_MATCHER_LENGTH} characters`);
   if (!catalogEntry.matcher) return fail(`${catalogEntry.name} takes no matcher`);
@@ -157,15 +154,15 @@ function normalizeHook(
   input: HookInput | null | undefined,
   { id, knownProjectIds = null }: { id: string; knownProjectIds?: ReadonlySet<string> | null },
 ): { ok: true; hook: UserHook } | Failure {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return fail('hook must be an object');
+  if (!isRecord(input)) return fail('hook must be an object');
   if (!ID_RE.test(String(id))) return fail('hook id is invalid');
-  const name = trimmedString(input.name);
+  const name = textOr(input.name, '');
   if (!name) return fail('name is required');
   if (name.length > MAX_NAME_LENGTH) return fail(`name is longer than ${MAX_NAME_LENGTH} characters`);
-  const event = trimmedString(input.event);
+  const event = textOr(input.event, '');
   const catalogEntry = EVENTS_BY_NAME.get(event);
   if (!catalogEntry) return fail(event ? `${event} is not a hook event` : 'event is required');
-  const type = trimmedString(input.type);
+  const type = textOr(input.type, '');
   if (type !== 'command' && type !== 'http') return fail('type must be command or http');
   if (type === 'http' && catalogEntry.http === false) return fail(`${catalogEntry.name} does not support HTTP hooks`);
   const matcher = optionalMatcher(input, catalogEntry);
@@ -180,13 +177,13 @@ function normalizeHook(
   const hook: UserHook = { id, name, event, type, enabled: enabled.enabled };
   if (matcher.matcher) hook.matcher = matcher.matcher;
   if (type === 'command') {
-    const command = trimmedString(input.command);
+    const command = textOr(input.command, '');
     if (!command) return fail('command is required');
     if (command.length > MAX_COMMAND_LENGTH) return fail(`command is longer than ${MAX_COMMAND_LENGTH} characters`);
     hook.command = command;
   }
   if (type === 'http') {
-    const url = trimmedString(input.url);
+    const url = textOr(input.url, '');
     if (!HTTP_URL_RE.test(url)) return fail('url must start with http:// or https://');
     if (url.length > MAX_URL_LENGTH) return fail(`url is longer than ${MAX_URL_LENGTH} characters`);
     hook.url = url;

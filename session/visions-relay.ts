@@ -1,3 +1,4 @@
+import { isRecord } from "../shared/coerce.ts";
 import fs from "node:fs";
 import os from "node:os";
 
@@ -32,6 +33,8 @@ import {
   replayDidOpenMessage,
 } from "./core/visions-relay-core.ts";
 import type { DaemonMessage } from "./core/visions-relay-core.ts";
+import { nextBackoffMs } from "../shared/backoff.ts";
+import { unrefTimer } from "../shared/timer-deps.ts";
 
 const DEFAULT_PORTS = [5173, 3000];
 
@@ -52,7 +55,7 @@ const CODE_ACTION_TIMEOUT_MS = 2000;
 type MirrorParams = Parameters<typeof applyDidOpen>[1];
 
 function asDocumentParams(params: unknown): MirrorParams {
-  if (params && typeof params === "object" && !Array.isArray(params)) return params as MirrorParams;
+  if (isRecord(params)) return params as MirrorParams;
   return null;
 }
 
@@ -133,8 +136,8 @@ function readConfiguredPort(env: Record<string, string | undefined> = process.en
   }
 }
 
-function nextDelayMs(currentDelayMs: number): number {
-  return Math.min(currentDelayMs * 2, MAX_RETRY_MS);
+function retryDelayMs(attempt: number): number {
+  return nextBackoffMs({ attempt, baseMs: INITIAL_RETRY_MS, maxMs: MAX_RETRY_MS, jitter: "none" });
 }
 
 const SYNC_KIND_INCREMENTAL = 2;
@@ -222,7 +225,7 @@ function createRelay({
   let ws: WebSocket | null = null;
   let retryTimer: NodeJS.Timeout | null = null;
   let stableConnectionTimer: NodeJS.Timeout | null = null;
-  let retryMs = INITIAL_RETRY_MS;
+  let retryAttempt = 1;
   let nextPortIndex = 0;
   let isStopping = false;
 
@@ -261,13 +264,14 @@ function createRelay({
 
   function scheduleReconnect(port: number): void {
     if (isStopping || retryTimer) return;
+    const retryMs = retryDelayMs(retryAttempt);
     note(`lost the daemon on port ${port}; reconnecting in ${retryMs}ms`);
     retryTimer = setTimeout(() => {
       retryTimer = null;
       connect();
     }, retryMs);
-    retryTimer.unref?.();
-    retryMs = nextDelayMs(retryMs);
+    unrefTimer(retryTimer);
+    retryAttempt += 1;
   }
 
   function forwardNotification(method: string, params: unknown): boolean {
@@ -315,10 +319,10 @@ function createRelay({
       clearStableConnectionTimer();
       stableConnectionTimer = setTimeout(() => {
         if (ws !== socket) return;
-        retryMs = INITIAL_RETRY_MS;
+        retryAttempt = 1;
         stableConnectionTimer = null;
       }, STABLE_CONNECTION_MS);
-      stableConnectionTimer.unref?.();
+      unrefTimer(stableConnectionTimer);
       const replay = replayMirror(socket);
       const forwarded = flushPendingForwards();
       note(`connected to the daemon on port ${port} (replayed ${replay.frames.length} mirrored documents, skipped ${replay.skipped.length}, ${forwarded} held markers)`);
@@ -360,7 +364,7 @@ function createRelay({
       return;
     }
     const timer = setTimeout(() => settleCodeAction(id, null), CODE_ACTION_TIMEOUT_MS);
-    timer.unref?.();
+    unrefTimer(timer);
     pendingCodeActionById.set(id, timer);
   }
 
@@ -553,7 +557,6 @@ export {
   decideDaemonFrame,
   initializeResult,
   methodNotFoundResponse,
-  nextDelayMs,
   planMirrorReplay,
   replayDidOpenMessage,
   resolvePortPlan,

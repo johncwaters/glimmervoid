@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { errorMessage, isMissingFileError } from '../shared/text.ts';
-import { nextBackoffMs } from './core/lane-backoff.ts';
+import { nextBackoffMs } from '../shared/backoff.ts';
 import { createKeyedSerialQueue, createSerialQueue } from './spawn-gate.ts';
 
 interface AtomicWriteFileOptions {

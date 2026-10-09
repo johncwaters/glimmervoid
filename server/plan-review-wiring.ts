@@ -53,8 +53,8 @@ import { appendJsonLine } from './json-file.ts';
 import { configSiblingPath } from './pairings-store.ts';
 import { pruneAgedFiles } from './prune-files.ts';
 import { errorMessage } from '../shared/text.ts';
-import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
-import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from './core/timer-deps.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../shared/timer-deps.ts';
 
 const PERMISSION_REQUEST_HOOK_EVENT = 'permissionrequest';
 const POST_TOOL_USE_HOOK_EVENT = 'posttooluse';
@@ -501,7 +501,7 @@ function createPlanReviewWiring({
       releaseHold(sessionId, request.agentId, PASS_THROUGH_REPLY, holdId);
       moveReview(sessionId, request.agentId, 'release');
     }, PLAN_HOLD_RELEASE_MS);
-    if (typeof held.timer.unref === 'function') held.timer.unref();
+    unrefTimer(held.timer);
     heldByKey.set(holdKey(sessionId, request.agentId), held);
     return { holdId, agentId: request.agentId, reply };
   }

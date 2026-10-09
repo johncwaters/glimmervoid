@@ -1,3 +1,4 @@
+import { errorMessage } from "../shared/text.ts";
 import fs from 'node:fs';
 import path from 'node:path';
 import type { GitWorkspaceInstance } from '../server/git-workspace.ts';
@@ -34,7 +35,7 @@ export function createSessionWorkspaceMembers({ plan, sessionName, shareList, gi
       await writeWhenAbsent(path.join(plan.folder, 'CLAUDE.md'), WORKSPACE_CLAUDE_MD);
       return { ok: true, members };
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      return { ok: false, error: errorMessage(error) };
     }
   }
 

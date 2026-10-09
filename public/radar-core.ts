@@ -1,8 +1,9 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { clockDurationText } from '#shared/display-text.ts';
+import { numberOr, textOr } from '#shared/coerce.ts';
+import { shortSha } from '#shared/git-text.ts';
 
 import { attentionSignature } from './attention-ack-core.ts';
-import { numberOr, textOr } from './coerce-core.ts';
 import { lanePlaceholder } from './lane-placeholder-core.ts';
 
 export interface RadarIssue {
@@ -444,16 +445,10 @@ export function retainKnownInvestigationIds(snapshot: RadarSnapshot | null | und
   return ids;
 }
 
-export function shortSha(sha: unknown) {
-  const text = textOr(sha, '');
-  if (!/^[0-9a-f]{7,40}$/i.test(text)) return '';
-  return text.slice(0, 7).toLowerCase();
-}
-
 export function versionLabel(version: unknown, sha: unknown) {
   const labelled = textOr(version, '');
   if (labelled) return /^\d/.test(labelled) ? `v${labelled}` : labelled;
-  const short = shortSha(sha);
+  const short = shortSha(sha, { validate: true });
   return short ? `commit ${short}` : '';
 }
 

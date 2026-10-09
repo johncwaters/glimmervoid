@@ -1,3 +1,4 @@
+import { errorMessage } from "../shared/text.ts";
 import { EventEmitter } from 'node:events';
 
 import { NOTIFICATION_STATES as NS, NOTIFICATION_TRANSITIONS } from '../shared/notification-states.ts';
@@ -288,7 +289,7 @@ class NotificationManager extends EventEmitter {
         this._recordOutcome('notifyDelivered');
       } catch (err) {
         this._recordOutcome('notifyFailed');
-        console.warn(`[channel:${channel.name}] delivery failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(`[channel:${channel.name}] delivery failed: ${errorMessage(err)}`);
       }
     }
   }

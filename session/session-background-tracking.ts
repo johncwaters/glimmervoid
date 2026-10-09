@@ -1,3 +1,4 @@
+import { isRecord } from "../shared/coerce.ts";
 import * as agentTracker from "./core/agent-tracker.ts";
 import { decideGateRelease } from "./core/gate-release.ts";
 import { mapSignalToEvent } from "./core/status-mapper.ts";
@@ -298,8 +299,8 @@ function createSessionBackgroundTracking({
     const ts = raw.ts || Date.now();
     if (raw.signal === "wakeup-scheduled") {
       const toolInput = payload.tool_input;
-      const input: Record<string, unknown> = toolInput && typeof toolInput === "object" && !Array.isArray(toolInput)
-        ? (toolInput as Record<string, unknown>)
+      const input: Record<string, unknown> = isRecord(toolInput)
+        ? toolInput
         : {};
       const delaySec = Number(input.delaySeconds);
       if (!Number.isFinite(delaySec) || delaySec <= 0) return;

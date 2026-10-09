@@ -1,7 +1,9 @@
+import { createSerialQueue } from '../server/spawn-gate.ts';
+import { errorMessage } from "../shared/text.ts";
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 
-import { writeJsonAtomic } from '../server/json-file.ts';
+import { loadJsonStateFileSync, loadedJsonValue, writeJsonAtomic } from '../server/json-file.ts';
 import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import {
   normalizeOutbox, planEnqueue, planReplay, recordFailure, removeEntry,
@@ -38,27 +40,30 @@ function createTelegramOutbox({
   recordOutcome = () => {},
 }: TelegramOutboxDeps) {
   let entries: OutboxEntry[] = [];
-  let writeChain: Promise<unknown> = Promise.resolve();
+  const writeQueue = createSerialQueue();
   let loaded = false;
 
   function load(): void {
     if (loaded) return;
     loaded = true;
-    try {
-      entries = normalizeOutbox(JSON.parse(readFileSync(filePath, 'utf8')));
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException | null)?.code;
-      if (error && code !== 'ENOENT') warn(`[telegram-outbox] unreadable, starting empty: ${error instanceof Error ? error.message : String(error)}`);
-      entries = [];
+    const outcome = loadJsonStateFileSync({
+      filePath,
+      fsSync: { readFileSync },
+      parse: normalizeOutbox,
+      quarantine: false,
+      includeNotDir: false,
+    });
+    entries = loadedJsonValue(outcome) ?? [];
+    if ('error' in outcome && outcome.error) {
+      warn(`[telegram-outbox] unreadable, starting empty: ${errorMessage(outcome.error)}`);
     }
   }
 
   function persist(): Promise<unknown> {
     const snapshot = { version: OUTBOX_VERSION, entries: entries.slice() };
-    writeChain = writeChain
-      .then(() => writeJson(filePath, snapshot, { mkdir: true }))
-      .catch((error) => warn(`[telegram-outbox] write failed: ${error instanceof Error ? error.message : String(error)}`));
-    return writeChain;
+    return writeQueue
+      .run(() => writeJson(filePath, snapshot, { mkdir: true }))
+      .catch((error) => warn(`[telegram-outbox] write failed: ${errorMessage(error)}`));
   }
 
   async function deliver(text: string): Promise<void> {
@@ -75,7 +80,7 @@ function createTelegramOutbox({
       const result = await send(entry);
       ok = result?.ok === true;
     } catch (error) {
-      warn(`[telegram-outbox] send threw: ${error instanceof Error ? error.message : String(error)}`);
+      warn(`[telegram-outbox] send threw: ${errorMessage(error)}`);
     }
     if (ok) {
       recordOutcome('telegramDelivered');
@@ -106,7 +111,7 @@ function createTelegramOutbox({
   return {
     deliver,
     replay,
-    idle: () => writeChain,
+    idle: () => writeQueue.idle(),
     pending: () => { load(); return entries.slice(); },
   };
 }

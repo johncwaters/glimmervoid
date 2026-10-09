@@ -9,8 +9,8 @@ import type { IntegrationTip, KeptBranch, LocalWorktreeTip, RemoteBranchTip, Wor
 import { createTickLoop } from './lane-runner.ts';
 import type { TickOutcome } from './lane-runner.ts';
 import { errorMessage, isMissingFileError } from '../shared/text.ts';
-import { DEFAULT_TIMER_FNS } from './core/timer-deps.ts';
-import type { ClearIntervalFn, SetIntervalFn } from './core/timer-deps.ts';
+import { DEFAULT_TIMER_FNS } from '../shared/timer-deps.ts';
+import type { ClearIntervalFn, SetIntervalFn } from '../shared/timer-deps.ts';
 
 const DEFAULT_STALE_DAYS = 14;
 const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000;

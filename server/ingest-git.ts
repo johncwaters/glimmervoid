@@ -17,8 +17,8 @@ import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
 import { errorMessage, isMissingFileError } from '../shared/text.ts';
 import { positiveIntOr } from '../shared/coerce.ts';
-import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
-import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from './core/timer-deps.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../shared/timer-deps.ts';
 
 const DEFAULT_MAX_REPOS = 16;
 const DEFAULT_GIT_TIMEOUT_MS = 15000;

@@ -20,8 +20,8 @@ import type { SessionTap, TappableSession } from './ingest-terminal.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
 import { errorMessage } from '../shared/text.ts';
-import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
-import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from './core/timer-deps.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../shared/timer-deps.ts';
 
 const BATCH_INTERVAL_MS = 1000;
 const MAX_EVENTS_PER_FRAME = 50;

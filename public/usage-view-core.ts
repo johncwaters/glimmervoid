@@ -1,6 +1,6 @@
 import { localDayKey, localHourMinuteText, twoUnitDurationText } from '#shared/display-text.ts';
 import { attentionSignature } from './attention-ack-core.ts';
-import { textOr } from './coerce-core.ts';
+import { numberOr, textOr } from '#shared/coerce.ts';
 
 export interface UsageModelRow {
   key?: string;
@@ -344,27 +344,22 @@ export function tokenLimitTone(pct: unknown) {
   return 'ok';
 }
 
-function finiteNumber(value: unknown) {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
-  return value;
-}
-
 function limitMax(tokenLimit: UsageTokenLimit | null | undefined) {
-  const max = finiteNumber(tokenLimit?.max);
+  const max = numberOr(tokenLimit?.max, null);
   if (max === null || max <= 0) return null;
   return max;
 }
 
 export function limitPct(tokenLimit: UsageTokenLimit | null | undefined) {
   const max = limitMax(tokenLimit);
-  const ratio = finiteNumber(tokenLimit?.pct);
+  const ratio = numberOr(tokenLimit?.pct, null);
   if (max === null || ratio === null) return null;
   return ratio * 100;
 }
 
 export function projectedLimitPct(projection: UsageProjection | null | undefined, tokenLimit: UsageTokenLimit | null | undefined) {
   const max = limitMax(tokenLimit);
-  const projected = finiteNumber(projection?.projectedTokens);
+  const projected = numberOr(projection?.projectedTokens, null);
   if (max === null || projected === null) return null;
   return (projected / max) * 100;
 }
@@ -481,11 +476,11 @@ function overheadWindowOf(
 ): OverheadWindow | null {
   if (!Array.isArray(rawRows)) return null;
   const rows = (rawRows as UsageLaneRow[]).filter((row) => row && typeof row.lane === 'string');
-  const totalCostUSD = rows.reduce((sum, row) => sum + (finiteNumber(row.costUSD) ?? 0), 0);
-  const totalTokens = rows.reduce((sum, row) => sum + (finiteNumber(row.tokens) ?? 0), 0);
+  const totalCostUSD = rows.reduce((sum, row) => sum + numberOr(row.costUSD, 0), 0);
+  const totalTokens = rows.reduce((sum, row) => sum + numberOr(row.tokens, 0), 0);
   const lanes = rows
     .filter((row) => isGlimmervoidLane(row.lane))
-    .map((row) => ({ lane: String(row.lane), label: laneLabel(row.lane), tokens: finiteNumber(row.tokens) ?? 0, costUSD: finiteNumber(row.costUSD) ?? 0 }));
+    .map((row) => ({ lane: String(row.lane), label: laneLabel(row.lane), tokens: numberOr(row.tokens, 0), costUSD: numberOr(row.costUSD, 0) }));
   const costUSD = lanes.reduce((sum, lane) => sum + lane.costUSD, 0);
   const tokens = lanes.reduce((sum, lane) => sum + lane.tokens, 0);
   const sharePct = totalCostUSD > 0 ? percentOfTotal(costUSD, totalCostUSD) : percentOfTotal(tokens, totalTokens);
@@ -523,8 +518,8 @@ const PR_REVIEWS_LANE = 'team-review';
 export function prReviewsSpendTile(report: UsageReport | null | undefined) {
   if (!Array.isArray(report?.byLane)) return null;
   const row = laneRows(report).find((candidate) => candidate.lane === PR_REVIEWS_LANE);
-  const costUSD = finiteNumber(row?.costUSD) ?? 0;
-  const tokens = finiteNumber(row?.tokens) ?? 0;
+  const costUSD = numberOr(row?.costUSD, 0);
+  const tokens = numberOr(row?.tokens, 0);
   const basis = shareBasis(report?.totals);
   const share = percentOfTotal(basis === 'costUSD' ? costUSD : tokens, report?.totals?.[basis]);
   const shareText = share === null ? '' : `${formatPercent(share)} of range ${basis === 'costUSD' ? 'cost' : 'tokens'}`;
@@ -533,7 +528,7 @@ export function prReviewsSpendTile(report: UsageReport | null | undefined) {
 }
 
 export function laneSessionsText(sessions: unknown) {
-  const count = finiteNumber(sessions);
+  const count = numberOr(sessions, null);
   if (count === null || count <= 0) return '';
   return `${formatCount(count)} ${count === 1 ? 'session' : 'sessions'}`;
 }
@@ -557,26 +552,26 @@ export function hasSavings(savings: UsageSavings | null | undefined) {
 export function rtkSavingsTile(savings: UsageSavings | null | undefined) {
   const rtk = rtkSavings(savings);
   if (!rtk) return null;
-  const commands = finiteNumber(rtk.commands) ?? 0;
+  const commands = numberOr(rtk.commands, 0);
   const noun = commands === 1 ? 'command' : 'commands';
   return {
-    value: `${formatTokens(finiteNumber(rtk.savedTokens) ?? 0)} tokens`,
-    sub: `${formatPercent(finiteNumber(rtk.savingsPct) ?? 0)} avg across ${formatCount(commands)} ${noun}`,
+    value: `${formatTokens(numberOr(rtk.savedTokens, 0))} tokens`,
+    sub: `${formatPercent(numberOr(rtk.savingsPct, 0))} avg across ${formatCount(commands)} ${noun}`,
   };
 }
 
 export function cacheSavingsTile(savings: UsageSavings | null | undefined) {
   const cache = cacheSavings(savings);
   if (!cache) return null;
-  const tokens = formatTokens(finiteNumber(cache.cacheReadTokens) ?? 0);
+  const tokens = formatTokens(numberOr(cache.cacheReadTokens, 0));
   const unpricedModels: unknown[] = Array.isArray(cache.unpricedModels) ? cache.unpricedModels : [];
   const unpriced = unpricedModels.filter((model) => model);
   const sub = `${tokens} cache read tokens`;
-  if (unpriced.length === 0) return { value: formatUsd(finiteNumber(cache.savedUSD) ?? 0), sub };
+  if (unpriced.length === 0) return { value: formatUsd(numberOr(cache.savedUSD, 0)), sub };
 
   const noun = unpriced.length === 1 ? 'model' : 'models';
   return {
-    value: formatUsd(finiteNumber(cache.savedUSD) ?? 0),
+    value: formatUsd(numberOr(cache.savedUSD, 0)),
     sub: `${sub}, a floor (${unpriced.length} unpriced ${noun})`,
   };
 }
@@ -586,7 +581,7 @@ export const BUDGET_ATTENTION_PCT = 90;
 export function budgetRows(report: UsageReport | null | undefined): UsageBudgetRow[] {
   const rows = report?.budget?.rows;
   if (!Array.isArray(rows)) return [];
-  return (rows as UsageBudgetRow[]).filter((row) => row && finiteNumber(row.budgetUsd) !== null);
+  return (rows as UsageBudgetRow[]).filter((row) => row && numberOr(row.budgetUsd, null) !== null);
 }
 
 export function budgetScopeLabel(scope: unknown) {
@@ -595,11 +590,11 @@ export function budgetScopeLabel(scope: unknown) {
 }
 
 export function budgetRowText(row: UsageBudgetRow | null | undefined) {
-  return `${formatUsd(finiteNumber(row?.spentUsd) ?? 0)} of ${formatUsd(finiteNumber(row?.budgetUsd) ?? 0)}`;
+  return `${formatUsd(numberOr(row?.spentUsd, 0))} of ${formatUsd(numberOr(row?.budgetUsd, 0))}`;
 }
 
 export function budgetRowPct(row: UsageBudgetRow | null | undefined) {
-  const pct = finiteNumber(row?.pct);
+  const pct = numberOr(row?.pct, null);
   if (pct === null) return 0;
   return pct;
 }
@@ -680,12 +675,12 @@ function emptyPeriodBucket(key: string): PeriodBucket {
 }
 
 function addDayToPeriod(bucket: PeriodBucket, row: UsageWireRow | null | undefined) {
-  bucket.tokens += finiteNumber(row?.tokens) ?? 0;
-  bucket.costUSD += finiteNumber(row?.costUSD) ?? 0;
-  bucket.input += finiteNumber(row?.input) ?? 0;
-  bucket.output += finiteNumber(row?.output) ?? 0;
-  bucket.cacheCreate += finiteNumber(row?.cacheCreate) ?? 0;
-  bucket.cacheRead += finiteNumber(row?.cacheRead) ?? 0;
+  bucket.tokens += numberOr(row?.tokens, 0);
+  bucket.costUSD += numberOr(row?.costUSD, 0);
+  bucket.input += numberOr(row?.input, 0);
+  bucket.output += numberOr(row?.output, 0);
+  bucket.cacheCreate += numberOr(row?.cacheCreate, 0);
+  bucket.cacheRead += numberOr(row?.cacheRead, 0);
   bucket.days += 1;
   bucket.sources.add(row?.source === 'history' ? 'history' : 'live');
 
@@ -696,12 +691,12 @@ function addDayToPeriod(bucket: PeriodBucket, row: UsageWireRow | null | undefin
     if (model?.vendor) bucket.vendorSet.add(model.vendor);
     const name = modelLabel(model);
     const existing: PeriodModelRow = bucket.modelByName.get(name) || { key: name, model: model?.model ?? name, vendor: model?.vendor, tokens: 0, costUSD: 0, input: 0, output: 0, cacheCreate: 0, cacheRead: 0 };
-    existing.tokens += finiteNumber(model?.tokens) ?? 0;
-    existing.costUSD += finiteNumber(model?.costUSD) ?? 0;
-    existing.input += finiteNumber(model?.input) ?? 0;
-    existing.output += finiteNumber(model?.output) ?? 0;
-    existing.cacheCreate += finiteNumber(model?.cacheCreate) ?? 0;
-    existing.cacheRead += finiteNumber(model?.cacheRead) ?? 0;
+    existing.tokens += numberOr(model?.tokens, 0);
+    existing.costUSD += numberOr(model?.costUSD, 0);
+    existing.input += numberOr(model?.input, 0);
+    existing.output += numberOr(model?.output, 0);
+    existing.cacheCreate += numberOr(model?.cacheCreate, 0);
+    existing.cacheRead += numberOr(model?.cacheRead, 0);
     bucket.modelByName.set(name, existing);
   }
 }
@@ -778,8 +773,8 @@ const HEATMAP_TONE_FRACTIONS = Object.freeze([0.05, 0.25, 0.5, 0.75]);
 export const HEATMAP_DAY_LABELS = Object.freeze(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
 
 export function heatmapTone(tokens: unknown, max: unknown) {
-  const value = finiteNumber(tokens) ?? 0;
-  const peak = finiteNumber(max) ?? 0;
+  const value = numberOr(tokens, 0);
+  const peak = numberOr(max, 0);
   if (value <= 0 || peak <= 0) return 0;
   const share = value / peak;
   let tone = 1;
@@ -813,7 +808,7 @@ export function heatmapCells(
     const rowDay = String(row.day);
     if (firstDay === null || rowDay < firstDay) firstDay = rowDay;
     if (rowDay < startKey || rowDay > todayKey) continue;
-    max = Math.max(max, finiteNumber(row.tokens) ?? 0);
+    max = Math.max(max, numberOr(row.tokens, 0));
   }
   for (let week = 0; week < weeks; week += 1) {
     for (let weekday = 0; weekday < 7; weekday += 1) {
@@ -826,8 +821,8 @@ export function heatmapCells(
         day: key,
         week,
         weekday,
-        tokens: finiteNumber(row?.tokens) ?? 0,
-        costUSD: finiteNumber(row?.costUSD) ?? 0,
+        tokens: numberOr(row?.tokens, 0),
+        costUSD: numberOr(row?.costUSD, 0),
         source: row?.source === 'history' ? 'history' : row ? 'live' : null,
 
         noData: beyondToday || beforeSeries || (!row && firstDay === null),
@@ -841,14 +836,14 @@ export function heatmapCells(
 export function heatmapCellTitle(cell: Partial<HeatmapCell> | null | undefined) {
   const label = dayLabel(cell?.day);
   if (cell?.noData) return `${label}: no data`;
-  const tokens = finiteNumber(cell?.tokens) ?? 0;
+  const tokens = numberOr(cell?.tokens, 0);
   if (tokens <= 0) return `${label}: no usage`;
-  return `${label}: ${formatTokens(tokens)} tokens, ${formatUsd(finiteNumber(cell?.costUSD) ?? 0)}`;
+  return `${label}: ${formatTokens(tokens)} tokens, ${formatUsd(numberOr(cell?.costUSD, 0))}`;
 }
 
 function dailyAnomalySentence(daily: UsageAnomaly['daily']) {
   if (!daily) return '';
-  const days = finiteNumber(daily.baselineDays);
+  const days = numberOr(daily.baselineDays, null);
   const window = days === null ? 'recent' : `${Math.round(days)} day`;
   return `Today is ${formatRatio(daily.ratio)} the ${window} average: ${formatUsd(daily.todayUsd)} against ${formatUsd(daily.baselineUsd)}.`;
 }
@@ -874,7 +869,7 @@ export function hasAnomaly(anomaly: UsageAnomaly | null | undefined) {
 export const NO_ANOMALY_LINE = 'Today is in line with recent usage.';
 
 function formatRatio(ratio: unknown) {
-  const value = finiteNumber(ratio);
+  const value = numberOr(ratio, null);
   if (value === null) return NO_VALUE;
   return `${trimTrailingZeros(value.toFixed(1))}x`;
 }
@@ -897,12 +892,12 @@ export function vendorTotalsRows(totals: UsageTotals | null | undefined) {
   if (!byVendor || typeof byVendor !== 'object') return [];
   return Object.keys(byVendor)
     .filter((vendor) => byVendor[vendor] && typeof byVendor[vendor] === 'object')
-    .sort((left, right) => (finiteNumber(byVendor[right]?.tokens) ?? 0) - (finiteNumber(byVendor[left]?.tokens) ?? 0))
+    .sort((left, right) => numberOr(byVendor[right]?.tokens, 0) - numberOr(byVendor[left]?.tokens, 0))
     .map((vendor) => ({
       vendor,
       label: vendorLabel(vendor),
-      tokens: finiteNumber(byVendor[vendor]?.tokens) ?? 0,
-      costUSD: finiteNumber(byVendor[vendor]?.costUSD) ?? 0,
+      tokens: numberOr(byVendor[vendor]?.tokens, 0),
+      costUSD: numberOr(byVendor[vendor]?.costUSD, 0),
     }));
 }
 
@@ -943,8 +938,8 @@ export const PLAN_WINDOWS: readonly { key: 'fiveHour' | 'sevenDay'; label: strin
 export function planWindowOf(planLimits: PlanLimits | null | undefined, key: 'fiveHour' | 'sevenDay') {
   const window = planLimits?.[key];
   if (!window || typeof window !== 'object') return null;
-  const pct = finiteNumber(window.pct);
-  const resetsAtMs = finiteNumber(window.resetsAtMs);
+  const pct = numberOr(window.pct, null);
+  const resetsAtMs = numberOr(window.resetsAtMs, null);
   if (pct === null && resetsAtMs === null) return null;
   return { pct, resetsAtMs };
 }
@@ -987,13 +982,13 @@ export function usageAttentionSignature(report: UsageReport | null | undefined, 
 }
 
 export function planWindowUsedText(window: PlanWindow | null | undefined) {
-  const pct = finiteNumber(window?.pct);
+  const pct = numberOr(window?.pct, null);
   if (pct === null) return NO_VALUE;
   return `${formatPercent(pct)} used`;
 }
 
 export function resetCountdownText(resetsAtMs: unknown, now = Date.now()) {
-  const resetsAt = finiteNumber(resetsAtMs);
+  const resetsAt = numberOr(resetsAtMs, null);
   if (resetsAt === null || resetsAt <= 0) return '';
   const remainingMinutes = (resetsAt - now) / 60000;
   if (remainingMinutes <= 0) return 'resetting now';
@@ -1001,14 +996,14 @@ export function resetCountdownText(resetsAtMs: unknown, now = Date.now()) {
 }
 
 export function planLimitAgeText(ts: unknown, now = Date.now()) {
-  const stamped = finiteNumber(ts);
+  const stamped = numberOr(ts, null);
   if (stamped === null || stamped <= 0) return '';
   const minutes = Math.max(0, Math.round((now - stamped) / 60000));
   return `${minutes}m old`;
 }
 
 export function isPlanLimitStale(ts: unknown, now = Date.now()) {
-  const stamped = finiteNumber(ts);
+  const stamped = numberOr(ts, null);
   if (stamped === null || stamped <= 0) return true;
   return now - stamped > PLAN_LIMIT_STALE_MS;
 }
@@ -1228,9 +1223,9 @@ export function blockHistoryRows(blocks: unknown, limit = 8) {
 }
 
 export function sessionChipCost(usage: UsageSessionUsage | null | undefined): { costUSD: number | null; source: string | null } {
-  const official = finiteNumber(usage?.officialCostUSD);
+  const official = numberOr(usage?.officialCostUSD, null);
   if (official !== null && official > 0) return { costUSD: official, source: 'official' };
-  const estimated = finiteNumber(usage?.costUSD);
+  const estimated = numberOr(usage?.costUSD, null);
   if (estimated !== null && estimated > 0) return { costUSD: estimated, source: 'estimated' };
   return { costUSD: null, source: null };
 }

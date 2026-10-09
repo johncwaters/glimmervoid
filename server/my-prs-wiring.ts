@@ -26,7 +26,7 @@ import { allowSandboxedSpawn } from './sandbox-deps.ts';
 import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 import { CommitSha } from '../shared/contracts/team-review.ts';
 import { errorMessage } from '../shared/text.ts';
-import type { ClearTimeoutFn, SetTimeoutFn } from './core/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from '../shared/timer-deps.ts';
 import { runGit } from './git-exec.ts';
 
 type MyPrsPoller = ReturnType<typeof createMyPrsPoller>;

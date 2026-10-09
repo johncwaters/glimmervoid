@@ -1,3 +1,4 @@
+import { isRecord } from "../../shared/coerce.ts";
 
 import fs from "node:fs";
 import { buildAntiSlopArgs } from "../core/anti-slop-prompt.ts";
@@ -73,10 +74,6 @@ function mapHookPromptDetail(event: string, payload?: HookPayload): PendingPromp
   const summary = fieldValue === null ? "" : firstDetailLine(fieldValue);
   const isComplete = isWholeBashCommandShown(toolName, payload?.tool_input, fieldValue, summary);
   return { toolName: firstDetailLine(toolName), summary, isComplete, question: answerableQuestionOf(toolName, payload?.tool_input) };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function answerableQuestionOf(toolName: string, toolInput: unknown): PendingPromptQuestion | null {

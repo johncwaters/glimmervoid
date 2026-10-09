@@ -10,8 +10,8 @@ import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
 import { errorMessage } from '../shared/text.ts';
 import { positiveIntOr } from '../shared/coerce.ts';
-import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
-import type { ClearTimeoutFn, SetTimeoutFn } from './core/timer-deps.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from '../shared/timer-deps.ts';
 import { createSerialQueue } from './spawn-gate.ts';
 
 const DEFAULT_MAX_ROOTS = 8;

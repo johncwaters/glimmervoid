@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  nextBackoffMs, nextRetrySchedule, QUICK_RETRY_DELAYS_MS, parseRetryAfterMs, secondaryRateLimitWaitMs, shouldSkipTick, DEFAULT_MAX_MS, SECONDARY_RATE_LIMIT_MIN_WAIT_MS,
+  nextRetrySchedule, QUICK_RETRY_DELAYS_MS, parseRetryAfterMs, secondaryRateLimitWaitMs, shouldSkipTick, SECONDARY_RATE_LIMIT_MIN_WAIT_MS,
 } from '../server/core/lane-backoff.ts';
+import { DEFAULT_MAX_MS, nextBackoffMs } from '../shared/backoff.ts';
 import type { TickLoopOptions, TickOutcome } from '../server/lane-runner.ts';
 import { createTickLoop } from '../server/lane-runner.ts';
 

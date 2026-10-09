@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { test } from 'node:test';
-import { DEFAULT_TIMER_FNS, unrefTimer } from '../server/core/timer-deps.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
 
 test('DEFAULT_TIMER_FNS delegate to the real timers and hand back clearable handles', async () => {
   let fired = 0;

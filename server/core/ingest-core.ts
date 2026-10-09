@@ -1,4 +1,5 @@
 import { isRecord, positiveIntOr, textOr } from '../../shared/coerce.ts';
+import { COMPACT_FLOORED_AGO, elapsedText } from '../../shared/display-text.ts';
 
 
 export type SourceName = 'terminal' | 'agentLogs' | 'git' | 'fs' | 'shellHistory' | 'editor';
@@ -306,20 +307,10 @@ const SOURCE_LABELS: Readonly<Record<string, string>> = Object.freeze({
   editor: 'editor',
 });
 
-function ageText(ts: number, now: number): string {
-  const seconds = Math.max(0, Math.floor((now - ts) / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
-
 function digestLine(event: IngestEvent, now: number): string {
   const label = SOURCE_LABELS[event.source] || event.source;
   const scope = event.scope.root ? '' : ' (machine scope)';
-  return `- ${label} ${ageText(event.ts, now)}${scope}: ${event.summary}`;
+  return `- ${label} ${elapsedText(now - event.ts, COMPACT_FLOORED_AGO)}${scope}: ${event.summary}`;
 }
 
 function matchesScopes(event: IngestEvent, scopes: string[] | null): boolean {

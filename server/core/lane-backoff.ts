@@ -1,4 +1,5 @@
 import type { ReviewsRetry } from '../../shared/contracts/reviews.ts';
+import { nextBackoffMs } from '../../shared/backoff.ts';
 
 export const QUICK_RETRY_DELAYS_MS = Object.freeze([10_000, 30_000, 90_000]);
 
@@ -9,34 +10,6 @@ export function nextRetrySchedule({ failureStreak, quickRetryCount, quickRetries
   const quickRetryDelayMs = quickRetries && !hasRateLimitWait ? QUICK_RETRY_DELAYS_MS[quickRetryCount] : undefined;
   if (quickRetryDelayMs !== undefined) return { waitMs: quickRetryDelayMs, retry: { attempt: quickRetryCount + 1, limit: QUICK_RETRY_DELAYS_MS.length } };
   return { waitMs: nextBackoffMs({ attempt: Math.max(1, failureStreak - quickRetryCount), baseMs, maxMs, retryAfterMs, random }), retry: null };
-}
-
-const DEFAULT_BASE_MS = 60_000;
-const DEFAULT_MAX_MS = 30 * 60_000;
-
-type BackoffJitter = 'full' | 'half' | 'none';
-
-function nextBackoffMs({
-  attempt = 1,
-  baseMs = DEFAULT_BASE_MS,
-  maxMs = DEFAULT_MAX_MS,
-  retryAfterMs = null,
-  random = Math.random,
-  jitter = 'full',
-}: {
-  attempt?: number;
-  baseMs?: number;
-  maxMs?: number;
-  retryAfterMs?: number | null;
-  random?: () => number;
-  jitter?: BackoffJitter;
-} = {}): number {
-  if (typeof retryAfterMs === 'number' && Number.isFinite(retryAfterMs) && retryAfterMs > 0) return Math.min(retryAfterMs, maxMs);
-  const exponent = Math.max(0, Math.min(attempt, 20) - 1);
-  const ceiling = Math.min(maxMs, baseMs * 2 ** exponent);
-  if (jitter === 'none') return ceiling;
-  if (jitter === 'half') return Math.round(ceiling * (0.5 + 0.5 * random()));
-  return Math.round(random() * ceiling);
 }
 
 function shouldSkipTick({ now = 0, backoffUntil = 0 }: { now?: number; backoffUntil?: number } = {}): boolean {
@@ -67,7 +40,4 @@ function parseRetryAfterMs(header: unknown, now: number = Date.now()): number | 
   return null;
 }
 
-export {
-  nextBackoffMs, parseRetryAfterMs, secondaryRateLimitWaitMs, shouldSkipTick, SECONDARY_RATE_LIMIT_MIN_WAIT_MS, DEFAULT_BASE_MS, DEFAULT_MAX_MS,
-};
-export type { BackoffJitter };
+export { parseRetryAfterMs, secondaryRateLimitWaitMs, shouldSkipTick, SECONDARY_RATE_LIMIT_MIN_WAIT_MS };

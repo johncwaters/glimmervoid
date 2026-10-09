@@ -1,10 +1,7 @@
+import { isRecord } from "../../shared/coerce.ts";
 const RTK_PATH_ENV = "GLIMMERVOID_RTK_PATH";
 
 const MAX_RTK_STDOUT_BYTES = 65536;
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
 
 function normalizeRtkHookResponse(stdoutText: unknown): string {
   if (typeof stdoutText !== "string") return "";
@@ -17,9 +14,9 @@ function normalizeRtkHookResponse(stdoutText: unknown): string {
   } catch {
     return "";
   }
-  if (!isPlainObject(parsed)) return "";
+  if (!isRecord(parsed)) return "";
   const hookSpecificOutput = parsed.hookSpecificOutput;
-  if (isPlainObject(hookSpecificOutput) && isPlainObject(hookSpecificOutput.updatedInput)) {
+  if (isRecord(hookSpecificOutput) && isRecord(hookSpecificOutput.updatedInput)) {
     if (typeof hookSpecificOutput.permissionDecision !== "string") {
       hookSpecificOutput.permissionDecision = "allow";
     }

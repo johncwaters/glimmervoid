@@ -13,7 +13,7 @@ import type { UsageGenerationRollupRow } from './core/usage-entry-core.ts';
 import { createJsonStateStore, loadJsonStateFile, writeJsonAtomicSync } from './json-file.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
-import { createCoalescedTimer } from './core/coalesce-timer.ts';
+import { createCoalescedTimer } from '../shared/coalesce-timer.ts';
 
 const MAX_QUEUED_EVENTS = 500;
 const FLUSH_AT_EVENT_COUNT = 20;

@@ -1,3 +1,4 @@
+import { errorMessage, isMissingFileError } from "../shared/text.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { writeSessionSettings, generateToken } from "../detection/settings-injector.ts";
@@ -68,15 +69,6 @@ interface SessionHookLifecycle {
   isRequiredSandboxMissing(): boolean;
 }
 
-function errorCode(error: unknown): string | null {
-  if (error && typeof error === "object" && "code" in error) return String((error as { code: unknown }).code);
-  return null;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLifecycle {
   let token: string | null = null;
   let settingsHandle: ReturnType<typeof writeSessionSettings> | null = null;
@@ -119,8 +111,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         try {
           contents = fs.readFileSync(candidate, "utf8");
         } catch (error) {
-          const code = errorCode(error);
-          if (code !== "ENOENT" && code !== "ENOTDIR") return candidate;
+          if (!isMissingFileError(error)) return candidate;
           continue;
         }
         if (typeof mayContributeHooks === "function" && mayContributeHooks(contents)) return candidate;
@@ -218,7 +209,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
       hooksPath = resolvedHooksPath;
       contents = fs.readFileSync(resolvedHooksPath, "utf8");
     } catch (error) {
-      const reason = errorCode(error) === "ENOENT" ? "not installed" : errorMessage(error);
+      const reason = isMissingFileError(error, { includeNotDir: false }) ? "not installed" : errorMessage(error);
       console.warn(`[session:${options.name}] Grok hook injection skipped: ${reason}; run "glimmervoid agent setup grok"`);
       return NO_HOOK_INJECTION;
     }

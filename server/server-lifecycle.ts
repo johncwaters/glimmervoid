@@ -4,6 +4,7 @@ import {
   awaitBounded, normalizeShutdownResult, stopFailureText, summarizeStopOutcomes,
 } from './core/shutdown-core.ts';
 import type { StopperEntry } from './core/shutdown-core.ts';
+import { unrefTimer } from '../shared/timer-deps.ts';
 
 interface BoundedWaitOptions {
   capMs?: number;
@@ -97,7 +98,7 @@ function createLifecycle({
 
   function fallbackTimer(fn: () => void, keepProcessAlive = false): NodeJS.Timeout {
     const timeout = setTimeout(fn, closeTimeoutMs);
-    if (!keepProcessAlive && timeout?.unref) timeout.unref();
+    if (!keepProcessAlive) unrefTimer(timeout);
     return timeout;
   }
 

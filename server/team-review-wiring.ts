@@ -40,8 +40,8 @@ import type {
 } from '../shared/contracts/team-review.ts';
 import { errorMessage, isMissingFileError } from '../shared/text.ts';
 import { shortSha } from '../shared/git-text.ts';
-import { DEFAULT_TIMER_FNS } from './core/timer-deps.ts';
-import type { ClearTimeoutFn, SetTimeoutFn } from './core/timer-deps.ts';
+import { DEFAULT_TIMER_FNS } from '../shared/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from '../shared/timer-deps.ts';
 import { isPathInside } from '../shared/paths.ts';
 
 const TEAM_REVIEW_DENY_RULES = Object.freeze([

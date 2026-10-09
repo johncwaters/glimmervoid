@@ -2,6 +2,7 @@ import { hasReviewsCountdown, reviewsErrorNotice, reviewsRefreshText } from './r
 import type { ReviewsPollingStatus } from './reviews-retry-core.ts';
 import type { ReviewsRefreshRequest } from '#shared/contracts/reviews.ts';
 import type { MyPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
+import { errorMessage } from '#shared/text.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } from './dom-helpers.ts';
 import { formatAgo } from './poll-ago.ts';
 import { createPrQueueColumns } from './pr-queue-columns.ts';
@@ -93,7 +94,7 @@ export function createReviewsPollingControls(lane: ReviewsRefreshRequest['lane']
       const response = await sendControlRequest('reviews-refresh', { lane });
       if (response.type === 'reviews-refresh-result') outcomeText = response.ok ? 'Refreshed.' : response.error ?? 'Could not refresh from GitHub.';
     } catch (error: unknown) {
-      outcomeText = error instanceof Error ? error.message : String(error);
+      outcomeText = errorMessage(error);
     } finally {
       isPending = false;
       update(currentStatus);
@@ -166,7 +167,7 @@ function createToggleControl(pr: MyPr, toggle: PrToggle): HTMLElement | null {
       const errorText = await toggle.save(pr, !state.isPressed);
       if (errorText) toggle.errorsByKey.set(pr.key, errorText);
     } catch (error: unknown) {
-      toggle.errorsByKey.set(pr.key, error instanceof Error ? error.message : String(error));
+      toggle.errorsByKey.set(pr.key, errorMessage(error));
     } finally {
       toggle.pendingKeys.delete(pr.key);
       render();

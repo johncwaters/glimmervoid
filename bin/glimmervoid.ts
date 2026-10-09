@@ -11,6 +11,8 @@ import { renderTable } from '../server/core/ascii-figure-core.ts';
 import { decideConfigPath, glimmervoidHomeDir } from '../server/core/config-path-core.ts';
 import { parseCommandLine } from '../server/core/command-line-core.ts';
 import { nodePtyRebuildHint } from '../server/core/node-pty-preflight-core.ts';
+import { firstLine } from '../server/core/text-core.ts';
+import { errorText } from '../shared/text.ts';
 import { probeNodePty } from '../server/node-pty-preflight.ts';
 import { sandboxDoctorRows } from '../server/core/sandbox-deps-core.ts';
 import { probeSandboxDependencies } from '../server/sandbox-deps.ts';
@@ -109,7 +111,7 @@ async function runSubcommandToExitCode(runSubcommand: SubcommandRunner, subcomma
   try {
     return await runSubcommand(subcommandArgs, subcommandName);
   } catch (err) {
-    console.error(messageOf(err));
+    console.error(errorText(err));
     return 1;
   }
 }
@@ -129,15 +131,6 @@ async function dispatchCommandLine(): Promise<void> {
 }
 
 await dispatchCommandLine();
-
-function messageOf(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message;
-  return String(error);
-}
-
-function firstLineOf(error: unknown): string {
-  return messageOf(error).split('\n')[0];
-}
 
 function decideReadOnlyConfigPath(): ReturnType<typeof decideConfigPath> {
   return decideConfigPath({
@@ -162,7 +155,7 @@ async function readDeclaredCustomAgents(): Promise<{ declared: readonly CustomAg
     if (!loaded.config) return { declared: [], error: loaded.message };
     return { declared: loaded.config.customAgents ?? [], error: null };
   } catch (err) {
-    return { declared: [], error: `could not read ${decided.path}: ${firstLineOf(err)}` };
+    return { declared: [], error: `could not read ${decided.path}: ${firstLine(errorText(err))}` };
   }
 }
 
@@ -221,7 +214,7 @@ async function runDoctor(): Promise<void> {
     const grokSetup = inspectGrokAgentSetup();
     line('grok hook setup', `${grokSetup.classification}: ${grokSetup.filePath}`);
   } catch (err) {
-    line('agents', `probe failed: ${firstLineOf(err)}`);
+    line('agents', `probe failed: ${firstLine(errorText(err))}`);
   }
 
   switchSection('rtk');
@@ -229,7 +222,7 @@ async function runDoctor(): Promise<void> {
     const { getRtkPath } = await import('../server/rtk-resolver.ts');
     line('rtk', getRtkPath() || 'not installed (Glimmervoid installs it when the rtk setting is on)');
   } catch (err) {
-    line('rtk', `probe failed: ${firstLineOf(err)}`);
+    line('rtk', `probe failed: ${firstLine(errorText(err))}`);
   }
 
   switchSection('Sane YOLO');
@@ -243,7 +236,7 @@ async function runDoctor(): Promise<void> {
     line('Codex hook trust', 'Sane YOLO is inactive unless Codex trusts the injected hooks.');
     line('Grok Sane YOLO', inspectGrokAgentSetup().saneYoloReady ? 'installed' : 'inactive; run glimmervoid agent setup grok');
   } catch (err) {
-    line('Sane YOLO', `probe failed: ${firstLineOf(err)}`);
+    line('Sane YOLO', `probe failed: ${firstLine(errorText(err))}`);
   }
 
   switchSection('Native module');

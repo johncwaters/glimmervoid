@@ -25,8 +25,8 @@ import {
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 import { createLaneLog } from './lane-log.ts';
 import { errorMessage } from '../shared/text.ts';
-import { DEFAULT_TIMER_FNS } from './core/timer-deps.ts';
-import type { ClearTimeoutFn, SetTimeoutFn } from './core/timer-deps.ts';
+import { DEFAULT_TIMER_FNS } from '../shared/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from '../shared/timer-deps.ts';
 
 const RESULT_VERDICTS = new Set(['COMMENTS', 'NONE', 'ERROR']);
 const RESULT_FILE = VISIONS_RESULT_FILE;

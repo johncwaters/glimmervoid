@@ -1,3 +1,4 @@
+import { isRecord } from "../../shared/coerce.ts";
 import type { HookPayload } from '../../shared/contracts/index.ts';
 
 const DROPPED_PAYLOAD_FIELDS = new Set(['last_assistant_message', 'lastAssistantMessage']);
@@ -5,12 +6,11 @@ const REDUCED_TASK_LIST_FIELDS = ['background_tasks', 'backgroundTasks'] as cons
 const RETAINED_TASK_FIELDS = ['id', 'type', 'status'] as const;
 
 function projectBackgroundTask(task: unknown): Record<string, unknown> {
-  if (!task || typeof task !== 'object' || Array.isArray(task)) return {};
-  const taskRecord = task as Record<string, unknown>;
+  if (!isRecord(task)) return {};
   const projectedTask: Record<string, unknown> = {};
   for (const field of RETAINED_TASK_FIELDS) {
-    if (!Object.hasOwn(taskRecord, field)) continue;
-    projectedTask[field] = taskRecord[field];
+    if (!Object.hasOwn(task, field)) continue;
+    projectedTask[field] = task[field];
   }
   return projectedTask;
 }

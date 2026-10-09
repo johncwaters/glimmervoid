@@ -101,20 +101,20 @@ test('decideResyncAction: in-sync, no-upstream, and unknown are all none', () =>
 });
 
 test('buildResyncCommand shares the fast-forward and plain-push command shapes', () => {
-  const options = { upstream: 'origin/main', branch: 'main', remote: 'origin', opts: { cwd: '/repo' } };
+  const options = { upstream: 'origin/main', branch: 'main', remote: 'origin' };
   assert.deepEqual(buildResyncCommand('ff-merge', options), {
     args: ['merge', '--ff-only', 'origin/main'],
-    opts: { cwd: '/repo' },
+    timeoutMs: undefined,
     successAction: 'fast-forwarded',
   });
   assert.deepEqual(buildResyncCommand('ff-fetch', options), {
     args: ['fetch', '--quiet', 'origin', 'main:main'],
-    opts: { cwd: '/repo', timeout: 8000 },
+    timeoutMs: 8000,
     successAction: 'fast-forwarded',
   });
   assert.deepEqual(buildResyncCommand('push', options), {
     args: ['push', 'origin', 'main'],
-    opts: { cwd: '/repo', timeout: 15000 },
+    timeoutMs: 15000,
     successAction: 'pushed',
   });
 });

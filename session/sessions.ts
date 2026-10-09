@@ -1,3 +1,5 @@
+import { awaitBounded } from "../server/core/shutdown-core.ts";
+import { errorMessage } from "../shared/text.ts";
 import { createCompactionTracking, observeCompaction, finishCompaction, isCompactionEndingSignal, suppressCompactionSignal, mapCompactionActivityEvent, isIdleCompactionActivity } from "./core/compaction-core.ts";
 import { isCompactionRestoreEvent } from "../shared/compaction-restore-events.ts";
 import type { CompactionTracking } from "./core/compaction-core.ts";
@@ -17,6 +19,7 @@ import { projectDirCandidates } from "../server/core/usage-scan-core.ts";
 import { requireExecutableSpawnHelper } from "../server/node-pty-preflight.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
+import { unrefTimer } from "../shared/timer-deps.ts";
 import { AGENT_ATTENTION_NOTE_SEPARATOR, AGENT_URL_ENV } from "../shared/contracts/session.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, isSamePromptQuestion, type AgentAttentionReply, type PendingPromptDetail } from "../shared/contracts/session.ts";
 import { generateToken } from "../detection/settings-injector.ts";
@@ -663,7 +666,7 @@ class Session extends EventEmitter {
       fn();
     }, ms);
     this[field] = timer;
-    if (unref && typeof timer.unref === "function") timer.unref();
+    if (unref) unrefTimer(timer);
   }
 
   _clearTimer(field: TimerField): void {
@@ -1403,7 +1406,7 @@ class Session extends EventEmitter {
     } catch (err) {
       this._isSaneYoloActive = false;
       this._hooks.cleanup();
-      this.transition("spawn_fail", { error: err instanceof Error ? err.message : String(err) });
+      this.transition("spawn_fail", { error: errorMessage(err) });
       this.emit("error", err);
       return;
     }
@@ -1471,7 +1474,7 @@ class Session extends EventEmitter {
     if (code.includes("EAGAIN")) return;
     if (code.includes("EIO") || code.includes("errno 5")) return;
     if (!this._ptyAlive) return;
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     console.warn(`[session ${this.id}] pty socket error: ${message} - killing the session`);
     this.kill();
   }
@@ -1510,7 +1513,7 @@ class Session extends EventEmitter {
       try {
         this._titleSource.feed(data);
       } catch (err) {
-        console.error(`[session:${this.name}] title source error: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[session:${this.name}] title source error: ${errorMessage(err)}`);
       }
     }
 
@@ -1656,10 +1659,7 @@ class Session extends EventEmitter {
     const pending = [this._killReap, this._exitReap].filter((reap) => reap !== null);
     if (pending.length === 0) return null;
 
-    let capTimer: NodeJS.Timeout | undefined;
-    const capped = new Promise((resolve) => { capTimer = setTimeout(resolve, KILL_REAP_MAX_WAIT_MS); });
-    return Promise.race([Promise.allSettled(pending), capped])
-      .then(() => { clearTimeout(capTimer); });
+    return awaitBounded(pending, { capMs: KILL_REAP_MAX_WAIT_MS }).then(() => {});
   }
 
   _reapProcessGroup(pid: number | null, { maxWaitMs = KILL_REAP_MAX_WAIT_MS }: { maxWaitMs?: number } = {}): Promise<void> {

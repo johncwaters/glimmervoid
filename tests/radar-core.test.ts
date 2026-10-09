@@ -27,7 +27,6 @@ import {
   retainKnownInvestigationIds,
   severityFor,
   shortHost,
-  shortSha,
   sortIssuesByAttention,
   sparklinePoints,
   sparklineWindowTitle,
@@ -375,13 +374,6 @@ test('a main-channel status without versions labels both sides with short shas',
   assert.equal(updateBannerText(mainChannelStatus), 'Update available: v0.24.2 to commit fedcba9');
   const withoutVersions = { ...mainChannelStatus, current: null };
   assert.equal(updateBannerText(withoutVersions), 'Update available: commit 0123456 to commit fedcba9');
-});
-
-test('shortSha: 7 lowercase chars for a hex sha, empty string otherwise', () => {
-  assert.equal(shortSha('0123456789ABCDEF0123456789abcdef01234567'), '0123456');
-  assert.equal(shortSha('0123abc'), '0123abc');
-  assert.equal(shortSha('main'), '');
-  assert.equal(shortSha(null), '');
 });
 
 const posthogWith = (issues: { change?: string; verdict?: string }[]) => ({ projects: [{ projectId: 'ph', issues }] });

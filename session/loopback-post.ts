@@ -1,8 +1,8 @@
+import { isLoopbackHostname } from "../shared/loopback-hosts.ts";
 import http from 'node:http';
 import { MAX_RESPONSE_BYTES } from './core/hook-relay-core.ts';
 
 const POST_TIMEOUT_MS = 1500;
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', '[::1]', 'localhost']);
 
 interface LoopbackPostOutcome {
   reason: string;
@@ -28,7 +28,7 @@ function postToLoopback(url: string, body: Buffer): Promise<LoopbackPostOutcome>
       done('not-http');
       return;
     }
-    if (!LOOPBACK_HOSTS.has(target.hostname)) {
+    if (!isLoopbackHostname(target.hostname)) {
       done('not-loopback');
       return;
     }

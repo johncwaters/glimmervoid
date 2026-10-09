@@ -1,3 +1,4 @@
+import { isRecord } from "../shared/coerce.ts";
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -56,7 +57,7 @@ const DOCUMENTED_DEFAULTS: Readonly<Record<string, unknown>> = Object.freeze({ .
 function defaultAtPath(dottedPath: string): unknown {
   let cursor: unknown = DOCUMENTED_DEFAULTS;
   for (const segment of dottedPath.split('.')) {
-    if (cursor === null || typeof cursor !== 'object' || Array.isArray(cursor)) return undefined;
+    if (!isRecord(cursor)) return undefined;
     cursor = (cursor as Record<string, unknown>)[segment];
   }
   return cursor;

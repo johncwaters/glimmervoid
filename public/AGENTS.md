@@ -36,7 +36,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `card-host.ts` | THE session-card re-parenting seam (`borrowCard` / `releaseCard`), single borrower GLOBALLY; shared by the Focus center and the phone Terminal screen |
 | `project-registry.ts` | Project grouping registry shared by the desktop roster and phone Board |
 | `session-actions.ts` | Shared session action entry points for dashboard surfaces |
-| `dom-helpers.ts` | `el()` / `escapeHtml()` DOM utilities, `adoptElement()` / `releaseElement()` (move a live element and put it back), and the chrome the tab panels share: `buildPanelSection()` / `buildStatChip()` (class prefix parameterized, so the per-panel CSS is unchanged), `projectsOf()` and `isPanelHidden()` |
+| `dom-helpers.ts` | `el()` DOM utility, `adoptElement()` / `releaseElement()` (move a live element and put it back), and the chrome the tab panels share: `buildPanelSection()` / `buildStatChip()` (class prefix parameterized, so the per-panel CSS is unchanged), `projectsOf()` and `isPanelHidden()` |
 | `style.css` | Component styles, `[data-state]` rules, animations, `::before` pseudo-elements |
 | `tailwind.css` | Tailwind v4 entry: `@theme` block mapping colors, fonts, radii |
 | `perf.html` / `perf-harness.ts` / `perf-corpus.ts` | Dev-only manual perf harness (K xterm terminals under dense ANSI load); never bundled into production |

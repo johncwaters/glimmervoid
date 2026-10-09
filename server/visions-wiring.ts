@@ -75,8 +75,8 @@ import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
 import { errorMessage } from '../shared/text.ts';
 import { isRecord } from '../shared/coerce.ts';
-import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
-import type { ClearTimeoutFn, SetTimeoutFn } from './core/timer-deps.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from '../shared/timer-deps.ts';
 
 const VISIONS_DEBOUNCE_MS = 300;
 const MAX_FRAME_BYTES = 2 * 1024 * 1024;

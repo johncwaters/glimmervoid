@@ -4,6 +4,7 @@ import { activateCalmView, clearQueueOrigin, deactivateCalmView, mountCalmView, 
 
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { shouldShowServerAction } from '#shared/client-trust.ts';
+import { createCoalescedTimer } from '#shared/coalesce-timer.ts';
 import { STATES } from '#shared/states.ts';
 import { getBorrowedCardId } from './card-host.ts';
 import { createClientErrorReporter } from './client-error-core.ts';
@@ -1049,13 +1050,16 @@ document.addEventListener('keydown', (e) => {
   if (runDashboardShortcut(shortcut)) e.preventDefault();
 });
 
-let _focusDebounce: number | null = null;
+const focusStateTimer = createCoalescedTimer({
+  mode: 'trailing',
+  delayMs: 150,
+  run: () => {
+    sendControlMsg({ type: 'focus-change', focused: document.hasFocus() });
+  },
+});
 
 function sendFocusState() {
-  if (_focusDebounce !== null) clearTimeout(_focusDebounce);
-  _focusDebounce = setTimeout(() => {
-    sendControlMsg({ type: 'focus-change', focused: document.hasFocus() });
-  }, 150);
+  focusStateTimer.schedule();
 }
 
 function noteViewerFocusEdge() {

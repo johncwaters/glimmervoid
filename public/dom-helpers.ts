@@ -162,12 +162,3 @@ export function releaseElement(element: AdoptableElement | null | undefined, fal
   }
   home.parent.appendChild(element);
 }
-
-export function escapeHtml(str: unknown) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}

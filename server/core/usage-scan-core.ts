@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { nextBackoffMs } from './lane-backoff.ts';
+import { nextBackoffMs } from '../../shared/backoff.ts';
 import { rawTextOr } from '../../shared/coerce.ts';
 
 export type PassOutcome = 'complete' | 'byte-limited' | 'io-failed';

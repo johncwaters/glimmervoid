@@ -1,9 +1,9 @@
+import { isLoopbackHostname } from "../../shared/loopback-hosts.ts";
 const HOOK_URL_ENV = "GLIMMERVOID_HOOK_URL";
 
 const MAX_PAYLOAD_BYTES = 65536;
 const MAX_RESPONSE_BYTES = 65536;
 
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "[::1]", "localhost"]);
 
 const EVENT_RE = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 const HOOK_PATH_PREFIX = "/hook/";
@@ -40,7 +40,7 @@ function resolveHookTarget(
     return { url: null, reason: "bad-url" };
   }
   if (target.protocol !== "http:") return { url: null, reason: "not-http" };
-  if (!LOOPBACK_HOSTS.has(target.hostname)) return { url: null, reason: "not-loopback" };
+  if (!isLoopbackHostname(target.hostname)) return { url: null, reason: "not-loopback" };
   if (!target.pathname.startsWith(pathPrefix)) return { url: null, reason: "not-hook-path" };
   const base = target.pathname.replace(/\/+$/, "");
   target.pathname = `${base}/${event}`;

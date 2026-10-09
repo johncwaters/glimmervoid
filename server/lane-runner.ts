@@ -1,8 +1,9 @@
 import type { ReviewsRefreshResult, ReviewsRetry } from '../shared/contracts/reviews.ts';
-import { DEFAULT_BASE_MS, DEFAULT_MAX_MS, nextRetrySchedule, shouldSkipTick } from './core/lane-backoff.ts';
+import { nextRetrySchedule, shouldSkipTick } from './core/lane-backoff.ts';
+import { DEFAULT_BASE_MS, DEFAULT_MAX_MS } from '../shared/backoff.ts';
 import { errorMessage } from '../shared/text.ts';
-import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
-import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from './core/timer-deps.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../shared/timer-deps.ts';
 import { createSerialQueue } from './spawn-gate.ts';
 
 interface TickOutcome {

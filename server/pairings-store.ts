@@ -10,8 +10,8 @@ import type { RandomBytes } from './core/pairing-token.ts';
 import { jsonStateLoadError, loadJsonStateFileSync, sleepSync, writeJsonAtomic, writeJsonAtomicSync } from './json-file.ts';
 import { errorLabel, errorMessage } from '../shared/text.ts';
 import { isRecord } from '../shared/coerce.ts';
-import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
-import type { ClearIntervalFn, SetIntervalFn } from './core/timer-deps.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
+import type { ClearIntervalFn, SetIntervalFn } from '../shared/timer-deps.ts';
 
 type PendingPairing = {
   tokenHash: string;

@@ -34,7 +34,7 @@ import { sendTelegramMessage } from './telegram-transport.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import { errorMessage } from '../shared/text.ts';
 import { isRecord } from '../shared/coerce.ts';
-import { createCoalescedTimer } from './core/coalesce-timer.ts';
+import { createCoalescedTimer } from '../shared/coalesce-timer.ts';
 
 const POSTHOG_DENY = {
   deny: [

@@ -7,9 +7,9 @@ import type { TerminalIngestEvent } from './core/ingest-terminal-core.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
 import { errorMessage } from '../shared/text.ts';
-import { DEFAULT_TIMER_FNS } from './core/timer-deps.ts';
-import type { ClearTimeoutFn, SetTimeoutFn } from './core/timer-deps.ts';
-import { createCoalescedTimer } from './core/coalesce-timer.ts';
+import { DEFAULT_TIMER_FNS } from '../shared/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from '../shared/timer-deps.ts';
+import { createCoalescedTimer } from '../shared/coalesce-timer.ts';
 
 interface TappableSession {
   id: string;

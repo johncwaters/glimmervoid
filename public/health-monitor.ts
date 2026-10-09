@@ -1,6 +1,7 @@
 import { byteSizeText, twoUnitDurationText } from '#shared/display-text.ts';
 import { sendControlMsg } from './control-ws.ts';
-import { el, escapeHtml } from './dom-helpers.ts';
+import { escapeMarkup } from '#shared/escape-markup.ts';
+import { el } from './dom-helpers.ts';
 import { anomalyCount, shouldShowHealthMonitor } from './health-monitor-core.ts';
 import type { HealthAnomalies } from './health-monitor-core.ts';
 
@@ -147,7 +148,7 @@ function renderDetail() {
     const timers = Object.entries(sx.timers).filter(([, v]) => v).map(([k]) => k).join(',') || 'none';
     return `
       <tr>
-        <td>${escapeHtml(sx.name)}</td>
+        <td>${escapeMarkup(sx.name)}</td>
         <td class="health-mono">${STATE_ABBREV[sx.state] || sx.state}</td>
         <td class="health-mono">${sx.hasPty ? sx.ptyPid : NO_VALUE}</td>
         <td class="health-mono">${formatBytes(sx.outputBufferBytes)}</td>

@@ -1,8 +1,8 @@
 
 import type { OutputRingSlice } from '../session/core/output-ring.ts';
 import { SCREEN_RESET } from '../session/core/screen-keeper-core.ts';
-import { unrefTimer } from './core/timer-deps.ts';
-import type { ClearTimeoutFn, SetTimeoutFn } from './core/timer-deps.ts';
+import { unrefTimer } from '../shared/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from '../shared/timer-deps.ts';
 
 const OPEN = 1;
 

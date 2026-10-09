@@ -47,24 +47,19 @@ function decideResyncAction(state: string, isCheckedOut: boolean): ResyncAction 
   return 'none';
 }
 
-export interface ResyncCommandOptions {
-  timeout?: number;
-  [key: string]: unknown;
-}
-
 export interface ResyncCommand {
   args: string[];
-  opts: ResyncCommandOptions;
+  timeoutMs: number | undefined;
   successAction: 'fast-forwarded' | 'pushed';
 }
 
 function buildResyncCommand(
   decision: string,
-  { upstream, branch, remote, opts }: { upstream: string; branch: string; remote: string; opts: ResyncCommandOptions },
+  { upstream, branch, remote }: { upstream: string; branch: string; remote: string },
 ): ResyncCommand | null {
-  if (decision === 'ff-merge') return { args: ['merge', '--ff-only', upstream], opts, successAction: 'fast-forwarded' };
-  if (decision === 'ff-fetch') return { args: ['fetch', '--quiet', remote, `${branch}:${branch}`], opts: { ...opts, timeout: GIT_FETCH_TIMEOUT_MS }, successAction: 'fast-forwarded' };
-  if (decision === 'push') return { args: ['push', remote, branch], opts: { ...opts, timeout: 15000 }, successAction: 'pushed' };
+  if (decision === 'ff-merge') return { args: ['merge', '--ff-only', upstream], timeoutMs: undefined, successAction: 'fast-forwarded' };
+  if (decision === 'ff-fetch') return { args: ['fetch', '--quiet', remote, `${branch}:${branch}`], timeoutMs: GIT_FETCH_TIMEOUT_MS, successAction: 'fast-forwarded' };
+  if (decision === 'push') return { args: ['push', remote, branch], timeoutMs: 15000, successAction: 'pushed' };
   return null;
 }
 

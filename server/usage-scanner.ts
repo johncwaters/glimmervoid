@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
-import { buildUsageReport, localDayKey, pruneEntries } from './core/usage-aggregate-core.ts';
+import { buildUsageReport, pruneEntries } from './core/usage-aggregate-core.ts';
+import { localDayKey } from '../shared/display-text.ts';
 import { dailyBaseline, detectBurnAnomaly, detectDailyAnomaly } from './core/usage-anomaly-core.ts';
 import { buildBlocks, burnRate, projectBlock } from './core/usage-blocks-core.ts';
 import type { UsageBlock } from './core/usage-blocks-core.ts';

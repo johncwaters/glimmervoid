@@ -1,3 +1,4 @@
+import { parseAtxHeading } from '#shared/contracts/plan-review.ts';
 import { normalizedHttpUrl } from '#shared/http-url.ts';
 
 export type PlanInline =
@@ -36,37 +37,17 @@ interface PlanLinkSpan {
   end: number;
 }
 
-interface PlanHeadingLine {
-  level: number;
-  text: string;
-}
-
 const MAX_LINK_TARGET_PAREN_DEPTH = 2;
 const MAX_BLOCK_NESTING_DEPTH = 8;
-const HEADING_SCAN_MAX_CHARS = 4096;
 
-const headingPattern = /^ {0,3}(#{1,6})[ \t]+(.*)$/;
 const fencePattern = /^ {0,3}(`{3,}|~{3,})([^`]*)$/;
 const listPattern = /^(\s*)(?:([-+*])|(\d+)[.)])\s+(.+)$/;
 const rulePattern = /^ {0,3}(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$/;
 const tableDividerCellPattern = /^:?-{3,}:?$/;
 const fenceLanguagePattern = /^[A-Za-z0-9_+#.-]{1,32}$/;
 
-function withoutClosingHeadingMarks(text: string): string {
-  const trimmed = text.trimEnd();
-  let textEnd = trimmed.length;
-  while (textEnd > 0 && trimmed[textEnd - 1] === '#') textEnd--;
-  if (textEnd === trimmed.length || textEnd === 0) return trimmed;
-  const charBeforeMarks = trimmed[textEnd - 1];
-  if (charBeforeMarks !== ' ' && charBeforeMarks !== '\t') return trimmed;
-  return trimmed.slice(0, textEnd).trimEnd();
-}
-
-function headingLine(line: string): PlanHeadingLine | null {
-  if (line.length > HEADING_SCAN_MAX_CHARS) return null;
-  const heading = headingPattern.exec(line);
-  if (!heading) return null;
-  return { level: heading[1].length, text: withoutClosingHeadingMarks(heading[2]) };
+function headingLine(line: string) {
+  return parseAtxHeading(line, { overlongLine: 'reject' });
 }
 
 function fenceLanguage(infoString: string): string {

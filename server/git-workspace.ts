@@ -338,9 +338,9 @@ function createGitWorkspace(opts: {
   async function fastForwardBaseFromOrigin(projectPath: string, branch: string, upstream: string): Promise<boolean> {
     const checkedOut = (await run(['rev-parse', '--abbrev-ref', 'HEAD'], projectPath)).out;
     const decision = decideResyncAction('behind', checkedOut === branch);
-    const command = buildResyncCommand(decision, { upstream, branch, remote: 'origin', opts: {} });
+    const command = buildResyncCommand(decision, { upstream, branch, remote: 'origin' });
     if (!command) return false;
-    return (await run(command.args, projectPath, { timeout: command.opts.timeout })).ok;
+    return (await run(command.args, projectPath, { timeout: command.timeoutMs })).ok;
   }
 
   async function synchronizeBaseWithOrigin(
@@ -370,11 +370,11 @@ function createGitWorkspace(opts: {
     const classified = await classifyBaseAgainstOrigin(projectPath, branch);
     const decision = decideResyncAction(classified.state, false);
     const command = buildResyncCommand(decision, {
-      upstream: classified.upstream, branch, remote: 'origin', opts: {},
+      upstream: classified.upstream, branch, remote: 'origin',
     });
     if (!command) return false;
     return (await run(command.args, projectPath, {
-      timeout: command.opts.timeout,
+      timeout: command.timeoutMs,
       env: { GIT_TERMINAL_PROMPT: '0' },
     })).ok;
   }

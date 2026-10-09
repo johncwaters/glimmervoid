@@ -1,3 +1,5 @@
+import { isRecord } from "../../shared/coerce.ts";
+import { errorMessage } from "../../shared/text.ts";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -58,16 +60,15 @@ function isMainSessionPayload(payload: HookPayload | null | undefined): boolean 
 }
 
 function mapBackgroundTask(task: unknown): unknown {
-  if (!task || typeof task !== "object" || Array.isArray(task)) return task;
-  const entry = task as Record<string, unknown>;
+  if (!isRecord(task)) return task;
   return {
-    ...entry,
-    ...(typeof entry.agentType === "string" ? { agent_type: entry.agentType } : {}),
+    ...task,
+    ...(typeof task.agentType === "string" ? { agent_type: task.agentType } : {}),
   };
 }
 
 function mapHookPayload(_event: string, payload: HookPayload): HookPayload {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
+  if (!isRecord(payload)) return payload;
   return {
     ...payload,
     ...(typeof payload.subagentId === "string" ? { agent_id: payload.subagentId } : {}),
@@ -86,7 +87,7 @@ function mayContributeHooks(configText: unknown): boolean {
   } catch {
     return true;
   }
-  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return false;
+  if (!isRecord(settings)) return false;
   return Object.hasOwn(settings, "hooks");
 }
 
@@ -199,7 +200,7 @@ function resolveCommand({
   try {
     if (existsSync(candidate)) return { path: realpathSync(candidate), kind: "exe" };
   } catch (error) {
-    warn(`[glimmervoid] could not resolve the native 'grok' binary at ${candidate}: ${error instanceof Error ? error.message : String(error)}`);
+    warn(`[glimmervoid] could not resolve the native 'grok' binary at ${candidate}: ${errorMessage(error)}`);
     return { path: null, kind: "unresolved" };
   }
   warn(`[glimmervoid] could not resolve the native 'grok' binary at ${candidate}`);

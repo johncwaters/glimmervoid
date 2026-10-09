@@ -29,9 +29,9 @@ import { createUsageScanner } from './usage-scanner.ts';
 import type { UsageScannerApi, UsageScannerOptions } from './usage-scanner.ts';
 import { errorMessage } from '../shared/text.ts';
 import { isRecord } from '../shared/coerce.ts';
-import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
-import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from './core/timer-deps.ts';
-import { createCoalescedTimer } from './core/coalesce-timer.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../shared/timer-deps.ts';
+import { createCoalescedTimer } from '../shared/coalesce-timer.ts';
 import { createSerialQueue } from './spawn-gate.ts';
 
 const DEFAULT_USAGE_CONFIG = Object.freeze({

@@ -1,3 +1,4 @@
+import { loadJsonStateFileSync, loadedJsonValue, writeJsonAtomicSync } from '../server/json-file.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,6 +11,7 @@ import { appendUserHooks } from '../session/core/user-hooks-core.ts';
 import type { UserHook } from '../session/core/user-hooks-core.ts';
 import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT, PLAN_TOOL_NAME } from '../shared/contracts/plan-review.ts';
 import { safePathSegment } from '../shared/paths.ts';
+import { isRecord, textOr } from '../shared/coerce.ts';
 
 const DEFAULT_BASE_DIR = path.join(os.tmpdir(), 'glimmervoid-hooks');
 const DEFAULT_TIMEOUT_SEC = 5;
@@ -105,18 +107,15 @@ function shellQuote(value: string): string {
 }
 
 function readUserStatuslineCommand(settingsPath: string): string | null {
-  try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-    if (!parsed || typeof parsed !== 'object') return null;
-    const entry: unknown = (parsed as Record<string, unknown>).statusLine;
-    if (!entry || typeof entry !== 'object') return null;
-    const statusLine = entry as Record<string, unknown>;
-    if (statusLine.type !== 'command') return null;
-    const command = typeof statusLine.command === 'string' ? statusLine.command.trim() : '';
-    return command || null;
-  } catch {
-    return null;
-  }
+  return loadedJsonValue(loadJsonStateFileSync({
+    filePath: settingsPath,
+    quarantine: false,
+    parse(parsed) {
+      if (!isRecord(parsed) || !isRecord(parsed.statusLine)) return null;
+      if (parsed.statusLine.type !== 'command') return null;
+      return textOr(parsed.statusLine.command, null);
+    },
+  }));
 }
 
 function buildStatuslineCommand(
@@ -233,11 +232,7 @@ function writeSessionSettings({ glimmervoidId, token, baseDir = DEFAULT_BASE_DIR
   ensureOwnedDir(dir, DIR_MODE);
   const settingsPath = path.join(dir, 'settings.json');
   const settings = buildHookSettings({ ...rest, glimmervoidId, token: tok });
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), { mode: FILE_MODE });
-  try {
-    fs.chmodSync(settingsPath, FILE_MODE);
-  } catch {
-  }
+  writeJsonAtomicSync(settingsPath, settings, { mode: FILE_MODE, enforceMode: true });
   return {
     settingsPath,
     dir,

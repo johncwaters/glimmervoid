@@ -10,7 +10,7 @@ import type { PrGh } from './pr-gh.ts';
 import { WorkflowsState } from '../shared/contracts/workflows.ts';
 import type { WorkflowRule, WorkflowsState as WorkflowsStateType } from '../shared/contracts/workflows.ts';
 import { errorMessage } from '../shared/text.ts';
-import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from './core/timer-deps.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../shared/timer-deps.ts';
 
 const WORKFLOWS_RATE_LIMIT_RESOURCES = ['graphql'] as const;
 

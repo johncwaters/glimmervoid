@@ -27,6 +27,13 @@ test('shortSha with validate trims, requires 7 to 40 hex characters and lowercas
   assert.equal(shortSha(`${FULL}0`, { validate: true }), '');
 });
 
+test('shortSha with validate returns empty for a missing or non-string sha', () => {
+  assert.equal(shortSha(null, { validate: true }), '');
+  assert.equal(shortSha(undefined, { validate: true }), '');
+  assert.equal(shortSha('', { validate: true }), '');
+  assert.equal(shortSha(42, { validate: true }), '');
+});
+
 test('the sha regexes agree on width and case', () => {
   assert.equal(HEX_SHA_RE.test('ABCDEF0'), true);
   assert.equal(HEX_SHA_RE.test('abcdef'), false);

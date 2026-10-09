@@ -1,7 +1,9 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { elapsedText } from '#shared/display-text.ts';
+import { escapeMarkup } from '#shared/escape-markup.ts';
+import { errorMessage } from '#shared/text.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
-import { el, escapeHtml } from '../dom-helpers.ts';
+import { el } from '../dom-helpers.ts';
 import { buildDialogShell } from './modal.ts';
 import { showErrorToast } from './toast.ts';
 
@@ -25,8 +27,8 @@ function buildItem(conv: ResumableConversation, currentId: string | null, onPick
     .join(' · ');
 
   item.innerHTML =
-    `<span class="resume-item-title">${escapeHtml(conv.title || conv.id)}</span>` +
-    `<span class="resume-item-meta">${escapeHtml(meta)}${conv.id === currentId ? ' · current' : ''}</span>`;
+    `<span class="resume-item-title">${escapeMarkup(conv.title || conv.id)}</span>` +
+    `<span class="resume-item-meta">${escapeMarkup(meta)}${conv.id === currentId ? ' · current' : ''}</span>`;
   item.addEventListener('click', () => onPick(conv.id));
   return item;
 }
@@ -85,7 +87,6 @@ export function openResumeDialog(sessionId: string, opts: { currentState?: strin
     .catch((err) => {
       if (!overlay.isConnected) return;
       listEl.innerHTML = '';
-      const reason = err instanceof Error ? err.message : String(err);
-      listEl.append(el('div', 'resume-empty', `Could not list conversations: ${reason}`));
+      listEl.append(el('div', 'resume-empty', `Could not list conversations: ${errorMessage(err)}`));
     });
 }

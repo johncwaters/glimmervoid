@@ -1,3 +1,4 @@
+import { shortSha } from '#shared/git-text.ts';
 import { el } from '../dom-helpers.ts';
 import type { ChangeMapRepoView, ChangeMapView } from './change-map-core.ts';
 
@@ -18,7 +19,7 @@ function renderRepo(repo: ChangeMapRepoView, onOpenFile: (path: string) => void)
   const summary = el('div', 'review-map-summary');
   summary.append(el('span', '', `${repo.header.committedCount} committed`));
   summary.append(el('span', '', `${repo.header.uncommittedCount} uncommitted`));
-  summary.append(el('span', '', `Base: ${repo.header.base ? repo.header.base.slice(0, 8) : 'unknown'}`));
+  summary.append(el('span', '', `Base: ${shortSha(repo.header.base, { chars: 8 }) || 'unknown'}`));
   section.append(summary);
   if (repo.error) section.append(el('p', 'review-map-error', repo.error));
   if (repo.subsystems.length > 0) {

@@ -1,5 +1,5 @@
 import { DEFAULT_TIMER_FNS, unrefTimer } from './timer-deps.ts';
-import type { ClearTimeoutFn, SetTimeoutFn } from './timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from './timer-deps.ts';
 
 type CoalesceMode = 'leading' | 'trailing';
 
@@ -24,7 +24,7 @@ function createCoalescedTimer({
   clearTimeoutFn?: ClearTimeoutFn;
   unref?: boolean;
 }): CoalescedTimer {
-  let timer: NodeJS.Timeout | null = null;
+  let timer: TimerHandle | null = null;
 
   function cancel(): void {
     if (!timer) return;

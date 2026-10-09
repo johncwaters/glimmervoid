@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { test } from 'node:test';
-import { createCoalescedTimer } from '../server/core/coalesce-timer.ts';
+import { createCoalescedTimer } from '../shared/coalesce-timer.ts';
 
 const PARKED_TIMER_MS = 1 << 30;
 

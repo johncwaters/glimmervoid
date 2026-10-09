@@ -1,8 +1,8 @@
 import { runsEveryTicks } from './core/github-clock-core.ts';
 import type { SharedClock } from './lane-runner.ts';
 import { errorMessage } from '../shared/text.ts';
-import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
-import type { ClearIntervalFn, SetIntervalFn } from './core/timer-deps.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
+import type { ClearIntervalFn, SetIntervalFn } from '../shared/timer-deps.ts';
 
 interface GithubClockOptions {
   baseIntervalMs: number;

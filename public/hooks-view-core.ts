@@ -1,4 +1,5 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
+import { MAX_TIMEOUT_SEC } from '#shared/contracts/hooks.ts';
 export const HOOKS_HINT = 'Claude Code hooks injected into every session Glimmervoid spawns.';
 export const HOOKS_LOADING_TEXT = 'Loading hooks';
 export const HOOKS_EMPTY_TEXT = 'No hooks yet. A hook runs a command, or calls a URL, when a Claude Code event fires in a Glimmervoid session. Start from one of these, or add your own.';
@@ -23,8 +24,6 @@ export const EDITOR_HINT = 'Saved to config.json.';
 export const ALL_PROJECTS_LABEL = 'All projects';
 export const NO_MATCHER_TEXT = 'This event takes no matcher.';
 export const DEFAULT_TIMEOUT_TEXT = "Blank uses Claude Code's default for the event.";
-
-export const DEFAULT_MAX_TIMEOUT_SEC = 600;
 
 export type HookRecord = {
   id: string;
@@ -105,7 +104,7 @@ export const eventsOf = (report: HooksReport | null | undefined) => listOf(repor
 
 export function maxTimeoutOf(report: { limits?: Partial<NonNullable<HooksReport['limits']>> | null } | null | undefined) {
   const value = report?.limits?.maxTimeoutSec;
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : DEFAULT_MAX_TIMEOUT_SEC;
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : MAX_TIMEOUT_SEC;
 }
 
 export function shouldApplyHooksReport(msg: unknown, latestRequestId: unknown) {
@@ -252,7 +251,7 @@ export function toDraft(hook: HookRecord): HookDraft {
   };
 }
 
-export function draftProblem(draft: HookDraft, events: HookEvent[], maxTimeoutSec: number = DEFAULT_MAX_TIMEOUT_SEC) {
+export function draftProblem(draft: HookDraft, events: HookEvent[], maxTimeoutSec: number = MAX_TIMEOUT_SEC) {
   if (!draft.name.trim()) return 'Give the hook a name.';
   const entry = eventEntry(events, draft.event);
   if (!entry) return 'Pick an event.';

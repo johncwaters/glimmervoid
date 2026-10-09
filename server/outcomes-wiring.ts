@@ -5,8 +5,8 @@ import { countOutcome, drainOutcomeSummary, emptyOutcomeCounts } from './core/ou
 import type { OutcomeCounts } from './core/outcome-summary-core.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
-import { DEFAULT_TIMER_FNS } from './core/timer-deps.ts';
-import type { ClearIntervalFn, SetIntervalFn } from './core/timer-deps.ts';
+import { DEFAULT_TIMER_FNS } from '../shared/timer-deps.ts';
+import type { ClearIntervalFn, SetIntervalFn } from '../shared/timer-deps.ts';
 
 const SUMMARY_INTERVAL_MS = 60000;
 const LOOP_LAG_RESOLUTION_MS = 20;

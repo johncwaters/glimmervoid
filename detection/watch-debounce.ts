@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import type { FSWatcher, WatchListener } from 'node:fs';
 
+import { createCoalescedTimer } from '../shared/coalesce-timer.ts';
 import { canonicalizePath } from '../shared/paths.ts';
 
 export interface WatchDebounce {
@@ -15,17 +16,18 @@ function createWatchDebounce(
   { onChange, debounceMs }: { onChange: () => void; debounceMs: number },
 ): WatchDebounce {
   let watcher: FSWatcher | null = null;
-  let timer: NodeJS.Timeout | null = null;
   let stopped = false;
-
-  function fire(): void {
-    if (timer) return;
-    timer = setTimeout(() => {
-      timer = null;
+  const changeTimer = createCoalescedTimer({
+    mode: 'leading',
+    delayMs: debounceMs,
+    run: () => {
       if (stopped) return;
       try { onChange(); } catch {  }
-    }, debounceMs);
-    timer.unref();
+    },
+  });
+
+  function fire(): void {
+    changeTimer.schedule();
   }
 
   function watch(dir: string, listener?: WatchListener<string> | null): boolean {
@@ -42,7 +44,7 @@ function createWatchDebounce(
 
   function stop(): void {
     stopped = true;
-    if (timer) { clearTimeout(timer); timer = null; }
+    changeTimer.cancel();
     if (watcher) {
       try { watcher.close(); } catch {  }
       watcher = null;

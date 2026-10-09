@@ -1,3 +1,5 @@
+import { parseJsonRecord } from "../server/core/json-core.ts";
+import { isRecord } from "../shared/coerce.ts";
 import type { ChildProcess } from "node:child_process";
 
 import { postPayload } from "./loopback-post.ts";
@@ -10,10 +12,6 @@ const NO_CHAIN = "-";
 
 interface StdoutLike {
   write(text: string): unknown;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function decodeChainCommand(encoded: string | undefined): string | null {
@@ -29,22 +27,12 @@ function decodeChainCommand(encoded: string | undefined): string | null {
 function fallbackLine(payload: Record<string, unknown> | null): string {
   const parts: string[] = [];
   const modelField = payload?.model;
-  const model = isPlainObject(modelField) ? modelField.display_name : undefined;
+  const model = isRecord(modelField) ? modelField.display_name : undefined;
   if (typeof model === "string" && model.trim()) parts.push(model.trim());
   const costField = payload?.cost;
-  const cost = isPlainObject(costField) ? costField.total_cost_usd : undefined;
+  const cost = isRecord(costField) ? costField.total_cost_usd : undefined;
   if (typeof cost === "number" && Number.isFinite(cost) && cost > 0) parts.push(`$${cost.toFixed(2)}`);
   return parts.join("  ");
-}
-
-function parsePayload(raw: Buffer | string): Record<string, unknown> | null {
-  try {
-    const parsed: unknown = JSON.parse(String(raw));
-    if (isPlainObject(parsed)) return parsed;
-    return null;
-  } catch {
-    return null;
-  }
 }
 
 function runChain(command: string, stdinBody: Buffer): Promise<number> {
@@ -83,7 +71,7 @@ async function main(
 
   const post = postUrl ? postPayload(postUrl, raw) : Promise.resolve();
   if (!chainCommand) {
-    const line = fallbackLine(parsePayload(raw));
+    const line = fallbackLine(parseJsonRecord(raw));
     if (line) stdout.write(`${line}\n`);
     await post;
     return 0;
@@ -96,4 +84,4 @@ if (process.argv[1] === import.meta.filename) {
   main().then((code) => process.exit(code)).catch(() => process.exit(0));
 }
 
-export { main, fallbackLine, decodeChainCommand, parsePayload, NO_CHAIN };
+export { main, fallbackLine, decodeChainCommand, NO_CHAIN };
