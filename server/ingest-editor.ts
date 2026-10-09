@@ -2,6 +2,7 @@ import { applyEditorNotification, createEditorState } from './core/ingest-editor
 import type { EditorEvent } from './core/ingest-editor-core.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
+import { errorMessage } from '../shared/text.ts';
 
 interface EditorIngestOptions {
   publish: (event: EditorEvent) => unknown;
@@ -41,7 +42,7 @@ function createEditorIngest({
     try {
       return roots() || [];
     } catch (error) {
-      warn(`root lookup failed: ${error instanceof Error ? error.message : String(error)}`);
+      warn(`root lookup failed: ${errorMessage(error)}`);
       return [];
     }
   }

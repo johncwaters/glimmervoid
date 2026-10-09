@@ -2,6 +2,8 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { SOURCE_DEFAULTS, scrubText } from './ingest-core.ts';
+import { textOr } from '../../shared/coerce.ts';
+import { isPathInside } from '../../shared/paths.ts';
 
 const SOURCE = 'fs';
 const KIND = 'file-change';
@@ -91,15 +93,12 @@ function toPosix(value: unknown): string {
   return String(value == null ? '' : value).split('\\').join('/');
 }
 
-function nonEmptyString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
 
 
 function buildIgnorePatterns(extraDirNames: unknown[] = []): string[] {
   const names: string[] = [];
   for (const raw of [...IGNORED_DIR_NAMES, ...(Array.isArray(extraDirNames) ? extraDirNames : [])]) {
-    const name = nonEmptyString(raw);
+    const name = textOr(raw, null);
     if (!name || names.includes(name)) continue;
     names.push(name);
   }
@@ -124,7 +123,7 @@ function isIgnoredFileName(base: string): boolean {
 }
 
 function daemonWriteRules(configPath: unknown): DaemonWriteRules | null {
-  const resolvedPath = nonEmptyString(configPath);
+  const resolvedPath = textOr(configPath, null);
   if (!resolvedPath) return null;
   const configFile = path.resolve(resolvedPath);
   const dir = path.dirname(configFile);
@@ -145,21 +144,9 @@ function foldCase(value: unknown): string {
   return process.platform === 'win32' ? String(value).toLowerCase() : String(value);
 }
 
-function isPathInside(parent: unknown, child: unknown): boolean {
-  const from = nonEmptyString(parent);
-  const to = nonEmptyString(child);
-  if (!from || !to) return false;
-  const resolvedParent = path.resolve(from);
-  const resolvedChild = path.resolve(to);
-  if (foldCase(resolvedParent) === foldCase(resolvedChild)) return true;
-  const relative = path.relative(resolvedParent, resolvedChild);
-  if (!relative || path.isAbsolute(relative)) return false;
-  return !toPosix(relative).startsWith('../');
-}
-
 function relativeWithin(root: unknown, absolutePath: unknown): string | null {
-  const from = nonEmptyString(root);
-  const to = nonEmptyString(absolutePath);
+  const from = textOr(root, null);
+  const to = textOr(absolutePath, null);
   if (!from || !to) return null;
   const relative = path.relative(path.resolve(from), path.resolve(to));
   if (!relative || path.isAbsolute(relative)) return null;
@@ -173,12 +160,12 @@ function isIgnoredChange({
   absolutePath = null,
   daemonRules = null,
 }: { relPath?: unknown; absolutePath?: unknown; daemonRules?: DaemonWriteRules | null } = {}): boolean {
-  const relative = nonEmptyString(relPath);
+  const relative = textOr(relPath, null);
   if (!relative) return true;
   if (hasIgnoredSegment(relative)) return true;
   const base = toPosix(relative).split('/').pop();
   if (base && isIgnoredFileName(base)) return true;
-  const absolute = nonEmptyString(absolutePath);
+  const absolute = textOr(absolutePath, null);
   if (!absolute || !daemonRules) return false;
   if (daemonRules.paths.some((daemonPath) => isPathInside(daemonPath, absolute))) return true;
   return isDaemonDerivedSibling(daemonRules, absolute);
@@ -189,7 +176,7 @@ function normalizeRoots(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   const roots: string[] = [];
   for (const entry of raw) {
-    const value = nonEmptyString(entry);
+    const value = textOr(entry, null);
     if (!value || roots.includes(value)) continue;
     roots.push(value);
     if (roots.length >= MAX_ROOT_ENTRIES) break;
@@ -200,7 +187,7 @@ function normalizeRoots(raw: unknown): string[] {
 function dedupeRoots(roots: unknown): string[] {
   const named: string[] = [];
   for (const entry of Array.isArray(roots) ? roots : []) {
-    const value = nonEmptyString(entry);
+    const value = textOr(entry, null);
     if (!value) continue;
     if (named.some((kept) => foldCase(path.resolve(kept)) === foldCase(path.resolve(value)))) continue;
     named.push(value);
@@ -217,7 +204,7 @@ function dedupeRoots(roots: unknown): string[] {
 function deriveSessionRoots(session: { path?: unknown; worktreeDir?: unknown } | null | undefined): string[] {
   const dirs: string[] = [];
   for (const dir of [session?.path, session?.worktreeDir]) {
-    const value = nonEmptyString(dir);
+    const value = textOr(dir, null);
     if (!value || dirs.includes(value)) continue;
     dirs.push(value);
   }
@@ -225,7 +212,7 @@ function deriveSessionRoots(session: { path?: unknown; worktreeDir?: unknown } |
 }
 
 function isActiveSessionState(state: unknown): boolean {
-  return ACTIVE_SESSION_STATES.includes(nonEmptyString(state) || '');
+  return ACTIVE_SESSION_STATES.includes(textOr(state, null) || '');
 }
 
 
@@ -245,7 +232,7 @@ function truncatePath(relPath: string): string {
 }
 
 function normalizeChangeKind(type: unknown): FsChangeKind | null {
-  const kind = nonEmptyString(type);
+  const kind = textOr(type, null);
   if (!kind || !CHANGE_KINDS.includes(kind)) return null;
   return kind as FsChangeKind;
 }
@@ -260,7 +247,7 @@ function mergeChange(previous: FsChangeKind | null | undefined, next: FsChangeKi
 
 function recordChange(batch: FsBatch, relPath: unknown, type: unknown): boolean {
   const kind = normalizeChangeKind(type);
-  const relative = nonEmptyString(relPath);
+  const relative = textOr(relPath, null);
   if (!kind || !relative) return false;
   const key = truncatePath(relative);
   if (batch.files.has(key)) {
@@ -368,7 +355,6 @@ export {
   deriveSessionRoots,
   isActiveSessionState,
   isIgnoredChange,
-  isPathInside,
   mergeChange,
   normalizeRoots,
   recordChange,

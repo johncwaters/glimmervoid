@@ -61,7 +61,7 @@ function makeFakeFileSystem(): FakeFileSystem {
   async function rename(fromValue: unknown, toValue: unknown): Promise<void> {
     const from = String(fromValue);
     const to = String(toValue);
-    if (from.includes('.tmp.')) {
+    if (from.endsWith('.tmp')) {
       const content = files.get(from);
       if (content === undefined) throw new Error(`missing ${from}`);
       files.delete(from);
@@ -100,8 +100,8 @@ function makeFakeFileSystem(): FakeFileSystem {
       entries.add(resolvedPath);
     },
     writeFile: async (filePath: unknown, content: unknown) => {
-      if (state.failJournalWrites && String(filePath).includes('.tmp.')) throw new Error('journal unavailable');
-      if (state.failRestoreMarkerWrite && String(filePath).endsWith('restore.json')) throw new Error('marker unavailable');
+      if (state.failJournalWrites && String(filePath).endsWith('.tmp')) throw new Error('journal unavailable');
+      if (state.failRestoreMarkerWrite && String(filePath).includes('restore.json')) throw new Error('marker unavailable');
       files.set(String(filePath), String(content));
     },
   };
@@ -142,7 +142,7 @@ interface ApplyHarness {
   lane: ReturnType<typeof createUpdateApplyLane>;
   fileSystem: FakeFileSystem;
   admission: QueueAdmission;
-  commands: Array<{ file: string; args: string[]; cwd: string; timeout: number }>;
+  commands: Array<{ file: string; args: string[]; cwd: string; timeout: number; terminalPrompt: string | undefined }>;
   removals: string[];
   resets: Array<{ expectedHead: string; sha: string }>;
   broadcasts: Record<string, unknown>[];
@@ -174,7 +174,7 @@ function makeStatus(options: HarnessOptions): UpdateStatus {
 
 function makeHarness(options: HarnessOptions = {}): ApplyHarness {
   const fileSystem = makeFakeFileSystem();
-  const commands: Array<{ file: string; args: string[]; cwd: string; timeout: number }> = [];
+  const commands: Array<{ file: string; args: string[]; cwd: string; timeout: number; terminalPrompt: string | undefined }> = [];
   const removals: string[] = [];
   const resets: Array<{ expectedHead: string; sha: string }> = [];
   const broadcasts: Record<string, unknown>[] = [];
@@ -235,7 +235,9 @@ function makeHarness(options: HarnessOptions = {}): ApplyHarness {
     const commandOptions = rest[1] && typeof rest[1] === 'object' ? rest[1] as Record<string, unknown> : {};
     const cwd = String(commandOptions.cwd || ROOT);
     const timeout = Number(commandOptions.timeout || 0);
-    commands.push({ file, args, cwd, timeout });
+    const childEnv = commandOptions.env && typeof commandOptions.env === 'object' ? commandOptions.env as Record<string, unknown> : {};
+    const terminalPrompt = typeof childEnv.GIT_TERMINAL_PROMPT === 'string' ? childEnv.GIT_TERMINAL_PROMPT : undefined;
+    commands.push({ file, args, cwd, timeout, terminalPrompt });
     const joined = args.join(' ');
     if (file === 'git' && joined === 'rev-parse --abbrev-ref HEAD') {
       if (options.branch === null) return { stdout: 'HEAD\n', stderr: '' };
@@ -296,6 +298,14 @@ test('staging with a changed lockfile runs npm ci in the detached worktree', asy
   assert.deepEqual(npmCommands.map((command) => command.args), [['ci']]);
   assert.equal(npmCommands[0]?.cwd, STAGING_PATH);
   assert.equal(npmCommands[0]?.timeout, 15 * 60_000);
+});
+
+test('every git probe the update runs refuses to wait on a credential prompt', async () => {
+  const harness = makeHarness({ lockfileChanged: true });
+  await harness.lane.applyUpdate();
+  const gitCommands = harness.commands.filter((command) => command.file === 'git');
+  assert.ok(gitCommands.length > 0);
+  assert.deepEqual(gitCommands.filter((command) => command.terminalPrompt !== '0').map((command) => command.args), []);
 });
 
 test('staging with an unchanged lockfile links live dependencies and runs the build', async () => {

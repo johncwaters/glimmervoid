@@ -1,4 +1,5 @@
 import { CONTROL_FRAME_ENVELOPE_BYTES, CONTROL_FRAME_MAX_BYTES } from '#shared/contracts/control-messages.ts';
+import { elapsedText } from '#shared/display-text.ts';
 import {
   PLAN_BODY_CAP_BYTES,
   PLAN_COMMENTS_MAX,
@@ -92,14 +93,9 @@ export function previousRevisionFor(
 }
 
 export function formatRelativeAge(receivedAt: number, now: number): string {
-  const elapsedMs = Math.max(0, now - receivedAt);
-  if (!Number.isFinite(elapsedMs) || elapsedMs < 60_000) return 'just now';
-  const minutes = Math.floor(elapsedMs / 60_000);
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hr ago`;
-  const days = Math.floor(hours / 24);
-  return `${days} ${days === 1 ? 'day' : 'days'} ago`;
+  const elapsedMs = now - receivedAt;
+  if (!Number.isFinite(elapsedMs)) return 'just now';
+  return elapsedText(elapsedMs, { rounding: 'floor', wording: 'abbreviated', suffix: ' ago', justNowBelowSeconds: 60 });
 }
 
 function isDecidable(input: PlanViewInput, review: PlanReview | null, selectedRevision: number | null): boolean {

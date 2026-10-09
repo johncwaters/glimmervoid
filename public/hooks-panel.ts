@@ -1,4 +1,5 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
+import { nextRequestId } from './control-ws.ts';
 import { buildPanelSection, buildStatChip, el, isPanelHidden, projectsOf } from './dom-helpers.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { showErrorToast } from './session-card/toast.ts';
@@ -62,7 +63,6 @@ import type { HookBuiltinRow, HookDraft, HookEvent, HookProject, HookRecord, Hoo
 let _report: HooksReport | null = null;
 let _root: HTMLDivElement | null = null;
 let _sendRequest: ((message: Record<string, unknown>) => void) | null = null;
-let _requestSeq = 0;
 let _latestRequestId: string | null = null;
 let _draft: HookDraft | null = null;
 
@@ -98,8 +98,7 @@ function buildButton(className: string, label: string, onClick: () => void, aria
 
 function send(message: Record<string, unknown>): string | null {
   if (!_sendRequest) return null;
-  _requestSeq += 1;
-  const requestId = `hooks-${_requestSeq}`;
+  const requestId = nextRequestId('hooks');
   _sendRequest({ requestId, ...message });
   return requestId;
 }
@@ -512,8 +511,7 @@ export function setHooksRequestSender(send: (message: Record<string, unknown>) =
 
 export function requestHooksReport() {
   if (!_sendRequest) return;
-  _requestSeq += 1;
-  _latestRequestId = `hooks-report-${_requestSeq}`;
+  _latestRequestId = nextRequestId('hooks-report');
   _sendRequest({ type: 'request-hooks-report', requestId: _latestRequestId });
 }
 

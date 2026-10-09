@@ -1,3 +1,4 @@
+import { nextRequestId } from './control-ws.ts';
 import { buildPanelSection, buildStatChip, el, externalLink } from './dom-helpers.ts';
 import type { IssuesReportPush } from '#shared/contracts/control-messages.ts';
 import { type IssueRow, issuesPlaceholder, summarizeIssues } from './issues-view-core.ts';
@@ -34,16 +35,10 @@ let projects: IssuesProject[] = [];
 let selectedProjectId = '';
 let requestSender: IssuesRequestSender | null = null;
 let pendingRefresh: PendingRefresh | null = null;
-let requestSeq = 0;
 const reportsByProjectId = new Map<string, IssuesReport>();
 const openRequestById = new Map<string, PendingOpenRequest>();
 const openOutcomeByIssue = new Map<string, string>();
 const refreshOutcomeByProjectId = new Map<string, string>();
-
-function nextRequestId(prefix: string): string {
-  requestSeq += 1;
-  return `${prefix}-${requestSeq}`;
-}
 
 function clearPendingRefresh(): void {
   if (!pendingRefresh) return;

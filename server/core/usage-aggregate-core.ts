@@ -1,6 +1,6 @@
 import type { UsageEntryLike, UsageTotals } from './usage-entry-core.ts';
 import { addEntryToTotals, dedupKeys, emptyTotals, totalTokensOf } from './usage-entry-core.ts';
-import { safeNumber } from './usage-number-core.ts';
+import { numberOr } from '../../shared/coerce.ts';
 
 interface VendorTotals {
   tokens: number;
@@ -95,7 +95,7 @@ function addEntryToVendorTotals(map: Map<string, VendorTotals>, entry: UsageEntr
   const vendor = vendorOf(entry);
   const bucket = map.get(vendor) || { tokens: 0, costUSD: 0 };
   bucket.tokens += totalTokensOf(entry);
-  bucket.costUSD += safeNumber(entry.costUSD);
+  bucket.costUSD += numberOr(entry.costUSD, 0);
   map.set(vendor, bucket);
 }
 

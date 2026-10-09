@@ -5,6 +5,8 @@ import path from 'node:path';
 import type { Session } from '../session/sessions.ts';
 import { awaitBounded } from './core/shutdown-core.ts';
 import { firstLine } from './core/text-core.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from './core/timer-deps.ts';
 
 const JOB_RESULT_FILENAME = 'result.json';
 
@@ -48,7 +50,7 @@ async function awaitSessionExit(sess: Session, { signal = null, spawnGate = null
 
 async function raceWithAbort<T>({
   start, timeoutMs, onTimeout, onEmpty,
-  setTimeoutFn = (fn, ms) => setTimeout(fn, ms), clearTimeoutFn = clearTimeout,
+  setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn, clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
   onPending = null,
 }: {
   start: (signal: AbortSignal) => Promise<T | null | undefined>;
@@ -56,8 +58,8 @@ async function raceWithAbort<T>({
   onTimeout: () => T;
   onEmpty: () => T;
 
-  setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
   onPending?: ((promise: Promise<unknown>) => void) | null;
 }): Promise<T> {
   const controller = new AbortController();
@@ -67,7 +69,7 @@ async function raceWithAbort<T>({
       controller.abort();
       resolve(onTimeout());
     }, timeoutMs);
-    if (handle && typeof handle.unref === 'function') handle.unref();
+    unrefTimer(handle);
   });
   const started = start(controller.signal);
 

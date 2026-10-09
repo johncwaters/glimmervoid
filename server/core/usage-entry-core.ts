@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { numberOrNull, safeNumber, stringOrNull } from './usage-number-core.ts';
+import { numberOr, rawTextOr } from '../../shared/coerce.ts';
+import { parseJsonRecord } from './json-core.ts';
 
 const NULL_REJECT_FIELDS = Object.freeze([
   ['id'],
@@ -125,14 +126,7 @@ interface RawUsageLine {
 function parseJsonLine(line: unknown, requiredSubstring?: string): Record<string, unknown> | null {
   if (typeof line !== 'string') return null;
   if (requiredSubstring && !line.includes(requiredSubstring)) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== 'object') return null;
-  return parsed as Record<string, unknown>;
+  return parseJsonRecord(line, { admitArrays: true });
 }
 
 function parseUsageLine(
@@ -156,22 +150,22 @@ function parseUsageLine(
   const timestampMs = Date.parse(String(parsed.timestamp));
   if (!Number.isFinite(timestampMs)) return null;
 
-  const rawModel = message.model === '<synthetic>' ? null : stringOrNull(message.model);
-  const speed = stringOrNull(usage.speed);
+  const rawModel = message.model === '<synthetic>' ? null : rawTextOr(message.model, null);
+  const speed = rawTextOr(usage.speed, null);
 
   return {
     timestamp: new Date(timestampMs).toISOString(),
     timestampMs,
-    cwd: stringOrNull(parsed.cwd),
-    version: stringOrNull(parsed.version),
-    sessionId: stringOrNull(parsed.sessionId),
-    requestId: stringOrNull(parsed.requestId),
-    messageId: stringOrNull(message.id),
+    cwd: rawTextOr(parsed.cwd, null),
+    version: rawTextOr(parsed.version, null),
+    sessionId: rawTextOr(parsed.sessionId, null),
+    requestId: rawTextOr(parsed.requestId, null),
+    messageId: rawTextOr(message.id, null),
     model: modelWithSpeed(rawModel, speed),
     rawModel,
     speed,
     isSidechain: parsed.isSidechain === true,
-    costUSD: numberOrNull(parsed.costUSD) ?? numberOrNull(usage.costUSD),
+    costUSD: numberOr(parsed.costUSD, null) ?? numberOr(usage.costUSD, null),
     ...tokenCountsFromUsage(usage),
     iterations: Array.isArray(usage.iterations) ? usage.iterations : [],
   };
@@ -188,8 +182,8 @@ function expandAdvisorIterations(entry: UsageEntry | null | undefined): UsageEnt
     const usage = rawIterationUsage as RawUsageCounts;
     const rawModel = iteration.message?.model === '<synthetic>'
       ? null
-      : stringOrNull(iteration.message?.model) || entry.rawModel || null;
-    const speed = stringOrNull(usage.speed) || entry.speed || null;
+      : rawTextOr(iteration.message?.model, null) || entry.rawModel || null;
+    const speed = rawTextOr(usage.speed, null) || entry.speed || null;
     advisorEntries.push({
       ...entry,
       messageId: entry.messageId ? `${entry.messageId}:advisor:${iterationIndex}` : null,
@@ -241,7 +235,7 @@ function shouldReplace(
 
 function totalTokensOf(entry: TokenCountsSource | null | undefined): number {
   if (!entry) return 0;
-  return safeNumber(entry.input) + safeNumber(entry.output) + safeNumber(entry.cacheCreate) + safeNumber(entry.cacheRead);
+  return numberOr(entry.input, 0) + numberOr(entry.output, 0) + numberOr(entry.cacheCreate, 0) + numberOr(entry.cacheRead, 0);
 }
 
 const UNKNOWN_GENERATION_MODEL = 'unknown';
@@ -289,11 +283,11 @@ function foldEntryIntoGenerationRollup(
   pricedModelKey: string | null,
 ): void {
   addCountsToGenerationRollup(rowsByKey, entry, pricedModelKey, {
-    input: safeNumber(entry.input),
-    output: safeNumber(entry.output),
-    cacheRead: safeNumber(entry.cacheRead),
-    cacheCreate: safeNumber(entry.cacheCreate),
-    costUSD: safeNumber(entry.costUSD),
+    input: numberOr(entry.input, 0),
+    output: numberOr(entry.output, 0),
+    cacheRead: numberOr(entry.cacheRead, 0),
+    cacheCreate: numberOr(entry.cacheCreate, 0),
+    costUSD: numberOr(entry.costUSD, 0),
   });
 }
 
@@ -303,7 +297,7 @@ function foldReplacementIntoGenerationRollup(
   replacementEntry: UsageEntryLike,
   pricedModelKey: string | null,
 ): void {
-  const growthOf = (field: keyof TokenCountsSource) => Math.max(0, safeNumber(replacementEntry[field]) - safeNumber(replacedEntry[field]));
+  const growthOf = (field: keyof TokenCountsSource) => Math.max(0, numberOr(replacementEntry[field], 0) - numberOr(replacedEntry[field], 0));
   addCountsToGenerationRollup(rowsByKey, replacementEntry, pricedModelKey, {
     input: growthOf('input'),
     output: growthOf('output'),
@@ -337,12 +331,12 @@ function emptyTotals(): UsageTotals {
 }
 
 function addEntryToTotals(totals: UsageTotals, entry: TokenCountsSource, tokens: number = totalTokensOf(entry)): void {
-  totals.input += safeNumber(entry.input);
-  totals.output += safeNumber(entry.output);
-  totals.cacheCreate += safeNumber(entry.cacheCreate);
-  totals.cacheRead += safeNumber(entry.cacheRead);
+  totals.input += numberOr(entry.input, 0);
+  totals.output += numberOr(entry.output, 0);
+  totals.cacheCreate += numberOr(entry.cacheCreate, 0);
+  totals.cacheRead += numberOr(entry.cacheRead, 0);
   totals.tokens += tokens;
-  totals.costUSD += safeNumber(entry.costUSD);
+  totals.costUSD += numberOr(entry.costUSD, 0);
 }
 
 function vendorUsageEntry({
@@ -391,17 +385,17 @@ function tokenCountsFromUsage(usage: RawUsageCounts): {
   cacheCreation1h: number;
   cacheRead: number;
 } {
-  const input = safeNumber(usage.input_tokens);
-  const output = safeNumber(usage.output_tokens);
+  const input = numberOr(usage.input_tokens, 0);
+  const output = numberOr(usage.output_tokens, 0);
   const cacheCreation = usage.cache_creation && typeof usage.cache_creation === 'object'
     ? (usage.cache_creation as { ephemeral_5m_input_tokens?: unknown; ephemeral_1h_input_tokens?: unknown })
     : null;
   const cacheCreation5m = cacheCreation
-    ? safeNumber(cacheCreation.ephemeral_5m_input_tokens)
-    : safeNumber(usage.cache_creation_input_tokens);
-  const cacheCreation1h = cacheCreation ? safeNumber(cacheCreation.ephemeral_1h_input_tokens) : 0;
+    ? numberOr(cacheCreation.ephemeral_5m_input_tokens, 0)
+    : numberOr(usage.cache_creation_input_tokens, 0);
+  const cacheCreation1h = cacheCreation ? numberOr(cacheCreation.ephemeral_1h_input_tokens, 0) : 0;
   const cacheCreate = cacheCreation5m + cacheCreation1h;
-  const cacheRead = safeNumber(usage.cache_read_input_tokens);
+  const cacheRead = numberOr(usage.cache_read_input_tokens, 0);
   return { input, output, cacheCreate, cacheCreation5m, cacheCreation1h, cacheRead };
 }
 

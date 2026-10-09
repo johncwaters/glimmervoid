@@ -1,4 +1,5 @@
 import { isCompactionRestoreEvent } from '#shared/compaction-restore-events.ts';
+import { localHourMinuteText } from '#shared/display-text.ts';
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { PlanDraftPush } from '#shared/contracts/plan-review.ts';
 import type { PendingPromptDetail } from '#shared/contracts/session.ts';
@@ -530,10 +531,7 @@ export function setSessionPrompt(sessionId: unknown, kind: unknown, detail: Pend
 
 function formatWakeupChip(at: unknown) {
   if (!at) return 'scheduled';
-  const d = new Date(at as string | number);
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  return `sleeping until ~${hh}:${mm}`;
+  return `sleeping until ~${localHourMinuteText(new Date(at as string | number))}`;
 }
 
 export function setSessionWakeup(sessionId: unknown, pending: ServerMessageOf<'session-wakeup'>['pendingWakeup']) {

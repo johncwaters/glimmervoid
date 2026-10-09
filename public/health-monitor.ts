@@ -1,3 +1,4 @@
+import { byteSizeText, twoUnitDurationText } from '#shared/display-text.ts';
 import { sendControlMsg } from './control-ws.ts';
 import { el, escapeHtml } from './dom-helpers.ts';
 import { anomalyCount, shouldShowHealthMonitor } from './health-monitor-core.ts';
@@ -57,17 +58,12 @@ const NO_VALUE = String.fromCharCode(0x2014);
 
 function formatBytes(n: number | null | undefined) {
   if (n == null) return NO_VALUE;
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  return byteSizeText(n, 'GB');
 }
 
 function formatUptime(s: number | null | undefined) {
   if (s == null) return NO_VALUE;
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
-  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  return twoUnitDurationText(s, { smallestUnit: 's', dropsZeroRemainder: false });
 }
 
 function buildPanel() {

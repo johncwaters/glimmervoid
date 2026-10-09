@@ -6,7 +6,6 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import type { WebSocket, WebSocketServer } from 'ws';
 import {
   BRANCH_GC_CONTROL_BOOLEAN_KEYS, BRANCH_GC_CONTROL_NUMERIC_KEYS,
@@ -37,7 +36,7 @@ import type { PrGh } from './pr-gh.ts';
 import { buildSettingsPayload as buildSettingsPayloadFrom } from './settings-payload.ts';
 import { RESUME_ID_RE } from '../session/core/auto-resume.ts';
 import { planWorkspace } from '../session/core/workspace-core.ts';
-import { execFile } from './child-process-safe.ts';
+import { runGit } from './git-exec.ts';
 import { DEFAULT_AGENT_ID, describeAgentResolvability, isKnownAgentId, listAgentIds } from '../session/adapters/index.ts';
 import { HOOK_EVENT_CATALOG, ID_RE as HOOK_ID_RE, MAX_TIMEOUT_SEC as HOOK_MAX_TIMEOUT_SEC, normalizeHook, rawStoredHooks, readStoredHooks, removeHook, upsertHook } from '../session/core/user-hooks-core.ts';
 import { describeBuiltinHooks } from '../detection/settings-injector.ts';
@@ -82,7 +81,8 @@ import type { TracePage, TracePageRequest } from './trace-wiring.ts';
 import { createChangeMapService } from './change-map-wiring.ts';
 import type { ChangeMapNarrator } from './change-map-wiring.ts';
 import type { Telemetry } from './telemetry.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorCode, errorMessage, isMissingFileError } from '../shared/text.ts';
+import { isRecord } from '../shared/coerce.ts';
 
 type ControlRequest = ClientMessage;
 type ControlHandler<Type extends ClientMessage['type']> = (msg: ClientMessageOf<Type>, ws: ControlSocket) => unknown;
@@ -162,11 +162,6 @@ interface ControlHandlerDeps {
   readPlanRevision?: ((sessionId: string, request: PlanReadRequest) => Promise<PlanReadResult | null>) | null;
   decidePlanReview?: ((sessionId: string, decision: PlanDecision) => string | null) | null;
   telemetry?: Pick<Telemetry, 'captureException' | 'captureClientError'> | null;
-}
-
-function errorCode(error: unknown): string | undefined {
-  const code = (error as { code?: unknown } | null)?.code;
-  return typeof code === 'string' ? code : undefined;
 }
 
 function scanRepoRoots(roots: string[] | undefined): { root: string; projects: { name: string; path: string }[] }[] {
@@ -252,7 +247,7 @@ const USAGE_VALUE_KEYS = Object.freeze(['costMode', 'extraProjectsDirs']);
 const TELEGRAM_STRING_KEYS = Object.freeze(['botToken', 'chatId']);
 
 function mergeSettingsBlockOverStored(stored: unknown, incoming: Record<string, unknown>): Record<string, unknown> {
-  const merged: Record<string, unknown> = stored && typeof stored === 'object' && !Array.isArray(stored) ? { ...stored } : {};
+  const merged: Record<string, unknown> = isRecord(stored) ? { ...stored } : {};
   for (const [key, value] of Object.entries(incoming)) {
     if (value === undefined) continue;
     merged[key] = value;
@@ -303,11 +298,12 @@ const DASHBOARD_SETTING_PATHS = Object.freeze([
 ]);
 
 const USAGE_REPORT_MAX_DAYS = 3650;
-const execFileAsync = promisify(execFile);
+const CONVERSATION_HISTORY_GIT_TIMEOUT_MS = 20000;
 
 async function runGitForConversationHistory(args: string[], cwd: string): Promise<string> {
-  const { stdout } = await execFileAsync('git', args, { cwd, encoding: 'utf8', timeout: 20000 });
-  return stdout;
+  const result = await runGit(args, { cwd, timeoutMs: CONVERSATION_HISTORY_GIT_TIMEOUT_MS, trim: false });
+  if (!result.ok) throw result.error;
+  return result.out;
 }
 
 function sendError(ws: ControlSocket, message: string, { type = 'error', requestId, id, scope }: { type?: string; requestId?: string | null; id?: string; scope?: string } = {}): void {
@@ -883,7 +879,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
         }
       } catch (err) {
 
-        if (errorCode(err) === 'ENOENT' || errorCode(err) === 'ENOTDIR') continue;
+        if (isMissingFileError(err)) continue;
         console.warn(`[control] posthog auto-create: cannot read ${parent}: ${errorCode(err) || errorMessage(err)}`);
       }
     }

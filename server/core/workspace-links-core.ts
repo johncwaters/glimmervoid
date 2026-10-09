@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { CHANGE_MAP_LIST_CAP, changeMapFactId } from '../../shared/contracts/change-map.ts';
 import type { CrossRepoLink } from '../../shared/contracts/change-map.ts';
-import { isRecord } from './change-map-core.ts';
+import { isRecord } from '../../shared/coerce.ts';
 
 export interface PackageManifest {
   name: string | null;

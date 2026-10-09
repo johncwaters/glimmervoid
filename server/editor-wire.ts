@@ -10,6 +10,7 @@ import {
 import type { JsonSettingsTarget, WireInvocation } from './core/editor-wire-core.ts';
 import { resolvePathCommandMatches } from '../session/core/spawn-command.ts';
 import type { PathLookupExec } from '../session/core/spawn-command.ts';
+import { errorMessage } from '../shared/text.ts';
 
 type CommandExec = PathLookupExec;
 
@@ -157,7 +158,7 @@ function applyPlan(target: EditorTarget, existingText: string | null, plan: Edit
     backupOnce(target.filePath, existingText);
     fs.writeFileSync(target.filePath, plan.text);
   } catch (error) {
-    return { ...outcome(target), action: 'failed', reason: error instanceof Error ? error.message : String(error) };
+    return { ...outcome(target), action: 'failed', reason: errorMessage(error) };
   }
   return { ...outcome(target), action: plan.text === null ? 'removed' : 'wrote', reason: plan.reason };
 }

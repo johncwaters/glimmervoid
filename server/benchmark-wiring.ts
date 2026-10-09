@@ -8,7 +8,7 @@ import { pairedReport, runBenchmark } from './core/benchmark-core.ts';
 import type { BenchmarkRunnerDependencies, PlannedCell } from './core/benchmark-core.ts';
 import { mineCandidates } from './core/benchmark-mining-core.ts';
 import { absolutePathReadRule } from './core/team-review-core.ts';
-import { writeJsonAtomic } from './json-file.ts';
+import { loadJsonStateFile, loadedJsonValue, writeJsonAtomic } from './json-file.ts';
 import type { LaneSpawn } from './lane-spawn.ts';
 import type { PrGh } from './pr-gh.ts';
 import { allowSandboxedSpawn } from './sandbox-deps.ts';
@@ -23,7 +23,7 @@ import type {
   BenchmarkRun as BenchmarkRunType, BenchmarkStatus as BenchmarkStatusType, BenchmarkSuite as BenchmarkSuiteType,
   BenchmarkSuiteSummary,
 } from '../shared/contracts/benchmark.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
 
 const BENCHMARK_LANE_ID = 'benchmark';
 const SUBJECT_PROMPT_FILENAME = 'subject-prompt.md';
@@ -173,7 +173,7 @@ function worktreeOwnerRepo(gitFileText: string): string | null {
 }
 
 async function readJsonFile(filePath: string): Promise<unknown> {
-  return JSON.parse(await fs.readFile(filePath, 'utf8'));
+  return loadedJsonValue(await loadJsonStateFile({ filePath, fsPromises: fs, parse: (raw: unknown) => raw, quarantine: false }));
 }
 
 async function jsonFileNames(directory: string): Promise<string[]> {
@@ -215,7 +215,7 @@ function createBenchmarkWiring({
   }
 
   async function loadSuite(suiteId: string): Promise<{ ok: true; suite: BenchmarkSuiteType } | { ok: false; reason: string }> {
-    const parsed = BenchmarkSuite.safeParse(await readJsonFile(path.join(suiteDir(suiteId), 'suite.json')).catch(() => null));
+    const parsed = BenchmarkSuite.safeParse(await readJsonFile(path.join(suiteDir(suiteId), 'suite.json')));
     if (!parsed.success) return { ok: false, reason: `${suiteId}/suite.json is missing or invalid: ${firstIssue(parsed.error)}` };
     if (parsed.data.id !== suiteId) return { ok: false, reason: `${suiteId}/suite.json names a different id, ${parsed.data.id}` };
     return { ok: true, suite: parsed.data };
@@ -225,7 +225,7 @@ function createBenchmarkWiring({
     const directory = path.join(suiteDir(suiteId), folder);
     const cases: BenchmarkCaseType[] = [];
     for (const fileName of await jsonFileNames(directory)) {
-      const parsed = BenchmarkCase.safeParse(await readJsonFile(path.join(directory, fileName)).catch(() => null));
+      const parsed = BenchmarkCase.safeParse(await readJsonFile(path.join(directory, fileName)));
       if (!parsed.success) return { ok: false, reason: `${suiteId}/${folder}/${fileName} is invalid: ${firstIssue(parsed.error)}` };
       if (`${parsed.data.id}.json` !== fileName) return { ok: false, reason: `${suiteId}/${folder}/${fileName} names a different id, ${parsed.data.id}` };
       cases.push(parsed.data);
@@ -237,7 +237,7 @@ function createBenchmarkWiring({
     const directory = path.join(suiteDir(suiteId), 'runs');
     let newest: BenchmarkRunType | null = null;
     for (const fileName of await jsonFileNames(directory)) {
-      const parsed = BenchmarkRun.safeParse(await readJsonFile(path.join(directory, fileName)).catch(() => null));
+      const parsed = BenchmarkRun.safeParse(await readJsonFile(path.join(directory, fileName)));
       if (!parsed.success) continue;
       if (newest && newest.startedAt >= parsed.data.startedAt) continue;
       newest = parsed.data;
@@ -578,7 +578,7 @@ function createBenchmarkWiring({
   async function settleStaleRuns(runsDir: string): Promise<void> {
     for (const fileName of await jsonFileNames(runsDir)) {
       const runPath = path.join(runsDir, fileName);
-      const parsed = BenchmarkRun.safeParse(await readJsonFile(runPath).catch(() => null));
+      const parsed = BenchmarkRun.safeParse(await readJsonFile(runPath));
       if (!parsed.success || parsed.data.status !== 'running') continue;
       await writeJsonAtomic(runPath, { ...parsed.data, status: 'interrupted', finishedAt: now() });
     }

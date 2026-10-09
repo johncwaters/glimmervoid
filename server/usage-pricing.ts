@@ -7,7 +7,8 @@ import type { ModelPrice } from './core/usage-pricing-core.ts';
 import pricingSnapshot from './data/claude-pricing.json' with { type: 'json' };
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLog } from './lane-log.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
+import { loadJsonStateFile, loadedJsonValue, writeJsonAtomic } from './json-file.ts';
 
 const LITELLM_PRICING_URL = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -33,6 +34,8 @@ interface PricingFileSystem {
   readFile: (filePath: string, encoding: 'utf8') => Promise<string>;
   mkdir: (dirPath: string, options: { recursive: true }) => Promise<string | undefined>;
   writeFile: (filePath: string, data: string) => Promise<void>;
+  rename: (from: string, to: string) => Promise<void>;
+  rm: (filePath: string, options: { force: boolean }) => Promise<void>;
 }
 
 interface PricingResult {
@@ -139,18 +142,16 @@ async function fetchPricing(
   }
 }
 
+function parseCachedPricing(parsed: unknown): CachedPricing | null {
+  if (!parsed || typeof parsed !== 'object') return null;
+  const doc = parsed as { fetchedAt?: unknown; models?: unknown };
+  if (!doc.models || typeof doc.models !== 'object') return null;
+  const fetchedAt = typeof doc.fetchedAt === 'string' || typeof doc.fetchedAt === 'number' ? doc.fetchedAt : null;
+  return { fetchedAt, models: doc.models as ModelTable };
+}
+
 async function readCache(fsPromises: PricingFileSystem, cachePath: string): Promise<CachedPricing | null> {
-  try {
-    const text = await fsPromises.readFile(cachePath, 'utf8');
-    const parsed: unknown = JSON.parse(String(text));
-    if (!parsed || typeof parsed !== 'object') return null;
-    const doc = parsed as { fetchedAt?: unknown; models?: unknown };
-    if (!doc.models || typeof doc.models !== 'object') return null;
-    const fetchedAt = typeof doc.fetchedAt === 'string' || typeof doc.fetchedAt === 'number' ? doc.fetchedAt : null;
-    return { fetchedAt, models: doc.models as ModelTable };
-  } catch {
-    return null;
-  }
+  return loadedJsonValue(await loadJsonStateFile({ filePath: cachePath, fsPromises, parse: parseCachedPricing, quarantine: false }));
 }
 
 async function writeCache({ fsPromises, cachePath, fetchedAt, models, laneLog }: {
@@ -161,8 +162,7 @@ async function writeCache({ fsPromises, cachePath, fetchedAt, models, laneLog }:
   laneLog: LaneLog;
 }): Promise<void> {
   try {
-    await fsPromises.mkdir(path.dirname(cachePath), { recursive: true });
-    await fsPromises.writeFile(cachePath, JSON.stringify({ fetchedAt, models }, null, 2));
+    await writeJsonAtomic(cachePath, { fetchedAt, models }, { mkdir: true, fsPromises });
   } catch (error) {
     laneLog.warn('pricing cache write failed', {
       path: cachePath,

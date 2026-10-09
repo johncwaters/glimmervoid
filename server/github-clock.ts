@@ -1,11 +1,13 @@
 import { runsEveryTicks } from './core/github-clock-core.ts';
 import type { SharedClock } from './lane-runner.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
+import type { ClearIntervalFn, SetIntervalFn } from './core/timer-deps.ts';
 
 interface GithubClockOptions {
   baseIntervalMs: number;
-  setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearIntervalFn?: (handle: NodeJS.Timeout) => void;
+  setIntervalFn?: SetIntervalFn;
+  clearIntervalFn?: ClearIntervalFn;
   log?: Pick<Console, 'warn'>;
 }
 
@@ -15,7 +17,7 @@ interface ClockSubscription {
   ticksSinceRun: number;
 }
 
-export function createGithubClock({ baseIntervalMs, setIntervalFn = (fn, ms) => setInterval(fn, ms), clearIntervalFn = clearInterval, log = console }: GithubClockOptions) {
+export function createGithubClock({ baseIntervalMs, setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn, clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn, log = console }: GithubClockOptions) {
   const subscriptions = new Set<ClockSubscription>();
   let timer: NodeJS.Timeout | null = null;
   let isSweeping = false;
@@ -53,7 +55,7 @@ export function createGithubClock({ baseIntervalMs, setIntervalFn = (fn, ms) => 
     subscriptions.add(subscription);
     if (!timer) {
       timer = setIntervalFn(() => { void sweep(); }, baseIntervalMs);
-      if (typeof timer.unref === 'function') timer.unref();
+      unrefTimer(timer);
     }
     return () => {
       subscriptions.delete(subscription);

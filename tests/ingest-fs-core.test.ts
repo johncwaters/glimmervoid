@@ -7,7 +7,7 @@ import path from 'node:path';
 import {
   IGNORED_DIR_NAMES, MAX_FILES_PER_BATCH, MAX_TRACKED_FILES, MAX_UNTRACKED_KEYS, TRUNCATED_SUFFIX,
   batchSize, buildIgnorePatterns, createBatch, daemonWriteRules, decideFsEvents, dedupeRoots,
-  deriveSessionRoots, isActiveSessionState, isIgnoredChange, isPathInside, mergeChange, normalizeRoots,
+  deriveSessionRoots, isActiveSessionState, isIgnoredChange, mergeChange, normalizeRoots,
   recordChange, relativeWithin,
 } from '../server/core/ingest-fs-core.ts';
 import { createIngestStore, publishEvent, resolveIngestConfig, ringStats } from '../server/core/ingest-core.ts';
@@ -254,15 +254,6 @@ test('a root inside another root is dropped, so one change is never reported twi
 
 test('two spellings of one Windows directory are one root', { skip: !WIN }, () => {
   assert.deepEqual(dedupeRoots(['C:\\Work\\Project', 'c:\\work\\project']), ['C:\\Work\\Project']);
-  assert.equal(isPathInside('C:\\Work', 'c:\\work\\project\\src'), true);
-});
-
-test('isPathInside reads a path, never a prefix of its spelling', () => {
-  assert.equal(isPathInside(ROOT, ROOT), true, 'a root contains itself');
-  assert.equal(isPathInside(ROOT, path.join(ROOT, 'src', 'app.js')), true);
-  assert.equal(isPathInside(ROOT, `${ROOT}-other`), false, 'a sibling sharing a name prefix is outside');
-  assert.equal(isPathInside(ROOT, path.join(ROOT, '..', 'other')), false);
-  assert.equal(isPathInside(null, ROOT), false);
 });
 
 test('an event naming something outside its root has no relative path', () => {

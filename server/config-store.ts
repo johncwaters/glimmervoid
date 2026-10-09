@@ -12,10 +12,10 @@ import { AGENT_ID_SHAPE_MESSAGE, BranchGcFileSettings, Config, configIssueMessag
 import type { CustomAgentDeclaration } from '../shared/contracts/index.ts';
 import { DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS } from '../shared/contracts/workflows.ts';
 import type { WorkflowRule } from '../shared/contracts/workflows.ts';
-import { isPlainObject } from './core/usage-number-core.ts';
 import { INGEST_SPEC, pickSettingsBlock } from './core/settings-block-core.ts';
 import { writeJsonAtomicSync, writeTextAtomic, writeTextAtomicSync } from './json-file.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorLabel, errorMessage } from '../shared/text.ts';
+import { isRecord } from '../shared/coerce.ts';
 
 type ProjectEntry = Config['projects'][number] & { id: string; name: string };
 interface GlimmervoidConfig extends Config {
@@ -136,12 +136,6 @@ const ABORT_CONFIG_SAVE = 'abort-config-save';
 const CONFIG_DIR_MODE = 0o700;
 const CONFIG_FILE_MODE = 0o600;
 
-function errorCode(error: unknown): string {
-  const source = (error ?? {}) as { code?: unknown; message?: unknown };
-  if (typeof source.code === 'string') return source.code;
-  return typeof source.message === 'string' ? source.message : String(error);
-}
-
 function glimmervoidHomeDir(): string {
   return resolveGlimmervoidHomeDir(os.homedir(), process.env);
 }
@@ -169,8 +163,7 @@ function resolveConfigPath(): string {
   const homeConfig = decided.homePath;
   fs.mkdirSync(homeDir, { recursive: true, mode: CONFIG_DIR_MODE });
   restrictMode(homeDir, CONFIG_DIR_MODE);
-  fs.writeFileSync(homeConfig, JSON.stringify(DEFAULT_CONFIG, null, 2), { encoding: 'utf8', mode: CONFIG_FILE_MODE });
-  restrictMode(homeConfig, CONFIG_FILE_MODE);
+  writeJsonAtomicSync(homeConfig, DEFAULT_CONFIG, { mode: CONFIG_FILE_MODE, enforceMode: true });
   console.log(`Created default config at ${homeConfig}`);
   return homeConfig;
 }
@@ -180,7 +173,7 @@ function generateProjectId(): string {
 }
 
 function validateConfig(candidate: unknown): ConfigValidation {
-  if (!isPlainObject(candidate)) return { ok: false, errors: ['config must be a plain object'] };
+  if (!isRecord(candidate)) return { ok: false, errors: ['config must be a plain object'] };
   const parsedConfig = Config.safeParse(candidate);
   if (!parsedConfig.success) {
     const errors = parsedConfig.error.issues.map((issue) => {
@@ -205,7 +198,7 @@ function validateConfig(candidate: unknown): ConfigValidation {
 }
 
 function normalizeConfigFile(candidate: unknown): GlimmervoidConfig {
-  if (!isPlainObject(candidate)) throw new Error('config must be a plain object');
+  if (!isRecord(candidate)) throw new Error('config must be a plain object');
   const draft: Record<string, unknown> = candidate;
   for (const [key, fallback] of Object.entries(DEFAULT_CONFIG_BY_KEY)) {
     if (fallback === null || typeof fallback === 'object') continue;
@@ -222,10 +215,9 @@ function normalizeConfigFile(candidate: unknown): GlimmervoidConfig {
 
 function writeBackupContent(backupPath: string, content: string): void {
   try {
-    fs.writeFileSync(backupPath, content, { encoding: 'utf8', mode: CONFIG_FILE_MODE });
-    restrictMode(backupPath, CONFIG_FILE_MODE);
+    writeTextAtomicSync(backupPath, content, { mode: CONFIG_FILE_MODE, enforceMode: true });
   } catch (err) {
-    console.warn(`[config] Failed to write backup ${backupPath}:`, errorCode(err));
+    console.warn(`[config] Failed to write backup ${backupPath}:`, errorLabel(err));
   }
 }
 
@@ -252,10 +244,9 @@ function loadConfigFile(configPath: string, { exitOnError = true }: { exitOnErro
   } catch (err) {
     const invalidBackupPath = `${configPath}.invalid.bak`;
     try {
-      fs.writeFileSync(invalidBackupPath, loadedContent, { encoding: 'utf8', mode: CONFIG_FILE_MODE });
-      restrictMode(invalidBackupPath, CONFIG_FILE_MODE);
+      writeTextAtomicSync(invalidBackupPath, loadedContent, { mode: CONFIG_FILE_MODE, enforceMode: true });
     } catch (backupErr) {
-      console.warn(`[config] Failed to save invalid config copy ${invalidBackupPath}:`, errorCode(backupErr));
+      console.warn(`[config] Failed to save invalid config copy ${invalidBackupPath}:`, errorLabel(backupErr));
     }
     const message = `[config] Could not load ${configPath}: ${errorMessage(err)}. The broken file was copied to ${invalidBackupPath} when possible. Restore from ${configPath}.boot.bak or ${configPath}.bak, then restart Glimmervoid.`;
     if (!exitOnError) return { error: err, message, invalidBackupPath };
@@ -265,7 +256,7 @@ function loadConfigFile(configPath: string, { exitOnError = true }: { exitOnErro
 }
 
 function topLevelKeyCount(candidate: unknown): number {
-  if (!isPlainObject(candidate)) return 0;
+  if (!isRecord(candidate)) return 0;
   return Object.keys(candidate).length;
 }
 
@@ -298,7 +289,7 @@ function ensureProjectIds(projects: { id?: string }[]): boolean {
 type BranchGcBlock = DefaultConfig['branchGc'];
 
 function collectBranchGcIssues(branchGc: unknown): { block: BranchGcBlock; issues: string[] } {
-  if (!isPlainObject(branchGc)) return { block: { ...DEFAULT_CONFIG.branchGc }, issues: [] };
+  if (!isRecord(branchGc)) return { block: { ...DEFAULT_CONFIG.branchGc }, issues: [] };
   const accepted: Record<string, unknown> = {};
   const issues: string[] = [];
   for (const [field, value] of Object.entries(branchGc)) {
@@ -343,7 +334,7 @@ function pickRedactedBlock(
   allowedKeys: readonly string[],
   secretKeys: readonly string[],
 ): Record<string, unknown> | null {
-  if (!isPlainObject(stored)) return null;
+  if (!isRecord(stored)) return null;
   const source: Record<string, unknown> = stored;
   const redacted: Record<string, unknown> = {};
   for (const key of allowedKeys) {
@@ -409,7 +400,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     try {
       loaded = loadConfigFile(configPath, { exitOnError: false });
     } catch (err) {
-      console.warn('[config] Failed to read config.json for save:', errorCode(err));
+      console.warn('[config] Failed to read config.json for save:', errorLabel(err));
       return null;
     }
     if ('error' in loaded) {
@@ -432,7 +423,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       lastSynchronousContent = nextContent;
       synchronousWriteRevision++;
     } catch (err) {
-      console.warn('[config] Failed to write config.json:', errorCode(err));
+      console.warn('[config] Failed to write config.json:', errorLabel(err));
       return null;
     }
     return effectiveConfig;
@@ -456,10 +447,9 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
           const nextContent = JSON.stringify(withoutEnvSecrets(effectiveConfig, envSecrets), null, 2);
           if (freshContent !== nextContent) {
             try {
-              await fs.promises.writeFile(`${configPath}.bak`, freshContent, { encoding: 'utf8', mode: CONFIG_FILE_MODE });
-              if (process.platform !== 'win32') await fs.promises.chmod(`${configPath}.bak`, CONFIG_FILE_MODE);
+              await writeTextAtomic(`${configPath}.bak`, freshContent, { mode: CONFIG_FILE_MODE, enforceMode: process.platform !== 'win32' });
             } catch (error) {
-              console.warn(`[config] Failed to write backup ${configPath}.bak:`, errorCode(error));
+              console.warn(`[config] Failed to write backup ${configPath}.bak:`, errorLabel(error));
             }
           }
           if (revision !== synchronousWriteRevision) {

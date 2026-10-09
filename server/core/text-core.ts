@@ -1,8 +1,6 @@
-const OTHER_CATEGORY_RE = /\p{C}+/gu;
+import { errorMessage } from '../../shared/text.ts';
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+const OTHER_CATEGORY_RE = /\p{C}+/gu;
 
 function firstLine(text: unknown): string {
   return String(text ?? '').split(/\r?\n/)[0].trim();

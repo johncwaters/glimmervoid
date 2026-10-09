@@ -3,6 +3,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { errorCode, errorText } from '../shared/text.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './core/config-path-core.ts';
 import {
@@ -36,15 +37,6 @@ interface InstallRtkOptions {
   timeoutMs?: number;
   log?: Pick<Console, 'log' | 'warn'> | null;
   asset?: ResolvedAsset | null;
-}
-
-function errorText(err: unknown): string {
-  const failure = (err ?? {}) as { message?: unknown };
-  return failure.message ? String(failure.message) : String(err);
-}
-
-function errorCode(err: unknown): unknown {
-  return (err as { code?: unknown } | null)?.code;
 }
 
 async function downloadCapped(

@@ -8,6 +8,7 @@ import {
 } from './pairings-store.ts';
 import type { PairingsStore, SeenStore } from './pairings-store.ts';
 import { formatTimestamp } from './text-format.ts';
+import { errorMessage } from '../shared/text.ts';
 
 const PASSWORD_WARNING = [
   'Treat this link like a password. Anyone who opens it gets full control of this',
@@ -25,7 +26,7 @@ function readConfig(configPath: string): { remote?: unknown } | null {
   try {
     return JSON.parse(fs.readFileSync(configPath, 'utf8'));
   } catch (err) {
-    console.error(`Could not read ${configPath}: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`Could not read ${configPath}: ${errorMessage(err)}`);
     return null;
   }
 }

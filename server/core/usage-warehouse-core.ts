@@ -1,6 +1,6 @@
 import type { UsageTotals } from './usage-entry-core.ts';
 import { addEntryToTotals, emptyTotals } from './usage-entry-core.ts';
-import { safeNumber, stringOrNull } from './usage-number-core.ts';
+import { numberOr, rawTextOr } from '../../shared/coerce.ts';
 
 export interface WarehouseRecord {
   day: string;
@@ -43,10 +43,10 @@ function rollupFromReport(
 ): WarehouseRecord[] {
   const records: WarehouseRecord[] = [];
   for (const dayRow of daily || []) {
-    const day = stringOrNull(dayRow?.day);
+    const day = rawTextOr(dayRow?.day, null);
     if (!day) continue;
     for (const modelRow of dayRow.models || []) {
-      const model = stringOrNull(modelRow?.model);
+      const model = rawTextOr(modelRow?.model, null);
       if (!model || !modelRow) continue;
       const record = recordFromModelRow(day, modelRow);
       if (record) records.push(record);
@@ -60,7 +60,7 @@ function mergeWarehouse(
   freshRecords: Array<RawWarehouseRecord | null | undefined> | null | undefined,
   { liveDays }: { liveDays?: string[] } = {},
 ): WarehouseRecord[] {
-  const liveDaySet = new Set((liveDays || []).filter((day) => stringOrNull(day)));
+  const liveDaySet = new Set((liveDays || []).filter((day) => rawTextOr(day, null)));
   const freshByKey = new Map<string, WarehouseRecord>();
   for (const freshRecord of freshRecords || []) {
     const record = normalizeRecord(freshRecord);
@@ -123,24 +123,24 @@ function recordFromModelRow(day: string, modelRow: RawWarehouseRecord): Warehous
 }
 
 function normalizeRecord(record: RawWarehouseRecord | null | undefined): WarehouseRecord | null {
-  const day = stringOrNull(record?.day);
-  const model = stringOrNull(record?.model);
+  const day = rawTextOr(record?.day, null);
+  const model = rawTextOr(record?.model, null);
   if (!day || !model) return null;
   if (!record) return null;
   return {
     day,
     model,
-    input: safeNumber(record.input),
-    output: safeNumber(record.output),
-    cacheCreate: safeNumber(record.cacheCreate),
-    cacheRead: safeNumber(record.cacheRead),
-    tokens: safeNumber(record.tokens),
-    costUSD: safeNumber(record.costUSD),
+    input: numberOr(record.input, 0),
+    output: numberOr(record.output, 0),
+    cacheCreate: numberOr(record.cacheCreate, 0),
+    cacheRead: numberOr(record.cacheRead, 0),
+    tokens: numberOr(record.tokens, 0),
+    costUSD: numberOr(record.costUSD, 0),
   };
 }
 
 function cutoffDayKey(todayKey: unknown, retainDays: unknown): string | null {
-  if (!stringOrNull(todayKey)) return null;
+  if (!rawTextOr(todayKey, null)) return null;
   if (typeof retainDays !== 'number' || !Number.isInteger(retainDays) || retainDays < 1) return null;
   const todayMs = Date.parse(`${todayKey}T00:00:00Z`);
   if (!Number.isFinite(todayMs)) return null;

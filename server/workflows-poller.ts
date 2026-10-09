@@ -9,6 +9,8 @@ import type { LaneStatusRecord, SharedClock } from './lane-runner.ts';
 import type { PrGh } from './pr-gh.ts';
 import { WorkflowsState } from '../shared/contracts/workflows.ts';
 import type { WorkflowRule, WorkflowsState as WorkflowsStateType } from '../shared/contracts/workflows.ts';
+import { errorMessage } from '../shared/text.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from './core/timer-deps.ts';
 
 const WORKFLOWS_RATE_LIMIT_RESOURCES = ['graphql'] as const;
 
@@ -24,7 +26,7 @@ export function createWorkflowSessionQueue({ spawnSession, log = console, maxCon
 
   function launchSession(planned: SpawnPlannedAction): void {
     const pending = spawnSession(planned, shutdownController.signal)
-      .catch((error: unknown) => log.warn(`[${core.WORKFLOWS_LANE_ID}] ${planned.rule.id} session failed: ${firstLine(error instanceof Error ? error.message : String(error))}`))
+      .catch((error: unknown) => log.warn(`[${core.WORKFLOWS_LANE_ID}] ${planned.rule.id} session failed: ${firstLine(errorMessage(error))}`))
       .finally(() => {
         pendingSessions.delete(pending);
         startDeferredSessions();
@@ -83,10 +85,10 @@ interface WorkflowsPollerDependencies {
   onTickComplete: (status: LaneStatusRecord) => void;
   now?: () => number;
   intervalMinutes?: number;
-  setIntervalFn?: (callback: () => void, milliseconds: number) => NodeJS.Timeout;
-  clearIntervalFn?: (handle: NodeJS.Timeout) => void;
-  setTimeoutFn?: (callback: () => void, milliseconds: number) => NodeJS.Timeout;
-  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+  setIntervalFn?: SetIntervalFn;
+  clearIntervalFn?: ClearIntervalFn;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
   clock?: SharedClock;
   firstTickDelayMs?: () => number;
   beforeStart?: () => Promise<void>;
@@ -121,7 +123,7 @@ export function createWorkflowsPoller(dependencies: WorkflowsPollerDependencies)
       try {
         return await runTick();
       } catch (error: unknown) {
-        pollingError = error instanceof Error ? error.message : String(error);
+        pollingError = errorMessage(error);
         return failedOutcome(pollingError);
       }
     },

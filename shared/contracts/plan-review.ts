@@ -11,8 +11,13 @@ export const PLAN_HOOK_EVENT = 'permissionrequest-plan';
 export const PLAN_RESULT_HOOK_EVENT = 'posttooluse-plan';
 export const PLAN_TOOL_NAME = 'ExitPlanMode';
 
-const HEADING_SCAN_MAX_CHARS = 4096;
-const ATX_HEADING = /^ {0,3}#{1,6}[ \t]+(.*)$/;
+export const HEADING_SCAN_MAX_CHARS = 4096;
+export const ATX_HEADING = /^ {0,3}(#{1,6})[ \t]+(.*)$/;
+
+export interface AtxHeading {
+  level: number;
+  text: string;
+}
 
 function capPlanTitle(text: string): string {
   const trimmed = text.trim();
@@ -20,7 +25,7 @@ function capPlanTitle(text: string): string {
   return trimmed.slice(0, PLAN_TITLE_MAX_CHARS);
 }
 
-function withoutClosingHeadingMarks(text: string): string {
+export function withoutClosingHeadingMarks(text: string): string {
   const trimmed = text.trimEnd();
   let textEnd = trimmed.length;
   while (textEnd > 0 && trimmed[textEnd - 1] === '#') textEnd--;
@@ -30,10 +35,15 @@ function withoutClosingHeadingMarks(text: string): string {
   return trimmed.slice(0, textEnd).trimEnd();
 }
 
-function headingTitle(line: string): string {
+export function parseAtxHeading(line: string, { overlongLine }: { overlongLine: 'truncate' | 'reject' }): AtxHeading | null {
+  if (overlongLine === 'reject' && line.length > HEADING_SCAN_MAX_CHARS) return null;
   const heading = ATX_HEADING.exec(line.slice(0, HEADING_SCAN_MAX_CHARS));
-  if (!heading) return '';
-  return withoutClosingHeadingMarks(heading[1]);
+  if (!heading) return null;
+  return { level: heading[1].length, text: withoutClosingHeadingMarks(heading[2]) };
+}
+
+function headingTitle(line: string): string {
+  return parseAtxHeading(line, { overlongLine: 'truncate' })?.text ?? '';
 }
 
 export function planTitle(plan: unknown): string {

@@ -6,10 +6,13 @@ import {
   isIgnoredChange, normalizeRoots, recordChange, relativeWithin,
 } from './core/ingest-fs-core.ts';
 import type { FsBatch, FsIngestEvent } from './core/ingest-fs-core.ts';
-import { positiveInt } from './core/ingest-number-core.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
+import { positiveIntOr } from '../shared/coerce.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from './core/timer-deps.ts';
+import { createSerialQueue } from './spawn-gate.ts';
 
 const DEFAULT_MAX_ROOTS = 8;
 const CONFIG_HOLDER = 'config:fs.roots';
@@ -34,14 +37,9 @@ interface FsIngestOptions {
   loadWatcher?: () => unknown;
   canonicalize?: (path: string) => string;
   nowFn?: () => number;
-  setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
   maxRoots?: number;
-}
-
-function unrefTimer(timer: NodeJS.Timeout): NodeJS.Timeout {
-  if (timer && typeof timer.unref === 'function') timer.unref();
-  return timer;
 }
 
 const requireFromHere = createRequire(import.meta.url);
@@ -62,14 +60,14 @@ function createFsIngest({
   loadWatcher = defaultLoadWatcher,
   canonicalize = canonicalizePath,
   nowFn = Date.now,
-  setTimeoutFn = (fn: () => void, ms: number) => setTimeout(fn, ms),
-  clearTimeoutFn = clearTimeout,
+  setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
+  clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
   maxRoots = DEFAULT_MAX_ROOTS,
 }: FsIngestOptions = {}) {
   if (typeof publish !== 'function') throw new Error('createFsIngest requires publish');
   const publishEvent = publish;
-  const batchMs = positiveInt(sourceConfig.batchMs, DEFAULT_BATCH_MS);
-  const rootLimit = Math.max(1, positiveInt(maxRoots, DEFAULT_MAX_ROOTS));
+  const batchMs = positiveIntOr(sourceConfig.batchMs, DEFAULT_BATCH_MS);
+  const rootLimit = Math.max(1, positiveIntOr(maxRoots, DEFAULT_MAX_ROOTS));
   const ignorePatterns = buildIgnorePatterns();
   const daemonRules = daemonWriteRules(configPath);
   const configuredRoots = normalizeRoots(sourceConfig.roots);
@@ -86,7 +84,7 @@ function createFsIngest({
   let disabled = false;
   let stopped = false;
   let warnedRestart = false;
-  let chain: Promise<void> = Promise.resolve();
+  const reconcileQueue = createSerialQueue();
   let startPromise: Promise<void> | null = null;
 
   function alive(): boolean {
@@ -234,10 +232,9 @@ function createFsIngest({
   }
 
   function reconcile(): Promise<void> {
-    chain = chain.then(() => reconcileOnce()).catch((error: unknown) => {
+    return reconcileQueue.run(() => reconcileOnce()).catch((error: unknown) => {
       warn(`reconciling the fs watch set failed: ${errorMessage(error)}`);
     });
-    return chain;
   }
 
 
@@ -336,10 +333,9 @@ function createFsIngest({
     canonicalCache.clear();
     failedRoots.clear();
     warnedOverflow.clear();
-    chain = chain.then(async () => {
+    return reconcileQueue.run(async () => {
       for (const [root, entry] of pending) await closeSubscription(entry, root);
     }).catch(() => {  });
-    return chain;
   }
 
   return {
@@ -349,7 +345,7 @@ function createFsIngest({
     addRoots,
     releaseHolder,
     reconcile: () => reconcile(),
-    settle: () => chain,
+    settle: () => reconcileQueue.idle(),
     get isDisabled() { return disabled; },
     get rootCount() { return subscriptions.size; },
     get roots() { return [...subscriptions.keys()]; },

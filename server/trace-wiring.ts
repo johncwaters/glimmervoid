@@ -24,7 +24,6 @@ import {
   completeLineBytes,
   containmentRefusalReason,
   isOversizedPartialLine,
-  isPathInsideRoot,
   planContiguousRead,
   resumeOffsetFrom,
   withCommittedOffset,
@@ -37,7 +36,11 @@ import type { JsonStateWriter } from './json-file.ts';
 import { createLaneLog } from './lane-log.ts';
 import { configSiblingPath } from './pairings-store.ts';
 import { pruneAgedFiles } from './prune-files.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
+import type { ClearIntervalFn, SetIntervalFn } from './core/timer-deps.ts';
+import { isPathInside } from '../shared/paths.ts';
+import { createSerialQueue } from './spawn-gate.ts';
 
 const TRACE_RETAIN_DAYS = 7;
 const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -76,8 +79,8 @@ interface TraceWiringOptions {
   logger?: Pick<Console, 'log' | 'warn'> | null;
   debug?: boolean | (() => boolean);
   nowFn?: () => number;
-  setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearIntervalFn?: (handle: NodeJS.Timeout) => void;
+  setIntervalFn?: SetIntervalFn;
+  clearIntervalFn?: ClearIntervalFn;
 }
 
 interface TraceBinding {
@@ -171,8 +174,8 @@ function createTraceWiring({
   logger = console,
   debug = false,
   nowFn = Date.now,
-  setIntervalFn = (fn: () => void, ms: number) => setInterval(fn, ms),
-  clearIntervalFn = clearInterval,
+  setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
+  clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
 }: TraceWiringOptions = {}) {
   const traceDirectory = configSiblingPath(configPath, 'traces');
   const emitter = new EventEmitter();
@@ -186,13 +189,11 @@ function createTraceWiring({
   let hasStopped = false;
   let hasEnsuredDirectory = false;
   let stopPromise: Promise<void> | null = null;
-  let operationChain: Promise<void> = Promise.resolve();
+  const operationQueue = createSerialQueue();
   const laneLog = createLaneLog({ prefix: '[trace]', logger, debugFlag: debug });
 
   function chain(step: () => Promise<void>, failure: string): void {
-    operationChain = operationChain
-      .then(step)
-      .catch((error: unknown) => { laneLog.warn(failure, { error: errorMessage(error) }); });
+    void operationQueue.run(step).catch((error: unknown) => { laneLog.warn(failure, { error: errorMessage(error) }); });
   }
 
   function traceFilePath(glimmervoidSessionId: string): string | null {
@@ -642,7 +643,7 @@ function createTraceWiring({
     const subagentPath = path.resolve(rawPath);
     const subagentRoot = path.dirname(binding.transcriptPath);
     const resolvedProjectsRoot = await realProjectsRoot();
-    if (!resolvedProjectsRoot || !isPathInsideRoot(resolvedProjectsRoot, subagentRoot)) {
+    if (!resolvedProjectsRoot || !isPathInside(resolvedProjectsRoot, subagentRoot, { allowEqual: false })) {
       const reason = resolvedProjectsRoot ? 'outside-root' : 'root-unresolvable';
       laneLog.warnOnce(`subagent:${binding.glimmervoidSessionId}:${reason}`, 'subagent transcript refused', {
         session: binding.glimmervoidSessionId,
@@ -807,16 +808,16 @@ function createTraceWiring({
     hasStarted = true;
     await prune();
     pruneTimer = setIntervalFn(() => { chain(prune, 'prune failed'); }, PRUNE_INTERVAL_MS);
-    if (typeof pruneTimer.unref === 'function') pruneTimer.unref();
+    unrefTimer(pruneTimer);
     pollTimer = setIntervalFn(() => {
       if (bindingByGlimmervoidSessionId.size === 0) return;
       chain(pollBoundTranscripts, 'poll failed');
     }, POLL_INTERVAL_MS);
-    if (typeof pollTimer.unref === 'function') pollTimer.unref();
+    unrefTimer(pollTimer);
   }
 
   async function whenIdle(): Promise<void> {
-    await operationChain;
+    await operationQueue.idle();
     await flushEverySession();
     for (const binding of [...bindingByGlimmervoidSessionId.values()]) await binding.checkpointWriter.idle();
   }
@@ -826,7 +827,7 @@ function createTraceWiring({
     if (pollTimer) clearIntervalFn(pollTimer);
     pruneTimer = null;
     pollTimer = null;
-    await operationChain;
+    await operationQueue.idle();
     for (const binding of [...bindingByGlimmervoidSessionId.values()]) {
       bindingByGlimmervoidSessionId.delete(binding.glimmervoidSessionId);
       try {

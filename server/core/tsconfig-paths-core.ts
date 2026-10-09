@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { isRecord } from './change-map-core.ts';
+import { isRecord } from '../../shared/coerce.ts';
 
 export interface TsconfigPaths {
   extendsPath: string | null;

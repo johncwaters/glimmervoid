@@ -2,13 +2,14 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { SOURCE_DEFAULTS } from './ingest-core.ts';
+import { errorMessage } from '../../shared/text.ts';
+import { HEX_SHA_RE, shortSha } from '../../shared/git-text.ts';
 
 const SOURCE = 'git';
 
 const DEFAULT_DEBOUNCE_MS = SOURCE_DEFAULTS.git.debounceMs;
 const DEFAULT_POLL_MS = SOURCE_DEFAULTS.git.pollMs;
 
-const SHORT_SHA_CHARS = 7;
 const CLEAN_SIGNATURE = 'clean';
 
 export interface GitStatusCounts {
@@ -68,11 +69,6 @@ const LOG_ARGS = Object.freeze(['log', '-1', '--no-color', '--format=%H%x1f%an%x
 
 function commitSubject(text: unknown): string {
   return String(text == null ? '' : text).trim();
-}
-
-function shortSha(sha: unknown): string | null {
-  if (typeof sha !== 'string' || !sha) return null;
-  return sha.slice(0, SHORT_SHA_CHARS);
 }
 
 
@@ -202,7 +198,7 @@ function parseCommitLine(stdout: unknown): GitCommit | null {
   if (!line) return null;
   const fields = line.split(LOG_FIELD_SEPARATOR);
   const sha = (fields[0] || '').trim();
-  if (!/^[0-9a-f]{7,40}$/i.test(sha)) return null;
+  if (!HEX_SHA_RE.test(sha)) return null;
   const seconds = Number(fields[2]);
   return {
     sha,
@@ -245,7 +241,7 @@ interface EventInput {
 }
 
 function commitEvent({ status, commit, root = null, now = 0 }: EventInput): GitIngestEvent {
-  const sha = shortSha(commit?.sha || status.oid);
+  const sha = shortSha(commit?.sha || status.oid) || null;
   return {
     source: SOURCE,
     kind: 'commit',
@@ -262,7 +258,7 @@ function commitEvent({ status, commit, root = null, now = 0 }: EventInput): GitI
 }
 
 function branchChangeEvent({ status, commit, root = null, now = 0 }: EventInput): GitIngestEvent {
-  const sha = shortSha(commit?.sha || status.oid);
+  const sha = shortSha(commit?.sha || status.oid) || null;
   const at = sha ? ` at ${sha}` : '';
   return {
     source: SOURCE,
@@ -329,7 +325,7 @@ function decideGitEvents({
 }
 
 function classifyGitStatusFailure(error: unknown): 'missing-root' | 'check-root' | 'transient' {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errorMessage(error);
   if (/not a git repository/i.test(message)) return 'missing-root';
   if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return 'check-root';
   return 'transient';

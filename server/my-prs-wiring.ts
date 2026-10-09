@@ -17,15 +17,17 @@ import type { PrGh } from './pr-gh.ts';
 import { prBaseRef, prKey, readTeamReviewSettings } from './core/team-review-core.ts';
 import type { TeamReviewSettingsSource } from './core/team-review-core.ts';
 import { createJsonStateStore } from './json-file.ts';
-import { execFileAsync } from './child-process-safe.ts';
 import { drainPending, firstLine, raceWithAbort } from './ephemeral-session.ts';
-import type { CommandResult } from './repo-cache.ts';
+import type { CommandResult } from './git-exec.ts';
 import { emptyGhConfigDir, hooksPathPinnedSpawnEnv, keepMergeableSandbox, makeTeamReviewWorkDir, sweepLeftoverCheckouts } from './team-review-wiring.ts';
 import type { TeamReviewGitWorkspace, TeamReviewRepoCache, TeamReviewSpawn } from './team-review-wiring.ts';
 import type { TeamReviewReapOptions } from './team-review-reaper.ts';
 import { allowSandboxedSpawn } from './sandbox-deps.ts';
 import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 import { CommitSha } from '../shared/contracts/team-review.ts';
+import { errorMessage } from '../shared/text.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from './core/timer-deps.ts';
+import { runGit } from './git-exec.ts';
 
 type MyPrsPoller = ReturnType<typeof createMyPrsPoller>;
 type MyPrsPollerDependencies = Parameters<typeof createMyPrsPoller>[0];
@@ -64,13 +66,8 @@ export function createMyPrsStateIo(statePath: string, log: Pick<Console, 'warn'>
 type KeepMergeableGitRunner = (args: string[], cwd: string, signal?: AbortSignal, env?: Record<string, string>) => Promise<CommandResult>;
 type KeepMergeableSessionOutcome = 'finished' | 'timed-out' | 'stopped' | 'failed';
 
-async function runTrustedGit(args: string[], cwd: string, signal?: AbortSignal, env: Record<string, string> = {}): Promise<CommandResult> {
-  try {
-    const { stdout } = await execFileAsync('git', args, { cwd, encoding: 'utf8', timeout: TRUSTED_GIT_TIMEOUT_MS, signal, env: { ...process.env, ...env, GIT_TERMINAL_PROMPT: '0' } });
-    return { ok: true, out: stdout.trim(), err: '' };
-  } catch (error) {
-    return { ok: false, out: '', err: error instanceof Error ? error.message : String(error) };
-  }
+function runTrustedGit(args: string[], cwd: string, signal?: AbortSignal, env: Record<string, string> = {}): Promise<CommandResult> {
+  return runGit(args, { cwd, signal, env, timeoutMs: TRUSTED_GIT_TIMEOUT_MS });
 }
 
 async function deleteHandoffRefs(projectPath: string, runGit: KeepMergeableGitRunner, log: Pick<Console, 'warn'>): Promise<void> {
@@ -93,7 +90,7 @@ export async function sweepKeepMergeableLeftovers({ workRoot, repoCache, gitWork
 }): Promise<void> {
   await sweepLeftoverCheckouts({ worktreeRoot: workRoot, workRoot, keepPaths: new Set(), repoCache, gitWorkspace, reapProcesses, log });
   const cachedClones = await repoCache.listRepos().catch((error: unknown) => {
-    log.warn(`[${core.MY_PRS_LANE_ID}] could not list cached clones: ${error instanceof Error ? error.message : String(error)}`);
+    log.warn(`[${core.MY_PRS_LANE_ID}] could not list cached clones: ${errorMessage(error)}`);
     return [];
   });
   for (const projectPath of cachedClones) await deleteHandoffRefs(projectPath, runGit, log);
@@ -107,8 +104,8 @@ interface SandboxedPrStagingOptions {
   glimmervoidHome?: string;
   runGit?: KeepMergeableGitRunner;
   timeoutSeconds?: () => number;
-  setTimeoutFn?: (callback: () => void, milliseconds: number) => NodeJS.Timeout;
-  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
 }
 
 function keepMergeableSpawnEnv(workDir: string): Record<string, string> {
@@ -289,7 +286,7 @@ export function createMyPrMergeabilityFix({
     if (!signed.ok) return reportRepairFailure(pr, `not pushed: could not sign the session commits ${signed.err}`);
     const repairSha = signed.sha;
     const holdFailure = await onPushStarted(repairSha).then(() => null, (error: unknown) =>
-      reportRepairFailure(pr, `not pushed: the hold on repair head ${repairSha} could not be saved ${error instanceof Error ? error.message : String(error)}`));
+      reportRepairFailure(pr, `not pushed: the hold on repair head ${repairSha} could not be saved ${errorMessage(error)}`));
     if (signal.aborted) return stopped;
     if (holdFailure) return holdFailure;
     const pushed = await runGit(core.keepMergeablePushArgs(target.url, target.branch, pr.headRefOid, repairSha), staged.projectPath, signal);
@@ -431,7 +428,7 @@ export function createMyPrsWiring({ config, broadcast, log = console, homeDir = 
       log.warn(`[${core.MY_PRS_LANE_ID}] merge of ${key} failed: ${merged.error}`);
       return merged;
     }
-    poller.tick().catch((error: unknown) => log.warn(`[${core.MY_PRS_LANE_ID}] refresh after merging ${key} failed: ${error instanceof Error ? error.message : String(error)}`));
+    poller.tick().catch((error: unknown) => log.warn(`[${core.MY_PRS_LANE_ID}] refresh after merging ${key} failed: ${errorMessage(error)}`));
     return merged;
   }
   return { startPoller: runner.startPoller, stopPoller: runner.stopPoller, restartIfConfigChanged: runner.restartIfConfigChanged, getStatus, mergePr, refresh, setKeepMergeable, setMergeWhenReady };

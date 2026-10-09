@@ -13,6 +13,7 @@ import type { RemoteConfig } from './core/remote-config.ts';
 import { classifyRequestOrigin, decideOwnerAccess, decideRequestAccess, normalizePathname } from './core/request-trust.ts';
 import type { RequestTrust } from './core/request-trust.ts';
 import type { PairedDevice, PairingsStore, SeenStore } from './pairings-store.ts';
+import { escapeMarkup } from '../shared/escape-markup.ts';
 
 const DEVICE_COOKIE_MAX_AGE_SECONDS = Math.floor(DEFAULT_DEVICE_MAX_AGE_MS / 1000);
 const TAILSCALE_USER_LOGIN_HEADER = 'tailscale-user-login';
@@ -41,19 +42,11 @@ interface RemoteAuth {
   stop(): void;
 }
 
-function escapeHtml(str: unknown): string {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
 function htmlPage(title: string, message: string): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(title)}</title>
+<title>${escapeMarkup(title)}</title>
 <style>
 body { background:#12131a; color:#e6e6ee; font:16px/1.5 system-ui, sans-serif; margin:0;
   display:flex; align-items:center; justify-content:center; min-height:100vh; padding:24px; }
@@ -61,7 +54,7 @@ main { max-width:32rem; }
 h1 { font-size:1.25rem; margin:0 0 .5rem; }
 p { margin:0; color:#a0a0b2; }
 </style></head>
-<body><main><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p></main></body></html>`;
+<body><main><h1>${escapeMarkup(title)}</h1><p>${escapeMarkup(message)}</p></main></body></html>`;
 }
 
 function hashesMatch(a: unknown, b: unknown): boolean {

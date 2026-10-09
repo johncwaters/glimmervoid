@@ -13,7 +13,9 @@ import { hasStandingViewerApproval, ReviewDraft } from '../shared/contracts/team
 import type {
   InFlightReview, PrDetail, PriorReview, ResumableReview, ReviewDraft as ReviewDraftType, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../shared/contracts/team-review.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
+import { DEFAULT_TIMER_FNS } from './core/timer-deps.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from './core/timer-deps.ts';
 
 const TEAM_REVIEW_RATE_LIMIT_RESOURCES = ['search', 'graphql', 'core'] as const;
 
@@ -60,12 +62,12 @@ interface TeamReviewPollerDependencies {
   writeState?: (state: TeamReviewState) => Promise<void>;
   beforeStart?: (keepPaths: ReadonlySet<string>) => Promise<void>;
   sandboxRefusal?: SandboxSpawnRefusal;
-  setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearIntervalFn?: (handle: NodeJS.Timeout) => void;
+  setIntervalFn?: SetIntervalFn;
+  clearIntervalFn?: ClearIntervalFn;
   clock?: SharedClock;
   firstTickDelayMs?: () => number;
-  setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
   log?: Pick<Console, 'warn'>;
   onTickComplete?: (status: TeamReviewStatus) => void;
   now?: () => number;
@@ -81,8 +83,8 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   const {
     org, team, github, spawnReview, discardResumable = async () => {},
     readState = async () => ({}), writeState = async () => {}, beforeStart = async () => {}, sandboxRefusal = allowSandboxedSpawn,
-    setIntervalFn = (fn, ms) => setInterval(fn, ms), clearIntervalFn = clearInterval,
-    setTimeoutFn = (fn, ms) => setTimeout(fn, ms), clearTimeoutFn = clearTimeout,
+    setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn, clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
+    setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn, clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
     log = console, onTickComplete = () => {}, now = () => Date.now(),
   } = deps;
   const maxConcurrentReviews = deps.maxConcurrentReviews ?? core.MAX_CONCURRENT_REVIEWS;

@@ -1,4 +1,4 @@
-import { numberOrNull } from './usage-number-core.ts';
+import { numberOr } from '../../shared/coerce.ts';
 
 export type ModelPrice = Record<string, unknown>;
 
@@ -79,22 +79,22 @@ function costForEntry(
   { costMode = 'auto' }: { costMode?: string } = {},
 ): { costUSD: number; priced: boolean } {
   if (costMode === 'display') {
-    const displayedCost = numberOrNull(entry?.costUSD);
+    const displayedCost = numberOr(entry?.costUSD, null);
     return { costUSD: displayedCost === null ? 0 : displayedCost, priced: displayedCost !== null };
   }
   if (costMode === 'auto') {
-    const displayedCost = numberOrNull(entry?.costUSD);
+    const displayedCost = numberOr(entry?.costUSD, null);
     if (displayedCost !== null) return { costUSD: displayedCost, priced: true };
   }
   if (!price) return { costUSD: 0, priced: false };
 
-  const input = numberOrNull(entry?.input) || 0;
-  const output = numberOrNull(entry?.output) || 0;
-  const own5m = numberOrNull(entry?.cacheCreation5m);
-  const cacheCreation5m = own5m === null ? numberOrNull(entry?.cacheCreate) || 0 : own5m;
-  const own1h = numberOrNull(entry?.cacheCreation1h);
+  const input = numberOr(entry?.input, null) || 0;
+  const output = numberOr(entry?.output, null) || 0;
+  const own5m = numberOr(entry?.cacheCreation5m, null);
+  const cacheCreation5m = own5m === null ? numberOr(entry?.cacheCreate, null) || 0 : own5m;
+  const own1h = numberOr(entry?.cacheCreation1h, null);
   const cacheCreation1h = own1h === null ? 0 : own1h;
-  const cacheRead = numberOrNull(entry?.cacheRead) || 0;
+  const cacheRead = numberOr(entry?.cacheRead, null) || 0;
   const contextTokens = input + cacheRead + cacheCreation5m + cacheCreation1h;
   const rates = ratesForPrice(price);
   const cost = bucketCost({
@@ -121,7 +121,7 @@ function bucketCost({ input, output, cacheCreation5m, cacheCreation1h, cacheRead
   price: ModelPrice;
   rates: TokenRates;
 }): number {
-  const longContextThreshold = numberOrNull(price.long_context_threshold);
+  const longContextThreshold = numberOr(price.long_context_threshold, null);
   if (longContextThreshold !== null && contextTokens <= longContextThreshold) {
     return input * rates.input
       + output * rates.output
@@ -144,14 +144,14 @@ function bucketCost({ input, output, cacheCreation5m, cacheCreation1h, cacheRead
 }
 
 function ratesForPrice(price: ModelPrice): TokenRates {
-  const input = numberOrNull(price.input_cost_per_token) || 0;
-  const output = numberOrNull(price.output_cost_per_token) || 0;
-  const cacheCreate = numberOrNull(price.cache_creation_input_token_cost) ?? input * 1.25;
-  const cacheRead = numberOrNull(price.cache_read_input_token_cost) ?? input * 0.1;
-  const inputAbove = numberOrNull(price.input_cost_per_token_above_200k_tokens) ?? input;
-  const outputAbove = numberOrNull(price.output_cost_per_token_above_200k_tokens) ?? output;
-  const cacheCreateAbove = numberOrNull(price.cache_creation_input_token_cost_above_200k_tokens) ?? inputAbove * 1.25;
-  const cacheReadAbove = numberOrNull(price.cache_read_input_token_cost_above_200k_tokens) ?? inputAbove * 0.1;
+  const input = numberOr(price.input_cost_per_token, null) || 0;
+  const output = numberOr(price.output_cost_per_token, null) || 0;
+  const cacheCreate = numberOr(price.cache_creation_input_token_cost, null) ?? input * 1.25;
+  const cacheRead = numberOr(price.cache_read_input_token_cost, null) ?? input * 0.1;
+  const inputAbove = numberOr(price.input_cost_per_token_above_200k_tokens, null) ?? input;
+  const outputAbove = numberOr(price.output_cost_per_token_above_200k_tokens, null) ?? output;
+  const cacheCreateAbove = numberOr(price.cache_creation_input_token_cost_above_200k_tokens, null) ?? inputAbove * 1.25;
+  const cacheReadAbove = numberOr(price.cache_read_input_token_cost_above_200k_tokens, null) ?? inputAbove * 0.1;
   return { input, output, cacheCreate, cacheRead, inputAbove, outputAbove, cacheCreateAbove, cacheReadAbove };
 }
 
@@ -173,7 +173,7 @@ function fastMultiplierFor(entry: PricedEntry | null | undefined, price: ModelPr
   if (entry?.speed !== 'fast' && !String(entry?.model || '').endsWith('-fast')) return 1;
   if (price?._resolvedExact && isExactOnlyKey(price?._resolvedPricingKey)) return 1;
 
-  return numberOrNull(price?.fast_multiplier) ?? numberOrNull(price?.fastMultiplier) ?? 1;
+  return numberOr(price?.fast_multiplier, null) ?? numberOr(price?.fastMultiplier, null) ?? 1;
 }
 
 function resolvedPrice(key: string, price: ModelPrice, isExact: boolean): ResolvedModelPrice {

@@ -1,4 +1,5 @@
 import type { ControlBroadcast } from './backend-websockets.ts';
+import { unrefTimer } from './core/timer-deps.ts';
 
 export const TRACE_CHANGE_COALESCE_MS = 250;
 
@@ -32,7 +33,7 @@ export function createTraceChangeBroadcast({
       broadcast({ type: 'session-trace-changed', id });
     }, TRACE_CHANGE_COALESCE_MS);
     pendingBroadcastBySessionId.set(id, handle);
-    if (typeof handle.unref === 'function') handle.unref();
+    unrefTimer(handle);
   });
 
   function stop(): void {

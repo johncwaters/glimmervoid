@@ -43,7 +43,7 @@ import { createVisionsWiring } from './visions-wiring.ts';
 import { resolveIngestConfig } from './core/ingest-core.ts';
 import { resolveVisionsConfig } from './core/visions-dispatch-core.ts';
 import { resolveVisionsScopeProjects } from './core/visions-scope-core.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
 
 interface BackendLaneOptions {
   branchGcWiringOptions?: Record<string, unknown>;

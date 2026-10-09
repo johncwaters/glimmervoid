@@ -1,6 +1,6 @@
-import { isPlainObject, safeNumber, stringOrNull } from './usage-number-core.ts';
 import { lookupModelPrice, ratesForPrice } from './usage-pricing-core.ts';
 import { vendorOf } from './usage-aggregate-core.ts';
+import { isRecord, numberOr, rawTextOr } from '../../shared/coerce.ts';
 
 export interface RtkDailyRow {
   date: string;
@@ -27,16 +27,16 @@ interface ModelUsageRow {
 const DAY_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function normalizeRtkGain(parsed: unknown): RtkGain | null {
-  if (!isPlainObject(parsed)) return null;
+  if (!isRecord(parsed)) return null;
   const payload = parsed as Record<string, unknown>;
-  if (!isPlainObject(payload.summary)) return null;
+  if (!isRecord(payload.summary)) return null;
   const summary = payload.summary as Record<string, unknown>;
   return {
-    commands: safeNumber(summary.total_commands),
-    inputTokens: safeNumber(summary.total_input),
-    outputTokens: safeNumber(summary.total_output),
-    savedTokens: safeNumber(summary.total_saved),
-    savingsPct: safeNumber(summary.avg_savings_pct),
+    commands: numberOr(summary.total_commands, 0),
+    inputTokens: numberOr(summary.total_input, 0),
+    outputTokens: numberOr(summary.total_output, 0),
+    savedTokens: numberOr(summary.total_saved, 0),
+    savingsPct: numberOr(summary.avg_savings_pct, 0),
     daily: normalizeRtkDaily(payload.daily),
   };
 }
@@ -45,15 +45,15 @@ function normalizeRtkDaily(daily: unknown): RtkDailyRow[] {
   if (!Array.isArray(daily)) return [];
   const rows: RtkDailyRow[] = [];
   for (const rawRow of daily) {
-    if (!isPlainObject(rawRow)) continue;
+    if (!isRecord(rawRow)) continue;
     const row = rawRow as Record<string, unknown>;
-    const date = stringOrNull(row.date);
+    const date = rawTextOr(row.date, null);
     if (date === null || !DAY_KEY_RE.test(date)) continue;
     rows.push({
       date,
-      commands: safeNumber(row.commands),
-      savedTokens: safeNumber(row.saved_tokens),
-      savingsPct: safeNumber(row.savings_pct),
+      commands: numberOr(row.commands, 0),
+      savedTokens: numberOr(row.saved_tokens, 0),
+      savingsPct: numberOr(row.savings_pct, 0),
     });
   }
   return rows;
@@ -69,12 +69,12 @@ function computeCacheSavings(
   const unpricedModels: string[] = [];
   for (const row of rows) {
     if (vendorOf(row) !== 'claude') continue;
-    const cacheRead = safeNumber(row?.cacheRead);
+    const cacheRead = numberOr(row?.cacheRead, 0);
     if (cacheRead <= 0) continue;
     cacheReadTokens += cacheRead;
     const resolved = lookupModelPrice(pricingTable, row?.model, {});
     if (!resolved) {
-      const name = stringOrNull(row?.model);
+      const name = rawTextOr(row?.model, null);
       if (name !== null && !unpricedModels.includes(name)) unpricedModels.push(name);
       continue;
     }

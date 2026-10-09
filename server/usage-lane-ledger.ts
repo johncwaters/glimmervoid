@@ -5,6 +5,8 @@ import type { LaneLedgerEntry } from './core/usage-lane-core.ts';
 import type { RecordLane } from './ephemeral-session.ts';
 import { createJsonStateStore } from './json-file.ts';
 import { createLaneLog } from './lane-log.ts';
+import { errorMessage } from '../shared/text.ts';
+import { createSerialQueue } from './spawn-gate.ts';
 
 type LedgerFileSystem = Pick<typeof nodeFsPromises, 'readFile' | 'mkdir' | 'writeFile' | 'rename' | 'rm' | 'appendFile'>;
 type StoredLedgerEntries = NonNullable<Parameters<typeof pruneLedger>[0]>;
@@ -34,11 +36,7 @@ function createLaneLedger({
 }: LaneLedgerOptions = {}): LaneLedger {
   const laneLog = createLaneLog({ prefix: '[usage]', logger });
   let entries: LaneLedgerEntry[] = [];
-  let opsChain: Promise<void> = Promise.resolve();
-
-  function failureText(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
-  }
+  const opsQueue = createSerialQueue();
 
   const store = createJsonStateStore<StoredLedgerEntries>({
     name: 'ledger',
@@ -66,17 +64,17 @@ function createLaneLedger({
   const record: RecordLane = (sessionId, lane, vendor = 'claude') => {
     if (!ledgerPath || !sessionId || !lane) return;
 
-    opsChain = opsChain.then(async () => {
+    void opsQueue.run(async () => {
       await load();
       const existing = entries.find((entry) => entry.sessionId === sessionId && entry.vendor === vendor);
       if (existing && existing.lane === lane) return;
       entries = pruneLedger([...entries, { vendor, sessionId, lane, ts: nowFn() }], { now: nowFn(), retainDays });
       await persist();
-    }).catch((error: unknown) => laneLog.warn('ledger record failed', { error: failureText(error) }));
+    }).catch((error: unknown) => laneLog.warn('ledger record failed', { error: errorMessage(error) }));
   };
 
   function whenIdle(): Promise<void> {
-    return opsChain.then(() => store.idle());
+    return opsQueue.idle().then(() => store.idle());
   }
 
   function laneMap(): Map<string, string> {

@@ -1,3 +1,4 @@
+import { localDayKey, localHourMinuteText, twoUnitDurationText } from '#shared/display-text.ts';
 import { attentionSignature } from './attention-ack-core.ts';
 import { textOr } from './coerce-core.ts';
 
@@ -280,12 +281,7 @@ function safeZoneFormat(ts: number, options: Intl.DateTimeFormatOptions) {
 
 export function formatMinutes(minutes: unknown) {
   if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes < 0) return NO_VALUE;
-  const total = Math.round(minutes);
-  if (total < 60) return `${total}m`;
-  const hours = Math.floor(total / 60);
-  const rest = total % 60;
-  if (rest === 0) return `${hours}h`;
-  return `${hours}h ${rest}m`;
+  return twoUnitDurationText(Math.round(minutes) * 60, { smallestUnit: 'm', dropsZeroRemainder: true });
 }
 
 export function blockLabel(startTs: unknown) {
@@ -294,9 +290,7 @@ export function blockLabel(startTs: unknown) {
   const date = new Date(ts);
   const month = MONTH_NAMES[date.getMonth()];
   if (!month) return NO_VALUE;
-  const hours = String(date.getHours()).padStart(2, '0');
-  const mins = String(date.getMinutes()).padStart(2, '0');
-  return `${month} ${date.getDate()} ${hours}:${mins}`;
+  return `${month} ${date.getDate()} ${localHourMinuteText(date)}`;
 }
 
 export function burnTiles(burn: UsageBurn | null | undefined) {
@@ -628,21 +622,13 @@ function parseDayKey(day: unknown) {
   return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]), 12);
 }
 
-function pad2(value: number) {
-  return String(value).padStart(2, '0');
-}
-
-function dayKeyOfDate(date: Date) {
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
-}
-
 export function weekStartKey(day: unknown) {
   const date = parseDayKey(day);
   if (!date) return '';
   const dayOfWeek = date.getDay();
   const daysSinceMonday = (dayOfWeek + 6) % 7;
   date.setDate(date.getDate() - daysSinceMonday);
-  return dayKeyOfDate(date);
+  return localDayKey(date);
 }
 
 export function monthKey(day: unknown) {
@@ -814,11 +800,11 @@ export function heatmapCells(
   const fallbackToday = Number.isFinite(suppliedToday.getTime()) ? suppliedToday : new Date();
   const todayKey = typeof today === 'string' && DAY_KEY_RE.test(today)
     ? today
-    : dayKeyOfDate(fallbackToday);
+    : localDayKey(fallbackToday);
   const anchor = parseDayKey(weekStartKey(todayKey));
   if (!anchor) return { cells: [], max: 0, weeks: 0 };
   const start = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() - (weeks - 1) * 7, 12);
-  const startKey = dayKeyOfDate(start);
+  const startKey = localDayKey(start);
   const cells: HeatmapCell[] = [];
 
   let max = 0;
@@ -832,7 +818,7 @@ export function heatmapCells(
   for (let week = 0; week < weeks; week += 1) {
     for (let weekday = 0; weekday < 7; weekday += 1) {
       const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + week * 7 + weekday, 12);
-      const key = dayKeyOfDate(date);
+      const key = localDayKey(date);
       const row = byDay.get(key) || null;
       const beyondToday = key > todayKey;
       const beforeSeries = firstDay !== null && key < firstDay;

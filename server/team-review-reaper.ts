@@ -4,6 +4,7 @@ import path from 'node:path';
 import { execFileAsync } from './child-process-safe.ts';
 import { isContainedReviewDirectory, parseCwdTable, parseProcessTable, protectedProcessIds, selectTeamReviewProcessIds } from './core/team-review-reaper-core.ts';
 import type { OwnedDirectoryScope, ProcessRow } from './core/team-review-reaper-core.ts';
+import { errorMessage } from '../shared/text.ts';
 
 const PROCESS_LIST_TIMEOUT_MS = 5000;
 const TERMINATION_GRACE_MS = 2000;
@@ -106,7 +107,7 @@ async function reapTeamReviewProcesses({ ownedDirectories, reviewRoots, scope, l
     for (const pid of survivors) if (!sendSignal(pid, 'SIGKILL')) failedSignals += 1;
     log.warn(`[team-review] reaped ${pids.length} review processes${failedSignals > 0 ? `; ${failedSignals} signals failed` : ''}`);
   } catch (error) {
-    log.warn(`[team-review] process reap failed: ${error instanceof Error ? error.message : String(error)}`);
+    log.warn(`[team-review] process reap failed: ${errorMessage(error)}`);
   }
 }
 

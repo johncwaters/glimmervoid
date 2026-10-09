@@ -7,8 +7,11 @@ import {
   decideRedemption, hashSecret, mintDeviceCredential, mintPairingToken,
 } from './core/pairing-token.ts';
 import type { RandomBytes } from './core/pairing-token.ts';
-import { sleepSync, writeJsonAtomic, writeJsonAtomicSync } from './json-file.ts';
-import { errorMessage } from './core/text-core.ts';
+import { jsonStateLoadError, loadJsonStateFileSync, sleepSync, writeJsonAtomic, writeJsonAtomicSync } from './json-file.ts';
+import { errorLabel, errorMessage } from '../shared/text.ts';
+import { isRecord } from '../shared/coerce.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
+import type { ClearIntervalFn, SetIntervalFn } from './core/timer-deps.ts';
 
 type PendingPairing = {
   tokenHash: string;
@@ -68,11 +71,6 @@ const LOCK_RETRY_MS = 50;
 const LOCK_MAX_ATTEMPTS = 10;
 const LOCK_STALE_MS = 5000;
 
-function errorLabel(err: unknown): string {
-  const failure = (err ?? {}) as { code?: unknown; message?: unknown };
-  return String(failure.code || failure.message || err);
-}
-
 function emptyDoc(): PairingsDocument {
   return { version: 1, pending: [], devices: [] };
 }
@@ -114,34 +112,29 @@ function createPairingsStore({
   now = Date.now,
   randomBytes,
   warn = console.warn,
-  setIntervalFn = (fn, ms) => setInterval(fn, ms),
-  clearIntervalFn = (handle) => clearInterval(handle),
+  setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
+  clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
 }: {
   filePath?: string;
   now?: () => number;
   randomBytes?: RandomBytes;
   warn?: (message: string) => void;
-  setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearIntervalFn?: (handle: NodeJS.Timeout) => void;
+  setIntervalFn?: SetIntervalFn;
+  clearIntervalFn?: ClearIntervalFn;
 } = {}): PairingsStore {
   const pairingsPath = filePath;
   let snapshot = emptyDoc();
 
   function readDocSync(): { doc: PairingsDocument; missing: boolean; corrupt: boolean } {
-    let raw: string;
-    try {
-      raw = fs.readFileSync(pairingsPath, 'utf8');
-    } catch (err) {
-      if ((err as { code?: unknown } | null)?.code === 'ENOENT') return { doc: emptyDoc(), missing: true, corrupt: false };
-      warn(`[pairings] Failed to read ${pairingsPath}: ${errorLabel(err)}`);
+    const outcome = loadJsonStateFileSync({ filePath: pairingsPath, fsSync: fs, parse: coerceDoc, quarantine: false, includeNotDir: false });
+    if (outcome.status === 'missing') return { doc: emptyDoc(), missing: true, corrupt: false };
+    if (outcome.status === 'loaded') return { doc: outcome.value, missing: false, corrupt: false };
+    if (outcome.status === 'corrupt') {
+      warn(`[pairings] Invalid JSON in ${pairingsPath}: ${errorMessage(outcome.error)} - treating as no paired devices`);
       return { doc: emptyDoc(), missing: false, corrupt: true };
     }
-    try {
-      return { doc: coerceDoc(JSON.parse(raw)), missing: false, corrupt: false };
-    } catch (err) {
-      warn(`[pairings] Invalid JSON in ${pairingsPath}: ${errorMessage(err)} - treating as no paired devices`);
-      return { doc: emptyDoc(), missing: false, corrupt: true };
-    }
+    warn(`[pairings] Failed to read ${pairingsPath}: ${errorLabel(jsonStateLoadError(outcome))}`);
+    return { doc: emptyDoc(), missing: false, corrupt: true };
   }
 
   function load(): PairingsDocument {
@@ -323,7 +316,7 @@ function createPairingsStore({
     }
 
     const reloadInterval = setIntervalFn(refresh, SNAPSHOT_RELOAD_MS);
-    if (reloadInterval.unref) reloadInterval.unref();
+    unrefTimer(reloadInterval);
 
     try {
       ensureDir();
@@ -332,7 +325,7 @@ function createPairingsStore({
         if (filename && !equalsIgnoringCaseOnWindows(path.basename(String(filename)), path.basename(pairingsPath))) return;
         if (timer) clearTimeout(timer);
         timer = setTimeout(refresh, 200);
-        if (timer.unref) timer.unref();
+        unrefTimer(timer);
       });
     } catch (err) {
       warn(`[pairings] Failed to watch ${dir}: ${errorMessage(err)} - falling back to the ${REVOCATION_PROPAGATION_SECONDS}s reload interval`);
@@ -365,7 +358,7 @@ function createSeenStore({
   function readAll(): Record<string, number> {
     try {
       const parsed: unknown = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, number>;
+      if (isRecord(parsed)) return parsed as Record<string, number>;
       return {};
     } catch {
       return {};

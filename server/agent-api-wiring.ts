@@ -12,7 +12,7 @@ import { decideSpawnAllowance, deriveChildSessionName, parseAgentVerb } from './
 import { registerEphemeralSession } from './ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 import type { SessionSpawnOverrides } from './session-factory.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
 
 const AGENT_LANE_TAG = 'agent-spawn';
 const SPAWN_FAILED_MESSAGE = 'could not spawn the session';

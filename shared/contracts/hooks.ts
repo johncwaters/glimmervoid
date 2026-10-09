@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+export const MAX_TIMEOUT_SEC = 600;
+export const HTTP_URL_RE = /^https?:\/\/\S+$/i;
+
 export const HookPayload = z.record(z.string(), z.unknown());
 
 export const HookEnvelope = z.object({

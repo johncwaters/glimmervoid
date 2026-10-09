@@ -1,3 +1,4 @@
+import { isPathInside } from '../../shared/paths.ts';
 interface ScopeProject {
   id?: unknown;
   path?: unknown;
@@ -52,12 +53,7 @@ function pathOfFileUri(uri: unknown): string | null {
 }
 
 function isWithin(scopePath: string, uriPath: string, foldCase = false): boolean {
-  if (!scopePath || !uriPath) return false;
-  const scopeKey = foldCase ? scopePath.toLowerCase() : scopePath;
-  const uriKey = foldCase ? uriPath.toLowerCase() : uriPath;
-  if (uriKey === scopeKey) return true;
-  const prefix = scopeKey.endsWith('/') ? scopeKey : `${scopeKey}/`;
-  return uriKey.startsWith(prefix);
+  return isPathInside(scopePath, uriPath, { foldCase });
 }
 
 function isUriInProjects(uri: unknown, normalizedProjectPaths: string[] | null | undefined, foldCase = false): boolean {

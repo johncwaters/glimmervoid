@@ -20,7 +20,10 @@ import {
   PlanRevision,
   PlanRevisionBody,
   PlanSectionComment,
+  HEADING_SCAN_MAX_CHARS,
+  parseAtxHeading,
   planTitle,
+  withoutClosingHeadingMarks,
 } from '../shared/contracts/plan-review.ts';
 
 const PLAN_BODY = '# Shrink the large owned files\n\n## Context\n\nA size sweep found three files.\n';
@@ -234,4 +237,23 @@ test('revision zero is what marks a body as a draft, and no stored revision may 
     false,
     'a draft is never appended to the revision store',
   );
+});
+
+test('parseAtxHeading reads level and text and strips closing marks', () => {
+  assert.deepEqual(parseAtxHeading('## Title ##', { overlongLine: 'truncate' }), { level: 2, text: 'Title' });
+  assert.deepEqual(parseAtxHeading('   ###   Indented', { overlongLine: 'reject' }), { level: 3, text: 'Indented' });
+  assert.equal(parseAtxHeading('#NoSpace', { overlongLine: 'truncate' }), null);
+  assert.equal(parseAtxHeading('plain', { overlongLine: 'reject' }), null);
+  assert.equal(withoutClosingHeadingMarks('Title ##'), 'Title');
+  assert.equal(withoutClosingHeadingMarks('C#'), 'C#');
+});
+
+test('parseAtxHeading truncates or rejects a line past the scan cap, by option', () => {
+  const overlong = `# ${'x'.repeat(HEADING_SCAN_MAX_CHARS)}`;
+  const truncated = parseAtxHeading(overlong, { overlongLine: 'truncate' });
+  assert.equal(truncated?.level, 1);
+  assert.equal(truncated?.text.length, HEADING_SCAN_MAX_CHARS - 2);
+  assert.equal(parseAtxHeading(overlong, { overlongLine: 'reject' }), null);
+  const atCap = `# ${'x'.repeat(HEADING_SCAN_MAX_CHARS - 2)}`;
+  assert.equal(parseAtxHeading(atCap, { overlongLine: 'reject' })?.text.length, HEADING_SCAN_MAX_CHARS - 2);
 });

@@ -1,3 +1,4 @@
+import { escapeMarkup } from '../../shared/escape-markup.ts';
 const CRC_TABLE = buildCrcTable();
 const LOCAL_HEADER_SIG = 0x04034b50;
 const CENTRAL_HEADER_SIG = 0x02014b50;
@@ -124,14 +125,6 @@ function buildZip(files: ZipFile[]): Buffer {
   return Buffer.concat(chunks);
 }
 
-function escapeXml(value: unknown): string {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
 function contentTypesXml(): string {
   return [
     '<?xml version="1.0" encoding="utf-8"?>',
@@ -156,14 +149,14 @@ function vsixManifestXml({ id, publisher, version, displayName, description, eng
     '<?xml version="1.0" encoding="utf-8"?>',
     '<PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">',
     '<Metadata>',
-    `<Identity Language="en-US" Id="${escapeXml(id)}" Version="${escapeXml(version)}" Publisher="${escapeXml(publisher)}"/>`,
-    `<DisplayName>${escapeXml(displayName)}</DisplayName>`,
-    `<Description xml:space="preserve">${escapeXml(description)}</Description>`,
+    `<Identity Language="en-US" Id="${escapeMarkup(id)}" Version="${escapeMarkup(version)}" Publisher="${escapeMarkup(publisher)}"/>`,
+    `<DisplayName>${escapeMarkup(displayName)}</DisplayName>`,
+    `<Description xml:space="preserve">${escapeMarkup(description)}</Description>`,
     '<Tags></Tags>',
     '<Categories>Other</Categories>',
     '<GalleryFlags>Public</GalleryFlags>',
     '<Properties>',
-    `<Property Id="Microsoft.VisualStudio.Code.Engine" Value="${escapeXml(engine)}"/>`,
+    `<Property Id="Microsoft.VisualStudio.Code.Engine" Value="${escapeMarkup(engine)}"/>`,
     '<Property Id="Microsoft.VisualStudio.Code.ExtensionDependencies" Value=""/>',
     '<Property Id="Microsoft.VisualStudio.Code.ExtensionPack" Value=""/>',
     '<Property Id="Microsoft.VisualStudio.Code.ExtensionKind" Value="workspace"/>',

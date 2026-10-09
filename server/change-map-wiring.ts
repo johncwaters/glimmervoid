@@ -4,7 +4,7 @@ import path from 'node:path';
 import { ChangeMap } from '../shared/contracts/change-map.ts';
 import type { ChangedFile, ChangeNarrative, NarratorState, RepoChangeMap } from '../shared/contracts/change-map.ts';
 import type { ChangeScope } from '../session/session-worktree-lifecycle.ts';
-import { execFile } from './child-process-safe.ts';
+import { runGit } from './git-exec.ts';
 import {
   isAgentsDocPath,
   isSourcePath,
@@ -22,6 +22,7 @@ import { createTsconfigPathsResolver, parseTsconfigJsonc, resolveExtendsPath } f
 import type { TsconfigPaths } from './core/tsconfig-paths-core.ts';
 import { computeCrossRepoLinks, indexImportersByPackage, readPackageManifest } from './core/workspace-links-core.ts';
 import type { PackageManifest, RepoPackageFacts } from './core/workspace-links-core.ts';
+import { errorMessage } from '../shared/text.ts';
 
 const GIT_TIMEOUT_MS = 15000;
 const GIT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
@@ -93,12 +94,9 @@ interface QueuedAssembly {
   promise: Promise<ChangeMap>;
 }
 
-function runGitAsync(args: string[], cwd: string): Promise<string> {
-  return new Promise((resolve) => {
-    execFile('git', args, { cwd, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER_BYTES }, (_error: unknown, stdout: unknown) => {
-      resolve(stdout != null ? String(stdout) : '');
-    });
-  });
+async function runGitAsync(args: string[], cwd: string): Promise<string> {
+  const result = await runGit(args, { cwd, timeoutMs: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER_BYTES, trim: false, keepStdoutOnFailure: true });
+  return result.out;
 }
 
 function yieldToEventLoop(): Promise<void> {
@@ -296,7 +294,7 @@ export function createChangeMapService({
     try {
       return await buildRepoMap(scope, selfId, repoInputsFor);
     } catch (error) {
-      return { ...emptyRepoMap(scope), files: changedFilesOf(scope), error: error instanceof Error ? error.message : String(error) };
+      return { ...emptyRepoMap(scope), files: changedFilesOf(scope), error: errorMessage(error) };
     }
   }
 

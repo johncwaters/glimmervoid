@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { isPathInside } from '../../shared/paths.ts';
 
 export interface RuntimePaths {
   packageRoot: string;
@@ -15,12 +16,6 @@ export interface RuntimePathsInput {
   hasPackageJson: (directory: string) => boolean;
 }
 
-function isUnder(candidate: string, parent: string): boolean {
-  const relative = path.relative(parent, candidate);
-  if (relative === '' || relative.startsWith('..')) return false;
-  return !path.isAbsolute(relative);
-}
-
 function findPackageRoot(startDirectory: string, hasPackageJson: (directory: string) => boolean): string {
   let directory = startDirectory;
   for (;;) {
@@ -35,7 +30,7 @@ function findPackageRoot(startDirectory: string, hasPackageJson: (directory: str
 function computeRuntimePaths({ moduleFile, hasPackageJson }: RuntimePathsInput): RuntimePaths {
   const packageRoot = findPackageRoot(path.dirname(path.resolve(moduleFile)), hasPackageJson);
   const distDir = path.join(packageRoot, 'dist');
-  const bundled = isUnder(path.resolve(moduleFile), distDir);
+  const bundled = isPathInside(distDir, path.resolve(moduleFile), { allowEqual: false });
   const assetRoot = bundled ? distDir : packageRoot;
   const sourceExtension = bundled ? '.js' : '.ts';
   return {
@@ -49,4 +44,4 @@ function computeRuntimePaths({ moduleFile, hasPackageJson }: RuntimePathsInput):
   };
 }
 
-export { computeRuntimePaths, findPackageRoot, isUnder };
+export { computeRuntimePaths, findPackageRoot };

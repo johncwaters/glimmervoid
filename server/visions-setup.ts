@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { resolvePathCommandMatches } from '../session/core/spawn-command.ts';
 import { execFileAsync, execSync } from './child-process-safe.ts';
-import { isPathInside } from './core/ingest-fs-core.ts';
+import { isPathInside } from '../shared/paths.ts';
 import {
   decideEditorTargets, isExtensionInstalled, resolveEditorPathsFor, visionsExtensionFiles,
 } from './core/editor-extension-core.ts';
@@ -21,7 +21,7 @@ import type { EditorOutcome } from './editor-wire.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
 import { bundled, cliPath, extensionDir, packageRoot, relayPath } from './runtime-paths.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
 
 const EXTENSION_DIR = extensionDir;
 const RELAY_PATH = relayPath('visions-relay');

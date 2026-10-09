@@ -8,8 +8,9 @@ import {
   shouldCheckPath,
 } from '../session/core/post-turn-rules.ts';
 import type { RuleConfig } from '../session/core/post-turn-rules.ts';
-import { execFile } from './child-process-safe.ts';
-import { errorMessage } from './core/text-core.ts';
+import { runGit } from './git-exec.ts';
+import { errorMessage } from '../shared/text.ts';
+import { writeJsonAtomicSync } from './json-file.ts';
 
 const GIT_TIMEOUT_MS = 5000;
 
@@ -160,18 +161,12 @@ function resolveCheckConfig(globalCfg?: unknown, projectCfg?: unknown): PostTurn
   };
 }
 
-function execGit(args: string[], cwd: string | undefined): Promise<string | Buffer> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      'git',
-      args,
-      { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024 },
-      (err: unknown, stdout: string | Buffer) => {
-        if (err) reject(err);
-        else resolve(stdout);
-      },
-    );
-  });
+const GIT_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
+
+async function execGit(args: string[], cwd: string | undefined): Promise<string> {
+  const result = await runGit(args, { cwd, timeoutMs: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER_BYTES, trim: false });
+  if (!result.ok) throw result.error;
+  return result.out;
 }
 
 async function gitRoot(cwd: string | undefined): Promise<string> {
@@ -308,7 +303,7 @@ async function runPostTurnChecks({
       const dir = path.join(root, cfg.reportDir);
       fs.mkdirSync(dir, { recursive: true });
       const safe = String(sessionId).replace(/[^a-zA-Z0-9_.-]/g, '_');
-      fs.writeFileSync(path.join(dir, `${safe}.json`), JSON.stringify(finalReport, null, 2));
+      writeJsonAtomicSync(path.join(dir, `${safe}.json`), finalReport);
     } catch {
     }
   }

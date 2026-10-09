@@ -3,7 +3,8 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 
 import { nativeBindingCandidates, spawnHelperCandidates } from './core/node-pty-preflight-core.ts';
-import { errorMessage, firstLine } from './core/text-core.ts';
+import { firstLine } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
 
 export type NodePtyProbeResult = { ok: true; packageDir: string } | { ok: false; reason: string; packageDir: string };
 

@@ -1,5 +1,5 @@
-import { safeNumber, stringOrNull } from './usage-number-core.ts';
 import type { RateLimitWindow, RateLimitWindows } from './usage-statusline-core.ts';
+import { numberOr, rawTextOr } from '../../shared/coerce.ts';
 
 export interface LaneLedgerEntry {
   vendor: string;
@@ -47,7 +47,7 @@ const FIVE_HOUR_WINDOW_MS = 5 * 60 * 60 * 1000;
 const SEVEN_DAY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 function vendorOf(value: unknown): string {
-  const vendor = stringOrNull(value);
+  const vendor = rawTextOr(value, null);
   return vendor === null ? 'claude' : vendor;
 }
 
@@ -56,11 +56,11 @@ function laneKey(vendor: unknown, sessionId: string): string {
 }
 
 function normalizeLedgerEntry(entry: RawLaneLedgerEntry | null | undefined): LaneLedgerEntry | null {
-  const sessionId = stringOrNull(entry?.sessionId) || stringOrNull(entry?.claudeSessionId);
-  const lane = stringOrNull(entry?.lane);
+  const sessionId = rawTextOr(entry?.sessionId, null) || rawTextOr(entry?.claudeSessionId, null);
+  const lane = rawTextOr(entry?.lane, null);
   if (!sessionId || !lane) return null;
   const vendor = vendorOf(entry?.vendor);
-  const ts = safeNumber(entry?.ts);
+  const ts = numberOr(entry?.ts, 0);
   return { vendor, sessionId, lane, ts: ts > 0 ? ts : 0 };
 }
 
@@ -84,7 +84,7 @@ function pruneLedger(
 ): LaneLedgerEntry[] {
   const normalized = normalizeLedger(entries);
   const days = typeof retainDays === 'number' && Number.isInteger(retainDays) && retainDays > 0 ? retainDays : null;
-  const nowMs = safeNumber(now);
+  const nowMs = numberOr(now, 0);
   if (days === null || nowMs <= 0) return normalized;
   const cutoff = nowMs - days * 24 * 60 * 60 * 1000;
 
@@ -104,12 +104,12 @@ function laneRollup(
   const map = laneById instanceof Map ? laneById : new Map<string, string>();
   const byLane = new Map<string, { lane: string; tokens: number; costUSD: number; sessionKeys: Set<string> }>();
   for (const entry of entries || []) {
-    const sessionId = stringOrNull(entry.sessionId);
+    const sessionId = rawTextOr(entry.sessionId, null);
     const key = sessionId ? laneKey(entry.vendor, sessionId) : null;
     const lane = (key && map.get(key)) || OTHER_LANE;
     const bucket = byLane.get(lane) || { lane, tokens: 0, costUSD: 0, sessionKeys: new Set() };
     bucket.tokens += totalTokensOf(entry);
-    bucket.costUSD += safeNumber(entry.costUSD);
+    bucket.costUSD += numberOr(entry.costUSD, 0);
     if (key) bucket.sessionKeys.add(key);
     byLane.set(lane, bucket);
   }
@@ -123,7 +123,7 @@ function laneRollupSince(
   laneById: Map<string, string> | null | undefined,
   sinceMs: number,
 ): LaneRollupRow[] {
-  const windowEntries = (entries || []).filter((entry) => safeNumber(entry.timestampMs) >= sinceMs);
+  const windowEntries = (entries || []).filter((entry) => numberOr(entry.timestampMs, 0) >= sinceMs);
   return laneRollup(windowEntries, laneById);
 }
 
@@ -141,7 +141,7 @@ function planWindowStartsMs(rateLimits: RateLimitWindows | null | undefined, now
 }
 
 function totalTokensOf(entry: LaneUsageEntry | null | undefined): number {
-  return safeNumber(entry?.input) + safeNumber(entry?.output) + safeNumber(entry?.cacheCreate) + safeNumber(entry?.cacheRead);
+  return numberOr(entry?.input, 0) + numberOr(entry?.output, 0) + numberOr(entry?.cacheCreate, 0) + numberOr(entry?.cacheRead, 0);
 }
 
 function compareEntries(a: LaneLedgerEntry, b: LaneLedgerEntry): number {

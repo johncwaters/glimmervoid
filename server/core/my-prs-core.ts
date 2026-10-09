@@ -5,6 +5,8 @@ import type { TeamReviewSettings, TeamReviewSettingsSource } from './team-review
 import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE } from '../../shared/settings-ranges.ts';
 import { isCredentialLikePath, isGithubDirectoryPath } from './git-changed-paths-core.ts';
 import { myPrMergeBlocker } from '../../shared/my-pr-merge.ts';
+import { REPO_SLUG_RE } from '../../shared/contracts/github-ids.ts';
+import { nextBackoffMs } from './lane-backoff.ts';
 
 export const MY_PRS_LANE_ID = 'my-prs';
 export const POLL_INTERVAL_MINUTES = 5;
@@ -37,7 +39,6 @@ export const MY_PRS_FIX_ALLOW_RULES: readonly string[] = Object.freeze([
 export const KEEP_MERGEABLE_SANDBOX_STUB_NAMES: readonly string[] = Object.freeze([
   '.bash_profile', '.bashrc', '.claude/', '.gitconfig', '.gitmodules', '.idea/', '.mcp.json', '.profile', '.ripgreprc', '.vscode/', '.zprofile', '.zshrc',
 ]);
-const GITHUB_REPO_SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const UNSAFE_BRANCH_NAME = /[\x00-\x20\x7f~^:?*[\\]|\.\.|@\{|^[-/.+]|\/\.|\/\/|[/.]$|\.lock$|\.lock\//;
 const MOVED_BRANCH_PUSH_REJECTION = /\[rejected\][^\n]*\((?:non-fast-forward|fetch first|stale info)\)/;
 
@@ -142,7 +143,7 @@ export const KEEP_MERGEABLE_FIRST_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
 export const KEEP_MERGEABLE_MAX_RETRY_DELAY_MS = 48 * 60 * 60 * 1000;
 
 export function keepMergeableRetryDelayMs(consecutiveAttempts: number): number {
-  return Math.min(KEEP_MERGEABLE_FIRST_RETRY_DELAY_MS * 2 ** Math.max(0, consecutiveAttempts - 1), KEEP_MERGEABLE_MAX_RETRY_DELAY_MS);
+  return nextBackoffMs({ attempt: consecutiveAttempts, baseMs: KEEP_MERGEABLE_FIRST_RETRY_DELAY_MS, maxMs: KEEP_MERGEABLE_MAX_RETRY_DELAY_MS, jitter: 'none' });
 }
 
 export function consecutiveKeepMergeableAttempts(pr: Pick<MyPr, 'key' | 'headRefOid'>, previous: MyPrKeepMergeableAttemptRecord | undefined): number {
@@ -199,7 +200,7 @@ export function keepMergeableExcludeLines(): string {
 }
 
 export function keepMergeablePushUrl(repo: string): string | null {
-  return GITHUB_REPO_SLUG.test(repo) ? `https://github.com/${repo}.git` : null;
+  return REPO_SLUG_RE.test(repo) ? `https://github.com/${repo}.git` : null;
 }
 
 export function keepMergeablePushTarget(scheduled: Pick<MyPr, 'repo' | 'headRefName' | 'headRefOid' | 'isCrossRepository'>, latestListed: Pick<MyPr, 'state' | 'headRefName' | 'headRefOid' | 'isCrossRepository'> | undefined):

@@ -42,6 +42,22 @@ export async function comparableDirectoryPath(candidatePath: unknown): Promise<s
   return canonicalPath.toLowerCase();
 }
 
+export function isPathInside(
+  parent: string,
+  child: string,
+  { allowEqual = true, foldCase = false }: { allowEqual?: boolean; foldCase?: boolean } = {},
+): boolean {
+  if (!parent || !child) return false;
+  const resolvedParent = path.resolve(parent);
+  const resolvedChild = path.resolve(child);
+  const from = foldCase ? resolvedParent.toLowerCase() : resolvedParent;
+  const to = foldCase ? resolvedChild.toLowerCase() : resolvedChild;
+  const relative = path.relative(from, to);
+  if (relative === '') return allowEqual;
+  if (path.isAbsolute(relative)) return false;
+  return relative !== '..' && !relative.startsWith(`..${path.sep}`);
+}
+
 export function safePathSegment(value: unknown): string {
   return String(value).replace(/[<>:"/\\|?*\x00-\x1f]/g, '-').replace(/[. ]+$/, '') || '_';
 }

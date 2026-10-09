@@ -5,6 +5,7 @@ import {
   type CoChangeGap,
   type HotspotFact,
 } from '../../shared/contracts/change-map.ts';
+import { HEX_SHA_RE } from '../../shared/git-text.ts';
 
 export const CO_CHANGE_LOG_ARGS = Object.freeze([
   'log', '--no-merges', '--name-only', '--format=%H%x1f%s', '-n', '2000',
@@ -26,7 +27,7 @@ export function parseCoChangeLog(logText: string): CommitFiles[] {
   for (const rawLine of logText.split('\n')) {
     const line = rawLine.replace(/\r$/, '');
     const separatorIndex = line.indexOf(LOG_FIELD_SEPARATOR);
-    const isHeader = separatorIndex > 0 && /^[0-9a-f]{7,40}$/i.test(line.slice(0, separatorIndex));
+    const isHeader = separatorIndex > 0 && HEX_SHA_RE.test(line.slice(0, separatorIndex));
     if (isHeader) {
       finishCommit();
       currentCommit = { subject: line.slice(separatorIndex + 1), paths: [] };

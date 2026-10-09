@@ -5,6 +5,8 @@ import { countOutcome, drainOutcomeSummary, emptyOutcomeCounts } from './core/ou
 import type { OutcomeCounts } from './core/outcome-summary-core.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
+import { DEFAULT_TIMER_FNS } from './core/timer-deps.ts';
+import type { ClearIntervalFn, SetIntervalFn } from './core/timer-deps.ts';
 
 const SUMMARY_INTERVAL_MS = 60000;
 const LOOP_LAG_RESOLUTION_MS = 20;
@@ -20,8 +22,8 @@ interface LoopLagHistogram {
 
 interface OutcomesLaneOptions {
   logger?: LaneLogger | null;
-  setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearIntervalFn?: (handle: NodeJS.Timeout) => void;
+  setIntervalFn?: SetIntervalFn;
+  clearIntervalFn?: ClearIntervalFn;
   createLoopLagHistogram?: () => LoopLagHistogram | null;
 }
 
@@ -31,8 +33,8 @@ function defaultLoopLagHistogram(): LoopLagHistogram {
 
 function createOutcomesLane({
   logger = console,
-  setIntervalFn = (fn: () => void, ms: number) => setInterval(fn, ms),
-  clearIntervalFn = clearInterval,
+  setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
+  clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
   createLoopLagHistogram = defaultLoopLagHistogram,
 }: OutcomesLaneOptions = {}) {
   const { note } = createLaneLog({ prefix: '[outcomes]', logger });

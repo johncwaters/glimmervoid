@@ -2,6 +2,7 @@ import { access, mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import type { Config } from '../shared/contracts/config.ts';
 import { execFileAsync } from './child-process-safe.ts';
+import { runGit } from './git-exec.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { FACTORY_FIRST_TICK_DELAY_MS, factoryShouldStart } from './core/factory-core.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
@@ -11,6 +12,7 @@ import { createGitWorkspace } from './git-workspace.ts';
 import type { GitWorkspaceInstance } from './git-workspace.ts';
 import { createLaneRunner } from './lane-runner.ts';
 import { resolvePackageBin } from './runtime-paths.ts';
+import { errorMessage, isMissingFileError } from '../shared/text.ts';
 
 const COHERENCE_CONFIG_PROBE_TIMEOUT_MS = 5_000;
 
@@ -60,7 +62,7 @@ export function createFactoryWiring({
       await access(candidatePath);
       return true;
     } catch (error) {
-      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return false;
+      if (isMissingFileError(error, { includeNotDir: false })) return false;
       throw error;
     }
   }
@@ -94,15 +96,10 @@ export function createFactoryWiring({
   }
 
   async function hasCoherenceConfigAt(projectPath: string, sha: string): Promise<boolean> {
-    try {
-      await execFileAsync('git', ['cat-file', '-e', `${sha}:coherence.config.json`], {
-        cwd: projectPath, encoding: 'utf8', timeout: COHERENCE_CONFIG_PROBE_TIMEOUT_MS,
-      });
-      return true;
-    } catch (error) {
-      if (isGitExitWithoutObject(error)) return false;
-      throw error;
-    }
+    const probe = await runGit(['cat-file', '-e', `${sha}:coherence.config.json`], { cwd: projectPath, timeoutMs: COHERENCE_CONFIG_PROBE_TIMEOUT_MS });
+    if (probe.ok) return true;
+    if (isGitExitWithoutObject(probe.error)) return false;
+    throw probe.error;
   }
 
   const runner = createLaneRunner<FactoryPoller>({
@@ -148,7 +145,7 @@ export function createFactoryWiring({
         await poller.stop();
         for (const projectId of [...checkouts.keys()]) {
           await removeCheckout(projectId).catch((error: unknown) => {
-            log.warn(`[factory] removing the control checkout for ${projectId} failed: ${error instanceof Error ? error.message : String(error)}`);
+            log.warn(`[factory] removing the control checkout for ${projectId} failed: ${errorMessage(error)}`);
           });
         }
       };

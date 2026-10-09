@@ -8,6 +8,7 @@ import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import { buildLanePermissions } from './core/lane-permissions-core.ts';
 import { awaitSessionExit, registerEphemeralSession } from './ephemeral-session.ts';
+import { writeJsonAtomic } from './json-file.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 
 const SETTINGS_DIR_PREFIX = 'glimmervoid-lane-settings-';
@@ -45,7 +46,7 @@ async function writeStandaloneDenySettings(permissions: unknown): Promise<{ args
   const settingsPath = path.join(settingsDirectory, 'settings.json');
   const removeSettingsDirectory = () => fsPromises.rm(settingsDirectory, { recursive: true, force: true }).catch(() => {});
   try {
-    await fsPromises.writeFile(settingsPath, JSON.stringify({ permissions }, null, 2), 'utf8');
+    await writeJsonAtomic(settingsPath, { permissions });
   } catch (error) {
     await removeSettingsDirectory();
     throw error;

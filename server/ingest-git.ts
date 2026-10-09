@@ -2,6 +2,8 @@
 import fsp from 'node:fs/promises';
 
 import { execFileAsync } from './child-process-safe.ts';
+import { runGit as runGitCommand } from './git-exec.ts';
+import type { ExecFileFn } from './git-exec.ts';
 import { createWatchDebounce } from '../detection/watch-debounce.ts';
 import type { WatchDebounce } from '../detection/watch-debounce.ts';
 import { canonicalizePath } from '../shared/paths.ts';
@@ -11,10 +13,12 @@ import {
   shouldReadCommit,
 } from './core/ingest-git-core.ts';
 import type { GitCommit, GitIngestEvent, GitLayout, GitRepoState } from './core/ingest-git-core.ts';
-import { positiveInt } from './core/ingest-number-core.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage, isMissingFileError } from '../shared/text.ts';
+import { positiveIntOr } from '../shared/coerce.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from './core/timer-deps.ts';
 
 const DEFAULT_MAX_REPOS = 16;
 const DEFAULT_GIT_TIMEOUT_MS = 15000;
@@ -40,27 +44,18 @@ interface GitIngestOptions {
   sourceConfig?: { debounceMs?: number; pollMs?: number };
   reposProvider?: (() => string[]) | null;
   logger?: LaneLogger | null;
-  execFileFn?: (
-    file: string,
-    args: readonly string[],
-    options: { cwd: string; encoding: 'utf8'; timeout: number; maxBuffer: number },
-  ) => Promise<{ stdout: string | Buffer }>;
+  execFileFn?: ExecFileFn;
   createWatch?: typeof createWatchDebounce;
   canonicalize?: (path: string) => string;
   statRepoDir?: (dir: string) => Promise<unknown>;
   nowFn?: () => number;
-  setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearIntervalFn?: (handle: NodeJS.Timeout) => void;
-  setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+  setIntervalFn?: SetIntervalFn;
+  clearIntervalFn?: ClearIntervalFn;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
   maxRepos?: number;
   gitTimeoutMs?: number;
   gitPath?: string;
-}
-
-function unrefTimer(timer: NodeJS.Timeout): NodeJS.Timeout {
-  if (timer && typeof timer.unref === 'function') timer.unref();
-  return timer;
 }
 
 function createGitIngest({
@@ -73,19 +68,19 @@ function createGitIngest({
   canonicalize = canonicalizePath,
   statRepoDir = (dir: string) => fsp.stat(dir),
   nowFn = Date.now,
-  setIntervalFn = (fn: () => void, ms: number) => setInterval(fn, ms),
-  clearIntervalFn = clearInterval,
-  setTimeoutFn = (fn: () => void, ms: number) => setTimeout(fn, ms),
-  clearTimeoutFn = clearTimeout,
+  setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
+  clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
+  setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
+  clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
   maxRepos = DEFAULT_MAX_REPOS,
   gitTimeoutMs = DEFAULT_GIT_TIMEOUT_MS,
   gitPath = 'git',
 }: GitIngestOptions = {}) {
   if (typeof publish !== 'function') throw new Error('createGitIngest requires publish');
   const publishEvent = publish;
-  const settleMs = positiveInt(sourceConfig.debounceMs, DEFAULT_DEBOUNCE_MS);
-  const pollIntervalMs = positiveInt(sourceConfig.pollMs, DEFAULT_POLL_MS);
-  const repoLimit = Math.max(1, positiveInt(maxRepos, DEFAULT_MAX_REPOS));
+  const settleMs = positiveIntOr(sourceConfig.debounceMs, DEFAULT_DEBOUNCE_MS);
+  const pollIntervalMs = positiveIntOr(sourceConfig.pollMs, DEFAULT_POLL_MS);
+  const repoLimit = Math.max(1, positiveIntOr(maxRepos, DEFAULT_MAX_REPOS));
   const candidateLimit = repoLimit * 4;
 
   const repos = new Map<string, WatchedRepo>();
@@ -143,14 +138,11 @@ function createGitIngest({
 
 
   async function runGit(cwd: string, args: readonly string[]): Promise<{ stdout: string | null; error: unknown }> {
-    try {
-      const { stdout } = await execFileFn(gitPath, args, {
-        cwd, encoding: 'utf8', timeout: gitTimeoutMs, maxBuffer: MAX_GIT_BUFFER_BYTES,
-      });
-      return { stdout: typeof stdout === 'string' ? stdout : String(stdout || ''), error: null };
-    } catch (error) {
-      return { stdout: null, error };
-    }
+    const result = await runGitCommand(args, {
+      gitPath, cwd, timeoutMs: gitTimeoutMs, maxBuffer: MAX_GIT_BUFFER_BYTES, execFileFn, trim: false,
+    });
+    if (result.ok) return { stdout: result.out, error: null };
+    return { stdout: null, error: result.error };
   }
 
 
@@ -346,7 +338,7 @@ function createGitIngest({
       await statRepoDir(dir);
       return false;
     } catch (error) {
-      return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
+      return isMissingFileError(error, { includeNotDir: false });
     }
   }
 

@@ -8,6 +8,8 @@ import type { SharedClock } from './lane-runner.ts';
 import type { PrGh } from './pr-gh.ts';
 import { MyPrsState } from '../shared/contracts/my-prs.ts';
 import type { MyPr, MyPrAutoRebase, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrKeepMergeableAttemptRecord, MyPrMergeabilityFixResult, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsState as MyPrsStateType, MyPrsStatus, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
+import { errorMessage } from '../shared/text.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from './core/timer-deps.ts';
 
 const MY_PRS_RATE_LIMIT_RESOURCES = ['graphql'] as const;
 
@@ -25,10 +27,10 @@ interface MyPrsPollerDependencies {
   onTickComplete: (status: MyPrsStatus) => void;
   now?: () => number;
   intervalMinutes?: number;
-  setIntervalFn?: (callback: () => void, milliseconds: number) => NodeJS.Timeout;
-  clearIntervalFn?: (handle: NodeJS.Timeout) => void;
-  setTimeoutFn?: (callback: () => void, milliseconds: number) => NodeJS.Timeout;
-  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+  setIntervalFn?: SetIntervalFn;
+  clearIntervalFn?: ClearIntervalFn;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
   clock?: SharedClock;
   firstTickDelayMs?: () => number;
   log?: Pick<Console, 'warn'>;
@@ -90,7 +92,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
       try {
         return await runTick();
       } catch (error: unknown) {
-        pollingError = error instanceof Error ? error.message : String(error);
+        pollingError = errorMessage(error);
         return failedOutcome(pollingError);
       }
     },
@@ -222,7 +224,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
       if (fixSignal.aborted) return { outcome: 'stopped', reason: 'The repair was stopped' };
       return fixMergeability(pr, fixSignal, holdTheRepairHeadBeforeThePush, () => previousPrs.find((listed) => listed.key === pr.key));
     }).catch((error: unknown): MyPrMergeabilityFixResult => {
-      const reason = (error instanceof Error ? error.message : String(error)) || 'The repair failed';
+      const reason = errorMessage(error) || 'The repair failed';
       log?.warn(`[${core.MY_PRS_LANE_ID}] keep mergeable fix for ${pr.key} failed: ${reason}`);
       return { outcome: 'failed', reason };
     }).then(async (repairOutcome) => {

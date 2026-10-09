@@ -18,8 +18,9 @@ import {
   parseResolvedSha,
 } from './core/update-core.ts';
 import type { InstallFlavor, ReleaseSource } from './core/update-core.ts';
-import { writeJsonAtomicSync } from './json-file.ts';
+import { loadJsonStateFileSync, loadedJsonValue, writeJsonAtomicSync } from './json-file.ts';
 import { packageRoot as resolvedPackageRoot } from './runtime-paths.ts';
+import { runGit } from './git-exec.ts';
 
 const GIT_REMOTE_URL = `https://github.com/${REPO_SLUG}.git`;
 const GITHUB_LATEST_RELEASE_URL = `https://api.github.com/repos/${REPO_SLUG}/releases/latest`;
@@ -92,11 +93,7 @@ function defaultStatePath(): string {
 }
 
 function readJsonFile(filePath: string): unknown {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch {
-    return null;
-  }
+  return loadedJsonValue(loadJsonStateFileSync({ filePath, parse: (raw: unknown) => raw, quarantine: false }));
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {
@@ -126,22 +123,14 @@ function directoryExists(directoryPath: string): boolean {
   }
 }
 
-function commandErrorText(error: unknown): string {
-  const commandError = error as { stderr?: unknown; message?: unknown } | null;
-  return String(commandError?.stderr || commandError?.message || error || 'git command failed').trim();
-}
-
 async function runGitProbe(
   runCommand: RunCommand,
   args: string[],
-  options: Record<string, unknown>,
+  { cwd, timeout, signal }: { cwd?: string; timeout: number; signal: AbortSignal },
 ): Promise<GitCallResult> {
-  try {
-    const { stdout } = await runCommand('git', args, options);
-    return { ok: true, out: typeof stdout === 'string' ? stdout.trim() : '' };
-  } catch (error) {
-    return { ok: false, out: '', err: commandErrorText(error) };
-  }
+  const result = await runGit(args, { cwd, timeoutMs: timeout, signal, execFileFn: runCommand, preferStderr: true });
+  if (result.ok) return { ok: true, out: result.out };
+  return { ok: false, out: '', err: result.err.trim() || 'git command failed' };
 }
 
 async function probeBranchAndUpstream(

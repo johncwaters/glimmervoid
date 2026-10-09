@@ -1,7 +1,9 @@
 import { reviewsPollingShape } from './reviews.ts';
 import { z } from 'zod';
+import { NODE_ID_RE } from './github-ids.ts';
+import { FULL_SHA_RE } from '../git-text.ts';
 
-export const CommitSha = z.string().regex(/^[0-9a-f]{40}$/);
+export const CommitSha = z.string().regex(FULL_SHA_RE);
 const repoSlug = z.string().regex(/^[^/]+\/[^/]+$/);
 
 export const SearchedPr = z.object({
@@ -163,7 +165,7 @@ export const PriorReview = z.object({
 });
 export type PriorReview = z.infer<typeof PriorReview>;
 
-export const ReviewThreadId = z.string().min(1).max(256).regex(/^[A-Za-z0-9_=-]+$/);
+export const ReviewThreadId = z.string().min(1).max(256).regex(NODE_ID_RE);
 export const TeamReviewThreadResult = z.object({ addressed: z.boolean(), reason: z.string().trim().min(1).max(4000) }).strict();
 export type TeamReviewThreadResult = z.infer<typeof TeamReviewThreadResult>;
 

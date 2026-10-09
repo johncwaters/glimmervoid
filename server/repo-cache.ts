@@ -1,16 +1,13 @@
 import path from 'node:path';
 import os from 'node:os';
 import { lstat, mkdir, readdir } from 'node:fs/promises';
-import { execFileAsync } from './child-process-safe.ts';
-import { GH_SEGMENT, prBaseRef, prHeadRef, repoParts } from './core/team-review-core.ts';
+import { prBaseRef, prHeadRef } from './core/team-review-core.ts';
+import { GH_SEGMENT, repoParts } from '../shared/contracts/github-ids.ts';
+import { runGit } from './git-exec.ts';
+import type { CommandResult } from './git-exec.ts';
 import { createSerialQueue } from './spawn-gate.ts';
 import { CommitSha } from '../shared/contracts/team-review.ts';
-
-interface CommandResult {
-  ok: boolean;
-  out: string;
-  err: string;
-}
+import { errorMessage, isMissingFileError } from '../shared/text.ts';
 
 type CommandRunner = (args: string[], cwd: string, env?: Record<string, string>, timeoutMs?: number) => Promise<CommandResult>;
 
@@ -33,7 +30,7 @@ async function isDirectoryWithoutSymlink(directory: string): Promise<boolean | n
     const entry = await lstat(directory);
     return entry.isDirectory() && !entry.isSymbolicLink();
   } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return null;
+    if (isMissingFileError(error, { includeNotDir: false })) return null;
     return false;
   }
 }
@@ -44,18 +41,11 @@ async function childDirectoryNames(directory: string): Promise<string[]> {
   return entries.filter((entry) => entry.isDirectory() && GH_SEGMENT.test(entry.name)).map((entry) => entry.name);
 }
 
-async function runGit(args: string[], cwd: string, env?: Record<string, string>, timeoutMs = GIT_COMMAND_TIMEOUT_MS): Promise<CommandResult> {
-  try {
-    const childEnv = env ? { env: { ...process.env, ...env } } : {};
-    const { stdout } = await execFileAsync('git', args, { cwd, encoding: 'utf8', timeout: timeoutMs, ...childEnv });
-    return { ok: true, out: stdout.trim(), err: '' };
-  } catch (error) {
-    const failure = error instanceof Error ? error : new Error(String(error));
-    return { ok: false, out: '', err: failure.message };
-  }
+function defaultCommandRunner(args: string[], cwd: string, env?: Record<string, string>, timeoutMs = GIT_COMMAND_TIMEOUT_MS): Promise<CommandResult> {
+  return runGit(args, { cwd, env, timeoutMs });
 }
 
-function createRepoCache({ rootDir, commandRunner = runGit, remoteUrlFor = (repo: string) => `https://github.com/${repo}.git` }: RepoCacheOptions) {
+function createRepoCache({ rootDir, commandRunner = defaultCommandRunner, remoteUrlFor = (repo: string) => `https://github.com/${repo}.git` }: RepoCacheOptions) {
   const cacheRoot = path.resolve(rootDir);
   const queues = new Map<string, ReturnType<typeof createSerialQueue>>();
 
@@ -71,7 +61,7 @@ function createRepoCache({ rootDir, commandRunner = runGit, remoteUrlFor = (repo
     try {
       return await commandRunner(args, cwd, env, timeoutMs);
     } catch (error) {
-      return { ok: false, out: '', err: error instanceof Error ? error.message : String(error) };
+      return { ok: false, out: '', err: errorMessage(error) };
     }
   }
 

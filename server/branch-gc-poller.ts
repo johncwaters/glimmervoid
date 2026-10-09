@@ -8,6 +8,9 @@ import type { MergeProbeEnvResult, MergeProofReason, MergeTreeOutcome, TipProbe 
 import type { IntegrationTip, KeptBranch, LocalWorktreeTip, RemoteBranchTip, WorktreeGcDecision } from './core/branch-gc-core.ts';
 import { createTickLoop } from './lane-runner.ts';
 import type { TickOutcome } from './lane-runner.ts';
+import { errorMessage, isMissingFileError } from '../shared/text.ts';
+import { DEFAULT_TIMER_FNS } from './core/timer-deps.ts';
+import type { ClearIntervalFn, SetIntervalFn } from './core/timer-deps.ts';
 
 const DEFAULT_STALE_DAYS = 14;
 const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -77,8 +80,8 @@ interface BranchGcPollerDeps {
   pruneWorktrees?: boolean;
   dryRun?: boolean;
   intervalMs?: number;
-  setIntervalFn?: typeof setInterval;
-  clearIntervalFn?: typeof clearInterval;
+  setIntervalFn?: SetIntervalFn;
+  clearIntervalFn?: ClearIntervalFn;
   firstTickDelayMs?: () => number;
   log?: Pick<Console, 'warn'>;
   decisionTrace?: (entry: Record<string, unknown>) => void;
@@ -105,8 +108,8 @@ function createBranchGcPoller(deps: BranchGcPollerDeps): BranchGcPoller {
     pruneWorktrees = true,
     dryRun = false,
     intervalMs = DEFAULT_INTERVAL_MS,
-    setIntervalFn = setInterval,
-    clearIntervalFn = clearInterval,
+    setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
+    clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
     log = console,
     decisionTrace = () => {},
     onTickComplete = () => {},
@@ -122,7 +125,7 @@ function createBranchGcPoller(deps: BranchGcPollerDeps): BranchGcPoller {
     try {
       return await method(args);
     } catch (error) {
-      return { ok: false, err: error instanceof Error ? error.message : String(error) };
+      return { ok: false, err: errorMessage(error) };
     }
   }
 
@@ -141,16 +144,12 @@ function createBranchGcPoller(deps: BranchGcPollerDeps): BranchGcPoller {
     trace({ projectPath, name, decision: 'skipped', reason: `${operation}-error` });
   }
 
-  function isMissingPathError(error: unknown): boolean {
-    return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
-  }
-
   async function pathIsMissing(target: string): Promise<boolean> {
     try {
       await statProjectPath(target);
       return false;
     } catch (error) {
-      return isMissingPathError(error);
+      return isMissingFileError(error, { includeNotDir: false });
     }
   }
 
@@ -220,7 +219,7 @@ function createBranchGcPoller(deps: BranchGcPollerDeps): BranchGcPoller {
     try {
       return await gitWorkspace.resolveMergeProbeEnv({ projectPath });
     } catch (error) {
-      return { ok: false, err: error instanceof Error ? error.message : String(error) };
+      return { ok: false, err: errorMessage(error) };
     }
   }
 
@@ -371,7 +370,7 @@ function createBranchGcPoller(deps: BranchGcPollerDeps): BranchGcPoller {
     try {
       listedWorktrees = await gitWorkspace.listWorktrees({ projectPath, prefixes, integrationBranch, configuredIntegrationBranch: integrationBranch });
     } catch (error) {
-      noteGitError({ projectPath, operation: 'list-worktrees', gitResult: { ok: false, err: error instanceof Error ? error.message : String(error) } });
+      noteGitError({ projectPath, operation: 'list-worktrees', gitResult: { ok: false, err: errorMessage(error) } });
       summary.errors += 1;
       return;
     }

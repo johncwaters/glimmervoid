@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { nextBackoffMs } from './lane-backoff.ts';
-import { stringOrNull } from './usage-number-core.ts';
+import { rawTextOr } from '../../shared/coerce.ts';
 
 export type PassOutcome = 'complete' | 'byte-limited' | 'io-failed';
 
@@ -63,7 +63,7 @@ function projectDirCandidates(
 
   const resolvedHomeDir = resolveHomeDir(env, homeDir);
   if (!resolvedHomeDir) return uniqueStrings(projectsDirsFromHomes(extraHomes));
-  const xdgConfigHome = stringOrNull(env.XDG_CONFIG_HOME) || path.join(resolvedHomeDir, '.config');
+  const xdgConfigHome = rawTextOr(env.XDG_CONFIG_HOME, null) || path.join(resolvedHomeDir, '.config');
   const defaultHomes = [path.join(xdgConfigHome, 'claude'), path.join(resolvedHomeDir, '.claude')];
   return uniqueStrings([...projectsDirsFromHomes(defaultHomes), ...projectsDirsFromHomes(extraHomes)]);
 }
@@ -100,7 +100,7 @@ function expandTilde(candidate: string, env: NodeJS.ProcessEnv, homeDir: string 
 }
 
 function resolveHomeDir(env: NodeJS.ProcessEnv, homeDir: string | null): string | null {
-  return stringOrNull(env.HOME) || stringOrNull(env.USERPROFILE) || homeDir;
+  return rawTextOr(env.HOME, null) || rawTextOr(env.USERPROFILE, null) || homeDir;
 }
 
 function uniqueStrings(values: string[]): string[] {

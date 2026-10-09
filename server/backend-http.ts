@@ -7,6 +7,7 @@ import express from 'express';
 import type { Express, Request, RequestHandler, Response } from 'express';
 import { HOOK_EVENTS } from '../detection/settings-injector.ts';
 import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT } from '../shared/contracts/plan-review.ts';
+import { parseJsonRecord } from './core/json-core.ts';
 import type { Session } from '../session/sessions.ts';
 import { refocusReplyFor } from '../session/core/refocus-core.ts';
 import type { RefocusContext } from '../session/core/refocus-core.ts';
@@ -92,12 +93,7 @@ function readCappedBody(
 }
 
 function parseJsonBody(body: string): Record<string, unknown> {
-  try {
-    const parsed = body ? JSON.parse(body) : {};
-    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
-  } catch {
-    return {};
-  }
+  return parseJsonRecord(body, { admitArrays: true }) ?? {};
 }
 
 interface HookRouterOutput {

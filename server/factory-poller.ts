@@ -3,6 +3,7 @@ import type { FactoryProjectState, FactoryState } from '../shared/contracts/fact
 import { buildFactoryProjectState, FACTORY_TICK_INTERVAL_MS, factoryStateSignature } from './core/factory-core.ts';
 import { createTickLoop } from './lane-runner.ts';
 import type { TickLoopOptions } from './lane-runner.ts';
+import { errorMessage } from '../shared/text.ts';
 
 interface FactoryProject {
   id: string;
@@ -35,7 +36,7 @@ export function createFactoryPoller({
     try {
       await releaseControlCheckout(projectId);
     } catch (error) {
-      log.warn(`[factory] releasing the control checkout for ${projectId} failed: ${error instanceof Error ? error.message : String(error)}`);
+      log.warn(`[factory] releasing the control checkout for ${projectId} failed: ${errorMessage(error)}`);
     }
   }
 
@@ -79,7 +80,7 @@ export function createFactoryPoller({
       processedProjects.delete(project.id);
       return buildFactoryProjectState({
         ...identity, headSha, orient: null, work: null,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       });
     }
   }

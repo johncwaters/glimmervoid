@@ -6,7 +6,8 @@ import path from 'node:path';
 import type { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
-import { execFileAsync } from './child-process-safe.ts';
+import { runGh, runGit } from './git-exec.ts';
+import type { ExecFileFn, RunCommandOptions } from './git-exec.ts';
 import { resolveHookTools as resolveSharedHookTools } from './hook-tools.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { stableConfigKey } from './core/config-secrets-core.ts';
@@ -22,7 +23,7 @@ import type { JobResultFile, RecordLane, ResultFileOutcome, SpawnGate } from './
 import { createLaneRunner } from './lane-runner.ts';
 import type { LaneRunnerGate, LaneStatusRecord } from './lane-runner.ts';
 import { emptyLaneStatus } from './lane-status.ts';
-import { writeJsonAtomic } from './json-file.ts';
+import { loadJsonStateFile, loadedJsonValue, writeJsonAtomic } from './json-file.ts';
 import { createPosthogApi } from './posthog-api.ts';
 import type { PosthogApi } from './posthog-api.ts';
 import { createPosthogPoller } from './posthog-poller.ts';
@@ -31,7 +32,9 @@ import type { PosthogState, SpawnInvestigationArgs } from './posthog-poller.ts';
 import { DEFAULT_POSTHOG_REPORT_DIR } from './posthog-report.ts';
 import { sendTelegramMessage } from './telegram-transport.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
+import { isRecord } from '../shared/coerce.ts';
+import { createCoalescedTimer } from './core/coalesce-timer.ts';
 
 const POSTHOG_DENY = {
   deny: [
@@ -343,14 +346,18 @@ function readFixResult(resultPath: string): ResultFileOutcome {
   }));
 }
 
-async function runCli(cmd: string, args: string[], cwd: string): Promise<CliResult> {
-  try {
-    const { stdout } = await execFileAsync(cmd, args, { cwd, encoding: 'utf8', timeout: 120000 });
-    return { ok: true, out: String(stdout || '').trim(), err: '' };
-  } catch (err) {
-    const failure = (err ?? {}) as { stdout?: unknown; stderr?: unknown; message?: unknown };
-    return { ok: false, out: String(failure.stdout || '').trim(), err: String(failure.stderr || failure.message || '') };
-  }
+const FIX_HANDOFF_TIMEOUT_MS = 120_000;
+
+async function runCli(cmd: string, args: string[], cwd: string, execFileFn?: ExecFileFn): Promise<CliResult> {
+  const options: RunCommandOptions = {
+    cwd,
+    timeoutMs: FIX_HANDOFF_TIMEOUT_MS,
+    keepStdoutOnFailure: true,
+    preferStderr: true,
+    ...(execFileFn ? { execFileFn } : {}),
+  };
+  const result = cmd === 'gh' ? await runGh(args, options) : await runGit(args, { ...options, gitPath: cmd });
+  return { ok: result.ok, out: result.out, err: result.err };
 }
 
 function handoffFailure(
@@ -689,29 +696,30 @@ function createPosthogWiring({
 
   const posthogStatePath = path.join(glimmervoidHomeDir(), 'posthog-state.json');
   async function readPosthogState(): Promise<PosthogState> {
-    try { return JSON.parse(fs.readFileSync(posthogStatePath, 'utf8')); }
-    catch { return {}; }
+    const outcome = await loadJsonStateFile({
+      filePath: posthogStatePath, parse: (raw: unknown) => (isRecord(raw) ? raw as PosthogState : null), quarantine: false,
+    });
+    return loadedJsonValue(outcome) ?? {};
   }
   async function writePosthogState(state: PosthogState): Promise<void> {
     await writeJsonAtomic(posthogStatePath, state, { mkdir: true });
   }
 
-  let forcedTickTimer: NodeJS.Timeout | null = null;
-  function clearForcedTickTimer(): void {
-    if (!forcedTickTimer) return;
-    clearTimeout(forcedTickTimer);
-    forcedTickTimer = null;
-  }
-  function queueForcedTick(): void {
-    clearForcedTickTimer();
-    forcedTickTimer = setTimeout(() => {
-      forcedTickTimer = null;
+  const forcedTick = createCoalescedTimer({
+    mode: 'trailing',
+    delayMs: FORCE_TICK_DEBOUNCE_MS,
+    run: () => {
       if (runner.isStopped()) return;
       const poller = runner.getPoller();
       if (!poller || !('tick' in poller) || typeof poller.tick !== 'function') return;
       void poller.tick();
-    }, FORCE_TICK_DEBOUNCE_MS);
-    if (typeof forcedTickTimer.unref === 'function') forcedTickTimer.unref();
+    },
+  });
+  function clearForcedTickTimer(): void {
+    forcedTick.cancel();
+  }
+  function queueForcedTick(): void {
+    forcedTick.schedule();
   }
 
   const runner = createLaneRunner({
@@ -821,6 +829,7 @@ export {
   pushFixBranch,
   readFixResult,
   readInvestigationResult,
+  runCli,
   sweepReports,
 };
 export type { PosthogGitWorkspace, PosthogWiringConfig, PosthogWiringOptions, PosthogWorkspace };

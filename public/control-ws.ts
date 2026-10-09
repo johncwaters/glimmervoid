@@ -24,6 +24,7 @@ let connectingSince = 0;
 let tokenFetchPending = false;
 
 let lastSeq = 0;
+let requestSequence = 0;
 
 let _messageHandler: ControlMessageHandler | null = null;
 let _connectionStateCallback: ConnectionStateCallback | null = null;
@@ -42,8 +43,13 @@ export function sendControlMsg(msg: Record<string, unknown>): boolean {
   return true;
 }
 
+export function nextRequestId(prefix: string): string {
+  requestSequence += 1;
+  return `${prefix}-${requestSequence}`;
+}
+
 export function sendControlRequest(type: string, payload?: Record<string, unknown>): Promise<ServerMessage> {
-  const requestId = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const requestId = nextRequestId(type);
   return new Promise<ServerMessage>((resolve, reject) => {
     const timer = setTimeout(() => {
       pendingRequests.delete(requestId);

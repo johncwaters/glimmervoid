@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import path from 'node:path';
 
 import {
   MAX_REMEMBERED_TRANSCRIPTS,
@@ -10,7 +9,6 @@ import {
   completeLineBytes,
   containmentRefusalReason,
   isOversizedPartialLine,
-  isPathInsideRoot,
   planContiguousRead,
   resumeOffsetFrom,
   withCommittedOffset,
@@ -92,13 +90,6 @@ test('a checkpoint resumes only for its own transcript and resets when the file 
   });
 });
 
-test('containment refuses a sibling, the root itself and a parent traversal', () => {
-  const root = path.join(path.sep, 'projects');
-  assert.equal(isPathInsideRoot(root, path.join(root, 'a', 'session.jsonl')), true);
-  assert.equal(isPathInsideRoot(root, root), false);
-  assert.equal(isPathInsideRoot(root, path.join(path.sep, 'projects-elsewhere', 'session.jsonl')), false);
-  assert.equal(isPathInsideRoot(root, path.join(root, '..', 'session.jsonl')), false);
-});
 
 test('a partial line is oversized only past the byte bound', () => {
   assert.equal(isOversizedPartialLine('x'.repeat(8), { maxPartialLineBytes: 8 }), false);

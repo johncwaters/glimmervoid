@@ -3,7 +3,7 @@ import { TeamReviewStatus } from '#shared/contracts/team-review.ts';
 import type { DraftComment, FindingSeverity, InFlightReview, QueuedReview, ReviewComment, ReviewDraft, TeamReviewAction, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
 import { withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import { createAttentionAck } from './attention-ack-core.ts';
-import { sendControlMsg } from './control-ws.ts';
+import { nextRequestId, sendControlMsg } from './control-ws.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } from './dom-helpers.ts';
 import { createPollAgoTicker, formatAgo } from './poll-ago.ts';
 import { createPrQueueColumns, createPrQueueHead } from './pr-queue-columns.ts';
@@ -523,7 +523,7 @@ const FOLLOW_UP_APPROVAL_HINT = 'Your comments are on GitHub. Approve adds an ap
 function sendAction(origin: DetailOrigin, draft: ReviewDraft, action: TeamReviewAction, body: string, comments: ReviewComment[], settle: (isDone: boolean, text: string) => void, threadId?: string): boolean {
   const capturedOrder = attentionOrder(groupDrafts(_latest));
   showActionNotice(null);
-  const requestId = `team-review-action-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const requestId = nextRequestId('team-review-action');
   const isSent = sendControlMsg({ type: 'team-review-action', requestId, ...buildActionRequest(draft, action, body, comments, threadId) });
   if (!isSent) return false;
   const timer = window.setTimeout(() => {

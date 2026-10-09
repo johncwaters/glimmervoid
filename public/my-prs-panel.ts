@@ -6,7 +6,7 @@ import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } fr
 import { formatAgo } from './poll-ago.ts';
 import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createStateGlyph } from './state-glyph.ts';
-import { sendControlMsg, sendControlRequest } from './control-ws.ts';
+import { nextRequestId, sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { celebrateMerge } from './merge-celebration.ts';
 import { chooseSelectedKey, emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, mergeConfirmMessage, mergeControlState, mergeCelebrationText, mergeWhenReadyControlState, newlyMergedPrs, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
@@ -113,7 +113,7 @@ function settleMerge(key: string, head: string, phase: MergeAttempt['phase'], te
 
 function sendMerge(pr: MyPr): void {
   if (pendingMergeRequests.has(pr.key)) return;
-  const requestId = `my-pr-merge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const requestId = nextRequestId('my-pr-merge');
   const isSent = sendControlMsg({ type: 'my-pr-merge', requestId, repo: pr.repo, number: pr.number, headRefOid: pr.headRefOid });
   if (!isSent) {
     settleMerge(pr.key, pr.headRefOid, 'failed', 'Not connected to the server.');

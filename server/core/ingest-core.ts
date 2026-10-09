@@ -1,5 +1,5 @@
+import { isRecord, positiveIntOr, textOr } from '../../shared/coerce.ts';
 
-import { positiveInt } from './ingest-number-core.ts';
 
 export type SourceName = 'terminal' | 'agentLogs' | 'git' | 'fs' | 'shellHistory' | 'editor';
 
@@ -120,20 +120,17 @@ function resolveSource(name: SourceName, raw: unknown): IngestSourceConfig {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return disabledSource(name);
   const rawSource = raw as Record<string, unknown>;
   const resolved: Record<string, unknown> = { enabled: rawSource.enabled === true };
-  for (const [key, value] of Object.entries(defaults)) resolved[key] = positiveInt(rawSource[key], value);
+  for (const [key, value] of Object.entries(defaults)) resolved[key] = positiveIntOr(rawSource[key], value);
   const listKey = LIST_KEYS[name];
   if (listKey) resolved[listKey] = stringList(rawSource[listKey]);
   return resolved as IngestSourceConfig;
 }
 
 function resolveIngestConfig(raw: unknown): IngestConfig {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return disabledConfig();
-  const rawConfig = raw as Record<string, unknown>;
-  if (rawConfig.enabled !== true) return disabledConfig();
-  const rawSourcesValue = rawConfig.sources;
-  const rawSources = rawSourcesValue && typeof rawSourcesValue === 'object' && !Array.isArray(rawSourcesValue)
-    ? (rawSourcesValue as Record<string, unknown>)
-    : {};
+  if (!isRecord(raw)) return disabledConfig();
+  if (raw.enabled !== true) return disabledConfig();
+  const rawSourcesValue = raw.sources;
+  const rawSources: Record<string, unknown> = isRecord(rawSourcesValue) ? rawSourcesValue : {};
   const sources: Record<string, IngestSourceConfig> = {};
   for (const name of SOURCE_NAMES) sources[name] = resolveSource(name, rawSources[name]);
   return { enabled: true, sources };
@@ -206,22 +203,19 @@ function scrubDetail(detail: unknown): Record<string, string | number | boolean>
 }
 
 
-function nonEmptyString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
 
 function normalizeScope(raw: unknown): IngestScope {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { root: null, sessionId: null };
   const rawScope = raw as { root?: unknown; sessionId?: unknown };
-  return { root: nonEmptyString(rawScope.root), sessionId: nonEmptyString(rawScope.sessionId) };
+  return { root: textOr(rawScope.root, null), sessionId: textOr(rawScope.sessionId, null) };
 }
 
 function normalizeEvent(raw: unknown, { seq, now }: { seq: number; now: number }): IngestEvent | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const rawEvent = raw as Record<string, unknown>;
-  const source = nonEmptyString(rawEvent.source);
+  const source = textOr(rawEvent.source, null);
   if (!source || !KINDS_BY_SOURCE[source]) return null;
-  const kind = nonEmptyString(rawEvent.kind);
+  const kind = textOr(rawEvent.kind, null);
   if (!kind || !KINDS_BY_SOURCE[source].includes(kind)) return null;
   const summary = scrubText(typeof rawEvent.summary === 'string' ? rawEvent.summary : '')
     .replace(/\s+/g, ' ')
@@ -269,7 +263,7 @@ function createIngestStore(config: IngestConfig | null | undefined): IngestStore
 
 function publishEvent(store: IngestStore, raw: unknown, now: number): IngestEvent | null {
   const rawEvent = (raw ?? null) as { source?: unknown } | null;
-  const source = nonEmptyString(rawEvent?.source);
+  const source = textOr(rawEvent?.source, null);
   if (!source) return null;
   const ring = store.rings.get(source);
   if (!ring) return null;
@@ -342,7 +336,7 @@ function buildContextDigest(
     now = Number.NaN,
   }: { scopes?: string[] | null; budgetChars?: number; now?: number } = {},
 ): string {
-  const budget = positiveInt(budgetChars, DEFAULT_DIGEST_BUDGET_CHARS);
+  const budget = positiveIntOr(budgetChars, DEFAULT_DIGEST_BUDGET_CHARS);
   const candidates: IngestEvent[] = [];
   const takenBySource = new Map<string, number>();
   for (const event of snapshotEvents(store, { limit: Number.MAX_SAFE_INTEGER })) {

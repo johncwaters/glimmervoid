@@ -17,10 +17,12 @@ import {
 import type { TailState } from './core/ingest-tail-core.ts';
 import { isDispatchWorkdir, mapAgentLine } from './core/ingest-agent-core.ts';
 import type { AgentIngestEvent } from './core/ingest-agent-core.ts';
-import { positiveInt } from './core/ingest-number-core.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
+import { positiveIntOr } from '../shared/coerce.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from './core/timer-deps.ts';
 
 const DEFAULT_POLL_MS = 2000;
 const DEFAULT_DISCOVER_MS = 30000;
@@ -89,10 +91,10 @@ interface AgentLogIngestOptions {
     handler: (eventType: string, fileName: string | null) => void,
   ) => DirectoryWatcher;
   nowFn?: () => number;
-  setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearIntervalFn?: (handle: NodeJS.Timeout) => void;
-  setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+  setIntervalFn?: SetIntervalFn;
+  clearIntervalFn?: ClearIntervalFn;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
   pollIntervalMs?: number;
   discoverIntervalMs?: number;
   activeWithinMs?: number;
@@ -105,11 +107,6 @@ interface AgentLogIngestOptions {
   maxLinesPerDrain?: number;
   maxCatchUpBytes?: number;
   vendors?: Record<string, boolean> | null;
-}
-
-function unrefTimer(timer: NodeJS.Timeout): NodeJS.Timeout {
-  if (timer && typeof timer.unref === 'function') timer.unref();
-  return timer;
 }
 
 function decodeGrokRoot(name: string): string {
@@ -193,10 +190,10 @@ function createAgentLogIngest({
   fsPromises = fsNode.promises,
   watchFn = fsNode.watch,
   nowFn = Date.now,
-  setIntervalFn = (fn: () => void, ms: number) => setInterval(fn, ms),
-  clearIntervalFn = clearInterval,
-  setTimeoutFn = (fn: () => void, ms: number) => setTimeout(fn, ms),
-  clearTimeoutFn = clearTimeout,
+  setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
+  clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
+  setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
+  clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
   pollIntervalMs = DEFAULT_POLL_MS,
   discoverIntervalMs = DEFAULT_DISCOVER_MS,
   activeWithinMs = DEFAULT_ACTIVE_WITHIN_MS,
@@ -210,7 +207,7 @@ function createAgentLogIngest({
   maxCatchUpBytes = MAX_CATCH_UP_BYTES,
   vendors = null,
 }: AgentLogIngestOptions) {
-  const pollMs = positiveInt(sourceConfig.pollMs, positiveInt(pollIntervalMs, DEFAULT_POLL_MS));
+  const pollMs = positiveIntOr(sourceConfig.pollMs, positiveIntOr(pollIntervalMs, DEFAULT_POLL_MS));
   const wanted = vendors && typeof vendors === 'object' ? vendors : {};
 
   const tails = new Map<string, TailState>();
@@ -511,14 +508,14 @@ function createAgentLogIngest({
     const roots = await resolveRoots();
     if (!alive()) return;
     const found: FoundDir[] = [];
-    let budget = positiveInt(maxScanDirs, 2000);
+    let budget = positiveIntOr(maxScanDirs, 2000);
     for (const root of roots) {
       budget = await walk(root, root.dir, 0, found, budget);
       if (!alive()) return;
     }
     found.sort((left, right) => right.mtimeMs - left.mtimeMs);
     const lanes = currentLanes();
-    let stats = positiveInt(maxStatsPerSweep, 400);
+    let stats = positiveIntOr(maxStatsPerSweep, 400);
     for (const entry of found) {
       if (stats <= 0) break;
       stats = await promoteDir(entry, stats, lanes);
@@ -564,7 +561,7 @@ function createAgentLogIngest({
     const context = contexts.get(filePath);
     const state = tails.get(filePath);
     if (!context || !state) return;
-    const bound = positiveInt(maxLinesPerDrain, 200);
+    const bound = positiveIntOr(maxLinesPerDrain, 200);
     const recent = lines.slice(-bound);
     let droppedLines = lines.length - recent.length;
     for (const rawLine of recent) {
@@ -710,7 +707,7 @@ function createAgentLogIngest({
     pollTimer = unrefTimer(setIntervalFn(() => { void runGuarded(poll); }, pollMs));
     discoverTimer = unrefTimer(setIntervalFn(
       () => { void runGuarded(discover); },
-      positiveInt(discoverIntervalMs, DEFAULT_DISCOVER_MS),
+      positiveIntOr(discoverIntervalMs, DEFAULT_DISCOVER_MS),
     ));
     startPromise = runGuarded(discover);
     return startPromise;

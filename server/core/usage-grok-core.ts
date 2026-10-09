@@ -1,6 +1,6 @@
 import { parseJsonLine, vendorUsageEntry } from './usage-entry-core.ts';
 import type { DedupIdentityEntry, UsageEntry } from './usage-entry-core.ts';
-import { numberOrNull, safeNumber, stringOrNull } from './usage-number-core.ts';
+import { numberOr, rawTextOr } from '../../shared/coerce.ts';
 
 interface GrokCounts {
   inputTokens?: unknown;
@@ -34,7 +34,7 @@ function parseGrokUsageLine(line: unknown): UsageEntry | null {
     ? (usage.modelUsage as Record<string, unknown>)
     : null;
   if (!modelUsage) return null;
-  const model = Object.keys(modelUsage).find((modelKey) => stringOrNull(modelKey) && modelUsage[modelKey]);
+  const model = Object.keys(modelUsage).find((modelKey) => rawTextOr(modelKey, null) && modelUsage[modelKey]);
   if (!model) return null;
 
   const modelCountsValue = modelUsage[model];
@@ -44,15 +44,15 @@ function parseGrokUsageLine(line: unknown): UsageEntry | null {
   const timestampMs = timestampMsFrom(parsed);
   if (!Number.isFinite(timestampMs)) return null;
 
-  const inputTokens = safeNumber(modelCounts.inputTokens);
-  const cacheRead = safeNumber(modelCounts.cachedReadTokens);
-  const cacheCreate = safeNumber(modelCounts.cacheCreationTokens);
-  const costUsdTicks = numberOrNull(modelCounts.costUsdTicks) ?? numberOrNull(usage.costUsdTicks);
+  const inputTokens = numberOr(modelCounts.inputTokens, 0);
+  const cacheRead = numberOr(modelCounts.cachedReadTokens, 0);
+  const cacheCreate = numberOr(modelCounts.cacheCreationTokens, 0);
+  const costUsdTicks = numberOr(modelCounts.costUsdTicks, null) ?? numberOr(usage.costUsdTicks, null);
   const uncachedInput = Math.max(0, inputTokens - cacheRead - cacheCreate);
-  const outputTokens = safeNumber(modelCounts.outputTokens);
+  const outputTokens = numberOr(modelCounts.outputTokens, 0);
   const entry = vendorUsageEntry({
     timestampMs,
-    sessionId: stringOrNull(parsed.params?.sessionId),
+    sessionId: rawTextOr(parsed.params?.sessionId, null),
     model,
     input: uncachedInput,
     output: outputTokens,
@@ -63,7 +63,7 @@ function parseGrokUsageLine(line: unknown): UsageEntry | null {
       : costUsdTicks / 10000000000,
     vendor: 'grok',
   });
-  const messageId = stringOrNull(update.prompt_id);
+  const messageId = rawTextOr(update.prompt_id, null);
   if (messageId === null) return entry;
   return { ...entry, messageId };
 }
@@ -75,9 +75,9 @@ function grokDedupIdentity(entry: DedupIdentityEntry | null | undefined): string
 }
 
 function timestampMsFrom(parsed: GrokLine): number {
-  const agentTimestampMs = numberOrNull(parsed.params?._meta?.agentTimestampMs);
+  const agentTimestampMs = numberOr(parsed.params?._meta?.agentTimestampMs, null);
   if (agentTimestampMs !== null) return agentTimestampMs;
-  const seconds = numberOrNull(parsed.timestamp);
+  const seconds = numberOr(parsed.timestamp, null);
   if (seconds === null) return NaN;
   return seconds * 1000;
 }
@@ -99,7 +99,7 @@ function grokFallbackCostUSD(
 }
 
 function normalizeGrokModel(model: unknown): string {
-  const stripped = stringOrNull(model)?.replace(/^\[grok\]\s+/, '') || '';
+  const stripped = rawTextOr(model, null)?.replace(/^\[grok\]\s+/, '') || '';
   return stripped.endsWith('-build') ? stripped.slice(0, -6) : stripped;
 }
 

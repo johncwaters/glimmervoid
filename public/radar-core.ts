@@ -1,4 +1,5 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
+import { clockDurationText } from '#shared/display-text.ts';
 
 import { attentionSignature } from './attention-ack-core.ts';
 import { numberOr, textOr } from './coerce-core.ts';
@@ -218,10 +219,7 @@ export function verdictLabel(verdict: unknown) {
 }
 
 export function formatClockOffset(elapsedMs: number) {
-  const totalSeconds = Math.max(0, Math.round(elapsedMs / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = String(totalSeconds % 60).padStart(2, '0');
-  return `${minutes}:${seconds}`;
+  return clockDurationText(elapsedMs, { rounding: 'round', showsHours: false });
 }
 
 export function formatTrailOffset(startedAt: number | null, at: number) {

@@ -1,13 +1,13 @@
 
 import crypto from 'node:crypto';
 
-import { positiveInt } from './ingest-number-core.ts';
 import {
   DEFAULT_THREAD_TTL_MS, MAX_INTENT_CHARS, THREAD_ID_RE, sanitizeIntentText,
 } from './visions-intent-core.ts';
 import type { AppliedChange } from './visions-buffer-core.ts';
 import { lineOfOffset, lineStartOffsets, replacedSpanOfWholeTextChange } from './visions-buffer-core.ts';
 import { formatTouchedRanges, shiftLines } from './visions-touch-core.ts';
+import { isRecord, nonNegativeIntOr, positiveIntOr } from '../../shared/coerce.ts';
 
 const DEFAULT_QUIET_MS = 30000;
 const DEFAULT_COOLDOWN_MS = 300000;
@@ -111,10 +111,6 @@ export interface IntentThreadSummary {
   text: string;
 }
 
-function nonNegativeInt(value: unknown, fallback: number): number {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return fallback;
-  return Math.floor(value);
-}
 
 const DISABLED_CONFIG = Object.freeze({
   enabled: false,
@@ -131,22 +127,20 @@ function resolveDispatchConfig(raw: unknown): DispatchConfig {
   const block = raw as Record<string, unknown>;
   if (block.enabled !== true) return { ...DISABLED_CONFIG };
   const model = typeof block.model === 'string' && block.model.trim() ? block.model.trim() : DEFAULT_DISPATCH_MODEL;
-  const maxPerHour = positiveInt(block.maxPerHour, DEFAULT_MAX_PER_HOUR);
+  const maxPerHour = positiveIntOr(block.maxPerHour, DEFAULT_MAX_PER_HOUR);
   return {
     enabled: true,
-    quietMs: positiveInt(block.quietMs, DEFAULT_QUIET_MS),
-    cooldownMs: positiveInt(block.cooldownMs, DEFAULT_COOLDOWN_MS),
+    quietMs: positiveIntOr(block.quietMs, DEFAULT_QUIET_MS),
+    cooldownMs: positiveIntOr(block.cooldownMs, DEFAULT_COOLDOWN_MS),
     maxPerHour,
-    activityMaxPerHour: Math.min(nonNegativeInt(block.activityMaxPerHour, DEFAULT_ACTIVITY_MAX_PER_HOUR), maxPerHour - 1),
-    dispatchTimeoutSeconds: positiveInt(block.dispatchTimeoutSeconds, DEFAULT_TIMEOUT_SECONDS),
+    activityMaxPerHour: Math.min(nonNegativeIntOr(block.activityMaxPerHour, DEFAULT_ACTIVITY_MAX_PER_HOUR), maxPerHour - 1),
+    dispatchTimeoutSeconds: positiveIntOr(block.dispatchTimeoutSeconds, DEFAULT_TIMEOUT_SECONDS),
     model,
   };
 }
 
 function resolveVisionsConfig(raw: unknown) {
-  const block: Record<string, unknown> = raw && typeof raw === 'object' && !Array.isArray(raw)
-    ? (raw as Record<string, unknown>)
-    : {};
+  const block: Record<string, unknown> = isRecord(raw) ? raw : {};
   const projects = Array.isArray(block.projects)
     ? [...new Set(block.projects
       .filter((projectId): projectId is string => typeof projectId === 'string' && projectId.trim() !== '')
@@ -159,7 +153,7 @@ function resolveVisionsConfig(raw: unknown) {
     enabled: block.enabled === true,
     autoFix: block.autoFix === true,
     dispatch: resolveDispatchConfig(block.dispatch),
-    intent: { threadTtlMs: positiveInt(intent.threadTtlMs, DEFAULT_THREAD_TTL_MS) },
+    intent: { threadTtlMs: positiveIntOr(intent.threadTtlMs, DEFAULT_THREAD_TTL_MS) },
     projects: projects.length > 0 ? projects : null,
   };
 }

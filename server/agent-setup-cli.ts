@@ -1,10 +1,11 @@
 import fs from "node:fs";
-import crypto from "node:crypto";
 import path from "node:path";
 
 import grok from "../session/adapters/grok.ts";
 import { renderGrokHooksFile, classifyGrokHooksFile } from "../session/core/grok-hooks-file-core.ts";
-import { errorMessage } from "./core/text-core.ts";
+import { errorMessage, isMissingFileError } from "../shared/text.ts";
+import { writeTextAtomicSync } from "./json-file.ts";
+import type { SyncFileSystem } from "./json-file.ts";
 
 const USAGE = "Usage: glimmervoid agent setup grok";
 
@@ -14,12 +15,7 @@ type SetupFileSystem = Pick<
 >;
 type DirectoryFileSystem = Pick<typeof fs, "lstatSync" | "mkdirSync" | "chmodSync">;
 
-interface AtomicWriteFileSystem {
-  writeFileSync(filePath: string, contents: string, options: { encoding: BufferEncoding; mode: number; flag: string }): void;
-  renameSync(source: string, target: string): void;
-  chmodSync(filePath: string, mode: number): void;
-  rmSync(filePath: string, options: { force: boolean }): void;
-}
+type AtomicWriteFileSystem = SyncFileSystem;
 type ReadTextFile = (filePath: string, encoding: "utf8") => string;
 
 interface GrokSetupInspection {
@@ -27,11 +23,6 @@ interface GrokSetupInspection {
   classification: string;
   reason?: string;
   saneYoloReady?: boolean;
-}
-
-function errorCode(error: unknown): string | undefined {
-  const code = (error as { code?: unknown } | null)?.code;
-  return typeof code === "string" ? code : undefined;
 }
 
 function setupInputs(env: NodeJS.ProcessEnv = process.env) {
@@ -53,7 +44,7 @@ function inspectGrokAgentSetup({ env = process.env, readFileSync = fs.readFileSy
   try {
     contents = readFileSync(inputs.filePath, "utf8");
   } catch (error) {
-    if (errorCode(error) === "ENOENT") return { filePath: inputs.filePath, classification: "absent" };
+    if (isMissingFileError(error, { includeNotDir: false })) return { filePath: inputs.filePath, classification: "absent" };
     return { filePath: inputs.filePath, classification: "unreadable", reason: errorMessage(error) };
   }
   return {
@@ -85,7 +76,7 @@ function ensureWritableHooksDirectory(directory: string, fileSystem: DirectoryFi
       assertRealDirectory(currentDirectory, fileSystem);
       continue;
     } catch (directoryError) {
-      if (errorCode(directoryError) !== "ENOENT") throw directoryError;
+      if (!isMissingFileError(directoryError, { includeNotDir: false })) throw directoryError;
     }
     fileSystem.mkdirSync(currentDirectory, { mode: 0o700 });
     assertRealDirectory(currentDirectory, fileSystem);
@@ -96,19 +87,7 @@ function ensureWritableHooksDirectory(directory: string, fileSystem: DirectoryFi
 }
 
 function replaceFileAtomically(filePath: string, contents: string, fileSystem: AtomicWriteFileSystem): void {
-  const temporaryPath = `${filePath}.${process.pid}.${crypto.randomBytes(8).toString("hex")}.tmp`;
-  try {
-    fileSystem.writeFileSync(temporaryPath, contents, { encoding: "utf8", mode: 0o600, flag: "wx" });
-    fileSystem.renameSync(temporaryPath, filePath);
-  } catch (writeError) {
-    try {
-      fileSystem.rmSync(temporaryPath, { force: true });
-    } catch {}
-    throw writeError;
-  }
-  try {
-    fileSystem.chmodSync(filePath, 0o600);
-  } catch {}
+  writeTextAtomicSync(filePath, contents, { mode: 0o600, exclusive: true, enforceMode: true, fsSync: fileSystem });
 }
 
 interface AgentSetupDeps {

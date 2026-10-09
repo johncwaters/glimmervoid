@@ -1,6 +1,8 @@
 import type { TraceRecord } from '../../shared/contracts/trace.ts';
 import { MAX_RAW_LINE_CHARS } from '../../shared/contracts/trace.ts';
-import { firstTextBlock, parseJson, parseTimestamp } from './ingest-agent-core.ts';
+import { firstTextBlock, parseTimestamp } from './ingest-agent-core.ts';
+import { parseJsonRecord } from './json-core.ts';
+import { rawTextOr } from '../../shared/coerce.ts';
 
 const MAX_TRACE_BODY_CHARS = 65536;
 const MAX_TRACE_CALL_INPUT_CHARS = MAX_TRACE_BODY_CHARS * 2;
@@ -59,13 +61,9 @@ interface TranscriptLine {
 
 type TraceRecordBase = Pick<TraceRecord, 'ts' | 'uuid' | 'parentUuid' | 'vendorSessionId' | 'agentId' | 'agentType'>;
 
-function nonEmptyString(value: unknown): string | null {
-  if (typeof value !== 'string' || value.length === 0) return null;
-  return value;
-}
 
 function parseTranscriptLine(rawLine: string): TranscriptLine | null {
-  const parsed = parseJson(rawLine);
+  const parsed = parseJsonRecord(rawLine);
   if (!parsed) return null;
   return parsed as TranscriptLine;
 }
@@ -77,13 +75,13 @@ function contentBlocks(line: TranscriptLine): TranscriptContentBlock[] {
 }
 
 function baseRecord(line: TranscriptLine | null, context: TraceLineContext): TraceRecordBase {
-  const agentId = nonEmptyString(line?.agentId) || nonEmptyString(context.agentId);
-  const agentType = nonEmptyString(context.agentType);
+  const agentId = rawTextOr(line?.agentId, null) || rawTextOr(context.agentId, null);
+  const agentType = rawTextOr(context.agentType, null);
   return {
     ts: parseTimestamp(line?.timestamp) ?? context.now,
-    uuid: nonEmptyString(line?.uuid),
-    parentUuid: nonEmptyString(line?.parentUuid),
-    vendorSessionId: nonEmptyString(line?.sessionId) || context.vendorSessionId,
+    uuid: rawTextOr(line?.uuid, null),
+    parentUuid: rawTextOr(line?.parentUuid, null),
+    vendorSessionId: rawTextOr(line?.sessionId, null) || context.vendorSessionId,
     ...(agentId ? { agentId } : {}),
     ...(agentType ? { agentType } : {}),
   };
@@ -181,7 +179,7 @@ function mapUserLine(
   const blocks = contentBlocks(line);
   const toolResult = blocks.find((block) => block.type === 'tool_result');
   if (toolResult) {
-    const toolUseId = nonEmptyString(toolResult.tool_use_id);
+    const toolUseId = rawTextOr(toolResult.tool_use_id, null);
     if (!toolUseId) return [rawRecord(rawLine, line, context)];
     const bounded = boundedText(textContent(toolResult.content));
     return [{
@@ -197,7 +195,7 @@ function mapUserLine(
   const text = typeof content === 'string' ? content : firstTextBlock(blocks);
   if (line.isMeta === true) {
     if (!text) return [rawRecord(rawLine, line, context)];
-    const sourceToolUseId = nonEmptyString(line.sourceToolUseID);
+    const sourceToolUseId = rawTextOr(line.sourceToolUseID, null);
     if (!sourceToolUseId) return [{ ...base, kind: 'expansion', ...boundedTextFields(text) }];
     return [{ ...base, kind: 'expansion', toolUseId: sourceToolUseId, ...boundedTextFields(text) }];
   }
@@ -229,8 +227,8 @@ function mapAssistantLine(rawLine: string, line: TranscriptLine, context: TraceL
       continue;
     }
     if (block.type !== 'tool_use') continue;
-    const toolUseId = nonEmptyString(block.id);
-    const name = nonEmptyString(block.name);
+    const toolUseId = rawTextOr(block.id, null);
+    const name = rawTextOr(block.name, null);
     if (!toolUseId || !name) return [rawRecord(rawLine, line, context)];
     records.push({ ...base, kind: 'tool_call', toolUseId, name, ...boundedToolCallInput(block.input) });
   }

@@ -1,12 +1,13 @@
 import { reviewsPollingShape } from './reviews.ts';
 import { z } from 'zod';
 import { CommitSha } from './team-review.ts';
+import { NODE_ID_RE, REPO_SLUG_RE } from './github-ids.ts';
 
 export const MyPrStage = z.enum(['merged', 'draft', 'conflicts', 'behind', 'checks-failing', 'changes-requested', 'unresolved-threads', 'checks-pending', 'needs-approval', 'ready', 'unknown']);
 export type MyPrStage = z.infer<typeof MyPrStage>;
 
 const nonnegativeInteger = z.number().int().nonnegative();
-export const repositoryName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/);
+export const repositoryName = z.string().regex(REPO_SLUG_RE);
 const pullRequestNumberText = z.string().regex(/^[1-9][0-9]*$/);
 const pullRequestKeyFormat = z.templateLiteral([repositoryName, '#', pullRequestNumberText]);
 const keepMergeableAttemptKeyFormat = z.templateLiteral([pullRequestKeyFormat, '@', CommitSha]);
@@ -100,7 +101,7 @@ export type MyPrMergeResult = z.infer<typeof MyPrMergeResult>;
 const CheckRun = z.object({ __typename: z.literal('CheckRun'), name: z.string(), conclusion: z.string().nullable(), status: z.string() });
 const StatusContext = z.object({ __typename: z.literal('StatusContext'), context: z.string(), state: z.string() });
 export const MyPrSearchNode = z.object({
-  __typename: z.literal('PullRequest'), id: z.string().regex(/^[A-Za-z0-9_=-]+$/), number: z.number().int().positive(), title: z.string(), url: z.url(), isDraft: z.boolean(),
+  __typename: z.literal('PullRequest'), id: z.string().regex(NODE_ID_RE), number: z.number().int().positive(), title: z.string(), url: z.url(), isDraft: z.boolean(),
   state: z.enum(['OPEN', 'MERGED', 'CLOSED']), createdAt: z.string(), mergedAt: z.string().nullable(), updatedAt: z.string(), baseRefName: z.string(), baseRefOid: CommitSha, headRefName: z.string().min(1), isCrossRepository: z.boolean(),
   headRefOid: CommitSha, isInMergeQueue: z.boolean(), mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']),
   mergeStateStatus: z.string(), reviewDecision: z.enum(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED']).nullable(),

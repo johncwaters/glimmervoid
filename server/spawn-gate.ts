@@ -6,6 +6,11 @@ interface SerialQueueRunOptions {
 
 interface SerialQueue {
   run<T>(fn: () => T | Promise<T>, options?: SerialQueueRunOptions): Promise<T>;
+  idle(): Promise<void>;
+}
+
+interface KeyedSerialQueue {
+  run<T>(key: string, fn: () => T | Promise<T>): Promise<T>;
 }
 
 function isQueueAdmissionTimeout(error: unknown): boolean {
@@ -42,10 +47,28 @@ function createSerialQueue(): SerialQueue {
     });
   }
 
+  return { run, idle: () => tail };
+}
+
+function createKeyedSerialQueue(): KeyedSerialQueue {
+  const queuesByKey = new Map<string, { queue: SerialQueue; pendingCount: number }>();
+
+  function run<T>(key: string, fn: () => T | Promise<T>): Promise<T> {
+    const entry = queuesByKey.get(key) ?? { queue: createSerialQueue(), pendingCount: 0 };
+    queuesByKey.set(key, entry);
+    entry.pendingCount += 1;
+    const result = entry.queue.run(fn);
+    result.then(() => undefined, () => undefined).then(() => {
+      entry.pendingCount -= 1;
+      if (entry.pendingCount === 0 && queuesByKey.get(key) === entry) queuesByKey.delete(key);
+    });
+    return result;
+  }
+
   return { run };
 }
 
 const createSpawnGate = createSerialQueue;
 
-export { createSerialQueue, createSpawnGate, isQueueAdmissionTimeout, QUEUE_ADMISSION_TIMED_OUT };
-export type { SerialQueue, SerialQueueRunOptions };
+export { createKeyedSerialQueue, createSerialQueue, createSpawnGate, isQueueAdmissionTimeout, QUEUE_ADMISSION_TIMED_OUT };
+export type { KeyedSerialQueue, SerialQueue, SerialQueueRunOptions };

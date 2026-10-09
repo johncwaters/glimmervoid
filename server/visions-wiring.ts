@@ -70,10 +70,13 @@ import {
   shiftLines, touchedLineCount, touchedRangesFor,
 } from './core/visions-touch-core.ts';
 import type { TouchedRange } from './core/visions-touch-core.ts';
-import { createJsonStateWriter } from './json-file.ts';
+import { createJsonStateWriter, jsonStateLoadError, loadJsonStateFileSync } from './json-file.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
+import { isRecord } from '../shared/coerce.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from './core/timer-deps.ts';
 
 const VISIONS_DEBOUNCE_MS = 300;
 const MAX_FRAME_BYTES = 2 * 1024 * 1024;
@@ -123,8 +126,8 @@ interface VisionsConnection {
 
 interface VisionsWiringOptions {
   debounceMs?: number;
-  setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
   nowFn?: () => number;
   sweep?: (text: string) => { diagnostics: SweepDiagnostic[]; fixes: SweepFix[] };
   maxPayload?: number;
@@ -195,8 +198,7 @@ function isPersistedEmptyIntentFile(raw: unknown): boolean {
   const fields = raw as { text?: unknown; source?: unknown; ts?: unknown; byProject?: unknown; unowned?: unknown; global?: unknown };
   if (fields.text === '' && fields.source === null && fields.ts === 0) return true;
   const byProject = fields.byProject;
-  const hasEmptyMap = byProject && typeof byProject === 'object' && !Array.isArray(byProject)
-    && Object.keys(byProject).length === 0;
+  const hasEmptyMap = isRecord(byProject) && Object.keys(byProject).length === 0;
   if (!hasEmptyMap) return false;
   if (Array.isArray(fields.unowned)) return fields.unowned.length === 0;
   return fields.global === null;
@@ -218,23 +220,18 @@ function loadIntentState({ intentStatePath, fsFns, warn, knownProjectIds }: {
   knownProjectIds: string[] | null;
 }): IntentState {
   if (!intentStatePath) return createIntentState();
-  let rawText = '';
-  try {
-    rawText = fsFns.readFileSync(intentStatePath, 'utf8');
-  } catch (error) {
-    if (error && (error as { code?: unknown }).code === 'ENOENT') return createIntentState();
-    warn(`intent state unreadable, starting empty: ${errorMessage(error)}`);
+  const outcome = loadJsonStateFileSync({
+    filePath: intentStatePath, fsSync: fsFns, parse: (raw: unknown) => ({ parsed: raw }), quarantine: false, includeNotDir: false,
+  });
+  if (outcome.status === 'missing') return createIntentState();
+  if (outcome.status !== 'loaded') {
+    warn(`intent state unreadable, starting empty: ${errorMessage(jsonStateLoadError(outcome))}`);
     return createIntentState();
   }
-  try {
-    const parsed: unknown = JSON.parse(rawText);
-    const revived = reviveIntentState(parsed);
-    if (shouldWarnForInvalidIntentFile(parsed, revived)) warn('intent state invalid, starting empty');
-    return pruneIntentProjects(revived, knownProjectIds);
-  } catch (error) {
-    warn(`intent state unreadable, starting empty: ${errorMessage(error)}`);
-    return createIntentState();
-  }
+  const { parsed } = outcome.value;
+  const revived = reviveIntentState(parsed);
+  if (shouldWarnForInvalidIntentFile(parsed, revived)) warn('intent state invalid, starting empty');
+  return pruneIntentProjects(revived, knownProjectIds);
 }
 
 function changeFailureReason(
@@ -253,8 +250,8 @@ function changeFailureReason(
 
 function createVisionsWiring({
   debounceMs = VISIONS_DEBOUNCE_MS,
-  setTimeoutFn = setTimeout,
-  clearTimeoutFn = clearTimeout,
+  setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
+  clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
   nowFn = Date.now,
   sweep = sweepMarkdownWithFixes,
   maxPayload = MAX_FRAME_BYTES,
@@ -822,7 +819,7 @@ function createVisionsWiring({
         if (closed) return;
         dispatchSettled = runDispatch(uri, armedBy).catch((error: unknown) => warn(`dispatch loop failed: ${errorMessage(error)}`));
       }, dispatchSettings.quietMs);
-      if (timer && typeof timer.unref === 'function') timer.unref();
+      unrefTimer(timer);
       dispatchTimersByUri.set(uri, timer);
       debugNote(() => `dispatch armed for ${uri} by ${armedBy} in ${dispatchSettings.quietMs}ms`);
     }
@@ -900,7 +897,7 @@ function createVisionsWiring({
       const id = `visions-fix-${nextApplyEditId}`;
       nextApplyEditId += 1;
       const timer = setTimeoutFn(() => settleApplyEdit(id, { applied: false }, 'no answer from the editor'), applyEditTimeoutMs);
-      if (timer && typeof timer.unref === 'function') timer.unref();
+      unrefTimer(timer);
       pendingApplyEditById.set(id, { uri, fixes: safe, timer });
       try {
         send({
@@ -938,7 +935,7 @@ function createVisionsWiring({
         if (closed) return;
         publishDiagnostics(uri);
       }, debounceMs);
-      if (timer && typeof timer.unref === 'function') timer.unref();
+      unrefTimer(timer);
       sweepTimersByUri.set(uri, timer);
     }
 

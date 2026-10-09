@@ -21,6 +21,8 @@ import { MERGE_DRIVER_KEY_PATTERN, driverEnumerationEnv, mergeProbeEnv, neutralG
 import type { MergeProbeEnvResult, MergeTreeOutcome } from './core/merge-proof-core.ts';
 import type { CheckoutTreeState, IntegrationSyncOutcome } from './core/integration-sync-core.ts';
 import { normalizeSha } from './core/update-core.ts';
+import { isMissingFileError } from '../shared/text.ts';
+import { runGit } from './git-exec.ts';
 
 const fsp = fs.promises;
 
@@ -154,12 +156,6 @@ const ISOLATED_CHECKOUT_HYDRATE_TIMEOUT_MS = 10 * 60 * 1000;
 const ISOLATED_CHECKOUT_REVIEW_REF = 'refs/heads/review';
 const ISOLATED_CHECKOUT_BASE_REF = 'refs/benchmark/base';
 
-function gitChildEnv(extra?: GitExtraOptions): { env?: Record<string, string | undefined> } {
-  if (extra?.replaceEnv) return { env: extra.replaceEnv };
-  if (extra?.env) return { env: { ...process.env, ...extra.env } };
-  return {};
-}
-
 function errorExitCode(error: unknown): unknown {
   return (error as { code?: unknown } | null)?.code;
 }
@@ -247,12 +243,14 @@ function createGitWorkspace(opts: {
 } = {}) {
 
   const git: GitRunner = opts.git || (async (args, cwd, extra) => {
-    const { stdout } = await execFileAsync('git', args, {
-      cwd, encoding: 'utf8', timeout: extra?.timeout || 20000,
+    const result = await runGit(args, {
+      cwd, timeoutMs: extra?.timeout || 20000, trim: false,
       ...(extra?.maxBuffer ? { maxBuffer: extra.maxBuffer } : {}),
-      ...gitChildEnv(extra),
+      ...(extra?.replaceEnv ? { replaceEnv: extra.replaceEnv } : {}),
+      ...(extra?.env ? { env: extra.env } : {}),
     });
-    return stdout;
+    if (!result.ok) throw result.error;
+    return result.out;
   });
   const mkdtemp = opts.mkdtemp || ((prefix: string) => fs.mkdtempSync(prefix));
   const log = opts.log || console;
@@ -1077,7 +1075,7 @@ function createGitWorkspace(opts: {
     const addedPaths = added.out.split('\0').filter(Boolean);
     const collidingPaths: string[] = [];
     for (const addedPath of addedPaths) {
-      const existsLocally = await fsp.lstat(path.join(checkoutPath, addedPath)).then(() => true, (error: NodeJS.ErrnoException) => error.code !== 'ENOENT');
+      const existsLocally = await fsp.lstat(path.join(checkoutPath, addedPath)).then(() => true, (error: unknown) => !isMissingFileError(error, { includeNotDir: false }));
       if (existsLocally) collidingPaths.push(addedPath);
     }
     return { ok: true, collidingPaths };
@@ -1405,7 +1403,7 @@ async function populateWorktree(projectPath: string, wtDir: string, shareList: s
     try {
       const srcStat = await fsp.stat(src).catch(() => null);
       if (!srcStat) continue;
-      const dstExists = await fsp.access(dst).then(() => true, (error: NodeJS.ErrnoException) => error.code !== 'ENOENT');
+      const dstExists = await fsp.access(dst).then(() => true, (error: unknown) => !isMissingFileError(error, { includeNotDir: false }));
       if (dstExists) continue;
       await fsp.mkdir(path.dirname(dst), { recursive: true });
       if (srcStat.isDirectory()) {

@@ -27,7 +27,12 @@ import type { PricingResult } from './usage-pricing.ts';
 import type { Telemetry } from './telemetry.ts';
 import { createUsageScanner } from './usage-scanner.ts';
 import type { UsageScannerApi, UsageScannerOptions } from './usage-scanner.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
+import { isRecord } from '../shared/coerce.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from './core/timer-deps.ts';
+import { createCoalescedTimer } from './core/coalesce-timer.ts';
+import { createSerialQueue } from './spawn-gate.ts';
 
 const DEFAULT_USAGE_CONFIG = Object.freeze({
   enabled: true,
@@ -130,10 +135,10 @@ interface UsageWiringOptions {
   scannerDeps?: Record<string, unknown>;
   nowFn?: () => number;
   partialContinueMs?: number;
-  setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearIntervalFn?: (handle: NodeJS.Timeout) => void;
-  setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+  setIntervalFn?: SetIntervalFn;
+  clearIntervalFn?: ClearIntervalFn;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
   logger?: Pick<Console, 'warn' | 'log'>;
   debug?: boolean | (() => boolean);
 }
@@ -153,9 +158,7 @@ function absoluteDirList(value: unknown): string[] {
 }
 
 function resolveVendors(vendors: unknown): Record<UsageVendorKey, boolean> {
-  const source = (vendors != null && typeof vendors === 'object' && !Array.isArray(vendors)
-    ? vendors
-    : {}) as Record<string, unknown>;
+  const source: Record<string, unknown> = isRecord(vendors) ? vendors : {};
   const resolved = {} as Record<UsageVendorKey, boolean>;
   for (const key of USAGE_VENDOR_KEYS) {
     resolved[key] = source[key] !== false;
@@ -164,9 +167,7 @@ function resolveVendors(vendors: unknown): Record<UsageVendorKey, boolean> {
 }
 
 function resolveUsageConfig(usage: unknown): UsageLaneConfig {
-  const source = (usage != null && typeof usage === 'object' && !Array.isArray(usage)
-    ? usage
-    : {}) as Record<string, unknown>;
+  const source: Record<string, unknown> = isRecord(usage) ? usage : {};
   return {
     enabled: typeof source.enabled === 'boolean' ? source.enabled : DEFAULT_USAGE_CONFIG.enabled,
     fetchPricing: typeof source.fetchPricing === 'boolean' ? source.fetchPricing : DEFAULT_USAGE_CONFIG.fetchPricing,
@@ -226,10 +227,10 @@ function createUsageWiring({
   scannerDeps = {},
   nowFn = Date.now,
   partialContinueMs = PARTIAL_CONTINUE_MS,
-  setIntervalFn = (fn: () => void, ms: number) => setInterval(fn, ms),
-  clearIntervalFn = clearInterval,
-  setTimeoutFn = (fn: () => void, ms: number) => setTimeout(fn, ms),
-  clearTimeoutFn = clearTimeout,
+  setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
+  clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
+  setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
+  clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
   logger = console,
   debug = false,
 }: UsageWiringOptions) {
@@ -244,9 +245,8 @@ function createUsageWiring({
   let passInFlight = false;
   const telemetryCapturedPasses = new WeakSet<PassResult>();
   let intervalTimer: NodeJS.Timeout | null = null;
-  let nudgeTimer: NodeJS.Timeout | null = null;
   let continueTimer: NodeJS.Timeout | null = null;
-  let restartChain: Promise<void> = Promise.resolve();
+  const restartQueue = createSerialQueue();
   let lastSessionsSignature: string | null = null;
   let lastReportMessage: Record<string, unknown> | null = null;
   let lastForcedPassMs = 0;
@@ -289,7 +289,7 @@ function createUsageWiring({
   function armInterval(): void {
     if (stopped || intervalTimer) return;
     intervalTimer = setIntervalFn(onIntervalTick, cfg.scanIntervalMinutes * 60 * 1000);
-    if (intervalTimer && typeof intervalTimer.unref === 'function') intervalTimer.unref();
+    unrefTimer(intervalTimer);
   }
 
   function onIntervalTick(): void {
@@ -396,23 +396,27 @@ function createUsageWiring({
       if (stopped || !scanner || passInFlight) return;
       void runPassAndPush({ force: false });
     }, delayMs);
-    if (typeof continueTimer.unref === 'function') continueTimer.unref();
+    unrefTimer(continueTimer);
   }
 
-  function nudgeSession(): void {
-    if (stopped || !scanner) return;
-    if (nudgeTimer) clearTimeoutFn(nudgeTimer);
-    nudgeTimer = setTimeoutFn(() => {
-      nudgeTimer = null;
+  const nudge = createCoalescedTimer({
+    mode: 'trailing',
+    delayMs: NUDGE_DEBOUNCE_MS,
+    run: () => {
       if (stopped || !scanner) return;
-
       if (passInFlight) {
         nudgeSession();
         return;
       }
       void runPassAndPush({ force: false });
-    }, NUDGE_DEBOUNCE_MS);
-    if (typeof nudgeTimer.unref === 'function') nudgeTimer.unref();
+    },
+    setTimeoutFn,
+    clearTimeoutFn,
+  });
+
+  function nudgeSession(): void {
+    if (stopped || !scanner) return;
+    nudge.schedule();
   }
 
   function getSessionsMessage(): SessionsMessage | null {
@@ -661,10 +665,7 @@ function createUsageWiring({
       clearIntervalFn(intervalTimer);
       intervalTimer = null;
     }
-    if (nudgeTimer) {
-      clearTimeoutFn(nudgeTimer);
-      nudgeTimer = null;
-    }
+    nudge.cancel();
     if (continueTimer) {
       clearTimeoutFn(continueTimer);
       continueTimer = null;
@@ -686,7 +687,7 @@ function createUsageWiring({
   function restartIfConfigChanged(): void {
     if (usageCfgKey(config) === lastKey) return;
     lastKey = usageCfgKey(config);
-    restartChain = restartChain.then(async () => {
+    void restartQueue.run(async () => {
       if (stopped) return;
       await teardown();
       if (!startRequested) return;
@@ -698,7 +699,7 @@ function createUsageWiring({
     stopped = true;
     clearTimers();
     if (startPromise) await startPromise.catch(() => {});
-    await restartChain.catch(() => {});
+    await restartQueue.idle();
     scanner = null;
   }
 

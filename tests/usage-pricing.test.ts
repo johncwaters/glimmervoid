@@ -186,6 +186,12 @@ test('fetched cache round trips as fresh ISO data and expires after 24 hours', a
     writeFile: async (file, text) => {
       cache.set(file, text);
     },
+    rename: async (from, to) => {
+      const text = cache.get(from);
+      if (text === undefined) throw new Error('missing');
+      cache.set(to, text);
+      cache.delete(from);
+    },
   });
   let fetchCalls = 0;
   let now = Date.parse('2026-08-19T12:00:00.000Z');
@@ -362,6 +368,8 @@ function fakeFs(overrides: Partial<PricingFileSystem> = {}): PricingFileSystem {
     },
     mkdir: async () => undefined,
     writeFile: async () => {},
+    rename: async () => {},
+    rm: async () => {},
     ...overrides,
   };
 }

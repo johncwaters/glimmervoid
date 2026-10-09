@@ -1,12 +1,9 @@
 
+import { elapsedText } from '#shared/display-text.ts';
 import { onSessionTick } from './session-card/session-tick.ts';
 
 export function formatDuration(ms: unknown) {
-  const seconds = Math.max(0, Math.round((Number(ms) || 0) / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
-  return `${Math.floor(seconds / 86400)}d`;
+  return elapsedText(Number(ms) || 0, { rounding: 'round', wording: 'compact', suffix: '', justNowBelowSeconds: 0 });
 }
 
 export function formatAgo(ts: number | null | undefined) {

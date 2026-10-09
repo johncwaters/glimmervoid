@@ -1,6 +1,9 @@
 import type { ReviewsRefreshResult, ReviewsRetry } from '../shared/contracts/reviews.ts';
 import { DEFAULT_BASE_MS, DEFAULT_MAX_MS, nextRetrySchedule, shouldSkipTick } from './core/lane-backoff.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from './core/timer-deps.ts';
+import { createSerialQueue } from './spawn-gate.ts';
 
 interface TickOutcome {
   failed?: boolean;
@@ -22,12 +25,12 @@ interface TickLoopOptions {
   intervalMs: number;
   tick: () => Promise<TickOutcome | undefined | null>;
   writeState?: () => Promise<void> | void;
-  setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearIntervalFn?: (handle: NodeJS.Timeout) => void;
+  setIntervalFn?: SetIntervalFn;
+  clearIntervalFn?: ClearIntervalFn;
   clock?: SharedClock;
   firstTickDelayMs?: () => number;
-  setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
   backoffBaseMs?: number;
   backoffMaxMs?: number;
   now?: () => number;
@@ -55,12 +58,12 @@ function createTickLoop({
   intervalMs,
   tick: tickBody,
   writeState = async () => {},
-  setIntervalFn = (fn: () => void, ms: number) => setInterval(fn, ms),
-  clearIntervalFn = clearInterval,
+  setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
+  clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
   clock,
   firstTickDelayMs = () => 0,
-  setTimeoutFn = (fn: () => void, ms: number) => setTimeout(fn, ms),
-  clearTimeoutFn = clearTimeout,
+  setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
+  clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
   backoffBaseMs = Math.max(intervalMs, DEFAULT_BASE_MS),
   backoffMaxMs = DEFAULT_MAX_MS,
   now = Date.now,
@@ -72,7 +75,7 @@ function createTickLoop({
   let firstTickTimer: NodeJS.Timeout | null = null;
   let stopped = false;
   let tickRunning = false;
-  let persistChain: Promise<void> = Promise.resolve();
+  const persistQueue = createSerialQueue();
 
   let backoffUntil = 0;
   let failureStreak = 0;
@@ -87,10 +90,9 @@ function createTickLoop({
   const running = new Set<Promise<unknown>>();
 
   function persist(): Promise<void> {
-    persistChain = persistChain.then(() => writeState()).catch((e: unknown) => {
+    return persistQueue.run(() => writeState()).catch((e: unknown) => {
       log.warn(`[${tag}] state write failed: ${errorMessage(e)}`);
     });
-    return persistChain;
   }
 
   function track<T>(promise: Promise<T>): Promise<T> {
@@ -204,7 +206,7 @@ function createTickLoop({
       if (stopped) return;
       void tick().finally(() => { if (!stopped) armRecurringTicks(); });
     }, delayMs);
-    if (typeof firstTickTimer.unref === 'function') firstTickTimer.unref();
+    unrefTimer(firstTickTimer);
   }
 
   function armRecurringTicks(): void {
@@ -213,7 +215,7 @@ function createTickLoop({
       return;
     }
     timer = setIntervalFn(() => { void tick(); }, intervalMs);
-    if (timer && typeof timer.unref === 'function') timer.unref();
+    unrefTimer(timer);
   }
 
   async function stop(): Promise<void> {
@@ -232,7 +234,7 @@ function createTickLoop({
     unschedule?.();
     unschedule = null;
     await Promise.allSettled([...running]);
-    await persistChain;
+    await persistQueue.idle();
   }
 
   return { start, stop, tick, refresh, scheduleStatus, persist, track, isStopped: () => stopped, backoffUntil: () => backoffUntil };
@@ -275,7 +277,7 @@ function createLaneRunner<Poller extends RestartablePoller>({
 }: LaneRunnerOptions<Poller>): LaneRunner<Poller> {
   let lastStatus: LaneStatusRecord | null = null;
   let poller: Poller | null = null;
-  let chain: Promise<void> = Promise.resolve();
+  const restartQueue = createSerialQueue();
   let stopped = false;
   let lastKey: string | null = null;
 
@@ -286,7 +288,7 @@ function createLaneRunner<Poller extends RestartablePoller>({
 
   function startPoller(): void {
     lastKey = cfgKey();
-    chain = chain.then(async () => {
+    void restartQueue.run(async () => {
       if (stopped) return;
       if (poller) {
         const old = poller;
@@ -315,7 +317,7 @@ function createLaneRunner<Poller extends RestartablePoller>({
     stopped = true;
     beforeStop();
     const draining = poller ? poller.stop() : Promise.resolve();
-    return Promise.allSettled([draining, chain]).then(() => {});
+    return Promise.allSettled([draining, restartQueue.idle()]).then(() => {});
   }
 
   function patchStatus(patch: LaneStatusRecord): void {

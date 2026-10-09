@@ -1,4 +1,5 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
+import { elapsedText } from '#shared/display-text.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el, escapeHtml } from '../dom-helpers.ts';
 import { buildDialogShell } from './modal.ts';
@@ -8,14 +9,7 @@ const DORMANT = 'DORMANT';
 
 function relTime(ms: number | null | undefined) {
   if (!ms) return '';
-  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
-  if (s < 60) return 'just now';
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  return `${d}d ago`;
+  return elapsedText(Date.now() - ms, { rounding: 'round', wording: 'compact', suffix: ' ago', justNowBelowSeconds: 60 });
 }
 
 type ResumableConversation = ServerMessageOf<'conversations'>['conversations'][number];

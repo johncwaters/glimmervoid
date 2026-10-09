@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { glimmervoidHomeDir } from './config-store.ts';
+import { isMissingFileError } from '../shared/text.ts';
 
 const DEFAULT_POSTHOG_REPORT_DIR = path.join(glimmervoidHomeDir(), 'posthog-reports');
 const POSTHOG_REPORT_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
@@ -72,7 +73,7 @@ async function readPosthogReport(
       const content = await fs.promises.readFile(candidate.reportPath, 'utf8');
       return { ok: true, found: true, issueId: resolved.issueId, format: candidate.format, content };
     } catch (err) {
-      if ((err as { code?: unknown } | null)?.code === 'ENOENT') continue;
+      if (isMissingFileError(err, { includeNotDir: false })) continue;
 
       return { ok: false, found: false, issueId: resolved.issueId, error: 'Could not read report' };
     }

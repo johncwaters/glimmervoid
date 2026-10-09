@@ -1,7 +1,7 @@
 
 import path from 'node:path';
+import { rawTextOr } from '../../shared/coerce.ts';
 
-import { stringOrNull } from './usage-number-core.ts';
 
 const SOURCE = 'shellHistory';
 const SHELLS: readonly string[] = Object.freeze(['powershell', 'fish', 'bash', 'zsh']);
@@ -75,15 +75,15 @@ function normalizeShells(raw: unknown, platform: NodeJS.Platform): { shells: str
 
 
 function resolveHomeDir(env: NodeJS.ProcessEnv | null | undefined, homeDir: string | null): string {
-  return (stringOrNull(env?.HOME) || stringOrNull(env?.USERPROFILE) || homeDir) as string;
+  return (rawTextOr(env?.HOME, null) || rawTextOr(env?.USERPROFILE, null) || homeDir) as string;
 }
 
 function dataHome(env: NodeJS.ProcessEnv | null | undefined, homeDir: string | null): string {
-  return stringOrNull(env?.XDG_DATA_HOME) || path.join(resolveHomeDir(env, homeDir), '.local', 'share');
+  return rawTextOr(env?.XDG_DATA_HOME, null) || path.join(resolveHomeDir(env, homeDir), '.local', 'share');
 }
 
 function configHome(env: NodeJS.ProcessEnv | null | undefined, homeDir: string | null): string {
-  return stringOrNull(env?.XDG_CONFIG_HOME) || path.join(resolveHomeDir(env, homeDir), '.config');
+  return rawTextOr(env?.XDG_CONFIG_HOME, null) || path.join(resolveHomeDir(env, homeDir), '.config');
 }
 
 function powershellLocations(
@@ -92,7 +92,7 @@ function powershellLocations(
   homeDir: string | null,
 ): HistoryLocation[] {
   if (platform === 'win32') {
-    const appData = stringOrNull(env?.APPDATA) || path.join(resolveHomeDir(env, homeDir), 'AppData', 'Roaming');
+    const appData = rawTextOr(env?.APPDATA, null) || path.join(resolveHomeDir(env, homeDir), 'AppData', 'Roaming');
     const dir = path.join(appData, 'Microsoft', 'Windows', 'PowerShell', 'PSReadLine');
     return [{ shell: 'powershell', dir, suffix: PSREADLINE_SUFFIX, name: null }];
   }
@@ -114,7 +114,7 @@ function fileLocation(shell: string, filePath: string): HistoryLocation {
 function histFileLocation(wanted: string[], env: NodeJS.ProcessEnv | null | undefined): HistoryLocation[] {
   const posixShells = wanted.filter((shell) => shell === 'bash' || shell === 'zsh');
   if (posixShells.length !== 1) return [];
-  const histFile = stringOrNull(env?.HISTFILE);
+  const histFile = rawTextOr(env?.HISTFILE, null);
   if (!histFile) return [];
   return [fileLocation(posixShells[0], histFile)];
 }

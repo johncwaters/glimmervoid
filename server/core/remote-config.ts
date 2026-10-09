@@ -1,3 +1,4 @@
+import { isRecord } from '../../shared/coerce.ts';
 export interface RemoteConfig {
   enabled: boolean;
   port: number | null;
@@ -13,9 +14,7 @@ function toPort(value: unknown): number | null {
 }
 
 function normalizeRemoteConfig(raw: unknown): RemoteConfig {
-  const src: Record<string, unknown> = raw && typeof raw === 'object' && !Array.isArray(raw)
-    ? (raw as Record<string, unknown>)
-    : {};
+  const src: Record<string, unknown> = isRecord(raw) ? raw : {};
   const enabled = src.enabled === true;
   const port = toPort(src.port);
   const publicHost = typeof src.publicHost === 'string' ? src.publicHost.trim() : '';

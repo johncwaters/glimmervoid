@@ -1,6 +1,8 @@
 
 import type { OutputRingSlice } from '../session/core/output-ring.ts';
 import { SCREEN_RESET } from '../session/core/screen-keeper-core.ts';
+import { unrefTimer } from './core/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from './core/timer-deps.ts';
 
 const OPEN = 1;
 
@@ -28,8 +30,8 @@ interface WsSenderOptions {
   lowWaterMark?: number;
   stallCloseMs?: number;
   setImmediateFn?: (fn: () => void) => unknown;
-  setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
   source?: WsSenderSource | null;
   startOffset?: number;
 }
@@ -80,7 +82,7 @@ function createWsSender(ws: WsSenderSocket, opts: WsSenderOptions = {}): WsSende
         try { ws.close(1013, 'backpressure'); } catch {  }
       }
     }, cfg.stallCloseMs);
-    if (stallTimer && typeof stallTimer.unref === 'function') stallTimer.unref();
+    unrefTimer(stallTimer);
   }
 
   function clearStall(): void {

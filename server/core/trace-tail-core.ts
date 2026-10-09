@@ -1,6 +1,6 @@
-import path from 'node:path';
 
-import { parseJson } from './ingest-agent-core.ts';
+import { parseJsonRecord } from './json-core.ts';
+import { isMissingFileError } from '../../shared/text.ts';
 
 const MAX_TRANSCRIPT_READ_BYTES = 1024 * 1024;
 const MAX_PARTIAL_LINE_BYTES = 8 * 1024 * 1024;
@@ -86,7 +86,7 @@ function committedOffsetFromTraceTailOrNull(tailText: string, {
   if (!isWholeFile) lines.shift();
   const records: Record<string, unknown>[] = [];
   for (const line of lines) {
-    const record = parseJson(line);
+    const record = parseJsonRecord(line);
     if (record) records.push(record);
   }
   const startsANewRun = records.some((record) => record.kind === 'session');
@@ -128,16 +128,8 @@ function resumeOffsetFrom(
   return { offset: committed, didReset: false, didFallbackToTranscriptEnd: false };
 }
 
-function isPathInsideRoot(root: string, candidate: string): boolean {
-  const relative = path.relative(path.resolve(root), path.resolve(candidate));
-  return relative.length > 0 && !relative.startsWith('..') && !path.isAbsolute(relative);
-}
-
 function containmentRefusalReason(error: unknown): 'missing' | 'unreadable' {
-  if (!error || typeof error !== 'object') return 'unreadable';
-  const code = (error as { code?: unknown }).code;
-  if (code === 'ENOENT' || code === 'ENOTDIR') return 'missing';
-  return 'unreadable';
+  return isMissingFileError(error) ? 'missing' : 'unreadable';
 }
 
 function isOversizedPartialLine(
@@ -160,7 +152,6 @@ export {
   completeLineBytes,
   containmentRefusalReason,
   isOversizedPartialLine,
-  isPathInsideRoot,
   planContiguousRead,
   resumeOffsetFrom,
   withCommittedOffset,

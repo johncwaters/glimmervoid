@@ -6,7 +6,10 @@ import {
 import type { TerminalIngestEvent } from './core/ingest-terminal-core.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
+import { DEFAULT_TIMER_FNS } from './core/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from './core/timer-deps.ts';
+import { createCoalescedTimer } from './core/coalesce-timer.ts';
 
 interface TappableSession {
   id: string;
@@ -28,8 +31,8 @@ interface TerminalIngestOptions {
   sourceConfig?: { flushMs?: number };
   logger?: LaneLogger | null;
   nowFn?: () => number;
-  setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
 }
 
 function createTerminalIngest({
@@ -37,8 +40,8 @@ function createTerminalIngest({
   sourceConfig = {},
   logger = console,
   nowFn = Date.now,
-  setTimeoutFn = (fn: () => void, ms: number) => setTimeout(fn, ms),
-  clearTimeoutFn = clearTimeout,
+  setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
+  clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
 }: TerminalIngestOptions = {}) {
   if (typeof publish !== 'function') throw new Error('createTerminalIngest requires publish');
   const publishEvent = publish;
@@ -65,17 +68,14 @@ function createTerminalIngest({
     if (existing) existing.detach();
 
     const state = createTerminalAccumulator({ sessionId: sess.id, root: rootOf(sess), ...sourceConfig });
-    let flushTimer: NodeJS.Timeout | null = null;
     let detached = false;
+    const flushTimer = createCoalescedTimer({ mode: 'leading', delayMs: flushMs, run: () => flush(), setTimeoutFn, clearTimeoutFn });
 
     function cancelFlush(): void {
-      if (!flushTimer) return;
-      clearTimeoutFn(flushTimer);
-      flushTimer = null;
+      flushTimer.cancel();
     }
 
     const flush = (): void => {
-      flushTimer = null;
       const event = flushAccumulator(state, { now: nowFn() });
       if (!event) return;
       try {
@@ -86,9 +86,8 @@ function createTerminalIngest({
     };
 
     function armFlush(): void {
-      if (flushTimer || detached) return;
-      flushTimer = setTimeoutFn(flush, flushMs);
-      if (flushTimer && typeof flushTimer.unref === 'function') flushTimer.unref();
+      if (detached) return;
+      flushTimer.schedule();
     }
 
     const onData = (chunk: string) => {

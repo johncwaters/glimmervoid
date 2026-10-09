@@ -1,4 +1,5 @@
 import type { TraceRecord } from '#shared/contracts/trace.ts';
+import { byteSizeText } from '#shared/display-text.ts';
 import { firstDetailLine, toolDetailLine } from '#shared/tool-detail.ts';
 import { formatClockOffset } from './radar-core.ts';
 
@@ -228,7 +229,7 @@ export function formatTurnMetrics(turn: TraceTurn): string {
   const rows = `${rowCount} ${rowCount === 1 ? 'row' : 'rows'}`;
   const tools = `${toolCallCount} ${toolCallCount === 1 ? 'tool' : 'tools'}`;
   const errors = `${errorCount} ${errorCount === 1 ? 'error' : 'errors'}`;
-  const bytes = resultBytes < 1024 ? `${resultBytes} B` : `${(resultBytes / 1024).toFixed(1)} KB`;
+  const bytes = byteSizeText(resultBytes, 'KB');
   const durationText = formatClockOffset(traceTurnDurationMs(turn));
   return `${rows}, ${tools}, ${errors}, ${bytes}, ${durationText}`;
 }

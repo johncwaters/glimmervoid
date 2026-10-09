@@ -19,7 +19,9 @@ import { createTerminalIngest } from './ingest-terminal.ts';
 import type { SessionTap, TappableSession } from './ingest-terminal.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from './core/timer-deps.ts';
 
 const BATCH_INTERVAL_MS = 1000;
 const MAX_EVENTS_PER_FRAME = 50;
@@ -38,10 +40,10 @@ interface IngestLaneOptions {
   editorRoots?: (() => string[]) | string[];
   onActivity?: (() => void) | null;
   nowFn?: () => number;
-  setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearIntervalFn?: (handle: NodeJS.Timeout) => void;
-  setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+  setIntervalFn?: SetIntervalFn;
+  clearIntervalFn?: ClearIntervalFn;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
   batchIntervalMs?: number;
   maxEventsPerFrame?: number;
   snapshotEventLimit?: number;
@@ -68,10 +70,10 @@ function createIngestLane({
   editorRoots = () => [],
   onActivity = null,
   nowFn = Date.now,
-  setIntervalFn = (fn: () => void, ms: number) => setInterval(fn, ms),
-  clearIntervalFn = clearInterval,
-  setTimeoutFn = (fn: () => void, ms: number) => setTimeout(fn, ms),
-  clearTimeoutFn = clearTimeout,
+  setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
+  clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
+  setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
+  clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
   batchIntervalMs = BATCH_INTERVAL_MS,
   maxEventsPerFrame = MAX_EVENTS_PER_FRAME,
   snapshotEventLimit = SNAPSHOT_EVENT_LIMIT,
@@ -135,8 +137,8 @@ function createIngestLane({
     if (!drained.summary) return;
     note(`batch summary: ${drained.summary.events} events across ${drained.summary.batches} batches (seq ${drained.summary.firstSeq}-${drained.summary.lastSeq}), ${drained.summary.overflowed} overflowed`);
   }, 60000);
-  if (batchTimer && typeof batchTimer.unref === 'function') batchTimer.unref();
-  if (batchLogTimer && typeof batchLogTimer.unref === 'function') batchLogTimer.unref();
+  unrefTimer(batchTimer);
+  unrefTimer(batchLogTimer);
 
   function publish(raw: unknown): IngestEvent | null {
     if (stopped) return null;

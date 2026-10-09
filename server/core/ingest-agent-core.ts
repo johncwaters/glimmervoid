@@ -1,3 +1,5 @@
+import { textOr } from '../../shared/coerce.ts';
+import { parseJsonRecord } from './json-core.ts';
 const SOURCE = 'agentLogs';
 
 const MAX_RAW_CHARS = 4000;
@@ -80,12 +82,6 @@ function isDispatchWorkdir(candidate: unknown): boolean {
   }
 }
 
-function str(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  return trimmed;
-}
 
 function boundRaw(value: unknown, max: number = MAX_RAW_CHARS): string {
   const text = String(value == null ? '' : value);
@@ -101,29 +97,19 @@ function parseTimestamp(value: unknown): number | null {
     if (value > 0) return Math.floor(value);
     return null;
   }
-  const text = str(value);
+  const text = textOr(value, null);
   if (!text) return null;
   const parsed = Date.parse(text);
   if (!Number.isFinite(parsed)) return null;
   return parsed;
 }
 
-function parseJson(raw: unknown): Record<string, unknown> | null {
-  if (typeof raw !== 'string' || !raw.trim()) return null;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-    return parsed as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
 
 function toolTarget(input: unknown): string {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return '';
   const record = input as Record<string, unknown>;
   for (const key of TOOL_TARGET_KEYS) {
-    const value = str(record[key]);
+    const value = textOr(record[key], null);
     if (!value) continue;
     return boundRaw(value);
   }
@@ -144,7 +130,7 @@ function turnEvent({ ts, root, sessionId, vendor, text }: EventBase & { text: un
 }
 
 function toolEvent({ ts, root, sessionId, vendor, name, target }: EventBase & { name: unknown; target: string }): AgentIngestEvent {
-  const tool = boundRaw(str(name) || 'tool');
+  const tool = boundRaw(textOr(name, null) || 'tool');
   const suffix = target ? ` ${target}` : '';
   return {
     source: SOURCE,
@@ -168,7 +154,7 @@ function result(
 function firstTextBlock(content: ContentBlock[]): string | null {
   for (const block of content) {
     if (block?.type !== 'text') continue;
-    const text = str(block.text);
+    const text = textOr(block.text, null);
     if (text) return text;
   }
   return null;
@@ -179,8 +165,8 @@ function mapClaudeLine(line: TranscriptLine, ctx: MapContext): AgentMapResult | 
   const content = line.message?.content;
   if (!Array.isArray(content)) return null;
 
-  const root = str(line.cwd) || ctx.root;
-  const sessionId = str(line.sessionId) || ctx.sessionId;
+  const root = textOr(line.cwd, null) || ctx.root;
+  const sessionId = textOr(line.sessionId, null) || ctx.sessionId;
   const ts = parseTimestamp(line.timestamp) || ctx.now;
   const events: AgentIngestEvent[] = [];
   const turn = turnEvent({ ts, root, sessionId, vendor: 'claude', text: firstTextBlock(content) });
@@ -200,7 +186,7 @@ function mapCodexLine(line: TranscriptLine, ctx: MapContext): AgentMapResult | n
   const ts = parseTimestamp(line.timestamp) || ctx.now;
 
   if (line.type === 'session_meta' || line.type === 'turn_context') {
-    return result([], str(payload.cwd) || ctx.root, str(payload.session_id) || ctx.sessionId, ctx.vendorState);
+    return result([], textOr(payload.cwd, null) || ctx.root, textOr(payload.session_id, null) || ctx.sessionId, ctx.vendorState);
   }
   const base: EventBase = { ts, root: ctx.root, sessionId: ctx.sessionId, vendor: 'codex' };
   if (line.type === 'event_msg' && payload.type === 'agent_message') {
@@ -209,7 +195,7 @@ function mapCodexLine(line: TranscriptLine, ctx: MapContext): AgentMapResult | n
     return result([turn], ctx.root, ctx.sessionId, ctx.vendorState);
   }
   if (line.type === 'response_item' && payload.type === 'function_call') {
-    const target = toolTarget(parseJson(payload.arguments));
+    const target = toolTarget(parseJsonRecord(payload.arguments));
     return result([toolEvent({ ...base, name: payload.name, target })], ctx.root, ctx.sessionId, ctx.vendorState);
   }
   return null;
@@ -218,7 +204,7 @@ function mapCodexLine(line: TranscriptLine, ctx: MapContext): AgentMapResult | n
 const PENDING_TURN_FIELD = 'pendingText';
 
 function appendChunk(vendorState: VendorState | null | undefined, text: unknown, field: string): VendorState {
-  const addition = str(text);
+  const addition = textOr(text, null);
   const held = typeof vendorState?.[field] === 'string' ? vendorState[field] : '';
   if (!addition) return { [field]: held };
   const remaining = MAX_RAW_CHARS - held.length - 1;
@@ -233,7 +219,7 @@ const GROK_TURN_BOUNDARIES: readonly string[] = Object.freeze(['user_message_chu
 
 function grokToolName(update: GrokUpdate): string {
   const meta = update._meta && typeof update._meta === 'object' ? update._meta['x.ai/tool'] : null;
-  return str(meta?.name) || str(update.title) || 'tool';
+  return textOr(meta?.name, null) || textOr(update.title, null) || 'tool';
 }
 
 function mapGrokTurn(
@@ -248,8 +234,8 @@ function mapGrokTurn(
     return result([], ctx.root, ctx.sessionId, next);
   }
   if (kind === 'turn_completed') {
-    const pending = str(ctx.vendorState?.[PENDING_TURN_FIELD]);
-    const stopReason = str(update.stop_reason);
+    const pending = textOr(ctx.vendorState?.[PENDING_TURN_FIELD], null);
+    const stopReason = textOr(update.stop_reason, null);
     const text = pending || `turn complete${stopReason ? ` (${stopReason})` : ''}`;
     const turn = turnEvent({ ...base, text });
     if (!turn) return result([], ctx.root, ctx.sessionId, null);
@@ -266,10 +252,10 @@ function mapGrokTurn(
 function mapGrokLine(line: TranscriptLine, ctx: MapContext): AgentMapResult | null {
   const update = line.params?.update;
   if (!update || typeof update !== 'object' || Array.isArray(update)) return null;
-  const sessionId = str(line.params?.sessionId) || ctx.sessionId;
+  const sessionId = textOr(line.params?.sessionId, null) || ctx.sessionId;
   const ts = parseTimestamp(line.timestamp) || ctx.now;
   const base: EventBase = { ts, root: ctx.root, sessionId, vendor: 'grok' };
-  const kind = str(update.sessionUpdate);
+  const kind = textOr(update.sessionUpdate, null);
   return mapGrokTurn(kind, update, base, { root: ctx.root, sessionId, vendorState: ctx.vendorState });
 }
 
@@ -292,7 +278,7 @@ function mapAgentLine({
   const unchanged = result([], root, sessionId, vendorState);
   const mapper = MAPPERS[vendor];
   if (!mapper) return unchanged;
-  const line = parseJson(rawLine);
+  const line = parseJsonRecord(rawLine);
   if (!line) return unchanged;
   const mapped = mapper(line as TranscriptLine, {
     root, sessionId, vendorState,
@@ -308,7 +294,6 @@ export {
   isDispatchWorkdir,
   firstTextBlock,
   mapAgentLine,
-  parseJson,
   parseTimestamp,
   toolTarget,
 };

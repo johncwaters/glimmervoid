@@ -1,4 +1,4 @@
-import { numberOrNull, safeNumber } from './usage-number-core.ts';
+import { numberOr, positiveNumberOr } from '../../shared/coerce.ts';
 
 const BUDGET_THRESHOLDS = Object.freeze([50, 75, 100]);
 
@@ -31,8 +31,8 @@ export interface BudgetStandingRow {
 function normalizeBudgetConfig(raw: { dailyUsd?: unknown; monthlyUsd?: unknown } | null | undefined): BudgetConfig {
   if (!raw) return { dailyUsd: null, monthlyUsd: null };
   return {
-    dailyUsd: positiveNumberOrNull(raw.dailyUsd),
-    monthlyUsd: positiveNumberOrNull(raw.monthlyUsd),
+    dailyUsd: positiveNumberOr(raw.dailyUsd, null),
+    monthlyUsd: positiveNumberOr(raw.monthlyUsd, null),
   };
 }
 
@@ -98,7 +98,7 @@ function evaluateScope({ scope, spentUsd, budgetUsd, periodKey, firedState }: {
     scope,
     threshold: crossedThresholds[crossedThresholds.length - 1],
     thresholds: crossedThresholds,
-    spentUsd: safeNumber(spentUsd),
+    spentUsd: numberOr(spentUsd, 0),
     budgetUsd,
     periodKey,
   };
@@ -178,7 +178,7 @@ function standingRow(scope: BudgetScope, spentUsd: unknown, budgetUsd: number | 
   const pct = pctOfBudget(spentUsd, budgetUsd);
   return {
     scope,
-    spentUsd: safeNumber(spentUsd),
+    spentUsd: numberOr(spentUsd, 0),
     budgetUsd,
     pct,
     tone: toneForPct(pct),
@@ -186,7 +186,7 @@ function standingRow(scope: BudgetScope, spentUsd: unknown, budgetUsd: number | 
 }
 
 function pctOfBudget(spentUsd: unknown, budgetUsd: number): number {
-  return (safeNumber(spentUsd) / budgetUsd) * 100;
+  return (numberOr(spentUsd, 0) / budgetUsd) * 100;
 }
 
 function toneForPct(pct: number): 'ok' | 'warn' | 'crit' {
@@ -195,10 +195,5 @@ function toneForPct(pct: number): 'ok' | 'warn' | 'crit' {
   return 'ok';
 }
 
-function positiveNumberOrNull(value: unknown): number | null {
-  const number = numberOrNull(value);
-  if (number === null || number <= 0) return null;
-  return number;
-}
 
 export { BUDGET_THRESHOLDS, budgetStanding, evaluateBudget, markFired, mergeFiredState, normalizeBudgetConfig };

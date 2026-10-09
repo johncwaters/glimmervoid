@@ -16,6 +16,7 @@ import type { UpdateStatus } from './backend-update.ts';
 import type { PlanReadResult } from './plan-review-wiring.ts';
 import type { TracePage, TracePageRequest } from './trace-wiring.ts';
 import type { Telemetry } from './telemetry.ts';
+import { errorMessage } from '../shared/text.ts';
 
 interface SnapshotLane {
   snapshotMessage: () => Record<string, unknown>;
@@ -161,7 +162,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
       try {
         socket.send(JSON.stringify(lane.snapshotMessage()));
       } catch (sendError) {
-        logger.warn(`[${laneName}] connect-time snapshot send failed: ${sendError instanceof Error ? sendError.message : String(sendError)}`);
+        logger.warn(`[${laneName}] connect-time snapshot send failed: ${errorMessage(sendError)}`);
       }
     });
   };

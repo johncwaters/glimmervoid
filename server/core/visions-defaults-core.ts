@@ -1,3 +1,4 @@
+import { isRecord } from '../../shared/coerce.ts';
 const IMPLIED_INGEST = Object.freeze({
   enabled: true,
   sources: Object.freeze({
@@ -13,12 +14,9 @@ export interface ImpliedChange {
   why: string;
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
 
 function impliedIngestChanges(config: Record<string, unknown>): ImpliedChange[] {
-  if (!isPlainObject(config.ingest)) {
+  if (!isRecord(config.ingest)) {
     return [{ path: ['ingest'], value: JSON.parse(JSON.stringify(IMPLIED_INGEST)), why: 'visions needs machine context' }];
   }
   const changes: ImpliedChange[] = [];
@@ -26,9 +24,9 @@ function impliedIngestChanges(config: Record<string, unknown>): ImpliedChange[] 
     changes.push({ path: ['ingest', 'enabled'], value: true, why: 'visions needs machine context' });
   }
   if (config.ingest.enabled === false) return changes;
-  const sources: Record<string, unknown> = isPlainObject(config.ingest.sources) ? config.ingest.sources : {};
+  const sources: Record<string, unknown> = isRecord(config.ingest.sources) ? config.ingest.sources : {};
   for (const [name, value] of Object.entries(IMPLIED_INGEST.sources)) {
-    if (isPlainObject(sources[name])) continue;
+    if (isRecord(sources[name])) continue;
     changes.push({ path: ['ingest', 'sources', name], value: JSON.parse(JSON.stringify(value)), why: `visions implies the ${name} source` });
   }
   return changes;
@@ -37,9 +35,9 @@ function impliedIngestChanges(config: Record<string, unknown>): ImpliedChange[] 
 function decideImpliedDefaults(config: Record<string, unknown> | null | undefined): { changes: ImpliedChange[] } {
   if (!config) return { changes: [] };
   const visions = config.visions;
-  if (!isPlainObject(visions) || visions.enabled !== true) return { changes: [] };
+  if (!isRecord(visions) || visions.enabled !== true) return { changes: [] };
   const changes = impliedIngestChanges(config);
-  if (!isPlainObject(visions.dispatch)) changes.push({ path: ['visions', 'dispatch'], value: { enabled: true }, why: 'visions implies its model dispatch' });
+  if (!isRecord(visions.dispatch)) changes.push({ path: ['visions', 'dispatch'], value: { enabled: true }, why: 'visions implies its model dispatch' });
   return { changes };
 }
 
@@ -48,7 +46,7 @@ function applyChanges<T extends Record<string, unknown>>(config: T, changes: Imp
     let cursor: Record<string, unknown> = config;
     for (const key of change.path.slice(0, -1)) {
       const existing = cursor[key];
-      if (isPlainObject(existing)) {
+      if (isRecord(existing)) {
         cursor = existing;
         continue;
       }

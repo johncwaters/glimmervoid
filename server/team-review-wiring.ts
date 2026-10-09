@@ -38,7 +38,11 @@ import type {
   PostingPlan, PrDetail, ResumableReview, ReviewComment, ReviewResult, ReviewDraft, TeamReviewActionRequest, TeamReviewActionResult,
   TeamReviewState as TeamReviewStateType, TeamReviewStateEntry as TeamReviewStateEntryType, TeamReviewStatus as TeamReviewStatusType,
 } from '../shared/contracts/team-review.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage, isMissingFileError } from '../shared/text.ts';
+import { shortSha } from '../shared/git-text.ts';
+import { DEFAULT_TIMER_FNS } from './core/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from './core/timer-deps.ts';
+import { isPathInside } from '../shared/paths.ts';
 
 const TEAM_REVIEW_DENY_RULES = Object.freeze([
   'Bash(gh:*)',
@@ -143,8 +147,8 @@ interface TeamReviewDispatchOptions {
   repoCacheRoot?: string | null;
   timeoutSeconds?: number;
   makeWorkDir?: (root: string, prefix: string) => Promise<TeamReviewWorkDir>;
-  setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
   randomSuffix?: () => string;
   now?: () => number;
   shutdownSignal?: AbortSignal | null;
@@ -356,13 +360,9 @@ function isOwnedResumable(record: ResumableReview, roots: { workRoot: string; wo
   return isDirectChildOf(roots.workRoot, record.workDir) && isDirectChildOf(roots.worktreeRoot, record.worktreePath);
 }
 
-function isMissingPathError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
-}
-
 async function isRealChildDirectoryOrMissing(root: string, candidatePath: string): Promise<boolean> {
   if (!isDirectChildOf(root, candidatePath)) return false;
-  const candidateStat = await fs.lstat(candidatePath).catch((error: unknown) => (isMissingPathError(error) ? 'missing' : null));
+  const candidateStat = await fs.lstat(candidatePath).catch((error: unknown) => (isMissingFileError(error, { includeNotDir: false }) ? 'missing' : null));
   if (candidateStat === 'missing') return true;
   if (!candidateStat?.isDirectory()) return false;
   const realPaths = await Promise.all([fs.realpath(candidatePath), fs.realpath(root)]).catch(() => null);
@@ -392,11 +392,6 @@ async function deleteDirectory(directory: string, log: Pick<Console, 'warn'>): P
     .catch((error: unknown) => log.warn(`[${core.TEAM_REVIEW_LANE_ID}] could not delete ${directory}: ${errorMessage(error)}`));
 }
 
-function isInsideDirectory(directory: string, root: string): boolean {
-  const relative = path.relative(root, directory);
-  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
-}
-
 async function findLocalCheckout({ repo, config, excludedRoots, gitWorkspace, log }: {
   repo: string;
   config: Pick<TeamReviewWiringConfig, 'projects' | 'repoRoots'>;
@@ -422,7 +417,7 @@ async function findLocalCheckout({ repo, config, excludedRoots, gitWorkspace, lo
     const checkoutPath = await fs.realpath(candidatePath).catch(() => null);
     if (!checkoutPath || seenPaths.has(checkoutPath)) continue;
     seenPaths.add(checkoutPath);
-    if (resolvedExcludedRoots.some((root) => isInsideDirectory(checkoutPath, root))) continue;
+    if (resolvedExcludedRoots.some((root) => isPathInside(root, checkoutPath))) continue;
     const modules = await fs.stat(path.join(checkoutPath, 'node_modules')).catch(() => null);
     if (!modules?.isDirectory()) continue;
     const origin = await gitWorkspace.originUrl({ projectPath: checkoutPath });
@@ -467,7 +462,7 @@ function createTeamReviewDispatcher({
   github, repoCache, gitWorkspace, spawnSession, worktreeRoot, workRoot, repoCacheRoot = null,
   timeoutSeconds = core.REVIEW_TIMEOUT_SECONDS,
   makeWorkDir = makeTeamReviewWorkDir,
-  clearTimeoutFn = clearTimeout,
+  clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
   randomSuffix = () => randomBytes(4).toString('hex'),
   now = () => Date.now(),
   setTimeoutFn = createAwakeTimeoutFn({ now }),
@@ -796,7 +791,7 @@ function createTeamReviewActions({ drafts, github, log = console }: TeamReviewAc
 
   async function retractApproval(key: string, draft: ReviewDraft, movedHead: string, reviewId: number | null): Promise<TeamReviewActionOutcome> {
     if (draft.status !== 'posted') await markDraft(key, draft, { status: 'stale' });
-    const moved = `The pull request moved to ${movedHead.slice(0, 7)} while the approval was posting`;
+    const moved = `The pull request moved to ${shortSha(movedHead)} while the approval was posting`;
     if (reviewId === null) return { ok: false, error: `${moved}, and GitHub did not return the review id, so the approval still stands. Dismiss it on GitHub` };
     const dismissal = await github.dismissReview({ repo: draft.repo, number: draft.number, reviewId, message: STALE_APPROVAL_DISMISSAL });
     if (!dismissal.ok) return { ok: false, error: `${moved}, and dismissing the approval failed (${firstLine(dismissal.err)}), so it still stands. Dismiss it on GitHub` };
@@ -818,9 +813,9 @@ function createTeamReviewActions({ drafts, github, log = console }: TeamReviewAc
     const liveHead = await github.prHead(draft.repo, draft.number);
     if (!liveHead) return { ok: false, error: 'Could not read the pull request head from GitHub' };
     if (!core.canPost(draft, request.head, liveHead, event)) {
-      if (isFollowUpApproval) return { ok: false, error: `The pull request moved to ${liveHead.slice(0, 7)} after the comments were posted, so nothing was approved. Queue a review to look at the new commits` };
+      if (isFollowUpApproval) return { ok: false, error: `The pull request moved to ${shortSha(liveHead)} after the comments were posted, so nothing was approved. Queue a review to look at the new commits` };
       await markDraft(key, draft, { status: 'stale' });
-      return { ok: false, error: `The pull request moved to ${liveHead.slice(0, 7)} after this review, so nothing was posted. It will be reviewed again` };
+      return { ok: false, error: `The pull request moved to ${shortSha(liveHead)} after this review, so nothing was posted. It will be reviewed again` };
     }
     const commentsError = await misplacedCommentsError(draft, comments);
     if (commentsError) return { ok: false, error: commentsError };

@@ -1,6 +1,6 @@
 import { parseJsonLine, vendorUsageEntry } from './usage-entry-core.ts';
 import type { DedupIdentityEntry, UsageEntry } from './usage-entry-core.ts';
-import { safeNumber, stringOrNull } from './usage-number-core.ts';
+import { numberOr, rawTextOr } from '../../shared/coerce.ts';
 
 interface CodexTokenUsage {
   input_tokens?: unknown;
@@ -55,15 +55,15 @@ function parseCodexUsageLine(
   if (!tokenUsage) return null;
   state.totalTokenUsage = totalUsage;
 
-  const inputTokens = safeNumber(tokenUsage.input_tokens);
-  const cacheRead = safeNumber(tokenUsage.cached_input_tokens);
+  const inputTokens = numberOr(tokenUsage.input_tokens, 0);
+  const cacheRead = numberOr(tokenUsage.cached_input_tokens, 0);
   return vendorUsageEntry({
     timestampMs,
-    sessionId: stringOrNull(sessionId),
+    sessionId: rawTextOr(sessionId, null),
     model: state.model,
     input: Math.max(0, inputTokens - cacheRead),
-    output: safeNumber(tokenUsage.output_tokens),
-    cacheCreate: safeNumber(tokenUsage.cache_write_input_tokens),
+    output: numberOr(tokenUsage.output_tokens, 0),
+    cacheCreate: numberOr(tokenUsage.cache_write_input_tokens, 0),
     cacheRead,
     costUSD: null,
     vendor: 'codex',
@@ -85,14 +85,14 @@ function codexDedupIdentity(entry: DedupIdentityEntry | null | undefined): strin
 }
 
 function recordTurnContext(parsed: CodexLine, state: CodexUsageState): null {
-  state.model = stringOrNull(parsed.payload?.model);
+  state.model = rawTextOr(parsed.payload?.model, null);
   return null;
 }
 
 function recordThreadSettings(parsed: CodexLine, state: CodexUsageState): null {
   const threadSettings = parsed.payload?.thread_settings as CodexTokenUsage & { model?: unknown } | undefined;
   if (!threadSettings || typeof threadSettings !== 'object') return null;
-  state.model = stringOrNull(threadSettings.model) || state.model;
+  state.model = rawTextOr(threadSettings.model, null) || state.model;
   return null;
 }
 
@@ -103,24 +103,24 @@ function usageObjectOrNull(value: unknown): CodexTokenUsage | null {
 
 function isSameUsage(left: CodexTokenUsage | null, right: CodexTokenUsage | null): boolean {
   if (!left || !right) return false;
-  return safeNumber(left.input_tokens) === safeNumber(right.input_tokens)
-    && safeNumber(left.cached_input_tokens) === safeNumber(right.cached_input_tokens)
-    && safeNumber(left.cache_write_input_tokens) === safeNumber(right.cache_write_input_tokens)
-    && safeNumber(left.output_tokens) === safeNumber(right.output_tokens)
-    && safeNumber(left.reasoning_output_tokens) === safeNumber(right.reasoning_output_tokens)
-    && safeNumber(left.total_tokens) === safeNumber(right.total_tokens);
+  return numberOr(left.input_tokens, 0) === numberOr(right.input_tokens, 0)
+    && numberOr(left.cached_input_tokens, 0) === numberOr(right.cached_input_tokens, 0)
+    && numberOr(left.cache_write_input_tokens, 0) === numberOr(right.cache_write_input_tokens, 0)
+    && numberOr(left.output_tokens, 0) === numberOr(right.output_tokens, 0)
+    && numberOr(left.reasoning_output_tokens, 0) === numberOr(right.reasoning_output_tokens, 0)
+    && numberOr(left.total_tokens, 0) === numberOr(right.total_tokens, 0);
 }
 
 function deltaFromTotal(totalUsage: CodexTokenUsage | null, previousTotalUsage: CodexTokenUsage | null): CodexTokenUsage | null {
   if (!totalUsage) return null;
   if (!previousTotalUsage) return totalUsage;
   return {
-    input_tokens: safeNumber(totalUsage.input_tokens) - safeNumber(previousTotalUsage.input_tokens),
-    cached_input_tokens: safeNumber(totalUsage.cached_input_tokens) - safeNumber(previousTotalUsage.cached_input_tokens),
-    cache_write_input_tokens: safeNumber(totalUsage.cache_write_input_tokens) - safeNumber(previousTotalUsage.cache_write_input_tokens),
-    output_tokens: safeNumber(totalUsage.output_tokens) - safeNumber(previousTotalUsage.output_tokens),
-    reasoning_output_tokens: safeNumber(totalUsage.reasoning_output_tokens) - safeNumber(previousTotalUsage.reasoning_output_tokens),
-    total_tokens: safeNumber(totalUsage.total_tokens) - safeNumber(previousTotalUsage.total_tokens),
+    input_tokens: numberOr(totalUsage.input_tokens, 0) - numberOr(previousTotalUsage.input_tokens, 0),
+    cached_input_tokens: numberOr(totalUsage.cached_input_tokens, 0) - numberOr(previousTotalUsage.cached_input_tokens, 0),
+    cache_write_input_tokens: numberOr(totalUsage.cache_write_input_tokens, 0) - numberOr(previousTotalUsage.cache_write_input_tokens, 0),
+    output_tokens: numberOr(totalUsage.output_tokens, 0) - numberOr(previousTotalUsage.output_tokens, 0),
+    reasoning_output_tokens: numberOr(totalUsage.reasoning_output_tokens, 0) - numberOr(previousTotalUsage.reasoning_output_tokens, 0),
+    total_tokens: numberOr(totalUsage.total_tokens, 0) - numberOr(previousTotalUsage.total_tokens, 0),
   };
 }
 

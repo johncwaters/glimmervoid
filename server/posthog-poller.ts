@@ -10,7 +10,9 @@ import { createTickLoop } from './lane-runner.ts';
 import type { TickOutcome } from './lane-runner.ts';
 import { normalizeIssues, parseSpikeIssueIds } from './posthog-api.ts';
 import type { NormalizedIssue, PosthogApi } from './posthog-api.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
+import { DEFAULT_TIMER_FNS } from './core/timer-deps.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from './core/timer-deps.ts';
 
 
 const OBSERVATION_PINGS: Record<string, { kind: string; dedupe: boolean } | undefined> = {
@@ -131,11 +133,11 @@ interface PosthogPollerDependencies {
   telegram?: (message: string) => void;
   readState?: () => Promise<PosthogState>;
   writeState?: (state: PosthogState) => Promise<void>;
-  setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearIntervalFn?: (handle: NodeJS.Timeout) => void;
+  setIntervalFn?: SetIntervalFn;
+  clearIntervalFn?: ClearIntervalFn;
   firstTickDelayMs?: () => number;
-  setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
   log?: Pick<Console, 'warn'>;
   onTickComplete?: (status: Record<string, unknown>) => void;
   onInvestigationActivity?: (activity: InvestigationActivity) => void;
@@ -189,10 +191,10 @@ function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
     telegram = () => {},
     readState = async () => ({}),
     writeState = async () => {},
-    setIntervalFn = (fn, ms) => setInterval(fn, ms),
-    clearIntervalFn = clearInterval,
-    setTimeoutFn = (fn, ms) => setTimeout(fn, ms),
-    clearTimeoutFn = clearTimeout,
+    setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
+    clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
+    setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
+    clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
     log = console,
     onTickComplete = () => {},
     onInvestigationActivity = () => {},

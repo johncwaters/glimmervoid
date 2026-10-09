@@ -1,4 +1,4 @@
-import { isPlainObject, numberOrNull } from './usage-number-core.ts';
+import { isRecord, numberOr } from '../../shared/coerce.ts';
 
 const PCT_DECIMALS = 1;
 
@@ -23,21 +23,21 @@ export interface StatuslineSnapshot {
 }
 
 function roundPct(value: unknown): number | null {
-  const numeric = numberOrNull(value);
+  const numeric = numberOr(value, null);
   if (numeric === null) return null;
   const factor = 10 ** PCT_DECIMALS;
   return Math.max(0, Math.round(numeric * factor) / factor);
 }
 
 function resetsAtMs(value: unknown): number | null {
-  const numeric = numberOrNull(value);
+  const numeric = numberOr(value, null);
   if (numeric === null || numeric <= 0) return null;
   if (numeric > SECONDS_CEILING) return Math.round(numeric);
   return Math.round(numeric * 1000);
 }
 
 function normalizeWindow(raw: unknown): RateLimitWindow | null {
-  if (!isPlainObject(raw)) return null;
+  if (!isRecord(raw)) return null;
   const window = raw as Record<string, unknown>;
   const pct = roundPct(window.used_percentage);
   const resetsAt = resetsAtMs(window.resets_at);
@@ -46,7 +46,7 @@ function normalizeWindow(raw: unknown): RateLimitWindow | null {
 }
 
 function normalizeRateLimits(raw: unknown): RateLimitWindows | null {
-  if (!isPlainObject(raw)) return null;
+  if (!isRecord(raw)) return null;
   const limits = raw as Record<string, unknown>;
   const fiveHour = normalizeWindow(limits.five_hour);
   const sevenDay = normalizeWindow(limits.seven_day);
@@ -55,17 +55,17 @@ function normalizeRateLimits(raw: unknown): RateLimitWindows | null {
 }
 
 function normalizeStatuslinePayload(payload: unknown, nowMs: unknown): StatuslineSnapshot | null {
-  if (!isPlainObject(payload)) return null;
+  if (!isRecord(payload)) return null;
   const fields = payload as Record<string, unknown>;
   const sessionId = typeof fields.session_id === 'string' ? fields.session_id.trim() : '';
-  const cost = isPlainObject(fields.cost) ? (fields.cost as Record<string, unknown>) : null;
-  const context = isPlainObject(fields.context_window) ? (fields.context_window as Record<string, unknown>) : null;
+  const cost = isRecord(fields.cost) ? (fields.cost as Record<string, unknown>) : null;
+  const context = isRecord(fields.context_window) ? (fields.context_window as Record<string, unknown>) : null;
   return {
     rateLimits: normalizeRateLimits(fields.rate_limits),
-    sessionCostUSD: cost ? numberOrNull(cost.total_cost_usd) : null,
+    sessionCostUSD: cost ? numberOr(cost.total_cost_usd, null) : null,
     contextPct: context ? roundPct(context.used_percentage) : null,
     claudeSessionId: sessionId || null,
-    ts: numberOrNull(nowMs) ?? 0,
+    ts: numberOr(nowMs, null) ?? 0,
   };
 }
 

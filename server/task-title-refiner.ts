@@ -11,6 +11,7 @@ import { BrowserConfig } from '../shared/contracts/config.ts';
 import { STATES } from '../shared/states.ts';
 import { readLaneResultFile } from './lane-spawn.ts';
 import type { LaneSpawn } from './lane-spawn.ts';
+import { errorMessage } from '../shared/text.ts';
 
 const PROMPT_FILE = 'task-title-prompt.txt';
 const RESULT_FILE = 'task-title-result.json';
@@ -159,7 +160,7 @@ function createTaskTitleRefiner({ getConfig, spawnLane, nowFn = () => Date.now()
         finish(request, refinement);
       },
       (error: unknown) => {
-        logger.warn(`[task-title] refinement failed: ${error instanceof Error ? error.message : String(error)}`);
+        logger.warn(`[task-title] refinement failed: ${errorMessage(error)}`);
         finish(request, { action: 'invalid' });
       },
     ).finally(() => clearTimeout(timeout));

@@ -1,5 +1,6 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { createAttentionAck } from './attention-ack-core.ts';
+import { nextRequestId } from './control-ws.ts';
 import { buildPanelSection, el, isPanelHidden } from './dom-helpers.ts';
 import { createPollAgoTicker, formatAgo } from './poll-ago.ts';
 import { createSettingsLink } from './settings-link.ts';
@@ -128,7 +129,6 @@ let _planLimits: PlanLimits | null = null;
 let _root: HTMLDivElement | null = null;
 let _activityCallback: ((isActive: boolean) => void) | null = null;
 let _sendRequest: ((message: Record<string, unknown>) => void) | null = null;
-let _requestSeq = 0;
 let _latestRequestId: string | null = null;
 let _rangeValue: string = DEFAULT_RANGE_VALUE;
 let _refreshPending = false;
@@ -1017,8 +1017,7 @@ export function setUsageRequestSender(send: (message: Record<string, unknown>) =
 
 export function requestUsageReport({ force = false }: { force?: boolean } = {}) {
   if (!_sendRequest) return;
-  _requestSeq += 1;
-  _latestRequestId = `usage-${_requestSeq}`;
+  _latestRequestId = nextRequestId('usage');
   const msg: Record<string, unknown> = { type: 'request-usage-report', requestId: _latestRequestId };
   if (force) msg.force = true;
   const days = daysForRange(_rangeValue);

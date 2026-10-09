@@ -56,7 +56,7 @@ import type { WarehouseRecord } from './core/usage-warehouse-core.ts';
 import { createJsonStateStore } from './json-file.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLog } from './lane-log.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage, isMissingFileError } from '../shared/text.ts';
 
 const DEFAULT_BYTE_BUDGET = 64 * 1024 * 1024;
 const DEFAULT_CHUNK_SIZE = 1024 * 1024;
@@ -163,12 +163,6 @@ interface PassResult {
 }
 
 type StoredWarehouseRecords = NonNullable<Parameters<typeof pruneWarehouse>[0]>;
-
-function isAbsentPathError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  if (!('code' in error)) return false;
-  return error.code === 'ENOENT' || error.code === 'ENOTDIR';
-}
 
 function yieldNow(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
@@ -293,7 +287,7 @@ async function resolveProjectsDirsAsync(
       const stat = await fsPromises.stat(candidate);
       if (stat.isDirectory()) existing.add(candidate);
     } catch (error) {
-      if (isAbsentPathError(error)) return null;
+      if (isMissingFileError(error)) return null;
       ioFailures += 1;
       laneLog.warn('project dir probe failed', { path: candidate, error: errorMessage(error) });
     }
@@ -322,7 +316,7 @@ async function existingRoots(
       const stat = await fsPromises.stat(candidate.dir);
       return stat.isDirectory() ? candidate : null;
     } catch (error) {
-      if (isAbsentPathError(error)) return null;
+      if (isMissingFileError(error)) return null;
       ioFailures += 1;
       laneLog.warn('vendor root probe failed', { path: candidate.dir, error: errorMessage(error) });
       return null;
@@ -368,7 +362,7 @@ async function walkDir(
   try {
     entries = await fsPromises.readdir(dir, { withFileTypes: true });
   } catch (error) {
-    if (isAbsentPathError(error)) return 0;
+    if (isMissingFileError(error)) return 0;
     laneLog.warn('readdir failed', { path: dir, error: errorMessage(error) });
     return 1;
   }
@@ -631,7 +625,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     try {
       stat = await fsPromises.stat(file);
     } catch (error) {
-      if (isAbsentPathError(error)) return { bytesRead: 0, partial: false, failed: false, skipped: false };
+      if (isMissingFileError(error)) return { bytesRead: 0, partial: false, failed: false, skipped: false };
       laneLog.warn('stat failed', { path: file, error: errorMessage(error) });
       return { bytesRead: 0, partial: false, failed: true, skipped: false };
     }
@@ -701,7 +695,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     } catch (error) {
       if (hadPrior) fileStates.set(file, priorSnapshot);
       if (!hadPrior) fileStates.delete(file);
-      if (isAbsentPathError(error)) return { bytesRead, partial: false, failed: false, skipped: false };
+      if (isMissingFileError(error)) return { bytesRead, partial: false, failed: false, skipped: false };
       laneLog.warn('read failed', { path: file, error: errorMessage(error) });
       return { bytesRead, partial: false, failed: true, skipped: false };
     } finally {

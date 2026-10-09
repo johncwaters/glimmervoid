@@ -1,4 +1,5 @@
 import type { FactoryState } from '#shared/contracts/factory.ts';
+import { localClockText } from '#shared/display-text.ts';
 import { buildPanelSection, el } from '../dom-helpers.ts';
 import { buildFactoryFloor, pickFactoryProject } from './factory-floor-core.ts';
 import type { FactoryCrate, FactoryFloor, FactoryStation } from './factory-floor-core.ts';
@@ -120,7 +121,7 @@ function buildStation(station: (typeof STATIONS)[number], crates: FactoryCrate[]
 function formatLedgerClock(isoTimestamp: string): string {
   const parsed = new Date(isoTimestamp);
   if (Number.isNaN(parsed.getTime())) return isoTimestamp;
-  return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return localClockText(parsed);
 }
 
 function buildBottom(floor: FactoryFloor): HTMLElement {

@@ -1,4 +1,4 @@
-import { isPlainObject } from './usage-number-core.ts';
+import { isRecord } from '../../shared/coerce.ts';
 
 interface EnvSecretBinding {
   blockName: string;
@@ -29,7 +29,7 @@ function readEnvSecrets(env: Record<string, string | undefined>): ResolvedEnvSec
 
 function copyOfBlock(config: ConfigBlocks, blockName: string): Record<string, unknown> {
   const block = config[blockName];
-  if (!isPlainObject(block)) return {};
+  if (!isRecord(block)) return {};
   return { ...block };
 }
 
@@ -46,7 +46,7 @@ function withoutEnvSecrets<T extends ConfigBlocks>(config: T, envSecrets: readon
   if (envSecrets.length === 0) return config;
   const stripped: ConfigBlocks = { ...config };
   for (const secret of envSecrets) {
-    if (!isPlainObject(stripped[secret.blockName])) continue;
+    if (!isRecord(stripped[secret.blockName])) continue;
     const remaining = copyOfBlock(stripped, secret.blockName);
     delete remaining[secret.secretKey];
     if (Object.keys(remaining).length === 0) {
@@ -60,7 +60,7 @@ function withoutEnvSecrets<T extends ConfigBlocks>(config: T, envSecrets: readon
 
 function withSortedKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(withSortedKeys);
-  if (!isPlainObject(value)) return value;
+  if (!isRecord(value)) return value;
   const sorted: Record<string, unknown> = {};
   for (const key of Object.keys(value).sort()) sorted[key] = withSortedKeys(value[key]);
   return sorted;

@@ -60,14 +60,14 @@ function firstDefined(...values: unknown[]): unknown {
   return undefined;
 }
 
-function isRecord(value: unknown): value is RawRow {
+function isObjectLike(value: unknown): value is RawRow {
   return Boolean(value) && typeof value === 'object';
 }
 
 function extractRows(body: unknown): RawRow[] {
   if (!body) return [];
-  if (Array.isArray(body)) return body.filter(isRecord);
-  if (!isRecord(body)) return [];
+  if (Array.isArray(body)) return body.filter(isObjectLike);
+  if (!isObjectLike(body)) return [];
   const results = body.results || body.issues || body.data;
   if (!Array.isArray(results)) return [];
   const columns = Array.isArray(body.columns) ? body.columns : null;
@@ -79,12 +79,12 @@ function extractRows(body: unknown): RawRow[] {
       columns.forEach((name: unknown, i: number) => { obj[String(name)] = row[i]; });
       return obj;
     })
-    .filter(isRecord);
+    .filter(isObjectLike);
 }
 
 function normalizeIssue(raw: unknown): NormalizedIssue {
-  const row: RawRow = isRecord(raw) ? raw : {};
-  const agg: RawRow = isRecord(row.aggregations) ? row.aggregations : row;
+  const row: RawRow = isObjectLike(raw) ? raw : {};
+  const agg: RawRow = isObjectLike(row.aggregations) ? row.aggregations : row;
   return {
     issueId: String(firstDefined(row.id, row.issue_id, row.issueId, '') ?? ''),
     title: String(firstDefined(row.name, row.title, row.description, '') ?? ''),
@@ -103,7 +103,7 @@ function normalizeIssues(body: unknown): NormalizedIssue[] {
 function parseSpikeIssueIds(body: unknown, sinceTs: unknown = 0): Set<string> {
   const ids = new Set<string>();
   for (const row of extractRows(body)) {
-    const props: RawRow = isRecord(row.properties) ? row.properties : {};
+    const props: RawRow = isObjectLike(row.properties) ? row.properties : {};
     const rawTs = firstDefined(row.timestamp, row.ts, row.created_at, row.time, props.timestamp);
     const ts = Date.parse(String(rawTs ?? ''));
     if (!Number.isFinite(ts)) continue;

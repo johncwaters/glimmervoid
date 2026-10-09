@@ -1,4 +1,7 @@
 import { DEFAULT_DEADLINE_MS, DEFAULT_INTERVAL_MS, planHeartbeatSweep } from './core/heartbeat-core.ts';
+import { errorMessage } from '../shared/text.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
+import type { ClearIntervalFn, SetIntervalFn } from './core/timer-deps.ts';
 
 interface HeartbeatSocket {
   glimmervoidLastSeenAt?: number;
@@ -16,8 +19,8 @@ interface HeartbeatOptions {
   intervalMs?: number;
   deadlineMs?: number;
   now?: () => number;
-  setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearIntervalFn?: (handle: NodeJS.Timeout) => void;
+  setIntervalFn?: SetIntervalFn;
+  clearIntervalFn?: ClearIntervalFn;
   onTerminate?: (socket: HeartbeatSocket) => void;
   warn?: (message: string) => void;
 }
@@ -34,8 +37,8 @@ function createHeartbeat({
   intervalMs = DEFAULT_INTERVAL_MS,
   deadlineMs = DEFAULT_DEADLINE_MS,
   now = Date.now,
-  setIntervalFn = setInterval,
-  clearIntervalFn = clearInterval,
+  setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
+  clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
   onTerminate = () => {},
   warn = console.warn,
 }: HeartbeatOptions = {}): Heartbeat {
@@ -63,7 +66,7 @@ function createHeartbeat({
         try {
           ws.ping();
         } catch (error) {
-          warn(`[heartbeat] ping failed: ${error instanceof Error ? error.message : String(error)}`);
+          warn(`[heartbeat] ping failed: ${errorMessage(error)}`);
         }
       }
     }
@@ -72,7 +75,7 @@ function createHeartbeat({
   function start(): void {
     if (timer) return;
     timer = setIntervalFn(sweep, intervalMs);
-    if (timer && typeof timer.unref === 'function') timer.unref();
+    unrefTimer(timer);
   }
 
   function stop(): void {

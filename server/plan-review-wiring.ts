@@ -52,7 +52,9 @@ import { openContainedFile } from './contained-file.ts';
 import { appendJsonLine } from './json-file.ts';
 import { configSiblingPath } from './pairings-store.ts';
 import { pruneAgedFiles } from './prune-files.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from './core/timer-deps.ts';
 
 const PERMISSION_REQUEST_HOOK_EVENT = 'permissionrequest';
 const POST_TOOL_USE_HOOK_EVENT = 'posttooluse';
@@ -91,10 +93,10 @@ interface PlanReviewWiringOptions {
   logger?: Pick<Console, 'warn'> | null;
   nowFn?: () => number;
   watchPlanFileFn?: PlanFileWatcherFactory;
-  setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearIntervalFn?: (handle: NodeJS.Timeout) => void;
-  setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+  setIntervalFn?: SetIntervalFn;
+  clearIntervalFn?: ClearIntervalFn;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
 }
 
 interface PlanHookEvent {
@@ -198,10 +200,10 @@ function createPlanReviewWiring({
   logger = console,
   nowFn = Date.now,
   watchPlanFileFn = watchPlanFileWithNode,
-  setIntervalFn = (fn: () => void, ms: number) => setInterval(fn, ms),
-  clearIntervalFn = clearInterval,
-  setTimeoutFn = (fn: () => void, ms: number) => setTimeout(fn, ms),
-  clearTimeoutFn = clearTimeout,
+  setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
+  clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
+  setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
+  clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
 }: PlanReviewWiringOptions = {}) {
   const plansDirectory = configSiblingPath(configPath, 'plans');
   const emitter = new EventEmitter();
@@ -390,7 +392,7 @@ function createPlanReviewWiring({
         changedAt: nowFn(),
       } satisfies PlanDraftNotice);
     }, PLAN_DRAFT_DEBOUNCE_MS);
-    if (typeof timer.unref === 'function') timer.unref();
+    unrefTimer(timer);
     record.debounceTimer = timer;
   }
 
@@ -765,7 +767,7 @@ function createPlanReviewWiring({
     pruneTimer = setIntervalFn(() => {
       exclusive(prune).catch((error: unknown) => { warn(`prune failed: ${errorMessage(error)}`); });
     }, PRUNE_INTERVAL_MS);
-    if (typeof pruneTimer.unref === 'function') pruneTimer.unref();
+    unrefTimer(pruneTimer);
   }
 
   async function whenIdle(): Promise<void> {

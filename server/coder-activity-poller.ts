@@ -4,6 +4,7 @@ import {
 import type { CoderActivityLastReport, CoderActivityState } from './core/coder-activity-core.ts';
 import { createTickLoop } from './lane-runner.ts';
 import type { TickLoopOptions, TickOutcome } from './lane-runner.ts';
+import { errorMessage } from '../shared/text.ts';
 
 interface CoderActivityReport {
   state: CoderActivityState;
@@ -29,7 +30,7 @@ function createCoderActivityPoller({ countRunningSessions, reportStatus, now = D
       lastReport = { state, at: reportTime };
       return;
     } catch (error) {
-      log.warn(`[coder-activity] ${state} report failed: ${error instanceof Error ? error.message : String(error)}`);
+      log.warn(`[coder-activity] ${state} report failed: ${errorMessage(error)}`);
       return { failed: true };
     }
   }
@@ -52,7 +53,7 @@ function createCoderActivityPoller({ countRunningSessions, reportStatus, now = D
       await reportStatus({ state: 'idle', message: CODER_ACTIVITY_STOPPED_MESSAGE });
       lastReport = { state: 'idle', at: now() };
     } catch (error) {
-      log.warn(`[coder-activity] idle report on stop failed: ${error instanceof Error ? error.message : String(error)}`);
+      log.warn(`[coder-activity] idle report on stop failed: ${errorMessage(error)}`);
     }
   }
 

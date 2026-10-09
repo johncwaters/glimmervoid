@@ -17,6 +17,7 @@ import {
   pushFixBranch,
   readFixResult,
   readInvestigationResult,
+  runCli,
   sweepReports,
 } from '../server/posthog-wiring.ts';
 import type { PosthogGitWorkspace, PosthogWiringConfig, PosthogWorkspace } from '../server/posthog-wiring.ts';
@@ -25,6 +26,7 @@ import { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
+import type { ExecFileFn, ExecFileOptions } from '../server/git-exec.ts';
 import type { resolveHookTools as resolveSharedHookTools } from '../server/hook-tools.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { readEnvSecrets, withEnvSecrets } from '../server/core/config-secrets-core.ts';
@@ -785,6 +787,28 @@ function callFor(calls: RunCall[], key: string): RunCall {
   assert.ok(found, `the handoff ran ${key}`);
   return found;
 }
+
+test('the handoff runner pushes with credential prompts off and the handoff timeout', async () => {
+  const seen: { file: string; options: ExecFileOptions }[] = [];
+  const execFileFn: ExecFileFn = async (file, _args, options) => {
+    seen.push({ file, options });
+    return { stdout: ' pushed \n', stderr: '' };
+  };
+  const pushed = await runCli('git', ['push', 'origin', 'topic'], '/wt', execFileFn);
+  assert.deepEqual(pushed, { ok: true, out: 'pushed', err: '' });
+  assert.equal(seen[0]?.file, 'git');
+  assert.equal(seen[0]?.options.env?.GIT_TERMINAL_PROMPT, '0');
+  assert.equal(seen[0]?.options.timeout, 120_000);
+  assert.equal(seen[0]?.options.cwd, '/wt');
+});
+
+test('the handoff runner keeps stdout and prefers stderr when a command fails', async () => {
+  const execFileFn: ExecFileFn = async () => {
+    throw Object.assign(new Error('exit 1'), { stdout: ' partial \n', stderr: 'auth required' });
+  };
+  const created = await runCli('gh', ['pr', 'create'], '/repo', execFileFn);
+  assert.deepEqual(created, { ok: false, out: 'partial', err: 'auth required' });
+});
 
 test('pushFixBranch pushes the server-chosen branch and reads the PR url from gh stdout', async () => {
   const { res, calls } = await handoff(CLEAN_SCRIPT);

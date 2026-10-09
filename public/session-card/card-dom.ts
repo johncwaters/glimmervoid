@@ -1,5 +1,6 @@
 
 import { TASK_TITLE_MAX_LENGTH } from '#shared/contracts/session.ts';
+import { localClockText } from '#shared/display-text.ts';
 import { STATES } from '#shared/states.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el, escapeHtml } from '../dom-helpers.ts';
@@ -300,8 +301,7 @@ const DEBUG_CLOSE_BTN = '<button type="button" class="debug-close" aria-label="C
 
 function formatTimestamp(ts: number | undefined) {
   if (!ts) return '-';
-  const d = new Date(ts);
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return localClockText(new Date(ts));
 }
 
 function formatSeconds(ms: number | undefined) {

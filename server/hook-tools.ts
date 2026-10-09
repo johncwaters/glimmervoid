@@ -6,6 +6,8 @@ import { SANE_YOLO_FILES } from '../session/core/sane-yolo.ts';
 import { glimmervoidHomeDir } from './core/config-path-core.ts';
 import { getRtkPath } from './rtk-resolver.ts';
 import { resolvePackageBin } from './runtime-paths.ts';
+import { writeTextAtomicSync } from './json-file.ts';
+import { isMissingFileError } from '../shared/text.ts';
 
 const writtenHomes = new Set<string>();
 const warnedTools = new Set<string>();
@@ -24,9 +26,9 @@ function writeSaneYoloPolicy(homeDir: string): void {
     try {
       previous = fs.readFileSync(filePath, 'utf8');
     } catch (error) {
-      if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error;
+      if (!isMissingFileError(error, { includeNotDir: false })) throw error;
     }
-    if (previous !== serialized) fs.writeFileSync(filePath, serialized, { mode: 0o600 });
+    if (previous !== serialized) writeTextAtomicSync(filePath, serialized, { mode: 0o600 });
   }
   writtenHomes.add(homeDir);
 }

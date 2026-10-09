@@ -1,3 +1,4 @@
+import { nextRequestId } from './control-ws.ts';
 import { buildPanelSection, buildStatChip, el } from './dom-helpers.ts';
 import type { BenchmarkAction, BenchmarkArmScore, BenchmarkReport, BenchmarkStatus, BenchmarkSuiteSummary } from '#shared/contracts/benchmark.ts';
 
@@ -9,7 +10,6 @@ const ACTION_PENDING_TEXT: Readonly<Record<BenchmarkAction, string>> = { mine: '
 let root: HTMLDivElement | null = null;
 let status: BenchmarkStatus | null = null;
 let requestSender: BenchmarkRequestSender | null = null;
-let requestSeq = 0;
 const pendingActionBySuite = new Map<string, BenchmarkAction>();
 const outcomeBySuite = new Map<string, string>();
 
@@ -25,8 +25,7 @@ function signedPoints(delta: number | null): string {
 }
 
 function sendAction(suiteId: string, action: BenchmarkAction): void {
-  requestSeq += 1;
-  const sent = requestSender?.({ type: 'benchmark-action', requestId: `benchmark-${requestSeq}`, suiteId, action }) === true;
+  const sent = requestSender?.({ type: 'benchmark-action', requestId: nextRequestId('benchmark'), suiteId, action }) === true;
   if (!sent) {
     outcomeBySuite.set(suiteId, 'Not connected.');
     render();

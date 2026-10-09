@@ -10,7 +10,7 @@ import { adapterBucket, classifySessionExit } from './core/telemetry-core.ts';
 import { INTERACTIVE_LANE } from './core/usage-lane-core.ts';
 import { resolveCheckConfig, runPostTurnChecks } from './post-turn-checker.ts';
 import type { Telemetry } from './telemetry.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
 
 interface WiringProject extends Record<string, unknown> {
   id?: string;

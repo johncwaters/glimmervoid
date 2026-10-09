@@ -32,7 +32,10 @@ import {
 } from './core/update-apply-core.ts';
 import type { RenameOperation } from './core/update-apply-core.ts';
 import type { GitWorkspaceInstance } from './git-workspace.ts';
-import { createJsonStateWriter } from './json-file.ts';
+import { runCommand as execCommand, runGit } from './git-exec.ts';
+import type { CommandResult } from './git-exec.ts';
+import { createJsonStateWriter, writeJsonAtomic } from './json-file.ts';
+import { isMissingFileError } from '../shared/text.ts';
 import { probeBranchAndUpstream } from './update-check.ts';
 import type { UpdateStatus } from './backend-update.ts';
 
@@ -167,22 +170,17 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     throw new Error(`journal-write-failed: ${errorText(persistenceFailure)}`);
   }
 
+  function commandOutcome(result: CommandResult): CommandOutcome {
+    if (result.ok) return { ok: true, output: [result.out, result.stderr].filter(Boolean).join('\n'), reason: null };
+    return { ok: false, output: errorText(result.error), reason: errorText(result.error) };
+  }
+
   async function command(file: string, args: string[], cwd: string, timeout: number): Promise<CommandOutcome> {
-    try {
-      const { stdout, stderr } = await runCommand(file, args, {
-        cwd,
-        encoding: 'utf8',
-        timeout,
-        maxBuffer: COMMAND_MAX_BUFFER,
-      });
-      return { ok: true, output: [stdout, stderr].filter(Boolean).join('\n'), reason: null };
-    } catch (error) {
-      return { ok: false, output: errorText(error), reason: errorText(error) };
-    }
+    return commandOutcome(await execCommand(file, args, { cwd, timeoutMs: timeout, maxBuffer: COMMAND_MAX_BUFFER, trim: false, execFileFn: runCommand }));
   }
 
   async function gitCommand(args: string[], cwd = dependencies.packageRoot): Promise<CommandOutcome> {
-    return command('git', args, cwd, FETCH_TIMEOUT_MS);
+    return commandOutcome(await runGit(args, { cwd, timeoutMs: FETCH_TIMEOUT_MS, maxBuffer: COMMAND_MAX_BUFFER, trim: false, execFileFn: runCommand }));
   }
 
   async function runWorkspaceStep(
@@ -346,8 +344,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
       from: operation.artifact === 'node_modules' ? PREVIOUS_DEPENDENCIES_BACKUP_NAME : PREVIOUS_DIST_BACKUP_NAME,
       to: operation.artifact,
     }));
-    await fsPromises.mkdir(updatePath, { recursive: true });
-    await fsPromises.writeFile(path.join(updatePath, RESTORE_MARKER_NAME), JSON.stringify({ restore }, null, 2), 'utf8');
+    await writeJsonAtomic(path.join(updatePath, RESTORE_MARKER_NAME), { restore }, { fsPromises, mkdir: true });
   }
 
   async function noteRestoreMarker(failedReversals: RenameOperation[]): Promise<string> {
@@ -495,8 +492,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
       if (parsed.success) return { journal: parsed.data, wasPersisted: true };
       return { journal: interruptedDisplayJournal(dependencies.getUpdateChannel(), 'update journal is invalid'), wasPersisted: false };
     } catch (error) {
-      const code = (error as { code?: unknown } | null)?.code;
-      if (code === 'ENOENT') return { journal: idleJournal(dependencies.getUpdateChannel()), wasPersisted: false };
+      if (isMissingFileError(error, { includeNotDir: false })) return { journal: idleJournal(dependencies.getUpdateChannel()), wasPersisted: false };
       return { journal: interruptedDisplayJournal(dependencies.getUpdateChannel(), 'update journal could not be read'), wasPersisted: false };
     }
   }

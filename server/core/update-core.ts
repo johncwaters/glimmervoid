@@ -1,14 +1,14 @@
 import { InstallFlavor } from '../../shared/contracts/control-messages.ts';
 import type { UpdateChannel } from '../../shared/contracts/update-journal.ts';
 import { REPO_SLUG } from '../../shared/repo.ts';
+import { textOr } from '../../shared/coerce.ts';
+import { FULL_SHA_RE, shortSha as abbreviateSha } from '../../shared/git-text.ts';
 
-const SHA_RE = /^[0-9a-f]{40}$/;
 const NPM_PACKAGE_NAME = 'glimmervoid';
 const NPM_GLOBAL_COMMAND = `npm install -g ${NPM_PACKAGE_NAME}@latest`;
 const NODE_PTY_INSTALL_SCRIPT_FLAG = '--allow-scripts=node-pty';
 const NPX_CACHE_DIRECTORY_NAME = '_npx';
 const CLONE_COMMAND = 'git pull --ff-only && npm ci && npm run build';
-const SHORT_SHA_LENGTH = 7;
 const INSTALL_FLAVORS = new Set<string>(InstallFlavor.options);
 const TAG_VERSION_RE = /^v(\d+\.\d+\.\d+)$/;
 const UPDATE_CHANNELS = new Set<string>(['release', 'main']);
@@ -23,14 +23,12 @@ export interface ReleaseTag {
 function normalizeSha(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const sha = value.trim().toLowerCase();
-  if (!SHA_RE.test(sha)) return null;
+  if (!FULL_SHA_RE.test(sha)) return null;
   return sha;
 }
 
 function shortSha(value: unknown): string {
-  const sha = normalizeSha(value);
-  if (!sha) return '';
-  return sha.slice(0, SHORT_SHA_LENGTH);
+  return abbreviateSha(normalizeSha(value) ?? '');
 }
 
 function parseResolvedSha(resolved: unknown): string | null {
@@ -97,13 +95,13 @@ function decideInstallFlavor({ packageRoot, lockfileSha, gitHeadSha, hasGitDir, 
 }
 
 function buildNpxCommand(latestVersion: unknown, platform: unknown): string {
-  const packageSpec = `${NPM_PACKAGE_NAME}@${textOrNull(latestVersion) ?? 'latest'}`;
+  const packageSpec = `${NPM_PACKAGE_NAME}@${textOr(latestVersion, null) ?? 'latest'}`;
   if (platform === 'linux') return `npx ${NODE_PTY_INSTALL_SCRIPT_FLAG} ${packageSpec}`;
   return `npx ${packageSpec}`;
 }
 
 function buildNpmGlobalCommand(latestVersion: unknown, platform: unknown): string {
-  const version = textOrNull(latestVersion);
+  const version = textOr(latestVersion, null);
   const installCommand = version ? `npm install -g ${NPM_PACKAGE_NAME}@${version}` : NPM_GLOBAL_COMMAND;
   if (platform === 'linux') return `${installCommand} ${NODE_PTY_INSTALL_SCRIPT_FLAG}`;
   return installCommand;
@@ -116,7 +114,7 @@ function buildUpdateCommand(flavor: unknown, latestVersion: unknown, platform?: 
 }
 
 function buildReleaseUrl(version: unknown): string | null {
-  const releaseVersion = textOrNull(version);
+  const releaseVersion = textOr(version, null);
   if (!releaseVersion) return null;
   return `https://github.com/${REPO_SLUG}/releases/tag/v${releaseVersion}`;
 }
@@ -160,19 +158,13 @@ function decideReleaseSource(flavor: unknown): ReleaseSource {
 function parseRegistryLatest(doc: unknown): ReleaseTag | null {
   if (!doc || typeof doc !== 'object') return null;
   const registryDocument = doc as { version?: unknown; gitHead?: unknown };
-  const publishedVersion = textOrNull(registryDocument.version);
+  const publishedVersion = textOr(registryDocument.version, null);
   if (!publishedVersion) return null;
   const version = parseTagVersion(`v${publishedVersion}`);
   if (!version) return null;
   return { version, sha: normalizeSha(registryDocument.gitHead) };
 }
 
-function textOrNull(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  return trimmed;
-}
 
 function normalizeFlavor(flavor: unknown): InstallFlavor {
   if (typeof flavor === 'string' && INSTALL_FLAVORS.has(flavor)) return flavor as InstallFlavor;
@@ -196,7 +188,7 @@ function decideUpdateReason({ isReleaseAlreadyCheckedOut, reason }: {
   reason: unknown;
 }): string | null {
   if (isReleaseAlreadyCheckedOut) return 'release-already-checked-out';
-  return textOrNull(reason);
+  return textOr(reason, null);
 }
 
 function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion, latestVersion, flavor, platform, channel, behindCount, reason, isLatestReleaseAncestorOfHead }: {
@@ -213,8 +205,8 @@ function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion
 } = {}) {
   const currentSha = normalizeSha(installedSha);
   const latestSha = normalizeSha(remoteSha);
-  const current = textOrNull(currentVersion);
-  const latest = textOrNull(latestVersion);
+  const current = textOr(currentVersion, null);
+  const latest = textOr(latestVersion, null);
   const normalizedFlavor = normalizeFlavor(flavor);
   const normalizedChannel = normalizeUpdateChannel(channel);
   const normalizedBehindCount = normalizeBehindCount(behindCount);

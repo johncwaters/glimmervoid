@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { isPathInside } from '../../shared/paths.ts';
 
 interface ProcessRow {
   pid: number;
@@ -57,11 +58,7 @@ function isContainedReviewDirectory(directory: string, reviewRoots: readonly str
 }
 
 function isInsideOwnedDirectory(cwd: string, ownedDirectories: readonly string[]): boolean {
-  const resolvedCwd = path.resolve(cwd);
-  return ownedDirectories.some((directory) => {
-    const resolvedDirectory = path.resolve(directory);
-    return resolvedCwd === resolvedDirectory || resolvedCwd.startsWith(`${resolvedDirectory}${path.sep}`);
-  });
+  return ownedDirectories.some((directory) => isPathInside(directory, cwd));
 }
 
 function selectTeamReviewProcessIds(

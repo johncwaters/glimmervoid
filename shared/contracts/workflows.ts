@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CommitSha } from './team-review.ts';
 import { MyPrSearchNode, repositoryName } from './my-prs.ts';
+import { GH_SEGMENT } from './github-ids.ts';
 import { WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE, WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE } from '../settings-ranges.ts';
 
 export const WORKFLOW_TRIGGERS = Object.freeze(['opened', 'checks-failed', 'review-requested', 'approved', 'commented', 'merged'] as const);
@@ -12,7 +13,6 @@ export const DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS = 2;
 export const DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL = 20;
 
 const RULE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
-const GITHUB_LOGIN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const UNSAFE_LABEL_NAME = /[\x00-\x1f\x7f,]|^-/;
 
 const integerInRange = (field: string, range: { min: number; max: number }) => {
@@ -58,7 +58,7 @@ export const WorkflowFilters = z.strictObject({
   mine: z.boolean({ error: 'workflows.rules[].filters.mine must be a boolean' }).optional(),
   teamReviewRequested: z.boolean({ error: 'workflows.rules[].filters.teamReviewRequested must be a boolean' }).optional(),
   authors: nonEmptyList('workflows.rules[].filters.authors', z.string({ error: 'workflows.rules[].filters.authors must hold GitHub logins' })
-    .regex(GITHUB_LOGIN, { error: 'workflows.rules[].filters.authors must hold GitHub logins' })).optional(),
+    .regex(GH_SEGMENT, { error: 'workflows.rules[].filters.authors must hold GitHub logins' })).optional(),
   labels: nonEmptyList('workflows.rules[].filters.labels', WorkflowLabelName).optional(),
   baseBranches: nonEmptyList('workflows.rules[].filters.baseBranches', z.string({ error: 'workflows.rules[].filters.baseBranches must hold branch names' })
     .min(1, { error: 'workflows.rules[].filters.baseBranches must hold branch names' })).optional(),

@@ -10,9 +10,10 @@ import {
 } from './core/telemetry-core.ts';
 import type { RemoteTelemetryState, TelemetryConfig, TelemetryEnvironment } from './core/telemetry-core.ts';
 import type { UsageGenerationRollupRow } from './core/usage-entry-core.ts';
-import { createJsonStateStore, writeJsonAtomicSync } from './json-file.ts';
+import { createJsonStateStore, loadJsonStateFile, writeJsonAtomicSync } from './json-file.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
+import { createCoalescedTimer } from './core/coalesce-timer.ts';
 
 const MAX_QUEUED_EVENTS = 500;
 const FLUSH_AT_EVENT_COUNT = 20;
@@ -88,7 +89,7 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
   };
   let queue: QueuedEvent[] = [];
   let state: TelemetryState | null = null;
-  let flushTimer: NodeJS.Timeout | null = null;
+  const flushTimer = createCoalescedTimer({ mode: 'leading', delayMs: FLUSH_INTERVAL_MS, run: () => { void flush(); } });
   let inFlightFlush: Promise<void> | null = null;
   let isStopped = false;
   let remoteTelemetryState: RemoteTelemetryState = 'enabled';
@@ -145,18 +146,11 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
   }
 
   function clearFlushTimer(): void {
-    if (!flushTimer) return;
-    clearTimeout(flushTimer);
-    flushTimer = null;
+    flushTimer.cancel();
   }
 
   function scheduleFlush(): void {
-    if (flushTimer) return;
-    flushTimer = setTimeout(() => {
-      flushTimer = null;
-      void flush();
-    }, FLUSH_INTERVAL_MS);
-    flushTimer.unref();
+    flushTimer.schedule();
   }
 
   function enqueue(event: TelemetryEventName, properties: Record<string, unknown>): void {
@@ -224,15 +218,19 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
   }
 
   async function readPendingCrash(filePath: string): Promise<PendingCrashReport | null> {
-    try {
-      const report = PendingCrashReport.safeParse(JSON.parse(await fs.promises.readFile(filePath, 'utf8')));
-      if (!report.success) log.warnOnce('crash-invalid', 'dropped an unreadable pending crash report');
-      return report.success ? report.data : null;
-    } catch (readError) {
-      const isMissing = readError instanceof Error && Reflect.get(readError, 'code') === 'ENOENT';
-      if (!isMissing) log.warnOnce('crash-read-failed', 'could not read the pending crash report', { error: errorKind(readError) });
-      return null;
-    }
+    const outcome = await loadJsonStateFile({
+      filePath,
+      parse: (raw: unknown) => {
+        const report = PendingCrashReport.safeParse(raw);
+        return report.success ? report.data : null;
+      },
+      quarantine: false,
+      includeNotDir: false,
+    });
+    if (outcome.status === 'loaded') return outcome.value;
+    if (outcome.status === 'corrupt') log.warnOnce('crash-invalid', 'dropped an unreadable pending crash report');
+    if (outcome.status === 'unreadable') log.warnOnce('crash-read-failed', 'could not read the pending crash report', { error: errorKind(outcome.error) });
+    return null;
   }
 
   async function sendPendingCrash(): Promise<void> {

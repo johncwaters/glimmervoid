@@ -1,6 +1,6 @@
 
 import { MAX_SUMMARY_CHARS as RING_SUMMARY_CHARS, SOURCE_DEFAULTS, scrubText } from './ingest-core.ts';
-import { positiveInt } from './ingest-number-core.ts';
+import { positiveIntOr } from '../../shared/coerce.ts';
 
 const DEFAULT_ACCUMULATOR_BYTES = SOURCE_DEFAULTS.terminal.accumulatorBytes;
 const DEFAULT_WINDOW_BYTES = SOURCE_DEFAULTS.terminal.windowBytes;
@@ -206,10 +206,10 @@ function createTerminalAccumulator({
   return {
     sessionId,
     root,
-    maxAccumulatorBytes: positiveInt(accumulatorBytes, DEFAULT_ACCUMULATOR_BYTES),
-    maxWindowBytes: positiveInt(windowBytes, DEFAULT_WINDOW_BYTES),
-    maxSummaryChars: positiveInt(maxSummaryChars, MAX_SUMMARY_CHARS),
-    maxTextChars: positiveInt(maxTextChars, MAX_TEXT_CHARS),
+    maxAccumulatorBytes: positiveIntOr(accumulatorBytes, DEFAULT_ACCUMULATOR_BYTES),
+    maxWindowBytes: positiveIntOr(windowBytes, DEFAULT_WINDOW_BYTES),
+    maxSummaryChars: positiveIntOr(maxSummaryChars, MAX_SUMMARY_CHARS),
+    maxTextChars: positiveIntOr(maxTextChars, MAX_TEXT_CHARS),
     pending: '',
     pendingBytes: 0,
     windowBytesSeen: 0,

@@ -15,10 +15,12 @@ import {
   parseHistoryLines,
 } from './core/ingest-shell-core.ts';
 import type { HistoryLocation, HistoryParseState, ShellIngestEvent } from './core/ingest-shell-core.ts';
-import { positiveInt } from './core/ingest-number-core.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
+import { positiveIntOr } from '../shared/coerce.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from './core/timer-deps.ts';
 
 const DEFAULT_POLL_MS = 2000;
 const DEFAULT_DISCOVER_MS = 30000;
@@ -52,19 +54,14 @@ interface ShellHistoryOptions {
     handler: (eventType: string, fileName: string | null) => void,
   ) => DirectoryWatcher;
   nowFn?: () => number;
-  setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearIntervalFn?: (handle: NodeJS.Timeout) => void;
-  setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+  setIntervalFn?: SetIntervalFn;
+  clearIntervalFn?: ClearIntervalFn;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
   discoverIntervalMs?: number;
   maxTrackedFiles?: number;
   maxCommandsPerDrain?: number;
   maxCatchUpBytes?: number;
-}
-
-function unrefTimer(timer: NodeJS.Timeout): NodeJS.Timeout {
-  if (timer && typeof timer.unref === 'function') timer.unref();
-  return timer;
 }
 
 function createShellHistoryIngest({
@@ -77,10 +74,10 @@ function createShellHistoryIngest({
   fsPromises = fsNode.promises,
   watchFn = fsNode.watch,
   nowFn = Date.now,
-  setIntervalFn = (fn: () => void, ms: number) => setInterval(fn, ms),
-  clearIntervalFn = clearInterval,
-  setTimeoutFn = (fn: () => void, ms: number) => setTimeout(fn, ms),
-  clearTimeoutFn = clearTimeout,
+  setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
+  clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
+  setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
+  clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
   discoverIntervalMs = DEFAULT_DISCOVER_MS,
   maxTrackedFiles = DEFAULT_MAX_TRACKED,
   maxCommandsPerDrain = DEFAULT_MAX_COMMANDS_PER_DRAIN,
@@ -88,7 +85,7 @@ function createShellHistoryIngest({
 }: ShellHistoryOptions = {}) {
   if (typeof publish !== 'function') throw new Error('createShellHistoryIngest requires publish');
   const publishEvent = publish;
-  const pollMs = positiveInt(sourceConfig.pollMs, DEFAULT_POLL_MS);
+  const pollMs = positiveIntOr(sourceConfig.pollMs, DEFAULT_POLL_MS);
   const { note, warn } = createLaneLog({ prefix: '[ingest]', logger });
   const locations = historyLocations({ shells: sourceConfig.shells, env, platform, homeDir });
   const rejectedShells = normalizeShells(sourceConfig.shells, platform).rejected;
@@ -341,7 +338,7 @@ function createShellHistoryIngest({
       context.previous = decided.previous;
       if (decided.event) events.push(decided.event);
     }
-    const bound = positiveInt(maxCommandsPerDrain, DEFAULT_MAX_COMMANDS_PER_DRAIN);
+    const bound = positiveIntOr(maxCommandsPerDrain, DEFAULT_MAX_COMMANDS_PER_DRAIN);
     const recent = events.slice(-bound);
     const dropped = events.length - recent.length;
     if (dropped > 0) {
@@ -412,7 +409,7 @@ function createShellHistoryIngest({
     pollTimer = unrefTimer(setIntervalFn(() => { void runGuarded(poll); }, pollMs));
     discoverTimer = unrefTimer(setIntervalFn(
       () => { void runGuarded(discover); },
-      positiveInt(discoverIntervalMs, DEFAULT_DISCOVER_MS),
+      positiveIntOr(discoverIntervalMs, DEFAULT_DISCOVER_MS),
     ));
     startPromise = runGuarded(discover);
     return startPromise;

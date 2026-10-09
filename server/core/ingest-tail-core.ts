@@ -1,4 +1,5 @@
 import { decideFileRead, splitLines } from './usage-scan-core.ts';
+import { coercedNumberOr } from '../../shared/coerce.ts';
 
 const MAX_CATCH_UP_BYTES = 256 * 1024;
 const DEFAULT_MAX_TRACKED = 256;
@@ -34,14 +35,9 @@ export interface TailReadPlan {
   sampleHead: boolean;
 }
 
-function finiteOr(value: unknown, fallback: number): number {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return fallback;
-  return number;
-}
 
 function fileIdentity(stat: TailStat | null | undefined): string {
-  return `${Math.floor(finiteOr(stat?.ino, 0))}:${Math.floor(finiteOr(stat?.birthtimeMs, 0))}`;
+  return `${Math.floor(coercedNumberOr(stat?.ino, 0))}:${Math.floor(coercedNumberOr(stat?.birthtimeMs, 0))}`;
 }
 
 function headSample(bytes: unknown): string | null {
@@ -60,12 +56,12 @@ function createTailState(
   stat: TailStat | null | undefined,
   { path: filePath = null, head = null }: { path?: string | null; head?: string | null } = {},
 ): TailState {
-  const size = Math.max(0, Math.floor(finiteOr(stat?.size, 0)));
+  const size = Math.max(0, Math.floor(coercedNumberOr(stat?.size, 0)));
   return {
     path: filePath,
     identity: fileIdentity(stat),
     size,
-    mtimeMs: finiteOr(stat?.mtimeMs, 0),
+    mtimeMs: coercedNumberOr(stat?.mtimeMs, 0),
     offset: size,
     carry: '',
     head: typeof head === 'string' ? head : null,
@@ -147,19 +143,19 @@ function applyRead(state: TailState, {
   const body = dropPartial ? afterFirstBreak(text) : text;
   const split = keepEmptyLines ? splitKeepingEmpty(state.carry, body) : splitLines(state.carry, body);
   state.carry = split.carry;
-  state.offset = Math.max(0, Math.floor(finiteOr(end, state.offset)));
-  state.size = Math.max(state.offset, Math.floor(finiteOr(stat?.size, state.offset)));
-  state.mtimeMs = finiteOr(stat?.mtimeMs, state.mtimeMs);
+  state.offset = Math.max(0, Math.floor(coercedNumberOr(end, state.offset)));
+  state.size = Math.max(state.offset, Math.floor(coercedNumberOr(stat?.size, state.offset)));
+  state.mtimeMs = coercedNumberOr(stat?.mtimeMs, state.mtimeMs);
   if (stat) state.identity = fileIdentity(stat);
   return split.lines;
 }
 
 function isActiveMtime(mtimeMs: unknown, { now, withinMs }: { now?: unknown; withinMs?: unknown }): boolean {
-  return finiteOr(mtimeMs, 0) >= finiteOr(now, 0) - Math.max(0, finiteOr(withinMs, 0));
+  return coercedNumberOr(mtimeMs, 0) >= coercedNumberOr(now, 0) - Math.max(0, coercedNumberOr(withinMs, 0));
 }
 
 function canTrustCachedListing({ mtimeMs, listedAtMs }: { mtimeMs?: unknown; listedAtMs?: unknown } = {}): boolean {
-  return finiteOr(listedAtMs, 0) - finiteOr(mtimeMs, 0) >= LISTING_SETTLE_MS;
+  return coercedNumberOr(listedAtMs, 0) - coercedNumberOr(mtimeMs, 0) >= LISTING_SETTLE_MS;
 }
 
 function pickStaleByMtime<TKey>(
@@ -169,7 +165,7 @@ function pickStaleByMtime<TKey>(
   const entries = [...entriesByKey.entries()];
   const bound = Math.max(1, Math.floor(maxTracked));
   if (entries.length <= bound) return [];
-  entries.sort((left, right) => finiteOr(left[1]?.mtimeMs, 0) - finiteOr(right[1]?.mtimeMs, 0));
+  entries.sort((left, right) => coercedNumberOr(left[1]?.mtimeMs, 0) - coercedNumberOr(right[1]?.mtimeMs, 0));
   return entries.slice(0, entries.length - bound).map(([key]) => key);
 }
 

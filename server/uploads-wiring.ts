@@ -2,6 +2,8 @@ import fs from 'node:fs';
 
 import { configSiblingPath } from './pairings-store.ts';
 import { pruneAgedFiles } from './prune-files.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from './core/timer-deps.ts';
+import type { ClearIntervalFn, SetIntervalFn } from './core/timer-deps.ts';
 
 const UPLOAD_RETAIN_DAYS = 7;
 const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -9,13 +11,13 @@ const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 function createUploadsWiring({
   configPath,
   liveSessionIds,
-  setIntervalFn = (fn: () => void, ms: number) => setInterval(fn, ms),
-  clearIntervalFn = clearInterval,
+  setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
+  clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
 }: {
   configPath: string | null;
   liveSessionIds: () => Set<string>;
-  setIntervalFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearIntervalFn?: (handle: NodeJS.Timeout) => void;
+  setIntervalFn?: SetIntervalFn;
+  clearIntervalFn?: ClearIntervalFn;
 }) {
   const uploadsRoot = configSiblingPath(configPath, 'uploads');
   let timer: NodeJS.Timeout | null = null;
@@ -34,7 +36,7 @@ function createUploadsWiring({
     if (timer) return;
     await prune();
     timer = setIntervalFn(() => { void prune(); }, PRUNE_INTERVAL_MS);
-    if (typeof timer.unref === 'function') timer.unref();
+    unrefTimer(timer);
   }
   function stop(): void {
     if (!timer) return;

@@ -1,3 +1,4 @@
+import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import { VISIONS_THREAD_ID_PATTERN } from '#shared/visions-intent-ids.ts';
 
 export const VISIONS_EMPTY_TEXT = 'No findings. Open a markdown file in a connected editor.';
@@ -174,16 +175,7 @@ export function intentSourceText(intent: { text?: unknown } | null | undefined) 
 export function intentAgeText(ts: unknown, now: number = Date.now()) {
   const stamp = Number(ts);
   if (!Number.isFinite(stamp) || stamp <= 0) return '';
-  const minutes = Math.floor(Math.max(0, Number(now) - stamp) / 60000);
-  if (minutes < 1) return 'just now';
-  if (minutes === 1) return '1 minute ago';
-  if (minutes < 60) return `${minutes} minutes ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours === 1) return '1 hour ago';
-  if (hours < 24) return `${hours} hours ago`;
-  const days = Math.floor(hours / 24);
-  if (days === 1) return '1 day ago';
-  return `${days} days ago`;
+  return elapsedText(Number(now) - stamp, { rounding: 'floor', wording: 'spelled', suffix: ' ago', justNowBelowSeconds: 60 });
 }
 
 export function intentMetaText(intent: Partial<IntentThread> | null | undefined, now = Date.now()) {
@@ -545,13 +537,7 @@ export function activitySourceLabel(source: unknown) {
 export function activityAgeText(ts: unknown, now: number = Date.now()) {
   const stamp = Number(ts);
   if (!Number.isFinite(stamp) || stamp <= 0) return '';
-  const seconds = Math.max(0, Math.floor((Number(now) - stamp) / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  return elapsedText(Number(now) - stamp, COMPACT_FLOORED_AGO);
 }
 
 export function normalizeActivityEvent(rawEvent: unknown): ActivityEvent | null {

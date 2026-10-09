@@ -1,5 +1,6 @@
-import { execFileAsync } from './child-process-safe.ts';
-import { GH_SEGMENT, repoParts } from './core/team-review-core.ts';
+import { runCommand } from './git-exec.ts';
+import type { CommandResult } from './git-exec.ts';
+import { GH_SEGMENT, NODE_ID_RE, repoParts } from '../shared/contracts/github-ids.ts';
 import { GithubRateLimitResources, githubRateLimitWaitMs } from './core/github-rate-limit-core.ts';
 import { z } from 'zod';
 import { CommitSha, TeamReviewThreadCommentsResponse, TeamReviewThreadsRepository, TeamReviewResolveResponse, ReviewThreadId, TeamReviewCompareFiles, GithubReviewDecision, decisionAsIfApprovalRequired, PrDetail, ReviewChecksState, ReviewComment, SearchedPr } from '../shared/contracts/team-review.ts';
@@ -12,6 +13,8 @@ import type { WorkflowSearchNode as WorkflowSearchNodeType } from '../shared/con
 import type { GithubReviewDecision as GithubReviewDecisionType, PostedReviewEvent, PrDetail as PrDetailType, ReviewChecksState as ReviewChecksStateType, ReviewComment as ReviewCommentType, SearchedPr as SearchedPrType, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 
 import type { TeamReviewThreadNode as ThreadNode, TeamReviewCompareFiles as CompareFiles } from '../shared/contracts/team-review.ts';
+import { errorMessage } from '../shared/text.ts';
+import { parseJsonOrNull } from './core/json-core.ts';
 
 type GhMergeFlag = '--merge' | '--squash' | '--rebase';
 
@@ -20,12 +23,6 @@ const GH_MERGE_FLAGS: Readonly<Record<MyPrMergeMethodType, GhMergeFlag>> = { MER
 const MY_PR_MERGE_STATE_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) { state isInMergeQueue autoMergeRequest { enabledAt } } }
 }`;
-
-interface CommandResult {
-  ok: boolean;
-  out: string;
-  err: string;
-}
 
 interface GithubIssueLabelRow {
   name?: unknown;
@@ -137,18 +134,17 @@ interface PostedReview {
   reviewId: number | null;
 }
 
-async function run(cmd: string, args: string[], cwd: string, input?: string, preserveOutput = false): Promise<CommandResult> {
-  try {
-    const { stdout } = await execFileAsync(cmd, args, { cwd, encoding: 'utf8', timeout: 30000, maxBuffer: 2 * 1024 * 1024 + 1, input });
-    return { ok: true, out: preserveOutput ? stdout : stdout.trim(), err: '' };
-  } catch (err) {
-    const failure = (err ?? {}) as { stdout?: unknown; stderr?: unknown; message?: unknown };
-    return { ok: false, out: String(failure.stdout || '').trim(), err: String(failure.stderr || failure.message || '') };
-  }
+const GH_TIMEOUT_MS = 30000;
+const GH_MAX_BUFFER_BYTES = 2 * 1024 * 1024 + 1;
+
+function run(cmd: string, args: string[], cwd: string, input?: string, preserveOutput = false): Promise<CommandResult> {
+  return runCommand(cmd, args, {
+    cwd, input, timeoutMs: GH_TIMEOUT_MS, maxBuffer: GH_MAX_BUFFER_BYTES, trim: !preserveOutput, keepStdoutOnFailure: true, preferStderr: true,
+  });
 }
 
 function mergeKindFromPrState(prStateJson: string): MyPrMergeKind {
-  const parsed = MyPrMergeStateResponse.safeParse(parseJson<unknown>(prStateJson, null));
+  const parsed = MyPrMergeStateResponse.safeParse(parseJsonOrNull(prStateJson));
   if (!parsed.success || parsed.data.errors?.length) return 'unconfirmed';
   const pullRequest = parsed.data.data.repository?.pullRequest;
   if (!pullRequest) return 'unconfirmed';
@@ -157,11 +153,6 @@ function mergeKindFromPrState(prStateJson: string): MyPrMergeKind {
   if (pullRequest.isInMergeQueue) return 'queued';
   if (pullRequest.autoMergeRequest !== null) return 'auto-merge';
   return 'unconfirmed';
-}
-
-function parseJson<T>(text: string, fallback: T): T {
-  try { return JSON.parse(text) as T; }
-  catch { return fallback; }
 }
 
 const HEX_LABEL_COLOR = /^[0-9a-f]{6}$/i;
@@ -204,7 +195,6 @@ function teamThreadsQuery(prs: readonly PrReference[]): string {
   return reviewThreadsBatchQuery(prs).replaceAll(REVIEW_THREAD_FIELDS, TEAM_THREAD_FIELDS).replaceAll('pageInfo { hasNextPage }', 'pageInfo { hasNextPage endCursor }');
 }
 
-const PR_NODE_ID = /^[A-Za-z0-9_=-]+$/;
 const REVIEW_THREAD_FIELDS = `isResolved isOutdated path line
     firstComment: comments(first: 1) { totalCount nodes { author { login } bodyText url createdAt } }
     lastComment: comments(last: 1) { nodes { author { login } createdAt } }`;
@@ -383,7 +373,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     try {
       return await commandRunner('gh', args, cwd, input, preserveOutput);
     } catch (error) {
-      return { ok: false, out: '', err: error instanceof Error ? error.message : String(error) };
+      return { ok: false, out: '', err: errorMessage(error) };
     }
   }
 
@@ -391,7 +381,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     for (let index = 0; index < prs.length; index += batchSize) {
       const batch = prs.slice(index, index + batchSize);
       const response = await runGh(['api', 'graphql', '-f', `query=${buildQuery(batch)}`]);
-      const parsed = GRAPHQL_RESPONSE.safeParse(parseJson<unknown>(response.out, null));
+      const parsed = GRAPHQL_RESPONSE.safeParse(parseJsonOrNull(response.out));
       const errors = parsed.success ? parsed.data.errors ?? [] : [];
       const erroredAliases = requireComplete ? aliasesOfErrors(errors) : new Set<string>();
       if (erroredAliases === null) continue;
@@ -414,7 +404,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       const cursorArgs = cursor === null ? [] : ['-f', `cursor=${cursor}`];
       const response = await runGh(['api', 'graphql', '-f', `query=${MY_PR_THREADS_QUERY}`, '-f', `owner=${parts[0]}`, '-f', `name=${parts[1]}`, '-F', `number=${number}`, ...cursorArgs]);
       if (!response.ok) return [];
-      const parsed = MyPrThreadsResponse.safeParse(parseJson<unknown>(response.out, null));
+      const parsed = MyPrThreadsResponse.safeParse(parseJsonOrNull(response.out));
       if (!parsed.success || parsed.data.errors?.length) return [];
       const reviewThreads = parsed.data.data.repository?.pullRequest?.reviewThreads;
       if (!reviewThreads) return threads;
@@ -435,7 +425,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       if (!cursor) break;
       const query = `query($id: ID!, $cursor: String!) { node(id: $id) { ... on PullRequestReviewThread { comments(first: 100, after: $cursor) { ${TEAM_THREAD_COMMENT_FIELDS} } } } }`;
       const response = await runGh(['api', 'graphql', '-f', `query=${query}`, '-f', `id=${thread.id}`, '-f', `cursor=${cursor}`]);
-      const raw: unknown = parseJson<unknown>(response.out, null);
+      const raw: unknown = parseJsonOrNull(response.out);
       const graphql = GRAPHQL_RESPONSE.safeParse(raw);
       const parsed = TeamReviewThreadCommentsResponse.safeParse(raw);
       const comments = parsed.success ? parsed.data.data?.node?.comments : null;
@@ -449,7 +439,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
   async function searchPage(query: string, page: number): Promise<SearchedPrType[] | null> {
     const response = await runGh(['api', '-X', 'GET', 'search/issues', '-f', `q=${query}`, '-f', `per_page=${SEARCH_PAGE_SIZE}`, '-f', `page=${page}`]);
     if (!response.ok) return null;
-    const parsed = SEARCH_RESPONSE.safeParse(parseJson<unknown>(response.out, null));
+    const parsed = SEARCH_RESPONSE.safeParse(parseJsonOrNull(response.out));
     return parsed.success ? parsed.data.items : null;
   }
 
@@ -469,7 +459,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       if (!GH_SEGMENT.test(org) || !MERGED_SINCE_DATE.test(mergedSince)) return { ok: false, items: [], totalCount: 0, error: 'invalid organization or date' };
       const response = await runGh(['api', 'graphql', '-H', 'Accept: application/vnd.github.merge-info-preview+json', '-f', `query=${MY_PRS_QUERY}`, '-f', `openQuery=is:pr is:open author:@me org:${org} sort:updated-desc`, '-f', `mergedQuery=is:pr is:merged author:@me org:${org} merged:>=${mergedSince} sort:updated-desc`]);
       if (!response.ok) return { ok: false, items: [], totalCount: 0, error: response.err.trim() || 'gh graphql search failed' };
-      const parsed = MyPrSearchResponse.safeParse(parseJson<unknown>(response.out, null));
+      const parsed = MyPrSearchResponse.safeParse(parseJsonOrNull(response.out));
       if (!parsed.success) return { ok: false, items: [], totalCount: 0, error: 'invalid gh graphql response' };
       if (parsed.data.errors?.length) return { ok: false, items: [], totalCount: 0, error: 'gh graphql returned errors' };
       const items = [...parsed.data.data.open.nodes, ...parsed.data.data.merged.nodes].flatMap((node) => {
@@ -484,7 +474,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       if (!repoParts(repo) || !MERGED_SINCE_DATE.test(mergedSince)) return { ok: false, items: [], isComplete: false, error: 'invalid repository or date' };
       const response = await runGh(['api', 'graphql', '-H', 'Accept: application/vnd.github.merge-info-preview+json', '-f', `query=${WORKFLOW_PRS_QUERY}`, '-f', `openQuery=is:pr is:open repo:${repo} sort:updated-desc`, '-f', `mergedQuery=is:pr is:merged repo:${repo} merged:>=${mergedSince} sort:updated-desc`]);
       if (!response.ok) return { ok: false, items: [], isComplete: false, error: response.err.trim() || 'gh graphql search failed' };
-      const parsed = MyPrSearchResponse.safeParse(parseJson<unknown>(response.out, null));
+      const parsed = MyPrSearchResponse.safeParse(parseJsonOrNull(response.out));
       if (!parsed.success) return { ok: false, items: [], isComplete: false, error: 'invalid gh graphql response' };
       if (parsed.data.errors?.length) return { ok: false, items: [], isComplete: false, error: 'gh graphql returned errors' };
       const { open, merged } = parsed.data.data;
@@ -533,7 +523,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
         for (let page = 1; page < MAX_REVIEW_THREAD_PAGES; page += 1) {
           const query = MY_PR_THREADS_QUERY.replace(REVIEW_THREAD_FIELDS, TEAM_THREAD_FIELDS);
           const response = await runGh(['api', 'graphql', '-f', `query=${query}`, '-f', `owner=${parts[0]}`, '-f', `name=${parts[1]}`, '-F', `number=${pending.pr.number}`, '-f', `cursor=${cursor}`]);
-          const parsed = GRAPHQL_RESPONSE.safeParse(parseJson<unknown>(response.out, null));
+          const parsed = GRAPHQL_RESPONSE.safeParse(parseJsonOrNull(response.out));
           const repository = TeamReviewThreadsRepository.safeParse(parsed.success ? parsed.data.data?.repository : null);
           const connection = repository.success ? repository.data.pullRequest?.reviewThreads : null;
           if (!response.ok || !connection || (parsed.success && parsed.data.errors?.length)) break;
@@ -556,7 +546,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     async resolveReviewThread(threadId) {
       if (!ReviewThreadId.safeParse(threadId).success) return { ok: false, err: 'invalid review thread id' };
       const response = await runGh(['api', 'graphql', '-f', `query=${RESOLVE_THREAD_MUTATION}`, '-f', `id=${threadId}`]);
-      const parsed = TeamReviewResolveResponse.safeParse(parseJson<unknown>(response.out, null));
+      const parsed = TeamReviewResolveResponse.safeParse(parseJsonOrNull(response.out));
       const isResolved = response.ok && parsed.success && !parsed.data.errors?.length && parsed.data.data?.resolveReviewThread.thread.id === threadId;
       return { ok: Boolean(isResolved), err: isResolved ? '' : response.err || 'GitHub did not confirm the thread was resolved' };
     },
@@ -566,7 +556,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       const response = await runGh(['api', `repos/${repo}/compare/${base}...${head}`]);
       if (!response.ok && /\bHTTP 404\b/.test(response.err) && /\bNo common ancestor between\b/i.test(response.err)) return { ok: true, comparison: null };
       if (!response.ok) return { ok: false, err: response.err || 'GitHub compare failed' };
-      const parsed = TeamReviewCompareFiles.safeParse(parseJson<unknown>(response.out, null));
+      const parsed = TeamReviewCompareFiles.safeParse(parseJsonOrNull(response.out));
       if (!parsed.success) return { ok: false, err: 'GitHub returned an unreadable comparison' };
       return { ok: true, comparison: parsed.data.merge_base_commit.sha === base ? parsed.data : null };
     },
@@ -604,7 +594,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
         const pageSize = Math.min(MERGED_PRS_PAGE_SIZE, limit - prs.length);
         const response = await runGh(['api', 'graphql', '-f', `query=${MERGED_PRS_QUERY}`, '-f', `searchQuery=repo:${repo} is:pr is:merged sort:updated-desc`, '-F', `first=${pageSize}`, ...cursorArgs]);
         if (!response.ok) return { ok: false, reason: response.err.trim() || 'gh graphql search failed' };
-        const parsed = MERGED_PRS_RESPONSE.safeParse(parseJson<unknown>(response.out, null));
+        const parsed = MERGED_PRS_RESPONSE.safeParse(parseJsonOrNull(response.out));
         if (!parsed.success) return { ok: false, reason: 'invalid gh graphql search response' };
         const { pageInfo, nodes } = parsed.data.data.search;
         prs.push(...nodes.flatMap((node) => {
@@ -633,7 +623,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       if (!parts || !CommitSha.safeParse(base).success || !CommitSha.safeParse(head).success) return null;
       const response = await runGh(['api', `repos/${parts[0]}/${parts[1]}/compare/${base}...${head}`, '--jq', '{mergeBaseSha: .merge_base_commit.sha, changedFiles: [.files[].filename], fileCount: (.files | length)}']);
       if (!response.ok) return null;
-      const parsed = COMPARE_RESPONSE.safeParse(parseJson<unknown>(response.out, null));
+      const parsed = COMPARE_RESPONSE.safeParse(parseJsonOrNull(response.out));
       if (!parsed.success) return null;
       return CommitComparison.parse({
         mergeBaseSha: parsed.data.mergeBaseSha,
@@ -655,14 +645,14 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     async rateLimitWaitMs(nowMs, resourceNames) {
       const response = await runGh(['api', 'rate_limit', '--jq', '.resources']);
       if (!response.ok) return null;
-      const parsed = GithubRateLimitResources.safeParse(parseJson<unknown>(response.out, null));
+      const parsed = GithubRateLimitResources.safeParse(parseJsonOrNull(response.out));
       return parsed.success ? githubRateLimitWaitMs(parsed.data, nowMs, resourceNames) : null;
     },
     async rebasePr(pullRequestId, expectedHeadSha) {
-      if (!PR_NODE_ID.test(pullRequestId) || !CommitSha.safeParse(expectedHeadSha).success) return { ok: false, err: 'invalid pull request id or head' };
+      if (!NODE_ID_RE.test(pullRequestId) || !CommitSha.safeParse(expectedHeadSha).success) return { ok: false, err: 'invalid pull request id or head' };
       const response = await runGh(['api', 'graphql', '-f', `query=${REBASE_PR_MUTATION}`, '-f', `id=${pullRequestId}`, '-f', `head=${expectedHeadSha}`]);
       if (!response.ok) return { ok: false, err: response.err.trim() || 'gh graphql rebase failed' };
-      const parsed = parseJson<{ errors?: { message?: unknown }[] }>(response.out, {});
+      const parsed = (parseJsonOrNull(response.out) ?? {}) as { errors?: { message?: unknown }[] };
       const firstError = parsed.errors?.[0]?.message;
       if (firstError !== undefined) return { ok: false, err: String(firstError) };
       return { ok: true, err: '' };
@@ -686,7 +676,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     async listIssues() {
       const r = await commandRunner('gh', ['issue', 'list', '--state', 'open', '-L', '50', '--search', 'sort:updated-desc', '--json', 'number,title,labels,url,updatedAt'], cwd);
       if (!r.ok) return { ok: false, issues: [], error: r.err.trim() || 'gh issue list failed' };
-      const rows = parseJson<GithubIssueRow[]>(r.out, []);
+      const rows = (parseJsonOrNull(r.out) ?? []) as GithubIssueRow[];
       const issues = Array.isArray(rows)
         ? rows.map(normalizeIssue).filter((issue): issue is GithubIssue => issue !== null).map(issueWithoutBody)
         : [];
@@ -696,7 +686,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     async viewIssue(issueNumber) {
       const r = await commandRunner('gh', ['issue', 'view', String(issueNumber), '--json', 'number,title,body,labels,url,updatedAt'], cwd);
       if (!r.ok) return { ok: false, issue: null, error: r.err.trim() || 'gh issue view failed' };
-      const issue = normalizeIssue(parseJson<GithubIssueRow>(r.out, {}));
+      const issue = normalizeIssue((parseJsonOrNull(r.out) ?? {}) as GithubIssueRow);
       if (!issue) return { ok: false, issue: null, error: 'gh issue view returned no issue' };
       return { ok: true, issue, error: '' };
     },
@@ -721,7 +711,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       if (!GH_SEGMENT.test(org) || !GH_SEGMENT.test(team)) return null;
       const response = await runGh(['api', 'graphql', '-f', `query=${TEAM_PROFILE_QUERY}`, '-f', `org=${org}`, '-f', `slug=${team}`]);
       if (!response.ok) return null;
-      const parsed = TEAM_PROFILE.safeParse(parseJson(response.out, null));
+      const parsed = TEAM_PROFILE.safeParse(parseJsonOrNull(response.out));
       if (!parsed.success || parsed.data.errors?.length || !parsed.data.data.organization?.team) return null;
       const profile = parsed.data.data.organization.team;
       return { org, slug: team, name: profile.name, avatarUrl: profile.avatarUrl };
@@ -754,7 +744,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       if (!repoParts(repo) || !isPrNumber(number)) return null;
       const response = await runGh(['pr', 'view', String(number), '-R', repo, '--json', 'number,title,body,url,author,isDraft,isCrossRepository,baseRefName,baseRefOid,headRefOid,additions,deletions,files']);
       if (!response.ok) return null;
-      const parsed = PrDetail.safeParse(parseJson<unknown>(response.out, null));
+      const parsed = PrDetail.safeParse(parseJsonOrNull(response.out));
       return parsed.success ? parsed.data : null;
     },
 
@@ -795,7 +785,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       const input = JSON.stringify({ commit_id: commitId, event, body, comments: parsedComments.data });
       const response = await runGh(['api', '-X', 'POST', `repos/${parts[0]}/${parts[1]}/pulls/${number}/reviews`, '--input', '-'], input);
       if (!response.ok) return { ok: false, err: response.err.trim() || 'gh review post failed', reviewId: null };
-      const created = CREATED_REVIEW.safeParse(parseJson<unknown>(response.out, null));
+      const created = CREATED_REVIEW.safeParse(parseJsonOrNull(response.out));
       return { ok: true, err: '', reviewId: created.success ? created.data.id : null };
     },
 

@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { FileHandle } from 'node:fs/promises';
 
-import { containmentRefusalReason, isPathInsideRoot } from './core/trace-tail-core.ts';
+import { containmentRefusalReason } from './core/trace-tail-core.ts';
+import { isPathInside } from '../shared/paths.ts';
 import type { ContainmentRefusal } from './core/trace-tail-core.ts';
 import { isSafePathSegment } from './core/upload-core.ts';
 
@@ -29,7 +30,7 @@ async function containedPathForMissingFile(
   try {
     const realDirectory = await fs.promises.realpath(path.dirname(candidate));
     const realPath = path.join(realDirectory, fileName);
-    if (!isPathInsideRoot(realRoot, realPath)) return { ok: false, reason: 'outside-root' };
+    if (!isPathInside(realRoot, realPath, { allowEqual: false })) return { ok: false, reason: 'outside-root' };
     const directoryStat = await fs.promises.lstat(realDirectory);
     if (!directoryStat.isDirectory()) return { ok: false, reason: 'missing' };
     return { ok: true, file: { realPath } };
@@ -63,7 +64,7 @@ export async function openContainedFile(
     if (!allowsMissingFile || reason !== 'missing') return { ok: false, reason };
     return containedPathForMissingFile(candidate, realRoot);
   }
-  if (!isPathInsideRoot(realRoot, realCandidate)) return { ok: false, reason: 'outside-root' };
+  if (!isPathInside(realRoot, realCandidate, { allowEqual: false })) return { ok: false, reason: 'outside-root' };
   let handle: FileHandle | null = null;
   try {
     handle = await fs.promises.open(realCandidate, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);

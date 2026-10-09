@@ -1,5 +1,5 @@
-import { isPlainObject } from './usage-number-core.ts';
 import { SOURCE_NAMES } from './ingest-core.ts';
+import { isRecord } from '../../shared/coerce.ts';
 
 export interface SettingsBlockSpec {
   name: string;
@@ -27,7 +27,7 @@ const INGEST_SPEC: SettingsBlockSpec = Object.freeze({
 
 function validateSettingsBlock(block: unknown, spec: SettingsBlockSpec): string | null {
   if (block == null) return null;
-  if (!isPlainObject(block)) return `${spec.name} must be an object`;
+  if (!isRecord(block)) return `${spec.name} must be an object`;
   for (const [key, value] of Object.entries(block as Record<string, unknown>)) {
     if (value == null) continue;
     if (spec.booleans.includes(key)) {
@@ -45,7 +45,7 @@ function validateSettingsBlock(block: unknown, spec: SettingsBlockSpec): string 
 }
 
 function pickSettingsBlock(stored: unknown, spec: SettingsBlockSpec): Record<string, unknown> | null {
-  if (!isPlainObject(stored)) return null;
+  if (!isRecord(stored)) return null;
   const fields = stored as Record<string, unknown>;
   const out: Record<string, unknown> = {};
   for (const key of spec.booleans) {
@@ -59,8 +59,8 @@ function pickSettingsBlock(stored: unknown, spec: SettingsBlockSpec): Record<str
 }
 
 function mergeSettingsBlock(stored: unknown, incoming: unknown, spec: SettingsBlockSpec): Record<string, unknown> {
-  const out: Record<string, unknown> = isPlainObject(stored) ? { ...(stored as Record<string, unknown>) } : {};
-  if (!isPlainObject(incoming)) return out;
+  const out: Record<string, unknown> = isRecord(stored) ? { ...(stored as Record<string, unknown>) } : {};
+  if (!isRecord(incoming)) return out;
   const fields = incoming as Record<string, unknown>;
   for (const key of spec.booleans) {
     if (fields[key] != null) out[key] = !!fields[key];

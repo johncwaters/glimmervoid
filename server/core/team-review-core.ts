@@ -5,14 +5,8 @@ import type {
   DraftComment, FindingSeverity as FindingSeverityType, GithubReview, InFlightReview, PostedReviewEvent, PostingPlan as PostingPlanType, PrDetail, PriorReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
   ResumableReview, ReviewAssessment, ReviewResult as ReviewResultType, SearchedPr, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../../shared/contracts/team-review.ts';
-
-const GH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
-function repoParts(repo: string): [string, string] | null {
-  const parts = repo.split('/');
-  if (parts.length !== 2 || !parts.every((part) => GH_SEGMENT.test(part))) return null;
-  return [parts[0], parts[1]];
-}
+import { positiveNumberOr } from '../../shared/coerce.ts';
+import { GH_SEGMENT } from '../../shared/contracts/github-ids.ts';
 
 const STAMP_MODEL = 'sonnet';
 const FULL_MODEL = 'opus';
@@ -79,9 +73,6 @@ interface TeamReviewSettings {
   autoRebaseMyPrs: boolean;
 }
 
-function positiveFiniteOr(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
-}
 
 function readTeamReviewSettings(config: TeamReviewSettingsSource): TeamReviewSettings {
   const block = config.teamReview;
@@ -89,8 +80,8 @@ function readTeamReviewSettings(config: TeamReviewSettingsSource): TeamReviewSet
     enabled: block?.enabled === true,
     org: typeof block?.org === 'string' ? block.org.trim() : '',
     team: typeof block?.team === 'string' ? block.team.trim() : '',
-    reReviewAfterHours: positiveFiniteOr(block?.reReviewAfterHours, DEFAULT_RE_REVIEW_AFTER_HOURS),
-    skipIdleAfterDays: positiveFiniteOr(block?.skipIdleAfterDays, DEFAULT_SKIP_IDLE_AFTER_DAYS),
+    reReviewAfterHours: positiveNumberOr(block?.reReviewAfterHours, DEFAULT_RE_REVIEW_AFTER_HOURS),
+    skipIdleAfterDays: positiveNumberOr(block?.skipIdleAfterDays, DEFAULT_SKIP_IDLE_AFTER_DAYS),
     skill: typeof block?.skill === 'string' ? block.skill.trim() : '',
     autoRebaseMyPrs: block?.autoRebaseMyPrs === true,
   };
@@ -971,7 +962,7 @@ function absolutePathReadRule(absolutePath: string): string {
 }
 
 export {
-  GH_SEGMENT, repoParts, STAMP_MODEL, FULL_MODEL, STAMP_MAX_LINES, STAMP_MAX_FILES, MAX_CONCURRENT_REVIEWS, MAX_REVIEW_ATTEMPTS,
+  STAMP_MODEL, FULL_MODEL, STAMP_MAX_LINES, STAMP_MAX_FILES, MAX_CONCURRENT_REVIEWS, MAX_REVIEW_ATTEMPTS,
   advanceAwakeElapsed, handReviewRows, REVIEW_TIMEOUT_SECONDS, RESUME_TTL_MS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS,
   TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME,
   REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE,

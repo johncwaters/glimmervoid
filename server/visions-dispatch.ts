@@ -24,7 +24,9 @@ import {
 } from './ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 import { createLaneLog } from './lane-log.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
+import { DEFAULT_TIMER_FNS } from './core/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from './core/timer-deps.ts';
 
 const RESULT_VERDICTS = new Set(['COMMENTS', 'NONE', 'ERROR']);
 const RESULT_FILE = VISIONS_RESULT_FILE;
@@ -72,8 +74,8 @@ interface VisionsDispatcherOptions {
   logger?: Console;
   nowFn?: () => number;
 
-  setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
-  clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
+  setTimeoutFn?: SetTimeoutFn;
+  clearTimeoutFn?: ClearTimeoutFn;
   makeWorkDir?: () => Promise<string>;
   removeWorkDir?: (dir: string) => Promise<void>;
   readResult?: typeof readCommentsResult;
@@ -188,8 +190,8 @@ function createVisionsDispatcher({
   model = null,
   logger = console,
   nowFn = Date.now,
-  setTimeoutFn = (fn, ms) => setTimeout(fn, ms),
-  clearTimeoutFn = clearTimeout,
+  setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
+  clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
   makeWorkDir = makeVisionsWorkDir,
   removeWorkDir = async (dir: string) => { try { await fs.rm(dir, { recursive: true, force: true }); } catch {  } },
   readResult = readCommentsResult,

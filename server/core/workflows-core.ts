@@ -4,6 +4,7 @@ import type {
 } from '../../shared/contracts/workflows.ts';
 import { MERGED_RETENTION_MS } from './my-prs-core.ts';
 import { prKey } from './team-review-core.ts';
+import { isRecord } from '../../shared/coerce.ts';
 
 export const WORKFLOWS_LANE_ID = 'workflows';
 export const WORKFLOWS_STATE_FILENAME = 'workflows-state.json';
@@ -50,14 +51,11 @@ export function workflowSessionLimit(resolution: WorkflowsSettingsResolution): n
   return resolution.ok ? resolution.maxConcurrentSessions : DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS;
 }
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 export function mergeWorkflowsUpdateOverStored(stored: unknown, update: WorkflowsSettingsUpdate): { ok: true; workflows: Record<string, unknown> } | { ok: false; error: string } {
-  const storedBlock = isPlainRecord(stored) ? stored : {};
+  const storedBlock = isRecord(stored) ? stored : {};
   const storedRules: unknown[] = Array.isArray(storedBlock.rules) ? storedBlock.rules : [];
-  const storedRuleIds = new Set(storedRules.map((rule) => (isPlainRecord(rule) ? rule.id : undefined)));
+  const storedRuleIds = new Set(storedRules.map((rule) => (isRecord(rule) ? rule.id : undefined)));
   const ruleToggles = update.rules ?? [];
   const unknownToggle = ruleToggles.find((toggle) => !storedRuleIds.has(toggle.id));
   if (unknownToggle) return { ok: false, error: `workflows.rules has no rule with id "${unknownToggle.id}"` };
@@ -68,7 +66,7 @@ export function mergeWorkflowsUpdateOverStored(stored: unknown, update: Workflow
   }
   if (update.rules) {
     merged.rules = storedRules.map((rule) => {
-      if (!isPlainRecord(rule) || typeof rule.id !== 'string') return rule;
+      if (!isRecord(rule) || typeof rule.id !== 'string') return rule;
       const enabled = enabledByRuleId.get(rule.id);
       return enabled === undefined ? rule : { ...rule, enabled };
     });
