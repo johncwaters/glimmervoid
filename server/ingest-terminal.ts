@@ -6,10 +6,7 @@ import {
 import type { TerminalIngestEvent } from './core/ingest-terminal-core.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+import { errorMessage } from './core/text-core.ts';
 
 interface TappableSession {
   id: string;

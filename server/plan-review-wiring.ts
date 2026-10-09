@@ -52,6 +52,7 @@ import { openContainedFile } from './contained-file.ts';
 import { appendJsonLine } from './json-file.ts';
 import { configSiblingPath } from './pairings-store.ts';
 import { pruneAgedFiles } from './prune-files.ts';
+import { errorMessage } from './core/text-core.ts';
 
 const PERMISSION_REQUEST_HOOK_EVENT = 'permissionrequest';
 const POST_TOOL_USE_HOOK_EVENT = 'posttooluse';
@@ -160,10 +161,6 @@ function carriesPlanBody(event: string): boolean {
 function hookBodyCapBytes(event: string): number {
   if (event.toLowerCase() === PLAN_RESULT_HOOK_EVENT) return PLAN_RESULT_BODY_CAP_BYTES;
   return carriesPlanBody(event) ? PLAN_BODY_CAP_BYTES : 0;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function agentIdOf(payload: Record<string, unknown>): string | null {

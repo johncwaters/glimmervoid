@@ -6,6 +6,14 @@ import type {
   ResumableReview, ReviewAssessment, ReviewResult as ReviewResultType, SearchedPr, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../../shared/contracts/team-review.ts';
 
+const GH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+function repoParts(repo: string): [string, string] | null {
+  const parts = repo.split('/');
+  if (parts.length !== 2 || !parts.every((part) => GH_SEGMENT.test(part))) return null;
+  return [parts[0], parts[1]];
+}
+
 const STAMP_MODEL = 'sonnet';
 const FULL_MODEL = 'opus';
 const STAMP_MAX_LINES = 200;
@@ -113,8 +121,7 @@ function githubRepoSlugFromRemote(remoteUrl: string): string | null {
   if (!match) return null;
   const owner = match[1];
   const name = match[2]?.replace(/\.git$/i, '');
-  const segment = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-  if (!owner || !name || !segment.test(owner) || !segment.test(name)) return null;
+  if (!owner || !name || !GH_SEGMENT.test(owner) || !GH_SEGMENT.test(name)) return null;
   return `${owner}/${name}`;
 }
 
@@ -964,7 +971,7 @@ function absolutePathReadRule(absolutePath: string): string {
 }
 
 export {
-  STAMP_MODEL, FULL_MODEL, STAMP_MAX_LINES, STAMP_MAX_FILES, MAX_CONCURRENT_REVIEWS, MAX_REVIEW_ATTEMPTS,
+  GH_SEGMENT, repoParts, STAMP_MODEL, FULL_MODEL, STAMP_MAX_LINES, STAMP_MAX_FILES, MAX_CONCURRENT_REVIEWS, MAX_REVIEW_ATTEMPTS,
   advanceAwakeElapsed, handReviewRows, REVIEW_TIMEOUT_SECONDS, RESUME_TTL_MS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS,
   TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME,
   REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE,

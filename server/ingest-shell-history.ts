@@ -18,6 +18,7 @@ import type { HistoryLocation, HistoryParseState, ShellIngestEvent } from './cor
 import { positiveInt } from './core/ingest-number-core.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
+import { errorMessage } from './core/text-core.ts';
 
 const DEFAULT_POLL_MS = 2000;
 const DEFAULT_DISCOVER_MS = 30000;
@@ -59,10 +60,6 @@ interface ShellHistoryOptions {
   maxTrackedFiles?: number;
   maxCommandsPerDrain?: number;
   maxCatchUpBytes?: number;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function unrefTimer(timer: NodeJS.Timeout): NodeJS.Timeout {

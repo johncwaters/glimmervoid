@@ -1,4 +1,5 @@
 import { execFileAsync } from './child-process-safe.ts';
+import { GH_SEGMENT, repoParts } from './core/team-review-core.ts';
 import { GithubRateLimitResources, githubRateLimitWaitMs } from './core/github-rate-limit-core.ts';
 import { z } from 'zod';
 import { CommitSha, TeamReviewThreadCommentsResponse, TeamReviewThreadsRepository, TeamReviewResolveResponse, ReviewThreadId, TeamReviewCompareFiles, GithubReviewDecision, decisionAsIfApprovalRequired, PrDetail, ReviewChecksState, ReviewComment, SearchedPr } from '../shared/contracts/team-review.ts';
@@ -164,7 +165,6 @@ function parseJson<T>(text: string, fallback: T): T {
 }
 
 const HEX_LABEL_COLOR = /^[0-9a-f]{6}$/i;
-const GH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const MERGED_SINCE_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MY_PR_FIELDS_FRAGMENT = `fragment myPrFields on PullRequest {
   __typename id number title url isDraft state createdAt mergedAt updatedAt baseRefName baseRefOid headRefName isCrossRepository headRefOid isInMergeQueue mergeable mergeStateStatus reviewDecision
@@ -297,12 +297,6 @@ function aliasesOfErrors(errors: readonly unknown[]): Set<string> | null {
     aliases.add(parsed.data.path[0]);
   }
   return aliases;
-}
-
-function repoParts(repo: string): [string, string] | null {
-  const parts = repo.split('/');
-  if (parts.length !== 2 || !parts.every((part) => GH_SEGMENT.test(part))) return null;
-  return [parts[0], parts[1]];
 }
 
 function isPrNumber(number: number): boolean {

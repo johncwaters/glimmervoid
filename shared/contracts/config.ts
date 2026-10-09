@@ -135,7 +135,6 @@ export const Config = z.object({
   }
 });
 
-export const BROWSER_CONFIG_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE));
 export const CONFIG_BLOCK_KEYS = Object.freeze([
   'changeMap', 'taskTitle', 'branchGc', 'postTurnChecks', 'visions', 'teamReview', 'benchmarks', 'factory', 'posthog', 'usage', 'telegram', 'ingest',
   'agentApi', 'telemetry', 'workflows', 'coder',

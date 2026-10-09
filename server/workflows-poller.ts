@@ -71,8 +71,6 @@ export function createWorkflowSessionQueue({ spawnSession, log = console, maxCon
   return { enqueue, stop };
 }
 
-export type WorkflowSessionQueue = ReturnType<typeof createWorkflowSessionQueue>;
-
 interface WorkflowsPollerDependencies {
   rules: readonly WorkflowRule[];
   teamName: string | null;

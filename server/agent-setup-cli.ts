@@ -4,6 +4,7 @@ import path from "node:path";
 
 import grok from "../session/adapters/grok.ts";
 import { renderGrokHooksFile, classifyGrokHooksFile } from "../session/core/grok-hooks-file-core.ts";
+import { errorMessage } from "./core/text-core.ts";
 
 const USAGE = "Usage: glimmervoid agent setup grok";
 
@@ -31,10 +32,6 @@ interface GrokSetupInspection {
 function errorCode(error: unknown): string | undefined {
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === "string" ? code : undefined;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function setupInputs(env: NodeJS.ProcessEnv = process.env) {

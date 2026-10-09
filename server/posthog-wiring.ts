@@ -31,6 +31,7 @@ import type { PosthogState, SpawnInvestigationArgs } from './posthog-poller.ts';
 import { DEFAULT_POSTHOG_REPORT_DIR } from './posthog-report.ts';
 import { sendTelegramMessage } from './telegram-transport.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
+import { errorMessage } from './core/text-core.ts';
 
 const POSTHOG_DENY = {
   deny: [
@@ -148,10 +149,6 @@ interface PosthogWiringOptions {
 interface ResolvedProject {
   projectId: string | number;
   name: string;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function safeIssueId(issueId: unknown): string {

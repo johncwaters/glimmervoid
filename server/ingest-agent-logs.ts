@@ -20,6 +20,7 @@ import type { AgentIngestEvent } from './core/ingest-agent-core.ts';
 import { positiveInt } from './core/ingest-number-core.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
+import { errorMessage } from './core/text-core.ts';
 
 const DEFAULT_POLL_MS = 2000;
 const DEFAULT_DISCOVER_MS = 30000;
@@ -104,10 +105,6 @@ interface AgentLogIngestOptions {
   maxLinesPerDrain?: number;
   maxCatchUpBytes?: number;
   vendors?: Record<string, boolean> | null;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function unrefTimer(timer: NodeJS.Timeout): NodeJS.Timeout {

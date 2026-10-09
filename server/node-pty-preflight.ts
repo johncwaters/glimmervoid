@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 
 import { nativeBindingCandidates, spawnHelperCandidates } from './core/node-pty-preflight-core.ts';
-import { firstLine } from './core/text-core.ts';
+import { errorMessage, firstLine } from './core/text-core.ts';
 
 export type NodePtyProbeResult = { ok: true; packageDir: string } | { ok: false; reason: string; packageDir: string };
 
@@ -16,15 +16,11 @@ function hostScope(): NativeScanScope {
   return { platform: process.platform, arch: process.arch };
 }
 
-function errorMessage(error: unknown): string {
-  return firstLine(error instanceof Error ? error.message : String(error));
-}
-
 function resolveNodePtyPackageDir(): { packageDir: string } | { error: string } {
   try {
     return { packageDir: path.dirname(createRequire(import.meta.url).resolve('node-pty/package.json')) };
   } catch (err) {
-    return { error: errorMessage(err) };
+    return { error: firstLine(errorMessage(err)) };
   }
 }
 
@@ -57,7 +53,7 @@ function ensureSpawnHelperExecutable(
     try {
       fs.chmodSync(helperPath, EXECUTABLE_MODE);
     } catch (err) {
-      lastRepairError = `${helperPath}: ${errorMessage(err)}`;
+      lastRepairError = `${helperPath}: ${firstLine(errorMessage(err))}`;
       continue;
     }
     if (isExecutableByThisProcess(helperPath)) {
@@ -91,7 +87,7 @@ async function probeNodePty(): Promise<NodePtyProbeResult> {
   try {
     await import('node-pty');
   } catch (err) {
-    return { ok: false, reason: errorMessage(err), packageDir: resolved.packageDir };
+    return { ok: false, reason: firstLine(errorMessage(err)), packageDir: resolved.packageDir };
   }
 
   return scanNativeBinding(resolved.packageDir);

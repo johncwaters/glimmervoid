@@ -43,6 +43,7 @@ import { createVisionsWiring } from './visions-wiring.ts';
 import { resolveIngestConfig } from './core/ingest-core.ts';
 import { resolveVisionsConfig } from './core/visions-dispatch-core.ts';
 import { resolveVisionsScopeProjects } from './core/visions-scope-core.ts';
+import { errorMessage } from './core/text-core.ts';
 
 interface BackendLaneOptions {
   branchGcWiringOptions?: Record<string, unknown>;
@@ -70,10 +71,6 @@ interface BackendLaneDependencies {
   notificationManager: { trigger(sessionName: string, category: string, message: string): unknown };
   telemetry: Telemetry;
   logger: Console;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function createBackendLanes(dependencies: BackendLaneDependencies) {

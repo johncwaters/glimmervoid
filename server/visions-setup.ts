@@ -21,6 +21,7 @@ import type { EditorOutcome } from './editor-wire.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
 import { bundled, cliPath, extensionDir, packageRoot, relayPath } from './runtime-paths.ts';
+import { errorMessage } from './core/text-core.ts';
 
 const EXTENSION_DIR = extensionDir;
 const RELAY_PATH = relayPath('visions-relay');
@@ -66,10 +67,6 @@ interface VisionsSetupOptions {
   onConfigChanged?: (() => void | Promise<void>) | null;
   wire?: typeof wireEverything;
   unwire?: typeof unwireEverything;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function commandFailureDetail(error: unknown): string | undefined {

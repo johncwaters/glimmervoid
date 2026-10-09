@@ -19,6 +19,7 @@ import { createTerminalIngest } from './ingest-terminal.ts';
 import type { SessionTap, TappableSession } from './ingest-terminal.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
+import { errorMessage } from './core/text-core.ts';
 
 const BATCH_INTERVAL_MS = 1000;
 const MAX_EVENTS_PER_FRAME = 50;
@@ -52,10 +53,6 @@ interface RootedSession {
   state?: string;
   path?: unknown;
   worktreeDir?: unknown;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function createIngestLane({

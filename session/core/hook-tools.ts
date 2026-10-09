@@ -41,7 +41,6 @@ function resolveRtkPath({ glimmervoidHome, platform, exec, fsApi }: RtkPathInput
   if (bundled) return bundled;
 
   const matches = resolvePathCommandMatches('rtk', { platform, exec });
-  if (matches.length === 0) return null;
   const firstMatch = matches[0];
   if (!firstMatch) return null;
   return path.resolve(firstMatch);

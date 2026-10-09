@@ -9,6 +9,7 @@ import type { FsBatch, FsIngestEvent } from './core/ingest-fs-core.ts';
 import { positiveInt } from './core/ingest-number-core.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
+import { errorMessage } from './core/text-core.ts';
 
 const DEFAULT_MAX_ROOTS = 8;
 const CONFIG_HOLDER = 'config:fs.roots';
@@ -36,10 +37,6 @@ interface FsIngestOptions {
   setTimeoutFn?: (fn: () => void, ms: number) => NodeJS.Timeout;
   clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
   maxRoots?: number;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function unrefTimer(timer: NodeJS.Timeout): NodeJS.Timeout {

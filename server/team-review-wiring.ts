@@ -38,6 +38,7 @@ import type {
   PostingPlan, PrDetail, ResumableReview, ReviewComment, ReviewResult, ReviewDraft, TeamReviewActionRequest, TeamReviewActionResult,
   TeamReviewState as TeamReviewStateType, TeamReviewStateEntry as TeamReviewStateEntryType, TeamReviewStatus as TeamReviewStatusType,
 } from '../shared/contracts/team-review.ts';
+import { errorMessage } from './core/text-core.ts';
 
 const TEAM_REVIEW_DENY_RULES = Object.freeze([
   'Bash(gh:*)',
@@ -190,10 +191,6 @@ interface TeamReviewActionOptions {
   drafts: TeamReviewDraftStore;
   github: TeamReviewActionGithub;
   log?: Pick<Console, 'warn'>;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function teamReviewShouldStart(config: TeamReviewWiringConfig): LaneRunnerGate {

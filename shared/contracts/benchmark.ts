@@ -8,7 +8,6 @@ const timestamp = z.number().finite();
 const nonEmptyText = z.string().min(1);
 
 export const BENCHMARK_INJECTED_ENV_NAMES = Object.freeze(['CLAUDE_CODE_OAUTH_TOKEN']);
-export const BENCHMARK_REFERENCE_TAGS = Object.freeze(['human', 'bot'] as const);
 
 export const BenchmarkId = z.string().regex(BENCHMARK_ID_RE);
 export type BenchmarkId = z.infer<typeof BenchmarkId>;

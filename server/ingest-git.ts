@@ -14,6 +14,7 @@ import type { GitCommit, GitIngestEvent, GitLayout, GitRepoState } from './core/
 import { positiveInt } from './core/ingest-number-core.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
+import { errorMessage } from './core/text-core.ts';
 
 const DEFAULT_MAX_REPOS = 16;
 const DEFAULT_GIT_TIMEOUT_MS = 15000;
@@ -55,10 +56,6 @@ interface GitIngestOptions {
   maxRepos?: number;
   gitTimeoutMs?: number;
   gitPath?: string;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function unrefTimer(timer: NodeJS.Timeout): NodeJS.Timeout {

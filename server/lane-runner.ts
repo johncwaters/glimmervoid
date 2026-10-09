@@ -1,9 +1,6 @@
 import type { ReviewsRefreshResult, ReviewsRetry } from '../shared/contracts/reviews.ts';
 import { DEFAULT_BASE_MS, DEFAULT_MAX_MS, nextRetrySchedule, shouldSkipTick } from './core/lane-backoff.ts';
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+import { errorMessage } from './core/text-core.ts';
 
 interface TickOutcome {
   failed?: boolean;

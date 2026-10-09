@@ -37,6 +37,7 @@ import type { JsonStateWriter } from './json-file.ts';
 import { createLaneLog } from './lane-log.ts';
 import { configSiblingPath } from './pairings-store.ts';
 import { pruneAgedFiles } from './prune-files.ts';
+import { errorMessage } from './core/text-core.ts';
 
 const TRACE_RETAIN_DAYS = 7;
 const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -116,10 +117,6 @@ interface LineContext {
 interface PendingCommit {
   didAppend: boolean;
   appendedRecordCount: number;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 async function isResumePointMidLine(handle: FileHandle, offset: number): Promise<boolean> {

@@ -15,6 +15,7 @@ import type { WorkflowRule } from '../shared/contracts/workflows.ts';
 import { isPlainObject } from './core/usage-number-core.ts';
 import { INGEST_SPEC, pickSettingsBlock } from './core/settings-block-core.ts';
 import { writeJsonAtomicSync, writeTextAtomicSync } from './json-file.ts';
+import { errorMessage } from './core/text-core.ts';
 
 type ProjectEntry = Config['projects'][number] & { id: string; name: string };
 interface GlimmervoidConfig extends Config {
@@ -139,10 +140,6 @@ function errorCode(error: unknown): string {
   const source = (error ?? {}) as { code?: unknown; message?: unknown };
   if (typeof source.code === 'string') return source.code;
   return typeof source.message === 'string' ? source.message : String(error);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function glimmervoidHomeDir(): string {

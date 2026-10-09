@@ -7,7 +7,8 @@ import {
   decideRedemption, hashSecret, mintDeviceCredential, mintPairingToken,
 } from './core/pairing-token.ts';
 import type { RandomBytes } from './core/pairing-token.ts';
-import { writeJsonAtomic, writeJsonAtomicSync } from './json-file.ts';
+import { sleepSync, writeJsonAtomic, writeJsonAtomicSync } from './json-file.ts';
+import { errorMessage } from './core/text-core.ts';
 
 type PendingPairing = {
   tokenHash: string;
@@ -70,14 +71,6 @@ const LOCK_STALE_MS = 5000;
 function errorLabel(err: unknown): string {
   const failure = (err ?? {}) as { code?: unknown; message?: unknown };
   return String(failure.code || failure.message || err);
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-function sleepSync(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 function emptyDoc(): PairingsDocument {

@@ -206,14 +206,13 @@ export function scopeLabel(hook: HookRecord, projects: HookProject[]) {
   return names.join(', ');
 }
 
-export function eventChipText(hook: HookRecord) {
+export function eventChipText(hook: Pick<HookBuiltinRow, 'event' | 'matcher'>) {
   if (!hook.matcher) return hook.event;
   return `${hook.event} / ${hook.matcher}`;
 }
 
 export function builtinLine(row: HookBuiltinRow) {
-  if (!row.matcher) return row.event;
-  return `${row.event} / ${row.matcher}`;
+  return eventChipText(row);
 }
 
 export function missingProjectIds(hook: HookRecord, projects: HookProject[]) {

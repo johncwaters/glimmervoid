@@ -27,6 +27,7 @@ import type { PricingResult } from './usage-pricing.ts';
 import type { Telemetry } from './telemetry.ts';
 import { createUsageScanner } from './usage-scanner.ts';
 import type { UsageScannerApi, UsageScannerOptions } from './usage-scanner.ts';
+import { errorMessage } from './core/text-core.ts';
 
 const DEFAULT_USAGE_CONFIG = Object.freeze({
   enabled: true,
@@ -135,10 +136,6 @@ interface UsageWiringOptions {
   clearTimeoutFn?: (handle: NodeJS.Timeout) => void;
   logger?: Pick<Console, 'warn' | 'log'>;
   debug?: boolean | (() => boolean);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function integerWithin(value: unknown, { min, max }: { min: number; max: number }, fallback: number): number {

@@ -10,6 +10,7 @@ import type { AgentId, RegistryProject } from './core/session-registry-core.ts';
 import { diffProjects, machineSkipsPermissionsByDefault, shouldStartAfterModify } from './core/session-registry-core.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import type { SessionWorktree, WorktreeArgs } from './git-workspace.ts';
+import { errorMessage } from './core/text-core.ts';
 
 interface RegistryConfig extends Record<string, unknown> {
   projects: RegistryProject[];
@@ -72,10 +73,6 @@ interface SessionRegistry {
   getSession(id: string): Session | null;
   initialize(): void;
   teardownSession(id: string, logLabel: string): boolean;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function runAutoResume(

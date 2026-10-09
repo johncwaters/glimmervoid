@@ -9,6 +9,7 @@ import {
 } from '../session/core/post-turn-rules.ts';
 import type { RuleConfig } from '../session/core/post-turn-rules.ts';
 import { execFile } from './child-process-safe.ts';
+import { errorMessage } from './core/text-core.ts';
 
 const GIT_TIMEOUT_MS = 5000;
 
@@ -109,10 +110,6 @@ interface MutableCheckConfig {
   debounceMs: number;
   runOnExit: unknown;
   reportDir: string;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function explicitMode(mode: unknown): 'fix' | 'report' {

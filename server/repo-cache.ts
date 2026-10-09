@@ -2,7 +2,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { lstat, mkdir, readdir } from 'node:fs/promises';
 import { execFileAsync } from './child-process-safe.ts';
-import { prBaseRef, prHeadRef } from './core/team-review-core.ts';
+import { GH_SEGMENT, prBaseRef, prHeadRef, repoParts } from './core/team-review-core.ts';
 import { createSerialQueue } from './spawn-gate.ts';
 import { CommitSha } from '../shared/contracts/team-review.ts';
 
@@ -23,14 +23,6 @@ interface RepoCacheOptions {
 const NETWORK_GIT_ENV: Record<string, string> = { GIT_TERMINAL_PROMPT: '0' };
 const GIT_COMMAND_TIMEOUT_MS = 120000;
 const HEAD_TREE_HYDRATE_TIMEOUT_MS = 10 * 60 * 1000;
-const GH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
-function repoParts(repo: string): [string, string] | null {
-  const parts = repo.split('/');
-  if (parts.length !== 2 || !parts.every((part) => GH_SEGMENT.test(part))) return null;
-  return [parts[0], parts[1]];
-}
-
 function isSafeBaseRef(baseRef: string): boolean {
   if (!baseRef || baseRef.startsWith('-') || baseRef.endsWith('/') || baseRef.includes('..')) return false;
   return baseRef.split('/').every((part) => GH_SEGMENT.test(part) && !part.endsWith('.lock'));

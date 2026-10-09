@@ -56,6 +56,7 @@ import type { WarehouseRecord } from './core/usage-warehouse-core.ts';
 import { createJsonStateStore } from './json-file.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLog } from './lane-log.ts';
+import { errorMessage } from './core/text-core.ts';
 
 const DEFAULT_BYTE_BUDGET = 64 * 1024 * 1024;
 const DEFAULT_CHUNK_SIZE = 1024 * 1024;
@@ -162,10 +163,6 @@ interface PassResult {
 }
 
 type StoredWarehouseRecords = NonNullable<Parameters<typeof pruneWarehouse>[0]>;
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function isAbsentPathError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;

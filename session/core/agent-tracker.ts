@@ -69,19 +69,17 @@ function declaredActiveCount(
   teammateTtlMs = DEFAULT_TEAMMATE_TASK_TTL_MS, agentTtlMs = DEFAULT_AGENT_TTL_MS,
 ): number {
   if (!entries) return 0;
-  let n = 0;
+  let activeCount = 0;
   let teammateCount = 0;
-  for (const e of entries) {
-    const entryAgeMs = typeof ageMs === 'function' ? ageMs(e) : ageMs;
-    if (e.id && idleIds && idleIds.has(e.id)) continue;
-    if (WEAK_TASK_TYPES.has(e.type) && entryAgeMs >= weakTtlMs) continue;
-    if (NON_GATING_TASK_TYPES.has(e.type)) continue;
-    if (e.type === 'teammate' && entryAgeMs >= teammateTtlMs) continue;
-    if (!WEAK_TASK_TYPES.has(e.type) && e.type !== 'teammate' && entryAgeMs >= agentTtlMs) continue;
-    n++;
-    if (e.type === 'teammate') teammateCount++;
+  for (const entry of entries) {
+    const entryAgeMs = typeof ageMs === 'function' ? ageMs(entry) : ageMs;
+    if (entry.id && idleIds && idleIds.has(entry.id)) continue;
+    if (NON_GATING_TASK_TYPES.has(entry.type)) continue;
+    if (entryAgeMs >= declaredEntryTtlMs(entry.type, weakTtlMs, teammateTtlMs, agentTtlMs)) continue;
+    activeCount++;
+    if (entry.type === 'teammate') teammateCount++;
   }
-  return n - Math.min(idleNameCount, teammateCount);
+  return activeCount - Math.min(idleNameCount, teammateCount);
 }
 
 function isOnlyBackgroundTasks(

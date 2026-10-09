@@ -9,6 +9,7 @@ import { adapterBucket, classifySessionExit } from './core/telemetry-core.ts';
 import { INTERACTIVE_LANE } from './core/usage-lane-core.ts';
 import { resolveCheckConfig, runPostTurnChecks } from './post-turn-checker.ts';
 import type { Telemetry } from './telemetry.ts';
+import { errorMessage } from './core/text-core.ts';
 
 interface WiringProject extends Record<string, unknown> {
   id?: string;
@@ -67,10 +68,6 @@ const NOTIFY_MESSAGES: Record<string, (name: string, context: NotifyCopyContext)
   complete: (name) => `${name} finished working`,
   failed: (name) => `${name} failed`,
 };
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function persistSessionField(
   configStore: { save: (mutator: (config: WiringConfig) => void) => unknown },

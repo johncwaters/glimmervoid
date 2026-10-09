@@ -82,6 +82,7 @@ import type { TracePage, TracePageRequest } from './trace-wiring.ts';
 import { createChangeMapService } from './change-map-wiring.ts';
 import type { ChangeMapNarrator } from './change-map-wiring.ts';
 import type { Telemetry } from './telemetry.ts';
+import { errorMessage } from './core/text-core.ts';
 
 type ControlRequest = ClientMessage;
 type ControlHandler<Type extends ClientMessage['type']> = (msg: ClientMessageOf<Type>, ws: ControlSocket) => unknown;
@@ -166,10 +167,6 @@ interface ControlHandlerDeps {
 function errorCode(error: unknown): string | undefined {
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === 'string' ? code : undefined;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function scanRepoRoots(roots: string[] | undefined): { root: string; projects: { name: string; path: string }[] }[] {

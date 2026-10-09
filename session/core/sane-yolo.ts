@@ -1,5 +1,4 @@
 const SANE_YOLO_PATH_ENV = 'GLIMMERVOID_SANE_YOLO_PATH';
-const SANE_YOLO_VERSION = '2.6.0';
 
 const SANE_YOLO_POLICY = {
   version: 1,
@@ -49,4 +48,4 @@ function saneYoloEnv(homeDir: string): Record<string, string> {
   };
 }
 
-export { SANE_YOLO_PATH_ENV, SANE_YOLO_VERSION, SANE_YOLO_POLICY, SANE_YOLO_RULES, SANE_YOLO_INFRA_RULEBOOK, SANE_YOLO_FILES, saneYoloEnv };
+export { SANE_YOLO_PATH_ENV, SANE_YOLO_POLICY, SANE_YOLO_RULES, SANE_YOLO_INFRA_RULEBOOK, SANE_YOLO_FILES, saneYoloEnv };

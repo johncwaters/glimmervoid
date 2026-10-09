@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { errorMessage } from './core/text-core.ts';
 
 type SyncFileSystem = Pick<typeof fs, 'mkdirSync' | 'writeFileSync' | 'renameSync' | 'rmSync'>;
 type AsyncFileSystem = Pick<typeof fs.promises, 'mkdir' | 'writeFile' | 'rename' | 'rm' | 'appendFile'>;
@@ -63,10 +64,6 @@ function renameRetryPlan(error: unknown, attempt: number): number | null {
 function isMissingFileError(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;
   return code === 'ENOENT' || code === 'ENOTDIR';
-}
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 async function loadJsonStateFile<T>({ filePath, fsPromises, parse, nowMs }: {
@@ -257,7 +254,7 @@ function createJsonStateStore<T>({
     ? createJsonStateWriter({
       filePath,
       fsPromises,
-      warn: (error: unknown) => warn(`${name} write failed`, { error: errorText(error) }),
+      warn: (error: unknown) => warn(`${name} write failed`, { error: errorMessage(error) }),
     })
     : null;
   let isFileReadable = true;
@@ -272,7 +269,7 @@ function createJsonStateStore<T>({
       if (outcome.status === 'unreadable') {
         isFileReadable = false;
         loadPromise = null;
-        warn(`${name} unreadable`, { path: statePath, error: errorText(outcome.error) });
+        warn(`${name} unreadable`, { path: statePath, error: errorMessage(outcome.error) });
         return;
       }
       if (outcome.status === 'quarantined') warn(`${name} quarantined`, { path: statePath, movedTo: outcome.movedTo });
@@ -297,6 +294,7 @@ export {
   createJsonStateStore,
   createJsonStateWriter,
   loadJsonStateFile,
+  sleepSync,
   writeJsonAtomic,
   writeJsonAtomicSync,
   writeTextAtomic,

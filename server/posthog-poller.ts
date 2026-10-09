@@ -10,6 +10,7 @@ import { createTickLoop } from './lane-runner.ts';
 import type { TickOutcome } from './lane-runner.ts';
 import { normalizeIssues, parseSpikeIssueIds } from './posthog-api.ts';
 import type { NormalizedIssue, PosthogApi } from './posthog-api.ts';
+import { errorMessage } from './core/text-core.ts';
 
 
 const OBSERVATION_PINGS: Record<string, { kind: string; dedupe: boolean } | undefined> = {
@@ -167,10 +168,6 @@ interface PosthogPoller {
   archiveInvestigation: (id?: string) => Promise<{ ok: boolean; error?: string; investigations?: InvestigationRecord[] }>;
   investigations: () => InvestigationRecord[];
   _state: () => PosthogState;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function isIssueKey(key: string): boolean {

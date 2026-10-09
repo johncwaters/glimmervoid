@@ -13,6 +13,7 @@ import { hasStandingViewerApproval, ReviewDraft } from '../shared/contracts/team
 import type {
   InFlightReview, PrDetail, PriorReview, ResumableReview, ReviewDraft as ReviewDraftType, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../shared/contracts/team-review.ts';
+import { errorMessage } from './core/text-core.ts';
 
 const TEAM_REVIEW_RATE_LIMIT_RESOURCES = ['search', 'graphql', 'core'] as const;
 
@@ -75,10 +76,6 @@ interface TeamReviewPollerDependencies {
 }
 
 const REQUEUEABLE_STATUSES: ReadonlySet<ReviewDraftType['status']> = new Set(['error', 'ready', 'stale', 'discarded', 'posted']);
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   const {

@@ -12,6 +12,7 @@ import { decideSpawnAllowance, deriveChildSessionName, parseAgentVerb } from './
 import { registerEphemeralSession } from './ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 import type { SessionSpawnOverrides } from './session-factory.ts';
+import { errorMessage } from './core/text-core.ts';
 
 const AGENT_LANE_TAG = 'agent-spawn';
 const SPAWN_FAILED_MESSAGE = 'could not spawn the session';
@@ -48,10 +49,6 @@ interface AgentApiReply {
 interface AgentApiPort {
   enabled(): boolean;
   handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentApiReply>;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function createAgentApiWiring({

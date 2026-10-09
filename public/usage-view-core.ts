@@ -1,4 +1,5 @@
 import { attentionSignature } from './attention-ack-core.ts';
+import { textOr } from './coerce-core.ts';
 
 export interface UsageModelRow {
   key?: string;
@@ -427,7 +428,7 @@ export const LANE_SCOPE_HINT = 'Sessions spawned by Glimmervoid; terminal sessio
 export const OVERHEAD_SCOPE_HINT = 'Claude sessions Glimmervoid spawned for its own work; plan share is estimated pro rata by cost';
 
 export function laneLabel(lane: unknown) {
-  const key = typeof lane === 'string' ? lane.trim() : '';
+  const key = textOr(lane, '');
   if (!key) return LANE_LABELS.other;
   return LANE_LABELS[key] || key;
 }
@@ -895,7 +896,7 @@ function formatRatio(ratio: unknown) {
 const VENDOR_LABELS: Readonly<Record<string, string>> = Object.freeze({ claude: 'Claude', codex: 'Codex', grok: 'Grok' });
 
 export function vendorLabel(vendor: unknown) {
-  const key = typeof vendor === 'string' ? vendor.trim() : '';
+  const key = textOr(vendor, '');
   if (!key) return VENDOR_LABELS.claude;
   return VENDOR_LABELS[key] || key;
 }
@@ -1036,12 +1037,12 @@ export function planLimitStaleNote(ts: unknown, now = Date.now()) {
 export function pricingSourceLine(pricing: { source?: unknown } | null | undefined, agoText = '') {
   const source = pricing?.source;
   if (source === 'fetched') {
-    const ago = typeof agoText === 'string' ? agoText.trim() : '';
+    const ago = textOr(agoText, '');
     if (!ago) return 'Prices fetched from the public model price table.';
     return `Prices fetched from the public model price table, ${ago}.`;
   }
   if (source === 'cache') {
-    const ago = typeof agoText === 'string' ? agoText.trim() : '';
+    const ago = textOr(agoText, '');
     if (!ago) return 'Prices from the cached public model price table.';
     return `Prices from the cached public model price table, ${ago}.`;
   }
@@ -1088,12 +1089,11 @@ export function scanLine(scan: UsageScan | null | undefined) {
 }
 
 export function usageErrorLine(report: UsageReport | null | undefined) {
-  const error = typeof report?.error === 'string' ? report.error.trim() : '';
-  return error;
+  return textOr(report?.error, '');
 }
 
 export function usageWarningLine(report: UsageReport | null | undefined) {
-  const warning = typeof report?.warning === 'string' ? report.warning.trim() : '';
+  const warning = textOr(report?.warning, '');
   if (!warning) return '';
   return `Glimmervoid could not read every transcript location: ${warning}`;
 }
@@ -1123,7 +1123,7 @@ export function isGlimmervoidSessionRow(row: UsageWireRow | null | undefined) {
 }
 
 export function sessionRowLabel(row: UsageWireRow | null | undefined) {
-  const label = typeof row?.label === 'string' ? row.label.trim() : '';
+  const label = textOr(row?.label, '');
   if (isGlimmervoidSessionRow(row) && label) return label;
   const project = projectBasename(row?.project);
   if (project) return project;
@@ -1133,9 +1133,7 @@ export function sessionRowLabel(row: UsageWireRow | null | undefined) {
 
 export function modelLabel(row: unknown) {
   const model = typeof row === 'string' ? row : (row as { model?: unknown } | null | undefined)?.model;
-  const text = typeof model === 'string' ? model.trim() : '';
-  if (!text) return 'unknown model';
-  return text;
+  return textOr(model, 'unknown model');
 }
 
 function dayKeyOf(row: UsageWireRow | null | undefined) {

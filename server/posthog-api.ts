@@ -1,3 +1,5 @@
+import { toCount } from './core/posthog-core.ts';
+
 const DEFAULT_ISSUE_LIMIT = 50;
 const DEFAULT_DATE_RANGE_HOURS = 24;
 const DEFAULT_BASELINE_DAYS = 7;
@@ -44,12 +46,6 @@ interface PosthogApi {
   listSpikeEvents(projectId: ProjectId): Promise<PosthogResponse>;
   listRecommendations(projectId: ProjectId): Promise<PosthogResponse>;
   updateIssueStatus(projectId: ProjectId, issueId: string, status: string): Promise<PosthogResponse>;
-}
-
-function toCount(value: unknown, fallback = 0): number {
-  const n = Number(value);
-  if (Number.isFinite(n)) return n;
-  return fallback;
 }
 
 function timestampOrNull(value: unknown): string | null {

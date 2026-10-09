@@ -23,6 +23,7 @@ import type {
   BenchmarkRun as BenchmarkRunType, BenchmarkStatus as BenchmarkStatusType, BenchmarkSuite as BenchmarkSuiteType,
   BenchmarkSuiteSummary,
 } from '../shared/contracts/benchmark.ts';
+import { errorMessage } from './core/text-core.ts';
 
 const BENCHMARK_LANE_ID = 'benchmark';
 const SUBJECT_PROMPT_FILENAME = 'subject-prompt.md';
@@ -81,10 +82,6 @@ interface ActiveRun {
   runId: string;
   controller: AbortController;
   finished: Promise<void>;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function unreadableSuiteSummary(suiteId: string, error: string): BenchmarkSuiteSummary {

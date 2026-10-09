@@ -73,6 +73,7 @@ import type { TouchedRange } from './core/visions-touch-core.ts';
 import { createJsonStateWriter } from './json-file.ts';
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLogger } from './lane-log.ts';
+import { errorMessage } from './core/text-core.ts';
 
 const VISIONS_DEBOUNCE_MS = 300;
 const MAX_FRAME_BYTES = 2 * 1024 * 1024;
@@ -155,10 +156,6 @@ interface VisionsWiringOptions {
   hashFn?: (text: string) => string;
   buildPrompt?: typeof buildVisionsPrompt;
   debug?: boolean | (() => boolean);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function isMarkdownDoc(doc: DocLike): boolean {

@@ -1,6 +1,7 @@
 import type { UpdateStatus } from '#shared/contracts/control-messages.ts';
 import type { UpdateJournal, UpdateRunState, UpdateStepStatus } from '#shared/contracts/update-journal.ts';
 import { shortSha, versionLabel } from './radar-core.ts';
+import { textOr } from './coerce-core.ts';
 
 export type UpdateStatusView = Partial<UpdateStatus>;
 
@@ -62,11 +63,6 @@ const NOT_CONNECTED_TEXT = 'Not connected to the server. Reconnecting.';
 
 export const IDLE_UPDATE_REQUEST: UpdateRequestState = Object.freeze({ requested: false, failure: null });
 
-function nonemptyText(value: unknown): string {
-  if (typeof value !== 'string') return '';
-  return value.trim();
-}
-
 export function reduceUpdateRequest(state: UpdateRequestState, event: UpdateRequestEvent): UpdateRequestState {
   if (event === 'request-sent') return { requested: true, failure: null };
   if (event === 'request-unsent') return { requested: false, failure: NOT_CONNECTED_TEXT };
@@ -123,7 +119,7 @@ export function updateBannerMode(status: UpdateStatusView | null | undefined): '
 }
 
 function reasonSuffix(reason: unknown): string {
-  const text = nonemptyText(reason);
+  const text = textOr(reason, '');
   if (!text) return '';
   return `: ${text}`;
 }
@@ -198,7 +194,7 @@ export function updateSummary(
     const behind = behindText(status);
     return { tone: 'available', headline: `Update available: ${current} to ${latest}${behind ? ` (${behind})` : ''}.` };
   }
-  if (nonemptyText(status.reason)) return { tone: 'unknown', headline: `Running ${current}. The last check did not finish.` };
+  if (textOr(status.reason, '')) return { tone: 'unknown', headline: `Running ${current}. The last check did not finish.` };
   return { tone: 'current', headline: `Up to date. Running ${current}.` };
 }
 
@@ -206,7 +202,7 @@ export function installedUpdateText(status: UpdateStatusView | null | undefined)
   if (!status) return 'Update status unavailable.';
   const version = versionLabel(status.current, null) || 'Unknown version';
   const sha = shortSha(status.currentSha);
-  const branch = nonemptyText(status.installedBranch);
+  const branch = textOr(status.installedBranch, '');
   const location = [sha ? `commit ${sha}` : '', branch ? `on ${branch}` : ''].filter(Boolean).join(' ');
   const treeState = status.isTreeClean === true ? 'clean checkout' : status.isTreeClean === false ? 'uncommitted local changes' : '';
   return [version, location, treeState].filter(Boolean).join(', ');
@@ -219,7 +215,7 @@ export function latestUpdateDetails(status: UpdateStatusView | null | undefined)
 } {
   if (!status) return { label: 'Update status unavailable.', behind: '', releaseUrl: '' };
   const label = versionLabel(status.latest, status.latestSha) || 'Latest target unknown';
-  return { label, behind: behindText(status), releaseUrl: nonemptyText(status.releaseUrl) };
+  return { label, behind: behindText(status), releaseUrl: textOr(status.releaseUrl, '') };
 }
 
 export function shouldAutoCheckUpdates({
@@ -250,7 +246,7 @@ export function lastUpdateCheckText({
 }): string {
   if (checkForUpdates === false) return 'Update checks are off.';
   if (!status) return 'No update check has run.';
-  const reason = nonemptyText(status.reason);
+  const reason = textOr(status.reason, '');
   if (reason) return CHECK_FAILURE_TEXT[reason] ?? `The last update check failed: ${reason}.`;
   if (status.flavor === 'unknown') return 'The install flavor is unknown.';
   return relativeTime;

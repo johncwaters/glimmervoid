@@ -24,6 +24,7 @@ import {
 } from './ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 import { createLaneLog } from './lane-log.ts';
+import { errorMessage } from './core/text-core.ts';
 
 const RESULT_VERDICTS = new Set(['COMMENTS', 'NONE', 'ERROR']);
 const RESULT_FILE = VISIONS_RESULT_FILE;
@@ -86,10 +87,6 @@ interface DispatchInput {
   intent?: string;
   digest?: string;
   prompt?: string | null;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function visionsPermissions() {

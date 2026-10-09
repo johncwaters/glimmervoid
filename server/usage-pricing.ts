@@ -7,6 +7,7 @@ import type { ModelPrice } from './core/usage-pricing-core.ts';
 import pricingSnapshot from './data/claude-pricing.json' with { type: 'json' };
 import { createLaneLog } from './lane-log.ts';
 import type { LaneLog } from './lane-log.ts';
+import { errorMessage } from './core/text-core.ts';
 
 const LITELLM_PRICING_URL = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -56,10 +57,6 @@ interface LoadPricingOptions {
 }
 
 const FETCH_PROVIDERS = new Set(['anthropic', 'openai']);
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function trimModel(model: Record<string, unknown>): Record<string, unknown> {
   const trimmed: Record<string, unknown> = {};

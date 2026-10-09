@@ -1,5 +1,6 @@
 import { runsEveryTicks } from './core/github-clock-core.ts';
 import type { SharedClock } from './lane-runner.ts';
+import { errorMessage } from './core/text-core.ts';
 
 interface GithubClockOptions {
   baseIntervalMs: number;
@@ -12,10 +13,6 @@ interface ClockSubscription {
   run: () => Promise<void>;
   everyTicks: number;
   ticksSinceRun: number;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export function createGithubClock({ baseIntervalMs, setIntervalFn = (fn, ms) => setInterval(fn, ms), clearIntervalFn = clearInterval, log = console }: GithubClockOptions) {
