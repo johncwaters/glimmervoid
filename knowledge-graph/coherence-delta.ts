@@ -15,6 +15,7 @@ export type DecisionSummary = {
   at: string;
   workId: string | null;
   isRetracted: boolean;
+  retractedAt: string | null;
 };
 
 export type RepoSnapshot =
@@ -70,7 +71,11 @@ function findStatusDivergence(trackingStatus: string | undefined, workState: str
 }
 
 function isAfter(timestamp: string | null, since: string | undefined): boolean {
-  return since !== undefined && timestamp !== null && timestamp > since;
+  return since !== undefined && timestamp !== null && Date.parse(timestamp) > Date.parse(since);
+}
+
+function hasDecisionMovedSince(decision: DecisionSummary, since: string | undefined): boolean {
+  return isAfter(decision.at, since) || isAfter(decision.retractedAt, since);
 }
 
 function reportWorkRecord(tracked: TrackedRecord, snapshot: Extract<RepoSnapshot, { isAvailable: true }>, since: string | undefined): TrackedRecordReport {
@@ -85,16 +90,18 @@ function reportWorkRecord(tracked: TrackedRecord, snapshot: Extract<RepoSnapshot
   const divergence = tracked.trackingKind === 'task' ? findStatusDivergence(tracked.trackingStatus, workOrder.state) : null;
   if (divergence) findings.push({ kind: 'status-diverges', detail: divergence });
   if (isAfter(workOrder.lastEventAt, since)) findings.push({ kind: 'moved-since', detail: `last event ${workOrder.lastEventAt}` });
-  const decisions = snapshot.decisions.filter((decision) => decision.workId === workOrder.id && (since === undefined || decision.at > since));
+  const decisions = snapshot.decisions.filter((decision) => decision.workId === workOrder.id && (since === undefined || hasDecisionMovedSince(decision, since)));
   return { tracked, label: workOrder.objective, state: `${workOrder.state}/${workOrder.readiness}`, findings, decisions };
 }
 
-function reportDecisionRecord(tracked: TrackedRecord, snapshot: Extract<RepoSnapshot, { isAvailable: true }>): TrackedRecordReport {
+function reportDecisionRecord(tracked: TrackedRecord, snapshot: Extract<RepoSnapshot, { isAvailable: true }>, since: string | undefined): TrackedRecordReport {
   const decision = snapshot.decisions.find((candidate) => candidate.id === tracked.recordId);
   if (!decision) {
     return { tracked, label: tracked.recordId, state: 'missing', findings: [{ kind: 'missing', detail: 'not in this repo\'s decision journal' }], decisions: [] };
   }
   const findings: TrackedRecordReport['findings'] = decision.isRetracted ? [{ kind: 'retracted', detail: 'withdrawn in the journal; kg notes relying on it need a look' }] : [];
+  if (isAfter(decision.retractedAt, since)) findings.push({ kind: 'moved-since', detail: `retracted ${decision.retractedAt}` });
+  if (isAfter(decision.at, since)) findings.push({ kind: 'moved-since', detail: `decided ${decision.at}` });
   return { tracked, label: decision.chose, state: decision.isRetracted ? 'retracted' : 'standing', findings, decisions: [] };
 }
 
@@ -105,7 +112,7 @@ export function buildCoherenceDelta(trackedRecords: readonly TrackedRecord[], sn
     const snapshot = snapshotsByRepo.get(repo) ?? { isAvailable: false, reason: 'not read' };
     if (!snapshot.isAvailable) return { repo, isAvailable: false, reason: snapshot.reason, records: repoRecords };
     const records = repoRecords.map((tracked) =>
-      tracked.record === 'work' ? reportWorkRecord(tracked, snapshot, since) : reportDecisionRecord(tracked, snapshot));
+      tracked.record === 'work' ? reportWorkRecord(tracked, snapshot, since) : reportDecisionRecord(tracked, snapshot, since));
     return { repo, isAvailable: true, heading: snapshot.heading, headingReasons: snapshot.headingReasons, records };
   });
 }

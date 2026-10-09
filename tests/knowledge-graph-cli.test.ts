@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { runKnowledgeGraphCli } from '../knowledge-graph/cli.ts';
 import type { KnowledgeGraphCliDependencies } from '../knowledge-graph/cli.ts';
-import { execFileSync } from '../server/child-process-safe.ts';
+import { execFileSync, spawn } from '../server/child-process-safe.ts';
 import { runKnowledgeGraphCommand } from '../server/knowledge-graph-cli.ts';
 import { resolvePackageBin } from '../server/runtime-paths.ts';
 
@@ -128,4 +130,118 @@ test('delta reads the refusal coherence orient prints when it exits on a damaged
   assert.equal(repoReport.isAvailable, true);
   assert.equal(repoReport.heading, 'refuse');
   assert.match(repoReport.headingReasons.join(' '), /defect ledger refused/);
+});
+
+test('a config.json that cannot be read or parsed is named in the refusal instead of a bare parser error', () => {
+  const homeDirectory = isolatedGlimmervoidHome(null);
+  const configPath = path.join(homeDirectory, 'config.json');
+  fs.writeFileSync(configPath, '{"knowledgeGraph":');
+  const capturedErrors: string[] = [];
+  const originalConsoleError = console.error;
+  console.error = (message: string) => { capturedErrors.push(message); };
+  try {
+    assert.equal(runKnowledgeGraphCommand(['next']), 1);
+    fs.rmSync(configPath);
+    fs.mkdirSync(configPath);
+    assert.equal(runKnowledgeGraphCommand(['next']), 1);
+  } finally {
+    console.error = originalConsoleError;
+  }
+  assert.equal(capturedErrors.length, 2);
+  assert.match(capturedErrors[0], new RegExp(`^kg: Could not load ${configPath.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')}: .*JSON`));
+  assert.match(capturedErrors[1], /^kg: Could not load .*config\.json: .*EISDIR/);
+});
+
+function commitTrackedFileThenMakeItStatDirty(repo: string): string {
+  const trackedFilePath = path.join(repo, 'tracked.txt');
+  fs.writeFileSync(trackedFilePath, 'unchanged content\n');
+  execFileSync('git', ['add', 'tracked.txt'], { cwd: repo, encoding: 'utf8' });
+  execFileSync('git', ['-c', 'user.name=kg', '-c', 'user.email=kg@example.invalid', 'commit', '-q', '-m', 'track a file'], { cwd: repo, encoding: 'utf8' });
+  const shiftedTime = new Date(Date.now() - 3_600_000);
+  fs.utimesSync(trackedFilePath, shiftedTime, shiftedTime);
+  return path.join(repo, '.git', 'index');
+}
+
+test('tracking and delta never rewrite the tracked repo git index, so concurrent git add cannot hit index.lock', () => {
+  const { repo, workId } = createLedgerRepoWithOpenWorkOrder();
+  const indexPath = commitTrackedFileThenMakeItStatDirty(repo);
+  const indexBytesBefore = fs.readFileSync(indexPath);
+  const indexModifiedMsBefore = fs.statSync(indexPath).mtimeMs;
+  isolatedGlimmervoidHome({ projects: [], knowledgeGraph: { enabled: true } });
+  assert.equal(runCapturingStdout(['add', 'task', 'Compare vendor prices']).exitCode, 0);
+  assert.equal(runCapturingStdout(['track', 'T-1', repo, workId]).exitCode, 0);
+  assert.equal(runCapturingStdout(['delta', '--json']).exitCode, 0);
+  assert.equal(fs.statSync(indexPath).mtimeMs, indexModifiedMsBefore);
+  assert.deepEqual(fs.readFileSync(indexPath), indexBytesBefore);
+});
+
+async function runEntryThroughSlowPipeReader(entryArgs: string[], scratchHome: string): Promise<{ exitCode: number | null; stdout: string }> {
+  const child = spawn(process.execPath, ['bin/glimmervoid.ts', ...entryArgs], {
+    cwd: path.join(import.meta.dirname, '..'),
+    env: { ...process.env, HOME: scratchHome, USERPROFILE: scratchHome, GLIMMERVOID_HOME: scratchHome, GLIMMERVOID_CONFIG: '' },
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  const childStdout = child.stdout;
+  assert.ok(childStdout);
+  childStdout.pause();
+  await Promise.race([once(child, 'exit'), delay(1500)]);
+  const stdoutChunks: Buffer[] = [];
+  childStdout.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
+  childStdout.resume();
+  const [exitCode] = await once(child, 'close');
+  return { exitCode, stdout: Buffer.concat(stdoutChunks).toString('utf8') };
+}
+
+test('kg output larger than a pipe buffer reaches a slow piped reader in full', async () => {
+  const scratchHome = fs.mkdtempSync(path.join(os.tmpdir(), 'kg-pipe-'));
+  fs.writeFileSync(path.join(scratchHome, 'config.json'), JSON.stringify({ knowledgeGraph: { enabled: true } }));
+  const databaseDirectory = path.join(scratchHome, 'graph');
+  try {
+    const { dependencies } = capturingDependencies(databaseDirectory);
+    const longBody = 'b'.repeat(2000);
+    const taskCount = 200;
+    for (let taskNumber = 1; taskNumber <= taskCount; taskNumber += 1) {
+      assert.equal(runKnowledgeGraphCli(['add', 'task', `Task ${taskNumber}`, '--body', longBody], dependencies), 0);
+    }
+    const listing = await runEntryThroughSlowPipeReader(['kg', 'ls', '--json', '--db', path.join(databaseDirectory, 'personal.sqlite')], scratchHome);
+    assert.equal(listing.exitCode, 0);
+    assert.ok(Buffer.byteLength(listing.stdout) > 256 * 1024);
+    assert.equal(JSON.parse(listing.stdout).length, taskCount);
+  } finally {
+    fs.rmSync(scratchHome, { recursive: true, force: true });
+  }
+});
+
+async function runEntryIntoReaderThatClosesEarly(entryArgs: string[], scratchHome: string): Promise<{ stderr: string }> {
+  const child = spawn(process.execPath, ['bin/glimmervoid.ts', ...entryArgs], {
+    cwd: path.join(import.meta.dirname, '..'),
+    env: { ...process.env, HOME: scratchHome, USERPROFILE: scratchHome, GLIMMERVOID_HOME: scratchHome, GLIMMERVOID_CONFIG: '' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const childStdout = child.stdout;
+  const childStderr = child.stderr;
+  assert.ok(childStdout);
+  assert.ok(childStderr);
+  const stderrChunks: Buffer[] = [];
+  childStderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+  childStdout.once('data', () => childStdout.destroy());
+  await once(child, 'close');
+  return { stderr: Buffer.concat(stderrChunks).toString('utf8') };
+}
+
+test('kg output piped into a reader that closes early ends quietly instead of crashing on EPIPE', async () => {
+  const scratchHome = fs.mkdtempSync(path.join(os.tmpdir(), 'kg-epipe-'));
+  fs.writeFileSync(path.join(scratchHome, 'config.json'), JSON.stringify({ knowledgeGraph: { enabled: true } }));
+  const databaseDirectory = path.join(scratchHome, 'graph');
+  try {
+    const { dependencies } = capturingDependencies(databaseDirectory);
+    const longBody = 'b'.repeat(2000);
+    for (let taskNumber = 1; taskNumber <= 100; taskNumber += 1) {
+      assert.equal(runKnowledgeGraphCli(['add', 'task', `Task ${taskNumber}`, '--body', longBody], dependencies), 0);
+    }
+    const { stderr } = await runEntryIntoReaderThatClosesEarly(['kg', 'export', '--db', path.join(databaseDirectory, 'personal.sqlite')], scratchHome);
+    assert.doesNotMatch(stderr, /Unhandled 'error'|EPIPE/);
+  } finally {
+    fs.rmSync(scratchHome, { recursive: true, force: true });
+  }
 });

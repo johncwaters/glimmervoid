@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
-import { findEdgeViolation, findIntegrityViolations, parseNodeProperties } from './graph-schema.ts';
+import { containsUnsafeTextCharacter, findEdgeViolation, findIntegrityViolations, hasVisibleText, listKnownPropertyKeys, parseNodeProperties } from './graph-schema.ts';
 import type { GraphEdge, GraphNode, GraphSchema } from './graph-schema.ts';
 
 const NodeRow = z.object({
@@ -86,6 +86,15 @@ function withoutEmptyValues(properties: Record<string, unknown>): Record<string,
   return Object.fromEntries(Object.entries(properties).filter(([, value]) => value !== undefined && value !== ''));
 }
 
+const BUSY_TIMEOUT_MS = 5_000;
+
+function normalizeTitle(title: string): string {
+  const trimmedTitle = title.trim();
+  if (!hasVisibleText(trimmedTitle)) throw new Error('title must not be empty');
+  if (containsUnsafeTextCharacter(trimmedTitle)) throw new Error('title must be one line without control or bidi characters');
+  return trimmedTitle;
+}
+
 function refuseForeignDatabase(database: DatabaseSync, databasePath: string): void {
   const hasGraphMeta = database.prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = 'graph_meta'").get() !== undefined;
   if (hasGraphMeta) return;
@@ -98,12 +107,13 @@ function refuseForeignDatabase(database: DatabaseSync, databasePath: string): vo
 export type GraphStore = ReturnType<typeof openGraphStore>;
 
 export function openGraphStore(databasePath: string, schema: GraphSchema, currentTimestamp: () => string = () => new Date().toISOString()) {
-  const database = new DatabaseSync(databasePath);
+  const database = new DatabaseSync(databasePath, { timeout: BUSY_TIMEOUT_MS });
   refuseForeignDatabase(database, databasePath);
   database.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;');
   database.exec(tableDefinitions);
 
   const runInTransaction = <T>(work: () => T): T => {
+    if (database.isTransaction) return work();
     database.exec('BEGIN IMMEDIATE');
     try {
       const value = work();
@@ -160,14 +170,14 @@ export function openGraphStore(databasePath: string, schema: GraphSchema, curren
 
   const addNode = (kind: string, title: string, rawProperties: Record<string, unknown> = {}, body = ''): GraphNode => {
     const properties = parsePropertiesOrThrow(kind, withoutEmptyValues(rawProperties));
-    if (title.trim() === '') throw new Error('title must not be empty');
+    const normalizedTitle = normalizeTitle(title);
     const idPrefix = schema.kinds[kind]?.idPrefix ?? kind;
     return runInTransaction(() => {
       const timestamp = currentTimestamp();
       const id = claimNextId(idPrefix);
       database
         .prepare('INSERT INTO nodes (id, kind, title, body, properties, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(id, kind, title.trim(), body, JSON.stringify(properties), timestamp, timestamp);
+        .run(id, kind, normalizedTitle, body, JSON.stringify(properties), timestamp, timestamp);
       const node = requireNode(id);
       writeSearchEntry(node);
       return node;
@@ -175,15 +185,14 @@ export function openGraphStore(databasePath: string, schema: GraphSchema, curren
   };
 
   const updateNode = (id: string, changes: NodeChanges): GraphNode => {
-    const existing = requireNode(id);
-    const mergedProperties = withoutEmptyValues({ ...existing.properties, ...changes.properties });
-    const properties = parsePropertiesOrThrow(existing.kind, mergedProperties);
-    const title = changes.title?.trim() ?? existing.title;
-    if (title === '') throw new Error('title must not be empty');
+    const title = changes.title === undefined ? undefined : normalizeTitle(changes.title);
     return runInTransaction(() => {
+      const existing = requireNode(id);
+      const mergedProperties = withoutEmptyValues({ ...existing.properties, ...changes.properties });
+      const properties = parsePropertiesOrThrow(existing.kind, mergedProperties);
       database
         .prepare('UPDATE nodes SET title = ?, body = ?, properties = ?, updated_at = ? WHERE id = ?')
-        .run(title, changes.body ?? existing.body, JSON.stringify(properties), currentTimestamp(), id);
+        .run(title ?? existing.title, changes.body ?? existing.body, JSON.stringify(properties), currentTimestamp(), id);
       const node = requireNode(id);
       writeSearchEntry(node);
       return node;
@@ -239,7 +248,24 @@ export function openGraphStore(databasePath: string, schema: GraphSchema, curren
   const unlink = (fromId: string, edgeType: string, toId: string): boolean =>
     Number(database.prepare('DELETE FROM edges WHERE edge_type = ? AND from_id = ? AND to_id = ?').run(edgeType, fromId, toId).changes) > 0;
 
+  const refuseUnknownFilters = (kind: string | undefined, propertyFilters: Record<string, string>): void => {
+    if (kind !== undefined && !schema.kinds[kind]) throw new Error(`unknown kind "${kind}"; known: ${Object.keys(schema.kinds).join(', ')}`);
+    const filterKeys = Object.keys(propertyFilters);
+    if (filterKeys.length === 0) return;
+    const kindsInScope = kind === undefined ? Object.keys(schema.kinds) : [kind];
+    const knownKeysPerKind = kindsInScope.map((kindInScope) => listKnownPropertyKeys(schema, kindInScope));
+    if (knownKeysPerKind.includes(null)) return;
+    const knownKeys = new Set(knownKeysPerKind.flatMap((keys) => keys ?? []));
+    const unknownKey = filterKeys.find((key) => !knownKeys.has(key));
+    if (unknownKey !== undefined) throw new Error(`unknown field "${unknownKey}"${kind === undefined ? '' : ` for ${kind}`}; known: ${[...knownKeys].join(', ')}`);
+  };
+
+  const refuseUnknownEdgeType = (edgeType: string): void => {
+    if (!schema.edges[edgeType]) throw new Error(`unknown edge type "${edgeType}"; known: ${Object.keys(schema.edges).join(', ')}`);
+  };
+
   const listNodes = (kind?: string, propertyFilters: Record<string, string> = {}): GraphNode[] => {
+    refuseUnknownFilters(kind, propertyFilters);
     const rows = kind === undefined
       ? database.prepare('SELECT * FROM nodes ORDER BY created_at, id').all()
       : database.prepare('SELECT * FROM nodes WHERE kind = ? ORDER BY created_at, id').all(kind);
@@ -264,6 +290,7 @@ export function openGraphStore(databasePath: string, schema: GraphSchema, curren
 
   const walk = (startId: string, edgeType: string, direction: 'outgoing' | 'incoming', maxDepth = 25): WalkStep[] => {
     requireNode(startId);
+    refuseUnknownEdgeType(edgeType);
     const [nextColumn, currentColumn] = direction === 'outgoing' ? ['to_id', 'from_id'] : ['from_id', 'to_id'];
     const rows = database
       .prepare(`
@@ -306,6 +333,7 @@ export function openGraphStore(databasePath: string, schema: GraphSchema, curren
     walk,
     search,
     checkIntegrity,
+    transaction: runInTransaction,
     close: () => database.close(),
   };
 }

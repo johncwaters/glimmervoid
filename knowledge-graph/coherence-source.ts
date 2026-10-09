@@ -1,22 +1,12 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { DecisionSummary, RepoSnapshot, WorkOrderSummary } from './coherence-delta.ts';
+import { stripUnsafeTextCharacters } from './graph-schema.ts';
 
-const LAST_C0_CONTROL_CODE = 0x1f;
-const FIRST_DELETE_OR_C1_CONTROL_CODE = 0x7f;
-const LAST_C1_CONTROL_CODE = 0x9f;
+const LedgerText = z.string().transform(stripUnsafeTextCharacters);
 
-function isControlCharacter(character: string): boolean {
-  const code = character.codePointAt(0) ?? 0;
-  return code <= LAST_C0_CONTROL_CODE || (code >= FIRST_DELETE_OR_C1_CONTROL_CODE && code <= LAST_C1_CONTROL_CODE);
-}
-
-function stripControlCharacters(text: string): string {
-  return [...text].filter((character) => !isControlCharacter(character)).join('');
-}
-
-const LedgerText = z.string().transform(stripControlCharacters);
+const CoherenceRefusal = z.looseObject({ error: LedgerText });
 
 const WorkInspectOutput = z.looseObject({
   work: z.array(z.looseObject({
@@ -46,22 +36,58 @@ const JournalRow = z.looseObject({
 
 export type CoherenceRunner = (repo: string, commandArguments: readonly string[]) => string;
 
-function readCompleteJournalLines(filePath: string): string[] {
-  const lines = readFileSync(filePath, 'utf8').split('\n');
+const JOURNAL_OPEN_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
+
+function readRegularFile(filePath: string, displayName: string): string {
+  if (!lstatSync(filePath).isFile()) throw new Error(`${displayName} is not a regular file`);
+  const fileDescriptor = openSync(filePath, JOURNAL_OPEN_FLAGS);
+  try {
+    if (!fstatSync(fileDescriptor).isFile()) throw new Error(`${displayName} is not a regular file`);
+    return readFileSync(fileDescriptor, 'utf8');
+  } finally {
+    closeSync(fileDescriptor);
+  }
+}
+
+function readCompleteJournalLines(filePath: string, displayName: string): string[] {
+  const lines = readRegularFile(filePath, displayName).split('\n');
   return lines.slice(0, -1).filter((line) => line.trim() !== '');
+}
+
+function findEarliestRetractionAtById(rows: readonly z.infer<typeof JournalRow>[]): Map<string, string> {
+  const retractedAtById = new Map<string, string>();
+  for (const row of rows) {
+    if (row.kind !== 'retraction' || !row.supersedes) continue;
+    const knownAt = retractedAtById.get(row.supersedes);
+    if (knownAt !== undefined && Date.parse(knownAt) <= Date.parse(row.at)) continue;
+    retractedAtById.set(row.supersedes, row.at);
+  }
+  return retractedAtById;
+}
+
+function listJournalFiles(journalDirectory: string, relativeDirectory: string): string[] {
+  return readdirSync(join(journalDirectory, relativeDirectory), { withFileTypes: true }).flatMap((entry) => {
+    const relativePath = join(relativeDirectory, entry.name);
+    if (entry.name.endsWith('.jsonl')) return [relativePath];
+    if (entry.isSymbolicLink()) throw new Error(`${relativePath} is a symbolic link`);
+    if (entry.isDirectory()) return listJournalFiles(journalDirectory, relativePath);
+    return [];
+  });
 }
 
 function readDecisionJournal(repo: string): DecisionSummary[] {
   const journalDirectory = join(repo, '.coherence', 'decisions');
-  if (!existsSync(journalDirectory)) return [];
-  const journalFiles = readdirSync(journalDirectory, { recursive: true, encoding: 'utf8' }).filter((name) => name.endsWith('.jsonl'));
+  const journalDirectoryStats = lstatSync(journalDirectory, { throwIfNoEntry: false });
+  if (journalDirectoryStats === undefined) return [];
+  if (!journalDirectoryStats.isDirectory()) throw new Error('.coherence/decisions is not a directory');
+  const journalFiles = listJournalFiles(journalDirectory, '');
   const rows = journalFiles.flatMap((fileName) =>
-    readCompleteJournalLines(join(journalDirectory, fileName)).map((line, index) => {
+    readCompleteJournalLines(join(journalDirectory, fileName), fileName).map((line, index) => {
       const parsed = JournalRow.safeParse(JSON.parse(line));
       if (!parsed.success) throw new Error(`unreadable journal row ${fileName}:${index + 1}`);
       return parsed.data;
     }));
-  const retractedIds = new Set(rows.filter((row) => row.kind === 'retraction' && row.supersedes).map((row) => row.supersedes));
+  const retractedAtById = findEarliestRetractionAtById(rows);
   return rows
     .filter((row) => row.kind === 'decision')
     .map((row) => ({
@@ -70,7 +96,8 @@ function readDecisionJournal(repo: string): DecisionSummary[] {
       because: row.because ?? '',
       at: row.at,
       workId: row.work ?? null,
-      isRetracted: retractedIds.has(row.id),
+      isRetracted: retractedAtById.has(row.id),
+      retractedAt: retractedAtById.get(row.id) ?? null,
     }))
     .toSorted((left, right) => left.at.localeCompare(right.at));
 }
@@ -78,14 +105,17 @@ function readDecisionJournal(repo: string): DecisionSummary[] {
 function describeReadFailure(error: unknown): string {
   if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return 'coherence CLI not found';
   const rawReason = error instanceof Error ? error.message.split('\n')[0] ?? 'unknown error' : String(error);
-  return stripControlCharacters(rawReason);
+  return stripUnsafeTextCharacters(rawReason);
 }
 
 export function readRepoSnapshot(repo: string, runCoherence: CoherenceRunner): RepoSnapshot {
   const runCoherenceJson = (commandArguments: readonly string[]): unknown => JSON.parse(runCoherence(repo, commandArguments));
   if (!existsSync(join(repo, '.coherence'))) return { isAvailable: false, reason: 'no .coherence ledger in this repo' };
   try {
-    const workInspect = WorkInspectOutput.parse(runCoherenceJson(['work', 'inspect', '--json']));
+    const workInspectJson = runCoherenceJson(['work', 'inspect', '--json']);
+    const workRefusal = CoherenceRefusal.safeParse(workInspectJson);
+    if (workRefusal.success) return { isAvailable: false, reason: `work ledger refused: ${workRefusal.data.error}` };
+    const workInspect = WorkInspectOutput.parse(workInspectJson);
     const orient = OrientOutput.parse(runCoherenceJson(['orient', '--json']));
     const workOrders: WorkOrderSummary[] = workInspect.work.map((entry) => ({
       id: entry.work,

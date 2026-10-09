@@ -7,6 +7,7 @@ import { runKnowledgeGraphCli } from '../knowledge-graph/cli.ts';
 import { BrowserConfig } from '../shared/contracts/config.ts';
 import { execFileSync } from './child-process-safe.ts';
 import { decideConfigPath, glimmervoidHomeDir } from './core/config-path-core.ts';
+import { errorMessage } from './core/text-core.ts';
 import { resolvePackageBin } from './runtime-paths.ts';
 
 const COHERENCE_TIMEOUT_MS = 30_000;
@@ -15,14 +16,20 @@ const COHERENCE_MAX_BUFFER_BYTES = 16 * 1024 * 1024;
 const COHERENCE_REFUSE_EXIT_STATUS = 2;
 const CoherenceRefusalExit = z.looseObject({ status: z.literal(COHERENCE_REFUSE_EXIT_STATUS), stdout: z.string().min(1) });
 
-const KnowledgeGraphGate =z.looseObject({ knowledgeGraph: BrowserConfig.shape.knowledgeGraph });
+const KnowledgeGraphGate = z.looseObject({ knowledgeGraph: BrowserConfig.shape.knowledgeGraph });
 
 const KNOWLEDGE_GRAPH_DISABLED_MESSAGE = 'glimmervoid kg is experimental and off. Turn on Settings > Lanes > Knowledge graph, or set knowledgeGraph.enabled in config.json.';
 
-function isKnowledgeGraphEnabled(configPath: string | null): boolean {
-  if (!configPath) return false;
-  const parsed = KnowledgeGraphGate.safeParse(JSON.parse(fs.readFileSync(configPath, 'utf8')));
-  return parsed.success && parsed.data.knowledgeGraph?.enabled === true;
+type KnowledgeGraphGateDecision = { isEnabled: boolean; loadError: string | null };
+
+function decideKnowledgeGraphGate(configPath: string | null): KnowledgeGraphGateDecision {
+  if (!configPath) return { isEnabled: false, loadError: null };
+  try {
+    const parsed = KnowledgeGraphGate.safeParse(JSON.parse(fs.readFileSync(configPath, 'utf8')));
+    return { isEnabled: parsed.success && parsed.data.knowledgeGraph?.enabled === true, loadError: null };
+  } catch (error) {
+    return { isEnabled: false, loadError: `Could not load ${configPath}: ${errorMessage(error)}` };
+  }
 }
 
 function runBundledCoherence(repo: string, commandArguments: readonly string[]): string {
@@ -31,6 +38,7 @@ function runBundledCoherence(repo: string, commandArguments: readonly string[]):
   try {
     return execFileSync(process.execPath, [coherenceCliPath, ...commandArguments], {
       cwd: repo,
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
       encoding: 'utf8',
       timeout: COHERENCE_TIMEOUT_MS,
       maxBuffer: COHERENCE_MAX_BUFFER_BYTES,
@@ -51,7 +59,12 @@ function readRefusalOutput(error: unknown): string | null {
 export function runKnowledgeGraphCommand(commandArguments: string[]): number {
   const homeDirectory = glimmervoidHomeDir(os.homedir(), process.env);
   const decidedConfig = decideConfigPath({ env: process.env, homeDir: homeDirectory }, (candidate) => fs.existsSync(candidate));
-  if (!isKnowledgeGraphEnabled(decidedConfig.path)) {
+  const gate = decideKnowledgeGraphGate(decidedConfig.path);
+  if (gate.loadError) {
+    console.error(`kg: ${gate.loadError}`);
+    return 1;
+  }
+  if (!gate.isEnabled) {
     console.error(KNOWLEDGE_GRAPH_DISABLED_MESSAGE);
     return 1;
   }

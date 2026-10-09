@@ -48,6 +48,29 @@ export type EdgeCandidate = {
   targetReachesSource: boolean;
 };
 
+const UNSAFE_TEXT_CHARACTERS = /[\p{Cc}\p{Zl}\p{Zp}\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu;
+
+const INVISIBLE_TEXT_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\s]/gu;
+
+export function hasVisibleText(text: string): boolean {
+  return text.replace(INVISIBLE_TEXT_CHARACTERS, '') !== '';
+}
+
+export function containsUnsafeTextCharacter(text: string): boolean {
+  return text.match(UNSAFE_TEXT_CHARACTERS) !== null;
+}
+
+export function stripUnsafeTextCharacters(text: string): string {
+  return text.replace(UNSAFE_TEXT_CHARACTERS, '');
+}
+
+export function listKnownPropertyKeys(schema: GraphSchema, kind: string): string[] | null {
+  const properties = schema.kinds[kind]?.properties;
+  if (properties === undefined) return null;
+  if (!('shape' in properties) || typeof properties.shape !== 'object' || properties.shape === null) return null;
+  return Object.keys(properties.shape);
+}
+
 function isKindAllowed(allowedKinds: readonly string[] | 'any', kind: string): boolean {
   return allowedKinds === 'any' || allowedKinds.includes(kind);
 }

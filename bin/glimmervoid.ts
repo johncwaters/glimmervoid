@@ -9,6 +9,7 @@ import type { CustomAgentDeclaration } from '../shared/contracts/config.ts';
 import { execSync } from '../server/child-process-safe.ts';
 import { renderTable } from '../server/core/ascii-figure-core.ts';
 import { decideConfigPath, glimmervoidHomeDir } from '../server/core/config-path-core.ts';
+import { parseCommandLine } from '../server/core/command-line-core.ts';
 import { nodePtyRebuildHint } from '../server/core/node-pty-preflight-core.ts';
 import { probeNodePty } from '../server/node-pty-preflight.ts';
 import { sandboxDoctorRows } from '../server/core/sandbox-deps-core.ts';
@@ -43,80 +44,88 @@ Options:
   --version         Show version number
   --help, -h        Show this help message`;
 
-if (args.includes('--help') || args.includes('-h')) {
+const commandLine = parseCommandLine(args);
+
+if (commandLine.kind === 'help') {
   console.log(USAGE);
   process.exit(0);
 }
 
-if (args.includes('--version')) {
+if (commandLine.kind === 'version') {
   console.log(pkg.version);
   process.exit(0);
 }
 
-function getArgValue(flag: string): string | null {
-  const idx = args.indexOf(flag);
-  if (idx !== -1 && idx + 1 < args.length) {
-    return args[idx + 1];
-  }
-  return null;
+if (commandLine.globalOptions.configPath) {
+  process.env.GLIMMERVOID_CONFIG = commandLine.globalOptions.configPath;
 }
 
-const configArg = getArgValue('--config');
-if (configArg) {
-  process.env.GLIMMERVOID_CONFIG = configArg;
+if (commandLine.globalOptions.port) {
+  process.env.GLIMMERVOID_PORT = commandLine.globalOptions.port;
 }
 
-const portArg = getArgValue('--port');
-if (portArg) {
-  process.env.GLIMMERVOID_PORT = portArg;
-}
-
-type SubcommandRunner = (commandArgs: string[]) => Promise<number>;
+type SubcommandRunner = (subcommandArgs: string[], subcommandName: string) => Promise<number>;
 
 const SUBCOMMAND_RUNNERS = new Map<string, SubcommandRunner>([
   ['doctor', async () => {
     await runDoctor();
     return 0;
   }],
-  ['pair', async (commandArgs) => {
+  ['pair', async (subcommandArgs) => {
     const { runPairCli } = await import('../server/pair-cli.ts');
-    return runPairCli(commandArgs.slice(1));
+    return runPairCli(subcommandArgs);
   }],
-  ['agent', async (commandArgs) => {
+  ['agent', async (subcommandArgs) => {
     const { runAgentSetupCli } = await import('../server/agent-setup-cli.ts');
-    return runAgentSetupCli(commandArgs.slice(1));
+    return runAgentSetupCli(subcommandArgs);
   }],
-  ['kg', async (commandArgs) => {
+  ['kg', async (subcommandArgs) => {
     const { runKnowledgeGraphCommand } = await import('../server/knowledge-graph-cli.ts');
-    return runKnowledgeGraphCommand(commandArgs.slice(1));
+    return runKnowledgeGraphCommand(subcommandArgs);
   }],
-  ['visions', async (commandArgs) => {
+  ['visions', async (subcommandArgs) => {
     const { runVisionsCli } = await import('../server/visions-cli.ts');
-    return runVisionsCli(commandArgs.slice(1));
+    return runVisionsCli(subcommandArgs);
   }],
-  ...AGENT_API_VERBS.map((verb): [string, SubcommandRunner] => [verb, async (commandArgs) => {
+  ...AGENT_API_VERBS.map((verb): [string, SubcommandRunner] => [verb, async (subcommandArgs, subcommandName) => {
     const { runAgentApiCli } = await import('../server/agent-api-cli.ts');
-    return runAgentApiCli(commandArgs);
+    return runAgentApiCli([subcommandName, ...subcommandArgs]);
   }]),
 ]);
 
+function flushStream(stream: NodeJS.WriteStream): Promise<void> {
+  return new Promise((resolve) => {
+    stream.once('error', () => resolve());
+    stream.write('', () => resolve());
+  });
+}
+
+async function exitAfterOutputDrains(exitCode: number): Promise<never> {
+  await Promise.all([flushStream(process.stdout), flushStream(process.stderr)]);
+  process.exit(exitCode);
+}
+
+async function runSubcommandToExitCode(runSubcommand: SubcommandRunner, subcommandArgs: string[], subcommandName: string): Promise<number> {
+  try {
+    return await runSubcommand(subcommandArgs, subcommandName);
+  } catch (err) {
+    console.error(messageOf(err));
+    return 1;
+  }
+}
+
 async function dispatchCommandLine(): Promise<void> {
-  const requestedSubcommand = args.includes('--doctor') ? 'doctor' : args[0];
-  if (!requestedSubcommand || requestedSubcommand.startsWith('-')) {
+  if (commandLine.kind !== 'subcommand') {
     await import('../server/index.ts');
     return;
   }
-  const runSubcommand = SUBCOMMAND_RUNNERS.get(requestedSubcommand);
+  const runSubcommand = SUBCOMMAND_RUNNERS.get(commandLine.name);
   if (!runSubcommand) {
-    console.error(`Unknown command: ${requestedSubcommand}\n${USAGE}`);
-    process.exit(1);
+    console.error(`Unknown command: ${commandLine.name}\n${USAGE}`);
+    await exitAfterOutputDrains(1);
+    return;
   }
-  try {
-    process.exit(await runSubcommand(args));
-  } catch (err) {
-    console.error(messageOf(err));
-    process.exit(1);
-  }
+  await exitAfterOutputDrains(await runSubcommandToExitCode(runSubcommand, commandLine.subcommandArgs, commandLine.name));
 }
 
 await dispatchCommandLine();

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { buildCoherenceDelta, inferRecordKind } from '../knowledge-graph/coherence-delta.ts';
 import type { RepoSnapshot, TrackedRecord } from '../knowledge-graph/coherence-delta.ts';
 import { readRepoSnapshot } from '../knowledge-graph/coherence-source.ts';
+import { execFileSync } from '../server/child-process-safe.ts';
 
 const repo = '/repos/vendor';
 
@@ -52,8 +53,8 @@ test('since narrows to work that moved and decisions made after it', () => {
   const snapshot = snapshotWith({
     workOrders: [{ id: 'wrk-17ea723e85439d2a', objective: 'Compare prices', state: 'active', readiness: 'active', lastEventAt: '2026-10-08T12:00:00Z' }],
     decisions: [
-      { id: 'd-00000001', chose: 'old call', because: 'x', at: '2026-10-01T00:00:00Z', workId: 'wrk-17ea723e85439d2a', isRetracted: false },
-      { id: 'd-00000002', chose: 'new call', because: 'y', at: '2026-10-08T11:00:00Z', workId: 'wrk-17ea723e85439d2a', isRetracted: false },
+      { id: 'd-00000001', chose: 'old call', because: 'x', at: '2026-10-01T00:00:00Z', workId: 'wrk-17ea723e85439d2a', isRetracted: false, retractedAt: null },
+      { id: 'd-00000002', chose: 'new call', because: 'y', at: '2026-10-08T11:00:00Z', workId: 'wrk-17ea723e85439d2a', isRetracted: false, retractedAt: null },
     ],
   });
   const [report] = buildCoherenceDelta([trackedWork('wrk-17ea723e85439d2a', 'doing')], new Map([[repo, snapshot]]), '2026-10-05T00:00:00Z');
@@ -92,9 +93,9 @@ test('the journal reader resolves retractions and ignores a row still being appe
     : '{"action":"steady","reasons":[],"consequences":{"unverifiedCompletedWork":[]}}';
   const snapshot = readRepoSnapshot(fixtureRepo, fakeCoherence);
   assert.ok(snapshot.isAvailable);
-  assert.deepEqual(snapshot.decisions.map((decision) => [decision.id, decision.isRetracted, decision.workId]), [
-    ['d-aaaaaaaa', false, 'wrk-17ea723e85439d2a'],
-    ['d-bbbbbbbb', true, null],
+  assert.deepEqual(snapshot.decisions.map((decision) => [decision.id, decision.isRetracted, decision.retractedAt, decision.workId]), [
+    ['d-aaaaaaaa', false, null, 'wrk-17ea723e85439d2a'],
+    ['d-bbbbbbbb', true, '2026-10-08T03:00:00Z', null],
   ]);
 });
 
@@ -132,4 +133,118 @@ test('an unreadable journal row leaves the repo unavailable with a reason free o
   assert.ok(!snapshot.isAvailable);
   assert.notEqual(snapshot.reason, '');
   assert.doesNotMatch(snapshot.reason, /[\u0000-\u001f\u007f-\u009f]/);
+});
+
+const steadyCoherence = (_repo: string, commandArguments: readonly string[]) => commandArguments[0] === 'work'
+  ? '{"work":[]}'
+  : '{"action":"steady","reasons":[],"consequences":{"unverifiedCompletedWork":[]}}';
+
+function createJournalRepo(): { fixtureRepo: string; journalDirectory: string } {
+  const fixtureRepo = mkdtempSync(join(tmpdir(), 'kg-coherence-'));
+  const journalDirectory = join(fixtureRepo, '.coherence', 'decisions');
+  mkdirSync(journalDirectory, { recursive: true });
+  return { fixtureRepo, journalDirectory };
+}
+
+test('since compares instants, so an offset timestamp still catches events after it', () => {
+  const snapshot = snapshotWith({
+    workOrders: [{ id: 'wrk-17ea723e85439d2a', objective: 'Compare prices', state: 'active', readiness: 'active', lastEventAt: '2026-10-09T08:00:00Z' }],
+    decisions: [{ id: 'd-00000001', chose: 'cache', because: 'x', at: '2026-10-09T07:30:00Z', workId: 'wrk-17ea723e85439d2a', isRetracted: false, retractedAt: null }],
+  });
+  const [report] = buildCoherenceDelta([trackedWork('wrk-17ea723e85439d2a', 'doing')], new Map([[repo, snapshot]]), '2026-10-09T09:00:00+02:00');
+  assert.ok(report?.isAvailable);
+  assert.deepEqual(report.records[0]?.findings.map((finding) => finding.kind), ['moved-since']);
+  assert.deepEqual(report.records[0]?.decisions.map((decision) => decision.id), ['d-00000001']);
+});
+
+test('a retraction inside the since window counts as movement for the decision and its work order', () => {
+  const retractedOldDecision = { id: 'd-00000001', chose: 'old call', because: 'x', at: '2026-10-01T00:00:00Z', workId: 'wrk-17ea723e85439d2a', isRetracted: true, retractedAt: '2026-10-08T00:00:00Z' };
+  const snapshot = snapshotWith({
+    workOrders: [{ id: 'wrk-17ea723e85439d2a', objective: 'Compare prices', state: 'active', readiness: 'active', lastEventAt: '2026-10-01T00:00:00Z' }],
+    decisions: [retractedOldDecision],
+  });
+  const [workReport] = buildCoherenceDelta([trackedWork('wrk-17ea723e85439d2a', 'doing')], new Map([[repo, snapshot]]), '2026-10-05T00:00:00Z');
+  assert.ok(workReport?.isAvailable);
+  assert.deepEqual(workReport.records[0]?.decisions.map((decision) => decision.id), ['d-00000001']);
+  const trackedDecision: TrackedRecord = { ...trackedWork('d-00000001', 'doing'), trackingKind: 'note', record: 'decision' };
+  assert.deepEqual(findingKindsFor(trackedDecision, snapshot, '2026-10-05T00:00:00Z'), ['retracted', 'moved-since']);
+  assert.deepEqual(findingKindsFor(trackedDecision, snapshot, '2026-10-09T00:00:00Z'), ['retracted']);
+});
+
+test('a symlinked journal file leaves the repo unavailable instead of being followed', () => {
+  const { fixtureRepo, journalDirectory } = createJournalRepo();
+  const outsideFile = join(mkdtempSync(join(tmpdir(), 'kg-outside-')), 'elsewhere.jsonl');
+  writeFileSync(outsideFile, `${JSON.stringify({ id: 'd-aaaaaaaa', kind: 'decision', at: '2026-10-08T01:00:00Z', chose: 'outside', because: 'x' })}\n`);
+  symlinkSync(outsideFile, join(journalDirectory, 's-link.jsonl'));
+  assert.deepEqual(readRepoSnapshot(fixtureRepo, steadyCoherence), { isAvailable: false, reason: 's-link.jsonl is not a regular file' });
+});
+
+test('a symlinked directory inside the journal leaves the repo unavailable without being walked', () => {
+  const { fixtureRepo, journalDirectory } = createJournalRepo();
+  const outsideDirectory = mkdtempSync(join(tmpdir(), 'kg-outside-'));
+  writeFileSync(join(outsideDirectory, 's-outside.jsonl'), `${JSON.stringify({ id: 'd-aaaaaaaa', kind: 'decision', at: '2026-10-08T01:00:00Z', chose: 'outside', because: 'x' })}\n`);
+  symlinkSync(outsideDirectory, join(journalDirectory, 'nested'));
+  assert.deepEqual(readRepoSnapshot(fixtureRepo, steadyCoherence), { isAvailable: false, reason: 'nested is a symbolic link' });
+});
+
+test('a symlinked decisions directory leaves the repo unavailable without being followed', () => {
+  const { fixtureRepo, journalDirectory } = createJournalRepo();
+  const outsideDirectory = mkdtempSync(join(tmpdir(), 'kg-outside-'));
+  writeFileSync(join(outsideDirectory, 's-outside.jsonl'), `${JSON.stringify({ id: 'd-aaaaaaaa', kind: 'decision', at: '2026-10-08T01:00:00Z', chose: 'outside', because: 'x' })}\n`);
+  rmSync(journalDirectory, { recursive: true });
+  symlinkSync(outsideDirectory, journalDirectory);
+  assert.deepEqual(readRepoSnapshot(fixtureRepo, steadyCoherence), { isAvailable: false, reason: '.coherence/decisions is not a directory' });
+});
+
+test('journal files in a real subdirectory are still read', () => {
+  const { fixtureRepo, journalDirectory } = createJournalRepo();
+  mkdirSync(join(journalDirectory, 'nested'));
+  writeFileSync(join(journalDirectory, 'nested', 's-one.jsonl'), `${JSON.stringify({ id: 'd-aaaaaaaa', kind: 'decision', at: '2026-10-08T01:00:00Z', chose: 'nested', because: 'x' })}\n`);
+  const snapshot = readRepoSnapshot(fixtureRepo, steadyCoherence);
+  assert.ok(snapshot.isAvailable);
+  assert.deepEqual(snapshot.decisions.map((decision) => decision.chose), ['nested']);
+});
+
+test('a directory named like a journal file leaves the repo unavailable', () => {
+  const { fixtureRepo, journalDirectory } = createJournalRepo();
+  mkdirSync(join(journalDirectory, 's-dir.jsonl'));
+  assert.deepEqual(readRepoSnapshot(fixtureRepo, steadyCoherence), { isAvailable: false, reason: 's-dir.jsonl is not a regular file' });
+});
+
+test('a FIFO named like a journal file leaves the repo unavailable without blocking on it', { skip: process.platform === 'win32' }, () => {
+  const { fixtureRepo, journalDirectory } = createJournalRepo();
+  execFileSync('mkfifo', [join(journalDirectory, 's-pipe.jsonl')]);
+  assert.deepEqual(readRepoSnapshot(fixtureRepo, steadyCoherence), { isAvailable: false, reason: 's-pipe.jsonl is not a regular file' });
+});
+
+test('a work ledger refusal reports the text coherence gave', () => {
+  const { fixtureRepo } = createJournalRepo();
+  const refusingCoherence = (_repo: string, commandArguments: readonly string[]) => commandArguments[0] === 'work'
+    ? JSON.stringify({ error: 'stray.txt is an unexpected work-ledger entry; only session .jsonl files belong here', usage: ['usage: coherence work inspect'] })
+    : '{"action":"refuse","reasons":[],"consequences":{"unverifiedCompletedWork":[]}}';
+  assert.deepEqual(readRepoSnapshot(fixtureRepo, refusingCoherence), {
+    isAvailable: false,
+    reason: 'work ledger refused: stray.txt is an unexpected work-ledger entry; only session .jsonl files belong here',
+  });
+});
+
+test('bidi controls in ledger text are stripped before they reach a snapshot', () => {
+  const { fixtureRepo, journalDirectory } = createJournalRepo();
+  const formatCharacters = [0x202a, 0x202e, 0x2066, 0x2069, 0x200e, 0x200f, 0x061c].map((code) => String.fromCharCode(code)).join('');
+  writeFileSync(join(journalDirectory, 's-one.jsonl'), `${JSON.stringify({ id: 'd-aaaaaaaa', kind: 'decision', at: '2026-10-08T01:00:00Z', chose: `keep${formatCharacters}cache`, because: 'ok' })}\n`);
+  const snapshot = readRepoSnapshot(fixtureRepo, steadyCoherence);
+  assert.ok(snapshot.isAvailable);
+  assert.equal(snapshot.decisions[0]?.chose, 'keepcache');
+});
+
+test('zero width joiners in ledger text survive so Persian words and emoji sequences stay intact', () => {
+  const { fixtureRepo, journalDirectory } = createJournalRepo();
+  const zeroWidthNonJoiner = String.fromCharCode(0x200c);
+  const zeroWidthJoiner = String.fromCharCode(0x200d);
+  const persianWord = `${String.fromCharCode(0x0645, 0x06cc)}${zeroWidthNonJoiner}${String.fromCharCode(0x062e, 0x0648, 0x0627, 0x0647, 0x0645)}`;
+  const familyEmoji = `${String.fromCodePoint(0x1f468)}${zeroWidthJoiner}${String.fromCodePoint(0x1f469)}`;
+  writeFileSync(join(journalDirectory, 's-one.jsonl'), `${JSON.stringify({ id: 'd-aaaaaaaa', kind: 'decision', at: '2026-10-08T01:00:00Z', chose: `${persianWord} ${familyEmoji}`, because: 'ok' })}\n`);
+  const snapshot = readRepoSnapshot(fixtureRepo, steadyCoherence);
+  assert.ok(snapshot.isAvailable);
+  assert.equal(snapshot.decisions[0]?.chose, `${persianWord} ${familyEmoji}`);
 });

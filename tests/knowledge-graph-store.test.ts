@@ -1,16 +1,43 @@
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { Worker } from 'node:worker_threads';
 import { z } from 'zod';
-import type { GraphSchema } from '../knowledge-graph/graph-schema.ts';
+import type { GraphNode, GraphSchema } from '../knowledge-graph/graph-schema.ts';
 import { openGraphStore } from '../knowledge-graph/graph-store.ts';
-import { collectNextActions, renderMarkdown } from '../knowledge-graph/graph-views.ts';
+import { collectNextActions, formatNodeLine, renderMarkdown } from '../knowledge-graph/graph-views.ts';
 import { personalSchema } from '../knowledge-graph/personal-schema.ts';
 
 const openPersonalGraph = () => openGraphStore(':memory:', personalSchema, () => '2026-10-08T00:00:00.000Z');
+
+const writeLockHolderSource = `
+const { parentPort, workerData } = require('node:worker_threads');
+const { DatabaseSync } = require('node:sqlite');
+const database = new DatabaseSync(workerData.databasePath);
+database.exec('BEGIN IMMEDIATE');
+database.exec(workerData.statementWhileLocked);
+parentPort.postMessage('locked');
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, workerData.holdMs);
+database.exec('COMMIT');
+database.close();
+`;
+
+async function whileAnotherConnectionHoldsTheWriteLock<T>(databasePath: string, statementWhileLocked: string, work: () => T): Promise<T> {
+  const lockHolder = new Worker(writeLockHolderSource, { eval: true, workerData: { databasePath, statementWhileLocked, holdMs: 300 } });
+  const lockHolderExit = once(lockHolder, 'exit');
+  await once(lockHolder, 'message');
+  try {
+    return work();
+  } finally {
+    await lockHolderExit;
+  }
+}
+
+const temporaryDatabasePath = () => join(mkdtempSync(join(tmpdir(), 'kg-test-')), 'graph.sqlite');
 
 test('new nodes get kind-prefixed sequential ids and schema defaults', () => {
   const store = openPersonalGraph();
@@ -160,7 +187,118 @@ test('markdown export lists nodes by kind with their edges', () => {
   store.link(task.id, 'part_of', project.id);
   const markdown = renderMarkdown(personalSchema, store.listNodes(), store.listEdges());
   assert.match(markdown, /## project\n\n### P-1 Alpha/);
-  assert.match(markdown, /### T-1 Kickoff\nstatus=todo priority=p2\n- part_of: P-1 Alpha\nAgenda in the shared doc/);
+  assert.match(markdown, /### T-1 Kickoff\nstatus=todo priority=p2\n- part_of: P-1 Alpha\n> Agenda in the shared doc/);
+});
+
+test('a writer waits for another connection holding the write lock instead of failing as locked', async () => {
+  const databasePath = temporaryDatabasePath();
+  const store = openGraphStore(databasePath, personalSchema);
+  const task = await whileAnotherConnectionHoldsTheWriteLock(databasePath, 'SELECT 1', () => store.addNode('task', 'Written while locked'));
+  assert.equal(task.id, 'T-1');
+  store.close();
+});
+
+test('an update merges onto a change another connection committed while it waited', async () => {
+  const databasePath = temporaryDatabasePath();
+  const store = openGraphStore(databasePath, personalSchema);
+  const task = store.addNode('task', 'Contended task');
+  const raisePriority = `UPDATE nodes SET properties = json_set(properties, '$.priority', 'p0') WHERE id = '${task.id}'`;
+  const updated = await whileAnotherConnectionHoldsTheWriteLock(databasePath, raisePriority, () => store.updateNode(task.id, { properties: { status: 'doing' } }));
+  assert.deepEqual(updated.properties, { status: 'doing', priority: 'p0' });
+  store.close();
+});
+
+test('a subtask inherits the project of its parent task chain when ranking next actions', () => {
+  const store = openPersonalGraph();
+  const pausedProject = store.addNode('project', 'On hold', { status: 'paused' });
+  const doneProject = store.addNode('project', 'Shipped', { status: 'done' });
+  const activeProject = store.addNode('project', 'Live');
+  const parent = store.addNode('task', 'Paused parent');
+  const child = store.addNode('task', 'Child of paused parent');
+  const grandchild = store.addNode('task', 'Grandchild of paused parent');
+  const doneParent = store.addNode('task', 'Done project parent');
+  const doneChild = store.addNode('task', 'Child in done project');
+  const reassigned = store.addNode('task', 'Subtask moved to a live project');
+  store.link(parent.id, 'part_of', pausedProject.id);
+  store.link(child.id, 'subtask_of', parent.id);
+  store.link(grandchild.id, 'subtask_of', child.id);
+  store.link(doneParent.id, 'part_of', doneProject.id);
+  store.link(doneChild.id, 'subtask_of', doneParent.id);
+  store.link(reassigned.id, 'subtask_of', parent.id);
+  store.link(reassigned.id, 'part_of', activeProject.id);
+  assert.deepEqual(collectNextActions(store).map((action) => action.id), [reassigned.id]);
+});
+
+test('titles must be one visible line without control or bidi characters', () => {
+  const store = openPersonalGraph();
+  const zeroWidthSpace = String.fromCharCode(0x200b);
+  const rightToLeftOverride = String.fromCharCode(0x202e);
+  const lineSeparator = String.fromCharCode(0x2028);
+  const escapeCharacter = String.fromCharCode(0x1b);
+  assert.throws(() => store.addNode('task', `${zeroWidthSpace}${zeroWidthSpace}`), /title must not be empty/);
+  for (const title of ['Real task\n### T-9 Fake', 'Carriage\rreturn', `Line${lineSeparator}separator`, `Bidi ${rightToLeftOverride}txt.exe`, `Escape ${escapeCharacter}[2J`, 'Tab\tseparated']) {
+    assert.throws(() => store.addNode('task', title), /title must be one line/, JSON.stringify(title));
+  }
+  const task = store.addNode('task', 'Plain title');
+  assert.throws(() => store.updateNode(task.id, { title: 'Plain\n- blocks: T-1' }), /title must be one line/);
+  assert.throws(() => store.updateNode(task.id, { title: zeroWidthSpace }), /title must not be empty/);
+  assert.equal(store.listNodes().length, 1);
+});
+
+test('titles keep the zero width joiners Persian words and emoji sequences need', () => {
+  const store = openPersonalGraph();
+  const zeroWidthNonJoiner = String.fromCharCode(0x200c);
+  const zeroWidthJoiner = String.fromCharCode(0x200d);
+  const persianTitle = `${String.fromCharCode(0x0645, 0x06cc)}${zeroWidthNonJoiner}${String.fromCharCode(0x062e, 0x0648, 0x0627, 0x0647, 0x0645)}`;
+  const emojiTitle = `Family ${String.fromCodePoint(0x1f468)}${zeroWidthJoiner}${String.fromCodePoint(0x1f469)}`;
+  const persianTask = store.addNode('task', persianTitle);
+  const emojiTask = store.addNode('task', emojiTitle);
+  assert.equal(store.getNode(persianTask.id)?.title, persianTitle);
+  assert.equal(store.getNode(emojiTask.id)?.title, emojiTitle);
+  assert.throws(() => store.addNode('task', zeroWidthJoiner), /title must not be empty/);
+  assert.throws(() => store.addNode('task', String.fromCharCode(0xfeff)), /title must not be empty/);
+});
+
+test('property values with line breaks cannot forge an export heading or break a listing line', () => {
+  const forgedNode: GraphNode = {
+    id: 'R-1', kind: 'reference', title: 'Paper', body: '', properties: { medium: 'article', author: 'x\n### T-9 forged' }, createdAt: '2026-10-09T00:00:00Z', updatedAt: '2026-10-09T00:00:00Z',
+  };
+  const markdown = renderMarkdown(personalSchema, [forgedNode], []);
+  assert.deepEqual(markdown.split('\n').filter((line) => line.startsWith('### ')), ['### R-1 Paper']);
+  assert.ok(markdown.includes('medium=article author=x### T-9 forged'));
+  assert.equal(formatNodeLine(forgedNode).split('\n').length, 1);
+});
+
+test('markdown export quotes every body line so a body cannot pose as a heading or an edge', () => {
+  const store = openPersonalGraph();
+  const blocker = store.addNode('task', 'Real blocker');
+  store.addNode('task', 'Victim', {}, '### T-9 Injected heading\r\n- blocks: T-1 Real blocker\n\nlast line');
+  const markdown = renderMarkdown(personalSchema, store.listNodes(), store.listEdges());
+  assert.ok(markdown.includes('### T-2 Victim\nstatus=todo priority=p2\n> ### T-9 Injected heading\n> - blocks: T-1 Real blocker\n>\n> last line\n'));
+  assert.deepEqual(markdown.split('\n').filter((line) => line.startsWith('### ')), [`### ${blocker.id} Real blocker`, '### T-2 Victim']);
+  assert.deepEqual(markdown.split('\n').filter((line) => line.startsWith('- ')), []);
+});
+
+test('listing by an unknown kind or field, or walking an unknown edge type, is refused', () => {
+  const store = openPersonalGraph();
+  const task = store.addNode('task', 'Anything');
+  assert.throws(() => store.listNodes('badkey'), /unknown kind "badkey"/);
+  assert.throws(() => store.listNodes('task', { bogus: 'x' }), /unknown field "bogus" for task/);
+  assert.throws(() => store.listNodes(undefined, { bogus: 'x' }), /unknown field "bogus"/);
+  assert.deepEqual(store.listNodes(undefined, { status: 'todo' }).map((node) => node.id), [task.id]);
+  assert.deepEqual(store.listNodes('task', { priority: 'p2' }).map((node) => node.id), [task.id]);
+  assert.throws(() => store.walk(task.id, 'nonsense', 'incoming'), /unknown edge type "nonsense"/);
+});
+
+test('a store transaction rolls back every write inside it when one fails', () => {
+  const store = openPersonalGraph();
+  const reference = store.addNode('reference', 'Vendor price sheet');
+  assert.throws(() => store.transaction(() => {
+    const pointer = store.addNode('coherence_record', 'Compare prices', { repo: '/repos/vendor', record: 'work', recordId: 'wrk-17ea723e85439d2a' });
+    store.link(reference.id, 'tracked_by', pointer.id);
+  }), /cannot start at a reference/);
+  assert.deepEqual(store.listNodes().map((node) => node.id), [reference.id]);
+  assert.equal(store.addNode('coherence_record', 'Compare prices', { repo: '/repos/vendor', record: 'work', recordId: 'wrk-17ea723e85439d2a' }).id, 'C-1');
 });
 
 test('a coherence pointer accepts a Windows or POSIX absolute repo path and refuses a relative one', () => {

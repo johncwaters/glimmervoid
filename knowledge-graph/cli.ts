@@ -1,11 +1,12 @@
-import { mkdirSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { z } from 'zod';
 import { buildCoherenceDelta, inferRecordKind } from './coherence-delta.ts';
 import type { RepoReport, TrackedRecord } from './coherence-delta.ts';
 import { readRepoSnapshot } from './coherence-source.ts';
 import type { CoherenceRunner } from './coherence-source.ts';
-import { describeAllowedKinds } from './graph-schema.ts';
+import { describeAllowedKinds, listKnownPropertyKeys, stripUnsafeTextCharacters } from './graph-schema.ts';
 import type { GraphSchema } from './graph-schema.ts';
 import { openGraphStore } from './graph-store.ts';
 import type { GraphStore } from './graph-store.ts';
@@ -13,6 +14,10 @@ import { collectNextActions, formatNodeLine, renderMarkdown } from './graph-view
 import { personalSchema } from './personal-schema.ts';
 
 const schemasByName: Record<string, GraphSchema> = { personal: personalSchema };
+
+const writeCommandNames = new Set(['add', 'set', 'rm', 'link', 'unlink', 'track']);
+
+const SinceTimestamp = z.iso.datetime({ offset: true });
 
 const usage = `glimmervoid kg: a typed, local-first knowledge and task graph (experimental)
 
@@ -103,14 +108,14 @@ function collectTrackedRecords(store: GraphStore, scopeNodeId: string | undefine
 function renderRepoReport(report: RepoReport): string {
   if (!report.isAvailable) {
     const recordLines = report.records.map((tracked) => `  ${tracked.trackingNodeId} -> ${tracked.recordNodeId} ${tracked.recordId}  (not checked)`);
-    return [`${report.repo}  unavailable: ${report.reason}`, ...recordLines].join('\n');
+    return [`${stripUnsafeTextCharacters(report.repo)}  unavailable: ${report.reason}`, ...recordLines].join('\n');
   }
   const recordBlocks = report.records.map((recordReport) => [
     `  ${recordReport.tracked.trackingNodeId} -> ${recordReport.tracked.recordNodeId} ${recordReport.tracked.record.padEnd(8)} ${recordReport.state.padEnd(16)} ${recordReport.label}`,
     ...recordReport.findings.map((finding) => `       ! ${finding.kind}: ${finding.detail}`),
     ...recordReport.decisions.map((decision) => `       decision ${decision.id}${decision.isRetracted ? ' (retracted)' : ''} ${decision.chose}`),
   ].join('\n'));
-  return [`${report.repo}  heading: ${report.heading}${report.headingReasons.length === 0 ? '' : ` (${report.headingReasons.join('; ')})`}`, ...recordBlocks].join('\n');
+  return [`${stripUnsafeTextCharacters(report.repo)}  heading: ${report.heading}${report.headingReasons.length === 0 ? '' : ` (${report.headingReasons.join('; ')})`}`, ...recordBlocks].join('\n');
 }
 
 function print(context: CommandContext, jsonValue: unknown, text: string): number {
@@ -120,9 +125,7 @@ function print(context: CommandContext, jsonValue: unknown, text: string): numbe
 
 function describeSchema(schema: GraphSchema): string {
   const kindLines = Object.entries(schema.kinds).map(([kind, definition]) => {
-    const shape = 'shape' in definition.properties && typeof definition.properties.shape === 'object' && definition.properties.shape !== null
-      ? Object.keys(definition.properties.shape).join(', ')
-      : '';
+    const shape = (listKnownPropertyKeys(schema, kind) ?? []).join(', ');
     return `  ${kind} (${definition.idPrefix}-n): ${definition.description}${shape === '' ? '' : `\n      fields: ${shape}`}`;
   });
   const edgeLines = Object.entries(schema.edges).map(([edgeType, definition]) => {
@@ -216,9 +219,11 @@ const commands: Record<string, (context: CommandContext) => number | undefined> 
       ? snapshot.workOrders.find((workOrder) => workOrder.id === recordId)?.objective
       : snapshot.decisions.find((decision) => decision.id === recordId)?.chose;
     if (label === undefined) throw new Error(`${recordId} is not in the Coherence ledger at ${repo}`);
-    const pointer = context.store.listNodes('coherence_record', { repo, recordId })[0]
-      ?? context.store.addNode('coherence_record', label, { repo, record, recordId });
-    const edge = context.store.link(trackingNode.id, 'tracked_by', pointer.id);
+    const { pointer, edge } = context.store.transaction(() => {
+      const trackedPointer = context.store.listNodes('coherence_record', { repo, recordId })[0]
+        ?? context.store.addNode('coherence_record', label, { repo, record, recordId });
+      return { pointer: trackedPointer, edge: context.store.link(trackingNode.id, 'tracked_by', trackedPointer.id) };
+    });
     print(context, { pointer, edge }, `${trackingNode.id} tracked_by ${pointer.id} (${record} ${recordId}: ${label})`);
   },
   delta: (context) => {
@@ -234,6 +239,13 @@ const commands: Record<string, (context: CommandContext) => number | undefined> 
     context.writeOutput(renderMarkdown(context.store.schema, context.store.listNodes(), context.store.listEdges()));
   },
 };
+
+function resolveDatabasePath(requestedPath: string | undefined, commandName: string, defaultPath: string): string {
+  if (requestedPath === undefined) return defaultPath;
+  if (requestedPath.trim() === '') throw new Error('--db needs a database file path');
+  if (writeCommandNames.has(commandName) || existsSync(requestedPath)) return requestedPath;
+  throw new Error(`no knowledge graph database at ${requestedPath}; check --db, or create it with a write such as kg add`);
+}
 
 function runCommandLine(commandArguments: string[], dependencies: KnowledgeGraphCliDependencies): number {
   const { values, positionals } = parseArgs({
@@ -251,13 +263,16 @@ function runCommandLine(commandArguments: string[], dependencies: KnowledgeGraph
   });
   const commandName = positionals[0];
   const command = commandName === undefined ? undefined : commands[commandName];
-  if (values.help || command === undefined) {
+  if (values.help || commandName === undefined || command === undefined) {
     dependencies.writeOutput(`${usage}\n`);
     return values.help ? 0 : 1;
   }
   const schema = schemasByName[values.graph];
   if (!schema) throw new Error(`unknown graph "${values.graph}"; known: ${Object.keys(schemasByName).join(', ')}`);
-  const databasePath = values.db ?? join(dependencies.defaultDatabaseDirectory, `${schema.name}.sqlite`);
+  if (values.since !== undefined && !SinceTimestamp.safeParse(values.since).success) {
+    throw new Error(`--since needs an ISO 8601 timestamp with Z or an offset, e.g. 2026-10-09T09:00:00Z; got "${values.since}"`);
+  }
+  const databasePath = resolveDatabasePath(values.db, commandName, join(dependencies.defaultDatabaseDirectory, `${schema.name}.sqlite`));
   mkdirSync(dirname(databasePath), { recursive: true });
   const store = openGraphStore(databasePath, schema);
   try {

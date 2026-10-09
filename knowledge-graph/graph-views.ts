@@ -1,7 +1,20 @@
+import { stripUnsafeTextCharacters } from './graph-schema.ts';
 import type { GraphEdge, GraphNode, GraphSchema } from './graph-schema.ts';
 import { isTaskClosed, rankNextActions } from './personal-schema.ts';
 import type { NextActionCandidate } from './personal-schema.ts';
 import type { GraphStore } from './graph-store.ts';
+
+function resolveProjectId(taskId: string, projectIdByNode: ReadonlyMap<string, string>, parentIdByTask: ReadonlyMap<string, string>): string | undefined {
+  const visitedIds = new Set<string>();
+  let currentId: string | undefined = taskId;
+  while (currentId !== undefined && !visitedIds.has(currentId)) {
+    const projectId = projectIdByNode.get(currentId);
+    if (projectId !== undefined) return projectId;
+    visitedIds.add(currentId);
+    currentId = parentIdByTask.get(currentId);
+  }
+  return undefined;
+}
 
 export function collectNextActions(store: GraphStore): NextActionCandidate[] {
   const tasks = store.listNodes('task');
@@ -12,8 +25,9 @@ export function collectNextActions(store: GraphStore): NextActionCandidate[] {
     openBlockerIdsByTask.set(edge.toId, [...(openBlockerIdsByTask.get(edge.toId) ?? []), edge.fromId]);
   }
   const projectIdByNode = new Map(store.listEdges('part_of').map((edge) => [edge.fromId, edge.toId]));
+  const parentIdByTask = new Map(store.listEdges('subtask_of').map((edge) => [edge.fromId, edge.toId]));
   const candidates = tasks.map((task): NextActionCandidate => {
-    const projectId = projectIdByNode.get(task.id);
+    const projectId = resolveProjectId(task.id, projectIdByNode, parentIdByTask);
     const projectStatus = projectId === undefined ? undefined : nodesById.get(projectId)?.properties.status;
     return {
       id: task.id,
@@ -29,12 +43,17 @@ export function collectNextActions(store: GraphStore): NextActionCandidate[] {
 }
 
 function formatPropertyList(properties: Record<string, unknown>): string {
-  return Object.entries(properties).map(([key, value]) => `${key}=${String(value)}`).join(' ');
+  return Object.entries(properties).map(([key, value]) => `${key}=${stripUnsafeTextCharacters(String(value))}`).join(' ');
 }
 
 export function formatNodeLine(node: GraphNode): string {
   const propertyList = formatPropertyList(node.properties);
   return `${node.id.padEnd(6)} ${node.kind.padEnd(9)} ${node.title}${propertyList === '' ? '' : `  [${propertyList}]`}`;
+}
+
+function quoteBody(body: string): string {
+  if (body === '') return '';
+  return body.split(/\r\n|[\r\n\u2028\u2029]/).map((line) => (line === '' ? '>' : `> ${line}`)).join('\n');
 }
 
 export function renderMarkdown(schema: GraphSchema, nodes: readonly GraphNode[], edges: readonly GraphEdge[]): string {
@@ -54,7 +73,7 @@ export function renderMarkdown(schema: GraphSchema, nodes: readonly GraphNode[],
         `### ${node.id} ${node.title}`,
         formatPropertyList(node.properties),
         ...relatedEdges.map((edge) => describeEdge(edge, node.id)),
-        node.body,
+        quoteBody(node.body),
       ].filter((line) => line !== '').join('\n');
     });
     return [`## ${kind}`, ...nodeBlocks].join('\n\n');
