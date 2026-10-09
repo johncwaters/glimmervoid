@@ -264,6 +264,7 @@ body {
 }
 
 .sr-only,
+.phone-topbar .connection-label,
 .header-connection[data-state="connected"] .connection-label {
   position: absolute;
   width: 1px;
@@ -278,6 +279,20 @@ body {
 
 .header-connection {
   transition: color var(--transition-med);
+}
+
+@media (max-width: 900px) {
+  .header .connection-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 
 .connection-dot {

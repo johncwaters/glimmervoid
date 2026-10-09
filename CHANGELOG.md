@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Reconnecting status fits small screens**: on a phone or a window under 900px wide, the header shows only the blinking status dot while the connection recovers, instead of a "Reconnecting" label that overlapped the + Session button. Screen readers still announce the status.
 - Session titles survive a Glimmervoid restart.
 - **Phone terminal reconnect**: the phone keeps its fitted grid claim across reconnects, so a temporarily unavailable size measurement on resume no longer leaves the terminal clipped to a desktop-sized grid. Touch scrolling also keeps working in applications such as Claude Code after reconnecting.
 - **Idle compaction settles correctly**: Claude Code cards no longer stay working after compacting while idle, and the dashboard shows when a session is compacting. A notification that was waiting on you still escalates to your phone after an idle compaction.
