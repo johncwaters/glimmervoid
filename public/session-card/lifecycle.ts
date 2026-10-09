@@ -1,3 +1,4 @@
+import { isCompactionRestoreEvent } from '#shared/compaction-restore-events.ts';
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { PlanDraftPush } from '#shared/contracts/plan-review.ts';
 import type { PendingPromptDetail } from '#shared/contracts/session.ts';
@@ -513,15 +514,16 @@ export function setSessionUsage(sessionId: unknown, usage: UsageSessionUsage | n
   });
 }
 
-export function setSessionPrompt(sessionId: unknown, kind: unknown, detail: PendingPromptDetail | null = null) {
+export function setSessionPrompt(sessionId: unknown, kind: unknown, detail: PendingPromptDetail | null = null, isCompacting = false) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
   ui.pendingPromptKind = typeof kind === 'string' ? kind : null;
   ui.pendingPromptDetail = detail;
   paintCardBadge(ui, '.prompt-badge', 'prompt', {
-    on: !!kind,
-    value: asText(kind),
-    text: kind === 'plan' ? 'Plan ready' : kind === 'permission' ? 'permission' : 'input',
+    on: !!kind || isCompacting,
+    value: isCompacting ? 'compacting' : asText(kind),
+    title: isCompacting ? 'Context compaction in progress' : 'Waiting on a permission or input prompt',
+    text: isCompacting ? 'compacting' : kind === 'plan' ? 'Plan ready' : kind === 'permission' ? 'permission' : 'input',
   });
   showPlanFaceWhenPreferred(sessionId);
 }
@@ -644,7 +646,7 @@ function _handleRestartTransition(ui: SessionUi, prevState: string) {
   }
 }
 
-export function applyState(sessionId: unknown, nextState: unknown, stateSince: unknown) {
+export function applyState(sessionId: unknown, nextState: unknown, stateSince: unknown, event = "") {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
 
@@ -669,7 +671,7 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
 
   if ((state === STATES.WAITING && prevState !== STATES.WAITING)
       || (state === STATES.COMPLETE && prevState !== STATES.COMPLETE)) {
-    if (isSoundEnabled()) playAlertSound(getSoundId());
+    if (!isCompactionRestoreEvent(event) && isSoundEnabled()) playAlertSound(getSoundId());
   }
 
   const isEnding = state === STATES.DONE || state === STATES.FAILED;

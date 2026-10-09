@@ -157,7 +157,7 @@ test('the settings file a session injects is byte-identical to the injector run 
     const parsed = JSON.parse(written);
     assert.deepEqual(Object.keys(parsed.hooks), [
       'SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest',
-      'SubagentStart', 'SubagentStop', 'TaskCreated', 'TaskCompleted', 'TeammateIdle', 'PostToolUse',
+      'SubagentStart', 'SubagentStop', 'TaskCreated', 'TaskCompleted', 'TeammateIdle', 'PreCompact', 'PostCompact', 'PostToolUse',
     ]);
   } finally {
     session.destroy();
@@ -213,6 +213,8 @@ test('a rejected spawn cleans before PTY exit without double-cleaning on a late 
 
 const HOOK_CASES: [string, HookPayload, string | null, string | null, string | null][] = [
   ['SessionStart', {}, 'session-start', null, null],
+  ['PreCompact', { trigger: 'auto' }, 'compaction-start', null, null],
+  ['PostCompact', { trigger: 'manual' }, 'compaction-end', null, null],
   ['SessionEnd', {}, 'session-end', null, null],
   ['UserPromptSubmit', {}, 'resume', null, null],
   ['Stop', {}, 'ready', null, null],

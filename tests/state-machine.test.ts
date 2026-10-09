@@ -42,6 +42,9 @@ test('TRANSITIONS matrix is frozen and matches the lifecycle shape', () => {
       user_kill: STATES.DONE,
     },
     [STATES.RUNNING]: {
+      compaction_restore_idle: STATES.IDLE,
+      compaction_restore_complete: STATES.COMPLETE,
+      compaction_restore_waiting: STATES.WAITING,
       prompt_detected: STATES.WAITING,
       task_complete: STATES.COMPLETE,
       process_exit_ok: STATES.DONE,
@@ -49,6 +52,7 @@ test('TRANSITIONS matrix is frozen and matches the lifecycle shape', () => {
       user_kill: STATES.DONE,
     },
     [STATES.WAITING]: {
+      new_output: STATES.RUNNING,
       user_input: STATES.RUNNING,
       user_dismiss: STATES.RUNNING,
       task_complete: STATES.COMPLETE,

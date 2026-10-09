@@ -407,7 +407,7 @@ const serverVariants = [
   loose('session-git', { id: sessionId, worktree: z.boolean() }),
   loose('session-agents', { id: sessionId, activeAgents: z.number().int().nonnegative(), awaitingBackgroundTasks: z.boolean(), timestamp }),
   loose('session-wakeup', { id: sessionId, pendingWakeup: PendingWakeup.nullable(), timestamp }),
-  loose('session-prompt', { id: sessionId, pendingPromptKind: nullableString, pendingPromptDetail: PendingPromptDetail.nullable().optional(), timestamp }),
+  loose('session-prompt', { isCompacting: z.boolean().optional(), id: sessionId, pendingPromptKind: nullableString, pendingPromptDetail: PendingPromptDetail.nullable().optional(), timestamp }),
 
   loose('session-sleep'),
   loose('session-wake'),

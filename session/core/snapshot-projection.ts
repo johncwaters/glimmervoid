@@ -62,6 +62,7 @@ interface SnapshotSource {
   resumeSessionId: string | null;
   activeAgents: number;
   awaitingBackgroundTasks: boolean;
+  isCompacting?: boolean;
   hasEndedTurn: boolean;
   pendingWakeup: Record<string, unknown> | null;
   pendingPromptKind: string | null;
@@ -96,6 +97,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     activeAgents: source.activeAgents,
     awaitingBackgroundTasks: source.awaitingBackgroundTasks,
     hasEndedTurn: source.hasEndedTurn,
+    isCompacting: source.isCompacting ?? false,
     pendingWakeup: source.pendingWakeup,
     pendingPromptKind: source.pendingPromptKind,
     pendingPromptDetail: source.pendingPromptDetail,

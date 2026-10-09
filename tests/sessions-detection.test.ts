@@ -244,7 +244,7 @@ test('a permission request surfaces its detail in the snapshot and on prompt-kin
   s.on('prompt-kind-change', (e) => deltas.push(e));
   hook(s, 'awaiting-input', { promptKind: 'permission', promptDetail: BASH_DETAIL });
   assert.deepEqual(s.toSnapshot().pendingPromptDetail, BASH_DETAIL);
-  assert.deepEqual(deltas, [{ pendingPromptKind: 'permission', pendingPromptDetail: BASH_DETAIL }]);
+  assert.deepEqual(deltas, [{ pendingPromptKind: 'permission', pendingPromptDetail: BASH_DETAIL, isCompacting: false }]);
   s.destroy();
 });
 
@@ -1453,4 +1453,162 @@ test('a low-confidence hook ready still completes from RUNNING (quiescence confi
   t.mock.timers.tick(40);
   assert.equal(s.state, STATES.COMPLETE);
   s.destroy();
+});
+
+for (const state of [STATES.IDLE, STATES.COMPLETE, STATES.WAITING]) {
+  for (const endSignal of ['compaction-end', 'session-start']) {
+    test(`idle compaction restores ${state} on ${endSignal} and retains prompt detail`, (t) => {
+      t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+      const session = makeSession(state);
+      t.after(() => session.destroy());
+      if (state === STATES.WAITING) session._setPendingPromptKind('permission', BASH_DETAIL);
+      const details: { isCompacting: boolean }[] = [];
+      session.on('prompt-kind-change', (detail) => details.push(detail));
+      let postTurnChecks = 0;
+      let attentionRequests = 0;
+      session.on('post-turn-check', () => postTurnChecks++);
+      session.on('needs-attention', () => attentionRequests++);
+      title(session, 'working');
+      assert.equal(session.state, STATES.RUNNING);
+      hook(session, 'compaction-start', { event: 'PreCompact', payload: { trigger: 'auto' } });
+      assert.equal(session.toSnapshot().isCompacting, true);
+      assert.equal(session.state, STATES.RUNNING);
+      hook(session, endSignal, { event: endSignal === 'compaction-end' ? 'PostCompact' : 'SessionStart', payload: { trigger: 'auto', source: 'compact' } });
+      assert.equal(session.state, state);
+      assert.equal(session.toSnapshot().isCompacting, false);
+      assert.equal(details[0].isCompacting, state !== STATES.WAITING);
+      assert.equal(details.at(-1)?.isCompacting, false);
+      assert.equal(postTurnChecks, 0);
+      assert.equal(attentionRequests, 0);
+      assert.equal(session.toSnapshot().pendingPromptKind, state === STATES.WAITING ? 'permission' : null);
+      assert.deepEqual(session.toSnapshot().pendingPromptDetail, state === STATES.WAITING ? BASH_DETAIL : null);
+      assert.equal(session._titleQuiet, true);
+    });
+  }
+}
+
+test('a title ready ends an idle compaction that has no end hook, silently and with the badge cleared', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const session = makeSession(STATES.COMPLETE);
+  t.after(() => session.destroy());
+  const details: { isCompacting: boolean }[] = [];
+  session.on('prompt-kind-change', (detail) => details.push(detail));
+  let postTurnChecks = 0;
+  let attentionRequests = 0;
+  session.on('post-turn-check', () => postTurnChecks++);
+  session.on('needs-attention', () => attentionRequests++);
+  title(session, 'working');
+  assert.equal(session.state, STATES.RUNNING);
+  hook(session, 'compaction-start', { event: 'PreCompact', payload: { trigger: 'auto' } });
+  assert.equal(session.toSnapshot().isCompacting, true);
+  title(session, 'ready');
+  t.mock.timers.tick(40);
+  assert.equal(session.state, STATES.COMPLETE);
+  assert.equal(session.toSnapshot().isCompacting, false);
+  assert.equal(details.at(-1)?.isCompacting, false);
+  assert.equal(postTurnChecks, 0);
+  assert.equal(attentionRequests, 0);
+});
+
+for (const endSignal of ['compaction-end', 'session-start']) {
+  test(`a late ${endSignal} after a title ready ended the compaction keeps the card COMPLETE`, (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    const session = makeSession(STATES.COMPLETE);
+    t.after(() => session.destroy());
+    let attentionRequests = 0;
+    session.on('needs-attention', () => attentionRequests++);
+    title(session, 'working');
+    hook(session, 'compaction-start', { event: 'PreCompact', payload: { trigger: 'auto' } });
+    title(session, 'ready');
+    t.mock.timers.tick(40);
+    assert.equal(session.state, STATES.COMPLETE);
+    hook(session, endSignal, { event: endSignal === 'compaction-end' ? 'PostCompact' : 'SessionStart', payload: { trigger: 'auto', source: 'compact' } });
+    t.mock.timers.tick(40);
+    assert.equal(session.state, STATES.COMPLETE);
+    assert.equal(session.toSnapshot().isCompacting, false);
+    assert.equal(attentionRequests, 0);
+  });
+}
+
+test('PreCompact before the title spinner keeps a settled card settled', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const session = makeSession(STATES.COMPLETE);
+  t.after(() => session.destroy());
+  hook(session, 'compaction-start', { event: 'PreCompact', payload: { trigger: 'manual' } });
+  session._titleSource.feed(`\x1b]0;${String.fromCodePoint(0x2802)} Claude Code\x07`);
+  assert.equal(session.state, STATES.COMPLETE);
+  assert.equal(session.toSnapshot().isCompacting, true);
+  hook(session, 'compaction-end', { event: 'PostCompact' });
+  assert.equal(session.state, STATES.COMPLETE);
+  assert.equal(session.toSnapshot().isCompacting, false);
+});
+
+test('a prompt submitted during idle compaction stays RUNNING and its Stop completes normally', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const session = makeSession(STATES.COMPLETE);
+  t.after(() => session.destroy());
+  hook(session, 'compaction-start', { event: 'PreCompact' });
+  hook(session, 'resume', { event: 'UserPromptSubmit' });
+  hook(session, 'compaction-end', { event: 'PostCompact' });
+  assert.equal(session.state, STATES.RUNNING);
+  hook(session, 'ready', { event: 'Stop' });
+  hook(session, 'session-start', { event: 'SessionStart', payload: { source: 'compact' } });
+  t.mock.timers.tick(40);
+  assert.equal(session.state, STATES.COMPLETE);
+});
+
+test('mid-turn compaction at a permission prompt remains WAITING until the answer', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const session = makeSession(STATES.IDLE);
+  t.after(() => session.destroy());
+  hook(session, 'resume', { event: 'UserPromptSubmit' });
+  hook(session, 'awaiting-input', { event: 'PermissionRequest', promptKind: 'permission', promptDetail: BASH_DETAIL });
+  hook(session, 'compaction-start', { event: 'PreCompact', payload: { trigger: 'auto' } });
+  hook(session, 'compaction-end', { event: 'PostCompact', payload: { trigger: 'auto' } });
+  assert.equal(session.state, STATES.WAITING);
+  assert.equal(session.toSnapshot().pendingPromptKind, 'permission');
+  assert.deepEqual(session.toSnapshot().pendingPromptDetail, BASH_DETAIL);
+});
+
+test('clearing a session during compaction removes the compacting detail', () => {
+  const session = makeSession(STATES.COMPLETE);
+  try {
+    hook(session, 'compaction-start', { event: 'PreCompact' });
+    hook(session, 'session-start', { event: 'SessionStart', payload: { source: 'clear' } });
+    assert.equal(session.toSnapshot().isCompacting, false);
+  } finally {
+    session.destroy();
+  }
+});
+
+test('a prompt received before first output remains in flight across compaction', () => {
+  const session = makeSession(STATES.STARTING);
+  try {
+    hook(session, 'resume', { event: 'UserPromptSubmit' });
+    session.transition('first_output');
+    title(session, 'working');
+    hook(session, 'compaction-start', { event: 'PreCompact' });
+    hook(session, 'compaction-end', { event: 'PostCompact' });
+    assert.equal(session.state, STATES.RUNNING);
+  } finally {
+    session.destroy();
+  }
+});
+
+test('a compaction that never finishes stops holding the next turn Stop and clears the badge', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const session = makeSession(STATES.COMPLETE);
+  t.after(() => session.destroy());
+  const details: { isCompacting: boolean }[] = [];
+  session.on('prompt-kind-change', (detail) => details.push(detail));
+  hook(session, 'compaction-start', { event: 'PreCompact', payload: { trigger: 'manual' } });
+  assert.equal(session.toSnapshot().isCompacting, true);
+  hook(session, 'resume', { event: 'UserPromptSubmit' });
+  assert.equal(session.state, STATES.RUNNING);
+  assert.equal(session.toSnapshot().isCompacting, false);
+  hook(session, 'ready', { event: 'Stop' });
+  t.mock.timers.tick(40);
+  assert.equal(session.state, STATES.COMPLETE);
+  assert.equal(session.toSnapshot().isCompacting, false);
+  assert.equal(details.at(-1)?.isCompacting, false);
 });

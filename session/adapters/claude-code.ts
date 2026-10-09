@@ -110,6 +110,10 @@ function mapHookToSignal(event: string, payload?: HookPayload): string | null {
   switch (e) {
     case "sessionstart":
       return "session-start";
+    case "precompact":
+      return "compaction-start";
+    case "postcompact":
+      return "compaction-end";
     case "sessionend":
       return "session-end";
     case "userpromptsubmit":

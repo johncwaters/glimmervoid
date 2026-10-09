@@ -1,5 +1,6 @@
 import { STATES } from "../../shared/states.ts";
 import type { SessionState } from "../../shared/states.ts";
+import { COMPACTION_RESTORE_EVENTS } from "../../shared/compaction-restore-events.ts";
 
 
 interface GuardSession {
@@ -35,6 +36,9 @@ const TRANSITIONS: TransitionTable = Object.freeze({
     user_kill: STATES.DONE,
   },
   [STATES.RUNNING]: {
+    [COMPACTION_RESTORE_EVENTS[STATES.IDLE]]: STATES.IDLE,
+    [COMPACTION_RESTORE_EVENTS[STATES.COMPLETE]]: STATES.COMPLETE,
+    [COMPACTION_RESTORE_EVENTS[STATES.WAITING]]: STATES.WAITING,
     prompt_detected: STATES.WAITING,
     task_complete: STATES.COMPLETE,
     process_exit_ok: STATES.DONE,
@@ -42,6 +46,7 @@ const TRANSITIONS: TransitionTable = Object.freeze({
     user_kill: STATES.DONE,
   },
   [STATES.WAITING]: {
+    new_output: STATES.RUNNING,
     user_input: STATES.RUNNING,
     user_dismiss: STATES.RUNNING,
     task_complete: STATES.COMPLETE,

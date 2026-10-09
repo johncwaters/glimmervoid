@@ -1,4 +1,4 @@
-import { createNotifyGate, explainNotification } from '../session/core/notify-gate.ts';
+import { createNotifyGate, decideAcknowledge, explainNotification } from '../session/core/notify-gate.ts';
 import type { ClaudeSessionIdEvent, Session } from '../session/sessions.ts';
 import { AGENT_ATTENTION_NOTE_SEPARATOR } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
@@ -98,6 +98,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     let pendingPromptKind: string | null = null;
     let pendingAgentNote: string | null = null;
     const notifyGate = createNotifyGate();
+    let isAcknowledgeDeferredForCompaction = false;
     let lastPersistedWasActive: boolean | null = null;
     let spawnedAtMs: number | null = null;
     const persistProjectField = (field: string, value: unknown) => {
@@ -165,7 +166,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       from: SessionState;
       to: SessionState;
       event: string;
-      detail: { signal?: string | null } | null;
+      detail: { signal?: string | null; isIdleCompactionActivity?: boolean } | null;
     }) => {
       if (to === STATES.IDLE || to === STATES.COMPLETE) dependencies.taskTitleRefiner?.onTurnEnd(session);
       if (event === 'spawn_success') {
@@ -191,9 +192,9 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         lastPersistedWasActive = nextWasActive;
         persistProjectField('wasActive', nextWasActive);
       }
-      if (from === STATES.WAITING || from === STATES.COMPLETE || from === STATES.DONE || from === STATES.FAILED) {
-        dependencies.notificationManager.acknowledge(session.id);
-      }
+      const acknowledgeDecision = decideAcknowledge(isAcknowledgeDeferredForCompaction, from, event, detail?.isIdleCompactionActivity === true);
+      isAcknowledgeDeferredForCompaction = acknowledgeDecision.isAcknowledgeDeferred;
+      if (acknowledgeDecision.shouldAcknowledge) dependencies.notificationManager.acknowledge(session.id);
 
       const { category, reason } = explainNotification(
         to,
@@ -240,6 +241,8 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     session.on('user-prompt', () => {
       pendingAgentNote = null;
       notifyGate.reset();
+      if (isAcknowledgeDeferredForCompaction) dependencies.notificationManager.acknowledge(session.id);
+      isAcknowledgeDeferredForCompaction = false;
     });
     session.on('prompt-kind-change', ({ pendingPromptKind: nextKind }: { pendingPromptKind: string | null }) => {
       pendingPromptKind = nextKind;
