@@ -45,15 +45,10 @@ function runBundledCoherence(repo: string, commandArguments: readonly string[]):
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (error) {
-    const refusalOutput = readRefusalOutput(error);
-    if (refusalOutput === null) throw error;
-    return refusalOutput;
+    const refusalExit = CoherenceRefusalExit.safeParse(error);
+    if (!refusalExit.success) throw error;
+    return refusalExit.data.stdout;
   }
-}
-
-function readRefusalOutput(error: unknown): string | null {
-  const parsed = CoherenceRefusalExit.safeParse(error);
-  return parsed.success ? parsed.data.stdout : null;
 }
 
 export function runKnowledgeGraphCommand(commandArguments: string[]): number {

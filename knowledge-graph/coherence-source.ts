@@ -1,7 +1,8 @@
 import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import type { DecisionSummary, RepoSnapshot, WorkOrderSummary } from './coherence-delta.ts';
+import { journalRecordKinds } from './coherence-delta.ts';
+import type { DecisionSummary, JournalRecordStanding, RepoSnapshot, WorkOrderSummary } from './coherence-delta.ts';
 import { stripUnsafeTextCharacters } from './graph-schema.ts';
 
 const LedgerText = z.string().transform(stripUnsafeTextCharacters);
@@ -18,11 +19,16 @@ const WorkInspectOutput = z.looseObject({
   })),
 });
 
-const OrientOutput = z.looseObject({
+const OrientHeading = z.looseObject({
   action: LedgerText,
   reasons: z.array(LedgerText),
+});
+
+const OrientOutput = OrientHeading.extend({
   consequences: z.looseObject({ unverifiedCompletedWork: z.array(LedgerText) }),
 });
+
+const TrackableJournalKind = z.enum(journalRecordKinds);
 
 const JournalRow = z.looseObject({
   id: LedgerText,
@@ -65,6 +71,16 @@ function findEarliestRetractionAtById(rows: readonly z.infer<typeof JournalRow>[
   return retractedAtById;
 }
 
+function findSettlementById(rows: readonly z.infer<typeof JournalRow>[], retractedAtById: ReadonlyMap<string, string>): Map<string, 'resolved' | 'dismissed'> {
+  const settlementById = new Map<string, 'resolved' | 'dismissed'>();
+  for (const row of rows) {
+    if (!row.supersedes || retractedAtById.has(row.id)) continue;
+    if (row.kind === 'resolution') settlementById.set(row.supersedes, 'resolved');
+    if (row.kind === 'dismissal' && settlementById.get(row.supersedes) !== 'resolved') settlementById.set(row.supersedes, 'dismissed');
+  }
+  return settlementById;
+}
+
 function listJournalFiles(journalDirectory: string, relativeDirectory: string): string[] {
   return readdirSync(join(journalDirectory, relativeDirectory), { withFileTypes: true }).flatMap((entry) => {
     const relativePath = join(relativeDirectory, entry.name);
@@ -88,18 +104,41 @@ function readDecisionJournal(repo: string): DecisionSummary[] {
       return parsed.data;
     }));
   const retractedAtById = findEarliestRetractionAtById(rows);
+  const settlementById = findSettlementById(rows, retractedAtById);
+  const standingOf = (row: z.infer<typeof JournalRow>, isConjecture: boolean): JournalRecordStanding => {
+    if (retractedAtById.has(row.id)) return 'retracted';
+    if (!isConjecture) return 'standing';
+    return settlementById.get(row.id) ?? 'open';
+  };
   return rows
-    .filter((row) => row.kind === 'decision')
-    .map((row) => ({
-      id: row.id,
-      chose: row.chose ?? '',
-      because: row.because ?? '',
-      at: row.at,
-      workId: row.work ?? null,
-      isRetracted: retractedAtById.has(row.id),
-      retractedAt: retractedAtById.get(row.id) ?? null,
-    }))
+    .flatMap((row): DecisionSummary[] => {
+      const kind = TrackableJournalKind.safeParse(row.kind);
+      if (!kind.success) return [];
+      return [{
+        id: row.id,
+        kind: kind.data,
+        standing: standingOf(row, kind.data === 'conjecture'),
+        chose: row.chose ?? '',
+        because: row.because ?? '',
+        at: row.at,
+        workId: row.work ?? null,
+        retractedAt: retractedAtById.get(row.id) ?? null,
+      }];
+    })
     .toSorted((left, right) => left.at.localeCompare(right.at));
+}
+
+function describeShapeDrift(commandName: string, error: z.ZodError): string {
+  const firstIssue = error.issues[0];
+  if (firstIssue === undefined) return `unexpected ${commandName} output`;
+  const location = firstIssue.path.length === 0 ? 'top level' : firstIssue.path.join('.');
+  return stripUnsafeTextCharacters(`unexpected ${commandName} output at ${location}: ${firstIssue.message}`);
+}
+
+function describeOrientFailure(orientJson: unknown, error: z.ZodError): string {
+  const heading = OrientHeading.safeParse(orientJson);
+  if (heading.success && heading.data.action === 'refuse') return `orient refused: ${heading.data.reasons.join('; ')}`;
+  return describeShapeDrift('coherence orient', error);
 }
 
 function describeReadFailure(error: unknown): string {
@@ -115,9 +154,12 @@ export function readRepoSnapshot(repo: string, runCoherence: CoherenceRunner): R
     const workInspectJson = runCoherenceJson(['work', 'inspect', '--json']);
     const workRefusal = CoherenceRefusal.safeParse(workInspectJson);
     if (workRefusal.success) return { isAvailable: false, reason: `work ledger refused: ${workRefusal.data.error}` };
-    const workInspect = WorkInspectOutput.parse(workInspectJson);
-    const orient = OrientOutput.parse(runCoherenceJson(['orient', '--json']));
-    const workOrders: WorkOrderSummary[] = workInspect.work.map((entry) => ({
+    const workInspect = WorkInspectOutput.safeParse(workInspectJson);
+    if (!workInspect.success) return { isAvailable: false, reason: describeShapeDrift('coherence work inspect', workInspect.error) };
+    const orientJson = runCoherenceJson(['orient', '--json']);
+    const orient = OrientOutput.safeParse(orientJson);
+    if (!orient.success) return { isAvailable: false, reason: describeOrientFailure(orientJson, orient.error) };
+    const workOrders: WorkOrderSummary[] = workInspect.data.work.map((entry) => ({
       id: entry.work,
       objective: entry.opened.objective,
       state: entry.state,
@@ -126,10 +168,10 @@ export function readRepoSnapshot(repo: string, runCoherence: CoherenceRunner): R
     }));
     return {
       isAvailable: true,
-      heading: orient.action,
-      headingReasons: orient.reasons,
+      heading: orient.data.action,
+      headingReasons: orient.data.reasons,
       workOrders,
-      unverifiedCompletedWorkIds: orient.consequences.unverifiedCompletedWork,
+      unverifiedCompletedWorkIds: orient.data.consequences.unverifiedCompletedWork,
       decisions: readDecisionJournal(repo),
     };
   } catch (error) {

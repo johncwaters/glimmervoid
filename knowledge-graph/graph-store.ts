@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
-import { containsUnsafeTextCharacter, findEdgeViolation, findIntegrityViolations, hasVisibleText, listKnownPropertyKeys, parseNodeProperties } from './graph-schema.ts';
+import { containsUnsafeTextCharacter, describeUnknownEdgeType, describeUnknownKind, findEdgeViolation, findIntegrityViolations, hasVisibleText, listKnownPropertyKeys, parseNodeProperties } from './graph-schema.ts';
 import type { GraphEdge, GraphNode, GraphSchema } from './graph-schema.ts';
 
 const NodeRow = z.object({
@@ -21,8 +21,11 @@ const EdgeRow = z.object({
 });
 
 const MetaRow = z.object({ value: z.string() });
+const ColumnNameRow = z.object({ name: z.string() });
 const CountRow = z.object({ edge_count: z.number() });
 const NumberRow = z.object({ last_number: z.number() });
+const NeighbourRow = z.object({ id: z.string() });
+const SqliteBusyError = z.looseObject({ errcode: z.literal(5) });
 
 const tableDefinitions = `
   CREATE TABLE IF NOT EXISTS graph_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -48,13 +51,13 @@ const tableDefinitions = `
   CREATE VIRTUAL TABLE IF NOT EXISTS node_search USING fts5 (id UNINDEXED, title, body);
 `;
 
-export type NodeChanges = {
+type NodeChanges = {
   title?: string;
   body?: string;
   properties?: Record<string, unknown>;
 };
 
-export type WalkStep = { node: GraphNode; depth: number };
+type WalkStep = { node: GraphNode; depth: number };
 
 function toGraphNode(row: unknown): GraphNode {
   const parsedRow = NodeRow.parse(row);
@@ -87,6 +90,7 @@ function withoutEmptyValues(properties: Record<string, unknown>): Record<string,
 }
 
 const BUSY_TIMEOUT_MS = 5_000;
+const JOURNAL_SWITCH_RETRY_MS = 10;
 
 function normalizeTitle(title: string): string {
   const trimmedTitle = title.trim();
@@ -95,49 +99,77 @@ function normalizeTitle(title: string): string {
   return trimmedTitle;
 }
 
-function refuseForeignDatabase(database: DatabaseSync, databasePath: string): void {
-  const hasGraphMeta = database.prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = 'graph_meta'").get() !== undefined;
-  if (hasGraphMeta) return;
-  const hasOtherTables = database.prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1").get() !== undefined;
-  if (!hasOtherTables) return;
-  database.close();
-  throw new Error(`${databasePath} is not a knowledge graph database; refusing to claim it`);
+type DatabaseOwnership = { kind: 'fresh' } | { kind: 'foreign' } | { kind: 'owned'; schemaName: string };
+
+function readOwnership(database: DatabaseSync): DatabaseOwnership {
+  const hasSchemaObjects = database.prepare("SELECT 1 AS found FROM sqlite_master WHERE substr(name, 1, 7) <> 'sqlite_' LIMIT 1").get() !== undefined;
+  if (!hasSchemaObjects) return { kind: 'fresh' };
+  const metaColumnNames = database.prepare("SELECT name FROM pragma_table_info('graph_meta')").all().map((row) => ColumnNameRow.parse(row).name);
+  if (!metaColumnNames.includes('key') || !metaColumnNames.includes('value')) return { kind: 'foreign' };
+  const storedName = MetaRow.safeParse(database.prepare("SELECT value FROM graph_meta WHERE key = 'schema_name'").get());
+  return storedName.success ? { kind: 'owned', schemaName: storedName.data.value } : { kind: 'foreign' };
+}
+
+function refuseUnlessClaimable(ownership: DatabaseOwnership, databasePath: string, schema: GraphSchema): void {
+  if (ownership.kind === 'foreign') throw new Error(`${databasePath} is not a knowledge graph database; refusing to claim it`);
+  if (ownership.kind === 'owned' && ownership.schemaName !== schema.name) {
+    throw new Error(`${databasePath} belongs to the "${ownership.schemaName}" graph, not "${schema.name}"`);
+  }
+}
+
+function runInTransaction<T>(database: DatabaseSync, work: () => T, beginStatement: 'BEGIN IMMEDIATE' | 'BEGIN DEFERRED' = 'BEGIN IMMEDIATE'): T {
+  if (database.isTransaction) return work();
+  database.exec(beginStatement);
+  try {
+    const value = work();
+    database.exec('COMMIT');
+    return value;
+  } catch (error) {
+    database.exec('ROLLBACK');
+    throw error;
+  }
+}
+
+function tryEnableWriteAheadLog(database: DatabaseSync, deadlineMs: number): boolean {
+  try {
+    database.exec('PRAGMA journal_mode = WAL');
+    return true;
+  } catch (error) {
+    if (SqliteBusyError.safeParse(error).success && Date.now() < deadlineMs) return false;
+    throw error;
+  }
+}
+
+function enableWriteAheadLog(database: DatabaseSync): void {
+  const deadlineMs = Date.now() + BUSY_TIMEOUT_MS;
+  const retryPause = new Int32Array(new SharedArrayBuffer(4));
+  while (!tryEnableWriteAheadLog(database, deadlineMs)) Atomics.wait(retryPause, 0, 0, JOURNAL_SWITCH_RETRY_MS);
+}
+
+function claimDatabase(database: DatabaseSync, databasePath: string, schema: GraphSchema): void {
+  refuseUnlessClaimable(readOwnership(database), databasePath, schema);
+  database.exec('PRAGMA foreign_keys = ON');
+  runInTransaction(database, () => {
+    const ownership = readOwnership(database);
+    refuseUnlessClaimable(ownership, databasePath, schema);
+    database.exec(tableDefinitions);
+    if (ownership.kind !== 'fresh') return;
+    database.prepare("INSERT INTO graph_meta (key, value) VALUES ('schema_name', ?), ('schema_version', ?)").run(schema.name, String(schema.version));
+  });
+  enableWriteAheadLog(database);
 }
 
 export type GraphStore = ReturnType<typeof openGraphStore>;
 
 export function openGraphStore(databasePath: string, schema: GraphSchema, currentTimestamp: () => string = () => new Date().toISOString()) {
   const database = new DatabaseSync(databasePath, { timeout: BUSY_TIMEOUT_MS });
-  refuseForeignDatabase(database, databasePath);
-  database.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;');
-  database.exec(tableDefinitions);
-
-  const runInTransaction = <T>(work: () => T): T => {
-    if (database.isTransaction) return work();
-    database.exec('BEGIN IMMEDIATE');
-    try {
-      const value = work();
-      database.exec('COMMIT');
-      return value;
-    } catch (error) {
-      database.exec('ROLLBACK');
-      throw error;
-    }
-  };
-
-  const claimSchemaOwnership = (): void => {
-    const storedName = database.prepare("SELECT value FROM graph_meta WHERE key = 'schema_name'").get();
-    if (storedName === undefined) {
-      database.prepare("INSERT INTO graph_meta (key, value) VALUES ('schema_name', ?), ('schema_version', ?)").run(schema.name, String(schema.version));
-      return;
-    }
-    const ownerName = MetaRow.parse(storedName).value;
-    if (ownerName !== schema.name) {
-      database.close();
-      throw new Error(`${databasePath} belongs to the "${ownerName}" graph, not "${schema.name}"`);
-    }
-  };
-  claimSchemaOwnership();
+  try {
+    claimDatabase(database, databasePath, schema);
+  } catch (error) {
+    database.close();
+    throw error;
+  }
+  const transaction = <T>(work: () => T): T => runInTransaction(database, work);
 
   const getNode = (id: string): GraphNode | null => {
     const row = database.prepare('SELECT * FROM nodes WHERE id = ?').get(id);
@@ -172,7 +204,7 @@ export function openGraphStore(databasePath: string, schema: GraphSchema, curren
     const properties = parsePropertiesOrThrow(kind, withoutEmptyValues(rawProperties));
     const normalizedTitle = normalizeTitle(title);
     const idPrefix = schema.kinds[kind]?.idPrefix ?? kind;
-    return runInTransaction(() => {
+    return transaction(() => {
       const timestamp = currentTimestamp();
       const id = claimNextId(idPrefix);
       database
@@ -186,7 +218,7 @@ export function openGraphStore(databasePath: string, schema: GraphSchema, curren
 
   const updateNode = (id: string, changes: NodeChanges): GraphNode => {
     const title = changes.title === undefined ? undefined : normalizeTitle(changes.title);
-    return runInTransaction(() => {
+    return transaction(() => {
       const existing = requireNode(id);
       const mergedProperties = withoutEmptyValues({ ...existing.properties, ...changes.properties });
       const properties = parsePropertiesOrThrow(existing.kind, mergedProperties);
@@ -201,7 +233,7 @@ export function openGraphStore(databasePath: string, schema: GraphSchema, curren
 
   const removeNode = (id: string): void => {
     requireNode(id);
-    runInTransaction(() => {
+    transaction(() => {
       database.prepare('DELETE FROM nodes WHERE id = ?').run(id);
       database.prepare('DELETE FROM node_search WHERE id = ?').run(id);
     });
@@ -220,15 +252,17 @@ export function openGraphStore(databasePath: string, schema: GraphSchema, curren
     return row !== undefined;
   };
 
-  const hasEdge = (fromId: string, edgeType: string, toId: string): boolean =>
-    database.prepare('SELECT 1 AS found FROM edges WHERE edge_type = ? AND from_id = ? AND to_id = ?').get(edgeType, fromId, toId) !== undefined;
+  const findEdge = (fromId: string, edgeType: string, toId: string): GraphEdge | null => {
+    const row = database.prepare('SELECT * FROM edges WHERE edge_type = ? AND from_id = ? AND to_id = ?').get(edgeType, fromId, toId);
+    return row === undefined ? null : toGraphEdge(row);
+  };
 
   const link = (fromId: string, edgeType: string, toId: string): GraphEdge => {
     const fromNode = requireNode(fromId);
     const toNode = requireNode(toId);
-    const createdAt = currentTimestamp();
-    return runInTransaction(() => {
-      if (hasEdge(fromId, edgeType, toId)) return { edgeType, fromId, toId, createdAt };
+    return transaction(() => {
+      const existingEdge = findEdge(fromId, edgeType, toId);
+      if (existingEdge) return existingEdge;
       const countRow = database.prepare('SELECT count(*) AS edge_count FROM edges WHERE edge_type = ? AND from_id = ?').get(edgeType, fromId);
       const violation = findEdgeViolation(schema, {
         edgeType,
@@ -240,6 +274,7 @@ export function openGraphStore(databasePath: string, schema: GraphSchema, curren
         targetReachesSource: isReachable(edgeType, toId, fromId),
       });
       if (violation) throw new Error(violation);
+      const createdAt = currentTimestamp();
       database.prepare('INSERT INTO edges (edge_type, from_id, to_id, created_at) VALUES (?, ?, ?, ?)').run(edgeType, fromId, toId, createdAt);
       return { edgeType, fromId, toId, createdAt };
     });
@@ -249,7 +284,7 @@ export function openGraphStore(databasePath: string, schema: GraphSchema, curren
     Number(database.prepare('DELETE FROM edges WHERE edge_type = ? AND from_id = ? AND to_id = ?').run(edgeType, fromId, toId).changes) > 0;
 
   const refuseUnknownFilters = (kind: string | undefined, propertyFilters: Record<string, string>): void => {
-    if (kind !== undefined && !schema.kinds[kind]) throw new Error(`unknown kind "${kind}"; known: ${Object.keys(schema.kinds).join(', ')}`);
+    if (kind !== undefined && !schema.kinds[kind]) throw new Error(describeUnknownKind(schema, kind));
     const filterKeys = Object.keys(propertyFilters);
     if (filterKeys.length === 0) return;
     const kindsInScope = kind === undefined ? Object.keys(schema.kinds) : [kind];
@@ -258,10 +293,6 @@ export function openGraphStore(databasePath: string, schema: GraphSchema, curren
     const knownKeys = new Set(knownKeysPerKind.flatMap((keys) => keys ?? []));
     const unknownKey = filterKeys.find((key) => !knownKeys.has(key));
     if (unknownKey !== undefined) throw new Error(`unknown field "${unknownKey}"${kind === undefined ? '' : ` for ${kind}`}; known: ${[...knownKeys].join(', ')}`);
-  };
-
-  const refuseUnknownEdgeType = (edgeType: string): void => {
-    if (!schema.edges[edgeType]) throw new Error(`unknown edge type "${edgeType}"; known: ${Object.keys(schema.edges).join(', ')}`);
   };
 
   const listNodes = (kind?: string, propertyFilters: Record<string, string> = {}): GraphNode[] => {
@@ -288,23 +319,34 @@ export function openGraphStore(databasePath: string, schema: GraphSchema, curren
   const incomingEdges = (id: string): GraphEdge[] =>
     database.prepare('SELECT * FROM edges WHERE to_id = ? ORDER BY edge_type, from_id').all(id).map(toGraphEdge);
 
-  const walk = (startId: string, edgeType: string, direction: 'outgoing' | 'incoming', maxDepth = 25): WalkStep[] => {
+  const walkWithinSnapshot = (startId: string, edgeType: string, direction: 'outgoing' | 'incoming'): WalkStep[] => {
     requireNode(startId);
-    refuseUnknownEdgeType(edgeType);
-    const [nextColumn, currentColumn] = direction === 'outgoing' ? ['to_id', 'from_id'] : ['from_id', 'to_id'];
-    const rows = database
-      .prepare(`
-        WITH RECURSIVE walked (id, depth) AS (
-          SELECT ?, 0
-          UNION
-          SELECT edges.${nextColumn}, walked.depth + 1 FROM edges JOIN walked ON edges.${currentColumn} = walked.id
-          WHERE edges.edge_type = ? AND walked.depth < ?
-        )
-        SELECT nodes.*, min(walked.depth) AS depth FROM walked JOIN nodes ON nodes.id = walked.id
-        WHERE walked.id != ? GROUP BY nodes.id ORDER BY depth, nodes.id`)
-      .all(startId, edgeType, maxDepth, startId);
-    return rows.map((row) => ({ node: toGraphNode(row), depth: z.object({ depth: z.number() }).parse(row).depth }));
+    if (!schema.edges[edgeType]) throw new Error(describeUnknownEdgeType(schema, edgeType));
+    const neighbourQuery = direction === 'outgoing'
+      ? database.prepare('SELECT to_id AS id FROM edges WHERE edge_type = ? AND from_id = ?')
+      : database.prepare('SELECT from_id AS id FROM edges WHERE edge_type = ? AND to_id = ?');
+    const visitedIds = new Set([startId]);
+    const steps: WalkStep[] = [];
+    let frontierIds = [startId];
+    for (let depth = 1; frontierIds.length > 0; depth += 1) {
+      const nextFrontierIds: string[] = [];
+      for (const nodeId of frontierIds) {
+        for (const row of neighbourQuery.all(edgeType, nodeId)) {
+          const neighbourId = NeighbourRow.parse(row).id;
+          if (visitedIds.has(neighbourId)) continue;
+          visitedIds.add(neighbourId);
+          nextFrontierIds.push(neighbourId);
+        }
+      }
+      nextFrontierIds.sort();
+      for (const nodeId of nextFrontierIds) steps.push({ node: requireNode(nodeId), depth });
+      frontierIds = nextFrontierIds;
+    }
+    return steps;
   };
+
+  const walk = (startId: string, edgeType: string, direction: 'outgoing' | 'incoming'): WalkStep[] =>
+    runInTransaction(database, () => walkWithinSnapshot(startId, edgeType, direction), 'BEGIN DEFERRED');
 
   const search = (text: string, limit = 20): GraphNode[] => {
     const expression = toSearchExpression(text);
@@ -333,7 +375,7 @@ export function openGraphStore(databasePath: string, schema: GraphSchema, curren
     walk,
     search,
     checkIntegrity,
-    transaction: runInTransaction,
+    transaction,
     close: () => database.close(),
   };
 }

@@ -16,6 +16,6 @@ Experimental typed knowledge and task graph behind `knowledgeGraph.enabled`. Int
 
 ## Rules
 
-- Import only siblings, `zod` and `node:` builtins other than `node:child_process`; Glimmervoid reaches this folder only via `server/knowledge-graph-cli.ts`. Why: it must stay deletable whole (`tests/knowledge-graph-boundary.test.ts`).
+- Import only siblings, `zod` and the `node:` builtins allow-listed in the boundary test, never `node:child_process`; Glimmervoid reaches this folder only via `server/knowledge-graph-cli.ts`. Why: it must stay deletable whole (`tests/knowledge-graph-boundary.test.ts`).
 - Never write into a repo or a Coherence ledger, and never sync status either way; report divergence only. Why: the ledger is the agents' record, the graph is the operator's.
 - A new edge or kind is a schema change: add it to the schema table and pin it with a test in `tests/knowledge-graph-store.test.ts`, never as free-text properties.

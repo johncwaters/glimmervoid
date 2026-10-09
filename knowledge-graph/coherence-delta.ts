@@ -1,4 +1,4 @@
-export type CoherenceRecordKind = 'work' | 'decision';
+type CoherenceRecordKind = 'work' | 'decision';
 
 export type WorkOrderSummary = {
   id: string;
@@ -8,13 +8,20 @@ export type WorkOrderSummary = {
   lastEventAt: string | null;
 };
 
+export const journalRecordKinds = ['decision', 'blocked', 'conjecture'] as const;
+
+type JournalRecordKind = typeof journalRecordKinds[number];
+
+export type JournalRecordStanding = 'standing' | 'retracted' | 'open' | 'resolved' | 'dismissed';
+
 export type DecisionSummary = {
   id: string;
+  kind: JournalRecordKind;
+  standing: JournalRecordStanding;
   chose: string;
   because: string;
   at: string;
   workId: string | null;
-  isRetracted: boolean;
   retractedAt: string | null;
 };
 
@@ -32,9 +39,9 @@ export type TrackedRecord = {
   recordId: string;
 };
 
-export type FindingKind = 'missing' | 'unverified' | 'status-diverges' | 'retracted' | 'moved-since';
+type FindingKind = 'missing' | 'unverified' | 'status-diverges' | 'retracted' | 'moved-since';
 
-export type TrackedRecordReport = {
+type TrackedRecordReport = {
   tracked: TrackedRecord;
   label: string;
   state: string;
@@ -99,10 +106,10 @@ function reportDecisionRecord(tracked: TrackedRecord, snapshot: Extract<RepoSnap
   if (!decision) {
     return { tracked, label: tracked.recordId, state: 'missing', findings: [{ kind: 'missing', detail: 'not in this repo\'s decision journal' }], decisions: [] };
   }
-  const findings: TrackedRecordReport['findings'] = decision.isRetracted ? [{ kind: 'retracted', detail: 'withdrawn in the journal; kg notes relying on it need a look' }] : [];
+  const findings: TrackedRecordReport['findings'] = decision.standing === 'retracted' ? [{ kind: 'retracted', detail: 'withdrawn in the journal; kg notes relying on it need a look' }] : [];
   if (isAfter(decision.retractedAt, since)) findings.push({ kind: 'moved-since', detail: `retracted ${decision.retractedAt}` });
   if (isAfter(decision.at, since)) findings.push({ kind: 'moved-since', detail: `decided ${decision.at}` });
-  return { tracked, label: decision.chose, state: decision.isRetracted ? 'retracted' : 'standing', findings, decisions: [] };
+  return { tracked, label: decision.chose, state: `${decision.kind}/${decision.standing}`, findings, decisions: [] };
 }
 
 export function buildCoherenceDelta(trackedRecords: readonly TrackedRecord[], snapshotsByRepo: ReadonlyMap<string, RepoSnapshot>, since?: string): RepoReport[] {

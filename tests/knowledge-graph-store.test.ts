@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import { z } from 'zod';
 import type { GraphNode, GraphSchema } from '../knowledge-graph/graph-schema.ts';
@@ -150,7 +151,7 @@ test('removing a node removes its edges and its search entry', () => {
 });
 
 test('a database file belongs to one graph schema and refuses another', () => {
-  const databasePath = join(mkdtempSync(join(tmpdir(), 'kg-test-')), 'graph.sqlite');
+  const databasePath = temporaryDatabasePath();
   const factorySchema: GraphSchema = {
     name: 'factory',
     version: 1,
@@ -171,7 +172,7 @@ test('integrity check is clean for a valid graph and reports rows written behind
   const strictTaskKind = personalSchema.kinds.task;
   assert.ok(strictTaskKind);
   const looseSchema: GraphSchema = { ...personalSchema, kinds: { ...personalSchema.kinds, task: { ...strictTaskKind, properties: z.record(z.string(), z.unknown()) } } };
-  const sharedPath = join(mkdtempSync(join(tmpdir(), 'kg-test-')), 'graph.sqlite');
+  const sharedPath = temporaryDatabasePath();
   const looseStore = openGraphStore(sharedPath, looseSchema);
   looseStore.addNode('task', 'Drifted task', { status: 'someday' });
   looseStore.close();
@@ -310,7 +311,7 @@ test('a coherence pointer accepts a Windows or POSIX absolute repo path and refu
 });
 
 test('a SQLite file holding unrelated tables is refused and left without graph tables', () => {
-  const databasePath = join(mkdtempSync(join(tmpdir(), 'kg-test-')), 'foreign.sqlite');
+  const databasePath = temporaryDatabasePath();
   const foreignDatabase = new DatabaseSync(databasePath);
   foreignDatabase.exec('CREATE TABLE invoices (id INTEGER PRIMARY KEY, total INTEGER)');
   foreignDatabase.close();
@@ -321,4 +322,128 @@ test('a SQLite file holding unrelated tables is refused and left without graph t
   inspected.close();
   assert.deepEqual(tableNames, ['invoices']);
   assert.equal(journalMode?.journal_mode, 'delete');
+});
+
+test('a SQLite file with a foreign graph_meta table and no schema name is refused byte for byte untouched', () => {
+  const databasePath = temporaryDatabasePath();
+  const foreignDatabase = new DatabaseSync(databasePath);
+  foreignDatabase.exec("CREATE TABLE graph_meta (key TEXT PRIMARY KEY, value TEXT); INSERT INTO graph_meta VALUES ('owner', 'another tool')");
+  foreignDatabase.close();
+  const bytesBefore = readFileSync(databasePath);
+  assert.throws(() => openGraphStore(databasePath, personalSchema), /not a knowledge graph database/);
+  assert.deepEqual(readFileSync(databasePath), bytesBefore);
+  assert.equal(existsSync(`${databasePath}-wal`), false);
+});
+
+test('a SQLite file whose only table is named like an internal sqlite_ table but is not one is refused untouched', () => {
+  const databasePath = temporaryDatabasePath();
+  const foreignDatabase = new DatabaseSync(databasePath);
+  foreignDatabase.exec('CREATE TABLE sqlite3_settings (key TEXT PRIMARY KEY, value TEXT)');
+  foreignDatabase.close();
+  const bytesBefore = readFileSync(databasePath);
+  assert.throws(() => openGraphStore(databasePath, personalSchema), /not a knowledge graph database/);
+  assert.deepEqual(readFileSync(databasePath), bytesBefore);
+  assert.equal(existsSync(`${databasePath}-wal`), false);
+});
+
+test('a file another program fills while the graph is still deciding to claim it is refused and never switched to WAL', async () => {
+  const databasePath = temporaryDatabasePath();
+  await whileAnotherConnectionHoldsTheWriteLock(databasePath, 'CREATE TABLE invoices (id INTEGER PRIMARY KEY, total INTEGER)', () => {
+    assert.throws(() => openGraphStore(databasePath, personalSchema), /not a knowledge graph database/);
+  });
+  const inspected = new DatabaseSync(databasePath);
+  const journalMode = inspected.prepare('PRAGMA journal_mode').get();
+  inspected.close();
+  assert.equal(journalMode?.journal_mode, 'delete');
+  assert.equal(existsSync(`${databasePath}-wal`), false);
+});
+
+const concurrentOpenerSource = `
+const { parentPort, workerData } = require('node:worker_threads');
+(async () => {
+  const { openGraphStore } = await import(workerData.storeUrl);
+  const { personalSchema } = await import(workerData.schemaUrl);
+  parentPort.postMessage('ready');
+  Atomics.wait(new Int32Array(workerData.startGate), 0, 0);
+  try {
+    openGraphStore(workerData.databasePath, personalSchema).close();
+    parentPort.postMessage('opened');
+  } catch (error) {
+    parentPort.postMessage(error.message);
+  }
+})();
+`;
+
+async function openFromConcurrentConnections(databasePath: string, connectionCount: number): Promise<string[]> {
+  const startGate = new SharedArrayBuffer(4);
+  const workerData = {
+    databasePath,
+    startGate,
+    storeUrl: pathToFileURL(join(import.meta.dirname, '..', 'knowledge-graph', 'graph-store.ts')).href,
+    schemaUrl: pathToFileURL(join(import.meta.dirname, '..', 'knowledge-graph', 'personal-schema.ts')).href,
+  };
+  const openers = Array.from({ length: connectionCount }, () => new Worker(concurrentOpenerSource, { eval: true, workerData }));
+  const readinessMessages = openers.map((opener) => once(opener, 'message'));
+  await Promise.all(readinessMessages);
+  const outcomes = openers.map(async (opener) => String((await once(opener, 'message'))[0]));
+  Atomics.store(new Int32Array(startGate), 0, 1);
+  Atomics.notify(new Int32Array(startGate), 0);
+  const settledOutcomes = await Promise.all(outcomes);
+  await Promise.all(openers.map((opener) => opener.terminate()));
+  return settledOutcomes;
+}
+
+test('connections opening the same fresh database at once all claim it', async () => {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const databasePath = temporaryDatabasePath();
+    assert.deepEqual(await openFromConcurrentConnections(databasePath, 6), Array(6).fill('opened'));
+    const store = openGraphStore(databasePath, personalSchema);
+    assert.deepEqual(store.checkIntegrity(), []);
+    store.close();
+  }
+});
+
+test('relinking an existing edge returns the stored edge with its original timestamp', () => {
+  let clockTick = 0;
+  const store = openGraphStore(':memory:', personalSchema, () => `2026-10-08T00:00:0${clockTick++}.000Z`);
+  const task = store.addNode('task', 'Write summary');
+  const project = store.addNode('project', 'Alpha');
+  const firstLink = store.link(task.id, 'part_of', project.id);
+  const repeatedLink = store.link(task.id, 'part_of', project.id);
+  assert.deepEqual(repeatedLink, firstLink);
+  assert.deepEqual(store.listEdges(), [firstLink]);
+});
+
+test('chain walks a blocker chain longer than any depth limit to its root', () => {
+  const store = openPersonalGraph();
+  const tasks = Array.from({ length: 31 }, (_, index) => store.addNode('task', `Step ${index + 1}`));
+  for (let index = 1; index < tasks.length; index += 1) store.link(tasks[index - 1]?.id ?? '', 'blocks', tasks[index]?.id ?? '');
+  const lastTask = tasks.at(-1);
+  assert.ok(lastTask);
+  const blockers = store.walk(lastTask.id, 'blocks', 'incoming');
+  assert.equal(blockers.length, 30);
+  assert.deepEqual(blockers.at(-1), { node: tasks[0], depth: 30 });
+});
+
+test('walking an edge type that may loop visits each node once and terminates', () => {
+  const store = openPersonalGraph();
+  const first = store.addNode('note', 'First');
+  const second = store.addNode('note', 'Second');
+  store.link(first.id, 'relates_to', second.id);
+  store.link(second.id, 'relates_to', first.id);
+  assert.deepEqual(store.walk(first.id, 'relates_to', 'outgoing').map((step) => [step.node.id, step.depth]), [[second.id, 1]]);
+});
+
+test('a refused walk leaves no read transaction open, so the next write reaches another connection', () => {
+  const databasePath = temporaryDatabasePath();
+  const store = openGraphStore(databasePath, personalSchema);
+  const task = store.addNode('task', 'Walked task');
+  assert.deepEqual(store.walk(task.id, 'blocks', 'incoming'), []);
+  assert.throws(() => store.walk(task.id, 'nonsense', 'incoming'), /unknown edge type "nonsense"/);
+  assert.throws(() => store.walk('T-404', 'blocks', 'incoming'), /no node with id T-404/);
+  const laterTask = store.addNode('task', 'Written after the walks');
+  const observer = new DatabaseSync(databasePath);
+  assert.deepEqual(observer.prepare('SELECT id FROM nodes ORDER BY id').all().map((row) => row.id), [task.id, laterTask.id]);
+  observer.close();
+  store.close();
 });

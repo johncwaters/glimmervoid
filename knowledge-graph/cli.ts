@@ -6,11 +6,11 @@ import { buildCoherenceDelta, inferRecordKind } from './coherence-delta.ts';
 import type { RepoReport, TrackedRecord } from './coherence-delta.ts';
 import { readRepoSnapshot } from './coherence-source.ts';
 import type { CoherenceRunner } from './coherence-source.ts';
-import { describeAllowedKinds, listKnownPropertyKeys, stripUnsafeTextCharacters } from './graph-schema.ts';
+import { describeAllowedKinds, listKnownPropertyKeys, splitIntoSafeLines, stripUnsafeTextCharacters } from './graph-schema.ts';
 import type { GraphSchema } from './graph-schema.ts';
 import { openGraphStore } from './graph-store.ts';
 import type { GraphStore } from './graph-store.ts';
-import { collectNextActions, formatNodeLine, renderMarkdown } from './graph-views.ts';
+import { collectNextActions, formatNodeLine, readTaskHierarchy, renderMarkdown } from './graph-views.ts';
 import { personalSchema } from './personal-schema.ts';
 
 const schemasByName: Record<string, GraphSchema> = { personal: personalSchema };
@@ -34,7 +34,7 @@ const usage = `glimmervoid kg: a typed, local-first knowledge and task graph (ex
   glimmervoid kg chain <id> [edge] [--incoming]      walk an edge transitively; bare "kg chain T-3" lists everything blocking T-3
   glimmervoid kg check                               re-validate every node and edge against the schema
   glimmervoid kg export                              the whole graph as markdown
-  glimmervoid kg track <id> <repo> <recordId>        point a kg node at a Coherence work order (wrk-...) or decision (d-...)
+  glimmervoid kg track <id> <repo> <recordId>        point a kg node at a Coherence work order (wrk-...) or journal record (d-...)
   glimmervoid kg delta [id] [--since <iso time>]     what the tracked Coherence records did, and where kg and the ledger disagree
 
   --graph <name>   which schema (default personal)    --db <path>   database file (default <glimmervoid home>/knowledge-graph/<graph>.sqlite)
@@ -84,13 +84,15 @@ function readEdgeArguments(positionals: readonly string[]): { fromId: string; ed
 
 function collectTrackedRecords(store: GraphStore, scopeNodeId: string | undefined): TrackedRecord[] {
   const nodesById = new Map(store.listNodes().map((node) => [node.id, node]));
-  const projectIdByNode = new Map(store.listEdges('part_of').map((edge) => [edge.fromId, edge.toId]));
-  const isInScope = (nodeId: string) => scopeNodeId === undefined || nodeId === scopeNodeId || projectIdByNode.get(nodeId) === scopeNodeId;
+  const hierarchy = readTaskHierarchy(store);
+  const isInScope = (nodeId: string) =>
+    scopeNodeId === undefined || hierarchy.lineageOf(nodeId).includes(scopeNodeId) || hierarchy.projectIdOf(nodeId) === scopeNodeId;
   return store.listEdges('tracked_by').filter((edge) => isInScope(edge.fromId)).flatMap((edge): TrackedRecord[] => {
     const trackingNode = nodesById.get(edge.fromId);
     const pointer = nodesById.get(edge.toId);
     if (!trackingNode || !pointer) return [];
-    const record = inferRecordKind(String(pointer.properties.recordId));
+    const recordId = String(pointer.properties.recordId);
+    const record = inferRecordKind(recordId);
     if (record === null) return [];
     const trackingStatus = trackingNode.properties.status;
     return [{
@@ -100,22 +102,23 @@ function collectTrackedRecords(store: GraphStore, scopeNodeId: string | undefine
       recordNodeId: pointer.id,
       repo: String(pointer.properties.repo),
       record,
-      recordId: String(pointer.properties.recordId),
+      recordId,
     }];
   });
 }
 
 function renderRepoReport(report: RepoReport): string {
+  const repoLabel = stripUnsafeTextCharacters(report.repo);
   if (!report.isAvailable) {
     const recordLines = report.records.map((tracked) => `  ${tracked.trackingNodeId} -> ${tracked.recordNodeId} ${tracked.recordId}  (not checked)`);
-    return [`${stripUnsafeTextCharacters(report.repo)}  unavailable: ${report.reason}`, ...recordLines].join('\n');
+    return [`${repoLabel}  unavailable: ${report.reason}`, ...recordLines].join('\n');
   }
   const recordBlocks = report.records.map((recordReport) => [
     `  ${recordReport.tracked.trackingNodeId} -> ${recordReport.tracked.recordNodeId} ${recordReport.tracked.record.padEnd(8)} ${recordReport.state.padEnd(16)} ${recordReport.label}`,
     ...recordReport.findings.map((finding) => `       ! ${finding.kind}: ${finding.detail}`),
-    ...recordReport.decisions.map((decision) => `       decision ${decision.id}${decision.isRetracted ? ' (retracted)' : ''} ${decision.chose}`),
+    ...recordReport.decisions.map((decision) => `       ${decision.kind} ${decision.id} (${decision.standing}) ${decision.chose}`),
   ].join('\n'));
-  return [`${stripUnsafeTextCharacters(report.repo)}  heading: ${report.heading}${report.headingReasons.length === 0 ? '' : ` (${report.headingReasons.join('; ')})`}`, ...recordBlocks].join('\n');
+  return [`${repoLabel}  heading: ${report.heading}${report.headingReasons.length === 0 ? '' : ` (${report.headingReasons.join('; ')})`}`, ...recordBlocks].join('\n');
 }
 
 function print(context: CommandContext, jsonValue: unknown, text: string): number {
@@ -176,7 +179,7 @@ const commands: Record<string, (context: CommandContext) => number | undefined> 
       formatNodeLine(node),
       ...outgoing.map((edge) => `  -> ${edge.edgeType} ${edge.toId} ${titleOf(edge.toId)}`),
       ...incoming.map((edge) => `  <- ${edge.edgeType} ${edge.fromId} ${titleOf(edge.fromId)}`),
-      node.body === '' ? '' : `\n${node.body}`,
+      node.body === '' ? '' : `\n${splitIntoSafeLines(node.body).join('\n')}`,
     ];
     print(context, { node, outgoing, incoming }, lines.filter((line) => line !== '').join('\n'));
   },

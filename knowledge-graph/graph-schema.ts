@@ -1,12 +1,12 @@
 import { z } from 'zod';
 
-export type KindDefinition = {
+type KindDefinition = {
   idPrefix: string;
   description: string;
   properties: z.ZodType<Record<string, unknown>>;
 };
 
-export type EdgeDefinition = {
+type EdgeDefinition = {
   description: string;
   fromKinds: readonly string[] | 'any';
   toKinds: readonly string[] | 'any';
@@ -38,7 +38,7 @@ export type GraphEdge = {
   createdAt: string;
 };
 
-export type EdgeCandidate = {
+type EdgeCandidate = {
   edgeType: string;
   fromId: string;
   fromKind: string;
@@ -64,11 +64,23 @@ export function stripUnsafeTextCharacters(text: string): string {
   return text.replace(UNSAFE_TEXT_CHARACTERS, '');
 }
 
+export function splitIntoSafeLines(text: string): string[] {
+  return text.split(/\r\n|[\r\n\u2028\u2029]/).map((line) => line.split('\t').map(stripUnsafeTextCharacters).join('\t'));
+}
+
 export function listKnownPropertyKeys(schema: GraphSchema, kind: string): string[] | null {
   const properties = schema.kinds[kind]?.properties;
   if (properties === undefined) return null;
   if (!('shape' in properties) || typeof properties.shape !== 'object' || properties.shape === null) return null;
   return Object.keys(properties.shape);
+}
+
+export function describeUnknownKind(schema: GraphSchema, kind: string): string {
+  return `unknown kind "${kind}"; known: ${Object.keys(schema.kinds).join(', ')}`;
+}
+
+export function describeUnknownEdgeType(schema: GraphSchema, edgeType: string): string {
+  return `unknown edge type "${edgeType}"; known: ${Object.keys(schema.edges).join(', ')}`;
 }
 
 function isKindAllowed(allowedKinds: readonly string[] | 'any', kind: string): boolean {
@@ -81,9 +93,7 @@ export function describeAllowedKinds(allowedKinds: readonly string[] | 'any'): s
 
 export function findEdgeViolation(schema: GraphSchema, candidate: EdgeCandidate): string | null {
   const definition = schema.edges[candidate.edgeType];
-  if (!definition) {
-    return `unknown edge type "${candidate.edgeType}"; known: ${Object.keys(schema.edges).join(', ')}`;
-  }
+  if (!definition) return describeUnknownEdgeType(schema, candidate.edgeType);
   if (!isKindAllowed(definition.fromKinds, candidate.fromKind)) {
     return `${candidate.edgeType} cannot start at a ${candidate.fromKind} (${candidate.fromId}); allowed: ${describeAllowedKinds(definition.fromKinds)}`;
   }
@@ -105,9 +115,7 @@ export function findEdgeViolation(schema: GraphSchema, candidate: EdgeCandidate)
 
 export function parseNodeProperties(schema: GraphSchema, kind: string, rawProperties: unknown): { properties: Record<string, unknown> } | { error: string } {
   const kindDefinition = schema.kinds[kind];
-  if (!kindDefinition) {
-    return { error: `unknown kind "${kind}"; known: ${Object.keys(schema.kinds).join(', ')}` };
-  }
+  if (!kindDefinition) return { error: describeUnknownKind(schema, kind) };
   const parsed = kindDefinition.properties.safeParse(rawProperties);
   if (!parsed.success) {
     return { error: `invalid ${kind} properties:\n${z.prettifyError(parsed.error)}` };

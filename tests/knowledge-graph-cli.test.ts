@@ -175,12 +175,28 @@ test('tracking and delta never rewrite the tracked repo git index, so concurrent
   assert.deepEqual(fs.readFileSync(indexPath), indexBytesBefore);
 });
 
-async function runEntryThroughSlowPipeReader(entryArgs: string[], scratchHome: string): Promise<{ exitCode: number | null; stdout: string }> {
-  const child = spawn(process.execPath, ['bin/glimmervoid.ts', ...entryArgs], {
+function spawnEntry(entryArgs: string[], scratchHome: string, stderr: 'inherit' | 'pipe') {
+  return spawn(process.execPath, ['bin/glimmervoid.ts', ...entryArgs], {
     cwd: path.join(import.meta.dirname, '..'),
     env: { ...process.env, HOME: scratchHome, USERPROFILE: scratchHome, GLIMMERVOID_HOME: scratchHome, GLIMMERVOID_CONFIG: '' },
-    stdio: ['ignore', 'pipe', 'inherit'],
+    stdio: ['ignore', 'pipe', stderr],
   });
+}
+
+function createEnabledHomeWithLongTasks(taskCount: number): { scratchHome: string; databasePath: string } {
+  const scratchHome = fs.mkdtempSync(path.join(os.tmpdir(), 'kg-pipe-'));
+  fs.writeFileSync(path.join(scratchHome, 'config.json'), JSON.stringify({ knowledgeGraph: { enabled: true } }));
+  const databaseDirectory = path.join(scratchHome, 'graph');
+  const { dependencies } = capturingDependencies(databaseDirectory);
+  const longBody = 'b'.repeat(2000);
+  for (let taskNumber = 1; taskNumber <= taskCount; taskNumber += 1) {
+    assert.equal(runKnowledgeGraphCli(['add', 'task', `Task ${taskNumber}`, '--body', longBody], dependencies), 0);
+  }
+  return { scratchHome, databasePath: path.join(databaseDirectory, 'personal.sqlite') };
+}
+
+async function runEntryThroughSlowPipeReader(entryArgs: string[], scratchHome: string): Promise<{ exitCode: number | null; stdout: string }> {
+  const child = spawnEntry(entryArgs, scratchHome, 'inherit');
   const childStdout = child.stdout;
   assert.ok(childStdout);
   childStdout.pause();
@@ -193,17 +209,10 @@ async function runEntryThroughSlowPipeReader(entryArgs: string[], scratchHome: s
 }
 
 test('kg output larger than a pipe buffer reaches a slow piped reader in full', async () => {
-  const scratchHome = fs.mkdtempSync(path.join(os.tmpdir(), 'kg-pipe-'));
-  fs.writeFileSync(path.join(scratchHome, 'config.json'), JSON.stringify({ knowledgeGraph: { enabled: true } }));
-  const databaseDirectory = path.join(scratchHome, 'graph');
+  const taskCount = 200;
+  const { scratchHome, databasePath } = createEnabledHomeWithLongTasks(taskCount);
   try {
-    const { dependencies } = capturingDependencies(databaseDirectory);
-    const longBody = 'b'.repeat(2000);
-    const taskCount = 200;
-    for (let taskNumber = 1; taskNumber <= taskCount; taskNumber += 1) {
-      assert.equal(runKnowledgeGraphCli(['add', 'task', `Task ${taskNumber}`, '--body', longBody], dependencies), 0);
-    }
-    const listing = await runEntryThroughSlowPipeReader(['kg', 'ls', '--json', '--db', path.join(databaseDirectory, 'personal.sqlite')], scratchHome);
+    const listing = await runEntryThroughSlowPipeReader(['kg', 'ls', '--json', '--db', databasePath], scratchHome);
     assert.equal(listing.exitCode, 0);
     assert.ok(Buffer.byteLength(listing.stdout) > 256 * 1024);
     assert.equal(JSON.parse(listing.stdout).length, taskCount);
@@ -213,11 +222,7 @@ test('kg output larger than a pipe buffer reaches a slow piped reader in full', 
 });
 
 async function runEntryIntoReaderThatClosesEarly(entryArgs: string[], scratchHome: string): Promise<{ stderr: string }> {
-  const child = spawn(process.execPath, ['bin/glimmervoid.ts', ...entryArgs], {
-    cwd: path.join(import.meta.dirname, '..'),
-    env: { ...process.env, HOME: scratchHome, USERPROFILE: scratchHome, GLIMMERVOID_HOME: scratchHome, GLIMMERVOID_CONFIG: '' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  const child = spawnEntry(entryArgs, scratchHome, 'pipe');
   const childStdout = child.stdout;
   const childStderr = child.stderr;
   assert.ok(childStdout);
@@ -230,18 +235,50 @@ async function runEntryIntoReaderThatClosesEarly(entryArgs: string[], scratchHom
 }
 
 test('kg output piped into a reader that closes early ends quietly instead of crashing on EPIPE', async () => {
-  const scratchHome = fs.mkdtempSync(path.join(os.tmpdir(), 'kg-epipe-'));
-  fs.writeFileSync(path.join(scratchHome, 'config.json'), JSON.stringify({ knowledgeGraph: { enabled: true } }));
-  const databaseDirectory = path.join(scratchHome, 'graph');
+  const { scratchHome, databasePath } = createEnabledHomeWithLongTasks(100);
   try {
-    const { dependencies } = capturingDependencies(databaseDirectory);
-    const longBody = 'b'.repeat(2000);
-    for (let taskNumber = 1; taskNumber <= 100; taskNumber += 1) {
-      assert.equal(runKnowledgeGraphCli(['add', 'task', `Task ${taskNumber}`, '--body', longBody], dependencies), 0);
-    }
-    const { stderr } = await runEntryIntoReaderThatClosesEarly(['kg', 'export', '--db', path.join(databaseDirectory, 'personal.sqlite')], scratchHome);
+    const { stderr } = await runEntryIntoReaderThatClosesEarly(['kg', 'export', '--db', databasePath], scratchHome);
     assert.doesNotMatch(stderr, /Unhandled 'error'|EPIPE/);
   } finally {
     fs.rmSync(scratchHome, { recursive: true, force: true });
   }
+});
+
+test('delta names the reasons when coherence orient refuses without a consequence ledger to read', () => {
+  const { repo, workId } = createLedgerRepoWithOpenWorkOrder();
+  isolatedGlimmervoidHome({ projects: [], knowledgeGraph: { enabled: true } });
+  assert.equal(runCapturingStdout(['add', 'task', 'Compare vendor prices']).exitCode, 0);
+  assert.equal(runCapturingStdout(['track', 'T-1', repo, workId]).exitCode, 0);
+  fs.mkdirSync(path.join(repo, '.coherence', 'consequences'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.coherence', 'consequences', 'stray.txt'), 'not a ledger row\n');
+  const delta = runCapturingStdout(['delta', '--json']);
+  assert.equal(delta.exitCode, 0);
+  const [repoReport] = JSON.parse(delta.stdout);
+  assert.equal(repoReport.isAvailable, false);
+  assert.match(repoReport.reason, /^orient refused: consequences: .*stray\.txt/);
+});
+
+function journalRecordIdFrom(coherenceOutput: string): string {
+  const recordId = coherenceOutput.match(/^d-[0-9a-f]{8}/)?.[0];
+  assert.ok(recordId, coherenceOutput);
+  return recordId;
+}
+
+test('blocked reports and conjectures written by coherence can be tracked and show their kind in delta', () => {
+  const { repo } = createLedgerRepoWithOpenWorkOrder();
+  const blockedId = journalRecordIdFrom(runBundledCoherenceIn(repo, ['blocked', 'could not reach the vendor API', '--because', 'no key', '--session', 's-kg-test']));
+  const conjectureId = journalRecordIdFrom(runBundledCoherenceIn(repo, ['conjecture', 'prices doubled overnight', '--discriminated-by', 'compare currencies', '--session', 's-kg-test']));
+  runBundledCoherenceIn(repo, ['resolved', conjectureId, '--because', 'the currency was wrong', '--session', 's-kg-test']);
+  isolatedGlimmervoidHome({ projects: [], knowledgeGraph: { enabled: true } });
+  assert.equal(runCapturingStdout(['add', 'task', 'Get a vendor key']).exitCode, 0);
+  assert.equal(runCapturingStdout(['add', 'question', 'Why did prices double?']).exitCode, 0);
+  assert.equal(runCapturingStdout(['track', 'T-1', repo, blockedId]).exitCode, 0);
+  assert.equal(runCapturingStdout(['track', 'Q-1', repo, conjectureId]).exitCode, 0);
+  const delta = runCapturingStdout(['delta', '--json']);
+  assert.equal(delta.exitCode, 0);
+  const [repoReport] = JSON.parse(delta.stdout);
+  assert.deepEqual(repoReport.records.map((recordReport: { tracked: { recordId: string }; state: string }) => [recordReport.tracked.recordId, recordReport.state]), [
+    [blockedId, 'blocked/standing'],
+    [conjectureId, 'conjecture/resolved'],
+  ]);
 });

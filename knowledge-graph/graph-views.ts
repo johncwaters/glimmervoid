@@ -1,19 +1,24 @@
-import { stripUnsafeTextCharacters } from './graph-schema.ts';
+import { splitIntoSafeLines, stripUnsafeTextCharacters } from './graph-schema.ts';
 import type { GraphEdge, GraphNode, GraphSchema } from './graph-schema.ts';
 import { isTaskClosed, rankNextActions } from './personal-schema.ts';
 import type { NextActionCandidate } from './personal-schema.ts';
 import type { GraphStore } from './graph-store.ts';
 
-function resolveProjectId(taskId: string, projectIdByNode: ReadonlyMap<string, string>, parentIdByTask: ReadonlyMap<string, string>): string | undefined {
-  const visitedIds = new Set<string>();
-  let currentId: string | undefined = taskId;
-  while (currentId !== undefined && !visitedIds.has(currentId)) {
-    const projectId = projectIdByNode.get(currentId);
-    if (projectId !== undefined) return projectId;
-    visitedIds.add(currentId);
-    currentId = parentIdByTask.get(currentId);
-  }
-  return undefined;
+export function readTaskHierarchy(store: GraphStore) {
+  const projectIdByNode = new Map(store.listEdges('part_of').map((edge) => [edge.fromId, edge.toId]));
+  const parentIdByTask = new Map(store.listEdges('subtask_of').map((edge) => [edge.fromId, edge.toId]));
+  const lineageOf = (nodeId: string): string[] => {
+    const lineage = new Set<string>();
+    let currentId: string | undefined = nodeId;
+    while (currentId !== undefined && !lineage.has(currentId)) {
+      lineage.add(currentId);
+      currentId = parentIdByTask.get(currentId);
+    }
+    return [...lineage];
+  };
+  const projectIdOf = (nodeId: string): string | undefined =>
+    lineageOf(nodeId).map((lineageId) => projectIdByNode.get(lineageId)).find((projectId) => projectId !== undefined);
+  return { lineageOf, projectIdOf };
 }
 
 export function collectNextActions(store: GraphStore): NextActionCandidate[] {
@@ -24,10 +29,9 @@ export function collectNextActions(store: GraphStore): NextActionCandidate[] {
     if (isTaskClosed(nodesById.get(edge.fromId)?.properties.status)) continue;
     openBlockerIdsByTask.set(edge.toId, [...(openBlockerIdsByTask.get(edge.toId) ?? []), edge.fromId]);
   }
-  const projectIdByNode = new Map(store.listEdges('part_of').map((edge) => [edge.fromId, edge.toId]));
-  const parentIdByTask = new Map(store.listEdges('subtask_of').map((edge) => [edge.fromId, edge.toId]));
+  const hierarchy = readTaskHierarchy(store);
   const candidates = tasks.map((task): NextActionCandidate => {
-    const projectId = resolveProjectId(task.id, projectIdByNode, parentIdByTask);
+    const projectId = hierarchy.projectIdOf(task.id);
     const projectStatus = projectId === undefined ? undefined : nodesById.get(projectId)?.properties.status;
     return {
       id: task.id,
@@ -53,7 +57,7 @@ export function formatNodeLine(node: GraphNode): string {
 
 function quoteBody(body: string): string {
   if (body === '') return '';
-  return body.split(/\r\n|[\r\n\u2028\u2029]/).map((line) => (line === '' ? '>' : `> ${line}`)).join('\n');
+  return splitIntoSafeLines(body).map((line) => (line === '' ? '>' : `> ${line}`)).join('\n');
 }
 
 export function renderMarkdown(schema: GraphSchema, nodes: readonly GraphNode[], edges: readonly GraphEdge[]): string {
