@@ -14,6 +14,7 @@
     "bin/**/*.ts",
     "scripts/**/*.ts",
     "tools/**/*.ts",
+    "knowledge-graph/**/*.ts",
     "test/**/*.ts",
     "tests/**/*.ts",
     "*.ts"

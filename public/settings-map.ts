@@ -68,6 +68,7 @@ export const SETTINGS_SECTION_ALIASES = Object.freeze({
   reviews: 'lanes-team-review',
   benchmarks: 'lanes-benchmarks',
   factory: 'lanes-factory',
+  'knowledge-graph': 'lanes-knowledge-graph',
   workflows: 'lanes-workflows',
   usage: 'machine-usage',
   privacy: 'machine-privacy',
@@ -728,6 +729,19 @@ export const SETTINGS_MAP = Object.freeze([
         id: 'factory-enabled', path: 'factory.enabled', title: 'Enable the factory',
         description: 'Show the Factory tab. Off by default.',
         control: 'toggle', keywords: ['orchestrator', 'intents', 'queue', 'coherence', 'guardrails'], defaultValue: false,
+      },
+    ],
+  },
+  {
+    id: 'lanes-knowledge-graph',
+    level: 'lanes',
+    title: 'Knowledge graph (experimental)',
+    description: 'A typed, local-first graph of your projects, tasks, notes, references and questions, kept in one SQLite file under the Glimmervoid home and driven from the glimmervoid kg command.',
+    settings: [
+      {
+        id: 'knowledge-graph-enabled', path: 'knowledgeGraph.enabled', title: 'Enable the knowledge graph',
+        description: 'Allow the glimmervoid kg command. It reads Coherence ledgers to report where your tasks and the agents\' work orders disagree, and never writes into a repository. Off by default.',
+        control: 'toggle', keywords: ['experimental', 'kg', 'tasks', 'notes', 'references', 'coherence'], defaultValue: false,
       },
     ],
   },

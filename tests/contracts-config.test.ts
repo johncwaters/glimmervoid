@@ -70,6 +70,15 @@ test('benchmark settings cross persisted, browser, and update contracts', () => 
   assert.equal(ConfigUpdate.safeParse({ benchmarks: [] }).success, false);
 });
 
+test('knowledge graph settings cross persisted, browser, and update contracts', () => {
+  const knowledgeGraph = { enabled: true };
+  assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, knowledgeGraph }).success, true);
+  assert.equal(BrowserConfig.safeParse({ knowledgeGraph }).success, true);
+  assert.equal(ConfigUpdate.safeParse({ knowledgeGraph }).success, true);
+  assert.equal(CONFIG_BLOCK_KEYS.includes('knowledgeGraph'), true);
+  assert.equal(ConfigUpdate.safeParse({ knowledgeGraph: { enabled: 'yes' } }).success, false);
+});
+
 test('factory settings cross persisted, browser, and update contracts', () => {
   const factory = { enabled: true };
   assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, factory }).success, true);

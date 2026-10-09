@@ -92,6 +92,7 @@ const FILE_CONFIG_SHAPE = {
   teamReview: optionalLooseObject('teamReview'),
   benchmarks: optionalLooseObject('benchmarks'),
   factory: optionalLooseObject('factory'),
+  knowledgeGraph: optionalLooseObject('knowledgeGraph'),
   posthog: optionalLooseObject('posthog'),
   usage: optionalLooseObject('usage'),
   telegram: optionalLooseObject('telegram'),
@@ -136,7 +137,7 @@ export const Config = z.object({
 });
 
 export const CONFIG_BLOCK_KEYS = Object.freeze([
-  'changeMap', 'taskTitle', 'branchGc', 'postTurnChecks', 'visions', 'teamReview', 'benchmarks', 'factory', 'posthog', 'usage', 'telegram', 'ingest',
+  'changeMap', 'taskTitle', 'branchGc', 'postTurnChecks', 'visions', 'teamReview', 'benchmarks', 'factory', 'knowledgeGraph', 'posthog', 'usage', 'telegram', 'ingest',
   'agentApi', 'telemetry', 'workflows', 'coder',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {

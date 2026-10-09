@@ -54,6 +54,7 @@ Commands:
   spawn <prompt>    From inside a Glimmervoid session, start a sibling session on that prompt
   attention <note>  From inside a Glimmervoid session, flag it as needing the operator
   board             From inside a Glimmervoid session, list the live sessions
+  kg [command]      Experimental typed knowledge and task graph (Settings > Lanes > Knowledge graph)
 
 Options:
   --name <label>    Label for the device being paired (with: pair)

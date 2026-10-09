@@ -29,6 +29,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a lightweight Node.js 
 | `site/` | Public Astro website, its own npm package; reads dashboard sprites from `public/` at build time |
 | `scripts/`, `tests/`, `test/` | Release scripts and tests |
 | `tools/`, `assets/`, `dist/` | Dev tools, static assets and generated build output |
+| `knowledge-graph/` | Experimental typed knowledge graph, isolated behind `server/knowledge-graph-cli.ts` (`knowledge-graph/AGENTS.md`) |
 
 ## For AI Agents
 

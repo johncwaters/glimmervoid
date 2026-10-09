@@ -466,6 +466,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       teamReview: config.teamReview ? { ...config.teamReview } : null,
       benchmarks: config.benchmarks ? { ...config.benchmarks } : null,
       factory: config.factory ? { ...config.factory } : null,
+      knowledgeGraph: config.knowledgeGraph ? { ...config.knowledgeGraph } : null,
       workflows: config.workflows ?? null,
 
       posthog: pickRedactedBlock(config.posthog, POSTHOG_SETTINGS_KEYS, POSTHOG_SECRET_KEYS),
@@ -510,6 +511,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     if (newConfig.teamReview != null) config.teamReview = newConfig.teamReview;
     if (newConfig.benchmarks != null) config.benchmarks = newConfig.benchmarks;
     if (newConfig.factory != null) config.factory = newConfig.factory;
+    if (newConfig.knowledgeGraph != null) config.knowledgeGraph = newConfig.knowledgeGraph;
     if (newConfig.posthog != null) config.posthog = newConfig.posthog;
     if (newConfig.usage != null) config.usage = newConfig.usage;
     if (newConfig.telegram != null) config.telegram = newConfig.telegram;

@@ -14,6 +14,7 @@ const SERVER_INCLUDE_GLOBS = [
   'bin/**/*.ts',
   'scripts/**/*.ts',
   'tools/**/*.ts',
+  'knowledge-graph/**/*.ts',
   'test/**/*.ts',
   'tests/**/*.ts',
   '*.ts',
@@ -32,7 +33,7 @@ const STRICT_REQUIRED_OPTIONS: Record<string, boolean> = {
   noUnusedParameters: true,
 };
 
-const CHECKED_TREES = ['server', 'session', 'detection', 'notifications', 'shared', 'public', 'bin', 'scripts', 'tools', 'test', 'tests'];
+const CHECKED_TREES = ['server', 'session', 'detection', 'notifications', 'shared', 'public', 'bin', 'scripts', 'tools', 'knowledge-graph', 'test', 'tests'];
 const SUPPRESSIONS = ['nocheck', 'ignore', 'expect-error'].map((tail) => `@ts-${tail}`).concat(['biome-' + 'ignore']);
 const CAST_ESCAPES = [/\bas\s+any\b/, /\bas\s+unknown\s+as\b/];
 const COMMENT_LINE = /^\s*(\/\/|\/\*)/;

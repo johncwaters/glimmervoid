@@ -34,6 +34,7 @@ Commands:
   spawn <prompt>    From inside a Glimmervoid session, start a sibling session on that prompt
   attention <note>  From inside a Glimmervoid session, flag it as needing the operator
   board             From inside a Glimmervoid session, list the live sessions
+  kg [command]      Experimental typed knowledge and task graph (Settings > Lanes > Knowledge graph)
 
 Options:
   --name <label>    Label for the device being paired (with: pair)
@@ -84,6 +85,10 @@ const SUBCOMMAND_RUNNERS = new Map<string, SubcommandRunner>([
   ['agent', async (commandArgs) => {
     const { runAgentSetupCli } = await import('../server/agent-setup-cli.ts');
     return runAgentSetupCli(commandArgs.slice(1));
+  }],
+  ['kg', async (commandArgs) => {
+    const { runKnowledgeGraphCommand } = await import('../server/knowledge-graph-cli.ts');
+    return runKnowledgeGraphCommand(commandArgs.slice(1));
   }],
   ['visions', async (commandArgs) => {
     const { runVisionsCli } = await import('../server/visions-cli.ts');

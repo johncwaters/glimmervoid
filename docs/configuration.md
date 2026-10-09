@@ -212,6 +212,14 @@ Let a master orchestrator work a queue of intents in repos that hold a coherence
 |-----|---------|---------|-------|
 | `factory.enabled` | Enable the factory | `false` | Show the Factory tab. Off by default. |
 
+### Knowledge graph (experimental)
+
+A typed, local-first graph of your projects, tasks, notes, references and questions, kept in one SQLite file under the Glimmervoid home and driven from the glimmervoid kg command.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `knowledgeGraph.enabled` | Enable the knowledge graph | `false` | Allow the glimmervoid kg command. It reads Coherence ledgers to report where your tasks and the agents' work orders disagree, and never writes into a repository. Off by default. |
+
 ### Workflows
 
 Rules that act on pull request events in the repositories you choose.

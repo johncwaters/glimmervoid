@@ -284,6 +284,7 @@ const DASHBOARD_SETTING_PATHS = Object.freeze([
   'teamReview.keepMergeableTimeoutMinutes',
   'benchmarks.enabled',
   'factory.enabled',
+  'knowledgeGraph.enabled',
   'workflows.enabled',
   'workflows.maxConcurrentSessions',
   'workflows.maxActionsPerPoll',
@@ -778,6 +779,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       if (s.teamReview != null) cfg.teamReview = mergeSettingsBlockOverStored(cfg.teamReview, s.teamReview);
       if (s.benchmarks != null) cfg.benchmarks = mergeSettingsBlockOverStored(cfg.benchmarks, s.benchmarks);
       if (s.factory != null) cfg.factory = mergeSettingsBlockOverStored(cfg.factory, s.factory);
+      if (s.knowledgeGraph != null) cfg.knowledgeGraph = mergeSettingsBlockOverStored(cfg.knowledgeGraph, s.knowledgeGraph);
       if (s.posthog != null) cfg.posthog = mergeSettingsBlockOverStored(cfg.posthog, s.posthog);
       if (s.usage != null) cfg.usage = s.usage;
       if (incoming.ingest != null) cfg.ingest = mergeSettingsBlock(cfg.ingest, incoming.ingest, INGEST_SPEC);

@@ -111,6 +111,10 @@ const FactorySettings = optionalObject('factory', {
   enabled: optionalBoolean('factory.enabled'),
 });
 
+const KnowledgeGraphSettings = optionalObject('knowledgeGraph', {
+  enabled: optionalBoolean('knowledgeGraph.enabled'),
+});
+
 const posthogNumberRanges = {
   intervalMinutes: ranges.POSTHOG_INTERVAL_RANGE,
   maxConcurrentInvestigations: ranges.POSTHOG_MAX_CONCURRENT_RANGE,
@@ -232,6 +236,7 @@ export const createBrowserConfigShape = (isAbsolutePath: (directory: string) => 
   teamReview: TeamReviewSettings,
   benchmarks: BenchmarksSettings,
   factory: FactorySettings,
+  knowledgeGraph: KnowledgeGraphSettings,
   posthog: PosthogSettings,
   usage: createUsageSettings(isAbsolutePath),
   telegram: TelegramSettings,
