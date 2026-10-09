@@ -7,7 +7,7 @@ const DEFAULT_DEDUP_WINDOW_MS = 500;
 const CONFIDENCE: Record<string, string> = { hook: 'high', title: 'low' };
 const CONFIDENCE_RANK: Record<string, number> = { low: 0, high: 1 };
 
-const IMMEDIATE = new Set(['working', 'awaiting-input', 'resume', 'session-start', 'session-end']);
+const IMMEDIATE = new Set(['working', 'awaiting-input', 'resume', 'session-start', 'session-end', 'compaction-start', 'compaction-end']);
 
 const ACTIVITY = new Set(['working', 'resume']);
 

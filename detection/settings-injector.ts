@@ -83,7 +83,7 @@ function ensureOwnedDir(dir: string, mode: number): void {
   }
 }
 
-const HOOK_EVENTS = ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest', 'SubagentStart', 'SubagentStop', 'TaskCreated', 'TaskCompleted', 'TeammateIdle'];
+const HOOK_EVENTS = ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest', 'SubagentStart', 'SubagentStop', 'TaskCreated', 'TaskCompleted', 'TeammateIdle', 'PreCompact', 'PostCompact'];
 
 const WAKEUP_TOOL_MATCHER = 'ScheduleWakeup|CronCreate|CronDelete';
 const PLAN_TOOL_MATCHER = PLAN_TOOL_NAME;

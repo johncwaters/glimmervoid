@@ -1,3 +1,6 @@
+import { createCompactionTracking, observeCompaction, finishCompaction, isCompactionEndingSignal, suppressCompactionSignal, mapCompactionActivityEvent, isIdleCompactionActivity } from "./core/compaction-core.ts";
+import { isCompactionRestoreEvent } from "../shared/compaction-restore-events.ts";
+import type { CompactionTracking } from "./core/compaction-core.ts";
 import { HOOK_TOOLS } from './core/hook-tools.ts';
 import type { ResolvedHookTool } from './core/hook-tools.ts';
 import fs from "node:fs";
@@ -251,6 +254,7 @@ class Session extends EventEmitter {
   _titleQuietFallbackMs: number;
   _hookSeen: boolean;
   _lastSignal: Record<string, unknown> | null;
+  _compaction: CompactionTracking;
   _pendingPromptKind: string | null;
   _pendingPromptDetail: PendingPromptDetail | null;
   _hasQueuedPermissionDialogsThisEpisode: boolean;
@@ -437,6 +441,7 @@ class Session extends EventEmitter {
     this._hookSeen = false;
     this._lastSignal = null;
 
+    this._compaction = createCompactionTracking();
     this._pendingPromptKind = null;
     this._pendingPromptDetail = null;
     this._hasQueuedPermissionDialogsThisEpisode = false;
@@ -682,6 +687,18 @@ class Session extends EventEmitter {
         sessionIdOf(raw.payload), raw.payload.source, raw.payload.transcript_path, raw.signal, raw.confidence);
     }
 
+    if (String(raw.event || "").toLowerCase() === "stop") this._observeCompaction("stop");
+    if (raw.signal === "compaction-start") {
+      this._observeCompaction(raw.signal);
+      this._statusSource.reset();
+      this.backgroundTracking.clearGateHeldReady();
+      return;
+    }
+    if (raw.signal === "compaction-end") {
+      this._finishCompaction();
+      return;
+    }
+
     if (raw.event === "UserPromptSubmit") {
       const prompt = raw.payload?.prompt;
       if (!this._taskTitleSources.promptTitle) {
@@ -712,6 +729,7 @@ class Session extends EventEmitter {
     }
     if (raw && raw.signal === "session-start") this._onSessionStartHook(raw);
     if (raw && raw.signal === "resume") {
+      this._observeCompaction("resume");
       this._titleQuiet = false;
       this._setPendingPromptKind(null);
 
@@ -732,7 +750,13 @@ class Session extends EventEmitter {
     const payload = raw.payload || {};
     const src = String(payload.source || "").toLowerCase();
     if (src !== "clear" && src !== "compact") return;
-    if (src === "clear") this._resetAutomaticTaskTitle();
+    if (src === "compact") {
+      this._finishCompaction();
+      return;
+    }
+    this._compaction = createCompactionTracking();
+    this._emitSessionDetail();
+    this._resetAutomaticTaskTitle();
     this._resetDetectionSources({ quiet: true });
     this.backgroundTracking.clearGateHeldReady();
     this.backgroundTracking.resetTurnEvidence();
@@ -787,7 +811,40 @@ class Session extends EventEmitter {
     if (next === this._pendingPromptKind && isSamePromptDetail(nextDetail, this._pendingPromptDetail)) return;
     this._pendingPromptKind = next;
     this._pendingPromptDetail = nextDetail;
-    this.emit("prompt-kind-change", { pendingPromptKind: next, pendingPromptDetail: nextDetail });
+    this._emitSessionDetail();
+  }
+
+  _observeCompaction(signal: string, source?: string | null): void {
+    if (!this._can("compactQuiet")) return;
+    const wasCompacting = this._compaction.isCompacting;
+    this._compaction = observeCompaction(this._compaction, {
+      signal, source, state: this.state,
+      pendingPromptKind: this._pendingPromptKind,
+      pendingPromptDetail: this._pendingPromptDetail,
+    });
+    if (this._compaction.isCompacting !== wasCompacting) this._emitSessionDetail();
+  }
+
+  _emitSessionDetail(): void {
+    this.emit("prompt-kind-change", {
+      pendingPromptKind: this._pendingPromptKind,
+      pendingPromptDetail: this._pendingPromptDetail,
+      isCompacting: this._compaction.isCompacting,
+    });
+  }
+
+  _finishCompaction(): void {
+    const finished = finishCompaction(this._compaction, this.state);
+    this._compaction = finished.tracking;
+    if (finished.shouldResetDetectionSources) {
+      this._resetDetectionSources({ quiet: true });
+      this.backgroundTracking.clearGateHeldReady();
+    }
+    if (finished.event) {
+      this.transition(finished.event, { source: "hook", signal: "compaction-end" });
+      this._setPendingPromptKind(finished.returnState?.pendingPromptKind ?? null, finished.returnState?.pendingPromptDetail ?? null);
+    }
+    this._emitSessionDetail();
   }
 
   _pushAuditEntry(entry: Record<string, unknown>): void {
@@ -811,6 +868,8 @@ class Session extends EventEmitter {
   }
 
   _clearDetectionTracking(): void {
+    this._compaction = createCompactionTracking();
+    this._emitSessionDetail();
     this.backgroundTracking.clearGateHeldReady();
     this.backgroundTracking.clearAgents();
     this.backgroundTracking.clearWakeups();
@@ -821,6 +880,13 @@ class Session extends EventEmitter {
     if (this._destroyed) return;
     this._lastSignal = { signal: s.signal, source: s.source, confidence: s.confidence, ts: s.ts };
 
+    this._observeCompaction(s.signal, s.source);
+    if (isCompactionEndingSignal(this._compaction, s.signal, s.source)) {
+      this._finishCompaction();
+      return;
+    }
+    if (suppressCompactionSignal(this._compaction, s.signal)) return;
+
     const signalSeq = this.backgroundTracking.noteStatus(s.signal);
 
     if (s.signal === "working") this._setPendingPromptKind(null);
@@ -829,9 +895,9 @@ class Session extends EventEmitter {
     const eventWithoutGate = mapSignalToEvent(s.signal, this.state, s.confidence, 0);
     const orphanStopGate = s.signal === "ready" && s.source === "hook"
       && this.backgroundTracking.hasOrphanStopEvidence() && !!eventWithoutGate;
-    const event = orphanStopGate
+    const event = mapCompactionActivityEvent(this._compaction, s.signal, orphanStopGate
       ? null
-      : mapSignalToEvent(s.signal, this.state, s.confidence, active);
+      : mapSignalToEvent(s.signal, this.state, s.confidence, active));
 
     const gateHeld = !event && s.signal === "ready" && (active > 0 || orphanStopGate)
       && !!eventWithoutGate;
@@ -849,7 +915,8 @@ class Session extends EventEmitter {
       event: event || null,
       action: event ? "transition" : (gateHeld ? "gate-held" : "no-op"),
     });
-    if (event) this.transition(event, { source: s.source, signal: s.signal });
+    const compactionDetail = isIdleCompactionActivity(this._compaction, s.signal, s.source) ? { isIdleCompactionActivity: true } : {};
+    if (event) this.transition(event, { source: s.source, signal: s.signal, ...compactionDetail });
     if (gateHeld) this.backgroundTracking.stashGateHeldReady(s);
 
     if (s.signal === "ready") this.worktreeLifecycle.scheduleCheck();
@@ -1113,6 +1180,7 @@ class Session extends EventEmitter {
       pendingWakeup: this.backgroundTracking.pendingWakeup(),
       pendingPromptKind: this._pendingPromptKind,
       pendingPromptDetail: this._pendingPromptDetail,
+      isCompacting: this._compaction.isCompacting,
       hasPlan: this._planReviewPort?.hasPlan(this.id) === true,
       mergeStatus: this.mergeStatus,
       mergeReason: this.mergeReason,
@@ -1170,11 +1238,12 @@ class Session extends EventEmitter {
     }
 
     this.state = to;
+    if (to === STATES.IDLE || to === STATES.COMPLETE) this._observeCompaction("settled");
     if (to === STATES.COMPLETE) this._hasEndedTurn = true;
     if (to === STATES.INITIALIZING) this._hasEndedTurn = this._resumeSessionId !== null;
 
     const entryHook = ENTRY_HOOKS[to];
-    if (entryHook) {
+    if (entryHook && !isCompactionRestoreEvent(event)) {
       entryHook(this);
     }
 

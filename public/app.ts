@@ -214,7 +214,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
 
     setSessionWakeup(s.id, s.pendingWakeup);
 
-    setSessionPrompt(s.id, s.pendingPromptKind, s.pendingPromptDetail);
+    setSessionPrompt(s.id, s.pendingPromptKind, s.pendingPromptDetail, s.isCompacting);
 
     setSessionHasPlan(s.id, s.hasPlan);
 
@@ -268,7 +268,7 @@ function handleStateChange(msg: ServerMessageOf<'state-change'>) {
     return;
   }
 
-  applyState(msg.id, msg.to, msg.timestamp);
+  applyState(msg.id, msg.to, msg.timestamp, msg.event);
   if (msg.hasEndedTurn !== undefined) setSessionEndedTurn(msg.id, msg.hasEndedTurn);
   if (msg.saneYolo !== undefined) setSessionSaneYolo(msg.id, msg.saneYolo);
   refreshFavicon(sessionUIs);
@@ -365,7 +365,7 @@ const messageHandlers = {
 
   'session-agents':     (msg) => { setSessionAgents(msg.id, msg.activeAgents, msg.awaitingBackgroundTasks); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); handleDebugStateRefresh(msg.id); },
   'session-wakeup':     (msg) => setSessionWakeup(msg.id, msg.pendingWakeup),
-  'session-prompt':     (msg) => { setSessionPrompt(msg.id, msg.pendingPromptKind, msg.pendingPromptDetail ?? null); refreshAttentionSurfaces(); },
+  'session-prompt':     (msg) => { setSessionPrompt(msg.id, msg.pendingPromptKind, msg.pendingPromptDetail ?? null, msg.isCompacting === true); refreshAttentionSurfaces(); },
   'session-merge-status': (msg) => { setSessionMergeStatus(msg.id, msg.mergeStatus, msg.reason); setFocusMergeStatus(msg.id, msg.mergeStatus); refreshAttentionSurfaces(); },
   'session-worktree-blocked': (msg) => { showErrorToast(`${msg.session}: ${msg.notice || 'integration branch not found'}`, { persist: true }); },
   'session-worktree-warning': (msg) => { showErrorToast(`${msg.session}: ${msg.notice || 'base branch warning'}`); },

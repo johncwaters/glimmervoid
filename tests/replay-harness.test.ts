@@ -1,3 +1,4 @@
+import { createNotifyGate, explainNotification } from '../session/core/notify-gate.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -182,3 +183,48 @@ test('perf: title source processes a large output stream cheaply (hot-path budge
 
   assert.ok(elapsedMs < 100, `title-source feed too slow: ${elapsedMs.toFixed(1)}ms for ${totalBytes} bytes`);
 });
+
+for (const [fixture, expectedState, expectedNotifications] of [
+  ['v2-idle-compaction.jsonl', STATES.COMPLETE, ['complete']],
+  ['v2-mid-turn-compaction.jsonl', STATES.RUNNING, []],
+] as const) {
+  test(`${fixture} replays through the Session without an extra completion cycle`, async (t) => {
+    const { records } = load(fixture);
+    const { signals } = await replayDetection(records, FAST);
+    assert.ok(signals.some((signal) => signal.signal === 'compaction-start'));
+    assert.ok(signals.some((signal) => signal.signal === 'compaction-end'));
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    const session = new Session({ id: fixture, name: fixture, path: process.cwd(), statusConflictMs: 20, statusDedupMs: 10 });
+    t.after(() => session.destroy());
+    session.state = STATES.IDLE;
+    const gate = createNotifyGate();
+    const notifications: string[] = [];
+    const transitions: string[] = [];
+    let postTurnChecks = 0;
+    session.on('user-prompt', () => gate.reset());
+    session.on('post-turn-check', () => postTurnChecks++);
+    session.on('state-change', ({ to, event, detail }) => {
+      transitions.push(to);
+      const category = explainNotification(to, gate, event, { signal: detail?.signal, hookSeen: session.hookSeen }).category;
+      if (category) notifications.push(category);
+    });
+    let previousTimestamp = 0;
+    for (const record of records) {
+      const timestamp = record.ts ?? previousTimestamp;
+      t.mock.timers.tick(timestamp - previousTimestamp);
+      previousTimestamp = timestamp;
+      if (record.type === 'data' && record.data) session._titleSource.feed(record.data);
+      if (record.type !== 'hook' || !record.event) continue;
+      const signal = claudeCode.hooks.mapSignal(record.event, record.payload);
+      if (!signal) continue;
+      session.ingestHookSignal({ signal, source: 'hook', event: record.event, payload: record.payload, ts: Date.now() });
+      if (record.event === 'PreCompact') assert.equal(session.toSnapshot().isCompacting, true);
+      if (record.event === 'PostCompact' || record.payload?.source === 'compact') assert.equal(session.toSnapshot().isCompacting, false);
+    }
+    t.mock.timers.tick(2000);
+    assert.equal(session.state, expectedState);
+    assert.deepEqual(notifications, expectedNotifications);
+    assert.equal(postTurnChecks, expectedNotifications.length);
+    if (expectedState === STATES.COMPLETE) assert.deepEqual(transitions, [STATES.RUNNING, STATES.COMPLETE, STATES.RUNNING, STATES.COMPLETE]);
+  });
+}

@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Idle compaction settles correctly**: Claude Code cards no longer stay working after compacting while idle, and the dashboard shows when a session is compacting. A notification that was waiting on you still escalates to your phone after an idle compaction.
+
 - **Keep mergeable repairs commit again**: a repair session could not write inside its checkout's `.git`, so every merge failed and the Reviews tab showed "the session committed nothing" even for a conflicted pull request. The session can now commit (`.git/hooks` and `.git/config` stay locked), and when you sign your commits, Glimmervoid signs the repair commits itself before pushing, because the sandbox cannot reach your SSH agent.
 - **Keep mergeable heals on its own**: a repair that failed or changed nothing is retried 6 hours later, then after 12 and 24 hours and every 48 hours after that, even when nothing new is pushed. Before, it waited for the base branch to move as GitHub reports it, which only updates on a push to the pull request, so a stuck repair never came back.
 - **Keep mergeable hands off large pull requests**: a repair that committed a merge could still fail with "could not read the session commit" when the pull request had earlier commits whose file contents Glimmervoid never downloaded. Repairs also no longer stall on a merge that brings in a changed workflow file from the base branch. A repair still never pushes its own change under `.github`.

@@ -109,6 +109,7 @@ const SESSION = {
   resumeSessionId: null,
   activeAgents: 0,
   awaitingBackgroundTasks: false,
+  isCompacting: false,
   hasEndedTurn: false,
   pendingWakeup: null,
   pendingPromptKind: null,
@@ -711,4 +712,10 @@ test('state-change accepts Sane YOLO alongside skipPerms and rejects a non-boole
   }
   assert.equal(ServerMessage.safeParse(change).success, true);
   assert.equal(ServerMessage.safeParse({ ...change, saneYolo: 'true' }).success, false);
+});
+
+test('session-prompt carries a validated compaction flag beside the prompt detail', () => {
+  const message = { type: 'session-prompt', id: 'session-1', pendingPromptKind: null, pendingPromptDetail: null, isCompacting: true, timestamp: NOW };
+  assert.equal(ServerMessage.safeParse(message).success, true);
+  assert.equal(ServerMessage.safeParse({ ...message, isCompacting: 'true' }).success, false);
 });

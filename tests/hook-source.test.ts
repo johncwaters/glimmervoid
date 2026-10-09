@@ -18,6 +18,8 @@ import type { HookSignal } from '../detection/hook-source.ts';
 
 test('mapHookToSignal maps events correctly', () => {
   assert.equal(mapHookToSignal('SessionStart'), 'session-start');
+  assert.equal(mapHookToSignal('PreCompact', { trigger: 'auto' }), 'compaction-start');
+  assert.equal(mapHookToSignal('PostCompact', { trigger: 'manual' }), 'compaction-end');
   assert.equal(mapHookToSignal('SessionEnd'), 'session-end');
   assert.equal(mapHookToSignal('UserPromptSubmit'), 'resume');
   assert.equal(mapHookToSignal('Stop'), 'ready');
@@ -461,3 +463,21 @@ test('a registration maps through the profile it names, never a defaulted Claude
   router.handle({ glimmervoidId: 'declared-profile', event: 'Stop', token: 'tok', payload: {} });
   assert.deepEqual(got.map((signal) => signal.signal), ['working']);
 });
+
+for (const event of ['PreCompact', 'PostCompact']) {
+  test(`${event} is installed as an authenticated HTTP hook and dispatched with its trigger`, () => {
+    const settings = buildHookSettings({ port: 1234, glimmervoidId: 'compact-session', token: 'compact-token' });
+    const handler = settings.hooks[event][0].hooks[0];
+    assert.equal(handler.type, 'http');
+    assert.equal(handler.url, `http://127.0.0.1:1234/hook/compact-session/${event.toLowerCase()}?t=compact-token`);
+    assert.equal(handler.timeout, 5);
+    const router = new HookRouter();
+    const signals: HookSignal[] = [];
+    router.register('compact-session', { token: 'compact-token', onSignal: (signal) => signals.push(signal), hooks: claudeCode.hooks });
+    assert.equal(router.handle({ glimmervoidId: 'compact-session', event, token: 'bad', payload: { trigger: 'auto' } }).status, 403);
+    assert.equal(signals.length, 0);
+    assert.equal(router.handle({ glimmervoidId: 'compact-session', event, token: 'compact-token', payload: { trigger: 'auto' } }).status, 200);
+    assert.equal(signals[0].signal, event === 'PreCompact' ? 'compaction-start' : 'compaction-end');
+    assert.equal(signals[0].payload?.trigger, 'auto');
+  });
+}

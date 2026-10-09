@@ -120,3 +120,18 @@ test('a board row is a strict subset of the snapshot that carries no path', () =
   assert.equal(AgentBoardRow.safeParse({ ...row, path: '/repo' }).success, false);
   assert.equal(AgentBoardRow.safeParse({ ...row, state: 'NOT-A-STATE' }).success, false);
 });
+
+test('compaction is a validated snapshot flag with a default for older snapshots', () => {
+  const session = new Session({ id: 'compaction-contract', name: 'compaction', path: process.cwd() });
+  try {
+    const snapshot = session.toSnapshot();
+    assert.equal(SessionSnapshot.parse(snapshot).isCompacting, false);
+    assert.equal(SessionSnapshot.parse({ ...snapshot, isCompacting: true }).isCompacting, true);
+    assert.equal(SessionSnapshot.safeParse({ ...snapshot, isCompacting: 'true' }).success, false);
+    const { isCompacting, ...olderSnapshot } = snapshot;
+    assert.equal(isCompacting, false);
+    assert.equal(SessionSnapshot.parse(olderSnapshot).isCompacting, false);
+  } finally {
+    session.destroy();
+  }
+});

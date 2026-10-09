@@ -1,3 +1,4 @@
+import { isCompactionRestoreEvent } from '../../shared/compaction-restore-events.ts';
 import { STATES } from '../../shared/states.ts';
 
 interface NotifyGate {
@@ -38,6 +39,7 @@ function explainNotification(
   event?: string,
   opts?: NotifyOptions | null,
 ): NotifyDecision {
+  if (isCompactionRestoreEvent(event)) return { category: null, reason: 'compaction-restored-silently' };
   if (to === STATES.INITIALIZING) {
     gate.reset();
     return { category: null, reason: 'cycle-reset-restart' };
@@ -66,6 +68,25 @@ function explainNotification(
   return { category: null, reason: 'not-a-notifying-state' };
 }
 
+interface AcknowledgeDecision {
+  shouldAcknowledge: boolean;
+  isAcknowledgeDeferred: boolean;
+}
+
+const NOTIFIED_STATES: ReadonlySet<string> = new Set([STATES.WAITING, STATES.COMPLETE, STATES.DONE, STATES.FAILED]);
+
+function decideAcknowledge(
+  isAcknowledgeDeferred: boolean,
+  from: string,
+  event: string | undefined,
+  isIdleCompactionActivity: boolean,
+): AcknowledgeDecision {
+  const isLeavingNotifiedState = NOTIFIED_STATES.has(from);
+  if (isLeavingNotifiedState && isIdleCompactionActivity) return { shouldAcknowledge: false, isAcknowledgeDeferred: true };
+  if (isCompactionRestoreEvent(event)) return { shouldAcknowledge: false, isAcknowledgeDeferred: false };
+  return { shouldAcknowledge: isLeavingNotifiedState || isAcknowledgeDeferred, isAcknowledgeDeferred: false };
+}
+
 function decideNotification(
   to: string,
   gate: NotifyGate,
@@ -75,5 +96,5 @@ function decideNotification(
   return explainNotification(to, gate, event, opts).category;
 }
 
-export { createNotifyGate, decideNotification, explainNotification };
-export type { NotifyDecision, NotifyGate, NotifyOptions };
+export { createNotifyGate, decideAcknowledge, decideNotification, explainNotification };
+export type { AcknowledgeDecision, NotifyDecision, NotifyGate, NotifyOptions };
