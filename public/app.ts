@@ -38,7 +38,7 @@ import type { SessionUi } from './session-card/card-registry.ts';
 import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, refreshTerminalFonts, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionEndedTurn, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
-import { holdTerminalInputDuringWakeCheck, reconnectDataWs, releaseHeldTerminalInput, syncGridOnEngagementEdge } from './session-card/terminal.ts';
+import { countConnectingTerminals, holdTerminalInputDuringWakeCheck, onTerminalLinkChange, reconnectDataWs, releaseHeldTerminalInput, syncGridOnEngagementEdge } from './session-card/terminal.ts';
 import { showErrorToast } from './session-card/toast.ts';
 import { rebuildWebglGlyphAtlases } from './session-card/webgl-pool.ts';
 import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, clearSettingsUpdateRequest, mountSettingsView, refreshSettingsStatus, resolveSettingsTarget } from './settings-panel.ts';
@@ -55,6 +55,7 @@ import { shouldShowTelemetryNotice } from './telemetry-notice-core.ts';
 import { getActiveView as getSavedActiveView, getDismissedUpdate, getThemeId, isCompactStatusLabels, isFlyingAnimalsEnabled, isSessionUsageChips, isSoundEnabled, isTelemetryNoticeDismissed, setActiveView, setDismissedUpdate, setSoundEnabled, setTelemetryNoticeDismissed } from './ui-prefs.ts';
 import { getActiveView, uiState } from './ui-state-core.ts';
 import { updateBannerMode } from './updates-view-core.ts';
+import { decideAppReveal, MAX_REVEAL_WAIT_MS } from './app-reveal-core.ts';
 import { whenBundledMonoFontLoads } from './mono-font.ts';
 import { acknowledgeUsageAttention, applyPlanLimits, applyUsageReport, applyUsageSessions, mountUsageView, refreshUsageView, requestUsageReport, setUsageActivityCallback, setUsageRequestSender } from './usage-panel.ts';
 
@@ -74,6 +75,8 @@ const loadingStatus = queryTag(document, '#loading-status', 'div');
 const shutdownScreen = queryTag(document, '#shutdown-screen', 'div');
 const shutdownStatus = queryTag(document, '#shutdown-status', 'div');
 let appRevealed = false;
+let controlConnectedAt: number | null = null;
+let hasReceivedSnapshot = false;
 
 function showLoadingAnimal() {
   const animal = pickRandomIncludedAnimal();
@@ -84,10 +87,21 @@ function showLoadingAnimal() {
 
 showLoadingAnimal();
 
+function revealAppWhenTerminalsLive() {
+  if (appRevealed || controlConnectedAt === null) return;
+  const decision = decideAppReveal({
+    hasSnapshot: hasReceivedSnapshot,
+    connectingTerminalCount: countConnectingTerminals(),
+    msSinceConnected: performance.now() - controlConnectedAt,
+  });
+  if (decision === 'reveal') revealApp();
+}
+
+onTerminalLinkChange(revealAppWhenTerminalsLive);
+
 function revealApp() {
   if (appRevealed) return;
   appRevealed = true;
-  document.body.classList.add('app-ready');
   loadingScreen.classList.add('fade-out');
 
   const removeLoading = () => loadingScreen.remove();
@@ -140,7 +154,13 @@ setConnectionStateCallback((state, label) => {
       location.reload();
       return;
     }
-    revealApp();
+    document.body.classList.add('app-ready');
+    if (!appRevealed && controlConnectedAt === null) {
+      controlConnectedAt = performance.now();
+      loadingStatus.textContent = 'Connecting to sessions...';
+      setTimeout(revealApp, MAX_REVEAL_WAIT_MS);
+    }
+    revealAppWhenTerminalsLive();
     sendFocusState();
 
     requestUsageReportIfVisible();
@@ -228,6 +248,8 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
   refreshAttentionSurfaces();
   syncTraceSessionsFromCards();
   activatePlanHash(location.hash);
+  hasReceivedSnapshot = true;
+  revealAppWhenTerminalsLive();
 }
 
 function syncTraceSessionsFromCards() {

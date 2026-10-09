@@ -99,6 +99,21 @@ function swapConnectingAnimal(termWrap: HTMLElement) {
   overlay.prepend(buildFlyingAnimalPreview(animal, 'terminal-connecting-animal'));
 }
 
+const terminalLinkSubscribers = new Set<() => void>();
+
+export function onTerminalLinkChange(notify: () => void) {
+  terminalLinkSubscribers.add(notify);
+  return () => terminalLinkSubscribers.delete(notify);
+}
+
+export function countConnectingTerminals() {
+  let connectingTerminalCount = 0;
+  for (const ui of sessionUIs.values()) {
+    if (ui.card.dataset.link === 'connecting') connectingTerminalCount++;
+  }
+  return connectingTerminalCount;
+}
+
 function refreshTerminalLink(ui: SessionUi) {
   const linkState = decideTerminalLinkState({
     hasTerminal: ui.term !== null,
@@ -107,11 +122,17 @@ function refreshTerminalLink(ui: SessionUi) {
   });
   if (linkState === 'none') {
     delete ui.card.dataset.link;
+    notifyTerminalLinkSubscribers();
     return;
   }
   const isStartingToConnect = linkState === 'connecting' && ui.card.dataset.link !== 'connecting';
   ui.card.dataset.link = linkState;
   if (isStartingToConnect) swapConnectingAnimal(ui.termWrap);
+  notifyTerminalLinkSubscribers();
+}
+
+function notifyTerminalLinkSubscribers() {
+  for (const notify of terminalLinkSubscribers) notify();
 }
 
 function detachThenReconnect(sessionId: string, ui: SessionUi, term: Terminal, delayMs: number) {

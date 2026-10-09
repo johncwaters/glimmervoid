@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **One loading screen at startup**: opening the dashboard no longer shows the startup loading screen and then a second Connecting screen on each terminal. The loading screen now stays up until your sessions and their terminals are connected, for at most 2.5 seconds, so the dashboard appears ready in one step.
 - **Command output no longer cut off in a pipe**: `glimmervoid` subcommands such as `pair`, `visions` and `agent` could stop after 64 KiB when their output went into a pipe, while still reporting success. They now finish writing before exiting.
 - **Global options before a command**: `glimmervoid --config <path> <command>` and `--port` written before a command now run that command with those options, instead of starting the server. Anything written after a command's name belongs to that command, so `--help` or `--version` among its arguments no longer prints Glimmervoid's own help or version. `doctor`, `pair` and `visions` still accept the global options after their name.
 - **Needs input holds while you answer**: a Claude Code card stays on Needs input while you move through or scroll a question or permission prompt, and changes once the question is answered. Escape at any prompt, or Enter or an option number key at a permission or plan prompt, moves the card on right away, so rejecting a prompt no longer leaves it stuck on Needs input. Moving through the prompt still quiets its notification, so it does not escalate to your phone while you are at it.
