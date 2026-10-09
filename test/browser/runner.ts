@@ -8,7 +8,7 @@ import { heightWithKeyboardUp, layoutFor, needsSocketRoute } from './cases-core.
 import type { CardControl, HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from './cases-core.ts';
 import { expectedRows, parseStatusRow } from './frame-core.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
-import { CARD_REGISTRY_URL, boardRowIds, dispatchWindowBlur, dropDataSocket, pillIds, readDocumentEngagement, readGrid, readLayout, readTerminalFocus, setDocumentEngagement } from './probe.ts';
+import { CARD_REGISTRY_URL, boardRowIds, dispatchWindowBlur, dropDataSocket, pillIds, readDocumentEngagement, readGrid, readLayout, readTerminalFocus, setDocumentEngagement, setFitMeasurement } from './probe.ts';
 import type { GridReading } from './probe.ts';
 import { caseKey } from './report-core.ts';
 import type { CaseRecord, GridSnapshot, Outcome, StepRecord } from './report-core.ts';
@@ -425,6 +425,46 @@ async function runTapTerminal(viewer: Viewer, deadlines: Deadlines): Promise<Ste
   return outcomeFor('terminal-focused', focused);
 }
 
+async function runAssertFit(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
+  const fitted = await pollUntil(async () => {
+    const reading = await readGridOf(viewer, sessionId);
+    if (!reading) return { ok: false, detail: 'the terminal is missing' };
+    const fits = reading.cols === reading.proposedCols && reading.ptySize?.cols === reading.cols
+      && reading.screenLeft >= 0 && reading.screenRight <= reading.viewportWidth;
+    return { ok: fits, reading, detail: `${reading.cols} cols, fit ${reading.proposedCols}, screen ${reading.screenLeft}..${reading.screenRight} within ${reading.viewportWidth}` };
+  }, { label: 'terminal fits viewport', timeoutMs: deadlines.settleMs, intervalMs: deadlines.pollIntervalMs });
+  return outcomeFor('terminal-fits', fitted);
+}
+
+async function runTouchScroll(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
+  const hasHistory = await pollUntil(async () => {
+    const reading = await readGridOf(viewer, sessionId);
+    return { ok: !!reading && reading.bufferLength > reading.rows && reading.viewportY > 0, reading, detail: `viewport ${reading?.viewportY}, buffer ${reading?.bufferLength}` };
+  }, { label: 'scrollback available', timeoutMs: deadlines.stepMs, intervalMs: deadlines.pollIntervalMs });
+  if (!hasHistory.ok) return outcomeFor('scrollback-available', hasHistory);
+  const viewportBefore = hasHistory.last?.reading?.viewportY;
+  const bounds = await viewer.page.locator(`${cardSlotSelector(viewer)} .xterm-screen`).first().boundingBox();
+  if (!bounds) return failedOutcome('touch-scroll', 'the screen has no bounds');
+  const touchSession = await viewer.context.newCDPSession(viewer.page);
+  try {
+    const x = Math.max(10, Math.min(viewer.width - 10, bounds.x + bounds.width / 2));
+    const startY = bounds.y + Math.min(100, bounds.height / 4);
+    await touchSession.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: startY }] });
+    for (let distance = 20; distance <= 120; distance += 20) {
+      await touchSession.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: startY + distance }] });
+      await sleep(30);
+    }
+    await touchSession.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  } finally {
+    await touchSession.detach();
+  }
+  const scrolled = await pollUntil(async () => {
+    const reading = await readGridOf(viewer, sessionId);
+    return { ok: !!reading && reading.viewportY !== viewportBefore, reading, detail: `viewport ${viewportBefore} -> ${reading?.viewportY}` };
+  }, { label: 'touch moves viewport', timeoutMs: deadlines.stepMs, intervalMs: deadlines.pollIntervalMs });
+  return outcomeFor('touch-scroll', scrolled);
+}
+
 async function runRemember(
   viewer: Viewer,
   sessionId: string,
@@ -755,6 +795,13 @@ export async function runCase({
     }
     if (step.kind === 'assert-grid') {
       return runAssertGrid(viewer, sessionId, step.tickOffset ?? 0, artifacts, key);
+    }
+    if (step.kind === 'assert-fit') return runAssertFit(viewer, sessionId, deadlines);
+    if (step.kind === 'touch-scroll') return runTouchScroll(viewer, sessionId, deadlines);
+    if (step.kind === 'fit-measurement') {
+      const changed = await viewer.page.evaluate(setFitMeasurement, { sessionId, registryUrl: CARD_REGISTRY_URL, available: step.available });
+      if (!changed) return failedOutcome('fit-measurement', 'the fit addon is missing');
+      return passedOutcome('fit-measurement', `measurement available: ${step.available}`);
     }
     if (step.kind === 'expect-face') return runExpectFace(viewer, sessionId, step.value, deadlines);
     if (step.kind === 'expect-link') return runExpectLink(viewer, sessionId, step.value, deadlines);

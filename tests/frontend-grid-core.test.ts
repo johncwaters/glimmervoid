@@ -5,7 +5,7 @@ import {
   VIEWER_MAX_ROWS,
 } from '../shared/contracts/data-messages.ts';
 import type { DataFrameState, GridDecisionInput } from '../public/session-card/grid-core.ts';
-import { decideGridActions, decideGridEngagementEdge, isFollowingGrid, isViewerEngaged, readDataFrame } from '../public/session-card/grid-core.ts';
+import { decideGridActions, decideGridEngagementEdge, retainGridClaimForReconnect, isFollowingGrid, isViewerEngaged, readDataFrame } from '../public/session-card/grid-core.ts';
 
 const IDLE_VIEWER: GridDecisionInput = {
   authoritative: null,
@@ -27,6 +27,32 @@ function binaryFrame(payload: unknown) {
 function freshFrameState(): DataFrameState {
   return { hasSeenSize: false, lastSeq: 0 };
 }
+
+test('an active viewer owes its last fitted grid on a replacement socket when measurement is unavailable', () => {
+  const phoneGrid = { cols: 51, rows: 38 };
+  const owedClaim = retainGridClaimForReconnect({ isActiveViewer: true, lastClaim: phoneGrid, owedClaim: null });
+  assert.deepEqual(owedClaim, phoneGrid);
+  const actions = decide({ isActiveViewer: true, proposal: null, lastClaim: null, authoritative: { cols: 160, rows: 40 } });
+  assert.equal(actions.keepsPendingSettle, true);
+  assert.equal(actions.owedClaim, null);
+});
+
+test('disconnect preserves a newer owed fit instead of the last sent grid', () => {
+  assert.deepEqual(retainGridClaimForReconnect({
+    isActiveViewer: true,
+    lastClaim: { cols: 51, rows: 20 },
+    owedClaim: { cols: 51, rows: 38 },
+  }), { cols: 51, rows: 38 });
+});
+
+test('an inactive viewer carries no grid claim onto a replacement socket', () => {
+  assert.equal(retainGridClaimForReconnect({
+    isActiveViewer: false,
+    lastClaim: { cols: 160, rows: 40 },
+    owedClaim: { cols: 120, rows: 30 },
+  }), null);
+  assert.equal(retainGridClaimForReconnect({ isActiveViewer: true, lastClaim: null, owedClaim: null }), null);
+});
 
 test('a follower resizes to the authoritative grid and claims nothing', () => {
   const actions = decide({ authoritative: { cols: 120, rows: 40 }, applied: { cols: 80, rows: 24 } });

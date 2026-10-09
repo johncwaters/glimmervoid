@@ -161,3 +161,137 @@ test('a disposed keeper stops parsing and stops resizing', async () => {
   keeper.dispose();
   assert.equal(keeper.parsedOffset(), 'before dispose\r\n'.length);
 });
+
+const MODE_SET = 1;
+const MODE_RESET = 2;
+
+async function keeperAfter(sequence: string): Promise<ReturnType<typeof createScreenKeeper>> {
+  const keeper = createScreenKeeper({ cols: START_COLS, rows: START_ROWS });
+  keeper.push(sequence);
+  await keeperParsedAll(keeper, sequence.length);
+  return keeper;
+}
+
+async function reportedModeState(terminal: HeadlessTerminal, mode: number): Promise<number> {
+  const replies: string[] = [];
+  const subscription = terminal.onData((reply) => { replies.push(reply); });
+  await write(terminal, `\x1b[?${mode}$p`);
+  subscription.dispose();
+  const match = /^\x1b\[\?(\d+);(\d+)\$y$/.exec(replies.join(''));
+  assert.ok(match, 'the terminal answered DECRQM');
+  assert.equal(Number(match[1]), mode);
+  return Number(match[2]);
+}
+
+async function replayedTerminal(snapshot: string): Promise<HeadlessTerminal> {
+  const replay = newTerminal(START_COLS, START_ROWS);
+  await write(replay, SCREEN_RESET + snapshot);
+  return replay;
+}
+
+for (const [tracking, trackingMode] of [[9, 'x10'], [1000, 'vt200'], [1002, 'drag'], [1003, 'any']] as const) {
+  for (const encoding of [1006, 1016] as const) {
+    test(`a snapshot restores mouse tracking ${tracking} with encoding ${encoding}`, async (context) => {
+      const keeper = await keeperAfter(`\x1b[?${tracking};${encoding}h`);
+      const snapshot = keeper.serialize();
+      const replay = await replayedTerminal(snapshot);
+      context.after(() => { keeper.dispose(); replay.dispose(); });
+
+      assert.ok(snapshot.endsWith(`\x1b[?${tracking}h\x1b[?${encoding}h`));
+      assert.equal(replay.modes.mouseTrackingMode, trackingMode);
+      assert.equal(await reportedModeState(replay, encoding), MODE_SET);
+    });
+  }
+}
+
+test('split mouse mode sequences are tracked only after parsing completes', async (context) => {
+  const keeper = createScreenKeeper({ cols: START_COLS, rows: START_ROWS });
+  context.after(() => keeper.dispose());
+  const prefix = '\x1b[?1000;10';
+  keeper.push(prefix);
+  await keeperParsedAll(keeper, prefix.length);
+  assert.ok(!keeper.serialize().includes('\x1b[?1006h'));
+
+  keeper.push('06h');
+  await keeperParsedAll(keeper, prefix.length + 3);
+  assert.ok(keeper.serialize().endsWith('\x1b[?1000h\x1b[?1006h'));
+});
+
+test('snapshot encoding follows xterm.js DECSET and DECRST semantics', async (context) => {
+  const keeper = createScreenKeeper({ cols: START_COLS, rows: START_ROWS });
+  context.after(() => keeper.dispose());
+  let pushedOffset = 0;
+  for (const [sequence, suffix] of [
+    ['\x1b[?1000;1005;1006h', '\x1b[?1000h\x1b[?1006h'],
+    ['\x1b[?1015l', '\x1b[?1000h\x1b[?1006h'],
+    ['\x1b[?1015h', '\x1b[?1000h\x1b[?1006h'],
+    ['\x1b[?1016h', '\x1b[?1000h\x1b[?1016h'],
+    ['\x1b[?1006l', '\x1b[?1000h'],
+  ]) {
+    keeper.push(sequence);
+    pushedOffset += sequence.length;
+    await keeperParsedAll(keeper, pushedOffset);
+    assert.ok(keeper.serialize().endsWith(suffix));
+  }
+});
+
+test('a replayed snapshot stays in SGR after a combined DECSET ending in the unsupported 1015', async (context) => {
+  const keeper = await keeperAfter('\x1b[?1000;1006;1015h');
+  const replay = await replayedTerminal(keeper.serialize());
+  context.after(() => { keeper.dispose(); replay.dispose(); });
+
+  assert.equal(await reportedModeState(replay, 1006), MODE_SET);
+});
+
+test('a replayed snapshot stays in SGR after DECRST of the unsupported 1015', async (context) => {
+  const keeper = await keeperAfter('\x1b[?1000;1006h\x1b[?1015l');
+  const replay = await replayedTerminal(keeper.serialize());
+  context.after(() => { keeper.dispose(); replay.dispose(); });
+
+  assert.equal(await reportedModeState(replay, 1006), MODE_SET);
+});
+
+test('a replayed snapshot keeps SGR encoding when tracking was off at reconnect and is reenabled later', async (context) => {
+  const keeper = await keeperAfter('\x1b[?1000;1006h\x1b[?1000l');
+  const snapshot = keeper.serialize();
+  const replay = await replayedTerminal(snapshot);
+  context.after(() => { keeper.dispose(); replay.dispose(); });
+
+  assert.ok(snapshot.endsWith('\x1b[?1006h'));
+  assert.equal(replay.modes.mouseTrackingMode, 'none');
+  await write(replay, '\x1b[?1000h');
+  assert.equal(replay.modes.mouseTrackingMode, 'vt200');
+  assert.equal(await reportedModeState(replay, 1006), MODE_SET);
+});
+
+test('a replayed snapshot is in default encoding after DECRST 1006', async (context) => {
+  const keeper = await keeperAfter('\x1b[?1000;1006h\x1b[?1006l');
+  const replay = await replayedTerminal(keeper.serialize());
+  context.after(() => { keeper.dispose(); replay.dispose(); });
+
+  assert.equal(await reportedModeState(replay, 1006), MODE_RESET);
+});
+
+test('ordinary CSI modes and title text do not change mouse encoding', async (context) => {
+  const keeper = createScreenKeeper({ cols: START_COLS, rows: START_ROWS });
+  context.after(() => keeper.dispose());
+  const sequence = '\x1b[?1000;1006h\x1b[1016h\x1b]0;[?1016h\x07';
+  keeper.push(sequence);
+  await keeperParsedAll(keeper, sequence.length);
+  assert.ok(keeper.serialize().endsWith('\x1b[?1000h\x1b[?1006h'));
+});
+
+test('a full terminal reset clears mouse encoding and subsequent DECSET is still tracked', async (context) => {
+  const keeper = createScreenKeeper({ cols: START_COLS, rows: START_ROWS });
+  context.after(() => keeper.dispose());
+  const sequence = '\x1b[?1000;1006h\x1bc\x1b[?1000h';
+  keeper.push(sequence);
+  await keeperParsedAll(keeper, sequence.length);
+  assert.ok(keeper.serialize().endsWith('\x1b[?1000h'));
+  assert.ok(!keeper.serialize().includes('\x1b[?1006h'));
+
+  const enableEncoding = '\x1b[?1006h';
+  keeper.push(enableEncoding);
+  await keeperParsedAll(keeper, sequence.length + enableEncoding.length);
+  assert.ok(keeper.serialize().endsWith('\x1b[?1000h\x1b[?1006h'));
+});

@@ -15,7 +15,7 @@ import { clearPageToken, loadPageToken, withPageToken } from '../ws-token.ts';
 import { noteSessionOutput } from './activity.ts';
 import { findSessionUi, sessionUIs } from './card-registry.ts';
 import type { DataFrameState, TerminalGrid } from './grid-core.ts';
-import { decideGridActions, decideGridEngagementEdge, isFollowingGrid, isViewerEngaged, readDataFrame } from './grid-core.ts';
+import { decideGridActions, decideGridEngagementEdge, retainGridClaimForReconnect, isFollowingGrid, isViewerEngaged, readDataFrame } from './grid-core.ts';
 import {
   bytesForBackwardDeletion,
   bytesForSoftKeyboardEdit,
@@ -177,6 +177,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
     ui._dataWsRetryAttempt = 0;
     refreshTerminalLink(ui);
 
+    ui._syncGrid?.({ isActivationEdge: true });
     ui._retryOwedGridClaim?.();
 
     if (!ui._inputQueue?.length) return;
@@ -278,6 +279,7 @@ export function setupTerminal(termWrap: HTMLElement, ui: SessionUi) {
   }
 
   function sendGridClaim(grid: TerminalGrid): boolean {
+    if (!isActiveViewer) return false;
     if (!isViewerEngagedAt(ui.card)) return false;
     if (ui.dataWs?.readyState !== WebSocket.OPEN) return false;
     ui.dataWs.send(JSON.stringify({ type: 'claim', cols: grid.cols, rows: grid.rows }));
@@ -356,6 +358,7 @@ export function setupTerminal(termWrap: HTMLElement, ui: SessionUi) {
   ui._syncGrid = syncGrid;
   ui._resetGridClaim = () => {
     cancelSettle();
+    owedClaim = retainGridClaimForReconnect({ isActiveViewer, lastClaim, owedClaim });
     lastClaim = null;
   };
   ui._retryOwedGridClaim = retryOwedClaim;

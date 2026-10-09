@@ -110,6 +110,15 @@ export function decideGridEngagementEdge({
   return 'resync';
 }
 
+export function retainGridClaimForReconnect({ isActiveViewer, lastClaim, owedClaim }: {
+  isActiveViewer: boolean;
+  lastClaim: TerminalGrid | null;
+  owedClaim: TerminalGrid | null;
+}): TerminalGrid | null {
+  if (!isActiveViewer) return null;
+  return owedClaim ?? lastClaim;
+}
+
 export function decideGridActions({
   authoritative,
   applied,

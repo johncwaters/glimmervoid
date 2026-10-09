@@ -24,6 +24,9 @@ export type Step =
   | { kind: 'remember'; label: string; viewer?: ViewerId }
   | { kind: 'settle'; viewer?: ViewerId; expectGrid?: 'exact' | 'following'; expectRemembered?: string }
   | { kind: 'assert-grid'; viewer?: ViewerId; tickOffset?: number }
+  | { kind: 'assert-fit'; viewer?: ViewerId }
+  | { kind: 'touch-scroll'; viewer?: ViewerId }
+  | { kind: 'fit-measurement'; available: boolean; viewer?: ViewerId }
   | { kind: 'expect-face'; value: 'plan' | 'terminal'; viewer?: ViewerId }
   | { kind: 'expect-link'; value: 'live' | 'connecting'; viewer?: ViewerId }
   | { kind: 'click'; control: CardControl; viewer?: ViewerId }
@@ -102,6 +105,55 @@ const RESIZE_STORM_STEPS: readonly Step[] = [
 ];
 
 export const SCENARIOS: readonly Scenario[] = [
+  {
+    name: 'phone-resume-desktop-grid',
+    phoneOnly: true,
+    companionViewport: 'desktop-1280',
+    steps: [
+      { kind: 'open', viewer: 'a' },
+      { kind: 'settle', viewer: 'a' },
+      { kind: 'remember', label: 'phone-box', viewer: 'a' },
+      { kind: 'suspend', viewer: 'a' },
+      { kind: 'open', viewer: 'b' },
+      { kind: 'settle', viewer: 'b' },
+      { kind: 'background', viewer: 'b' },
+      { kind: 'wait', durationMs: 11000 },
+      { kind: 'fit-measurement', available: false, viewer: 'a' },
+      { kind: 'foreground', viewer: 'a' },
+      { kind: 'wait', durationMs: 1000 },
+      { kind: 'fit-measurement', available: true, viewer: 'a' },
+      { kind: 'assert-fit', viewer: 'a' },
+      { kind: 'settle', viewer: 'a', expectRemembered: 'phone-box' },
+    ],
+  },
+  {
+    name: 'phone-reconnect-scroll',
+    phoneOnly: true,
+    steps: [
+      { kind: 'open' },
+      { kind: 'settle' },
+      { kind: 'type', text: 'history' },
+      { kind: 'touch-scroll' },
+      { kind: 'offline' },
+      { kind: 'online' },
+      { kind: 'assert-fit' },
+      { kind: 'touch-scroll' },
+    ],
+  },
+  {
+    name: 'phone-reconnect-mouse-scroll',
+    phoneOnly: true,
+    steps: [
+      { kind: 'open' },
+      { kind: 'settle' },
+      { kind: 'type', text: 'mouse-history' },
+      { kind: 'touch-scroll' },
+      { kind: 'offline' },
+      { kind: 'online' },
+      { kind: 'assert-fit' },
+      { kind: 'touch-scroll' },
+    ],
+  },
   {
     name: 'team-review',
     steps: [{ kind: 'assert-team-review' }, { kind: 'shot', name: 'team-review' }],

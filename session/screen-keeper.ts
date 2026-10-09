@@ -1,6 +1,8 @@
 import { createRequire } from "node:module";
 import headless from "@xterm/headless";
 import type { Terminal as HeadlessTerminal } from "@xterm/headless";
+import { serializeMouseEncoding, updateMouseEncoding } from "./core/mouse-encoding-core.ts";
+import type { MouseEncoding } from "./core/mouse-encoding-core.ts";
 import { SCREEN_KEEPER_SCROLLBACK, pendingResizes } from "./core/screen-keeper-core.ts";
 import type { ResizeMarker } from "./core/screen-keeper-core.ts";
 
@@ -38,6 +40,19 @@ function createScreenKeeper({ cols, rows }: { cols: number; rows: number }): Scr
   const serializer = new SerializeAddon();
   serializer.activate(terminal);
 
+  let mouseEncoding: MouseEncoding = null;
+  const mouseEncodingHandlers = ['h', 'l'].map((final) => terminal.parser.registerCsiHandler(
+    { prefix: '?', final },
+    (params) => {
+      mouseEncoding = updateMouseEncoding(mouseEncoding, params, final === 'h');
+      return false;
+    },
+  ));
+  mouseEncodingHandlers.push(terminal.parser.registerEscHandler({ final: 'c' }, () => {
+    mouseEncoding = null;
+    return false;
+  }));
+
   let pushedOffset = 0;
   let parsedOffset = 0;
   let queue: ResizeMarker[] = [];
@@ -67,11 +82,13 @@ function createScreenKeeper({ cols, rows }: { cols: number; rows: number }): Scr
       drainResizes();
     },
     parsedOffset: () => parsedOffset,
-    serialize: () => serializer.serialize({ scrollback: SCREEN_KEEPER_SCROLLBACK }),
+    serialize: () => serializer.serialize({ scrollback: SCREEN_KEEPER_SCROLLBACK })
+      + serializeMouseEncoding(mouseEncoding),
     dispose() {
       if (disposed) return;
       disposed = true;
       queue = [];
+      for (const handler of mouseEncodingHandlers) handler.dispose();
       serializer.dispose();
       terminal.dispose();
     },

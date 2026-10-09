@@ -18,8 +18,8 @@ import {
 import type { HarnessCase, Scenario, Step, Viewport } from '../test/browser/cases-core.ts';
 import { BURST_CAP } from '../test/browser/frame-core.ts';
 
-const DEFAULT_CASE_COUNT = 60;
-const PROVE_FAILURE_CASE_COUNT = 62;
+const DEFAULT_CASE_COUNT = 63;
+const PROVE_FAILURE_CASE_COUNT = 65;
 
 function viewportNamed(name: string): Viewport {
   const found = VIEWPORTS.find((viewport) => viewport.name === name);
@@ -53,7 +53,7 @@ test('every scenario verifies its final state before the harness stops looking',
   for (const scenario of SCENARIOS) {
     const last = lastSteadyStep(scenario.steps);
     assert.ok(
-      last.kind === 'settle' || last.kind === 'assert-grid' || last.kind === 'assert-team-review',
+      last.kind === 'settle' || last.kind === 'assert-grid' || last.kind === 'assert-team-review' || last.kind === 'touch-scroll' || last.kind === 'assert-fit',
       `${scenario.name} ends on ${last.kind}, without verifying its final state`,
     );
   }
@@ -136,7 +136,7 @@ test('only a scenario that asserts team review rows turns team review on', () =>
 
 test('only a scenario that suspends a viewer routes its dashboard sockets', () => {
   const routedScenarioNames = SCENARIOS.filter(needsSocketRoute).map((scenario) => scenario.name);
-  assert.deepEqual(routedScenarioNames, ['resume-after-long-hide', 'resume-after-short-hide']);
+  assert.deepEqual(routedScenarioNames, ['phone-resume-desktop-grid', 'resume-after-long-hide', 'resume-after-short-hide']);
 });
 
 test('no burst asks for more lines than the relay is pinned to carry', () => {
@@ -274,6 +274,9 @@ test('cases come out in viewport order then scenario order', () => {
     (harnessCase) => harnessCase.scenario.name,
   );
   assert.deepEqual(firstViewportScenarios, [
+    'phone-resume-desktop-grid',
+    'phone-reconnect-scroll',
+    'phone-reconnect-mouse-scroll',
     'team-review',
     'cold-open',
     'reopen-x3',

@@ -134,6 +134,11 @@ function requestPlanReview(): void {
 }
 
 function dispatch(command: string): void {
+  if (command === 'history' || command === 'mouse-history') {
+    writeBurst(200);
+    if (command === 'mouse-history') process.stdout.write(`${ESC}[?1000h${ESC}[?1006h`);
+    return;
+  }
   if (command === 'frame') {
     screen.tick += 1;
     process.stdout.write(repaintInPlace(screen.cols, screen.rows, screen.tick));
@@ -161,6 +166,10 @@ let pending = '';
 
 function onInput(chunk: string): void {
   pending += chunk;
+  pending = pending.replace(/\x1b\[<6[45];\d+;\d+M/g, () => {
+    process.stdout.write('mouse-scroll\r\n');
+    return '';
+  });
   const lines = pending.split(/[\r\n]/);
   pending = lines.pop() ?? '';
   for (const line of lines) {

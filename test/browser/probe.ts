@@ -10,6 +10,10 @@ export interface GridReading {
   dataWsState: number | null;
   bufferLength: number;
   viewportY: number;
+  proposedCols: number | null;
+  screenLeft: number;
+  screenRight: number;
+  viewportWidth: number;
   lines: string[];
 }
 
@@ -38,9 +42,14 @@ interface ProbedTerminal {
   cols: number;
   rows: number;
   buffer: { active: ProbedBuffer };
+  element?: HTMLElement;
 }
 
 interface ProbedSessionUi {
+  fitAddon?: {
+    proposeDimensions(): { cols: number; rows: number } | undefined;
+    harnessMeasurement?: () => { cols: number; rows: number } | undefined;
+  } | null;
   term?: ProbedTerminal | null;
   ptySize?: { cols: number; rows: number } | null;
   dataWs?: { readyState: number; close(): void } | null;
@@ -60,6 +69,7 @@ export async function readGrid({ sessionId, registryUrl }: ReadGridRequest): Pro
   const card = sessionUi.card;
   if (!term || !card) return null;
   const buffer = term.buffer.active;
+  const screenBounds = term.element?.querySelector('.xterm-screen')?.getBoundingClientRect();
   const lines: string[] = [];
   for (let offset = 0; offset < term.rows; offset += 1) {
     lines.push(buffer.getLine(buffer.viewportY + offset)?.translateToString(true) ?? '');
@@ -74,6 +84,10 @@ export async function readGrid({ sessionId, registryUrl }: ReadGridRequest): Pro
     dataWsState: sessionUi.dataWs ? sessionUi.dataWs.readyState : null,
     bufferLength: buffer.length,
     viewportY: buffer.viewportY,
+    proposedCols: sessionUi.fitAddon?.proposeDimensions()?.cols ?? null,
+    screenLeft: screenBounds?.left ?? -1,
+    screenRight: screenBounds?.right ?? -1,
+    viewportWidth: window.innerWidth,
     lines,
   };
 }
@@ -90,6 +104,21 @@ export async function dropDataSocket({ sessionId, registryUrl }: ReadGridRequest
   const socket = sessionUi.dataWs;
   if (!socket) return false;
   socket.close();
+  return true;
+}
+
+export async function setFitMeasurement({ sessionId, registryUrl, available }: ReadGridRequest & { available: boolean }): Promise<boolean> {
+  const imported = await import(registryUrl) as { sessionUIs: Map<string, ProbedSessionUi> };
+  const fitAddon = imported.sessionUIs.get(sessionId)?.fitAddon;
+  if (!fitAddon) return false;
+  if (!available) {
+    fitAddon.harnessMeasurement ??= fitAddon.proposeDimensions.bind(fitAddon);
+    fitAddon.proposeDimensions = () => undefined;
+    return true;
+  }
+  if (!fitAddon.harnessMeasurement) return false;
+  fitAddon.proposeDimensions = fitAddon.harnessMeasurement;
+  delete fitAddon.harnessMeasurement;
   return true;
 }
 
