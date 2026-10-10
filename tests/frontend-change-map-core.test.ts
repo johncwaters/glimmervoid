@@ -110,13 +110,12 @@ test('link warnings open the first provider file in the package and fall back to
     path: 'packages/provider/a.ts', openPath: 'provider/packages/provider/a.ts',
   });
   assert.equal(view.repos[0]?.header.fileCount, 0);
-  assert.equal(view.emptyState, null);
 
   const fallback = buildChangeMapView(makeMap(consumer, { repos: [consumer, makeRepo({ name: 'provider', sessionPathPrefix: 'provider/' })] }));
   assert.deepEqual(fallback.repos[0]?.warnings[0] && { path: fallback.repos[0].warnings[0].path, openPath: fallback.repos[0].warnings[0].openPath }, {
     path: 'src/app.ts', openPath: 'consumer/src/app.ts',
   });
-  assert.equal(fallback.emptyState, null);
+  assert.equal(fallback.repos.length, 2);
 });
 
 test('small blast radius is omitted and committed counts are per repository', () => {
@@ -138,16 +137,14 @@ test('small blast radius is omitted and committed counts are per repository', ()
   assert.deepEqual(view.repos[0]?.warnings, []);
 });
 
-test('empty map and repository error have distinct messages', () => {
-  assert.equal(buildChangeMapView(makeMap(makeRepo())).emptyState, 'No changed files in this session.');
+test('an empty map shows no repository cards, leaving the headline to say so, but a repository error still shows', () => {
+  assert.deepEqual(buildChangeMapView(makeMap(makeRepo())).repos, []);
   const errored = buildChangeMapView(makeMap(makeRepo({ error: 'Git lookup failed' })));
-  assert.equal(errored.emptyState, null);
   assert.equal(errored.repos[0]?.error, 'Git lookup failed');
 });
 
-test('a map that failed to build shows its error instead of the empty state', () => {
+test('a map that failed to build shows its error', () => {
   const failed = buildChangeMapView({ ...makeMap(makeRepo()), repos: [], error: 'Change map could not be built: boom' });
-  assert.equal(failed.emptyState, null);
   assert.equal(failed.error, 'Change map could not be built: boom');
   assert.equal(buildChangeMapView(makeMap(makeRepo())).error, null);
 });
