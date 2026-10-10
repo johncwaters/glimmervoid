@@ -169,13 +169,21 @@ export function applyCalmTraceResponse(reply: ServerMessageOf<'session-trace-res
   if (!records.length) body.textContent = 'No trace has been recorded.';
 }
 
+function showCalmRequestError(id: string | undefined, message: string, kinds: readonly string[]) {
+  const claimedKind = claimPendingCalmRequest(id, kinds);
+  if (!claimedKind) return;
+  if (!surface || selectedSessionId !== id || !panel) return;
+  const target = panel.querySelector(ERROR_TARGET_BY_REQUEST_KIND[claimedKind]);
+  if (target) target.textContent = message;
+}
+
 export function applyCalmError(reply: ServerMessageOf<'error'>) {
   const isPlanDecisionError = reply.scope === 'plan-decision';
-  const claimedKind = claimPendingCalmRequest(reply.id, isPlanDecisionError ? ['plan'] : ['trace', 'diff']);
-  if (!claimedKind) return;
-  if (!surface || selectedSessionId !== reply.id || !panel) return;
-  const target = panel.querySelector(ERROR_TARGET_BY_REQUEST_KIND[claimedKind]);
-  if (target) target.textContent = reply.message;
+  showCalmRequestError(reply.id, reply.message, isPlanDecisionError ? ['plan'] : ['trace', 'diff']);
+}
+
+export function applyCalmSessionDiffError(reply: ServerMessageOf<'session-diff-error'>) {
+  showCalmRequestError(reply.id, `Could not read changes: ${reply.message}`, ['diff']);
 }
 
 interface KeystrokeDelivery {

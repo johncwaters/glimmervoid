@@ -77,6 +77,19 @@ test('request-session-diff replies with the committed + uncommitted diff and the
   assert.equal(diffs, 1);
 });
 
+test('request-session-diff replies with a session-diff-error and logs it when the diff read fails', async (t) => {
+  const warnSpy = t.mock.method(console, 'warn', () => {});
+  const s = plainSession('p1');
+  s.getDiff = async () => { throw new Error('Command failed: git diff HEAD\nfatal: not a git repository (or any of the parent directories): .git'); };
+  const h = harness(oneSession(s));
+
+  await h.send({ type: 'request-session-diff', id: 'p1' });
+  assert.deepEqual(h.sent.filter((m) => m.type.startsWith('session-diff')), [
+    { type: 'session-diff-error', id: 'p1', message: 'fatal: not a git repository (or any of the parent directories): .git' },
+  ]);
+  assert.ok(warnSpy.mock.calls.some((call) => String(call.arguments[0]).includes('request-session-diff failed: id=p1')));
+});
+
 test('merge-session on an unknown session is a no-op (no throw)', () => {
   const h = harness(new Map());
   assert.doesNotThrow(() => h.send({ type: 'merge-session', id: 'nope' }));

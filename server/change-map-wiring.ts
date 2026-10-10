@@ -4,7 +4,7 @@ import path from 'node:path';
 import { ChangeMap } from '../shared/contracts/change-map.ts';
 import type { ChangedFile, ChangeNarrative, NarratorState, RepoChangeMap } from '../shared/contracts/change-map.ts';
 import type { ChangeScope } from '../session/session-worktree-lifecycle.ts';
-import { runGit } from './git-exec.ts';
+import { gitCommandFailure, runGit } from './git-exec.ts';
 import {
   isAgentsDocPath,
   isSourcePath,
@@ -95,7 +95,8 @@ interface QueuedAssembly {
 }
 
 async function runGitAsync(args: string[], cwd: string): Promise<string> {
-  const result = await runGit(args, { cwd, timeoutMs: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER_BYTES, trim: false, keepStdoutOnFailure: true });
+  const result = await runGit(args, { cwd, timeoutMs: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER_BYTES, trim: false });
+  if (!result.ok) throw gitCommandFailure(args, result, GIT_TIMEOUT_MS);
   return result.out;
 }
 
@@ -223,7 +224,10 @@ export function createChangeMapService({
   async function siblingScopesOf(sibling: ChangeMapSession): Promise<SiblingScopes['scopes']> {
     const cached = siblingScopesById.get(sibling.id);
     if (cached && cached.expiresAt > nowFn()) return cached.scopes;
-    const scopes = await sibling.getChangeScopes().catch(() => []);
+    const scopes = await sibling.getChangeScopes().catch((error: unknown) => {
+      console.warn(`[change-map] sibling session ${sibling.id} changes could not be read: ${errorMessage(error)}`);
+      return [];
+    });
     const summarized = await Promise.all(scopes.map(async (scope) => ({
       commonDir: await commonDirFor(scope.root),
       changedPaths: changedFilesOf(scope).map((file) => file.path),
@@ -294,6 +298,7 @@ export function createChangeMapService({
     try {
       return await buildRepoMap(scope, selfId, repoInputsFor);
     } catch (error) {
+      console.warn(`[change-map] ${scope.name} map could not be built for session ${selfId}: ${errorMessage(error)}`);
       return { ...emptyRepoMap(scope), files: changedFilesOf(scope), error: errorMessage(error) };
     }
   }

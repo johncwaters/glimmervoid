@@ -250,6 +250,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'session-worktree-warning',
   'session-worktree-ready',
   'session-diff',
+  'session-diff-error',
   'change-map',
   'send-diff-annotations-result',
   'branch-sync-status',
@@ -390,6 +391,7 @@ const serverVariants = [
     uncommitted: openObject({ stat: z.string(), diff: z.string() }),
     hasCommits: z.boolean(),
   }),
+  loose('session-diff-error', { id: sessionId, message: z.string() }),
   loose('change-map', { id: sessionId, map: ChangeMap }),
   loose('send-diff-annotations-result', {
     requestId,

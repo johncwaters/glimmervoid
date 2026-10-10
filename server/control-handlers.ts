@@ -38,6 +38,7 @@ import { buildSettingsPayload as buildSettingsPayloadFrom } from './settings-pay
 import { RESUME_ID_RE } from '../session/core/auto-resume.ts';
 import { planWorkspace } from '../session/core/workspace-core.ts';
 import { runGit } from './git-exec.ts';
+import { firstGitErrorLine } from './core/branch-sync-core.ts';
 import { DEFAULT_AGENT_ID, describeAgentResolvability, isKnownAgentId, listAgentIds } from '../session/adapters/index.ts';
 import { HOOK_EVENT_CATALOG, ID_RE as HOOK_ID_RE, MAX_TIMEOUT_SEC as HOOK_MAX_TIMEOUT_SEC, normalizeHook, rawStoredHooks, readStoredHooks, removeHook, upsertHook } from '../session/core/user-hooks-core.ts';
 import { describeBuiltinHooks } from '../detection/settings-injector.ts';
@@ -1328,8 +1329,13 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       const s = findSession(msg);
       if (!s) return;
 
-      const { committed, uncommitted, hasCommits } = await s.getDiff();
-      ws.send(JSON.stringify({ type: 'session-diff', id: s.id, committed, uncommitted, hasCommits }));
+      try {
+        const { committed, uncommitted, hasCommits } = await s.getDiff();
+        ws.send(JSON.stringify({ type: 'session-diff', id: s.id, committed, uncommitted, hasCommits }));
+      } catch (error) {
+        console.warn(`[control] request-session-diff failed: id=${s.id}: ${errorMessage(error)}`);
+        ws.send(JSON.stringify({ type: 'session-diff-error', id: s.id, message: firstGitErrorLine(error) }));
+      }
     },
 
     'request-change-map':         async (msg: ClientMessageOf<'request-change-map'>, ws: ControlSocket) => {

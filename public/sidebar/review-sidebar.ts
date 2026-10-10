@@ -56,6 +56,7 @@ const SIDEBAR_MAX = 700;
 const statusById = new Map<string, string>();
 const reasonById = new Map<string, string | null>();
 const diffById = new Map<string, SessionDiffPayload | null>();
+const diffErrorById = new Map<string, string>();
 const mapById = new Map<string, ChangeMap | null>();
 
 const syncById = new Map<string, BranchSync | null>();
@@ -270,6 +271,7 @@ function applyStatus(id: string, next: string) {
   statusById.set(id, next);
   if (shouldDropDiffCache(prev, next)) {
     diffById.delete(id);
+    diffErrorById.delete(id);
     mapById.delete(id);
     if (id === getSelectedId()) requestChangeMap(id);
   }
@@ -297,11 +299,19 @@ export function seedReviewMergeStatus(id: string, mergeStatus: string, reason: s
 export function setReviewDiff(id: string, next: SessionDiffPayload | null) {
   const previous = diffById.get(id) ?? null;
   diffById.set(id, next);
+  diffErrorById.delete(id);
   if (id !== getSelectedId()) return;
   dropDraftsForChangedSections(previous, next);
   if (pendingOpenFilePath) expandFileInDiff(pendingOpenFilePath, next);
   render();
   scrollToPendingFile();
+}
+
+export function setReviewDiffError(id: unknown, message: string) {
+  const key = sessionIdOf(id);
+  if (!key) return;
+  diffErrorById.set(key, message);
+  if (key === getSelectedId()) render();
 }
 
 export function setSessionChangeMap(id: unknown, map: unknown) {
@@ -357,9 +367,16 @@ export function notifyWorktreeChanged(id: unknown) {
 export function refreshReviewSidebar(id: unknown) {
   const key = sessionIdOf(id);
   if (key !== getSelectedId()) return;
-  if (!diffById.has(key)) requestDiff(key);
-  if (!mapById.has(key)) requestChangeMap(key);
+  const isDiffStale = !diffById.has(key) || diffErrorById.has(key);
+  const isChangeMapStale = !mapById.has(key) || hasChangeMapError(mapById.get(key));
+  if (isDiffStale) requestDiff(key);
+  if (isChangeMapStale && !isDiffStale) requestChangeMap(key);
   render();
+}
+
+function hasChangeMapError(map: ChangeMap | null | undefined): boolean {
+  if (!map) return false;
+  return Boolean(map.error) || map.repos.some((repo) => repo.error !== null);
 }
 
 export function forgetReviewSession(id: unknown) {
@@ -367,6 +384,7 @@ export function forgetReviewSession(id: unknown) {
   statusById.delete(key);
   reasonById.delete(key);
   diffById.delete(key);
+  diffErrorById.delete(key);
   mapById.delete(key);
   syncById.delete(key);
   resyncingIds.delete(key);
@@ -792,6 +810,7 @@ function render() {
 
   const fetched = diffById.has(id);
   const payload = fetched ? diffById.get(id) : null;
+  const diffError = diffErrorById.get(id) ?? null;
 
   const committedFiles = payload ? parseUnifiedDiff(payload.committed?.diff || '') : [];
   const uncommittedFiles = payload ? parseUnifiedDiff(payload.uncommitted?.diff || '') : [];
@@ -809,7 +828,7 @@ function render() {
   const hasChanges = hasReviewChanges({ fetched, changedFileCount: totals.files, hasCommits });
   const primaryAction = decidePrimaryReviewAction({ status, mergeReason, live, hasChanges, isMergeRendered: mergeAction.isRendered });
   const headline = reviewHeadline({
-    status, mergeReason, fetched, hasChanges: totals.files > 0 || hasCommits, hasCommits,
+    status, mergeReason, fetched, hasDiffError: diffError !== null, hasChanges: totals.files > 0 || hasCommits, hasCommits,
     canMerge: !isWorkspace && mergeAction.isEnabled, isWorkspace, live, effectiveBase,
   });
   const statusLine = el('div', 'review-status-headline');
@@ -893,6 +912,10 @@ function render() {
     return;
   }
 
+  if (diffError) {
+    bodyEl.append(el('p', 'review-diff-error', diffError));
+    return;
+  }
   if (committedFiles.length > 0) bodyEl.append(renderSection('committed', 'Committed', committedMergeTargetText(headline, effectiveBase), committedFiles));
   if (uncommittedFiles.length > 0) bodyEl.append(renderSection('uncommitted', 'Uncommitted', null, uncommittedFiles));
 }

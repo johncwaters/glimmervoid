@@ -6,6 +6,7 @@ const headlineInputs = {
   status: 'pending-review',
   mergeReason: null,
   fetched: true,
+  hasDiffError: false,
   hasChanges: true,
   hasCommits: true,
   canMerge: true,
@@ -56,6 +57,16 @@ test('review headline waits for changes before declaring an empty worktree', () 
     text: 'Checking for changes',
     namesMergeTarget: false,
   });
+});
+
+test('review headline reports a failed change read instead of checking or empty', () => {
+  for (const fetched of [true, false]) {
+    assert.deepEqual(reviewHeadline({ ...headlineInputs, fetched, hasDiffError: true, hasChanges: false }), {
+      text: 'Could not read changes',
+      namesMergeTarget: false,
+    });
+  }
+  assert.equal(reviewHeadline({ ...headlineInputs, status: 'merging', fetched: false, hasDiffError: true }).text, 'Merging');
 });
 
 test('review headline identifies a fetched worktree without changes', () => {
@@ -300,4 +311,10 @@ test('branch sync labels fall back to Base branch for every state with a missing
   assert.equal(branchSyncLabel({ ...freshSync, upstream: null, state: 'no-upstream' }), 'main: no upstream');
   assert.equal(branchSyncLabel({ ...freshSync, upstream: null, state: 'behind', behind: 3 }), 'main: 3 behind its upstream');
   assert.equal(branchSyncLabel(null), null);
+});
+
+test('branch sync label names a failed sync check, and leaves a failed resync to the resync line', () => {
+  const failedCheck = { ...freshSync, upstream: null, state: 'unknown', ahead: 0, behind: 0, fetched: null, error: 'fatal: not a git repository' };
+  assert.equal(branchSyncLabel(failedCheck), 'main: sync check failed: fatal: not a git repository');
+  assert.equal(branchSyncLabel({ ...failedCheck, action: 'none' }), 'main: sync state unknown vs its upstream');
 });

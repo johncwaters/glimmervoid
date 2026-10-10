@@ -10,6 +10,7 @@ interface CommandResult {
   stderr?: string;
   error?: unknown;
   timedOut?: boolean;
+  exitCode?: number | null;
 }
 
 interface ExecFileOptions {
@@ -85,7 +86,7 @@ async function runCommand(file: string, args: readonly string[], {
     const out = outputText(stdout);
     return { ok: true, out: trim ? out.trim() : out, err: '', stderr: outputText(stderr) };
   } catch (error) {
-    const failure = (error ?? {}) as { stdout?: unknown; stderr?: unknown; killed?: unknown; signal?: unknown };
+    const failure = (error ?? {}) as { stdout?: unknown; stderr?: unknown; killed?: unknown; signal?: unknown; code?: unknown };
     const stdout = outputText(failure.stdout);
     const stderr = outputText(failure.stderr);
     const message = errorMessage(error);
@@ -97,6 +98,7 @@ async function runCommand(file: string, args: readonly string[], {
       stderr,
       error,
       timedOut: failure.killed === true && Boolean(failure.signal),
+      exitCode: typeof failure.code === 'number' ? failure.code : null,
     };
   }
 }
@@ -106,9 +108,14 @@ function runGit(args: readonly string[], { gitPath = 'git', env, replaceEnv, ...
   return runCommand(gitPath, args, { ...rest, replaceEnv: { ...baseEnv, GIT_TERMINAL_PROMPT: '0' } });
 }
 
+function gitCommandFailure(args: readonly string[], command: CommandResult, timeoutMs = DEFAULT_COMMAND_TIMEOUT_MS): unknown {
+  if (!command.timedOut) return command.error;
+  return new Error(`git ${args.join(' ')} timed out after ${timeoutMs}ms`, { cause: command.error });
+}
+
 function runGh(args: readonly string[], options: RunCommandOptions = {}): Promise<CommandResult> {
   return runCommand('gh', args, options);
 }
 
-export { DEFAULT_COMMAND_TIMEOUT_MS, runCommand, runGh, runGit };
+export { DEFAULT_COMMAND_TIMEOUT_MS, gitCommandFailure, runCommand, runGh, runGit };
 export type { CommandResult, ExecFileFn, ExecFileOptions, RunCommandOptions, RunGitOptions };

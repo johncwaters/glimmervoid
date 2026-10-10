@@ -66,6 +66,18 @@ function fixtureSession(id: string, name: string, scopes: () => ChangeScope[]): 
   return { id, name, getChangeScopes: async () => scopes() };
 }
 
+test('a failed git read under the default runner shows as a repo error, never as missing facts', { skip: !hasGit() }, async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-not-a-repo-'));
+  try {
+    const session = fixtureSession('plain', 'Plain', () => [modifiedScope(root, 'server/a.ts')]);
+    const map = await createChangeMapService({ sessions: new Map([[session.id, session]]) }).build(session);
+    assert.match(map.repos[0]?.error ?? '', /not a git repository/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('change map joins git facts for a real repo into one contract-valid map', { skip: !hasGit() }, async () => {
   const { root, base } = createFixtureRepo();
   try {
@@ -279,7 +291,8 @@ test('workspace map marks file dependencies as local links', { skip: !hasGit() }
   assert.equal(map.repos.find((repo) => repo.name === 'app')?.links[0].isLocalLink, true);
 });
 
-test('a repo build error stays visible while its package still provides a link', { skip: !hasGit() }, async () => {
+test('a repo build error stays visible and logged while its package still provides a link', { skip: !hasGit() }, async (t) => {
+  const warnSpy = t.mock.method(console, 'warn', () => {});
   const lib = createPackageRepo('lib', { name: 'shared-lib' }, { 'src/index.ts': 'export const shared = 1;\n' });
   const app = createPackageRepo('app', { dependencies: { 'shared-lib': '^1' } }, { 'src/use.ts': "import 'shared-lib';\n" });
   try {
@@ -299,6 +312,7 @@ test('a repo build error stays visible while its package still provides a link',
     const map = await service.build(session);
     assert.equal(map.repos.find((repo) => repo.name === 'lib')?.error, 'history unavailable');
     assert.equal(map.repos.find((repo) => repo.name === 'app')?.links[0].providerRepo, 'lib');
+    assert.ok(warnSpy.mock.calls.some((call) => String(call.arguments[0]).includes('history unavailable')));
   } finally {
     fs.rmSync(lib.root, { recursive: true, force: true });
     fs.rmSync(app.root, { recursive: true, force: true });

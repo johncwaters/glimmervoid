@@ -1155,6 +1155,31 @@ test('getDiff self-heals a stranded pending-review gate to none when nothing is 
   } finally { s.destroy(); fs.rmSync(repo, { recursive: true, force: true }); }
 });
 
+test('getDiff rejects with the git error instead of reading a failed git read as an empty diff', { skip: !GIT }, async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const notARepo = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-not-a-repo-'));
+  const s = makeSession();
+  try {
+    attachWorktree(s, notARepo);
+    await assert.rejects(s.getDiff(), /not a git repository/);
+    await assert.rejects(s.getChangeScopes(), /not a git repository/);
+  } finally { s.destroy(); fs.rmSync(notARepo, { recursive: true, force: true }); }
+});
+
+test('getDiff still returns the diff and logs a warning when intent-to-add fails', { skip: !GIT }, async (t) => {
+  const warnSpy = t.mock.method(console, 'warn', () => {});
+  const repo = initOneCommitRepo();
+  const s = makeSession();
+  try {
+    fs.writeFileSync(path.join(repo, 'README.md'), '# repo\nedited\n', 'utf8');
+    fs.writeFileSync(path.resolve(repo, git(['rev-parse', '--git-path', 'index.lock'], repo).trim()), '');
+    attachWorktree(s, repo);
+    const d = await s.getDiff();
+    assert.match(d.uncommitted.diff, /\+edited/);
+    assert.equal(warnSpy.mock.calls.filter((call) => String(call.arguments[0]).includes('intent-to-add in')).length, 1);
+  } finally { s.destroy(); fs.rmSync(repo, { recursive: true, force: true }); }
+});
+
 test('getDiff keeps pending-review when the worktree still has real changes', { skip: !GIT }, async () => {
   const repo = initOneCommitRepo();
   const s = makeSession();
@@ -1220,6 +1245,40 @@ test('getBranchSync reports no-upstream for a branch with no remote configured',
     assert.equal(sync.ahead, 0);
     assert.equal(sync.behind, 0);
   } finally { s.destroy(); fs.rmSync(repo, { recursive: true, force: true }); }
+});
+
+test('getBranchSync reports a project folder that is not a git repo as no-upstream, without a warning', { skip: !GIT }, async (t) => {
+  const warnSpy = t.mock.method(console, 'warn', () => {});
+  const notARepo = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-not-a-repo-'));
+  const s = makeSession({ integrationBranch: 'develop' });
+  s.path = notARepo;
+  try {
+    const sync = await s.getBranchSync();
+    assert.equal(sync.state, 'no-upstream');
+    assert.equal(sync.error, undefined);
+    const resync = await s.resyncBranch();
+    assert.equal(resync.state, 'no-upstream');
+    assert.equal(resync.action, 'none');
+    assert.equal(resync.error, null);
+    assert.equal(warnSpy.mock.calls.length, 0);
+  } finally { s.destroy(); fs.rmSync(notARepo, { recursive: true, force: true }); }
+});
+
+test('getBranchSync reports a failed check as unknown with the git error, and logs it', { skip: !GIT }, async (t) => {
+  const warnSpy = t.mock.method(console, 'warn', () => {});
+  const missingProjectDir = path.join(os.tmpdir(), `glimmervoid-missing-${crypto.randomUUID()}`);
+  const s = makeSession({ integrationBranch: 'develop' });
+  s.path = missingProjectDir;
+  try {
+    const sync = await s.getBranchSync();
+    assert.equal(sync.state, 'unknown');
+    assert.ok(sync.error);
+    const resync = await s.resyncBranch();
+    assert.equal(resync.state, 'unknown');
+    assert.equal(resync.action, 'none');
+    assert.ok(resync.error);
+    assert.equal(warnSpy.mock.calls.filter((call) => String(call.arguments[0]).includes('branch sync check of develop failed')).length, 2);
+  } finally { s.destroy(); }
 });
 
 test('getBranchSync reports in-sync right after a push', { skip: !GIT }, async () => {
@@ -1527,6 +1586,52 @@ test('checkWorktreeChange keeps pending-review while the worktree still has real
   } finally { s.destroy(); fs.rmSync(repo, { recursive: true, force: true }); }
 });
 
+test('a repeated worktree check failure is logged once until a check succeeds', { skip: !GIT }, async (t) => {
+  const warnSpy = t.mock.method(console, 'warn', () => {});
+  const notARepo = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-not-a-repo-'));
+  const repo = initOneCommitRepo();
+  const s = makeSession();
+  const checkFailureWarnings = () => warnSpy.mock.calls.filter((call) => String(call.arguments[0]).includes('worktree check failed')).length;
+  try {
+    attachWorktree(s, notARepo);
+    assert.equal(await s.worktreeLifecycle.computeWorktreeSignature(), null);
+    assert.equal(await s.worktreeLifecycle.computeWorktreeSignature(), null);
+    assert.equal(checkFailureWarnings(), 1);
+    attachWorktree(s, repo);
+    assert.ok(await s.worktreeLifecycle.computeWorktreeSignature());
+    attachWorktree(s, notARepo);
+    assert.equal(await s.worktreeLifecycle.computeWorktreeSignature(), null);
+    assert.equal(checkFailureWarnings(), 2);
+  } finally {
+    s.destroy();
+    fs.rmSync(notARepo, { recursive: true, force: true });
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('the first worktree check that succeeds after a failure re-announces the worktree', { skip: !GIT }, async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const notARepo = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-not-a-repo-'));
+  const repo = initOneCommitRepo();
+  const s = makeSession();
+  const changes: CallArgs[] = [];
+  s.on('worktree-changed', (e) => changes.push(e));
+  try {
+    attachWorktree(s, repo);
+    await s.checkWorktreeChange();
+    attachWorktree(s, notARepo);
+    await s.checkWorktreeChange();
+    attachWorktree(s, repo);
+    await s.checkWorktreeChange();
+    assert.equal(changes.length, 2);
+    assert.equal(changes[0].sig, changes[1].sig);
+  } finally {
+    s.destroy();
+    fs.rmSync(notARepo, { recursive: true, force: true });
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test('checkWorktreeChange returns UNKNOWN (no broadcast, no demotion) when the worktree is unreadable', async () => {
 
   const s = makeSession();
@@ -1619,6 +1724,32 @@ test('_resolveEffectiveBase ignores an upstream that is the branch\'s own remote
     const sig = await s.worktreeLifecycle.computeWorktreeSignature();
     assert.ok(sig, 'the signature resolved');
     assert.equal(sig.ahead, '1');
+  } finally { s.destroy(); fs.rmSync(repo, { recursive: true, force: true }); }
+});
+
+test('_resolveEffectiveBase falls back to the integration branch for a gone upstream or a detached HEAD', { skip: !GIT }, async () => {
+  const repo = initRepoDevelopFeature();
+  git(['remote', 'add', 'origin', repo], repo);
+  git(['update-ref', 'refs/remotes/origin/main', git(['rev-parse', 'develop'], repo).trim()], repo);
+  git(['branch', '--set-upstream-to=origin/main', 'feat'], repo);
+  git(['update-ref', '-d', 'refs/remotes/origin/main'], repo);
+  const s = makeSession({ integrationBranch: 'develop' });
+  try {
+    assert.equal(await s.worktreeLifecycle.resolveEffectiveBase({ cwd: repo }), 'develop');
+    git(['checkout', '-q', '--detach'], repo);
+    assert.equal(await s.worktreeLifecycle.resolveEffectiveBase({ cwd: repo }), 'develop');
+  } finally { s.destroy(); fs.rmSync(repo, { recursive: true, force: true }); }
+});
+
+test('_resolveEffectiveBase reads the upstream of a branch that shares its name with a tag', { skip: !GIT }, async () => {
+  const repo = initRepoDevelopFeature();
+  git(['remote', 'add', 'origin', repo], repo);
+  git(['update-ref', 'refs/remotes/origin/main', git(['rev-parse', 'develop'], repo).trim()], repo);
+  git(['branch', '--set-upstream-to=origin/main', 'feat'], repo);
+  git(['tag', 'feat'], repo);
+  const s = makeSession({ integrationBranch: 'develop' });
+  try {
+    assert.equal(await s.worktreeLifecycle.resolveEffectiveBase({ cwd: repo }), 'origin/main');
   } finally { s.destroy(); fs.rmSync(repo, { recursive: true, force: true }); }
 });
 

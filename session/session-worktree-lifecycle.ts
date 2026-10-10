@@ -1,4 +1,4 @@
-import { runGit } from "../server/git-exec.ts";
+import { gitCommandFailure, runGit } from "../server/git-exec.ts";
 import type { RunGitOptions } from "../server/git-exec.ts";
 import { errorMessage } from "../shared/text.ts";
 import fs from "node:fs";
@@ -23,10 +23,12 @@ import { projectMergeState } from "./core/worktree-state.ts";
 import type { MergeStatus } from "./core/worktree-state.ts";
 import type { DecisionEntry } from "./core/decision-log.ts";
 import {
+  BRANCH_UPSTREAM_FORMAT,
   GIT_FETCH_TIMEOUT_MS,
   parseLeftRightCount,
   decideBranchSyncState,
   parseRemoteFromUpstream,
+  parseBranchUpstream,
   decideResyncAction,
   buildResyncCommand,
   firstGitErrorLine,
@@ -39,6 +41,7 @@ import type { WorkspaceMember } from "./core/workspace-core.ts";
 import { createSessionWorkspaceMembers } from "./session-workspace-members.ts";
 
 const WORKTREE_CHECK_DEBOUNCE_MS = 400;
+const GIT_NOT_FOUND_EXIT_CODE = 1;
 
 interface Workspace {
   cwd: string;
@@ -73,13 +76,17 @@ interface MergeResult {
   kept?: boolean;
 }
 
-interface BranchSyncResult {
+interface BranchSyncStatus {
   branch: string | null;
   upstream: string | null;
   state: string;
   ahead: number;
   behind: number;
   fetched: boolean | null;
+  error?: string | null;
+}
+
+interface BranchSyncResult extends BranchSyncStatus {
   action: string;
   error: string | null;
 }
@@ -166,6 +173,7 @@ interface WorktreeLifecycleState {
   rerereWatcher: ReturnType<typeof createRerereWatcher> | null;
   checkTimer: CoalescedTimer;
   lastSignature: string | null;
+  lastLoggedCheckFailure: string | null;
   provisionedMembers: WorkspaceMember[] | null;
 }
 
@@ -214,15 +222,22 @@ type MergeEngineOutcome =
   | { result: MergeResult; failure?: undefined }
   | { result?: undefined; failure: MergeResult };
 
-async function readGitOutput(args: string[], options: RunGitOptions): Promise<string> {
-  const command = await runGit(args, { ...options, trim: false, keepStdoutOnFailure: true });
+async function readGitStrict(args: string[], options: RunGitOptions): Promise<string> {
+  const command = await runGit(args, { ...options, trim: false });
+  if (!command.ok) throw gitCommandFailure(args, command, options.timeoutMs);
   return command.out;
 }
 
-async function readGitStrict(args: string[], options: RunGitOptions): Promise<string> {
+async function readGitLookup(args: string[], options: RunGitOptions): Promise<string | null> {
   const command = await runGit(args, { ...options, trim: false });
-  if (!command.ok) throw command.error;
-  return command.out;
+  if (command.ok) return command.out;
+  if (command.exitCode === GIT_NOT_FOUND_EXIT_CODE) return null;
+  throw gitCommandFailure(args, command, options.timeoutMs);
+}
+
+function branchFromHeadRef(headRef: string): string {
+  const localBranchPrefix = "refs/heads/";
+  return headRef.startsWith(localBranchPrefix) ? headRef.slice(localBranchPrefix.length) : "";
 }
 
 function stopWatcher(watcher: { stop: () => void } | null): null {
@@ -294,15 +309,18 @@ function createSessionWorktreeLifecycle({
     })).stdout;
   }
   function gitOut(args: string[], options: RunGitOptions): Promise<string> {
-    if (!gitIsolation?.disableRepoCommands) return readGitOutput(args, options);
-    return runSessionGit(args, options).catch((error: unknown) => {
-      const failedOutput = (error as { stdout?: unknown } | null)?.stdout;
-      return failedOutput == null ? "" : String(failedOutput);
-    });
-  }
-  function gitStrict(args: string[], options: RunGitOptions): Promise<string> {
     if (!gitIsolation?.disableRepoCommands) return readGitStrict(args, options);
     return runSessionGit(args, options);
+  }
+  function gitLookup(args: string[], options: RunGitOptions): Promise<string | null> {
+    if (!gitIsolation?.disableRepoCommands) return readGitLookup(args, options);
+    return runSessionGit(args, options).catch((error: unknown) => {
+      if ((error as { code?: unknown } | null)?.code === GIT_NOT_FOUND_EXIT_CODE) return null;
+      throw error;
+    });
+  }
+  async function readUpstreamOf(branch: string, options: RunGitOptions): Promise<string | null> {
+    return parseBranchUpstream(await gitOut(["for-each-ref", `--format=${BRANCH_UPSTREAM_FORMAT}`, `refs/heads/${branch}`], options), branch);
   }
   const workspaceMembers = workspaceRepos
     ? setUpWorkspaceMembers({ folder: currentProjectPath(), sessionId: id, sessionName, repoPaths: workspaceRepos, shareList: worktreeShare, gitWorkspace })
@@ -328,10 +346,11 @@ function createSessionWorktreeLifecycle({
       mode: "leading",
       delayMs: WORKTREE_CHECK_DEBOUNCE_MS,
       run: () => {
-        api.checkWorktreeChange().catch(() => {});
+        api.checkWorktreeChange().catch(recordWorktreeCheckFailure);
       },
     }),
     lastSignature: null,
+    lastLoggedCheckFailure: null,
     provisionedMembers: null,
   };
 
@@ -712,10 +731,9 @@ function createSessionWorktreeLifecycle({
       lifecycleState.effectiveBase = lifecycleState.workspace.base;
       return lifecycleState.effectiveBase;
     }
-    const upstream = (await gitOut(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "HEAD@{upstream}"], opts)).trim();
-    const hasUpstream = Boolean(upstream) && !upstream.includes("@{");
-    const branch = hasUpstream ? (await gitOut(["rev-parse", "--abbrev-ref", "HEAD"], opts)).trim() : "";
-    if (hasUpstream && !isOwnRemoteCopy(upstream, branch)) {
+    const branch = branchFromHeadRef((await gitLookup(["symbolic-ref", "--quiet", "HEAD"], opts))?.trim() ?? "");
+    const upstream = branch ? await readUpstreamOf(branch, opts) : null;
+    if (upstream && !isOwnRemoteCopy(upstream, branch)) {
       lifecycleState.effectiveBase = branchFromRemoteRef(upstream);
       return upstream;
     }
@@ -723,19 +741,9 @@ function createSessionWorktreeLifecycle({
     return lifecycleState.effectiveBase;
   }
 
-  async function resolveVerifiedBaseRef(
-    run: (args: string[]) => Promise<string>,
-    opts: RunGitOptions,
-    { swallowResolveError = false }: { swallowResolveError?: boolean } = {},
-  ): Promise<{ ref: string; verified: true } | { ref: string | null; verified: false }> {
-    let verifiedRef: string | null = null;
-    try {
-      const candidate = await resolveEffectiveBase(opts);
-      if (candidate && (await run(["rev-parse", "--verify", "--quiet", candidate])).trim()) verifiedRef = candidate;
-    } catch (error) {
-      if (!swallowResolveError) throw error;
-    }
-    if (verifiedRef) return { ref: verifiedRef, verified: true };
+  async function resolveVerifiedBaseRef(opts: RunGitOptions): Promise<{ ref: string; verified: true } | { ref: string | null; verified: false }> {
+    const candidate = await resolveEffectiveBase(opts);
+    if (candidate && await gitLookup(["rev-parse", "--verify", "--quiet", candidate], opts) !== null) return { ref: candidate, verified: true };
     return { ref: lifecycleState.baseSha || null, verified: false };
   }
 
@@ -743,16 +751,16 @@ function createSessionWorktreeLifecycle({
     return { cwd, timeoutMs: 15000, maxBuffer: 64 * 1024 * 1024 };
   }
 
-  async function resolveDiffBase(run: (args: string[]) => Promise<string>, opts: RunGitOptions): Promise<{ base: string; aheadCount: string }> {
-    const { ref: baseRef, verified } = await resolveVerifiedBaseRef(run, opts);
+  async function resolveDiffBase(opts: RunGitOptions): Promise<{ base: string; aheadCount: string }> {
+    const { ref: baseRef, verified } = await resolveVerifiedBaseRef(opts);
     if (verified) {
       return {
-        base: (await run(["merge-base", baseRef, "HEAD"])).trim(),
-        aheadCount: (await run(["rev-list", "--count", `${baseRef}..HEAD`])).trim(),
+        base: (await gitLookup(["merge-base", baseRef, "HEAD"], opts))?.trim() ?? "",
+        aheadCount: (await gitOut(["rev-list", "--count", `${baseRef}..HEAD`], opts)).trim(),
       };
     }
     if (!baseRef) return { base: "", aheadCount: "0" };
-    return { base: baseRef, aheadCount: (await run(["rev-list", "--count", `${baseRef}..HEAD`])).trim() };
+    return { base: baseRef, aheadCount: (await gitOut(["rev-list", "--count", `${baseRef}..HEAD`], opts)).trim() };
   }
 
   async function readChangeScope(name: string, root: string, base: string, sessionPathPrefix: string): Promise<ChangeScope> {
@@ -771,11 +779,11 @@ function createSessionWorktreeLifecycle({
   }
 
   async function memberMergeBase(member: WorkspaceMember): Promise<string> {
-    const run = (args: string[]): Promise<string> => gitOut(args, diffGitOptions(member.dir));
+    const opts = diffGitOptions(member.dir);
     const candidates = member.base ? [member.base, `origin/${member.base}`, "origin/HEAD"] : ["origin/HEAD"];
     for (const candidate of candidates) {
-      if (!(await run(["rev-parse", "--verify", "--quiet", candidate])).trim()) continue;
-      return (await run(["merge-base", candidate, "HEAD"])).trim();
+      if (await gitLookup(["rev-parse", "--verify", "--quiet", candidate], opts) === null) continue;
+      return (await gitLookup(["merge-base", candidate, "HEAD"], opts))?.trim() ?? "";
     }
     return "";
   }
@@ -793,15 +801,14 @@ function createSessionWorktreeLifecycle({
     }
     const worktreeDir = lifecycleState.worktreeDir;
     if (!worktreeDir) return [];
-    const run = (args: string[]): Promise<string> => gitOut(args, diffGitOptions(worktreeDir));
-    const { base } = await resolveDiffBase(run, diffGitOptions(worktreeDir));
+    const { base } = await resolveDiffBase(diffGitOptions(worktreeDir));
     return [await readChangeScope(path.basename(currentProjectPath()), worktreeDir, base, "")];
   }
 
   async function readMemberDiff(member: WorkspaceMember): Promise<MemberDiff> {
     const run = (args: string[]): Promise<string> => gitOut(args, diffGitOptions(member.dir));
     const prefixArgs = [`--src-prefix=a/${member.name}/`, `--dst-prefix=b/${member.name}/`];
-    await run(["add", "-N", "--", "."]);
+    await markUntrackedIntentToAdd(member.dir);
     const base = await memberMergeBase(member);
     const aheadCount = base ? (await run(["rev-list", "--count", `${base}..HEAD`])).trim() : "0";
     const readPrefixedDiff = async (range: string): Promise<string> => prefixRenameAndCopyHeaders(await run(["diff", ...prefixArgs, range]), member.name);
@@ -829,14 +836,22 @@ function createSessionWorktreeLifecycle({
     return { committed: joinSection("committed"), uncommitted: joinSection("uncommitted"), hasCommits: memberDiffs.some((memberDiff) => memberDiff.hasCommits) };
   }
 
+  async function markUntrackedIntentToAdd(dir: string): Promise<void> {
+    try {
+      await gitOut(["add", "-N", "--", "."], diffGitOptions(dir));
+    } catch (error) {
+      console.warn(`[session ${id}] intent-to-add in ${dir} failed: ${errorMessage(error)}`);
+    }
+  }
+
   async function getDiff() {
     const empty = { stat: "", diff: "" };
     if (lifecycleState.provisionedMembers) return getWorkspaceDiff(lifecycleState.provisionedMembers);
     if (!lifecycleState.worktreeDir) return { committed: empty, uncommitted: empty, hasCommits: false };
     const opts = diffGitOptions(lifecycleState.worktreeDir);
     const run = (args: string[]): Promise<string> => gitOut(args, opts);
-    await run(["add", "-N", "--", "."]);
-    const { base, aheadCount } = await resolveDiffBase(run, opts);
+    await markUntrackedIntentToAdd(lifecycleState.worktreeDir);
+    const { base, aheadCount } = await resolveDiffBase(opts);
     const committed = base
       ? { stat: (await run(["diff", "--stat", `${base}..HEAD`])).trim(), diff: await run(["diff", `${base}..HEAD`]) }
       : empty;
@@ -857,20 +872,16 @@ function createSessionWorktreeLifecycle({
     };
   }
 
-  async function branchUpstream(branch: string, opts: RunGitOptions): Promise<string | null> {
-    const upstream = (await gitOut(["rev-parse", "--abbrev-ref", "--symbolic-full-name", `${branch}@{upstream}`], opts)).trim();
-    return upstream && !upstream.includes("@{") ? upstream : null;
-  }
-
   async function fetchBranch(remote: string, branch: string, opts: RunGitOptions): Promise<boolean> {
     try {
-      await gitStrict(["fetch", "--quiet", remote, branch], {
+      await gitOut(["fetch", "--quiet", remote, branch], {
         ...opts,
         timeoutMs: GIT_FETCH_TIMEOUT_MS,
         replaceEnv: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
       });
       return true;
-    } catch {
+    } catch (error) {
+      console.warn(`[session ${id}] fetch of ${remote}/${branch} failed: ${errorMessage(error)}`);
       return false;
     }
   }
@@ -894,11 +905,40 @@ function createSessionWorktreeLifecycle({
     return sync;
   }
 
-  async function getBranchSync() {
+  function branchSyncFailure(branch: string, error: unknown): BranchSyncStatus & { error: string } {
+    console.warn(`[session ${id}] branch sync check of ${branch} failed: ${errorMessage(error)}`);
+    return {
+      branch,
+      upstream: null,
+      state: decideBranchSyncState({ hasUpstream: true }),
+      ahead: 0,
+      behind: 0,
+      fetched: null,
+      error: firstGitErrorLine(error),
+    };
+  }
+
+  async function getBranchSync(): Promise<BranchSyncStatus> {
     const branch = effectiveIntegrationBranch();
     if (!branch || !currentProjectPath()) return noUpstream(branch);
+    return readBranchSync(branch).catch((error: unknown) => branchSyncFailure(branch, error));
+  }
+
+  async function isGitRepository(opts: RunGitOptions): Promise<boolean> {
+    try {
+      await gitOut(["rev-parse", "--is-inside-work-tree"], opts);
+      return true;
+    } catch (error) {
+      const failure = error as { stderr?: unknown; message?: unknown } | null;
+      if (`${String(failure?.stderr ?? "")}\n${String(failure?.message ?? "")}`.includes("not a git repository")) return false;
+      throw error;
+    }
+  }
+
+  async function readBranchSync(branch: string): Promise<BranchSyncStatus> {
     const opts: RunGitOptions = { cwd: currentProjectPath(), timeoutMs: 10000 };
-    const upstream = await branchUpstream(branch, opts);
+    if (!(await isGitRepository(opts))) return noUpstream(branch);
+    const upstream = await readUpstreamOf(branch, opts);
     if (!upstream) return noUpstream(branch);
     const fetched = await fetchBranch(parseRemoteFromUpstream(upstream), branch, opts);
     return applyBaseSyncDemotion({ branch, upstream, fetched, ...(await branchCounts(upstream, branch, opts)) });
@@ -907,8 +947,13 @@ function createSessionWorktreeLifecycle({
   async function resyncBranchBody(): Promise<BranchSyncResult> {
     const branch = effectiveIntegrationBranch();
     if (!branch || !currentProjectPath()) return { ...noUpstream(branch), action: "none", error: null };
+    return resyncKnownBranch(branch).catch((error: unknown) => ({ ...branchSyncFailure(branch, error), action: "none" }));
+  }
+
+  async function resyncKnownBranch(branch: string): Promise<BranchSyncResult> {
     const opts: RunGitOptions = { cwd: currentProjectPath(), timeoutMs: 10000 };
-    const upstream = await branchUpstream(branch, opts);
+    if (!(await isGitRepository(opts))) return { ...noUpstream(branch), action: "none", error: null };
+    const upstream = await readUpstreamOf(branch, opts);
     if (!upstream) return { ...noUpstream(branch), action: "none", error: null };
     const remote = parseRemoteFromUpstream(upstream);
     const fetched = await fetchBranch(remote, branch, opts);
@@ -920,9 +965,10 @@ function createSessionWorktreeLifecycle({
     const command = buildResyncCommand(decision, { upstream, branch, remote });
     if (command) {
       try {
-        await gitStrict(command.args, { ...opts, timeoutMs: command.timeoutMs ?? opts.timeoutMs });
+        await gitOut(command.args, { ...opts, timeoutMs: command.timeoutMs ?? opts.timeoutMs });
         action = command.successAction;
       } catch (commandError) {
+        console.warn(`[session ${id}] resync of ${branch} failed: ${errorMessage(commandError)}`);
         error = firstGitErrorLine(commandError);
       }
     }
@@ -939,7 +985,7 @@ function createSessionWorktreeLifecycle({
     const worktreeDir = lifecycleState.worktreeDir;
     if (!worktreeDir) return null;
     const opts: RunGitOptions = { cwd: worktreeDir, timeoutMs: 10000, maxBuffer: 16 * 1024 * 1024 };
-    const run = (args: string[]): Promise<string> => gitStrict(["--no-optional-locks", ...args], opts);
+    const run = (args: string[]): Promise<string> => gitOut(["--no-optional-locks", ...args], opts);
     let status: string;
     let head: string;
     let ahead = "0";
@@ -949,23 +995,23 @@ function createSessionWorktreeLifecycle({
     try {
       status = await run(["status", "--porcelain"]);
       head = (await run(["rev-parse", "HEAD"])).trim();
-      const { ref: baseRef } = await resolveVerifiedBaseRef(run, opts, { swallowResolveError: true });
+      const { ref: baseRef } = await resolveVerifiedBaseRef(opts);
       if (baseRef) ahead = (await run(["rev-list", "--count", `${baseRef}..HEAD`])).trim();
-      try {
-        const mergeTarget = effectiveIntegrationBranch() || lifecycleState.baseSha;
-        const resolvedTarget = mergeTarget ? (await run(["rev-parse", "--verify", "--quiet", mergeTarget])).trim() : "";
-        if (resolvedTarget) {
-          targetSha = resolvedTarget;
-          behind = (await run(["rev-list", "--count", `HEAD..${mergeTarget}`])).trim();
-        }
-      } catch {}
+      const mergeTarget = effectiveIntegrationBranch() || lifecycleState.baseSha;
+      const resolvedTarget = mergeTarget ? (await gitLookup(["rev-parse", "--verify", "--quiet", mergeTarget], opts))?.trim() ?? "" : "";
+      if (resolvedTarget) {
+        targetSha = resolvedTarget;
+        behind = (await run(["rev-list", "--count", `HEAD..${mergeTarget}`])).trim();
+      }
       const rebaseMerge = (await run(["rev-parse", "--git-path", "rebase-merge"])).trim();
       const rebaseApply = (await run(["rev-parse", "--git-path", "rebase-apply"])).trim();
       const resolveGitPath = (gitPath: string): string => path.isAbsolute(gitPath) ? gitPath : path.resolve(worktreeDir, gitPath);
       rebaseInProgress = fs.existsSync(resolveGitPath(rebaseMerge)) || fs.existsSync(resolveGitPath(rebaseApply));
-    } catch {
+    } catch (error) {
+      recordWorktreeCheckFailure(error);
       return null;
     }
+    lifecycleState.lastLoggedCheckFailure = null;
     const sig = crypto.createHash("sha1").update(`${status} ${head} ${ahead}`).digest("hex");
     return { sig, dirty: status.trim() !== "", ahead, behind, rebaseInProgress, headSha: head, targetSha };
   }
@@ -1046,8 +1092,17 @@ function createSessionWorktreeLifecycle({
     return memberHeads;
   }
 
+  function recordWorktreeCheckFailure(error: unknown): void {
+    lifecycleState.lastSignature = null;
+    const failure = errorMessage(error);
+    if (failure === lifecycleState.lastLoggedCheckFailure) return;
+    lifecycleState.lastLoggedCheckFailure = failure;
+    console.warn(`[session ${id}] worktree check failed: ${failure}`);
+  }
+
   async function checkWorkspaceChange(): Promise<void> {
     const signaturePayload = { scopes: await getChangeScopes(), memberHeads: await readMemberHeads() };
+    lifecycleState.lastLoggedCheckFailure = null;
     const sig = crypto.createHash("sha1").update(JSON.stringify(signaturePayload)).digest("hex");
     if (port.state().isDestroyed || sig === lifecycleState.lastSignature) return;
     lifecycleState.lastSignature = sig;

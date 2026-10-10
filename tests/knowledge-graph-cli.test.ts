@@ -156,7 +156,7 @@ function commitTrackedFileThenMakeItStatDirty(repo: string): string {
   const trackedFilePath = path.join(repo, 'tracked.txt');
   fs.writeFileSync(trackedFilePath, 'unchanged content\n');
   execFileSync('git', ['add', 'tracked.txt'], { cwd: repo, encoding: 'utf8' });
-  execFileSync('git', ['-c', 'user.name=kg', '-c', 'user.email=kg@example.invalid', 'commit', '-q', '-m', 'track a file'], { cwd: repo, encoding: 'utf8' });
+  execFileSync('git', ['-c', 'user.name=kg', '-c', 'user.email=kg@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'track a file'], { cwd: repo, encoding: 'utf8' });
   const shiftedTime = new Date(Date.now() - 3_600_000);
   fs.utimesSync(trackedFilePath, shiftedTime, shiftedTime);
   return path.join(repo, '.git', 'index');

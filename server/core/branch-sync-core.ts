@@ -41,6 +41,16 @@ function parseRemoteFromUpstream(upstream: string | null | undefined): string {
   return String(upstream).slice(0, idx);
 }
 
+const BRANCH_UPSTREAM_FORMAT = '%(refname)%09%(upstream:short)%09%(upstream:track,nobracket)';
+
+function parseBranchUpstream(forEachRefOutput: string, branch: string): string | null {
+  const fieldsOfBranch = forEachRefOutput.split('\n').map((line) => line.split('\t')).find(([refName]) => refName === `refs/heads/${branch}`);
+  if (!fieldsOfBranch) return null;
+  const [, upstream, tracking] = fieldsOfBranch;
+  if (!upstream || tracking === 'gone') return null;
+  return upstream;
+}
+
 function decideResyncAction(state: string, isCheckedOut: boolean): ResyncAction {
   if (state === 'behind') return isCheckedOut ? 'ff-merge' : 'ff-fetch';
   if (state === 'ahead') return 'push';
@@ -87,9 +97,11 @@ function errorMessageOrText(err: unknown): string {
 }
 
 export {
+  BRANCH_UPSTREAM_FORMAT,
   parseLeftRightCount,
   decideBranchSyncState,
   parseRemoteFromUpstream,
+  parseBranchUpstream,
   decideResyncAction,
   buildResyncCommand,
   firstGitErrorLine,

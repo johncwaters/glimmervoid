@@ -1,6 +1,6 @@
 import '@xterm/xterm/css/xterm.css';
 import './tailwind.css';
-import { clearQueueOrigin, mountNowPeek, openNextQueuePanel, openSelectedPanelTerminal, refreshCalmView, refreshNowPeek, applyCalmSessionDiff, applyCalmTraceResponse, applyCalmError } from './calm/calm-view.ts';
+import { clearQueueOrigin, mountNowPeek, openNextQueuePanel, openSelectedPanelTerminal, refreshCalmView, refreshNowPeek, applyCalmSessionDiff, applyCalmSessionDiffError, applyCalmTraceResponse, applyCalmError } from './calm/calm-view.ts';
 
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { shouldShowServerAction } from '#shared/client-trust.ts';
@@ -44,7 +44,7 @@ import { countConnectingTerminals, holdTerminalInputDuringWakeCheck, onTerminalL
 import { showErrorToast } from './session-card/toast.ts';
 import { rebuildWebglGlyphAtlases } from './session-card/webgl-pool.ts';
 import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, clearSettingsUpdateRequest, refreshSettingsStatus, resolveSettingsTarget } from './settings-panel.ts';
-import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setSessionChangeMap } from './sidebar/review-sidebar.ts';
+import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
 import { createSettingsLink } from './settings-link.ts';
 import { currentShortcutContext, SHORTCUT_PLATFORM, setShortcutContextProvider } from './shortcuts.ts';
@@ -375,6 +375,7 @@ const messageHandlers = {
   'session-worktree-warning': (msg) => { showErrorToast(`${msg.session}: ${msg.notice || 'base branch warning'}`); },
   'session-worktree-ready': (msg) => { setSessionEffectiveBase(msg.id, msg.base); },
   'session-diff':       (msg) => { applyCalmSessionDiff(msg); setSessionDiff(msg.id, { committed: msg.committed, uncommitted: msg.uncommitted, hasCommits: msg.hasCommits }); },
+  'session-diff-error': (msg) => { applyCalmSessionDiffError(msg); setReviewDiffError(msg.id, msg.message); },
   'change-map':         (msg) => setSessionChangeMap(msg.id, msg.map),
   'branch-sync-status': (msg) => setReviewBranchSync(msg.id, msg),
   'session-changed':    (msg) => notifyWorktreeChanged(msg.id),

@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { test } from 'node:test';
-import { DEFAULT_COMMAND_TIMEOUT_MS, runCommand, runGh, runGit } from '../server/git-exec.ts';
+import { DEFAULT_COMMAND_TIMEOUT_MS, gitCommandFailure, runCommand, runGh, runGit } from '../server/git-exec.ts';
 import type { ExecFileFn, ExecFileOptions } from '../server/git-exec.ts';
 
 function recordingExec(outcome: { stdout?: string; stderr?: string; failure?: Record<string, unknown> }): { calls: { file: string; args: readonly string[]; options: ExecFileOptions }[]; execFileFn: ExecFileFn } {
@@ -52,10 +52,33 @@ test('preferStderr falls back to the message when stderr is empty', async () => 
   assert.equal(result.err, 'spawn git ENOENT');
 });
 
+test('a failure carries the exit code only when the command exited, never for a spawn error', async () => {
+  const exited = await runCommand('git', ['merge-base'], { execFileFn: recordingExec({ failure: { message: 'Command failed', code: 1 } }).execFileFn });
+  assert.equal(exited.exitCode, 1);
+  const unspawned = await runCommand('git', ['status'], { execFileFn: recordingExec({ failure: { message: 'spawn git ENOENT', code: 'ENOENT' } }).execFileFn });
+  assert.equal(unspawned.exitCode, null);
+});
+
 test('a timeout kill is flagged as timedOut', async () => {
   const { execFileFn } = recordingExec({ failure: { message: 'killed', killed: true, signal: 'SIGTERM' } });
   const result = await runCommand('git', ['log'], { execFileFn });
   assert.equal(result.timedOut, true);
+});
+
+test('gitCommandFailure names the git command and its timeout, keeping the kill as the cause', async () => {
+  const { execFileFn } = recordingExec({ failure: { message: 'killed', killed: true, signal: 'SIGTERM' } });
+  const result = await runCommand('git', ['diff', 'HEAD'], { execFileFn });
+  const failure = gitCommandFailure(['diff', 'HEAD'], result, 15000);
+  assert.ok(failure instanceof Error);
+  assert.equal(failure.message, 'git diff HEAD timed out after 15000ms');
+  assert.equal(failure.cause, result.error);
+  assert.equal((gitCommandFailure(['log'], result) as Error).message, `git log timed out after ${DEFAULT_COMMAND_TIMEOUT_MS}ms`);
+});
+
+test('gitCommandFailure passes any other failure through unchanged', async () => {
+  const { execFileFn } = recordingExec({ failure: { message: 'Command failed: git status', code: 128 } });
+  const result = await runCommand('git', ['status'], { execFileFn });
+  assert.equal(gitCommandFailure(['status'], result, 15000), result.error);
 });
 
 test('runGit always sets GIT_TERMINAL_PROMPT=0 over the inherited, merged or replaced environment', async () => {

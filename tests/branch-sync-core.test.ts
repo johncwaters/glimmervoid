@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   parseLeftRightCount, decideBranchSyncState, parseRemoteFromUpstream, decideResyncAction,
-  buildResyncCommand, firstGitErrorLine,
+  buildResyncCommand, firstGitErrorLine, parseBranchUpstream,
 } from '../server/core/branch-sync-core.ts';
 
 test('parseLeftRightCount reads "behind<TAB>ahead" in that order', () => {
@@ -74,6 +74,18 @@ test('parseRemoteFromUpstream defaults to origin for a slash-less or empty value
   assert.equal(parseRemoteFromUpstream(''), 'origin');
   assert.equal(parseRemoteFromUpstream(null), 'origin');
   assert.equal(parseRemoteFromUpstream(undefined), 'origin');
+});
+
+test('parseBranchUpstream reads the upstream of exactly the named branch', () => {
+  assert.equal(parseBranchUpstream('refs/heads/main\torigin/main\t\n', 'main'), 'origin/main');
+  assert.equal(parseBranchUpstream('refs/heads/main\torigin/main\tahead 1\n', 'main'), 'origin/main');
+  assert.equal(parseBranchUpstream('refs/heads/rel/one\torigin/rel/one\t\n', 'rel'), null);
+});
+
+test('parseBranchUpstream treats no upstream, a gone upstream and a missing branch as none', () => {
+  assert.equal(parseBranchUpstream('refs/heads/feat\t\t\n', 'feat'), null);
+  assert.equal(parseBranchUpstream('refs/heads/feat\torigin/feat\tgone\n', 'feat'), null);
+  assert.equal(parseBranchUpstream('', 'feat'), null);
 });
 
 test('decideResyncAction: behind + checked out -> ff-merge (advances the working tree too)', () => {

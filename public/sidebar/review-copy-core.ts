@@ -18,11 +18,12 @@ export interface ReviewHeadline {
 }
 
 export function reviewHeadline({
-  status, mergeReason, fetched, hasChanges, hasCommits, canMerge, isWorkspace, live, effectiveBase,
+  status, mergeReason, fetched, hasDiffError, hasChanges, hasCommits, canMerge, isWorkspace, live, effectiveBase,
 }: {
   status: string;
   mergeReason: string | null;
   fetched: boolean;
+  hasDiffError: boolean;
   hasChanges: boolean;
   hasCommits: boolean;
   canMerge: boolean;
@@ -36,6 +37,7 @@ export function reviewHeadline({
   if (status === 'parked') return { text: 'Parked: merge conflict', namesMergeTarget: false };
   if (status === 'merging') return { text: 'Merging', namesMergeTarget: false };
   if (status === 'merged') return { text: 'Merged', namesMergeTarget: false };
+  if (hasDiffError) return { text: 'Could not read changes', namesMergeTarget: false };
   if (!fetched) return { text: 'Checking for changes', namesMergeTarget: false };
   if (!hasChanges) return { text: 'No changes yet', namesMergeTarget: false };
   if (isWorkspace) return { text: 'Changes in this worktree', namesMergeTarget: false };
@@ -128,6 +130,7 @@ export function branchSyncLabel(sync: ReviewBranchSync | null | undefined): stri
   const { state, ahead, behind } = sync;
   const upstream = upstreamLabel(sync.upstream);
   if (state === 'no-upstream') return `${branch}: no upstream`;
+  if (state === 'unknown' && sync.error && sync.action === undefined) return `${branch}: sync check failed: ${sync.error}`;
   if (state === 'unknown') return `${branch}: sync state unknown vs ${upstream}`;
   if (state === 'in-sync') return `${branch}: in sync with ${upstream}`;
   if (state === 'ahead') return `${branch}: ${ahead} ahead of ${upstream}`;
