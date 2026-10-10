@@ -6492,7 +6492,7 @@ html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-r
 .review-map-repo { min-width: 0; border-top: 1px solid var(--border-dim); padding-top: 10px; }
 .review-map-repo-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 8px; align-items: baseline; }
 .review-map-repo-name { color: var(--text-head); font-size: 12px; overflow-wrap: anywhere; }
-.review-map-count, .review-map-summary, .review-map-detail, .review-map-file-meta { color: var(--text-muted); font-size: 11px; line-height: 1.5; }
+.review-map-summary, .review-map-detail, .review-map-file-meta { color: var(--text-muted); font-size: 11px; line-height: 1.5; }
 .review-map-summary { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 3px; }
 .review-map-subsystems { display: flex; flex-wrap: wrap; gap: 5px; margin: 9px 0; }
 .review-map-chip { padding: 2px 5px; border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-size: 11px; }

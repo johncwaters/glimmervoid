@@ -14,7 +14,6 @@ function renderRepo(repo: ChangeMapRepoView, onOpenFile: (path: string) => void)
   const section = el('section', 'review-map-repo');
   const header = el('div', 'review-map-repo-head');
   header.append(el('strong', 'review-map-repo-name', repo.header.name));
-  header.append(el('span', 'review-map-count', repo.header.fileCount === 1 ? '1 file' : `${repo.header.fileCount} files`));
   section.append(header);
   const summary = el('div', 'review-map-summary');
   summary.append(el('span', '', `${repo.header.committedCount} committed`));
