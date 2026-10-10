@@ -118,16 +118,6 @@ export function hasReviewChanges({ fetched, changedFileCount, hasCommits }: {
   return !fetched || changedFileCount > 0 || hasCommits;
 }
 
-export function netEmptyChangesText({ fetched, changedFileCount, hasCommits, hasOtherBodyContent }: {
-  fetched: boolean;
-  changedFileCount: number;
-  hasCommits: boolean;
-  hasOtherBodyContent: boolean;
-}): string | null {
-  if (!fetched || changedFileCount > 0 || !hasCommits || hasOtherBodyContent) return null;
-  return 'No net changes: the commits on this branch cancel out.';
-}
-
 function upstreamLabel(upstream: string | null): string {
   return upstream || 'its upstream';
 }

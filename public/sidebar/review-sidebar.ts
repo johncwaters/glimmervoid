@@ -35,7 +35,6 @@ import {
   hasReviewChanges,
   mergeActionTitle,
   mergeDisabledReason,
-  netEmptyChangesText,
   parkedStatusText,
   reviewHeadline,
   resyncOutcomeText,
@@ -890,18 +889,10 @@ function render() {
       bodyEl.append(el('div', 'review-nochanges review-loading', 'Loading map...'));
       return;
     }
-    const changeMapView = buildChangeMapView(changeMap);
-    const mapNetEmptyText = netEmptyChangesText({
-      fetched, changedFileCount: totals.files, hasCommits,
-      hasOtherBodyContent: changeMapView.repos.length > 0 || !!changeMapView.error,
-    });
-    if (mapNetEmptyText) bodyEl.append(el('div', 'review-nochanges', mapNetEmptyText));
-    bodyEl.append(renderChangeMapView(changeMapView, openFileFromMap));
+    bodyEl.append(renderChangeMapView(buildChangeMapView(changeMap), openFileFromMap));
     return;
   }
 
-  const diffNetEmptyText = netEmptyChangesText({ fetched, changedFileCount: totals.files, hasCommits, hasOtherBodyContent: false });
-  if (diffNetEmptyText) bodyEl.append(el('div', 'review-nochanges', diffNetEmptyText));
   if (committedFiles.length > 0) bodyEl.append(renderSection('committed', 'Committed', committedMergeTargetText(headline, effectiveBase), committedFiles));
   if (uncommittedFiles.length > 0) bodyEl.append(renderSection('uncommitted', 'Uncommitted', null, uncommittedFiles));
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { branchSyncActionTitle, branchSyncClickAction, branchSyncLabel, committedMergeTargetText, decidePrimaryReviewAction, hasReviewChanges, netEmptyChangesText, resyncOutcomeText, reviewHeadline, shouldShowBranchSyncLabel, shouldShowReviewHeaderCounts } from '../public/sidebar/review-copy-core.ts';
+import { branchSyncActionTitle, branchSyncClickAction, branchSyncLabel, committedMergeTargetText, decidePrimaryReviewAction, hasReviewChanges, resyncOutcomeText, reviewHeadline, shouldShowBranchSyncLabel, shouldShowReviewHeaderCounts } from '../public/sidebar/review-copy-core.ts';
 
 const headlineInputs = {
   status: 'pending-review',
@@ -281,20 +281,6 @@ test('review changes count while loading, with changed files, or with commits', 
   assert.equal(hasReviewChanges({ fetched: true, changedFileCount: 0, hasCommits: false }), false);
   assert.equal(hasReviewChanges({ fetched: true, changedFileCount: 2, hasCommits: false }), true);
   assert.equal(hasReviewChanges({ fetched: true, changedFileCount: 0, hasCommits: true }), true);
-});
-
-test('net empty line speaks only for fetched commits whose diff cancels out', () => {
-  const cancelledOut = { fetched: true, changedFileCount: 0, hasCommits: true, hasOtherBodyContent: false };
-  assert.equal(netEmptyChangesText(cancelledOut), 'No net changes: the commits on this branch cancel out.');
-  assert.equal(netEmptyChangesText({ ...cancelledOut, fetched: false }), null);
-  assert.equal(netEmptyChangesText({ ...cancelledOut, fetched: false, hasCommits: false }), null);
-  assert.equal(netEmptyChangesText({ ...cancelledOut, hasCommits: false }), null);
-  assert.equal(netEmptyChangesText({ ...cancelledOut, changedFileCount: 1 }), null);
-  assert.equal(netEmptyChangesText({ ...cancelledOut, changedFileCount: 1, hasCommits: false }), null);
-});
-
-test('net empty line stays silent when the body already shows other content', () => {
-  assert.equal(netEmptyChangesText({ fetched: true, changedFileCount: 0, hasCommits: true, hasOtherBodyContent: true }), null);
 });
 
 test('branch sync labels fall back to Base branch for every state with a missing branch', () => {
