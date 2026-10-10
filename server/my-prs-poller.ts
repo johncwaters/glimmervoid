@@ -6,8 +6,7 @@ import { drainPending, firstLine } from './ephemeral-session.ts';
 import { createTickLoop } from './lane-runner.ts';
 import type { SharedClock } from './lane-runner.ts';
 import type { PrGh } from './pr-gh.ts';
-import { MyPrsState } from '../shared/contracts/my-prs.ts';
-import type { MyPr, MyPrAutoRebase, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrKeepMergeableAttemptRecord, MyPrMergeabilityFixResult, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsState as MyPrsStateType, MyPrsStatus, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrAutoRebase, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrKeepMergeableAttemptRecord, MyPrMergeabilityFixResult, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsStatus, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
 import { errorMessage } from '../shared/text.ts';
 import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../shared/timer-deps.ts';
 
@@ -19,7 +18,7 @@ interface MyPrsPollerDependencies {
   isKeepMergeableEnabled?: boolean;
   isMergeQueueEnabled?: boolean;
   readState?: () => Promise<unknown>;
-  writeState?: (state: MyPrsStateType) => Promise<void>;
+  writeState?: (state: core.MyPrsLaneState) => Promise<void>;
   fixMergeability?: (pr: MyPr, signal: AbortSignal, onPushStarted: (repairSha: string) => Promise<void>, latestListedPr: () => MyPr | undefined) => Promise<MyPrMergeabilityFixResult>;
   beforeStart?: () => Promise<void>;
   github: Pick<PrGh, 'viewer' | 'searchMyPrs' | 'behindCounts' | 'reviewThreadsBatch' | 'rebasePr' | 'rateLimitWaitMs'>;
@@ -44,7 +43,8 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   let previousTruncatedNote: string | null = null;
   let pollingError: string | null = null;
   const autoRebaseByKey = new Map<string, MyPrAutoRebase>();
-  const failedAutoRebaseAttempts = new Set<string>();
+  let failedAutoRebaseAttempts = new Set<string>();
+  const failedAutoRebaseRecordsByAttemptKey = new Map<string, MyPrAutoRebase>();
   const keepMergeableKeys = new Set<string>();
   const keepMergeableAttemptKeys = new Set<string>();
   const keepMergeableAttemptsByKey = new Map<string, MyPrKeepMergeableAttemptRecord>();
@@ -61,7 +61,11 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   async function loadState(): Promise<void> {
     if (stateLoad) return stateLoad;
     stateLoad = (async () => {
-      const state = MyPrsState.parse(await dependencies.readState?.() ?? { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [] });
+      const state = core.MyPrsLaneState.parse(await dependencies.readState?.() ?? { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [] });
+      for (const key of state.failedAutoRebaseAttemptKeys ?? []) failedAutoRebaseAttempts.add(key);
+      for (const { attemptKey, autoRebase } of state.failedAutoRebaseRecords ?? []) {
+        if (failedAutoRebaseAttempts.has(attemptKey)) failedAutoRebaseRecordsByAttemptKey.set(attemptKey, autoRebase);
+      }
       for (const key of state.keepMergeableKeys) keepMergeableKeys.add(key);
       for (const key of state.keepMergeableAttemptKeys) keepMergeableAttemptKeys.add(key);
       for (const key of state.keepMergeablePushedHeadKeys) keepMergeablePushedHeadKeys.add(key);
@@ -79,7 +83,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   }
 
   async function writeCurrentState(): Promise<void> {
-    await dependencies.writeState?.(MyPrsState.parse({ keepMergeableKeys: [...keepMergeableKeys], keepMergeableAttemptKeys: [...keepMergeableAttemptKeys], mergeQueueKeys, keepMergeablePushedHeadKeys: [...keepMergeablePushedHeadKeys], keepMergeableAttempts: [...keepMergeableAttemptsByKey.values()] }));
+    await dependencies.writeState?.(core.MyPrsLaneState.parse({ keepMergeableKeys: [...keepMergeableKeys], keepMergeableAttemptKeys: [...keepMergeableAttemptKeys], mergeQueueKeys, keepMergeablePushedHeadKeys: [...keepMergeablePushedHeadKeys], keepMergeableAttempts: [...keepMergeableAttemptsByKey.values()], ...(failedAutoRebaseAttempts.size > 0 ? { failedAutoRebaseAttemptKeys: [...failedAutoRebaseAttempts] } : {}), ...(failedAutoRebaseRecordsByAttemptKey.size > 0 ? { failedAutoRebaseRecords: [...failedAutoRebaseRecordsByAttemptKey].map(([attemptKey, autoRebase]) => ({ attemptKey, autoRebase })) } : {}) }));
   }
 
   const loop = createTickLoop({
@@ -127,19 +131,30 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     const threadsByPr = threadedPrs.length > 0 ? await github.reviewThreadsBatch(threadedPrs) : new Map<string, MyPrThreadNode[]>();
     if (loop.isStopped()) return { failed: false };
     const prs: MyPr[] = [];
+    failedAutoRebaseAttempts = core.prunedFailedAutoRebaseAttempts(failedAutoRebaseAttempts, search.items);
+    for (const attemptKey of [...failedAutoRebaseRecordsByAttemptKey.keys()]) {
+      if (!failedAutoRebaseAttempts.has(attemptKey)) failedAutoRebaseRecordsByAttemptKey.delete(attemptKey);
+    }
     const rebasedThisTickKeys = new Set<string>();
     for (const node of search.items) {
       const key = `${node.repository.nameWithOwner}#${node.number}`;
       const behindBy = node.state === 'OPEN' ? behindCounts.get(key) ?? null : null;
       const isFailedRecordForAnotherHead = autoRebaseByKey.get(key)?.outcome === 'failed' && !failedAutoRebaseAttempts.has(core.autoRebaseAttemptKey(node));
       if (isFailedRecordForAnotherHead) autoRebaseByKey.delete(key);
+      const failureFromBeforeRestart = failedAutoRebaseRecordsByAttemptKey.get(core.autoRebaseAttemptKey(node));
+      if (failureFromBeforeRestart && !autoRebaseByKey.has(key)) autoRebaseByKey.set(key, failureFromBeforeRestart);
       if (core.shouldRebaseMyPr(node, behindBy, failedAutoRebaseAttempts, { isAutoRebaseOn: shouldAutoRebase, mergeQueueKeys: new Set(isMergeQueueEnabled ? mergeQueueKeys : []), keepMergeablePushedHeadKeys })) {
         const rebase = await github.rebasePr(node.id, node.headRefOid);
+        const rebaseRecord = core.autoRebaseRecord(rebase, node.baseRefName, now());
+        if (!rebase.ok) {
+          failedAutoRebaseAttempts.add(core.autoRebaseAttemptKey(node));
+          failedAutoRebaseRecordsByAttemptKey.set(core.autoRebaseAttemptKey(node), rebaseRecord);
+          await loop.persist();
+        }
         if (loop.isStopped()) return { failed: false };
         if (rebase.ok) rebasedThisTickKeys.add(key);
-        if (!rebase.ok) failedAutoRebaseAttempts.add(core.autoRebaseAttemptKey(node));
         if (!rebase.ok) log?.warn(`[${core.MY_PRS_LANE_ID}] auto-rebase of ${key} failed: ${rebase.err.trim()}`);
-        autoRebaseByKey.set(key, core.autoRebaseRecord(rebase, node.baseRefName, now()));
+        autoRebaseByKey.set(key, rebaseRecord);
       }
       const threadNodes = threadsByPr.get(key) ?? [];
       prs.push(core.withAutoRebase(core.toMyPr(node, behindBy, threadNodes), autoRebaseByKey.get(key)));

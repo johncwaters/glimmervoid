@@ -23,9 +23,10 @@ export function createWorkflowSessionQueue({ spawnSession, log = console, maxCon
   const pendingSessions = new Set<Promise<void>>();
   const deferredSpawnsByKey = new Map<string, SpawnPlannedAction>();
   const shutdownController = new AbortController();
+  let activeSessionsController = new AbortController();
 
   function launchSession(planned: SpawnPlannedAction): void {
-    const pending = spawnSession(planned, shutdownController.signal)
+    const pending = spawnSession(planned, AbortSignal.any([shutdownController.signal, activeSessionsController.signal]))
       .catch((error: unknown) => log.warn(`[${core.WORKFLOWS_LANE_ID}] ${planned.rule.id} session failed: ${firstLine(errorMessage(error))}`))
       .finally(() => {
         pendingSessions.delete(pending);
@@ -70,11 +71,18 @@ export function createWorkflowSessionQueue({ spawnSession, log = console, maxCon
     await Promise.allSettled([...pendingSessions]);
   }
 
-  return { enqueue, stop };
+  function cancelSessions(): void {
+    deferredSpawnsByKey.clear();
+    activeSessionsController.abort();
+    activeSessionsController = new AbortController();
+  }
+
+  return { enqueue, stop, cancelSessions };
 }
 
 interface WorkflowsPollerDependencies {
   rules: readonly WorkflowRule[];
+  areActionsEnabled?: () => boolean;
   teamName: string | null;
   maxActionsPerPoll?: number;
   github: Pick<PrGh, 'viewer' | 'searchRepoPrs' | 'addPrLabel' | 'commentOnPr' | 'rateLimitWaitMs'>;
@@ -161,7 +169,7 @@ export function createWorkflowsPoller(dependencies: WorkflowsPollerDependencies)
 
   async function runTick() {
     await loadState();
-    if (loop.isStopped()) return { failed: false };
+    if (loop.isStopped() || dependencies.areActionsEnabled?.() === false) return { failed: false };
     if (!await lookUpViewer()) {
       pollingError = 'Could not look up your GitHub account.';
       return failedOutcome(pollingError);
@@ -190,6 +198,7 @@ export function createWorkflowsPoller(dependencies: WorkflowsPollerDependencies)
     if (refusedSpawnCount > 0) log.warn(`[${core.WORKFLOWS_LANE_ID}] ${refusedSpawnCount} spawn actions on pull requests from forks were refused because their rule does not restrict authors or set mine`);
     let reposToSave = nextRepos;
     for (const plannedAction of planned) {
+      if (dependencies.areActionsEnabled?.() === false) break;
       const hasPostedOwnComment = await runActionAndReportOwnComment(plannedAction);
       if (hasPostedOwnComment) reposToSave = core.withOwnPostedComment(reposToSave, plannedAction.event.pr);
     }

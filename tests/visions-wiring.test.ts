@@ -848,6 +848,29 @@ test('the hourly budget is machine-wide: a second document is gated once it is s
   assert.ok(notes.some((line) => line.includes('hour-cap')));
 });
 
+test('a rebuilt Visions lane retains its shared dispatch budget until the rolling hour expires', async (t) => {
+  const dispatchHistory: NonNullable<VisionsWiringOptions['dispatchHistory']> = [];
+  let timestamp = FIXED_TS;
+  const first = dispatchingConnection({ dispatchHistory, nowFn: () => timestamp, dispatch: { maxPerHour: 1 } });
+  t.after(() => first.wiring.stop());
+  openEdited(first.lsp, MARKDOWN_URI, REPEATED_WORD_MARKDOWN);
+  runSweepThenDispatch(first.timers);
+  await first.wiring.whenDispatchSettled();
+  assert.equal(first.calls.length, 1);
+  await first.wiring.stop();
+  const rebuilt = dispatchingConnection({ dispatchHistory, nowFn: () => timestamp, dispatch: { maxPerHour: 1 } });
+  t.after(() => rebuilt.wiring.stop());
+  openEdited(rebuilt.lsp, MARKDOWN_URI, REPEATED_WORD_MARKDOWN);
+  runSweepThenDispatch(rebuilt.timers);
+  await rebuilt.wiring.whenDispatchSettled();
+  assert.equal(rebuilt.calls.length, 0);
+  assert.ok(rebuilt.notes.some((line) => line.includes('hour-cap')));
+  timestamp += 60 * 60 * 1000;
+  rebuilt.lsp('textDocument/didSave', { textDocument: { uri: MARKDOWN_URI } });
+  await rebuilt.wiring.whenDispatchSettled();
+  assert.equal(rebuilt.calls.length, 1);
+});
+
 test('an oversized prompt spawns nothing and spends neither cooldown nor hourly budget', async (t) => {
   const { wiring, timers, calls, notes, lsp } = dispatchingConnection({
     dispatch: { cooldownMs: 300000, maxPerHour: 1 },

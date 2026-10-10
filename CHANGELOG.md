@@ -89,6 +89,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Settings: knowledge-graph-enabled**: Clarify that Coherence ledgers stay unchanged while --db controls where graph writes occur.
 - **Settings: workflows-max-concurrent-sessions**: Disclose the twenty-entry deferred spawn queue and logged overflow drops.
 - **Settings: rtk-compression**: Show unsupported-platform installation refusal and conditional retries after the ten-minute failure cooldown.
+- **Workflows stop switch**: turning workflows off aborts running workflow sessions, clears queued spawns, and stops remaining actions in the current poll. Actions that already ran are recorded, so they are not repeated and the stopped ones are not run later.
+- **PostHog investigation slots**: issues deferred while investigation slots are full remain eligible when a slot becomes available.
+- **PostHog investigation minimum**: an issue first seen below the configured minimum is investigated once its affected count reaches it. Issues recorded before this release are left as they were.
+- **Visions model comments**: enabling Visions leaves model dispatch off unless explicitly enabled.
+- **Visions project selection**: selecting a later project sharing a repository path now accepts that project's buffers.
+- **Visions project reloads**: adding, removing, or relocating a project Visions watches refreshes the live buffer scope. Changes to other projects leave open editor connections alone.
+- **Visions hourly budget**: reloading Visions or ingest settings preserves the rolling dispatch budget.
+- **PostHog host default**: monitoring uses the displayed US cloud host when no host is saved.
+- **Team review rebase suppression**: failed auto-rebases remain suppressed across restarts until the pull request head changes, and the failure note stays on the pull request for as long.
 - **Git never waits on a password prompt**: every git command Glimmervoid runs in the background, such as repo refreshes, update checks, pull request lookups and change history, now fails right away when a remote asks for credentials, instead of some of them sitting on a prompt nobody can see until they time out.
 - **One loading screen at startup**: opening the dashboard no longer shows the startup loading screen and then a second Connecting screen on each terminal. The loading screen now stays up until your sessions and their terminals are connected, for at most 2.5 seconds, so the dashboard appears ready in one step.
 - **Command output no longer cut off in a pipe**: `glimmervoid` subcommands such as `pair`, `visions` and `agent` could stop after 64 KiB when their output went into a pipe, while still reporting success. They now finish writing before exiting.

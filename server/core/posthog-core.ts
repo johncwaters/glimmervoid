@@ -1,12 +1,19 @@
 import { isWorkflowPath } from './git-changed-paths-core.ts';
 
 const DEFAULT_INTERVAL_MINUTES = 15;
+export const DEFAULT_POSTHOG_HOST = 'https://us.posthog.com';
+
+export function resolvePosthogHost(host: string | null | undefined): string {
+  return host || DEFAULT_POSTHOG_HOST;
+}
 const DEFAULT_USER_ESCALATION_THRESHOLD = 25;
 const DEFAULT_MIN_USERS_TO_INVESTIGATE = 1;
 const DEFAULT_ENTRY_RETENTION_DAYS = 7;
 const ISSUE_HISTORY_CAP = 24;
 const MAX_PING_TITLE_CHARS = 200;
 const MAX_SUMMARY_LINE_CHARS = 160;
+const INVESTIGATION_CHANGES = new Set(['new', 'spiking', 'regressed', 'worsened']);
+const CHANGES_A_SPIKE_CAN_HIDE = new Set(['new', 'regressed']);
 
 export interface PosthogIssue {
   issueId?: string;
@@ -44,6 +51,7 @@ export interface PosthogStateEntry {
   fix: PosthogFixRecord | null;
   history: PosthogHistoryPoint[];
   vanishedAt?: number;
+  pendingInvestigationChange?: string;
 }
 
 export interface PosthogVerdictInfo {
@@ -55,6 +63,7 @@ export interface PosthogVerdictInfo {
   summaryLine?: string | null;
   at?: number | null;
   fix?: { at?: number | null; verdict?: unknown; reproduced?: unknown; prUrl?: unknown; [key: string]: unknown } | null;
+  pendingInvestigationChange?: string | null;
 }
 
 export interface PosthogIssueChange {
@@ -192,6 +201,65 @@ function classifyIssueChange(
     if (before < threshold && now >= threshold) return 'worsened';
   }
   return 'quiet';
+}
+
+function heldInvestigationChange(
+  entry: Partial<PosthogStateEntry> | null | undefined,
+  current: PosthogIssue,
+  opts: { userEscalationThreshold?: number } = {},
+): string | undefined {
+  const deferredChange = entry?.pendingInvestigationChange;
+  if (!deferredChange || !INVESTIGATION_CHANGES.has(deferredChange)) return undefined;
+  if (entry?.inFlight || !isActive(current.status)) return undefined;
+  if (deferredChange === 'spiking') return undefined;
+  const threshold = opts.userEscalationThreshold ?? DEFAULT_USER_ESCALATION_THRESHOLD;
+  if (deferredChange === 'worsened' && toCount(current.users, 0) < threshold) return undefined;
+  return deferredChange;
+}
+
+function investigationTrigger(
+  entry: Partial<PosthogStateEntry> | null | undefined,
+  reportedChange: string,
+  current: PosthogIssue,
+  opts: { userEscalationThreshold?: number } = {},
+): string {
+  const heldChange = heldInvestigationChange(entry, current, opts);
+  const isSpikeOnDiagnosedIssue = reportedChange === 'spiking' && Boolean(entry?.verdict);
+  if (isSpikeOnDiagnosedIssue && heldChange && CHANGES_A_SPIKE_CAN_HIDE.has(heldChange)) return heldChange;
+  if (INVESTIGATION_CHANGES.has(reportedChange)) return reportedChange;
+  return heldChange ?? reportedChange;
+}
+
+function underlyingInvestigationChange(
+  entryBeforePoll: Partial<PosthogStateEntry> | null | undefined,
+  current: PosthogIssue,
+  opts: { userEscalationThreshold?: number } = {},
+): string | null {
+  const changeWithoutSpike = classifyIssueChange(entryBeforePoll, current, null, opts);
+  return CHANGES_A_SPIKE_CAN_HIDE.has(changeWithoutSpike) ? changeWithoutSpike : null;
+}
+
+function slotDeferredInvestigationChange(
+  entry: Partial<PosthogStateEntry> | null | undefined,
+  trigger: string,
+  current: PosthogIssue,
+  opts: { userEscalationThreshold?: number; underlyingChange?: string | null } = {},
+): string {
+  const heldChange = heldInvestigationChange(entry, current, opts);
+  if (heldChange) return heldChange;
+  if (trigger === 'spiking' && opts.underlyingChange) return opts.underlyingChange;
+  return trigger;
+}
+
+function belowMinimumInvestigationChange(
+  trigger: string,
+  current: PosthogIssue,
+  opts: { minUsersToInvestigate?: number } = {},
+): string | null {
+  const minUsers = opts.minUsersToInvestigate ?? DEFAULT_MIN_USERS_TO_INVESTIGATE;
+  if (trigger !== 'new' || !isActive(current.status)) return null;
+  if (toCount(current.users, 0) >= minUsers) return null;
+  return 'new';
 }
 
 function planInvestigations<T extends PosthogIssueChange>(
@@ -336,6 +404,8 @@ function nextState(
     fix: normalizeFixRecord(prev.fix),
     history,
   };
+  const pendingChange = info.pendingInvestigationChange === undefined ? prev.pendingInvestigationChange : info.pendingInvestigationChange;
+  if (!entry.inFlight && !info.verdict && isActive(entry.status) && pendingChange && INVESTIGATION_CHANGES.has(pendingChange)) entry.pendingInvestigationChange = pendingChange;
   if (!info.verdict) return entry;
   entry.verdict = info.verdict;
   entry.summaryLine = info.summaryLine ?? null;
@@ -631,6 +701,10 @@ export {
   issueKey,
   issueUrl,
   classifyIssueChange,
+  investigationTrigger,
+  slotDeferredInvestigationChange,
+  underlyingInvestigationChange,
+  belowMinimumInvestigationChange,
   planInvestigations,
   isMajorIssue,
   decideJobMode,

@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { visionsLaneReloadSignature } from '../server/core/visions-scope-core.ts';
 import assert from 'node:assert/strict';
 
 import {
@@ -15,6 +16,49 @@ test('pathOfFileUri normalizes plain and percent-encoded file uris', () => {
   assert.equal(pathOfFileUri('file:///home/me/project/README.md'), '/home/me/project/README.md');
   assert.equal(pathOfFileUri('file:///home/me/project/My%20Plan.md'), '/home/me/project/My Plan.md');
   assert.equal(pathOfFileUri('file:///home/me/project/a/../b/./c.md'), '/home/me/project/b/c.md');
+});
+
+test('selecting the later of two projects sharing a path preserves its scope and ownership without a warning', () => {
+  const warnings: string[] = [];
+  const scope = resolveVisionsScopeProjects({
+    configuredIds: ['second'], projects: [{ id: 'first', path: '/repo' }, { id: 'second', path: '/repo/' }],
+    warn: (message) => { warnings.push(message); },
+  });
+  assert.deepEqual(scope, [{ id: 'second', path: '/repo' }]);
+  assert.equal(isUriInProjects('file:///repo/plan.md', scopePathsOf(scope)), true);
+  assert.equal(projectForUri('file:///repo/plan.md', scope), 'second');
+  assert.deepEqual(warnings, []);
+});
+
+test('the lane signature follows every project while Visions is on with no selection, and ignores display names', () => {
+  const visions = { enabled: true, projects: null };
+  const projects = [{ id: 'first', path: '/repo', name: 'First' }];
+  const signature = visionsLaneReloadSignature({}, visions, projects);
+  assert.notEqual(visionsLaneReloadSignature({}, visions, [...projects, { id: 'second', path: '/second' }]), signature);
+  assert.notEqual(visionsLaneReloadSignature({}, visions, []), signature);
+  assert.notEqual(visionsLaneReloadSignature({}, visions, [{ id: 'renamed', path: '/repo' }]), signature);
+  assert.notEqual(visionsLaneReloadSignature({}, visions, [{ id: 'first', path: '/relocated' }]), signature);
+  assert.equal(visionsLaneReloadSignature({}, visions, [{ ...projects[0], name: 'New name' }]), signature);
+});
+
+test('the lane signature ignores projects outside the Visions selection and changes when a selected one moves or goes', () => {
+  const visions = { enabled: true, projects: ['selected'] };
+  const selected = { id: 'selected', path: '/repo' };
+  const unrelated = { id: 'unrelated', path: '/elsewhere' };
+  const signature = visionsLaneReloadSignature({}, visions, [selected, unrelated]);
+  assert.equal(visionsLaneReloadSignature({}, visions, [selected]), signature);
+  assert.equal(visionsLaneReloadSignature({}, visions, [selected, unrelated, { id: 'added', path: '/added' }]), signature);
+  assert.equal(visionsLaneReloadSignature({}, visions, [selected, { ...unrelated, path: '/moved' }]), signature);
+  assert.notEqual(visionsLaneReloadSignature({}, visions, [{ ...selected, path: '/relocated' }, unrelated]), signature);
+  assert.notEqual(visionsLaneReloadSignature({}, visions, [unrelated]), signature);
+});
+
+test('the lane signature ignores every project change while Visions is off', () => {
+  const visions = { enabled: false, projects: null };
+  const signature = visionsLaneReloadSignature({ enabled: true }, visions, [{ id: 'first', path: '/repo' }]);
+  assert.equal(visionsLaneReloadSignature({ enabled: true }, visions, []), signature);
+  assert.equal(visionsLaneReloadSignature({ enabled: true }, visions, [{ id: 'first', path: '/relocated' }, { id: 'second', path: '/second' }]), signature);
+  assert.notEqual(visionsLaneReloadSignature({ enabled: false }, visions, []), signature);
 });
 
 test('pathOfFileUri folds Windows drive-letter file uri spellings to one shape', () => {

@@ -35,7 +35,7 @@ import {
   resolveDispatchConfig,
   sanitizeModelDiagnostics,
 } from './core/visions-dispatch-core.ts';
-import type { DispatchTrigger, LineDiagnostic, VisionsComment } from './core/visions-dispatch-core.ts';
+import type { DispatchState, DispatchTrigger, LineDiagnostic, VisionsComment } from './core/visions-dispatch-core.ts';
 import {
   DEFAULT_FIX_LOG_MAX,
   appendFixLog,
@@ -137,6 +137,7 @@ interface VisionsWiringOptions {
   logger?: LaneLogger;
   broadcast?: ControlBroadcast | null;
   dispatchConfig?: unknown;
+  dispatchHistory?: DispatchState['dispatchTimes'];
   dispatch?: ((options: {
     uri: string;
     text: string;
@@ -261,6 +262,7 @@ function createVisionsWiring({
   logger = console,
   broadcast = null,
   dispatchConfig = null,
+  dispatchHistory = [],
   dispatch = null,
   contextDigest = null,
   contextSeq = null,
@@ -304,7 +306,7 @@ function createVisionsWiring({
     : null;
   const dispatchSettings = resolveDispatchConfig(dispatchConfig);
   const dispatchEnabled = dispatchSettings.enabled === true && typeof dispatch === 'function';
-  const dispatchState = createDispatchState();
+  const dispatchState = createDispatchState(dispatchHistory);
   const lastGateByUri = new Map<string, string>();
   let dispatchInFlight = false;
 

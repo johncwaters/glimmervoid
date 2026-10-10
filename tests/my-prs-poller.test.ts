@@ -1,4 +1,8 @@
 import test from 'node:test';
+import { createMyPrsStateIo } from '../server/my-prs-wiring.ts';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import { createMyPrsPoller } from '../server/my-prs-poller.ts';
 import { MyPrsState as MyPrsStateSchema } from '../shared/contracts/my-prs.ts';
@@ -679,6 +683,88 @@ test('a failed auto-rebase is reported and not retried at the same head', async 
     { outcome: 'failed', at: NOW, message: 'gh: Protected branch update failed' },
   ]);
   await poller.stop();
+});
+
+test('failed auto-rebase suppression survives a poller and state-store restart and releases on a new head', async () => {
+  const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-rebase-restart-'));
+  const statePath = path.join(homeDir, 'my-prs-state.json');
+  const rebases: string[] = [];
+  let currentHead = 'a'.repeat(40);
+  const makePoller = () => createMyPrsPoller({
+    org: 'Acme', shouldAutoRebase: true, now: () => NOW, onTickComplete: () => {}, log: { warn() {} },
+    ...createMyPrsStateIo(statePath, { warn() {} }),
+    github: {
+      viewer: async () => 'alice',
+      searchMyPrs: async () => ({ ok: true, items: [{ ...node('OPEN'), headRefOid: currentHead }], totalCount: 1, error: '' }),
+      behindCounts: async () => new Map([['Acme/app#1', 4]]),
+      reviewThreadsBatch: async () => new Map(),
+      rebasePr: async (_pullRequestId, head) => { rebases.push(head); return { ok: false, err: 'Rebase refused' }; },
+      rateLimitWaitMs: async () => null,
+    },
+  });
+  const first = makePoller();
+  let restarted: ReturnType<typeof makePoller> | null = null;
+  try {
+    await first.tick();
+    await first.stop();
+    assert.deepEqual(JSON.parse(await fs.readFile(statePath, 'utf8')).failedAutoRebaseAttemptKeys, [`Acme/app#1@${currentHead}`]);
+    restarted = makePoller();
+    await restarted.tick();
+    assert.deepEqual(rebases, ['a'.repeat(40)]);
+    currentHead = 'b'.repeat(40);
+    await restarted.tick();
+    assert.deepEqual(rebases, ['a'.repeat(40), 'b'.repeat(40)]);
+    assert.deepEqual(JSON.parse(await fs.readFile(statePath, 'utf8')).failedAutoRebaseAttemptKeys, [`Acme/app#1@${currentHead}`]);
+  } finally {
+    await first.stop();
+    await restarted?.stop();
+    await fs.rm(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('a failed auto-rebase note is shown again after a restart while the suppression holds, and a new head clears both', async () => {
+  const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-rebase-note-restart-'));
+  const statePath = path.join(homeDir, 'my-prs-state.json');
+  const rebases: string[] = [];
+  const statuses: MyPrsStatus[] = [];
+  let currentHead = 'a'.repeat(40);
+  let commitsBehind = 4;
+  const makePoller = () => createMyPrsPoller({
+    org: 'Acme', shouldAutoRebase: true, now: () => NOW, onTickComplete: (status) => { if (!status.isRefreshing) statuses.push(status); }, log: { warn() {} },
+    ...createMyPrsStateIo(statePath, { warn() {} }),
+    github: {
+      viewer: async () => 'alice',
+      searchMyPrs: async () => ({ ok: true, items: [{ ...node('OPEN'), headRefOid: currentHead }], totalCount: 1, error: '' }),
+      behindCounts: async () => new Map([['Acme/app#1', commitsBehind]]),
+      reviewThreadsBatch: async () => new Map(),
+      rebasePr: async (_pullRequestId, head) => { rebases.push(head); return { ok: false, err: 'Rebase refused' }; },
+      rateLimitWaitMs: async () => null,
+    },
+  });
+  const failureNote = { outcome: 'failed', at: NOW, message: 'Rebase refused' };
+  const first = makePoller();
+  let restarted: ReturnType<typeof makePoller> | null = null;
+  try {
+    await first.tick();
+    await first.stop();
+    assert.deepEqual(JSON.parse(await fs.readFile(statePath, 'utf8')).failedAutoRebaseRecords, [{ attemptKey: `Acme/app#1@${currentHead}`, autoRebase: failureNote }]);
+    restarted = makePoller();
+    await restarted.tick();
+    assert.deepEqual(rebases, ['a'.repeat(40)]);
+    assert.deepEqual(statuses.at(-1)?.prs[0]?.autoRebase, failureNote);
+    currentHead = 'b'.repeat(40);
+    commitsBehind = 0;
+    await restarted.tick();
+    assert.deepEqual(rebases, ['a'.repeat(40)]);
+    assert.equal(statuses.at(-1)?.prs[0]?.autoRebase, undefined);
+    const stateAfterNewHead = JSON.parse(await fs.readFile(statePath, 'utf8'));
+    assert.equal(stateAfterNewHead.failedAutoRebaseAttemptKeys, undefined);
+    assert.equal(stateAfterNewHead.failedAutoRebaseRecords, undefined);
+  } finally {
+    await first.stop();
+    await restarted?.stop();
+    await fs.rm(homeDir, { recursive: true, force: true });
+  }
 });
 
 test('a failed auto-rebase record is dropped once a new head no longer needs a rebase', async () => {

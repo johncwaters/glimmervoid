@@ -51,6 +51,10 @@ export function workflowSessionLimit(resolution: WorkflowsSettingsResolution): n
   return resolution.ok ? resolution.maxConcurrentSessions : DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS;
 }
 
+export function areWorkflowActionsEnabled(resolution: WorkflowsSettingsResolution): boolean {
+  return resolution.ok && resolution.enabled;
+}
+
 
 export function mergeWorkflowsUpdateOverStored(stored: unknown, update: WorkflowsSettingsUpdate): { ok: true; workflows: Record<string, unknown> } | { ok: false; error: string } {
   const storedBlock = isRecord(stored) ? stored : {};

@@ -30,6 +30,7 @@ interface StateEntry {
   vanishedAt?: number;
   recurrenceOf?: string | null;
   fix?: Record<string, unknown>;
+  pendingInvestigationChange?: string;
 }
 
 interface TickProject {
@@ -158,6 +159,277 @@ const KEY = 'ph.test/1#iss-1';
 const flush = async (n = 20) => {
   for (let i = 0; i < n; i += 1) await new Promise((resolve) => setImmediate(resolve));
 };
+
+test('an issue deferred by a full slot starts on the next poll after the slot frees, once only', async () => {
+  const calls: string[] = [];
+  let finishFirst: (verdict: JobResult) => void = () => { throw new Error('The first investigation has not started'); };
+  const lane = harness({
+    maxConcurrentInvestigations: 1,
+    api: { queryIssues: async () => apiOk({ results: [issueRow(), issueRow({ id: 'iss-2', name: 'RangeError: different failure' })] }) },
+    spawnInvestigation: ({ issue }) => {
+      calls.push(String(issue.issueId));
+      if (issue.issueId === 'iss-1') return new Promise((resolve) => { finishFirst = resolve; });
+      return Promise.resolve({ verdict: 'ROOT_CAUSE' });
+    },
+  });
+  try {
+    await lane.poller.start();
+    await flush();
+    assert.deepEqual(calls, ['iss-1']);
+    await lane.poller.tick();
+    assert.deepEqual(calls, ['iss-1']);
+    finishFirst({ verdict: 'ROOT_CAUSE' });
+    await flush();
+    await lane.poller.tick();
+    await flush();
+    assert.deepEqual(calls, ['iss-1', 'iss-2']);
+    await lane.poller.tick();
+    await flush();
+    assert.deepEqual(calls, ['iss-1', 'iss-2']);
+    assert.equal(lane.pings.filter((ping) => ping.includes('NEW ISSUE')).length, 2);
+  } finally {
+    finishFirst({ verdict: 'ROOT_CAUSE' });
+    await lane.poller.stop();
+  }
+});
+
+test('an issue first seen below the minimum is investigated when its affected count reaches the minimum', async () => {
+  let affectedUsers = 1;
+  const calls: string[] = [];
+  const lane = harness({
+    minUsersToInvestigate: 5,
+    api: { queryIssues: async () => apiOk({ results: [issueRow({ aggregations: { occurrences: 120, users: affectedUsers } })] }) },
+    spawnInvestigation: async ({ issue }) => { calls.push(String(issue.issueId)); return { verdict: 'ROOT_CAUSE' }; },
+  });
+  try {
+    await lane.poller.start();
+    await flush();
+    await lane.poller.tick();
+    assert.deepEqual(calls, []);
+    affectedUsers = 5;
+    await lane.poller.tick();
+    await flush();
+    assert.deepEqual(calls, ['iss-1']);
+    await lane.poller.tick();
+    await flush();
+    assert.deepEqual(calls, ['iss-1']);
+    assert.equal(lane.pings.filter((ping) => ping.includes('NEW ISSUE')).length, 1);
+  } finally {
+    await lane.poller.stop();
+  }
+});
+
+test('a deferred regression keeps its trigger across restart and produces no duplicate notification or investigation', async () => {
+  const calls: string[] = [];
+  let finishFirst: (verdict: JobResult) => void = () => { throw new Error('The first investigation has not started'); };
+  const lane = harness({
+    maxConcurrentInvestigations: 1,
+    initialState: { [KEY]: { status: 'resolved', verdict: 'ROOT_CAUSE', investigatedUsers: 8 } },
+    api: { queryIssues: async () => apiOk({ results: [issueRow({ id: 'busy', name: 'A separate problem' }), issueRow()] }) },
+    spawnInvestigation: ({ issue }) => {
+      calls.push(String(issue.issueId));
+      if (issue.issueId === 'busy') return new Promise((resolve) => { finishFirst = resolve; });
+      return Promise.resolve({ verdict: 'ROOT_CAUSE' });
+    },
+  });
+  let restarted: Poller | null = null;
+  try {
+    await lane.poller.start();
+    await flush();
+    await lane.poller.tick();
+    assert.deepEqual(calls, ['busy']);
+    assert.equal(lane.pings.filter((ping) => ping.includes('REGRESSED')).length, 1);
+    finishFirst({ verdict: 'ROOT_CAUSE' });
+    await flush();
+    await lane.poller.stop();
+    restarted = createPosthogPoller(lane.deps);
+    await restarted.start();
+    await flush();
+    assert.deepEqual(calls, ['busy', 'iss-1']);
+    assert.equal(lane.pings.filter((ping) => ping.includes('REGRESSED')).length, 1);
+    await restarted.tick();
+    await flush();
+    assert.deepEqual(calls, ['busy', 'iss-1']);
+  } finally {
+    finishFirst({ verdict: 'ROOT_CAUSE' });
+    await lane.poller.stop();
+    await restarted?.stop();
+  }
+});
+
+test('an issue held below the minimum is reported new once and quiet on every later poll while it stays eligible', async () => {
+  const calls: string[] = [];
+  const lane = harness({
+    minUsersToInvestigate: 5,
+    api: { queryIssues: async () => apiOk({ results: [issueRow({ aggregations: { occurrences: 120, users: 1 } })] }) },
+    spawnInvestigation: async ({ issue }) => { calls.push(String(issue.issueId)); return { verdict: 'ROOT_CAUSE' }; },
+  });
+  try {
+    await lane.poller.start();
+    await flush();
+    assert.equal(tickIssue(lane.summaries).change, 'new');
+    await lane.poller.tick();
+    assert.equal(tickIssue(lane.summaries).change, 'quiet');
+    await lane.poller.tick();
+    assert.equal(tickIssue(lane.summaries).change, 'quiet');
+    assert.equal(entryOf(lane.poller, KEY).pendingInvestigationChange, 'new');
+    assert.deepEqual(calls, []);
+  } finally {
+    await lane.poller.stop();
+  }
+});
+
+test('entries an older state file left without a verdict are neither investigated nor reported new after an upgrade', async () => {
+  const calls: string[] = [];
+  const lane = harness({
+    initialState: {
+      [KEY]: { status: 'active', verdict: null, lastUsers: 8, pingedPhases: ['new_issue'] },
+      'ph.test/1#iss-2': { status: 'active', verdict: null, lastUsers: 8, pingedPhases: ['new_issue'] },
+    },
+    api: { queryIssues: async () => apiOk({ results: [issueRow(), issueRow({ id: 'iss-2', name: 'RangeError: different failure' })] }) },
+    spawnInvestigation: async ({ issue }) => { calls.push(String(issue.issueId)); return { verdict: 'ROOT_CAUSE' }; },
+  });
+  try {
+    await lane.poller.start();
+    await flush();
+    await lane.poller.tick();
+    await flush();
+    assert.deepEqual(calls, []);
+    assert.deepEqual([tickIssue(lane.summaries, 0).change, tickIssue(lane.summaries, 1).change], ['quiet', 'quiet']);
+    assert.equal(entryOf(lane.poller, KEY).pendingInvestigationChange, undefined);
+    assert.deepEqual(lane.pings, []);
+  } finally {
+    await lane.poller.stop();
+  }
+});
+
+test('a spike deferred by a full slot is dropped once the issue stops spiking, so a freed slot does not investigate it', async () => {
+  const calls: string[] = [];
+  let isSpiking = true;
+  let affectedUsers = 30;
+  let finishFirst: (verdict: JobResult) => void = () => { throw new Error('The first investigation has not started'); };
+  const lane = harness({
+    maxConcurrentInvestigations: 1,
+    initialState: { [KEY]: { status: 'active', verdict: 'ROOT_CAUSE', investigatedUsers: 8 } },
+    api: {
+      queryIssues: async () => apiOk({ results: [issueRow({ id: 'busy', name: 'A separate problem' }), issueRow({ aggregations: { occurrences: 120, users: affectedUsers } })] }),
+      listSpikeEvents: async () => apiOk({ results: isSpiking ? [{ issue_id: 'iss-1', timestamp: '2099-01-01T00:00:00Z' }] : [] }),
+    },
+    spawnInvestigation: ({ issue }) => {
+      calls.push(String(issue.issueId));
+      if (issue.issueId === 'busy') return new Promise((resolve) => { finishFirst = resolve; });
+      return Promise.resolve({ verdict: 'ROOT_CAUSE' });
+    },
+  });
+  try {
+    await lane.poller.start();
+    await flush();
+    assert.deepEqual(calls, ['busy']);
+    assert.equal(entryOf(lane.poller, KEY).pendingInvestigationChange, 'spiking');
+    isSpiking = false;
+    affectedUsers = 8;
+    await lane.poller.tick();
+    assert.equal(entryOf(lane.poller, KEY).pendingInvestigationChange, undefined);
+    assert.equal(tickIssue(lane.summaries, 1).change, 'quiet');
+    finishFirst({ verdict: 'ROOT_CAUSE' });
+    await flush();
+    await lane.poller.tick();
+    await flush();
+    assert.deepEqual(calls, ['busy']);
+  } finally {
+    finishFirst({ verdict: 'ROOT_CAUSE' });
+    await lane.poller.stop();
+  }
+});
+
+test('a diagnosed issue whose regression waits behind a full slot keeps that regression through a later spike and is investigated once', async () => {
+  const calls: string[] = [];
+  let isSpiking = false;
+  let finishFirst: (verdict: JobResult) => void = () => { throw new Error('The first investigation has not started'); };
+  const lane = harness({
+    maxConcurrentInvestigations: 1,
+    initialState: { [KEY]: { status: 'resolved', verdict: 'ROOT_CAUSE', investigatedUsers: 8 } },
+    api: {
+      queryIssues: async () => apiOk({ results: [issueRow({ id: 'busy', name: 'A separate problem' }), issueRow()] }),
+      listSpikeEvents: async () => apiOk({ results: isSpiking ? [{ issue_id: 'iss-1', timestamp: '2099-01-01T00:00:00Z' }] : [] }),
+    },
+    spawnInvestigation: ({ issue }) => {
+      calls.push(String(issue.issueId));
+      if (issue.issueId === 'busy') return new Promise((resolve) => { finishFirst = resolve; });
+      return Promise.resolve({ verdict: 'ROOT_CAUSE' });
+    },
+  });
+  try {
+    await lane.poller.start();
+    await flush();
+    assert.deepEqual(calls, ['busy']);
+    assert.equal(entryOf(lane.poller, KEY).pendingInvestigationChange, 'regressed');
+    isSpiking = true;
+    await lane.poller.tick();
+    assert.equal(tickIssue(lane.summaries, 1).change, 'spiking');
+    assert.deepEqual(calls, ['busy']);
+    assert.equal(entryOf(lane.poller, KEY).pendingInvestigationChange, 'regressed');
+    isSpiking = false;
+    finishFirst({ verdict: 'ROOT_CAUSE' });
+    await flush();
+    await lane.poller.tick();
+    await flush();
+    assert.deepEqual(calls, ['busy', 'iss-1']);
+    await lane.poller.tick();
+    await flush();
+    assert.deepEqual(calls, ['busy', 'iss-1']);
+  } finally {
+    finishFirst({ verdict: 'ROOT_CAUSE' });
+    await lane.poller.stop();
+  }
+});
+
+async function investigationsAfterASpikeBehindAFullSlotEnds(initialState: Record<string, unknown>): Promise<string[]> {
+  const calls: string[] = [];
+  let isSpiking = true;
+  let finishFirst: (verdict: JobResult) => void = () => { throw new Error('The first investigation has not started'); };
+  const lane = harness({
+    maxConcurrentInvestigations: 1,
+    initialState,
+    api: {
+      queryIssues: async () => apiOk({ results: [issueRow({ id: 'busy', name: 'A separate problem' }), issueRow()] }),
+      listSpikeEvents: async () => apiOk({ results: isSpiking ? [{ issue_id: 'iss-1', timestamp: '2099-01-01T00:00:00Z' }] : [] }),
+    },
+    spawnInvestigation: ({ issue }) => {
+      calls.push(String(issue.issueId));
+      if (issue.issueId === 'busy') return new Promise((resolve) => { finishFirst = resolve; });
+      return Promise.resolve({ verdict: 'ROOT_CAUSE' });
+    },
+  });
+  try {
+    await lane.poller.start();
+    await flush();
+    assert.deepEqual(calls, ['busy']);
+    assert.equal(tickIssue(lane.summaries, 1).change, 'spiking');
+    isSpiking = false;
+    await lane.poller.tick();
+    assert.equal(tickIssue(lane.summaries, 1).change, 'quiet');
+    assert.deepEqual(calls, ['busy']);
+    finishFirst({ verdict: 'ROOT_CAUSE' });
+    await flush();
+    await lane.poller.tick();
+    await flush();
+    await lane.poller.tick();
+    await flush();
+    return calls;
+  } finally {
+    finishFirst({ verdict: 'ROOT_CAUSE' });
+    await lane.poller.stop();
+  }
+}
+
+test('a first-seen issue that is also spiking behind a full slot is investigated once after the slot frees and the spike ends', async () => {
+  assert.deepEqual(await investigationsAfterASpikeBehindAFullSlotEnds({}), ['busy', 'iss-1']);
+});
+
+test('a just-regressed issue that is also spiking behind a full slot is investigated once after the slot frees and the spike ends', async () => {
+  assert.deepEqual(await investigationsAfterASpikeBehindAFullSlotEnds({ [KEY]: { status: 'resolved', verdict: null } }), ['busy', 'iss-1']);
+});
 
 function issueRow(over: Record<string, unknown> = {}) {
   return {

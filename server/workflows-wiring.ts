@@ -119,6 +119,7 @@ export function createWorkflowsWiring({
       const resolved = settings();
       return createPoller({
         rules: resolved.ok ? core.enabledWorkflowRules(resolved.rules) : [],
+        areActionsEnabled: () => core.areWorkflowActionsEnabled(settings()),
         maxActionsPerPoll: resolved.ok ? resolved.maxActionsPerPoll : core.DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL,
         teamName: teamName(),
         github, log, onTickComplete, clock, firstTickDelayMs: bootStaggerDelay, beforeStart: sweepLeftoversBeforeFirstStart,
@@ -130,7 +131,10 @@ export function createWorkflowsWiring({
   });
   return {
     startPoller: runner.startPoller,
-    restartIfConfigChanged: runner.restartIfConfigChanged,
+    restartIfConfigChanged(): void {
+      if (!core.areWorkflowActionsEnabled(settings())) sessions.cancelSessions();
+      runner.restartIfConfigChanged();
+    },
     async stopPoller(): Promise<void> {
       await Promise.all([runner.stopPoller(), sessions.stop()]);
     },

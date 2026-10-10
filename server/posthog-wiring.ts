@@ -427,7 +427,6 @@ function fallbackPrBody(
 function posthogShouldStart(cfg: PosthogWiringConfig): LaneRunnerGate {
   const p = cfg.posthog;
   if (!p || !p.enabled) return { start: false, reason: null };
-  if (!p.host) return { start: false, reason: 'posthog.enabled but host missing' };
   if (!p.apiKey) return { start: false, reason: 'posthog.enabled but apiKey missing' };
   const t = cfg.telegram;
   if (!t || !t.botToken || !t.chatId) {
@@ -480,10 +479,10 @@ function createPosthogWiring({
 }: PosthogWiringOptions) {
   function activePosthogConfig(): PosthogLaneConfig & { host: string; apiKey: string } {
     const posthogConfig = config.posthog;
-    if (!posthogConfig?.host || !posthogConfig.apiKey) {
+    if (!posthogConfig?.apiKey) {
       throw new Error('PostHog lane started without its required configuration');
     }
-    return { ...posthogConfig, host: posthogConfig.host, apiKey: posthogConfig.apiKey };
+    return { ...posthogConfig, host: core.resolvePosthogHost(posthogConfig.host), apiKey: posthogConfig.apiKey };
   }
 
   function makeInvestigationSession(

@@ -34,8 +34,8 @@ const ALL_ACTIONS = [
   { type: 'spawn', promptTemplate: 'Look at {{url}}' },
 ];
 
-function harness({ savedState = null, actions = ALL_ACTIONS, filters = {}, trigger = 'opened', isCommentPosted = false, spawnSession }: {
-  savedState?: WorkflowsState | null; actions?: unknown[]; filters?: Record<string, unknown>; trigger?: string; isCommentPosted?: boolean; spawnSession?: SpawnSession;
+function harness({ savedState = null, actions = ALL_ACTIONS, filters = {}, trigger = 'opened', isCommentPosted = false, spawnSession, areActionsEnabled, onLabelAdded }: {
+  savedState?: WorkflowsState | null; actions?: unknown[]; filters?: Record<string, unknown>; trigger?: string; isCommentPosted?: boolean; spawnSession?: SpawnSession; areActionsEnabled?: () => boolean; onLabelAdded?: () => void;
 } = {}) {
   let items: WorkflowSearchNode[] = [searchNode(1)];
   let isSearchFailing = false;
@@ -56,6 +56,7 @@ function harness({ savedState = null, actions = ALL_ACTIONS, filters = {}, trigg
     },
     async addPrLabel(label: { repo: string; number: number; name: string }) {
       steps.push(`label ${label.repo}#${label.number} ${label.name}`);
+      onLabelAdded?.();
       return { ok: true, err: '' };
     },
     async commentOnPr(comment: { repo: string; number: number; body: string }) {
@@ -68,7 +69,7 @@ function harness({ savedState = null, actions = ALL_ACTIONS, filters = {}, trigg
   const log = { warn: (message: string) => { warnings.push(message); } };
   const sessions = createWorkflowSessionQueue({ spawnSession: spawnSession ?? (async ({ event }) => { steps.push(`spawn ${event.pr.repo}#${event.pr.number}`); }), log });
   const poller = createWorkflowsPoller({
-    rules, teamName: null, github, now: () => NOW,
+    rules, teamName: null, github, now: () => NOW, areActionsEnabled,
     readState: async () => saved,
     writeState: async (state) => {
       steps.push('save');
@@ -95,6 +96,54 @@ test('the first poll of a repo seeds the snapshot and fires nothing', async () =
   assert.deepEqual(lane.searchedRepos, ['acme/app 2026-10-03']);
   assert.equal(lane.savedState()?.repos['acme/app']?.polledAtMs, NOW);
   await lane.poller.stop();
+});
+
+test('turning workflows off between actions skips the rest of that poll and saves, so no later poll replays or resumes them', async () => {
+  const lane = harness({ areActionsEnabled: () => !lane.steps.some((step) => step.startsWith('label ')) });
+  try {
+    await lane.poller.tick();
+    lane.setItems([searchNode(1), searchNode(2)]);
+    await lane.poller.tick();
+    assert.deepEqual(lane.steps, ['save', 'notify workflows:greet:Acme/app#2 Greet: opened Acme/app#2 PR 2', 'label Acme/app#2 triage', 'save']);
+    assert.deepEqual(lane.savedState()?.repos['acme/app']?.prs.map((pr) => pr.number), [1, 2]);
+    const resumed = harness({ savedState: lane.savedState() });
+    try {
+      resumed.setItems([searchNode(1), searchNode(2)]);
+      await resumed.poller.tick();
+      assert.deepEqual(resumed.steps, ['save']);
+    } finally {
+      await resumed.poller.stop();
+      await resumed.sessions.stop();
+    }
+  } finally {
+    await lane.poller.stop();
+    await lane.sessions.stop();
+  }
+});
+
+test('stopping the poller between actions with workflows on still runs the rest of that poll and saves', async () => {
+  let stopping: Promise<void> | null = null;
+  const lane = harness({ areActionsEnabled: () => true, onLabelAdded: () => { stopping ??= lane.poller.stop(); } });
+  try {
+    await lane.poller.tick();
+    lane.setItems([searchNode(1), searchNode(2)]);
+    await lane.poller.tick();
+    await settle();
+    assert.ok(stopping);
+    assert.deepEqual(lane.steps, [
+      'save',
+      'notify workflows:greet:Acme/app#2 Greet: opened Acme/app#2 PR 2',
+      'label Acme/app#2 triage',
+      'comment Acme/app#2 Thanks for opening this',
+      'spawn Acme/app#2',
+      'save',
+    ]);
+    assert.deepEqual(lane.savedState()?.repos['acme/app']?.prs.map((pr) => pr.number), [1, 2]);
+  } finally {
+    await stopping;
+    await lane.poller.stop();
+    await lane.sessions.stop();
+  }
 });
 
 test('a new pull request runs every action once, then the snapshot is saved, and the next poll fires nothing again', async () => {

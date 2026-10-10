@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { MyPrsLaneState, prunedFailedAutoRebaseAttempts } from '../server/core/my-prs-core.ts';
 import assert from 'node:assert/strict';
 import { autoRebaseRecord, consecutiveKeepMergeableAttempts, currentKeepMergeableAttempt, deriveStage, hasUnresolvedThreads, isHeadPushedByKeepMergeable, isMovedBranchPushRejection, keepMergeableAttemptKey, keepMergeableClaudeArgs, keepMergeablePermissions, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, keepMergeableFixesToCancel, keepMergeableHandoff, keepMergeablePrompt, keepMergeablePushArgs, keepMergeablePushTarget, keepMergeablePushUrl, mergeAttemptKey, mergeQueuePositions, mergeQueuePrsToMerge, prunedMergeQueueKeys, shouldFixMergeability, shouldAutoRebase, shouldRebaseMyPr, mergedSinceDate, myPrsShouldStart, prunedKeepMergeableState, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/core/my-prs-core.ts';
 import { MyPrSearchNode } from '../shared/contracts/my-prs.ts';
@@ -17,6 +18,27 @@ function searchNode(): MyPrSearchNodeType {
   };
 }
 function readyPr(): MyPr { return toMyPr(searchNode(), 0); }
+
+test('failed auto-rebase persistence accepts old state and validates head keys', () => {
+  const oldState = { keepMergeableKeys: [], keepMergeableAttemptKeys: [] };
+  assert.equal(MyPrsLaneState.parse(oldState).failedAutoRebaseAttemptKeys, undefined);
+  const attemptKey = `Acme/app#7@${SHA}`;
+  assert.deepEqual(MyPrsLaneState.parse({ ...oldState, failedAutoRebaseAttemptKeys: [attemptKey] }).failedAutoRebaseAttemptKeys, [attemptKey]);
+  assert.equal(MyPrsLaneState.safeParse({ ...oldState, failedAutoRebaseAttemptKeys: ['invalid'] }).success, false);
+  assert.equal(MyPrsLaneState.parse({ ...oldState, failedAutoRebaseAttemptKeys: [attemptKey] }).failedAutoRebaseRecords, undefined);
+  const failureRecord = { attemptKey, autoRebase: { outcome: 'failed', at: 1, message: 'Rebase refused' } };
+  assert.deepEqual(MyPrsLaneState.parse({ ...oldState, failedAutoRebaseAttemptKeys: [attemptKey], failedAutoRebaseRecords: [failureRecord] }).failedAutoRebaseRecords, [failureRecord]);
+  assert.equal(MyPrsLaneState.safeParse({ ...oldState, failedAutoRebaseRecords: [{ ...failureRecord, attemptKey: 'invalid' }] }).success, false);
+});
+
+test('failed auto-rebase suppression clears only for a listed PR whose head changed', () => {
+  const sameHeadKey = `Acme/app#7@${SHA}`;
+  const olderHeadKey = `Acme/app#7@${'b'.repeat(40)}`;
+  const unlistedKey = `Acme/other#8@${SHA}`;
+  const attempts = new Set([sameHeadKey, olderHeadKey, unlistedKey]);
+  assert.deepEqual([...prunedFailedAutoRebaseAttempts(attempts, [searchNode()])], [sameHeadKey, unlistedKey]);
+  assert.deepEqual(prunedFailedAutoRebaseAttempts(attempts, []), attempts);
+});
 
 test('keep mergeable dispatches only flagged open conflicting or failing heads once per head', () => {
   const pr = readyPr();

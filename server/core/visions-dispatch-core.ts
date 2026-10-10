@@ -168,12 +168,12 @@ function hashText(text: unknown): string {
   return `${value.length.toString(36)}-${hash.toString(36)}`;
 }
 
-function createDispatchState(): DispatchState {
+function createDispatchState(dispatchTimes: DispatchTimeEntry[] = []): DispatchState {
   return {
     lastAtByUri: new Map<string, number>(),
     lastHashByUri: new Map<string, string>(),
     lastSeqByUri: new Map<string, number>(),
-    dispatchTimes: [],
+    dispatchTimes,
     consecutiveErrors: 0,
     backoffUntil: 0,
   };
@@ -314,7 +314,8 @@ function recordDispatch(state: DispatchState, {
   if (reason === ORIENTATION_REASON) entry.reason = reason;
   state.dispatchTimes.push(entry);
   const cutoff = now - HOUR_MS;
-  state.dispatchTimes = state.dispatchTimes.filter((entry) => entry.ts > cutoff);
+  const recentDispatches = state.dispatchTimes.filter((entry) => entry.ts > cutoff);
+  state.dispatchTimes.splice(0, state.dispatchTimes.length, ...recentDispatches);
   return state;
 }
 

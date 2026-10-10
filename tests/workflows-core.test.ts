@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { areWorkflowActionsEnabled } from '../server/core/workflows-core.ts';
 import assert from 'node:assert/strict';
 
 import {
@@ -13,6 +14,12 @@ import type { WorkflowPr, WorkflowRepoSnapshot, WorkflowSearchNode, WorkflowTrig
 const LAST_POLL_MS = Date.parse('2026-10-04T12:00:00Z');
 const BEFORE_LAST_POLL = '2026-10-01T09:00:00Z';
 const AFTER_LAST_POLL = '2026-10-04T12:03:00Z';
+
+test('workflow actions require a valid enabled master switch', () => {
+  assert.equal(areWorkflowActionsEnabled(resolveWorkflowsSettings({ enabled: true })), true);
+  assert.equal(areWorkflowActionsEnabled(resolveWorkflowsSettings({ enabled: false })), false);
+  assert.equal(areWorkflowActionsEnabled(resolveWorkflowsSettings({ enabled: 'yes' })), false);
+});
 
 function pr(overrides: Partial<WorkflowPr> = {}): WorkflowPr {
   return {

@@ -37,7 +37,6 @@ function decideImpliedDefaults(config: Record<string, unknown> | null | undefine
   const visions = config.visions;
   if (!isRecord(visions) || visions.enabled !== true) return { changes: [] };
   const changes = impliedIngestChanges(config);
-  if (!isRecord(visions.dispatch)) changes.push({ path: ['visions', 'dispatch'], value: { enabled: true }, why: 'visions implies its model dispatch' });
   return { changes };
 }
 

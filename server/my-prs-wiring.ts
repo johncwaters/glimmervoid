@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { MyPrKeepMergeableRequest, MyPrMergeWhenReadyRequest, MyPrsState, MyPrsStatus } from '../shared/contracts/my-prs.ts';
-import type { MyPr, MyPrKeepMergeableResult, MyPrMergeabilityFixResult, MyPrMergeRequest, MyPrMergeResult, MyPrMergeWhenReadyResult, MyPrsState as MyPrsStateType, MyPrsStatus as MyPrsStatusType } from '../shared/contracts/my-prs.ts';
+import { MyPrKeepMergeableRequest, MyPrMergeWhenReadyRequest, MyPrsStatus } from '../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrKeepMergeableResult, MyPrMergeabilityFixResult, MyPrMergeRequest, MyPrMergeResult, MyPrMergeWhenReadyResult, MyPrsStatus as MyPrsStatusType } from '../shared/contracts/my-prs.ts';
 import { myPrMergeRefusal } from '../shared/my-pr-merge.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import * as core from './core/my-prs-core.ts';
@@ -40,23 +40,23 @@ const KEEP_MERGEABLE_HANDOFF_REF_PREFIX = 'refs/glimmervoid-keep-mergeable/';
 const KEEP_MERGEABLE_WORK_BRANCH_REF = `refs/heads/${core.MY_PRS_FIX_WORK_BRANCH}`;
 
 export function createMyPrsStateIo(statePath: string, log: Pick<Console, 'warn'>) {
-  let loaded: MyPrsStateType = { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [] };
-  const store = createJsonStateStore<MyPrsStateType>({
+  let loaded: core.MyPrsLaneState = { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [] };
+  const store = createJsonStateStore<core.MyPrsLaneState>({
     name: 'my-prs state', filePath: statePath,
     parse: (raw) => {
-      const parsed = MyPrsState.safeParse(raw);
+      const parsed = core.MyPrsLaneState.safeParse(raw);
       return parsed.success ? parsed.data : null;
     },
     adopt: (state) => { loaded = state ?? { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [] }; },
     warn: (message, fields) => log.warn(`[${core.MY_PRS_LANE_ID}] ${message} ${JSON.stringify(fields)}`),
   });
   return {
-    async readState(): Promise<MyPrsStateType> {
+    async readState(): Promise<core.MyPrsLaneState> {
       await store.load();
       return loaded;
     },
-    async writeState(state: MyPrsStateType): Promise<void> {
-      const parsed = MyPrsState.parse(state);
+    async writeState(state: core.MyPrsLaneState): Promise<void> {
+      const parsed = core.MyPrsLaneState.parse(state);
       await store.write(parsed, () => `${JSON.stringify(parsed, null, 2)}\n`);
       loaded = parsed;
     },

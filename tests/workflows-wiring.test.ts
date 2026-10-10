@@ -152,6 +152,48 @@ function enabledRule(id: string) {
   return { id, name: id, enabled: true, repos: ['Acme/app'], trigger: 'opened', actions: [{ type: 'spawn', promptTemplate: 'Look at {{url}}' }] };
 }
 
+test('turning the master switch off aborts active workflow sessions and clears queued spawns, and enabling it permits new sessions', async () => {
+  const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'workflows-off-'));
+  const created: WorkflowsPollerDependencies[] = [];
+  const started: number[] = [];
+  const signals: AbortSignal[] = [];
+  const config: { workflows?: unknown } = { workflows: { maxConcurrentSessions: 1, rules: [enabledRule('triage')] } };
+  const wiring = createWorkflowsWiring({
+    config, homeDir, log: { warn: () => {} }, notificationManager: { trigger: () => {} },
+    spawnSession: ({ event }, signal) => new Promise<void>((resolve) => {
+      started.push(event.pr.number);
+      signals.push(signal);
+      signal.addEventListener('abort', () => resolve(), { once: true });
+    }),
+    createPoller: (dependencies) => {
+      created.push(dependencies);
+      return { start: async () => {}, stop: async () => {}, tick: async () => {} };
+    },
+  });
+  try {
+    wiring.startPoller();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    created[0]?.startSession(spawnActionFor(1));
+    created[0]?.startSession(spawnActionFor(2));
+    assert.deepEqual(started, [1]);
+    config.workflows = { enabled: false, maxConcurrentSessions: 1, rules: [enabledRule('triage')] };
+    wiring.restartIfConfigChanged();
+    assert.equal(signals[0]?.aborted, true);
+    assert.equal(created[0]?.areActionsEnabled?.(), false);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.deepEqual(started, [1]);
+    config.workflows = { enabled: true, maxConcurrentSessions: 1, rules: [enabledRule('triage')] };
+    wiring.restartIfConfigChanged();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    created.at(-1)?.startSession(spawnActionFor(3));
+    assert.deepEqual(started, [1, 3]);
+    assert.equal(signals[1]?.aborted, false);
+  } finally {
+    await wiring.stopPoller();
+    await fs.rm(homeDir, { recursive: true, force: true });
+  }
+});
+
 function spawnActionFor(number: number): PlannedWorkflowAction & { action: { type: 'spawn'; promptTemplate: string } } {
   return { ...spawnAction(), event: { trigger: 'opened', pr: { ...OPENED_PR, number }, addedReviewRequests: [] } };
 }

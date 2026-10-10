@@ -100,11 +100,11 @@ test('turning visions off unwires, turning it back on wires again', async () => 
   assert.deepEqual(calls, ['wire', 'unwire', 'wire']);
 });
 
-test('enabling writes the implied ingest and dispatch blocks', async () => {
+test('enabling writes implied ingest and leaves model dispatch disabled by default', async () => {
   const { config, setup } = harness({ visions: { enabled: true } });
   await setup.maybeApply();
   assert.deepEqual(config.ingest, IMPLIED_INGEST);
-  assert.deepEqual(config.visions.dispatch, { enabled: true });
+  assert.equal(config.visions.dispatch, undefined);
 });
 
 test('a config under the operator home is refused while the test runner is what is running', async () => {
