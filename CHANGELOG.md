@@ -34,6 +34,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A notification debounce of zero now disables repeated-category suppression at startup and after settings reloads.
 - Calculate cost mode now uses calculated transcript costs on session chips instead of CLI-reported costs.
 - Restarted sessions now apply the current RTK compression setting to their hooks.
+- **Settings: replay-buffer**: Align replay buffer validation at 64 to 16384 whole KiB; loading legacy subminimum or fractional values normalizes them.
+- **Settings: usage-daily-budget**: Describe daily budgets as estimated-spend alert thresholds that do not stop spending.
+- **Settings: usage-monthly-budget**: Describe monthly budgets as estimated-spend alert thresholds that do not stop spending.
+- **Settings: telegram-session-notifications**: Explain immediate off-dashboard delivery and delayed unacknowledged escalation with a dashboard open.
+- **Settings: telegram-bot-token**: Show environment ownership and disable token editing when GLIMMERVOID_TELEGRAM_BOT_TOKEN supplies it.
+- **Settings: usage-fetch-pricing**: Describe startup pricing loads and the one-day cache rather than promising continuous daily refresh.
+- **Settings: usage-retain-days**: Disclose the current-month transcript retention extension when a monthly budget is configured.
+- **Settings: file-record-signals**: Explain full-capture signal recording and the session recreation requirement.
+- **Settings: file-trace-enabled**: State that trace capture changes require a server restart.
+- **Settings: file-detect-background-agents**: State that background detection changes require session recreation.
+- **Settings: file-detect-scheduled-wakeups**: State that scheduled-wakeup configuration requires a server restart and newly created sessions.
+- **Settings: file-worktree-auto-rebase**: State that worktree auto-rebase changes require session recreation.
+- **Settings: file-worktree-rerere**: State that conflict-resolution reuse changes require a server restart.
+- **Settings: file-post-turn-checks**: Disclose project and rule overrides that can select fixes under global Report mode.
+- **Settings: file-anti-slop-prompt**: Describe the built-in Claude Code quality note and the session recreation requirement.
+- **Settings: file-integration-branch**: Explain that changing the integration branch does not retarget existing sessions.
+- **Settings: file-worktree-root**: Explain session recreation and that changing the root does not relocate existing worktrees.
+- **Settings: file-worktree-share**: Explain that a new share list applies to future worktree preparation by newly created sessions.
+- **Settings: file-port**: State that listener port changes require a server restart.
+- **Settings: file-branch-gc-prefixes**: Explain that cleanup prefixes filter remote branches and local worktrees.
+- **Settings: usage-scan-interval**: Describe periodic transcript polling and scans triggered by session activity.
+- **Settings: calm-layout**: Describe attention prioritization while acknowledging ready and working indicators.
+- **Settings: update-installed**: Distinguish the running version from commit and branch information in the current disk checkout.
+- **Settings: update-summary**: Give computed update rows separate virtual paths so persisted paths retain one editable control.
+- **Settings: session-usage-chips**: Distinguish CLI-reported costs from calculated API list-price estimates.
+- **Settings: compact-status**: Explain that hiding phone status words preserves the Plan ready badge.
+- **Settings: repository-roots**: Keep case-distinct repository-root spellings instead of discarding entries by unconditional case folding.
+- **Settings: sane-yolo**: Disclose executable availability and trusted-hook prerequisites for permission-skip protection.
+- **Settings: post-turn-checks-mode**: Describe Report and Fix as defaults subject to project and individual rule overrides.
+- **Settings: visions-model**: Document the actual opus alias fallback for a blank model override.
+- **Settings: visions-projects**: Display unavailable selected projects so every stored selection can be removed.
+- **Settings: visions-auto-fix**: Describe automatic edits to eligible open Markdown buffers, including inactive buffers.
+- **Settings: visions-activity-max-per-hour**: Show the effective activity cap and reserved edit slot; require whole-number caps and migrate legacy fractions on load.
+- **Settings: posthog-api-key**: Show environment ownership and disable editing when GLIMMERVOID_POSTHOG_API_KEY supplies the credential.
+- **Settings: posthog-projects**: Use shared validation and serialization for positive safe integer ids, reject empty comma entries, and support none as an empty list.
+- **Settings: posthog-min-users**: Explain investigation exemptions and require whole affected counts, rounding legacy fractional thresholds up on load.
+- **Settings: posthog-max-investigations**: Require whole concurrency limits, rounding legacy fractions up on load to preserve effective capacity.
+- **Settings: posthog-traffic-multiplier**: Allow fractional traffic spike multipliers supported by the consumer.
+- **Settings: visions-enabled**: Describe setup for supported detected editors.
+- **Settings: visions-quiet-delay**: Explain immediate save and blank-line review triggers; require whole milliseconds and normalize legacy fractions on load.
+- **Settings: visions-cooldown**: Explain per-document cooldown and orientation exemptions; require whole milliseconds and normalize legacy fractions on load.
+- **Settings: visions-dispatch-timeout**: Require whole timeout seconds and normalize legacy fractional values on load.
+- **Settings: visions-intent-thread-ttl**: Require whole lifetime milliseconds and normalize legacy fractional values on load.
+- **Settings: ingest-enabled**: Explain that enabling Visions preserves an explicit ingest opt-out.
+- **Settings: posthog-interval**: Allow fractional polling minutes.
+- **Settings: posthog-investigation-timeout**: Allow fractional investigation timeout seconds.
+- **Settings: posthog-escalation**: Require whole affected-count escalation thresholds and round legacy fractions up on load.
+- **Settings: posthog-fix-timeout**: Allow fractional fix timeout seconds within the existing bounds.
+- **Settings: posthog-traffic-min-users**: Describe the initial-spike threshold and alert exemptions; require whole affected counts and round legacy fractions up on load.
+- **Settings: posthog-traffic-cooldown**: Allow fractional cooldown minutes and explain immediate escalation, recovery and duplicate suppression even at zero.
+- **Settings: posthog-traffic-baseline**: Require whole baseline days and truncate legacy fractional windows on load.
+- **Settings: factory-enabled**: Describe the current Coherence report polling and status view.
+- **Settings: knowledge-graph-enabled**: Clarify that Coherence ledgers stay unchanged while --db controls where graph writes occur.
+- **Settings: workflows-max-concurrent-sessions**: Disclose the twenty-entry deferred spawn queue and logged overflow drops.
+- **Settings: rtk-compression**: Show unsupported-platform installation refusal and conditional retries after the ten-minute failure cooldown.
 - **Git never waits on a password prompt**: every git command Glimmervoid runs in the background, such as repo refreshes, update checks, pull request lookups and change history, now fails right away when a remote asks for credentials, instead of some of them sitting on a prompt nobody can see until they time out.
 - **One loading screen at startup**: opening the dashboard no longer shows the startup loading screen and then a second Connecting screen on each terminal. The loading screen now stays up until your sessions and their terminals are connected, for at most 2.5 seconds, so the dashboard appears ready in one step.
 - **Command output no longer cut off in a pipe**: `glimmervoid` subcommands such as `pair`, `visions` and `agent` could stop after 64 KiB when their output went into a pipe, while still reporting success. They now finish writing before exiting.

@@ -1,6 +1,6 @@
 import type { SettingsRange } from '#shared/settings-ranges.ts';
 import type { SettingsOption, SettingsSection, SettingsSetting } from './settings-map.ts';
-import { unionProjectSelection } from './settings-projects-core.ts';
+import { projectSelectionChoices, unionProjectSelection } from './settings-projects-core.ts';
 
 export type SettingsValues = Record<string, unknown>;
 
@@ -23,6 +23,37 @@ const payloadByHydratedValues = new WeakMap<object, unknown>();
 
 export const SECRET_PRESENCE_SUFFIX = 'Configured';
 export const STORED_SECRET_MASK = '\u2022'.repeat(12);
+
+export function secretEnvironmentSource(setting: SettingsSetting, payload: SettingsPayload): string | null {
+  const sources = payload.secretSources;
+  if (!sources || typeof sources !== 'object') return null;
+  const source = (sources as Record<string, unknown>)[setting.path];
+  return typeof source === 'string' ? source : null;
+}
+
+export function parsePosthogProjectSelection(value: unknown): 'all' | number[] | null {
+  const text = String(value ?? '').trim().toLowerCase();
+  if (!text || text === 'all') return 'all';
+  if (text === 'none') return [];
+  const tokens = text.split(',').map((token) => token.trim());
+  if (!tokens.every((token) => /^\d+$/.test(token) && Number.isSafeInteger(Number(token)) && Number(token) > 0)) return null;
+  return tokens.map(Number);
+}
+
+export function visionsActivityLimitText(values: SettingsValues): string {
+  const overallLimit = Number(values['visions.dispatch.maxPerHour']);
+  const activityLimit = Number(values['visions.dispatch.activityMaxPerHour']);
+  if (!Number.isSafeInteger(overallLimit) || overallLimit < 1 || !Number.isSafeInteger(activityLimit) || activityLimit < 0) return '';
+  return `Effective activity limit: ${Math.min(activityLimit, overallLimit - 1)} per hour. One slot is reserved for edit reviews.`;
+}
+
+export function rtkInstallStatusText(payload: SettingsPayload): string {
+  const install = payload.rtkInstall as { status?: string; reason?: string } | undefined;
+  if (install?.status === 'installing') return 'No rtk binary found. Glimmervoid is installing it into ~/.glimmervoid/bin now.';
+  if (payload.rtkInstallSupported === false) return 'No rtk binary found. Automatic installation is unavailable on this server platform; install a compatible binary manually.';
+  if (install?.status === 'failed') return `No rtk binary found. The last install attempt failed: ${install.reason || 'unknown reason'}. A save can retry after the ten-minute failure cooldown; saves during the cooldown skip installation.`;
+  return 'No rtk binary found. Saving requests installation into ~/.glimmervoid/bin on supported server platforms, subject to installer eligibility.';
+}
 
 function isSecretSetting(setting: SettingsSetting) {
   return setting.control === 'password';
@@ -100,7 +131,7 @@ function valuesEqual(left: unknown, right: unknown): boolean {
 
 function displayValue(setting: SettingsSetting, value: unknown): unknown {
   if (setting.valueKind !== 'posthog-projects') return cloneValue(value);
-  if (Array.isArray(value)) return value.join(', ');
+  if (Array.isArray(value)) return value.length === 0 ? 'none' : value.join(', ');
   return value ?? 'all';
 }
 
@@ -112,9 +143,7 @@ function wireValue(setting: SettingsSetting, value: unknown): unknown {
     return number;
   }
   if (setting.valueKind === 'posthog-projects') {
-    const text = String(value ?? '').trim();
-    if (!text || text.toLowerCase() === 'all') return 'all';
-    return text.split(',').map((part) => Number(part.trim())).filter(Number.isFinite);
+    return parsePosthogProjectSelection(value);
   }
   if (setting.control === 'text' || setting.control === 'password') return String(value ?? '').trim();
   return cloneValue(value);
@@ -177,6 +206,7 @@ export function collectDirtyBlocks(map: readonly SettingsSection[], original: Se
   const changedSettings = settingsOf(map).filter((setting) => {
     if (isReadOnlySetting(setting)) return false;
     if (setting.path.startsWith('pref:')) return false;
+    if (secretEnvironmentSource(setting, hydratedPayload(original) || {})) return false;
     if (isSecretSetting(setting) && edited[setting.path] === STORED_SECRET_MASK) return false;
     return !valuesEqual(original[setting.path], edited[setting.path]);
   });
@@ -207,7 +237,8 @@ export function collectDirtyBlocks(map: readonly SettingsSection[], original: Se
       value = unionProjectSelection({
         checked: Array.isArray(value) ? value : [],
         stored: Array.isArray(storedSelection) ? storedSelection : [],
-        rendered: renderedProjectIds,
+        rendered: projectSelectionChoices(renderedProjectIds.map((id) => ({ id, name: id })),
+          Array.isArray(storedSelection) ? storedSelection : []).map((project) => project.id),
       });
     }
     setValueAtPath(payload, setting.path, value);
@@ -216,6 +247,7 @@ export function collectDirtyBlocks(map: readonly SettingsSection[], original: Se
     if (!isSecretSetting(setting)) continue;
     deleteValueAtPath(payload, secretPresencePath(setting));
   }
+  delete payload.secretSources;
   return payload;
 }
 
@@ -232,7 +264,7 @@ function numberError(setting: SettingsSetting, rawValue: unknown, settingsRanges
   const range = settingsRanges[setting.range ?? ''];
   if (!range) return 'Allowed range is unavailable.';
   if (!Number.isFinite(value)) return rangeMessage(range, setting);
-  if (setting.integer !== false && !Number.isInteger(value)) return rangeMessage(range, setting);
+  if (setting.integer !== false && !Number.isSafeInteger(value)) return rangeMessage(range, setting);
   if (range.exclusiveMin && value <= range.min) {
     if (setting.zeroIsNull && value <= 0) return null;
     return rangeMessage(range, setting);
@@ -243,11 +275,8 @@ function numberError(setting: SettingsSetting, rawValue: unknown, settingsRanges
 }
 
 function posthogProjectsError(value: unknown) {
-  const text = String(value ?? '').trim();
-  if (!text || text.toLowerCase() === 'all') return null;
-  const ids = text.split(',').map((part) => part.trim()).filter(Boolean);
-  if (ids.length > 0 && ids.every((id) => /^\d+$/.test(id) && Number(id) > 0)) return null;
-  return 'Must be "all" or a comma-separated list of positive numeric ids.';
+  if (parsePosthogProjectSelection(value) !== null) return null;
+  return 'Must be "all", "none", or a comma-separated list of positive safe integer ids without empty entries.';
 }
 
 export function validateLocally(map: readonly SettingsSection[], edited: SettingsValues, settingsRanges: Record<string, SettingsRange> = {}) {

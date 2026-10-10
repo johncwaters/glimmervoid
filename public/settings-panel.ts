@@ -30,9 +30,13 @@ import {
   scoreSettingsSearch,
   sectionsByLevel,
   shouldShowDangerWarning,
+  secretEnvironmentSource,
+  visionsActivityLimitText,
+  rtkInstallStatusText,
   validateLocally,
 } from './settings-view-core.ts';
 import type { SettingsPayload, SettingsProject, SettingsValues } from './settings-view-core.ts';
+import { includesRepositoryRoot, projectSelectionChoices } from './settings-projects-core.ts';
 import { appendShortcutChord, SHORTCUT_PLATFORM } from './shortcuts.ts';
 import { shortcutGroupsFor } from './shortcuts-core.ts';
 import { renderStatusLegend } from './status-legend.ts';
@@ -337,6 +341,7 @@ function setEditedValue(setting: SettingsSetting, value: unknown, { rerender = t
     return;
   }
   refreshFooter();
+  refreshSettingsStatus();
 }
 
 function inputMinimum(setting: SettingsSetting, range: SettingsRange) {
@@ -367,6 +372,11 @@ function renderInput(setting: SettingsSetting) {
   input.type = setting.control ?? 'text';
   input.value = String(settingValue(setting) ?? '');
   if (setting.control === 'password') input.placeholder = 'No credential stored';
+  const environmentSource = secretEnvironmentSource(setting, settingsPayload);
+  if (environmentSource) {
+    input.disabled = true;
+    input.setAttribute('aria-description', `Supplied by ${environmentSource}`);
+  }
   input.autocomplete = 'off';
   input.spellcheck = false;
   input.setAttribute('aria-labelledby', setting.id);
@@ -436,7 +446,7 @@ function renderList(setting: SettingsSetting) {
   const addValue = () => {
     const value = input.value.trim();
     if (!value) return;
-    if (values.some((entry) => entry.toLowerCase() === value.toLowerCase())) return;
+    if (includesRepositoryRoot(values, value, settingsPayload.repositoryRootCaseInsensitive === true)) return;
     setEditedValue(setting, [...values, value]);
   };
   add.addEventListener('click', addValue);
@@ -456,7 +466,7 @@ function renderProjects(setting: SettingsSetting) {
   const selected = new Set<string>(Array.isArray(currentValue) ? currentValue : []);
   const choices: { id: string; name: string }[] = Array.isArray(settingsPayload.projectChoices) ? settingsPayload.projectChoices : [];
   if (choices.length === 0) wrapper.appendChild(el('div', 'settings-empty', 'No configured projects are available.'));
-  for (const project of choices) {
+  for (const project of projectSelectionChoices(choices, [...selected])) {
     const label = el('label', 'settings-view-project-choice');
     const input = el('input', 'settings-view-checkbox');
     input.type = 'checkbox';
@@ -614,6 +624,9 @@ function renderControl(setting: SettingsSetting) {
 }
 
 function statusText(setting: SettingsSetting) {
+  const environmentSource = secretEnvironmentSource(setting, settingsPayload);
+  if (environmentSource) return `Supplied by ${environmentSource}. Change the server environment and restart to replace this credential.`;
+  if (setting.status === 'visions-activity-limit') return visionsActivityLimitText(editedValues || {});
   if (setting.id === 'desktop-notifications' && !notificationsSupported()) {
     return 'Desktop notifications are unavailable for this page.';
   }
@@ -621,10 +634,7 @@ function statusText(setting: SettingsSetting) {
     return 'Blocked by the browser. Allow notifications for this site to enable them.';
   }
   if (setting.status !== 'rtk-install' || !settingValue(setting) || settingsPayload.rtkAvailable) return '';
-  const install = (settingsPayload.rtkInstall || { status: 'idle' }) as { status?: string; reason?: string };
-  if (install.status === 'installing') return 'No rtk binary found. Glimmervoid is installing it into ~/.glimmervoid/bin now.';
-  if (install.status === 'failed') return `No rtk binary found. The last install attempt failed: ${install.reason || 'unknown reason'}. Glimmervoid retries on the next save.`;
-  return 'No rtk binary found. Glimmervoid will install it into ~/.glimmervoid/bin when you save.';
+  return rtkInstallStatusText(settingsPayload);
 }
 
 function buildStatusSlot(setting: SettingsSetting) {

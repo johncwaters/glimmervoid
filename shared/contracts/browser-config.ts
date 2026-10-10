@@ -21,6 +21,8 @@ export const optionalNumber = (field: string, range: SettingsRange = ranges.POSI
   .refine((value) => range.exclusiveMin || value >= range.min, { message: `${field} must be ${numberRangeLabel(range)}` })
   .refine((value) => range.max == null || value <= range.max, { message: `${field} must be ${numberRangeLabel(range)}` })
   .optional();
+export const optionalWholeNumber = (field: string, range: SettingsRange) => optionalNumber(field, range)
+  .unwrap().int({ error: `${field} must be a whole number ${numberRangeLabel(range)}` }).optional();
 const optionalInteger = (field: string, range: { min: number; max: number }) => z.number({ error: `${field} must be an integer between ${range.min} and ${range.max}` })
   .int({ error: `${field} must be an integer between ${range.min} and ${range.max}` })
   .min(range.min, { error: `${field} must be an integer between ${range.min} and ${range.max}` })
@@ -30,6 +32,8 @@ const optionalObject = (field: string, shape: z.ZodRawShape) => z.object(shape, 
 export const optionalLooseObject = (field: string) => z.object({}, { error: `${field} must be an object` }).passthrough().nullable().optional();
 
 export const CHANGE_MAP_NARRATOR_ENGINES = Object.freeze(['claude', 'codex'] as const);
+export const UPDATE_CHANNELS = Object.freeze(['release', 'main'] as const);
+export const POST_TURN_CHECK_MODES = Object.freeze(['report', 'fix'] as const);
 
 export const ChangeMapSettings = optionalObject('changeMap', {
   narrator: optionalObject('changeMap.narrator', {
@@ -69,7 +73,7 @@ export const BRANCH_GC_CONTROL_BOOLEAN_KEYS = Object.freeze(['enabled', 'deleteU
 export const BRANCH_GC_CONTROL_NUMERIC_KEYS = Object.freeze(['staleDays', 'intervalMs']);
 
 const PostTurnChecksSettings = optionalObject('postTurnChecks', {
-  mode: z.enum(['report', 'fix'], { error: 'postTurnChecks.mode must be one of report, fix' }).optional(),
+  mode: z.enum(POST_TURN_CHECK_MODES, { error: 'postTurnChecks.mode must be one of report, fix' }).optional(),
 });
 
 const VisionsSettings = optionalObject('visions', {
@@ -79,14 +83,14 @@ const VisionsSettings = optionalObject('visions', {
   dispatch: optionalObject('visions.dispatch', {
     enabled: optionalBoolean('visions.dispatch.enabled'),
     model: optionalString('visions.dispatch.model', true),
-    quietMs: optionalNumber('visions.dispatch.quietMs', ranges.VISIONS_QUIET_MS_RANGE),
-    cooldownMs: optionalNumber('visions.dispatch.cooldownMs', ranges.VISIONS_COOLDOWN_MS_RANGE),
-    maxPerHour: optionalNumber('visions.dispatch.maxPerHour', ranges.VISIONS_MAX_PER_HOUR_RANGE),
-    activityMaxPerHour: optionalNumber('visions.dispatch.activityMaxPerHour', ranges.VISIONS_ACTIVITY_MAX_PER_HOUR_RANGE),
-    dispatchTimeoutSeconds: optionalNumber('visions.dispatch.dispatchTimeoutSeconds', ranges.VISIONS_DISPATCH_TIMEOUT_RANGE),
+    quietMs: optionalWholeNumber('visions.dispatch.quietMs', ranges.VISIONS_QUIET_MS_RANGE),
+    cooldownMs: optionalWholeNumber('visions.dispatch.cooldownMs', ranges.VISIONS_COOLDOWN_MS_RANGE),
+    maxPerHour: optionalWholeNumber('visions.dispatch.maxPerHour', ranges.VISIONS_MAX_PER_HOUR_RANGE),
+    activityMaxPerHour: optionalWholeNumber('visions.dispatch.activityMaxPerHour', ranges.VISIONS_ACTIVITY_MAX_PER_HOUR_RANGE),
+    dispatchTimeoutSeconds: optionalWholeNumber('visions.dispatch.dispatchTimeoutSeconds', ranges.VISIONS_DISPATCH_TIMEOUT_RANGE),
   }),
   intent: optionalObject('visions.intent', {
-    threadTtlMs: optionalNumber('visions.intent.threadTtlMs', ranges.VISIONS_INTENT_THREAD_TTL_MS_RANGE),
+    threadTtlMs: optionalWholeNumber('visions.intent.threadTtlMs', ranges.VISIONS_INTENT_THREAD_TTL_MS_RANGE),
   }),
 });
 
@@ -143,7 +147,11 @@ const PosthogSettings = optionalObject('posthog', {
     z.array(z.number({ error: 'posthog.projects must be "all" or an array of positive integer project ids' }).int({ error: 'posthog.projects must be "all" or an array of positive integer project ids' }).positive({ error: 'posthog.projects must be "all" or an array of positive integer project ids' }), { error: 'posthog.projects must be "all" or an array of positive integer project ids' }),
   ], { error: 'posthog.projects must be "all" or an array of positive integer project ids' }).optional(),
   projectMap: z.record(z.string(), z.unknown(), { error: 'posthog.projectMap must be an object' }).optional(),
-  ...Object.fromEntries(Object.entries(posthogNumberRanges).map(([key, range]) => [key, optionalNumber(`posthog.${key}`, range)])),
+  ...Object.fromEntries(Object.entries(posthogNumberRanges).map(([key, range]) => [key,
+    ['maxConcurrentInvestigations', 'minUsersToInvestigate', 'userEscalationThreshold', 'trafficSpikeMinUsers', 'trafficSpikeBaselineDays'].includes(key)
+      ? optionalWholeNumber(`posthog.${key}`, range)
+      : optionalNumber(`posthog.${key}`, range),
+  ])),
 });
 
 const usageCostModeMessage = `usage.costMode must be one of ${USAGE_COST_MODES.join(', ')}`;
@@ -210,7 +218,7 @@ export const createBrowserConfigShape = (isAbsolutePath: (directory: string) => 
   promptDetectionMs: z.number().finite().nonnegative().optional(),
   notifyDebounceMs: z.number().finite().nonnegative().optional(),
   phoneEscalationMs: z.number().finite().nonnegative().optional(),
-  replayBufferKB: optionalNumber('replayBufferKB', { ...ranges.REPLAY_BUFFER_KB_RANGE, min: 0 }),
+  replayBufferKB: optionalWholeNumber('replayBufferKB', ranges.REPLAY_BUFFER_KB_RANGE),
   cursorBlink: optionalBoolean('cursorBlink'),
   debugMode: optionalBoolean('debugMode'),
   calmLayout: optionalBoolean('calmLayout'),
@@ -221,7 +229,7 @@ export const createBrowserConfigShape = (isAbsolutePath: (directory: string) => 
   saneYolo: optionalBoolean('saneYolo'),
   skipPermissionsByDefault: optionalBoolean('skipPermissionsByDefault'),
   checkForUpdates: optionalBoolean('checkForUpdates'),
-  updateChannel: z.enum(['release', 'main'], { error: 'updateChannel must be one of release, main' }).optional(),
+  updateChannel: z.enum(UPDATE_CHANNELS, { error: 'updateChannel must be one of release, main' }).optional(),
   autoResume: optionalBoolean('autoResume'),
   telegramNotifications: optionalBoolean('telegramNotifications'),
   integrationBranch: optionalString('integrationBranch').nullable(),

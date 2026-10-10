@@ -1,10 +1,9 @@
 import path from 'node:path';
 import { z } from 'zod';
 import { TaskTitle } from './session.ts';
-import * as ranges from '../settings-ranges.ts';
 import {
   AgentApiFileSettings, BranchGcControlSettings, ChangeMapSettings,
-  createBrowserConfig, optionalBoolean, optionalLooseObject, optionalNumber,
+  createBrowserConfig, optionalBoolean, optionalLooseObject,
   PlanReviewSettings, TelemetryFileSettings, TraceSettings,
 } from './browser-config.ts';
 import { WorkflowsSettingsUpdate } from './workflows.ts';
@@ -24,7 +23,6 @@ export const ConfigUpdate = z.object({
   promptDetectionMs: z.number({ error: 'promptDetectionMs must be a positive number' }).finite().positive({ error: 'promptDetectionMs must be a positive number' }).optional(),
   notifyDebounceMs: z.number({ error: 'notifyDebounceMs must be a positive number' }).finite().positive({ error: 'notifyDebounceMs must be a positive number' }).optional(),
   phoneEscalationMs: z.number({ error: 'phoneEscalationMs must be a positive number' }).finite().positive({ error: 'phoneEscalationMs must be a positive number' }).optional(),
-  replayBufferKB: optionalNumber('replayBufferKB', ranges.REPLAY_BUFFER_KB_RANGE),
   branchGc: BranchGcControlSettings,
   worktreeAutoRebase: optionalBoolean('worktreeAutoRebase'),
   worktreeSyncOnStart: optionalBoolean('worktreeSyncOnStart'),

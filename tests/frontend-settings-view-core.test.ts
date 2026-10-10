@@ -44,7 +44,7 @@ test('a dirty Team review section saves its trimmed org and team with the toggle
   });
 });
 
-test('an unrendered stored project id survives a projects-control save', async () => {
+test('an unavailable stored project id can be cleared from a projects-control save', async () => {
   const { SETTINGS_MAP, collectDirtyBlocks, hydrateFromSettings } = await load();
   const payload = {
     projectChoices: [{ id: 'shown', name: 'Shown' }],
@@ -54,7 +54,7 @@ test('an unrendered stored project id survives a projects-control save', async (
   const edited = hydrateFromSettings(SETTINGS_MAP, payload);
   edited['visions.projects'] = [];
   assert.deepEqual(collectDirtyBlocks(SETTINGS_MAP, original, edited), {
-    visions: { enabled: true, projects: ['missing'] },
+    visions: { enabled: true, projects: [] },
   });
 });
 

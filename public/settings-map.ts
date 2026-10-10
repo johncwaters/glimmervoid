@@ -1,5 +1,7 @@
 import { FLYING_ANIMALS_DEFAULTS } from './flying-animals-core.ts';
 import { WorkflowsSettings } from '#shared/contracts/workflows.ts';
+import { CHANGE_MAP_NARRATOR_ENGINES, POST_TURN_CHECK_MODES, UPDATE_CHANNELS } from '#shared/contracts/browser-config.ts';
+import { USAGE_COST_MODES } from '#shared/usage-config.ts';
 import type { WorkflowRule } from '#shared/contracts/workflows.ts';
 
 export interface SettingsOption {
@@ -20,7 +22,7 @@ export interface SettingsSetting {
   integer?: boolean;
   nullable?: boolean;
   zeroIsNull?: boolean;
-  step?: number;
+  step?: number | 'any';
   range?: string;
   maximumSettingId?: string;
   valueKind?: string;
@@ -104,7 +106,7 @@ export const SETTINGS_MAP = Object.freeze([
         id: 'compact-status',
         path: 'pref:compactStatusLabels',
         title: 'Hide status words in sidebar',
-        description: 'Show only the colored status mark in the sidebar and on the phone Board. Saved per browser, so turn it on in each one.',
+        description: 'Hide status words in the sidebar and on the phone Board while keeping the colored status mark and the phone Plan ready badge. Saved per browser, so turn it on in each one.',
         control: 'toggle',
         keywords: ['sidebar', 'status', 'compact'],
         defaultValue: false,
@@ -113,7 +115,7 @@ export const SETTINGS_MAP = Object.freeze([
         id: 'session-usage-chips',
         path: 'pref:sessionUsageChips',
         title: 'Show usage on session cards',
-        description: "Shows each card's token count and estimated API list-price cost.",
+        description: "Shows each card's transcript token count and CLI-reported cost when available, otherwise a calculated API list-price estimate.",
         control: 'toggle',
         keywords: ['usage', 'cost', 'tokens', 'card', 'price'],
         defaultValue: false,
@@ -209,7 +211,7 @@ export const SETTINGS_MAP = Object.freeze([
       },
       {
         id: 'calm-layout', path: 'calmLayout', title: 'Calm layout (experimental)',
-        description: 'Replace the Focus rail with a priority view that surfaces only sessions needing you. Applies to every browser on this machine.',
+        description: 'Replace the Focus rail with a view that prioritizes sessions needing attention and also shows ready and working indicators. Applies to every browser on this machine.',
         control: 'toggle', keywords: ['experimental', 'attention', 'priority'], defaultValue: false,
       },
     ],
@@ -225,34 +227,34 @@ export const SETTINGS_MAP = Object.freeze([
     description: 'See which Glimmervoid version is running, which one is newest, and update in one step.',
     settings: [
       {
-        id: 'update-summary', path: 'checkForUpdates', title: 'Status',
+        id: 'update-summary', path: 'status:update-summary', title: 'Status',
         description: 'Whether this install is up to date, and what an update would move it to.',
         control: 'readonly', keywords: ['version', 'available', 'current'], status: 'update-summary',
       },
       {
-        id: 'update-actions', path: 'checkForUpdates', title: 'Actions',
+        id: 'update-actions', path: 'status:update-actions', title: 'Actions',
         description: 'Update and restart stages the newest build, then restarts to run it. Update without restart stages it for a later restart.',
         control: 'readonly', keywords: ['check', 'restart'], status: 'update-actions',
       },
       {
-        id: 'update-installed', path: 'checkForUpdates', title: 'Running version',
-        description: 'The version, commit, branch and checkout state running now.',
+        id: 'update-installed', path: 'status:update-installed', title: 'Running version',
+        description: 'The version loaded when the server started, alongside the commit, branch and state of the current disk checkout.',
         control: 'readonly', keywords: ['version', 'commit', 'installed'], status: 'update-installed',
       },
       {
-        id: 'update-latest', path: 'updateChannel', title: 'Latest version',
+        id: 'update-latest', path: 'status:update-latest', title: 'Latest version',
         description: 'The newest target found on the selected update channel.',
         control: 'readonly', keywords: ['release', 'commit'], status: 'update-latest',
       },
       {
-        id: 'update-last-checked', path: 'checkForUpdates', title: 'Last checked',
+        id: 'update-last-checked', path: 'status:update-last-checked', title: 'Last checked',
         description: 'The most recent update check, or why automatic checks are off.',
         control: 'readonly', keywords: ['time', 'failure'], status: 'update-last-checked',
       },
       {
         id: 'update-channel', path: 'updateChannel', title: 'Channel',
         description: 'Track tagged releases or the upstream of the checked-out branch.',
-        control: 'select', options: [{ value: 'release', label: 'Release' }, { value: 'main', label: 'Main' }],
+        control: 'select', options: UPDATE_CHANNELS.map((value) => ({ value, label: value === 'release' ? 'Release' : 'Main' })),
         keywords: ['release', 'branch'], defaultValue: 'release',
       },
       {
@@ -286,26 +288,26 @@ export const SETTINGS_MAP = Object.freeze([
     title: 'Detection and sessions',
     description: 'Config-file-only detection, timing, worktree and process settings.',
     settings: [
-      { id: 'file-detect-background-agents', path: 'detectBackgroundAgents', title: 'Detect background agents', description: 'Hold completion while tracked background work is active.', control: 'readonly', keywords: ['subagents', 'completion'], fileOnly: true },
-      { id: 'file-record-signals', path: 'recordSignals', title: 'Record structural signals', description: 'Keep forensic status and hook recordings.', control: 'readonly', keywords: ['recordings', 'diagnostics'], fileOnly: true },
-      { id: 'file-trace-enabled', path: 'trace.enabled', title: 'Capture session traces', description: 'Keep normalized Claude transcript traces for session debugging.', control: 'readonly', keywords: ['transcripts', 'diagnostics'], fileOnly: true },
-      { id: 'file-anti-slop-prompt', path: 'antiSlopPrompt', title: 'Anti-slop prompt', description: 'Append the configured quality prompt to session instructions.', control: 'readonly', keywords: ['quality', 'instructions'], fileOnly: true },
-      { id: 'file-detect-scheduled-wakeups', path: 'detectScheduledWakeups', title: 'Detect scheduled wakeups', description: 'Surface advisory wakeup timing for scheduled sessions.', control: 'readonly', keywords: ['schedule', 'sleep'], fileOnly: true },
-      { id: 'file-worktree-auto-rebase', path: 'worktreeAutoRebase', title: 'Worktree auto-rebase', description: 'Rebase eligible session worktrees when the integration branch moves.', control: 'readonly', keywords: ['git', 'branch'], fileOnly: true },
-      { id: 'file-worktree-rerere', path: 'worktreeRerere', title: 'Worktree rerere', description: 'Reuse recorded Git conflict resolutions.', control: 'readonly', keywords: ['git', 'conflicts'], fileOnly: true },
-      { id: 'file-integration-branch', path: 'integrationBranch', title: 'Integration branch', description: "Base branch for session worktrees. Empty = each repo's default branch.", control: 'readonly', keywords: ['git', 'merge'], fileOnly: true },
-      { id: 'file-worktree-root', path: 'worktreeRoot', title: 'Worktree root', description: 'Directory that contains session worktrees.', control: 'readonly', keywords: ['git', 'directory'], fileOnly: true },
-      { id: 'file-worktree-share', path: 'worktreeShare', title: 'Shared worktree paths', description: 'Local paths copied or linked into worktrees.', control: 'readonly', keywords: ['files', 'context'], fileOnly: true },
-      { id: 'file-port', path: 'port', title: 'Local port', description: 'Port used by the local dashboard listener.', control: 'readonly', keywords: ['server', 'listener'], fileOnly: true },
+      { id: 'file-detect-background-agents', path: 'detectBackgroundAgents', title: 'Detect background agents', description: 'Hold completion while tracked background work is active. Changes apply to newly created sessions; recreate existing sessions to apply them.', control: 'readonly', keywords: ['subagents', 'completion'], fileOnly: true },
+      { id: 'file-record-signals', path: 'recordSignals', title: 'Record structural signals', description: 'Keep forensic status and hook recordings for newly created sessions. Full capture (capture.enabled) records these signals even when this is off. Recreate existing sessions to change recording.', control: 'readonly', keywords: ['recordings', 'diagnostics'], fileOnly: true },
+      { id: 'file-trace-enabled', path: 'trace.enabled', title: 'Capture session traces', description: 'Keep normalized Claude transcript traces for session debugging. Requires a server restart.', control: 'readonly', keywords: ['transcripts', 'diagnostics'], fileOnly: true },
+      { id: 'file-anti-slop-prompt', path: 'antiSlopPrompt', title: 'Anti-slop prompt', description: 'Append the built-in code-quality note to Claude Code instructions. Changes apply to newly created sessions; recreate existing sessions to apply them.', control: 'readonly', keywords: ['quality', 'instructions'], fileOnly: true },
+      { id: 'file-detect-scheduled-wakeups', path: 'detectScheduledWakeups', title: 'Detect scheduled wakeups', description: 'Surface advisory wakeup timing for scheduled sessions. Requires a server restart to update the configuration, and newly created sessions use the change.', control: 'readonly', keywords: ['schedule', 'sleep'], fileOnly: true },
+      { id: 'file-worktree-auto-rebase', path: 'worktreeAutoRebase', title: 'Worktree auto-rebase', description: 'Rebase eligible session worktrees when the integration branch moves. Changes apply to newly created sessions; recreate existing sessions to apply them.', control: 'readonly', keywords: ['git', 'branch'], fileOnly: true },
+      { id: 'file-worktree-rerere', path: 'worktreeRerere', title: 'Worktree rerere', description: 'Reuse recorded Git conflict resolutions. Requires a server restart.', control: 'readonly', keywords: ['git', 'conflicts'], fileOnly: true },
+      { id: 'file-integration-branch', path: 'integrationBranch', title: 'Integration branch', description: "Base branch for session worktrees. Empty = each repo's default branch. Reload affects newly created sessions and does not retarget existing sessions.", control: 'readonly', keywords: ['git', 'merge'], fileOnly: true },
+      { id: 'file-worktree-root', path: 'worktreeRoot', title: 'Worktree root', description: 'Directory that contains session worktrees. Changes apply to newly created sessions and do not relocate existing worktrees; recreate existing sessions to change where they create worktrees.', control: 'readonly', keywords: ['git', 'directory'], fileOnly: true },
+      { id: 'file-worktree-share', path: 'worktreeShare', title: 'Shared worktree paths', description: 'Local paths copied or linked during worktree preparation. Changes apply to newly created sessions; recreate existing sessions to use a new share list.', control: 'readonly', keywords: ['files', 'context'], fileOnly: true },
+      { id: 'file-port', path: 'port', title: 'Local port', description: 'Port used by the local dashboard listener. Requires a server restart.', control: 'readonly', keywords: ['server', 'listener'], fileOnly: true },
       { id: 'file-auto-recover-seconds', path: 'autoRecoverSeconds', title: 'Auto-recovery delay', description: 'Delay before an interrupted state can recover.', control: 'readonly', keywords: ['timer', 'recovery'], fileOnly: true },
       { id: 'file-input-grace-seconds', path: 'inputGraceSeconds', title: 'Input grace period', description: 'Grace window around operator input.', control: 'readonly', keywords: ['timer', 'prompt'], fileOnly: true },
       { id: 'file-prompt-detection-ms', path: 'promptDetectionMs', title: 'Prompt detection delay', description: 'Timing threshold used by prompt detection.', control: 'readonly', keywords: ['timer', 'detection'], fileOnly: true },
       { id: 'file-notify-debounce-ms', path: 'notifyDebounceMs', title: 'Notification debounce', description: 'Delay used to coalesce notification state changes.', control: 'readonly', keywords: ['timer', 'alerts'], fileOnly: true },
       { id: 'file-phone-escalation-ms', path: 'phoneEscalationMs', title: 'Phone escalation delay', description: 'Delay before off-dashboard escalation.', control: 'readonly', keywords: ['timer', 'telegram'], fileOnly: true },
-      { id: 'file-post-turn-checks', path: 'postTurnChecks', title: 'Post-turn checks', description: 'Deterministic checks run after eligible turns. They only report findings unless mode is fix.', control: 'readonly', keywords: ['quality', 'fixes'], fileOnly: true },
+      { id: 'file-post-turn-checks', path: 'postTurnChecks', title: 'Post-turn checks', description: 'Deterministic checks run after eligible turns. The global mode is a default; project and individual rule modes can select fixes even when the global mode is report.', control: 'readonly', keywords: ['quality', 'fixes'], fileOnly: true },
       { id: 'file-branch-gc-enabled', path: 'branchGc.enabled', title: 'Branch cleanup', description: 'Enable cleanup of eligible session branches.', control: 'readonly', keywords: ['git', 'cleanup'], fileOnly: true },
       { id: 'file-branch-gc-worktrees', path: 'branchGc.worktrees', title: 'Local worktree cleanup', description: 'Enable cleanup of eligible local worktrees.', control: 'readonly', keywords: ['git', 'worktree', 'cleanup'], fileOnly: true },
-      { id: 'file-branch-gc-prefixes', path: 'branchGc.prefixes', title: 'Branch cleanup prefixes', description: 'Remote branch prefixes eligible for cleanup.', control: 'readonly', keywords: ['git', 'branch'], fileOnly: true },
+      { id: 'file-branch-gc-prefixes', path: 'branchGc.prefixes', title: 'Branch cleanup prefixes', description: 'Branch prefixes that filter both remote branch cleanup and local worktree cleanup.', control: 'readonly', keywords: ['git', 'branch'], fileOnly: true },
       { id: 'file-branch-gc-dry-run', path: 'branchGc.dryRun', title: 'Branch cleanup dry run', description: 'Report planned cleanup without deleting remote branches.', control: 'readonly', keywords: ['git', 'safety'], fileOnly: true },
       { id: 'file-branch-gc-stale-days', path: 'branchGc.staleDays', title: 'Branch stale days', description: 'Age threshold for orphan branch cleanup when unmerged deletion is on.', control: 'readonly', keywords: ['git', 'retention'], fileOnly: true },
       { id: 'file-branch-gc-interval-ms', path: 'branchGc.intervalMs', title: 'Branch cleanup interval', description: 'Delay between branch cleanup passes.', control: 'readonly', keywords: ['git', 'schedule'], fileOnly: true },
@@ -333,7 +335,7 @@ export const SETTINGS_MAP = Object.freeze([
     settings: [
       {
         id: 'telegram-bot-token', path: 'telegram.botToken', title: 'Bot token',
-        description: 'Credential used by the shared Telegram bot.',
+        description: 'Credential used by the shared Telegram bot. When GLIMMERVOID_TELEGRAM_BOT_TOKEN supplies it, this field is read-only.',
         control: 'password', keywords: ['credential', 'api'], defaultValue: '',
       },
       {
@@ -343,7 +345,7 @@ export const SETTINGS_MAP = Object.freeze([
       },
       {
         id: 'telegram-session-notifications', path: 'telegramNotifications', title: 'Send session notifications',
-        description: 'Ping when a session completes, needs input or fails and no dashboard is open.',
+        description: 'Send session completion, input and failure alerts when no dashboard is open. Unacknowledged alerts also escalate after the phone escalation delay while a dashboard remains open.',
         control: 'toggle', keywords: ['phone', 'off dashboard'], defaultValue: false,
       },
     ],
@@ -371,39 +373,35 @@ export const SETTINGS_MAP = Object.freeze([
       },
       {
         id: 'usage-fetch-pricing', path: 'usage.fetchPricing', title: 'Fetch current model prices',
-        description: 'Refresh the public price table daily instead of relying only on the bundled snapshot.',
+        description: 'Load public model prices when usage tracking starts, using a cached table for up to one day. Falls back to cached or bundled prices if the fetch fails; no daily refresh runs while tracking continues.',
         control: 'toggle', keywords: ['rates', 'models'], defaultValue: true,
       },
       {
         id: 'usage-scan-interval', path: 'usage.scanIntervalMinutes', title: 'Scan interval (minutes)',
-        description: 'Delay between completed transcript scans.',
+        description: 'Periodic transcript polling interval. Session activity can also trigger scans between timer ticks.',
         control: 'number', range: 'USAGE_SCAN_INTERVAL_RANGE', keywords: ['poll', 'refresh'], defaultValue: 5,
       },
       {
         id: 'usage-retain-days', path: 'usage.retainDays', title: 'Retain transcript detail (days)',
-        description: 'How long live transcript detail stays available.',
+        description: 'How long live transcript detail stays available. A monthly budget keeps detail from the start of the current month when that is longer.',
         control: 'number', range: 'USAGE_RETAIN_DAYS_RANGE', keywords: ['history', 'retention'], defaultValue: 90,
       },
       {
         id: 'usage-cost-mode', path: 'usage.costMode', title: 'Cost mode',
         description: 'Choose whether recorded costs, calculated costs or both can appear.',
         control: 'select',
-        options: [
-          { value: 'auto', label: 'Auto' },
-          { value: 'calculate', label: 'Calculate' },
-          { value: 'display', label: 'Display' },
-        ],
+        options: USAGE_COST_MODES.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) })),
         keywords: ['pricing', 'estimate'], defaultValue: 'auto',
       },
       {
         id: 'usage-daily-budget', path: 'usage.budget.dailyUsd', title: 'Daily budget (USD)',
-        description: 'Estimated daily spend ceiling. Zero or below means no ceiling.',
+        description: 'Estimated daily spend alert threshold. Alerts at 50%, 75% and 100% do not stop spending. Zero or below disables the threshold.',
         control: 'number', range: 'USAGE_BUDGET_RANGE', keywords: ['spend', 'alert'], defaultValue: null,
         integer: false, nullable: true, zeroIsNull: true, step: 0.01,
       },
       {
         id: 'usage-monthly-budget', path: 'usage.budget.monthlyUsd', title: 'Monthly budget (USD)',
-        description: 'Estimated monthly spend ceiling. Zero or below means no ceiling.',
+        description: 'Estimated monthly spend alert threshold. Alerts at 50%, 75% and 100% do not stop spending. Zero or below disables the threshold.',
         control: 'number', range: 'USAGE_BUDGET_RANGE', keywords: ['spend', 'alert'], defaultValue: null,
         integer: false, nullable: true, zeroIsNull: true, step: 0.01,
       },
@@ -436,7 +434,7 @@ export const SETTINGS_MAP = Object.freeze([
       {
         id: 'change-map-narrator-engine', path: 'changeMap.narrator.engine', title: 'Narrator engine',
         description: 'CLI used to generate change map claims.',
-        control: 'select', options: [{ value: 'claude', label: 'Claude' }, { value: 'codex', label: 'Codex' }],
+        control: 'select', options: CHANGE_MAP_NARRATOR_ENGINES.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) })),
         keywords: ['claude', 'codex'], defaultValue: 'claude',
       },
       {
@@ -459,7 +457,7 @@ export const SETTINGS_MAP = Object.freeze([
     settings: [
       {
         id: 'visions-enabled', path: 'visions.enabled', title: 'Enable Visions',
-        description: 'Wires every editor on this machine, then shows their buffers findings in the Visions view.',
+        description: 'Set up supported editors detected on this machine, then show their buffer findings in the Visions view.',
         control: 'toggle', keywords: ['editor', 'findings', 'lsp'], defaultValue: false,
       },
       {
@@ -469,12 +467,12 @@ export const SETTINGS_MAP = Object.freeze([
       },
       {
         id: 'visions-quiet-delay', path: 'visions.dispatch.quietMs', title: 'Quiet delay (ms)',
-        description: 'Required editor quiet time before dispatch.',
+        description: 'Editor quiet time before a scheduled review. Saves and blank-line boundaries can dispatch immediately, subject to the other review limits.',
         control: 'number', range: 'VISIONS_QUIET_MS_RANGE', keywords: ['debounce', 'idle'], defaultValue: 30000,
       },
       {
         id: 'visions-cooldown', path: 'visions.dispatch.cooldownMs', title: 'Cooldown (ms)',
-        description: 'Minimum delay between review dispatches.',
+        description: 'Minimum delay between reviews of the same document. Initial orientation reviews bypass this delay.',
         control: 'number', range: 'VISIONS_COOLDOWN_MS_RANGE', keywords: ['rate limit', 'delay'], defaultValue: 300000,
       },
       {
@@ -484,8 +482,8 @@ export const SETTINGS_MAP = Object.freeze([
       },
       {
         id: 'visions-activity-max-per-hour', path: 'visions.dispatch.activityMaxPerHour', title: 'Activity max per hour',
-        description: 'Maximum activity-driven reviews dispatched per hour.',
-        control: 'number', range: 'VISIONS_ACTIVITY_MAX_PER_HOUR_RANGE', keywords: ['rate limit', 'events'], defaultValue: 2,
+        description: 'Maximum activity-driven reviews dispatched per hour, capped at the overall hourly limit minus one to reserve an edit-review slot.',
+        control: 'number', range: 'VISIONS_ACTIVITY_MAX_PER_HOUR_RANGE', status: 'visions-activity-limit', keywords: ['rate limit', 'events'], defaultValue: 2,
       },
       {
         id: 'visions-dispatch-timeout', path: 'visions.dispatch.dispatchTimeoutSeconds', title: 'Dispatch timeout (seconds)',
@@ -499,17 +497,17 @@ export const SETTINGS_MAP = Object.freeze([
       },
       {
         id: 'visions-model', path: 'visions.dispatch.model', title: 'Model override',
-        description: 'Leave blank to use the configured Claude Code default.',
+        description: 'Leave blank to use the opus model alias.',
         control: 'text', keywords: ['claude', 'override'], defaultValue: '',
       },
       {
         id: 'visions-projects', path: 'visions.projects', title: 'Projects',
-        description: 'Leave every project clear to accept buffers from every configured project.',
+        description: 'Clear every selection, including unavailable projects, to accept buffers from every configured project.',
         control: 'projects', keywords: ['repositories', 'filter'], defaultValue: [],
       },
       {
         id: 'visions-auto-fix', path: 'visions.autoFix', title: 'Apply tier 1 fixes',
-        description: 'Allow Visions to edit the active buffer without asking.',
+        description: 'Allow Visions to edit eligible open Markdown buffers, including inactive buffers, without asking.',
         control: 'toggle', keywords: ['automatic', 'edits'], danger: true,
         warning: 'Enabling this control lets Visions edit eligible buffers without a carbon unit present.', defaultValue: false,
       },
@@ -523,7 +521,7 @@ export const SETTINGS_MAP = Object.freeze([
     settings: [
       {
         id: 'ingest-enabled', path: 'ingest.enabled', title: 'Enable machine context ingest',
-        description: 'Enable the local activity feed behind Visions. Turning Visions on turns this on for you.',
+        description: 'Enable the local activity feed behind Visions. Turning Visions on enables ingest unless ingest.enabled is explicitly false.',
         control: 'toggle', keywords: ['events', 'activity'], defaultValue: false,
       },
       {
@@ -576,18 +574,18 @@ export const SETTINGS_MAP = Object.freeze([
       },
       {
         id: 'posthog-api-key', path: 'posthog.apiKey', title: 'Personal API key',
-        description: 'Credential with read access to PostHog projects.',
+        description: 'Credential with read access to PostHog projects. When GLIMMERVOID_POSTHOG_API_KEY supplies it, this field is read-only.',
         control: 'password', keywords: ['credential', 'token'], defaultValue: '',
       },
       {
         id: 'posthog-projects', path: 'posthog.projects', title: 'Projects',
-        description: 'Use all or a comma-separated list of numeric PostHog project ids.',
+        description: 'Use all, none for an empty selection, or a comma-separated list of positive integer PostHog project ids. Blank means all.',
         control: 'text', keywords: ['project ids', 'filter'], defaultValue: 'all', valueKind: 'posthog-projects',
       },
       {
         id: 'posthog-interval', path: 'posthog.intervalMinutes', title: 'Poll interval (minutes)',
         description: 'Delay between PostHog polling passes.',
-        control: 'number', range: 'POSTHOG_INTERVAL_RANGE', keywords: ['refresh', 'schedule'], defaultValue: 15,
+        control: 'number', integer: false, step: 'any' as const, range: 'POSTHOG_INTERVAL_RANGE', keywords: ['refresh', 'schedule'], defaultValue: 15,
       },
       {
         id: 'posthog-max-investigations', path: 'posthog.maxConcurrentInvestigations', title: 'Max concurrent investigations',
@@ -597,11 +595,11 @@ export const SETTINGS_MAP = Object.freeze([
       {
         id: 'posthog-investigation-timeout', path: 'posthog.investigationTimeoutSeconds', title: 'Investigation timeout (seconds)',
         description: 'Maximum time allowed for one investigation.',
-        control: 'number', range: 'POSTHOG_INVESTIGATION_TIMEOUT_RANGE', keywords: ['deadline', 'session'], defaultValue: 900,
+        control: 'number', integer: false, step: 'any' as const, range: 'POSTHOG_INVESTIGATION_TIMEOUT_RANGE', keywords: ['deadline', 'session'], defaultValue: 900,
       },
       {
         id: 'posthog-min-users', path: 'posthog.minUsersToInvestigate', title: 'Min users to investigate',
-        description: 'Minimum affected users before an issue is investigated.',
+        description: 'Minimum affected users for a new issue investigation. Regressions, worsening issues and eligible error spikes bypass this minimum.',
         control: 'number', range: 'POSTHOG_MIN_USERS_RANGE', keywords: ['threshold', 'affected'], defaultValue: 1,
       },
       {
@@ -612,7 +610,7 @@ export const SETTINGS_MAP = Object.freeze([
       {
         id: 'posthog-fix-timeout', path: 'posthog.fixTimeoutSeconds', title: 'Fix timeout (seconds)',
         description: 'Maximum time allowed for one fix session.',
-        control: 'number', range: 'POSTHOG_FIX_TIMEOUT_RANGE', keywords: ['deadline', 'repair'], defaultValue: 1800,
+        control: 'number', integer: false, step: 'any' as const, range: 'POSTHOG_FIX_TIMEOUT_RANGE', keywords: ['deadline', 'repair'], defaultValue: 1800,
       },
       {
         id: 'posthog-traffic-enabled', path: 'posthog.trafficSpikeEnabled', title: 'Traffic spike alerts',
@@ -622,17 +620,17 @@ export const SETTINGS_MAP = Object.freeze([
       {
         id: 'posthog-traffic-multiplier', path: 'posthog.trafficSpikeMultiplier', title: 'Spike multiplier',
         description: 'Baseline multiplier required to classify a traffic spike.',
-        control: 'number', range: 'POSTHOG_TRAFFIC_MULTIPLIER_RANGE', keywords: ['baseline', 'ratio'], defaultValue: 3,
+        control: 'number', integer: false, step: 'any' as const, range: 'POSTHOG_TRAFFIC_MULTIPLIER_RANGE', keywords: ['baseline', 'ratio'], defaultValue: 3,
       },
       {
         id: 'posthog-traffic-min-users', path: 'posthog.trafficSpikeMinUsers', title: 'Min users to alert',
-        description: 'Minimum recent unique users required for a traffic alert.',
+        description: 'Minimum recent unique users for an initial traffic-spike alert. Escalation and recovery alerts bypass this minimum.',
         control: 'number', range: 'POSTHOG_TRAFFIC_MIN_USERS_RANGE', keywords: ['threshold', 'analytics'], defaultValue: 10,
       },
       {
         id: 'posthog-traffic-cooldown', path: 'posthog.trafficSpikeCooldownMinutes', title: 'Spike cooldown (minutes)',
-        description: 'Minimum delay between traffic alerts. Zero disables muting.',
-        control: 'number', range: 'POSTHOG_TRAFFIC_COOLDOWN_RANGE', keywords: ['silence', 'delay'], defaultValue: 360,
+        description: 'Cooldown for new traffic spikes. Escalation and recovery alerts bypass it. Zero removes the time delay; repeated active-spike alerts are still suppressed.',
+        control: 'number', integer: false, step: 'any' as const, range: 'POSTHOG_TRAFFIC_COOLDOWN_RANGE', keywords: ['silence', 'delay'], defaultValue: 360,
       },
       {
         id: 'posthog-traffic-baseline', path: 'posthog.trafficSpikeBaselineDays', title: 'Baseline window (days)',
@@ -723,11 +721,11 @@ export const SETTINGS_MAP = Object.freeze([
     id: 'lanes-factory',
     level: 'lanes',
     title: 'Factory',
-    description: 'Let a master orchestrator work a queue of intents in repos that hold a coherence.config.json, with glimmervoid enforcing guardrails.',
+    description: 'Read Coherence reports from repositories whose integration branch holds a coherence.config.json and show their status in the Factory tab.',
     settings: [
       {
         id: 'factory-enabled', path: 'factory.enabled', title: 'Enable the factory',
-        description: 'Show the Factory tab. Off by default.',
+        description: 'Enable Coherence status polling and show the Factory tab. Off by default.',
         control: 'toggle', keywords: ['orchestrator', 'intents', 'queue', 'coherence', 'guardrails'], defaultValue: false,
       },
     ],
@@ -736,11 +734,11 @@ export const SETTINGS_MAP = Object.freeze([
     id: 'lanes-knowledge-graph',
     level: 'lanes',
     title: 'Knowledge graph (experimental)',
-    description: 'A typed, local-first graph of your projects, tasks, notes, references and questions, kept in one SQLite file under the Glimmervoid home and driven from the glimmervoid kg command.',
+    description: 'A typed local graph of projects, tasks, notes, references and questions, driven from the glimmervoid kg command. Its SQLite database defaults to the Glimmervoid home; --db selects another path.',
     settings: [
       {
         id: 'knowledge-graph-enabled', path: 'knowledgeGraph.enabled', title: 'Enable the knowledge graph',
-        description: 'Allow the glimmervoid kg command. It reads Coherence ledgers to report where your tasks and the agents\' work orders disagree, and never writes into a repository. Off by default.',
+        description: 'Allow the glimmervoid kg command. It reads Coherence ledgers to report where your tasks and the agents\' work orders disagree, without modifying those ledgers. Graph writes go to the selected SQLite database, which can be inside a repository when --db names that path. Off by default.',
         control: 'toggle', keywords: ['experimental', 'kg', 'tasks', 'notes', 'references', 'coherence'], defaultValue: false,
       },
     ],
@@ -758,7 +756,7 @@ export const SETTINGS_MAP = Object.freeze([
       },
       {
         id: 'workflows-max-concurrent-sessions', path: 'workflows.maxConcurrentSessions', title: 'Concurrent agent sessions',
-        description: 'Most workflow agent sessions running at once. Later spawns wait for a free slot.',
+        description: 'Most workflow agent sessions running at once. Up to twenty later spawns wait for a free slot; additional spawns are dropped and logged.',
         control: 'number', range: 'WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE', keywords: ['parallel', 'spawn'], defaultValue: 2,
       },
       {
@@ -788,7 +786,7 @@ export const SETTINGS_MAP = Object.freeze([
       },
       {
         id: 'sane-yolo', path: 'saneYolo', title: 'Sane YOLO',
-        description: 'Block catastrophic commands (deleting home or root, discarding uncommitted work, force pushes, disk wipes, infrastructure destroy) in sessions that skip permission prompts. Applies to sessions created after the change.',
+        description: 'Block catastrophic commands in sessions that skip permission prompts when the cc-safety-net executable is available and trusted hooks are installed. Missing or untrusted hooks leave a session unprotected. Applies to sessions created after the change.',
         control: 'toggle', keywords: ['permissions', 'yolo', 'safety'], defaultValue: true,
       },
       {
@@ -800,8 +798,8 @@ export const SETTINGS_MAP = Object.freeze([
       },
       {
         id: 'post-turn-checks-mode', path: 'postTurnChecks.mode', title: 'Post-turn checks mode',
-        description: 'Report findings or let post-turn checks fix eligible files.',
-        control: 'select', options: [{ value: 'report', label: 'Report' }, { value: 'fix', label: 'Fix' }],
+        description: 'Default mode for post-turn checks. Project and individual rule modes override it, so Report can still allow file fixes.',
+        control: 'select', options: POST_TURN_CHECK_MODES.map((value) => ({ value, label: value === 'report' ? 'Report' : 'Fix' })),
         keywords: ['quality', 'fixes'], defaultValue: 'report',
       },
       {

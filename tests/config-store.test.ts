@@ -10,6 +10,7 @@ import {
 } from '../server/config-store.ts';
 import type { ConfigStore, DefaultConfig, GlimmervoidConfig } from '../server/config-store.ts';
 import { ENV_SECRET_BINDINGS } from '../server/core/config-secrets-core.ts';
+import { assetForPlatform } from '../server/core/rtk-install-core.ts';
 import { getAdapter, setCustomAgents } from '../session/adapters/index.ts';
 import { ConfigUpdate } from '../shared/contracts/index.ts';
 import { SECRET_PRESENCE_SUFFIX as CLIENT_SECRET_PRESENCE_SUFFIX } from '../public/settings-view-core.ts';
@@ -113,10 +114,10 @@ test('validateConfig accepts lenient partial configs and unknown keys', () => {
   assert.deepEqual(validateConfig(lenient), { ok: true, config: lenient });
 });
 
-test('config file compatibility keeps port zero and replayBufferKB zero', () => {
+test('config file compatibility keeps port zero and migrates replayBufferKB zero to its minimum', () => {
   withStore({ projects: [], port: 0, replayBufferKB: 0 }, (store) => {
     assert.equal(store.config.port, 0);
-    assert.equal(store.config.replayBufferKB, 0);
+    assert.equal(store.config.replayBufferKB, 64);
   });
 });
 
@@ -491,6 +492,14 @@ test('rtk is a settable top-level boolean', () => {
   });
 });
 
+test('getSettings reports the host platform facts the settings panel reads', () => {
+  withStore({ projects: [] }, (store) => {
+    const settings = store.getSettings();
+    assert.equal(settings.repositoryRootCaseInsensitive, process.platform === 'win32');
+    assert.equal(settings.rtkInstallSupported, assetForPlatform(process.platform, process.arch) !== null);
+  });
+});
+
 test('getSettings resolves branchGc defaults while opt-in blocks stay null; projectChoices derives from projects', () => {
   withStore({ projects: [{ id: 'p1', name: 'proj-one', path: 'C:/p1' }] }, (store) => {
     const s = store.getSettings();
@@ -585,6 +594,32 @@ test('getSettings reports a secret the environment alone provides as configured'
       assert.equal(block(settings.telegram).botTokenConfigured, true);
       assert.equal(JSON.stringify(settings).includes('bot-from-env'), false, 'the projection still redacts it');
     });
+  });
+});
+
+test('getSettings exposes environment ownership for both credentials without sending their values', () => {
+  withSecretEnv({ GLIMMERVOID_TELEGRAM_BOT_TOKEN: 'telegram-env-secret', GLIMMERVOID_POSTHOG_API_KEY: 'posthog-env-secret' }, () => {
+    withStore({ projects: [] }, (store) => {
+      const settings = store.getSettings();
+      assert.deepEqual(settings.secretSources, {
+        'telegram.botToken': 'GLIMMERVOID_TELEGRAM_BOT_TOKEN',
+        'posthog.apiKey': 'GLIMMERVOID_POSTHOG_API_KEY',
+      });
+      assert.equal(JSON.stringify(settings).includes('telegram-env-secret'), false);
+      assert.equal(JSON.stringify(settings).includes('posthog-env-secret'), false);
+    });
+  });
+});
+
+test('loading legacy fractional settings migrates counts without rejecting the file or discarding unknown keys', () => {
+  withStore({
+    projects: [], replayBufferKB: 512.5,
+    visions: { dispatch: { maxPerHour: 6.5, activityMaxPerHour: 2.5, quietMs: 30.5 }, futureKey: 'kept' },
+    posthog: { maxConcurrentInvestigations: 2.5, trafficSpikeBaselineDays: 7.5, intervalMinutes: 2.5 },
+  }, (store) => {
+    assert.equal(store.config.replayBufferKB, 512);
+    assert.deepEqual(store.config.visions, { dispatch: { maxPerHour: 6, activityMaxPerHour: 2, quietMs: 30 }, futureKey: 'kept' });
+    assert.deepEqual(store.config.posthog, { maxConcurrentInvestigations: 3, trafficSpikeBaselineDays: 7, intervalMinutes: 2.5 });
   });
 });
 

@@ -16,6 +16,8 @@ import { INGEST_SPEC, pickSettingsBlock } from './core/settings-block-core.ts';
 import { writeJsonAtomicSync, writeTextAtomic, writeTextAtomicSync } from './json-file.ts';
 import { errorLabel, errorMessage } from '../shared/text.ts';
 import { isRecord } from '../shared/coerce.ts';
+import { normalizeLegacyConfigNumbers } from '../shared/contracts/config-numbers-core.ts';
+import { assetForPlatform } from './core/rtk-install-core.ts';
 
 type ProjectEntry = Config['projects'][number] & { id: string; name: string };
 interface GlimmervoidConfig extends Config {
@@ -180,6 +182,7 @@ function validateConfig(candidate: unknown): ConfigValidation {
       if (issue.code === 'custom') return issue.message;
       const [root, index, field] = issue.path;
       if (root === 'port') return 'port must be an integer from 0 to 65535';
+      if (root === 'replayBufferKB') return issue.message;
       if (root === 'repoRoots' || root === 'worktreeShare') return `${root} must be an array of strings`;
       if (root === 'remote') return 'remote must be a plain object';
       if (root !== 'projects' && typeof DEFAULT_CONFIG_BY_KEY[String(root)] === 'number') {
@@ -199,7 +202,7 @@ function validateConfig(candidate: unknown): ConfigValidation {
 
 function normalizeConfigFile(candidate: unknown): GlimmervoidConfig {
   if (!isRecord(candidate)) throw new Error('config must be a plain object');
-  const draft: Record<string, unknown> = candidate;
+  const draft = normalizeLegacyConfigNumbers(candidate);
   for (const [key, fallback] of Object.entries(DEFAULT_CONFIG_BY_KEY)) {
     if (fallback === null || typeof fallback === 'object') continue;
     if (!Object.hasOwn(draft, key)) continue;
@@ -494,6 +497,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       telemetryForcedOff: isTelemetryForcedOff(process.env),
       antiSlopPrompt: config.antiSlopPrompt ?? effectiveDefaults.antiSlopPrompt,
       rtk: config.rtk ?? effectiveDefaults.rtk,
+      rtkInstallSupported: assetForPlatform(process.platform, process.arch) !== null,
       saneYolo: config.saneYolo ?? effectiveDefaults.saneYolo,
       checkForUpdates: config.checkForUpdates ?? effectiveDefaults.checkForUpdates,
       updateChannel: config.updateChannel ?? effectiveDefaults.updateChannel,
@@ -504,6 +508,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       worktreeRoot: config.worktreeRoot ?? effectiveDefaults.worktreeRoot,
       worktreeShare: config.worktreeShare ?? effectiveDefaults.worktreeShare,
       repoRoots: config.repoRoots,
+      repositoryRootCaseInsensitive: equalsIgnoringCaseOnWindows('root', 'ROOT'),
 
       taskTitle: config.taskTitle ? { ...config.taskTitle } : { ...DEFAULT_CONFIG.taskTitle },
       changeMap: config.changeMap ? { ...config.changeMap } : null,
@@ -517,6 +522,9 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       workflows: config.workflows ?? null,
 
       posthog: pickRedactedBlock(config.posthog, POSTHOG_SETTINGS_KEYS, POSTHOG_SECRET_KEYS),
+      secretSources: Object.fromEntries(readEnvSecrets(process.env).map((secret) => [
+        `${secret.blockName}.${secret.secretKey}`, secret.environmentVariable,
+      ])),
 
       usage: config.usage ? { ...config.usage } : null,
       telegram: pickRedactedBlock(config.telegram, TELEGRAM_SETTINGS_KEYS, TELEGRAM_SECRET_KEYS),

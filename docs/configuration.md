@@ -18,7 +18,7 @@ Machine-wide session startup and diagnostics.
 |-----|---------|---------|-------|
 | `autoResume` | Auto-resume sessions on startup | `true` | Resume conversations that were live when Glimmervoid last shut down or crashed. |
 | `debugMode` | Debug mode | `false` | Show session-card diagnostics for state, transitions and detection signals. |
-| `calmLayout` | Calm layout (experimental) | `false` | Replace the Focus rail with a priority view that surfaces only sessions needing you. Applies to every browser on this machine. |
+| `calmLayout` | Calm layout (experimental) | `false` | Replace the Focus rail with a view that prioritizes sessions needing attention and also shows ready and working indicators. Applies to every browser on this machine. |
 
 ### Updates
 
@@ -44,26 +44,26 @@ Config-file-only detection, timing, worktree and process settings.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `detectBackgroundAgents` | Detect background agents | `true` | Hold completion while tracked background work is active. **File-only.** |
-| `recordSignals` | Record structural signals | `true` | Keep forensic status and hook recordings. **File-only.** |
-| `trace.enabled` | Capture session traces | `true` | Keep normalized Claude transcript traces for session debugging. **File-only.** |
-| `antiSlopPrompt` | Anti-slop prompt | `false` | Append the configured quality prompt to session instructions. **File-only.** |
-| `detectScheduledWakeups` | Detect scheduled wakeups | `true` | Surface advisory wakeup timing for scheduled sessions. **File-only.** |
-| `worktreeAutoRebase` | Worktree auto-rebase | `true` | Rebase eligible session worktrees when the integration branch moves. **File-only.** |
-| `worktreeRerere` | Worktree rerere | `true` | Reuse recorded Git conflict resolutions. **File-only.** |
-| `integrationBranch` | Integration branch | `null` | Base branch for session worktrees. Empty = each repo's default branch. **File-only.** |
-| `worktreeRoot` | Worktree root | `""` | Directory that contains session worktrees. **File-only.** |
-| `worktreeShare` | Shared worktree paths | `["node_modules",".env",".env.local",".claude"]` | Local paths copied or linked into worktrees. **File-only.** |
-| `port` | Local port | `3000` | Port used by the local dashboard listener. **File-only.** |
+| `detectBackgroundAgents` | Detect background agents | `true` | Hold completion while tracked background work is active. Changes apply to newly created sessions; recreate existing sessions to apply them. **File-only.** |
+| `recordSignals` | Record structural signals | `true` | Keep forensic status and hook recordings for newly created sessions. Full capture (capture.enabled) records these signals even when this is off. Recreate existing sessions to change recording. **File-only.** |
+| `trace.enabled` | Capture session traces | `true` | Keep normalized Claude transcript traces for session debugging. Requires a server restart. **File-only.** |
+| `antiSlopPrompt` | Anti-slop prompt | `false` | Append the built-in code-quality note to Claude Code instructions. Changes apply to newly created sessions; recreate existing sessions to apply them. **File-only.** |
+| `detectScheduledWakeups` | Detect scheduled wakeups | `true` | Surface advisory wakeup timing for scheduled sessions. Requires a server restart to update the configuration, and newly created sessions use the change. **File-only.** |
+| `worktreeAutoRebase` | Worktree auto-rebase | `true` | Rebase eligible session worktrees when the integration branch moves. Changes apply to newly created sessions; recreate existing sessions to apply them. **File-only.** |
+| `worktreeRerere` | Worktree rerere | `true` | Reuse recorded Git conflict resolutions. Requires a server restart. **File-only.** |
+| `integrationBranch` | Integration branch | `null` | Base branch for session worktrees. Empty = each repo's default branch. Reload affects newly created sessions and does not retarget existing sessions. **File-only.** |
+| `worktreeRoot` | Worktree root | `""` | Directory that contains session worktrees. Changes apply to newly created sessions and do not relocate existing worktrees; recreate existing sessions to change where they create worktrees. **File-only.** |
+| `worktreeShare` | Shared worktree paths | `["node_modules",".env",".env.local",".claude"]` | Local paths copied or linked during worktree preparation. Changes apply to newly created sessions; recreate existing sessions to use a new share list. **File-only.** |
+| `port` | Local port | `3000` | Port used by the local dashboard listener. Requires a server restart. **File-only.** |
 | `autoRecoverSeconds` | Auto-recovery delay | `3` | Delay before an interrupted state can recover. **File-only.** |
 | `inputGraceSeconds` | Input grace period | `5` | Grace window around operator input. **File-only.** |
 | `promptDetectionMs` | Prompt detection delay | `1500` | Timing threshold used by prompt detection. **File-only.** |
 | `notifyDebounceMs` | Notification debounce | `3000` | Delay used to coalesce notification state changes. **File-only.** |
 | `phoneEscalationMs` | Phone escalation delay | `300000` | Delay before off-dashboard escalation. **File-only.** |
-| `postTurnChecks` | Post-turn checks | `{"enabled":true,"mode":"report","rules":{"trailingWs":true,"finalNewline":true,"bom":true,"slop":false}}` | Deterministic checks run after eligible turns. They only report findings unless mode is fix. **File-only.** |
+| `postTurnChecks` | Post-turn checks | `{"enabled":true,"mode":"report","rules":{"trailingWs":true,"finalNewline":true,"bom":true,"slop":false}}` | Deterministic checks run after eligible turns. The global mode is a default; project and individual rule modes can select fixes even when the global mode is report. **File-only.** |
 | `branchGc.enabled` | Branch cleanup | `true` | Enable cleanup of eligible session branches. **File-only.** |
 | `branchGc.worktrees` | Local worktree cleanup | `true` | Enable cleanup of eligible local worktrees. **File-only.** |
-| `branchGc.prefixes` | Branch cleanup prefixes | `["glimmervoid/session/","worktree-agent-"]` | Remote branch prefixes eligible for cleanup. **File-only.** |
+| `branchGc.prefixes` | Branch cleanup prefixes | `["glimmervoid/session/","worktree-agent-"]` | Branch prefixes that filter both remote branch cleanup and local worktree cleanup. **File-only.** |
 | `branchGc.dryRun` | Branch cleanup dry run | `false` | Report planned cleanup without deleting remote branches. **File-only.** |
 | `branchGc.staleDays` | Branch stale days | `14` | Age threshold for orphan branch cleanup when unmerged deletion is on. **File-only.** |
 | `branchGc.intervalMs` | Branch cleanup interval | `21600000` | Delay between branch cleanup passes. **File-only.** |
@@ -83,9 +83,9 @@ One bot shared by session, PR review and PostHog notifications.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `telegram.botToken` | Bot token | `""` | Credential used by the shared Telegram bot. |
+| `telegram.botToken` | Bot token | `""` | Credential used by the shared Telegram bot. When GLIMMERVOID_TELEGRAM_BOT_TOKEN supplies it, this field is read-only. |
 | `telegram.chatId` | Chat id | `""` | Destination chat for enabled Telegram lanes. |
-| `telegramNotifications` | Send session notifications | `false` | Ping when a session completes, needs input or fails and no dashboard is open. |
+| `telegramNotifications` | Send session notifications | `false` | Send session completion, input and failure alerts when no dashboard is open. Unacknowledged alerts also escalate after the phone escalation delay while a dashboard remains open. |
 
 ### Usage
 
@@ -96,12 +96,12 @@ Local transcript accounting and estimated-cost budgets.
 | `usage.enabled` | Track token usage | `true` | Read local CLI transcripts and roll them into the Usage view and session chips. |
 | `usage.vendors.codex` | Track Codex usage | `true` | Include local Codex CLI transcripts in usage reports. |
 | `usage.vendors.grok` | Track Grok usage | `true` | Include local Grok CLI transcripts in usage reports. |
-| `usage.fetchPricing` | Fetch current model prices | `true` | Refresh the public price table daily instead of relying only on the bundled snapshot. |
-| `usage.scanIntervalMinutes` | Scan interval (minutes) | `5` | Delay between completed transcript scans. |
-| `usage.retainDays` | Retain transcript detail (days) | `90` | How long live transcript detail stays available. |
+| `usage.fetchPricing` | Fetch current model prices | `true` | Load public model prices when usage tracking starts, using a cached table for up to one day. Falls back to cached or bundled prices if the fetch fails; no daily refresh runs while tracking continues. |
+| `usage.scanIntervalMinutes` | Scan interval (minutes) | `5` | Periodic transcript polling interval. Session activity can also trigger scans between timer ticks. |
+| `usage.retainDays` | Retain transcript detail (days) | `90` | How long live transcript detail stays available. A monthly budget keeps detail from the start of the current month when that is longer. |
 | `usage.costMode` | Cost mode | `"auto"` | Choose whether recorded costs, calculated costs or both can appear. |
-| `usage.budget.dailyUsd` | Daily budget (USD) | `null` | Estimated daily spend ceiling. Zero or below means no ceiling. |
-| `usage.budget.monthlyUsd` | Monthly budget (USD) | `null` | Estimated monthly spend ceiling. Zero or below means no ceiling. |
+| `usage.budget.dailyUsd` | Daily budget (USD) | `null` | Estimated daily spend alert threshold. Alerts at 50%, 75% and 100% do not stop spending. Zero or below disables the threshold. |
+| `usage.budget.monthlyUsd` | Monthly budget (USD) | `null` | Estimated monthly spend alert threshold. Alerts at 50%, 75% and 100% do not stop spending. Zero or below disables the threshold. |
 
 ### Privacy
 
@@ -128,17 +128,17 @@ Editor-buffer findings and bounded model comments.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `visions.enabled` | Enable Visions | `false` | Wires every editor on this machine, then shows their buffers findings in the Visions view. |
+| `visions.enabled` | Enable Visions | `false` | Set up supported editors detected on this machine, then show their buffer findings in the Visions view. |
 | `visions.dispatch.enabled` | Enable model comments | `false` | Start bounded review sessions for local editor buffers. |
-| `visions.dispatch.quietMs` | Quiet delay (ms) | `30000` | Required editor quiet time before dispatch. |
-| `visions.dispatch.cooldownMs` | Cooldown (ms) | `300000` | Minimum delay between review dispatches. |
+| `visions.dispatch.quietMs` | Quiet delay (ms) | `30000` | Editor quiet time before a scheduled review. Saves and blank-line boundaries can dispatch immediately, subject to the other review limits. |
+| `visions.dispatch.cooldownMs` | Cooldown (ms) | `300000` | Minimum delay between reviews of the same document. Initial orientation reviews bypass this delay. |
 | `visions.dispatch.maxPerHour` | Max per hour | `6` | Maximum review sessions dispatched per hour. |
-| `visions.dispatch.activityMaxPerHour` | Activity max per hour | `2` | Maximum activity-driven reviews dispatched per hour. |
+| `visions.dispatch.activityMaxPerHour` | Activity max per hour | `2` | Maximum activity-driven reviews dispatched per hour, capped at the overall hourly limit minus one to reserve an edit-review slot. |
 | `visions.dispatch.dispatchTimeoutSeconds` | Dispatch timeout (seconds) | `180` | Maximum time allowed for one review session. |
 | `visions.intent.threadTtlMs` | Intent thread lifetime (ms) | `259200000` | How long an intent thread nobody advanced stays live before it retires. |
-| `visions.dispatch.model` | Model override | `""` | Leave blank to use the configured Claude Code default. |
-| `visions.projects` | Projects | `[]` | Leave every project clear to accept buffers from every configured project. |
-| `visions.autoFix` | Apply tier 1 fixes | `false` | Allow Visions to edit the active buffer without asking. |
+| `visions.dispatch.model` | Model override | `""` | Leave blank to use the opus model alias. |
+| `visions.projects` | Projects | `[]` | Clear every selection, including unavailable projects, to accept buffers from every configured project. |
+| `visions.autoFix` | Apply tier 1 fixes | `false` | Allow Visions to edit eligible open Markdown buffers, including inactive buffers, without asking. |
 
 ### Ingest
 
@@ -146,7 +146,7 @@ Machine-context ingest behind Visions.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `ingest.enabled` | Enable machine context ingest | `false` | Enable the local activity feed behind Visions. Turning Visions on turns this on for you. |
+| `ingest.enabled` | Enable machine context ingest | `false` | Enable the local activity feed behind Visions. Turning Visions on enables ingest unless ingest.enabled is explicitly false. |
 | `ingest.sources.terminal.enabled` | Terminal output source | `false` | Include terminal output in the ingest feed. |
 | `ingest.sources.agentLogs.enabled` | Agent logs source | `false` | Include local agent logs in the ingest feed. |
 | `ingest.sources.git.enabled` | Git activity source | `false` | Include local Git activity in the ingest feed. |
@@ -164,18 +164,18 @@ The PostHog lane only starts when `posthog.host`, `posthog.apiKey`, `telegram.bo
 |-----|---------|---------|-------|
 | `posthog.enabled` | Enable PostHog monitoring | `false` | Poll PostHog error tracking and investigate issues that move. |
 | `posthog.host` | Host | `"https://us.posthog.com"` | PostHog cloud or self-hosted HTTP URL. |
-| `posthog.apiKey` | Personal API key | `""` | Credential with read access to PostHog projects. |
-| `posthog.projects` | Projects | `"all"` | Use all or a comma-separated list of numeric PostHog project ids. |
+| `posthog.apiKey` | Personal API key | `""` | Credential with read access to PostHog projects. When GLIMMERVOID_POSTHOG_API_KEY supplies it, this field is read-only. |
+| `posthog.projects` | Projects | `"all"` | Use all, none for an empty selection, or a comma-separated list of positive integer PostHog project ids. Blank means all. |
 | `posthog.intervalMinutes` | Poll interval (minutes) | `15` | Delay between PostHog polling passes. |
 | `posthog.maxConcurrentInvestigations` | Max concurrent investigations | `2` | Maximum investigation sessions running together. |
 | `posthog.investigationTimeoutSeconds` | Investigation timeout (seconds) | `900` | Maximum time allowed for one investigation. |
-| `posthog.minUsersToInvestigate` | Min users to investigate | `1` | Minimum affected users before an issue is investigated. |
+| `posthog.minUsersToInvestigate` | Min users to investigate | `1` | Minimum affected users for a new issue investigation. Regressions, worsening issues and eligible error spikes bypass this minimum. |
 | `posthog.userEscalationThreshold` | Escalation threshold (users) | `25` | Affected-user count that escalates an issue. |
 | `posthog.fixTimeoutSeconds` | Fix timeout (seconds) | `1800` | Maximum time allowed for one fix session. |
 | `posthog.trafficSpikeEnabled` | Traffic spike alerts | `true` | Ping when recent unique users exceed a project baseline. |
 | `posthog.trafficSpikeMultiplier` | Spike multiplier | `3` | Baseline multiplier required to classify a traffic spike. |
-| `posthog.trafficSpikeMinUsers` | Min users to alert | `10` | Minimum recent unique users required for a traffic alert. |
-| `posthog.trafficSpikeCooldownMinutes` | Spike cooldown (minutes) | `360` | Minimum delay between traffic alerts. Zero disables muting. |
+| `posthog.trafficSpikeMinUsers` | Min users to alert | `10` | Minimum recent unique users for an initial traffic-spike alert. Escalation and recovery alerts bypass this minimum. |
+| `posthog.trafficSpikeCooldownMinutes` | Spike cooldown (minutes) | `360` | Cooldown for new traffic spikes. Escalation and recovery alerts bypass it. Zero removes the time delay; repeated active-spike alerts are still suppressed. |
 | `posthog.trafficSpikeBaselineDays` | Baseline window (days) | `7` | Historical window used to calculate normal hourly traffic. |
 | `posthog.autoFix` | Attempt fixes for major issues | `false` | Allow an isolated agent to fix an issue, push a branch and open a pull request. |
 
@@ -206,19 +206,19 @@ Compare agent setups on frozen cases from the suites in the benchmarks folder of
 
 ### Factory
 
-Let a master orchestrator work a queue of intents in repos that hold a coherence.config.json, with glimmervoid enforcing guardrails.
+Read Coherence reports from repositories whose integration branch holds a coherence.config.json and show their status in the Factory tab.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `factory.enabled` | Enable the factory | `false` | Show the Factory tab. Off by default. |
+| `factory.enabled` | Enable the factory | `false` | Enable Coherence status polling and show the Factory tab. Off by default. |
 
 ### Knowledge graph (experimental)
 
-A typed, local-first graph of your projects, tasks, notes, references and questions, kept in one SQLite file under the Glimmervoid home and driven from the glimmervoid kg command.
+A typed local graph of projects, tasks, notes, references and questions, driven from the glimmervoid kg command. Its SQLite database defaults to the Glimmervoid home; --db selects another path.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `knowledgeGraph.enabled` | Enable the knowledge graph | `false` | Allow the glimmervoid kg command. It reads Coherence ledgers to report where your tasks and the agents' work orders disagree, and never writes into a repository. Off by default. |
+| `knowledgeGraph.enabled` | Enable the knowledge graph | `false` | Allow the glimmervoid kg command. It reads Coherence ledgers to report where your tasks and the agents' work orders disagree, without modifying those ledgers. Graph writes go to the selected SQLite database, which can be inside a repository when --db names that path. Off by default. |
 
 ### Workflows
 
@@ -227,7 +227,7 @@ Rules that act on pull request events in the repositories you choose.
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `workflows.enabled` | Run workflows | `true` | Poll the repositories your enabled rules watch and run their actions. Off stops polling and every action, whatever each rule says. |
-| `workflows.maxConcurrentSessions` | Concurrent agent sessions | `2` | Most workflow agent sessions running at once. Later spawns wait for a free slot. |
+| `workflows.maxConcurrentSessions` | Concurrent agent sessions | `2` | Most workflow agent sessions running at once. Up to twenty later spawns wait for a free slot; additional spawns are dropped and logged. |
 | `workflows.maxActionsPerPoll` | Actions per poll | `20` | Most actions run in one poll. The rest are dropped and logged. |
 | `workflows` | Workflow rules | `{"enabled":true,"maxConcurrentSessions":2,"maxActionsPerPoll":20,"rules":[]}` | Each rule watches repositories for one pull request event (opened, checks-failed, review-requested, approved, commented or merged), narrows it by author, labels, base branch, your own pull requests or a review request to your team, and then notifies you, labels or comments on the pull request, or starts a sandboxed agent session that pushes nothing. Rules start disabled. Turn each rule on or off here; everything else about a rule is set in config.json. **File-only.** |
 
@@ -238,9 +238,9 @@ Controls that let automated work change repositories or install executable tooli
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `skipPermissionsByDefault` | Skip permission prompts by default | `false` | Start sessions whose project sets no permission choice with the agent CLI permission bypass flag. |
-| `saneYolo` | Sane YOLO | `true` | Block catastrophic commands (deleting home or root, discarding uncommitted work, force pushes, disk wipes, infrastructure destroy) in sessions that skip permission prompts. Applies to sessions created after the change. |
+| `saneYolo` | Sane YOLO | `true` | Block catastrophic commands in sessions that skip permission prompts when the cc-safety-net executable is available and trusted hooks are installed. Missing or untrusted hooks leave a session unprotected. Applies to sessions created after the change. |
 | `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no merge proof. Off keeps every unmerged branch. |
-| `postTurnChecks.mode` | Post-turn checks mode | `"report"` | Report findings or let post-turn checks fix eligible files. |
+| `postTurnChecks.mode` | Post-turn checks mode | `"report"` | Default mode for post-turn checks. Project and individual rule modes override it, so Report can still allow file fixes. |
 | `agentApi.enabled` | Agent API | `false` | Expose the per-session agent endpoint to running sessions. |
 | `rtk` | rtk output compression | `false` | Compress Bash output for newly spawned or restarted sessions. |
 
@@ -304,8 +304,8 @@ Stored in each browser, not in `config.json`, so every device keeps its own.
 | Setting | Default | Notes |
 |---------|---------|-------|
 | Theme | `"phyrexian"` | Color scheme for the dashboard. |
-| Hide status words in sidebar | `false` | Show only the colored status mark in the sidebar and on the phone Board. Saved per browser, so turn it on in each one. |
-| Show usage on session cards | `false` | Shows each card's token count and estimated API list-price cost. |
+| Hide status words in sidebar | `false` | Hide status words in the sidebar and on the phone Board while keeping the colored status mark and the phone Plan ready badge. Saved per browser, so turn it on in each one. |
+| Show usage on session cards | `false` | Shows each card's transcript token count and CLI-reported cost when available, otherwise a calculated API list-price estimate. |
 | Alert sound | `"chime"` | Sound played when a session needs attention. Your own .ogg, .mp3, .wav, .m4a or .webm files dropped into the sounds folder of the Glimmervoid home (~/.glimmervoid/sounds/, or $GLIMMERVOID_HOME/sounds/) are listed after the built-in sounds. Glimmervoid never creates that folder, so make it yourself; new files show up the next time Settings opens. |
 | Desktop notifications | `true` | Raise a browser notification when a session needs attention while this dashboard is in the background. |
 | Flying animals | `false` | Show animated animals flying across the dashboard. |

@@ -7,8 +7,29 @@ import { INGEST_SPEC } from '../server/core/settings-block-core.ts';
 import * as settingsRanges from '../shared/settings-ranges.ts';
 import type { SettingsBlockSpec } from '../server/core/settings-block-core.ts';
 import type { SettingsSetting } from '../public/settings-map.ts';
+import { UPDATE_CHANNELS, POST_TURN_CHECK_MODES, CHANGE_MAP_NARRATOR_ENGINES } from '../shared/contracts/browser-config.ts';
+import { USAGE_COST_MODES } from '../shared/usage-config.ts';
 
 const loadMap = () => import('../public/settings-map.ts');
+
+test('every schema enum value has a selectable settings option', async () => {
+  const { SETTINGS_MAP } = await loadMap();
+  const settings = SETTINGS_MAP.flatMap<SettingsSetting>((section) => section.settings);
+  for (const [id, values] of [
+    ['update-channel', UPDATE_CHANNELS],
+    ['usage-cost-mode', USAGE_COST_MODES],
+    ['change-map-narrator-engine', CHANGE_MAP_NARRATOR_ENGINES],
+    ['post-turn-checks-mode', POST_TURN_CHECK_MODES],
+  ] as const) {
+    assert.deepEqual(settings.find((setting) => setting.id === id)?.options?.map((option) => typeof option === 'string' ? option : option.value), values);
+  }
+});
+
+test('each persisted settings path owns one editable control and each update display path is distinct', async () => {
+  const { SETTINGS_MAP } = await loadMap();
+  const paths = SETTINGS_MAP.flatMap((section) => section.settings.map((setting) => setting.path));
+  assert.equal(new Set(paths).size, paths.length);
+});
 
 test('calm layout is a default-off toggle after debug mode in machine General', async () => {
   const { SETTINGS_MAP } = await loadMap();
@@ -20,7 +41,7 @@ test('calm layout is a default-off toggle after debug mode in machine General', 
   assert.ok(debugModeIndex >= 0);
   assert.deepEqual(generalSettings[debugModeIndex + 1], {
     id: 'calm-layout', path: 'calmLayout', title: 'Calm layout (experimental)',
-    description: 'Replace the Focus rail with a priority view that surfaces only sessions needing you. Applies to every browser on this machine.',
+    description: 'Replace the Focus rail with a view that prioritizes sessions needing attention and also shows ready and working indicators. Applies to every browser on this machine.',
     control: 'toggle', keywords: ['experimental', 'attention', 'priority'], defaultValue: false,
   });
 });
@@ -75,7 +96,13 @@ test('the map has unique ids, known paths, range-backed numbers and searchable k
     for (const setting of sectionSettings) {
       assert.equal(settingIds.has(setting.id), false, `duplicate setting id ${setting.id}`);
       settingIds.add(setting.id);
-      assert.equal(pathIsKnown(setting.path), true, `unknown path ${setting.path}`);
+      if (setting.path.startsWith('status:')) {
+        assert.equal(setting.path, `status:${setting.id}`);
+        assert.equal(setting.control, 'readonly');
+        assert.equal(setting.status, setting.id);
+        assert.match(setting.id, /^update-(summary|actions|installed|latest|last-checked)$/);
+      }
+      if (!setting.path.startsWith('status:')) assert.equal(pathIsKnown(setting.path), true, `unknown path ${setting.path}`);
       assert.ok(Array.isArray(setting.keywords) && setting.keywords.length >= 2, `${setting.id} needs keywords`);
       if (setting.control === 'number') assert.ok(setting.range && Object.hasOwn(settingsRanges, setting.range), `${setting.id} needs a shared range`);
       if (setting.optionsFrom) assert.equal(OPTION_CATALOGS.has(setting.optionsFrom), true, `${setting.id} needs a known option catalog`);
@@ -124,10 +151,8 @@ test('the machine Updates section owns its alias, channel, status rows, actions 
     'update-channel',
     'check-updates',
   ]);
-  assert.deepEqual(updateSettings.find((setting) => setting.id === 'update-channel')?.options, [
-    { value: 'release', label: 'Release' },
-    { value: 'main', label: 'Main' },
-  ]);
+  assert.deepEqual(updateSettings.find((setting) => setting.id === 'update-channel')?.options,
+    UPDATE_CHANNELS.map((value) => ({ value, label: value === 'release' ? 'Release' : 'Main' })));
   const toggleOwners = SETTINGS_MAP.filter((section) => section.settings.some((setting) => setting.id === 'check-updates'));
   assert.deepEqual(toggleOwners.map((section) => section.id), ['machine-updates']);
 });
@@ -193,7 +218,7 @@ test('unattended actions expose branch deletion and post-turn mode as editable c
   const postTurnMode = unattendedSettings.find((setting) => setting.path === 'postTurnChecks.mode');
   assert.ok(postTurnMode);
   assert.equal(postTurnMode.control, 'select');
-  assert.deepEqual(postTurnMode.options, [{ value: 'report', label: 'Report' }, { value: 'fix', label: 'Fix' }]);
+  assert.deepEqual(postTurnMode.options, POST_TURN_CHECK_MODES.map((value) => ({ value, label: value === 'report' ? 'Report' : 'Fix' })));
   assert.equal(postTurnMode.defaultValue, 'report');
   assert.equal(postTurnMode.fileOnly, undefined);
   assert.equal(DASHBOARD_SETTING_PATH_SET.has(postTurnMode.path), true);
