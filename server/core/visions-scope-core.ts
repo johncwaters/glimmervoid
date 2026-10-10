@@ -100,22 +100,30 @@ function resolveVisionsScopeProjects({ configuredIds, projects, warn }: {
   projects: unknown;
   warn: (message: string) => void;
 }): { id: string; path: string }[] {
+  const ids = Array.isArray(configuredIds) ? configuredIds.filter((id): id is string => typeof id === 'string' && id !== '') : [];
+  const wanted = new Set(ids);
   const usable: { id: string; path: string }[] = [];
+  const usableIds = new Set<string>();
   const seenPaths = new Set<string>();
   for (const project of Array.isArray(projects) ? projects : []) {
     if (!project || typeof project.id !== 'string' || project.id === '') continue;
+    if (wanted.size > 0 && !wanted.has(project.id)) continue;
     const normalizedPath = normalizeShapePath(project.path);
-    if (!normalizedPath || seenPaths.has(normalizedPath)) continue;
+    if (!normalizedPath) continue;
+    usableIds.add(project.id);
+    if (seenPaths.has(normalizedPath)) continue;
     seenPaths.add(normalizedPath);
     usable.push({ id: project.id, path: normalizedPath });
   }
-  const ids = Array.isArray(configuredIds) ? configuredIds.filter((id): id is string => typeof id === 'string' && id !== '') : [];
-  if (ids.length === 0) return usable;
-  const wanted = new Set(ids);
   for (const id of ids) {
-    if (!usable.some((project) => project.id === id)) warn(`[visions] configured project id not found or has no usable path: ${id}`);
+    if (!usableIds.has(id)) warn(`[visions] configured project id not found or has no usable path: ${id}`);
   }
-  return usable.filter((project) => wanted.has(project.id));
+  return usable;
+}
+
+export function visionsLaneReloadSignature(ingest: unknown, visions: { enabled: boolean; projects: unknown }, projects: unknown): string {
+  const scopeProjects = visions.enabled ? resolveVisionsScopeProjects({ configuredIds: visions.projects, projects, warn: () => {} }) : [];
+  return JSON.stringify({ ingest, visions, scopeProjects });
 }
 
 export { deepestRootFor, pathOfFileUri, normalizeShapePath, isUriInProjects, projectForUri, resolveVisionsScopeProjects, scopePathsOf };

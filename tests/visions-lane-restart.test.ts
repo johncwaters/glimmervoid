@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type WebSocket from 'ws';
 
 import { createBackend } from '../server/backend.ts';
@@ -120,7 +121,8 @@ test('a boot with Visions on brings up the lanes it implies, on that same boot',
   assert.equal(lane?.editorEnabled, true);
 
   assert.equal(readConfigValue(cfgPath, 'ingest.enabled'), true);
-  assert.equal(readConfigValue(cfgPath, 'visions.dispatch.enabled'), true);
+  assert.equal(readConfigValue(cfgPath, 'visions.dispatch.enabled'), undefined);
+  assert.equal(visionsLane(backend)?.dispatchEnabled, false);
 }));
 
 test('a save that leaves both configs alone rebuilds nothing', withBackend({
@@ -132,4 +134,39 @@ test('a save that leaves both configs alone rebuilds nothing', withBackend({
   await waitForMessage(received, (frame) => frame.type === 'settings-updated', 'settings-updated');
   assert.equal(visionsLane(backend), laneBefore);
   ws.close();
+}));
+
+test('project path changes and removals rebuild Visions with the current selected buffer scope', withBackend({
+  projects: [{ id: 'p1', name: 'first', path: os.tmpdir() }, { id: 'p2', name: 'second', path: os.tmpdir() }],
+  visions: { enabled: true, projects: ['p1'], dispatch: { enabled: false } },
+  ingest: { enabled: false },
+}, async ({ backend, cfgPath }) => {
+  const before = visionsLane(backend);
+  assert.ok(before);
+  const config = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  const relocatedPath = path.dirname(cfgPath);
+  config.projects[0].path = relocatedPath;
+  fs.writeFileSync(cfgPath, JSON.stringify(config), 'utf8');
+  await until(() => visionsLane(backend) !== before, 'the project path change did not rebuild Visions');
+  const relocated = visionsLane(backend);
+  assert.ok(relocated);
+  const connection = relocated.openConnection({ send: () => {} });
+  connection.handleFrame(JSON.stringify({
+    type: 'lsp', method: 'textDocument/didOpen',
+    params: { textDocument: { uri: pathToFileURL(path.join(relocatedPath, 'plan.md')).href, languageId: 'markdown', version: 1, text: '# Plan\n\nThe the plan.' } },
+  }));
+  connection.handleFrame(JSON.stringify({ type: 'lsp', method: 'textDocument/didSave', params: { textDocument: { uri: pathToFileURL(path.join(relocatedPath, 'plan.md')).href } } }));
+  assert.equal(relocated.documentsSnapshot().length, 1);
+  config.projects = config.projects.filter((project: { id: string }) => project.id !== 'p1');
+  fs.writeFileSync(cfgPath, JSON.stringify(config), 'utf8');
+  await until(() => visionsLane(backend) !== relocated, 'the project removal did not rebuild Visions');
+  const removed = visionsLane(backend);
+  assert.ok(removed);
+  const refusedConnection = removed.openConnection({ send: () => {} });
+  refusedConnection.handleFrame(JSON.stringify({
+    type: 'lsp', method: 'textDocument/didOpen',
+    params: { textDocument: { uri: pathToFileURL(path.join(relocatedPath, 'plan.md')).href, languageId: 'markdown', version: 1, text: '# Plan\n\nThe the plan.' } },
+  }));
+  refusedConnection.handleFrame(JSON.stringify({ type: 'lsp', method: 'textDocument/didSave', params: { textDocument: { uri: pathToFileURL(path.join(relocatedPath, 'plan.md')).href } } }));
+  assert.deepEqual(removed.documentsSnapshot(), []);
 }));

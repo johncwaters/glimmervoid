@@ -60,11 +60,12 @@ test('posthogShouldStart: inert when posthog absent or disabled (no reason, sile
   assert.deepEqual(posthogShouldStart({ posthog: { enabled: false } }), { start: false, reason: null });
 });
 
-test('posthogShouldStart: enabled but host or apiKey missing -> does not start, with a reason', () => {
+test('posthogShouldStart: an omitted host uses the cloud default but a missing apiKey prevents starting', () => {
   const noHost = posthogShouldStart({ posthog: { enabled: true }, telegram: TELEGRAM });
   assert.equal(noHost.start, false);
   assert.ok(noHost.reason);
-  assert.match(noHost.reason, /host/);
+  assert.match(noHost.reason, /apiKey/);
+  assert.deepEqual(posthogShouldStart({ posthog: { enabled: true, apiKey: 'phx_secret' }, telegram: TELEGRAM }), { start: true, reason: null });
 
   const noKey = posthogShouldStart({ posthog: { enabled: true, host: 'https://ph.test' }, telegram: TELEGRAM });
   assert.equal(noKey.start, false);
@@ -406,6 +407,29 @@ test('a lane with no repo configured never reaches the worktree at all', async (
     assert.equal(harness.calls.create.length, 0);
   } finally {
     fs.rmSync(harness.repoDir, { recursive: true, force: true });
+  }
+});
+
+test('an investigation with an omitted host receives the advertised cloud host in its prompt and environment', async () => {
+  const { makeSession, constructed, created } = recordingSessionFactory();
+  const wiring = createPosthogWiring({
+    config: { posthog: { enabled: true, apiKey: 'phx_secret' }, replayBufferKB: 256 },
+    ...inertWiringDeps(), makeSession,
+  });
+  const controller = new AbortController();
+  controller.abort();
+  try {
+    await wiring._investigationSpawn({
+      key: 'us.posthog.com/1#iss-default-host', issue: { issueId: 'iss-default-host' }, projectId: 1, projectName: 'web',
+      host: 'https://us.posthog.com', url: 'https://us.posthog.com/project/1/error_tracking/iss-default-host',
+      mode: 'investigate', timeoutMs: 1000, signal: controller.signal,
+    });
+    assert.equal(constructed.length, 1);
+    assert.equal(constructed[0].spawnEnv?.POSTHOG_HOST, 'https://us.posthog.com');
+    assert.match(constructed[0].initialPrompt ?? '', /https:\/\/us\.posthog\.com/);
+  } finally {
+    for (const session of created) session.destroy();
+    await wiring.stopPoller();
   }
 });
 

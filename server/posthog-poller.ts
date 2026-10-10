@@ -475,8 +475,7 @@ function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
     activeRunIds.set(change.key, runId);
     const entry = issueEntryOf(state, change.key);
     if (entry) {
-      entry.inFlight = true;
-      if (decision?.matchKey) entry.recurrenceOf = decision.matchKey;
+      state[change.key] = core.nextState(entry, change.issue, { inFlight: true, recurrenceOf: decision?.matchKey ?? entry.recurrenceOf });
     }
     loop.track(runInvestigation(change, mode, runId).catch((e: unknown) => {
       log.warn(`[posthog-poller] investigation crashed for ${change.key}: ${errorMessage(e)}`);
@@ -634,6 +633,11 @@ function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
       }),
     }));
 
+    const underlyingChangeByKey = new Map(changes.map((change) => [
+      change.key,
+      core.underlyingInvestigationChange(issueEntryOf(state, change.key), change.issue, { userEscalationThreshold }),
+    ]));
+
     reconcileVanished(core.issueKey(host, projectId, ''), new Set(changes.map((c) => c.key)), tickStartedAt);
 
     for (const change of changes) {
@@ -652,7 +656,11 @@ function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
       });
     }
 
-    const plan = recurrence.planIssueActions(changes, state, {
+    const triggeredChanges: IssueChange[] = changes.map((change) => ({
+      ...change,
+      change: core.investigationTrigger(issueEntryOf(state, change.key), change.change, change.issue, { userEscalationThreshold }),
+    }));
+    const plan = recurrence.planIssueActions(triggeredChanges, state, {
       minUsersToInvestigate,
       userEscalationThreshold,
       recurrenceDedupe,
@@ -666,14 +674,33 @@ function createPosthogPoller(deps: PosthogPollerDependencies): PosthogPoller {
 
     let slots = maxConcurrentInvestigations - inFlightCount();
     for (const item of plan.investigate) {
-      if (slots <= 0) break;
       if (loop.isStopped()) break;
+      if (slots <= 0) {
+        const entry = issueEntryOf(state, item.change.key);
+        const waitingIssue = item.change.issue ?? {};
+        state[item.change.key] = core.nextState(entry, waitingIssue, {
+          pendingInvestigationChange: core.slotDeferredInvestigationChange(entry, item.change.change, waitingIssue, {
+            userEscalationThreshold,
+            underlyingChange: underlyingChangeByKey.get(item.change.key),
+          }),
+        });
+        continue;
+      }
       slots -= 1;
       const escalating = item.recurrence.action === 'escalate'
         && recurrence.signatureRecords(state)[item.recurrence.matchKey ?? '']?.escalated !== true;
       const typedItem = item as { change: IssueChange; recurrence: RecurrenceDecision };
       if (escalating) applyEscalation(typedItem);
       startInvestigation(typedItem.change, typedItem.recurrence);
+    }
+    const plannedKeys = new Set([...plan.dedupe, ...plan.investigate].map((item) => item.change.key));
+    for (const change of triggeredChanges) {
+      if (plannedKeys.has(change.key)) continue;
+      const entry = issueEntryOf(state, change.key);
+      if (!entry || entry.inFlight) continue;
+      state[change.key] = core.nextState(entry, change.issue, {
+        pendingInvestigationChange: core.belowMinimumInvestigationChange(change.change, change.issue, { minUsersToInvestigate }),
+      });
     }
 
     await tickTraffic(projectId, projectName, tickStartedAt);

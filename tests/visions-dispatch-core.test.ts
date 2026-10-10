@@ -52,6 +52,19 @@ test('an absent or half-hearted dispatch config resolves to the disabled shape',
   }
 });
 
+test('recreated dispatch state keeps rolling hourly history and prunes expired entries in the shared history', () => {
+  const original = createDispatchState();
+  recordDispatch(original, { uri: URI, textHash: 'first', now: NOW, trigger: 'edit' });
+  const recreated = createDispatchState(original.dispatchTimes);
+  assert.equal(countRecentDispatches(recreated, NOW + 1), 1);
+  assert.equal(decideDispatch({ state: recreated, uri: URI, textHash: 'second', now: NOW + 1, config: enabledConfig({ maxPerHour: 1 }), editedSinceOpen: true }).gate, 'hour-cap');
+  assert.equal(decideDispatch({ state: recreated, uri: URI, textHash: 'second', now: NOW + HOUR_MS, config: enabledConfig({ maxPerHour: 1 }), editedSinceOpen: true }).dispatch, true);
+  recordDispatch(recreated, { uri: URI, textHash: 'second', now: NOW + HOUR_MS, trigger: 'activity' });
+  assert.equal(original.dispatchTimes, recreated.dispatchTimes);
+  assert.deepEqual(original.dispatchTimes, [{ ts: NOW + HOUR_MS, trigger: 'activity' }]);
+  assert.equal(countRecentDispatches(createDispatchState(original.dispatchTimes), NOW + HOUR_MS, 'activity'), 1);
+});
+
 test('an absent visions config resolves to a lane that is off in every half', () => {
   for (const raw of [undefined, null, {}, [], 'yes', { enabled: 'true' }]) {
     const resolved = resolveVisionsConfig(raw);

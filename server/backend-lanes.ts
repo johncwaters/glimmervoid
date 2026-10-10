@@ -42,7 +42,8 @@ import { createVisionsSetup } from './visions-setup.ts';
 import { createVisionsWiring } from './visions-wiring.ts';
 import { resolveIngestConfig } from './core/ingest-core.ts';
 import { resolveVisionsConfig } from './core/visions-dispatch-core.ts';
-import { resolveVisionsScopeProjects } from './core/visions-scope-core.ts';
+import type { DispatchState } from './core/visions-dispatch-core.ts';
+import { resolveVisionsScopeProjects, visionsLaneReloadSignature } from './core/visions-scope-core.ts';
 import { errorMessage } from '../shared/text.ts';
 
 interface BackendLaneOptions {
@@ -223,6 +224,8 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
 
   let ingestConfig = resolveIngestConfig(config.ingest);
   let visionsConfig = resolveVisionsConfig(config.visions);
+  const visionsDispatchHistory: DispatchState['dispatchTimes'] = [];
+  let dynamicLaneSignature = visionsLaneReloadSignature(ingestConfig, visionsConfig, config.projects);
   const gitRepoRoots = (): string[] => {
     const directories: string[] = [];
     for (const session of sessions.values()) {
@@ -316,6 +319,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       broadcast: broadcastControl,
       debug: () => configStore.getSettings().debugMode === true,
       dispatchConfig,
+      dispatchHistory: visionsDispatchHistory,
       autoFix: visionsConfig.autoFix,
       intentThreadTtlMs: visionsConfig.intent.threadTtlMs,
       intentStatePath: configSiblingPath(configStore.configPath, 'visions-intent.json'),
@@ -370,11 +374,11 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   }
 
   function restartDynamicLanes(): Promise<void> {
-    const previousSignature = JSON.stringify({ ingest: ingestConfig, visions: visionsConfig });
     ingestConfig = resolveIngestConfig(config.ingest);
     visionsConfig = resolveVisionsConfig(config.visions);
-    const nextSignature = JSON.stringify({ ingest: ingestConfig, visions: visionsConfig });
-    if (nextSignature === previousSignature) return laneRestart;
+    const nextSignature = visionsLaneReloadSignature(ingestConfig, visionsConfig, config.projects);
+    if (nextSignature === dynamicLaneSignature) return laneRestart;
+    dynamicLaneSignature = nextSignature;
     laneRestart = laneRestart
       .then(() => rebuildDynamicLanes())
       .catch((error: unknown) => logger.warn(`[lanes] rebuild failed: ${errorMessage(error)}`));

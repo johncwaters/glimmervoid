@@ -7,6 +7,24 @@ import { isCredentialLikePath, isGithubDirectoryPath } from './git-changed-paths
 import { myPrMergeBlocker } from '../../shared/my-pr-merge.ts';
 import { REPO_SLUG_RE } from '../../shared/contracts/github-ids.ts';
 import { nextBackoffMs } from '../../shared/backoff.ts';
+import { MyPrAutoRebase as MyPrAutoRebaseSchema, MyPrsState } from '../../shared/contracts/my-prs.ts';
+import { z } from 'zod';
+
+const FailedAutoRebaseRecord = z.strictObject({ attemptKey: MyPrsState.shape.keepMergeableAttemptKeys.element, autoRebase: MyPrAutoRebaseSchema });
+export const MyPrsLaneState = MyPrsState.extend({
+  failedAutoRebaseAttemptKeys: MyPrsState.shape.keepMergeableAttemptKeys.optional(),
+  failedAutoRebaseRecords: z.array(FailedAutoRebaseRecord).optional(),
+});
+export type MyPrsLaneState = z.infer<typeof MyPrsLaneState>;
+
+export function prunedFailedAutoRebaseAttempts(attemptKeys: ReadonlySet<string>, nodes: readonly MyPrSearchNode[]): Set<string> {
+  const currentAttemptByPrKey = new Map(nodes.map((node) => [prKey(node.repository.nameWithOwner, node.number), autoRebaseAttemptKey(node)]));
+  return new Set([...attemptKeys].filter((attemptKey) => {
+    const pullRequestKey = attemptKey.slice(0, attemptKey.lastIndexOf('@'));
+    const currentAttempt = currentAttemptByPrKey.get(pullRequestKey);
+    return currentAttempt === undefined || currentAttempt === attemptKey;
+  }));
+}
 
 export const MY_PRS_LANE_ID = 'my-prs';
 export const POLL_INTERVAL_MINUTES = 5;

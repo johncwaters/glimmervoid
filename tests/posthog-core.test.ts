@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { resolvePosthogHost } from '../server/core/posthog-core.ts';
 import assert from 'node:assert/strict';
 import type { InvestigationRecord } from '../server/core/posthog-core.ts';
 
@@ -6,6 +7,10 @@ import {
   issueKey,
   issueUrl,
   classifyIssueChange,
+  investigationTrigger,
+  slotDeferredInvestigationChange,
+  underlyingInvestigationChange,
+  belowMinimumInvestigationChange,
   planInvestigations,
   isMajorIssue,
   decideJobMode,
@@ -53,6 +58,105 @@ function makeEntry(overrides = {}) {
     ...overrides,
   };
 }
+
+test('the PostHog host falls back to the advertised cloud endpoint and preserves explicit hosts', () => {
+  assert.equal(resolvePosthogHost(undefined), 'https://us.posthog.com');
+  assert.equal(resolvePosthogHost(''), 'https://us.posthog.com');
+  assert.equal(resolvePosthogHost('https://eu.posthog.com'), 'https://eu.posthog.com');
+});
+
+test('a deferred issue reports quiet while its marker keeps it eligible, and an in-flight or inactive one is not', () => {
+  const issue = makeIssue();
+  const deferred = makeEntry({ pendingInvestigationChange: 'new' });
+  assert.equal(classifyIssueChange(deferred, issue, new Set()), 'quiet');
+  const change = { key: 'deferred', change: investigationTrigger(deferred, 'quiet', issue), issue };
+  assert.equal(change.change, 'new');
+  assert.deepEqual(planInvestigations([change], { deferred }, { minUsersToInvestigate: 8 }), [change]);
+  assert.deepEqual(planInvestigations([change], { deferred }, { minUsersToInvestigate: 9 }), []);
+  assert.equal(investigationTrigger({ ...deferred, inFlight: true }, 'quiet', issue), 'quiet');
+  assert.equal(investigationTrigger(deferred, 'quiet', { ...issue, status: 'suppressed' }), 'quiet');
+  assert.equal(investigationTrigger({ ...deferred, pendingInvestigationChange: 'invalid' }, 'quiet', issue), 'quiet');
+  assert.equal(investigationTrigger(deferred, 'regressed', issue), 'regressed');
+});
+
+test('an entry an older state file left without a verdict or a marker stays quiet and is not investigated', () => {
+  const issue = makeIssue({ users: 40 });
+  const legacy = makeEntry({ verdict: null });
+  const reportedChange = classifyIssueChange(legacy, issue, new Set(), { userEscalationThreshold: 25 });
+  assert.equal(reportedChange, 'quiet');
+  const change = { key: 'legacy', change: investigationTrigger(legacy, reportedChange, issue, { userEscalationThreshold: 25 }), issue };
+  assert.equal(change.change, 'quiet');
+  assert.deepEqual(planInvestigations([change], { legacy }, { minUsersToInvestigate: 1 }), []);
+  assert.equal(nextState(legacy, issue, { observedAt: 2000 }).pendingInvestigationChange, undefined);
+});
+
+test('only an issue below the minimum is marked for a later investigation when it is left unplanned', () => {
+  assert.equal(belowMinimumInvestigationChange('new', makeIssue({ users: 2 }), { minUsersToInvestigate: 5 }), 'new');
+  assert.equal(belowMinimumInvestigationChange('new', makeIssue({ users: 5 }), { minUsersToInvestigate: 5 }), null);
+  assert.equal(belowMinimumInvestigationChange('quiet', makeIssue({ users: 2 }), { minUsersToInvestigate: 5 }), null);
+  assert.equal(belowMinimumInvestigationChange('new', makeIssue({ users: 2, status: 'resolved' }), { minUsersToInvestigate: 5 }), null);
+});
+
+test('a deferral marker whose trigger no longer holds stops making the issue eligible and is cleared', () => {
+  const calmIssue = makeIssue({ users: 8 });
+  const spikeDeferred = nextState(makeEntry(), calmIssue, { pendingInvestigationChange: 'spiking' });
+  assert.equal(spikeDeferred.pendingInvestigationChange, 'spiking');
+  assert.equal(classifyIssueChange(spikeDeferred, calmIssue, new Set()), 'quiet');
+  const staleTrigger = investigationTrigger(spikeDeferred, 'quiet', calmIssue);
+  assert.equal(staleTrigger, 'quiet');
+  const cleared = nextState(spikeDeferred, calmIssue, { pendingInvestigationChange: belowMinimumInvestigationChange(staleTrigger, calmIssue) });
+  assert.equal(cleared.pendingInvestigationChange, undefined);
+  const worsenedDeferred = makeEntry({ verdict: 'ROOT_CAUSE', investigatedUsers: 8, pendingInvestigationChange: 'worsened' });
+  assert.equal(investigationTrigger(worsenedDeferred, 'quiet', makeIssue({ users: 40 }), { userEscalationThreshold: 25 }), 'worsened');
+  assert.equal(investigationTrigger(worsenedDeferred, 'quiet', makeIssue({ users: 10 }), { userEscalationThreshold: 25 }), 'quiet');
+});
+
+test('a slot deferral keeps an earlier trigger that still holds over a passing spike', () => {
+  const issue = makeIssue();
+  assert.equal(slotDeferredInvestigationChange(makeEntry(), 'spiking', issue), 'spiking');
+  assert.equal(slotDeferredInvestigationChange(makeEntry({ pendingInvestigationChange: 'new' }), 'spiking', issue), 'new');
+});
+
+test('a spike deferred by a full slot is held as the new or regressed trigger it arrived with, and stays a spike otherwise', () => {
+  const issue = makeIssue();
+  const firstSeen = underlyingInvestigationChange(undefined, issue);
+  assert.equal(firstSeen, 'new');
+  assert.equal(slotDeferredInvestigationChange(makeEntry(), 'spiking', issue, { underlyingChange: firstSeen }), 'new');
+  const justRegressed = underlyingInvestigationChange(makeEntry({ status: 'resolved' }), issue);
+  assert.equal(justRegressed, 'regressed');
+  assert.equal(slotDeferredInvestigationChange(makeEntry(), 'spiking', issue, { underlyingChange: justRegressed }), 'regressed');
+  const diagnosed = makeEntry({ verdict: 'ROOT_CAUSE', investigatedUsers: 8 });
+  const alreadyDiagnosed = underlyingInvestigationChange(diagnosed, makeIssue({ users: 40 }), { userEscalationThreshold: 25 });
+  assert.equal(alreadyDiagnosed, null);
+  assert.equal(slotDeferredInvestigationChange(diagnosed, 'spiking', issue, { underlyingChange: alreadyDiagnosed }), 'spiking');
+  assert.equal(slotDeferredInvestigationChange(makeEntry(), 'worsened', issue, { underlyingChange: 'new' }), 'worsened');
+});
+
+test('a held regression on a diagnosed issue outranks a later spike, and an undiagnosed issue still triggers on the spike', () => {
+  const issue = makeIssue();
+  const diagnosed = makeEntry({ verdict: 'ROOT_CAUSE', investigatedUsers: 8, pendingInvestigationChange: 'regressed' });
+  const change = { key: 'diagnosed', change: investigationTrigger(diagnosed, 'spiking', issue, { userEscalationThreshold: 25 }), issue };
+  assert.equal(change.change, 'regressed');
+  assert.deepEqual(planInvestigations([change], { diagnosed }, { userEscalationThreshold: 25 }), [change]);
+  assert.equal(investigationTrigger({ ...diagnosed, inFlight: true }, 'spiking', issue), 'spiking');
+  assert.equal(investigationTrigger({ ...diagnosed, pendingInvestigationChange: 'worsened' }, 'spiking', makeIssue({ users: 40 })), 'spiking');
+  assert.equal(investigationTrigger(makeEntry({ verdict: 'ROOT_CAUSE', investigatedUsers: 8 }), 'spiking', issue), 'spiking');
+  assert.equal(investigationTrigger(makeEntry({ pendingInvestigationChange: 'new' }), 'spiking', issue), 'spiking');
+});
+
+test('deferred investigations retain their trigger until starting, finishing or becoming inactive', () => {
+  const issue = makeIssue();
+  const previous = makeEntry({ verdict: 'ROOT_CAUSE', investigatedUsers: 8 });
+  const deferred = nextState(previous, issue, { pendingInvestigationChange: 'regressed' });
+  assert.equal(classifyIssueChange(deferred, issue, new Set()), 'quiet');
+  assert.equal(investigationTrigger(deferred, 'quiet', issue), 'regressed');
+  const observedAgain = nextState(deferred, issue, { observedAt: 2000 });
+  assert.equal(observedAgain.pendingInvestigationChange, 'regressed');
+  assert.equal(nextState(observedAgain, issue, { inFlight: true }).pendingInvestigationChange, undefined);
+  assert.equal(nextState(observedAgain, issue, { verdict: 'ROOT_CAUSE' }).pendingInvestigationChange, undefined);
+  assert.equal(nextState(observedAgain, { ...issue, status: 'resolved' }).pendingInvestigationChange, undefined);
+  assert.equal(nextState(observedAgain, issue, { pendingInvestigationChange: null }).pendingInvestigationChange, undefined);
+});
 
 test('issueKey strips the protocol and joins host/project#issue', () => {
   assert.equal(issueKey('https://eu.posthog.com', 123, 'iss-1'), 'eu.posthog.com/123#iss-1');
