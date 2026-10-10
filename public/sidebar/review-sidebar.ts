@@ -29,12 +29,12 @@ import {
   branchSyncActionTitle,
   branchSyncClickAction,
   branchSyncLabel,
+  committedMergeTargetText,
   decideMergeAction,
   decidePrimaryReviewAction,
   hasReviewChanges,
   mergeActionTitle,
   mergeDisabledReason,
-  mergeTargetText,
   parkedStatusText,
   reviewHeadline,
   resyncOutcomeText,
@@ -839,10 +839,7 @@ function render() {
   controlsEl.append(statusLine);
 
   const metadata = el('div', 'review-status-meta');
-  if (shouldShowReviewHeaderCounts({
-    fetched, hasChanges, view: selectedView,
-    committedFiles: committedFiles.length, uncommittedFiles: uncommittedFiles.length,
-  })) metadata.append(
+  if (shouldShowReviewHeaderCounts({ fetched, hasChanges, view: selectedView })) metadata.append(
     el('span', 'review-status-files', `${totals.files} file${totals.files === 1 ? '' : 's'}`),
     el('span', 'review-status-added', `+${totals.added}`),
     el('span', 'review-status-removed', `-${totals.removed}`),
@@ -871,11 +868,10 @@ function render() {
 
   const resyncStatus = isWorkspace ? null : resyncStatusLine(id, sync, resyncing);
   const mergeReasonText = !isWorkspace && primaryAction === 'merge' && !mergeAction.isEnabled
-    ? mergeDisabledReason({ status, mergeReason, fetched, hasCommits, live, state })
+    ? mergeDisabledReason({ status, hasCommits, live, state })
     : null;
-  const hasMergeReason = !!mergeReasonText;
   if (mergeReasonText) {
-    const mergeReasonLine = el('div', fetched ? 'review-control-reason' : 'review-control-reason review-loading', mergeReasonText);
+    const mergeReasonLine = el('div', 'review-control-reason', mergeReasonText);
     mergeReasonLine.id = 'review-merge-reason';
     controlsEl.append(mergeReasonLine);
     controlsEl.querySelector('#review-merge-btn')?.setAttribute('aria-describedby', mergeReasonLine.id);
@@ -903,20 +899,8 @@ function render() {
     return;
   }
 
-  if (committedFiles.length > 0) {
-    bodyEl.append(renderSection('committed', 'Committed', mergeTargetText(effectiveBase), committedFiles));
-  }
-  if (committedFiles.length === 0 && uncommittedFiles.length === 0 && !hasMergeReason) {
-
-    const placeholder = !fetched && reviewable
-      ? el('div', 'review-nochanges review-loading', 'Loading diff...')
-      : el('div', 'review-nochanges', 'No changes in this worktree.');
-    bodyEl.append(placeholder);
-  }
-
-  if (uncommittedFiles.length > 0) {
-    bodyEl.append(renderSection('uncommitted', 'Uncommitted', '', uncommittedFiles));
-  }
+  if (committedFiles.length > 0) bodyEl.append(renderSection('committed', 'Committed', committedMergeTargetText(headline, effectiveBase), committedFiles));
+  if (uncommittedFiles.length > 0) bodyEl.append(renderSection('uncommitted', 'Uncommitted', null, uncommittedFiles));
 }
 
 function renderEmpty(title: string, desc: string) {
@@ -943,17 +927,17 @@ function renderBranchSync(id: string, shortcutResyncs: boolean) {
   return row;
 }
 
-function renderSection(kind: DiffAnnotation['section'], label: string, meaning: string, files: DiffFile[]) {
+function renderSection(kind: DiffAnnotation['section'], label: string, meaning: string | null, files: DiffFile[]) {
   const wrap = el('div', 'review-section');
   wrap.dataset.kind = kind;
 
   const sum = summarizeFiles(files);
   const head = el('div', 'review-section-head');
 
-  const lhs = el('div', 'review-section-id');
-  lhs.append(el('span', 'review-section-label', label));
-  if (meaning) lhs.append(el('span', 'review-section-meaning', meaning));
-  head.append(lhs);
+  const titleGroup = el('div', 'review-section-id');
+  titleGroup.append(el('span', 'review-section-label', label));
+  if (meaning) titleGroup.append(el('span', 'review-section-meaning', meaning));
+  head.append(titleGroup);
 
   const stat = el('div', 'review-section-stat');
   stat.append(el('span', 'review-stat-files', `${sum.files} file${sum.files === 1 ? '' : 's'}`));

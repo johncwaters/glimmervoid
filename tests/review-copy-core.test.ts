@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { branchSyncActionTitle, branchSyncClickAction, branchSyncLabel, decidePrimaryReviewAction, hasReviewChanges, resyncOutcomeText, reviewHeadline, shouldShowBranchSyncLabel, shouldShowReviewHeaderCounts } from '../public/sidebar/review-copy-core.ts';
+import { branchSyncActionTitle, branchSyncClickAction, branchSyncLabel, committedMergeTargetText, decidePrimaryReviewAction, hasReviewChanges, resyncOutcomeText, reviewHeadline, shouldShowBranchSyncLabel, shouldShowReviewHeaderCounts } from '../public/sidebar/review-copy-core.ts';
 
 const headlineInputs = {
   status: 'pending-review',
@@ -15,15 +15,16 @@ const headlineInputs = {
 };
 
 test('review headline names the merge target when changes are ready', () => {
-  assert.deepEqual(reviewHeadline(headlineInputs), { text: 'Ready to merge into main' });
-  assert.deepEqual(reviewHeadline({ ...headlineInputs, effectiveBase: 'trunk' }), { text: 'Ready to merge into trunk' });
-  assert.deepEqual(reviewHeadline({ ...headlineInputs, effectiveBase: null }), { text: 'Ready to merge into base' });
-  assert.deepEqual(reviewHeadline({ ...headlineInputs, effectiveBase: undefined }), { text: 'Ready to merge into base' });
+  assert.deepEqual(reviewHeadline(headlineInputs), { text: 'Ready to merge into main', namesMergeTarget: true });
+  assert.deepEqual(reviewHeadline({ ...headlineInputs, effectiveBase: 'trunk' }), { text: 'Ready to merge into trunk', namesMergeTarget: true });
+  assert.deepEqual(reviewHeadline({ ...headlineInputs, effectiveBase: null }), { text: 'Ready to merge into base', namesMergeTarget: true });
+  assert.deepEqual(reviewHeadline({ ...headlineInputs, effectiveBase: undefined }), { text: 'Ready to merge into base', namesMergeTarget: true });
 });
 
 test('review headline identifies a diverged base even while changes are loading', () => {
   assert.deepEqual(reviewHeadline({ ...headlineInputs, status: 'parked', mergeReason: 'base-diverged', fetched: false }), {
     text: 'Parked: base branch diverged',
+    namesMergeTarget: false,
   });
 });
 
@@ -31,6 +32,7 @@ test('review headline identifies merge conflicts and unknown parked reasons', ()
   for (const mergeReason of ['rebase-conflict', 'merge-conflict', 'unknown', null]) {
     assert.deepEqual(reviewHeadline({ ...headlineInputs, status: 'parked', mergeReason, hasChanges: false }), {
       text: 'Parked: merge conflict',
+      namesMergeTarget: false,
     });
   }
 });
@@ -38,48 +40,56 @@ test('review headline identifies merge conflicts and unknown parked reasons', ()
 test('review headline keeps merging visible while changes refresh', () => {
   assert.deepEqual(reviewHeadline({ ...headlineInputs, status: 'merging', fetched: false, hasChanges: false }), {
     text: 'Merging',
+    namesMergeTarget: false,
   });
 });
 
 test('review headline keeps merged visible after the diff cache is cleared', () => {
   assert.deepEqual(reviewHeadline({ ...headlineInputs, status: 'merged', fetched: false, hasChanges: false }), {
     text: 'Merged',
+    namesMergeTarget: false,
   });
 });
 
 test('review headline waits for changes before declaring an empty worktree', () => {
   assert.deepEqual(reviewHeadline({ ...headlineInputs, fetched: false, hasChanges: false }), {
     text: 'Checking for changes',
+    namesMergeTarget: false,
   });
 });
 
 test('review headline identifies a fetched worktree without changes', () => {
   assert.deepEqual(reviewHeadline({ ...headlineInputs, status: 'none', hasChanges: false }), {
     text: 'No changes yet',
+    namesMergeTarget: false,
   });
 });
 
 test('review headline reports a workspace session without promising a merge', () => {
   assert.deepEqual(reviewHeadline({ ...headlineInputs, isWorkspace: true, canMerge: false }), {
     text: 'Changes in this worktree',
+    namesMergeTarget: false,
   });
 });
 
 test('review headline reports an ended session instead of ready to merge', () => {
   assert.deepEqual(reviewHeadline({ ...headlineInputs, live: false, canMerge: false }), {
     text: 'Session ended',
+    namesMergeTarget: false,
   });
 });
 
 test('review headline reports uncommitted only changes instead of ready to merge', () => {
   assert.deepEqual(reviewHeadline({ ...headlineInputs, hasCommits: false, canMerge: false }), {
     text: 'Uncommitted changes',
+    namesMergeTarget: false,
   });
 });
 
 test('review headline reports committed changes that cannot merge yet', () => {
   assert.deepEqual(reviewHeadline({ ...headlineInputs, canMerge: false }), {
     text: 'Not ready to merge',
+    namesMergeTarget: false,
   });
 });
 
@@ -99,14 +109,12 @@ test('primary review action is none when neither resolve nor merge applies', () 
 });
 
 test('review copy names the effective base and its push action', async () => {
-  const { baseLabel, mergeActionTitle, mergeTargetText, parkedStatusText } = await import('../public/sidebar/review-copy-core.ts');
+  const { baseLabel, mergeActionTitle, parkedStatusText } = await import('../public/sidebar/review-copy-core.ts');
   assert.equal(baseLabel('trunk'), 'trunk');
   assert.equal(baseLabel(null), 'base');
   assert.match(mergeActionTitle('trunk', 'Alt+I'), /Merge into trunk, push it/);
   assert.match(mergeActionTitle(null, 'Alt+I'), /Merge into base, push it/);
   assert.match(mergeActionTitle('trunk', 'Alt+I'), /\(Alt\+I\)$/);
-  assert.equal(mergeTargetText('trunk'), 'merges into trunk');
-  assert.equal(mergeTargetText(null), 'merges into base');
   assert.match(parkedStatusText('base-diverged'), /Resync the base branch by hand, then Merge again/);
 });
 
@@ -122,31 +130,52 @@ test('H1 base-diverged park keeps Merge rendered and enabled', async () => {
   });
 });
 
-test('base-diverged rendered Merge explains why it is disabled', async () => {
+test('base-diverged rendered Merge leaves its disabled reason to the parked explanation', async () => {
   const { decideMergeAction, mergeDisabledReason } = await import('../public/sidebar/review-copy-core.ts');
   assert.deepEqual(decideMergeAction('parked', 'base-diverged', false), {
     isRendered: true,
     isEnabled: false,
   });
-  assert.match(mergeDisabledReason({
-    status: 'parked',
-    mergeReason: 'base-diverged',
-    fetched: true,
-    hasCommits: true,
-    live: true,
-    state: 'COMPLETE',
-  }) ?? '', /Resync the base branch by hand/);
+  assert.equal(mergeDisabledReason({ status: 'parked', hasCommits: true, live: true, state: 'COMPLETE' }), null);
 });
 
-test('loading, no changes, and inactive session outrank base-diverged copy', async () => {
+test('merge reason stays silent where the headline already says the session ended', async () => {
   const { mergeDisabledReason } = await import('../public/sidebar/review-copy-core.ts');
-  const baseDiverged = {
-    status: 'parked', mergeReason: 'base-diverged', fetched: true, hasCommits: true, live: true,
-    state: 'COMPLETE',
-  };
-  assert.equal(mergeDisabledReason({ ...baseDiverged, fetched: false }), 'Checking for changes...');
-  assert.equal(mergeDisabledReason({ ...baseDiverged, hasCommits: false }), null);
-  assert.equal(mergeDisabledReason({ ...baseDiverged, live: false }), 'Session ended.');
+  for (const status of ['none', 'pending-review']) {
+    for (const state of ['DONE', 'DORMANT', 'FAILED']) {
+      assert.equal(mergeDisabledReason({ status, hasCommits: true, live: false, state }), null);
+    }
+  }
+});
+
+test('merge reason names an ended session only under a parked or merged headline', async () => {
+  const { mergeDisabledReason } = await import('../public/sidebar/review-copy-core.ts');
+  for (const status of ['parked', 'merged']) {
+    assert.equal(mergeDisabledReason({ status, hasCommits: true, live: false, state: 'DONE' }), 'Session ended.');
+  }
+});
+
+test('merge reason explains a starting session and stays silent without commits or while merging', async () => {
+  const { mergeDisabledReason } = await import('../public/sidebar/review-copy-core.ts');
+  for (const state of ['INITIALIZING', 'STARTING']) {
+    assert.equal(mergeDisabledReason({ status: 'pending-review', hasCommits: true, live: true, state }), 'Starting up. Mergeable once the session is live.');
+  }
+  assert.equal(mergeDisabledReason({ status: 'pending-review', hasCommits: false, live: false, state: 'DONE' }), null);
+  assert.equal(mergeDisabledReason({ status: 'merging', hasCommits: true, live: false, state: 'DONE' }), null);
+});
+
+test('committed section names its merge target only when the headline does not', () => {
+  const readyHeadline = reviewHeadline(headlineInputs);
+  assert.equal(committedMergeTargetText(readyHeadline, 'main'), null);
+  for (const headline of [
+    reviewHeadline({ ...headlineInputs, canMerge: false }),
+    reviewHeadline({ ...headlineInputs, canMerge: false, live: false }),
+    reviewHeadline({ ...headlineInputs, status: 'parked', mergeReason: 'rebase-conflict' }),
+    reviewHeadline({ ...headlineInputs, status: 'parked', mergeReason: 'base-diverged' }),
+  ]) {
+    assert.equal(committedMergeTargetText(headline, 'develop'), 'merges into develop');
+  }
+  assert.equal(committedMergeTargetText(reviewHeadline({ ...headlineInputs, canMerge: false }), null), 'merges into base');
 });
 
 test('empty review hides Merge while parked and merging actions remain unchanged', () => {
@@ -174,19 +203,15 @@ test('only a fresh in-sync branch hides its visible sync label', () => {
   assert.equal(shouldShowBranchSyncLabel(undefined), true);
 });
 
-test('header counts omit fetched empty worktrees and single Diff sections', () => {
-  const inputs = { fetched: true, hasChanges: true, view: 'diff', committedFiles: 0, uncommittedFiles: 11 };
-  assert.equal(shouldShowReviewHeaderCounts(inputs), false);
-  assert.equal(shouldShowReviewHeaderCounts({ ...inputs, committedFiles: 2, uncommittedFiles: 0 }), false);
-  assert.equal(shouldShowReviewHeaderCounts({ ...inputs, committedFiles: 2 }), true);
+test('header counts show only outside Diff, whose sections carry their own counts, once changes are known', () => {
+  const inputs = { fetched: true, hasChanges: true, view: 'map' };
+  assert.equal(shouldShowReviewHeaderCounts(inputs), true);
+  assert.equal(shouldShowReviewHeaderCounts({ ...inputs, view: 'notes' }), true);
+  assert.equal(shouldShowReviewHeaderCounts({ ...inputs, view: 'diff' }), false);
   for (const view of ['diff', 'map', 'notes']) {
-    assert.equal(shouldShowReviewHeaderCounts({ ...inputs, view, hasChanges: false, uncommittedFiles: 0 }), false);
+    assert.equal(shouldShowReviewHeaderCounts({ ...inputs, view, hasChanges: false }), false);
+    assert.equal(shouldShowReviewHeaderCounts({ ...inputs, view, fetched: false }), false);
   }
-  for (const view of ['map', 'notes']) {
-    assert.equal(shouldShowReviewHeaderCounts({ ...inputs, view }), true);
-  }
-  assert.equal(shouldShowReviewHeaderCounts({ ...inputs, fetched: false, hasChanges: false, uncommittedFiles: 0 }), true);
-  assert.equal(shouldShowReviewHeaderCounts({ ...inputs, uncommittedFiles: 0 }), true);
 });
 
 test('unchanged resync is silent while all other outcomes keep their copy', () => {

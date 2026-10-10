@@ -7,11 +7,14 @@ export interface MergeActionVerdict {
 
 export interface MergeDisabledInputs {
   status: string;
-  mergeReason: string | null;
-  fetched: boolean;
   hasCommits: boolean;
   live: boolean;
   state: string;
+}
+
+export interface ReviewHeadline {
+  text: string;
+  namesMergeTarget: boolean;
 }
 
 export function reviewHeadline({
@@ -26,20 +29,25 @@ export function reviewHeadline({
   isWorkspace: boolean;
   live: boolean;
   effectiveBase: string | null | undefined;
-}): { text: string } {
+}): ReviewHeadline {
   if (status === 'parked' && mergeReason === 'base-diverged') {
-    return { text: 'Parked: base branch diverged' };
+    return { text: 'Parked: base branch diverged', namesMergeTarget: false };
   }
-  if (status === 'parked') return { text: 'Parked: merge conflict' };
-  if (status === 'merging') return { text: 'Merging' };
-  if (status === 'merged') return { text: 'Merged' };
-  if (!fetched) return { text: 'Checking for changes' };
-  if (!hasChanges) return { text: 'No changes yet' };
-  if (isWorkspace) return { text: 'Changes in this worktree' };
-  if (canMerge) return { text: `Ready to merge into ${baseLabel(effectiveBase)}` };
-  if (!live) return { text: 'Session ended' };
-  if (!hasCommits) return { text: 'Uncommitted changes' };
-  return { text: 'Not ready to merge' };
+  if (status === 'parked') return { text: 'Parked: merge conflict', namesMergeTarget: false };
+  if (status === 'merging') return { text: 'Merging', namesMergeTarget: false };
+  if (status === 'merged') return { text: 'Merged', namesMergeTarget: false };
+  if (!fetched) return { text: 'Checking for changes', namesMergeTarget: false };
+  if (!hasChanges) return { text: 'No changes yet', namesMergeTarget: false };
+  if (isWorkspace) return { text: 'Changes in this worktree', namesMergeTarget: false };
+  if (canMerge) return { text: `Ready to merge into ${baseLabel(effectiveBase)}`, namesMergeTarget: true };
+  if (!live) return { text: 'Session ended', namesMergeTarget: false };
+  if (!hasCommits) return { text: 'Uncommitted changes', namesMergeTarget: false };
+  return { text: 'Not ready to merge', namesMergeTarget: false };
+}
+
+export function committedMergeTargetText(headline: ReviewHeadline, effectiveBase: string | null | undefined): string | null {
+  if (headline.namesMergeTarget) return null;
+  return `merges into ${baseLabel(effectiveBase)}`;
 }
 
 export function decidePrimaryReviewAction({ status, mergeReason, live, isMergeRendered, hasChanges }: {
@@ -63,10 +71,6 @@ export function mergeActionTitle(effectiveBase: string | null | undefined, merge
   return `Merge into ${baseLabel(effectiveBase)}, push it, and rebase this worktree, then keep working (${mergeShortcutHint})`;
 }
 
-export function mergeTargetText(effectiveBase: string | null | undefined): string {
-  return `merges into ${baseLabel(effectiveBase)}`;
-}
-
 export function parkedStatusText(reason: string | null | undefined): string {
   if (reason === 'base-diverged') return 'Resync the base branch by hand, then Merge again.';
   return 'Needs manual merge';
@@ -87,20 +91,15 @@ export function decideMergeAction(
 
 export function mergeDisabledReason({
   status,
-  mergeReason,
-  fetched,
   hasCommits,
   live,
   state,
 }: MergeDisabledInputs): string | null {
   if (status === 'merging') return null;
-  if (!fetched) return 'Checking for changes...';
   if (!hasCommits) return null;
-  if (!live) return 'Session ended.';
-  if (status === 'parked' && mergeReason === 'base-diverged') {
-    return 'Resync the base branch by hand before merging.';
-  }
-  if (status === 'parked') return 'Resolve the conflict, then merge.';
+  if (!live && (status === 'parked' || status === 'merged')) return 'Session ended.';
+  if (!live) return null;
+  if (status === 'parked') return null;
   if (state === 'INITIALIZING' || state === 'STARTING') {
     return 'Starting up. Mergeable once the session is live.';
   }
@@ -156,17 +155,13 @@ export function shouldShowBranchSyncLabel(sync: ReviewBranchSync | null | undefi
   return sync?.state !== 'in-sync' || sync.fetched === false;
 }
 
-export function shouldShowReviewHeaderCounts({ fetched, hasChanges, view, committedFiles, uncommittedFiles }: {
+export function shouldShowReviewHeaderCounts({ fetched, hasChanges, view }: {
   fetched: boolean;
   hasChanges: boolean;
   view: string;
-  committedFiles: number;
-  uncommittedFiles: number;
 }): boolean {
-  if (fetched && !hasChanges) return false;
-  if (view !== 'diff') return true;
-  const sectionCount = Number(committedFiles > 0) + Number(uncommittedFiles > 0);
-  return sectionCount !== 1;
+  if (!fetched || !hasChanges) return false;
+  return view !== 'diff';
 }
 
 export function resyncOutcomeText(sync: ReviewBranchSync): string | null {
