@@ -32,10 +32,6 @@ export interface SweepFix {
   newText: string;
 }
 
-function sweepMarkdown(text: unknown): SweepDiagnostic[] {
-  return sweepMarkdownWithFixes(text).diagnostics;
-}
-
 function sweepMarkdownWithFixes(text: unknown): { diagnostics: SweepDiagnostic[]; fixes: SweepFix[] } {
   const diagnostics: SweepDiagnostic[] = [];
   const fixes: SweepFix[] = [];
@@ -199,4 +195,4 @@ function fix(sourceDiagnostic: SweepDiagnostic, editRange: DocumentRange, newTex
   };
 }
 
-export { SOURCE, WARNING, sweepMarkdown, sweepMarkdownWithFixes };
+export { SOURCE, WARNING, sweepMarkdownWithFixes };

@@ -161,4 +161,4 @@ function appendFixLog<T>(ring: unknown, entry: T, max: unknown = DEFAULT_FIX_LOG
   return [entry, ...listOf<T>(ring)].slice(0, cap);
 }
 
-export { AUTO_SAFE_CODES, DEFAULT_FIX_LOG_MAX, QUICKFIX_KIND, appendFixLog, applyEditLabel, autoSafeFixes, buildApplyEditParams, buildCodeActions, filterFixesByRange, fixLogEntry, fixPayload, fixTitle, isAutoSafeFix, isFixSetFresh, rangesOverlap, readSweepResult };
+export { DEFAULT_FIX_LOG_MAX, QUICKFIX_KIND, appendFixLog, applyEditLabel, autoSafeFixes, buildApplyEditParams, buildCodeActions, filterFixesByRange, fixLogEntry, fixPayload, fixTitle, isFixSetFresh, readSweepResult };

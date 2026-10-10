@@ -34,7 +34,7 @@ Pure cores seam-extracted from `sessions.js`: no fs, no git, no async, no Sessio
 - Strings destined for the cmd.exe shim spawn path must avoid embedded double quotes (see `anti-slop-prompt.ts` header).
 
 ### Testing Requirements
-- Every module here has a matching test in `tests/`; keep it green and extend it with the change.
+- Where a module here has a test in `tests/`, keep it green and extend it with the change.
 
 ## Dependencies
 

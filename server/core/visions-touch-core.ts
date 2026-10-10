@@ -280,4 +280,4 @@ function formatTouchedRanges(ranges: unknown): string {
     .join(', ');
 }
 
-export { consumeReviewRanges, createTouchState, formatTouchedRanges, mergeRanges, recordChanges, resetUri, restoreReviewRanges, shiftLines, touchedLineCount, touchedRangesFor };
+export { consumeReviewRanges, createTouchState, formatTouchedRanges, recordChanges, resetUri, restoreReviewRanges, shiftLines, touchedLineCount, touchedRangesFor };

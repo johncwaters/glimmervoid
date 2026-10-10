@@ -40,5 +40,5 @@ function sessionStartContextOutput(body: string | null): string | null {
   }
 }
 
-export { buildRefocusReminder, refocusReplyFor, sessionStartContextOutput };
+export { refocusReplyFor, sessionStartContextOutput };
 export type { RefocusContext };

@@ -37,7 +37,7 @@ export function readPackageManifest(text: string | null): PackageManifest | null
   }
 }
 
-export function bareSpecifierPackage(specifier: string): string | null {
+function bareSpecifierPackage(specifier: string): string | null {
   if (!specifier || specifier.startsWith('.') || specifier.startsWith('#') || specifier.startsWith('/') || specifier.startsWith('\\')) return null;
   if (/^[a-z][a-z\d+.-]*:/i.test(specifier)) return null;
   if (specifier.includes('\\') || specifier.includes('?') || specifier.includes('#')) return null;
@@ -49,7 +49,7 @@ export function bareSpecifierPackage(specifier: string): string | null {
   return segments[0] || null;
 }
 
-export function isLocalLinkSpec(spec: string): boolean {
+function isLocalLinkSpec(spec: string): boolean {
   return ['file:', 'link:', 'workspace:', 'portal:'].some((prefix) => spec.startsWith(prefix));
 }
 

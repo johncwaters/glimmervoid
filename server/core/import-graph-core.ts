@@ -131,7 +131,7 @@ function sourceCandidates(candidatePath: string): string[] {
   ];
 }
 
-export function resolveSpecifier({
+function resolveSpecifier({
   fromPath,
   specifier,
   knownPaths,
@@ -184,7 +184,7 @@ export function buildImportGraph({
   return { dependentsByPath };
 }
 
-export function isTestPath(repoPath: string): boolean {
+function isTestPath(repoPath: string): boolean {
   const segments = repoPath.split('/');
   if (segments.slice(0, -1).some((segment) => segment === 'tests' || segment === 'test' || segment === '__tests__')) return true;
   const fileName = segments.at(-1) ?? '';

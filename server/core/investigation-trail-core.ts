@@ -1,4 +1,4 @@
-import { TOOL_DETAIL_MAX_CHARS, toolDetailLine } from '../../shared/tool-detail.ts';
+import { toolDetailLine } from '../../shared/tool-detail.ts';
 
 export interface TrailStep {
   at: number;
@@ -12,10 +12,9 @@ export interface InvestigationTrail {
 }
 
 export const TRAIL_MAX_STEPS = 80;
-export const TRAIL_DETAIL_MAX_CHARS = TOOL_DETAIL_MAX_CHARS;
-export const TRAIL_TOOL_MAX_CHARS = 64;
+const TRAIL_TOOL_MAX_CHARS = 64;
 
-export function describeToolStep(toolName: unknown, toolInput: unknown): { tool: string; detail: string } | null {
+function describeToolStep(toolName: unknown, toolInput: unknown): { tool: string; detail: string } | null {
   const trimmed = typeof toolName === 'string' ? toolName.trim() : '';
   if (!trimmed) return null;
   const tool = trimmed.slice(0, TRAIL_TOOL_MAX_CHARS);

@@ -56,7 +56,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a lightweight Node.js 
 ### Testing Requirements
 
 - Run `npm test` (the `node:test` suite in `tests/`) before claiming completion.
-- New pure logic gets a unit test; detection changes must also pass the replay fixtures (`tests/replay-harness.test.ts`).
+- Detection changes must pass the replay fixtures (`tests/replay-harness.test.ts`).
 - Tests pin behavior better than prose: when a rule matters, add the test rather than a paragraph here.
 - Every operator-visible change (feature, fix, removal, dependency bump) lands with an entry under `## [Unreleased]` in `CHANGELOG.md`, written for the operator, because `scripts/release.ts` publishes that section verbatim as the GitHub release notes. Tests-only, refactor and internal docs changes need none.
 

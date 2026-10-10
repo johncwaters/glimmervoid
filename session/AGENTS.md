@@ -18,7 +18,7 @@ The session domain: the stateful Session class (lifecycle, PTY spawn/kill, timer
 | `core/` | Pure cores of a SEAM EXTRACTION from `sessions.js`: no IO, no Session import (see `core/AGENTS.md`) |
 
 ## For AI Agents
-- New Session logic that can be pure goes in `core/` with a unit test in `tests/`; the class keeps only state and side effects.
+- New Session logic that can be pure goes in `core/`; the class keeps only state and side effects.
 - Status detection is structural (hooks + OSC-0 title). Never reintroduce PTY body/content scraping.
 - See root `AGENTS.md` ("Status Detection", "Session State Machine") before touching transitions or the completion gate.
 

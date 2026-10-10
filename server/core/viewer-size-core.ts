@@ -54,4 +54,4 @@ function resolveSessionSize<Key>({ viewers, departingKey, current }: {
   return { cols: claimant.cols, rows: claimant.rows, changed };
 }
 
-export { isApplicableViewerSize, pickSizeAfterDeparture, resolveSessionSize };
+export { isApplicableViewerSize, resolveSessionSize };

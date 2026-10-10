@@ -44,5 +44,5 @@ function drainOutcomeSummary(
   return { fields, next };
 }
 
-export { countOutcome, drainOutcomeSummary, emptyOutcomeCounts, LOOP_LAG_REPORT_THRESHOLD_MS };
+export { countOutcome, drainOutcomeSummary, emptyOutcomeCounts };
 export type { OutcomeCounts, OutcomeSummaryFields };

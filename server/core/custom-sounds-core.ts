@@ -76,7 +76,6 @@ export type { ByteRangeDecision };
 export {
   customSoundContentType,
   decideByteRange,
-  isCustomSoundName,
   isDirectChildOf,
   resolveCustomSoundsDir,
   selectCustomSoundNames,
