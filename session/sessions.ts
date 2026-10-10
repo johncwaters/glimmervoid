@@ -1911,6 +1911,7 @@ class Session extends EventEmitter {
     this._clearTimer("_titleQuietFallbackTimer");
 
     this.backgroundTracking.clearGateHeldReady();
+    this.backgroundTracking.clearWakeups();
 
     if (this._recorder) {
       this._recorder.close();

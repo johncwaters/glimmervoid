@@ -39,6 +39,10 @@ interface GateHeldReady {
   seq: number;
 }
 
+const SCHEDULED_WAKEUP_KEY = "scheduled-wakeup";
+
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
 type PendingWakeup = {
   at: number | null;
   kind: string;
@@ -94,6 +98,7 @@ function createSessionBackgroundTracking({
 
   const wakeups: WakeupMap = new Map();
   let wakeupSeq = 0;
+  let wakeupExpiryTimer: NodeJS.Timeout | null = null;
 
   function activeAgentCount(): number {
     if (!detectBackgroundAgents) {
@@ -302,13 +307,17 @@ function createSessionBackgroundTracking({
       const input: Record<string, unknown> = isRecord(toolInput)
         ? toolInput
         : {};
+      if (input.stop === true) {
+        if (wakeupTracker.removeWakeup(wakeups, SCHEDULED_WAKEUP_KEY)) emitWakeupChange();
+        return;
+      }
       const delaySec = Number(input.delaySeconds);
       if (!Number.isFinite(delaySec) || delaySec <= 0) return;
-      const key = `w${++wakeupSeq}`;
+      const fireAt = ts + delaySec * 1000;
+      if (!Number.isFinite(fireAt)) return;
       const reason = typeof input.reason === "string" && input.reason ? input.reason : null;
-      if (wakeupTracker.addWakeup(wakeups, key, { kind: "wakeup", fireAt: ts + delaySec * 1000, reason, ts })) {
-        emitWakeupChange();
-      }
+      wakeupTracker.addWakeup(wakeups, SCHEDULED_WAKEUP_KEY, { kind: "wakeup", fireAt, reason, ts });
+      emitWakeupChange();
       return;
     }
     if (raw.signal === "cron-created") {
@@ -332,11 +341,36 @@ function createSessionBackgroundTracking({
     return { at: entry.fireAt, kind: entry.kind, reason: entry.reason };
   }
 
+  function clearWakeupExpiryTimer(): void {
+    if (!wakeupExpiryTimer) return;
+    clearTimeout(wakeupExpiryTimer);
+    wakeupExpiryTimer = null;
+  }
+
+  function armWakeupExpiryTimer(): void {
+    clearWakeupExpiryTimer();
+    const expiresAt = wakeupTracker.nextWakeupExpiry(wakeups);
+    if (expiresAt == null) return;
+    const delayUntilExpiryMs = Math.max(0, expiresAt - Date.now());
+    wakeupExpiryTimer = setTimeout(() => {
+      wakeupExpiryTimer = null;
+      if (port.isDestroyed()) return;
+      if (Date.now() < expiresAt) {
+        armWakeupExpiryTimer();
+        return;
+      }
+      emitWakeupChange();
+    }, Math.min(delayUntilExpiryMs, MAX_TIMER_DELAY_MS));
+    wakeupExpiryTimer.unref();
+  }
+
   function emitWakeupChange(): void {
     port.emit("wakeup-change", { pendingWakeup: pendingWakeup() });
+    armWakeupExpiryTimer();
   }
 
   function clearWakeups(): void {
+    clearWakeupExpiryTimer();
     if (wakeups.size === 0) return;
     wakeups.clear();
     emitWakeupChange();

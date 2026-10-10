@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Session } from '../session/sessions.ts';
@@ -171,5 +171,80 @@ test('wakeup signals never reach the StatusSource (tracking-only, like subagents
   hook(s, 'cron-created', { tool_name: 'CronCreate', tool_response: { task_id: 'aaaa1111' } });
   assert.equal(s.state, STATES.IDLE, 'no transition from tracking signals');
   assert.equal(s.getDetectionStats().lastSignal, null, 'nothing resolved through the StatusSource');
+  s.destroy();
+});
+
+test('a later ScheduleWakeup replaces the pending one instead of stacking behind it', () => {
+  const s = makeSession(STATES.COMPLETE);
+  const deltas: Array<{ reason?: string | null } | null> = [];
+  s.on('wakeup-change', (e) => deltas.push(e.pendingWakeup));
+  hook(s, 'wakeup-scheduled', { tool_name: 'ScheduleWakeup', tool_input: { delaySeconds: 300, reason: 'first' } });
+  hook(s, 'wakeup-scheduled', { tool_name: 'ScheduleWakeup', tool_input: { delaySeconds: 1800, reason: 'second' } });
+  assert.equal(s.toSnapshot().pendingWakeup?.reason, 'second');
+  assert.equal(Number(s.toSnapshot().pendingWakeup?.at) > Date.now() + 1790 * 1000, true);
+  assert.equal(deltas.at(-1)?.reason, 'second');
+  s.destroy();
+});
+
+test('ScheduleWakeup with stop clears the pending wakeup', () => {
+  const s = makeSession(STATES.COMPLETE);
+  const deltas: unknown[] = [];
+  s.on('wakeup-change', (e) => deltas.push(e.pendingWakeup));
+  hook(s, 'wakeup-scheduled', { tool_name: 'ScheduleWakeup', tool_input: { delaySeconds: 300, reason: 'loop' } });
+  hook(s, 'wakeup-scheduled', { tool_name: 'ScheduleWakeup', tool_input: { stop: true } });
+  assert.equal(s.toSnapshot().pendingWakeup, null);
+  assert.deepEqual(deltas, [deltas[0], null]);
+  s.destroy();
+});
+
+test('an expired wakeup pushes a null wakeup-change without waiting for a snapshot read', () => {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  try {
+    const s = makeSession(STATES.COMPLETE);
+    const deltas: unknown[] = [];
+    s.on('wakeup-change', (e) => deltas.push(e.pendingWakeup));
+    hook(s, 'wakeup-scheduled', { tool_name: 'ScheduleWakeup', tool_input: { delaySeconds: 60, reason: 'tick' } });
+    mock.timers.tick(60 * 1000 + wakeupTracker.DEFAULT_WAKEUP_GRACE_MS);
+    assert.equal(deltas.length, 2);
+    assert.equal(deltas[1], null);
+    s.destroy();
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('nextWakeupExpiry returns the soonest one-shot or cron expiry', () => {
+  const m = new Map();
+  assert.equal(wakeupTracker.nextWakeupExpiry(m), null);
+  wakeupTracker.addWakeup(m, 'c1', { kind: 'cron', fireAt: null, reason: null, ts: 0 });
+  wakeupTracker.addWakeup(m, 'w1', { kind: 'wakeup', fireAt: 1000, reason: null, ts: 0 });
+  assert.equal(wakeupTracker.nextWakeupExpiry(m, { graceMs: 500, cronTtlMs: 10000 }), 1500);
+});
+
+test('a wakeup beyond the setTimeout ceiling re-arms quietly instead of spinning wakeup-change', () => {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  try {
+    const s = makeSession(STATES.COMPLETE);
+    const deltas: unknown[] = [];
+    s.on('wakeup-change', (e) => deltas.push(e.pendingWakeup));
+    hook(s, 'wakeup-scheduled', { tool_name: 'ScheduleWakeup', tool_input: { delaySeconds: 1e9, reason: 'far' } });
+    mock.timers.tick(1000);
+    assert.equal(deltas.length, 1);
+    mock.timers.tick(2_147_483_647 * 2);
+    assert.equal(deltas.length, 1);
+    assert.equal(s.toSnapshot().pendingWakeup?.reason, 'far');
+    s.destroy();
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('a ScheduleWakeup whose fire time overflows to Infinity is ignored', () => {
+  const s = makeSession(STATES.COMPLETE);
+  const deltas: unknown[] = [];
+  s.on('wakeup-change', (e) => deltas.push(e.pendingWakeup));
+  hook(s, 'wakeup-scheduled', { tool_name: 'ScheduleWakeup', tool_input: { delaySeconds: 1e308, reason: 'never' } });
+  assert.equal(s.toSnapshot().pendingWakeup, null);
+  assert.equal(deltas.length, 0);
   s.destroy();
 });

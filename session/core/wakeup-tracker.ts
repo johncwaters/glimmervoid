@@ -29,22 +29,36 @@ function removeWakeup(map: WakeupMap, key: string): boolean {
   return map.delete(key);
 }
 
-function pruneWakeups(
-  map: WakeupMap,
-  now: number,
-  { graceMs = DEFAULT_WAKEUP_GRACE_MS, cronTtlMs = DEFAULT_CRON_TTL_MS }:
-    { graceMs?: number; cronTtlMs?: number } = {},
-): number {
+type ExpiryOptions = { graceMs?: number; cronTtlMs?: number };
+
+function expiryOf(
+  entry: WakeupEntry,
+  { graceMs = DEFAULT_WAKEUP_GRACE_MS, cronTtlMs = DEFAULT_CRON_TTL_MS }: ExpiryOptions = {},
+): number | null {
+  if (entry.kind === 'cron') return entry.ts + cronTtlMs;
+  if (entry.fireAt == null) return null;
+  return entry.fireAt + graceMs;
+}
+
+function pruneWakeups(map: WakeupMap, now: number, options: ExpiryOptions = {}): number {
   let removed = 0;
-  for (const [key, e] of map) {
-    const expired = e.kind === 'cron'
-      ? now - e.ts >= cronTtlMs
-      : e.fireAt != null && now >= e.fireAt + graceMs;
-    if (!expired) continue;
+  for (const [key, entry] of map) {
+    const expiresAt = expiryOf(entry, options);
+    if (expiresAt == null || now < expiresAt) continue;
     map.delete(key);
     removed++;
   }
   return removed;
+}
+
+function nextWakeupExpiry(map: WakeupMap, options: ExpiryOptions = {}): number | null {
+  let soonest: number | null = null;
+  for (const entry of map.values()) {
+    const expiresAt = expiryOf(entry, options);
+    if (expiresAt == null) continue;
+    if (soonest == null || expiresAt < soonest) soonest = expiresAt;
+  }
+  return soonest;
 }
 
 function earliestWakeup(map: WakeupMap): WakeupEntry | null {
@@ -75,6 +89,7 @@ export {
   addWakeup,
   removeWakeup,
   pruneWakeups,
+  nextWakeupExpiry,
   earliestWakeup,
   extractCronTaskId,
   MAX_WAKEUPS,
