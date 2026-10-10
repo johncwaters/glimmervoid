@@ -82,7 +82,9 @@ export const CoherenceWorkInspect = z.looseObject({
       session: z.string(),
     }).nullable(),
     opened: z.looseObject({
+      at: z.iso.datetime(),
       objective: z.string(),
+      authority: z.looseObject({ boundary: z.string() }),
       criteria: z.array(z.string()),
       risk: CoherenceRisk,
       parent: z.string().nullable(),
@@ -103,3 +105,19 @@ export const CoherenceWorkInspect = z.looseObject({
 export type CoherenceOrient = z.infer<typeof CoherenceOrient>;
 export type CoherenceWorkInspect = z.infer<typeof CoherenceWorkInspect>;
 export type CoherenceRisk = z.infer<typeof CoherenceRisk>;
+
+export const CoherenceWorkCreated = z.looseObject({
+  version: z.literal(1),
+  event: z.literal('opened'),
+  at: z.iso.datetime(),
+  session: z.literal('glimmervoid-factory'),
+  work: z.string().regex(/^wrk-[a-f0-9]{16}$/),
+  id: z.string().regex(/^wev-[a-f0-9]{16}$/),
+  parent: z.null(),
+  objective: z.string(),
+  criteria: z.array(z.string()),
+  risk: CoherenceRisk,
+  state: z.literal('open'),
+  authority: z.object({ kind: z.literal('user-directed'), grantedBy: z.literal('operator'), boundary: z.string() }),
+  writeScopes: z.array(z.string()),
+});

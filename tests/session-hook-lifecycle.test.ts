@@ -13,6 +13,9 @@ import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import grok from '../session/adapters/grok.ts';
 import { renderGrokHooksFile } from '../session/core/grok-hooks-file-core.ts';
 import { saneYoloHomeDir } from '../server/hook-tools.ts';
+import { buildCoherenceSessionOverrides } from '../server/core/coherence-session-core.ts';
+import { createSessionFactory } from '../server/session-factory.ts';
+import type { HooksBlock, UserHook } from '../session/core/user-hooks-core.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import type { SpawnCall } from './helpers/fake-pty.ts';
 
@@ -70,6 +73,85 @@ test('a session spawned with the agent API off is handed no agent url at all', a
     try {
       await session.start();
       assert.equal(AGENT_URL_ENV in calls[0].opts.env, false, 'the default config leaks no agent url');
+    } finally {
+      session.destroy();
+    }
+  });
+});
+
+test('factory overrides reach Claude argv and env with coherence hooks after fresh project hooks', async () => {
+  await withTempDir(async (directory) => {
+    const projectHooks: UserHook[] = [{
+      id: 'project-stop', name: 'Project stop', event: 'Stop', type: 'command', command: 'project-stop', enabled: true,
+    }];
+    const makeSession = createSessionFactory({
+      configStore: { configPath: path.join(directory, 'config.json') },
+      hookRouter: new HookRouter(),
+      getHookPort: () => PORT,
+      getGitWorkspace: () => null,
+      getPlanReviewPort: () => null,
+      resolveHookTools: () => [{ id: 'rtk', binPath: path.join(directory, 'rtk', 'rtk') }],
+      getUserHooks: () => projectHooks,
+    });
+    const overrides = buildCoherenceSessionOverrides({
+      claudeSessionId: '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5',
+      nodePath: process.execPath,
+      hookCliPath: path.join(directory, 'coherence-hook.js'),
+      shimDir: path.join(directory, 'factory', 'bin'),
+    });
+    const session = makeSession({ id: 'coherence-session', name: 'Coherence', path: directory },
+      { projects: [], recordSignals: false }, overrides);
+    session._spawnCommand = { path: process.execPath, kind: 'exe' };
+    const calls: SpawnCall[] = [];
+    session._ptySpawn = (file, args, opts) => {
+      calls.push({ file, args, opts: opts as SpawnCall['opts'] });
+      return fakePty();
+    };
+    try {
+      await session.start();
+      const readSettings = () => {
+        const settingsIndex = calls.at(-1)?.args.indexOf('--settings') ?? -1;
+        assert.ok(settingsIndex >= 0);
+        const settingsPath = calls.at(-1)?.args[settingsIndex + 1];
+        assert.ok(settingsPath);
+        return JSON.parse(fs.readFileSync(settingsPath, 'utf8')) as { hooks: HooksBlock };
+      };
+      assert.deepEqual(calls[0].args.slice(-2), overrides.extraClaudeArgs);
+      assert.equal(calls[0].opts.env.COHERENCE_HOOK_HOST, 'claude');
+      assert.equal('COHERENCE_PROJECT_ROOT' in calls[0].opts.env, false);
+      assert.deepEqual(String(calls[0].opts.env.PATH ?? calls[0].opts.env.Path).split(path.delimiter).slice(0, 2),
+        [overrides.prependPathDirs[0], path.join(directory, 'rtk')]);
+      const coherenceStop = overrides.extraUserHooks.find((hook) => hook.event === 'Stop');
+      assert.deepEqual(readSettings().hooks.Stop.slice(-2), [
+        { hooks: [{ type: 'command', command: 'project-stop' }] },
+        { hooks: [{ type: 'command', command: coherenceStop?.command }] },
+      ]);
+      projectHooks[0].command = 'updated-project-stop';
+      session._hooks.inject();
+      assert.deepEqual(readSettings().hooks.Stop.slice(-2), [
+        { hooks: [{ type: 'command', command: 'updated-project-stop' }] },
+        { hooks: [{ type: 'command', command: coherenceStop?.command }] },
+      ]);
+      assert.equal(projectHooks.length, 1);
+      assert.equal(overrides.extraUserHooks.length, 5);
+    } finally {
+      session.destroy();
+    }
+  });
+});
+
+test('extra hooks reach settings when no project hook callback is configured', async () => {
+  await withTempDir(async (directory) => {
+    const session = new Session({
+      id: 'extra-hooks', name: 'Extra hooks', path: directory,
+      hookRouter: new HookRouter(), getHookPort: () => PORT, hooksBaseDir: directory,
+      spawnCommand: { path: process.execPath, kind: 'exe' }, ptySpawn: () => fakePty(),
+      extraUserHooks: [{ id: 'extra-stop', name: 'Extra stop', event: 'Stop', type: 'command', command: 'extra-stop', enabled: true }],
+    });
+    try {
+      await session.start();
+      const settings = JSON.parse(fs.readFileSync(path.join(directory, 'extra-hooks', 'settings.json'), 'utf8')) as { hooks: HooksBlock };
+      assert.deepEqual(settings.hooks.Stop.at(-1), { hooks: [{ type: 'command', command: 'extra-stop' }] });
     } finally {
       session.destroy();
     }

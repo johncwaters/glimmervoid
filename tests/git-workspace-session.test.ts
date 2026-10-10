@@ -192,6 +192,31 @@ test('stageDetachedWorktree adds the fixed sha as a detached worktree', async ()
   assert.deepEqual(calls, [{ args: ['worktree', 'add', '--detach', '/repo/.glimmervoid/update/next', sha], cwd: '/repo' }]);
 });
 
+test('untrusted staging and removal run git with hooks pointed at the null device and only the supplied env, on the serialized queue', async () => {
+  const calls: Array<{ args: string[]; cwd: string; replaceEnv?: Record<string, string> }> = [];
+  const gitWorkspace = createGitWorkspace({
+    git: (args, cwd, extra) => {
+      calls.push({ args, cwd, replaceEnv: extra?.replaceEnv });
+      return '';
+    },
+  });
+  const sha = 'a'.repeat(40);
+  const replaceEnv = { PATH: '/usr/bin', CI: '1' };
+  const hookless = ['-c', `core.hooksPath=${os.devNull}`];
+  const staging = gitWorkspace.stageDetachedWorktree({ projectPath: '/repo', worktreePath: '/checks', sha, disableHooks: true, replaceEnv });
+  const removal = gitWorkspace.removeWorktreeByPath({ projectPath: '/repo', cwd: '/checks', disableHooks: true, replaceEnv });
+  const pruning = gitWorkspace.pruneWorktrees({ projectPath: '/repo', disableHooks: true, replaceEnv });
+  assert.equal((await staging).ok, true);
+  assert.equal((await removal).ok, true);
+  assert.equal((await pruning).ok, true);
+  assert.deepEqual(calls, [
+    { args: [...hookless, 'worktree', 'add', '--detach', '/checks', sha], cwd: '/repo', replaceEnv },
+    { args: [...hookless, 'worktree', 'remove', '--force', '/checks'], cwd: '/repo', replaceEnv },
+    { args: [...hookless, 'worktree', 'prune'], cwd: '/repo', replaceEnv },
+    { args: [...hookless, 'worktree', 'prune'], cwd: '/repo', replaceEnv },
+  ]);
+});
+
 test('stageDetachedWorktree refuses a non-lowercase full sha without running git', async () => {
   const calls: string[][] = [];
   const gitWorkspace = createGitWorkspace({ git: (args) => { calls.push(args); return ''; } });

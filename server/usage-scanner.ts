@@ -935,7 +935,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   }
 
   function stats() {
-    return { dirs: dirs.slice(), files: lastFileCount, entries: entries.length, lastScanMs, resolutionError };
+    return { dirs: dirs.slice(), files: lastFileCount, entries: entries.length, lastScanMs, lastOutcome, resolutionError };
   }
 
   async function runPassInternal({ force }: { force: boolean }): Promise<PassResult> {
@@ -1060,6 +1060,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     sessionTotals,
     stats,
     budgetSpend,
+    laneUsageSince: (sinceMs: number) => laneRollupSince(entries, getRecordedLanes(), sinceMs),
     _entriesForTest: () => entries.map((entry) => entry),
   };
   Object.defineProperty(api, '_entriesForTest', { enumerable: false });

@@ -183,17 +183,20 @@ interface SessionOptions {
   settingsPermissions?: Record<string, unknown> | null;
   settingsSandbox?: Record<string, unknown> | null;
   spawnEnv?: Record<string, string> | null;
+  prependPathDirs?: string[];
   enableProjectMcp?: boolean;
   hookTools?: ResolvedHookTool[];
   planReviewPort?: SessionPlanReviewPort | null;
   planLimits?: boolean;
   getUserHooks?: (() => UserHook[]) | null;
+  extraUserHooks?: UserHook[];
   ptySpawn?: PtySpawn | null;
   screenKeeperFactory?: ScreenKeeperFactory | null;
   killProc?: KillProc | null;
   signalProc?: SignalProc | null;
   platform?: NodeJS.Platform;
   gitWorkspace?: GitWorkspace | null;
+  requireWorktree?: boolean;
   integrationBranch?: string | null;
   autoRebase?: boolean;
   syncOnStart?: boolean;
@@ -274,6 +277,7 @@ class Session extends EventEmitter {
   _suppressResumeCapture: boolean;
   _antiSlopPrompt: boolean;
   _spawnEnv: Record<string, string> | null;
+  _prependPathDirs: string[];
   _hookTools: ResolvedHookTool[];
   _isSaneYoloActive: boolean;
   _planLimits: boolean;
@@ -286,6 +290,7 @@ class Session extends EventEmitter {
   _agentLifetimeSpawns: number;
   _agentSpawnsInFlight: number;
   _ptySpawn: PtySpawn;
+  _requiresWorktree: boolean;
   _killProc: KillProc;
   _signalProc: SignalProc;
   _platform: NodeJS.Platform;
@@ -345,6 +350,7 @@ class Session extends EventEmitter {
     settingsSandbox = null,
 
     spawnEnv = null,
+    prependPathDirs = [],
 
     enableProjectMcp = false,
     hookTools = [],
@@ -354,8 +360,10 @@ class Session extends EventEmitter {
     planLimits = false,
 
     getUserHooks = null,
+    extraUserHooks = [],
 
     ptySpawn = null,
+    requireWorktree = false,
 
     screenKeeperFactory = null,
 
@@ -472,6 +480,7 @@ class Session extends EventEmitter {
       },
     });
     this._spawnCommand = spawnCommand;
+    this._requiresWorktree = requireWorktree;
     this._initialPrompt = initialPrompt;
     this._extraClaudeArgs = Array.isArray(extraClaudeArgs) ? extraClaudeArgs : [];
     this._resumeSessionId = resumeSessionId || null;
@@ -481,6 +490,7 @@ class Session extends EventEmitter {
     this._antiSlopPrompt = !!antiSlopPrompt && this._can("antiSlop");
     this.ephemeral = !!ephemeral;
     this._spawnEnv = spawnEnv;
+    this._prependPathDirs = prependPathDirs;
     this._hookTools = hookTools.filter((tool) => this._can(HOOK_TOOLS[tool.id].capability));
     this._isSaneYoloActive = false;
     this._planLimits = planLimits === true && this._can("statusLine");
@@ -502,6 +512,7 @@ class Session extends EventEmitter {
       planLimits: this._planLimits,
       planReview: planReviewPort !== null,
       getUserHooks,
+      extraUserHooks,
       bypassHookTrust: this.bypassHookTrust,
       effectiveCwd: () => this.effectiveCwd(),
       ingestSignal: (raw) => this.ingestHookSignal(raw),
@@ -1311,6 +1322,10 @@ class Session extends EventEmitter {
     if (this._destroyed) return;
 
     if (!(await this._provisionWorktree({ fresh }))) return;
+    if (this._requiresWorktree && !this.worktreeDir) {
+      this.emit('error', new Error('This session requires its own git worktree'));
+      return;
+    }
 
     if (this._destroyed) return;
 
@@ -1356,6 +1371,7 @@ class Session extends EventEmitter {
     const rtkTool = this._hookTools.find((tool) => tool.id === "rtk");
     const env = this._buildSpawnEnv({
       prependPathDir: rtkTool ? path.dirname(rtkTool.binPath) : null,
+      prependPathDirs: this._prependPathDirs,
       extraEnv: spawnExtraEnv,
     });
 
@@ -1491,6 +1507,7 @@ class Session extends EventEmitter {
   _buildSpawnEnv({ extraEnv = this._spawnEnv, ...options }: {
     extraEnv?: Record<string, string> | null;
     prependPathDir?: string | null;
+    prependPathDirs?: readonly string[];
   } = {}) {
     return this._adapter.buildEnv(process.env, extraEnv, options);
   }

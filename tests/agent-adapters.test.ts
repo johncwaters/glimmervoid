@@ -9,6 +9,8 @@ import { HookRouter } from '../detection/hook-source.ts';
 import { writeSessionSettings } from '../detection/settings-injector.ts';
 import claudeCode from '../session/adapters/claude-code.ts';
 import codex from '../session/adapters/codex.ts';
+import grok from '../session/adapters/grok.ts';
+import { createCustomAdapter } from '../session/adapters/custom.ts';
 import * as adapters from '../session/adapters/index.ts';
 import { validateConfig } from '../server/config-store.ts';
 import { BUILTIN_AGENT_IDS, CustomAgentDeclaration } from '../shared/contracts/index.ts';
@@ -69,6 +71,26 @@ test('buildArgs keeps the pre-extraction order: perms, resume, lane flags, anti-
   assert.equal(args[6], '--append-system-prompt');
   assert.equal(args[args.length - 1], 'THE PROMPT');
   assert.deepEqual(claudeCode.buildArgs(), [], 'a plain user session adds nothing');
+});
+
+test('Claude drops both session-id forms on resume and keeps every other argument in order', () => {
+  const extraArgs = ['-p', '--session-id', 'preassigned-id', '--model', 'sonnet', '--session-id=another-id', '--verbose'];
+  assert.deepEqual(claudeCode.buildArgs({ resumeSessionId: RESUME_ID, extraArgs, initialPrompt: 'Prompt' }),
+    ['--resume', RESUME_ID, '-p', '--model', 'sonnet', '--verbose', 'Prompt']);
+  assert.deepEqual(extraArgs, ['-p', '--session-id', 'preassigned-id', '--model', 'sonnet', '--session-id=another-id', '--verbose']);
+});
+
+test('Claude keeps both session-id forms when starting a fresh conversation', () => {
+  const extraArgs = ['--session-id', RESUME_ID, '--model', 'sonnet', `--session-id=${RESUME_ID}`];
+  assert.deepEqual(claudeCode.buildArgs({ extraArgs }), extraArgs);
+});
+
+test('every adapter forwards multiple PATH directories to the spawn env builder', () => {
+  const custom = createCustomAdapter({ id: 'custom', label: 'Custom', command: 'custom', args: [] });
+  for (const adapter of [claudeCode, codex, grok, custom]) {
+    const env = adapter.buildEnv({ PATH: '/base' }, null, { prependPathDir: '/rtk', prependPathDirs: ['/factory', '/tools'] });
+    assert.equal(env.PATH, ['/factory', '/tools', '/rtk', '/base'].join(path.delimiter), adapter.id);
+  }
 });
 
 test('spawn argv for a fully featured session is byte-identical to the pre-extraction one', async () => {

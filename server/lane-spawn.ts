@@ -25,6 +25,7 @@ type LaneSpawn = (options: {
   extraArgs?: string[];
   model?: string | null;
   signal?: AbortSignal | null;
+  onOutput?: (chunk: string) => void;
 }) => Promise<void>;
 
 interface LaneSpawnOptions {
@@ -37,6 +38,8 @@ interface LaneSpawnOptions {
   recordLane?: RecordLane | null;
   laneName: string;
   allowTools?: readonly string[];
+  settingsPermissions?: Record<string, unknown>;
+  spawnEnv?: Readonly<Record<string, string>> | null;
   createSession?: (options: SessionOptions) => Session;
 }
 
@@ -56,13 +59,14 @@ async function writeStandaloneDenySettings(permissions: unknown): Promise<{ args
 function createLaneSpawn({
   sessions = new Map(), closeSessionDataClients = () => {}, hookRouter = null, getHookPort = null,
   spawnGate = null, replayBufferKB = undefined, recordLane = null, laneName, allowTools = [],
-  createSession = (options) => new Session(options),
+  createSession = (options) => new Session(options), settingsPermissions, spawnEnv = null,
 }: LaneSpawnOptions): LaneSpawn {
-  return async function spawnLaneSession({ id, name, prompt, cwd, agent = DEFAULT_AGENT_ID, extraArgs = [], model = null, signal = null }) {
+  return async function spawnLaneSession({ id, name, prompt, cwd, agent = DEFAULT_AGENT_ID, extraArgs = [], model = null, signal = null, onOutput }) {
     const isCodex = agent === 'codex';
     const posture = isCodex ? null : buildLanePermissions({ denyTools: LANE_SPAWN_DENY_TOOLS, allowTools });
-    const standalone = !hookRouter && posture ? await writeStandaloneDenySettings(posture.permissions) : null;
-    const extraClaudeArgs = isCodex ? extraArgs : ['-p', ...(posture?.args ?? []), ...(standalone ? standalone.args : [])];
+    const permissions = settingsPermissions ?? posture?.permissions ?? null;
+    const standalone = !hookRouter && permissions ? await writeStandaloneDenySettings(permissions) : null;
+    const extraClaudeArgs = isCodex ? extraArgs : ['-p', ...(posture?.args ?? []), ...extraArgs, ...(standalone ? standalone.args : [])];
     if (!isCodex && model) extraClaudeArgs.push('--model', model);
     const options: SessionOptions = {
       id,
@@ -73,13 +77,15 @@ function createLaneSpawn({
       extraClaudeArgs,
       initialPrompt: prompt,
       ephemeral: true,
-      settingsPermissions: posture?.permissions ?? null,
+      settingsPermissions: permissions,
+      spawnEnv: spawnEnv ? { ...spawnEnv } : null,
       replayBufferKB,
       hookRouter,
       getHookPort,
     };
     try {
       const laneSession = createSession(options);
+      if (onOutput) laneSession.on('data', onOutput);
       registerEphemeralSession({
         map: sessions, id, sess: laneSession, closeSessionDataClients, logPrefix: laneName, name, recordLane,
       });

@@ -1,6 +1,6 @@
 import { ReviewsRefreshRequest, ReviewsRefreshResult } from './reviews.ts';
 import { z } from 'zod';
-import { FactoryState } from './factory.ts';
+import { FactoryControlRequest, FactoryControlResult, FactoryQueueIntentRequest, FactoryQueueIntentResult, FactoryState } from './factory.ts';
 import {
   PLAN_BODY_CAP_BYTES,
   PLAN_COMMENTS_MAX,
@@ -182,6 +182,8 @@ const clientVariants = [
   loose('open-issue-session', { requestId, projectId: z.string(), issueNumber: z.number().int().positive() }),
   loose('posthog-issue-action', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), action: z.string(), requestId }),
   loose('team-review-action', { ...TeamReviewActionRequest.shape, requestId }),
+  loose('factory-queue-intent', { ...FactoryQueueIntentRequest.shape, requestId }),
+  loose('factory-control', { ...FactoryControlRequest.shape, requestId }),
   loose('benchmark-action', { ...BenchmarkActionRequest.shape, requestId }),
   loose('my-pr-merge', { ...MyPrMergeRequest.shape, requestId }),
   loose('my-pr-keep-mergeable', { ...MyPrKeepMergeableRequest.shape, requestId }),
@@ -283,6 +285,8 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'posthog-issue-action-result',
   'team-review-action-result',
   'benchmark-action-result',
+  'factory-queue-intent-result',
+  'factory-control-result',
   'my-pr-merge-result',
   'my-pr-keep-mergeable-result',
   'my-pr-merge-when-ready-result',
@@ -535,6 +539,8 @@ const serverVariants = [
     status: nullableString.optional(),
   }),
   loose('team-review-action-result', { ...TeamReviewActionResult.shape, requestId }),
+  loose('factory-queue-intent-result', { ...FactoryQueueIntentResult.shape, requestId }),
+  loose('factory-control-result', { ...FactoryControlResult.shape, requestId }),
   loose('benchmark-action-result', { ...BenchmarkActionResult.shape, requestId }),
   loose('my-pr-merge-result', { ...MyPrMergeResult.shape, requestId }),
   loose('my-pr-keep-mergeable-result', { ...MyPrKeepMergeableResult.shape, requestId }),

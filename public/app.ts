@@ -25,7 +25,7 @@ import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneScr
 import { noteKnownProjectPath } from './project-registry.ts';
 import { applyTeamReviewActionResult, applyTeamReviewStatus, setTeamReviewActivityCallback } from './team-review-panel.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus } from './my-prs-panel.ts';
-import { applyFactoryConnectionState, applyFactoryState, mountFactoryView } from './factory/factory-view.ts';
+import { applyFactoryConnectionState, applyFactoryControlResult, applyFactoryQueueIntentResult, applyFactoryState, mountFactoryView, setFactoryRequestSender } from './factory/factory-view.ts';
 import { applyBenchmarkActionResult, applyBenchmarkConnectionState, applyBenchmarkStatus, mountBenchmarkView, setBenchmarkRequestSender } from './benchmark-panel.ts';
 import { applyIssuesConnectionState, applyIssuesProjects, applyIssuesReport, applyOpenIssueSessionResult, mountIssuesView, setIssuesRequestSender } from './issues-panel.ts';
 
@@ -314,6 +314,7 @@ setHooksRequestSender(sendControlMsg);
 setTraceRequestSender(sendControlMsg);
 setIssuesRequestSender(sendControlMsg);
 setBenchmarkRequestSender(sendControlMsg);
+setFactoryRequestSender(sendControlMsg);
 
 function isHooksSurfaceVisible() {
   if (isPhoneShellActive()) return isPhoneScreenActive('hooks');
@@ -395,6 +396,8 @@ const messageHandlers = {
   'team-review-status': (msg) => applyTeamReviewStatus(msg),
   'my-prs-status': (msg) => applyMyPrsStatus(msg),
   'factory-state': (msg) => applyFactoryState(msg),
+  'factory-queue-intent-result': (msg) => applyFactoryQueueIntentResult(msg),
+  'factory-control-result': (msg) => applyFactoryControlResult(msg),
   'benchmark-status': (msg) => applyBenchmarkStatus(msg),
   'benchmark-action-result': (msg) => applyBenchmarkActionResult(msg),
   'my-pr-merge-result': (msg) => applyMyPrMergeResult(msg),
@@ -695,7 +698,7 @@ mountTraceView(viewTraceEl);
 
 mountBenchmarkView(viewBenchmarksEl);
 
-mountFactoryView(viewFactoryEl);
+mountFactoryView(viewFactoryEl, { openTerminal: (id) => { activateView('focus'); centerSessionQuietly(id); } });
 
 mountSettingsView(viewSettingsEl, { onRestart: confirmServerRestart, onConfirmUpdateAndRestart: confirmUpdateAndRestart });
 

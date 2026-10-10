@@ -58,6 +58,8 @@ type WorktreeArgs = {
   wtDir?: string;
   shareList?: string[] | null;
   keepTrackableLinks?: boolean;
+  disableHooks?: boolean;
+  replaceEnv?: Record<string, string>;
   teamId?: string;
   label?: string;
   baseBranch?: string | null;
@@ -129,7 +131,8 @@ type QueuedGitResult = GitResult & { admissionRefused?: boolean };
 type WorktreeDirtyProbe = { ok: boolean; dirty: boolean; headSha: string | null; err?: string; admissionRefused?: boolean };
 type MergeProbeEnvArgs = { projectPath: string; timeoutMs?: number };
 type CheckoutDetachedArgs = { worktreePath: string; sha: string };
-type StageDetachedWorktreeArgs = { projectPath: string; worktreePath?: string; sha?: string };
+type UntrustedCheckoutGitArgs = { disableHooks?: boolean; replaceEnv?: Record<string, string> };
+type StageDetachedWorktreeArgs = { projectPath: string; worktreePath?: string; sha?: string } & UntrustedCheckoutGitArgs;
 type StageIsolatedCheckoutArgs = { projectPath: string; checkoutPath?: string; sha?: string; baseSha?: string };
 type MergeFastForwardArgs = {
   projectPath: string;
@@ -158,6 +161,11 @@ function gitChildEnv(extra?: GitExtraOptions): { env?: Record<string, string | u
   if (extra?.replaceEnv) return { env: extra.replaceEnv };
   if (extra?.env) return { env: { ...process.env, ...extra.env } };
   return {};
+}
+
+function untrustedCheckoutGit(args: string[], { disableHooks, replaceEnv }: UntrustedCheckoutGitArgs): { args: string[]; extra?: GitExtraOptions } {
+  const hooklessArgs = disableHooks ? ['-c', `core.hooksPath=${os.devNull}`, ...args] : args;
+  return replaceEnv ? { args: hooklessArgs, extra: { replaceEnv } } : { args: hooklessArgs };
 }
 
 function errorExitCode(error: unknown): unknown {
@@ -860,23 +868,29 @@ function createGitWorkspace(opts: {
     return { ok: true, dirty: status.out !== '', headSha: head.out };
   }
 
-  async function removeWorktreeByPathBody({ projectPath, cwd, branch }: WorktreeArgs): Promise<QueuedGitResult> {
+  function runUntrusted(args: string[], cwd: string, isolation: UntrustedCheckoutGitArgs): Promise<GitResult> {
+    const isolated = untrustedCheckoutGit(args, isolation);
+    return run(isolated.args, cwd, isolated.extra);
+  }
+
+  async function removeWorktreeByPathBody({ projectPath, cwd, branch, disableHooks, replaceEnv }: WorktreeArgs): Promise<QueuedGitResult> {
+    const isolation = { disableHooks, replaceEnv };
     let failure: GitResult | null = null;
     if (cwd) {
       removeWorktreeLinks(cwd);
-      const removed = await run(['worktree', 'remove', '--force', cwd], projectPath);
+      const removed = await runUntrusted(['worktree', 'remove', '--force', cwd], projectPath, isolation);
       if (!removed.ok) failure = removed;
     }
     if (branch) {
-      const deleted = await run(['branch', '-D', branch], projectPath);
+      const deleted = await runUntrusted(['branch', '-D', branch], projectPath, isolation);
       if (!deleted.ok && failure === null) failure = deleted;
     }
-    await run(['worktree', 'prune'], projectPath);
+    await runUntrusted(['worktree', 'prune'], projectPath, isolation);
     return failure ?? okResult('');
   }
 
-  async function pruneWorktreesBody({ projectPath }: WorktreeArgs): Promise<GitResult> {
-    return run(['worktree', 'prune'], projectPath);
+  async function pruneWorktreesBody({ projectPath, disableHooks, replaceEnv }: WorktreeArgs): Promise<GitResult> {
+    return runUntrusted(['worktree', 'prune'], projectPath, { disableHooks, replaceEnv });
   }
 
   async function removeSharedLinks(wtDir: string, shareList: string[] | null | undefined): Promise<void> {
@@ -919,10 +933,10 @@ function createGitWorkspace(opts: {
     return run(['fetch', '--prune', 'origin'], projectPath, fetchOptions);
   }
 
-  async function stageDetachedWorktreeBody({ projectPath, worktreePath, sha }: StageDetachedWorktreeArgs): Promise<GitResult> {
+  async function stageDetachedWorktreeBody({ projectPath, worktreePath, sha, disableHooks, replaceEnv }: StageDetachedWorktreeArgs): Promise<GitResult> {
     if (!worktreePath) return { ok: false, out: '', err: 'a detached worktree needs a path' };
     if (normalizeSha(sha) !== sha) return { ok: false, out: '', err: 'a detached worktree sha must be 40 lowercase hexadecimal characters' };
-    return run(['worktree', 'add', '--detach', worktreePath, sha], projectPath);
+    return runUntrusted(['worktree', 'add', '--detach', worktreePath, sha], projectPath, { disableHooks, replaceEnv });
   }
 
   async function checkoutDetachedBody({ worktreePath, sha }: CheckoutDetachedArgs): Promise<GitResult> {

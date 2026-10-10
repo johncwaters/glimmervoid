@@ -10,6 +10,7 @@ import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT } from '../shared/contracts/pla
 import type { Session } from '../session/sessions.ts';
 import { refocusReplyFor } from '../session/core/refocus-core.ts';
 import type { RefocusContext } from '../session/core/refocus-core.ts';
+import type { FactoryDispatchResult } from '../shared/contracts/factory.ts';
 import type { AgentApiPort } from './agent-api-wiring.ts';
 import { decideAgentRequest, REFUSAL_REASON, REFUSAL_STATUS } from './core/agent-api-core.ts';
 import { decideHostAllowed } from './core/host-policy.ts';
@@ -137,6 +138,7 @@ interface BackendHttpDependencies {
   getUsage: () => { ingestStatusline: (payload: object) => void };
   getPlanReview?: () => PlanReviewHookPort | null;
   refocusContextFor?: (glimmervoidId: string) => RefocusContext;
+  getFactory?: () => { getLiveOrchestrator: (sessionId: string) => { projectId: string; intentId: string } | null; dispatch: (sessionId: string, payload: Record<string, unknown>) => Promise<FactoryDispatchResult> } | null;
   getAgentApi?: () => AgentApiPort | null;
   recordOutcome?: OutcomeRecorder;
   logger?: Pick<Console, 'warn'>;
@@ -294,6 +296,7 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
     getPlanReview = () => null,
     refocusContextFor = () => ({ taskTitle: null, latestPlanTitle: null }),
     getAgentApi = () => null,
+    getFactory = () => null,
     recordOutcome = () => {},
     logger = console,
   } = dependencies;
@@ -383,22 +386,37 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
   app.post('/agent/:glimmervoidId/:verb', (req, res) => {
     const agentApi = getAgentApi();
     const session = getSession(req.params.glimmervoidId);
+    const factory = getFactory();
+    const isOrchestrator = factory?.getLiveOrchestrator(req.params.glimmervoidId) != null;
+    const isDispatch = req.params.verb === 'dispatch';
     const verdict = decideAgentRequest({
       sessionId: req.params.glimmervoidId,
       presentedToken: presentedToken(req),
       expectedToken: session?.agentToken ?? null,
       isLoopback: isLoopbackRequest(req),
-      enabled: agentApi?.enabled() === true,
+      enabled: isOrchestrator || isDispatch || agentApi?.enabled() === true,
     });
     const overCap = (declaredBytes: string) => {
       logger.warn(`[agent] a ${declaredBytes} byte body is over the ${HOOK_BODY_CAP_BYTES} byte cap and was refused`);
     };
     void readCappedBody(req, HOOK_BODY_CAP_BYTES, overCap).then((body) => {
       if (body === null) return;
-      if (!verdict.ok || !agentApi || !session) {
+      if (!verdict.ok || !session) {
         refuseAgentRequest(res);
         return;
       }
+      if ((isDispatch && !isOrchestrator) || (isOrchestrator && !isDispatch)) {
+        res.status(403).json({ ok: false, reason: 'only live factory orchestrators may dispatch, and they may only dispatch' });
+        return;
+      }
+      if (isDispatch && factory) {
+        void factory.dispatch(session.id, parseJsonBody(body)).then(
+          (reply) => { res.status(200).json(reply); },
+          () => { res.status(500).json({ ok: false, reason: 'could not dispatch the work order' }); },
+        );
+        return;
+      }
+      if (!agentApi) { refuseAgentRequest(res); return; }
       answerAgentVerb({ res, agentApi, session, verb: req.params.verb, payload: parseJsonBody(body) });
     });
   });
