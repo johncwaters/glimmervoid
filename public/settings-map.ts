@@ -104,7 +104,7 @@ export const SETTINGS_MAP = Object.freeze([
         id: 'compact-status',
         path: 'pref:compactStatusLabels',
         title: 'Hide status words in sidebar',
-        description: 'Show only the colored status dot in the sidebar. Phone status labels stay visible.',
+        description: 'Show only the colored status mark in the sidebar and on the phone Board. Saved per browser, so turn it on in each one.',
         control: 'toggle',
         keywords: ['sidebar', 'status', 'compact'],
         defaultValue: false,

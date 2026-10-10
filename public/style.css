@@ -7679,6 +7679,8 @@ html[data-layout="phone"] .phone-row-item {
   font-variant-numeric: tabular-nums;
 }
 .phone-row-elapsed:empty { display: none; }
+html[data-compact-status] .phone-row:not([data-prompt="plan"]) .phone-row-badge { display: none; }
+html[data-compact-status] .phone-row:not([data-prompt="plan"]) .phone-row-meta:has(.phone-row-merge:empty) { display: none; }
 
 .phone-row[data-state="RUNNING"] .phone-row-glyph { color: var(--state-running); }
 .phone-row[data-state="RUNNING"][data-monitoring] .phone-row-glyph,
