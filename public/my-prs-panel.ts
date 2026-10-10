@@ -210,8 +210,7 @@ function createShell(): void {
   queue = shell.queue;
   detail = shell.detail;
   root.replaceChildren(shell.columns);
-  const head = root.querySelector('.pr-queue-head');
-  if (pollingControls && head) head.insertBefore(pollingControls.control, head.querySelector('.pr-queue-toggle'));
+  if (pollingControls) shell.foot.append(pollingControls.control);
 }
 
 function renderDetail(pr: MyPr | undefined): void {

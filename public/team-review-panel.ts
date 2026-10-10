@@ -6,7 +6,7 @@ import { createAttentionAck } from './attention-ack-core.ts';
 import { nextRequestId, sendControlMsg } from './control-ws.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } from './dom-helpers.ts';
 import { createPollAgoTicker, formatAgo } from './poll-ago.ts';
-import { createPrQueueColumns, createPrQueueHead } from './pr-queue-columns.ts';
+import { createPrQueueColumns, createPrQueueFoot, createPrQueueHead } from './pr-queue-columns.ts';
 import { createStateGlyph, createSvgIcon as svgIcon, createSvgShape as svgShape } from './state-glyph.ts';
 import { formatTrailOffset } from './radar-core.ts';
 import { createSettingsLink } from './settings-link.ts';
@@ -956,6 +956,7 @@ function ensureShell(): void {
   _detail = el('div', 'pr-detail-body');
   shell.detail.append(_actionNoticeLine, _detail);
   showActionNotice(_actionNotice);
+  if (pollingControls) shell.foot.append(pollingControls.control);
   _root.replaceChildren(shell.columns);
   _renderedDetailSignature = null;
   _renderedQueueSignature = null;
@@ -963,10 +964,6 @@ function ensureShell(): void {
 
 function syncTeamChip(head: HTMLElement | null): void {
   if (!head) return;
-  if (pollingControls) {
-    head.insertBefore(pollingControls.control, head.querySelector('.pr-queue-toggle'));
-    pollingControls.update(_latest);
-  }
   head.querySelector('.pr-team-chip')?.remove();
   const team = _latest?.team;
   if (!team) return;
@@ -998,7 +995,7 @@ function render(): void {
     _detailProgressTicker.reset();
     const head = createPrQueueHead(_scopeTabs);
     syncTeamChip(head);
-    _root.replaceChildren(head, ...(pollingControls ? [pollingControls.notice] : []), ...laneNoticeElements(), buildEmptyState());
+    _root.replaceChildren(head, ...(pollingControls ? [pollingControls.notice] : []), ...laneNoticeElements(), buildEmptyState(), createPrQueueFoot(pollingControls?.control ?? null));
     pollingControls?.update(_latest);
     _queue = null;
     _renderedQueueSignature = null;

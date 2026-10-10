@@ -44,9 +44,16 @@ export function createPrQueueHead(scopeTabs: HTMLElement | null, toggle?: HTMLEl
   return head;
 }
 
+export function createPrQueueFoot(control: HTMLElement | null): HTMLElement {
+  const foot = el('div', 'pr-queue-foot');
+  if (control) foot.append(control);
+  return foot;
+}
+
 export function createPrQueueColumns({ queueLabel, scopeTabs, resizerLabel }: PrQueueColumnsOptions): {
   columns: HTMLElement;
   queue: HTMLElement;
+  foot: HTMLElement;
   detail: HTMLElement;
 } {
   const columns = el('div', 'pr-columns');
@@ -70,7 +77,8 @@ export function createPrQueueColumns({ queueLabel, scopeTabs, resizerLabel }: Pr
     setPrsQueueCollapsed(!isPrsQueueCollapsed());
     resyncPrQueueLayouts();
   });
-  pane.append(createPrQueueHead(scopeTabs, toggle), queue);
+  const foot = createPrQueueFoot(null);
+  pane.append(createPrQueueHead(scopeTabs, toggle), queue, foot);
   const resizer = el('div', 'pr-queue-resizer');
   resizer.setAttribute('role', 'separator');
   resizer.setAttribute('aria-orientation', 'vertical');
@@ -90,5 +98,5 @@ export function createPrQueueColumns({ queueLabel, scopeTabs, resizerLabel }: Pr
     getStoredWidth: getPrsQueueWidth,
     setStoredWidth: setPrsQueueWidth,
   });
-  return { columns, queue, detail };
+  return { columns, queue, foot, detail };
 }

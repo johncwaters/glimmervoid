@@ -64,6 +64,7 @@ async function verifyRefreshStatusKeepsLayout(page: Page, status: MyPrsStatus): 
   const panel = page.locator('.pr-mode-root:not([hidden])');
   const head = panel.locator('.pr-queue-head');
   const refreshStatus = panel.locator('.reviews-refresh-status');
+  assert.equal(await panel.locator('.pr-queue-foot .reviews-refresh-button').count(), 1);
   const queueTop = () => panel.locator('.pr-queue-row').first().evaluate((element) => element.getBoundingClientRect().top);
   const idleHeight = await head.evaluate((element) => element.getBoundingClientRect().height);
   const idleQueueTop = await queueTop();
