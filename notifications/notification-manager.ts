@@ -23,7 +23,7 @@ export type NotificationChannelFn = (
   category: string,
   message: string,
   context: NotificationContext,
-) => ChannelDelivery | void;
+) => ChannelDelivery | undefined;
 
 interface RegisteredChannel {
   name: string;

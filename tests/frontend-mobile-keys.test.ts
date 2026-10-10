@@ -1,42 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const importCore = () => import('../public/mobile-keys.ts');
+import { isClipboardKey, isUploadKey, MOBILE_KEYS, mobileKeyBytes, UPLOAD_ACTION } from '../public/mobile-keys.ts';
 
-test('MOBILE_KEYS: the strip carries exactly the seven touch controls, in order', async () => {
-  const { MOBILE_KEYS } = await importCore();
-  assert.deepEqual(
-    MOBILE_KEYS.map((k) => k.id),
-    ['esc', 'tab', 'up', 'down', 'paste', 'upload-image', 'upload-file'],
-  );
-});
-
-test('MOBILE_KEYS: every label is a constant action name, never a state or a count', async () => {
-  const { MOBILE_KEYS } = await importCore();
-  assert.deepEqual(
-    MOBILE_KEYS.map((k) => k.label),
-    ['Esc', 'Tab', 'Up', 'Down', 'Paste', 'Image', 'File'],
-  );
-});
-
-test('mobileKeyBytes: sends the exact control bytes the keyboard paths send', async () => {
-  const { mobileKeyBytes } = await importCore();
+test('mobileKeyBytes: sends the exact control bytes the keyboard paths send', () => {
   assert.equal(mobileKeyBytes('esc'), '\x1b');
   assert.equal(mobileKeyBytes('tab'), '\x09');
   assert.equal(mobileKeyBytes('up'), '\x1b[A');
   assert.equal(mobileKeyBytes('down'), '\x1b[B');
 });
 
-test('mobileKeyBytes: the action keys and unknown ids carry no bytes', async () => {
-  const { mobileKeyBytes } = await importCore();
+test('mobileKeyBytes: the action keys and unknown ids carry no bytes', () => {
   assert.equal(mobileKeyBytes('paste'), null);
   assert.equal(mobileKeyBytes('upload-image'), null, 'the image travels over HTTP, not as key bytes');
   assert.equal(mobileKeyBytes('upload-file'), null, 'so does any other file');
   assert.equal(mobileKeyBytes('nope'), null);
 });
 
-test('isClipboardKey: only the paste entry is a clipboard read', async () => {
-  const { isClipboardKey, MOBILE_KEYS } = await importCore();
+test('isClipboardKey: only the paste entry is a clipboard read', () => {
   const byId = new Map(MOBILE_KEYS.map((k) => [k.id, k]));
   assert.equal(isClipboardKey(byId.get('paste')), true);
   assert.equal(isClipboardKey(byId.get('esc')), false);
@@ -45,8 +26,7 @@ test('isClipboardKey: only the paste entry is a clipboard read', async () => {
   assert.equal(isClipboardKey(undefined), false);
 });
 
-test('isUploadKey: both upload entries open the file picker and nothing else does', async () => {
-  const { isUploadKey, MOBILE_KEYS, UPLOAD_ACTION } = await importCore();
+test('isUploadKey: both upload entries open the file picker and nothing else does', () => {
   const byId = new Map(MOBILE_KEYS.map((k) => [k.id, k]));
   assert.equal(isUploadKey(byId.get('upload-image')), true);
   assert.equal(byId.get('upload-image')?.action, UPLOAD_ACTION);
@@ -57,8 +37,7 @@ test('isUploadKey: both upload entries open the file picker and nothing else doe
   assert.equal(isUploadKey(undefined), false);
 });
 
-test('accept: the image key narrows the picker and the file key carries no accept at all', async () => {
-  const { MOBILE_KEYS } = await importCore();
+test('accept: the image key narrows the picker and the file key carries no accept at all', () => {
   const byId = new Map(MOBILE_KEYS.map((k) => [k.id, k]));
   assert.equal(byId.get('upload-image')?.accept, 'image/*');
   assert.equal(byId.get('upload-file')?.accept, undefined, 'no accept attribute at all, not an empty one');

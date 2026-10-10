@@ -28,6 +28,16 @@ function intentDraft(projectId: string): IntentDraft {
   return draft;
 }
 
+const SCROLLABLE_REGIONS_SELECTOR = '.factory-stack, .factory-pads, .factory-ledger, .factory-detail, .factory-intent-queue, .factory-criteria';
+const FOCUS_RESTORE_TARGETS = [['[data-order-id]', 'orderId'], ['[data-factory-field]', 'factoryField'], ['[data-project-id]', 'projectId']] as const;
+
+function buildButton(className: string, label: string | null, onClick: () => void): HTMLButtonElement {
+  const button = el('button', className, label);
+  button.type = 'button';
+  button.addEventListener('click', onClick);
+  return button;
+}
+
 function buildRequestStatus(status: RequestStatus | undefined): HTMLElement {
   const element = el('p', 'factory-request-status', status?.text ?? '');
   element.setAttribute('role', 'status');
@@ -105,10 +115,9 @@ function buildFactoryControls(projectId: string, paused: boolean): HTMLElement {
   const controls = el('div', 'factory-controls');
   const status = controlStatusByProject.get(projectId);
   for (const action of ['pause', 'resume'] as const) {
-    const button = el('button', 'factory-action', action === 'pause' ? 'Pause' : 'Resume');
-    button.type = 'button';
+    const button = buildButton('factory-action', action === 'pause' ? 'Pause' : 'Resume',
+      () => sendFactoryRequest(projectId, 'factory-control', { action }, action === 'pause' ? 'Pausing factory.' : 'Resuming factory.'));
     button.disabled = !isConnected || status?.requestId != null || (action === 'pause' ? paused : !paused);
-    button.addEventListener('click', () => sendFactoryRequest(projectId, 'factory-control', { action }, action === 'pause' ? 'Pausing factory.' : 'Resuming factory.'));
     controls.append(button);
   }
   controls.append(buildRequestStatus(status));
@@ -146,11 +155,9 @@ function selectOrder(orderId: string): void {
 }
 
 function buildOrderSelector(id: string, objective: string, className: string): HTMLButtonElement {
-  const button = el('button', className, objective);
-  button.type = 'button';
+  const button = buildButton(className, objective, () => selectOrder(id));
   button.dataset.orderId = id;
   button.setAttribute('aria-pressed', String(selectedOrderId === id));
-  button.addEventListener('click', () => selectOrder(id));
   return button;
 }
 
@@ -163,13 +170,8 @@ function buildCrate(crate: FactoryCrate): HTMLElement {
   risk.dataset.risk = crate.risk;
   identity.append(el('span', null, crate.id), risk);
   container.append(identity, buildOrderSelector(crate.id, crate.objective, 'factory-crate-title'));
-  if (crate.sessionId && openTerminal) {
-    const sessionId = crate.sessionId;
-    const terminalButton = el('button', 'factory-action', 'Open terminal');
-    terminalButton.type = 'button';
-    terminalButton.addEventListener('click', () => openTerminal?.(sessionId));
-    container.append(terminalButton);
-  }
+  const sessionId = crate.sessionId;
+  if (sessionId && openTerminal) container.append(buildButton('factory-action', 'Open terminal', () => openTerminal?.(sessionId)));
   if (crate.station !== 'workers') container.append(el('span', 'factory-crate-note', crate.status));
   return container;
 }
@@ -200,11 +202,9 @@ function buildTop(floor: FactoryFloor, projectId: string): HTMLElement {
   const owl = buildSprite('is-owl', 'Orchestrator owl');
   const sessionId = floor.orchestrator.sessionId;
   if (sessionId && openTerminal) {
-    const terminalButton = el('button', 'factory-action');
-    terminalButton.type = 'button';
+    const terminalButton = buildButton('factory-action', null, () => openTerminal?.(sessionId));
     terminalButton.setAttribute('aria-label', 'Open orchestrator terminal');
     terminalButton.append(owl);
-    terminalButton.addEventListener('click', () => openTerminal?.(sessionId));
     orchestrator.append(terminalButton);
   }
   if (!sessionId || !openTerminal) orchestrator.append(owl);
@@ -290,11 +290,8 @@ function buildBottom(floor: FactoryFloor): HTMLElement {
 function render(): void {
   if (!root) return;
   const focusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  const focusedOrderId = focusedElement?.dataset.orderId;
-  const focusedProjectId = focusedElement?.dataset.projectId;
-  const focusedFactoryField = focusedElement?.dataset.factoryField;
   const selection = focusedElement instanceof HTMLTextAreaElement ? { start: focusedElement.selectionStart, end: focusedElement.selectionEnd } : null;
-  const scrollPositions = [...root.querySelectorAll<HTMLElement>('.factory-stack, .factory-pads, .factory-ledger, .factory-detail, .factory-intent-queue, .factory-criteria')].map((element) => element.scrollTop);
+  const scrollPositions = [...root.querySelectorAll<HTMLElement>(SCROLLABLE_REGIONS_SELECTOR)].map((element) => element.scrollTop);
   const content = document.createDocumentFragment();
   const connection = el('p', 'factory-connection', isConnected ? snapshot ? '' : 'Waiting for the server.' : 'Disconnected. Showing the last snapshot.');
   connection.setAttribute('role', 'status');
@@ -311,15 +308,13 @@ function render(): void {
     const chips = el('div', 'factory-projects');
     chips.setAttribute('aria-label', 'Factory projects');
     for (const candidate of snapshot.projects) {
-      const chip = el('button', 'factory-project', candidate.projectName);
-      chip.type = 'button';
-      chip.dataset.projectId = candidate.projectId;
-      chip.setAttribute('aria-pressed', String(candidate.projectId === selectedProjectId));
-      chip.addEventListener('click', () => {
+      const chip = buildButton('factory-project', candidate.projectName, () => {
         selectedProjectId = candidate.projectId;
         selectedOrderId = null;
         render();
       });
+      chip.dataset.projectId = candidate.projectId;
+      chip.setAttribute('aria-pressed', String(candidate.projectId === selectedProjectId));
       chips.append(chip);
     }
     content.append(chips);
@@ -333,14 +328,14 @@ function render(): void {
   bands.append(buildTop(floor, project.projectId), floorBand, buildBottom(floor));
   content.append(bands);
   root.replaceChildren(content);
-  [...root.querySelectorAll<HTMLElement>('.factory-stack, .factory-pads, .factory-ledger, .factory-detail, .factory-intent-queue, .factory-criteria')].forEach((element, index) => { element.scrollTop = scrollPositions[index] ?? 0; });
-  if (focusedOrderId) [...root.querySelectorAll<HTMLElement>('[data-order-id]')].find((element) => element.dataset.orderId === focusedOrderId)?.focus({ preventScroll: true });
-  if (focusedFactoryField) {
-    const input = [...root.querySelectorAll<HTMLElement>('[data-factory-field]')].find((element) => element.dataset.factoryField === focusedFactoryField);
-    input?.focus({ preventScroll: true });
-    if (input instanceof HTMLTextAreaElement && selection) input.setSelectionRange(selection.start, selection.end);
+  [...root.querySelectorAll<HTMLElement>(SCROLLABLE_REGIONS_SELECTOR)].forEach((element, index) => { element.scrollTop = scrollPositions[index] ?? 0; });
+  for (const [selector, datasetKey] of FOCUS_RESTORE_TARGETS) {
+    const focusedValue = focusedElement?.dataset[datasetKey];
+    if (!focusedValue) continue;
+    const restored = [...root.querySelectorAll<HTMLElement>(selector)].find((element) => element.dataset[datasetKey] === focusedValue);
+    restored?.focus({ preventScroll: true });
+    if (restored instanceof HTMLTextAreaElement && selection) restored.setSelectionRange(selection.start, selection.end);
   }
-  if (focusedProjectId) [...root.querySelectorAll<HTMLElement>('[data-project-id]')].find((element) => element.dataset.projectId === focusedProjectId)?.focus({ preventScroll: true });
 }
 
 export function mountFactoryView(parent: HTMLElement, navigation?: { openTerminal: (sessionId: string) => void }): HTMLDivElement {

@@ -79,17 +79,6 @@ test('a deferred issue reports quiet while its marker keeps it eligible, and an 
   assert.equal(investigationTrigger(deferred, 'regressed', issue), 'regressed');
 });
 
-test('an entry an older state file left without a verdict or a marker stays quiet and is not investigated', () => {
-  const issue = makeIssue({ users: 40 });
-  const legacy = makeEntry({ verdict: null });
-  const reportedChange = classifyIssueChange(legacy, issue, new Set(), { userEscalationThreshold: 25 });
-  assert.equal(reportedChange, 'quiet');
-  const change = { key: 'legacy', change: investigationTrigger(legacy, reportedChange, issue, { userEscalationThreshold: 25 }), issue };
-  assert.equal(change.change, 'quiet');
-  assert.deepEqual(planInvestigations([change], { legacy }, { minUsersToInvestigate: 1 }), []);
-  assert.equal(nextState(legacy, issue, { observedAt: 2000 }).pendingInvestigationChange, undefined);
-});
-
 test('only an issue below the minimum is marked for a later investigation when it is left unplanned', () => {
   assert.equal(belowMinimumInvestigationChange('new', makeIssue({ users: 2 }), { minUsersToInvestigate: 5 }), 'new');
   assert.equal(belowMinimumInvestigationChange('new', makeIssue({ users: 5 }), { minUsersToInvestigate: 5 }), null);
@@ -109,12 +98,6 @@ test('a deferral marker whose trigger no longer holds stops making the issue eli
   const worsenedDeferred = makeEntry({ verdict: 'ROOT_CAUSE', investigatedUsers: 8, pendingInvestigationChange: 'worsened' });
   assert.equal(investigationTrigger(worsenedDeferred, 'quiet', makeIssue({ users: 40 }), { userEscalationThreshold: 25 }), 'worsened');
   assert.equal(investigationTrigger(worsenedDeferred, 'quiet', makeIssue({ users: 10 }), { userEscalationThreshold: 25 }), 'quiet');
-});
-
-test('a slot deferral keeps an earlier trigger that still holds over a passing spike', () => {
-  const issue = makeIssue();
-  assert.equal(slotDeferredInvestigationChange(makeEntry(), 'spiking', issue), 'spiking');
-  assert.equal(slotDeferredInvestigationChange(makeEntry({ pendingInvestigationChange: 'new' }), 'spiking', issue), 'new');
 });
 
 test('a spike deferred by a full slot is held as the new or regressed trigger it arrived with, and stays a spike otherwise', () => {

@@ -2,11 +2,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-const importCore = () => import('../public/phone/phone-panels-core.ts');
+import { phonePanelsFromDesktopViews } from '../public/phone/phone-panels-core.ts';
 const readSource = (relativePath: string) => fs.readFileSync(new URL(relativePath, import.meta.url), 'utf8');
 
-test('every desktop view but Focus and Calm becomes a phone More screen, in desktop order', async () => {
-  const { phonePanelsFromDesktopViews } = await importCore();
+test('every desktop view but Focus and Calm becomes a phone More screen, in desktop order', () => {
   const panels = phonePanelsFromDesktopViews([
     { view: 'calm', label: 'Calm', el: 'calm-panel', hasOwnPhoneScreen: true },
     { view: 'focus', label: 'Focus', el: 'focus-panel', hasOwnPhoneScreen: true },
@@ -20,8 +19,7 @@ test('every desktop view but Focus and Calm becomes a phone More screen, in desk
   ]);
 });
 
-test('a desktop tab with no glyph of its own gets the first letter of its trimmed label', async () => {
-  const { phonePanelsFromDesktopViews } = await importCore();
+test('a desktop tab with no glyph of its own gets the first letter of its trimmed label', () => {
   const [panel] = phonePanelsFromDesktopViews([{ view: 'benchmarks', label: '  bench ', glyph: null, el: 'bench-panel' }]);
 
   assert.deepEqual(panel, { id: 'benchmarks', label: 'bench', glyph: 'B', el: 'bench-panel' });

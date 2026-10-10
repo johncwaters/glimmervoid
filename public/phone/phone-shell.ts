@@ -1,4 +1,3 @@
-
 import { activatePhoneCalmView, deactivatePhoneCalmView, dismissPhoneCalmSheet } from '../calm/calm-view.ts';
 import type { AdoptableElement } from '../dom-helpers.ts';
 import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
@@ -57,9 +56,9 @@ let isCalmSheetOpen = false;
 let isOwnSheetPopPending = false;
 let isCalmAvailable = false;
 const phoneCalmNavigation = {
-  openTerminal: (sessionId: string) => openSession(sessionId),
+  openTerminal: openSession,
   openPlan: (sessionId: string) => { showPhonePlan(sessionId); },
-  onSheetOpenChange: (isOpen: boolean) => onCalmSheetOpenChange(isOpen),
+  onSheetOpenChange: onCalmSheetOpenChange,
 };
 
 function resetSoftKeyboardBaseline() {
@@ -70,11 +69,7 @@ function resetSoftKeyboardBaseline() {
 function syncVisualViewport() {
   const viewport = window.visualViewport;
   if (!shellEl) return;
-  if (!active) {
-    shellEl.removeAttribute('data-keyboard');
-    return;
-  }
-  if (!viewport) {
+  if (!active || !viewport) {
     shellEl.removeAttribute('data-keyboard');
     return;
   }
@@ -92,19 +87,12 @@ function syncVisualViewport() {
   shellEl.removeAttribute('data-keyboard');
 }
 
-function appendGlyphAndLabel(btn: HTMLButtonElement, glyph: string, label: string) {
-  const glyphEl = el('span', 'phone-nav-glyph');
-  glyphEl.setAttribute('aria-hidden', 'true');
-  glyphEl.textContent = glyph;
-  const labelEl = el('span', 'phone-nav-label');
-  labelEl.textContent = label;
-  btn.append(glyphEl, labelEl);
-}
-
 function buildNavButton(label: string, glyph: string, itemClass = 'phone-nav-item', dotClass = 'phone-nav-dot') {
   const btn = el('button', itemClass);
   btn.type = 'button';
-  appendGlyphAndLabel(btn, glyph, label);
+  const glyphEl = el('span', 'phone-nav-glyph', glyph);
+  glyphEl.setAttribute('aria-hidden', 'true');
+  btn.append(glyphEl, el('span', 'phone-nav-label', label));
   const dot = el('span', dotClass);
   dot.setAttribute('aria-hidden', 'true');
   dot.hidden = true;
@@ -193,7 +181,7 @@ function wrapScreen(id: string, label: string, contentEl: HTMLElement | null | u
 function build() {
   if (shellEl) return;
 
-  boardScreen = createBoardScreen({ onSelectSession: (id) => openSession(id) });
+  boardScreen = createBoardScreen({ onSelectSession: openSession });
   boardScreen.setCalmShown(isCalmAvailable);
   terminalScreen = createTerminalScreen({ onBack: () => showScreen(BOARD) });
   reviewMountEl = el('div', 'phone-review');
@@ -245,9 +233,7 @@ function openSession(sessionId: string) {
 
 function pushHistoryFor(screenId: string) {
   if (screenId === BOARD) {
-    if (pushedHistoryEntry === 'none') return;
-    pushedHistoryEntry = 'none';
-    history.back();
+    surrenderHistoryEntry();
     return;
   }
   const state = { glimmervoidScreen: screenId };
@@ -267,7 +253,7 @@ function adoptInheritedHistory() {
     return BOARD;
   }
   const inherited = screenIdFromHistoryState(history.state);
-  if (inherited && screenElById.has(inherited) && !unavailableScreenIds.has(inherited)) {
+  if (inherited && canShowScreen(inherited)) {
     pushedHistoryEntry = 'screen';
     return inherited;
   }
@@ -334,7 +320,7 @@ function onPopState(event: PopStateEvent) {
   }
   const target = screenIdFromHistoryState(event.state);
   pushedHistoryEntry = target ? 'screen' : 'none';
-  applyScreen(target && screenElById.has(target) && !unavailableScreenIds.has(target) ? target : BOARD);
+  applyScreen(target && canShowScreen(target) ? target : BOARD);
 }
 
 function syncCurrent(buttonById: Map<string, HTMLElement>, screenId: string) {
@@ -368,9 +354,12 @@ function applyScreen(screenId: string) {
   terminalScreen.unview();
 }
 
+function canShowScreen(screenId: string) {
+  return screenElById.has(screenId) && !unavailableScreenIds.has(screenId);
+}
+
 function showScreen(screenId: string) {
-  if (!shellEl || !screenElById.has(screenId)) return;
-  if (unavailableScreenIds.has(screenId)) return;
+  if (!shellEl || !canShowScreen(screenId)) return;
   if (screenId !== uiState.snapshot().phoneScreen) pushHistoryFor(screenId);
   applyScreen(screenId);
 }
@@ -464,9 +453,7 @@ export function refreshPhoneBoard() {
 }
 
 export function showPhoneScreen(screenId: string) {
-  if (!active) return false;
-  if (!screenElById.has(screenId)) return false;
-  if (unavailableScreenIds.has(screenId)) return false;
+  if (!active || !canShowScreen(screenId)) return false;
   showScreen(screenId);
   return true;
 }

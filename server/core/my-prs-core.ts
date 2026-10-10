@@ -16,6 +16,7 @@ export const MyPrsLaneState = MyPrsState.extend({
   failedAutoRebaseRecords: z.array(FailedAutoRebaseRecord).optional(),
 });
 export type MyPrsLaneState = z.infer<typeof MyPrsLaneState>;
+export const emptyMyPrsLaneState = (): MyPrsLaneState => MyPrsLaneState.parse({ keepMergeableKeys: [], keepMergeableAttemptKeys: [] });
 
 export function prunedFailedAutoRebaseAttempts(attemptKeys: ReadonlySet<string>, nodes: readonly MyPrSearchNode[]): Set<string> {
   const currentAttemptByPrKey = new Map(nodes.map((node) => [prKey(node.repository.nameWithOwner, node.number), autoRebaseAttemptKey(node)]));

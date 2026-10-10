@@ -137,8 +137,7 @@ type QueuedGitResult = GitResult & { admissionRefused?: boolean };
 type WorktreeDirtyProbe = { ok: boolean; dirty: boolean; headSha: string | null; err?: string; admissionRefused?: boolean };
 type MergeProbeEnvArgs = { projectPath: string; timeoutMs?: number };
 type CheckoutDetachedArgs = { worktreePath: string; sha: string } & GitIsolationOptions;
-type UntrustedCheckoutGitArgs = GitIsolationOptions;
-type StageDetachedWorktreeArgs = { projectPath: string; worktreePath?: string; sha?: string } & UntrustedCheckoutGitArgs;
+type StageDetachedWorktreeArgs = { projectPath: string; worktreePath?: string; sha?: string } & GitIsolationOptions;
 type StageIsolatedCheckoutArgs = { projectPath: string; checkoutPath?: string; sha?: string; baseSha?: string };
 type MergeFastForwardArgs = {
   projectPath: string;
@@ -162,11 +161,6 @@ const REMOTE_BRANCH_LISTING_MAX_BUFFER = 64 * 1024 * 1024;
 const ISOLATED_CHECKOUT_HYDRATE_TIMEOUT_MS = 10 * 60 * 1000;
 const ISOLATED_CHECKOUT_REVIEW_REF = 'refs/heads/review';
 const ISOLATED_CHECKOUT_BASE_REF = 'refs/benchmark/base';
-
-function untrustedCheckoutGit(args: string[], { disableHooks, disableRepoCommands, replaceEnv }: UntrustedCheckoutGitArgs): { args: string[]; extra?: GitExtraOptions } {
-  const hooklessArgs = disableHooks ? ['-c', `core.hooksPath=${os.devNull}`, ...args] : args;
-  return { args: hooklessArgs, extra: { replaceEnv, disableRepoCommands } };
-}
 
 async function prepareHardenedGitInvocation(args: string[], baseEnv: Readonly<Record<string, string | undefined>>,
   probe: (args: string[], env: Record<string, string>) => Promise<string> | string) {
@@ -292,11 +286,8 @@ function createGitWorkspace(opts: {
   const isolationContext = new AsyncLocalStorage<GitIsolationOptions>();
   const git: GitRunner = async (args, cwd, extra) => {
     const isolation = isolationContext.getStore() ?? opts.isolation;
-    const combinedOptions = { ...isolation, ...extra,
-      disableRepoCommands: extra?.disableRepoCommands ?? isolation?.disableRepoCommands,
-      replaceEnv: extra?.replaceEnv ?? isolation?.replaceEnv };
-    if (!combinedOptions.disableRepoCommands) return rawGit(args, cwd, extra);
-    const invocation = await prepareHardenedGitInvocation(args, combinedOptions.replaceEnv ?? process.env,
+    if (!(extra?.disableRepoCommands ?? isolation?.disableRepoCommands)) return rawGit(args, cwd, extra);
+    const invocation = await prepareHardenedGitInvocation(args, extra?.replaceEnv ?? isolation?.replaceEnv ?? process.env,
       (probeArgs, probeEnv) => rawGit(probeArgs, cwd, { ...extra, replaceEnv: probeEnv }));
     return rawGit(invocation.args, cwd, { ...extra, replaceEnv: { ...invocation.env, ...extra?.env } });
   };
@@ -306,16 +297,16 @@ function createGitWorkspace(opts: {
   const rerereEnabled = opts.rerere !== false;
 
   const engineQueue = createSerialQueue();
-  const serialize = <T>(fn: () => Promise<T>): Promise<T> => engineQueue.run(fn);
-  const serialized = <TArgs, TResult>(body: (args: TArgs) => Promise<TResult>) => (args: TArgs): Promise<TResult> => serialize(() =>
-    isolationContext.run({ ...opts.isolation, ...isolationContext.getStore(), ...args }, () => body(args)));
+  const isolatedCall = <TArgs, TResult>(body: (args: TArgs) => Promise<TResult>, args: TArgs) => (): Promise<TResult> =>
+    isolationContext.run({ ...opts.isolation, ...isolationContext.getStore(), ...args }, () => body(args));
+  const serialized = <TArgs, TResult>(body: (args: TArgs) => Promise<TResult>) => (args: TArgs): Promise<TResult> => engineQueue.run(isolatedCall(body, args));
   const admitted = <TArgs extends { admissionTimeoutMs?: number }, TResult>(
     body: (args: TArgs) => Promise<TResult>,
     refuse: (args: TArgs) => TResult,
   ) => async (args: TArgs): Promise<TResult> => {
     const admission = args.admissionTimeoutMs === undefined ? {} : { admissionTimeoutMs: args.admissionTimeoutMs };
     try {
-      return await engineQueue.run(() => isolationContext.run({ ...opts.isolation, ...isolationContext.getStore(), ...args }, () => body(args)), admission);
+      return await engineQueue.run(isolatedCall(body, args), admission);
     } catch (error) {
       if (!isQueueAdmissionTimeout(error)) throw error;
       return refuse(args);
@@ -907,9 +898,9 @@ function createGitWorkspace(opts: {
     return { ok: true, dirty: status.out !== '', headSha: head.out };
   }
 
-  function runUntrusted(args: string[], cwd: string, isolation: UntrustedCheckoutGitArgs): Promise<GitResult> {
-    const isolated = untrustedCheckoutGit(args, isolation);
-    return run(isolated.args, cwd, isolated.extra);
+  function runUntrusted(args: string[], cwd: string, { disableHooks, disableRepoCommands, replaceEnv }: GitIsolationOptions): Promise<GitResult> {
+    const hooklessArgs = disableHooks ? ['-c', `core.hooksPath=${os.devNull}`, ...args] : args;
+    return run(hooklessArgs, cwd, { replaceEnv, disableRepoCommands });
   }
 
   async function removeWorktreeByPathBody({ projectPath, cwd, branch, disableHooks, replaceEnv }: WorktreeArgs): Promise<QueuedGitResult> {

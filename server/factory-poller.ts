@@ -1,6 +1,6 @@
 import { CoherenceOrient, CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import type { FactoryProjectState, FactoryState } from '../shared/contracts/factory.ts';
-import { buildFactoryProjectState, FACTORY_TICK_INTERVAL_MS, factoryStateSignature } from './core/factory-core.ts';
+import { buildFactoryProjectState, FACTORY_TICK_INTERVAL_MS, factoryStateSignature, isCompletedCommandFailure } from './core/factory-core.ts';
 import { createTickLoop } from './lane-runner.ts';
 import type { TickLoopOptions } from './lane-runner.ts';
 import { errorMessage } from '../shared/text.ts';
@@ -143,13 +143,11 @@ export function createFactoryPoller({
 }
 
 function stdoutOfFailedCommand(error: unknown): string | null {
-  if (!(error instanceof Error) || !('stdout' in error)) return null;
-  if (!('code' in error) || typeof error.code !== 'number') return null;
-  if ('killed' in error && error.killed === true) return null;
+  if (!isCompletedCommandFailure(error) || !('stdout' in error)) return null;
   const { stdout } = error;
   if (typeof stdout !== 'string' || stdout.trim() === '') return null;
   return stdout;
 }
 
 export type FactoryPoller = ReturnType<typeof createFactoryPoller>;
-export type { FactoryPollerDeps, FactoryProject };
+export type { FactoryPollerDeps };

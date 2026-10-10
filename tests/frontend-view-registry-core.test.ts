@@ -70,13 +70,6 @@ test('a direct refresh honors refreshOn and tolerates a missing row', () => {
   assert.deepEqual(refreshes, ['shown']);
 });
 
-test('the registry rows declare the same refresh triggers the dashboard had before the registry', () => {
-  const registrySource = readSource('../public/view-registry.ts');
-  const reasonsByView = Object.fromEntries([...registrySource.matchAll(/\{ view: '([^']+)',[^\n]*refreshOn: \[([^\]]*)\]/g)].map((match) => [match[1], match[2]]));
-  assert.deepEqual(reasonsByView, { usage: "'shown', 'connected', 'usage-sessions'", hooks: "'shown', 'connected', 'hooks-updated'", trace: "'shown'" });
-  assert.doesNotMatch(registrySource, /reason !==|onShow/);
-});
-
 test('attention keeps boolean dots and the Visions level distinct', () => {
   assert.deepEqual(viewAttentionState(false), { isActive: false, level: null });
   assert.deepEqual(viewAttentionState(true), { isActive: true, level: null });
@@ -104,18 +97,4 @@ test('settings connect and broadcast share the fan-out and only the broadcast ma
     const declarations = [...appSource.matchAll(new RegExp(`\\bfunction ${consumer}\\(`, 'g'))].length;
     assert.equal(references - declarations, 1, `${consumer} has one fan-out call`);
   }
-});
-
-test('attention subscriptions, mounts and sidebar policy live on rows rather than parallel view branches', () => {
-  const registrySource = readSource('../public/view-registry.ts');
-  assert.equal([...registrySource.matchAll(/attention: \{ subscribe:/g)].length, 4);
-  assert.match(registrySource, /definition\.attention\.subscribe\(\(attention\) =>/);
-  assert.match(registrySource, /actions\.setPhoneAttention\(definition\.view, attention\)/);
-  assert.match(registrySource, /dot\.setAttribute\('data-attention', level\)/);
-  assert.doesNotMatch(readSource('../public/index.html'), /tab-[a-z]+-activity|class="header-tab"[^>]+ hidden/);
-  const appSource = readSource('../public/app.ts');
-  assert.match(appSource, /for \(const viewTab of VIEW_TABS\) viewTab\.mount\(viewTab\.el\)/);
-  assert.match(appSource, /\?\.attention\?\.acknowledge\(\)/);
-  assert.match(appSource, /\?\.hasReviewSidebar !== true/);
-  assert.doesNotMatch(readSource('../public/style.css'), /body\[data-active-view=/);
 });

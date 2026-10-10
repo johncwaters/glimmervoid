@@ -5,7 +5,6 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
-import { execFileAsync } from '../server/child-process-safe.ts';
 import type { ProjectEntry } from '../server/config-store.ts';
 import { commitAndLandFactoryLedger } from '../server/factory-ledger.ts';
 import { createFactoryWiring } from '../server/factory-wiring.ts';
@@ -18,6 +17,8 @@ import type { SessionSpawnOverrides } from '../server/session-factory.ts';
 import type { FactoryProjectState } from '../shared/contracts/factory.ts';
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
+import { readCoherenceFixture } from './helpers/factory-coherence-reports.ts';
+import { createLedgerRepository } from './helpers/factory-fixture.ts';
 import { waitFor } from './helpers/wait-for.ts';
 
 const project: FactoryProjectState = {
@@ -96,6 +97,13 @@ function createFixture(context: TestContext, commitAndLand: (projectId: string, 
   });
   context.after(orchestrator.stop);
   return { orchestrator, spawned, messages, lifecycle, sessions, recordedLanes, trustedIntentIds, advanceClock: (elapsedMs: number) => { nowMs += elapsedMs; } };
+}
+
+async function createMainLedgerRepository(context: TestContext, prefix: string) {
+  const root = await mkdtemp(path.join(os.tmpdir(), prefix));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const { projectPath: repository, originPath: origin, ...ledgerRepository } = await createLedgerRepository(root, 'main', { 'source.ts': 'export const original = true;\n' });
+  return { repository, origin, ...ledgerRepository };
 }
 
 test('orchestrator uses the ledger cwd, pinned Claude hooks and denying permissions and registers visibly before starting', async (context) => {
@@ -240,24 +248,7 @@ test('unexpected exits back off but intentional pauses do not, and active intent
 });
 
 test('Stop with a dirty real ledger commits only coherence and lands it through mergeKeep', async (context) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'factory-orchestrator-ledger-'));
-  context.after(() => rm(root, { recursive: true, force: true }));
-  const repository = path.join(root, 'repo');
-  const origin = path.join(root, 'origin.git');
-  await mkdir(repository);
-  const git = async (args: string[], cwd = repository) => (await execFileAsync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 })).stdout.trim();
-  await git(['init', '-b', 'main']);
-  await git(['config', 'user.email', 'factory@example.test']);
-  await git(['config', 'user.name', 'Factory test']);
-  await git(['config', 'commit.gpgsign', 'false']);
-  await writeFile(path.join(repository, 'source.ts'), 'export const original = true;\n');
-  await git(['add', '.']);
-  await git(['commit', '-m', 'initial']);
-  await git(['init', '--bare', origin]);
-  await git(['remote', 'add', 'origin', origin]);
-  await git(['push', '-u', 'origin', 'main']);
-  const gitWorkspace = createGitWorkspace();
-  const ledger = await gitWorkspace.create({ projectPath: repository, teamId: 'repo', label: 'factory-ledger', baseBranch: 'main', configuredIntegrationBranch: 'main', worktreeBase: root, shareList: [] });
+  const { repository, origin, git, gitWorkspace, ledger } = await createMainLedgerRepository(context, 'factory-orchestrator-ledger-');
   assert.equal(ledger.isGit, true);
   await mkdir(path.join(ledger.cwd, '.coherence', 'work'), { recursive: true });
   await writeFile(path.join(ledger.cwd, '.coherence', 'work', 's-orchestrator.jsonl'), '{"event":"opened","session":"orchestrator","parent":"intent"}\n');
@@ -283,24 +274,7 @@ test('Stop with a dirty real ledger commits only coherence and lands it through 
 
 
 test('orchestrator ledger writes other than work creation or decisions are refused, never landed, and raise the exception', async (context) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'factory-orchestrator-forged-'));
-  context.after(() => rm(root, { recursive: true, force: true }));
-  const repository = path.join(root, 'repo');
-  const origin = path.join(root, 'origin.git');
-  await mkdir(repository);
-  const git = async (args: string[], cwd = repository) => (await execFileAsync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 })).stdout.trim();
-  await git(['init', '-b', 'main']);
-  await git(['config', 'user.email', 'factory@example.test']);
-  await git(['config', 'user.name', 'Factory test']);
-  await git(['config', 'commit.gpgsign', 'false']);
-  await writeFile(path.join(repository, 'source.ts'), 'export const original = true;\n');
-  await git(['add', '.']);
-  await git(['commit', '-m', 'initial']);
-  await git(['init', '--bare', origin]);
-  await git(['remote', 'add', 'origin', origin]);
-  await git(['push', '-u', 'origin', 'main']);
-  const gitWorkspace = createGitWorkspace();
-  const ledger = await gitWorkspace.create({ projectPath: repository, teamId: 'repo', label: 'factory-ledger', baseBranch: 'main', configuredIntegrationBranch: 'main', worktreeBase: root, shareList: [] });
+  const { repository, origin, git, gitWorkspace, ledger } = await createMainLedgerRepository(context, 'factory-orchestrator-forged-');
   await mkdir(path.join(ledger.cwd, '.coherence', 'consequences'), { recursive: true });
   await writeFile(path.join(ledger.cwd, '.coherence', 'consequences', 's-orchestrator.jsonl'),
     `${JSON.stringify({ session: 'orchestrator', from: { kind: 'verification', id: 'verifier-intent' }, relation: 'verifies', to: { kind: 'work', id: 'intent' } })}\n`);
@@ -322,30 +296,8 @@ test('orchestrator ledger writes other than work creation or decisions are refus
   assert.equal(await git(['rev-parse', 'main'], origin), initialMain);
 });
 
-async function createLedgerRepository(prefix: string) {
-  const root = await mkdtemp(path.join(os.tmpdir(), prefix));
-  const repository = path.join(root, 'repo');
-  const origin = path.join(root, 'origin.git');
-  await mkdir(repository);
-  const git = async (args: string[], cwd = repository) => (await execFileAsync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 })).stdout.trim();
-  await git(['init', '-b', 'main']);
-  await git(['config', 'user.email', 'factory@example.test']);
-  await git(['config', 'user.name', 'Factory test']);
-  await git(['config', 'commit.gpgsign', 'false']);
-  await writeFile(path.join(repository, 'source.ts'), 'export const original = true;\n');
-  await git(['add', '.']);
-  await git(['commit', '-m', 'initial']);
-  await git(['init', '--bare', origin]);
-  await git(['remote', 'add', 'origin', origin]);
-  await git(['push', '-u', 'origin', 'main']);
-  const gitWorkspace = createGitWorkspace();
-  const ledger = await gitWorkspace.create({ projectPath: repository, teamId: 'repo', label: 'factory-ledger', baseBranch: 'main', configuredIntegrationBranch: 'main', worktreeBase: root, shareList: [] });
-  return { root, repository, origin, git, gitWorkspace, ledger };
-}
-
 test('an orchestrator landing refuses a pending decision that claims the factory session while a trusted landing lands it', async (context) => {
-  const { root, repository, git, gitWorkspace, ledger } = await createLedgerRepository('factory-orchestrator-claimed-');
-  context.after(() => rm(root, { recursive: true, force: true }));
+  const { repository, git, gitWorkspace, ledger } = await createMainLedgerRepository(context, 'factory-orchestrator-claimed-');
   await mkdir(path.join(ledger.cwd, '.coherence', 'decisions'), { recursive: true });
   await writeFile(path.join(ledger.cwd, '.coherence', 'decisions', 's-orchestrator.jsonl'), `${JSON.stringify({ id: 'factory-close', session: 'glimmervoid-factory', decision: 'declared' })}\n`);
   const initialMain = await git(['rev-parse', 'main']);
@@ -359,8 +311,7 @@ test('an orchestrator landing refuses a pending decision that claims the factory
 });
 
 test('a ledger branch commit touching a path outside .coherence is refused for every landing and never reaches origin', async (context) => {
-  const { root, repository, origin, git, gitWorkspace, ledger } = await createLedgerRepository('factory-orchestrator-outside-');
-  context.after(() => rm(root, { recursive: true, force: true }));
+  const { repository, origin, git, gitWorkspace, ledger } = await createMainLedgerRepository(context, 'factory-orchestrator-outside-');
   await mkdir(path.join(ledger.cwd, 'src'), { recursive: true });
   await writeFile(path.join(ledger.cwd, 'src', 'payload.ts'), 'export const payload = true;\n');
   await git(['add', 'src'], ledger.cwd);
@@ -380,8 +331,7 @@ test('a ledger branch commit touching a path outside .coherence is refused for e
 });
 
 test('a retry landing inspects ledger content already committed on the ledger branch, not only pending changes', async (context) => {
-  const { root, repository, origin, git, gitWorkspace, ledger } = await createLedgerRepository('factory-orchestrator-committed-');
-  context.after(() => rm(root, { recursive: true, force: true }));
+  const { repository, origin, git, gitWorkspace, ledger } = await createMainLedgerRepository(context, 'factory-orchestrator-committed-');
   await mkdir(path.join(ledger.cwd, '.coherence', 'work'), { recursive: true });
   await writeFile(path.join(ledger.cwd, '.coherence', 'work', 's-orchestrator.jsonl'), `${JSON.stringify({ session: 'orchestrator', event: 'closed', work: 'intent' })}\n`);
   await git(['add', '.coherence'], ledger.cwd);
@@ -397,8 +347,8 @@ test('a retry landing inspects ledger content already committed on the ledger br
 
 test('wiring stays inert when disabled and lane disabling destroys only its orchestrator', async (context) => {
   const homeDir = await mkdtemp(path.join(os.tmpdir(), 'factory-orchestrator-wiring-'));
-  const orient = await readFile(new URL('./fixtures/coherence/0.37.1/orient-dispatch.json', import.meta.url), 'utf8');
-  const work = await readFile(new URL('./fixtures/coherence/0.37.1/work-dispatch.json', import.meta.url), 'utf8');
+  const orient = await readCoherenceFixture('orient-dispatch');
+  const work = await readCoherenceFixture('work-dispatch');
   const config = { projects: [{ id: 'repo', name: 'Repository', path: '/repo' }], factory: { enabled: false }, integrationBranch: 'main' };
   const existing = new StubSession({ id: 'existing', name: 'Existing', path: '/existing' });
   const sessions = new Map([['existing', existing]]);
@@ -527,8 +477,7 @@ test('an untrusted parentless root in the ledger is never picked as an intent an
 });
 
 test('an orchestrator landing refuses a parentless work order it wrote and never lands it', async (context) => {
-  const { root, repository, origin, git, gitWorkspace, ledger } = await createLedgerRepository('factory-orchestrator-root-');
-  context.after(() => rm(root, { recursive: true, force: true }));
+  const { repository, origin, git, gitWorkspace, ledger } = await createMainLedgerRepository(context, 'factory-orchestrator-root-');
   await mkdir(path.join(ledger.cwd, '.coherence', 'work'), { recursive: true });
   await writeFile(path.join(ledger.cwd, '.coherence', 'work', 's-orchestrator.jsonl'),
     `${JSON.stringify({ event: 'opened', session: 'orchestrator', work: 'wrk-forged-root', parent: null, writeScopes: ['**'] })}\n`);

@@ -16,6 +16,16 @@ export function el<Tag extends keyof HTMLElementTagNameMap>(
   return e;
 }
 
+export function elWithMarkup<Tag extends keyof HTMLElementTagNameMap>(tag: Tag, className: string, trustedMarkup: string): HTMLElementTagNameMap[Tag] {
+  const element = el(tag, className);
+  element.innerHTML = trustedMarkup;
+  return element;
+}
+
+export function setStyleProperties(element: HTMLElement, properties: Iterable<readonly [string, string]>): void {
+  for (const [propertyName, value] of properties) element.style.setProperty(propertyName, value);
+}
+
 export function createAvatar({ login, url, cssPx }: { login: string; url?: string | null; cssPx: number }): HTMLElement {
   const avatar = el('span', 'avatar');
   avatar.style.width = `${cssPx}px`;

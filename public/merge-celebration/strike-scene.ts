@@ -1,4 +1,4 @@
-import { el } from '../dom-helpers.ts';
+import { el, elWithMarkup, setStyleProperties } from '../dom-helpers.ts';
 import type { MergeCelebrationScene } from './scenes.ts';
 import { planStrikePinFlights, type StrikePinFlight, strikeLaneStyleProperties, strikePinStyleProperties } from './strike-core.ts';
 
@@ -6,16 +6,14 @@ const PIN_SILHOUETTE_SVG = '<svg viewBox="0 0 10 24" aria-hidden="true"><path cl
 
 function createPin(flight: StrikePinFlight): HTMLElement {
   const pin = el('span', 'merge-strike-pin');
-  const arc = el('span', 'merge-strike-pin-arc');
-  arc.innerHTML = PIN_SILHOUETTE_SVG;
-  pin.append(arc);
-  for (const [propertyName, value] of strikePinStyleProperties(flight)) pin.style.setProperty(propertyName, value);
+  pin.append(elWithMarkup('span', 'merge-strike-pin-arc', PIN_SILHOUETTE_SVG));
+  setStyleProperties(pin, strikePinStyleProperties(flight));
   return pin;
 }
 
 function buildStrikeScene(): HTMLElement {
   const lane = el('div', 'merge-strike-lane');
-  for (const [propertyName, value] of strikeLaneStyleProperties()) lane.style.setProperty(propertyName, value);
+  setStyleProperties(lane, strikeLaneStyleProperties());
   const rack = el('div', 'merge-strike-rack');
   rack.append(...planStrikePinFlights().map(createPin));
   const ballTrack = el('div', 'merge-strike-track');

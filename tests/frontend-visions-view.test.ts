@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 
 import type { IntentThread, VisionsComment, VisionsFixEntry } from '../public/visions-view-core.ts';
 
-const importCore = () => import('../public/visions-view-core.ts');
+import { applyCommentsMessage, applyCommentsSnapshot, applyFindingsMessage, applyFindingsSnapshot, applyFixMessage, applyFixSnapshot, applyHandMessage, applyHandSnapshot, applyIntentMessage, basenameOfUri, commentCountText, commentLineLabel, decideVisionsAttention, emptyIntentState, findingCountText, findingLineLabel, fixCountText, fixEntryOfMessage, fixLineLabel, fixOutcomeText, intentAgeText, intentMetaText, intentRows, intentStateOfMessage, MAX_RENDERED_FIXES, normalizeIntentThread, sectionCountText, VISIONS_ATTENTION_HAND, VISIONS_ATTENTION_UNSEEN, VISIONS_INTENT_EMPTY_TEXT, VISIONS_INTENT_UNOWNED_LABEL, visionsAttentionState, visionsHandText, visionsSections } from '../public/visions-view-core.ts';
+import { createAttentionAck } from '../public/attention-ack-core.ts';
 
 type WireFrame = Record<string, unknown>;
 const wire = (frame: WireFrame): WireFrame => frame;
@@ -18,35 +19,30 @@ function finding(line: number, character: number, code: string, message: string)
   };
 }
 
-test('a file uri renders as its decoded basename and keeps the raw uri reachable', async () => {
-  const { basenameOfUri } = await importCore();
+test('a file uri renders as its decoded basename and keeps the raw uri reachable', () => {
   assert.equal(basenameOfUri('file:///tmp/plan-visions.md'), 'plan-visions.md');
   assert.equal(basenameOfUri('file:///c%3A/Users/johnw/My%20Docs/notes.md'), 'notes.md');
   assert.equal(basenameOfUri('untitled:Untitled-1'), 'untitled:Untitled-1');
   assert.equal(basenameOfUri(''), '');
 });
 
-test('a percent escape that does not decode falls back to the raw tail rather than throwing', async () => {
-  const { basenameOfUri } = await importCore();
+test('a percent escape that does not decode falls back to the raw tail rather than throwing', () => {
   assert.equal(basenameOfUri('file:///tmp/100%.md'), '100%.md');
 });
 
-test('line labels are one-based, because that is what the editor shows', async () => {
-  const { findingLineLabel } = await importCore();
+test('line labels are one-based, because that is what the editor shows', () => {
   assert.equal(findingLineLabel(finding(0, 0, 'repeated-word', 'x')), 'L1');
   assert.equal(findingLineLabel(finding(11, 3, 'repeated-word', 'x')), 'L12');
   assert.equal(findingLineLabel({}), 'L?');
 });
 
-test('the count reads as a sentence, singular included', async () => {
-  const { findingCountText } = await importCore();
+test('the count reads as a sentence, singular included', () => {
   assert.equal(findingCountText(0), '0 findings');
   assert.equal(findingCountText(1), '1 finding');
   assert.equal(findingCountText(4), '4 findings');
 });
 
-test('a per-uri push replaces that document and leaves the others alone', async () => {
-  const { applyFindingsMessage } = await importCore();
+test('a per-uri push replaces that document and leaves the others alone', () => {
   const first = applyFindingsMessage(new Map(), wire({
     type: 'visions-findings', uri: 'file:///a.md', diagnostics: [finding(0, 0, 'repeated-word', 'a')],
   }));
@@ -58,8 +54,7 @@ test('a per-uri push replaces that document and leaves the others alone', async 
   assert.equal(first.size, 1, 'the previous map is never mutated');
 });
 
-test('an empty push clears that uri instead of leaving an empty section', async () => {
-  const { applyFindingsMessage } = await importCore();
+test('an empty push clears that uri instead of leaving an empty section', () => {
   const withFinding = applyFindingsMessage(new Map(), {
     uri: 'file:///a.md', diagnostics: [finding(0, 0, 'repeated-word', 'a')],
   });
@@ -67,14 +62,12 @@ test('an empty push clears that uri instead of leaving an empty section', async 
   assert.equal(cleared.size, 0);
 });
 
-test('a message with no uri changes nothing', async () => {
-  const { applyFindingsMessage } = await importCore();
+test('a message with no uri changes nothing', () => {
   const start = applyFindingsMessage(new Map(), { uri: 'file:///a.md', diagnostics: [finding(0, 0, 'x', 'a')] });
   assert.deepEqual([...applyFindingsMessage(start, { diagnostics: [] }).keys()], ['file:///a.md']);
 });
 
-test('the connect-time snapshot REPLACES the map, so a document closed during the gap disappears', async () => {
-  const { applyFindingsSnapshot } = await importCore();
+test('the connect-time snapshot REPLACES the map, so a document closed during the gap disappears', () => {
   const repaired = applyFindingsSnapshot(wire({
     type: 'visions-snapshot',
     documents: [
@@ -86,8 +79,7 @@ test('the connect-time snapshot REPLACES the map, so a document closed during th
   assert.equal(applyFindingsSnapshot({}).size, 0, 'a malformed frame empties rather than throws');
 });
 
-test('sections sort by file name, findings sort by position', async () => {
-  const { visionsSections } = await importCore();
+test('sections sort by file name, findings sort by position', () => {
   const map = new Map([
     ['file:///deep/zebra.md', [finding(0, 0, 'repeated-word', 'z')]],
     ['file:///apple.md', [
@@ -105,8 +97,7 @@ test('sections sort by file name, findings sort by position', async () => {
   ]);
 });
 
-test('two files of the same name are ordered by their full uri, not left to insertion order', async () => {
-  const { visionsSections } = await importCore();
+test('two files of the same name are ordered by their full uri, not left to insertion order', () => {
   const map = new Map([
     ['file:///z/notes.md', [finding(0, 0, 'repeated-word', 'z')]],
     ['file:///a/notes.md', [finding(0, 0, 'repeated-word', 'a')]],
@@ -114,17 +105,11 @@ test('two files of the same name are ordered by their full uri, not left to inse
   assert.deepEqual(visionsSections(map).map((section) => section.uri), ['file:///a/notes.md', 'file:///z/notes.md']);
 });
 
-test('an empty panel says in words what it is waiting for', async () => {
-  const { VISIONS_EMPTY_TEXT } = await importCore();
-  assert.equal(VISIONS_EMPTY_TEXT, 'No findings. Open a markdown file in a connected editor.');
-});
-
 function comment(line: number, message: string): VisionsComment {
   return { line, message };
 }
 
-test('a comments push replaces that document, and an empty one clears it', async () => {
-  const { applyCommentsMessage } = await importCore();
+test('a comments push replaces that document, and an empty one clears it', () => {
   const first = applyCommentsMessage(new Map(), wire({
     type: 'visions-comments', uri: 'file:///a.md', comments: [comment(3, 'name the audience')],
   }));
@@ -138,8 +123,7 @@ test('a comments push replaces that document, and an empty one clears it', async
   assert.deepEqual([...applyCommentsMessage(replaced, { comments: [] }).keys()], ['file:///a.md'], 'no uri changes nothing');
 });
 
-test('the snapshot carries both halves, and each half reads only its own field', async () => {
-  const { applyCommentsSnapshot, applyFindingsSnapshot, applyHandSnapshot } = await importCore();
+test('the snapshot carries both halves, and each half reads only its own field', () => {
   const msg = {
     type: 'visions-snapshot',
     documents: [
@@ -160,8 +144,7 @@ test('the snapshot carries both halves, and each half reads only its own field',
   assert.equal(applyCommentsSnapshot({}).size, 0, 'a malformed frame empties rather than throws');
 });
 
-test('a hand push replaces that document, and a null one clears it', async () => {
-  const { applyHandMessage, visionsHandText } = await importCore();
+test('a hand push replaces that document, and a null one clears it', () => {
   const first = applyHandMessage(new Map(), wire({
     type: 'visions-hand', uri: 'file:///a.md', hand: '  the outline and conclusion argue different plans  ',
   }));
@@ -177,8 +160,7 @@ test('a hand push replaces that document, and a null one clears it', async () =>
   assert.equal(visionsHandText(null), '');
 });
 
-test('a document earns a section from any visions surface, and hand renders first', async () => {
-  const { visionsSections } = await importCore();
+test('a document earns a section from any visions surface, and hand renders first', () => {
   const findings = new Map([['file:///apple.md', [finding(4, 0, 'repeated-word', 'a')]]]);
   const comments = new Map([
     ['file:///apple.md', [comment(9, 'later'), comment(2, 'earlier')]],
@@ -198,8 +180,7 @@ test('a document earns a section from any visions surface, and hand renders firs
   assert.deepEqual(visionsSections(new Map(), new Map(), new Map()), []);
 });
 
-test('the section head names what it actually has, and never pads with a zero', async () => {
-  const { commentCountText, sectionCountText } = await importCore();
+test('the section head names what it actually has, and never pads with a zero', () => {
   assert.equal(commentCountText(1), '1 comment');
   assert.equal(commentCountText(3), '3 comments');
   const twoFindings = [finding(0, 0, 'repeated-word', 'a'), finding(1, 0, 'heading-skip', 'b')];
@@ -210,8 +191,7 @@ test('the section head names what it actually has, and never pads with a zero', 
   assert.equal(sectionCountText({}), '0 findings');
 });
 
-test('comment lines are already 1-based, unlike the LSP ranges beside them', async () => {
-  const { commentLineLabel } = await importCore();
+test('comment lines are already 1-based, unlike the LSP ranges beside them', () => {
   assert.equal(commentLineLabel(comment(1, 'x')), 'L1');
   assert.equal(commentLineLabel(comment(12, 'x')), 'L12');
   assert.equal(commentLineLabel({}), 'L?');
@@ -228,8 +208,7 @@ function thread(id: string | null, text: string, ts = NOW, extra: Partial<Intent
   };
 }
 
-test('a thread is normalized, and anything malformed reads as no thread', async () => {
-  const { normalizeIntentThread } = await importCore();
+test('a thread is normalized, and anything malformed reads as no thread', () => {
   assert.deepEqual(normalizeIntentThread({
     id: 't-716d49b4', text: 'refactor of the spawn path', uris: ['file:///a.md', 7], ts: NOW, hits: 3,
   }), {
@@ -243,14 +222,7 @@ test('a thread is normalized, and anything malformed reads as no thread', async 
   }
 });
 
-test('the source line credits the visions when a statement exists', async () => {
-  const { intentSourceText } = await importCore();
-  assert.equal(intentSourceText({ text: 'x' }), 'proposed by visions');
-  assert.equal(intentSourceText({ text: '' }), '', 'no statement, nobody to credit');
-});
-
-test('the age reads coarsely, because the question is minutes or days and never seconds', async () => {
-  const { intentAgeText } = await importCore();
+test('the age reads coarsely, because the question is minutes or days and never seconds', () => {
   assert.equal(intentAgeText(NOW, NOW + 20000), 'just now');
   assert.equal(intentAgeText(NOW, NOW + 60000), '1 minute ago');
   assert.equal(intentAgeText(NOW, NOW + 45 * 60000), '45 minutes ago');
@@ -262,16 +234,14 @@ test('the age reads coarsely, because the question is minutes or days and never 
   assert.equal(intentAgeText(0, NOW), '');
 });
 
-test('the meta line names the thread, the source and the age, and says nothing with no statement', async () => {
-  const { intentMetaText } = await importCore();
+test('the meta line names the thread, the source and the age, and says nothing with no statement', () => {
   assert.equal(intentMetaText(thread('t-716d49b4', 'x'), NOW + 120000), 'thread t-716d49b4, proposed by visions, 2 minutes ago');
   assert.equal(intentMetaText(thread('t-716d49b4', 'x', 0), NOW), 'thread t-716d49b4, proposed by visions');
   assert.equal(intentMetaText(thread(null, 'x'), NOW + 120000), 'proposed by visions, 2 minutes ago');
   assert.equal(intentMetaText({ text: '' }, NOW), '');
 });
 
-test('a snapshot carries every thread per project, and both legacy slot shapes lift into one thread each', async () => {
-  const { emptyIntentState, intentStateOfMessage } = await importCore();
+test('a snapshot carries every thread per project, and both legacy slot shapes lift into one thread each', () => {
   const a = thread('t-11111111', 'story A');
   const b = thread('t-22222222', 'story B');
   assert.deepEqual(intentStateOfMessage({
@@ -293,8 +263,7 @@ test('a snapshot carries every thread per project, and both legacy slot shapes l
   }
 });
 
-test('an intent delta replaces the list of the project it names and leaves the rest alone', async () => {
-  const { applyIntentMessage, emptyIntentState } = await importCore();
+test('an intent delta replaces the list of the project it names and leaves the rest alone', () => {
   const unownedThread = thread('t-33333333', 'the unowned belief');
   const withUnowned = applyIntentMessage(emptyIntentState(), {
     intent: { active: unownedThread, threads: [unownedThread] },
@@ -311,8 +280,7 @@ test('an intent delta replaces the list of the project it names and leaves the r
   assert.equal(applyIntentMessage(withProject, { projectId: PROJECT, intent: null }), withProject);
 });
 
-test('the active thread on the wire leads the list, and a payload naming none leaves the first one active', async () => {
-  const { applyIntentMessage, emptyIntentState, intentRows } = await importCore();
+test('the active thread on the wire leads the list, and a payload naming none leaves the first one active', () => {
   const a = thread('t-11111111', 'story A');
   const b = thread('t-22222222', 'story B');
   const named = applyIntentMessage(emptyIntentState(), { projectId: PROJECT, intent: { active: b, threads: [a, b] } });
@@ -329,8 +297,7 @@ test('the active thread on the wire leads the list, and a payload naming none le
   assert.deepEqual(unknown.byProject[PROJECT], [a, b], 'an active the list does not carry moves nothing');
 });
 
-test('intent rows list the unowned threads first, then each project by name with its active thread first', async () => {
-  const { intentRows, VISIONS_INTENT_UNOWNED_LABEL } = await importCore();
+test('intent rows list the unowned threads first, then each project by name with its active thread first', () => {
   const state = {
     byProject: {
       [OTHER_PROJECT]: [thread('t-44444444', 'the other one')],
@@ -347,8 +314,7 @@ test('intent rows list the unowned threads first, then each project by name with
   assert.equal(rows.every((row) => row.hasText), true);
 });
 
-test('the unowned row is the empty state, and steps aside once anything speaks', async () => {
-  const { emptyIntentState, intentRows, VISIONS_INTENT_EMPTY_TEXT } = await importCore();
+test('the unowned row is the empty state, and steps aside once anything speaks', () => {
   const empty = intentRows(emptyIntentState(), null, NOW);
   assert.equal(empty.length, 1);
   assert.equal(empty[0].text, VISIONS_INTENT_EMPTY_TEXT);
@@ -369,8 +335,7 @@ const APPLIED_FIX = {
   ts: NOW,
 };
 
-test('a fix row reads as a one-based line and says plainly whether it landed', async () => {
-  const { fixLineLabel, fixOutcomeText, fixCountText } = await importCore();
+test('a fix row reads as a one-based line and says plainly whether it landed', () => {
   assert.equal(fixLineLabel({ line: 4 }), 'L5');
   assert.equal(fixLineLabel({ line: 0 }), 'L1');
   assert.equal(fixLineLabel({}), 'L?');
@@ -382,8 +347,7 @@ test('a fix row reads as a one-based line and says plainly whether it landed', a
   assert.equal(fixCountText(7), '7 fixes');
 });
 
-test('one broadcast becomes one row, taking the uri and the stamp off the frame around it', async () => {
-  const { applyFixMessage, fixEntryOfMessage } = await importCore();
+test('one broadcast becomes one row, taking the uri and the stamp off the frame around it', () => {
   assert.deepEqual(fixEntryOfMessage(APPLIED_FIX), {
     uri: 'file:///tmp/plan.md',
     code: 'repeated-word',
@@ -398,14 +362,12 @@ test('one broadcast becomes one row, taking the uri and the stamp off the frame 
   assert.equal(applyFixMessage(rows, { ...APPLIED_FIX, ts: NOW + 1 })[0].ts, NOW + 1, 'newest first');
 });
 
-test('a frame with nothing to say leaves the list exactly as it was', async () => {
-  const { applyFixMessage } = await importCore();
+test('a frame with nothing to say leaves the list exactly as it was', () => {
   const rows = applyFixMessage([], APPLIED_FIX);
   assert.deepEqual(applyFixMessage(rows, wire({ type: 'visions-fix', fix: { message: '   ' } })), rows);
 });
 
-test('the snapshot ring replaces the tab list rather than merging into it', async () => {
-  const { applyFixSnapshot } = await importCore();
+test('the snapshot ring replaces the tab list rather than merging into it', () => {
   const rows = applyFixSnapshot(wire({
     type: 'visions-snapshot',
     fixes: [
@@ -422,8 +384,7 @@ test('the snapshot ring replaces the tab list rather than merging into it', asyn
   assert.deepEqual(applyFixSnapshot(wire({ type: 'visions-snapshot' })), []);
 });
 
-test('the rendered changelog is capped, however long the tab is left open', async () => {
-  const { MAX_RENDERED_FIXES, applyFixMessage } = await importCore();
+test('the rendered changelog is capped, however long the tab is left open', () => {
   let rows: VisionsFixEntry[] = [];
   for (let index = 0; index < MAX_RENDERED_FIXES + 5; index++) {
     rows = applyFixMessage(rows, { ...APPLIED_FIX, fix: { ...APPLIED_FIX.fix, line: index } });
@@ -432,8 +393,7 @@ test('the rendered changelog is capped, however long the tab is left open', asyn
   assert.equal(rows[0].line, MAX_RENDERED_FIXES + 4);
 });
 
-test('visions attention only lights for unacknowledged rendered content, with hands taking priority', async () => {
-  const { decideVisionsAttention, visionsAttentionState, VISIONS_ATTENTION_HAND, VISIONS_ATTENTION_UNSEEN } = await importCore();
+test('visions attention only lights for unacknowledged rendered content, with hands taking priority', () => {
   const uri = 'file:///tmp/plan.md';
   const nothingPending = visionsAttentionState(new Map(), new Map(), new Map());
   const raisedHand = visionsAttentionState(new Map(), new Map(), new Map([[uri, 'Need a decision']]));
@@ -451,8 +411,7 @@ test('visions attention only lights for unacknowledged rendered content, with ha
   assert.equal(decideVisionsAttention(handWithFinding, handWithFinding.signature), null);
 });
 
-test('visions attention signatures are stable across identical snapshots and change for rendered content', async () => {
-  const { visionsAttentionState } = await importCore();
+test('visions attention signatures are stable across identical snapshots and change for rendered content', () => {
   const uri = 'file:///tmp/plan.md';
   const original = visionsAttentionState(
     new Map([[uri, [finding(2, 1, 'heading-skip', 'Skipped heading')]]]),
@@ -474,8 +433,7 @@ test('visions attention signatures are stable across identical snapshots and cha
   assert.notEqual(changed.signature, original.signature);
 });
 
-test('a boot before the first snapshot has nothing to acknowledge, so a stored acknowledgement survives it', async () => {
-  const { decideVisionsAttention, visionsAttentionState } = await importCore();
+test('a boot before the first snapshot has nothing to acknowledge, so a stored acknowledgement survives it', () => {
   const uri = 'file:///tmp/plan.md';
   const stored = visionsAttentionState(
     new Map([[uri, [finding(2, 1, 'heading-skip', 'Skipped heading')]]]),
@@ -488,8 +446,7 @@ test('a boot before the first snapshot has nothing to acknowledge, so a stored a
   assert.equal(decideVisionsAttention(beforeFirstMessage, stored), null);
 });
 
-test('a reload replaying the same findings against the stored acknowledgement leaves the tab dark', async () => {
-  const { decideVisionsAttention, visionsAttentionState } = await importCore();
+test('a reload replaying the same findings against the stored acknowledgement leaves the tab dark', () => {
   const uri = 'file:///tmp/plan.md';
   const documents = () => new Map([[uri, [finding(2, 1, 'heading-skip', 'Skipped heading')]]]);
   const stored = visionsAttentionState(documents(), new Map(), new Map()).signature;
@@ -498,8 +455,7 @@ test('a reload replaying the same findings against the stored acknowledgement le
   assert.equal(decideVisionsAttention(afterReload, stored), null);
 });
 
-test('the acknowledgement persisted per finding stays short however long the finding text is', async () => {
-  const { visionsAttentionState } = await importCore();
+test('the acknowledgement persisted per finding stays short however long the finding text is', () => {
   const uri = 'file:///tmp/plan.md';
   const terse = visionsAttentionState(new Map([[uri, [finding(2, 1, 'heading-skip', 'x')]]]), new Map(), new Map());
   const verbose = visionsAttentionState(
@@ -512,8 +468,7 @@ test('the acknowledgement persisted per finding stays short however long the fin
   assert.ok(terse.signature.length < 64, 'the prefs blob holds digests, never the finding text');
 });
 
-test('a fix the operator has not read is unseen content, and the same fix replayed by a snapshot is not', async () => {
-  const { applyFixMessage, applyFixSnapshot, decideVisionsAttention, visionsAttentionState, VISIONS_ATTENTION_UNSEEN } = await importCore();
+test('a fix the operator has not read is unseen content, and the same fix replayed by a snapshot is not', () => {
   const entries = applyFixMessage([], APPLIED_FIX);
   const afterFix = visionsAttentionState(new Map(), new Map(), new Map(), entries);
   const replayed = visionsAttentionState(new Map(), new Map(), new Map(), applyFixSnapshot({
@@ -528,8 +483,7 @@ test('a fix the operator has not read is unseen content, and the same fix replay
   assert.equal(decideVisionsAttention(secondFix, afterFix.signature), VISIONS_ATTENTION_UNSEEN);
 });
 
-test('an intent thread changing state is unseen content, and the same threads replayed are not', async () => {
-  const { decideVisionsAttention, emptyIntentState, visionsAttentionState, VISIONS_ATTENTION_UNSEEN } = await importCore();
+test('an intent thread changing state is unseen content, and the same threads replayed are not', () => {
   const first = thread('t-11111111', 'story A');
   const second = thread('t-22222222', 'story B');
   const noIntent = visionsAttentionState(new Map(), new Map(), new Map(), [], emptyIntentState());
@@ -545,9 +499,7 @@ test('an intent thread changing state is unseen content, and the same threads re
   assert.equal(decideVisionsAttention(promoted, afterIntent.signature), VISIONS_ATTENTION_UNSEEN);
 });
 
-test('the level is decided against the acknowledgement the ack store holds, not a prefs read another tab moved on', async () => {
-  const { decideVisionsAttention, visionsAttentionState, VISIONS_ATTENTION_UNSEEN } = await importCore();
-  const { createAttentionAck } = await import('../public/attention-ack-core.ts');
+test('the level is decided against the acknowledgement the ack store holds, not a prefs read another tab moved on', () => {
   const uri = 'file:///tmp/plan.md';
   const onScreen = visionsAttentionState(new Map([[uri, [finding(2, 1, 'heading-skip', 'Skipped heading')]]]), new Map(), new Map());
   const otherTab = visionsAttentionState(new Map([[uri, [finding(3, 1, 'heading-skip', 'Another heading')]]]), new Map(), new Map());

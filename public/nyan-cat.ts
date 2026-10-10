@@ -1,3 +1,4 @@
+import { setStyleProperties } from './dom-helpers.ts';
 import { isPhoneLayout } from './form-factor.ts';
 import { ANIMALS } from './nyan-animals.ts';
 import { deriveNyanGeometry, nyanFlightStyleProperties } from './nyan-geometry-core.ts';
@@ -19,7 +20,7 @@ function updateFlightGeometry() {
     viewportHeightPx: document.documentElement.clientHeight,
     verticalProgress,
   });
-  for (const [propertyName, value] of nyanFlightStyleProperties(geometry, flightScale)) flightElement.style.setProperty(propertyName, value);
+  setStyleProperties(flightElement, nyanFlightStyleProperties(geometry, flightScale));
 }
 
 function clearScheduledFlight() {

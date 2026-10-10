@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { branchSyncActionTitle, branchSyncClickAction, branchSyncLabel, committedMergeTargetText, decidePrimaryReviewAction, hasReviewChanges, resyncOutcomeText, reviewHeadline, shouldShowBranchSyncLabel, shouldShowReviewHeaderCounts } from '../public/sidebar/review-copy-core.ts';
+import { baseLabel, branchSyncActionTitle, branchSyncClickAction, branchSyncLabel, committedMergeTargetText, decideMergeAction, decidePrimaryReviewAction, hasReviewChanges, mergeActionTitle, mergeDisabledReason, parkedStatusText, resyncOutcomeText, reviewHeadline, shouldShowBranchSyncLabel, shouldShowReviewHeaderCounts } from '../public/sidebar/review-copy-core.ts';
 
 const headlineInputs = {
   status: 'pending-review',
@@ -119,8 +119,7 @@ test('primary review action is none when neither resolve nor merge applies', () 
   assert.equal(decidePrimaryReviewAction({ status: 'parked', mergeReason: 'rebase-conflict', live: false, hasChanges: true, isMergeRendered: false }), 'none');
 });
 
-test('review copy names the effective base and its push action', async () => {
-  const { baseLabel, mergeActionTitle, parkedStatusText } = await import('../public/sidebar/review-copy-core.ts');
+test('review copy names the effective base and its push action', () => {
   assert.equal(baseLabel('trunk'), 'trunk');
   assert.equal(baseLabel(null), 'base');
   assert.match(mergeActionTitle('trunk', 'Alt+I'), /Merge into trunk, push it/);
@@ -129,8 +128,7 @@ test('review copy names the effective base and its push action', async () => {
   assert.match(parkedStatusText('base-diverged'), /Resync the base branch by hand, then Merge again/);
 });
 
-test('H1 base-diverged park keeps Merge rendered and enabled', async () => {
-  const { decideMergeAction } = await import('../public/sidebar/review-copy-core.ts');
+test('H1 base-diverged park keeps Merge rendered and enabled', () => {
   assert.deepEqual(decideMergeAction('parked', 'base-diverged', true), {
     isRendered: true,
     isEnabled: true,
@@ -141,8 +139,7 @@ test('H1 base-diverged park keeps Merge rendered and enabled', async () => {
   });
 });
 
-test('base-diverged rendered Merge leaves its disabled reason to the parked explanation', async () => {
-  const { decideMergeAction, mergeDisabledReason } = await import('../public/sidebar/review-copy-core.ts');
+test('base-diverged rendered Merge leaves its disabled reason to the parked explanation', () => {
   assert.deepEqual(decideMergeAction('parked', 'base-diverged', false), {
     isRendered: true,
     isEnabled: false,
@@ -150,8 +147,7 @@ test('base-diverged rendered Merge leaves its disabled reason to the parked expl
   assert.equal(mergeDisabledReason({ status: 'parked', hasCommits: true, live: true, state: 'COMPLETE' }), null);
 });
 
-test('merge reason stays silent where the headline already says the session ended', async () => {
-  const { mergeDisabledReason } = await import('../public/sidebar/review-copy-core.ts');
+test('merge reason stays silent where the headline already says the session ended', () => {
   for (const status of ['none', 'pending-review']) {
     for (const state of ['DONE', 'DORMANT', 'FAILED']) {
       assert.equal(mergeDisabledReason({ status, hasCommits: true, live: false, state }), null);
@@ -159,15 +155,13 @@ test('merge reason stays silent where the headline already says the session ende
   }
 });
 
-test('merge reason names an ended session only under a parked or merged headline', async () => {
-  const { mergeDisabledReason } = await import('../public/sidebar/review-copy-core.ts');
+test('merge reason names an ended session only under a parked or merged headline', () => {
   for (const status of ['parked', 'merged']) {
     assert.equal(mergeDisabledReason({ status, hasCommits: true, live: false, state: 'DONE' }), 'Session ended.');
   }
 });
 
-test('merge reason explains a starting session and stays silent without commits or while merging', async () => {
-  const { mergeDisabledReason } = await import('../public/sidebar/review-copy-core.ts');
+test('merge reason explains a starting session and stays silent without commits or while merging', () => {
   for (const state of ['INITIALIZING', 'STARTING']) {
     assert.equal(mergeDisabledReason({ status: 'pending-review', hasCommits: true, live: true, state }), 'Starting up. Mergeable once the session is live.');
   }

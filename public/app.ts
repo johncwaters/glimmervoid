@@ -117,8 +117,12 @@ function revealApp() {
 
 type SessionUsageChip = Pick<ServerMessageOf<'usage-sessions'>['sessions'][number], 'tokens' | 'costUSD' | 'officialCostUSD'>;
 
-function showShutdownOverlay(message?: string) {
-  if (message) shutdownStatus.textContent = message;
+function showServerGoingDown(connectionText: string, overlayText: string) {
+  connectionEl.dataset.state = 'shutdown';
+  connectionLabel.textContent = connectionText;
+  connectionEl.title = connectionText;
+  btnPower.disabled = true;
+  shutdownStatus.textContent = overlayText;
   shutdownScreen.classList.add('active');
 }
 
@@ -153,7 +157,6 @@ setConnectionStateCallback((state, label) => {
 
   if (state === 'connected') {
     if (shutdownScreen.classList.contains('active')) {
-
       location.reload();
       return;
     }
@@ -178,7 +181,6 @@ setConnectionStateCallback((state, label) => {
     return;
   }
   if (state === 'disconnected' && shutdownScreen.classList.contains('active')) {
-
     shutdownStatus.textContent = 'Waiting for server...';
     return;
   }
@@ -189,6 +191,11 @@ function refreshAttentionSurfaces() {
   refreshPhoneBoard();
   refreshCalmView();
   refreshFocusNowPeek();
+}
+
+function refreshRosterAndAttentionSurfaces() {
+  refreshFocusRoster();
+  refreshAttentionSurfaces();
 }
 
 let isCalmSurfaceAvailable = false;
@@ -223,7 +230,6 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
     setSessionTaskTitle(s.id, s.taskTitle, s.taskTitleIsCustom);
     setSessionAgent(s.id, s.agent);
 
-
     seedSessionMergeStatus(s.id, s.mergeStatus, s.mergeReason);
     setSessionEffectiveBase(s.id, s.effectiveBase);
 
@@ -241,8 +247,8 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
   updateAggregateStatus();
   refreshFavicon(sessionUIs);
 
-  if (isFocusActive()) { refreshFocusRoster(); restoreFocusedSession(); }
-
+  refreshFocusRoster();
+  restoreFocusedSession();
   refreshAttentionSurfaces();
   syncTraceSessionsFromCards();
   activatePlanHash(location.hash);
@@ -281,8 +287,7 @@ function handleStateChange(msg: ServerMessageOf<'state-change'>) {
     createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom }));
     setSessionAgent(msg.id, previousUi?.agent);
     carryOverClientSessionFields(msg.id, previousUi);
-    if (isFocusActive()) refreshFocusRoster();
-    refreshAttentionSurfaces();
+    refreshRosterAndAttentionSurfaces();
     refreshReviewSidebar(msg.id);
     refreshFavicon(sessionUIs);
     return;
@@ -294,8 +299,7 @@ function handleStateChange(msg: ServerMessageOf<'state-change'>) {
   refreshFavicon(sessionUIs);
 
   refreshReviewSidebar(msg.id);
-  if (isFocusActive()) refreshFocusRoster();
-  refreshAttentionSurfaces();
+  refreshRosterAndAttentionSurfaces();
 
   handleDebugStateRefresh(msg.id);
 
@@ -348,9 +352,9 @@ const messageHandlers = {
   'delete-hook-result': (msg) => applyDeleteHookResult(msg),
 
   'state-change':       (msg) => handleStateChange(msg),
-  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
-  'session-removed':    (msg) => { removeSessionCard(msg.id); forgetReviewSession(msg.id); refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
-  'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); },
+  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-removed':    (msg) => { removeSessionCard(msg.id); forgetReviewSession(msg.id); refreshFavicon(sessionUIs); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); refreshRosterAndAttentionSurfaces(); },
   'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-modified':   (msg) => {
     if (!msg.ephemeral) noteKnownProjectPath(msg.path);
@@ -361,13 +365,12 @@ const messageHandlers = {
     setSessionAgent(msg.id, msg.agent);
     carryOverClientSessionFields(msg.id, previousUi);
     refreshFavicon(sessionUIs);
-    if (isFocusActive()) refreshFocusRoster();
-    refreshAttentionSurfaces();
+    refreshRosterAndAttentionSurfaces();
     syncTraceSessionsFromCards();
   },
   'session-git':        (msg) => setSessionWorktree(msg.id, !!msg.worktree),
 
-  'session-agents':     (msg) => { setSessionAgents(msg.id, msg.activeAgents, msg.awaitingBackgroundTasks); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); handleDebugStateRefresh(msg.id); },
+  'session-agents':     (msg) => { setSessionAgents(msg.id, msg.activeAgents, msg.awaitingBackgroundTasks); refreshRosterAndAttentionSurfaces(); handleDebugStateRefresh(msg.id); },
   'session-wakeup':     (msg) => setSessionWakeup(msg.id, msg.pendingWakeup),
   'session-prompt':     (msg) => { setSessionPrompt(msg.id, msg.pendingPromptKind, msg.pendingPromptDetail ?? null, msg.isCompacting === true); refreshAttentionSurfaces(); },
   'session-merge-status': (msg) => { setSessionMergeStatus(msg.id, msg.mergeStatus, msg.reason); setFocusMergeStatus(msg.id, msg.mergeStatus); refreshAttentionSurfaces(); },
@@ -433,20 +436,8 @@ const messageHandlers = {
   'ingest-activity':    (msg) => applyIngestActivity(msg),
   'ingest-snapshot':    (msg) => applyIngestSnapshot(msg),
   'client-trust':       (msg) => applyClientTrust(msg.trust),
-  'shutting-down':      () => {
-    connectionEl.dataset.state = 'shutdown';
-    connectionLabel.textContent = 'Shutting down...';
-    connectionEl.title = 'Shutting down...';
-    queryTag(document, '#btn-power', 'button').disabled = true;
-    showShutdownOverlay('Shutting down sessions...');
-  },
-  'restarting':         () => {
-    connectionEl.dataset.state = 'shutdown';
-    connectionLabel.textContent = 'Restarting...';
-    connectionEl.title = 'Restarting...';
-    queryTag(document, '#btn-power', 'button').disabled = true;
-    showShutdownOverlay('Restarting server...');
-  },
+  'shutting-down':      () => showServerGoingDown('Shutting down...', 'Shutting down sessions...'),
+  'restarting':         () => showServerGoingDown('Restarting...', 'Restarting server...'),
 } satisfies { [Type in ServerMessage['type']]?: (message: ServerMessageOf<Type>) => void };
 
 const handlersByType: { [Type in ServerMessage['type']]?: (message: ServerMessageOf<Type>) => void } = messageHandlers;
@@ -590,8 +581,7 @@ function activateSettingsTarget(target: { sectionId: string; settingId: string |
 }
 
 function activateSettingsHash(hash: string) {
-  const target = resolveSettingsTarget(hash);
-  return activateSettingsTarget(target);
+  return activateSettingsTarget(resolveSettingsTarget(hash));
 }
 
 function activatePlanHash(hash: string) {
@@ -647,6 +637,10 @@ uiState.subscribe((_state, changedKeys) => {
   if (changedKeys.includes('focusedSessionId')) refreshFocusNowPeek();
 });
 
+function findViewTab(view: string) {
+  return VIEW_TABS.find((viewTab) => viewTab.view === view);
+}
+
 function isViewAvailable(view: string) {
   return VIEW_TABS.some((viewTab) => viewTab.view === view && !viewTab.tab.hidden);
 }
@@ -654,11 +648,11 @@ function isViewAvailable(view: string) {
 let shouldPersistActiveView = true;
 let savedViewAwaitingSurface: string | null = null;
 function acknowledgeViewAttention(view: string) {
-  VIEW_TABS.find((viewTab) => viewTab.view === view)?.attention?.acknowledge();
+  findViewTab(view)?.attention?.acknowledge();
 }
 
 function refreshViewOnShow(view: string) {
-  refreshViewOnReason(VIEW_TABS.find((viewTab) => viewTab.view === view), 'shown');
+  refreshViewOnReason(findViewTab(view), 'shown');
 }
 
 interface ActivateViewOptions {
@@ -675,7 +669,7 @@ function activateView(view: string, { section, setting, persist = true }: Activa
   if (persist) savedViewAwaitingSurface = null;
 
   document.body.dataset.activeView = view;
-  document.body.dataset.reviewSidebarHidden = String(VIEW_TABS.find((viewTab) => viewTab.view === view)?.hasReviewSidebar !== true);
+  document.body.dataset.reviewSidebarHidden = String(findViewTab(view)?.hasReviewSidebar !== true);
 
   if (persist) setActiveView(view);
   for (const v of VIEW_TABS) {
@@ -685,8 +679,8 @@ function activateView(view: string, { section, setting, persist = true }: Activa
     v.tab.tabIndex = selected ? 0 : -1;
   }
 
-  if (prev !== view) VIEW_TABS.find((viewTab) => viewTab.view === prev)?.deactivate?.();
-  VIEW_TABS.find((viewTab) => viewTab.view === view)?.activate?.();
+  if (prev !== view) findViewTab(prev)?.deactivate?.();
+  findViewTab(view)?.activate?.();
 
   refreshViewOnShow(view);
   if (prev === 'settings' && view !== 'settings') clearSettingsHash();
@@ -824,21 +818,26 @@ if (isPhoneLayout()) applyFormFactorLayout('phone');
 onLayoutChange(applyFormFactorLayout);
 window.addEventListener('hashchange', activateLocationHash);
 
-function confirmServerRestart() {
+interface ServerPowerAction {
+  type: 'restart-server' | 'shutdown';
+  title: string;
+  confirmLabel: string;
+  danger: boolean;
+  idleMessage: string;
+  actionAfterKillingSessions: string;
+}
+
+function confirmServerPowerAction({ type, title, confirmLabel, danger, idleMessage, actionAfterKillingSessions }: ServerPowerAction) {
   powerMenu.classList.remove('open');
   syncPowerMenuAria();
   const count = getSessionCount();
   const suffix = count > 1 ? 's' : '';
-  const message = count > 0
-    ? `Kill ${count} session${suffix} and restart the server?`
-    : 'Restart the server?';
-  openConfirmDialog({
-    title: 'Restart Server',
-    message,
-    confirmLabel: 'Restart',
-    danger: false,
-    onConfirm: () => sendControlMsg({ type: 'restart-server' }),
-  });
+  const message = count > 0 ? `Kill ${count} session${suffix} and ${actionAfterKillingSessions}?` : idleMessage;
+  openConfirmDialog({ title, message, confirmLabel, danger, onConfirm: () => sendControlMsg({ type }) });
+}
+
+function confirmServerRestart() {
+  confirmServerPowerAction({ type: 'restart-server', title: 'Restart Server', confirmLabel: 'Restart', danger: false, idleMessage: 'Restart the server?', actionAfterKillingSessions: 'restart the server' });
 }
 
 function confirmUpdateAndRestart(proceed: (confirmedSessionIds: string[]) => void) {
@@ -867,20 +866,7 @@ function applyClientTrust(trust: unknown) {
 }
 
 queryTag(document, '#btn-shutdown', 'button').addEventListener('click', () => {
-  powerMenu.classList.remove('open');
-  syncPowerMenuAria();
-  const count = getSessionCount();
-  const suffix = count > 1 ? 's' : '';
-  const message = count > 0
-    ? `Kill ${count} session${suffix} and shut down the server?`
-    : 'Shut down the server?';
-  openConfirmDialog({
-    title: 'Shut Down Server',
-    message,
-    confirmLabel: 'Shut Down',
-    danger: true,
-    onConfirm: () => sendControlMsg({ type: 'shutdown' }),
-  });
+  confirmServerPowerAction({ type: 'shutdown', title: 'Shut Down Server', confirmLabel: 'Shut Down', danger: true, idleMessage: 'Shut down the server?', actionAfterKillingSessions: 'shut down the server' });
 });
 
 function isRealInputFocused() {

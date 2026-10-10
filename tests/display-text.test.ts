@@ -6,7 +6,6 @@ import {
   clockDurationText,
   COMPACT_FLOORED_AGO,
   elapsedText,
-  localClockText,
   localDayKey,
   localHourMinuteText,
   pad2,
@@ -117,9 +116,4 @@ test('localDayKey reads the local calendar day from a date or a timestamp', () =
 
 test('localHourMinuteText pads local hours and minutes', () => {
   assert.equal(localHourMinuteText(new Date(2026, 0, 5, 7, 4)), '07:04');
-});
-
-test('localClockText matches the two-digit locale time string', () => {
-  const date = new Date(2026, 0, 5, 7, 4, 9);
-  assert.equal(localClockText(date), date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
 });

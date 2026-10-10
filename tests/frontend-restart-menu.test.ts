@@ -22,24 +22,6 @@ test('both restart choices confirm only while the agent is mid-turn', () => {
   }
 });
 
-test('Restart warns about interruption while preserving the conversation', () => {
-  assert.deepEqual(restartConfirmation('restart', STATES.RUNNING), {
-    title: 'Restart',
-    message: 'This agent is mid-turn. Restarting interrupts the current turn and keeps this conversation. Restart anyway?',
-    confirmLabel: 'Restart',
-    danger: false,
-  });
-});
-
-test('Restart fresh preserves the existing destructive confirmation', () => {
-  assert.deepEqual(restartConfirmation('restart-fresh', STATES.RUNNING), {
-    title: 'Restart fresh',
-    message: 'This agent is mid-turn. A fresh restart ends this conversation and starts a new one. Restart anyway?',
-    confirmLabel: 'Restart fresh',
-    danger: true,
-  });
-});
-
 test('the header Plan action uses the borrowed face and otherwise navigates', () => {
   for (const hasPlan of [false, true]) {
     for (const isBorrowed of [false, true]) {

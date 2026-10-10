@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { applyTheme, getThemeList } from '../public/theme.ts';
+import { stubGlobalForTest } from './helpers/frontend-global-stub.ts';
 
 function relativeLuminance(color: string): number {
   const channels = color.slice(1).match(/.{2}/g)?.map((channel) => {
@@ -13,19 +14,8 @@ function relativeLuminance(color: string): number {
 }
 
 test('every theme defines a distinct Monitoring color with visible contrast on its card', (context) => {
-  const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
   const colors = new Map<string, string>();
-  Object.defineProperty(globalThis, 'document', {
-    configurable: true,
-    value: { documentElement: { dataset: {}, style: { setProperty: (name: string, value: string) => colors.set(name, value) } } },
-  });
-  context.after(() => {
-    if (originalDocument) {
-      Object.defineProperty(globalThis, 'document', originalDocument);
-      return;
-    }
-    Reflect.deleteProperty(globalThis, 'document');
-  });
+  stubGlobalForTest(context, 'document', { documentElement: { dataset: {}, style: { setProperty: (name: string, value: string) => colors.set(name, value) } } });
   const themes = getThemeList().sort((first, second) => Number(second.id === 'unicorn') - Number(first.id === 'unicorn'));
   for (const theme of themes) {
     colors.clear();

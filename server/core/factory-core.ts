@@ -7,9 +7,22 @@ import type { FactoryWorkerEvent, FactoryReviewVerdict, FactoryWatchEntry, Facto
 import { FactoryProjectState, FactoryReviewerOutput } from '../../shared/contracts/factory.ts';
 
 export const FACTORY_NOTIFY_CATEGORY = 'factory';
+export const FACTORY_LEDGER_SESSION = 'glimmervoid-factory';
 
 export const FACTORY_TICK_INTERVAL_MS = 10_000;
 export const FACTORY_FIRST_TICK_DELAY_MS = 2_000;
+export const FACTORY_ORCHESTRATOR_EXIT_WINDOW_MS = 600_000;
+
+const NO_FINDINGS_TEXT = 'No findings returned';
+
+export function isCompletedCommandFailure(error: unknown): error is Error & { code: number } {
+  if (!(error instanceof Error) || !('code' in error) || typeof error.code !== 'number') return false;
+  return !('killed' in error && error.killed === true);
+}
+
+export function findFactoryProjectPath(config: Pick<Config, 'projects'>, projectId: string): string | undefined {
+  return config.projects?.find((candidate) => candidate.id === projectId)?.path;
+}
 
 export function factoryShouldStart(config: Pick<Config, 'factory'>): { start: boolean; reason?: string } {
   return { start: config.factory?.enabled === true };
@@ -83,7 +96,7 @@ export function buildOrchestratorPrompt({ projectName, intent, claudeSessionId }
     `Write scopes: ${JSON.stringify(intent.writeScopes)}`,
     'Decompose this intent into small child orders with narrow write scopes inside the intent scopes. Do not expand its boundary.',
     'Use this exact command form, replacing objective, criterion, tier, boundary, dependency and path placeholders:',
-    `coherence work create "<objective>" --success "<criterion>" --risk <tier> --authority orchestrator-delegated --granted-by glimmervoid-factory --boundary "<boundary>" --session ${claudeSessionId} --parent ${intent.id} [--depends-on <id>] [--write-scope <path>] --json`,
+    `coherence work create "<objective>" --success "<criterion>" --risk <tier> --authority orchestrator-delegated --granted-by ${FACTORY_LEDGER_SESSION} --boundary "<boundary>" --session ${claudeSessionId} --parent ${intent.id} [--depends-on <id>] [--write-scope <path>] --json`,
     'Repeat --success for each criterion and --write-scope for each narrow path. Add --depends-on for prerequisites.',
     'Never edit files, commit, push or open PRs. Only create child work orders through coherence; Glimmervoid commits and lands ledger writes.',
     'Read coherence orient --json to decide the next move. coherence work inspect [<id>] --json, coherence defects --json and coherence context are read-only.',
@@ -110,7 +123,7 @@ export function decideOrchestrator({ paused, laneRunning, hasLedger, activeInten
   if (!intentId) return { action: orchestratorLive ? 'stop' : 'wait', reason: 'no-intent' };
   if (orchestratorLive && orchestratorIntentId !== intentId) return { action: 'stop', reason: 'intent-changed' };
   if (orchestratorLive) return { action: 'keep' };
-  const recentExits = recentExitTimesMs.filter((exitedAtMs) => exitedAtMs <= nowMs && exitedAtMs > nowMs - 600_000);
+  const recentExits = recentExitTimesMs.filter((exitedAtMs) => exitedAtMs <= nowMs && exitedAtMs > nowMs - FACTORY_ORCHESTRATOR_EXIT_WINDOW_MS);
   if (recentExits.length >= 3) return { action: 'wait', reason: 'factory-exception: orchestrator exited 3 times within 10 minutes' };
   return { action: 'spawn', intentId };
 }
@@ -128,16 +141,16 @@ export function formatWorkerEvent(event: FactoryWorkerEvent): string {
   return `[factory] ${eventName} ${workId}. Details: ${detailCommand}`.slice(0, 299);
 }
 
-export const FACTORY_VERIFIER_DEFECT_EVIDENCE_MAX_CHARS = 1000;
-export const FACTORY_VERIFIER_NOTE_MAX_CHARS = 4000;
+const FACTORY_VERIFIER_DEFECT_EVIDENCE_MAX_CHARS = 1000;
+const FACTORY_VERIFIER_NOTE_MAX_CHARS = 4000;
 
 export function verifierDefectEvidence(findings: string[]): string {
   const evidence = singleLine(findings.join('; ').replace(/[\x00-\x1f\x7f]+/g, ' '));
-  return (evidence || 'No findings returned').slice(0, FACTORY_VERIFIER_DEFECT_EVIDENCE_MAX_CHARS);
+  return (evidence || NO_FINDINGS_TEXT).slice(0, FACTORY_VERIFIER_DEFECT_EVIDENCE_MAX_CHARS);
 }
 
 export function verifierRejectionNote(intentId: string, findings: string[]): string {
-  return `Verifier rejected ${intentId}: ${findings.join('\n') || 'No findings returned'}`.slice(0, FACTORY_VERIFIER_NOTE_MAX_CHARS);
+  return `Verifier rejected ${intentId}: ${findings.join('\n') || NO_FINDINGS_TEXT}`.slice(0, FACTORY_VERIFIER_NOTE_MAX_CHARS);
 }
 
 export function collapseWorkerEvents(lines: string[]): string {
@@ -282,7 +295,7 @@ export function decideCloseOut({ fence, checks, review, attempt }: {
     failures.push(`Check failed: ${check.command}`);
     checkOutputs.push(check.output);
   }
-  if (review && !review.pass) failures.push(`Reviewer failed: ${review.findings.join('\n') || 'No findings returned'}`);
+  if (review && !review.pass) failures.push(`Reviewer failed: ${review.findings.join('\n') || NO_FINDINGS_TEXT}`);
   if (failures.length === 0 && !review) failures.push('Reviewer verdict is missing');
   if (failures.length === 0) return { action: 'merge' };
   const feedback = [...failures, ...checkOutputs].join('\n').slice(0, 3999);
@@ -321,14 +334,14 @@ export function buildFactoryReviewerPrompt(worker: { workId: string; objective: 
   ].join('\n');
 }
 
-export const FACTORY_LEDGER_SESSION = 'glimmervoid-factory';
-
 const OPEN_LEDGER_DIRECTORIES = new Set(['decisions', 'activity', 'read-traces']);
 const GUARDED_LEDGER_DIRECTORIES = new Set(['work', 'consequences', 'defects', 'experiments', 'calibration']);
+const FACTORY_DEFECT_RECEIPT_PATTERN = new RegExp(`^(\\S+) {2}agent-assessed defect recorded by ${FACTORY_LEDGER_SESSION}\\s*$`);
 
 export type FactoryLedgerChange = { path: string; previousText: string | null; currentText: string | null };
+type LedgerRecord = object | null;
 
-function parseLedgerRecord(line: string): object | null {
+function parseLedgerRecord(line: string): LedgerRecord {
   try {
     const record: unknown = JSON.parse(line);
     return typeof record === 'object' && record !== null ? record : null;
@@ -337,34 +350,29 @@ function parseLedgerRecord(line: string): object | null {
   }
 }
 
-function claimsFactorySession(line: string): boolean {
-  const record = parseLedgerRecord(line);
+function claimsFactorySession(record: LedgerRecord): record is object {
   return record !== null && Reflect.get(record, 'session') === FACTORY_LEDGER_SESSION;
 }
 
-function isAllowedLedgerRecord(directory: string, line: string, trusted: boolean): boolean {
-  const record = parseLedgerRecord(line);
+function isAllowedLedgerRecord(directory: string, record: LedgerRecord, trusted: boolean): boolean {
   if (record === null) return false;
-  const isFactorySession = Reflect.get(record, 'session') === FACTORY_LEDGER_SESSION;
-  if (isFactorySession) return trusted;
+  if (claimsFactorySession(record)) return trusted;
   return directory === 'work' && Reflect.get(record, 'event') === 'opened';
 }
 
-function opensChildOfIntent(line: string, intentId: string | null): boolean {
-  const record = parseLedgerRecord(line);
+function opensChildOfIntent(record: LedgerRecord, intentId: string | null): boolean {
   return record !== null && intentId !== null && Reflect.get(record, 'parent') === intentId;
 }
 
-function isDeclaredFactoryWrite(line: string, writtenRecordIds: ReadonlySet<string>): boolean {
-  const record = parseLedgerRecord(line);
-  return record !== null && Reflect.get(record, 'session') === FACTORY_LEDGER_SESSION && writtenRecordIds.has(String(Reflect.get(record, 'id')));
+function isDeclaredFactoryWrite(record: LedgerRecord, writtenRecordIds: ReadonlySet<string>): boolean {
+  return claimsFactorySession(record) && writtenRecordIds.has(String(Reflect.get(record, 'id')));
 }
 
-function appendedLedgerLines(change: FactoryLedgerChange): string[] {
+function appendedLedgerRecords(change: FactoryLedgerChange): LedgerRecord[] {
   const previousText = change.previousText ?? '';
   const currentText = change.currentText ?? '';
   const appendedText = currentText.startsWith(previousText) ? currentText.slice(previousText.length) : currentText;
-  return appendedText.split('\n').filter((line) => line.trim() !== '');
+  return appendedText.split('\n').filter((line) => line.trim() !== '').map(parseLedgerRecord);
 }
 
 export function factoryWrittenRecordId(output: string): string | null {
@@ -372,8 +380,7 @@ export function factoryWrittenRecordId(output: string): string | null {
     const record: unknown = JSON.parse(output);
     if (typeof record === 'object' && record !== null && 'id' in record && typeof record.id === 'string') return record.id;
   } catch {
-    const defectId = output.match(/^(\S+) {2}agent-assessed defect recorded by glimmervoid-factory\s*$/)?.[1];
-    return defectId ?? null;
+    return output.match(FACTORY_DEFECT_RECEIPT_PATTERN)?.[1] ?? null;
   }
   return null;
 }
@@ -384,11 +391,9 @@ export function findForbiddenLedgerWrites(changes: FactoryLedgerChange[], { trus
   const forbidden: string[] = [];
   for (const change of changes) {
     const segments = change.path.replace(/\\/g, '/').split('/');
-    if (appendedLedgerLines(change).some((line) => {
-      if (!claimsFactorySession(line)) return false;
-      const record = parseLedgerRecord(line);
-      return !trusted || record === null || !writtenRecordIds.has(String(Reflect.get(record, 'id')));
-    })) {
+    const appendedRecords = appendedLedgerRecords(change);
+    const isTrustedFactoryWrite = (record: LedgerRecord) => trusted && isDeclaredFactoryWrite(record, writtenRecordIds);
+    if (appendedRecords.some((record) => claimsFactorySession(record) && !isTrustedFactoryWrite(record))) {
       forbidden.push(`${change.path} claims the ${FACTORY_LEDGER_SESSION} session without a declared factory write`);
       continue;
     }
@@ -409,12 +414,11 @@ export function findForbiddenLedgerWrites(changes: FactoryLedgerChange[], { trus
       forbidden.push(`${change.path} was rewritten instead of appended`);
       continue;
     }
-    const appendedLines = appendedLedgerLines(change);
-    if (appendedLines.some((line) => !isAllowedLedgerRecord(directory, line, trusted))) {
+    if (appendedRecords.some((record) => !isAllowedLedgerRecord(directory, record, trusted))) {
       forbidden.push(`${change.path} gained a record other than work creation or a decision`);
       continue;
     }
-    if (appendedLines.some((line) => !opensChildOfIntent(line, intentId) && !(trusted && isDeclaredFactoryWrite(line, writtenRecordIds)))) {
+    if (appendedRecords.some((record) => !opensChildOfIntent(record, intentId) && !isTrustedFactoryWrite(record))) {
       forbidden.push(`${change.path} opened work that is not a child of the active intent`);
     }
   }

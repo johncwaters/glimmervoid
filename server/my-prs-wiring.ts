@@ -40,14 +40,14 @@ const KEEP_MERGEABLE_HANDOFF_REF_PREFIX = 'refs/glimmervoid-keep-mergeable/';
 const KEEP_MERGEABLE_WORK_BRANCH_REF = `refs/heads/${core.MY_PRS_FIX_WORK_BRANCH}`;
 
 export function createMyPrsStateIo(statePath: string, log: Pick<Console, 'warn'>) {
-  let loaded: core.MyPrsLaneState = { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [] };
+  let loaded = core.emptyMyPrsLaneState();
   const store = createJsonStateStore<core.MyPrsLaneState>({
     name: 'my-prs state', filePath: statePath,
     parse: (raw) => {
       const parsed = core.MyPrsLaneState.safeParse(raw);
       return parsed.success ? parsed.data : null;
     },
-    adopt: (state) => { loaded = state ?? { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [] }; },
+    adopt: (state) => { loaded = state ?? core.emptyMyPrsLaneState(); },
     warn: (message, fields) => log.warn(`[${core.MY_PRS_LANE_ID}] ${message} ${JSON.stringify(fields)}`),
   });
   return {

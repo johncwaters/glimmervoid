@@ -61,7 +61,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   async function loadState(): Promise<void> {
     if (stateLoad) return stateLoad;
     stateLoad = (async () => {
-      const state = core.MyPrsLaneState.parse(await dependencies.readState?.() ?? { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [] });
+      const state = core.MyPrsLaneState.parse(await dependencies.readState?.() ?? core.emptyMyPrsLaneState());
       for (const key of state.failedAutoRebaseAttemptKeys ?? []) failedAutoRebaseAttempts.add(key);
       for (const { attemptKey, autoRebase } of state.failedAutoRebaseRecords ?? []) {
         if (failedAutoRebaseAttempts.has(attemptKey)) failedAutoRebaseRecordsByAttemptKey.set(attemptKey, autoRebase);
@@ -139,16 +139,17 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     for (const node of search.items) {
       const key = `${node.repository.nameWithOwner}#${node.number}`;
       const behindBy = node.state === 'OPEN' ? behindCounts.get(key) ?? null : null;
-      const isFailedRecordForAnotherHead = autoRebaseByKey.get(key)?.outcome === 'failed' && !failedAutoRebaseAttempts.has(core.autoRebaseAttemptKey(node));
+      const attemptKey = core.autoRebaseAttemptKey(node);
+      const isFailedRecordForAnotherHead = autoRebaseByKey.get(key)?.outcome === 'failed' && !failedAutoRebaseAttempts.has(attemptKey);
       if (isFailedRecordForAnotherHead) autoRebaseByKey.delete(key);
-      const failureFromBeforeRestart = failedAutoRebaseRecordsByAttemptKey.get(core.autoRebaseAttemptKey(node));
+      const failureFromBeforeRestart = failedAutoRebaseRecordsByAttemptKey.get(attemptKey);
       if (failureFromBeforeRestart && !autoRebaseByKey.has(key)) autoRebaseByKey.set(key, failureFromBeforeRestart);
       if (core.shouldRebaseMyPr(node, behindBy, failedAutoRebaseAttempts, { isAutoRebaseOn: shouldAutoRebase, mergeQueueKeys: new Set(isMergeQueueEnabled ? mergeQueueKeys : []), keepMergeablePushedHeadKeys })) {
         const rebase = await github.rebasePr(node.id, node.headRefOid);
         const rebaseRecord = core.autoRebaseRecord(rebase, node.baseRefName, now());
         if (!rebase.ok) {
-          failedAutoRebaseAttempts.add(core.autoRebaseAttemptKey(node));
-          failedAutoRebaseRecordsByAttemptKey.set(core.autoRebaseAttemptKey(node), rebaseRecord);
+          failedAutoRebaseAttempts.add(attemptKey);
+          failedAutoRebaseRecordsByAttemptKey.set(attemptKey, rebaseRecord);
           await loop.persist();
         }
         if (loop.isStopped()) return { failed: false };

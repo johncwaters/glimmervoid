@@ -52,13 +52,6 @@ test('preferStderr falls back to the message when stderr is empty', async () => 
   assert.equal(result.err, 'spawn git ENOENT');
 });
 
-test('a failure carries the exit code only when the command exited, never for a spawn error', async () => {
-  const exited = await runCommand('git', ['merge-base'], { execFileFn: recordingExec({ failure: { message: 'Command failed', code: 1 } }).execFileFn });
-  assert.equal(exited.exitCode, 1);
-  const unspawned = await runCommand('git', ['status'], { execFileFn: recordingExec({ failure: { message: 'spawn git ENOENT', code: 'ENOENT' } }).execFileFn });
-  assert.equal(unspawned.exitCode, null);
-});
-
 test('a timeout kill is flagged as timedOut', async () => {
   const { execFileFn } = recordingExec({ failure: { message: 'killed', killed: true, signal: 'SIGTERM' } });
   const result = await runCommand('git', ['log'], { execFileFn });

@@ -10,8 +10,8 @@ import { FactoryReviewVerdict } from '../shared/contracts/factory.ts';
 import type { FactoryWatchEntry, FactoryWorkerEvent } from '../shared/contracts/factory.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { DEFAULT_CONFIG } from './config-store.ts';
-import { FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, checkFence, decideCloseOut, inheritedSecretValues, listDirtyPaths, parseCheckCommand, parseFactoryReviewerOutput, redactSecretLines } from './core/factory-core.ts';
-import type { FactoryCheck, FactoryFence } from './core/factory-core.ts';
+import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, checkFence, decideCloseOut, inheritedSecretValues, listDirtyPaths, parseCheckCommand, parseFactoryReviewerOutput, redactSecretLines } from './core/factory-core.ts';
+import type { FactoryCheck } from './core/factory-core.ts';
 import { nulSeparatedPaths } from './core/git-changed-paths-core.ts';
 import { runFactoryGit } from './git-workspace.ts';
 import type { GitWorkspaceInstance } from './git-workspace.ts';
@@ -27,7 +27,7 @@ export const FACTORY_REVIEWER_PERMISSIONS = Object.freeze({
   deny: ['Edit', 'Write', 'NotebookEdit'],
 });
 export const FACTORY_REVIEWER_SPAWN_ENV: Readonly<Record<string, string>> = Object.freeze({ CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '0' });
-export const FACTORY_REVIEW_TOO_LARGE_FEEDBACK = 'change too large for review; split it into smaller orders';
+const FACTORY_REVIEW_TOO_LARGE_FEEDBACK ='change too large for review; split it into smaller orders';
 
 type FactoryWorkerSession = Pick<Session, 'destroy' | 'pasteTextWhenReady' | 'write' | '_destroyed'>
   & Partial<Pick<Session, 'worktreeDir' | 'baseSha' | 'mergeWorktree'>>;
@@ -37,7 +37,6 @@ export interface FactoryCloseOutWorker {
   intentId: string;
   projectId: string;
   projectPath: string;
-  claudeSessionId: string;
   baseSha: string | null;
   objective: string;
   criteria: string[];
@@ -122,10 +121,12 @@ export function createFactoryCloseOut({
   const sharedEntries = () => config.worktreeShare ?? DEFAULT_CONFIG.worktreeShare;
   const secretValues = () => [...GLIMMERVOID_SECRET_KEYS.map((key) => baseEnv[key]), ...inheritedSecretValues(baseEnv)];
   const checkOutput = (text: string) => redactSecretLines(text, secretValues()).slice(-4000);
-  const untrustedCheckoutIsolation = () => ({ disableHooks: true, disableRepoCommands: true, replaceEnv: buildFactoryCheckEnv(baseEnv, process.platform) });
+  const checkEnv = () => buildFactoryCheckEnv(baseEnv, process.platform);
+  const untrustedCheckoutIsolation = () => ({ disableHooks: true, disableRepoCommands: true, replaceEnv: checkEnv() });
+  const attemptOf = (worker: FactoryCloseOutWorker) => attempts.get(worker.workId) ?? 1;
 
   async function runGit(cwd: string, args: string[]): Promise<string> {
-    return (await runFactoryGit(args, { cwd, env: buildFactoryCheckEnv(baseEnv, process.platform), timeout: 30_000, maxBuffer: 16 * 1024 * 1024 })).stdout;
+    return (await runFactoryGit(args, { cwd, env: checkEnv(), timeout: 30_000, maxBuffer: 16 * 1024 * 1024 })).stdout;
   }
 
   async function probeDirtyPaths(cwd: string): Promise<string[]> {
@@ -146,7 +147,7 @@ export function createFactoryCloseOut({
       const staged = await gitWorkspace.stageDetachedWorktree({ projectPath: worker.projectPath, worktreePath: checkoutPath, sha: headSha, ...untrustedCheckoutIsolation() });
       if (!staged.ok) throw new Error(`Could not stage the factory check checkout: ${staged.err}`);
       await gitWorkspace.populate({ projectPath: worker.projectPath, wtDir: checkoutPath, shareList: sharedEntries(), ...untrustedCheckoutIsolation() });
-      const checkEnv = buildFactoryCheckEnv(baseEnv, process.platform);
+      const env = checkEnv();
       const checks: FactoryCheck[] = [];
       for (const command of config.factory?.checks ?? DEFAULT_FACTORY_CHECKS) {
         if (!isLive(worker)) return null;
@@ -156,7 +157,7 @@ export function createFactoryCloseOut({
           continue;
         }
         try {
-          const output = await execFileAsync(argv[0], argv.slice(1), { cwd: checkoutPath, env: checkEnv, timeout: 15 * 60_000, maxBuffer: 16 * 1024 * 1024, signal: reviewController.signal });
+          const output = await execFileAsync(argv[0], argv.slice(1), { cwd: checkoutPath, env, timeout: 15 * 60_000, maxBuffer: 16 * 1024 * 1024, signal: reviewController.signal });
           checks.push({ command, pass: true, output: checkOutput(`${output.stdout}\n${output.stderr}`) });
         } catch (error) {
           checks.push({ command, pass: false, output: checkOutput(failureText(error)) });
@@ -180,13 +181,7 @@ export function createFactoryCloseOut({
     await runGit(cwd, ['commit', '-m', `factory: drop worker ledger changes ${worker.workId}`, '--', ...committedLedgerPaths]);
   }
 
-  function holdWhilePaused(worker: FactoryCloseOutWorker): void {
-    held.set(worker.workId, worker);
-  }
-
-  async function applyFailure(worker: FactoryCloseOutWorker, fence: FactoryFence, checks: FactoryCheck[], verdict: FactoryReviewVerdict | null): Promise<void> {
-    const attempt = attempts.get(worker.workId) ?? 1;
-    const decision = decideCloseOut({ fence, checks, review: verdict, attempt });
+  async function applyFailure(worker: FactoryCloseOutWorker, decision: ReturnType<typeof decideCloseOut>): Promise<void> {
     if (decision.action === 'merge' || !isLive(worker)) return;
     if (decision.action === 'retry') {
       const pasted = worker.session.pasteTextWhenReady(decision.feedback);
@@ -199,7 +194,7 @@ export function createFactoryCloseOut({
       const ledgerReason = decision.reason.replace(/\s+/g, ' ').trim().slice(0, 1000);
       await runCoherence({ cwd: ledger.cwd, args: [
         'work', 'transition', worker.workId, 'blocked', '--because', ledgerReason,
-        '--session', 'glimmervoid-factory', '--evidence', ledgerReason,
+        '--session', FACTORY_LEDGER_SESSION, '--evidence', ledgerReason,
       ] });
       await commitAndLand(worker.projectId, worker.projectPath, `factory: block ${worker.workId}`);
       worker.session.destroy();
@@ -209,7 +204,7 @@ export function createFactoryCloseOut({
   }
 
   function failedAttempt(worker: FactoryCloseOutWorker, command: string, output: string): Promise<void> {
-    return applyFailure(worker, { ok: true }, [{ command, pass: false, output }], null);
+    return applyFailure(worker, decideCloseOut({ fence: { ok: true }, checks: [{ command, pass: false, output }], review: null, attempt: attemptOf(worker) }));
   }
 
   async function closeOut(worker: FactoryCloseOutWorker): Promise<void> {
@@ -218,7 +213,7 @@ export function createFactoryCloseOut({
     const baseSha = worker.session.baseSha ?? worker.baseSha;
     if (!cwd || !baseSha) return;
     if (await readPaused(worker.projectId)) {
-      holdWhilePaused(worker);
+      held.set(worker.workId, worker);
       return;
     }
     held.delete(worker.workId);
@@ -250,16 +245,16 @@ export function createFactoryCloseOut({
       const shouldReview = fence.ok && checks.every((check) => check.pass);
       const verdict = shouldReview ? await runFactoryReview({ spawnReviewer, model: config.factory?.reviewerModel ?? null, signal: reviewController.signal,
         name: `Factory review ${worker.workId}`, buildPrompt: (resultPath) => buildFactoryReviewerPrompt({ ...worker, baseSha }, headSha, resultPath, reviewDiff) }) : null;
-      const decision = decideCloseOut({ fence, checks, review: verdict, attempt: attempts.get(worker.workId) ?? 1 });
+      const decision = decideCloseOut({ fence, checks, review: verdict, attempt: attemptOf(worker) });
       if (decision.action !== 'merge') {
-        await applyFailure(worker, fence, checks, verdict);
+        await applyFailure(worker, decision);
         return;
       }
       await serializeProject(worker.projectId, async () => {
         if (!isLive(worker)) return;
         if (await readPaused(worker.projectId)) {
-          attempts.set(worker.workId, Math.max(0, (attempts.get(worker.workId) ?? 1) - 1));
-          holdWhilePaused(worker);
+          attempts.set(worker.workId, Math.max(0, attemptOf(worker) - 1));
+          held.set(worker.workId, worker);
           return;
         }
         const currentHead = (await runGit(cwd, ['rev-parse', 'HEAD'])).trim();
@@ -274,7 +269,7 @@ export function createFactoryCloseOut({
         const ledger = await ensureLedger(worker.projectId, worker.projectPath);
         await runCoherence({ cwd: ledger.cwd, args: [
           'work', 'close', worker.workId, 'completed', '--because', 'Factory fence, checks, and independent review passed',
-          '--session', 'glimmervoid-factory', '--evidence', mergedSha,
+          '--session', FACTORY_LEDGER_SESSION, '--evidence', mergedSha,
         ] });
         await commitAndLand(worker.projectId, worker.projectPath, `factory: complete ${worker.workId}`);
         await appendWatch({ workId: worker.workId, intentId: worker.intentId, projectId: worker.projectId,

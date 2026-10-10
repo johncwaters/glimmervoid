@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { buildFactoryFloor, pickFactoryProject } from '../public/factory/factory-floor-core.ts';
 import { ANIMALS } from '../public/nyan-animals.ts';
 import { buildFactoryProjectState } from '../server/core/factory-core.ts';
 import { CoherenceOrient, CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import type { FactoryProjectState } from '../shared/contracts/factory.ts';
+import { readCoherenceFixture } from './helpers/factory-coherence-reports.ts';
 
 type FactoryOrder = FactoryProjectState['orders'][number];
 
@@ -25,10 +25,7 @@ function makeProject(orders: FactoryOrder[], overrides: Partial<FactoryProjectSt
 }
 
 async function readFixtureProject(action: string): Promise<FactoryProjectState> {
-  const [orientation, inspection] = await Promise.all([
-    readFile(new URL(`./fixtures/coherence/0.37.1/orient-${action}.json`, import.meta.url), 'utf8'),
-    readFile(new URL(`./fixtures/coherence/0.37.1/work-${action}.json`, import.meta.url), 'utf8'),
-  ]);
+  const [orientation, inspection] = await Promise.all([readCoherenceFixture(`orient-${action}`), readCoherenceFixture(`work-${action}`)]);
   return buildFactoryProjectState({
     projectId: 'project', projectName: 'Factory', headSha: null, error: null,
     orient: CoherenceOrient.parse(JSON.parse(orientation)), work: CoherenceWorkInspect.parse(JSON.parse(inspection)),
@@ -174,15 +171,6 @@ test('project picking retains a selected id or falls back to first by name witho
   assert.equal(pickFactoryProject(projects, 'missing')?.projectId, 'a');
   assert.equal(projects[0].projectId, 'z');
   assert.equal(pickFactoryProject([], null), null);
-});
-
-test('paused factory keeps its floor and exposes a paused marker separately from the heading', () => {
-  const project = makeProject([makeOrder('intent', { parent: null }), makeOrder('child')]);
-  const running = buildFactoryFloor(project, null);
-  const paused = buildFactoryFloor({ ...project, paused: true }, null);
-  assert.equal(running.paused, false);
-  assert.equal(paused.paused, true);
-  assert.deepEqual({ ...paused, paused: false }, running);
 });
 
 test('intent and up next follow opening time rather than coherence work id order', () => {

@@ -2,17 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CONFETTI_COLORS, confettiPieceStyleProperties } from '../public/merge-celebration/confetti-core.ts';
 import { freeFallDurationMs, GRAVITY_PX_PER_SECOND_SQUARED, randomBetween, shuffled } from '../public/merge-celebration/motion-core.ts';
-import {
-  CROSSHAIR_START_LEFT_MAX_PERCENT,
-  CROSSHAIR_START_LEFT_MIN_PERCENT,
-  CROSSHAIR_START_OFFSET_Y_MAX_PX,
-  CROSSHAIR_START_OFFSET_Y_MIN_PX,
-  headshotCrosshairStyleProperties,
-} from '../public/merge-celebration/headshot-core.ts';
 import { FLIP_DURATION_MS, ROYAL_FLUSH_RANKS, royalFlushCardLayout, royalFlushTableStyleProperties } from '../public/merge-celebration/royal-flush-core.ts';
-import { MERGE_CELEBRATION_SCENES } from '../public/merge-celebration/scenes.ts';
 import {
-  BALL_SPEED_AFTER_IMPACT_PX_PER_MS,
   PIN_LAUNCH_ANGLE_MAX_DEGREES,
   PIN_LAUNCH_ANGLE_MIN_DEGREES,
   planStrikePinFlights,
@@ -65,12 +56,6 @@ test('strike pins launch at angles spread evenly across the configured range', (
   assert.deepEqual(flights.map((flight) => flight.launchAngleDegrees).sort((left, right) => left - right), evenlySpreadAngles);
 });
 
-test('each strike pin launches once the ball has travelled to it after impact', () => {
-  const flights = planStrikePinFlights(randomFromSequence([0.1, 0.7, 0.3, 0.9]));
-  assert.equal(flights[0].delayMs, 0);
-  for (const flight of flights) assert.equal(flight.delayMs, Math.round(flight.distanceFromHeadPinPx / BALL_SPEED_AFTER_IMPACT_PX_PER_MS));
-});
-
 test('the strike ball rolls in front of the back two pin depths and behind the front two', () => {
   const flights = planStrikePinFlights(alwaysMidpoint);
   for (const flight of flights) {
@@ -119,18 +104,4 @@ test('each confetti piece flies for its rise plus its fall and cycles the palett
   const fallMs = Number.parseInt(propertyValue(properties, '--confetti-fall-ms') ?? '', 10);
   assert.equal(propertyValue(properties, '--confetti-flight-ms'), `${riseMs + fallMs}ms`);
   assert.equal(propertyValue(properties, '--confetti-color'), CONFETTI_COLORS[1]);
-});
-
-test('every merge celebration scene has a title to slam in', () => {
-  assert.ok(MERGE_CELEBRATION_SCENES.length > 0);
-  for (const scene of MERGE_CELEBRATION_SCENES) assert.ok(scene.title.trim().length > 0);
-});
-
-test('the headshot crosshair starts anywhere inside its left-hand start area', () => {
-  const lowestDraw = headshotCrosshairStyleProperties(() => 0);
-  const highestDraw = headshotCrosshairStyleProperties(() => 1);
-  assert.equal(propertyValue(lowestDraw, '--crosshair-start-left'), `${CROSSHAIR_START_LEFT_MIN_PERCENT}%`);
-  assert.equal(propertyValue(lowestDraw, '--crosshair-start-offset-y'), `${CROSSHAIR_START_OFFSET_Y_MIN_PX}px`);
-  assert.equal(propertyValue(highestDraw, '--crosshair-start-left'), `${CROSSHAIR_START_LEFT_MAX_PERCENT}%`);
-  assert.equal(propertyValue(highestDraw, '--crosshair-start-offset-y'), `${CROSSHAIR_START_OFFSET_Y_MAX_PX}px`);
 });

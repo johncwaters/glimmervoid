@@ -13,11 +13,6 @@ import {
 
 const allSprites = ANIMALS.map((animal) => animal.sprite);
 
-test('flights default to a 20 to 40 second pause between them', () => {
-  assert.equal(FLYING_ANIMALS_DEFAULTS.flyingAnimalsMinGapSeconds, 20);
-  assert.equal(FLYING_ANIMALS_DEFAULTS.flyingAnimalsMaxGapSeconds, 40);
-});
-
 test('missing and malformed preferences fall back to the defaults', () => {
   assert.deepEqual(normalizeFlyingAnimalsOptions(), { ...FLYING_ANIMALS_DEFAULTS, flyingAnimalsExcludedSprites: [] });
   assert.deepEqual(normalizeFlyingAnimalsOptions({

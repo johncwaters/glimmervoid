@@ -1,14 +1,14 @@
 import { access, chmod, mkdir, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { CoherenceWorkCreated } from '../shared/contracts/coherence.ts';
-import { FACTORY_ERROR_MAX_CHARS, FactoryControlRequest, FactoryLaneState, FactoryQueueIntentRequest } from '../shared/contracts/factory.ts';
+import { FACTORY_ERROR_MAX_CHARS, FactoryControlRequest, FactoryLaneState, FactoryQueueIntentRequest, isSingleFactoryPathSegment } from '../shared/contracts/factory.ts';
 import type { FactoryControlResult, FactoryQueueIntentResult, FactoryWorkerEvent } from '../shared/contracts/factory.ts';
 import { comparableDirectoryPath } from '../shared/paths.ts';
 import type { Config } from '../shared/contracts/config.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { buildCoherenceShims } from './core/coherence-session-core.ts';
-import { factoryWrittenRecordId, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_NOTIFY_CATEGORY, factoryShouldStart } from './core/factory-core.ts';
+import { factoryWrittenRecordId, findFactoryProjectPath, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryShouldStart, isCompletedCommandFailure } from './core/factory-core.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import { commitAndLandFactoryLedger, screenPendingLedgerWrites } from './factory-ledger.ts';
 import { createFactoryCloseOut } from './factory-closeout.ts';
@@ -31,11 +31,6 @@ import { createFactoryVerifier } from './factory-verifier.ts';
 import { createPosthogApi } from './posthog-api.ts';
 
 const COHERENCE_CONFIG_PROBE_TIMEOUT_MS = 5_000;
-
-function isGitExitWithoutObject(error: unknown): boolean {
-  if (!(error instanceof Error) || !('code' in error) || typeof error.code !== 'number') return false;
-  return !('killed' in error && error.killed === true);
-}
 
 interface FactoryWiringOptions<ManagedSession extends FactoryOrchestratorSession = Session> extends Partial<Omit<FactoryPollerDeps, 'broadcast' | 'beforeTick'>> {
   config: Pick<Config, 'factory' | 'projects' | 'integrationBranch' | 'posthog' | 'worktreeShare'>;
@@ -75,7 +70,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     return stdout;
   });
   const runCoherence: FactoryPollerDeps['runCoherence'] = async ({ cwd, args }) => {
-    const isFactoryWrite = args[args.indexOf('--session') + 1] === 'glimmervoid-factory'
+    const isFactoryWrite = args[args.indexOf('--session') + 1] === FACTORY_LEDGER_SESSION
       && (args[0] === 'defect' || args[0] === 'work' || args[0] === 'consequence');
     const writeArgs = isFactoryWrite && args[0] !== 'defect' && !args.includes('--json') ? [...args, '--json'] : args;
     const output = await invokeCoherence({ cwd, args: writeArgs });
@@ -96,21 +91,22 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     await mkdir(binDir, { recursive: true });
     for (const shim of shims) {
       const shimPath = path.join(binDir, shim.fileName);
-      let existingText: string | null = null;
-      try {
-        existingText = await readFile(shimPath, 'utf8');
-      } catch (error) {
-        if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
-      }
+      const existingText = await readFile(shimPath, 'utf8').catch((error: unknown) => {
+        if (isMissingFileError(error, { includeNotDir: false })) return null;
+        throw error;
+      });
       if (existingText !== shim.text) await writeTextAtomic(shimPath, shim.text, { mode: shim.mode });
       if (!shim.fileName.endsWith('.cmd')) await chmod(shimPath, shim.mode);
     }
   }
 
-  function controlCheckoutPath(projectId: string): string {
-    if (!projectId || projectId === '.' || projectId === '..' || /[/\\]/.test(projectId)) throw new Error('Invalid factory project id');
-    return path.join(homeDir, 'factory', projectId, 'control');
+  function projectHomePath(projectId: string): string {
+    if (!projectId || !isSingleFactoryPathSegment(projectId)) throw new Error('Invalid factory project id');
+    return path.join(homeDir, 'factory', projectId);
   }
+
+  const controlCheckoutPath = (projectId: string) => path.join(projectHomePath(projectId), 'control');
+  const statePath = (projectId: string) => path.join(projectHomePath(projectId), 'state.json');
 
   async function removeControlCheckout(projectId: string, projectPath: string): Promise<void> {
     const checkoutPath = controlCheckoutPath(projectId);
@@ -173,7 +169,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       });
       return true;
     } catch (error) {
-      if (isGitExitWithoutObject(error)) return false;
+      if (isCompletedCommandFailure(error)) return false;
       throw error;
     }
   }
@@ -182,10 +178,6 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     const branch = configuredIntegrationBranch(config) ?? await gitWorkspace.detectDefaultBranch({ projectPath });
     if (!branch) throw new Error('Could not resolve the integration branch');
     return branch;
-  }
-
-  function statePath(projectId: string): string {
-    return path.join(path.dirname(controlCheckoutPath(projectId)), 'state.json');
   }
 
   async function loadLaneState(projectId: string): Promise<FactoryLaneState> {
@@ -216,6 +208,13 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     laneStates.set(projectId, Promise.resolve(validated));
   }
 
+  async function updateLaneState(projectId: string, changesOf: (state: FactoryLaneState) => Partial<FactoryLaneState>): Promise<void> {
+    const state = await readLaneState(projectId);
+    await writeLaneState(projectId, { ...state, ...changesOf(state) });
+  }
+
+  const readPaused = async (projectId: string) => (await readLaneState(projectId)).paused;
+
   function serializeProject<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
     const previous = projectChains.get(projectId) ?? Promise.resolve();
     const next = previous.then(operation, operation);
@@ -227,9 +226,9 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
 
   function requireProject(projectId: string): string {
     if (runner.isStopped() || !factoryShouldStart(config).start || !runner.getPoller()) throw new Error('Factory is not running');
-    const project = config.projects?.find((candidate) => candidate.id === projectId);
-    if (!project?.path) throw new Error('Unknown factory project');
-    return project.path;
+    const projectPath = findFactoryProjectPath(config, projectId);
+    if (!projectPath) throw new Error('Unknown factory project');
+    return projectPath;
   }
 
   async function ensureLedgerCheckout(projectId: string, projectPath: string) {
@@ -244,7 +243,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     const ledger = await gitWorkspace.create({
       projectPath, teamId: projectId, label: 'factory-ledger', baseBranch: integrationBranch,
       configuredIntegrationBranch: configuredIntegrationBranch(config),
-      worktreeBase: path.dirname(controlCheckoutPath(projectId)), shareList: [],
+      worktreeBase: projectHomePath(projectId), shareList: [],
     });
     if (!ledger.isGit || !ledger.branch) throw new Error(ledger.error ?? ledger.reason ?? 'Could not create the factory ledger');
     await writeLaneState(projectId, { ...state, ledgerPath: ledger.cwd, ledgerBranch: ledger.branch });
@@ -292,12 +291,11 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
           'work', 'create', intent.objective,
           ...intent.criteria.flatMap((criterion) => ['--success', criterion]),
           '--risk', intent.risk, '--authority', 'user-directed', '--granted-by', 'operator',
-          '--boundary', intent.boundary, '--session', 'glimmervoid-factory',
+          '--boundary', intent.boundary, '--session', FACTORY_LEDGER_SESSION,
           ...intent.writeScopes.flatMap((scope) => ['--write-scope', scope]), '--json',
         ];
         const created = CoherenceWorkCreated.parse(JSON.parse(await runCoherence({ cwd: ledger.cwd, args })));
-        const state = await readLaneState(intent.projectId);
-        await writeLaneState(intent.projectId, { ...state, trustedIntentIds: [...new Set([...(state.trustedIntentIds ?? []), created.work])] });
+        await updateLaneState(intent.projectId, (state) => ({ trustedIntentIds: [...new Set([...(state.trustedIntentIds ?? []), created.work])] }));
         await landLedger(intent.projectId, projectPath, ledger, `factory: queue intent ${created.work}`, { trusted: true, intentId: activeIntentIdOf(intent.projectId) });
         return { projectId: intent.projectId, ok: true, workId: created.work };
       });
@@ -313,8 +311,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       const command = FactoryControlRequest.parse(request);
       const outcome = await serializeProject(command.projectId, async () => {
         requireProject(command.projectId);
-        const state = await readLaneState(command.projectId);
-        await writeLaneState(command.projectId, { ...state, paused: command.action === 'pause' });
+        await updateLaneState(command.projectId, () => ({ paused: command.action === 'pause' }));
         return { ...command, ok: true };
       });
       await runner.getPoller()?.refreshNow();
@@ -356,11 +353,12 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       };
       const readIntegrationSha = async (projectPath: string) => (await runFactoryGit(
         ['rev-parse', `refs/heads/${await resolveIntegrationBranch(projectPath)}`], { cwd: projectPath, timeout: 30_000 })).stdout.trim();
-      const refresh = () => {
+      const refreshAfter = (changedSubject: string) => () => {
         void runner.getPoller()?.refreshNow().catch((error: unknown) => {
-          log.warn(`[factory] state refresh failed: ${errorMessage(error)}`);
+          log.warn(`[factory] ${changedSubject} refresh failed: ${errorMessage(error)}`);
         });
       };
+      const refresh = refreshAfter('state');
       const notifyOrchestrator = (projectId: string, event: FactoryWorkerEvent) => activeOrchestrator?.notifyOrchestrator(projectId, event);
       const activeWatch = createFactoryWatch({
         config, readLaneState, writeLaneState, serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, commitAndLand,
@@ -370,35 +368,24 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       });
       const activeVerifier = spawnVerifier ? createFactoryVerifier({
         config, spawnVerifier, serializeProject, ensureLedger: ensureTrustedLedgerCheckout, ensureControlCheckout, readIntegrationSha, readLaneState, writeLaneState,
-        runCoherence, commitAndLand, pause: (projectId) => serializeProject(projectId, async () => {
-          const state = await readLaneState(projectId);
-          await writeLaneState(projectId, { ...state, paused: true });
-        }),
+        runCoherence, commitAndLand, pause: (projectId) => serializeProject(projectId, () => updateLaneState(projectId, () => ({ paused: true }))),
         setException: raiseException,
         notifyOrchestrator,
         stopOrchestrator: (projectId) => activeOrchestrator?.releaseProject(projectId), onChanged: refresh,
       }) : null;
       const activeCloseOut = spawnReviewer ? createFactoryCloseOut({
         config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, commitAndLand, readIntegrationSha,
-        readPaused: async (projectId) => (await readLaneState(projectId)).paused,
-        appendWatch: async (entry) => {
-          const state = await readLaneState(entry.projectId);
-          await writeLaneState(entry.projectId, { ...state, watch: [...(state.watch ?? []), entry] });
-        },
+        readPaused,
+        appendWatch: (entry) => updateLaneState(entry.projectId, (state) => ({ watch: [...(state.watch ?? []), entry] })),
         notifyOrchestrator,
         setException: raiseException,
-        onReviewingChanged: () => {
-          void runner.getPoller()?.refreshNow().catch((error: unknown) => {
-            log.warn(`[factory] review state refresh failed: ${errorMessage(error)}`);
-          });
-        },
+        onReviewingChanged: refreshAfter('review state'),
       }) : null;
       const activeDispatcher = orchestratorOptions && coherenceHookCliPath ? createFactoryDispatch({
         ...orchestratorOptions, nodePath: process.execPath, hookCliPath: coherenceHookCliPath, shimDir: binDir,
         onWorkerTurnEnd: activeCloseOut?.turnEnded,
         getOrchestrator: (sessionId) => activeOrchestrator?.getLiveOrchestrator(sessionId) ?? null,
-        serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, readSpentTodayUsd: () => spentTodayUsd, readTrustedIntentIds,
-        readPaused: async (projectId) => (await readLaneState(projectId)).paused,
+        serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, readSpentTodayUsd: () => spentTodayUsd, readTrustedIntentIds, readPaused,
         onReadyIntent: (projectId, intentId) => activeVerifier?.ready(projectId, intentId),
         commitAndLand,
         notifyOrchestrator,
@@ -415,7 +402,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
           return [{ id, name: name ?? path.basename(projectPath), path: projectPath }];
         }),
         resolveIntegrationBranch,
-        readPaused: async (projectId) => (await readLaneState(projectId)).paused,
+        readPaused,
         readBranchSha: async (projectPath, branch) => {
           const listed = await gitWorkspace.listIntegrationTips({ projectPath, integrationBranch: branch });
           if (!('integrationTips' in listed)) throw new Error(listed.err || `Could not list the ${branch} refs`);
@@ -500,5 +487,3 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     getState: () => runner.isStopped() ? null : runner.getPoller()?.getState() ?? null,
   };
 }
-
-export type { FactoryWiringOptions };

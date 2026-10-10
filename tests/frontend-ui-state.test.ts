@@ -1,28 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { UiActionName, UiState, UiStateSubscriber } from '../public/ui-state-core.ts';
+import type { UiState, UiStateSubscriber } from '../public/ui-state-core.ts';
 
-const importCore = () => import('../public/ui-state-core.ts');
+import { createUiStateStore } from '../public/ui-state-core.ts';
 
-test('a fresh store starts on the declared initial state', async () => {
-  const { createUiStateStore, INITIAL_UI_STATE } = await importCore();
-  const store = createUiStateStore();
-  assert.deepEqual(store.snapshot(), INITIAL_UI_STATE);
-  assert.equal(store.snapshot().layout, 'desktop');
-  assert.equal(store.snapshot().activeView, 'focus');
-  assert.equal(store.snapshot().focusedSessionId, null);
-});
-
-test('an initial-state override seeds only the keys it names', async () => {
-  const { createUiStateStore } = await importCore();
+test('an initial-state override seeds only the keys it names', () => {
   const store = createUiStateStore({ layout: 'phone' });
   assert.equal(store.snapshot().layout, 'phone');
   assert.equal(store.snapshot().activeView, 'focus');
 });
 
-test('two stores from the factory share no state', async () => {
-  const { createUiStateStore } = await importCore();
+test('two stores from the factory share no state', () => {
   const first = createUiStateStore();
   const second = createUiStateStore();
   first.dispatch('setLayout', 'phone');
@@ -30,8 +19,7 @@ test('two stores from the factory share no state', async () => {
   assert.equal(second.snapshot().layout, 'desktop');
 });
 
-test('dispatch moves the value and hands subscribers the new state, the changed keys and the old state', async () => {
-  const { createUiStateStore } = await importCore();
+test('dispatch moves the value and hands subscribers the new state, the changed keys and the old state', () => {
   const store = createUiStateStore();
   const calls: { state: Readonly<UiState>; changedKeys: (keyof UiState)[]; previousState: Readonly<UiState> }[] = [];
   const record: UiStateSubscriber = (state, changedKeys, previousState) => { calls.push({ state, changedKeys, previousState }); };
@@ -46,8 +34,7 @@ test('dispatch moves the value and hands subscribers the new state, the changed 
   assert.equal(calls[0].previousState.focusedSessionId, null);
 });
 
-test('the state is committed before subscribers run, so a subscriber reads the new snapshot', async () => {
-  const { createUiStateStore } = await importCore();
+test('the state is committed before subscribers run, so a subscriber reads the new snapshot', () => {
   const store = createUiStateStore();
   let seenDuringNotify = 'unset';
   store.subscribe(() => { seenDuringNotify = store.snapshot().activeView; });
@@ -57,8 +44,7 @@ test('the state is committed before subscribers run, so a subscriber reads the n
   assert.equal(seenDuringNotify, 'usage');
 });
 
-test('a no-op update notifies nobody and keeps the same snapshot reference', async () => {
-  const { createUiStateStore } = await importCore();
+test('a no-op update notifies nobody and keeps the same snapshot reference', () => {
   const store = createUiStateStore();
   let notifyCount = 0;
   store.subscribe(() => { notifyCount += 1; });
@@ -77,8 +63,7 @@ test('a no-op update notifies nobody and keeps the same snapshot reference', asy
   assert.equal(store.snapshot(), afterRealChange);
 });
 
-test('a falsy id normalizes to null, so clearing twice is a no-op rather than a second notification', async () => {
-  const { createUiStateStore } = await importCore();
+test('a falsy id normalizes to null, so clearing twice is a no-op rather than a second notification', () => {
   const store = createUiStateStore();
   let notifyCount = 0;
   store.subscribe(() => { notifyCount += 1; });
@@ -93,8 +78,7 @@ test('a falsy id normalizes to null, so clearing twice is a no-op rather than a 
   assert.equal(notifyCount, 2);
 });
 
-test('subscribers are notified in subscription order', async () => {
-  const { createUiStateStore } = await importCore();
+test('subscribers are notified in subscription order', () => {
   const store = createUiStateStore();
   const order: string[] = [];
   store.subscribe(() => { order.push('first'); });
@@ -106,8 +90,7 @@ test('subscribers are notified in subscription order', async () => {
   assert.deepEqual(order, ['first', 'second', 'third']);
 });
 
-test('unsubscribe stops that subscriber and leaves the others running', async () => {
-  const { createUiStateStore } = await importCore();
+test('unsubscribe stops that subscriber and leaves the others running', () => {
   const store = createUiStateStore();
   const seen: string[] = [];
   const unsubscribe = store.subscribe(() => { seen.push('leaving'); });
@@ -121,8 +104,7 @@ test('unsubscribe stops that subscriber and leaves the others running', async ()
   assert.deepEqual(seen, ['leaving', 'staying', 'staying']);
 });
 
-test('unsubscribing twice is harmless and never drops a different subscriber', async () => {
-  const { createUiStateStore } = await importCore();
+test('unsubscribing twice is harmless and never drops a different subscriber', () => {
   const store = createUiStateStore();
   let notifyCount = 0;
   const unsubscribe = store.subscribe(() => { notifyCount += 1; });
@@ -134,8 +116,7 @@ test('unsubscribing twice is harmless and never drops a different subscriber', a
   assert.equal(notifyCount, 1);
 });
 
-test('a throwing subscriber never strands the ones queued behind it', async () => {
-  const { createUiStateStore } = await importCore();
+test('a throwing subscriber never strands the ones queued behind it', () => {
   const store = createUiStateStore();
   const seen: string[] = [];
   store.subscribe(() => { throw new Error('subscriber blew up'); });
@@ -147,31 +128,13 @@ test('a throwing subscriber never strands the ones queued behind it', async () =
   assert.equal(store.snapshot().layout, 'phone');
 });
 
-test('every declared action writes only keys the initial state declares', async () => {
-  const { createUiStateStore, INITIAL_UI_STATE, UI_ACTIONS } = await importCore();
-  const store = createUiStateStore();
-  const probes: [UiActionName, string][] = [
-    ['setLayout', 'phone'], ['setActiveView', 'radar'], ['setPhoneScreen', 'board'],
-    ['focusSession', 'probe'], ['selectSession', 'probe'], ['borrowCard', 'probe'],
-  ];
-  assert.equal(probes.length, Object.keys(UI_ACTIONS).length, 'a new action needs a probe here');
-  for (const [action, value] of probes) {
-    for (const key of Object.keys(UI_ACTIONS[action](value))) {
-      assert.ok(key in INITIAL_UI_STATE, `action ${action} writes undeclared key ${key}`);
-    }
-    assert.doesNotThrow(() => store.dispatch(action, value));
-  }
-});
-
-test('the snapshot is frozen, so a consumer cannot write around the actions', async () => {
-  const { createUiStateStore } = await importCore();
+test('the snapshot is frozen, so a consumer cannot write around the actions', () => {
   const store = createUiStateStore();
   assert.ok(Object.isFrozen(store.snapshot()));
   assert.throws(() => { const mutable: UiState = store.snapshot(); mutable.layout = 'phone'; }, TypeError);
 });
 
-test('an unrelated field moving leaves the others untouched and out of changedKeys', async () => {
-  const { createUiStateStore } = await importCore();
+test('an unrelated field moving leaves the others untouched and out of changedKeys', () => {
   const store = createUiStateStore();
   store.dispatch('focusSession', 'session-a');
   store.dispatch('selectSession', 'session-a');

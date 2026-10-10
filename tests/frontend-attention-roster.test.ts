@@ -1,10 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const importCore = () => import('../public/focus-view/attention-core.ts');
+import { attentionRank, attentionSummaryText, countSessionsNeedingAttention, needsAttention, orderRoster, pickAdjacent, pickNextAttention, pickStrongestAttention } from '../public/focus-view/attention-core.ts';
 
-test('orderRoster: non-dormant before dormant, alphabetical within each group', async () => {
-  const { orderRoster } = await importCore();
+test('orderRoster: non-dormant before dormant, alphabetical within each group', () => {
   const out = orderRoster([
     { id: '1', name: 'zebra', isDormant: false },
     { id: '2', name: 'alpha', isDormant: true },
@@ -15,8 +14,7 @@ test('orderRoster: non-dormant before dormant, alphabetical within each group', 
   assert.deepEqual(out, ['3', '1', '2', '4']);
 });
 
-test('orderRoster: numeric, case-insensitive name order', async () => {
-  const { orderRoster } = await importCore();
+test('orderRoster: numeric, case-insensitive name order', () => {
   const out = orderRoster([
     { id: 'a', name: 'Session 10', isDormant: false },
     { id: 'b', name: 'session 2', isDormant: false },
@@ -24,8 +22,7 @@ test('orderRoster: numeric, case-insensitive name order', async () => {
   assert.deepEqual(out, ['b', 'a']);
 });
 
-test('orderRoster: stable under input permutation and ignores status fields', async () => {
-  const { orderRoster } = await importCore();
+test('orderRoster: stable under input permutation and ignores status fields', () => {
   const base = [
     { id: '1', name: 'alpha', isDormant: false, state: 'RUNNING' },
     { id: '2', name: 'bravo', isDormant: false, state: 'WAITING' },
@@ -37,8 +34,7 @@ test('orderRoster: stable under input permutation and ignores status fields', as
   assert.deepEqual(b, ['1', '2', '3']);
 });
 
-test('orderRoster: does not mutate its input', async () => {
-  const { orderRoster } = await importCore();
+test('orderRoster: does not mutate its input', () => {
   const input = [
     { id: '1', name: 'zebra', isDormant: false },
     { id: '2', name: 'alpha', isDormant: false },
@@ -47,59 +43,50 @@ test('orderRoster: does not mutate its input', async () => {
   assert.deepEqual(input.map((s) => s.id), ['1', '2']);
 });
 
-test('pickNextAttention: empty queue returns null', async () => {
-  const { pickNextAttention } = await importCore();
+test('pickNextAttention: empty queue returns null', () => {
   assert.equal(pickNextAttention([], 'x'), null);
 });
 
-test('pickNextAttention: advances and wraps around', async () => {
-  const { pickNextAttention } = await importCore();
+test('pickNextAttention: advances and wraps around', () => {
   assert.equal(pickNextAttention(['a', 'b', 'c'], 'a'), 'b');
   assert.equal(pickNextAttention(['a', 'b', 'c'], 'b'), 'c');
   assert.equal(pickNextAttention(['a', 'b', 'c'], 'c'), 'a');
 });
 
-test('pickNextAttention: currentId absent starts at the front', async () => {
-  const { pickNextAttention } = await importCore();
+test('pickNextAttention: currentId absent starts at the front', () => {
   assert.equal(pickNextAttention(['a', 'b'], 'zzz'), 'a');
   assert.equal(pickNextAttention(['a', 'b'], null), 'a');
 });
 
-test('pickNextAttention: single-element queue stays put', async () => {
-  const { pickNextAttention } = await importCore();
+test('pickNextAttention: single-element queue stays put', () => {
   assert.equal(pickNextAttention(['only'], 'only'), 'only');
 });
 
-test('pickAdjacent: empty list returns null', async () => {
-  const { pickAdjacent } = await importCore();
+test('pickAdjacent: empty list returns null', () => {
   assert.equal(pickAdjacent([], 'x', 1), null);
   assert.equal(pickAdjacent([], 'x', -1), null);
 });
 
-test('pickAdjacent: steps forward and backward', async () => {
-  const { pickAdjacent } = await importCore();
+test('pickAdjacent: steps forward and backward', () => {
   assert.equal(pickAdjacent(['a', 'b', 'c'], 'a', 1), 'b');
   assert.equal(pickAdjacent(['a', 'b', 'c'], 'b', 1), 'c');
   assert.equal(pickAdjacent(['a', 'b', 'c'], 'c', -1), 'b');
   assert.equal(pickAdjacent(['a', 'b', 'c'], 'b', -1), 'a');
 });
 
-test('pickAdjacent: wraps around both ends', async () => {
-  const { pickAdjacent } = await importCore();
+test('pickAdjacent: wraps around both ends', () => {
   assert.equal(pickAdjacent(['a', 'b', 'c'], 'c', 1), 'a');
   assert.equal(pickAdjacent(['a', 'b', 'c'], 'a', -1), 'c');
 });
 
-test('pickAdjacent: absent cursor starts at the correct end per direction', async () => {
-  const { pickAdjacent } = await importCore();
+test('pickAdjacent: absent cursor starts at the correct end per direction', () => {
   assert.equal(pickAdjacent(['a', 'b'], 'gone', 1), 'a');
   assert.equal(pickAdjacent(['a', 'b'], null, 1), 'a');
   assert.equal(pickAdjacent(['a', 'b'], 'gone', -1), 'b');
   assert.equal(pickAdjacent(['a', 'b'], null, -1), 'b');
 });
 
-test('pickAdjacent: single-element list stays put either direction', async () => {
-  const { pickAdjacent } = await importCore();
+test('pickAdjacent: single-element list stays put either direction', () => {
   assert.equal(pickAdjacent(['only'], 'only', 1), 'only');
   assert.equal(pickAdjacent(['only'], 'only', -1), 'only');
 });
@@ -112,22 +99,19 @@ interface AttentionRow {
 
 const attentionRow = (id: string, state: string, unseen?: boolean): AttentionRow => ({ id, state, unseen });
 
-test('needsAttention: WAITING always qualifies, regardless of the unseen flag', async () => {
-  const { needsAttention } = await importCore();
+test('needsAttention: WAITING always qualifies, regardless of the unseen flag', () => {
   assert.equal(needsAttention({ state: 'WAITING' }), true);
   assert.equal(needsAttention({ state: 'WAITING', unseen: false }), true);
 });
 
-test('needsAttention: COMPLETE qualifies only while it is unseen', async () => {
-  const { needsAttention } = await importCore();
+test('needsAttention: COMPLETE qualifies only while it is unseen', () => {
   assert.equal(needsAttention({ state: 'COMPLETE', unseen: true }), true);
   assert.equal(needsAttention({ state: 'COMPLETE', unseen: false }), false);
 
   assert.equal(needsAttention({ state: 'COMPLETE' }), false);
 });
 
-test('needsAttention: no other state qualifies, and the unseen flag cannot promote one', async () => {
-  const { needsAttention } = await importCore();
+test('needsAttention: no other state qualifies, and the unseen flag cannot promote one', () => {
   for (const state of ['RUNNING', 'FAILED', 'IDLE', 'DONE', 'DORMANT', 'STARTING', 'INITIALIZING']) {
     assert.equal(needsAttention({ state }), false, `${state} must not qualify`);
     assert.equal(needsAttention({ state, unseen: true }), false, `${state} must not qualify when unseen`);
@@ -136,8 +120,7 @@ test('needsAttention: no other state qualifies, and the unseen flag cannot promo
   assert.equal(needsAttention(), false);
 });
 
-test('countSessionsNeedingAttention: counts exactly the rows needsAttention accepts', async () => {
-  const { countSessionsNeedingAttention } = await importCore();
+test('countSessionsNeedingAttention: counts exactly the rows needsAttention accepts', () => {
   assert.equal(countSessionsNeedingAttention([
     attentionRow('a', 'WAITING'),
     attentionRow('b', 'FAILED'),
@@ -152,39 +135,34 @@ test('countSessionsNeedingAttention: counts exactly the rows needsAttention acce
   assert.equal(countSessionsNeedingAttention([null, undefined]), 0);
 });
 
-test('attentionSummaryText: resting reads as a sentence, never an empty slot', async () => {
-  const { attentionSummaryText } = await importCore();
+test('attentionSummaryText: resting reads as a sentence, never an empty slot', () => {
   assert.equal(attentionSummaryText(0), 'ALL CLEAR');
   assert.equal(attentionSummaryText(-1), 'ALL CLEAR');
   assert.equal(attentionSummaryText(1), '1 NEEDS YOU');
   assert.equal(attentionSummaryText(4), '4 NEED YOU');
 });
 
-test('pickStrongestAttention: a raised hand outranks an arrival dot whatever the order', async () => {
-  const { pickStrongestAttention } = await importCore();
+test('pickStrongestAttention: a raised hand outranks an arrival dot whatever the order', () => {
   assert.equal(pickStrongestAttention(['unseen', 'hand']), 'hand');
   assert.equal(pickStrongestAttention(['hand', 'unseen']), 'hand');
   assert.equal(pickStrongestAttention([false, true, 'hand', false]), 'hand');
   assert.equal(pickStrongestAttention(['hand', true]), 'hand');
 });
 
-test('pickStrongestAttention: equal-rank levels resolve to the first one asking', async () => {
-  const { pickStrongestAttention } = await importCore();
+test('pickStrongestAttention: equal-rank levels resolve to the first one asking', () => {
   assert.equal(pickStrongestAttention([false, 'unseen', true]), 'unseen');
   assert.equal(pickStrongestAttention([true, 'unseen']), true);
   assert.equal(pickStrongestAttention([false, true]), true);
 });
 
-test('pickStrongestAttention: nothing asking is false, never a stray truthy level', async () => {
-  const { pickStrongestAttention } = await importCore();
+test('pickStrongestAttention: nothing asking is false, never a stray truthy level', () => {
   assert.equal(pickStrongestAttention([]), false);
   assert.equal(pickStrongestAttention([false, false]), false);
   assert.equal(pickStrongestAttention([null, undefined, '']), false);
   assert.equal(pickStrongestAttention(), false);
 });
 
-test('attentionRank: an unknown level still counts as asking, below a raised hand', async () => {
-  const { attentionRank } = await importCore();
+test('attentionRank: an unknown level still counts as asking, below a raised hand', () => {
   assert.equal(attentionRank('hand'), 2);
   assert.equal(attentionRank('unseen'), 1);
   assert.equal(attentionRank('something-new'), 1);

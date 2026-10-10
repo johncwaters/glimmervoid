@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 
 import {
   attentionOrder, nextAttentionKey, caughtUpSelectionView, planActionReply, viewerThreadsText, detailThreadItems, caughtUpDetail, postedOutcome, queueRowGlyph, queueRowExceptionReason, commentCountText, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
-  parseInlineSegments, parseReviewComment, reviewCommentPreview, phaseLabel, pullRequestLabel, queueRowTitle, queueRowVerdictLabel, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
+  parseInlineSegments, parseReviewComment, reviewCommentPreview, queueRowTitle, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
   threadBodyOverflowsPreview, THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES,
-  commentSeverity, severityPresentation, tierLabel, verdictHeading, verdictLabel, verdictSealKind, verdictTone, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
+  commentSeverity, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
 import { answeredViewerThreads, THREAD_PLACEHOLDER_ERROR } from '../server/core/team-review-threads-core.ts';
 import { threadNode } from './helpers/team-review-thread-fixture.ts';
@@ -67,13 +67,6 @@ test('queue row title names an in-progress review and a queued pull request', ()
 test('queue row title retains the attention reason and names no verdict for a review that never ran', () => {
   assert.equal(queueRowTitle(draft(10, { status: 'error', error: 'review timed out', verdict: 'BLOCKED', comments: [] }), 'attention', { opened: '5d ago' }),
     'Acme/app#10: PR 10\nReview failed\nOpened 5d ago\nreview timed out');
-});
-
-test('queue verdict words distinguish approvals, nits, changes and blocked reviews', () => {
-  assert.equal(queueRowVerdictLabel('APPROVE'), 'Approve');
-  assert.equal(queueRowVerdictLabel('APPROVE WITH NITS'), 'Nits');
-  assert.equal(queueRowVerdictLabel('REQUEST CHANGES'), 'Changes');
-  assert.equal(queueRowVerdictLabel('BLOCKED'), 'Blocked');
 });
 
 test('queue refs omit the repo for empty and single-repo rendered groups', () => {
@@ -211,24 +204,6 @@ test('an absent or empty status has no rows', () => {
   assert.equal(hasAnyRow(groupDrafts(null)), false);
   assert.equal(hasAnyRow(groupDrafts(status([], [], true))), false);
   assert.equal(hasAnyRow(groupDrafts(status([draft(1, { status: 'discarded' })]))), true);
-});
-
-test('tier and verdict labels are short and lower case, with a tone per verdict', () => {
-  assert.equal(tierLabel('stamp'), 'light');
-  assert.equal(tierLabel('full'), 'full');
-  assert.equal(verdictLabel('APPROVE'), 'approve');
-  assert.equal(verdictLabel('APPROVE WITH NITS'), 'approve with nits');
-  assert.equal(verdictLabel('REQUEST CHANGES'), 'request changes');
-  assert.equal(verdictLabel('BLOCKED'), 'blocked');
-  assert.equal(verdictHeading('APPROVE WITH NITS'), 'Approve with nits');
-  assert.equal(verdictTone('APPROVE'), 'ok');
-  assert.equal(verdictTone('REQUEST CHANGES'), 'warn');
-  assert.equal(verdictTone('BLOCKED'), 'crit');
-  assert.equal(pullRequestLabel('Acme/app', 7), 'Acme/app#7');
-});
-
-test('the legacy summary hint offers a requeue', () => {
-  assert.match(LEGACY_SUMMARY_HINT, /Queue review to get a plain summary\.$/);
 });
 
 test('a posted, failed, stale or discarded review offers a requeue footer, a ready one uses its action row', () => {
@@ -372,12 +347,6 @@ test('attention rows explain a stale draft and surface the error of a failed one
   assert.equal(attentionDetail(draft(1, { status: 'discarded' })), 'Not reviewed again until queued.');
 });
 
-test('a review in progress names its phase in plain words', () => {
-  assert.equal(phaseLabel('preparing'), 'fetching the diff');
-  assert.equal(phaseLabel('checkout'), 'checking out the head');
-  assert.equal(phaseLabel('reviewing'), 'agent reviewing');
-});
-
 test('progress text shows elapsed time before the agent starts, then the timeout budget and tool calls', () => {
   assert.equal(inFlightProgressText(inFlightReview(1, { startedAt: 0 }), 42000), '0:42 elapsed');
   const reviewing = inFlightReview(1, { phase: 'reviewing', startedAt: 0, deadlineAt: 900000, toolCalls: 1 });
@@ -421,20 +390,6 @@ test('selection favors ready, then in review, attention, posted and discarded, w
   assert.equal(chooseSelectedReviewKey(groupDrafts(status([draft(5, { status: 'discarded' }), draft(3, { status: 'posted' })])), null), 'Acme/app#3');
   assert.equal(chooseSelectedReviewKey(groupDrafts(status([draft(5, { status: 'discarded' })])), null), 'Acme/app#5');
   assert.equal(chooseSelectedReviewKey(groupDrafts(status([])), null), null);
-});
-
-test('severity glyph data uses three shards and distinct critical halo level', () => {
-  assert.deepEqual(severityPresentation('LOW'), { filledCount: 1, colorToken: '--text-dim' });
-  assert.deepEqual(severityPresentation('MEDIUM'), { filledCount: 2, colorToken: '--accent' });
-  assert.deepEqual(severityPresentation('HIGH'), { filledCount: 3, colorToken: '--state-waiting' });
-  assert.deepEqual(severityPresentation('CRITICAL'), { filledCount: 3, colorToken: '--state-failed' });
-});
-
-test('each verdict selects its one seal mark', () => {
-  assert.equal(verdictSealKind('APPROVE'), 'check');
-  assert.equal(verdictSealKind('APPROVE WITH NITS'), 'dot');
-  assert.equal(verdictSealKind('REQUEST CHANGES'), 'bar');
-  assert.equal(verdictSealKind('BLOCKED'), 'cross');
 });
 
 test('comment severity takes the highest finding header and falls back to structured severity', () => {

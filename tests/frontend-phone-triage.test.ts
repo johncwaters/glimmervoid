@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const importCore = () => import('../public/phone/triage-core.ts');
+import { orderSessionsForTriage } from '../public/phone/triage-core.ts';
 
 interface TriageRow {
   id: string;
@@ -11,8 +11,7 @@ interface TriageRow {
 const row = (id: string, state: string): TriageRow => ({ id, state });
 const ids = (rows: readonly TriageRow[]) => rows.map((r) => r.id);
 
-test('orderSessionsForTriage: blocked and broken sessions lead, then finished, then live', async () => {
-  const { orderSessionsForTriage } = await importCore();
+test('orderSessionsForTriage: blocked and broken sessions lead, then finished, then live', () => {
   const ordered = orderSessionsForTriage([
     row('idle', 'IDLE'),
     row('running', 'RUNNING'),
@@ -23,8 +22,7 @@ test('orderSessionsForTriage: blocked and broken sessions lead, then finished, t
   assert.deepEqual(ids(ordered), ['waiting', 'failed', 'complete', 'running', 'idle']);
 });
 
-test('orderSessionsForTriage: sessions in the same state keep their incoming order', async () => {
-  const { orderSessionsForTriage } = await importCore();
+test('orderSessionsForTriage: sessions in the same state keep their incoming order', () => {
   const ordered = orderSessionsForTriage([
     row('alpha', 'WAITING'),
     row('bravo', 'RUNNING'),
@@ -34,8 +32,7 @@ test('orderSessionsForTriage: sessions in the same state keep their incoming ord
   assert.deepEqual(ids(ordered), ['alpha', 'charlie', 'bravo', 'delta']);
 });
 
-test('orderSessionsForTriage: every unranked state shares one resting group in incoming order', async () => {
-  const { orderSessionsForTriage } = await importCore();
+test('orderSessionsForTriage: every unranked state shares one resting group in incoming order', () => {
   const ordered = orderSessionsForTriage([
     row('dormant', 'DORMANT'),
     row('done', 'DONE'),
@@ -46,14 +43,12 @@ test('orderSessionsForTriage: every unranked state shares one resting group in i
   assert.deepEqual(ids(ordered), ['waiting', 'dormant', 'done', 'idle', 'starting']);
 });
 
-test('orderSessionsForTriage: an unknown state never outranks a real signal', async () => {
-  const { orderSessionsForTriage } = await importCore();
+test('orderSessionsForTriage: an unknown state never outranks a real signal', () => {
   const ordered = orderSessionsForTriage([row('mystery', 'BANANA'), row('failed', 'FAILED')]);
   assert.deepEqual(ids(ordered), ['failed', 'mystery']);
 });
 
-test('orderSessionsForTriage: does not mutate its input and tolerates empty input', async () => {
-  const { orderSessionsForTriage } = await importCore();
+test('orderSessionsForTriage: does not mutate its input and tolerates empty input', () => {
   const input = [row('running', 'RUNNING'), row('waiting', 'WAITING')];
   orderSessionsForTriage(input);
   assert.deepEqual(ids(input), ['running', 'waiting']);

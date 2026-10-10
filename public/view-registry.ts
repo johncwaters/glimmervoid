@@ -57,13 +57,13 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
     const tab = el('button', 'header-tab', definition.label);
     tab.id = `tab-${definition.view}`;
     tab.type = 'button';
+    const panelId = `view-${definition.view}`;
     tab.setAttribute('role', 'tab');
-    tab.setAttribute('aria-controls', `view-${definition.view}`);
+    tab.setAttribute('aria-controls', panelId);
     const isSelected = definition.view === 'focus';
     tab.setAttribute('aria-selected', String(isSelected));
     tab.tabIndex = isSelected ? 0 : -1;
     if (definition.glyph) tab.dataset.phoneGlyph = definition.glyph;
-    const panelId = `view-${definition.view}`;
     const panel = document.getElementById(panelId) ?? el('section');
     panel.classList.add(definition.panelClass);
     panel.id = panelId;

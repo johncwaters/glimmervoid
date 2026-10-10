@@ -714,7 +714,6 @@ function createUsageWiring({
       if (scanner?.stats().lastOutcome !== 'complete') return null;
       return scanner.laneUsageSince(sinceMs).find((row) => row.lane === lane)?.costUSD ?? 0;
     },
-    getSpentTodayUsd: () => scanner?.budgetSpend().todayUsd ?? 0,
     requestReport,
     ingestStatusline,
     getPlanLimitsMessage,
@@ -728,7 +727,6 @@ export {
   RTK_SAVINGS_TTL_MS,
   USAGE_BUDGET_KEYS,
   USAGE_COST_MODES,
-  USAGE_INTEGER_RANGES,
   USAGE_VENDOR_KEYS,
   budgetAlertText,
   createUsageWiring,

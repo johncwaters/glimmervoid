@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const importCore = () => import('../public/usage-view-core.ts');
+import { ariaSortValue, blockAttentionTone, blockHistoryRows, blockLabel, blockProgress, burnTiles, cacheSavingsTile, CLAUDE_ONLY_HINT, claudeOnlyHint, compositionParts, dailyRowForDay, dayLabel, dayRangeLabel, defaultSortDir, formatCount, formatMinutes, formatPercent, formatTokens, formatUsd, hasMultiVendorUsage, hasOfficialPlanLimits, hasSavings, isGlimmervoidSessionRow, isPlanLimitStale, isUsageUnavailable, limitPct, missingPricingLine, modelLabel, modelRowPrefix, nextSortState, NO_VALUE, officialFiveHourPct, percentOfTotal, PLAN_LIMIT_STALE_MS, planLimitAgeText, planLimitStaleNote, planWindowOf, planWindowUsedText, pricingFetchedAtMs, pricingSourceLine, projectedLimitPct, projectionLimitLine, projectionLine, reportDayKey, resetCountdownText, rtkSavingsTile, scanLine, SESSION_ROW_LIMIT, sessionChipCost, sessionChipText, sessionChipTitle, sessionOverflowText, sessionRowLabel, shareBasis, shareLabel, shouldApplyUsageReport, sortDailyRows, sortModelRows, sortSessionRows, sortUsageRows, TOKEN_LIMIT_WARN_PCT, tokenLimitLine, tokenLimitTone, usageAttentionSignature, usageErrorLine, usageWarningLine, vendorLabel, vendorTotalsRows, visibleSessionRows } from '../public/usage-view-core.ts';
+import * as core from '../public/usage-view-core.ts';
 
-test('formatUsd: cents, thousands grouping, sub-cent precision and a missing value', async () => {
-  const { formatUsd, NO_VALUE } = await importCore();
+test('formatUsd: cents, thousands grouping, sub-cent precision and a missing value', () => {
   assert.equal(formatUsd(0), '$0.00');
   assert.equal(formatUsd(1.5), '$1.50');
   assert.equal(formatUsd(1234.567), '$1,234.57');
@@ -17,8 +17,7 @@ test('formatUsd: cents, thousands grouping, sub-cent precision and a missing val
   assert.equal(formatUsd(undefined), NO_VALUE);
 });
 
-test('formatUsd: a nonzero cost below the last decimal never prints as $0.0000', async () => {
-  const { formatUsd } = await importCore();
+test('formatUsd: a nonzero cost below the last decimal never prints as $0.0000', () => {
   assert.equal(formatUsd(0.000004), '<$0.0001');
   assert.equal(formatUsd(0.00009), '<$0.0001');
   assert.equal(formatUsd(-0.000004), 'above -$0.0001');
@@ -26,8 +25,7 @@ test('formatUsd: a nonzero cost below the last decimal never prints as $0.0000',
   assert.equal(formatUsd(0.0001), '$0.0001');
 });
 
-test('formatTokens: plain under 1k, then k, M and B with trailing zeros trimmed', async () => {
-  const { formatTokens, NO_VALUE } = await importCore();
+test('formatTokens: plain under 1k, then k, M and B with trailing zeros trimmed', () => {
   assert.equal(formatTokens(0), '0');
   assert.equal(formatTokens(999), '999');
   assert.equal(formatTokens(1000), '1k');
@@ -41,8 +39,7 @@ test('formatTokens: plain under 1k, then k, M and B with trailing zeros trimmed'
   assert.equal(formatTokens('nope'), NO_VALUE);
 });
 
-test('formatTokens: cache totals reach billions, so they get a B tier rather than reading 1000M', async () => {
-  const { formatTokens } = await importCore();
+test('formatTokens: cache totals reach billions, so they get a B tier rather than reading 1000M', () => {
   assert.equal(formatTokens(1e9), '1B');
   assert.equal(formatTokens(12.5e9), '12.5B');
   assert.equal(formatTokens(1.234e9), '1.23B');
@@ -53,15 +50,13 @@ test('formatTokens: cache totals reach billions, so they get a B tier rather tha
   assert.equal(formatTokens(-0.4), '0');
 });
 
-test('formatCount: thousands grouping for scan stats', async () => {
-  const { formatCount, NO_VALUE } = await importCore();
+test('formatCount: thousands grouping for scan stats', () => {
   assert.equal(formatCount(7), '7');
   assert.equal(formatCount(45231), '45,231');
   assert.equal(formatCount(null), NO_VALUE);
 });
 
-test('formatPercent and percentOfTotal: share of the whole, with a floor for the invisible slice', async () => {
-  const { formatPercent, percentOfTotal, NO_VALUE } = await importCore();
+test('formatPercent and percentOfTotal: share of the whole, with a floor for the invisible slice', () => {
   assert.equal(percentOfTotal(25, 100), 25);
   assert.equal(percentOfTotal(1, 0), null);
   assert.equal(percentOfTotal(1, null), null);
@@ -73,8 +68,7 @@ test('formatPercent and percentOfTotal: share of the whole, with a floor for the
   assert.equal(formatPercent(null), NO_VALUE);
 });
 
-test('shareBasis: cost when there is any, tokens when every cost is zero', async () => {
-  const { shareBasis, shareLabel } = await importCore();
+test('shareBasis: cost when there is any, tokens when every cost is zero', () => {
   assert.equal(shareBasis({ costUSD: 12, tokens: 5 }), 'costUSD');
   assert.equal(shareBasis({ costUSD: 0, tokens: 5 }), 'tokens');
   assert.equal(shareBasis(null), 'tokens');
@@ -82,8 +76,7 @@ test('shareBasis: cost when there is any, tokens when every cost is zero', async
   assert.equal(shareLabel('tokens'), 'share of tokens');
 });
 
-test('dayLabel and dayRangeLabel: month plus day, and a range worded "to"', async () => {
-  const { dayLabel, dayRangeLabel } = await importCore();
+test('dayLabel and dayRangeLabel: month plus day, and a range worded "to"', () => {
   assert.equal(dayLabel('2026-08-19'), 'Aug 19');
   assert.equal(dayLabel('2026-01-01'), 'Jan 1');
   assert.equal(dayLabel('not-a-day'), 'not-a-day');
@@ -93,8 +86,7 @@ test('dayLabel and dayRangeLabel: month plus day, and a range worded "to"', asyn
   assert.equal(dayRangeLabel([{ day: '2026-08-19' }, { day: '2026-08-12' }]), 'Aug 12 to Aug 19');
 });
 
-test('reportDayKey: the report ts resolved in the report timezone, not the browser one', async () => {
-  const { reportDayKey } = await importCore();
+test('reportDayKey: the report ts resolved in the report timezone, not the browser one', () => {
   const ts = Date.UTC(2026, 7, 19, 3, 30);
   assert.equal(reportDayKey({ ts, tz: 'UTC' }), '2026-08-19');
   assert.equal(reportDayKey({ ts, tz: 'Asia/Tokyo' }), '2026-08-19');
@@ -106,24 +98,21 @@ test('reportDayKey: the report ts resolved in the report timezone, not the brows
   assert.equal(reportDayKey({ ts: 0, tz: 'UTC' }), '');
 });
 
-test('formatMinutes: the elapsed ladder', async () => {
-  const { formatMinutes, NO_VALUE } = await importCore();
+test('formatMinutes: the elapsed ladder', () => {
   assert.equal(formatMinutes(45), '45m');
   assert.equal(formatMinutes(120), '2h');
   assert.equal(formatMinutes(125), '2h 5m');
   assert.equal(formatMinutes(-1), NO_VALUE);
 });
 
-test('blockLabel: the wall-clock start of a 5h window', async () => {
-  const { blockLabel, NO_VALUE } = await importCore();
+test('blockLabel: the wall-clock start of a 5h window', () => {
   const start = new Date(2026, 7, 19, 14, 0).getTime();
   assert.equal(blockLabel(start), 'Aug 19 14:00');
   assert.equal(blockLabel(0), NO_VALUE);
   assert.equal(blockLabel(null), NO_VALUE);
 });
 
-test('burnTiles: the two rate numbers as tiles, with cache exclusion as the sub', async () => {
-  const { burnTiles } = await importCore();
+test('burnTiles: the two rate numbers as tiles, with cache exclusion as the sub', () => {
   assert.deepEqual(burnTiles(null), []);
   assert.deepEqual(burnTiles({ tokensPerMinute: 12500, tokensPerMinuteExCache: 900, costPerHour: 3.5 }), [
     { label: 'tokens per min', value: '12.5k', sub: '900 excluding cache' },
@@ -134,8 +123,7 @@ test('burnTiles: the two rate numbers as tiles, with cache exclusion as the sub'
   ]);
 });
 
-test('projectionLine: uses the ASCII arrow, and degrades to whatever the server reported', async () => {
-  const { projectionLine } = await importCore();
+test('projectionLine: uses the ASCII arrow, and degrades to whatever the server reported', () => {
   assert.equal(projectionLine(null), '');
   assert.equal(
     projectionLine({ projectedTokens: 2400000, projectedCostUSD: 18.4, remainingMinutes: 95 }),
@@ -145,8 +133,7 @@ test('projectionLine: uses the ASCII arrow, and degrades to whatever the server 
   assert.equal(projectionLine({ projectedTokens: 1000 }), '-> 1k tokens by block end');
 });
 
-test('blockProgress: elapsed and remaining within the block window, clamped at both ends', async () => {
-  const { blockProgress } = await importCore();
+test('blockProgress: elapsed and remaining within the block window, clamped at both ends', () => {
   const start = 1_700_000_000_000;
   const end = start + 5 * 3600000;
   const mid = blockProgress({ startTs: start, endTs: end }, start + 3600000);
@@ -162,8 +149,7 @@ test('blockProgress: elapsed and remaining within the block window, clamped at b
   assert.equal(blockProgress(null), null);
 });
 
-test('limitPct: the wire ratio converted to the percent every threshold works in', async () => {
-  const { limitPct } = await importCore();
+test('limitPct: the wire ratio converted to the percent every threshold works in', () => {
   assert.equal(limitPct({ max: 1000, pct: 0.8 }), 80);
   assert.equal(limitPct({ max: 1000, pct: 1.25 }), 125);
   assert.equal(limitPct({ max: 0, pct: 0.8 }), null);
@@ -171,8 +157,7 @@ test('limitPct: the wire ratio converted to the percent every threshold works in
   assert.equal(limitPct(null), null);
 });
 
-test('token limit: 80 percent warns, 100 is critical, and the line names the reference', async () => {
-  const { tokenLimitTone, tokenLimitLine, TOKEN_LIMIT_WARN_PCT } = await importCore();
+test('token limit: 80 percent warns, 100 is critical, and the line names the reference', () => {
   assert.equal(TOKEN_LIMIT_WARN_PCT, 80);
   assert.equal(tokenLimitTone(10), 'ok');
   assert.equal(tokenLimitTone(79.9), 'ok');
@@ -184,8 +169,7 @@ test('token limit: 80 percent warns, 100 is critical, and the line names the ref
   assert.equal(tokenLimitLine(null), '');
 });
 
-test('projected limit: where the burn rate lands, not only where the block already is', async () => {
-  const { projectedLimitPct, projectionLimitLine, blockAttentionTone, usageAttentionSignature } = await importCore();
+test('projected limit: where the burn rate lands, not only where the block already is', () => {
   const tokenLimit = { max: 1000, pct: 0.2 };
   assert.equal(projectedLimitPct({ projectedTokens: 900 }, tokenLimit), 90);
   assert.equal(projectedLimitPct({ projectedTokens: 900 }, { max: 0 }), null);
@@ -214,8 +198,7 @@ test('projected limit: where the burn rate lands, not only where the block alrea
   assert.equal(usageAttentionSignature(null), '');
 });
 
-test('usageAttentionSignature: names which arbiter fires, at a coarse bucket', async () => {
-  const { usageAttentionSignature } = await importCore();
+test('usageAttentionSignature: names which arbiter fires, at a coarse bucket', () => {
   assert.equal(usageAttentionSignature({ tokenLimit: { max: 10, pct: 0.85 } }), 'block:warn');
   assert.equal(usageAttentionSignature({ tokenLimit: { max: 10, pct: 1.4 } }), 'block:crit');
   assert.equal(usageAttentionSignature({ anomaly: { daily: { ratio: 3 }, burn: null } }), 'anomaly:daily');
@@ -226,8 +209,7 @@ test('usageAttentionSignature: names which arbiter fires, at a coarse bucket', a
   );
 });
 
-test('usageAttentionSignature: a wobbling percentage keeps its bucket, a crossed threshold does not', async () => {
-  const { usageAttentionSignature } = await importCore();
+test('usageAttentionSignature: a wobbling percentage keeps its bucket, a crossed threshold does not', () => {
   const at = (pct: number) => usageAttentionSignature({ tokenLimit: { max: 10, pct } });
   assert.equal(at(0.91), at(0.92), 'a percentage drifting inside its bucket must not re-light the dot');
   assert.notEqual(at(0.91), at(1.05), 'warn to crit is a new thing to say');
@@ -236,8 +218,7 @@ test('usageAttentionSignature: a wobbling percentage keeps its bucket, a crossed
   assert.notEqual(budgetAt(91), budgetAt(101));
 });
 
-test('usageAttentionSignature: distinguishes calm reports from combined anomalies', async () => {
-  const { usageAttentionSignature } = await importCore();
+test('usageAttentionSignature: distinguishes calm reports from combined anomalies', () => {
   const calm = { tokenLimit: { max: 10, pct: 0.1 }, anomaly: null, budget: null };
   assert.equal(usageAttentionSignature(calm), '');
   assert.equal(usageAttentionSignature(null), '');
@@ -245,15 +226,13 @@ test('usageAttentionSignature: distinguishes calm reports from combined anomalie
   assert.equal(usageAttentionSignature(alarming), 'anomaly:burn|block:warn');
 });
 
-test('usageAttentionSignature: official plan limits drive the block bucket when they exist', async () => {
-  const { usageAttentionSignature } = await importCore();
+test('usageAttentionSignature: official plan limits drive the block bucket when they exist', () => {
   const calmEstimate = { tokenLimit: { max: 1000, pct: 0.1 } };
   assert.equal(usageAttentionSignature(calmEstimate, { fiveHour: { pct: 85 } }), 'block:warn');
   assert.equal(usageAttentionSignature({ tokenLimit: { max: 10, pct: 0.95 } }, { fiveHour: { pct: 4 } }), '');
 });
 
-test('pricing and scan lines: source, staleness, missing models and a partial pass', async () => {
-  const { pricingFetchedAtMs, pricingSourceLine, missingPricingLine, scanLine } = await importCore();
+test('pricing and scan lines: source, staleness, missing models and a partial pass', () => {
   assert.equal(
     pricingSourceLine({ source: 'fetched' }, '1h ago'),
     'Prices fetched from the public model price table, 1h ago.',
@@ -287,15 +266,13 @@ test('pricing and scan lines: source, staleness, missing models and a partial pa
   assert.match(partial, /skipped this pass/);
 });
 
-test('scanLine: counts the dirs array the wire actually sends', async () => {
-  const { scanLine } = await importCore();
+test('scanLine: counts the dirs array the wire actually sends', () => {
   assert.match(scanLine({ dirs: ['/a', '/b'], files: 3, entries: 4 }), /^Scanned 2 transcript directories, /);
   assert.match(scanLine({ dirs: ['/only'], files: 3, entries: 4 }), /^Scanned 1 transcript directory, /);
   assert.match(scanLine({ dirs: [], files: 3, entries: 4 }), /^Scanned 0 transcript directories, /);
 });
 
-test('unavailable reports: the reason is surfaced instead of a page of zeros', async () => {
-  const { isUsageUnavailable, usageErrorLine, usageWarningLine } = await importCore();
+test('unavailable reports: the reason is surfaced instead of a page of zeros', () => {
   assert.equal(isUsageUnavailable({ error: 'Usage tracking is disabled' }), true);
   assert.equal(usageErrorLine({ error: 'Usage tracking is disabled' }), 'Usage tracking is disabled');
   assert.equal(isUsageUnavailable({ error: null, totals: {} }), false);
@@ -310,8 +287,7 @@ test('unavailable reports: the reason is surfaced instead of a page of zeros', a
   assert.equal(usageWarningLine(null), '');
 });
 
-test('shouldApplyUsageReport: an unsolicited report always lands, a superseded reply never does', async () => {
-  const { shouldApplyUsageReport } = await importCore();
+test('shouldApplyUsageReport: an unsolicited report always lands, a superseded reply never does', () => {
 
   assert.equal(shouldApplyUsageReport({ requestId: null }, 'usage-4'), true);
   assert.equal(shouldApplyUsageReport({}, 'usage-4'), true);
@@ -320,8 +296,7 @@ test('shouldApplyUsageReport: an unsolicited report always lands, a superseded r
   assert.equal(shouldApplyUsageReport(null, 'usage-4'), false);
 });
 
-test('sessionRowLabel: a managed session wears its name, anything else its project basename', async () => {
-  const { sessionRowLabel, isGlimmervoidSessionRow } = await importCore();
+test('sessionRowLabel: a managed session wears its name, anything else its project basename', () => {
   assert.equal(sessionRowLabel({ id: 'abc', label: 'glimmervoid-1', project: 'C:\\repos\\glimmervoid' }), 'glimmervoid-1');
   assert.equal(sessionRowLabel({ id: null, label: 'ignored', project: 'C:\\repos\\other-thing' }), 'other-thing');
   assert.equal(sessionRowLabel({ id: null, label: '', project: '/home/x/projects/api/' }), 'api');
@@ -331,8 +306,7 @@ test('sessionRowLabel: a managed session wears its name, anything else its proje
   assert.equal(isGlimmervoidSessionRow({ id: null }), false);
 });
 
-test('sortSessionRows: last activity first, then tokens, then label; input is not mutated', async () => {
-  const { sortSessionRows } = await importCore();
+test('sortSessionRows: last activity first, then tokens, then label; input is not mutated', () => {
   const rows = [
     { id: 'a', label: 'alpha', tokens: 10, lastTs: 100 },
     { id: 'b', label: 'bravo', tokens: 50, lastTs: 900 },
@@ -346,8 +320,7 @@ test('sortSessionRows: last activity first, then tokens, then label; input is no
   assert.deepEqual(rows.map((r) => r.id), ['a', 'b', 'c', 'd', 'e', 'f']);
 });
 
-test('visibleSessionRows: caps collapsed session rows and reports hidden count', async () => {
-  const { SESSION_ROW_LIMIT, visibleSessionRows } = await importCore();
+test('visibleSessionRows: caps collapsed session rows and reports hidden count', () => {
   const underLimit = Array.from({ length: SESSION_ROW_LIMIT - 1 }, (_, index) => ({ id: String(index) }));
   const overLimit = Array.from({ length: SESSION_ROW_LIMIT + 3 }, (_, index) => ({ id: String(index) }));
 
@@ -360,8 +333,7 @@ test('visibleSessionRows: caps collapsed session rows and reports hidden count',
   assert.deepEqual(visibleSessionRows(null, false), { rows: [], hiddenCount: 0 });
 });
 
-test('sessionOverflowText: only positive hidden counts produce copy', async () => {
-  const { sessionOverflowText } = await importCore();
+test('sessionOverflowText: only positive hidden counts produce copy', () => {
   const forbidden = [String.fromCharCode(0x2014), String.fromCharCode(0x2013), String.fromCharCode(0x2026)];
 
   assert.equal(sessionOverflowText(0), '');
@@ -375,8 +347,7 @@ test('sessionOverflowText: only positive hidden counts produce copy', async () =
   }
 });
 
-test('sortDailyRows and sortModelRows: newest day first, biggest model first', async () => {
-  const { sortDailyRows, sortModelRows, modelLabel } = await importCore();
+test('sortDailyRows and sortModelRows: newest day first, biggest model first', () => {
   const daily = [{ day: '2026-08-12' }, { day: '2026-08-19' }, { day: '2026-08-15' }];
   assert.deepEqual(sortDailyRows(daily).map((r) => r.day), ['2026-08-19', '2026-08-15', '2026-08-12']);
   const models = [{ model: 'small', tokens: 10 }, { model: 'big', tokens: 900 }, { model: 'mid', tokens: 100 }];
@@ -386,8 +357,7 @@ test('sortDailyRows and sortModelRows: newest day first, biggest model first', a
   assert.deepEqual(sortModelRows(null), []);
 });
 
-test('sortUsageRows: any column, either direction, with the header state helpers agreeing', async () => {
-  const { sortUsageRows, sortSessionRows, nextSortState, defaultSortDir, ariaSortValue, modelLabel } = await importCore();
+test('sortUsageRows: any column, either direction, with the header state helpers agreeing', () => {
   const rows = [
     { id: 'a', label: 'alpha', tokens: 10, costUSD: 9, lastTs: 900 },
     { id: 'b', label: 'bravo', tokens: 90, costUSD: 1, lastTs: 100 },
@@ -417,16 +387,14 @@ test('sortUsageRows: any column, either direction, with the header state helpers
   assert.equal(ariaSortValue({ key: 'tokens', dir: 'asc' }, 'costUSD'), 'none');
 });
 
-test('dailyRowForDay: exact day match or null', async () => {
-  const { dailyRowForDay } = await importCore();
+test('dailyRowForDay: exact day match or null', () => {
   const daily = [{ day: '2026-08-18', tokens: 1 }, { day: '2026-08-19', tokens: 2 }];
   assert.equal(dailyRowForDay(daily, '2026-08-19')?.tokens, 2);
   assert.equal(dailyRowForDay(daily, '2026-08-01'), null);
   assert.equal(dailyRowForDay(null, '2026-08-19'), null);
 });
 
-test('blockHistoryRows: newest first, gaps dropped, active flagged, capped', async () => {
-  const { blockHistoryRows } = await importCore();
+test('blockHistoryRows: newest first, gaps dropped, active flagged, capped', () => {
   const blocks = [
     { startTs: 100, tokens: 10, costUSD: 1, isGap: false, isActive: false },
     { startTs: 200, tokens: 0, costUSD: 0, isGap: true, isActive: false },
@@ -443,16 +411,14 @@ test('blockHistoryRows: newest first, gaps dropped, active flagged, capped', asy
   assert.deepEqual(blockHistoryRows([]), []);
 });
 
-test('sessionChipText: tokens plus cost, tokens alone, or nothing to show', async () => {
-  const { sessionChipText } = await importCore();
+test('sessionChipText: tokens plus cost, tokens alone, or nothing to show', () => {
   assert.equal(sessionChipText({ tokens: 125000, costUSD: 1.234 }), '125k $1.23');
   assert.equal(sessionChipText({ tokens: 900, costUSD: 0 }), '900');
   assert.equal(sessionChipText({ tokens: 0, costUSD: 5 }), '');
   assert.equal(sessionChipText(null), '');
 });
 
-test('sessionChipCost: official cost wins over the estimate, and the title says which', async () => {
-  const { sessionChipCost, sessionChipText, sessionChipTitle } = await importCore();
+test('sessionChipCost: official cost wins over the estimate, and the title says which', () => {
   assert.deepEqual(sessionChipCost({ costUSD: 0.42, officialCostUSD: 2.75 }), { costUSD: 2.75, source: 'official' });
   assert.deepEqual(sessionChipCost({ costUSD: 0.42, officialCostUSD: null }), { costUSD: 0.42, source: 'estimated' });
   assert.deepEqual(sessionChipCost({ costUSD: 0.42, officialCostUSD: 0 }), { costUSD: 0.42, source: 'estimated' });
@@ -462,8 +428,7 @@ test('sessionChipCost: official cost wins over the estimate, and the title says 
   assert.match(sessionChipTitle({ costUSD: 0.42 }), /estimated API list-price/);
 });
 
-test('vendorTotalsRows and hasMultiVendorUsage: biggest first, and silent on an all-Claude machine', async () => {
-  const { vendorTotalsRows, hasMultiVendorUsage, vendorLabel } = await importCore();
+test('vendorTotalsRows and hasMultiVendorUsage: biggest first, and silent on an all-Claude machine', () => {
   const totals = {
     byVendor: {
       claude: { tokens: 1000, costUSD: 5 },
@@ -489,8 +454,7 @@ test('vendorTotalsRows and hasMultiVendorUsage: biggest first, and silent on an 
   assert.equal(vendorLabel('something-new'), 'something-new');
 });
 
-test('modelRowPrefix and claudeOnlyHint: only shown once another vendor is on the page', async () => {
-  const { modelRowPrefix, claudeOnlyHint, CLAUDE_ONLY_HINT } = await importCore();
+test('modelRowPrefix and claudeOnlyHint: only shown once another vendor is on the page', () => {
   const multi = { byVendor: { claude: { tokens: 1, costUSD: 1 }, codex: { tokens: 1, costUSD: 1 } } };
   const single = { byVendor: { claude: { tokens: 1, costUSD: 1 } } };
   assert.equal(modelRowPrefix({ vendor: 'codex' }, multi), 'Codex');
@@ -501,8 +465,7 @@ test('modelRowPrefix and claudeOnlyHint: only shown once another vendor is on th
   assert.equal(claudeOnlyHint(null), '');
 });
 
-test('planWindowOf and hasOfficialPlanLimits: a window is absent unless it reported something', async () => {
-  const { planWindowOf, hasOfficialPlanLimits, officialFiveHourPct } = await importCore();
+test('planWindowOf and hasOfficialPlanLimits: a window is absent unless it reported something', () => {
   const limits = { fiveHour: { pct: 12, resetsAtMs: 1000 }, sevenDay: null };
   assert.deepEqual(planWindowOf(limits, 'fiveHour'), { pct: 12, resetsAtMs: 1000 });
   assert.equal(planWindowOf(limits, 'sevenDay'), null);
@@ -518,8 +481,7 @@ test('planWindowOf and hasOfficialPlanLimits: a window is absent unless it repor
   assert.equal(officialFiveHourPct(null), null);
 });
 
-test('blockAttentionTone: official five-hour usage outranks the largest-block estimate', async () => {
-  const { blockAttentionTone, usageAttentionSignature } = await importCore();
+test('blockAttentionTone: official five-hour usage outranks the largest-block estimate', () => {
 
   const calmEstimate = { tokenLimit: { max: 1000, pct: 0.1 }, activeBlock: { projection: { projectedTokens: 200 } } };
   assert.equal(blockAttentionTone(calmEstimate), 'ok');
@@ -536,15 +498,7 @@ test('blockAttentionTone: official five-hour usage outranks the largest-block es
   assert.equal(blockAttentionTone(hotEstimate, null), 'warn');
 });
 
-test('provenanceLabel: every percentage is rendered next to what it came from', async () => {
-  const { provenanceLabel } = await importCore();
-  assert.equal(provenanceLabel('official'), 'official, from Claude Code');
-  assert.equal(provenanceLabel('estimated'), 'estimated from the largest completed block');
-  assert.equal(provenanceLabel(null), '');
-});
-
-test('planWindowUsedText and resetCountdownText: the pair the strip renders per window', async () => {
-  const { planWindowUsedText, resetCountdownText, NO_VALUE } = await importCore();
+test('planWindowUsedText and resetCountdownText: the pair the strip renders per window', () => {
   const now = 1_800_000_000_000;
   assert.equal(planWindowUsedText({ pct: 12 }), '12% used');
   assert.equal(planWindowUsedText({ pct: 68.4 }), '68.4% used');
@@ -559,8 +513,7 @@ test('planWindowUsedText and resetCountdownText: the pair the strip renders per 
   assert.equal(resetCountdownText(0, now), '');
 });
 
-test('plan limit staleness: shown with its age past the threshold, silent before it', async () => {
-  const { planLimitStaleNote, isPlanLimitStale, planLimitAgeText, PLAN_LIMIT_STALE_MS } = await importCore();
+test('plan limit staleness: shown with its age past the threshold, silent before it', () => {
   const now = 1_800_000_000_000;
   assert.equal(PLAN_LIMIT_STALE_MS, 60 * 60 * 1000);
   assert.equal(isPlanLimitStale(now - 60000, now), false);
@@ -575,21 +528,6 @@ test('plan limit staleness: shown with its age past the threshold, silent before
   assert.equal(planLimitStaleNote(null, now), 'showing last-known usage');
 });
 
-test('range options: the days the server validates, plus an unbounded default', async () => {
-  const { RANGE_OPTIONS, DEFAULT_RANGE_VALUE } = await importCore();
-  assert.equal(DEFAULT_RANGE_VALUE, 'all');
-  assert.ok(RANGE_OPTIONS.some((option) => option.value === DEFAULT_RANGE_VALUE));
-  for (const option of RANGE_OPTIONS) {
-    assert.equal(typeof option.value, 'string');
-    assert.equal(typeof option.label, 'string');
-    if (option.days === null) continue;
-    assert.ok(Number.isInteger(option.days), `${option.value} days must be an integer`);
-    assert.ok(option.days > 0 && option.days <= 3650, `${option.value} days must be in the server range`);
-  }
-
-  assert.equal(RANGE_OPTIONS.filter((option) => option.days === null).length, 1);
-});
-
 const RTK_SAVINGS = Object.freeze({
   available: true,
   commands: 250,
@@ -600,8 +538,7 @@ const RTK_SAVINGS = Object.freeze({
   daily: [{ date: '2026-08-21', commands: 191, savedTokens: 241780, savingsPct: 86.41 }],
 });
 
-test('hasSavings: true once either half has something, false when neither does', async () => {
-  const { hasSavings } = await importCore();
+test('hasSavings: true once either half has something, false when neither does', () => {
   assert.equal(hasSavings({ rtk: RTK_SAVINGS, cache: { savedUSD: 2.7, cacheReadTokens: 1000, unpricedModels: [] } }), true);
   assert.equal(hasSavings({ rtk: RTK_SAVINGS, cache: null }), true);
   assert.equal(hasSavings({ rtk: { available: false }, cache: { savedUSD: 2.7, cacheReadTokens: 1000, unpricedModels: [] } }), true);
@@ -612,8 +549,7 @@ test('hasSavings: true once either half has something, false when neither does',
   assert.equal(hasSavings({ rtk: { savedTokens: 5 }, cache: null }), false);
 });
 
-test('rtkSavingsTile: saved tokens lead, the rate and sample size qualify them', async () => {
-  const { rtkSavingsTile } = await importCore();
+test('rtkSavingsTile: saved tokens lead, the rate and sample size qualify them', () => {
   const tile = rtkSavingsTile({ rtk: RTK_SAVINGS });
   assert.ok(tile, 'an available rtk half renders a tile');
   assert.equal(tile.value, '869.7k tokens');
@@ -624,8 +560,7 @@ test('rtkSavingsTile: saved tokens lead, the rate and sample size qualify them',
   assert.equal(rtkSavingsTile(null), null);
 });
 
-test('cacheSavingsTile: dollars lead, the tokens behind them qualify', async () => {
-  const { cacheSavingsTile } = await importCore();
+test('cacheSavingsTile: dollars lead, the tokens behind them qualify', () => {
   const tile = cacheSavingsTile({ cache: { savedUSD: 2.7, cacheReadTokens: 1_000_000, unpricedModels: [] } });
   assert.ok(tile, 'a priced cache half renders a tile');
   assert.equal(tile.value, '$2.70');
@@ -634,16 +569,14 @@ test('cacheSavingsTile: dollars lead, the tokens behind them qualify', async () 
   assert.equal(cacheSavingsTile(null), null);
 });
 
-test('cacheSavingsTile: unpriced models turn the figure into a floor', async () => {
-  const { cacheSavingsTile } = await importCore();
+test('cacheSavingsTile: unpriced models turn the figure into a floor', () => {
   const one = cacheSavingsTile({ cache: { savedUSD: 2.7, cacheReadTokens: 1_500_000, unpricedModels: ['zzz'] } });
   assert.equal(one?.sub, '1.5M cache read tokens, a floor (1 unpriced model)');
   const many = cacheSavingsTile({ cache: { savedUSD: 2.7, cacheReadTokens: 1_500_000, unpricedModels: ['zzz', 'yyy'] } });
   assert.equal(many?.sub, '1.5M cache read tokens, a floor (2 unpriced models)');
 });
 
-test('compositionParts: the four parts in bar order, each as a share of their own sum', async () => {
-  const { compositionParts } = await importCore();
+test('compositionParts: the four parts in bar order, each as a share of their own sum', () => {
   const parts = compositionParts({ input: 250, output: 250, cacheCreate: 250, cacheRead: 250, tokens: 9_000_000 });
   assert.deepEqual(
     parts.map((part) => part.key),
@@ -669,8 +602,7 @@ test('compositionParts: the four parts in bar order, each as a share of their ow
   assert.equal(skewed[3].value, '999k');
 });
 
-test('compositionParts: nothing finite and positive means no row at all', async () => {
-  const { compositionParts } = await importCore();
+test('compositionParts: nothing finite and positive means no row at all', () => {
   assert.deepEqual(compositionParts({ input: 0, output: 0, cacheCreate: 0, cacheRead: 0 }), []);
   assert.deepEqual(compositionParts({}), []);
   assert.deepEqual(compositionParts(null), []);
@@ -680,8 +612,7 @@ test('compositionParts: nothing finite and positive means no row at all', async 
   assert.equal(compositionParts({ input: -50, output: 100, cacheCreate: 0, cacheRead: 0 })[1].pct, 100);
 });
 
-test('no produced string contains an em dash, en dash or ellipsis character', async () => {
-  const core = await importCore();
+test('no produced string contains an em dash, en dash or ellipsis character', () => {
   const forbidden = [String.fromCharCode(0x2014), String.fromCharCode(0x2013), String.fromCharCode(0x2026)];
   const numbers = [0, 1, 0.004, 999, 1000, 1250, 999950, 1234567.89, 1.5e9, -42, Number.NaN, Infinity, null, undefined];
   const now = 1_800_000_000_000;

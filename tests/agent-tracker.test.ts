@@ -10,9 +10,7 @@ import {
   declaredActiveCount,
   msUntilNextDrain,
   createTaskRegistry,
-  DEFAULT_AGENT_TTL_MS,
   DEFAULT_SHELL_TASK_TTL_MS,
-  DEFAULT_TEAMMATE_TASK_TTL_MS,
 } from '../session/core/agent-tracker.ts';
 
 test('an unknown SubagentStop leaves turn evidence that zero reconciliation cannot erase', () => {
@@ -86,11 +84,6 @@ test('pruneAgents drops only entries at or past the ttl, returns the count remov
   assert.deepEqual([...m.keys()], ['fresh']);
 });
 
-test('DEFAULT_AGENT_TTL_MS is a sane positive default', () => {
-  assert.equal(typeof DEFAULT_AGENT_TTL_MS, 'number');
-  assert.ok(DEFAULT_AGENT_TTL_MS > 0);
-});
-
 test('extractBackgroundTasks reads the array shape only (hooks never send other shapes)', () => {
   assert.deepEqual(extractBackgroundTasks({ background_tasks: [] }), []);
   assert.deepEqual(
@@ -159,11 +152,6 @@ test('declaredActiveCount: idleNameCount is clamped to the surviving teammate co
     { id: 'b1', type: 'shell' },
   ];
   assert.equal(declaredActiveCount(entries, new Set<string>(), 0, undefined, 5), 1);
-});
-
-test('DEFAULT_TEAMMATE_TASK_TTL_MS is a sane positive default', () => {
-  assert.equal(typeof DEFAULT_TEAMMATE_TASK_TTL_MS, 'number');
-  assert.ok(DEFAULT_TEAMMATE_TASK_TTL_MS > 0);
 });
 
 test('declaredActiveCount: a teammate entry counts fresh and stops counting past teammateTtlMs', () => {

@@ -52,6 +52,10 @@ export interface SettingsSection {
   settings: SettingsSetting[];
 }
 
+function capitalizedOptions(values: readonly string[]): SettingsOption[] {
+  return values.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) }));
+}
+
 export const SETTINGS_SECTION_ALIASES = Object.freeze({
   general: 'machine-general',
   updates: 'machine-updates',
@@ -254,7 +258,7 @@ export const SETTINGS_MAP = Object.freeze([
       {
         id: 'update-channel', path: 'updateChannel', title: 'Channel',
         description: 'Track tagged releases or the upstream of the checked-out branch.',
-        control: 'select', options: UPDATE_CHANNELS.map((value) => ({ value, label: value === 'release' ? 'Release' : 'Main' })),
+        control: 'select', options: capitalizedOptions(UPDATE_CHANNELS),
         keywords: ['release', 'branch'], defaultValue: 'release',
       },
       {
@@ -390,7 +394,7 @@ export const SETTINGS_MAP = Object.freeze([
         id: 'usage-cost-mode', path: 'usage.costMode', title: 'Cost mode',
         description: 'Choose whether recorded costs, calculated costs or both can appear.',
         control: 'select',
-        options: USAGE_COST_MODES.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) })),
+        options: capitalizedOptions(USAGE_COST_MODES),
         keywords: ['pricing', 'estimate'], defaultValue: 'auto',
       },
       {
@@ -434,7 +438,7 @@ export const SETTINGS_MAP = Object.freeze([
       {
         id: 'change-map-narrator-engine', path: 'changeMap.narrator.engine', title: 'Narrator engine',
         description: 'CLI used to generate change map claims.',
-        control: 'select', options: CHANGE_MAP_NARRATOR_ENGINES.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) })),
+        control: 'select', options: capitalizedOptions(CHANGE_MAP_NARRATOR_ENGINES),
         keywords: ['claude', 'codex'], defaultValue: 'claude',
       },
       {
@@ -843,7 +847,7 @@ export const SETTINGS_MAP = Object.freeze([
       {
         id: 'post-turn-checks-mode', path: 'postTurnChecks.mode', title: 'Post-turn checks mode',
         description: 'Default mode for post-turn checks. Project and individual rule modes override it, so Report can still allow file fixes.',
-        control: 'select', options: POST_TURN_CHECK_MODES.map((value) => ({ value, label: value === 'report' ? 'Report' : 'Fix' })),
+        control: 'select', options: capitalizedOptions(POST_TURN_CHECK_MODES),
         keywords: ['quality', 'fixes'], defaultValue: 'report',
       },
       {

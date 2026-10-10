@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { SettingsSection } from '../public/settings-map.ts';
 import { SETTINGS_RANGES } from '../shared/settings-ranges.ts';
+import { SETTINGS_MOVED_SETTINGS, SETTINGS_SECTION_ALIASES } from '../public/settings-map.ts';
 
 async function load() {
   const [{ SETTINGS_MAP }, core] = await Promise.all([
@@ -225,7 +226,6 @@ test('a typed secret is sent and an emptied one is sent as a clear', async () =>
 
 test('animal aliases and existing Appearance toggle links resolve to the new section', async () => {
   const { SETTINGS_MAP, parseSettingsHash } = await load();
-  const { SETTINGS_SECTION_ALIASES, SETTINGS_MOVED_SETTINGS } = await import('../public/settings-map.ts');
   for (const sectionId of ['animals', 'flying-animals', 'browser-flying-animals', 'browser-appearance']) {
     assert.deepEqual(parseSettingsHash(`#settings/${sectionId}/flying-animals`, SETTINGS_MAP, SETTINGS_SECTION_ALIASES, SETTINGS_MOVED_SETTINGS), {
       sectionId: 'browser-flying-animals', settingId: 'flying-animals', hash: '#settings/browser-flying-animals/flying-animals',

@@ -2,24 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { isSessionUsageChips, setSessionUsageChips, getThemeId } from '../public/ui-prefs.ts';
 import { SETTINGS_MAP } from '../public/settings-map.ts';
+import { stubLocalStorageForTest } from './helpers/frontend-global-stub.ts';
 
 test('session usage chips defaults off, normalizes booleans and persists without changing other preferences', (context) => {
-  const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
-  const storedValues = new Map<string, string>();
-  Object.defineProperty(globalThis, 'localStorage', {
-    configurable: true,
-    value: {
-      getItem: (key: string) => storedValues.get(key) ?? null,
-      setItem: (key: string, value: string) => storedValues.set(key, value),
-    },
-  });
-  context.after(() => {
-    if (originalStorage) {
-      Object.defineProperty(globalThis, 'localStorage', originalStorage);
-      return;
-    }
-    Reflect.deleteProperty(globalThis, 'localStorage');
-  });
+  const storedValues = stubLocalStorageForTest(context);
   assert.equal(isSessionUsageChips(), false);
   storedValues.set('glimmervoid-ui-prefs', JSON.stringify({ sessionUsageChips: 'true', themeId: 'midnight' }));
   assert.equal(isSessionUsageChips(), false);

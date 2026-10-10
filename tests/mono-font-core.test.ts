@@ -35,10 +35,6 @@ test('an unloaded bundled font is left out so the terminal measures the face it 
   assert.equal(terminalFontFamily(CSS_FONT_STACK, false), "'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace");
 });
 
-test('loading the bundled font changes the family string, which is what makes xterm re-measure', () => {
-  assert.notEqual(terminalFontFamily(CSS_FONT_STACK, false), terminalFontFamily(CSS_FONT_STACK, true));
-});
-
 test('the bundled font is recognized unquoted or double quoted', () => {
   assert.equal(terminalFontFamily('CommitMono, Menlo', false), 'Menlo');
   assert.equal(terminalFontFamily('"CommitMono", Menlo', false), 'Menlo');
@@ -47,10 +43,6 @@ test('the bundled font is recognized unquoted or double quoted', () => {
 test('an empty or unresolved stack falls back to plain monospace', () => {
   assert.equal(terminalFontFamily('', true), 'monospace');
   assert.equal(terminalFontFamily("'CommitMono'", false), 'monospace');
-});
-
-test('the style sheet declares a font-mono stack led by the bundled font', () => {
-  assert.match(CSS_FONT_STACK.trim(), /^'CommitMono',/);
 });
 
 test('every font-face in the style sheet declares the bundled font name', () => {

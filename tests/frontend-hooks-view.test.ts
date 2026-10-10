@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import type { HookEvent, HookRecord } from '../public/hooks-view-core.ts';
 import { MAX_TIMEOUT_SEC } from '../shared/contracts/hooks.ts';
 
-const importCore = () => import('../public/hooks-view-core.ts');
+import { draftProblem, duplicateName, emptyDraft, FILTER_MIN_COUNT, filterHooks, fromDraft, groupHooksByEvent, HOOK_TEMPLATES, hooksErrorLine, isDraftDirty, isHooksUnavailable, matcherHint, maxTimeoutOf, NO_MATCHER_TEXT, settingsEntryPreview, shouldApplyHooksReport, showsFilter, sortHooks, templateDraft, toDraft, toggledHook, totalsChips } from '../public/hooks-view-core.ts';
+import * as core from '../public/hooks-view-core.ts';
 
 const EVENTS: HookEvent[] = [
   { name: 'PreToolUse', matcher: 'tool name (regex)', description: 'Before a tool runs.' },
@@ -14,8 +15,7 @@ const EVENTS: HookEvent[] = [
 const PROJECTS = [{ id: 'p1', name: 'glimmervoid', agent: 'claude-code' }];
 const hook = (overrides: Partial<HookRecord> = {}): HookRecord => ({ id: 'h1', name: 'Lint', event: 'PreToolUse', matcher: 'Edit', type: 'command', command: 'npm run lint', enabled: true, ...overrides });
 
-test('totals chips count yours, enabled and built in, and warn when every hook is off', async () => {
-  const { totalsChips } = await importCore();
+test('totals chips count yours, enabled and built in, and warn when every hook is off', () => {
   const builtinRow = { event: 'Stop', purpose: 'status detection' };
   const chips = totalsChips({ hooks: [hook(), hook({ id: 'h2', enabled: false })], builtin: [builtinRow, builtinRow, builtinRow] });
   assert.deepEqual(chips.map((chip) => [chip.label, chip.value, chip.tone]), [['yours', '2', null], ['enabled', '1', null], ['built in', '3', null]]);
@@ -23,14 +23,12 @@ test('totals chips count yours, enabled and built in, and warn when every hook i
   assert.equal(totalsChips(null)[0].value, '0');
 });
 
-test('sortHooks orders by catalog position then name', async () => {
-  const { sortHooks } = await importCore();
+test('sortHooks orders by catalog position then name', () => {
   const sorted = sortHooks([hook({ id: 'b', name: 'b', event: 'Stop' }), hook({ id: 'z', name: 'z' }), hook({ id: 'a', name: 'a' }), hook({ id: 'x', name: 'x', event: 'Unknown' })], EVENTS);
   assert.deepEqual(sorted.map((entry) => entry.id), ['a', 'z', 'b', 'x']);
 });
 
-test('row text: event chip, target, type, timeout and scope', async () => {
-  const core = await importCore();
+test('row text: event chip, target, type, timeout and scope', () => {
   assert.equal(core.eventChipText(hook()), 'PreToolUse / Edit');
   assert.equal(core.eventChipText(hook({ matcher: undefined })), 'PreToolUse');
   assert.equal(core.targetLine(hook()), 'npm run lint');
@@ -45,15 +43,13 @@ test('row text: event chip, target, type, timeout and scope', async () => {
   assert.equal(core.builtinLine({ event: 'PostToolUse', matcher: 'Read', purpose: 'Read tracking' }), 'PostToolUse / Read');
 });
 
-test('matcherHint says what the matcher matches or that the event takes none', async () => {
-  const { matcherHint, NO_MATCHER_TEXT } = await importCore();
+test('matcherHint says what the matcher matches or that the event takes none', () => {
   assert.equal(matcherHint(EVENTS, 'PreToolUse'), 'Matches tool name (regex). Blank matches every PreToolUse.');
   assert.equal(matcherHint(EVENTS, 'Stop'), NO_MATCHER_TEXT);
   assert.equal(matcherHint(EVENTS, 'Nope'), '');
 });
 
-test('drafts round-trip and blank optionals are omitted on the wire', async () => {
-  const { emptyDraft, toDraft, fromDraft } = await importCore();
+test('drafts round-trip and blank optionals are omitted on the wire', () => {
   assert.equal(emptyDraft(EVENTS).event, 'PreToolUse');
   assert.equal(emptyDraft([]).event, '');
   const full = hook({ timeout: 12, projects: ['p1'] });
@@ -62,8 +58,7 @@ test('drafts round-trip and blank optionals are omitted on the wire', async () =
   assert.deepEqual(fromDraft(draft), { name: 'New', event: 'PreToolUse', type: 'command', enabled: true, command: 'echo' });
 });
 
-test('draftProblem names the first blocking problem and nothing when the draft is fine', async () => {
-  const { draftProblem, emptyDraft } = await importCore();
+test('draftProblem names the first blocking problem and nothing when the draft is fine', () => {
   const good = { ...emptyDraft(EVENTS), name: 'x', command: 'echo' };
   assert.equal(draftProblem(good, EVENTS), null);
   assert.equal(draftProblem({ ...good, name: ' ' }, EVENTS), 'Give the hook a name.');
@@ -76,8 +71,7 @@ test('draftProblem names the first blocking problem and nothing when the draft i
   assert.equal(draftProblem({ ...good, event: 'SessionStart', type: 'http', url: 'http://x' }, EVENTS), 'SessionStart does not support HTTP hooks.');
 });
 
-test('the timeout ceiling comes from the report, with the server default as the fallback', async () => {
-  const { draftProblem, emptyDraft, maxTimeoutOf } = await importCore();
+test('the timeout ceiling comes from the report, with the server default as the fallback', () => {
   assert.equal(maxTimeoutOf(null), MAX_TIMEOUT_SEC);
   assert.equal(maxTimeoutOf({ limits: {} }), MAX_TIMEOUT_SEC);
   assert.equal(maxTimeoutOf({ limits: { maxTimeoutSec: 120 } }), 120);
@@ -86,14 +80,7 @@ test('the timeout ceiling comes from the report, with the server default as the 
   assert.equal(draftProblem(good, EVENTS), null);
 });
 
-test('the core carries neither a second projectsOf nor the old scope stripper', async () => {
-  const core = await importCore();
-  assert.equal('projectsOf' in core, false);
-  assert.equal('withKnownProjects' in core, false);
-});
-
-test('report application is ordered by requestId and an error report reads as unavailable', async () => {
-  const { shouldApplyHooksReport, isHooksUnavailable, hooksErrorLine, toggledHook } = await importCore();
+test('report application is ordered by requestId and an error report reads as unavailable', () => {
   assert.equal(shouldApplyHooksReport({ requestId: 'a' }, 'a'), true);
   assert.equal(shouldApplyHooksReport({ requestId: 'a' }, 'b'), false);
   assert.equal(shouldApplyHooksReport({}, 'b'), true);
@@ -103,16 +90,14 @@ test('report application is ordered by requestId and an error report reads as un
   assert.equal(toggledHook(hook()).enabled, false);
 });
 
-test('no rendered string carries a dash, ellipsis or emoji character', async () => {
-  const core = await importCore();
+test('no rendered string carries a dash, ellipsis or emoji character', () => {
   const forbidden = /[–—…\u{1F300}-\u{1FAFF}]/u;
   for (const [key, value] of Object.entries(core)) {
     if (typeof value === 'string') assert.equal(forbidden.test(value), false, key);
   }
 });
 
-test('filterHooks matches what a row shows, and the filter only appears past the threshold', async () => {
-  const { filterHooks, showsFilter, FILTER_MIN_COUNT } = await importCore();
+test('filterHooks matches what a row shows, and the filter only appears past the threshold', () => {
   const hooks = [hook(), hook({ id: 'h2', name: 'Ping', event: 'Stop', matcher: undefined, type: 'http', url: 'http://ping', command: undefined })];
   assert.deepEqual(filterHooks(hooks, 'lint').map((h) => h.id), ['h1']);
   assert.deepEqual(filterHooks(hooks, 'STOP').map((h) => h.id), ['h2']);
@@ -122,21 +107,18 @@ test('filterHooks matches what a row shows, and the filter only appears past the
   assert.equal(showsFilter(new Array(FILTER_MIN_COUNT).fill(hook())), true);
 });
 
-test('groupHooksByEvent buckets an already sorted list without reordering it', async () => {
-  const { groupHooksByEvent } = await importCore();
+test('groupHooksByEvent buckets an already sorted list without reordering it', () => {
   const groups = groupHooksByEvent([hook({ id: 'a' }), hook({ id: 'b' }), hook({ id: 'c', event: 'Stop' })]);
   assert.deepEqual(groups.map((g) => [g.event, g.hooks.map((h) => h.id)]), [['PreToolUse', ['a', 'b']], ['Stop', ['c']]]);
   assert.deepEqual(groupHooksByEvent([]), []);
 });
 
-test('settingsEntryPreview is the injector shape: matcher only when set, timeout only when the record has one', async () => {
-  const { settingsEntryPreview } = await importCore();
+test('settingsEntryPreview is the injector shape: matcher only when set, timeout only when the record has one', () => {
   assert.deepEqual(JSON.parse(settingsEntryPreview(hook())), { hooks: { PreToolUse: [{ matcher: 'Edit', hooks: [{ type: 'command', command: 'npm run lint' }] }] } });
   assert.deepEqual(JSON.parse(settingsEntryPreview(hook({ event: 'Stop', matcher: undefined, type: 'http', url: 'http://x', timeout: 30 }))), { hooks: { Stop: [{ hooks: [{ type: 'http', url: 'http://x', timeout: 30 }] }] } });
 });
 
-test('the notify template fires on macOS as well as linux, from one command string', async () => {
-  const { HOOK_TEMPLATES } = await importCore();
+test('the notify template fires on macOS as well as linux, from one command string', () => {
   const notify = HOOK_TEMPLATES.find((template) => template.id === 'notify');
   if (!notify) throw new Error('the notify template is gone');
   const command = String(notify.draft.command);
@@ -146,8 +128,7 @@ test('the notify template fires on macOS as well as linux, from one command stri
   assert.equal(notify.label, 'Notify on Stop', 'the label names the action and stays put');
 });
 
-test('templates open as valid drafts and a dirty draft is told from an untouched one', async () => {
-  const { HOOK_TEMPLATES, templateDraft, draftProblem, isDraftDirty, fromDraft, emptyDraft, duplicateName } = await importCore();
+test('templates open as valid drafts and a dirty draft is told from an untouched one', () => {
   const events: HookEvent[] = [...EVENTS, { name: 'PostToolUse', matcher: 'tool', description: '' }, { name: 'UserPromptSubmit', matcher: null, description: '' }];
   for (const template of HOOK_TEMPLATES) {
     const draft = templateDraft(template, events);

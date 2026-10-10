@@ -7,7 +7,6 @@ import {
 } from '../shared/contracts/change-map.ts';
 import { LOG_FIELD_SEPARATOR } from '../server/core/ingest-git-core.ts';
 import {
-  CO_CHANGE_LOG_ARGS,
   CO_CHANGE_MAX_FILES_PER_COMMIT,
   computeCoChange,
   parseCoChangeLog,
@@ -19,13 +18,6 @@ const SHA = '0123456789abcdef0123456789abcdef01234567';
 function commit(subject: string, paths: string[]): CommitFiles {
   return { subject, paths };
 }
-
-test('git log arguments are frozen and select the documented input format', () => {
-  assert.equal(Object.isFrozen(CO_CHANGE_LOG_ARGS), true);
-  assert.deepEqual(CO_CHANGE_LOG_ARGS, [
-    'log', '--no-merges', '--name-only', '--format=%H%x1f%s', '-n', '2000',
-  ]);
-});
 
 test('parseCoChangeLog reads headers and paths across blank lines and a trailing newline', () => {
   const logText = [

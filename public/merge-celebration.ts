@@ -1,4 +1,4 @@
-import { el } from './dom-helpers.ts';
+import { el, setStyleProperties } from './dom-helpers.ts';
 import { confettiPieceStyleProperties } from './merge-celebration/confetti-core.ts';
 import { MERGE_CELEBRATION_SCENES, type MergeCelebrationScene } from './merge-celebration/scenes.ts';
 
@@ -12,7 +12,7 @@ function createConfettiPiece(pieceIndex: number): HTMLElement {
   const arc = el('span', 'merge-confetti-arc');
   arc.append(el('span', 'merge-confetti-paper'));
   piece.append(arc);
-  for (const [propertyName, value] of confettiPieceStyleProperties(pieceIndex)) piece.style.setProperty(propertyName, value);
+  setStyleProperties(piece, confettiPieceStyleProperties(pieceIndex));
   return piece;
 }
 

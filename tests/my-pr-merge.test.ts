@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { mergeMethodLabel, myPrMergeBlocker, myPrMergeRefusal } from '../shared/my-pr-merge.ts';
+import { myPrMergeBlocker, myPrMergeRefusal } from '../shared/my-pr-merge.ts';
 import { toMyPr } from '../server/core/my-prs-core.ts';
 import type { MyPr, MyPrSearchNode } from '../shared/contracts/my-prs.ts';
 
@@ -17,10 +17,6 @@ function readyPr(overrides: Partial<MyPr> = {}): MyPr {
   };
   return { ...toMyPr(node, 0), ...overrides };
 }
-
-test('maps a GitHub merge method to a readable label', () => {
-  assert.equal(mergeMethodLabel('SQUASH'), 'squash and merge');
-});
 
 test('a ready open pull request carries the head, queue flag and default method from the search node', () => {
   const pr = readyPr();

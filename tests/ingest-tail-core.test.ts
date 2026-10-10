@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  HEAD_SAMPLE_BYTES, LISTING_SETTLE_MS, MAX_CATCH_UP_BYTES, applyRead, canTrustCachedListing,
+  HEAD_SAMPLE_BYTES, LISTING_SETTLE_MS, applyRead, canTrustCachedListing,
   createTailState, fileIdentity, headChanged, headSample, isActiveMtime, pickStaleByMtime, planRead,
 } from '../server/core/ingest-tail-core.ts';
 import {
@@ -190,10 +190,6 @@ test('a read never spans more than the catch-up bound, and drops the line it cut
     dropPartial: true,
   });
   assert.deepEqual(lines, ['{"whole":1}']);
-});
-
-test('the catch-up bound is a plan value a caller can read rather than guess', () => {
-  assert.equal(MAX_CATCH_UP_BYTES, 256 * 1024);
 });
 
 test('a stat that never arrived leaves the offset exactly where it was', () => {

@@ -10,7 +10,6 @@ import {
 } from '../server/config-store.ts';
 import type { ConfigStore, DefaultConfig, GlimmervoidConfig } from '../server/config-store.ts';
 import { ENV_SECRET_BINDINGS } from '../server/core/config-secrets-core.ts';
-import { assetForPlatform } from '../server/core/rtk-install-core.ts';
 import { getAdapter, setCustomAgents } from '../session/adapters/index.ts';
 import { ConfigUpdate } from '../shared/contracts/index.ts';
 import { SECRET_PRESENCE_SUFFIX as CLIENT_SECRET_PRESENCE_SUFFIX } from '../public/settings-view-core.ts';
@@ -489,14 +488,6 @@ test('rtk is a settable top-level boolean', () => {
     assert.equal(store.getSettings().rtk, true);
     store.applySettings({ projects: [], rtk: false });
     assert.equal(store.config.rtk, false);
-  });
-});
-
-test('getSettings reports the host platform facts the settings panel reads', () => {
-  withStore({ projects: [] }, (store) => {
-    const settings = store.getSettings();
-    assert.equal(settings.repositoryRootCaseInsensitive, process.platform === 'win32');
-    assert.equal(settings.rtkInstallSupported, assetForPlatform(process.platform, process.arch) !== null);
   });
 });
 

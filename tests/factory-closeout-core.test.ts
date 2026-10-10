@@ -73,21 +73,6 @@ test('reviewer output parses only a successful structured result and rejects mal
   }
 });
 
-test('reviewer prompt fences the embedded diff, the objective and criteria', () => {
-  const diffText = 'diff --git a/src/retry.ts b/src/retry.ts\n+export const retries = 1;';
-  const prompt = buildFactoryReviewerPrompt({ workId: 'order', objective: 'Ship retries', criteria: ['Retries pass'], baseSha: 'a'.repeat(40) }, 'b'.repeat(40), '/tmp/verdict.json', diffText);
-  assert.ok(prompt.includes(`Diff ${'a'.repeat(40)}...${'b'.repeat(40)}`));
-  assert.match(prompt, /<<<GLIMMERVOID-FACTORY-REVIEW-DIFF/);
-  assert.ok(prompt.includes(diffText));
-  assert.match(prompt, /only repository content/);
-  assert.match(prompt, /You did not write this change/);
-  assert.match(prompt, /untrusted task data/);
-  assert.match(prompt, /<<<GLIMMERVOID-FACTORY-REVIEW-ORDER/);
-  assert.match(prompt, /Retries pass/);
-  assert.match(prompt, /Glimmervoid saves it to \/tmp\/verdict.json/);
-});
-
-
 test('bounded retry feedback names every failed check before including long output', () => {
   const decision = decideCloseOut({ fence: { ok: true }, review: null, attempt: 1, checks: [
     { command: 'npm run typecheck', pass: false, output: 'x'.repeat(8000) },

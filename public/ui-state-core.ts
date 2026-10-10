@@ -7,10 +7,10 @@ export interface UiState {
   borrowedCardId: string | null;
 }
 
-export type UiStatePatch = Partial<UiState>;
+type UiStatePatch = Partial<UiState>;
 export type UiStateSubscriber = (state: Readonly<UiState>, changedKeys: (keyof UiState)[], previousState: Readonly<UiState>) => void;
 
-export const INITIAL_UI_STATE: Readonly<UiState> = Object.freeze({
+const INITIAL_UI_STATE: Readonly<UiState> = Object.freeze({
   layout: 'desktop',
   activeView: 'focus',
   phoneScreen: null,
@@ -21,7 +21,7 @@ export const INITIAL_UI_STATE: Readonly<UiState> = Object.freeze({
 
 const asId = (value: string | null | undefined): string | null => value || null;
 
-export const UI_ACTIONS = Object.freeze({
+const UI_ACTIONS = Object.freeze({
   setLayout: (layout: string): UiStatePatch => ({ layout }),
   setActiveView: (activeView: string): UiStatePatch => ({ activeView }),
   setPhoneScreen: (screenId: string | null): UiStatePatch => ({ phoneScreen: asId(screenId) }),
@@ -30,7 +30,7 @@ export const UI_ACTIONS = Object.freeze({
   borrowCard: (id: string | null): UiStatePatch => ({ borrowedCardId: asId(id) }),
 });
 
-export type UiActionName = keyof typeof UI_ACTIONS;
+type UiActionName = keyof typeof UI_ACTIONS;
 
 export function createUiStateStore(initialState?: UiStatePatch) {
   let state: Readonly<UiState> = Object.freeze({ ...INITIAL_UI_STATE, ...initialState });

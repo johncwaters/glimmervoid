@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
 import type { EventEmitter } from 'node:events';
 import type { Session } from '../session/sessions.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
@@ -9,7 +9,7 @@ import { STATES } from '../shared/states.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import { buildCoherenceSessionOverrides } from './core/coherence-session-core.ts';
-import { buildOrchestratorPrompt, collapseWorkerEvents, decideOrchestrator, formatWorkerEvent, nextIntent } from './core/factory-core.ts';
+import { FACTORY_ORCHESTRATOR_EXIT_WINDOW_MS, buildOrchestratorPrompt, collapseWorkerEvents, decideOrchestrator, formatWorkerEvent, nextIntent } from './core/factory-core.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES, buildLanePermissions } from './core/lane-permissions-core.ts';
 import { registerEphemeralSession } from './ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
@@ -69,6 +69,12 @@ export function createFactoryOrchestrator<ManagedSession extends FactoryOrchestr
   const pendingTurns = new Set<Promise<void>>();
   let stopped = false;
 
+  function queuedLinesOf(projectId: string): string[] {
+    const queuedLines = queuedLinesByProject.get(projectId) ?? [];
+    queuedLinesByProject.set(projectId, queuedLines);
+    return queuedLines;
+  }
+
   function destroySession(record: OrchestratorRecord<ManagedSession>): void {
     record.shouldStop = true;
     record.session?.destroy();
@@ -109,11 +115,9 @@ export function createFactoryOrchestrator<ManagedSession extends FactoryOrchestr
   async function spawn(project: FactoryProjectState, intentId: string, previous: OrchestratorRecord<ManagedSession> | undefined): Promise<void> {
     const intent = project.orders.find((order) => order.id === intentId);
     if (!intent) return;
-    const queuedLines = queuedLinesByProject.get(project.projectId) ?? [];
-    queuedLinesByProject.set(project.projectId, queuedLines);
     const record: OrchestratorRecord<ManagedSession> = {
       session: null, intentId, recentExitTimesMs: previous?.recentExitTimesMs ?? [],
-      queuedLines, shouldStop: false, turnPending: false, pendingTurnCount: 0, turnChain: Promise.resolve(), error: previous?.error ?? null,
+      queuedLines: queuedLinesOf(project.projectId), shouldStop: false, turnPending: false, pendingTurnCount: 0, turnChain: Promise.resolve(), error: previous?.error ?? null,
     };
     records.set(project.projectId, record);
     let hasRegisteredSession = false;
@@ -137,7 +141,7 @@ export function createFactoryOrchestrator<ManagedSession extends FactoryOrchestr
       const onRemoved = () => {
         if (removed) return;
         removed = true;
-        if (!record.shouldStop && !stopped) record.recentExitTimesMs = [...record.recentExitTimesMs.filter((exitedAtMs) => exitedAtMs > now() - 600_000), now()];
+        if (!record.shouldStop && !stopped) record.recentExitTimesMs = [...record.recentExitTimesMs.filter((exitedAtMs) => exitedAtMs > now() - FACTORY_ORCHESTRATOR_EXIT_WINDOW_MS), now()];
         if (record.session === session) record.session = null;
         broadcast({ type: 'session-removed', id: identity.id, session: identity.name });
       };
@@ -218,10 +222,7 @@ export function createFactoryOrchestrator<ManagedSession extends FactoryOrchestr
 
   function notifyOrchestrator(projectId: string, event: FactoryWorkerEvent): void {
     if (stopped) return;
-    const line = formatWorkerEvent(FactoryWorkerEvent.parse(event));
-    const queuedLines = queuedLinesByProject.get(projectId) ?? [];
-    queuedLinesByProject.set(projectId, queuedLines);
-    queuedLines.push(line);
+    queuedLinesOf(projectId).push(formatWorkerEvent(FactoryWorkerEvent.parse(event)));
     const record = records.get(projectId);
     if (record) flushEvents(record);
   }

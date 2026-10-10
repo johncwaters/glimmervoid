@@ -1,11 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const importCore = () => import('../public/session-card/agent-core.ts');
+import { agentBadgeText, BUILTIN_AGENT_BADGE_LABELS, decideAgentAvailability, decideAgentPicker, DEFAULT_AGENT_ID, NO_AGENT_GUIDANCE } from '../public/session-card/agent-core.ts';
 
 test('built-in agent badge labels cover the contract ids and keep the default badge hidden', async () => {
   const { BUILTIN_AGENT_IDS } = await import('../shared/contracts/config.ts');
-  const { BUILTIN_AGENT_BADGE_LABELS, DEFAULT_AGENT_ID, agentBadgeText } = await importCore();
   assert.deepEqual(Object.keys(BUILTIN_AGENT_BADGE_LABELS).sort(), [...BUILTIN_AGENT_IDS].sort());
   for (const id of BUILTIN_AGENT_IDS) {
     assert.equal(agentBadgeText(id), BUILTIN_AGENT_BADGE_LABELS[id]);
@@ -18,42 +17,36 @@ test('built-in agent badge labels cover the contract ids and keep the default ba
   }
 });
 
-test('agentBadgeText: the default agent renders no badge', async () => {
-  const { agentBadgeText, DEFAULT_AGENT_ID } = await importCore();
+test('agentBadgeText: the default agent renders no badge', () => {
   assert.equal(agentBadgeText(DEFAULT_AGENT_ID), '');
   assert.equal(agentBadgeText('claude-code'), '');
 });
 
-test('agentBadgeText: a mapped non-default agent renders its short label', async () => {
-  const { agentBadgeText } = await importCore();
+test('agentBadgeText: a mapped non-default agent renders its short label', () => {
   assert.equal(agentBadgeText('codex'), 'Codex');
   assert.equal(agentBadgeText('grok'), 'Grok');
 });
 
-test('agentBadgeText: an unmapped id renders as-is rather than vanishing', async () => {
-  const { agentBadgeText } = await importCore();
+test('agentBadgeText: an unmapped id renders as-is rather than vanishing', () => {
   assert.equal(agentBadgeText('future-agent'), 'future-agent');
   assert.equal(agentBadgeText('  codex  '), 'Codex');
 });
 
-test('agentBadgeText: non-string and empty inputs render nothing', async () => {
-  const { agentBadgeText } = await importCore();
+test('agentBadgeText: non-string and empty inputs render nothing', () => {
   assert.equal(agentBadgeText(null), '');
   assert.equal(agentBadgeText(undefined), '');
   assert.equal(agentBadgeText(''), '');
   assert.equal(agentBadgeText(42), '');
 });
 
-test('decideAgentPicker: a single resolvable agent hides the picker', async () => {
-  const { decideAgentPicker } = await importCore();
+test('decideAgentPicker: a single resolvable agent hides the picker', () => {
   const out = decideAgentPicker([{ id: 'claude-code', label: 'Claude Code', resolvable: true }]);
   assert.equal(out.show, false);
   assert.equal(out.selectedId, 'claude-code');
   assert.deepEqual(out.options, [{ id: 'claude-code', label: 'Claude Code' }]);
 });
 
-test('decideAgentPicker: only resolvable agents are offered', async () => {
-  const { decideAgentPicker } = await importCore();
+test('decideAgentPicker: only resolvable agents are offered', () => {
   const out = decideAgentPicker([
     { id: 'claude-code', label: 'Claude Code', resolvable: true },
     { id: 'codex', label: 'Codex CLI', resolvable: false },
@@ -62,8 +55,7 @@ test('decideAgentPicker: only resolvable agents are offered', async () => {
   assert.deepEqual(out.options, [{ id: 'claude-code', label: 'Claude Code' }]);
 });
 
-test('decideAgentPicker: two resolvable agents show the picker, default selected', async () => {
-  const { decideAgentPicker } = await importCore();
+test('decideAgentPicker: two resolvable agents show the picker, default selected', () => {
   const out = decideAgentPicker([
     { id: 'claude-code', label: 'Claude Code', resolvable: true },
     { id: 'codex', label: 'Codex CLI', resolvable: true },
@@ -73,8 +65,7 @@ test('decideAgentPicker: two resolvable agents show the picker, default selected
   assert.deepEqual(out.options.map((o) => o.id), ['claude-code', 'codex']);
 });
 
-test('decideAgentPicker: when the default does not resolve, the first resolvable is selected', async () => {
-  const { decideAgentPicker } = await importCore();
+test('decideAgentPicker: when the default does not resolve, the first resolvable is selected', () => {
   const out = decideAgentPicker([
     { id: 'codex', label: 'Codex CLI', resolvable: true },
     { id: 'grok', label: 'Grok CLI', resolvable: true },
@@ -83,8 +74,7 @@ test('decideAgentPicker: when the default does not resolve, the first resolvable
   assert.equal(out.selectedId, 'codex');
 });
 
-test('decideAgentPicker: an option missing a label falls back to its id', async () => {
-  const { decideAgentPicker } = await importCore();
+test('decideAgentPicker: an option missing a label falls back to its id', () => {
   const out = decideAgentPicker([
     { id: 'claude-code', label: 'Claude Code', resolvable: true },
     { id: 'codex', resolvable: true },
@@ -95,8 +85,7 @@ test('decideAgentPicker: an option missing a label falls back to its id', async 
   ]);
 });
 
-test('decideAgentPicker: no resolvable agents hides the picker and keeps the default', async () => {
-  const { decideAgentPicker, DEFAULT_AGENT_ID } = await importCore();
+test('decideAgentPicker: no resolvable agents hides the picker and keeps the default', () => {
   const empty = decideAgentPicker([]);
   assert.equal(empty.show, false);
   assert.equal(empty.selectedId, DEFAULT_AGENT_ID);
@@ -105,15 +94,13 @@ test('decideAgentPicker: no resolvable agents hides the picker and keeps the def
   assert.equal(nonResolvable.selectedId, DEFAULT_AGENT_ID);
 });
 
-test('decideAgentPicker: bad input never throws', async () => {
-  const { decideAgentPicker, DEFAULT_AGENT_ID } = await importCore();
+test('decideAgentPicker: bad input never throws', () => {
   assert.equal(decideAgentPicker(null).selectedId, DEFAULT_AGENT_ID);
   assert.equal(decideAgentPicker(undefined).show, false);
   assert.equal(decideAgentPicker([null, {}, { id: 'codex', resolvable: true }, { resolvable: true }]).selectedId, 'codex');
 });
 
-test('decideAgentAvailability: a listing with no resolvable agent blocks spawning and explains why', async () => {
-  const { decideAgentAvailability, NO_AGENT_GUIDANCE } = await importCore();
+test('decideAgentAvailability: a listing with no resolvable agent blocks spawning and explains why', () => {
   const blocked = decideAgentAvailability({ agents: [{ id: 'claude-code', label: 'Claude Code', resolvable: false }] });
   assert.equal(blocked.canSpawn, false);
   assert.equal(blocked.guidance, NO_AGENT_GUIDANCE);
@@ -121,14 +108,12 @@ test('decideAgentAvailability: a listing with no resolvable agent blocks spawnin
   assert.equal(decideAgentAvailability({ agents: [] }).canSpawn, false);
 });
 
-test('decideAgentAvailability: one resolvable agent allows spawning with no guidance', async () => {
-  const { decideAgentAvailability } = await importCore();
+test('decideAgentAvailability: one resolvable agent allows spawning with no guidance', () => {
   const allowed = decideAgentAvailability({ agents: [{ id: 'codex', label: 'Codex CLI', resolvable: true }] });
   assert.deepEqual(allowed, { canSpawn: true, guidance: '' });
 });
 
-test('decideAgentAvailability: a failed or malformed listing never blocks spawning', async () => {
-  const { decideAgentAvailability } = await importCore();
+test('decideAgentAvailability: a failed or malformed listing never blocks spawning', () => {
   assert.equal(decideAgentAvailability({ agents: [], error: 'invalid request' }).canSpawn, true);
   assert.equal(decideAgentAvailability({}).canSpawn, true);
   assert.equal(decideAgentAvailability(null).canSpawn, true);

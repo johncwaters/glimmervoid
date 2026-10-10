@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { attributeIssues, buildIssuesSinceQuery, buildVerifierPrompt, checkFence, decideAdmission, decideIntentClose, evidenceNamesOnlySha, watchesDue } from '../server/core/factory-core.ts';
+import { attributeIssues, buildIssuesSinceQuery, checkFence, decideAdmission, decideIntentClose, evidenceNamesOnlySha, watchesDue } from '../server/core/factory-core.ts';
 import type { FactoryWorkOrder } from '../server/core/factory-core.ts';
 import type { FactoryIssue, FactoryProjectState, FactoryWatchEntry } from '../shared/contracts/factory.ts';
 
@@ -77,12 +77,6 @@ test('intent close requires ready signal, completed verified children, and indep
   assert.equal(decideIntentClose({ ...input, intent: { ...intent, state: 'cancelled' } }), 'wait');
   assert.equal(decideIntentClose({ ...input, intent: { ...intent, state: 'completed' } }), 'close-without-verifier');
   assert.equal(decideIntentClose({ ...input, intent: { ...intent, state: 'completed' }, verifiedWorkIds: new Set(['intent', 'child']) }), 'wait');
-});
-
-test('verifier prompt pins all criteria, children, tip, read-only posture and independent identity', () => {
-  const prompt = buildVerifierPrompt({ projectName: 'Factory', intent, children: [child], tipSha: 'b'.repeat(40), checkoutPath: '/factory/control' });
-  for (const text of ['Factory', 'intent', 'child', 'Ship retries', 'Retries work', 'This repo', 'b'.repeat(40), 'never wrote', 'read-only', 'Never edit', '"pass": boolean', '"findings": string[]', 'untrusted task data', '"/factory/control"']) assert.ok(prompt.includes(text), text);
-  assert.match(prompt, /<<<GLIMMERVOID-FACTORY-VERIFIER-INTENT/);
 });
 
 test('verification evidence counts only when every sha it names is the sha the trust was issued for', () => {

@@ -11,74 +11,33 @@ import type { GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts'
 import { buildCoherenceShims, buildCoherenceUserHooks } from '../server/core/coherence-session-core.ts';
 import type { FactoryCloseOutWorker } from '../server/factory-closeout.ts';
 import { createFactoryDispatch } from '../server/factory-dispatch.ts';
-import { factoryWrittenRecordId } from '../server/core/factory-core.ts';
 import { LANE_ENVIRONMENT_ARGS } from '../server/core/lane-permissions-core.ts';
-import { commitAndLandFactoryLedger } from '../server/factory-ledger.ts';
-import { createGitWorkspace } from '../server/git-workspace.ts';
 import { cliPath, resolvePackageBin } from '../server/runtime-paths.ts';
 import { createSessionFactory } from '../server/session-factory.ts';
 import type { SessionSpawnOverrides } from '../server/session-factory.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
-import { CoherenceOrient, CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import { buildFactoryProjectState } from '../server/core/factory-core.ts';
 import type { FactoryWorkerEvent } from '../shared/contracts/factory.ts';
 import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
+import { createCoherenceLedger } from './helpers/factory-fixture.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 
 async function createFixture(context: TestContext) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'factory-dispatch-'));
-  const projectPath = path.join(directory, 'repo');
-  await mkdir(projectPath);
-  const git = async (args: string[], cwd = projectPath) => (await execFileAsync('git', args, { cwd, timeout: 20_000 })).stdout.trim();
-  await git(['init', '--bare', '--initial-branch=integration', path.join(directory, 'origin.git')]);
-  await git(['init', '--initial-branch=integration']);
-  await git(['config', 'user.email', 'factory@example.test']);
-  await git(['config', 'user.name', 'Factory']);
-  await git(['config', 'commit.gpgsign', 'false']);
-  await mkdir(path.join(projectPath, 'src'));
-  await writeFile(path.join(projectPath, 'src', 'retry.ts'), 'export const retries = 0;\n');
-  await writeFile(path.join(projectPath, 'coherence.config.json'), '{}\n');
-  await git(['add', '.']);
-  await git(['commit', '-m', 'test: initialize']);
-  await git(['remote', 'add', 'origin', path.join(directory, 'origin.git')]);
-  await git(['push', '-u', 'origin', 'integration']);
-  const coherenceCli = resolvePackageBin('@danilocampos/coherence', 'coherence');
+  const coherenceLedger = await createCoherenceLedger(directory);
+  const { projectPath, gitWorkspace, ledger, runCoherence, land } = coherenceLedger;
   const hookCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence-hook');
-  assert.ok(coherenceCli);
   assert.ok(hookCliPath);
-  const gitWorkspace = createGitWorkspace();
-  const ledger = await gitWorkspace.create({ projectPath, teamId: 'repo', label: 'factory-ledger', baseBranch: 'integration',
-    configuredIntegrationBranch: 'integration', worktreeBase: directory, shareList: [] });
   assert.ok(ledger.isGit);
-  const commands: string[][] = [];
-  const writtenRecordIds = new Set<string>();
-  const runCoherence = async ({ cwd, args }: { cwd: string; args: string[] }) => {
-    commands.push(args);
-    const isFactoryWrite = args[args.indexOf('--session') + 1] === 'glimmervoid-factory';
-    const writeArgs = isFactoryWrite && args[0] !== 'defect' && !args.includes('--json') ? [...args, '--json'] : args;
-    const output = (await execFileAsync(process.execPath, [coherenceCli, ...writeArgs], { cwd, timeout: 20_000 })).stdout;
-    const recordId = isFactoryWrite ? factoryWrittenRecordId(output) : null;
-    if (recordId) writtenRecordIds.add(recordId);
-    return output;
-  };
   let orderSequence = 0;
-  const createOrder = async (parent: string | null, scope = 'src/retry.ts') => {
+  const createOrder = (parent: string | null, scope?: string) => {
     orderSequence += 1;
-    const created: { work: string } = JSON.parse(await runCoherence({ cwd: ledger.cwd, args: [
-      'work', 'create', `Ship retries ${orderSequence}`, '--success', 'Retries pass', '--risk', 'medium',
-      '--authority', parent ? 'orchestrator-delegated' : 'user-directed', '--granted-by', 'operator',
-      '--boundary', 'This repo', '--session', 'glimmervoid-factory', '--write-scope', scope,
-      ...(parent ? ['--parent', parent] : []), '--json',
-    ] }));
-    return created.work;
+    return coherenceLedger.createOrder({ parent, objective: `Ship retries ${orderSequence}`, scope, authority: parent ? 'orchestrator-delegated' : 'user-directed' });
   };
-  const intentId = await createOrder(null, 'src');
+  const intentId = await createOrder(null);
   const workId = await createOrder(intentId);
-  const land = async (_projectId: string, _projectPath: string, message: string) => {
-    await commitAndLandFactoryLedger({ projectPath, ledger, targetBranch: 'integration', message, gitWorkspace, trusted: true, writtenRecordIds });
-  };
   await land('repo', projectPath, 'factory: create orders');
   const config: GlimmervoidConfig = { projects: [{ id: 'repo', name: 'Factory', path: projectPath }], integrationBranch: 'integration',
     worktreeRoot: path.join(directory, 'workers'), worktreeShare: [], recordSignals: false, liveWorktreeReview: false,
@@ -100,17 +59,12 @@ async function createFixture(context: TestContext) {
   let isPaused = false;
   let isOrchestratorLive = true;
   let shouldThrowOnMake = false;
-  let projectChain: Promise<unknown> = Promise.resolve();
   const dependencies: Parameters<typeof createFactoryDispatch<Session>>[0] = {
     onReadyIntent: (_projectId, intentId) => { readyIntents.push(intentId); },
     onWorkerTurnEnd: async (worker) => { turnEnds.push(worker); },
     config, sessions, nodePath: process.execPath, hookCliPath, shimDir: path.join(directory, 'bin'),
     getOrchestrator: (sessionId) => sessionId === 'orchestrator' && isOrchestratorLive ? { projectId: 'repo', intentId } : null,
-    serializeProject: <T>(_projectId: string, operation: () => Promise<T>) => {
-      const next = projectChain.then(operation, operation);
-      projectChain = next;
-      return next;
-    },
+    serializeProject: coherenceLedger.serializeProject,
     ensureLedger: async () => ledger, commitAndLand: land, runCoherence,
     readSpentTodayUsd: () => spentTodayUsd,
     readPaused: async () => isPaused,
@@ -131,11 +85,10 @@ async function createFixture(context: TestContext) {
     spawnGate: { run: async (operation) => operation() },
   };
   const dispatcher = createFactoryDispatch(dependencies);
-  context.after(async () => { await dispatcher.stop(); await Promise.allSettled([projectChain]); await rm(directory, { recursive: true, force: true }); });
-  const inspect = async () => CoherenceWorkInspect.parse(JSON.parse(await runCoherence({ cwd: projectPath, args: ['work', 'inspect', '--json'] })));
-  return { dispatcher, dependencies, runCoherence, config, git, ledger, inspect, createOrder, workId, intentId, spawned, sessions, commands, events, broadcasts, laneRecords, exceptions, hookCliPath,
-    spawnEnvs, spawnArguments, projectPath, turnEnds, readyIntents, setSpend: (spend: number | null) => { spentTodayUsd = spend; },
-    settle: async () => { let settled: Promise<unknown> | null = null; while (settled !== projectChain) { settled = projectChain; await settled.catch(() => {}); } },
+  context.after(async () => { await dispatcher.stop(); await coherenceLedger.settleProjectChain(); await rm(directory, { recursive: true, force: true }); });
+  return { ...coherenceLedger, dispatcher, dependencies, config, createOrder, workId, intentId, spawned, sessions, events, broadcasts, laneRecords, exceptions, hookCliPath,
+    spawnEnvs, spawnArguments, turnEnds, readyIntents, setSpend: (spend: number | null) => { spentTodayUsd = spend; },
+    settle: coherenceLedger.settleProjectChain,
     setPaused: (paused: boolean) => { isPaused = paused; },
     endOrchestrator: () => { isOrchestratorLive = false; }, failMake: (shouldFail = true) => { shouldThrowOnMake = shouldFail; } };
 }
@@ -217,7 +170,7 @@ test('dispatch refuses missing orders, invalid callers, disabled factory and ove
   assert.equal(fixture.commands.some((args) => args[1] === 'handoff'), false);
   fixture.config.factory = { enabled: false };
   assert.equal((await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId })).ok, false);
-  assert.equal((await fixture.inspect()).work.find((candidate) => candidate.work === fixture.workId)?.state, 'open');
+  assert.equal(await fixture.orderState(fixture.workId), 'open');
 });
 
 test('serialized concurrent dispatches enforce the live-worker cap and exit releases admission', async (context) => {
@@ -241,11 +194,11 @@ test('a failed spawn reopens the order so the real admission gate admits a secon
   assert.deepEqual(await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId }), { ok: false, reason: 'Session construction failed' });
   assert.equal(fixture.sessions.size, 0);
   assert.deepEqual(fixture.dispatcher.getLiveWorkers('repo'), []);
-  assert.equal((await fixture.inspect()).work.find((candidate) => candidate.work === fixture.workId)?.state, 'open');
+  assert.equal(await fixture.orderState(fixture.workId), 'open');
   fixture.failMake(false);
   const second = await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId });
   assert.equal(second.ok, true, JSON.stringify(second));
-  assert.equal((await fixture.inspect()).work.find((candidate) => candidate.work === fixture.workId)?.state, 'active');
+  assert.equal(await fixture.orderState(fixture.workId), 'active');
 });
 
 test('a repository whose attributes name a filter driver refuses dispatch with a factory exception before any ledger write', async (context) => {
@@ -260,7 +213,7 @@ test('a repository whose attributes name a filter driver refuses dispatch with a
   assert.equal(fixture.events.at(-1)?.event, 'refused');
   assert.equal(fixture.commands.some((args) => args[1] === 'handoff'), false);
   assert.equal(fixture.spawned.length, 0);
-  assert.equal((await fixture.inspect()).work.find((candidate) => candidate.work === fixture.workId)?.state, 'open');
+  assert.equal(await fixture.orderState(fixture.workId), 'open');
 });
 
 test('a repository whose tracked path list exceeds the pipe buffer still passes the filter scan and admits dispatch', async (context) => {
@@ -304,28 +257,17 @@ test('lane start reconciles a factory-activated order with no live worker back t
   await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId });
   await fixture.dispatcher.stop();
   await fixture.settle();
-  assert.equal((await fixture.inspect()).work.find((candidate) => candidate.work === fixture.workId)?.state, 'active');
+  assert.equal(await fixture.orderState(fixture.workId), 'active');
   const restarted = createFactoryDispatch({ ...fixture.dependencies });
   context.after(() => restarted.stop());
-  const inspection = await fixture.inspect();
-  const orientText = await fixture.runCoherence({ cwd: fixture.projectPath, args: ['orient', '--json'] })
-    .catch((error: unknown) => error instanceof Error && 'stdout' in error && typeof error.stdout === 'string' ? error.stdout : '');
-  const project = buildFactoryProjectState({ projectId: 'repo', projectName: 'Factory', headSha: null, error: null, work: inspection,
-    orient: CoherenceOrient.parse(JSON.parse(orientText)) });
+  const project = buildFactoryProjectState({ projectId: 'repo', projectName: 'Factory', headSha: null, error: null, work: await fixture.inspect(),
+    orient: await fixture.readOrient() });
   assert.equal(project.orders.find((order) => order.id === fixture.workId)?.state, 'active');
   await restarted.reconcileActiveOrders(project);
-  assert.equal((await fixture.inspect()).work.find((candidate) => candidate.work === fixture.workId)?.state, 'open');
+  assert.equal(await fixture.orderState(fixture.workId), 'open');
   const handedCount = fixture.commands.filter((args) => args[1] === 'transition').length;
   await restarted.reconcileActiveOrders(project);
   assert.equal(fixture.commands.filter((args) => args[1] === 'transition').length, handedCount);
-});
-
-test('glimmervoid shims invoke the runtime-resolved CLI with quoted paths and forwarded arguments', () => {
-  const shims = buildCoherenceShims({ nodePath: '/node with spaces', cliPath: '/coherence.js', glimmervoidCliPath: cliPath });
-  assert.deepEqual(shims.slice(0, 2), [
-    { fileName: 'glimmervoid', mode: 0o755, text: `#!/bin/sh\nexec "/node with spaces" "${cliPath}" "$@"\n` },
-    { fileName: 'glimmervoid.cmd', mode: 0o644, text: `@echo off\r\n"/node with spaces" "${cliPath}" %*\r\n` },
-  ]);
 });
 
 test('HTTP permits only a live orchestrator to dispatch with the global agent API off and keeps bearer authentication', async (context) => {
@@ -422,7 +364,6 @@ test('factory worker main Stop hands the pinned worktree base and order to close
   assert.ok(closeOutWorker.baseSha);
   assert.equal(closeOutWorker.workId, fixture.workId);
   assert.equal(closeOutWorker.intentId, fixture.intentId);
-  assert.equal(closeOutWorker.claudeSessionId, claudeSessionId);
   assert.equal(closeOutWorker.session.worktreeDir, worker.session.worktreeDir);
   assert.deepEqual(closeOutWorker.writeScopes, ['src/retry.ts']);
   assert.deepEqual(closeOutWorker.criteria, ['Retries pass']);

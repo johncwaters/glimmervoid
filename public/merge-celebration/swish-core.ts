@@ -25,7 +25,7 @@ export function swishBallFlight() {
   };
 }
 
-export type SwishBallFlight = ReturnType<typeof swishBallFlight>;
+type SwishBallFlight = ReturnType<typeof swishBallFlight>;
 
 export function swishCourtStyleProperties(flight: SwishBallFlight = swishBallFlight()): Array<readonly [string, string]> {
   return [

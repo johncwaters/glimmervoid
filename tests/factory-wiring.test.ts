@@ -15,6 +15,7 @@ import { FactoryLaneState } from '../shared/contracts/factory.ts';
 import { createFactoryWiring } from '../server/factory-wiring.ts';
 import { cliPath as glimmervoidCliPath, resolvePackageBin } from '../server/runtime-paths.ts';
 import type { FactoryState } from '../shared/contracts/factory.ts';
+import { createRepositoryWithOrigin, gitRunnerIn, initGitRepository, stubEnvironmentVariable } from './helpers/factory-fixture.ts';
 import { waitFor } from './helpers/wait-for.ts';
 
 const REAL_PROCESS_DEADLINE_MS = 30_000;
@@ -136,14 +137,8 @@ for (const configuredBranch of [undefined, 'integration']) {
     const projectPath = path.join(directory, 'repo');
     const homeDir = path.join(directory, 'home');
     await mkdir(projectPath);
-    const git = async (args: string[], cwd = projectPath) => {
-      const { stdout } = await execFileAsync('git', args, { cwd, encoding: 'utf8', timeout: 20_000 });
-      return stdout.trim();
-    };
-    await git(['init', '--initial-branch=main']);
-    await git(['config', 'user.email', 'factory@example.test']);
-    await git(['config', 'user.name', 'Factory']);
-    await git(['config', 'commit.gpgsign', 'false']);
+    const git = gitRunnerIn(projectPath);
+    await initGitRepository(git, 'main');
     await writeFile(path.join(projectPath, 'coherence.config.json'), '{}\n');
     await git(['add', '.']);
     await git(['commit', '-m', 'Initial ledger']);
@@ -196,22 +191,14 @@ async function createFactoryFixture(context: test.TestContext, { integrationBran
   const projectPath = path.join(directory, 'repo');
   const homeDir = path.join(directory, 'home');
   await mkdir(projectPath);
-  const git = async (args: string[], cwd = projectPath) => {
-    const { stdout } = await execFileAsync('git', args, { cwd, encoding: 'utf8', timeout: 20_000 });
-    return stdout.trim();
-  };
+  const git = gitRunnerIn(projectPath);
   const commitLedger = async (cwd: string, content: string) => {
     await writeFile(path.join(cwd, 'coherence.config.json'), content);
     await git(['add', '.'], cwd);
     await git(['commit', '-m', 'Ledger'], cwd);
     return git(['rev-parse', 'HEAD'], cwd);
   };
-  const initRepository = async (cwd: string) => {
-    await git(['init', '--initial-branch=main'], cwd);
-    await git(['config', 'user.email', 'factory@example.test'], cwd);
-    await git(['config', 'user.name', 'Factory'], cwd);
-    await git(['config', 'commit.gpgsign', 'false'], cwd);
-  };
+  const initRepository = (cwd: string) => initGitRepository(git, 'main', cwd);
   const pollers: FactoryPoller[] = [];
   const messages: FactoryState[] = [];
   const config = { factory: { enabled: true }, integrationBranch, projects: [{ id: 'project-1', name: 'Factory', path: projectPath }] };
@@ -386,24 +373,8 @@ async function createIntentFixture(context: test.TestContext) {
     for (const wiring of wirings) await wiring.stop();
     await rm(directory, { recursive: true, force: true });
   });
-  const projectPath = path.join(directory, 'repo');
   const homeDir = path.join(directory, 'home');
-  const originPath = path.join(directory, 'origin.git');
-  await mkdir(projectPath);
-  const git = async (args: string[], cwd = projectPath) => {
-    const { stdout } = await execFileAsync('git', args, { cwd, encoding: 'utf8', timeout: 20_000 });
-    return stdout.trim();
-  };
-  await git(['init', '--bare', '--initial-branch=integration', originPath]);
-  await git(['init', '--initial-branch=integration']);
-  await git(['config', 'user.email', 'factory@example.test']);
-  await git(['config', 'user.name', 'Factory']);
-  await git(['config', 'commit.gpgsign', 'false']);
-  await writeFile(path.join(projectPath, 'coherence.config.json'), '{}\n');
-  await git(['add', '.']);
-  await git(['commit', '-m', 'Initial ledger']);
-  await git(['remote', 'add', 'origin', originPath]);
-  await git(['push', '-u', 'origin', 'integration']);
+  const { projectPath, originPath, git } = await createRepositoryWithOrigin(directory, 'integration', { 'coherence.config.json': '{}\n' });
   const config = { factory: { enabled: true }, integrationBranch: 'integration', projects: [{ id: 'project-1', name: 'Factory', path: projectPath }] };
   const broadcasts: FactoryState[] = [];
   const start = async (gitWorkspace?: GitWorkspaceInstance, runCoherence?: (request: { cwd: string; args: string[] }) => Promise<string>) => {
@@ -584,12 +555,7 @@ for (const mechanism of ['fsmonitor', 'smudge', 'clean', 'process', 'external-di
     if (['smudge', 'clean', 'process'].includes(mechanism)) await fixture.git(['config', 'filter.probe.required', 'true']);
     await fixture.git(['config', 'extensions.worktreeConfig', 'true']);
     if (configKey) await fixture.git(['config', '--worktree', configKey, probeCommand]);
-    const previousProbeToken = process.env.FACTORY_PROBE_TOKEN;
-    process.env.FACTORY_PROBE_TOKEN = 'server-secret-for-git-probe';
-    context.after(() => {
-      if (previousProbeToken === undefined) { delete process.env.FACTORY_PROBE_TOKEN; return; }
-      process.env.FACTORY_PROBE_TOKEN = previousProbeToken;
-    });
+    stubEnvironmentVariable(context, 'FACTORY_PROBE_TOKEN', 'server-secret-for-git-probe');
     const invocations: { args: string[]; secret: string | undefined }[] = [];
     const gitWorkspace = createGitWorkspace({ git: async (args, cwd, extra) => {
       invocations.push({ args, secret: extra?.replaceEnv?.FACTORY_PROBE_TOKEN });

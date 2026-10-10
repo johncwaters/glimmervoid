@@ -1,16 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { SCREEN_RESET, pendingResizes } from '../session/core/screen-keeper-core.ts';
+import { pendingResizes } from '../session/core/screen-keeper-core.ts';
 import type { ResizeMarker } from '../session/core/screen-keeper-core.ts';
 
 function marker(cols: number, atOffset: number): ResizeMarker {
   return { cols, rows: 24, atOffset };
 }
-
-test('the reset prefix is the exact escape run the sender and the keeper both write', () => {
-  assert.equal(SCREEN_RESET, '\x1bc\x1b[2J\x1b[3J\x1b[H');
-});
 
 test('a marker whose bytes are already parsed is due immediately', () => {
   const split = pendingResizes([marker(100, 0)], 0);

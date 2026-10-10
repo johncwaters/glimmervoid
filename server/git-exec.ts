@@ -10,7 +10,6 @@ interface CommandResult {
   stderr?: string;
   error?: unknown;
   timedOut?: boolean;
-  exitCode?: number | null;
 }
 
 interface ExecFileOptions {
@@ -86,7 +85,7 @@ async function runCommand(file: string, args: readonly string[], {
     const out = outputText(stdout);
     return { ok: true, out: trim ? out.trim() : out, err: '', stderr: outputText(stderr) };
   } catch (error) {
-    const failure = (error ?? {}) as { stdout?: unknown; stderr?: unknown; killed?: unknown; signal?: unknown; code?: unknown };
+    const failure = (error ?? {}) as { stdout?: unknown; stderr?: unknown; killed?: unknown; signal?: unknown };
     const stdout = outputText(failure.stdout);
     const stderr = outputText(failure.stderr);
     const message = errorMessage(error);
@@ -98,7 +97,6 @@ async function runCommand(file: string, args: readonly string[], {
       stderr,
       error,
       timedOut: failure.killed === true && Boolean(failure.signal),
-      exitCode: typeof failure.code === 'number' ? failure.code : null,
     };
   }
 }

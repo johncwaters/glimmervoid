@@ -1,4 +1,4 @@
-import { el } from '../dom-helpers.ts';
+import { el, setStyleProperties } from '../dom-helpers.ts';
 import { ROYAL_FLUSH_RANKS, royalFlushCardLayout, royalFlushCardStyleProperties, royalFlushTableStyleProperties } from './royal-flush-core.ts';
 import type { MergeCelebrationScene } from './scenes.ts';
 
@@ -6,7 +6,7 @@ const HEART_SVG = '<svg viewBox="0 0 10 9" aria-hidden="true"><path d="M5 8.5C5 
 
 function createCard(rank: string, cardIndex: number): HTMLElement {
   const deal = el('div', 'merge-flush-deal');
-  for (const [propertyName, value] of royalFlushCardStyleProperties(royalFlushCardLayout(cardIndex))) deal.style.setProperty(propertyName, value);
+  setStyleProperties(deal, royalFlushCardStyleProperties(royalFlushCardLayout(cardIndex)));
   const hop = el('div', 'merge-flush-hop');
   const card = el('div', 'merge-flush-card');
   const face = el('div', 'merge-flush-face');
@@ -20,8 +20,8 @@ function createCard(rank: string, cardIndex: number): HTMLElement {
 
 function buildRoyalFlushScene(): HTMLElement {
   const table = el('div', 'merge-flush-table');
-  for (const [propertyName, value] of royalFlushTableStyleProperties()) table.style.setProperty(propertyName, value);
-  ROYAL_FLUSH_RANKS.forEach((rank, cardIndex) => table.append(createCard(rank, cardIndex)));
+  setStyleProperties(table, royalFlushTableStyleProperties());
+  table.append(...ROYAL_FLUSH_RANKS.map(createCard));
   return table;
 }
 

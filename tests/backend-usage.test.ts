@@ -650,7 +650,7 @@ test('laneSpendSince counts only factory transcripts inside the requested day ac
   await wiring.start();
   const factoryTodayUsd = wiring.laneSpendSince('factory', startOfDayMs);
   assert.ok(factoryTodayUsd !== null && factoryTodayUsd > 0);
-  assert.ok(factoryTodayUsd < wiring.getSpentTodayUsd());
+  assert.ok(factoryTodayUsd < (wiring.laneSpendSince('interactive', startOfDayMs) ?? 0));
   assert.equal(wiring.laneSpendSince('factory', startOfDayMs - 86_400_000), factoryTodayUsd * 2);
   assert.equal(wiring.laneSpendSince('factory', nowMs + 1), 0);
   assert.equal(wiring.laneSpendSince('missing', startOfDayMs), 0);

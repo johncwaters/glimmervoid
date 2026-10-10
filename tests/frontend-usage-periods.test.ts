@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 
 import type { HeatmapCell, UsageModelRow, UsageWireRow } from '../public/usage-view-core.ts';
 
-const importCore = () => import('../public/usage-view-core.ts');
+import { anomalyLine, anomalyTone, BUDGET_ATTENTION_PCT, budgetRowMeterLabel, budgetRowPct, budgetRows, budgetRowText, budgetScopeLabel, DEFAULT_PERIOD_VIEW, glimmervoidOverhead, hasAnomaly, hasLaneAttribution, HEATMAP_DAY_LABELS, HEATMAP_WEEKS, heatmapCells, heatmapCellTitle, heatmapTone, historyNote, LANE_SCOPE_HINT, laneLabel, laneRows, laneSessionsText, monthKey, monthlyRows, NO_ANOMALY_LINE, overheadLanesText, overheadPlanText, PERIOD_VIEWS, periodHint, periodLabel, periodRows, prReviewsSpendTile, usageAttentionSignature, weeklyRows, weekStartKey } from '../public/usage-view-core.ts';
+import * as core from '../public/usage-view-core.ts';
 
 interface DayOptions {
   tokens?: number;
@@ -38,8 +39,7 @@ function cellFor(cells: Map<string, HeatmapCell>, dayKey: string): HeatmapCell {
   return cell;
 }
 
-test('weekStartKey: weeks start Monday, including across a month boundary', async () => {
-  const { weekStartKey } = await importCore();
+test('weekStartKey: weeks start Monday, including across a month boundary', () => {
 
   assert.equal(weekStartKey('2026-08-19'), '2026-08-17');
   assert.equal(weekStartKey('2026-08-17'), '2026-08-17', 'a Monday is its own week start');
@@ -52,16 +52,14 @@ test('weekStartKey: weeks start Monday, including across a month boundary', asyn
   assert.equal(weekStartKey('not-a-day'), '');
 });
 
-test('monthKey: calendar months, including December', async () => {
-  const { monthKey } = await importCore();
+test('monthKey: calendar months, including December', () => {
   assert.equal(monthKey('2026-08-19'), '2026-08');
   assert.equal(monthKey('2026-12-31'), '2026-12');
   assert.equal(monthKey('2026-01-01'), '2026-01');
   assert.equal(monthKey('nope'), '');
 });
 
-test('weeklyRows: a week spanning two months is one bucket carrying both months of days', async () => {
-  const { weeklyRows } = await importCore();
+test('weeklyRows: a week spanning two months is one bucket carrying both months of days', () => {
 
   const rows = weeklyRows([
     day('2026-08-31', { tokens: 100, costUSD: 1 }),
@@ -75,8 +73,7 @@ test('weeklyRows: a week spanning two months is one bucket carrying both months 
   assert.equal(rows[0].days, 3, 'the day count travels with the bucket');
 });
 
-test('monthlyRows: days split at the month boundary even inside one week', async () => {
-  const { monthlyRows } = await importCore();
+test('monthlyRows: days split at the month boundary even inside one week', () => {
   const rows = monthlyRows([
     day('2026-08-31', { tokens: 100, costUSD: 1 }),
     day('2026-09-01', { tokens: 200, costUSD: 2 }),
@@ -86,8 +83,7 @@ test('monthlyRows: days split at the month boundary even inside one week', async
   assert.equal(rows[1].tokens, 200);
 });
 
-test('period rollups merge the per-model breakdown, keeping the same row shape', async () => {
-  const { weeklyRows } = await importCore();
+test('period rollups merge the per-model breakdown, keeping the same row shape', () => {
   const opus = (tokens: number, cost: number): UsageModelRow => ({ key: 'claude-opus-5', model: 'claude-opus-5', vendor: 'claude', tokens, costUSD: cost, input: tokens, output: 0, cacheCreate: 0, cacheRead: 0 });
   const codex = (tokens: number, cost: number): UsageModelRow => ({ key: 'gpt-5.5', model: 'gpt-5.5', vendor: 'codex', tokens, costUSD: cost, input: tokens, output: 0, cacheCreate: 0, cacheRead: 0 });
   const rows = weeklyRows([
@@ -100,8 +96,7 @@ test('period rollups merge the per-model breakdown, keeping the same row shape',
   assert.equal(modelsOf(rows[0])[1].vendor, 'codex', 'the vendor survives the rollup');
 });
 
-test('period source: history only when every day in the bucket is history', async () => {
-  const { weeklyRows, historyNote } = await importCore();
+test('period source: history only when every day in the bucket is history', () => {
   const allHistory = weeklyRows([
     day('2026-08-17', { source: 'history' }),
     day('2026-08-18', { source: 'history' }),
@@ -117,8 +112,7 @@ test('period source: history only when every day in the bucket is history', asyn
   assert.equal(historyNote(null), '');
 });
 
-test('period rows carry the union of the vendors under them', async () => {
-  const { weeklyRows, monthlyRows } = await importCore();
+test('period rows carry the union of the vendors under them', () => {
   const opus = { key: 'claude-opus-5', model: 'claude-opus-5', vendor: 'claude', tokens: 100, costUSD: 1, input: 100, output: 0, cacheCreate: 0, cacheRead: 0 };
   const codex = { key: 'gpt-5.5', model: 'gpt-5.5', vendor: 'codex', tokens: 50, costUSD: 1, input: 50, output: 0, cacheCreate: 0, cacheRead: 0 };
   const rows = weeklyRows([
@@ -134,8 +128,7 @@ test('period rows carry the union of the vendors under them', async () => {
   assert.deepEqual(weeklyRows([{ day: '2026-08-17', tokens: 1, costUSD: 1, models: [] }])[0].vendors, []);
 });
 
-test('periodRows and periodLabel: one switch, three views, one label rule', async () => {
-  const { periodRows, periodLabel, periodHint, PERIOD_VIEWS, DEFAULT_PERIOD_VIEW } = await importCore();
+test('periodRows and periodLabel: one switch, three views, one label rule', () => {
   const daily = [day('2026-08-17'), day('2026-08-18')];
   assert.equal(periodRows(daily, 'day').length, 2);
   assert.equal(periodRows(daily, 'week').length, 1);
@@ -155,8 +148,7 @@ test('periodRows and periodLabel: one switch, three views, one label rule', asyn
   assert.ok(PERIOD_VIEWS.every((view) => typeof view.label === 'string' && view.label.length > 0));
 });
 
-test('heatmapCells: 16 week columns of Monday-to-Sunday rows, anchored on this week', async () => {
-  const { heatmapCells, HEATMAP_WEEKS, HEATMAP_DAY_LABELS } = await importCore();
+test('heatmapCells: 16 week columns of Monday-to-Sunday rows, anchored on this week', () => {
   const today = new Date(2026, 7, 19, 12);
   const { cells, weeks } = heatmapCells([day('2026-08-18')], { today });
   assert.equal(weeks, HEATMAP_WEEKS);
@@ -171,8 +163,7 @@ test('heatmapCells: 16 week columns of Monday-to-Sunday rows, anchored on this w
   assert.equal(lastColumn[6].day, '2026-08-23');
 });
 
-test('heatmapCells: a server day key makes later browser days beyond today', async () => {
-  const { heatmapCells } = await importCore();
+test('heatmapCells: a server day key makes later browser days beyond today', () => {
   const { cells } = heatmapCells([
     day('2026-08-19', { tokens: 100 }),
     day('2026-08-20', { tokens: 100 }),
@@ -183,8 +174,7 @@ test('heatmapCells: a server day key makes later browser days beyond today', asy
   assert.equal(cellFor(byDay, '2026-08-20').noData, true);
 });
 
-test('heatmapCells: an empty day in range is distinct from a no-data day', async () => {
-  const { heatmapCells } = await importCore();
+test('heatmapCells: an empty day in range is distinct from a no-data day', () => {
   const today = new Date(2026, 7, 19, 12);
   const { cells } = heatmapCells([
     day('2026-08-10', { tokens: 500 }),
@@ -201,8 +191,7 @@ test('heatmapCells: an empty day in range is distinct from a no-data day', async
   assert.equal(cellFor(byDay, '2026-08-18').noData, false);
 });
 
-test('heatmapTone: four filled steps scaled to the window peak, zero for nothing', async () => {
-  const { heatmapTone } = await importCore();
+test('heatmapTone: four filled steps scaled to the window peak, zero for nothing', () => {
   assert.equal(heatmapTone(0, 1000), 0);
   assert.equal(heatmapTone(100, 0), 0, 'no peak means no tone');
   assert.equal(heatmapTone(10, 1000), 1, 'a small nonzero day is still visible');
@@ -212,8 +201,7 @@ test('heatmapTone: four filled steps scaled to the window peak, zero for nothing
   assert.equal(heatmapTone(2000, 1000), 4, 'never above the top step');
 });
 
-test('heatmapCells: scaled to the window peak, and marks remembered days', async () => {
-  const { heatmapCells } = await importCore();
+test('heatmapCells: scaled to the window peak, and marks remembered days', () => {
   const today = new Date(2026, 7, 19, 12);
   const { cells, max } = heatmapCells([
     day('2026-08-18', { tokens: 1000 }),
@@ -227,15 +215,13 @@ test('heatmapCells: scaled to the window peak, and marks remembered days', async
   assert.deepEqual(heatmapCells([], { today }).cells.length, 16 * 7, 'an empty series still renders the frame');
 });
 
-test('heatmapCellTitle: the day, its tokens and its cost, or why there is nothing', async () => {
-  const { heatmapCellTitle } = await importCore();
+test('heatmapCellTitle: the day, its tokens and its cost, or why there is nothing', () => {
   assert.equal(heatmapCellTitle({ day: '2026-08-03', tokens: 1200000, costUSD: 14.2 }), 'Aug 3: 1.2M tokens, $14.20');
   assert.equal(heatmapCellTitle({ day: '2026-08-03', tokens: 0, costUSD: 0 }), 'Aug 3: no usage');
   assert.equal(heatmapCellTitle({ day: '2026-08-03', noData: true }), 'Aug 3: no data');
 });
 
-test('anomalyLine: the wording names the comparison, not just "unusual"', async () => {
-  const { anomalyLine, anomalyTone, hasAnomaly, NO_ANOMALY_LINE } = await importCore();
+test('anomalyLine: the wording names the comparison, not just "unusual"', () => {
   const daily = { kind: 'daily', todayUsd: 31, todayTokens: 5000, baselineUsd: 10, ratio: 3.1, baselineDays: 30 };
   assert.equal(
     anomalyLine({ daily, burn: null }),
@@ -263,8 +249,7 @@ test('anomalyLine: the wording names the comparison, not just "unusual"', async 
   assert.ok(NO_ANOMALY_LINE.length > 0, 'the quiet case still says something');
 });
 
-test('an anomaly raises the tab attention dot on its own', async () => {
-  const { usageAttentionSignature } = await importCore();
+test('an anomaly raises the tab attention dot on its own', () => {
   const calm = { tokenLimit: null, anomaly: { daily: null, burn: null } };
   assert.equal(usageAttentionSignature(calm), '');
   const flagged = { tokenLimit: null, anomaly: { daily: { ratio: 3, todayUsd: 30, baselineUsd: 10 }, burn: null } };
@@ -273,8 +258,7 @@ test('an anomaly raises the tab attention dot on its own', async () => {
   assert.equal(usageAttentionSignature({ tokenLimit: { max: 10, pct: 0.9 }, anomaly: null }), 'block:warn');
 });
 
-test('no forbidden characters reach the DOM from the new builders', async () => {
-  const core = await importCore();
+test('no forbidden characters reach the DOM from the new builders', () => {
   const forbidden = [String.fromCharCode(0x2014), String.fromCharCode(0x2013), String.fromCharCode(0x2026)];
   const produced = [core.NO_ANOMALY_LINE, ...core.HEATMAP_DAY_LABELS, ...core.PERIOD_VIEWS.map((view) => view.label)];
   for (const view of ['day', 'week', 'month', 'other']) {
@@ -291,8 +275,7 @@ test('no forbidden characters reach the DOM from the new builders', async () => 
   }
 });
 
-test('budgetRows: only rows with a real ceiling, nothing at all without a budget', async () => {
-  const { budgetRows } = await importCore();
+test('budgetRows: only rows with a real ceiling, nothing at all without a budget', () => {
   const report = { budget: { rows: [
     { scope: 'daily', spentUsd: 12.4, budgetUsd: 16, pct: 77.5, tone: 'warn' },
     { scope: 'monthly', spentUsd: 210, budgetUsd: null, pct: 0, tone: 'ok' },
@@ -304,8 +287,7 @@ test('budgetRows: only rows with a real ceiling, nothing at all without a budget
   assert.deepEqual(budgetRows({ budget: { rows: 'nope' } }), []);
 });
 
-test('budget row formatting: a position, not a bare percentage', async () => {
-  const { budgetRowText, budgetRowPct, budgetScopeLabel, budgetRowMeterLabel } = await importCore();
+test('budget row formatting: a position, not a bare percentage', () => {
   const row = { scope: 'daily', spentUsd: 12.4, budgetUsd: 16, pct: 77.5, tone: 'warn' };
   assert.equal(budgetRowText(row), '$12.40 of $16.00');
   assert.equal(budgetRowPct(row), 77.5);
@@ -317,8 +299,7 @@ test('budget row formatting: a position, not a bare percentage', async () => {
   assert.equal(budgetRowText({}), '$0.00 of $0.00');
 });
 
-test('a budget at or past 90 percent raises the tab dot on its own', async () => {
-  const { usageAttentionSignature, BUDGET_ATTENTION_PCT } = await importCore();
+test('a budget at or past 90 percent raises the tab dot on its own', () => {
   assert.equal(BUDGET_ATTENTION_PCT, 90);
   const at = (pct: number) => ({ tokenLimit: null, anomaly: null, budget: { rows: [{ scope: 'daily', spentUsd: 1, budgetUsd: 2, pct, tone: 'crit' }] } });
   assert.equal(usageAttentionSignature(at(89.9)), '');
@@ -331,8 +312,7 @@ test('a budget at or past 90 percent raises the tab dot on its own', async () =>
   assert.equal(usageAttentionSignature({ tokenLimit: { max: 10, pct: 0.95 }, budget: null }), 'block:warn');
 });
 
-test('laneRows and laneLabel: known lanes get names, unknown ids pass through', async () => {
-  const { laneRows, laneLabel } = await importCore();
+test('laneRows and laneLabel: known lanes get names, unknown ids pass through', () => {
   const report = { byLane: [
     { lane: 'pr-review', tokens: 100, costUSD: 4.2, sessions: 2 },
     { lane: 'other', tokens: 10, costUSD: 0.5, sessions: 1 },
@@ -351,8 +331,7 @@ test('laneRows and laneLabel: known lanes get names, unknown ids pass through', 
   assert.equal(laneLabel(''), 'Other');
 });
 
-test('prReviewsSpendTile reports the PR reviews lane spend and its share of the range', async () => {
-  const { prReviewsSpendTile } = await importCore();
+test('prReviewsSpendTile reports the PR reviews lane spend and its share of the range', () => {
   const report = {
     totals: { costUSD: 10, tokens: 5000 },
     byLane: [
@@ -363,8 +342,7 @@ test('prReviewsSpendTile reports the PR reviews lane spend and its share of the 
   assert.deepEqual(prReviewsSpendTile(report), { label: 'PR reviews', value: '1k', sub: '$2.50, 25% of range cost, 2 sessions' });
 });
 
-test('prReviewsSpendTile shows zero spend when no review ran and hides without lane data', async () => {
-  const { prReviewsSpendTile } = await importCore();
+test('prReviewsSpendTile shows zero spend when no review ran and hides without lane data', () => {
   const idle = prReviewsSpendTile({ totals: { costUSD: 4 }, byLane: [{ lane: 'interactive', tokens: 10, costUSD: 4, sessions: 1 }] });
   assert.deepEqual(idle, { label: 'PR reviews', value: '0', sub: '$0.00, 0% of range cost' });
   const unpriced = prReviewsSpendTile({ totals: { costUSD: 0, tokens: 400 }, byLane: [{ lane: 'team-review', tokens: 100, costUSD: 0, sessions: 1 }] });
@@ -373,8 +351,7 @@ test('prReviewsSpendTile shows zero spend when no review ran and hides without l
   assert.equal(prReviewsSpendTile(null), null);
 });
 
-test('the lanes section stays hidden until a real automation lane has spend', async () => {
-  const { hasLaneAttribution } = await importCore();
+test('the lanes section stays hidden until a real automation lane has spend', () => {
 
   assert.equal(hasLaneAttribution({ byLane: [{ lane: 'interactive', tokens: 1, costUSD: 1, sessions: 1 }] }), false);
   assert.equal(hasLaneAttribution({ byLane: [
@@ -390,8 +367,7 @@ test('the lanes section stays hidden until a real automation lane has spend', as
   assert.equal(hasLaneAttribution(null), false);
 });
 
-test('glimmervoidOverhead: Glimmervoid lane share per plan window, scaled onto the official plan percent', async () => {
-  const { glimmervoidOverhead, overheadPlanText, overheadLanesText } = await importCore();
+test('glimmervoidOverhead: Glimmervoid lane share per plan window, scaled onto the official plan percent', () => {
   const report = { planWindowLanes: {
     fiveHour: [
       { lane: 'team-review', tokens: 300, costUSD: 3, sessions: 2 },
@@ -415,8 +391,7 @@ test('glimmervoidOverhead: Glimmervoid lane share per plan window, scaled onto t
   assert.equal(overheadLanesText(sevenDay), 'Visions 300');
 });
 
-test('glimmervoidOverhead drops the plan percent of a window that already reset but keeps its share', async () => {
-  const { glimmervoidOverhead } = await importCore();
+test('glimmervoidOverhead drops the plan percent of a window that already reset but keeps its share', () => {
   const report = { planWindowLanes: { fiveHour: [{ lane: 'team-review', tokens: 100, costUSD: 1, sessions: 1 }, { lane: 'other', tokens: 100, costUSD: 1, sessions: 1 }] } };
   const [expiredWindow] = glimmervoidOverhead(report, { fiveHour: { pct: 90, resetsAtMs: 1_000 } }, 1_000);
   assert.equal(expiredWindow.sharePct, 50);
@@ -425,16 +400,14 @@ test('glimmervoidOverhead drops the plan percent of a window that already reset 
   assert.equal(windowWithoutReset.planPct, 45);
 });
 
-test('glimmervoidOverhead skips a window with no rows and returns nothing without the field', async () => {
-  const { glimmervoidOverhead } = await importCore();
+test('glimmervoidOverhead skips a window with no rows and returns nothing without the field', () => {
   assert.deepEqual(glimmervoidOverhead({}, null), []);
   assert.deepEqual(glimmervoidOverhead({ planWindowLanes: null }, null), []);
   const windows = glimmervoidOverhead({ planWindowLanes: { fiveHour: null, sevenDay: [] } }, null);
   assert.deepEqual(windows.map((window) => [window.key, window.sharePct]), [['sevenDay', null]]);
 });
 
-test('laneSessionsText and the scope hint say what is and is not counted', async () => {
-  const { laneSessionsText, LANE_SCOPE_HINT } = await importCore();
+test('laneSessionsText and the scope hint say what is and is not counted', () => {
   assert.equal(laneSessionsText(1), '1 session');
   assert.equal(laneSessionsText(4), '4 sessions');
   assert.equal(laneSessionsText(1234), '1,234 sessions');

@@ -228,13 +228,6 @@ async function readGitStrict(args: string[], options: RunGitOptions): Promise<st
   return command.out;
 }
 
-async function readGitLookup(args: string[], options: RunGitOptions): Promise<string | null> {
-  const command = await runGit(args, { ...options, trim: false });
-  if (command.ok) return command.out;
-  if (command.exitCode === GIT_NOT_FOUND_EXIT_CODE) return null;
-  throw gitCommandFailure(args, command, options.timeoutMs);
-}
-
 function branchFromHeadRef(headRef: string): string {
   const localBranchPrefix = "refs/heads/";
   return headRef.startsWith(localBranchPrefix) ? headRef.slice(localBranchPrefix.length) : "";
@@ -313,8 +306,7 @@ function createSessionWorktreeLifecycle({
     return runSessionGit(args, options);
   }
   function gitLookup(args: string[], options: RunGitOptions): Promise<string | null> {
-    if (!gitIsolation?.disableRepoCommands) return readGitLookup(args, options);
-    return runSessionGit(args, options).catch((error: unknown) => {
+    return gitOut(args, options).catch((error: unknown) => {
       if ((error as { code?: unknown } | null)?.code === GIT_NOT_FOUND_EXIT_CODE) return null;
       throw error;
     });

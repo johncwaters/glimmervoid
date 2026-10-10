@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { TraceRecord } from '../shared/contracts/trace.ts';
 import { TOOL_DETAIL_MAX_CHARS } from '../shared/tool-detail.ts';
 
-const importCore = () => import('../public/trace-view-core.ts');
+import { appendTraceRecords, createTraceGrouping, earlierTraceRequest, formatTurnMetrics, hasEarlierTracePages, isKindHidden, nextTraceRequest, prependTraceRecords, resolveTraceSessionId, shouldRebuildTraceView, toggleHiddenKind, traceEmptyState, traceRecordBody, traceReplyOutcome, traceResidentRowCount, traceRowParts, traceSessionOptions, traceSessionStartedAtMs, traceTurnDurationMs, trimTraceGrouping } from '../public/trace-view-core.ts';
 
 const baseRecord = {
   ts: 1,
@@ -19,7 +19,6 @@ function record(value: Record<string, unknown>): TraceRecord {
 }
 
 async function turnsOf(records: readonly TraceRecord[]) {
-  const { appendTraceRecords, createTraceGrouping } = await importCore();
   const grouping = createTraceGrouping();
   appendTraceRecords(grouping, records);
   return grouping.turns;
@@ -77,8 +76,7 @@ test('a skill expansion stays inside its turn because it carries a tool use id',
   ]);
 });
 
-test('a later page appends to the open turn and starts new ones without regrouping', async () => {
-  const { appendTraceRecords, createTraceGrouping } = await importCore();
+test('a later page appends to the open turn and starts new ones without regrouping', () => {
   const grouping = createTraceGrouping();
   appendTraceRecords(grouping, [
     record({ kind: 'prompt', text: 'first prompt' }),
@@ -105,7 +103,6 @@ test('a later page appends to the open turn and starts new ones without regroupi
 });
 
 test('tool rows share detail fields, resolve results to calls and carry markers', async () => {
-  const { traceRecordBody } = await importCore();
   const command = `${'x'.repeat(TOOL_DETAIL_MAX_CHARS + 20)}\nsecond line`;
   const records = [
     record({ kind: 'prompt', text: 'run it' }),
@@ -174,8 +171,7 @@ test('a truncated raw row keeps its text and carries a badge', async () => {
   assert.deepEqual(rows[0].badges, ['truncated']);
 });
 
-test('trace row parts name every kind and derive error and muted tones', async () => {
-  const { traceRowParts } = await importCore();
+test('trace row parts name every kind and derive error and muted tones', () => {
   const toolCall = record({ kind: 'tool_call', toolUseId: 'bash-1', name: 'Bash', input: { command: 'npm test' } });
   if (toolCall.kind !== 'tool_call') assert.fail('expected a tool call');
   const toolCalls = new Map([['bash-1', toolCall]]);
@@ -214,8 +210,7 @@ test('trace row parts name every kind and derive error and muted tones', async (
   });
 });
 
-test('selector rules honor a valid preselection, preserve selection and fall back only once the panel is shown', async () => {
-  const { resolveTraceSessionId, traceSessionOptions } = await importCore();
+test('selector rules honor a valid preselection, preserve selection and fall back only once the panel is shown', () => {
   const options = traceSessionOptions([
     { id: 'a', name: 'Alpha' },
     { id: 'b', name: 'Beta' },
@@ -230,8 +225,7 @@ test('selector rules honor a valid preselection, preserve selection and fall bac
   assert.equal(resolveTraceSessionId(options, 'b', null, false), 'b');
 });
 
-test('a page is requested only for a selected session on a visible panel with nothing in flight', async () => {
-  const { nextTraceRequest } = await importCore();
+test('a page is requested only for a selected session on a visible panel with nothing in flight', () => {
   const visible = { selectedSessionId: 'a', isPanelVisible: true, hasPendingRequest: false, hasLoadedOnce: true, nextOffset: 512 };
   assert.deepEqual(nextTraceRequest(visible), { id: 'a', direction: 'forward', after: 512 });
   assert.equal(nextTraceRequest({ ...visible, isPanelVisible: false }), null);
@@ -239,22 +233,19 @@ test('a page is requested only for a selected session on a visible panel with no
   assert.equal(nextTraceRequest({ ...visible, selectedSessionId: null }), null);
 });
 
-test('empty state names the selected session and handles an empty selector', async () => {
-  const { traceEmptyState } = await importCore();
+test('empty state names the selected session and handles an empty selector', () => {
   assert.equal(traceEmptyState({ id: 'a', label: 'Alpha' }), 'No trace has been recorded for Alpha.');
   assert.equal(traceEmptyState(null), 'No sessions are available.');
 });
 
-test('the first request for a session asks for the tail and later requests walk forward', async () => {
-  const { nextTraceRequest } = await importCore();
+test('the first request for a session asks for the tail and later requests walk forward', () => {
   const unseeded = { selectedSessionId: 'a', isPanelVisible: true, hasPendingRequest: false, hasLoadedOnce: false, nextOffset: 0 };
   assert.deepEqual(nextTraceRequest(unseeded), { id: 'a', direction: 'tail', after: 0, endingAt: 'tail' });
   assert.deepEqual(nextTraceRequest({ ...unseeded, hasLoadedOnce: true, nextOffset: 900 }), { id: 'a', direction: 'forward', after: 900 });
   assert.equal(nextTraceRequest({ ...unseeded, hasPendingRequest: true }), null);
 });
 
-test('an earlier page is offered only while a contiguous start is known', async () => {
-  const { earlierTraceRequest, hasEarlierTracePages } = await importCore();
+test('an earlier page is offered only while a contiguous start is known', () => {
   const seeded = {
     selectedSessionId: 'a',
     hasPendingRequest: false,
@@ -273,8 +264,7 @@ test('an earlier page is offered only while a contiguous start is known', async 
   assert.equal(earlierTraceRequest({ ...seeded, residentRowCount: 5000 }), null);
 });
 
-test('a reply is applied forward, applied earlier, reset or dropped by the pending request it answers', async () => {
-  const { traceReplyOutcome } = await importCore();
+test('a reply is applied forward, applied earlier, reset or dropped by the pending request it answers', () => {
   const resident = { sessionId: 'a', firstOffset: 4096, nextOffset: 9000, hasLoadedOnce: true };
   const forward = { id: 'a', direction: 'forward' as const, after: 9000 };
   const earlier = { id: 'a', direction: 'earlier' as const, after: 0, endingAt: 4096 };
@@ -298,8 +288,7 @@ test('a reply is applied forward, applied earlier, reset or dropped by the pendi
   assert.equal(traceReplyOutcome({ pendingRequest: forward, resident, reply: { ...reply, next: 8999 } }), 'reset');
 });
 
-test('an earlier page prepends its turns and merges the turn split across the page boundary', async () => {
-  const { appendTraceRecords, createTraceGrouping, prependTraceRecords } = await importCore();
+test('an earlier page prepends its turns and merges the turn split across the page boundary', () => {
   const grouping = createTraceGrouping();
   appendTraceRecords(grouping, [
     record({ kind: 'assistant', text: 'tail of the earlier turn' }),
@@ -315,8 +304,7 @@ test('an earlier page prepends its turns and merges the turn split across the pa
   assert.equal(grouping.toolCallByUseId.has('bash-1'), true);
 });
 
-test('prepending preserves resident turn objects and reports only newly built turns', async () => {
-  const { appendTraceRecords, createTraceGrouping, prependTraceRecords } = await importCore();
+test('prepending preserves resident turn objects and reports only newly built turns', () => {
   const grouping = createTraceGrouping();
   appendTraceRecords(grouping, [
     record({ kind: 'prompt', text: 'resident prompt' }),
@@ -332,8 +320,7 @@ test('prepending preserves resident turn objects and reports only newly built tu
   assert.equal(grouping.turns[1], residentTurn);
 });
 
-test('a boundary turn split lowers the resident base and still merges in place', async () => {
-  const { appendTraceRecords, createTraceGrouping, prependTraceRecords } = await importCore();
+test('a boundary turn split lowers the resident base and still merges in place', () => {
   const grouping = createTraceGrouping();
   appendTraceRecords(grouping, [record({ kind: 'assistant', text: 'resident answer', ts: 5000 })]);
 
@@ -344,8 +331,7 @@ test('a boundary turn split lowers the resident base and still merges in place',
   assert.equal(prepend.needsRerender, false);
 });
 
-test('turn durations measure from the turn start to its latest row', async () => {
-  const { appendTraceRecords, createTraceGrouping, traceTurnDurationMs } = await importCore();
+test('turn durations measure from the turn start to its latest row', () => {
   const grouping = createTraceGrouping();
   appendTraceRecords(grouping, [
     record({ kind: 'prompt', text: 'prompt', ts: 1000 }),
@@ -356,8 +342,7 @@ test('turn durations measure from the turn start to its latest row', async () =>
   assert.equal(traceTurnDurationMs(grouping.turns[0]), 5000);
 });
 
-test('turn metrics format counts bytes and elapsed time', async () => {
-  const { appendTraceRecords, createTraceGrouping, formatTurnMetrics } = await importCore();
+test('turn metrics format counts bytes and elapsed time', () => {
   const grouping = createTraceGrouping();
   appendTraceRecords(grouping, [
     record({ kind: 'prompt', text: 'prompt', ts: 1000 }),
@@ -378,8 +363,7 @@ test('turn metrics format counts bytes and elapsed time', async () => {
   assert.equal(formatTurnMetrics(grouping.turns[0]), '14 rows, 5 tools, 1 error, 12.4 KB, 1:32');
 });
 
-test('turn metrics accumulate through append and prepend merge and reduce on trim', async () => {
-  const { appendTraceRecords, createTraceGrouping, prependTraceRecords, trimTraceGrouping } = await importCore();
+test('turn metrics accumulate through append and prepend merge and reduce on trim', () => {
   const grouping = createTraceGrouping();
   appendTraceRecords(grouping, [
     record({ kind: 'assistant', text: 'resident answer', ts: 3000 }),
@@ -397,8 +381,7 @@ test('turn metrics accumulate through append and prepend merge and reduce on tri
   assert.deepEqual(grouping.turns[0].metrics, { rowCount: 2, toolCallCount: 0, errorCount: 1, resultBytes: 4 });
 });
 
-test('a page beginning with a tool result is relabeled when its Bash call arrives earlier', async () => {
-  const { appendTraceRecords, createTraceGrouping, prependTraceRecords } = await importCore();
+test('a page beginning with a tool result is relabeled when its Bash call arrives earlier', () => {
   const grouping = createTraceGrouping();
   appendTraceRecords(grouping, [
     record({ kind: 'tool_result', toolUseId: 'bash-1', content: 'ok', isError: false, truncated: false, ts: 1142 }),
@@ -415,8 +398,7 @@ test('a page beginning with a tool result is relabeled when its Bash call arrive
   assert.equal(grouping.unresolvedToolUseCounts.size, 0);
 });
 
-test('tool latency uses seconds above one second and ignores negative deltas', async () => {
-  const { traceRowParts } = await importCore();
+test('tool latency uses seconds above one second and ignores negative deltas', () => {
   const toolCall = record({ kind: 'tool_call', toolUseId: 'bash-1', name: 'Bash', input: {}, ts: 1000 });
   if (toolCall.kind !== 'tool_call') assert.fail('expected a tool call');
   const toolCalls = new Map([['bash-1', toolCall]]);
@@ -426,8 +408,7 @@ test('tool latency uses seconds above one second and ignores negative deltas', a
   assert.deepEqual(traceRowParts(earlyResult, toolCalls).badges, []);
 });
 
-test('a tool result stays relabelable when its call arrives two pages later', async () => {
-  const { appendTraceRecords, createTraceGrouping, prependTraceRecords } = await importCore();
+test('a tool result stays relabelable when its call arrives two pages later', () => {
   const grouping = createTraceGrouping();
   appendTraceRecords(grouping, [record({ kind: 'assistant', text: 'resident answer' })]);
 
@@ -448,8 +429,7 @@ test('a tool result stays relabelable when its call arrives two pages later', as
   ]);
 });
 
-test('prepending a page without an unresolved call does not need a rerender', async () => {
-  const { appendTraceRecords, createTraceGrouping, prependTraceRecords } = await importCore();
+test('prepending a page without an unresolved call does not need a rerender', () => {
   const grouping = createTraceGrouping();
   appendTraceRecords(grouping, [
     record({ kind: 'tool_result', toolUseId: 'bash-1', content: 'ok', isError: false, truncated: false }),
@@ -461,8 +441,7 @@ test('prepending a page without an unresolved call does not need a rerender', as
   assert.equal(prepend.needsRerender, false);
 });
 
-test('an expansion is relabeled when its call arrives on an earlier page', async () => {
-  const { appendTraceRecords, createTraceGrouping, prependTraceRecords } = await importCore();
+test('an expansion is relabeled when its call arrives on an earlier page', () => {
   const grouping = createTraceGrouping();
   appendTraceRecords(grouping, [
     record({ kind: 'expansion', toolUseId: 'bash-1', text: 'expanded command' }),
@@ -476,8 +455,7 @@ test('an expansion is relabeled when its call arrives on an earlier page', async
   assert.deepEqual([grouping.turns[0].rows[1].tag, grouping.turns[0].rows[1].text], ['EXPANSION', 'npm test']);
 });
 
-test('the resident window drops its oldest turns once the row ceiling is passed', async () => {
-  const { appendTraceRecords, createTraceGrouping, trimTraceGrouping } = await importCore();
+test('the resident window drops its oldest turns once the row ceiling is passed', () => {
   const grouping = createTraceGrouping();
   for (let turnNumber = 0; turnNumber < 4; turnNumber += 1) {
     appendTraceRecords(grouping, [
@@ -499,8 +477,7 @@ test('the resident window drops its oldest turns once the row ceiling is passed'
   assert.equal(grouping.turns[0].hasTrimmedRows, true);
 });
 
-test('trimming forgets the pending ids of dropped turns and dropped rows', async () => {
-  const { appendTraceRecords, createTraceGrouping, trimTraceGrouping } = await importCore();
+test('trimming forgets the pending ids of dropped turns and dropped rows', () => {
   const grouping = createTraceGrouping();
   appendTraceRecords(grouping, [
     record({ kind: 'prompt', text: 'first prompt' }),
@@ -517,8 +494,7 @@ test('trimming forgets the pending ids of dropped turns and dropped rows', async
   assert.equal(grouping.unresolvedToolUseCounts.size, 0);
 });
 
-test('a surviving row keeps its pending id when a second row referencing it is trimmed', async () => {
-  const { appendTraceRecords, createTraceGrouping, prependTraceRecords, trimTraceGrouping } = await importCore();
+test('a surviving row keeps its pending id when a second row referencing it is trimmed', () => {
   const grouping = createTraceGrouping();
   appendTraceRecords(grouping, [
     record({ kind: 'prompt', text: 'run the skill' }),
@@ -543,8 +519,7 @@ test('a surviving row keeps its pending id when a second row referencing it is t
   ]);
 });
 
-test('a single oversized turn keeps its heading and newest rows within the ceiling', async () => {
-  const { appendTraceRecords, createTraceGrouping, traceResidentRowCount, trimTraceGrouping } = await importCore();
+test('a single oversized turn keeps its heading and newest rows within the ceiling', () => {
   const grouping = createTraceGrouping();
   appendTraceRecords(grouping, [
     record({ kind: 'prompt', text: 'long turn' }),
@@ -563,8 +538,7 @@ test('a single oversized turn keeps its heading and newest rows within the ceili
   assert.equal(traceResidentRowCount(grouping), 5);
 });
 
-test('the view rebuilds only for a changed selection or a stale render', async () => {
-  const { shouldRebuildTraceView } = await importCore();
+test('the view rebuilds only for a changed selection or a stale render', () => {
   const settled = { hasSelectionChanged: false, isRenderedTraceStale: false, hasRenderedOnce: true };
   assert.equal(shouldRebuildTraceView(settled), false);
   assert.equal(shouldRebuildTraceView({ ...settled, hasSelectionChanged: true }), true);
@@ -572,8 +546,7 @@ test('the view rebuilds only for a changed selection or a stale render', async (
   assert.equal(shouldRebuildTraceView({ ...settled, hasRenderedOnce: false }), true);
 });
 
-test('trace kind filters toggle without mutating their input', async () => {
-  const { isKindHidden, toggleHiddenKind } = await importCore();
+test('trace kind filters toggle without mutating their input', () => {
   const hiddenKinds = ['thinking'];
   const kindsWithToolResults = toggleHiddenKind(hiddenKinds, 'tool_result');
   assert.deepEqual(hiddenKinds, ['thinking']);
@@ -583,8 +556,7 @@ test('trace kind filters toggle without mutating their input', async () => {
   assert.equal(isKindHidden([], 'raw'), false);
 });
 
-test('a session start reads only from a resident window that still holds the first row', async () => {
-  const { appendTraceRecords, createTraceGrouping, traceSessionStartedAtMs } = await importCore();
+test('a session start reads only from a resident window that still holds the first row', () => {
   const grouping = createTraceGrouping();
   appendTraceRecords(grouping, [record({ kind: 'prompt', text: 'first prompt', ts: 1000 })]);
   const firstTurn = grouping.turns[0];

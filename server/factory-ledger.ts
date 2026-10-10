@@ -1,14 +1,17 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { isMissingFileError } from '../shared/text.ts';
 import { runFactoryGit } from './git-workspace.ts';
 import { findForbiddenLedgerWrites } from './core/factory-core.ts';
 import type { FactoryLedgerChange } from './core/factory-core.ts';
 import { nulSeparatedPaths } from './core/git-changed-paths-core.ts';
 import type { GitWorkspaceInstance } from './git-workspace.ts';
 
+const LEDGER_GIT_OPTIONS = { encoding: 'utf8' as const, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 };
+
 async function readCommittedText(cwd: string, revision: string, relativePath: string): Promise<string | null> {
-  const gitOptions = { cwd, encoding: 'utf8' as const, timeout: 30_000, maxBuffer: 64 * 1024 * 1024 };
+  const gitOptions = { ...LEDGER_GIT_OPTIONS, cwd, maxBuffer: 64 * 1024 * 1024 };
   const { stdout: treeEntry } = await runFactoryGit(['ls-tree', '-z', revision, '--', relativePath], gitOptions);
   if (!treeEntry) return null;
   const blobSha = treeEntry.split('\t')[0].split(' ')[2];
@@ -19,12 +22,10 @@ async function readWorkingText(cwd: string, relativePath: string): Promise<strin
   try {
     return await readFile(path.join(cwd, relativePath), 'utf8');
   } catch (error) {
-    if (error instanceof Error && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) return null;
+    if (isMissingFileError(error)) return null;
     throw error;
   }
 }
-
-const LEDGER_GIT_OPTIONS = { encoding: 'utf8' as const, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 };
 
 async function readLedgerChangesSince(cwd: string, revision: string): Promise<{ trackedPaths: string[]; changes: FactoryLedgerChange[] }> {
   const gitOptions = { ...LEDGER_GIT_OPTIONS, cwd };

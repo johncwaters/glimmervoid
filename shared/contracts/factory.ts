@@ -66,7 +66,11 @@ export type FactoryState = z.infer<typeof FactoryState>;
 
 export const FACTORY_ERROR_MAX_CHARS = 16_384;
 
-const projectId = z.string().trim().min(1).max(128).refine((value) => value !== '.' && value !== '..' && !/[/\\]/.test(value), 'Invalid factory project id');
+export function isSingleFactoryPathSegment(value: string): boolean {
+  return value !== '.' && value !== '..' && !/[/\\]/.test(value);
+}
+
+const projectId = z.string().trim().min(1).max(128).refine(isSingleFactoryPathSegment, 'Invalid factory project id');
 const intentText = z.string().trim().min(1).max(4096);
 const scopeText = z.string().trim().min(1).max(1024);
 

@@ -1,7 +1,7 @@
 import { isWorkflowPath } from './git-changed-paths-core.ts';
 
 const DEFAULT_INTERVAL_MINUTES = 15;
-export const DEFAULT_POSTHOG_HOST = 'https://us.posthog.com';
+const DEFAULT_POSTHOG_HOST = 'https://us.posthog.com';
 
 export function resolvePosthogHost(host: string | null | undefined): string {
   return host || DEFAULT_POSTHOG_HOST;

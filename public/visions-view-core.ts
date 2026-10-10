@@ -167,7 +167,7 @@ export function intentRows(state: IntentState | null | undefined, namesById: Map
   }];
 }
 
-export function intentSourceText(intent: { text?: unknown } | null | undefined) {
+function intentSourceText(intent: { text?: unknown } | null | undefined) {
   if (!intent?.text) return '';
   return 'proposed by visions';
 }

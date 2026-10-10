@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const importCore = () => import('../public/notify-dedupe-core.ts');
+import { claimKey, claimNotification } from '../public/notify-dedupe-core.ts';
 
 function memoryStore(): Pick<Storage, 'getItem' | 'setItem'> {
   const m = new Map<string, string>();
@@ -11,37 +11,32 @@ function memoryStore(): Pick<Storage, 'getItem' | 'setItem'> {
   };
 }
 
-test('first claim wins, a second claim within the TTL loses', async () => {
-  const { claimNotification } = await importCore();
+test('first claim wins, a second claim within the TTL loses', () => {
   const store = memoryStore();
   assert.equal(claimNotification(store, 'k', 1000, 4000), true, 'tab A wins');
   assert.equal(claimNotification(store, 'k', 1005, 4000), false, 'tab B loses');
 });
 
-test('the claim expires: an escalation re-fire after the TTL claims again', async () => {
-  const { claimNotification } = await importCore();
+test('the claim expires: an escalation re-fire after the TTL claims again', () => {
   const store = memoryStore();
   assert.equal(claimNotification(store, 'k', 1000, 4000), true);
   assert.equal(claimNotification(store, 'k', 6000, 4000), true, 'past the TTL: fresh event');
 });
 
-test('different keys never contend (per session+category)', async () => {
-  const { claimNotification, claimKey } = await importCore();
+test('different keys never contend (per session+category)', () => {
   const store = memoryStore();
   assert.equal(claimNotification(store, claimKey('s1', 'waiting'), 1000), true);
   assert.equal(claimNotification(store, claimKey('s1', 'complete'), 1001), true);
   assert.equal(claimNotification(store, claimKey('s2', 'waiting'), 1002), true);
 });
 
-test('a garbage stored value is treated as no claim', async () => {
-  const { claimNotification } = await importCore();
+test('a garbage stored value is treated as no claim', () => {
   const store = memoryStore();
   store.setItem('k', 'not-a-number');
   assert.equal(claimNotification(store, 'k', 1000, 4000), true);
 });
 
-test('a throwing store fails open (single-tab must never be silenced)', async () => {
-  const { claimNotification } = await importCore();
+test('a throwing store fails open (single-tab must never be silenced)', () => {
   const broken = {
     getItem: () => { throw new Error('storage disabled'); },
     setItem: () => { throw new Error('storage disabled'); },
@@ -49,8 +44,7 @@ test('a throwing store fails open (single-tab must never be silenced)', async ()
   assert.equal(claimNotification(broken, 'k', 1000, 4000), true);
 });
 
-test('claimKey is stable and null-safe', async () => {
-  const { claimKey } = await importCore();
+test('claimKey is stable and null-safe', () => {
   assert.equal(claimKey('s1', 'waiting'), 'glimmervoid-notify-claim-s1-waiting');
   assert.equal(claimKey(undefined, undefined), 'glimmervoid-notify-claim--');
 });

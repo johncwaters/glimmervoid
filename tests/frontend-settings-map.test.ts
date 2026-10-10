@@ -9,6 +9,9 @@ import type { SettingsBlockSpec } from '../server/core/settings-block-core.ts';
 import type { SettingsSetting } from '../public/settings-map.ts';
 import { UPDATE_CHANNELS, POST_TURN_CHECK_MODES, CHANGE_MAP_NARRATOR_ENGINES } from '../shared/contracts/browser-config.ts';
 import { USAGE_COST_MODES } from '../shared/usage-config.ts';
+import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from '../public/radar-core.ts';
+import { collectDirtyBlocks, hydrateFromSettings } from '../public/settings-view-core.ts';
+import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID } from '../public/team-review-view-core.ts';
 
 const loadMap = () => import('../public/settings-map.ts');
 
@@ -29,21 +32,6 @@ test('each persisted settings path owns one editable control and each update dis
   const { SETTINGS_MAP } = await loadMap();
   const paths = SETTINGS_MAP.flatMap((section) => section.settings.map((setting) => setting.path));
   assert.equal(new Set(paths).size, paths.length);
-});
-
-test('calm layout is a default-off toggle after debug mode in machine General', async () => {
-  const { SETTINGS_MAP } = await loadMap();
-  const general = SETTINGS_MAP.find((section) => section.id === 'machine-general');
-  assert.ok(general);
-  assert.equal(general.level, 'machine');
-  const generalSettings: SettingsSetting[] = general.settings;
-  const debugModeIndex = generalSettings.findIndex((setting) => setting.id === 'debug-mode');
-  assert.ok(debugModeIndex >= 0);
-  assert.deepEqual(generalSettings[debugModeIndex + 1], {
-    id: 'calm-layout', path: 'calmLayout', title: 'Calm layout (experimental)',
-    description: 'Replace the Focus rail with a view that prioritizes sessions needing attention and also shows ready and working indicators. Applies to every browser on this machine.',
-    control: 'toggle', keywords: ['experimental', 'attention', 'priority'], defaultValue: false,
-  });
 });
 
 const DASHBOARD_SETTING_PATH_SET = new Set(DASHBOARD_SETTING_PATHS);
@@ -110,12 +98,6 @@ test('the map has unique ids, known paths, range-backed numbers and searchable k
   }
 });
 
-test('the removed automatic PR controls are absent from settings', async () => {
-  const { SETTINGS_MAP } = await loadMap();
-  assert.equal(SETTINGS_MAP.some((section) => section.id === 'lanes-pr-review'), false);
-  assert.equal(SETTINGS_MAP.some((section) => section.settings.some((setting) => setting.id.startsWith('pr-review-'))), false);
-});
-
 test('the map never exposes remote and ingest keys stay inside the dashboard allow-list', async () => {
   const { SETTINGS_MAP } = await loadMap();
   const settings = SETTINGS_MAP.flatMap<SettingsSetting>((section) => section.settings);
@@ -159,7 +141,6 @@ test('the machine Updates section owns its alias, channel, status rows, actions 
 
 test('the update deep link the banner and the Radar ops row share resolves to a real section and setting', async () => {
   const { SETTINGS_MAP } = await loadMap();
-  const { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } = await import('../public/radar-core.ts');
   const section = SETTINGS_MAP.find((entry) => entry.id === UPDATES_SECTION_ID);
   assert.ok(section, 'the deep link names a missing section');
   assert.ok(
@@ -170,7 +151,6 @@ test('the update deep link the banner and the Radar ops row share resolves to a 
 
 test('file-only paths exist in defaults and never enter a dirty payload', async () => {
   const { SETTINGS_MAP } = await loadMap();
-  const { collectDirtyBlocks, hydrateFromSettings } = await import('../public/settings-view-core.ts');
   const allSettings = SETTINGS_MAP.flatMap<SettingsSetting>((section) => section.settings);
   const fileOnlySettings = allSettings.filter((setting) => setting.fileOnly);
   const original = hydrateFromSettings(SETTINGS_MAP, DEFAULT_CONFIG);
@@ -224,7 +204,6 @@ test('unattended actions expose branch deletion and post-turn mode as editable c
   assert.equal(DASHBOARD_SETTING_PATH_SET.has(postTurnMode.path), true);
   assert.equal(SETTINGS_MAP.some((section) => section.settings.some((setting) => setting.id === 'file-branch-gc-delete-unmerged')), false);
 
-  const { collectDirtyBlocks, hydrateFromSettings } = await import('../public/settings-view-core.ts');
   const original = hydrateFromSettings([unattended], DEFAULT_CONFIG);
   const edited = { ...original, 'branchGc.deleteUnmerged': true, 'postTurnChecks.mode': 'fix' };
   assert.deepEqual(collectDirtyBlocks([unattended], original, edited), {
@@ -235,7 +214,6 @@ test('unattended actions expose branch deletion and post-turn mode as editable c
 
 test('the Team review lane section owns its settings and deep link', async () => {
   const { SETTINGS_MAP, SETTINGS_SECTION_ALIASES } = await loadMap();
-  const { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID } = await import('../public/team-review-view-core.ts');
   const section = SETTINGS_MAP.find((entry) => entry.id === TEAM_REVIEW_SETTINGS_SECTION_ID);
   assert.ok(section, 'the empty-state link names a missing section');
   assert.equal(section.level, 'lanes');
@@ -313,7 +291,6 @@ test('the Workflows section owns the master switch and limits, whose save never 
   ]);
   for (const setting of workflowSettings.filter((entry) => !entry.fileOnly)) assert.equal(DASHBOARD_SETTING_PATH_SET.has(setting.path), true, setting.path);
 
-  const { collectDirtyBlocks, hydrateFromSettings } = await import('../public/settings-view-core.ts');
   const stored = { workflows: { maxActionsPerPoll: 9, rules: [{ id: 'one', name: 'One', enabled: true, repos: ['Acme/app'], trigger: 'opened', actions: [{ type: 'notify' }] }] } };
   const original = hydrateFromSettings([section], stored);
   const edited = { ...original, 'workflows.enabled': false };

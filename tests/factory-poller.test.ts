@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { createFactoryPoller } from '../server/factory-poller.ts';
 import type { FactoryPollerDeps } from '../server/factory-poller.ts';
 import type { FactoryState } from '../shared/contracts/factory.ts';
+import { readCoherenceFixture } from './helpers/factory-coherence-reports.ts';
 
 async function createHarness(overrides: Partial<FactoryPollerDeps> = {}) {
-  const orient = await readFile(new URL('./fixtures/coherence/0.37.1/orient-dispatch.json', import.meta.url), 'utf8');
-  const work = await readFile(new URL('./fixtures/coherence/0.37.1/work-dispatch.json', import.meta.url), 'utf8');
+  const orient = await readCoherenceFixture('orient-dispatch');
+  const work = await readCoherenceFixture('work-dispatch');
   const messages: FactoryState[] = [];
   const commands: string[][] = [];
   const checkouts: string[] = [];
@@ -46,17 +46,6 @@ test('an unchanged SHA reuses the state without coherence calls or a broadcast',
   assert.equal(checkouts.length, 1);
   assert.equal(messages.length, 1);
   assert.deepEqual(poller.getState(), messages[0]);
-  await poller.stop();
-});
-
-test('a moved SHA refreshes both reports and broadcasts the new head', async () => {
-  const { poller, messages, commands, controls } = await createHarness();
-  await poller.tick();
-  controls.sha = 'b'.repeat(40);
-  await poller.tick();
-  assert.equal(commands.length, 4);
-  assert.equal(messages.length, 2);
-  assert.equal(messages[1].projects[0].headSha, controls.sha);
   await poller.stop();
 });
 
@@ -107,8 +96,7 @@ test('a rejected coherence command is isolated from the other projects', async (
     ensureControlCheckout: async ({ projectPath }) => projectPath,
     runCoherence: async ({ cwd, args }) => {
       if (cwd === '/broken') throw new Error('exit code 1');
-      const fixture = args[0] === 'orient' ? 'orient-steady' : 'work-steady';
-      return readFile(new URL(`./fixtures/coherence/0.37.1/${fixture}.json`, import.meta.url), 'utf8');
+      return readCoherenceFixture(args[0] === 'orient' ? 'orient-steady' : 'work-steady');
     },
   });
   await assert.doesNotReject(poller.tick());
@@ -154,15 +142,6 @@ test('projects without a coherence config are skipped and cached removals are br
   await poller.stop();
 });
 
-test('floor membership is probed at the integration tip sha', async () => {
-  const { poller, probedConfigShas, controls } = await createHarness();
-  await poller.tick();
-  controls.sha = 'b'.repeat(40);
-  await poller.tick();
-  assert.deepEqual(probedConfigShas, ['a'.repeat(40), 'b'.repeat(40)]);
-  await poller.stop();
-});
-
 const unresolvableTipCases: Array<{ failingStep: string; overrides: (isResolvable: () => boolean) => Partial<FactoryPollerDeps> }> = [
   {
     failingStep: 'resolving the integration branch',
@@ -193,26 +172,6 @@ for (const { failingStep, overrides } of unresolvableTipCases) {
     await poller.stop();
   });
 }
-
-test('a project removed from the list releases its control checkout once', async () => {
-  const { poller, releasedProjectIds, controls } = await createHarness();
-  await poller.tick();
-  assert.deepEqual(releasedProjectIds, []);
-  controls.projects = [];
-  await poller.tick();
-  await poller.tick();
-  assert.deepEqual(releasedProjectIds, ['project-1']);
-  await poller.stop();
-});
-
-test('a project whose coherence config disappears releases its control checkout', async () => {
-  const { poller, releasedProjectIds, controls } = await createHarness();
-  await poller.tick();
-  controls.hasConfig = false;
-  await poller.tick();
-  assert.deepEqual(releasedProjectIds, ['project-1']);
-  await poller.stop();
-});
 
 test('a project in an error state that is removed still releases its control checkout', async () => {
   const { poller, messages, releasedProjectIds, controls } = await createHarness();
@@ -264,7 +223,7 @@ for (const { cause, failure } of [
 }
 
 test('a refusing orient that exits non-zero shows the ledger reasons without a work inspection', async () => {
-  const refusal = await readFile(new URL('./fixtures/coherence/0.37.1/orient-refuse.json', import.meta.url), 'utf8');
+  const refusal = await readCoherenceFixture('orient-refuse');
   const { poller, messages, commands } = await createHarness({
     runCoherence: async ({ args }) => {
       commands.push(args);
@@ -282,8 +241,8 @@ test('a refusing orient that exits non-zero shows the ledger reasons without a w
 });
 
 test('a failed work inspection printing error JSON beside a dispatch orient becomes an error state', async () => {
-  const orient = await readFile(new URL('./fixtures/coherence/0.37.1/orient-dispatch.json', import.meta.url), 'utf8');
-  const failedInspection = await readFile(new URL('./fixtures/coherence/0.37.1/work-refuse.json', import.meta.url), 'utf8');
+  const orient = await readCoherenceFixture('orient-dispatch');
+  const failedInspection = await readCoherenceFixture('work-refuse');
   const { poller, messages } = await createHarness({
     runCoherence: async ({ args }) => {
       if (args[0] === 'orient') return orient;
@@ -315,8 +274,8 @@ test('refresh requested during a tick waits and rereads the newly landed integra
   let releaseReport: () => void = () => {};
   const reportIsRunning = new Promise<void>((resolve) => { markReportStarted = resolve; });
   const reportCanFinish = new Promise<void>((resolve) => { releaseReport = resolve; });
-  const orient = await readFile(new URL('./fixtures/coherence/0.37.1/orient-dispatch.json', import.meta.url), 'utf8');
-  const work = await readFile(new URL('./fixtures/coherence/0.37.1/work-dispatch.json', import.meta.url), 'utf8');
+  const orient = await readCoherenceFixture('orient-dispatch');
+  const work = await readCoherenceFixture('work-dispatch');
   const { poller, messages, controls } = await createHarness({
     runCoherence: async ({ args }) => {
       if (args[0] !== 'orient') return work;

@@ -14,7 +14,7 @@ function createWebNotificationChannel(
   category: string,
   message: string,
   context?: { escalationCount?: number; kind?: 'plan' } | null,
-) => void {
+) => undefined {
   return function webNotificationChannel(sessionName, category, message, context) {
     broadcast({
       type: 'notify',

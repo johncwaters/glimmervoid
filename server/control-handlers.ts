@@ -44,29 +44,7 @@ import { HOOK_EVENT_CATALOG, ID_RE as HOOK_ID_RE, MAX_TIMEOUT_SEC as HOOK_MAX_TI
 import { describeBuiltinHooks } from '../detection/settings-injector.ts';
 import { PlanDecision } from '../shared/contracts/plan-review.ts';
 import { getRtkPath } from './rtk-resolver.ts';
-import {
-  BRANCH_GC_INTERVAL_MS_RANGE,
-  BRANCH_GC_STALE_DAYS_RANGE,
-  POSTHOG_ESCALATION_RANGE,
-  POSTHOG_FIX_TIMEOUT_RANGE,
-  POSTHOG_INTERVAL_RANGE,
-  POSTHOG_INVESTIGATION_TIMEOUT_RANGE,
-  POSTHOG_MAX_CONCURRENT_RANGE,
-  POSTHOG_MIN_USERS_RANGE,
-  POSTHOG_RECURRENCE_WINDOW_RANGE,
-  POSTHOG_TRAFFIC_BASELINE_RANGE,
-  POSTHOG_TRAFFIC_COOLDOWN_RANGE,
-  POSTHOG_TRAFFIC_MIN_USERS_RANGE,
-  POSTHOG_TRAFFIC_MULTIPLIER_RANGE,
-  POSTHOG_TRANSIENT_RECURRENCE_RANGE,
-  VISIONS_ACTIVITY_MAX_PER_HOUR_RANGE,
-  VISIONS_COOLDOWN_MS_RANGE,
-  VISIONS_DISPATCH_TIMEOUT_RANGE,
-  VISIONS_INTENT_THREAD_TTL_MS_RANGE,
-  VISIONS_MAX_PER_HOUR_RANGE,
-  VISIONS_QUIET_MS_RANGE,
-  USAGE_INTEGER_RANGES,
-} from '../shared/settings-ranges.ts';
+import { USAGE_INTEGER_RANGES } from '../shared/settings-ranges.ts';
 import { USAGE_VENDOR_KEYS, USAGE_BUDGET_KEYS } from '../shared/usage-config.ts';
 import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
 import type { ChangeMap } from '../shared/contracts/change-map.ts';
@@ -195,10 +173,6 @@ function scanRepoRoots(roots: string[] | undefined): { root: string; projects: {
   return results;
 }
 
-const BRANCH_GC_NUMERIC_RANGES = Object.freeze({
-  staleDays: BRANCH_GC_STALE_DAYS_RANGE,
-  intervalMs: BRANCH_GC_INTERVAL_MS_RANGE,
-});
 const SETTINGS_NOT_SAVED_MESSAGE = 'Settings were not saved: the config file could not be read, validated or written. The server log names the cause.';
 const VISIONS_BOOLEAN_KEYS =Object.freeze(['enabled', 'autoFix']);
 const TEAM_REVIEW_BOOLEAN_KEYS = Object.freeze(['enabled', 'autoRebaseMyPrs', 'keepMergeableEnabled', 'mergeQueueEnabled']);
@@ -207,15 +181,7 @@ const VISIONS_VALUE_KEYS = Object.freeze(['projects']);
 const VISIONS_DISPATCH_BOOLEAN_KEYS = Object.freeze(['enabled']);
 const VISIONS_DISPATCH_STRING_KEYS = Object.freeze(['model']);
 const VISIONS_DISPATCH_NUMERIC_KEYS = Object.freeze(['quietMs', 'cooldownMs', 'maxPerHour', 'activityMaxPerHour', 'dispatchTimeoutSeconds']);
-const VISIONS_DISPATCH_NUMERIC_RANGES = Object.freeze({
-  quietMs: VISIONS_QUIET_MS_RANGE,
-  cooldownMs: VISIONS_COOLDOWN_MS_RANGE,
-  maxPerHour: VISIONS_MAX_PER_HOUR_RANGE,
-  activityMaxPerHour: VISIONS_ACTIVITY_MAX_PER_HOUR_RANGE,
-  dispatchTimeoutSeconds: VISIONS_DISPATCH_TIMEOUT_RANGE,
-});
 const VISIONS_INTENT_NUMERIC_KEYS = Object.freeze(['threadTtlMs']);
-const VISIONS_INTENT_NUMERIC_RANGES = Object.freeze({ threadTtlMs: VISIONS_INTENT_THREAD_TTL_MS_RANGE });
 const POSTHOG_NUMERIC_KEYS = Object.freeze([
   'intervalMinutes',
   'maxConcurrentInvestigations',
@@ -230,21 +196,6 @@ const POSTHOG_NUMERIC_KEYS = Object.freeze([
   'trafficSpikeCooldownMinutes',
   'trafficSpikeBaselineDays',
 ]);
-
-const POSTHOG_NUMERIC_RANGES = Object.freeze({
-  intervalMinutes: POSTHOG_INTERVAL_RANGE,
-  maxConcurrentInvestigations: POSTHOG_MAX_CONCURRENT_RANGE,
-  investigationTimeoutSeconds: POSTHOG_INVESTIGATION_TIMEOUT_RANGE,
-  fixTimeoutSeconds: POSTHOG_FIX_TIMEOUT_RANGE,
-  minUsersToInvestigate: POSTHOG_MIN_USERS_RANGE,
-  userEscalationThreshold: POSTHOG_ESCALATION_RANGE,
-  recurrenceWindowDays: POSTHOG_RECURRENCE_WINDOW_RANGE,
-  transientRecurrenceLimit: POSTHOG_TRANSIENT_RECURRENCE_RANGE,
-  trafficSpikeMultiplier: POSTHOG_TRAFFIC_MULTIPLIER_RANGE,
-  trafficSpikeMinUsers: POSTHOG_TRAFFIC_MIN_USERS_RANGE,
-  trafficSpikeCooldownMinutes: POSTHOG_TRAFFIC_COOLDOWN_RANGE,
-  trafficSpikeBaselineDays: POSTHOG_TRAFFIC_BASELINE_RANGE,
-});
 
 const POSTHOG_BOOLEAN_KEYS = Object.freeze(['enabled', 'recurrenceDedupe', 'trafficSpikeEnabled', 'autoFix']);
 const POSTHOG_STRING_KEYS = Object.freeze(['host', 'apiKey', 'repoPath']);
@@ -1521,11 +1472,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 }
 
 export {
-  BRANCH_GC_NUMERIC_RANGES,
   DASHBOARD_SETTING_PATHS,
-  POSTHOG_NUMERIC_RANGES,
-  VISIONS_DISPATCH_NUMERIC_RANGES,
-  VISIONS_INTENT_NUMERIC_RANGES,
   registerControlHandlers,
 };
 export type { FactoryControl, BenchmarkControl, ControlHandlerDeps, ControlRequest, MyPrMergeControl, TeamReviewActionControl };

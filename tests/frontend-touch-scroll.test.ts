@@ -3,42 +3,36 @@ import assert from 'node:assert/strict';
 
 import type { InertiaState, VelocitySample } from '../public/session-card/touch-scroll-core.ts';
 
-const importCore = () => import('../public/session-card/touch-scroll-core.ts');
+import { beginInertia, cellHeightFromElement, isScrollGesture, MAX_FLICK_VELOCITY_PX_PER_MS, MAX_WHEEL_ROWS_PER_STEP, MIN_FLICK_VELOCITY_PX_PER_MS, pushVelocitySample, releaseVelocity, SCROLL_FRICTION_PX_PER_MS2, scrollLinesForDrag, shouldSendWheelReport, stepInertia, TOUCH_SCROLL_THRESHOLD_PX, VELOCITY_SAMPLE_LIMIT } from '../public/session-card/touch-scroll-core.ts';
 
-test('isScrollGesture: travel under the threshold is a tap, not a scroll', async () => {
-  const { isScrollGesture, TOUCH_SCROLL_THRESHOLD_PX } = await importCore();
+test('isScrollGesture: travel under the threshold is a tap, not a scroll', () => {
   assert.equal(isScrollGesture(0, 0), false);
   assert.equal(isScrollGesture(0, TOUCH_SCROLL_THRESHOLD_PX - 1), false);
   assert.equal(isScrollGesture(0, -(TOUCH_SCROLL_THRESHOLD_PX - 1)), false);
 });
 
-test('isScrollGesture: a vertical drag past the threshold claims the gesture, either direction', async () => {
-  const { isScrollGesture } = await importCore();
+test('isScrollGesture: a vertical drag past the threshold claims the gesture, either direction', () => {
   assert.equal(isScrollGesture(0, 40), true);
   assert.equal(isScrollGesture(0, -40), true);
   assert.equal(isScrollGesture(6, 40), true);
 });
 
-test('isScrollGesture: a sideways swipe is left to the browser', async () => {
-  const { isScrollGesture } = await importCore();
+test('isScrollGesture: a sideways swipe is left to the browser', () => {
   assert.equal(isScrollGesture(60, 12), false);
   assert.equal(isScrollGesture(-60, -12), false);
 });
 
-test('scrollLinesForDrag: a downward drag scrolls back through history', async () => {
-  const { scrollLinesForDrag } = await importCore();
+test('scrollLinesForDrag: a downward drag scrolls back through history', () => {
   const { scrollLines, remainderPx } = scrollLinesForDrag(40, 20);
   assert.equal(scrollLines, -2, 'finger down reveals earlier output');
   assert.equal(remainderPx, 0);
 });
 
-test('scrollLinesForDrag: an upward drag scrolls forward toward the live tail', async () => {
-  const { scrollLinesForDrag } = await importCore();
+test('scrollLinesForDrag: an upward drag scrolls forward toward the live tail', () => {
   assert.deepEqual(scrollLinesForDrag(-60, 20), { scrollLines: 3, remainderPx: 0 });
 });
 
-test('scrollLinesForDrag: sub-row travel moves nothing but is banked as remainder', async () => {
-  const { scrollLinesForDrag } = await importCore();
+test('scrollLinesForDrag: sub-row travel moves nothing but is banked as remainder', () => {
   const first = scrollLinesForDrag(9, 20);
   assert.equal(first.scrollLines, 0);
   assert.equal(first.remainderPx, 9);
@@ -48,54 +42,46 @@ test('scrollLinesForDrag: sub-row travel moves nothing but is banked as remainde
   assert.equal(second.remainderPx, 1);
 });
 
-test('scrollLinesForDrag: the local scrollback path is uncapped, a hard flick lands whole', async () => {
-  const { scrollLinesForDrag } = await importCore();
+test('scrollLinesForDrag: the local scrollback path is uncapped, a hard flick lands whole', () => {
   assert.deepEqual(scrollLinesForDrag(20 * 40, 20), { scrollLines: -40, remainderPx: 0 });
 });
 
-test('scrollLinesForDrag: the wheel path caps its burst, and the withheld travel survives as remainder', async () => {
-  const { scrollLinesForDrag, MAX_WHEEL_ROWS_PER_STEP } = await importCore();
+test('scrollLinesForDrag: the wheel path caps its burst, and the withheld travel survives as remainder', () => {
   const pendingPx = 20 * (MAX_WHEEL_ROWS_PER_STEP + 5);
   const { scrollLines, remainderPx } = scrollLinesForDrag(pendingPx, 20, MAX_WHEEL_ROWS_PER_STEP);
   assert.equal(scrollLines, -MAX_WHEEL_ROWS_PER_STEP);
   assert.equal(remainderPx, 20 * 5, 'the rows the cap withheld are not lost');
 });
 
-test('scrollLinesForDrag: an unmeasurable cell height scrolls nothing and banks the travel', async () => {
-  const { scrollLinesForDrag } = await importCore();
+test('scrollLinesForDrag: an unmeasurable cell height scrolls nothing and banks the travel', () => {
   assert.deepEqual(scrollLinesForDrag(120, 0), { scrollLines: 0, remainderPx: 120 });
   assert.deepEqual(scrollLinesForDrag(120, Number.NaN), { scrollLines: 0, remainderPx: 120 });
 });
 
-test('shouldSendWheelReport: the alternate buffer always reports, it has no scrollback to move', async () => {
-  const { shouldSendWheelReport } = await importCore();
+test('shouldSendWheelReport: the alternate buffer always reports, it has no scrollback to move', () => {
   assert.equal(shouldSendWheelReport('alternate', 'none'), true);
   assert.equal(shouldSendWheelReport('alternate', 'any'), true);
 });
 
-test('shouldSendWheelReport: mouse tracking on the primary buffer reports instead of scrolling back', async () => {
-  const { shouldSendWheelReport } = await importCore();
+test('shouldSendWheelReport: mouse tracking on the primary buffer reports instead of scrolling back', () => {
   for (const mode of ['x10', 'vt200', 'drag', 'any']) {
     assert.equal(shouldSendWheelReport('normal', mode), true, `${mode} tracking must reach the app`);
   }
 });
 
-test('shouldSendWheelReport: an untracked primary buffer scrolls local scrollback', async () => {
-  const { shouldSendWheelReport } = await importCore();
+test('shouldSendWheelReport: an untracked primary buffer scrolls local scrollback', () => {
   assert.equal(shouldSendWheelReport('normal', 'none'), false);
 
   assert.equal(shouldSendWheelReport('normal', undefined), false);
 });
 
-test('cellHeightFromElement: row height comes from the measured box, or 0 when there is none', async () => {
-  const { cellHeightFromElement } = await importCore();
+test('cellHeightFromElement: row height comes from the measured box, or 0 when there is none', () => {
   assert.equal(cellHeightFromElement(480, 24), 20);
   assert.equal(cellHeightFromElement(0, 24), 0, 'a hidden card has no measurable box');
   assert.equal(cellHeightFromElement(480, 0), 0);
 });
 
-test('pushVelocitySample: the window is bounded and never mutates the array it was handed', async () => {
-  const { pushVelocitySample, VELOCITY_SAMPLE_LIMIT } = await importCore();
+test('pushVelocitySample: the window is bounded and never mutates the array it was handed', () => {
   let samples: VelocitySample[] = [];
   for (let index = 0; index < VELOCITY_SAMPLE_LIMIT + 3; index++) {
     const previous = samples;
@@ -107,8 +93,7 @@ test('pushVelocitySample: the window is bounded and never mutates the array it w
   assert.equal(samples[0].timestampMs, 3 * 16, 'the oldest samples are dropped, newest kept');
 });
 
-test('releaseVelocity: a flick reports signed px/ms across the window', async () => {
-  const { releaseVelocity } = await importCore();
+test('releaseVelocity: a flick reports signed px/ms across the window', () => {
   const down = releaseVelocity([
     { positionPx: 0, timestampMs: 0 },
     { positionPx: 100, timestampMs: 50 },
@@ -121,8 +106,7 @@ test('releaseVelocity: a flick reports signed px/ms across the window', async ()
   assert.equal(up, -2);
 });
 
-test('releaseVelocity: a slow release, a still finger and a degenerate window all coast nothing', async () => {
-  const { releaseVelocity, MIN_FLICK_VELOCITY_PX_PER_MS } = await importCore();
+test('releaseVelocity: a slow release, a still finger and a degenerate window all coast nothing', () => {
   assert.equal(releaseVelocity([]), 0);
   assert.equal(releaseVelocity([{ positionPx: 0, timestampMs: 0 }]), 0, 'one sample has no span');
   assert.equal(releaseVelocity([
@@ -139,24 +123,21 @@ test('releaseVelocity: a slow release, a still finger and a degenerate window al
   assert.equal(heldStill, 0);
 });
 
-test('releaseVelocity: a jumped sample is clamped instead of launching a runaway coast', async () => {
-  const { releaseVelocity, MAX_FLICK_VELOCITY_PX_PER_MS } = await importCore();
+test('releaseVelocity: a jumped sample is clamped instead of launching a runaway coast', () => {
   assert.equal(releaseVelocity([
     { positionPx: 0, timestampMs: 0 },
     { positionPx: 9000, timestampMs: 16 },
   ]), MAX_FLICK_VELOCITY_PX_PER_MS);
 });
 
-test('beginInertia: no flick and no measurable row height both mean no coast', async () => {
-  const { beginInertia } = await importCore();
+test('beginInertia: no flick and no measurable row height both mean no coast', () => {
   assert.equal(beginInertia({ velocityPxPerMs: 0, startedAtMs: 0, cellHeightPx: 20 }), null);
   assert.equal(beginInertia({ velocityPxPerMs: 2, startedAtMs: 0, cellHeightPx: 0 }), null);
   const state = beginInertia({ velocityPxPerMs: 2, startedAtMs: 100, cellHeightPx: 20, pendingPx: 7 });
   assert.deepEqual(state, { velocityPxPerMs: 2, lastMs: 100, cellHeightPx: 20, pendingPx: 7 });
 });
 
-test('stepInertia: a coast decays to a stop and travels the analytic distance', async () => {
-  const { beginInertia, stepInertia, SCROLL_FRICTION_PX_PER_MS2 } = await importCore();
+test('stepInertia: a coast decays to a stop and travels the analytic distance', () => {
   const releaseVelocityPxPerMs = 2;
   const cellHeightPx = 20;
   let state = beginInertia({ velocityPxPerMs: releaseVelocityPxPerMs, startedAtMs: 0, cellHeightPx });
@@ -179,16 +160,14 @@ test('stepInertia: a coast decays to a stop and travels the analytic distance', 
   assert.ok(totalRows < 0, 'a downward flick keeps revealing earlier output');
 });
 
-test('stepInertia: a long frame gap decays straight past zero and ends the coast', async () => {
-  const { beginInertia, stepInertia } = await importCore();
+test('stepInertia: a long frame gap decays straight past zero and ends the coast', () => {
   const state = beginInertia({ velocityPxPerMs: 2, startedAtMs: 0, cellHeightPx: 20 });
   const stepped = stepInertia(state, 5000);
   assert.equal(stepped.state, null, 'a backgrounded tab resumes stopped, not with a huge jump');
   assert.equal(stepped.scrollLines, 0);
 });
 
-test('stepInertia: a cancelled coast and a zero-length frame are both no-ops', async () => {
-  const { beginInertia, stepInertia } = await importCore();
+test('stepInertia: a cancelled coast and a zero-length frame are both no-ops', () => {
   assert.deepEqual(stepInertia(null, 100), { scrollLines: 0, state: null });
   const state = beginInertia({ velocityPxPerMs: 2, startedAtMs: 100, cellHeightPx: 20 });
   const sameInstant = stepInertia(state, 100);
@@ -196,8 +175,7 @@ test('stepInertia: a cancelled coast and a zero-length frame are both no-ops', a
   assert.equal(sameInstant.state, state, 'the coast is untouched until time actually moves');
 });
 
-test('stepInertia: sub-row travel is carried, not dropped, between frames', async () => {
-  const { stepInertia } = await importCore();
+test('stepInertia: sub-row travel is carried, not dropped, between frames', () => {
 
   const first = stepInertia({ velocityPxPerMs: 0.5, lastMs: 0, cellHeightPx: 20, pendingPx: 0 }, 8);
   assert.equal(first.scrollLines, 0);

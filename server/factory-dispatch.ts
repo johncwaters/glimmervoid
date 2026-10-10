@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
 import type { Session } from '../session/sessions.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { DEFAULT_FACTORY_CHECKS } from '../shared/contracts/browser-config.ts';
@@ -7,7 +7,7 @@ import { CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import { AgentDispatchRequest } from '../shared/contracts/session.ts';
 import type { FactoryDispatchResult, FactoryProjectState, FactoryWorkerEvent } from '../shared/contracts/factory.ts';
 import { buildCoherenceSessionOverrides } from './core/coherence-session-core.ts';
-import { FACTORY_LEDGER_SESSION, buildWorkerPrompt, decideAdmission } from './core/factory-core.ts';
+import { FACTORY_LEDGER_SESSION, buildWorkerPrompt, decideAdmission, findFactoryProjectPath } from './core/factory-core.ts';
 import type { FactoryLiveWorker } from './core/factory-core.ts';
 import { parseFilterDriverNames } from './core/git-invocation-core.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES, buildLanePermissions } from './core/lane-permissions-core.ts';
@@ -55,11 +55,15 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
   const liveWorkers = new Map<string, FactoryLiveWorker & { session: ManagedSession }>();
   const reconciledProjects = new Set<string>();
   let stopped = false;
+  const liveWorkersOf = (projectId: string) => [...liveWorkers.values()].filter((worker) => worker.projectId === projectId);
+
+  async function inspectWork(cwd: string): Promise<CoherenceWorkInspect['work']> {
+    return CoherenceWorkInspect.parse(JSON.parse(await runCoherence({ cwd, args: ['work', 'inspect', '--json'] }))).work;
+  }
 
   async function reopenIfActive(projectId: string, projectPath: string, workId: string, reason: string): Promise<void> {
     const ledger = await ensureLedger(projectId, projectPath);
-    const inspection = CoherenceWorkInspect.parse(JSON.parse(await runCoherence({ cwd: ledger.cwd, args: ['work', 'inspect', '--json'] })));
-    if (inspection.work.find((candidate) => candidate.work === workId)?.state !== 'active') return;
+    if ((await inspectWork(ledger.cwd)).find((candidate) => candidate.work === workId)?.state !== 'active') return;
     await runCoherence({ cwd: ledger.cwd, args: [
       'work', 'transition', workId, 'open', '--because', reason, '--session', FACTORY_LEDGER_SESSION, '--json',
     ] });
@@ -72,7 +76,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
 
   async function reconcileActiveOrders(project: FactoryProjectState): Promise<void> {
     if (stopped || reconciledProjects.has(project.projectId) || project.error !== null || project.heading.action === 'refuse') return;
-    const projectPath = config.projects.find((candidate) => candidate.id === project.projectId)?.path;
+    const projectPath = findFactoryProjectPath(config, project.projectId);
     if (!projectPath) return;
     const isWorkerLive = (workId: string) => [...liveWorkers.values()].some((worker) => worker.workId === workId);
     const orphanedOrders = project.orders.filter((order) => order.parent !== null && order.state === 'active'
@@ -112,19 +116,19 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
         const project = config.projects.find((candidate) => candidate.id === projectId);
         if (!project) return refuse('unknown factory project');
         const ledger = await ensureLedger(projectId, project.path);
-        const inspection = CoherenceWorkInspect.parse(JSON.parse(await runCoherence({ cwd: ledger.cwd, args: ['work', 'inspect', '--json'] })));
+        const inspectedWork = await inspectWork(ledger.cwd);
         const trustedIntentIds = await readTrustedIntentIds(projectId);
         if (readyIntent) {
           if (readyIntent !== intentId || !trustedIntentIds.has(readyIntent)) return refuse('ready intent must match the active intent');
-          if (!inspection.work.some((candidate) => candidate.work === readyIntent && candidate.opened.parent === null && candidate.state !== 'completed' && candidate.state !== 'cancelled')) return refuse('ready intent is not open');
+          if (!inspectedWork.some((candidate) => candidate.work === readyIntent && candidate.opened.parent === null && candidate.state !== 'completed' && candidate.state !== 'cancelled')) return refuse('ready intent is not open');
           await commitAndLand(projectId, project.path, `factory: intent ready ${readyIntent}`);
           onReadyIntent?.(projectId, readyIntent);
           return { ok: true, sessionId };
         }
-        const order = inspection.work.find((candidate) => candidate.work === workId) ?? null;
-        const intent = inspection.work.find((candidate) => candidate.work === intentId) ?? null;
+        const order = inspectedWork.find((candidate) => candidate.work === workId) ?? null;
+        const intent = inspectedWork.find((candidate) => candidate.work === intentId) ?? null;
         const admission = decideAdmission({
-          order, intent, trustedIntentIds, liveWorkers: [...liveWorkers.values()].filter((worker) => worker.projectId === projectId),
+          order, intent, trustedIntentIds, liveWorkers: liveWorkersOf(projectId),
           maxRisk: config.factory?.maxRisk, maxLiveWorkers: config.factory?.maxLiveWorkers,
           spentTodayUsd: readSpentTodayUsd(), dailyBudgetUsd: config.factory?.dailyBudgetUsd ?? null,
           filterDriverNames: await readFilterDriverNames(ledger.cwd),
@@ -136,10 +140,10 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
         const claudeSessionId = crypto.randomUUID();
         await runCoherence({ cwd: ledger.cwd, args: [
           'work', 'handoff', workId, '--owner-session', claudeSessionId, '--owner-agent', 'claude-code',
-          '--because', 'Factory dispatch admitted this order', '--session', 'glimmervoid-factory', '--json',
+          '--because', 'Factory dispatch admitted this order', '--session', FACTORY_LEDGER_SESSION, '--json',
         ] });
         await runCoherence({ cwd: ledger.cwd, args: [
-          'work', 'transition', workId, 'active', '--because', 'Factory worker dispatched', '--session', 'glimmervoid-factory', '--json',
+          'work', 'transition', workId, 'active', '--because', 'Factory worker dispatched', '--session', FACTORY_LEDGER_SESSION, '--json',
         ] });
         const launchWorker = async (): Promise<FactoryDispatchResult> => {
           if (!isAuthorized()) throw new Error('factory orchestrator is no longer live');
@@ -163,7 +167,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
             spawnEnv: { ...coherence.spawnEnv, ...FACTORY_WORKER_CREDENTIAL_ENV },
           });
           const closeOutWorker: FactoryCloseOutWorker = {
-            workId, intentId, projectId, projectPath: project.path, claudeSessionId, baseSha: null,
+            workId, intentId, projectId, projectPath: project.path, baseSha: null,
             objective: order.opened.objective, criteria: order.opened.criteria, writeScopes: order.opened.writeScopes, session: worker,
           };
           worker.on('worktree-ready', () => {
@@ -175,7 +179,6 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
           });
           let removed = false;
           let hasLaunched = false;
-          const projectPath = project.path;
           const onRemoved = () => {
             if (removed) return;
             removed = true;
@@ -183,7 +186,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
             notifyOrchestrator(projectId, { workId, event: 'ended', detail: worker.state });
             broadcast({ type: 'session-removed', id: identity.id, session: identity.name });
             if (!hasLaunched || stopped) return;
-            void serializeProject(projectId, () => reopenIfActive(projectId, projectPath, workId, 'Factory worker ended without merging or blocking'))
+            void serializeProject(projectId, () => reopenIfActive(projectId, project.path, workId, 'Factory worker ended without merging or blocking'))
               .catch((error: unknown) => reportReopenFailure(projectId, workId, error));
           };
           try {
@@ -224,10 +227,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
   }
 
   function releaseProject(projectId: string): void {
-    for (const worker of liveWorkers.values()) {
-      if (worker.projectId !== projectId) continue;
-      worker.session.destroy();
-    }
+    for (const worker of liveWorkersOf(projectId)) worker.session.destroy();
   }
 
   async function stop(): Promise<void> {
@@ -240,7 +240,6 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
   }
 
   return { dispatch, releaseProject, stop, reconcileActiveOrders,
-    getLiveWorkers: (projectId: string) => [...liveWorkers.values()].filter((worker) => worker.projectId === projectId)
-      .map(({ workId, sessionId: workerSessionId }) => ({ workId, sessionId: workerSessionId })),
+    getLiveWorkers: (projectId: string) => liveWorkersOf(projectId).map(({ workId, sessionId: workerSessionId }) => ({ workId, sessionId: workerSessionId })),
   };
 }

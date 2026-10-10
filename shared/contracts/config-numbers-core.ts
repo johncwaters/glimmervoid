@@ -1,6 +1,14 @@
 import { isRecord } from '../coerce.ts';
 import { REPLAY_BUFFER_KB_RANGE } from '../settings-ranges.ts';
 
+export const POSTHOG_WHOLE_NUMBER_ROUNDING: Record<string, (value: number) => number> = {
+  maxConcurrentInvestigations: Math.ceil,
+  minUsersToInvestigate: Math.ceil,
+  userEscalationThreshold: Math.ceil,
+  trafficSpikeMinUsers: Math.ceil,
+  trafficSpikeBaselineDays: Math.floor,
+};
+
 const LEGACY_INTEGER_FIELDS = [
   { path: ['visions', 'dispatch', 'quietMs'], min: 1, round: Math.floor },
   { path: ['visions', 'dispatch', 'cooldownMs'], min: 1, round: Math.floor },
@@ -8,11 +16,7 @@ const LEGACY_INTEGER_FIELDS = [
   { path: ['visions', 'dispatch', 'activityMaxPerHour'], min: 0, round: Math.floor },
   { path: ['visions', 'dispatch', 'dispatchTimeoutSeconds'], min: 1, round: Math.floor },
   { path: ['visions', 'intent', 'threadTtlMs'], min: 1, round: Math.floor },
-  { path: ['posthog', 'maxConcurrentInvestigations'], min: 1, round: Math.ceil },
-  { path: ['posthog', 'minUsersToInvestigate'], min: 1, round: Math.ceil },
-  { path: ['posthog', 'userEscalationThreshold'], min: 1, round: Math.ceil },
-  { path: ['posthog', 'trafficSpikeMinUsers'], min: 1, round: Math.ceil },
-  { path: ['posthog', 'trafficSpikeBaselineDays'], min: 1, round: Math.floor },
+  ...Object.entries(POSTHOG_WHOLE_NUMBER_ROUNDING).map(([key, round]) => ({ path: ['posthog', key], min: 1, round })),
 ];
 
 function normalizeIntegerField(config: Record<string, unknown>, path: string[], min: number, round: (value: number) => number) {

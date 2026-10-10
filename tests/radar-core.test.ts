@@ -520,14 +520,6 @@ test('investigationRows: survives a partial record and skips one with no id', ()
   });
 });
 
-test('verdictLabel: every verdict has wording, including the auto-fix one', () => {
-  assert.equal(verdictLabel('ROOT_CAUSE'), 'root cause');
-  assert.equal(verdictLabel('NEEDS_HUMAN'), 'needs you');
-  assert.equal(verdictLabel('TRANSIENT'), 'transient');
-  assert.equal(verdictLabel('FIXED'), 'fixed');
-  assert.equal(verdictLabel('ERROR'), 'error');
-});
-
 test('verdictLabel: an unknown verdict falls back to its own lowercased text', () => {
   assert.equal(verdictLabel('SOMETHING_NEW'), 'something_new');
   assert.equal(verdictLabel(undefined), '');

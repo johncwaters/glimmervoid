@@ -1,16 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const importCore = () => import('../public/sidebar/diff-core.ts');
+import { annotationKey, annotationTargetOf, parseHunkHeader, parseUnifiedDiff, shouldDropDiffCache, staleDraftKeys, summarizeFiles } from '../public/sidebar/diff-core.ts';
 
-test('parseUnifiedDiff: empty input returns []', async () => {
-  const { parseUnifiedDiff } = await importCore();
+test('parseUnifiedDiff: empty input returns []', () => {
   assert.deepEqual(parseUnifiedDiff(''), []);
   assert.deepEqual(parseUnifiedDiff(null), []);
 });
 
-test('parseUnifiedDiff: a modified file yields typed hunk lines and exact counts', async () => {
-  const { parseUnifiedDiff } = await importCore();
+test('parseUnifiedDiff: a modified file yields typed hunk lines and exact counts', () => {
   const diff = [
     'diff --git a/src/foo.js b/src/foo.js',
     'index 111..222 100644',
@@ -42,8 +40,7 @@ test('parseUnifiedDiff: a modified file yields typed hunk lines and exact counts
   ]);
 });
 
-test('parseHunkHeader: reads both starts, with or without counts', async () => {
-  const { parseHunkHeader } = await importCore();
+test('parseHunkHeader: reads both starts, with or without counts', () => {
   assert.deepEqual(parseHunkHeader('@@ -12,7 +30,9 @@ function foo()'), { oldStart: 12, newStart: 30 });
   assert.deepEqual(parseHunkHeader('@@ -1 +1 @@'), { oldStart: 1, newStart: 1 });
   assert.deepEqual(parseHunkHeader('@@ -0,0 +1,2 @@'), { oldStart: 0, newStart: 1 });
@@ -51,8 +48,7 @@ test('parseHunkHeader: reads both starts, with or without counts', async () => {
   assert.equal(parseHunkHeader(' context line'), null);
 });
 
-test('parseUnifiedDiff: an added file numbers only the new side', async () => {
-  const { parseUnifiedDiff } = await importCore();
+test('parseUnifiedDiff: an added file numbers only the new side', () => {
   const diff = [
     'diff --git a/new.js b/new.js',
     'new file mode 100644',
@@ -69,8 +65,7 @@ test('parseUnifiedDiff: an added file numbers only the new side', async () => {
   ]);
 });
 
-test('parseUnifiedDiff: a deleted file numbers only the old side', async () => {
-  const { parseUnifiedDiff } = await importCore();
+test('parseUnifiedDiff: a deleted file numbers only the old side', () => {
   const diff = [
     'diff --git a/old.js b/old.js',
     'deleted file mode 100644',
@@ -87,8 +82,7 @@ test('parseUnifiedDiff: a deleted file numbers only the old side', async () => {
   ]);
 });
 
-test('parseUnifiedDiff: each hunk restarts numbering from its own header', async () => {
-  const { parseUnifiedDiff } = await importCore();
+test('parseUnifiedDiff: each hunk restarts numbering from its own header', () => {
   const diff = [
     'diff --git a/multi.js b/multi.js',
     '--- a/multi.js',
@@ -115,8 +109,7 @@ test('parseUnifiedDiff: each hunk restarts numbering from its own header', async
   ]);
 });
 
-test('parseUnifiedDiff: a no-newline marker carries no line number', async () => {
-  const { parseUnifiedDiff } = await importCore();
+test('parseUnifiedDiff: a no-newline marker carries no line number', () => {
   const diff = [
     'diff --git a/tail.js b/tail.js',
     '--- a/tail.js',
@@ -135,8 +128,7 @@ test('parseUnifiedDiff: a no-newline marker carries no line number', async () =>
   assert.deepEqual(f.hunks[0].lines[3], { type: 'add', text: 'new tail', oldLineNumber: null, newLineNumber: 2 });
 });
 
-test('parseUnifiedDiff: a new file (git add -N style) is status added', async () => {
-  const { parseUnifiedDiff } = await importCore();
+test('parseUnifiedDiff: a new file (git add -N style) is status added', () => {
   const diff = [
     'diff --git a/new.js b/new.js',
     'new file mode 100644',
@@ -154,8 +146,7 @@ test('parseUnifiedDiff: a new file (git add -N style) is status added', async ()
   assert.equal(f.removed, 0);
 });
 
-test('parseUnifiedDiff: a deleted file is status deleted', async () => {
-  const { parseUnifiedDiff } = await importCore();
+test('parseUnifiedDiff: a deleted file is status deleted', () => {
   const diff = [
     'diff --git a/old.js b/old.js',
     'deleted file mode 100644',
@@ -173,8 +164,7 @@ test('parseUnifiedDiff: a deleted file is status deleted', async () => {
   assert.equal(f.added, 0);
 });
 
-test('parseUnifiedDiff: a rename is status renamed with oldPath', async () => {
-  const { parseUnifiedDiff } = await importCore();
+test('parseUnifiedDiff: a rename is status renamed with oldPath', () => {
   const diff = [
     'diff --git a/old/name.js b/new/name.js',
     'similarity index 95%',
@@ -193,8 +183,7 @@ test('parseUnifiedDiff: a rename is status renamed with oldPath', async () => {
   assert.equal(f.oldPath, 'old/name.js');
 });
 
-test('parseUnifiedDiff: a binary file is flagged binary', async () => {
-  const { parseUnifiedDiff } = await importCore();
+test('parseUnifiedDiff: a binary file is flagged binary', () => {
   const diff = [
     'diff --git a/img.png b/img.png',
     'index abc..def 100644',
@@ -205,8 +194,7 @@ test('parseUnifiedDiff: a binary file is flagged binary', async () => {
   assert.equal(f.path, 'img.png');
 });
 
-test('parseUnifiedDiff: handles CRLF line endings', async () => {
-  const { parseUnifiedDiff } = await importCore();
+test('parseUnifiedDiff: handles CRLF line endings', () => {
   const diff = [
     'diff --git a/f.js b/f.js',
     '--- a/f.js',
@@ -223,8 +211,7 @@ test('parseUnifiedDiff: handles CRLF line endings', async () => {
   assert.equal(f.hunks[0].lines[1].text, 'b');
 });
 
-test('parseUnifiedDiff: two files in one diff', async () => {
-  const { parseUnifiedDiff } = await importCore();
+test('parseUnifiedDiff: two files in one diff', () => {
   const diff = [
     'diff --git a/one.js b/one.js',
     '--- a/one.js',
@@ -244,8 +231,7 @@ test('parseUnifiedDiff: two files in one diff', async () => {
   assert.deepEqual(files.map((f) => f.path), ['one.js', 'two.js']);
 });
 
-test('summarizeFiles: rolls up file count and add/remove totals', async () => {
-  const { parseUnifiedDiff, summarizeFiles } = await importCore();
+test('summarizeFiles: rolls up file count and add/remove totals', () => {
   const diff = [
     'diff --git a/one.js b/one.js',
     '--- a/one.js',
@@ -260,8 +246,7 @@ test('summarizeFiles: rolls up file count and add/remove totals', async () => {
   assert.deepEqual(summarizeFiles([]), { files: 0, added: 0, removed: 0 });
 });
 
-test('shouldDropDiffCache: drops on merged/none and on parked -> pending-review, keeps otherwise', async () => {
-  const { shouldDropDiffCache } = await importCore();
+test('shouldDropDiffCache: drops on merged/none and on parked -> pending-review, keeps otherwise', () => {
 
   assert.equal(shouldDropDiffCache('pending-review', 'merged'), true);
   assert.equal(shouldDropDiffCache('parked', 'merged'), true);
@@ -278,36 +263,31 @@ test('shouldDropDiffCache: drops on merged/none and on parked -> pending-review,
   assert.equal(shouldDropDiffCache('merging', 'parked'), false);
 });
 
-test('annotationTargetOf: an added line targets the new side at its new line number', async () => {
-  const { annotationTargetOf } = await importCore();
+test('annotationTargetOf: an added line targets the new side at its new line number', () => {
   const line = { type: 'add', text: 'added', oldLineNumber: null, newLineNumber: 12 };
 
   assert.deepEqual(annotationTargetOf({ path: 'a.ts' }, line), { path: 'a.ts', line: 12, side: 'new' });
 });
 
-test('annotationTargetOf: a removed line targets the old side at its pre-image line number', async () => {
-  const { annotationTargetOf } = await importCore();
+test('annotationTargetOf: a removed line targets the old side at its pre-image line number', () => {
   const line = { type: 'del', text: 'removed', oldLineNumber: 7, newLineNumber: null };
 
   assert.deepEqual(annotationTargetOf({ path: 'a.ts' }, line), { path: 'a.ts', line: 7, side: 'old' });
 });
 
-test('annotationTargetOf: a context line targets the new side', async () => {
-  const { annotationTargetOf } = await importCore();
+test('annotationTargetOf: a context line targets the new side', () => {
   const line = { type: 'context', text: 'kept', oldLineNumber: 3, newLineNumber: 4 };
 
   assert.deepEqual(annotationTargetOf({ path: 'a.ts' }, line), { path: 'a.ts', line: 4, side: 'new' });
 });
 
-test('annotationTargetOf: a meta line and a numberless line cannot be annotated', async () => {
-  const { annotationTargetOf } = await importCore();
+test('annotationTargetOf: a meta line and a numberless line cannot be annotated', () => {
 
   assert.equal(annotationTargetOf({ path: 'a.ts' }, { type: 'meta', text: 'No newline', oldLineNumber: null, newLineNumber: null }), null);
   assert.equal(annotationTargetOf({ path: 'a.ts' }, { type: 'del', text: 'removed', oldLineNumber: null, newLineNumber: null }), null);
 });
 
-test('annotationTargetOf: every line parsed out of a diff carries the target its gutter implies', async () => {
-  const { annotationTargetOf, parseUnifiedDiff } = await importCore();
+test('annotationTargetOf: every line parsed out of a diff carries the target its gutter implies', () => {
   const diff = [
     'diff --git a/src/foo.js b/src/foo.js',
     '--- a/src/foo.js',
@@ -326,8 +306,7 @@ test('annotationTargetOf: every line parsed out of a diff carries the target its
   ]);
 });
 
-test('annotationKey separates the two diff sections, the two sides and the two lines', async () => {
-  const { annotationKey } = await importCore();
+test('annotationKey separates the two diff sections, the two sides and the two lines', () => {
 
   assert.notEqual(annotationKey('committed', 'a.ts', 3, 'new'), annotationKey('uncommitted', 'a.ts', 3, 'new'));
   assert.notEqual(annotationKey('committed', 'a.ts', 3, 'new'), annotationKey('committed', 'a.ts', 3, 'old'));
@@ -335,8 +314,7 @@ test('annotationKey separates the two diff sections, the two sides and the two l
   assert.equal(annotationKey('committed', 'a.ts', 3, 'new'), annotationKey('committed', 'a.ts', 3, 'new'));
 });
 
-test('staleDraftKeys drops only the drafts of a section whose diff text changed', async () => {
-  const { annotationKey, staleDraftKeys } = await importCore();
+test('staleDraftKeys drops only the drafts of a section whose diff text changed', () => {
   const committedKey = annotationKey('committed', 'a.ts', 3, 'new');
   const uncommittedKey = annotationKey('uncommitted', 'b.ts', 7, 'old');
   const keys = [committedKey, uncommittedKey];

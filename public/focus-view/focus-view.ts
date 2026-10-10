@@ -22,6 +22,8 @@ import { createUnseenCompleteTracker } from './unseen-complete-core.ts';
 
 type RosterRow = SessionRow<SessionUi, string | null>;
 
+const projectPathOf = (row: RosterRow) => row.ui.path;
+
 type FocusPill = ReturnType<typeof buildPill>;
 
 type GroupList = HTMLDivElement & { _lastOrderKey?: string };
@@ -52,7 +54,7 @@ const groupHeaderById = new Map<string, GroupHeader>();
 let railTabStopId: string | null = null;
 
 const NO_COLLAPSED = new Set<string>();
-function railVisibleIds() { return visibleOrder(currentGroups(), NO_COLLAPSED); }
+function railVisibleIds() { return visibleOrder(groupsOf(orderedSessions()), NO_COLLAPSED); }
 
 function setRailTabStop(id: string | null) {
   const prev = railTabStopId;
@@ -67,9 +69,8 @@ function setRailTabStop(id: string | null) {
   }
 }
 
-function currentGroups() {
-  const order = orderedSessions();
-  return groupRoster(order, (row) => row.ui.path, emptyProjectKeys(order, (row) => row.ui.path));
+function groupsOf(order: RosterRow[]) {
+  return groupRoster(order, projectPathOf, emptyProjectKeys(order, projectPathOf));
 }
 
 function ensureGroup(group: RosterGroup<RosterRow>) {
@@ -288,7 +289,7 @@ export function refreshFocusRoster() {
   const sessionRows = readSessionRows(sessionName);
   unseenCompleteTracker.noteStates(sessionRows);
   const order = orderedSessions(sessionRows);
-  const groups = groupRoster(order, (row) => row.ui.path, emptyProjectKeys(order, (row) => row.ui.path));
+  const groups = groupsOf(order);
   const seen = new Set<string>();
 
   const placeList = (rows: RosterRow[], listEl: GroupList) => {

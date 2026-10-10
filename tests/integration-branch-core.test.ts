@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEFAULT_BRANCH_FALLBACKS,
   configuredIntegrationBranch,
   decideMarkerBase,
   defaultBranchFromRemoteHead,
@@ -31,10 +30,6 @@ test('defaultBranchFromRemoteHead reads the branch out of the origin HEAD ref', 
   assert.equal(defaultBranchFromRemoteHead('origin/'), null);
   assert.equal(defaultBranchFromRemoteHead('trunk'), null);
   assert.equal(defaultBranchFromRemoteHead(''), null);
-});
-
-test('the default branch fallbacks stay ordered main before master', () => {
-  assert.deepEqual([...DEFAULT_BRANCH_FALLBACKS], ['main', 'master']);
 });
 
 test('decideMarkerBase without a marker falls back to the configured branch, then the caller base', () => {

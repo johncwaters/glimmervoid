@@ -1,27 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import { isCompactStatusLabels, setCompactStatusLabels, getThemeId } from '../public/ui-prefs.ts';
 import { SETTINGS_MAP } from '../public/settings-map.ts';
+import { stubLocalStorageForTest } from './helpers/frontend-global-stub.ts';
 
 const PLAN_PROMPT_KIND = 'plan';
 
 test('compact sidebar status defaults off, normalizes booleans and persists without changing other preferences', (context) => {
-  const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
-  const storedValues = new Map<string, string>();
-  Object.defineProperty(globalThis, 'localStorage', {
-    configurable: true,
-    value: {
-      getItem: (key: string) => storedValues.get(key) ?? null,
-      setItem: (key: string, value: string) => storedValues.set(key, value),
-    },
-  });
-  context.after(() => {
-    if (originalStorage) {
-      Object.defineProperty(globalThis, 'localStorage', originalStorage);
-      return;
-    }
-    Reflect.deleteProperty(globalThis, 'localStorage');
-  });
+  const storedValues = stubLocalStorageForTest(context);
   assert.equal(isCompactStatusLabels(), false);
   storedValues.set('glimmervoid-ui-prefs', JSON.stringify({ compactStatusLabels: 'true', themeId: 'midnight' }));
   assert.equal(isCompactStatusLabels(), false);
@@ -38,8 +25,7 @@ test('compact sidebar status defaults off, normalizes booleans and persists with
   assert.equal(setting.defaultValue, false);
 });
 
-test('compact status hides the status word on the desktop rail and the phone Board alike', async () => {
-  const { readFileSync } = await import('node:fs');
+test('compact status hides the status word on the desktop rail and the phone Board alike', () => {
   const css = readFileSync(new URL('../public/style.css', import.meta.url), 'utf8');
   const rowOutsidePlanPrompt = `html[data-compact-status] .phone-row:not([data-prompt="${PLAN_PROMPT_KIND}"])`;
 
@@ -49,8 +35,7 @@ test('compact status hides the status word on the desktop rail and the phone Boa
   assert.doesNotMatch(css, /html\[data-compact-status\] \.phone-row-(badge|meta)/);
 });
 
-test('the phone Board stamps the prompt kind that the compact status rule exempts, and words a plan row Plan ready', async () => {
-  const { readFileSync } = await import('node:fs');
+test('the phone Board stamps the prompt kind that the compact status rule exempts, and words a plan row Plan ready', () => {
   const boardScreenSource = readFileSync(new URL('../public/phone/board-screen.ts', import.meta.url), 'utf8');
 
   assert.ok(boardScreenSource.includes(`ui.pendingPromptKind === '${PLAN_PROMPT_KIND}' ? 'Plan ready' : label`));

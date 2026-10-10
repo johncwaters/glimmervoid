@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CoherenceRisk } from './coherence.ts';
+import { POSTHOG_WHOLE_NUMBER_ROUNDING } from './config-numbers-core.ts';
 import * as ranges from '../settings-ranges.ts';
 import type { SettingsRange } from '../settings-ranges.ts';
 import { USAGE_COST_MODES, USAGE_VENDOR_KEYS, USAGE_BUDGET_KEYS } from '../usage-config.ts';
@@ -22,7 +23,7 @@ export const optionalNumber = (field: string, range: SettingsRange = ranges.POSI
   .refine((value) => range.exclusiveMin || value >= range.min, { message: `${field} must be ${numberRangeLabel(range)}` })
   .refine((value) => range.max == null || value <= range.max, { message: `${field} must be ${numberRangeLabel(range)}` })
   .optional();
-export const optionalWholeNumber = (field: string, range: SettingsRange) => optionalNumber(field, range)
+const optionalWholeNumber = (field: string, range: SettingsRange) => optionalNumber(field, range)
   .unwrap().int({ error: `${field} must be a whole number ${numberRangeLabel(range)}` }).optional();
 const optionalInteger = (field: string, range: { min: number; max: number }) => z.number({ error: `${field} must be an integer between ${range.min} and ${range.max}` })
   .int({ error: `${field} must be an integer between ${range.min} and ${range.max}` })
@@ -123,7 +124,7 @@ export const FactorySettings = z.object({
   checks: z.array(z.string().trim().min(1)).optional(),
   protectedPaths: z.array(z.string().trim().min(1)).optional(),
   reviewerModel: z.string().trim().min(1).nullable().optional(),
-  watchWindowMinutes: z.number().int().min(1).max(1440).optional(),
+  watchWindowMinutes: z.number().int().min(ranges.FACTORY_WATCH_WINDOW_RANGE.min).max(ranges.FACTORY_WATCH_WINDOW_RANGE.max).optional(),
   watchProjects: z.array(z.object({ project: z.string().trim().min(1), posthogProjectId: z.number().int().positive() })).optional(),
   dailyBudgetUsd: z.number().finite().nonnegative().nullable().optional(),
   verifierModel: z.string().trim().min(1).nullable().optional(),
@@ -162,7 +163,7 @@ const PosthogSettings = optionalObject('posthog', {
   ], { error: 'posthog.projects must be "all" or an array of positive integer project ids' }).optional(),
   projectMap: z.record(z.string(), z.unknown(), { error: 'posthog.projectMap must be an object' }).optional(),
   ...Object.fromEntries(Object.entries(posthogNumberRanges).map(([key, range]) => [key,
-    ['maxConcurrentInvestigations', 'minUsersToInvestigate', 'userEscalationThreshold', 'trafficSpikeMinUsers', 'trafficSpikeBaselineDays'].includes(key)
+    Object.hasOwn(POSTHOG_WHOLE_NUMBER_ROUNDING, key)
       ? optionalWholeNumber(`posthog.${key}`, range)
       : optionalNumber(`posthog.${key}`, range),
   ])),

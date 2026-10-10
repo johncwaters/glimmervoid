@@ -43,15 +43,12 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
     config, configStore, sessions, controlWss, dataWss, broadcastControl, recordOutcome = () => {}, logger,
   } = dependencies;
   const clientPresence = createClientPresence();
-  const phoneEscalationMs = () => (
-    config.phoneEscalationMs == null ? DEFAULT_PHONE_ESCALATION_MS : config.phoneEscalationMs
-  );
-  const notificationManager = new NotificationManager({
+  const notificationTimings = () => ({
     escalationIntervalMs: ESCALATION_INTERVAL_MS,
     debounceMs: config.notifyDebounceMs ?? 3000,
-    phoneEscalationMs: phoneEscalationMs(),
-    recordOutcome,
+    phoneEscalationMs: config.phoneEscalationMs ?? DEFAULT_PHONE_ESCALATION_MS,
   });
+  const notificationManager = new NotificationManager({ ...notificationTimings(), recordOutcome });
   notificationManager.registerChannel('web', createWebNotificationChannel(broadcastControl));
 
   const telegramOutbox = createTelegramOutbox({
@@ -126,11 +123,7 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
   });
 
   function applySettings(): void {
-    notificationManager.updateSettings({
-      escalationIntervalMs: ESCALATION_INTERVAL_MS,
-      debounceMs: config.notifyDebounceMs ?? 3000,
-      phoneEscalationMs: phoneEscalationMs(),
-    });
+    notificationManager.updateSettings(notificationTimings());
   }
 
   return {

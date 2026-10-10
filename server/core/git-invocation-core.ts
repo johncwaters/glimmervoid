@@ -15,7 +15,7 @@ const SSH_COMMAND_KEY = 'core.sshcommand';
 
 type ScopedConfigEntry = { scope: string; key: string; value: string | null };
 
-export function parseScopedConfigListing(configListing: string): ScopedConfigEntry[] {
+function parseScopedConfigListing(configListing: string): ScopedConfigEntry[] {
   const fields = configListing.split('\0');
   const entries: ScopedConfigEntry[] = [];
   for (let index = 0; index + 1 < fields.length; index += 2) {

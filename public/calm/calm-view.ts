@@ -471,38 +471,37 @@ function buildRings(rows: readonly CalmRow[], activeSurface: CalmSurface) {
   return rings;
 }
 
-function buildDesktopNowList(rows: readonly CalmRow[]) {
+function buildNowList(rows: readonly CalmRow[], buildNowRow: (row: CalmRow) => HTMLElement) {
   const nowList = el('div', 'calm-now-list');
   nowList.setAttribute('aria-label', 'NOW sessions');
-  for (const row of orderCalmQueue(rows).filter((entry) => tierOf(entry) === 'now')) nowList.append(createButton(`${glyphByTier.now} ${row.name}`, 'calm-now-row', () => openPanel(row)));
+  for (const row of orderCalmQueue(rows).filter((entry) => tierOf(entry) === 'now')) nowList.append(buildNowRow(row));
   return nowList;
+}
+
+function buildDesktopNowRow(row: CalmRow) {
+  return createButton(`${glyphByTier.now} ${row.name}`, 'calm-now-row', () => openPanel(row));
 }
 
 function waitTextSince(stateSince: number) {
   return formatWaitTime(Date.now() - stateSince);
 }
 
-function buildPhoneNowList(rows: readonly CalmRow[]) {
-  const nowList = el('div', 'calm-now-list');
-  nowList.setAttribute('aria-label', 'NOW sessions');
-  for (const row of orderCalmQueue(rows).filter((entry) => tierOf(entry) === 'now')) {
-    const context = panelContextFor(row, pickComponent(row).component);
-    const button = createButton('', 'calm-now-row', () => openPanel(row));
-    button.setAttribute('aria-label', `${row.name}, ${context}`);
-    const glyph = el('span', 'calm-now-glyph', glyphByTier.now);
-    glyph.setAttribute('aria-hidden', 'true');
-    const details = el('span', 'calm-now-details');
-    details.append(el('span', 'calm-now-name', row.name), el('span', 'calm-now-context', context));
-    const wait = el('span', 'calm-now-wait');
-    wait.setAttribute('aria-hidden', 'true');
-    if (typeof row.stateSince === 'number') {
-      wait.dataset.stateSince = String(row.stateSince);
-      wait.textContent = waitTextSince(row.stateSince);
-    }
-    button.append(glyph, details, wait);
-    nowList.append(button);
+function buildPhoneNowRow(row: CalmRow) {
+  const context = panelContextFor(row, pickComponent(row).component);
+  const button = createButton('', 'calm-now-row', () => openPanel(row));
+  button.setAttribute('aria-label', `${row.name}, ${context}`);
+  const glyph = el('span', 'calm-now-glyph', glyphByTier.now);
+  glyph.setAttribute('aria-hidden', 'true');
+  const details = el('span', 'calm-now-details');
+  details.append(el('span', 'calm-now-name', row.name), el('span', 'calm-now-context', context));
+  const wait = el('span', 'calm-now-wait');
+  wait.setAttribute('aria-hidden', 'true');
+  if (typeof row.stateSince === 'number') {
+    wait.dataset.stateSince = String(row.stateSince);
+    wait.textContent = waitTextSince(row.stateSince);
   }
-  return nowList;
+  button.append(glyph, details, wait);
+  return button;
 }
 
 function refreshNowRowWaits() {
@@ -520,7 +519,7 @@ export function refreshCalmView() {
   if (!activeSurface || (activeSurface.kind === 'desktop' && isPhoneLayout())) return;
   const home = el('div', 'calm-home');
   home.append(buildRings(rows, activeSurface));
-  home.append(activeSurface.kind === 'phone' ? buildPhoneNowList(rows) : buildDesktopNowList(rows));
+  home.append(buildNowList(rows, activeSurface.kind === 'phone' ? buildPhoneNowRow : buildDesktopNowRow));
   const footer = el('footer', 'calm-footer', FOOTER_TEXT_BY_SURFACE[activeSurface.kind]);
   const nextField = el('div', 'calm-field');
   nextField.append(buildTierHeader(rows), home, footer);
@@ -550,7 +549,7 @@ function openPanelAtLight(row: CalmRow) {
   opener = findLight(row.id);
 }
 
-export function openCalmPanelForSession(sessionId: string) {
+function openCalmPanelForSession(sessionId: string) {
   openDesktopCalm();
   if (!isDesktopSurfaceActive()) return false;
   const row = readRows().find((entry) => entry.id === sessionId);

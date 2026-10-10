@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const importBoardCore = () => import('../public/phone/board-groups-core.ts');
-const importRosterCore = () => import('../public/focus-view/roster-groups.ts');
+import { groupSessionsForBoard } from '../public/phone/board-groups-core.ts';
+import { groupRoster, NO_PATH_KEY } from '../public/focus-view/roster-groups.ts';
 
 interface BoardRow {
   id: string;
@@ -14,8 +14,7 @@ const row = (id: string, projectPath: string, state: string): BoardRow => ({ id,
 const pathOf = (entry: BoardRow) => entry.projectPath;
 const ids = (rows: readonly BoardRow[]) => rows.map((entry) => entry.id);
 
-test('groupSessionsForBoard keeps project order stable while attention reranks rows inside a group', async () => {
-  const { groupSessionsForBoard } = await importBoardCore();
+test('groupSessionsForBoard keeps project order stable while attention reranks rows inside a group', () => {
   const before = groupSessionsForBoard([
     row('alpha-one', '/work/alpha', 'RUNNING'),
     row('alpha-two', '/work/alpha', 'WAITING'),
@@ -33,8 +32,7 @@ test('groupSessionsForBoard keeps project order stable while attention reranks r
   assert.deepEqual(ids(after.groups[0].rows), ['alpha-one', 'alpha-two']);
 });
 
-test('groupSessionsForBoard keeps empty projects and excludes them from visible ids', async () => {
-  const { groupSessionsForBoard } = await importBoardCore();
+test('groupSessionsForBoard keeps empty projects and excludes them from visible ids', () => {
   const grouped = groupSessionsForBoard([
     row('live', '/work/live', 'RUNNING'),
   ], pathOf, ['/work/empty']);
@@ -44,9 +42,7 @@ test('groupSessionsForBoard keeps empty projects and excludes them from visible 
   assert.deepEqual(grouped.visibleIds, ['live']);
 });
 
-test('groupSessionsForBoard places the pathless group exactly where the desktop grouping does', async () => {
-  const { groupSessionsForBoard } = await importBoardCore();
-  const { groupRoster, NO_PATH_KEY } = await importRosterCore();
+test('groupSessionsForBoard places the pathless group exactly where the desktop grouping does', () => {
   const rows = [
     row('zebra', '/work/zebra', 'RUNNING'),
     row('pathless', '', 'WAITING'),

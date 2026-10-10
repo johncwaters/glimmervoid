@@ -1,8 +1,8 @@
 import type { Config } from '../shared/contracts/config.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
 import { FactoryHogQLResponse, FactoryIssue, FactoryIssueQueryRow } from '../shared/contracts/factory.ts';
 import type { FactoryLaneState, FactoryProjectState, FactoryWorkerEvent } from '../shared/contracts/factory.ts';
-import { attributeIssues, buildIssuesSinceQuery, watchesDue } from './core/factory-core.ts';
+import { FACTORY_LEDGER_SESSION, attributeIssues, buildIssuesSinceQuery, findFactoryProjectPath, watchesDue } from './core/factory-core.ts';
 import { extractRows } from './posthog-api.ts';
 import type { PosthogResponse } from './posthog-api.ts';
 
@@ -26,14 +26,15 @@ export function createFactoryWatch({ config, readLaneState, writeLaneState, seri
   commitAndLand, runHogQL, notifyOrchestrator, notify, onChanged = () => {}, now = Date.now, log = console }: FactoryWatchDeps) {
   const notesByProject = new Map<string, string>();
   let stopped = false;
+  const isEnabled = () => !stopped && config.factory?.enabled === true;
 
   async function tick(project: FactoryProjectState): Promise<FactoryProjectState> {
-    if (stopped || config.factory?.enabled !== true) return project;
+    if (!isEnabled()) return project;
     return serializeProject(project.projectId, async () => {
       const state = await readLaneState(project.projectId);
       const watches = state.watch ?? [];
       if (watches.length === 0) return { ...project, watches, note: notesByProject.get(project.projectId) ?? null };
-      const projectPath = config.projects.find((candidate) => candidate.id === project.projectId)?.path;
+      const projectPath = findFactoryProjectPath(config, project.projectId);
       if (!projectPath) return project;
       const mapping = config.factory?.watchProjects?.find((candidate) => candidate.project === project.projectId);
       const apiKey = config.posthog?.apiKey;
@@ -60,7 +61,7 @@ export function createFactoryWatch({ config, readLaneState, writeLaneState, seri
         }
       }
       if (note) log.warn(`[factory] ${project.projectId}: ${note}`);
-      if (stopped || config.factory?.enabled !== true) return project;
+      if (!isEnabled()) return project;
       if (note) notesByProject.set(project.projectId, note);
       if (!note) notesByProject.delete(project.projectId);
       const discovered = attributeIssues({ watches, issues });
@@ -89,11 +90,11 @@ export function createFactoryWatch({ config, readLaneState, writeLaneState, seri
         if (filedBreachKeys.has(breachKeyOf(watch.workId, issue.issueId))) continue;
         await runCoherence({ cwd: ledger.cwd, args: ['defect', `Factory breach on ${watch.workId}: issue ${issue.issueId}`,
           '--evidence', `Issue first seen at ${new Date(issue.firstSeenMs).toISOString()} after merge ${watch.mergedSha}; frames ${JSON.stringify(issue.framePaths)}`,
-          '--session', 'glimmervoid-factory'] });
+          '--session', FACTORY_LEDGER_SESSION] });
       }
       for (const { watch, id, evidence } of verifications) {
         await runCoherence({ cwd: ledger.cwd, args: ['consequence', 'add', `verification:${id}`, 'verifies', `work:${watch.workId}`,
-          '--evidence', evidence, '--session', 'glimmervoid-factory', '--json'] });
+          '--evidence', evidence, '--session', FACTORY_LEDGER_SESSION, '--json'] });
       }
       const markBreachesFiled = async () => {
         const committedState = await readLaneState(project.projectId);

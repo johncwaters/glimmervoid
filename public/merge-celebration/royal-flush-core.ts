@@ -22,7 +22,7 @@ export function royalFlushCardLayout(cardIndex: number) {
   };
 }
 
-export type RoyalFlushCardLayout = ReturnType<typeof royalFlushCardLayout>;
+type RoyalFlushCardLayout = ReturnType<typeof royalFlushCardLayout>;
 
 export function royalFlushCardStyleProperties(layout: RoyalFlushCardLayout): Array<readonly [string, string]> {
   return [

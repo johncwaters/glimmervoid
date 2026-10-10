@@ -47,9 +47,7 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
   const groupsEl = el('div', 'phone-board-list');
 
   const emptyEl = el('div', 'phone-empty');
-  emptyEl.innerHTML = '<p class="phone-empty-title"></p><p class="phone-empty-desc"></p>';
-  const emptyTitleEl = queryTag(emptyEl, '.phone-empty-title', 'p');
-  const emptyDescEl = queryTag(emptyEl, '.phone-empty-desc', 'p');
+  emptyEl.append(el('p', 'phone-empty-title', 'No sessions'), el('p', 'phone-empty-desc', 'Spawn a session to start watching.'));
 
   screen.append(topBar, attentionEl, calmEl, groupsEl, emptyEl);
 
@@ -237,9 +235,6 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     const hasGroups = boardGroups.groups.length > 0;
     groupsEl.hidden = !hasGroups;
     emptyEl.hidden = hasGroups;
-    if (hasGroups) return;
-    emptyTitleEl.textContent = 'No sessions';
-    emptyDescEl.textContent = 'Spawn a session to start watching.';
   }
 
   onSessionTick(() => {
