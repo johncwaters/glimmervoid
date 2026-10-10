@@ -149,6 +149,7 @@ function makeSession(extra: Partial<SessionOptions> = {}) {
     spawnCommand: { path: process.execPath, kind: 'exe' },
     ptySpawn: extra.ptySpawn,
     gitWorkspace: extra.gitWorkspace,
+    gitIsolation: extra.gitIsolation,
     integrationBranch: extra.integrationBranch,
     syncOnStart: extra.syncOnStart,
     autoRebase: extra.autoRebase,
@@ -1221,6 +1222,45 @@ test('getDiff: a branch already on develop shows nothing to merge despite a stal
     assert.equal(d.hasCommits, false, 'develop already contains the work -> nothing to merge');
     assert.equal(d.committed.diff.trim(), '', 'no phantom committed diff from the stale baseSha');
   } finally { s.destroy(); fs.rmSync(repo, { recursive: true, force: true }); }
+});
+
+test('isolated git: a detached HEAD falls back to the integration branch like the non-isolated path', { skip: !GIT }, async () => {
+  const repo = initOneCommitRepo();
+  git(['checkout', '--detach'], repo);
+  const isolated = makeSession({ integrationBranch: 'develop', gitIsolation: { disableRepoCommands: true } });
+  const plain = makeSession({ integrationBranch: 'develop' });
+  try {
+    const isolatedBase = await isolated.worktreeLifecycle.resolveEffectiveBase({ cwd: repo });
+    const plainBase = await plain.worktreeLifecycle.resolveEffectiveBase({ cwd: repo });
+    assert.equal(isolatedBase, 'develop');
+    assert.equal(isolatedBase, plainBase);
+  } finally { isolated.destroy(); plain.destroy(); fs.rmSync(repo, { recursive: true, force: true }); }
+});
+
+test('isolated git: getDiff returns the working-tree diff when the base ref does not exist', { skip: !GIT }, async () => {
+  const repo = initOneCommitRepo();
+  const s = makeSession({ integrationBranch: 'no-such-base', gitIsolation: { disableRepoCommands: true } });
+  try {
+    fs.writeFileSync(path.join(repo, 'README.md'), '# repo\nedited\n', 'utf8');
+    attachWorktree(s, repo);
+    const d = await s.getDiff();
+    assert.match(d.uncommitted.diff, /\+edited/);
+    assert.equal(d.committed.diff, '');
+    assert.equal(d.hasCommits, false);
+  } finally { s.destroy(); fs.rmSync(repo, { recursive: true, force: true }); }
+});
+
+test('isolated git: getBranchSync reports a non-git project folder as no-upstream, without a warning', { skip: !GIT }, async (t) => {
+  const warnSpy = t.mock.method(console, 'warn', () => {});
+  const notARepo = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-not-a-repo-'));
+  const s = makeSession({ integrationBranch: 'develop', gitIsolation: { disableRepoCommands: true } });
+  s.path = notARepo;
+  try {
+    const sync = await s.getBranchSync();
+    assert.equal(sync.state, 'no-upstream');
+    assert.equal(sync.error, undefined);
+    assert.equal(warnSpy.mock.calls.length, 0);
+  } finally { s.destroy(); fs.rmSync(notARepo, { recursive: true, force: true }); }
 });
 
 function initRepoWithRemote() {
