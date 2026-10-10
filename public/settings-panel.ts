@@ -420,7 +420,7 @@ function renderList(setting: SettingsSetting) {
   const wrapper = el('div', 'settings-view-list');
   const currentValue = settingValue(setting);
   const values: string[] = Array.isArray(currentValue) ? currentValue : [];
-  if (values.length === 0) wrapper.appendChild(el('div', 'settings-empty', 'No repository roots configured.'));
+  if (values.length === 0) wrapper.appendChild(el('div', 'settings-empty', setting.listEmptyText ?? 'No repository roots configured.'));
   for (const [index, value] of values.entries()) {
     const row = el('div', 'settings-root-item');
     const pathEl = el('span', 'settings-root-path', value);
@@ -440,7 +440,7 @@ function renderList(setting: SettingsSetting) {
   input.type = 'text';
   input.autocomplete = 'off';
   input.spellcheck = false;
-  input.placeholder = 'Repository root path';
+  input.placeholder = setting.listPlaceholder ?? 'Repository root path';
   const add = el('button', 'btn-dialog btn-dialog-confirm btn-settings-add', 'Add');
   add.type = 'button';
   const addValue = () => {

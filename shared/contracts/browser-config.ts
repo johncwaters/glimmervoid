@@ -5,6 +5,7 @@ import * as ranges from '../settings-ranges.ts';
 import type { SettingsRange } from '../settings-ranges.ts';
 import { USAGE_COST_MODES, USAGE_VENDOR_KEYS, USAGE_BUDGET_KEYS } from '../usage-config.ts';
 import { WorkflowsSettings } from './workflows.ts';
+import { repoParts } from './github-ids.ts';
 
 export const optionalBoolean = (field: string) => z.boolean({ error: `${field} must be a boolean` }).optional();
 const optionalString = (field: string, trim = false) => {
@@ -95,6 +96,14 @@ const VisionsSettings = optionalObject('visions', {
     threadTtlMs: optionalWholeNumber('visions.intent.threadTtlMs', ranges.VISIONS_INTENT_THREAD_TTL_MS_RANGE),
   }),
 });
+
+export const GithubSettings = z.object({
+  teams: z.array(
+    z.string({ error: 'github.teams must be an array of org/slug strings' })
+      .refine((team) => repoParts(team) !== null, { message: 'github.teams entries must be org/slug with valid GitHub segments' }),
+    { error: 'github.teams must be an array of org/slug strings' },
+  ).optional(),
+}, { error: 'github must be an object' }).nullable().optional();
 
 const TeamReviewSettings = optionalObject('teamReview', {
   enabled: optionalBoolean('teamReview.enabled'),
@@ -256,6 +265,7 @@ export const createBrowserConfigShape = (isAbsolutePath: (directory: string) => 
   branchGc: BranchGcSettings,
   postTurnChecks: PostTurnChecksSettings,
   visions: VisionsSettings,
+  github: GithubSettings,
   teamReview: TeamReviewSettings,
   benchmarks: BenchmarksSettings,
   factory: FactorySettings,

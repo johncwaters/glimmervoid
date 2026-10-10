@@ -4,6 +4,7 @@ import type {
 } from '../../shared/contracts/workflows.ts';
 import { MERGED_RETENTION_MS } from './my-prs-core.ts';
 import { prKey } from './team-review-core.ts';
+import type { TeamReviewSettings } from './team-review-core.ts';
 import { isRecord } from '../../shared/coerce.ts';
 
 export const WORKFLOWS_LANE_ID = 'workflows';
@@ -105,9 +106,10 @@ export function watchedWorkflowRepos(rules: readonly WorkflowRule[]): string[] {
   return [...reposByKey.values()];
 }
 
-export function workflowTeamName(settings: { org: string; team: string }): string | null {
-  if (!settings.org || !settings.team) return null;
-  return `${settings.org}/${settings.team}`;
+export function workflowTeamName(settings: Pick<TeamReviewSettings, 'teams'>): string | null {
+  const firstTeam = settings.teams[0];
+  if (!firstTeam) return null;
+  return `${firstTeam.org}/${firstTeam.slug}`;
 }
 
 export function toWorkflowPr(node: WorkflowSearchNode): WorkflowPr {

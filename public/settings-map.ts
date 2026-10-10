@@ -18,6 +18,8 @@ export interface SettingsSetting {
   options?: SettingsOption[] | string[];
   optionsFrom?: string;
   keywords?: string[];
+  listPlaceholder?: string;
+  listEmptyText?: string;
   defaultValue?: unknown;
   integer?: boolean;
   nullable?: boolean;
@@ -659,6 +661,12 @@ export const SETTINGS_MAP = Object.freeze([
         id: 'team-review-enabled', path: 'teamReview.enabled', title: 'Enable team review',
         description: 'Poll open pull requests from the team and draft a review of each one. Nothing is posted until you choose Approve or Comment.',
         control: 'toggle', keywords: ['pull requests', 'github'], defaultValue: false,
+      },
+      {
+        id: 'github-teams', path: 'github.teams', title: 'GitHub teams',
+        description: 'Teams to search for review requests and members, one org/slug per entry. Leave empty to use the organization and team below.',
+        control: 'list', keywords: ['github', 'teams', 'review requests'], defaultValue: [],
+        listPlaceholder: 'org/team-slug', listEmptyText: 'No GitHub teams configured.',
       },
       {
         id: 'team-review-org', path: 'teamReview.org', title: 'GitHub organization',

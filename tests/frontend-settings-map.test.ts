@@ -221,6 +221,7 @@ test('the Team review lane section owns its settings and deep link', async () =>
   const teamReviewSettings: SettingsSetting[] = section.settings;
   assert.deepEqual(teamReviewSettings.map((setting) => [setting.id, setting.path, setting.control]), [
     ['team-review-enabled', 'teamReview.enabled', 'toggle'],
+    ['github-teams', 'github.teams', 'list'],
     ['team-review-org', 'teamReview.org', 'text'],
     ['team-review-team', 'teamReview.team', 'text'],
     ['team-review-re-review-after-hours', 'teamReview.reReviewAfterHours', 'number'],

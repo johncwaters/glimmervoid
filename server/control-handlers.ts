@@ -231,6 +231,7 @@ const DASHBOARD_SETTING_PATHS = Object.freeze([
   ...VISIONS_DISPATCH_STRING_KEYS.map((key) => `visions.dispatch.${key}`),
   ...VISIONS_DISPATCH_NUMERIC_KEYS.map((key) => `visions.dispatch.${key}`),
   ...VISIONS_INTENT_NUMERIC_KEYS.map((key) => `visions.intent.${key}`),
+  'github.teams',
   ...TEAM_REVIEW_BOOLEAN_KEYS.map((key) => `teamReview.${key}`),
   ...TEAM_REVIEW_STRING_KEYS.map((key) => `teamReview.${key}`),
   'teamReview.reReviewAfterHours',
@@ -734,6 +735,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       if (s.branchGc != null) cfg.branchGc = mergeSettingsBlockOverStored(cfg.branchGc, s.branchGc);
       if (s.postTurnChecks != null) cfg.postTurnChecks = mergeSettingsBlockOverStored(cfg.postTurnChecks, s.postTurnChecks);
       if (s.visions != null) cfg.visions = s.visions;
+      if (s.github != null) cfg.github = mergeSettingsBlockOverStored(cfg.github, s.github);
       if (s.teamReview != null) cfg.teamReview = mergeSettingsBlockOverStored(cfg.teamReview, s.teamReview);
       if (s.benchmarks != null) cfg.benchmarks = mergeSettingsBlockOverStored(cfg.benchmarks, s.benchmarks);
       if (s.factory != null) cfg.factory = mergeSettingsBlockOverStored(cfg.factory, s.factory);

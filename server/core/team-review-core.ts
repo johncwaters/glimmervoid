@@ -7,6 +7,8 @@ import type {
 } from '../../shared/contracts/team-review.ts';
 import { positiveNumberOr } from '../../shared/coerce.ts';
 import { GH_SEGMENT } from '../../shared/contracts/github-ids.ts';
+import type { Config } from '../../shared/contracts/config.ts';
+import { readGithubTeams } from './github-teams-core.ts';
 
 const STAMP_MODEL = 'sonnet';
 const FULL_MODEL = 'opus';
@@ -59,14 +61,12 @@ interface TeamReviewCandidate {
   prCreatedAt?: string;
 }
 
-interface TeamReviewSettingsSource {
-  teamReview?: Record<string, unknown> | null;
-}
+type TeamReviewSettingsSource = Pick<Config, 'github' | 'teamReview'>;
 
 interface TeamReviewSettings {
   enabled: boolean;
   org: string;
-  team: string;
+  teams: ReturnType<typeof readGithubTeams>;
   reReviewAfterHours: number;
   skipIdleAfterDays: number;
   skill: string;
@@ -76,15 +76,41 @@ interface TeamReviewSettings {
 
 function readTeamReviewSettings(config: TeamReviewSettingsSource): TeamReviewSettings {
   const block = config.teamReview;
+  const teams = readGithubTeams(config);
+  const configuredOrg = typeof block?.org === 'string' ? block.org.trim() : '';
   return {
     enabled: block?.enabled === true,
-    org: typeof block?.org === 'string' ? block.org.trim() : '',
-    team: typeof block?.team === 'string' ? block.team.trim() : '',
+    org: configuredOrg || teams[0]?.org || '',
+    teams,
     reReviewAfterHours: positiveNumberOr(block?.reReviewAfterHours, DEFAULT_RE_REVIEW_AFTER_HOURS),
     skipIdleAfterDays: positiveNumberOr(block?.skipIdleAfterDays, DEFAULT_SKIP_IDLE_AFTER_DAYS),
     skill: typeof block?.skill === 'string' ? block.skill.trim() : '',
     autoRebaseMyPrs: block?.autoRebaseMyPrs === true,
   };
+}
+
+interface OrgSearchPlan {
+  org: string;
+  authors: string[];
+}
+
+function uniqueLogins(logins: readonly string[]): string[] {
+  const loginsByLowercase = new Map<string, string>();
+  for (const login of logins) {
+    if (!loginsByLowercase.has(login.toLowerCase())) loginsByLowercase.set(login.toLowerCase(), login);
+  }
+  return [...loginsByLowercase.values()];
+}
+
+function orgSearchPlans(configuredOrg: string, teams: TeamReviewSettings['teams'], memberLists: readonly (readonly string[])[], viewer: string): OrgSearchPlan[] {
+  const allMembers = memberLists.flat();
+  const orgNames = uniqueLogins([configuredOrg, ...teams.map((team) => team.org)].filter((org) => org.length > 0));
+  return orgNames.map((org) => {
+    const orgMemberLists = teams.flatMap((team, index) => (team.org.toLowerCase() === org.toLowerCase() ? [memberLists[index] ?? []] : []));
+    const orgMembers = orgMemberLists.length > 0 ? orgMemberLists.flat() : allMembers;
+    const authors = uniqueLogins(orgMembers).filter((login) => login.toLowerCase() !== viewer.toLowerCase());
+    return { org, authors };
+  });
 }
 
 function prKey(repoSlug: string, prNumber: number | string): string {
@@ -968,6 +994,6 @@ export {
   REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE,
   parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule,
   buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, HAND_APPROVAL_LINE, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isSameGithubReviews, isSameQueuedReview, isSettledAtHead, shouldAutoReview, markDraftStale, restoreDraftAtReviewedHead,
-  applyReviewProgress, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, priorReviewFor, readyDraft, reReviewResult, repoFromSearchItem, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr,
+  applyReviewProgress, orgSearchPlans, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, priorReviewFor, readyDraft, reReviewResult, repoFromSearchItem, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr,
 };
 export type { CommentableFileLines, CommentableLines, ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSettings, TeamReviewSettingsSource };

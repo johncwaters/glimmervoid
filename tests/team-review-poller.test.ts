@@ -111,7 +111,7 @@ function setup(overrides: Partial<TeamReviewPollerDependencies> = {}) {
   let nowMs = 1000;
   const dependencies: TeamReviewPollerDependencies = {
     org: 'Acme',
-    team: 'core',
+    teams: [{ org: 'Acme', slug: 'core' }],
     github,
     spawnReview: async (args) => { spawned.push(args); return draftFor(args); },
     writeState: async (state) => { writes.push(structuredClone(state)); },
@@ -147,6 +147,88 @@ test('requested and authored PRs are deduped and self, bots and drafts never rea
   assert.deepEqual(latest?.inFlight, []);
   for (const status of statuses) assert.equal(TeamReviewStatus.safeParse(status).success, true);
   await poller.stop();
+});
+
+test('two configured teams are searched and their members unioned with the first team profile', async () => {
+  const teams = [{ org: 'Acme', slug: 'core' }, { org: 'Other', slug: 'tools' }];
+  const { poller, github, spawned, statuses } = setup({ teams });
+  const memberQueries: string[] = [];
+  const teamQueries: string[] = [];
+  const profileQueries: string[] = [];
+  const directQueries: string[] = [];
+  const authoredByOrg: Array<[string, string[]]> = [];
+  github.searchDirectRequested = async (org) => {
+    directQueries.push(org);
+    return { items: [], complete: true };
+  };
+  github.searchAuthoredBy = async (org, logins) => {
+    authoredByOrg.push([org, logins]);
+    return { items: [], complete: true };
+  };
+  github.teamProfile = async (org, slug) => {
+    profileQueries.push(`${org}/${slug}`);
+    return { org, slug, name: 'Core', avatarUrl: 'https://avatars.githubusercontent.com/t/1' };
+  };
+  github.teamMembers = async (org, slug) => {
+    memberQueries.push(`${org}/${slug}`);
+    if (slug === 'core') return ['me', 'teammate', 'shared'];
+    return ['ME', 'SHARED', 'other'];
+  };
+  github.searchTeamRequested = async (org, slug) => {
+    teamQueries.push(`${org}/${slug}`);
+    if (slug === 'core') return { items: [searchItem(1, 'teammate')], complete: true };
+    return { items: [searchItem(1, 'teammate'), searchItem(2, 'other')], complete: false };
+  };
+  github.heads.set(1, HEAD_ONE);
+  github.heads.set(2, HEAD_TWO);
+  try {
+    await poller.start();
+    await settle();
+    assert.deepEqual(memberQueries, ['Acme/core', 'Other/tools']);
+    assert.deepEqual(teamQueries, ['Acme/core', 'Other/tools']);
+    assert.deepEqual(profileQueries, ['Acme/core']);
+    assert.deepEqual(directQueries, ['Acme', 'Other']);
+    assert.deepEqual(authoredByOrg, [['Acme', ['teammate', 'shared']], ['Other', ['SHARED', 'other']]]);
+    assert.deepEqual(spawned.map((args) => args.candidate.key), [`${REPO}#1`, `${REPO}#2`]);
+    assert.equal(statuses.at(-1)?.team?.slug, 'core');
+    github.searchTeamRequested = async (_org, slug) => ({ items: [], complete: slug === 'core' });
+    await poller.tick();
+    assert.ok(poller.getDraft(`${REPO}#1`));
+    assert.ok(poller.getDraft(`${REPO}#2`));
+    github.searchTeamRequested = async () => ({ items: [], complete: true });
+    await poller.tick();
+    assert.equal(poller.getDraft(`${REPO}#1`), null);
+    assert.equal(poller.getDraft(`${REPO}#2`), null);
+  } finally {
+    await poller.stop();
+  }
+});
+
+test('a failed member fetch for one team keeps the drafts and resumable reviews of that team', async () => {
+  const teams = [{ org: 'Acme', slug: 'core' }, { org: 'Acme', slug: 'tools' }];
+  const discarded: string[] = [];
+  const { poller, github } = setup({ teams, discardResumable: async (record) => { discarded.push(record.sessionId); } });
+  let isToolsFetchFailing = false;
+  github.teamMembers = async (_org, slug) => {
+    if (slug === 'core') return ['me', 'teammate'];
+    return isToolsFetchFailing ? null : ['other'];
+  };
+  github.searchAuthoredBy = async (_org, logins) => ({ items: logins.includes('other') ? [searchItem(2, 'other')] : [], complete: true });
+  github.heads.set(2, HEAD_TWO);
+  try {
+    await poller.start();
+    await settle();
+    assert.ok(poller.getDraft(`${REPO}#2`));
+    const entry = poller._state()[`${REPO}#2`];
+    assert.ok(entry);
+    entry.resumable = { ...RESUMABLE, head: HEAD_TWO };
+    isToolsFetchFailing = true;
+    await poller.tick();
+    assert.ok(poller.getDraft(`${REPO}#2`));
+    assert.deepEqual(discarded, []);
+  } finally {
+    await poller.stop();
+  }
 });
 
 test('team profile is cached after success and retried after null', async () => {

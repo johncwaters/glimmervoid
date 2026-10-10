@@ -216,7 +216,7 @@ test('invalid inputs and malformed contract payloads fail closed', async () => {
   assert.equal(await invalid.prHead('Acme/repo', 0), null);
   assert.equal(calls, 0);
   assert.equal(await invalid.viewer(), null);
-  assert.deepEqual(await invalid.teamMembers('Acme', 'docs'), []);
+  assert.equal(await invalid.teamMembers('Acme', 'docs'), null);
   assert.deepEqual(await invalid.searchTeamRequested('Acme', 'docs'), { items: [], complete: false });
   assert.deepEqual(await invalid.searchAuthoredBy('Acme', ['alice']), { items: [], complete: false });
   assert.equal(await invalid.viewPr('Acme/repo', 7), null);

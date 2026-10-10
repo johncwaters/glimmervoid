@@ -518,6 +518,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       branchGc: { ...config.branchGc },
       postTurnChecks: config.postTurnChecks ? { ...config.postTurnChecks } : { ...DEFAULT_CONFIG.postTurnChecks },
       visions: config.visions ? { ...config.visions } : null,
+      github: config.github ? { ...config.github } : null,
       teamReview: config.teamReview ? { ...config.teamReview } : null,
       benchmarks: config.benchmarks ? { ...config.benchmarks } : null,
       factory: config.factory ? { ...config.factory } : null,
@@ -566,6 +567,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     if (newConfig.changeMap != null) config.changeMap = newConfig.changeMap;
     if (newConfig.branchGc != null) config.branchGc = resolveBranchGc(newConfig.branchGc);
     if (newConfig.visions != null) config.visions = newConfig.visions;
+    if (newConfig.github != null) config.github = newConfig.github;
     if (newConfig.teamReview != null) config.teamReview = newConfig.teamReview;
     if (newConfig.benchmarks != null) config.benchmarks = newConfig.benchmarks;
     if (newConfig.factory != null) config.factory = newConfig.factory;

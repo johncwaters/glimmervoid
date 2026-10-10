@@ -17,7 +17,7 @@ import type { DraftPatch, SpawnReviewArgs } from '../server/team-review-poller.t
 import type { PostedReview } from '../server/pr-gh.ts';
 import {
   TEAM_REVIEW_SESSION_DENY_RULES, createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewWiring, emptyTeamReviewStatus,
-  createTeamReviewStateIo, makeTeamReviewWorkDir, readTeamReviewSettings, sweepLeftoverCheckouts, teamReviewClaudeArgs, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
+  createTeamReviewStateIo, makeTeamReviewWorkDir, readTeamReviewSettings, sweepLeftoverCheckouts, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
   hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions,
 } from '../server/team-review-wiring.ts';
 import type { TeamReviewActionGithub, TeamReviewDispatchOptions, TeamReviewSpawn } from '../server/team-review-wiring.ts';
@@ -1319,11 +1319,15 @@ test('a review reports checkout then reviewing with the timeout, and forwards to
   }
 });
 
-test('the lane starts only when enabled with both org and team', () => {
+test('the lane starts only when enabled with a resolved organization and teams', () => {
   assert.equal(teamReviewShouldStart({}).start, false);
   assert.equal(teamReviewShouldStart({ teamReview: { enabled: true, org: 'Acme' } }).start, false);
   assert.equal(teamReviewShouldStart({ teamReview: { enabled: false, org: 'Acme', team: 'core' } }).start, false);
   assert.equal(teamReviewShouldStart({ teamReview: { enabled: true, org: 'Acme', team: 'core' } }).start, true);
+  const config = { teamReview: { enabled: true }, github: { teams: ['Acme/core'] } };
+  assert.equal(teamReviewShouldStart(config).start, true);
+  assert.equal(teamReviewShouldStart({ ...config, github: { teams: [] } }).start, false);
+  assert.notEqual(teamReviewCfgKey(config), teamReviewCfgKey({ ...config, github: { teams: ['Acme/core', 'Other/tools'] } }));
 });
 
 test('the configured review skill reaches the prompt of each review as it is read at spawn time', async () => {
@@ -1341,10 +1345,12 @@ test('the configured review skill reaches the prompt of each review as it is rea
 });
 
 test('team review settings use configurable positive review and idle windows', () => {
-  assert.deepEqual(readTeamReviewSettings({}), { enabled: false, org: '', team: '', reReviewAfterHours: 24, skipIdleAfterDays: 14, skill: '', autoRebaseMyPrs: false });
+  assert.deepEqual(readTeamReviewSettings({}), { enabled: false, org: '', teams: [], reReviewAfterHours: 24, skipIdleAfterDays: 14, skill: '', autoRebaseMyPrs: false });
   assert.deepEqual(readTeamReviewSettings({ teamReview: { enabled: true, org: ' Acme ', team: ' core ', reReviewAfterHours: 6, skipIdleAfterDays: 3, skill: ' my-review ', autoRebaseMyPrs: true } }), {
-    enabled: true, org: 'Acme', team: 'core', reReviewAfterHours: 6, skipIdleAfterDays: 3, skill: 'my-review', autoRebaseMyPrs: true,
+    enabled: true, org: 'Acme', teams: [{ org: 'Acme', slug: 'core' }], reReviewAfterHours: 6, skipIdleAfterDays: 3, skill: 'my-review', autoRebaseMyPrs: true,
   });
+  assert.equal(readTeamReviewSettings({ github: { teams: ['Acme/core'] }, teamReview: { org: ' ' } }).org, 'Acme');
+  assert.equal(readTeamReviewSettings({ github: { teams: ['Acme/core'] }, teamReview: { org: 'Override' } }).org, 'Override');
   assert.equal(readTeamReviewSettings({ teamReview: { autoRebaseMyPrs: 'yes' } }).autoRebaseMyPrs, false);
 });
 

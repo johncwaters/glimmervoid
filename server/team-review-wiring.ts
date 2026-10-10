@@ -200,7 +200,7 @@ interface TeamReviewActionOptions {
 function teamReviewShouldStart(config: TeamReviewWiringConfig): LaneRunnerGate {
   const settings = core.readTeamReviewSettings(config);
   if (!settings.enabled) return { start: false };
-  if (!settings.org || !settings.team) return { start: false, reason: 'teamReview needs both org and team' };
+  if (!settings.org || settings.teams.length === 0) return { start: false, reason: 'Team review needs an organization and at least one GitHub team' };
   return { start: true };
 }
 
@@ -967,7 +967,7 @@ function createTeamReviewWiring({
       const settings = core.readTeamReviewSettings(config);
       return createPoller({
         org: settings.org,
-        team: settings.team,
+        teams: settings.teams,
         reReviewAfterMs: settings.reReviewAfterHours * 60 * 60 * 1000,
         skipIdleAfterMs: settings.skipIdleAfterDays * 24 * 60 * 60 * 1000,
         github,

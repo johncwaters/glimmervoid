@@ -2,7 +2,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { TaskTitle } from './session.ts';
 import {
-  FactorySettings, AgentApiFileSettings, BranchGcControlSettings, ChangeMapSettings,
+  FactorySettings, AgentApiFileSettings, BranchGcControlSettings, ChangeMapSettings, GithubSettings,
   createBrowserConfig, optionalBoolean, optionalLooseObject,
   PlanReviewSettings, TelemetryFileSettings, TraceSettings,
 } from './browser-config.ts';
@@ -109,6 +109,7 @@ const FILE_CONFIG_SHAPE = {
   branchGc: optionalLooseObject('branchGc'),
   coder: z.object({ appSlug: z.string().optional() }).loose().optional(),
   visions: optionalLooseObject('visions'),
+  github: GithubSettings,
   teamReview: optionalLooseObject('teamReview'),
   benchmarks: optionalLooseObject('benchmarks'),
   factory: FactorySettings,
@@ -157,7 +158,7 @@ export const Config = z.object({
 });
 
 export const CONFIG_BLOCK_KEYS = Object.freeze([
-  'changeMap', 'taskTitle', 'branchGc', 'postTurnChecks', 'visions', 'teamReview', 'benchmarks', 'factory', 'knowledgeGraph', 'posthog', 'usage', 'telegram', 'ingest',
+  'changeMap', 'taskTitle', 'branchGc', 'postTurnChecks', 'visions', 'github', 'teamReview', 'benchmarks', 'factory', 'knowledgeGraph', 'posthog', 'usage', 'telegram', 'ingest',
   'agentApi', 'telemetry', 'workflows', 'coder',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {

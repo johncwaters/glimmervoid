@@ -186,6 +186,7 @@ Draft reviews of teammates' pull requests for you to post from the Reviews tab.
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `teamReview.enabled` | Enable team review | `false` | Poll open pull requests from the team and draft a review of each one. Nothing is posted until you choose Approve or Comment. |
+| `github.teams` | GitHub teams | `[]` | Teams to search for review requests and members, one org/slug per entry. Leave empty to use the organization and team below. |
 | `teamReview.org` | GitHub organization | `""` | Organization login that owns the team, for example PostHog. |
 | `teamReview.team` | GitHub team | `""` | Team slug whose members and review requests are polled. |
 | `teamReview.reReviewAfterHours` | Re-review after (hours) | `24` | When a reviewed PR has a new head, review it again after this many hours since its last review. Queue review runs it at any time. |

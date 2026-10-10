@@ -115,7 +115,7 @@ interface PrGh {
   listIssues(): Promise<GithubIssueList>;
   viewIssue(issueNumber: number | string): Promise<GithubIssueDetail>;
   viewer(): Promise<string | null>;
-  teamMembers(org: string, team: string): Promise<string[]>;
+  teamMembers(org: string, team: string): Promise<string[] | null>;
   teamProfile(org: string, team: string): Promise<NonNullable<TeamReviewStatus['team']> | null>;
   searchTeamRequested(org: string, team: string): Promise<PrSearchResult>;
   searchDirectRequested(org: string): Promise<PrSearchResult>;
@@ -701,10 +701,10 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     async teamMembers(org, team) {
       if (!GH_SEGMENT.test(org) || !GH_SEGMENT.test(team)) return [];
       const response = await runGh(['api', '--paginate', `orgs/${org}/teams/${team}/members`, '--jq', '.[].login']);
-      if (!response.ok) return [];
+      if (!response.ok) return null;
       const members = response.out ? response.out.split(/\r?\n/) : [];
       const parsed = GH_MEMBERS.safeParse(members);
-      return parsed.success ? parsed.data : [];
+      return parsed.success ? parsed.data : null;
     },
 
     async teamProfile(org, team) {

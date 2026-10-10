@@ -278,10 +278,9 @@ test('watched repos are the enabled rules repos, deduplicated ignoring case', ()
   assert.deepEqual(watchedWorkflowRepos(rules), ['Acme/app', 'Acme/web']);
 });
 
-test('the team name needs both an organization and a team', () => {
-  assert.equal(workflowTeamName({ org: 'Acme', team: 'core' }), 'Acme/core');
-  assert.equal(workflowTeamName({ org: 'Acme', team: '' }), null);
-  assert.equal(workflowTeamName({ org: '', team: 'core' }), null);
+test('the team name uses the first configured team', () => {
+  assert.equal(workflowTeamName({ teams: [{ org: 'Acme', slug: 'core' }, { org: 'Other', slug: 'tools' }] }), 'Acme/core');
+  assert.equal(workflowTeamName({ teams: [] }), null);
 });
 
 test('a search node becomes a snapshot entry with user and team review requests', () => {

@@ -2,7 +2,7 @@ import { viewerThreadTally, hasPresentableThreads, isThreadPlaceholderDraft, ans
 import * as core from './core/team-review-core.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
 import { secondaryRateLimitWaitMs } from './core/lane-backoff.ts';
-import type { ReviewProgressEvent, ReviewTier, TeamReviewCandidate } from './core/team-review-core.ts';
+import type { ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSettings } from './core/team-review-core.ts';
 import { firstLine } from './ephemeral-session.ts';
 import { createTickLoop } from './lane-runner.ts';
 import type { SharedClock, TickOutcome } from './lane-runner.ts';
@@ -21,7 +21,7 @@ const TEAM_REVIEW_RATE_LIMIT_RESOURCES = ['search', 'graphql', 'core'] as const;
 
 interface TeamReviewGithub extends Partial<Pick<PrGh, 'teamReviewThreads' | 'resolveReviewThread' | 'teamReviewCompare'>> {
   viewer(): Promise<string | null>;
-  teamMembers(org: string, team: string): Promise<string[]>;
+  teamMembers(org: string, team: string): Promise<string[] | null>;
   teamProfile(org: string, team: string): Promise<NonNullable<TeamReviewStatus['team']> | null>;
   searchTeamRequested(org: string, team: string): Promise<PrSearchResult>;
   searchDirectRequested(org: string): Promise<PrSearchResult>;
@@ -53,7 +53,7 @@ interface DraftExpectation {
 
 interface TeamReviewPollerDependencies {
   org: string;
-  team: string;
+  teams: TeamReviewSettings['teams'];
   github: TeamReviewGithub;
   judgeThread?: (prompt: string) => Promise<unknown>;
   spawnReview: (args: SpawnReviewArgs) => Promise<ReviewOutcome>;
@@ -81,7 +81,7 @@ const REQUEUEABLE_STATUSES: ReadonlySet<ReviewDraftType['status']> = new Set(['e
 
 function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   const {
-    org, team, github, spawnReview, discardResumable = async () => {},
+    org, teams, github, spawnReview, discardResumable = async () => {},
     readState = async () => ({}), writeState = async () => {}, beforeStart = async () => {}, sandboxRefusal = allowSandboxedSpawn,
     setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn, clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
     setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn, clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
@@ -462,18 +462,23 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   }
 
   async function collectCandidates(): Promise<{ candidates: TeamReviewCandidate[]; isComplete: boolean } | null> {
-    if (teamProfile === null) teamProfile = await github.teamProfile(org, team);
+    const firstTeam = teams[0];
+    if (!firstTeam) return null;
+    if (teamProfile === null) teamProfile = await github.teamProfile(firstTeam.org, firstTeam.slug);
     if (self === null) self = await github.viewer();
     const viewer = self;
     if (viewer === null) return null;
-    const members = await github.teamMembers(org, team);
-    if (members.length === 0) return null;
-    const teammates = members.filter((login) => login.toLowerCase() !== viewer.toLowerCase());
-    const directRequested = await github.searchDirectRequested(org);
-    const requested = await github.searchTeamRequested(org, team);
-    const authored = teammates.length > 0 ? await github.searchAuthoredBy(org, teammates) : { items: [], complete: true };
-    const candidates = core.selectCandidates(directRequested.items, requested.items, authored.items, { self: viewer, nowMs: now(), skipIdleAfterMs });
-    return { candidates, isComplete: directRequested.complete && requested.complete && authored.complete };
+    const memberLists = await Promise.all(teams.map((team) => github.teamMembers(team.org, team.slug)));
+    const isMembershipComplete = memberLists.every((members) => members !== null);
+    const fetchedMemberLists = memberLists.map((members) => members ?? []);
+    if (fetchedMemberLists.every((members) => members.length === 0)) return null;
+    const searchPlans = core.orgSearchPlans(org, teams, fetchedMemberLists, viewer);
+    const directRequested = await Promise.all(searchPlans.map((plan) => github.searchDirectRequested(plan.org)));
+    const requested = await Promise.all(teams.map((team) => github.searchTeamRequested(team.org, team.slug)));
+    const authored = await Promise.all(searchPlans.map((plan) => (plan.authors.length > 0 ? github.searchAuthoredBy(plan.org, plan.authors) : { items: [], complete: true })));
+    const searches = [...directRequested, ...requested, ...authored];
+    const candidates = core.selectCandidates(directRequested.flatMap((search) => search.items), requested.flatMap((search) => search.items), authored.flatMap((search) => search.items), { self: viewer, nowMs: now(), skipIdleAfterMs });
+    return { candidates, isComplete: isMembershipComplete && searches.every((search) => search.complete) };
   }
 
   async function rateLimitedOutcome(): Promise<TickOutcome> {
