@@ -28,7 +28,7 @@ export interface PrimaryViewDefinition<PanelElement> {
   onConnectionChange?: (isConnected: boolean) => void;
   hasOwnPhoneScreen?: boolean;
   hasPanelChrome?: boolean;
-  shouldHideReviewSidebar?: boolean;
+  hasReviewSidebar?: boolean;
 }
 
 export interface PrimaryView<PanelElement> extends PrimaryViewDefinition<PanelElement> {

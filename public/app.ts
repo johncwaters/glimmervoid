@@ -675,7 +675,7 @@ function activateView(view: string, { section, setting, persist = true }: Activa
   if (persist) savedViewAwaitingSurface = null;
 
   document.body.dataset.activeView = view;
-  document.body.dataset.reviewSidebarHidden = String(VIEW_TABS.find((viewTab) => viewTab.view === view)?.shouldHideReviewSidebar === true);
+  document.body.dataset.reviewSidebarHidden = String(VIEW_TABS.find((viewTab) => viewTab.view === view)?.hasReviewSidebar !== true);
 
   if (persist) setActiveView(view);
   for (const v of VIEW_TABS) {

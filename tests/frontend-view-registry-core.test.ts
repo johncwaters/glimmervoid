@@ -116,6 +116,6 @@ test('attention subscriptions, mounts and sidebar policy live on rows rather tha
   const appSource = readSource('../public/app.ts');
   assert.match(appSource, /for \(const viewTab of VIEW_TABS\) viewTab\.mount\(viewTab\.el\)/);
   assert.match(appSource, /\?\.attention\?\.acknowledge\(\)/);
-  assert.match(appSource, /\?\.shouldHideReviewSidebar === true/);
+  assert.match(appSource, /\?\.hasReviewSidebar !== true/);
   assert.doesNotMatch(readSource('../public/style.css'), /body\[data-active-view=/);
 });
