@@ -11,7 +11,7 @@ function makeOrder(work: string, parent: string | null, writeScopes = ['src']): 
 
 const intent = makeOrder('wrk-0000000000000001', null);
 const order = makeOrder('wrk-0000000000000002', intent.work, ['src/retry.ts']);
-const baseline: FactoryAdmissionInput = { intent, order, trustedIntentIds: new Set([intent.work]), liveWorkers: [], spentTodayUsd: 10, dailyBudgetUsd: 10 };
+const baseline: FactoryAdmissionInput = { intent, order, trustedIntentIds: new Set([intent.work]), liveWorkers: [], spentTodayUsd: 10, dailyBudgetUsd: 10, filterDriverNames: [] };
 
 const refusals: [string, Partial<FactoryAdmissionInput>, string][] = [
   ['missing order', { order: null }, 'does not exist'],
@@ -67,6 +67,11 @@ for (const scope of ['src', './src/', 'src/retry.ts', 'src/retry.ts/nested', '.'
 test('admission with a daily budget and unknown spend refuses and raises the factory exception', () => {
   assert.deepEqual(decideAdmission({ ...baseline, spentTodayUsd: null }), { admit: false, reason: 'daily budget set but usage tracking is off', exception: true });
   assert.deepEqual(decideAdmission({ ...baseline, spentTodayUsd: null, dailyBudgetUsd: null }), { admit: true });
+});
+
+test('admission refuses a repository with git filter drivers as a factory exception before any other rule', () => {
+  assert.deepEqual(decideAdmission({ ...baseline, order: null, filterDriverNames: ['git-crypt', 'lfs'] }), { admit: false,
+    reason: 'repository uses git filter drivers (git-crypt, lfs), which factory workers cannot run safely', exception: true });
 });
 
 test('admission admits root scope, equal budgets, configured limits and unlimited budgets', () => {

@@ -10,7 +10,7 @@ import type { ControlBroadcast } from './backend-websockets.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import { buildCoherenceSessionOverrides } from './core/coherence-session-core.ts';
 import { buildOrchestratorPrompt, collapseWorkerEvents, decideOrchestrator, formatWorkerEvent, nextIntent } from './core/factory-core.ts';
-import { buildLanePermissions } from './core/lane-permissions-core.ts';
+import { LANE_CONFIG_EDIT_DENY_RULES, buildLanePermissions } from './core/lane-permissions-core.ts';
 import { registerEphemeralSession } from './ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 import type { SessionSpawnOverrides } from './session-factory.ts';
@@ -24,7 +24,7 @@ export const FACTORY_ORCHESTRATOR_DENY = Object.freeze([
   'Edit', 'Write', 'NotebookEdit', 'Bash(git push:*)', 'Bash(git commit:*)', 'Bash(gh:*)',
   'Bash(coherence work close:*)', 'Bash(coherence work transition:*)', 'Bash(coherence work handoff:*)',
   'Bash(coherence consequence:*)', 'Bash(coherence defect:*)',
-  'Bash(npx:*)', 'Bash(node:*)', 'Bash(pnpm:*)', 'Bash(yarn:*)', 'Bash(bunx:*)',
+  'Bash(npx:*)', 'Bash(node:*)', 'Bash(pnpm:*)', 'Bash(yarn:*)', 'Bash(bunx:*)', ...LANE_CONFIG_EDIT_DENY_RULES,
 ]);
 
 export type FactoryOrchestratorSession = Pick<Session, 'id' | 'name' | 'path' | 'agentId' | 'state' | 'stateSince'
@@ -126,6 +126,7 @@ export function createFactoryOrchestrator<ManagedSession extends FactoryOrchestr
       const identity = { id: `factory-orch-${project.projectId}`, name: `${project.projectName} orchestrator`, path: ledgerPath, dangerouslySkipPermissions: false };
       const session = makeSession(identity, config, {
         ...coherence, agent: 'claude-code', ephemeral: true, agentApi: true, gitWorkspace: null, dangerouslySkipPermissions: false,
+        gitIsolation: { disableRepoCommands: true },
         initialPrompt: buildOrchestratorPrompt({ projectName: project.projectName, intent, claudeSessionId }),
         settingsPermissions: { ...permissions.permissions, allow: [...FACTORY_ORCHESTRATOR_ALLOW] }, extraClaudeArgs: [...coherence.extraClaudeArgs, ...permissions.args],
       });

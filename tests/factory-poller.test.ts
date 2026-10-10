@@ -117,6 +117,26 @@ test('a rejected coherence command is isolated from the other projects', async (
   await poller.stop();
 });
 
+test('a throwing project state processor folds its error into that project and the tick still broadcasts the rest', async () => {
+  const warnings: string[] = [];
+  const { poller, messages } = await createHarness({
+    log: { warn: (message: string) => { warnings.push(message); } },
+    listFactoryProjects: () => [
+      { id: 'failing', name: 'Failing', path: '/failing' },
+      { id: 'healthy', name: 'Healthy', path: '/healthy' },
+    ],
+    processProjectState: async (project) => {
+      if (project.projectId === 'failing') throw new Error('push rejected by origin');
+      return project;
+    },
+  });
+  await assert.doesNotReject(poller.tick());
+  assert.equal(messages.length, 1);
+  assert.deepEqual(messages[0].projects.map((project) => [project.projectId, project.error]), [['failing', 'push rejected by origin'], ['healthy', null]]);
+  assert.equal(warnings.some((warning) => warning.includes('push rejected by origin')), true);
+  await poller.stop();
+});
+
 test('projects without a coherence config are skipped and cached removals are broadcast', async () => {
   const { poller, messages, commands, controls } = await createHarness();
   controls.hasConfig = false;

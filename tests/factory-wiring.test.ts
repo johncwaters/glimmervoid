@@ -8,7 +8,7 @@ import { glimmervoidHomeDir } from '../server/config-store.ts';
 import { buildCoherenceShims } from '../server/core/coherence-session-core.ts';
 import { createFactoryPoller } from '../server/factory-poller.ts';
 import type { FactoryPoller } from '../server/factory-poller.ts';
-import { createGitWorkspace } from '../server/git-workspace.ts';
+import { createGitWorkspace, runFactoryGit } from '../server/git-workspace.ts';
 import type { GitWorkspaceInstance } from '../server/git-workspace.ts';
 import { CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import { FactoryLaneState } from '../shared/contracts/factory.ts';
@@ -21,9 +21,11 @@ const REAL_PROCESS_DEADLINE_MS = 30_000;
 
 test('factory wiring is disabled until explicitly enabled and hides state after disabling', async (context) => {
   const config = { factory: { enabled: false }, projects: [] };
+  let gitInvocations = 0;
+  const gitWorkspace = createGitWorkspace({ git: () => { gitInvocations += 1; throw new Error('Disabled factory invoked Git'); } });
   const pollers: FactoryPoller[] = [];
   const wiring = createFactoryWiring({
-    config, broadcast: () => {}, listFactoryProjects: () => [], firstTickDelayMs: () => 0,
+    config, gitWorkspace, broadcast: () => {}, listFactoryProjects: () => [], firstTickDelayMs: () => 0,
     createPoller: (deps) => {
       const poller = createFactoryPoller(deps);
       pollers.push(poller);
@@ -34,6 +36,7 @@ test('factory wiring is disabled until explicitly enabled and hides state after 
   wiring.start();
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(pollers.length, 0);
+  assert.equal(gitInvocations, 0);
   assert.equal(wiring.getState(), null);
   config.factory.enabled = true;
   wiring.restartIfConfigChanged();
@@ -403,9 +406,9 @@ async function createIntentFixture(context: test.TestContext) {
   await git(['push', '-u', 'origin', 'integration']);
   const config = { factory: { enabled: true }, integrationBranch: 'integration', projects: [{ id: 'project-1', name: 'Factory', path: projectPath }] };
   const broadcasts: FactoryState[] = [];
-  const start = async (gitWorkspace?: GitWorkspaceInstance) => {
+  const start = async (gitWorkspace?: GitWorkspaceInstance, runCoherence?: (request: { cwd: string; args: string[] }) => Promise<string>) => {
     const wiring = createFactoryWiring({
-      config, homeDir, gitWorkspace, firstTickDelayMs: () => 0,
+      config, homeDir, gitWorkspace, runCoherence, firstTickDelayMs: () => 0,
       broadcast: (message) => broadcasts.push(message),
     });
     wirings.push(wiring);
@@ -530,3 +533,85 @@ test('a recorded ledger checkout removed after landing is recreated from integra
   assert.equal(recreated.ledgerBranch, previous.ledgerBranch);
   assert.equal(wiring.getState()?.projects[0].orders.length, 2);
 });
+
+
+test('queue refuses a forged factory record injected after screening and before staging', async (context) => {
+  const fixture = await createIntentFixture(context);
+  const coherenceCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence');
+  assert.ok(coherenceCliPath);
+  let forgedPath: string | null = null;
+  const originalOriginSha = await fixture.git(['rev-parse', 'integration'], fixture.originPath);
+  const wiring = await fixture.start(undefined, async ({ cwd, args }) => {
+    const { stdout } = await execFileAsync(process.execPath, [coherenceCliPath, ...args], { cwd, timeout: REAL_PROCESS_DEADLINE_MS });
+    if (args[0] !== 'work' || args[1] !== 'create') return stdout;
+    forgedPath = '.coherence/consequences/s-forged.jsonl';
+    await mkdir(path.join(cwd, '.coherence', 'consequences'), { recursive: true });
+    await writeFile(path.join(cwd, forgedPath), `${JSON.stringify({ id: 'forged-id', session: 'glimmervoid-factory', relation: 'verifies' })}\n`);
+    return stdout;
+  });
+  const queued = await wiring.queueIntent(fixture.request);
+  assert.equal(queued.ok, false);
+  assert.match(queued.error ?? '', /without a declared factory write/);
+  assert.ok(forgedPath);
+  assert.equal(await fixture.git(['rev-parse', 'integration'], fixture.originPath), originalOriginSha);
+  await assert.rejects(() => fixture.git(['cat-file', '-e', `integration:${forgedPath}`], fixture.originPath));
+});
+
+
+for (const mechanism of ['fsmonitor', 'smudge', 'clean', 'process', 'external-diff', 'textconv', 'post-checkout']) {
+  test(`factory git suppresses worker-configured ${mechanism} and server secrets in real checkouts`, { skip: process.platform === 'win32' }, async (context) => {
+    const fixture = await createIntentFixture(context);
+    const markerPath = path.join(fixture.homeDir, `${mechanism}-marker`);
+    const probePath = path.join(fixture.projectPath, 'probe.mjs');
+    await writeFile(probePath, `${String.fromCharCode(35)}!/usr/bin/env node\nimport { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(markerPath)}, process.env.FACTORY_PROBE_TOKEN ?? 'absent');\nprocess.stdin.resume();\n`, { mode: 0o755 });
+    await writeFile(path.join(fixture.projectPath, '.gitattributes'), 'payload.txt filter=probe diff=probe\n');
+    await writeFile(path.join(fixture.projectPath, 'payload.txt'), 'original\n');
+    await fixture.git(['add', '.']);
+    await fixture.git(['commit', '-m', 'Plant probe files']);
+    await fixture.git(['push', 'origin', 'integration']);
+    const probeCommand = `${process.execPath} ${probePath}`;
+    const configKey = new Map([
+      ['fsmonitor', 'core.fsmonitor'], ['smudge', 'filter.probe.smudge'], ['clean', 'filter.probe.clean'],
+      ['process', 'filter.probe.process'], ['external-diff', 'diff.external'], ['textconv', 'diff.probe.textconv'],
+    ]).get(mechanism);
+    if (configKey) await fixture.git(['config', configKey, probeCommand]);
+    if (mechanism === 'post-checkout') {
+      const hooksPath = path.join(fixture.projectPath, 'probe-hooks');
+      await mkdir(hooksPath);
+      await writeFile(path.join(hooksPath, 'post-checkout'), await readFile(probePath), { mode: 0o755 });
+      await fixture.git(['config', 'core.hooksPath', hooksPath]);
+    }
+    if (['smudge', 'clean', 'process'].includes(mechanism)) await fixture.git(['config', 'filter.probe.required', 'true']);
+    await fixture.git(['config', 'extensions.worktreeConfig', 'true']);
+    if (configKey) await fixture.git(['config', '--worktree', configKey, probeCommand]);
+    const previousProbeToken = process.env.FACTORY_PROBE_TOKEN;
+    process.env.FACTORY_PROBE_TOKEN = 'server-secret-for-git-probe';
+    context.after(() => {
+      if (previousProbeToken === undefined) { delete process.env.FACTORY_PROBE_TOKEN; return; }
+      process.env.FACTORY_PROBE_TOKEN = previousProbeToken;
+    });
+    const invocations: { args: string[]; secret: string | undefined }[] = [];
+    const gitWorkspace = createGitWorkspace({ git: async (args, cwd, extra) => {
+      invocations.push({ args, secret: extra?.replaceEnv?.FACTORY_PROBE_TOKEN });
+      assert.ok(extra?.replaceEnv);
+      return (await execFileAsync('git', args, { cwd, env: extra.replaceEnv, encoding: 'utf8', timeout: REAL_PROCESS_DEADLINE_MS })).stdout;
+    } });
+    const wiring = await fixture.start(gitWorkspace);
+    assert.equal(wiring.getState()?.projects[0]?.error, null);
+    const checkoutPath = path.join(fixture.homeDir, 'factory', fixture.request.projectId, 'control');
+    assert.equal(await readFile(path.join(checkoutPath, 'payload.txt'), 'utf8'), 'original\n');
+    await writeFile(path.join(checkoutPath, 'payload.txt'), 'changed\n');
+    await runFactoryGit(['status', '--porcelain'], { cwd: checkoutPath });
+    const diff = await runFactoryGit(['diff', 'HEAD', '--', 'payload.txt'], { cwd: checkoutPath });
+    assert.match(diff.stdout, /changed/);
+    await runFactoryGit(['add', '--', 'payload.txt'], { cwd: checkoutPath });
+    await runFactoryGit(['restore', '--source=HEAD', '--staged', '--worktree', '--', 'payload.txt'], { cwd: checkoutPath });
+    const moved = await gitWorkspace.checkoutDetached({ worktreePath: checkoutPath, sha: wiring.getState()?.projects[0]?.headSha ?? '', disableRepoCommands: true });
+    assert.equal(moved.ok, true, moved.err ?? 'Checkout failed');
+    await wiring.stop();
+    assert.ok(invocations.length > 0);
+    assert.equal(invocations.every((invocation) => invocation.secret === undefined), true);
+    assert.equal(invocations.every((invocation) => invocation.args.includes('core.fsmonitor=false') && invocation.args.includes(`core.hooksPath=${os.devNull}`)), true);
+    await assert.rejects(access(markerPath), { code: 'ENOENT' });
+  });
+}

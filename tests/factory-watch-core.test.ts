@@ -19,10 +19,10 @@ for (const rootScope of ['.', '**']) {
       opened: { at: mergedAt, objective: 'Ship retries', criteria: [], authority: { boundary: 'repo' }, risk: 'medium', parent: null,
         dependsOn: [], readScopes: [], writeScopes: [rootScope] } };
     const order = { ...root, work: 'child', opened: { ...root.opened, parent: 'intent', writeScopes: ['src/retry.ts'] } };
-    assert.deepEqual(decideAdmission({ intent: root, order, trustedIntentIds: new Set([root.work]), liveWorkers: [], spentTodayUsd: 0, dailyBudgetUsd: null }), { admit: true });
+    assert.deepEqual(decideAdmission({ intent: root, order, trustedIntentIds: new Set([root.work]), liveWorkers: [], spentTodayUsd: 0, dailyBudgetUsd: null, filterDriverNames: [] }), { admit: true });
     assert.deepEqual(checkFence({ changedPaths: ['src/retry.ts'], writeScopes: [rootScope], protectedPaths: [] }), { ok: true });
     assert.equal(checkFence({ changedPaths: ['.coherence/work.jsonl'], writeScopes: [rootScope], protectedPaths: [] }).ok, false);
-    assert.equal(decideAdmission({ intent: root, order, trustedIntentIds: new Set([root.work]), liveWorkers: [{ writeScopes: [rootScope] }], spentTodayUsd: 0, dailyBudgetUsd: null }).admit, false);
+    assert.equal(decideAdmission({ intent: root, order, trustedIntentIds: new Set([root.work]), liveWorkers: [{ writeScopes: [rootScope] }], spentTodayUsd: 0, dailyBudgetUsd: null, filterDriverNames: [] }).admit, false);
   });
 }
 

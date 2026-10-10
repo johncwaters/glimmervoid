@@ -9,9 +9,28 @@ import type { FactoryDispatchResult, FactoryProjectState, FactoryWorkerEvent } f
 import { buildCoherenceSessionOverrides } from './core/coherence-session-core.ts';
 import { FACTORY_LEDGER_SESSION, buildWorkerPrompt, decideAdmission } from './core/factory-core.ts';
 import type { FactoryLiveWorker } from './core/factory-core.ts';
+import { parseFilterDriverNames } from './core/git-invocation-core.ts';
+import { LANE_CONFIG_EDIT_DENY_RULES, buildLanePermissions } from './core/lane-permissions-core.ts';
+import { runFactoryGit } from './git-workspace.ts';
 import { registerEphemeralSession } from './ephemeral-session.ts';
 import type { FactoryOrchestratorDeps, FactoryOrchestratorSession } from './factory-orchestrator.ts';
 import type { FactoryCloseOutWorker } from './factory-closeout.ts';
+
+const FACTORY_WORKER_DENY = Object.freeze(['Bash(git push:*)', 'Bash(gh:*)', 'Bash(glimmervoid:*)', 'WebFetch', ...LANE_CONFIG_EDIT_DENY_RULES]);
+
+const FACTORY_WORKER_CREDENTIAL_ENV = Object.freeze({
+  SSH_AUTH_SOCK: '', SSH_ASKPASS: '', GIT_ASKPASS: '', GIT_SSH_COMMAND: 'false', GIT_TERMINAL_PROMPT: '0',
+  GH_TOKEN: '', GITHUB_TOKEN: '', GH_ENTERPRISE_TOKEN: '', GITHUB_ENTERPRISE_TOKEN: '',
+});
+
+const FILTER_PROBE_GIT_OPTIONS = { encoding: 'utf8' as const, timeout: 60_000, maxBuffer: 256 * 1024 * 1024 };
+
+async function readFilterDriverNames(cwd: string): Promise<string[]> {
+  const { stdout: trackedPaths } = await runFactoryGit(['ls-files', '-z'], { ...FILTER_PROBE_GIT_OPTIONS, cwd });
+  if (trackedPaths === '') return [];
+  const { stdout: attributes } = await runFactoryGit(['check-attr', '--stdin', '-z', 'filter'], { ...FILTER_PROBE_GIT_OPTIONS, cwd, input: trackedPaths });
+  return parseFilterDriverNames(attributes);
+}
 
 interface FactoryDispatchDeps<ManagedSession extends FactoryOrchestratorSession = Session>
   extends Omit<FactoryOrchestratorDeps<ManagedSession>, 'ensureLedger' | 'commitAndLand' | 'now'> {
@@ -108,6 +127,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
           order, intent, trustedIntentIds, liveWorkers: [...liveWorkers.values()].filter((worker) => worker.projectId === projectId),
           maxRisk: config.factory?.maxRisk, maxLiveWorkers: config.factory?.maxLiveWorkers,
           spentTodayUsd: readSpentTodayUsd(), dailyBudgetUsd: config.factory?.dailyBudgetUsd ?? null,
+          filterDriverNames: await readFilterDriverNames(ledger.cwd),
         });
         if (!admission.admit) return refuse(admission.reason, admission.exception);
         if (!order || !intent || !isAuthorized()) return refuse('factory orchestrator is no longer live');
@@ -128,15 +148,19 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
             id: workerSessionId, name: `${project.name} worker ${workId.slice(-8)}`,
             path: project.path, dangerouslySkipPermissions: false,
           };
+          const coherence = buildCoherenceSessionOverrides({ claudeSessionId, nodePath, hookCliPath, shimDir });
+          const permissions = buildLanePermissions({ denyTools: FACTORY_WORKER_DENY });
           const worker = makeSession(identity, config, {
-            ...buildCoherenceSessionOverrides({ claudeSessionId, nodePath, hookCliPath, shimDir }),
+            ...coherence,
             agent: 'claude-code', ephemeral: true, agentApi: false, requireWorktree: true, dangerouslySkipPermissions: false,
+            gitIsolation: { disableRepoCommands: true },
             initialPrompt: buildWorkerPrompt({ projectName: project.name, intent, order, claudeSessionId, checks }),
             settingsPermissions: {
-              defaultMode: 'acceptEdits',
+              ...permissions.permissions,
               allow: ['Bash(git add:*)', 'Bash(git commit:*)', 'Bash(coherence context:*)', ...checks.map((check) => `Bash(${check}:*)`)],
-              deny: ['Bash(git push:*)', 'Bash(gh:*)', 'Bash(glimmervoid:*)', 'WebFetch'],
             },
+            extraClaudeArgs: [...coherence.extraClaudeArgs, ...permissions.args],
+            spawnEnv: { ...coherence.spawnEnv, ...FACTORY_WORKER_CREDENTIAL_ENV },
           });
           const closeOutWorker: FactoryCloseOutWorker = {
             workId, intentId, projectId, projectPath: project.path, claudeSessionId, baseSha: null,

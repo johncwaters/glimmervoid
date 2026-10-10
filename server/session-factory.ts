@@ -15,7 +15,7 @@ import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './cor
 import { resolveUsageConfig } from './usage-wiring.ts';
 
 type SessionSpawnOverrides = Pick<SessionOptions,
-  'requireWorktree' | 'gitWorkspace' | 'settingsPermissions' | 'dangerouslySkipPermissions' | 'agentApi' | 'agent' | 'agentDepth' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
+  'requireWorktree' | 'gitWorkspace' | 'gitIsolation' | 'settingsPermissions' | 'dangerouslySkipPermissions' | 'agentApi' | 'agent' | 'agentDepth' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
 
 interface SessionFactoryDependencies {
   configStore: { configPath: string };

@@ -1,4 +1,7 @@
 import fs from 'node:fs';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { GIT_CONFIG_LISTING_ARGS, buildHardenedGitInvocation, gitInvocationEnvironment } from './core/git-invocation-core.ts';
+import type { GitIsolationOptions } from './core/git-invocation-core.ts';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileAsync, execFileSync } from '../server/child-process-safe.ts';
@@ -33,7 +36,7 @@ type IntegrationSyncResult = {
   to: string | null;
   error?: string;
 };
-type GitExtraOptions = { timeout?: number; maxBuffer?: number; env?: Record<string, string>; replaceEnv?: Record<string, string> };
+type GitExtraOptions = { timeout?: number; maxBuffer?: number; env?: Record<string, string>; replaceEnv?: Record<string, string>; disableRepoCommands?: boolean };
 type GitRunner = (args: string[], cwd: string, extra?: GitExtraOptions) => Promise<string> | string;
 type WorktreeBranch = { cwd: string; branch: string; locked: boolean; prunable: boolean; headSha: string | null };
 type WorkspaceHandle = {
@@ -60,6 +63,7 @@ type WorktreeArgs = {
   wtDir?: string;
   shareList?: string[] | null;
   keepTrackableLinks?: boolean;
+  disableRepoCommands?: boolean;
   disableHooks?: boolean;
   replaceEnv?: Record<string, string>;
   teamId?: string;
@@ -132,8 +136,8 @@ type MergeFastForwardResult = GitResult & {
 type QueuedGitResult = GitResult & { admissionRefused?: boolean };
 type WorktreeDirtyProbe = { ok: boolean; dirty: boolean; headSha: string | null; err?: string; admissionRefused?: boolean };
 type MergeProbeEnvArgs = { projectPath: string; timeoutMs?: number };
-type CheckoutDetachedArgs = { worktreePath: string; sha: string };
-type UntrustedCheckoutGitArgs = { disableHooks?: boolean; replaceEnv?: Record<string, string> };
+type CheckoutDetachedArgs = { worktreePath: string; sha: string } & GitIsolationOptions;
+type UntrustedCheckoutGitArgs = GitIsolationOptions;
 type StageDetachedWorktreeArgs = { projectPath: string; worktreePath?: string; sha?: string } & UntrustedCheckoutGitArgs;
 type StageIsolatedCheckoutArgs = { projectPath: string; checkoutPath?: string; sha?: string; baseSha?: string };
 type MergeFastForwardArgs = {
@@ -159,9 +163,33 @@ const ISOLATED_CHECKOUT_HYDRATE_TIMEOUT_MS = 10 * 60 * 1000;
 const ISOLATED_CHECKOUT_REVIEW_REF = 'refs/heads/review';
 const ISOLATED_CHECKOUT_BASE_REF = 'refs/benchmark/base';
 
-function untrustedCheckoutGit(args: string[], { disableHooks, replaceEnv }: UntrustedCheckoutGitArgs): { args: string[]; extra?: GitExtraOptions } {
+function untrustedCheckoutGit(args: string[], { disableHooks, disableRepoCommands, replaceEnv }: UntrustedCheckoutGitArgs): { args: string[]; extra?: GitExtraOptions } {
   const hooklessArgs = disableHooks ? ['-c', `core.hooksPath=${os.devNull}`, ...args] : args;
-  return replaceEnv ? { args: hooklessArgs, extra: { replaceEnv } } : { args: hooklessArgs };
+  return { args: hooklessArgs, extra: { replaceEnv, disableRepoCommands } };
+}
+
+async function prepareHardenedGitInvocation(args: string[], baseEnv: Readonly<Record<string, string | undefined>>,
+  probe: (args: string[], env: Record<string, string>) => Promise<string> | string) {
+  const invocationOptions = { baseEnv, transportSourceEnv: process.env, platform: process.platform, devNullPath: os.devNull };
+  const enumeration = buildHardenedGitInvocation([...GIT_CONFIG_LISTING_ARGS], invocationOptions);
+  const configListing = await probe(enumeration.args, enumeration.env);
+  return buildHardenedGitInvocation(args, { ...invocationOptions, configListing });
+}
+
+export async function factoryGitEnvironment(cwd: string): Promise<Record<string, string>> {
+  const invocation = await prepareHardenedGitInvocation([], process.env,
+    async (probeArgs, probeEnv) => (await execFileAsync('git', probeArgs, { cwd, env: probeEnv, encoding: 'utf8', timeout: 30_000 })).stdout);
+  return gitInvocationEnvironment(invocation);
+}
+
+export async function runFactoryGit(args: string[], options: {
+  cwd: string; timeout?: number; maxBuffer?: number; encoding?: 'utf8'; env?: Record<string, string | undefined>; indexFile?: string; input?: string;
+}) {
+  const { input, indexFile, ...processOptions } = options;
+  const invocation = await prepareHardenedGitInvocation(args, options.env ?? process.env,
+    async (probeArgs, probeEnv) => (await execFileAsync('git', probeArgs, { ...processOptions, env: probeEnv, encoding: 'utf8' })).stdout);
+  if (indexFile) invocation.env.GIT_INDEX_FILE = indexFile;
+  return execFileAsync('git', invocation.args, { ...processOptions, input, env: invocation.env, encoding: 'utf8' });
 }
 
 function errorExitCode(error: unknown): unknown {
@@ -248,9 +276,10 @@ function createGitWorkspace(opts: {
   mkdtemp?: (prefix: string) => string;
   rerere?: boolean;
   log?: Pick<Console, 'warn'>;
+  isolation?: GitIsolationOptions;
 } = {}) {
 
-  const git: GitRunner = opts.git || (async (args, cwd, extra) => {
+  const rawGit: GitRunner = opts.git || (async (args, cwd, extra) => {
     const result = await runGit(args, {
       cwd, timeoutMs: extra?.timeout || 20000, trim: false,
       ...(extra?.maxBuffer ? { maxBuffer: extra.maxBuffer } : {}),
@@ -260,6 +289,17 @@ function createGitWorkspace(opts: {
     if (!result.ok) throw result.error;
     return result.out;
   });
+  const isolationContext = new AsyncLocalStorage<GitIsolationOptions>();
+  const git: GitRunner = async (args, cwd, extra) => {
+    const isolation = isolationContext.getStore() ?? opts.isolation;
+    const combinedOptions = { ...isolation, ...extra,
+      disableRepoCommands: extra?.disableRepoCommands ?? isolation?.disableRepoCommands,
+      replaceEnv: extra?.replaceEnv ?? isolation?.replaceEnv };
+    if (!combinedOptions.disableRepoCommands) return rawGit(args, cwd, extra);
+    const invocation = await prepareHardenedGitInvocation(args, combinedOptions.replaceEnv ?? process.env,
+      (probeArgs, probeEnv) => rawGit(probeArgs, cwd, { ...extra, replaceEnv: probeEnv }));
+    return rawGit(invocation.args, cwd, { ...extra, replaceEnv: { ...invocation.env, ...extra?.env } });
+  };
   const mkdtemp = opts.mkdtemp || ((prefix: string) => fs.mkdtempSync(prefix));
   const log = opts.log || console;
 
@@ -267,14 +307,15 @@ function createGitWorkspace(opts: {
 
   const engineQueue = createSerialQueue();
   const serialize = <T>(fn: () => Promise<T>): Promise<T> => engineQueue.run(fn);
-  const serialized = <TArgs, TResult>(body: (args: TArgs) => Promise<TResult>) => (args: TArgs): Promise<TResult> => serialize(() => body(args));
+  const serialized = <TArgs, TResult>(body: (args: TArgs) => Promise<TResult>) => (args: TArgs): Promise<TResult> => serialize(() =>
+    isolationContext.run({ ...opts.isolation, ...isolationContext.getStore(), ...args }, () => body(args)));
   const admitted = <TArgs extends { admissionTimeoutMs?: number }, TResult>(
     body: (args: TArgs) => Promise<TResult>,
     refuse: (args: TArgs) => TResult,
   ) => async (args: TArgs): Promise<TResult> => {
     const admission = args.admissionTimeoutMs === undefined ? {} : { admissionTimeoutMs: args.admissionTimeoutMs };
     try {
-      return await engineQueue.run(() => body(args), admission);
+      return await engineQueue.run(() => isolationContext.run({ ...opts.isolation, ...isolationContext.getStore(), ...args }, () => body(args)), admission);
     } catch (error) {
       if (!isQueueAdmissionTimeout(error)) throw error;
       return refuse(args);
@@ -937,10 +978,10 @@ function createGitWorkspace(opts: {
     return runUntrusted(['worktree', 'add', '--detach', worktreePath, sha], projectPath, { disableHooks, replaceEnv });
   }
 
-  async function checkoutDetachedBody({ worktreePath, sha }: CheckoutDetachedArgs): Promise<GitResult> {
+  async function checkoutDetachedBody({ worktreePath, sha, ...isolation }: CheckoutDetachedArgs): Promise<GitResult> {
     if (!worktreePath) return { ok: false, out: '', err: 'a detached worktree needs a path' };
     if (normalizeSha(sha) !== sha) return { ok: false, out: '', err: 'a detached worktree sha must be 40 lowercase hexadecimal characters' };
-    return run(['checkout', '--quiet', '--detach', sha], worktreePath);
+    return runUntrusted(['checkout', '--quiet', '--detach', sha], worktreePath, isolation);
   }
 
   function isolatedCheckoutRefusal({ checkoutPath, sha, baseSha }: StageIsolatedCheckoutArgs): GitResult | null {
@@ -1277,6 +1318,7 @@ function createGitWorkspace(opts: {
   }
 
   return {
+    withGitIsolation: <T>(isolation: GitIsolationOptions, operation: () => T): T => isolationContext.run(isolation, operation),
     create: serialized(createBody),
     ensureWorkspaceMember: serialized(ensureWorkspaceMemberBody),
     removeWorkspaceMember: serialized(removeWorkspaceMemberBody),
@@ -1319,6 +1361,18 @@ function createGitWorkspace(opts: {
     listWorktreeBranches, detectDefaultBranch,
     listRemoteBranches, listIntegrationTips, isAncestor, resolveMergeProbeEnv, writeMergedTree, treeOid,
   };
+}
+
+export function isolateGitWorkspace<Workspace extends { withGitIsolation?: GitWorkspaceInstance['withGitIsolation'] }>(workspace: Workspace, isolation: GitIsolationOptions): Workspace {
+  const isolate = workspace.withGitIsolation;
+  if (!isolate) throw new Error('Factory Git workspace requires isolation support');
+  return new Proxy(workspace, {
+    get(target, property) {
+      const operation: unknown = Reflect.get(target, property);
+      if (typeof operation !== 'function' || property === 'withGitIsolation') return operation;
+      return (...args: unknown[]) => isolate(isolation, () => Reflect.apply(operation, target, args));
+    },
+  });
 }
 
 function createGitWorkspaceSync(opts: { git?: (args: string[], cwd: string) => string } = {}) {

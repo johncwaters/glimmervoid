@@ -54,6 +54,7 @@ import type { ScreenKeeperFactory } from "./screen-keeper.ts";
 import { createSessionHookLifecycle } from "./session-hook-lifecycle.ts";
 import type { HookRouterPort } from "./session-hook-lifecycle.ts";
 import { createSessionWorktreeLifecycle } from "./session-worktree-lifecycle.ts";
+import type { GitIsolationOptions } from "../server/core/git-invocation-core.ts";
 import type { GitWorkspace } from "./session-worktree-lifecycle.ts";
 import { createSessionBackgroundTracking } from "./session-background-tracking.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
@@ -200,6 +201,7 @@ interface SessionOptions {
   signalProc?: SignalProc | null;
   platform?: NodeJS.Platform;
   gitWorkspace?: GitWorkspace | null;
+  gitIsolation?: GitIsolationOptions;
   requireWorktree?: boolean;
   integrationBranch?: string | null;
   autoRebase?: boolean;
@@ -380,6 +382,7 @@ class Session extends EventEmitter {
     platform = process.platform,
 
     gitWorkspace = null,
+    gitIsolation,
     integrationBranch = null,
 
     autoRebase = true,
@@ -550,6 +553,7 @@ class Session extends EventEmitter {
       projectPath: this.path,
       integrationBranch,
       gitWorkspace,
+      gitIsolation,
       autoRebase,
       syncOnStart,
       liveWorktreeReview,
@@ -1142,7 +1146,7 @@ class Session extends EventEmitter {
     return this.worktreeLifecycle.checkWorktreeChange(signature);
   }
 
-  mergeWorktree() { return this.worktreeLifecycle.mergeWorktree(); }
+  mergeWorktree(isolation?: GitIsolationOptions) { return this.worktreeLifecycle.mergeWorktree(isolation); }
 
   mergeAndContinue(options: { force?: boolean } = {}) { return this.worktreeLifecycle.mergeAndContinue(options); }
 

@@ -6,10 +6,9 @@ import type { FactoryControlResult, FactoryQueueIntentResult, FactoryWorkerEvent
 import { comparableDirectoryPath } from '../shared/paths.ts';
 import type { Config } from '../shared/contracts/config.ts';
 import { execFileAsync } from './child-process-safe.ts';
-import { runGit } from './git-exec.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { buildCoherenceShims } from './core/coherence-session-core.ts';
-import { FACTORY_FIRST_TICK_DELAY_MS, FACTORY_NOTIFY_CATEGORY, factoryShouldStart } from './core/factory-core.ts';
+import { factoryWrittenRecordId, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_NOTIFY_CATEGORY, factoryShouldStart } from './core/factory-core.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import { commitAndLandFactoryLedger, screenPendingLedgerWrites } from './factory-ledger.ts';
 import { createFactoryCloseOut } from './factory-closeout.ts';
@@ -20,7 +19,7 @@ import type { Session } from '../session/sessions.ts';
 import type { FactoryOrchestratorDeps, FactoryOrchestratorSession } from './factory-orchestrator.ts';
 import { createFactoryPoller } from './factory-poller.ts';
 import type { FactoryPoller, FactoryPollerDeps } from './factory-poller.ts';
-import { createGitWorkspace } from './git-workspace.ts';
+import { createGitWorkspace, factoryGitEnvironment, isolateGitWorkspace, runFactoryGit } from './git-workspace.ts';
 import type { GitWorkspaceInstance } from './git-workspace.ts';
 import { loadJsonStateFile, writeJsonAtomic, writeTextAtomic } from './json-file.ts';
 import { createLaneRunner } from './lane-runner.ts';
@@ -54,8 +53,10 @@ interface FactoryWiringOptions<ManagedSession extends FactoryOrchestratorSession
 
 export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSession = Session>({
   config, broadcast, gitWorkspace = createGitWorkspace(), homeDir = glimmervoidHomeDir(),
-  createPoller = createFactoryPoller, log = console, orchestratorOptions, spawnReviewer, spawnVerifier = spawnReviewer, readSpentTodayUsd = () => 0, runHogQL, notify = () => {}, ...pollerDeps
+  createPoller = createFactoryPoller, log = console, orchestratorOptions, spawnReviewer, spawnVerifier = spawnReviewer, readSpentTodayUsd = () => 0, runHogQL, notify = () => {}, runCoherence: customRunCoherence, ...pollerDeps
 }: FactoryWiringOptions<ManagedSession>) {
+  gitWorkspace = isolateGitWorkspace(gitWorkspace, { disableRepoCommands: true });
+  const writtenRecordIdsByCheckout = new Map<string, Set<string>>();
   const coherenceCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence');
   const coherenceHookCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence-hook');
   let dispatcher: ReturnType<typeof createFactoryDispatch<ManagedSession>> | null = null;
@@ -66,13 +67,27 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
   const binDir = path.join(homeDir, 'factory', 'bin');
   const projectChains = new Map<string, Promise<unknown>>();
   const laneStates = new Map<string, Promise<FactoryLaneState>>();
-  const runCoherence: FactoryPollerDeps['runCoherence'] = pollerDeps.runCoherence ?? (async ({ cwd, args }) => {
+  const invokeCoherence: FactoryPollerDeps['runCoherence'] = customRunCoherence ?? (async ({ cwd, args }) => {
     if (!coherenceCliPath) throw new Error('Could not resolve the coherence CLI');
     const { stdout } = await execFileAsync(process.execPath, [coherenceCliPath, ...args], {
-      cwd, timeout: 30_000, maxBuffer: 16 * 1024 * 1024,
+      cwd, env: await factoryGitEnvironment(cwd), timeout: 30_000, maxBuffer: 16 * 1024 * 1024,
     });
     return stdout;
   });
+  const runCoherence: FactoryPollerDeps['runCoherence'] = async ({ cwd, args }) => {
+    const isFactoryWrite = args[args.indexOf('--session') + 1] === 'glimmervoid-factory'
+      && (args[0] === 'defect' || args[0] === 'work' || args[0] === 'consequence');
+    const writeArgs = isFactoryWrite && args[0] !== 'defect' && !args.includes('--json') ? [...args, '--json'] : args;
+    const output = await invokeCoherence({ cwd, args: writeArgs });
+    if (!isFactoryWrite) return output;
+    const recordId = factoryWrittenRecordId(output);
+    if (!recordId) throw new Error('Factory ledger writer did not return a record id');
+    const checkoutKey = await comparableDirectoryPath(cwd);
+    const writtenRecordIds = writtenRecordIdsByCheckout.get(checkoutKey) ?? new Set<string>();
+    writtenRecordIds.add(recordId);
+    writtenRecordIdsByCheckout.set(checkoutKey, writtenRecordIds);
+    return output;
+  };
   const checkouts = new Map<string, { projectPath: string; sha: string }>();
 
   async function ensureCoherenceShims(): Promise<void> {
@@ -152,10 +167,15 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
   }
 
   async function hasCoherenceConfigAt(projectPath: string, sha: string): Promise<boolean> {
-    const probe = await runGit(['cat-file', '-e', `${sha}:coherence.config.json`], { cwd: projectPath, timeoutMs: COHERENCE_CONFIG_PROBE_TIMEOUT_MS });
-    if (probe.ok) return true;
-    if (isGitExitWithoutObject(probe.error)) return false;
-    throw probe.error;
+    try {
+      await runFactoryGit(['cat-file', '-e', `${sha}:coherence.config.json`], {
+        cwd: projectPath, encoding: 'utf8', timeout: COHERENCE_CONFIG_PROBE_TIMEOUT_MS,
+      });
+      return true;
+    } catch (error) {
+      if (isGitExitWithoutObject(error)) return false;
+      throw error;
+    }
   }
 
   async function resolveIntegrationBranch(projectPath: string): Promise<string> {
@@ -233,9 +253,13 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
 
   async function ensureTrustedLedgerCheckout(projectId: string, projectPath: string) {
     const ledger = await ensureLedgerCheckout(projectId, projectPath);
-    await screenPendingLedgerWrites({ cwd: ledger.cwd, intentId: orchestrator?.activeIntentId(projectId) ?? null,
+    await screenPendingLedgerWrites({ cwd: ledger.cwd, intentId: activeIntentIdOf(projectId),
       onRefused: (reason) => raiseException(projectId, reason) });
     return ledger;
+  }
+
+  function activeIntentIdOf(projectId: string): string | null {
+    return orchestrator?.activeIntentId(projectId) ?? null;
   }
 
   async function readTrustedIntentIds(projectId: string): Promise<ReadonlySet<string>> {
@@ -243,13 +267,15 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
   }
 
   async function landLedger(projectId: string, projectPath: string, ledger: Awaited<ReturnType<typeof ensureLedgerCheckout>>, message: string,
-    { trusted, intentId = null }: { trusted: boolean; intentId?: string | null }): Promise<void> {
+    { trusted, intentId = null, onCommitted }: { trusted: boolean; intentId?: string | null; onCommitted?: () => Promise<void> }): Promise<void> {
+    const checkoutKey = await comparableDirectoryPath(ledger.cwd);
     try {
       await commitAndLandFactoryLedger({
-        projectPath, ledger, message, targetBranch: await resolveIntegrationBranch(projectPath), gitWorkspace, trusted, intentId,
-        retryLanding: landingErrors.has(projectId), onRefused: (reason) => raiseException(projectId, reason),
+        projectPath, ledger, message, targetBranch: await resolveIntegrationBranch(projectPath), gitWorkspace, trusted, intentId, writtenRecordIds: writtenRecordIdsByCheckout.get(checkoutKey) ?? new Set(),
+        retryLanding: landingErrors.has(projectId), onRefused: (reason) => raiseException(projectId, reason), onCommitted,
       });
       landingErrors.delete(projectId);
+      writtenRecordIdsByCheckout.delete(checkoutKey);
     } catch (error) {
       landingErrors.set(projectId, errorMessage(error));
       throw error;
@@ -272,7 +298,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         const created = CoherenceWorkCreated.parse(JSON.parse(await runCoherence({ cwd: ledger.cwd, args })));
         const state = await readLaneState(intent.projectId);
         await writeLaneState(intent.projectId, { ...state, trustedIntentIds: [...new Set([...(state.trustedIntentIds ?? []), created.work])] });
-        await landLedger(intent.projectId, projectPath, ledger, `factory: queue intent ${created.work}`, { trusted: true });
+        await landLedger(intent.projectId, projectPath, ledger, `factory: queue intent ${created.work}`, { trusted: true, intentId: activeIntentIdOf(intent.projectId) });
         return { projectId: intent.projectId, ok: true, workId: created.work };
       });
       await runner.getPoller()?.refreshNow();
@@ -324,11 +350,11 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         }),
       }) : null;
       orchestrator = activeOrchestrator;
-      const commitAndLand = async (projectId: string, projectPath: string, message: string) => {
+      const commitAndLand = async (projectId: string, projectPath: string, message: string, { onCommitted }: { onCommitted?: () => Promise<void> } = {}) => {
         const ledger = await ensureLedgerCheckout(projectId, projectPath);
-        await landLedger(projectId, projectPath, ledger, message, { trusted: true });
+        await landLedger(projectId, projectPath, ledger, message, { trusted: true, intentId: activeIntentIdOf(projectId), onCommitted });
       };
-      const readIntegrationSha = async (projectPath: string) => (await execFileAsync('git',
+      const readIntegrationSha = async (projectPath: string) => (await runFactoryGit(
         ['rev-parse', `refs/heads/${await resolveIntegrationBranch(projectPath)}`], { cwd: projectPath, timeout: 30_000 })).stdout.trim();
       const refresh = () => {
         void runner.getPoller()?.refreshNow().catch((error: unknown) => {

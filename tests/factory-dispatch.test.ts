@@ -11,6 +11,8 @@ import type { GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts'
 import { buildCoherenceShims, buildCoherenceUserHooks } from '../server/core/coherence-session-core.ts';
 import type { FactoryCloseOutWorker } from '../server/factory-closeout.ts';
 import { createFactoryDispatch } from '../server/factory-dispatch.ts';
+import { factoryWrittenRecordId } from '../server/core/factory-core.ts';
+import { LANE_ENVIRONMENT_ARGS } from '../server/core/lane-permissions-core.ts';
 import { commitAndLandFactoryLedger } from '../server/factory-ledger.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
 import { cliPath, resolvePackageBin } from '../server/runtime-paths.ts';
@@ -51,9 +53,15 @@ async function createFixture(context: TestContext) {
     configuredIntegrationBranch: 'integration', worktreeBase: directory, shareList: [] });
   assert.ok(ledger.isGit);
   const commands: string[][] = [];
+  const writtenRecordIds = new Set<string>();
   const runCoherence = async ({ cwd, args }: { cwd: string; args: string[] }) => {
     commands.push(args);
-    return (await execFileAsync(process.execPath, [coherenceCli, ...args], { cwd, timeout: 20_000 })).stdout;
+    const isFactoryWrite = args[args.indexOf('--session') + 1] === 'glimmervoid-factory';
+    const writeArgs = isFactoryWrite && args[0] !== 'defect' && !args.includes('--json') ? [...args, '--json'] : args;
+    const output = (await execFileAsync(process.execPath, [coherenceCli, ...writeArgs], { cwd, timeout: 20_000 })).stdout;
+    const recordId = isFactoryWrite ? factoryWrittenRecordId(output) : null;
+    if (recordId) writtenRecordIds.add(recordId);
+    return output;
   };
   let orderSequence = 0;
   const createOrder = async (parent: string | null, scope = 'src/retry.ts') => {
@@ -69,7 +77,7 @@ async function createFixture(context: TestContext) {
   const intentId = await createOrder(null, 'src');
   const workId = await createOrder(intentId);
   const land = async (_projectId: string, _projectPath: string, message: string) => {
-    await commitAndLandFactoryLedger({ projectPath, ledger, targetBranch: 'integration', message, gitWorkspace, trusted: true });
+    await commitAndLandFactoryLedger({ projectPath, ledger, targetBranch: 'integration', message, gitWorkspace, trusted: true, writtenRecordIds });
   };
   await land('repo', projectPath, 'factory: create orders');
   const config: GlimmervoidConfig = { projects: [{ id: 'repo', name: 'Factory', path: projectPath }], integrationBranch: 'integration',
@@ -152,11 +160,13 @@ test('dispatch hands off and activates at the integration tip, then provisions a
   assert.equal(overrides.agentApi, false);
   assert.equal(overrides.requireWorktree, true);
   assert.equal(overrides.dangerouslySkipPermissions, false);
-  assert.deepEqual(overrides.spawnEnv, { COHERENCE_HOOK_HOST: 'claude' });
+  assert.deepEqual(overrides.spawnEnv, { COHERENCE_HOOK_HOST: 'claude', SSH_AUTH_SOCK: '', SSH_ASKPASS: '', GIT_ASKPASS: '', GIT_SSH_COMMAND: 'false',
+    GIT_TERMINAL_PROMPT: '0', GH_TOKEN: '', GITHUB_TOKEN: '', GH_ENTERPRISE_TOKEN: '', GITHUB_ENTERPRISE_TOKEN: '' });
+  assert.deepEqual(overrides.extraClaudeArgs?.slice(2), [...LANE_ENVIRONMENT_ARGS]);
   assert.equal('gitWorkspace' in overrides, false);
   assert.deepEqual(overrides.settingsPermissions, { defaultMode: 'acceptEdits',
     allow: ['Bash(git add:*)', 'Bash(git commit:*)', 'Bash(coherence context:*)', 'Bash(npm run typecheck:*)', 'Bash(npm run lint:*)', 'Bash(npm test:*)'],
-    deny: ['Bash(git push:*)', 'Bash(gh:*)', 'Bash(glimmervoid:*)', 'WebFetch'] });
+    deny: ['Bash(git push:*)', 'Bash(gh:*)', 'Bash(glimmervoid:*)', 'WebFetch', 'Edit(**/.git/**)', 'Edit(**/.claude/**)'] });
   assert.ok(spawned.session.worktreeDir);
   assert.notEqual(spawned.session.worktreeDir, fixture.projectPath);
   assert.notEqual(spawned.session.worktreeDir, fixture.ledger.cwd);
@@ -166,8 +176,11 @@ test('dispatch hands off and activates at the integration tip, then provisions a
   assert.deepEqual(work?.owner, { session: claudeSessionId, agent: 'claude-code' });
   assert.equal(await fixture.git(['rev-parse', 'integration']), await fixture.git(['rev-parse', 'origin/integration']));
   assert.equal(fixture.spawnEnvs[0].COHERENCE_HOOK_HOST, 'claude');
+  assert.equal(fixture.spawnEnvs[0].SSH_AUTH_SOCK, '');
+  assert.equal(fixture.spawnEnvs[0].GIT_ASKPASS, '');
   assert.equal(fixture.spawnEnvs[0].PATH?.split(path.delimiter)[0], overrides.prependPathDirs?.[0]);
   assert.equal(fixture.spawnEnvs[0].GLIMMERVOID_AGENT_URL, undefined);
+  assert.ok(fixture.spawnArguments[0].includes('--setting-sources'));
   const settingsIndex = fixture.spawnArguments[0].indexOf('--settings');
   assert.ok(settingsIndex >= 0);
   const settingsFile = fixture.spawnArguments[0][settingsIndex + 1];
@@ -233,6 +246,39 @@ test('a failed spawn reopens the order so the real admission gate admits a secon
   const second = await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId });
   assert.equal(second.ok, true, JSON.stringify(second));
   assert.equal((await fixture.inspect()).work.find((candidate) => candidate.work === fixture.workId)?.state, 'active');
+});
+
+test('a repository whose attributes name a filter driver refuses dispatch with a factory exception before any ledger write', async (context) => {
+  const fixture = await createFixture(context);
+  await writeFile(path.join(fixture.ledger.cwd, '.gitattributes'), '*.bin filter=lfs diff=lfs merge=lfs -text\n');
+  await writeFile(path.join(fixture.ledger.cwd, 'asset.bin'), 'pointer\n');
+  await fixture.git(['add', '.gitattributes', 'asset.bin'], fixture.ledger.cwd);
+  await fixture.git(['commit', '-m', 'track binaries with lfs'], fixture.ledger.cwd);
+  const reason = 'repository uses git filter drivers (lfs), which factory workers cannot run safely';
+  assert.deepEqual(await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId }), { ok: false, reason });
+  assert.equal(fixture.exceptions.get('repo'), reason);
+  assert.equal(fixture.events.at(-1)?.event, 'refused');
+  assert.equal(fixture.commands.some((args) => args[1] === 'handoff'), false);
+  assert.equal(fixture.spawned.length, 0);
+  assert.equal((await fixture.inspect()).work.find((candidate) => candidate.work === fixture.workId)?.state, 'open');
+});
+
+test('a repository whose tracked path list exceeds the pipe buffer still passes the filter scan and admits dispatch', async (context) => {
+  const fixture = await createFixture(context);
+  const bulkDirectory = path.join(fixture.projectPath, 'generated-fixtures-with-a-deliberately-long-directory-name');
+  await mkdir(bulkDirectory);
+  const trackedFileNames = Array.from({ length: 1500 }, (_, index) => `tracked-fixture-file-with-a-long-descriptive-name-${index}.txt`);
+  await Promise.all(trackedFileNames.map((fileName) => writeFile(path.join(bulkDirectory, fileName), 'fixture\n')));
+  await fixture.git(['add', '.']);
+  await fixture.git(['commit', '-m', 'track many fixtures']);
+  await fixture.git(['push', 'origin', 'integration']);
+  await fixture.git(['merge', '--ff-only', 'integration'], fixture.ledger.cwd);
+  const trackedPathBytes = Buffer.byteLength(await fixture.git(['ls-files', '-z'], fixture.ledger.cwd));
+  assert.ok(trackedPathBytes > 128 * 1024, String(trackedPathBytes));
+  const reply = await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId });
+  assert.equal(reply.ok, true, JSON.stringify(reply));
+  assert.equal(fixture.exceptions.has('repo'), false);
+  assert.equal(fixture.spawned.length, 1);
 });
 
 test('a paused factory refuses dispatch before any ledger write', async (context) => {

@@ -13,7 +13,7 @@ export interface FactoryWatchDeps {
   serializeProject: <T>(projectId: string, operation: () => Promise<T>) => Promise<T>;
   ensureLedger: (projectId: string, projectPath: string) => Promise<{ cwd: string }>;
   runCoherence: (request: { cwd: string; args: string[] }) => Promise<string>;
-  commitAndLand: (projectId: string, projectPath: string, message: string) => Promise<void>;
+  commitAndLand: (projectId: string, projectPath: string, message: string, options?: { onCommitted?: () => Promise<void> }) => Promise<void>;
   runHogQL: (projectId: number, query: string) => Promise<PosthogResponse>;
   notifyOrchestrator: (projectId: string, event: FactoryWorkerEvent) => void;
   notify: (projectName: string, message: string) => void;
@@ -25,7 +25,6 @@ export interface FactoryWatchDeps {
 export function createFactoryWatch({ config, readLaneState, writeLaneState, serializeProject, ensureLedger, runCoherence,
   commitAndLand, runHogQL, notifyOrchestrator, notify, onChanged = () => {}, now = Date.now, log = console }: FactoryWatchDeps) {
   const notesByProject = new Map<string, string>();
-  const filedBreaches = new Set<string>();
   let stopped = false;
 
   async function tick(project: FactoryProjectState): Promise<FactoryProjectState> {
@@ -85,22 +84,29 @@ export function createFactoryWatch({ config, readLaneState, writeLaneState, seri
         ? { watch, id: `unwatched-${watch.workId}`, evidence: `Watch window elapsed after ${watch.mergedSha} merged at ${watch.mergedAt}, but ${unwatchedReason}, so no errors were observed` }
         : { watch, id: `watch-${watch.workId}`, evidence: `Clean watch window after ${watch.mergedSha} merged at ${watch.mergedAt}` });
       const ledger = await ensureLedger(project.projectId, projectPath);
+      const filedBreachKeys = new Set((await readLaneState(project.projectId)).filedBreaches ?? []);
       for (const { watch, issue } of breaches) {
-        const breachKey = `${project.projectId}:${watch.workId}:${issue.issueId}`;
-        if (filedBreaches.has(breachKey)) continue;
+        if (filedBreachKeys.has(breachKeyOf(watch.workId, issue.issueId))) continue;
         await runCoherence({ cwd: ledger.cwd, args: ['defect', `Factory breach on ${watch.workId}: issue ${issue.issueId}`,
           '--evidence', `Issue first seen at ${new Date(issue.firstSeenMs).toISOString()} after merge ${watch.mergedSha}; frames ${JSON.stringify(issue.framePaths)}`,
           '--session', 'glimmervoid-factory'] });
-        filedBreaches.add(breachKey);
       }
       for (const { watch, id, evidence } of verifications) {
         await runCoherence({ cwd: ledger.cwd, args: ['consequence', 'add', `verification:${id}`, 'verifies', `work:${watch.workId}`,
           '--evidence', evidence, '--session', 'glimmervoid-factory', '--json'] });
       }
-      await commitAndLand(project.projectId, projectPath, `factory: watch ${project.projectId}`);
-      const trustedVerificationsById = new Map((state.trustedVerifications ?? []).map((verification) => [verification.id, verification]));
+      const markBreachesFiled = async () => {
+        const committedState = await readLaneState(project.projectId);
+        const committedKeys = breaches.map(({ watch, issue }) => breachKeyOf(watch.workId, issue.issueId));
+        await writeLaneState(project.projectId, { ...committedState, filedBreaches: [...new Set([...(committedState.filedBreaches ?? []), ...committedKeys])] });
+      };
+      await commitAndLand(project.projectId, projectPath, `factory: watch ${project.projectId}`, { onCommitted: markBreachesFiled });
+      const landedState = await readLaneState(project.projectId);
+      const trustedVerificationsById = new Map((landedState.trustedVerifications ?? []).map((verification) => [verification.id, verification]));
       for (const { watch, id } of verifications) trustedVerificationsById.set(id, { id, sha: watch.mergedSha });
-      await writeLaneState(project.projectId, { ...state, watch: stillOpen, trustedVerifications: [...trustedVerificationsById.values()] });
+      const openWorkIds = new Set(stillOpen.map((watch) => watch.workId));
+      await writeLaneState(project.projectId, { ...landedState, watch: stillOpen, trustedVerifications: [...trustedVerificationsById.values()],
+        filedBreaches: (landedState.filedBreaches ?? []).filter((breachKey) => openWorkIds.has(breachKey.slice(0, breachKey.indexOf(':')))) });
       onChanged();
       for (const workId of breachedIds) {
         for (const issueId of new Set(breaches.filter(({ watch }) => watch.workId === workId).map(({ issue }) => issue.issueId))) {
@@ -116,4 +122,8 @@ export function createFactoryWatch({ config, readLaneState, writeLaneState, seri
   }
 
   return { tick, stop: () => { stopped = true; } };
+}
+
+function breachKeyOf(workId: string, issueId: string): string {
+  return `${workId}:${issueId}`;
 }
