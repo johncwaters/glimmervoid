@@ -2587,60 +2587,277 @@ a.radar-issue-title:hover {
 .state-glyph[data-tone="wait"], .my-pr-stage[data-tone="wait"] { color: var(--text-dim); }
 .state-glyph[data-tone="ok"], .my-pr-stage[data-tone="ok"] { color: var(--state-complete); }
 .state-glyph[data-tone="muted"], .my-pr-stage[data-tone="muted"] { color: var(--text-muted); }
-.merge-celebration { position: fixed; top: calc(12px + env(safe-area-inset-top)); left: 0; right: 0; z-index: 1000; display: flex; justify-content: center; padding: 0 16px; pointer-events: none; }
-.merge-strike-card { position: relative; width: min(440px, 100%); padding: 10px 16px 12px; border: 1px solid var(--state-complete); border-radius: 8px; background: var(--bg-card); box-shadow: 0 12px 32px rgb(0 0 0 / 0.35); text-align: center; animation: merge-strike-enter 350ms cubic-bezier(0.2, 1.2, 0.4, 1) backwards, merge-strike-shake 350ms ease-out 1100ms, merge-strike-exit 700ms ease-in 6300ms forwards; }
-.merge-strike-lane { position: relative; height: 30px; margin: 0 4px; border-bottom: 2px solid var(--border); }
-.merge-strike-rack { position: absolute; right: 28px; bottom: 0; width: 36px; height: 100%; }
-.merge-strike-pin { position: absolute; bottom: 0; left: var(--pin-left); width: 6px; height: 18px; border-radius: 50% 50% 40% 40% / 60% 60% 40% 40%; background: linear-gradient(to bottom, var(--text) 0 26%, var(--state-failed) 26% 36%, var(--text) 36%); animation: merge-strike-pin-fly 800ms cubic-bezier(0.1, 0.7, 0.3, 1) calc(1100ms + var(--pin-delay)) both; }
-.merge-strike-ball { position: absolute; bottom: 0; left: -24px; width: 18px; height: 18px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--accent) 45%, white), var(--accent) 55%, color-mix(in srgb, var(--accent) 60%, black)); animation: merge-strike-roll 1100ms cubic-bezier(0.5, 0, 0.9, 0.6) 200ms both; }
+.merge-celebration { position: fixed; top: calc(72px + env(safe-area-inset-top)); left: 0; right: 0; z-index: 1000; display: flex; justify-content: center; padding: 0 16px; pointer-events: none; }
+.merge-celebration-card { position: relative; width: min(440px, 100%); padding: 12px 16px; border: 1px solid var(--state-complete); border-radius: 8px; background: var(--bg-card); box-shadow: 0 12px 32px rgb(0 0 0 / 0.35); text-align: center; --celebration-impact: 1200ms; --celebration-reveal: 1550ms; animation: merge-celebration-enter 350ms cubic-bezier(0.2, 1.2, 0.4, 1) backwards, merge-celebration-shake 350ms ease-out var(--celebration-impact), merge-celebration-exit 700ms ease-in 6300ms forwards; }
+.merge-celebration-stage { position: relative; display: flex; min-height: 48px; flex-direction: column; justify-content: center; }
+.merge-celebration-scene { position: absolute; inset: 0 -16px; animation: merge-celebration-scene-out 200ms ease-out calc(var(--celebration-reveal) + 500ms) forwards; }
+.merge-strike-lane { position: absolute; inset: 0; }
+.merge-strike-track { position: absolute; inset: 0; z-index: var(--ball-layer); clip-path: inset(-20px 0); }
+.merge-strike-rack { position: absolute; right: var(--rack-right); bottom: 6px; width: var(--rack-width); height: 30px; }
+.merge-strike-pin { --pin-launch: calc(var(--celebration-impact) + var(--pin-delay)); position: absolute; bottom: var(--pin-raise); left: var(--pin-left); z-index: var(--pin-layer); width: var(--pin-width); height: 24px; filter: brightness(var(--pin-shade)); animation: merge-strike-pin-drift var(--pin-flight-ms) linear var(--pin-launch) both, merge-strike-pin-depth var(--pin-flight-ms) linear var(--pin-launch) both; }
+.merge-strike-pin-arc { display: block; width: 100%; height: 100%; animation: merge-strike-pin-rise var(--pin-rise-ms) cubic-bezier(0.33, 0.67, 0.67, 1) var(--pin-launch) both, merge-strike-pin-fall var(--pin-fall-ms) cubic-bezier(0.33, 0, 0.67, 0.33) calc(var(--pin-launch) + var(--pin-rise-ms)) forwards; }
+.merge-strike-pin svg { display: block; width: 100%; height: 100%; transform-origin: 50% 60%; animation: merge-strike-pin-spin var(--pin-flight-ms) linear var(--pin-launch) both, merge-strike-pin-glint var(--pin-glint-ms) ease-in-out var(--pin-launch) infinite; }
+.merge-strike-pin-body { fill: var(--text); }
+.merge-strike-pin-stripe { fill: var(--state-failed); }
+.merge-strike-ball { position: absolute; bottom: 6px; left: -24px; width: var(--ball-size); height: var(--ball-size); border-radius: 50%; background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--accent) 45%, white), var(--accent) 55%, color-mix(in srgb, var(--accent) 60%, black)); animation: merge-strike-approach 675ms linear calc(var(--celebration-impact) - 675ms) both, merge-strike-follow-through var(--ball-follow-ms) linear var(--celebration-impact) forwards; }
 .merge-strike-ball::after { --ball-hole: color-mix(in srgb, var(--accent) 30%, black); content: ''; position: absolute; top: 4px; left: 8px; width: 3px; height: 3px; border-radius: 50%; background: var(--ball-hole); box-shadow: 3px 2px 0 var(--ball-hole), 1px 5px 0 var(--ball-hole); }
-.merge-strike-title { margin: 6px 0 2px; color: var(--state-complete); font-family: var(--font-mono); font-size: 16px; font-weight: 700; letter-spacing: 0.1em; line-height: 1.4; text-shadow: 0 0 18px color-mix(in srgb, var(--state-complete) 55%, transparent); }
-.merge-strike-letter { display: inline-block; animation: merge-strike-slam 450ms cubic-bezier(0.2, 1.6, 0.4, 1) calc(1150ms + var(--letter-delay)) both; }
-.merge-celebration-message { margin: 0; color: var(--text); font-family: var(--font-mono); font-size: 14px; font-weight: 700; letter-spacing: 0.04em; overflow-wrap: anywhere; animation: merge-strike-message 400ms ease-out 1500ms both; }
-.merge-confetti { position: absolute; top: 50%; left: 50%; width: 0; height: 0; }
-.merge-confetti-piece { position: absolute; width: 8px; height: 14px; border-radius: 2px; opacity: 0; animation: merge-confetti-fall 2.4s cubic-bezier(0.2, 0.6, 0.4, 1) calc(1150ms + var(--confetti-delay)) forwards; }
-@keyframes merge-confetti-fall {
-  0% { opacity: 1; transform: translate(0, 0) rotate(0deg); }
-  30% { opacity: 1; transform: translate(calc(var(--confetti-x) * 0.6), var(--confetti-rise)) rotate(calc(var(--confetti-spin) * 0.4)); }
-  100% { opacity: 0; transform: translate(var(--confetti-x), 70vh) rotate(var(--confetti-spin)); }
+.merge-swish-court { position: absolute; inset: 0; }
+.merge-swish-hoop-back, .merge-swish-hoop-front { position: absolute; right: 20px; bottom: 0; width: 40px; height: 48px; }
+.merge-swish-hoop-back { z-index: 1; }
+.merge-swish-hoop-front { z-index: 3; }
+.merge-swish-hoop-back svg, .merge-swish-hoop-front svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.merge-swish-backboard { fill: var(--text-dim); }
+.merge-swish-pole { fill: var(--border-hover); }
+.merge-swish-rim { fill: none; stroke: var(--state-failed); stroke-width: 2; stroke-linecap: round; }
+.merge-swish-net { fill: none; stroke: var(--text); stroke-width: 0.8; opacity: 0.85; transform-box: fill-box; transform-origin: 50% 0; animation: merge-swish-net 360ms ease-out var(--celebration-impact); }
+.merge-swish-track { position: absolute; inset: 0; z-index: 2; clip-path: inset(-200px 0 -13px 0); }
+.merge-swish-ball-drift { --ball-launch: calc(var(--celebration-impact) - var(--ball-to-rim-ms)); position: absolute; bottom: 0; left: -20px; width: 14px; height: 14px; animation: merge-swish-ball-approach var(--ball-to-rim-ms) linear var(--ball-launch) both, merge-swish-ball-net-drift var(--ball-net-catch-ms) cubic-bezier(0.1, 0.8, 0.3, 1) var(--celebration-impact) forwards; }
+.merge-swish-ball-arc { width: 100%; height: 100%; animation: merge-swish-ball-rise var(--ball-rise-ms) cubic-bezier(0.33, 0.67, 0.67, 1) var(--ball-launch) both, merge-swish-ball-fall var(--ball-fall-to-rim-ms) cubic-bezier(0.33, 0, 0.67, 0.33) calc(var(--ball-launch) + var(--ball-rise-ms)) forwards, merge-swish-ball-net-catch var(--ball-net-catch-ms) cubic-bezier(0.33, 0.67, 0.67, 1) var(--celebration-impact) forwards, merge-swish-ball-drop var(--ball-drop-ms) cubic-bezier(0.33, 0, 0.67, 0.33) calc(var(--celebration-impact) + var(--ball-net-catch-ms)) forwards; }
+.merge-swish-ball { position: relative; display: block; width: 100%; height: 100%; border-radius: 50%; background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--state-waiting) 55%, white), var(--state-waiting) 55%, color-mix(in srgb, var(--state-waiting) 55%, black)); animation: merge-swish-ball-spin 1400ms ease-out var(--ball-launch) both; }
+.merge-swish-ball::before, .merge-swish-ball::after { --ball-seam: color-mix(in srgb, var(--state-waiting) 35%, black); content: ''; position: absolute; }
+.merge-swish-ball::before { top: 50%; left: 0; right: 0; height: 1px; background: var(--ball-seam); }
+.merge-swish-ball::after { top: 0; bottom: 0; left: 4px; right: 4px; border-left: 1px solid var(--ball-seam); border-right: 1px solid var(--ball-seam); border-radius: 50%; }
+.merge-bullseye-range { position: absolute; inset: 0; }
+.merge-bullseye-target { position: absolute; right: 22px; bottom: 6px; width: 36px; height: 36px; animation: merge-bullseye-target-hit 400ms ease-out var(--celebration-impact); }
+.merge-bullseye-target svg { display: block; width: 100%; height: 100%; }
+.merge-bullseye-ring-light { fill: var(--text); }
+.merge-bullseye-ring-red { fill: var(--state-failed); }
+.merge-bullseye-ripple { position: absolute; inset: 0; border: 2px solid var(--state-complete); border-radius: 50%; opacity: 0; animation: merge-bullseye-ripple 550ms ease-out var(--celebration-impact) forwards; }
+.merge-bullseye-track { position: absolute; inset: 0; z-index: 2; clip-path: inset(-100px 0); }
+.merge-bullseye-dart-drift { --dart-flight-ms: 560ms; --dart-launch: calc(var(--celebration-impact) - var(--dart-flight-ms)); position: absolute; bottom: 20px; left: -30px; width: 26px; height: 8px; animation: merge-bullseye-dart-approach var(--dart-flight-ms) linear var(--dart-launch) both; }
+.merge-bullseye-dart-arc { position: relative; width: 100%; height: 100%; animation: merge-bullseye-dart-rise calc(var(--dart-flight-ms) / 2) cubic-bezier(0.33, 0.67, 0.67, 1) var(--dart-launch) both, merge-bullseye-dart-fall calc(var(--dart-flight-ms) / 2) cubic-bezier(0.33, 0, 0.67, 0.33) calc(var(--dart-launch) + var(--dart-flight-ms) / 2) forwards; }
+.merge-bullseye-dart-aim::before { content: ''; position: absolute; top: 3px; right: 22px; width: 40px; height: 2px; border-radius: 1px; background: linear-gradient(to right, transparent, color-mix(in srgb, var(--accent) 50%, transparent)); animation: merge-bullseye-trail 120ms ease-out var(--celebration-impact) forwards; }
+.merge-bullseye-dart-aim { position: relative; width: 100%; height: 100%; transform-origin: 100% 50%; animation: merge-bullseye-dart-aim var(--dart-flight-ms) linear var(--dart-launch) both; }
+.merge-bullseye-dart { width: 100%; height: 100%; transform-origin: 100% 50%; animation: merge-bullseye-dart-wobble 650ms ease-out var(--celebration-impact); }
+.merge-bullseye-dart svg { display: block; width: 100%; height: 100%; }
+.merge-bullseye-dart-flight { fill: var(--accent); }
+.merge-bullseye-dart-shaft { fill: var(--text-head); }
+.merge-bullseye-dart-barrel { fill: var(--text-dim); }
+.merge-bullseye-dart-tip { fill: var(--text); }
+.merge-headshot-range { position: absolute; inset: 0; }
+.merge-headshot-target { position: absolute; right: 30px; bottom: 0; width: 26px; height: 40px; transform-origin: 50% 100%; animation: merge-headshot-target-down 700ms ease-out calc(var(--celebration-impact) + 40ms) forwards; }
+.merge-headshot-target svg { display: block; width: 100%; height: 100%; }
+.merge-headshot-target-body { fill: var(--text-dim); }
+.merge-headshot-target-head { fill: var(--text); }
+.merge-headshot-target-ring { fill: none; stroke: var(--bg-card); stroke-width: 1; }
+.merge-headshot-track { position: absolute; inset: 0; z-index: 2; clip-path: inset(-100px 0); }
+.merge-headshot-sweep { --crosshair-sweep-ms: 750ms; --crosshair-sweep-start: calc(var(--celebration-impact) - 850ms); position: absolute; left: var(--crosshair-start-left); bottom: 22px; width: 22px; height: 22px; animation: merge-headshot-sweep var(--crosshair-sweep-ms) cubic-bezier(0.3, 0.05, 0.25, 1.06) var(--crosshair-sweep-start) both; }
+.merge-headshot-bob { position: absolute; inset: 0; animation: merge-headshot-bob var(--crosshair-sweep-ms) cubic-bezier(0.45, 0, 0.25, 1) var(--crosshair-sweep-start) both; }
+.merge-headshot-aim { width: 100%; height: 100%; color: var(--text-head); animation: merge-headshot-aim 90ms ease-in calc(var(--crosshair-sweep-start) + var(--crosshair-sweep-ms)) both; }
+.merge-headshot-crosshair { width: 100%; height: 100%; animation: merge-headshot-recoil 260ms ease-out var(--celebration-impact); }
+.merge-headshot-crosshair svg { display: block; width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.merge-headshot-crosshair-dot { fill: currentColor; stroke: none; }
+.merge-headshot-hitmarker { position: absolute; inset: -1px; opacity: 0; animation: merge-headshot-hitmarker 380ms ease-out var(--celebration-impact) forwards; }
+.merge-headshot-hitmarker svg { display: block; width: 100%; height: 100%; fill: none; stroke: var(--state-failed); stroke-width: 2.5; stroke-linecap: round; }
+.merge-flush-table { position: absolute; inset: 0; clip-path: inset(-100px 0); }
+.merge-flush-deal { position: absolute; left: -30px; bottom: var(--card-bottom); width: 24px; height: 34px; animation: merge-flush-deal 260ms cubic-bezier(0.2, 0.8, 0.3, 1) calc(var(--celebration-impact) - var(--card-deal-lead-ms)) both, merge-flush-morph 300ms cubic-bezier(0.5, 0, 0.5, 1) calc(var(--celebration-reveal) - 220ms) forwards; }
+.merge-flush-hop { width: 100%; height: 100%; animation: merge-flush-hop 320ms ease-out calc(var(--celebration-impact) + var(--card-wave-delay-ms)); }
+.merge-flush-card { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; animation: merge-flush-flip var(--card-flip-ms) ease-in-out calc(var(--celebration-impact) - var(--card-flip-lead-ms)) both; }
+.merge-flush-back, .merge-flush-face { position: absolute; inset: 0; border: 1px solid var(--text-head); border-radius: 3px; backface-visibility: hidden; overflow: hidden; }
+.merge-flush-back { background: repeating-linear-gradient(45deg, var(--accent-dim) 0 2px, var(--accent) 2px 4px); }
+.merge-flush-face { background: var(--text-head); color: var(--state-failed); transform: rotateY(180deg); animation: merge-flush-glow 600ms ease-out calc(var(--celebration-impact) + var(--card-wave-delay-ms)); }
+.merge-flush-face::after { content: ''; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgb(255 255 255 / 0.85) 50%, transparent 70%); transform: translateX(-120%); animation: merge-flush-shine 280ms ease-out calc(var(--celebration-impact) + var(--card-wave-delay-ms)) forwards; }
+.merge-flush-rank { position: absolute; top: 2px; left: 2px; font-family: var(--font-mono); font-size: 10px; font-weight: 700; line-height: 1; letter-spacing: -0.05em; }
+.merge-flush-face svg { position: absolute; left: 6px; bottom: 5px; width: 11px; height: 10px; fill: currentColor; }
+.merge-celebration-title { margin: 0 0 2px; color: var(--state-complete); font-family: var(--font-mono); font-size: 16px; font-weight: 700; letter-spacing: 0.1em; line-height: 1.4; text-shadow: 0 0 18px color-mix(in srgb, var(--state-complete) 55%, transparent); }
+.merge-celebration-letter { display: inline-block; white-space: pre; animation: merge-celebration-slam 450ms cubic-bezier(0.2, 1.6, 0.4, 1) calc(var(--celebration-reveal) + var(--letter-delay)) both; }
+.merge-celebration-message { margin: 0; color: var(--text); font-family: var(--font-mono); font-size: 14px; font-weight: 700; letter-spacing: 0.04em; overflow-wrap: anywhere; animation: merge-celebration-reveal 400ms ease-out calc(var(--celebration-reveal) + 250ms) both; }
+.merge-confetti { position: absolute; top: 0; left: 0; right: 0; height: 0; }
+.merge-confetti-piece { --confetti-launch: calc(var(--celebration-reveal) + var(--confetti-delay)); position: absolute; top: 0; left: var(--confetti-start-x); opacity: 0; animation: merge-confetti-drift var(--confetti-flight-ms) cubic-bezier(0.2, 0.8, 0.4, 1) var(--confetti-launch) forwards; }
+.merge-confetti-arc { display: block; animation: merge-confetti-rise var(--confetti-rise-ms) cubic-bezier(0.33, 0.67, 0.67, 1) var(--confetti-launch) both, merge-confetti-fall var(--confetti-fall-ms) cubic-bezier(0.3, 0, 0.7, 0.7) calc(var(--confetti-launch) + var(--confetti-rise-ms)) forwards; }
+.merge-confetti-paper { display: block; width: 7px; height: 11px; border-radius: 2px; background: var(--confetti-color); rotate: var(--confetti-tilt); animation: merge-confetti-spin var(--confetti-flight-ms) linear var(--confetti-launch) both, merge-confetti-flutter var(--confetti-flutter-ms) ease-in-out infinite alternate; }
+@keyframes merge-confetti-drift {
+  0% { opacity: 1; transform: translateX(0); }
+  80% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(var(--confetti-x)); }
 }
-@keyframes merge-strike-enter {
+@keyframes merge-confetti-rise {
+  from { transform: translateY(0); }
+  to { transform: translateY(var(--confetti-rise)); }
+}
+@keyframes merge-confetti-fall {
+  from { transform: translateY(var(--confetti-rise)); }
+  to { transform: translateY(var(--confetti-fall)); }
+}
+@keyframes merge-confetti-spin {
+  from { rotate: var(--confetti-tilt); }
+  to { rotate: calc(var(--confetti-tilt) + var(--confetti-spin)); }
+}
+@keyframes merge-confetti-flutter {
+  from { transform: scaleY(1); }
+  to { transform: scaleY(0.15); }
+}
+@keyframes merge-celebration-enter {
   0% { opacity: 0; transform: translateY(-24px) scale(0.95); }
   100% { opacity: 1; transform: translateY(0) scale(1); }
 }
-@keyframes merge-strike-shake {
+@keyframes merge-celebration-shake {
   0%, 100% { transform: translate(0, 0); }
   20% { transform: translate(-5px, 2px); }
   40% { transform: translate(5px, -2px); }
   60% { transform: translate(-3px, 1px); }
   80% { transform: translate(2px, 0); }
 }
-@keyframes merge-strike-exit {
+@keyframes merge-celebration-exit {
   0% { opacity: 1; transform: translateY(0); }
   100% { opacity: 0; transform: translateY(-32px); }
 }
-@keyframes merge-strike-roll {
-  0% { opacity: 0; left: -24px; transform: rotate(0deg); }
-  10% { opacity: 1; }
-  82% { opacity: 1; left: calc(100% - 78px); transform: rotate(900deg); }
-  100% { opacity: 0; left: calc(100% - 30px); transform: rotate(1080deg); }
+@keyframes merge-strike-approach {
+  from { left: -24px; transform: rotate(0deg); }
+  to { left: calc(100% - var(--ball-impact-inset)); transform: rotate(var(--ball-approach-spin)); }
 }
-@keyframes merge-strike-pin-fly {
-  0% { opacity: 1; transform: translate(0, var(--pin-lift)) rotate(0deg); }
-  70% { opacity: 1; }
-  100% { opacity: 0; transform: translate(var(--pin-fly-x), var(--pin-fly-y)) rotate(var(--pin-spin)); }
+@keyframes merge-strike-follow-through {
+  from { left: calc(100% - var(--ball-impact-inset)); transform: rotate(var(--ball-approach-spin)); }
+  to { left: calc(100% - var(--ball-impact-inset) + var(--ball-follow-px)); transform: rotate(calc(var(--ball-approach-spin) + var(--ball-follow-spin))); }
 }
-@keyframes merge-strike-slam {
+@keyframes merge-strike-pin-drift {
+  0% { opacity: 1; transform: translateX(0); }
+  75% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(var(--pin-fly-x)); }
+}
+@keyframes merge-strike-pin-rise {
+  from { transform: translateY(0); }
+  to { transform: translateY(var(--pin-peak-y)); }
+}
+@keyframes merge-strike-pin-fall {
+  from { transform: translateY(var(--pin-peak-y)); }
+  to { transform: translateY(var(--pin-land-y)); }
+}
+@keyframes merge-strike-pin-spin {
+  to { transform: rotate(var(--pin-spin)); }
+}
+@keyframes merge-strike-pin-depth {
+  from { scale: 1; filter: brightness(var(--pin-shade)); }
+  to { scale: var(--pin-depth-scale); filter: brightness(var(--pin-depth-shade)); }
+}
+@keyframes merge-strike-pin-glint {
+  50% { filter: brightness(0.7); }
+}
+@keyframes merge-swish-ball-approach {
+  from { left: -20px; }
+  to { left: calc(100% - 48px); }
+}
+@keyframes merge-swish-ball-net-drift {
+  from { left: calc(100% - 48px); }
+  to { left: calc(100% - 43px); }
+}
+@keyframes merge-swish-ball-rise {
+  from { transform: translateY(var(--ball-launch-y)); }
+  to { transform: translateY(var(--ball-peak-y)); }
+}
+@keyframes merge-swish-ball-fall {
+  from { transform: translateY(var(--ball-peak-y)); }
+  to { transform: translateY(var(--ball-rim-y)); }
+}
+@keyframes merge-swish-ball-net-catch {
+  from { transform: translateY(var(--ball-rim-y)); }
+  to { transform: translateY(var(--ball-net-exit-y)); }
+}
+@keyframes merge-swish-ball-drop {
+  from { transform: translateY(var(--ball-net-exit-y)); }
+  to { transform: translateY(var(--ball-drop-out-y)); }
+}
+@keyframes merge-swish-ball-spin {
+  to { transform: rotate(-600deg); }
+}
+@keyframes merge-swish-net {
+  30% { transform: scale(0.85, 1.35) skewX(8deg); }
+  60% { transform: scale(1.05, 0.9) skewX(-3deg); }
+}
+@keyframes merge-bullseye-dart-approach {
+  from { left: -30px; }
+  to { left: calc(100% - 62px); }
+}
+@keyframes merge-bullseye-dart-rise {
+  from { transform: translateY(0); }
+  to { transform: translateY(-12px); }
+}
+@keyframes merge-bullseye-dart-fall {
+  from { transform: translateY(-12px); }
+  to { transform: translateY(0); }
+}
+@keyframes merge-bullseye-dart-aim {
+  from { transform: rotate(-10deg); }
+  to { transform: rotate(10deg); }
+}
+@keyframes merge-bullseye-dart-wobble {
+  15% { transform: rotate(-9deg); }
+  35% { transform: rotate(7deg); }
+  55% { transform: rotate(-4deg); }
+  75% { transform: rotate(2deg); }
+}
+@keyframes merge-bullseye-trail {
+  to { opacity: 0; }
+}
+@keyframes merge-bullseye-target-hit {
+  25% { transform: scale(1.12); }
+}
+@keyframes merge-bullseye-ripple {
+  from { opacity: 0.9; transform: scale(1); }
+  to { opacity: 0; transform: scale(1.6); }
+}
+@keyframes merge-headshot-sweep {
+  from { left: var(--crosshair-start-left); opacity: 0; }
+  20% { opacity: 1; }
+  to { left: calc(100% - 54px); opacity: 1; }
+}
+@keyframes merge-headshot-bob {
+  from { transform: translateY(var(--crosshair-start-offset-y)); }
+  to { transform: translateY(0); }
+}
+@keyframes merge-headshot-aim {
+  to { color: var(--state-failed); scale: 0.75; }
+}
+@keyframes merge-headshot-recoil {
+  20% { transform: translateY(-5px) scale(1.15); }
+}
+@keyframes merge-headshot-hitmarker {
+  0% { opacity: 1; transform: scale(0.6); }
+  30% { opacity: 1; transform: scale(1.15); }
+  100% { opacity: 0; transform: scale(1.3); }
+}
+@keyframes merge-headshot-target-down {
+  0% { transform: perspective(100px) rotateX(0); }
+  45% { transform: perspective(100px) rotateX(84deg); }
+  65% { transform: perspective(100px) rotateX(64deg); }
+  85% { transform: perspective(100px) rotateX(80deg); }
+  100% { transform: perspective(100px) rotateX(78deg); }
+}
+@keyframes merge-flush-deal {
+  from { left: -30px; transform: rotate(-40deg); }
+  to { left: calc(50% - 12px + var(--card-offset)); transform: rotate(var(--card-tilt)); }
+}
+@keyframes merge-flush-morph {
+  from { left: calc(50% - 12px + var(--card-offset)); bottom: var(--card-bottom); transform: rotate(var(--card-tilt)) scale(1, 1); }
+  to { left: calc(50% - 12px + var(--card-title-spread) * (var(--celebration-title-width) - 24px)); bottom: calc(100% - var(--celebration-title-center-y) - 17px); transform: rotate(0deg) scale(0.9, 0); opacity: 0; }
+}
+@keyframes merge-flush-flip {
+  from { transform: perspective(160px) rotateY(0); }
+  to { transform: perspective(160px) rotateY(180deg); }
+}
+@keyframes merge-flush-hop {
+  35% { transform: translateY(-7px); }
+}
+@keyframes merge-flush-glow {
+  30% { box-shadow: 0 0 10px var(--state-idle); }
+}
+@keyframes merge-flush-shine {
+  to { transform: translateX(120%); }
+}
+@keyframes merge-celebration-scene-out {
+  to { opacity: 0; visibility: hidden; }
+}
+@keyframes merge-celebration-slam {
   0% { opacity: 0; transform: scale(3) rotate(-12deg); }
   100% { opacity: 1; transform: scale(1) rotate(0deg); }
 }
-@keyframes merge-strike-message {
+@keyframes merge-celebration-reveal {
   0% { opacity: 0; transform: translateY(4px); }
   100% { opacity: 1; transform: translateY(0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .merge-confetti, .merge-strike-lane { display: none; }
-  .merge-strike-card, .merge-strike-letter, .merge-celebration-message { animation: none; }
+  .merge-confetti, .merge-celebration-scene { display: none; }
+  .merge-celebration-card, .merge-celebration-letter, .merge-celebration-message { animation: none; }
 }
 .my-pr-facts { display: flex; flex-direction: column; gap: 8px; margin: 0; padding-left: 20px; color: var(--text-muted); font-size: 12px; }
 .my-pr-error { margin: 0; padding: 8px 14px; color: var(--state-failed); font-size: 12px; }
