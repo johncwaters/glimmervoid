@@ -187,6 +187,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'posthog-report', requestId: 'posthog-1', ok: true, found: true, issueId: 'issue-1', format: 'markdown', content: 'report' },
   { type: 'posthog-open-session-result', requestId: 'posthog-2', ok: true, error: null, sessionId: 'session-1' },
   { type: 'issues-status', ts: NOW, configured: true, reason: null, lastSyncAt: NOW, issues: [{ key: 'acme/repo#42', repo: 'acme/repo', number: 42, title: 'Reconnect drops queued writes', labels: ['bug'], assignees: ['alice'], author: 'bob', comments: 1, url: 'https://github.com/acme/repo/issues/42', createdAt: '2026-09-13T10:00:00Z', updatedAt: '2026-09-13T10:00:00Z', sources: ['project', 'me'], teams: [], projectId: 'p1', sessionId: null, pullRequests: [] }] },
+  { type: 'issue-detail-result', requestId: 'detail-1', ok: true, body: '<b>plain text</b>', error: null },
   { type: 'open-issue-session-result', requestId: 'issues-2', ok: true, error: null, sessionId: 'session-2', sessionName: 'issue-42-fix-reconnect', pending: false },
   { type: 'posthog-issue-action-result', requestId: 'posthog-3', ok: true, error: null, status: 'resolved' },
   { type: 'team-review-action-result', requestId: 'review-1', key: 'PostHog/wizard#1350', ok: true },
@@ -797,4 +798,17 @@ test('factory request validation failures return bounded correlated contract res
   assert.equal(reply.requestId, FACTORY_INTENT.requestId);
   assert.equal(ServerMessage.safeParse(reply).success, true);
   assert.equal(ServerMessage.safeParse({ type: 'factory-queue-intent-result', projectId: 'project-1', ok: false, error: 'x'.repeat(16385) }).success, false);
+});
+
+test('issue detail contracts round-trip bodies and reject invalid read requests and replies', () => {
+  const request = { type: 'issue-detail', requestId: 'detail-1', repo: 'acme/app', issueNumber: 42 };
+  assert.deepEqual(ClientMessage.parse(request), request);
+  for (const fields of [{ repo: '../app' }, { repo: '--repo=acme/app' }, { issueNumber: 0 }, { issueNumber: 1.5 }, { issueNumber: '42' }, { requestId: '' }]) {
+    assert.equal(ClientMessage.safeParse({ ...request, ...fields }).success, false);
+  }
+  for (const outcome of [{ ok: true, body: '<script>untrusted</script>\nbody', error: null }, { ok: false, body: null, error: 'Rate limited.' }]) {
+    const reply = { type: 'issue-detail-result', requestId: request.requestId, ...outcome };
+    assert.deepEqual(ServerMessage.parse(reply), reply);
+    assert.equal(ServerMessage.safeParse({ ...reply, body: 42 }).success, false);
+  }
 });

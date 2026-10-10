@@ -38,6 +38,7 @@ interface GithubIssuesFrame {
   sessionName?: string;
   pending?: boolean;
   existing?: boolean;
+  body?: string | null;
 }
 
 function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket', agent: 'codex' as const }], projectRepos = ['acme/socket'], existingSessionName = '', githubFailure = '', skipPermissionsByDefault }: { projects?: ProjectEntry[]; projectRepos?: string[]; existingSessionName?: string; githubFailure?: string; skipPermissionsByDefault?: boolean } = {}) {
@@ -260,4 +261,34 @@ test('new control sockets receive the issues snapshot without fetching or creati
   const connection = connectControl<ServerMessage>(server);
   assert.deepEqual(connection.sent.filter((frame) => frame.type === 'issues-status'), [status]);
   assert.equal(sessions.size, 0);
+});
+
+test('issue-detail reads an explicit repo without project membership or session creation', async () => {
+  const controlHarness = harness({ projects: [] });
+  await controlHarness.send({ type: 'issue-detail', requestId: 'detail-1', repo: 'other/repo', issueNumber: 42 });
+  assert.deepEqual(controlHarness.sent, [{ type: 'issue-detail-result', requestId: 'detail-1', ok: true, body: ISSUE_DETAIL.body, error: null }]);
+  assert.deepEqual(controlHarness.viewedRepos, ['other/repo']);
+  assert.equal(controlHarness.githubPaths.length, 1);
+  assert.equal(controlHarness.sessions.size, 0);
+  assert.deepEqual(controlHarness.savedConfigs, []);
+});
+
+test('issue-detail returns correlated failures and rejects unsafe repo slugs before GitHub', async () => {
+  const controlHarness = harness({ githubFailure: 'rate limit exceeded' });
+  await controlHarness.send({ type: 'issue-detail', requestId: 'detail-failed', repo: 'acme/socket', issueNumber: 42 });
+  assert.deepEqual(controlHarness.sent[0], { type: 'issue-detail-result', requestId: 'detail-failed', ok: false, body: null, error: 'rate limit exceeded' });
+  await controlHarness.send({ type: 'issue-detail', requestId: 'detail-invalid', repo: '--repo=acme/socket', issueNumber: 42 });
+  assert.equal(controlHarness.sent[1].requestId, 'detail-invalid');
+  assert.equal(controlHarness.sent[1].ok, false);
+  assert.equal(controlHarness.sent[1].body, null);
+  assert.equal(controlHarness.viewedRepos.length, 1);
+  assert.deepEqual(controlHarness.savedConfigs, []);
+});
+
+test('issue-detail converts thrown GitHub failures into a reply', async () => {
+  const server = createControlServer(controlDeps({ projects: [] }, { createGithubClient: () => ({ viewIssue: async () => { throw new Error('GitHub unavailable'); } }) }));
+  const connection = connectControl<ServerMessage>(server);
+  connection.sent.length = 0;
+  await connection.send({ type: 'issue-detail', requestId: 'detail-thrown', repo: 'acme/app', issueNumber: 42 });
+  assert.deepEqual(connection.sent, [{ type: 'issue-detail-result', requestId: 'detail-thrown', ok: false, body: null, error: 'GitHub unavailable' }]);
 });

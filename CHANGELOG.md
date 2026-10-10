@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Issues tab redesign**: Issues now uses the Reviews layout: scope tabs for all, yours, your teams and your projects, search and filters, live session status on every row, and a detail pane that loads the description and opens or jumps to the issue's session.
 - **Pull request status icons**: pull request statuses in Reviews (Team and Mine) now use GitHub's own Octicons, one per meaning (merged, draft, conflicts, behind, checks failing or running, changes requested, threads, waiting on a reviewer, your turn, queued, from a fork, out of date and more), instead of five shapes shared across every status. Color still shows urgency. The help page (the ? button) lists every icon under Pull request icons. Octicons are used under the MIT License, shipped as octicons-LICENSE.txt.
 - **Issues load on their own**: the Issues tab now polls GitHub in the background for your configured projects' open issues plus issues assigned to you or mentioning your GitHub teams, keeps the last results across restarts, and shows them as soon as the dashboard opens.
 - **Reviews Refresh at the bottom**: the Refresh button and its status now sit in a footer at the bottom of the Reviews queue, on both Team and Mine, and a long refresh status wraps instead of being cut off.

@@ -337,10 +337,10 @@ function applyScreen(screenId: string) {
   if (!moreButtonEl || !terminalScreen) throw new Error('Phone shell is not built');
   uiState.dispatch('setPhoneScreen', screenId);
   setMoreMenuOpen(false);
-  hooks.onScreenShown?.(screenId);
   for (const [id, section] of screenElById) {
     section.hidden = id !== screenId;
   }
+  hooks.onScreenShown?.(screenId);
   syncPhoneCalm();
   syncCurrent(navButtonById, screenId);
   const isNestedActive = menuButtonById.has(screenId);

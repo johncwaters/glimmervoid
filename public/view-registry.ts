@@ -5,7 +5,7 @@ import { activateFocusView, deactivateFocusView, mountFocusView } from './focus-
 import { applyBenchmarkConnectionState, mountBenchmarkView } from './benchmark-panel.ts';
 import { applyFactoryConnectionState, mountFactoryView } from './factory/factory-view.ts';
 import { mountHooksView, refreshHooksView, requestHooksReport } from './hooks-panel.ts';
-import { applyIssuesConnectionState, mountIssuesView } from './issues-panel.ts';
+import { applyIssuesConnectionState, mountIssuesView, refreshIssuesViewOnShow } from './issues-panel.ts';
 import { acknowledgePrsViewAttention, mountPrsView } from './prs-view.ts';
 import { acknowledgeRadarAttention, mountRadarView, setRadarActivityCallback, setRadarTraceOpener } from './radar-panel.ts';
 import { onDebugModeChanged } from './session-card/card-dom.ts';
@@ -35,7 +35,7 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
     { view: 'calm', label: 'Calm', panelClass: 'calm-view', tabOrder: 1, gate: { fromSettings: FEATURE_SURFACE_RULES.calmLayout }, hasOwnPhoneScreen: true, hasPanelChrome: false, mount: (panel) => mountCalmView(panel, { openTerminal: actions.openTerminal, openPlan: actions.openPlan, openCalm: actions.openCalm }), activate: activateCalmView, deactivate: deactivateCalmView },
     { view: 'focus', label: 'Focus', panelClass: 'focus-view', tabOrder: 0, hasOwnPhoneScreen: true, hasPanelChrome: false, hasReviewSidebar: true, mount: () => mountFocusView({ rail: document.getElementById('focus-rail'), center: document.getElementById('focus-center'), resizer: document.getElementById('focus-rail-resizer') }), activate: activateFocusView, deactivate: deactivateFocusView },
     { view: 'prs', label: 'Reviews', glyph: '\u21c5', panelClass: 'pr-view', gate: { fromSettings: FEATURE_SURFACE_RULES.teamReview }, mount: mountPrsView, attention: { subscribe: setTeamReviewActivityCallback, acknowledge: acknowledgePrsViewAttention } },
-    { view: 'issues', label: 'Issues', glyph: '#', panelClass: 'issues-view', mount: mountIssuesView, onConnectionChange: applyIssuesConnectionState },
+    { view: 'issues', label: 'Issues', glyph: '#', panelClass: 'issues-view', mount: mountIssuesView, refreshOn: ['shown'], refresh: refreshIssuesViewOnShow, onConnectionChange: applyIssuesConnectionState },
     { view: 'usage', label: 'Usage', glyph: '\u25d4', panelClass: 'usage-view', gate: { fromSettings: FEATURE_SURFACE_RULES.usage }, mount: mountUsageView, attention: { subscribe: setUsageActivityCallback, acknowledge: acknowledgeUsageAttention }, refreshOn: ['shown', 'connected', 'usage-sessions'], refresh: (reason) => {
       if (reason === 'shown') refreshUsageView();
       requestUsageReport();

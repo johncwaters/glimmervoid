@@ -20,7 +20,7 @@ import { STATES } from '../shared/states.ts';
 import { claudeProjectsDir, listRepoConversations } from '../session/core/conversation-history.ts';
 import type { Session } from '../session/sessions.ts';
 import type { ControlSocket } from './backend-websockets.ts';
-import { ABORT_CONFIG_SAVE } from './config-store.ts';
+import { glimmervoidHomeDir, ABORT_CONFIG_SAVE } from './config-store.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord, ReplayLog } from './control-replay-core.ts';
 import { normalizeClientTrust } from './core/request-trust.ts';
@@ -298,6 +298,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'list-agents': () => ({ type: 'agents-listed', requestId, agents: [], error: message }),
     'get-posthog-report': () => ({ type: 'posthog-report', requestId, ok: false, found: false, issueId: null, error: message }),
     'posthog-open-session': () => ({ type: 'posthog-open-session-result', requestId, ok: false, error: message }),
+    'issue-detail': () => ({ type: 'issue-detail-result', requestId, ok: false, body: null, error: message }),
     'open-issue-session': () => ({ type: 'open-issue-session-result', requestId, ok: false, error: message }),
     'posthog-issue-action': () => ({ type: 'posthog-issue-action-result', requestId, ok: false, error: message }),
     'posthog-archive-investigation': () => ({ type: 'posthog-archive-investigation-result', requestId, ok: false, error: message }),
@@ -915,6 +916,19 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
   const issueOpenQueue = createKeyedSerialQueue();
 
+  async function handleIssueDetail(request: ClientMessageOf<'issue-detail'>, ws: ControlSocket): Promise<void> {
+    try {
+      const viewed = await createGithubClient(glimmervoidHomeDir()).viewIssue(request.issueNumber, request.repo);
+      if (!viewed.ok || !viewed.issue) {
+        replyTo(ws, request, 'issue-detail-result', { ok: false, body: null, error: viewed.error || 'Issue not found.' });
+        return;
+      }
+      replyTo(ws, request, 'issue-detail-result', { ok: true, body: viewed.issue.body, error: null });
+    } catch (error: unknown) {
+      replyTo(ws, request, 'issue-detail-result', { ok: false, body: null, error: errorMessage(error) });
+    }
+  }
+
   async function handleOpenIssueSession(msg: ClientMessageOf<'open-issue-session'>, ws: ControlSocket): Promise<void> {
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'open-issue-session-result', { ok: false, error: null, ...payload });
     const project = findConfiguredProject(msg.projectId);
@@ -1252,6 +1266,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'list-agents':      handleListAgents,
     'get-posthog-report': handleGetPosthogReport,
     'posthog-open-session': handlePosthogOpenSession,
+    'issue-detail': handleIssueDetail,
     'open-issue-session': (msg: ClientMessageOf<'open-issue-session'>, ws: ControlSocket) => issueOpenQueue.run(`${msg.repo.toLowerCase()}#${msg.issueNumber}`, () => handleOpenIssueSession(msg, ws)),
     'posthog-issue-action': handlePosthogIssueAction,
     'posthog-archive-investigation': handlePosthogArchiveInvestigation,

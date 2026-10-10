@@ -5,6 +5,7 @@ export type ViewerId = 'a' | 'b';
 export type CardControl = 'plan-terminal';
 
 export type Step =
+  | { kind: 'assert-issues'; viewer?: ViewerId }
   | { kind: 'assert-team-review'; viewer?: ViewerId }
   | { kind: 'open'; viewer?: ViewerId }
   | { kind: 'back'; viewer?: ViewerId }
@@ -153,6 +154,10 @@ export const SCENARIOS: readonly Scenario[] = [
       { kind: 'assert-fit' },
       { kind: 'touch-scroll' },
     ],
+  },
+  {
+    name: 'issues',
+    steps: [{ kind: 'assert-issues' }, { kind: 'shot', name: 'issues' }],
   },
   {
     name: 'team-review',

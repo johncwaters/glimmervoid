@@ -162,6 +162,7 @@ const clientVariants = [
   loose('list-agents', { requestId }),
   loose('get-posthog-report', { issueId: z.union([z.string(), z.number()]), requestId }),
   loose('posthog-open-session', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), requestId }),
+  loose('issue-detail', { requestId: z.string().min(1), repo: IssueRepoSlug, issueNumber: z.number().int().positive() }),
   loose('open-issue-session', { requestId, projectId: z.string(), repo: IssueRepoSlug, issueNumber: z.number().int().positive() }),
   loose('posthog-issue-action', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), action: z.string(), requestId }),
   loose('team-review-action', { ...TeamReviewActionRequest.shape, requestId }),
@@ -264,6 +265,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'posthog-investigation-finished',
   'posthog-report',
   'posthog-open-session-result',
+  'issue-detail-result',
   'open-issue-session-result',
   'posthog-issue-action-result',
   'team-review-action-result',
@@ -508,6 +510,7 @@ const serverVariants = [
     sessionName: z.string().optional(),
     pending: z.boolean().optional(),
   }),
+  loose('issue-detail-result', { requestId: z.string().min(1), ok: z.boolean(), body: z.string().nullable(), error: z.string().nullable() }),
   loose('open-issue-session-result', {
     requestId,
     ok: z.boolean(),

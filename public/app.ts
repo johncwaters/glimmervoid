@@ -29,7 +29,7 @@ import { applyTeamReviewActionResult, applyTeamReviewStatus } from './team-revie
 import { applyMyPrMergeResult, applyMyPrsStatus } from './my-prs-panel.ts';
 import { applyFactoryControlResult, applyFactoryQueueIntentResult, applyFactoryState, setFactoryRequestSender } from './factory/factory-view.ts';
 import { applyBenchmarkActionResult, applyBenchmarkStatus, setBenchmarkRequestSender } from './benchmark-panel.ts';
-import { applyIssuesStatus, applyOpenIssueSessionResult, setIssuesRequestSender } from './issues-panel.ts';
+import { applyIssueDetailResult, refreshIssuesSessionState, applyIssuesStatus, applyOpenIssueSessionResult, setIssuesRequestSender } from './issues-panel.ts';
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID, updateBannerText } from './radar-core.ts';
 import { applyInvestigationActivity, applyInvestigationFinished, applyPosthogStatus } from './radar-panel.ts';
@@ -188,6 +188,7 @@ setConnectionStateCallback((state, label) => {
 });
 
 function refreshAttentionSurfaces() {
+  refreshIssuesSessionState();
   refreshPhoneBoard();
   refreshCalmView();
   refreshFocusNowPeek();
@@ -271,6 +272,7 @@ function handleStateChange(msg: ServerMessageOf<'state-change'>) {
   if (!hasSession(msg.id)) {
     createSessionCard(msg.id, msg.session, msg.to, buildSessionCardOptions({ skipPerms: msg.skipPerms, saneYolo: msg.saneYolo, stateSince: msg.timestamp }));
     refreshFavicon(sessionUIs);
+    refreshIssuesSessionState();
     return;
   }
 
@@ -409,6 +411,7 @@ const messageHandlers = {
   'my-pr-merge-result': (msg) => applyMyPrMergeResult(msg),
   'team-review-action-result': (msg) => applyTeamReviewActionResult(msg),
   'issues-status':      (msg) => applyIssuesStatus(msg),
+  'issue-detail-result': (msg) => applyIssueDetailResult(msg),
   'open-issue-session-result': (msg) => applyOpenIssueSessionResult(msg),
   'usage-sessions':     (msg) => { applyUsageSessionChips(msg.sessions); applyUsageSessions(msg); },
   'usage-report':       (msg) => { applyUsageReport(msg); refreshSettingsStatus(); },
