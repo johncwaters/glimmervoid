@@ -459,3 +459,50 @@ test('invalid persisted title state is dropped without rejecting the project or 
     assert.deepEqual(parsed.projects[0].packs, ['house-rules']);
   }
 });
+
+test('factory admission settings validate risk, positive integer cap and check commands across boundaries', () => {
+  const factory = { enabled: true, maxRisk: 'high', maxLiveWorkers: 3, checks: ['node verify.ts'] };
+  assert.deepEqual(Config.parse({ ...DEFAULT_CONFIG, factory }).factory, factory);
+  assert.deepEqual(BrowserConfig.parse({ factory }).factory, factory);
+  assert.deepEqual(ConfigUpdate.parse({ factory }).factory, factory);
+  for (const invalid of [{ maxRisk: 'unsafe' }, { maxLiveWorkers: 0 }, { maxLiveWorkers: 1.5 }, { checks: 'npm test' }, { checks: [''] }]) {
+    assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, factory: invalid }).success, false);
+    assert.equal(ConfigUpdate.safeParse({ factory: invalid }).success, false);
+  }
+});
+
+
+test('factory close-out settings cross every config boundary and refuse invalid shapes', () => {
+  const factory = { protectedPaths: ['.github/', '**/AGENTS.md'], reviewerModel: 'sonnet' };
+  assert.deepEqual(Config.parse({ ...DEFAULT_CONFIG, factory }).factory, factory);
+  assert.deepEqual(BrowserConfig.parse({ factory }).factory, factory);
+  assert.deepEqual(ConfigUpdate.parse({ factory }).factory, factory);
+  assert.equal(ConfigUpdate.safeParse({ factory: { reviewerModel: null } }).success, true);
+  for (const invalid of [{ protectedPaths: '.github/' }, { protectedPaths: [''] }, { reviewerModel: 42 }, { reviewerModel: '' }]) {
+    assert.equal(ConfigUpdate.safeParse({ factory: invalid }).success, false);
+  }
+});
+
+test('factory watch, verifier and budget settings validate across every config boundary', () => {
+  const factory = { watchWindowMinutes: 1440, watchProjects: [{ project: 'repo', posthogProjectId: 12 }], dailyBudgetUsd: 7.5, verifierModel: 'sonnet' };
+  assert.deepEqual(Config.parse({ ...DEFAULT_CONFIG, factory }).factory, factory);
+  assert.deepEqual(BrowserConfig.parse({ factory }).factory, factory);
+  assert.deepEqual(ConfigUpdate.parse({ factory }).factory, factory);
+  assert.equal(ConfigUpdate.safeParse({ factory: { watchWindowMinutes: 1, dailyBudgetUsd: 0 } }).success, true);
+  assert.equal(ConfigUpdate.safeParse({ factory: { dailyBudgetUsd: null, verifierModel: null } }).success, true);
+  assert.equal(DEFAULT_CONFIG.factory.watchWindowMinutes, 30);
+  assert.deepEqual(DEFAULT_CONFIG.factory.watchProjects, []);
+  assert.equal(DEFAULT_CONFIG.factory.dailyBudgetUsd, null);
+  assert.equal(DEFAULT_CONFIG.factory.verifierModel, null);
+  for (const invalid of [
+    { watchWindowMinutes: 0 }, { watchWindowMinutes: 1441 }, { watchWindowMinutes: 1.5 },
+    { watchProjects: [{ project: '', posthogProjectId: 12 }] }, { watchProjects: [{ project: 'repo', posthogProjectId: 0 }] },
+    { watchProjects: [{ project: 'repo', posthogProjectId: 1.5 }] }, { watchProjects: 'repo' },
+    { dailyBudgetUsd: -1 }, { dailyBudgetUsd: Number.POSITIVE_INFINITY }, { dailyBudgetUsd: '7.5' },
+    { verifierModel: '' }, { verifierModel: 42 },
+  ]) {
+    assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, factory: invalid }).success, false);
+    assert.equal(BrowserConfig.safeParse({ factory: invalid }).success, false);
+    assert.equal(ConfigUpdate.safeParse({ factory: invalid }).success, false);
+  }
+});

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CoherenceRisk } from './coherence.ts';
 import * as ranges from '../settings-ranges.ts';
 import type { SettingsRange } from '../settings-ranges.ts';
 import { USAGE_COST_MODES, USAGE_VENDOR_KEYS, USAGE_BUDGET_KEYS } from '../usage-config.ts';
@@ -111,9 +112,22 @@ const BenchmarksSettings = optionalObject('benchmarks', {
   enabled: optionalBoolean('benchmarks.enabled'),
 });
 
-const FactorySettings = optionalObject('factory', {
+export const DEFAULT_FACTORY_CHECKS = ['npm run typecheck', 'npm run lint', 'npm test'];
+
+export const DEFAULT_FACTORY_PROTECTED_PATHS = ['coherence.config.json', '.coherence/', 'package.json', 'package-lock.json', '**/AGENTS.md', '**/CLAUDE.md', '**/CLAUDE.local.md', '.claude/', '.github/'];
+
+export const FactorySettings = z.object({
   enabled: optionalBoolean('factory.enabled'),
-});
+  maxRisk: CoherenceRisk.optional(),
+  maxLiveWorkers: z.number().int().min(ranges.FACTORY_MAX_LIVE_WORKERS_RANGE.min).optional(),
+  checks: z.array(z.string().trim().min(1)).optional(),
+  protectedPaths: z.array(z.string().trim().min(1)).optional(),
+  reviewerModel: z.string().trim().min(1).nullable().optional(),
+  watchWindowMinutes: z.number().int().min(1).max(1440).optional(),
+  watchProjects: z.array(z.object({ project: z.string().trim().min(1), posthogProjectId: z.number().int().positive() })).optional(),
+  dailyBudgetUsd: z.number().finite().nonnegative().nullable().optional(),
+  verifierModel: z.string().trim().min(1).nullable().optional(),
+}).nullable().optional();
 
 const KnowledgeGraphSettings = optionalObject('knowledgeGraph', {
   enabled: optionalBoolean('knowledgeGraph.enabled'),

@@ -1,5 +1,5 @@
 import { resolveHookTarget } from '../session/core/hook-relay-core.ts';
-import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
+import { AgentDispatchRequest, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
 import { isAgentApiVerb } from './core/agent-api-core.ts';
 
@@ -17,6 +17,10 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
     return note ? { note } : null;
   },
   board: () => ({}),
+  dispatch: (rest) => {
+    const parsed = AgentDispatchRequest.safeParse(rest[0] === '--ready' ? { readyIntent: rest[1] } : { workId: rest[0] });
+    return parsed.success ? parsed.data : null;
+  },
 };
 
 function bodySaysOk(text: string): boolean {
@@ -47,6 +51,10 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   }
   const body = BODY_BUILDERS[verb](args.slice(1));
   if (!body) {
+    if (verb === 'dispatch') {
+      console.error('glimmervoid dispatch: expected a work id matching wrk-[0-9a-f]{16}');
+      return 1;
+    }
     console.error(`glimmervoid ${verb}: this command needs text, for example "glimmervoid ${verb} check the failing test"`);
     return 1;
   }

@@ -728,6 +728,50 @@ export const SETTINGS_MAP = Object.freeze([
         description: 'Enable Coherence status polling and show the Factory tab. Off by default.',
         control: 'toggle', keywords: ['orchestrator', 'intents', 'queue', 'coherence', 'guardrails'], defaultValue: false,
       },
+      {
+        id: 'factory-max-risk', path: 'factory.maxRisk', title: 'Worker risk ceiling',
+        description: 'Highest risk admitted for a worker order.', control: 'select', defaultValue: 'medium',
+        options: ['low', 'medium', 'high', 'critical'].map((value) => ({ value, label: value })), keywords: ['risk', 'admission'],
+      },
+      {
+        id: 'factory-max-live-workers', path: 'factory.maxLiveWorkers', title: 'Live worker cap',
+        description: 'Most live workers per factory project.', control: 'number', range: 'FACTORY_MAX_LIVE_WORKERS_RANGE', defaultValue: 2, keywords: ['workers', 'parallel'],
+      },
+      {
+        id: 'factory-checks', path: 'factory.checks', title: 'Worker checks',
+        description: 'Commands glimmervoid runs before merging worker commits.', control: 'list',
+        defaultValue: ['npm run typecheck', 'npm run lint', 'npm test'], keywords: ['tests', 'checks'],
+      },
+      {
+        id: 'factory-protected-paths', path: 'factory.protectedPaths', title: 'Protected paths',
+        description: 'Repo-relative files, directory prefixes ending in /, or **/NAME basenames workers cannot change.', control: 'list',
+        defaultValue: ['coherence.config.json', '.coherence/', 'package.json', 'package-lock.json', '**/AGENTS.md', '**/CLAUDE.md', '**/CLAUDE.local.md', '.claude/', '.github/'], keywords: ['fence', 'scope'],
+      },
+      {
+        id: 'factory-reviewer-model', path: 'factory.reviewerModel', title: 'Reviewer model',
+        description: 'Claude model for independent worker review. Blank uses the CLI default.', control: 'text',
+        defaultValue: null, nullable: true, keywords: ['claude', 'review'],
+      },
+      {
+        id: 'factory-watch-window', path: 'factory.watchWindowMinutes', title: 'Watch window (minutes)',
+        description: 'Time to watch merged orders for new PostHog issues.', control: 'number',
+        range: 'FACTORY_WATCH_WINDOW_RANGE', defaultValue: 30, keywords: ['watch', 'posthog'],
+      },
+      {
+        id: 'factory-watch-projects', path: 'factory.watchProjects', title: 'Watch projects',
+        description: 'Map glimmervoid project ids to PostHog project ids in the config file.',
+        fileOnly: true, defaultValue: [], keywords: ['watch', 'posthog', 'mapping'],
+      },
+      {
+        id: 'factory-daily-budget', path: 'factory.dailyBudgetUsd', title: 'Factory daily budget (USD)',
+        description: 'Factory lane spend ceiling. Blank means no ceiling. Needs usage tracking: with it off, dispatch refuses.', control: 'number', range: 'NON_NEGATIVE_NUMBER_RANGE',
+        integer: false, nullable: true, step: 0.01, defaultValue: null, keywords: ['spend', 'budget'],
+      },
+      {
+        id: 'factory-verifier-model', path: 'factory.verifierModel', title: 'Verifier model',
+        description: 'Claude model for independent intent verification. Blank uses the CLI default.', control: 'text',
+        nullable: true, defaultValue: null, keywords: ['claude', 'verification'],
+      },
     ],
   },
   {

@@ -1,15 +1,23 @@
 import assert from 'node:assert/strict';
-import { access, appendFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, appendFile, chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { execFileAsync } from '../server/child-process-safe.ts';
+import { glimmervoidHomeDir } from '../server/config-store.ts';
+import { buildCoherenceShims } from '../server/core/coherence-session-core.ts';
 import { createFactoryPoller } from '../server/factory-poller.ts';
 import type { FactoryPoller } from '../server/factory-poller.ts';
+import { createGitWorkspace } from '../server/git-workspace.ts';
+import type { GitWorkspaceInstance } from '../server/git-workspace.ts';
+import { CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
+import { FactoryLaneState } from '../shared/contracts/factory.ts';
 import { createFactoryWiring } from '../server/factory-wiring.ts';
-import { resolvePackageBin } from '../server/runtime-paths.ts';
+import { cliPath as glimmervoidCliPath, resolvePackageBin } from '../server/runtime-paths.ts';
 import type { FactoryState } from '../shared/contracts/factory.ts';
 import { waitFor } from './helpers/wait-for.ts';
+
+const REAL_PROCESS_DEADLINE_MS = 30_000;
 
 test('factory wiring is disabled until explicitly enabled and hides state after disabling', async (context) => {
   const config = { factory: { enabled: false }, projects: [] };
@@ -29,7 +37,7 @@ test('factory wiring is disabled until explicitly enabled and hides state after 
   assert.equal(wiring.getState(), null);
   config.factory.enabled = true;
   wiring.restartIfConfigChanged();
-  await waitFor(() => wiring.getState() !== null, 'enabled factory reads its first state');
+  await waitFor(() => wiring.getState() !== null, 'enabled factory reads its first state', REAL_PROCESS_DEADLINE_MS);
   assert.equal(pollers.length, 1);
   wiring.restartIfConfigChanged();
   await new Promise<void>((resolve) => setImmediate(resolve));
@@ -37,6 +45,85 @@ test('factory wiring is disabled until explicitly enabled and hides state after 
   config.factory.enabled = false;
   wiring.restartIfConfigChanged();
   await waitFor(() => wiring.getState() === null, 'disabled factory hides its state');
+});
+
+test('lane start writes coherence shims atomically and preserves matching content across starts', async (context) => {
+  const homeDir = await mkdtemp(path.join(glimmervoidHomeDir(), 'factory shim home '));
+  context.after(() => rm(homeDir, { recursive: true, force: true }));
+  const config = { factory: { enabled: false }, projects: [] };
+  let completedStarts = 0;
+  const wiring = createFactoryWiring({
+    config, homeDir, firstTickDelayMs: () => 0,
+    broadcast: () => { completedStarts += 1; },
+  });
+  context.after(wiring.stop);
+  assert.equal(wiring.binDir, path.join(homeDir, 'factory', 'bin'));
+  wiring.start();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(completedStarts, 0);
+  await assert.rejects(access(wiring.binDir), { code: 'ENOENT' });
+  config.factory.enabled = true;
+  wiring.restartIfConfigChanged();
+  await waitFor(() => wiring.getState() !== null, 'enabled lane finishes shim setup before the first tick', REAL_PROCESS_DEADLINE_MS);
+  const cliPath = resolvePackageBin('@danilocampos/coherence', 'coherence');
+  assert.ok(cliPath);
+  const shims = buildCoherenceShims({ nodePath: process.execPath, cliPath, glimmervoidCliPath });
+  const originalMtimes: number[] = [];
+  for (const shim of shims) {
+    const shimPath = path.join(wiring.binDir, shim.fileName);
+    assert.equal(await readFile(shimPath, 'utf8'), shim.text);
+    if (process.platform !== 'win32') assert.equal((await stat(shimPath)).mode & 0o777, shim.mode);
+    await utimes(shimPath, new Date('2000-01-01T00:00:00Z'), new Date('2000-01-01T00:00:00Z'));
+    originalMtimes.push((await stat(shimPath)).mtimeMs);
+  }
+  assert.deepEqual((await readdir(wiring.binDir)).sort(), ['coherence', 'coherence.cmd', 'glimmervoid', 'glimmervoid.cmd']);
+  if (process.platform !== 'win32') await chmod(path.join(wiring.binDir, 'coherence'), 0o644);
+  const broadcastsBeforeRestart = completedStarts;
+  wiring.start();
+  await waitFor(() => completedStarts > broadcastsBeforeRestart, 'restarted lane checks existing shims', REAL_PROCESS_DEADLINE_MS);
+  for (const [index, shim] of shims.entries()) {
+    const shimPath = path.join(wiring.binDir, shim.fileName);
+    assert.equal((await stat(shimPath)).mtimeMs, originalMtimes[index]);
+    if (process.platform !== 'win32') assert.equal((await stat(shimPath)).mode & 0o777, shim.mode);
+  }
+  await writeFile(path.join(wiring.binDir, 'coherence.cmd'), 'stale launcher');
+  const broadcastsBeforeRepair = completedStarts;
+  wiring.start();
+  await waitFor(() => completedStarts > broadcastsBeforeRepair, 'restarted lane replaces stale shim content', REAL_PROCESS_DEADLINE_MS);
+  assert.equal(await readFile(path.join(wiring.binDir, 'coherence.cmd'), 'utf8'), shims.find((shim) => shim.fileName === 'coherence.cmd')?.text);
+  assert.deepEqual((await readdir(wiring.binDir)).sort(), ['coherence', 'coherence.cmd', 'glimmervoid', 'glimmervoid.cmd']);
+  await context.test('the POSIX shim executes coherence doctrine with the JSON argument forwarded', { skip: process.platform === 'win32' }, async () => {
+    const { stdout } = await execFileAsync(path.join(wiring.binDir, 'coherence'), ['doctrine', '--json'], { encoding: 'utf8', timeout: 20_000 });
+    const direct = await execFileAsync(process.execPath, [cliPath, 'doctrine', '--json'], { encoding: 'utf8', timeout: 20_000 });
+    assert.ok(stdout.trim());
+    assert.ok(JSON.parse(stdout));
+    assert.equal(stdout, direct.stdout);
+  });
+  await context.test('the POSIX shim preserves the installed coherence CLI rejection of --version', { skip: process.platform === 'win32' }, async () => {
+    await assert.rejects(execFileAsync(process.execPath, [cliPath, '--version'], { encoding: 'utf8', timeout: 20_000 }),
+      { code: 2, stdout: '', stderr: /^usage: coherence / });
+    await assert.rejects(execFileAsync(path.join(wiring.binDir, 'coherence'), ['--version'], { encoding: 'utf8', timeout: 20_000 }),
+      { code: 2, stdout: '', stderr: /^usage: coherence / });
+  });
+});
+
+test('a shim write failure logs and leaves the factory lane running', async (context) => {
+  const directory = await mkdtemp(path.join(glimmervoidHomeDir(), 'factory-shim-failure-'));
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  const homeDir = path.join(directory, 'not-a-directory');
+  await writeFile(homeDir, 'occupied');
+  const warnings: string[] = [];
+  const wiring = createFactoryWiring({
+    config: { factory: { enabled: true }, projects: [] }, homeDir,
+    firstTickDelayMs: () => 0, broadcast: () => {},
+    log: { warn: (message: string) => { warnings.push(message); } },
+  });
+  context.after(wiring.stop);
+  wiring.start();
+  await waitFor(() => wiring.getState() !== null, 'lane runs despite shim setup failure', REAL_PROCESS_DEADLINE_MS);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /\[factory\] coherence shim setup failed:/);
+  assert.equal(await readFile(homeDir, 'utf8'), 'occupied');
 });
 
 for (const configuredBranch of [undefined, 'integration']) {
@@ -287,4 +374,159 @@ test('a real coherence refusal over a malformed work ledger row shows its reason
   assert.equal(project.error, null);
   assert.equal(project.heading.action, 'refuse');
   assert.ok(project.heading.reasons.some((reason) => reason.includes('is malformed JSON')));
+});
+
+async function createIntentFixture(context: test.TestContext) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'factory-intent-'));
+  const wirings: ReturnType<typeof createFactoryWiring>[] = [];
+  context.after(async () => {
+    for (const wiring of wirings) await wiring.stop();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const projectPath = path.join(directory, 'repo');
+  const homeDir = path.join(directory, 'home');
+  const originPath = path.join(directory, 'origin.git');
+  await mkdir(projectPath);
+  const git = async (args: string[], cwd = projectPath) => {
+    const { stdout } = await execFileAsync('git', args, { cwd, encoding: 'utf8', timeout: 20_000 });
+    return stdout.trim();
+  };
+  await git(['init', '--bare', '--initial-branch=integration', originPath]);
+  await git(['init', '--initial-branch=integration']);
+  await git(['config', 'user.email', 'factory@example.test']);
+  await git(['config', 'user.name', 'Factory']);
+  await git(['config', 'commit.gpgsign', 'false']);
+  await writeFile(path.join(projectPath, 'coherence.config.json'), '{}\n');
+  await git(['add', '.']);
+  await git(['commit', '-m', 'Initial ledger']);
+  await git(['remote', 'add', 'origin', originPath]);
+  await git(['push', '-u', 'origin', 'integration']);
+  const config = { factory: { enabled: true }, integrationBranch: 'integration', projects: [{ id: 'project-1', name: 'Factory', path: projectPath }] };
+  const broadcasts: FactoryState[] = [];
+  const start = async (gitWorkspace?: GitWorkspaceInstance) => {
+    const wiring = createFactoryWiring({
+      config, homeDir, gitWorkspace, firstTickDelayMs: () => 0,
+      broadcast: (message) => broadcasts.push(message),
+    });
+    wirings.push(wiring);
+    wiring.start();
+    await waitFor(() => wiring.getState() !== null, 'factory reads the integration ledger', REAL_PROCESS_DEADLINE_MS);
+    return wiring;
+  };
+  const request = {
+    projectId: 'project-1', objective: 'Ship retries', criteria: ['Retry tests pass', 'No lost work'],
+    risk: 'low' as const, boundary: 'This repository', writeScopes: ['server/retry.ts'],
+  };
+  const statePath = path.join(homeDir, 'factory', 'project-1', 'state.json');
+  const readState = async () => FactoryLaneState.parse(JSON.parse(await readFile(statePath, 'utf8')));
+  return { projectPath, homeDir, originPath, config, broadcasts, git, start, request, statePath, readState };
+}
+
+test('queue intent lands on integration and origin, reuses its ledger, and pause persists across restart', async (context) => {
+  const { projectPath, homeDir, originPath, config, git, start, request, readState } = await createIntentFixture(context);
+  const originalOriginSha = await git(['rev-parse', 'integration'], originPath);
+  const wiring = await start();
+  assert.equal(wiring.getState()?.projects[0].paused, false);
+  assert.deepEqual(await wiring.control({ projectId: request.projectId, action: 'pause' }), { projectId: request.projectId, action: 'pause', ok: true });
+  assert.equal(wiring.getState()?.projects[0].paused, true);
+  const queued = await wiring.queueIntent(request);
+  assert.equal(queued.ok, true, queued.error ?? 'Queue failed');
+  assert.ok(queued.workId);
+  const state = await readState();
+  assert.equal(state.paused, true);
+  assert.equal(state.ledgerBranch, 'glimmervoid/project-1/factory-ledger');
+  assert.ok(state.ledgerPath);
+  assert.equal(await git(['status', '--porcelain'], state.ledgerPath), '');
+  const integrationSha = await git(['rev-parse', 'integration']);
+  assert.notEqual(integrationSha, originalOriginSha);
+  assert.equal(await git(['rev-parse', 'integration'], originPath), integrationSha);
+  assert.equal(await git(['log', '-1', '--format=%s']), `factory: queue intent ${queued.workId}`);
+  const cliPath = resolvePackageBin('@danilocampos/coherence', 'coherence');
+  assert.ok(cliPath);
+  const { stdout } = await execFileAsync(process.execPath, [cliPath, 'work', 'inspect', '--json'], {
+    cwd: projectPath, encoding: 'utf8', timeout: 20_000,
+  });
+  const inspection = CoherenceWorkInspect.parse(JSON.parse(stdout));
+  assert.equal(inspection.work.length, 1);
+  assert.equal(inspection.work[0].work, queued.workId);
+  assert.equal(inspection.work[0].opened.parent, null);
+  assert.equal(inspection.work[0].owner.session, 'glimmervoid-factory');
+  assert.deepEqual(inspection.work[0].opened.criteria, [...request.criteria].sort());
+  assert.deepEqual(inspection.work[0].opened.writeScopes, request.writeScopes);
+  assert.equal(wiring.getState()?.projects[0].orders[0].id, queued.workId);
+  assert.equal(wiring.getState()?.projects[0].headSha, integrationSha);
+  await wiring.stop();
+  await access(state.ledgerPath);
+  const restarted = await start();
+  assert.equal(restarted.getState()?.projects[0].paused, true);
+  const queuedAgain = await restarted.queueIntent({ ...request, objective: 'Second intent' });
+  assert.equal(queuedAgain.ok, true, queuedAgain.error ?? 'Queue failed');
+  assert.equal((await readState()).ledgerPath, state.ledgerPath);
+  assert.equal(restarted.getState()?.projects[0].orders.length, 2);
+  assert.equal((await restarted.control({ projectId: request.projectId, action: 'resume' })).ok, true);
+  assert.equal(restarted.getState()?.projects[0].paused, false);
+  assert.equal((await readState()).paused, false);
+  assert.equal(config.factory.enabled, true);
+  assert.equal((await readFile(path.join(homeDir, 'factory', request.projectId, 'state.json'), 'utf8')).includes('ledgerPath'), true);
+});
+
+test('concurrent queue requests serialize and a failed landing remains on the reused ledger for the next attempt', async (context) => {
+  const { git, start, request, readState, originPath } = await createIntentFixture(context);
+  const gitWorkspace = createGitWorkspace();
+  let shouldFailLanding = true;
+  const wiring = await start({
+    ...gitWorkspace,
+    mergeKeep: async (args) => {
+      if (shouldFailLanding) return { merged: false, committed: true, branch: args.workspace?.branch ?? null, reason: 'landing refused' };
+      return gitWorkspace.mergeKeep(args);
+    },
+  });
+  const failed = await wiring.queueIntent(request);
+  assert.equal(failed.ok, false);
+  assert.equal(failed.error, 'landing refused');
+  const state = await readState();
+  assert.ok(state.ledgerPath);
+  assert.ok(state.ledgerBranch);
+  assert.notEqual(await git(['rev-parse', state.ledgerBranch]), await git(['rev-parse', 'integration']));
+  shouldFailLanding = false;
+  const queued = await Promise.all([
+    wiring.queueIntent({ ...request, objective: 'Second intent' }),
+    wiring.queueIntent({ ...request, objective: 'Third intent' }),
+    wiring.control({ projectId: request.projectId, action: 'pause' }),
+  ]);
+  assert.equal(queued.every((outcome) => outcome.ok), true, JSON.stringify(queued));
+  assert.equal((await readState()).ledgerPath, state.ledgerPath);
+  assert.equal(wiring.getState()?.projects[0].orders.length, 3);
+  assert.equal(wiring.getState()?.projects[0].paused, true);
+  assert.equal(await git(['rev-parse', 'integration'], originPath), await git(['rev-parse', 'integration']));
+});
+
+for (const invalidState of ['invalid JSON', '{"paused":true}']) {
+  test(`invalid persisted factory state ${invalidState} defaults to unpaused and no ledger`, async (context) => {
+    const { start, request, statePath, readState } = await createIntentFixture(context);
+    await mkdir(path.dirname(statePath), { recursive: true });
+    await writeFile(statePath, invalidState);
+    const wiring = await start();
+    assert.equal(wiring.getState()?.projects[0].paused, false);
+    const queued = await wiring.queueIntent(request);
+    assert.equal(queued.ok, true, queued.error ?? 'Queue failed');
+    assert.equal((await readState()).paused, false);
+  });
+}
+
+test('a recorded ledger checkout removed after landing is recreated from integration', async (context) => {
+  const { start, request, readState, projectPath } = await createIntentFixture(context);
+  const gitWorkspace = createGitWorkspace();
+  const wiring = await start(gitWorkspace);
+  assert.equal((await wiring.queueIntent(request)).ok, true);
+  const previous = await readState();
+  assert.ok(previous.ledgerPath);
+  const removed = await gitWorkspace.removeWorktreeByPath({ projectPath, cwd: previous.ledgerPath });
+  assert.equal(removed.ok, true);
+  const next = await wiring.queueIntent({ ...request, objective: 'Second intent' });
+  assert.equal(next.ok, true, next.error ?? 'Queue failed');
+  const recreated = await readState();
+  assert.notEqual(recreated.ledgerPath, previous.ledgerPath);
+  assert.equal(recreated.ledgerBranch, previous.ledgerBranch);
+  assert.equal(wiring.getState()?.projects[0].orders.length, 2);
 });

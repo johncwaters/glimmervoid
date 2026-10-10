@@ -190,11 +190,13 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'posthog-issue-action-result', requestId: 'posthog-3', ok: true, error: null, status: 'resolved' },
   { type: 'team-review-action-result', requestId: 'review-1', key: 'PostHog/wizard#1350', ok: true },
   { type: 'reviews-refresh-result', requestId: 'refresh-1', ok: true },
+  { type: 'factory-queue-intent-result', requestId: 'factory-1', projectId: 'project-1', ok: true, workId: 'wrk-123' },
+  { type: 'factory-control-result', requestId: 'factory-2', projectId: 'project-1', action: 'pause', ok: true },
   { type: 'benchmark-action-result', requestId: 'bench-1', suiteId: 'review-ladder', action: 'run', ok: true, runId: 'run-1' },
   { type: 'factory-state', ts: NOW, projects: [{
-    projectId: 'project-1', projectName: 'Factory', headSha: 'a'.repeat(40), error: null,
+    projectId: 'project-1', projectName: 'Factory', headSha: 'a'.repeat(40), error: null, paused: false, orchestrator: null,
     heading: { action: 'dispatch', reasons: ['ready work'] },
-    orders: [{ id: 'work-1', objective: 'Fix retries', criteria: ['Retry test passes'], risk: 'high', state: 'open', readiness: 'ready', parent: null, dependsOn: [], writeScopes: ['src/retry.ts'], owner: 'session-1', lastEvent: null }],
+    orders: [{ id: 'work-1', objective: 'Fix retries', openedAt: '2026-10-08T10:00:00.000Z', criteria: ['Retry test passes'], boundary: 'This repository', risk: 'high', state: 'open', readiness: 'ready', parent: null, dependsOn: [], writeScopes: ['src/retry.ts'], owner: 'session-1', lastEvent: null }],
     conflicts: [], unverifiedCompletedWork: [],
   }] },
   { type: 'benchmark-status', ts: NOW, configured: true, reason: null, suites: [{
@@ -718,4 +720,81 @@ test('session-prompt carries a validated compaction flag beside the prompt detai
   const message = { type: 'session-prompt', id: 'session-1', pendingPromptKind: null, pendingPromptDetail: null, isCompacting: true, timestamp: NOW };
   assert.equal(ServerMessage.safeParse(message).success, true);
   assert.equal(ServerMessage.safeParse({ ...message, isCompacting: 'true' }).success, false);
+});
+
+const FACTORY_INTENT = {
+  type: 'factory-queue-intent', requestId: 'factory-1', projectId: 'project-1',
+  objective: 'Ship retries', criteria: ['Tests pass'], risk: 'low', boundary: 'This repository', writeScopes: [],
+};
+
+test('factory queue and control contracts round-trip requests and results', () => {
+  assert.deepEqual(ClientMessage.parse(FACTORY_INTENT), FACTORY_INTENT);
+  for (const action of ['pause', 'resume']) {
+    const request = { type: 'factory-control', projectId: 'project-1', action, requestId: 'factory-2' };
+    const reply = { ...request, type: 'factory-control-result', ok: true };
+    assert.deepEqual(ClientMessage.parse(request), request);
+    assert.deepEqual(ServerMessage.parse(reply), reply);
+  }
+  for (const outcome of [{ ok: true, workId: 'wrk-123' }, { ok: false, error: 'Landing failed' }]) {
+    const reply = { type: 'factory-queue-intent-result', projectId: 'project-1', requestId: 'factory-1', ...outcome };
+    assert.deepEqual(ServerMessage.parse(reply), reply);
+  }
+});
+
+test('factory queue contracts reject empty, oversized and invalid input', () => {
+  for (const fields of [
+    { objective: ' ' }, { objective: 'x'.repeat(4097) }, { boundary: '' }, { boundary: 'x'.repeat(4097) },
+    { criteria: [] }, { criteria: [' '] }, { criteria: Array(13).fill('criterion') }, { criteria: ['x'.repeat(4097)] },
+    { writeScopes: Array(33).fill('src') }, { writeScopes: [''] }, { writeScopes: ['x'.repeat(1025)] },
+    { risk: 'urgent' }, { projectId: '../project' }, { projectId: '' }, { projectId: 'x'.repeat(129) },
+  ]) assert.equal(ClientMessage.safeParse({ ...FACTORY_INTENT, ...fields }).success, false, JSON.stringify(fields));
+  assert.equal(ClientMessage.safeParse({ ...FACTORY_INTENT, criteria: Array(12).fill('criterion'), writeScopes: Array(32).fill('src') }).success, true);
+  assert.equal(ClientMessage.safeParse({ type: 'factory-control', projectId: 'project-1', action: 'stop' }).success, false);
+  assert.equal(ServerMessage.safeParse({ type: 'factory-control-result', projectId: 'project-1', action: 'pause', ok: 'yes' }).success, false);
+});
+
+test('factory control handlers reject unknown projects and an off lane with correlated replies', async (context) => {
+  for (const [projectId, enabled, error] of [
+    ['missing', true, 'Unknown factory project'], ['project-1', false, 'Factory is not running'],
+  ] as const) {
+    const server = createControlServer(controlDeps({ projects: [{ id: 'project-1', name: 'Factory', path: '/repo' }], factory: { enabled } }));
+    context.after(() => server.close());
+    const connection = connectControl<ServerPayload>(server);
+    await connection.send({ ...FACTORY_INTENT, projectId });
+    await connection.send({ type: 'factory-control', requestId: 'factory-2', projectId, action: 'pause' });
+    assert.deepEqual(connection.sent.filter((frame) => frame.type.startsWith('factory-')), [
+      { type: 'factory-queue-intent-result', projectId, requestId: 'factory-1', ok: false, error },
+      { type: 'factory-control-result', projectId, requestId: 'factory-2', action: 'pause', ok: false, error },
+    ]);
+  }
+});
+
+test('factory handlers route validated requests and retain request ids', async (context) => {
+  const server = createControlServer(controlDeps({ projects: [{ id: 'project-1', name: 'Factory', path: '/repo' }], factory: { enabled: true } }, {
+    factory: {
+      queueIntent: async (request) => ({ projectId: request.projectId, ok: true, workId: 'wrk-123' }),
+      control: async (request) => ({ projectId: request.projectId, action: request.action, ok: true }),
+    },
+  }));
+  context.after(() => server.close());
+  const connection = connectControl<ServerPayload>(server);
+  await connection.send(FACTORY_INTENT);
+  await connection.send({ type: 'factory-control', requestId: 'factory-2', projectId: 'project-1', action: 'resume' });
+  assert.deepEqual(connection.sent.filter((frame) => frame.type.startsWith('factory-')), [
+    { type: 'factory-queue-intent-result', projectId: 'project-1', requestId: 'factory-1', ok: true, workId: 'wrk-123' },
+    { type: 'factory-control-result', projectId: 'project-1', requestId: 'factory-2', action: 'resume', ok: true },
+  ]);
+});
+
+test('factory request validation failures return bounded correlated contract results', async (context) => {
+  const server = createControlServer(controlDeps({ projects: [] }));
+  context.after(() => server.close());
+  const connection = connectControl<ServerPayload>(server);
+  await connection.send({ ...FACTORY_INTENT, projectId: 'x'.repeat(129) });
+  const reply = connection.sent.find((frame) => frame.type === 'factory-queue-intent-result');
+  assert.ok(reply);
+  assert.equal(reply.ok, false);
+  assert.equal(reply.requestId, FACTORY_INTENT.requestId);
+  assert.equal(ServerMessage.safeParse(reply).success, true);
+  assert.equal(ServerMessage.safeParse({ type: 'factory-queue-intent-result', projectId: 'project-1', ok: false, error: 'x'.repeat(16385) }).success, false);
 });

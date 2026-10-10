@@ -145,7 +145,11 @@ function wireValue(setting: SettingsSetting, value: unknown): unknown {
   if (setting.valueKind === 'posthog-projects') {
     return parsePosthogProjectSelection(value);
   }
-  if (setting.control === 'text' || setting.control === 'password') return String(value ?? '').trim();
+  if (setting.control === 'text' || setting.control === 'password') {
+    const text = String(value ?? '').trim();
+    if (setting.nullable && !text) return null;
+    return text;
+  }
   return cloneValue(value);
 }
 

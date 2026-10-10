@@ -171,6 +171,32 @@ test('omitted or null prependPathDir leaves the path variable byte-identical', (
   assert.equal(claudeSpawnEnv(base, null, { prependPathDir: null }).PATH, base.PATH);
 });
 
+test('prependPathDirs keeps the first directory first ahead of the single rtk directory', () => {
+  const prependPathDirs = ['/factory/bin', '/tools/bin'];
+  const env = claudeSpawnEnv(fullBase(), null, { prependPathDir: '/rtk/bin', prependPathDirs });
+  assert.equal(env.PATH, ['/factory/bin', '/tools/bin', '/rtk/bin', '/usr/bin'].join(path.delimiter));
+  assert.deepEqual(prependPathDirs, ['/factory/bin', '/tools/bin']);
+});
+
+test('prependPathDirs deduplicates by case and slash direction while keeping first occurrences in order', () => {
+  const existingPath = ['C:/Existing/bin', '/usr/bin'].join(path.delimiter);
+  const base: SpawnEnv = { ...fullBase(), Path: existingPath };
+  delete base.PATH;
+  const env = claudeSpawnEnv(base, null, {
+    prependPathDir: '/rtk/bin',
+    prependPathDirs: ['C:\\Factory\\bin', '/tools/bin', 'c:/factory/bin', 'c:\\existing\\bin', '/RTK/bin'],
+  });
+  assert.equal(env.Path, ['C:\\Factory\\bin', '/tools/bin', '/rtk/bin', 'C:/Existing/bin', '/usr/bin'].join(path.delimiter));
+  assert.equal('PATH' in env, false);
+});
+
+test('empty prependPathDirs preserves the existing single-directory behavior', () => {
+  const base = fullBase();
+  assert.deepEqual(claudeSpawnEnv(base, null, { prependPathDirs: [] }), claudeSpawnEnv(base));
+  assert.deepEqual(claudeSpawnEnv(base, null, { prependPathDir: '/rtk/bin', prependPathDirs: [] }),
+    claudeSpawnEnv(base, null, { prependPathDir: '/rtk/bin' }));
+});
+
 test('the launching terminal identity never reaches an agent running inside the dashboard terminal', () => {
   const launchedFromGhostty = { ...fullBase(), TERM_PROGRAM: 'ghostty', TERM_PROGRAM_VERSION: '1.3.1', TERM: 'xterm-256color' };
   for (const env of [claudeSpawnEnv(launchedFromGhostty), buildAgentEnv(launchedFromGhostty, null, {})]) {

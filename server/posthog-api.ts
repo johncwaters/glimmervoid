@@ -126,7 +126,7 @@ function createPosthogApi({ host, apiKey, fetchFn }: {
   host?: string;
   apiKey?: string;
   fetchFn?: typeof fetch;
-} = {}): PosthogApi {
+} = {}): PosthogApi & { runHogQL(projectId: ProjectId, query: string): Promise<PosthogResponse> } {
   const base = String(host || '').replace(/\/+$/, '');
   const doFetch = fetchFn || ((url: string, init: RequestInit) => fetch(url, init));
 
@@ -234,6 +234,7 @@ function createPosthogApi({ host, apiKey, fetchFn }: {
     listOrganizations,
     listProjects,
     queryIssues,
+    runHogQL,
     queryTrafficBuckets,
     listSpikeEvents,
     listRecommendations,

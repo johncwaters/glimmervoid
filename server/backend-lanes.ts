@@ -6,6 +6,9 @@ import type { ControlBroadcast } from './backend-websockets.ts';
 import { comparableDirectoryPath } from '../shared/paths.ts';
 import { createBenchmarkWiring } from './benchmark-wiring.ts';
 import { STATES } from '../shared/states.ts';
+import type { SessionSpawnOverrides } from './session-factory.ts';
+import type { ProjectEntry } from './config-store.ts';
+import { FACTORY_REVIEWER_PERMISSIONS, FACTORY_REVIEWER_SPAWN_ENV, FACTORY_REVIEWER_TOOLS } from './factory-closeout.ts';
 import { createFactoryWiring } from './factory-wiring.ts';
 import { createCoderActivityWiring } from './coder-activity-wiring.ts';
 import { createBranchGcWiring } from './branch-gc-wiring.ts';
@@ -54,6 +57,8 @@ interface BackendLaneOptions {
 
 interface BackendLaneDependencies {
   config: GlimmervoidConfig;
+  makeSession: (project: ProjectEntry, config: GlimmervoidConfig, overrides: SessionSpawnOverrides) => Session;
+  wireSessionEvents: (session: Session) => void;
   configStore: ConfigStore;
   sessions: Map<string, Session>;
   agentSessions: Map<string, Session>;
@@ -77,6 +82,8 @@ interface BackendLaneDependencies {
 function createBackendLanes(dependencies: BackendLaneDependencies) {
   const {
     config,
+    makeSession,
+    wireSessionEvents,
     configStore,
     sessions,
     agentSessions,
@@ -129,7 +136,24 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     countRunningSessions: () => allLiveSessions().filter((session) => session.state === STATES.RUNNING).length,
     log: logger,
   });
-  const factory = createFactoryWiring({ config, gitWorkspace, broadcast: broadcastControl, log: logger });
+  const factory = createFactoryWiring({
+    config, gitWorkspace, broadcast: broadcastControl, log: logger,
+    readSpentTodayUsd: () => {
+      const localDay = new Date();
+      localDay.setHours(0, 0, 0, 0);
+      return usage.laneSpendSince('factory', localDay.getTime());
+    },
+    notify: (projectName, category, message) => { notificationManager.trigger(projectName, category, message); },
+    spawnReviewer: createLaneSpawn({
+      sessions: agentSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
+      replayBufferKB: config.replayBufferKB, laneName: 'factory', allowTools: FACTORY_REVIEWER_TOOLS,
+      settingsPermissions: FACTORY_REVIEWER_PERMISSIONS, spawnEnv: FACTORY_REVIEWER_SPAWN_ENV,
+    }),
+    orchestratorOptions: {
+      config, sessions: agentSessions, makeSession, wireSessionEvents, closeSessionDataClients,
+      broadcast: broadcastControl, spawnGate, recordLane,
+    },
+  });
   const posthog = createPosthogWiring({
     config,
     investigationSessions,

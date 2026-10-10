@@ -9319,7 +9319,7 @@ html[data-layout="phone"] .factory-floor { font-size: inherit; }
 .factory-section-head { position: absolute; top: -39px; left: 0; padding: 0 8px; background: var(--bg); }
 .factory-section-title { margin: 0; color: var(--text-muted); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; }
 .factory-band > .factory-section-head { top: -9px; left: 34px; }
-.factory-head { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); gap: 24px; height: 232px; }
+.factory-head { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); gap: 24px; min-height: 510px; }
 .factory-intent-title { display: block; width: 100%; height: 44px; overflow: auto; font: inherit; font-size: 16px; font-weight: 700; color: var(--text-head); margin: 0 0 6px; padding: 0; border: none; background: none; text-align: left; cursor: pointer; }
 .factory-intent-title:hover, .factory-next-title:hover { color: var(--accent); }
 .factory-criteria { list-style: none; margin: 0; padding: 0; height: 80px; overflow: auto; display: grid; gap: 2px; align-content: start; color: var(--text-dim); }
@@ -9328,11 +9328,27 @@ html[data-layout="phone"] .factory-floor { font-size: inherit; }
 .factory-orchestrator { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-content: start; align-items: center; }
 .factory-orchestrator-action { color: var(--text-head); font-weight: 700; }
 .factory-reason { margin: 6px 0 0; color: var(--text-dim); font-size: 11px; overflow-wrap: anywhere; }
-.factory-heading { max-height: 170px; overflow: auto; }
+.factory-heading { max-height: 440px; overflow: auto; }
 .factory-orchestrator[data-state="failed"] .factory-orchestrator-action { color: var(--state-failed); }
 .factory-orchestrator[data-state="failed"] .factory-section-title { color: var(--state-failed); }
-.factory-intent-queue { margin: 0; padding: 0 0 0 20px; display: grid; gap: 6px; height: 170px; overflow: auto; align-content: start; color: var(--text-muted); }
+.factory-intent-queue { margin: 0; padding: 0 0 0 20px; display: grid; gap: 6px; height: 66px; overflow: auto; align-content: start; color: var(--text-muted); }
 .factory-next-title { font: inherit; color: var(--text); text-align: left; background: none; border: none; padding: 0; cursor: pointer; }
+.factory-queue-form { display: grid; gap: 8px; margin-top: 12px; }
+.factory-form-field { display: grid; gap: 3px; min-width: 0; }
+.factory-form-input { width: 100%; box-sizing: border-box; resize: none; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 4px; color: var(--text); padding: 6px 8px; font: inherit; font-size: 12px; }
+.factory-form-input:hover { border-color: var(--border-hover); }
+.factory-form-input:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
+.factory-form-input:disabled { opacity: 0.4; }
+.factory-action { background: transparent; border: 1px solid var(--border); border-radius: 4px; color: var(--text-dim); font: inherit; padding: 6px 12px; cursor: pointer; }
+.factory-action:hover:enabled { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.factory-action:active:enabled { transform: scale(0.98); }
+.factory-action:disabled { opacity: 0.4; cursor: default; }
+.factory-controls { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.factory-request-status { height: 36px; margin: 0; overflow: auto; overflow-wrap: anywhere; font-size: 11px; color: var(--text-muted); }
+.factory-controls .factory-request-status { flex-basis: 100%; }
+.factory-request-status[data-error="true"] { color: var(--state-failed); }
+.factory-paused-marker { display: block; color: var(--state-waiting); margin-top: 6px; height: 18px; }
+.factory-paused-marker[hidden] { display: block; visibility: hidden; }
 .factory-sprite { --nyan-width: 88px; --nyan-height: 55px; position: relative; width: var(--nyan-width); height: var(--nyan-height); flex: none; }
 .factory-floor .factory-sprite .nyan-sprite { animation: none; filter: drop-shadow(1px 0 0 color-mix(in srgb, var(--text-head) 45%, transparent)) drop-shadow(-1px 0 0 color-mix(in srgb, var(--text-head) 45%, transparent)); }
 .factory-floor-band { padding-top: 18px; }
@@ -9384,7 +9400,7 @@ html[data-layout="phone"] .factory-floor { font-size: inherit; }
   .factory-floor .factory-sprite .nyan-sprite { animation: none; }
 }
 @media (max-width: 1100px) {
-  .factory-head { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); height: 442px; row-gap: 44px; }
+  .factory-head { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 780px; row-gap: 44px; }
   .factory-head .factory-intent { grid-column: 1 / -1; }
   .factory-pipe { grid-template-columns: repeat(2, minmax(0, 1fr)); height: 904px; border-radius: 40px; row-gap: 24px; padding-bottom: 32px; }
   .factory-station-workers { grid-column: 1 / -1; order: -1; }
@@ -9393,13 +9409,13 @@ html[data-layout="phone"] .factory-floor { font-size: inherit; }
 }
 @media (max-width: 620px) {
   .factory-band { padding-left: 18px; }
-  .factory-head { grid-template-columns: minmax(0, 1fr); height: 670px; row-gap: 44px; }
+  .factory-head { grid-template-columns: minmax(0, 1fr); min-height: 1000px; row-gap: 44px; }
   .factory-pipe { grid-template-columns: minmax(0, 1fr); height: 1820px; padding-inline: 16px; }
   .factory-pads { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .factory-station-workers { height: 740px; }
   .factory-ledger li { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }
-:root[data-layout="phone"] .factory-head { grid-template-columns: minmax(0, 1fr); height: 670px; row-gap: 44px; }
+:root[data-layout="phone"] .factory-head { grid-template-columns: minmax(0, 1fr); min-height: 1000px; row-gap: 44px; }
 :root[data-layout="phone"] .factory-band { padding-left: 18px; }
 :root[data-layout="phone"] .factory-pipe { grid-template-columns: minmax(0, 1fr); height: 1820px; padding-inline: 16px; }
 :root[data-layout="phone"] .factory-pads { grid-template-columns: minmax(0, 1fr); gap: 10px; }

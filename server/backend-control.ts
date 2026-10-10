@@ -5,7 +5,7 @@ import type { ControlBroadcast, ControlSocket } from './backend-websockets.ts';
 import type { ChangeMapNarrator } from './change-map-wiring.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import { registerControlHandlers } from './control-handlers.ts';
-import type { BenchmarkControl, MyPrMergeControl, TeamReviewActionControl } from './control-handlers.ts';
+import type { FactoryControl, BenchmarkControl, MyPrMergeControl, TeamReviewActionControl } from './control-handlers.ts';
 import type { ReplayLog } from './control-replay-core.ts';
 import type { PlanDecision } from '../shared/contracts/plan-review.ts';
 import type { TeamReviewStatus } from '../shared/contracts/team-review.ts';
@@ -73,7 +73,7 @@ interface BackendControlDependencies {
   teamReview: TeamReviewControl;
   myPrs: MyPrMergeControl & { getStatus: () => MyPrsStatus };
   benchmarks: BenchmarkControl;
-  factory?: { getState: () => FactoryState | null };
+  factory?: FactoryControl & { getState: () => FactoryState | null };
   usage: UsageControl;
   readTracePage: ((glimmervoidSessionId: string, request: TracePageRequest) => Promise<TracePage>) | null;
   readPlanRevision: ((
@@ -134,6 +134,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     getMyPrsStatus: () => myPrs.getStatus(),
     getBenchmarkStatus: () => benchmarks.getStatus(),
     getFactoryState: () => dependencies.factory?.getState() ?? null,
+    factory: dependencies.factory,
     benchmarks,
     teamReview,
     myPrs,

@@ -87,7 +87,8 @@ function harness({ usage = {} }: { usage?: Record<string, unknown> } = {}) {
     runPass: async () => COMPLETE_PASS,
     sessionTotals: () => new Map([[CLAUDE_ID, { tokens: 1200, costUSD: 0.42, lastTs: now }]]),
     buildReport: (): never => { throw new Error('this suite never builds a report'); },
-    stats: () => ({ dirs: [], files: 0, entries: 0, lastScanMs: 0, resolutionError: null }),
+    stats: () => ({ dirs: [], files: 0, entries: 0, lastScanMs: 0, lastOutcome: 'complete' as const, resolutionError: null }),
+    laneUsageSince: () => [],
     budgetSpend: () => ({ todayKey: '2027-01-15', monthKey: '2027-01', todayUsd: 0, monthUsd: 0 }),
   };
   const wiring = createUsageWiring({

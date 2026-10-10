@@ -48,7 +48,7 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
     } },
     { view: 'trace', label: 'Trace', panelClass: 'trace-view', gate: { subscribe: onDebugModeChanged }, mount: mountTraceView, refreshOn: ['shown'], refresh: refreshTraceView, onAvailabilityChange: (isAvailable) => setRadarTraceOpener(isAvailable ? openTraceForSession : null), onConnectionChange: applyTraceConnectionState },
     { view: 'benchmarks', label: 'Bench', panelClass: 'bench-view', gate: { fromSettings: FEATURE_SURFACE_RULES.benchmarks }, mount: mountBenchmarkView, onConnectionChange: applyBenchmarkConnectionState },
-    { view: 'factory', label: 'Factory', panelClass: 'factory-floor', gate: { fromSettings: FEATURE_SURFACE_RULES.factory }, mount: mountFactoryView, onConnectionChange: applyFactoryConnectionState },
+    { view: 'factory', label: 'Factory', panelClass: 'factory-floor', gate: { fromSettings: FEATURE_SURFACE_RULES.factory }, mount: (panel) => mountFactoryView(panel, { openTerminal: actions.openTerminal }), onConnectionChange: applyFactoryConnectionState },
     { view: 'settings', label: 'Settings', glyph: '@', panelClass: 'settings-view', hasPanelChrome: false, mount: (panel) => mountSettingsView(panel, { onRestart: actions.onRestart, onConfirmUpdateAndRestart: actions.onConfirmUpdateAndRestart }) },
   ];
 

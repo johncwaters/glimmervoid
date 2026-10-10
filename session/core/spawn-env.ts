@@ -19,6 +19,7 @@ interface AgentEnvProfile {
 
 interface AgentEnvOptions {
   prependPathDir?: string | null;
+  prependPathDirs?: readonly string[];
 }
 
 function normalizePathEntry(entry: string): string {
@@ -80,7 +81,7 @@ function buildAgentEnv(
   baseEnv: SpawnEnv,
   extraEnv: SpawnEnv | null | undefined,
   profile: AgentEnvProfile,
-  { prependPathDir: pathDir = null }: AgentEnvOptions = {},
+  { prependPathDir: pathDir = null, prependPathDirs = [] }: AgentEnvOptions = {},
 ): SpawnEnv {
   const env: SpawnEnv = { ...baseEnv };
   for (const key of profile.scrub || []) delete env[key];
@@ -90,8 +91,11 @@ function buildAgentEnv(
   Object.assign(env, extraEnv || {});
   Object.assign(env, profile.set || {});
   prependPathDir(env, pathDir);
+  const uniquePathDirs = prependPathDirs.filter((directory, index) =>
+    prependPathDirs.findIndex((candidate) => normalizePathEntry(candidate) === normalizePathEntry(directory)) === index);
+  for (const directory of uniquePathDirs.reverse()) prependPathDir(env, directory);
   return env;
 }
 
-export { buildAgentEnv };
+export { GLIMMERVOID_SECRET_KEYS, buildAgentEnv };
 export type { AgentEnvOptions, AgentEnvProfile, SpawnEnv };

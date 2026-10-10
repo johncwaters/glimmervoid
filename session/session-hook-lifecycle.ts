@@ -52,6 +52,7 @@ interface SessionHookOptions {
   planLimits: boolean;
   planReview: boolean;
   getUserHooks?: (() => UserHook[]) | null;
+  extraUserHooks?: UserHook[];
   bypassHookTrust: boolean;
   effectiveCwd: () => string;
   ingestSignal: (signal: HookSignal) => void;
@@ -260,7 +261,10 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         hookTools: options.hookTools,
         planLimits: options.planLimits,
         planReview: options.planReview,
-        userHooks: typeof options.getUserHooks === "function" ? options.getUserHooks() : [],
+        userHooks: [
+          ...(typeof options.getUserHooks === "function" ? options.getUserHooks() : []),
+          ...(options.extraUserHooks ?? []),
+        ],
       });
       settingsHandle = nextSettingsHandle;
       token = nextSettingsHandle.token;

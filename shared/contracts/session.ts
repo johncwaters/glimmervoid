@@ -80,7 +80,7 @@ export function isSamePromptQuestion(left: PendingPromptQuestion | null | undefi
 }
 
 export const AGENT_URL_ENV = 'GLIMMERVOID_AGENT_URL';
-export const AGENT_API_VERBS = ['spawn', 'attention', 'board'] as const;
+export const AGENT_API_VERBS = ['spawn', 'attention', 'board', 'dispatch'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
 
 export const AgentSpawnRequest = z.object({
@@ -115,3 +115,9 @@ export type AgentSpawnRequest = z.infer<typeof AgentSpawnRequest>;
 export type AgentAttentionRequest = z.infer<typeof AgentAttentionRequest>;
 export type AgentAttentionReply = z.infer<typeof AgentAttentionReply>;
 export type AgentBoardRow = z.infer<typeof AgentBoardRow>;
+
+export const AgentDispatchRequest = z.object({
+  workId: z.string().regex(/^wrk-[0-9a-f]{16}$/).optional(),
+  readyIntent: z.string().regex(/^wrk-[0-9a-f]{16}$/).optional(),
+}).strict().refine((request) => Boolean(request.workId) !== Boolean(request.readyIntent), 'Expected exactly one work id or ready intent');
+export type AgentDispatchRequest = z.infer<typeof AgentDispatchRequest>;

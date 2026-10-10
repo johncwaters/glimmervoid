@@ -60,6 +60,29 @@ test('a moved SHA refreshes both reports and broadcasts the new head', async () 
   await poller.stop();
 });
 
+test('an active verifier holds its checkout at the reviewed tip until it finishes', async () => {
+  let isVerifying = false;
+  let tickCount = 0;
+  const { poller, messages, commands, checkouts, controls } = await createHarness({
+    shouldHoldCheckout: () => isVerifying,
+    beforeTick: () => { tickCount += 1; },
+  });
+  await poller.tick();
+  isVerifying = true;
+  controls.sha = 'b'.repeat(40);
+  await poller.tick();
+  assert.deepEqual(checkouts, ['a'.repeat(40)]);
+  assert.equal(commands.length, 2);
+  assert.equal(messages.length, 1);
+  isVerifying = false;
+  await poller.tick();
+  assert.deepEqual(checkouts, ['a'.repeat(40), controls.sha]);
+  assert.equal(commands.length, 4);
+  assert.equal(messages[1].projects[0].headSha, controls.sha);
+  assert.equal(tickCount, 3);
+  await poller.stop();
+});
+
 for (const output of ['not json', '{}']) {
   test(`invalid coherence output ${output} becomes an error state and can recover at the same SHA`, async () => {
     const { poller, messages, controls } = await createHarness();
@@ -253,4 +276,64 @@ test('a failed work inspection printing error JSON beside a dispatch orient beco
   assert.equal(project.heading.action, 'refuse');
   assert.deepEqual(project.orders, []);
   await poller.stop();
+});
+
+test('pause changes broadcast at the same integration SHA without rereading coherence', async () => {
+  let paused = false;
+  const { poller, messages, commands } = await createHarness({ readPaused: async () => paused });
+  await poller.tick();
+  paused = true;
+  await poller.refreshNow();
+  assert.equal(messages[0].projects[0].paused, false);
+  assert.equal(messages[1].projects[0].paused, true);
+  assert.equal(commands.length, 2);
+  await poller.stop();
+});
+
+test('refresh requested during a tick waits and rereads the newly landed integration tip', async () => {
+  let markReportStarted: () => void = () => {};
+  let releaseReport: () => void = () => {};
+  const reportIsRunning = new Promise<void>((resolve) => { markReportStarted = resolve; });
+  const reportCanFinish = new Promise<void>((resolve) => { releaseReport = resolve; });
+  const orient = await readFile(new URL('./fixtures/coherence/0.37.1/orient-dispatch.json', import.meta.url), 'utf8');
+  const work = await readFile(new URL('./fixtures/coherence/0.37.1/work-dispatch.json', import.meta.url), 'utf8');
+  const { poller, messages, controls } = await createHarness({
+    runCoherence: async ({ args }) => {
+      if (args[0] !== 'orient') return work;
+      markReportStarted();
+      await reportCanFinish;
+      return orient;
+    },
+  });
+  const firstTick = poller.tick();
+  await reportIsRunning;
+  controls.sha = 'b'.repeat(40);
+  const refresh = poller.refreshNow();
+  releaseReport();
+  await Promise.all([firstTick, refresh]);
+  assert.equal(messages.length, 2);
+  assert.equal(messages[1].projects[0].headSha, controls.sha);
+  await poller.stop();
+});
+
+test('each poller tick processes cached state for live orchestrator changes and releases removed sessions', async () => {
+  let processedCount = 0;
+  const released: string[] = [];
+  const fixture = await createHarness({
+    processProjectState: async (project) => {
+      processedCount += 1;
+      return { ...project, orchestrator: { sessionId: 'factory-orch-project-1', intentId: project.orders[0].id, state: processedCount === 1 ? 'RUNNING' : 'IDLE' } };
+    },
+    releaseOrchestrator: (projectId) => { released.push(projectId); },
+  });
+  await fixture.poller.tick();
+  await fixture.poller.tick();
+  assert.equal(processedCount, 2);
+  assert.equal(fixture.commands.length, 2);
+  assert.equal(fixture.messages.length, 2);
+  assert.equal(fixture.messages[1].projects[0].orchestrator?.state, 'IDLE');
+  fixture.controls.projects = [];
+  await fixture.poller.tick();
+  assert.deepEqual(released, ['project-1']);
+  await fixture.poller.stop();
 });
