@@ -893,6 +893,7 @@ mountPhoneShell({
   visionsPanelEl: viewVisionsEl,
   hooksPanelEl: viewHooksEl,
   tracePanelEl: viewTraceEl,
+  factoryPanelEl: viewFactoryEl,
   settingsPanelEl: viewSettingsEl,
 
   onScreenShown: (screenId: string) => {

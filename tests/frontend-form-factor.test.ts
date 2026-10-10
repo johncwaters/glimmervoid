@@ -49,3 +49,15 @@ test('the phone shell carries the GitHub issues screen and adopts the one deskto
   assert.match(appSource, /issuesPanelEl: viewIssuesEl,/);
   assert.equal(appSource.match(/mountIssuesView\(/g)?.length, 1, 'the issues panel is rendered once for both layouts');
 });
+
+test('the phone shell carries the Factory screen and adopts the one desktop panel', () => {
+  const phoneShellSource = fs.readFileSync(new URL('../public/phone/phone-shell.ts', import.meta.url), 'utf8');
+  const appSource = fs.readFileSync(new URL('../public/app.ts', import.meta.url), 'utf8');
+
+  assert.match(phoneShellSource, /\{ id: 'factory',[^}]*nested: true \}/);
+  assert.match(phoneShellSource, /factory: factoryMountEl,/);
+  assert.match(phoneShellSource, /adoptElement\(factoryPanelEl, factoryMountEl\)/);
+  assert.match(phoneShellSource, /if \(factoryPanelEl\) releaseElement\(factoryPanelEl\)/);
+  assert.match(appSource, /factoryPanelEl: viewFactoryEl,/);
+  assert.equal(appSource.match(/mountFactoryView\(/g)?.length, 1, 'the factory panel is rendered once for both layouts');
+});

@@ -35,6 +35,7 @@ export interface PhoneShellHooks {
   visionsPanelEl?: HTMLElement | null;
   hooksPanelEl?: HTMLElement | null;
   tracePanelEl?: HTMLElement | null;
+  factoryPanelEl?: HTMLElement | null;
   settingsPanelEl?: HTMLElement | null;
   onScreenShown?: (screenId: string) => void;
 }
@@ -50,6 +51,7 @@ const SCREENS: readonly PhoneScreenSpec[] = Object.freeze([
   { id: 'visions', label: 'Visions', glyph: '◇', nested: true },
   { id: 'hooks', label: 'Hooks', glyph: '◈', nested: true },
   { id: 'trace', label: 'Trace', glyph: 'T', nested: true },
+  { id: 'factory', label: 'Factory', glyph: 'F', nested: true },
   { id: 'settings', label: 'Settings', glyph: '@', nested: true },
 ]);
 let shellEl: HTMLDivElement | null = null;
@@ -73,6 +75,8 @@ let visionsPanelEl: AdoptableElement | null = null;
 let hooksPanelEl: AdoptableElement | null = null;
 let traceMountEl: HTMLDivElement | null = null;
 let tracePanelEl: AdoptableElement | null = null;
+let factoryMountEl: HTMLDivElement | null = null;
+let factoryPanelEl: AdoptableElement | null = null;
 let settingsMountEl: HTMLDivElement | null = null;
 let settingsPanelEl: AdoptableElement | null = null;
 let moreButtonEl: HTMLButtonElement | null = null;
@@ -239,6 +243,7 @@ function build() {
   visionsMountEl = el('div', 'phone-visions');
   hooksMountEl = el('div', 'phone-hooks');
   traceMountEl = el('div', 'phone-trace');
+  factoryMountEl = el('div', 'phone-factory');
   settingsMountEl = el('div', 'phone-settings');
 
   const screens = el('div', 'phone-screens');
@@ -253,6 +258,7 @@ function build() {
     visions: visionsMountEl,
     hooks: hooksMountEl,
     trace: traceMountEl,
+    factory: factoryMountEl,
     settings: settingsMountEl,
   };
   for (const screen of SCREENS) {
@@ -434,6 +440,7 @@ export function mountPhoneShell(options?: PhoneShellHooks) {
   visionsPanelEl = hooks.visionsPanelEl || null;
   hooksPanelEl = hooks.hooksPanelEl || null;
   tracePanelEl = hooks.tracePanelEl || null;
+  factoryPanelEl = hooks.factoryPanelEl || null;
   settingsPanelEl = hooks.settingsPanelEl || null;
 }
 
@@ -459,6 +466,8 @@ export function activatePhoneShell({ sessionId }: { sessionId?: string } = {}) {
   if (hooksPanelEl) hooksPanelEl.hidden = false;
   adoptElement(tracePanelEl, traceMountEl);
   if (tracePanelEl) tracePanelEl.hidden = false;
+  adoptElement(factoryPanelEl, factoryMountEl);
+  if (factoryPanelEl) factoryPanelEl.hidden = false;
   adoptElement(settingsPanelEl, settingsMountEl);
   if (settingsPanelEl) settingsPanelEl.hidden = false;
   syncVisualViewport();
@@ -488,6 +497,7 @@ export function deactivatePhoneShell() {
   if (visionsPanelEl) releaseElement(visionsPanelEl);
   if (hooksPanelEl) releaseElement(hooksPanelEl);
   if (tracePanelEl) releaseElement(tracePanelEl);
+  if (factoryPanelEl) releaseElement(factoryPanelEl);
   if (settingsPanelEl) releaseElement(settingsPanelEl);
   for (const control of (hooks.headerControls || [])) releaseElement(control);
   setMoreMenuOpen(false);
