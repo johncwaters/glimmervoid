@@ -6,7 +6,7 @@ import { issuesPlaceholder, summarizeIssues } from '../public/issues-view-core.t
 const issueWithLabels = (number: number, labels: string[]): IssueRow => ({
   key: `acme/app#${number}`, repo: 'acme/app', number, title: 'Issue', labels,
   url: `https://github.com/acme/app/issues/${number}`, updatedAt: '2026-10-01T00:00:00Z', createdAt: '2026-10-01T00:00:00Z',
-  author: 'alice', assignees: [], comments: 0, sources: ['project'], teams: [], projectId: 'project',
+  author: 'alice', assignees: [], comments: 0, sessionId: null, pullRequests: [], sources: ['project'], teams: [], projectId: 'project',
 });
 
 test('summarizeIssues counts the labeled issues among the open ones', () => {

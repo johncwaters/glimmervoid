@@ -74,7 +74,7 @@ interface BackendControlDependencies {
   posthog: PosthogControl;
   teamReview: TeamReviewControl;
   myPrs: MyPrMergeControl & { getStatus: () => MyPrsStatus };
-  issues: { getStatus: () => IssuesStatus; refresh: () => Promise<ReviewsRefreshResult>; projectRepoSlugs: (projectId: string) => Promise<string[]> };
+  issues: { getStatus: () => IssuesStatus; refresh: () => Promise<ReviewsRefreshResult>; projectRepoSlugs: (projectId: string) => Promise<string[]>; getLinkedSessionId: (issueKey: string) => Promise<string | null>; linkSession: (issueKey: string, sessionId: string) => Promise<void> };
   benchmarks: BenchmarkControl;
   factory?: FactoryControl & { getState: () => FactoryState | null };
   usage: UsageControl;

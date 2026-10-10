@@ -515,6 +515,7 @@ const serverVariants = [
     sessionId: z.string().optional(),
     sessionName: z.string().optional(),
     pending: z.boolean().optional(),
+    existing: z.boolean().optional(),
   }),
   loose('posthog-issue-action-result', {
     requestId,

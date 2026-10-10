@@ -1,13 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import type { GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts';
 import type { PrGh } from '../server/pr-gh.ts';
 import type { ServerMessage } from '../shared/contracts/control-messages.ts';
 import { issuesStatus } from '../server/core/issues-core.ts';
+import { createIssuesWiring } from '../server/issues-wiring.ts';
 import type { Session } from '../session/sessions.ts';
 import { connectControl, controlDeps, createControlServer, testConfigStore } from './helpers/control-harness.ts';
 import { plainSession } from './helpers/fake-session.ts';
+
+const issuesHome = fs.mkdtempSync(path.join(os.tmpdir(), 'control-issue-links-'));
+let harnessCount = 0;
+test.after(() => fs.rmSync(issuesHome, { recursive: true, force: true }));
 
 const ISSUE_ROW = {
   number: 42,
@@ -29,6 +37,7 @@ interface GithubIssuesFrame {
   sessionId?: string;
   sessionName?: string;
   pending?: boolean;
+  existing?: boolean;
 }
 
 function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket', agent: 'codex' as const }], projectRepos = ['acme/socket'], existingSessionName = '', githubFailure = '', skipPermissionsByDefault }: { projects?: ProjectEntry[]; projectRepos?: string[]; existingSessionName?: string; githubFailure?: string; skipPermissionsByDefault?: boolean } = {}) {
@@ -39,11 +48,13 @@ function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket',
   const viewedRepos: (string | undefined)[] = [];
   const savedConfigs: string[] = [];
   let nextId = 0;
+  let isPasteFailing = false;
 
   function addSession(project: ProjectEntry): void {
     const session = plainSession(project.id, project.name);
     const pastes: string[] = [];
     session.pasteTextWhenReady = (text: string) => {
+      if (isPasteFailing) return { ok: false, reason: 'destroyed' };
       pastes.push(text);
       return { ok: true, deferred: false };
     };
@@ -53,6 +64,11 @@ function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket',
 
   for (const project of projects) addSession(project);
   if (existingSessionName) addSession({ id: 'collision', name: existingSessionName, path: '/repo/other' });
+  harnessCount += 1;
+  const issues = createIssuesWiring({
+    config, homeDir: path.join(issuesHome, String(harnessCount)), hasSession: (id) => sessions.has(id),
+    broadcast: () => {}, gitWorkspace: { originUrl: async () => null },
+  });
 
   const configStore = testConfigStore(config, { onSave: () => {} });
   const originalSave = configStore.save.bind(configStore);
@@ -77,6 +93,7 @@ function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket',
     sessions,
     configStore,
     createGithubClient,
+    issues,
     issueProjectRepos: async (projectId) => (projectId === 'p1' ? projectRepos : []),
     generateProjectId: () => {
       nextId += 1;
@@ -97,6 +114,9 @@ function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket',
     githubPaths,
     viewedRepos,
     savedConfigs,
+    sessions,
+    issues,
+    failPastes: () => { isPasteFailing = true; },
     pastes: (id: string) => pastesById.get(id) ?? [],
   };
 }
@@ -132,6 +152,43 @@ test('open-issue-session creates one entry and pastes once without persisting th
   assert.match(h.pastes('issue-session-1')[0], /UNPERSISTED_BODY_TOKEN/);
   assert.equal(h.savedConfigs.length, 1);
   assert.equal(h.savedConfigs[0].includes('UNPERSISTED_BODY_TOKEN'), false);
+});
+
+test('opening an issue twice returns its linked live session without saving, fetching or pasting again', async () => {
+  const h = harness();
+  await h.send({ type: 'open-issue-session', requestId: 'first', projectId: 'p1', repo: 'acme/socket', issueNumber: 42 });
+  await h.send({ type: 'open-issue-session', requestId: 'second', projectId: 'p1', repo: 'Acme/Socket', issueNumber: 42 });
+  assert.deepEqual(h.sent[1], {
+    type: 'open-issue-session-result', requestId: 'second', ok: true, error: null,
+    sessionId: 'issue-session-1', sessionName: 'issue-42-reconnect-drops-queued-writes', existing: true,
+  });
+  assert.equal(h.config.projects.length, 2);
+  assert.equal(h.sessions.size, 2);
+  assert.equal(h.savedConfigs.length, 1);
+  assert.equal(h.viewedRepos.length, 1);
+  assert.equal(h.pastes('issue-session-1').length, 1);
+});
+
+test('a failed issue prompt paste leaves the issue unlinked', async () => {
+  const h = harness();
+  h.failPastes();
+  await h.send({ type: 'open-issue-session', requestId: 'r1', projectId: 'p1', repo: 'acme/socket', issueNumber: 42 });
+  assert.equal(h.sent[0].ok, false);
+  assert.match(String(h.sent[0].error), /Could not write to/);
+  assert.equal(await h.issues.getLinkedSessionId('acme/socket#42'), null);
+});
+
+test('simultaneous issue opens serialize through the persisted link and create one session', async () => {
+  const h = harness();
+  await Promise.all([
+    h.send({ type: 'open-issue-session', requestId: 'first', projectId: 'p1', repo: 'acme/socket', issueNumber: 42 }),
+    h.send({ type: 'open-issue-session', requestId: 'second', projectId: 'p1', repo: 'acme/socket', issueNumber: 42 }),
+  ]);
+  assert.deepEqual(h.sent.map((frame) => [frame.ok, frame.sessionId, frame.existing === true]), [
+    [true, 'issue-session-1', false], [true, 'issue-session-1', true],
+  ]);
+  assert.equal(h.savedConfigs.length, 1);
+  assert.equal(h.pastes('issue-session-1').length, 1);
 });
 
 test('open-issue-session reads a workspace member repo issue and names that repo in the prompt', async () => {

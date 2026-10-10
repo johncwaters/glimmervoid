@@ -1,5 +1,5 @@
-import { GithubIssueResponse, IssueUpdate, IssuesSearchResponse } from '../shared/contracts/issues.ts';
-import type { IssuesFetchResult } from '../shared/contracts/issues.ts';
+import { GithubIssueResponse, GithubIssuePullRequestsRepository, IssueKey, IssueUpdate, IssuesSearchResponse } from '../shared/contracts/issues.ts';
+import type { IssuePullRequest, IssuesFetchResult } from '../shared/contracts/issues.ts';
 import { runCommand } from './git-exec.ts';
 import type { CommandResult } from './git-exec.ts';
 import { GH_SEGMENT, NODE_ID_RE, repoParts } from '../shared/contracts/github-ids.ts';
@@ -109,6 +109,7 @@ interface PrGh {
   repoSlug(): Promise<string | null>;
   searchIssues(query: string): Promise<IssuesFetchResult>;
   listRepoIssues(repo: string, since: string | null, maxIssues: number): Promise<IssuesFetchResult>;
+  issueLinkedPullRequests(keys: readonly string[]): Promise<Map<string, IssuePullRequest[]>>;
   viewIssue(issueNumber: number | string, repo?: string): Promise<GithubIssueDetail>;
   viewer(): Promise<string | null>;
   teamMembers(org: string, team: string): Promise<string[] | null>;
@@ -297,6 +298,14 @@ function reviewSnapshotQuery(prs: readonly PrReference[]): string {
   const fields = prs.map((pr, index) => {
     const [owner, name] = repoParts(pr.repo) ?? ['', ''];
     return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { headRefOid state isDraft reviewDecision commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } latestReviews(first: ${LATEST_REVIEWS_PER_PR}) { nodes { author { login } state submittedAt commit { oid } } } latestOpinionatedReviews(first: ${LATEST_REVIEWS_PER_PR}, writersOnly: true) { nodes { state } } } }`;
+  });
+  return `query { ${fields.join(' ')} }`;
+}
+
+function issueLinkedPullRequestsQuery(issues: readonly PrReference[]): string {
+  const fields = issues.map((issue, index) => {
+    const [owner, name] = repoParts(issue.repo) ?? ['', ''];
+    return `pr${index}: repository(owner: "${owner}", name: "${name}") { issue(number: ${issue.number}) { closedByPullRequestsReferences(first: 5, includeClosedPrs: true) { nodes { number url title state isDraft } } } }`;
   });
   return `query { ${fields.join(' ')} }`;
 }
@@ -706,6 +715,31 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
 
     async searchIssues(query) {
       return searchIssuePages(query, MAX_SEARCH_PAGES);
+    },
+
+    async issueLinkedPullRequests(keys) {
+      const issues = [...new Set(keys)].flatMap((key) => {
+        if (!IssueKey.safeParse(key).success) return [];
+        const [repo, issueNumber] = key.split('#');
+        const number = Number(issueNumber);
+        if (!repoParts(repo) || !isPrNumber(number)) return [];
+        return [{ repo, number }];
+      });
+      const pullRequestsByIssue = new Map<string, IssuePullRequest[]>();
+      await forEachAliasedPr(issues, issueLinkedPullRequestsQuery, (issue, repository) => {
+        const parsed = GithubIssuePullRequestsRepository.safeParse(repository);
+        const connection = parsed.success ? parsed.data.issue?.closedByPullRequestsReferences : null;
+        if (!connection) return;
+        const pullRequests = connection.nodes.flatMap((pullRequest): IssuePullRequest[] => {
+          if (!pullRequest) return [];
+          const { isDraft, state, ...fields } = pullRequest;
+          if (state === 'OPEN') return [{ ...fields, state: isDraft ? 'draft' : 'open' }];
+          if (state === 'MERGED') return [{ ...fields, state: 'merged' }];
+          return [{ ...fields, state: 'closed' }];
+        });
+        pullRequestsByIssue.set(reviewSnapshotKey(issue.repo, issue.number), pullRequests);
+      }, 50, true);
+      return pullRequestsByIssue;
     },
 
     async listRepoIssues(repo, since, maxIssues) {

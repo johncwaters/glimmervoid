@@ -5,6 +5,7 @@ import { createReviewsPollingControls } from './my-prs-panel.ts';
 import { createPrQueueFoot } from './pr-queue-columns.ts';
 import { type IssueRow, issuesPlaceholder, summarizeIssues } from './issues-view-core.ts';
 import { formatAgo } from './poll-ago.ts';
+import { selectSession } from './session-actions.ts';
 
 type IssuesRequestSender = (message: Record<string, unknown>) => boolean;
 
@@ -57,16 +58,30 @@ function buildIssueRow(issue: IssueRow): HTMLDivElement {
     const chip = el('span', 'issue-label-chip', issueLabel);
     labels.append(chip);
   }
-  if (issue.labels.length > 0) row.append(labels);
+
+  const pullRequest = issue.pullRequests[0];
+  if (pullRequest) labels.append(externalLink('issue-age', `PR #${pullRequest.number} ${pullRequest.state}`, pullRequest.url));
+  if (labels.childElementCount > 0) row.append(labels);
+
+  const sessionId = issue.sessionId;
+  const action = el('div', 'issue-action');
+  if (sessionId) {
+    const sessionButton = el('button', 'issue-open-button', 'Go to session');
+    sessionButton.type = 'button';
+    sessionButton.addEventListener('click', () => selectSession(sessionId));
+    action.append(sessionButton);
+  }
 
   const projectId = issue.projectId;
-  if (!projectId) return row;
-  const action = el('div', 'issue-action');
+  if (!projectId) {
+    if (sessionId) row.append(action);
+    return row;
+  }
   const button = el('button', 'issue-open-button', 'Open session');
   button.type = 'button';
   const key = issue.key;
   const isPending = [...openRequestById.values()].some((request) => request.issueKey === key);
-  button.disabled = isPending;
+  button.disabled = isPending || sessionId !== null;
   button.addEventListener('click', () => {
     const id = nextRequestId('open-issue-session');
     if (!requestSender?.({ type: 'open-issue-session', requestId: id, projectId, repo: issue.repo, issueNumber: issue.number })) {
@@ -162,7 +177,8 @@ export function applyOpenIssueSessionResult(message: Record<string, unknown>): v
   if (message.ok === true) {
     const name = typeof message.sessionName === 'string' ? message.sessionName : `issue #${request.issueNumber}`;
     const suffix = message.pending === true ? ' Prompt queued.' : '';
-    openOutcomeByIssue.set(key, `Session "${name}" created.${suffix}`);
+    const outcome = message.existing === true ? 'already open' : 'created';
+    openOutcomeByIssue.set(key, `Session "${name}" ${outcome}.${suffix}`);
     render();
     return;
   }

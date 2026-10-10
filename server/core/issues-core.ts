@@ -1,5 +1,5 @@
 import { IssuesStatus } from '../../shared/contracts/issues.ts';
-import type { IssueRow, IssueSource, IssuesFetchResult, IssuesState, IssuesStatus as IssuesStatusType } from '../../shared/contracts/issues.ts';
+import type { CachedIssueRow, IssueSource, IssuesFetchResult, IssuesState, IssuesStatus as IssuesStatusType } from '../../shared/contracts/issues.ts';
 import { githubRepoSlugFromRemote } from './team-review-core.ts';
 
 export const ISSUES_LANE_ID = 'issues';
@@ -19,7 +19,7 @@ export interface IssuesSourceBatch {
 }
 
 export function emptyIssuesState(): IssuesState {
-  return { issues: [], lastSyncAt: null, perRepoSync: {} };
+  return { issues: [], lastSyncAt: null, perRepoSync: {}, sessionLinks: {}, pullRequestsFetchedAt: {} };
 }
 
 export function issuesSettingsGate(projects: readonly IssuesProjectRepo[], teams: readonly string[], viewer: string | null) {
@@ -27,7 +27,7 @@ export function issuesSettingsGate(projects: readonly IssuesProjectRepo[], teams
   return { configured: false, reason: 'No GitHub sources available. Configure a GitHub project or team, or sign in with gh.' };
 }
 
-export function issuesCachedSourcesGate(cachedIssues: readonly IssueRow[], teams: readonly string[]) {
+export function issuesCachedSourcesGate(cachedIssues: readonly CachedIssueRow[], teams: readonly string[]) {
   return { configured: cachedIssues.length > 0 || teams.length > 0, reason: null };
 }
 
@@ -35,7 +35,7 @@ export function issuesRepoPaths(project: IssuesProjectConfig): string[] {
   return project.repos?.length ? [...project.repos] : [project.path];
 }
 
-export function resolveIssuesProjects(projects: readonly IssuesProjectConfig[], originUrlByRepoPath: ReadonlyMap<string, string | null>, cachedIssues: readonly IssueRow[]): IssuesProjectRepo[] {
+export function resolveIssuesProjects(projects: readonly IssuesProjectConfig[], originUrlByRepoPath: ReadonlyMap<string, string | null>, cachedIssues: readonly CachedIssueRow[]): IssuesProjectRepo[] {
   const projectsByRepo = new Map<string, IssuesProjectRepo>();
   const addRepo = (repo: string, projectId: string) => {
     const key = repo.toLowerCase();
@@ -60,15 +60,15 @@ export function resolveIssuesProjects(projects: readonly IssuesProjectConfig[], 
   return [...projectsByRepo.values()];
 }
 
-function matchesSource(issue: IssueRow, batch: IssuesSourceBatch): boolean {
+function matchesSource(issue: CachedIssueRow, batch: IssuesSourceBatch): boolean {
   if (batch.source === 'team') return issue.teams.includes(batch.team ?? '');
   if (batch.source === 'project') return issue.repo.toLowerCase() === batch.repo?.toLowerCase() && issue.sources.includes('project');
   return issue.sources.includes('me');
 }
 
-export function mergeIssues(previous: readonly IssueRow[], batches: readonly IssuesSourceBatch[], projects: readonly IssuesProjectRepo[], activeTeams?: readonly string[]): IssueRow[] {
+export function mergeIssues(previous: readonly CachedIssueRow[], batches: readonly IssuesSourceBatch[], projects: readonly IssuesProjectRepo[], activeTeams?: readonly string[]): CachedIssueRow[] {
   const projectByRepo = new Map(projects.map((project) => [project.repo.toLowerCase(), project]));
-  const issuesByKey = new Map<string, IssueRow>();
+  const issuesByKey = new Map<string, CachedIssueRow>();
   for (const issue of previous) {
     const project = projectByRepo.get(issue.repo.toLowerCase());
     const teams = issue.teams.filter((team) => activeTeams === undefined || activeTeams.includes(team));
@@ -103,7 +103,7 @@ export function mergeIssues(previous: readonly IssueRow[], batches: readonly Iss
       if (batch.team) teams.add(batch.team);
       const { state: _state, ...fields } = update;
       const newest = existing && Date.parse(existing.updatedAt) > Date.parse(update.updatedAt) ? existing : fields;
-      issuesByKey.set(key, { ...newest, sources: [...sources], teams: [...teams], projectId: project?.projectId ?? null });
+      issuesByKey.set(key, { ...newest, sources: [...sources], teams: [...teams], projectId: project?.projectId ?? null, pullRequests: existing?.pullRequests ?? [] });
     }
   }
   const repoCounts = new Map<string, number>();
@@ -119,6 +119,11 @@ export function mergeIssues(previous: readonly IssueRow[], batches: readonly Iss
     }).slice(0, MAX_TOTAL_ISSUES);
 }
 
-export function issuesStatus({ ts, configured, reason = null, issues = [], lastSyncAt = null, ...polling }: Omit<IssuesStatusType, 'type' | 'reason' | 'issues' | 'lastSyncAt'> & Partial<Pick<IssuesStatusType, 'reason' | 'issues' | 'lastSyncAt'>>): IssuesStatusType {
-  return IssuesStatus.parse({ type: 'issues-status', ts, configured, reason, issues, lastSyncAt, ...polling });
+export function pruneIssueSessionLinks(sessionLinks: Readonly<Record<string, string>>, sessionIds: ReadonlySet<string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(sessionLinks).filter(([, sessionId]) => sessionIds.has(sessionId)).map(([issueKey, sessionId]) => [issueKey.toLowerCase(), sessionId]));
+}
+
+export function issuesStatus({ ts, configured, reason = null, issues = [], lastSyncAt = null, sessionLinks = {}, ...polling }: Omit<IssuesStatusType, 'type' | 'reason' | 'issues' | 'lastSyncAt'> & { reason?: string | null; issues?: readonly CachedIssueRow[]; lastSyncAt?: number | null; sessionLinks?: Readonly<Record<string, string>> }): IssuesStatusType {
+  const rows = issues.map((issue) => ({ ...issue, sessionId: sessionLinks[issue.key.toLowerCase()] ?? null }));
+  return IssuesStatus.parse({ type: 'issues-status', ts, configured, reason, issues: rows, lastSyncAt, ...polling });
 }

@@ -1024,3 +1024,48 @@ test('repo issue caps and gh failures are incomplete rather than authoritative e
   assert.equal((await failing.listRepoIssues('Acme/app', null, 300)).ok, false);
   assert.equal((await failing.searchIssues('is:issue assignee:@me')).isComplete, false);
 });
+
+test('linked issue PRs batch fifty aliases across repositories and map every PR state', async () => {
+  const queries: string[] = [];
+  const nodes = [
+    { number: 10, url: 'https://github.com/Acme/app/pull/10', title: 'Open fix', state: 'OPEN', isDraft: false },
+    { number: 11, url: 'https://github.com/Acme/app/pull/11', title: 'Draft fix', state: 'OPEN', isDraft: true },
+    { number: 12, url: 'https://github.com/Acme/app/pull/12', title: 'Merged fix', state: 'MERGED', isDraft: true },
+    { number: 13, url: 'https://github.com/Acme/app/pull/13', title: 'Closed fix', state: 'CLOSED', isDraft: true },
+    null,
+  ];
+  const github = createPrGh('/repo', async (_command, args) => {
+    assert.deepEqual(args.slice(0, 3), ['api', 'graphql', '-f']);
+    const query = args[3];
+    queries.push(query);
+    const aliases = [...query.matchAll(/(pr\d+): repository/g)].map((matched) => matched[1]);
+    return { ok: true, err: '', out: JSON.stringify({ data: Object.fromEntries(aliases.map((alias) => [alias, { issue: { closedByPullRequestsReferences: { nodes } } }])) }) };
+  });
+  const keys = Array.from({ length: 51 }, (_, index) => `Acme/${index % 2 === 0 ? 'app' : 'docs'}#${index + 1}`);
+  const pullRequests = await github.issueLinkedPullRequests([...keys, keys[0], 'Acme/../../secrets#1', 'Acme/app#1) { viewer { login } }', 'Acme/app#0', 'Acme/app#9007199254740992']);
+  assert.deepEqual(queries.map((query) => [...query.matchAll(/pr\d+: repository/g)].length), [50, 1]);
+  assert.ok(queries.every((query) => query.includes('closedByPullRequestsReferences(first: 5, includeClosedPrs: true)')));
+  assert.ok(queries[0].includes('repository(owner: "Acme", name: "docs")'));
+  assert.equal(pullRequests.size, 51);
+  assert.deepEqual(pullRequests.get(keys[0]), nodes.filter((node) => node !== null).map(({ isDraft: _isDraft, state: _state, ...fields }, index) => ({ ...fields, state: ['open', 'draft', 'merged', 'closed'][index] })));
+});
+
+test('linked issue PR failures omit checkpoints, keep successful aliases and validate the entire cached array', async () => {
+  const emptyRepository = { issue: { closedByPullRequestsReferences: { nodes: [] } } };
+  const malformedRepository = { issue: { closedByPullRequestsReferences: { nodes: [{ number: 1, title: 'Fix', url: 'not a URL', state: 'OPEN', isDraft: false }] } } };
+  const partial = createPrGh('/repo', async () => ({ ok: false, err: 'partial GraphQL response', out: JSON.stringify({
+    data: { pr0: emptyRepository, pr1: emptyRepository, pr2: malformedRepository },
+    errors: [{ message: 'timeout', path: ['pr1', 'issue'] }],
+  }) }));
+  assert.deepEqual([...await partial.issueLinkedPullRequests(['Acme/app#1', 'Acme/app#2', 'Acme/app#3'])], [['Acme/app#1', []]]);
+  for (const response of [
+    { ok: false, out: '', err: 'offline' },
+    { ok: true, out: 'not json', err: '' },
+    { ok: true, out: JSON.stringify({ data: { pr0: emptyRepository }, errors: [{ message: 'global failure' }] }), err: '' },
+  ]) {
+    const github = createPrGh('/repo', async () => response);
+    assert.equal((await github.issueLinkedPullRequests(['Acme/app#1'])).size, 0);
+  }
+  const invalid = createPrGh('/repo', async () => { throw new Error('invalid issue keys must not invoke gh'); });
+  assert.equal((await invalid.issueLinkedPullRequests(['Acme/../../app#1', 'Acme/app#-1'])).size, 0);
+});

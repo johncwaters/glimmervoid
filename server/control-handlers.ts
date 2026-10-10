@@ -1,4 +1,5 @@
 import type { IssuesStatus } from '../shared/contracts/issues.ts';
+import { createKeyedSerialQueue } from './spawn-gate.ts';
 import { FACTORY_ERROR_MAX_CHARS } from '../shared/contracts/factory.ts';
 import type { FactoryControlRequest, FactoryControlResult, FactoryQueueIntentRequest, FactoryQueueIntentResult, FactoryState } from '../shared/contracts/factory.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
@@ -127,7 +128,7 @@ interface ControlHandlerDeps {
   getTeamReviewStatus?: (() => TeamReviewStatus | null) | null;
   getMyPrsStatus?: (() => MyPrsStatus | null) | null;
   getIssuesStatus?: (() => IssuesStatus | null) | null;
-  issues?: { refresh: () => Promise<ReviewsRefreshResult> } | null;
+  issues?: { refresh: () => Promise<ReviewsRefreshResult>; getLinkedSessionId?: (issueKey: string) => Promise<string | null>; linkSession?: (issueKey: string, sessionId: string) => Promise<void> } | null;
   teamReview?: TeamReviewActionControl | null;
   myPrs?: MyPrMergeControl | null;
   getFactoryState?: (() => FactoryState | null) | null;
@@ -912,6 +913,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     return config.projects.find((project) => project.id === projectId) ?? null;
   }
 
+  const issueOpenQueue = createKeyedSerialQueue();
+
   async function handleOpenIssueSession(msg: ClientMessageOf<'open-issue-session'>, ws: ControlSocket): Promise<void> {
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'open-issue-session-result', { ok: false, error: null, ...payload });
     const project = findConfiguredProject(msg.projectId);
@@ -923,6 +926,13 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       const projectRepos = await issueProjectRepos(msg.projectId);
       if (!projectRepos.some((projectRepo) => projectRepo.toLowerCase() === repo.toLowerCase())) {
         reply({ error: `Repository ${repo} does not belong to project "${project.name}"` });
+        return;
+      }
+      const issueKey = `${repo}#${issueNumber}`;
+      const linkedSessionId = await issues?.getLinkedSessionId?.(issueKey);
+      const linkedSession = linkedSessionId ? sessions.get(linkedSessionId) : null;
+      if (linkedSession) {
+        reply({ ok: true, sessionId: linkedSession.id, sessionName: linkedSession.name, existing: true });
         return;
       }
       const viewed = await createGithubClient(path.resolve(project.path)).viewIssue(issueNumber, repo);
@@ -942,6 +952,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       const prompt = buildGithubIssuePrompt({ issue, repoSlug: repo });
       const pasted = session.pasteTextWhenReady(prompt);
       if (!pasted.ok) { reply({ error: `Could not write to "${session.name}" (${pasted.reason})` }); return; }
+      await issues?.linkSession?.(issueKey, session.id);
       reply({ ok: true, sessionId: session.id, sessionName: session.name, pending: pasted.deferred === true });
       console.log(`[control] open-issue-session: issue=${repo}#${issueNumber} -> session=${session.name}`);
     } catch (error) {
@@ -1241,7 +1252,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'list-agents':      handleListAgents,
     'get-posthog-report': handleGetPosthogReport,
     'posthog-open-session': handlePosthogOpenSession,
-    'open-issue-session': handleOpenIssueSession,
+    'open-issue-session': (msg: ClientMessageOf<'open-issue-session'>, ws: ControlSocket) => issueOpenQueue.run(`${msg.repo.toLowerCase()}#${msg.issueNumber}`, () => handleOpenIssueSession(msg, ws)),
     'posthog-issue-action': handlePosthogIssueAction,
     'posthog-archive-investigation': handlePosthogArchiveInvestigation,
     'team-review-action': handleTeamReviewAction,

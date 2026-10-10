@@ -3,6 +3,18 @@ import { REPO_SLUG_RE } from './github-ids.ts';
 import { reviewsPollingShape } from './reviews.ts';
 
 export const IssueRepoSlug = z.string().regex(REPO_SLUG_RE);
+export const IssueKey = z.string().regex(new RegExp(`${REPO_SLUG_RE.source.slice(0, -1)}#[1-9][0-9]*$`));
+export const IssuePullRequest = z.object({
+  number: z.number().int().positive(), url: z.string().url(), title: z.string(),
+  state: z.enum(['open', 'draft', 'merged', 'closed']),
+});
+export type IssuePullRequest = z.infer<typeof IssuePullRequest>;
+export const GithubIssuePullRequestsRepository = z.object({
+  issue: z.object({ closedByPullRequestsReferences: z.object({ nodes: z.array(z.object({
+    number: IssuePullRequest.shape.number, url: IssuePullRequest.shape.url, title: IssuePullRequest.shape.title,
+    state: z.enum(['OPEN', 'MERGED', 'CLOSED']), isDraft: z.boolean(),
+  }).nullable()).max(5) }) }).nullable(),
+});
 const issueFields = {
   key: z.string(), repo: IssueRepoSlug, number: z.number().int().positive(), title: z.string(), url: z.string().url(),
   labels: z.array(z.string()), assignees: z.array(z.string()), author: z.string(), comments: z.number().int().nonnegative(),
@@ -10,11 +22,15 @@ const issueFields = {
 };
 export const IssueSource = z.enum(['project', 'me', 'team']);
 export type IssueSource = z.infer<typeof IssueSource>;
-export const IssueRow = z.object({
+const cachedIssueFields = {
   ...issueFields,
   sources: z.array(IssueSource).nonempty().refine((sources) => new Set(sources).size === sources.length),
   teams: z.array(IssueRepoSlug), projectId: z.string().nullable(),
-}).refine((issue) => issue.key === `${issue.repo}#${issue.number}`);
+  pullRequests: z.array(IssuePullRequest).max(5).default([]),
+};
+export const CachedIssueRow = z.object(cachedIssueFields).refine((issue) => issue.key === `${issue.repo}#${issue.number}`);
+export type CachedIssueRow = z.infer<typeof CachedIssueRow>;
+export const IssueRow = z.object({ ...cachedIssueFields, sessionId: z.string().nullable().default(null) }).refine((issue) => issue.key === `${issue.repo}#${issue.number}`);
 export type IssueRow = z.infer<typeof IssueRow>;
 export const IssueUpdate = z.object({ ...issueFields, state: z.enum(['open', 'closed']) });
 export type IssueUpdate = z.infer<typeof IssueUpdate>;
@@ -33,8 +49,10 @@ export const IssuesSearchResponse = z.object({
 export const IssuesFetchResult = z.object({ ok: z.boolean(), items: z.array(IssueUpdate), isComplete: z.boolean(), error: z.string() });
 export type IssuesFetchResult = z.infer<typeof IssuesFetchResult>;
 export const IssuesState = z.object({
-  issues: z.array(IssueRow), lastSyncAt: z.number().finite().nonnegative().nullable(),
+  issues: z.array(CachedIssueRow), lastSyncAt: z.number().finite().nonnegative().nullable(),
   perRepoSync: z.record(IssueRepoSlug, z.object({ lastSyncAt: z.number().finite().nonnegative().nullable(), ticks: z.number().int().nonnegative(), needsFullReconcile: z.boolean() })),
+  sessionLinks: z.record(IssueKey, z.string()).default({}),
+  pullRequestsFetchedAt: z.record(IssueKey, z.iso.datetime()).default({}),
 });
 export type IssuesState = z.infer<typeof IssuesState>;
 export const IssuesStatus = z.object({

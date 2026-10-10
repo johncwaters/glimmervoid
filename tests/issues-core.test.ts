@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { IssueRow, IssueUpdate, IssuesFetchResult } from '../shared/contracts/issues.ts';
-import { issuesSettingsGate, mergeIssues, resolveIssuesProjects } from '../server/core/issues-core.ts';
+import { IssuesState } from '../shared/contracts/issues.ts';
+import type { CachedIssueRow, IssueUpdate, IssuesFetchResult } from '../shared/contracts/issues.ts';
+import { issuesSettingsGate, issuesStatus, mergeIssues, pruneIssueSessionLinks, resolveIssuesProjects } from '../server/core/issues-core.ts';
 
 const update = (number = 1, repo = 'acme/app'): IssueUpdate => ({
   key: `${repo}#${number}`, repo, number, title: 'Fix reconnect', url: `https://github.com/${repo}/issues/${number}`,
@@ -11,10 +12,22 @@ const update = (number = 1, repo = 'acme/app'): IssueUpdate => ({
 const fetched = (items: IssueUpdate[], isComplete = true): IssuesFetchResult => ({ ok: true, items, isComplete, error: '' });
 const projects = [{ repo: 'acme/app', projectId: 'project-1' }];
 
-function row(sources: IssueRow['sources'], teams: string[] = []): IssueRow {
+function row(sources: CachedIssueRow['sources'], teams: string[] = []): CachedIssueRow {
   const { state: _state, ...fields } = update();
-  return { ...fields, sources, teams, projectId: sources.includes('project') ? 'project-1' : null };
+  return { ...fields, sources, teams, pullRequests: [], projectId: sources.includes('project') ? 'project-1' : null };
 }
+
+test('issues status uses live session links while old caches default links and omit row session IDs', () => {
+  const cachedIssue = row(['project']);
+  const parsed = IssuesState.parse({ issues: [{ ...cachedIssue, sessionId: 'stale-row-id' }], lastSyncAt: null, perRepoSync: {} });
+  const sessionLinks = pruneIssueSessionLinks({ 'Acme/App#1': 'live-session', 'acme/app#2': 'deleted-session' }, new Set(['live-session']));
+  assert.deepEqual(sessionLinks, { 'acme/app#1': 'live-session' });
+  assert.deepEqual(parsed.sessionLinks, {});
+  assert.deepEqual(parsed.pullRequestsFetchedAt, {});
+  assert.equal('sessionId' in parsed.issues[0], false);
+  assert.equal(issuesStatus({ ts: 1, configured: true, issues: parsed.issues, sessionLinks }).issues[0].sessionId, 'live-session');
+  assert.equal(issuesStatus({ ts: 2, configured: true, issues: parsed.issues, sessionLinks: pruneIssueSessionLinks(sessionLinks, new Set()) }).issues[0].sessionId, null);
+});
 
 test('mergeIssues deduplicates every source and team and attaches configured projects to searched issues', () => {
   const issues = mergeIssues([], [
@@ -89,8 +102,8 @@ test('resolveIssuesProjects maps workspace members once, drops non-GitHub remote
     ['/repo/offline', null],
     ['/repo/app-clone', 'https://github.com/acme/app.git'],
   ]);
-  const cachedOffline: IssueRow = { ...row(['project']), key: 'acme/offline#1', repo: 'acme/offline', url: 'https://github.com/acme/offline/issues/1', projectId: 'project-3' };
-  const cachedMirror: IssueRow = { ...cachedOffline, key: 'acme/mirror#1', repo: 'acme/mirror', projectId: 'project-2' };
+  const cachedOffline: CachedIssueRow = { ...row(['project']), key: 'acme/offline#1', repo: 'acme/offline', url: 'https://github.com/acme/offline/issues/1', projectId: 'project-3' };
+  const cachedMirror: CachedIssueRow = { ...cachedOffline, key: 'acme/mirror#1', repo: 'acme/mirror', projectId: 'project-2' };
   const resolved = resolveIssuesProjects([
     { id: 'project-1', path: '/repo/workspace', repos: ['/repo/app', '/repo/docs'] },
     { id: 'project-2', path: '/repo/mirror' },
