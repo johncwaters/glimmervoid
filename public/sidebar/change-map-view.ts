@@ -58,7 +58,6 @@ function renderRepo(repo: ChangeMapRepoView, onOpenFile: (path: string) => void)
 export function renderChangeMapView(view: ChangeMapView, onOpenFile: (path: string) => void): HTMLElement {
   const root = el('div', 'review-map');
   if (view.error) root.append(el('p', 'review-map-error', view.error));
-  if (view.emptyState) root.append(el('div', 'review-nochanges', view.emptyState));
   if (view.narrative.status) root.append(el('p', 'review-map-narrative-status', view.narrative.status));
   if (view.narrative.claims.length > 0) {
     const narrative = el('section', 'review-map-narrative');

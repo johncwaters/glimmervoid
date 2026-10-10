@@ -35,6 +35,7 @@ import {
   hasReviewChanges,
   mergeActionTitle,
   mergeDisabledReason,
+  netEmptyChangesText,
   parkedStatusText,
   reviewHeadline,
   resyncOutcomeText,
@@ -502,19 +503,10 @@ function requestBranchSyncAction(id: string) {
   requestBranchSync(id);
 }
 
-function resyncDisabledReason(sync: BranchSync | null | undefined, resyncing: boolean) {
-  if (resyncing) return null;
-  if (!sync) return null;
-  if (sync.state === 'no-upstream') return 'No upstream configured.';
-  if (sync.state === 'unknown') return 'Could not determine sync status.';
-  return null;
-}
-
-function resyncStatusLine(id: string, sync: BranchSync | null | undefined, resyncing: boolean) {
+function resyncStatusLine(id: string, resyncing: boolean) {
   if (resyncing) return { text: 'Resyncing...', loading: true, error: false };
   if (resyncResult && resyncResult.forId === id) return { text: resyncResult.text, loading: false, error: resyncResult.isError };
-  const reason = resyncDisabledReason(sync, false);
-  return reason ? { text: reason, loading: false, error: false } : null;
+  return null;
 }
 
 function sessionName(ui: SessionUi | null | undefined, id: string) {
@@ -839,7 +831,7 @@ function render() {
   controlsEl.append(statusLine);
 
   const metadata = el('div', 'review-status-meta');
-  if (shouldShowReviewHeaderCounts({ fetched, hasChanges, view: selectedView })) metadata.append(
+  if (shouldShowReviewHeaderCounts({ fetched, changedFileCount: totals.files, view: selectedView })) metadata.append(
     el('span', 'review-status-files', `${totals.files} file${totals.files === 1 ? '' : 's'}`),
     el('span', 'review-status-added', `+${totals.added}`),
     el('span', 'review-status-removed', `-${totals.removed}`),
@@ -866,7 +858,7 @@ function render() {
   });
   if (actions) controlsEl.append(actions);
 
-  const resyncStatus = isWorkspace ? null : resyncStatusLine(id, sync, resyncing);
+  const resyncStatus = isWorkspace ? null : resyncStatusLine(id, resyncing);
   const mergeReasonText = !isWorkspace && primaryAction === 'merge' && !mergeAction.isEnabled
     ? mergeDisabledReason({ status, hasCommits, live, state })
     : null;
@@ -894,11 +886,22 @@ function render() {
 
   if (selectedView === 'map') {
     const changeMap = mapById.get(id);
-    if (changeMap) bodyEl.append(renderChangeMapView(buildChangeMapView(changeMap), openFileFromMap));
-    if (!changeMap) bodyEl.append(el('div', 'review-nochanges review-loading', 'Loading map...'));
+    if (!changeMap) {
+      bodyEl.append(el('div', 'review-nochanges review-loading', 'Loading map...'));
+      return;
+    }
+    const changeMapView = buildChangeMapView(changeMap);
+    const mapNetEmptyText = netEmptyChangesText({
+      fetched, changedFileCount: totals.files, hasCommits,
+      hasOtherBodyContent: changeMapView.repos.length > 0 || !!changeMapView.error,
+    });
+    if (mapNetEmptyText) bodyEl.append(el('div', 'review-nochanges', mapNetEmptyText));
+    bodyEl.append(renderChangeMapView(changeMapView, openFileFromMap));
     return;
   }
 
+  const diffNetEmptyText = netEmptyChangesText({ fetched, changedFileCount: totals.files, hasCommits, hasOtherBodyContent: false });
+  if (diffNetEmptyText) bodyEl.append(el('div', 'review-nochanges', diffNetEmptyText));
   if (committedFiles.length > 0) bodyEl.append(renderSection('committed', 'Committed', committedMergeTargetText(headline, effectiveBase), committedFiles));
   if (uncommittedFiles.length > 0) bodyEl.append(renderSection('uncommitted', 'Uncommitted', null, uncommittedFiles));
 }

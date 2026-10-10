@@ -118,6 +118,16 @@ export function hasReviewChanges({ fetched, changedFileCount, hasCommits }: {
   return !fetched || changedFileCount > 0 || hasCommits;
 }
 
+export function netEmptyChangesText({ fetched, changedFileCount, hasCommits, hasOtherBodyContent }: {
+  fetched: boolean;
+  changedFileCount: number;
+  hasCommits: boolean;
+  hasOtherBodyContent: boolean;
+}): string | null {
+  if (!fetched || changedFileCount > 0 || !hasCommits || hasOtherBodyContent) return null;
+  return 'No net changes: the commits on this branch cancel out.';
+}
+
 function upstreamLabel(upstream: string | null): string {
   return upstream || 'its upstream';
 }
@@ -155,12 +165,12 @@ export function shouldShowBranchSyncLabel(sync: ReviewBranchSync | null | undefi
   return sync?.state !== 'in-sync' || sync.fetched === false;
 }
 
-export function shouldShowReviewHeaderCounts({ fetched, hasChanges, view }: {
+export function shouldShowReviewHeaderCounts({ fetched, changedFileCount, view }: {
   fetched: boolean;
-  hasChanges: boolean;
+  changedFileCount: number;
   view: string;
 }): boolean {
-  if (!fetched || !hasChanges) return false;
+  if (!fetched || changedFileCount === 0) return false;
   return view !== 'diff';
 }
 
