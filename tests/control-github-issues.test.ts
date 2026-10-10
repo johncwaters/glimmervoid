@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import type { GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts';
 import type { PrGh } from '../server/pr-gh.ts';
+import type { ServerMessage } from '../shared/contracts/control-messages.ts';
+import { issuesStatus } from '../server/core/issues-core.ts';
 import type { Session } from '../session/sessions.ts';
 import { connectControl, controlDeps, createControlServer, testConfigStore } from './helpers/control-harness.ts';
 import { plainSession } from './helpers/fake-session.ts';
@@ -29,11 +31,12 @@ interface GithubIssuesFrame {
   pending?: boolean;
 }
 
-function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket', agent: 'codex' as const }], existingSessionName = '', githubFailure = '', skipPermissionsByDefault }: { projects?: ProjectEntry[]; existingSessionName?: string; githubFailure?: string; skipPermissionsByDefault?: boolean } = {}) {
+function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket', agent: 'codex' as const }], projectRepos = ['acme/socket'], existingSessionName = '', githubFailure = '', skipPermissionsByDefault }: { projects?: ProjectEntry[]; projectRepos?: string[]; existingSessionName?: string; githubFailure?: string; skipPermissionsByDefault?: boolean } = {}) {
   const config: GlimmervoidConfig = { projects, skipPermissionsByDefault };
   const sessions = new Map<string, Session>();
   const pastesById = new Map<string, string[]>();
   const githubPaths: string[] = [];
+  const viewedRepos: (string | undefined)[] = [];
   const savedConfigs: string[] = [];
   let nextId = 0;
 
@@ -59,22 +62,22 @@ function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket',
     return saved;
   };
 
-  const createGithubClient = (cwd: string): Pick<PrGh, 'listIssues' | 'viewIssue' | 'repoSlug'> => {
+  const createGithubClient = (cwd: string): Pick<PrGh, 'viewIssue'> => {
     githubPaths.push(cwd);
     return {
-      listIssues: async () => (githubFailure
-        ? { ok: false, issues: [], error: githubFailure }
-        : { ok: true, issues: [ISSUE_ROW], error: '' }),
-      viewIssue: async () => (githubFailure
-        ? { ok: false, issue: null, error: githubFailure }
-        : { ok: true, issue: ISSUE_DETAIL, error: '' }),
-      repoSlug: async () => 'acme/socket',
+      viewIssue: async (_issueNumber, repo) => {
+        viewedRepos.push(repo);
+        return githubFailure
+          ? { ok: false, issue: null, error: githubFailure }
+          : { ok: true, issue: ISSUE_DETAIL, error: '' };
+      },
     };
   };
   const server = createControlServer(controlDeps(config, {
     sessions,
     configStore,
     createGithubClient,
+    issueProjectRepos: async (projectId) => (projectId === 'p1' ? projectRepos : []),
     generateProjectId: () => {
       nextId += 1;
       return `issue-session-${nextId}`;
@@ -92,26 +95,16 @@ function harness({ projects = [{ id: 'p1', name: 'socket', path: '/repo/socket',
     ...connection,
     config,
     githubPaths,
+    viewedRepos,
     savedConfigs,
     pastes: (id: string) => pastesById.get(id) ?? [],
   };
 }
 
-test('request-issues lists one configured project and preserves server order', async () => {
-  const h = harness();
-
-  await h.send({ type: 'request-issues', requestId: 'r1', projectId: 'p1' });
-
-  assert.equal(h.sent[0].type, 'issues-report');
-  assert.equal(h.sent[0].projectId, 'p1');
-  assert.deepEqual(h.sent[0].issues, [ISSUE_ROW]);
-  assert.deepEqual(h.githubPaths, ['/repo/socket']);
-});
-
 test('open-issue-session refuses an unknown project without calling GitHub', async () => {
   const h = harness();
 
-  await h.send({ type: 'open-issue-session', requestId: 'r1', projectId: 'missing', issueNumber: 42 });
+  await h.send({ type: 'open-issue-session', requestId: 'r1', projectId: 'missing', repo: 'acme/socket', issueNumber: 42 });
 
   assert.equal(h.sent[0].type, 'open-issue-session-result');
   assert.equal(h.sent[0].ok, false);
@@ -122,7 +115,7 @@ test('open-issue-session refuses an unknown project without calling GitHub', asy
 test('open-issue-session creates one entry and pastes once without persisting the prompt', async () => {
   const h = harness();
 
-  await h.send({ type: 'open-issue-session', requestId: 'r1', projectId: 'p1', issueNumber: 42 });
+  await h.send({ type: 'open-issue-session', requestId: 'r1', projectId: 'p1', repo: 'acme/socket', issueNumber: 42 });
 
   assert.equal(h.sent[0].ok, true);
   assert.equal(h.sent[0].sessionId, 'issue-session-1');
@@ -141,10 +134,31 @@ test('open-issue-session creates one entry and pastes once without persisting th
   assert.equal(h.savedConfigs[0].includes('UNPERSISTED_BODY_TOKEN'), false);
 });
 
+test('open-issue-session reads a workspace member repo issue and names that repo in the prompt', async () => {
+  const h = harness({ projectRepos: ['acme/socket', 'acme/docs'] });
+
+  await h.send({ type: 'open-issue-session', requestId: 'r1', projectId: 'p1', repo: 'acme/docs', issueNumber: 42 });
+
+  assert.equal(h.sent[0].ok, true);
+  assert.deepEqual(h.viewedRepos, ['acme/docs']);
+  assert.match(h.pastes('issue-session-1')[0], /repository: acme\/docs/);
+});
+
+test('open-issue-session refuses a repo outside the project without calling GitHub', async () => {
+  const h = harness({ projectRepos: ['acme/socket', 'acme/docs'] });
+
+  await h.send({ type: 'open-issue-session', requestId: 'r1', projectId: 'p1', repo: 'evil/socket', issueNumber: 42 });
+
+  assert.equal(h.sent[0].ok, false);
+  assert.equal(h.sent[0].error, 'Repository evil/socket does not belong to project "socket"');
+  assert.deepEqual(h.githubPaths, []);
+  assert.equal(h.config.projects.length, 1);
+});
+
 test('open-issue-session keeps the source project permission prompts on the derived entry', async () => {
   const h = harness({ projects: [{ id: 'p1', name: 'socket', path: '/repo/socket', dangerouslySkipPermissions: false }] });
 
-  await h.send({ type: 'open-issue-session', requestId: 'r1', projectId: 'p1', issueNumber: 42 });
+  await h.send({ type: 'open-issue-session', requestId: 'r1', projectId: 'p1', repo: 'acme/socket', issueNumber: 42 });
 
   assert.equal(h.sent[0].ok, true);
   assert.equal(h.config.projects[1].dangerouslySkipPermissions, false);
@@ -153,26 +167,16 @@ test('open-issue-session keeps the source project permission prompts on the deri
 test('open-issue-session leaves an inheriting source project inheriting the machine default', async () => {
   const h = harness({ projects: [{ id: 'p1', name: 'socket', path: '/repo/socket' }], skipPermissionsByDefault: true });
 
-  await h.send({ type: 'open-issue-session', requestId: 'r1', projectId: 'p1', issueNumber: 42 });
+  await h.send({ type: 'open-issue-session', requestId: 'r1', projectId: 'p1', repo: 'acme/socket', issueNumber: 42 });
 
   assert.equal(h.sent[0].ok, true);
   assert.equal('dangerouslySkipPermissions' in h.config.projects[1], false);
 });
 
-test('request-issues reports the gh failure instead of an empty issue list', async () => {
-  const h = harness({ githubFailure: 'gh: not authenticated' });
-
-  await h.send({ type: 'request-issues', requestId: 'r1', projectId: 'p1' });
-
-  assert.equal(h.sent[0].type, 'issues-report');
-  assert.deepEqual(h.sent[0].issues, []);
-  assert.equal(h.sent[0].error, 'Could not list GitHub issues: gh: not authenticated');
-});
-
 test('open-issue-session reports the gh failure instead of a missing issue', async () => {
   const h = harness({ githubFailure: 'gh: not authenticated' });
 
-  await h.send({ type: 'open-issue-session', requestId: 'r1', projectId: 'p1', issueNumber: 42 });
+  await h.send({ type: 'open-issue-session', requestId: 'r1', projectId: 'p1', repo: 'acme/socket', issueNumber: 42 });
 
   assert.equal(h.sent[0].ok, false);
   assert.equal(h.sent[0].error, 'Could not read GitHub issue #42: gh: not authenticated');
@@ -182,11 +186,21 @@ test('open-issue-session reports the gh failure instead of a missing issue', asy
 test('open-issue-session refuses a derived-name collision without saving or pasting', async () => {
   const h = harness({ existingSessionName: 'issue-42-reconnect-drops-queued-writes' });
 
-  await h.send({ type: 'open-issue-session', requestId: 'r1', projectId: 'p1', issueNumber: 42 });
+  await h.send({ type: 'open-issue-session', requestId: 'r1', projectId: 'p1', repo: 'acme/socket', issueNumber: 42 });
 
   assert.equal(h.sent[0].ok, false);
   assert.match(String(h.sent[0].error), /already exists/);
   assert.equal(h.config.projects.length, 1);
   assert.deepEqual(h.savedConfigs, []);
   assert.equal(h.pastes('collision').length, 0);
+});
+
+
+test('new control sockets receive the issues snapshot without fetching or creating sessions', () => {
+  const status = issuesStatus({ ts: 1, configured: false, reason: 'Sign in with gh.' });
+  const sessions = new Map<string, Session>();
+  const server = createControlServer(controlDeps({ projects: [] }, { getIssuesStatus: () => status, sessions }));
+  const connection = connectControl<ServerMessage>(server);
+  assert.deepEqual(connection.sent.filter((frame) => frame.type === 'issues-status'), [status]);
+  assert.equal(sessions.size, 0);
 });

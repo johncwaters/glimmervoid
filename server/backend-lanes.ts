@@ -1,3 +1,4 @@
+import { createIssuesWiring } from './issues-wiring.ts';
 import path from 'node:path';
 import type { WebSocket } from 'ws';
 import type { HookRouter } from '../detection/hook-source.ts';
@@ -203,6 +204,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       }),
     }),
   });
+  const issues = createIssuesWiring({ config, gitWorkspace, broadcast: broadcastControl, log: logger, clock: githubClock });
   const workflowsWorkRoot = path.join(glimmervoidHome, 'workflows-work');
   const workflows = createWorkflowsWiring({
     config, notificationManager, log: logger, clock: githubClock,
@@ -437,6 +439,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     posthog,
     'team-review': teamReview,
     'my-prs': myPrs,
+    issues,
     workflows,
     usage,
     'task-title': taskTitleRefiner,
@@ -465,6 +468,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => posthog.startPoller(),
       () => teamReview.startPoller(),
       () => myPrs.startPoller(),
+      () => issues.startPoller(),
       () => workflows.startPoller(),
       () => void benchmarks.sweepLeftovers().then(() => { void benchmarks.refreshStatus(); }),
       () => traceWiring?.start().catch((error: unknown) => logger.warn(`[trace] start failed: ${errorMessage(error)}`)),
@@ -482,6 +486,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => posthog.restartIfConfigChanged(),
       () => teamReview.restartIfConfigChanged(),
       () => myPrs.restartIfConfigChanged(),
+      () => issues.restartIfConfigChanged(),
       () => workflows.restartIfConfigChanged(),
       () => usage.restartIfConfigChanged(),
       () => void benchmarks.refreshStatus(),
@@ -515,6 +520,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     spawnGate,
     teamReview,
     myPrs,
+    issues,
     workflows,
     startRuntimeLanes,
     tapIngestForSession,

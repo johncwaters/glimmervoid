@@ -7,6 +7,7 @@ import { connectControl, controlDeps, createControlServer } from './helpers/cont
 function refreshHarness(outcome: ReviewsRefreshResult = { ok: true }) {
   const refreshedLanes: string[] = [];
   const server = createControlServer(controlDeps({ projects: [] }, {
+    issues: { refresh: async () => { refreshedLanes.push('issues'); return outcome; } },
     myPrs: {
       mergePr: async () => ({ ok: false, error: 'Unused merge' }),
       refresh: async () => { refreshedLanes.push('my-prs'); return outcome; },
@@ -25,10 +26,12 @@ test('Reviews refresh routes to exactly the requested lane and correlates the re
   const harness = refreshHarness();
   await harness.connection.send({ type: 'reviews-refresh', lane: 'my-prs', requestId: 'refresh-1' });
   await harness.connection.send({ type: 'reviews-refresh', lane: 'team-review', requestId: 'refresh-2' });
-  assert.deepEqual(harness.refreshedLanes, ['my-prs', 'team-review']);
+  await harness.connection.send({ type: 'reviews-refresh', lane: 'issues', requestId: 'refresh-3' });
+  assert.deepEqual(harness.refreshedLanes, ['my-prs', 'team-review', 'issues']);
   assert.deepEqual(harness.results(), [
     { type: 'reviews-refresh-result', requestId: 'refresh-1', ok: true },
     { type: 'reviews-refresh-result', requestId: 'refresh-2', ok: true },
+    { type: 'reviews-refresh-result', requestId: 'refresh-3', ok: true },
   ]);
 });
 

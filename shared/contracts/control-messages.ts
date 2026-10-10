@@ -1,3 +1,4 @@
+import { IssueRepoSlug, IssuesStatus } from './issues.ts';
 import { ReviewsRefreshRequest, ReviewsRefreshResult } from './reviews.ts';
 import { z } from 'zod';
 import { FactoryControlRequest, FactoryControlResult, FactoryQueueIntentRequest, FactoryQueueIntentResult, FactoryState } from './factory.ts';
@@ -66,23 +67,6 @@ export const SessionCardFields = z.object({
   ephemeral: z.boolean().optional(),
 });
 export type SessionCardFields = z.infer<typeof SessionCardFields>;
-
-const githubIssueRow = z.object({
-  number: z.number().int().positive(),
-  title: z.string(),
-  labels: z.array(z.object({ name: z.string(), color: z.string() }).passthrough()),
-  url: z.string(),
-  updatedAt: z.string(),
-}).passthrough();
-export type GithubIssueRow = z.infer<typeof githubIssueRow>;
-
-export const IssuesReportPush = z.object({
-  ts: timestamp,
-  projectId: z.string(),
-  issues: z.array(githubIssueRow),
-  error: optionalError,
-});
-export type IssuesReportPush = z.infer<typeof IssuesReportPush>;
 
 export const DIFF_ANNOTATION_PATH_MAX_CHARS = 400;
 export const DIFF_ANNOTATION_NOTE_MAX_CHARS = 1000;
@@ -178,8 +162,7 @@ const clientVariants = [
   loose('list-agents', { requestId }),
   loose('get-posthog-report', { issueId: z.union([z.string(), z.number()]), requestId }),
   loose('posthog-open-session', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), requestId }),
-  loose('request-issues', { requestId, projectId: z.string() }),
-  loose('open-issue-session', { requestId, projectId: z.string(), issueNumber: z.number().int().positive() }),
+  loose('open-issue-session', { requestId, projectId: z.string(), repo: IssueRepoSlug, issueNumber: z.number().int().positive() }),
   loose('posthog-issue-action', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), action: z.string(), requestId }),
   loose('team-review-action', { ...TeamReviewActionRequest.shape, requestId }),
   loose('factory-queue-intent', { ...FactoryQueueIntentRequest.shape, requestId }),
@@ -281,7 +264,6 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'posthog-investigation-finished',
   'posthog-report',
   'posthog-open-session-result',
-  'issues-report',
   'open-issue-session-result',
   'posthog-issue-action-result',
   'team-review-action-result',
@@ -297,6 +279,7 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'benchmark-status',
   'factory-state',
   'my-prs-status',
+  'issues-status',
   'branch-gc-status',
   'usage-sessions',
   'usage-report',
@@ -525,7 +508,6 @@ const serverVariants = [
     sessionName: z.string().optional(),
     pending: z.boolean().optional(),
   }),
-  loose('issues-report', { requestId, ...IssuesReportPush.shape }),
   loose('open-issue-session-result', {
     requestId,
     ok: z.boolean(),
@@ -553,6 +535,7 @@ const serverVariants = [
   BenchmarkStatus,
   loose('factory-state', FactoryState.shape),
   MyPrsStatus,
+  IssuesStatus,
 
   loose('branch-gc-status'),
   loose('usage-sessions', {

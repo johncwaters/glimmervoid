@@ -29,7 +29,7 @@ import { applyTeamReviewActionResult, applyTeamReviewStatus } from './team-revie
 import { applyMyPrMergeResult, applyMyPrsStatus } from './my-prs-panel.ts';
 import { applyFactoryControlResult, applyFactoryQueueIntentResult, applyFactoryState, setFactoryRequestSender } from './factory/factory-view.ts';
 import { applyBenchmarkActionResult, applyBenchmarkStatus, setBenchmarkRequestSender } from './benchmark-panel.ts';
-import { applyIssuesProjects, applyIssuesReport, applyOpenIssueSessionResult, setIssuesRequestSender } from './issues-panel.ts';
+import { applyIssuesStatus, applyOpenIssueSessionResult, setIssuesRequestSender } from './issues-panel.ts';
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID, updateBannerText } from './radar-core.ts';
 import { applyInvestigationActivity, applyInvestigationFinished, applyPosthogStatus } from './radar-panel.ts';
@@ -219,7 +219,6 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
     agent: session.agent,
     permissionMode: session.dangerouslySkipPermissions ? 'Skip permissions' : 'Default',
   })));
-  applyIssuesProjects(rows.filter((session) => !session.ephemeral).map((session) => ({ id: session.id, name: session.name })));
   for (const s of rows) {
     if (!s.ephemeral) noteKnownProjectPath(s.path);
     const exists = hasSession(s.id);
@@ -409,7 +408,7 @@ const messageHandlers = {
   'benchmark-action-result': (msg) => applyBenchmarkActionResult(msg),
   'my-pr-merge-result': (msg) => applyMyPrMergeResult(msg),
   'team-review-action-result': (msg) => applyTeamReviewActionResult(msg),
-  'issues-report':      (msg) => applyIssuesReport(msg),
+  'issues-status':      (msg) => applyIssuesStatus(msg),
   'open-issue-session-result': (msg) => applyOpenIssueSessionResult(msg),
   'usage-sessions':     (msg) => { applyUsageSessionChips(msg.sessions); applyUsageSessions(msg); },
   'usage-report':       (msg) => { applyUsageReport(msg); refreshSettingsStatus(); },

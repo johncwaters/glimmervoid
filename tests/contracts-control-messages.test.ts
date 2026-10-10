@@ -186,7 +186,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'posthog-investigation-finished', projectId: 7, issueId: 'issue-1', verdict: 'NEEDS_HUMAN', summaryLine: 'the retry path double-fires', startedAt: NOW, trail: [{ at: NOW, tool: 'Read', detail: 'server/a.ts' }] },
   { type: 'posthog-report', requestId: 'posthog-1', ok: true, found: true, issueId: 'issue-1', format: 'markdown', content: 'report' },
   { type: 'posthog-open-session-result', requestId: 'posthog-2', ok: true, error: null, sessionId: 'session-1' },
-  { type: 'issues-report', requestId: 'issues-1', ts: NOW, projectId: 'p1', issues: [{ number: 42, title: 'Reconnect drops queued writes', labels: [{ name: 'bug', color: 'ff0000' }], url: 'https://github.test/acme/repo/issues/42', updatedAt: '2026-09-13T10:00:00Z' }], error: null },
+  { type: 'issues-status', ts: NOW, configured: true, reason: null, lastSyncAt: NOW, issues: [{ key: 'acme/repo#42', repo: 'acme/repo', number: 42, title: 'Reconnect drops queued writes', labels: ['bug'], assignees: ['alice'], author: 'bob', comments: 1, url: 'https://github.com/acme/repo/issues/42', createdAt: '2026-09-13T10:00:00Z', updatedAt: '2026-09-13T10:00:00Z', sources: ['project', 'me'], teams: [], projectId: 'p1' }] },
   { type: 'open-issue-session-result', requestId: 'issues-2', ok: true, error: null, sessionId: 'session-2', sessionName: 'issue-42-fix-reconnect', pending: false },
   { type: 'posthog-issue-action-result', requestId: 'posthog-3', ok: true, error: null, status: 'resolved' },
   { type: 'team-review-action-result', requestId: 'review-1', key: 'PostHog/wizard#1350', ok: true },
@@ -316,13 +316,12 @@ test('session-prompt parses a pending prompt detail with and without an AskUserQ
 });
 
 test('GitHub issue client requests validate their bounded fields', () => {
-  assert.deepEqual(ClientMessage.parse({ type: 'request-issues', requestId: 'r1', projectId: 'p1' }), {
-    type: 'request-issues', requestId: 'r1', projectId: 'p1',
+  assert.deepEqual(ClientMessage.parse({ type: 'open-issue-session', requestId: 'r2', projectId: 'p1', repo: 'acme/socket', issueNumber: 42 }), {
+    type: 'open-issue-session', requestId: 'r2', projectId: 'p1', repo: 'acme/socket', issueNumber: 42,
   });
-  assert.deepEqual(ClientMessage.parse({ type: 'open-issue-session', requestId: 'r2', projectId: 'p1', issueNumber: 42 }), {
-    type: 'open-issue-session', requestId: 'r2', projectId: 'p1', issueNumber: 42,
-  });
-  assert.equal(ClientMessage.safeParse({ type: 'open-issue-session', requestId: 'r2', projectId: 'p1', issueNumber: 0 }).success, false);
+  assert.equal(ClientMessage.safeParse({ type: 'open-issue-session', requestId: 'r2', projectId: 'p1', repo: 'acme/socket', issueNumber: 0 }).success, false);
+  assert.equal(ClientMessage.safeParse({ type: 'open-issue-session', requestId: 'r2', projectId: 'p1', issueNumber: 42 }).success, false);
+  assert.equal(ClientMessage.safeParse({ type: 'open-issue-session', requestId: 'r2', projectId: 'p1', repo: 'acme/../secrets', issueNumber: 42 }).success, false);
 });
 
 test('team review actions carry editable text and diff comments', () => {

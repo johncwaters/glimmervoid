@@ -1,13 +1,13 @@
-import type { GithubIssueRow } from '#shared/contracts/control-messages.ts';
+import type { IssueRow, IssuesStatus } from '#shared/contracts/issues.ts';
 
-export type IssueRow = GithubIssueRow;
-export type IssueLabel = GithubIssueRow['labels'][number];
+export type { IssueRow };
 
 export function summarizeIssues(issues: IssueRow[]) {
   return { open: issues.length, labeled: issues.filter((issue) => issue.labels.length > 0).length };
 }
 
-export function issuesPlaceholder({ hasProjects }: { hasProjects: boolean }): string {
-  if (!hasProjects) return 'No projects configured. Add a project in Settings.';
-  return 'Press Refresh to load open issues.';
+export function issuesPlaceholder(status: Pick<IssuesStatus, 'configured' | 'reason'> | null): string {
+  if (!status) return 'Loading issues.';
+  if (!status.configured) return status.reason ?? 'Loading issues.';
+  return 'No open issues.';
 }

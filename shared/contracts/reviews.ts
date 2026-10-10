@@ -11,7 +11,7 @@ export const reviewsPollingShape = {
   refreshNotice: z.string().nullable().optional(),
 };
 
-export const ReviewsRefreshRequest = z.object({ lane: z.enum(['my-prs', 'team-review']) });
+export const ReviewsRefreshRequest = z.object({ lane: z.enum(['my-prs', 'team-review', 'issues']) });
 export type ReviewsRefreshRequest = z.infer<typeof ReviewsRefreshRequest>;
 export const ReviewsRefreshResult = z.object({ ok: z.boolean(), error: z.string().optional() });
 export type ReviewsRefreshResult = z.infer<typeof ReviewsRefreshResult>;

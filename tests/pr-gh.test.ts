@@ -270,68 +270,6 @@ test('dismissReview reports the gh failure', async () => {
   assert.deepEqual(await gh.dismissReview({ repo: 'Acme/repo', number: 7, reviewId: 99, message: 'Head moved' }), { ok: false, err: 'HTTP 403' });
 });
 
-test('listIssues asks gh for no body and drops any body gh still returns', async () => {
-  const calls: { cmd: string; args: string[]; cwd: string }[] = [];
-  const listed = [{
-    number: 17,
-    title: 'Fix reconnect',
-    body: 'The socket stalls.',
-    labels: [{ name: 'bug', color: 'ff0000' }],
-    url: 'https://github.test/acme/repo/issues/17',
-    updatedAt: '2026-09-13T10:00:00Z',
-  }];
-  const gh = createPrGh('/repo', async (cmd, args, cwd) => {
-    calls.push({ cmd, args, cwd });
-    return { ok: true, out: JSON.stringify(listed), err: '' };
-  });
-
-  assert.deepEqual(await gh.listIssues(), {
-    ok: true,
-    error: '',
-    issues: [{
-      number: 17,
-      title: 'Fix reconnect',
-      labels: [{ name: 'bug', color: 'ff0000' }],
-      url: 'https://github.test/acme/repo/issues/17',
-      updatedAt: '2026-09-13T10:00:00Z',
-    }],
-  });
-  assert.deepEqual(calls, [{
-    cmd: 'gh',
-    args: ['issue', 'list', '--state', 'open', '-L', '50', '--search', 'sort:updated-desc', '--json', 'number,title,labels,url,updatedAt'],
-    cwd: '/repo',
-  }]);
-});
-
-test('listIssues normalizes label shapes and drops rows without a usable number', async () => {
-  const gh = createPrGh('/repo', async () => ({
-    ok: true,
-    err: '',
-    out: JSON.stringify([
-      { number: 0, title: 'dropped' },
-      { number: 8, title: ' Padded ', labels: ['help wanted', { name: 'bug', color: '#nope' }, { name: '', color: 'ff0000' }] },
-    ]),
-  }));
-
-  assert.deepEqual(await gh.listIssues(), {
-    ok: true,
-    error: '',
-    issues: [{ number: 8, title: 'Padded', labels: [{ name: 'bug', color: '' }], url: '', updatedAt: '' }],
-  });
-});
-
-test('listIssues reports the gh failure instead of an empty list', async () => {
-  const gh = createPrGh('/repo', async () => ({ ok: false, out: 'not json', err: 'gh: not authenticated\n' }));
-
-  assert.deepEqual(await gh.listIssues(), { ok: false, issues: [], error: 'gh: not authenticated' });
-});
-
-test('listIssues names the failing command when gh reports no stderr', async () => {
-  const gh = createPrGh('/repo', async () => ({ ok: false, out: '', err: '' }));
-
-  assert.deepEqual(await gh.listIssues(), { ok: false, issues: [], error: 'gh issue list failed' });
-});
-
 test('viewIssue reads one issue with its body in a single gh call', async () => {
   const calls: { cmd: string; args: string[]; cwd: string }[] = [];
   const gh = createPrGh('/repo', async (cmd, args, cwd) => {
@@ -362,9 +300,15 @@ test('viewIssue reads one issue with its body in a single gh call', async () => 
       updatedAt: '2026-09-13T10:00:00Z',
     },
   });
+  await gh.viewIssue(17, 'acme/socket');
+  assert.equal((await gh.viewIssue(17, 'acme/../secrets')).ok, false);
   assert.deepEqual(calls, [{
     cmd: 'gh',
     args: ['issue', 'view', '17', '--json', 'number,title,body,labels,url,updatedAt'],
+    cwd: '/repo',
+  }, {
+    cmd: 'gh',
+    args: ['issue', 'view', '17', '--repo', 'acme/socket', '--json', 'number,title,body,labels,url,updatedAt'],
     cwd: '/repo',
   }]);
 });
@@ -1005,4 +949,78 @@ test('a GraphQL error on one PR alias drops only that PR and keeps the rest of t
     const threads = await gh.teamReviewThreads([{ repo: 'Acme/app', number: 1 }, { repo: 'Acme/app', number: 2 }, { repo: 'Acme/app', number: 3 }]);
     assert.deepEqual([...threads.keys()], ['Acme/app#1'], `exit ok: ${isExitOk}`);
   }
+});
+
+function issueResponse(number: number, repo = 'Acme/app') {
+  return {
+    number, title: 'Fix reconnect', html_url: `https://github.com/${repo}/issues/${number}`, repository_url: `https://api.github.com/repos/${repo}`,
+    state: 'open', labels: [{ name: 'bug' }], assignees: [{ login: 'alice' }], user: { login: 'github-actions[bot]' }, comments: 2,
+    created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-10T00:00:00Z', body: 'Never cached',
+  };
+}
+
+test('searchIssues paginates typed issues and flags incomplete or malformed pages', async () => {
+  const calls: string[][] = [];
+  const gh = createPrGh('/repo', async (_command, args) => {
+    calls.push(args);
+    const page = calls.length;
+    return { ok: true, err: '', out: JSON.stringify({
+      total_count: 101, incomplete_results: page === 2,
+      items: page === 1 ? Array.from({ length: 100 }, (_, index) => issueResponse(index + 1)) : [issueResponse(101)],
+    }) };
+  });
+  const searched = await gh.searchIssues('is:issue is:open team:Acme/core archived:false');
+  assert.equal(searched.items.length, 101);
+  assert.equal(searched.items[0].repo, 'Acme/app');
+  assert.deepEqual(searched.items[0].labels, ['bug']);
+  assert.equal(searched.items[0].author, 'github-actions[bot]');
+  assert.equal('body' in searched.items[0], false);
+  assert.equal(searched.isComplete, false);
+  assert.deepEqual(calls.map((args) => args.at(-1)), ['page=1', 'page=2']);
+  const malformed = createPrGh('/repo', async () => ({ ok: true, err: '', out: JSON.stringify({ total_count: 2, incomplete_results: false, items: [issueResponse(1), { number: 2 }] }) }));
+  assert.equal((await malformed.searchIssues('is:issue assignee:@me')).isComplete, false);
+});
+
+test('listRepoIssues searches open issues by update time and includes closed ones after a checkpoint', async () => {
+  const queries: string[] = [];
+  const gh = createPrGh('/repo', async (_command, args) => {
+    queries.push(args.find((arg) => arg.startsWith('q=')) ?? '');
+    assert.ok(args.includes('sort=updated'));
+    return { ok: true, err: '', out: JSON.stringify({ total_count: 2, incomplete_results: false, items: [issueResponse(1), { ...issueResponse(3), state: 'closed' }] }) };
+  });
+  const full = await gh.listRepoIssues('Acme/app', null, 300);
+  assert.deepEqual(full.items.map((issue) => issue.number), [1, 3]);
+  assert.equal(full.isComplete, true);
+  await gh.listRepoIssues('Acme/app', '2026-10-10T00:00:00Z', 300);
+  assert.deepEqual(queries, ['q=repo:Acme/app is:issue is:open', 'q=repo:Acme/app is:issue updated:>=2026-10-10T00:00:00Z']);
+});
+
+test('listRepoIssues keeps the newest issues of a large repository as complete but an overflowing checkpoint as incomplete', async () => {
+  const pagesRequested: string[] = [];
+  const gh = createPrGh('/repo', async (_command, args) => {
+    const pageArgument = args.find((arg) => arg.startsWith('page=')) ?? '';
+    pagesRequested.push(pageArgument);
+    const page = Number(pageArgument.slice(5));
+    return { ok: true, err: '', out: JSON.stringify({ total_count: 3734, incomplete_results: false, items: Array.from({ length: 100 }, (_, index) => issueResponse((page - 1) * 100 + index + 1)) }) };
+  });
+  const capped = await gh.listRepoIssues('Acme/app', null, 300);
+  assert.deepEqual(pagesRequested, ['page=1', 'page=2', 'page=3']);
+  assert.equal(capped.items.length, 300);
+  assert.equal(capped.isComplete, true);
+  const overflowingCheckpoint = await gh.listRepoIssues('Acme/app', '2026-10-10T00:00:00Z', 300);
+  assert.equal(overflowingCheckpoint.isComplete, false);
+});
+
+test('issue fetching fails closed for invalid repositories, teams and dates without invoking gh', async () => {
+  const gh = createPrGh('/repo', async () => { throw new Error('Invalid input must not invoke gh'); });
+  assert.equal((await gh.listRepoIssues('Acme/../../secrets', null, 300)).ok, false);
+  assert.equal((await gh.listRepoIssues('Acme/app', 'not a date', 300)).ok, false);
+  assert.equal((await gh.searchIssues('is:issue team:Acme/../../secrets')).ok, false);
+  assert.equal((await gh.searchIssues('is:issue repo:Acme/app/extra')).ok, false);
+});
+
+test('repo issue caps and gh failures are incomplete rather than authoritative empty lists', async () => {
+  const failing = createPrGh('/repo', async () => ({ ok: false, out: '', err: 'offline' }));
+  assert.equal((await failing.listRepoIssues('Acme/app', null, 300)).ok, false);
+  assert.equal((await failing.searchIssues('is:issue assignee:@me')).isComplete, false);
 });

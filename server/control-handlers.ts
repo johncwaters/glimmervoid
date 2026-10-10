@@ -1,3 +1,4 @@
+import type { IssuesStatus } from '../shared/contracts/issues.ts';
 import { FACTORY_ERROR_MAX_CHARS } from '../shared/contracts/factory.ts';
 import type { FactoryControlRequest, FactoryControlResult, FactoryQueueIntentRequest, FactoryQueueIntentResult, FactoryState } from '../shared/contracts/factory.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
@@ -125,13 +126,16 @@ interface ControlHandlerDeps {
   posthogArchiveInvestigation?: ((args: { id: string }) => Promise<Record<string, unknown>>) | null;
   getTeamReviewStatus?: (() => TeamReviewStatus | null) | null;
   getMyPrsStatus?: (() => MyPrsStatus | null) | null;
+  getIssuesStatus?: (() => IssuesStatus | null) | null;
+  issues?: { refresh: () => Promise<ReviewsRefreshResult> } | null;
   teamReview?: TeamReviewActionControl | null;
   myPrs?: MyPrMergeControl | null;
   getFactoryState?: (() => FactoryState | null) | null;
   getBenchmarkStatus?: (() => BenchmarkStatus | null) | null;
   benchmarks?: BenchmarkControl | null;
   factory?: FactoryControl | null;
-  createGithubClient?: (cwd: string) => Pick<PrGh, 'listIssues' | 'viewIssue' | 'repoSlug'>;
+  createGithubClient?: (cwd: string) => Pick<PrGh, 'viewIssue'>;
+  issueProjectRepos?: ((projectId: string) => Promise<string[]>) | null;
   serverBuild?: () => string | null;
   getUsageSessions?: (() => unknown) | null;
   getUsageReport?: (() => unknown) | null;
@@ -293,7 +297,6 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'list-agents': () => ({ type: 'agents-listed', requestId, agents: [], error: message }),
     'get-posthog-report': () => ({ type: 'posthog-report', requestId, ok: false, found: false, issueId: null, error: message }),
     'posthog-open-session': () => ({ type: 'posthog-open-session-result', requestId, ok: false, error: message }),
-    'request-issues': () => ({ type: 'issues-report', requestId, ts: Date.now(), projectId: typeof msg?.projectId === 'string' ? msg.projectId : '', issues: [], error: message }),
     'open-issue-session': () => ({ type: 'open-issue-session-result', requestId, ok: false, error: message }),
     'posthog-issue-action': () => ({ type: 'posthog-issue-action-result', requestId, ok: false, error: message }),
     'posthog-archive-investigation': () => ({ type: 'posthog-archive-investigation-result', requestId, ok: false, error: message }),
@@ -366,6 +369,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     posthogArchiveInvestigation = null,
     getTeamReviewStatus = null,
     getMyPrsStatus = null,
+    getIssuesStatus = null,
+    issues = null,
     teamReview = null,
     myPrs = null,
     getBenchmarkStatus = null,
@@ -374,6 +379,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     factory = null,
 
     createGithubClient = createPrGh,
+    issueProjectRepos = null,
 
     serverBuild = () => null,
 
@@ -906,30 +912,20 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     return config.projects.find((project) => project.id === projectId) ?? null;
   }
 
-  async function handleRequestIssues(msg: ClientMessageOf<'request-issues'>, ws: ControlSocket): Promise<void> {
-    const projectId = typeof msg.projectId === 'string' ? msg.projectId : '';
-    const reply = (issues: unknown[], error: string | null = null) => replyTo(ws, msg, 'issues-report', {
-      ts: Date.now(), projectId, issues, error,
-    });
-    const project = findConfiguredProject(projectId);
-    if (!project) { reply([], 'Project not found'); return; }
-    try {
-      const listed = await createGithubClient(path.resolve(project.path)).listIssues();
-      if (!listed.ok) { reply([], `Could not list GitHub issues: ${listed.error}`); return; }
-      reply(listed.issues);
-    } catch (error) {
-      reply([], `Could not list GitHub issues: ${errorMessage(error)}`);
-    }
-  }
-
   async function handleOpenIssueSession(msg: ClientMessageOf<'open-issue-session'>, ws: ControlSocket): Promise<void> {
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'open-issue-session-result', { ok: false, error: null, ...payload });
     const project = findConfiguredProject(msg.projectId);
     if (!project) { reply({ error: 'Project not found' }); return; }
     const issueNumber = msg.issueNumber ?? 0;
+    const repo = msg.repo;
     try {
-      const github = createGithubClient(path.resolve(project.path));
-      const [viewed, repoSlug] = await Promise.all([github.viewIssue(issueNumber), github.repoSlug()]);
+      if (!issueProjectRepos) { reply({ error: 'Issues polling is not running.' }); return; }
+      const projectRepos = await issueProjectRepos(msg.projectId);
+      if (!projectRepos.some((projectRepo) => projectRepo.toLowerCase() === repo.toLowerCase())) {
+        reply({ error: `Repository ${repo} does not belong to project "${project.name}"` });
+        return;
+      }
+      const viewed = await createGithubClient(path.resolve(project.path)).viewIssue(issueNumber, repo);
       if (!viewed.ok) { reply({ error: `Could not read GitHub issue #${issueNumber}: ${viewed.error}` }); return; }
       const issue = viewed.issue;
       if (!issue) { reply({ error: `Open issue #${issueNumber} was not found` }); return; }
@@ -943,11 +939,11 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       if (!created.ok) { reply({ error: created.error }); return; }
       const session = sessions.get(created.project.id);
       if (!session) { reply({ error: `Session "${sessionName}" is not loaded` }); return; }
-      const prompt = buildGithubIssuePrompt({ issue, repoSlug: repoSlug || project.name });
+      const prompt = buildGithubIssuePrompt({ issue, repoSlug: repo });
       const pasted = session.pasteTextWhenReady(prompt);
       if (!pasted.ok) { reply({ error: `Could not write to "${session.name}" (${pasted.reason})` }); return; }
       reply({ ok: true, sessionId: session.id, sessionName: session.name, pending: pasted.deferred === true });
-      console.log(`[control] open-issue-session: issue=${issueNumber} -> session=${session.name}`);
+      console.log(`[control] open-issue-session: issue=${repo}#${issueNumber} -> session=${session.name}`);
     } catch (error) {
       reply({ error: `Could not open GitHub issue session: ${errorMessage(error)}` });
     }
@@ -1004,7 +1000,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   }
 
   async function handleReviewsRefresh(msg: ClientMessageOf<'reviews-refresh'>, ws: ControlSocket): Promise<void> {
-    const lane = msg.lane === 'my-prs' ? myPrs : teamReview;
+    const lane = { 'my-prs': myPrs, 'team-review': teamReview, issues }[msg.lane];
     if (!lane?.refresh) {
       replyTo(ws, msg, 'reviews-refresh-result', { ok: false, error: 'Reviews polling is not running.' });
       return;
@@ -1245,7 +1241,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'list-agents':      handleListAgents,
     'get-posthog-report': handleGetPosthogReport,
     'posthog-open-session': handlePosthogOpenSession,
-    'request-issues': handleRequestIssues,
     'open-issue-session': handleOpenIssueSession,
     'posthog-issue-action': handlePosthogIssueAction,
     'posthog-archive-investigation': handlePosthogArchiveInvestigation,
@@ -1413,6 +1408,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (teamReviewStatus) ws.send(JSON.stringify(teamReviewStatus));
     const myPrsStatus = typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null;
     if (myPrsStatus) ws.send(JSON.stringify(myPrsStatus));
+    const issuesStatus = getIssuesStatus?.();
+    if (issuesStatus) ws.send(JSON.stringify(issuesStatus));
     const benchmarkStatus = typeof getBenchmarkStatus === 'function' ? getBenchmarkStatus() : null;
     if (benchmarkStatus) ws.send(JSON.stringify(benchmarkStatus));
     const factoryState = getFactoryState?.() ?? null;

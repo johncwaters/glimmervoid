@@ -1,3 +1,5 @@
+import type { IssuesStatus } from '../shared/contracts/issues.ts';
+import type { ReviewsRefreshResult } from '../shared/contracts/reviews.ts';
 import type { FactoryState } from '../shared/contracts/factory.ts';
 import type { WebSocket, WebSocketServer } from 'ws';
 import type { Session } from '../session/sessions.ts';
@@ -72,6 +74,7 @@ interface BackendControlDependencies {
   posthog: PosthogControl;
   teamReview: TeamReviewControl;
   myPrs: MyPrMergeControl & { getStatus: () => MyPrsStatus };
+  issues: { getStatus: () => IssuesStatus; refresh: () => Promise<ReviewsRefreshResult>; projectRepoSlugs: (projectId: string) => Promise<string[]> };
   benchmarks: BenchmarkControl;
   factory?: FactoryControl & { getState: () => FactoryState | null };
   usage: UsageControl;
@@ -99,6 +102,7 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     posthog,
     teamReview,
     myPrs,
+    issues,
     benchmarks,
     usage,
     logger,
@@ -132,12 +136,15 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
     posthogArchiveInvestigation: (args) => posthog.archiveInvestigation(args),
     getTeamReviewStatus: () => teamReview.getStatus(),
     getMyPrsStatus: () => myPrs.getStatus(),
+    getIssuesStatus: () => issues.getStatus(),
+    issueProjectRepos: (projectId) => issues.projectRepoSlugs(projectId),
     getBenchmarkStatus: () => benchmarks.getStatus(),
     getFactoryState: () => dependencies.factory?.getState() ?? null,
     factory: dependencies.factory,
     benchmarks,
     teamReview,
     myPrs,
+    issues,
     serverBuild: dependencies.serverBuild,
     telemetry: dependencies.telemetry,
     getUsageSessions: () => usage.getSessionsMessage(),

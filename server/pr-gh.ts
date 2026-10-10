@@ -1,3 +1,5 @@
+import { GithubIssueResponse, IssueUpdate, IssuesSearchResponse } from '../shared/contracts/issues.ts';
+import type { IssuesFetchResult } from '../shared/contracts/issues.ts';
 import { runCommand } from './git-exec.ts';
 import type { CommandResult } from './git-exec.ts';
 import { GH_SEGMENT, NODE_ID_RE, repoParts } from '../shared/contracts/github-ids.ts';
@@ -52,7 +54,6 @@ interface GithubIssue {
   updatedAt: string;
 }
 
-type GithubIssueWithoutBody = Omit<GithubIssue, 'body'>;
 
 interface PrSearchResult {
   items: SearchedPrType[];
@@ -74,12 +75,6 @@ interface PrReference {
 }
 
 type PrHeadReference = PrReference & { headSha: string };
-
-interface GithubIssueList {
-  ok: boolean;
-  issues: GithubIssueWithoutBody[];
-  error: string;
-}
 
 interface GithubIssueDetail {
   ok: boolean;
@@ -112,8 +107,9 @@ interface PrGh {
   benchmarkReviewData(repo: string, numbers: readonly number[]): Promise<Map<number, MinedPrReviewDataType>>;
   compareCommits(repo: string, base: string, head: string): Promise<CommitComparisonType | null>;
   repoSlug(): Promise<string | null>;
-  listIssues(): Promise<GithubIssueList>;
-  viewIssue(issueNumber: number | string): Promise<GithubIssueDetail>;
+  searchIssues(query: string): Promise<IssuesFetchResult>;
+  listRepoIssues(repo: string, since: string | null, maxIssues: number): Promise<IssuesFetchResult>;
+  viewIssue(issueNumber: number | string, repo?: string): Promise<GithubIssueDetail>;
   viewer(): Promise<string | null>;
   teamMembers(org: string, team: string): Promise<string[] | null>;
   teamProfile(org: string, team: string): Promise<NonNullable<TeamReviewStatus['team']> | null>;
@@ -333,6 +329,25 @@ function uniqueValidPrs(prs: readonly PrReference[]): PrReference[] {
   return [...byKey.values()];
 }
 
+function isPullRequest(candidate: unknown): boolean {
+  const parsed = z.object({ pull_request: z.unknown().optional() }).safeParse(candidate);
+  return parsed.success && parsed.data.pull_request !== undefined;
+}
+
+function parseGithubIssue(candidate: unknown, repository?: string): IssueUpdate | null {
+  const parsed = GithubIssueResponse.safeParse(candidate);
+  if (!parsed.success) return null;
+  const issue = parsed.data;
+  const repo = repository ?? (issue.repository_url ? new URL(issue.repository_url).pathname.replace(/^\/repos\//, '') : '');
+  if (!repoParts(repo)) return null;
+  return IssueUpdate.parse({
+    key: `${repo}#${issue.number}`, repo, number: issue.number, title: issue.title, url: issue.html_url,
+    labels: issue.labels.map((label) => typeof label === 'string' ? label : label.name),
+    assignees: issue.assignees.map((assignee) => assignee.login), author: issue.user?.login ?? '', comments: issue.comments,
+    createdAt: issue.created_at, updatedAt: issue.updated_at, state: issue.state,
+  });
+}
+
 function normalizeIssueLabel(candidate: unknown): GithubIssueLabel | null {
   if (!candidate || typeof candidate !== 'object') return null;
   const label = candidate as GithubIssueLabelRow;
@@ -355,16 +370,6 @@ function normalizeIssue(row: GithubIssueRow): GithubIssue | null {
     labels,
     url: typeof row.url === 'string' ? row.url : '',
     updatedAt: typeof row.updatedAt === 'string' ? row.updatedAt : '',
-  };
-}
-
-function issueWithoutBody(issue: GithubIssue): GithubIssueWithoutBody {
-  return {
-    number: issue.number,
-    title: issue.title,
-    labels: issue.labels,
-    url: issue.url,
-    updatedAt: issue.updatedAt,
   };
 }
 
@@ -452,6 +457,32 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       if (pageItems.length < SEARCH_PAGE_SIZE) return { items, complete: true };
     }
     return { items, complete: false };
+  }
+
+  async function searchIssuePages(query: string, maxPages: number, isCapAuthoritative = false): Promise<IssuesFetchResult> {
+    const references = query.matchAll(/(?:^|\s)(?:repo|team):([^\s]+)/g);
+    for (const reference of references) {
+      if (!repoParts(reference[1])) return { ok: false, items: [], isComplete: false, error: 'invalid repository or team' };
+    }
+    const items: IssueUpdate[] = [];
+    let isComplete = true;
+    for (let page = 1; page <= maxPages; page += 1) {
+      const response = await runGh(['api', '-X', 'GET', 'search/issues', '-f', `q=${query}`, '-f', 'sort=updated', '-f', 'order=desc', '-f', `per_page=${SEARCH_PAGE_SIZE}`, '-f', `page=${page}`]);
+      if (!response.ok) return { ok: false, items, isComplete: false, error: response.err.trim() || 'gh issue search failed' };
+      const parsed = IssuesSearchResponse.safeParse(parseJsonOrNull(response.out));
+      if (!parsed.success) return { ok: false, items, isComplete: false, error: 'invalid gh issue search response' };
+      isComplete = isComplete && !parsed.data.incomplete_results;
+      for (const candidate of parsed.data.items) {
+        if (isPullRequest(candidate)) continue;
+        const issue = parseGithubIssue(candidate);
+        if (!issue) { isComplete = false; continue; }
+        items.push(issue);
+      }
+      if (page * SEARCH_PAGE_SIZE >= parsed.data.total_count) return { ok: true, items, isComplete, error: isComplete ? '' : 'GitHub issue search returned incomplete results.' };
+      if (parsed.data.items.length < SEARCH_PAGE_SIZE) break;
+    }
+    if (isCapAuthoritative) return { ok: true, items, isComplete, error: isComplete ? '' : 'GitHub issue search returned incomplete results.' };
+    return { ok: true, items, isComplete: false, error: 'GitHub issue search reached its pagination limit.' };
   }
 
   return {
@@ -673,18 +704,21 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       return r.ok ? r.out : null;
     },
 
-    async listIssues() {
-      const r = await commandRunner('gh', ['issue', 'list', '--state', 'open', '-L', '50', '--search', 'sort:updated-desc', '--json', 'number,title,labels,url,updatedAt'], cwd);
-      if (!r.ok) return { ok: false, issues: [], error: r.err.trim() || 'gh issue list failed' };
-      const rows = (parseJsonOrNull(r.out) ?? []) as GithubIssueRow[];
-      const issues = Array.isArray(rows)
-        ? rows.map(normalizeIssue).filter((issue): issue is GithubIssue => issue !== null).map(issueWithoutBody)
-        : [];
-      return { ok: true, issues, error: '' };
+    async searchIssues(query) {
+      return searchIssuePages(query, MAX_SEARCH_PAGES);
     },
 
-    async viewIssue(issueNumber) {
-      const r = await commandRunner('gh', ['issue', 'view', String(issueNumber), '--json', 'number,title,body,labels,url,updatedAt'], cwd);
+    async listRepoIssues(repo, since, maxIssues) {
+      if (!Number.isInteger(maxIssues) || maxIssues <= 0) return { ok: false, items: [], isComplete: false, error: 'invalid issue limit' };
+      if (!repoParts(repo) || (since !== null && !z.iso.datetime().safeParse(since).success)) return { ok: false, items: [], isComplete: false, error: 'invalid repository or date' };
+      const query = since === null ? `repo:${repo} is:issue is:open` : `repo:${repo} is:issue updated:>=${since}`;
+      return searchIssuePages(query, Math.ceil(maxIssues / SEARCH_PAGE_SIZE), since === null);
+    },
+
+    async viewIssue(issueNumber, repo) {
+      if (repo !== undefined && !repoParts(repo)) return { ok: false, issue: null, error: 'invalid repository' };
+      const repoArguments = repo === undefined ? [] : ['--repo', repo];
+      const r = await commandRunner('gh', ['issue', 'view', String(issueNumber), ...repoArguments, '--json', 'number,title,body,labels,url,updatedAt'], cwd);
       if (!r.ok) return { ok: false, issue: null, error: r.err.trim() || 'gh issue view failed' };
       const issue = normalizeIssue((parseJsonOrNull(r.out) ?? {}) as GithubIssueRow);
       if (!issue) return { ok: false, issue: null, error: 'gh issue view returned no issue' };
@@ -802,4 +836,4 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
 }
 
 export { createPrGh, normalizeIssue };
-export type { CommandResult, RepoPrSearch, GithubIssue, GithubIssueDetail, GithubIssueLabel, GithubIssueList, GithubIssueWithoutBody, PostedReview, PrGh, PrHeadReference, PrReference, PrReviewSnapshot, PrSearchResult };
+export type { CommandResult, RepoPrSearch, GithubIssue, GithubIssueDetail, GithubIssueLabel, PostedReview, PrGh, PrHeadReference, PrReference, PrReviewSnapshot, PrSearchResult };
