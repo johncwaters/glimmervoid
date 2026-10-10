@@ -150,8 +150,8 @@ test('destroy() clears every tracked entry back to IDLE', () => {
 test('multiple registered channels are all called, in registration order', () => {
   const manager = new NotificationManager({ escalationIntervalMs: 60000, debounceMs: 0 });
   const order: string[] = [];
-  manager.registerChannel('first', () => order.push('first'));
-  manager.registerChannel('second', () => order.push('second'));
+  manager.registerChannel('first', () => { order.push('first'); });
+  manager.registerChannel('second', () => { order.push('second'); });
   manager.trigger('s1', 'waiting', 'test');
   assert.deepEqual(order, ['first', 'second']);
   manager.destroy();
@@ -173,7 +173,7 @@ test('a channel that throws does not block a later channel from delivering', () 
   const manager = new NotificationManager({ escalationIntervalMs: 60000, debounceMs: 0 });
   const calls: number[] = [];
   manager.registerChannel('broken', () => { throw new Error('boom'); });
-  manager.registerChannel('working', () => calls.push(1));
+  manager.registerChannel('working', () => { calls.push(1); });
   manager.trigger('s1', 'waiting', 'test');
   assert.equal(calls.length, 1, 'the second channel still ran after the first threw');
   manager.destroy();

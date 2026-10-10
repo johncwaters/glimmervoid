@@ -1,11 +1,20 @@
 import test from 'node:test';
 import type { TestContext } from 'node:test';
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import https from 'node:https';
+import os from 'node:os';
+import path from 'node:path';
 
 import { NotificationManager } from '../notifications/notification-manager.ts';
 import { NOTIFICATION_STATES as NS, NOTIFICATION_TRANSITIONS } from '../shared/notification-states.ts';
-import { decideTelegramNotification } from '../notifications/channels/telegram.ts';
+import { createTelegramChannel, decideTelegramNotification } from '../notifications/channels/telegram.ts';
+import { createTelegramCompletionDefer } from '../notifications/telegram-completion-defer.ts';
 import type { NotificationContext } from '../notifications/notification-manager.ts';
+import { createBackendNotifications } from '../server/backend-notifications.ts';
+import type { NotificationConfig } from '../server/backend-notifications.ts';
+import { plainSession } from './helpers/fake-session.ts';
 
 interface RecordedDelivery {
   session: string;
@@ -223,4 +232,190 @@ test('the ladder delay is configurable through updateSettings', (t) => {
   manager.trigger('sess-1', 'complete', 'build finished');
   t.mock.timers.tick(PHONE_MS);
   assert.equal(escalations().length, 1, 'the new delay is what the next notification arms with');
+});
+
+function makeWaitingManager(isDashboardOpen: boolean) {
+  const manager = new NotificationManager({ escalationIntervalMs: PHONE_MS, debounceMs: 0, phoneEscalationMs: PHONE_MS });
+  const browser: RecordedDelivery[] = [];
+  const phonePings: RecordedDelivery[] = [];
+  manager.registerChannel('web', (session, category, message, context) => {
+    browser.push({ session, category, message, context });
+  });
+  manager.registerChannel('telegram', (session, category, message, context) => {
+    const send = context.phoneEscalation === true || !isDashboardOpen;
+    if (send) phonePings.push({ session, category, message, context });
+    return { send };
+  }, { offDashboard: true });
+  return { manager, browser, phonePings };
+}
+
+function tickEscalationRounds(t: TestContext, roundCount: number): void {
+  for (let round = 0; round < roundCount; round++) t.mock.timers.tick(PHONE_MS);
+}
+
+test('a waiting notification left alone with no dashboard pings the phone once while the browser keeps re-toasting', (t) => {
+  useFakeClock(t);
+  const { manager, browser, phonePings } = makeWaitingManager(false);
+  t.after(() => manager.destroy());
+
+  manager.trigger('sess-1', 'waiting', 'needs input');
+  tickEscalationRounds(t, 6);
+
+  assert.equal(phonePings.length, 1);
+  assert.equal(phonePings[0].context.phoneEscalation, undefined);
+  assert.equal(browser.length, 7);
+});
+
+test('a waiting notification left alone behind an open dashboard pings the phone once, on the rung', (t) => {
+  useFakeClock(t);
+  const { manager, phonePings } = makeWaitingManager(true);
+  t.after(() => manager.destroy());
+
+  manager.trigger('sess-1', 'waiting', 'needs input');
+  assert.equal(phonePings.length, 0);
+  tickEscalationRounds(t, 6);
+
+  assert.equal(phonePings.length, 1);
+  assert.equal(phonePings[0].context.phoneEscalation, true);
+});
+
+test('a fresh trigger after the phone was reached pings the phone again', (t) => {
+  useFakeClock(t);
+  const { manager, phonePings } = makeWaitingManager(false);
+  t.after(() => manager.destroy());
+
+  manager.trigger('sess-1', 'waiting', 'first question');
+  tickEscalationRounds(t, 6);
+  manager.trigger('sess-1', 'waiting', 'second question');
+
+  assert.deepEqual(phonePings.map((ping) => ping.message), ['first question', 'second question']);
+});
+
+function makeManagerWithProductionTelegram() {
+  const manager = new NotificationManager({ escalationIntervalMs: PHONE_MS, debounceMs: 0, phoneEscalationMs: PHONE_MS });
+  const deliveredTexts: string[] = [];
+  const activeAgents = { count: 0 };
+  const telegramChannel = createTelegramCompletionDefer({
+    deliver: createTelegramChannel({
+      getConfig: () => ({ telegramNotifications: true, telegram: { botToken: 'b', chatId: 'c' } }),
+      getConnectionCount: () => 0,
+      getActiveAgentCount: () => activeAgents.count,
+      outbox: { deliver: async (text) => { deliveredTexts.push(text); } },
+    }),
+    recheckMs: QUIET_MS * 10,
+    onDeferredSend: (sessionId) => manager.markPhoneReached(sessionId),
+  });
+  manager.registerChannel('web', () => {});
+  manager.registerChannel('telegram', telegramChannel, { offDashboard: true });
+  return { manager, telegramChannel, deliveredTexts, activeAgents };
+}
+
+test('the production telegram channel delivers a waiting notification once across six escalation rounds', (t) => {
+  useFakeClock(t);
+  const { manager, telegramChannel, deliveredTexts } = makeManagerWithProductionTelegram();
+  t.after(() => { telegramChannel.destroy(); manager.destroy(); });
+
+  manager.trigger('sess-1', 'waiting', 'needs input');
+  tickEscalationRounds(t, 6);
+
+  assert.deepEqual(deliveredTexts, ['needs input']);
+});
+
+test('a completion deferred behind active agents and sent on recheck is not sent again by the phone rung', (t) => {
+  useFakeClock(t);
+  const { manager, telegramChannel, deliveredTexts, activeAgents } = makeManagerWithProductionTelegram();
+  t.after(() => { telegramChannel.destroy(); manager.destroy(); });
+
+  activeAgents.count = 2;
+  manager.trigger('sess-1', 'complete', 'build finished');
+  assert.deepEqual(deliveredTexts, []);
+
+  activeAgents.count = 0;
+  telegramChannel.recheck('sess-1');
+  assert.deepEqual(deliveredTexts, ['build finished']);
+
+  t.mock.timers.tick(PHONE_MS);
+  assert.deepEqual(deliveredTexts, ['build finished']);
+});
+
+test('a completion deferred behind active agents and sent by the recheck timer is not sent again by the phone rung', (t) => {
+  useFakeClock(t);
+  const { manager, telegramChannel, deliveredTexts, activeAgents } = makeManagerWithProductionTelegram();
+  t.after(() => { telegramChannel.destroy(); manager.destroy(); });
+  manager.updateSettings({ phoneEscalationMs: QUIET_MS * 20 });
+
+  activeAgents.count = 2;
+  manager.trigger('sess-1', 'complete', 'build finished');
+  activeAgents.count = 0;
+  t.mock.timers.tick(QUIET_MS * 10);
+  assert.deepEqual(deliveredTexts, ['build finished']);
+
+  t.mock.timers.tick(QUIET_MS * 20);
+  assert.deepEqual(deliveredTexts, ['build finished']);
+});
+
+const MAX_EVENT_LOOP_TURNS = 1000;
+
+async function waitUntil(isSettled: () => boolean): Promise<void> {
+  for (let turn = 0; turn < MAX_EVENT_LOOP_TURNS; turn += 1) {
+    if (isSettled()) return;
+    await yieldToEventLoop();
+  }
+  assert.fail('the backend telegram outbox never settled');
+}
+
+function makeBackendNotificationsWithUnreachableNetwork(t: TestContext) {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-backend-notifications-'));
+  const networkRequest = t.mock.method(https, 'request', () => {
+    throw new Error('the network is off limits in tests');
+  });
+  const config: NotificationConfig = {
+    telegramNotifications: true,
+    telegram: { botToken: 'b', chatId: 'c' },
+    phoneEscalationMs: PHONE_MS,
+  };
+  const session = plainSession('sess-1');
+  const idleSnapshot = session.toSnapshot();
+  const activeAgents = { count: 0 };
+  t.mock.method(session, 'toSnapshot', () => ({ ...idleSnapshot, activeAgents: activeAgents.count }));
+  const noClients = { clients: [], on: () => {} };
+  const backendNotifications = createBackendNotifications({
+    config,
+    configStore: { configPath: path.join(configDir, 'config.json') },
+    sessions: new Map([[session.id, session]]),
+    controlWss: noClients,
+    dataWss: noClients,
+    broadcastControl: () => {},
+    logger: { warn: () => {} },
+  });
+  t.after(() => {
+    backendNotifications.heartbeat.stop();
+    backendNotifications.telegramChannel.destroy();
+    backendNotifications.notificationManager.destroy();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  });
+  return { ...backendNotifications, config, activeAgents, networkRequest };
+}
+
+test('the backend wiring queues one telegram text for a completion sent on recheck and then left past the phone rung', async (t) => {
+  useFakeClock(t);
+  const {
+    notificationManager, telegramChannel, telegramOutbox, config, activeAgents, networkRequest,
+  } = makeBackendNotificationsWithUnreachableNetwork(t);
+
+  activeAgents.count = 2;
+  notificationManager.trigger('sess-1', 'complete', 'build finished');
+  assert.deepEqual(telegramOutbox.pending(), []);
+
+  activeAgents.count = 0;
+  telegramChannel.recheck('sess-1');
+  t.mock.timers.tick(PHONE_MS);
+  const queuedTexts = telegramOutbox.pending().map((entry) => entry.text);
+
+  config.telegram = null;
+  await waitUntil(() => telegramOutbox.isRetryArmed());
+  await telegramOutbox.idle();
+
+  assert.deepEqual(queuedTexts, ['build finished']);
+  assert.equal(networkRequest.mock.callCount(), 0);
 });

@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **One Telegram ping per Needs input**: a session left on Needs input no longer messages your phone again every 5 minutes. Telegram now gets one message per notification, sent right away when no dashboard is open or after `phoneEscalationMs` when one is, and the next message comes only when the session asks again. Browser notifications still repeat every 5 minutes until you answer. A Telegram message that fails to send is now retried every minute until it is delivered, for up to 6 hours, instead of waiting for the next restart.
+
 - **Dormant session identity**: worktree badges and workspace review controls stay intact when a session becomes dormant.
 - **Bench on phones**: the Bench screen now uses phone padding, full width and readable text instead of desktop panel styling.
 - **Factory on phones**: the Factory screen now uses phone panel padding instead of desktop spacing.

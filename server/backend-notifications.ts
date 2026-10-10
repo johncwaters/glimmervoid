@@ -76,7 +76,10 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
     getActiveAgentCount: (sessionId: string) => sessions.get(sessionId)?.toSnapshot().activeAgents || 0,
     outbox: telegramOutbox,
   });
-  const telegramChannel = createTelegramCompletionDefer({ deliver: sendTelegramNotification });
+  const telegramChannel = createTelegramCompletionDefer({
+    deliver: sendTelegramNotification,
+    onDeferredSend: (sessionId) => notificationManager.markPhoneReached(sessionId),
+  });
   notificationManager.registerChannel('telegram', telegramChannel, {
     offDashboard: true,
     canEscalate: () => decideTelegramNotification({

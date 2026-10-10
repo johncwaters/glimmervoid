@@ -14,12 +14,16 @@ export interface NotificationContext {
   kind?: NotificationKind;
 }
 
+export interface ChannelDelivery {
+  send?: boolean;
+}
+
 export type NotificationChannelFn = (
   sessionName: string,
   category: string,
   message: string,
   context: NotificationContext,
-) => unknown;
+) => ChannelDelivery | void;
 
 interface RegisteredChannel {
   name: string;
@@ -36,7 +40,7 @@ interface NotificationEntry {
   timer: NodeJS.Timeout | null;
   escalationCount: number;
   phoneTimer: NodeJS.Timeout | null;
-  phoneEscalated: boolean;
+  hasReachedPhone: boolean;
 }
 
 export interface NotificationManagerOptions {
@@ -120,6 +124,12 @@ class NotificationManager extends EventEmitter {
     this._transition(sessionName, 'acknowledge');
   }
 
+  markPhoneReached(sessionName: string): void {
+    const entry = this._entries.get(sessionName);
+    if (!entry) return;
+    this._markPhoneReached(entry);
+  }
+
   updateSettings({ escalationIntervalMs, debounceMs, phoneEscalationMs }: NotificationManagerOptions): void {
     if (escalationIntervalMs != null) this._escalationIntervalMs = escalationIntervalMs;
     if (debounceMs != null) this._debounceMs = debounceMs;
@@ -148,7 +158,7 @@ class NotificationManager extends EventEmitter {
         timer: null,
         escalationCount: 0,
         phoneTimer: null,
-        phoneEscalated: false,
+        hasReachedPhone: false,
       });
     }
   }
@@ -187,7 +197,7 @@ class NotificationManager extends EventEmitter {
     switch (state) {
       case NS.PENDING:
         this._clearPhoneTimer(entry);
-        entry.phoneEscalated = false;
+        entry.hasReachedPhone = false;
         if (this._focusSuppressed) {
           this._transition(sessionName, 'suppressed');
           return;
@@ -221,8 +231,8 @@ class NotificationManager extends EventEmitter {
         break;
 
       case NS.ESCALATED_PHONE:
-        entry.phoneEscalated = true;
         this._deliverViaChannels(sessionName, entry, { phoneEscalation: true }, (channel) => channel.offDashboard);
+        this._markPhoneReached(entry);
         if (entry.category === 'waiting') {
           this._armEscalation(sessionName, entry);
         }
@@ -250,7 +260,7 @@ class NotificationManager extends EventEmitter {
   }
 
   _armPhoneEscalation(sessionName: string, entry: NotificationEntry): void {
-    if (entry.phoneEscalated) return;
+    if (entry.hasReachedPhone) return;
     if (entry.phoneTimer !== null) return;
     if (!(this._phoneEscalationMs > 0)) return;
     if (!this._channels.some((channel) => channel.offDashboard && channel.canEscalate())) return;
@@ -284,8 +294,10 @@ class NotificationManager extends EventEmitter {
     };
     for (const channel of this._channels) {
       if (channelFilter && !channelFilter(channel)) continue;
+      if (channel.offDashboard && entry.hasReachedPhone) continue;
       try {
-        channel.fn(sessionName, category, message, context);
+        const delivery = channel.fn(sessionName, category, message, context);
+        if (channel.offDashboard && delivery?.send === true) this._markPhoneReached(entry);
         this._recordOutcome('notifyDelivered');
       } catch (err) {
         this._recordOutcome('notifyFailed');
@@ -317,6 +329,11 @@ class NotificationManager extends EventEmitter {
       clearTimeout(entry.timer);
       entry.timer = null;
     }
+  }
+
+  _markPhoneReached(entry: NotificationEntry): void {
+    entry.hasReachedPhone = true;
+    this._clearPhoneTimer(entry);
   }
 
   _clearPhoneTimer(entry: NotificationEntry): void {

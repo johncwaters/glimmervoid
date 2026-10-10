@@ -1,4 +1,6 @@
 import test from 'node:test';
+import type { TestContext } from 'node:test';
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -6,7 +8,7 @@ import path from 'node:path';
 
 import { createTelegramOutbox } from '../notifications/telegram-outbox.ts';
 import {
-  normalizeOutbox, planEnqueue, planReplay, recordFailure, removeEntry,
+  normalizeOutbox, planEnqueue, planReplay, recordFailure, removeEntry, DEFAULT_MAX_ATTEMPTS,
 } from '../notifications/core/outbox-core.ts';
 import type { OutboxEntry } from '../notifications/core/outbox-core.ts';
 
@@ -17,6 +19,37 @@ function tempFile() {
 
 function readOutbox(filePath: string) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+const RETRY_INTERVAL_MS = 500;
+const MAX_EVENT_LOOP_TURNS = 1000;
+
+function makeRetryingOutbox(t: TestContext, failingAttemptCount: number) {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const sentTexts: string[] = [];
+  let attemptCount = 0;
+  const outbox = createTelegramOutbox({
+    filePath: 'unused-by-the-in-memory-writer',
+    retryIntervalMs: RETRY_INTERVAL_MS,
+    warn: () => {},
+    readFileSync: () => JSON.stringify({ version: 1, entries: [] }),
+    writeJson: async () => {},
+    send: async (entry) => {
+      attemptCount += 1;
+      if (attemptCount <= failingAttemptCount) return { ok: false };
+      sentTexts.push(entry.text);
+      return { ok: true };
+    },
+  });
+  return { outbox, sentTexts, attemptCount: () => attemptCount };
+}
+
+async function waitUntil(isSettled: () => boolean): Promise<void> {
+  for (let turn = 0; turn < MAX_EVENT_LOOP_TURNS; turn += 1) {
+    if (isSettled()) return;
+    await yieldToEventLoop();
+  }
+  assert.fail('the outbox never settled');
 }
 
 test('normalizeOutbox salvages what it can and discards the rest', () => {
@@ -211,4 +244,112 @@ test('a write failure is warned about and the send still happens', async (t) => 
 
   assert.deepEqual(sent, ['complete: still delivered']);
   assert.equal(warnings.some((line) => line.includes('read-only filesystem')), true);
+});
+
+test('a failed first attempt is retried by the timer and delivers without a restart', async (t) => {
+  const { outbox, sentTexts, attemptCount } = makeRetryingOutbox(t, 1);
+
+  await outbox.deliver('waiting: needs your input');
+  assert.deepEqual(sentTexts, []);
+  assert.equal(outbox.pending().length, 1);
+
+  t.mock.timers.tick(RETRY_INTERVAL_MS - 1);
+  await yieldToEventLoop();
+  assert.equal(attemptCount(), 1);
+
+  t.mock.timers.tick(1);
+  await waitUntil(() => outbox.pending().length === 0);
+
+  assert.deepEqual(sentTexts, ['waiting: needs your input']);
+});
+
+test('the retry timer re-arms while a ping is still pending and only one is ever alive', async (t) => {
+  const { outbox, sentTexts, attemptCount } = makeRetryingOutbox(t, 3);
+
+  await outbox.deliver('first ping');
+  await outbox.deliver('second ping');
+  assert.equal(attemptCount(), 2);
+  assert.equal(outbox.isRetryArmed(), true);
+
+  t.mock.timers.tick(RETRY_INTERVAL_MS);
+  await waitUntil(() => attemptCount() === 4 && outbox.pending().length === 1 && outbox.isRetryArmed());
+
+  t.mock.timers.tick(RETRY_INTERVAL_MS);
+  await waitUntil(() => outbox.pending().length === 0);
+
+  assert.equal(attemptCount(), 5);
+  assert.deepEqual(sentTexts, ['second ping', 'first ping']);
+});
+
+test('no retry timer stays armed once the outbox is empty', async (t) => {
+  const { outbox, attemptCount } = makeRetryingOutbox(t, 1);
+
+  await outbox.deliver('waiting: needs your input');
+  assert.equal(outbox.isRetryArmed(), true);
+
+  t.mock.timers.tick(RETRY_INTERVAL_MS);
+  await waitUntil(() => outbox.pending().length === 0);
+  assert.equal(outbox.isRetryArmed(), false);
+
+  t.mock.timers.tick(RETRY_INTERVAL_MS * 10);
+  await yieldToEventLoop();
+  assert.equal(attemptCount(), 2);
+});
+
+test('a confirmed first send arms no retry timer', async (t) => {
+  const { outbox } = makeRetryingOutbox(t, 0);
+
+  await outbox.deliver('complete: build finished');
+
+  assert.equal(outbox.isRetryArmed(), false);
+});
+
+test('a ping that keeps failing past the attempt budget in one process stays queued and is delivered once sends recover', async (t) => {
+  const failingAttemptCount = DEFAULT_MAX_ATTEMPTS + 3;
+  const { outbox, sentTexts, attemptCount } = makeRetryingOutbox(t, failingAttemptCount);
+
+  await outbox.deliver('waiting: needs your input');
+  for (let failedAttemptCount = 2; failedAttemptCount <= failingAttemptCount; failedAttemptCount += 1) {
+    t.mock.timers.tick(RETRY_INTERVAL_MS);
+    await waitUntil(() => attemptCount() === failedAttemptCount && outbox.isRetryArmed());
+  }
+  assert.deepEqual(outbox.pending().map((entry) => entry.attempts), [1]);
+  assert.deepEqual(sentTexts, []);
+
+  t.mock.timers.tick(RETRY_INTERVAL_MS);
+  await waitUntil(() => outbox.pending().length === 0);
+
+  assert.deepEqual(sentTexts, ['waiting: needs your input']);
+  assert.equal(outbox.isRetryArmed(), false);
+});
+
+test('a send still in flight when the retry timer fires is attempted once, not twice', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const attemptCountByText = new Map<string, number>();
+  let confirmSlowSend: (result: { ok: boolean }) => void = () => {};
+  const slowSend = new Promise<{ ok: boolean }>((resolve) => { confirmSlowSend = resolve; });
+  const outbox = createTelegramOutbox({
+    filePath: 'unused-by-the-in-memory-writer',
+    retryIntervalMs: RETRY_INTERVAL_MS,
+    warn: () => {},
+    readFileSync: () => JSON.stringify({ version: 1, entries: [] }),
+    writeJson: async () => {},
+    send: (entry) => {
+      attemptCountByText.set(entry.text, (attemptCountByText.get(entry.text) ?? 0) + 1);
+      if (entry.text === 'slow ping') return slowSend;
+      return Promise.resolve({ ok: false });
+    },
+  });
+
+  await outbox.deliver('failing ping');
+  const slowDelivery = outbox.deliver('slow ping');
+  await waitUntil(() => attemptCountByText.get('slow ping') === 1);
+
+  t.mock.timers.tick(RETRY_INTERVAL_MS);
+  await waitUntil(() => attemptCountByText.get('failing ping') === 2 && outbox.isRetryArmed());
+  confirmSlowSend({ ok: true });
+  await slowDelivery;
+
+  assert.equal(attemptCountByText.get('slow ping'), 1);
+  assert.deepEqual(outbox.pending().map((entry) => entry.text), ['failing ping']);
 });

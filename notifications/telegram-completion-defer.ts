@@ -10,12 +10,14 @@ interface DeferredDelivery {
 }
 
 interface DeliveryDecision {
+  send?: boolean;
   reason?: string;
 }
 
 function createTelegramCompletionDefer({
   deliver,
   recheckMs = DEFAULT_TELEGRAM_COMPLETION_RECHECK_MS,
+  onDeferredSend = () => {},
 }: {
   deliver: (
     sessionId: string,
@@ -24,6 +26,7 @@ function createTelegramCompletionDefer({
     context?: Partial<NotificationContext>,
   ) => DeliveryDecision | undefined;
   recheckMs?: number;
+  onDeferredSend?: (sessionId: string) => void;
 }) {
   const pendingCompletions = new Map<string, { delivery: DeferredDelivery; timer: NodeJS.Timeout }>();
 
@@ -43,7 +46,7 @@ function createTelegramCompletionDefer({
     const timer = setTimeout(() => {
       const latest = pendingCompletions.get(delivery.sessionId)?.delivery || delivery;
       pendingCompletions.delete(delivery.sessionId);
-      send(latest);
+      sendDeferred(latest);
     }, recheckMs);
     timer.unref();
     pendingCompletions.set(delivery.sessionId, { delivery, timer });
@@ -61,6 +64,11 @@ function createTelegramCompletionDefer({
     return decision;
   }
 
+  function sendDeferred(delivery: DeferredDelivery): void {
+    const decision = send(delivery);
+    if (decision?.send === true) onDeferredSend(delivery.sessionId);
+  }
+
   function channel(
     sessionId: string,
     category: string,
@@ -76,7 +84,7 @@ function createTelegramCompletionDefer({
     if (!pending) return;
     const delivery = pending.delivery;
     cancel(sessionId);
-    send(delivery);
+    sendDeferred(delivery);
   };
   channel.noteStateChange = cancel;
   channel.destroy = (): void => {

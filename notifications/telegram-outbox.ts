@@ -12,6 +12,7 @@ import {
 import type { OutboxEntry } from './core/outbox-core.ts';
 
 const OUTBOX_VERSION = 1;
+const DEFAULT_RETRY_INTERVAL_MS = 60000;
 
 export interface TelegramOutboxDeps {
   filePath: string;
@@ -21,6 +22,7 @@ export interface TelegramOutboxDeps {
   maxEntries?: number;
   maxAttempts?: number;
   maxAgeMs?: number;
+  retryIntervalMs?: number;
   warn?: (message: string) => void;
   readFileSync?: (filePath: string, encoding: BufferEncoding) => string;
   writeJson?: typeof writeJsonAtomic;
@@ -34,6 +36,7 @@ function createTelegramOutbox({
   maxEntries = DEFAULT_MAX_ENTRIES,
   maxAttempts = DEFAULT_MAX_ATTEMPTS,
   maxAgeMs = DEFAULT_MAX_AGE_MS,
+  retryIntervalMs = DEFAULT_RETRY_INTERVAL_MS,
   warn = console.warn,
   readFileSync = fs.readFileSync,
   writeJson = writeJsonAtomic,
@@ -42,6 +45,41 @@ function createTelegramOutbox({
   let entries: OutboxEntry[] = [];
   const writeQueue = createSerialQueue();
   let loaded = false;
+  let retryTimer: NodeJS.Timeout | null = null;
+  let isReplayRunning = false;
+  const entryIdsInFlight = new Set<string>();
+  const entryIdsWithFailureCounted = new Set<string>();
+
+  function isPending(entryId: string): boolean {
+    return entries.some((entry) => entry.id === entryId);
+  }
+
+  function forgetDepartedEntries(): void {
+    for (const entryId of entryIdsWithFailureCounted) {
+      if (!isPending(entryId)) entryIdsWithFailureCounted.delete(entryId);
+    }
+  }
+
+  function armRetry(): void {
+    if (retryTimer !== null) return;
+    if (isReplayRunning) return;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      replay().catch((error) => warn(`[telegram-outbox] retry failed: ${errorMessage(error)}`));
+    }, retryIntervalMs);
+    retryTimer.unref();
+  }
+
+  function countFailureOncePerProcess(entryId: string): void {
+    if (entryIdsWithFailureCounted.has(entryId)) return;
+    const outcome = recordFailure(entries, entryId, { maxAttempts });
+    entries = outcome.entries;
+    if (outcome.dropped) {
+      warn(`[telegram-outbox] giving up on a ping after ${maxAttempts} attempts`);
+      return;
+    }
+    if (isPending(entryId)) entryIdsWithFailureCounted.add(entryId);
+  }
 
   function load(): void {
     if (loaded) return;
@@ -70,48 +108,69 @@ function createTelegramOutbox({
     load();
     const entry: OutboxEntry = { id: crypto.randomUUID(), text, queuedAt: now(), attempts: 0 };
     entries = planEnqueue(entries, entry, { maxEntries });
+    forgetDepartedEntries();
     await persist();
     await attempt(entry);
   }
 
   async function attempt(entry: OutboxEntry): Promise<void> {
     let ok = false;
+    entryIdsInFlight.add(entry.id);
     try {
       const result = await send(entry);
       ok = result?.ok === true;
     } catch (error) {
       warn(`[telegram-outbox] send threw: ${errorMessage(error)}`);
+    } finally {
+      entryIdsInFlight.delete(entry.id);
     }
     if (ok) {
       recordOutcome('telegramDelivered');
       entries = removeEntry(entries, entry.id);
+      forgetDepartedEntries();
       await persist();
       return;
     }
     recordOutcome('telegramFailed');
-    const outcome = recordFailure(entries, entry.id, { maxAttempts });
-    entries = outcome.entries;
-    if (outcome.dropped) warn(`[telegram-outbox] giving up on a ping after ${maxAttempts} attempts`);
+    countFailureOncePerProcess(entry.id);
+    if (isPending(entry.id)) armRetry();
     await persist();
+  }
+
+  async function attemptEachIdleEntry(plannedEntries: OutboxEntry[]): Promise<number> {
+    let attemptedCount = 0;
+    for (const entry of plannedEntries) {
+      if (entryIdsInFlight.has(entry.id)) continue;
+      if (!isPending(entry.id)) continue;
+      attemptedCount += 1;
+      await attempt(entry);
+    }
+    return attemptedCount;
   }
 
   async function replay(): Promise<{ sent: number; expired: number }> {
     load();
-    const plan = planReplay(entries, { now: now(), maxAgeMs, maxAttempts });
-    if (plan.expired.length > 0) {
-      for (const entry of plan.expired) entries = removeEntry(entries, entry.id);
-      await persist();
+    isReplayRunning = true;
+    try {
+      const plan = planReplay(entries, { now: now(), maxAgeMs, maxAttempts });
+      if (plan.expired.length > 0) {
+        for (const entry of plan.expired) entries = removeEntry(entries, entry.id);
+        forgetDepartedEntries();
+        await persist();
+      }
+      const sent = await attemptEachIdleEntry(plan.send);
+      return { sent, expired: plan.expired.length };
+    } finally {
+      isReplayRunning = false;
+      if (entries.some((entry) => !entryIdsInFlight.has(entry.id))) armRetry();
     }
-    for (const entry of plan.send) {
-      await attempt(entry);
-    }
-    return { sent: plan.send.length, expired: plan.expired.length };
   }
 
   return {
     deliver,
     replay,
     idle: () => writeQueue.idle(),
+    isRetryArmed: () => retryTimer !== null,
     pending: () => { load(); return entries.slice(); },
   };
 }

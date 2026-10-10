@@ -251,7 +251,7 @@ test('complete delivers once with no escalation timer', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const manager = new NotificationManager({ escalationIntervalMs: 1000, debounceMs: 0 });
   const deliveries: string[] = [];
-  manager.registerChannel('test', (_session, category) => deliveries.push(category));
+  manager.registerChannel('test', (_session, category) => { deliveries.push(category); });
 
   manager.trigger('s1', 'complete', 'finished working');
   assert.equal(deliveries.length, 1);
