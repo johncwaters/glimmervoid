@@ -35,17 +35,17 @@ test('addWakeup/removeWakeup report set changes; duplicate add refreshes without
   assert.equal(m.size, 0);
 });
 
-test('pruneWakeups: one-shot expires at fireAt + grace, cron at the hard TTL', () => {
+test('pruneWakeups: one-shot expires at fireAt, cron at the hard TTL', () => {
   const m = new Map();
   wakeupTracker.addWakeup(m, 'w1', { kind: 'wakeup', fireAt: 1000, reason: null, ts: 0 });
   wakeupTracker.addWakeup(m, 'c1', { kind: 'cron', fireAt: null, reason: null, ts: 0 });
 
-  assert.equal(wakeupTracker.pruneWakeups(m, 1000, { graceMs: 500, cronTtlMs: 10000 }), 0);
+  assert.equal(wakeupTracker.pruneWakeups(m, 999, { cronTtlMs: 10000 }), 0);
 
-  assert.equal(wakeupTracker.pruneWakeups(m, 1500, { graceMs: 500, cronTtlMs: 10000 }), 1);
+  assert.equal(wakeupTracker.pruneWakeups(m, 1000, { cronTtlMs: 10000 }), 1);
   assert.equal(m.has('c1'), true);
 
-  assert.equal(wakeupTracker.pruneWakeups(m, 10000, { graceMs: 500, cronTtlMs: 10000 }), 1);
+  assert.equal(wakeupTracker.pruneWakeups(m, 10000, { cronTtlMs: 10000 }), 1);
   assert.equal(m.size, 0);
 });
 
@@ -133,14 +133,14 @@ test('cron lifecycle: CronCreate tracks by task id, CronDelete clears it', () =>
   s.destroy();
 });
 
-test('one-shot self-expires at fireAt + grace via the lazy prune (invisible Esc-cancel bound)', () => {
+test('one-shot self-expires at fireAt via the lazy prune', () => {
   const s = makeSession(STATES.COMPLETE);
 
   wakeupTracker.addWakeup(s.backgroundTracking.wakeups(), 'w-old', {
     kind: 'wakeup',
-    fireAt: Date.now() - wakeupTracker.DEFAULT_WAKEUP_GRACE_MS - 1000,
+    fireAt: Date.now() - 1000,
     reason: 'stale',
-    ts: Date.now() - 2 * wakeupTracker.DEFAULT_WAKEUP_GRACE_MS,
+    ts: Date.now() - 60 * 1000,
   });
   assert.equal(s.toSnapshot().pendingWakeup, null, 'stale entry pruned on read');
   s.destroy();
@@ -204,7 +204,7 @@ test('an expired wakeup pushes a null wakeup-change without waiting for a snapsh
     const deltas: unknown[] = [];
     s.on('wakeup-change', (e) => deltas.push(e.pendingWakeup));
     hook(s, 'wakeup-scheduled', { tool_name: 'ScheduleWakeup', tool_input: { delaySeconds: 60, reason: 'tick' } });
-    mock.timers.tick(60 * 1000 + wakeupTracker.DEFAULT_WAKEUP_GRACE_MS);
+    mock.timers.tick(60 * 1000);
     assert.equal(deltas.length, 2);
     assert.equal(deltas[1], null);
     s.destroy();
@@ -218,7 +218,7 @@ test('nextWakeupExpiry returns the soonest one-shot or cron expiry', () => {
   assert.equal(wakeupTracker.nextWakeupExpiry(m), null);
   wakeupTracker.addWakeup(m, 'c1', { kind: 'cron', fireAt: null, reason: null, ts: 0 });
   wakeupTracker.addWakeup(m, 'w1', { kind: 'wakeup', fireAt: 1000, reason: null, ts: 0 });
-  assert.equal(wakeupTracker.nextWakeupExpiry(m, { graceMs: 500, cronTtlMs: 10000 }), 1500);
+  assert.equal(wakeupTracker.nextWakeupExpiry(m, { cronTtlMs: 10000 }), 1000);
 });
 
 test('a wakeup beyond the setTimeout ceiling re-arms quietly instead of spinning wakeup-change', () => {

@@ -1,5 +1,3 @@
-const DEFAULT_WAKEUP_GRACE_MS = 5 * 60 * 1000;
-
 const DEFAULT_CRON_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const MAX_WAKEUPS = 64;
@@ -29,15 +27,14 @@ function removeWakeup(map: WakeupMap, key: string): boolean {
   return map.delete(key);
 }
 
-type ExpiryOptions = { graceMs?: number; cronTtlMs?: number };
+type ExpiryOptions = { cronTtlMs?: number };
 
 function expiryOf(
   entry: WakeupEntry,
-  { graceMs = DEFAULT_WAKEUP_GRACE_MS, cronTtlMs = DEFAULT_CRON_TTL_MS }: ExpiryOptions = {},
+  { cronTtlMs = DEFAULT_CRON_TTL_MS }: ExpiryOptions = {},
 ): number | null {
   if (entry.kind === 'cron') return entry.ts + cronTtlMs;
-  if (entry.fireAt == null) return null;
-  return entry.fireAt + graceMs;
+  return entry.fireAt;
 }
 
 function pruneWakeups(map: WakeupMap, now: number, options: ExpiryOptions = {}): number {
@@ -93,6 +90,5 @@ export {
   earliestWakeup,
   extractCronTaskId,
   MAX_WAKEUPS,
-  DEFAULT_WAKEUP_GRACE_MS,
 };
 export type { WakeupEntry, WakeupMap };
