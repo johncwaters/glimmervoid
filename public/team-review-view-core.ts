@@ -304,12 +304,6 @@ const VERDICT_TONES: Readonly<Record<ReviewDraft['verdict'], string>> = Object.f
   BLOCKED: 'crit',
 });
 
-const ATTENTION_STATUS_LABELS: Readonly<Record<string, string>> = Object.freeze({
-  stale: 'stale',
-  error: 'error',
-  discarded: 'discarded',
-});
-
 const GITHUB_REVIEW_VERBS: Readonly<Record<GithubReviewState, string>> = Object.freeze({
   APPROVED: 'approved',
   CHANGES_REQUESTED: 'requested changes',
@@ -595,7 +589,7 @@ export function pullRequestLabel(repo: string, number: number): string {
   return `${repo}#${number}`;
 }
 
-export function tierLabel(tier: ReviewDraft['tier']): string {
+function tierLabel(tier: ReviewDraft['tier']): string {
   return tier === 'full' ? 'full' : 'light';
 }
 
@@ -670,10 +664,6 @@ export function inFlightProgressText(review: InFlightReview, nowMs: number): str
   return parts.join(', ');
 }
 
-export function attentionStatusLabel(status: ReviewDraft['status']): string {
-  return ATTENTION_STATUS_LABELS[status] ?? status;
-}
-
 export function attentionDetail(draft: ReviewDraft): string {
   if (draft.status === 'stale') return 'Out of date. Automatic review runs at the next poll after the configured wait. Queue review bypasses the wait.';
   if (draft.status === 'discarded') return 'Not reviewed again until queued.';
@@ -692,10 +682,6 @@ export function commentLocation(comment: Pick<ReviewComment, 'path' | 'line' | '
 export function shortCommentLocation(comment: Pick<ReviewComment, 'path' | 'line' | 'side'>): string {
   const fileName = comment.path.split('/').filter(Boolean).at(-1) ?? comment.path;
   return locationOf(fileName, comment);
-}
-
-export function withoutComment(comments: readonly ReviewComment[], removedIndex: number): ReviewComment[] {
-  return comments.filter((_comment, index) => index !== removedIndex);
 }
 
 export function withReviewerNote(reviewerNote: string, reviewBody: string): string {

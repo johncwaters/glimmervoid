@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyStateText, groupMyPrs, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, groupStackedMyPrs, chooseSelectedKey, keepMergeableControlState, keepMergeableRowLabel, mergeCelebrationText, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, newlyMergedPrs, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from '../public/my-prs-view-core.ts';
+import { emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, groupStackedMyPrs, chooseSelectedKey, keepMergeableControlState, keepMergeableRowLabel, mergeCelebrationText, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, newlyMergedPrs, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from '../public/my-prs-view-core.ts';
 import { toMyPr } from '../server/core/my-prs-core.ts';
 import type { MyPr, MyPrSearchNode, MyPrThread } from '../shared/contracts/my-prs.ts';
 
@@ -55,8 +55,8 @@ test('a feature turned off in Settings hides its toggle even for a PR it still h
 });
 
 test('groups every stage with Ready to merge first and preserves selection', () => {
-  const sections = groupMyPrs([pr('merged', 5), pr('draft', 4), pr('ready', 3), pr('unknown', 2), pr('conflicts', 1)]);
-  assert.deepEqual(sections.map((section) => [section.title, section.prs.map((item) => item.number)]), [
+  const sections = sectionStackedMyPrs([pr('merged', 5), pr('draft', 4), pr('ready', 3), pr('unknown', 2), pr('conflicts', 1)]);
+  assert.deepEqual(sections.map((section) => [section.title, section.prs.map((sectionPr) => sectionPr.number)]), [
     ['Ready to merge', [3]], ['Needs you', [1]], ['Waiting', [2]], ['Drafts', [4]], ['Merged today', [5]],
   ]);
   assert.equal(chooseSelectedKey(sections, 'Acme/app#1'), 'Acme/app#1');
@@ -252,9 +252,10 @@ test('an open PR based on a merged parent branch stays its own root in its own s
   const openChild = { ...pr('conflicts', 2), headRefName: 'followup', baseRefName: 'foundation' };
   const stacks = groupStackedMyPrs([mergedParent, openChild]);
   assert.deepEqual(stacks.map((stack) => stack.rows.map(({ pr }) => pr.number)), [[1], [2]]);
-  const sectionsByRoot = groupMyPrs(stacks.map((stack) => stack.root));
-  assert.deepEqual(sectionsByRoot.find((section) => section.title === 'Needs you')?.prs.map((item) => item.number), [2]);
-  assert.deepEqual(sectionsByRoot.find((section) => section.title === 'Merged today')?.prs.map((item) => item.number), [1]);
+  const sections = sectionStackedMyPrs([mergedParent, openChild]);
+  assert.deepEqual(sections.map((section) => [section.title, section.rows.map(({ pr }) => pr.number)]), [
+    ['Ready to merge', []], ['Needs you', [2]], ['Waiting', []], ['Drafts', []], ['Merged today', [1]],
+  ]);
 });
 
 test('a merged PR based on an open parent branch stays its own root in Merged today', () => {
@@ -262,9 +263,10 @@ test('a merged PR based on an open parent branch stays its own root in Merged to
   const mergedChild = { ...pr('merged', 2), state: 'MERGED' as const, headRefName: 'followup', baseRefName: 'foundation' };
   const stacks = groupStackedMyPrs([openParent, mergedChild]);
   assert.deepEqual(stacks.map((stack) => stack.rows.map(({ pr, parentKey, depth }) => [pr.number, parentKey, depth])), [[[1, null, 0]], [[2, null, 0]]]);
-  const sectionsByRoot = groupMyPrs(stacks.map((stack) => stack.root));
-  assert.deepEqual(sectionsByRoot.find((section) => section.title === 'Needs you')?.prs.map((item) => item.number), [1]);
-  assert.deepEqual(sectionsByRoot.find((section) => section.title === 'Merged today')?.prs.map((item) => item.number), [2]);
+  const sections = sectionStackedMyPrs([openParent, mergedChild]);
+  assert.deepEqual(sections.map((section) => [section.title, section.rows.map(({ pr }) => pr.number)]), [
+    ['Ready to merge', []], ['Needs you', [1]], ['Waiting', []], ['Drafts', []], ['Merged today', [2]],
+  ]);
 });
 
 test('a conflicts child stacked on a needs-approval parent puts the whole stack under Needs you', () => {

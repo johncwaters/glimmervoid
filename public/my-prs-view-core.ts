@@ -101,10 +101,6 @@ export function parseMyPrsStatus(message: unknown): MyPrsStatusType | null {
   return parsed.success ? parsed.data : null;
 }
 
-export function groupMyPrs(prs: readonly MyPr[]): MyPrSection[] {
-  return SECTION_TITLES_IN_DISPLAY_ORDER.map((title) => ({ title, prs: prs.filter((pr) => SECTION_BY_STAGE[pr.stage] === title) }));
-}
-
 export interface MyPrStackRow { pr: MyPr; parentKey: string | null; depth: number }
 export interface MyPrStack { root: MyPr; rows: MyPrStackRow[] }
 

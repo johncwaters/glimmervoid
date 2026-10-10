@@ -1,5 +1,3 @@
-import { errorMessage } from '../../shared/text.ts';
-
 const OTHER_CATEGORY_RE = /\p{C}+/gu;
 
 function firstLine(text: unknown): string {
@@ -14,4 +12,4 @@ function sanitizeOneLine(raw: unknown, maxChars: number): string {
   return value.slice(0, maxChars).trim();
 }
 
-export { errorMessage, firstLine, sanitizeOneLine };
+export { firstLine, sanitizeOneLine };

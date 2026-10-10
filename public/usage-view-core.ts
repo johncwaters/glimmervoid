@@ -755,12 +755,6 @@ export function periodLabel(key: unknown, view: string) {
   return dayLabel(key);
 }
 
-export function periodHint(view: string) {
-  if (view === 'week') return 'weeks start Monday';
-  if (view === 'month') return 'calendar months';
-  return 'newest first by default';
-}
-
 export function historyNote(rows: unknown) {
   const list: UsageWireRow[] = Array.isArray(rows) ? rows : [];
   const hasHistory = list.some((row) => row?.source === 'history');
@@ -865,8 +859,6 @@ export function anomalyTone(anomaly: UsageAnomaly | null | undefined) {
 export function hasAnomaly(anomaly: UsageAnomaly | null | undefined) {
   return Boolean(anomaly?.daily || anomaly?.burn);
 }
-
-export const NO_ANOMALY_LINE = 'Today is in line with recent usage.';
 
 function formatRatio(ratio: unknown) {
   const value = numberOr(ratio, null);

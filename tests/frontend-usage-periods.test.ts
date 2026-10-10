@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { HeatmapCell, UsageModelRow, UsageWireRow } from '../public/usage-view-core.ts';
 
-import { anomalyLine, anomalyTone, BUDGET_ATTENTION_PCT, budgetRowMeterLabel, budgetRowPct, budgetRows, budgetRowText, budgetScopeLabel, DEFAULT_PERIOD_VIEW, glimmervoidOverhead, hasAnomaly, hasLaneAttribution, HEATMAP_DAY_LABELS, HEATMAP_WEEKS, heatmapCells, heatmapCellTitle, heatmapTone, historyNote, LANE_SCOPE_HINT, laneLabel, laneRows, laneSessionsText, monthKey, monthlyRows, NO_ANOMALY_LINE, overheadLanesText, overheadPlanText, PERIOD_VIEWS, periodHint, periodLabel, periodRows, prReviewsSpendTile, usageAttentionSignature, weeklyRows, weekStartKey } from '../public/usage-view-core.ts';
+import { anomalyLine, anomalyTone, BUDGET_ATTENTION_PCT, budgetRowMeterLabel, budgetRowPct, budgetRows, budgetRowText, budgetScopeLabel, DEFAULT_PERIOD_VIEW, glimmervoidOverhead, hasAnomaly, hasLaneAttribution, HEATMAP_DAY_LABELS, HEATMAP_WEEKS, heatmapCells, heatmapCellTitle, heatmapTone, historyNote, LANE_SCOPE_HINT, laneLabel, laneRows, laneSessionsText, monthKey, monthlyRows, overheadLanesText, overheadPlanText, PERIOD_VIEWS, periodLabel, periodRows, prReviewsSpendTile, usageAttentionSignature, weeklyRows, weekStartKey } from '../public/usage-view-core.ts';
 import * as core from '../public/usage-view-core.ts';
 
 interface DayOptions {
@@ -140,8 +140,6 @@ test('periodRows and periodLabel: one switch, three views, one label rule', () =
   assert.equal(periodLabel('2026-08-17', 'week'), 'week of Aug 17');
   assert.equal(periodLabel('2026-08', 'month'), 'Aug 2026');
   assert.equal(periodLabel('bad', 'month'), 'bad');
-  assert.equal(periodHint('week'), 'weeks start Monday');
-  assert.equal(periodHint('month'), 'calendar months');
   assert.deepEqual(PERIOD_VIEWS.map((view) => view.value), ['day', 'week', 'month']);
   assert.equal(DEFAULT_PERIOD_VIEW, 'day');
 
@@ -246,7 +244,6 @@ test('anomalyLine: the wording names the comparison, not just "unusual"', () => 
   assert.equal(hasAnomaly({ burn }), true);
   assert.equal(hasAnomaly({ daily: null, burn: null }), false);
   assert.equal(hasAnomaly(null), false);
-  assert.ok(NO_ANOMALY_LINE.length > 0, 'the quiet case still says something');
 });
 
 test('an anomaly raises the tab attention dot on its own', () => {
@@ -260,9 +257,9 @@ test('an anomaly raises the tab attention dot on its own', () => {
 
 test('no forbidden characters reach the DOM from the new builders', () => {
   const forbidden = [String.fromCharCode(0x2014), String.fromCharCode(0x2013), String.fromCharCode(0x2026)];
-  const produced = [core.NO_ANOMALY_LINE, ...core.HEATMAP_DAY_LABELS, ...core.PERIOD_VIEWS.map((view) => view.label)];
+  const produced = [...core.HEATMAP_DAY_LABELS, ...core.PERIOD_VIEWS.map((view) => view.label)];
   for (const view of ['day', 'week', 'month', 'other']) {
-    produced.push(core.periodHint(view), core.periodLabel('2026-08-17', view), core.periodLabel('2026-08', view));
+    produced.push(core.periodLabel('2026-08-17', view), core.periodLabel('2026-08', view));
   }
   produced.push(core.historyNote([day('2026-08-17', { source: 'history' })]));
   produced.push(core.heatmapCellTitle({ day: '2026-08-03', tokens: 1200000, costUSD: 14.2 }));

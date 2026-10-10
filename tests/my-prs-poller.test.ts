@@ -70,6 +70,12 @@ function keepMergeableHarness({ savedState = { keepMergeableKeys: [], keepMergea
   };
 }
 
+async function restartPoller(harness: ReturnType<typeof keepMergeableHarness>) {
+  const poller = harness.createPoller();
+  await poller.tick();
+  return poller;
+}
+
 test('keep mergeable toggles, reports thrown failures, retries when turned on again, survives restart, and retries a new head', async () => {
   const harness = keepMergeableHarness({ fixMergeability: async () => { throw new Error('Repair failed'); } });
   const poller = harness.createPoller();
@@ -87,8 +93,7 @@ test('keep mergeable toggles, reports thrown failures, retries when turned on ag
   await settleRepairs();
   assert.equal(harness.fixes.length, 2);
   await poller.stop();
-  const restarted = harness.createPoller();
-  await restarted.tick();
+  const restarted = await restartPoller(harness);
   assert.equal(harness.fixes.length, 2);
   assert.equal(harness.statuses.at(-1)?.prs[0]?.keepMergeable, true);
   harness.setItems([{ ...node('OPEN'), mergeable: 'CONFLICTING', headRefOid: 'b'.repeat(40) }]);
@@ -243,8 +248,7 @@ test('a repair stopped by shutdown forgets its head attempt so the next poller r
   await poller.stop();
   assert.equal(signals[0].aborted, true);
   assert.deepEqual(harness.savedState(), { keepMergeableKeys: ['Acme/app#1'], keepMergeableAttemptKeys: [], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [] });
-  const restarted = harness.createPoller();
-  await restarted.tick();
+  const restarted = await restartPoller(harness);
   await settleRepairs();
   assert.deepEqual(harness.fixes, [headA, headA]);
   await restarted.stop();
@@ -292,8 +296,7 @@ test('a shutdown during the hand-off push holds the repair head so the next poll
   await poller.stop();
   assert.equal(signals[0].aborted, true);
   assert.deepEqual(harness.savedState(), { keepMergeableKeys: ['Acme/app#1'], keepMergeableAttemptKeys: [headA, repairHead], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [repairHead], keepMergeableAttempts: [] });
-  const restarted = harness.createPoller();
-  await restarted.tick();
+  const restarted = await restartPoller(harness);
   await settleRepairs();
   assert.deepEqual(harness.fixes, [headA, headA]);
   await restarted.stop();
@@ -352,8 +355,7 @@ test('a repair head Glimmervoid pushed is never repaired again even after a rest
   assert.deepEqual(harness.savedState().keepMergeablePushedHeadKeys, [pushedRepairHead]);
   await poller.stop();
   harness.setItems([{ ...node('OPEN'), headRefOid: pushedRepairSha, commits: failingChecks }]);
-  const restarted = harness.createPoller();
-  await restarted.tick();
+  const restarted = await restartPoller(harness);
   await settleRepairs();
   assert.deepEqual(harness.fixes, [headA]);
   harness.setItems([{ ...node('OPEN'), headRefOid: 'c'.repeat(40), commits: failingChecks }]);
@@ -1193,8 +1195,7 @@ test('retryable outcomes persist and retry only once for each changed base acros
     assert.deepEqual(harness.statuses.at(-1)?.prs[0]?.keepMergeableAttempt, { outcome, reason: 'Could not repair this head', at: NOW });
     assert.equal(harness.statuses.at(-1)?.prs[0]?.isKeepMergeableFixInFlight, false);
     await poller.stop();
-    const restarted = harness.createPoller();
-    await restarted.tick();
+    const restarted = await restartPoller(harness);
     await settleRepairs();
     assert.equal(harness.fixes.length, 1);
     for (const [baseIndex, baseRefOid] of ['c'.repeat(40), 'd'.repeat(40)].entries()) {
@@ -1274,8 +1275,7 @@ test('an automatic retry keeps the old failure visible until its own outcome, bl
   assert.equal(harness.statuses.at(-1)?.prs[0]?.isKeepMergeableFixInFlight, true);
   await poller.tick();
   assert.equal(harness.fixes.length, 1);
-  const restarted = harness.createPoller();
-  await restarted.tick();
+  const restarted = await restartPoller(harness);
   assert.equal(harness.fixes.length, 2);
   await restarted.stop();
   await poller.stop();

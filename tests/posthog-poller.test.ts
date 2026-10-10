@@ -160,18 +160,25 @@ const flush = async (n = 20) => {
   for (let i = 0; i < n; i += 1) await new Promise((resolve) => setImmediate(resolve));
 };
 
-test('an issue deferred by a full slot starts on the next poll after the slot frees, once only', async () => {
+function blockedSlotHarness(overrides: HarnessOverrides, blockedIssueId: string) {
   const calls: string[] = [];
-  let finishFirst: (verdict: JobResult) => void = () => { throw new Error('The first investigation has not started'); };
+  let resolveInvestigation: (verdict: JobResult) => void = () => { throw new Error('The first investigation has not started'); };
   const lane = harness({
+    ...overrides,
     maxConcurrentInvestigations: 1,
-    api: { queryIssues: async () => apiOk({ results: [issueRow(), issueRow({ id: 'iss-2', name: 'RangeError: different failure' })] }) },
     spawnInvestigation: ({ issue }) => {
       calls.push(String(issue.issueId));
-      if (issue.issueId === 'iss-1') return new Promise((resolve) => { finishFirst = resolve; });
+      if (issue.issueId === blockedIssueId) return new Promise((resolve) => { resolveInvestigation = resolve; });
       return Promise.resolve({ verdict: 'ROOT_CAUSE' });
     },
   });
+  return { lane, calls, finishFirst: (verdict: JobResult) => resolveInvestigation(verdict) };
+}
+
+test('an issue deferred by a full slot starts on the next poll after the slot frees, once only', async () => {
+  const { lane, calls, finishFirst } = blockedSlotHarness({
+    api: { queryIssues: async () => apiOk({ results: [issueRow(), issueRow({ id: 'iss-2', name: 'RangeError: different failure' })] }) },
+  }, 'iss-1');
   try {
     await lane.poller.start();
     await flush();
@@ -220,18 +227,10 @@ test('an issue first seen below the minimum is investigated when its affected co
 });
 
 test('a deferred regression keeps its trigger across restart and produces no duplicate notification or investigation', async () => {
-  const calls: string[] = [];
-  let finishFirst: (verdict: JobResult) => void = () => { throw new Error('The first investigation has not started'); };
-  const lane = harness({
-    maxConcurrentInvestigations: 1,
+  const { lane, calls, finishFirst } = blockedSlotHarness({
     initialState: { [KEY]: { status: 'resolved', verdict: 'ROOT_CAUSE', investigatedUsers: 8 } },
     api: { queryIssues: async () => apiOk({ results: [issueRow({ id: 'busy', name: 'A separate problem' }), issueRow()] }) },
-    spawnInvestigation: ({ issue }) => {
-      calls.push(String(issue.issueId));
-      if (issue.issueId === 'busy') return new Promise((resolve) => { finishFirst = resolve; });
-      return Promise.resolve({ verdict: 'ROOT_CAUSE' });
-    },
-  });
+  }, 'busy');
   let restarted: Poller | null = null;
   try {
     await lane.poller.start();
@@ -304,23 +303,15 @@ test('entries an older state file left without a verdict are neither investigate
 });
 
 test('a spike deferred by a full slot is dropped once the issue stops spiking, so a freed slot does not investigate it', async () => {
-  const calls: string[] = [];
   let isSpiking = true;
   let affectedUsers = 30;
-  let finishFirst: (verdict: JobResult) => void = () => { throw new Error('The first investigation has not started'); };
-  const lane = harness({
-    maxConcurrentInvestigations: 1,
+  const { lane, calls, finishFirst } = blockedSlotHarness({
     initialState: { [KEY]: { status: 'active', verdict: 'ROOT_CAUSE', investigatedUsers: 8 } },
     api: {
       queryIssues: async () => apiOk({ results: [issueRow({ id: 'busy', name: 'A separate problem' }), issueRow({ aggregations: { occurrences: 120, users: affectedUsers } })] }),
       listSpikeEvents: async () => apiOk({ results: isSpiking ? [{ issue_id: 'iss-1', timestamp: '2099-01-01T00:00:00Z' }] : [] }),
     },
-    spawnInvestigation: ({ issue }) => {
-      calls.push(String(issue.issueId));
-      if (issue.issueId === 'busy') return new Promise((resolve) => { finishFirst = resolve; });
-      return Promise.resolve({ verdict: 'ROOT_CAUSE' });
-    },
-  });
+  }, 'busy');
   try {
     await lane.poller.start();
     await flush();
@@ -343,22 +334,14 @@ test('a spike deferred by a full slot is dropped once the issue stops spiking, s
 });
 
 test('a diagnosed issue whose regression waits behind a full slot keeps that regression through a later spike and is investigated once', async () => {
-  const calls: string[] = [];
   let isSpiking = false;
-  let finishFirst: (verdict: JobResult) => void = () => { throw new Error('The first investigation has not started'); };
-  const lane = harness({
-    maxConcurrentInvestigations: 1,
+  const { lane, calls, finishFirst } = blockedSlotHarness({
     initialState: { [KEY]: { status: 'resolved', verdict: 'ROOT_CAUSE', investigatedUsers: 8 } },
     api: {
       queryIssues: async () => apiOk({ results: [issueRow({ id: 'busy', name: 'A separate problem' }), issueRow()] }),
       listSpikeEvents: async () => apiOk({ results: isSpiking ? [{ issue_id: 'iss-1', timestamp: '2099-01-01T00:00:00Z' }] : [] }),
     },
-    spawnInvestigation: ({ issue }) => {
-      calls.push(String(issue.issueId));
-      if (issue.issueId === 'busy') return new Promise((resolve) => { finishFirst = resolve; });
-      return Promise.resolve({ verdict: 'ROOT_CAUSE' });
-    },
-  });
+  }, 'busy');
   try {
     await lane.poller.start();
     await flush();
@@ -385,22 +368,14 @@ test('a diagnosed issue whose regression waits behind a full slot keeps that reg
 });
 
 async function investigationsAfterASpikeBehindAFullSlotEnds(initialState: Record<string, unknown>): Promise<string[]> {
-  const calls: string[] = [];
   let isSpiking = true;
-  let finishFirst: (verdict: JobResult) => void = () => { throw new Error('The first investigation has not started'); };
-  const lane = harness({
-    maxConcurrentInvestigations: 1,
+  const { lane, calls, finishFirst } = blockedSlotHarness({
     initialState,
     api: {
       queryIssues: async () => apiOk({ results: [issueRow({ id: 'busy', name: 'A separate problem' }), issueRow()] }),
       listSpikeEvents: async () => apiOk({ results: isSpiking ? [{ issue_id: 'iss-1', timestamp: '2099-01-01T00:00:00Z' }] : [] }),
     },
-    spawnInvestigation: ({ issue }) => {
-      calls.push(String(issue.issueId));
-      if (issue.issueId === 'busy') return new Promise((resolve) => { finishFirst = resolve; });
-      return Promise.resolve({ verdict: 'ROOT_CAUSE' });
-    },
-  });
+  }, 'busy');
   try {
     await lane.poller.start();
     await flush();

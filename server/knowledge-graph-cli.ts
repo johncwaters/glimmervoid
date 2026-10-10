@@ -7,7 +7,7 @@ import { runKnowledgeGraphCli } from '../knowledge-graph/cli.ts';
 import { BrowserConfig } from '../shared/contracts/config.ts';
 import { execFileSync } from './child-process-safe.ts';
 import { decideConfigPath, glimmervoidHomeDir } from './core/config-path-core.ts';
-import { errorMessage } from './core/text-core.ts';
+import { errorMessage } from '../shared/text.ts';
 import { resolvePackageBin } from './runtime-paths.ts';
 
 const COHERENCE_TIMEOUT_MS = 30_000;

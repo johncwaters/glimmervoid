@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  attentionOrder, nextAttentionKey, caughtUpSelectionView, planActionReply, viewerThreadsText, detailThreadItems, caughtUpDetail, postedOutcome, queueRowGlyph, queueRowExceptionReason, commentCountText, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, attentionStatusLabel, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
+  attentionOrder, nextAttentionKey, caughtUpSelectionView, planActionReply, viewerThreadsText, detailThreadItems, caughtUpDetail, postedOutcome, queueRowGlyph, queueRowExceptionReason, commentCountText, classifyReviewPriority, aboutPrParagraphs, isReviewNeeded, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, buildActionRequest, withReviewerNote, chooseSelectedReviewKey, commentLocation, shortCommentLocation, emptyStateText, laneNotice, githubReviewItems, githubReviewTitle, githubReviewTone, groupDrafts, hasAnyRow, inFlightElapsedText, inFlightProgressText, isInFlightProgressOnlyChange,
   parseInlineSegments, parseReviewComment, reviewCommentPreview, queueRowTitle, queueRowRefLabel, hasMultipleQueueRepos, readyAttentionSignature, readyRowSignature, detailHeadingSignature, reviewProgressSteps,
   threadBodyOverflowsPreview, THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES,
-  commentSeverity, withoutComment, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
+  commentSeverity, LEGACY_SUMMARY_HINT, hasRequeueFooter, detailActionLayout, isIncludedByDefault, detailMetaText, viewerApprovalContext, viewerApprovalNotice, reviewScopeTitle, coverageSummaryText, coverageDisclosureHeading, queuedDetailText,
 } from '../public/team-review-view-core.ts';
 import { answeredViewerThreads, THREAD_PLACEHOLDER_ERROR } from '../server/core/team-review-threads-core.ts';
 import { threadNode } from './helpers/team-review-thread-fixture.ts';
@@ -268,9 +268,7 @@ test('the action request pins the reviewed head and carries only the remaining c
     { path: 'src/a.ts', line: 3, side: 'RIGHT' as const, body: 'first', severity: 'HIGH' as const },
     { path: 'src/a.ts', line: 9, side: 'LEFT' as const, body: 'second', severity: 'LOW' as const },
   ];
-  const remaining = withoutComment(comments, 0);
-  assert.deepEqual(remaining, [comments[1]]);
-  assert.equal(comments.length, 2);
+  const remaining = [comments[1]];
   assert.deepEqual(buildActionRequest(draft(1, { comments }), 'approve', 'edited body', remaining), {
     key: 'Acme/app#1', head: HEAD, action: 'approve', body: 'edited body', comments: [{ path: 'src/a.ts', line: 9, side: 'LEFT', body: 'second' }],
   });
@@ -343,7 +341,6 @@ test('low-severity inline comments start excluded and every other comment starts
 test('attention rows explain a stale draft and surface the error of a failed one', () => {
   assert.equal(attentionDetail(draft(1, { status: 'stale' })), 'Out of date. Automatic review runs at the next poll after the configured wait. Queue review bypasses the wait.');
   assert.equal(attentionDetail(draft(1, { status: 'error', error: 'no result file' })), 'no result file');
-  assert.equal(attentionStatusLabel('discarded'), 'discarded');
   assert.equal(attentionDetail(draft(1, { status: 'discarded' })), 'Not reviewed again until queued.');
 });
 

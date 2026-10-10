@@ -10,19 +10,27 @@ import { connectControl, controlDeps, createControlServer } from './helpers/cont
 import { plainSession } from './helpers/fake-session.ts';
 import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
 
+function createUpdateCheck(overrides: Pick<Parameters<typeof createBackendUpdateCheck>[0], 'checkForUpdate'> & Partial<Parameters<typeof createBackendUpdateCheck>[0]>) {
+  return createBackendUpdateCheck({
+    config: { checkForUpdates: true },
+    currentVersion: '0.16.0',
+    getControlClientCount: () => 0,
+    broadcastControl: () => {},
+    logger: { log: () => {} },
+    ...overrides,
+  });
+}
+
 const UPDATE_RECHECK_MS = 24 * 60 * 60 * 1000;
 
 test('settings start and cancel automatic update checks without duplicate timers', async (context) => {
   context.mock.timers.enable({ apis: ['setInterval'] });
   const config = { checkForUpdates: false };
   let checksRun = 0;
-  const updateCheck = createBackendUpdateCheck({
+  const updateCheck = createUpdateCheck({
     config,
-    currentVersion: '0.16.0',
     checkForUpdate: async () => { checksRun += 1; return null; },
     getControlClientCount: () => 1,
-    broadcastControl: () => {},
-    logger: { log: () => {} },
   });
   context.after(() => updateCheck.stop());
   updateCheck.start();
@@ -54,13 +62,10 @@ test('scheduled update checks read the current opt-out while manual checks remai
   context.mock.timers.enable({ apis: ['setInterval'] });
   const config = { checkForUpdates: true };
   let checksRun = 0;
-  const updateCheck = createBackendUpdateCheck({
+  const updateCheck = createUpdateCheck({
     config,
-    currentVersion: '0.16.0',
     checkForUpdate: async () => { checksRun += 1; return null; },
     getControlClientCount: () => 1,
-    broadcastControl: () => {},
-    logger: { log: () => {} },
   });
   context.after(() => updateCheck.stop());
   updateCheck.start();
@@ -154,14 +159,9 @@ test('update-progress replays the latest journal', () => {
 
 test('getStatus projects the latest journal summary', async () => {
   const journal = makeJournal();
-  const updateCheck = createBackendUpdateCheck({
-    config: { checkForUpdates: true },
-    currentVersion: '0.16.0',
+  const updateCheck = createUpdateCheck({
     checkForUpdate: async () => makeUpdateStatus('0.17.0'),
     getUpdateJournal: () => journal,
-    getControlClientCount: () => 0,
-    broadcastControl: () => {},
-    logger: { log: () => {} },
   });
   await updateCheck.checkNow();
   journal.state = 'running';
@@ -178,41 +178,29 @@ test('getStatus projects the latest journal summary', async () => {
 
 test('the recorded status carries the preflight verdict instead of leaving it to the browser', async () => {
   const journal = makeJournal();
-  const updateCheck = createBackendUpdateCheck({
+  const updateCheck = createUpdateCheck({
     config: { checkForUpdates: true, updateChannel: 'release' },
-    currentVersion: '0.16.0',
     platform: 'linux',
     checkForUpdate: async () => makeCloneStatus(),
     getUpdateJournal: () => journal,
-    getControlClientCount: () => 0,
-    broadcastControl: () => {},
-    logger: { log: () => {} },
   });
   assert.equal((await updateCheck.checkNow()).applyRefusal, null);
   assert.equal(updateCheck.getStatus()?.applyRefusal, null);
 
-  const dirty = createBackendUpdateCheck({
+  const dirty = createUpdateCheck({
     config: { checkForUpdates: true, updateChannel: 'release' },
-    currentVersion: '0.16.0',
     platform: 'linux',
     checkForUpdate: async () => makeCloneStatus({ isTreeClean: false }),
-    getControlClientCount: () => 0,
-    broadcastControl: () => {},
-    logger: { log: () => {} },
   });
   assert.deepEqual((await dirty.checkNow()).applyRefusal, {
     reason: 'dirty-tree',
     message: 'Commit or discard the checkout changes before updating. Check for updates again.',
   });
 
-  const windows = createBackendUpdateCheck({
+  const windows = createUpdateCheck({
     config: { checkForUpdates: true, updateChannel: 'release' },
-    currentVersion: '0.16.0',
     platform: 'win32',
     checkForUpdate: async () => makeCloneStatus({ platform: 'win32' }),
-    getControlClientCount: () => 0,
-    broadcastControl: () => {},
-    logger: { log: () => {} },
   });
   assert.equal((await windows.checkNow()).applyRefusal?.reason, 'unsupported-platform');
 });
@@ -221,16 +209,13 @@ test('the apply refusal tracks the lane and re-broadcasts the status when it cha
   const journal = makeJournal();
   let restartRequested = false;
   const broadcasts: ControlMessageRecord[] = [];
-  const updateCheck = createBackendUpdateCheck({
+  const updateCheck = createUpdateCheck({
     config: { checkForUpdates: true, updateChannel: 'release' },
-    currentVersion: '0.16.0',
     platform: 'linux',
     checkForUpdate: async () => makeCloneStatus(),
     getUpdateJournal: () => journal,
     isRestartRequested: () => restartRequested,
-    getControlClientCount: () => 0,
     broadcastControl: (message) => { broadcasts.push(message); },
-    logger: { log: () => {} },
   });
   await updateCheck.checkNow();
   assert.equal(broadcasts.length, 1);
@@ -271,9 +256,7 @@ test('every check broadcasts update-status while banner logging stays deduplicat
   const results = [makeUpdateStatus('0.17.0'), makeUpdateStatus('0.17.0'), makeUpdateStatus('0.18.0')];
   let checksRun = 0;
   let logs = 0;
-  const updateCheck = createBackendUpdateCheck({
-    config: { checkForUpdates: true },
-    currentVersion: '0.16.0',
+  const updateCheck = createUpdateCheck({
     checkForUpdate: async () => results[checksRun++] ?? null,
     getControlClientCount: () => 1,
     broadcastControl: (message) => { broadcasts.push(message); },
@@ -299,13 +282,9 @@ test('every check broadcasts update-status while banner logging stays deduplicat
 test('up-to-date and failed checks are both recorded and broadcast', async () => {
   const broadcasts: ControlMessageRecord[] = [];
   const results: Array<UpdateStatus | null> = [makeUpdateStatus('0.16.0'), null];
-  const updateCheck = createBackendUpdateCheck({
-    config: { checkForUpdates: true },
-    currentVersion: '0.16.0',
+  const updateCheck = createUpdateCheck({
     checkForUpdate: async () => results.shift() ?? null,
-    getControlClientCount: () => 0,
     broadcastControl: (message) => { broadcasts.push(message); },
-    logger: { log: () => {} },
   });
   assert.equal((await updateCheck.checkNow()).updateAvailable, false);
   assert.equal((await updateCheck.checkNow()).reason, 'update-check-failed');
@@ -322,13 +301,8 @@ function settle(): Promise<void> {
 test('a recheck is skipped while no control client is connected', async (t) => {
   t.mock.timers.enable({ apis: ['setInterval'] });
   let checksRun = 0;
-  const updateCheck = createBackendUpdateCheck({
-    config: { checkForUpdates: true },
-    currentVersion: '0.16.0',
+  const updateCheck = createUpdateCheck({
     checkForUpdate: async () => { checksRun += 1; return null; },
-    getControlClientCount: () => 0,
-    broadcastControl: () => {},
-    logger: { log: () => {} },
   });
 
   updateCheck.start();
@@ -343,16 +317,12 @@ test('a recheck is skipped while no control client is connected', async (t) => {
 test('checkNow forces ttl zero and returns the in-flight promise', async () => {
   let release = (_status: UpdateStatus): void => { throw new Error('the check did not expose its resolver'); };
   const seenTtls: Array<number | undefined> = [];
-  const updateCheck = createBackendUpdateCheck({
+  const updateCheck = createUpdateCheck({
     config: { checkForUpdates: true, updateChannel: 'release' },
-    currentVersion: '0.16.0',
     checkForUpdate: (options) => {
       seenTtls.push(options.ttlMs);
       return new Promise((resolve) => { release = resolve; });
     },
-    getControlClientCount: () => 0,
-    broadcastControl: () => {},
-    logger: { log: () => {} },
   });
   const first = updateCheck.checkNow();
   const second = updateCheck.checkNow();
@@ -368,16 +338,12 @@ test('changing updateChannel clears status and triggers a forced check', async (
     updateChannel: 'release',
   };
   const channels: string[] = [];
-  const updateCheck = createBackendUpdateCheck({
+  const updateCheck = createUpdateCheck({
     config,
-    currentVersion: '0.16.0',
     checkForUpdate: async (options) => {
       channels.push(options.updateChannel);
       return { ...makeUpdateStatus('0.17.0'), channel: options.updateChannel };
     },
-    getControlClientCount: () => 0,
-    broadcastControl: () => {},
-    logger: { log: () => {} },
   });
   await updateCheck.checkNow();
   config.updateChannel = 'main';
@@ -393,16 +359,13 @@ test('a channel change with update checks off resets status without fetching and
     updateChannel: 'release',
   };
   const channels: string[] = [];
-  const updateCheck = createBackendUpdateCheck({
+  const updateCheck = createUpdateCheck({
     config,
-    currentVersion: '0.16.0',
     checkForUpdate: async (options) => {
       channels.push(options.updateChannel);
       return { ...makeUpdateStatus('0.17.0'), channel: options.updateChannel };
     },
     getControlClientCount: () => 1,
-    broadcastControl: () => {},
-    logger: { log: () => {} },
   });
   await updateCheck.checkNow();
   assert.equal(updateCheck.getStatus()?.channel, 'release');
@@ -423,16 +386,13 @@ test('turning update checks off drops a channel refresh queued behind a running 
   };
   const channels: string[] = [];
   const releases: Array<(status: UpdateStatus) => void> = [];
-  const updateCheck = createBackendUpdateCheck({
+  const updateCheck = createUpdateCheck({
     config,
-    currentVersion: '0.16.0',
     checkForUpdate: (options) => {
       channels.push(options.updateChannel);
       return new Promise((resolve) => { releases.push(resolve); });
     },
     getControlClientCount: () => 1,
-    broadcastControl: () => {},
-    logger: { log: () => {} },
   });
   context.after(() => updateCheck.stop());
   const running = updateCheck.checkNow();
@@ -613,16 +573,13 @@ test('a channel change queued during a check never starts another one after stop
   const channels: string[] = [];
   const broadcasts: ControlMessageRecord[] = [];
   let release = (_status: UpdateStatus): void => { throw new Error('the check did not expose its resolver'); };
-  const updateCheck = createBackendUpdateCheck({
+  const updateCheck = createUpdateCheck({
     config,
-    currentVersion: '0.16.0',
     checkForUpdate: (options) => {
       channels.push(options.updateChannel);
       return new Promise((resolve) => { release = resolve; });
     },
-    getControlClientCount: () => 0,
     broadcastControl: (message) => { broadcasts.push(message); },
-    logger: { log: () => {} },
   });
   const first = updateCheck.checkNow();
   config.updateChannel = 'main';
