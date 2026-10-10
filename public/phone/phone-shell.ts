@@ -455,10 +455,6 @@ export function isPhoneShellActive() {
   return active;
 }
 
-export function isPhoneScreenActive(screenId: string) {
-  return active && uiState.snapshot().phoneScreen === screenId;
-}
-
 export function getPhoneSessionId() {
   return active && terminalScreen ? terminalScreen.getSessionId() : null;
 }

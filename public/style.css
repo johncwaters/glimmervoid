@@ -1941,7 +1941,7 @@ body {
   color: var(--text-muted);
 }
 
-.radar-view {
+.view-panel {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -1952,6 +1952,13 @@ body {
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-dim);
+}
+
+html[data-layout="phone"] .view-panel {
+  max-width: var(--phone-panel-max-width, var(--content-max));
+  padding: var(--phone-panel-padding, 14px 12px 24px);
+  overflow-x: var(--phone-panel-overflow-x, auto);
+  font-size: 14px;
 }
 
 .radar-content {
@@ -2562,17 +2569,14 @@ a.radar-issue-title:hover {
 }
 
 .pr-view {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 0;
   overflow: hidden;
-  width: 100%;
-  max-width: var(--content-max);
-  margin: 0 auto;
   padding: 0 clamp(12px, 2vw, 32px);
-  font-family: var(--font-mono);
+  font-size: inherit;
   color: var(--text);
+  --phone-panel-padding: 0 12px 32px;
+  --phone-panel-overflow-x: hidden;
 }
 .pr-view[hidden] { display: none; }
 .pr-mode-root { display: flex; flex: 1; flex-direction: column; min-height: 0; }
@@ -3140,18 +3144,6 @@ a.pr-link:hover { color: var(--text-head); text-decoration: underline; }
 .pr-step-detail { min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pr-attention-detail { padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); color: var(--text); font-size: 12px; line-height: 1.6; }
 
-.bench-view {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  width: 100%;
-  max-width: var(--content-max);
-  margin: 0 auto;
-  padding: clamp(16px, 2.5vw, 36px) clamp(12px, 2vw, 32px) 48px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-dim);
-}
 
 .bench-content {
   max-width: 1080px;
@@ -3160,6 +3152,8 @@ a.pr-link:hover { color: var(--text-head); text-decoration: underline; }
   flex-direction: column;
   gap: 18px;
 }
+
+.bench-view { --phone-panel-max-width: none; }
 
 .bench-section,
 .bench-suite {
@@ -3282,18 +3276,6 @@ a.pr-link:hover { color: var(--text-head); text-decoration: underline; }
   text-decoration: underline dotted;
 }
 
-.issues-view {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  width: 100%;
-  max-width: var(--content-max);
-  margin: 0 auto;
-  padding: clamp(16px, 2.5vw, 36px) clamp(12px, 2vw, 32px) 48px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-dim);
-}
 
 .issues-content {
   max-width: 1080px;
@@ -3480,18 +3462,6 @@ a.issue-title:hover {
   gap: 6px;
 }
 
-.hooks-view {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  width: 100%;
-  max-width: var(--content-max);
-  margin: 0 auto;
-  padding: clamp(16px, 2.5vw, 36px) clamp(12px, 2vw, 32px) 48px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-dim);
-}
 
 .hooks-content {
   max-width: 1080px;
@@ -3844,11 +3814,10 @@ a.issue-title:hover {
   color: var(--text-muted);
 }
 
-html[data-layout="phone"] .hooks-view {
-  max-width: none;
-  padding: 12px 10px 24px;
-  overflow-x: hidden;
-  font-size: 14px;
+.hooks-view {
+  --phone-panel-max-width: none;
+  --phone-panel-padding: 12px 10px 24px;
+  --phone-panel-overflow-x: hidden;
 }
 
 html[data-layout="phone"] .hooks-content { width: 100%; max-width: none; gap: 16px; }
@@ -3935,18 +3904,6 @@ html[data-layout="phone"] .hooks-editor-error { flex-basis: 100%; font-size: 12p
 html[data-layout="phone"] .hooks-editor-shortcut { display: none; }
 html[data-layout="phone"] .hooks-editor-footer .btn-dialog { flex: 1 1 0; min-height: 44px; font-size: 14px; }
 
-.trace-view {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  width: 100%;
-  max-width: var(--content-max);
-  margin: 0 auto;
-  padding: clamp(16px, 2.5vw, 36px) clamp(12px, 2vw, 32px) 48px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-dim);
-}
 
 .trace-content {
   max-width: 1080px;
@@ -4238,11 +4195,10 @@ html[data-layout="phone"] .hooks-editor-footer .btn-dialog { flex: 1 1 0; min-he
 .trace-copy:hover { color: var(--text-head); border-color: var(--accent); }
 .trace-copy-status { font-size: 11px; color: var(--text-muted); }
 
-html[data-layout="phone"] .trace-view {
-  max-width: none;
-  padding: 12px 10px 24px;
-  overflow-x: hidden;
-  font-size: 14px;
+.trace-view {
+  --phone-panel-max-width: none;
+  --phone-panel-padding: 12px 10px 24px;
+  --phone-panel-overflow-x: hidden;
 }
 
 html[data-layout="phone"] .trace-content { width: 100%; max-width: none; gap: 14px; }
@@ -4261,18 +4217,6 @@ html[data-layout="phone"] .trace-copy { min-height: 44px; padding: 8px 14px; fon
 html[data-layout="phone"] .trace-load-earlier { min-height: 44px; padding: 8px 16px; font-size: 14px; }
 html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
 
-.usage-view {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  width: 100%;
-  max-width: var(--content-max);
-  margin: 0 auto;
-  padding: clamp(16px, 2.5vw, 36px) clamp(12px, 2vw, 32px) 48px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-dim);
-}
 
 .usage-content {
   max-width: 1240px;
@@ -5032,18 +4976,6 @@ html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: 12px; }
   background: var(--accent);
 }
 
-.visions-view {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  width: 100%;
-  max-width: var(--content-max);
-  margin: 0 auto;
-  padding: clamp(16px, 2.5vw, 36px) clamp(12px, 2vw, 32px) 48px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-dim);
-}
 
 .visions-content {
   max-width: 1080px;
@@ -6191,7 +6123,7 @@ html[data-compact-status] .focus-pill-label { display: none; }
 
 .app-sidebar :is(.review-icon-button, .review-header-tab, .review-btn) { min-height: 32px; min-width: 32px; }
 .review-sidebar-rail { display: none; }
-html:not([data-layout="phone"]) body[data-active-view="prs"] #review-sidebar { display: none; }
+html:not([data-layout="phone"]) body[data-review-sidebar-hidden="true"] #review-sidebar { display: none; }
 html:not([data-layout="phone"]) .app-sidebar[data-collapsed] { flex-basis: 44px; }
 html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > :not(.review-sidebar-rail) { display: none; }
 html:not([data-layout="phone"]) .app-sidebar[data-collapsed] > .review-sidebar-rail {
@@ -7880,7 +7812,6 @@ html[data-layout="phone"] .review-sidebar-body { overscroll-behavior: contain; }
 .phone-settings > .settings-view { flex: 1 1 auto; min-height: 0; }
 .phone-settings .settings-view-content { overscroll-behavior: contain; }
 
-html[data-layout="phone"] .usage-view { padding: 14px 12px 24px; font-size: 14px; }
 html[data-layout="phone"] .usage-content { gap: 24px; }
 html[data-layout="phone"] .usage-band,
 html[data-layout="phone"] .usage-band-col { gap: 24px; }
@@ -7915,11 +7846,10 @@ html[data-layout="phone"] .usage-block-label { min-width: 11ch; }
 
 html[data-layout="phone"] .usage-model-cell,
 html[data-layout="phone"] .usage-session-cell { max-width: 28ch; min-width: 18ch; white-space: normal; overflow-wrap: break-word; }
-html[data-layout="phone"] .visions-view {
-  max-width: none;
-  padding: 14px 12px 24px;
-  font-size: 12px;
+.visions-view {
+  --phone-panel-max-width: none;
 }
+html[data-layout="phone"] .visions-view { font-size: 12px; }
 html[data-layout="phone"] .visions-content { gap: 18px; }
 html[data-layout="phone"] .visions-intent { padding: 12px; }
 html[data-layout="phone"] .visions-intent-head,
@@ -7934,10 +7864,6 @@ html[data-layout="phone"] .visions-finding { grid-template-columns: minmax(44px,
 html[data-layout="phone"] .visions-activity-row { grid-template-columns: minmax(44px, auto) minmax(42px, auto) minmax(0, 1fr); gap: 6px; }
 html[data-layout="phone"] .visions-activity-summary { grid-column: 1 / -1; }
 
-html[data-layout="phone"] .radar-view {
-  padding: 14px 12px 24px;
-  font-size: 14px;
-}
 html[data-layout="phone"] .radar-content { gap: 22px; }
 html[data-layout="phone"] .radar-section { gap: 10px; }
 html[data-layout="phone"] .radar-section-head { flex-wrap: wrap; gap: 2px 8px; }
@@ -8035,7 +7961,7 @@ html[data-layout="phone"] .radar-investigation-project {
   overflow-wrap: anywhere;
 }
 
-html[data-layout="phone"] .pr-view { display: block; overflow-y: auto; padding: 0 12px 32px; }
+html[data-layout="phone"] .pr-view { display: block; overflow-y: auto; font-size: inherit; }
 html[data-layout="phone"] .pr-view[hidden] { display: none; }
 html[data-layout="phone"] .pr-mode-root { display: block; }
 html[data-layout="phone"] .pr-mode-root[hidden] { display: none; }
@@ -8063,10 +7989,6 @@ html[data-layout="phone"] .pr-progress-tracker { gap: 6px; }
 html[data-layout="phone"] .pr-progress-stage { font-size: 11px; }
 html[data-layout="phone"] .pr-step { grid-template-columns: 5ch 8ch minmax(0, 1fr); gap: 6px; }
 
-html[data-layout="phone"] .issues-view {
-  padding: 14px 12px 24px;
-  font-size: 14px;
-}
 html[data-layout="phone"] .issues-project { padding: 12px; }
 html[data-layout="phone"] .issue-row { grid-template-columns: 1fr; gap: 4px; }
 html[data-layout="phone"] .issues-project-picker { min-width: 0; flex: 1 1 160px; }
@@ -9031,7 +8953,6 @@ html:not([data-layout="phone"]) .pr-columns[data-queue-collapsed] .reviews-refre
   font-family: var(--font-mono);
 }
 .calm-view[hidden], [data-layout="phone"] #view-calm, [data-layout="phone"] #tab-calm { display: none; }
-html:not([data-layout="phone"]) body[data-active-view="calm"] #review-sidebar { display: none; }
 .calm-field { display: flex; flex-direction: column; min-height: 100%; }
 html:not([data-layout="phone"]) .calm-field { height: 100%; }
 html:not([data-layout="phone"]) .calm-home { min-height: 0; container-type: size; }
@@ -9157,12 +9078,15 @@ html[data-layout="phone"] .phone-calm .calm-panel-header .calm-link { align-self
 }
 
 .factory-floor {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
+  width: auto;
+  max-width: none;
+  margin: 0;
   padding: 16px 24px 32px;
+  font-size: inherit;
   color: var(--text);
+  --phone-panel-max-width: none;
 }
+html[data-layout="phone"] .factory-floor { font-size: inherit; }
 .factory-content { max-width: 1500px; margin-inline: auto; font-size: 12px; }
 .factory-connection { height: 20px; margin: 0 0 16px; color: var(--text-muted); font-size: 11px; }
 .factory-projects { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }

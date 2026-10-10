@@ -5,6 +5,7 @@ import { STATES } from '#shared/states.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { escapeMarkup } from '#shared/escape-markup.ts';
 import { el } from '../dom-helpers.ts';
+import type { CardOptions } from './card-options-core.ts';
 import type { SessionUi } from './card-registry.ts';
 import { findSessionUi, sessionUIs } from './card-registry.ts';
 import { showErrorToast } from './toast.ts';
@@ -52,16 +53,7 @@ function buildTagBadge({ cls, text = '', title, ariaLabel, ariaHidden }: TagBadg
   return badge;
 }
 
-export interface CardOptions {
-  taskTitle?: string | null;
-  taskTitleIsCustom?: boolean;
-  skipPerms?: boolean;
-  saneYolo?: boolean;
-  worktree?: boolean;
-  workspace?: boolean;
-  path?: unknown;
-  stateSince?: unknown;
-}
+export type { CardOptions };
 
 function paintPermsBadge(permsBadge: HTMLElement, saneYolo: boolean) {
   permsBadge.textContent = saneYolo ? 'SANE YOLO' : 'YOLO';

@@ -1,6 +1,6 @@
 import '@xterm/xterm/css/xterm.css';
 import './tailwind.css';
-import { activateCalmView, clearQueueOrigin, deactivateCalmView, mountCalmView, mountNowPeek, openNextQueuePanel, openSelectedPanelTerminal, refreshCalmView, refreshNowPeek, applyCalmSessionDiff, applyCalmTraceResponse, applyCalmError } from './calm/calm-view.ts';
+import { clearQueueOrigin, mountNowPeek, openNextQueuePanel, openSelectedPanelTerminal, refreshCalmView, refreshNowPeek, applyCalmSessionDiff, applyCalmTraceResponse, applyCalmError } from './calm/calm-view.ts';
 
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { shouldShowServerAction } from '#shared/client-trust.ts';
@@ -13,37 +13,37 @@ import { checkControlLiveness, connectControl, onControlMessage, sendControlMsg,
 import { createAddSessionDialog } from './dialogs.ts';
 import { observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers.ts';
 import { routeExternalAnchorsThroughHost } from './external-link.ts';
-import { availableSurfacesFromSettings } from './feature-surfaces-core.ts';
+import type { FeatureSurfaceSettings } from './feature-surfaces-core.ts';
 import { refreshFavicon } from './favicon.ts';
-import { activateFocusView, centerSessionQuietly, deactivateFocusView, focusAdjacentInRail, focusNextAttention, focusNthInRail, getFocusedSessionId, getFocusHeaderAccessorySlot, isFocusActive, mountFocusView, openPlanInFocus, refreshFocusRoster, restoreFocusedSession, setFocusMergeStatus, setFocusRailShown } from './focus-view/focus-view.ts';
+import { centerSessionQuietly, focusAdjacentInRail, focusNextAttention, focusNthInRail, getFocusedSessionId, getFocusHeaderAccessorySlot, isFocusActive, openPlanInFocus, refreshFocusRoster, restoreFocusedSession, setFocusMergeStatus, setFocusRailShown } from './focus-view/focus-view.ts';
 import { initFormFactor, isPhoneLayout, onLayoutChange } from './form-factor.ts';
 import type { HealthSnapshot } from './health-monitor.ts';
 import { applyHealthSnapshot, mountHealthMonitor } from './health-monitor.ts';
-import { acknowledgeVisionsAttention, applyIngestActivity, applyIngestSnapshot, applyVisionsComments, applyVisionsFindings, applyVisionsFix, applyVisionsHand, applyVisionsIntent, applyVisionsSettings, applyVisionsSnapshot, mountVisionsView, refreshVisionsView, setVisionsActivityCallback, setVisionsProjectNames } from './visions-panel.ts';
-import { applyDeleteHookResult, applyHooksReport, applySaveHookResult, mountHooksView, refreshHooksView, requestHooksReport, setHooksRequestSender } from './hooks-panel.ts';
+import { applyIngestActivity, applyIngestSnapshot, applyVisionsComments, applyVisionsFindings, applyVisionsFix, applyVisionsHand, applyVisionsIntent, applyVisionsSettings, applyVisionsSnapshot, setVisionsProjectNames } from './visions-panel.ts';
+import { applyDeleteHookResult, applyHooksReport, applySaveHookResult, setHooksRequestSender } from './hooks-panel.ts';
 import { initNotifications, showDesktopNotification } from './notifications.ts';
 import { phonePanelsFromDesktopViews } from './phone/phone-panels-core.ts';
-import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneScreenActive, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneCalmAvailable, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen } from './phone/phone-shell.ts';
+import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneCalmAvailable, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen } from './phone/phone-shell.ts';
 import { noteKnownProjectPath } from './project-registry.ts';
-import { applyTeamReviewActionResult, applyTeamReviewStatus, setTeamReviewActivityCallback } from './team-review-panel.ts';
+import { applyTeamReviewActionResult, applyTeamReviewStatus } from './team-review-panel.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus } from './my-prs-panel.ts';
-import { applyFactoryConnectionState, applyFactoryState, mountFactoryView } from './factory/factory-view.ts';
-import { applyBenchmarkActionResult, applyBenchmarkConnectionState, applyBenchmarkStatus, mountBenchmarkView, setBenchmarkRequestSender } from './benchmark-panel.ts';
-import { applyIssuesConnectionState, applyIssuesProjects, applyIssuesReport, applyOpenIssueSessionResult, mountIssuesView, setIssuesRequestSender } from './issues-panel.ts';
+import { applyFactoryState } from './factory/factory-view.ts';
+import { applyBenchmarkActionResult, applyBenchmarkStatus, setBenchmarkRequestSender } from './benchmark-panel.ts';
+import { applyIssuesProjects, applyIssuesReport, applyOpenIssueSessionResult, setIssuesRequestSender } from './issues-panel.ts';
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID, updateBannerText } from './radar-core.ts';
-import { acknowledgePrsViewAttention, mountPrsView } from './prs-view.ts';
-import { acknowledgeRadarAttention, applyInvestigationActivity, applyInvestigationFinished, applyPosthogStatus, mountRadarView, setRadarActivityCallback, setRadarTraceOpener } from './radar-panel.ts';
-import { handleDebugStateRefresh, handleDebugStateResponse, onDebugModeChanged, setSessionSaneYolo } from './session-card/card-dom.ts';
+import { applyInvestigationActivity, applyInvestigationFinished, applyPosthogStatus } from './radar-panel.ts';
+import { handleDebugStateRefresh, handleDebugStateResponse, setSessionSaneYolo } from './session-card/card-dom.ts';
 import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
+import { buildSessionCardOptions } from './session-card/card-options-core.ts';
 import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, refreshTerminalFonts, getSessionCount, getSessionIds, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionEndedTurn, setSessionHasPlan, setSessionMergeStatus, setSessionPostTurn, setSessionPrompt, setSessionUsage, setSessionWakeup, setSessionWorktree, updateAggregateStatus } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { countConnectingTerminals, holdTerminalInputDuringWakeCheck, onTerminalLinkChange, reconnectDataWs, releaseHeldTerminalInput, syncGridOnEngagementEdge } from './session-card/terminal.ts';
 import { showErrorToast } from './session-card/toast.ts';
 import { rebuildWebglGlyphAtlases } from './session-card/webgl-pool.ts';
-import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, clearSettingsUpdateRequest, mountSettingsView, refreshSettingsStatus, resolveSettingsTarget } from './settings-panel.ts';
+import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, clearSettingsUpdateRequest, refreshSettingsStatus, resolveSettingsTarget } from './settings-panel.ts';
 import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
 import { createSettingsLink } from './settings-link.ts';
@@ -52,14 +52,18 @@ import { resolveDashboardShortcut } from './shortcuts-core.ts';
 import type { ResolvedDashboardShortcut } from './shortcuts-core.ts';
 import { applyFlyingAnimals } from './flying-animals.ts';
 import { applyCompactStatusLabels, applySessionUsageChips, applyTheme } from './theme.ts';
-import { applyTraceChanged, applyTraceConnectionState, applyTraceError, applyTraceResponse, mountTraceView, openTraceForSession, refreshTraceView, setTraceNavigate, setTraceRequestSender, setTraceSessions } from './trace-panel.ts';
+import { applyTraceChanged, applyTraceError, applyTraceResponse, setTraceNavigate, setTraceRequestSender, setTraceSessions } from './trace-panel.ts';
 import { shouldShowTelemetryNotice } from './telemetry-notice-core.ts';
 import { getActiveView as getSavedActiveView, getDismissedUpdate, getThemeId, isCompactStatusLabels, isFlyingAnimalsEnabled, isSessionUsageChips, isSoundEnabled, isTelemetryNoticeDismissed, setActiveView, setDismissedUpdate, setSoundEnabled, setTelemetryNoticeDismissed } from './ui-prefs.ts';
 import { getActiveView, uiState } from './ui-state-core.ts';
 import { updateBannerMode } from './updates-view-core.ts';
 import { decideAppReveal, MAX_REVEAL_WAIT_MS } from './app-reveal-core.ts';
 import { whenBundledMonoFontLoads } from './mono-font.ts';
-import { acknowledgeUsageAttention, applyPlanLimits, applyUsageReport, applyUsageSessions, mountUsageView, refreshUsageView, requestUsageReport, setUsageActivityCallback, setUsageRequestSender } from './usage-panel.ts';
+import { applyPlanLimits, applyUsageReport, applyUsageSessions, setUsageRequestSender } from './usage-panel.ts';
+import { createDashboardViews } from './view-registry.ts';
+import type { DashboardView } from './view-registry.ts';
+import { refreshViewOnReason, refreshVisibleViews, viewAvailabilityFromSettings, viewsInTabOrder } from './view-registry-core.ts';
+import type { ViewRefreshReason } from './view-registry-core.ts';
 
 applyTheme(getThemeId());
 applyCompactStatusLabels(isCompactStatusLabels());
@@ -144,11 +148,8 @@ setConnectionStateCallback((state, label) => {
     return;
   }
   showConnectionState(state, label);
-  applyTraceConnectionState(state === 'connected');
   applyPlanConnectionState(state === 'connected');
-  applyIssuesConnectionState(state === 'connected');
-  applyBenchmarkConnectionState(state === 'connected');
-  applyFactoryConnectionState(state === 'connected');
+  for (const viewTab of VIEW_TABS) viewTab.onConnectionChange?.(state === 'connected');
 
   if (state === 'connected') {
     if (shutdownScreen.classList.contains('active')) {
@@ -165,17 +166,12 @@ setConnectionStateCallback((state, label) => {
     revealAppWhenTerminalsLive();
     sendFocusState();
 
-    requestUsageReportIfVisible();
-    requestHooksReportIfVisible();
+    refreshViewsIfVisible('connected');
 
     sendControlRequest('get-settings', {})
       .then((msg) => {
         if (!msg.settings) return;
-        applyTerminalSettings(msg.settings);
-        applySettingsBroadcast(msg.settings);
-        applyVisionsSettings(msg.settings);
-        applySurfaceSettings(msg.settings);
-        syncTelemetryBanner(msg.settings);
+        applyDashboardSettings(msg.settings);
         if (getActiveView() === 'settings') activateSettingsHash(location.hash);
       })
       .catch(() => {});
@@ -222,7 +218,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
     const exists = hasSession(s.id);
     if (exists) applyState(s.id, s.state, s.stateSince);
     if (exists) setSessionSaneYolo(s.id, !!s.saneYolo);
-    if (!exists) createSessionCard(s.id, s.name, s.state, { skipPerms: !!s.dangerouslySkipPermissions, saneYolo: !!s.saneYolo, worktree: !!s.isWorktree, workspace: !!s.isWorkspace, path: s.path, stateSince: s.stateSince });
+    if (!exists) createSessionCard(s.id, s.name, s.state, buildSessionCardOptions(s));
 
     setSessionTaskTitle(s.id, s.taskTitle, s.taskTitleIsCustom);
     setSessionAgent(s.id, s.agent);
@@ -268,7 +264,7 @@ function carryOverClientSessionFields(sessionId: string, previousUi: SessionUi |
 
 function handleStateChange(msg: ServerMessageOf<'state-change'>) {
   if (!hasSession(msg.id)) {
-    createSessionCard(msg.id, msg.session, msg.to, { skipPerms: !!msg.skipPerms, saneYolo: !!msg.saneYolo, stateSince: msg.timestamp });
+    createSessionCard(msg.id, msg.session, msg.to, buildSessionCardOptions({ skipPerms: msg.skipPerms, saneYolo: msg.saneYolo, stateSince: msg.timestamp }));
     refreshFavicon(sessionUIs);
     return;
   }
@@ -282,7 +278,7 @@ function handleStateChange(msg: ServerMessageOf<'state-change'>) {
 
     const path = card ? card.dataset.path : undefined;
     removeSessionCard(msg.id);
-    createSessionCard(msg.id, msg.session, STATES.DORMANT, { skipPerms, saneYolo, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom });
+    createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom }));
     setSessionAgent(msg.id, previousUi?.agent);
     carryOverClientSessionFields(msg.id, previousUi);
     if (isFocusActive()) refreshFocusRoster();
@@ -339,24 +335,8 @@ setTraceRequestSender(sendControlMsg);
 setIssuesRequestSender(sendControlMsg);
 setBenchmarkRequestSender(sendControlMsg);
 
-function isHooksSurfaceVisible() {
-  if (isPhoneShellActive()) return isPhoneScreenActive('hooks');
-  return getActiveView() === 'hooks';
-}
-
-function requestHooksReportIfVisible() {
-  if (!isHooksSurfaceVisible()) return;
-  requestHooksReport();
-}
-
-function isUsageSurfaceVisible() {
-  if (isPhoneShellActive()) return isPhoneScreenActive('usage');
-  return getActiveView() === 'usage';
-}
-
-function requestUsageReportIfVisible() {
-  if (!isUsageSurfaceVisible()) return;
-  requestUsageReport();
+function refreshViewsIfVisible(reason: ViewRefreshReason) {
+  refreshVisibleViews(VIEW_TABS, { isPhoneShellActive: isPhoneShellActive(), activeView: getActiveView(), phoneScreen: uiState.snapshot().phoneScreen }, reason);
 }
 
 const messageHandlers = {
@@ -365,10 +345,9 @@ const messageHandlers = {
   'hooks-report':       (msg) => applyHooksReport(msg),
   'save-hook-result':   (msg) => applySaveHookResult(msg),
   'delete-hook-result': (msg) => applyDeleteHookResult(msg),
-  'hooks-updated':      () => requestHooksReportIfVisible(),
 
   'state-change':       (msg) => handleStateChange(msg),
-  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, saneYolo: !!msg.saneYolo, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, stateSince: msg.stateSince, taskTitle: typeof msg.taskTitle === 'string' ? msg.taskTitle : null, taskTitleIsCustom: msg.taskTitleIsCustom === true }); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-removed':    (msg) => { removeSessionCard(msg.id); forgetReviewSession(msg.id); refreshFavicon(sessionUIs); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); if (isFocusActive()) refreshFocusRoster(); refreshAttentionSurfaces(); },
   'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshAttentionSurfaces(); syncTraceSessionsFromCards(); },
@@ -377,7 +356,7 @@ const messageHandlers = {
     const previousUi = sessionUIs.get(String(msg.id));
     removeSessionCard(msg.id);
     forgetReviewSession(msg.id);
-    createSessionCard(msg.id, msg.session, msg.state, { skipPerms: !!msg.skipPerms, saneYolo: !!msg.saneYolo, worktree: !!msg.worktree, workspace: !!msg.workspace, path: msg.path, stateSince: msg.stateSince, taskTitle: typeof msg.taskTitle === 'string' ? msg.taskTitle : null, taskTitleIsCustom: msg.taskTitleIsCustom === true });
+    createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg));
     setSessionAgent(msg.id, msg.agent);
     carryOverClientSessionFields(msg.id, previousUi);
     refreshFavicon(sessionUIs);
@@ -411,7 +390,7 @@ const messageHandlers = {
   'update-progress':    (msg) => applySettingsUpdateProgress(msg.journal),
   'error':              (msg) => { applyCalmError(msg); clearSettingsUpdateRequest(); applyTraceError(msg); applySessionPlanError(msg); showErrorToast(msg.message, { persist: true }); },
   'session-error':      (msg) => { applySessionPlanError(msg); showErrorToast(`${msg.session}: ${msg.message}`, { persist: true }); },
-  'settings-updated':   (msg) => { if (msg.settings) { applyTerminalSettings(msg.settings); applySettingsBroadcast(msg.settings); applyVisionsSettings(msg.settings); applySurfaceSettings(msg.settings, { isLiveSettingsChange: true }); syncTelemetryBanner(msg.settings); } },
+  'settings-updated':   (msg) => { if (msg.settings) applyDashboardSettings(msg.settings, { isLiveSettingsChange: true }); },
   'health-snapshot':    (msg) => { if (msg.stats) applyHealthSnapshot(msg.stats as HealthSnapshot & ServerMessageOf<'health-snapshot'>['stats']); },
   'posthog-status':     (msg) => applyPosthogStatus(msg),
   'posthog-investigation-activity': (msg) => applyInvestigationActivity(msg),
@@ -425,7 +404,7 @@ const messageHandlers = {
   'team-review-action-result': (msg) => applyTeamReviewActionResult(msg),
   'issues-report':      (msg) => applyIssuesReport(msg),
   'open-issue-session-result': (msg) => applyOpenIssueSessionResult(msg),
-  'usage-sessions':     (msg) => { applyUsageSessionChips(msg.sessions); applyUsageSessions(msg); requestUsageReportIfVisible(); },
+  'usage-sessions':     (msg) => { applyUsageSessionChips(msg.sessions); applyUsageSessions(msg); },
   'usage-report':       (msg) => { applyUsageReport(msg); refreshSettingsStatus(); },
 
   'plan-limits':        (msg) => applyPlanLimits(msg),
@@ -475,6 +454,7 @@ function dispatchControlMessage<Type extends ServerMessage['type']>(message: { [
 
 onControlMessage((msg) => {
   dispatchControlMessage(msg);
+  refreshViewsIfVisible(msg.type);
 });
 
 let updateBannerDismissed = false;
@@ -645,105 +625,23 @@ queryTag(document, '#btn-help', 'button').addEventListener('click', () => {
   openSettings('browser-shortcuts');
 });
 
-const viewCalmEl = queryTag(document, '#view-calm', 'section');
-const tabCalm = queryTag(document, '#tab-calm', 'button');
-const viewFocusEl = queryTag(document, '#view-focus', 'section');
-const viewRadarEl = queryTag(document, '#view-radar', 'section');
-const viewPrsEl = queryTag(document, '#view-prs', 'section');
-const viewIssuesEl = queryTag(document, '#view-issues', 'section');
-const viewUsageEl = queryTag(document, '#view-usage', 'section');
-const viewVisionsEl = queryTag(document, '#view-visions', 'section');
-const viewHooksEl = queryTag(document, '#view-hooks', 'section');
-const viewTraceEl = queryTag(document, '#view-trace', 'section');
-const viewFactoryEl = queryTag(document, '#view-factory', 'section');
-const viewBenchmarksEl = queryTag(document, '#view-benchmarks', 'section');
-const viewSettingsEl = queryTag(document, '#view-settings', 'section');
-const tabFocus = queryTag(document, '#tab-focus', 'button');
-const tabRadar = queryTag(document, '#tab-radar', 'button');
-const tabPrs = queryTag(document, '#tab-prs', 'button');
-const tabIssues = queryTag(document, '#tab-issues', 'button');
-const tabUsage = queryTag(document, '#tab-usage', 'button');
-const tabVisions = queryTag(document, '#tab-visions', 'button');
-const tabHooks = queryTag(document, '#tab-hooks', 'button');
-const tabTrace = queryTag(document, '#tab-trace', 'button');
-const tabFactory = queryTag(document, '#tab-factory', 'button');
-const tabBenchmarks = queryTag(document, '#tab-benchmarks', 'button');
-const tabSettings = queryTag(document, '#tab-settings', 'button');
-const tabRadarActivityEl = queryTag(document, '#tab-radar-activity', 'span');
-const tabPrsActivityEl = queryTag(document, '#tab-prs-activity', 'span');
-const tabUsageActivityEl = queryTag(document, '#tab-usage-activity', 'span');
-const tabVisionsActivityEl = queryTag(document, '#tab-visions-activity', 'span');
-
-setRadarActivityCallback((active) => {
-  tabRadarActivityEl.classList.toggle('active', active);
-  setPhoneScreenAttention('radar', active);
-});
-setTeamReviewActivityCallback((active) => {
-  tabPrsActivityEl.classList.toggle('active', active);
-  setPhoneScreenAttention('prs', active);
-});
-setUsageActivityCallback((active) => {
-  tabUsageActivityEl.classList.toggle('active', active);
-  setPhoneScreenAttention('usage', active);
-});
-setVisionsActivityCallback((level) => {
-  const active = level !== null;
-  tabVisionsActivityEl.classList.toggle('active', active);
-
-  if (!active) tabVisionsActivityEl.removeAttribute('data-attention');
-  if (active) tabVisionsActivityEl.setAttribute('data-attention', level);
-  setPhoneScreenAttention('visions', level);
-});
-
-mountFocusView({
-  rail: document.getElementById('focus-rail'),
-  center: document.getElementById('focus-center'),
-  resizer: document.getElementById('focus-rail-resizer'),
+const VIEW_TABS = createDashboardViews({
+  onRestart: confirmServerRestart,
+  onConfirmUpdateAndRestart: confirmUpdateAndRestart,
+  openTerminal: (id) => { activateView('focus'); centerSessionQuietly(id); },
+  openPlan: (id) => { activateView('focus'); openPlanInFocus(id); },
+  openCalm: () => activateView('calm'),
+  setPhoneAttention: setPhoneScreenAttention,
 });
 
 mountReviewSidebar({ panel: document.getElementById('review-sidebar') });
+for (const viewTab of VIEW_TABS) viewTab.mount(viewTab.el);
 
-mountRadarView(viewRadarEl);
-
-mountPrsView(viewPrsEl);
-
-mountIssuesView(viewIssuesEl);
-
-mountUsageView(viewUsageEl);
-
-mountVisionsView(viewVisionsEl);
-
-mountHooksView(viewHooksEl);
-
-mountTraceView(viewTraceEl);
-
-mountBenchmarkView(viewBenchmarksEl);
-
-mountFactoryView(viewFactoryEl);
-
-mountSettingsView(viewSettingsEl, { onRestart: confirmServerRestart, onConfirmUpdateAndRestart: confirmUpdateAndRestart });
-
-mountCalmView(viewCalmEl, { openTerminal: (id) => { activateView('focus'); centerSessionQuietly(id); }, openPlan: (id) => { activateView('focus'); openPlanInFocus(id); }, openCalm: () => activateView('calm') });
 const focusHeaderAccessorySlot = getFocusHeaderAccessorySlot();
 if (focusHeaderAccessorySlot) mountNowPeek(focusHeaderAccessorySlot);
 uiState.subscribe((_state, changedKeys) => {
   if (changedKeys.includes('focusedSessionId')) refreshFocusNowPeek();
 });
-
-const VIEW_TABS = [
-  { view: 'calm', tab: tabCalm, el: viewCalmEl },
-  { view: 'focus', tab: tabFocus, el: viewFocusEl },
-  { view: 'prs', tab: tabPrs, el: viewPrsEl },
-  { view: 'issues', tab: tabIssues, el: viewIssuesEl },
-  { view: 'usage', tab: tabUsage, el: viewUsageEl },
-  { view: 'radar', tab: tabRadar, el: viewRadarEl },
-  { view: 'visions', tab: tabVisions, el: viewVisionsEl },
-  { view: 'hooks', tab: tabHooks, el: viewHooksEl },
-  { view: 'trace', tab: tabTrace, el: viewTraceEl },
-  { view: 'benchmarks', tab: tabBenchmarks, el: viewBenchmarksEl },
-  { view: 'factory', tab: tabFactory, el: viewFactoryEl },
-  { view: 'settings', tab: tabSettings, el: viewSettingsEl },
-];
 
 function isViewAvailable(view: string) {
   return VIEW_TABS.some((viewTab) => viewTab.view === view && !viewTab.tab.hidden);
@@ -752,25 +650,11 @@ function isViewAvailable(view: string) {
 let shouldPersistActiveView = true;
 let savedViewAwaitingSurface: string | null = null;
 function acknowledgeViewAttention(view: string) {
-  if (view === 'radar') acknowledgeRadarAttention();
-  if (view === 'prs') acknowledgePrsViewAttention();
-  if (view === 'usage') acknowledgeUsageAttention();
-  if (view === 'visions') {
-    acknowledgeVisionsAttention();
-    refreshVisionsView();
-  }
+  VIEW_TABS.find((viewTab) => viewTab.view === view)?.attention?.acknowledge();
 }
 
 function refreshViewOnShow(view: string) {
-  if (view === 'usage') {
-    refreshUsageView();
-    requestUsageReport();
-  }
-  if (view === 'hooks') {
-    refreshHooksView();
-    requestHooksReport();
-  }
-  if (view === 'trace') refreshTraceView();
+  refreshViewOnReason(VIEW_TABS.find((viewTab) => viewTab.view === view), 'shown');
 }
 
 interface ActivateViewOptions {
@@ -787,6 +671,7 @@ function activateView(view: string, { section, setting, persist = true }: Activa
   if (persist) savedViewAwaitingSurface = null;
 
   document.body.dataset.activeView = view;
+  document.body.dataset.reviewSidebarHidden = String(VIEW_TABS.find((viewTab) => viewTab.view === view)?.shouldHideReviewSidebar === true);
 
   if (persist) setActiveView(view);
   for (const v of VIEW_TABS) {
@@ -796,10 +681,8 @@ function activateView(view: string, { section, setting, persist = true }: Activa
     v.tab.tabIndex = selected ? 0 : -1;
   }
 
-  if (prev === 'focus' && view !== 'focus') deactivateFocusView();
-  if (view === 'focus') activateFocusView();
-  if (prev === 'calm' && view !== 'calm') deactivateCalmView();
-  if (view === 'calm') activateCalmView();
+  if (prev !== view) VIEW_TABS.find((viewTab) => viewTab.view === prev)?.deactivate?.();
+  VIEW_TABS.find((viewTab) => viewTab.view === view)?.activate?.();
 
   refreshViewOnShow(view);
   if (prev === 'settings' && view !== 'settings') clearSettingsHash();
@@ -808,16 +691,11 @@ function activateView(view: string, { section, setting, persist = true }: Activa
   refreshFocusNowPeek();
 }
 
-let isTraceSurfaceAvailable = false;
-function setSurfaceAvailable(view: string, isAvailable: boolean) {
-  const viewTab = VIEW_TABS.find((entry) => entry.view === view);
-  if (!viewTab) return;
+function setSurfaceAvailable(viewTab: DashboardView, isAvailable: boolean) {
+  const { view } = viewTab;
   viewTab.tab.hidden = !isAvailable;
   setPhoneScreenAvailable(view, isAvailable);
-  if (view === 'trace') {
-    isTraceSurfaceAvailable = isAvailable;
-    setRadarTraceOpener(isAvailable ? openTraceForSession : null);
-  }
+  viewTab.onAvailabilityChange?.(isAvailable);
   if (isPhoneShellActive()) return;
   if (!isAvailable && getActiveView() === view) activateView('focus');
   if (!isAvailable) return;
@@ -826,25 +704,36 @@ function setSurfaceAvailable(view: string, isAvailable: boolean) {
 }
 
 let lastAppliedCalmSurface: boolean | null = null;
-function applySurfaceSettings(settings: Parameters<typeof availableSurfacesFromSettings>[0], { isLiveSettingsChange = false } = {}) {
-  const surfaces = availableSurfacesFromSettings(settings);
-  const hasOperatorTurnedCalmOn = isLiveSettingsChange && lastAppliedCalmSurface === false && surfaces.calm;
-  lastAppliedCalmSurface = surfaces.calm;
-  isCalmSurfaceAvailable = surfaces.calm;
-  setPhoneCalmAvailable(surfaces.calm);
-  setFocusRailShown(!surfaces.calm);
+function applySurfaceSettings(settings: FeatureSurfaceSettings, { isLiveSettingsChange = false } = {}) {
+  const surfaces = viewAvailabilityFromSettings(VIEW_TABS, settings);
+  const isCalmAvailable = surfaces.find((surface) => surface.view.view === 'calm')?.isAvailable === true;
+  const hasOperatorTurnedCalmOn = isLiveSettingsChange && lastAppliedCalmSurface === false && isCalmAvailable;
+  lastAppliedCalmSurface = isCalmAvailable;
+  isCalmSurfaceAvailable = isCalmAvailable;
+  setPhoneCalmAvailable(isCalmAvailable);
+  setFocusRailShown(!isCalmAvailable);
   refreshFocusNowPeek();
-  for (const [view, isAvailable] of Object.entries(surfaces)) setSurfaceAvailable(view, isAvailable);
+  for (const { view, isAvailable } of surfaces) setSurfaceAvailable(view, isAvailable);
   if (!hasOperatorTurnedCalmOn || getActiveView() !== 'focus' || isPhoneLayout() || resolvePlanTarget(location.hash)) return;
   activateView('calm');
 }
 
-for (const view of Object.keys(availableSurfacesFromSettings(null))) setSurfaceAvailable(view, false);
-onDebugModeChanged((isDebugModeEnabled) => setSurfaceAvailable('trace', isDebugModeEnabled));
-setSurfaceAvailable('trace', false);
+function applyDashboardSettings(settings: FeatureSurfaceSettings, { isLiveSettingsChange = false } = {}) {
+  applyTerminalSettings(settings);
+  applySettingsBroadcast(settings);
+  applyVisionsSettings(settings);
+  applySurfaceSettings(settings, { isLiveSettingsChange });
+  syncTelemetryBanner(settings);
+}
+
+for (const viewTab of VIEW_TABS) {
+  if (!viewTab.gate) continue;
+  setSurfaceAvailable(viewTab, false);
+  if ('subscribe' in viewTab.gate) viewTab.gate.subscribe((isAvailable) => setSurfaceAvailable(viewTab, isAvailable));
+}
 
 setTraceNavigate(() => {
-  if (!isTraceSurfaceAvailable) return;
+  if (!isViewAvailable('trace')) return;
   if (showPhoneScreen('trace')) return;
   activateView('trace');
 });
@@ -891,7 +780,7 @@ if (!initialSettingsTarget && !initialPlanTarget) {
 }
 
 mountPhoneShell({
-  panels: phonePanelsFromDesktopViews(VIEW_TABS.map((viewTab) => ({ view: viewTab.view, label: viewTab.tab.textContent, glyph: viewTab.tab.dataset.phoneGlyph, el: viewTab.el }))),
+  panels: phonePanelsFromDesktopViews(VIEW_TABS),
 
   onScreenShown: (screenId: string) => {
     refreshViewOnShow(screenId);
@@ -913,8 +802,7 @@ mountPhoneShell({
 function applyFormFactorLayout(layout: string) {
   if (layout === 'phone') {
     const carriedSessionId = getFocusedSessionId();
-    deactivateFocusView();
-    deactivateCalmView();
+    for (const viewTab of viewsInTabOrder(VIEW_TABS)) viewTab.deactivate?.();
     clearQueueOrigin();
     refreshFocusNowPeek();
     activatePhoneShell({ sessionId: carriedSessionId ?? undefined });

@@ -8,8 +8,8 @@ const readSource = (relativePath: string) => fs.readFileSync(new URL(relativePat
 test('every desktop view but Focus and Calm becomes a phone More screen, in desktop order', async () => {
   const { phonePanelsFromDesktopViews } = await importCore();
   const panels = phonePanelsFromDesktopViews([
-    { view: 'calm', label: 'Calm', el: 'calm-panel' },
-    { view: 'focus', label: 'Focus', el: 'focus-panel' },
+    { view: 'calm', label: 'Calm', el: 'calm-panel', hasOwnPhoneScreen: true },
+    { view: 'focus', label: 'Focus', el: 'focus-panel', hasOwnPhoneScreen: true },
     { view: 'prs', label: 'Reviews', glyph: '#', el: 'prs-panel' },
     { view: 'factory', label: 'Factory', el: 'factory-panel' },
   ]);
@@ -30,13 +30,20 @@ test('a desktop tab with no glyph of its own gets the first letter of its trimme
 test('the phone shell names no desktop view: its More screens come from the desktop tab list', () => {
   const appSource = readSource('../public/app.ts');
   const phoneShellSource = readSource('../public/phone/phone-shell.ts');
-  const headerTabViews = [...readSource('../public/index.html').matchAll(/class="header-tab" id="tab-([a-z]+)"/g)].map((match) => match[1]);
-  const viewTabsSource = appSource.slice(appSource.indexOf('const VIEW_TABS = ['), appSource.indexOf('function isViewAvailable'));
+  const htmlSource = readSource('../public/index.html');
+  const registrySource = readSource('../public/view-registry.ts');
+  const viewTabsSource = registrySource.slice(registrySource.indexOf('const definitions:'), registrySource.indexOf('const main ='));
   const registeredViews = [...viewTabsSource.matchAll(/\{ view: '([a-z]+)',/g)].map((match) => match[1]);
 
-  assert.ok(headerTabViews.length > 0);
-  assert.deepEqual([...registeredViews].sort(), [...headerTabViews].sort());
-  assert.match(appSource, /panels: phonePanelsFromDesktopViews\(VIEW_TABS\.map\(/);
+  assert.deepEqual(registeredViews, ['calm', 'focus', 'prs', 'issues', 'usage', 'radar', 'visions', 'hooks', 'trace', 'benchmarks', 'factory', 'settings']);
+  assert.match(htmlSource, /id="header-tabs" role="tablist" aria-label="Primary views"/);
+  assert.doesNotMatch(htmlSource, /class="header-tab"/);
+  assert.match(registrySource, /const views = definitions\.map\(\(definition\) =>/);
+  assert.match(registrySource, /const tab = el\('button', 'header-tab', definition\.label\)/);
+  assert.match(registrySource, /tab\.id = `tab-\$\{definition\.view\}`;/);
+  assert.ok(registrySource.includes("queryTag(document, '#header-tabs', 'div').replaceChildren(...viewsInTabOrder(views).map((view) => view.tab));"));
+  assert.match(appSource, /const VIEW_TABS = createDashboardViews\(/);
+  assert.match(appSource, /panels: phonePanelsFromDesktopViews\(VIEW_TABS\)/);
   for (const view of registeredViews) {
     assert.doesNotMatch(phoneShellSource, new RegExp(`'${view}'`), `phone-shell.ts hand-lists the ${view} view`);
   }

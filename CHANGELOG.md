@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Dormant session identity**: worktree badges and workspace review controls stay intact when a session becomes dormant.
+- **Bench on phones**: the Bench screen now uses phone padding, full width and readable text instead of desktop panel styling.
+- **Factory on phones**: the Factory screen now uses phone panel padding instead of desktop spacing.
 - **Git never waits on a password prompt**: every git command Glimmervoid runs in the background, such as repo refreshes, update checks, pull request lookups and change history, now fails right away when a remote asks for credentials, instead of some of them sitting on a prompt nobody can see until they time out.
 - **One loading screen at startup**: opening the dashboard no longer shows the startup loading screen and then a second Connecting screen on each terminal. The loading screen now stays up until your sessions and their terminals are connected, for at most 2.5 seconds, so the dashboard appears ready in one step.
 - **Command output no longer cut off in a pipe**: `glimmervoid` subcommands such as `pair`, `visions` and `agent` could stop after 64 KiB when their output went into a pipe, while still reporting success. They now finish writing before exiting.

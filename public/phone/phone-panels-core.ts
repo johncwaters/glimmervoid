@@ -1,11 +1,6 @@
-const VIEWS_WITH_THEIR_OWN_PHONE_SCREEN: ReadonlySet<string> = new Set(['focus', 'calm']);
+import type { PrimaryView } from '../view-registry-core.ts';
 
-export interface DesktopView<PanelElement> {
-  view: string;
-  label: string;
-  glyph?: string | null;
-  el: PanelElement;
-}
+export type DesktopView<PanelElement> = Pick<PrimaryView<PanelElement>, 'view' | 'label' | 'glyph' | 'el' | 'hasOwnPhoneScreen'>;
 
 export interface PhonePanel<PanelElement> {
   id: string;
@@ -16,7 +11,7 @@ export interface PhonePanel<PanelElement> {
 
 export function phonePanelsFromDesktopViews<PanelElement>(desktopViews: readonly DesktopView<PanelElement>[]): PhonePanel<PanelElement>[] {
   return desktopViews
-    .filter((desktopView) => !VIEWS_WITH_THEIR_OWN_PHONE_SCREEN.has(desktopView.view))
+    .filter((desktopView) => !desktopView.hasOwnPhoneScreen)
     .map((desktopView) => {
       const label = desktopView.label.trim();
       return { id: desktopView.view, label, glyph: desktopView.glyph || label.charAt(0).toUpperCase(), el: desktopView.el };
