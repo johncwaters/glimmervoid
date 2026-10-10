@@ -2583,25 +2583,60 @@ a.radar-issue-title:hover {
 .state-glyph[data-tone="wait"], .my-pr-stage[data-tone="wait"] { color: var(--text-dim); }
 .state-glyph[data-tone="ok"], .my-pr-stage[data-tone="ok"] { color: var(--state-complete); }
 .state-glyph[data-tone="muted"], .my-pr-stage[data-tone="muted"] { color: var(--text-muted); }
-.merge-celebration { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; pointer-events: none; }
-.merge-celebration-message { margin: 0; padding: 12px 20px; border: 1px solid var(--state-complete); border-radius: 6px; background: var(--bg-card); color: var(--state-complete); font-family: var(--font-mono); font-size: 16px; font-weight: 700; letter-spacing: 0.04em; animation: merge-celebration-message 2.6s ease-out forwards; }
+.merge-celebration { position: fixed; top: calc(12px + env(safe-area-inset-top)); left: 0; right: 0; z-index: 1000; display: flex; justify-content: center; padding: 0 16px; pointer-events: none; }
+.merge-strike-card { position: relative; width: min(440px, 100%); padding: 10px 16px 12px; border: 1px solid var(--state-complete); border-radius: 8px; background: var(--bg-card); box-shadow: 0 12px 32px rgb(0 0 0 / 0.35); text-align: center; animation: merge-strike-enter 350ms cubic-bezier(0.2, 1.2, 0.4, 1) backwards, merge-strike-shake 350ms ease-out 1100ms, merge-strike-exit 700ms ease-in 6300ms forwards; }
+.merge-strike-lane { position: relative; height: 30px; margin: 0 4px; border-bottom: 2px solid var(--border); }
+.merge-strike-rack { position: absolute; right: 28px; bottom: 0; width: 36px; height: 100%; }
+.merge-strike-pin { position: absolute; bottom: 0; left: var(--pin-left); width: 6px; height: 18px; border-radius: 50% 50% 40% 40% / 60% 60% 40% 40%; background: linear-gradient(to bottom, var(--text) 0 26%, var(--state-failed) 26% 36%, var(--text) 36%); animation: merge-strike-pin-fly 800ms cubic-bezier(0.1, 0.7, 0.3, 1) calc(1100ms + var(--pin-delay)) both; }
+.merge-strike-ball { position: absolute; bottom: 0; left: -24px; width: 18px; height: 18px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--accent) 45%, white), var(--accent) 55%, color-mix(in srgb, var(--accent) 60%, black)); animation: merge-strike-roll 1100ms cubic-bezier(0.5, 0, 0.9, 0.6) 200ms both; }
+.merge-strike-ball::after { --ball-hole: color-mix(in srgb, var(--accent) 30%, black); content: ''; position: absolute; top: 4px; left: 8px; width: 3px; height: 3px; border-radius: 50%; background: var(--ball-hole); box-shadow: 3px 2px 0 var(--ball-hole), 1px 5px 0 var(--ball-hole); }
+.merge-strike-title { margin: 6px 0 2px; color: var(--state-complete); font-family: var(--font-mono); font-size: 16px; font-weight: 700; letter-spacing: 0.1em; line-height: 1.4; text-shadow: 0 0 18px color-mix(in srgb, var(--state-complete) 55%, transparent); }
+.merge-strike-letter { display: inline-block; animation: merge-strike-slam 450ms cubic-bezier(0.2, 1.6, 0.4, 1) calc(1150ms + var(--letter-delay)) both; }
+.merge-celebration-message { margin: 0; color: var(--text); font-family: var(--font-mono); font-size: 14px; font-weight: 700; letter-spacing: 0.04em; overflow-wrap: anywhere; animation: merge-strike-message 400ms ease-out 1500ms both; }
 .merge-confetti { position: absolute; top: 50%; left: 50%; width: 0; height: 0; }
-.merge-confetti-piece { position: absolute; width: 8px; height: 14px; border-radius: 2px; opacity: 0; animation: merge-confetti-fall 2.2s cubic-bezier(0.2, 0.6, 0.4, 1) var(--confetti-delay) forwards; }
+.merge-confetti-piece { position: absolute; width: 8px; height: 14px; border-radius: 2px; opacity: 0; animation: merge-confetti-fall 2.4s cubic-bezier(0.2, 0.6, 0.4, 1) calc(1150ms + var(--confetti-delay)) forwards; }
 @keyframes merge-confetti-fall {
   0% { opacity: 1; transform: translate(0, 0) rotate(0deg); }
-  35% { opacity: 1; transform: translate(calc(var(--confetti-x) * 0.6), var(--confetti-rise)) rotate(calc(var(--confetti-spin) * 0.4)); }
-  100% { opacity: 0; transform: translate(var(--confetti-x), 60vh) rotate(var(--confetti-spin)); }
+  30% { opacity: 1; transform: translate(calc(var(--confetti-x) * 0.6), var(--confetti-rise)) rotate(calc(var(--confetti-spin) * 0.4)); }
+  100% { opacity: 0; transform: translate(var(--confetti-x), 70vh) rotate(var(--confetti-spin)); }
 }
-@keyframes merge-celebration-message {
-  0% { opacity: 0; transform: scale(0.8); }
-  12% { opacity: 1; transform: scale(1.06); }
-  20% { transform: scale(1); }
-  80% { opacity: 1; }
-  100% { opacity: 0; }
+@keyframes merge-strike-enter {
+  0% { opacity: 0; transform: translateY(-24px) scale(0.95); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes merge-strike-shake {
+  0%, 100% { transform: translate(0, 0); }
+  20% { transform: translate(-5px, 2px); }
+  40% { transform: translate(5px, -2px); }
+  60% { transform: translate(-3px, 1px); }
+  80% { transform: translate(2px, 0); }
+}
+@keyframes merge-strike-exit {
+  0% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-32px); }
+}
+@keyframes merge-strike-roll {
+  0% { opacity: 0; left: -24px; transform: rotate(0deg); }
+  10% { opacity: 1; }
+  82% { opacity: 1; left: calc(100% - 78px); transform: rotate(900deg); }
+  100% { opacity: 0; left: calc(100% - 30px); transform: rotate(1080deg); }
+}
+@keyframes merge-strike-pin-fly {
+  0% { opacity: 1; transform: translate(0, var(--pin-lift)) rotate(0deg); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--pin-fly-x), var(--pin-fly-y)) rotate(var(--pin-spin)); }
+}
+@keyframes merge-strike-slam {
+  0% { opacity: 0; transform: scale(3) rotate(-12deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0deg); }
+}
+@keyframes merge-strike-message {
+  0% { opacity: 0; transform: translateY(4px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .merge-confetti { display: none; }
-  .merge-celebration-message { animation: none; }
+  .merge-confetti, .merge-strike-lane { display: none; }
+  .merge-strike-card, .merge-strike-letter, .merge-celebration-message { animation: none; }
 }
 .my-pr-facts { display: flex; flex-direction: column; gap: 8px; margin: 0; padding-left: 20px; color: var(--text-muted); font-size: 12px; }
 .my-pr-error { margin: 0; padding: 8px 14px; color: var(--state-failed); font-size: 12px; }
