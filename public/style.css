@@ -7833,27 +7833,12 @@ html[data-layout="phone"] .phone-terminal:has(.session-card[data-face="plan"]) .
 .phone-key:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .phone-review,
-.phone-radar,
-.phone-prs,
-.phone-issues,
-.phone-usage,
-.phone-visions,
-.phone-hooks,
-.phone-trace,
-.phone-factory,
-.phone-settings { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.phone-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
 .phone-review > .app-sidebar { flex: 1 1 auto; border-left: none; }
 html[data-layout="phone"] .review-resize-handle { display: none; }
 html[data-layout="phone"] .review-sidebar-body { overscroll-behavior: contain; }
-.phone-radar > .radar-view,
-.phone-prs > .pr-view,
-.phone-issues > .issues-view,
-.phone-usage > .usage-view,
-.phone-visions > .visions-view,
-.phone-hooks > .hooks-view,
-.phone-trace > .trace-view,
-.phone-factory > .factory-floor { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.phone-panel > :not(.settings-view) { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 
 .phone-settings > .settings-view { flex: 1 1 auto; min-height: 0; }
 .phone-settings .settings-view-content { overscroll-behavior: contain; }

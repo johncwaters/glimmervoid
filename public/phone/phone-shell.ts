@@ -14,6 +14,7 @@ import { closeSettingsSectionPicker } from '../settings-panel.ts';
 import { getLastFocusedSessionId, setLastFocusedSessionId } from '../ui-prefs.ts';
 import { createBoardScreen } from './board-screen.ts';
 import type { PushedPhoneHistoryEntry } from './phone-history-core.ts';
+import type { PhonePanel } from './phone-panels-core.ts';
 import { CALM_SHEET_HISTORY_STATE, decideCalmSheetOpened, decidePhonePopState, isCalmSheetHistoryState, shouldConsumeCalmSheetEntry } from './phone-history-core.ts';
 import { createTerminalScreen } from './terminal-screen.ts';
 
@@ -23,37 +24,21 @@ interface PhoneScreenSpec {
   id: string;
   label: string;
   glyph: string;
-  nested?: boolean;
 }
 
 export interface PhoneShellHooks {
   headerControls?: AdoptableElement[];
-  radarPanelEl?: HTMLElement | null;
-  prsPanelEl?: HTMLElement | null;
-  issuesPanelEl?: HTMLElement | null;
-  usagePanelEl?: HTMLElement | null;
-  visionsPanelEl?: HTMLElement | null;
-  hooksPanelEl?: HTMLElement | null;
-  tracePanelEl?: HTMLElement | null;
-  factoryPanelEl?: HTMLElement | null;
-  settingsPanelEl?: HTMLElement | null;
+  panels?: PhonePanel<HTMLElement>[];
   onScreenShown?: (screenId: string) => void;
 }
 
-const SCREENS: readonly PhoneScreenSpec[] = Object.freeze([
+const NAV_SCREENS: readonly PhoneScreenSpec[] = Object.freeze([
   { id: BOARD, label: 'Board', glyph: '▤' },
   { id: 'terminal', label: 'Terminal', glyph: '▸' },
   { id: 'review', label: 'Review', glyph: '◫' },
-  { id: 'prs', label: 'PR reviews', glyph: '⇅', nested: true },
-  { id: 'issues', label: 'Issues', glyph: '#', nested: true },
-  { id: 'usage', label: 'Usage', glyph: '◔', nested: true },
-  { id: 'radar', label: 'Radar', glyph: '◎', nested: true },
-  { id: 'visions', label: 'Visions', glyph: '◇', nested: true },
-  { id: 'hooks', label: 'Hooks', glyph: '◈', nested: true },
-  { id: 'trace', label: 'Trace', glyph: 'T', nested: true },
-  { id: 'factory', label: 'Factory', glyph: 'F', nested: true },
-  { id: 'settings', label: 'Settings', glyph: '@', nested: true },
 ]);
+let panels: PhonePanel<AdoptableElement>[] = [];
+const panelMountElById = new Map<string, HTMLDivElement>();
 let shellEl: HTMLDivElement | null = null;
 const navButtonById = new Map<string, HTMLButtonElement>();
 const screenElById = new Map<string, HTMLElement>();
@@ -61,24 +46,6 @@ const screenAttentionById = new Map<string, string | boolean>();
 let boardScreen: ReturnType<typeof createBoardScreen> | null = null;
 let terminalScreen: ReturnType<typeof createTerminalScreen> | null = null;
 let reviewMountEl: HTMLDivElement | null = null;
-let radarMountEl: HTMLDivElement | null = null;
-let radarPanelEl: AdoptableElement | null = null;
-let prsMountEl: HTMLDivElement | null = null;
-let prsPanelEl: AdoptableElement | null = null;
-let issuesMountEl: HTMLDivElement | null = null;
-let issuesPanelEl: AdoptableElement | null = null;
-let usageMountEl: HTMLDivElement | null = null;
-let usagePanelEl: AdoptableElement | null = null;
-let visionsMountEl: HTMLDivElement | null = null;
-let hooksMountEl: HTMLDivElement | null = null;
-let visionsPanelEl: AdoptableElement | null = null;
-let hooksPanelEl: AdoptableElement | null = null;
-let traceMountEl: HTMLDivElement | null = null;
-let tracePanelEl: AdoptableElement | null = null;
-let factoryMountEl: HTMLDivElement | null = null;
-let factoryPanelEl: AdoptableElement | null = null;
-let settingsMountEl: HTMLDivElement | null = null;
-let settingsPanelEl: AdoptableElement | null = null;
 let moreButtonEl: HTMLButtonElement | null = null;
 let moreMenuEl: HTMLDivElement | null = null;
 const menuButtonById = new Map<string, HTMLButtonElement>();
@@ -161,12 +128,11 @@ function applyDotAttention(dot: HTMLElement | null, attention: string | boolean)
 
 function syncMoreAttention() {
   const nestedLevels: (string | boolean)[] = [];
-  for (const screen of SCREENS) {
-    if (!screen.nested) continue;
-    if (unavailableScreenIds.has(screen.id)) continue;
-    const attention = screenAttentionById.get(screen.id) || false;
+  for (const panel of panels) {
+    if (unavailableScreenIds.has(panel.id)) continue;
+    const attention = screenAttentionById.get(panel.id) || false;
     nestedLevels.push(attention);
-    applyDotAttention(dotOf(menuButtonById.get(screen.id)), attention);
+    applyDotAttention(dotOf(menuButtonById.get(panel.id)), attention);
   }
   applyDotAttention(dotOf(moreButtonEl), pickStrongestAttention(nestedLevels));
 }
@@ -174,16 +140,15 @@ function syncMoreAttention() {
 function buildMoreMenu() {
   const menu = el('div', 'phone-nav-more-menu');
   menu.hidden = true;
-  for (const screen of SCREENS) {
-    if (!screen.nested) continue;
-    const btn = buildNavButton(screen.label, screen.glyph, 'phone-nav-menu-item', 'phone-nav-dot phone-nav-menu-dot');
-    btn.dataset.screen = screen.id;
-    btn.hidden = unavailableScreenIds.has(screen.id);
+  for (const panel of panels) {
+    const btn = buildNavButton(panel.label, panel.glyph, 'phone-nav-menu-item', 'phone-nav-dot phone-nav-menu-dot');
+    btn.dataset.screen = panel.id;
+    btn.hidden = unavailableScreenIds.has(panel.id);
     btn.addEventListener('click', () => {
       setMoreMenuOpen(false);
-      showScreen(screen.id);
+      showScreen(panel.id);
     });
-    menuButtonById.set(screen.id, btn);
+    menuButtonById.set(panel.id, btn);
     menu.appendChild(btn);
   }
   return menu;
@@ -202,8 +167,7 @@ function isMoreMenuOpen() {
 function buildNav() {
   const nav = el('nav', 'phone-nav');
   nav.setAttribute('aria-label', 'Screens');
-  for (const screen of SCREENS) {
-    if (screen.nested) continue;
+  for (const screen of NAV_SCREENS) {
     const btn = buildNavButton(screen.label, screen.glyph);
     btn.dataset.screen = screen.id;
     btn.addEventListener('click', () => showScreen(screen.id));
@@ -236,33 +200,20 @@ function build() {
   boardScreen.setCalmShown(isCalmAvailable);
   terminalScreen = createTerminalScreen({ onBack: () => showScreen(BOARD) });
   reviewMountEl = el('div', 'phone-review');
-  radarMountEl = el('div', 'phone-radar');
-  prsMountEl = el('div', 'phone-prs');
-  issuesMountEl = el('div', 'phone-issues');
-  usageMountEl = el('div', 'phone-usage');
-  visionsMountEl = el('div', 'phone-visions');
-  hooksMountEl = el('div', 'phone-hooks');
-  traceMountEl = el('div', 'phone-trace');
-  factoryMountEl = el('div', 'phone-factory');
-  settingsMountEl = el('div', 'phone-settings');
 
   const screens = el('div', 'phone-screens');
   const contentByScreenId: Record<string, HTMLElement | null> = {
     [BOARD]: boardScreen.el,
     terminal: terminalScreen.el,
     review: reviewMountEl,
-    radar: radarMountEl,
-    prs: prsMountEl,
-    issues: issuesMountEl,
-    usage: usageMountEl,
-    visions: visionsMountEl,
-    hooks: hooksMountEl,
-    trace: traceMountEl,
-    factory: factoryMountEl,
-    settings: settingsMountEl,
   };
-  for (const screen of SCREENS) {
+  for (const screen of NAV_SCREENS) {
     screens.appendChild(wrapScreen(screen.id, screen.label, contentByScreenId[screen.id]));
+  }
+  for (const panel of panels) {
+    const mountEl = el('div', `phone-panel phone-${panel.id}`);
+    panelMountElById.set(panel.id, mountEl);
+    screens.appendChild(wrapScreen(panel.id, panel.label, mountEl));
   }
 
   shellEl = el('div', 'phone-shell');
@@ -433,15 +384,7 @@ function showScreen(screenId: string) {
 
 export function mountPhoneShell(options?: PhoneShellHooks) {
   hooks = options || {};
-  radarPanelEl = hooks.radarPanelEl || null;
-  prsPanelEl = hooks.prsPanelEl || null;
-  issuesPanelEl = hooks.issuesPanelEl || null;
-  usagePanelEl = hooks.usagePanelEl || null;
-  visionsPanelEl = hooks.visionsPanelEl || null;
-  hooksPanelEl = hooks.hooksPanelEl || null;
-  tracePanelEl = hooks.tracePanelEl || null;
-  factoryPanelEl = hooks.factoryPanelEl || null;
-  settingsPanelEl = hooks.settingsPanelEl || null;
+  panels = hooks.panels || [];
 }
 
 export function activatePhoneShell({ sessionId }: { sessionId?: string } = {}) {
@@ -452,24 +395,10 @@ export function activatePhoneShell({ sessionId }: { sessionId?: string } = {}) {
   shellEl.hidden = false;
   for (const control of (hooks.headerControls || [])) adoptElement(control, boardScreen.topBarEl);
   reparentReviewPanel(reviewMountEl);
-  adoptElement(radarPanelEl, radarMountEl);
-  if (radarPanelEl) radarPanelEl.hidden = false;
-  adoptElement(prsPanelEl, prsMountEl);
-  if (prsPanelEl) prsPanelEl.hidden = false;
-  adoptElement(issuesPanelEl, issuesMountEl);
-  if (issuesPanelEl) issuesPanelEl.hidden = false;
-  adoptElement(usagePanelEl, usageMountEl);
-  if (usagePanelEl) usagePanelEl.hidden = false;
-  adoptElement(visionsPanelEl, visionsMountEl);
-  if (visionsPanelEl) visionsPanelEl.hidden = false;
-  adoptElement(hooksPanelEl, hooksMountEl);
-  if (hooksPanelEl) hooksPanelEl.hidden = false;
-  adoptElement(tracePanelEl, traceMountEl);
-  if (tracePanelEl) tracePanelEl.hidden = false;
-  adoptElement(factoryPanelEl, factoryMountEl);
-  if (factoryPanelEl) factoryPanelEl.hidden = false;
-  adoptElement(settingsPanelEl, settingsMountEl);
-  if (settingsPanelEl) settingsPanelEl.hidden = false;
+  for (const panel of panels) {
+    adoptElement(panel.el, panelMountElById.get(panel.id));
+    panel.el.hidden = false;
+  }
   syncVisualViewport();
   if (sessionId) terminalScreen.show(sessionId);
   const startScreen = adoptInheritedHistory();
@@ -490,15 +419,7 @@ export function deactivatePhoneShell() {
   closeSettingsSectionPicker({ returnFocus: false });
   terminalScreen.clear();
   reparentReviewPanel(null);
-  if (radarPanelEl) releaseElement(radarPanelEl);
-  if (prsPanelEl) releaseElement(prsPanelEl);
-  if (issuesPanelEl) releaseElement(issuesPanelEl);
-  if (usagePanelEl) releaseElement(usagePanelEl);
-  if (visionsPanelEl) releaseElement(visionsPanelEl);
-  if (hooksPanelEl) releaseElement(hooksPanelEl);
-  if (tracePanelEl) releaseElement(tracePanelEl);
-  if (factoryPanelEl) releaseElement(factoryPanelEl);
-  if (settingsPanelEl) releaseElement(settingsPanelEl);
+  for (const panel of panels) releaseElement(panel.el);
   for (const control of (hooks.headerControls || [])) releaseElement(control);
   setMoreMenuOpen(false);
   shellEl.hidden = true;

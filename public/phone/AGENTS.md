@@ -4,7 +4,7 @@
 # phone
 
 ## Purpose
-The phone layout: twelve screens (Board, Terminal, Review, Radar, PRs, Issues, Usage, Visions, Hooks, Trace, Factory, Settings) behind a bottom nav; Radar, PRs, Issues, Usage, Visions, Hooks, Trace, Factory and Settings have no nav item of their own and live in the More sheet, rendered ONLY under `[data-layout="phone"]`. It is a first-class layout, not a narrowed desktop: the desktop shell is `display:none` on a phone, and the phone shell borrows the elements that own live state instead of rebuilding them.
+The phone layout: Board, Terminal and Review behind a bottom nav, plus one More screen per desktop tab, rendered ONLY under `[data-layout="phone"]`. The More screens are DERIVED from the desktop tab list (`phone-panels-core.ts`), never listed here, because a hand-kept second list is how Factory shipped on desktop and was missing on the phone (`tests/frontend-phone-panels.test.ts`). It is a first-class layout, not a narrowed desktop: the desktop shell is `display:none` on a phone, and the phone shell borrows the elements that own live state instead of rebuilding them.
 
 The job it serves is triage, per `PRODUCT.md`: scan the board, find the session that needs a carbon unit, open it, act, go back.
 
@@ -13,13 +13,14 @@ The job it serves is triage, per `PRODUCT.md`: scan the board, find the session 
 | File | Description |
 |------|-------------|
 | `phone-shell.ts` | Owns the screen container, the bottom nav, screen switching, nested More screens, history integration, visual-viewport sizing, and the activate/deactivate handoff with the desktop layout |
+| `phone-panels-core.ts` | Pure derivation of the More screens from the desktop tabs; Focus and Calm are left out because Board and Terminal serve them |
 | `board-screen.ts` | The default screen: attention-first session rows + the phone top bar (which adopts the desktop header's connection chip, "+ Session", help, and hamburger) |
 | `terminal-screen.ts` | One session's full-bleed terminal: back control, name, state badge, the card's adopted action cluster, and the touch key strip |
 | `board-groups-core.ts` | Pure composition of desktop project grouping with phone attention ordering |
 | `triage-core.ts` | Pure attention-first ORDER (`orderSessionsForTriage`) only. The "needs you" rule and its readout wording are shared with the desktop rail head in `../focus-view/attention-core.ts` |
 | `mobile-key-strip.ts` | Esc / Tab / arrows / Paste / Image / File, the keys and uploads a soft keyboard cannot produce (catalog in `../mobile-keys.ts`) |
 
-Review, Radar, PRs, Issues, Usage, Visions, Hooks, Trace, Factory and Settings have no phone-only module: each screen is a mount container that re-parents the real desktop panel in.
+Review and the More screens have no phone-only module: each screen is a mount container that re-parents the real desktop panel in.
 
 ## For AI Agents
 

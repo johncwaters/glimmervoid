@@ -417,7 +417,7 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout): Promise<
   await page.route('https://avatars.githubusercontent.com/**', (route) => route.fulfill({ status: 204 }));
   if (layout === 'phone') {
     await page.getByRole('button', { name: 'More', exact: true }).click();
-    await page.getByRole('button', { name: 'PR reviews', exact: true }).click();
+    await page.getByRole('button', { name: 'Reviews', exact: true }).click();
   }
   if (layout === 'desktop') await page.locator('#tab-prs').click();
   const status = createStatus();

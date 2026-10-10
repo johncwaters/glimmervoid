@@ -48,7 +48,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `session-card/` | Session card modules: terminal, lifecycle, DOM, naming, WebGL pool (see `session-card/AGENTS.md`) |
 | `calm/` | Experimental Calm layout (machine setting `calmLayout`): priority rings, one-action panels shared by desktop and the phone Board, pure priority, field and permission-keystroke cores |
 | `focus-view/` | Focus view: roster rail + centered card, attention queue (see `focus-view/AGENTS.md`) |
-| `phone/` | Phone layout: twelve screens + bottom nav, rendered only under `[data-layout="phone"]` (see `phone/AGENTS.md`) |
+| `phone/` | Phone layout: Board, Terminal and Review behind a bottom nav, plus one More screen per desktop tab, rendered only under `[data-layout="phone"]` (see `phone/AGENTS.md`) |
 | `plan/` | Safe plan parsing and the session card's shared plan face (see `plan/AGENTS.md`) |
 | `sidebar/` | Review sidebar: diff rendering, selection, merge actions (see `sidebar/AGENTS.md`) |
 | `components/` | Static HTML fragments imported `?raw` (see `components/AGENTS.md`) |

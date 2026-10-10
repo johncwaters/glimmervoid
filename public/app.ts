@@ -22,6 +22,7 @@ import { applyHealthSnapshot, mountHealthMonitor } from './health-monitor.ts';
 import { acknowledgeVisionsAttention, applyIngestActivity, applyIngestSnapshot, applyVisionsComments, applyVisionsFindings, applyVisionsFix, applyVisionsHand, applyVisionsIntent, applyVisionsSettings, applyVisionsSnapshot, mountVisionsView, refreshVisionsView, setVisionsActivityCallback, setVisionsProjectNames } from './visions-panel.ts';
 import { applyDeleteHookResult, applyHooksReport, applySaveHookResult, mountHooksView, refreshHooksView, requestHooksReport, setHooksRequestSender } from './hooks-panel.ts';
 import { initNotifications, showDesktopNotification } from './notifications.ts';
+import { phonePanelsFromDesktopViews } from './phone/phone-panels-core.ts';
 import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneScreenActive, isPhoneShellActive, mountPhoneShell, refreshPhoneBoard, setPhoneCalmAvailable, setPhoneScreenAttention, setPhoneScreenAvailable, showPhonePlan, showPhoneScreen } from './phone/phone-shell.ts';
 import { noteKnownProjectPath } from './project-registry.ts';
 import { applyTeamReviewActionResult, applyTeamReviewStatus, setTeamReviewActivityCallback } from './team-review-panel.ts';
@@ -760,6 +761,18 @@ function acknowledgeViewAttention(view: string) {
   }
 }
 
+function refreshViewOnShow(view: string) {
+  if (view === 'usage') {
+    refreshUsageView();
+    requestUsageReport();
+  }
+  if (view === 'hooks') {
+    refreshHooksView();
+    requestHooksReport();
+  }
+  if (view === 'trace') refreshTraceView();
+}
+
 interface ActivateViewOptions {
   section?: string;
   setting?: string | null;
@@ -788,15 +801,7 @@ function activateView(view: string, { section, setting, persist = true }: Activa
   if (prev === 'calm' && view !== 'calm') deactivateCalmView();
   if (view === 'calm') activateCalmView();
 
-  if (view === 'usage') {
-    refreshUsageView();
-    requestUsageReport();
-  }
-  if (view === 'hooks') {
-    refreshHooksView();
-    requestHooksReport();
-  }
-  if (view === 'trace') refreshTraceView();
+  refreshViewOnShow(view);
   if (prev === 'settings' && view !== 'settings') clearSettingsHash();
   if (view === 'settings' && section) activateSettingsSection(section, setting ?? null);
   acknowledgeViewAttention(view);
@@ -886,20 +891,10 @@ if (!initialSettingsTarget && !initialPlanTarget) {
 }
 
 mountPhoneShell({
-  radarPanelEl: viewRadarEl,
-  prsPanelEl: viewPrsEl,
-  issuesPanelEl: viewIssuesEl,
-  usagePanelEl: viewUsageEl,
-  visionsPanelEl: viewVisionsEl,
-  hooksPanelEl: viewHooksEl,
-  tracePanelEl: viewTraceEl,
-  factoryPanelEl: viewFactoryEl,
-  settingsPanelEl: viewSettingsEl,
+  panels: phonePanelsFromDesktopViews(VIEW_TABS.map((viewTab) => ({ view: viewTab.view, label: viewTab.tab.textContent, glyph: viewTab.tab.dataset.phoneGlyph, el: viewTab.el }))),
 
   onScreenShown: (screenId: string) => {
-    if (screenId === 'usage') { refreshUsageView(); requestUsageReport(); }
-    if (screenId === 'hooks') { refreshHooksView(); requestHooksReport(); }
-    if (screenId === 'trace') refreshTraceView();
+    refreshViewOnShow(screenId);
     if (screenId !== 'settings') clearSettingsHash();
     if (screenId === 'settings' && !location.hash.startsWith('#settings/')) activateSettingsSection();
     acknowledgeViewAttention(screenId);
