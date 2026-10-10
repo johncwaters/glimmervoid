@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { TaskTitle } from './session.ts';
 import * as ranges from '../settings-ranges.ts';
 import {
-  AgentApiFileSettings, BranchGcControlSettings, ChangeMapSettings,
+  FactorySettings, AgentApiFileSettings, BranchGcControlSettings, ChangeMapSettings,
   createBrowserConfig, optionalBoolean, optionalLooseObject, optionalNumber,
   PlanReviewSettings, TelemetryFileSettings, TraceSettings,
 } from './browser-config.ts';
@@ -113,7 +113,7 @@ const FILE_CONFIG_SHAPE = {
   visions: optionalLooseObject('visions'),
   teamReview: optionalLooseObject('teamReview'),
   benchmarks: optionalLooseObject('benchmarks'),
-  factory: optionalLooseObject('factory'),
+  factory: FactorySettings,
   knowledgeGraph: optionalLooseObject('knowledgeGraph'),
   posthog: optionalLooseObject('posthog'),
   usage: optionalLooseObject('usage'),

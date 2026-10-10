@@ -711,6 +711,11 @@ function createUsageWiring({
     restartIfConfigChanged,
     getSessionsMessage,
     getCachedReport: () => lastReportMessage,
+    laneSpendSince: (lane: string, sinceMs: number): number | null => {
+      if (scanner?.stats().lastOutcome !== 'complete') return null;
+      return scanner.laneUsageSince(sinceMs).find((row) => row.lane === lane)?.costUSD ?? 0;
+    },
+    getSpentTodayUsd: () => scanner?.budgetSpend().todayUsd ?? 0,
     requestReport,
     ingestStatusline,
     getPlanLimitsMessage,

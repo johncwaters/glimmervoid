@@ -116,7 +116,11 @@ function wireValue(setting: SettingsSetting, value: unknown): unknown {
     if (!text || text.toLowerCase() === 'all') return 'all';
     return text.split(',').map((part) => Number(part.trim())).filter(Number.isFinite);
   }
-  if (setting.control === 'text' || setting.control === 'password') return String(value ?? '').trim();
+  if (setting.control === 'text' || setting.control === 'password') {
+    const text = String(value ?? '').trim();
+    if (setting.nullable && !text) return null;
+    return text;
+  }
   return cloneValue(value);
 }
 

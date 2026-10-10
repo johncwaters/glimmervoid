@@ -11,14 +11,14 @@ type FactoryOrder = FactoryProjectState['orders'][number];
 
 function makeOrder(id: string, overrides: Partial<FactoryOrder> = {}): FactoryOrder {
   return {
-    id, objective: `Objective ${id}`, criteria: [], risk: 'low', state: 'open', readiness: 'ready',
+    id, objective: `Objective ${id}`, openedAt: '2026-10-08T10:00:00.000Z', criteria: [], boundary: 'This repository', risk: 'low', state: 'open', readiness: 'ready',
     parent: 'intent', dependsOn: [], writeScopes: [], owner: null, lastEvent: null, ...overrides,
   };
 }
 
 function makeProject(orders: FactoryOrder[], overrides: Partial<FactoryProjectState> = {}): FactoryProjectState {
   return {
-    projectId: 'project', projectName: 'Factory', headSha: null, error: null,
+    projectId: 'project', projectName: 'Factory', headSha: null, error: null, paused: false, orchestrator: null,
     heading: { action: 'dispatch', reasons: ['Ready work', 'Another reason'] },
     orders, conflicts: [], unverifiedCompletedWork: [], ...overrides,
   };
@@ -112,8 +112,8 @@ test('worker animals remain stable across ordering and changing objectives', () 
 
 test('orchestrator shows the first reason or replaces it with the project error', () => {
   const project = makeProject([]);
-  assert.deepEqual(buildFactoryFloor(project, null).orchestrator, { action: 'dispatch', reason: 'Ready work', isException: false });
-  assert.deepEqual(buildFactoryFloor({ ...project, error: 'Inspection failed' }, null).orchestrator, { action: 'Exception', reason: 'Inspection failed', isException: true });
+  assert.deepEqual(buildFactoryFloor(project, null).orchestrator, { action: 'dispatch', reason: 'Ready work', isException: false, sessionId: null, state: null });
+  assert.deepEqual(buildFactoryFloor({ ...project, error: 'Inspection failed' }, null).orchestrator, { action: 'Exception', reason: 'Inspection failed', isException: true, sessionId: null, state: null });
   assert.equal(buildFactoryFloor({ ...project, heading: { action: 'steady', reasons: [] } }, null).orchestrator.reason, '');
 });
 
@@ -174,4 +174,72 @@ test('project picking retains a selected id or falls back to first by name witho
   assert.equal(pickFactoryProject(projects, 'missing')?.projectId, 'a');
   assert.equal(projects[0].projectId, 'z');
   assert.equal(pickFactoryProject([], null), null);
+});
+
+test('paused factory keeps its floor and exposes a paused marker separately from the heading', () => {
+  const project = makeProject([makeOrder('intent', { parent: null }), makeOrder('child')]);
+  const running = buildFactoryFloor(project, null);
+  const paused = buildFactoryFloor({ ...project, paused: true }, null);
+  assert.equal(running.paused, false);
+  assert.equal(paused.paused, true);
+  assert.deepEqual({ ...paused, paused: false }, running);
+});
+
+test('intent and up next follow opening time rather than coherence work id order', () => {
+  const project = makeProject([
+    makeOrder('first-id', { parent: null, openedAt: '2026-10-08T12:00:00.000Z' }),
+    makeOrder('oldest', { parent: null, openedAt: '2026-10-08T10:00:00.000Z' }),
+    makeOrder('middle', { parent: null, openedAt: '2026-10-08T11:00:00.000Z' }),
+  ]);
+  const floor = buildFactoryFloor(project, null);
+  assert.equal(floor.intent?.id, 'oldest');
+  assert.deepEqual(floor.upNext.map((order) => order.id), ['middle', 'first-id']);
+  assert.equal(project.orders[0].id, 'first-id');
+});
+
+
+test('floor shows live orchestrator state and selects the intent held by its session', () => {
+  const project = makeProject([
+    makeOrder('first', { parent: null }), makeOrder('held', { parent: null }),
+  ], { orchestrator: { sessionId: 'factory-orch-project', intentId: 'held', state: 'RUNNING' } });
+  const floor = buildFactoryFloor(project, null);
+  assert.equal(floor.intent?.id, 'held');
+  assert.equal(floor.orchestrator.state, 'RUNNING');
+  assert.equal(floor.orchestrator.sessionId, 'factory-orch-project');
+  assert.equal(buildFactoryFloor({ ...project, error: 'factory-exception: backoff' }, null).orchestrator.reason, 'factory-exception: backoff');
+});
+
+
+test('worker crates carry only their registered live terminal id', () => {
+  const floor = buildFactoryFloor(makeProject([
+    makeOrder('intent', { parent: null }), makeOrder('active', { state: 'active' }), makeOrder('ended', { state: 'active' }),
+  ], { liveWorkers: [{ workId: 'active', sessionId: 'factory-work-active' }] }), null);
+  assert.deepEqual(floor.stations.workers.map(({ id, sessionId }) => [id, sessionId]), [['active', 'factory-work-active'], ['ended', null]]);
+});
+
+
+test('in-flight close-out prefers Review over ledger state for crates and selected orders', () => {
+  const project = makeProject([
+    makeOrder('intent', { parent: null }), makeOrder('active', { state: 'active' }), makeOrder('blocked', { state: 'blocked' }),
+  ], { reviewing: ['active', 'blocked'], liveWorkers: [{ workId: 'active', sessionId: 'factory-work-active' }] });
+  const floor = buildFactoryFloor(project, 'active');
+  assert.deepEqual(floor.stations.review.map((crate) => [crate.id, crate.status]), [['active', 'Reviewing'], ['blocked', 'Reviewing']]);
+  assert.equal(floor.stations.review[0].sessionId, 'factory-work-active');
+  assert.equal(floor.selectedOrder?.station, 'review');
+  assert.equal(floor.stations.workers.length, 0);
+  assert.equal(floor.stations.queue.length, 0);
+});
+
+test('open watches occupy Watch and the floor shows factory spend and non-exception notes', () => {
+  const floor = buildFactoryFloor(makeProject([makeOrder('intent', { parent: null }), makeOrder('watch', { state: 'completed' })], {
+    watches: [{ workId: 'watch', intentId: 'intent', projectId: 'project', mergedSha: 'a'.repeat(40), mergedAt: '2026-10-08T12:00:00.000Z', writeScopes: ['src'] }],
+    unverifiedCompletedWork: ['watch'], spentTodayUsd: 12.5, dailyBudgetUsd: 20, note: 'Watch query unavailable',
+  }), 'watch');
+  assert.deepEqual(floor.stations.watch.map((crate) => [crate.id, crate.status]), [['watch', 'Watching']]);
+  assert.equal(floor.stations.review.length, 0);
+  assert.equal(floor.selectedOrder?.station, 'watch');
+  assert.equal(floor.spend, 'Factory today: $12.50 / $20.00');
+  assert.equal(floor.note, 'Watch query unavailable');
+  assert.equal(floor.orchestrator.isException, false);
+  assert.equal(buildFactoryFloor(makeProject([]), null).spend, 'Factory today: $0.00 / unlimited');
 });

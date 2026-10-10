@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import { AGENT_API_VERBS, AgentAttentionRequest, AgentSpawnRequest } from '../../shared/contracts/session.ts';
+import { AGENT_API_VERBS, AgentDispatchRequest, AgentAttentionRequest, AgentSpawnRequest } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../../shared/contracts/session.ts';
 
 const MAX_LIVE_CHILDREN = 3;
@@ -30,6 +30,7 @@ type AgentVerdict = { ok: true } | { ok: false; status: number; reason: string }
 
 type AgentVerbRequest =
   | { ok: true; verb: 'board' }
+  | { ok: true; verb: 'dispatch'; request: AgentDispatchRequest }
   | { ok: true; verb: 'attention'; request: AgentAttentionRequest }
   | { ok: true; verb: 'spawn'; request: AgentSpawnRequest }
   | { ok: false; status: number; error: string };
@@ -87,6 +88,11 @@ function refuseInvalidBody(issues: readonly { message?: string }[]): AgentVerbRe
 
 function parseAgentVerb(verb: string, payload: Record<string, unknown>): AgentVerbRequest {
   if (!isAgentApiVerb(verb)) return { ok: false, status: REFUSAL_STATUS, error: REFUSAL_REASON };
+  if (verb === 'dispatch') {
+    const parsed = AgentDispatchRequest.safeParse(payload);
+    if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
+    return { ok: true, verb, request: parsed.data };
+  }
   if (verb === 'board') return { ok: true, verb };
   if (verb === 'attention') {
     const parsed = AgentAttentionRequest.safeParse(payload);

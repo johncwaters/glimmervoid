@@ -146,6 +146,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       latestPlanTitle: laneAssembly.planReview?.latestPlanTitle(glimmervoidId) ?? null,
     }),
     getAgentApi: () => agentApi,
+    getFactory: () => factory,
     recordOutcome,
     logger: console,
   });
@@ -212,6 +213,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   const laneAssembly = createBackendLanes({
     config,
+    makeSession,
+    wireSessionEvents: (session: Session) => wireSessionEvents(session),
     configStore,
     sessions,
     agentSessions,

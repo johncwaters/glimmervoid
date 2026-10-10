@@ -7,6 +7,7 @@ export type FactoryStation = 'queue' | 'workers' | 'review' | 'watch' | 'shipped
 export interface FactoryCrate {
   id: string;
   objective: string;
+  sessionId: string | null;
   risk: FactoryOrder['risk'];
   station: FactoryStation;
   status: string;
@@ -17,15 +18,20 @@ export interface FactoryCrate {
 }
 
 export interface FactoryFloor {
+  paused: boolean;
+  spend: string;
+  note: string | null;
   intent: { id: string; objective: string; criteria: { text: string; isMet: boolean }[]; shippedCount: number; childCount: number } | null;
   upNext: { id: string; objective: string }[];
-  orchestrator: { action: string; reason: string; isException: boolean };
+  orchestrator: { action: string; reason: string; isException: boolean; sessionId: string | null; state: string | null };
   stations: Record<FactoryStation, FactoryCrate[]>;
   ledger: { orderId: string; event: string; at: string; session: string }[];
   selectedOrder: { id: string; intent: string | null; writeScopes: string[]; dependsOn: string[]; station: string; owner: string | null } | null;
 }
 
-function pickStation(order: FactoryOrder, unverifiedIds: Set<string>): FactoryStation | null {
+function pickStation(order: FactoryOrder, unverifiedIds: Set<string>, reviewingIds: Set<string>, watchIds: Set<string>): FactoryStation | null {
+  if (watchIds.has(order.id)) return 'watch';
+  if (reviewingIds.has(order.id)) return 'review';
   if (order.state === 'open' || order.state === 'blocked') return 'queue';
   if (order.state === 'active') return 'workers';
   if (order.state !== 'completed') return null;
@@ -44,6 +50,7 @@ function orderStatus(order: FactoryOrder, hasConflict: boolean, station: Factory
   if (order.state === 'open' && order.readiness === 'waiting') return 'Waiting on dependency';
   if (station === 'workers') return 'Running';
   if (station === 'review') return 'Unverified';
+  if (station === 'watch') return 'Watching';
   if (station === 'shipped') return 'Shipped';
   return 'Ready';
 }
@@ -61,21 +68,25 @@ function findIntent(order: FactoryOrder, ordersById: Map<string, FactoryOrder>):
 }
 
 export function buildFactoryFloor(state: FactoryProjectState, selectedOrderId: string | null): FactoryFloor {
-  const openRoots = state.orders.filter((order) => order.parent === null && order.state !== 'completed' && order.state !== 'cancelled');
+  const openRoots = state.orders.filter((order) => order.parent === null && order.state !== 'completed' && order.state !== 'cancelled')
+    .sort((left, right) => left.openedAt.localeCompare(right.openedAt));
   const activeParentIds = new Set(state.orders.filter((order) => order.state === 'active').map((order) => order.parent));
-  const activeIntent = openRoots.find((root) => activeParentIds.has(root.id)) ?? openRoots[0] ?? null;
+  const activeIntent = openRoots.find((root) => root.id === state.orchestrator?.intentId) ?? openRoots.find((root) => activeParentIds.has(root.id)) ?? openRoots[0] ?? null;
   const children = activeIntent ? state.orders.filter((order) => order.parent === activeIntent.id) : [];
+  const watchIds = new Set((state.watches ?? []).map((watch) => watch.workId));
+  const reviewingIds = new Set(state.reviewing ?? []);
   const unverifiedIds = new Set(state.unverifiedCompletedWork);
   const conflictIds = new Set(state.conflicts.flatMap((conflict) => [conflict.left, conflict.right]));
   const stations: FactoryFloor['stations'] = { queue: [], workers: [], review: [], watch: [], shipped: [] };
-  for (const order of children) {
-    const station = pickStation(order, unverifiedIds);
+  const floorOrders = state.orders.filter((order) => order.parent === activeIntent?.id || watchIds.has(order.id));
+  for (const order of floorOrders) {
+    const station = pickStation(order, unverifiedIds, reviewingIds, watchIds);
     if (!station) continue;
     const hasConflict = conflictIds.has(order.id);
     const isHeld = hasConflict || order.state === 'blocked' || (order.state === 'open' && order.readiness === 'waiting');
     stations[station].push({
-      id: order.id, objective: order.objective, risk: order.risk, station,
-      status: orderStatus(order, hasConflict, station), hasConflict, isHeld,
+      id: order.id, objective: order.objective, sessionId: state.liveWorkers?.find((worker) => worker.workId === order.id)?.sessionId ?? null, risk: order.risk, station,
+      status: reviewingIds.has(order.id) ? 'Reviewing' : orderStatus(order, hasConflict, station), hasConflict, isHeld,
       isSelected: order.id === selectedOrderId, animal: pickAnimal(order),
     });
   }
@@ -83,6 +94,9 @@ export function buildFactoryFloor(state: FactoryProjectState, selectedOrderId: s
   const selectedOrder = selectedOrderId === null ? undefined : ordersById.get(selectedOrderId);
   const selectedIntent = selectedOrder ? findIntent(selectedOrder, ordersById) : null;
   return {
+    paused: state.paused,
+    spend: `Factory today: $${(state.spentTodayUsd ?? 0).toFixed(2)} / ${state.dailyBudgetUsd == null ? 'unlimited' : `$${state.dailyBudgetUsd.toFixed(2)}`}`,
+    note: state.note ?? null,
     intent: activeIntent ? {
       id: activeIntent.id, objective: activeIntent.objective,
       criteria: activeIntent.criteria.map((text) => ({ text, isMet: activeIntent.state === 'completed' })),
@@ -90,15 +104,15 @@ export function buildFactoryFloor(state: FactoryProjectState, selectedOrderId: s
     } : null,
     upNext: openRoots.filter((root) => root.id !== activeIntent?.id).map(({ id, objective }) => ({ id, objective })),
     orchestrator: state.error === null
-      ? { action: state.heading.action, reason: state.heading.reasons[0] ?? '', isException: false }
-      : { action: 'Exception', reason: state.error, isException: true },
+      ? { action: state.heading.action, reason: state.heading.reasons[0] ?? '', isException: false, sessionId: state.orchestrator?.sessionId ?? null, state: state.orchestrator?.state ?? null }
+      : { action: 'Exception', reason: state.error, isException: true, sessionId: state.orchestrator?.sessionId ?? null, state: state.orchestrator?.state ?? null },
     stations,
     ledger: state.orders.flatMap((order) => order.lastEvent ? [{ orderId: order.id, ...order.lastEvent }] : [])
       .sort((left, right) => Date.parse(right.at) - Date.parse(left.at)).slice(0, 50),
     selectedOrder: selectedOrder ? {
       id: selectedOrder.id, intent: selectedIntent?.objective ?? null,
       writeScopes: selectedOrder.writeScopes, dependsOn: selectedOrder.dependsOn,
-      station: selectedOrder.parent === null ? 'intent' : pickStation(selectedOrder, unverifiedIds) ?? 'cancelled',
+      station: selectedOrder.parent === null ? 'intent' : pickStation(selectedOrder, unverifiedIds, reviewingIds, watchIds) ?? 'cancelled',
       owner: selectedOrder.owner,
     } : null,
   };

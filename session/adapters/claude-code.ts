@@ -196,7 +196,15 @@ function buildArgs({
 }: AgentArgsOptions = {}): string[] {
   const args = dangerouslySkipPermissions ? ["--dangerously-skip-permissions"] : [];
   if (resumeSessionId) args.push("--resume", resumeSessionId);
-  if (extraArgs.length > 0) args.push(...extraArgs);
+  for (let index = 0; index < extraArgs.length; index += 1) {
+    const argument = extraArgs[index];
+    if (resumeSessionId && argument === "--session-id") {
+      index += 1;
+      continue;
+    }
+    if (resumeSessionId && argument.startsWith("--session-id=")) continue;
+    args.push(argument);
+  }
   args.push(...buildAntiSlopArgs(antiSlopPrompt));
   if (initialPrompt != null) args.push(initialPrompt);
   return args;

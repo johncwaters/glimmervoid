@@ -628,3 +628,39 @@ test('a settings restart during an in-flight start arms the NEW interval cadence
   }
   await wiring.stop();
 });
+
+test('laneSpendSince counts only factory transcripts inside the requested day across a real scan', async (context) => {
+  const directory = await realFsp.mkdtemp(path.join(os.tmpdir(), 'factory-usage-'));
+  const claudeHome = path.join(directory, 'claude');
+  const projectDirectory = path.join(claudeHome, 'projects', 'fixture');
+  await realFsp.mkdir(projectDirectory, { recursive: true });
+  const nowMs = Date.now();
+  const today = new Date(nowMs);
+  today.setHours(0, 0, 0, 0);
+  const startOfDayMs = today.getTime();
+  await realFsp.writeFile(path.join(projectDirectory, 'factory.jsonl'),
+    transcriptLine({ sessionId: CLAUDE_SESSION_ID, requestId: 'factory-today', messageId: 'factory-today', input: 100, output: 50, timestampMs: nowMs })
+    + transcriptLine({ sessionId: CLAUDE_SESSION_ID, requestId: 'factory-yesterday', messageId: 'factory-yesterday', input: 100, output: 50, timestampMs: startOfDayMs - 60_000 })
+    + transcriptLine({ sessionId: 'interactive', requestId: 'interactive', messageId: 'interactive', input: 1000, output: 500, timestampMs: nowMs }));
+  const probe = makeUsageProbe(claudeHome);
+  const wiring = createUsageWiring({ ...probe.options, config: { usage: { enabled: true, fetchPricing: false } },
+    laneMap: () => new Map([[`claude:${CLAUDE_SESSION_ID}`, 'factory'], ['claude:interactive', 'interactive']]) });
+  context.after(async () => { await wiring.stop(); await realFsp.rm(directory, { recursive: true, force: true }); });
+  assert.equal(wiring.laneSpendSince('factory', startOfDayMs), null);
+  await wiring.start();
+  const factoryTodayUsd = wiring.laneSpendSince('factory', startOfDayMs);
+  assert.ok(factoryTodayUsd !== null && factoryTodayUsd > 0);
+  assert.ok(factoryTodayUsd < wiring.getSpentTodayUsd());
+  assert.equal(wiring.laneSpendSince('factory', startOfDayMs - 86_400_000), factoryTodayUsd * 2);
+  assert.equal(wiring.laneSpendSince('factory', nowMs + 1), 0);
+  assert.equal(wiring.laneSpendSince('missing', startOfDayMs), 0);
+});
+
+test('laneSpendSince is unknown when usage tracking is disabled', async (context) => {
+  const directory = await realFsp.mkdtemp(path.join(os.tmpdir(), 'factory-usage-off-'));
+  const probe = makeUsageProbe(path.join(directory, 'claude'));
+  const wiring = createUsageWiring({ ...probe.options, config: { usage: { enabled: false } }, laneMap: () => new Map() });
+  context.after(async () => { await wiring.stop(); await realFsp.rm(directory, { recursive: true, force: true }); });
+  await wiring.start();
+  assert.equal(wiring.laneSpendSince('factory', 0), null);
+});

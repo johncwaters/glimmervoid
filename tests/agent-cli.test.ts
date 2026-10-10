@@ -75,7 +75,7 @@ async function withAgentServer(
 const OK_REPLY = () => ({ status: 200, body: '{"ok":true}' });
 
 test('every agent verb exits non-zero with one line when the session env is absent', async () => {
-  for (const args of [['spawn', 'go'], ['attention', 'look'], ['board']]) {
+  for (const args of [['spawn', 'go'], ['attention', 'look'], ['board'], ['dispatch', 'wrk-0123456789abcdef']]) {
     const run = await runCli(args, null);
     assert.equal(run.code, 1, args[0]);
     assert.equal(run.stderr.length, 1, `${args[0]} says it once`);
@@ -163,5 +163,35 @@ test('a verb with no text exits non-zero without reaching the server', async () 
     const run = await runCli(['attention'], agentUrl);
     assert.equal(run.code, 1);
     assert.equal(received.length, 0);
+  });
+});
+
+
+test('dispatch posts only the validated first work id with its bearer token', async () => {
+  await withAgentServer(OK_REPLY, async (agentUrl, received) => {
+    const run = await runCli(['dispatch', 'wrk-0123456789abcdef', 'ignored'], agentUrl);
+    assert.equal(run.code, 0);
+    assert.deepEqual(JSON.parse(received[0].body), { workId: 'wrk-0123456789abcdef' });
+    assert.equal(received[0].url, `/agent/${SESSION_ID}/dispatch`);
+    assert.equal(received[0].authorization, `Bearer ${TOKEN}`);
+    for (const workId of ['', 'wrk-0123456789abcdeg', 'wrk-0123456789abcdefextra', 'wrk-0123456789ABCDEF', '--help']) {
+      assert.equal((await runCli(['dispatch', workId], agentUrl)).code, 1);
+    }
+    assert.equal(received.length, 1);
+  });
+});
+
+test('dispatch ready posts the validated intent to the authenticated dispatch verb', async () => {
+  await withAgentServer(OK_REPLY, async (agentUrl, received) => {
+    const cliRun = await runCli(['dispatch', '--ready', 'wrk-0123456789abcdef'], agentUrl);
+    assert.equal(cliRun.code, 0);
+    assert.equal(received.length, 1);
+    assert.equal(received[0].url, `/agent/${SESSION_ID}/dispatch`);
+    assert.equal(received[0].authorization, `Bearer ${TOKEN}`);
+    assert.deepEqual(JSON.parse(received[0].body), { readyIntent: 'wrk-0123456789abcdef' });
+    for (const intentId of ['', 'not-an-intent', 'wrk-0123456789ABCDEF']) {
+      assert.equal((await runCli(['dispatch', '--ready', intentId], agentUrl)).code, 1);
+    }
+    assert.equal(received.length, 1);
   });
 });

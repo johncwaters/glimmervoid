@@ -27,7 +27,7 @@ import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShe
 import { noteKnownProjectPath } from './project-registry.ts';
 import { applyTeamReviewActionResult, applyTeamReviewStatus } from './team-review-panel.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus } from './my-prs-panel.ts';
-import { applyFactoryState } from './factory/factory-view.ts';
+import { applyFactoryControlResult, applyFactoryQueueIntentResult, applyFactoryState, setFactoryRequestSender } from './factory/factory-view.ts';
 import { applyBenchmarkActionResult, applyBenchmarkStatus, setBenchmarkRequestSender } from './benchmark-panel.ts';
 import { applyIssuesProjects, applyIssuesReport, applyOpenIssueSessionResult, setIssuesRequestSender } from './issues-panel.ts';
 
@@ -334,6 +334,7 @@ setHooksRequestSender(sendControlMsg);
 setTraceRequestSender(sendControlMsg);
 setIssuesRequestSender(sendControlMsg);
 setBenchmarkRequestSender(sendControlMsg);
+setFactoryRequestSender(sendControlMsg);
 
 function refreshViewsIfVisible(reason: ViewRefreshReason) {
   refreshVisibleViews(VIEW_TABS, { isPhoneShellActive: isPhoneShellActive(), activeView: getActiveView(), phoneScreen: uiState.snapshot().phoneScreen }, reason);
@@ -398,6 +399,8 @@ const messageHandlers = {
   'team-review-status': (msg) => applyTeamReviewStatus(msg),
   'my-prs-status': (msg) => applyMyPrsStatus(msg),
   'factory-state': (msg) => applyFactoryState(msg),
+  'factory-queue-intent-result': (msg) => applyFactoryQueueIntentResult(msg),
+  'factory-control-result': (msg) => applyFactoryControlResult(msg),
   'benchmark-status': (msg) => applyBenchmarkStatus(msg),
   'benchmark-action-result': (msg) => applyBenchmarkActionResult(msg),
   'my-pr-merge-result': (msg) => applyMyPrMergeResult(msg),

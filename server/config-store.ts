@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { DEFAULT_FACTORY_CHECKS, DEFAULT_FACTORY_PROTECTED_PATHS } from '../shared/contracts/browser-config.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -57,6 +58,8 @@ const DEFAULT_CONFIG = {
   changeMap: {
     narrator: { enabled: false, engine: 'claude', model: '', timeoutSeconds: 90 },
   },
+
+  factory: { enabled: false, maxRisk: 'medium' as const, maxLiveWorkers: 2, checks: DEFAULT_FACTORY_CHECKS, protectedPaths: DEFAULT_FACTORY_PROTECTED_PATHS, reviewerModel: null, watchWindowMinutes: 30, watchProjects: [], dailyBudgetUsd: null, verifierModel: null },
 
   agentApi: {
     enabled: false,
