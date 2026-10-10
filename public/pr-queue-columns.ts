@@ -1,6 +1,6 @@
 import { wireColumnResizer } from './column-resizer.ts';
 import { el } from './dom-helpers.ts';
-import { createSvgIcon, createSvgShape } from './state-glyph.ts';
+import { createSvgIcon, createSvgShape } from './svg-dom.ts';
 import { getPrsQueueWidth, isPrsQueueCollapsed, setPrsQueueCollapsed, setPrsQueueWidth } from './ui-prefs.ts';
 
 const QUEUE_BOUNDS = { minPx: 220, maxPx: 720 };

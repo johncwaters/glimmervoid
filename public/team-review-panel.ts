@@ -8,7 +8,7 @@ import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } fr
 import { createPollAgoTicker, formatAgo } from './poll-ago.ts';
 import { createPrQueueColumns, createPrQueueFoot, createPrQueueHead } from './pr-queue-columns.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
-import { createSvgIcon as svgIcon, createSvgShape as svgShape } from './state-glyph.ts';
+import { createSvgIcon as svgIcon, createSvgShape as svgShape } from './svg-dom.ts';
 import { formatTrailOffset } from './radar-core.ts';
 import { createSettingsLink } from './settings-link.ts';
 import {

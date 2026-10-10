@@ -10,7 +10,7 @@ import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { shortcutHint } from '../shortcuts-core.ts';
-import { createSvgIcon, createSvgShape } from '../state-glyph.ts';
+import { createSvgIcon, createSvgShape } from '../svg-dom.ts';
 import type { UiPrefs } from '../ui-prefs.ts';
 import { getReviewSidebarView, getSidebarWidth, isReviewSidebarExpanded, setReviewSidebarExpanded, setReviewSidebarView, setSidebarWidth } from '../ui-prefs.ts';
 import { buildChangeMapView } from './change-map-core.ts';
