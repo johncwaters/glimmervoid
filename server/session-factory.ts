@@ -1,4 +1,5 @@
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
+import { refreshRtkHookTools } from '../session/core/rtk-settings-core.ts';
 import path from 'node:path';
 
 import type { HookRouter } from '../detection/hook-source.ts';
@@ -17,6 +18,7 @@ type SessionSpawnOverrides = Pick<SessionOptions, 'agent' | 'agentDepth' | 'ephe
 
 interface SessionFactoryDependencies {
   configStore: { configPath: string };
+  getConfig?: () => GlimmervoidConfig;
   hookRouter: Pick<HookRouter, 'register' | 'unregister'> | null;
   getHookPort: () => number | null;
   getGitWorkspace: () => GitWorkspace | null;
@@ -37,6 +39,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
     overrides: SessionSpawnOverrides = {},
   ): Session {
     const skipPermissions = projectSkipsPermissions(project, machineSkipsPermissionsByDefault(config));
+    const originalHookTools = dependencies.resolveHookTools(config, { skipPermissions });
     const session = new Session({
       id: project.id,
       name: project.name,
@@ -60,7 +63,8 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       detectBackgroundAgents: config.detectBackgroundAgents,
       detectScheduledWakeups: config.detectScheduledWakeups,
       antiSlopPrompt: config.antiSlopPrompt,
-      hookTools: dependencies.resolveHookTools(config, { skipPermissions }),
+      hookTools: originalHookTools,
+      getHookTools: () => refreshRtkHookTools(originalHookTools, dependencies.resolveHookTools(dependencies.getConfig?.() ?? config, { skipPermissions })),
       resumeSessionId: (project.resumeSessionId as string | null | undefined) || null,
       planReviewPort: dependencies.getPlanReviewPort(),
       planLimits: planLimitsEnabled(config),

@@ -188,6 +188,7 @@ interface SessionOptions {
   spawnEnv?: Record<string, string> | null;
   enableProjectMcp?: boolean;
   hookTools?: ResolvedHookTool[];
+  getHookTools?: (() => ResolvedHookTool[]) | null;
   planReviewPort?: SessionPlanReviewPort | null;
   planLimits?: boolean;
   getUserHooks?: (() => UserHook[]) | null;
@@ -278,6 +279,7 @@ class Session extends EventEmitter {
   _antiSlopPrompt: boolean;
   _spawnEnv: Record<string, string> | null;
   _hookTools: ResolvedHookTool[];
+  _getHookTools: (() => ResolvedHookTool[]) | null;
   _isSaneYoloActive: boolean;
   _planLimits: boolean;
   _planReviewPort: SessionPlanReviewPort | null;
@@ -351,6 +353,7 @@ class Session extends EventEmitter {
 
     enableProjectMcp = false,
     hookTools = [],
+    getHookTools = null,
 
     planReviewPort = null,
 
@@ -485,6 +488,7 @@ class Session extends EventEmitter {
     this.ephemeral = !!ephemeral;
     this._spawnEnv = spawnEnv;
     this._hookTools = hookTools.filter((tool) => this._can(HOOK_TOOLS[tool.id].capability));
+    this._getHookTools = getHookTools;
     this._isSaneYoloActive = false;
     this._planLimits = planLimits === true && this._can("statusLine");
     this._planReviewPort = planReviewPort;
@@ -1335,6 +1339,10 @@ class Session extends EventEmitter {
     this.emit("rebaseline");
     this._resetDetectionSources({ quiet: false });
 
+    if (this._getHookTools) {
+      const currentHookTools = this._getHookTools().filter((tool) => this._can(HOOK_TOOLS[tool.id].capability));
+      this._hookTools.splice(0, this._hookTools.length, ...currentHookTools);
+    }
     const hookInjection = this._hooks.inject();
     this._isSaneYoloActive = hookInjection.isSaneYoloActive;
     if (this._hooks.isRequiredSandboxMissing()) {

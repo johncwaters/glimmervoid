@@ -50,6 +50,39 @@ function buildTelemetry(overrides: Partial<TelemetryOptions> = {}) {
   return { telemetry, warnings };
 }
 
+for (const operation of ['flush', 'checkRemoteSwitch', 'stop'] as const) {
+  test(`${operation} rechecks consent after awaiting install state and makes no request after opt-out`, async (context) => {
+    const { sent, fetchFn } = recordingFetch();
+    const stateFilePath = path.join(makeStateDir(), 'telemetry.json');
+    fs.writeFileSync(stateFilePath, JSON.stringify({ installId: 'a0000000-0000-4000-8000-000000000001', noticeShownAt: null }));
+    const config = { telemetry: { enabled: true } };
+    let markStateReadStarted = () => {};
+    const stateReadStarted = new Promise<void>(resolve => { markStateReadStarted = resolve; });
+    let releaseStateRead = () => {};
+    const stateReadReleased = new Promise<void>(resolve => { releaseStateRead = resolve; });
+    const readFile = fs.promises.readFile;
+    context.mock.method(fs.promises, 'readFile', async (...args: Parameters<typeof readFile>) => {
+      if (args[0] === stateFilePath) {
+        markStateReadStarted();
+        await stateReadReleased;
+      }
+      return readFile(...args);
+    });
+    const { telemetry } = buildTelemetry({ fetchFn, config, stateFilePath });
+    context.after(() => telemetry.stop());
+    telemetry.capture('app_started', {});
+    const outboundOperation = telemetry[operation]();
+    await stateReadStarted;
+    assert.equal(sent.length, 0);
+    config.telemetry.enabled = false;
+    telemetry.applyConfig();
+    releaseStateRead();
+    await outboundOperation;
+    await telemetry.stop();
+    assert.equal(sent.length, 0);
+  });
+}
+
 test('disabled consent sends nothing and writes no state file', async () => {
   const { sent, fetchFn } = recordingFetch();
   const stateFilePath = path.join(makeStateDir(), 'telemetry.json');

@@ -739,9 +739,9 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
     const incoming: Record<string, unknown> = s;
 
-    const invalidPaths = (s.repoRoots || []).filter(p => !fs.existsSync(p));
+    const invalidPaths = (s.repoRoots || []).filter(root => !isExistingDirectory(root));
     if (invalidPaths.length > 0) {
-      sendError(ws, `Invalid paths: ${invalidPaths.join(', ')}`, { type: 'settings-error', requestId: msg.requestId || null });
+      sendError(ws, `Repository roots must be existing directories: ${invalidPaths.join(', ')}`, { type: 'settings-error', requestId: msg.requestId || null });
       return;
     }
 

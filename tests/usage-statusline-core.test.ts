@@ -6,9 +6,21 @@ import {
   shouldBroadcastPlanLimits,
   buildPlanLimitsMessage,
   planLimitsSignature,
+  selectOfficialSessionCost,
 } from '../server/core/usage-statusline-core.ts';
 
 const NOW = 1_800_000_000_000;
+
+test('calculate mode ignores official costs while auto and display preserve recorded zero and missing costs', () => {
+  assert.equal(selectOfficialSessionCost('calculate', 4.2), null);
+  assert.equal(selectOfficialSessionCost('calculate', 0), null);
+  for (const mode of ['auto', 'display']) {
+    assert.equal(selectOfficialSessionCost(mode, 4.2), 4.2);
+    assert.equal(selectOfficialSessionCost(mode, 0), 0);
+    assert.equal(selectOfficialSessionCost(mode, null), null);
+    assert.equal(selectOfficialSessionCost(mode, undefined), null);
+  }
+});
 
 function fullPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {

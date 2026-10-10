@@ -256,7 +256,7 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
   async function send(batch: QueuedEvent[], timeoutMs: number): Promise<boolean> {
     try {
       const { installId } = await ensureInstallState();
-      if (remoteTelemetryState === 'disabled') return false;
+      if (!isCaptureAllowed()) return false;
       const response = await fetchFn(TELEMETRY_BATCH_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -303,6 +303,7 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
   async function fetchFeatureFlags(): Promise<unknown> {
     try {
       const { installId } = await ensureInstallState();
+      if (isStopped || !isLocalConsentGiven()) return null;
       const response = await fetchFn(TELEMETRY_FLAGS_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -100,4 +100,9 @@ function buildPlanLimitsMessage(snapshot: { rateLimits?: RateLimitWindows | null
   };
 }
 
-export { normalizeStatuslinePayload, shouldBroadcastPlanLimits, buildPlanLimitsMessage, planLimitsSignature };
+function selectOfficialSessionCost(costMode: string, recordedCostUSD: number | null | undefined): number | null {
+  if (costMode === 'calculate') return null;
+  return recordedCostUSD ?? null;
+}
+
+export { normalizeStatuslinePayload, shouldBroadcastPlanLimits, buildPlanLimitsMessage, planLimitsSignature, selectOfficialSessionCost };

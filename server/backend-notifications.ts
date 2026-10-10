@@ -48,7 +48,7 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
   );
   const notificationManager = new NotificationManager({
     escalationIntervalMs: ESCALATION_INTERVAL_MS,
-    debounceMs: config.notifyDebounceMs || 3000,
+    debounceMs: config.notifyDebounceMs ?? 3000,
     phoneEscalationMs: phoneEscalationMs(),
     recordOutcome,
   });
@@ -125,7 +125,7 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
   function applySettings(): void {
     notificationManager.updateSettings({
       escalationIntervalMs: ESCALATION_INTERVAL_MS,
-      debounceMs: config.notifyDebounceMs || 3000,
+      debounceMs: config.notifyDebounceMs ?? 3000,
       phoneEscalationMs: phoneEscalationMs(),
     });
   }

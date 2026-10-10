@@ -47,6 +47,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
   });
   const makeSession = createSessionFactory({
     configStore: dependencies.configStore,
+    getConfig: () => dependencies.configStore.config,
     hookRouter,
     getHookPort,
     getGitWorkspace: dependencies.getGitWorkspace,

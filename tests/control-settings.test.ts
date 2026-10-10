@@ -59,6 +59,36 @@ function holdsKey(value: unknown, key: string): boolean {
   return key in value;
 }
 
+test('repository root files and missing paths reject the whole save without changing disk or runtime', () => {
+  withRealStore({ projects: [], repoRoots: [] }, undefined, (settings, store, readDisk) => {
+    const previousConfig = readDisk();
+    for (const root of [store.configPath, path.join(path.dirname(store.configPath), 'missing')]) {
+      settings.sent.length = 0;
+      settings.send({ type: 'update-settings', requestId: 'invalid-root', settings: { repoRoots: [root], cursorBlink: true } });
+      assert.match(String(errorFrom(settings)?.message), /Repository roots must be existing directories/);
+      assert.ok(String(errorFrom(settings)?.message).includes(root));
+      assert.equal(updatedFrom(settings), undefined);
+      assert.equal(settings.reloadCalls.length, 0);
+      assert.deepEqual(store.config.repoRoots, []);
+      assert.equal(store.config.cursorBlink, undefined);
+      assert.deepEqual(readDisk(), previousConfig);
+    }
+  });
+});
+
+test('existing repository root directories persist and empty roots remain an explicit clearing action', () => {
+  withRealStore({ projects: [], repoRoots: [] }, undefined, (settings, store, readDisk) => {
+    const directory = path.dirname(store.configPath);
+    settings.send({ type: 'update-settings', settings: { repoRoots: [directory] } });
+    assert.equal(errorFrom(settings), undefined);
+    assert.deepEqual(store.config.repoRoots, [directory]);
+    assert.deepEqual(readDisk().repoRoots, [directory]);
+    settings.send({ type: 'update-settings', settings: { repoRoots: [] } });
+    assert.deepEqual(store.config.repoRoots, []);
+    assert.deepEqual(readDisk().repoRoots, []);
+  });
+});
+
 test('a Telegram payload persists and echoes with its secret redacted', () => {
   const settings = harness({ projects: [] });
   settings.send({ type: 'update-settings', settings: { telegram: { botToken: 'tok', chatId: '123' } } });

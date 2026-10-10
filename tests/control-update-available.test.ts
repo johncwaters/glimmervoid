@@ -12,6 +12,67 @@ import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
 
 const UPDATE_RECHECK_MS = 24 * 60 * 60 * 1000;
 
+test('settings start and cancel automatic update checks without duplicate timers', async (context) => {
+  context.mock.timers.enable({ apis: ['setInterval'] });
+  const config = { checkForUpdates: false };
+  let checksRun = 0;
+  const updateCheck = createBackendUpdateCheck({
+    config,
+    currentVersion: '0.16.0',
+    checkForUpdate: async () => { checksRun += 1; return null; },
+    getControlClientCount: () => 1,
+    broadcastControl: () => {},
+    logger: { log: () => {} },
+  });
+  context.after(() => updateCheck.stop());
+  updateCheck.start();
+  context.mock.timers.tick(UPDATE_RECHECK_MS);
+  await settle();
+  assert.equal(checksRun, 0);
+  config.checkForUpdates = true;
+  updateCheck.applySettings();
+  await settle();
+  assert.equal(checksRun, 1);
+  updateCheck.applySettings();
+  context.mock.timers.tick(UPDATE_RECHECK_MS);
+  await settle();
+  assert.equal(checksRun, 2);
+  config.checkForUpdates = false;
+  updateCheck.applySettings();
+  config.checkForUpdates = true;
+  context.mock.timers.tick(UPDATE_RECHECK_MS);
+  await settle();
+  assert.equal(checksRun, 2, 'the previous automatic timer was cancelled');
+  updateCheck.applySettings();
+  await settle();
+  context.mock.timers.tick(UPDATE_RECHECK_MS);
+  await settle();
+  assert.equal(checksRun, 4);
+});
+
+test('scheduled update checks read the current opt-out while manual checks remain available', async (context) => {
+  context.mock.timers.enable({ apis: ['setInterval'] });
+  const config = { checkForUpdates: true };
+  let checksRun = 0;
+  const updateCheck = createBackendUpdateCheck({
+    config,
+    currentVersion: '0.16.0',
+    checkForUpdate: async () => { checksRun += 1; return null; },
+    getControlClientCount: () => 1,
+    broadcastControl: () => {},
+    logger: { log: () => {} },
+  });
+  context.after(() => updateCheck.stop());
+  updateCheck.start();
+  await settle();
+  config.checkForUpdates = false;
+  context.mock.timers.tick(UPDATE_RECHECK_MS);
+  await settle();
+  assert.equal(checksRun, 1);
+  await updateCheck.checkNow();
+  assert.equal(checksRun, 2);
+});
+
 interface UpdateFrame {
   type: string;
   latest?: string | null;
@@ -324,6 +385,66 @@ test('changing updateChannel clears status and triggers a forced check', async (
   assert.equal(updateCheck.getStatus(), null);
   await settle();
   assert.deepEqual(channels, ['release', 'main']);
+});
+
+test('a channel change with update checks off resets status without fetching and manual checks use the new channel', async () => {
+  const config: { checkForUpdates: boolean; updateChannel: 'release' | 'main' } = {
+    checkForUpdates: false,
+    updateChannel: 'release',
+  };
+  const channels: string[] = [];
+  const updateCheck = createBackendUpdateCheck({
+    config,
+    currentVersion: '0.16.0',
+    checkForUpdate: async (options) => {
+      channels.push(options.updateChannel);
+      return { ...makeUpdateStatus('0.17.0'), channel: options.updateChannel };
+    },
+    getControlClientCount: () => 1,
+    broadcastControl: () => {},
+    logger: { log: () => {} },
+  });
+  await updateCheck.checkNow();
+  assert.equal(updateCheck.getStatus()?.channel, 'release');
+  config.updateChannel = 'main';
+  updateCheck.applySettings();
+  await settle();
+  assert.equal(updateCheck.getStatus(), null);
+  assert.deepEqual(channels, ['release'], 'the channel change started no check');
+  assert.equal((await updateCheck.checkNow()).channel, 'main');
+  assert.deepEqual(channels, ['release', 'main']);
+  assert.equal(updateCheck.getStatus()?.channel, 'main');
+});
+
+test('turning update checks off drops a channel refresh queued behind a running check', async (context) => {
+  const config: { checkForUpdates: boolean; updateChannel: 'release' | 'main' } = {
+    checkForUpdates: true,
+    updateChannel: 'release',
+  };
+  const channels: string[] = [];
+  const releases: Array<(status: UpdateStatus) => void> = [];
+  const updateCheck = createBackendUpdateCheck({
+    config,
+    currentVersion: '0.16.0',
+    checkForUpdate: (options) => {
+      channels.push(options.updateChannel);
+      return new Promise((resolve) => { releases.push(resolve); });
+    },
+    getControlClientCount: () => 1,
+    broadcastControl: () => {},
+    logger: { log: () => {} },
+  });
+  context.after(() => updateCheck.stop());
+  const running = updateCheck.checkNow();
+  config.updateChannel = 'main';
+  updateCheck.applySettings();
+  config.checkForUpdates = false;
+  updateCheck.applySettings();
+  releases[0]?.(makeUpdateStatus('0.17.0'));
+  await running;
+  await settle();
+  assert.deepEqual(channels, ['release'], 'the queued refresh never ran with checks off');
+  assert.equal(updateCheck.getStatus(), null);
 });
 
 test('update-check delegates to the forced check lane', async () => {

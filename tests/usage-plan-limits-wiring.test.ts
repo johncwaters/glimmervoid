@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 
 import { createUsageWiring, resolveUsageConfig, DEFAULT_USAGE_CONFIG } from '../server/usage-wiring.ts';
 import type { UsageScannerApi } from '../server/usage-scanner.ts';
+import { sessionChipCost } from '../public/usage-view-core.ts';
 
 const COMPLETE_PASS: Awaited<ReturnType<UsageScannerApi['runPass']>> = {
   files: 1,
@@ -19,6 +20,23 @@ const COMPLETE_PASS: Awaited<ReturnType<UsageScannerApi['runPass']>> = {
 
 const GLIMMERVOID_ID = 'a0000000-0000-4000-8000-000000000001';
 const CLAUDE_ID = 'c1c1c1c1-2222-4333-8444-555555555555';
+
+for (const costMode of ['calculate', 'auto', 'display']) {
+  test(`${costMode} mode selects the matching cost source for session chips`, async (context) => {
+    const lane = harness({ usage: { costMode } });
+    context.after(() => lane.wiring.stop());
+    await lane.wiring.start();
+    lane.wiring.ingestStatusline(statuslinePayload({ cost: 2.75 }));
+    lane.wiring.refreshSessions();
+    const row = lastSessionRow(lane.sessionMessages());
+    const chipCost = sessionChipCost(row);
+    assert.equal(row.costUSD, 0.42);
+    assert.equal(row.officialCostUSD, costMode === 'calculate' ? null : 2.75);
+    assert.deepEqual(chipCost, costMode === 'calculate'
+      ? { costUSD: 0.42, source: 'estimated' }
+      : { costUSD: 2.75, source: 'official' });
+  });
+}
 
 interface RateWindow {
   pct: number;

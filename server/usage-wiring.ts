@@ -15,6 +15,7 @@ import { computeCacheSavings, normalizeRtkGain } from './core/usage-savings-core
 import {
   buildPlanLimitsMessage,
   normalizeStatuslinePayload,
+  selectOfficialSessionCost,
   shouldBroadcastPlanLimits,
 } from './core/usage-statusline-core.ts';
 import type { StatuslineSnapshot } from './core/usage-statusline-core.ts';
@@ -429,9 +430,7 @@ function createUsageWiring({
       if (!resumeId) continue;
       const bucket = totals.get(resumeId) || { tokens: 0, costUSD: 0, lastTs: null };
 
-      const officialCostUSD = officialCostByClaudeId.has(resumeId)
-        ? officialCostByClaudeId.get(resumeId)
-        : null;
+      const officialCostUSD = selectOfficialSessionCost(cfg.costMode, officialCostByClaudeId.get(resumeId));
       rows.push({ id, tokens: bucket.tokens, costUSD: bucket.costUSD, lastTs: bucket.lastTs, officialCostUSD });
     }
     return { type: 'usage-sessions', ts: nowFn(), pricingSource: pricing?.source || null, sessions: rows };

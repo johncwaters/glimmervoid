@@ -202,38 +202,58 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
     return runCheck(0);
   }
 
-  function applySettings(): void {
-    if (stopped) return;
+  function resetRecordedStateOnChannelChange(): boolean {
     const channel = normalizeUpdateChannel(dependencies.config.updateChannel);
-    if (channel === lastChannel) return;
+    if (channel === lastChannel) return false;
     lastChannel = channel;
     recordedStatus = null;
     lastLaneSignature = null;
     lastSurfacedIdentity = null;
+    updateAbort?.abort();
+    return true;
+  }
+
+  function refreshForChangedChannel(): void {
     if (inFlight) {
       pendingChannelRefresh = true;
-      updateAbort?.abort();
       return;
     }
     void checkNow();
   }
 
+  function applySettings(): void {
+    if (stopped) return;
+    const hasChannelChanged = resetRecordedStateOnChannelChange();
+    if (dependencies.config.checkForUpdates === false) {
+      pendingChannelRefresh = false;
+      cancelAutomaticChecks();
+      return;
+    }
+    if (hasChannelChanged) refreshForChangedChannel();
+    start();
+  }
+
   function start(): void {
-    if (dependencies.config.checkForUpdates === false) return;
+    if (stopped || updateRecheckInterval || dependencies.config.checkForUpdates === false) return;
     void runCheck();
     updateRecheckInterval = setInterval(() => {
+      if (stopped || dependencies.config.checkForUpdates === false) return;
       if (dependencies.getControlClientCount() === 0) return;
       void runCheck();
     }, UPDATE_RECHECK_MS);
     updateRecheckInterval.unref();
   }
 
+  function cancelAutomaticChecks(): void {
+    if (updateRecheckInterval) clearInterval(updateRecheckInterval);
+    updateRecheckInterval = null;
+  }
+
   function stop(): void {
     stopped = true;
     pendingChannelRefresh = false;
     updateAbort?.abort();
-    if (updateRecheckInterval) clearInterval(updateRecheckInterval);
-    updateRecheckInterval = null;
+    cancelAutomaticChecks();
   }
 
   return { applySettings, checkNow, getStatus, refreshApplyAvailability, start, stop };
