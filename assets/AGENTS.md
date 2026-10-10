@@ -4,7 +4,7 @@
 # assets
 
 ## Purpose
-Repo-level static assets for documentation, served as Vite's `publicDir`. The only third-party media here is the bundled CommitMono font, which ships with its SIL OFL licence beside it (`tests/bundled-fonts.test.ts`). Built-in alert sounds are synthesized in `public/alert-sound-core.ts`, and operator sounds are served from `<glimmervoid home>/sounds/` by `server/custom-sounds-routes.ts`.
+Repo-level static assets for documentation, served as Vite's `publicDir`. The only third-party media here is the bundled CommitMono font, which ships with its SIL OFL licence beside it (`tests/bundled-fonts.test.ts`), plus `octicons-LICENSE.txt`, the MIT licence for the Octicons paths copied into `public/pr-status-icon.ts`. Built-in alert sounds are synthesized in `public/alert-sound-core.ts`, and operator sounds are served from `<glimmervoid home>/sounds/` by `server/custom-sounds-routes.ts`.
 
 ## Subdirectories
 

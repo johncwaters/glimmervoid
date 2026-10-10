@@ -759,9 +759,9 @@ test('an error with standing approval settles without attention', () => {
 
 test('posted outcome comes from the viewer GitHub review or the posted event, and is null without either', () => {
   const review = draft(1337, { status: 'posted', verdict: 'REQUEST CHANGES', postedEvent: 'APPROVE' });
-  assert.deepEqual(postedOutcome(review), { label: 'You approved', tone: 'ok' });
+  assert.deepEqual(postedOutcome(review), { label: 'You approved', tone: 'ok', icon: 'passed' });
   assert.match(queueRowTitle(review, 'posted', {}), /^Acme\/app#1337: PR 1337\nYou approved\n/);
-  assert.deepEqual(postedOutcome({ ...review, postedEvent: 'COMMENT' }), { label: 'You commented', tone: 'muted' });
+  assert.deepEqual(postedOutcome({ ...review, postedEvent: 'COMMENT' }), { label: 'You commented', tone: 'muted', icon: 'thread' });
   const legacy = { ...review, postedEvent: undefined };
   assert.equal(postedOutcome(legacy), null);
   assert.match(queueRowTitle(legacy, 'posted', {}), /\nPosted\nAutomated review: Changes, 0 comments/);
@@ -770,7 +770,7 @@ test('posted outcome comes from the viewer GitHub review or the posted event, an
     { login: 'me', state: 'APPROVED' as const, commit: HEAD, isViewer: true, submittedAt: '2026-10-02T10:00:00Z' },
     { login: 'other', state: 'CHANGES_REQUESTED' as const, commit: HEAD, isViewer: false, submittedAt: '2026-10-03T10:00:00Z' },
   ] };
-  assert.deepEqual(postedOutcome(approvedOnGithub), { label: 'You approved', tone: 'ok' });
+  assert.deepEqual(postedOutcome(approvedOnGithub), { label: 'You approved', tone: 'ok', icon: 'passed' });
   assert.match(queueRowTitle(approvedOnGithub, 'posted', {}), /\nYou approved\n/);
 });
 
@@ -779,7 +779,7 @@ test('posted outcome prefers a comment posted after an older viewer approval sna
     status: 'posted', postedEvent: 'COMMENT', postedAt: Date.parse('2026-10-03T10:00:00Z'),
     githubReviews: [{ login: 'me', state: 'APPROVED', commit: HEAD, isViewer: true, submittedAt: '2026-10-02T10:00:00Z' }],
   });
-  assert.deepEqual(postedOutcome(review), { label: 'You commented', tone: 'muted' });
+  assert.deepEqual(postedOutcome(review), { label: 'You commented', tone: 'muted', icon: 'thread' });
 });
 
 test('posted outcome prefers a viewer approval submitted after the posted comment', () => {
@@ -787,7 +787,7 @@ test('posted outcome prefers a viewer approval submitted after the posted commen
     status: 'posted', postedEvent: 'COMMENT', postedAt: Date.parse('2026-10-02T10:00:00Z'),
     githubReviews: [{ login: 'me', state: 'APPROVED', commit: HEAD, isViewer: true, submittedAt: '2026-10-03T10:00:00Z' }],
   });
-  assert.deepEqual(postedOutcome(review), { label: 'You approved', tone: 'ok' });
+  assert.deepEqual(postedOutcome(review), { label: 'You approved', tone: 'ok', icon: 'passed' });
 });
 
 test('posted outcome prefers the posted event when the viewer review has no submitted time', () => {
@@ -795,7 +795,7 @@ test('posted outcome prefers the posted event when the viewer review has no subm
     status: 'posted', postedEvent: 'COMMENT', postedAt: Date.parse('2026-10-02T10:00:00Z'),
     githubReviews: [{ login: 'me', state: 'APPROVED', commit: HEAD, isViewer: true, submittedAt: null }],
   });
-  assert.deepEqual(postedOutcome(review), { label: 'You commented', tone: 'muted' });
+  assert.deepEqual(postedOutcome(review), { label: 'You commented', tone: 'muted', icon: 'thread' });
 });
 
 test('hand review rows populate their section and keep a hand-only list visible', () => {
@@ -831,24 +831,24 @@ test('hand review rows replace older drafts and queued rows while active reviews
 
 test('queue row glyphs name the operator outcome on posted rows and the next step elsewhere', () => {
   const posted = draft(1, { status: 'posted', postedEvent: 'APPROVE', postedAt: 1 });
-  assert.deepEqual(queueRowGlyph(posted, 'posted'), { tone: 'ok', meaning: 'You approved' });
-  assert.deepEqual(queueRowGlyph({ ...posted, postedEvent: 'COMMENT' }, 'posted'), { tone: 'muted', meaning: 'You commented' });
+  assert.deepEqual(queueRowGlyph(posted, 'posted'), { tone: 'ok', icon: 'passed', meaning: 'You approved' });
+  assert.deepEqual(queueRowGlyph({ ...posted, postedEvent: 'COMMENT' }, 'posted'), { tone: 'muted', icon: 'thread', meaning: 'You commented' });
   const viewerRequestedChanges = { login: 'me', state: 'CHANGES_REQUESTED', commit: HEAD, isViewer: true, submittedAt: '2026-10-03T10:00:00Z' } as const;
-  assert.deepEqual(queueRowGlyph({ ...posted, githubReviews: [viewerRequestedChanges] }, 'posted'), { tone: 'wait', meaning: 'You requested changes' });
-  assert.deepEqual(queueRowGlyph({ ...posted, postedEvent: undefined }, 'posted'), { tone: 'muted', meaning: 'Posted' });
-  assert.deepEqual(queueRowGlyph(draft(2), 'ready'), { tone: 'warn', meaning: 'Waits on you' });
-  assert.deepEqual(queueRowGlyph(draft(3, { checksState: 'FAILURE' }), 'ready'), { tone: 'wait', meaning: 'Checks failing' });
-  assert.deepEqual(queueRowGlyph(draft(4), 'settled'), { tone: 'ok', meaning: 'Others reviewed' });
-  assert.deepEqual(queueRowGlyph(draft(4, { postedEvent: 'APPROVE', postedAt: 1 }), 'settled'), { tone: 'ok', meaning: 'You approved' });
-  assert.deepEqual(queueRowGlyph(draft(4, { githubReviews: [{ ...viewerRequestedChanges, commit: 'b'.repeat(40) }, { login: 'teammate', state: 'APPROVED', commit: HEAD, isViewer: false, submittedAt: '2026-10-04T10:00:00Z' }] }), 'settled'), { tone: 'ok', meaning: 'Others reviewed' });
+  assert.deepEqual(queueRowGlyph({ ...posted, githubReviews: [viewerRequestedChanges] }, 'posted'), { tone: 'wait', icon: 'changes-requested', meaning: 'You requested changes' });
+  assert.deepEqual(queueRowGlyph({ ...posted, postedEvent: undefined }, 'posted'), { tone: 'muted', icon: 'none', meaning: 'Posted' });
+  assert.deepEqual(queueRowGlyph(draft(2), 'ready'), { tone: 'warn', icon: 'your-turn', meaning: 'Waits on you' });
+  assert.deepEqual(queueRowGlyph(draft(3, { checksState: 'FAILURE' }), 'ready'), { tone: 'wait', icon: 'failed', meaning: 'Checks failing' });
+  assert.deepEqual(queueRowGlyph(draft(4), 'settled'), { tone: 'ok', icon: 'passed', meaning: 'Others reviewed' });
+  assert.deepEqual(queueRowGlyph(draft(4, { postedEvent: 'APPROVE', postedAt: 1 }), 'settled'), { tone: 'ok', icon: 'passed', meaning: 'You approved' });
+  assert.deepEqual(queueRowGlyph(draft(4, { githubReviews: [{ ...viewerRequestedChanges, commit: 'b'.repeat(40) }, { login: 'teammate', state: 'APPROVED', commit: HEAD, isViewer: false, submittedAt: '2026-10-04T10:00:00Z' }] }), 'settled'), { tone: 'ok', icon: 'passed', meaning: 'Others reviewed' });
   const teammateApprovalAtHead = { login: 'teammate', state: 'APPROVED', commit: HEAD, isViewer: false, submittedAt: '2026-10-04T10:00:00Z' } as const;
-  assert.deepEqual(queueRowGlyph(draft(4, { reviewDecision: 'APPROVED', githubReviews: [{ login: 'me', state: 'APPROVED', commit: 'b'.repeat(40), isViewer: true, submittedAt: '2026-10-03T10:00:00Z' }, teammateApprovalAtHead] }), 'settled'), { tone: 'ok', meaning: 'You approved' });
-  assert.deepEqual(queueRowGlyph(draft(4, { githubReviews: [{ login: 'me', state: 'COMMENTED', commit: HEAD, isViewer: true, submittedAt: '2026-10-03T10:00:00Z' }, teammateApprovalAtHead] }), 'settled'), { tone: 'muted', meaning: 'You commented' });
+  assert.deepEqual(queueRowGlyph(draft(4, { reviewDecision: 'APPROVED', githubReviews: [{ login: 'me', state: 'APPROVED', commit: 'b'.repeat(40), isViewer: true, submittedAt: '2026-10-03T10:00:00Z' }, teammateApprovalAtHead] }), 'settled'), { tone: 'ok', icon: 'passed', meaning: 'You approved' });
+  assert.deepEqual(queueRowGlyph(draft(4, { githubReviews: [{ login: 'me', state: 'COMMENTED', commit: HEAD, isViewer: true, submittedAt: '2026-10-03T10:00:00Z' }, teammateApprovalAtHead] }), 'settled'), { tone: 'muted', icon: 'thread', meaning: 'You commented' });
   assert.equal(queueRowGlyph(draft(8, { isDraft: true }), 'queued').meaning, 'Queued, Draft');
   assert.equal(queueRowGlyph(draft(9, { checksState: 'FAILURE' }), 'inReview').meaning, 'In review, Checks failing');
-  assert.deepEqual(queueRowGlyph(draft(5, { status: 'error' }), 'attention'), { tone: 'danger', meaning: 'Review failed' });
-  assert.deepEqual(queueRowGlyph(draft(6, { status: 'stale' }), 'attention'), { tone: 'warn', meaning: 'Out of date' });
-  assert.deepEqual(queueRowGlyph(draft(7), 'handReview'), { tone: 'warn', meaning: 'From a fork' });
+  assert.deepEqual(queueRowGlyph(draft(5, { status: 'error' }), 'attention'), { tone: 'danger', icon: 'failed', meaning: 'Review failed' });
+  assert.deepEqual(queueRowGlyph(draft(6, { status: 'stale' }), 'attention'), { tone: 'warn', icon: 'stale', meaning: 'Out of date' });
+  assert.deepEqual(queueRowGlyph(draft(7), 'handReview'), { tone: 'warn', icon: 'fork', meaning: 'From a fork' });
 });
 
 test('only exceptional priority reasons earn row text, so plain team and ready requests stay silent', () => {
@@ -914,10 +914,10 @@ test('standing approval settles resolved threads while answered threads still ne
 
 test('resolved thread glyph respects exceptions and hover and heading reflect counts', () => {
   const review = draft(1, { viewerThreads: { total: 5, resolved: 5 } });
-  assert.deepEqual(queueRowGlyph(review, 'ready'), { meaning: 'Comments resolved', tone: 'warn' });
-  assert.deepEqual(queueRowGlyph({ ...review, checksState: 'FAILURE' }, 'ready'), { meaning: 'Checks failing', tone: 'wait' });
-  assert.deepEqual(queueRowGlyph({ ...review, isDraft: true }, 'ready'), { meaning: 'Draft', tone: 'wait' });
-  assert.deepEqual(queueRowGlyph({ ...review, viewerThreads: { total: 5, resolved: 2 } }, 'ready'), { meaning: 'Waits on you', tone: 'warn' });
+  assert.deepEqual(queueRowGlyph(review, 'ready'), { meaning: 'Comments resolved', tone: 'warn', icon: 'your-turn' });
+  assert.deepEqual(queueRowGlyph({ ...review, checksState: 'FAILURE' }, 'ready'), { meaning: 'Checks failing', tone: 'wait', icon: 'failed' });
+  assert.deepEqual(queueRowGlyph({ ...review, isDraft: true }, 'ready'), { meaning: 'Draft', tone: 'wait', icon: 'draft' });
+  assert.deepEqual(queueRowGlyph({ ...review, viewerThreads: { total: 5, resolved: 2 } }, 'ready'), { meaning: 'Waits on you', tone: 'warn', icon: 'your-turn' });
   assert.match(queueRowTitle(review, 'ready', {}), /All 5 of your comments resolved/);
   assert.notEqual(detailHeadingSignature(review), detailHeadingSignature({ ...review, viewerThreads: { total: 5, resolved: 2 } }));
 });
@@ -927,7 +927,7 @@ test('a posted review whose comments are all resolved moves to Ready unless your
   const sections = groupDrafts(status([posted]));
   assert.equal(sections.posted.length, 0);
   assert.deepEqual(sections.ready.map((review) => review.key), [posted.key]);
-  assert.deepEqual(queueRowGlyph(posted, 'ready'), { meaning: 'Comments resolved', tone: 'warn' });
+  assert.deepEqual(queueRowGlyph(posted, 'ready'), { meaning: 'Comments resolved', tone: 'warn', icon: 'your-turn' });
   assert.equal(groupDrafts(status([{ ...posted, viewerThreads: { total: 3, resolved: 1 } }])).posted.length, 1);
   const approved = { ...posted, reviewDecision: 'APPROVED' as const, githubReviews: [{ login: 'me', state: 'APPROVED' as const, commit: HEAD, isViewer: true }] };
   assert.equal(groupDrafts(status([approved])).posted.length, 1);
@@ -939,7 +939,7 @@ test('your approval at the current head settles resolved comments without a stan
     const review = draft(1, { viewerThreads: { total: 5, resolved: 5 }, reviewDecision, githubReviews: [viewerApproval] });
     assert.equal(isReviewNeeded(review), false);
     assert.equal(groupDrafts(status([review])).noReviewNeeded.length, 1);
-    assert.notDeepEqual(queueRowGlyph(review, 'ready'), { meaning: 'Comments resolved', tone: 'warn' });
+    assert.notDeepEqual(queueRowGlyph(review, 'ready'), { meaning: 'Comments resolved', tone: 'warn', icon: 'your-turn' });
     const posted = { ...review, status: 'posted' as const, postedEvent: 'APPROVE' as const };
     assert.equal(groupDrafts(status([posted])).posted.length, 1);
   }
@@ -949,7 +949,7 @@ test('your approval at an older commit leaves resolved comments waiting on you',
   const review = draft(1, { viewerThreads: { total: 5, resolved: 5 }, reviewDecision: null, liveHead: NEXT_HEAD, githubReviews: [{ login: 'me', state: 'APPROVED', commit: HEAD, isViewer: true }] });
   assert.equal(isReviewNeeded(review), true);
   assert.equal(groupDrafts(status([review])).ready.length, 1);
-  assert.deepEqual(queueRowGlyph(review, 'ready'), { meaning: 'Comments resolved', tone: 'warn' });
+  assert.deepEqual(queueRowGlyph(review, 'ready'), { meaning: 'Comments resolved', tone: 'warn', icon: 'your-turn' });
 });
 
 

@@ -2,15 +2,16 @@ import { reviewsErrorNotice } from './reviews-retry-core.ts';
 import { MyPrMergeResult, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { mergeMethodLabel, myPrMergeBlocker } from '#shared/my-pr-merge.ts';
 import type { MyPr, MyPrMergeKind, MyPrStage, MyPrsStatus as MyPrsStatusType, MyPrThread } from '#shared/contracts/my-prs.ts';
+import type { PrStatusIcon } from './pr-status-icon-core.ts';
 import type { StateTone } from './state-tone-core.ts';
 
 export interface MyPrSection { title: string; prs: MyPr[] }
 export interface ThreadRow {
   location: string; url: string; author: string; excerpt: string; replySummary: string; lastActivityAt: string;
-  waiting: { tone: StateTone; text: string } | null;
+  waiting: { tone: StateTone; icon: PrStatusIcon; text: string } | null;
 }
-export interface ReviewRow { reviewer: string; text: string; tone: StateTone; submittedAt: string | null }
-export interface ReadinessRow { label: 'Checks' | 'Review' | 'Threads' | 'Conflicts' | 'Base' | 'Auto-rebase'; tone: StateTone; text: string }
+export interface ReviewRow { reviewer: string; text: string; tone: StateTone; icon: PrStatusIcon; submittedAt: string | null }
+export interface ReadinessRow { label: 'Checks' | 'Review' | 'Threads' | 'Conflicts' | 'Base' | 'Auto-rebase'; tone: StateTone; icon: PrStatusIcon; text: string }
 
 export interface ToggleControlState { isVisible: boolean; isPressed: boolean; isDisabled: boolean; statusText: string }
 
@@ -89,6 +90,11 @@ const STAGE_TONES: Record<MyPrStage, StateTone> = {
   'changes-requested': 'warn', 'unresolved-threads': 'warn', 'checks-pending': 'wait',
   'needs-approval': 'wait', ready: 'ok', unknown: 'muted',
 };
+const STAGE_ICONS: Record<MyPrStage, PrStatusIcon> = {
+  merged: 'merged', draft: 'draft', conflicts: 'conflict', behind: 'behind', 'checks-failing': 'failed',
+  'changes-requested': 'changes-requested', 'unresolved-threads': 'thread', 'checks-pending': 'running',
+  'needs-approval': 'reviewer', ready: 'ready', unknown: 'unknown',
+};
 
 export function parseMyPrsStatus(message: unknown): MyPrsStatusType | null {
   const parsed = MyPrsStatus.safeParse(message);
@@ -160,17 +166,18 @@ export function sectionStackedMyPrs(prs: readonly MyPr[]): MyPrStackSection[] {
 
 export function stageLabel(stage: MyPrStage): string { return STAGE_LABELS[stage]; }
 export function stageTone(stage: MyPrStage): StateTone { return STAGE_TONES[stage]; }
+export function stageIcon(stage: MyPrStage): PrStatusIcon { return STAGE_ICONS[stage]; }
 
 function checksReadiness(pr: MyPr): ReadinessRow {
   if (pr.checks.failing.length > 0) {
     const extra = pr.checks.failing.length - 3;
-    return { label: 'Checks', tone: 'danger', text: `${pr.checks.failing.length} failing: ${pr.checks.failing.slice(0, 3).join(', ')}${extra > 0 ? ` and ${extra} more` : ''}` };
+    return { label: 'Checks', tone: 'danger', icon: 'failed', text: `${pr.checks.failing.length} failing: ${pr.checks.failing.slice(0, 3).join(', ')}${extra > 0 ? ` and ${extra} more` : ''}` };
   }
-  if (pr.checks.state === 'FAILURE' || pr.checks.state === 'ERROR') return { label: 'Checks', tone: 'danger', text: 'Failing' };
-  if (pr.checks.pendingCount > 0) return { label: 'Checks', tone: 'wait', text: `${pr.checks.pendingCount} running` };
-  if (pr.checks.state === 'PENDING' || pr.checks.state === 'EXPECTED') return { label: 'Checks', tone: 'wait', text: 'Running' };
-  if (pr.checks.state === 'SUCCESS') return { label: 'Checks', tone: 'ok', text: 'Passing' };
-  return { label: 'Checks', tone: 'muted', text: 'No checks' };
+  if (pr.checks.state === 'FAILURE' || pr.checks.state === 'ERROR') return { label: 'Checks', tone: 'danger', icon: 'failed', text: 'Failing' };
+  if (pr.checks.pendingCount > 0) return { label: 'Checks', tone: 'wait', icon: 'running', text: `${pr.checks.pendingCount} running` };
+  if (pr.checks.state === 'PENDING' || pr.checks.state === 'EXPECTED') return { label: 'Checks', tone: 'wait', icon: 'running', text: 'Running' };
+  if (pr.checks.state === 'SUCCESS') return { label: 'Checks', tone: 'ok', icon: 'passed', text: 'Passing' };
+  return { label: 'Checks', tone: 'muted', icon: 'none', text: 'No checks' };
 }
 
 function approvalCountText(approvals: number): string {
@@ -188,16 +195,16 @@ function approvalRequiredText(pr: MyPr): string {
 
 function approvedReadiness(pr: MyPr): ReadinessRow {
   const approvedText = pr.approvals > 0 ? approvalCountText(pr.approvals) : 'Approved';
-  if (pr.mergeStateStatus === 'BLOCKED') return { label: 'Review', tone: 'wait', text: `${approvedText}, merge blocked` };
-  return { label: 'Review', tone: 'ok', text: approvedText };
+  if (pr.mergeStateStatus === 'BLOCKED') return { label: 'Review', tone: 'wait', icon: 'reviewer', text: `${approvedText}, merge blocked` };
+  return { label: 'Review', tone: 'ok', icon: 'passed', text: approvedText };
 }
 
 function reviewReadiness(pr: MyPr): ReadinessRow {
-  if (pr.reviewDecision === 'CHANGES_REQUESTED') return { label: 'Review', tone: 'warn', text: 'Changes requested' };
+  if (pr.reviewDecision === 'CHANGES_REQUESTED') return { label: 'Review', tone: 'warn', icon: 'changes-requested', text: 'Changes requested' };
   if (pr.reviewDecision === 'APPROVED') return approvedReadiness(pr);
-  if (pr.reviewDecision === 'REVIEW_REQUIRED' || pr.mergeStateStatus === 'BLOCKED') return { label: 'Review', tone: 'wait', text: approvalRequiredText(pr) };
-  if (pr.reviewRequests.length > 0) return { label: 'Review', tone: 'wait', text: `Requested: ${requestedReviewerNames(pr)}` };
-  return { label: 'Review', tone: 'muted', text: 'No review requested' };
+  if (pr.reviewDecision === 'REVIEW_REQUIRED' || pr.mergeStateStatus === 'BLOCKED') return { label: 'Review', tone: 'wait', icon: 'reviewer', text: approvalRequiredText(pr) };
+  if (pr.reviewRequests.length > 0) return { label: 'Review', tone: 'wait', icon: 'reviewer', text: `Requested: ${requestedReviewerNames(pr)}` };
+  return { label: 'Review', tone: 'muted', icon: 'none', text: 'No review requested' };
 }
 
 function isWaitingOnViewer(thread: MyPrThread, viewer: string | null): boolean | null {
@@ -219,7 +226,7 @@ function replySummary(thread: MyPrThread): string {
 function waitingBadge(thread: MyPrThread, viewer: string | null): ThreadRow['waiting'] {
   const isWaiting = isWaitingOnViewer(thread, viewer);
   if (isWaiting === null) return null;
-  return isWaiting ? { tone: 'warn', text: 'Waiting on you' } : { tone: 'wait', text: 'Waiting on reviewer' };
+  return isWaiting ? { tone: 'warn', icon: 'your-turn', text: 'Waiting on you' } : { tone: 'wait', icon: 'reviewer', text: 'Waiting on reviewer' };
 }
 
 export function threadRows(pr: MyPr, viewer: string | null): ThreadRow[] {
@@ -235,37 +242,37 @@ export function threadRows(pr: MyPr, viewer: string | null): ThreadRow[] {
 }
 
 function threadsReadiness(pr: MyPr, viewer: string | null): ReadinessRow {
-  if (pr.unresolvedThreads === 0) return { label: 'Threads', tone: 'ok', text: 'None open' };
+  if (pr.unresolvedThreads === 0) return { label: 'Threads', tone: 'ok', icon: 'passed', text: 'None open' };
   const unresolvedText = `${pr.unresolvedThreads} unresolved`;
-  if (!viewer || pr.threads.length === 0) return { label: 'Threads', tone: 'warn', text: unresolvedText };
+  if (!viewer || pr.threads.length === 0) return { label: 'Threads', tone: 'warn', icon: 'thread', text: unresolvedText };
   const waitingOnViewerCount = pr.threads.filter((thread) => isWaitingOnViewer(thread, viewer)).length;
-  if (waitingOnViewerCount === 0) return { label: 'Threads', tone: 'wait', text: `${unresolvedText}, all waiting on reviewers` };
-  return { label: 'Threads', tone: 'warn', text: `${unresolvedText}, ${waitingOnViewerCount} waiting on you` };
+  if (waitingOnViewerCount === 0) return { label: 'Threads', tone: 'wait', icon: 'thread', text: `${unresolvedText}, all waiting on reviewers` };
+  return { label: 'Threads', tone: 'warn', icon: 'your-turn', text: `${unresolvedText}, ${waitingOnViewerCount} waiting on you` };
 }
 
 function conflictsReadiness(pr: MyPr): ReadinessRow {
-  if (pr.mergeable === 'CONFLICTING' || pr.mergeStateStatus === 'DIRTY') return { label: 'Conflicts', tone: 'danger', text: `Conflicts with ${pr.baseRefName}` };
-  if (pr.mergeable === 'MERGEABLE') return { label: 'Conflicts', tone: 'ok', text: 'None' };
-  return { label: 'Conflicts', tone: 'muted', text: 'Not computed yet' };
+  if (pr.mergeable === 'CONFLICTING' || pr.mergeStateStatus === 'DIRTY') return { label: 'Conflicts', tone: 'danger', icon: 'conflict', text: `Conflicts with ${pr.baseRefName}` };
+  if (pr.mergeable === 'MERGEABLE') return { label: 'Conflicts', tone: 'ok', icon: 'passed', text: 'None' };
+  return { label: 'Conflicts', tone: 'muted', icon: 'unknown', text: 'Not computed yet' };
 }
 
 function baseReadiness(pr: MyPr): ReadinessRow {
   const hasBehindCount = pr.behindBy !== null && pr.behindBy > 0;
-  if (pr.mergeStateStatus === 'BEHIND') return { label: 'Base', tone: 'warn', text: hasBehindCount ? `${pr.behindBy} behind ${pr.baseRefName}` : `Behind ${pr.baseRefName}` };
-  if (pr.behindBy === null) return { label: 'Base', tone: 'muted', text: 'Unknown' };
-  if (hasBehindCount) return { label: 'Base', tone: 'muted', text: `${pr.behindBy} behind ${pr.baseRefName}, update not required` };
-  return { label: 'Base', tone: 'ok', text: `Up to date with ${pr.baseRefName}` };
+  if (pr.mergeStateStatus === 'BEHIND') return { label: 'Base', tone: 'warn', icon: 'behind', text: hasBehindCount ? `${pr.behindBy} behind ${pr.baseRefName}` : `Behind ${pr.baseRefName}` };
+  if (pr.behindBy === null) return { label: 'Base', tone: 'muted', icon: 'unknown', text: 'Unknown' };
+  if (hasBehindCount) return { label: 'Base', tone: 'muted', icon: 'behind', text: `${pr.behindBy} behind ${pr.baseRefName}, update not required` };
+  return { label: 'Base', tone: 'ok', icon: 'passed', text: `Up to date with ${pr.baseRefName}` };
 }
 
-const REVIEW_STATES: Record<string, { text: string; tone: StateTone }> = {
-  APPROVED: { text: 'Approved', tone: 'ok' }, CHANGES_REQUESTED: { text: 'Requested changes', tone: 'warn' },
-  COMMENTED: { text: 'Commented', tone: 'muted' }, DISMISSED: { text: 'Dismissed', tone: 'muted' }, PENDING: { text: 'Pending', tone: 'wait' },
+const REVIEW_STATES: Record<string, { text: string; tone: StateTone; icon: PrStatusIcon }> = {
+  APPROVED: { text: 'Approved', tone: 'ok', icon: 'passed' }, CHANGES_REQUESTED: { text: 'Requested changes', tone: 'warn', icon: 'changes-requested' },
+  COMMENTED: { text: 'Commented', tone: 'muted', icon: 'thread' }, DISMISSED: { text: 'Dismissed', tone: 'muted', icon: 'discarded' }, PENDING: { text: 'Pending', tone: 'wait', icon: 'running' },
 };
 
 export function reviewRows(pr: MyPr): ReviewRow[] {
   return [...pr.reviews].sort((left, right) => (Date.parse(right.submittedAt ?? '') || 0) - (Date.parse(left.submittedAt ?? '') || 0)).map((review) => {
-    const described = REVIEW_STATES[review.state] ?? { text: review.state.toLowerCase().replaceAll('_', ' '), tone: 'muted' as const };
-    return { reviewer: review.reviewer ?? 'a deleted account', text: described.text, tone: described.tone, submittedAt: review.submittedAt };
+    const described = REVIEW_STATES[review.state] ?? { text: review.state.toLowerCase().replaceAll('_', ' '), tone: 'muted' as const, icon: 'unknown' as const };
+    return { reviewer: review.reviewer ?? 'a deleted account', text: described.text, tone: described.tone, icon: described.icon, submittedAt: review.submittedAt };
   });
 }
 
@@ -273,7 +280,7 @@ export function readinessRows(pr: MyPr, viewer: string | null = null): Readiness
   if (pr.state === 'MERGED') return [];
   const rows = [checksReadiness(pr), reviewReadiness(pr), threadsReadiness(pr, viewer), conflictsReadiness(pr), baseReadiness(pr)];
   if (!pr.autoRebase) return rows;
-  return [...rows, { label: 'Auto-rebase', tone: pr.autoRebase.outcome === 'rebased' ? 'ok' : 'danger', text: pr.autoRebase.message }];
+  return [...rows, pr.autoRebase.outcome === 'rebased' ? { label: 'Auto-rebase', tone: 'ok', icon: 'passed', text: pr.autoRebase.message } : { label: 'Auto-rebase', tone: 'danger', icon: 'failed', text: pr.autoRebase.message }];
 }
 
 export function emptyStateText(status: MyPrsStatusType | null): string {

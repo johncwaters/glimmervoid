@@ -7,7 +7,8 @@ import { nextRequestId, sendControlMsg } from './control-ws.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } from './dom-helpers.ts';
 import { createPollAgoTicker, formatAgo } from './poll-ago.ts';
 import { createPrQueueColumns, createPrQueueFoot, createPrQueueHead } from './pr-queue-columns.ts';
-import { createStateGlyph, createSvgIcon as svgIcon, createSvgShape as svgShape } from './state-glyph.ts';
+import { createPrStatusIcon } from './pr-status-icon.ts';
+import { createSvgIcon as svgIcon, createSvgShape as svgShape } from './state-glyph.ts';
 import { formatTrailOffset } from './radar-core.ts';
 import { createSettingsLink } from './settings-link.ts';
 import {
@@ -250,7 +251,7 @@ function createQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kin
   row.classList.remove('pr-queue-row-quiet');
   const rowGlyph = queueRowGlyph(review, kind);
   const glyph = el('span', 'pr-queue-glyph');
-  glyph.append(createStateGlyph(rowGlyph.tone));
+  glyph.append(createPrStatusIcon(rowGlyph.icon, rowGlyph.tone));
   const bottom = el('span', 'pr-queue-bottom');
   bottom.append(createRowStateWord(rowGlyph), createAuthor(review.author, 16, 'pr-queue-author'));
   if (review.requestSource === 'direct') {
@@ -305,7 +306,7 @@ function createHandReviewSection(reviews: QueuedReview[], hasMultipleRepos: bool
     _queueRowTitles.set(row, title);
     const handReviewGlyph = queueRowGlyph(review, 'handReview');
     const glyph = el('span', 'pr-queue-glyph');
-    glyph.append(createStateGlyph(handReviewGlyph.tone));
+    glyph.append(createPrStatusIcon(handReviewGlyph.icon, handReviewGlyph.tone));
     const bottom = el('span', 'pr-queue-bottom');
     bottom.append(createRowStateWord(handReviewGlyph), createAuthor(review.author, 16, 'pr-queue-author'));
     row.append(glyph, createQueueRowTop(review, hasMultipleRepos), bottom);
@@ -318,7 +319,7 @@ function createCaughtUpBanner({ title, detail }: CaughtUpSelectionView): HTMLEle
   const banner = el('section', 'pr-caught-up');
   banner.setAttribute('role', 'status');
   const heading = el('strong', 'pr-caught-up-title');
-  heading.append(createStateGlyph('ok'), el('span', null, title));
+  heading.append(createPrStatusIcon('ready', 'ok'), el('span', null, title));
   banner.append(heading, el('p', 'pr-caught-up-detail', detail));
   return banner;
 }

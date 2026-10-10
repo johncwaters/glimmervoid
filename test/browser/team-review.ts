@@ -69,7 +69,7 @@ async function verifyRows(page: Page): Promise<void> {
     bottom: button.querySelector('.pr-queue-bottom')?.textContent,
     stateWord: button.querySelector('.pr-queue-state')?.textContent,
     stateTone: button.querySelector('.pr-queue-state')?.getAttribute('data-tone'),
-    glyphTone: button.querySelector('.pr-queue-glyph .state-glyph')?.getAttribute('data-tone'),
+    glyphTone: button.querySelector('.pr-queue-glyph .pr-status-icon')?.getAttribute('data-tone'),
     authorAvatars: button.querySelectorAll('.pr-queue-author .avatar').length,
     reviewerAvatars: button.querySelectorAll('.pr-queue-reviewers .avatar').length,
     title: button.getAttribute('title'),

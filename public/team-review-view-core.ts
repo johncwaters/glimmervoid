@@ -6,6 +6,7 @@ import { shortSha } from '#shared/git-text.ts';
 import { findingSeveritiesIn, parseLeadingFindingHeader, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import { attentionSignature } from './attention-ack-core.ts';
 import { formatClockOffset } from './radar-core.ts';
+import type { PrStatusIcon } from './pr-status-icon-core.ts';
 import type { StateTone } from './state-tone-core.ts';
 
 export type QueueRowKind = 'ready' | 'settled' | 'inReview' | 'queued' | 'attention' | 'posted' | 'discarded' | 'handReview';
@@ -39,17 +40,18 @@ export interface QueueRowAges {
 export interface PostedOutcome {
   label: string;
   tone: StateTone;
+  icon: PrStatusIcon;
 }
 
 const POSTED_EVENT_OUTCOMES: Readonly<Record<PostedReviewEvent, PostedOutcome>> = {
-  APPROVE: { label: 'You approved', tone: 'ok' },
-  COMMENT: { label: 'You commented', tone: 'muted' },
+  APPROVE: { label: 'You approved', tone: 'ok', icon: 'passed' },
+  COMMENT: { label: 'You commented', tone: 'muted', icon: 'thread' },
 };
 
 const VIEWER_REVIEW_OUTCOMES: Readonly<Record<GithubReviewState, PostedOutcome>> = {
-  APPROVED: { label: 'You approved', tone: 'ok' },
-  CHANGES_REQUESTED: { label: 'You requested changes', tone: 'wait' },
-  COMMENTED: { label: 'You commented', tone: 'muted' },
+  APPROVED: { label: 'You approved', tone: 'ok', icon: 'passed' },
+  CHANGES_REQUESTED: { label: 'You requested changes', tone: 'wait', icon: 'changes-requested' },
+  COMMENTED: { label: 'You commented', tone: 'muted', icon: 'thread' },
 };
 
 export function postedOutcome(draft: ReviewDraft): PostedOutcome | null {
@@ -65,19 +67,29 @@ export function postedOutcome(draft: ReviewDraft): PostedOutcome | null {
 
 export interface QueueRowGlyph {
   tone: StateTone;
+  icon: PrStatusIcon;
   meaning: string;
 }
 
-const EXCEPTION_REASONS: ReadonlySet<ReviewPriorityReason> = new Set(['changes-requested', 'checks-failing', 'checks-pending', 'draft']);
+const EXCEPTION_REASON_ICONS: Readonly<Partial<Record<ReviewPriorityReason, PrStatusIcon>>> = {
+  'changes-requested': 'changes-requested', 'checks-failing': 'failed', 'checks-pending': 'running', draft: 'draft',
+};
 
-export function queueRowExceptionReason(review: Pick<QueuedReview, 'requestSource' | 'isDraft' | 'checksState' | 'reviewDecision'>): string | null {
+type ExceptionReviewFields = Pick<QueuedReview, 'requestSource' | 'isDraft' | 'checksState' | 'reviewDecision'>;
+
+function queueRowException(review: ExceptionReviewFields): { text: string; icon: PrStatusIcon } | null {
   const { reason } = classifyReviewPriority(review);
-  return EXCEPTION_REASONS.has(reason) ? REVIEW_PRIORITY_REASON_TEXT[reason] : null;
+  const icon = EXCEPTION_REASON_ICONS[reason];
+  return icon ? { text: REVIEW_PRIORITY_REASON_TEXT[reason], icon } : null;
+}
+
+export function queueRowExceptionReason(review: ExceptionReviewFields): string | null {
+  return queueRowException(review)?.text ?? null;
 }
 
 const FIXED_ROW_GLYPHS: Readonly<Partial<Record<QueueRowKind, QueueRowGlyph>>> = {
-  discarded: { tone: 'muted', meaning: 'Discarded' },
-  handReview: { tone: 'warn', meaning: 'From a fork' },
+  discarded: { tone: 'muted', icon: 'discarded', meaning: 'Discarded' },
+  handReview: { tone: 'warn', icon: 'fork', meaning: 'From a fork' },
 };
 
 function withExceptionReason(stateWord: string, review: Parameters<typeof queueRowExceptionReason>[0]): string {
@@ -92,26 +104,26 @@ function isViewerOutcomeCurrent(draft: ReviewDraft): boolean {
   return viewerReviews.some((review) => review.commit === currentHead(draft));
 }
 
-const COMMENTS_RESOLVED_GLYPH: QueueRowGlyph = { tone: 'warn', meaning: 'Comments resolved' };
+const COMMENTS_RESOLVED_GLYPH: QueueRowGlyph = { tone: 'warn', icon: 'your-turn', meaning: 'Comments resolved' };
 
 export function queueRowGlyph(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind): QueueRowGlyph {
   const fixedGlyph = FIXED_ROW_GLYPHS[kind];
   if (fixedGlyph) return fixedGlyph;
-  if (kind === 'inReview') return { tone: 'wait', meaning: withExceptionReason('In review', review) };
-  if (kind === 'queued') return { tone: 'muted', meaning: withExceptionReason('Queued', review) };
+  if (kind === 'inReview') return { tone: 'wait', icon: 'running', meaning: withExceptionReason('In review', review) };
+  if (kind === 'queued') return { tone: 'muted', icon: 'queued', meaning: withExceptionReason('Queued', review) };
   if (kind === 'settled' && 'reviewedHead' in review) {
     const outcome = isViewerOutcomeCurrent(review) ? postedOutcome(review) : null;
-    return outcome ? { tone: outcome.tone, meaning: outcome.label } : { tone: 'ok', meaning: 'Others reviewed' };
+    return outcome ? { tone: outcome.tone, icon: outcome.icon, meaning: outcome.label } : { tone: 'ok', icon: 'passed', meaning: 'Others reviewed' };
   }
   if (kind === 'posted' && 'reviewedHead' in review) {
     const outcome = postedOutcome(review);
-    return outcome ? { tone: outcome.tone, meaning: outcome.label } : { tone: 'muted', meaning: 'Posted' };
+    return outcome ? { tone: outcome.tone, icon: outcome.icon, meaning: outcome.label } : { tone: 'muted', icon: 'none', meaning: 'Posted' };
   }
-  if (kind === 'attention' && 'status' in review) return review.status === 'error' ? { tone: 'danger', meaning: 'Review failed' } : { tone: 'warn', meaning: 'Out of date' };
-  const exceptionReason = queueRowExceptionReason(review);
-  if (exceptionReason) return { tone: 'wait', meaning: exceptionReason };
+  if (kind === 'attention' && 'status' in review) return review.status === 'error' ? { tone: 'danger', icon: 'failed', meaning: 'Review failed' } : { tone: 'warn', icon: 'stale', meaning: 'Out of date' };
+  const exception = queueRowException(review);
+  if (exception) return { tone: 'wait', icon: exception.icon, meaning: exception.text };
   if (kind === 'ready' && 'reviewedHead' in review && isAwaitingViewerAfterResolvedComments(review)) return COMMENTS_RESOLVED_GLYPH;
-  return { tone: 'warn', meaning: 'Waits on you' };
+  return { tone: 'warn', icon: 'your-turn', meaning: 'Waits on you' };
 }
 
 export function hasAllViewerThreadsResolved(draft: Pick<ReviewDraft, 'viewerThreads'>): boolean {

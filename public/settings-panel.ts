@@ -39,7 +39,7 @@ import type { SettingsPayload, SettingsProject, SettingsValues } from './setting
 import { includesRepositoryRoot, projectSelectionChoices } from './settings-projects-core.ts';
 import { appendShortcutChord, SHORTCUT_PLATFORM } from './shortcuts.ts';
 import { shortcutGroupsFor } from './shortcuts-core.ts';
-import { renderStatusLegend } from './status-legend.ts';
+import { renderPrStatusLegend, renderStatusLegend } from './status-legend.ts';
 import { applyFlyingAnimals } from './flying-animals.ts';
 import { applyCompactStatusLabels, applySessionUsageChips, applyTheme, getThemeList } from './theme.ts';
 import {
@@ -908,6 +908,7 @@ function renderContent() {
     renderShortcutGroups(groups);
     contentEl.appendChild(groups);
     contentEl.appendChild(renderStatusLegend());
+    contentEl.appendChild(renderPrStatusLegend());
     renderAbout(contentEl);
     return;
   }

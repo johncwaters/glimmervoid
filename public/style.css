@@ -2507,11 +2507,11 @@ a.radar-issue-title:hover {
 .pr-mode-root { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .pr-mode-root[hidden] { display: none; }
 .my-pr-stage { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; }
-.state-glyph[data-tone="danger"], .my-pr-stage[data-tone="danger"] { color: var(--state-failed); }
-.state-glyph[data-tone="warn"], .my-pr-stage[data-tone="warn"] { color: var(--state-waiting); }
-.state-glyph[data-tone="wait"], .my-pr-stage[data-tone="wait"] { color: var(--text-dim); }
-.state-glyph[data-tone="ok"], .my-pr-stage[data-tone="ok"] { color: var(--state-complete); }
-.state-glyph[data-tone="muted"], .my-pr-stage[data-tone="muted"] { color: var(--text-muted); }
+.pr-status-icon[data-tone="danger"], .my-pr-stage[data-tone="danger"] { color: var(--state-failed); }
+.pr-status-icon[data-tone="warn"], .my-pr-stage[data-tone="warn"] { color: var(--state-waiting); }
+.pr-status-icon[data-tone="wait"], .my-pr-stage[data-tone="wait"] { color: var(--text-dim); }
+.pr-status-icon[data-tone="ok"], .my-pr-stage[data-tone="ok"] { color: var(--state-complete); }
+.pr-status-icon[data-tone="muted"], .my-pr-stage[data-tone="muted"] { color: var(--text-muted); }
 .merge-celebration { position: fixed; top: calc(72px + env(safe-area-inset-top)); left: 0; right: 0; z-index: 1000; display: flex; justify-content: center; padding: 0 16px; pointer-events: none; }
 .merge-celebration-card { position: relative; width: min(440px, 100%); padding: 12px 16px; border: 1px solid var(--state-complete); border-radius: 8px; background: var(--bg-card); box-shadow: 0 12px 32px rgb(0 0 0 / 0.35); text-align: center; --celebration-impact: 1200ms; --celebration-reveal: 1550ms; animation: merge-celebration-enter 350ms cubic-bezier(0.2, 1.2, 0.4, 1) backwards, merge-celebration-shake 350ms ease-out var(--celebration-impact), merge-celebration-exit 700ms ease-in 6300ms forwards; }
 .merge-celebration-stage { position: relative; display: flex; min-height: 48px; flex-direction: column; justify-content: center; }
@@ -2809,7 +2809,7 @@ a.radar-issue-title:hover {
 .my-pr-thread-excerpt { margin: 0; color: var(--text); font-size: 12px; overflow-wrap: anywhere; }
 .my-pr-thread-excerpt strong { color: var(--text-muted); font-weight: 700; }
 .my-pr-thread-meta { margin: 0; color: var(--text-dim); font-size: 11px; }
-.state-glyph { flex: 0 0 auto; }
+.pr-status-icon { flex: 0 0 auto; }
 .pr-readiness-section .pr-section-heading, .my-pr-threads-section .pr-section-heading { padding-left: 0; }
 .pr-readiness { display: grid; grid-template-columns: 14px max-content minmax(0, 1fr); gap: 10px 14px; margin: 0; padding: 0; list-style: none; }
 .pr-readiness-row { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; min-width: 0; }

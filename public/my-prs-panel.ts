@@ -6,11 +6,11 @@ import { errorMessage } from '#shared/text.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden } from './dom-helpers.ts';
 import { formatAgo } from './poll-ago.ts';
 import { createPrQueueColumns } from './pr-queue-columns.ts';
-import { createStateGlyph } from './state-glyph.ts';
+import { createPrStatusIcon } from './pr-status-icon.ts';
 import { nextRequestId, sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { celebrateMerge } from './merge-celebration.ts';
-import { chooseSelectedKey, emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, mergeConfirmMessage, mergeControlState, mergeCelebrationText, mergeWhenReadyControlState, newlyMergedPrs, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
+import { chooseSelectedKey, emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, mergeConfirmMessage, mergeControlState, mergeCelebrationText, mergeWhenReadyControlState, newlyMergedPrs, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageIcon, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
 import type { MergeAttempt, ToggleControlState } from './my-prs-view-core.ts';
 
 let root: HTMLDivElement | null = null;
@@ -180,7 +180,7 @@ function createToggleControl(pr: MyPr, toggle: PrToggle): HTMLElement | null {
 function stageChip(pr: MyPr, { hasGlyph }: { hasGlyph: boolean }): HTMLElement {
   const chip = el('span', 'my-pr-stage');
   chip.dataset.tone = stageTone(pr.stage);
-  if (hasGlyph) chip.append(createStateGlyph(stageTone(pr.stage)));
+  if (hasGlyph) chip.append(createPrStatusIcon(stageIcon(pr.stage), stageTone(pr.stage)));
   chip.append(stageLabel(pr.stage));
   return chip;
 }
@@ -239,7 +239,7 @@ function renderDetail(pr: MyPr | undefined): void {
       const value = el('span', 'pr-readiness-value');
       if (readinessRow.label === 'Review' && readinessRow.text.startsWith('Requested: ')) value.append(requestedReviewers(pr, readinessRow.text));
       if (value.childNodes.length === 0) value.textContent = readinessRow.text;
-      item.append(createStateGlyph(readinessRow.tone), el('span', 'pr-readiness-label', readinessRow.label), value);
+      item.append(createPrStatusIcon(readinessRow.icon, readinessRow.tone), el('span', 'pr-readiness-label', readinessRow.label), value);
       list.append(item);
     }
     section.append(list);
@@ -266,7 +266,7 @@ function renderDetail(pr: MyPr | undefined): void {
       const when = Number.isFinite(submittedAtMs) ? `${review.text} ${formatAgo(submittedAtMs)}` : review.text;
       const reviewer = el('span', 'my-pr-reviewer');
       reviewer.append(createReviewerStack([{ login: review.reviewer, tone: review.tone, title: review.reviewer, url: review.reviewer === 'a deleted account' ? null : undefined }], 16), el('span', null, review.reviewer));
-      item.append(createStateGlyph(review.tone), reviewer, el('span', 'pr-readiness-value', when));
+      item.append(createPrStatusIcon(review.icon, review.tone), reviewer, el('span', 'pr-readiness-value', when));
       list.append(item);
     }
     section.append(list);
@@ -284,7 +284,7 @@ function renderDetail(pr: MyPr | undefined): void {
       if (thread.waiting) {
         const badge = el('span', 'my-pr-stage');
         badge.dataset.tone = thread.waiting.tone;
-        badge.append(createStateGlyph(thread.waiting.tone), thread.waiting.text);
+        badge.append(createPrStatusIcon(thread.waiting.icon, thread.waiting.tone), thread.waiting.text);
         heading.append(badge);
       }
       const excerpt = el('p', 'my-pr-thread-excerpt');
@@ -321,7 +321,7 @@ function render(): void {
       row.setAttribute('aria-current', String(pr.key === selectedKey));
       row.title = `${pr.key}: ${stageLabel(pr.stage)}`;
       const glyph = el('span', 'pr-queue-glyph');
-      glyph.append(createStateGlyph(stageTone(pr.stage)));
+      glyph.append(createPrStatusIcon(stageIcon(pr.stage), stageTone(pr.stage)));
       const top = el('span', 'pr-queue-top');
       top.append(el('strong', 'pr-queue-ref', pr.key), el('span', 'pr-queue-title', pr.title));
       const bottom = el('span', 'pr-queue-bottom');
