@@ -2,6 +2,9 @@ import { runGit } from "../server/git-exec.ts";
 import type { RunGitOptions } from "../server/git-exec.ts";
 import { errorMessage } from "../shared/text.ts";
 import fs from "node:fs";
+import os from "node:os";
+import { isolateGitWorkspace, runFactoryGit } from "../server/git-workspace.ts";
+import { buildHardenedGitInvocation } from "../server/core/git-invocation-core.ts";
 import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "../server/child-process-safe.ts";
@@ -28,6 +31,7 @@ import {
   buildResyncCommand,
   firstGitErrorLine,
 } from "../server/core/branch-sync-core.ts";
+import type { GitIsolationOptions } from "../server/core/git-invocation-core.ts";
 import type { WorktreeArgs } from "../server/git-workspace.ts";
 import type { GitWorkspaceInstance } from "../server/git-workspace.ts";
 import { planWorkspaceMembers } from "./core/workspace-core.ts";
@@ -101,6 +105,7 @@ interface IntegrationSyncResult {
 }
 
 interface GitWorkspace {
+  withGitIsolation?: GitWorkspaceInstance["withGitIsolation"];
   create: (args: WorkspaceArgs) => Workspace | Promise<Workspace>;
   populate: (args: WorkspaceArgs) => unknown;
   hasUnmergedWork: (args: WorkspaceArgs) => boolean | Promise<boolean>;
@@ -131,6 +136,7 @@ interface WorktreeLifecycleOptions {
   projectPath: string;
   integrationBranch?: string | null;
   gitWorkspace?: GitWorkspace | null;
+  gitIsolation?: GitIsolationOptions;
   autoRebase?: boolean;
   syncOnStart?: boolean;
   liveWorktreeReview?: boolean;
@@ -208,12 +214,12 @@ type MergeEngineOutcome =
   | { result: MergeResult; failure?: undefined }
   | { result?: undefined; failure: MergeResult };
 
-async function gitOut(args: string[], options: RunGitOptions): Promise<string> {
+async function readGitOutput(args: string[], options: RunGitOptions): Promise<string> {
   const command = await runGit(args, { ...options, trim: false, keepStdoutOnFailure: true });
   return command.out;
 }
 
-async function gitStrict(args: string[], options: RunGitOptions): Promise<string> {
+async function readGitStrict(args: string[], options: RunGitOptions): Promise<string> {
   const command = await runGit(args, { ...options, trim: false });
   if (!command.ok) throw command.error;
   return command.out;
@@ -267,6 +273,7 @@ function createSessionWorktreeLifecycle({
   projectPath,
   integrationBranch = null,
   gitWorkspace = null,
+  gitIsolation,
   autoRebase = true,
   syncOnStart = true,
   liveWorktreeReview = true,
@@ -276,7 +283,27 @@ function createSessionWorktreeLifecycle({
   sessionName = id,
   port,
 }: WorktreeLifecycleOptions) {
+  if (gitIsolation && gitWorkspace) gitWorkspace = isolateGitWorkspace(gitWorkspace, gitIsolation);
   const currentProjectPath = (): string => port.projectPath ? port.projectPath() : projectPath;
+  async function runSessionGit(args: string[], options: RunGitOptions): Promise<string> {
+    return (await runFactoryGit(args, {
+      cwd: options.cwd ?? currentProjectPath(),
+      timeout: options.timeoutMs ?? 30_000,
+      maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024,
+      env: gitIsolation?.replaceEnv,
+    })).stdout;
+  }
+  function gitOut(args: string[], options: RunGitOptions): Promise<string> {
+    if (!gitIsolation?.disableRepoCommands) return readGitOutput(args, options);
+    return runSessionGit(args, options).catch((error: unknown) => {
+      const failedOutput = (error as { stdout?: unknown } | null)?.stdout;
+      return failedOutput == null ? "" : String(failedOutput);
+    });
+  }
+  function gitStrict(args: string[], options: RunGitOptions): Promise<string> {
+    if (!gitIsolation?.disableRepoCommands) return readGitStrict(args, options);
+    return runSessionGit(args, options);
+  }
   const workspaceMembers = workspaceRepos
     ? setUpWorkspaceMembers({ folder: currentProjectPath(), sessionId: id, sessionName, repoPaths: workspaceRepos, shareList: worktreeShare, gitWorkspace })
     : null;
@@ -361,7 +388,11 @@ function createSessionWorktreeLifecycle({
   function resolveCommonGitDir(): string | null {
     if (!lifecycleState.worktreeDir) return null;
     try {
-      const commonDir = execFileSync("git", ["rev-parse", "--git-common-dir"], {
+      const invocation = gitIsolation?.disableRepoCommands ? buildHardenedGitInvocation(['rev-parse', '--git-common-dir'], {
+        baseEnv: gitIsolation.replaceEnv ?? process.env, platform: process.platform, devNullPath: os.devNull,
+      }) : { args: ['rev-parse', '--git-common-dir'], env: process.env };
+      const commonDir = execFileSync("git", invocation.args, {
+        env: invocation.env,
         cwd: lifecycleState.worktreeDir,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
@@ -1046,16 +1077,19 @@ function createSessionWorktreeLifecycle({
     workspaceApi: GitWorkspace,
     workspace: Workspace,
     method: "mergeBack" | "mergeKeep",
+    isolation?: GitIsolationOptions,
   ): Promise<MergeEngineOutcome> {
     setMergeStatus("merging");
     try {
-      const result = await workspaceApi[method]({
+      const merge = () => workspaceApi[method]({
         projectPath: currentProjectPath(),
         workspace,
         targetBranch: effectiveIntegrationBranch(),
       });
-      if (result.warning) port.emit("worktree-warning", { id, branch: effectiveIntegrationBranch(), notice: result.warning });
-      return { result };
+      if (isolation && !workspaceApi.withGitIsolation) throw new Error("Factory merge requires Git isolation");
+      const mergeResult = await (isolation && workspaceApi.withGitIsolation ? workspaceApi.withGitIsolation(isolation, merge) : merge());
+      if (mergeResult.warning) port.emit("worktree-warning", { id, branch: effectiveIntegrationBranch(), notice: mergeResult.warning });
+      return { result: mergeResult };
     } catch (error) {
       setMergeStatus("pending-review", { reason: errorMessage(error) });
       return { failure: { merged: false, reason: errorMessage(error) } };
@@ -1071,16 +1105,16 @@ function createSessionWorktreeLifecycle({
     return mergeResult;
   }
 
-  async function mergeWorktree(): Promise<MergeResult> {
+  async function mergeWorktree(isolation?: GitIsolationOptions): Promise<MergeResult> {
     if (!gitWorkspace || !lifecycleState.workspace) return { merged: false, refused: true, reason: "no-worktree" };
     const workspace = lifecycleState.workspace;
     if (isMerging()) return { merged: false, refused: true, reason: "merge-in-progress" };
-    const { result, failure } = await runMergeEngine(gitWorkspace, workspace, "mergeBack");
+    const { result: mergeResult, failure } = await runMergeEngine(gitWorkspace, workspace, "mergeBack", isolation);
     if (failure) return failure;
-    if (!result.merged) return applyParkedOrPending(result);
+    if (!mergeResult.merged) return applyParkedOrPending(mergeResult);
     stopWatching();
     clearWorktreeState("merged");
-    return result;
+    return mergeResult;
   }
 
   async function mergeAndContinue({ force = false }: { force?: boolean } = {}): Promise<MergeResult> {

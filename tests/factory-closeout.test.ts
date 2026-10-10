@@ -5,7 +5,7 @@ import { CoherenceOrient } from '../shared/contracts/coherence.ts';
 import { buildFactoryProjectState, formatWorkerEvent, nextIntent } from '../server/core/factory-core.ts';
 import type { FactoryProjectState } from '../shared/contracts/factory.ts';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -14,7 +14,8 @@ import { execFileAsync } from '../server/child-process-safe.ts';
 import { createFactoryCloseOut } from '../server/factory-closeout.ts';
 import { FACTORY_REVIEW_DIFF_MAX_CHARS } from '../server/core/factory-core.ts';
 import type { FactoryCloseOutWorker } from '../server/factory-closeout.ts';
-import { commitAndLandFactoryLedger } from '../server/factory-ledger.ts';
+import { factoryWrittenRecordId } from '../server/core/factory-core.ts';
+import { commitAndLandFactoryLedger, screenPendingLedgerWrites } from '../server/factory-ledger.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
 import type { LaneSpawn } from '../server/lane-spawn.ts';
 import { createFactoryWiring } from '../server/factory-wiring.ts';
@@ -57,9 +58,15 @@ async function createFixture(context: TestContext, activateOrder = true) {
   const gitWorkspace = createGitWorkspace();
   const ledger = await gitWorkspace.create({ projectPath, teamId: 'repo', label: 'factory-ledger', baseBranch: 'integration', configuredIntegrationBranch: 'integration', worktreeBase: directory, shareList: [] });
   const commands: string[][] = [];
+  const writtenRecordIds = new Set<string>();
   const runCoherence = async ({ cwd, args }: { cwd: string; args: string[] }) => {
     commands.push(args);
-    return (await execFileAsync(process.execPath, [coherenceCli, ...args], { cwd, timeout: 30_000 })).stdout;
+    const isFactoryWrite = args[args.indexOf('--session') + 1] === 'glimmervoid-factory';
+    const writeArgs = isFactoryWrite && args[0] !== 'defect' && !args.includes('--json') ? [...args, '--json'] : args;
+    const output = (await execFileAsync(process.execPath, [coherenceCli, ...writeArgs], { cwd, timeout: 30_000 })).stdout;
+    const recordId = isFactoryWrite ? factoryWrittenRecordId(output) : null;
+    if (recordId) writtenRecordIds.add(recordId);
+    return output;
   };
   const createOrder = async (parent: string | null, objective = 'Ship retries') => {
     const created: { work: string } = JSON.parse(await runCoherence({ cwd: ledger.cwd, args: [
@@ -72,7 +79,8 @@ async function createFixture(context: TestContext, activateOrder = true) {
   const intentId = await createOrder(null);
   const workId = await createOrder(intentId);
   if (activateOrder) await runCoherence({ cwd: ledger.cwd, args: ['work', 'transition', workId, 'active', '--because', 'Factory dispatch', '--session', 'glimmervoid-factory'] });
-  const land = async (_projectId: string, _projectPath: string, message: string) => commitAndLandFactoryLedger({ projectPath, ledger, targetBranch: 'integration', message, gitWorkspace, trusted: true });
+  const land = async (_projectId: string, _projectPath: string, message: string, { onCommitted }: { onCommitted?: () => Promise<void> } = {}) =>
+    commitAndLandFactoryLedger({ projectPath, ledger, targetBranch: 'integration', message, gitWorkspace, trusted: true, writtenRecordIds, onCommitted });
   await land('repo', projectPath, 'factory: prepare orders');
   const workspace = await gitWorkspace.create({ projectPath, teamId: 'repo', label: 'factory-worker', baseBranch: 'integration', configuredIntegrationBranch: 'integration', worktreeBase: directory, shareList: [] });
   assert.ok(workspace.isGit);
@@ -151,7 +159,7 @@ async function createFixture(context: TestContext, activateOrder = true) {
     await git(['commit', '-m', 'fix: retries'], workspace.cwd);
   };
   const inspect = async () => CoherenceWorkInspect.parse(JSON.parse(await runCoherence({ cwd: projectPath, args: ['work', 'inspect', '--json'] })));
-  return { config, worker, closeOut, runCoherence, land, createOrder, git, workspace, commands, directory, projectPath, gitWorkspace, ledger, cleanupTasks, feedback, events, watches, exceptions, reviewRequests, reviewerCwdEntries, commitChange, inspect, baseEnv,
+  return { config, worker, closeOut, runCoherence, land, writtenRecordIds, createOrder, git, workspace, commands, directory, projectPath, gitWorkspace, ledger, cleanupTasks, feedback, events, watches, exceptions, reviewRequests, reviewerCwdEntries, commitChange, inspect, baseEnv,
     isDestroyed: () => isDestroyed, mergedSha: () => mergedSha, setPaused: (paused: boolean) => { isPaused = paused; },
     failWatchWrite: () => { shouldFailWatchWrite = true; },
     setVerdictFileOnly: (nextVerdict: unknown) => { verdict = nextVerdict; shouldWriteVerdictFileOnly = true; },
@@ -1010,4 +1018,106 @@ test('verifier rejects a passing verdict when the integration tip moves during i
   assert.equal(fixture.events.at(-1)?.event, 'verification stale');
   assert.equal((await fixture.readProject()).orders.find((order) => order.id === fixture.worker.intentId)?.state, 'open');
   assert.deepEqual(fixture.stoppedOrchestrators, []);
+});
+
+
+test('watch retries through pending ledger screening after a failed landing and lands exactly one breach defect', async (context) => {
+  const fixture = await prepareWatchFixture(context);
+  let screeningRefusals = 0;
+  fixture.watchDeps.ensureLedger = async () => {
+    await screenPendingLedgerWrites({ cwd: fixture.ledger.cwd, intentId: fixture.worker.intentId,
+      onRefused: () => { screeningRefusals += 1; } });
+    return fixture.ledger;
+  };
+  fixture.watcher.stop();
+  const watcher = createFactoryWatch(fixture.watchDeps);
+  const firstSeen = new Date(Date.parse(fixture.watches[0].mergedAt) + 1).toISOString();
+  fixture.setQuery({ results: [{ issueId: 'screened-retry', firstSeen, framePaths: ['src/retry.ts'] }] });
+  fixture.failLanding();
+  const project = await fixture.readProject();
+  await assert.rejects(() => watcher.tick(project), /Landing unavailable/);
+  assert.equal(fixture.state.watch?.length, 1);
+  const beforeRetry: { defects: { summary: string }[] } = JSON.parse(await fixture.runCoherence({ cwd: fixture.projectPath, args: ['defects', '--json'] }));
+  assert.equal(beforeRetry.defects.filter((defect) => defect.summary.includes('screened-retry')).length, 0);
+  await watcher.tick(await fixture.readProject());
+  assert.equal(screeningRefusals, 1);
+  const landed: { defects: { summary: string }[] } = JSON.parse(await fixture.runCoherence({ cwd: fixture.projectPath, args: ['defects', '--json'] }));
+  assert.equal(landed.defects.filter((defect) => defect.summary.includes('screened-retry')).length, 1);
+  assert.equal(fixture.state.watch?.length, 0);
+  assert.equal(fixture.commands.filter((command) => command[0] === 'defect' && command[1].includes('screened-retry')).length, 2);
+  assert.equal(await fixture.git(['rev-parse', 'integration']), await fixture.git(['rev-parse', 'integration'], path.join(fixture.directory, 'origin.git')));
+});
+
+
+test('a push failure after the ledger commit files the breach once, recovery lands exactly one defect, and a restart does not re-file', async (context) => {
+  const fixture = await prepareWatchFixture(context);
+  const originPath = path.join(fixture.directory, 'origin.git');
+  let screeningRefusals = 0;
+  let shouldFailPush = true;
+  let hasPendingLanding = false;
+  const failingPushWorkspace = { ...fixture.gitWorkspace, mergeKeep: async (args: Parameters<typeof fixture.gitWorkspace.mergeKeep>[0]) => {
+    if (!shouldFailPush) return fixture.gitWorkspace.mergeKeep(args);
+    shouldFailPush = false;
+    return { merged: false, committed: true, branch: args.workspace?.branch ?? null, reason: 'push rejected by origin' };
+  } };
+  fixture.watchDeps.ensureLedger = async () => {
+    await screenPendingLedgerWrites({ cwd: fixture.ledger.cwd, intentId: fixture.worker.intentId, onRefused: () => { screeningRefusals += 1; } });
+    return fixture.ledger;
+  };
+  fixture.watchDeps.commitAndLand = async (_projectId, projectPath, message, options) => {
+    try {
+      await commitAndLandFactoryLedger({ projectPath, ledger: fixture.ledger, targetBranch: 'integration', message, gitWorkspace: failingPushWorkspace,
+        trusted: true, writtenRecordIds: fixture.writtenRecordIds, retryLanding: hasPendingLanding, onCommitted: options?.onCommitted });
+      hasPendingLanding = false;
+    } catch (error) {
+      hasPendingLanding = true;
+      throw error;
+    }
+  };
+  fixture.watcher.stop();
+  const firstSeen = new Date(Date.parse(fixture.watches[0].mergedAt) + 1).toISOString();
+  fixture.setQuery({ results: [{ issueId: 'push-failed', firstSeen, framePaths: ['src/retry.ts'] }] });
+  const defectCommands = () => fixture.commands.filter((command) => command[0] === 'defect' && command[1].includes('push-failed')).length;
+  const landedDefects = async () => {
+    const listed: { defects: { summary: string }[] } = JSON.parse(await fixture.runCoherence({ cwd: fixture.projectPath, args: ['defects', '--json'] }));
+    return listed.defects.filter((defect) => defect.summary.includes('push-failed')).length;
+  };
+  const watcher = createFactoryWatch(fixture.watchDeps);
+  await assert.rejects(async () => watcher.tick(await fixture.readProject()), /push rejected by origin/);
+  assert.equal(defectCommands(), 1);
+  assert.deepEqual(fixture.state.filedBreaches, [`${fixture.worker.workId}:push-failed`]);
+  assert.equal(await landedDefects(), 0);
+  watcher.stop();
+  const restarted = createFactoryWatch(fixture.watchDeps);
+  await restarted.tick(await fixture.readProject());
+  assert.equal(defectCommands(), 1);
+  assert.equal(screeningRefusals, 0);
+  assert.equal(await landedDefects(), 1);
+  assert.equal(fixture.state.watch?.length, 0);
+  assert.deepEqual(fixture.state.filedBreaches, []);
+  assert.equal(await fixture.git(['rev-parse', 'integration'], originPath), await fixture.git(['rev-parse', 'integration']));
+});
+
+test('factory worker session staging, polling, diff and teardown suppress shared fsmonitor commands', { skip: process.platform === 'win32' }, async (context) => {
+  const fixture = await createFixture(context, false);
+  const { wiring, sessions } = await startFactoryWiring(fixture, async () => {});
+  const markerPath = path.join(fixture.directory, 'worker-fsmonitor-marker');
+  const probePath = path.join(fixture.directory, 'worker-fsmonitor.mjs');
+  await writeFile(probePath, `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(markerPath)}, process.env.FACTORY_PROBE_TOKEN ?? 'absent');\n`);
+  await fixture.git(['config', 'core.fsmonitor', `${process.execPath} ${probePath}`]);
+  const previousProbeToken = process.env.FACTORY_PROBE_TOKEN;
+  process.env.FACTORY_PROBE_TOKEN = 'server-secret-for-worker-poll';
+  context.after(() => {
+    if (previousProbeToken === undefined) { delete process.env.FACTORY_PROBE_TOKEN; return; }
+    process.env.FACTORY_PROBE_TOKEN = previousProbeToken;
+  });
+  const dispatched = await wiring.dispatch('factory-orch-repo', { workId: fixture.worker.workId });
+  assert.equal(dispatched.ok, true, JSON.stringify(dispatched));
+  const worker = sessions.get(dispatched.sessionId ?? '');
+  assert.ok(worker);
+  await worker.checkWorktreeChange();
+  await worker.getDiff();
+  await worker.getChangeScopes();
+  await wiring.stop();
+  await assert.rejects(access(markerPath), { code: 'ENOENT' });
 });

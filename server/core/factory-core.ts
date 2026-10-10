@@ -156,6 +156,7 @@ export type FactoryAdmissionInput = {
   maxLiveWorkers?: number;
   spentTodayUsd: number | null;
   dailyBudgetUsd: number | null;
+  filterDriverNames: readonly string[];
 };
 
 function normalizeScope(scope: string): string | null {
@@ -172,8 +173,11 @@ function containsScope(parent: string, child: string): boolean {
 }
 
 export function decideAdmission({ order, intent, trustedIntentIds, liveWorkers, maxRisk = 'medium', maxLiveWorkers = 2,
-  spentTodayUsd, dailyBudgetUsd }: FactoryAdmissionInput): { admit: true } | { admit: false; reason: string; exception: boolean } {
+  spentTodayUsd, dailyBudgetUsd, filterDriverNames }: FactoryAdmissionInput): { admit: true } | { admit: false; reason: string; exception: boolean } {
   const refuse = (reason: string) => ({ admit: false as const, reason, exception: false });
+  if (filterDriverNames.length > 0) {
+    return { admit: false, reason: `repository uses git filter drivers (${filterDriverNames.join(', ')}), which factory workers cannot run safely`, exception: true };
+  }
   if (!order) return refuse('work order does not exist');
   if (order.state !== 'open') return refuse('work order is not open');
   if (order.readiness !== 'ready') return refuse('work order is not ready');
@@ -351,6 +355,11 @@ function opensChildOfIntent(line: string, intentId: string | null): boolean {
   return record !== null && intentId !== null && Reflect.get(record, 'parent') === intentId;
 }
 
+function isDeclaredFactoryWrite(line: string, writtenRecordIds: ReadonlySet<string>): boolean {
+  const record = parseLedgerRecord(line);
+  return record !== null && Reflect.get(record, 'session') === FACTORY_LEDGER_SESSION && writtenRecordIds.has(String(Reflect.get(record, 'id')));
+}
+
 function appendedLedgerLines(change: FactoryLedgerChange): string[] {
   const previousText = change.previousText ?? '';
   const currentText = change.currentText ?? '';
@@ -358,13 +367,33 @@ function appendedLedgerLines(change: FactoryLedgerChange): string[] {
   return appendedText.split('\n').filter((line) => line.trim() !== '');
 }
 
-export function findForbiddenLedgerWrites(changes: FactoryLedgerChange[], { trusted, intentId = null }: { trusted: boolean; intentId?: string | null }): string[] {
+export function factoryWrittenRecordId(output: string): string | null {
+  try {
+    const record: unknown = JSON.parse(output);
+    if (typeof record === 'object' && record !== null && 'id' in record && typeof record.id === 'string') return record.id;
+  } catch {
+    const defectId = output.match(/^(\S+) {2}agent-assessed defect recorded by glimmervoid-factory\s*$/)?.[1];
+    return defectId ?? null;
+  }
+  return null;
+}
+
+export function findForbiddenLedgerWrites(changes: FactoryLedgerChange[], { trusted, intentId = null, writtenRecordIds = new Set<string>() }: {
+  trusted: boolean; intentId?: string | null; writtenRecordIds?: ReadonlySet<string>;
+}): string[] {
   const forbidden: string[] = [];
   for (const change of changes) {
     const segments = change.path.replace(/\\/g, '/').split('/');
+    if (appendedLedgerLines(change).some((line) => {
+      if (!claimsFactorySession(line)) return false;
+      const record = parseLedgerRecord(line);
+      return !trusted || record === null || !writtenRecordIds.has(String(Reflect.get(record, 'id')));
+    })) {
+      forbidden.push(`${change.path} claims the ${FACTORY_LEDGER_SESSION} session without a declared factory write`);
+      continue;
+    }
     const directory = segments[0] === '.coherence' && segments.length > 2 ? segments[1] : '';
     if (OPEN_LEDGER_DIRECTORIES.has(directory)) {
-      if (!trusted && appendedLedgerLines(change).some(claimsFactorySession)) forbidden.push(`${change.path} claims the ${FACTORY_LEDGER_SESSION} session`);
       continue;
     }
     if (!GUARDED_LEDGER_DIRECTORIES.has(directory)) {
@@ -381,15 +410,11 @@ export function findForbiddenLedgerWrites(changes: FactoryLedgerChange[], { trus
       continue;
     }
     const appendedLines = appendedLedgerLines(change);
-    if (!trusted && appendedLines.some(claimsFactorySession)) {
-      forbidden.push(`${change.path} claims the ${FACTORY_LEDGER_SESSION} session`);
-      continue;
-    }
     if (appendedLines.some((line) => !isAllowedLedgerRecord(directory, line, trusted))) {
       forbidden.push(`${change.path} gained a record other than work creation or a decision`);
       continue;
     }
-    if (!trusted && appendedLines.some((line) => !opensChildOfIntent(line, intentId))) {
+    if (appendedLines.some((line) => !opensChildOfIntent(line, intentId) && !(trusted && isDeclaredFactoryWrite(line, writtenRecordIds)))) {
       forbidden.push(`${change.path} opened work that is not a child of the active intent`);
     }
   }

@@ -13,6 +13,7 @@ import { DEFAULT_CONFIG } from './config-store.ts';
 import { FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, checkFence, decideCloseOut, inheritedSecretValues, listDirtyPaths, parseCheckCommand, parseFactoryReviewerOutput, redactSecretLines } from './core/factory-core.ts';
 import type { FactoryCheck, FactoryFence } from './core/factory-core.ts';
 import { nulSeparatedPaths } from './core/git-changed-paths-core.ts';
+import { runFactoryGit } from './git-workspace.ts';
 import type { GitWorkspaceInstance } from './git-workspace.ts';
 import { readLaneResultFile } from './lane-spawn.ts';
 import { writeJsonAtomic, writeTextAtomic } from './json-file.ts';
@@ -121,10 +122,10 @@ export function createFactoryCloseOut({
   const sharedEntries = () => config.worktreeShare ?? DEFAULT_CONFIG.worktreeShare;
   const secretValues = () => [...GLIMMERVOID_SECRET_KEYS.map((key) => baseEnv[key]), ...inheritedSecretValues(baseEnv)];
   const checkOutput = (text: string) => redactSecretLines(text, secretValues()).slice(-4000);
-  const untrustedCheckoutIsolation = () => ({ disableHooks: true, replaceEnv: buildFactoryCheckEnv(baseEnv, process.platform) });
+  const untrustedCheckoutIsolation = () => ({ disableHooks: true, disableRepoCommands: true, replaceEnv: buildFactoryCheckEnv(baseEnv, process.platform) });
 
   async function runGit(cwd: string, args: string[]): Promise<string> {
-    return (await execFileAsync('git', args, { cwd, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 })).stdout;
+    return (await runFactoryGit(args, { cwd, env: buildFactoryCheckEnv(baseEnv, process.platform), timeout: 30_000, maxBuffer: 16 * 1024 * 1024 })).stdout;
   }
 
   async function probeDirtyPaths(cwd: string): Promise<string[]> {
@@ -144,7 +145,7 @@ export function createFactoryCloseOut({
     try {
       const staged = await gitWorkspace.stageDetachedWorktree({ projectPath: worker.projectPath, worktreePath: checkoutPath, sha: headSha, ...untrustedCheckoutIsolation() });
       if (!staged.ok) throw new Error(`Could not stage the factory check checkout: ${staged.err}`);
-      await gitWorkspace.populate({ projectPath: worker.projectPath, wtDir: checkoutPath, shareList: sharedEntries() });
+      await gitWorkspace.populate({ projectPath: worker.projectPath, wtDir: checkoutPath, shareList: sharedEntries(), ...untrustedCheckoutIsolation() });
       const checkEnv = buildFactoryCheckEnv(baseEnv, process.platform);
       const checks: FactoryCheck[] = [];
       for (const command of config.factory?.checks ?? DEFAULT_FACTORY_CHECKS) {
@@ -176,12 +177,7 @@ export function createFactoryCloseOut({
     const committedLedgerPaths = nulSeparatedPaths(await runGit(cwd, ['diff', '--name-only', '--no-renames', '-z', baseSha, 'HEAD', '--', '.coherence']));
     if (committedLedgerPaths.length === 0) return;
     await runGit(cwd, ['restore', `--source=${baseSha}`, '--staged', '--worktree', '--', ...committedLedgerPaths]);
-    const hooklessDirectory = await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-factory-hookless-'));
-    try {
-      await runGit(cwd, ['-c', `core.hooksPath=${hooklessDirectory}`, 'commit', '--no-verify', '-m', `factory: drop worker ledger changes ${worker.workId}`, '--', ...committedLedgerPaths]);
-    } finally {
-      await rm(hooklessDirectory, { recursive: true, force: true });
-    }
+    await runGit(cwd, ['commit', '-m', `factory: drop worker ledger changes ${worker.workId}`, '--', ...committedLedgerPaths]);
   }
 
   function holdWhilePaused(worker: FactoryCloseOutWorker): void {
@@ -271,7 +267,7 @@ export function createFactoryCloseOut({
           throw new Error('Worker changed during close-out; commit your work and finish the turn');
         }
         if (!worker.session.mergeWorktree) throw new Error('Worker cannot merge its worktree');
-        const merged = await worker.session.mergeWorktree();
+        const merged = await worker.session.mergeWorktree(untrustedCheckoutIsolation());
         if (!merged.merged) throw new Error(merged.reason ?? (merged.conflicts?.join(', ') || 'Worker merge did not merge'));
         hasMerged = true;
         const mergedSha = await readIntegrationSha(worker.projectPath);

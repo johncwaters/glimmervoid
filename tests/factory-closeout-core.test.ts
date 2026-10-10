@@ -133,7 +133,7 @@ test('inherited secret values come from token, key, password, credential and aut
 });
 
 const openedRecord = JSON.stringify({ event: 'opened', session: 'orchestrator-session', work: 'wrk-1', parent: 'wrk-intent' });
-const factoryRecord = JSON.stringify({ event: 'closed', session: 'glimmervoid-factory', work: 'wrk-1' });
+const factoryRecord = JSON.stringify({ id: 'factory-close', event: 'closed', session: 'glimmervoid-factory', work: 'wrk-1' });
 
 test('a trusted ledger landing admits work creation, decisions, traces and factory-authored records', () => {
   assert.deepEqual(findForbiddenLedgerWrites([
@@ -141,8 +141,8 @@ test('a trusted ledger landing admits work creation, decisions, traces and facto
     { path: '.coherence/work/s-b.jsonl', previousText: null, currentText: `${openedRecord}\n${factoryRecord}\n` },
     { path: '.coherence/decisions/s-c.jsonl', previousText: null, currentText: 'anything\n' },
     { path: '.coherence/activity/session.jsonl', previousText: null, currentText: '{}\n' },
-    { path: '.coherence/consequences/s-d.jsonl', previousText: null, currentText: `${JSON.stringify({ session: 'glimmervoid-factory', relation: 'verifies' })}\n` },
-  ], { trusted: true }), []);
+    { path: '.coherence/consequences/s-d.jsonl', previousText: null, currentText: `${JSON.stringify({ id: 'factory-verification', session: 'glimmervoid-factory', relation: 'verifies' })}\n` },
+  ], { trusted: true, intentId: 'wrk-intent', writtenRecordIds: new Set(['factory-close', 'factory-verification']) }), []);
 });
 
 test('an orchestrator ledger landing refuses any record that claims the factory session, even a decision or work creation', () => {
@@ -150,7 +150,7 @@ test('an orchestrator ledger landing refuses any record that claims the factory 
   const refusals = findForbiddenLedgerWrites([
     { path: '.coherence/work/s-a.jsonl', previousText: null, currentText: claimed },
     { path: '.coherence/decisions/s-b.jsonl', previousText: null, currentText: `${JSON.stringify({ session: 'glimmervoid-factory', decision: 'x' })}\n` },
-    { path: '.coherence/consequences/s-c.jsonl', previousText: null, currentText: `${JSON.stringify({ session: 'glimmervoid-factory', relation: 'verifies' })}\n` },
+    { path: '.coherence/consequences/s-c.jsonl', previousText: null, currentText: `${JSON.stringify({ id: 'factory-verification', session: 'glimmervoid-factory', relation: 'verifies' })}\n` },
   ], { trusted: false });
   assert.equal(refusals.length, 3);
   for (const refusal of refusals) assert.match(refusal, /claims the glimmervoid-factory session/);
@@ -170,7 +170,7 @@ test('an orchestrator ledger landing refuses opening a root order or a child of 
   assert.equal(refusals.length, 2);
   for (const refusal of refusals) assert.match(refusal, /opened work that is not a child of the active intent/);
   assert.equal(findForbiddenLedgerWrites([{ path: '.coherence/work/s-child.jsonl', previousText: null, currentText: opened('wrk-intent') }], { trusted: false }).length, 1);
-  assert.deepEqual(findForbiddenLedgerWrites(changes, { trusted: true }), []);
+  assert.equal(findForbiddenLedgerWrites(changes, { trusted: true, intentId: 'wrk-intent' }).length, 2);
 });
 
 test('ledger landing refuses orchestrator closes, transitions, consequences, defects, rewrites and unknown files', () => {

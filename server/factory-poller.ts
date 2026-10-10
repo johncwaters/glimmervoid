@@ -92,12 +92,21 @@ export function createFactoryPoller({
     }
   }
 
+  async function processProjectStateSafely(projectState: FactoryProjectState): Promise<FactoryProjectState> {
+    try {
+      return await processProjectState(projectState);
+    } catch (error) {
+      log.warn(`[factory] processing ${projectState.projectId} failed: ${errorMessage(error)}`);
+      return { ...projectState, error: errorMessage(error) };
+    }
+  }
+
   async function runTick(): Promise<undefined> {
     beforeTick();
     const projects: FactoryProjectState[] = [];
     for (const project of await listFactoryProjects()) {
       const projectState = await readProject(project);
-      if (projectState) projects.push(await processProjectState(projectState));
+      if (projectState) projects.push(await processProjectStateSafely(projectState));
     }
     const currentIds = new Set(projects.map((project) => project.projectId));
     for (const projectId of processedProjects.keys()) {
