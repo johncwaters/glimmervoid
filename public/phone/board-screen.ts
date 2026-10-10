@@ -1,24 +1,17 @@
-import { STATES } from '#shared/states.ts';
 import { createUnseenCompleteTracker } from '../focus-view/unseen-complete-core.ts';
 import { el, MERGE_TAGS, observeHeaderHeight, queryTag, stateChip } from '../dom-helpers.ts';
+import type { SessionRow } from '../focus-view/attention-core.ts';
 import { attentionSummaryText, countSessionsNeedingAttention, orderRoster } from '../focus-view/attention-core.ts';
 import type { RosterGroup } from '../focus-view/roster-groups.ts';
 import { NO_PATH_KEY } from '../focus-view/roster-groups.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
-import { quickAddSession, requestSessionRemoval } from '../session-actions.ts';
+import { quickAddSession, readSessionRows, requestSessionRemoval } from '../session-actions.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
-import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
+import { sessionUIs } from '../session-card/card-registry.ts';
 import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
 import { groupSessionsForBoard } from './board-groups-core.ts';
 
-interface BoardRow {
-  id: string;
-  ui: SessionUi;
-  name: string;
-  isDormant: boolean;
-  state: string;
-  unseen: boolean;
-}
+type BoardRow = SessionRow<SessionUi>;
 
 const projectPathOf = (row: BoardRow) => row.ui.path;
 
@@ -180,14 +173,7 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
   const { noteStates, acknowledge, isUnseen } = createUnseenCompleteTracker();
 
   function currentOrderedRows() {
-    const entries = [...sessionUIs.entries()].map(([id, ui]) => ({
-      id,
-      ui,
-      name: sessionName(ui),
-      isDormant: (ui.currentState || STATES.DORMANT) === STATES.DORMANT,
-      state: ui.currentState || STATES.DORMANT,
-      unseen: false,
-    }));
+    const entries = readSessionRows();
     noteStates(entries);
     for (const entry of entries) entry.unseen = isUnseen(entry.id);
     return orderRoster(entries);

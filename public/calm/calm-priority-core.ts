@@ -1,11 +1,12 @@
 import { ASK_USER_QUESTION_TOOL_NAME, isSamePromptQuestion, type PendingPromptDetail } from '#shared/contracts/session.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { STATES } from '#shared/states.ts';
-import { pickNextAttention } from '../focus-view/attention-core.ts';
+import type { SessionAttentionTier } from '../focus-view/attention-core.ts';
+import { pickNextAttention, SESSION_ATTENTION_RANK_BY_TIER, sessionAttentionTier } from '../focus-view/attention-core.ts';
 import { formatMinutes } from '../usage-view-core.ts';
 import { hasPermissionKeys } from './permission-keys-core.ts';
 
-export type CalmTier = 'now' | 'next' | 'later' | 'ready' | 'working' | 'resting';
+export type CalmTier = SessionAttentionTier;
 
 export interface CalmRow {
   id: string;
@@ -18,31 +19,13 @@ export interface CalmRow {
   hasEndedTurn?: boolean;
 }
 
-function isWaitingForNextStep(row: CalmRow): boolean {
-  return row.state === STATES.COMPLETE || (row.state === STATES.IDLE && row.hasEndedTurn === true);
-}
-
 export function tierOf(row: CalmRow): CalmTier {
-  if (row.state === STATES.WAITING) return 'now';
-  if (row.state === STATES.FAILED) return 'next';
-  if (isWaitingForNextStep(row)) return 'later';
-  switch (row.state) {
-    case STATES.IDLE:
-      return 'ready';
-    case STATES.RUNNING:
-    case STATES.STARTING:
-    case STATES.INITIALIZING:
-      return 'working';
-    default:
-      return 'resting';
-  }
+  return sessionAttentionTier(row, 'calm');
 }
-
-const QUEUE_RANK_BY_TIER = { now: 0, next: 1, later: 2, ready: 3, working: 4, resting: 5 };
 
 export function orderCalmQueue<Row extends CalmRow>(rows: readonly Row[]): Row[] {
-  return rows.map((row, index) => ({ row, index, rank: QUEUE_RANK_BY_TIER[tierOf(row)] }))
-    .filter((entry) => entry.rank < QUEUE_RANK_BY_TIER.ready)
+  return rows.map((row, index) => ({ row, index, rank: SESSION_ATTENTION_RANK_BY_TIER[tierOf(row)] }))
+    .filter((entry) => entry.rank < SESSION_ATTENTION_RANK_BY_TIER.ready)
     .sort((first, second) => first.rank - second.rank
       || (first.row.stateSince ?? Infinity) - (second.row.stateSince ?? Infinity)
       || first.index - second.index)

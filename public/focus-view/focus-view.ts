@@ -1,10 +1,8 @@
-import { STATES } from '#shared/states.ts';
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { wireColumnResizer } from '../column-resizer.ts';
-import { sendControlMsg } from '../control-ws.ts';
 import { el, MERGE_TAGS, query } from '../dom-helpers.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
-import { quickAddSession, requestSessionRemoval } from '../session-actions.ts';
+import { getRestorableSessionId, quickAddSession, readSessionRows, requestSessionOpen, requestSessionRemoval, selectSession } from '../session-actions.ts';
 import { showSessionPlanFace } from '../session-card/lifecycle.ts';
 import type { ActivityRenderKind } from '../session-card/activity.ts';
 import { setActivityRenderer } from '../session-card/activity.ts';
@@ -13,20 +11,16 @@ import { railAriaKeyShortcuts, shortcutChord } from '../shortcuts-core.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
-import { setSelectedId } from '../sidebar/selection.ts';
-import { getLastFocusedSessionId, getRailWidth, setLastFocusedSessionId, setRailWidth } from '../ui-prefs.ts';
+import { getRailWidth, setRailWidth } from '../ui-prefs.ts';
 import { uiState } from '../ui-state-core.ts';
+import type { SessionRow } from './attention-core.ts';
 import { attentionSummaryText, countSessionsNeedingAttention, needsAttention, orderRoster, pickAdjacent, pickNextAttention } from './attention-core.ts';
 import type { RosterGroup } from './roster-groups.ts';
 import { groupRoster, NO_PATH_KEY, visibleOrder } from './roster-groups.ts';
 import { buildPillSkeleton, paintPillStatus } from './pill-dom.ts';
+import { createUnseenCompleteTracker } from './unseen-complete-core.ts';
 
-interface RosterRow {
-  id: string;
-  ui: SessionUi;
-  name: string | null;
-  isDormant: boolean;
-}
+type RosterRow = SessionRow<SessionUi, string | null>;
 
 type FocusPill = ReturnType<typeof buildPill>;
 
@@ -50,6 +44,7 @@ let active = false;
 let attnCursorId: string | null = null;
 const mergeStatusById = new Map<string, string>();
 const pillById = new Map<string, FocusPill>();
+const unseenCompleteTracker = createUnseenCompleteTracker();
 
 const groupListById = new Map<string, GroupList>();
 const groupHeaderById = new Map<string, GroupHeader>();
@@ -205,15 +200,9 @@ function onRailKeydown(e: KeyboardEvent) {
   pillById.get(id)?.focus();
 }
 
-function orderedSessions() {
-  const rows = [...sessionUIs.entries()].map(([id, ui]) => ({
-    id,
-    ui,
-    name: sessionName(ui),
-    isDormant: (ui.currentState || STATES.DORMANT) === STATES.DORMANT,
-  }));
-
-  return orderRoster(rows);
+function orderedSessions(sessionRows: RosterRow[] = readSessionRows(sessionName)) {
+  for (const row of sessionRows) row.unseen = unseenCompleteTracker.isUnseen(row.id);
+  return orderRoster(sessionRows);
 }
 
 function sessionName(ui: SessionUi): string | null {
@@ -245,29 +234,17 @@ function buildPill(id: string) {
 }
 
 function onPillActivate(id: string) {
-  const ui = sessionUIs.get(id);
-  if (!ui) return;
-  if (ui.currentState === STATES.DORMANT) sendControlMsg({ type: 'start-session', id });
-  dismissIfComplete(id);
+  if (!requestSessionOpen(id)) return;
   focusSession(id);
 }
 
-function dismissIfComplete(id: string) {
-  if (sessionUIs.get(id)?.currentState !== STATES.COMPLETE) return;
-  sendControlMsg({ type: 'dismiss', id });
-}
-
-function paintPill(pill: FocusPill, id: string, ui: SessionUi) {
-  const state = ui.currentState || STATES.DORMANT;
-
-  const prev = pill.dataset.state;
-  if (state !== STATES.COMPLETE) pill.removeAttribute('data-unseen');
-  if (state === STATES.COMPLETE && prev && prev !== STATES.COMPLETE) pill.dataset.unseen = '';
+function paintPill(pill: FocusPill, { id, ui, state, name, unseen }: RosterRow) {
+  pill.toggleAttribute('data-unseen', unseen);
   const label = paintPillStatus(pill, pill._refs, state, ui.awaitingBackgroundTasks);
-  const accessibleLabel = [sessionName(ui), ui.taskTitle, label].filter(Boolean).join(', ');
+  const accessibleLabel = [name, ui.taskTitle, label].filter(Boolean).join(', ');
   pill.setAttribute('aria-label', accessibleLabel);
   pill.title = accessibleLabel;
-  pill._refs.name.textContent = sessionName(ui);
+  pill._refs.name.textContent = name;
   const ms = mergeStatusById.get(id) || 'none';
   pill.dataset.merge = ms === 'none' ? '' : ms;
   pill._refs.merge.textContent = MERGE_TAGS[ms] || '';
@@ -308,18 +285,21 @@ export function refreshFocusRoster() {
   if (!active) return;
   const mountedRail = railEl;
   if (!mountedRail) return;
-  const order = orderedSessions();
+  const sessionRows = readSessionRows(sessionName);
+  unseenCompleteTracker.noteStates(sessionRows);
+  const order = orderedSessions(sessionRows);
   const groups = groupRoster(order, (row) => row.ui.path, emptyProjectKeys(order, (row) => row.ui.path));
   const seen = new Set<string>();
 
   const placeList = (rows: RosterRow[], listEl: GroupList) => {
     const newKey = rows.map((r) => r.id).join(',');
     const orderUnchanged = listEl._lastOrderKey === newKey && listEl.childElementCount === rows.length;
-    for (const { id, ui } of rows) {
+    for (const row of rows) {
+      const { id } = row;
       seen.add(id);
       let pill = pillById.get(id);
       if (!pill) { pill = buildPill(id); pillById.set(id, pill); }
-      paintPill(pill, id, ui);
+      paintPill(pill, row);
       if (!orderUnchanged && pill._row) listEl.appendChild(pill._row);
     }
     listEl._lastOrderKey = newKey;
@@ -371,20 +351,12 @@ export function refreshFocusRoster() {
   updateRailHead();
 }
 
-function attentionRows() {
-  return orderedSessions().map(({ id, ui }) => ({
-    id,
-    state: ui.currentState || STATES.DORMANT,
-    unseen: !!pillById.get(id)?.hasAttribute('data-unseen'),
-  }));
-}
-
 function attentionIds() {
-  return attentionRows().filter(needsAttention).map(({ id }) => id);
+  return orderedSessions().filter(needsAttention).map(({ id }) => id);
 }
 
 function updateRailHead() {
-  const count = countSessionsNeedingAttention(attentionRows());
+  const count = countSessionsNeedingAttention(orderedSessions());
   setRailHeadActive(count > 0, attentionSummaryText(count));
 }
 
@@ -411,7 +383,7 @@ export function focusNextAttention() {
   const ui = sessionUIs.get(nextId);
 
   const alreadyCentered = nextId === getFocusedSessionId();
-  dismissIfComplete(nextId);
+  requestSessionOpen(nextId);
   focusSession(nextId);
   pillById.get(nextId)?.scrollIntoView({ block: 'nearest' });
   if (alreadyCentered) flashAttention(nextId);
@@ -463,11 +435,9 @@ function focusSession(id: string) {
   uiState.dispatch('focusSession', id);
   railTabStopId = id;
 
-  setLastFocusedSessionId(id);
+  unseenCompleteTracker.acknowledge(id);
 
-  pillById.get(id)?.removeAttribute('data-unseen');
-
-  setSelectedId(id);
+  selectSession(id);
   refreshFocusRoster();
 }
 
@@ -544,11 +514,8 @@ export function activateFocusView() {
 
 export function restoreFocusedSession() {
   if (!active || getFocusedSessionId()) return;
-  const id = getLastFocusedSessionId();
+  const id = getRestorableSessionId();
   if (!id) return;
-  const ui = sessionUIs.get(id);
-  if (!ui) return;
-  if ((ui.currentState || STATES.DORMANT) === STATES.DORMANT) return;
   focusSession(id);
 }
 

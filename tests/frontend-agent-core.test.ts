@@ -3,6 +3,21 @@ import assert from 'node:assert/strict';
 
 const importCore = () => import('../public/session-card/agent-core.ts');
 
+test('built-in agent badge labels cover the contract ids and keep the default badge hidden', async () => {
+  const { BUILTIN_AGENT_IDS } = await import('../shared/contracts/config.ts');
+  const { BUILTIN_AGENT_BADGE_LABELS, DEFAULT_AGENT_ID, agentBadgeText } = await importCore();
+  assert.deepEqual(Object.keys(BUILTIN_AGENT_BADGE_LABELS).sort(), [...BUILTIN_AGENT_IDS].sort());
+  for (const id of BUILTIN_AGENT_IDS) {
+    assert.equal(agentBadgeText(id), BUILTIN_AGENT_BADGE_LABELS[id]);
+    if (id === DEFAULT_AGENT_ID) {
+      assert.equal(BUILTIN_AGENT_BADGE_LABELS[id], '');
+      continue;
+    }
+    assert.ok(BUILTIN_AGENT_BADGE_LABELS[id]);
+    assert.notEqual(BUILTIN_AGENT_BADGE_LABELS[id], id);
+  }
+});
+
 test('agentBadgeText: the default agent renders no badge', async () => {
   const { agentBadgeText, DEFAULT_AGENT_ID } = await importCore();
   assert.equal(agentBadgeText(DEFAULT_AGENT_ID), '');

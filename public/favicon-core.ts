@@ -1,4 +1,4 @@
-import { needsAttention } from './focus-view/attention-core.ts';
+import { sessionAttentionTier } from './focus-view/attention-core.ts';
 
 export type FaviconVariant = 'idle' | 'complete' | 'waiting';
 
@@ -10,16 +10,13 @@ const TRIANGLE_COLORS: Readonly<Record<FaviconVariant, string>> = Object.freeze(
 
 export function decideFaviconVariant(sessions: unknown): FaviconVariant {
   const rows: { state?: string }[] = Array.isArray(sessions) ? sessions : [];
-
+  let hasCompleteSession = false;
   for (const session of rows) {
-    if (needsAttention({ state: session?.state })) return 'waiting';
+    const tier = sessionAttentionTier(session || {}, 'favicon');
+    if (tier === 'now') return 'waiting';
+    if (tier === 'later') hasCompleteSession = true;
   }
-
-  for (const session of rows) {
-    if (session?.state === 'COMPLETE') return 'complete';
-  }
-
-  return 'idle';
+  return hasCompleteSession ? 'complete' : 'idle';
 }
 
 export function renderFaviconSvg(variant: FaviconVariant) {

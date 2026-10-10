@@ -1,17 +1,14 @@
 
-import { STATES } from '#shared/states.ts';
 import { activatePhoneCalmView, deactivatePhoneCalmView, dismissPhoneCalmSheet } from '../calm/calm-view.ts';
-import { sendControlMsg } from '../control-ws.ts';
 import type { AdoptableElement } from '../dom-helpers.ts';
 import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
 import { pickStrongestAttention } from '../focus-view/attention-core.ts';
+import { getRestorableSessionId, requestSessionOpen, selectSession } from '../session-actions.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { showSessionPlanFace } from '../session-card/lifecycle.ts';
 import { reparentReviewPanel } from '../sidebar/review-sidebar.ts';
-import { setSelectedId } from '../sidebar/selection.ts';
 import { uiState } from '../ui-state-core.ts';
 import { closeSettingsSectionPicker } from '../settings-panel.ts';
-import { getLastFocusedSessionId, setLastFocusedSessionId } from '../ui-prefs.ts';
 import { createBoardScreen } from './board-screen.ts';
 import type { PushedPhoneHistoryEntry } from './phone-history-core.ts';
 import type { PhonePanel } from './phone-panels-core.ts';
@@ -237,15 +234,11 @@ function build() {
 }
 
 function openSession(sessionId: string) {
-  const ui = sessionUIs.get(sessionId);
-  if (!ui) return;
+  if (!sessionUIs.has(sessionId)) return;
   if (!boardScreen || !terminalScreen) throw new Error('Phone shell is not built');
-  const state = ui.currentState || STATES.DORMANT;
-  if (state === STATES.DORMANT) sendControlMsg({ type: 'start-session', id: sessionId });
-  if (state === STATES.COMPLETE) sendControlMsg({ type: 'dismiss', id: sessionId });
+  requestSessionOpen(sessionId, 'dormant-fallback');
   boardScreen.acknowledge(sessionId);
-  setSelectedId(sessionId);
-  setLastFocusedSessionId(sessionId);
+  selectSession(sessionId);
   terminalScreen.show(sessionId);
   showScreen('terminal');
 }
@@ -497,11 +490,8 @@ export function setPhoneScreenAttention(screenId: string, attention: string | bo
 function restoreShownSession() {
   if (!terminalScreen) throw new Error('Phone shell is not built');
   if (terminalScreen.getSessionId()) return;
-  const id = getLastFocusedSessionId();
+  const id = getRestorableSessionId();
   if (!id) return;
-  const ui = sessionUIs.get(id);
-  if (!ui) return;
-  if ((ui.currentState || STATES.DORMANT) === STATES.DORMANT) return;
   terminalScreen.show(id);
-  setSelectedId(id);
+  selectSession(id, { rememberFocus: false });
 }
