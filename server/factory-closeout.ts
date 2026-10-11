@@ -190,7 +190,7 @@ export function createFactoryCloseOut({
 
   async function discardWorkerLedgerChanges(worker: FactoryCloseOutWorker, cwd: string, baseSha: string): Promise<void> {
     await discardUncommittedLedgerChanges(cwd);
-    const committedLedgerPaths = nulSeparatedPaths(await runGit(cwd, ['diff', '--name-only', '--no-renames', '-z', baseSha, 'HEAD', '--', '.coherence']));
+    const committedLedgerPaths = nulSeparatedPaths(await runGit(cwd, ['diff', '--name-only', '--no-renames', '-z', baseSha, 'HEAD', '--', CASE_INSENSITIVE_LEDGER_PATHSPEC]));
     if (committedLedgerPaths.length === 0) return;
     await runGit(cwd, ['restore', `--source=${baseSha}`, '--staged', '--worktree', '--', ...committedLedgerPaths]);
     await runGit(cwd, ['commit', '-m', `factory: drop worker ledger changes ${worker.workId}`, '--', ...committedLedgerPaths]);

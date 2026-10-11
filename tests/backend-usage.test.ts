@@ -458,6 +458,83 @@ test('a byte-limited pass is continued on the short timer until the scan complet
   await wiring.stop();
 });
 
+test('a byte-limited continuation re-arms while a real scan is in flight without starting a concurrent pass', async (context) => {
+  const directory = await realFsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-usage-continuation-'));
+  const claudeHome = path.join(directory, 'claude');
+  writeTranscriptFixture(claudeHome);
+  const transcriptPath = path.join(claudeHome, 'projects', 'C--fixture-repo', `${CLAUDE_SESSION_ID}.jsonl`);
+  const transcript = await realFsp.readFile(transcriptPath, 'utf8');
+  const { options } = makeUsageProbe(claudeHome);
+  const continuations: { run: () => void; delayMs: number; handle: NodeJS.Timeout }[] = [];
+  const completedPasses: PassResult[] = [];
+  let startedPassCount = 0;
+  let intervalTick = () => {};
+  let releasePass = () => {};
+  const passBarrier = new Promise<void>((resolve) => { releasePass = resolve; });
+  const wiring = createUsageWiring({
+    ...options,
+    config: { usage: { rtkSavings: false, vendors: { codex: false, grok: false } } },
+    scannerDeps: {
+      ...options.scannerDeps,
+      byteBudget: Buffer.byteLength(transcript.split('\n')[0]) + 1,
+      fsPromises: {
+        ...options.scannerDeps.fsPromises,
+        stat: async (...args: Parameters<typeof realFsp.stat>) => {
+          if (startedPassCount === 2) await passBarrier;
+          return options.scannerDeps.fsPromises.stat(...args);
+        },
+      },
+    },
+    createScanner: (deps) => {
+      const scanner = options.createScanner(deps);
+      const runPass = scanner.runPass;
+      scanner.runPass = async (args) => {
+        startedPassCount += 1;
+        const completedPass = await runPass(args);
+        completedPasses.push(completedPass);
+        return completedPass;
+      };
+      return scanner;
+    },
+    partialContinueMs: 10,
+    setTimeoutFn: (run, delayMs) => {
+      const handle = setTimeout(run, 60_000);
+      handle.unref();
+      continuations.push({ run, delayMs, handle });
+      return handle;
+    },
+    setIntervalFn: (run, delayMs) => {
+      intervalTick = run;
+      return setInterval(run, delayMs);
+    },
+  });
+  context.after(async () => {
+    releasePass();
+    await wiring.stop();
+    for (const continuation of continuations) clearTimeout(continuation.handle);
+    await realFsp.rm(directory, { recursive: true, force: true });
+  });
+  await wiring.start();
+  assert.equal(completedPasses[0].outcome, 'byte-limited');
+  intervalTick();
+  assert.equal(startedPassCount, 2);
+  clearTimeout(continuations[0].handle);
+  continuations[0].run();
+  assert.equal(continuations.length, 2, 'the busy continuation re-arms its short timer');
+  assert.equal(continuations[1].delayMs, 10);
+  assert.equal(startedPassCount, 2, 'the busy continuation starts no concurrent pass');
+  releasePass();
+  await waitUntil(() => completedPasses.length === 2, 'the in-flight scan to settle');
+  clearTimeout(continuations[1].handle);
+  continuations[1].run();
+  await waitUntil(() => completedPasses.length === 3, 'the re-armed continuation to finish');
+  assert.equal(completedPasses.at(-1)?.outcome, 'complete');
+  assert.equal(continuations.length, 2, 'a complete scan schedules no further continuation');
+  const report = await wiring.requestReport();
+  assert.ok(report.totals && typeof report.totals === 'object' && 'tokens' in report.totals);
+  assert.equal(report.totals.tokens, 375);
+});
+
 test('io-failed passes retry with capped backoff and warn once per standing failure', async (context) => {
   context.mock.method(Math, 'random', () => 1);
   const passes: PassArgs[] = [];

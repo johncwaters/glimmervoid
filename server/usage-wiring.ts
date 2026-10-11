@@ -394,7 +394,11 @@ function createUsageWiring({
     if (stopped || !scanner || continueTimer) return;
     continueTimer = setTimeoutFn(() => {
       continueTimer = null;
-      if (stopped || !scanner || passInFlight) return;
+      if (stopped || !scanner) return;
+      if (passInFlight) {
+        scheduleContinuation(outcome);
+        return;
+      }
       void runPassAndPush({ force: false });
     }, delayMs);
     unrefTimer(continueTimer);

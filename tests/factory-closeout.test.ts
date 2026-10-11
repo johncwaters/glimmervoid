@@ -256,7 +256,10 @@ test('worker coherence traces and committed ledger changes are discarded and nev
   const committedLedgerPath = '.coherence/decisions/worker-session.jsonl';
   await mkdir(path.join(fixture.workspace.cwd, '.coherence/decisions'), { recursive: true });
   await writeFile(path.join(fixture.workspace.cwd, committedLedgerPath), '{"forged":true}\n');
-  await fixture.git(['add', '--', committedLedgerPath], fixture.workspace.cwd);
+  const differentlyCasedLedgerPath = '.COHERENCE/committed.jsonl';
+  await mkdir(path.join(fixture.workspace.cwd, '.COHERENCE'), { recursive: true });
+  await writeFile(path.join(fixture.workspace.cwd, differentlyCasedLedgerPath), '{"forged":true}\n');
+  await fixture.git(['add', '--', committedLedgerPath, differentlyCasedLedgerPath], fixture.workspace.cwd);
   await fixture.git(['commit', '-m', 'chore: plant ledger record'], fixture.workspace.cwd);
   await fixture.commitChange();
   const untrackedTracePath = '.coherence/activity/worker-session.jsonl';
@@ -268,6 +271,7 @@ test('worker coherence traces and committed ledger changes are discarded and nev
   assert.deepEqual(fixture.feedback, []);
   assert.ok(fixture.mergedSha());
   assert.equal(await fixture.git(['ls-tree', '-r', '--name-only', 'integration', '--', committedLedgerPath]), '');
+  assert.equal(await fixture.git(['ls-tree', '-r', '--name-only', 'integration', '--', differentlyCasedLedgerPath]), '', 'committed ledger paths are discarded regardless of case');
   assert.equal(await fixture.git(['diff', '--name-only', `${fixture.worker.baseSha}`, 'integration', '--', '.coherence/decisions']), '');
 });
 
