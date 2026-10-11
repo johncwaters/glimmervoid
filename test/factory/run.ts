@@ -4,7 +4,7 @@ import { intents } from './intents.ts';
 try {
   const options = parseArguments(process.argv.slice(2));
   if (options.help) console.log(usage);
-  if (!options.help && options.listIntents) console.table(intents.map((intent) => ({ name: intent.name, expectedEnd: intent.expectedEnd })));
+  if (!options.help && options.listIntents) console.table(intents.map((intent) => ({ name: intent.name, target: intent.target, expectedEnd: intent.expectedEnd })));
   if (!options.help && !options.listIntents) {
     const { runBatch } = await import('./batch.ts');
     process.exitCode = await runBatch(options);

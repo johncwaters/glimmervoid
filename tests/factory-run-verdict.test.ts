@@ -15,8 +15,9 @@ import {
 } from '../test/factory/telemetry-core.ts';
 import type { HarnessTelemetryInputs } from '../test/factory/telemetry-core.ts';
 import { adoptRunHomeRemoteSwitch, harnessStateDirectory, loadHarnessInstallState, resolveHarnessTelemetryInputs, sendRunTelemetry } from '../test/factory/telemetry.ts';
-import { decideVerdict, matchedProductText, pidsStillNamingSameProcess, processesUsingBuildOutput, unexpectedAcceptanceError } from '../test/factory/verdict.ts';
-import type { VerdictInput } from '../test/factory/verdict.ts';
+import { removeInside, resolveInside } from '../test/factory/cleanup.ts';
+import { bridgeSocketPathRefusal, decideGate, decideVerdict, matchedProductText, pidsStillNamingSameProcess, processesUsingBuildOutput, unexpectedAcceptanceError } from '../test/factory/verdict.ts';
+import type { GateEvidence, VerdictInput } from '../test/factory/verdict.ts';
 
 const repoRoot = path.resolve(import.meta.dirname, '..');
 const verifyCloseSubject = `${matchedProductText.verifyCloseSubject.text}intent`;
@@ -64,6 +65,33 @@ test('completion requires steady completion and both worker and verify-close com
   assert.equal(missingWorker.failureClass, 'exception');
 });
 
+test('a gated completion holds on a clean proof whatever real main did, a leaked commit or foreign remote is a breach over every other failure, and a missing proof fails closed without claiming one', () => {
+  const originPath = '/runtime/0001/origin.git';
+  const origin = { name: 'origin', fetchUrls: [originPath], pushUrls: [originPath], resolvedFetchPaths: [originPath], resolvedPushPaths: [originPath] };
+  const gate: GateEvidence = {
+    snapshotRealMain: workerSha, snapshotMain: 'c'.repeat(40), originPath,
+    before: { main: workerSha, originMain: workerSha }, after: { main: 'd'.repeat(40), originMain: 'd'.repeat(40) },
+    remotes: [origin], leakedCommits: [], isCommitListCapped: false, proofErrors: [],
+  };
+  const held = decideVerdict({ ...completingInput(), gate });
+  assert.equal(held.outcome, 'pass');
+  assert.deepEqual(held.gate, { ...gate, held: true });
+  const breached = decideVerdict({ ...completingInput(), stopReason: 'interrupted', gate: { ...gate, leakedCommits: [workerSha] } });
+  assert.equal(breached.outcome, 'fail');
+  assert.equal(breached.failureClass, 'exception');
+  assert.equal(breached.gate?.held, false);
+  assert.match(breached.reason ?? '', /gate did not hold/);
+  assert.equal(decideGate({ ...gate, remotes: [origin, { ...origin, name: 'upstream' }] })?.held, false);
+  const withoutProof = { ...gate, originPath: null, remotes: null, leakedCommits: null, proofErrors: ['working clone was never made'] };
+  const unavailable = decideVerdict({ ...completingInput(), gate: withoutProof });
+  assert.deepEqual([unavailable.outcome, unavailable.failureClass, unavailable.gate?.held, unavailable.reason], ['fail', 'exception', null, 'Gate proof unavailable']);
+  const recoveredCheckRetry = decision({ kind: 'closeout', outcome: 'block', failureClass: 'check', fence: null, checks: [], review: null });
+  assert.equal(decideVerdict({ ...completingInput(), decisionLines: [recoveredCheckRetry, ...completingInput().decisionLines], gate: withoutProof }).failureClass, 'exception');
+  const interrupted = decideVerdict({ ...completingInput(), stopReason: 'interrupted', gate: withoutProof });
+  assert.deepEqual([interrupted.failureClass, interrupted.gate?.held, interrupted.reason], ['interrupted', null, null]);
+  assert.equal(decideVerdict(completingInput()).gate, null);
+});
+
 test('the refusal expected end passes only the expected refusal and fails another refusal or an accepted intent', () => {
   const refusal = (error: string) => decideVerdict(input({ expectedEnd: 'refused', expectedRefusal: 'Unknown factory project', stopReason: 'refused', queueReply: { projectId: 'seed', ok: false, error } }));
   const refused = refusal('Unknown factory project');
@@ -85,7 +113,7 @@ test('the product source still contains every literal the verdict matches', () =
   }
 });
 
-test('a process running from the dist of this checkout, or one that could with an unreadable working directory, blocks the batch build', () => {
+test('a process running from the dist of this checkout, or one that could with an unreadable working directory, blocks the batch build, and so does a check sandbox socket path past the unix limit', () => {
   const buildOutput = { directory: '/checkout/dist', entryPaths: ['/checkout/dist', '/checkout/dist/server', '/checkout/dist/server/index.js', '/checkout/dist/bin', '/checkout/dist/bin/glimmervoid.js'] };
   const located = (pid: number, resolvedArguments: string[], unresolvedRelativeArguments: string[] = []) => ({ pid, command: '', resolvedArguments, unresolvedRelativeArguments });
   const conflicts = processesUsingBuildOutput([
@@ -100,6 +128,30 @@ test('a process running from the dist of this checkout, or one that could with a
     { ...located(9, []), command: 'node /checkout/dist/server/index.js' },
   ], buildOutput, 8);
   assert.deepEqual(conflicts.map((conflict) => conflict.pid), [1, 3, 4, 5, 9]);
+  assert.equal(bridgeSocketPathRefusal('/tmp/glimmervoid-factory-run-XXXXXX/0001/tmp', 'linux'), null);
+  assert.equal(bridgeSocketPathRefusal(`/${'a'.repeat(71)}`, 'linux'), null);
+  assert.match(bridgeSocketPathRefusal(`/${'a'.repeat(72)}`, 'linux') ?? '', /needs 108 bytes and a unix socket path holds 107/);
+  assert.equal(bridgeSocketPathRefusal(`/${'a'.repeat(72)}`, 'darwin'), null);
+});
+
+test('bounded removal reaches a child through a symlinked parent and still refuses a path that leaves it', async () => {
+  const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'factory-bounded-removal-test-'));
+  try {
+    const realBatchDirectory = path.join(tempDirectory, 'real-batch');
+    const linkedBatchDirectory = path.join(tempDirectory, 'linked-batch');
+    const outsideDirectory = path.join(tempDirectory, 'outside');
+    await mkdir(path.join(realBatchDirectory, 'run'), { recursive: true });
+    await mkdir(outsideDirectory);
+    await symlink(realBatchDirectory, linkedBatchDirectory);
+    await symlink(outsideDirectory, path.join(realBatchDirectory, 'escape'));
+    assert.equal(await resolveInside(linkedBatchDirectory, path.join(linkedBatchDirectory, 'not-made-yet')), path.join(await fs.promises.realpath(realBatchDirectory), 'not-made-yet'));
+    await removeInside(linkedBatchDirectory, path.join(linkedBatchDirectory, 'run'));
+    assert.deepEqual(await readdir(realBatchDirectory), ['escape']);
+    await assert.rejects(removeInside(linkedBatchDirectory, path.join(linkedBatchDirectory, 'escape')), /Refusing path outside/);
+    await assert.rejects(removeInside(linkedBatchDirectory, linkedBatchDirectory), /Refusing path outside/);
+    await assert.rejects(removeInside(linkedBatchDirectory, outsideDirectory), /Refusing path outside/);
+    assert.deepEqual(await readdir(tempDirectory), ['linked-batch', 'outside', 'real-batch']);
+  } finally { await rm(tempDirectory, { recursive: true, force: true }); }
 });
 
 test('a recorded descendant is signalled only while its pid still carries the recorded start time', () => {

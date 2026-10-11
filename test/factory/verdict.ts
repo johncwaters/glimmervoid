@@ -29,6 +29,57 @@ export interface Broadcast {
   arrivedAt: string;
   state: FactoryState;
 }
+export interface RealCommits {
+  main: string | null;
+  originMain: string | null;
+}
+export interface GateRemote {
+  name: string;
+  fetchUrls: string[];
+  pushUrls: string[];
+  resolvedFetchPaths: (string | null)[];
+  resolvedPushPaths: (string | null)[];
+}
+export interface GateEvidence {
+  snapshotRealMain: string;
+  snapshotMain: string;
+  originPath: string | null;
+  before: RealCommits;
+  after: RealCommits;
+  remotes: GateRemote[] | null;
+  leakedCommits: string[] | null;
+  isCommitListCapped: boolean;
+  proofErrors: string[];
+}
+
+export function hasOnlyLocalOrigin(remotes: GateRemote[], originPath: string): boolean {
+  const origin = remotes[0];
+  return remotes.length === 1 && origin?.name === 'origin'
+    && origin.fetchUrls.length === 1 && origin.pushUrls.length === 1
+    && origin.resolvedFetchPaths.length === 1 && origin.resolvedFetchPaths[0] === originPath
+    && origin.resolvedPushPaths.length === 1 && origin.resolvedPushPaths[0] === originPath;
+}
+
+export function decideGate(evidence: GateEvidence | null): (GateEvidence & { held: boolean | null }) | null {
+  if (!evidence) return null;
+  const { originPath, remotes, leakedCommits } = evidence;
+  const hasLeakedCommit = leakedCommits !== null && leakedCommits.length > 0;
+  const hasForeignRemote = remotes !== null && originPath !== null && !hasOnlyLocalOrigin(remotes, originPath);
+  if (hasLeakedCommit || hasForeignRemote) return { ...evidence, held: false };
+  if (originPath === null || remotes === null || leakedCommits === null) return { ...evidence, held: null };
+  return { ...evidence, held: true };
+}
+
+const LONGEST_BRIDGE_SOCKET_NAME = 'claude-socks-0123456789abcdef.sock';
+const UNIX_SOCKET_PATH_BYTE_LIMIT = 107;
+
+export function bridgeSocketPathRefusal(instanceTempDirectory: string, platform: NodeJS.Platform): string | null {
+  if (platform !== 'linux') return null;
+  const socketPathBytes = Buffer.byteLength(path.join(instanceTempDirectory, LONGEST_BRIDGE_SOCKET_NAME));
+  if (socketPathBytes <= UNIX_SOCKET_PATH_BYTE_LIMIT) return null;
+  return `Factory harness refuses to start: the check sandbox socket under ${instanceTempDirectory} needs ${socketPathBytes} bytes and a unix socket path holds ${UNIX_SOCKET_PATH_BYTE_LIMIT}; point TMPDIR at a shorter folder`;
+}
+
 export interface VerdictInput {
   intentName: string;
   expectedEnd: ExpectedEnd;
@@ -44,6 +95,7 @@ export interface VerdictInput {
   sessionIds: string[];
   stopReason: 'completed' | 'refused' | 'exception' | 'timeout' | 'interrupted';
   errors: string[];
+  gate?: GateEvidence | null;
 }
 
 export function parseDecisionLines(lines: string[]) {
@@ -91,6 +143,9 @@ function isStallReport(projectError: string): boolean {
 }
 
 export function decideVerdict(input: VerdictInput) {
+  const gate = decideGate(input.gate ?? null);
+  const hasGateBreach = gate?.held === false;
+  const lacksGateProof = gate?.held === null && input.expectedEnd === 'completed';
   const { decisions, invalidDecisionLines } = parseDecisionLines(input.decisionLines);
   const projects = input.broadcasts.flatMap((broadcast) => {
     const project = broadcast.state.projects.find((candidate) => candidate.projectId === input.projectId);
@@ -114,7 +169,11 @@ export function decideVerdict(input: VerdictInput) {
   if (input.errors.length > 0 || input.stopReason === 'exception' || invalidDecisionLines.length > 0 || projects.some(({ project }) => project.error !== null) || relevantDecisions.some((decision) => ['raised', 'failed', 'block', 'breach'].includes(decision.outcome))) candidates.push('exception');
   if (input.stopReason === 'timeout') candidates.push('timeout');
   const hasSuccessfulStop = input.expectedEnd === 'refused' ? input.stopReason === 'refused' : input.stopReason === 'completed';
-  const failureClass = hasSuccessfulStop && hasPass && input.errors.length === 0 && invalidDecisionLines.length === 0 && !projects.at(-1)?.project.error ? null : failurePrecedence.find((failure) => candidates.includes(failure)) ?? 'exception';
+  const hasCleanPass = hasSuccessfulStop && hasPass && input.errors.length === 0 && invalidDecisionLines.length === 0 && !projects.at(-1)?.project.error;
+  const mostSpecificFailure = failurePrecedence.find((failure) => candidates.includes(failure)) ?? 'exception';
+  const gateFailure = hasGateBreach || hasCleanPass ? 'exception' : mostSpecificFailure;
+  const failureClass = hasCleanPass && !hasGateBreach && !lacksGateProof ? null : gateFailure;
+  const gateReason = hasCleanPass && lacksGateProof ? 'Gate proof unavailable' : null;
   const startedMs = Date.parse(input.startedAt);
   const elapsed = (timestamp: string | null | undefined) => timestamp ? Math.max(0, Date.parse(timestamp) - startedMs) : null;
   const queued = projects.find(({ project }) => project.orders.some((order) => order.id === workId));
@@ -133,7 +192,7 @@ export function decideVerdict(input: VerdictInput) {
   for (const decision of relevantDecisions) if (decision.workId) orderIds.add(decision.workId);
   return {
     intentName: input.intentName, expectedEnd: input.expectedEnd, expectedRefusal: input.expectedRefusal, queueReplyError, outcome: failureClass === null ? 'pass' as const : 'fail' as const,
-    failureClass, startedAt: input.startedAt, endedAt: input.endedAt, durationMs: elapsed(input.endedAt),
+    failureClass, gate, reason: hasGateBreach ? 'The gate did not hold' : gateReason, startedAt: input.startedAt, endedAt: input.endedAt, durationMs: elapsed(input.endedAt),
     milestonesMs: { queued: input.queueReply?.ok ? elapsed(queued?.arrivedAt ?? input.queueRepliedAt) : null, firstWorkerDispatched: elapsed(firstWorker?.arrivedAt), firstMerge: elapsed(firstMerge?.arrivedAt), completed: elapsed(completed?.arrivedAt) },
     sessionCount: sessions.size, orderCount: orderIds.size, attemptsPerOrder, spendUsd: lastProject?.spentTodayUsd ?? null,
     invalidDecisionLineCount: invalidDecisionLines.length, invalidDecisionLines, errors: input.errors,

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, realpath, rmdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -9,33 +9,40 @@ import { intents, parseIntentFile } from './intents.ts';
 import type { Intent } from './intents.ts';
 import type { Arguments } from './arguments.ts';
 import { openControl, saveScreen } from './control.ts';
-import { builtServerEntryPath, prepareInstance, startInstance } from './instance.ts';
+import { builtServerEntryPath, repoRoot, prepareInstance, startInstance } from './instance.ts';
 import { acquireBatchLock, buildBatch, checkEnvironment } from './preflight.ts';
 import { collectRecords, readDecisionLines, writeJson } from './records.ts';
-import { seedTarget } from './seed.ts';
+import { seedBatchSnapshot, seedTarget } from './seed.ts';
+import type { BatchSnapshot } from './seed.ts';
+import { checkGate, readGateProof, readRealCommits } from './gate.ts';
+import { removeInside } from './cleanup.ts';
+import { targets } from './targets.ts';
 import { summaryRows } from './summary.ts';
-import { decideVerdict, parseDecisionLines, unexpectedAcceptanceError } from './verdict.ts';
+import { bridgeSocketPathRefusal, decideVerdict, parseDecisionLines, unexpectedAcceptanceError } from './verdict.ts';
 import type { VerdictInput } from './verdict.ts';
 import { adoptRunHomeRemoteSwitch, harnessStateDirectory, resolveHarnessTelemetryInputs, sendRunTelemetry } from './telemetry.ts';
 import { decideHarnessTelemetry } from './telemetry-core.ts';
 import type { HarnessTelemetryInputs, RecordedVerdict } from './telemetry-core.ts';
 
-const WORK_LIMIT_MINUTES = 30;
-
 function errorText(error: unknown) { return error instanceof Error ? error.message : String(error); }
 
 async function runOnce(
   intent: Intent, options: Arguments, recordDirectory: string, interrupt: AbortSignal,
-  telemetryInputs: HarnessTelemetryInputs, stateDirectory: string, runIndex: number,
-): Promise<{ recordedVerdict: RecordedVerdict; telemetryInputsAfterRun: HarnessTelemetryInputs }> {
+  telemetryInputs: HarnessTelemetryInputs, stateDirectory: string, runIndex: number, snapshot: BatchSnapshot | null, runtimeParent: string,
+): Promise<{ recordedVerdict: RecordedVerdict; telemetryInputsAfterRun: HarnessTelemetryInputs; hasKeptRun: boolean; wasGateRefused: boolean }> {
   const input: VerdictInput = {
     intentName: intent.name, expectedEnd: intent.expectedEnd, expectedRefusal: intent.expectedRefusal, projectId: intent.request.projectId,
     startedAt: new Date().toISOString(), endedAt: '', queueReply: null, queueRepliedAt: null,
     broadcasts: [], decisionLines: [], originCommits: [], sessionIds: [], stopReason: 'exception', errors: [],
+    gate: snapshot ? {
+      snapshotRealMain: snapshot.realMain, snapshotMain: snapshot.snapshotMain, originPath: null,
+      before: { main: null, originMain: null }, after: { main: null, originMain: null },
+      remotes: null, leakedCommits: null, isCommitListCapped: false, proofErrors: [],
+    } : null,
   };
   const controller = new AbortController();
   const watchWindowMinutes = options.factory.watchWindowMinutes ?? DEFAULT_CONFIG.factory.watchWindowMinutes;
-  const deadline = AbortSignal.timeout((WORK_LIMIT_MINUTES + watchWindowMinutes) * 60_000);
+  const deadline = AbortSignal.timeout((targets[options.target].workLimitMinutes + watchWindowMinutes) * 60_000);
   const signal = AbortSignal.any([interrupt, deadline, controller.signal]);
   let tempDirectory: string | null = null;
   let prepared: Awaited<ReturnType<typeof prepareInstance>> | null = null;
@@ -43,6 +50,7 @@ async function runOnce(
   let instance: Awaited<ReturnType<typeof startInstance>> | null = null;
   let control: Awaited<ReturnType<typeof openControl>> | null = null;
   let stateWrites: Promise<void> = Promise.resolve();
+  let wasGateRefused = false;
   let hasTerminalStopReason = false;
   let telemetryInputsAfterRun = telemetryInputs;
   const instanceTelemetry = decideHarnessTelemetry(telemetryInputs);
@@ -57,13 +65,16 @@ async function runOnce(
   await mkdir(path.join(recordDirectory, 'decisions'));
   await mkdir(path.join(recordDirectory, 'recordings'));
   try {
-    tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-factory-run-'));
+    if (input.gate) input.gate.before = await readRealCommits(repoRoot);
+    tempDirectory = path.join(runtimeParent, path.basename(recordDirectory));
+    await mkdir(tempDirectory);
     signal.throwIfAborted();
-    target = await seedTarget(tempDirectory);
+    target = await seedTarget(tempDirectory, options.target, snapshot, signal);
     signal.throwIfAborted();
     prepared = await prepareInstance(tempDirectory, { projectPath: target.projectPath, projectId: intent.seedProjectId }, options.factory, instanceTelemetry);
-    await writeJson(path.join(recordDirectory, 'instance.json'), { tempDirectory, ...prepared, projectPath: target.projectPath, originPath: target.originPath });
+    await writeJson(path.join(recordDirectory, 'instance.json'), { tempDirectory, ...prepared, target: options.target, snapshot, projectPath: target.projectPath, originPath: target.originPath });
     signal.throwIfAborted();
+    if (snapshot) await checkGate(target, snapshot);
     instance = await startInstance(prepared, path.join(recordDirectory, 'server.log'), instanceTelemetry);
     await instance.waitUntilReady(signal);
     control = await openControl(prepared.port, signal, (broadcast) => {
@@ -106,6 +117,8 @@ async function runOnce(
       }
     }
   } catch (error) {
+    wasGateRefused = errorText(error).startsWith('Gate refused:');
+    if (wasGateRefused) console.error(errorText(error));
     if (!interrupt.aborted && !deadline.aborted) input.errors.push(errorText(error));
   } finally {
     const hadDeadlinePassedBeforeShutdown = deadline.aborted;
@@ -124,13 +137,18 @@ async function runOnce(
     } catch (error) { input.errors.push(errorText(error)); }
     if (interrupt.aborted) input.stopReason = 'interrupted';
     if (!interrupt.aborted && hadDeadlinePassedBeforeShutdown && !hasTerminalStopReason) input.stopReason = 'timeout';
+    if (input.gate && snapshot) {
+      const originPath = target?.originPath ?? (tempDirectory ? path.join(tempDirectory, 'origin.git') : null);
+      const projectPath = target?.projectPath ?? (tempDirectory ? path.join(tempDirectory, 'repo') : null);
+      input.gate = { ...input.gate, ...await readGateProof(repoRoot, originPath, projectPath, snapshot.snapshotRefCommits) };
+    }
     input.endedAt = new Date().toISOString();
     await writeJson(path.join(recordDirectory, 'queue-reply.json'), { arrivedAt: input.queueRepliedAt, reply: input.queueReply });
   }
   if (interrupt.aborted) input.stopReason = 'interrupted';
   let verdict = decideVerdict(input);
   if (verdict.outcome === 'pass' && !options.keep && tempDirectory) {
-    try { await rm(tempDirectory, { recursive: true, force: true }); }
+    try { await removeInside(runtimeParent, tempDirectory); }
     catch (error) { input.errors.push(errorText(error)); verdict = decideVerdict(input); }
   }
   await writeJson(path.join(recordDirectory, 'verdict.json'), verdict);
@@ -140,7 +158,7 @@ async function runOnce(
   });
   const recordedVerdict = { ...verdict, telemetrySendResult };
   await writeJson(path.join(recordDirectory, 'verdict.json'), recordedVerdict);
-  return { recordedVerdict, telemetryInputsAfterRun };
+  return { recordedVerdict, telemetryInputsAfterRun, hasKeptRun: tempDirectory !== null && (options.keep || verdict.outcome !== 'pass'), wasGateRefused };
 }
 
 export async function runBatch(options: Arguments): Promise<number> {
@@ -150,11 +168,20 @@ export async function runBatch(options: Arguments): Promise<number> {
     ClientMessage.parse({ type: 'factory-queue-intent', requestId: 'factory-harness', ...intent.request });
   }
   if (!intent) throw new Error(`Unknown intent: ${options.intentName}`);
+  if (!options.intentFile && intent.target !== options.target) throw new Error(`Intent ${intent.name} belongs to target ${intent.target}, not ${options.target}`);
   await checkEnvironment();
+  const runFolderName = (run: number) => String(run).padStart(4, '0');
+  const runtimeParent = await realpath(await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-factory-run-')));
+  const socketRefusal = bridgeSocketPathRefusal(path.join(runtimeParent, runFolderName(options.runs), 'tmp'), process.platform);
+  if (socketRefusal) {
+    await rmdir(runtimeParent);
+    throw new Error(socketRefusal);
+  }
   const stateDirectory = harnessStateDirectory();
   const parent = options.artifacts ?? stateDirectory;
-  const batchDirectory = path.resolve(parent, `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`);
-  await mkdir(batchDirectory, { recursive: true });
+  const requestedBatchDirectory = path.resolve(parent, `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`);
+  await mkdir(requestedBatchDirectory, { recursive: true });
+  const batchDirectory = await realpath(requestedBatchDirectory);
   const interrupt = new AbortController();
   let interruptedSignal: NodeJS.Signals | null = null;
   const signals = ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT'] as const;
@@ -162,24 +189,42 @@ export async function runBatch(options: Arguments): Promise<number> {
   for (const signal of signals) process.on(signal, onSignal);
   const verdicts: RecordedVerdict[] = [];
   let environmentFailure: unknown = null;
+  let snapshot: BatchSnapshot | null = null;
+  let hasKeptRun = options.keep;
+  let hasPendingRun = false;
+  let wasGateRefused = false;
   let releaseBatchLock: (() => Promise<void>) | null = null;
   try {
     releaseBatchLock = await acquireBatchLock();
     let telemetryInputs = await resolveHarnessTelemetryInputs(options.noTelemetry, stateDirectory);
+    if (options.target === 'gated-clone') snapshot = await seedBatchSnapshot(batchDirectory, repoRoot, interrupt.signal);
     await buildBatch(interrupt.signal);
     for (let run = 1; run <= options.runs; run++) {
       if (interrupt.signal.aborted) break;
-      const recordDirectory = path.join(batchDirectory, String(run).padStart(4, '0'));
+      const recordDirectory = path.join(batchDirectory, runFolderName(run));
       await mkdir(recordDirectory);
-      const completedRun = await runOnce(intent, options, recordDirectory, interrupt.signal, telemetryInputs, stateDirectory, run);
+      hasPendingRun = true;
+      const completedRun = await runOnce(intent, options, recordDirectory, interrupt.signal, telemetryInputs, stateDirectory, run, snapshot, runtimeParent);
+      hasPendingRun = false;
       telemetryInputs = completedRun.telemetryInputsAfterRun;
-      verdicts.push(JSON.parse(await readFile(path.join(recordDirectory, 'verdict.json'), 'utf8')));
+      verdicts.push(completedRun.recordedVerdict);
+      hasKeptRun ||= completedRun.hasKeptRun;
+      wasGateRefused ||= completedRun.wasGateRefused;
+      if (completedRun.recordedVerdict.gate?.held === false || wasGateRefused) break;
     }
   } catch (error) { environmentFailure = error; }
   finally {
     try {
+      if (options.target === 'gated-clone' && !hasKeptRun && !hasPendingRun) {
+        try { await removeInside(batchDirectory, path.join(batchDirectory, 'staging.git')); }
+        catch (error) { environmentFailure ??= error; }
+      }
+      try { await rmdir(runtimeParent); }
+      catch (error) {
+        if (!(error instanceof Error) || !('code' in error) || (error.code !== 'ENOTEMPTY' && error.code !== 'EEXIST')) environmentFailure ??= error;
+      }
       const rows = summaryRows(verdicts);
-      await writeJson(path.join(batchDirectory, 'summary.json'), { batchDirectory, rows });
+      await writeJson(path.join(batchDirectory, 'summary.json'), { batchDirectory, target: options.target, snapshot, rows, skippedRuns: Array.from({ length: options.runs - verdicts.length }, (_, index) => index + verdicts.length + 1) });
       console.table(rows.map((row) => ({ ...row, attemptsPerOrder: JSON.stringify(row.attemptsPerOrder) })));
       console.log(`Records: ${batchDirectory}`);
     } finally {
@@ -189,5 +234,6 @@ export async function runBatch(options: Arguments): Promise<number> {
   }
   if (interruptedSignal) return 128 + os.constants.signals[interruptedSignal];
   if (environmentFailure) throw environmentFailure;
+  if (wasGateRefused) return 2;
   return verdicts.every((verdict) => verdict.outcome === 'pass') ? 0 : 1;
 }

@@ -18,7 +18,9 @@ Manual smoke tests and harnesses run directly with `node`, separate from the aut
 | `factory/telemetry-core.ts` | Strict anonymous event allowlist, identity parsing and the one telemetry decision; pinned by tests/factory-run-verdict.test.ts |
 | `factory/telemetry.ts` | Stable harness identity, operator opt-out read, remote switch carry-over, product-schema seeding and bounded summary send |
 | `factory/batch.ts` | Sequential runs and interruption ownership |
-| `factory/seed.ts` | Single seed-target seam over the existing repository fixture |
+| `factory/seed.ts` | Single seed-target seam and batch snapshot ownership |
+| `factory/targets.ts` | Target work limits and default intents |
+| `factory/gate.ts`, `factory/cleanup.ts` | Clone gate evidence and bounded removal |
 | `factory/instance.ts` | Built child isolation and bounded process-group shutdown |
 | `factory/supervisor.ts` | Watches the harness pid and ends the server process group once the harness is gone |
 | `factory/control.ts` | Control records and read-only terminal capture |
