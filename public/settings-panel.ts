@@ -66,7 +66,7 @@ import {
   setThemeId,
 } from './ui-prefs.ts';
 import { usageStatusLines } from './usage-panel.ts';
-import { applySoundEnabled } from './mute-button.ts';
+import { applySoundEnabled, onSoundEnabledChange } from './mute-button.ts';
 import {
   IDLE_UPDATE_REQUEST,
   installedUpdateText,
@@ -263,6 +263,13 @@ function renderAbout(container: HTMLElement) {
   links.append(repo, changelog);
   about.append(versionEl, links);
   container.appendChild(about);
+}
+
+function syncSoundEnabledValue(enabled: boolean) {
+  if (!editedValues || editedValues['pref:soundEnabled'] === enabled) return;
+  editedValues['pref:soundEnabled'] = enabled;
+  if (originalValues) originalValues['pref:soundEnabled'] = enabled;
+  renderContent();
 }
 
 function syncFlyingAnimalsValues() {
@@ -1123,6 +1130,7 @@ export function mountSettingsView(
 ) {
   restartServer = onRestart;
   confirmUpdateAndRestart = onConfirmUpdateAndRestart;
+  onSoundEnabledChange(syncSoundEnabledValue);
   rootEl = container;
   rootEl.textContent = '';
   shellEl = el('div', 'settings-view-shell');
