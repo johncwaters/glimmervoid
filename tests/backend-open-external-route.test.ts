@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -167,41 +166,20 @@ test('a request on the remote listener port is refused even though it arrives on
   }
 });
 
-function offLoopbackEndpoint(): string {
-  if (process.platform === 'win32') return `\\\\.\\pipe\\glimmervoid-open-external-${process.pid}`;
-  return path.join(os.tmpdir(), `glimmervoid-open-external-${process.pid}.sock`);
-}
-
-function postOverEndpoint(endpoint: string): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const request = http.request(
-      {
-        socketPath: endpoint,
-        path: '/open-external',
-        method: 'POST',
-        headers: { host: 'localhost', origin: 'http://localhost', 'x-glimmervoid-page-token': PAGE_TOKEN },
-      },
-      (res) => {
-        res.resume();
-        res.on('end', () => resolve(res.statusCode ?? 0));
-      },
-    );
-    request.on('error', reject);
-    request.end(JSON.stringify({ url: 'https://example.com/' }));
-  });
-}
-
 test('a request arriving off loopback is refused 403', async () => {
   const openedUrls: string[] = [];
-  const endpoint = offLoopbackEndpoint();
-  fs.rmSync(endpoint, { force: true });
-  const server = http.createServer(createBackendHttpApp(appDependencies({
-    listenerPortsFor: () => [80],
+  const app = createBackendHttpApp(appDependencies({
     openUrlOnHost: async (url) => { openedUrls.push(url); return 'opened'; },
-  })));
-  await new Promise<void>((resolve) => { server.listen(endpoint, () => resolve()); });
+  }));
+  const server = http.createServer((request, response) => {
+    Object.defineProperty(request.socket, 'remoteAddress', { value: '203.0.113.10' });
+    app(request, response);
+  });
+  await listenOnLoopback(server);
   try {
-    assert.equal(await postOverEndpoint(endpoint), 403);
+    const response = await postOpenExternal(`http://127.0.0.1:${boundPort(server)}`, { url: 'https://example.com/' });
+    assert.equal(response.status, 403);
+    await response.text();
     assert.deepEqual(openedUrls, []);
   } finally {
     await stopApp(server);

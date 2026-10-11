@@ -118,25 +118,6 @@ test('a rejected hook call logs nothing carrying its token, session id or body',
   assert.equal(everythingLogged.includes('never-logged.jsonl'), false, 'the request body is never logged');
 });
 
-function offLoopbackEndpoint(): string {
-  if (process.platform === 'win32') return `\\\\.\\pipe\\glimmervoid-hookroute-${process.pid}`;
-  return path.join(os.tmpdir(), `glimmervoid-hookroute-${process.pid}.sock`);
-}
-
-function postOverEndpoint(endpoint: string, requestPath: string): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const request = http.request(
-      { socketPath: endpoint, path: requestPath, method: 'POST', headers: { host: 'localhost' } },
-      (res) => {
-        res.resume();
-        res.on('end', () => resolve(res.statusCode ?? 0));
-      },
-    );
-    request.on('error', reject);
-    request.end('{}');
-  });
-}
-
 test('a hook call arriving off loopback is refused under its own outcome name', async () => {
   const recorded: OutcomeName[] = [];
   const app = createBackendHttpApp({
@@ -153,13 +134,16 @@ test('a hook call arriving off loopback is refused under its own outcome name', 
     recordOutcome: (name) => { recorded.push(name); },
     logger: { warn: () => {} },
   });
-  const endpoint = offLoopbackEndpoint();
-  fs.rmSync(endpoint, { force: true });
-  const server = http.createServer(app);
-  await new Promise<void>((resolve) => { server.listen(endpoint, () => resolve()); });
+  const server = http.createServer((request, response) => {
+    Object.defineProperty(request.socket, 'remoteAddress', { value: '203.0.113.10' });
+    app(request, response);
+  });
+  await listenOnLoopback(server);
 
   try {
-    assert.equal(await postOverEndpoint(endpoint, `/hook/${SESSION_ID}/Stop`), 403);
+    const response = await fetch(`http://127.0.0.1:${boundPort(server)}/hook/${SESSION_ID}/Stop`, { method: 'POST', body: '{}' });
+    assert.equal(response.status, 403);
+    await response.text();
   } finally {
     server.closeAllConnections();
     await closeServer(server);

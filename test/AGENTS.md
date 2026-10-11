@@ -10,6 +10,7 @@ Manual smoke tests and harnesses run directly with `node`, separate from the aut
 
 | File | Description |
 |------|-------------|
+| `factory/check-sandbox.ts` | Runs a command in the factory close-out sandbox against HEAD or a working-tree overlay |
 | `smoke-dormant-boot.ts` | Boots the backend in-process, verifies dormant-by-default boot and the start-session control flow |
 | `probe-codex-session.ts` | Live verification of the Codex adapter against a real `codex` binary: boots the backend on a throwaway config and drives one supervised session through spawn, working, awaiting-input, approval, complete and resume. Costs one real codex turn; leaves a recording the replay fixtures are cut from |
 | `browser/harness.ts` | Headless-Chromium dashboard matrix: boots Vite plus the backend on a throwaway config, substitutes a fake agent via a PATH shim, drives every viewport through scripted steps, and writes screenshots, diffs and a report an agent can read. Linux and macOS only, since the shim is a POSIX `sh` script: it exits 2 on Windows |

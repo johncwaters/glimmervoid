@@ -304,6 +304,11 @@ async function commitCheckScript(fixture: Awaited<ReturnType<typeof createFixtur
   fixture.config.factory = { enabled: true, checks: [`${process.execPath} src/retry.ts`] };
 }
 
+async function registeredWorktreeLines(fixture: Awaited<ReturnType<typeof createFixture>>) {
+  const worktreeListing = await fixture.git(['worktree', 'list', '--porcelain']);
+  return worktreeListing.split(/\r?\n/).filter((listingLine) => listingLine.startsWith('worktree '));
+}
+
 test('a check that writes ignored output still lets the next attempt reach the checks and review, and never touches the worker tree', async (context) => {
   const fixture = await createFixture(context);
   await ignoreInCommonGitDirectory(fixture, ['dist/', '*.tsbuildinfo']);
@@ -313,6 +318,7 @@ test('a check that writes ignored output still lets the next attempt reach the c
     "fs.writeFileSync('dist/out.js', 'built');",
     "fs.writeFileSync('tsconfig.tsbuildinfo', '{}');",
   ]);
+  const worktreeLinesBeforeCloseOut = await registeredWorktreeLines(fixture);
   fixture.setVerdict({ pass: false, findings: ['Not yet'] });
   await fixture.closeOut.turnEnded(fixture.worker);
   assert.equal(fixture.reviewRequests.length, 1);
@@ -323,7 +329,8 @@ test('a check that writes ignored output still lets the next attempt reach the c
   assert.equal(fixture.reviewRequests.length, 2);
   assert.equal(fixture.feedback.length, 1);
   assert.ok(fixture.mergedSha());
-  assert.equal((await fixture.git(['worktree', 'list', '--porcelain'])).includes('glimmervoid-factory-checks-'), false);
+  const worktreeLinesAfterCloseOut = await registeredWorktreeLines(fixture);
+  assert.deepEqual(worktreeLinesAfterCloseOut.filter((worktreeLine) => !worktreeLinesBeforeCloseOut.includes(worktreeLine)), []);
 });
 
 test('a planted gitignored stub in the worker tree never reaches the checks', async (context) => {

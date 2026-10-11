@@ -123,6 +123,7 @@ test('the vite-built extension resolves its sibling modules from its own directo
   t.after(() => fs.rmSync(outDir, { recursive: true, force: true }));
   await build({
     configFile: path.join(import.meta.dirname, '..', 'vite.extension.config.ts'),
+    configLoader: 'native',
     logLevel: 'silent',
     build: { outDir },
   });

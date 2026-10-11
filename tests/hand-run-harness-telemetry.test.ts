@@ -36,7 +36,7 @@ test('importing the telemetry kill switch turns consent off in a process that ha
     "const { decideTelemetryConsent } = await import('./server/core/telemetry-core.ts');",
     'process.stdout.write(JSON.stringify(decideTelemetryConsent(process.env, {})));',
   ].join(' ');
-  const consentEnvironment: NodeJS.ProcessEnv = { PATH: process.env.PATH, GLIMMERVOID_TELEMETRY: '1' };
+  const consentEnvironment: NodeJS.ProcessEnv = { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR, GLIMMERVOID_TELEMETRY: '1' };
   const { stdout } = await execFileAsync(process.execPath, ['--input-type=module', '--eval', consentProbe], {
     cwd: repoRoot, encoding: 'utf8', env: consentEnvironment, timeout: 20_000,
   });
@@ -70,7 +70,7 @@ test('the site-capture config document keeps telemetry off once the environment 
     '}',
   ].join(' ');
   const { stdout } = await execFileAsync(process.execPath, ['--input-type=module', '--eval', consentProbe], {
-    cwd: repoRoot, encoding: 'utf8', env: { PATH: process.env.PATH }, timeout: 20_000,
+    cwd: repoRoot, encoding: 'utf8', env: { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR }, timeout: 20_000,
   });
   assert.deepEqual(JSON.parse(stdout), { isEnabled: false, source: 'config' });
 });

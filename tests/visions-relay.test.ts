@@ -541,7 +541,7 @@ test('the vite-built relay entry still starts when an editor spawns it directly'
   const repoRoot = path.join(import.meta.dirname, '..');
   const outDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-relay-entry-')));
   t.after(() => fs.rmSync(outDir, { recursive: true, force: true }));
-  await build({ configFile: path.join(repoRoot, 'vite.server.config.ts'), logLevel: 'silent', build: { outDir } });
+  await build({ configFile: path.join(repoRoot, 'vite.server.config.ts'), configLoader: 'native', logLevel: 'silent', build: { outDir } });
   fs.writeFileSync(path.join(outDir, 'package.json'), '{"type":"module"}\n', 'utf8');
   fs.symlinkSync(path.join(repoRoot, 'node_modules'), path.join(outDir, 'node_modules'), 'junction');
 

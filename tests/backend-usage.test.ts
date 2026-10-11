@@ -554,6 +554,7 @@ test('io-failed passes retry with capped backoff and warn once per standing fail
     controlClientCount: () => 1,
     createScanner: () => scanner,
     loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
+    rtkPathFn: () => null,
     setTimeoutFn: (fn, ms) => {
       delays.push(ms);
       const handle = setTimeout(fn, 0);
