@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 
 import { AGENT_API_VERBS, AgentDispatchRequest, AgentAttentionRequest, AgentSpawnRequest } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../../shared/contracts/session.ts';
+import { isLoopbackHostname } from '../../shared/loopback-hosts.ts';
 
 const MAX_LIVE_CHILDREN = 3;
 const MAX_LIFETIME_SPAWNS = 10;
@@ -27,6 +28,12 @@ interface SpawnBudget {
 }
 
 type AgentVerdict = { ok: true } | { ok: false; status: number; reason: string };
+
+interface SandboxProxy {
+  hostname: string;
+  port: number;
+  authorization: string | null;
+}
 
 type AgentVerbRequest =
   | { ok: true; verb: 'board' }
@@ -116,8 +123,32 @@ function deriveChildSessionName(parentName: string, existingNames: readonly stri
   return candidate;
 }
 
+function decodeProxyCredential(percentEncoded: string): string | null {
+  try {
+    return decodeURIComponent(percentEncoded);
+  } catch {
+    return null;
+  }
+}
+
+function decideSandboxProxy(env: Readonly<Record<string, string | undefined>>): SandboxProxy | null {
+  if (env.SANDBOX_RUNTIME !== '1') return null;
+  const rawProxyUrl = env.HTTP_PROXY || env.http_proxy || '';
+  if (!URL.canParse(rawProxyUrl)) return null;
+  const proxyUrl = new URL(rawProxyUrl);
+  if (proxyUrl.protocol !== 'http:' || !proxyUrl.port || !isLoopbackHostname(proxyUrl.hostname)) return null;
+  const username = decodeProxyCredential(proxyUrl.username);
+  const password = decodeProxyCredential(proxyUrl.password);
+  if (username === null || password === null) return null;
+  return {
+    hostname: proxyUrl.hostname.replace(/^\[|\]$/g, ''),
+    port: Number(proxyUrl.port),
+    authorization: username ? `Basic ${Buffer.from(`${username}:${password}`, 'utf8').toString('base64')}` : null,
+  };
+}
+
 export {
-  decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, isAgentApiVerb, parseAgentVerb, tokensMatch,
+  decideAgentRequest, decideSandboxProxy, decideSpawnAllowance, deriveChildSessionName, isAgentApiVerb, parseAgentVerb, tokensMatch,
   MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN, REFUSAL_REASON, REFUSAL_STATUS,
 };
-export type { AgentVerbRequest, SpawnBudget };
+export type { AgentVerbRequest, SandboxProxy, SpawnBudget };

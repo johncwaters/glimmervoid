@@ -45,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Factory dispatch on Linux**: a factory orchestrator on Linux could not start its workers, because its sandbox has a network of its own and `glimmervoid dispatch` got "fetch failed" trying to reach Glimmervoid directly. The session commands (`dispatch`, `spawn`, `attention`, `board`) now go through the sandbox's own local proxy when the direct connection is refused inside the sandbox. Outside the sandbox, and with any proxy that is not the sandbox's own, nothing changes.
 - **Usage catch-up on a fresh home**: transcript scans keep their short continuation timer when another scan is running, so catch-up finishes without starting overlapping scans.
 - **Factory worker ledger discard**: committed worker ledger files are discarded even when the folder's capitalization differs from `.coherence`, so they do not block close-out or reach the integration branch.
 - **Sleeping until chip**: the "sleeping until" chip on a session card now clears on its own once the scheduled wakeup has passed, follows the latest wakeup instead of an earlier one it replaced, and clears when the session stops its loop.

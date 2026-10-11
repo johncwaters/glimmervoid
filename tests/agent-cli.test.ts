@@ -4,7 +4,7 @@ import http from 'node:http';
 
 import { runAgentApiCli } from '../server/agent-api-cli.ts';
 import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
-import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
+import { boundPort, closeServer, listenOnLoopback, reserveFreePort } from './helpers/http-server.ts';
 
 const SESSION_ID = 'cli-session';
 const TOKEN = 'cli-agent-token';
@@ -21,14 +21,22 @@ interface ReceivedRequest {
   body: string;
 }
 
-async function runCli(args: string[], agentUrl: string | null): Promise<CliRun> {
+const SANDBOX_ENVIRONMENT_NAMES = ['SANDBOX_RUNTIME', 'HTTP_PROXY', 'http_proxy'];
+
+function setEnvironmentValue(name: string, value: string | null | undefined): void {
+  if (value == null) delete process.env[name];
+  if (value != null) process.env[name] = value;
+}
+
+async function runCli(args: string[], agentUrl: string | null, sandboxEnvironment: Record<string, string> = {}): Promise<CliRun> {
   const stdout: string[] = [];
   const stderr: string[] = [];
-  const previousUrl = process.env[AGENT_URL_ENV];
+  const controlledNames = [AGENT_URL_ENV, ...SANDBOX_ENVIRONMENT_NAMES];
+  const previousValues = controlledNames.map((name) => [name, process.env[name]] as const);
   const previousLog = console.log;
   const previousError = console.error;
-  if (agentUrl === null) delete process.env[AGENT_URL_ENV];
-  if (agentUrl !== null) process.env[AGENT_URL_ENV] = agentUrl;
+  setEnvironmentValue(AGENT_URL_ENV, agentUrl);
+  for (const name of SANDBOX_ENVIRONMENT_NAMES) setEnvironmentValue(name, sandboxEnvironment[name]);
   console.log = (line: unknown) => { stdout.push(String(line)); };
   console.error = (line: unknown) => { stderr.push(String(line)); };
   try {
@@ -37,8 +45,7 @@ async function runCli(args: string[], agentUrl: string | null): Promise<CliRun> 
   } finally {
     console.log = previousLog;
     console.error = previousError;
-    if (previousUrl == null) delete process.env[AGENT_URL_ENV];
-    if (previousUrl != null) process.env[AGENT_URL_ENV] = previousUrl;
+    for (const [name, previousValue] of previousValues) setEnvironmentValue(name, previousValue);
   }
 }
 
@@ -194,4 +201,44 @@ test('dispatch ready posts the validated intent to the authenticated dispatch ve
     }
     assert.equal(received.length, 1);
   });
+});
+
+test('inside the session sandbox a refused loopback post goes through the sandbox proxy, and through no other proxy', async () => {
+  const agentUrl = `http://127.0.0.1:${await reserveFreePort()}/agent/${SESSION_ID}?t=${TOKEN}`;
+  const proxied: { url: string; authorization: string; proxyAuthorization: string; body: string }[] = [];
+  const proxy = http.createServer((request, response) => {
+    let body = '';
+    request.on('data', (chunk) => { body += String(chunk); });
+    request.on('end', () => {
+      proxied.push({ url: request.url || '', authorization: String(request.headers.authorization || ''), proxyAuthorization: String(request.headers['proxy-authorization'] || ''), body });
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end('{"ok":true}');
+    });
+  });
+  await listenOnLoopback(proxy);
+  const sandboxProxyUrl = `http://sandbox%3Dname:secret@127.0.0.1:${boundPort(proxy)}`;
+  try {
+    const sandboxed = await runCli(['dispatch', 'wrk-0123456789abcdef'], agentUrl, { SANDBOX_RUNTIME: '1', HTTP_PROXY: sandboxProxyUrl });
+    assert.equal(sandboxed.code, 0, sandboxed.stderr.join('\n'));
+    assert.deepEqual(proxied, [{
+      url: `${new URL(agentUrl).origin}/agent/${SESSION_ID}/dispatch`,
+      authorization: `Bearer ${TOKEN}`,
+      proxyAuthorization: `Basic ${Buffer.from('sandbox=name:secret').toString('base64')}`,
+      body: '{"workId":"wrk-0123456789abcdef"}',
+    }]);
+
+    const proxiesThatMustStayUnused: Record<string, string>[] = [
+      { HTTP_PROXY: sandboxProxyUrl },
+      { SANDBOX_RUNTIME: '1', HTTP_PROXY: `http://proxy.example.com:${boundPort(proxy)}` },
+      { SANDBOX_RUNTIME: '1', HTTP_PROXY: `https://127.0.0.1:${boundPort(proxy)}` },
+      { SANDBOX_RUNTIME: '1', HTTP_PROXY: `http://u%:p@127.0.0.1:${boundPort(proxy)}` },
+    ];
+    for (const environment of proxiesThatMustStayUnused) {
+      await assert.rejects(runCli(['board'], agentUrl, environment), /fetch failed/, JSON.stringify(environment));
+    }
+    assert.equal(proxied.length, 1, 'the token travelled only through the loopback sandbox proxy');
+  } finally {
+    proxy.closeAllConnections();
+    await closeServer(proxy);
+  }
 });

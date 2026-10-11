@@ -1,7 +1,11 @@
+import http from 'node:http';
+
 import { resolveHookTarget } from '../session/core/hook-relay-core.ts';
 import { AgentDispatchRequest, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
-import { isAgentApiVerb } from './core/agent-api-core.ts';
+import { errorCode } from '../shared/text.ts';
+import { decideSandboxProxy, isAgentApiVerb } from './core/agent-api-core.ts';
+import type { SandboxProxy } from './core/agent-api-core.ts';
 
 const AGENT_PATH_PREFIX = '/agent/';
 
@@ -43,6 +47,56 @@ function verbEndpoint(rawUrl: string, verb: AgentApiVerb): EndpointResolution {
   return { ok: true, endpoint, token };
 }
 
+interface AgentReply {
+  hasSuccessStatus: boolean;
+  text: string;
+}
+
+async function postDirectly(endpoint: URL, headers: Record<string, string>, bodyText: string): Promise<AgentReply> {
+  const response = await fetch(endpoint, { method: 'POST', headers, body: bodyText });
+  return { hasSuccessStatus: response.ok, text: await response.text() };
+}
+
+function postThroughSandboxProxy(sandboxProxy: SandboxProxy, endpoint: URL, headers: Record<string, string>, bodyText: string): Promise<AgentReply> {
+  const proxyHeaders = sandboxProxy.authorization ? { 'proxy-authorization': sandboxProxy.authorization } : {};
+  return new Promise((resolve, reject) => {
+    const request = http.request({
+      host: sandboxProxy.hostname,
+      port: sandboxProxy.port,
+      method: 'POST',
+      path: endpoint.href,
+      headers: { ...headers, ...proxyHeaders, host: endpoint.host, 'content-length': String(Buffer.byteLength(bodyText)) },
+    }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk: Buffer) => { chunks.push(chunk); });
+      response.on('error', reject);
+      response.on('end', () => {
+        const statusCode = response.statusCode ?? 0;
+        resolve({ hasSuccessStatus: statusCode >= 200 && statusCode < 300, text: Buffer.concat(chunks).toString('utf8') });
+      });
+    });
+    request.on('error', reject);
+    request.end(bodyText);
+  });
+}
+
+function wasConnectionRefused(error: unknown): boolean {
+  return errorCode((error as { cause?: unknown } | null)?.cause) === 'ECONNREFUSED';
+}
+
+async function postToAgentIngress(endpoint: URL, token: string, body: Record<string, unknown>): Promise<AgentReply> {
+  const headers = { 'content-type': 'application/json', authorization: `Bearer ${token}` };
+  const bodyText = JSON.stringify(body);
+  try {
+    return await postDirectly(endpoint, headers, bodyText);
+  } catch (error) {
+    if (!wasConnectionRefused(error)) throw error;
+    const sandboxProxy = decideSandboxProxy(process.env);
+    if (!sandboxProxy) throw error;
+    return postThroughSandboxProxy(sandboxProxy, endpoint, headers, bodyText);
+  }
+}
+
 async function runAgentApiCli(args: string[]): Promise<number> {
   const verb = args[0];
   if (!verb || !isAgentApiVerb(verb)) {
@@ -68,14 +122,9 @@ async function runAgentApiCli(args: string[]): Promise<number> {
     console.error(`glimmervoid: ${AGENT_URL_ENV} must be a loopback http url under ${AGENT_PATH_PREFIX}, so nothing was sent`);
     return 1;
   }
-  const response = await fetch(target.endpoint, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${target.token}` },
-    body: JSON.stringify(body),
-  });
-  const text = await response.text();
-  console.log(text);
-  return response.ok && bodySaysOk(text) ? 0 : 1;
+  const reply = await postToAgentIngress(target.endpoint, target.token, body);
+  console.log(reply.text);
+  return reply.hasSuccessStatus && bodySaysOk(reply.text) ? 0 : 1;
 }
 
 export { runAgentApiCli };
