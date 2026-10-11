@@ -9,8 +9,12 @@ import { prepareIsolatedEnvironment } from '../support/backend-harness.ts';
 import type { FactoryOverrides } from './arguments.ts';
 import { pidsStillNamingSameProcess } from './verdict.ts';
 import type { ProcessIdentity } from './verdict.ts';
+import { seedTelemetryState } from './telemetry.ts';
+import { withoutTelemetryConfig } from './telemetry-core.ts';
+import type { HarnessTelemetryDecision } from './telemetry-core.ts';
 
 export const repoRoot = path.resolve(import.meta.dirname, '../..');
+export const builtServerEntryPath = path.join(repoRoot, 'dist/server/index.js');
 
 async function canonicalPath(directory: string): Promise<string> {
   try { return await realpath(directory); }
@@ -20,19 +24,20 @@ async function canonicalPath(directory: string): Promise<string> {
   }
 }
 
-export async function prepareInstance(tempDirectory: string, project: { projectPath: string; projectId: string } | null, factory: FactoryOverrides) {
+export async function prepareInstance(tempDirectory: string, project: { projectPath: string; projectId: string } | null, factory: FactoryOverrides, telemetry: HarnessTelemetryDecision) {
   const isolated = await prepareIsolatedEnvironment({ tempDirectory, repoRoots: project ? [project.projectPath] : [], recordSessions: true, mutateEnvironment: false });
   const realHomes = [glimmervoidHomeDir(os.homedir(), {}), glimmervoidHomeDir(os.homedir(), process.env)];
   if (isolated.port === 3000) throw new Error('Factory harness refuses port 3000');
   for (const realHome of realHomes) {
     if (await canonicalPath(isolated.isolatedHome) === await canonicalPath(realHome)) throw new Error('Factory harness refuses the real Glimmervoid home');
   }
-  const { telemetry: _sharedTelemetrySwitch, ...document } = JSON.parse(await readFile(isolated.configPath, 'utf8'));
+  const document = withoutTelemetryConfig(JSON.parse(await readFile(isolated.configPath, 'utf8')));
   await writeFile(isolated.configPath, JSON.stringify({
     ...document, projects: project ? [{ id: project.projectId, name: 'Factory seed', path: project.projectPath }] : [],
     factory: { enabled: project !== null, ...factory }, usage: { enabled: true },
     capture: { enabled: true, retainDays: 0, retainFiles: 0, retainBytes: 0 },
   }, null, 2));
+  if (telemetry.runHomeSeed) await seedTelemetryState(isolated.isolatedHome, telemetry.runHomeSeed);
   return isolated;
 }
 
@@ -61,11 +66,11 @@ function killProcess(pid: number, signal: NodeJS.Signals): void {
   }
 }
 
-export async function startInstance(prepared: Awaited<ReturnType<typeof prepareInstance>>, serverLogPath: string) {
+export async function startInstance(prepared: Awaited<ReturnType<typeof prepareInstance>>, serverLogPath: string, telemetry: HarnessTelemetryDecision) {
   const log = await open(serverLogPath, 'a');
-  const { GLIMMERVOID_INSECURE_BIND: _inheritedInsecureBind, ...inheritedEnvironment } = process.env;
-  const childEnvironment: NodeJS.ProcessEnv = { ...inheritedEnvironment, ...prepared.environment, GLIMMERVOID_HOST: '127.0.0.1', GLIMMERVOID_TELEMETRY: '0' };
-  const child = spawn(process.execPath, [path.join(repoRoot, 'dist/server/index.js')], {
+  const { GLIMMERVOID_INSECURE_BIND: _inheritedInsecureBind, ...inheritedEnvironment } = telemetry.childEnvironment;
+  const childEnvironment: NodeJS.ProcessEnv = { ...inheritedEnvironment, ...prepared.environment, GLIMMERVOID_HOST: '127.0.0.1' };
+  const child = spawn(process.execPath, [builtServerEntryPath], {
     cwd: repoRoot, env: childEnvironment, detached: true, stdio: ['ignore', log.fd, log.fd],
   });
   let spawnFailure: Error | null = null;

@@ -2,7 +2,19 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { createServer } from 'node:http';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import { decideTelemetryConsent, resolveProjectToken } from '../server/core/telemetry-core.ts';
+import { TELEMETRY_BASE_PROPERTY_KEYS, TelemetryState } from '../shared/contracts/telemetry.ts';
 import { FactoryState } from '../shared/contracts/factory.ts';
+import { builtServerEntryPath, prepareInstance } from '../test/factory/instance.ts';
+import {
+  FactoryHarnessBaseProperties, FactoryHarnessBatch, FactoryHarnessRunProperties,
+  buildRunTelemetryBatch, buildRunTelemetryProperties, decideHarnessTelemetry, parseHarnessInstallState,
+} from '../test/factory/telemetry-core.ts';
+import type { HarnessTelemetryInputs } from '../test/factory/telemetry-core.ts';
+import { adoptRunHomeRemoteSwitch, harnessStateDirectory, loadHarnessInstallState, resolveHarnessTelemetryInputs, sendRunTelemetry } from '../test/factory/telemetry.ts';
 import { decideVerdict, matchedProductText, pidsStillNamingSameProcess, processesUsingBuildOutput, unexpectedAcceptanceError } from '../test/factory/verdict.ts';
 import type { VerdictInput } from '../test/factory/verdict.ts';
 
@@ -115,4 +127,143 @@ test('malformed and schema-invalid decision lines are counted and reported witho
   assert.deepEqual(verdict.invalidDecisionLines.map((line) => line.line), [1, 2]);
   assert.ok(verdict.invalidDecisionLines.every((line) => line.error.length > 0));
   assert.equal(verdict.failureClass, 'exception');
+});
+
+const telemetryContext = { isCustomIntent: true, watchWindowMinutes: 1, runIndex: 2, batchSize: 3 };
+const installId = '8f32b196-3761-4540-a6f9-4f67da58cbae';
+
+test('the summary allowlist rejects extra keys and removes free text from a custom verdict', () => {
+  const privateText = ['private-intent-file.json', 'Refused private objective', '/private/repository/path'];
+  const verdict = decideVerdict(input({
+    intentName: privateText[0], expectedEnd: 'refused', expectedRefusal: privateText[1], stopReason: 'refused',
+    queueReply: { projectId: privateText[2], ok: false, error: privateText[1] }, errors: [privateText[2]],
+  }));
+  const batch = buildRunTelemetryBatch(verdict, telemetryContext, {
+    installId, projectToken: 'test-token', appVersion: '0.30.0', platform: 'linux', nodeVersion: '24.0.0',
+    installFlavor: 'clone', isBundled: true, timestamp: endedAt,
+  });
+  assert.deepEqual(Object.keys(FactoryHarnessBaseProperties.shape).sort(), [...TELEMETRY_BASE_PROPERTY_KEYS].sort());
+  const properties = buildRunTelemetryProperties(verdict, telemetryContext);
+  assert.deepEqual(properties, {
+    intent: 'custom', expected_end: 'refused', outcome: 'fail', failure_class: 'exception', duration_ms: 60_000,
+    session_count: 0, order_count: 0, max_attempt: null, spend_usd: null, watch_window_minutes: 1, run_index: 2, batch_size: 3,
+  });
+  assert.equal(FactoryHarnessRunProperties.safeParse({ ...properties, objective: privateText[1] }).success, false);
+  assert.equal(FactoryHarnessBatch.safeParse({ ...batch, batch: [{ ...batch.batch[0], properties: { ...batch.batch[0].properties, path: privateText[2] } }] }).success, false);
+  for (const text of privateText) assert.equal(JSON.stringify(batch).includes(text), false);
+  const completed = buildRunTelemetryProperties(decideVerdict(completingInput()), { ...telemetryContext, isCustomIntent: false });
+  assert.equal(completed.intent, 'one-file-change');
+  assert.equal(completed.order_count, 2);
+  assert.equal(completed.max_attempt, 1);
+  assert.equal(FactoryHarnessRunProperties.safeParse({ ...properties, intent: privateText[0] }).success, false);
+});
+
+test('the stable harness identity is private, atomic, reusable, loaded only with consent and carries the remote switch between run homes', async () => {
+  const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'factory-identity-test-'));
+  try {
+    const stateDirectory = harnessStateDirectory({ XDG_STATE_HOME: tempDirectory }, '/unused-home');
+    assert.equal(harnessStateDirectory({}, tempDirectory), path.join(tempDirectory, '.local/state/glimmervoid-factory-runs'));
+    const identities = await Promise.all(Array.from({ length: 4 }, async () => (await loadHarnessInstallState(stateDirectory)).installId));
+    const firstInstallId = identities[0];
+    assert.ok(firstInstallId);
+    assert.deepEqual(identities, Array(4).fill(firstInstallId));
+    assert.deepEqual(parseHarnessInstallState(JSON.parse(await readFile(path.join(stateDirectory, 'install-id.json'), 'utf8'))), { installId: firstInstallId });
+    assert.equal((await stat(path.join(stateDirectory, 'install-id.json'))).mode & 0o777, 0o600);
+    assert.deepEqual(await readdir(stateDirectory), ['install-id.json']);
+    assert.equal(parseHarnessInstallState({ installId: 'invalid' }), null);
+    await writeFile(path.join(stateDirectory, 'install-id.json'), '{');
+    const replacementInstallId = (await loadHarnessInstallState(stateDirectory)).installId;
+    assert.notEqual(replacementInstallId, firstInstallId);
+    const consentedInputs = await resolveHarnessTelemetryInputs(false, stateDirectory, {}, tempDirectory);
+    assert.deepEqual(consentedInputs, { environment: {}, noTelemetry: false, operatorConfig: {}, installId: replacementInstallId, isRemoteDisabled: false });
+    assert.deepEqual(decideHarnessTelemetry(consentedInputs).childEnvironment, {});
+    const untouchedStateDirectory = path.join(tempDirectory, 'untouched-state');
+    const offForBatch = { runHomeSeed: null, childEnvironment: { GLIMMERVOID_TELEMETRY: '0' } };
+    assert.deepEqual(decideHarnessTelemetry(await resolveHarnessTelemetryInputs(true, untouchedStateDirectory, {}, tempDirectory)), { summary: 'skipped-no-consent', ...offForBatch });
+    assert.equal(fs.existsSync(untouchedStateDirectory), false);
+    const danglingStateDirectory = path.join(tempDirectory, 'dangling-state');
+    await mkdir(danglingStateDirectory);
+    await symlink(path.join(tempDirectory, 'absent-identity-target'), path.join(danglingStateDirectory, 'install-id.json'));
+    await assert.rejects(loadHarnessInstallState(danglingStateDirectory), /Cannot read the harness install identity/);
+    assert.deepEqual(await readdir(danglingStateDirectory), ['install-id.json']);
+    const unloadableStateDirectory = path.join(stateDirectory, 'install-id.json');
+    assert.deepEqual(decideHarnessTelemetry(await resolveHarnessTelemetryInputs(false, unloadableStateDirectory, {}, tempDirectory)), { summary: 'failed', ...offForBatch });
+    const prepared = await prepareInstance(tempDirectory, null, {}, decideHarnessTelemetry({ ...consentedInputs, isRemoteDisabled: true }));
+    const runHomeStatePath = path.join(prepared.isolatedHome, 'telemetry.json');
+    const seeded = TelemetryState.parse(JSON.parse(await readFile(runHomeStatePath, 'utf8')));
+    assert.equal(seeded.installId, replacementInstallId);
+    assert.equal(seeded.remoteDisabled, true);
+    assert.ok(seeded.noticeShownAt && Number.isFinite(Date.parse(seeded.noticeShownAt)));
+    const remotelyDisabledInputs = await adoptRunHomeRemoteSwitch(consentedInputs, prepared.isolatedHome, stateDirectory);
+    assert.equal(decideHarnessTelemetry(remotelyDisabledInputs).summary, 'skipped-remote-disabled');
+    assert.deepEqual(await resolveHarnessTelemetryInputs(false, stateDirectory, {}, tempDirectory), remotelyDisabledInputs);
+    assert.equal(await adoptRunHomeRemoteSwitch(remotelyDisabledInputs, path.join(tempDirectory, 'missing-run-home'), stateDirectory), remotelyDisabledInputs);
+    await writeFile(runHomeStatePath, JSON.stringify({ installId: replacementInstallId, remoteDisabled: false }));
+    assert.deepEqual(await adoptRunHomeRemoteSwitch(remotelyDisabledInputs, prepared.isolatedHome, stateDirectory), consentedInputs);
+    assert.deepEqual(JSON.parse(await readFile(path.join(stateDirectory, 'install-id.json'), 'utf8')), { installId: replacementInstallId });
+    const config = JSON.parse(await readFile(prepared.configPath, 'utf8'));
+    assert.equal('telemetry' in config, false);
+    assert.equal(decideTelemetryConsent({}, config).isEnabled, true);
+    assert.equal(decideTelemetryConsent({ DO_NOT_TRACK: '1' }, config).isEnabled, false);
+  } finally { await rm(tempDirectory, { recursive: true, force: true }); }
+});
+
+test('the summary sender follows the shared decision, posts one batch to loopback and fails or skips without throwing or retrying', async () => {
+  const postedBodies: unknown[] = [];
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    postedBodies.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+    assert.equal(request.method, 'POST');
+    assert.equal(request.url, '/batch/');
+    assert.equal(request.headers['content-type'], 'application/json');
+    response.writeHead(postedBodies.length === 1 ? 200 : 503).end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  const batchUrl = `http://127.0.0.1:${address.port}/batch/`;
+  const verdict = decideVerdict(completingInput());
+  const consentedInputs: HarnessTelemetryInputs = { environment: {}, noTelemetry: false, operatorConfig: {}, installId, isRemoteDisabled: false };
+  const options = { verdict, context: telemetryContext, decision: decideHarnessTelemetry(consentedInputs), builtServerEntryPath, batchUrl };
+  const resultFor = (inputs: Partial<HarnessTelemetryInputs>) => sendRunTelemetry({ ...options, decision: decideHarnessTelemetry({ ...consentedInputs, ...inputs }) });
+  const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'factory-operator-config-test-'));
+  try {
+    assert.equal(await sendRunTelemetry(options), 'sent');
+    const batch = FactoryHarnessBatch.parse(postedBodies[0]);
+    assert.equal(batch.api_key, resolveProjectToken({}));
+    assert.equal(batch.batch[0].distinct_id, installId);
+    assert.equal(batch.batch[0].properties.app_version, JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).version);
+    assert.equal(batch.batch[0].properties.os_platform, process.platform);
+    assert.equal(batch.batch[0].properties.$lib, 'glimmervoid');
+    assert.equal(batch.batch[0].properties.$process_person_profile, false);
+    assert.equal(batch.batch[0].properties.is_dev_install, true);
+    assert.equal(batch.batch[0].properties.is_bundled, true);
+    assert.equal(await sendRunTelemetry(options), 'failed');
+    assert.equal(await sendRunTelemetry({ ...options, verdict: { ...verdict, durationMs: Number.NaN } }), 'failed');
+    assert.equal(await resultFor({ noTelemetry: true }), 'skipped-no-consent');
+    for (const environment of [{ DO_NOT_TRACK: '1' }, { GLIMMERVOID_TELEMETRY: '0' }, { CI: 'true' }, { NODE_TEST_CONTEXT: 'child-v8' }]) {
+      assert.equal(await resultFor({ environment }), 'skipped-no-consent');
+    }
+    assert.equal(await resultFor({ isRemoteDisabled: true }), 'skipped-remote-disabled');
+    assert.equal(await resultFor({ installId: null }), 'failed');
+    const operatorConfigPath = path.join(tempDirectory, 'config.json');
+    const stateDirectory = path.join(tempDirectory, 'state');
+    await writeFile(operatorConfigPath, JSON.stringify({ port: 3000, telemetry: { enabled: false } }));
+    for (const environment of [{ GLIMMERVOID_CONFIG: operatorConfigPath }, { GLIMMERVOID_HOME: tempDirectory }]) {
+      const operatorOptOut = await resolveHarnessTelemetryInputs(false, stateDirectory, environment, '/unused-home');
+      assert.deepEqual(operatorOptOut.operatorConfig, { telemetry: { enabled: false } });
+      assert.equal(decideHarnessTelemetry(operatorOptOut).childEnvironment.GLIMMERVOID_TELEMETRY, '0');
+      assert.equal(await sendRunTelemetry({ ...options, decision: decideHarnessTelemetry(operatorOptOut) }), 'skipped-no-consent');
+    }
+    await writeFile(operatorConfigPath, '{');
+    assert.deepEqual((await resolveHarnessTelemetryInputs(true, stateDirectory, { GLIMMERVOID_CONFIG: operatorConfigPath }, '/unused-home')).operatorConfig, {});
+    assert.equal(fs.existsSync(stateDirectory), false);
+    assert.equal(postedBodies.length, 2);
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+  assert.equal(await sendRunTelemetry(options), 'failed');
 });

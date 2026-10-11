@@ -9,19 +9,25 @@ import { intents, parseIntentFile } from './intents.ts';
 import type { Intent } from './intents.ts';
 import type { Arguments } from './arguments.ts';
 import { openControl, saveScreen } from './control.ts';
-import { prepareInstance, startInstance } from './instance.ts';
+import { builtServerEntryPath, prepareInstance, startInstance } from './instance.ts';
 import { acquireBatchLock, buildBatch, checkEnvironment } from './preflight.ts';
 import { collectRecords, readDecisionLines, writeJson } from './records.ts';
 import { seedTarget } from './seed.ts';
 import { summaryRows } from './summary.ts';
 import { decideVerdict, parseDecisionLines, unexpectedAcceptanceError } from './verdict.ts';
-import type { Verdict, VerdictInput } from './verdict.ts';
+import type { VerdictInput } from './verdict.ts';
+import { adoptRunHomeRemoteSwitch, harnessStateDirectory, resolveHarnessTelemetryInputs, sendRunTelemetry } from './telemetry.ts';
+import { decideHarnessTelemetry } from './telemetry-core.ts';
+import type { HarnessTelemetryInputs, RecordedVerdict } from './telemetry-core.ts';
 
 const WORK_LIMIT_MINUTES = 30;
 
 function errorText(error: unknown) { return error instanceof Error ? error.message : String(error); }
 
-async function runOnce(intent: Intent, options: Arguments, recordDirectory: string, interrupt: AbortSignal): Promise<Verdict> {
+async function runOnce(
+  intent: Intent, options: Arguments, recordDirectory: string, interrupt: AbortSignal,
+  telemetryInputs: HarnessTelemetryInputs, stateDirectory: string, runIndex: number,
+): Promise<{ recordedVerdict: RecordedVerdict; telemetryInputsAfterRun: HarnessTelemetryInputs }> {
   const input: VerdictInput = {
     intentName: intent.name, expectedEnd: intent.expectedEnd, expectedRefusal: intent.expectedRefusal, projectId: intent.request.projectId,
     startedAt: new Date().toISOString(), endedAt: '', queueReply: null, queueRepliedAt: null,
@@ -38,6 +44,8 @@ async function runOnce(intent: Intent, options: Arguments, recordDirectory: stri
   let control: Awaited<ReturnType<typeof openControl>> | null = null;
   let stateWrites: Promise<void> = Promise.resolve();
   let hasTerminalStopReason = false;
+  let telemetryInputsAfterRun = telemetryInputs;
+  const instanceTelemetry = decideHarnessTelemetry(telemetryInputs);
   const statePath = path.join(recordDirectory, 'factory-state.jsonl');
   const queuedIntent = ClientMessage.parse({ type: 'factory-queue-intent', requestId: 'factory-harness', ...intent.request });
   await writeJson(path.join(recordDirectory, 'intent.json'), { name: intent.name, expectedEnd: intent.expectedEnd, expectedRefusal: intent.expectedRefusal, queuedIntent });
@@ -53,10 +61,10 @@ async function runOnce(intent: Intent, options: Arguments, recordDirectory: stri
     signal.throwIfAborted();
     target = await seedTarget(tempDirectory);
     signal.throwIfAborted();
-    prepared = await prepareInstance(tempDirectory, { projectPath: target.projectPath, projectId: intent.seedProjectId }, options.factory);
+    prepared = await prepareInstance(tempDirectory, { projectPath: target.projectPath, projectId: intent.seedProjectId }, options.factory, instanceTelemetry);
     await writeJson(path.join(recordDirectory, 'instance.json'), { tempDirectory, ...prepared, projectPath: target.projectPath, originPath: target.originPath });
     signal.throwIfAborted();
-    instance = await startInstance(prepared, path.join(recordDirectory, 'server.log'));
+    instance = await startInstance(prepared, path.join(recordDirectory, 'server.log'), instanceTelemetry);
     await instance.waitUntilReady(signal);
     control = await openControl(prepared.port, signal, (broadcast) => {
       input.broadcasts.push(broadcast);
@@ -104,6 +112,7 @@ async function runOnce(intent: Intent, options: Arguments, recordDirectory: stri
     controller.abort();
     control?.socket.terminate();
     try { await instance?.stop(); } catch (error) { input.errors.push(errorText(error)); }
+    if (prepared) telemetryInputsAfterRun = await adoptRunHomeRemoteSwitch(telemetryInputs, prepared.isolatedHome, stateDirectory);
     await stateWrites;
     try {
       if (prepared) {
@@ -125,7 +134,13 @@ async function runOnce(intent: Intent, options: Arguments, recordDirectory: stri
     catch (error) { input.errors.push(errorText(error)); verdict = decideVerdict(input); }
   }
   await writeJson(path.join(recordDirectory, 'verdict.json'), verdict);
-  return verdict;
+  const telemetrySendResult = await sendRunTelemetry({
+    verdict, decision: decideHarnessTelemetry(telemetryInputsAfterRun), builtServerEntryPath,
+    context: { isCustomIntent: Boolean(options.intentFile), watchWindowMinutes, runIndex, batchSize: options.runs },
+  });
+  const recordedVerdict = { ...verdict, telemetrySendResult };
+  await writeJson(path.join(recordDirectory, 'verdict.json'), recordedVerdict);
+  return { recordedVerdict, telemetryInputsAfterRun };
 }
 
 export async function runBatch(options: Arguments): Promise<number> {
@@ -136,7 +151,8 @@ export async function runBatch(options: Arguments): Promise<number> {
   }
   if (!intent) throw new Error(`Unknown intent: ${options.intentName}`);
   await checkEnvironment();
-  const parent = options.artifacts ?? path.join(process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local/state'), 'glimmervoid-factory-runs');
+  const stateDirectory = harnessStateDirectory();
+  const parent = options.artifacts ?? stateDirectory;
   const batchDirectory = path.resolve(parent, `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`);
   await mkdir(batchDirectory, { recursive: true });
   const interrupt = new AbortController();
@@ -144,17 +160,19 @@ export async function runBatch(options: Arguments): Promise<number> {
   const signals = ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT'] as const;
   const onSignal = (signal: NodeJS.Signals) => { interruptedSignal ??= signal; interrupt.abort(); };
   for (const signal of signals) process.on(signal, onSignal);
-  const verdicts: Verdict[] = [];
+  const verdicts: RecordedVerdict[] = [];
   let environmentFailure: unknown = null;
   let releaseBatchLock: (() => Promise<void>) | null = null;
   try {
     releaseBatchLock = await acquireBatchLock();
+    let telemetryInputs = await resolveHarnessTelemetryInputs(options.noTelemetry, stateDirectory);
     await buildBatch(interrupt.signal);
     for (let run = 1; run <= options.runs; run++) {
       if (interrupt.signal.aborted) break;
       const recordDirectory = path.join(batchDirectory, String(run).padStart(4, '0'));
       await mkdir(recordDirectory);
-      await runOnce(intent, options, recordDirectory, interrupt.signal);
+      const completedRun = await runOnce(intent, options, recordDirectory, interrupt.signal, telemetryInputs, stateDirectory, run);
+      telemetryInputs = completedRun.telemetryInputsAfterRun;
       verdicts.push(JSON.parse(await readFile(path.join(recordDirectory, 'verdict.json'), 'utf8')));
     }
   } catch (error) { environmentFailure = error; }

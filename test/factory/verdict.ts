@@ -129,11 +129,13 @@ export function decideVerdict(input: VerdictInput) {
     if (decision.sessionId) sessions.add(decision.sessionId);
   }
   const lastProject = projects.at(-1)?.project;
+  const orderIds = new Set(projects.flatMap(({ project }) => project.orders.map((order) => order.id)));
+  for (const decision of relevantDecisions) if (decision.workId) orderIds.add(decision.workId);
   return {
     intentName: input.intentName, expectedEnd: input.expectedEnd, expectedRefusal: input.expectedRefusal, queueReplyError, outcome: failureClass === null ? 'pass' as const : 'fail' as const,
     failureClass, startedAt: input.startedAt, endedAt: input.endedAt, durationMs: elapsed(input.endedAt),
     milestonesMs: { queued: input.queueReply?.ok ? elapsed(queued?.arrivedAt ?? input.queueRepliedAt) : null, firstWorkerDispatched: elapsed(firstWorker?.arrivedAt), firstMerge: elapsed(firstMerge?.arrivedAt), completed: elapsed(completed?.arrivedAt) },
-    sessionCount: sessions.size, attemptsPerOrder, spendUsd: lastProject?.spentTodayUsd ?? null,
+    sessionCount: sessions.size, orderCount: orderIds.size, attemptsPerOrder, spendUsd: lastProject?.spentTodayUsd ?? null,
     invalidDecisionLineCount: invalidDecisionLines.length, invalidDecisionLines, errors: input.errors,
   };
 }
