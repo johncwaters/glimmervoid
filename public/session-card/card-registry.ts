@@ -69,6 +69,7 @@ export interface SessionUi {
   _retryOwedGridClaim?: () => void;
   _syncGridOnEngagementEdge?: () => void;
   _setActiveViewer?: (isActive: boolean) => void;
+  _isActiveViewer?: () => boolean;
   _resetSoftKeyboardBuffer?: () => void;
   _ensureTerminalReady?: () => void;
   _setBorrowed?: (isBorrowed: boolean) => void;

@@ -16,6 +16,32 @@ export function decideSessionOpenAction(
   return null;
 }
 
+export interface CompletionWatchInput {
+  previousState: string | null | undefined;
+  nextState: string | null | undefined;
+  isPhoneLayout: boolean;
+  isDocumentVisible: boolean;
+  isDocumentFocused: boolean;
+  isActiveViewer: boolean;
+  hasFocusInsideTerminal: boolean;
+}
+
+export function isCompletionWatchedByOperator({
+  previousState,
+  nextState,
+  isPhoneLayout,
+  isDocumentVisible,
+  isDocumentFocused,
+  isActiveViewer,
+  hasFocusInsideTerminal,
+}: CompletionWatchInput): boolean {
+  if (nextState !== STATES.COMPLETE) return false;
+  if (!previousState || previousState === STATES.COMPLETE) return false;
+  if (!isDocumentVisible) return false;
+  if (isPhoneLayout) return isActiveViewer;
+  return isDocumentFocused && hasFocusInsideTerminal;
+}
+
 export function pickRestorableSessionId(
   lastFocusedSessionId: string | null | undefined,
   sessions: ReadonlyMap<string, SessionStateSource>,

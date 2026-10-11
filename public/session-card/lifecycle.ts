@@ -8,12 +8,14 @@ import { KILLABLE_STATES, RESTARTABLE_STATES, STATES } from '#shared/states.ts';
 import { playAlertSound } from '../alert-sound.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el, isMonitoringState } from '../dom-helpers.ts';
+import { isPhoneLayout } from '../form-factor.ts';
 import { setHealthMonitorDebugMode } from '../health-monitor.ts';
 import { createPlanFace, dropPlanBodyCache } from '../plan/plan-face.ts';
 import type { PlanResponse } from '../plan/plan-face.ts';
 import { createPlanHash } from '../plan/plan-link.ts';
 import { isApprovedReview, mergePlanChanged } from '../plan/plan-view-core.ts';
 import type { PlanChangedMessage } from '../plan/plan-view-core.ts';
+import { isCompletionWatchedByOperator } from '../session-actions-core.ts';
 import { seedReviewMergeStatus, setReviewDiff, setReviewMergeStatus } from '../sidebar/review-sidebar.ts';
 import { setSelectedId } from '../sidebar/selection.ts';
 import { getSoundId, isSoundEnabled } from '../ui-prefs.ts';
@@ -644,6 +646,19 @@ function _handleRestartTransition(ui: SessionUi, prevState: string) {
   }
 }
 
+function isCompletionWatchedAt(ui: SessionUi, previousState: string, nextState: string) {
+  const activeElement = document.activeElement;
+  return isCompletionWatchedByOperator({
+    previousState,
+    nextState,
+    isPhoneLayout: isPhoneLayout(),
+    isDocumentVisible: document.visibilityState === 'visible',
+    isDocumentFocused: document.hasFocus(),
+    isActiveViewer: ui._isActiveViewer?.() === true,
+    hasFocusInsideTerminal: activeElement instanceof Node && ui.termWrap.contains(activeElement),
+  });
+}
+
 export function applyState(sessionId: unknown, nextState: unknown, stateSince: unknown, event = "") {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
@@ -671,6 +686,8 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
       || (state === STATES.COMPLETE && prevState !== STATES.COMPLETE)) {
     if (!isCompactionRestoreEvent(event) && isSoundEnabled()) playAlertSound(getSoundId());
   }
+
+  if (isCompletionWatchedAt(ui, prevState, state)) sendControlMsg({ type: 'dismiss', id: sessionIdOf(sessionId), expectedState: STATES.COMPLETE });
 
   const isEnding = state === STATES.DONE || state === STATES.FAILED;
   const wasActive = prevState !== STATES.DONE && prevState !== STATES.FAILED && prevState !== STATES.INITIALIZING;

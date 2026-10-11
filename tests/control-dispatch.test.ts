@@ -6,6 +6,8 @@ import { createReplayLog } from '../server/control-replay-core.ts';
 import type { ReplayLog } from '../server/control-replay-core.ts';
 import type { ControlConnection } from './helpers/control-harness.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
+import { plainSession } from './helpers/fake-session.ts';
+import { STATES } from '../shared/states.ts';
 
 interface DispatchFrame {
   type: string;
@@ -64,6 +66,21 @@ test('ping without requestId sends no reply', () => {
   const h = harness();
   h.send({ type: 'ping' });
   assert.equal(h.sent.length, 0, 'nothing sent back');
+});
+
+test('a completion-scoped dismiss arriving on a WAITING session leaves it WAITING, and an unscoped dismiss still answers it', () => {
+  const session = plainSession('watched-session');
+  session.state = STATES.WAITING;
+  const server = createControlServer(controlDeps({ projects: [] }, { sessions: new Map([[session.id, session]]) }));
+  const connection = connectControl<DispatchFrame>(server);
+  try {
+    connection.send({ type: 'dismiss', id: session.id, expectedState: STATES.COMPLETE });
+    assert.equal(session.state, STATES.WAITING);
+    connection.send({ type: 'dismiss', id: session.id });
+    assert.equal(session.state, STATES.RUNNING);
+  } finally {
+    session.destroy();
+  }
 });
 
 function harnessWithReplay(replayLog: ReplayLog) {

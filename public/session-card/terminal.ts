@@ -384,6 +384,7 @@ export function setupTerminal(termWrap: HTMLElement, ui: SessionUi) {
   };
   ui._retryOwedGridClaim = retryOwedClaim;
   ui._syncGridOnEngagementEdge = handleEngagementEdge;
+  ui._isActiveViewer = () => isActiveViewer;
   ui._setActiveViewer = (isActive: boolean) => {
     if (isActiveViewer === isActive) return;
     isActiveViewer = isActive;

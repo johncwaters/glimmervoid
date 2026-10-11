@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { STATES } from '../shared/states.ts';
-import { decideSessionOpenAction, pickRestorableSessionId } from '../public/session-actions-core.ts';
-import type { SessionStateSource } from '../public/session-actions-core.ts';
+import { decideSessionOpenAction, isCompletionWatchedByOperator, pickRestorableSessionId } from '../public/session-actions-core.ts';
+import type { CompletionWatchInput, SessionStateSource } from '../public/session-actions-core.ts';
 
 test('opening starts dormant sessions and dismisses completed sessions without restarting live or exited sessions', () => {
   for (const statePolicy of ['explicit-state', 'dormant-fallback'] as const) {
@@ -44,4 +44,35 @@ test('restoration keeps completed, failed and exited sessions available without 
     assert.equal(pickRestorableSessionId('saved', sessions), 'saved', currentState);
   }
   assert.equal(pickRestorableSessionId('saved', new Map([['saved', { currentState: 'UNKNOWN' }]])), 'saved');
+});
+
+test('a completion counts as watched only in the session the operator is in, so it never rings the phone later', () => {
+  const phoneTerminalScreen: CompletionWatchInput = {
+    previousState: STATES.RUNNING,
+    nextState: STATES.COMPLETE,
+    isPhoneLayout: true,
+    isDocumentVisible: true,
+    isDocumentFocused: false,
+    isActiveViewer: true,
+    hasFocusInsideTerminal: false,
+  };
+  assert.equal(isCompletionWatchedByOperator(phoneTerminalScreen), true);
+  assert.equal(isCompletionWatchedByOperator({ ...phoneTerminalScreen, isActiveViewer: false }), false);
+  assert.equal(isCompletionWatchedByOperator({ ...phoneTerminalScreen, isDocumentVisible: false }), false);
+
+  const desktopTerminal: CompletionWatchInput = {
+    ...phoneTerminalScreen,
+    isPhoneLayout: false,
+    isDocumentFocused: true,
+    isActiveViewer: false,
+    hasFocusInsideTerminal: true,
+  };
+  assert.equal(isCompletionWatchedByOperator(desktopTerminal), true);
+  assert.equal(isCompletionWatchedByOperator({ ...desktopTerminal, hasFocusInsideTerminal: false, isActiveViewer: true }), false);
+  assert.equal(isCompletionWatchedByOperator({ ...desktopTerminal, isDocumentFocused: false }), false);
+
+  assert.equal(isCompletionWatchedByOperator({ ...desktopTerminal, nextState: STATES.WAITING }), false);
+  for (const previousState of [STATES.COMPLETE, undefined, null, '']) {
+    assert.equal(isCompletionWatchedByOperator({ ...desktopTerminal, previousState }), false, String(previousState));
+  }
 });

@@ -129,7 +129,7 @@ export const ClientErrorReport = z.object({
 export type ClientErrorReport = z.infer<typeof ClientErrorReport>;
 
 const idOnlyClientTypes = [
-  'remove-session', 'kill', 'start-session', 'restart', 'force-restart', 'dismiss', 'sleep', 'wake',
+  'remove-session', 'kill', 'start-session', 'restart', 'force-restart', 'sleep', 'wake',
   'merge-session', 'finish-session', 'merge-continue-session', 'discard-session-worktree',
   'resolve-session-merge', 'request-session-diff', 'request-change-map', 'request-branch-sync', 'resync-branch', 'debug-state',
 ] as const;
@@ -206,6 +206,7 @@ const clientVariants = [
   }),
   loose('plan-decision', PlanDecision.shape),
   loose('client-error', ClientErrorReport.shape),
+  loose('dismiss', { id: sessionId, force: z.unknown().optional(), expectedState: SessionState.optional() }),
   ...idOnlyClientVariants,
 ] as const;
 

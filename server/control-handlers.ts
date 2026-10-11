@@ -1287,7 +1287,12 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'start-session':    handleStartSession,
     'restart':          (msg: ClientMessageOf<'restart'>) => { const s = findSession(msg); if (s) s.restart({ fresh: msg.fresh === true }); },
     'force-restart':    (msg: ClientMessageOf<'force-restart'>) => { const s = findSession(msg); if (s) s.forceRestart({ fresh: msg.fresh === true }); },
-    'dismiss':          (msg: ClientMessageOf<'dismiss'>) => { const s = findSession(msg); if (s) s.dismiss(); },
+    'dismiss':          (msg: ClientMessageOf<'dismiss'>) => {
+      const session = findSession(msg);
+      if (!session) return;
+      if (msg.expectedState !== undefined && session.state !== msg.expectedState) return;
+      session.dismiss();
+    },
     'sleep':            (msg: ClientMessageOf<'sleep'>) => { const s = findSession(msg); if (s) s.sleep(); },
     'wake':             (msg: ClientMessageOf<'wake'>) => { const s = findSession(msg); if (s) s.wake(); },
 
