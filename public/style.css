@@ -817,6 +817,7 @@ body {
 .btn-settings-remove:focus-visible,
 .btn-menu:focus-visible,
 .btn-help:focus-visible,
+.btn-celebrations:focus-visible,
 .btn-mute:focus-visible,
 .settings-about-link:focus-visible,
 .btn-settings-add:focus-visible,
@@ -1233,6 +1234,7 @@ body {
 
 .btn-menu,
 .btn-help,
+.btn-celebrations,
 .btn-mute {
   display: inline-flex;
   align-items: center;
@@ -1252,6 +1254,7 @@ body {
 
 .btn-menu::after,
 .btn-help::after,
+.btn-celebrations::after,
 .btn-mute::after {
   content: '';
   position: absolute;
@@ -1261,6 +1264,7 @@ body {
 .btn-menu:hover,
 .header-menu.open .btn-menu,
 .btn-help:hover,
+.btn-celebrations:hover:not(:disabled),
 .btn-mute:hover {
   background-color: color-mix(in srgb, var(--text) 4%, transparent);
   border-color: var(--border-hover);
@@ -1269,6 +1273,7 @@ body {
 
 .btn-menu:active,
 .btn-help:active,
+.btn-celebrations:active:not(:disabled),
 .btn-mute:active {
   transform: scale(0.97);
 }
@@ -1288,7 +1293,53 @@ body {
   background-image: linear-gradient(to top right, transparent calc(50% - 0.75px), currentColor calc(50% - 0.75px), currentColor calc(50% + 0.75px), transparent calc(50% + 0.75px));
 }
 
-.btn-power-icon {
+.celebration-tray {
+  position: relative;
+  display: inline-flex;
+}
+
+.btn-celebrations {
+  color: var(--text-dim);
+}
+
+.celebration-tray[data-state="queued"] .btn-celebrations {
+  color: var(--state-complete);
+  border-color: color-mix(in srgb, var(--state-complete) 55%, transparent);
+}
+
+.celebration-tray[data-state="playing"] .btn-celebrations {
+  color: var(--state-complete);
+  opacity: 0.6;
+}
+
+.btn-celebrations:disabled {
+  cursor: default;
+}
+
+.celebration-tray-count:empty {
+  display: none;
+}
+
+.celebration-tray-count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  color: var(--bg-card);
+  background: var(--state-complete);
+  pointer-events: none;
+}
+
+.btn-power-icon,
+.btn-celebrations-icon {
   fill: none;
   stroke: currentColor;
   stroke-width: 1.6;
@@ -2584,7 +2635,7 @@ a.radar-issue-title:hover {
 .merge-confetti { position: absolute; top: 0; left: 0; right: 0; height: 0; }
 .merge-confetti-piece { --confetti-launch: calc(var(--celebration-reveal) + var(--confetti-delay)); position: absolute; top: 0; left: var(--confetti-start-x); opacity: 0; animation: merge-confetti-drift var(--confetti-flight-ms) cubic-bezier(0.2, 0.8, 0.4, 1) var(--confetti-launch) forwards; }
 .merge-confetti-arc { display: block; animation: merge-confetti-rise var(--confetti-rise-ms) cubic-bezier(0.33, 0.67, 0.67, 1) var(--confetti-launch) both, merge-confetti-fall var(--confetti-fall-ms) cubic-bezier(0.3, 0, 0.7, 0.7) calc(var(--confetti-launch) + var(--confetti-rise-ms)) forwards; }
-.merge-confetti-paper { display: block; width: 7px; height: 11px; border-radius: 2px; background: var(--confetti-color); rotate: var(--confetti-tilt); animation: merge-confetti-spin var(--confetti-flight-ms) linear var(--confetti-launch) both, merge-confetti-flutter var(--confetti-flutter-ms) ease-in-out infinite alternate; }
+.merge-confetti-paper { display: block; width: calc(7px * var(--confetti-scale, 1)); height: calc(11px * var(--confetti-scale, 1)); border-radius: calc(2px * var(--confetti-scale, 1)); background: var(--confetti-color); rotate: var(--confetti-tilt); animation: merge-confetti-spin var(--confetti-flight-ms) linear var(--confetti-launch) both, merge-confetti-flutter var(--confetti-flutter-ms) ease-in-out infinite alternate; }
 @keyframes merge-confetti-drift {
   0% { opacity: 1; transform: translateX(0); }
   80% { opacity: 1; }
@@ -7477,6 +7528,9 @@ html[data-layout="phone"] .phone-shell[hidden] { display: none; }
 
 .phone-topbar > .btn-add-header { margin-left: auto; }
 .phone-topbar > .header-title { flex: 0 0 auto; font-size: 14px; white-space: nowrap; }
+.phone-topbar > .celebration-tray { flex: none; margin-left: auto; }
+.phone-topbar > .celebration-tray + .btn-add-header { margin-left: 0; }
+.phone-topbar > :is(.btn-help, .btn-mute, .header-menu) { display: none; }
 .phone-topbar > .status-indicator,
 .phone-topbar .header-connection { min-width: 0; overflow: hidden; }
 

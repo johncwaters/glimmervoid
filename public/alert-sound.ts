@@ -8,7 +8,7 @@ import {
   resolveSoundId as resolveSoundIdAgainst,
   soundOptions as soundOptionsFrom,
 } from './alert-sound-core.ts';
-import type { SoundOption } from './alert-sound-core.ts';
+import type { SoundOption, ToneSequence } from './alert-sound-core.ts';
 
 const CUSTOM_SOUND_VOLUME = 0.3;
 
@@ -41,7 +41,10 @@ function closeAfterSeconds(audioContext: AudioContext, seconds: number) {
 }
 
 function playTones(soundId: string) {
-  const sound = TONES_BY_SOUND_ID[soundId] ?? TONES_BY_SOUND_ID[DEFAULT_SOUND_ID];
+  playToneSequence(TONES_BY_SOUND_ID[soundId] ?? TONES_BY_SOUND_ID[DEFAULT_SOUND_ID]);
+}
+
+export function playToneSequence(sound: ToneSequence) {
   const audioContext = openAlertAudioContext();
   const master = audioContext.createGain();
   master.gain.value = sound.peakGain;
@@ -54,9 +57,10 @@ function playTones(soundId: string) {
     const oscillator = audioContext.createOscillator();
     const toneGain = audioContext.createGain();
     oscillator.type = tone.waveform;
-    oscillator.frequency.value = tone.frequency;
+    oscillator.frequency.setValueAtTime(tone.frequency, start);
+    if (tone.endFrequency) oscillator.frequency.exponentialRampToValueAtTime(tone.endFrequency, end);
     toneGain.gain.setValueAtTime(0.001, start);
-    toneGain.gain.exponentialRampToValueAtTime(1, start + 0.01);
+    toneGain.gain.exponentialRampToValueAtTime(tone.gain ?? 1, start + 0.01);
     toneGain.gain.exponentialRampToValueAtTime(0.001, end);
     oscillator.connect(toneGain);
     toneGain.connect(master);

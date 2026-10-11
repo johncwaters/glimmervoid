@@ -316,6 +316,7 @@ Stored in each browser, not in `config.json`, so every device keeps its own.
 | Theme | `"phyrexian"` | Color scheme for the dashboard. |
 | Hide status words in sidebar | `false` | Hide status words in the sidebar and on the phone Board while keeping the colored status mark and the phone Plan ready badge. Saved per browser, so turn it on in each one. |
 | Show usage on session cards | `false` | Shows each card's transcript token count and CLI-reported cost when available, otherwise a calculated API list-price estimate. |
+| Alert sounds | `true` | Play sounds when a session needs attention and when a merge celebration plays. The same switch as the note button in the desktop header. |
 | Alert sound | `"chime"` | Sound played when a session needs attention. Your own .ogg, .mp3, .wav, .m4a or .webm files dropped into the sounds folder of the Glimmervoid home (~/.glimmervoid/sounds/, or $GLIMMERVOID_HOME/sounds/) are listed after the built-in sounds. Glimmervoid never creates that folder, so make it yourself; new files show up the next time Settings opens. |
 | Desktop notifications | `true` | Raise a browser notification when a session needs attention while this dashboard is in the background. |
 | Flying animals | `false` | Show animated animals flying across the dashboard. |

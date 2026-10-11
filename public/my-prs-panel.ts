@@ -9,7 +9,7 @@ import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
 import { nextRequestId, sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
-import { celebrateMerge } from './merge-celebration.ts';
+import { queueMergeCelebration } from './merge-celebration.ts';
 import { chooseSelectedKey, emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, mergeConfirmMessage, mergeControlState, mergeCelebrationText, mergeWhenReadyControlState, newlyMergedPrs, parseMyPrMergeResult, parseMyPrsStatus, queueNotices, readinessRows, reviewRows, sectionStackedMyPrs, stageIcon, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
 import type { MergeAttempt, ToggleControlState } from './my-prs-view-core.ts';
 
@@ -374,14 +374,14 @@ export function applyMyPrsStatus(message: unknown): void {
   const mergedSinceLastStatus = newlyMergedPrs(latest?.prs ?? null, parsed.prs);
   latest = parsed;
   render();
-  celebrateMergedPrs(mergedSinceLastStatus);
+  queueMergedPrCelebrations(mergedSinceLastStatus);
 }
 
-function celebrateMergedPrs(mergedPrs: readonly MyPr[]): void {
+function queueMergedPrCelebrations(mergedPrs: readonly MyPr[]): void {
   const uncelebratedPrs = mergedPrs.filter((pr) => !celebratedMergeKeys.has(pr.key));
   if (uncelebratedPrs.length === 0) return;
   for (const pr of uncelebratedPrs) celebratedMergeKeys.add(pr.key);
-  celebrateMerge(mergeCelebrationText(uncelebratedPrs));
+  queueMergeCelebration(mergeCelebrationText(uncelebratedPrs));
 }
 
 export function applyMyPrMergeResult(message: unknown): void {
@@ -398,5 +398,5 @@ export function applyMyPrMergeResult(message: unknown): void {
   settleMerge(mergeResult.key, pending.head, mergeResult.kind ?? 'unconfirmed', '');
   if (mergeResult.kind !== 'merged') return;
   const mergedPr = latest?.prs.find((pr) => pr.key === mergeResult.key);
-  if (mergedPr) celebrateMergedPrs([mergedPr]);
+  if (mergedPr) queueMergedPrCelebrations([mergedPr]);
 }

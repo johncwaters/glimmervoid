@@ -57,6 +57,7 @@ import {
   isNotificationsEnabled,
   isCompactStatusLabels,
   isSessionUsageChips,
+  isSoundEnabled,
   setCompactStatusLabels,
   setSessionUsageChips,
   setFlyingAnimalsEnabled,
@@ -65,6 +66,7 @@ import {
   setThemeId,
 } from './ui-prefs.ts';
 import { usageStatusLines } from './usage-panel.ts';
+import { applySoundEnabled } from './mute-button.ts';
 import {
   IDLE_UPDATE_REQUEST,
   installedUpdateText,
@@ -157,6 +159,7 @@ function browserPreferences() {
     themeId: getThemeId(),
     flyingAnimalsEnabled: isFlyingAnimalsEnabled(),
     ...getFlyingAnimalsEnteredValues(),
+    soundEnabled: isSoundEnabled(),
     soundId: resolveSoundId(getSoundId()),
     notificationsEnabled: isNotificationsEnabled(),
     compactStatusLabels: isCompactStatusLabels(),
@@ -308,6 +311,10 @@ function applyBrowserPreference(setting: SettingsSetting, value: unknown) {
     const writePairedPreference = pairedSetting && FLYING_ANIMALS_PREFERENCE_WRITERS[pairedSetting.path];
     if (pairedSetting && writePairedPreference && !errors[pairedSetting.id]) writePairedPreference(editedValues?.[pairedSetting.path]);
     applyFlyingAnimals(isFlyingAnimalsEnabled());
+    return;
+  }
+  if (setting.path === 'pref:soundEnabled') {
+    applySoundEnabled(value === true);
     return;
   }
   if (setting.path === 'pref:soundId') {

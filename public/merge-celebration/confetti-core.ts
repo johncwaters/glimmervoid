@@ -1,5 +1,13 @@
 import { randomBetween } from './motion-core.ts';
 
+const FIRST_CONFETTI_SCALE = 0.6;
+const CONFETTI_SCALE_STEP = 0.25;
+const MAX_CONFETTI_SCALE = 1.6;
+
+export function confettiScaleFor(positionInPlayThrough: number): number {
+  return Math.min(FIRST_CONFETTI_SCALE + positionInPlayThrough * CONFETTI_SCALE_STEP, MAX_CONFETTI_SCALE);
+}
+
 export const CONFETTI_COLORS = ['var(--accent)', 'var(--state-running)', 'var(--state-idle)', 'var(--state-waiting)', 'var(--state-failed)'];
 
 export function confettiPieceStyleProperties(pieceIndex: number, random: () => number = Math.random): Array<readonly [string, string]> {

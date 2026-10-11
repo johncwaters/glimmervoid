@@ -127,6 +127,15 @@ export const SETTINGS_MAP = Object.freeze([
         defaultValue: false,
       },
       {
+        id: 'alert-sounds-enabled',
+        path: 'pref:soundEnabled',
+        title: 'Alert sounds',
+        description: 'Play sounds when a session needs attention and when a merge celebration plays. The same switch as the note button in the desktop header.',
+        control: 'toggle',
+        keywords: ['audio', 'mute', 'sound', 'notification'],
+        defaultValue: true,
+      },
+      {
         id: 'alert-sound',
         path: 'pref:soundId',
         title: 'Alert sound',

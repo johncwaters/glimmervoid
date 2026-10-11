@@ -8,13 +8,20 @@ export interface Tone {
   startSeconds: number;
   durationSeconds: number;
   waveform: 'sine' | 'triangle' | 'square';
+  endFrequency?: number;
+  gain?: number;
+}
+
+export interface ToneSequence {
+  peakGain: number;
+  tones: readonly Tone[];
 }
 
 export const DEFAULT_SOUND_ID = 'chime';
 const CUSTOM_SOUND_PREFIX = 'custom:';
 export const CUSTOM_SOUNDS_ROUTE = '/custom-sounds';
 
-export const TONES_BY_SOUND_ID: Readonly<Record<string, { label: string; peakGain: number; tones: Tone[] }>> = Object.freeze({
+export const TONES_BY_SOUND_ID: Readonly<Record<string, ToneSequence & { label: string }>> = Object.freeze({
   chime: {
     label: 'Chime',
     peakGain: 0.12,

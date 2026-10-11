@@ -27,6 +27,8 @@ import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShe
 import { noteKnownProjectPath } from './project-registry.ts';
 import { applyTeamReviewActionResult, applyTeamReviewStatus } from './team-review-panel.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus } from './my-prs-panel.ts';
+import { mountCelebrationTray } from './merge-celebration.ts';
+import { mountMuteButton } from './mute-button.ts';
 import { applyFactoryControlResult, applyFactoryQueueIntentResult, applyFactoryState, setFactoryRequestSender } from './factory/factory-view.ts';
 import { applyBenchmarkActionResult, applyBenchmarkStatus, setBenchmarkRequestSender } from './benchmark-panel.ts';
 import { applyIssueDetailResult, refreshIssuesSessionState, applyIssuesStatus, applyOpenIssueSessionResult, setIssuesRequestSender } from './issues-panel.ts';
@@ -54,7 +56,7 @@ import { applyFlyingAnimals } from './flying-animals.ts';
 import { applyCompactStatusLabels, applySessionUsageChips, applyTheme } from './theme.ts';
 import { applyTraceChanged, applyTraceError, applyTraceResponse, setTraceNavigate, setTraceRequestSender, setTraceSessions } from './trace-panel.ts';
 import { shouldShowTelemetryNotice } from './telemetry-notice-core.ts';
-import { getActiveView as getSavedActiveView, getDismissedUpdate, getThemeId, isCompactStatusLabels, isFlyingAnimalsEnabled, isSessionUsageChips, isSoundEnabled, isTelemetryNoticeDismissed, setActiveView, setDismissedUpdate, setSoundEnabled, setTelemetryNoticeDismissed } from './ui-prefs.ts';
+import { getActiveView as getSavedActiveView, getDismissedUpdate, getThemeId, isCompactStatusLabels, isFlyingAnimalsEnabled, isSessionUsageChips, isTelemetryNoticeDismissed, setActiveView, setDismissedUpdate, setTelemetryNoticeDismissed } from './ui-prefs.ts';
 import { getActiveView, uiState } from './ui-state-core.ts';
 import { updateBannerMode } from './updates-view-core.ts';
 import { decideAppReveal, MAX_REVEAL_WAIT_MS } from './app-reveal-core.ts';
@@ -529,16 +531,7 @@ queryTag(document, '#telemetry-banner-dismiss', 'button').addEventListener('clic
 queryTag(document, '#btn-add-session-header', 'button').addEventListener('click', createAddSessionDialog);
 
 const btnMute = queryTag(document, '#btn-mute', 'button');
-
-function syncMuteButton() {
-  btnMute.setAttribute('aria-pressed', String(!isSoundEnabled()));
-}
-syncMuteButton();
-
-btnMute.addEventListener('click', () => {
-  setSoundEnabled(!isSoundEnabled());
-  syncMuteButton();
-});
+mountMuteButton(btnMute);
 
 const powerMenu = queryTag(document, '#power-menu', 'div');
 const btnPower = queryTag(document, '#btn-power', 'button');
@@ -616,6 +609,12 @@ document.addEventListener('click', (event) => {
   if (!activateHash(anchor.hash)) return;
   event.preventDefault();
 });
+
+mountCelebrationTray(
+  queryTag(document, '#celebration-tray', 'div'),
+  queryTag(document, '#btn-celebrations', 'button'),
+  queryTag(document, '#celebration-tray-count', 'span'),
+);
 
 queryTag(document, '#btn-help', 'button').addEventListener('click', () => {
   openSettings('browser-shortcuts');
@@ -792,6 +791,7 @@ mountPhoneShell({
   headerControls: [
     queryTag(document, '.header-title', 'h1'),
     queryTag(document, '#status-indicator', 'div'),
+    queryTag(document, '#celebration-tray', 'div'),
     queryTag(document, '#btn-add-session-header', 'button'),
     queryTag(document, '#btn-help', 'button'),
     btnMute,
