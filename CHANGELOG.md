@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Factory decision log**: the factory now keeps a local decision log at `<glimmervoid home>/factory/<projectId>/decisions/<YYYY-MM-DD>.jsonl`, retained for 14 days.
+
 - **Merge celebrations wait for you**: a merged pull request no longer pops a celebration on its own. It lands in a trophy button just left of + Session, which turns green with a count of how many are waiting (and sits neutral when nothing is), and clicking the trophy plays them one after another, oldest first, so none go off while you are away. The tray keeps the latest 20. Celebrations now have sound: a whoosh as the banner drops in, a thump on the scene impact, then a short brassy level-up jingle. Each click of the trophy starts from the first of five jingles and steps through them, each one a step higher, so back-to-back celebrations never repeat one, and the confetti starts smaller and grows with each one. The Alert sounds switch mutes them.
 - **Issues know their sessions and pull requests**: each issue shows the session you opened for it, with a Go to session button and no duplicate sessions, plus the pull requests linked to it with their state.
 - **Shared GitHub teams**: Settings gains a GitHub teams list (org/team) that team review searches across; an existing teamReview org and team keeps working unchanged.

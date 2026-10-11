@@ -1,3 +1,4 @@
+import type { FactoryDecisionWorkerEvent } from './core/factory-decision-log-core.ts';
 import crypto from 'node:crypto';
 import { STATES } from '../shared/states.ts';
 import { errorMessage } from '../shared/text.ts';
@@ -6,7 +7,7 @@ import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { DEFAULT_FACTORY_CHECKS } from '../shared/contracts/browser-config.ts';
 import { CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import { AgentDispatchRequest } from '../shared/contracts/session.ts';
-import type { FactoryDispatchResult, FactoryProjectState, FactoryWorkerEvent } from '../shared/contracts/factory.ts';
+import type { FactoryDispatchResult, FactoryProjectState } from '../shared/contracts/factory.ts';
 import { buildCoherenceSessionOverrides } from './core/coherence-session-core.ts';
 import {
   FACTORY_LEDGER_SESSION, FACTORY_REFUSAL_PAUSED, FACTORY_SANE_YOLO_UNAVAILABLE, buildWorkerPrompt, decideAdmission, findFactoryProjectPath, isTransientAdmissionRefusal,
@@ -56,7 +57,7 @@ interface FactoryDispatchDeps<ManagedSession extends FactoryOrchestratorSession 
   runCoherence: (request: { cwd: string; args: string[] }) => Promise<string>;
   readTodaySpend: () => LaneSpend;
   readPaused: (projectId: string) => Promise<boolean>;
-  notifyOrchestrator: (projectId: string, event: FactoryWorkerEvent) => void;
+  notifyOrchestrator: (projectId: string, event: FactoryDecisionWorkerEvent) => void;
   setException: (projectId: string, reason: string | null, expectedReason?: string) => void;
   now?: () => number;
 }
@@ -122,7 +123,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
       pendingRefusals.delete(projectId);
       if (!readyIntent && isTransientAdmissionRefusal(reason)) pendingRefusals.set(projectId, { workId, reason });
       if (exception) setException(projectId, reason);
-      notifyOrchestrator(projectId, { workId, event: 'refused', detail: reason });
+      notifyOrchestrator(projectId, { workId, intentId, sessionId, event: 'refused', detail: reason });
       return { ok: false, reason };
     };
     try {
@@ -213,7 +214,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
             if (removed) return;
             removed = true;
             liveWorkers.delete(identity.id);
-            notifyOrchestrator(projectId, { workId, event: 'ended', detail: worker.state });
+            notifyOrchestrator(projectId, { workId, intentId, sessionId: identity.id, event: 'ended', detail: worker.state, failureClass: worker.state === STATES.FAILED ? 'worker' : null });
             broadcast({ type: 'session-removed', id: identity.id, session: identity.name });
             if (!hasLaunched || stopped) return;
             void serializeProject(projectId, () => reopenIfActive(projectId, project.path, workId, 'Factory worker ended without merging or blocking'))
@@ -240,7 +241,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
           }
           hasLaunched = true;
           setException(projectId, null);
-          notifyOrchestrator(projectId, { workId, event: 'dispatched', sessionId: identity.id, detail: identity.name });
+          notifyOrchestrator(projectId, { workId, intentId, event: 'dispatched', sessionId: identity.id, detail: identity.name });
           return { ok: true, sessionId: identity.id };
         };
         try {
@@ -302,7 +303,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
       if (getOrchestrator(orchestrator.sessionId)?.intentId !== context.intentId) return;
       pendingRefusals.delete(project.projectId);
       setException(project.projectId, null, refusal.reason);
-      notifyOrchestrator(project.projectId, { workId: refusal.workId, event: 'dispatch available', detail: refusal.reason });
+      notifyOrchestrator(project.projectId, { workId: refusal.workId, intentId: context.intentId, sessionId: orchestrator.sessionId, event: 'dispatch available', detail: refusal.reason });
     });
   }
 

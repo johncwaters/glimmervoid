@@ -1,7 +1,8 @@
+import type { FactoryDecisionWorkerEvent } from './core/factory-decision-log-core.ts';
 import type { Config } from '../shared/contracts/config.ts';
 import { errorMessage } from '../shared/text.ts';
 import { FactoryHogQLResponse, FactoryIssue, FactoryIssueQueryRow } from '../shared/contracts/factory.ts';
-import type { FactoryLaneState, FactoryProjectState, FactoryWorkerEvent } from '../shared/contracts/factory.ts';
+import type { FactoryLaneState, FactoryProjectState } from '../shared/contracts/factory.ts';
 import { FACTORY_LEDGER_SESSION, attributeIssues, buildIssuesSinceQuery, findFactoryProjectPath, watchesDue } from './core/factory-core.ts';
 import { extractRows } from './posthog-api.ts';
 import type { PosthogResponse } from './posthog-api.ts';
@@ -15,7 +16,7 @@ export interface FactoryWatchDeps {
   runCoherence: (request: { cwd: string; args: string[] }) => Promise<string>;
   commitAndLand: (projectId: string, projectPath: string, message: string, options?: { onCommitted?: () => Promise<void> }) => Promise<void>;
   runHogQL: (projectId: number, query: string) => Promise<PosthogResponse>;
-  notifyOrchestrator: (projectId: string, event: FactoryWorkerEvent) => void;
+  notifyOrchestrator: (projectId: string, event: FactoryDecisionWorkerEvent) => void;
   notify: (projectName: string, message: string) => void;
   onChanged?: () => void;
   now?: () => number;
@@ -112,11 +113,11 @@ export function createFactoryWatch({ config, readLaneState, writeLaneState, seri
       for (const workId of breachedIds) {
         for (const issueId of new Set(breaches.filter(({ watch }) => watch.workId === workId).map(({ issue }) => issue.issueId))) {
           const message = `[factory] breach on ${workId}: issue ${issueId}`;
-          notifyOrchestrator(project.projectId, { workId, event: 'breach', detail: `issue ${issueId}` });
+          notifyOrchestrator(project.projectId, { workId, intentId: breaches.find(({ watch }) => watch.workId === workId)?.watch.intentId, event: 'breach', detail: `issue ${issueId}` });
           notify(project.projectName, message);
         }
       }
-      for (const watch of elapsed) notifyOrchestrator(project.projectId, { workId: watch.workId, event: unwatchedReason ? 'verified unwatched' : 'verified' });
+      for (const watch of elapsed) notifyOrchestrator(project.projectId, { workId: watch.workId, intentId: watch.intentId, event: unwatchedReason ? 'verified unwatched' : 'verified' });
       return { ...project, watches: stillOpen, note,
         unverifiedCompletedWork: project.unverifiedCompletedWork.filter((workId) => !elapsed.some((watch) => watch.workId === workId)) };
     });

@@ -115,6 +115,7 @@ export function createFactoryVerifier({ config, spawnVerifier, serializeProject,
         notifyOrchestrator(project.projectId, { workId: intent.id, event: 'verification stale', detail: 'Intent children changed; report ready after reassessing' });
         return;
       }
+      notifyOrchestrator(project.projectId, { workId: intent.id, event: 'verification passed' });
       await runCoherence({ cwd: ledger.cwd, args: ['consequence', 'add', `verification:${verificationId}`, 'verifies', `work:${intent.id}`,
         '--evidence', `Independent verifier passed every intent criterion at ${tipSha}`, '--session', FACTORY_LEDGER_SESSION, '--json'] });
       await runCoherence({ cwd: ledger.cwd, args: ['work', 'close', intent.id, 'completed', '--because', 'Independent factory verifier passed',

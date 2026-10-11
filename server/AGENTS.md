@@ -9,6 +9,9 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 
 | File | Description |
 |------|-------------|
+| `factory-decision-log.ts` | Local factory decision append and retention |
+| `core/factory-decision-log-core.ts` | Pure factory decision mapping and output limits |
+| `../shared/contracts/factory-decision-log.ts` | Strict factory decision line contract |
 | `backend.ts` | Express + WebSocket server factory |
 | `backend-*.ts` | Wiring extracted from the factory, one concern per file |
 | `session-{factory,registry,event-wiring}.ts` | Session construction, config reconciliation, and one-time event wiring |
