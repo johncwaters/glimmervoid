@@ -17,6 +17,8 @@ This file records the state of the Factory lane as of 2026-10-11, so that anothe
 - Everything sits behind the Factory setting, which is off by default. The Focus tab is untouched.
 - Every agent lane gets one shared lockdown, the lane posture module (`server/core/lane-posture-core.ts`, with `server/lane-posture.ts` as its IO shell). It provides dontAsk permissions, a filesystem and network sandbox, and a required Sane YOLO hook. Do not add per-lane sandbox patches; extend the module instead. It names no factory concepts, so that team review, benchmarks and issues can adopt it.
 - Security hardening is a separate, later pass. Getting the factory working came first.
+- Self-hosting is gated while the factory is being proven. The factory runs on a clone of glimmervoid whose only `origin` is a local bare staging remote, so every factory merge and ledger landing stops there. The operator promotes accepted work to the real `main` by hand, and the real `main` holds no `coherence.config.json` until the operator lifts the gate.
+- An intent is the factory's guiding star, and it is settled before the factory starts. The operator sharpens a feature into a design spec outside glimmervoid, and the finalized spec is queued as one intent: objective, criteria, risk, boundary and write scopes. A spec goes wholly to the factory or wholly to one dedicated agent session, never split between them.
 
 ## State
 
@@ -33,6 +35,7 @@ This file records the state of the Factory lane as of 2026-10-11, so that anothe
 - The Gate 2 fixes landed as `45c94124`.
 - Gate 2 passed on 2026-10-11, on a throwaway repo, with no operator input. One intent dispatched two workers, and each was reviewed, merged and watch-verified. The verifier then closed the intent.
 - `npm run lint` is clean on main as of `c2ba6adb`. Factory close-out runs lint as a default check, so lint must stay clean for self-hosting to work.
+- The gated self-host clone exists on the operator's machine as of 2026-10-11, with `coherence.config.json` on the staging remote only. The default checks pass in it: `npm run typecheck` and `npm test` at `cf7d6b3c`, `npm run lint` at `adbc108d`. No intent has run against it yet.
 
 ## How to run a gate
 
@@ -59,26 +62,54 @@ Never use the live instance on port 3000; do not restart it without asking the o
 
 Note that the orchestrator still stops on Claude's folder-trust dialog and the external-imports dialog when it starts. The gate harness got past them by sending keys over the terminal socket. Removing that dependency is the first open item below.
 
+## The gated self-host clone
+
+The gate is setup, not code. Build it once:
+
+1. Make the staging remote: `git clone --no-hardlinks --bare --single-branch --branch main <glimmervoid checkout> <staging>.git`, then `git -C <staging>.git remote remove origin`, so that it has no path to GitHub.
+2. Make the clone: `git clone --no-hardlinks <staging>.git <clone>`, then run `npm ci` in the clone so that it has its own install. Nothing in the clone may link into the real checkout, and that goes for every `worktreeShare` entry, not only `node_modules`. The `--no-hardlinks` flag is there because a local clone otherwise shares object files by hard link.
+3. Commit `coherence.config.json` holding `{}` in the clone and push it to the staging remote.
+4. Register the clone as the factory project: in a sandbox instance's `projects` for a gate, or in the operator's own instance. The second is the operator's choice alone, made knowing what the gate does not hold.
+
+What the gate holds:
+
+- Everything the factory pushes from the clone, merges and ledger landings alike, reaches the staging remote only.
+- That holds only while the clone shares no files with the real checkout. A link from the clone into the real checkout gives worker-written code a way to write there.
+
+What the gate does not hold. It guards the factory's normal flow, its merges and pushes, and it is not containment of a misbehaving worker:
+
+- The control plane. Code that a worker runs can still reach the instance that started it, which is the first item of the security pass below. The control plane trusts any local process that reaches the instance port, as the trust boundary in `server/AGENTS.md` states, so the project list does not bound a misbehaving worker.
+- The close-out checks. They run code the worker wrote on the operator's account, outside the lane posture sandbox, before the reviewer sees it.
+
+Until both are fixed, agents run gated intents in a sandbox instance. That keeps gated runs away from the operator's live sessions and state; it does not contain a worker.
+
+Promotion is the operator's step. In the real checkout, fetch `main` from the staging remote, read the worker commits, and land the accepted ones through the normal commit path. Leave `.coherence/` and `coherence.config.json` behind until the gate is lifted.
+
+Refreshing the clone from the real `main` is unproven. The expected route is to pause the project, merge the real `main` in the clone, push to the staging remote and resume, because a ledger landing refuses while the local integration branch holds commits that its origin lacks.
+
 ## Remaining work, in order
 
 1. **Orchestrator startup dialogs.** The orchestrator's cwd, the ledger checkout under `<home>/factory/<project>/`, is a new folder. Claude Code therefore shows the trust dialog and then the external CLAUDE.md imports dialog. Stall detection (`decideFactoryStalls`) raises an exception, but nothing clears the dialogs. A hands-off factory must start without them, for example by pre-trusting the ledger checkout. Find out which mechanism Claude Code actually honors before choosing one. Workers and reviewers did not hit these dialogs.
-2. **Gate 2b.** Run the same gate on a throwaway clone of glimmervoid itself, with the default checks (`npm run typecheck`, `npm run lint`, `npm test`) and one low-risk intent. Worker worktrees get `node_modules` through `worktreeShare`.
-3. **Self-host opt-in.** After Gate 2b passes, commit `coherence.config.json` (`{}`) to glimmervoid main. On the instance that runs the factory, set `factory.protectedPaths` to cover the factory's own guardrails: `server/factory-*`, `server/core/factory-core.ts`, `server/core/lane-posture-core.ts`, `server/lane-posture.ts`, `shared/contracts/factory.ts`, `shared/contracts/coherence.ts`, and the defaults. That way workers cannot loosen their own gates. Factory merges fast-forward source only. The live instance picks them up only when the operator rebuilds and restarts it.
-4. **Team review onto the lane posture module**, in its own commit. Benchmarks and issues follow later.
-5. **Security pass** (all deferred by the operator):
+2. **Gate 2b.** Run the same gate on the gated self-host clone, with the default checks (`npm run typecheck`, `npm run lint`, `npm test`) and one low-risk intent. Worker worktrees get `node_modules` through `worktreeShare`. A pass also needs the staging remote to hold the worker commits while the real `main` is unchanged.
+3. **Gated self-host.** After Gate 2b passes, the operator runs real intents against the gated clone and promotes what they accept. On the instance that runs the factory, set `factory.protectedPaths` to cover the factory's own guardrails: `server/factory-closeout.ts`, `server/factory-dispatch.ts`, `server/factory-ledger.ts`, `server/factory-orchestrator.ts`, `server/factory-poller.ts`, `server/factory-verifier.ts`, `server/factory-watch.ts`, `server/factory-wiring.ts`, `server/git-workspace.ts`, `server/core/factory-core.ts`, `server/core/git-invocation-core.ts`, `server/core/lane-permissions-core.ts`, `server/core/lane-posture-core.ts`, `server/lane-posture.ts`, `shared/contracts/browser-config.ts`, `shared/contracts/factory.ts`, `shared/contracts/coherence.ts`, and the defaults. Each entry is an exact path, a directory ending in `/`, or `**/` plus a basename, the only shapes that `checkFence` in `server/core/factory-core.ts` matches, so a glob protects nothing. That way workers cannot loosen their own gates. Factory merges fast-forward source only. The live instance picks them up only when the operator rebuilds and restarts it.
+4. **Spec-fed intents.** The operator's spec tool renders a finalized design spec as one `factory-queue-intent` request, so nothing in glimmervoid has to change for the first run. Still open is how the spec's units of work reach the orchestrator: it can decompose from the intent alone, or the intent can carry the units as guidance, which needs a field on `FactoryQueueIntentRequest`.
+5. **Lifting the gate.** This is the operator's call, made after gated intents have been promoted cleanly. Only then commit `coherence.config.json` (`{}`) to glimmervoid main and point the factory at the real checkout.
+6. **Team review onto the lane posture module**, in its own commit. Benchmarks and issues follow later.
+7. **Security pass** (all deferred by the operator):
    - The hook port also serves the control plane, so code a worker runs can reach glimmervoid. The fix is a separate hook listener.
+   - Close-out checks run outside the lane posture sandbox.
    - Workers can write branch refs other than their own.
    - `mergeBack` pushes without the integration check.
    - A repo-level `.claude/settings.json` can widen the sandbox.
    - A repo-local `core.askPass` can run when `GIT_ASKPASS` is unset.
    - A byte-limited usage pass after catch-up reports spend as `known`, so the budget fails open (`server/core/usage-scan-core.ts`).
    - The Windows isolation paths are untested.
-6. **Bugs:**
+8. **Bugs:**
    - The usage scanner stalls on a fresh home: `scheduleContinuation` drops the continuation chain while a pass is in flight.
    - Watch verification writes and breach notifications repeat every tick until a landing succeeds.
    - `discardWorkerLedgerChanges` diffs committed paths with a case-sensitive `.coherence` pathspec, which only matters on case-sensitive filesystems.
    - The failed-push recovery has no test for a trusted landing whose push fails.
-7. **P3:**
+9. **P3:**
    - auto-revert on a watch breach, serialized through `git-workspace.ts`;
    - a staged rollout behind a PostHog flag for critical risk;
    - permission prompts answered by policy;
