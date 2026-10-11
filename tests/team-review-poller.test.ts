@@ -156,7 +156,7 @@ test('two configured teams are searched and their members unioned with the first
   const teamQueries: string[] = [];
   const profileQueries: string[] = [];
   const directQueries: string[] = [];
-  const authoredByOrg: Array<[string, string[]]> = [];
+  const authoredByOrg: [string, string[]][] = [];
   github.searchDirectRequested = async (org) => {
     directQueries.push(org);
     return { items: [], complete: true };
