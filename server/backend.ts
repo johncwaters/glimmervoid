@@ -9,7 +9,7 @@ import { createConfigStore, generateProjectId, ensureProjectIds, glimmervoidHome
 import type { GlimmervoidConfig } from './config-store.ts';
 import { createLifecycle } from './server-lifecycle.ts';
 import { execFileAsync, spawn } from './child-process-safe.ts';
-import { createBackendHttpApp } from './backend-http.ts';
+import { createAgentIngressApp, createBackendHttpApp } from './backend-http.ts';
 import { createHostUrlOpener } from './host-url-opener.ts';
 import { createAgentApiWiring } from './agent-api-wiring.ts';
 import type { AgentApiPort } from './agent-api-wiring.ts';
@@ -26,6 +26,7 @@ import {
 } from './session-registry.ts';
 import { createBackendLanes } from './backend-lanes.ts';
 import type { BackendLaneOptions } from './backend-lanes.ts';
+import type { AgentIngressDependencies } from './backend-http.ts';
 import { decideWasActiveFlip, shouldStartAfterModify } from './core/session-registry-core.ts';
 import { createBackendHealth } from './backend-health.ts';
 import { createBackendNotifications } from './backend-notifications.ts';
@@ -48,6 +49,8 @@ interface CreateBackendOptions extends BackendLaneOptions {
   checkForUpdate?: CheckForUpdate | null;
   onRestart?: (() => void) | null;
 }
+
+const AGENT_INGRESS_HOST = '127.0.0.1';
 
 function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const { staticDir = 'auto', settingsDefaults } = options;
@@ -112,7 +115,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   let agentApi: AgentApiPort | null = null;
   let gitWorkspace: ReturnType<typeof createBackendLanes>['gitWorkspace'] | null = null;
   const sessionRuntime = createBackendSessionRuntime({
-    httpServer,
     config,
     configStore,
     getGitWorkspace: () => gitWorkspace,
@@ -121,22 +123,13 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     recordOutcome,
     logger: console,
   });
-  const { getHookPort, hookRouter, makeSession, rtkInstall } = sessionRuntime;
+  const { agentIngressServer, getHookPort, hookRouter, makeSession, rtkInstall } = sessionRuntime;
 
   const getCurrentIngestLane = () => laneAssembly.currentIngest();
   const getCurrentVisionsLane = () => laneAssembly.currentVisions();
 
-  const app = createBackendHttpApp({
-    staticDir,
-    configStore,
-    remote,
-    remoteAuth,
+  const agentIngressDependencies: AgentIngressDependencies = {
     allowedHosts,
-    listenerPortsFor,
-    pageToken,
-    remoteListenerPort,
-    tokenMatches,
-    openUrlOnHost: createHostUrlOpener(),
     hookRouter,
     getSession: getSessionAny,
     getUsage: () => usage,
@@ -149,6 +142,25 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getFactory: () => factory,
     recordOutcome,
     logger: console,
+  };
+  const app = createBackendHttpApp({
+    ...agentIngressDependencies,
+    staticDir,
+    configStore,
+    remote,
+    remoteAuth,
+    listenerPortsFor,
+    pageToken,
+    remoteListenerPort,
+    tokenMatches,
+    openUrlOnHost: createHostUrlOpener(),
+  });
+  agentIngressServer.on('request', createAgentIngressApp(agentIngressDependencies));
+  agentIngressServer.listen(0, AGENT_INGRESS_HOST);
+  agentIngressServer.unref();
+  httpServer.once('close', () => {
+    agentIngressServer.close();
+    agentIngressServer.closeAllConnections();
   });
 
   const webSockets = createBackendWebSockets({
@@ -413,6 +425,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const { requestShutdown, requestRestart } = createLifecycle({
     shutdown,
     httpServer,
+    extraServers: [agentIngressServer],
     onRestart: options.onRestart || null,
     spawn,
     beforeHandOff: updateApply.handOffStagedUpdate,

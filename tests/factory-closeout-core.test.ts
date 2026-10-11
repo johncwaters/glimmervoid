@@ -8,29 +8,44 @@ const fenceInput = { writeScopes: ['src'], protectedPaths: DEFAULT_FACTORY_PROTE
 test('factory fence admits contained paths and rejects scope siblings and traversal', () => {
   assert.deepEqual(checkFence({ ...fenceInput, changedPaths: ['src/index.ts', 'src/nested/a.ts'] }), { ok: true });
   assert.deepEqual(checkFence({ ...fenceInput, changedPaths: ['src-other/a.ts', '../src/a.ts', 'src/../a.ts'] }), {
-    ok: false, outside: ['src-other/a.ts', '../src/a.ts', 'src/../a.ts'], protected: [],
+    ok: false, outside: ['src-other/a.ts', '../src/a.ts', 'src/../a.ts'], protected: [], unsupportedProtectedPaths: [],
   });
 });
 
 test('factory fence protects directories and basenames at every depth', () => {
   assert.deepEqual(checkFence({ ...fenceInput, writeScopes: ['.'], changedPaths: ['.github/ci.yml', '.claude/settings.json', 'src/AGENTS.md', 'src/nested/CLAUDE.md', 'AGENTS.md', 'package.json', 'CLAUDE.local.md', 'src/nested/CLAUDE.local.md'] }), {
-    ok: false, outside: [], protected: ['.github/ci.yml', '.claude/settings.json', 'src/AGENTS.md', 'src/nested/CLAUDE.md', 'AGENTS.md', 'package.json', 'CLAUDE.local.md', 'src/nested/CLAUDE.local.md'],
+    ok: false, outside: [], protected: ['.github/ci.yml', '.claude/settings.json', 'src/AGENTS.md', 'src/nested/CLAUDE.md', 'AGENTS.md', 'package.json', 'CLAUDE.local.md', 'src/nested/CLAUDE.local.md'], unsupportedProtectedPaths: [],
   });
   assert.deepEqual(checkFence({ ...fenceInput, writeScopes: ['.'], changedPaths: ['.github-other/a.ts', 'src/AGENTS.md.backup'] }), { ok: true });
 });
 
 test('factory fence refuses every coherence change, including the owning worker session traces', () => {
   assert.deepEqual(checkFence({ ...fenceInput, writeScopes: ['.'], protectedPaths: [], changedPaths: ['.coherence/activity/worker-session.jsonl', '.coherence/decisions/worker-session.jsonl', '.coherence/work/order.jsonl'] }), {
-    ok: false, outside: [], protected: ['.coherence/activity/worker-session.jsonl', '.coherence/decisions/worker-session.jsonl', '.coherence/work/order.jsonl'],
+    ok: false, outside: [], protected: ['.coherence/activity/worker-session.jsonl', '.coherence/decisions/worker-session.jsonl', '.coherence/work/order.jsonl'], unsupportedProtectedPaths: [],
   });
 });
 
 test('factory fence matches protected paths case-insensitively on both sides', () => {
   const changedPaths = ['server/claude.md', '.Claude/settings.json', '.GITHUB/workflows/ci.yml', 'Package.JSON', '.Coherence/work/order.jsonl', 'src/Agents.Md'];
-  assert.deepEqual(checkFence({ ...fenceInput, writeScopes: ['.'], changedPaths }), { ok: false, outside: [], protected: changedPaths });
+  assert.deepEqual(checkFence({ ...fenceInput, writeScopes: ['.'], changedPaths }), { ok: false, outside: [], protected: changedPaths, unsupportedProtectedPaths: [] });
   assert.deepEqual(checkFence({ ...fenceInput, writeScopes: ['.'], protectedPaths: ['SRC/Generated/'], changedPaths: ['src/generated/a.ts'] }), {
-    ok: false, outside: [], protected: ['src/generated/a.ts'],
+    ok: false, outside: [], protected: ['src/generated/a.ts'], unsupportedProtectedPaths: [],
   });
+});
+
+test('factory fence matches a wildcard inside one path segment and treats unsupported patterns as protecting everything', () => {
+  const wildcardFence = { writeScopes: ['.'], protectedPaths: ['server/factory-*', 'docs/*/plan.md', '**/*.lock', 'scripts/*/'] };
+  assert.deepEqual(checkFence({ ...wildcardFence, changedPaths: ['server/factory-closeout.ts', 'docs/factory/plan.md', 'nested/yarn.lock', 'scripts/release/run.ts', 'server/core/factory-core.ts', 'server/factory-x/a.ts', 'docs/plan.md', 'scripts.ts'] }), {
+    ok: false, outside: [], protected: ['server/factory-closeout.ts', 'docs/factory/plan.md', 'nested/yarn.lock', 'scripts/release/run.ts'], unsupportedProtectedPaths: [],
+  });
+  for (const unsupportedPattern of ['server/**/core.ts', 'src/[ab].ts', 'src/{a,b}.ts', 'src/a?.ts', '!src/a.ts', '**/nested/AGENTS.md', '**/', '.']) {
+    const fence = checkFence({ writeScopes: ['.'], protectedPaths: [unsupportedPattern], changedPaths: ['unrelated/file.ts'] });
+    assert.deepEqual(fence, {
+      ok: false, outside: [], protected: ['unrelated/file.ts'], unsupportedProtectedPaths: [unsupportedPattern],
+    }, unsupportedPattern);
+    const decision = decideCloseOut({ fence, checks: [], review: null, attempt: 3 });
+    assert.ok(decision.action === 'block' && decision.reason.includes(`each blocks every change: ${JSON.stringify(unsupportedPattern)}`), unsupportedPattern);
+  }
 });
 
 test('factory checks split whitespace and refuse shell operators and quoting', () => {
@@ -46,7 +61,7 @@ test('factory close-out merges only all-pass results including the third attempt
 });
 
 test('factory close-out retries every failure with bounded concrete feedback', () => {
-  const decision = decideCloseOut({ fence: { ok: false, outside: ['outside.ts'], protected: ['package.json'] },
+  const decision = decideCloseOut({ fence: { ok: false, outside: ['outside.ts'], protected: ['package.json'], unsupportedProtectedPaths: [] },
     checks: [{ command: 'npm test', pass: false, output: 'test failed' }], review: { pass: false, findings: ['criterion unmet'] }, attempt: 2 });
   assert.equal(decision.action, 'retry');
   if (decision.action !== 'retry') throw new Error('Expected retry');

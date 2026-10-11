@@ -1,4 +1,4 @@
-import type { Server } from 'node:http';
+import http from 'node:http';
 import { HookRouter } from '../detection/hook-source.ts';
 import { sweepOrphans } from '../detection/settings-injector.ts';
 import { hooksForProject } from '../session/core/user-hooks-core.ts';
@@ -13,7 +13,6 @@ import { createSessionFactory } from './session-factory.ts';
 import { buildSettingsPayload } from './settings-payload.ts';
 
 interface BackendSessionRuntimeDependencies {
-  httpServer: Server;
   config: GlimmervoidConfig;
   configStore: ConfigStore;
   getGitWorkspace: () => GitWorkspace | null;
@@ -25,8 +24,9 @@ interface BackendSessionRuntimeDependencies {
 
 function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependencies) {
   const hookRouter = new HookRouter({ recordOutcome: dependencies.recordOutcome });
+  const agentIngressServer = http.createServer();
   const getHookPort = (): number | null => {
-    const address = dependencies.httpServer?.address();
+    const address = agentIngressServer.address();
     if (!address || typeof address !== 'object' || !address.port) return null;
     return address.port;
   };
@@ -56,7 +56,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     getUserHooks: (projectId: string) => hooksForProject(dependencies.config.hooks, projectId),
   });
 
-  return { getHookPort, hookRouter, makeSession, rtkInstall };
+  return { agentIngressServer, getHookPort, hookRouter, makeSession, rtkInstall };
 }
 
 export { createBackendSessionRuntime };

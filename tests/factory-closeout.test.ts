@@ -9,6 +9,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
+import { execFileAsync } from '../server/child-process-safe.ts';
+import type { PrepareFactoryCheckRunner } from '../server/factory-check-sandbox.ts';
 import { createFactoryCloseOut } from '../server/factory-closeout.ts';
 import type { FactoryCloseOutWorker } from '../server/factory-closeout.ts';
 import { commitAndLandFactoryLedger, hasCodeChangedBetween, screenPendingLedgerWrites } from '../server/factory-ledger.ts';
@@ -24,6 +26,11 @@ import { FactoryLaneState, FactoryWorkerEvent } from '../shared/contracts/factor
 import type { GlimmervoidConfig } from '../server/config-store.ts';
 import type { FactoryWatchEntry } from '../shared/contracts/factory.ts';
 import type { Config } from '../shared/contracts/config.ts';
+
+const prepareUnsandboxedCheckRunner: PrepareFactoryCheckRunner = async () => ({
+  runCheck: (argv, options) => execFileAsync(argv[0], argv.slice(1), options),
+  dispose: async () => {},
+});
 
 async function createFixture(context: TestContext, activateOrder = true) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'factory-closeout-'));
@@ -56,6 +63,7 @@ async function createFixture(context: TestContext, activateOrder = true) {
   let reviewBarrier: (() => Promise<void>) | null = null;
   let mergeReason: string | null = null;
   let mergedSha: string | null = null;
+  let prepareCheckRunner = prepareUnsandboxedCheckRunner;
   const config: Pick<Config, 'factory' | 'worktreeShare'> = { factory: { enabled: true, checks: [`${process.execPath} --version`], reviewerModel: 'sonnet' }, worktreeShare: ['node_modules'] };
   const baseEnv: NodeJS.ProcessEnv = { ...process.env };
   const worker: FactoryCloseOutWorker = {
@@ -80,7 +88,7 @@ async function createFixture(context: TestContext, activateOrder = true) {
     serializeProject: coherenceLedger.serializeProject,
     readIntegrationSha: () => git(['rev-parse', 'integration']),
     recordFactoryLandedSha: async () => {},
-    readPaused: async () => isPaused, baseEnv,
+    readPaused: async () => isPaused, baseEnv, prepareCheckRunner: (paths) => prepareCheckRunner(paths),
     appendWatch: async (entry) => {
       if (shouldFailWatchWrite) throw new Error('Watch state is unwritable');
       watches.push(entry);
@@ -118,6 +126,7 @@ async function createFixture(context: TestContext, activateOrder = true) {
     setVerdict: (nextVerdict: unknown) => { verdict = nextVerdict; },
     setReviewBarrier: (barrier: () => Promise<void>) => { reviewBarrier = barrier; },
     setMergeReason: (reason: string) => { mergeReason = reason; },
+    setCheckRunner: (nextPrepareCheckRunner: PrepareFactoryCheckRunner) => { prepareCheckRunner = nextPrepareCheckRunner; },
   };
 }
 
@@ -176,6 +185,16 @@ test('failing repo check retries with captured output and never runs a reviewer'
   await fixture.closeOut.turnEnded(fixture.worker);
   assert.match(fixture.feedback[0], /failed check evidence/);
   assert.equal(fixture.reviewRequests.length, 0);
+});
+
+test('a check sandbox that cannot be prepared fails the attempt and never merges or runs a reviewer', async (context) => {
+  const fixture = await createFixture(context);
+  await fixture.commitChange();
+  fixture.setCheckRunner(async () => { throw new Error('check sandbox is unavailable'); });
+  await fixture.closeOut.turnEnded(fixture.worker);
+  assert.match(fixture.feedback[0], /check sandbox is unavailable/);
+  assert.equal(fixture.reviewRequests.length, 0);
+  assert.equal(fixture.mergedSha(), null);
 });
 
 test('third factory failure blocks the ledger order and raises an exception', async (context) => {
@@ -444,7 +463,7 @@ async function startFactoryWiring(fixture: Awaited<ReturnType<typeof createFixtu
   await mkdir(path.dirname(statePath), { recursive: true });
   await writeFile(statePath, JSON.stringify({ ledgerPath: fixture.ledger.cwd, ledgerBranch: fixture.ledger.branch, paused: false, trustedIntentIds: [fixture.worker.intentId] }));
   const wiring = createFactoryWiring({
-    config, homeDir, now: () => nowMs, readSpentTodayUsd: () => ({ status: 'known', amountUsd: 1 }),
+    config, homeDir, now: () => nowMs, readSpentTodayUsd: () => ({ status: 'known', amountUsd: 1 }), prepareCheckRunner: prepareUnsandboxedCheckRunner,
     notify: (_projectName, category, message) => { notifications.push({ category, message }); }, gitWorkspace: fixture.gitWorkspace, firstTickDelayMs: () => 0, broadcast: () => {},
     orchestratorOptions: {
       getHookPort: () => 3911,

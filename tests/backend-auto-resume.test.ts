@@ -293,7 +293,9 @@ test('createBackend defers boot auto-resume until the HTTP listener has a hook p
     assert.notEqual(settingsIndex, -1, 'auto-resume spawn includes injected settings');
     const settingsPath = calls[0].args[settingsIndex + 1];
     const settingsText = fs.readFileSync(settingsPath, 'utf8');
-    assert.match(settingsText, new RegExp(`http://127\\.0\\.0\\.1:${port}/hook/boot-picked/stop`));
+    const hookPort = Number(settingsText.match(/http:\/\/127\.0\.0\.1:(\d+)\/hook\/boot-picked\/stop/)?.[1]);
+    assert.notEqual(hookPort, port, 'sessions post hooks to their own listener, never the dashboard port');
+    assert.equal((await fetch(`http://127.0.0.1:${hookPort}/control-token`)).status, 404);
     const resumeIndex = calls[0].args.indexOf('--resume');
     assert.notEqual(resumeIndex, -1, 'auto-resume keeps the resume argument');
     assert.equal(calls[0].args[resumeIndex + 1], resumeSessionId);

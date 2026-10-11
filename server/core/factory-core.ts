@@ -1,4 +1,5 @@
 import { stripVTControlCharacters } from 'node:util';
+import { LANE_CREDENTIAL_DENY_READ } from './lane-posture-core.ts';
 import { contentMarker } from './visions-dispatch-core.ts';
 import { DEFAULT_FACTORY_CHECKS, DEFAULT_FACTORY_PROTECTED_PATHS } from '../../shared/contracts/browser-config.ts';
 import type { Config } from '../../shared/contracts/config.ts';
@@ -338,8 +339,38 @@ export function buildWorkerPrompt({ projectName, intent, order, claudeSessionId,
   ].join('\n');
 }
 
-export type FactoryFence = { ok: true } | { ok: false; outside: string[]; protected: string[] };
+export type FactoryFence = { ok: true } | { ok: false; outside: string[]; protected: string[]; unsupportedProtectedPaths: string[] };
 export type FactoryCheck = { command: string; pass: boolean; output: string };
+
+const UNSUPPORTED_PROTECTED_PATH_SYNTAX = /[?[\]{}!]|\*\*/;
+
+function segmentMatchesPattern(pattern: string, segment: string): boolean {
+  if (!pattern.includes('*')) return pattern === segment;
+  const expression = pattern.split('*').map((literal) => literal.replace(/[.+^$()|\\]/g, '\\$&')).join('[^/]*');
+  return new RegExp(`^${expression}$`).test(segment);
+}
+
+function protectsEveryPath(foldedProtectedPath: string): boolean {
+  const isBasenamePattern = foldedProtectedPath.startsWith('**/');
+  const patternBody = isBasenamePattern ? foldedProtectedPath.slice(3) : foldedProtectedPath;
+  if (UNSUPPORTED_PROTECTED_PATH_SYNTAX.test(patternBody)) return true;
+  if (isBasenamePattern) return patternBody === '' || patternBody.includes('/');
+  return !normalizeScope(patternBody);
+}
+
+function matchesProtectedPath(foldedProtectedPath: string, foldedPath: string): boolean {
+  if (protectsEveryPath(foldedProtectedPath)) return true;
+  const isBasenamePattern = foldedProtectedPath.startsWith('**/');
+  const patternBody = isBasenamePattern ? foldedProtectedPath.slice(3) : foldedProtectedPath;
+  const pathSegments = foldedPath.split('/');
+  if (isBasenamePattern) return segmentMatchesPattern(patternBody, pathSegments.at(-1) ?? '');
+  const protectedScope = normalizeScope(patternBody);
+  if (protectedScope === null) return true;
+  const patternSegments = protectedScope.split('/');
+  if (pathSegments.length < patternSegments.length) return false;
+  if (!patternBody.endsWith('/') && pathSegments.length !== patternSegments.length) return false;
+  return patternSegments.every((patternSegment, index) => segmentMatchesPattern(patternSegment, pathSegments[index] ?? ''));
+}
 
 export function checkFence({ changedPaths, writeScopes, protectedPaths }: {
   changedPaths: string[]; writeScopes: string[]; protectedPaths: string[];
@@ -355,18 +386,27 @@ export function checkFence({ changedPaths, writeScopes, protectedPaths }: {
     }
     if (!scopes.some((scope) => scope !== null && containsScope(scope, normalized))) outside.push(changedPath);
     const folded = normalized.toLowerCase();
-    const isProtected = isCoherenceLedgerPath(normalized) || protectedPaths.some((protectedPath) => {
-      const foldedProtectedPath = protectedPath.toLowerCase();
-      if (foldedProtectedPath.startsWith('**/')) return folded.split('/').at(-1) === foldedProtectedPath.slice(3);
-      const protectedScope = normalizeScope(foldedProtectedPath);
-      if (protectedScope === null) return true;
-      if (foldedProtectedPath.endsWith('/')) return containsScope(protectedScope, folded);
-      return folded === protectedScope;
-    });
+    const isProtected = isCoherenceLedgerPath(normalized) || protectedPaths.some((protectedPath) => matchesProtectedPath(protectedPath.toLowerCase(), folded));
     if (isProtected) protectedChanges.push(changedPath);
   }
   if (outside.length === 0 && protectedChanges.length === 0) return { ok: true };
-  return { ok: false, outside, protected: protectedChanges };
+  const unsupportedProtectedPaths = protectedPaths.filter((protectedPath) => protectsEveryPath(protectedPath.toLowerCase()));
+  return { ok: false, outside, protected: protectedChanges, unsupportedProtectedPaths };
+}
+
+const FACTORY_CHECK_AGENT_HOMES = Object.freeze(['~/.claude', '~/.codex']);
+const FACTORY_CHECK_SHARED_WRITE_PATHS = Object.freeze(['/tmp/claude', '/private/tmp/claude', '~/.npm/_logs']);
+
+export function buildFactoryCheckSandboxSettings({ writablePaths, privatePaths }: { writablePaths: string[]; privatePaths: string[] }) {
+  return {
+    network: { allowedDomains: [], deniedDomains: [], allowLocalBinding: false },
+    filesystem: {
+      denyRead: [...LANE_CREDENTIAL_DENY_READ, ...FACTORY_CHECK_AGENT_HOMES, ...privatePaths],
+      allowRead: [],
+      allowWrite: [...writablePaths],
+      denyWrite: [...FACTORY_CHECK_SHARED_WRITE_PATHS],
+    },
+  };
 }
 
 export function parseCheckCommand(command: string): string[] | null {
@@ -380,6 +420,7 @@ export function decideCloseOut({ fence, checks, review, attempt }: {
   const failures: string[] = [];
   const checkOutputs: string[] = [];
   if (!fence.ok) {
+    if (fence.unsupportedProtectedPaths.length > 0) failures.push(`Unsupported protected path entries, each blocks every change: ${fence.unsupportedProtectedPaths.map((entry) => JSON.stringify(entry)).join(', ')}`);
     if (fence.outside.length > 0) failures.push(`Outside write scopes: ${fence.outside.join(', ')}`);
     if (fence.protected.length > 0) failures.push(`Protected paths: ${fence.protected.join(', ')}`);
   }

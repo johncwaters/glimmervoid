@@ -273,19 +273,21 @@ function answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, to
   });
 }
 
-function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
+type AgentIngressDependencies = Pick<BackendHttpDependencies,
+  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'getPlanReview' | 'refocusContextFor' | 'getFactory' | 'getAgentApi' | 'recordOutcome' | 'logger'>;
+
+function mountHostAllowList(app: Express, allowedHosts: string[]): void {
+  app.use((req, res, next) => {
+    if (decideHostAllowed(req.headers.host, allowedHosts)) {
+      next();
+      return;
+    }
+    res.status(403).type('text/plain').send('Host not allowed');
+  });
+}
+
+function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDependencies): void {
   const {
-    staticDir,
-    customSoundsDir = resolveCustomSoundsDir(glimmervoidHomeDir()),
-    configStore,
-    remote,
-    remoteAuth,
-    allowedHosts,
-    listenerPortsFor,
-    pageToken,
-    remoteListenerPort = null,
-    tokenMatches = () => false,
-    openUrlOnHost = async () => 'unsupported-platform',
     hookRouter,
     getSession,
     getUsage,
@@ -296,34 +298,6 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
     recordOutcome = () => {},
     logger = console,
   } = dependencies;
-  const app = express();
-
-  app.use((req, res, next) => {
-    if (decideHostAllowed(req.headers.host, allowedHosts)) {
-      next();
-      return;
-    }
-    res.status(403).type('text/plain').send('Host not allowed');
-  });
-
-  if (remoteAuth) {
-    app.use(remoteAuth.httpMiddleware);
-    remoteAuth.mountPairRoutes(app);
-  }
-
-  app.get('/control-token', (req, res) => {
-    const origin = req.headers.origin;
-    if (origin && !decideOriginAllowed(origin, remote.allowedOrigins, { listenerPorts: listenerPortsFor(req.socket) })) {
-      res.status(403).json({ error: 'origin not allowed' });
-      return;
-    }
-    res.setHeader('Cache-Control', 'no-store');
-    res.json({ token: pageToken });
-  });
-
-  app.post('/open-external', (req, res) => {
-    answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, tokenMatches, openUrlOnHost, logger });
-  });
 
   app.post('/hook/:glimmervoidId/:event', (req, res) => {
     if (!isLoopbackRequest(req)) {
@@ -416,6 +390,55 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
       answerAgentVerb({ res, agentApi, session, verb: req.params.verb, payload: parseJsonBody(body) });
     });
   });
+}
+
+function createAgentIngressApp(dependencies: AgentIngressDependencies): Express {
+  const app = express();
+  mountHostAllowList(app, dependencies.allowedHosts);
+  mountAgentIngressRoutes(app, dependencies);
+  return app;
+}
+
+function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
+  const {
+    staticDir,
+    customSoundsDir = resolveCustomSoundsDir(glimmervoidHomeDir()),
+    configStore,
+    remote,
+    remoteAuth,
+    allowedHosts,
+    listenerPortsFor,
+    pageToken,
+    remoteListenerPort = null,
+    tokenMatches = () => false,
+    openUrlOnHost = async () => 'unsupported-platform',
+    getSession,
+    logger = console,
+  } = dependencies;
+  const app = express();
+
+  mountHostAllowList(app, allowedHosts);
+
+  if (remoteAuth) {
+    app.use(remoteAuth.httpMiddleware);
+    remoteAuth.mountPairRoutes(app);
+  }
+
+  app.get('/control-token', (req, res) => {
+    const origin = req.headers.origin;
+    if (origin && !decideOriginAllowed(origin, remote.allowedOrigins, { listenerPorts: listenerPortsFor(req.socket) })) {
+      res.status(403).json({ error: 'origin not allowed' });
+      return;
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ token: pageToken });
+  });
+
+  app.post('/open-external', (req, res) => {
+    answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, tokenMatches, openUrlOnHost, logger });
+  });
+
+  mountAgentIngressRoutes(app, dependencies);
 
   const uploadsRoot = configSiblingPath(configStore.configPath, 'uploads');
   app.post('/upload/:sessionId', (req, res) => {
@@ -473,5 +496,5 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
   return app;
 }
 
-export { createBackendHttpApp };
-export type { BackendHttpDependencies };
+export { createAgentIngressApp, createBackendHttpApp };
+export type { AgentIngressDependencies, BackendHttpDependencies };

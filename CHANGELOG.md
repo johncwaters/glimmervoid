@@ -31,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Monospace everywhere**: the dashboard no longer falls back to a sans font for text without its own font rule, such as session task descriptions, header buttons, the update and telemetry banners, and the Focus empty state. In the focused card the task description and its timer now match the name's 12px size.
 - **Quieter header**: the green connection dot next to the Glimmervoid logo is gone while the dashboard is connected. The dot and its label still appear while connecting, after a disconnect, or once the server shuts down. When the connection comes back after a drop, the arrow before the logo pulses green twice.
 
+### Security
+
+- **Sessions talk to their own port**: agent sessions now send hooks and agent API calls to a separate loopback listener that serves only those two routes, on a port Glimmervoid picks at startup, instead of the dashboard port. On Linux, where the sandbox enforces it, a sandboxed lane is allowed to reach that one port only, so code it runs can no longer reach the dashboard's control channel; macOS is unverified.
+- **Factory checks run sandboxed**: the checks a factory close-out runs on a worker's commit now run inside Anthropic's sandbox runtime (new dependency `@anthropic-ai/sandbox-runtime`) with no network, writes limited to the check checkout and its temp folder, and credential folders, agent homes and Glimmervoid's own state unreadable. A close-out fails instead of running checks when the sandbox cannot start. Linux needs `bwrap`, `socat` and `rg` (ripgrep) on PATH; macOS uses the built-in sandbox and is untested, and a check there that listens on a loopback port fails; Windows cannot run factory checks yet.
+- **Factory protected paths understand wildcards**: an entry in `factory.protectedPaths` may now use `*` inside one path segment, such as `server/factory-*`, which used to match nothing. An entry the fence cannot match blocks every change rather than silently protecting none: one using `?`, `[]`, `{}`, `!` or a `**` other than a leading `**/`, a `**/` not followed by a single file name with no slash (such as `**/dist/`), or one that resolves to the repo root or outside it. The close-out feedback names each such entry.
+
 ### Fixed
 
 - **Sleeping until chip**: the "sleeping until" chip on a session card now clears on its own once the scheduled wakeup has passed, follows the latest wakeup instead of an earlier one it replaced, and clears when the session stops its loop.

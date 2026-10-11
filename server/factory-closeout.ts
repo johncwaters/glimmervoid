@@ -8,7 +8,8 @@ import { DEFAULT_FACTORY_CHECKS, DEFAULT_FACTORY_PROTECTED_PATHS } from '../shar
 import type { Config } from '../shared/contracts/config.ts';
 import { FactoryReviewVerdict } from '../shared/contracts/factory.ts';
 import type { FactoryWatchEntry, FactoryWorkerEvent } from '../shared/contracts/factory.ts';
-import { execFileAsync } from './child-process-safe.ts';
+import { prepareSandboxedCheckRunner } from './factory-check-sandbox.ts';
+import type { FactoryCheckSandbox, PrepareFactoryCheckRunner } from './factory-check-sandbox.ts';
 import { DEFAULT_CONFIG } from './config-store.ts';
 import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, checkFence, decideCloseOut, inheritedSecretValues, listUncommittedWorkPaths, parseCheckCommand, parseFactoryReviewerOutput, redactSecretLines, reviewerOutputTail } from './core/factory-core.ts';
 import type { FactoryCheck } from './core/factory-core.ts';
@@ -61,6 +62,7 @@ export interface FactoryCloseOutDeps {
   setException: (projectId: string, reason: string) => void;
   onReviewingChanged?: () => void;
   baseEnv?: NodeJS.ProcessEnv;
+  prepareCheckRunner?: PrepareFactoryCheckRunner;
 }
 
 function failureText(error: unknown): string {
@@ -111,7 +113,7 @@ export async function runFactoryReview({ spawnReviewer, model, signal, buildProm
 
 export function createFactoryCloseOut({
   config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger, runCoherence, commitAndLand, readIntegrationSha, recordFactoryLandedSha, readPaused,
-  appendWatch, notifyOrchestrator, setException, onReviewingChanged = () => {}, baseEnv = process.env,
+  appendWatch, notifyOrchestrator, setException, onReviewingChanged = () => {}, baseEnv = process.env, prepareCheckRunner = prepareSandboxedCheckRunner,
 }: FactoryCloseOutDeps) {
   const reviewing = new Set<string>();
   const attempts = new Map<string, number>();
@@ -145,10 +147,13 @@ export function createFactoryCloseOut({
   async function runChecksInCleanCheckout(worker: FactoryCloseOutWorker, headSha: string): Promise<FactoryCheck[] | null> {
     const checkoutParent = await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-factory-checks-'));
     const checkoutPath = path.join(checkoutParent, 'checkout');
+    let checkSandbox: FactoryCheckSandbox | null = null;
     try {
       const staged = await gitWorkspace.stageDetachedWorktree({ projectPath: worker.projectPath, worktreePath: checkoutPath, sha: headSha, ...untrustedCheckoutIsolation() });
       if (!staged.ok) throw new Error(`Could not stage the factory check checkout: ${staged.err}`);
       await gitWorkspace.populate({ projectPath: worker.projectPath, wtDir: checkoutPath, shareList: sharedEntries(), ...untrustedCheckoutIsolation() });
+      checkSandbox = await prepareCheckRunner({ checkoutParent, checkoutPath });
+      const { runCheck } = checkSandbox;
       const env = checkEnv();
       const checks: FactoryCheck[] = [];
       for (const command of config.factory?.checks ?? DEFAULT_FACTORY_CHECKS) {
@@ -159,7 +164,7 @@ export function createFactoryCloseOut({
           continue;
         }
         try {
-          const output = await execFileAsync(argv[0], argv.slice(1), { cwd: checkoutPath, env, timeout: 15 * 60_000, maxBuffer: 16 * 1024 * 1024, signal: reviewController.signal });
+          const output = await runCheck(argv, { cwd: checkoutPath, env, timeout: 15 * 60_000, maxBuffer: 16 * 1024 * 1024, signal: reviewController.signal });
           checks.push({ command, pass: true, output: checkOutput(`${output.stdout}\n${output.stderr}`) });
         } catch (error) {
           checks.push({ command, pass: false, output: checkOutput(failureText(error)) });
@@ -167,8 +172,12 @@ export function createFactoryCloseOut({
       }
       return checks;
     } finally {
-      await removeCheckCheckout(worker.projectPath, checkoutPath);
-      await rm(checkoutParent, { recursive: true, force: true });
+      try {
+        await removeCheckCheckout(worker.projectPath, checkoutPath);
+        await rm(checkoutParent, { recursive: true, force: true });
+      } finally {
+        await checkSandbox?.dispose();
+      }
     }
   }
 

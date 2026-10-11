@@ -45,12 +45,13 @@ interface FactoryWiringOptions<ManagedSession extends FactoryOrchestratorSession
   notify?: (projectName: string, category: string, message: string) => void;
   spawnVerifier?: FactoryCloseOutDeps['spawnReviewer'];
   spawnReviewer?: FactoryCloseOutDeps['spawnReviewer'];
+  prepareCheckRunner?: FactoryCloseOutDeps['prepareCheckRunner'];
   orchestratorOptions?: Omit<FactoryOrchestratorDeps<ManagedSession>, 'nodePath' | 'hookCliPath' | 'shimDir' | 'ensureLedger' | 'commitAndLand' | 'readTrustedIntentIds'>;
 }
 
 export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSession = Session>({
   config, broadcast, gitWorkspace = createGitWorkspace(), homeDir = glimmervoidHomeDir(),
-  createPoller = createFactoryPoller, log = console, orchestratorOptions, spawnReviewer, spawnVerifier = spawnReviewer, readSpentTodayUsd = () => ({ status: 'known', amountUsd: 0 }), runHogQL, notify = () => {}, runCoherence: customRunCoherence, ...pollerDeps
+  createPoller = createFactoryPoller, log = console, orchestratorOptions, spawnReviewer, prepareCheckRunner, spawnVerifier = spawnReviewer, readSpentTodayUsd = () => ({ status: 'known', amountUsd: 0 }), runHogQL, notify = () => {}, runCoherence: customRunCoherence, ...pollerDeps
 }: FactoryWiringOptions<ManagedSession>) {
   gitWorkspace = isolateGitWorkspace(gitWorkspace, { disableRepoCommands: true });
   const writtenRecordIdsByCheckout = new Map<string, Set<string>>();
@@ -390,7 +391,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       }) : null;
       const activeCloseOut = spawnReviewer ? createFactoryCloseOut({
         config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, commitAndLand, readIntegrationSha,
-        recordFactoryLandedSha, readPaused,
+        recordFactoryLandedSha, readPaused, prepareCheckRunner,
         appendWatch: (entry) => updateLaneState(entry.projectId, (state) => ({ watch: [...(state.watch ?? []), entry] })),
         notifyOrchestrator,
         setException: raiseException,
