@@ -6,7 +6,7 @@ import { MERGE_CELEBRATION_SCENES, type MergeCelebrationScene } from './merge-ce
 import { isSoundEnabled } from './ui-prefs.ts';
 
 const CONFETTI_PIECE_COUNT = 48;
-const CELEBRATION_DURATION_MS = 7000;
+const CELEBRATION_DURATION_MS = 5600;
 
 const MAX_QUEUED_CELEBRATIONS = 20;
 

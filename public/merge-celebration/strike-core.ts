@@ -1,3 +1,4 @@
+import { ANIMALS } from '../nyan-animals.ts';
 import { freeFallDurationMs, GRAVITY_PX_PER_SECOND_SQUARED, randomBetween, shuffled } from './motion-core.ts';
 
 const PIN_ROW_SIZES = [1, 2, 3, 4];
@@ -9,6 +10,7 @@ const PIN_FRONT_LAYER = 20;
 const PIN_LAYER_STEP_PER_DEPTH = 2;
 const RACK_RIGHT_INSET_PX = 28;
 const BALL_DIAMETER_PX = 18;
+const ANIMAL_BALL_CHANCE = 0.01;
 const BALL_ROLLING_DEPTH = 1.5;
 const BALL_APPROACH_SPIN_DEGREES = 2200;
 const BALL_OVERLAP_INTO_HEAD_PIN_PX = 1;
@@ -158,4 +160,9 @@ export function strikeLaneStyleProperties(): Array<readonly [string, string]> {
     ['--rack-width', `${rackWidthPx}px`],
     ['--pin-width', `${PIN_WIDTH_PX}px`],
   ];
+}
+
+export function pickAnimalBallSprite(random: () => number = Math.random): string | null {
+  if (random() >= ANIMAL_BALL_CHANCE) return null;
+  return ANIMALS[Math.floor(random() * ANIMALS.length)].sprite;
 }
