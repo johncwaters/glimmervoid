@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { STATES } from '../shared/states.ts';
 import { errorMessage } from '../shared/text.ts';
 import type { Session } from '../session/sessions.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
@@ -7,28 +8,40 @@ import { CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import { AgentDispatchRequest } from '../shared/contracts/session.ts';
 import type { FactoryDispatchResult, FactoryProjectState, FactoryWorkerEvent } from '../shared/contracts/factory.ts';
 import { buildCoherenceSessionOverrides } from './core/coherence-session-core.ts';
-import { FACTORY_LEDGER_SESSION, buildWorkerPrompt, decideAdmission, findFactoryProjectPath } from './core/factory-core.ts';
-import type { FactoryLiveWorker } from './core/factory-core.ts';
+import {
+  FACTORY_LEDGER_SESSION, FACTORY_REFUSAL_PAUSED, FACTORY_SANE_YOLO_UNAVAILABLE, buildWorkerPrompt, decideAdmission, findFactoryProjectPath, isTransientAdmissionRefusal,
+  isTurnEndHookEvent,
+} from './core/factory-core.ts';
+import type { FactoryLiveWorker, FactoryStallSession } from './core/factory-core.ts';
+import type { LaneSpend } from './core/usage-scan-core.ts';
 import { parseFilterDriverNames } from './core/git-invocation-core.ts';
-import { LANE_CONFIG_EDIT_DENY_RULES, buildLanePermissions } from './core/lane-permissions-core.ts';
-import { runFactoryGit } from './git-workspace.ts';
+import { LANE_CONFIG_EDIT_DENY_RULES } from './core/lane-permissions-core.ts';
+import { runHardenedGit } from './git-workspace.ts';
 import { registerEphemeralSession } from './ephemeral-session.ts';
+import { resolveRequiredSaneYoloHookTools } from './hook-tools.ts';
+import { resolveLanePosture } from './lane-posture.ts';
+import { LANE_CREDENTIAL_DENY_READ } from './core/lane-posture-core.ts';
+import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import type { FactoryOrchestratorDeps, FactoryOrchestratorSession } from './factory-orchestrator.ts';
 import type { FactoryCloseOutWorker } from './factory-closeout.ts';
 
 const FACTORY_WORKER_DENY = Object.freeze(['Bash(git push:*)', 'Bash(gh:*)', 'Bash(glimmervoid:*)', 'WebFetch', ...LANE_CONFIG_EDIT_DENY_RULES]);
 
-const FACTORY_WORKER_CREDENTIAL_ENV = Object.freeze({
-  SSH_AUTH_SOCK: '', SSH_ASKPASS: '', GIT_ASKPASS: '', GIT_SSH_COMMAND: 'false', GIT_TERMINAL_PROMPT: '0',
-  GH_TOKEN: '', GITHUB_TOKEN: '', GH_ENTERPRISE_TOKEN: '', GITHUB_ENTERPRISE_TOKEN: '',
-});
-
 const FILTER_PROBE_GIT_OPTIONS = { encoding: 'utf8' as const, timeout: 60_000, maxBuffer: 256 * 1024 * 1024 };
 
+type FactoryWorkerRecord<ManagedSession> = FactoryLiveWorker & {
+  session: ManagedSession;
+  repoPath: string;
+  spawnedAtMs: number | null;
+  hasFirstHook: boolean;
+};
+
+export { readLaneCommonGitDir as readFactoryCommonGitDir } from './lane-posture.ts';
+
 async function readFilterDriverNames(cwd: string): Promise<string[]> {
-  const { stdout: trackedPaths } = await runFactoryGit(['ls-files', '-z'], { ...FILTER_PROBE_GIT_OPTIONS, cwd });
+  const { stdout: trackedPaths } = await runHardenedGit(['ls-files', '-z'], { ...FILTER_PROBE_GIT_OPTIONS, cwd });
   if (trackedPaths === '') return [];
-  const { stdout: attributes } = await runFactoryGit(['check-attr', '--stdin', '-z', 'filter'], { ...FILTER_PROBE_GIT_OPTIONS, cwd, input: trackedPaths });
+  const { stdout: attributes } = await runHardenedGit(['check-attr', '--stdin', '-z', 'filter'], { ...FILTER_PROBE_GIT_OPTIONS, cwd, input: trackedPaths });
   return parseFilterDriverNames(attributes);
 }
 
@@ -41,19 +54,22 @@ interface FactoryDispatchDeps<ManagedSession extends FactoryOrchestratorSession 
   ensureLedger: (projectId: string, projectPath: string) => Promise<{ cwd: string }>;
   commitAndLand: (projectId: string, projectPath: string, message: string) => Promise<void>;
   runCoherence: (request: { cwd: string; args: string[] }) => Promise<string>;
-  readSpentTodayUsd: () => number | null;
+  readTodaySpend: () => LaneSpend;
   readPaused: (projectId: string) => Promise<boolean>;
   notifyOrchestrator: (projectId: string, event: FactoryWorkerEvent) => void;
-  setException: (projectId: string, reason: string | null) => void;
+  setException: (projectId: string, reason: string | null, expectedReason?: string) => void;
+  now?: () => number;
 }
 
 export function createFactoryDispatch<ManagedSession extends FactoryOrchestratorSession>({
   config, sessions, makeSession, wireSessionEvents, closeSessionDataClients, broadcast, spawnGate, recordLane,
   nodePath, hookCliPath, shimDir, getOrchestrator, serializeProject, ensureLedger, commitAndLand, runCoherence,
-  readSpentTodayUsd, readPaused, readTrustedIntentIds, notifyOrchestrator, setException, onWorkerTurnEnd, onReadyIntent,
+  readTodaySpend, readPaused, readTrustedIntentIds, notifyOrchestrator, setException, onWorkerTurnEnd, onReadyIntent,
+  now = Date.now, getHookPort, resolveSaneYoloHookTools = resolveRequiredSaneYoloHookTools,
 }: FactoryDispatchDeps<ManagedSession>) {
-  const liveWorkers = new Map<string, FactoryLiveWorker & { session: ManagedSession }>();
+  const liveWorkers = new Map<string, FactoryWorkerRecord<ManagedSession>>();
   const reconciledProjects = new Set<string>();
+  const pendingRefusals = new Map<string, { workId: string; reason: string }>();
   let stopped = false;
   const liveWorkersOf = (projectId: string) => [...liveWorkers.values()].filter((worker) => worker.projectId === projectId);
 
@@ -103,6 +119,8 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
     const { readyIntent } = parsed.data;
     const workId = parsed.data.workId ?? readyIntent ?? intentId;
     const refuse = (reason: string, exception = false): FactoryDispatchResult => {
+      pendingRefusals.delete(projectId);
+      if (!readyIntent && isTransientAdmissionRefusal(reason)) pendingRefusals.set(projectId, { workId, reason });
       if (exception) setException(projectId, reason);
       notifyOrchestrator(projectId, { workId, event: 'refused', detail: reason });
       return { ok: false, reason };
@@ -112,7 +130,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
         const isAuthorized = () => !stopped && config.factory?.enabled === true
           && getOrchestrator(sessionId)?.intentId === intentId;
         if (!isAuthorized()) return refuse('factory orchestrator is no longer live');
-        if (await readPaused(projectId)) return refuse('factory is paused');
+        if (await readPaused(projectId)) return refuse(FACTORY_REFUSAL_PAUSED);
         const project = config.projects.find((candidate) => candidate.id === projectId);
         if (!project) return refuse('unknown factory project');
         const ledger = await ensureLedger(projectId, project.path);
@@ -130,10 +148,19 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
         const admission = decideAdmission({
           order, intent, trustedIntentIds, liveWorkers: liveWorkersOf(projectId),
           maxRisk: config.factory?.maxRisk, maxLiveWorkers: config.factory?.maxLiveWorkers,
-          spentTodayUsd: readSpentTodayUsd(), dailyBudgetUsd: config.factory?.dailyBudgetUsd ?? null,
+          todaySpend: readTodaySpend(), dailyBudgetUsd: config.factory?.dailyBudgetUsd ?? null,
           filterDriverNames: await readFilterDriverNames(ledger.cwd),
         });
         if (!admission.admit) return refuse(admission.reason, admission.exception);
+        pendingRefusals.delete(projectId);
+        const checks = config.factory?.checks ?? DEFAULT_FACTORY_CHECKS;
+        const posture = await resolveLanePosture({
+          access: 'own-worktree', cwd: project.path, writableRoots: [], gitCommit: true, deferWorktree: true,
+          integrationBranch: configuredIntegrationBranch(config), network: { domains: [] }, getHookPort,
+          allowCommands: ['git add', 'git commit', 'coherence context', ...checks], extraDeny: FACTORY_WORKER_DENY,
+          denyRead: LANE_CREDENTIAL_DENY_READ, scrubCredentials: true,
+        }, { resolveSaneYoloHookTools: () => resolveSaneYoloHookTools(config) });
+        if (!posture.ok) return refuse(posture.reason === 'Sane YOLO is unavailable' ? FACTORY_SANE_YOLO_UNAVAILABLE : posture.reason, true);
         if (!order || !intent || !isAuthorized()) return refuse('factory orchestrator is no longer live');
         const workerSessionId = `factory-work-${workId.slice(-8)}`;
         if (sessions.has(workerSessionId)) return refuse('worker session id is already in use');
@@ -147,34 +174,37 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
         ] });
         const launchWorker = async (): Promise<FactoryDispatchResult> => {
           if (!isAuthorized()) throw new Error('factory orchestrator is no longer live');
-          const checks = config.factory?.checks ?? DEFAULT_FACTORY_CHECKS;
           const identity = {
             id: workerSessionId, name: `${project.name} worker ${workId.slice(-8)}`,
             path: project.path, dangerouslySkipPermissions: false,
           };
           const coherence = buildCoherenceSessionOverrides({ claudeSessionId, nodePath, hookCliPath, shimDir });
-          const permissions = buildLanePermissions({ denyTools: FACTORY_WORKER_DENY });
           const worker = makeSession(identity, config, {
-            ...coherence,
+            ...coherence, ...posture.sessionOverrides,
             agent: 'claude-code', ephemeral: true, agentApi: false, requireWorktree: true, dangerouslySkipPermissions: false,
             gitIsolation: { disableRepoCommands: true },
             initialPrompt: buildWorkerPrompt({ projectName: project.name, intent, order, claudeSessionId, checks }),
-            settingsPermissions: {
-              ...permissions.permissions,
-              allow: ['Bash(git add:*)', 'Bash(git commit:*)', 'Bash(coherence context:*)', ...checks.map((check) => `Bash(${check}:*)`)],
-            },
-            extraClaudeArgs: [...coherence.extraClaudeArgs, ...permissions.args],
-            spawnEnv: { ...coherence.spawnEnv, ...FACTORY_WORKER_CREDENTIAL_ENV },
+            extraClaudeArgs: [...coherence.extraClaudeArgs, ...posture.sessionOverrides.extraClaudeArgs],
+            spawnEnv: { ...coherence.spawnEnv, ...posture.sessionOverrides.spawnEnv },
           });
           const closeOutWorker: FactoryCloseOutWorker = {
             workId, intentId, projectId, projectPath: project.path, baseSha: null,
             objective: order.opened.objective, criteria: order.opened.criteria, writeScopes: order.opened.writeScopes, session: worker,
           };
-          worker.on('worktree-ready', () => {
+          const liveWorker: FactoryWorkerRecord<ManagedSession> = { workId, sessionId: identity.id, writeScopes: order.opened.writeScopes, projectId, session: worker,
+            repoPath: project.path, spawnedAtMs: null, hasFirstHook: false };
+          worker.on('worktree-ready', ({ worktreeDir, branch, base }: { worktreeDir: string; branch: string | null; base: string | null }) => {
             if ('baseSha' in worker && typeof worker.baseSha === 'string') closeOutWorker.baseSha = worker.baseSha;
+            try {
+              posture.scopeWorktree({ worktreeDir, branch, base });
+            } catch (error) {
+              setException(projectId, `Factory worker sandbox could not be scoped to its worktree: ${errorMessage(error)}`);
+              worker.destroy();
+            }
           });
           worker.on('hook-event', ({ event, payload }: { event: string; payload: Record<string, unknown> }) => {
-            if (event !== 'Stop' || (typeof payload.session_id === 'string' && payload.session_id !== claudeSessionId)) return;
+            if (payload.session_id === claudeSessionId) liveWorker.hasFirstHook = true;
+            if (!isTurnEndHookEvent(event) || (typeof payload.session_id === 'string' && payload.session_id !== claudeSessionId)) return;
             void onWorkerTurnEnd?.(closeOutWorker);
           });
           let removed = false;
@@ -192,13 +222,14 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
           try {
             wireSessionEvents(worker);
             registerEphemeralSession({ map: sessions, id: identity.id, sess: worker, closeSessionDataClients, logPrefix: 'factory', name: identity.name, recordLane });
-            liveWorkers.set(identity.id, { workId, sessionId: identity.id, writeScopes: order.opened.writeScopes, projectId, session: worker });
+            liveWorkers.set(identity.id, liveWorker);
             worker.on('exit', onRemoved);
             worker.on('teardown', onRemoved);
             worker.on('error', () => { worker.destroy(); onRemoved(); });
             await spawnGate.run(() => {
               if (!isAuthorized() || worker._destroyed) return undefined;
               broadcast({ type: 'session-added', ...projectSessionCard(worker, { id: identity.id, name: identity.name }), ephemeral: true });
+              liveWorker.spawnedAtMs = now();
               return worker.start();
             });
             if (!isAuthorized() || !worker.hasLivePty || removed) throw new Error('Factory worker did not reach a live terminal');
@@ -227,11 +258,13 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
   }
 
   function releaseProject(projectId: string): void {
+    pendingRefusals.delete(projectId);
     for (const worker of liveWorkersOf(projectId)) worker.session.destroy();
   }
 
   async function stop(): Promise<void> {
     stopped = true;
+    pendingRefusals.clear();
     const reaping = [...liveWorkers.values()].map((worker) => {
       worker.session.destroy();
       return worker.session._killReap;
@@ -239,7 +272,51 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
     await Promise.allSettled(reaping);
   }
 
-  return { dispatch, releaseProject, stop, reconcileActiveOrders,
+  async function renudgeRefusedDispatch(project: FactoryProjectState, ledgerPath: string | null): Promise<void> {
+    const refusal = pendingRefusals.get(project.projectId);
+    const orchestrator = project.orchestrator;
+    if (stopped || !refusal || !ledgerPath || !orchestrator || project.paused) return;
+    if (orchestrator.state !== STATES.IDLE && orchestrator.state !== STATES.COMPLETE) return;
+    await serializeProject(project.projectId, async () => {
+      const context = getOrchestrator(orchestrator.sessionId);
+      if (stopped || config.factory?.enabled !== true || !context || pendingRefusals.get(project.projectId) !== refusal) return;
+      const inspectedWork = await inspectWork(ledgerPath);
+      const admission = decideAdmission({
+        order: inspectedWork.find((order) => order.work === refusal.workId) ?? null,
+        intent: inspectedWork.find((order) => order.work === context.intentId) ?? null,
+        trustedIntentIds: await readTrustedIntentIds(project.projectId),
+        liveWorkers: liveWorkersOf(project.projectId),
+        maxRisk: config.factory?.maxRisk, maxLiveWorkers: config.factory?.maxLiveWorkers,
+        paused: await readPaused(project.projectId),
+        todaySpend: readTodaySpend(), dailyBudgetUsd: config.factory?.dailyBudgetUsd ?? null,
+        filterDriverNames: await readFilterDriverNames(ledgerPath),
+      });
+      if (stopped || pendingRefusals.get(project.projectId) !== refusal) return;
+      if (!admission.admit) {
+        if (!isTransientAdmissionRefusal(admission.reason)) pendingRefusals.delete(project.projectId);
+        return;
+      }
+      const currentOrchestrator = sessions.get(orchestrator.sessionId);
+      if (!currentOrchestrator?.hasLivePty || currentOrchestrator._destroyed) return;
+      if (currentOrchestrator.state !== STATES.IDLE && currentOrchestrator.state !== STATES.COMPLETE) return;
+      if (getOrchestrator(orchestrator.sessionId)?.intentId !== context.intentId) return;
+      pendingRefusals.delete(project.projectId);
+      setException(project.projectId, null, refusal.reason);
+      notifyOrchestrator(project.projectId, { workId: refusal.workId, event: 'dispatch available', detail: refusal.reason });
+    });
+  }
+
+  function getStallSessions(): FactoryStallSession[] {
+    return [...liveWorkers.values()].flatMap((worker) => {
+      const session = worker.session;
+      if (!session.hasLivePty || session._destroyed || worker.spawnedAtMs === null) return [];
+      return [{ projectId: worker.projectId, sessionId: session.id, repoPath: worker.repoPath, role: 'worker' as const,
+        workId: worker.workId, state: session.state, stateSinceMs: session.stateSince,
+        spawnedAtMs: worker.spawnedAtMs, hasFirstHook: worker.hasFirstHook }];
+    });
+  }
+
+  return { dispatch, releaseProject, stop, reconcileActiveOrders, renudgeRefusedDispatch, getStallSessions,
     getLiveWorkers: (projectId: string) => liveWorkersOf(projectId).map(({ workId, sessionId: workerSessionId }) => ({ workId, sessionId: workerSessionId })),
   };
 }

@@ -8,7 +8,7 @@ import { glimmervoidHomeDir } from '../server/config-store.ts';
 import { buildCoherenceShims } from '../server/core/coherence-session-core.ts';
 import { createFactoryPoller } from '../server/factory-poller.ts';
 import type { FactoryPoller } from '../server/factory-poller.ts';
-import { createGitWorkspace, runFactoryGit } from '../server/git-workspace.ts';
+import { createGitWorkspace, runHardenedGit } from '../server/git-workspace.ts';
 import type { GitWorkspaceInstance } from '../server/git-workspace.ts';
 import { CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import { FactoryLaneState } from '../shared/contracts/factory.ts';
@@ -16,6 +16,14 @@ import { createFactoryWiring } from '../server/factory-wiring.ts';
 import { cliPath as glimmervoidCliPath, resolvePackageBin } from '../server/runtime-paths.ts';
 import type { FactoryState } from '../shared/contracts/factory.ts';
 import { createRepositoryWithOrigin, gitRunnerIn, initGitRepository, stubEnvironmentVariable } from './helpers/factory-fixture.ts';
+import { FACTORY_STALL_MS } from '../server/core/factory-core.ts';
+import type { LaneSpend } from '../server/core/usage-scan-core.ts';
+import type { Session } from '../session/sessions.ts';
+import { STATES } from '../shared/states.ts';
+import { plainSession } from './helpers/fake-session.ts';
+import { fakePty } from './helpers/fake-pty.ts';
+import type { SessionSpawnOverrides } from '../server/session-factory.ts';
+import { readCoherenceFixture } from './helpers/factory-coherence-reports.ts';
 import { waitFor } from './helpers/wait-for.ts';
 
 const REAL_PROCESS_DEADLINE_MS = 30_000;
@@ -377,9 +385,10 @@ async function createIntentFixture(context: test.TestContext) {
   const { projectPath, originPath, git } = await createRepositoryWithOrigin(directory, 'integration', { 'coherence.config.json': '{}\n' });
   const config = { factory: { enabled: true }, integrationBranch: 'integration', projects: [{ id: 'project-1', name: 'Factory', path: projectPath }] };
   const broadcasts: FactoryState[] = [];
-  const start = async (gitWorkspace?: GitWorkspaceInstance, runCoherence?: (request: { cwd: string; args: string[] }) => Promise<string>) => {
+  const start = async (gitWorkspace?: GitWorkspaceInstance, runCoherence?: (request: { cwd: string; args: string[] }) => Promise<string>,
+    sessionOptions: Pick<Parameters<typeof createFactoryWiring>[0], 'now' | 'notify' | 'orchestratorOptions' | 'createPoller' | 'readSpentTodayUsd'> = {}) => {
     const wiring = createFactoryWiring({
-      config, homeDir, gitWorkspace, runCoherence, firstTickDelayMs: () => 0,
+      config, homeDir, gitWorkspace, runCoherence, firstTickDelayMs: () => 0, ...sessionOptions,
       broadcast: (message) => broadcasts.push(message),
     });
     wirings.push(wiring);
@@ -528,6 +537,22 @@ test('queue refuses a forged factory record injected after screening and before 
   await assert.rejects(() => fixture.git(['cat-file', '-e', `integration:${forgedPath}`], fixture.originPath));
 });
 
+test('a commit placed on the local integration branch by hand makes the next ledger landing refuse without pushing it', async (context) => {
+  const fixture = await createIntentFixture(context);
+  const wiring = await fixture.start();
+  assert.equal((await wiring.queueIntent(fixture.request)).ok, true);
+  const landedOriginSha = await fixture.git(['rev-parse', 'integration'], fixture.originPath);
+  const integrationTree = await fixture.git(['rev-parse', 'integration^{tree}']);
+  const unreviewedSha = await fixture.git(['commit-tree', integrationTree, '-p', 'integration', '-m', 'Unreviewed change']);
+  await fixture.git(['update-ref', 'refs/heads/integration', unreviewedSha]);
+  const queued = await wiring.queueIntent({ ...fixture.request, objective: 'Second intent' });
+  assert.equal(queued.ok, false);
+  assert.match(queued.error ?? '', /integration branch moved outside the factory/);
+  assert.equal(await fixture.git(['rev-parse', 'integration'], fixture.originPath), landedOriginSha);
+  await assert.rejects(() => fixture.git(['cat-file', '-e', unreviewedSha], fixture.originPath));
+  assert.equal(await fixture.git(['rev-parse', 'integration']), unreviewedSha);
+});
+
 
 for (const mechanism of ['fsmonitor', 'smudge', 'clean', 'process', 'external-diff', 'textconv', 'post-checkout']) {
   test(`factory git suppresses worker-configured ${mechanism} and server secrets in real checkouts`, { skip: process.platform === 'win32' }, async (context) => {
@@ -567,11 +592,11 @@ for (const mechanism of ['fsmonitor', 'smudge', 'clean', 'process', 'external-di
     const checkoutPath = path.join(fixture.homeDir, 'factory', fixture.request.projectId, 'control');
     assert.equal(await readFile(path.join(checkoutPath, 'payload.txt'), 'utf8'), 'original\n');
     await writeFile(path.join(checkoutPath, 'payload.txt'), 'changed\n');
-    await runFactoryGit(['status', '--porcelain'], { cwd: checkoutPath });
-    const diff = await runFactoryGit(['diff', 'HEAD', '--', 'payload.txt'], { cwd: checkoutPath });
+    await runHardenedGit(['status', '--porcelain'], { cwd: checkoutPath });
+    const diff = await runHardenedGit(['diff', 'HEAD', '--', 'payload.txt'], { cwd: checkoutPath });
     assert.match(diff.stdout, /changed/);
-    await runFactoryGit(['add', '--', 'payload.txt'], { cwd: checkoutPath });
-    await runFactoryGit(['restore', '--source=HEAD', '--staged', '--worktree', '--', 'payload.txt'], { cwd: checkoutPath });
+    await runHardenedGit(['add', '--', 'payload.txt'], { cwd: checkoutPath });
+    await runHardenedGit(['restore', '--source=HEAD', '--staged', '--worktree', '--', 'payload.txt'], { cwd: checkoutPath });
     const moved = await gitWorkspace.checkoutDetached({ worktreePath: checkoutPath, sha: wiring.getState()?.projects[0]?.headSha ?? '', disableRepoCommands: true });
     assert.equal(moved.ok, true, moved.err ?? 'Checkout failed');
     await wiring.stop();
@@ -581,3 +606,402 @@ for (const mechanism of ['fsmonitor', 'smudge', 'clean', 'process', 'external-di
     await assert.rejects(access(markerPath), { code: 'ENOENT' });
   });
 }
+
+async function createStallFixture(context: test.TestContext) {
+  const fixture = await createIntentFixture(context);
+  await mkdir(path.join(fixture.projectPath, '.coherence'));
+  await writeFile(path.join(fixture.projectPath, '.coherence', '.gitkeep'), '');
+  await fixture.git(['add', '.coherence']);
+  await fixture.git(['commit', '-m', 'test: prepare ledger']);
+  await fixture.git(['push']);
+  const orient = await readCoherenceFixture('orient-dispatch');
+  const inspection = CoherenceWorkInspect.parse(JSON.parse(await readCoherenceFixture('work-dispatch')));
+  const intent = inspection.work[0];
+  intent.opened.risk = 'low';
+  const child = { ...intent, work: 'wrk-0123456789abcdef', opened: { ...intent.opened, work: 'wrk-0123456789abcdef', parent: intent.work } };
+  inspection.work.push(child);
+  await mkdir(path.dirname(fixture.statePath), { recursive: true });
+  await writeFile(fixture.statePath, JSON.stringify({ ledgerPath: null, ledgerBranch: null, paused: false, trustedIntentIds: [intent.work] }));
+  const notifications: { category: string; message: string }[] = [];
+  const spawned: { session: Session; overrides: SessionSpawnOverrides }[] = [];
+  const pollers: FactoryPoller[] = [];
+  let nowMs = 1_000_000;
+  let todaySpend: LaneSpend = { status: 'known', amountUsd: 0 };
+  let spendDay = new Date(nowMs).toDateString();
+  const commands: string[][] = [];
+  const pastedLines: string[] = [];
+  const wiring = await fixture.start(undefined, async ({ args }) => {
+    commands.push(args);
+    if (args[0] === 'orient') return orient;
+    if (args[0] === 'work' && args[1] === 'inspect') return JSON.stringify(inspection);
+    return JSON.stringify({ id: `record-${args[1]}` });
+  }, {
+    now: () => nowMs,
+    readSpentTodayUsd: () => new Date(nowMs).toDateString() === spendDay ? todaySpend : { status: 'known', amountUsd: 0 },
+    notify: (_projectName, category, message) => { notifications.push({ category, message }); },
+    createPoller: (dependencies) => {
+      const poller = createFactoryPoller(dependencies);
+      pollers.push(poller);
+      return poller;
+    },
+    orchestratorOptions: {
+      getHookPort: () => 3911,
+      config: fixture.config, sessions: new Map<string, Session>(), broadcast: () => {}, closeSessionDataClients: () => {},
+      wireSessionEvents: () => {}, recordLane: () => {}, spawnGate: { run: async (operation) => operation() },
+      makeSession: (identity, _config, overrides) => {
+        const session = plainSession(identity.id, identity.name, identity.path);
+        session.start = async () => {
+          session.ptyProcess = fakePty();
+          session._ptyAlive = true;
+          session.state = STATES.RUNNING;
+          session.stateSince = nowMs;
+        };
+        session.pasteTextWhenReady = (text) => { pastedLines.push(text); return { ok: true, deferred: false }; };
+        spawned.push({ session, overrides });
+        return session;
+      },
+    },
+  });
+  assert.equal(spawned.length, 1);
+  return { wiring, notifications, spawned, child, inspection, commands, pastedLines, config: fixture.config, projectPath: fixture.projectPath,
+    setSpend: (spend: LaneSpend) => { todaySpend = spend; spendDay = new Date(nowMs).toDateString(); },
+    tick: () => pollers[0].refreshNow(), advanceClock: (elapsedMs: number) => { nowMs += elapsedMs; },
+    now: () => nowMs,
+    emitHook: (spawnIndex: number, event = 'PostToolUse') => {
+      const spawn = spawned[spawnIndex];
+      spawn.session.emit('hook-event', { event, payload: { session_id: spawn.overrides.extraClaudeArgs?.[1] } });
+    },
+  };
+}
+
+test('a WAITING orchestrator past 120 seconds raises once, clears on recovery and alerts for a new episode', async (context) => {
+  const fixture = await createStallFixture(context);
+  fixture.emitHook(0);
+  const session = fixture.spawned[0].session;
+  session.state = STATES.WAITING;
+  session.stateSince = fixture.now();
+  fixture.advanceClock(FACTORY_STALL_MS);
+  await fixture.tick();
+  assert.equal(fixture.wiring.getState()?.projects[0].error, null);
+  fixture.advanceClock(1);
+  await fixture.tick();
+  await fixture.tick();
+  const reason = 'factory orchestrator is waiting on a prompt';
+  assert.equal(fixture.wiring.getState()?.projects[0].error, reason);
+  assert.deepEqual(fixture.notifications, [{ category: 'factory', message: reason }]);
+  session.state = STATES.RUNNING;
+  session.stateSince = fixture.now();
+  await fixture.tick();
+  assert.equal(fixture.wiring.getState()?.projects[0].error, null);
+  session.state = STATES.WAITING;
+  session.stateSince = fixture.now();
+  fixture.advanceClock(FACTORY_STALL_MS + 1);
+  await fixture.tick();
+  assert.equal(fixture.notifications.length, 2);
+});
+
+test('a worker with no first hook raises folder trust once and only its matching hook clears it', async (context) => {
+  const fixture = await createStallFixture(context);
+  fixture.emitHook(0);
+  const dispatch = await fixture.wiring.dispatch(fixture.spawned[0].session.id, { workId: fixture.child.work });
+  if (!dispatch.ok) throw new Error(dispatch.reason);
+  assert.equal(dispatch.ok, true);
+  assert.equal(fixture.spawned.length, 2);
+  const worker = fixture.spawned[1].session;
+  worker.emit('hook-event', { event: 'PostToolUse', payload: { session_id: 'another-claude-session' } });
+  worker.emit('hook-event', { event: 'PostToolUse', payload: {} });
+  fixture.advanceClock(FACTORY_STALL_MS + 1);
+  await fixture.tick();
+  await fixture.tick();
+  const reason = `factory worker ${fixture.child.work} session did not start: check Claude Code folder trust for ${fixture.projectPath}`;
+  assert.equal(fixture.wiring.getState()?.projects[0].error, reason);
+  assert.deepEqual(fixture.notifications, [{ category: 'factory', message: reason }]);
+  fixture.emitHook(1, 'SubagentStart');
+  await fixture.tick();
+  assert.equal(fixture.wiring.getState()?.projects[0].error, null);
+  fixture.advanceClock(FACTORY_STALL_MS + 1);
+  await fixture.tick();
+  assert.equal(fixture.notifications.length, 1);
+});
+
+test('an orchestrator without hooks raises folder trust and resets first-hook tracking on respawn', async (context) => {
+  const fixture = await createStallFixture(context);
+  fixture.spawned[0].session.emit('hook-event', { event: 'PostToolUse', payload: { session_id: 'another-claude-session' } });
+  fixture.advanceClock(FACTORY_STALL_MS + 1);
+  await fixture.tick();
+  const reason = `factory orchestrator session did not start: check Claude Code folder trust for ${fixture.projectPath}`;
+  assert.equal(fixture.wiring.getState()?.projects[0].error, reason);
+  assert.deepEqual(fixture.notifications, [{ category: 'factory', message: reason }]);
+  fixture.emitHook(0, 'SubagentStart');
+  await fixture.tick();
+  assert.equal(fixture.wiring.getState()?.projects[0].error, null);
+  fixture.spawned[0].session.destroy();
+  await fixture.tick();
+  assert.equal(fixture.spawned.length, 2);
+  fixture.advanceClock(FACTORY_STALL_MS + 1);
+  await fixture.tick();
+  assert.equal(fixture.notifications.length, 2);
+  assert.equal(fixture.wiring.getState()?.projects[0].error, reason);
+});
+
+test('clearing a prompt stall preserves a later budget refusal exception', async (context) => {
+  const fixture = await createStallFixture(context);
+  fixture.emitHook(0);
+  const session = fixture.spawned[0].session;
+  session.state = STATES.WAITING;
+  session.stateSince = fixture.now();
+  fixture.advanceClock(FACTORY_STALL_MS + 1);
+  await fixture.tick();
+  assert.equal(fixture.notifications.length, 1);
+  Object.assign(fixture.config.factory, { dailyBudgetUsd: 1 });
+  fixture.setSpend({ status: 'known', amountUsd: 2 });
+  await fixture.tick();
+  const dispatch = await fixture.wiring.dispatch(session.id, { workId: fixture.child.work });
+  assert.deepEqual(dispatch, { ok: false, reason: 'daily spend is over budget' });
+  session.state = STATES.RUNNING;
+  await fixture.tick();
+  assert.equal(fixture.wiring.getState()?.projects[0].error, 'daily spend is over budget');
+  assert.equal(fixture.notifications.length, 2);
+});
+
+test('recovering the first hook leaves a simultaneous prompt stall raised until WAITING ends', async (context) => {
+  const fixture = await createStallFixture(context);
+  const session = fixture.spawned[0].session;
+  session.state = STATES.WAITING;
+  session.stateSince = fixture.now();
+  fixture.advanceClock(FACTORY_STALL_MS + 1);
+  await fixture.tick();
+  await fixture.tick();
+  assert.equal(fixture.notifications.length, 2);
+  fixture.emitHook(0);
+  await fixture.tick();
+  assert.equal(fixture.wiring.getState()?.projects[0].error, 'factory orchestrator is waiting on a prompt');
+  assert.equal(fixture.notifications.length, 2);
+  session.state = STATES.RUNNING;
+  await fixture.tick();
+  assert.equal(fixture.wiring.getState()?.projects[0].error, null);
+});
+
+test('a dispatch success that clears the exception slot leaves an active stall on the project error without notifying again', async (context) => {
+  const fixture = await createStallFixture(context);
+  fixture.emitHook(0);
+  const session = fixture.spawned[0].session;
+  session.state = STATES.WAITING;
+  session.stateSince = fixture.now();
+  fixture.advanceClock(FACTORY_STALL_MS + 1);
+  await fixture.tick();
+  const reason = 'factory orchestrator is waiting on a prompt';
+  assert.equal(fixture.wiring.getState()?.projects[0].error, reason);
+  const dispatch = await fixture.wiring.dispatch(session.id, { workId: fixture.child.work });
+  assert.equal(dispatch.ok, true);
+  fixture.emitHook(1);
+  await fixture.tick();
+  await fixture.tick();
+  assert.equal(fixture.wiring.getState()?.projects[0].error, reason);
+  assert.deepEqual(fixture.notifications, [{ category: 'factory', message: reason }]);
+});
+
+test('a stall clearing removes only its own reason and keeps an earlier unrelated exception', async (context) => {
+  const fixture = await createStallFixture(context);
+  fixture.emitHook(0);
+  Object.assign(fixture.config.factory, { dailyBudgetUsd: 1 });
+  fixture.setSpend({ status: 'known', amountUsd: 2 });
+  await fixture.tick();
+  const session = fixture.spawned[0].session;
+  assert.deepEqual(await fixture.wiring.dispatch(session.id, { workId: fixture.child.work }), { ok: false, reason: 'daily spend is over budget' });
+  session.state = STATES.WAITING;
+  session.stateSince = fixture.now();
+  fixture.advanceClock(FACTORY_STALL_MS + 1);
+  await fixture.tick();
+  assert.equal(fixture.wiring.getState()?.projects[0].error, 'daily spend is over budget; factory orchestrator is waiting on a prompt');
+  session.state = STATES.RUNNING;
+  await fixture.tick();
+  assert.equal(fixture.wiring.getState()?.projects[0].error, 'daily spend is over budget');
+});
+
+test('unreadable usage history refuses dispatch once and never re-nudges the idle orchestrator', async (context) => {
+  const fixture = await createStallFixture(context);
+  fixture.emitHook(0);
+  Object.assign(fixture.config.factory, { dailyBudgetUsd: 1 });
+  fixture.setSpend({ status: 'read-failing' });
+  await fixture.tick();
+  const session = fixture.spawned[0].session;
+  const reason = 'daily budget set but usage history cannot be read, so spend is not known';
+  assert.deepEqual(await fixture.wiring.dispatch(session.id, { workId: fixture.child.work }), { ok: false, reason });
+  session.state = STATES.IDLE;
+  fixture.advanceClock(10_000);
+  await fixture.tick();
+  fixture.setSpend({ status: 'known', amountUsd: 0 });
+  fixture.advanceClock(10_000);
+  await fixture.tick();
+  await fixture.tick();
+  assert.equal(fixture.pastedLines.some((line) => line.includes('can be dispatched now')), false);
+  assert.equal(fixture.wiring.getState()?.projects[0].error, reason);
+});
+
+test('unknown spend clearing re-nudges an idle orchestrator exactly once without dispatch side effects', async (context) => {
+  const fixture = await createStallFixture(context);
+  fixture.emitHook(0);
+  Object.assign(fixture.config.factory, { dailyBudgetUsd: 1 });
+  fixture.setSpend({ status: 'catching-up' });
+  await fixture.tick();
+  const session = fixture.spawned[0].session;
+  assert.deepEqual(await fixture.wiring.dispatch(session.id, { workId: fixture.child.work }),
+    { ok: false, reason: 'usage history is still being scanned; spend is not known yet' });
+  session.state = STATES.IDLE;
+  await fixture.tick();
+  fixture.setSpend({ status: 'known', amountUsd: 0 });
+  fixture.advanceClock(10_000);
+  await fixture.tick();
+  await fixture.tick();
+  assert.equal(fixture.spawned.length, 1);
+  assert.equal(fixture.commands.some((command) => command[1] === 'handoff' || command[1] === 'transition'), false);
+  assert.equal(fixture.pastedLines.filter((line) => line.includes('can be dispatched now')).length, 1);
+  assert.ok(fixture.pastedLines.includes(`[factory] ${fixture.child.work} can be dispatched now (usage history is still being scanned; spend is not known yet cleared)`));
+  assert.equal(fixture.wiring.getState()?.projects[0].error, null);
+});
+
+for (const state of [STATES.RUNNING, STATES.WAITING]) {
+  test(`a cleared refusal waits for a ${state} orchestrator to become idle`, async (context) => {
+    const fixture = await createStallFixture(context);
+    fixture.emitHook(0);
+    Object.assign(fixture.config.factory, { maxLiveWorkers: 0 });
+    const session = fixture.spawned[0].session;
+    assert.deepEqual(await fixture.wiring.dispatch(session.id, { workId: fixture.child.work }),
+      { ok: false, reason: 'live worker cap reached' });
+    Object.assign(fixture.config.factory, { maxLiveWorkers: 1 });
+    session.state = state;
+    fixture.advanceClock(10_000);
+    await fixture.tick();
+    assert.equal(fixture.pastedLines.length, 0);
+    session.state = STATES.IDLE;
+    await fixture.tick();
+    await fixture.tick();
+    assert.equal(fixture.pastedLines.filter((line) => line.includes('can be dispatched now')).length, 1);
+  });
+}
+
+test('a permanent risk refusal never re-nudges even when the risk ceiling changes', async (context) => {
+  const fixture = await createStallFixture(context);
+  fixture.emitHook(0);
+  fixture.child.opened.risk = 'high';
+  const session = fixture.spawned[0].session;
+  assert.deepEqual(await fixture.wiring.dispatch(session.id, { workId: fixture.child.work }),
+    { ok: false, reason: 'work order exceeds the risk ceiling' });
+  Object.assign(fixture.config.factory, { maxRisk: 'high' });
+  session.state = STATES.IDLE;
+  fixture.advanceClock(10_000);
+  await fixture.tick();
+  await fixture.tick();
+  assert.equal(fixture.pastedLines.some((line) => line.includes('can be dispatched now')), false);
+});
+
+test('spent daily budget re-nudges only after the local day spend clears', async (context) => {
+  const fixture = await createStallFixture(context);
+  fixture.emitHook(0);
+  Object.assign(fixture.config.factory, { dailyBudgetUsd: 1 });
+  fixture.setSpend({ status: 'known', amountUsd: 2 });
+  await fixture.tick();
+  const session = fixture.spawned[0].session;
+  assert.deepEqual(await fixture.wiring.dispatch(session.id, { workId: fixture.child.work }),
+    { ok: false, reason: 'daily spend is over budget' });
+  session.state = STATES.IDLE;
+  await fixture.tick();
+  assert.equal(fixture.pastedLines.some((line) => line.includes('can be dispatched now')), false);
+  const nextMidnight = new Date(fixture.now());
+  nextMidnight.setHours(24, 0, 0, 0);
+  fixture.advanceClock(nextMidnight.getTime() - fixture.now());
+  await fixture.tick();
+  await fixture.tick();
+  assert.equal(fixture.pastedLines.filter((line) => line.includes('can be dispatched now')).length, 1);
+});
+
+test('config reload preserves the live orchestrator and applies the new worker cap in place', async (context) => {
+  const fixture = await createStallFixture(context);
+  fixture.emitHook(0);
+  const session = fixture.spawned[0].session;
+  const originalConversation = fixture.spawned[0].overrides.extraClaudeArgs?.[1];
+  fixture.config.factory = { enabled: true, ...{ maxLiveWorkers: 0 } };
+  fixture.wiring.restartIfConfigChanged();
+  await fixture.tick();
+  assert.equal(fixture.spawned.length, 1);
+  assert.equal(session._destroyed, false);
+  assert.equal(fixture.spawned[0].overrides.extraClaudeArgs?.[1], originalConversation);
+  assert.deepEqual(await fixture.wiring.dispatch(session.id, { workId: fixture.child.work }),
+    { ok: false, reason: 'live worker cap reached' });
+});
+
+for (const [setting, value] of [['checks', ['node --version']], ['protectedPaths', ['src/']], ['maxRisk', 'high']] as const) {
+  test(`config reload of factory ${setting} stops the live worker and orchestrator spawned under the old permissions`, async (context) => {
+    const fixture = await createStallFixture(context);
+    fixture.emitHook(0);
+    const orchestrator = fixture.spawned[0].session;
+    const dispatch = await fixture.wiring.dispatch(orchestrator.id, { workId: fixture.child.work });
+    assert.equal(dispatch.ok, true);
+    const worker = fixture.spawned[1].session;
+    fixture.config.factory = { ...fixture.config.factory, [setting]: value };
+    fixture.wiring.restartIfConfigChanged();
+    await waitFor(() => worker._destroyed && orchestrator._destroyed, `a ${setting} change stops sessions holding the old permissions`, REAL_PROCESS_DEADLINE_MS);
+  });
+}
+
+test('config reload removes an orchestrator when its project leaves config', async (context) => {
+  const fixture = await createStallFixture(context);
+  const session = fixture.spawned[0].session;
+  fixture.config.projects = [];
+  fixture.wiring.restartIfConfigChanged();
+  await fixture.tick();
+  assert.equal(session._destroyed, true);
+  assert.equal(fixture.wiring.getLiveOrchestrator(session.id), null);
+  assert.equal(fixture.wiring.getState()?.projects.length, 0);
+});
+
+test('config reload destroys a live orchestrator when factory is disabled', async (context) => {
+  const fixture = await createStallFixture(context);
+  const session = fixture.spawned[0].session;
+  fixture.config.factory.enabled = false;
+  fixture.wiring.restartIfConfigChanged();
+  await waitFor(() => session._destroyed && fixture.wiring.getState() === null, 'disabled factory stops its orchestrator', REAL_PROCESS_DEADLINE_MS);
+});
+
+test('clearing a live write scope overlap re-nudges only the last refused order', async (context) => {
+  const fixture = await createStallFixture(context);
+  fixture.emitHook(0);
+  const session = fixture.spawned[0].session;
+  const admitted = await fixture.wiring.dispatch(session.id, { workId: fixture.child.work });
+  assert.equal(admitted.ok, true);
+  const secondOrder = { ...fixture.child, work: 'wrk-abcdef0123456789', opened: { ...fixture.child.opened } };
+  const lastOrder = { ...fixture.child, work: 'wrk-fedcba9876543210', opened: { ...fixture.child.opened } };
+  fixture.inspection.work.push(secondOrder, lastOrder);
+  for (const order of [secondOrder, lastOrder]) {
+    assert.deepEqual(await fixture.wiring.dispatch(session.id, { workId: order.work }),
+      { ok: false, reason: 'write scopes overlap a live worker' });
+  }
+  fixture.spawned[1].session.destroy();
+  session.state = STATES.IDLE;
+  fixture.advanceClock(10_000);
+  await fixture.tick();
+  await fixture.tick();
+  const availabilityLines = fixture.pastedLines.filter((line) => line.includes('can be dispatched now'));
+  assert.equal(availabilityLines.length, 1);
+  assert.ok(availabilityLines[0].includes(`[factory] ${lastOrder.work} can be dispatched now`));
+  assert.equal(availabilityLines[0].includes(`${secondOrder.work} can be dispatched now`), false);
+  assert.equal(fixture.spawned.length, 2);
+});
+
+test('a pending transient refusal is discarded when admission becomes permanently refused', async (context) => {
+  const fixture = await createStallFixture(context);
+  fixture.emitHook(0);
+  Object.assign(fixture.config.factory, { maxLiveWorkers: 0 });
+  const session = fixture.spawned[0].session;
+  assert.deepEqual(await fixture.wiring.dispatch(session.id, { workId: fixture.child.work }),
+    { ok: false, reason: 'live worker cap reached' });
+  fixture.child.opened.risk = 'high';
+  Object.assign(fixture.config.factory, { maxLiveWorkers: 1 });
+  session.state = STATES.IDLE;
+  await fixture.tick();
+  fixture.child.opened.risk = 'low';
+  fixture.advanceClock(10_000);
+  await fixture.tick();
+  assert.equal(fixture.pastedLines.some((line) => line.includes('can be dispatched now')), false);
+});

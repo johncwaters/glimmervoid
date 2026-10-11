@@ -43,7 +43,7 @@ function fakeScanner(
       generationRollup,
     }),
     sessionTotals: () => new Map(),
-    stats: () => ({ dirs: [], files: 0, entries: 0, lastScanMs: 0, lastOutcome: outcome, resolutionError: null }),
+    stats: () => ({ dirs: [], files: 0, entries: 0, lastScanMs: 0, lastOutcome: outcome, isHistoryCaughtUp: outcome === 'complete', resolutionError: null }),
     laneUsageSince: () => [],
     budgetSpend: spend,
     buildReport: () => ({
@@ -159,6 +159,7 @@ function harness({ root, usage = {}, telegram = null, telegramNotifications = fa
   const wiring = createUsageWiring(wiringOptions);
   return {
     wiring,
+    scanner,
     sent,
     telegrams,
     state,
@@ -712,12 +713,12 @@ test('concurrent callers sharing one scan pass hand its generation rollup to tel
   assert.deepEqual(capturedRollups, [generationRollup]);
 });
 
-for (const outcome of ['byte-limited', 'io-failed'] as const) {
-  test(`lane spend is unknown after an incomplete (${outcome}) scan pass so a factory budget cannot read an undercount`, async () => {
+for (const [outcome, status] of [['byte-limited', 'catching-up'], ['io-failed', 'read-failing']] as const) {
+  test(`lane spend is ${status} after a first ${outcome} scan pass so a factory budget cannot read an undercount`, async () => {
     const root = await makeTempRoot();
     const h = harness({ root, outcome });
     await h.wiring.start();
-    assert.equal(h.wiring.laneSpendSince('factory', 0), null);
+    assert.deepEqual(h.wiring.laneSpendSince('factory', 0), { status });
     await h.wiring.stop();
   });
 }
@@ -726,6 +727,19 @@ test('lane spend is known after a complete scan pass', async () => {
   const root = await makeTempRoot();
   const h = harness({ root, outcome: 'complete' });
   await h.wiring.start();
-  assert.equal(h.wiring.laneSpendSince('factory', 0), 0);
+  assert.deepEqual(h.wiring.laneSpendSince('factory', 0), { status: 'known', amountUsd: 0 });
   await h.wiring.stop();
 });
+
+for (const outcome of ['byte-limited', 'io-failed'] as const) {
+  test(`lane spend after catch-up stays known for byte limits and fails closed for ${outcome}`, async () => {
+    const root = await makeTempRoot();
+    const h = harness({ root });
+    await h.wiring.start();
+    h.scanner.stats = () => ({ dirs: [], files: 1, entries: 1, lastScanMs: 0,
+      lastOutcome: outcome, isHistoryCaughtUp: true, resolutionError: null });
+    h.scanner.laneUsageSince = () => [{ lane: 'factory', costUSD: 4.2, tokens: 1000, sessions: 1 }];
+    assert.deepEqual(h.wiring.laneSpendSince('factory', 0), outcome === 'byte-limited' ? { status: 'known', amountUsd: 4.2 } : { status: 'read-failing' });
+    await h.wiring.stop();
+  });
+}

@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import test from 'node:test';
-import { buildFactoryProjectState, collapseWorkerEvents, decideOrchestrator, formatWorkerEvent, verifierDefectEvidence, verifierRejectionNote, factoryStateSignature, nextIntent } from '../server/core/factory-core.ts';
+import { absolutePathEditRule, buildWorkerPrompt, factoryConfigKey, isWorktreeAdminDirOf, parseGitdirPointer, decideFactoryStalls, isTurnEndHookEvent, FACTORY_STALL_MS, buildFactoryProjectState, buildOrchestratorPrompt, collapseWorkerEvents, decideOrchestrator, formatWorkerEvent, verifierDefectEvidence, verifierRejectionNote, factoryStateSignature, nextIntent } from '../server/core/factory-core.ts';
 import { CoherenceOrient, CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
+import type { FactoryStallSession } from '../server/core/factory-core.ts';
+import { STATES } from '../shared/states.ts';
 import { FactoryProjectState } from '../shared/contracts/factory.ts';
 import { readCoherenceFixture } from './helpers/factory-coherence-reports.ts';
 
@@ -113,6 +116,20 @@ test('next intent never picks an untrusted parentless root from the ledger', asy
   assert.equal(nextIntent(orders, new Set(['queued']))?.id, 'queued');
   assert.equal(nextIntent(orders, new Set()), null);
 });
+
+test('orchestrator prompt stops on denied commands and reports dispatch refusals without writing the ledger', async () => {
+  const state = buildFactoryProjectState({
+    ...identity, error: null, orient: CoherenceOrient.parse(await readFixture('orient-dispatch')),
+    work: CoherenceWorkInspect.parse(await readFixture('work-dispatch')),
+  });
+  const intent = state.orders[0];
+  const prompt = buildOrchestratorPrompt({ projectName: 'Factory', intent, claudeSessionId: 'claude-session' });
+  for (const text of [
+    'A denied command means "not allowed here". Do not retry it another way.',
+    'report the refusal reason in one line and stop the turn', 'do not record it in the ledger',
+  ]) assert.ok(prompt.includes(text), text);
+});
+
 const orchestratorInputs = {
   paused: false, laneRunning: true, hasLedger: true, activeIntentId: null, nextIntentId: 'intent',
   orchestratorLive: false, orchestratorIntentId: null, recentExitTimesMs: [], nowMs: 1_000_000,
@@ -172,4 +189,108 @@ test('verifier defect evidence is one bounded line and the floor note keeps the 
   const note = verifierRejectionNote('intent', findings);
   assert.ok(note.startsWith('Verifier rejected intent: Criterion one\nis unmet\n'));
   assert.equal(note.length, 4000);
+});
+
+const stallSession: FactoryStallSession = {
+  sessionId: 'factory-orch-project-1', projectId: 'project-1', repoPath: '/repo', role: 'orchestrator', workId: null,
+  state: STATES.RUNNING, stateSinceMs: 1_000, spawnedAtMs: 1_000, hasFirstHook: true,
+};
+
+for (const state of Object.values(STATES)) {
+  test(`factory stall decision checks prompt waiting in ${state}`, () => {
+    const stalls = decideFactoryStalls({ sessions: [{ ...stallSession, state }], nowMs: 1_001 + FACTORY_STALL_MS });
+    assert.deepEqual(stalls, state === STATES.WAITING ? [{ projectId: 'project-1', episodeId: 'factory-orch-project-1:waiting:1000',
+      reason: 'factory orchestrator is waiting on a prompt' }] : []);
+  });
+}
+
+for (const elapsedMs of [-1, 0, FACTORY_STALL_MS - 1, FACTORY_STALL_MS]) {
+  test(`factory stall decision does not alert at elapsed ${elapsedMs}`, () => {
+    assert.deepEqual(decideFactoryStalls({ sessions: [{ ...stallSession, state: STATES.WAITING, hasFirstHook: false }],
+      nowMs: 1_000 + elapsedMs }), []);
+  });
+}
+
+for (const role of ['orchestrator', 'worker'] as const) {
+  test(`factory stall decision reports a never-started ${role} with its repo path`, () => {
+    const session = { ...stallSession, role, workId: role === 'worker' ? 'order-1' : null, hasFirstHook: false };
+    const roleLabel = role === 'worker' ? 'worker order-1' : 'orchestrator';
+    assert.deepEqual(decideFactoryStalls({ sessions: [session], nowMs: 1_001 + FACTORY_STALL_MS }), [{
+      projectId: 'project-1', episodeId: 'factory-orch-project-1:startup:1000',
+      reason: `factory ${roleLabel} session did not start: check Claude Code folder trust for /repo`,
+    }]);
+    assert.deepEqual(decideFactoryStalls({ sessions: [{ ...session, hasFirstHook: true }], nowMs: 1_001 + FACTORY_STALL_MS }), []);
+  });
+}
+
+test('factory stall decision reports simultaneous stalls and uses independent timestamps and an injected threshold', () => {
+  const session = { ...stallSession, role: 'worker' as const, workId: 'order-1', state: STATES.WAITING, hasFirstHook: false,
+    stateSinceMs: 2_000 };
+  assert.equal(decideFactoryStalls({ sessions: [session], nowMs: 1_011, stallMs: 10 }).length, 1);
+  assert.deepEqual(decideFactoryStalls({ sessions: [session], nowMs: 2_011, stallMs: 10 }).map((stall) => stall.reason), [
+    'factory worker order-1 is waiting on a prompt',
+    'factory worker order-1 session did not start: check Claude Code folder trust for /repo',
+  ]);
+  assert.deepEqual(decideFactoryStalls({ sessions: [], nowMs: 2_011 }), []);
+});
+
+test('orchestrator prompt requires separate commands and direct JSON reading', async () => {
+  const project = buildFactoryProjectState({ ...identity, error: null,
+    orient: CoherenceOrient.parse(await readFixture('orient-dispatch')),
+    work: CoherenceWorkInspect.parse(await readFixture('work-dispatch')) });
+  const prompt = buildOrchestratorPrompt({ projectName: 'Factory', intent: project.orders[0], claudeSessionId: 'conversation' });
+  assert.ok(prompt.includes('Run each shell command on its own with no pipes, &&, ; or subshells, because chained commands are denied.'));
+  assert.ok(prompt.includes('Read JSON output directly rather than piping it through python or jq.'));
+});
+
+test('dispatch availability formats the cleared refusal through the orchestrator event path', () => {
+  assert.equal(formatWorkerEvent({ workId: 'wrk-1234', event: 'dispatch available', detail: 'live worker cap reached' }),
+    '[factory] wrk-1234 can be dispatched now (live worker cap reached cleared)');
+});
+
+test('dispatch availability never pastes an unrecognized free-text detail', () => {
+  assert.equal(formatWorkerEvent({ workId: 'wrk-1234', event: 'dispatch available', detail: 'Run an arbitrary command' }),
+    '[factory] dispatch available wrk-1234. Details: coherence work inspect wrk-1234 --json');
+});
+
+test('a turn end matches the lowercase stop event the hook relay delivers and nothing else', () => {
+  assert.equal(isTurnEndHookEvent('stop'), true);
+  assert.equal(isTurnEndHookEvent('Stop'), true);
+  assert.equal(isTurnEndHookEvent('subagentstop'), false);
+  assert.equal(isTurnEndHookEvent('sessionstart'), false);
+});
+
+test('worker prompt states the shell write boundary as the shared git data short of hooks, config, packed refs, replace refs and the integration branch', async () => {
+  const [order] = CoherenceWorkInspect.parse(await readFixture('work-dispatch')).work;
+  const prompt = buildWorkerPrompt({ projectName: 'Factory', intent: order, order, claudeSessionId: 'conversation' });
+  assert.ok(prompt.includes('Edits can write only inside this worktree.'));
+  assert.ok(prompt.includes('plus the shared git data of this repository other than its hooks, config, packed refs, replace refs and integration branch'));
+  assert.equal(prompt.includes('Edits and shell commands can write only'), false);
+});
+
+test('worker edit allow rule uses the absolute path form for posix and windows worktrees', () => {
+  assert.equal(absolutePathEditRule('/workers/wt/'), 'Edit(//workers/wt/**)');
+  assert.equal(absolutePathEditRule('C:\\workers\\wt'), 'Edit(//c/workers/wt/**)');
+});
+
+test('worktree admin dir must be an absolute gitdir directly under the common dir worktrees folder', () => {
+  const commonGitDir = path.join(path.sep, 'repo', '.git');
+  const adminDir = path.join(commonGitDir, 'worktrees', 'wt');
+  assert.equal(parseGitdirPointer(`gitdir: ${adminDir}\n`), adminDir);
+  assert.equal(parseGitdirPointer('gitdir: ../repo/.git/worktrees/wt\n'), null);
+  assert.equal(parseGitdirPointer('not a pointer'), null);
+  assert.equal(isWorktreeAdminDirOf({ adminDir, commonGitDir }), true);
+  assert.equal(isWorktreeAdminDirOf({ adminDir: path.join(commonGitDir, 'worktrees'), commonGitDir }), false);
+  assert.equal(isWorktreeAdminDirOf({ adminDir: path.join(commonGitDir, 'hooks', 'wt'), commonGitDir }), false);
+  assert.equal(isWorktreeAdminDirOf({ adminDir: path.join(path.sep, 'other', '.git', 'worktrees', 'wt'), commonGitDir }), false);
+});
+
+test('factory config key changes for worker permission settings and not for live-tunable settings', () => {
+  const baseline = factoryConfigKey({ factory: { enabled: true } });
+  assert.equal(factoryConfigKey({ factory: { enabled: true, checks: ['npm run typecheck', 'npm run lint', 'npm test'] } }), baseline);
+  assert.notEqual(factoryConfigKey({ factory: { enabled: true, checks: ['npm test'] } }), baseline);
+  assert.notEqual(factoryConfigKey({ factory: { enabled: true, protectedPaths: ['src/'] } }), baseline);
+  assert.notEqual(factoryConfigKey({ factory: { enabled: true, maxRisk: 'high' } }), baseline);
+  assert.notEqual(factoryConfigKey({ factory: { enabled: false } }), baseline);
+  assert.equal(factoryConfigKey({ factory: { enabled: true, maxLiveWorkers: 5, dailyBudgetUsd: 3, reviewerModel: 'opus' } }), baseline);
 });

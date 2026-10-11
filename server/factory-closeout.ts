@@ -10,10 +10,10 @@ import { FactoryReviewVerdict } from '../shared/contracts/factory.ts';
 import type { FactoryWatchEntry, FactoryWorkerEvent } from '../shared/contracts/factory.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { DEFAULT_CONFIG } from './config-store.ts';
-import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, checkFence, decideCloseOut, inheritedSecretValues, listDirtyPaths, parseCheckCommand, parseFactoryReviewerOutput, redactSecretLines } from './core/factory-core.ts';
+import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, checkFence, decideCloseOut, inheritedSecretValues, listUncommittedWorkPaths, parseCheckCommand, parseFactoryReviewerOutput, redactSecretLines, reviewerOutputTail } from './core/factory-core.ts';
 import type { FactoryCheck } from './core/factory-core.ts';
 import { nulSeparatedPaths } from './core/git-changed-paths-core.ts';
-import { runFactoryGit } from './git-workspace.ts';
+import { runHardenedGit } from './git-workspace.ts';
 import type { GitWorkspaceInstance } from './git-workspace.ts';
 import { readLaneResultFile } from './lane-spawn.ts';
 import { writeJsonAtomic, writeTextAtomic } from './json-file.ts';
@@ -27,6 +27,7 @@ export const FACTORY_REVIEWER_PERMISSIONS = Object.freeze({
   deny: ['Edit', 'Write', 'NotebookEdit'],
 });
 export const FACTORY_REVIEWER_SPAWN_ENV: Readonly<Record<string, string>> = Object.freeze({ CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '0' });
+const CASE_INSENSITIVE_LEDGER_PATHSPEC = ':(icase).coherence';
 const FACTORY_REVIEW_TOO_LARGE_FEEDBACK ='change too large for review; split it into smaller orders';
 
 type FactoryWorkerSession = Pick<Session, 'destroy' | 'pasteTextWhenReady' | 'write' | '_destroyed'>
@@ -53,6 +54,7 @@ export interface FactoryCloseOutDeps {
   runCoherence: (request: { cwd: string; args: string[] }) => Promise<string>;
   commitAndLand: (projectId: string, projectPath: string, message: string) => Promise<void>;
   readIntegrationSha: (projectPath: string) => Promise<string>;
+  recordFactoryLandedSha: (projectId: string, integrationSha: string) => Promise<void>;
   readPaused: (projectId: string) => Promise<boolean>;
   appendWatch: (entry: FactoryWatchEntry) => Promise<void>;
   notifyOrchestrator: (projectId: string, event: FactoryWorkerEvent) => void;
@@ -88,14 +90,14 @@ export async function runFactoryReview({ spawnReviewer, model, signal, buildProm
       id: `factory-review-${crypto.randomUUID()}`, name, cwd: reviewerCwd,
       prompt: 'Review the assigned factory order and return its structured verdict.', agent: 'claude-code',
       model, signal,
-      extraArgs: ['--append-system-prompt-file', promptPath, '--output-format', 'json', '--json-schema', JSON.stringify(z.toJSONSchema(FactoryReviewVerdict)), '--permission-mode', 'dontAsk', ...extraArgs],
+      extraArgs: [...extraArgs, '--append-system-prompt-file', promptPath, '--output-format', 'json', '--json-schema', JSON.stringify(z.toJSONSchema(FactoryReviewVerdict, { target: 'draft-7' })), '--permission-mode', 'dontAsk'],
       onOutput: (chunk) => {
         if (reviewerOutput.length + chunk.length > 16 * 1024 * 1024) { hasOutputOverflow = true; return; }
         reviewerOutput += chunk;
       },
     });
     const capturedVerdict = hasOutputOverflow ? null : parseFactoryReviewerOutput(reviewerOutput);
-    if (!capturedVerdict) return { pass: false, findings: ['Reviewer verdict file is missing or invalid'] };
+    if (!capturedVerdict) return { pass: false, findings: [`Reviewer returned no structured verdict. Output tail: ${reviewerOutputTail(reviewerOutput) || '(empty)'}`] };
     await writeJsonAtomic(resultPath, capturedVerdict);
     const parsed = FactoryReviewVerdict.safeParse(await readLaneResultFile(resultPath));
     if (!parsed.success || JSON.stringify(parsed.data) !== JSON.stringify(capturedVerdict)) return { pass: false, findings: ['Reviewer verdict file is missing or invalid'] };
@@ -108,7 +110,7 @@ export async function runFactoryReview({ spawnReviewer, model, signal, buildProm
 }
 
 export function createFactoryCloseOut({
-  config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger, runCoherence, commitAndLand, readIntegrationSha, readPaused,
+  config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger, runCoherence, commitAndLand, readIntegrationSha, recordFactoryLandedSha, readPaused,
   appendWatch, notifyOrchestrator, setException, onReviewingChanged = () => {}, baseEnv = process.env,
 }: FactoryCloseOutDeps) {
   const reviewing = new Set<string>();
@@ -126,11 +128,11 @@ export function createFactoryCloseOut({
   const attemptOf = (worker: FactoryCloseOutWorker) => attempts.get(worker.workId) ?? 1;
 
   async function runGit(cwd: string, args: string[]): Promise<string> {
-    return (await runFactoryGit(args, { cwd, env: checkEnv(), timeout: 30_000, maxBuffer: 16 * 1024 * 1024 })).stdout;
+    return (await runHardenedGit(args, { cwd, env: checkEnv(), timeout: 30_000, maxBuffer: 16 * 1024 * 1024 })).stdout;
   }
 
-  async function probeDirtyPaths(cwd: string): Promise<string[]> {
-    return listDirtyPaths(await runGit(cwd, ['--no-optional-locks', 'status', '--porcelain', '-z', '--no-renames', '--untracked-files=all']));
+  async function probeUncommittedWorkPaths(cwd: string): Promise<string[]> {
+    return listUncommittedWorkPaths(await runGit(cwd, ['--no-optional-locks', 'status', '--porcelain', '-z', '--no-renames', '--untracked-files=all']));
   }
 
   async function removeCheckCheckout(projectPath: string, checkoutPath: string): Promise<void> {
@@ -170,11 +172,15 @@ export function createFactoryCloseOut({
     }
   }
 
-  async function discardWorkerLedgerChanges(worker: FactoryCloseOutWorker, cwd: string, baseSha: string): Promise<void> {
-    await runGit(cwd, ['clean', '-ffdxq', '--', '.coherence']);
-    if ((await runGit(cwd, ['--no-optional-locks', 'status', '--porcelain', '--', '.coherence'])).trim()) {
-      await runGit(cwd, ['restore', '--source=HEAD', '--staged', '--worktree', '--', '.coherence']);
+  async function discardUncommittedLedgerChanges(cwd: string): Promise<void> {
+    await runGit(cwd, ['clean', '-ffdxq', '--', CASE_INSENSITIVE_LEDGER_PATHSPEC]);
+    if ((await runGit(cwd, ['--no-optional-locks', 'status', '--porcelain', '--', CASE_INSENSITIVE_LEDGER_PATHSPEC])).trim()) {
+      await runGit(cwd, ['restore', '--source=HEAD', '--staged', '--worktree', '--', CASE_INSENSITIVE_LEDGER_PATHSPEC]);
     }
+  }
+
+  async function discardWorkerLedgerChanges(worker: FactoryCloseOutWorker, cwd: string, baseSha: string): Promise<void> {
+    await discardUncommittedLedgerChanges(cwd);
     const committedLedgerPaths = nulSeparatedPaths(await runGit(cwd, ['diff', '--name-only', '--no-renames', '-z', baseSha, 'HEAD', '--', '.coherence']));
     if (committedLedgerPaths.length === 0) return;
     await runGit(cwd, ['restore', `--source=${baseSha}`, '--staged', '--worktree', '--', ...committedLedgerPaths]);
@@ -223,7 +229,7 @@ export function createFactoryCloseOut({
     let hasMerged = false;
     try {
       await discardWorkerLedgerChanges(worker, cwd, baseSha);
-      if ((await probeDirtyPaths(cwd)).length > 0) {
+      if ((await probeUncommittedWorkPaths(cwd)).length > 0) {
         await failedAttempt(worker, 'Working tree', 'commit your work');
         return;
       }
@@ -258,14 +264,16 @@ export function createFactoryCloseOut({
           return;
         }
         const currentHead = (await runGit(cwd, ['rev-parse', 'HEAD'])).trim();
-        if (currentHead !== headSha || (await probeDirtyPaths(cwd)).length > 0) {
+        if (currentHead !== headSha || (await probeUncommittedWorkPaths(cwd)).length > 0) {
           throw new Error('Worker changed during close-out; commit your work and finish the turn');
         }
         if (!worker.session.mergeWorktree) throw new Error('Worker cannot merge its worktree');
+        await discardUncommittedLedgerChanges(cwd);
         const merged = await worker.session.mergeWorktree(untrustedCheckoutIsolation());
         if (!merged.merged) throw new Error(merged.reason ?? (merged.conflicts?.join(', ') || 'Worker merge did not merge'));
         hasMerged = true;
         const mergedSha = await readIntegrationSha(worker.projectPath);
+        await recordFactoryLandedSha(worker.projectId, mergedSha);
         const ledger = await ensureLedger(worker.projectId, worker.projectPath);
         await runCoherence({ cwd: ledger.cwd, args: [
           'work', 'close', worker.workId, 'completed', '--because', 'Factory fence, checks, and independent review passed',

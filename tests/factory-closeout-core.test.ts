@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildFactoryCheckEnv, checkFence, decideCloseOut, inheritedSecretValues, listDirtyPaths, findForbiddenLedgerWrites, parseCheckCommand, parseFactoryReviewerOutput, buildFactoryReviewerPrompt, redactSecretLines, FACTORY_REVIEW_DIFF_MAX_CHARS } from '../server/core/factory-core.ts';
+import { buildFactoryCheckEnv, checkFence, decideCloseOut, inheritedSecretValues, listDirtyPaths, listUncommittedWorkPaths, findForbiddenLedgerWrites, parseCheckCommand, parseFactoryReviewerOutput, buildFactoryReviewerPrompt, redactSecretLines, FACTORY_REVIEW_DIFF_MAX_CHARS } from '../server/core/factory-core.ts';
 import { DEFAULT_FACTORY_PROTECTED_PATHS } from '../shared/contracts/browser-config.ts';
 
 const fenceInput = { writeScopes: ['src'], protectedPaths: DEFAULT_FACTORY_PROTECTED_PATHS };
@@ -68,6 +68,7 @@ test('reviewer output parses only a successful structured result and rejects mal
   assert.deepEqual(parseFactoryReviewerOutput(JSON.stringify(envelope)), verdict);
   const escapeCharacter = String.fromCharCode(27);
   assert.deepEqual(parseFactoryReviewerOutput(`${escapeCharacter}[0m${JSON.stringify(envelope)}\r\n`), verdict);
+  assert.deepEqual(parseFactoryReviewerOutput(`Stop hook error: HTTP 403\r\n${escapeCharacter}[?25l${JSON.stringify(envelope)}\r\n${escapeCharacter}[?25h`), verdict);
   for (const invalid of ['', 'not json', JSON.stringify(verdict), JSON.stringify({ ...envelope, is_error: true }), JSON.stringify({ ...envelope, subtype: 'error' }), JSON.stringify({ ...envelope, structured_output: { pass: 'true', findings: [] } })]) {
     assert.equal(parseFactoryReviewerOutput(invalid), null);
   }
@@ -101,6 +102,12 @@ test('dirty path listing reads every porcelain entry', () => {
   const porcelain = ['?? src/new.ts', ' M src/retry.ts', ''].join('\0');
   assert.deepEqual(listDirtyPaths(porcelain), ['src/new.ts', 'src/retry.ts']);
   assert.deepEqual(listDirtyPaths(''), []);
+});
+
+test('uncommitted work paths skip tracked and untracked coherence ledger paths at any case and keep everything else', () => {
+  const porcelain = ['?? .coherence/activity/worker.jsonl', ' M .coherence/decisions/worker.jsonl', '?? .Coherence/read-traces/worker.jsonl',
+    '?? .coherence', '?? src/.coherence/notes.md', '?? .coherence-notes.md', ' M src/retry.ts', ''].join('\0');
+  assert.deepEqual(listUncommittedWorkPaths(porcelain), ['src/.coherence/notes.md', '.coherence-notes.md', 'src/retry.ts']);
 });
 
 test('check env keeps only allowlisted inherited keys, forces CI and never carries tokens or cloud credentials', () => {

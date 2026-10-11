@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,8 +12,11 @@ import { buildCoherenceShims, buildCoherenceUserHooks } from '../server/core/coh
 import type { FactoryCloseOutWorker } from '../server/factory-closeout.ts';
 import { createFactoryDispatch } from '../server/factory-dispatch.ts';
 import { LANE_ENVIRONMENT_ARGS } from '../server/core/lane-permissions-core.ts';
+import type { LaneSpend } from '../server/core/usage-scan-core.ts';
+import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { cliPath, resolvePackageBin } from '../server/runtime-paths.ts';
 import { createSessionFactory } from '../server/session-factory.ts';
+import { teamReviewSandbox } from '../server/team-review-wiring.ts';
 import type { SessionSpawnOverrides } from '../server/session-factory.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
@@ -55,18 +58,21 @@ async function createFixture(context: TestContext) {
   const factory = createSessionFactory({ configStore: { configPath: path.join(directory, 'config.json') },
     hookRouter: new HookRouter(), getHookPort: () => 12345, getGitWorkspace: () => gitWorkspace, getPlanReviewPort: () => null,
     resolveHookTools: () => [], getUserHooks: () => [] });
-  let spentTodayUsd: number | null = 10;
+  let todaySpend: LaneSpend = { status: 'known', amountUsd: 10 };
   let isPaused = false;
   let isOrchestratorLive = true;
   let shouldThrowOnMake = false;
+  let saneYoloHookTools: ResolvedHookTool[] | null = [{ id: 'saneYolo', binPath: path.join(directory, 'cc-safety-net.js') }];
   const dependencies: Parameters<typeof createFactoryDispatch<Session>>[0] = {
+    getHookPort: () => 3911,
     onReadyIntent: (_projectId, intentId) => { readyIntents.push(intentId); },
     onWorkerTurnEnd: async (worker) => { turnEnds.push(worker); },
     config, sessions, nodePath: process.execPath, hookCliPath, shimDir: path.join(directory, 'bin'),
     getOrchestrator: (sessionId) => sessionId === 'orchestrator' && isOrchestratorLive ? { projectId: 'repo', intentId } : null,
     serializeProject: coherenceLedger.serializeProject,
     ensureLedger: async () => ledger, commitAndLand: land, runCoherence,
-    readSpentTodayUsd: () => spentTodayUsd,
+    readTodaySpend: () => todaySpend,
+    resolveSaneYoloHookTools: () => saneYoloHookTools,
     readPaused: async () => isPaused,
     readTrustedIntentIds: async () => new Set([intentId]),
     setException: (projectId, reason) => { if (reason === null) { exceptions.delete(projectId); return; } exceptions.set(projectId, reason); },
@@ -86,14 +92,15 @@ async function createFixture(context: TestContext) {
   };
   const dispatcher = createFactoryDispatch(dependencies);
   context.after(async () => { await dispatcher.stop(); await coherenceLedger.settleProjectChain(); await rm(directory, { recursive: true, force: true }); });
-  return { ...coherenceLedger, dispatcher, dependencies, config, createOrder, workId, intentId, spawned, sessions, events, broadcasts, laneRecords, exceptions, hookCliPath,
-    spawnEnvs, spawnArguments, turnEnds, readyIntents, setSpend: (spend: number | null) => { spentTodayUsd = spend; },
+  return { ...coherenceLedger, dispatcher, dependencies, directory, config, createOrder, workId, intentId, spawned, sessions, events, broadcasts, laneRecords, exceptions, hookCliPath,
+    spawnEnvs, spawnArguments, turnEnds, readyIntents, setSpend: (spend: LaneSpend) => { todaySpend = spend; },
     settle: coherenceLedger.settleProjectChain,
     setPaused: (paused: boolean) => { isPaused = paused; },
+    removeSaneYolo: () => { saneYoloHookTools = null; },
     endOrchestrator: () => { isOrchestratorLive = false; }, failMake: (shouldFail = true) => { shouldThrowOnMake = shouldFail; } };
 }
 
-test('dispatch hands off and activates at the integration tip, then provisions a worker worktree with coherence hooks', async (context) => {
+test('dispatch hands off and activates at the integration tip, then provisions a worker worktree with coherence hooks, a worktree-scoped edit rule and a worktree sandbox', async (context) => {
   const fixture = await createFixture(context);
   const reply = await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId });
   if (!reply.ok) throw new Error(reply.reason);
@@ -117,10 +124,29 @@ test('dispatch hands off and activates at the integration tip, then provisions a
     GIT_TERMINAL_PROMPT: '0', GH_TOKEN: '', GITHUB_TOKEN: '', GH_ENTERPRISE_TOKEN: '', GITHUB_ENTERPRISE_TOKEN: '' });
   assert.deepEqual(overrides.extraClaudeArgs?.slice(2), [...LANE_ENVIRONMENT_ARGS]);
   assert.equal('gitWorkspace' in overrides, false);
-  assert.deepEqual(overrides.settingsPermissions, { defaultMode: 'acceptEdits',
-    allow: ['Bash(git add:*)', 'Bash(git commit:*)', 'Bash(coherence context:*)', 'Bash(npm run typecheck:*)', 'Bash(npm run lint:*)', 'Bash(npm test:*)'],
-    deny: ['Bash(git push:*)', 'Bash(gh:*)', 'Bash(glimmervoid:*)', 'WebFetch', 'Edit(**/.git/**)', 'Edit(**/.claude/**)'] });
   assert.ok(spawned.session.worktreeDir);
+  const worktreePath = await realpath(spawned.session.worktreeDir);
+  const commonGitDir = await realpath(path.join(fixture.projectPath, '.git'));
+  const worktreeAdminDir = await realpath((await readFile(path.join(worktreePath, '.git'), 'utf8')).replace(/^gitdir:\s*/, '').trim());
+  assert.equal(path.dirname(worktreeAdminDir), path.join(commonGitDir, 'worktrees'));
+  const workerBranch = await fixture.git(['symbolic-ref', '--short', 'HEAD'], worktreePath);
+  const workerRefPath = path.join(commonGitDir, 'refs', 'heads', ...workerBranch.split('/'));
+  assert.deepEqual(overrides.settingsPermissions, { defaultMode: 'dontAsk',
+    allow: [`Edit(/${worktreePath}/**)`, 'Bash(git add:*)', 'Bash(git commit:*)', 'Bash(coherence context:*)', 'Bash(npm run typecheck:*)', 'Bash(npm run lint:*)', 'Bash(npm test:*)'],
+    deny: ['Bash(git push:*)', 'Bash(gh:*)', 'Bash(glimmervoid:*)', 'WebFetch', 'Edit(**/.git/**)', 'Edit(**/.claude/**)'] });
+  assert.deepEqual(overrides.settingsSandbox, {
+    ...teamReviewSandbox(os.tmpdir()),
+    network: { ...teamReviewSandbox(os.tmpdir()).network, allowAllUnixSockets: false, allowedDomains: ['127.0.0.1:3911'] },
+    filesystem: {
+      allowWrite: [await realpath(os.tmpdir()), worktreePath, worktreeAdminDir, path.join(commonGitDir, 'objects'), workerRefPath, `${workerRefPath}.lock`,
+        path.join(commonGitDir, 'logs', 'refs', 'heads', ...workerBranch.split('/'))],
+      denyWrite: [...['hooks', 'config', 'config.worktree'].map((entry) => path.join(commonGitDir, entry)),
+        ...['commondir', 'gitdir', 'config.worktree'].map((entry) => path.join(worktreeAdminDir, entry)),
+        ...['refs/heads/integration', 'refs/heads/integration.lock', 'refs/replace', 'packed-refs', 'packed-refs.lock'].map((entry) => path.join(commonGitDir, entry)),
+        path.join(worktreePath, '.git'), path.join(worktreePath, '.claude')],
+      denyRead: teamReviewSandbox(os.tmpdir()).filesystem.denyRead,
+    },
+  });
   assert.notEqual(spawned.session.worktreeDir, fixture.projectPath);
   assert.notEqual(spawned.session.worktreeDir, fixture.ledger.cwd);
   assert.equal(await fixture.git(['rev-parse', 'HEAD'], spawned.session.worktreeDir), await fixture.git(['rev-parse', 'integration']));
@@ -138,8 +164,13 @@ test('dispatch hands off and activates at the integration tip, then provisions a
   assert.ok(settingsIndex >= 0);
   const settingsFile = fixture.spawnArguments[0][settingsIndex + 1];
   assert.ok(settingsFile);
-  const settings: { hooks: Record<string, unknown> } = JSON.parse(await readFile(settingsFile, 'utf8'));
+  const settings: { hooks: Record<string, unknown>; permissions: Record<string, unknown>; sandbox: Record<string, unknown> } = JSON.parse(await readFile(settingsFile, 'utf8'));
   assert.ok(settings.hooks.PostToolUse);
+  assert.deepEqual(settings.permissions, overrides.settingsPermissions);
+  assert.deepEqual(settings.sandbox, overrides.settingsSandbox);
+  assert.deepEqual(overrides.hookTools, [{ id: 'saneYolo', binPath: path.join(fixture.directory, 'cc-safety-net.js') }]);
+  assert.equal(overrides.getHookTools, null);
+  assert.ok(JSON.stringify(settings.hooks.PreToolUse).includes('cc-safety-net.js\\" hook --coding-cli'));
   assert.equal(fixture.spawnArguments[0].includes('--dangerously-skip-permissions'), false);
   assert.equal(fixture.sessions.get(reply.sessionId), spawned.session);
   spawned.session.emit('claude-session-id', { id: claudeSessionId, vendor: 'claude' });
@@ -163,7 +194,7 @@ test('dispatch refuses missing orders, invalid callers, disabled factory and ove
   assert.equal((await fixture.dispatcher.dispatch('orchestrator', { workId: 'bad' })).ok, false);
   assert.equal((await fixture.dispatcher.dispatch('normal', { workId: fixture.workId })).ok, false);
   assert.equal((await fixture.dispatcher.dispatch('orchestrator', { workId: 'wrk-ffffffffffffffff' })).ok, false);
-  fixture.setSpend(11);
+  fixture.setSpend({ status: 'known', amountUsd: 11 });
   assert.deepEqual(await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId }), { ok: false, reason: 'daily spend is over budget' });
   assert.equal(fixture.exceptions.get('repo'), 'daily spend is over budget');
   assert.equal(fixture.spawned.length, 0);
@@ -246,10 +277,23 @@ test('a paused factory refuses dispatch before any ledger write', async (context
 
 test('a daily budget with unknown spend refuses dispatch and raises the factory exception', async (context) => {
   const fixture = await createFixture(context);
-  fixture.setSpend(null);
+  fixture.setSpend({ status: 'tracking-off' });
   assert.deepEqual(await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId }), { ok: false, reason: 'daily budget set but usage tracking is off' });
   assert.equal(fixture.exceptions.get('repo'), 'daily budget set but usage tracking is off');
+  fixture.setSpend({ status: 'catching-up' });
+  assert.deepEqual(await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId }), { ok: false, reason: 'usage history is still being scanned; spend is not known yet' });
+  assert.equal(fixture.exceptions.get('repo'), 'usage history is still being scanned; spend is not known yet');
   assert.equal(fixture.spawned.length, 0);
+});
+
+test('an unavailable Sane YOLO refuses dispatch with the factory exception before any ledger write or spawn', async (context) => {
+  const fixture = await createFixture(context);
+  fixture.removeSaneYolo();
+  assert.deepEqual(await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId }), { ok: false, reason: 'Sane YOLO is unavailable' });
+  assert.equal(fixture.exceptions.get('repo'), 'Sane YOLO is unavailable');
+  assert.equal(fixture.spawned.length, 0);
+  assert.equal(fixture.commands.some((args) => args[1] === 'handoff' || args[1] === 'transition'), false);
+  assert.equal((await fixture.inspect()).work.find((candidate) => candidate.work === fixture.workId)?.state, 'open');
 });
 
 test('lane start reconciles a factory-activated order with no live worker back to open', async (context) => {
@@ -354,10 +398,10 @@ test('factory worker main Stop hands the pinned worktree base and order to close
   const worker = fixture.spawned[0];
   const claudeSessionId = worker.overrides.extraClaudeArgs?.[1];
   assert.ok(claudeSessionId);
-  worker.session.emit('hook-event', { event: 'Stop', payload: { session_id: 'another-session' } });
+  worker.session.emit('hook-event', { event: 'stop', payload: { session_id: 'another-session' } });
   worker.session.emit('hook-event', { event: 'PostToolUse', payload: { session_id: claudeSessionId } });
   assert.equal(fixture.turnEnds.length, 0);
-  worker.session.emit('hook-event', { event: 'Stop', payload: { session_id: claudeSessionId } });
+  worker.session.emit('hook-event', { event: 'stop', payload: { session_id: claudeSessionId } });
   assert.equal(fixture.turnEnds.length, 1);
   const closeOutWorker = fixture.turnEnds[0];
   assert.equal(closeOutWorker.baseSha, worker.session.baseSha);

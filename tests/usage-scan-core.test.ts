@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 
 import {
   continuationDelayMs,
+  laneSpendStatus,
   decideFileRead,
   passOutcome,
   shouldPersistWarehouse,
@@ -119,4 +120,20 @@ test('home directory fallback is supplied by the IO caller', () => {
     path.join('/fallback/home', '.config', 'claude', 'projects'),
     path.join('/fallback/home', '.claude', 'projects'),
   ]);
+});
+
+for (const lastOutcome of [null, 'complete', 'byte-limited', 'io-failed'] as const) {
+  for (const isHistoryCaughtUp of [false, true]) {
+    test(`lane spend status after catch-up ${isHistoryCaughtUp} and last pass ${lastOutcome}`, () => {
+      const expectedStatus = lastOutcome === 'io-failed' ? 'read-failing'
+        : isHistoryCaughtUp && lastOutcome !== null ? 'known' : 'catching-up';
+      assert.equal(laneSpendStatus({ isTrackingEnabled: true, scan: { isHistoryCaughtUp, lastOutcome } }), expectedStatus);
+    });
+  }
+}
+
+test('lane spend status reports tracking off before a missing scanner', () => {
+  assert.equal(laneSpendStatus({ isTrackingEnabled: false, scan: null }), 'tracking-off');
+  assert.equal(laneSpendStatus({ isTrackingEnabled: false, scan: { isHistoryCaughtUp: true, lastOutcome: 'complete' } }), 'tracking-off');
+  assert.equal(laneSpendStatus({ isTrackingEnabled: true, scan: null }), 'scanner-missing');
 });

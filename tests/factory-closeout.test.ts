@@ -11,7 +11,7 @@ import test from 'node:test';
 import type { TestContext } from 'node:test';
 import { createFactoryCloseOut } from '../server/factory-closeout.ts';
 import type { FactoryCloseOutWorker } from '../server/factory-closeout.ts';
-import { commitAndLandFactoryLedger, screenPendingLedgerWrites } from '../server/factory-ledger.ts';
+import { commitAndLandFactoryLedger, hasCodeChangedBetween, screenPendingLedgerWrites } from '../server/factory-ledger.ts';
 import type { LaneSpawn } from '../server/lane-spawn.ts';
 import { createFactoryWiring } from '../server/factory-wiring.ts';
 import { createSessionFactory } from '../server/session-factory.ts';
@@ -79,6 +79,7 @@ async function createFixture(context: TestContext, activateOrder = true) {
     config, runCoherence, gitWorkspace, ensureLedger: async () => ledger, commitAndLand: land,
     serializeProject: coherenceLedger.serializeProject,
     readIntegrationSha: () => git(['rev-parse', 'integration']),
+    recordFactoryLandedSha: async () => {},
     readPaused: async () => isPaused, baseEnv,
     appendWatch: async (entry) => {
       if (shouldFailWatchWrite) throw new Error('Watch state is unwritable');
@@ -146,6 +147,8 @@ test('passing factory worker merges and pushes, closes with merge-tip evidence, 
   assert.ok(fixture.reviewRequests[0].cwd.startsWith(os.tmpdir()));
   assert.deepEqual(fixture.reviewerCwdEntries[0], []);
   assert.equal(fixture.reviewRequests[0].extraArgs?.includes('--add-dir'), false);
+  const reviewerSchemaArg = fixture.reviewRequests[0].extraArgs?.[fixture.reviewRequests[0].extraArgs.indexOf('--json-schema') + 1] ?? '{}';
+  assert.equal(JSON.parse(reviewerSchemaArg).$schema, 'http://json-schema.org/draft-07/schema#');
   assert.ok(fixture.reviewRequests[0].prompt.includes('+export const retries = 1;'));
   assert.match(fixture.reviewRequests[0].prompt, /<<<GLIMMERVOID-FACTORY-REVIEW-DIFF/);
   assert.equal(fixture.reviewRequests[0].model, 'sonnet');
@@ -204,7 +207,7 @@ for (const verdict of [{ pass: 'yes', findings: [] }, null]) {
     if (verdict !== null) fixture.setVerdictFileOnly(verdict);
     if (verdict === null) fixture.setVerdict(null);
     await fixture.closeOut.turnEnded(fixture.worker);
-    assert.match(fixture.feedback[0], /verdict file is missing or invalid/);
+    assert.match(fixture.feedback[0], /Reviewer returned no structured verdict/);
     assert.equal(fixture.watches.length, 0);
   });
 }
@@ -240,11 +243,29 @@ test('worker coherence traces and committed ledger changes are discarded and nev
   const untrackedTracePath = '.coherence/activity/worker-session.jsonl';
   await mkdir(path.join(fixture.workspace.cwd, '.coherence/activity'), { recursive: true });
   await writeFile(path.join(fixture.workspace.cwd, untrackedTracePath), '{}\n');
+  await mkdir(path.join(fixture.workspace.cwd, '.COHERENCE'), { recursive: true });
+  await writeFile(path.join(fixture.workspace.cwd, '.COHERENCE', 'stray.jsonl'), '{}\n');
   await fixture.closeOut.turnEnded(fixture.worker);
   assert.deepEqual(fixture.feedback, []);
   assert.ok(fixture.mergedSha());
   assert.equal(await fixture.git(['ls-tree', '-r', '--name-only', 'integration', '--', committedLedgerPath]), '');
   assert.equal(await fixture.git(['diff', '--name-only', `${fixture.worker.baseSha}`, 'integration', '--', '.coherence/decisions']), '');
+});
+
+test('a coherence trace the hook writes after the worker commit does not block close-out or the pre-merge recheck', async (context) => {
+  const fixture = await createFixture(context);
+  await fixture.commitChange();
+  const lateTracePath = path.join(fixture.workspace.cwd, '.coherence', 'activity', 'x.jsonl');
+  fixture.setReviewBarrier(async () => {
+    await mkdir(path.dirname(lateTracePath), { recursive: true });
+    await writeFile(lateTracePath, '{}\n');
+  });
+  await fixture.closeOut.turnEnded(fixture.worker);
+  assert.deepEqual(fixture.feedback, []);
+  assert.deepEqual(fixture.exceptions, []);
+  assert.ok(fixture.mergedSha());
+  assert.equal(fixture.events.at(-1)?.event, 'merged');
+  assert.equal(await fixture.git(['ls-tree', '-r', '--name-only', 'integration', '--', '.coherence/activity']), '');
 });
 
 async function ignoreInCommonGitDirectory(fixture: Awaited<ReturnType<typeof createFixture>>, patterns: string[]) {
@@ -423,9 +444,10 @@ async function startFactoryWiring(fixture: Awaited<ReturnType<typeof createFixtu
   await mkdir(path.dirname(statePath), { recursive: true });
   await writeFile(statePath, JSON.stringify({ ledgerPath: fixture.ledger.cwd, ledgerBranch: fixture.ledger.branch, paused: false, trustedIntentIds: [fixture.worker.intentId] }));
   const wiring = createFactoryWiring({
-    config, homeDir, now: () => nowMs, readSpentTodayUsd: () => 1,
+    config, homeDir, now: () => nowMs, readSpentTodayUsd: () => ({ status: 'known', amountUsd: 1 }),
     notify: (_projectName, category, message) => { notifications.push({ category, message }); }, gitWorkspace: fixture.gitWorkspace, firstTickDelayMs: () => 0, broadcast: () => {},
     orchestratorOptions: {
+      getHookPort: () => 3911,
       config, sessions, closeSessionDataClients: () => {}, wireSessionEvents: () => {}, broadcast: () => {}, recordLane: () => {},
       spawnGate: { run: async (operation) => operation() },
       makeSession: (project, currentConfig, overrides) => {
@@ -464,7 +486,7 @@ test('factory wiring observes worker Stop, exposes Review, and persists the merg
   await writeFile(path.join(worker.worktreeDir, 'src/retry.ts'), 'export const retries = 2;\n');
   await fixture.git(['add', 'src/retry.ts'], worker.worktreeDir);
   await fixture.git(['commit', '-m', 'fix: wired retries'], worker.worktreeDir);
-  worker.emit('hook-event', { event: 'Stop', payload: {} });
+  worker.emit('hook-event', { event: 'stop', payload: {} });
   await waitFor(() => wiring.getState()?.projects[0]?.reviewing?.includes(workId) === true, 'factory exposes Review during close-out', 30_000);
   finishReview?.();
   await waitFor(() => worker._destroyed, 'factory completes close-out and destroys the worker', 30_000);
@@ -557,7 +579,7 @@ test('a passing verdict file without independent reviewer output cannot authoriz
   await fixture.commitChange();
   fixture.setVerdictFileOnly({ pass: true, findings: [] });
   await fixture.closeOut.turnEnded(fixture.worker);
-  assert.match(fixture.feedback[0], /verdict file is missing or invalid/);
+  assert.match(fixture.feedback[0], /Reviewer returned no structured verdict/);
   assert.equal(fixture.mergedSha(), null);
 });
 
@@ -598,7 +620,7 @@ async function prepareWatchFixture(context: TestContext) {
 async function assertVerifierIgnoresWatchLink(fixture: Awaited<ReturnType<typeof prepareWatchFixture>>) {
   const reviewRequests: string[] = [];
   const verifier = createFactoryVerifier({ config: fixture.watchConfig, runCoherence: fixture.runCoherence, ensureLedger: async () => fixture.ledger,
-    commitAndLand: fixture.land, readIntegrationSha: () => fixture.git(['rev-parse', 'integration']),
+    commitAndLand: fixture.land, hasCodeChangedSince: async (projectPath, sinceSha) => hasCodeChangedBetween({ projectPath, sinceSha, tipSha: await fixture.git(['rev-parse', 'integration']) }),
     readLaneState: async () => fixture.state, writeLaneState: async () => {},
     ensureControlCheckout: async () => fixture.directory, serializeProject: async <T>(_projectId: string, operation: () => Promise<T>) => operation(),
     pause: async () => {}, setException: () => {}, notifyOrchestrator: () => {}, stopOrchestrator: () => {}, onChanged: () => {},
@@ -713,7 +735,7 @@ async function prepareVerifierFixture(context: TestContext) {
     commitAndLand: async (...args) => {
       if (shouldFailVerifierLanding) throw new Error('Verifier landing unavailable');
       await fixture.land(...args);
-    }, readIntegrationSha: () => fixture.git(['rev-parse', 'integration']),
+    }, hasCodeChangedSince: async (projectPath, sinceSha) => hasCodeChangedBetween({ projectPath, sinceSha, tipSha: await fixture.git(['rev-parse', 'integration']) }),
     readLaneState: async () => fixture.state, writeLaneState: async (_projectId, updated) => { Object.assign(fixture.state, updated); },
     ensureControlCheckout: async ({ sha }) => {
       const checkout = await fixture.gitWorkspace.stageDetachedWorktree({ projectPath: fixture.projectPath, worktreePath: path.join(fixture.directory, 'verifier-control'), sha });
@@ -760,6 +782,7 @@ test('independent verifier pass files its link, closes the intent with tip evide
   assert.deepEqual(fixture.verifierCwdEntries, [[]]);
   const addDirIndex = fixture.reviewRequests[0].extraArgs?.indexOf('--add-dir') ?? -1;
   assert.equal(fixture.reviewRequests[0].extraArgs?.[addDirIndex + 1], path.join(fixture.directory, 'verifier-control'));
+  assert.ok(fixture.reviewRequests[0].extraArgs?.[addDirIndex + 2]?.startsWith('--'), 'the variadic --add-dir must be bounded by an option or it swallows the prompt');
   assert.ok(fixture.reviewRequests[0].prompt.includes(project.headSha ?? 'missing'));
   const closeCommand = fixture.commands.findLast((command) => command[1] === 'close');
   assert.equal(closeCommand?.[closeCommand.indexOf('--evidence') + 1], project.headSha);
@@ -926,7 +949,7 @@ test('watch resumes a persisted breach after failed landing and a restart withou
   assert.equal((await fixture.readProject()).unverifiedCompletedWork.includes(fixture.worker.workId), true);
 });
 
-test('verifier rejects a passing verdict when the integration tip moves during its read-only session', async (context) => {
+async function startVerifierReviewThenMoveTip(context: TestContext, moveTip: (fixture: Awaited<ReturnType<typeof prepareVerifierFixture>>) => Promise<void>) {
   const fixture = await prepareVerifierFixture(context);
   let finishReview: (() => void) | undefined;
   const barrier = new Promise<void>((resolve) => { finishReview = resolve; });
@@ -935,10 +958,39 @@ test('verifier rejects a passing verdict when the integration tip moves during i
   fixture.verifier.ready('repo', fixture.worker.intentId);
   await fixture.verifier.tick(await fixture.readProject());
   await waitFor(() => fixture.reviewRequests.length === 1, 'verifier starts reading the pinned tip', 60_000);
-  await fixture.createOrder(null, 'Move the integration tip');
-  await fixture.land('repo', fixture.projectPath, 'factory: tip moved');
+  await moveTip(fixture);
   finishReview?.();
-  await waitFor(fixture.hasChanged, 'verifier reports stale evidence', 60_000);
+  await waitFor(fixture.hasChanged, 'verifier settles', 60_000);
+  return fixture;
+}
+
+test('verifier rejects a passing verdict when code on the integration tip moves during its read-only session', async (context) => {
+  const fixture = await startVerifierReviewThenMoveTip(context, async ({ git, projectPath }) => {
+    await git(['checkout', '-q', 'integration'], projectPath);
+    await writeFile(path.join(projectPath, 'src', 'moved.ts'), 'export const moved = true;\n');
+    await git(['add', '--', 'src/moved.ts'], projectPath);
+    await git(['commit', '-q', '-m', 'feat: move the tip'], projectPath);
+  });
+  assert.equal(fixture.events.at(-1)?.event, 'verification stale');
+  assert.equal((await fixture.readProject()).orders.find((order) => order.id === fixture.worker.intentId)?.state, 'open');
+  assert.deepEqual(fixture.stoppedOrchestrators, []);
+});
+
+test('verifier still closes the intent when only orchestrator ledger commits move the integration tip', async (context) => {
+  const fixture = await startVerifierReviewThenMoveTip(context, async ({ createOrder, land, projectPath }) => {
+    await createOrder(null, 'Ledger-only tip move');
+    await land('repo', projectPath, 'factory: orchestrator ledger');
+  });
+  assert.notEqual(fixture.events.at(-1)?.event, 'verification stale');
+  assert.equal((await fixture.readProject()).orders.find((order) => order.id === fixture.worker.intentId)?.state, 'completed');
+  assert.deepEqual(fixture.stoppedOrchestrators, ['repo']);
+});
+
+test('verifier reports a stale verification when the orchestrator adds a child to the intent during its read-only session', async (context) => {
+  const fixture = await startVerifierReviewThenMoveTip(context, async ({ createOrder, land, projectPath, worker }) => {
+    await createOrder(worker.intentId, 'Child added during verification');
+    await land('repo', projectPath, 'factory: orchestrator ledger');
+  });
   assert.equal(fixture.events.at(-1)?.event, 'verification stale');
   assert.equal((await fixture.readProject()).orders.find((order) => order.id === fixture.worker.intentId)?.state, 'open');
   assert.deepEqual(fixture.stoppedOrchestrators, []);

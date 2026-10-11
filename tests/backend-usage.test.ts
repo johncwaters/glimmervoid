@@ -646,21 +646,24 @@ test('laneSpendSince counts only factory transcripts inside the requested day ac
   const wiring = createUsageWiring({ ...probe.options, config: { usage: { enabled: true, fetchPricing: false } },
     laneMap: () => new Map([[`claude:${CLAUDE_SESSION_ID}`, 'factory'], ['claude:interactive', 'interactive']]) });
   context.after(async () => { await wiring.stop(); await realFsp.rm(directory, { recursive: true, force: true }); });
-  assert.equal(wiring.laneSpendSince('factory', startOfDayMs), null);
+  assert.deepEqual(wiring.laneSpendSince('factory', startOfDayMs), { status: 'scanner-missing' });
   await wiring.start();
-  const factoryTodayUsd = wiring.laneSpendSince('factory', startOfDayMs);
-  assert.ok(factoryTodayUsd !== null && factoryTodayUsd > 0);
-  assert.ok(factoryTodayUsd < (wiring.laneSpendSince('interactive', startOfDayMs) ?? 0));
-  assert.equal(wiring.laneSpendSince('factory', startOfDayMs - 86_400_000), factoryTodayUsd * 2);
-  assert.equal(wiring.laneSpendSince('factory', nowMs + 1), 0);
-  assert.equal(wiring.laneSpendSince('missing', startOfDayMs), 0);
+  const factoryToday = wiring.laneSpendSince('factory', startOfDayMs);
+  if (factoryToday.status !== 'known') throw new Error(`Expected known spend, got ${factoryToday.status}`);
+  assert.ok(factoryToday.amountUsd > 0);
+  const interactiveToday = wiring.laneSpendSince('interactive', startOfDayMs);
+  if (interactiveToday.status !== 'known') throw new Error(`Expected known spend, got ${interactiveToday.status}`);
+  assert.ok(factoryToday.amountUsd < interactiveToday.amountUsd);
+  assert.deepEqual(wiring.laneSpendSince('factory', startOfDayMs - 86_400_000), { status: 'known', amountUsd: factoryToday.amountUsd * 2 });
+  assert.deepEqual(wiring.laneSpendSince('factory', nowMs + 1), { status: 'known', amountUsd: 0 });
+  assert.deepEqual(wiring.laneSpendSince('missing', startOfDayMs), { status: 'known', amountUsd: 0 });
 });
 
-test('laneSpendSince is unknown when usage tracking is disabled', async (context) => {
+test('laneSpendSince reports tracking off when usage tracking is disabled', async (context) => {
   const directory = await realFsp.mkdtemp(path.join(os.tmpdir(), 'factory-usage-off-'));
   const probe = makeUsageProbe(path.join(directory, 'claude'));
   const wiring = createUsageWiring({ ...probe.options, config: { usage: { enabled: false } }, laneMap: () => new Map() });
   context.after(async () => { await wiring.stop(); await realFsp.rm(directory, { recursive: true, force: true }); });
   await wiring.start();
-  assert.equal(wiring.laneSpendSince('factory', 0), null);
+  assert.deepEqual(wiring.laneSpendSince('factory', 0), { status: 'tracking-off' });
 });

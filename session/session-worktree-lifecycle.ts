@@ -3,7 +3,7 @@ import type { RunGitOptions } from "../server/git-exec.ts";
 import { errorMessage } from "../shared/text.ts";
 import fs from "node:fs";
 import os from "node:os";
-import { isolateGitWorkspace, runFactoryGit } from "../server/git-workspace.ts";
+import { isolateGitWorkspace, runHardenedGit } from "../server/git-workspace.ts";
 import { buildHardenedGitInvocation } from "../server/core/git-invocation-core.ts";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -294,7 +294,7 @@ function createSessionWorktreeLifecycle({
   if (gitIsolation && gitWorkspace) gitWorkspace = isolateGitWorkspace(gitWorkspace, gitIsolation);
   const currentProjectPath = (): string => port.projectPath ? port.projectPath() : projectPath;
   async function runSessionGit(args: string[], options: RunGitOptions): Promise<string> {
-    return (await runFactoryGit(args, {
+    return (await runHardenedGit(args, {
       cwd: options.cwd ?? currentProjectPath(),
       timeout: options.timeoutMs ?? 30_000,
       maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024,

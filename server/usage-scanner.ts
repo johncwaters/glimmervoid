@@ -930,7 +930,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   }
 
   function stats() {
-    return { dirs: dirs.slice(), files: lastFileCount, entries: entries.length, lastScanMs, lastOutcome, resolutionError };
+    return { dirs: dirs.slice(), files: lastFileCount, entries: entries.length, lastScanMs, lastOutcome, isHistoryCaughtUp, resolutionError };
   }
 
   async function runPassInternal({ force }: { force: boolean }): Promise<PassResult> {

@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 
 import { createUsageScanner } from '../server/usage-scanner.ts';
 import type { UsageScannerOptions } from '../server/usage-scanner.ts';
+import { laneSpendStatus } from '../server/core/usage-scan-core.ts';
 import { planWindowStartsMs } from '../server/core/usage-lane-core.ts';
 import { normalizePricingTable } from '../server/core/usage-pricing-core.ts';
 
@@ -1160,3 +1161,44 @@ function usageLineWithModelLast({ messageId, requestId, model, input }: {
     },
   });
 }
+
+test('scanner catch-up survives a later byte limit and resets on a forced partial scan', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  const transcript = path.join(projectsDir, 'C--repo', 'session-a.jsonl');
+  const firstLine = usageLine({ messageId: 'history', requestId: 'history', input: 10 });
+  const secondLine = usageLine({ messageId: 'later-a', requestId: 'later-a', input: 20 });
+  const thirdLine = usageLine({ messageId: 'later-b', requestId: 'later-b', input: 30 });
+  await writeLines(transcript, [firstLine]);
+  const scanner = makeScanner(root, { byteBudget: Buffer.byteLength(firstLine) + 1 });
+  assert.equal(scanner.stats().isHistoryCaughtUp, false);
+  assert.equal((await scanner.runPass()).outcome, 'complete');
+  assert.equal(scanner.stats().isHistoryCaughtUp, true);
+  await fs.appendFile(transcript, `${secondLine}\n${thirdLine}\n`);
+  assert.equal((await scanner.runPass()).outcome, 'byte-limited');
+  assert.equal(scanner.stats().isHistoryCaughtUp, true);
+  assert.equal(laneSpendStatus({ isTrackingEnabled: true, scan: scanner.stats() }), 'known');
+  assert.equal((await scanner.runPass({ force: true })).outcome, 'byte-limited');
+  assert.equal(scanner.stats().isHistoryCaughtUp, false);
+  assert.equal(laneSpendStatus({ isTrackingEnabled: true, scan: scanner.stats() }), 'catching-up');
+});
+
+test('scanner IO failure after catch-up makes lane spend read-failing until recovery', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  const transcript = path.join(projectsDir, 'C--repo', 'session-a.jsonl');
+  await writeLines(transcript, [usageLine({ messageId: 'history', requestId: 'history', input: 10 })]);
+  let shouldFailRead = false;
+  const scanner = makeScanner(root, { fsPromises: { ...fs, readdir: async (directory: string, options: { withFileTypes: true }) => {
+    if (shouldFailRead && directory === path.dirname(transcript)) throw new Error('denied');
+    return fs.readdir(directory, options);
+  } } });
+  assert.equal((await scanner.runPass()).outcome, 'complete');
+  shouldFailRead = true;
+  assert.equal((await scanner.runPass()).outcome, 'io-failed');
+  assert.equal(scanner.stats().isHistoryCaughtUp, true);
+  assert.equal(laneSpendStatus({ isTrackingEnabled: true, scan: scanner.stats() }), 'read-failing');
+  shouldFailRead = false;
+  assert.equal((await scanner.runPass()).outcome, 'complete');
+  assert.equal(laneSpendStatus({ isTrackingEnabled: true, scan: scanner.stats() }), 'known');
+});

@@ -119,6 +119,7 @@ export const FactoryLaneState = z.object({
   trustedIntentCloses: z.array(z.string().min(1)).optional(),
   trustedIntentIds: z.array(z.string().min(1)).optional(),
   filedBreaches: z.array(z.string().min(1)).optional(),
+  factoryLandedShas: z.array(z.string().regex(/^[a-f0-9]{40,64}$/)).optional(),
 });
 export type FactoryLaneState = z.infer<typeof FactoryLaneState>;
 

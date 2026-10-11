@@ -1,3 +1,4 @@
+import { CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import type { Config } from '../shared/contracts/config.ts';
 import { errorMessage } from '../shared/text.ts';
 import { FactoryConsequences } from '../shared/contracts/factory.ts';
@@ -12,7 +13,7 @@ interface FactoryVerifierDeps {
   serializeProject: <T>(projectId: string, operation: () => Promise<T>) => Promise<T>;
   ensureLedger: (projectId: string, projectPath: string) => Promise<{ cwd: string }>;
   ensureControlCheckout: (args: { projectId: string; projectPath: string; sha: string }) => Promise<string>;
-  readIntegrationSha: (projectPath: string) => Promise<string>;
+  hasCodeChangedSince: (projectPath: string, sha: string) => Promise<boolean>;
   readLaneState: (projectId: string) => Promise<FactoryLaneState>;
   writeLaneState: (projectId: string, state: FactoryLaneState) => Promise<void>;
   runCoherence: (request: { cwd: string; args: string[] }) => Promise<string>;
@@ -25,7 +26,7 @@ interface FactoryVerifierDeps {
 }
 
 export function createFactoryVerifier({ config, spawnVerifier, serializeProject, ensureLedger, ensureControlCheckout,
-  readIntegrationSha, readLaneState, writeLaneState, runCoherence, commitAndLand, pause, setException, notifyOrchestrator, stopOrchestrator, onChanged }: FactoryVerifierDeps) {
+  hasCodeChangedSince, readLaneState, writeLaneState, runCoherence, commitAndLand, pause, setException, notifyOrchestrator, stopOrchestrator, onChanged }: FactoryVerifierDeps) {
   const readyByProject = new Map<string, string>();
   const notesByProject = new Map<string, string>();
   const checkedIntents = new Set<string>();
@@ -67,6 +68,12 @@ export function createFactoryVerifier({ config, spawnVerifier, serializeProject,
     });
   }
 
+  async function haveIntentChildrenChanged(cwd: string, intentId: string, verifiedChildren: FactoryProjectState['orders']): Promise<boolean> {
+    const inspected = CoherenceWorkInspect.parse(JSON.parse(await runCoherence({ cwd, args: ['work', 'inspect', '--json'] })));
+    const currentChildIds = new Set(inspected.work.filter((order) => order.opened.parent === intentId).map((order) => order.work));
+    return currentChildIds.size !== verifiedChildren.length || verifiedChildren.some((child) => !currentChildIds.has(child.id));
+  }
+
   async function recordRejection(projectId: string, projectPath: string, intentId: string, findings: string[]): Promise<void> {
     notesByProject.set(projectId, verifierRejectionNote(intentId, findings));
     try {
@@ -99,11 +106,15 @@ export function createFactoryVerifier({ config, spawnVerifier, serializeProject,
     notesByProject.delete(project.projectId);
     await serializeProject(project.projectId, async () => {
       if (!isEnabled()) return;
-      if (await readIntegrationSha(projectPath) !== tipSha) {
+      if (await hasCodeChangedSince(projectPath, tipSha)) {
         notifyOrchestrator(project.projectId, { workId: intent.id, event: 'verification stale', detail: 'Integration tip changed; report ready after reassessing' });
         return;
       }
       const ledger = await ensureLedger(project.projectId, projectPath);
+      if (await haveIntentChildrenChanged(ledger.cwd, intent.id, children)) {
+        notifyOrchestrator(project.projectId, { workId: intent.id, event: 'verification stale', detail: 'Intent children changed; report ready after reassessing' });
+        return;
+      }
       await runCoherence({ cwd: ledger.cwd, args: ['consequence', 'add', `verification:${verificationId}`, 'verifies', `work:${intent.id}`,
         '--evidence', `Independent verifier passed every intent criterion at ${tipSha}`, '--session', FACTORY_LEDGER_SESSION, '--json'] });
       await runCoherence({ cwd: ledger.cwd, args: ['work', 'close', intent.id, 'completed', '--because', 'Independent factory verifier passed',
@@ -148,7 +159,7 @@ export function createFactoryVerifier({ config, spawnVerifier, serializeProject,
     const completedChildIds = children.filter((order) => order.state === 'completed').map((order) => order.id);
     const verifiedWorkIds = await readWatchVerifiedWorkIds(project.projectId, projectPath, completedChildIds);
     const decision = decideIntentClose({ intent, children, verifiedWorkIds, orchestratorSaidReady: true });
-    if (decision !== 'verify' || await readIntegrationSha(projectPath) !== project.headSha) return project;
+    if (decision !== 'verify' || !project.headSha || await hasCodeChangedSince(projectPath, project.headSha)) return project;
     const verifying = verify(project, projectPath, intent, children).catch((error: unknown) => {
       if (isEnabled()) setException(project.projectId, errorMessage(error));
     }).then(() => { pending.delete(project.projectId); onChanged(); });

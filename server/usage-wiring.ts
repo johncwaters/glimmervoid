@@ -9,8 +9,8 @@ import { execFileAsync as defaultExecFileAsync } from './child-process-safe.ts';
 import { evaluateBudget, markFired, mergeFiredState, normalizeBudgetConfig } from './core/usage-budget-core.ts';
 import type { BudgetAlert, BudgetConfig, BudgetFiredState } from './core/usage-budget-core.ts';
 import { planWindowStartsMs } from './core/usage-lane-core.ts';
-import { continuationDelayMs, shouldEvaluateDespiteIoFailures } from './core/usage-scan-core.ts';
-import type { PassOutcome } from './core/usage-scan-core.ts';
+import { continuationDelayMs, laneSpendStatus, shouldEvaluateDespiteIoFailures } from './core/usage-scan-core.ts';
+import type { LaneSpend, PassOutcome } from './core/usage-scan-core.ts';
 import { computeCacheSavings, normalizeRtkGain } from './core/usage-savings-core.ts';
 import {
   buildPlanLimitsMessage,
@@ -710,9 +710,11 @@ function createUsageWiring({
     restartIfConfigChanged,
     getSessionsMessage,
     getCachedReport: () => lastReportMessage,
-    laneSpendSince: (lane: string, sinceMs: number): number | null => {
-      if (scanner?.stats().lastOutcome !== 'complete') return null;
-      return scanner.laneUsageSince(sinceMs).find((row) => row.lane === lane)?.costUSD ?? 0;
+    laneSpendSince: (lane: string, sinceMs: number): LaneSpend => {
+      const status = laneSpendStatus({ isTrackingEnabled: usageShouldStart(config), scan: scanner?.stats() ?? null });
+      if (status !== 'known') return { status };
+      if (!scanner) return { status: 'scanner-missing' };
+      return { status, amountUsd: scanner.laneUsageSince(sinceMs).find((row) => row.lane === lane)?.costUSD ?? 0 };
     },
     requestReport,
     ingestStatusline,

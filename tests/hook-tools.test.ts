@@ -10,6 +10,7 @@ import {
 } from '../session/core/hook-tools.ts';
 import type { StatApi } from '../session/core/hook-tools.ts';
 import { getRtkPath, resetRtkPathCache } from '../server/rtk-resolver.ts';
+import { resolveRequiredSaneYoloHookTools } from '../server/hook-tools.ts';
 import { MAX_RTK_STDOUT_BYTES, normalizeRtkHookResponse } from '../session/core/rtk-hook-core.ts';
 
 function fsWithFiles(files: string[]): StatApi {
@@ -210,4 +211,17 @@ test('hook tool environments keep the guard policy and blocked audit logs togeth
     CC_SAFETY_NET_AUDIT_SCOPE: 'blocked',
     CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY: '1',
   });
+});
+
+test('required Sane YOLO resolves as if skipping permissions with the hook forced on and keeps rtk', () => {
+  const calls: unknown[] = [];
+  const saneYoloTools = [{ id: 'rtk' as const, binPath: '/rtk' }, { id: 'saneYolo' as const, binPath: '/cc-safety-net' }];
+  const resolved = resolveRequiredSaneYoloHookTools({ rtk: true }, { resolve: (config, options) => { calls.push({ config, options }); return saneYoloTools; } });
+  assert.deepEqual(resolved, saneYoloTools);
+  assert.deepEqual(calls, [{ config: { rtk: true, saneYolo: true }, options: { skipPermissions: true } }]);
+});
+
+test('required Sane YOLO is null when cc-safety-net does not resolve', () => {
+  assert.equal(resolveRequiredSaneYoloHookTools({}, { resolve: () => [{ id: 'rtk', binPath: '/rtk' }] }), null);
+  assert.equal(resolveRequiredSaneYoloHookTools({}, { resolve: () => [] }), null);
 });

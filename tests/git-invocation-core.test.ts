@@ -6,7 +6,7 @@ import test from 'node:test';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import { buildFactoryCheckEnv, factoryWrittenRecordId, findForbiddenLedgerWrites } from '../server/core/factory-core.ts';
 import { buildHardenedGitInvocation, gitInvocationEnvironment, parseFilterDriverNames } from '../server/core/git-invocation-core.ts';
-import { createGitWorkspace, runFactoryGit } from '../server/git-workspace.ts';
+import { createGitWorkspace, runHardenedGit } from '../server/git-workspace.ts';
 
 const REAL_PROCESS_DEADLINE_MS = 30_000;
 
@@ -162,7 +162,7 @@ test('factory git runs operator credential helpers but never a repository-local 
   const homeEnv = { PATH: process.env.PATH, HOME: homeDir };
   await git(['config', '--global', 'credential.helper', helperScript(operatorMarker)], repository, homeEnv);
   await git(['config', 'credential.helper', helperScript(plantedMarker)]);
-  await assert.rejects(() => runFactoryGit(['credential', 'fill'], { cwd: repository, encoding: 'utf8', timeout: REAL_PROCESS_DEADLINE_MS,
+  await assert.rejects(() => runHardenedGit(['credential', 'fill'], { cwd: repository, encoding: 'utf8', timeout: REAL_PROCESS_DEADLINE_MS,
     env: homeEnv, input: 'protocol=https\nhost=example.test\n\n' }));
   await access(operatorMarker);
   await assert.rejects(() => access(plantedMarker));
@@ -207,7 +207,7 @@ test('factory git pipes a tracked path list larger than the pipe buffer through 
   const { repository } = await createRepository(context, 'factory-large-input-');
   const longPathList = Array.from({ length: 4000 }, (_, index) => `${'directory-'.repeat(4)}/tracked-file-${index}.txt`).join('\0');
   assert.ok(Buffer.byteLength(longPathList) > 128 * 1024);
-  const { stdout } = await runFactoryGit(['check-attr', '--stdin', '-z', 'filter'], { cwd: repository, encoding: 'utf8',
+  const { stdout } = await runHardenedGit(['check-attr', '--stdin', '-z', 'filter'], { cwd: repository, encoding: 'utf8',
     timeout: REAL_PROCESS_DEADLINE_MS, maxBuffer: 64 * 1024 * 1024, input: longPathList });
   assert.deepEqual(parseFilterDriverNames(stdout), []);
 });

@@ -64,4 +64,12 @@ function resolveHookTools(
   return hookTools;
 }
 
-export { resolveHookTools, saneYoloHomeDir, writeSaneYoloPolicy };
+function resolveRequiredSaneYoloHookTools(
+  config: { rtk?: boolean },
+  { resolve = resolveHookTools }: { resolve?: typeof resolveHookTools } = {},
+): ResolvedHookTool[] | null {
+  const hookTools = resolve({ rtk: config.rtk, saneYolo: true }, { skipPermissions: true });
+  return hookTools.some((tool) => tool.id === 'saneYolo') ? hookTools : null;
+}
+
+export { resolveHookTools, resolveRequiredSaneYoloHookTools, saneYoloHomeDir, writeSaneYoloPolicy };

@@ -9,9 +9,18 @@ import { STATES } from '../shared/states.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import { buildCoherenceSessionOverrides } from './core/coherence-session-core.ts';
-import { FACTORY_ORCHESTRATOR_EXIT_WINDOW_MS, buildOrchestratorPrompt, collapseWorkerEvents, decideOrchestrator, formatWorkerEvent, nextIntent } from './core/factory-core.ts';
-import { LANE_CONFIG_EDIT_DENY_RULES, buildLanePermissions } from './core/lane-permissions-core.ts';
+import {
+  FACTORY_ORCHESTRATOR_EXIT_WINDOW_MS, FACTORY_SANE_YOLO_UNAVAILABLE, buildOrchestratorPrompt, collapseWorkerEvents, decideOrchestrator, formatWorkerEvent,
+  findFactoryProjectPath, isTurnEndHookEvent, nextIntent,
+} from './core/factory-core.ts';
+import type { FactoryStallSession } from './core/factory-core.ts';
+import { LANE_CONFIG_EDIT_DENY_RULES } from './core/lane-permissions-core.ts';
 import { registerEphemeralSession } from './ephemeral-session.ts';
+import { resolveRequiredSaneYoloHookTools } from './hook-tools.ts';
+import { resolveLanePosture } from './lane-posture.ts';
+import { LANE_CREDENTIAL_DENY_READ } from './core/lane-posture-core.ts';
+import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
+import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 import type { SessionSpawnOverrides } from './session-factory.ts';
 
@@ -42,9 +51,12 @@ export interface FactoryOrchestratorDeps<ManagedSession extends FactoryOrchestra
   nodePath: string;
   hookCliPath: string;
   shimDir: string;
-  ensureLedger: (projectId: string) => Promise<string>;
+  ensureLedger: (projectId: string) => Promise<{ ledgerPath: string; commonGitDir: string }>;
   commitAndLand: (projectId: string, intentId: string) => Promise<void>;
   readTrustedIntentIds: (projectId: string) => Promise<ReadonlySet<string>>;
+  getHookPort: () => number | null;
+  resolveSaneYoloHookTools?: (config: GlimmervoidConfig) => ResolvedHookTool[] | null;
+  notifyException?: (projectId: string, reason: string) => void;
   now?: () => number;
 }
 
@@ -58,11 +70,14 @@ type OrchestratorRecord<ManagedSession> = {
   pendingTurnCount: number;
   turnChain: Promise<void>;
   error: string | null;
+  spawnedAtMs: number | null;
+  hasFirstHook: boolean;
 };
 
 export function createFactoryOrchestrator<ManagedSession extends FactoryOrchestratorSession>({
   config, sessions, makeSession, wireSessionEvents, closeSessionDataClients, broadcast, spawnGate, recordLane,
   nodePath, hookCliPath, shimDir, ensureLedger, commitAndLand, readTrustedIntentIds, now = Date.now,
+  getHookPort, resolveSaneYoloHookTools = resolveRequiredSaneYoloHookTools, notifyException = () => {},
 }: FactoryOrchestratorDeps<ManagedSession>) {
   const records = new Map<string, OrchestratorRecord<ManagedSession>>();
   const queuedLinesByProject = new Map<string, string[]>();
@@ -118,21 +133,32 @@ export function createFactoryOrchestrator<ManagedSession extends FactoryOrchestr
     const record: OrchestratorRecord<ManagedSession> = {
       session: null, intentId, recentExitTimesMs: previous?.recentExitTimesMs ?? [],
       queuedLines: queuedLinesOf(project.projectId), shouldStop: false, turnPending: false, pendingTurnCount: 0, turnChain: Promise.resolve(), error: previous?.error ?? null,
+      spawnedAtMs: null, hasFirstHook: false,
     };
     records.set(project.projectId, record);
     let hasRegisteredSession = false;
     try {
-      const ledgerPath = await ensureLedger(project.projectId);
+      const { ledgerPath } = await ensureLedger(project.projectId);
       if (stopped) return;
+      const posture = await resolveLanePosture({
+        access: 'own-checkout', cwd: ledgerPath, writableRoots: [ledgerPath],
+        integrationBranch: configuredIntegrationBranch(config), network: { domains: [] }, getHookPort,
+        allowCommands: FACTORY_ORCHESTRATOR_ALLOW.map((rule) => rule.slice(5, -3)), extraDeny: FACTORY_ORCHESTRATOR_DENY,
+        denyRead: LANE_CREDENTIAL_DENY_READ, scrubCredentials: true,
+      }, { resolveSaneYoloHookTools: () => resolveSaneYoloHookTools(config) });
+      if (!posture.ok) {
+        if (posture.reason !== 'Sane YOLO is unavailable') throw new Error(posture.reason);
+        if (record.error !== FACTORY_SANE_YOLO_UNAVAILABLE) notifyException(project.projectId, FACTORY_SANE_YOLO_UNAVAILABLE);
+        throw new Error(FACTORY_SANE_YOLO_UNAVAILABLE);
+      }
       const claudeSessionId = crypto.randomUUID();
       const coherence = buildCoherenceSessionOverrides({ claudeSessionId, nodePath, hookCliPath, shimDir });
-      const permissions = buildLanePermissions({ denyTools: FACTORY_ORCHESTRATOR_DENY });
       const identity = { id: `factory-orch-${project.projectId}`, name: `${project.projectName} orchestrator`, path: ledgerPath, dangerouslySkipPermissions: false };
       const session = makeSession(identity, config, {
-        ...coherence, agent: 'claude-code', ephemeral: true, agentApi: true, gitWorkspace: null, dangerouslySkipPermissions: false,
+        ...coherence, ...posture.sessionOverrides, spawnEnv: { ...coherence.spawnEnv, ...posture.sessionOverrides.spawnEnv }, agent: 'claude-code', ephemeral: true, agentApi: true, gitWorkspace: null, dangerouslySkipPermissions: false,
         gitIsolation: { disableRepoCommands: true },
         initialPrompt: buildOrchestratorPrompt({ projectName: project.projectName, intent, claudeSessionId }),
-        settingsPermissions: { ...permissions.permissions, allow: [...FACTORY_ORCHESTRATOR_ALLOW] }, extraClaudeArgs: [...coherence.extraClaudeArgs, ...permissions.args],
+        extraClaudeArgs: [...coherence.extraClaudeArgs, ...posture.sessionOverrides.extraClaudeArgs],
       });
       record.session = session;
       wireSessionEvents(session);
@@ -152,13 +178,15 @@ export function createFactoryOrchestrator<ManagedSession extends FactoryOrchestr
         session.destroy();
       });
       session.on('hook-event', ({ event, payload }: { event: string; payload: Record<string, unknown> }) => {
-        if (event !== 'Stop' || (typeof payload.session_id === 'string' && payload.session_id !== claudeSessionId)) return;
+        if (payload.session_id === claudeSessionId) record.hasFirstHook = true;
+        if (!isTurnEndHookEvent(event) || (typeof payload.session_id === 'string' && payload.session_id !== claudeSessionId)) return;
         turnEnded(project.projectId, record);
       });
       hasRegisteredSession = true;
       await spawnGate.run(() => {
         if (stopped || session._destroyed) return undefined;
         broadcast({ type: 'session-added', ...projectSessionCard(session, { id: identity.id, name: identity.name }), ephemeral: true });
+        record.spawnedAtMs = now();
         return session.start();
       });
       if (!stopped && !session.hasLivePty) throw new Error('Factory orchestrator did not reach a live terminal');
@@ -236,5 +264,15 @@ export function createFactoryOrchestrator<ManagedSession extends FactoryOrchestr
     return null;
   }
 
-  return { tick, stop, releaseProject, notifyOrchestrator, getLiveOrchestrator, activeIntentId: (projectId: string) => records.get(projectId)?.intentId ?? null };
+  function getStallSessions(): FactoryStallSession[] {
+    return [...records.entries()].flatMap(([projectId, record]) => {
+      const session = record.session;
+      if (!session?.hasLivePty || session._destroyed || record.spawnedAtMs === null) return [];
+      return [{ projectId, sessionId: session.id, repoPath: findFactoryProjectPath(config, projectId) ?? session.path,
+        role: 'orchestrator' as const, workId: null, state: session.state, stateSinceMs: session.stateSince,
+        spawnedAtMs: record.spawnedAtMs, hasFirstHook: record.hasFirstHook }];
+    });
+  }
+
+  return { tick, stop, releaseProject, notifyOrchestrator, getLiveOrchestrator, getStallSessions, activeIntentId: (projectId: string) => records.get(projectId)?.intentId ?? null };
 }

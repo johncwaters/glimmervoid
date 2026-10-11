@@ -4,6 +4,23 @@ import { rawTextOr } from '../../shared/coerce.ts';
 
 export type PassOutcome = 'complete' | 'byte-limited' | 'io-failed';
 
+export type LaneSpend =
+  | { status: 'tracking-off' }
+  | { status: 'scanner-missing' }
+  | { status: 'catching-up' }
+  | { status: 'read-failing' }
+  | { status: 'known'; amountUsd: number };
+
+export function laneSpendStatus({ isTrackingEnabled, scan }: {
+  isTrackingEnabled: boolean; scan: { isHistoryCaughtUp: boolean; lastOutcome: PassOutcome | null } | null;
+}): LaneSpend['status'] {
+  if (!isTrackingEnabled) return 'tracking-off';
+  if (scan === null) return 'scanner-missing';
+  if (scan.lastOutcome === 'io-failed') return 'read-failing';
+  if (!scan.isHistoryCaughtUp || scan.lastOutcome === null) return 'catching-up';
+  return 'known';
+}
+
 export interface FileReadCursor {
   offset?: number;
   size?: number;

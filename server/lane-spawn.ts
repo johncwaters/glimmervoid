@@ -8,6 +8,8 @@ import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import { buildLanePermissions } from './core/lane-permissions-core.ts';
 import { awaitSessionExit, registerEphemeralSession } from './ephemeral-session.ts';
+import { resolveLanePosture } from './lane-posture.ts';
+import { LANE_CREDENTIAL_DENY_READ } from './core/lane-posture-core.ts';
 import { writeJsonAtomic } from './json-file.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 
@@ -39,6 +41,7 @@ interface LaneSpawnOptions {
   recordLane?: RecordLane | null;
   laneName: string;
   allowTools?: readonly string[];
+  useReadOnlyPosture?: boolean;
   settingsPermissions?: Record<string, unknown>;
   spawnEnv?: Readonly<Record<string, string>> | null;
   createSession?: (options: SessionOptions) => Session;
@@ -60,16 +63,25 @@ async function writeStandaloneDenySettings(permissions: unknown): Promise<{ args
 function createLaneSpawn({
   sessions = new Map(), closeSessionDataClients = () => {}, hookRouter = null, getHookPort = null,
   spawnGate = null, replayBufferKB = undefined, recordLane = null, laneName, allowTools = [],
-  createSession = (options) => new Session(options), settingsPermissions, spawnEnv = null,
+  createSession = (options) => new Session(options), settingsPermissions, spawnEnv = null, useReadOnlyPosture = false,
 }: LaneSpawnOptions): LaneSpawn {
   return async function spawnLaneSession({ id, name, prompt, cwd, agent = DEFAULT_AGENT_ID, extraArgs = [], model = null, signal = null, onOutput }) {
     const isCodex = agent === 'codex';
     const posture = isCodex ? null : buildLanePermissions({ denyTools: LANE_SPAWN_DENY_TOOLS, allowTools });
-    const permissions = settingsPermissions ?? posture?.permissions ?? null;
+    const commandRules = Array.isArray(settingsPermissions?.allow) ? settingsPermissions.allow.filter((rule): rule is string => typeof rule === 'string' && rule.startsWith('Bash(')) : [];
+    const resolvedPosture = !isCodex && useReadOnlyPosture && hookRouter ? await resolveLanePosture({
+      access: 'read-only', cwd, writableRoots: [], network: { domains: [] }, getHookPort: getHookPort ?? (() => null),
+      allowCommands: commandRules.map((rule) => rule.slice(5, -3)),
+      extraDeny: ['Edit', 'Write', 'NotebookEdit'], denyRead: LANE_CREDENTIAL_DENY_READ, scrubCredentials: true,
+    }) : null;
+    if (resolvedPosture && !resolvedPosture.ok) throw new Error(resolvedPosture.reason);
+    const sessionPosture = resolvedPosture?.ok ? resolvedPosture.sessionOverrides : null;
+    const permissions = sessionPosture?.settingsPermissions ?? settingsPermissions ?? posture?.permissions ?? null;
     const standalone = !hookRouter && permissions ? await writeStandaloneDenySettings(permissions) : null;
     const extraClaudeArgs = isCodex ? extraArgs : ['-p', ...(posture?.args ?? []), ...extraArgs, ...(standalone ? standalone.args : [])];
     if (!isCodex && model) extraClaudeArgs.push('--model', model);
     const options: SessionOptions = {
+      ...sessionPosture,
       id,
       name,
       path: cwd,
@@ -79,7 +91,7 @@ function createLaneSpawn({
       initialPrompt: prompt,
       ephemeral: true,
       settingsPermissions: permissions,
-      spawnEnv: spawnEnv ? { ...spawnEnv } : null,
+      spawnEnv: sessionPosture || spawnEnv ? { ...spawnEnv, ...sessionPosture?.spawnEnv } : null,
       replayBufferKB,
       hookRouter,
       getHookPort,

@@ -147,12 +147,12 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     notify: (projectName, category, message) => { notificationManager.trigger(projectName, category, message); },
     spawnReviewer: createLaneSpawn({
       sessions: agentSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'factory', allowTools: FACTORY_REVIEWER_TOOLS,
+      replayBufferKB: config.replayBufferKB, laneName: 'factory', useReadOnlyPosture: true, allowTools: FACTORY_REVIEWER_TOOLS,
       settingsPermissions: FACTORY_REVIEWER_PERMISSIONS, spawnEnv: FACTORY_REVIEWER_SPAWN_ENV,
     }),
     orchestratorOptions: {
       config, sessions: agentSessions, makeSession, wireSessionEvents, closeSessionDataClients,
-      broadcast: broadcastControl, spawnGate, recordLane,
+      broadcast: broadcastControl, spawnGate, recordLane, getHookPort,
     },
   });
   const posthog = createPosthogWiring({

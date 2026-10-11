@@ -1,4 +1,4 @@
-import { access, chmod, mkdir, readFile, rename, rm } from 'node:fs/promises';
+import { access, chmod, mkdir, readFile, realpath, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { CoherenceWorkCreated } from '../shared/contracts/coherence.ts';
 import { FACTORY_ERROR_MAX_CHARS, FactoryControlRequest, FactoryLaneState, FactoryQueueIntentRequest, isSingleFactoryPathSegment } from '../shared/contracts/factory.ts';
@@ -8,18 +8,20 @@ import type { Config } from '../shared/contracts/config.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { buildCoherenceShims } from './core/coherence-session-core.ts';
-import { factoryWrittenRecordId, findFactoryProjectPath, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryShouldStart, isCompletedCommandFailure } from './core/factory-core.ts';
+import { appendFactoryLandedSha, decideFactoryStalls, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryShouldStart, isCompletedCommandFailure } from './core/factory-core.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
-import { commitAndLandFactoryLedger, screenPendingLedgerWrites } from './factory-ledger.ts';
+import type { LaneSpend } from './core/usage-scan-core.ts';
+import { commitAndLandFactoryLedger, hasCodeChangedBetween, screenPendingLedgerWrites } from './factory-ledger.ts';
 import { createFactoryCloseOut } from './factory-closeout.ts';
 import type { FactoryCloseOutDeps } from './factory-closeout.ts';
 import { createFactoryDispatch } from './factory-dispatch.ts';
+import { readLaneCommonGitDir } from './lane-posture.ts';
 import { createFactoryOrchestrator } from './factory-orchestrator.ts';
 import type { Session } from '../session/sessions.ts';
 import type { FactoryOrchestratorDeps, FactoryOrchestratorSession } from './factory-orchestrator.ts';
 import { createFactoryPoller } from './factory-poller.ts';
 import type { FactoryPoller, FactoryPollerDeps } from './factory-poller.ts';
-import { createGitWorkspace, factoryGitEnvironment, isolateGitWorkspace, runFactoryGit } from './git-workspace.ts';
+import { createGitWorkspace, factoryGitEnvironment, isolateGitWorkspace, runHardenedGit } from './git-workspace.ts';
 import type { GitWorkspaceInstance } from './git-workspace.ts';
 import { loadJsonStateFile, writeJsonAtomic, writeTextAtomic } from './json-file.ts';
 import { createLaneRunner } from './lane-runner.ts';
@@ -37,7 +39,7 @@ interface FactoryWiringOptions<ManagedSession extends FactoryOrchestratorSession
   broadcast: FactoryPollerDeps['broadcast'];
   gitWorkspace?: GitWorkspaceInstance;
   homeDir?: string;
-  readSpentTodayUsd?: () => number | null;
+  readSpentTodayUsd?: () => LaneSpend;
   createPoller?: typeof createFactoryPoller;
   runHogQL?: FactoryWatchDeps['runHogQL'];
   notify?: (projectName: string, category: string, message: string) => void;
@@ -48,14 +50,14 @@ interface FactoryWiringOptions<ManagedSession extends FactoryOrchestratorSession
 
 export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSession = Session>({
   config, broadcast, gitWorkspace = createGitWorkspace(), homeDir = glimmervoidHomeDir(),
-  createPoller = createFactoryPoller, log = console, orchestratorOptions, spawnReviewer, spawnVerifier = spawnReviewer, readSpentTodayUsd = () => 0, runHogQL, notify = () => {}, runCoherence: customRunCoherence, ...pollerDeps
+  createPoller = createFactoryPoller, log = console, orchestratorOptions, spawnReviewer, spawnVerifier = spawnReviewer, readSpentTodayUsd = () => ({ status: 'known', amountUsd: 0 }), runHogQL, notify = () => {}, runCoherence: customRunCoherence, ...pollerDeps
 }: FactoryWiringOptions<ManagedSession>) {
   gitWorkspace = isolateGitWorkspace(gitWorkspace, { disableRepoCommands: true });
   const writtenRecordIdsByCheckout = new Map<string, Set<string>>();
   const coherenceCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence');
   const coherenceHookCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence-hook');
   let dispatcher: ReturnType<typeof createFactoryDispatch<ManagedSession>> | null = null;
-  let spentTodayUsd: number | null = 0;
+  let todaySpend: LaneSpend = { status: 'known', amountUsd: 0 };
   const exceptions = new Map<string, string>();
   const landingErrors = new Map<string, string>();
   let orchestrator: ReturnType<typeof createFactoryOrchestrator<ManagedSession>> | null = null;
@@ -164,7 +166,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
 
   async function hasCoherenceConfigAt(projectPath: string, sha: string): Promise<boolean> {
     try {
-      await runFactoryGit(['cat-file', '-e', `${sha}:coherence.config.json`], {
+      await runHardenedGit(['cat-file', '-e', `${sha}:coherence.config.json`], {
         cwd: projectPath, encoding: 'utf8', timeout: COHERENCE_CONFIG_PROBE_TIMEOUT_MS,
       });
       return true;
@@ -265,13 +267,19 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     return new Set((await readLaneState(projectId)).trustedIntentIds ?? []);
   }
 
+  function recordFactoryLandedSha(projectId: string, integrationSha: string): Promise<void> {
+    return updateLaneState(projectId, (state) => ({ factoryLandedShas: appendFactoryLandedSha(state.factoryLandedShas ?? [], integrationSha) }));
+  }
+
   async function landLedger(projectId: string, projectPath: string, ledger: Awaited<ReturnType<typeof ensureLedgerCheckout>>, message: string,
     { trusted, intentId = null, onCommitted }: { trusted: boolean; intentId?: string | null; onCommitted?: () => Promise<void> }): Promise<void> {
     const checkoutKey = await comparableDirectoryPath(ledger.cwd);
     try {
       await commitAndLandFactoryLedger({
         projectPath, ledger, message, targetBranch: await resolveIntegrationBranch(projectPath), gitWorkspace, trusted, intentId, writtenRecordIds: writtenRecordIdsByCheckout.get(checkoutKey) ?? new Set(),
-        retryLanding: landingErrors.has(projectId), onRefused: (reason) => raiseException(projectId, reason), onCommitted,
+        retryLanding: landingErrors.has(projectId), factoryLandedShas: new Set((await readLaneState(projectId)).factoryLandedShas ?? []),
+        onRefused: (reason) => raiseException(projectId, reason), onCommitted,
+        onIntegrationLanded: (integrationSha) => recordFactoryLandedSha(projectId, integrationSha),
       });
       landingErrors.delete(projectId);
       writtenRecordIdsByCheckout.delete(checkoutKey);
@@ -321,24 +329,29 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     }
   }
 
+  function notifyProject(projectId: string, reason: string): void {
+    notify(config.projects.find((project) => project.id === projectId)?.name ?? projectId, FACTORY_NOTIFY_CATEGORY, reason);
+  }
+
   function raiseException(projectId: string, reason: string): void {
     if (exceptions.get(projectId) === reason) return;
     exceptions.set(projectId, reason);
-    notify(config.projects.find((project) => project.id === projectId)?.name ?? projectId, FACTORY_NOTIFY_CATEGORY, reason);
+    notifyProject(projectId, reason);
   }
 
   const runner = createLaneRunner<FactoryPoller>({
     tag: 'factory',
     gate: () => factoryShouldStart(config),
-    cfgKey: () => JSON.stringify(config.factory ?? null),
+    cfgKey: () => factoryConfigKey(config),
     emptyStatus: () => ({}),
     createPoller: () => {
       const activeOrchestrator = orchestratorOptions && coherenceHookCliPath ? createFactoryOrchestrator({
         ...orchestratorOptions,
-        nodePath: process.execPath, hookCliPath: coherenceHookCliPath, shimDir: binDir, readTrustedIntentIds,
+        now: pollerDeps.now ?? orchestratorOptions.now,
+        nodePath: process.execPath, hookCliPath: coherenceHookCliPath, shimDir: binDir, readTrustedIntentIds, notifyException: notifyProject,
         ensureLedger: (projectId) => serializeProject(projectId, async () => {
           const ledger = await ensureLedgerCheckout(projectId, requireProject(projectId));
-          return ledger.cwd;
+          return { ledgerPath: await realpath(ledger.cwd), commonGitDir: await readLaneCommonGitDir(ledger.cwd) };
         }),
         commitAndLand: (projectId, intentId) => serializeProject(projectId, async () => {
           const projectPath = requireProject(projectId);
@@ -351,8 +364,10 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         const ledger = await ensureLedgerCheckout(projectId, projectPath);
         await landLedger(projectId, projectPath, ledger, message, { trusted: true, intentId: activeIntentIdOf(projectId), onCommitted });
       };
-      const readIntegrationSha = async (projectPath: string) => (await runFactoryGit(
+      const readIntegrationSha = async (projectPath: string) => (await runHardenedGit(
         ['rev-parse', `refs/heads/${await resolveIntegrationBranch(projectPath)}`], { cwd: projectPath, timeout: 30_000 })).stdout.trim();
+      const hasCodeChangedSince = async (projectPath: string, sinceSha: string) =>
+        hasCodeChangedBetween({ projectPath, sinceSha, tipSha: await readIntegrationSha(projectPath) });
       const refreshAfter = (changedSubject: string) => () => {
         void runner.getPoller()?.refreshNow().catch((error: unknown) => {
           log.warn(`[factory] ${changedSubject} refresh failed: ${errorMessage(error)}`);
@@ -367,7 +382,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         notify: (projectName, message) => notify(projectName, FACTORY_NOTIFY_CATEGORY, message), now: pollerDeps.now, log, onChanged: refresh,
       });
       const activeVerifier = spawnVerifier ? createFactoryVerifier({
-        config, spawnVerifier, serializeProject, ensureLedger: ensureTrustedLedgerCheckout, ensureControlCheckout, readIntegrationSha, readLaneState, writeLaneState,
+        config, spawnVerifier, serializeProject, ensureLedger: ensureTrustedLedgerCheckout, ensureControlCheckout, hasCodeChangedSince, readLaneState, writeLaneState,
         runCoherence, commitAndLand, pause: (projectId) => serializeProject(projectId, () => updateLaneState(projectId, () => ({ paused: true }))),
         setException: raiseException,
         notifyOrchestrator,
@@ -375,7 +390,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       }) : null;
       const activeCloseOut = spawnReviewer ? createFactoryCloseOut({
         config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, commitAndLand, readIntegrationSha,
-        readPaused,
+        recordFactoryLandedSha, readPaused,
         appendWatch: (entry) => updateLaneState(entry.projectId, (state) => ({ watch: [...(state.watch ?? []), entry] })),
         notifyOrchestrator,
         setException: raiseException,
@@ -383,18 +398,36 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       }) : null;
       const activeDispatcher = orchestratorOptions && coherenceHookCliPath ? createFactoryDispatch({
         ...orchestratorOptions, nodePath: process.execPath, hookCliPath: coherenceHookCliPath, shimDir: binDir,
+        now: pollerDeps.now ?? orchestratorOptions.now,
         onWorkerTurnEnd: activeCloseOut?.turnEnded,
         getOrchestrator: (sessionId) => activeOrchestrator?.getLiveOrchestrator(sessionId) ?? null,
-        serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, readSpentTodayUsd: () => spentTodayUsd, readTrustedIntentIds, readPaused,
+        serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, readTodaySpend: () => todaySpend, readTrustedIntentIds, readPaused,
         onReadyIntent: (projectId, intentId) => activeVerifier?.ready(projectId, intentId),
         commitAndLand,
         notifyOrchestrator,
-        setException: (projectId, reason) => {
+        setException: (projectId, reason, expectedReason) => {
+          if (expectedReason !== undefined && exceptions.get(projectId) !== expectedReason) return;
           if (reason === null) { exceptions.delete(projectId); return; }
           raiseException(projectId, reason);
         },
       }) : null;
       dispatcher = activeDispatcher;
+      let activeStalls = new Map<string, ReturnType<typeof decideFactoryStalls>[number]>();
+      function checkStalls(): void {
+        const stalls = decideFactoryStalls({
+          sessions: [...activeOrchestrator?.getStallSessions() ?? [], ...activeDispatcher?.getStallSessions() ?? []],
+          nowMs: (pollerDeps.now ?? orchestratorOptions?.now ?? Date.now)(),
+        });
+        for (const stall of stalls) {
+          if (!activeStalls.has(stall.episodeId)) notifyProject(stall.projectId, stall.reason);
+        }
+        activeStalls = new Map(stalls.map((stall) => [stall.episodeId, stall]));
+      }
+      function projectException(projectId: string): string | null {
+        const stallReasons = [...activeStalls.values()].filter((stall) => stall.projectId === projectId).map((stall) => stall.reason);
+        const reasons = [...new Set([exceptions.get(projectId), ...stallReasons].filter((reason) => reason !== undefined))];
+        return reasons.length === 0 ? null : reasons.join('; ').slice(0, FACTORY_ERROR_MAX_CHARS);
+      }
       const poller = createPoller({
         log,
         listFactoryProjects: () => (config.projects ?? []).flatMap(({ id, name, path: projectPath }) => {
@@ -417,17 +450,18 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         ...pollerDeps,
         firstTickDelayMs: pollerDeps.firstTickDelayMs ?? (() => FACTORY_FIRST_TICK_DELAY_MS),
         shouldHoldCheckout: (projectId) => activeVerifier?.isVerifying(projectId) ?? false,
-        beforeTick: () => { spentTodayUsd = readSpentTodayUsd(); },
+        beforeTick: () => { todaySpend = readSpentTodayUsd(); checkStalls(); },
         processProjectState: async (project) => {
           await activeDispatcher?.reconcileActiveOrders(project);
           if (!project.paused) activeCloseOut?.resumeHeld(project.projectId);
           const watched = await activeWatch.tick(project);
           const verified = activeVerifier ? await activeVerifier.tick(watched) : watched;
           const updated = activeOrchestrator ? await activeOrchestrator.tick(verified) : verified;
+          if (activeDispatcher) await activeDispatcher.renudgeRefusedDispatch(updated, (await readLaneState(project.projectId)).ledgerPath);
           const liveWorkers = activeDispatcher?.getLiveWorkers(project.projectId) ?? [];
           const reviewing = liveWorkers.filter((worker) => activeCloseOut?.reviewing.has(worker.workId)).map((worker) => worker.workId);
-          return { ...updated, reviewing, liveWorkers, spentTodayUsd: spentTodayUsd ?? undefined, dailyBudgetUsd: config.factory?.dailyBudgetUsd ?? null,
-            error: updated.error ?? exceptions.get(project.projectId) ?? landingErrors.get(project.projectId) ?? null };
+          return { ...updated, reviewing, liveWorkers, spentTodayUsd: todaySpend.status === 'known' ? todaySpend.amountUsd : undefined, dailyBudgetUsd: config.factory?.dailyBudgetUsd ?? null,
+            error: updated.error ?? projectException(project.projectId) ?? landingErrors.get(project.projectId) ?? null };
         },
         releaseOrchestrator: (projectId) => {
           activeDispatcher?.releaseProject(projectId);
@@ -446,6 +480,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         await poller.stop();
         await stoppingOrchestrator;
         await stoppingWorkers;
+        activeStalls = new Map();
         if (dispatcher === activeDispatcher) dispatcher = null;
         if (orchestrator === activeOrchestrator) orchestrator = null;
         for (const projectId of [...checkouts.keys()]) {
@@ -483,7 +518,13 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     },
     queueIntent,
     control,
-    restartIfConfigChanged: runner.restartIfConfigChanged,
+    restartIfConfigChanged: () => {
+      runner.restartIfConfigChanged();
+      if (!factoryShouldStart(config).start) return;
+      void runner.getPoller()?.refreshNow().catch((error: unknown) => {
+        log.warn(`[factory] config refresh failed: ${errorMessage(error)}`);
+      });
+    },
     getState: () => runner.isStopped() ? null : runner.getPoller()?.getState() ?? null,
   };
 }

@@ -3,6 +3,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { LANE_CONFIG_EDIT_DENY_RULES } from '../server/core/lane-permissions-core.ts';
+import { LANE_CREDENTIAL_ENV } from '../server/core/lane-posture-core.ts';
 import { createLaneSpawn } from '../server/lane-spawn.ts';
 import { FACTORY_REVIEWER_PERMISSIONS, FACTORY_REVIEWER_SPAWN_ENV, FACTORY_REVIEWER_TOOLS } from '../server/factory-closeout.ts';
 import { THREAD_JUDGE_TOOLS } from '../server/team-review-thread-judge.ts';
@@ -121,7 +123,7 @@ test('factory reviewer spawns read-only in the worker cwd with structured output
     const chunks: string[] = [];
     try {
       const spawnReviewer = createLaneSpawn({
-        laneName: 'factory', allowTools: FACTORY_REVIEWER_TOOLS, settingsPermissions: FACTORY_REVIEWER_PERMISSIONS, spawnEnv: FACTORY_REVIEWER_SPAWN_ENV,
+        laneName: 'factory', useReadOnlyPosture: true, getHookPort: () => 3911, allowTools: FACTORY_REVIEWER_TOOLS, settingsPermissions: FACTORY_REVIEWER_PERMISSIONS, spawnEnv: FACTORY_REVIEWER_SPAWN_ENV,
         hookRouter: hasHookRouter ? { register: () => {}, unregister: () => {} } : null,
         createSession: (options) => {
           captured.push(options);
@@ -144,8 +146,8 @@ test('factory reviewer spawns read-only in the worker cwd with structured output
       assert.equal(options.agent, 'claude-code');
       assert.equal(toolsArgument(options), 'Read,Glob,Grep,Bash');
       assert.deepEqual(options.settingsPermissions, {
-        defaultMode: 'dontAsk', allow: ['Read', 'Glob', 'Grep', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)'],
-        deny: ['Edit', 'Write', 'NotebookEdit'],
+        defaultMode: 'dontAsk', allow: [...(hasHookRouter ? [] : ['Read', 'Glob', 'Grep']), 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)'],
+        deny: ['Edit', 'Write', 'NotebookEdit', ...(hasHookRouter ? LANE_CONFIG_EDIT_DENY_RULES : [])],
       });
       const args = options.extraClaudeArgs ?? [];
       assert.equal(args.includes('-p'), true);
@@ -156,7 +158,14 @@ test('factory reviewer spawns read-only in the worker cwd with structured output
       assert.equal(args.includes('--disable-slash-commands'), true);
       assert.equal(args[args.indexOf('--setting-sources') + 1], 'project,local');
       assert.deepEqual(chunks, ['{"type":"result"}']);
-      assert.deepEqual(options.spawnEnv, { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '0' });
+      assert.deepEqual(options.spawnEnv, { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '0', ...(hasHookRouter ? LANE_CREDENTIAL_ENV : {}) });
+      if (hasHookRouter) {
+        assert.equal(options.getHookTools, null);
+        assert.equal(options.hookTools?.some((tool) => tool.id === 'saneYolo'), true);
+        assert.ok(options.settingsSandbox);
+        assert.deepEqual((options.settingsSandbox.network as { allowedDomains: string[] }).allowedDomains, ['127.0.0.1:3911']);
+        assert.deepEqual((options.settingsSandbox.filesystem as { denyWrite: string[] }).denyWrite, [await fs.realpath(cwd)]);
+      }
       const inheritedSetting = process.env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD;
       process.env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD = '1';
       try {

@@ -176,7 +176,7 @@ export async function factoryGitEnvironment(cwd: string): Promise<Record<string,
   return gitInvocationEnvironment(invocation);
 }
 
-export async function runFactoryGit(args: string[], options: {
+export async function runHardenedGit(args: string[], options: {
   cwd: string; timeout?: number; maxBuffer?: number; encoding?: 'utf8'; env?: Record<string, string | undefined>; indexFile?: string; input?: string;
 }) {
   const { input, indexFile, ...processOptions } = options;

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildWorkerPrompt, decideAdmission } from '../server/core/factory-core.ts';
+import { buildWorkerPrompt, decideAdmission, isTransientAdmissionRefusal } from '../server/core/factory-core.ts';
 import type { FactoryAdmissionInput, FactoryWorkOrder } from '../server/core/factory-core.ts';
 
 function makeOrder(work: string, parent: string | null, writeScopes = ['src']): FactoryWorkOrder {
@@ -11,7 +11,7 @@ function makeOrder(work: string, parent: string | null, writeScopes = ['src']): 
 
 const intent = makeOrder('wrk-0000000000000001', null);
 const order = makeOrder('wrk-0000000000000002', intent.work, ['src/retry.ts']);
-const baseline: FactoryAdmissionInput = { intent, order, trustedIntentIds: new Set([intent.work]), liveWorkers: [], spentTodayUsd: 10, dailyBudgetUsd: 10, filterDriverNames: [] };
+const baseline: FactoryAdmissionInput = { intent, order, trustedIntentIds: new Set([intent.work]), liveWorkers: [], todaySpend: { status: 'known', amountUsd: 10 }, dailyBudgetUsd: 10, filterDriverNames: [] };
 
 const refusals: [string, Partial<FactoryAdmissionInput>, string][] = [
   ['missing order', { order: null }, 'does not exist'],
@@ -31,7 +31,7 @@ const refusals: [string, Partial<FactoryAdmissionInput>, string][] = [
   ['lower ceiling', { maxRisk: 'low' }, 'risk ceiling'],
   ['default cap', { liveWorkers: [{ writeScopes: ['test'] }, { writeScopes: ['docs'] }] }, 'cap'],
   ['configured cap', { maxLiveWorkers: 1, liveWorkers: [{ writeScopes: ['test'] }] }, 'cap'],
-  ['over budget', { spentTodayUsd: 10.01 }, 'over budget'],
+  ['over budget', { todaySpend: { status: 'known', amountUsd: 10.01 } }, 'over budget'],
 ];
 for (const [name, overrides, reason] of refusals) {
   test(`admission refuses ${name}`, () => {
@@ -65,8 +65,8 @@ for (const scope of ['src', './src/', 'src/retry.ts', 'src/retry.ts/nested', '.'
 }
 
 test('admission with a daily budget and unknown spend refuses and raises the factory exception', () => {
-  assert.deepEqual(decideAdmission({ ...baseline, spentTodayUsd: null }), { admit: false, reason: 'daily budget set but usage tracking is off', exception: true });
-  assert.deepEqual(decideAdmission({ ...baseline, spentTodayUsd: null, dailyBudgetUsd: null }), { admit: true });
+  assert.deepEqual(decideAdmission({ ...baseline, todaySpend: { status: 'tracking-off' } }), { admit: false, reason: 'daily budget set but usage tracking is off', exception: true });
+  assert.deepEqual(decideAdmission({ ...baseline, todaySpend: { status: 'tracking-off' }, dailyBudgetUsd: null }), { admit: true });
 });
 
 test('admission refuses a repository with git filter drivers as a factory exception before any other rule', () => {
@@ -77,7 +77,7 @@ test('admission refuses a repository with git filter drivers as a factory except
 test('admission admits root scope, equal budgets, configured limits and unlimited budgets', () => {
   assert.deepEqual(decideAdmission(baseline), { admit: true });
   assert.deepEqual(decideAdmission({ ...baseline, intent: makeOrder(intent.work, null, ['./']), liveWorkers: [{ writeScopes: ['src2'] }] }), { admit: true });
-  assert.deepEqual(decideAdmission({ ...baseline, dailyBudgetUsd: null, spentTodayUsd: 1000 }), { admit: true });
+  assert.deepEqual(decideAdmission({ ...baseline, dailyBudgetUsd: null, todaySpend: { status: 'known', amountUsd: 1000 } }), { admit: true });
   assert.deepEqual(decideAdmission({ ...baseline, maxRisk: 'high', order: { ...order, opened: { ...order.opened, risk: 'high' } } }), { admit: true });
   assert.deepEqual(decideAdmission({ ...baseline, maxLiveWorkers: 3, liveWorkers: [{ writeScopes: ['tests'] }, { writeScopes: ['docs'] }] }), { admit: true });
 });
@@ -86,7 +86,9 @@ test('worker prompt pins its order, scopes, checks and finish policy', () => {
   const prompt = buildWorkerPrompt({ projectName: 'Factory', intent, order, claudeSessionId: 'conversation' });
   for (const text of [order.work, intent.work, 'conversation', 'Add retries', 'Retries pass', 'Edit only inside',
     "coherence context 'src/retry.ts' --max-bytes 12000", 'current branch', 'conventional commit message', 'npm run typecheck',
-    'npm run lint', 'npm test', 'Never push', 'never open PRs', 'never change coherence work state', 'Glimmervoid closes the order', 'Finish by stopping']) {
+    'npm run lint', 'npm test', 'Never push', 'never open PRs', 'never change coherence work state', 'Glimmervoid closes the order', 'Finish by stopping',
+    'A denied command means "not allowed here". Do not retry it another way.',
+    'can write only inside this worktree and the temp directory']) {
     assert.ok(prompt.includes(text), text);
   }
   const customPrompt = buildWorkerPrompt({ projectName: 'Factory', intent, order, claudeSessionId: 'conversation', checks: ['node verify.ts'] });
@@ -103,4 +105,48 @@ test('worker prompt fences each ledger corpus with its own content marker', () =
   assert.equal(markers.length, 4);
   assert.equal(new Set(markers).size, 4);
   assert.ok(markers.every((marker) => prompt.includes(`${marker}>>>`)));
+});
+
+const unknownSpendRefusals: [FactoryAdmissionInput['todaySpend'], string, boolean][] = [
+  [{ status: 'catching-up' }, 'usage history is still being scanned; spend is not known yet', true],
+  [{ status: 'tracking-off' }, 'daily budget set but usage tracking is off', false],
+  [{ status: 'read-failing' }, 'daily budget set but usage history cannot be read, so spend is not known', false],
+  [{ status: 'scanner-missing' }, 'daily budget set but usage tracking is not running, so spend is not known', false],
+];
+for (const [todaySpend, reason, isTransient] of unknownSpendRefusals) {
+  test(`admission with ${todaySpend.status} spend refuses with its own reason and only catching up is transient`, () => {
+    assert.deepEqual(decideAdmission({ ...baseline, todaySpend }), { admit: false, reason, exception: true });
+    assert.equal(isTransientAdmissionRefusal(reason), isTransient);
+  });
+}
+
+test('admission refuses a paused factory', () => {
+  assert.deepEqual(decideAdmission({ ...baseline, paused: true }), { admit: false, reason: 'factory is paused', exception: false });
+});
+
+const transientReasons = [
+  'usage history is still being scanned; spend is not known yet',
+  'live worker cap reached', 'write scopes overlap a live worker', 'factory is paused', 'daily spend is over budget',
+];
+const permanentReasons = [
+  'work order does not exist', 'work order is not open', 'work order is not ready',
+  'work order is not a child of the active intent', 'work order and intent require valid non-empty write scopes',
+  'work order write scopes exceed the intent write scopes', 'work order exceeds the risk ceiling',
+  'repository uses git filter drivers (lfs), which factory workers cannot run safely',
+  'daily budget set but usage tracking is off', 'unknown refusal',
+];
+for (const reason of transientReasons) {
+  test(`admission classification retains ${reason}`, () => {
+    assert.equal(isTransientAdmissionRefusal(reason), true);
+  });
+}
+for (const reason of permanentReasons) {
+  test(`admission classification discards ${reason}`, () => {
+    assert.equal(isTransientAdmissionRefusal(reason), false);
+  });
+}
+
+test('worker prompt requires separate shell commands without chaining', () => {
+  assert.ok(buildWorkerPrompt({ projectName: 'Factory', intent, order, claudeSessionId: 'conversation' })
+    .includes('Run each shell command on its own with no pipes, &&, ; or subshells, because chained commands are denied.'));
 });

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
+import { execFileAsync } from '../server/child-process-safe.ts';
 import type { ProjectEntry } from '../server/config-store.ts';
 import { commitAndLandFactoryLedger } from '../server/factory-ledger.ts';
 import { createFactoryWiring } from '../server/factory-wiring.ts';
@@ -13,8 +14,12 @@ import type { FactoryPoller } from '../server/factory-poller.ts';
 import { FACTORY_ORCHESTRATOR_ALLOW, FACTORY_ORCHESTRATOR_DENY, createFactoryOrchestrator } from '../server/factory-orchestrator.ts';
 import type { FactoryOrchestratorSession } from '../server/factory-orchestrator.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
+import { buildLanePosture, LANE_CREDENTIAL_ENV } from '../server/core/lane-posture-core.ts';
+import { teamReviewSandbox } from '../server/team-review-wiring.ts';
+import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import type { SessionSpawnOverrides } from '../server/session-factory.ts';
 import type { FactoryProjectState } from '../shared/contracts/factory.ts';
+import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
 import { readCoherenceFixture } from './helpers/factory-coherence-reports.ts';
@@ -69,18 +74,26 @@ class StubSession extends EventEmitter implements FactoryOrchestratorSession {
   write(text: string): void { this.writes.push(text); }
 }
 
-function createFixture(context: TestContext, commitAndLand: (projectId: string, intentId: string) => Promise<void> = async () => {}, prepareSession = (_session: StubSession) => {}) {
+async function createFixture(context: TestContext, commitAndLand: (projectId: string, intentId: string) => Promise<void> = async () => {}, prepareSession = (_session: StubSession) => {}) {
+  const repository = await createMainLedgerRepository(context, 'factory-posture-orchestrator-');
+  const ledgerPath = await realpath(repository.ledger.cwd);
+  const commonGitDir = await realpath(path.join(repository.repository, '.git'));
   const trustedIntentIds = new Set(['intent']);
   const spawned: { project: ProjectEntry; overrides: SessionSpawnOverrides; session: StubSession }[] = [];
   const messages: Record<string, unknown>[] = [];
   const lifecycle: string[] = [];
   const recordedLanes: string[] = [];
   const sessions = new Map<string, StubSession>();
+  const exceptionNotices: string[] = [];
+  let saneYoloHookTools: ResolvedHookTool[] | null = [{ id: 'saneYolo', binPath: '/cc-safety-net' }];
   let nowMs = 1_000_000;
   const orchestrator = createFactoryOrchestrator({
     config: { projects: [], factory: { enabled: true } }, sessions,
     nodePath: '/node', hookCliPath: '/coherence-hook.js', shimDir: '/factory/bin',
-    ensureLedger: async () => '/ledger', commitAndLand, readTrustedIntentIds: async () => trustedIntentIds,
+    getHookPort: () => 3911,
+    ensureLedger: async () => ({ ledgerPath, commonGitDir }), commitAndLand, readTrustedIntentIds: async () => trustedIntentIds,
+    resolveSaneYoloHookTools: () => saneYoloHookTools,
+    notifyException: (_projectId, reason) => { exceptionNotices.push(reason); },
     makeSession: (identity, _config, overrides) => {
       const session = new StubSession(identity);
       prepareSession(session);
@@ -96,7 +109,8 @@ function createFixture(context: TestContext, commitAndLand: (projectId: string, 
     now: () => nowMs,
   });
   context.after(orchestrator.stop);
-  return { orchestrator, spawned, messages, lifecycle, sessions, recordedLanes, trustedIntentIds, advanceClock: (elapsedMs: number) => { nowMs += elapsedMs; } };
+  return { ledgerPath, commonGitDir, orchestrator, spawned, messages, lifecycle, sessions, recordedLanes, trustedIntentIds, exceptionNotices, advanceClock: (elapsedMs: number) => { nowMs += elapsedMs; },
+    removeSaneYolo: () => { saneYoloHookTools = null; } };
 }
 
 async function createMainLedgerRepository(context: TestContext, prefix: string) {
@@ -106,26 +120,37 @@ async function createMainLedgerRepository(context: TestContext, prefix: string) 
   return { repository, origin, ...ledgerRepository };
 }
 
-test('orchestrator uses the ledger cwd, pinned Claude hooks and denying permissions and registers visibly before starting', async (context) => {
-  const fixture = createFixture(context);
+test('orchestrator uses the ledger cwd, pinned Claude hooks, Sane YOLO, a ledger sandbox and denying permissions and registers visibly before starting', async (context) => {
+  const fixture = await createFixture(context);
   const state = await fixture.orchestrator.tick(project);
   const { project: identity, overrides, session } = fixture.spawned[0];
-  assert.deepEqual(identity, { id: 'factory-orch-repo', name: 'Repository orchestrator', path: '/ledger', dangerouslySkipPermissions: false });
+  assert.deepEqual(identity, { id: 'factory-orch-repo', name: 'Repository orchestrator', path: fixture.ledgerPath, dangerouslySkipPermissions: false });
   const claudeSessionId = overrides.extraClaudeArgs?.[1];
   assert.match(claudeSessionId ?? '', /^[a-f0-9-]{36}$/);
   assert.deepEqual(overrides.extraClaudeArgs, ['--session-id', claudeSessionId, '--strict-mcp-config', '--disable-slash-commands', '--setting-sources', 'project,local']);
   assert.deepEqual(overrides.extraUserHooks?.map((hook) => hook.event), ['SubagentStart', 'SessionStart', 'SubagentStop', 'Stop', 'PostToolUse']);
   assert.equal(overrides.extraUserHooks?.every((hook) => hook.command?.startsWith('"/node" "/coherence-hook.js"')), true);
   assert.deepEqual(overrides.prependPathDirs, ['/factory/bin']);
-  assert.deepEqual(overrides.spawnEnv, { COHERENCE_HOOK_HOST: 'claude' });
+  assert.deepEqual(overrides.spawnEnv, { COHERENCE_HOOK_HOST: 'claude', ...LANE_CREDENTIAL_ENV });
+  assert.equal(Object.hasOwn(overrides.spawnEnv ?? {}, AGENT_URL_ENV), false);
   assert.equal(overrides.agent, 'claude-code');
   assert.equal(overrides.ephemeral, true);
   assert.equal(overrides.agentApi, true);
   assert.equal(overrides.gitWorkspace, null);
   assert.equal(overrides.dangerouslySkipPermissions, false);
   assert.deepEqual(overrides.settingsPermissions, {
-    deny: [...FACTORY_ORCHESTRATOR_DENY], defaultMode: 'acceptEdits', allow: [...FACTORY_ORCHESTRATOR_ALLOW],
+    deny: [...FACTORY_ORCHESTRATOR_DENY], defaultMode: 'dontAsk', allow: [`Edit(/${fixture.ledgerPath}/**)`, ...FACTORY_ORCHESTRATOR_ALLOW],
   });
+  assert.deepEqual(overrides.hookTools, [{ id: 'saneYolo', binPath: '/cc-safety-net' }]);
+  assert.equal(overrides.getHookTools, null);
+  const expectedPosture = buildLanePosture({
+    access: 'own-checkout', writableRoots: [fixture.ledgerPath], network: { hookEndpoint: { host: '127.0.0.1', port: 3911 }, domains: [] },
+    allowCommands: FACTORY_ORCHESTRATOR_ALLOW.map((rule) => rule.slice(5, -3)), extraDeny: FACTORY_ORCHESTRATOR_DENY,
+    denyRead: teamReviewSandbox(os.tmpdir()).filesystem.denyRead, scrubCredentials: true,
+  }, { tempDir: await realpath(os.tmpdir()), gitWorktree: { commonDir: fixture.commonGitDir, integrationBranch: 'main' } });
+  assert.deepEqual(overrides.settingsSandbox, expectedPosture.settingsSandbox);
+  assert.deepEqual(overrides.settingsPermissions, expectedPosture.settingsPermissions);
+  assert.deepEqual(overrides.extraClaudeArgs?.slice(2), expectedPosture.extraClaudeArgs);
   assert.deepEqual(FACTORY_ORCHESTRATOR_ALLOW, ['Bash(coherence work create:*)', 'Bash(coherence orient:*)', 'Bash(coherence work inspect:*)',
     'Bash(coherence context:*)', 'Bash(coherence decide:*)', 'Bash(coherence defects:*)', 'Bash(glimmervoid dispatch:*)']);
   for (const denied of ['Bash(coherence work close:*)', 'Bash(coherence work transition:*)', 'Bash(coherence work handoff:*)', 'Bash(coherence consequence:*)', 'Bash(coherence defect:*)', 'Edit', 'Write', 'Bash(git push:*)',
@@ -143,14 +168,25 @@ test('orchestrator uses the ledger cwd, pinned Claude hooks and denying permissi
   assert.equal(fixture.spawned.length, 1);
 });
 
+test('an unavailable Sane YOLO never spawns the orchestrator, shows the exception and notifies once', async (context) => {
+  const fixture = await createFixture(context);
+  fixture.removeSaneYolo();
+  const first = await fixture.orchestrator.tick(project);
+  const second = await fixture.orchestrator.tick(project);
+  assert.equal(fixture.spawned.length, 0);
+  assert.equal(first.error, 'Sane YOLO is unavailable');
+  assert.equal(second.error, 'Sane YOLO is unavailable');
+  assert.deepEqual(fixture.exceptionNotices, ['Sane YOLO is unavailable']);
+});
+
 test('pause waits for Stop and its ledger landing before destroying the session', async (context) => {
   let finishLanding: (() => void) | undefined;
-  const fixture = createFixture(context, () => new Promise<void>((resolve) => { finishLanding = resolve; }));
+  const fixture = await createFixture(context, () => new Promise<void>((resolve) => { finishLanding = resolve; }));
   await fixture.orchestrator.tick(project);
   const session = fixture.spawned[0].session;
   await fixture.orchestrator.tick({ ...project, paused: true });
   assert.equal(session._destroyed, false);
-  session.emit('hook-event', { event: 'Stop', payload: {} });
+  session.emit('hook-event', { event: 'stop', payload: {} });
   assert.equal(session._destroyed, false);
   assert.ok(finishLanding);
   finishLanding();
@@ -162,7 +198,7 @@ test('pause waits for Stop and its ledger landing before destroying the session'
 });
 
 test('idle pause destroys immediately and lane stop destroys running sessions and awaits reap', async (context) => {
-  const fixture = createFixture(context);
+  const fixture = await createFixture(context);
   await fixture.orchestrator.tick(project);
   fixture.spawned[0].session.state = STATES.IDLE;
   await fixture.orchestrator.tick({ ...project, paused: true });
@@ -186,32 +222,32 @@ test('idle pause destroys immediately and lane stop destroys running sessions an
 
 test('Stop landing failure reaches the next snapshot and is retried on the next Stop', async (context) => {
   let landingCount = 0;
-  const fixture = createFixture(context, async () => {
+  const fixture = await createFixture(context, async () => {
     landingCount += 1;
     if (landingCount === 1) throw new Error('landing refused');
   });
   await fixture.orchestrator.tick(project);
   const session = fixture.spawned[0].session;
-  session.emit('hook-event', { event: 'SubagentStop', payload: {} });
-  session.emit('hook-event', { event: 'Stop', payload: { session_id: 'another-session' } });
+  session.emit('hook-event', { event: 'subagentstop', payload: {} });
+  session.emit('hook-event', { event: 'stop', payload: { session_id: 'another-session' } });
   assert.equal(landingCount, 0);
-  session.emit('hook-event', { event: 'Stop', payload: {} });
+  session.emit('hook-event', { event: 'stop', payload: {} });
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal((await fixture.orchestrator.tick(project)).error, 'landing refused');
-  session.emit('hook-event', { event: 'Stop', payload: {} });
+  session.emit('hook-event', { event: 'stop', payload: {} });
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(landingCount, 2);
   assert.equal((await fixture.orchestrator.tick(project)).error, null);
 });
 
 test('worker events wait for an idle orchestrator and collapse a long queue without replacing a pending paste', async (context) => {
-  const fixture = createFixture(context);
+  const fixture = await createFixture(context);
   await fixture.orchestrator.tick(project);
   const session = fixture.spawned[0].session;
   for (let index = 0; index < 6; index += 1) fixture.orchestrator.notifyOrchestrator('repo', { workId: `child-${index}`, event: 'completed' });
   assert.deepEqual(session.pastes, []);
   session.state = STATES.IDLE;
-  session.emit('hook-event', { event: 'Stop', payload: {} });
+  session.emit('hook-event', { event: 'stop', payload: {} });
   await waitFor(() => session.pastes.length === 1, 'Stop flushes worker events after landing');
   assert.match(session.pastes[0], /^\[factory\] 6 worker events queued/);
   assert.deepEqual(session.writes, ['\r']);
@@ -220,7 +256,7 @@ test('worker events wait for an idle orchestrator and collapse a long queue with
 });
 
 test('a worker event pastes no untrusted detail text into the orchestrator terminal', async (context) => {
-  const fixture = createFixture(context);
+  const fixture = await createFixture(context);
   await fixture.orchestrator.tick(project);
   const session = fixture.spawned[0].session;
   session.state = STATES.IDLE;
@@ -229,7 +265,7 @@ test('a worker event pastes no untrusted detail text into the orchestrator termi
 });
 
 test('unexpected exits back off but intentional pauses do not, and active intent is retained across readiness changes', async (context) => {
-  const fixture = createFixture(context);
+  const fixture = await createFixture(context);
   for (let exitCount = 0; exitCount < 3; exitCount += 1) {
     await fixture.orchestrator.tick(project);
     fixture.spawned[exitCount].session.emit('exit');
@@ -253,12 +289,12 @@ test('Stop with a dirty real ledger commits only coherence and lands it through 
   await mkdir(path.join(ledger.cwd, '.coherence', 'work'), { recursive: true });
   await writeFile(path.join(ledger.cwd, '.coherence', 'work', 's-orchestrator.jsonl'), '{"event":"opened","session":"orchestrator","parent":"intent"}\n');
   let hasLanded = false;
-  const fixture = createFixture(context, async (_projectId, intentId) => {
+  const fixture = await createFixture(context, async (_projectId, intentId) => {
     await commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'factory: orchestrator ledger repo', gitWorkspace, trusted: false, intentId });
     hasLanded = true;
   });
   await fixture.orchestrator.tick(project);
-  fixture.spawned[0].session.emit('hook-event', { event: 'Stop', payload: {} });
+  fixture.spawned[0].session.emit('hook-event', { event: 'stop', payload: {} });
   await waitFor(() => hasLanded, 'real ledger lands on integration', 5000);
   await fixture.orchestrator.stop();
   assert.equal(await git(['rev-parse', 'main']), await git(['rev-parse', 'main'], origin));
@@ -281,13 +317,13 @@ test('orchestrator ledger writes other than work creation or decisions are refus
   const refusals: string[] = [];
   const initialMain = await git(['rev-parse', 'main']);
   let pendingLanding = Promise.resolve();
-  const fixture = createFixture(context, () => {
+  const fixture = await createFixture(context, () => {
     pendingLanding = commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main',
       message: 'factory: orchestrator ledger repo', gitWorkspace, trusted: false, onRefused: (reason) => { refusals.push(reason); } });
     return pendingLanding;
   });
   await fixture.orchestrator.tick(project);
-  fixture.spawned[0].session.emit('hook-event', { event: 'Stop', payload: {} });
+  fixture.spawned[0].session.emit('hook-event', { event: 'stop', payload: {} });
   await waitFor(() => refusals.length === 1, 'forged ledger write is refused', 5000);
   assert.match(refusals[0], /consequences\/s-orchestrator.jsonl gained a record other than work creation or a decision/);
   await assert.rejects(pendingLanding, /refused to land/);
@@ -330,6 +366,28 @@ test('a ledger branch commit touching a path outside .coherence is refused for e
   await assert.rejects(() => git(['cat-file', '-e', 'main:src/payload.ts'], origin));
 });
 
+test('a ledger landing pushes a factory-recorded local integration tip that origin lacks and still refuses an unrecorded one', async (context) => {
+  const { repository, origin, git, gitWorkspace, ledger } = await createMainLedgerRepository(context, 'factory-orchestrator-unpushed-');
+  await writeFile(path.join(repository, 'source.ts'), 'export const original = false;\n');
+  await git(['commit', '-qam', 'merged worker change whose push failed']);
+  const unpushedMain = await git(['rev-parse', 'main']);
+  await mkdir(path.join(ledger.cwd, '.coherence', 'decisions'), { recursive: true });
+  await writeFile(path.join(ledger.cwd, '.coherence', 'decisions', 's-orchestrator.jsonl'), `${JSON.stringify({ id: 'decision', session: 'orchestrator', decision: 'declared' })}\n`);
+  const refusals: string[] = [];
+  await assert.rejects(() => commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'orchestrator', gitWorkspace, trusted: false,
+    intentId: 'intent', onRefused: (reason) => { refusals.push(reason); } }), /integration branch moved outside the factory/);
+  assert.equal(refusals.length, 1);
+  assert.notEqual(await git(['rev-parse', 'main'], origin), unpushedMain);
+  const landedIntegrationShas: string[] = [];
+  await commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'orchestrator', gitWorkspace, trusted: false, intentId: 'intent',
+    retryLanding: true, factoryLandedShas: new Set([unpushedMain]), onIntegrationLanded: async (integrationSha) => { landedIntegrationShas.push(integrationSha); } });
+  assert.equal(refusals.length, 1);
+  assert.equal(await git(['rev-parse', 'main'], origin), await git(['rev-parse', 'main']));
+  assert.equal(await git(['show', 'main:source.ts'], origin), 'export const original = false;');
+  assert.match(await git(['show', 'main:.coherence/decisions/s-orchestrator.jsonl'], origin), /"id":"decision"/);
+  assert.deepEqual(landedIntegrationShas, [await git(['rev-parse', 'main'])]);
+});
+
 test('a retry landing inspects ledger content already committed on the ledger branch, not only pending changes', async (context) => {
   const { repository, origin, git, gitWorkspace, ledger } = await createMainLedgerRepository(context, 'factory-orchestrator-committed-');
   await mkdir(path.join(ledger.cwd, '.coherence', 'work'), { recursive: true });
@@ -346,7 +404,9 @@ test('a retry landing inspects ledger content already committed on the ledger br
 });
 
 test('wiring stays inert when disabled and lane disabling destroys only its orchestrator', async (context) => {
-  const homeDir = await mkdtemp(path.join(os.tmpdir(), 'factory-orchestrator-wiring-'));
+  const homeDir = await realpath(await mkdtemp(path.join(os.tmpdir(), 'factory-orchestrator-wiring-')));
+  const ledgerPath = path.join(homeDir, 'ledger');
+  await execFileAsync('git', ['init', '-q', ledgerPath]);
   const orient = await readCoherenceFixture('orient-dispatch');
   const work = await readCoherenceFixture('work-dispatch');
   const config = { projects: [{ id: 'repo', name: 'Repository', path: '/repo' }], factory: { enabled: false }, integrationBranch: 'main' };
@@ -364,9 +424,11 @@ test('wiring stays inert when disabled and lane disabling destroys only its orch
       pollers.push(poller);
       return poller;
     },
-    gitWorkspace: { ...createGitWorkspace(), create: async () => ({ cwd: '/ledger', branch: 'factory-ledger', isGit: true }) },
+    gitWorkspace: { ...createGitWorkspace(), create: async () => ({ cwd: ledgerPath, branch: 'factory-ledger', isGit: true }) },
     orchestratorOptions: {
+      getHookPort: () => 3911,
       config, sessions, broadcast: () => {}, closeSessionDataClients: () => {}, recordLane: () => {},
+      resolveSaneYoloHookTools: () => [{ id: 'saneYolo', binPath: '/cc-safety-net' }],
       wireSessionEvents: () => {}, spawnGate: { run: async (operation) => operation() },
       makeSession: (identity) => {
         const session = new StubSession(identity);
@@ -387,7 +449,7 @@ test('wiring stays inert when disabled and lane disabling destroys only its orch
   wiring.restartIfConfigChanged();
   await waitFor(() => wiring.getState()?.projects[0]?.orchestrator !== null && wiring.getState() !== null, 'enabled wiring spawns orchestrator', 5000);
   assert.equal(spawned.length, 1);
-  assert.equal(spawned[0].path, '/ledger');
+  assert.equal(spawned[0].path, ledgerPath);
   assert.equal(wiring.getState()?.projects[0].orchestrator?.sessionId, 'factory-orch-repo');
   config.factory.enabled = false;
   wiring.restartIfConfigChanged();
@@ -399,7 +461,7 @@ test('wiring stays inert when disabled and lane disabling destroys only its orch
 
 
 test('events queued before spawning survive until the orchestrator is idle', async (context) => {
-  const fixture = createFixture(context);
+  const fixture = await createFixture(context);
   fixture.orchestrator.notifyOrchestrator('repo', { workId: 'child', event: 'verified' });
   await fixture.orchestrator.tick(project);
   fixture.spawned[0].session.state = STATES.IDLE;
@@ -409,7 +471,7 @@ test('events queued before spawning survive until the orchestrator is idle', asy
 
 
 test('an exit during failed startup counts once toward the three-exit backoff', async (context) => {
-  const fixture = createFixture(context, async () => {}, (session) => {
+  const fixture = await createFixture(context, async () => {}, (session) => {
     session.start = async () => { session.emit('exit'); };
   });
   for (let exitCount = 0; exitCount < 3; exitCount += 1) {
@@ -424,11 +486,11 @@ test('an exit during failed startup counts once toward the three-exit backoff', 
 
 test('a second Stop queues behind a pending landing and pause waits for both', async (context) => {
   const finishes: (() => void)[] = [];
-  const fixture = createFixture(context, () => new Promise<void>((resolve) => { finishes.push(resolve); }));
+  const fixture = await createFixture(context, () => new Promise<void>((resolve) => { finishes.push(resolve); }));
   await fixture.orchestrator.tick(project);
   const session = fixture.spawned[0].session;
-  session.emit('hook-event', { event: 'Stop', payload: {} });
-  session.emit('hook-event', { event: 'Stop', payload: {} });
+  session.emit('hook-event', { event: 'stop', payload: {} });
+  session.emit('hook-event', { event: 'stop', payload: {} });
   assert.equal(finishes.length, 1);
   await fixture.orchestrator.tick({ ...project, paused: true });
   finishes[0]();
@@ -440,7 +502,7 @@ test('a second Stop queues behind a pending landing and pause waits for both', a
 
 
 test('only the registered live orchestrator is authorized until pause, exit or shutdown', async (context) => {
-  const fixture = createFixture(context);
+  const fixture = await createFixture(context);
   assert.equal(fixture.orchestrator.getLiveOrchestrator('factory-orch-repo'), null);
   await fixture.orchestrator.tick(project);
   assert.deepEqual(fixture.orchestrator.getLiveOrchestrator('factory-orch-repo'), { projectId: 'repo', intentId: 'intent' });
@@ -461,7 +523,7 @@ test('only the registered live orchestrator is authorized until pause, exit or s
 
 test('an untrusted parentless root in the ledger is never picked as an intent and the landing is scoped to the active intent', async (context) => {
   const landedIntents: string[] = [];
-  const fixture = createFixture(context, async (_projectId, intentId) => { landedIntents.push(intentId); });
+  const fixture = await createFixture(context, async (_projectId, intentId) => { landedIntents.push(intentId); });
   const orchestratorRoot = { ...project.orders[0], id: 'orchestrator-root', writeScopes: ['**'], openedAt: '2026-10-01T12:00:00.000Z' };
   fixture.trustedIntentIds.clear();
   const untrusted = await fixture.orchestrator.tick({ ...project, orders: [orchestratorRoot, project.orders[0]] });
@@ -470,7 +532,7 @@ test('an untrusted parentless root in the ledger is never picked as an intent an
   fixture.trustedIntentIds.add('intent');
   const trusted = await fixture.orchestrator.tick({ ...project, orders: [orchestratorRoot, project.orders[0]] });
   assert.equal(trusted.orchestrator?.intentId, 'intent');
-  fixture.spawned[0].session.emit('hook-event', { event: 'Stop', payload: {} });
+  fixture.spawned[0].session.emit('hook-event', { event: 'stop', payload: {} });
   await waitFor(() => landedIntents.length === 1, 'orchestrator Stop lands its ledger', 5000);
   assert.deepEqual(landedIntents, ['intent']);
   assert.equal(fixture.orchestrator.activeIntentId('repo'), 'intent');

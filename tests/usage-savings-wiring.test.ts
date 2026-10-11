@@ -118,7 +118,7 @@ function harness({
   const scanner = {
     runPass: async () => COMPLETE_PASS,
     sessionTotals: () => new Map(),
-    stats: () => ({ dirs: [], files: 0, entries: 0, lastScanMs: 0, lastOutcome: 'complete' as const, resolutionError: null }),
+    stats: () => ({ dirs: [], files: 0, entries: 0, lastScanMs: 0, lastOutcome: 'complete' as const, isHistoryCaughtUp: true, resolutionError: null }),
     laneUsageSince: () => [],
     budgetSpend: () => ({ todayKey: '2026-08-21', monthKey: '2026-08', todayUsd: 0, monthUsd: 0 }),
     buildReport: (request: BuildReportRequest) => {
