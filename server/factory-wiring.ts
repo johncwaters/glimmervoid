@@ -21,6 +21,8 @@ import { createFactoryDispatch } from './factory-dispatch.ts';
 import { readLaneCommonGitDir } from './lane-posture.ts';
 import { buildFactoryDecisionEvent } from './core/telemetry-core.ts';
 import type { Telemetry } from './telemetry.ts';
+import { repositoryRootOfCommonGitDir } from './core/claude-trust-core.ts';
+import type { FolderTrustOutcome } from './claude-trust.ts';
 import { createFactoryOrchestrator } from './factory-orchestrator.ts';
 import type { Session } from '../session/sessions.ts';
 import type { FactoryOrchestratorDeps, FactoryOrchestratorSession } from './factory-orchestrator.ts';
@@ -53,12 +55,13 @@ interface FactoryWiringOptions<ManagedSession extends FactoryOrchestratorSession
   spawnVerifier?: FactoryCloseOutDeps['spawnReviewer'];
   spawnReviewer?: FactoryCloseOutDeps['spawnReviewer'];
   prepareCheckRunner?: FactoryCloseOutDeps['prepareCheckRunner'];
+  trustClaudeFolder?: (repositoryRoot: string) => Promise<FolderTrustOutcome>;
   orchestratorOptions?: Omit<FactoryOrchestratorDeps<ManagedSession>, 'nodePath' | 'hookCliPath' | 'shimDir' | 'ensureLedger' | 'commitAndLand' | 'readTrustedIntentIds'>;
 }
 
 export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSession = Session>({
   config, broadcast, gitWorkspace = createGitWorkspace(), homeDir = glimmervoidHomeDir(),
-  createPoller = createFactoryPoller, log = console, telemetry, orchestratorOptions, spawnReviewer, prepareCheckRunner, spawnVerifier = spawnReviewer, readSpentTodayUsd = () => ({ status: 'known', amountUsd: 0 }), runHogQL, notify = () => {}, runCoherence: customRunCoherence, ...pollerDeps
+  createPoller = createFactoryPoller, log = console, telemetry, orchestratorOptions, trustClaudeFolder, spawnReviewer, prepareCheckRunner, spawnVerifier = spawnReviewer, readSpentTodayUsd = () => ({ status: 'known', amountUsd: 0 }), runHogQL, notify = () => {}, runCoherence: customRunCoherence, ...pollerDeps
 }: FactoryWiringOptions<ManagedSession>) {
   gitWorkspace = isolateGitWorkspace(gitWorkspace, { disableRepoCommands: true });
   const writtenRecordIdsByCheckout = new Map<string, Set<string>>();
@@ -361,6 +364,26 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     notifyProject(projectId, reason);
   }
 
+  const folderTrustRefusals = new Map<string, string>();
+
+  function refuseFolderTrust(projectId: string, reason: string): Error {
+    folderTrustRefusals.set(projectId, reason);
+    raiseException(projectId, reason);
+    return new Error(reason);
+  }
+
+  async function trustProjectFolderForClaude(projectId: string, commonGitDir: string): Promise<void> {
+    if (!trustClaudeFolder) return;
+    const repositoryRoot = repositoryRootOfCommonGitDir(commonGitDir);
+    if (!repositoryRoot) return;
+    const outcome = await trustClaudeFolder(repositoryRoot).catch((error: unknown) => { throw refuseFolderTrust(projectId, errorMessage(error)); });
+    const earlierRefusal = folderTrustRefusals.get(projectId);
+    if (earlierRefusal !== undefined && exceptions.get(projectId) === earlierRefusal) exceptions.delete(projectId);
+    folderTrustRefusals.delete(projectId);
+    if (outcome !== 'granted') return;
+    void decisionLog.record({ ...factoryDecisionContext(projectId, { intentId: activeIntentIdOf(projectId), reason: `Trusted ${repositoryRoot} for Claude Code` }), kind: 'trust', outcome: 'granted', failureClass: null });
+  }
+
   const runner = createLaneRunner<FactoryPoller>({
     tag: 'factory',
     gate: () => factoryShouldStart(config),
@@ -391,7 +414,9 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         nodePath: process.execPath, hookCliPath: coherenceHookCliPath, shimDir: binDir, readTrustedIntentIds, notifyException: notifySpawnException,
         ensureLedger: (projectId) => serializeProject(projectId, async () => {
           const ledger = await ensureLedgerCheckout(projectId, requireProject(projectId));
-          return { ledgerPath: await realpath(ledger.cwd), commonGitDir: await readLaneCommonGitDir(ledger.cwd) };
+          const commonGitDir = await readLaneCommonGitDir(ledger.cwd);
+          await trustProjectFolderForClaude(projectId, commonGitDir);
+          return { ledgerPath: await realpath(ledger.cwd), commonGitDir };
         }),
         commitAndLand: (projectId, intentId) => serializeProject(projectId, async () => {
           const projectPath = requireProject(projectId);

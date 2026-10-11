@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { access, appendFile, chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { access, appendFile, chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -12,6 +13,7 @@ import { createGitWorkspace, runHardenedGit } from '../server/git-workspace.ts';
 import type { GitWorkspaceInstance } from '../server/git-workspace.ts';
 import { CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import { FactoryLaneState } from '../shared/contracts/factory.ts';
+import { FactoryDecisionLogLine } from '../shared/contracts/factory-decision-log.ts';
 import { createFactoryWiring } from '../server/factory-wiring.ts';
 import { cliPath as glimmervoidCliPath, resolvePackageBin } from '../server/runtime-paths.ts';
 import type { FactoryState } from '../shared/contracts/factory.ts';
@@ -386,7 +388,7 @@ async function createIntentFixture(context: test.TestContext) {
   const config = { factory: { enabled: true }, integrationBranch: 'integration', projects: [{ id: 'project-1', name: 'Factory', path: projectPath }] };
   const broadcasts: FactoryState[] = [];
   const start = async (gitWorkspace?: GitWorkspaceInstance, runCoherence?: (request: { cwd: string; args: string[] }) => Promise<string>,
-    sessionOptions: Pick<Parameters<typeof createFactoryWiring>[0], 'now' | 'notify' | 'orchestratorOptions' | 'createPoller' | 'readSpentTodayUsd'> = {}) => {
+    sessionOptions: Pick<Parameters<typeof createFactoryWiring>[0], 'now' | 'notify' | 'orchestratorOptions' | 'createPoller' | 'readSpentTodayUsd' | 'trustClaudeFolder'> = {}) => {
     const wiring = createFactoryWiring({
       config, homeDir, gitWorkspace, runCoherence, firstTickDelayMs: () => 0, ...sessionOptions,
       broadcast: (message) => broadcasts.push(message),
@@ -607,13 +609,16 @@ for (const mechanism of ['fsmonitor', 'smudge', 'clean', 'process', 'external-di
   });
 }
 
-async function createStallFixture(context: test.TestContext) {
+async function createStallFixture(context: test.TestContext, { trustClaudeFolder, expectedOrchestratorCount = 1, hasSeparateGitDirectory = false }: {
+  trustClaudeFolder?: (repositoryRoot: string, sessionsSpawnedSoFar: number) => Promise<'already-trusted' | 'granted'>; expectedOrchestratorCount?: number; hasSeparateGitDirectory?: boolean;
+} = {}) {
   const fixture = await createIntentFixture(context);
   await mkdir(path.join(fixture.projectPath, '.coherence'));
   await writeFile(path.join(fixture.projectPath, '.coherence', '.gitkeep'), '');
   await fixture.git(['add', '.coherence']);
   await fixture.git(['commit', '-m', 'test: prepare ledger']);
   await fixture.git(['push']);
+  if (hasSeparateGitDirectory) await fixture.git(['init', '--separate-git-dir', path.join(path.dirname(fixture.projectPath), 'separate-repo.git')]);
   const orient = await readCoherenceFixture('orient-dispatch');
   const inspection = CoherenceWorkInspect.parse(JSON.parse(await readCoherenceFixture('work-dispatch')));
   const intent = inspection.work[0];
@@ -637,6 +642,7 @@ async function createStallFixture(context: test.TestContext) {
     return JSON.stringify({ id: `record-${args[1]}` });
   }, {
     now: () => nowMs,
+    trustClaudeFolder: trustClaudeFolder ? (repositoryRoot) => trustClaudeFolder(repositoryRoot, spawned.length) : undefined,
     readSpentTodayUsd: () => new Date(nowMs).toDateString() === spendDay ? todaySpend : { status: 'known', amountUsd: 0 },
     notify: (_projectName, category, message) => { notifications.push({ category, message }); },
     createPoller: (dependencies) => {
@@ -662,8 +668,8 @@ async function createStallFixture(context: test.TestContext) {
       },
     },
   });
-  assert.equal(spawned.length, 1);
-  return { wiring, notifications, spawned, child, inspection, commands, pastedLines, config: fixture.config, projectPath: fixture.projectPath,
+  assert.equal(spawned.length, expectedOrchestratorCount);
+  return { wiring, notifications, spawned, child, inspection, commands, pastedLines, config: fixture.config, projectPath: fixture.projectPath, homeDir: fixture.homeDir,
     setSpend: (spend: LaneSpend) => { todaySpend = spend; spendDay = new Date(nowMs).toDateString(); },
     tick: () => pollers[0].refreshNow(), advanceClock: (elapsedMs: number) => { nowMs += elapsedMs; },
     now: () => nowMs,
@@ -698,6 +704,36 @@ test('a WAITING orchestrator past 120 seconds raises once, clears on recovery an
   fixture.advanceClock(FACTORY_STALL_MS + 1);
   await fixture.tick();
   assert.equal(fixture.notifications.length, 2);
+});
+
+test('the factory trusts the repository root before its orchestrator starts, leaves an unmappable git layout alone, and starts nothing when trust is refused', async (context) => {
+  const trustCalls: { repositoryRoot: string; sessionsSpawnedSoFar: number }[] = [];
+  const trusted = await createStallFixture(context, { trustClaudeFolder: async (repositoryRoot, sessionsSpawnedSoFar) => {
+    trustCalls.push({ repositoryRoot, sessionsSpawnedSoFar });
+    return 'granted';
+  } });
+  assert.deepEqual(trustCalls, [{ repositoryRoot: await realpath(trusted.projectPath), sessionsSpawnedSoFar: 0 }]);
+  const decisionsDirectory = path.join(trusted.homeDir, 'factory', 'project-1', 'decisions');
+  const readDecisions = () => (existsSync(decisionsDirectory) ? readdirSync(decisionsDirectory) : [])
+    .flatMap((fileName) => readFileSync(path.join(decisionsDirectory, fileName), 'utf8').trim().split('\n'))
+    .map((line) => FactoryDecisionLogLine.parse(JSON.parse(line)));
+  await waitFor(() => readDecisions().some((decision) => decision.kind === 'trust'), 'the trust grant reaches the decision log', REAL_PROCESS_DEADLINE_MS);
+  assert.deepEqual(readDecisions().filter((decision) => decision.kind === 'trust').map((decision) => decision.outcome), ['granted']);
+
+  const unmapped = await createStallFixture(context, { hasSeparateGitDirectory: true, trustClaudeFolder: async (repositoryRoot, sessionsSpawnedSoFar) => {
+    trustCalls.push({ repositoryRoot, sessionsSpawnedSoFar });
+    return 'granted';
+  } });
+  assert.equal(unmapped.spawned.length, 1);
+  assert.equal(trustCalls.length, 1);
+  assert.equal(unmapped.wiring.getState()?.projects[0].error, null);
+
+  const refusal = 'Could not trust /work/project for Claude Code: /home/operator/.claude.json was left unchanged because another process holds its lock';
+  const refused = await createStallFixture(context, { expectedOrchestratorCount: 0, trustClaudeFolder: async () => { throw new Error(refusal); } });
+  await refused.tick();
+  assert.equal(refused.spawned.length, 0);
+  assert.equal(refused.wiring.getState()?.projects[0].error, refusal);
+  assert.deepEqual(refused.notifications, [{ category: 'factory', message: refusal }]);
 });
 
 test('a worker with no first hook raises folder trust once and only its matching hook clears it', async (context) => {

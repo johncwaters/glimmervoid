@@ -4,8 +4,8 @@ import { FactoryReviewVerdict, isSingleFactoryPathSegment } from './factory.ts';
 
 export const FACTORY_DECISION_OUTPUT_MAX_BYTES = 16 * 1024;
 
-export const FactoryDecisionKind = z.enum(['admission', 'closeout', 'merge', 'watch', 'verification', 'exception', 'landing']);
-export const FactoryDecisionOutcome = z.enum(['refused', 'available', 'dispatched', 'ended', 'retry', 'block', 'merge', 'merged', 'breach', 'verified', 'verified-unwatched', 'failed', 'stale', 'passed', 'raised', 'stalled', 'recovered']);
+export const FactoryDecisionKind = z.enum(['admission', 'closeout', 'merge', 'watch', 'verification', 'exception', 'landing', 'trust']);
+export const FactoryDecisionOutcome = z.enum(['refused', 'available', 'dispatched', 'ended', 'retry', 'block', 'merge', 'merged', 'breach', 'verified', 'verified-unwatched', 'failed', 'stale', 'passed', 'raised', 'stalled', 'recovered', 'granted']);
 export const FactoryDecisionFailureClass = z.enum(['admission', 'worker', 'fence', 'check', 'review', 'closeout', 'breach', 'verification', 'stale', 'exception', 'stall', 'landing']);
 
 const decisionCheck: z.ZodType<FactoryCheck> = z.strictObject({ command: z.string(), pass: z.boolean(), output: z.string() });
@@ -38,6 +38,7 @@ export const FactoryDecisionLogLine = z.discriminatedUnion('kind', [
   z.strictObject({ ...decisionFields, kind: z.literal('verification'), outcome: z.enum(['failed', 'stale', 'passed']) }),
   z.strictObject({ ...decisionFields, kind: z.literal('exception'), outcome: z.enum(['raised', 'stalled']) }),
   z.strictObject({ ...decisionFields, kind: z.literal('landing'), outcome: z.enum(['failed', 'recovered']) }),
+  z.strictObject({ ...decisionFields, kind: z.literal('trust'), outcome: z.literal('granted') }),
 ]).superRefine((line, context) => {
   const isFailure = ['refused', 'retry', 'block', 'breach', 'failed', 'stale', 'raised', 'stalled'].includes(line.outcome);
   if (isFailure && line.failureClass === null) context.addIssue({ code: 'custom', path: ['failureClass'], message: 'Failure requires a failure class' });

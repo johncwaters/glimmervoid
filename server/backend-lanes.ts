@@ -14,6 +14,7 @@ import { createFactoryWiring } from './factory-wiring.ts';
 import { createCoderActivityWiring } from './coder-activity-wiring.ts';
 import { createBranchGcWiring } from './branch-gc-wiring.ts';
 import { createClaudeCredentials } from './claude-credentials.ts';
+import { createClaudeFolderTrust } from './claude-trust.ts';
 import { DEFAULT_CONFIG, glimmervoidHomeDir } from './config-store.ts';
 import type { ConfigStore, GlimmervoidConfig } from './config-store.ts';
 import { configSiblingPath } from './pairings-store.ts';
@@ -150,6 +151,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       replayBufferKB: config.replayBufferKB, laneName: 'factory', useReadOnlyPosture: true, allowTools: FACTORY_REVIEWER_TOOLS,
       settingsPermissions: FACTORY_REVIEWER_PERMISSIONS, spawnEnv: FACTORY_REVIEWER_SPAWN_ENV,
     }),
+    trustClaudeFolder: createClaudeFolderTrust().ensureTrusted,
     orchestratorOptions: {
       config, sessions: agentSessions, makeSession, wireSessionEvents, closeSessionDataClients,
       broadcast: broadcastControl, spawnGate, recordLane, getHookPort,
