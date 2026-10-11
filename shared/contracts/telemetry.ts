@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { BUILTIN_AGENT_IDS } from './config.ts';
+import { FactoryDecisionFailureClass, FactoryDecisionKind, FactoryDecisionOutcome } from './factory-decision-log.ts';
 
 export const TELEMETRY_ADAPTERS = Object.freeze([...BUILTIN_AGENT_IDS, 'custom'] as const);
 export const SESSION_EXIT_KINDS = Object.freeze(['clean', 'error', 'signal', 'no_output'] as const);
@@ -66,6 +67,14 @@ export const AiGenerationProperties = z.object({
   agent_adapter: z.enum(TELEMETRY_ADAPTERS),
 }).strict();
 
+export const FactoryDecisionProperties = z.object({
+  kind: FactoryDecisionKind,
+  outcome: FactoryDecisionOutcome,
+  failure_class: FactoryDecisionFailureClass.nullable(),
+  duration_ms: nonNegativeInteger.nullable(),
+  attempt: nonNegativeInteger.nullable(),
+}).strict();
+
 export const TELEMETRY_EVENT_SCHEMAS = Object.freeze({
   app_started: AppStartedProperties,
   app_active: AppActiveProperties,
@@ -73,6 +82,7 @@ export const TELEMETRY_EVENT_SCHEMAS = Object.freeze({
   session_ended: SessionEndedProperties,
   $exception: ExceptionProperties,
   $ai_generation: AiGenerationProperties,
+  factory_decision: FactoryDecisionProperties,
 });
 
 export type TelemetryEventName = keyof typeof TELEMETRY_EVENT_SCHEMAS;
@@ -85,6 +95,7 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'session_ended', description: 'A session exited: how it exited and how long it ran, in whole seconds.' },
   { name: '$exception', description: 'An error in the server or the dashboard: its type, an error code when it has one, and stack frames with file paths cut to the package or URL path. Never the error message. Each distinct error is sent once per run, and a crash is sent on the next start.' },
   { name: '$ai_generation', description: 'Per agent session and model, after each usage scan, for usage recorded in the last 24 hours: token counts, the model name and estimated cost, under a one-way hash of the session. A model name outside the shipped pricing table is sent as unknown. No prompts or output.' },
+  { name: 'factory_decision', description: 'Each time the factory decides something (a dispatch, a close-out attempt, a merge, a watch or verification result, an exception, a landing): which kind of decision, how it came out, the class of failure when it failed, how long it took and which attempt it was. Never the objective, the reason, check output, a path or a repository name.' },
 ]);
 
 export const TELEMETRY_BASE_PROPERTY_KEYS = Object.freeze([
@@ -116,6 +127,7 @@ export const TelemetryState = z.object({
 export type ExceptionFrame = z.infer<typeof ExceptionFrame>;
 export type ExceptionProperties = z.infer<typeof ExceptionProperties>;
 export type AiGenerationProperties = z.infer<typeof AiGenerationProperties>;
+export type FactoryDecisionProperties = z.infer<typeof FactoryDecisionProperties>;
 export type TelemetryAdapter = (typeof TELEMETRY_ADAPTERS)[number];
 export type SessionExitKind = (typeof SESSION_EXIT_KINDS)[number];
 export type TelemetryState = z.infer<typeof TelemetryState>;

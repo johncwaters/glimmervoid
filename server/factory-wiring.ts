@@ -19,6 +19,8 @@ import { createFactoryCloseOut, factorySecretValues } from './factory-closeout.t
 import type { FactoryCloseOutDeps } from './factory-closeout.ts';
 import { createFactoryDispatch } from './factory-dispatch.ts';
 import { readLaneCommonGitDir } from './lane-posture.ts';
+import { buildFactoryDecisionEvent } from './core/telemetry-core.ts';
+import type { Telemetry } from './telemetry.ts';
 import { createFactoryOrchestrator } from './factory-orchestrator.ts';
 import type { Session } from '../session/sessions.ts';
 import type { FactoryOrchestratorDeps, FactoryOrchestratorSession } from './factory-orchestrator.ts';
@@ -43,6 +45,7 @@ interface FactoryWiringOptions<ManagedSession extends FactoryOrchestratorSession
   broadcast: FactoryPollerDeps['broadcast'];
   gitWorkspace?: GitWorkspaceInstance;
   homeDir?: string;
+  telemetry?: Pick<Telemetry, 'capture'>;
   readSpentTodayUsd?: () => LaneSpend;
   createPoller?: typeof createFactoryPoller;
   runHogQL?: FactoryWatchDeps['runHogQL'];
@@ -55,7 +58,7 @@ interface FactoryWiringOptions<ManagedSession extends FactoryOrchestratorSession
 
 export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSession = Session>({
   config, broadcast, gitWorkspace = createGitWorkspace(), homeDir = glimmervoidHomeDir(),
-  createPoller = createFactoryPoller, log = console, orchestratorOptions, spawnReviewer, prepareCheckRunner, spawnVerifier = spawnReviewer, readSpentTodayUsd = () => ({ status: 'known', amountUsd: 0 }), runHogQL, notify = () => {}, runCoherence: customRunCoherence, ...pollerDeps
+  createPoller = createFactoryPoller, log = console, telemetry, orchestratorOptions, spawnReviewer, prepareCheckRunner, spawnVerifier = spawnReviewer, readSpentTodayUsd = () => ({ status: 'known', amountUsd: 0 }), runHogQL, notify = () => {}, runCoherence: customRunCoherence, ...pollerDeps
 }: FactoryWiringOptions<ManagedSession>) {
   gitWorkspace = isolateGitWorkspace(gitWorkspace, { disableRepoCommands: true });
   const writtenRecordIdsByCheckout = new Map<string, Set<string>>();
@@ -63,7 +66,10 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
   const coherenceHookCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence-hook');
   let dispatcher: ReturnType<typeof createFactoryDispatch<ManagedSession>> | null = null;
   let todaySpend: LaneSpend = { status: 'known', amountUsd: 0 };
-  const decisionLog = createFactoryDecisionLog({ homeDir, now: pollerDeps.now, log, redact: (text) => redactSecretLines(text, factorySecretValues(process.env)) });
+  const decisionLog = createFactoryDecisionLog({
+    homeDir, now: pollerDeps.now, log, redact: (text) => redactSecretLines(text, factorySecretValues(process.env)),
+    onDecision: (line) => telemetry?.capture('factory_decision', buildFactoryDecisionEvent(line)),
+  });
   void decisionLog.pruneEveryProject();
   const exceptions = new Map<string, string>();
   const landingErrors = new Map<string, string>();

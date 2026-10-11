@@ -6,8 +6,9 @@ import {
   FeatureFlagsResponse, MAX_AI_MODEL_LENGTH, MAX_AI_PROVIDER_LENGTH, MAX_EXCEPTION_FRAMES, MAX_TEXT_LENGTH, TELEMETRY_KILL_SWITCH_FLAG,
 } from '../../shared/contracts/telemetry.ts';
 import type {
-  AiGenerationProperties, ExceptionFrame, ExceptionProperties, SessionExitKind, TelemetryAdapter,
+  AiGenerationProperties, ExceptionFrame, ExceptionProperties, FactoryDecisionProperties, SessionExitKind, TelemetryAdapter,
 } from '../../shared/contracts/telemetry.ts';
+import type { FactoryDecisionLogLine } from '../../shared/contracts/factory-decision-log.ts';
 import type { UsageGenerationRollupRow } from './usage-entry-core.ts';
 
 const POSTHOG_INGEST_HOST = 'https://us.i.posthog.com';
@@ -18,7 +19,7 @@ const TELEMETRY_FLAGS_URL = `${POSTHOG_INGEST_HOST}/flags?v=2`;
 const MAX_STACK_LENGTH = 16384;
 
 const FIRST_RUN_NOTICE = [
-  'Glimmervoid sends anonymous usage and error data to help improve it: app starts, daily activity, session starts and ends with the agent kind, exit kind and duration, errors as their type, error code and scrubbed stack frames, and per session token counts, models and estimated cost. No error messages, paths, repository names, prompts, model output or terminal output.',
+  'Glimmervoid sends anonymous usage and error data to help improve it: app starts, daily activity, session starts and ends with the agent kind, exit kind and duration, errors as their type, error code and scrubbed stack frames, per session token counts, models and estimated cost, and factory outcomes as the kind of decision, how it came out, its duration and attempt number. No error messages, paths, repository names, prompts, objectives, model output or terminal output.',
   'Turn it off in Settings > Privacy, or set GLIMMERVOID_TELEMETRY=0 or DO_NOT_TRACK=1.',
 ].join('\n');
 
@@ -361,6 +362,10 @@ function decideIsDevInstall(
   return comparablePath(homeDir) !== comparablePath(defaultHomeDir);
 }
 
+function buildFactoryDecisionEvent(decision: Pick<FactoryDecisionLogLine, 'kind' | 'outcome' | 'failureClass' | 'durationMs' | 'attempt'>): FactoryDecisionProperties {
+  return { kind: decision.kind, outcome: decision.outcome, failure_class: decision.failureClass, duration_ms: decision.durationMs, attempt: decision.attempt };
+}
+
 function nodeMajorVersion(nodeVersion: string): number {
   const major = Number.parseInt(nodeVersion.replace(/^v/, ''), 10);
   return Number.isFinite(major) ? major : 0;
@@ -368,7 +373,7 @@ function nodeMajorVersion(nodeVersion: string): number {
 
 export {
   FIRST_RUN_NOTICE, POSTHOG_PROJECT_TOKEN, TELEMETRY_BATCH_URL, TELEMETRY_FLAGS_URL,
-  adapterBucket, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties, classifySessionExit,
+  adapterBucket, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties, buildFactoryDecisionEvent, classifySessionExit,
   decideIsDevInstall, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, isTelemetryForcedOff, nodeMajorVersion,
   parseBrowserStackFrames, parsePosthogReleaseId, parseV8StackFrames, resolveProjectToken, scrubLocalPath, urlPathOnly,
 };

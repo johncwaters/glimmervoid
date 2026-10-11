@@ -430,7 +430,7 @@ export const SETTINGS_MAP = Object.freeze([
     settings: [
       {
         id: 'telemetry-enabled', path: 'telemetry.enabled', title: 'Send anonymous usage and error data',
-        description: 'Version, platform, app starts, daily activity, session starts and ends with agent kind, exit kind and duration, errors as their type, error code and scrubbed stack frames, and per session token counts, models and estimated costs from the usage scan, under a random install id. Never error messages, paths, repository or branch names, prompts or terminal output. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless.',
+        description: 'Version, platform, app starts, daily activity, session starts and ends with agent kind, exit kind and duration, errors as their type, error code and scrubbed stack frames, per session token counts, models and estimated costs from the usage scan, and factory outcomes as the kind of decision, how it came out, its duration and attempt number, under a random install id. Never error messages, paths, repository or branch names, prompts, objectives or terminal output. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless.',
         control: 'toggle', keywords: ['telemetry', 'analytics', 'tracking', 'opt out'], defaultValue: true,
       },
     ],

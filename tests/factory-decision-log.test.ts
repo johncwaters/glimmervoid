@@ -36,7 +36,11 @@ test('close-out logs one decision per attempt with redacted byte-capped output a
   await fixture.git(['add', '.'], workspace.cwd);
   await fixture.git(['commit', '-m', 'test: failing check'], workspace.cwd);
   const warnings: string[] = [];
-  const decisionLog = createFactoryDecisionLog({ homeDir: directory, now: () => Date.parse('2026-10-11T12:00:00Z'), log: { warn: (message) => { warnings.push(message); } } });
+  const announcedDecisions: FactoryDecisionLogLine[] = [];
+  const decisionLog = createFactoryDecisionLog({
+    homeDir: directory, now: () => Date.parse('2026-10-11T12:00:00Z'), log: { warn: (message) => { warnings.push(message); } },
+    onDecision: (line) => { announcedDecisions.push(line); },
+  });
   const feedback: string[] = [];
   let isDestroyed = false;
   let mergedSha: string | null = null;
@@ -66,6 +70,7 @@ test('close-out logs one decision per attempt with redacted byte-capped output a
   const readLines = async () => (await readFile(filePath, 'utf8')).trim().split('\n').map((line) => FactoryDecisionLogLine.parse(JSON.parse(line)));
   const [firstAttempt] = await readLines();
   assert.equal((await readLines()).length, 1);
+  assert.deepEqual(announcedDecisions, [firstAttempt]);
   assert.equal(firstAttempt.kind, 'closeout');
   if (firstAttempt.kind !== 'closeout') assert.fail('Missing close-out decision');
   assert.equal(firstAttempt.outcome, 'retry');

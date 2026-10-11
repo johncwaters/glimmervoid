@@ -1,6 +1,7 @@
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { isSingleFactoryPathSegment } from '../shared/contracts/factory.ts';
+import type { FactoryDecisionLogLine } from '../shared/contracts/factory-decision-log.ts';
 import { errorMessage, isMissingFileError } from '../shared/text.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { buildFactoryDecisionLine, factoryDecisionDayFileName, factoryWorkerDecision } from './core/factory-decision-log-core.ts';
@@ -8,8 +9,8 @@ import type { FactoryDecisionInput, FactoryDecisionWorkerEvent } from './core/fa
 import { appendJsonLine } from './json-file.ts';
 import { pruneAgedFiles } from './prune-files.ts';
 
-export function createFactoryDecisionLog({ homeDir = glimmervoidHomeDir(), now = Date.now, log = console, redact = (text) => text }: {
-  homeDir?: string; now?: () => number; log?: Pick<Console, 'warn'>; redact?: (text: string) => string;
+export function createFactoryDecisionLog({ homeDir = glimmervoidHomeDir(), now = Date.now, log = console, redact = (text) => text, onDecision }: {
+  homeDir?: string; now?: () => number; log?: Pick<Console, 'warn'>; redact?: (text: string) => string; onDecision?: (line: FactoryDecisionLogLine) => void;
 } = {}) {
   const prunedDayByProject = new Map<string, string>();
   let lastScannedDayFileName: string | null = null;
@@ -50,6 +51,7 @@ export function createFactoryDecisionLog({ homeDir = glimmervoidHomeDir(), now =
     try {
       const line = buildFactoryDecisionLine(decision, new Date(now()).toISOString(), redact);
       const filePath = path.join(decisionsDirectory(line.projectId), factoryDecisionDayFileName(line.timestamp));
+      onDecision?.(line);
       const writing = appendJsonLine(filePath, line, { mkdir: true, mode: 0o600 }).catch(warn);
       pendingWrites.add(writing);
       void writing.then(() => pendingWrites.delete(writing));

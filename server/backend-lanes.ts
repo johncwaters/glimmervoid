@@ -138,7 +138,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     log: logger,
   });
   const factory = createFactoryWiring({
-    config, gitWorkspace, broadcast: broadcastControl, log: logger,
+    config, gitWorkspace, broadcast: broadcastControl, log: logger, telemetry,
     readSpentTodayUsd: () => {
       const localDay = new Date();
       localDay.setHours(0, 0, 0, 0);
