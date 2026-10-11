@@ -9,11 +9,10 @@ import type { Browser, BrowserContext, BrowserContextOptions, Page } from 'playw
 import type { ViteDevServer } from 'vite';
 import type WebSocket from 'ws';
 import { z } from 'zod';
-import { writeJsonAtomic } from '../../server/json-file.ts';
 import { SessionCardFields } from '../../shared/contracts/control-messages.ts';
 import { CARD_REGISTRY_URL, readGrid } from '../browser/probe.ts';
 import type { GridReading } from '../browser/probe.ts';
-import { connectControl, findFreeHighPort, removeHarnessTempDirectory } from '../support/backend-harness.ts';
+import { connectControl, removeHarnessTempDirectory } from '../support/backend-harness.ts';
 
 export const repoRoot = path.resolve(import.meta.dirname, '../..');
 export const runCommand = promisify(execFile);
@@ -120,41 +119,11 @@ export async function selectSession(page: Page, sessionId: string): Promise<void
   throw new Error(`terminal ${sessionId} did not negotiate its PTY size`);
 }
 
-export interface IsolatedConfigOptions {
-  tempDirectory: string;
-  repoRoots: string[];
-  recordSessions: boolean;
-}
-
 export interface IsolatedServer {
   port: number;
   vite: ViteDevServer;
   socket: WebSocket;
   configPath: string;
-}
-
-export async function prepareIsolatedEnvironment({ tempDirectory, repoRoots, recordSessions }: IsolatedConfigOptions): Promise<{ port: number; configPath: string }> {
-  const port = await findFreeHighPort();
-  const configPath = path.join(tempDirectory, 'config.json');
-  await writeJsonAtomic(configPath, {
-    port, projects: [], teams: [], repoRoots,
-    worktreeRoot: path.join(tempDirectory, 'worktrees'), integrationBranch: 'main',
-    autoResume: false, worktreeAutoRebase: false, worktreeSyncOnStart: false,
-    branchGc: { enabled: false }, usage: { enabled: false }, capture: { enabled: recordSessions },
-    recordSignals: recordSessions, postTurnChecks: { enabled: false }, checkForUpdates: false,
-    planReview: { enabled: false }, remote: { enabled: false },
-    posthog: { enabled: false }, telegram: { enabled: false }, teamReview: { enabled: false },
-    telemetry: { enabled: false },
-  });
-  const isolatedHome = path.join(tempDirectory, 'home');
-  const isolatedTemp = path.join(tempDirectory, 'tmp');
-  await fs.mkdir(isolatedHome);
-  await fs.mkdir(isolatedTemp);
-  Object.assign(process.env, {
-    GLIMMERVOID_HOME: isolatedHome, GLIMMERVOID_CONFIG: configPath, GLIMMERVOID_PORT: String(port),
-    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', TMPDIR: isolatedTemp,
-  });
-  return { port, configPath };
 }
 
 export async function startIsolatedServer(port: number, configPath: string): Promise<IsolatedServer> {
@@ -264,3 +233,6 @@ export async function runIsolatedDashboard(options: IsolatedDashboardOptions, ru
     process.off('SIGTERM', onSignal);
   }
 }
+
+export { prepareIsolatedEnvironment } from '../support/backend-harness.ts';
+export type { IsolatedConfigOptions } from '../support/backend-harness.ts';

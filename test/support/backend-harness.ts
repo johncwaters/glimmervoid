@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
+import { writeJsonAtomic } from '../../server/json-file.ts';
 
 import WebSocket from 'ws';
 
@@ -83,3 +84,35 @@ export {
   removeHarnessTempDirectory,
   safeTextTail,
 };
+
+export interface IsolatedConfigOptions {
+  tempDirectory: string;
+  repoRoots: string[];
+  recordSessions: boolean;
+  mutateEnvironment?: boolean;
+}
+
+export async function prepareIsolatedEnvironment({ tempDirectory, repoRoots, recordSessions, mutateEnvironment = true }: IsolatedConfigOptions) {
+  const port = await findFreeHighPort();
+  const configPath = path.join(tempDirectory, 'config.json');
+  await writeJsonAtomic(configPath, {
+    port, projects: [], teams: [], repoRoots,
+    worktreeRoot: path.join(tempDirectory, 'worktrees'), integrationBranch: 'main',
+    autoResume: false, worktreeAutoRebase: false, worktreeSyncOnStart: false,
+    branchGc: { enabled: false }, usage: { enabled: false }, capture: { enabled: recordSessions },
+    recordSignals: recordSessions, postTurnChecks: { enabled: false }, checkForUpdates: false,
+    planReview: { enabled: false }, remote: { enabled: false },
+    posthog: { enabled: false }, telegram: { enabled: false }, teamReview: { enabled: false },
+    telemetry: { enabled: false },
+  });
+  const isolatedHome = path.join(tempDirectory, 'home');
+  const isolatedTemp = path.join(tempDirectory, 'tmp');
+  await fs.promises.mkdir(isolatedHome);
+  await fs.promises.mkdir(isolatedTemp);
+  const environment = {
+    GLIMMERVOID_HOME: isolatedHome, GLIMMERVOID_CONFIG: configPath, GLIMMERVOID_PORT: String(port),
+    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', TMPDIR: isolatedTemp,
+  };
+  if (mutateEnvironment) Object.assign(process.env, environment);
+  return { port, configPath, isolatedHome, isolatedTemp, environment };
+}

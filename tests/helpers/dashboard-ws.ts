@@ -24,8 +24,8 @@ interface DataRecordingSocket {
 
 const DEFAULT_MESSAGE_WAIT_MS = 5000;
 
-async function fetchPageToken(port: number): Promise<string> {
-  const res = await fetch(`http://127.0.0.1:${port}/control-token`);
+async function fetchPageToken(port: number, signal?: AbortSignal): Promise<string> {
+  const res = await fetch(`http://127.0.0.1:${port}/control-token`, { signal });
   if (!res.ok) throw new Error(`/control-token answered ${res.status}`);
   const body = await res.json();
   return body.token;
@@ -40,8 +40,8 @@ function withToken(pathAndSearch: string, token: string): string {
   return `${pathAndSearch}${separator}token=${encodeURIComponent(token)}`;
 }
 
-async function dashboardClient(port: number): Promise<DashboardClient> {
-  const token = await fetchPageToken(port);
+async function dashboardClient(port: number, signal?: AbortSignal): Promise<DashboardClient> {
+  const token = await fetchPageToken(port, signal);
   const origin = dashboardOrigin(port);
   return {
     origin,
