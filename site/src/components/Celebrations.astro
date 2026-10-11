@@ -1,0 +1,46 @@
+<section id="celebrations">
+  <div class="section-head reveal">
+    <p class="eyebrow">Notifications</p>
+    <h2>Every merge gets a moment.</h2>
+    <p>Merged pull requests wait in the trophy tray, so none go off while you are away. Click it to play each one, with a jingle that climbs as the streak grows.</p>
+  </div>
+  <div class="celebration-demo">
+    <div class="celebration-tray" id="celebration-tray" data-state="empty">
+      <button class="btn-celebrations" id="btn-celebrations" type="button" title="Play queued merge celebrations" aria-label="Play queued merge celebrations"><svg class="btn-celebrations-icon" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" focusable="false"><path d="M4.5 2h7v3.5a3.5 3.5 0 0 1-7 0z" /><path d="M4.5 3.5H2.5a2 2 0 0 0 2 2.5" /><path d="M11.5 3.5h2a2 2 0 0 1-2 2.5" /><path d="M8 9v3" /><path d="M5.5 14h5" /></svg></button>
+      <span class="celebration-tray-count" id="celebration-tray-count" aria-live="polite"></span>
+    </div>
+    <button class="queue-merge" id="queue-merge" type="button">Queue a merge</button>
+    <span class="celebration-demo-hint">Then click the trophy.</span>
+  </div>
+</section>
+
+<script>
+  import { mountCelebrationTray, queueMergeCelebration } from '../../../public/merge-celebration.ts';
+
+  const DEMO_PULL_REQUESTS = ['fix-auth-redirect', 'flaky-upload-test', 'migrate-billing', 'bump-node-22', 'rename-color-tokens'];
+  const tray = document.getElementById('celebration-tray');
+  const trophyButton = document.getElementById('btn-celebrations');
+  const count = document.getElementById('celebration-tray-count');
+  const queueButton = document.getElementById('queue-merge');
+  let queuedMergeCount = 0;
+
+  function queueDemoMerge(): void {
+    const branch = DEMO_PULL_REQUESTS[queuedMergeCount % DEMO_PULL_REQUESTS.length];
+    queuedMergeCount += 1;
+    queueMergeCelebration(`Merged ${branch} (#${100 + queuedMergeCount})`);
+  }
+
+  if (tray && trophyButton instanceof HTMLButtonElement && count && queueButton) {
+    mountCelebrationTray(tray, trophyButton, count);
+    queueDemoMerge();
+    queueDemoMerge();
+    queueButton.addEventListener('click', queueDemoMerge);
+  }
+</script>
+
+<style>
+  .celebration-demo { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; width: fit-content; max-width: 100%; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 14px 16px; }
+  .queue-merge { height: var(--header-control-height); border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit; font-size: 12px; padding: 0 12px; cursor: pointer; }
+  .queue-merge:hover { border-color: var(--accent); color: var(--text-head); }
+  .celebration-demo-hint { font-size: 12px; color: var(--text-dim); }
+</style>
