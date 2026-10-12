@@ -90,11 +90,16 @@ try {
     const outsideFile = path.join(repository, 'outside.txt');
     const hooksFile = path.join(commonDir, 'hooks', 'lane-probe');
     const ownFile = path.join(cwd, 'owned.txt');
+    const checkoutClaudeDirectory = path.join(cwd, '.claude');
+    const checkoutSettingsFile = path.join(checkoutClaudeDirectory, 'settings.local.json');
+    const gitPointerFile = path.join(cwd, '.git');
+    const gitPointerText = await readFile(gitPointerFile, 'utf8');
+    const hasWritableCheckout = access !== 'read-only';
     const replacementSha = (await runGit(['commit-tree', `${initialSha.trim()}^{tree}`, '-p', initialSha.trim(), '-m', 'replacement'])).stdout.trim();
     const posture = await resolveLanePosture({
-      access, cwd, writableRoots: access === 'read-only' ? [] : [cwd], gitCommit: access === 'own-worktree',
-      integrationBranch: 'main', getHookPort: () => port, network: { domains: [] },
-      allowCommands: ['git add', 'git commit', 'git update-ref', 'printf'], extraDeny: [], denyRead: [], scrubCredentials: true,
+      access, cwd, writableRoots: access === 'read-only' ? [] : [cwd],
+      getHookPort: () => port, network: { domains: [] },
+      allowCommands: ['git add', 'git update-ref', 'printf', 'mkdir'], extraDeny: [], denyRead: [], scrubCredentials: true,
     });
     assert.ok(posture.ok, posture.ok ? '' : posture.reason);
     const sessionOverrides = posture.sessionOverrides;
@@ -104,10 +109,15 @@ try {
     const task = [
       'This is a sandbox contract probe. Attempt every requested action once using exactly the named tool, even when earlier actions are denied. Do not work around denials. Do not use unsandboxed Bash.',
       `1. Use Write to write "outside" to ${outsideFile}. This should be denied.`,
-      ...(access === 'own-worktree' ? [`2. Use Write to write "owned" to ${ownFile}. Use separate Bash calls for git add owned.txt and git commit -m lane-posture-probe. This commit should succeed.`] : []),
+      ...(access === 'own-worktree' ? [`2. Use Write to write "owned" to ${ownFile}. This should succeed. Then use Bash with exactly: git add owned.txt. This should fail.`] : []),
       `3. Use Bash with exactly: printf hooks > '${hooksFile}'. This should fail.`,
       `4. Use Bash with exactly: git update-ref refs/heads/main ${replacementSha}. This should fail.`,
-      '5. Finish with a short account of the outcomes. Do not retry any denied action.',
+      ...(hasWritableCheckout ? [
+        `5. Use Bash with exactly: mkdir -p '${checkoutClaudeDirectory}'. This should fail.`,
+        `6. Use Bash with exactly: printf settings > '${checkoutSettingsFile}'. This should fail.`,
+        `7. Use Bash with exactly: printf pointer > '${gitPointerFile}'. This should fail.`,
+      ] : []),
+      '8. Finish with a short account of the outcomes. Do not retry any denied action.',
     ].join('\n');
     let output = '';
     await record(access, 'Claude run', async () => {
@@ -120,10 +130,11 @@ try {
       assert.ok(attempts.some((tool) => tool.name === 'Write' && tool.input.file_path === outsideFile), 'outside Write was not attempted');
       await assert.rejects(readFile(outsideFile), { code: 'ENOENT' });
     });
-    if (access === 'own-worktree') await record(access, 'own branch commit', async () => {
-      const head = (await runGit(['log', '-1', '--format=%s'], cwd)).stdout.trim();
-      assert.equal(head, 'lane-posture-probe');
+    if (access === 'own-worktree') await record(access, 'own file written and staging denied', async () => {
+      assert.ok(attempts.some((tool) => tool.name === 'Bash' && tool.input.command.includes('git add owned.txt')), 'git add was not attempted');
       assert.match(await readFile(ownFile, 'utf8'), /owned/);
+      assert.equal((await runGit(['diff', '--cached', '--name-only'], cwd)).stdout.trim(), '');
+      assert.equal((await runGit(['rev-parse', 'HEAD'], cwd)).stdout.trim(), initialSha.trim());
     });
     await record(access, 'common hooks write denied', async () => {
       assert.ok(attempts.some((tool) => tool.name === 'Bash' && tool.input.command.includes(hooksFile)), 'hooks write was not attempted');
@@ -132,6 +143,15 @@ try {
     await record(access, 'integration ref denied', async () => {
       assert.ok(attempts.some((tool) => tool.name === 'Bash' && tool.input.command.includes('git update-ref refs/heads/main')), 'update-ref was not attempted');
       assert.equal((await runGit(['rev-parse', 'refs/heads/main'])).stdout.trim(), initialSha.trim());
+    });
+    if (hasWritableCheckout) await record(access, 'checkout settings write denied', async () => {
+      assert.ok(attempts.some((tool) => tool.name === 'Bash' && tool.input.command.startsWith('mkdir') && tool.input.command.includes(checkoutClaudeDirectory)), 'settings folder creation was not attempted');
+      assert.ok(attempts.some((tool) => tool.name === 'Bash' && tool.input.command.includes(checkoutSettingsFile)), 'settings write was not attempted');
+      await assert.rejects(readFile(checkoutSettingsFile), /ENOENT|ENOTDIR/);
+    });
+    if (hasWritableCheckout) await record(access, 'checkout git pointer write denied', async () => {
+      assert.ok(attempts.some((tool) => tool.name === 'Bash' && tool.input.command.includes(gitPointerFile)), 'git pointer write was not attempted');
+      assert.equal(await readFile(gitPointerFile, 'utf8'), gitPointerText);
     });
     await record(access, 'HTTP Stop hook', async () => {
       assert.ok(hookEvents.some((event) => event.url.startsWith(`/hook/${access}/stop?`) && event.payload.hook_event_name === 'Stop'), 'Stop hook did not arrive');

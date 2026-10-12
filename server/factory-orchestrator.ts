@@ -19,7 +19,6 @@ import { registerEphemeralSession } from './ephemeral-session.ts';
 import { resolveRequiredSaneYoloHookTools } from './hook-tools.ts';
 import { resolveLanePosture } from './lane-posture.ts';
 import { LANE_CREDENTIAL_DENY_READ } from './core/lane-posture-core.ts';
-import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 import type { SessionSpawnOverrides } from './session-factory.ts';
@@ -142,7 +141,7 @@ export function createFactoryOrchestrator<ManagedSession extends FactoryOrchestr
       if (stopped) return;
       const posture = await resolveLanePosture({
         access: 'own-checkout', cwd: ledgerPath, writableRoots: [ledgerPath],
-        integrationBranch: configuredIntegrationBranch(config), network: { domains: [] }, getHookPort,
+        network: { domains: [] }, getHookPort,
         allowCommands: FACTORY_ORCHESTRATOR_ALLOW.map((rule) => rule.slice(5, -3)), extraDeny: FACTORY_ORCHESTRATOR_DENY,
         denyRead: LANE_CREDENTIAL_DENY_READ, scrubCredentials: true,
       }, { resolveSaneYoloHookTools: () => resolveSaneYoloHookTools(config) });

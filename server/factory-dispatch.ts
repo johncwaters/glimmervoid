@@ -22,7 +22,6 @@ import { registerEphemeralSession } from './ephemeral-session.ts';
 import { resolveRequiredSaneYoloHookTools } from './hook-tools.ts';
 import { resolveLanePosture } from './lane-posture.ts';
 import { LANE_CREDENTIAL_DENY_READ } from './core/lane-posture-core.ts';
-import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import type { FactoryOrchestratorDeps, FactoryOrchestratorSession } from './factory-orchestrator.ts';
 import type { FactoryCloseOutWorker } from './factory-closeout.ts';
 
@@ -157,9 +156,9 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
         pendingRefusals.delete(projectId);
         const checks = config.factory?.checks ?? DEFAULT_FACTORY_CHECKS;
         const posture = await resolveLanePosture({
-          access: 'own-worktree', cwd: project.path, writableRoots: [], gitCommit: true, deferWorktree: true,
-          integrationBranch: configuredIntegrationBranch(config), network: { domains: [] }, getHookPort,
-          allowCommands: ['git add', 'git commit', 'coherence context', ...checks], extraDeny: FACTORY_WORKER_DENY,
+          access: 'own-worktree', cwd: project.path, writableRoots: [], deferWorktree: true,
+          network: { domains: [] }, getHookPort,
+          allowCommands: ['coherence context', 'rm', ...checks], extraDeny: FACTORY_WORKER_DENY,
           denyRead: LANE_CREDENTIAL_DENY_READ, scrubCredentials: true,
         }, { resolveSaneYoloHookTools: () => resolveSaneYoloHookTools(config) });
         if (!posture.ok) return refuse(posture.reason === 'Sane YOLO is unavailable' ? FACTORY_SANE_YOLO_UNAVAILABLE : posture.reason, true);

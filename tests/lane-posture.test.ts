@@ -8,8 +8,8 @@ import { resolveLanePosture } from '../server/lane-posture.ts';
 import type { LanePostureInput } from '../server/lane-posture.ts';
 
 const input: LanePostureInput = {
-  access: 'own-worktree', cwd: '/missing', writableRoots: [], gitCommit: true,
-  network: { domains: [] }, getHookPort: () => 3911, allowCommands: ['git add', 'git commit'],
+  access: 'own-worktree', cwd: '/missing', writableRoots: [],
+  network: { domains: [] }, getHookPort: () => 3911, allowCommands: ['npm test'],
   extraDeny: [], denyRead: [], scrubCredentials: true,
 };
 
@@ -20,7 +20,7 @@ for (const hookTools of [null, []]) {
   });
 }
 
-test('the shell canonicalizes linked paths and fences the integration ref even for a read-only cwd inside a worktree', async (context) => {
+test('the shell canonicalizes linked paths and denies the whole shared git folder to every lane inside a repository', async (context) => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'lane-posture-shell-')));
   context.after(() => rm(root, { recursive: true, force: true }));
   const repository = path.join(root, 'repo');
@@ -39,21 +39,21 @@ test('the shell canonicalizes linked paths and fences the integration ref even f
   const alias = path.join(root, 'alias');
   await symlink(workspace.cwd, alias, 'junction');
   const tools = { resolveSaneYoloHookTools: () => [{ id: 'saneYolo' as const, binPath: '/cc-safety-net' }] };
-  const worker = await resolveLanePosture({ ...input, cwd: alias, writableRoots: [alias], integrationBranch: 'main' }, tools);
+  const worker = await resolveLanePosture({ ...input, cwd: alias, writableRoots: [alias] }, tools);
   assert.equal(worker.ok, true);
   if (!worker.ok) return;
   assert.equal(worker.sessionOverrides.settingsPermissions.allow[0], `Edit(/${workspace.cwd}/**)`);
   const commonDir = path.join(repository, '.git');
-  assert.ok(worker.sessionOverrides.settingsSandbox.filesystem.allowWrite.includes(path.join(commonDir, 'worktrees', path.basename(workspace.cwd))));
+  assert.deepEqual(worker.sessionOverrides.settingsSandbox.filesystem.allowWrite, [await realpath(os.tmpdir()), workspace.cwd]);
+  assert.deepEqual(worker.sessionOverrides.settingsSandbox.filesystem.denyWrite, [commonDir, path.join(workspace.cwd, '.git'), path.join(workspace.cwd, '.claude')]);
   const nestedDirectory = path.join(workspace.cwd, 'nested');
   await mkdir(nestedDirectory);
-  const reviewer = await resolveLanePosture({ ...input, access: 'read-only', cwd: nestedDirectory, gitCommit: false, integrationBranch: 'main' }, tools);
+  const reviewer = await resolveLanePosture({ ...input, access: 'read-only', cwd: nestedDirectory }, tools);
   assert.equal(reviewer.ok, true);
   if (!reviewer.ok) return;
-  assert.ok(reviewer.sessionOverrides.settingsSandbox.filesystem.denyWrite.includes(path.join(commonDir, 'refs', 'heads', 'main.lock')));
-  assert.ok(reviewer.sessionOverrides.settingsSandbox.filesystem.denyWrite.includes(nestedDirectory));
+  assert.deepEqual(reviewer.sessionOverrides.settingsSandbox.filesystem.denyWrite, [commonDir, nestedDirectory]);
   assert.equal(reviewer.sessionOverrides.settingsPermissions.allow.some((rule) => rule.startsWith('Edit(')), false);
-  const deferred = await resolveLanePosture({ ...input, cwd: repository, gitCommit: true, deferWorktree: true, integrationBranch: 'main' }, tools);
+  const deferred = await resolveLanePosture({ ...input, cwd: repository, deferWorktree: true }, tools);
   assert.equal(deferred.ok, true);
   if (!deferred.ok) return;
   const originalPermissions = deferred.sessionOverrides.settingsPermissions;

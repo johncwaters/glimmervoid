@@ -13,8 +13,9 @@ import type { FactoryWatchEntry } from '../shared/contracts/factory.ts';
 import { prepareSandboxedCheckRunner } from './factory-check-sandbox.ts';
 import type { FactoryCheckSandbox, PrepareFactoryCheckRunner } from './factory-check-sandbox.ts';
 import { DEFAULT_CONFIG } from './config-store.ts';
-import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, checkFence, decideCloseOut, inheritedSecretValues, listUncommittedWorkPaths, parseCheckCommand, parseFactoryReviewerOutput, redactSecretLines, reviewerOutputTail } from './core/factory-core.ts';
+import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, findWorkerCommitRefusal, inheritedSecretValues, listUncommittedWorkPaths, parseCheckCommand, parseFactoryReviewerOutput, redactSecretLines, reviewerOutputTail } from './core/factory-core.ts';
 import type { FactoryCheck, FactoryFence } from './core/factory-core.ts';
+import { KEEP_MERGEABLE_SANDBOX_STUB_NAMES } from './core/my-prs-core.ts';
 import { nulSeparatedPaths } from './core/git-changed-paths-core.ts';
 import { runHardenedGit } from './git-workspace.ts';
 import type { GitWorkspaceInstance } from './git-workspace.ts';
@@ -31,6 +32,7 @@ export const FACTORY_REVIEWER_PERMISSIONS = Object.freeze({
 });
 export const FACTORY_REVIEWER_SPAWN_ENV: Readonly<Record<string, string>> = Object.freeze({ CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '0' });
 const CASE_INSENSITIVE_LEDGER_PATHSPEC = ':(icase).coherence';
+const WORK_OUTSIDE_LEDGER_PATHSPECS = ['.', ':(exclude,icase).coherence'];
 const FACTORY_REVIEW_TOO_LARGE_FEEDBACK ='change too large for review; split it into smaller tickets';
 
 type FactoryWorkerSession = Pick<Session, 'destroy' | 'pasteTextWhenReady' | 'write' | '_destroyed'>
@@ -142,12 +144,57 @@ export function createFactoryCloseOut({
   const untrustedCheckoutIsolation = () => ({ disableHooks: true, disableRepoCommands: true, replaceEnv: checkEnv() });
   const attemptOf = (worker: FactoryCloseOutWorker) => attempts.get(worker.workId) ?? 1;
 
-  async function runGit(cwd: string, args: string[]): Promise<string> {
-    return (await runHardenedGit(args, { cwd, env: checkEnv(), timeout: 30_000, maxBuffer: 16 * 1024 * 1024 })).stdout;
+  async function runGit(cwd: string, args: string[], indexFile?: string): Promise<string> {
+    return (await runHardenedGit(args, { cwd, env: checkEnv(), timeout: 30_000, maxBuffer: 16 * 1024 * 1024, indexFile })).stdout;
   }
 
   async function probeUncommittedWorkPaths(cwd: string): Promise<string[]> {
     return listUncommittedWorkPaths(await runGit(cwd, ['--no-optional-locks', 'status', '--porcelain', '-z', '--no-renames', '--untracked-files=all']));
+  }
+
+  async function isIgnoredInProject(projectPath: string, sharedEntry: string): Promise<boolean> {
+    try {
+      await runGit(projectPath, ['check-ignore', '-q', '--', sharedEntry]);
+      return true;
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 1) return false;
+      throw error;
+    }
+  }
+
+  async function sharedEntriesIgnoredInProject(projectPath: string): Promise<string[]> {
+    const ignoredSharedEntries: string[] = [];
+    for (const sharedEntry of sharedEntries()) {
+      if (sharedEntry === '' || sharedEntry.includes('..')) continue;
+      if (await isIgnoredInProject(projectPath, sharedEntry)) ignoredSharedEntries.push(sharedEntry);
+    }
+    return ignoredSharedEntries;
+  }
+
+  async function commitWorkerChanges(worker: FactoryCloseOutWorker, cwd: string): Promise<string | null> {
+    if ((await probeUncommittedWorkPaths(cwd)).length === 0) return null;
+    const worktreeGitDirectory = (await runGit(cwd, ['rev-parse', '--absolute-git-dir'])).replace(/\r?\n$/, '');
+    const indexDirectory = await mkdtemp(path.join(worktreeGitDirectory, 'glimmervoid-factory-index-'));
+    try {
+      const stagingIndexFile = path.join(indexDirectory, 'index');
+      const headSha = (await runGit(cwd, ['rev-parse', 'HEAD'])).trim();
+      await runGit(cwd, ['read-tree', headSha], stagingIndexFile);
+      await runGit(cwd, ['add', '--all', '--', ...WORK_OUTSIDE_LEDGER_PATHSPECS], stagingIndexFile);
+      const stagedTree = (await runGit(cwd, ['write-tree'], stagingIndexFile)).trim();
+      const stagedChanges = await runGit(cwd, ['diff', '--raw', '--no-renames', '--no-abbrev', '--ignore-submodules=none', '-z', headSha, stagedTree]);
+      if (!stagedChanges) {
+        await runGit(cwd, ['read-tree', headSha]);
+        return null;
+      }
+      const refusal = findWorkerCommitRefusal({ rawDiff: stagedChanges, sharedEntries: await sharedEntriesIgnoredInProject(worker.projectPath), placeholderNames: KEEP_MERGEABLE_SANDBOX_STUB_NAMES });
+      if (refusal) return refusal;
+      const commitSha = (await runGit(cwd, ['commit-tree', stagedTree, '-p', headSha, '-m', buildWorkerCommitMessage(worker)])).trim();
+      await runGit(cwd, ['update-ref', 'HEAD', commitSha, headSha]);
+      await runGit(cwd, ['read-tree', commitSha]);
+      return null;
+    } finally {
+      await rm(indexDirectory, { recursive: true, force: true });
+    }
   }
 
   async function removeCheckCheckout(projectPath: string, checkoutPath: string): Promise<void> {
@@ -288,19 +335,20 @@ export function createFactoryCloseOut({
     };
     try {
       await discardWorkerLedgerChanges(worker, cwd, baseSha);
-      if ((await probeUncommittedWorkPaths(cwd)).length > 0) {
-        await failedAttempt('Working tree', 'commit your work');
+      const commitRefusal = await commitWorkerChanges(worker, cwd);
+      if (commitRefusal) {
+        await failedAttempt('Worker change', commitRefusal);
         return;
       }
       const headSha = (await runGit(cwd, ['rev-parse', 'HEAD'])).trim();
-      const changedPaths = nulSeparatedPaths(await runGit(cwd, ['diff', '--name-only', '--no-renames', '-z', `${baseSha}...${headSha}`]));
+      const changedPaths = nulSeparatedPaths(await runGit(cwd, ['diff', '--name-only', '--no-renames', '--ignore-submodules=none', '-z', `${baseSha}...${headSha}`]));
       if (changedPaths.length === 0) {
-        await failedAttempt('Committed change', 'No change was committed. Commit your work on the current branch, then finish the turn.');
+        await failedAttempt('Worker change', 'No change was found in the worktree. Make the change, then finish the turn.');
         return;
       }
       fence = checkFence({ changedPaths, writeScopes: worker.writeScopes,
         protectedPaths: config.factory?.protectedPaths ?? DEFAULT_FACTORY_PROTECTED_PATHS });
-      const reviewDiff = fence.ok ? await runGit(cwd, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', `${baseSha}...${headSha}`]) : '';
+      const reviewDiff = fence.ok ? await runGit(cwd, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--text', '--ignore-submodules=none', `${baseSha}...${headSha}`]) : '';
       if (reviewDiff.length > FACTORY_REVIEW_DIFF_MAX_CHARS) {
         await failedAttempt('Review size', FACTORY_REVIEW_TOO_LARGE_FEEDBACK);
         return;
@@ -332,7 +380,7 @@ export function createFactoryCloseOut({
         }
         const currentHead = (await runGit(cwd, ['rev-parse', 'HEAD'])).trim();
         if (currentHead !== headSha || (await probeUncommittedWorkPaths(cwd)).length > 0) {
-          throw new Error('Worker changed during close-out; commit your work and finish the turn');
+          throw new Error('Worker changed during close-out; finish the turn once the worktree is settled');
         }
         if (!worker.session.mergeWorktree) throw new Error('Worker cannot merge its worktree');
         await discardUncommittedLedgerChanges(cwd);

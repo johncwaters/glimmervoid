@@ -129,21 +129,15 @@ test('dispatch hands off and activates at the integration tip, then provisions a
   const commonGitDir = await realpath(path.join(fixture.projectPath, '.git'));
   const worktreeAdminDir = await realpath((await readFile(path.join(worktreePath, '.git'), 'utf8')).replace(/^gitdir:\s*/, '').trim());
   assert.equal(path.dirname(worktreeAdminDir), path.join(commonGitDir, 'worktrees'));
-  const workerBranch = await fixture.git(['symbolic-ref', '--short', 'HEAD'], worktreePath);
-  const workerRefPath = path.join(commonGitDir, 'refs', 'heads', ...workerBranch.split('/'));
   assert.deepEqual(overrides.settingsPermissions, { defaultMode: 'dontAsk',
-    allow: [`Edit(/${worktreePath}/**)`, 'Bash(git add:*)', 'Bash(git commit:*)', 'Bash(coherence context:*)', 'Bash(npm run typecheck:*)', 'Bash(npm run lint:*)', 'Bash(npm test:*)'],
+    allow: [`Edit(/${worktreePath}/**)`, 'Bash(coherence context:*)', 'Bash(rm:*)', 'Bash(npm run typecheck:*)', 'Bash(npm run lint:*)', 'Bash(npm test:*)'],
     deny: ['Bash(git push:*)', 'Bash(gh:*)', 'Bash(glimmervoid:*)', 'WebFetch', 'Edit(**/.git/**)', 'Edit(**/.claude/**)'] });
   assert.deepEqual(overrides.settingsSandbox, {
     ...teamReviewSandbox(os.tmpdir()),
     network: { ...teamReviewSandbox(os.tmpdir()).network, allowAllUnixSockets: false, allowedDomains: ['127.0.0.1:3911'] },
     filesystem: {
-      allowWrite: [await realpath(os.tmpdir()), worktreePath, worktreeAdminDir, path.join(commonGitDir, 'objects'), workerRefPath, `${workerRefPath}.lock`,
-        path.join(commonGitDir, 'logs', 'refs', 'heads', ...workerBranch.split('/'))],
-      denyWrite: [...['hooks', 'config', 'config.worktree'].map((entry) => path.join(commonGitDir, entry)),
-        ...['commondir', 'gitdir', 'config.worktree'].map((entry) => path.join(worktreeAdminDir, entry)),
-        ...['refs/heads/integration', 'refs/heads/integration.lock', 'refs/replace', 'packed-refs', 'packed-refs.lock'].map((entry) => path.join(commonGitDir, entry)),
-        path.join(worktreePath, '.git'), path.join(worktreePath, '.claude')],
+      allowWrite: [await realpath(os.tmpdir()), worktreePath],
+      denyWrite: [commonGitDir, path.join(worktreePath, '.git'), path.join(worktreePath, '.claude')],
       denyRead: teamReviewSandbox(os.tmpdir()).filesystem.denyRead,
     },
   });

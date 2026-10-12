@@ -274,11 +274,13 @@ test('a turn end matches the lowercase stop event the hook relay delivers and no
   assert.equal(isTurnEndHookEvent('sessionstart'), false);
 });
 
-test('worker prompt states the shell write boundary as the shared git data short of hooks, config, packed refs, replace refs and the integration branch', async () => {
+test('worker prompt leaves committing to Glimmervoid and states that shell commands cannot write git data', async () => {
   const [order] = CoherenceWorkInspect.parse(await readFixture('work-dispatch')).work;
   const prompt = buildWorkerPrompt({ projectName: 'Factory', intent: order, order, claudeSessionId: 'conversation' });
   assert.ok(prompt.includes('Edits can write only inside this worktree.'));
-  assert.ok(prompt.includes('plus the shared git data of this repository other than its hooks, config, packed refs, replace refs and integration branch'));
+  assert.ok(prompt.includes('cannot write any git data'));
+  assert.ok(prompt.includes('never run git add or git commit'));
+  assert.equal(prompt.includes('Commit your work'), false);
   assert.equal(prompt.includes('Edits and shell commands can write only'), false);
 });
 

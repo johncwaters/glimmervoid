@@ -20,7 +20,7 @@ import { createSessionFactory } from '../server/session-factory.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import type { Session } from '../session/sessions.ts';
 import { fakePty } from './helpers/fake-pty.ts';
-import { createCoherenceLedger, stubEnvironmentVariable } from './helpers/factory-fixture.ts';
+import { createCoherenceLedger, initGitRepository, stubEnvironmentVariable } from './helpers/factory-fixture.ts';
 import { waitFor } from './helpers/wait-for.ts';
 import { FactoryLaneState, FactoryWorkerEvent } from '../shared/contracts/factory.ts';
 import type { GlimmervoidConfig } from '../server/config-store.ts';
@@ -231,24 +231,82 @@ for (const verdict of [{ pass: 'yes', findings: [] }, null]) {
   });
 }
 
-test('uncommitted work fails the attempt with commit feedback before any HEAD comparison', async (context) => {
+test('close-out commits the changes a worker left uncommitted and lands them', async (context) => {
   const fixture = await createFixture(context);
+  await mkdir(path.join(fixture.workspace.cwd, 'src'), { recursive: true });
   await writeFile(path.join(fixture.workspace.cwd, 'src/retry.ts'), 'export const retries = 5;\n');
   await fixture.closeOut.turnEnded(fixture.worker);
-  assert.match(fixture.feedback[0], /commit your work/);
-  assert.equal(fixture.reviewRequests.length, 0);
+  assert.deepEqual(fixture.feedback, []);
+  assert.deepEqual(fixture.exceptions, []);
+  assert.equal(await fixture.orderState(fixture.worker.workId), 'completed');
+  const mergedSha = fixture.mergedSha();
+  assert.ok(mergedSha);
+  assert.equal(await fixture.git(['show', `${mergedSha}:src/retry.ts`]), 'export const retries = 5;');
+  assert.equal(await fixture.git(['log', '-1', '--format=%s', mergedSha, '--', 'src/retry.ts']), 'factory: Ship retries');
 });
 
-test('a clean worker with no commits fails each attempt and blocks on the third', async (context) => {
+test('a worker that changed nothing fails each attempt and blocks on the third', async (context) => {
   const fixture = await createFixture(context);
   for (const attempt of [1, 2, 3]) {
     await fixture.closeOut.turnEnded(fixture.worker);
     assert.equal(fixture.feedback.length, Math.min(attempt, 2));
   }
-  assert.match(fixture.feedback[0], /No change was committed/);
+  assert.match(fixture.feedback[0], /No change was found in the worktree/);
   assert.equal(await fixture.orderState(fixture.worker.workId), 'blocked');
   assert.equal(fixture.isDestroyed(), true);
   assert.equal(fixture.reviewRequests.length, 0);
+});
+
+test('close-out refuses to commit a nested repository, a shared host file or a sandbox placeholder and leaves the worker branch where it was, and commits an edit to a shared entry the repository tracks and a new file under one the project does not ignore', async (context) => {
+  const leaveNestedRepository = async (fixture: Awaited<ReturnType<typeof createFixture>>) => {
+    const nestedRepositoryPath = path.join(fixture.workspace.cwd, 'vendored');
+    await mkdir(nestedRepositoryPath);
+    await initGitRepository(fixture.git, 'main', nestedRepositoryPath);
+    await writeFile(path.join(nestedRepositoryPath, 'payload.txt'), 'nested\n');
+    await fixture.git(['add', 'payload.txt'], nestedRepositoryPath);
+    await fixture.git(['commit', '-m', 'test: nested commit'], nestedRepositoryPath);
+  };
+  const refusedLeftovers = [
+    { feedbackPattern: /Nested git repositories cannot be committed\. Remove them.*: vendored/, leave: leaveNestedRepository },
+    { feedbackPattern: /Nested git repositories cannot be committed\. Remove them.*: vendored/, leave: async (fixture: Awaited<ReturnType<typeof createFixture>>) => {
+      await leaveNestedRepository(fixture);
+      await writeFile(path.join(fixture.workspace.cwd, '.gitmodules'), '[submodule "vendored"]\n\tpath = vendored\n\turl = ./vendored\n\tignore = all\n');
+    } },
+    { feedbackPattern: /Shared host files cannot be committed\. Restore the ignore rule.*: \.env/, leave: async (fixture: Awaited<ReturnType<typeof createFixture>>) => {
+      fixture.config.worktreeShare = ['node_modules', '.env'];
+      await writeFile(path.join(fixture.projectPath, '.gitignore'), '.env\n');
+      await writeFile(path.join(fixture.workspace.cwd, '.env'), 'OPERATOR_VALUE=from-the-host\n');
+    } },
+    { feedbackPattern: /A command was still running in this worktree\. Wait for every command to end/, leave: async (fixture: Awaited<ReturnType<typeof createFixture>>) => {
+      await writeFile(path.join(fixture.workspace.cwd, '.mcp.json'), '');
+    } },
+  ];
+  for (const { feedbackPattern, leave } of refusedLeftovers) {
+    const fixture = await createFixture(context);
+    await writeFile(path.join(fixture.workspace.cwd, 'src/retry.ts'), 'export const retries = 5;\n');
+    await leave(fixture);
+    const workerHeadBefore = await fixture.git(['rev-parse', 'HEAD'], fixture.workspace.cwd);
+    await fixture.closeOut.turnEnded(fixture.worker);
+    assert.match(fixture.feedback[0], feedbackPattern);
+    assert.equal(await fixture.git(['rev-parse', 'HEAD'], fixture.workspace.cwd), workerHeadBefore);
+    assert.equal(await fixture.git(['diff', '--cached', '--name-only'], fixture.workspace.cwd), '');
+    assert.equal(fixture.reviewRequests.length, 0);
+  }
+  const trackedEntryFixture = await createFixture(context);
+  const trackedEnvPath = path.join(trackedEntryFixture.workspace.cwd, '.env');
+  trackedEntryFixture.config.worktreeShare = ['node_modules', '.env', 'src'];
+  trackedEntryFixture.worker.writeScopes = ['src', '.env'];
+  await writeFile(path.join(trackedEntryFixture.workspace.cwd, 'src/backoff.ts'), 'export const backoffMs = 100;\n');
+  await writeFile(trackedEnvPath, 'TRACKED_VALUE=before\n');
+  await trackedEntryFixture.git(['add', '--', '.env'], trackedEntryFixture.workspace.cwd);
+  await trackedEntryFixture.git(['commit', '-m', 'test: track env'], trackedEntryFixture.workspace.cwd);
+  await writeFile(trackedEnvPath, 'TRACKED_VALUE=after\n');
+  await trackedEntryFixture.closeOut.turnEnded(trackedEntryFixture.worker);
+  assert.deepEqual(trackedEntryFixture.feedback, []);
+  const mergedSha = trackedEntryFixture.mergedSha();
+  assert.ok(mergedSha);
+  assert.equal(await trackedEntryFixture.git(['show', `${mergedSha}:.env`]), 'TRACKED_VALUE=after');
+  assert.equal(await trackedEntryFixture.git(['show', `${mergedSha}:src/backoff.ts`]), 'export const backoffMs = 100;');
 });
 
 test('worker coherence traces and committed ledger changes are discarded and never merged', async (context) => {

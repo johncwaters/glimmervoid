@@ -122,7 +122,7 @@ These were checked against Claude Code 2.1.296.
   - Under `bypassPermissions`, Write and Edit escape the sandbox, which governs Bash only.
   - `Edit(//<abs>/**)` bounds edits, and the same rule covers Write, MultiEdit and NotebookEdit.
   - Run `scripts/probe-lane-posture.ts` to re-check these assumptions live.
-- **Linked worktrees:** these sessions are granted the whole shared git dir except `hooks` and `config`, so only `denyWrite` entries narrow it. Glob `denyWrite` entries are dropped on Linux, so use literal paths.
+- **Linked worktrees:** Claude Code grants these sessions the whole shared git dir, so only `denyWrite` entries narrow it. A lane denies that whole folder and Glimmervoid commits for workers, because on Linux `denyWrite` entries naming single files inside that folder, or paths in it that do not exist yet, were not a reliable fence and could break git for every other process, while a folder entry holds. Two per-checkout entries remain, the checkout's `.git` pointer file and its `.claude` folder, and both hold even when `.claude` is missing: `scripts/probe-lane-posture.ts` attempts a write to each in every writable lane, alongside its writes into the shared git dir. Glob `denyWrite` entries are dropped on Linux, so use literal paths.
 - **Network and hooks:**
   - HTTP hooks are blocked by the strict network allowlist unless `allowedDomains` includes `127.0.0.1:<port>`.
   - SessionStart HTTP hooks are skipped regardless.

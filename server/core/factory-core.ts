@@ -358,13 +358,12 @@ export function buildWorkerPrompt({ projectName, intent, order, claudeSessionId,
     ...orderSections,
     'Edit only inside these write scopes. Do not expand the ticket or the intent.',
     `Start by running coherence context ${scopes} --max-bytes 12000`,
-    'Commit your work on the current branch with a conventional commit message.',
+    'Leave your finished changes in the working tree and never run git add or git commit. Glimmervoid commits every change in this worktree when you stop, so remove any file you do not want landed.',
     `Run these checks before finishing: ${JSON.stringify(checks)}`,
     'Never push, never open PRs, never change coherence work state. Glimmervoid closes the ticket.',
     'Run each shell command on its own with no pipes, &&, ; or subshells, because chained commands are denied.',
     'A denied command means "not allowed here". Do not retry it another way.',
-    'Edits can write only inside this worktree. Shell commands can write only inside this worktree and the temp directory, plus the shared'
-      + ' git data of this repository other than its hooks, config, packed refs, replace refs and integration branch, and have no network access.',
+    'Edits can write only inside this worktree. Shell commands can write only inside this worktree and the temp directory, cannot write any git data, and have no network access.',
     'Finish by stopping.',
   ].join('\n');
 }
@@ -652,8 +651,51 @@ export function listDirtyPaths(porcelainZ: string): string[] {
   return porcelainZ.split('\0').filter((entry) => entry.length >= 4).map((entry) => entry.slice(3));
 }
 
+export function buildWorkerCommitMessage({ workId, objective }: { workId: string; objective: string }): string {
+  const subject = `factory: ${objective.replace(/\s+/g, ' ').trim() || workId}`.slice(0, 72).trimEnd();
+  return `${subject}\n\nFactory ticket ${workId}`;
+}
+
 export function listUncommittedWorkPaths(porcelainZ: string): string[] {
   return listDirtyPaths(porcelainZ).filter((dirtyPath) => !isCoherenceLedgerPath(dirtyPath));
+}
+
+const NESTED_REPOSITORY_MODE = '160000';
+const EMPTY_BLOB_IDS: ReadonlySet<string> = new Set(['e69de29bb2d1d6434b8b29ae775ad8c2e48c5391', '473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813']);
+const ABSENT_FROM_HEAD_MODE = '000000';
+const RAW_DIFF_ENTRY_PATTERN = /^:(\d{6}) (\d{6}) [0-9a-f]+ ([0-9a-f]+) [A-Z]\d*$/;
+const WORKER_COMMIT_UNREADABLE_REFUSAL = 'Glimmervoid could not read the staged changes, so nothing was committed. Finish the turn again.';
+
+export function findWorkerCommitRefusal({ rawDiff, sharedEntries, placeholderNames }: {
+  rawDiff: string; sharedEntries: readonly string[]; placeholderNames: readonly string[];
+}): string | null {
+  const diffFields = rawDiff.split('\0');
+  if (diffFields.length % 2 === 0 || diffFields.at(-1) !== '') return WORKER_COMMIT_UNREADABLE_REFUSAL;
+  const sharedScopes = sharedEntries.map(normalizeScope).filter((sharedScope): sharedScope is string => sharedScope !== null && sharedScope !== '');
+  const placeholderFileNames = new Set(placeholderNames.map((placeholderName) => placeholderName.replace(/\/+$/, '')));
+  const nestedRepositoryPaths: string[] = [];
+  const sharedHostPaths: string[] = [];
+  let hasSandboxPlaceholder = false;
+  for (let index = 0; index + 1 < diffFields.length; index += 2) {
+    const entry = RAW_DIFF_ENTRY_PATTERN.exec(diffFields[index]);
+    if (!entry) return WORKER_COMMIT_UNREADABLE_REFUSAL;
+    const [, oldMode, newMode, newObjectId] = entry;
+    const changedPath = diffFields[index + 1];
+    if (newMode === NESTED_REPOSITORY_MODE) {
+      nestedRepositoryPaths.push(changedPath);
+      continue;
+    }
+    if (placeholderFileNames.has(changedPath) && EMPTY_BLOB_IDS.has(newObjectId)) {
+      hasSandboxPlaceholder = true;
+      continue;
+    }
+    if (oldMode === ABSENT_FROM_HEAD_MODE && sharedScopes.some((sharedScope) => containsScope(sharedScope, changedPath))) sharedHostPaths.push(changedPath);
+  }
+  const refusals: string[] = [];
+  if (nestedRepositoryPaths.length > 0) refusals.push(`Nested git repositories cannot be committed. Remove them, then finish the turn: ${nestedRepositoryPaths.join(', ')}`);
+  if (sharedHostPaths.length > 0) refusals.push(`Shared host files cannot be committed. Restore the ignore rule that keeps them out of git, then finish the turn: ${sharedHostPaths.join(', ')}`);
+  if (hasSandboxPlaceholder) refusals.push('A command was still running in this worktree. Wait for every command to end, then finish the turn.');
+  return refusals.length > 0 ? refusals.join('\n') : null;
 }
 
 const FACTORY_CHECK_ENV_KEYS = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'TERM', 'TMPDIR', 'TMP', 'TEMP', 'TZ', 'NODE_ENV'];

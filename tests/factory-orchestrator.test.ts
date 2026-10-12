@@ -147,7 +147,7 @@ test('orchestrator uses the ledger cwd, pinned Claude hooks, Sane YOLO, a ledger
     access: 'own-checkout', writableRoots: [fixture.ledgerPath], network: { hookEndpoint: { host: '127.0.0.1', port: 3911 }, domains: [] },
     allowCommands: FACTORY_ORCHESTRATOR_ALLOW.map((rule) => rule.slice(5, -3)), extraDeny: FACTORY_ORCHESTRATOR_DENY,
     denyRead: teamReviewSandbox(os.tmpdir()).filesystem.denyRead, scrubCredentials: true,
-  }, { tempDir: await realpath(os.tmpdir()), gitWorktree: { commonDir: fixture.commonGitDir, integrationBranch: 'main' } });
+  }, { tempDir: await realpath(os.tmpdir()), commonGitDir: fixture.commonGitDir });
   assert.deepEqual(overrides.settingsSandbox, expectedPosture.settingsSandbox);
   assert.deepEqual(overrides.settingsPermissions, expectedPosture.settingsPermissions);
   assert.deepEqual(overrides.extraClaudeArgs?.slice(2), expectedPosture.extraClaudeArgs);
