@@ -1,6 +1,5 @@
 import { mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { DEFAULT_BASE_DIR as HOOK_SETTINGS_BASE_DIR } from '../detection/settings-injector.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { buildFactoryCheckSandboxSettings } from './core/factory-core.ts';
@@ -51,8 +50,8 @@ const prepareSandboxedCheckRunner: PrepareFactoryCheckRunner = async ({ scratchP
   await mkdir(policyDir, { recursive: true, mode: 0o700 });
   await writeJsonAtomic(settingsPath, buildFactoryCheckSandboxSettings({
     writablePaths: [...writablePaths, tempDir],
-    privatePaths: [glimmervoidHomeDir(), HOOK_SETTINGS_BASE_DIR],
-    readablePaths,
+    privatePaths: [glimmervoidHomeDir()],
+    readablePaths: [...readablePaths, ...writablePaths, tempDir],
   }));
   const runCheck: FactoryCheckRunner = async (argv, { timeout, signal, ...execOptions }) => {
     const timeoutSignal = AbortSignal.timeout(timeout);

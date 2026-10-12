@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import os from 'node:os';
+import { readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { isMissingFileError } from '../shared/text.ts';
 import { runHardenedGit } from './git-workspace.ts';
+import { makeHostScratchDirectory } from './host-scratch.ts';
 import { FACTORY_INTEGRATION_MOVED_OUTSIDE, findForbiddenLedgerWrites } from './core/factory-core.ts';
 import type { FactoryLedgerChange } from './core/factory-core.ts';
 import { nulSeparatedPaths } from './core/git-changed-paths-core.ts';
@@ -113,7 +113,7 @@ export async function commitAndLandFactoryLedger({ projectPath, ledger, targetBr
   onIntegrationLanded?: (integrationSha: string) => Promise<void>;
 }): Promise<void> {
   const gitOptions = { ...LEDGER_GIT_OPTIONS, cwd: ledger.cwd };
-  const indexDirectory = await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-factory-index-'));
+  const indexDirectory = await makeHostScratchDirectory('glimmervoid-factory-index-');
   try {
     const indexOptions = { ...gitOptions, indexFile: path.join(indexDirectory, 'index') };
     const headSha = (await runHardenedGit(['rev-parse', 'HEAD'], gitOptions)).stdout.trim();

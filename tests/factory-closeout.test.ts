@@ -4,6 +4,7 @@ import { createFactoryVerifier } from '../server/factory-verifier.ts';
 import { buildFactoryProjectState, FACTORY_REVIEW_DIFF_MAX_CHARS, formatWorkerEvent, nextIntent } from '../server/core/factory-core.ts';
 import type { FactoryProjectState } from '../shared/contracts/factory.ts';
 import assert from 'node:assert/strict';
+import { realpathSync } from 'node:fs';
 import { access, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,6 +15,7 @@ import type { PrepareFactoryCheckRunner } from '../server/factory-check-sandbox.
 import { createFactoryCloseOut } from '../server/factory-closeout.ts';
 import type { FactoryCloseOutWorker } from '../server/factory-closeout.ts';
 import { commitAndLandFactoryLedger, hasCodeChangedBetween, screenPendingLedgerWrites } from '../server/factory-ledger.ts';
+import { hostScratchRoot } from '../server/host-scratch.ts';
 import type { LaneSpawn } from '../server/lane-spawn.ts';
 import { createFactoryWiring } from '../server/factory-wiring.ts';
 import { createSessionFactory } from '../server/session-factory.ts';
@@ -153,7 +155,7 @@ test('passing factory worker merges and pushes, closes with merge-tip evidence, 
   assert.equal(fixture.events.at(-1)?.event, 'merged');
   assert.equal(fixture.closeOut.reviewing.size, 0);
   assert.notEqual(fixture.reviewRequests[0].cwd, fixture.workspace.cwd);
-  assert.ok(fixture.reviewRequests[0].cwd.startsWith(os.tmpdir()));
+  assert.ok(fixture.reviewRequests[0].cwd.startsWith(realpathSync(hostScratchRoot())));
   assert.deepEqual(fixture.reviewerCwdEntries[0], []);
   assert.equal(fixture.reviewRequests[0].extraArgs?.includes('--add-dir'), false);
   const reviewerSchemaArg = fixture.reviewRequests[0].extraArgs?.[fixture.reviewRequests[0].extraArgs.indexOf('--json-schema') + 1] ?? '{}';
@@ -878,7 +880,7 @@ test('independent verifier pass files its link, closes the intent with tip evide
   assert.deepEqual(fixture.state.trustedIntentCloses, [fixture.worker.intentId]);
   assert.equal(fixture.reviewRequests[0].model, 'sonnet');
   assert.notEqual(fixture.reviewRequests[0].cwd, path.join(fixture.directory, 'verifier-control'));
-  assert.ok(fixture.reviewRequests[0].cwd.startsWith(os.tmpdir()));
+  assert.ok(fixture.reviewRequests[0].cwd.startsWith(realpathSync(hostScratchRoot())));
   assert.deepEqual(fixture.verifierCwdEntries, [[]]);
   const addDirIndex = fixture.reviewRequests[0].extraArgs?.indexOf('--add-dir') ?? -1;
   assert.equal(fixture.reviewRequests[0].extraArgs?.[addDirIndex + 1], path.join(fixture.directory, 'verifier-control'));

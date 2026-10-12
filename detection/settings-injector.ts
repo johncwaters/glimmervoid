@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
+import { hostScratchRoot } from '../server/host-scratch.ts';
 import { relayPath } from '../server/runtime-paths.ts';
 import { HOOK_TOOLS } from '../session/core/hook-tools.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
@@ -13,7 +14,7 @@ import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT, PLAN_TOOL_NAME } from '../shar
 import { safePathSegment } from '../shared/paths.ts';
 import { isRecord, textOr } from '../shared/coerce.ts';
 
-const DEFAULT_BASE_DIR = path.join(os.tmpdir(), 'glimmervoid-hooks');
+const DEFAULT_BASE_DIR = path.join(hostScratchRoot(), 'glimmervoid-hooks');
 const DEFAULT_TIMEOUT_SEC = 5;
 const PLAN_HOOK_TIMEOUT_SEC = 86400;
 const PLAN_HOLD_RELEASE_LEAD_SEC = 60;

@@ -2,7 +2,6 @@ import { capFactoryDecisionChecks, capFactoryDecisionOutput, envFileSecretValues
 import type { FactoryDecisionInput, FactoryDecisionWorkerEvent } from './core/factory-decision-log-core.ts';
 import crypto from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import type { Session } from '../session/sessions.ts';
 import { GLIMMERVOID_SECRET_KEYS } from '../session/core/spawn-env.ts';
@@ -18,6 +17,7 @@ import type { FactoryCheck, FactoryFence } from './core/factory-core.ts';
 import { KEEP_MERGEABLE_SANDBOX_STUB_NAMES } from './core/my-prs-core.ts';
 import { nulSeparatedPaths } from './core/git-changed-paths-core.ts';
 import { prepareHardenedGitCommand, runHardenedGit } from './git-workspace.ts';
+import { makeHostScratchDirectory } from './host-scratch.ts';
 import type { GitWorkspaceInstance } from './git-workspace.ts';
 import { readLaneResultFile } from './lane-spawn.ts';
 import { writeJsonAtomic, writeTextAtomic } from './json-file.ts';
@@ -94,7 +94,7 @@ export async function runFactoryReview({ spawnReviewer, model, signal, buildProm
   spawnReviewer: LaneSpawn; model: string | null; signal: AbortSignal;
   buildPrompt: (resultPath: string) => string; name: string; extraArgs?: string[];
 }): Promise<FactoryReviewVerdict> {
-  const reviewDirectory = await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-factory-review-'));
+  const reviewDirectory = await makeHostScratchDirectory('glimmervoid-factory-review-');
   try {
     const resultPath = path.join(reviewDirectory, 'verdict.json');
     const promptPath = path.join(reviewDirectory, 'prompt.txt');
@@ -230,7 +230,7 @@ export function createFactoryCloseOut({
   }
 
   async function runChecksInCleanCheckout(worker: FactoryCloseOutWorker, headSha: string): Promise<{ checks: FactoryCheck[]; loggedChecks: FactoryCheck[]; checkoutSecretValues: string[] } | null> {
-    const checkoutParent = await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-factory-checks-'));
+    const checkoutParent = await makeHostScratchDirectory('glimmervoid-factory-checks-');
     const checkoutPath = path.join(checkoutParent, 'checkout');
     let checkSandbox: FactoryCheckSandbox | null = null;
     try {

@@ -1,5 +1,4 @@
 import fsPromises from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 
 import type { HookRouter } from '../detection/hook-source.ts';
@@ -10,6 +9,7 @@ import { buildLanePermissions } from './core/lane-permissions-core.ts';
 import { awaitSessionExit, registerEphemeralSession } from './ephemeral-session.ts';
 import { resolveLanePosture } from './lane-posture.ts';
 import { LANE_CREDENTIAL_DENY_READ } from './core/lane-posture-core.ts';
+import { makeHostScratchDirectory } from './host-scratch.ts';
 import { writeJsonAtomic } from './json-file.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 
@@ -48,7 +48,7 @@ interface LaneSpawnOptions {
 }
 
 async function writeStandaloneDenySettings(permissions: unknown): Promise<{ args: string[]; cleanup(): Promise<void> }> {
-  const settingsDirectory = await fsPromises.mkdtemp(path.join(os.tmpdir(), SETTINGS_DIR_PREFIX));
+  const settingsDirectory = await makeHostScratchDirectory(SETTINGS_DIR_PREFIX);
   const settingsPath = path.join(settingsDirectory, 'settings.json');
   const removeSettingsDirectory = () => fsPromises.rm(settingsDirectory, { recursive: true, force: true }).catch(() => {});
   try {
