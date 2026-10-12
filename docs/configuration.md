@@ -212,12 +212,12 @@ Read Coherence reports from repositories whose integration branch holds a cohere
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `factory.enabled` | Enable the factory | `false` | Enable Coherence status polling and show the Factory tab. Off by default. |
-| `factory.maxRisk` | Worker risk ceiling | `"medium"` | Highest risk admitted for a worker order. |
+| `factory.maxRisk` | Worker risk ceiling | `"medium"` | Highest risk admitted for a ticket. |
 | `factory.maxLiveWorkers` | Live worker cap | `2` | Most live workers per factory project. |
 | `factory.checks` | Worker checks | `["npm run typecheck","npm run lint","npm test"]` | Commands glimmervoid runs before merging worker commits. |
 | `factory.protectedPaths` | Protected paths | `["coherence.config.json",".coherence/","package.json","package-lock.json","**/AGENTS.md","**/CLAUDE.md","**/CLAUDE.local.md",".claude/",".github/"]` | Repo-relative files, directory prefixes ending in /, or **/NAME basenames workers cannot change. |
 | `factory.reviewerModel` | Reviewer model | `null` | Claude model for independent worker review. Blank uses the CLI default. |
-| `factory.watchWindowMinutes` | Watch window (minutes) | `30` | Time to watch merged orders for new PostHog issues. |
+| `factory.watchWindowMinutes` | Watch window (minutes) | `30` | Time to watch merged tickets for new PostHog issues. |
 | `factory.watchProjects` | Watch projects | `[]` | Map glimmervoid project ids to PostHog project ids in the config file. **File-only.** |
 | `factory.dailyBudgetUsd` | Factory daily budget (USD) | `null` | Factory lane spend ceiling. Blank means no ceiling. Needs usage tracking: with it off, dispatch refuses. |
 | `factory.verifierModel` | Verifier model | `null` | Claude model for independent intent verification. Blank uses the CLI default. |
@@ -228,7 +228,7 @@ A typed local graph of projects, tasks, notes, references and questions, driven 
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `knowledgeGraph.enabled` | Enable the knowledge graph | `false` | Allow the glimmervoid kg command. It reads Coherence ledgers to report where your tasks and the agents' work orders disagree, without modifying those ledgers. Graph writes go to the selected SQLite database, which can be inside a repository when --db names that path. Off by default. |
+| `knowledgeGraph.enabled` | Enable the knowledge graph | `false` | Allow the glimmervoid kg command. It reads Coherence ledgers to report where your tasks and the agents' tickets disagree, without modifying those ledgers. Graph writes go to the selected SQLite database, which can be inside a repository when --db names that path. Off by default. |
 
 ### Workflows
 

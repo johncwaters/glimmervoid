@@ -14,10 +14,10 @@ const order = makeOrder('wrk-0000000000000002', intent.work, ['src/retry.ts']);
 const baseline: FactoryAdmissionInput = { intent, order, trustedIntentIds: new Set([intent.work]), liveWorkers: [], todaySpend: { status: 'known', amountUsd: 10 }, dailyBudgetUsd: 10, filterDriverNames: [] };
 
 const refusals: [string, Partial<FactoryAdmissionInput>, string][] = [
-  ['missing order', { order: null }, 'does not exist'],
-  ['active order', { order: { ...order, state: 'active' } }, 'not open'],
-  ['blocked order', { order: { ...order, state: 'blocked' } }, 'not open'],
-  ['waiting order', { order: { ...order, readiness: 'waiting' } }, 'not ready'],
+  ['missing ticket', { order: null }, 'does not exist'],
+  ['active ticket', { order: { ...order, state: 'active' } }, 'not open'],
+  ['blocked ticket', { order: { ...order, state: 'blocked' } }, 'not open'],
+  ['waiting ticket', { order: { ...order, readiness: 'waiting' } }, 'not ready'],
   ['missing intent', { intent: null }, 'active intent'],
   ['wrong intent', { intent: { ...intent, work: 'other' } }, 'active intent'],
   ['intent not queued by the operator', { trustedIntentIds: new Set() }, 'active intent'],
@@ -25,7 +25,7 @@ const refusals: [string, Partial<FactoryAdmissionInput>, string][] = [
   ['completed intent', { intent: { ...intent, state: 'completed' } }, 'active intent'],
   ['cancelled intent', { intent: { ...intent, state: 'cancelled' } }, 'active intent'],
   ['no intent scopes', { intent: makeOrder(intent.work, null, []) }, 'non-empty'],
-  ['no order scopes', { order: makeOrder(order.work, intent.work, []) }, 'non-empty'],
+  ['no ticket scopes', { order: makeOrder(order.work, intent.work, []) }, 'non-empty'],
   ['high risk', { order: { ...order, opened: { ...order.opened, risk: 'high' } } }, 'risk ceiling'],
   ['critical risk', { order: { ...order, opened: { ...order.opened, risk: 'critical' } } }, 'risk ceiling'],
   ['lower ceiling', { maxRisk: 'low' }, 'risk ceiling'],
@@ -82,11 +82,11 @@ test('admission admits root scope, equal budgets, configured limits and unlimite
   assert.deepEqual(decideAdmission({ ...baseline, maxLiveWorkers: 3, liveWorkers: [{ writeScopes: ['tests'] }, { writeScopes: ['docs'] }] }), { admit: true });
 });
 
-test('worker prompt pins its order, scopes, checks and finish policy', () => {
+test('worker prompt pins its ticket, scopes, checks and finish policy', () => {
   const prompt = buildWorkerPrompt({ projectName: 'Factory', intent, order, claudeSessionId: 'conversation' });
   for (const text of [order.work, intent.work, 'conversation', 'Add retries', 'Retries pass', 'Edit only inside',
     "coherence context 'src/retry.ts' --max-bytes 12000", 'current branch', 'conventional commit message', 'npm run typecheck',
-    'npm run lint', 'npm test', 'Never push', 'never open PRs', 'never change coherence work state', 'Glimmervoid closes the order', 'Finish by stopping',
+    'npm run lint', 'npm test', 'Never push', 'never open PRs', 'never change coherence work state', 'Glimmervoid closes the ticket', 'Finish by stopping',
     'A denied command means "not allowed here". Do not retry it another way.',
     'can write only inside this worktree and the temp directory']) {
     assert.ok(prompt.includes(text), text);
@@ -129,9 +129,9 @@ const transientReasons = [
   'live worker cap reached', 'write scopes overlap a live worker', 'factory is paused', 'daily spend is over budget',
 ];
 const permanentReasons = [
-  'work order does not exist', 'work order is not open', 'work order is not ready',
-  'work order is not a child of the active intent', 'work order and intent require valid non-empty write scopes',
-  'work order write scopes exceed the intent write scopes', 'work order exceeds the risk ceiling',
+  'ticket does not exist', 'ticket is not open', 'ticket is not ready',
+  'ticket is not a child of the active intent', 'ticket and intent require valid non-empty write scopes',
+  'ticket write scopes exceed the intent write scopes', 'ticket exceeds the risk ceiling',
   'repository uses git filter drivers (lfs), which factory workers cannot run safely',
   'daily budget set but usage tracking is off', 'unknown refusal',
 ];

@@ -42,7 +42,7 @@ test('record ids map to their ledger kind and anything else is refused', () => {
   assert.equal(inferRecordKind('T-1'), null);
 });
 
-test('a completed work order still open in kg diverges and its missing verification is flagged', () => {
+test('a completed ticket still open in kg diverges and its missing verification is flagged', () => {
   const snapshot = snapshotWith({
     workOrders: [{ id: 'wrk-17ea723e85439d2a', objective: 'Compare prices', state: 'completed', readiness: 'done', lastEventAt: '2026-10-08T10:00:00Z' }],
     unverifiedCompletedWorkIds: ['wrk-17ea723e85439d2a'],
@@ -143,7 +143,7 @@ test('since compares instants, so an offset timestamp still catches events after
   assert.deepEqual(report.records[0]?.decisions.map((decision) => decision.id), ['d-00000001']);
 });
 
-test('a retraction inside the since window counts as movement for the decision and its work order', () => {
+test('a retraction inside the since window counts as movement for the decision and its ticket', () => {
   const retractedOldDecision: DecisionSummary = { id: 'd-00000001', chose: 'old call', because: 'x', at: '2026-10-01T00:00:00Z', workId: 'wrk-17ea723e85439d2a', kind: 'decision', standing: 'retracted', retractedAt: '2026-10-08T00:00:00Z' };
   const snapshot = snapshotWith({
     workOrders: [{ id: 'wrk-17ea723e85439d2a', objective: 'Compare prices', state: 'active', readiness: 'active', lastEventAt: '2026-10-01T00:00:00Z' }],

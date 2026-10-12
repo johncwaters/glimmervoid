@@ -34,7 +34,7 @@ const usage = `glimmervoid kg: a typed, local-first knowledge and task graph (ex
   glimmervoid kg chain <id> [edge] [--incoming]      walk an edge transitively; bare "kg chain T-3" lists everything blocking T-3
   glimmervoid kg check                               re-validate every node and edge against the schema
   glimmervoid kg export                              the whole graph as markdown
-  glimmervoid kg track <id> <repo> <recordId>        point a kg node at a Coherence work order (wrk-...) or journal record (d-...)
+  glimmervoid kg track <id> <repo> <recordId>        point a kg node at a Coherence ticket (wrk-...) or journal record (d-...)
   glimmervoid kg delta [id] [--since <iso time>]     what the tracked Coherence records did, and where kg and the ledger disagree
 
   --graph <name>   which schema (default personal)    --db <path>   database file (default <glimmervoid home>/knowledge-graph/<graph>.sqlite)
@@ -215,7 +215,7 @@ const commands: Record<string, (context: CommandContext) => number | undefined> 
     const repo = realpathSync(resolve(requirePositional(context.positionals, 2, 'repo')));
     const recordId = requirePositional(context.positionals, 3, 'recordId');
     const record = inferRecordKind(recordId);
-    if (record === null) throw new Error(`"${recordId}" is neither a work order id (wrk-...) nor a decision id (d-...)`);
+    if (record === null) throw new Error(`"${recordId}" is neither a ticket id (wrk-...) nor a decision id (d-...)`);
     const snapshot = readRepoSnapshot(repo, context.runCoherence);
     if (!snapshot.isAvailable) throw new Error(`cannot verify ${recordId}: ${snapshot.reason}`);
     const label = record === 'work'

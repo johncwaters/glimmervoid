@@ -267,7 +267,7 @@ function buildBottom(floor: FactoryFloor): HTMLElement {
   }
   if (floor.ledger.length === 0) lines.append(el('li', 'factory-empty', 'No ledger events.'));
   ledger.append(lines);
-  const detail = buildRegion('Selected order', 'factory-detail-region');
+  const detail = buildRegion('Selected ticket', 'factory-detail-region');
   const body = el('div', 'factory-detail');
   const order = floor.selectedOrder;
   if (order) {
@@ -281,7 +281,7 @@ function buildBottom(floor: FactoryFloor): HTMLElement {
     ]) fields.append(el('dt', null, label), el('dd', null, value));
     body.append(fields);
   }
-  if (!order) body.append(el('p', 'factory-empty', 'Select an order to inspect its boundaries.'));
+  if (!order) body.append(el('p', 'factory-empty', 'Select a ticket to inspect its boundaries.'));
   detail.append(body);
   band.append(ledger, el('div', 'factory-seam'), detail);
   return band;

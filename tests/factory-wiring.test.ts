@@ -930,7 +930,7 @@ test('a permanent risk refusal never re-nudges even when the risk ceiling change
   fixture.child.opened.risk = 'high';
   const session = fixture.spawned[0].session;
   assert.deepEqual(await fixture.wiring.dispatch(session.id, { workId: fixture.child.work }),
-    { ok: false, reason: 'work order exceeds the risk ceiling' });
+    { ok: false, reason: 'ticket exceeds the risk ceiling' });
   Object.assign(fixture.config.factory, { maxRisk: 'high' });
   session.state = STATES.IDLE;
   fixture.advanceClock(10_000);
@@ -1007,7 +1007,7 @@ test('config reload destroys a live orchestrator when factory is disabled', asyn
   await waitFor(() => session._destroyed && fixture.wiring.getState() === null, 'disabled factory stops its orchestrator', REAL_PROCESS_DEADLINE_MS);
 });
 
-test('clearing a live write scope overlap re-nudges only the last refused order', async (context) => {
+test('clearing a live write scope overlap re-nudges only the last refused ticket', async (context) => {
   const fixture = await createStallFixture(context);
   fixture.emitHook(0);
   const session = fixture.spawned[0].session;

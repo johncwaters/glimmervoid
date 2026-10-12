@@ -5,7 +5,7 @@ This file records the state of the Factory lane as of 2026-10-11, so that anothe
 ## Goal and operator decisions
 
 - Glimmervoid runs a software factory over the `@danilocampos/coherence` ledger, pinned exactly at `0.37.1` and run out of process. The operator queues intents and is paged only on exceptions. The end goal is for glimmervoid to run the factory on itself.
-- The factory has a master orchestrator Claude session for each repo. It decomposes an intent into coherence work orders and calls `glimmervoid dispatch <workId>`. Glimmervoid then takes these deterministic steps:
+- The factory has a master orchestrator Claude session for each repo. It decomposes an intent into coherence tickets and calls `glimmervoid dispatch <workId>`. Glimmervoid then takes these deterministic steps:
   - admission;
   - the fence check;
   - its own checks;

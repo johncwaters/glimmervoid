@@ -54,7 +54,7 @@ export const personalSchema: GraphSchema = {
     },
     coherence_record: {
       idPrefix: 'C',
-      description: 'A pointer to a work order or decision in a repo\'s Coherence ledger; the ledger stays the source of truth',
+      description: 'A pointer to a ticket or decision in a repo\'s Coherence ledger; the ledger stays the source of truth',
       properties: z.strictObject({
         repo: AbsoluteRepoPath,
         record: z.enum(['work', 'decision']),

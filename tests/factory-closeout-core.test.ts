@@ -188,7 +188,7 @@ test('an orchestrator ledger landing admits the calibration sample its stop hook
   ], { trusted: false, intentId: 'wrk-intent' }).length, 9);
 });
 
-test('an orchestrator ledger landing refuses opening a root order or a child of any order but the active intent', () => {
+test('an orchestrator ledger landing refuses opening a root ticket or a child of any ticket but the active intent', () => {
   const opened = (parent: string | null) => `${JSON.stringify({ event: 'opened', session: 'orchestrator-session', work: 'wrk-9', parent, writeScopes: ['**'] })}\n`;
   const changes = [
     { path: '.coherence/work/s-root.jsonl', previousText: null, currentText: opened(null) },

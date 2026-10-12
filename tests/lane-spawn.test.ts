@@ -137,7 +137,7 @@ test('factory reviewer spawns read-only in the worker cwd with structured output
         },
       });
       await spawnReviewer({ id: 'factory-review', name: 'Factory review', cwd, model: 'sonnet',
-        prompt: 'Review the assigned factory order and return its structured verdict.',
+        prompt: 'Review the assigned factory ticket and return its structured verdict.',
         extraArgs: ['--output-format', 'json', '--permission-mode', 'dontAsk'], onOutput: (chunk) => { chunks.push(chunk); } });
       const options = captured[0];
       assert.equal(options.path, cwd);

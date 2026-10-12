@@ -41,7 +41,7 @@ async function createFixture(context: TestContext) {
   };
   const intentId = await createOrder(null);
   const workId = await createOrder(intentId);
-  await land('repo', projectPath, 'factory: create orders');
+  await land('repo', projectPath, 'factory: create tickets');
   const config: GlimmervoidConfig = { projects: [{ id: 'repo', name: 'Factory', path: projectPath }], integrationBranch: 'integration',
     worktreeRoot: path.join(directory, 'workers'), worktreeShare: [], recordSignals: false, liveWorktreeReview: false,
     factory: { enabled: true, dailyBudgetUsd: 10 }, agentApi: { enabled: false }, usage: { budget: { dailyUsd: 10 } } };
@@ -189,7 +189,7 @@ test('dispatch hands off and activates at the integration tip, then provisions a
   assert.equal(reopened?.last?.session, 'glimmervoid-factory');
 });
 
-test('dispatch refuses missing orders, invalid callers, disabled factory and over-budget work without spawning', async (context) => {
+test('dispatch refuses missing tickets, invalid callers, disabled factory and over-budget work without spawning', async (context) => {
   const fixture = await createFixture(context);
   assert.equal((await fixture.dispatcher.dispatch('orchestrator', { workId: 'bad' })).ok, false);
   assert.equal((await fixture.dispatcher.dispatch('normal', { workId: fixture.workId })).ok, false);
@@ -219,7 +219,7 @@ test('serialized concurrent dispatches enforce the live-worker cap and exit rele
   assert.equal((await fixture.dispatcher.dispatch('orchestrator', { workId: secondId })).ok, true);
 });
 
-test('a failed spawn reopens the order so the real admission gate admits a second dispatch', async (context) => {
+test('a failed spawn reopens the ticket so the real admission gate admits a second dispatch', async (context) => {
   const fixture = await createFixture(context);
   fixture.failMake();
   assert.deepEqual(await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId }), { ok: false, reason: 'Session construction failed' });
@@ -296,7 +296,7 @@ test('an unavailable Sane YOLO refuses dispatch with the factory exception befor
   assert.equal((await fixture.inspect()).work.find((candidate) => candidate.work === fixture.workId)?.state, 'open');
 });
 
-test('lane start reconciles a factory-activated order with no live worker back to open', async (context) => {
+test('lane start reconciles a factory-activated ticket with no live worker back to open', async (context) => {
   const fixture = await createFixture(context);
   await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId });
   await fixture.dispatcher.stop();
@@ -391,7 +391,7 @@ test('a required worktree refuses to start a terminal when provisioning falls ba
 });
 
 
-test('factory worker main Stop hands the pinned worktree base and order to close-out', async (context) => {
+test('factory worker main Stop hands the pinned worktree base and ticket to close-out', async (context) => {
   const fixture = await createFixture(context);
   const dispatched = await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId });
   assert.equal(dispatched.ok, true);

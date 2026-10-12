@@ -98,7 +98,7 @@ function runCapturingStdout(commandArguments: string[]): { exitCode: number; std
   }
 }
 
-test('tracking a real ledger work order reuses its pointer and delta reports the ledger state', () => {
+test('tracking a real ledger ticket reuses its pointer and delta reports the ledger state', () => {
   const { repo, workId } = createLedgerRepoWithOpenWorkOrder();
   isolatedGlimmervoidHome({ projects: [], knowledgeGraph: { enabled: true } });
   assert.equal(runCapturingStdout(['add', 'task', 'Compare vendor prices']).exitCode, 0);

@@ -39,7 +39,7 @@ for (const [action, orderCount] of [
   });
 }
 
-test('factory refuses missing reports and explicit errors with empty orders', async () => {
+test('factory refuses missing reports and explicit errors with empty tickets', async () => {
   const orient = CoherenceOrient.parse(await readFixture('orient-dispatch'));
   const work = CoherenceWorkInspect.parse(await readFixture('work-dispatch'));
   for (const reports of [
@@ -56,7 +56,7 @@ test('factory refuses missing reports and explicit errors with empty orders', as
   }
 });
 
-test('factory signature ignores object and project ordering but tracks order state', async () => {
+test('factory signature ignores object and project ordering but tracks ticket state', async () => {
   const project = buildFactoryProjectState({
     ...identity, error: null,
     orient: CoherenceOrient.parse(await readFixture('orient-dispatch')),
@@ -80,7 +80,7 @@ test('factory maps a missing last record to null and tracks latest ledger events
   assert.notEqual(factoryStateSignature([project]), factoryStateSignature([withoutLast]));
 });
 
-test('next intent selects the oldest ready open root without mutating orders', async () => {
+test('next intent selects the oldest ready open root without mutating tickets', async () => {
   const project = buildFactoryProjectState({
     ...identity, error: null,
     orient: CoherenceOrient.parse(await readFixture('orient-dispatch')),

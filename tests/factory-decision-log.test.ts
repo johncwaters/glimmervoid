@@ -22,7 +22,7 @@ test('close-out logs one decision per attempt with redacted byte-capped output a
   const intentId = await fixture.createOrder({ parent: null, objective: 'Ship retries' });
   const workId = await fixture.createOrder({ parent: intentId, objective: 'Implement retries' });
   await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['work', 'transition', workId, 'active', '--because', 'Factory dispatch', '--session', 'glimmervoid-factory'] });
-  await fixture.land('repo', fixture.projectPath, 'factory: prepare orders');
+  await fixture.land('repo', fixture.projectPath, 'factory: prepare tickets');
   const workspace = await fixture.gitWorkspace.create({ projectPath: fixture.projectPath, teamId: 'repo', label: 'worker', baseBranch: 'integration', configuredIntegrationBranch: 'integration', worktreeBase: directory, shareList: [] });
   assert.ok(workspace.isGit);
   assert.ok(workspace.baseSha);

@@ -89,7 +89,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
   }
 
   function reportReopenFailure(projectId: string, workId: string, error: unknown): void {
-    setException(projectId, `Could not reopen factory order ${workId}: ${errorMessage(error)}`);
+    setException(projectId, `Could not reopen factory ticket ${workId}: ${errorMessage(error)}`);
   }
 
   async function reconcileActiveOrders(project: FactoryProjectState): Promise<void> {
@@ -103,12 +103,12 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
       await serializeProject(project.projectId, async () => {
         for (const order of orphanedOrders) {
           if (stopped || isWorkerLive(order.id)) continue;
-          await reopenIfActive(project.projectId, projectPath, order.id, 'Factory restarted without a live worker for this order');
+          await reopenIfActive(project.projectId, projectPath, order.id, 'Factory restarted without a live worker for this ticket');
         }
       });
       reconciledProjects.add(project.projectId);
     } catch (error) {
-      setException(project.projectId, `Could not reconcile active factory orders: ${errorMessage(error)}`);
+      setException(project.projectId, `Could not reconcile active factory tickets: ${errorMessage(error)}`);
     }
   }
 
@@ -169,7 +169,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
         const claudeSessionId = crypto.randomUUID();
         await runCoherence({ cwd: ledger.cwd, args: [
           'work', 'handoff', workId, '--owner-session', claudeSessionId, '--owner-agent', 'claude-code',
-          '--because', 'Factory dispatch admitted this order', '--session', FACTORY_LEDGER_SESSION, '--json',
+          '--because', 'Factory dispatch admitted this ticket', '--session', FACTORY_LEDGER_SESSION, '--json',
         ] });
         await runCoherence({ cwd: ledger.cwd, args: [
           'work', 'transition', workId, 'active', '--because', 'Factory worker dispatched', '--session', FACTORY_LEDGER_SESSION, '--json',

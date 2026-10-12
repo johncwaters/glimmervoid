@@ -45,7 +45,7 @@ async function createFixture(context: TestContext, activateOrder = true) {
   const intentId = await createOrder(null);
   const workId = await createOrder(intentId);
   if (activateOrder) await runCoherence({ cwd: ledger.cwd, args: ['work', 'transition', workId, 'active', '--because', 'Factory dispatch', '--session', 'glimmervoid-factory'] });
-  await land('repo', projectPath, 'factory: prepare orders');
+  await land('repo', projectPath, 'factory: prepare tickets');
   const workspace = await gitWorkspace.create({ projectPath, teamId: 'repo', label: 'factory-worker', baseBranch: 'integration', configuredIntegrationBranch: 'integration', worktreeBase: directory, shareList: [] });
   assert.ok(workspace.isGit);
   assert.ok(workspace.baseSha);
@@ -197,7 +197,7 @@ test('a check sandbox that cannot be prepared fails the attempt and never merges
   assert.equal(fixture.mergedSha(), null);
 });
 
-test('third factory failure blocks the ledger order and raises an exception', async (context) => {
+test('third factory failure blocks the ledger ticket and raises an exception', async (context) => {
   const fixture = await createFixture(context);
   await fixture.commitChange('outside.ts');
   for (const attempt of [1, 2, 3]) {
@@ -354,7 +354,7 @@ test('a diff larger than the review cap fails the attempt without running the re
   await fixture.git(['add', 'src/retry.ts'], fixture.workspace.cwd);
   await fixture.git(['commit', '-m', 'feat: huge change'], fixture.workspace.cwd);
   await fixture.closeOut.turnEnded(fixture.worker);
-  assert.match(fixture.feedback[0], /change too large for review; split it into smaller orders/);
+  assert.match(fixture.feedback[0], /change too large for review; split it into smaller tickets/);
   assert.equal(fixture.reviewRequests.length, 0);
   assert.equal(fixture.mergedSha(), null);
 });
@@ -662,7 +662,7 @@ async function assertVerifierIgnoresWatchLink(fixture: Awaited<ReturnType<typeof
   assert.deepEqual(reviewRequests, []);
 }
 
-test('clean watch files the verification and orient stops listing the merged order as unverified', async (context) => {
+test('clean watch files the verification and orient stops listing the merged ticket as unverified', async (context) => {
   const fixture = await prepareWatchFixture(context);
   assert.ok((await fixture.readProject()).unverifiedCompletedWork.includes(fixture.worker.workId));
   await fixture.watcher.tick(await fixture.readProject());

@@ -751,7 +751,7 @@ export const SETTINGS_MAP = Object.freeze([
       },
       {
         id: 'factory-max-risk', path: 'factory.maxRisk', title: 'Worker risk ceiling',
-        description: 'Highest risk admitted for a worker order.', control: 'select', defaultValue: 'medium',
+        description: 'Highest risk admitted for a ticket.', control: 'select', defaultValue: 'medium',
         options: ['low', 'medium', 'high', 'critical'].map((value) => ({ value, label: value })), keywords: ['risk', 'admission'],
       },
       {
@@ -775,7 +775,7 @@ export const SETTINGS_MAP = Object.freeze([
       },
       {
         id: 'factory-watch-window', path: 'factory.watchWindowMinutes', title: 'Watch window (minutes)',
-        description: 'Time to watch merged orders for new PostHog issues.', control: 'number',
+        description: 'Time to watch merged tickets for new PostHog issues.', control: 'number',
         range: 'FACTORY_WATCH_WINDOW_RANGE', defaultValue: 30, keywords: ['watch', 'posthog'],
       },
       {
@@ -803,7 +803,7 @@ export const SETTINGS_MAP = Object.freeze([
     settings: [
       {
         id: 'knowledge-graph-enabled', path: 'knowledgeGraph.enabled', title: 'Enable the knowledge graph',
-        description: 'Allow the glimmervoid kg command. It reads Coherence ledgers to report where your tasks and the agents\' work orders disagree, without modifying those ledgers. Graph writes go to the selected SQLite database, which can be inside a repository when --db names that path. Off by default.',
+        description: 'Allow the glimmervoid kg command. It reads Coherence ledgers to report where your tasks and the agents\' tickets disagree, without modifying those ledgers. Graph writes go to the selected SQLite database, which can be inside a repository when --db names that path. Off by default.',
         control: 'toggle', keywords: ['experimental', 'kg', 'tasks', 'notes', 'references', 'coherence'], defaultValue: false,
       },
     ],

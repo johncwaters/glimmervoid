@@ -155,7 +155,7 @@ test('detail resolves ancestors and handles orphaned or cyclic parent references
   assert.equal(buildFactoryFloor(project, 'cycle').selectedOrder?.intent, null);
 });
 
-test('both conflicting orders are flagged using coherence conflict fixtures', async () => {
+test('both conflicting tickets are flagged using coherence conflict fixtures', async () => {
   const project = await readFixtureProject('resolve-conflict');
   const root = makeOrder('intent', { parent: null });
   project.orders = [root, ...project.orders.map((order) => ({ ...order, parent: root.id }))];
@@ -206,7 +206,7 @@ test('worker crates carry only their registered live terminal id', () => {
 });
 
 
-test('in-flight close-out prefers Review over ledger state for crates and selected orders', () => {
+test('in-flight close-out prefers Review over ledger state for crates and selected tickets', () => {
   const project = makeProject([
     makeOrder('intent', { parent: null }), makeOrder('active', { state: 'active' }), makeOrder('blocked', { state: 'blocked' }),
   ], { reviewing: ['active', 'blocked'], liveWorkers: [{ workId: 'active', sessionId: 'factory-work-active' }] });

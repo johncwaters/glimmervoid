@@ -382,7 +382,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
       if (isDispatch && factory) {
         void factory.dispatch(session.id, parseJsonBody(body)).then(
           (reply) => { res.status(200).json(reply); },
-          () => { res.status(500).json({ ok: false, reason: 'could not dispatch the work order' }); },
+          () => { res.status(500).json({ ok: false, reason: 'could not dispatch the ticket' }); },
         );
         return;
       }

@@ -25,7 +25,7 @@ for (const fixtureName of fixtureNames.filter((name) => name.startsWith('work-')
   });
 }
 
-test('resolve-conflict has two work orders with overlapping write scopes and a recorded conflict', () => {
+test('resolve-conflict has two tickets with overlapping write scopes and a recorded conflict', () => {
   const inspection = CoherenceWorkInspect.parse(readCoherenceFixture('work-resolve-conflict.json'));
   assert.equal(inspection.work.length, 2);
   const [leftOrder, rightOrder] = inspection.work;

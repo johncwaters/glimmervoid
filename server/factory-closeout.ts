@@ -31,7 +31,7 @@ export const FACTORY_REVIEWER_PERMISSIONS = Object.freeze({
 });
 export const FACTORY_REVIEWER_SPAWN_ENV: Readonly<Record<string, string>> = Object.freeze({ CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '0' });
 const CASE_INSENSITIVE_LEDGER_PATHSPEC = ':(icase).coherence';
-const FACTORY_REVIEW_TOO_LARGE_FEEDBACK ='change too large for review; split it into smaller orders';
+const FACTORY_REVIEW_TOO_LARGE_FEEDBACK ='change too large for review; split it into smaller tickets';
 
 type FactoryWorkerSession = Pick<Session, 'destroy' | 'pasteTextWhenReady' | 'write' | '_destroyed'>
   & Partial<Pick<Session, 'id' | 'worktreeDir' | 'baseSha' | 'mergeWorktree'>>;
@@ -103,7 +103,7 @@ export async function runFactoryReview({ spawnReviewer, model, signal, buildProm
     let hasOutputOverflow = false;
     await spawnReviewer({
       id: `factory-review-${crypto.randomUUID()}`, name, cwd: reviewerCwd,
-      prompt: 'Review the assigned factory order and return its structured verdict.', agent: 'claude-code',
+      prompt: 'Review the assigned factory ticket and return its structured verdict.', agent: 'claude-code',
       model, signal,
       extraArgs: [...extraArgs, '--append-system-prompt-file', promptPath, '--output-format', 'json', '--json-schema', JSON.stringify(z.toJSONSchema(FactoryReviewVerdict, { target: 'draft-7' })), '--permission-mode', 'dontAsk'],
       onOutput: (chunk) => {

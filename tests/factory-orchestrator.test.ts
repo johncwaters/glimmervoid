@@ -538,7 +538,7 @@ test('an untrusted parentless root in the ledger is never picked as an intent an
   assert.equal(fixture.orchestrator.activeIntentId('repo'), 'intent');
 });
 
-test('an orchestrator landing refuses a parentless work order it wrote and never lands it', async (context) => {
+test('an orchestrator landing refuses a parentless ticket it wrote and never lands it', async (context) => {
   const { repository, origin, git, gitWorkspace, ledger } = await createMainLedgerRepository(context, 'factory-orchestrator-root-');
   await mkdir(path.join(ledger.cwd, '.coherence', 'work'), { recursive: true });
   await writeFile(path.join(ledger.cwd, '.coherence', 'work', 's-orchestrator.jsonl'),

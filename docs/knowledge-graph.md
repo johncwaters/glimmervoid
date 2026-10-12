@@ -15,10 +15,10 @@ The two have different goals and must never conflict.
 | | Knowledge graph | Coherence ledger |
 |---|---|---|
 | Scope | One operator, across repos and outside code | One repo, code intent |
-| Owns | Personal task status, notes, references, questions | Work orders, decisions, verification |
+| Owns | Personal task status, notes, references, questions | Tickets, decisions, verification |
 | Writes | Only its own SQLite file | Only `.coherence/` in its repo |
 
-- The knowledge graph holds read-only pointers (`coherence_record` nodes joined by `tracked_by`) to work orders and decision journal records (decisions, blocked reports, conjectures). It never copies a record and never writes into a repo.
+- The knowledge graph holds read-only pointers (`coherence_record` nodes joined by `tracked_by`) to tickets and decision journal records (decisions, blocked reports, conjectures). It never copies a record and never writes into a repo.
 - Task status in the graph and work state in the ledger stay separately owned. `glimmervoid kg delta` only reports where they disagree, a completion without verification, or a retracted decision; it never syncs either side.
 - A repo whose ledger or CLI cannot be read degrades to unavailable for that repo; the rest of the graph keeps working.
 - The factory does not get a graph of its own here. Each repo's Coherence ledger already is the factory graph.
