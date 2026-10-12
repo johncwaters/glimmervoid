@@ -27,16 +27,18 @@ async function readWorkingText(cwd: string, relativePath: string): Promise<strin
   }
 }
 
-async function readLedgerChangesSince(cwd: string, revision: string): Promise<{ trackedPaths: string[]; changes: FactoryLedgerChange[] }> {
-  const gitOptions = { ...LEDGER_GIT_OPTIONS, cwd };
-  const { stdout: trackedChanges } = await runHardenedGit(['diff', '--name-only', '--no-renames', '-z', revision, '--', '.coherence'], gitOptions);
-  const { stdout: untrackedChanges } = await runHardenedGit(['ls-files', '--others', '--exclude-standard', '-z', '--', '.coherence'], gitOptions);
-  const trackedPaths = nulSeparatedPaths(trackedChanges);
+async function listTrackedLedgerChanges(cwd: string, revision: string): Promise<string[]> {
+  const { stdout: trackedChanges } = await runHardenedGit(['diff', '--name-only', '--no-renames', '-z', revision, '--', '.coherence'], { ...LEDGER_GIT_OPTIONS, cwd });
+  return nulSeparatedPaths(trackedChanges);
+}
+
+async function readLedgerChangesSince(cwd: string, revision: string): Promise<FactoryLedgerChange[]> {
+  const trackedPaths = await listTrackedLedgerChanges(cwd, revision);
+  const { stdout: untrackedChanges } = await runHardenedGit(['ls-files', '--others', '--exclude-standard', '-z', '--', '.coherence'], { ...LEDGER_GIT_OPTIONS, cwd });
   const changedPaths = [...new Set([...trackedPaths, ...nulSeparatedPaths(untrackedChanges)])];
-  const changes = await Promise.all(changedPaths.map(async (changedPath) => ({
+  return Promise.all(changedPaths.map(async (changedPath) => ({
     path: changedPath, previousText: await readCommittedText(cwd, revision, changedPath), currentText: await readWorkingText(cwd, changedPath),
   })));
-  return { trackedPaths, changes };
 }
 
 async function listTreeChangedPaths(cwd: string, previousRevision: string, currentRevision: string, pathspec: string[]): Promise<string[]> {
@@ -78,16 +80,27 @@ export async function hasCodeChangedBetween({ projectPath, sinceSha, tipSha }: {
   return nulSeparatedPaths(changedPaths.stdout).some((changedPath) => !isLedgerPath(changedPath));
 }
 
+export async function readCodeDiffBetween({ projectPath, sinceSha, tipSha }: { projectPath: string; sinceSha: string; tipSha: string }): Promise<string> {
+  const diff = await runHardenedGit(['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--text', '--ignore-submodules=none', sinceSha, tipSha, '--', '.', ':(exclude).coherence'],
+    { ...LEDGER_GIT_OPTIONS, maxBuffer: 64 * 1024 * 1024, cwd: projectPath });
+  return diff.stdout;
+}
+
+export async function discardPendingLedgerWrites(cwd: string): Promise<void> {
+  const gitOptions = { ...LEDGER_GIT_OPTIONS, cwd };
+  const trackedPaths = await listTrackedLedgerChanges(cwd, 'HEAD');
+  if (trackedPaths.length > 0) await runHardenedGit(['restore', '--source=HEAD', '--staged', '--worktree', '--', ...trackedPaths], gitOptions);
+  await runHardenedGit(['clean', '-fdq', '--', '.coherence'], gitOptions);
+}
+
 export async function screenPendingLedgerWrites({ cwd, intentId, onRefused }: {
   cwd: string; intentId: string | null; onRefused: (reason: string) => void;
 }): Promise<void> {
-  const { trackedPaths, changes } = await readLedgerChangesSince(cwd, 'HEAD');
+  const changes = await readLedgerChangesSince(cwd, 'HEAD');
   if (changes.length === 0) return;
   const forbiddenWrites = findForbiddenLedgerWrites(changes, { trusted: false, intentId });
   if (forbiddenWrites.length === 0) return;
-  const gitOptions = { ...LEDGER_GIT_OPTIONS, cwd };
-  if (trackedPaths.length > 0) await runHardenedGit(['restore', '--source=HEAD', '--staged', '--worktree', '--', ...trackedPaths], gitOptions);
-  await runHardenedGit(['clean', '-fdq', '--', '.coherence'], gitOptions);
+  await discardPendingLedgerWrites(cwd);
   onRefused(`Factory discarded pending orchestrator ledger writes: ${forbiddenWrites.join('; ')}`);
 }
 

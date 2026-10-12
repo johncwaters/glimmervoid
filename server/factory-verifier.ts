@@ -14,6 +14,7 @@ interface FactoryVerifierDeps {
   ensureLedger: (projectId: string, projectPath: string) => Promise<{ cwd: string }>;
   ensureControlCheckout: (args: { projectId: string; projectPath: string; sha: string }) => Promise<string>;
   hasCodeChangedSince: (projectPath: string, sha: string) => Promise<boolean>;
+  readIntentDiff?: (request: { projectId: string; projectPath: string; intentId: string; tipSha: string }) => Promise<{ baseSha: string; diffText: string } | null>;
   readLaneState: (projectId: string) => Promise<FactoryLaneState>;
   writeLaneState: (projectId: string, state: FactoryLaneState) => Promise<void>;
   runCoherence: (request: { cwd: string; args: string[] }) => Promise<string>;
@@ -26,7 +27,7 @@ interface FactoryVerifierDeps {
 }
 
 export function createFactoryVerifier({ config, spawnVerifier, serializeProject, ensureLedger, ensureControlCheckout,
-  hasCodeChangedSince, readLaneState, writeLaneState, runCoherence, commitAndLand, pause, setException, notifyOrchestrator, stopOrchestrator, onChanged }: FactoryVerifierDeps) {
+  hasCodeChangedSince, readIntentDiff = async () => null, readLaneState, writeLaneState, runCoherence, commitAndLand, pause, setException, notifyOrchestrator, stopOrchestrator, onChanged }: FactoryVerifierDeps) {
   const readyByProject = new Map<string, string>();
   const notesByProject = new Map<string, string>();
   const checkedIntents = new Set<string>();
@@ -94,9 +95,10 @@ export function createFactoryVerifier({ config, spawnVerifier, serializeProject,
     const tipSha = project.headSha;
     const verificationId = verifierLinkId(intent.id);
     const cwd = await ensureControlCheckout({ projectId: project.projectId, projectPath, sha: tipSha });
+    const intentDiff = await readIntentDiff({ projectId: project.projectId, projectPath, intentId: intent.id, tipSha });
     const verdict = await runFactoryReview({ spawnReviewer: spawnVerifier, model: config.factory?.verifierModel ?? null,
       signal: controller.signal, name: `Factory verifier ${intent.id}`, extraArgs: ['--add-dir', cwd],
-      buildPrompt: () => buildVerifierPrompt({ projectName: project.projectName, intent, children, tipSha, checkoutPath: cwd }) });
+      buildPrompt: () => buildVerifierPrompt({ projectName: project.projectName, intent, children, tipSha, checkoutPath: cwd, intentDiff }) });
     if (!isEnabled()) return;
     readyByProject.delete(project.projectId);
     if (!verdict.pass) {

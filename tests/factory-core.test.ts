@@ -128,6 +128,10 @@ test('orchestrator prompt stops on denied commands and reports dispatch refusals
     'A denied command means "not allowed here". Do not retry it another way.',
     'report the refusal reason in one line and stop the turn', 'do not record it in the ledger',
   ]) assert.ok(prompt.includes(text), text);
+  assert.ok(prompt.includes('Decompose this intent'));
+  const ticketedPrompt = buildOrchestratorPrompt({ projectName: 'Factory', intent, claudeSessionId: 'claude-session', hasTickets: true });
+  assert.equal(ticketedPrompt.includes('Decompose this intent'), false);
+  assert.ok(ticketedPrompt.includes('Work exactly those tickets'));
 });
 
 const orchestratorInputs = {

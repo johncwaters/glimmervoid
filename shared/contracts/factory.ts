@@ -74,6 +74,18 @@ const projectId = z.string().trim().min(1).max(128).refine(isSingleFactoryPathSe
 const intentText = z.string().trim().min(1).max(4096);
 const scopeText = z.string().trim().min(1).max(1024);
 
+const FACTORY_INTENT_TICKET_LIMIT = 32;
+const ticketKey = z.string().trim().min(1).max(64);
+
+export const FactoryIntentTicket = z.object({
+  id: ticketKey,
+  objective: intentText,
+  criteria: z.array(intentText).min(1).max(12),
+  dependsOn: z.array(ticketKey).max(FACTORY_INTENT_TICKET_LIMIT),
+  writeScopes: z.array(scopeText).min(1).max(32),
+});
+export type FactoryIntentTicket = z.infer<typeof FactoryIntentTicket>;
+
 export const FactoryQueueIntentRequest = z.object({
   projectId,
   objective: intentText,
@@ -81,6 +93,7 @@ export const FactoryQueueIntentRequest = z.object({
   risk: CoherenceRisk,
   boundary: intentText,
   writeScopes: z.array(scopeText).max(32),
+  tickets: z.array(FactoryIntentTicket).min(1).max(FACTORY_INTENT_TICKET_LIMIT).optional(),
 });
 export type FactoryQueueIntentRequest = z.infer<typeof FactoryQueueIntentRequest>;
 
@@ -119,6 +132,8 @@ export const FactoryLaneState = z.object({
   trustedIntentCloses: z.array(z.string().min(1)).optional(),
   trustedIntentIds: z.array(z.string().min(1)).optional(),
   intentWriteScopes: z.record(z.string().min(1), z.array(z.string().min(1))).optional(),
+  ticketedIntentIds: z.array(z.string().min(1)).optional(),
+  intentBaseShas: z.record(z.string().min(1), z.string().regex(/^[a-f0-9]{40,64}$/)).optional(),
   filedBreaches: z.array(z.string().min(1)).optional(),
   factoryLandedShas: z.array(z.string().regex(/^[a-f0-9]{40,64}$/)).optional(),
 });

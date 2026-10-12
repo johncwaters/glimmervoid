@@ -523,6 +523,52 @@ test('a recorded ledger checkout removed after landing is recreated from integra
   assert.equal(wiring.getState()?.projects[0].orders.length, 2);
 });
 
+test('an intent queued with tickets lands them as its ledger children with their dependencies', async (context) => {
+  const { projectPath, git, start, request, readState } = await createIntentFixture(context);
+  const cliPath = resolvePackageBin('@danilocampos/coherence', 'coherence');
+  assert.ok(cliPath);
+  let shouldRefuseDependentTicket = true;
+  const wiring = await start(undefined, async ({ cwd, args }) => {
+    if (shouldRefuseDependentTicket && args.includes('--depends-on')) throw new Error('dependent ticket refused');
+    return (await execFileAsync(process.execPath, [cliPath, ...args], { cwd, timeout: REAL_PROCESS_DEADLINE_MS })).stdout;
+  });
+  const tickets = [
+    { id: 'U1', objective: 'Add the retry helper', criteria: ['Retry helper exists'], dependsOn: [], writeScopes: ['server/retry.ts'] },
+    { id: 'U2', objective: 'Cover the retry helper', criteria: ['Retry tests pass'], dependsOn: ['U1'], writeScopes: ['server/retry.ts'] },
+  ];
+  const outOfScope = await wiring.queueIntent({ ...request, tickets: [{ ...tickets[0], writeScopes: ['server/other.ts'] }] });
+  assert.equal(outOfScope.error, 'Invalid tickets: ticket U1 write scopes exceed the intent write scopes');
+  const unordered = await wiring.queueIntent({ ...request, tickets: [tickets[1], tickets[0]] });
+  assert.equal(unordered.error, 'Invalid tickets: ticket U2 depends on U1, which is not an earlier ticket');
+  const overlapping = await wiring.queueIntent({ ...request, tickets: [tickets[0], { ...tickets[1], dependsOn: [] }] });
+  assert.equal(overlapping.error, 'Invalid tickets: tickets U1 and U2 write the same path, so one must depend on the other');
+  const halfCreated = await wiring.queueIntent({ ...request, tickets });
+  assert.equal(halfCreated.error, 'dependent ticket refused');
+  const { ledgerPath } = await readState();
+  assert.ok(ledgerPath);
+  assert.equal(await git(['status', '--porcelain'], ledgerPath), '');
+  shouldRefuseDependentTicket = false;
+  const queued = await wiring.queueIntent({ ...request, tickets });
+  assert.equal(queued.ok, true, queued.error ?? 'Queue failed');
+  assert.ok(queued.workId);
+  assert.equal(wiring.getState()?.projects[0].error, null);
+  const secondTicketed = await wiring.queueIntent({ ...request, objective: 'Ship more retries', tickets });
+  assert.equal(secondTicketed.error, 'An intent that carries tickets can be queued only when no other intent is open; queue it after the open intent closes');
+  const { stdout } = await execFileAsync(process.execPath, [cliPath, 'work', 'inspect', '--json'], {
+    cwd: projectPath, encoding: 'utf8', timeout: 20_000,
+  });
+  const children = CoherenceWorkInspect.parse(JSON.parse(stdout)).work.filter((order) => order.opened.parent === queued.workId);
+  const [first, second] = tickets.map((ticket) => children.find((order) => order.opened.objective === ticket.objective));
+  assert.equal(children.length, 2);
+  assert.ok(first);
+  assert.ok(second);
+  assert.equal(first.readiness, 'ready');
+  assert.deepEqual(second.opened.dependsOn, [first.work]);
+  assert.deepEqual(second.opened.writeScopes, ['server/retry.ts']);
+  assert.equal(second.opened.risk, request.risk);
+  assert.deepEqual((await readState()).ticketedIntentIds, [queued.workId]);
+  assert.equal(wiring.getState()?.projects[0].orders.length, 3);
+});
 
 test('queue refuses a forged factory record injected after screening and before staging', async (context) => {
   const fixture = await createIntentFixture(context);

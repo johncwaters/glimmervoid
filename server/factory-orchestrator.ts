@@ -53,6 +53,7 @@ export interface FactoryOrchestratorDeps<ManagedSession extends FactoryOrchestra
   ensureLedger: (projectId: string) => Promise<{ ledgerPath: string; commonGitDir: string }>;
   commitAndLand: (projectId: string, intentId: string) => Promise<void>;
   readTrustedIntentIds: (projectId: string) => Promise<ReadonlySet<string>>;
+  beginIntent?: (request: { projectId: string; intentId: string; headSha: string | null }) => Promise<{ hasTickets: boolean }>;
   getHookPort: () => number | null;
   resolveSaneYoloHookTools?: (config: GlimmervoidConfig) => ResolvedHookTool[] | null;
   notifyException?: (projectId: string, reason: string) => void;
@@ -75,7 +76,7 @@ type OrchestratorRecord<ManagedSession> = {
 
 export function createFactoryOrchestrator<ManagedSession extends FactoryOrchestratorSession>({
   config, sessions, makeSession, wireSessionEvents, closeSessionDataClients, broadcast, spawnGate, recordLane,
-  nodePath, hookCliPath, shimDir, ensureLedger, commitAndLand, readTrustedIntentIds, now = Date.now,
+  nodePath, hookCliPath, shimDir, ensureLedger, commitAndLand, readTrustedIntentIds, beginIntent = async () => ({ hasTickets: false }), now = Date.now,
   getHookPort, resolveSaneYoloHookTools = resolveRequiredSaneYoloHookTools, notifyException = () => {},
 }: FactoryOrchestratorDeps<ManagedSession>) {
   const records = new Map<string, OrchestratorRecord<ManagedSession>>();
@@ -138,6 +139,7 @@ export function createFactoryOrchestrator<ManagedSession extends FactoryOrchestr
     let hasRegisteredSession = false;
     try {
       const { ledgerPath } = await ensureLedger(project.projectId);
+      const { hasTickets } = await beginIntent({ projectId: project.projectId, intentId, headSha: project.headSha });
       if (stopped) return;
       const posture = await resolveLanePosture({
         access: 'own-checkout', cwd: ledgerPath, writableRoots: [ledgerPath],
@@ -156,7 +158,7 @@ export function createFactoryOrchestrator<ManagedSession extends FactoryOrchestr
       const session = makeSession(identity, config, {
         ...coherence, ...posture.sessionOverrides, spawnEnv: { ...coherence.spawnEnv, ...posture.sessionOverrides.spawnEnv }, agent: 'claude-code', ephemeral: true, agentApi: true, gitWorkspace: null, dangerouslySkipPermissions: false,
         gitIsolation: { disableRepoCommands: true },
-        initialPrompt: buildOrchestratorPrompt({ projectName: project.projectName, intent, claudeSessionId }),
+        initialPrompt: buildOrchestratorPrompt({ projectName: project.projectName, intent, claudeSessionId, hasTickets }),
         extraClaudeArgs: [...coherence.extraClaudeArgs, ...posture.sessionOverrides.extraClaudeArgs],
       });
       record.session = session;

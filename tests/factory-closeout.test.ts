@@ -14,7 +14,7 @@ import { execFileAsync } from '../server/child-process-safe.ts';
 import type { PrepareFactoryCheckRunner } from '../server/factory-check-sandbox.ts';
 import { createFactoryCloseOut } from '../server/factory-closeout.ts';
 import type { FactoryCloseOutWorker } from '../server/factory-closeout.ts';
-import { commitAndLandFactoryLedger, hasCodeChangedBetween, screenPendingLedgerWrites } from '../server/factory-ledger.ts';
+import { commitAndLandFactoryLedger, hasCodeChangedBetween, readCodeDiffBetween, screenPendingLedgerWrites } from '../server/factory-ledger.ts';
 import { hostScratchRoot } from '../server/host-scratch.ts';
 import type { LaneSpawn } from '../server/lane-spawn.ts';
 import { createFactoryWiring } from '../server/factory-wiring.ts';
@@ -833,7 +833,9 @@ async function prepareVerifierFixture(context: TestContext) {
   let verifierBarrier: (() => Promise<void>) | null = null;
   const stoppedOrchestrators: string[] = [];
   let shouldFailVerifierLanding = false;
+  const intentBaseSha = await fixture.git(['rev-list', '--max-parents=0', 'integration']);
   const verifier = createFactoryVerifier({ config: fixture.watchConfig, runCoherence: fixture.runCoherence, ensureLedger: async () => fixture.ledger,
+    readIntentDiff: async ({ projectPath, tipSha }) => ({ baseSha: intentBaseSha, diffText: await readCodeDiffBetween({ projectPath, sinceSha: intentBaseSha, tipSha }) }),
     commitAndLand: async (...args) => {
       if (shouldFailVerifierLanding) throw new Error('Verifier landing unavailable');
       await fixture.land(...args);
@@ -858,7 +860,7 @@ async function prepareVerifierFixture(context: TestContext) {
     },
   });
   fixture.cleanupTasks.push(() => verifier.stop());
-  return { ...fixture, verifier, failVerifierLanding: () => { shouldFailVerifierLanding = true; }, setVerifierBarrier: (barrier: () => Promise<void>) => { verifierBarrier = barrier; }, reviewRequests, verifierCwdEntries, stoppedOrchestrators, hasChanged: () => hasChanged,
+  return { ...fixture, verifier, intentBaseSha, failVerifierLanding: () => { shouldFailVerifierLanding = true; }, setVerifierBarrier: (barrier: () => Promise<void>) => { verifierBarrier = barrier; }, reviewRequests, verifierCwdEntries, stoppedOrchestrators, hasChanged: () => hasChanged,
     setVerifierVerdict: (next: typeof verdict) => { verdict = next; } };
 }
 
@@ -886,6 +888,9 @@ test('independent verifier pass files its link, closes the intent with tip evide
   assert.equal(fixture.reviewRequests[0].extraArgs?.[addDirIndex + 1], path.join(fixture.directory, 'verifier-control'));
   assert.ok(fixture.reviewRequests[0].extraArgs?.[addDirIndex + 2]?.startsWith('--'), 'the variadic --add-dir must be bounded by an option or it swallows the prompt');
   assert.ok(fixture.reviewRequests[0].prompt.includes(project.headSha ?? 'missing'));
+  assert.ok(fixture.reviewRequests[0].prompt.includes(`Diff ${fixture.intentBaseSha}..${project.headSha}`));
+  assert.match(fixture.reviewRequests[0].prompt, /^diff --git a\//m);
+  assert.doesNotMatch(fixture.reviewRequests[0].prompt, /^diff --git a\/\.coherence\//m);
   const closeCommand = fixture.commands.findLast((command) => command[1] === 'close');
   assert.equal(closeCommand?.[closeCommand.indexOf('--evidence') + 1], project.headSha);
   await fixture.verifier.tick(completed);

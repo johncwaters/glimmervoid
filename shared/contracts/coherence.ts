@@ -121,3 +121,5 @@ export const CoherenceWorkCreated = z.looseObject({
   authority: z.object({ kind: z.literal('user-directed'), grantedBy: z.literal('operator'), boundary: z.string() }),
   writeScopes: z.array(z.string()),
 });
+
+export const CoherenceTicketCreated = CoherenceWorkCreated.extend({ parent: z.string().regex(/^wrk-[a-f0-9]{16}$/) });

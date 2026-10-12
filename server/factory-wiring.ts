@@ -1,6 +1,6 @@
 import { access, chmod, mkdir, readFile, realpath, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { CoherenceWorkCreated } from '../shared/contracts/coherence.ts';
+import { CoherenceTicketCreated, CoherenceWorkCreated, CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import { FACTORY_ERROR_MAX_CHARS, FactoryControlRequest, FactoryLaneState, FactoryQueueIntentRequest, isSingleFactoryPathSegment } from '../shared/contracts/factory.ts';
 import type { FactoryControlResult, FactoryQueueIntentResult } from '../shared/contracts/factory.ts';
 import { comparableDirectoryPath } from '../shared/paths.ts';
@@ -8,10 +8,10 @@ import type { Config } from '../shared/contracts/config.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { buildCoherenceShims } from './core/coherence-session-core.ts';
-import { appendFactoryLandedSha, decideFactoryStalls, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, isFactoryProjectInFlight, hasValidWriteScopes, hasWildcardWriteScope, isCompletedCommandFailure, redactSecretLines } from './core/factory-core.ts';
+import { appendFactoryLandedSha, buildTicketCreateArgs, decideFactoryStalls, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, findIntentTicketProblem, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, isFactoryProjectInFlight, hasOpenTrustedIntent, hasValidWriteScopes, hasWildcardWriteScope, isCompletedCommandFailure, redactSecretLines } from './core/factory-core.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import type { LaneSpend } from './core/usage-scan-core.ts';
-import { commitAndLandFactoryLedger, hasCodeChangedBetween, screenPendingLedgerWrites } from './factory-ledger.ts';
+import { commitAndLandFactoryLedger, discardPendingLedgerWrites, hasCodeChangedBetween, readCodeDiffBetween, screenPendingLedgerWrites } from './factory-ledger.ts';
 import { createFactoryDecisionLog } from './factory-decision-log.ts';
 import { factoryDecisionContext, isLogOnlyFactoryEvent } from './core/factory-decision-log-core.ts';
 import type { FactoryDecisionWorkerEvent } from './core/factory-decision-log-core.ts';
@@ -56,7 +56,7 @@ interface FactoryWiringOptions<ManagedSession extends FactoryOrchestratorSession
   spawnReviewer?: FactoryCloseOutDeps['spawnReviewer'];
   prepareCheckRunner?: FactoryCloseOutDeps['prepareCheckRunner'];
   trustClaudeFolder?: (repositoryRoot: string) => Promise<FolderTrustOutcome>;
-  orchestratorOptions?: Omit<FactoryOrchestratorDeps<ManagedSession>, 'nodePath' | 'hookCliPath' | 'shimDir' | 'ensureLedger' | 'commitAndLand' | 'readTrustedIntentIds'>;
+  orchestratorOptions?: Omit<FactoryOrchestratorDeps<ManagedSession>, 'nodePath' | 'hookCliPath' | 'shimDir' | 'ensureLedger' | 'commitAndLand' | 'readTrustedIntentIds' | 'beginIntent'>;
 }
 
 export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSession = Session>({
@@ -283,6 +283,18 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     return new Set((await readLaneState(projectId)).trustedIntentIds ?? []);
   }
 
+  async function beginIntent({ projectId, intentId, headSha }: { projectId: string; intentId: string; headSha: string | null }): Promise<{ hasTickets: boolean }> {
+    const state = await readLaneState(projectId);
+    if (headSha && !state.intentBaseShas?.[intentId]) await writeLaneState(projectId, { ...state, intentBaseShas: { ...state.intentBaseShas, [intentId]: headSha } });
+    return { hasTickets: (state.ticketedIntentIds ?? []).includes(intentId) };
+  }
+
+  async function readIntentDiff({ projectId, projectPath, intentId, tipSha }: { projectId: string; projectPath: string; intentId: string; tipSha: string }) {
+    const baseSha = (await readLaneState(projectId)).intentBaseShas?.[intentId];
+    if (!baseSha) return null;
+    return { baseSha, diffText: await readCodeDiffBetween({ projectPath, sinceSha: baseSha, tipSha }) };
+  }
+
   async function readIntentWriteScopes(projectId: string): Promise<ReadonlyMap<string, readonly string[]>> {
     return new Map(Object.entries((await readLaneState(projectId)).intentWriteScopes ?? {}));
   }
@@ -313,6 +325,36 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     }
   }
 
+  async function createIntentWork(intent: FactoryQueueIntentRequest, ledgerPath: string): Promise<string> {
+    const args = [
+      'work', 'create', intent.objective,
+      ...intent.criteria.flatMap((criterion) => ['--success', criterion]),
+      '--risk', intent.risk, '--authority', 'user-directed', '--granted-by', 'operator',
+      '--boundary', intent.boundary, '--id', factoryIntentWorkId(intent), '--session', FACTORY_LEDGER_SESSION, '--json',
+    ];
+    const created = CoherenceWorkCreated.parse(JSON.parse(await runCoherence({ cwd: ledgerPath, args })));
+    const workIdsByTicketId = new Map<string, string>();
+    for (const ticket of intent.tickets ?? []) {
+      const ticketArgs = buildTicketCreateArgs({ intent, intentWorkId: created.work, ticket, workIdsByTicketId });
+      workIdsByTicketId.set(ticket.id, CoherenceTicketCreated.parse(JSON.parse(await runCoherence({ cwd: ledgerPath, args: ticketArgs }))).work);
+    }
+    return created.work;
+  }
+
+  async function createTicketedIntentWork(intent: FactoryQueueIntentRequest, ledgerPath: string): Promise<string> {
+    const inspected = CoherenceWorkInspect.parse(JSON.parse(await runCoherence({ cwd: ledgerPath, args: ['work', 'inspect', '--json'] })));
+    if (hasOpenTrustedIntent(inspected.work, await readTrustedIntentIds(intent.projectId))) {
+      throw new Error('An intent that carries tickets can be queued only when no other intent is open; queue it after the open intent closes');
+    }
+    try {
+      return await createIntentWork(intent, ledgerPath);
+    } catch (error) {
+      await discardPendingLedgerWrites(ledgerPath);
+      writtenRecordIdsByCheckout.delete(await comparableDirectoryPath(ledgerPath));
+      throw error;
+    }
+  }
+
   async function queueIntent(request: FactoryQueueIntentRequest): Promise<FactoryQueueIntentResult> {
     try {
       const intent = FactoryQueueIntentRequest.parse(request);
@@ -322,22 +364,19 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       if (hasWildcardWriteScope(intent.writeScopes)) {
         throw new Error('Invalid write scopes: a write scope is a relative path (a folder covers everything under it) or ** for the whole repository');
       }
+      const ticketProblem = findIntentTicketProblem(intent);
+      if (ticketProblem) throw new Error(`Invalid tickets: ${ticketProblem}`);
       const outcome = await serializeProject(intent.projectId, async () => {
         const projectPath = requireProject(intent.projectId);
         const ledger = await ensureTrustedLedgerCheckout(intent.projectId, projectPath);
-        const args = [
-          'work', 'create', intent.objective,
-          ...intent.criteria.flatMap((criterion) => ['--success', criterion]),
-          '--risk', intent.risk, '--authority', 'user-directed', '--granted-by', 'operator',
-          '--boundary', intent.boundary, '--id', factoryIntentWorkId(intent), '--session', FACTORY_LEDGER_SESSION, '--json',
-        ];
-        const created = CoherenceWorkCreated.parse(JSON.parse(await runCoherence({ cwd: ledger.cwd, args })));
+        const intentWorkId = intent.tickets ? await createTicketedIntentWork(intent, ledger.cwd) : await createIntentWork(intent, ledger.cwd);
         await updateLaneState(intent.projectId, (state) => ({
-          trustedIntentIds: [...new Set([...(state.trustedIntentIds ?? []), created.work])],
-          intentWriteScopes: { ...state.intentWriteScopes, [created.work]: intent.writeScopes },
+          trustedIntentIds: [...new Set([...(state.trustedIntentIds ?? []), intentWorkId])],
+          intentWriteScopes: { ...state.intentWriteScopes, [intentWorkId]: intent.writeScopes },
+          ticketedIntentIds: intent.tickets ? [...new Set([...(state.ticketedIntentIds ?? []), intentWorkId])] : state.ticketedIntentIds,
         }));
-        await landLedger(intent.projectId, projectPath, ledger, `factory: queue intent ${created.work}`, { trusted: true, intentId: activeIntentIdOf(intent.projectId) });
-        return { projectId: intent.projectId, ok: true, workId: created.work };
+        await landLedger(intent.projectId, projectPath, ledger, `factory: queue intent ${intentWorkId}`, { trusted: true, intentId: activeIntentIdOf(intent.projectId) });
+        return { projectId: intent.projectId, ok: true, workId: intentWorkId };
       });
       await runner.getPoller()?.refreshNow();
       return outcome;
@@ -423,7 +462,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       const activeOrchestrator = orchestratorOptions && coherenceHookCliPath ? createFactoryOrchestrator({
         ...orchestratorOptions,
         now: pollerDeps.now ?? orchestratorOptions.now,
-        nodePath: process.execPath, hookCliPath: coherenceHookCliPath, shimDir: binDir, readTrustedIntentIds, notifyException: notifySpawnException,
+        nodePath: process.execPath, hookCliPath: coherenceHookCliPath, shimDir: binDir, readTrustedIntentIds, beginIntent: (request) => serializeProject(request.projectId, () => beginIntent(request)), notifyException: notifySpawnException,
         ensureLedger: (projectId) => serializeProject(projectId, async () => {
           const ledger = await ensureLedgerCheckout(projectId, requireProject(projectId));
           const commonGitDir = await readLaneCommonGitDir(ledger.cwd);
@@ -467,7 +506,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         notify: (projectName, message) => notify(projectName, FACTORY_NOTIFY_CATEGORY, message), now: pollerDeps.now, log, onChanged: refresh,
       });
       const activeVerifier = spawnVerifier ? createFactoryVerifier({
-        config, spawnVerifier, serializeProject, ensureLedger: ensureTrustedLedgerCheckout, ensureControlCheckout, hasCodeChangedSince, readLaneState, writeLaneState,
+        config, spawnVerifier, serializeProject, ensureLedger: ensureTrustedLedgerCheckout, ensureControlCheckout, hasCodeChangedSince, readIntentDiff, readLaneState, writeLaneState,
         runCoherence, commitAndLand, pause: (projectId) => serializeProject(projectId, () => updateLaneState(projectId, () => ({ paused: true }))),
         setException: raiseException,
         notifyOrchestrator,
