@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { stripVTControlCharacters } from 'node:util';
-import { LANE_CREDENTIAL_DENY_READ } from './lane-posture-core.ts';
 import { contentMarker } from './visions-dispatch-core.ts';
 import { DEFAULT_FACTORY_CHECKS, DEFAULT_FACTORY_PROTECTED_PATHS } from '../../shared/contracts/browser-config.ts';
 import type { Config } from '../../shared/contracts/config.ts';
@@ -487,21 +486,6 @@ export function checkFence({ changedPaths, writeScopes, protectedPaths }: {
   if (outside.length === 0 && protectedChanges.length === 0) return { ok: true };
   const unsupportedProtectedPaths = protectedPaths.filter((protectedPath) => protectsEveryPath(protectedPath.toLowerCase()));
   return { ok: false, outside, protected: protectedChanges, unsupportedProtectedPaths };
-}
-
-const FACTORY_CHECK_AGENT_HOMES = Object.freeze(['~/.claude', '~/.codex']);
-const FACTORY_CHECK_SHARED_WRITE_PATHS = Object.freeze(['/tmp/claude', '/private/tmp/claude', '~/.npm/_logs']);
-
-export function buildFactoryCheckSandboxSettings({ writablePaths, privatePaths, readablePaths = [] }: { writablePaths: string[]; privatePaths: string[]; readablePaths?: string[] }) {
-  return {
-    network: { allowedDomains: [], deniedDomains: [], allowLocalBinding: false },
-    filesystem: {
-      denyRead: [...LANE_CREDENTIAL_DENY_READ, ...FACTORY_CHECK_AGENT_HOMES, ...privatePaths],
-      allowRead: [...readablePaths],
-      allowWrite: [...writablePaths],
-      denyWrite: [...FACTORY_CHECK_SHARED_WRITE_PATHS],
-    },
-  };
 }
 
 export function parseCheckCommand(command: string): string[] | null {

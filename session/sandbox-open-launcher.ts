@@ -1,0 +1,77 @@
+import fs from 'node:fs';
+import { FilesystemConfigSchema, SandboxManager } from '@anthropic-ai/sandbox-runtime';
+import type { NetworkConfig, SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
+import { spawn } from '../server/child-process-safe.ts';
+import { errorMessage } from '../shared/text.ts';
+
+const FORWARDED_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
+const OPEN_NETWORK: Partial<NetworkConfig> = { allowAllUnixSockets: false };
+
+function fieldOf(record: unknown, field: string): unknown {
+  if (typeof record !== 'object' || record === null) return undefined;
+  return Reflect.get(record, field);
+}
+
+function shellQuote(word: string): string {
+  return `'${word.replace(/'/g, `'\\''`)}'`;
+}
+
+function readOpenPolicy(policyPath: string): SandboxRuntimeConfig {
+  const policy: unknown = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
+  if (fieldOf(fieldOf(policy, 'network'), 'allowedDomains') !== undefined) throw new Error('a policy with a domain list must run through the sandbox runtime CLI');
+  const filesystem = FilesystemConfigSchema.parse(fieldOf(policy, 'filesystem'));
+  return { network: OPEN_NETWORK, filesystem } as SandboxRuntimeConfig;
+}
+
+function exitCodeFor(code: number | null, signal: NodeJS.Signals | null): number {
+  if (signal === null) return code ?? 0;
+  return FORWARDED_SIGNALS.some((forwarded) => forwarded === signal) ? 0 : 1;
+}
+
+async function launchInOpenNetworkSandbox(): Promise<void> {
+  const [policyPath, ...command] = process.argv.slice(2);
+  if (!policyPath || command.length === 0) throw new Error('usage: sandbox-open-launcher <policy file> <command> [arguments]');
+  const openPolicy = readOpenPolicy(policyPath);
+  const dependencies = SandboxManager.checkDependencies();
+  const dependencyProblems = [...dependencies.errors, ...dependencies.warnings];
+  if (dependencyProblems.length > 0) throw new Error(`the sandbox runtime cannot start: ${dependencyProblems.join('; ')}`);
+  const beforeSpawn: { interruptedBy: NodeJS.Signals | null } = { interruptedBy: null };
+  const interrupted = new AbortController();
+  let child: ReturnType<typeof spawn> | undefined;
+  for (const signal of FORWARDED_SIGNALS) {
+    process.on(signal, () => {
+      if (child !== undefined) {
+        child.kill(signal);
+        return;
+      }
+      beforeSpawn.interruptedBy ??= signal;
+      interrupted.abort();
+    });
+  }
+  const exitWhenInterrupted = (): void => {
+    if (beforeSpawn.interruptedBy !== null) process.exit(exitCodeFor(null, beforeSpawn.interruptedBy));
+  };
+  await SandboxManager.initialize(openPolicy);
+  const commandLine = command.map(shellQuote).join(' ');
+  const wrapped = await SandboxManager.wrapWithSandboxArgv(commandLine, undefined, undefined, interrupted.signal).catch((wrapFailure: unknown) => {
+    exitWhenInterrupted();
+    throw wrapFailure;
+  });
+  const [shell, ...shellArgs] = wrapped.argv;
+  if (!shell || shellArgs.at(-1) === commandLine) throw new Error('the sandbox runtime returned the command unwrapped');
+  exitWhenInterrupted();
+  child = spawn(shell, shellArgs, { stdio: 'inherit', env: wrapped.env });
+  child.on('error', (error) => {
+    console.error(`sandbox launcher: ${error.message}`);
+    process.exit(1);
+  });
+  child.on('exit', (code, signal) => {
+    SandboxManager.cleanupAfterCommand();
+    process.exit(exitCodeFor(code, signal));
+  });
+}
+
+launchInOpenNetworkSandbox().catch((error: unknown) => {
+  console.error(`sandbox launcher: ${errorMessage(error)}`);
+  process.exit(1);
+});

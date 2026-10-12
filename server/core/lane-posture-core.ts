@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { isPathInside } from '../../shared/paths.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES, LANE_ENVIRONMENT_ARGS } from './lane-permissions-core.ts';
+import { CREDENTIAL_HOME_ENTRIES } from './sandbox-policy-core.ts';
 
 function checkoutUnwritablePaths(checkoutPath: string): string[] {
   return [path.join(checkoutPath, '.git'), path.join(checkoutPath, '.claude')];
@@ -46,7 +47,7 @@ export const LANE_CREDENTIAL_ENV = Object.freeze({
   GH_TOKEN: '', GITHUB_TOKEN: '', GH_ENTERPRISE_TOKEN: '', GITHUB_ENTERPRISE_TOKEN: '',
 });
 
-export const LANE_CREDENTIAL_DENY_READ = Object.freeze(['~/.ssh', '~/.config/gh', '~/Library/Keychains', '~/.git-credentials']);
+export const LANE_CREDENTIAL_DENY_READ = Object.freeze(CREDENTIAL_HOME_ENTRIES.map((entry) => `~/${entry}`));
 
 export const LANE_READABLE_HOME_FOLDERS = Object.freeze(['bin', path.join('factory', 'bin')]);
 

@@ -34,6 +34,7 @@ export default defineConfig({
         'session/statusline-relay': path.join(repoRoot, 'session', 'statusline-relay.ts'),
         'session/hook-tool-relay': path.join(repoRoot, 'session', 'hook-tool-relay.ts'),
         'session/visions-relay': path.join(repoRoot, 'session', 'visions-relay.ts'),
+        'session/sandbox-open-launcher': path.join(repoRoot, 'session', 'sandbox-open-launcher.ts'),
         'scripts/postinstall-path-check': path.join(repoRoot, 'scripts', 'postinstall-path-check.ts'),
       },
       output: {

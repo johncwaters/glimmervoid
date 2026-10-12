@@ -1,10 +1,7 @@
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { execFileAsync } from './child-process-safe.ts';
-import { glimmervoidHomeDir } from './config-store.ts';
-import { buildFactoryCheckSandboxSettings } from './core/factory-core.ts';
-import { writeJsonAtomic } from './json-file.ts';
-import { resolvePackageBin } from './runtime-paths.ts';
+import { prepareSandboxLaunch } from './sandbox-launch.ts';
 
 interface FactoryCheckExecOptions {
   cwd: string;
@@ -41,30 +38,33 @@ function timedOutCheckFailure(timeoutMs: number, abortFailure: unknown): Error {
 }
 
 const prepareSandboxedCheckRunner: PrepareFactoryCheckRunner = async ({ scratchParent, writablePaths, readablePaths = [] }) => {
-  const sandboxCliPath = resolvePackageBin('@anthropic-ai/sandbox-runtime', 'srt');
-  if (!sandboxCliPath) throw new Error('Factory checks need the sandbox runtime, and its CLI could not be resolved');
   const tempDir = path.join(scratchParent, 'tmp');
-  const policyDir = path.join(glimmervoidHomeDir(), 'factory-check-policies');
-  const settingsPath = path.join(policyDir, `${path.basename(scratchParent)}.json`);
   await mkdir(tempDir);
-  await mkdir(policyDir, { recursive: true, mode: 0o700 });
-  await writeJsonAtomic(settingsPath, buildFactoryCheckSandboxSettings({
-    writablePaths: [...writablePaths, tempDir],
-    privatePaths: [glimmervoidHomeDir()],
-    readablePaths: [...readablePaths, ...writablePaths, tempDir],
-  }));
+  const prepared = await prepareSandboxLaunch({
+    role: {
+      vendors: [], vendorHome: 'lane', network: { access: 'none' }, writableRoots: writablePaths,
+      lockedCheckouts: [], commitCheckouts: [], readDenied: [], readableWithinDenied: readablePaths,
+    },
+    launchId: path.basename(scratchParent),
+    tempDir,
+  });
+  if (!prepared.ok) throw new Error(`Factory checks need the sandbox runtime: ${prepared.reason}`);
+  const { launch } = prepared;
   const runCheck: FactoryCheckRunner = async (argv, { timeout, signal, ...execOptions }) => {
+    const [checkCommand, ...checkArgs] = argv;
+    if (checkCommand === undefined) throw new Error('Factory check command is empty');
+    const wrapped = await launch.wrap(checkCommand, checkArgs);
     const timeoutSignal = AbortSignal.timeout(timeout);
     try {
-      return await execFileAsync(process.execPath, [sandboxCliPath, '--settings', settingsPath, '--', ...argv], {
-        ...execOptions, signal: AbortSignal.any([signal, timeoutSignal]), env: { ...execOptions.env, CLAUDE_CODE_TMPDIR: tempDir },
+      return await execFileAsync(wrapped.file, wrapped.args, {
+        ...execOptions, signal: AbortSignal.any([signal, timeoutSignal]), env: { ...execOptions.env, ...launch.env },
       });
     } catch (error) {
       if (!timeoutSignal.aborted) throw error;
       throw timedOutCheckFailure(timeout, error);
     }
   };
-  return { runCheck, dispose: () => rm(settingsPath, { force: true }) };
+  return { runCheck, dispose: launch.dispose };
 };
 
 export { prepareSandboxedCheckRunner };
