@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A verifier push failure no longer pauses the factory**: the independent verifier now records its trusted verification and intent close as soon as the ledger commit succeeds locally, so a push that fails afterwards no longer leaves a completed intent untrusted and pauses the project on the next tick as closed without its verifier.
 - **A brief git failure no longer tears down a factory project**: when the factory cannot read a project's integration branch for one poll, it now keeps showing the project with the error instead of treating it as removed and stopping its orchestrator and every working agent.
 - **A failed ledger push or watch write after a factory merge no longer strands the ticket**: the ticket is now closed and the worker released either way. A failed watch write raises a project exception naming the merged work that is unwatched, and a close that could not land survives the factory discarding a forbidden orchestrator ledger write and lands with the next ledger landing, so the intent can still be verified and closed.
 - **A failed ledger landing survives a restart**: Glimmervoid remembers the exact content of its own unlanded ledger writes across a restart and retries landing them, instead of refusing every later landing as a forged factory write. A copy or altered version of one of those writes is still refused.

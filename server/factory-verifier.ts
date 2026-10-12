@@ -18,7 +18,7 @@ interface FactoryVerifierDeps {
   readLaneState: (projectId: string) => Promise<FactoryLaneState>;
   writeLaneState: (projectId: string, state: FactoryLaneState) => Promise<void>;
   runCoherence: (request: { cwd: string; args: string[] }) => Promise<string>;
-  commitAndLand: (projectId: string, projectPath: string, message: string) => Promise<void>;
+  commitAndLand: (projectId: string, projectPath: string, message: string, options?: { onCommitted?: () => Promise<void> }) => Promise<void>;
   pause: (projectId: string) => Promise<void>;
   setException: (projectId: string, reason: string) => void;
   notifyOrchestrator: (projectId: string, event: FactoryWorkerEvent) => void;
@@ -122,11 +122,13 @@ export function createFactoryVerifier({ config, spawnVerifier, serializeProject,
         '--evidence', `Independent verifier passed every intent criterion at ${tipSha}`, '--session', FACTORY_LEDGER_SESSION, '--json'] });
       await runCoherence({ cwd: ledger.cwd, args: ['work', 'close', intent.id, 'completed', '--because', 'Independent factory verifier passed',
         '--session', FACTORY_LEDGER_SESSION, '--evidence', tipSha, ...children.flatMap((child) => ['--synthesized', child.id])] });
-      await commitAndLand(project.projectId, projectPath, `factory: verify and close ${intent.id}`);
-      const state = await readLaneState(project.projectId);
-      await writeLaneState(project.projectId, { ...state,
-        trustedVerifications: [...(state.trustedVerifications ?? []).filter(({ id }) => id !== verificationId), { id: verificationId, sha: tipSha }],
-        trustedIntentCloses: [...new Set([...(state.trustedIntentCloses ?? []), intent.id])] });
+      const recordTrust = async () => {
+        const state = await readLaneState(project.projectId);
+        await writeLaneState(project.projectId, { ...state,
+          trustedVerifications: [...(state.trustedVerifications ?? []).filter(({ id }) => id !== verificationId), { id: verificationId, sha: tipSha }],
+          trustedIntentCloses: [...new Set([...(state.trustedIntentCloses ?? []), intent.id])] });
+      };
+      await commitAndLand(project.projectId, projectPath, `factory: verify and close ${intent.id}`, { onCommitted: recordTrust });
       checkedIntents.add(`${project.projectId}:${intent.id}`);
       stopOrchestrator(project.projectId);
     });

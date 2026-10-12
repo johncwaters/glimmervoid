@@ -897,12 +897,18 @@ async function prepareVerifierFixture(context: TestContext) {
   let verifierBarrier: (() => Promise<void>) | null = null;
   const stoppedOrchestrators: string[] = [];
   let shouldFailVerifierLanding = false;
+  let shouldFailVerifierPush = false;
+  const failingPushWorkspace = { ...fixture.gitWorkspace, mergeKeep: async (args: Parameters<typeof fixture.gitWorkspace.mergeKeep>[0]) =>
+    ({ merged: false, committed: true, branch: args.workspace?.branch ?? null, reason: 'push rejected by origin' }) };
   const intentBaseSha = await fixture.git(['rev-list', '--max-parents=0', 'integration']);
   const verifier = createFactoryVerifier({ config: fixture.watchConfig, runCoherence: fixture.runCoherence, ensureLedger: async () => fixture.ledger,
     readIntentDiff: async ({ projectPath, tipSha }) => ({ baseSha: intentBaseSha, diffText: await readCodeDiffBetween({ projectPath, sinceSha: intentBaseSha, tipSha }) }),
     commitAndLand: async (...args) => {
       if (shouldFailVerifierLanding) throw new Error('Verifier landing unavailable');
-      await fixture.land(...args);
+      if (!shouldFailVerifierPush) return fixture.land(...args);
+      const [, projectPath, message, options] = args;
+      await commitAndLandFactoryLedger({ projectPath, ledger: fixture.ledger, targetBranch: 'integration', message, gitWorkspace: failingPushWorkspace,
+        trusted: true, declaredFactoryRecords: fixture.declaredFactoryRecords, onCommitted: options?.onCommitted });
     }, hasCodeChangedSince: async (projectPath, sinceSha) => hasCodeChangedBetween({ projectPath, sinceSha, tipSha: await fixture.git(['rev-parse', 'integration']) }),
     readLaneState: async () => fixture.state, writeLaneState: async (_projectId, updated) => { Object.assign(fixture.state, updated); },
     ensureControlCheckout: async ({ sha }) => {
@@ -924,7 +930,7 @@ async function prepareVerifierFixture(context: TestContext) {
     },
   });
   fixture.cleanupTasks.push(() => verifier.stop());
-  return { ...fixture, verifier, intentBaseSha, failVerifierLanding: () => { shouldFailVerifierLanding = true; }, setVerifierBarrier: (barrier: () => Promise<void>) => { verifierBarrier = barrier; }, reviewRequests, verifierCwdEntries, stoppedOrchestrators, hasChanged: () => hasChanged,
+  return { ...fixture, verifier, intentBaseSha, failVerifierLanding: () => { shouldFailVerifierLanding = true; }, failVerifierPush: () => { shouldFailVerifierPush = true; }, setVerifierBarrier: (barrier: () => Promise<void>) => { verifierBarrier = barrier; }, reviewRequests, verifierCwdEntries, stoppedOrchestrators, hasChanged: () => hasChanged,
     setVerifierVerdict: (next: typeof verdict) => { verdict = next; } };
 }
 
@@ -1010,6 +1016,28 @@ test('a verifier whose ledger landing fails leaves no trusted verification or in
   assert.equal(fixture.state.trustedVerifications?.some(({ id }) => id === `verifier-${fixture.worker.intentId}`), false);
   assert.deepEqual(fixture.state.trustedIntentCloses ?? [], []);
   assert.deepEqual(fixture.stoppedOrchestrators, []);
+});
+
+test('a verifier push failure after the local ledger commit still trusts its verification and close, so the next tick does not pause the project', async (context) => {
+  const fixture = await prepareVerifierFixture(context);
+  const intentId = fixture.worker.intentId;
+  fixture.failVerifierPush();
+  fixture.verifier.ready('repo', intentId);
+  const project = await fixture.readProject();
+  await fixture.verifier.tick(project);
+  await waitFor(fixture.hasChanged, 'verifier finishes with a failed push', 60_000);
+  assert.match(fixture.exceptions.at(-1) ?? '', /push rejected by origin/);
+  assert.deepEqual(fixture.state.trustedVerifications?.find(({ id }) => id === `verifier-${intentId}`), { id: `verifier-${intentId}`, sha: project.headSha });
+  assert.deepEqual(fixture.state.trustedIntentCloses, [intentId]);
+  const exceptionCount = fixture.exceptions.length;
+  await commitAndLandFactoryLedger({ projectPath: fixture.projectPath, ledger: fixture.ledger, targetBranch: 'integration', message: 'factory: retry landing',
+    gitWorkspace: fixture.gitWorkspace, trusted: true, declaredFactoryRecords: fixture.declaredFactoryRecords, retryLanding: true });
+  const closed = await fixture.readProject();
+  assert.equal(closed.orders.find((order) => order.id === intentId)?.state, 'completed');
+  const ticked = await fixture.verifier.tick(closed);
+  assert.equal(ticked.paused, false);
+  assert.equal(fixture.state.paused, false);
+  assert.equal(fixture.exceptions.length, exceptionCount);
 });
 
 test('a trusted verifier id cannot authorize a forged link and close whose evidence names a different sha', async (context) => {
