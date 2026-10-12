@@ -1,4 +1,4 @@
-import { FactoryQueueIntentRequest } from '#shared/contracts/factory.ts';
+import { FACTORY_PROTECTED_PATH_FLOOR, FactoryQueueIntentRequest } from '#shared/contracts/factory.ts';
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { FactoryProjectState, FactoryState } from '#shared/contracts/factory.ts';
 import { localClockText } from '#shared/display-text.ts';
@@ -55,6 +55,28 @@ function sendFactoryRequest(projectId: string, type: 'factory-queue-intent' | 'f
   render();
 }
 
+function buildFloorAllowanceField(draft: IntentDraft, isPending: boolean): HTMLFieldSetElement {
+  const fieldset = el('fieldset', 'factory-form-field');
+  fieldset.append(el('legend', 'factory-label', 'Protected floor opt-in'));
+  for (const pattern of FACTORY_PROTECTED_PATH_FLOOR) {
+    const option = el('label', 'factory-floor-allowance');
+    const checkbox = el('input');
+    checkbox.type = 'checkbox';
+    checkbox.value = pattern;
+    checkbox.dataset.factoryField = `floor:${pattern}`;
+    checkbox.checked = draft.floorAllowances?.includes(pattern) === true;
+    checkbox.disabled = isPending;
+    checkbox.addEventListener('change', () => {
+      const others = (draft.floorAllowances ?? []).filter((allowance) => allowance !== pattern);
+      const next = checkbox.checked ? [...others, pattern] : others;
+      draft.floorAllowances = FACTORY_PROTECTED_PATH_FLOOR.filter((allowance) => next.includes(allowance));
+    });
+    option.append(checkbox, el('span', null, pattern));
+    fieldset.append(option);
+  }
+  return fieldset;
+}
+
 function buildQueueForm(projectId: string): HTMLFormElement {
   const draft = intentDraft(projectId);
   const form = el('form', 'factory-queue-form');
@@ -89,6 +111,7 @@ function buildQueueForm(projectId: string): HTMLFormElement {
   risk.value = draft.risk;
   risk.addEventListener('change', () => { draft.risk = FactoryQueueIntentRequest.shape.risk.parse(risk.value); });
   riskField.append(el('span', 'factory-label', 'Risk'), risk);
+  form.append(buildFloorAllowanceField(draft, isPending));
   const submit = el('button', 'factory-action', 'Queue intent');
   submit.type = 'submit';
   submit.disabled = !isConnected || isPending;
