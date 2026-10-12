@@ -40,6 +40,7 @@ async function runOnce(
       remotes: null, leakedCommits: null, isCommitListCapped: false, proofErrors: [],
     } : null,
   };
+  const listedSessionIds = new Set<string>();
   const controller = new AbortController();
   const watchWindowMinutes = options.factory.watchWindowMinutes ?? DEFAULT_CONFIG.factory.watchWindowMinutes;
   const deadline = AbortSignal.timeout((targets[options.target].workLimitMinutes + watchWindowMinutes) * 60_000);
@@ -90,7 +91,7 @@ async function runOnce(
       if (!acceptanceError) return;
       input.errors.push(acceptanceError);
       controller.abort();
-    }, (sessionId) => input.sessionIds.push(sessionId), (error) => { input.errors.push(error.message); controller.abort(); });
+    }, (sessionId) => listedSessionIds.add(sessionId), (error) => { input.errors.push(error.message); controller.abort(); });
     control.queue(queuedIntent);
     while (!signal.aborted) {
       if (instance.child.exitCode !== null || instance.child.signalCode !== null) throw new Error('Built instance exited during the run');
@@ -107,7 +108,7 @@ async function runOnce(
     if (interim.failureClass === 'stalled') {
       const screenDirectory = path.join(recordDirectory, 'screens');
       await mkdir(screenDirectory);
-      const sessions = new Set(input.sessionIds);
+      const sessions = new Set([...input.sessionIds, ...listedSessionIds]);
       for (const sessionId of sessions) {
         signal.throwIfAborted();
         try {
