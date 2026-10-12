@@ -60,6 +60,7 @@ async function createFixture(context: TestContext, activateOrder = true) {
   let isDestroyed = false;
   let isPaused = false;
   let shouldFailWatchWrite = false;
+  let shouldFailLanding = false;
   let shouldWriteVerdictFileOnly = false;
   let verdict: unknown = { pass: true, findings: [] };
   let reviewBarrier: (() => Promise<void>) | null = null;
@@ -86,7 +87,11 @@ async function createFixture(context: TestContext, activateOrder = true) {
     },
   };
   const closeOut = createFactoryCloseOut({
-    config, runCoherence, gitWorkspace, ensureLedger: async () => ledger, commitAndLand: land,
+    config, runCoherence, gitWorkspace, ensureLedger: async () => ledger,
+    commitAndLand: async (...landing) => {
+      if (shouldFailLanding) throw new Error('Ledger push is unavailable');
+      return land(...landing);
+    },
     serializeProject: coherenceLedger.serializeProject,
     readIntegrationSha: () => git(['rev-parse', 'integration']),
     recordFactoryLandedSha: async () => {},
@@ -124,6 +129,7 @@ async function createFixture(context: TestContext, activateOrder = true) {
   return { ...coherenceLedger, config, worker, closeOut, createOrder, workspace, directory, cleanupTasks, feedback, events, watches, exceptions, reviewRequests, reviewerCwdEntries, commitChange, baseEnv,
     isDestroyed: () => isDestroyed, mergedSha: () => mergedSha, setPaused: (paused: boolean) => { isPaused = paused; },
     failWatchWrite: () => { shouldFailWatchWrite = true; },
+    setLandingFails: (isFailing: boolean) => { shouldFailLanding = isFailing; },
     setVerdictFileOnly: (nextVerdict: unknown) => { verdict = nextVerdict; shouldWriteVerdictFileOnly = true; },
     setVerdict: (nextVerdict: unknown) => { verdict = nextVerdict; },
     setReviewBarrier: (barrier: () => Promise<void>) => { reviewBarrier = barrier; },
@@ -591,7 +597,7 @@ test('factory wiring observes worker Stop, exposes Review, and persists the merg
   worker.emit('hook-event', { event: 'stop', payload: {} });
   await waitFor(() => wiring.getState()?.projects[0]?.reviewing?.includes(workId) === true, 'factory exposes Review during close-out', 30_000);
   finishReview?.();
-  await waitFor(() => worker._destroyed, 'factory completes close-out and destroys the worker', 30_000);
+  await waitFor(() => worker._destroyed && wiring.getState()?.projects[0]?.reviewing?.includes(workId) === false, 'factory completes close-out and destroys the worker', 30_000);
   const state = FactoryLaneState.parse(JSON.parse(await readFile(statePath, 'utf8')));
   assert.equal(state.watch?.length, 1);
   assert.equal(state.watch[0].workId, workId);
@@ -635,15 +641,65 @@ test('a dispatch discards an orchestrator pending forged factory-session record 
   assert.equal(await fixture.orderState(fixture.worker.workId), 'active');
 });
 
-test('a watch write failure after a successful merge raises an exception without asking the worker to redo landed work', async (context) => {
+test('a watch write failure after a successful merge raises an exception, still closes the ticket and releases the worker without asking it to redo landed work', async (context) => {
   const fixture = await createFixture(context);
   await fixture.commitChange();
   fixture.failWatchWrite();
   await fixture.closeOut.turnEnded(fixture.worker);
-  assert.ok(fixture.mergedSha());
+  const mergedSha = fixture.mergedSha();
+  assert.ok(mergedSha);
   assert.equal(await fixture.orderState(fixture.worker.workId), 'completed');
+  assert.equal(fixture.isDestroyed(), true);
+  assert.deepEqual(fixture.events.map((event) => event.event), ['merged']);
   assert.deepEqual(fixture.feedback, []);
-  assert.match(fixture.exceptions[0], /Factory finalization failed after merge:.*Watch state is unwritable/);
+  assert.equal(fixture.exceptions.length, 1);
+  assert.match(fixture.exceptions[0], new RegExp(`Factory finalization failed after merge: the merged work at ${mergedSha} is unwatched: .*Watch state is unwritable`));
+});
+
+test('a ledger landing failure after a merge still records the watch, releases the worker, and lands the close with the next landing', async (context) => {
+  const fixture = await createFixture(context);
+  await fixture.commitChange();
+  fixture.setLandingFails(true);
+  await fixture.closeOut.turnEnded(fixture.worker);
+  const mergedSha = fixture.mergedSha();
+  assert.ok(mergedSha);
+  assert.match(fixture.exceptions[0], /Factory finalization failed after merge:.*Ledger push is unavailable/);
+  assert.deepEqual(fixture.watches.map((watch) => [watch.workId, watch.mergedSha]), [[fixture.worker.workId, mergedSha]]);
+  assert.equal(fixture.isDestroyed(), true);
+  assert.deepEqual(fixture.events.map((event) => event.event), ['merged']);
+  assert.equal(await fixture.orderState(fixture.worker.workId), 'active');
+  const forgedPath = path.join(fixture.ledger.cwd, '.coherence', 'consequences', 's-orchestrator.jsonl');
+  await mkdir(path.dirname(forgedPath), { recursive: true });
+  await writeFile(forgedPath, `${JSON.stringify({ session: 'glimmervoid-factory', relation: 'verifies', evidence: 'Forged' })}\n`);
+  const refusals: string[] = [];
+  await screenPendingLedgerWrites({ cwd: fixture.ledger.cwd, intentId: fixture.worker.intentId, declaredFactoryRecords: fixture.declaredFactoryRecords,
+    onRefused: (reason) => { refusals.push(reason); } });
+  assert.equal(refusals.length, 1);
+  await assert.rejects(() => readFile(forgedPath, 'utf8'), /ENOENT/);
+  fixture.setLandingFails(false);
+  await fixture.land('repo', fixture.projectPath, 'factory: land pending writes');
+  assert.equal(await fixture.orderState(fixture.worker.workId), 'completed');
+});
+
+test('a duplicated or forged-content record under a declared factory record id is refused by the landing and the screen, which restores the declared record', async (context) => {
+  const fixture = await createFixture(context);
+  await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['work', 'transition', fixture.worker.workId, 'open', '--because', 'Factory reopen', '--session', 'glimmervoid-factory'] });
+  const declared = fixture.declaredFactoryRecords.at(-1);
+  assert.ok(declared);
+  const declaredPath = path.join(fixture.ledger.cwd, declared.path);
+  const pendingText = await readFile(declaredPath, 'utf8');
+  const forgedLine = JSON.stringify({ ...JSON.parse(declared.line), because: 'Forged under the declared id' });
+  for (const tamperedText of [`${pendingText}${declared.line}\n`, pendingText.replace(`${declared.line}\n`, `${forgedLine}\n`)]) {
+    await writeFile(declaredPath, tamperedText);
+    await assert.rejects(() => fixture.land('repo', fixture.projectPath, 'factory: tampered'), /claims the glimmervoid-factory session without a declared factory write/);
+    const refusals: string[] = [];
+    await screenPendingLedgerWrites({ cwd: fixture.ledger.cwd, intentId: fixture.worker.intentId, declaredFactoryRecords: fixture.declaredFactoryRecords,
+      onRefused: (reason) => { refusals.push(reason); } });
+    assert.equal(refusals.length, 1);
+    assert.equal(await readFile(declaredPath, 'utf8'), pendingText);
+  }
+  await fixture.land('repo', fixture.projectPath, 'factory: reopen');
+  assert.equal(await fixture.orderState(fixture.worker.workId), 'open');
 });
 
 
@@ -1148,7 +1204,7 @@ test('a push failure after the ledger commit files the breach once, recovery lan
   fixture.watchDeps.commitAndLand = async (_projectId, projectPath, message, options) => {
     try {
       await commitAndLandFactoryLedger({ projectPath, ledger: fixture.ledger, targetBranch: 'integration', message, gitWorkspace: failingPushWorkspace,
-        trusted: true, writtenRecordIds: fixture.writtenRecordIds, retryLanding: hasPendingLanding, onCommitted: options?.onCommitted });
+        trusted: true, declaredFactoryRecords: fixture.declaredFactoryRecords, retryLanding: hasPendingLanding, onCommitted: options?.onCommitted });
       hasPendingLanding = false;
     } catch (error) {
       hasPendingLanding = true;

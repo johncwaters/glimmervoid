@@ -56,17 +56,26 @@ export function createFactoryPoller({
     }
   }
 
-  async function readIntegrationTipSha(projectPath: string): Promise<string | null> {
+  async function readIntegrationTipSha(projectPath: string): Promise<{ sha: string } | { error: string }> {
     try {
-      return await readBranchSha(projectPath, await resolveIntegrationBranch(projectPath));
-    } catch {
-      return null;
+      return { sha: await readBranchSha(projectPath, await resolveIntegrationBranch(projectPath)) };
+    } catch (error) {
+      return { error: errorMessage(error) };
     }
   }
 
-  async function readProject(project: FactoryProject): Promise<FactoryProjectState | null> {
-    const headSha = await readIntegrationTipSha(project.path);
-    if (headSha === null) return null;
+  async function readProject(project: FactoryProject): Promise<{ state: FactoryProjectState; shouldProcess: boolean } | null> {
+    const integrationTip = await readIntegrationTipSha(project.path);
+    if ('sha' in integrationTip) {
+      const projectState = await readLedgerProject(project, integrationTip.sha);
+      return projectState && { state: projectState, shouldProcess: true };
+    }
+    const lastReported = state?.projects.find((reported) => reported.projectId === project.id);
+    if (!lastReported) return null;
+    return { state: { ...lastReported, projectName: project.name, error: `Could not read the integration tip: ${integrationTip.error}` }, shouldProcess: false };
+  }
+
+  async function readLedgerProject(project: FactoryProject, headSha: string): Promise<FactoryProjectState | null> {
     let paused = false;
     const identity = { projectId: project.id, projectName: project.name };
     try {
@@ -106,8 +115,9 @@ export function createFactoryPoller({
     beforeTick();
     const projects: FactoryProjectState[] = [];
     for (const project of await listFactoryProjects()) {
-      const projectState = await readProject(project);
-      if (projectState) projects.push(await processProjectStateSafely(projectState));
+      const projectRead = await readProject(project);
+      if (!projectRead) continue;
+      projects.push(projectRead.shouldProcess ? await processProjectStateSafely(projectRead.state) : projectRead.state);
     }
     const currentIds = new Set(projects.map((project) => project.projectId));
     for (const projectId of processedProjects.keys()) {

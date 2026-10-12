@@ -1,10 +1,12 @@
-import { readFile, rm } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { mkdir, open, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { isMissingFileError } from '../shared/text.ts';
 import { runHardenedGit } from './git-workspace.ts';
 import { makeHostScratchDirectory } from './host-scratch.ts';
-import { FACTORY_INTEGRATION_MOVED_OUTSIDE, findForbiddenLedgerWrites } from './core/factory-core.ts';
-import type { FactoryLedgerChange } from './core/factory-core.ts';
+import { FACTORY_INTEGRATION_MOVED_OUTSIDE, appendedLedgerLines, factoryRecordIdOf, findForbiddenLedgerWrites, isFactoryLedgerLineOfWrite } from './core/factory-core.ts';
+import type { FactoryDeclaredRecord, FactoryLedgerChange } from './core/factory-core.ts';
+import type { FactoryUnlandedRecord } from '../shared/contracts/factory.ts';
 import { nulSeparatedPaths } from './core/git-changed-paths-core.ts';
 import type { GitWorkspaceInstance } from './git-workspace.ts';
 
@@ -86,21 +88,53 @@ export async function readCodeDiffBetween({ projectPath, sinceSha, tipSha }: { p
   return diff.stdout;
 }
 
-export async function discardPendingLedgerWrites(cwd: string): Promise<void> {
+export async function captureFactoryLedgerRecord(cwd: string, recordId: string, write: { args: readonly string[]; output: string }): Promise<FactoryUnlandedRecord | null> {
+  const matches = (await readLedgerChangesSince(cwd, 'HEAD')).flatMap((change) => appendedLedgerLines(change)
+    .filter((appended) => factoryRecordIdOf(appended.record) === recordId).map(({ line }) => ({ id: recordId, path: change.path, line })));
+  if (matches.length > 1) throw new Error(`Factory ledger record ${recordId} was appended ${matches.length} times`);
+  const captured = matches[0] ?? null;
+  if (captured && !isFactoryLedgerLineOfWrite(captured.line, write)) throw new Error(`Factory ledger record ${recordId} does not match what the factory wrote`);
+  return captured;
+}
+
+export async function listRecordsMissingFromHead(cwd: string, records: readonly FactoryUnlandedRecord[]): Promise<FactoryUnlandedRecord[]> {
+  const missingRecords: FactoryUnlandedRecord[] = [];
+  for (const record of records) {
+    const headText = await readCommittedText(cwd, 'HEAD', record.path);
+    if (!(headText ?? '').split('\n').includes(record.line)) missingRecords.push(record);
+  }
+  return missingRecords;
+}
+
+function declaredFactoryRecordsById(records: readonly FactoryUnlandedRecord[]): ReadonlyMap<string, FactoryDeclaredRecord> {
+  return new Map(records.map(({ id, path: recordPath, line }) => [id, { path: recordPath, line }]));
+}
+
+export async function discardPendingLedgerWrites(cwd: string, keptRecords: readonly FactoryUnlandedRecord[] = []): Promise<void> {
   const gitOptions = { ...LEDGER_GIT_OPTIONS, cwd };
   const trackedPaths = await listTrackedLedgerChanges(cwd, 'HEAD');
   if (trackedPaths.length > 0) await runHardenedGit(['restore', '--source=HEAD', '--staged', '--worktree', '--', ...trackedPaths], gitOptions);
   await runHardenedGit(['clean', '-fdq', '--', '.coherence'], gitOptions);
+  for (const record of await listRecordsMissingFromHead(cwd, keptRecords.filter((keptRecord) => isLedgerPath(keptRecord.path)))) {
+    const recordPath = path.join(cwd, record.path);
+    await mkdir(path.dirname(recordPath), { recursive: true });
+    const ledgerFile = await open(recordPath, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | (constants.O_NOFOLLOW ?? 0));
+    try {
+      await ledgerFile.appendFile(`${record.line}\n`);
+    } finally {
+      await ledgerFile.close();
+    }
+  }
 }
 
-export async function screenPendingLedgerWrites({ cwd, intentId, onRefused }: {
-  cwd: string; intentId: string | null; onRefused: (reason: string) => void;
+export async function screenPendingLedgerWrites({ cwd, intentId, declaredFactoryRecords = [], onRefused }: {
+  cwd: string; intentId: string | null; declaredFactoryRecords?: readonly FactoryUnlandedRecord[]; onRefused: (reason: string) => void;
 }): Promise<void> {
   const changes = await readLedgerChangesSince(cwd, 'HEAD');
   if (changes.length === 0) return;
-  const forbiddenWrites = findForbiddenLedgerWrites(changes, { trusted: false, intentId });
+  const forbiddenWrites = findForbiddenLedgerWrites(changes, { trusted: true, intentId, declaredFactoryRecords: declaredFactoryRecordsById(declaredFactoryRecords) });
   if (forbiddenWrites.length === 0) return;
-  await discardPendingLedgerWrites(cwd);
+  await discardPendingLedgerWrites(cwd, declaredFactoryRecords);
   onRefused(`Factory discarded pending orchestrator ledger writes: ${forbiddenWrites.join('; ')}`);
 }
 
@@ -109,7 +143,7 @@ async function pushIntegrationToOrigin(projectPath: string, targetBranch: string
 }
 
 export async function commitAndLandFactoryLedger({ projectPath, ledger, targetBranch, message, gitWorkspace, trusted,
-  writtenRecordIds = new Set<string>(), intentId = null, retryLanding = false, factoryLandedShas = new Set<string>(),
+  declaredFactoryRecords = [], intentId = null, retryLanding = false, factoryLandedShas = new Set<string>(),
   onRefused = () => {}, onCommitted = async () => {}, onIntegrationLanded = async () => {} }: {
   projectPath: string;
   ledger: { cwd: string; branch?: string | null; base?: string | null; isGit: boolean };
@@ -117,7 +151,7 @@ export async function commitAndLandFactoryLedger({ projectPath, ledger, targetBr
   message: string;
   gitWorkspace: Pick<GitWorkspaceInstance, 'mergeKeep'>;
   trusted: boolean;
-  writtenRecordIds?: ReadonlySet<string>;
+  declaredFactoryRecords?: readonly FactoryUnlandedRecord[];
   intentId?: string | null;
   retryLanding?: boolean;
   factoryLandedShas?: ReadonlySet<string>;
@@ -157,7 +191,7 @@ export async function commitAndLandFactoryLedger({ projectPath, ledger, targetBr
     const unlandedLedgerPaths = unlandedPaths.filter(isLedgerPath);
     const forbiddenWrites = [
       ...unlandedPaths.filter((changedPath) => !isLedgerPath(changedPath)).map((changedPath) => `${changedPath} is outside the .coherence ledger`),
-      ...findForbiddenLedgerWrites(await readLedgerTreeChanges(ledger.cwd, integrationBase, stagedTree, unlandedLedgerPaths), { trusted, intentId, writtenRecordIds }),
+      ...findForbiddenLedgerWrites(await readLedgerTreeChanges(ledger.cwd, integrationBase, stagedTree, unlandedLedgerPaths), { trusted, intentId, declaredFactoryRecords: declaredFactoryRecordsById(declaredFactoryRecords) }),
     ];
     if (forbiddenWrites.length > 0) {
       const reason = `Factory refused to land ledger writes: ${forbiddenWrites.join('; ')}`;

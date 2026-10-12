@@ -337,14 +337,16 @@ test('orchestrator ledger writes other than work creation or decisions are refus
 test('an orchestrator landing refuses a pending decision that claims the factory session while a trusted landing lands it', async (context) => {
   const { repository, git, gitWorkspace, ledger } = await createMainLedgerRepository(context, 'factory-orchestrator-claimed-');
   await mkdir(path.join(ledger.cwd, '.coherence', 'decisions'), { recursive: true });
-  await writeFile(path.join(ledger.cwd, '.coherence', 'decisions', 's-orchestrator.jsonl'), `${JSON.stringify({ id: 'factory-close', session: 'glimmervoid-factory', decision: 'declared' })}\n`);
+  const declaredLine = JSON.stringify({ id: 'factory-close', session: 'glimmervoid-factory', decision: 'declared' });
+  await writeFile(path.join(ledger.cwd, '.coherence', 'decisions', 's-orchestrator.jsonl'), `${declaredLine}\n`);
   const initialMain = await git(['rev-parse', 'main']);
   const refusals: string[] = [];
   await assert.rejects(() => commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'orchestrator', gitWorkspace, trusted: false,
     onRefused: (reason) => { refusals.push(reason); } }), /claims the glimmervoid-factory session/);
   assert.equal(refusals.length, 1);
   assert.equal(await git(['rev-parse', 'main']), initialMain);
-  await commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'factory', gitWorkspace, trusted: true, writtenRecordIds: new Set(['factory-close']) });
+  await commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'factory', gitWorkspace, trusted: true,
+    declaredFactoryRecords: [{ id: 'factory-close', path: '.coherence/decisions/s-orchestrator.jsonl', line: declaredLine }] });
   assert.notEqual(await git(['rev-parse', 'main']), initialMain);
 });
 

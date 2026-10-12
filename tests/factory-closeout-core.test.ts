@@ -141,6 +141,7 @@ test('inherited secret values come from token, key, password, credential and aut
 
 const openedRecord = JSON.stringify({ event: 'opened', session: 'orchestrator-session', work: 'wrk-1', parent: 'wrk-intent' });
 const factoryRecord = JSON.stringify({ id: 'factory-close', event: 'closed', session: 'glimmervoid-factory', work: 'wrk-1' });
+const factoryVerificationRecord = JSON.stringify({ id: 'factory-verification', session: 'glimmervoid-factory', relation: 'verifies' });
 
 test('a trusted ledger landing admits work creation, decisions, traces and factory-authored records', () => {
   assert.deepEqual(findForbiddenLedgerWrites([
@@ -148,8 +149,11 @@ test('a trusted ledger landing admits work creation, decisions, traces and facto
     { path: '.coherence/work/s-b.jsonl', previousText: null, currentText: `${openedRecord}\n${factoryRecord}\n` },
     { path: '.coherence/decisions/s-c.jsonl', previousText: null, currentText: 'anything\n' },
     { path: '.coherence/activity/session.jsonl', previousText: null, currentText: '{}\n' },
-    { path: '.coherence/consequences/s-d.jsonl', previousText: null, currentText: `${JSON.stringify({ id: 'factory-verification', session: 'glimmervoid-factory', relation: 'verifies' })}\n` },
-  ], { trusted: true, intentId: 'wrk-intent', writtenRecordIds: new Set(['factory-close', 'factory-verification']) }), []);
+    { path: '.coherence/consequences/s-d.jsonl', previousText: null, currentText: `${factoryVerificationRecord}\n` },
+  ], { trusted: true, intentId: 'wrk-intent', declaredFactoryRecords: new Map([
+    ['factory-close', { path: '.coherence/work/s-b.jsonl', line: factoryRecord }],
+    ['factory-verification', { path: '.coherence/consequences/s-d.jsonl', line: factoryVerificationRecord }],
+  ]) }), []);
 });
 
 test('an orchestrator ledger landing refuses any record that claims the factory session, even a decision or work creation', () => {

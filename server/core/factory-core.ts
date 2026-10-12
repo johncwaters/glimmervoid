@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
+import path from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { contentMarker } from './visions-dispatch-core.ts';
+import { stableConfigKey } from './config-secrets-core.ts';
 import { DEFAULT_FACTORY_CHECKS, DEFAULT_FACTORY_PROTECTED_PATHS } from '../../shared/contracts/browser-config.ts';
 import type { Config } from '../../shared/contracts/config.ts';
 import type { CoherenceOrient, CoherenceWorkInspect } from '../../shared/contracts/coherence.ts';
@@ -575,7 +577,9 @@ const HOOK_SAMPLE_PATH_LIST_FIELDS = ['changed', 'predicted', 'observed'];
 const FACTORY_DEFECT_RECEIPT_PATTERN = new RegExp(`^(\\S+) {2}agent-assessed defect recorded by ${FACTORY_LEDGER_SESSION}\\s*$`);
 
 export type FactoryLedgerChange = { path: string; previousText: string | null; currentText: string | null };
+export type FactoryDeclaredRecord = { path: string; line: string };
 type LedgerRecord = object | null;
+type AppendedLedgerLine = { line: string; record: LedgerRecord };
 
 function parseLedgerRecord(line: string): LedgerRecord {
   try {
@@ -600,9 +604,6 @@ function opensChildOfIntent(record: LedgerRecord, intentId: string | null): bool
   return record !== null && intentId !== null && Reflect.get(record, 'parent') === intentId;
 }
 
-function isDeclaredFactoryWrite(record: LedgerRecord, writtenRecordIds: ReadonlySet<string>): boolean {
-  return claimsFactorySession(record) && writtenRecordIds.has(String(Reflect.get(record, 'id')));
-}
 
 function hookSampleFileName(session: string): string {
   const fileStem = session.replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, HOOK_SAMPLE_FILE_STEM_MAX_LENGTH) || 'unknown';
@@ -622,11 +623,33 @@ function isHookSampleOfFile(record: LedgerRecord, fileName: string): boolean {
   return Reflect.get(record, 'outcome') === HOOK_SAMPLE_OUTCOME && hookSampleFileName(session) === fileName;
 }
 
-function appendedLedgerRecords(change: FactoryLedgerChange): LedgerRecord[] {
+export function appendedLedgerLines(change: FactoryLedgerChange): AppendedLedgerLine[] {
   const previousText = change.previousText ?? '';
   const currentText = change.currentText ?? '';
   const appendedText = currentText.startsWith(previousText) ? currentText.slice(previousText.length) : currentText;
-  return appendedText.split('\n').filter((line) => line.trim() !== '').map(parseLedgerRecord);
+  return appendedText.split('\n').filter((line) => line.trim() !== '').map((line) => ({ line, record: parseLedgerRecord(line) }));
+}
+
+export function factoryRecordIdOf(record: LedgerRecord): string | null {
+  if (!claimsFactorySession(record)) return null;
+  const recordId: unknown = Reflect.get(record, 'id');
+  return typeof recordId === 'string' ? recordId : null;
+}
+
+function countAppendedLines(changes: FactoryLedgerChange[]): ReadonlyMap<string, number> {
+  const appendCountByLine = new Map<string, number>();
+  for (const change of changes) {
+    for (const { line } of appendedLedgerLines(change)) appendCountByLine.set(line, (appendCountByLine.get(line) ?? 0) + 1);
+  }
+  return appendCountByLine;
+}
+
+function isDeclaredFactoryWrite(change: FactoryLedgerChange, appended: AppendedLedgerLine, declaredFactoryRecords: ReadonlyMap<string, FactoryDeclaredRecord>,
+  appendCountByLine: ReadonlyMap<string, number>): boolean {
+  const recordId = factoryRecordIdOf(appended.record);
+  const declared = recordId === null ? undefined : declaredFactoryRecords.get(recordId);
+  if (!declared || declared.path !== change.path || declared.line !== appended.line) return false;
+  return appendCountByLine.get(appended.line) === 1 && !(change.previousText ?? '').split('\n').includes(appended.line);
 }
 
 export function factoryWrittenRecordId(output: string): string | null {
@@ -639,15 +662,65 @@ export function factoryWrittenRecordId(output: string): string | null {
   return null;
 }
 
-export function findForbiddenLedgerWrites(changes: FactoryLedgerChange[], { trusted, intentId = null, writtenRecordIds = new Set<string>() }: {
-  trusted: boolean; intentId?: string | null; writtenRecordIds?: ReadonlySet<string>;
+function stableJsonKey(text: string): string | null {
+  try {
+    return stableConfigKey(JSON.parse(text));
+  } catch {
+    return null;
+  }
+}
+
+function defectArgValues(args: readonly string[]): { summaries: string[]; valuesByFlag: ReadonlyMap<string, string[]> } {
+  const summaries: string[] = [];
+  const valuesByFlag = new Map<string, string[]>();
+  for (let index = 1; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!arg.startsWith('--')) {
+      summaries.push(arg);
+      continue;
+    }
+    valuesByFlag.set(arg, [...(valuesByFlag.get(arg) ?? []), args[index + 1] ?? '']);
+    index += 1;
+  }
+  return { summaries, valuesByFlag };
+}
+
+function normalizedDefectFiles(files: readonly string[]): string[] {
+  return [...new Set(files.map((file) => path.posix.normalize(file.trim().replace(/\\/g, '/').replace(/^\.\//, ''))))].sort();
+}
+
+function isDefectLineOfArgs(line: string, args: readonly string[]): boolean {
+  const record = parseLedgerRecord(line);
+  if (record === null) return false;
+  const { summaries, valuesByFlag } = defectArgValues(args);
+  const evidences = valuesByFlag.get('--evidence') ?? [];
+  const sessions = valuesByFlag.get('--session') ?? [];
+  if (summaries.length !== 1 || evidences.length !== 1 || sessions.length !== 1) return false;
+  const recordedFiles: unknown = Reflect.get(record, 'files');
+  return Reflect.get(record, 'summary') === summaries[0].trim()
+    && Reflect.get(record, 'evidence') === evidences[0].trim()
+    && Reflect.get(record, 'session') === sessions[0]
+    && isStringList(recordedFiles)
+    && JSON.stringify(recordedFiles) === JSON.stringify(normalizedDefectFiles(valuesByFlag.get('--file') ?? []));
+}
+
+export function isFactoryLedgerLineOfWrite(line: string, { args, output }: { args: readonly string[]; output: string }): boolean {
+  if (args[0] === 'defect') return isDefectLineOfArgs(line, args);
+  const writtenRecordKey = stableJsonKey(output);
+  return writtenRecordKey !== null && stableJsonKey(line) === writtenRecordKey;
+}
+
+export function findForbiddenLedgerWrites(changes: FactoryLedgerChange[], { trusted, intentId = null, declaredFactoryRecords = new Map<string, FactoryDeclaredRecord>() }: {
+  trusted: boolean; intentId?: string | null; declaredFactoryRecords?: ReadonlyMap<string, FactoryDeclaredRecord>;
 }): string[] {
   const forbidden: string[] = [];
+  const appendCountByLine = countAppendedLines(changes);
   for (const change of changes) {
     const segments = change.path.replace(/\\/g, '/').split('/');
-    const appendedRecords = appendedLedgerRecords(change);
-    const isTrustedFactoryWrite = (record: LedgerRecord) => trusted && isDeclaredFactoryWrite(record, writtenRecordIds);
-    if (appendedRecords.some((record) => claimsFactorySession(record) && !isTrustedFactoryWrite(record))) {
+    const appendedLines = appendedLedgerLines(change);
+    const appendedRecords = appendedLines.map(({ record }) => record);
+    const isTrustedFactoryWrite = (appended: AppendedLedgerLine) => trusted && isDeclaredFactoryWrite(change, appended, declaredFactoryRecords, appendCountByLine);
+    if (appendedLines.some((appended) => claimsFactorySession(appended.record) && !isTrustedFactoryWrite(appended))) {
       forbidden.push(`${change.path} claims the ${FACTORY_LEDGER_SESSION} session without a declared factory write`);
       continue;
     }
@@ -681,7 +754,7 @@ export function findForbiddenLedgerWrites(changes: FactoryLedgerChange[], { trus
       forbidden.push(`${change.path} gained a record other than work creation or a decision`);
       continue;
     }
-    if (appendedRecords.some((record) => !opensChildOfIntent(record, intentId) && !isTrustedFactoryWrite(record))) {
+    if (appendedLines.some((appended) => !opensChildOfIntent(appended.record, intentId) && !isTrustedFactoryWrite(appended))) {
       forbidden.push(`${change.path} opened work that is not a child of the active intent`);
     }
   }

@@ -123,6 +123,11 @@ export const FactoryReviewerOutput = z.object({
   type: z.literal('result'), subtype: z.literal('success'), is_error: z.literal(false), structured_output: FactoryReviewVerdict,
 });
 
+export const FactoryUnlandedRecord = z.object({
+  id: z.string().min(1).max(1024), path: z.string().min(1).max(4096), line: z.string().min(1).regex(/^[^\n]*$/),
+});
+export type FactoryUnlandedRecord = z.infer<typeof FactoryUnlandedRecord>;
+
 export const FactoryLaneState = z.object({
   ledgerPath: z.string().min(1).max(4096).nullable(),
   ledgerBranch: z.string().min(1).max(1024).nullable(),
@@ -139,6 +144,7 @@ export const FactoryLaneState = z.object({
   intentBaseShas: z.record(z.string().min(1), z.string().regex(/^[a-f0-9]{40,64}$/)).optional(),
   filedBreaches: z.array(z.string().min(1)).optional(),
   factoryLandedShas: z.array(z.string().regex(/^[a-f0-9]{40,64}$/)).optional(),
+  unlandedFactoryRecords: z.array(FactoryUnlandedRecord).optional(),
 });
 export type FactoryLaneState = z.infer<typeof FactoryLaneState>;
 

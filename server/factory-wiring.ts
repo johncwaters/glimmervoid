@@ -2,7 +2,7 @@ import { access, chmod, mkdir, readFile, realpath, rename, rm } from 'node:fs/pr
 import path from 'node:path';
 import { CoherenceTicketCreated, CoherenceWorkCreated } from '../shared/contracts/coherence.ts';
 import { FACTORY_ERROR_MAX_CHARS, FactoryControlRequest, FactoryLaneState, FactoryQueueIntentRequest, isSingleFactoryPathSegment } from '../shared/contracts/factory.ts';
-import type { FactoryControlResult, FactoryQueueIntentResult } from '../shared/contracts/factory.ts';
+import type { FactoryControlResult, FactoryQueueIntentResult, FactoryUnlandedRecord } from '../shared/contracts/factory.ts';
 import { comparableDirectoryPath } from '../shared/paths.ts';
 import type { Config } from '../shared/contracts/config.ts';
 import { execFileAsync } from './child-process-safe.ts';
@@ -11,7 +11,7 @@ import { buildCoherenceShims } from './core/coherence-session-core.ts';
 import { appendFactoryLandedSha, buildTicketCreateArgs, decideFactoryStalls, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, findIntentTicketProblem, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, isFactoryProjectInFlight, hasValidWriteScopes, hasWildcardWriteScope, isCompletedCommandFailure, redactSecretLines } from './core/factory-core.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import type { LaneSpend } from './core/usage-scan-core.ts';
-import { commitAndLandFactoryLedger, discardPendingLedgerWrites, hasCodeChangedBetween, readCodeDiffBetween, screenPendingLedgerWrites } from './factory-ledger.ts';
+import { captureFactoryLedgerRecord, commitAndLandFactoryLedger, discardPendingLedgerWrites, hasCodeChangedBetween, listRecordsMissingFromHead, readCodeDiffBetween, screenPendingLedgerWrites } from './factory-ledger.ts';
 import { createFactoryDecisionLog } from './factory-decision-log.ts';
 import { factoryDecisionContext, isLogOnlyFactoryEvent } from './core/factory-decision-log-core.ts';
 import type { FactoryDecisionWorkerEvent } from './core/factory-decision-log-core.ts';
@@ -65,7 +65,6 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
   createPoller = createFactoryPoller, log = console, telemetry, orchestratorOptions, trustClaudeFolder, spawnReviewer, prepareCheckRunner, spawnVerifier = spawnReviewer, readSpentTodayUsd = () => ({ status: 'known', amountUsd: 0 }), runHogQL, notify = () => {}, runCoherence: customRunCoherence, ...pollerDeps
 }: FactoryWiringOptions<ManagedSession>) {
   gitWorkspace = isolateGitWorkspace(gitWorkspace, { disableRepoCommands: true });
-  const writtenRecordIdsByCheckout = new Map<string, Set<string>>();
   const coherenceCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence');
   const coherenceHookCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence-hook');
   let dispatcher: ReturnType<typeof createFactoryDispatch<ManagedSession>> | null = null;
@@ -96,12 +95,34 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     if (!isFactoryWrite) return output;
     const recordId = factoryWrittenRecordId(output);
     if (!recordId) throw new Error('Factory ledger writer did not return a record id');
-    const checkoutKey = await comparableDirectoryPath(cwd);
-    const writtenRecordIds = writtenRecordIdsByCheckout.get(checkoutKey) ?? new Set<string>();
-    writtenRecordIds.add(recordId);
-    writtenRecordIdsByCheckout.set(checkoutKey, writtenRecordIds);
+    const projectId = await findProjectIdOfLedger(cwd);
+    if (!projectId) throw new Error('Factory ledger write ran outside a factory ledger checkout');
+    const writtenRecord = await captureFactoryLedgerRecord(cwd, recordId, { args: writeArgs, output });
+    if (!writtenRecord) return output;
+    await updateLaneState(projectId, (state) => {
+      const unlandedRecords = state.unlandedFactoryRecords ?? [];
+      return { unlandedFactoryRecords: unlandedRecords.some(({ id }) => id === writtenRecord.id) ? unlandedRecords : [...unlandedRecords, writtenRecord] };
+    });
     return output;
   };
+
+  async function findProjectIdOfLedger(cwd: string): Promise<string | null> {
+    const checkoutKey = await comparableDirectoryPath(cwd);
+    for (const { id } of config.projects ?? []) {
+      if (!id || !isSingleFactoryPathSegment(id)) continue;
+      const { ledgerPath } = await readLaneState(id);
+      if (ledgerPath && await comparableDirectoryPath(ledgerPath) === checkoutKey) return id;
+    }
+    return null;
+  }
+
+  async function readUnlandedFactoryRecords(projectId: string): Promise<FactoryUnlandedRecord[]> {
+    return (await readLaneState(projectId)).unlandedFactoryRecords ?? [];
+  }
+
+  function forgetUnlandedFactoryRecords(projectId: string, recordIds: ReadonlySet<string>): Promise<void> {
+    return updateLaneState(projectId, (state) => ({ unlandedFactoryRecords: (state.unlandedFactoryRecords ?? []).filter(({ id }) => !recordIds.has(id)) }));
+  }
   const checkouts = new Map<string, { projectPath: string; sha: string }>();
 
   async function ensureCoherenceShims(): Promise<void> {
@@ -271,7 +292,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
 
   async function ensureTrustedLedgerCheckout(projectId: string, projectPath: string) {
     const ledger = await ensureLedgerCheckout(projectId, projectPath);
-    await screenPendingLedgerWrites({ cwd: ledger.cwd, intentId: activeIntentIdOf(projectId),
+    await screenPendingLedgerWrites({ cwd: ledger.cwd, intentId: activeIntentIdOf(projectId), declaredFactoryRecords: await readUnlandedFactoryRecords(projectId),
       onRefused: (reason) => raiseException(projectId, reason) });
     return ledger;
   }
@@ -289,13 +310,14 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     if (!pending) return;
     const projectPath = requireProject(projectId);
     const ledger = await ensureTrustedLedgerCheckout(projectId, projectPath);
+    const recordIdsBeforeTickets = new Set((await readUnlandedFactoryRecords(projectId)).map(({ id }) => id));
     try {
       for (const ticket of pending.tickets) {
         CoherenceTicketCreated.parse(JSON.parse(await runCoherence({ cwd: ledger.cwd, args: buildTicketCreateArgs({ intent: pending, intentWorkId: intentId, ticket }) })));
       }
       await landLedger(projectId, projectPath, ledger, `factory: write tickets of ${intentId}`, { trusted: true, intentId, landsCommittedWrites: true });
     } catch (error) {
-      await discardPendingLedgerWrites(ledger.cwd).catch((discardError: unknown) => {
+      await discardFailedTicketWrites(projectId, ledger.cwd, recordIdsBeforeTickets).catch((discardError: unknown) => {
         log.warn(`[factory] could not discard unlanded tickets of ${intentId}: ${errorMessage(discardError)}`);
       });
       throw error;
@@ -303,6 +325,13 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     await updateLaneState(projectId, (state) => ({
       pendingIntentTickets: Object.fromEntries(Object.entries(state.pendingIntentTickets ?? {}).filter(([pendingIntentId]) => pendingIntentId !== intentId)),
     }));
+  }
+
+  async function discardFailedTicketWrites(projectId: string, ledgerPath: string, recordIdsBeforeTickets: ReadonlySet<string>): Promise<void> {
+    const ticketRecords = (await readUnlandedFactoryRecords(projectId)).filter(({ id }) => !recordIdsBeforeTickets.has(id));
+    const discardableRecords = await listRecordsMissingFromHead(ledgerPath, ticketRecords);
+    await forgetUnlandedFactoryRecords(projectId, new Set(discardableRecords.map(({ id }) => id)));
+    await discardPendingLedgerWrites(ledgerPath, await readUnlandedFactoryRecords(projectId));
   }
 
   async function beginIntent({ projectId, intentId, headSha }: { projectId: string; intentId: string; headSha: string | null }): Promise<{ hasTickets: boolean }> {
@@ -328,16 +357,16 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
 
   async function landLedger(projectId: string, projectPath: string, ledger: Awaited<ReturnType<typeof ensureLedgerCheckout>>, message: string,
     { trusted, intentId = null, onCommitted, landsCommittedWrites = false }: { trusted: boolean; intentId?: string | null; onCommitted?: () => Promise<void>; landsCommittedWrites?: boolean }): Promise<void> {
-    const checkoutKey = await comparableDirectoryPath(ledger.cwd);
+    const unlandedRecords = await readUnlandedFactoryRecords(projectId);
     try {
       await commitAndLandFactoryLedger({
-        projectPath, ledger, message, targetBranch: await resolveIntegrationBranch(projectPath), gitWorkspace, trusted, intentId, writtenRecordIds: writtenRecordIdsByCheckout.get(checkoutKey) ?? new Set(),
-        retryLanding: landsCommittedWrites || landingErrors.has(projectId), factoryLandedShas: new Set((await readLaneState(projectId)).factoryLandedShas ?? []),
+        projectPath, ledger, message, targetBranch: await resolveIntegrationBranch(projectPath), gitWorkspace, trusted, intentId, declaredFactoryRecords: unlandedRecords,
+        retryLanding: landsCommittedWrites || landingErrors.has(projectId) || unlandedRecords.length > 0, factoryLandedShas: new Set((await readLaneState(projectId)).factoryLandedShas ?? []),
         onRefused: (reason) => raiseException(projectId, reason), onCommitted,
         onIntegrationLanded: (integrationSha) => recordFactoryLandedSha(projectId, integrationSha),
       });
       if (landingErrors.delete(projectId)) void decisionLog.record({ ...factoryDecisionContext(projectId, { intentId }), kind: 'landing', outcome: 'recovered', failureClass: null });
-      writtenRecordIdsByCheckout.delete(checkoutKey);
+      if (unlandedRecords.length > 0) await forgetUnlandedFactoryRecords(projectId, new Set(unlandedRecords.map(({ id }) => id)));
     } catch (error) {
       const reason = errorMessage(error);
       if (landingErrors.get(projectId) !== reason) {
@@ -502,6 +531,16 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         const ledger = await ensureLedgerCheckout(projectId, projectPath);
         await landLedger(projectId, projectPath, ledger, message, { trusted: true, intentId: activeIntentIdOf(projectId), onCommitted });
       };
+      const landUnlandedFactoryWrites = async (projectId: string) => {
+        const projectPath = findFactoryProjectPath(config, projectId);
+        if (!projectPath || (await readUnlandedFactoryRecords(projectId)).length === 0) return;
+        await serializeProject(projectId, async () => {
+          const ledger = await ensureTrustedLedgerCheckout(projectId, projectPath);
+          await landLedger(projectId, projectPath, ledger, `factory: land unlanded writes ${projectId}`, { trusted: true, intentId: activeIntentIdOf(projectId) });
+        }).catch((error: unknown) => {
+          landingErrors.set(projectId, errorMessage(error));
+        });
+      };
       const readIntegrationSha = async (projectPath: string) => (await runHardenedGit(
         ['rev-parse', `refs/heads/${await resolveIntegrationBranch(projectPath)}`], { cwd: projectPath, timeout: 30_000 })).stdout.trim();
       const hasCodeChangedSince = async (projectPath: string, sinceSha: string) =>
@@ -610,6 +649,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
           void decisionLog.pruneEveryProject();
         },
         processProjectState: async (project) => {
+          await landUnlandedFactoryWrites(project.projectId);
           await activeDispatcher?.reconcileActiveOrders(project);
           if (!project.paused) activeCloseOut?.resumeHeld(project.projectId);
           const watched = await activeWatch.tick(project);

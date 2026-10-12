@@ -5,10 +5,11 @@ import type { TestContext } from 'node:test';
 import { execFileAsync } from '../../server/child-process-safe.ts';
 import { glimmervoidHomeDir } from '../../server/config-store.ts';
 import { factoryWrittenRecordId } from '../../server/core/factory-core.ts';
-import { commitAndLandFactoryLedger } from '../../server/factory-ledger.ts';
+import { captureFactoryLedgerRecord, commitAndLandFactoryLedger } from '../../server/factory-ledger.ts';
 import { createGitWorkspace } from '../../server/git-workspace.ts';
 import { resolvePackageBin } from '../../server/runtime-paths.ts';
 import { CoherenceOrient, CoherenceWorkInspect } from '../../shared/contracts/coherence.ts';
+import type { FactoryUnlandedRecord } from '../../shared/contracts/factory.ts';
 
 const REAL_PROCESS_TIMEOUT_MS = 30_000;
 
@@ -68,14 +69,15 @@ export async function createCoherenceLedger(directory: string) {
   const coherenceCli = resolvePackageBin('@danilocampos/coherence', 'coherence');
   assert.ok(coherenceCli);
   const commands: string[][] = [];
-  const writtenRecordIds = new Set<string>();
+  const declaredFactoryRecords: FactoryUnlandedRecord[] = [];
   const runCoherence = async ({ cwd, args }: { cwd: string; args: string[] }) => {
     commands.push(args);
     const isFactoryWrite = args[args.indexOf('--session') + 1] === 'glimmervoid-factory';
     const writeArgs = isFactoryWrite && args[0] !== 'defect' && !args.includes('--json') ? [...args, '--json'] : args;
     const output = (await execFileAsync(process.execPath, [coherenceCli, ...writeArgs], { cwd, timeout: REAL_PROCESS_TIMEOUT_MS })).stdout;
     const recordId = isFactoryWrite ? factoryWrittenRecordId(output) : null;
-    if (recordId) writtenRecordIds.add(recordId);
+    const writtenRecord = recordId ? await captureFactoryLedgerRecord(cwd, recordId, { args: writeArgs, output }) : null;
+    if (writtenRecord && !declaredFactoryRecords.some(({ id }) => id === writtenRecord.id)) declaredFactoryRecords.push(writtenRecord);
     return output;
   };
   const createOrder = async ({ parent, objective, scope = parent ? 'src/retry.ts' : 'src', authority = 'user-directed' }: {
@@ -89,7 +91,7 @@ export async function createCoherenceLedger(directory: string) {
     return created.work;
   };
   const land = async (_projectId: string, _projectPath: string, message: string, { onCommitted }: { onCommitted?: () => Promise<void> } = {}) =>
-    commitAndLandFactoryLedger({ projectPath, ledger, targetBranch: 'integration', message, gitWorkspace, trusted: true, writtenRecordIds, onCommitted });
+    commitAndLandFactoryLedger({ projectPath, ledger, targetBranch: 'integration', message, gitWorkspace, trusted: true, declaredFactoryRecords, onCommitted });
   const inspect = async () => CoherenceWorkInspect.parse(JSON.parse(await runCoherence({ cwd: projectPath, args: ['work', 'inspect', '--json'] })));
   const orderState = async (workId: string) => (await inspect()).work.find((order) => order.work === workId)?.state;
   const readOrient = async () => {
@@ -116,5 +118,5 @@ export async function createCoherenceLedger(directory: string) {
       await settledChain.catch(() => {});
     }
   };
-  return { ...repository, commands, writtenRecordIds, runCoherence, createOrder, land, inspect, orderState, readOrient, countLandedDefectsMentioning, serializeProject, settleProjectChain };
+  return { ...repository, commands, declaredFactoryRecords, runCoherence, createOrder, land, inspect, orderState, readOrient, countLandedDefectsMentioning, serializeProject, settleProjectChain };
 }

@@ -410,11 +410,13 @@ export function createFactoryCloseOut({
           'work', 'close', worker.workId, 'completed', '--because', 'Factory fence, checks, and independent review passed',
           '--session', FACTORY_LEDGER_SESSION, '--evidence', mergedSha,
         ] });
-        await commitAndLand(worker.projectId, worker.projectPath, `factory: complete ${worker.workId}`);
         await appendWatch({ workId: worker.workId, intentId: worker.intentId, projectId: worker.projectId,
-          mergedSha, mergedAt: new Date().toISOString(), writeScopes: worker.writeScopes });
+          mergedSha, mergedAt: new Date().toISOString(), writeScopes: worker.writeScopes }).catch((error: unknown) => {
+          setException(worker.projectId, `Factory finalization failed after merge: the merged work at ${mergedSha} is unwatched: ${failureText(error)}`);
+        });
         worker.session.destroy();
         notifyOrchestrator(worker.projectId, { workId: worker.workId, event: 'merged', detail: `at ${mergedSha}` });
+        await commitAndLand(worker.projectId, worker.projectPath, `factory: complete ${worker.workId}`);
       });
     } catch (error) {
       if (hasMerged) { setException(worker.projectId, `Factory finalization failed after merge: ${failureText(error)}`); return; }

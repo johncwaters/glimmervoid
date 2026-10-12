@@ -462,7 +462,7 @@ test('queue intent lands on integration and origin, reuses its ledger, and pause
   assert.equal((await readFile(path.join(homeDir, 'factory', request.projectId, 'state.json'), 'utf8')).includes('ledgerPath'), true);
 });
 
-test('concurrent queue requests serialize and a failed landing remains on the reused ledger for the next attempt', async (context) => {
+test('concurrent queue requests serialize and a failed landing remains on the reused ledger for the next attempt after a restart', async (context) => {
   const { git, start, request, readState, originPath } = await createIntentFixture(context);
   const gitWorkspace = createGitWorkspace();
   let shouldFailLanding = true;
@@ -481,15 +481,18 @@ test('concurrent queue requests serialize and a failed landing remains on the re
   assert.ok(state.ledgerBranch);
   assert.notEqual(await git(['rev-parse', state.ledgerBranch]), await git(['rev-parse', 'integration']));
   shouldFailLanding = false;
+  await wiring.stop();
+  const restarted = await start(gitWorkspace);
   const queued = await Promise.all([
-    wiring.queueIntent({ ...request, objective: 'Second intent' }),
-    wiring.queueIntent({ ...request, objective: 'Third intent' }),
-    wiring.control({ projectId: request.projectId, action: 'pause' }),
+    restarted.queueIntent({ ...request, objective: 'Second intent' }),
+    restarted.queueIntent({ ...request, objective: 'Third intent' }),
+    restarted.control({ projectId: request.projectId, action: 'pause' }),
   ]);
   assert.equal(queued.every((outcome) => outcome.ok), true, JSON.stringify(queued));
   assert.equal((await readState()).ledgerPath, state.ledgerPath);
-  assert.equal(wiring.getState()?.projects[0].orders.length, 3);
-  assert.equal(wiring.getState()?.projects[0].paused, true);
+  assert.deepEqual((await readState()).unlandedFactoryRecords, []);
+  assert.equal(restarted.getState()?.projects[0].orders.length, 3);
+  assert.equal(restarted.getState()?.projects[0].paused, true);
   assert.equal(await git(['rev-parse', 'integration'], originPath), await git(['rev-parse', 'integration']));
 });
 
@@ -618,6 +621,28 @@ test('queue refuses a forged factory record injected after screening and before 
   assert.ok(forgedPath);
   assert.equal(await fixture.git(['rev-parse', 'integration'], fixture.originPath), originalOriginSha);
   await assert.rejects(() => fixture.git(['cat-file', '-e', `integration:${forgedPath}`], fixture.originPath));
+});
+
+test('queue refuses and never declares a factory record rewritten after the writer appended it', async (context) => {
+  const fixture = await createIntentFixture(context);
+  const coherenceCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence');
+  assert.ok(coherenceCliPath);
+  const originalOriginSha = await fixture.git(['rev-parse', 'integration'], fixture.originPath);
+  const wiring = await fixture.start(undefined, async ({ cwd, args }) => {
+    const { stdout } = await execFileAsync(process.execPath, [coherenceCliPath, ...args], { cwd, timeout: REAL_PROCESS_DEADLINE_MS });
+    if (args[0] !== 'work' || args[1] !== 'create') return stdout;
+    const workDirectory = path.join(cwd, '.coherence', 'work');
+    for (const fileName of await readdir(workDirectory)) {
+      const ledgerText = await readFile(path.join(workDirectory, fileName), 'utf8');
+      await writeFile(path.join(workDirectory, fileName), ledgerText.replace(/"objective":"[^"]*"/, '"objective":"Forged objective"'));
+    }
+    return stdout;
+  });
+  const queued = await wiring.queueIntent(fixture.request);
+  assert.equal(queued.ok, false);
+  assert.match(queued.error ?? '', /does not match what the factory wrote/);
+  assert.deepEqual((await fixture.readState()).unlandedFactoryRecords ?? [], []);
+  assert.equal(await fixture.git(['rev-parse', 'integration'], fixture.originPath), originalOriginSha);
 });
 
 test('a commit placed on the local integration branch by hand makes the next ledger landing refuse without pushing it', async (context) => {

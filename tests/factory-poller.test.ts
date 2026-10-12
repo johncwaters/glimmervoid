@@ -158,17 +158,36 @@ const unresolvableTipCases: Array<{ failingStep: string; overrides: (isResolvabl
 ];
 
 for (const { failingStep, overrides } of unresolvableTipCases) {
-  test(`a project failing at ${failingStep} is skipped without an error state and releases its checkout`, async () => {
+  test(`a reported project failing at ${failingStep} keeps its last state with the error and is neither processed nor released`, async () => {
     let isResolvable = true;
-    const { poller, messages, commands, probedConfigShas, releasedProjectIds } = await createHarness(overrides(() => isResolvable));
+    let processedCount = 0;
+    const releasedOrchestratorIds: string[] = [];
+    const { poller, messages, releasedProjectIds } = await createHarness({
+      ...overrides(() => isResolvable),
+      processProjectState: async (project) => { processedCount += 1; return project; },
+      releaseOrchestrator: (projectId) => { releasedOrchestratorIds.push(projectId); },
+    });
     await poller.tick();
-    assert.equal(messages[0].projects.length, 1);
+    assert.equal(messages[0].projects[0].error, null);
     isResolvable = false;
     await poller.tick();
-    assert.deepEqual(messages[1].projects, []);
-    assert.equal(commands.length, 2);
-    assert.equal(probedConfigShas.length, 1);
-    assert.deepEqual(releasedProjectIds, ['project-1']);
+    assert.equal(messages[1].projects.length, 1);
+    assert.match(messages[1].projects[0].error ?? '', /^Could not read the integration tip: /);
+    assert.deepEqual(messages[1].projects[0].orders, messages[0].projects[0].orders);
+    assert.equal(processedCount, 1);
+    assert.deepEqual(releasedProjectIds, []);
+    assert.deepEqual(releasedOrchestratorIds, []);
+    isResolvable = true;
+    await poller.tick();
+    assert.equal(messages[2].projects[0].error, null);
+    assert.equal(processedCount, 2);
+    await poller.stop();
+  });
+
+  test(`a never reported project failing at ${failingStep} stays absent`, async () => {
+    const { poller, messages } = await createHarness(overrides(() => false));
+    await poller.tick();
+    assert.deepEqual(messages[0].projects, []);
     await poller.stop();
   });
 }
