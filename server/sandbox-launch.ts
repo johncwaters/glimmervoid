@@ -19,6 +19,7 @@ interface WrappedCommand {
 interface SandboxLaunch {
   wrap: (file: string, args: readonly string[]) => Promise<WrappedCommand>;
   env: Record<string, string>;
+  cwd?: string;
   dispose: () => Promise<void>;
 }
 
@@ -26,6 +27,7 @@ interface SandboxLaunchRequest {
   role: SandboxRole;
   launchId: string;
   tempDir?: string;
+  enterDir?: string;
 }
 
 type SandboxLaunchResult = { ok: true; launch: SandboxLaunch } | { ok: false; reason: string };
@@ -35,6 +37,8 @@ const SANDBOXED_ENV_COMMAND = '/usr/bin/env';
 const POLICY_FOLDER = 'sandbox-policies';
 const TEMP_FOLDER = 'sandbox-temp';
 const LAUNCH_HOME_FOLDER = 'sandbox-homes';
+const START_FOLDER = 'start';
+const ENTER_FOLDER_SCRIPT = 'cd "$1" && shift && exec "$@"';
 const LOGIN_FILE_MODE = 0o600;
 
 async function isPresent(candidate: string): Promise<boolean> {
@@ -140,7 +144,12 @@ function sandboxedEnvPrefix(plan: SandboxLaunchPlan): string[] {
   return assignments.length === 0 ? [] : [SANDBOXED_ENV_COMMAND, ...assignments];
 }
 
-async function prepareSandboxLaunch({ role, launchId, tempDir }: SandboxLaunchRequest): Promise<SandboxLaunchResult> {
+function enteringFolder(enterDir: string | undefined, file: string, args: readonly string[]): string[] {
+  if (enterDir === undefined) return [file, ...args];
+  return ['/bin/sh', '-c', ENTER_FOLDER_SCRIPT, 'sh', enterDir, file, ...args];
+}
+
+async function prepareSandboxLaunch({ role, launchId, tempDir, enterDir }: SandboxLaunchRequest): Promise<SandboxLaunchResult> {
   if (!LAUNCH_ID_SHAPE.test(launchId)) return { ok: false, reason: 'sandbox launch id is invalid' };
   try {
     const policyDir = path.join(glimmervoidHomeDir(), POLICY_FOLDER);
@@ -170,6 +179,8 @@ async function prepareSandboxLaunch({ role, launchId, tempDir }: SandboxLaunchRe
     const launcher = launcherCommand(plan, policyPath);
     if (!launcher) return { ok: false, reason: 'the sandbox runtime CLI could not be resolved' };
     await Promise.all(plan.requiredDirectories.map((directory) => mkdir(directory, { recursive: true })));
+    const startDir = enterDir === undefined ? undefined : path.join(launchTempDir, START_FOLDER);
+    if (startDir !== undefined) await mkdir(startDir, { recursive: true });
     await Promise.all(plan.launchHomeLinks.map((link) => symlink(link.targetPath, link.linkPath)));
     await writeJsonAtomic(policyPath, plan.policy);
     const envPrefix = sandboxedEnvPrefix(plan);
@@ -182,9 +193,10 @@ async function prepareSandboxLaunch({ role, launchId, tempDir }: SandboxLaunchRe
           if (!rebuilt.ok) throw new Error(rebuilt.reason);
           await writeJsonAtomic(policyPath, rebuilt.plan.policy);
           placeholderPathsAbsentAtWrap = await absentPaths(sandboxPlaceholderPaths(realRole));
-          return { file: launcher.file, args: [...launcher.args, ...envPrefix, file, ...args] };
+          return { file: launcher.file, args: [...launcher.args, ...envPrefix, ...enteringFolder(enterDir, file, args)] };
         },
         env: { ...plan.launchEnv },
+        ...(startDir === undefined ? {} : { cwd: startDir }),
         dispose: async () => {
           await rm(policyPath, { force: true });
           await removeLeftoverPlaceholders(placeholderPathsAbsentAtWrap);

@@ -25,7 +25,7 @@ import { TASK_TITLE_LANE_TOOLS, createTaskTitleRefiner } from './task-title-refi
 import { createLaneSpawn } from './lane-spawn.ts';
 import { createPlanReviewWiring } from './plan-review-wiring.ts';
 import { createPosthogWiring } from './posthog-wiring.ts';
-import { checkSandboxDependencies } from './sandbox-deps.ts';
+import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 import { createSpawnGate } from './spawn-gate.ts';
 import type { Telemetry } from './telemetry.ts';
 import { createTeamReviewSpawn, createTeamReviewWiring, sweepLeftoverCheckouts } from './team-review-wiring.ts';
@@ -64,6 +64,7 @@ interface BackendLaneDependencies {
   configStore: ConfigStore;
   sessions: Map<string, Session>;
   agentSessions: Map<string, Session>;
+  sandboxRefusal: SandboxSpawnRefusal;
   reviewSessions: Map<string, Session>;
   investigationSessions: Map<string, Session>;
   closeSessionDataClients: (id: string) => void;
@@ -89,6 +90,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     configStore,
     sessions,
     agentSessions,
+    sandboxRefusal,
     reviewSessions,
     investigationSessions,
     closeSessionDataClients,
@@ -138,7 +140,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     countRunningSessions: () => allLiveSessions().filter((session) => session.state === STATES.RUNNING).length,
     log: logger,
   });
-  const sandboxRefusal = checkSandboxDependencies({ log: logger });
   const factory = createFactoryWiring({
     config, gitWorkspace, broadcast: broadcastControl, log: logger, telemetry,
     readSpentTodayUsd: () => {

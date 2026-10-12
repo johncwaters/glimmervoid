@@ -154,6 +154,17 @@ test('agentApi.enabled is a boolean dashboard-writable setting that defaults off
   assert.equal('agentApi' in BrowserConfig.shape, true);
 });
 
+test('the sandbox block lists paths, defaults to the package caches, and refuses anything that is not a path list', () => {
+  assert.deepEqual(DEFAULT_CONFIG.sandbox, { unconfinedRepos: [], writablePaths: ['~/.npm', '~/.cache'], unreadablePaths: [] });
+  assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, sandbox: { unconfinedRepos: ['~/dotfiles'] } }).success, true);
+  const refused = Config.safeParse({ ...DEFAULT_CONFIG, sandbox: { unconfinedRepos: '~/dotfiles' } });
+  assert.equal(refused.success === false && configIssueMessage(refused.error), 'sandbox.unconfinedRepos must be an array of paths');
+  assert.equal(ConfigUpdate.safeParse({ sandbox: { writablePaths: ['~/.cargo'] } }).success, true);
+  assert.equal(ConfigUpdate.safeParse({ sandbox: { writablePaths: [''] } }).success, false);
+  assert.equal(ConfigUpdate.safeParse({ sandbox: { enabled: false } }).success, false);
+  assert.equal(CONFIG_BLOCK_KEYS.includes('sandbox'), true);
+});
+
 test('the persisted config tolerates an unrecognized agentApi key the dashboard update refuses', () => {
   assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, agentApi: { enabled: true, token: 'x' } }).success, true);
   assert.equal(ConfigUpdate.safeParse({ agentApi: { enabled: true, token: 'x' } }).success, false);
@@ -352,6 +363,8 @@ test('a project permission choice must be a boolean when present', () => {
   assert.equal(ProjectConfig.safeParse({ path: '/repo', dangerouslySkipPermissions: true }).success, true);
   assert.equal(ProjectConfig.safeParse({ path: '/repo', dangerouslySkipPermissions: false }).success, true);
   assert.equal(ProjectConfig.safeParse({ path: '/repo', dangerouslySkipPermissions: 'false' }).success, false);
+  assert.equal(ProjectConfig.safeParse({ path: '/repo', unconfined: true }).success, true);
+  assert.equal(ProjectConfig.safeParse({ path: '/repo', unconfined: 'true' }).success, false);
 });
 
 test('branchGc.deleteUnmerged is a dashboard-settable boolean', () => {

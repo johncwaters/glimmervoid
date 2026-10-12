@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { isPathInside } from '../../shared/paths.ts';
 import type { SandboxRole } from './sandbox-policy-core.ts';
 
 type SandboxRoleVendor = SandboxRole['vendors'][number];
@@ -18,6 +19,24 @@ interface WorkRoleFacts {
   readablePaths: readonly string[];
   agentSessionId: string | null;
 }
+
+interface SessionRoleFacts {
+  commitCheckouts: SandboxRole['commitCheckouts'];
+  writableRoots: readonly string[];
+  readDenied: readonly string[];
+  readablePaths: readonly string[];
+}
+
+interface SessionConfinementFacts {
+  usageVendor: string | null;
+  isMarkedUnconfined: boolean;
+  sessionFolders: readonly string[];
+  unconfinedRepos: readonly string[];
+}
+
+const SESSION_VENDORS: readonly SandboxRoleVendor[] = Object.freeze(['claude', 'codex']);
+const CONFINED_SESSION_VENDORS: readonly string[] = Object.freeze(['claude']);
+const UNSHARED_WORKTREE_ENTRIES: readonly string[] = Object.freeze(['.claude']);
 
 const LANE_CREDENTIAL_ENV: Readonly<Record<string, string>> = Object.freeze({
   SSH_AUTH_SOCK: '', SSH_ASKPASS: '', GIT_ASKPASS: '', GIT_SSH_COMMAND: 'false', GIT_TERMINAL_PROMPT: '0',
@@ -52,6 +71,25 @@ function workRole({ vendor, cwd, checkout, readablePaths, agentSessionId }: Work
   };
 }
 
+function sessionRole({ commitCheckouts, writableRoots, readDenied, readablePaths }: SessionRoleFacts): SandboxRole {
+  return {
+    vendors: SESSION_VENDORS,
+    vendorHome: { scope: 'state' },
+    network: { access: 'open' },
+    writableRoots: [...new Set(writableRoots)],
+    lockedCheckouts: [],
+    commitCheckouts,
+    readDenied: [...readDenied],
+    readableWithinDenied: [...readablePaths],
+  };
+}
+
+function isSessionConfined({ usageVendor, isMarkedUnconfined, sessionFolders, unconfinedRepos }: SessionConfinementFacts): boolean {
+  if (isMarkedUnconfined) return false;
+  if (usageVendor === null || !CONFINED_SESSION_VENDORS.includes(usageVendor)) return false;
+  return !sessionFolders.some((folder) => unconfinedRepos.some((repo) => isPathInside(repo, folder)));
+}
+
 function parseGitdirPointer(gitFileText: string): string | null {
   const gitdir = /^gitdir:\s*(.+)$/m.exec(gitFileText)?.[1]?.trim();
   return gitdir && path.isAbsolute(gitdir) ? path.resolve(gitdir) : null;
@@ -61,5 +99,8 @@ function isWorktreeAdminDirOf({ adminDir, commonGitDir }: { adminDir: string; co
   return path.dirname(path.resolve(adminDir)) === path.resolve(commonGitDir, 'worktrees');
 }
 
-export { isWorktreeAdminDirOf, judgeRole, LANE_CREDENTIAL_ENV, LANE_READABLE_HOME_FOLDERS, parseGitdirPointer, workRole };
-export type { JudgeRoleFacts, WorkRoleFacts };
+export {
+  isSessionConfined, isWorktreeAdminDirOf, judgeRole, LANE_CREDENTIAL_ENV, LANE_READABLE_HOME_FOLDERS, parseGitdirPointer, sessionRole,
+  UNSHARED_WORKTREE_ENTRIES, workRole,
+};
+export type { JudgeRoleFacts, SessionConfinementFacts, SessionRoleFacts, WorkRoleFacts };

@@ -8,10 +8,14 @@ import { createRecorder } from '../session/session-recorder.ts';
 import type { GitWorkspace } from '../session/session-worktree-lifecycle.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions, SessionPlanReviewPort } from '../session/sessions.ts';
+import { getAdapter } from '../session/adapters/index.ts';
 import { DEFAULT_CONFIG } from './config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
+import { isSessionConfined } from './core/sandbox-roles-core.ts';
 import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './core/session-registry-core.ts';
+import { expandTilde } from './core/usage-scan-core.ts';
+import type { SessionSandbox } from './session-sandbox.ts';
 import { resolveUsageConfig } from './usage-wiring.ts';
 
 type SessionSpawnOverrides = Pick<SessionOptions,
@@ -26,12 +30,26 @@ interface SessionFactoryDependencies {
   getPlanReviewPort: () => SessionPlanReviewPort | null;
   resolveHookTools: (config: GlimmervoidConfig, options: { skipPermissions: boolean }) => ResolvedHookTool[];
   getUserHooks: (projectId: string) => UserHook[];
+  sessionSandbox?: SessionSandbox;
+  homeDir?: string;
 }
 
 function createSessionFactory(dependencies: SessionFactoryDependencies) {
   function planLimitsEnabled(config: GlimmervoidConfig): boolean {
     const usageConfig = resolveUsageConfig(config.usage);
     return usageConfig.enabled && usageConfig.planLimits;
+  }
+
+  function defaultSandboxFor(project: ProjectEntry, config: GlimmervoidConfig, overrides: SessionSpawnOverrides): SessionOptions['prepareSandbox'] {
+    if (!dependencies.sessionSandbox) return null;
+    const unconfinedRepos = (config.sandbox?.unconfinedRepos ?? []).map((repo) => expandTilde(repo, process.env, dependencies.homeDir ?? null));
+    const isConfined = isSessionConfined({
+      usageVendor: getAdapter(overrides.agent ?? project.agent)?.usageVendor ?? null,
+      isMarkedUnconfined: project.unconfined === true,
+      sessionFolders: [project.path, ...(project.repos ?? [])],
+      unconfinedRepos,
+    });
+    return isConfined ? dependencies.sessionSandbox.prepareFor({ sessionId: project.id, isWorkspace: Boolean(project.repos?.length) }) : null;
   }
 
   return function makeSession(
@@ -72,6 +90,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       getUserHooks: () => dependencies.getUserHooks(project.id),
       agentApi: config.agentApi?.enabled === true,
       ...overrides,
+      prepareSandbox: 'prepareSandbox' in overrides ? overrides.prepareSandbox : defaultSandboxFor(project, config, overrides),
     });
     const captureConfig = {
       ...(config.capture || {}),

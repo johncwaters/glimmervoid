@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import os from 'node:os';
@@ -11,14 +11,14 @@ import type { SandboxRole } from '../server/core/sandbox-policy-core.ts';
 import type { SessionSandboxFacts } from '../session/sessions.ts';
 
 type ContractRoleName = 'check' | 'judge' | 'worker';
-type RoleName = ContractRoleName | 'judge-lane' | 'review' | 'resize' | 'keep-mergeable' | 'team-review' | 'posthog' | 'visions';
+type RoleName = ContractRoleName | 'judge-lane' | 'review' | 'resize' | 'keep-mergeable' | 'team-review' | 'posthog' | 'visions' | 'session';
 type Expectation = 'succeeds' | 'fails';
 type ProbeRow = { role: RoleName; check: string; status: 'PASS' | 'FAIL' | 'SKIPPED'; reason?: string };
 type ToolAttempt = { type: string; name: string; input: Record<string, string> };
 type StreamEvent = { type: string; message?: { content?: ToolAttempt[] } };
 
 const CONTRACT_ROLE_NAMES: readonly ContractRoleName[] = ['check', 'judge', 'worker'];
-const ROLE_NAMES: readonly RoleName[] = [...CONTRACT_ROLE_NAMES, 'judge-lane', 'review', 'resize', 'keep-mergeable', 'team-review', 'posthog', 'visions'];
+const ROLE_NAMES: readonly RoleName[] = [...CONTRACT_ROLE_NAMES, 'judge-lane', 'review', 'resize', 'keep-mergeable', 'team-review', 'posthog', 'visions', 'session'];
 const GUARD_HOOK_BLOCK_TEXT = 'Sane YOLO blocks';
 const HOME_SECRET_TEXT = 'role-probe-home-secret';
 const REVIEW_MARKER_TEXT = 'role-probe-review-marker';
@@ -64,6 +64,7 @@ const { MY_PRS_FIX_CHECKOUT_DIRNAME } = await import('../server/core/my-prs-core
 const { createSandboxedPrStaging, keepMergeableRole } = await import('../server/my-prs-wiring.ts');
 const { createTeamReviewSpawn, describeTeamReviewRole, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions, teamReviewClaudeArgs } = await import('../server/team-review-wiring.ts');
 const { prepareSandboxLaunch } = await import('../server/sandbox-launch.ts');
+const { createSessionSandbox } = await import('../server/session-sandbox.ts');
 const { Session } = await import('../session/sessions.ts');
 
 const EXPECTATIONS: Readonly<Record<ContractRoleName, Readonly<Record<string, Expectation>>>> = {
@@ -95,6 +96,14 @@ const POSTHOG_FIX_EXPECTATIONS: Readonly<Record<string, Expectation>> = {
 const POSTHOG_INVESTIGATION_EXPECTATIONS: Readonly<Record<string, Expectation>> = {
   report_write: 'succeeds', result_write: 'succeeds', repo_read: 'succeeds', repo_write: 'fails', home_read: 'fails', outside_write: 'fails', web: 'succeeds',
 };
+const SESSION_EXPECTATIONS: Readonly<Record<string, Expectation>> = {
+  starts_in_worktree: 'succeeds', commit_everything: 'succeeds', status_clean: 'succeeds', shared_folder_write: 'succeeds', listed_cache_write: 'succeeds', listed_secret_read: 'fails',
+  hooks_write: 'fails', git_config_write: 'fails', repo_write: 'fails', home_read: 'fails', upload_read: 'succeeds', outside_write: 'fails', web: 'succeeds',
+};
+const SESSION_TRUST_PROMPT = 'trustthisfolder';
+const SELECTION_MARKER = String.fromCharCode(0x276f);
+const SELECTION_MOVE_INTERVAL_MS = 2000;
+const SESSION_TERMINAL_TAIL_LENGTH = 400;
 const LINKED_ENV_SECRET_TEXT = 'role-probe-linked-env-secret';
 
 const probeRows: ProbeRow[] = [];
@@ -616,6 +625,122 @@ async function probeKeepMergeable(roleRoot: string): Promise<void> {
   });
 }
 
+async function waitUntil(isDone: () => boolean | Promise<boolean>, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isDone()) return true;
+    await sleep(250);
+  }
+  return false;
+}
+
+async function probeSession(roleRoot: string): Promise<void> {
+  const roleName = 'session';
+  if (agentId === 'codex') {
+    probeRows.push({ role: roleName, check: 'interactive session run', status: 'SKIPPED', reason: 'ordinary Codex sessions stay outside the sandbox' });
+    return;
+  }
+  const repository = path.join(roleRoot, 'repo');
+  const worktree = path.join(roleRoot, 'worktree');
+  const listedCache = path.join(roleRoot, 'cache');
+  const listedSecretFolder = path.join(roleRoot, 'secrets');
+  const sharedFolder = path.join(repository, 'node_modules');
+  for (const folder of [repository, listedCache, listedSecretFolder, sharedFolder]) await mkdir(folder, { recursive: true });
+  await writeFile(path.join(listedSecretFolder, 'token.txt'), `${HOME_SECRET_TEXT}\n`);
+  const runGit = (gitArguments: string[], cwd = repository) => runHardenedGit(gitArguments, { cwd, timeout: 30_000 });
+  await runGit(['init', '-b', 'main']);
+  await runGit(['config', 'user.name', 'Role probe']);
+  await runGit(['config', 'user.email', 'role-probe@example.test']);
+  await runGit(['config', 'commit.gpgsign', 'false']);
+  await writeFile(path.join(repository, '.git', 'info', 'exclude'), 'node_modules\nprobe.sh\nresults.txt\n');
+  await writeFile(path.join(repository, 'initial.txt'), 'initial\n');
+  await runGit(['add', 'initial.txt']);
+  await runGit(['commit', '-m', 'initial']);
+  await runGit(['worktree', 'add', '-b', 'session-branch', worktree]);
+  await symlink(sharedFolder, path.join(worktree, 'node_modules'), 'dir');
+  const repositoryConfigFile = path.join(repository, '.git', 'config');
+  const repositoryConfigText = await readFile(repositoryConfigFile, 'utf8');
+  const hooksFile = path.join(repository, '.git', 'hooks', 'role-probe');
+  const repositoryFile = path.join(repository, 'owned.txt');
+  const outsideFile = path.join(roleRoot, 'outside-session.txt');
+  const resultsFile = path.join(worktree, 'results.txt');
+  const sessionId = 'probe-session';
+  const uploadsRoot = path.join(probeHome, 'uploads');
+  await mkdir(path.join(uploadsRoot, sessionId), { recursive: true });
+  await writeFile(path.join(uploadsRoot, sessionId, 'pasted.txt'), 'pasted\n');
+  await writeCheckScript(path.join(worktree, 'probe.sh'), resultsFile, {
+    starts_in_worktree: `test "$(pwd -P)" = ${shellQuoted(worktree)}`,
+    commit_everything: '{ printf work > work.txt && git add -A && git commit -m work; }',
+    status_clean: 'test -z "$(git status --porcelain)"',
+    shared_folder_write: 'printf shared > node_modules/role-probe.txt',
+    listed_cache_write: `printf cached > ${shellQuoted(path.join(listedCache, 'entry.txt'))}`,
+    listed_secret_read: `cat ${shellQuoted(path.join(listedSecretFolder, 'token.txt'))}`,
+    hooks_write: `printf hooks > ${shellQuoted(hooksFile)}`,
+    git_config_write: 'git config role.probe written',
+    repo_write: `printf owned > ${shellQuoted(repositoryFile)}`,
+    home_read: `cat ${shellQuoted(homeSecretFile)}`,
+    upload_read: `cat ${shellQuoted(path.join(uploadsRoot, sessionId, 'pasted.txt'))}`,
+    outside_write: `printf outside > ${shellQuoted(outsideFile)}`,
+    web: 'curl -sf -m 10 -o /dev/null https://example.com',
+    finished: 'true',
+  });
+  let terminalOutput = '';
+  const session = new Session({
+    id: sessionId, name: sessionId, path: worktree, agent: 'claude-code', ephemeral: true, dangerouslySkipPermissions: true,
+    initialPrompt: 'This is a sandbox contract probe. Run exactly this shell command once and do not work around a denial or retry: sh probe.sh. Then reply with the single word done.',
+    hookRouter: { register: () => {}, unregister: () => {} }, getHookPort: () => hookPort,
+    hooksBaseDir: path.join(probeHome, 'scratch', 'glimmervoid-hooks'),
+    prepareSandbox: createSessionSandbox({
+      getSettings: () => ({ writablePaths: [listedCache], unreadablePaths: [listedSecretFolder], worktreeShare: ['node_modules'] }),
+      uploadsRoot,
+      readGithubToken: async () => null,
+    }).prepareFor({ sessionId, isWorkspace: false }),
+  });
+  session.on('data', (chunk: string) => { terminalOutput += chunk; });
+  const visibleTerminalText = () => terminalOutput.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\s/g, '');
+  const isTrustPromptShown = () => visibleTerminalText().includes(SESSION_TRUST_PROMPT);
+  const isTrustOptionSelected = () => visibleTerminalText().lastIndexOf(`${SELECTION_MARKER}Yes,I${SESSION_TRUST_PROMPT}`) > visibleTerminalText().lastIndexOf(`${SELECTION_MARKER}No,exit`);
+  try {
+    await session.start();
+    await record(roleName, 'interactive session run', async () => {
+      let hasAnsweredTrustPrompt = false;
+      let lastSelectionMoveAt = 0;
+      const answerTrustPrompt = () => {
+        if (hasAnsweredTrustPrompt || !isTrustPromptShown()) return;
+        if (isTrustOptionSelected()) {
+          hasAnsweredTrustPrompt = true;
+          session.write('\r');
+          return;
+        }
+        if (Date.now() - lastSelectionMoveAt < SELECTION_MOVE_INTERVAL_MS) return;
+        lastSelectionMoveAt = Date.now();
+        session.write('\x1b[B');
+      };
+      const hasFinished = async () => {
+        answerTrustPrompt();
+        return (await readFile(resultsFile, 'utf8').catch(() => '')).includes('finished=');
+      };
+      assert.ok(await waitUntil(hasFinished, AGENT_RUN_TIMEOUT_MS), `the probe script never finished, terminal ended with: ${visibleTerminalText().slice(-SESSION_TERMINAL_TAIL_LENGTH)}`);
+    });
+  } finally {
+    session.destroy();
+  }
+  await recordCheckResults(roleName, resultsFile, SESSION_EXPECTATIONS);
+  await record(roleName, 'the commit holds only the session\'s file and the host is otherwise untouched', async () => {
+    assert.equal((await runGit(['log', '--format=', '--name-only', '-1'], worktree)).stdout.trim(), 'work.txt');
+    assert.equal(await readFile(repositoryConfigFile, 'utf8'), repositoryConfigText);
+    await assert.rejects(readFile(hooksFile), { code: 'ENOENT' });
+    await assert.rejects(readFile(repositoryFile), { code: 'ENOENT' });
+    await assert.rejects(readFile(outsideFile), { code: 'ENOENT' });
+  });
+  await record(roleName, 'SessionStart hook reached the host listener', async () => {
+    assert.ok(hookRequests.some((requestUrl) => requestUrl.includes(sessionId) && requestUrl.includes('/sessionstart?')), `hook requests seen: ${hookRequests.join(' ')}`);
+  });
+  await record(roleName, 'policy, temp, home and placeholder files removed', async () => {
+    assert.deepEqual(await leftoverLaunchFiles(worktree), []);
+  });
+}
+
 async function waitForFileText(filePath: string, expectedText: string): Promise<string> {
   const deadline = Date.now() + RESIZE_WAIT_MS;
   let lastText = '';
@@ -713,6 +838,10 @@ try {
     }
     if (roleName === 'visions') {
       await probeVisions(roleRoot);
+      continue;
+    }
+    if (roleName === 'session') {
+      await probeSession(roleRoot);
       continue;
     }
     const repository = path.join(roleRoot, 'repo');

@@ -7,9 +7,14 @@ import type { GitWorkspace } from '../session/session-worktree-lifecycle.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 import type { ConfigStore, GlimmervoidConfig } from './config-store.ts';
 import type { OutcomeRecorder } from '../shared/outcome-names.ts';
+import { configSiblingPath } from './pairings-store.ts';
 import { createRtkInstallWiring } from './rtk-install-wiring.ts';
 import { resolveHookTools } from './hook-tools.ts';
+import { createClaudeFolderTrust } from './claude-trust.ts';
+import { DEFAULT_CONFIG } from './config-store.ts';
+import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 import { createSessionFactory } from './session-factory.ts';
+import { createSessionSandbox } from './session-sandbox.ts';
 import { buildSettingsPayload } from './settings-payload.ts';
 
 interface BackendSessionRuntimeDependencies {
@@ -20,6 +25,7 @@ interface BackendSessionRuntimeDependencies {
   getBroadcastControl: () => ControlBroadcast | null;
   recordOutcome?: OutcomeRecorder;
   logger: Pick<Console, 'warn'>;
+  sandboxRefusal: SandboxSpawnRefusal;
 }
 
 function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependencies) {
@@ -54,6 +60,20 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     getPlanReviewPort: dependencies.getPlanReviewPort || (() => null),
     resolveHookTools: (config, options) => resolveHookTools(config, { ...options, warn: dependencies.logger.warn.bind(dependencies.logger) }),
     getUserHooks: (projectId: string) => hooksForProject(dependencies.config.hooks, projectId),
+    sessionSandbox: createSessionSandbox({
+      getSettings: () => {
+        const { sandbox, worktreeShare } = dependencies.configStore.config;
+        return {
+          writablePaths: sandbox?.writablePaths ?? DEFAULT_CONFIG.sandbox.writablePaths,
+          unreadablePaths: sandbox?.unreadablePaths ?? DEFAULT_CONFIG.sandbox.unreadablePaths,
+          worktreeShare: worktreeShare ?? DEFAULT_CONFIG.worktreeShare,
+        };
+      },
+      uploadsRoot: configSiblingPath(dependencies.configStore.configPath, 'uploads'),
+      sandboxRefusal: dependencies.sandboxRefusal,
+      trustClaudeFolder: createClaudeFolderTrust().ensureTrusted,
+      log: dependencies.logger,
+    }),
   });
 
   return { agentIngressServer, getHookPort, hookRouter, makeSession, rtkInstall };

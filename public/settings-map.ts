@@ -837,6 +837,31 @@ export const SETTINGS_MAP = Object.freeze([
     ],
   },
   {
+    id: 'machine-sandbox',
+    level: 'machine',
+    title: 'Session sandbox',
+    description: 'Claude Code sessions run inside the sandbox runtime on Linux and macOS. Changes apply to sessions started after the change.',
+    settings: [
+      {
+        id: 'sandbox-unconfined-repos', path: 'sandbox.unconfinedRepos', title: 'Unconfined repositories',
+        description: 'Folders whose sessions run outside the sandbox. A session started in one of these folders, or below it, is not confined. Applies to sessions created after the change.',
+        control: 'list', keywords: ['sandbox', 'opt out', 'dotfiles'], danger: true,
+        warning: 'A session outside the sandbox can read credentials and write anywhere this account can.',
+        defaultValue: [],
+      },
+      {
+        id: 'sandbox-writable-paths', path: 'sandbox.writablePaths', title: 'Writable folders',
+        description: 'Folders outside its checkout that a sandboxed session may write, such as package manager caches. A leading ~ means the home folder.',
+        control: 'list', keywords: ['sandbox', 'cache', 'npm'], defaultValue: ['~/.npm', '~/.cache'],
+      },
+      {
+        id: 'sandbox-unreadable-paths', path: 'sandbox.unreadablePaths', title: 'Unreadable folders',
+        description: 'Extra folders and files a sandboxed session cannot read, on top of the built-in credential list. A leading ~ means the home folder.',
+        control: 'list', keywords: ['sandbox', 'secrets', 'credentials'], defaultValue: [],
+      },
+    ],
+  },
+  {
     id: 'lanes-unattended',
     level: 'lanes',
     title: 'Unattended actions',

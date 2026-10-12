@@ -229,4 +229,4 @@ function codexSessionIdFromPath(filePath: unknown): string | null {
   return base || null;
 }
 
-export { decideFileRead, projectDirCandidates, resolveProjectsDirs, splitLines, passOutcome, shouldPersistWarehouse, continuationDelayMs, shouldEvaluateDespiteIoFailures, codexHomes, grokHomes, codexRootCandidates, codexFallbackRoots, grokRootCandidates, codexSessionIdFromPath, dedupeCodexFiles, isUsageFile };
+export { expandTilde, decideFileRead, projectDirCandidates, resolveProjectsDirs, splitLines, passOutcome, shouldPersistWarehouse, continuationDelayMs, shouldEvaluateDespiteIoFailures, codexHomes, grokHomes, codexRootCandidates, codexFallbackRoots, grokRootCandidates, codexSessionIdFromPath, dedupeCodexFiles, isUsageFile };

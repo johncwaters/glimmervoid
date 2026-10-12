@@ -30,6 +30,11 @@
   <span>Skip permission prompts</span>
   <span class="dialog-hint">The agent edits files and runs shell commands without asking first, so a bad instruction or a hostile file in the repo can act on this machine unchecked. Leave this off unless you trust the repo and the task.</span>
 </label>
+<label class="dialog-label dialog-checkbox-label" id="add-session-unconfined-label">
+  <input type="checkbox" class="dialog-checkbox" id="add-session-unconfined">
+  <span>Run outside the sandbox</span>
+  <span class="dialog-hint">Claude Code sessions run inside a sandbox that keeps writes to the session's own checkout and hides credentials and other agents' settings. Turn this on only for work the sandbox cannot serve, such as a dotfiles repository.</span>
+</label>
 <div class="dialog-error" id="add-session-error"></div>
 <div class="dialog-actions">
   <button type="button" class="btn-dialog btn-dialog-cancel" id="add-session-cancel">Cancel</button>

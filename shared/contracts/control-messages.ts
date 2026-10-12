@@ -149,6 +149,7 @@ const clientVariants = [
     repos: z.array(z.string()).optional(),
     agent: z.string().optional(),
     dangerouslySkipPermissions: z.boolean().optional(),
+    unconfined: z.boolean().optional(),
   }),
   loose('list-conversations', { id: sessionId, requestId }),
   loose('resume-conversation', { id: sessionId, conversationId: z.string() }),

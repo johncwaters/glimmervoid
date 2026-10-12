@@ -7,6 +7,7 @@ import test from 'node:test';
 import type { TestContext } from 'node:test';
 import { createBackendHttpApp } from '../server/backend-http.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
+import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts';
 import { buildCoherenceShims, buildCoherenceUserHooks } from '../server/core/coherence-session-core.ts';
 import type { FactoryCloseOutWorker } from '../server/factory-closeout.ts';
@@ -184,6 +185,29 @@ test('dispatch hands off and activates at the integration tip, then provisions a
   const reopened = (await fixture.inspect()).work.find((candidate) => candidate.work === fixture.workId);
   assert.equal(reopened?.state, 'open');
   assert.equal(reopened?.last?.session, 'glimmervoid-factory');
+});
+
+test('the session factory wraps an ordinary Claude session unless it is marked unconfined, and leaves a caller\'s own sandbox choice alone', () => {
+  const wrappedSessionIds: string[] = [];
+  const makeSession = createSessionFactory({ configStore: { configPath: path.join(os.tmpdir(), 'config.json') },
+    hookRouter: new HookRouter(), getHookPort: () => 12345, getGitWorkspace: () => null, getPlanReviewPort: () => null,
+    resolveHookTools: () => [], getUserHooks: () => [],
+    sessionSandbox: { prepareFor: ({ sessionId }) => { wrappedSessionIds.push(sessionId); return async () => ({ ok: false, reason: 'never launched' }); } } });
+  const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, projects: [], sandbox: { unconfinedRepos: [path.resolve('/work/dotfiles')] } };
+  const project = (id: string, extra: Partial<ProjectEntry> = {}): ProjectEntry => ({ id, name: id, path: path.resolve('/work/app'), ...extra });
+  const sessions = [
+    makeSession(project('ordinary'), config),
+    makeSession(project('marked', { unconfined: true }), config),
+    makeSession(project('listed', { path: path.resolve('/work/dotfiles/nvim') }), config),
+    makeSession(project('codex', { agent: 'codex' }), config),
+    makeSession(project('lane'), config, { prepareSandbox: null }),
+  ];
+  try {
+    assert.deepEqual(sessions.map((session) => session.isConfined), [true, false, false, false, false]);
+    assert.deepEqual(wrappedSessionIds, ['ordinary']);
+  } finally {
+    for (const session of sessions) session.destroy();
+  }
 });
 
 test('dispatch refuses missing tickets, invalid callers, disabled factory and over-budget work without spawning', async (context) => {

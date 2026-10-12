@@ -4,6 +4,7 @@ import test from 'node:test';
 import { SandboxRuntimeConfigSchema } from '@anthropic-ai/sandbox-runtime';
 import { buildSandboxLaunchPlan, sandboxPolicyProbePaths } from '../server/core/sandbox-policy-core.ts';
 import type { SandboxHost, SandboxLaunchPlan, SandboxNetworkAccess, SandboxRole } from '../server/core/sandbox-policy-core.ts';
+import { isSessionConfined, sessionRole } from '../server/core/sandbox-roles-core.ts';
 import { HOOK_VIA_SANDBOX_PROXY_ENV } from '../session/core/sandbox-proxy-core.ts';
 
 const homeDir = path.resolve('/home/operator');
@@ -108,6 +109,30 @@ test('a commit checkout may write its git dir except hooks, config and the workt
   for (const protectedPath of [path.join(worktree, '.git'), path.join(commonGitDir, 'hooks'), path.join(commonGitDir, 'config')]) {
     assert.equal(denied.includes(protectedPath), true, protectedPath);
   }
+});
+
+test('an ordinary Claude session is confined unless it or a folder above it is marked unconfined, and writes only its checkout and listed folders', () => {
+  const claudeSession = { usageVendor: 'claude', isMarkedUnconfined: false, sessionFolders: [path.resolve('/work/repo')], unconfinedRepos: [] };
+  assert.equal(isSessionConfined(claudeSession), true);
+  assert.equal(isSessionConfined({ ...claudeSession, isMarkedUnconfined: true }), false);
+  assert.equal(isSessionConfined({ ...claudeSession, unconfinedRepos: [path.resolve('/work')] }), false);
+  assert.equal(isSessionConfined({ ...claudeSession, unconfinedRepos: [path.resolve('/work/other')] }), true);
+  assert.equal(isSessionConfined({ ...claudeSession, usageVendor: 'codex' }), false);
+  assert.equal(isSessionConfined({ ...claudeSession, usageVendor: null }), false);
+
+  const packageCache = path.join(homeDir, '.npm');
+  const githubLogin = path.join(homeDir, '.config', 'gh');
+  const listedSecret = path.resolve('/work/secrets');
+  const { network, filesystem } = planFor(sessionRole({
+    commitCheckouts: [{ checkout: worktree, gitDir: commonGitDir }], writableRoots: [packageCache], readDenied: [listedSecret], readablePaths: [githubLogin],
+  })).policy;
+  assert.equal('allowedDomains' in network, false);
+  for (const writablePath of [worktree, commonGitDir, packageCache]) assert.equal(entryPaths(filesystem.allowWrite).includes(writablePath), true, writablePath);
+  assert.equal(entryPaths(filesystem.denyWrite).includes(path.join(commonGitDir, 'hooks')), true);
+  assert.equal(entryPaths(filesystem.denyRead).includes(listedSecret), true);
+  assert.equal(entryPaths(filesystem.denyRead).includes(path.join(homeDir, '.ssh')), true);
+  assert.equal(entryPaths(filesystem.allowRead).includes(githubLogin), true);
+  assert.equal(entryPaths(filesystem.denyRead).includes(path.join(homeDir, '.codex')), false);
 });
 
 test('an absent path is never write-denied and an absent login file is never made writable', () => {

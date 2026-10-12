@@ -182,6 +182,7 @@ interface SpawnCommand {
   file: string;
   args: string[];
   env: Record<string, string>;
+  cwd?: string;
 }
 
 interface SessionOptions {
@@ -1468,7 +1469,7 @@ class Session extends EventEmitter {
         name: "xterm-256color",
         cols: ptySize.cols,
         rows: ptySize.rows,
-        cwd: this.effectiveCwd(),
+        cwd: spawnCommand.cwd ?? this.effectiveCwd(),
         env: { ...env, ...spawnCommand.env },
       });
     } catch (err) {
@@ -1514,6 +1515,10 @@ class Session extends EventEmitter {
     );
   }
 
+  get isConfined(): boolean {
+    return this._prepareSandbox !== null;
+  }
+
   _abandonSpawn(cause: unknown): void {
     this._isSaneYoloActive = false;
     this._hooks.cleanup();
@@ -1550,7 +1555,7 @@ class Session extends EventEmitter {
     this._disposeSandboxLaunch(this._sandboxLaunch);
     this._sandboxLaunch = prepared.launch;
     const wrapped = await prepared.launch.wrap(command.file, command.args);
-    return { ...wrapped, env: prepared.launch.env };
+    return { ...wrapped, env: prepared.launch.env, cwd: prepared.launch.cwd };
   }
 
   _disposeSandboxLaunch(launch: SandboxLaunch | null): void {

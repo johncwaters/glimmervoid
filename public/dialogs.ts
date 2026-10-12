@@ -46,6 +46,7 @@ export function createAddSessionDialog() {
   const pathInput = queryTag(dialog, '#add-session-path', 'input');
   const pathLabelEl = query(dialog, '#add-session-path-label');
   const skipPermsCheckbox = queryTag(dialog, '#add-session-skip-perms', 'input');
+  const unconfinedCheckbox = queryTag(dialog, '#add-session-unconfined', 'input');
   const errorEl = query(dialog, '#add-session-error');
   const btnCancel = queryTag(dialog, '#add-session-cancel', 'button');
   const btnConfirm = queryTag(dialog, '#add-session-confirm', 'button');
@@ -175,6 +176,7 @@ export function createAddSessionDialog() {
         path: repos[0],
         repos,
         dangerouslySkipPermissions: skipPermsCheckbox.checked,
+        unconfined: unconfinedCheckbox.checked,
       };
       if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;
       sendControlMsg(message);
@@ -190,6 +192,7 @@ export function createAddSessionDialog() {
       name: suggestSessionName(name),
       path: projectPath,
       dangerouslySkipPermissions: skipPermsCheckbox.checked,
+      unconfined: unconfinedCheckbox.checked,
     };
     if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;
     sendControlMsg(message);

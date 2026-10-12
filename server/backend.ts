@@ -36,6 +36,7 @@ import { normalizeUpdateChannel } from './core/update-core.ts';
 import { detectInstallFlavor } from './update-check.ts';
 import type { CheckForUpdate } from './backend-update.ts';
 import { createBackendSessionRuntime } from './backend-session-runtime.ts';
+import { checkSandboxDependencies } from './sandbox-deps.ts';
 import { createOutcomesLane } from './outcomes-wiring.ts';
 import { createUpdateApplyLane } from './update-apply.ts';
 import { bundled, packageRoot } from './runtime-paths.ts';
@@ -114,9 +115,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   let broadcastControl: ControlBroadcast | null = null;
   let agentApi: AgentApiPort | null = null;
   let gitWorkspace: ReturnType<typeof createBackendLanes>['gitWorkspace'] | null = null;
+  const sandboxRefusal = checkSandboxDependencies({ log: console });
   const sessionRuntime = createBackendSessionRuntime({
     config,
     configStore,
+    sandboxRefusal,
     getGitWorkspace: () => gitWorkspace,
     getPlanReviewPort: () => laneAssembly.planReview?.port ?? null,
     getBroadcastControl: () => broadcastControl,
@@ -226,6 +229,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const laneAssembly = createBackendLanes({
     config,
     makeSession,
+    sandboxRefusal,
     wireSessionEvents: (session: Session) => wireSessionEvents(session),
     configStore,
     sessions,

@@ -259,6 +259,9 @@ const DASHBOARD_SETTING_PATHS = Object.freeze([
   ...USAGE_BUDGET_KEYS.map((key) => `usage.budget.${key}`),
   ...TELEGRAM_STRING_KEYS.map((key) => `telegram.${key}`),
   'agentApi.enabled',
+  'sandbox.unconfinedRepos',
+  'sandbox.writablePaths',
+  'sandbox.unreadablePaths',
   'telemetry.enabled',
 ]);
 
@@ -497,6 +500,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       repos,
       agent: requestedAgent && requestedAgent !== DEFAULT_AGENT_ID ? requestedAgent : undefined,
       dangerouslySkipPermissions: skipPerms,
+      unconfined: msg.unconfined === true,
       requireExistingPath: !repos,
     });
     if (!created.ok) {
@@ -753,6 +757,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       if (incoming.ingest != null) cfg.ingest = mergeSettingsBlock(cfg.ingest, incoming.ingest, INGEST_SPEC);
       if (s.telegram != null) cfg.telegram = mergeSettingsBlockOverStored(cfg.telegram, s.telegram);
       if (s.agentApi != null) cfg.agentApi = mergeSettingsBlockOverStored(cfg.agentApi, s.agentApi);
+      if (s.sandbox != null) cfg.sandbox = mergeSettingsBlockOverStored(cfg.sandbox, s.sandbox);
       if (s.telemetry != null) cfg.telemetry = mergeSettingsBlockOverStored(cfg.telemetry, s.telemetry);
       if (!workflowsUpdate) return undefined;
       const storedWorkflowsMerge = mergeWorkflowsUpdateOverStored(cfg.workflows, workflowsUpdate);
@@ -858,7 +863,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     return entries;
   }
 
-  function createProjectSession({ name, path: projectPath, repos, agent, dangerouslySkipPermissions, requireExistingPath }: { name: string; path: string; repos?: string[]; agent?: ProjectEntry['agent']; dangerouslySkipPermissions?: boolean; requireExistingPath?: boolean }): { ok: true; project: ProjectEntry } | { ok: false; error: string } {
+  function createProjectSession({ name, path: projectPath, repos, agent, dangerouslySkipPermissions, unconfined, requireExistingPath }: { name: string; path: string; repos?: string[]; agent?: ProjectEntry['agent']; dangerouslySkipPermissions?: boolean; unconfined?: boolean; requireExistingPath?: boolean }): { ok: true; project: ProjectEntry } | { ok: false; error: string } {
     for (const [, session] of sessions) {
       if (session.name !== name) continue;
       return { ok: false, error: `Session "${name}" already exists` };
@@ -879,6 +884,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     const project: ProjectEntry = { id, name, path: resolvedPath };
     if (workspaceRepos) project.repos = workspaceRepos;
     if (typeof dangerouslySkipPermissions === 'boolean') project.dangerouslySkipPermissions = dangerouslySkipPermissions;
+    if (unconfined) project.unconfined = true;
     if (agent) project.agent = agent;
     const freshConfig = configStore.save(cfg => {
       cfg.projects.push(project);
@@ -959,6 +965,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
         path: project.path,
         agent: project.agent,
         dangerouslySkipPermissions: project.dangerouslySkipPermissions,
+        unconfined: project.unconfined,
       });
       if (!created.ok) { reply({ error: created.error }); return; }
       const session = sessions.get(created.project.id);

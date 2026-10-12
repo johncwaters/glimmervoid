@@ -52,7 +52,7 @@ export function prepareRoleSandbox(describeRole: (facts: SessionSandboxFacts) =>
   };
 }
 
-async function existingRealPath(candidate: string): Promise<string | null> {
+export async function existingRealPath(candidate: string): Promise<string | null> {
   try {
     return await realpath(candidate);
   } catch (error) {

@@ -73,6 +73,7 @@ function createAgentApiWiring({
       name,
       path: parent.path,
       dangerouslySkipPermissions: parent.dangerouslySkipPermissions,
+      unconfined: !parent.isConfined,
     };
 
     let child: Session | null = null;

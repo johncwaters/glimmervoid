@@ -67,6 +67,12 @@ const DEFAULT_CONFIG = {
     enabled: false,
   },
 
+  sandbox: {
+    unconfinedRepos: [] as string[],
+    writablePaths: ['~/.npm', '~/.cache'],
+    unreadablePaths: [] as string[],
+  },
+
   telemetry: {
     enabled: true,
   },
@@ -496,6 +502,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       recordSignals: config.recordSignals ?? effectiveDefaults.recordSignals,
       trace: { enabled: config.trace?.enabled ?? DEFAULT_CONFIG.trace.enabled },
       agentApi: { enabled: config.agentApi?.enabled ?? DEFAULT_CONFIG.agentApi.enabled },
+      sandbox: { ...DEFAULT_CONFIG.sandbox, ...config.sandbox },
       telemetry: { enabled: config.telemetry?.enabled ?? DEFAULT_CONFIG.telemetry.enabled },
       telemetryForcedOff: isTelemetryForcedOff(process.env),
       antiSlopPrompt: config.antiSlopPrompt ?? effectiveDefaults.antiSlopPrompt,
@@ -577,6 +584,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     if (newConfig.telegram != null) config.telegram = newConfig.telegram;
     if (newConfig.ingest != null) config.ingest = newConfig.ingest;
     if (newConfig.agentApi != null) config.agentApi = newConfig.agentApi;
+    if (newConfig.sandbox != null) config.sandbox = newConfig.sandbox;
     if (newConfig.telemetry != null) config.telemetry = newConfig.telemetry;
     if (newConfig.workflows == null) delete config.workflows;
     if (newConfig.workflows != null) config.workflows = newConfig.workflows;

@@ -4,7 +4,7 @@ import { TaskTitle } from './session.ts';
 import {
   FactorySettings, AgentApiFileSettings, BranchGcControlSettings, ChangeMapSettings, GithubSettings,
   createBrowserConfig, optionalBoolean, optionalLooseObject,
-  PlanReviewSettings, TelemetryFileSettings, TraceSettings,
+  PlanReviewSettings, SandboxFileSettings, TelemetryFileSettings, TraceSettings,
 } from './browser-config.ts';
 import { WorkflowsSettingsUpdate } from './workflows.ts';
 import type { BranchGcFileSettings as BranchGcFileSettingsSchema } from './browser-config.ts';
@@ -102,6 +102,7 @@ export const ProjectConfig = z.object({
   agent: z.string({ error: 'projects[].agent must be a string' }).regex(AGENT_ID_RE, { error: `projects[].agent must be ${AGENT_ID_SHAPE_MESSAGE}` }).optional(),
   codexBypassHookTrust: z.boolean().optional(),
   dangerouslySkipPermissions: z.boolean({ error: 'projects[].dangerouslySkipPermissions must be a boolean' }).optional(),
+  unconfined: z.boolean({ error: 'projects[].unconfined must be a boolean' }).optional(),
 }).passthrough();
 const FILE_CONFIG_SHAPE = {
   ...BROWSER_CONFIG_SHAPE,
@@ -120,6 +121,7 @@ const FILE_CONFIG_SHAPE = {
   ingest: optionalLooseObject('ingest'),
   workflows: optionalLooseObject('workflows'),
   agentApi: AgentApiFileSettings,
+  sandbox: SandboxFileSettings,
   telemetry: TelemetryFileSettings,
   trace: TraceSettings,
   planReview: PlanReviewSettings,
@@ -159,7 +161,7 @@ export const Config = z.object({
 
 export const CONFIG_BLOCK_KEYS = Object.freeze([
   'changeMap', 'taskTitle', 'branchGc', 'postTurnChecks', 'visions', 'github', 'teamReview', 'benchmarks', 'factory', 'knowledgeGraph', 'posthog', 'usage', 'telegram', 'ingest',
-  'agentApi', 'telemetry', 'workflows', 'coder',
+  'agentApi', 'sandbox', 'telemetry', 'workflows', 'coder',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {
   if (CONFIG_BLOCK_KEYS.includes(key)) return false;
