@@ -795,7 +795,7 @@ export const SETTINGS_MAP = Object.freeze([
       },
       {
         id: 'factory-mirror-harness-runs', path: 'factory.mirrorHarnessRuns', title: 'Mirror harness runs',
-        description: 'Show the latest factory harness run as a read-only project in the Factory tab while it runs and for a day after.',
+        description: 'Show the latest factory harness run as a read-only project in the Factory tab while it runs and for a day after. Needs factory.enabled on; leave it off on a harness instance.',
         control: 'toggle', defaultValue: false, keywords: ['harness', 'test', 'read-only'],
       },
     ],
