@@ -231,8 +231,16 @@ for (const verdict of [{ pass: 'yes', findings: [] }, null]) {
   });
 }
 
-test('close-out commits the changes a worker left uncommitted and lands them', async (context) => {
+test('close-out stages the changes a worker left uncommitted through the check sandbox, then commits and lands them', async (context) => {
   const fixture = await createFixture(context);
+  const sandboxedGitRuns: { argv: string[]; writablePaths: string[]; readablePaths: string[]; cwd: string }[] = [];
+  fixture.setCheckRunner(async ({ writablePaths, readablePaths = [] }) => ({
+    runCheck: (argv, options) => {
+      if (argv[0] === 'git') sandboxedGitRuns.push({ argv, writablePaths, readablePaths, cwd: options.cwd });
+      return execFileAsync(argv[0], argv.slice(1), options);
+    },
+    dispose: async () => {},
+  }));
   await mkdir(path.join(fixture.workspace.cwd, 'src'), { recursive: true });
   await writeFile(path.join(fixture.workspace.cwd, 'src/retry.ts'), 'export const retries = 5;\n');
   await fixture.closeOut.turnEnded(fixture.worker);
@@ -243,6 +251,10 @@ test('close-out commits the changes a worker left uncommitted and lands them', a
   assert.ok(mergedSha);
   assert.equal(await fixture.git(['show', `${mergedSha}:src/retry.ts`]), 'export const retries = 5;');
   assert.equal(await fixture.git(['log', '-1', '--format=%s', mergedSha, '--', 'src/retry.ts']), 'factory: Ship retries');
+  assert.deepEqual(sandboxedGitRuns.map(({ argv }) => argv.includes('add')), [true]);
+  assert.deepEqual(sandboxedGitRuns[0].writablePaths.map((writablePath) => path.basename(writablePath).replace(/-.*$/, '')), ['glimmervoid', 'objects']);
+  assert.notEqual(sandboxedGitRuns[0].cwd, fixture.workspace.cwd);
+  assert.deepEqual(sandboxedGitRuns[0].readablePaths, [fixture.workspace.cwd]);
 });
 
 test('a worker that changed nothing fails each attempt and blocks on the third', async (context) => {

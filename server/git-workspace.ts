@@ -176,13 +176,19 @@ export async function factoryGitEnvironment(cwd: string): Promise<Record<string,
   return gitInvocationEnvironment(invocation);
 }
 
-export async function runHardenedGit(args: string[], options: {
-  cwd: string; timeout?: number; maxBuffer?: number; encoding?: 'utf8'; env?: Record<string, string | undefined>; indexFile?: string; input?: string;
-}) {
-  const { input, indexFile, ...processOptions } = options;
+type HardenedGitOptions = { cwd: string; timeout?: number; maxBuffer?: number; encoding?: 'utf8'; env?: Record<string, string | undefined>; indexFile?: string };
+
+export async function prepareHardenedGitCommand(args: string[], options: HardenedGitOptions) {
+  const { indexFile, ...processOptions } = options;
   const invocation = await prepareHardenedGitInvocation(args, options.env ?? process.env,
     async (probeArgs, probeEnv) => (await execFileAsync('git', probeArgs, { ...processOptions, env: probeEnv, encoding: 'utf8' })).stdout);
   if (indexFile) invocation.env.GIT_INDEX_FILE = indexFile;
+  return invocation;
+}
+
+export async function runHardenedGit(args: string[], options: HardenedGitOptions & { input?: string }) {
+  const { input, indexFile, ...processOptions } = options;
+  const invocation = await prepareHardenedGitCommand(args, { ...processOptions, indexFile });
   return execFileAsync('git', invocation.args, { ...processOptions, input, env: invocation.env, encoding: 'utf8' });
 }
 

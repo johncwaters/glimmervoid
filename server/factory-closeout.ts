@@ -17,7 +17,7 @@ import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryChec
 import type { FactoryCheck, FactoryFence } from './core/factory-core.ts';
 import { KEEP_MERGEABLE_SANDBOX_STUB_NAMES } from './core/my-prs-core.ts';
 import { nulSeparatedPaths } from './core/git-changed-paths-core.ts';
-import { runHardenedGit } from './git-workspace.ts';
+import { prepareHardenedGitCommand, runHardenedGit } from './git-workspace.ts';
 import type { GitWorkspaceInstance } from './git-workspace.ts';
 import { readLaneResultFile } from './lane-spawn.ts';
 import { writeJsonAtomic, writeTextAtomic } from './json-file.ts';
@@ -171,6 +171,18 @@ export function createFactoryCloseOut({
     return ignoredSharedEntries;
   }
 
+  async function stageWorkerTreeInSandbox(cwd: string, indexDirectory: string, stagingIndexFile: string): Promise<void> {
+    const objectsDirectory = (await runGit(cwd, ['rev-parse', '--path-format=absolute', '--git-path', 'objects'])).replace(/\r?\n$/, '');
+    const gitOptions = { cwd, env: checkEnv(), timeout: 30_000, maxBuffer: 16 * 1024 * 1024 };
+    const stagingCommand = await prepareHardenedGitCommand(['-C', cwd, 'add', '--all', '--', ...WORK_OUTSIDE_LEDGER_PATHSPECS], { ...gitOptions, indexFile: stagingIndexFile });
+    const stagingSandbox = await prepareCheckRunner({ scratchParent: indexDirectory, writablePaths: [indexDirectory, objectsDirectory], readablePaths: [cwd] });
+    try {
+      await stagingSandbox.runCheck(['git', ...stagingCommand.args], { ...gitOptions, cwd: indexDirectory, env: stagingCommand.env, signal: reviewController.signal });
+    } finally {
+      await stagingSandbox.dispose();
+    }
+  }
+
   async function commitWorkerChanges(worker: FactoryCloseOutWorker, cwd: string): Promise<string | null> {
     if ((await probeUncommittedWorkPaths(cwd)).length === 0) return null;
     const worktreeGitDirectory = (await runGit(cwd, ['rev-parse', '--absolute-git-dir'])).replace(/\r?\n$/, '');
@@ -179,7 +191,7 @@ export function createFactoryCloseOut({
       const stagingIndexFile = path.join(indexDirectory, 'index');
       const headSha = (await runGit(cwd, ['rev-parse', 'HEAD'])).trim();
       await runGit(cwd, ['read-tree', headSha], stagingIndexFile);
-      await runGit(cwd, ['add', '--all', '--', ...WORK_OUTSIDE_LEDGER_PATHSPECS], stagingIndexFile);
+      await stageWorkerTreeInSandbox(cwd, indexDirectory, stagingIndexFile);
       const stagedTree = (await runGit(cwd, ['write-tree'], stagingIndexFile)).trim();
       const stagedChanges = await runGit(cwd, ['diff', '--raw', '--no-renames', '--no-abbrev', '--ignore-submodules=none', '-z', headSha, stagedTree]);
       if (!stagedChanges) {
@@ -225,7 +237,7 @@ export function createFactoryCloseOut({
       const staged = await gitWorkspace.stageDetachedWorktree({ projectPath: worker.projectPath, worktreePath: checkoutPath, sha: headSha, ...untrustedCheckoutIsolation() });
       if (!staged.ok) throw new Error(`Could not stage the factory check checkout: ${staged.err}`);
       await gitWorkspace.populate({ projectPath: worker.projectPath, wtDir: checkoutPath, shareList: sharedEntries(), ...untrustedCheckoutIsolation() });
-      checkSandbox = await prepareCheckRunner({ checkoutParent, checkoutPath });
+      checkSandbox = await prepareCheckRunner({ scratchParent: checkoutParent, writablePaths: [checkoutPath] });
       const { runCheck } = checkSandbox;
       const env = checkEnv();
       const checkoutSecretValues = await readCheckoutSecretValues(checkoutPath);

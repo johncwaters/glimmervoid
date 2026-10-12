@@ -64,7 +64,7 @@ try {
       }
     }
     commandController.signal.throwIfAborted();
-    const sandbox = await prepareSandboxedCheckRunner({ checkoutParent, checkoutPath });
+    const sandbox = await prepareSandboxedCheckRunner({ scratchParent: checkoutParent, writablePaths: [checkoutPath] });
     try {
       const output = await sandbox.runCheck(argumentsPassed, {
         cwd: checkoutPath, env: checkEnv, timeout: 15 * 60_000, maxBuffer: 16 * 1024 * 1024, signal: commandController.signal,

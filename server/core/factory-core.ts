@@ -426,12 +426,12 @@ export function checkFence({ changedPaths, writeScopes, protectedPaths }: {
 const FACTORY_CHECK_AGENT_HOMES = Object.freeze(['~/.claude', '~/.codex']);
 const FACTORY_CHECK_SHARED_WRITE_PATHS = Object.freeze(['/tmp/claude', '/private/tmp/claude', '~/.npm/_logs']);
 
-export function buildFactoryCheckSandboxSettings({ writablePaths, privatePaths }: { writablePaths: string[]; privatePaths: string[] }) {
+export function buildFactoryCheckSandboxSettings({ writablePaths, privatePaths, readablePaths = [] }: { writablePaths: string[]; privatePaths: string[]; readablePaths?: string[] }) {
   return {
     network: { allowedDomains: [], deniedDomains: [], allowLocalBinding: false },
     filesystem: {
       denyRead: [...LANE_CREDENTIAL_DENY_READ, ...FACTORY_CHECK_AGENT_HOMES, ...privatePaths],
-      allowRead: [],
+      allowRead: [...readablePaths],
       allowWrite: [...writablePaths],
       denyWrite: [...FACTORY_CHECK_SHARED_WRITE_PATHS],
     },

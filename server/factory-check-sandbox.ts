@@ -22,7 +22,7 @@ interface FactoryCheckSandbox {
   dispose: () => Promise<void>;
 }
 
-type PrepareFactoryCheckRunner = (paths: { checkoutParent: string; checkoutPath: string }) => Promise<FactoryCheckSandbox>;
+type PrepareFactoryCheckRunner = (paths: { scratchParent: string; writablePaths: string[]; readablePaths?: string[] }) => Promise<FactoryCheckSandbox>;
 
 const TIMED_OUT_CHECK_STREAM_TAIL_CHARS = 1500;
 
@@ -41,17 +41,18 @@ function timedOutCheckFailure(timeoutMs: number, abortFailure: unknown): Error {
   });
 }
 
-const prepareSandboxedCheckRunner: PrepareFactoryCheckRunner = async ({ checkoutParent, checkoutPath }) => {
+const prepareSandboxedCheckRunner: PrepareFactoryCheckRunner = async ({ scratchParent, writablePaths, readablePaths = [] }) => {
   const sandboxCliPath = resolvePackageBin('@anthropic-ai/sandbox-runtime', 'srt');
   if (!sandboxCliPath) throw new Error('Factory checks need the sandbox runtime, and its CLI could not be resolved');
-  const tempDir = path.join(checkoutParent, 'tmp');
+  const tempDir = path.join(scratchParent, 'tmp');
   const policyDir = path.join(glimmervoidHomeDir(), 'factory-check-policies');
-  const settingsPath = path.join(policyDir, `${path.basename(checkoutParent)}.json`);
+  const settingsPath = path.join(policyDir, `${path.basename(scratchParent)}.json`);
   await mkdir(tempDir);
   await mkdir(policyDir, { recursive: true, mode: 0o700 });
   await writeJsonAtomic(settingsPath, buildFactoryCheckSandboxSettings({
-    writablePaths: [checkoutPath, tempDir],
+    writablePaths: [...writablePaths, tempDir],
     privatePaths: [glimmervoidHomeDir(), HOOK_SETTINGS_BASE_DIR],
+    readablePaths,
   }));
   const runCheck: FactoryCheckRunner = async (argv, { timeout, signal, ...execOptions }) => {
     const timeoutSignal = AbortSignal.timeout(timeout);
