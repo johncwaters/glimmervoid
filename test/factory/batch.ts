@@ -20,8 +20,9 @@ import { targets } from './targets.ts';
 import { summaryRows } from './summary.ts';
 import { bridgeSocketPathRefusal, decideVerdict, parseDecisionLines, unexpectedAcceptanceError } from './verdict.ts';
 import type { VerdictInput } from './verdict.ts';
-import { adoptRunHomeRemoteSwitch, harnessStateDirectory, resolveHarnessTelemetryInputs, sendRunTelemetry } from './telemetry.ts';
+import { adoptRunHomeRemoteSwitch, resolveHarnessTelemetryInputs, sendRunTelemetry } from './telemetry.ts';
 import { decideHarnessTelemetry } from './telemetry-core.ts';
+import { HARNESS_STATE_FILE_NAME, HARNESS_VERDICT_FILE_NAME, factoryHarnessRunsDirectory, harnessBatchName, harnessRunName } from '../../server/core/factory-harness-mirror-core.ts';
 import type { HarnessTelemetryInputs, RecordedVerdict } from './telemetry-core.ts';
 
 function errorText(error: unknown) { return error instanceof Error ? error.message : String(error); }
@@ -56,7 +57,7 @@ async function runOnce(
   let hasTerminalStopReason = false;
   let telemetryInputsAfterRun = telemetryInputs;
   const instanceTelemetry = decideHarnessTelemetry(telemetryInputs);
-  const statePath = path.join(recordDirectory, 'factory-state.jsonl');
+  const statePath = path.join(recordDirectory, HARNESS_STATE_FILE_NAME);
   const queuedIntent = ClientMessage.parse({ type: 'factory-queue-intent', requestId: 'factory-harness', ...intent.request });
   await writeJson(path.join(recordDirectory, 'intent.json'), { name: intent.name, expectedEnd: intent.expectedEnd, expectedRefusal: intent.expectedRefusal, queuedIntent });
   await writeJson(path.join(recordDirectory, 'queue-reply.json'), null);
@@ -153,13 +154,13 @@ async function runOnce(
     try { await removeInside(runtimeParent, tempDirectory); }
     catch (error) { input.errors.push(errorText(error)); verdict = decideVerdict(input); }
   }
-  await writeJson(path.join(recordDirectory, 'verdict.json'), verdict);
+  await writeJson(path.join(recordDirectory, HARNESS_VERDICT_FILE_NAME), verdict);
   const telemetrySendResult = await sendRunTelemetry({
     verdict, decision: decideHarnessTelemetry(telemetryInputsAfterRun), builtServerEntryPath,
     context: { isCustomIntent: Boolean(options.intentFile), watchWindowMinutes, runIndex, batchSize: options.runs },
   });
   const recordedVerdict = { ...verdict, telemetrySendResult };
-  await writeJson(path.join(recordDirectory, 'verdict.json'), recordedVerdict);
+  await writeJson(path.join(recordDirectory, HARNESS_VERDICT_FILE_NAME), recordedVerdict);
   return { recordedVerdict, telemetryInputsAfterRun, hasKeptRun: tempDirectory !== null && (options.keep || verdict.outcome !== 'pass'), wasGateRefused };
 }
 
@@ -172,16 +173,15 @@ export async function runBatch(options: Arguments): Promise<number> {
   if (!intent) throw new Error(`Unknown intent: ${options.intentName}`);
   if (!options.intentFile && intent.target !== options.target) throw new Error(`Intent ${intent.name} belongs to target ${intent.target}, not ${options.target}`);
   await checkEnvironment();
-  const runFolderName = (run: number) => String(run).padStart(4, '0');
   const runtimeParent = await realpath(await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-factory-run-')));
-  const socketRefusal = bridgeSocketPathRefusal(path.join(runtimeParent, runFolderName(options.runs), 'tmp'), process.platform);
+  const socketRefusal = bridgeSocketPathRefusal(path.join(runtimeParent, harnessRunName(options.runs), 'tmp'), process.platform);
   if (socketRefusal) {
     await rmdir(runtimeParent);
     throw new Error(socketRefusal);
   }
-  const stateDirectory = harnessStateDirectory();
+  const stateDirectory = factoryHarnessRunsDirectory(process.env, os.homedir());
   const parent = options.artifacts ?? stateDirectory;
-  const requestedBatchDirectory = path.resolve(parent, `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`);
+  const requestedBatchDirectory = path.resolve(parent, harnessBatchName(new Date(), randomUUID()));
   await mkdir(requestedBatchDirectory, { recursive: true });
   const batchDirectory = await realpath(requestedBatchDirectory);
   const interrupt = new AbortController();
@@ -203,7 +203,7 @@ export async function runBatch(options: Arguments): Promise<number> {
     await buildBatch(interrupt.signal);
     for (let run = 1; run <= options.runs; run++) {
       if (interrupt.signal.aborted) break;
-      const recordDirectory = path.join(batchDirectory, runFolderName(run));
+      const recordDirectory = path.join(batchDirectory, harnessRunName(run));
       await mkdir(recordDirectory);
       hasPendingRun = true;
       const completedRun = await runOnce(intent, options, recordDirectory, interrupt.signal, telemetryInputs, stateDirectory, run, snapshot, runtimeParent);

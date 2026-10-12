@@ -243,7 +243,7 @@ const DASHBOARD_SETTING_PATHS = Object.freeze([
   'teamReview.skipIdleAfterDays',
   'teamReview.keepMergeableTimeoutMinutes',
   'benchmarks.enabled',
-  'factory.enabled', 'factory.maxRisk', 'factory.maxLiveWorkers', 'factory.checks', 'factory.protectedPaths', 'factory.reviewerModel', 'factory.watchWindowMinutes', 'factory.watchProjects', 'factory.dailyBudgetUsd', 'factory.verifierModel',
+  'factory.enabled', 'factory.maxRisk', 'factory.maxLiveWorkers', 'factory.checks', 'factory.protectedPaths', 'factory.reviewerModel', 'factory.watchWindowMinutes', 'factory.watchProjects', 'factory.dailyBudgetUsd', 'factory.verifierModel', 'factory.mirrorHarnessRuns',
   'knowledgeGraph.enabled',
   'workflows.enabled',
   'workflows.maxConcurrentSessions',

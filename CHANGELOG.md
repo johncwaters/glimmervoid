@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`glimmervoid push` for sessions**: with `agentApi.enabled` on, a session can run `glimmervoid push` to have Glimmervoid land its commits on the integration branch and push that branch to origin, the same merge the dashboard's merge and continue action runs. The push is fast-forward only and never forced, so the session needs no GitHub credentials of its own. When nothing lands, the reply says why: no commits yet, a conflict with the integration branch and the files involved, or a local branch that has diverged from origin. Only an operator session or a session it spawned can push; factory and lane sessions are refused.
+- **Watch a factory harness run from the Factory tab**: with `factory.mirrorHarnessRuns` on, the Factory tab shows the latest harness run as a read-only project while it runs and for a day after it ends. It offers no pause, queue or terminal controls, so the dashboard cannot steer the run.
 
 ### Changed
 

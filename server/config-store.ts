@@ -61,7 +61,7 @@ const DEFAULT_CONFIG = {
     narrator: { enabled: false, engine: 'claude', model: '', timeoutSeconds: 90 },
   },
 
-  factory: { enabled: false, maxRisk: 'medium' as const, maxLiveWorkers: 2, checks: DEFAULT_FACTORY_CHECKS, protectedPaths: DEFAULT_FACTORY_PROTECTED_PATHS, reviewerModel: null, watchWindowMinutes: 30, watchProjects: [], dailyBudgetUsd: null, verifierModel: null },
+  factory: { enabled: false, maxRisk: 'medium' as const, maxLiveWorkers: 2, checks: DEFAULT_FACTORY_CHECKS, protectedPaths: DEFAULT_FACTORY_PROTECTED_PATHS, reviewerModel: null, watchWindowMinutes: 30, watchProjects: [], dailyBudgetUsd: null, verifierModel: null, mirrorHarnessRuns: false },
 
   agentApi: {
     enabled: false,

@@ -221,6 +221,7 @@ Read Coherence reports from repositories whose integration branch holds a cohere
 | `factory.watchProjects` | Watch projects | `[]` | Map glimmervoid project ids to PostHog project ids in the config file. **File-only.** |
 | `factory.dailyBudgetUsd` | Factory daily budget (USD) | `null` | Factory lane spend ceiling. Blank means no ceiling. Needs usage tracking: with it off, dispatch refuses. |
 | `factory.verifierModel` | Verifier model | `null` | Claude model for independent intent verification. Blank uses the CLI default. |
+| `factory.mirrorHarnessRuns` | Mirror harness runs | `false` | Show the latest factory harness run as a read-only project in the Factory tab while it runs and for a day after. |
 
 ### Knowledge graph (experimental)
 

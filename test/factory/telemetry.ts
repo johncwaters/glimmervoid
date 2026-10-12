@@ -17,10 +17,6 @@ import { HarnessInstallState, buildRunTelemetryBatch, decideHarnessTelemetry, pa
 import type { HarnessTelemetryDecision, HarnessTelemetryInputs, RunHomeTelemetrySeed, RunTelemetryContext, TelemetrySendResult } from './telemetry-core.ts';
 import type { Verdict } from './verdict.ts';
 
-export function harnessStateDirectory(environment: NodeJS.ProcessEnv = process.env, homeDirectory = os.homedir()): string {
-  return path.join(environment.XDG_STATE_HOME || path.join(homeDirectory, '.local/state'), 'glimmervoid-factory-runs');
-}
-
 function harnessInstallStatePath(stateDirectory: string): string {
   return path.join(stateDirectory, 'install-id.json');
 }

@@ -54,6 +54,7 @@ export const FactoryProjectState = z.object({
   })),
   conflicts: z.array(z.object({ left: z.string(), right: z.string(), scope: z.string() })),
   unverifiedCompletedWork: z.array(z.string()),
+  observedRun: z.object({ recordDirectory: z.string(), outcome: z.string().nullable() }).optional(),
 });
 export type FactoryProjectState = z.infer<typeof FactoryProjectState>;
 
@@ -63,6 +64,11 @@ export const FactoryState = z.object({
   projects: z.array(FactoryProjectState),
 });
 export type FactoryState = z.infer<typeof FactoryState>;
+
+export const FactoryHarnessStateLine = z.object({ arrivedAt: z.string(), state: FactoryState });
+
+export const FactoryHarnessVerdict = z.looseObject({ outcome: z.enum(['pass', 'fail']), failureClass: z.string().nullable().optional() });
+export type FactoryHarnessVerdict = z.infer<typeof FactoryHarnessVerdict>;
 
 export const FACTORY_ERROR_MAX_CHARS = 16_384;
 

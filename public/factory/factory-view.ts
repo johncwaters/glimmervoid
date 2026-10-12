@@ -1,6 +1,6 @@
 import { FactoryQueueIntentRequest } from '#shared/contracts/factory.ts';
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import type { FactoryState } from '#shared/contracts/factory.ts';
+import type { FactoryProjectState, FactoryState } from '#shared/contracts/factory.ts';
 import { localClockText } from '#shared/display-text.ts';
 import { buildPanelSection, el } from '../dom-helpers.ts';
 import { buildFactoryFloor, pickFactoryProject } from './factory-floor-core.ts';
@@ -161,7 +161,7 @@ function buildOrderSelector(id: string, objective: string, className: string): H
   return button;
 }
 
-function buildCrate(crate: FactoryCrate): HTMLElement {
+function buildCrate(crate: FactoryCrate, isReadOnly: boolean): HTMLElement {
   const container = el('div', 'factory-crate');
   container.dataset.state = crate.isHeld ? 'waiting' : crate.station;
   container.dataset.selected = String(crate.isSelected);
@@ -171,12 +171,18 @@ function buildCrate(crate: FactoryCrate): HTMLElement {
   identity.append(el('span', null, crate.id), risk);
   container.append(identity, buildOrderSelector(crate.id, crate.objective, 'factory-crate-title'));
   const sessionId = crate.sessionId;
-  if (sessionId && openTerminal) container.append(buildButton('factory-action', 'Open terminal', () => openTerminal?.(sessionId)));
+  if (sessionId && openTerminal && !isReadOnly) container.append(buildButton('factory-action', 'Open terminal', () => openTerminal?.(sessionId)));
   if (crate.station !== 'workers') container.append(el('span', 'factory-crate-note', crate.status));
   return container;
 }
 
-function buildTop(floor: FactoryFloor, projectId: string): HTMLElement {
+function describeObservedRun(observedRun: NonNullable<FactoryProjectState['observedRun']>): string {
+  return `Read-only mirror of the factory harness run at ${observedRun.recordDirectory}. ${observedRun.outcome ? `Ended: ${observedRun.outcome}.` : 'No verdict yet.'}`;
+}
+
+function buildTop(floor: FactoryFloor, project: FactoryProjectState): HTMLElement {
+  const projectId = project.projectId;
+  const isReadOnly = project.observedRun !== undefined;
   const band = el('div', 'factory-band factory-head');
   const intent = buildRegion('Intent', 'factory-intent');
   intent.append(el('p', 'factory-count', floor.spend));
@@ -198,16 +204,18 @@ function buildTop(floor: FactoryFloor, projectId: string): HTMLElement {
   if (floor.note) heading.append(el('p', 'factory-reason', floor.note));
   const pausedMarker = el('span', 'factory-paused-marker', '[paused]');
   pausedMarker.hidden = !floor.paused;
-  heading.append(pausedMarker, buildFactoryControls(projectId, floor.paused));
+  heading.append(pausedMarker);
+  if (project.observedRun) heading.append(el('p', 'factory-reason', describeObservedRun(project.observedRun)));
+  if (!isReadOnly) heading.append(buildFactoryControls(projectId, floor.paused));
   const owl = buildSprite('is-owl', 'Orchestrator owl');
   const sessionId = floor.orchestrator.sessionId;
-  if (sessionId && openTerminal) {
+  if (sessionId && openTerminal && !isReadOnly) {
     const terminalButton = buildButton('factory-action', null, () => openTerminal?.(sessionId));
     terminalButton.setAttribute('aria-label', 'Open orchestrator terminal');
     terminalButton.append(owl);
     orchestrator.append(terminalButton);
   }
-  if (!sessionId || !openTerminal) orchestrator.append(owl);
+  if (!sessionId || !openTerminal || isReadOnly) orchestrator.append(owl);
   if (floor.orchestrator.state) heading.append(el('span', 'factory-orchestrator-state', floor.orchestrator.state));
   orchestrator.append(heading);
   const upNext = buildRegion('Up next', 'factory-up-next');
@@ -219,12 +227,12 @@ function buildTop(floor: FactoryFloor, projectId: string): HTMLElement {
   }
   upNext.append(intents);
   if (floor.upNext.length === 0) upNext.append(el('p', 'factory-empty', 'No queued intents.'));
-  upNext.append(buildQueueForm(projectId));
+  if (!isReadOnly) upNext.append(buildQueueForm(projectId));
   band.append(intent, orchestrator, upNext);
   return band;
 }
 
-function buildStation(station: (typeof STATIONS)[number], crates: FactoryCrate[]): HTMLElement {
+function buildStation(station: (typeof STATIONS)[number], crates: FactoryCrate[], isReadOnly: boolean): HTMLElement {
   const section = el('section', `factory-station factory-station-${station.id}`);
   section.setAttribute('aria-label', station.label);
   const head = el('div', 'factory-station-head');
@@ -234,14 +242,14 @@ function buildStation(station: (typeof STATIONS)[number], crates: FactoryCrate[]
     const crate = crates[slotIndex];
     const emptySlot = el('div', 'factory-open', 'Open slot');
     if (station.id !== 'workers') {
-      slots.append(crate ? buildCrate(crate) : emptySlot);
+      slots.append(crate ? buildCrate(crate, isReadOnly) : emptySlot);
       continue;
     }
     const pad = el('div', 'factory-pad');
     pad.dataset.state = crate?.hasConflict ? 'waiting' : crate ? 'running' : 'idle';
     if (crate) pad.append(buildSprite(crate.animal.sprite, crate.animal.name));
     if (!crate) pad.append(el('div', 'factory-sprite factory-sprite-empty'));
-    pad.append(crate ? buildCrate(crate) : emptySlot, el('span', 'factory-pad-status', crate?.status ?? 'Idle'));
+    pad.append(crate ? buildCrate(crate, isReadOnly) : emptySlot, el('span', 'factory-pad-status', crate?.status ?? 'Idle'));
     slots.append(pad);
   }
   section.append(head, slots);
@@ -323,9 +331,9 @@ function render(): void {
   const bands = el('div', 'factory-console');
   const floorBand = buildRegion('Floor', 'factory-band factory-floor-band');
   const pipe = el('div', 'factory-pipe');
-  for (const station of STATIONS) pipe.append(buildStation(station, floor.stations[station.id]));
+  for (const station of STATIONS) pipe.append(buildStation(station, floor.stations[station.id], project.observedRun !== undefined));
   floorBand.append(pipe);
-  bands.append(buildTop(floor, project.projectId), floorBand, buildBottom(floor));
+  bands.append(buildTop(floor, project), floorBand, buildBottom(floor));
   content.append(bands);
   root.replaceChildren(content);
   [...root.querySelectorAll<HTMLElement>(SCROLLABLE_REGIONS_SELECTOR)].forEach((element, index) => { element.scrollTop = scrollPositions[index] ?? 0; });
