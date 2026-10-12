@@ -70,6 +70,7 @@ interface MergeResult {
   baseSha?: string | null;
   restoreConflict?: boolean;
   warning?: string;
+  pushed?: boolean;
 
   branch?: string | null;
   base?: string | null;

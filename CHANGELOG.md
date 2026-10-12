@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`glimmervoid push` for sessions**: with `agentApi.enabled` on, a session can run `glimmervoid push` to have Glimmervoid land its commits on the integration branch and push that branch to origin, the same merge the dashboard's merge and continue action runs. The push is fast-forward only and never forced, so the session needs no GitHub credentials of its own. When nothing lands, the reply says why: no commits yet, a conflict with the integration branch and the files involved, or a local branch that has diverged from origin. Only an operator session or a session it spawned can push; factory and lane sessions are refused.
+
 ### Changed
 
 - **Factory workers and orchestrators run inside the sandbox runtime**: a factory worker and a factory orchestrator now start inside the same sandbox runtime as the other factory lanes, so the whole agent process is confined and not only its shell commands. A worker can write only its own worktree and an orchestrator only the ledger checkout; neither can write the shared git folder, the checkout's `.git` pointer or its `.claude` folder, and neither can read credential folders or other agents' homes. Their network is now open, so a worker can fetch packages and look things up, where it could reach only its one session port before; permission rules, the credential-free environment and the required Sane YOLO hook are unchanged. The sandbox runtime leaves empty read-only placeholder files (such as `.mcp.json` or `.bashrc`) at the top of a checkout while a lane runs: close-out and merge ignore them and Glimmervoid removes them when the lane exits. A terminal resize now reaches an agent running inside the sandbox runtime. Verified on Linux with live probes; macOS is unverified. On Windows, where the sandbox runtime does not run, the factory refuses to start these lanes, as it did before.

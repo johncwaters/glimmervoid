@@ -11,7 +11,7 @@ import { createBackend } from '../server/backend.ts';
 import { createAgentApiWiring } from '../server/agent-api-wiring.ts';
 import { sessionIdFromBranch } from '../server/core/branch-gc-core.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
-import { MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
+import { describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
 import { createSessionEventWiring } from '../server/session-event-wiring.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { Session } from '../session/sessions.ts';
@@ -288,6 +288,23 @@ test('a valid spawn creates exactly one sibling that may not spawn again', async
     const grandchild = await fixture.spawn(child, { prompt: 'go deeper' });
     assert.equal(grandchild.status, 403);
   } finally {
+    fixture.destroyAll();
+  }
+});
+
+test('push lands only an operator session or its spawned child, and a refusal tells the agent why', async () => {
+  const fixture = wiringFixture();
+  const laneSession = new Session({ id: 'factory-work-12345678', name: 'factory worker', path: fixture.parent.path, ephemeral: true });
+  try {
+    const withoutWorktree = await fixture.wiring.handle(fixture.parent, 'push', {});
+    assert.equal(withoutWorktree.status, 409);
+    assert.deepEqual([withoutWorktree.body.ok, withoutWorktree.body.reason], [false, 'no-worktree']);
+    assert.match(String(withoutWorktree.body.error), /no worktree of its own/);
+    const fromLane = await fixture.wiring.handle(laneSession, 'push', {});
+    assert.deepEqual([fromLane.status, fromLane.body.reason], [409, 'not-operator-session']);
+    assert.deepEqual(describePushLanding({ merged: true, base: 'main', pushed: true }), { status: 200, body: { ok: true, landedOn: 'main', pushed: true } });
+  } finally {
+    laneSession.destroy();
     fixture.destroyAll();
   }
 });

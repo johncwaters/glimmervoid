@@ -8,7 +8,7 @@ import type {
 } from '../shared/contracts/session.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord } from './control-replay-core.ts';
-import { decideSpawnAllowance, deriveChildSessionName, parseAgentVerb } from './core/agent-api-core.ts';
+import { decideSpawnAllowance, deriveChildSessionName, describePushLanding, parseAgentVerb, PUSH_UNAVAILABLE_REASON } from './core/agent-api-core.ts';
 import { registerEphemeralSession } from './ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 import type { SessionSpawnOverrides } from './session-factory.ts';
@@ -136,11 +136,18 @@ function createAgentApiWiring({
     }));
   }
 
+  async function push(session: Session): Promise<AgentApiReply> {
+    const isSpawnedChild = agentSessions.has(session.id) && session.id.startsWith(`${AGENT_LANE_TAG}-`);
+    if (session.ephemeral && !isSpawnedChild) return describePushLanding({ merged: false, reason: PUSH_UNAVAILABLE_REASON });
+    return describePushLanding(await session.mergeAndContinue({ force: true }));
+  }
+
   async function handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentApiReply> {
     const parsed = parseAgentVerb(verb, payload);
     if (!parsed.ok) return { status: parsed.status, body: { ok: false, error: parsed.error } };
     if (parsed.verb === 'dispatch') return { status: 403, body: { ok: false, reason: 'dispatch requires a live factory orchestrator' } };
     if (parsed.verb === 'board') return { status: 200, body: { ok: true, sessions: board() } };
+    if (parsed.verb === 'push') return push(session);
     if (parsed.verb === 'attention') {
       const reply = attention(session, parsed.request);
       return { status: reply.ok ? 200 : 429, body: reply };

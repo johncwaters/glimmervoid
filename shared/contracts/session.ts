@@ -80,7 +80,7 @@ export function isSamePromptQuestion(left: PendingPromptQuestion | null | undefi
 }
 
 export const AGENT_URL_ENV = 'GLIMMERVOID_AGENT_URL';
-export const AGENT_API_VERBS = ['spawn', 'attention', 'board', 'dispatch'] as const;
+export const AGENT_API_VERBS = ['spawn', 'attention', 'board', 'dispatch', 'push'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
 
 export const AgentSpawnRequest = z.object({

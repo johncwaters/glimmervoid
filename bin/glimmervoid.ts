@@ -37,6 +37,7 @@ Commands:
   spawn <prompt>    From inside a Glimmervoid session, start a sibling session on that prompt
   attention <note>  From inside a Glimmervoid session, flag it as needing the operator
   board             From inside a Glimmervoid session, list the live sessions
+  push              From inside a Glimmervoid session, land its commits on the integration branch and push it
   kg [command]      Experimental typed knowledge and task graph (Settings > Lanes > Knowledge graph)
 
 Options:

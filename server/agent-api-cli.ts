@@ -22,6 +22,7 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
     return note ? { note } : null;
   },
   board: () => ({}),
+  push: () => ({}),
   dispatch: (rest) => {
     const parsed = AgentDispatchRequest.safeParse(rest[0] === '--ready' ? { readyIntent: rest[1] } : { workId: rest[0] });
     return parsed.success ? parsed.data : null;

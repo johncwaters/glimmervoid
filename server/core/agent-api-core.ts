@@ -30,12 +30,40 @@ type AgentVerdict = { ok: true } | { ok: false; status: number; reason: string }
 
 type AgentVerbRequest =
   | { ok: true; verb: 'board' }
+  | { ok: true; verb: 'push' }
   | { ok: true; verb: 'dispatch'; request: AgentDispatchRequest }
   | { ok: true; verb: 'attention'; request: AgentAttentionRequest }
   | { ok: true; verb: 'spawn'; request: AgentSpawnRequest }
   | { ok: false; status: number; error: string };
 
 const INVALID_BODY_STATUS = 400;
+const PUSH_REFUSED_STATUS = 409;
+const PUSH_UNAVAILABLE_REASON = 'not-operator-session';
+
+interface PushLanding {
+  merged: boolean;
+  reason?: string | null;
+  base?: string | null;
+  pushed?: boolean;
+  conflicts?: string[];
+}
+
+interface AgentPushReply {
+  status: number;
+  body: Record<string, unknown>;
+}
+
+const PUSH_REFUSAL_COPY: Readonly<Record<string, (landing: PushLanding) => string>> = Object.freeze({
+  [PUSH_UNAVAILABLE_REASON]: () => 'only an operator session or a session it spawned can push',
+  'no-worktree': () => 'this session has no worktree of its own, so there is nothing of its own to land',
+  'merge-in-progress': () => 'a merge for this session is already running, so try again when it ends',
+  'not-continuable': () => 'this session cannot be merged in its current state',
+  destroyed: () => 'this session is ending',
+  'nothing-to-commit': () => 'no commit on this branch is missing from the integration branch, so commit your work first',
+  'rebase-conflict': ({ base, conflicts = [] }) => `this branch conflicts with ${base} in ${conflicts.join(', ') || 'one or more files'}, so rebase onto ${base}, resolve the conflicts, commit, then push again`,
+  'not-fast-forward': ({ base }) => `${base} could not be fast-forwarded to this branch, and a push is never forced`,
+  'base-diverged': ({ base }) => `the local ${base} and origin/${base} have diverged, which the operator has to reconcile`,
+});
 
 function tokensMatch(presented: string, expected: string): boolean {
   if (presented.length !== expected.length) return false;
@@ -93,7 +121,7 @@ function parseAgentVerb(verb: string, payload: Record<string, unknown>): AgentVe
     if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
     return { ok: true, verb, request: parsed.data };
   }
-  if (verb === 'board') return { ok: true, verb };
+  if (verb === 'board' || verb === 'push') return { ok: true, verb };
   if (verb === 'attention') {
     const parsed = AgentAttentionRequest.safeParse(payload);
     if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
@@ -102,6 +130,19 @@ function parseAgentVerb(verb: string, payload: Record<string, unknown>): AgentVe
   const parsed = AgentSpawnRequest.safeParse(payload);
   if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
   return { ok: true, verb, request: parsed.data };
+}
+
+function describePushLanding(landing: PushLanding): AgentPushReply {
+  if (!landing.merged) {
+    const reason = landing.reason || 'unknown';
+    const explain = PUSH_REFUSAL_COPY[reason];
+    return { status: PUSH_REFUSED_STATUS, body: { ok: false, reason, error: explain ? explain(landing) : `the merge stopped: ${reason}` } };
+  }
+  if (landing.pushed) return { status: 200, body: { ok: true, landedOn: landing.base ?? null, pushed: true } };
+  return {
+    status: 200,
+    body: { ok: true, landedOn: landing.base ?? null, pushed: false, note: 'landed locally and nothing was pushed, because the repository has no origin remote or origin did not take a fast-forward' },
+  };
 }
 
 function deriveChildSessionName(parentName: string, existingNames: readonly string[]): string {
@@ -117,7 +158,7 @@ function deriveChildSessionName(parentName: string, existingNames: readonly stri
 }
 
 export {
-  decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, isAgentApiVerb, parseAgentVerb, tokensMatch,
-  MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN, REFUSAL_REASON, REFUSAL_STATUS,
+  decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describePushLanding, isAgentApiVerb, parseAgentVerb, tokensMatch,
+  PUSH_UNAVAILABLE_REASON, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN, REFUSAL_REASON, REFUSAL_STATUS,
 };
 export type { AgentVerbRequest, SpawnBudget };
