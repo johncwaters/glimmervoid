@@ -124,7 +124,8 @@ test('dispatch hands off and activates at the integration tip, then provisions a
   assert.equal(overrides.requireWorktree, true);
   assert.equal(overrides.dangerouslySkipPermissions, false);
   assert.deepEqual(overrides.spawnEnv, { COHERENCE_HOOK_HOST: 'claude', SSH_AUTH_SOCK: '', SSH_ASKPASS: '', GIT_ASKPASS: '', GIT_SSH_COMMAND: 'false',
-    GIT_TERMINAL_PROMPT: '0', GH_TOKEN: '', GITHUB_TOKEN: '', GH_ENTERPRISE_TOKEN: '', GITHUB_ENTERPRISE_TOKEN: '' });
+    GIT_TERMINAL_PROMPT: '0', GH_TOKEN: '', GITHUB_TOKEN: '', GH_ENTERPRISE_TOKEN: '', GITHUB_ENTERPRISE_TOKEN: '',
+    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1', BASH_DEFAULT_TIMEOUT_MS: '900000', BASH_MAX_TIMEOUT_MS: '900000' });
   assert.deepEqual(overrides.extraClaudeArgs?.slice(2), [...LANE_ENVIRONMENT_ARGS]);
   assert.equal('gitWorkspace' in overrides, false);
   assert.ok(spawned.session.worktreeDir);

@@ -496,6 +496,67 @@ export function parseCheckCommand(command: string): string[] | null {
   return command.trim().split(/\s+/);
 }
 
+const TAP_FAILURE_LINE_PATTERN = /^( *)not ok \d+ - /;
+const TAP_EXPECTED_FAILURE_DIRECTIVE_PATTERN = / # (?:TODO|SKIP)\b/i;
+const TAP_DIAGNOSTIC_LINE_PATTERN = /^ *#/;
+const TAP_FAILURE_TYPE_LINE_PATTERN = /^( *)failureType: '(\w+)'$/;
+const TAP_SUMMARY_LINE_PATTERN = /^# (tests|pass|fail|cancelled|todo) \d+$/;
+const TAP_PARENT_FAILURE_TYPE = 'subtestsFailed';
+const TAP_KNOCK_ON_FAILURE_TYPES: ReadonlySet<string> = new Set(['cancelledByParent', 'parentAlreadyFinished']);
+const MAX_TAP_FAILURE_BLOCK_CHARS = 1500;
+const MAX_TAP_DIAGNOSTIC_CHARS = 1500;
+
+function readTapFailureType(blockLines: readonly string[], blockIndent: string): string | null {
+  for (const line of blockLines) {
+    const failureTypeLine = TAP_FAILURE_TYPE_LINE_PATTERN.exec(line);
+    if (failureTypeLine && failureTypeLine[1].length === blockIndent.length + 2) return failureTypeLine[2];
+  }
+  return null;
+}
+
+function readDiagnosticLinesAbove(lines: readonly string[], headerIndex: number): string[] {
+  let firstDiagnosticIndex = headerIndex;
+  while (firstDiagnosticIndex > 0 && TAP_DIAGNOSTIC_LINE_PATTERN.test(lines[firstDiagnosticIndex - 1])) firstDiagnosticIndex -= 1;
+  return lines.slice(firstDiagnosticIndex, headerIndex);
+}
+
+function listTapFailureBlocks(lines: readonly string[]): { realFailureBlocks: string[]; knockOnFailureBlocks: string[] } {
+  const realFailureBlocks: string[] = [];
+  const knockOnFailureBlocks: string[] = [];
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const failureLine = TAP_FAILURE_LINE_PATTERN.exec(lines[lineIndex]);
+    if (!failureLine) continue;
+    const headerIndex = lineIndex;
+    const blockIndent = failureLine[1];
+    const blockEndLine = `${blockIndent}  ...`;
+    let blockEndIndex = headerIndex + 1;
+    while (blockEndIndex < lines.length && lines[blockEndIndex] !== blockEndLine) blockEndIndex += 1;
+    lineIndex = blockEndIndex;
+    if (TAP_EXPECTED_FAILURE_DIRECTIVE_PATTERN.test(lines[headerIndex])) continue;
+    const blockLines = lines.slice(headerIndex, blockEndIndex + 1);
+    const failureType = readTapFailureType(blockLines, blockIndent);
+    if (failureType === TAP_PARENT_FAILURE_TYPE) continue;
+    const diagnostics = readDiagnosticLinesAbove(lines, headerIndex).join('\n').slice(0, MAX_TAP_DIAGNOSTIC_CHARS);
+    const failureBlock = [diagnostics, blockLines.join('\n').slice(0, MAX_TAP_FAILURE_BLOCK_CHARS)].filter((part) => part.length > 0).join('\n');
+    const isKnockOnFailure = failureType !== null && TAP_KNOCK_ON_FAILURE_TYPES.has(failureType);
+    (isKnockOnFailure ? knockOnFailureBlocks : realFailureBlocks).push(failureBlock);
+  }
+  return { realFailureBlocks, knockOnFailureBlocks };
+}
+
+export function summarizeFailedCheckOutput(output: string, maxChars: number): string {
+  if (output.length <= maxChars) return output;
+  const lines = output.split('\n');
+  const { realFailureBlocks, knockOnFailureBlocks } = listTapFailureBlocks(lines);
+  if (realFailureBlocks.length === 0) return output.slice(-maxChars);
+  const summary = lines.filter((line) => TAP_SUMMARY_LINE_PATTERN.test(line)).join('\n');
+  const failures = [...realFailureBlocks, ...knockOnFailureBlocks].join('\n');
+  const summarizedFailures = `${failures.slice(0, Math.max(0, maxChars - summary.length - 1))}\n${summary}`;
+  const remainingChars = maxChars - summarizedFailures.length - 1;
+  if (remainingChars <= 0) return summarizedFailures;
+  return `${summarizedFailures}\n${output.slice(-remainingChars)}`;
+}
+
 export function decideCloseOut({ fence, checks, review, attempt }: {
   fence: FactoryFence; checks: FactoryCheck[]; review: FactoryReviewVerdict | null; attempt: number;
 }): { action: 'merge' } | { action: 'retry'; feedback: string } | { action: 'block'; reason: string } {

@@ -12,7 +12,7 @@ import type { FactoryWatchEntry } from '../shared/contracts/factory.ts';
 import { prepareSandboxedCheckRunner } from './factory-check-sandbox.ts';
 import type { FactoryCheckSandbox, PrepareFactoryCheckRunner } from './factory-check-sandbox.ts';
 import { DEFAULT_CONFIG } from './config-store.ts';
-import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, findWorkerCommitRefusal, listStagedSandboxPlaceholders, inheritedSecretValues, listUncommittedWorkPaths, parseCheckCommand, parseFactoryReviewerOutput, redactSecretLines, reviewerOutputTail } from './core/factory-core.ts';
+import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, findWorkerCommitRefusal, listStagedSandboxPlaceholders, inheritedSecretValues, listUncommittedWorkPaths, parseCheckCommand, parseFactoryReviewerOutput, redactSecretLines, reviewerOutputTail, summarizeFailedCheckOutput } from './core/factory-core.ts';
 import type { FactoryCheck, FactoryFence } from './core/factory-core.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES } from './core/lane-permissions-core.ts';
 import { SANDBOX_PLACEHOLDER_NAMES } from './core/sandbox-policy-core.ts';
@@ -35,6 +35,7 @@ export const FACTORY_REVIEWER_SPAWN_ENV: Readonly<Record<string, string>> = Obje
 const CASE_INSENSITIVE_LEDGER_PATHSPEC = ':(icase).coherence';
 const WORK_OUTSIDE_LEDGER_PATHSPECS = ['.', ':(exclude,icase).coherence'];
 const FACTORY_REVIEW_TOO_LARGE_FEEDBACK ='change too large for review; split it into smaller tickets';
+const FAILED_CHECK_FEEDBACK_MAX_CHARS = 3500;
 
 type FactoryWorkerSession = Pick<Session, 'destroy' | 'pasteTextWhenReady' | 'write' | '_destroyed'>
   & Partial<Pick<Session, 'id' | 'worktreeDir' | 'baseSha' | 'mergeWorktree'>>;
@@ -141,6 +142,7 @@ export function createFactoryCloseOut({
   const sharedEntries = () => config.worktreeShare ?? DEFAULT_CONFIG.worktreeShare;
   const secretValues = () => factorySecretValues(baseEnv);
   const checkOutput = (text: string) => redactSecretLines(text, secretValues()).slice(-4000);
+  const failedCheckOutput = (error: unknown) => summarizeFailedCheckOutput(redactSecretLines(failureText(error, 16 * 1024 * 1024), secretValues()), FAILED_CHECK_FEEDBACK_MAX_CHARS);
   const checkEnv = () => buildFactoryCheckEnv(baseEnv, process.platform);
   const untrustedCheckoutIsolation = () => ({ disableHooks: true, disableRepoCommands: true, replaceEnv: checkEnv() });
   const attemptOf = (worker: FactoryCloseOutWorker) => attempts.get(worker.workId) ?? 1;
@@ -236,7 +238,7 @@ export function createFactoryCloseOut({
     return envFileTexts.flatMap(envFileSecretValues);
   }
 
-  async function runChecksInCleanCheckout(worker: FactoryCloseOutWorker, headSha: string): Promise<{ checks: FactoryCheck[]; loggedChecks: FactoryCheck[]; checkoutSecretValues: string[] } | null> {
+  async function runChecksInCleanCheckout(worker: FactoryCloseOutWorker, headSha: string): Promise<{ checks: FactoryCheck[]; loggedChecks: FactoryCheck[]; decisionReasonChecks: FactoryCheck[]; checkoutSecretValues: string[] } | null> {
     const checkoutParent = await makeHostScratchDirectory('glimmervoid-factory-checks-');
     const checkoutPath = path.join(checkoutParent, 'checkout');
     let checkSandbox: FactoryCheckSandbox | null = null;
@@ -250,7 +252,8 @@ export function createFactoryCloseOut({
       const checkoutSecretValues = await readCheckoutSecretValues(checkoutPath);
       const checks: FactoryCheck[] = [];
       const loggedChecks: FactoryCheck[] = [];
-      const loggedOutput = (capturedText: string) => capFactoryDecisionOutput(redactSecretLines(capturedText, [...secretValues(), ...checkoutSecretValues]));
+      const decisionReasonChecks: FactoryCheck[] = [];
+      const loggedText = (capturedText: string) => redactSecretLines(capturedText, [...secretValues(), ...checkoutSecretValues]);
       for (const command of config.factory?.checks ?? DEFAULT_FACTORY_CHECKS) {
         if (!isLive(worker)) return null;
         const argv = parseCheckCommand(command);
@@ -258,18 +261,23 @@ export function createFactoryCloseOut({
           const refusedCheck = { command, pass: false, output: 'Check command contains shell syntax or is empty' };
           checks.push(refusedCheck);
           loggedChecks.push(refusedCheck);
+          decisionReasonChecks.push(refusedCheck);
           continue;
         }
         try {
           const output = await runCheck(argv, { cwd: checkoutPath, env, timeout: 15 * 60_000, maxBuffer: 16 * 1024 * 1024, signal: reviewController.signal });
           checks.push({ command, pass: true, output: checkOutput(`${output.stdout}\n${output.stderr}`) });
-          loggedChecks.push({ command, pass: true, output: loggedOutput(`${output.stdout}\n${output.stderr}`) });
+          const loggedCheck = { command, pass: true, output: capFactoryDecisionOutput(loggedText(`${output.stdout}\n${output.stderr}`)) };
+          loggedChecks.push(loggedCheck);
+          decisionReasonChecks.push(loggedCheck);
         } catch (error) {
-          checks.push({ command, pass: false, output: checkOutput(failureText(error)) });
-          loggedChecks.push({ command, pass: false, output: loggedOutput(failureText(error, 16 * 1024 * 1024)) });
+          checks.push({ command, pass: false, output: failedCheckOutput(error) });
+          const loggedFailureText = loggedText(failureText(error, 16 * 1024 * 1024));
+          loggedChecks.push({ command, pass: false, output: capFactoryDecisionOutput(loggedFailureText) });
+          decisionReasonChecks.push({ command, pass: false, output: summarizeFailedCheckOutput(loggedFailureText, FAILED_CHECK_FEEDBACK_MAX_CHARS) });
         }
       }
-      return { checks, loggedChecks, checkoutSecretValues };
+      return { checks, loggedChecks, decisionReasonChecks, checkoutSecretValues };
     } finally {
       try {
         await removeCheckCheckout(worker.projectPath, checkoutPath);
@@ -372,7 +380,7 @@ export function createFactoryCloseOut({
         await failedAttempt('Review size', FACTORY_REVIEW_TOO_LARGE_FEEDBACK);
         return;
       }
-      const captured = fence.ok ? await runChecksInCleanCheckout(worker, headSha) : { checks: [], loggedChecks: [], checkoutSecretValues: [] };
+      const captured = fence.ok ? await runChecksInCleanCheckout(worker, headSha) : { checks: [], loggedChecks: [], decisionReasonChecks: [], checkoutSecretValues: [] };
       if (captured === null || !isLive(worker)) return;
       const { checks } = captured;
       loggedChecks = captured.loggedChecks;
@@ -383,7 +391,7 @@ export function createFactoryCloseOut({
       if (!isLive(worker)) return;
       attemptFailureClass = factoryCloseOutFailureClass(fence, checks, verdict);
       const closeOutDecision = decideCloseOut({ fence, checks, review: verdict, attempt: attemptOf(worker) });
-      loggedReason = closeOutFailureText(decideCloseOut({ fence, checks: loggedChecks.map((check) => ({ ...check, output: checkOutput(check.output) })), review: loggedVerdict(), attempt }));
+      loggedReason = closeOutFailureText(decideCloseOut({ fence, checks: captured.decisionReasonChecks, review: loggedVerdict(), attempt }));
       if (closeOutDecision.action !== 'merge') {
         if (await applyFailure(worker, closeOutDecision, attemptFailureClass)) decision = closeOutDecision;
         return;

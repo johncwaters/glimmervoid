@@ -26,6 +26,8 @@ import type { FactoryCloseOutWorker } from './factory-closeout.ts';
 
 const FACTORY_WORKER_DENY = Object.freeze(['Bash(git push:*)', 'Bash(gh:*)', 'Bash(glimmervoid:*)', 'WebFetch', ...LANE_CONFIG_EDIT_DENY_RULES]);
 
+const FACTORY_WORKER_SHELL_ENV = Object.freeze({ CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1', BASH_DEFAULT_TIMEOUT_MS: '900000', BASH_MAX_TIMEOUT_MS: '900000' });
+
 const FILTER_PROBE_GIT_OPTIONS = { encoding: 'utf8' as const, timeout: 60_000, maxBuffer: 256 * 1024 * 1024 };
 
 type FactoryWorkerRecord<ManagedSession> = FactoryLiveWorker & {
@@ -182,7 +184,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
             gitIsolation: { disableRepoCommands: true },
             initialPrompt: buildWorkerPrompt({ projectName: project.name, intent, order, claudeSessionId, checks }),
             extraClaudeArgs: [...coherence.extraClaudeArgs, ...posture.sessionOverrides.extraClaudeArgs],
-            spawnEnv: { ...coherence.spawnEnv, ...posture.sessionOverrides.spawnEnv },
+            spawnEnv: { ...coherence.spawnEnv, ...posture.sessionOverrides.spawnEnv, ...FACTORY_WORKER_SHELL_ENV },
           });
           const closeOutWorker: FactoryCloseOutWorker = {
             workId, intentId, projectId, projectPath: project.path, baseSha: null,

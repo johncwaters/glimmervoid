@@ -56,6 +56,7 @@ async function createFixture(context: TestContext, activateOrder = true) {
   const events: FactoryWorkerEvent[] = [];
   const watches: FactoryWatchEntry[] = [];
   const exceptions: string[] = [];
+  const decisionReasons: (string | null)[] = [];
   const reviewRequests: Parameters<LaneSpawn>[0][] = [];
   const reviewerCwdEntries: string[][] = [];
   let isDestroyed = false;
@@ -96,7 +97,7 @@ async function createFixture(context: TestContext, activateOrder = true) {
     serializeProject: coherenceLedger.serializeProject,
     readIntegrationSha: () => git(['rev-parse', 'integration']),
     recordFactoryLandedSha: async () => {},
-    readPaused: async () => isPaused, baseEnv, prepareCheckRunner: (paths) => prepareCheckRunner(paths),
+    readPaused: async () => isPaused, baseEnv, recordDecision: async (decision) => { decisionReasons.push(decision.reason); }, prepareCheckRunner: (paths) => prepareCheckRunner(paths),
     appendWatch: async (entry) => {
       if (shouldFailWatchWrite) throw new Error('Watch state is unwritable');
       watches.push(entry);
@@ -127,7 +128,7 @@ async function createFixture(context: TestContext, activateOrder = true) {
     await git(['add', '--', relativePath], workspace.cwd);
     await git(['commit', '-m', 'fix: retries'], workspace.cwd);
   };
-  return { ...coherenceLedger, config, worker, closeOut, createOrder, workspace, directory, cleanupTasks, feedback, events, watches, exceptions, reviewRequests, reviewerCwdEntries, commitChange, baseEnv,
+  return { ...coherenceLedger, config, worker, closeOut, createOrder, workspace, directory, cleanupTasks, feedback, events, watches, exceptions, decisionReasons, reviewRequests, reviewerCwdEntries, commitChange, baseEnv,
     isDestroyed: () => isDestroyed, mergedSha: () => mergedSha, setPaused: (paused: boolean) => { isPaused = paused; },
     failWatchWrite: () => { shouldFailWatchWrite = true; },
     setLandingFails: (isFailing: boolean) => { shouldFailLanding = isFailing; },
@@ -184,15 +185,22 @@ test('out-of-fence worker retries with the path and never runs a reviewer', asyn
   assert.equal(fixture.isDestroyed(), false);
 });
 
-test('failing repo check retries with captured output and never runs a reviewer', async (context) => {
+test('failing repo check retries with its failing tests and load-time crash cause even when passing output follows them, and never runs a reviewer', async (context) => {
   const fixture = await createFixture(context);
   await fixture.commitChange();
-  await writeFile(path.join(fixture.workspace.cwd, 'src/retry.ts'), 'process.stderr.write("failed check evidence"); process.exitCode = 1;\n');
+  const expectedFailureBlock = `not ok 1 - the expected failure # TODO\n  ---\n  error: 'expected failure evidence'\n  ...\n`;
+  const loadTimeCrashBlock = `# Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'missing.ts'\n# Subtest: tests/broken.test.ts\nnot ok 2 - tests/broken.test.ts\n  ---\n  failureType: 'testCodeFailure'\n  error: 'test failed'\n  ...\n`;
+  const tapOutput = `${expectedFailureBlock}${loadTimeCrashBlock}not ok 3 - the failing case\n  ---\n  error: 'failed check evidence'\n  ...\n${'ok 4 - filler\n'.repeat(2000)}# fail 2\n`;
+  await writeFile(path.join(fixture.workspace.cwd, 'src/retry.ts'), `process.stdout.write(${JSON.stringify(tapOutput)}); process.exitCode = 1;\n`);
   await fixture.git(['add', '.'], fixture.workspace.cwd);
   await fixture.git(['commit', '-m', 'test: fail check'], fixture.workspace.cwd);
   fixture.config.factory = { enabled: true, checks: [`${process.execPath} src/retry.ts`] };
   await fixture.closeOut.turnEnded(fixture.worker);
-  assert.match(fixture.feedback[0], /failed check evidence/);
+  assert.match(fixture.feedback[0], /Cannot find module 'missing.ts'\n# Subtest: tests\/broken.test.ts\nnot ok 2 - tests\/broken.test.ts/);
+  assert.match(fixture.feedback[0], /not ok 3 - the failing case\n {2}---\n {2}error: 'failed check evidence'/);
+  assert.match(fixture.feedback[0], /# fail 2/);
+  assert.doesNotMatch(fixture.feedback[0], /expected failure evidence/);
+  assert.match(fixture.decisionReasons[0] ?? '', /failed check evidence/);
   assert.equal(fixture.reviewRequests.length, 0);
 });
 
