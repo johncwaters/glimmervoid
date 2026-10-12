@@ -234,6 +234,20 @@ test('factory stall decision reports simultaneous stalls and uses independent ti
   assert.deepEqual(decideFactoryStalls({ sessions: [], nowMs: 2_011 }), []);
 });
 
+test('factory stall decision reports an orchestrator whose turn ended while nothing in its project is running', () => {
+  const endedOrchestrator = { ...stallSession, state: STATES.COMPLETE, projectIdleSinceMs: 5_000 };
+  assert.deepEqual(decideFactoryStalls({ sessions: [endedOrchestrator], nowMs: 5_001 + FACTORY_STALL_MS }), [{
+    projectId: 'project-1', episodeId: 'factory-orch-project-1:idle:1000', reason: 'factory orchestrator ended its turn with nothing running',
+  }]);
+  assert.deepEqual(decideFactoryStalls({ sessions: [endedOrchestrator], nowMs: 5_000 + FACTORY_STALL_MS }), []);
+  assert.deepEqual(decideFactoryStalls({ sessions: [{ ...endedOrchestrator, projectIdleSinceMs: null }], nowMs: 5_001 + FACTORY_STALL_MS }), []);
+  assert.deepEqual(decideFactoryStalls({ sessions: [{ ...endedOrchestrator, state: STATES.RUNNING }], nowMs: 5_001 + FACTORY_STALL_MS }), []);
+  assert.deepEqual(decideFactoryStalls({ sessions: [{ ...endedOrchestrator, hasFirstHook: false }], nowMs: 5_001 + FACTORY_STALL_MS }), [{
+    projectId: 'project-1', episodeId: 'factory-orch-project-1:startup:1000',
+    reason: 'factory orchestrator session did not start: check Claude Code folder trust for /repo',
+  }]);
+});
+
 test('orchestrator prompt requires separate commands and direct JSON reading', async () => {
   const project = buildFactoryProjectState({ ...identity, error: null,
     orient: CoherenceOrient.parse(await readFixture('orient-dispatch')),

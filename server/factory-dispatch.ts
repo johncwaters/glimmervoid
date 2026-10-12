@@ -320,6 +320,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
   }
 
   return { dispatch, releaseProject, stop, reconcileActiveOrders, renudgeRefusedDispatch, getStallSessions,
+    hasPendingRefusal: (projectId: string) => pendingRefusals.has(projectId),
     getLiveWorkers: (projectId: string) => liveWorkersOf(projectId).map(({ workId, sessionId: workerSessionId }) => ({ workId, sessionId: workerSessionId })),
   };
 }

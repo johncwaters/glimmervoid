@@ -8,7 +8,7 @@ import type { Config } from '../shared/contracts/config.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { buildCoherenceShims } from './core/coherence-session-core.ts';
-import { appendFactoryLandedSha, decideFactoryStalls, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, hasValidWriteScopes, hasWildcardWriteScope, isCompletedCommandFailure, redactSecretLines } from './core/factory-core.ts';
+import { appendFactoryLandedSha, decideFactoryStalls, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, isFactoryProjectInFlight, hasValidWriteScopes, hasWildcardWriteScope, isCompletedCommandFailure, redactSecretLines } from './core/factory-core.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import type { LaneSpend } from './core/usage-scan-core.ts';
 import { commitAndLandFactoryLedger, hasCodeChangedBetween, screenPendingLedgerWrites } from './factory-ledger.ts';
@@ -498,10 +498,15 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       }) : null;
       dispatcher = activeDispatcher;
       let activeStalls = new Map<string, ReturnType<typeof decideFactoryStalls>[number]>();
+      const projectIdleSinceMs = new Map<string, number>();
+      const stallClock = pollerDeps.now ?? orchestratorOptions?.now ?? Date.now;
       function checkStalls(): void {
         const stalls = decideFactoryStalls({
-          sessions: [...activeOrchestrator?.getStallSessions() ?? [], ...activeDispatcher?.getStallSessions() ?? []],
-          nowMs: (pollerDeps.now ?? orchestratorOptions?.now ?? Date.now)(),
+          sessions: [
+            ...(activeOrchestrator?.getStallSessions() ?? []).map((session) => ({ ...session, projectIdleSinceMs: projectIdleSinceMs.get(session.projectId) ?? null })),
+            ...activeDispatcher?.getStallSessions() ?? [],
+          ],
+          nowMs: stallClock(),
         });
         for (const stall of stalls) {
           if (activeStalls.has(stall.episodeId)) continue;
@@ -554,6 +559,9 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
           if (activeDispatcher) await activeDispatcher.renudgeRefusedDispatch(updated, (await readLaneState(project.projectId)).ledgerPath);
           const liveWorkers = activeDispatcher?.getLiveWorkers(project.projectId) ?? [];
           const reviewing = liveWorkers.filter((worker) => activeCloseOut?.reviewing.has(worker.workId)).map((worker) => worker.workId);
+          const isInFlight = isFactoryProjectInFlight({ ...updated, liveWorkers }) || (activeDispatcher?.hasPendingRefusal(project.projectId) ?? false);
+          if (isInFlight) projectIdleSinceMs.delete(project.projectId);
+          if (!isInFlight && !projectIdleSinceMs.has(project.projectId)) projectIdleSinceMs.set(project.projectId, stallClock());
           return { ...updated, reviewing, liveWorkers, spentTodayUsd: todaySpend.status === 'known' ? todaySpend.amountUsd : undefined, dailyBudgetUsd: config.factory?.dailyBudgetUsd ?? null,
             error: updated.error ?? projectException(project.projectId) ?? landingErrors.get(project.projectId) ?? null };
         },
@@ -561,6 +569,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
           activeDispatcher?.releaseProject(projectId);
           activeOrchestrator?.releaseProject(projectId);
           exceptions.delete(projectId);
+          projectIdleSinceMs.delete(projectId);
           loggedSpawnExceptions.delete(projectId);
           crashLoopingProjectIds.delete(projectId);
           for (const [refusalKey, refusal] of refusalsByWork) {

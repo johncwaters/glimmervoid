@@ -41,7 +41,12 @@ export type FactoryStallSession = {
   stateSinceMs: number;
   spawnedAtMs: number;
   hasFirstHook: boolean;
+  projectIdleSinceMs?: number | null;
 };
+
+export function isFactoryProjectInFlight({ paused, liveWorkers, watches, verifierIntentIds }: Pick<FactoryProjectState, 'paused' | 'liveWorkers' | 'watches' | 'verifierIntentIds'>): boolean {
+  return paused || (liveWorkers?.length ?? 0) > 0 || (watches?.length ?? 0) > 0 || (verifierIntentIds?.length ?? 0) > 0;
+}
 
 export function decideFactoryStalls({ sessions, nowMs, stallMs = FACTORY_STALL_MS }: {
   sessions: readonly FactoryStallSession[]; nowMs: number; stallMs?: number;
@@ -56,6 +61,13 @@ export function decideFactoryStalls({ sessions, nowMs, stallMs = FACTORY_STALL_M
     if (!session.hasFirstHook && nowMs - session.spawnedAtMs > stallMs) {
       stalls.push({ projectId: session.projectId, episodeId: `${session.sessionId}:startup:${session.spawnedAtMs}`,
         reason: `factory ${role} session did not start: check Claude Code folder trust for ${session.repoPath}` });
+    }
+    const hasEndedTurn = session.state === STATES.IDLE || session.state === STATES.COMPLETE;
+    const projectIdleSinceMs = session.projectIdleSinceMs ?? null;
+    if (session.role === 'orchestrator' && session.hasFirstHook && hasEndedTurn && projectIdleSinceMs !== null
+      && nowMs - Math.max(session.stateSinceMs, projectIdleSinceMs) > stallMs) {
+      stalls.push({ projectId: session.projectId, episodeId: `${session.sessionId}:idle:${session.stateSinceMs}`,
+        reason: 'factory orchestrator ended its turn with nothing running' });
     }
     return stalls;
   });
