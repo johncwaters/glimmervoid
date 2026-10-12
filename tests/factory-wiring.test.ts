@@ -437,9 +437,16 @@ test('queue intent lands on integration and origin, reuses its ledger, and pause
   assert.equal(inspection.work[0].opened.parent, null);
   assert.equal(inspection.work[0].owner.session, 'glimmervoid-factory');
   assert.deepEqual(inspection.work[0].opened.criteria, [...request.criteria].sort());
-  assert.deepEqual(inspection.work[0].opened.writeScopes, request.writeScopes);
+  assert.deepEqual(inspection.work[0].opened.writeScopes, []);
+  assert.deepEqual(state.intentWriteScopes, { [queued.workId]: request.writeScopes });
   assert.equal(wiring.getState()?.projects[0].orders[0].id, queued.workId);
+  assert.deepEqual(wiring.getState()?.projects[0].orders[0].writeScopes, request.writeScopes);
   assert.equal(wiring.getState()?.projects[0].headSha, integrationSha);
+  const rescoped = await wiring.queueIntent({ ...request, writeScopes: ['server/other.ts'] });
+  assert.equal(rescoped.ok, true, rescoped.error ?? 'Queue failed');
+  assert.ok(rescoped.workId);
+  assert.notEqual(rescoped.workId, queued.workId);
+  assert.deepEqual((await readState()).intentWriteScopes?.[queued.workId], request.writeScopes);
   await wiring.stop();
   await access(state.ledgerPath);
   const restarted = await start();
@@ -447,7 +454,7 @@ test('queue intent lands on integration and origin, reuses its ledger, and pause
   const queuedAgain = await restarted.queueIntent({ ...request, objective: 'Second intent' });
   assert.equal(queuedAgain.ok, true, queuedAgain.error ?? 'Queue failed');
   assert.equal((await readState()).ledgerPath, state.ledgerPath);
-  assert.equal(restarted.getState()?.projects[0].orders.length, 2);
+  assert.equal(restarted.getState()?.projects[0].orders.length, 3);
   assert.equal((await restarted.control({ projectId: request.projectId, action: 'resume' })).ok, true);
   assert.equal(restarted.getState()?.projects[0].paused, false);
   assert.equal((await readState()).paused, false);

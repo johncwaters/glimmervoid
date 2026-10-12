@@ -8,7 +8,7 @@ import type { Config } from '../shared/contracts/config.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { buildCoherenceShims } from './core/coherence-session-core.ts';
-import { appendFactoryLandedSha, decideFactoryStalls, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryShouldStart, isCompletedCommandFailure, redactSecretLines } from './core/factory-core.ts';
+import { appendFactoryLandedSha, decideFactoryStalls, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, hasValidWriteScopes, hasWildcardWriteScope, isCompletedCommandFailure, redactSecretLines } from './core/factory-core.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import type { LaneSpend } from './core/usage-scan-core.ts';
 import { commitAndLandFactoryLedger, hasCodeChangedBetween, screenPendingLedgerWrites } from './factory-ledger.ts';
@@ -283,6 +283,10 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     return new Set((await readLaneState(projectId)).trustedIntentIds ?? []);
   }
 
+  async function readIntentWriteScopes(projectId: string): Promise<ReadonlyMap<string, readonly string[]>> {
+    return new Map(Object.entries((await readLaneState(projectId)).intentWriteScopes ?? {}));
+  }
+
   function recordFactoryLandedSha(projectId: string, integrationSha: string): Promise<void> {
     return updateLaneState(projectId, (state) => ({ factoryLandedShas: appendFactoryLandedSha(state.factoryLandedShas ?? [], integrationSha) }));
   }
@@ -312,6 +316,12 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
   async function queueIntent(request: FactoryQueueIntentRequest): Promise<FactoryQueueIntentResult> {
     try {
       const intent = FactoryQueueIntentRequest.parse(request);
+      if (!hasValidWriteScopes(intent.writeScopes)) {
+        throw new Error('Invalid write scopes: an intent needs at least one, each a relative path inside the repository');
+      }
+      if (hasWildcardWriteScope(intent.writeScopes)) {
+        throw new Error('Invalid write scopes: a write scope is a relative path (a folder covers everything under it) or ** for the whole repository');
+      }
       const outcome = await serializeProject(intent.projectId, async () => {
         const projectPath = requireProject(intent.projectId);
         const ledger = await ensureTrustedLedgerCheckout(intent.projectId, projectPath);
@@ -319,11 +329,13 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
           'work', 'create', intent.objective,
           ...intent.criteria.flatMap((criterion) => ['--success', criterion]),
           '--risk', intent.risk, '--authority', 'user-directed', '--granted-by', 'operator',
-          '--boundary', intent.boundary, '--session', FACTORY_LEDGER_SESSION,
-          ...intent.writeScopes.flatMap((scope) => ['--write-scope', scope]), '--json',
+          '--boundary', intent.boundary, '--id', factoryIntentWorkId(intent), '--session', FACTORY_LEDGER_SESSION, '--json',
         ];
         const created = CoherenceWorkCreated.parse(JSON.parse(await runCoherence({ cwd: ledger.cwd, args })));
-        await updateLaneState(intent.projectId, (state) => ({ trustedIntentIds: [...new Set([...(state.trustedIntentIds ?? []), created.work])] }));
+        await updateLaneState(intent.projectId, (state) => ({
+          trustedIntentIds: [...new Set([...(state.trustedIntentIds ?? []), created.work])],
+          intentWriteScopes: { ...state.intentWriteScopes, [created.work]: intent.writeScopes },
+        }));
         await landLedger(intent.projectId, projectPath, ledger, `factory: queue intent ${created.work}`, { trusted: true, intentId: activeIntentIdOf(intent.projectId) });
         return { projectId: intent.projectId, ok: true, workId: created.work };
       });
@@ -474,7 +486,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         now: pollerDeps.now ?? orchestratorOptions.now,
         onWorkerTurnEnd: activeCloseOut?.turnEnded,
         getOrchestrator: (sessionId) => activeOrchestrator?.getLiveOrchestrator(sessionId) ?? null,
-        serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, readTodaySpend: () => todaySpend, readTrustedIntentIds, readPaused,
+        serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, readTodaySpend: () => todaySpend, readTrustedIntentIds, readIntentWriteScopes, readPaused,
         onReadyIntent: (projectId, intentId) => activeVerifier?.ready(projectId, intentId),
         commitAndLand,
         notifyOrchestrator,
@@ -511,6 +523,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         }),
         resolveIntegrationBranch,
         readPaused,
+        readIntentWriteScopes,
         readBranchSha: async (projectPath, branch) => {
           const listed = await gitWorkspace.listIntegrationTips({ projectPath, integrationBranch: branch });
           if (!('integrationTips' in listed)) throw new Error(listed.err || `Could not list the ${branch} refs`);

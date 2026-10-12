@@ -22,6 +22,7 @@ type FactoryPollerDeps = Pick<TickLoopOptions, 'now' | 'setIntervalFn' | 'clearI
   releaseControlCheckout: (projectId: string) => Promise<void>;
   runCoherence: (args: { cwd: string; args: string[] }) => Promise<string>;
   readPaused?: (projectId: string) => Promise<boolean>;
+  readIntentWriteScopes?: (projectId: string) => Promise<ReadonlyMap<string, readonly string[]>>;
   processProjectState?: (project: FactoryProjectState) => Promise<FactoryProjectState>;
   releaseOrchestrator?: (projectId: string) => void;
   broadcast: (message: FactoryState) => void;
@@ -29,7 +30,7 @@ type FactoryPollerDeps = Pick<TickLoopOptions, 'now' | 'setIntervalFn' | 'clearI
 
 export function createFactoryPoller({
   shouldHoldCheckout = () => false, beforeTick = () => {}, listFactoryProjects, resolveIntegrationBranch, readBranchSha, hasCoherenceConfigAt,
-  ensureControlCheckout, releaseControlCheckout, runCoherence, readPaused = async () => false, processProjectState = async (project) => project, releaseOrchestrator = () => {}, broadcast, now = Date.now, ...loopOptions
+  ensureControlCheckout, releaseControlCheckout, runCoherence, readPaused = async () => false, readIntentWriteScopes = async () => new Map(), processProjectState = async (project) => project, releaseOrchestrator = () => {}, broadcast, now = Date.now, ...loopOptions
 }: FactoryPollerDeps) {
   const log = loopOptions.log ?? console;
   let state: FactoryState | null = null;
@@ -80,7 +81,7 @@ export function createFactoryPoller({
       const work = orient.action === 'refuse'
         ? null
         : CoherenceWorkInspect.parse(JSON.parse(await readCoherenceReport({ cwd, args: ['work', 'inspect', '--json'] })));
-      const projectState = buildFactoryProjectState({ ...identity, headSha, paused, orient, work, error: null });
+      const projectState = buildFactoryProjectState({ ...identity, headSha, paused, orient, work, error: null, intentWriteScopes: await readIntentWriteScopes(project.id) });
       processedProjects.set(project.id, { path: project.path, state: projectState });
       return projectState;
     } catch (error) {

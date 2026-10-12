@@ -118,6 +118,7 @@ export const FactoryLaneState = z.object({
   trustedVerifications: z.array(z.object({ id: z.string().min(1), sha: z.string().regex(/^[a-f0-9]{40,64}$/) })).optional(),
   trustedIntentCloses: z.array(z.string().min(1)).optional(),
   trustedIntentIds: z.array(z.string().min(1)).optional(),
+  intentWriteScopes: z.record(z.string().min(1), z.array(z.string().min(1))).optional(),
   filedBreaches: z.array(z.string().min(1)).optional(),
   factoryLandedShas: z.array(z.string().regex(/^[a-f0-9]{40,64}$/)).optional(),
 });

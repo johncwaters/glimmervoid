@@ -57,6 +57,7 @@ interface FactoryDispatchDeps<ManagedSession extends FactoryOrchestratorSession 
   runCoherence: (request: { cwd: string; args: string[] }) => Promise<string>;
   readTodaySpend: () => LaneSpend;
   readPaused: (projectId: string) => Promise<boolean>;
+  readIntentWriteScopes?: (projectId: string) => Promise<ReadonlyMap<string, readonly string[]>>;
   notifyOrchestrator: (projectId: string, event: FactoryDecisionWorkerEvent) => void;
   setException: (projectId: string, reason: string | null, expectedReason?: string) => void;
   now?: () => number;
@@ -65,7 +66,7 @@ interface FactoryDispatchDeps<ManagedSession extends FactoryOrchestratorSession 
 export function createFactoryDispatch<ManagedSession extends FactoryOrchestratorSession>({
   config, sessions, makeSession, wireSessionEvents, closeSessionDataClients, broadcast, spawnGate, recordLane,
   nodePath, hookCliPath, shimDir, getOrchestrator, serializeProject, ensureLedger, commitAndLand, runCoherence,
-  readTodaySpend, readPaused, readTrustedIntentIds, notifyOrchestrator, setException, onWorkerTurnEnd, onReadyIntent,
+  readTodaySpend, readPaused, readTrustedIntentIds, readIntentWriteScopes = async () => new Map(), notifyOrchestrator, setException, onWorkerTurnEnd, onReadyIntent,
   now = Date.now, getHookPort, resolveSaneYoloHookTools = resolveRequiredSaneYoloHookTools,
 }: FactoryDispatchDeps<ManagedSession>) {
   const liveWorkers = new Map<string, FactoryWorkerRecord<ManagedSession>>();
@@ -147,7 +148,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
         const order = inspectedWork.find((candidate) => candidate.work === workId) ?? null;
         const intent = inspectedWork.find((candidate) => candidate.work === intentId) ?? null;
         const admission = decideAdmission({
-          order, intent, trustedIntentIds, liveWorkers: liveWorkersOf(projectId),
+          order, intent, trustedIntentIds, intentWriteScopes: (await readIntentWriteScopes(projectId)).get(intentId), liveWorkers: liveWorkersOf(projectId),
           maxRisk: config.factory?.maxRisk, maxLiveWorkers: config.factory?.maxLiveWorkers,
           todaySpend: readTodaySpend(), dailyBudgetUsd: config.factory?.dailyBudgetUsd ?? null,
           filterDriverNames: await readFilterDriverNames(ledger.cwd),
@@ -286,6 +287,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
         order: inspectedWork.find((order) => order.work === refusal.workId) ?? null,
         intent: inspectedWork.find((order) => order.work === context.intentId) ?? null,
         trustedIntentIds: await readTrustedIntentIds(project.projectId),
+        intentWriteScopes: (await readIntentWriteScopes(project.projectId)).get(context.intentId),
         liveWorkers: liveWorkersOf(project.projectId),
         maxRisk: config.factory?.maxRisk, maxLiveWorkers: config.factory?.maxLiveWorkers,
         paused: await readPaused(project.projectId),

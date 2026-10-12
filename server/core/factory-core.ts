@@ -1,10 +1,11 @@
+import { createHash } from 'node:crypto';
 import { stripVTControlCharacters } from 'node:util';
 import { LANE_CREDENTIAL_DENY_READ } from './lane-posture-core.ts';
 import { contentMarker } from './visions-dispatch-core.ts';
 import { DEFAULT_FACTORY_CHECKS, DEFAULT_FACTORY_PROTECTED_PATHS } from '../../shared/contracts/browser-config.ts';
 import type { Config } from '../../shared/contracts/config.ts';
 import type { CoherenceOrient, CoherenceWorkInspect } from '../../shared/contracts/coherence.ts';
-import type { FactoryWorkerEvent, FactoryReviewVerdict, FactoryWatchEntry, FactoryIssue } from '../../shared/contracts/factory.ts';
+import type { FactoryWorkerEvent, FactoryReviewVerdict, FactoryWatchEntry, FactoryIssue, FactoryQueueIntentRequest } from '../../shared/contracts/factory.ts';
 import { FactoryProjectState, FactoryReviewerOutput } from '../../shared/contracts/factory.ts';
 import { STATES } from '../../shared/states.ts';
 import type { LaneSpend } from './usage-scan-core.ts';
@@ -77,7 +78,7 @@ export function factoryConfigKey(config: Pick<Config, 'factory'>): string {
   });
 }
 
-export function buildFactoryProjectState({ projectId, projectName, headSha, orient, work, error, paused = false }: {
+export function buildFactoryProjectState({ projectId, projectName, headSha, orient, work, error, paused = false, intentWriteScopes }: {
   projectId: string;
   projectName: string;
   headSha: string | null;
@@ -85,6 +86,7 @@ export function buildFactoryProjectState({ projectId, projectName, headSha, orie
   work: CoherenceWorkInspect | null;
   error: string | null;
   paused?: boolean;
+  intentWriteScopes?: ReadonlyMap<string, readonly string[]>;
 }): FactoryProjectState {
   if (error === null && orient?.action === 'refuse') {
     return {
@@ -115,7 +117,7 @@ export function buildFactoryProjectState({ projectId, projectName, headSha, orie
       readiness: order.readiness,
       parent: order.opened.parent,
       dependsOn: order.opened.dependsOn,
-      writeScopes: order.opened.writeScopes,
+      writeScopes: [...(intentWriteScopes?.get(order.work) ?? order.opened.writeScopes)],
       owner: order.owner.session || null,
       lastEvent: order.last === null ? null : { event: order.last.event, at: order.last.at, session: order.last.session },
     })),
@@ -218,6 +220,7 @@ export type FactoryAdmissionInput = {
   order: FactoryWorkOrder | null;
   intent: FactoryWorkOrder | null;
   trustedIntentIds: ReadonlySet<string>;
+  intentWriteScopes?: readonly string[];
   liveWorkers: Pick<FactoryLiveWorker, 'writeScopes'>[];
   maxRisk?: FactoryWorkOrder['opened']['risk'];
   maxLiveWorkers?: number;
@@ -258,6 +261,20 @@ function normalizeScope(scope: string): string | null {
   return segments.filter((segment) => segment !== '' && segment !== '.').join('/');
 }
 
+export function hasValidWriteScopes(scopes: readonly string[]): boolean {
+  return scopes.length > 0 && scopes.every((scope) => normalizeScope(scope) !== null);
+}
+
+export function hasWildcardWriteScope(scopes: readonly string[]): boolean {
+  return scopes.some((scope) => scope.trim() !== '**' && /[*?[\]]/.test(scope));
+}
+
+export function factoryIntentWorkId({ objective, criteria, risk, boundary, writeScopes }: Pick<FactoryQueueIntentRequest, 'objective' | 'criteria' | 'risk' | 'boundary' | 'writeScopes'>): string {
+  const normalizedScopes = writeScopes.map(normalizeScope).filter((scope): scope is string => scope !== null);
+  const seed = JSON.stringify({ objective, criteria: [...criteria].sort(), risk, boundary, writeScopes: [...new Set(normalizedScopes)].sort() });
+  return `wrk-${createHash('sha256').update(seed).digest('hex').slice(0, 16)}`;
+}
+
 function containsScope(parent: string, child: string): boolean {
   return parent === '' || child === parent || child.startsWith(`${parent}/`);
 }
@@ -267,7 +284,7 @@ function isCoherenceLedgerPath(relativePath: string): boolean {
   return folded === '.coherence' || folded?.startsWith('.coherence/') === true;
 }
 
-export function decideAdmission({ order, intent, trustedIntentIds, liveWorkers, maxRisk = 'medium', maxLiveWorkers = 2,
+export function decideAdmission({ order, intent, trustedIntentIds, intentWriteScopes, liveWorkers, maxRisk = 'medium', maxLiveWorkers = 2,
   todaySpend, dailyBudgetUsd, paused = false, filterDriverNames }: FactoryAdmissionInput): { admit: true } | { admit: false; reason: string; exception: boolean } {
   const refuse = (reason: string) => ({ admit: false as const, reason, exception: false });
   if (paused) return refuse(FACTORY_REFUSAL_PAUSED);
@@ -279,11 +296,12 @@ export function decideAdmission({ order, intent, trustedIntentIds, liveWorkers, 
   if (order.readiness !== 'ready') return refuse('work order is not ready');
   if (!intent || order.opened.parent !== intent.work || intent.opened.parent !== null || !trustedIntentIds.has(intent.work)
     || intent.state === 'completed' || intent.state === 'cancelled') return refuse('work order is not a child of the active intent');
-  const intentScopes = intent.opened.writeScopes.map(normalizeScope);
-  const orderScopes = order.opened.writeScopes.map(normalizeScope);
-  if (intentScopes.length === 0 || orderScopes.length === 0 || intentScopes.includes(null) || orderScopes.includes(null)) {
+  const intentScopeBound = intentWriteScopes ?? intent.opened.writeScopes;
+  if (!hasValidWriteScopes(intentScopeBound) || !hasValidWriteScopes(order.opened.writeScopes)) {
     return refuse('work order and intent require valid non-empty write scopes');
   }
+  const intentScopes = intentScopeBound.map(normalizeScope);
+  const orderScopes = order.opened.writeScopes.map(normalizeScope);
   if (!orderScopes.every((scope) => scope !== null && intentScopes.some((intentScope) => intentScope !== null && containsScope(intentScope, scope)))) {
     return refuse('work order write scopes exceed the intent write scopes');
   }
