@@ -132,7 +132,7 @@ export async function screenPendingLedgerWrites({ cwd, intentId, declaredFactory
 }): Promise<void> {
   const changes = await readLedgerChangesSince(cwd, 'HEAD');
   if (changes.length === 0) return;
-  const forbiddenWrites = findForbiddenLedgerWrites(changes, { trusted: true, intentId, declaredFactoryRecords: declaredFactoryRecordsById(declaredFactoryRecords) });
+  const forbiddenWrites = findForbiddenLedgerWrites(changes, { intentId, declaredFactoryRecords: declaredFactoryRecordsById(declaredFactoryRecords) });
   if (forbiddenWrites.length === 0) return;
   await discardPendingLedgerWrites(cwd, declaredFactoryRecords);
   onRefused(`Factory discarded pending orchestrator ledger writes: ${forbiddenWrites.join('; ')}`);
@@ -142,7 +142,7 @@ async function pushIntegrationToOrigin(projectPath: string, targetBranch: string
   await runHardenedGit(['push', 'origin', `refs/heads/${targetBranch}:refs/heads/${targetBranch}`], { ...LEDGER_GIT_OPTIONS, cwd: projectPath });
 }
 
-export async function commitAndLandFactoryLedger({ projectPath, ledger, targetBranch, message, gitWorkspace, trusted,
+export async function commitAndLandFactoryLedger({ projectPath, ledger, targetBranch, message, gitWorkspace,
   declaredFactoryRecords = [], intentId = null, retryLanding = false, factoryLandedShas = new Set<string>(),
   onRefused = () => {}, onCommitted = async () => {}, onIntegrationLanded = async () => {} }: {
   projectPath: string;
@@ -150,7 +150,6 @@ export async function commitAndLandFactoryLedger({ projectPath, ledger, targetBr
   targetBranch: string;
   message: string;
   gitWorkspace: Pick<GitWorkspaceInstance, 'mergeKeep'>;
-  trusted: boolean;
   declaredFactoryRecords?: readonly FactoryUnlandedRecord[];
   intentId?: string | null;
   retryLanding?: boolean;
@@ -191,7 +190,7 @@ export async function commitAndLandFactoryLedger({ projectPath, ledger, targetBr
     const unlandedLedgerPaths = unlandedPaths.filter(isLedgerPath);
     const forbiddenWrites = [
       ...unlandedPaths.filter((changedPath) => !isLedgerPath(changedPath)).map((changedPath) => `${changedPath} is outside the .coherence ledger`),
-      ...findForbiddenLedgerWrites(await readLedgerTreeChanges(ledger.cwd, integrationBase, stagedTree, unlandedLedgerPaths), { trusted, intentId, declaredFactoryRecords: declaredFactoryRecordsById(declaredFactoryRecords) }),
+      ...findForbiddenLedgerWrites(await readLedgerTreeChanges(ledger.cwd, integrationBase, stagedTree, unlandedLedgerPaths), { intentId, declaredFactoryRecords: declaredFactoryRecordsById(declaredFactoryRecords) }),
     ];
     if (forbiddenWrites.length > 0) {
       const reason = `Factory refused to land ledger writes: ${forbiddenWrites.join('; ')}`;

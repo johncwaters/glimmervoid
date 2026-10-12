@@ -91,7 +91,7 @@ export async function createCoherenceLedger(directory: string) {
     return created.work;
   };
   const land = async (_projectId: string, _projectPath: string, message: string, { onCommitted }: { onCommitted?: () => Promise<void> } = {}) =>
-    commitAndLandFactoryLedger({ projectPath, ledger, targetBranch: 'integration', message, gitWorkspace, trusted: true, declaredFactoryRecords, onCommitted });
+    commitAndLandFactoryLedger({ projectPath, ledger, targetBranch: 'integration', message, gitWorkspace, declaredFactoryRecords, onCommitted });
   const inspect = async () => CoherenceWorkInspect.parse(JSON.parse(await runCoherence({ cwd: projectPath, args: ['work', 'inspect', '--json'] })));
   const orderState = async (workId: string) => (await inspect()).work.find((order) => order.work === workId)?.state;
   const readOrient = async () => {

@@ -293,7 +293,7 @@ test('Stop with a dirty real ledger commits only coherence and lands it through 
   await writeFile(path.join(ledger.cwd, '.coherence', 'work', 's-orchestrator.jsonl'), '{"event":"opened","session":"orchestrator","parent":"intent"}\n');
   let hasLanded = false;
   const fixture = await createFixture(context, async (_projectId, intentId) => {
-    await commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'factory: orchestrator ledger repo', gitWorkspace, trusted: false, intentId });
+    await commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'factory: orchestrator ledger repo', gitWorkspace, intentId });
     hasLanded = true;
   });
   await fixture.orchestrator.tick(project);
@@ -304,10 +304,10 @@ test('Stop with a dirty real ledger commits only coherence and lands it through 
   assert.equal(await readFile(path.join(repository, '.coherence', 'work', 's-orchestrator.jsonl'), 'utf8'), '{"event":"opened","session":"orchestrator","parent":"intent"}\n');
   assert.equal(await git(['status', '--porcelain'], ledger.cwd), '');
   assert.equal(await git(['show', '--format=', '--name-only', 'HEAD']), '.coherence/work/s-orchestrator.jsonl');
-  await commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'no-op', gitWorkspace, trusted: false, intentId: 'intent' });
+  await commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'no-op', gitWorkspace, intentId: 'intent' });
   assert.equal(await git(['log', '-1', '--format=%s']), 'factory: orchestrator ledger repo');
   await git(['update-ref', 'refs/heads/main', 'HEAD~1'], origin);
-  await commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'retry', gitWorkspace, trusted: false, intentId: 'intent', retryLanding: true });
+  await commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'retry', gitWorkspace, intentId: 'intent', retryLanding: true });
   assert.equal(await git(['rev-parse', 'main']), await git(['rev-parse', 'main'], origin));
 });
 
@@ -322,7 +322,7 @@ test('orchestrator ledger writes other than work creation or decisions are refus
   let pendingLanding = Promise.resolve();
   const fixture = await createFixture(context, () => {
     pendingLanding = commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main',
-      message: 'factory: orchestrator ledger repo', gitWorkspace, trusted: false, onRefused: (reason) => { refusals.push(reason); } });
+      message: 'factory: orchestrator ledger repo', gitWorkspace, onRefused: (reason) => { refusals.push(reason); } });
     return pendingLanding;
   });
   await fixture.orchestrator.tick(project);
@@ -335,23 +335,23 @@ test('orchestrator ledger writes other than work creation or decisions are refus
   assert.equal(await git(['rev-parse', 'main'], origin), initialMain);
 });
 
-test('an orchestrator landing refuses a pending decision that claims the factory session while a trusted landing lands it', async (context) => {
+test('an orchestrator landing refuses a pending decision that claims the factory session while a landing that declares it lands it', async (context) => {
   const { repository, git, gitWorkspace, ledger } = await createMainLedgerRepository(context, 'factory-orchestrator-claimed-');
   await mkdir(path.join(ledger.cwd, '.coherence', 'decisions'), { recursive: true });
   const declaredLine = JSON.stringify({ id: 'factory-close', session: 'glimmervoid-factory', decision: 'declared' });
   await writeFile(path.join(ledger.cwd, '.coherence', 'decisions', 's-orchestrator.jsonl'), `${declaredLine}\n`);
   const initialMain = await git(['rev-parse', 'main']);
   const refusals: string[] = [];
-  await assert.rejects(() => commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'orchestrator', gitWorkspace, trusted: false,
+  await assert.rejects(() => commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'orchestrator', gitWorkspace,
     onRefused: (reason) => { refusals.push(reason); } }), /claims the glimmervoid-factory session/);
   assert.equal(refusals.length, 1);
   assert.equal(await git(['rev-parse', 'main']), initialMain);
-  await commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'factory', gitWorkspace, trusted: true,
+  await commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'factory', gitWorkspace,
     declaredFactoryRecords: [{ id: 'factory-close', path: '.coherence/decisions/s-orchestrator.jsonl', line: declaredLine }] });
   assert.notEqual(await git(['rev-parse', 'main']), initialMain);
 });
 
-test('a ledger branch commit touching a path outside .coherence is refused for every landing and never reaches origin', async (context) => {
+test('a ledger branch commit touching a path outside .coherence is refused and never reaches origin', async (context) => {
   const { repository, origin, git, gitWorkspace, ledger } = await createMainLedgerRepository(context, 'factory-orchestrator-outside-');
   await mkdir(path.join(ledger.cwd, 'src'), { recursive: true });
   await writeFile(path.join(ledger.cwd, 'src', 'payload.ts'), 'export const payload = true;\n');
@@ -360,12 +360,10 @@ test('a ledger branch commit touching a path outside .coherence is refused for e
   await mkdir(path.join(ledger.cwd, '.coherence', 'decisions'), { recursive: true });
   await writeFile(path.join(ledger.cwd, '.coherence', 'decisions', 's-orchestrator.jsonl'), `${JSON.stringify({ id: 'decision', session: 'orchestrator', decision: 'declared' })}\n`);
   const initialMain = await git(['rev-parse', 'main']);
-  for (const trusted of [false, true]) {
-    const refusals: string[] = [];
-    await assert.rejects(() => commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'ledger', gitWorkspace, trusted,
-      retryLanding: true, onRefused: (reason) => { refusals.push(reason); } }), /src\/payload\.ts is outside the \.coherence ledger/);
-    assert.equal(refusals.length, 1);
-  }
+  const refusals: string[] = [];
+  await assert.rejects(() => commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'ledger', gitWorkspace,
+    retryLanding: true, onRefused: (reason) => { refusals.push(reason); } }), /src\/payload\.ts is outside the \.coherence ledger/);
+  assert.equal(refusals.length, 1);
   assert.equal(await git(['rev-parse', 'main']), initialMain);
   assert.equal(await git(['rev-parse', 'main'], origin), initialMain);
   await assert.rejects(() => git(['cat-file', '-e', 'main:src/payload.ts'], origin));
@@ -379,12 +377,12 @@ test('a ledger landing pushes a factory-recorded local integration tip that orig
   await mkdir(path.join(ledger.cwd, '.coherence', 'decisions'), { recursive: true });
   await writeFile(path.join(ledger.cwd, '.coherence', 'decisions', 's-orchestrator.jsonl'), `${JSON.stringify({ id: 'decision', session: 'orchestrator', decision: 'declared' })}\n`);
   const refusals: string[] = [];
-  await assert.rejects(() => commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'orchestrator', gitWorkspace, trusted: false,
+  await assert.rejects(() => commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'orchestrator', gitWorkspace,
     intentId: 'intent', onRefused: (reason) => { refusals.push(reason); } }), /integration branch moved outside the factory/);
   assert.equal(refusals.length, 1);
   assert.notEqual(await git(['rev-parse', 'main'], origin), unpushedMain);
   const landedIntegrationShas: string[] = [];
-  await commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'orchestrator', gitWorkspace, trusted: false, intentId: 'intent',
+  await commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'orchestrator', gitWorkspace, intentId: 'intent',
     retryLanding: true, factoryLandedShas: new Set([unpushedMain]), onIntegrationLanded: async (integrationSha) => { landedIntegrationShas.push(integrationSha); } });
   assert.equal(refusals.length, 1);
   assert.equal(await git(['rev-parse', 'main'], origin), await git(['rev-parse', 'main']));
@@ -400,9 +398,9 @@ test('a retry landing inspects ledger content already committed on the ledger br
   await git(['add', '.coherence'], ledger.cwd);
   await git(['commit', '-m', 'forged commit'], ledger.cwd);
   const initialMain = await git(['rev-parse', 'main']);
-  await assert.rejects(() => commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'retry', gitWorkspace, trusted: false, retryLanding: true }),
+  await assert.rejects(() => commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'retry', gitWorkspace, retryLanding: true }),
     /gained a record other than work creation or a decision/);
-  await assert.rejects(() => commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'retry', gitWorkspace, trusted: true, retryLanding: true }),
+  await assert.rejects(() => commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'retry', gitWorkspace, retryLanding: true }),
     /gained a record other than work creation or a decision/);
   assert.equal(await git(['rev-parse', 'main']), initialMain);
   assert.equal(await git(['rev-parse', 'main'], origin), initialMain);
@@ -550,7 +548,7 @@ test('an orchestrator landing refuses a parentless ticket it wrote and never lan
     `${JSON.stringify({ event: 'opened', session: 'orchestrator', work: 'wrk-forged-root', parent: null, writeScopes: ['**'] })}\n`);
   const initialMain = await git(['rev-parse', 'main']);
   const refusals: string[] = [];
-  await assert.rejects(() => commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'orchestrator', gitWorkspace, trusted: false,
+  await assert.rejects(() => commitAndLandFactoryLedger({ projectPath: repository, ledger, targetBranch: 'main', message: 'orchestrator', gitWorkspace,
     intentId: 'wrk-intent', onRefused: (reason) => { refusals.push(reason); } }), /opened work that is not a child of the active intent/);
   assert.equal(refusals.length, 1);
   assert.equal(await git(['rev-parse', 'main']), initialMain);

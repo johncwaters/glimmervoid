@@ -797,7 +797,7 @@ export function isFactoryLedgerLineOfWrite(line: string, { args, output }: { arg
 }
 
 export function findForbiddenLedgerWrites(changes: FactoryLedgerChange[], { intentId = null, declaredFactoryRecords = new Map<string, FactoryDeclaredRecord>() }: {
-  trusted: boolean; intentId?: string | null; declaredFactoryRecords?: ReadonlyMap<string, FactoryDeclaredRecord>;
+  intentId?: string | null; declaredFactoryRecords?: ReadonlyMap<string, FactoryDeclaredRecord>;
 }): string[] {
   const forbidden: string[] = [];
   const appendCountByLine = countAppendedLines(changes);

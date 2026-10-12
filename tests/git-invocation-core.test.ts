@@ -104,36 +104,32 @@ test('factory write ids come from JSON writer output or the defect command recei
   assert.equal(factoryWrittenRecordId('anything'), null);
 });
 
-test('ledger validation refuses factory session records without a declared write in every ledger directory, trusted or not', () => {
-  for (const trusted of [true, false]) {
-    for (const directory of ['work', 'consequences', 'defects', 'decisions', 'activity']) {
-      const recordPath = `.coherence/${directory}/s-factory.jsonl`;
-      const line = JSON.stringify({ id: 'forged', session: 'glimmervoid-factory' });
-      const changes = [{ path: recordPath, previousText: null, currentText: `${line}\n` }];
-      assert.equal(findForbiddenLedgerWrites(changes, { trusted, declaredFactoryRecords: new Map([['written', { path: recordPath, line }]]) }).length, 1);
-      assert.deepEqual(findForbiddenLedgerWrites(changes, { trusted, declaredFactoryRecords: new Map([['forged', { path: recordPath, line }]]) }), []);
-      assert.equal(findForbiddenLedgerWrites([{ path: recordPath, previousText: `${line}\n`, currentText: `${line}\n${line}\n` }],
-        { trusted, declaredFactoryRecords: new Map([['forged', { path: recordPath, line }]]) }).length, 1);
-    }
+test('ledger validation refuses factory session records without a declared write in every ledger directory', () => {
+  for (const directory of ['work', 'consequences', 'defects', 'decisions', 'activity']) {
+    const recordPath = `.coherence/${directory}/s-factory.jsonl`;
+    const line = JSON.stringify({ id: 'forged', session: 'glimmervoid-factory' });
+    const changes = [{ path: recordPath, previousText: null, currentText: `${line}\n` }];
+    assert.equal(findForbiddenLedgerWrites(changes, { declaredFactoryRecords: new Map([['written', { path: recordPath, line }]]) }).length, 1);
+    assert.deepEqual(findForbiddenLedgerWrites(changes, { declaredFactoryRecords: new Map([['forged', { path: recordPath, line }]]) }), []);
+    assert.equal(findForbiddenLedgerWrites([{ path: recordPath, previousText: `${line}\n`, currentText: `${line}\n${line}\n` }],
+      { declaredFactoryRecords: new Map([['forged', { path: recordPath, line }]]) }).length, 1);
   }
 });
 
-test('ledger validation holds undeclared work records to the child-of-active-intent rule, trusted or not', () => {
+test('ledger validation holds undeclared work records to the child-of-active-intent rule', () => {
   const recordPath = '.coherence/work/s-orchestrator.jsonl';
   const workChange = (record: Record<string, unknown>) => [{ path: recordPath, previousText: null, currentText: `${JSON.stringify(record)}\n` }];
   const declaredAs = (record: Record<string, unknown>) => new Map([[String(record.id), { path: recordPath, line: JSON.stringify(record) }]]);
   const racedRecord = { id: 'raced', session: 'orchestrator', event: 'opened', parent: null };
   const declaredRecord = { id: 'declared', session: 'glimmervoid-factory', event: 'opened', parent: null };
   const topLevel = workChange(racedRecord);
-  for (const trusted of [true, false]) {
-    assert.deepEqual(findForbiddenLedgerWrites(topLevel, { trusted, intentId: 'intent', declaredFactoryRecords: declaredAs(declaredRecord) }),
-      ['.coherence/work/s-orchestrator.jsonl opened work that is not a child of the active intent']);
-    assert.equal(findForbiddenLedgerWrites(topLevel, { trusted, intentId: null, declaredFactoryRecords: declaredAs(racedRecord) }).length, 1);
-    assert.deepEqual(findForbiddenLedgerWrites(workChange({ id: 'child', session: 'orchestrator', event: 'opened', parent: 'intent' }),
-      { trusted, intentId: 'intent', declaredFactoryRecords: new Map() }), []);
-    assert.deepEqual(findForbiddenLedgerWrites(workChange(declaredRecord),
-      { trusted, intentId: null, declaredFactoryRecords: declaredAs(declaredRecord) }), []);
-  }
+  assert.deepEqual(findForbiddenLedgerWrites(topLevel, { intentId: 'intent', declaredFactoryRecords: declaredAs(declaredRecord) }),
+    ['.coherence/work/s-orchestrator.jsonl opened work that is not a child of the active intent']);
+  assert.equal(findForbiddenLedgerWrites(topLevel, { intentId: null, declaredFactoryRecords: declaredAs(racedRecord) }).length, 1);
+  assert.deepEqual(findForbiddenLedgerWrites(workChange({ id: 'child', session: 'orchestrator', event: 'opened', parent: 'intent' }),
+    { intentId: 'intent', declaredFactoryRecords: new Map() }), []);
+  assert.deepEqual(findForbiddenLedgerWrites(workChange(declaredRecord),
+    { intentId: null, declaredFactoryRecords: declaredAs(declaredRecord) }), []);
 });
 
 test('nested factory git commands receive numbered config overrides without inherited config or secrets', () => {

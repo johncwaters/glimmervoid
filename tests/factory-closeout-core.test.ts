@@ -172,14 +172,14 @@ const openedRecord = JSON.stringify({ event: 'opened', session: 'orchestrator-se
 const factoryRecord = JSON.stringify({ id: 'factory-close', event: 'closed', session: 'glimmervoid-factory', work: 'wrk-1' });
 const factoryVerificationRecord = JSON.stringify({ id: 'factory-verification', session: 'glimmervoid-factory', relation: 'verifies' });
 
-test('a trusted ledger landing admits work creation, decisions, traces and factory-authored records', () => {
+test('a ledger landing admits work creation, decisions, traces and factory-authored records', () => {
   assert.deepEqual(findForbiddenLedgerWrites([
     { path: '.coherence/work/s-a.jsonl', previousText: `${factoryRecord}\n`, currentText: `${factoryRecord}\n${openedRecord}\n` },
     { path: '.coherence/work/s-b.jsonl', previousText: null, currentText: `${openedRecord}\n${factoryRecord}\n` },
     { path: '.coherence/decisions/s-c.jsonl', previousText: null, currentText: 'anything\n' },
     { path: '.coherence/activity/session.jsonl', previousText: null, currentText: '{}\n' },
     { path: '.coherence/consequences/s-d.jsonl', previousText: null, currentText: `${factoryVerificationRecord}\n` },
-  ], { trusted: true, intentId: 'wrk-intent', declaredFactoryRecords: new Map([
+  ], { intentId: 'wrk-intent', declaredFactoryRecords: new Map([
     ['factory-close', { path: '.coherence/work/s-b.jsonl', line: factoryRecord }],
     ['factory-verification', { path: '.coherence/consequences/s-d.jsonl', line: factoryVerificationRecord }],
   ]) }), []);
@@ -191,13 +191,13 @@ test('an orchestrator ledger landing refuses any record that claims the factory 
     { path: '.coherence/work/s-a.jsonl', previousText: null, currentText: claimed },
     { path: '.coherence/decisions/s-b.jsonl', previousText: null, currentText: `${JSON.stringify({ session: 'glimmervoid-factory', decision: 'x' })}\n` },
     { path: '.coherence/consequences/s-c.jsonl', previousText: null, currentText: `${JSON.stringify({ id: 'factory-verification', session: 'glimmervoid-factory', relation: 'verifies' })}\n` },
-  ], { trusted: false });
+  ], {});
   assert.equal(refusals.length, 3);
   for (const refusal of refusals) assert.match(refusal, /claims the glimmervoid-factory session/);
   assert.deepEqual(findForbiddenLedgerWrites([
     { path: '.coherence/work/s-d.jsonl', previousText: `${factoryRecord}\n`, currentText: `${factoryRecord}\n${openedRecord}\n` },
     { path: '.coherence/decisions/s-e.jsonl', previousText: null, currentText: 'anything\n' },
-  ], { trusted: false, intentId: 'wrk-intent' }), []);
+  ], { intentId: 'wrk-intent' }), []);
 });
 
 test('an orchestrator ledger landing admits the calibration sample its stop hook appends and refuses a rewritten or forged one', () => {
@@ -207,7 +207,7 @@ test('an orchestrator ledger landing admits the calibration sample its stop hook
   assert.deepEqual(findForbiddenLedgerWrites([
     { path: calibrationPath, previousText: null, currentText: sample('orchestrator-session') },
     { path: '.coherence/calibration/host-scope-a-b.jsonl', previousText: null, currentText: sample('host/scope:a b') },
-  ], { trusted: false, intentId: 'wrk-intent' }), []);
+  ], { intentId: 'wrk-intent' }), []);
   assert.equal(findForbiddenLedgerWrites([
     { path: calibrationPath, previousText: sample('orchestrator-session'), currentText: sample('another-session') },
     { path: '.coherence/calibration/deleted.jsonl', previousText: sample('orchestrator-session'), currentText: null },
@@ -218,7 +218,7 @@ test('an orchestrator ledger landing admits the calibration sample its stop hook
     { path: calibrationPath, previousText: sample('orchestrator-session'), currentText: sample('orchestrator-session') + sample('orchestrator-session').trimEnd() },
     { path: '.coherence/calibration/nested.jsonl/orchestrator-session.jsonl', previousText: null, currentText: sample('orchestrator-session') },
     { path: calibrationPath, previousText: null, currentText: sample('orchestrator-session', { at: undefined }) },
-  ], { trusted: false, intentId: 'wrk-intent' }).length, 9);
+  ], { intentId: 'wrk-intent' }).length, 9);
 });
 
 test('an orchestrator ledger landing refuses opening a root ticket or a child of any ticket but the active intent', () => {
@@ -227,11 +227,11 @@ test('an orchestrator ledger landing refuses opening a root ticket or a child of
     { path: '.coherence/work/s-root.jsonl', previousText: null, currentText: opened(null) },
     { path: '.coherence/work/s-other.jsonl', previousText: null, currentText: opened('wrk-other') },
   ];
-  const refusals = findForbiddenLedgerWrites(changes, { trusted: false, intentId: 'wrk-intent' });
+  const refusals = findForbiddenLedgerWrites(changes, { intentId: 'wrk-intent' });
   assert.equal(refusals.length, 2);
   for (const refusal of refusals) assert.match(refusal, /opened work that is not a child of the active intent/);
-  assert.equal(findForbiddenLedgerWrites([{ path: '.coherence/work/s-child.jsonl', previousText: null, currentText: opened('wrk-intent') }], { trusted: false }).length, 1);
-  assert.equal(findForbiddenLedgerWrites(changes, { trusted: true, intentId: 'wrk-intent' }).length, 2);
+  assert.equal(findForbiddenLedgerWrites([{ path: '.coherence/work/s-child.jsonl', previousText: null, currentText: opened('wrk-intent') }], {}).length, 1);
+  assert.equal(findForbiddenLedgerWrites(changes, { intentId: 'wrk-intent' }).length, 2);
 });
 
 test('ledger landing refuses orchestrator closes, transitions, consequences, defects, rewrites and unknown files', () => {
@@ -246,6 +246,6 @@ test('ledger landing refuses orchestrator closes, transitions, consequences, def
     { path: '.coherence/work/s-f.jsonl', previousText: `${factoryRecord}\n`, currentText: null },
     { path: '.coherence/work/s-g.jsonl', previousText: null, currentText: 'not json\n' },
     { path: '.coherence/unknown.json', previousText: null, currentText: '{}' },
-  ], { trusted: false });
+  ], {});
   assert.equal(refusals.length, 9);
 });

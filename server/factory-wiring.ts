@@ -315,7 +315,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       for (const ticket of pending.tickets) {
         CoherenceTicketCreated.parse(JSON.parse(await runCoherence({ cwd: ledger.cwd, args: buildTicketCreateArgs({ intent: pending, intentWorkId: intentId, ticket }) })));
       }
-      await landLedger(projectId, projectPath, ledger, `factory: write tickets of ${intentId}`, { trusted: true, intentId, landsCommittedWrites: true });
+      await landLedger(projectId, projectPath, ledger, `factory: write tickets of ${intentId}`, { intentId, landsCommittedWrites: true });
     } catch (error) {
       await discardFailedTicketWrites(projectId, ledger.cwd, recordIdsBeforeTickets).catch((discardError: unknown) => {
         log.warn(`[factory] could not discard unlanded tickets of ${intentId}: ${errorMessage(discardError)}`);
@@ -360,11 +360,11 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
   }
 
   async function landLedger(projectId: string, projectPath: string, ledger: Awaited<ReturnType<typeof ensureLedgerCheckout>>, message: string,
-    { trusted, intentId = null, onCommitted, landsCommittedWrites = false }: { trusted: boolean; intentId?: string | null; onCommitted?: () => Promise<void>; landsCommittedWrites?: boolean }): Promise<void> {
+    { intentId = null, onCommitted, landsCommittedWrites = false }: { intentId?: string | null; onCommitted?: () => Promise<void>; landsCommittedWrites?: boolean }): Promise<void> {
     const unlandedRecords = await readUnlandedFactoryRecords(projectId);
     try {
       await commitAndLandFactoryLedger({
-        projectPath, ledger, message, targetBranch: await resolveIntegrationBranch(projectPath), gitWorkspace, trusted, intentId, declaredFactoryRecords: unlandedRecords,
+        projectPath, ledger, message, targetBranch: await resolveIntegrationBranch(projectPath), gitWorkspace, intentId, declaredFactoryRecords: unlandedRecords,
         retryLanding: landsCommittedWrites || landingErrors.has(projectId) || unlandedRecords.length > 0, factoryLandedShas: new Set((await readLaneState(projectId)).factoryLandedShas ?? []),
         onRefused: (reason) => raiseException(projectId, reason), onCommitted,
         onIntegrationLanded: (integrationSha) => recordFactoryLandedSha(projectId, integrationSha),
@@ -433,7 +433,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
             ? { ...state.pendingIntentTickets, [intentWorkId]: { risk: intent.risk, boundary: intent.boundary, tickets: intent.tickets } }
             : state.pendingIntentTickets,
         }));
-        await landLedger(intent.projectId, projectPath, ledger, `factory: queue intent ${intentWorkId}`, { trusted: true, intentId: activeIntentIdOf(intent.projectId) });
+        await landLedger(intent.projectId, projectPath, ledger, `factory: queue intent ${intentWorkId}`, { intentId: activeIntentIdOf(intent.projectId) });
         return { projectId: intent.projectId, ok: true, workId: intentWorkId };
       });
       await runner.getPoller()?.refreshNow();
@@ -530,20 +530,20 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         commitAndLand: (projectId, intentId) => serializeProject(projectId, async () => {
           const projectPath = requireProject(projectId);
           const ledger = await ensureLedgerCheckout(projectId, projectPath);
-          await landLedger(projectId, projectPath, ledger, `factory: orchestrator ledger ${projectId}`, { trusted: false, intentId });
+          await landLedger(projectId, projectPath, ledger, `factory: orchestrator ledger ${projectId}`, { intentId });
         }),
       }) : null;
       orchestrator = activeOrchestrator;
       const commitAndLand = async (projectId: string, projectPath: string, message: string, { onCommitted }: { onCommitted?: () => Promise<void> } = {}) => {
         const ledger = await ensureLedgerCheckout(projectId, projectPath);
-        await landLedger(projectId, projectPath, ledger, message, { trusted: true, intentId: activeIntentIdOf(projectId), onCommitted });
+        await landLedger(projectId, projectPath, ledger, message, { intentId: activeIntentIdOf(projectId), onCommitted });
       };
       const landUnlandedFactoryWrites = async (projectId: string) => {
         const projectPath = findFactoryProjectPath(config, projectId);
         if (!projectPath || (await readUnlandedFactoryRecords(projectId)).length === 0) return;
         await serializeProject(projectId, async () => {
           const ledger = await ensureTrustedLedgerCheckout(projectId, projectPath);
-          await landLedger(projectId, projectPath, ledger, `factory: land unlanded writes ${projectId}`, { trusted: true, intentId: activeIntentIdOf(projectId) });
+          await landLedger(projectId, projectPath, ledger, `factory: land unlanded writes ${projectId}`, { intentId: activeIntentIdOf(projectId) });
         }).catch((error: unknown) => {
           landingErrors.set(projectId, errorMessage(error));
         });

@@ -951,7 +951,7 @@ async function prepareVerifierFixture(context: TestContext) {
       if (!shouldFailVerifierPush) return fixture.land(...args);
       const [, projectPath, message, options] = args;
       await commitAndLandFactoryLedger({ projectPath, ledger: fixture.ledger, targetBranch: 'integration', message, gitWorkspace: failingPushWorkspace,
-        trusted: true, declaredFactoryRecords: fixture.declaredFactoryRecords, onCommitted: options?.onCommitted });
+        declaredFactoryRecords: fixture.declaredFactoryRecords, onCommitted: options?.onCommitted });
     }, hasCodeChangedSince: async (projectPath, sinceSha) => hasCodeChangedBetween({ projectPath, sinceSha, tipSha: await fixture.git(['rev-parse', 'integration']) }),
     readLaneState: async () => fixture.state, writeLaneState: async (_projectId, updated) => { Object.assign(fixture.state, updated); },
     ensureControlCheckout: async ({ sha }) => {
@@ -1089,7 +1089,7 @@ test('a verifier push failure after the local ledger commit still trusts its ver
   assert.deepEqual(fixture.state.trustedIntentCloses, [intentId]);
   const exceptionCount = fixture.exceptions.length;
   await commitAndLandFactoryLedger({ projectPath: fixture.projectPath, ledger: fixture.ledger, targetBranch: 'integration', message: 'factory: retry landing',
-    gitWorkspace: fixture.gitWorkspace, trusted: true, declaredFactoryRecords: fixture.declaredFactoryRecords, retryLanding: true });
+    gitWorkspace: fixture.gitWorkspace, declaredFactoryRecords: fixture.declaredFactoryRecords, retryLanding: true });
   const closed = await fixture.readProject();
   assert.equal(closed.orders.find((order) => order.id === intentId)?.state, 'completed');
   const ticked = await fixture.verifier.tick(closed);
@@ -1298,7 +1298,7 @@ test('a push failure after the ledger commit files the breach once, recovery lan
   fixture.watchDeps.commitAndLand = async (_projectId, projectPath, message, options) => {
     try {
       await commitAndLandFactoryLedger({ projectPath, ledger: fixture.ledger, targetBranch: 'integration', message, gitWorkspace: failingPushWorkspace,
-        trusted: true, declaredFactoryRecords: fixture.declaredFactoryRecords, retryLanding: hasPendingLanding, onCommitted: options?.onCommitted });
+        declaredFactoryRecords: fixture.declaredFactoryRecords, retryLanding: hasPendingLanding, onCommitted: options?.onCommitted });
       hasPendingLanding = false;
     } catch (error) {
       hasPendingLanding = true;
