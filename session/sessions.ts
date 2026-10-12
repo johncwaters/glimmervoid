@@ -1,5 +1,6 @@
 import { awaitBounded } from "../server/core/shutdown-core.ts";
 import { errorMessage } from "../shared/text.ts";
+import { randomUUID } from "node:crypto";
 import { createCompactionTracking, observeCompaction, finishCompaction, isCompactionEndingSignal, suppressCompactionSignal, mapCompactionActivityEvent, isIdleCompactionActivity } from "./core/compaction-core.ts";
 import { isCompactionRestoreEvent } from "../shared/compaction-restore-events.ts";
 import type { CompactionTracking } from "./core/compaction-core.ts";
@@ -53,6 +54,7 @@ import type { ScreenSnapshot } from "./session-output.ts";
 import type { ScreenKeeperFactory } from "./screen-keeper.ts";
 import { createSessionHookLifecycle } from "./session-hook-lifecycle.ts";
 import type { HookRouterPort } from "./session-hook-lifecycle.ts";
+import type { SandboxLaunch, SandboxLaunchResult } from "../server/sandbox-launch.ts";
 import { createSessionWorktreeLifecycle } from "./session-worktree-lifecycle.ts";
 import type { GitIsolationOptions } from "../server/core/git-invocation-core.ts";
 import type { GitWorkspace } from "./session-worktree-lifecycle.ts";
@@ -66,6 +68,18 @@ const KILL_REAP_MAX_WAIT_MS = 2400;
 const SLEEP_KILL_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_PENDING_ATTENTION_NOTES = 5;
 const SANDBOX_UNAPPLIED_ERROR = "sandbox settings could not be applied, session not started";
+const SANDBOX_REFUSED_PREFIX = "session not started, the sandbox refused: ";
+const INNER_SANDBOX_OFF = Object.freeze({ enabled: false });
+
+function settingsSandboxForHooks(
+  adapter: AgentAdapter,
+  hasOuterSandbox: boolean,
+  requestedSettingsSandbox: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  if (!hasOuterSandbox) return requestedSettingsSandbox;
+  if (typeof adapter.settingsArgs !== "function") return null;
+  return INNER_SANDBOX_OFF;
+}
 
 function signalablePid(pid: unknown): number | null {
   const parsed = Number(pid);
@@ -153,6 +167,21 @@ type KillProc = (
 
 type SignalProc = (pid: number, signal: NodeJS.Signals | 0) => void;
 
+interface SessionSandboxFacts {
+  launchId: string;
+  cwd: string;
+  hookPort: number | null;
+  readablePaths: string[];
+}
+
+type PrepareSessionSandbox = (facts: SessionSandboxFacts) => Promise<SandboxLaunchResult>;
+
+interface SpawnCommand {
+  file: string;
+  args: string[];
+  env: Record<string, string>;
+}
+
 interface SessionOptions {
   customTitle?: string;
   taskTitleState?: PersistedTaskTitle;
@@ -186,6 +215,7 @@ interface SessionOptions {
   antiSlopPrompt?: boolean;
   settingsPermissions?: Record<string, unknown> | null;
   settingsSandbox?: Record<string, unknown> | null;
+  prepareSandbox?: PrepareSessionSandbox | null;
   spawnEnv?: Record<string, string> | null;
   prependPathDirs?: string[];
   enableProjectMcp?: boolean;
@@ -297,6 +327,8 @@ class Session extends EventEmitter {
   _agentLifetimeSpawns: number;
   _agentSpawnsInFlight: number;
   _ptySpawn: PtySpawn;
+  _prepareSandbox: PrepareSessionSandbox | null;
+  _sandboxLaunch: SandboxLaunch | null;
   _requiresWorktree: boolean;
   _killProc: KillProc;
   _signalProc: SignalProc;
@@ -355,6 +387,7 @@ class Session extends EventEmitter {
 
     settingsPermissions = null,
     settingsSandbox = null,
+    prepareSandbox = null,
 
     spawnEnv = null,
     prependPathDirs = [],
@@ -514,7 +547,7 @@ class Session extends EventEmitter {
       getHookPort,
       hooksBaseDir,
       settingsPermissions,
-      settingsSandbox,
+      settingsSandbox: settingsSandboxForHooks(this._adapter, prepareSandbox !== null, settingsSandbox),
       detectScheduledWakeups,
       observeToolCalls: observeToolCalls === true,
       enableProjectMcp: !!enableProjectMcp,
@@ -541,6 +574,8 @@ class Session extends EventEmitter {
       requireExecutableSpawnHelper();
       return pty.spawn(file, args, opts);
     });
+    this._prepareSandbox = prepareSandbox;
+    this._sandboxLaunch = null;
 
     this._killProc = killProc || ((args, opts, cb) => execFile("taskkill", args, opts, cb));
     this._signalProc = signalProc || ((pid, signal) => process.kill(pid, signal));
@@ -1365,11 +1400,7 @@ class Session extends EventEmitter {
     const hookInjection = this._hooks.inject();
     this._isSaneYoloActive = hookInjection.isSaneYoloActive;
     if (this._hooks.isRequiredSandboxMissing()) {
-      this._isSaneYoloActive = false;
-      this._hooks.cleanup();
-      const refusal = new Error(SANDBOX_UNAPPLIED_ERROR);
-      this.transition("spawn_fail", { error: refusal.message });
-      this.emit("error", refusal);
+      this._abandonSpawn(new Error(SANDBOX_UNAPPLIED_ERROR));
       return;
     }
     const settingsArgs = [...hookInjection.args];
@@ -1413,29 +1444,30 @@ class Session extends EventEmitter {
       extraArgs: this._extraClaudeArgs,
       antiSlopPrompt: this._antiSlopPrompt,
       initialPrompt: this._initialPrompt,
+      hasOuterSandbox: this._prepareSandbox !== null,
     });
 
-    const { file, args } = this._adapter.buildSpawnCommand({
+    const spawnCommand = await this._sandboxedSpawnCommand(this._adapter.buildSpawnCommand({
       platform: this._platform,
       resolved: this._spawnCommand || commandFor(this._adapter),
       settingsArgs,
       agentArgs,
-    });
+    }));
+    if (!spawnCommand) return;
+    const { file, args } = spawnCommand;
 
     const ptySize = this._output.ptySize();
+    const sandboxLaunch = this._sandboxLaunch;
     try {
       this.ptyProcess = this._ptySpawn(file, args, {
         name: "xterm-256color",
         cols: ptySize.cols,
         rows: ptySize.rows,
         cwd: this.effectiveCwd(),
-        env,
+        env: { ...env, ...spawnCommand.env },
       });
     } catch (err) {
-      this._isSaneYoloActive = false;
-      this._hooks.cleanup();
-      this.transition("spawn_fail", { error: errorMessage(err) });
-      this.emit("error", err);
+      this._abandonSpawn(err);
       return;
     }
     this._ptyAlive = true;
@@ -1445,7 +1477,7 @@ class Session extends EventEmitter {
     const spawnCwdExists = fs.existsSync(this.effectiveCwd());
     if (!this.transition("spawn_success", { spawnCwdExists })) {
       this.ptyProcess.onExit(({ exitCode, signal }) =>
-        this._handlePtyExit(exitCode, signal),
+        this._handleSpawnedPtyExit(sandboxLaunch, exitCode, signal),
       );
       this._isSaneYoloActive = false;
       this._hooks.cleanup();
@@ -1473,8 +1505,54 @@ class Session extends EventEmitter {
 
     this.ptyProcess.onData((data) => this._handlePtyData(data));
     this.ptyProcess.onExit(({ exitCode, signal }) =>
-      this._handlePtyExit(exitCode, signal),
+      this._handleSpawnedPtyExit(sandboxLaunch, exitCode, signal),
     );
+  }
+
+  _abandonSpawn(cause: unknown): void {
+    this._isSaneYoloActive = false;
+    this._hooks.cleanup();
+    this._disposeSandboxLaunch(this._sandboxLaunch);
+    this.transition("spawn_fail", { error: errorMessage(cause) });
+    this.emit("error", cause);
+  }
+
+  async _sandboxedSpawnCommand(command: { file: string; args: string[] }): Promise<SpawnCommand | null> {
+    if (!this._prepareSandbox) return { ...command, env: {} };
+    const wrapped = await this._wrapInSandbox(this._prepareSandbox, command)
+      .catch((error: unknown) => new Error(`${SANDBOX_REFUSED_PREFIX}${errorMessage(error)}`));
+    if (this._destroyed) {
+      this._hooks.cleanup();
+      this._disposeSandboxLaunch(this._sandboxLaunch);
+      return null;
+    }
+    if (wrapped instanceof Error) {
+      this._abandonSpawn(wrapped);
+      return null;
+    }
+    return wrapped;
+  }
+
+  async _wrapInSandbox(prepareSandbox: PrepareSessionSandbox, command: { file: string; args: string[] }): Promise<SpawnCommand> {
+    const prepared = await prepareSandbox({
+      launchId: randomUUID(),
+      cwd: this.effectiveCwd(),
+      hookPort: this._hooks.hasInjection() ? this._hooks.listenerPort() : null,
+      readablePaths: this._hooks.injectedReadablePaths(),
+    });
+    if (!prepared.ok) throw new Error(prepared.reason);
+    this._disposeSandboxLaunch(this._sandboxLaunch);
+    this._sandboxLaunch = prepared.launch;
+    const wrapped = await prepared.launch.wrap(command.file, command.args);
+    return { ...wrapped, env: prepared.launch.env };
+  }
+
+  _disposeSandboxLaunch(launch: SandboxLaunch | null): void {
+    if (!launch || launch !== this._sandboxLaunch) return;
+    this._sandboxLaunch = null;
+    launch.dispose().catch((error) => {
+      console.warn(`[session ${this.id}] sandbox cleanup failed: ${errorMessage(error)}`);
+    });
   }
 
   _guardPtyInputSocket(): void {
@@ -1550,6 +1628,11 @@ class Session extends EventEmitter {
     if (this.listenerCount("data") > 0) {
       this.emit("data", data);
     }
+  }
+
+  _handleSpawnedPtyExit(sandboxLaunch: SandboxLaunch | null, exitCode: number, signal: ExitSignal): Promise<void> {
+    this._disposeSandboxLaunch(sandboxLaunch);
+    return this._handlePtyExit(exitCode, signal);
   }
 
   async _handlePtyExit(exitCode: number, signal: ExitSignal): Promise<void> {
@@ -1904,6 +1987,7 @@ class Session extends EventEmitter {
     this._clearPendingPaste();
 
     this._hooks.cleanup();
+    this._disposeSandboxLaunch(this._sandboxLaunch);
 
     this.kill();
 
@@ -1930,4 +2014,4 @@ function claudeCommand(): ResolvedCommand {
 }
 
 export { SANDBOX_UNAPPLIED_ERROR, Session, claudeCommand };
-export type { ClaudeSessionIdEvent, SessionOptions, SessionPlanReviewPort, SessionPty, SessionRecorderPort };
+export type { ClaudeSessionIdEvent, PrepareSessionSandbox, SessionOptions, SessionPlanReviewPort, SessionPty, SessionRecorderPort, SessionSandboxFacts };

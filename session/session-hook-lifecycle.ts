@@ -68,6 +68,7 @@ interface SessionHookLifecycle {
   hasInjection(): boolean;
   hasSettings(): boolean;
   isRequiredSandboxMissing(): boolean;
+  injectedReadablePaths(): string[];
 }
 
 function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLifecycle {
@@ -291,6 +292,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     hasInjection: () => token !== null,
     hasSettings: () => settingsHandle !== null,
     isRequiredSandboxMissing: () => options.settingsSandbox !== null && settingsHandle === null,
+    injectedReadablePaths: () => (settingsHandle === null ? [] : [path.dirname(settingsHandle.settingsPath)]),
   };
 }
 

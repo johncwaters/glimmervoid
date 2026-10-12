@@ -91,6 +91,11 @@ test('skip-permissions stops the asking without removing the SANDBOX', () => {
   assert.deepEqual(args.slice(-4), ['-a', 'never', '-s', 'workspace-write']);
 });
 
+test('under an outer sandbox the Codex sandbox is off, with or without skip-permissions, because it cannot start inside one', () => {
+  assert.deepEqual(codex.buildArgs({ hasOuterSandbox: true }).slice(-2), ['-s', 'danger-full-access']);
+  assert.deepEqual(codex.buildArgs({ hasOuterSandbox: true, dangerouslySkipPermissions: true }).slice(-4), ['-a', 'never', '-s', 'danger-full-access']);
+});
+
 test('buildArgs on a plain session adds the update-check flag and nothing else', () => {
   assert.deepEqual(codex.buildArgs(), ['-c', 'check_for_update_on_startup=false']);
 });

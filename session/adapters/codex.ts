@@ -172,16 +172,26 @@ function buildEnv(baseEnv: SpawnEnv, extraEnv: SpawnEnv | null | undefined, opti
 const UPDATE_CHECK_ARGS = ["-c", "check_for_update_on_startup=false"];
 
 const SKIP_PERMISSIONS_ARGS = ["-a", "never", "-s", "workspace-write"];
+const OUTER_SANDBOX_ARGS = ["-s", "danger-full-access"];
+const OUTER_SANDBOX_SKIP_PERMISSIONS_ARGS = ["-a", "never", ...OUTER_SANDBOX_ARGS];
+
+function permissionArgs(dangerouslySkipPermissions: boolean, hasOuterSandbox: boolean): string[] {
+  if (hasOuterSandbox && dangerouslySkipPermissions) return OUTER_SANDBOX_SKIP_PERMISSIONS_ARGS;
+  if (hasOuterSandbox) return OUTER_SANDBOX_ARGS;
+  if (dangerouslySkipPermissions) return SKIP_PERMISSIONS_ARGS;
+  return [];
+}
 
 function buildArgs({
   dangerouslySkipPermissions = false,
   resumeSessionId = null,
   extraArgs = [],
   initialPrompt = null,
+  hasOuterSandbox = false,
 }: AgentArgsOptions = {}): string[] {
   const args = [...UPDATE_CHECK_ARGS];
   if (resumeSessionId) args.push("resume", resumeSessionId);
-  if (dangerouslySkipPermissions) args.push(...SKIP_PERMISSIONS_ARGS);
+  args.push(...permissionArgs(dangerouslySkipPermissions, hasOuterSandbox));
   if (extraArgs.length > 0) args.push(...extraArgs);
   if (initialPrompt != null) args.push(initialPrompt);
   return args;

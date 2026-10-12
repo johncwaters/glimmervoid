@@ -7,6 +7,7 @@ import path from 'node:path';
 import { HookRouter } from '../detection/hook-source.ts';
 import { listAgentIds, getAdapter } from '../session/adapters/index.ts';
 import { SANDBOX_UNAPPLIED_ERROR, Session } from '../session/sessions.ts';
+import type { SessionSandboxFacts } from '../session/sessions.ts';
 import { buildAgentEnv } from '../session/core/spawn-env.ts';
 import { HOOK_URL_ENV } from '../session/core/hook-relay-core.ts';
 import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
@@ -238,6 +239,67 @@ test('a session that requests a sandbox refuses to spawn when the settings file 
     fs.writeFileSync(occupiedBaseDir, 'not a directory');
     assert.deepEqual(await startRefused({ hooksBaseDir: occupiedBaseDir }), { spawned: 0, errors: [SANDBOX_UNAPPLIED_ERROR] });
   });
+});
+
+test('a session with an outer sandbox spawns only the wrapped command with the agent sandbox off, and never spawns when the sandbox refuses or its settings file is missing', async () => {
+  await withTempDir(async (dir) => {
+    const calls: SpawnCall[] = [];
+    let disposals = 0;
+    const session = new Session({
+      id: 'session-wrapped',
+      name: 'wrapped',
+      path: dir,
+      agent: 'claude-code',
+      spawnCommand: { path: process.execPath, kind: 'exe' },
+      settingsSandbox: { enabled: true, failIfUnavailable: true },
+      hookRouter: new HookRouter(),
+      getHookPort: () => PORT,
+      hooksBaseDir: dir,
+      prepareSandbox: async (facts) => ({
+        ok: true,
+        launch: {
+          wrap: async (file, args) => ({ file: 'sandbox-runtime', args: ['--', file, ...args] }),
+          env: { PROBED_FACTS: JSON.stringify(facts) },
+          dispose: async () => { disposals += 1; },
+        },
+      }),
+      ptySpawn: (file, args, opts) => {
+        calls.push({ file, args, opts: opts as SpawnCall['opts'] });
+        return fakePty();
+      },
+    });
+    try {
+      await session.start();
+      const settingsDir = path.join(dir, 'session-wrapped');
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].file, 'sandbox-runtime');
+      assert.equal(calls[0].args[0], '--');
+      assert.ok(calls[0].args.includes('--settings'), 'the agent command rides behind the wrap');
+      const { launchId, ...factsBesideLaunchId } = JSON.parse(String(calls[0].opts.env.PROBED_FACTS)) as SessionSandboxFacts;
+      assert.match(launchId, /^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+      assert.deepEqual(factsBesideLaunchId, { cwd: dir, hookPort: PORT, readablePaths: [settingsDir] });
+      assert.deepEqual(JSON.parse(fs.readFileSync(path.join(settingsDir, 'settings.json'), 'utf8')).sandbox, { enabled: false });
+    } finally {
+      session.destroy();
+    }
+    assert.equal(disposals, 1, 'the launch is disposed with the session');
+    const wrappedWithoutSettingsSandbox = {
+      settingsSandbox: null,
+      prepareSandbox: async () => ({
+        ok: true as const,
+        launch: { wrap: async (file: string, args: readonly string[]) => ({ file, args: [...args] }), env: {}, dispose: async () => {} },
+      }),
+    };
+    const refusedUnapplied = { spawned: 0, errors: [SANDBOX_UNAPPLIED_ERROR] };
+    const occupiedBaseDir = path.join(dir, 'occupied');
+    fs.writeFileSync(occupiedBaseDir, 'not a directory');
+    assert.deepEqual(await startRefused({ ...wrappedWithoutSettingsSandbox, hookRouter: null }), refusedUnapplied);
+    assert.deepEqual(await startRefused({ ...wrappedWithoutSettingsSandbox, getHookPort: () => null }), refusedUnapplied);
+    assert.deepEqual(await startRefused({ ...wrappedWithoutSettingsSandbox, hooksBaseDir: occupiedBaseDir }), refusedUnapplied);
+  });
+  const refusedMessage = 'session not started, the sandbox refused: bwrap is not on PATH';
+  assert.deepEqual(await startRefused({ prepareSandbox: async () => ({ ok: false, reason: 'bwrap is not on PATH' }) }), { spawned: 0, errors: [refusedMessage] });
+  assert.deepEqual(await startRefused({ prepareSandbox: async () => { throw new Error('bwrap is not on PATH'); } }), { spawned: 0, errors: [refusedMessage] });
 });
 
 test('a session without a sandbox still spawns on the OSC title fallback when hooks cannot be injected', async () => {

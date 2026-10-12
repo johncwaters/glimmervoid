@@ -75,6 +75,7 @@ interface AgentArgsOptions {
   extraArgs?: string[];
   antiSlopPrompt?: boolean;
   initialPrompt?: string | null;
+  hasOuterSandbox?: boolean;
 }
 
 interface AgentSpawnCommandOptions {

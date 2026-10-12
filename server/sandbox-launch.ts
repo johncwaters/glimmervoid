@@ -158,3 +158,4 @@ async function prepareSandboxLaunch({ role, launchId, tempDir }: SandboxLaunchRe
 }
 
 export { prepareSandboxLaunch };
+export type { SandboxLaunch, SandboxLaunchResult };
