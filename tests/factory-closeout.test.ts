@@ -227,6 +227,49 @@ test('third factory failure blocks the ledger ticket and raises an exception', a
   assert.equal(fixture.events.at(-1)?.event, 'blocked');
 });
 
+test('a block whose landing fails still releases the worker and raises the exception, and the next landing carries the block', async (context) => {
+  const fixture = await createFixture(context);
+  await fixture.commitChange('outside.ts');
+  fixture.setLandingFails(true);
+  for (const _attempt of [1, 2, 3]) await fixture.closeOut.turnEnded(fixture.worker);
+  assert.equal(fixture.isDestroyed(), true);
+  assert.equal(fixture.events.at(-1)?.event, 'blocked');
+  assert.equal(fixture.exceptions.length, 1);
+  assert.match(fixture.exceptions[0], /outside.ts/);
+  assert.equal(await fixture.orderState(fixture.worker.workId), 'active');
+  fixture.setLandingFails(false);
+  await fixture.land('repo', fixture.projectPath, 'factory: retry landing');
+  assert.equal(await fixture.orderState(fixture.worker.workId), 'blocked');
+});
+
+test('a block on a ticket already blocked skips the transition and still releases the worker', async (context) => {
+  const fixture = await createFixture(context);
+  await fixture.commitChange('outside.ts');
+  await fixture.closeOut.turnEnded(fixture.worker);
+  await fixture.closeOut.turnEnded(fixture.worker);
+  await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['work', 'transition', fixture.worker.workId, 'blocked', '--because', 'Blocked earlier', '--session', 'glimmervoid-factory'] });
+  const transitionsBefore = fixture.commands.filter((command) => command[1] === 'transition').length;
+  await fixture.closeOut.turnEnded(fixture.worker);
+  assert.equal(fixture.commands.filter((command) => command[1] === 'transition').length, transitionsBefore);
+  assert.equal(fixture.isDestroyed(), true);
+  assert.equal(fixture.events.at(-1)?.event, 'blocked');
+  assert.match(fixture.exceptions[0], /outside.ts/);
+});
+
+test('a block clears the attempt count so a reopened ticket starts over at its first attempt', async (context) => {
+  const fixture = await createFixture(context);
+  await fixture.commitChange('outside.ts');
+  for (const _attempt of [1, 2, 3]) await fixture.closeOut.turnEnded(fixture.worker);
+  assert.equal(await fixture.orderState(fixture.worker.workId), 'blocked');
+  await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['work', 'transition', fixture.worker.workId, 'active', '--because', 'Factory reopen', '--session', 'glimmervoid-factory'] });
+  const reopenedWorker: FactoryCloseOutWorker = { ...fixture.worker, session: { ...fixture.worker.session, _destroyed: false, destroy: () => {} } };
+  const feedbackBefore = fixture.feedback.length;
+  await fixture.closeOut.turnEnded(reopenedWorker);
+  assert.equal(fixture.feedback.length, feedbackBefore + 1);
+  assert.equal(fixture.events.at(-1)?.event, 'blocked');
+  assert.equal(fixture.exceptions.length, 1);
+});
+
 test('independent reviewer failure retries with findings', async (context) => {
   const fixture = await createFixture(context);
   await fixture.commitChange();

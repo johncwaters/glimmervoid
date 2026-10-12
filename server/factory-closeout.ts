@@ -7,6 +7,7 @@ import type { Session } from '../session/sessions.ts';
 import { GLIMMERVOID_SECRET_KEYS } from '../session/core/spawn-env.ts';
 import { DEFAULT_FACTORY_CHECKS, DEFAULT_FACTORY_PROTECTED_PATHS } from '../shared/contracts/browser-config.ts';
 import type { Config } from '../shared/contracts/config.ts';
+import { CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import { FactoryReviewVerdict } from '../shared/contracts/factory.ts';
 import type { FactoryWatchEntry } from '../shared/contracts/factory.ts';
 import { prepareSandboxedCheckRunner } from './factory-check-sandbox.ts';
@@ -303,6 +304,11 @@ export function createFactoryCloseOut({
     await runGit(cwd, ['commit', '-m', `factory: drop worker ledger changes ${worker.workId}`, '--', ...committedLedgerPaths]);
   }
 
+  async function readWorkState(cwd: string, workId: string): Promise<string | undefined> {
+    const inspected = CoherenceWorkInspect.parse(JSON.parse(await runCoherence({ cwd, args: ['work', 'inspect', '--json'] })));
+    return inspected.work.find((order) => order.work === workId)?.state;
+  }
+
   async function applyFailure(worker: FactoryCloseOutWorker, decision: ReturnType<typeof decideCloseOut>, failureClass: FactoryDecisionInput['failureClass'] = 'closeout'): Promise<boolean> {
     if (decision.action === 'merge' || !isLive(worker)) return false;
     if (decision.action === 'retry') {
@@ -314,14 +320,18 @@ export function createFactoryCloseOut({
       if (!isLive(worker)) return false;
       const ledger = await ensureLedger(worker.projectId, worker.projectPath);
       const ledgerReason = decision.reason.replace(/\s+/g, ' ').trim().slice(0, 1000);
-      await runCoherence({ cwd: ledger.cwd, args: [
-        'work', 'transition', worker.workId, 'blocked', '--because', ledgerReason,
-        '--session', FACTORY_LEDGER_SESSION, '--evidence', ledgerReason,
-      ] });
-      await commitAndLand(worker.projectId, worker.projectPath, `factory: block ${worker.workId}`);
+      if (await readWorkState(ledger.cwd, worker.workId) !== 'blocked') {
+        await runCoherence({ cwd: ledger.cwd, args: [
+          'work', 'transition', worker.workId, 'blocked', '--because', ledgerReason,
+          '--session', FACTORY_LEDGER_SESSION, '--evidence', ledgerReason,
+        ] });
+      }
+      const blockedAttempt = attemptOf(worker);
+      attempts.delete(worker.workId);
       worker.session.destroy();
-      notifyOrchestrator(worker.projectId, { workId: worker.workId, intentId: worker.intentId, sessionId: worker.session.id, attempt: attemptOf(worker), event: 'blocked', failureClass, detail: decision.reason });
+      notifyOrchestrator(worker.projectId, { workId: worker.workId, intentId: worker.intentId, sessionId: worker.session.id, attempt: blockedAttempt, event: 'blocked', failureClass, detail: decision.reason });
       setException(worker.projectId, decision.reason);
+      await commitAndLand(worker.projectId, worker.projectPath, `factory: block ${worker.workId}`).catch(() => {});
       return true;
     });
   }
@@ -414,6 +424,7 @@ export function createFactoryCloseOut({
         const merged = await worker.session.mergeWorktree(untrustedCheckoutIsolation());
         if (!merged.merged) throw new Error(merged.reason ?? (merged.conflicts?.join(', ') || 'Worker merge did not merge'));
         hasMerged = true;
+        attempts.delete(worker.workId);
         const mergedSha = await readIntegrationSha(worker.projectPath);
         void recordDecision({
           ...factoryDecisionContext(worker.projectId, { workId: worker.workId, intentId: worker.intentId, sessionId: worker.session.id, attempt, reason: `at ${mergedSha}` }),
