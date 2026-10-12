@@ -11,7 +11,7 @@ import { resolveHookTools as resolveSharedHookTools } from './hook-tools.ts';
 import { trailStepFromHook } from './core/investigation-trail-core.ts';
 import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES } from './core/lane-permissions-core.ts';
 import * as core from './core/team-review-core.ts';
-import type { CommentableLines, ReviewTier, TeamReviewCandidate, TeamReviewSettingsSource } from './core/team-review-core.ts';
+import type { CommentableLines, NewWorkPointer, ReviewTier, TeamReviewCandidate, TeamReviewSettingsSource } from './core/team-review-core.ts';
 import {
   awaitSessionExit, drainPending, firstLine, raceWithAbort,
   registerEphemeralSession,
@@ -26,6 +26,7 @@ import { TeamReviewActionRequest as ActionRequestSchema } from '../shared/contra
 import { createPrGh } from './pr-gh.ts';
 import type { PrGh } from './pr-gh.ts';
 import { createRepoCache } from './repo-cache.ts';
+import type { NewWorkIsolation } from './repo-cache.ts';
 import { reapTeamReviewProcesses } from './team-review-reaper.ts';
 import type { TeamReviewReapOptions } from './team-review-reaper.ts';
 import { createTeamReviewPoller } from './team-review-poller.ts';
@@ -38,7 +39,7 @@ import type { SandboxRole } from './core/sandbox-policy-core.ts';
 import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 import { TeamReviewStateEntry, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type {
-  PostingPlan, PrDetail, ResumableReview, ReviewComment, ReviewResult, ReviewDraft, TeamReviewActionRequest, TeamReviewActionResult,
+  PostingPlan, PrDetail, PriorReview, ResumableReview, ReviewComment, ReviewResult, ReviewDraft, TeamReviewActionRequest, TeamReviewActionResult,
   TeamReviewState as TeamReviewStateType, TeamReviewStateEntry as TeamReviewStateEntryType, TeamReviewStatus as TeamReviewStatusType,
 } from '../shared/contracts/team-review.ts';
 import { errorMessage, isMissingFileError } from '../shared/text.ts';
@@ -97,6 +98,7 @@ interface TeamReviewRepoCache {
   hydrateTree(repo: string, headSha: string): Promise<{ ok: boolean; err: string }>;
   hydrateRange(repo: string, number: number, headSha: string): Promise<{ ok: boolean; err: string }>;
   hydrateSince(repo: string, sinceSha: string, headSha: string): Promise<boolean>;
+  isolateNewWork(repo: string, since: { number: number; priorHead: string; priorBase: string; head: string }): Promise<NewWorkIsolation>;
 }
 
 interface TeamReviewWorkDir {
@@ -480,11 +482,20 @@ function createTeamReviewDispatcher({
       .catch((error: unknown) => ({ ok: false, err: errorMessage(error) }));
   }
 
-  async function hydratePriorRange(candidate: TeamReviewCandidate, priorHead: string, head: string): Promise<boolean> {
-    return repoCache.hydrateSince(candidate.repo, priorHead, head).catch((error: unknown) => {
-      log.warn(`[${core.TEAM_REVIEW_LANE_ID}] could not fetch the earlier reviewed head for ${candidate.key}: ${errorMessage(error)}`);
-      return false;
+  async function pointAtNewWork(candidate: TeamReviewCandidate, detail: PrDetail, priorReview: PriorReview, workDir: string): Promise<NewWorkPointer | null> {
+    if (!priorReview.base) return null;
+    const isolation = await repoCache.isolateNewWork(candidate.repo, { number: detail.number, priorHead: priorReview.head, priorBase: priorReview.base, head: detail.headRefOid }).catch((error: unknown) => {
+      log.warn(`[${core.TEAM_REVIEW_LANE_ID}] could not isolate the new work since the earlier review of ${candidate.key}: ${errorMessage(error)}`);
+      return null;
     });
+    if (!isolation) return null;
+    if (!isolation.ok) {
+      log.warn(`[${core.TEAM_REVIEW_LANE_ID}] could not isolate the new work since the earlier review of ${candidate.key}, reviewing the whole range: ${isolation.reason}`);
+      return null;
+    }
+    const scratchObjectsDir = path.join(workDir, core.REMERGE_OBJECTS_DIRNAME);
+    await fs.mkdir(scratchObjectsDir, { recursive: true });
+    return { ...isolation.range, scratchObjectsDir };
   }
 
   async function stageCheckout(candidate: TeamReviewCandidate, detail: PrDetail): Promise<{ projectPath: string } | { error: string }> {
@@ -538,7 +549,7 @@ function createTeamReviewDispatcher({
           if (!outcome.ok) return failed(outcome.reason);
           const posting = await readPostingPlan(postingPath, detail.headRefOid, log);
           const filteredReview = core.reReviewResult(outcome.result, { priorReview: priorReview ?? null, posting });
-          return core.readyDraft({ candidate, tier, reasons, ...filteredReview, commentable });
+          return core.readyDraft({ candidate, tier, reasons, ...filteredReview, reviewedBase: detail.baseRefOid, commentable });
         })
         .catch((error: unknown) => failed(firstLine(errorMessage(error)) || 'review session failed')),
     });
@@ -620,7 +631,7 @@ function createTeamReviewDispatcher({
       const hydrated = await hydrateBlobs(candidate, detail);
       if (!hydrated.ok) return failed(`could not fetch the file contents of ${candidate.key}${hydrated.err ? `: ${firstLine(hydrated.err)}` : ''}`);
       const priorReview = args.priorReview ?? null;
-      const isPriorHeadAvailable = priorReview ? await hydratePriorRange(candidate, priorReview.head, detail.headRefOid) : false;
+      const newWork = priorReview ? await pointAtNewWork(candidate, detail, priorReview, workDir) : null;
       let dependencyState: 'linked' | 'none' = 'none';
       let linkedCheckout: string | null = null;
       try {
@@ -637,7 +648,7 @@ function createTeamReviewDispatcher({
       }
       const prompt = core.buildReviewPrompt({
         candidate, detail, tier, reasons, checkoutPath: worktreePath, reportPath, postingPath, dependencyState, reviewSkill: readReviewSkill(),
-        priorReview, isPriorHeadAvailable,
+        priorReview, newWork,
       });
       await fs.writeFile(path.join(workDir, core.REVIEW_PROMPT_FILENAME), prompt, 'utf8');
       await fs.mkdir(emptyGhConfigDir(workDir), { recursive: true });

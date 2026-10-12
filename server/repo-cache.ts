@@ -2,12 +2,16 @@ import path from 'node:path';
 import os from 'node:os';
 import { lstat, mkdir, readdir } from 'node:fs/promises';
 import { prBaseRef, prHeadRef } from './core/team-review-core.ts';
+import type { NewWorkRange } from './core/team-review-core.ts';
 import { GH_SEGMENT, repoParts } from '../shared/contracts/github-ids.ts';
 import { runGit } from './git-exec.ts';
 import type { CommandResult } from './git-exec.ts';
 import { createSerialQueue } from './spawn-gate.ts';
 import { CommitSha } from '../shared/contracts/team-review.ts';
 import { errorMessage, isMissingFileError } from '../shared/text.ts';
+import { firstLine } from './core/text-core.ts';
+
+type NewWorkIsolation = { ok: true; range: NewWorkRange } | { ok: false; reason: string };
 
 type CommandRunner = (args: string[], cwd: string, env?: Record<string, string>, timeoutMs?: number) => Promise<CommandResult>;
 
@@ -23,6 +27,11 @@ const HEAD_TREE_HYDRATE_TIMEOUT_MS = 10 * 60 * 1000;
 function isSafeBaseRef(baseRef: string): boolean {
   if (!baseRef || baseRef.startsWith('-') || baseRef.endsWith('/') || baseRef.includes('..')) return false;
   return baseRef.split('/').every((part) => GH_SEGMENT.test(part) && !part.endsWith('.lock'));
+}
+
+function isolationFailure(failedStep: string, gitError = ''): NewWorkIsolation {
+  const gitErrorLine = firstLine(gitError);
+  return { ok: false, reason: gitErrorLine ? `${failedStep}: ${gitErrorLine}` : failedStep };
 }
 
 async function isDirectoryWithoutSymlink(directory: string): Promise<boolean | null> {
@@ -163,8 +172,30 @@ function createRepoCache({ rootDir, commandRunner = defaultCommandRunner, remote
         return isSinceAncestorOfHead.ok;
       });
     },
+
+    async isolateNewWork(repo: string, { number, priorHead, priorBase, head }: { number: number; priorHead: string; priorBase: string; head: string }): Promise<NewWorkIsolation> {
+      const parts = repoParts(repo);
+      if (!parts || !Number.isSafeInteger(number) || number <= 0) return isolationFailure('invalid repo or PR number');
+      if (![priorHead, priorBase, head].every((sha) => CommitSha.safeParse(sha).success)) return isolationFailure('invalid commit sha');
+      return queueFor(repo).run(async (): Promise<NewWorkIsolation> => {
+        const repoDir = await ensureRepoUnlocked(repo, parts);
+        if (!repoDir) return isolationFailure('no cache clone');
+        const priorMergeBaseRun = await run(['merge-base', priorBase, priorHead], repoDir);
+        const priorMergeBase = CommitSha.safeParse(priorMergeBaseRun.out.trim());
+        if (!priorMergeBase.success) return isolationFailure('merge-base of the earlier review failed', priorMergeBaseRun.err);
+        const currentMergeBaseRun = await run(['merge-base', prBaseRef(number), head], repoDir);
+        const currentMergeBase = CommitSha.safeParse(currentMergeBaseRun.out.trim());
+        if (!currentMergeBase.success) return isolationFailure('merge-base of the current head failed', currentMergeBaseRun.err);
+        const rangeDiff = await run([
+          'range-diff', '--no-patch', '--diff-merges=remerge',
+          `${priorMergeBase.data}..${priorHead}`, `${currentMergeBase.data}..${head}`,
+        ], repoDir, NETWORK_GIT_ENV, HEAD_TREE_HYDRATE_TIMEOUT_MS);
+        if (!rangeDiff.ok) return isolationFailure('range-diff failed', rangeDiff.err);
+        return { ok: true, range: { priorMergeBase: priorMergeBase.data, currentMergeBase: currentMergeBase.data, cloneObjectsDir: path.join(repoDir, '.git', 'objects') } };
+      });
+    },
   };
 }
 
 export { createRepoCache };
-export type { CommandResult, CommandRunner, RepoCacheOptions };
+export type { CommandResult, CommandRunner, NewWorkIsolation, RepoCacheOptions };

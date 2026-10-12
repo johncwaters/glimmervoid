@@ -157,6 +157,7 @@ export type PrReviewState = z.infer<typeof PrReviewState>;
 
 export const PriorReview = z.object({
   head: CommitSha,
+  base: CommitSha.optional(),
   verdict: ReviewVerdict,
   summary: z.string(),
   body: z.string(),
@@ -241,6 +242,7 @@ export const ReviewDraft = z.object({
   tier: z.enum(['stamp', 'full']),
   reasons: z.array(z.string()),
   reviewedHead: CommitSha,
+  reviewedBase: CommitSha.optional(),
   verdict: storedVerdict,
   summary: z.string(),
   assessment: ReviewAssessment.optional(),

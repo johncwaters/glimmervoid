@@ -10,7 +10,7 @@ import { isDispatchWorkdir } from '../server/core/ingest-agent-core.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
 import { ACCEPT_EDITS_MODE } from '../server/core/lane-permissions-core.ts';
-import { AUTOMATED_REVIEW_NOTE, FULL_MODEL, HAND_APPROVAL_LINE, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_POSTING_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_REPORT_FILENAME, STAMP_MODEL } from '../server/core/team-review-core.ts';
+import { AUTOMATED_REVIEW_NOTE, FULL_MODEL, HAND_APPROVAL_LINE, REMERGE_OBJECTS_DIRNAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_POSTING_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_REPORT_FILENAME, STAMP_MODEL } from '../server/core/team-review-core.ts';
 import type { ReviewProgressEvent, ReviewTier } from '../server/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/team-review-poller.ts';
 import type { DraftPatch, SpawnReviewArgs } from '../server/team-review-poller.ts';
@@ -30,6 +30,9 @@ import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 
 const HEAD = 'c'.repeat(40);
 const OTHER_HEAD = 'd'.repeat(40);
+const PRIOR_BASE = 'e'.repeat(40);
+const PRIOR_MERGE_BASE = '1'.repeat(40);
+const CURRENT_MERGE_BASE = '2'.repeat(40);
 const candidate = {
   key: 'Acme/app#7', repo: 'Acme/app', number: 7, title: 'Fix it',
   url: 'https://github.com/Acme/app/pull/7', author: 'teammate', requestSource: 'team' as const,
@@ -72,7 +75,7 @@ function workDirOf(call: Parameters<TeamReviewSpawn>[0]): string {
 
 function setup(overrides: Partial<TeamReviewDispatchOptions> & {
   writeReport?: (workDir: string) => void; diff?: string | null; fetchedHead?: string; fetchedErr?: string; hydrated?: boolean; hydratedErr?: string;
-  isPriorHeadFetchable?: boolean; treeHydrated?: boolean; treeHydratedErr?: string; treeHydrationError?: Error;
+  isNewWorkIsolable?: boolean; treeHydrated?: boolean; treeHydratedErr?: string; treeHydrationError?: Error;
 } = {}) {
   const worktreeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-wt-test-'));
   const workRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-work-test-'));
@@ -98,9 +101,11 @@ function setup(overrides: Partial<TeamReviewDispatchOptions> & {
         hydrations.push(`${repo}#${number}@${headSha}`);
         return { ok: overrides.hydrated ?? true, err: overrides.hydratedErr ?? '' };
       },
-      hydrateSince: async (repo, sinceSha, headSha) => {
-        hydrations.push(`${repo}@${sinceSha}..${headSha}`);
-        return overrides.isPriorHeadFetchable ?? true;
+      hydrateSince: async () => true,
+      isolateNewWork: async (repo, { priorHead, priorBase, head }) => {
+        hydrations.push(`${repo}@${priorBase}:${priorHead}..${head}`);
+        if (overrides.isNewWorkIsolable === false) return { ok: false, reason: 'range-diff failed' };
+        return { ok: true, range: { priorMergeBase: PRIOR_MERGE_BASE, currentMergeBase: CURRENT_MERGE_BASE, cloneObjectsDir: '/cache/Acme/app/.git/objects' } };
       },
     },
     gitWorkspace: {
@@ -354,6 +359,7 @@ test('local checkout sharing excludes the cache clone and both review roots', as
       fetchPr: async () => ({ ok: true, headSha: HEAD, err: '' }),
       hydrateTree: async () => ({ ok: true, err: '' }), hydrateRange: async () => ({ ok: true, err: '' }),
       hydrateSince: async () => true,
+      isolateNewWork: async () => ({ ok: false, reason: '' }),
     },
     readLocalCheckoutConfig: () => ({ projects: [cached, path.join(workRoot, 'clone'), path.join(worktreeRoot, 'clone')].map((checkoutPath) => ({ path: checkoutPath })) }),
     gitWorkspace: checkoutSharingWorkspace({
@@ -1513,7 +1519,7 @@ test('discarding a saved review reaps its processes before removing its director
     },
     repoCache: {
       listRepos: async () => [], ensureRepo: async () => null,
-      fetchPr: async () => ({ ok: false, headSha: null, err: '' }), hydrateTree: async () => ({ ok: true, err: '' }), hydrateRange: async () => ({ ok: false, err: '' }), hydrateSince: async () => false,
+      fetchPr: async () => ({ ok: false, headSha: null, err: '' }), hydrateTree: async () => ({ ok: true, err: '' }), hydrateRange: async () => ({ ok: false, err: '' }), hydrateSince: async () => false, isolateNewWork: async () => ({ ok: false, reason: '' }),
     },
     gitWorkspace: {
       stageDetachedWorktree: async () => ({ ok: false }), removeWorktreeByPath: async () => ({ ok: false }),
@@ -1580,6 +1586,7 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
       fetchPr: async () => ({ ok: true, headSha: HEAD, err: '' }),
       hydrateTree: async () => ({ ok: true, err: '' }), hydrateRange: async () => ({ ok: true, err: '' }),
       hydrateSince: async () => true,
+      isolateNewWork: async () => ({ ok: false, reason: '' }),
     },
     gitWorkspace: {
       stageDetachedWorktree: async ({ worktreePath }) => { fs.mkdirSync(String(worktreePath), { recursive: true }); return { ok: true }; },
@@ -1986,15 +1993,18 @@ test('an approval whose head cannot be re-read is marked posted with a warning t
   assert.deepEqual(h.dismissed, []);
 });
 
-const PRIOR_REVIEW = { head: OTHER_HEAD, verdict: 'REQUEST CHANGES' as const, summary: 'null deref', body: 'Fix the null check.', comments: [], wasPosted: true };
+const PRIOR_REVIEW = { head: OTHER_HEAD, base: PRIOR_BASE, verdict: 'REQUEST CHANGES' as const, summary: 'null deref', body: 'Fix the null check.', comments: [], wasPosted: true };
 
-test('a re-review fetches the range since the earlier head and tells the reviewer about it', async () => {
+test('a re-review isolates the new work since the earlier review from the base branch and points the reviewer at it', async () => {
   const { review, hydrations, spawns, cleanup } = setup();
   try {
     await review({ ...reviewArgs('full'), priorReview: PRIOR_REVIEW });
-    assert.ok(hydrations.includes(`Acme/app@${OTHER_HEAD}..${HEAD}`));
+    assert.ok(hydrations.includes(`Acme/app@${PRIOR_BASE}:${OTHER_HEAD}..${HEAD}`));
     assert.match(spawns[0].prompt, /This is a re-review:/);
-    assert.ok(spawns[0].prompt.includes(`diff ${OTHER_HEAD} ${HEAD}`));
+    assert.ok(spawns[0].prompt.includes(`range-diff --diff-merges=remerge ${PRIOR_MERGE_BASE}..${OTHER_HEAD} ${CURRENT_MERGE_BASE}..${HEAD}`));
+    const scratchObjectsDir = path.join(spawns[0].workDir, REMERGE_OBJECTS_DIRNAME);
+    assert.ok(spawns[0].prompt.includes(`GIT_OBJECT_DIRECTORY=${scratchObjectsDir} GIT_ALTERNATE_OBJECT_DIRECTORIES=/cache/Acme/app/.git/objects`));
+    assert.ok(spawns[0].workDirFiles.includes(REMERGE_OBJECTS_DIRNAME));
   } finally {
     cleanup();
   }
@@ -2116,14 +2126,23 @@ test('a resumed re-review applies the finding filter without staging another che
   }
 });
 
-test('a re-review whose earlier head cannot be fetched reviews the whole range', async () => {
-  const { review, spawns, cleanup } = setup({ isPriorHeadFetchable: false });
+test('a re-review whose new work cannot be isolated, or whose earlier review stored no base, reviews the whole range', async () => {
+  const unisolable = setup({ isNewWorkIsolable: false });
   try {
-    await review({ ...reviewArgs('full'), priorReview: PRIOR_REVIEW });
-    assert.match(spawns[0].prompt, /most likely a force-push/);
-    assert.ok(!spawns[0].prompt.includes(`diff ${OTHER_HEAD} ${HEAD}`));
+    await unisolable.review({ ...reviewArgs('full'), priorReview: PRIOR_REVIEW });
+    assert.match(unisolable.spawns[0].prompt, /cannot be told apart from the base branch/);
+    assert.ok(!unisolable.spawns[0].prompt.includes('range-diff'));
   } finally {
-    cleanup();
+    unisolable.cleanup();
+  }
+  const { base: _storedBase, ...legacyPriorReview } = PRIOR_REVIEW;
+  const legacy = setup();
+  try {
+    await legacy.review({ ...reviewArgs('full'), priorReview: legacyPriorReview });
+    assert.deepEqual(legacy.hydrations.filter((hydration) => hydration.includes('..')), []);
+    assert.match(legacy.spawns[0].prompt, /cannot be told apart from the base branch/);
+  } finally {
+    legacy.cleanup();
   }
 });
 
@@ -2155,7 +2174,7 @@ test('the wiring hands its cached sandbox refusal to the poller, whose status th
     },
     repoCache: {
       listRepos: async () => [], ensureRepo: async () => null,
-      fetchPr: async () => ({ ok: false, headSha: null, err: '' }), hydrateTree: async () => ({ ok: true, err: '' }), hydrateRange: async () => ({ ok: false, err: '' }), hydrateSince: async () => false,
+      fetchPr: async () => ({ ok: false, headSha: null, err: '' }), hydrateTree: async () => ({ ok: true, err: '' }), hydrateRange: async () => ({ ok: false, err: '' }), hydrateSince: async () => false, isolateNewWork: async () => ({ ok: false, reason: '' }),
     },
     gitWorkspace: {
       stageDetachedWorktree: async () => ({ ok: false }), removeWorktreeByPath: async () => ({ ok: false }),

@@ -193,3 +193,57 @@ test('repo cache refuses the range since an earlier head that a force-push left 
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test('repo cache isolates only the author new work after the base branch is merged in or rebased onto', async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'glimmervoid-repo-cache-new-work-'));
+  try {
+    const repoDir = path.join(tempDir, 'Acme', 'repo');
+    await mkdir(repoDir, { recursive: true });
+    await git(['init', '-b', 'main'], repoDir);
+    await git(['config', 'user.name', 'Test'], repoDir);
+    await git(['config', 'user.email', 'test@example.com'], repoDir);
+    const commitFile = async (file: string, line: string, message: string) => {
+      await writeFile(path.join(repoDir, file), `${line}\n`, { flag: 'a' });
+      await git(['add', file], repoDir);
+      await git(['commit', '-m', message], repoDir);
+      return git(['rev-parse', 'HEAD'], repoDir);
+    };
+    await commitFile('base.txt', 'b0', 'init');
+    await git(['checkout', '-b', 'parent'], repoDir);
+    const priorBase = await commitFile('parent.txt', 'p1', 'parent p1');
+    await git(['checkout', '-b', 'child'], repoDir);
+    const priorHead = await commitFile('child.txt', 'k1', 'child k1');
+    await git(['checkout', 'parent'], repoDir);
+    await commitFile('parent.txt', 'p2', 'parent p2');
+    const movedBase = await commitFile('parent2.txt', 'p3', 'parent p3');
+    await git(['checkout', '-b', 'merged-child', priorHead], repoDir);
+    await git(['merge', '--no-edit', 'parent'], repoDir);
+    const mergedHead = await commitFile('child.txt', 'k2', 'child k2');
+    await git(['checkout', '-b', 'rebased-child', priorHead], repoDir);
+    await git(['rebase', 'parent'], repoDir);
+    const rebasedHead = await commitFile('child.txt', 'k2', 'child k2');
+    await git(['update-ref', 'refs/glimmervoid-base/7', movedBase], repoDir);
+    const commandRunner: CommandRunner = async (args, cwd) => {
+      try {
+        return { ok: true, out: await git(args, cwd), err: '' };
+      } catch (error) {
+        return { ok: false, out: '', err: error instanceof Error ? error.message : String(error) };
+      }
+    };
+    const cache = createRepoCache({ rootDir: tempDir, commandRunner });
+    for (const head of [mergedHead, rebasedHead]) {
+      const isolation = await cache.isolateNewWork('Acme/repo', { number: 7, priorHead, priorBase, head });
+      assert.ok(isolation.ok);
+      const range = isolation.range;
+      const rangeDiff = await git(['range-diff', '--no-patch', '--diff-merges=remerge', `${range.priorMergeBase}..${priorHead}`, `${range.currentMergeBase}..${head}`], repoDir);
+      const newSubjects = rangeDiff.split('\n').filter((line) => / > /.test(line)).map((line) => line.replace(/^.*?[0-9a-f]+ /, ''));
+      assert.ok(newSubjects.includes('child k2'));
+      assert.ok(!newSubjects.some((subject) => subject.startsWith('parent')), rangeDiff);
+    }
+    const unisolable = await cache.isolateNewWork('Acme/repo', { number: 7, priorHead, priorBase: 'c'.repeat(40), head: mergedHead });
+    assert.ok(!unisolable.ok);
+    assert.match(unisolable.reason, /^merge-base of the earlier review failed/);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});

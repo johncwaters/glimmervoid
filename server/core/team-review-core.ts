@@ -36,6 +36,7 @@ const TEAM_REVIEW_STATE_FILENAME = `${TEAM_REVIEW_LANE_ID}-state.json`;
 const POSTED_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 const REVIEW_PROMPT_FILENAME = 'team-review-prompt.txt';
+const REMERGE_OBJECTS_DIRNAME = 'remerge-objects';
 const REVIEW_BOOTSTRAP_PROMPT = `Read ${REVIEW_PROMPT_FILENAME} and follow all instructions in that file`;
 const REVIEW_RESUME_PROMPT = `The glimmervoid server restarted and stopped this review partway. Continue the same review from where it stopped; do not start over. If your tools support resuming an interrupted run, resume it instead of starting it again. Then finish every remaining instruction in ${REVIEW_PROMPT_FILENAME} and write both files it names.`;
 const REVIEW_REPORT_FILENAME = 'pr-review-report.md';
@@ -250,6 +251,16 @@ interface CommentableFileLines {
 
 type CommentableLines = Map<string, CommentableFileLines>;
 
+interface NewWorkRange {
+  priorMergeBase: string;
+  currentMergeBase: string;
+  cloneObjectsDir: string;
+}
+
+interface NewWorkPointer extends NewWorkRange {
+  scratchObjectsDir: string;
+}
+
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
 function diffHeaderPath(line: string, sidePrefix: string): string | null {
@@ -365,7 +376,7 @@ function restoreDraftAtReviewedHead(entry: TeamReviewStateEntry, currentHead: st
 
 function priorReviewFromDraft(draft: ReviewDraft): PriorReview {
   return {
-    head: draft.reviewedHead, verdict: draft.verdict, summary: draft.summary, body: draft.body,
+    head: draft.reviewedHead, ...(draft.reviewedBase ? { base: draft.reviewedBase } : {}), verdict: draft.verdict, summary: draft.summary, body: draft.body,
     comments: draft.comments, wasPosted: draft.status === 'posted',
   };
 }
@@ -755,8 +766,8 @@ function renderPostingPlan(plan: PostingPlanType, commentable: CommentableLines 
 }
 
 function readyDraft(
-  { candidate, tier, reasons, result, commentable = null, posting = null }: {
-    candidate: TeamReviewCandidate; tier: ReviewTier; reasons: string[]; result: ReviewResultType;
+  { candidate, tier, reasons, result, reviewedBase, commentable = null, posting = null }: {
+    candidate: TeamReviewCandidate; tier: ReviewTier; reasons: string[]; result: ReviewResultType; reviewedBase?: string;
     commentable?: CommentableLines | null; posting?: PostingPlanType | null;
   },
 ): ReviewDraft {
@@ -776,6 +787,7 @@ function readyDraft(
   });
   return {
     ...draftBase(candidate, tier, reasons, result.head),
+    ...(reviewedBase ? { reviewedBase } : {}),
     verdict: result.verdict, summary: result.summary, ...(result.assessment ? { assessment: result.assessment } : {}),
     body: rendered.body, comments, status: 'ready',
   };
@@ -814,17 +826,29 @@ function renderPriorReview(priorReview: PriorReview): string {
   ].join('\n');
 }
 
-function priorReviewSection(priorReview: PriorReview | null, isPriorHeadAvailable: boolean, checkoutPath: string, head: string): string[] {
+function newWorkLines(priorReview: PriorReview, newWork: NewWorkPointer | null, checkoutPath: string, head: string): string[] {
+  if (!newWork) {
+    return [
+      '- The new work since then cannot be told apart from the base branch\'s changes in the clone,',
+      '  so review the whole range BASE_SHA..HEAD_SHA and match earlier findings to the current code by content.',
+    ];
+  }
+  const readOnlyObjects = `GIT_OBJECT_DIRECTORY=${newWork.scratchObjectsDir} GIT_ALTERNATE_OBJECT_DIRECTORIES=${newWork.cloneObjectsDir}`;
+  return [
+    '- The new work since then is every commit marked new (>) or changed (!) by this range-diff, which leaves out',
+    '  whatever the base branch brought in, whether the author merged it or rebased onto it:',
+    `  ${readOnlyObjects} git -C ${checkoutPath} range-diff --diff-merges=remerge ${newWork.priorMergeBase}..${priorReview.head} ${newWork.currentMergeBase}..${head}`,
+    `- Read each of those commits with: ${readOnlyObjects} git -C ${checkoutPath} show --remerge-diff <sha>`,
+    '  For a merge commit that shows only the conflict resolutions the author wrote.',
+    '- Keep the GIT_OBJECT_DIRECTORY prefix on both commands: the clone\'s object store is read-only, and a remerge needs scratch space.',
+    '- Still review the whole range BASE_SHA..HEAD_SHA, but look hardest at that new work.',
+  ];
+}
+
+function priorReviewSection(priorReview: PriorReview | null, newWork: NewWorkPointer | null, checkoutPath: string, head: string): string[] {
   if (!priorReview) return [];
   const postedState = priorReview.wasPosted ? 'the operator posted it to GitHub' : 'the operator has not posted it';
-  const rangeLines = isPriorHeadAvailable ? [
-    `- The commits pushed since then are the range ${priorReview.head}..${head}; see them with`,
-    `  git -C ${checkoutPath} diff ${priorReview.head} ${head} and git -C ${checkoutPath} log ${priorReview.head}..${head}.`,
-    '- Still review the whole range BASE_SHA..HEAD_SHA, but look hardest at those new commits.',
-  ] : [
-    '- The earlier head is not in the clone (most likely a force-push), so the new commits cannot be isolated.',
-    '  Review the whole range BASE_SHA..HEAD_SHA and match earlier findings to the current code by content.',
-  ];
+  const rangeLines = newWorkLines(priorReview, newWork, checkoutPath, head);
   return [
     'This is a re-review:',
     `- Glimmervoid reviewed this pull request before, at head ${priorReview.head}, and ${postedState}.`,
@@ -851,7 +875,7 @@ function oneOf(values: readonly string[]): string {
 
 function buildReviewPrompt({
   candidate, detail, tier, reasons, checkoutPath, reportPath, postingPath, dependencyState = 'none', reviewSkill = '',
-  priorReview = null, isPriorHeadAvailable = false,
+  priorReview = null, newWork = null,
 }: {
   candidate: TeamReviewCandidate;
   detail: PrDetail;
@@ -863,7 +887,7 @@ function buildReviewPrompt({
   dependencyState?: 'linked' | 'none';
   reviewSkill?: string;
   priorReview?: PriorReview | null;
-  isPriorHeadAvailable?: boolean;
+  newWork?: NewWorkPointer | null;
 }): string {
   const head = detail.headRefOid;
   const headRef = prHeadRef(detail.number);
@@ -907,7 +931,7 @@ function buildReviewPrompt({
     'Posting is already declined. Never post, comment, approve, request changes, push, or call the GitHub API.',
     'Glimmervoid posts only what you write to the files below, and only once the operator approves it.',
     '',
-    ...priorReviewSection(priorReview, isPriorHeadAvailable, checkoutPath, head),
+    ...priorReviewSection(priorReview, newWork, checkoutPath, head),
     'Procedure:',
     ...reviewProcedure(reviewSkill),
     '',
@@ -991,9 +1015,9 @@ export {
   STAMP_MODEL, FULL_MODEL, STAMP_MAX_LINES, STAMP_MAX_FILES, MAX_CONCURRENT_REVIEWS, MAX_REVIEW_ATTEMPTS,
   advanceAwakeElapsed, handReviewRows, REVIEW_TIMEOUT_SECONDS, RESUME_TTL_MS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, POSTED_RETENTION_MS, RECENT_STEPS_SHOWN, PROGRESS_EMIT_INTERVAL_MS,
   TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME,
-  REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE,
+  REMERGE_OBJECTS_DIRNAME, REVIEW_PROMPT_FILENAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE,
   parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule,
   buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, renderPostingPlan, renderReview, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, HAND_APPROVAL_LINE, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isSameGithubReviews, isSameQueuedReview, isSettledAtHead, shouldAutoReview, markDraftStale, restoreDraftAtReviewedHead,
   applyReviewProgress, orgSearchPlans, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, priorReviewFor, readyDraft, reReviewResult, repoFromSearchItem, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr,
 };
-export type { CommentableFileLines, CommentableLines, ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSettings, TeamReviewSettingsSource };
+export type { CommentableFileLines, CommentableLines, NewWorkPointer, NewWorkRange, ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSettings, TeamReviewSettingsSource };
