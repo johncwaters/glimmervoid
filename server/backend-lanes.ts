@@ -1,4 +1,5 @@
 import { createIssuesWiring } from './issues-wiring.ts';
+import os from 'node:os';
 import path from 'node:path';
 import type { WebSocket } from 'ws';
 import type { HookRouter } from '../detection/hook-source.ts';
@@ -11,6 +12,8 @@ import type { SessionSpawnOverrides } from './session-factory.ts';
 import type { ProjectEntry } from './config-store.ts';
 import { FACTORY_REVIEWER_PERMISSIONS, FACTORY_REVIEWER_SPAWN_ENV, FACTORY_REVIEWER_TOOLS } from './factory-closeout.ts';
 import { createFactoryWiring } from './factory-wiring.ts';
+import { createFactoryHarnessMirror } from './factory-harness-mirror.ts';
+import { factoryHarnessRunsDirectory } from './core/factory-harness-mirror-core.ts';
 import { createCoderActivityWiring } from './coder-activity-wiring.ts';
 import { createBranchGcWiring } from './branch-gc-wiring.ts';
 import { createClaudeCredentials } from './claude-credentials.ts';
@@ -138,6 +141,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     countRunningSessions: () => allLiveSessions().filter((session) => session.state === STATES.RUNNING).length,
     log: logger,
   });
+  const factoryHarnessMirror = createFactoryHarnessMirror({ runsDirectory: factoryHarnessRunsDirectory(process.env, os.homedir()) });
   const factory = createFactoryWiring({
     config, gitWorkspace, broadcast: broadcastControl, log: logger, telemetry,
     readSpentTodayUsd: () => {
@@ -146,6 +150,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       return usage.laneSpendSince('factory', localDay.getTime());
     },
     notify: (projectName, category, message) => { notificationManager.trigger(projectName, category, message); },
+    listObservedProjects: async () => config.factory?.mirrorHarnessRuns ? factoryHarnessMirror.listObservedProjects() : [],
     spawnReviewer: createLaneSpawn({
       sessions: agentSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
       replayBufferKB: config.replayBufferKB, laneName: 'factory', useReadOnlyPosture: true, allowTools: FACTORY_REVIEWER_TOOLS,

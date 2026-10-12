@@ -793,6 +793,11 @@ export const SETTINGS_MAP = Object.freeze([
         description: 'Claude model for independent intent verification. Blank uses the CLI default.', control: 'text',
         nullable: true, defaultValue: null, keywords: ['claude', 'verification'],
       },
+      {
+        id: 'factory-mirror-harness-runs', path: 'factory.mirrorHarnessRuns', title: 'Mirror harness runs',
+        description: 'Show the latest factory harness run as a read-only project in the Factory tab while it runs and for a day after.',
+        control: 'toggle', defaultValue: false, keywords: ['harness', 'test', 'read-only'],
+      },
     ],
   },
   {

@@ -25,12 +25,13 @@ type FactoryPollerDeps = Pick<TickLoopOptions, 'now' | 'setIntervalFn' | 'clearI
   readIntentWriteScopes?: (projectId: string) => Promise<ReadonlyMap<string, readonly string[]>>;
   processProjectState?: (project: FactoryProjectState) => Promise<FactoryProjectState>;
   releaseOrchestrator?: (projectId: string) => void;
+  listObservedProjects?: () => Promise<FactoryProjectState[]>;
   broadcast: (message: FactoryState) => void;
 };
 
 export function createFactoryPoller({
   shouldHoldCheckout = () => false, beforeTick = () => {}, listFactoryProjects, resolveIntegrationBranch, readBranchSha, hasCoherenceConfigAt,
-  ensureControlCheckout, releaseControlCheckout, runCoherence, readPaused = async () => false, readIntentWriteScopes = async () => new Map(), processProjectState = async (project) => project, releaseOrchestrator = () => {}, broadcast, now = Date.now, ...loopOptions
+  ensureControlCheckout, releaseControlCheckout, runCoherence, readPaused = async () => false, readIntentWriteScopes = async () => new Map(), processProjectState = async (project) => project, releaseOrchestrator = () => {}, listObservedProjects = async () => [], broadcast, now = Date.now, ...loopOptions
 }: FactoryPollerDeps) {
   const log = loopOptions.log ?? console;
   let state: FactoryState | null = null;
@@ -111,6 +112,15 @@ export function createFactoryPoller({
     }
   }
 
+  async function readObservedProjects(): Promise<FactoryProjectState[]> {
+    try {
+      return await listObservedProjects();
+    } catch (error) {
+      log.warn(`[factory] reading observed projects failed: ${errorMessage(error)}`);
+      return [];
+    }
+  }
+
   async function runTick(): Promise<undefined> {
     beforeTick();
     const projects: FactoryProjectState[] = [];
@@ -130,6 +140,7 @@ export function createFactoryPoller({
       }
     }
     reportedProjectIds = currentIds;
+    projects.push(...(await readObservedProjects()).filter((observed) => !currentIds.has(observed.projectId)));
     const nextSignature = factoryStateSignature(projects);
     if (nextSignature === signature) return;
     const message: FactoryState = { type: 'factory-state', ts: now(), projects };

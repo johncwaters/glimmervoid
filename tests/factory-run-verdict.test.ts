@@ -8,13 +8,14 @@ import os from 'node:os';
 import { decideTelemetryConsent, resolveProjectToken } from '../server/core/telemetry-core.ts';
 import { TELEMETRY_BASE_PROPERTY_KEYS, TelemetryState } from '../shared/contracts/telemetry.ts';
 import { FactoryState } from '../shared/contracts/factory.ts';
+import { factoryHarnessRunsDirectory } from '../server/core/factory-harness-mirror-core.ts';
 import { builtServerEntryPath, prepareInstance } from '../test/factory/instance.ts';
 import {
   FactoryHarnessBaseProperties, FactoryHarnessBatch, FactoryHarnessRunProperties,
   buildRunTelemetryBatch, buildRunTelemetryProperties, decideHarnessTelemetry, parseHarnessInstallState,
 } from '../test/factory/telemetry-core.ts';
 import type { HarnessTelemetryInputs } from '../test/factory/telemetry-core.ts';
-import { adoptRunHomeRemoteSwitch, harnessStateDirectory, loadHarnessInstallState, resolveHarnessTelemetryInputs, sendRunTelemetry } from '../test/factory/telemetry.ts';
+import { adoptRunHomeRemoteSwitch, loadHarnessInstallState, resolveHarnessTelemetryInputs, sendRunTelemetry } from '../test/factory/telemetry.ts';
 import { removeInside, resolveInside } from '../test/factory/cleanup.ts';
 import { bridgeSocketPathRefusal, decideGate, decideVerdict, matchedProductText, pidsStillNamingSameProcess, processesUsingBuildOutput, readBuildOutput, unexpectedAcceptanceError } from '../test/factory/verdict.ts';
 import type { GateEvidence, VerdictInput } from '../test/factory/verdict.ts';
@@ -227,8 +228,8 @@ test('the summary allowlist rejects extra keys and removes free text from a cust
 test('the stable harness identity is private, atomic, reusable, loaded only with consent and carries the remote switch between run homes', async () => {
   const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'factory-identity-test-'));
   try {
-    const stateDirectory = harnessStateDirectory({ XDG_STATE_HOME: tempDirectory }, '/unused-home');
-    assert.equal(harnessStateDirectory({}, tempDirectory), path.join(tempDirectory, '.local/state/glimmervoid-factory-runs'));
+    const stateDirectory = factoryHarnessRunsDirectory({ XDG_STATE_HOME: tempDirectory }, '/unused-home');
+    assert.equal(factoryHarnessRunsDirectory({}, tempDirectory), path.join(tempDirectory, '.local/state/glimmervoid-factory-runs'));
     const identities = await Promise.all(Array.from({ length: 4 }, async () => (await loadHarnessInstallState(stateDirectory)).installId));
     const firstInstallId = identities[0];
     assert.ok(firstInstallId);

@@ -137,6 +137,7 @@ export const FactorySettings = z.object({
   watchProjects: z.array(z.object({ project: z.string().trim().min(1), posthogProjectId: z.number().int().positive() })).optional(),
   dailyBudgetUsd: z.number().finite().nonnegative().nullable().optional(),
   verifierModel: z.string().trim().min(1).nullable().optional(),
+  mirrorHarnessRuns: optionalBoolean('factory.mirrorHarnessRuns'),
 }).nullable().optional();
 
 const KnowledgeGraphSettings = optionalObject('knowledgeGraph', {

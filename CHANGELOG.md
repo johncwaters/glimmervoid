@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Watch a factory harness run from the Factory tab**: with `factory.mirrorHarnessRuns` on, the Factory tab shows the latest harness run as a read-only project while it runs and for a day after it ends. It offers no pause, queue or terminal controls, so the dashboard cannot steer the run.
+
 ### Fixed
 
 - **A brief git failure no longer tears down a factory project**: when the factory cannot read a project's integration branch for one poll, it now keeps showing the project with the error instead of treating it as removed and stopping its orchestrator and every working agent.
