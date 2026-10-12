@@ -12,6 +12,7 @@ import { buildCoherenceShims, buildCoherenceUserHooks } from '../server/core/coh
 import type { FactoryCloseOutWorker } from '../server/factory-closeout.ts';
 import { createFactoryDispatch } from '../server/factory-dispatch.ts';
 import { LANE_ENVIRONMENT_ARGS } from '../server/core/lane-permissions-core.ts';
+import { LANE_READABLE_HOME_FOLDERS } from '../server/core/lane-posture-core.ts';
 import type { LaneSpend } from '../server/core/usage-scan-core.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { cliPath, resolvePackageBin } from '../server/runtime-paths.ts';
@@ -23,7 +24,7 @@ import { Session } from '../session/sessions.ts';
 import { buildFactoryProjectState } from '../server/core/factory-core.ts';
 import type { FactoryWorkerEvent } from '../shared/contracts/factory.ts';
 import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
-import { createCoherenceLedger } from './helpers/factory-fixture.ts';
+import { createCoherenceLedger, lanePrivateHome } from './helpers/factory-fixture.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 
@@ -132,13 +133,19 @@ test('dispatch hands off and activates at the integration tip, then provisions a
   assert.deepEqual(overrides.settingsPermissions, { defaultMode: 'dontAsk',
     allow: [`Edit(/${worktreePath}/**)`, 'Bash(coherence context:*)', 'Bash(rm:*)', 'Bash(npm run typecheck:*)', 'Bash(npm run lint:*)', 'Bash(npm test:*)'],
     deny: ['Bash(git push:*)', 'Bash(gh:*)', 'Bash(glimmervoid:*)', 'WebFetch', 'Edit(**/.git/**)', 'Edit(**/.claude/**)'] });
+  const privateHome = await lanePrivateHome();
+  const privateHomeToolFolders = LANE_READABLE_HOME_FOLDERS.map((folder) => path.join(privateHome, folder));
+  assert.ok(overrides.settingsSandbox);
+  const readableHomeFolders = (overrides.settingsSandbox.filesystem as { allowRead: string[] }).allowRead;
+  for (const readableHomeFolder of readableHomeFolders) assert.ok(privateHomeToolFolders.includes(readableHomeFolder), readableHomeFolder);
   assert.deepEqual(overrides.settingsSandbox, {
     ...teamReviewSandbox(os.tmpdir()),
     network: { ...teamReviewSandbox(os.tmpdir()).network, allowAllUnixSockets: false, allowedDomains: ['127.0.0.1:3911'] },
     filesystem: {
       allowWrite: [await realpath(os.tmpdir()), worktreePath],
       denyWrite: [commonGitDir, path.join(worktreePath, '.git'), path.join(worktreePath, '.claude')],
-      denyRead: teamReviewSandbox(os.tmpdir()).filesystem.denyRead,
+      denyRead: [...teamReviewSandbox(os.tmpdir()).filesystem.denyRead, privateHome],
+      allowRead: readableHomeFolders,
     },
   });
   assert.notEqual(spawned.session.worktreeDir, fixture.projectPath);

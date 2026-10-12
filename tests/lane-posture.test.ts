@@ -20,7 +20,7 @@ for (const hookTools of [null, []]) {
   });
 }
 
-test('the shell canonicalizes linked paths and denies the whole shared git folder to every lane inside a repository', async (context) => {
+test('the shell canonicalizes linked paths and denies the whole shared git folder and the private home to every lane inside a repository', async (context) => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'lane-posture-shell-')));
   context.after(() => rm(root, { recursive: true, force: true }));
   const repository = path.join(root, 'repo');
@@ -38,7 +38,9 @@ test('the shell canonicalizes linked paths and denies the whole shared git folde
   assert.equal(workspace.isGit, true);
   const alias = path.join(root, 'alias');
   await symlink(workspace.cwd, alias, 'junction');
-  const tools = { resolveSaneYoloHookTools: () => [{ id: 'saneYolo' as const, binPath: '/cc-safety-net' }] };
+  const privateHome = path.join(root, 'private-home');
+  await mkdir(path.join(privateHome, 'bin'), { recursive: true });
+  const tools = { resolveSaneYoloHookTools: () => [{ id: 'saneYolo' as const, binPath: '/cc-safety-net' }], homeDir: privateHome };
   const worker = await resolveLanePosture({ ...input, cwd: alias, writableRoots: [alias] }, tools);
   assert.equal(worker.ok, true);
   if (!worker.ok) return;
@@ -46,6 +48,8 @@ test('the shell canonicalizes linked paths and denies the whole shared git folde
   const commonDir = path.join(repository, '.git');
   assert.deepEqual(worker.sessionOverrides.settingsSandbox.filesystem.allowWrite, [await realpath(os.tmpdir()), workspace.cwd]);
   assert.deepEqual(worker.sessionOverrides.settingsSandbox.filesystem.denyWrite, [commonDir, path.join(workspace.cwd, '.git'), path.join(workspace.cwd, '.claude')]);
+  assert.deepEqual(worker.sessionOverrides.settingsSandbox.filesystem.denyRead, [privateHome]);
+  assert.deepEqual(worker.sessionOverrides.settingsSandbox.filesystem.allowRead, [path.join(privateHome, 'bin')]);
   const nestedDirectory = path.join(workspace.cwd, 'nested');
   await mkdir(nestedDirectory);
   const reviewer = await resolveLanePosture({ ...input, access: 'read-only', cwd: nestedDirectory }, tools);

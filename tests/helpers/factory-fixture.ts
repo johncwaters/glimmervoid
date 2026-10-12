@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { TestContext } from 'node:test';
 import { execFileAsync } from '../../server/child-process-safe.ts';
+import { glimmervoidHomeDir } from '../../server/config-store.ts';
 import { factoryWrittenRecordId } from '../../server/core/factory-core.ts';
 import { commitAndLandFactoryLedger } from '../../server/factory-ledger.ts';
 import { createGitWorkspace } from '../../server/git-workspace.ts';
@@ -18,6 +19,10 @@ export function stubEnvironmentVariable(context: TestContext, name: string, valu
     if (previousValue === undefined) { delete process.env[name]; return; }
     process.env[name] = previousValue;
   });
+}
+
+export function lanePrivateHome(): Promise<string> {
+  return realpath(glimmervoidHomeDir());
 }
 
 export function gitRunnerIn(defaultCwd: string) {

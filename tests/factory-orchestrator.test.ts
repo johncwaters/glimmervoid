@@ -23,7 +23,7 @@ import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
 import { readCoherenceFixture } from './helpers/factory-coherence-reports.ts';
-import { createLedgerRepository } from './helpers/factory-fixture.ts';
+import { createLedgerRepository, lanePrivateHome } from './helpers/factory-fixture.ts';
 import { waitFor } from './helpers/wait-for.ts';
 
 const project: FactoryProjectState = {
@@ -143,11 +143,13 @@ test('orchestrator uses the ledger cwd, pinned Claude hooks, Sane YOLO, a ledger
   });
   assert.deepEqual(overrides.hookTools, [{ id: 'saneYolo', binPath: '/cc-safety-net' }]);
   assert.equal(overrides.getHookTools, null);
+  assert.ok(overrides.settingsSandbox);
+  const readableHomeFolders = (overrides.settingsSandbox.filesystem as { allowRead: string[] }).allowRead;
   const expectedPosture = buildLanePosture({
     access: 'own-checkout', writableRoots: [fixture.ledgerPath], network: { hookEndpoint: { host: '127.0.0.1', port: 3911 }, domains: [] },
     allowCommands: FACTORY_ORCHESTRATOR_ALLOW.map((rule) => rule.slice(5, -3)), extraDeny: FACTORY_ORCHESTRATOR_DENY,
     denyRead: teamReviewSandbox(os.tmpdir()).filesystem.denyRead, scrubCredentials: true,
-  }, { tempDir: await realpath(os.tmpdir()), commonGitDir: fixture.commonGitDir });
+  }, { tempDir: await realpath(os.tmpdir()), commonGitDir: fixture.commonGitDir, privateHome: await lanePrivateHome(), privateHomeToolFolders: readableHomeFolders });
   assert.deepEqual(overrides.settingsSandbox, expectedPosture.settingsSandbox);
   assert.deepEqual(overrides.settingsPermissions, expectedPosture.settingsPermissions);
   assert.deepEqual(overrides.extraClaudeArgs?.slice(2), expectedPosture.extraClaudeArgs);

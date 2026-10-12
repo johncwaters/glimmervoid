@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { isPathInside } from '../../shared/paths.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES, LANE_ENVIRONMENT_ARGS } from './lane-permissions-core.ts';
 
 function checkoutUnwritablePaths(checkoutPath: string): string[] {
@@ -36,6 +37,8 @@ export type LanePosturePaths = {
   tempDir?: string;
   cwd?: string;
   commonGitDir?: string;
+  privateHome?: string;
+  privateHomeToolFolders?: readonly string[];
 };
 
 export const LANE_CREDENTIAL_ENV = Object.freeze({
@@ -45,12 +48,22 @@ export const LANE_CREDENTIAL_ENV = Object.freeze({
 
 export const LANE_CREDENTIAL_DENY_READ = Object.freeze(['~/.ssh', '~/.config/gh', '~/Library/Keychains', '~/.git-credentials']);
 
+export const LANE_READABLE_HOME_FOLDERS = Object.freeze(['bin', path.join('factory', 'bin')]);
+
+function privateHomeReadRules(paths: LanePosturePaths, laneFolders: readonly string[]): { denyRead: string[]; allowRead: string[] } {
+  const { privateHome } = paths;
+  if (!privateHome) return { denyRead: [], allowRead: [] };
+  const laneFoldersInsideHome = laneFolders.filter((folder) => isPathInside(privateHome, folder, { allowEqual: false }));
+  return { denyRead: [privateHome], allowRead: [...(paths.privateHomeToolFolders ?? []), ...laneFoldersInsideHome] };
+}
+
 export function buildLanePosture(spec: LanePostureSpec, paths: LanePosturePaths = {}) {
   const writableRoots = spec.access === 'read-only' ? [] : [...new Set(spec.writableRoots)];
   const allowWrite = paths.tempDir ? [paths.tempDir, ...writableRoots] : [...writableRoots];
   const denyWrite = paths.commonGitDir ? [paths.commonGitDir] : [];
   if (spec.access === 'read-only' && paths.cwd) denyWrite.push(paths.cwd);
   denyWrite.push(...writableRoots.flatMap(checkoutUnwritablePaths));
+  const homeReadRules = privateHomeReadRules(paths, paths.cwd ? [paths.cwd, ...writableRoots] : writableRoots);
   return {
     settingsPermissions: {
       defaultMode: 'dontAsk' as const,
@@ -68,7 +81,10 @@ export function buildLanePosture(spec: LanePostureSpec, paths: LanePosturePaths 
         allowAllUnixSockets: false as const,
         allowedDomains: [...new Set([`${spec.network.hookEndpoint.host}:${spec.network.hookEndpoint.port}`, ...spec.network.domains])],
       },
-      filesystem: { allowWrite: [...new Set(allowWrite)], denyWrite: [...new Set(denyWrite)], denyRead: [...spec.denyRead] },
+      filesystem: {
+        allowWrite: [...new Set(allowWrite)], denyWrite: [...new Set(denyWrite)],
+        denyRead: [...new Set([...spec.denyRead, ...homeReadRules.denyRead])], allowRead: [...new Set(homeReadRules.allowRead)],
+      },
     },
     extraClaudeArgs: [...LANE_ENVIRONMENT_ARGS],
     spawnEnv: spec.scrubCredentials ? { ...LANE_CREDENTIAL_ENV } : {},
