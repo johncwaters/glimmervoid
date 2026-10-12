@@ -13,6 +13,14 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && 'code' in error && error.code === code;
 }
 
+async function checkBubblewrapStarts() {
+  try { await execFileAsync('bwrap', ['--ro-bind', '/', '/', '--dev', '/dev', '--unshare-net', '--unshare-user', '--unshare-pid', '--proc', '/proc', 'true'], { timeout: 5000 }); }
+  catch (error) {
+    const bubblewrapError = error instanceof Error && 'stderr' in error && typeof error.stderr === 'string' ? error.stderr.trim() : '';
+    throw new Error(`Factory lane sandbox cannot start: bwrap with the lane namespaces failed (${bubblewrapError || 'no output'}). On Ubuntu with kernel.apparmor_restrict_unprivileged_userns=1, bwrap needs an AppArmor profile granting userns.`, { cause: error });
+  }
+}
+
 export async function checkEnvironment() {
   if (process.platform !== 'linux' && process.platform !== 'darwin') throw new Error('Factory harness requires Linux or macOS');
   const tools = process.platform === 'linux' ? ['bwrap', 'socat', 'rg'] : ['sandbox-exec'];
@@ -20,6 +28,7 @@ export async function checkEnvironment() {
     try { await execFileAsync('/bin/sh', ['-c', 'command -v "$1"', 'factory-harness', tool], { timeout: 5000 }); }
     catch (error) { throw new Error(`Factory checks require ${tool} on PATH`, { cause: error }); }
   }
+  if (process.platform === 'linux') await checkBubblewrapStarts();
   await access(path.join(repoRoot, 'node_modules/@anthropic-ai/sandbox-runtime/dist/cli.js'));
 }
 
