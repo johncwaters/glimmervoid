@@ -7,7 +7,7 @@ import { DEFAULT_FACTORY_CHECKS, DEFAULT_FACTORY_PROTECTED_PATHS } from '../../s
 import type { Config } from '../../shared/contracts/config.ts';
 import type { CoherenceOrient, CoherenceWorkInspect } from '../../shared/contracts/coherence.ts';
 import type { FactoryWorkerEvent, FactoryReviewVerdict, FactoryWatchEntry, FactoryIssue, FactoryIntentTicket, FactoryQueueIntentRequest } from '../../shared/contracts/factory.ts';
-import { FactoryProjectState, FactoryReviewerOutput } from '../../shared/contracts/factory.ts';
+import { FACTORY_PROTECTED_PATH_FLOOR, FactoryProjectState, FactoryReviewerOutput } from '../../shared/contracts/factory.ts';
 import { STATES } from '../../shared/states.ts';
 import type { LaneSpend } from './usage-scan-core.ts';
 import type { SessionState } from '../../shared/states.ts';
@@ -477,12 +477,29 @@ function matchesProtectedPath(foldedProtectedPath: string, foldedPath: string): 
   return patternSegments.every((patternSegment, index) => segmentMatchesPattern(patternSegment, pathSegments[index] ?? ''));
 }
 
-export function checkFence({ changedPaths, writeScopes, protectedPaths }: {
-  changedPaths: string[]; writeScopes: string[]; protectedPaths: string[];
+export function withIntentFloorAllowances<Allowance extends string>(current: Readonly<Record<string, Allowance[]>> | undefined, intentId: string,
+  allowances: readonly Allowance[] | undefined): Record<string, Allowance[]> | undefined {
+  const others = Object.fromEntries(Object.entries(current ?? {}).filter(([id]) => id !== intentId));
+  const next = allowances && allowances.length > 0 ? { ...others, [intentId]: [...new Set(allowances)] } : others;
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
+export function checkFence({ changedPaths, writeScopes, protectedPaths, floorAllowances = [] }: {
+  changedPaths: string[]; writeScopes: string[]; protectedPaths: string[]; floorAllowances?: readonly string[];
 }): FactoryFence {
   const outside: string[] = [];
   const protectedChanges: string[] = [];
   const scopes = writeScopes.map(normalizeScope);
+  const allowedFloor = FACTORY_PROTECTED_PATH_FLOOR.filter((floorPath) => floorAllowances.includes(floorPath));
+  const enforcedFloor = FACTORY_PROTECTED_PATH_FLOOR.filter((floorPath) => !floorAllowances.includes(floorPath));
+  const isFloorRestatement = (protectedPath: string) => {
+    const folded = protectedPath.toLowerCase();
+    const scope = normalizeScope(folded);
+    if (folded.endsWith('/') || scope === null || protectsEveryPath(folded)) return false;
+    return allowedFloor.some((floorPath) => matchesProtectedPath(floorPath.toLowerCase(), scope));
+  };
+  const enforced = [...enforcedFloor, ...protectedPaths.filter((protectedPath) => !isFloorRestatement(protectedPath))];
+  const isProtectedPath = (folded: string) => enforced.some((protectedPath) => matchesProtectedPath(protectedPath.toLowerCase(), folded));
   for (const changedPath of changedPaths) {
     const normalized = normalizeScope(changedPath);
     if (normalized === null || normalized === '') {
@@ -491,8 +508,7 @@ export function checkFence({ changedPaths, writeScopes, protectedPaths }: {
     }
     if (!scopes.some((scope) => scope !== null && containsScope(scope, normalized))) outside.push(changedPath);
     const folded = normalized.toLowerCase();
-    const isProtected = isCoherenceLedgerPath(normalized) || protectedPaths.some((protectedPath) => matchesProtectedPath(protectedPath.toLowerCase(), folded));
-    if (isProtected) protectedChanges.push(changedPath);
+    if (isCoherenceLedgerPath(normalized) || isProtectedPath(folded)) protectedChanges.push(changedPath);
   }
   if (outside.length === 0 && protectedChanges.length === 0) return { ok: true };
   const unsupportedProtectedPaths = protectedPaths.filter((protectedPath) => protectsEveryPath(protectedPath.toLowerCase()));

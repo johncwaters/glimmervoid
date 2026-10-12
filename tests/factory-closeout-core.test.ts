@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildFactoryCheckEnv, checkFence, decideCloseOut, inheritedSecretValues, listDirtyPaths, listUncommittedWorkPaths, findForbiddenLedgerWrites, parseCheckCommand, parseFactoryReviewerOutput, buildFactoryReviewerPrompt, redactSecretLines, FACTORY_REVIEW_DIFF_MAX_CHARS } from '../server/core/factory-core.ts';
+import { buildFactoryCheckEnv, checkFence, decideCloseOut, inheritedSecretValues, listDirtyPaths, listUncommittedWorkPaths, findForbiddenLedgerWrites, parseCheckCommand, parseFactoryReviewerOutput, buildFactoryReviewerPrompt, redactSecretLines, withIntentFloorAllowances, FACTORY_REVIEW_DIFF_MAX_CHARS } from '../server/core/factory-core.ts';
 import { DEFAULT_FACTORY_PROTECTED_PATHS } from '../shared/contracts/browser-config.ts';
 
 const fenceInput = { writeScopes: ['src'], protectedPaths: DEFAULT_FACTORY_PROTECTED_PATHS };
@@ -31,6 +31,35 @@ test('factory fence matches protected paths case-insensitively on both sides', (
   assert.deepEqual(checkFence({ ...fenceInput, writeScopes: ['.'], protectedPaths: ['SRC/Generated/'], changedPaths: ['src/generated/a.ts'] }), {
     ok: false, outside: [], protected: ['src/generated/a.ts'], unsupportedProtectedPaths: [],
   });
+});
+
+const floorPaths = ['package.json', 'web/package.json', 'web/package-lock.json', 'web/.npmrc', 'tsconfig.json', 'web/tsconfig.build.json', 'biome.json', 'biome.jsonc',
+  'vitest.config.ts', 'jest.config.js', '.mocharc.yml', 'playwright.config.ts'];
+
+test('factory fence enforces the fixed floor even when the configured list is empty', () => {
+  assert.deepEqual(checkFence({ writeScopes: ['.'], protectedPaths: [], changedPaths: [...floorPaths, 'web/biome.json', 'web/vitest.config.ts', 'src/tsconfig.ts'] }), {
+    ok: false, outside: [], protected: floorPaths, unsupportedProtectedPaths: [],
+  });
+});
+
+test('factory fence lifts only the floor entries an intent was granted', () => {
+  assert.deepEqual(checkFence({ writeScopes: ['.'], protectedPaths: [], floorAllowances: ['**/package.json', '**/package-lock.json'], changedPaths: floorPaths }), {
+    ok: false, outside: [], protected: floorPaths.filter((floorPath) => !/package(-lock)?\.json$/.test(floorPath)), unsupportedProtectedPaths: [],
+  });
+  assert.deepEqual(checkFence({ ...fenceInput, writeScopes: ['.'], floorAllowances: ['**/package.json', '**/package-lock.json'], changedPaths: ['package.json', 'package-lock.json', 'web/package.json'] }), { ok: true });
+  assert.deepEqual(checkFence({ ...fenceInput, writeScopes: ['.'], floorAllowances: ['**/package.json'], changedPaths: ['.github/package.json', '.claude/package.json', '.coherence/package.json', 'AGENTS.md'] }), {
+    ok: false, outside: [], protected: ['.github/package.json', '.claude/package.json', '.coherence/package.json', 'AGENTS.md'], unsupportedProtectedPaths: [],
+  });
+  assert.deepEqual(checkFence({ writeScopes: ['.'], protectedPaths: [], floorAllowances: ['package.json', '**/*.json'], changedPaths: ['package.json'] }), {
+    ok: false, outside: [], protected: ['package.json'], unsupportedProtectedPaths: [],
+  });
+});
+
+test('per-intent floor allowances replace, dedupe and drop an intent entry', () => {
+  assert.deepEqual(withIntentFloorAllowances(undefined, 'wrk-a', ['**/package.json', '**/package.json']), { 'wrk-a': ['**/package.json'] });
+  assert.deepEqual(withIntentFloorAllowances({ 'wrk-a': ['**/.npmrc'], 'wrk-b': ['biome.json'] }, 'wrk-a', ['**/package.json']), { 'wrk-a': ['**/package.json'], 'wrk-b': ['biome.json'] });
+  assert.deepEqual(withIntentFloorAllowances({ 'wrk-a': ['**/.npmrc'], 'wrk-b': ['biome.json'] }, 'wrk-a', undefined), { 'wrk-b': ['biome.json'] });
+  assert.equal(withIntentFloorAllowances({ 'wrk-a': ['**/.npmrc'] }, 'wrk-a', []), undefined);
 });
 
 test('factory fence matches a wildcard inside one path segment and treats unsupported patterns as protecting everything', () => {

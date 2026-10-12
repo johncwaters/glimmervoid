@@ -64,6 +64,7 @@ export interface FactoryCloseOutDeps {
   readIntegrationSha: (projectPath: string) => Promise<string>;
   recordFactoryLandedSha: (projectId: string, integrationSha: string) => Promise<void>;
   readPaused: (projectId: string) => Promise<boolean>;
+  readIntentFloorAllowances?: (projectId: string, intentId: string) => Promise<readonly string[]>;
   appendWatch: (entry: FactoryWatchEntry) => Promise<void>;
   notifyOrchestrator: (projectId: string, event: FactoryDecisionWorkerEvent) => void;
   setException: (projectId: string, reason: string) => void;
@@ -130,7 +131,7 @@ export async function runFactoryReview({ spawnReviewer, model, signal, buildProm
 }
 
 export function createFactoryCloseOut({
-  config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger, runCoherence, commitAndLand, readIntegrationSha, recordFactoryLandedSha, readPaused,
+  config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger, runCoherence, commitAndLand, readIntegrationSha, recordFactoryLandedSha, readPaused, readIntentFloorAllowances = async () => [],
   appendWatch, notifyOrchestrator, setException, recordDecision = async () => {}, onReviewingChanged = () => {}, baseEnv = process.env, prepareCheckRunner = prepareSandboxedCheckRunner,
 }: FactoryCloseOutDeps) {
   const reviewing = new Set<string>();
@@ -384,7 +385,8 @@ export function createFactoryCloseOut({
         return;
       }
       fence = checkFence({ changedPaths, writeScopes: worker.writeScopes,
-        protectedPaths: config.factory?.protectedPaths ?? DEFAULT_FACTORY_PROTECTED_PATHS });
+        protectedPaths: config.factory?.protectedPaths ?? DEFAULT_FACTORY_PROTECTED_PATHS,
+        floorAllowances: await readIntentFloorAllowances(worker.projectId, worker.intentId) });
       const reviewDiff = fence.ok ? await runGit(cwd, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--text', '--ignore-submodules=none', `${baseSha}...${headSha}`]) : '';
       if (reviewDiff.length > FACTORY_REVIEW_DIFF_MAX_CHARS) {
         await failedAttempt('Review size', FACTORY_REVIEW_TOO_LARGE_FEEDBACK);

@@ -8,7 +8,7 @@ import type { Config } from '../shared/contracts/config.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { buildCoherenceShims } from './core/coherence-session-core.ts';
-import { appendFactoryLandedSha, buildTicketCreateArgs, decideFactoryStalls, exceedsRiskCeiling, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, findIntentTicketProblem, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, isFactoryProjectInFlight, hasValidWriteScopes, hasWildcardWriteScope, isCompletedCommandFailure, redactSecretLines } from './core/factory-core.ts';
+import { appendFactoryLandedSha, buildTicketCreateArgs, decideFactoryStalls, exceedsRiskCeiling, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, findIntentTicketProblem, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, isFactoryProjectInFlight, hasValidWriteScopes, hasWildcardWriteScope, isCompletedCommandFailure, redactSecretLines, withIntentFloorAllowances } from './core/factory-core.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import type { LaneSpend } from './core/usage-scan-core.ts';
 import { captureFactoryLedgerRecord, commitAndLandFactoryLedger, discardPendingLedgerWrites, hasCodeChangedBetween, listRecordsMissingFromHead, readCodeDiffBetween, screenPendingLedgerWrites } from './factory-ledger.ts';
@@ -351,6 +351,10 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     return new Map(Object.entries((await readLaneState(projectId)).intentWriteScopes ?? {}));
   }
 
+  async function readIntentFloorAllowances(projectId: string, intentId: string): Promise<readonly string[]> {
+    return (await readLaneState(projectId)).intentFloorAllowances?.[intentId] ?? [];
+  }
+
   function recordFactoryLandedSha(projectId: string, integrationSha: string): Promise<void> {
     return updateLaneState(projectId, (state) => ({ factoryLandedShas: appendFactoryLandedSha(state.factoryLandedShas ?? [], integrationSha) }));
   }
@@ -423,6 +427,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         await updateLaneState(intent.projectId, (state) => ({
           trustedIntentIds: [...new Set([...(state.trustedIntentIds ?? []), intentWorkId])],
           intentWriteScopes: { ...state.intentWriteScopes, [intentWorkId]: intent.writeScopes },
+          intentFloorAllowances: withIntentFloorAllowances(state.intentFloorAllowances, intentWorkId, intent.floorAllowances),
           ticketedIntentIds: intent.tickets ? [...new Set([...(state.ticketedIntentIds ?? []), intentWorkId])] : state.ticketedIntentIds,
           pendingIntentTickets: intent.tickets && !(state.ticketedIntentIds ?? []).includes(intentWorkId)
             ? { ...state.pendingIntentTickets, [intentWorkId]: { risk: intent.risk, boundary: intent.boundary, tickets: intent.tickets } }
@@ -577,7 +582,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       }) : null;
       const activeCloseOut = spawnReviewer ? createFactoryCloseOut({
         config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, commitAndLand, readIntegrationSha,
-        recordFactoryLandedSha, readPaused, prepareCheckRunner, recordDecision: decisionLog.record,
+        recordFactoryLandedSha, readPaused, readIntentFloorAllowances, prepareCheckRunner, recordDecision: decisionLog.record,
         appendWatch: (entry) => updateLaneState(entry.projectId, (state) => ({ watch: [...(state.watch ?? []), entry] })),
         notifyOrchestrator,
         setException: raiseException,

@@ -83,6 +83,14 @@ const scopeText = z.string().trim().min(1).max(1024);
 const FACTORY_INTENT_TICKET_LIMIT = 32;
 const ticketKey = z.string().trim().min(1).max(64);
 
+export const FACTORY_PROTECTED_PATH_FLOOR = [
+  '**/package.json', '**/package-lock.json', '**/.npmrc', '**/tsconfig*.json', 'biome.json', 'biome.jsonc',
+  'vitest.config.*', 'jest.config.*', '.mocharc*', 'playwright.config.*',
+] as const;
+export const FactoryFloorAllowance = z.enum(FACTORY_PROTECTED_PATH_FLOOR);
+export type FactoryFloorAllowance = z.infer<typeof FactoryFloorAllowance>;
+const floorAllowances = z.array(FactoryFloorAllowance).max(FACTORY_PROTECTED_PATH_FLOOR.length);
+
 export const FactoryIntentTicket = z.object({
   id: ticketKey,
   objective: intentText,
@@ -100,6 +108,7 @@ export const FactoryQueueIntentRequest = z.object({
   boundary: intentText,
   writeScopes: z.array(scopeText).max(32),
   tickets: z.array(FactoryIntentTicket).min(1).max(FACTORY_INTENT_TICKET_LIMIT).optional(),
+  floorAllowances: floorAllowances.optional(),
 });
 export type FactoryQueueIntentRequest = z.infer<typeof FactoryQueueIntentRequest>;
 
@@ -143,6 +152,7 @@ export const FactoryLaneState = z.object({
   trustedIntentCloses: z.array(z.string().min(1)).optional(),
   trustedIntentIds: z.array(z.string().min(1)).optional(),
   intentWriteScopes: z.record(z.string().min(1), z.array(z.string().min(1))).optional(),
+  intentFloorAllowances: z.record(z.string().min(1), floorAllowances).optional(),
   ticketedIntentIds: z.array(z.string().min(1)).optional(),
   pendingIntentTickets: z.record(z.string().min(1), z.object({
     risk: CoherenceRisk, boundary: intentText, tickets: z.array(FactoryIntentTicket).min(1).max(FACTORY_INTENT_TICKET_LIMIT),
