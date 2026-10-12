@@ -61,10 +61,10 @@ export const CoherenceOrient = z.looseObject({
   }).nullable(),
   consequences: z.looseObject({
     unverifiedCompletedWork: z.array(z.string()),
-  }),
+  }).nullable(),
   verification: z.looseObject({
     state: z.string(),
-  }),
+  }).nullable(),
 });
 
 export const CoherenceWorkInspect = z.looseObject({

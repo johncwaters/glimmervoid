@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A factory project whose coherence ledger cannot be fully read now shows coherence's own refusal reasons**: when coherence refuses because it could not read its consequence or verification source, the factory floor shows why instead of an unexpected-output error.
 - **The factory risk ceiling now covers the intent too**: a ticket is admitted only when both it and its intent are within the configured maximum risk, so a low-risk ticket under a critical intent no longer starts a worker, and queueing an intent above the ceiling is refused before anything is written to the ledger.
 - **A blocked factory ticket always releases its worker**: when close-out blocks a ticket, the worker, its slot and its write scope are now released and the exception raised before the ledger lands, so a failed push is retried on the next poll instead of holding the worker until restart, and a reopened ticket starts again from its first attempt.
 - **A verifier push failure no longer pauses the factory**: the independent verifier now records its trusted verification and intent close as soon as the ledger commit succeeds locally, so a push that fails afterwards no longer leaves a completed intent untrusted and pauses the project on the next tick as closed without its verifier.

@@ -32,12 +32,29 @@ for (const [action, orderCount] of [
       return;
     }
     assert.deepEqual(project.heading.reasons, orient.reasons);
-    assert.deepEqual(project.unverifiedCompletedWork, orient.consequences.unverifiedCompletedWork);
+    assert.deepEqual(project.unverifiedCompletedWork, orient.consequences?.unverifiedCompletedWork);
     assert.deepEqual(project.orders.map((order) => order.owner), inspection.data.work.map((order) => order.owner.session));
     assert.deepEqual(project.orders.map((order) => order.lastEvent), inspection.data.work.map((order) => order.last === null ? null : { event: order.last.event, at: order.last.at, session: order.last.session }));
     if (action === 'resolve-conflict') assert.equal(project.conflicts.length, 1);
   });
 }
+
+test('a refused orient with null sources keeps coherence refusal reasons', async () => {
+  const refused = { ...CoherenceOrient.parse(await readFixture('orient-refuse')), action: 'refuse', reasons: ['consequences: stray.txt is an unexpected consequence-ledger entry'], consequences: null, verification: null };
+  const orient = CoherenceOrient.parse(refused);
+  const project = buildFactoryProjectState({ ...identity, orient, work: null, error: null });
+  assert.equal(project.error, null);
+  assert.deepEqual(project.heading, { action: 'refuse', reasons: refused.reasons });
+  assert.deepEqual(project.unverifiedCompletedWork, []);
+  assert.deepEqual(FactoryProjectState.parse(project), project);
+});
+
+test('a non-refused orient with null sources reads as no unverified work', async () => {
+  const orient = CoherenceOrient.parse({ ...CoherenceOrient.parse(await readFixture('orient-dispatch')), consequences: null, verification: null });
+  const project = buildFactoryProjectState({ ...identity, orient, work: CoherenceWorkInspect.parse(await readFixture('work-dispatch')), error: null });
+  assert.equal(project.heading.action, 'dispatch');
+  assert.deepEqual(project.unverifiedCompletedWork, []);
+});
 
 test('factory refuses missing reports and explicit errors with empty tickets', async () => {
   const orient = CoherenceOrient.parse(await readFixture('orient-dispatch'));

@@ -105,7 +105,7 @@ export function buildFactoryProjectState({ projectId, projectName, headSha, orie
     return {
       projectId, projectName, headSha, paused, orchestrator: null, error: null,
       heading: { action: 'refuse', reasons: orient.reasons },
-      orders: [], conflicts: [], unverifiedCompletedWork: orient.consequences.unverifiedCompletedWork,
+      orders: [], conflicts: [], unverifiedCompletedWork: orient.consequences?.unverifiedCompletedWork ?? [],
     };
   }
   if (error !== null || orient === null || work === null) {
@@ -135,7 +135,7 @@ export function buildFactoryProjectState({ projectId, projectName, headSha, orie
       lastEvent: order.last === null ? null : { event: order.last.event, at: order.last.at, session: order.last.session },
     })),
     conflicts: (orient.work?.conflicts ?? []).map(({ left, right, scope }) => ({ left, right, scope })),
-    unverifiedCompletedWork: orient.consequences.unverifiedCompletedWork,
+    unverifiedCompletedWork: orient.consequences?.unverifiedCompletedWork ?? [],
   };
 }
 
