@@ -78,6 +78,17 @@ interface AgentArgsOptions {
   hasOuterSandbox?: boolean;
 }
 
+interface AgentLaunchSessionOptions {
+  resumeSessionId: string | null;
+  extraArgs: readonly string[];
+  generatedId: string;
+}
+
+interface AgentLaunchSession {
+  agentSessionId: string;
+  extraArgs: string[];
+}
+
 interface AgentSpawnCommandOptions {
   platform: NodeJS.Platform;
   resolved?: ResolvedCommand | null;
@@ -105,6 +116,7 @@ interface AgentAdapter {
   buildEnv(baseEnv: SpawnEnv, extraEnv: SpawnEnv | null | undefined, options?: AgentEnvOptions): SpawnEnv;
   buildArgs(options?: AgentArgsOptions): string[];
   settingsArgs?(settingsPath: string): string[];
+  launchSessionId?(options: AgentLaunchSessionOptions): AgentLaunchSession;
   sessionIdOf?(payload: HookPayload): unknown;
 }
 
@@ -231,6 +243,8 @@ export type {
   AgentCapabilities,
   AgentCommandOptions,
   AgentHookProfile,
+  AgentLaunchSession,
+  AgentLaunchSessionOptions,
   AgentSpawnCommandOptions,
   AgentTitleProfile,
   ArgvConfigInjection,

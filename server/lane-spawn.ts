@@ -7,9 +7,8 @@ import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import { buildLanePermissions } from './core/lane-permissions-core.ts';
 import { awaitSessionExit, registerEphemeralSession } from './ephemeral-session.ts';
-import { resolveLanePosture } from './lane-posture.ts';
-import { LANE_CREDENTIAL_DENY_READ, LANE_CREDENTIAL_ENV } from './core/lane-posture-core.ts';
-import { judgeRole } from './core/sandbox-roles-core.ts';
+import { judgeRole, LANE_CREDENTIAL_ENV } from './core/sandbox-roles-core.ts';
+import { resolveRequiredSaneYoloHookTools } from './hook-tools.ts';
 import { makeHostScratchDirectory } from './host-scratch.ts';
 import { writeJsonAtomic } from './json-file.ts';
 import { allowSandboxedSpawn } from './sandbox-deps.ts';
@@ -19,6 +18,8 @@ import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 
 const SETTINGS_DIR_PREFIX = 'glimmervoid-lane-settings-';
 const UNWRAPPED_PLATFORM = 'win32';
+const UNWRAPPED_CODEX_SANDBOX_ARGS = Object.freeze(['-s', 'read-only']);
+const GUARD_HOOK_UNAVAILABLE_ERROR = 'Sane YOLO is unavailable';
 
 const LANE_SPAWN_DENY_TOOLS = Object.freeze([
   'Bash', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task', 'Bash(git push:*)', 'Bash(gh:*)',
@@ -34,6 +35,7 @@ type LaneSpawn = (options: {
   model?: string | null;
   signal?: AbortSignal | null;
   onOutput?: (chunk: string) => void;
+  readablePaths?: readonly string[];
 }) => Promise<void>;
 
 interface LaneSpawnOptions {
@@ -46,7 +48,6 @@ interface LaneSpawnOptions {
   recordLane?: RecordLane | null;
   laneName: string;
   allowTools?: readonly string[];
-  useReadOnlyPosture?: boolean;
   settingsPermissions?: Record<string, unknown>;
   spawnEnv?: Readonly<Record<string, string>> | null;
   createSession?: (options: SessionOptions) => Session;
@@ -71,30 +72,26 @@ async function writeStandaloneDenySettings(permissions: unknown): Promise<{ args
 function createLaneSpawn({
   sessions = new Map(), closeSessionDataClients = () => {}, hookRouter = null, getHookPort = null,
   spawnGate = null, replayBufferKB = undefined, recordLane = null, laneName, allowTools = [],
-  createSession = (options) => new Session(options), settingsPermissions, spawnEnv = null, useReadOnlyPosture = false,
+  createSession = (options) => new Session(options), settingsPermissions, spawnEnv = null,
   prepareSandbox = prepareSandboxLaunch, sandboxRefusal = allowSandboxedSpawn, platform = process.platform,
 }: LaneSpawnOptions): LaneSpawn {
-  return async function spawnLaneSession({ id, name, prompt, cwd, agent = DEFAULT_AGENT_ID, extraArgs = [], model = null, signal = null, onOutput }) {
+  return async function spawnLaneSession({ id, name, prompt, cwd, agent = DEFAULT_AGENT_ID, extraArgs = [], model = null, signal = null, onOutput, readablePaths = [] }) {
     const isCodex = agent === 'codex';
-    const hasNoShell = !isCodex && !useReadOnlyPosture && settingsPermissions === undefined;
-    const isWrapped = hasNoShell && platform !== UNWRAPPED_PLATFORM;
+    const hasClaudeShell = !isCodex && settingsPermissions !== undefined;
+    const isWrapped = platform !== UNWRAPPED_PLATFORM;
+    if (!isWrapped && hasClaudeShell) throw new Error(`${laneName} lane needs the sandbox runtime, which does not run on ${platform}`);
     const sandboxRefusalReason = isWrapped ? sandboxRefusal() : null;
     if (sandboxRefusalReason !== null) throw new Error(sandboxRefusalReason);
+    const guardHookTools = hasClaudeShell && hookRouter ? resolveRequiredSaneYoloHookTools({}) ?? [] : null;
+    if (guardHookTools && !guardHookTools.some((tool) => tool.id === 'saneYolo')) throw new Error(GUARD_HOOK_UNAVAILABLE_ERROR);
     const posture = isCodex ? null : buildLanePermissions({ denyTools: LANE_SPAWN_DENY_TOOLS, allowTools });
-    const commandRules = Array.isArray(settingsPermissions?.allow) ? settingsPermissions.allow.filter((rule): rule is string => typeof rule === 'string' && rule.startsWith('Bash(')) : [];
-    const resolvedPosture = !isCodex && useReadOnlyPosture && hookRouter ? await resolveLanePosture({
-      access: 'read-only', cwd, writableRoots: [], network: { domains: [] }, getHookPort: getHookPort ?? (() => null),
-      allowCommands: commandRules.map((rule) => rule.slice(5, -3)),
-      extraDeny: ['Edit', 'Write', 'NotebookEdit'], denyRead: LANE_CREDENTIAL_DENY_READ, scrubCredentials: true,
-    }) : null;
-    if (resolvedPosture && !resolvedPosture.ok) throw new Error(resolvedPosture.reason);
-    const sessionPosture = resolvedPosture?.ok ? resolvedPosture.sessionOverrides : null;
-    const permissions = sessionPosture?.settingsPermissions ?? settingsPermissions ?? posture?.permissions ?? null;
+    const permissions = settingsPermissions ?? posture?.permissions ?? null;
     const standalone = !hookRouter && permissions ? await writeStandaloneDenySettings(permissions) : null;
-    const extraClaudeArgs = isCodex ? extraArgs : ['-p', ...(posture?.args ?? []), ...extraArgs, ...(standalone ? standalone.args : [])];
+    const codexArgs = isWrapped ? extraArgs : [...UNWRAPPED_CODEX_SANDBOX_ARGS, ...extraArgs];
+    const extraClaudeArgs = isCodex ? codexArgs : ['-p', ...(posture?.args ?? []), ...extraArgs, ...(standalone ? standalone.args : [])];
     if (!isCodex && model) extraClaudeArgs.push('--model', model);
     const options: SessionOptions = {
-      ...sessionPosture,
+      ...(guardHookTools ? { hookTools: guardHookTools, getHookTools: null } : {}),
       id,
       name,
       path: cwd,
@@ -104,12 +101,15 @@ function createLaneSpawn({
       initialPrompt: prompt,
       ephemeral: true,
       settingsPermissions: permissions,
-      spawnEnv: sessionPosture || spawnEnv || isWrapped ? { ...spawnEnv, ...sessionPosture?.spawnEnv, ...(isWrapped ? LANE_CREDENTIAL_ENV : {}) } : null,
+      spawnEnv: spawnEnv || isWrapped ? { ...spawnEnv, ...(isWrapped ? LANE_CREDENTIAL_ENV : {}) } : null,
       replayBufferKB,
       hookRouter,
       getHookPort,
       prepareSandbox: isWrapped ? (facts) => prepareSandbox({
-        role: judgeRole({ vendor: 'claude', cwd: facts.cwd, hookPort: facts.hookPort, readablePaths: facts.readablePaths }),
+        role: judgeRole({
+          vendor: isCodex ? 'codex' : 'claude', cwd: facts.cwd, hookPort: facts.hookPort, agentSessionId: facts.agentSessionId,
+          readablePaths: [...facts.readablePaths, ...readablePaths],
+        }),
         launchId: facts.launchId,
       }) : null,
     };

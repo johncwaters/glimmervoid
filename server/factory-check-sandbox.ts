@@ -42,7 +42,7 @@ const prepareSandboxedCheckRunner: PrepareFactoryCheckRunner = async ({ scratchP
   await mkdir(tempDir);
   const prepared = await prepareSandboxLaunch({
     role: {
-      vendors: [], vendorHome: 'lane', network: { access: 'none' }, writableRoots: writablePaths,
+      vendors: [], vendorHome: { scope: 'state' }, network: { access: 'none' }, writableRoots: writablePaths,
       lockedCheckouts: [], commitCheckouts: [], readDenied: [], readableWithinDenied: readablePaths,
     },
     launchId: path.basename(scratchParent),

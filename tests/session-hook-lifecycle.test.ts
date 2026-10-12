@@ -275,9 +275,10 @@ test('a session with an outer sandbox spawns only the wrapped command with the a
       assert.equal(calls[0].file, 'sandbox-runtime');
       assert.equal(calls[0].args[0], '--');
       assert.ok(calls[0].args.includes('--settings'), 'the agent command rides behind the wrap');
-      const { launchId, ...factsBesideLaunchId } = JSON.parse(String(calls[0].opts.env.PROBED_FACTS)) as SessionSandboxFacts;
+      const { launchId, agentSessionId, ...factsBesideIds } = JSON.parse(String(calls[0].opts.env.PROBED_FACTS)) as SessionSandboxFacts;
       assert.match(launchId, /^[A-Za-z0-9][A-Za-z0-9._-]*$/);
-      assert.deepEqual(factsBesideLaunchId, { cwd: dir, hookPort: PORT, readablePaths: [settingsDir] });
+      assert.equal(calls[0].args[calls[0].args.indexOf('--session-id') + 1], agentSessionId, 'the sandbox is told the session id the agent is started with');
+      assert.deepEqual(factsBesideIds, { cwd: dir, hookPort: PORT, readablePaths: [settingsDir] });
       assert.deepEqual(JSON.parse(fs.readFileSync(path.join(settingsDir, 'settings.json'), 'utf8')).sandbox, { enabled: false });
     } finally {
       session.destroy();

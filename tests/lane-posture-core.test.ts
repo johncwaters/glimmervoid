@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
-import { buildLanePosture, LANE_CREDENTIAL_ENV } from '../server/core/lane-posture-core.ts';
+import { buildLanePosture } from '../server/core/lane-posture-core.ts';
+import { LANE_CREDENTIAL_ENV } from '../server/core/sandbox-roles-core.ts';
 import type { LanePostureSpec } from '../server/core/lane-posture-core.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES, LANE_ENVIRONMENT_ARGS } from '../server/core/lane-permissions-core.ts';
 

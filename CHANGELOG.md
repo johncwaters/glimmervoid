@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The factory reviewer and verifier and the Codex change map lane run inside the sandbox runtime**: these lanes now start inside the same sandbox runtime as factory checks, on Linux and macOS, so their file tools and hooks are confined along with their shell commands. They can reach only their agent's API and their one session port, cannot read credential folders, other agents' homes or Glimmervoid's own folder, and can write only their own work folder. The reviewer and verifier keep their permission rules and the required guard hook, and still read their prompt file and the verifier's integration checkout. A lane refuses to start, with the reason, when the sandbox cannot start (Linux needs `bwrap`, `socat` and `rg`). On Windows the reviewer and verifier still refuse to start and the Codex lane keeps Codex's own read-only sandbox. Linux is verified live with Claude Code and Codex; macOS is unverified.
+- **A sandboxed lane keeps its agent state to itself**: a Claude Code lane inside the sandbox runtime can now write only its own transcript folder, its own session folder and its login file in the Claude home, where it could write every project's transcript folder. A Codex lane gets a home folder of its own for the run, linked to your Codex config and login, and removed when the lane exits; a login Codex refreshes during the run is kept. Linux is verified live; macOS is unverified.
+
 ### Fixed
 
 - **A brief git failure no longer tears down a factory project**: when the factory cannot read a project's integration branch for one poll, it now keeps showing the project with the error instead of treating it as removed and stopping its orchestrator and every working agent.

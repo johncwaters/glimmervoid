@@ -78,7 +78,7 @@ async function codexLaunch(workDir: string, resultPath: string, codexModel: stri
     bootstrapPrompt: CODEX_BOOTSTRAP_PROMPT,
     agent: 'codex',
     extraArgs: [
-      'exec', '--sandbox', 'read-only', '--ephemeral', '--skip-git-repo-check', '--output-schema', schemaPath, '-o', resultPath,
+      'exec', '--ephemeral', '--skip-git-repo-check', '--output-schema', schemaPath, '-o', resultPath,
       ...(codexModel ? ['-m', codexModel] : []),
     ],
     model: null,

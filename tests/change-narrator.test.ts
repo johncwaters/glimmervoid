@@ -42,11 +42,11 @@ test('Codex narration uses exec output schema and only passes a configured model
         assert.equal(agent, 'codex');
         assert.equal(spawnModel, null);
         assert.match(prompt, /answer only with the JSON/);
-        assert.deepEqual(extraArgs?.slice(0, 5), ['exec', '--sandbox', 'read-only', '--ephemeral', '--skip-git-repo-check']);
+        assert.deepEqual(extraArgs?.slice(0, 3), ['exec', '--ephemeral', '--skip-git-repo-check']);
         const schemaIndex = extraArgs?.indexOf('--output-schema') ?? -1;
         const outputIndex = extraArgs?.indexOf('-o') ?? -1;
-        assert.equal(schemaIndex, 5);
-        assert.equal(outputIndex, 7);
+        assert.equal(schemaIndex, 3);
+        assert.equal(outputIndex, 5);
         const schemaPath = extraArgs?.[schemaIndex + 1];
         const resultPath = extraArgs?.[outputIndex + 1];
         assert.ok(schemaPath);

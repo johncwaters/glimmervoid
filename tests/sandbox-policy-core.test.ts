@@ -9,12 +9,15 @@ import { HOOK_VIA_SANDBOX_PROXY_ENV } from '../session/core/sandbox-proxy-core.t
 const homeDir = path.resolve('/home/operator');
 const glimmervoidHome = path.join(homeDir, '.glimmervoid');
 const tempDir = path.join(glimmervoidHome, 'sandbox-temp', 'session-one');
+const launchHomeDir = path.join(glimmervoidHome, 'sandbox-homes', 'session-one');
+const agentSessionId = 'agent-session-one';
 const worktree = path.resolve('/work/worktree');
 const commonGitDir = path.resolve('/work/repo/.git');
 const hostPaths = {
   homeDir,
   glimmervoidHome,
   tempDir,
+  launchHomeDir,
   homeEntryNames: ['.claude', '.claude.json', '.claude.json.backup', '.codex', '.codex.old', 'Projects'],
   vendorLocations: {
     claude: { stateFolder: path.join(homeDir, '.claude'), configFiles: [path.join(homeDir, '.claude.json')], otherHomes: [path.join(homeDir, '.config', 'claude')] },
@@ -32,7 +35,7 @@ const networkByName: Record<string, SandboxNetworkAccess> = {
 
 function roleWith(overrides: Partial<SandboxRole> = {}): SandboxRole {
   return {
-    vendors: ['claude'], vendorHome: 'lane', network: { access: 'allowlist', domains: [], hookPort: 4199 },
+    vendors: ['claude'], vendorHome: { scope: 'launch', cwd: worktree, agentSessionId }, network: { access: 'allowlist', domains: [], hookPort: 4199 },
     writableRoots: [], lockedCheckouts: [], commitCheckouts: [], readDenied: [], readableWithinDenied: [], ...overrides,
   };
 }
@@ -108,17 +111,29 @@ test('a commit checkout may write its git dir except hooks, config and the workt
 });
 
 test('an absent path is never write-denied and an absent login file is never made writable', () => {
-  const role = roleWith({ vendors: ['claude', 'codex'], vendorHome: 'state', commitCheckouts: [{ checkout: worktree, gitDir: commonGitDir }] });
+  const role = roleWith({ vendors: ['claude', 'codex'], vendorHome: { scope: 'state' }, commitCheckouts: [{ checkout: worktree, gitDir: commonGitDir }] });
   const { filesystem } = planFor(role, { ...hostPaths, existingPaths: new Set() }).policy;
   assert.deepEqual(entryPaths(filesystem.denyWrite), []);
   assert.equal(entryPaths(filesystem.allowWrite).includes(path.join(homeDir, '.claude', '.credentials.json')), false);
 });
 
-test('vendor homes: a lane writes transcripts and its login only, a session writes state but not config, other vendors stay unreadable', () => {
+test('vendor homes: a lane writes only its own transcript folder, session env folder and login, a session writes state but not config, other vendors stay unreadable', () => {
   const lanePolicy = planFor(roleWith()).policy.filesystem;
   assert.deepEqual(entryPaths(lanePolicy.allowWrite).filter((writable) => writable.startsWith(path.join(homeDir, '.claude'))), [
-    path.join(homeDir, '.claude', 'projects'), path.join(homeDir, '.claude', 'session-env'), path.join(homeDir, '.claude', '.credentials.json'),
+    path.join(homeDir, '.claude', 'projects', '-work-worktree'), path.join(homeDir, '.claude', 'session-env', agentSessionId), path.join(homeDir, '.claude', '.credentials.json'),
   ]);
+  assert.equal(buildSandboxLaunchPlan(roleWith({ vendorHome: { scope: 'launch', cwd: worktree, agentSessionId: '../escape' } }), { ...hostPaths, existingPaths: new Set() }).ok, false);
+  const codexLanePlan = planFor(roleWith({ vendors: ['codex'] }));
+  const codexLaunchHome = path.join(launchHomeDir, 'codex');
+  const codexHome = path.join(homeDir, '.codex');
+  assert.deepEqual(entryPaths(codexLanePlan.policy.filesystem.allowWrite).filter((writable) => writable.startsWith(codexHome) || writable.startsWith(launchHomeDir)), [
+    codexLaunchHome, path.join(codexHome, 'auth.json'),
+  ]);
+  assert.equal(codexLanePlan.launchEnv.CODEX_HOME, codexLaunchHome);
+  assert.equal(codexLanePlan.requiredDirectories.includes(codexLaunchHome), true);
+  assert.deepEqual(codexLanePlan.launchHomeLinks.filter((link) => link.isLogin), [{ linkPath: path.join(codexLaunchHome, 'auth.json'), targetPath: path.join(codexHome, 'auth.json'), isLogin: true }]);
+  assert.equal(codexLanePlan.launchHomeLinks.some((link) => link.targetPath === path.join(codexHome, 'config.toml') && !link.isLogin), true);
+  assert.deepEqual(planFor(roleWith({ vendors: ['codex'] }), { ...hostPaths, existingPaths: new Set() }).launchHomeLinks, []);
   const laneDenied = entryPaths(lanePolicy.denyRead);
   for (const unreadable of ['.codex', '.grok', '.ssh', '.config/gh', '.git-credentials', '.aws', '.npmrc', '.glimmervoid']) {
     assert.equal(laneDenied.includes(path.join(homeDir, unreadable)), true, unreadable);
@@ -126,7 +141,7 @@ test('vendor homes: a lane writes transcripts and its login only, a session writ
   assert.equal(laneDenied.includes(path.join(homeDir, '.claude')), false);
   assert.equal(laneDenied.includes(path.join(homeDir, '.codex.old')), true);
   assert.equal(laneDenied.includes(path.join(homeDir, '.claude.json.backup')), false);
-  const sessionPolicy = planFor(roleWith({ vendorHome: 'state' })).policy.filesystem;
+  const sessionPolicy = planFor(roleWith({ vendorHome: { scope: 'state' } })).policy.filesystem;
   assert.equal(entryPaths(sessionPolicy.allowWrite).includes(path.join(homeDir, '.claude')), true);
   for (const config of ['settings.json', 'hooks', 'skills', 'plugins', 'commands', 'agents', 'CLAUDE.md']) {
     assert.equal(entryPaths(sessionPolicy.denyWrite).includes(path.join(homeDir, '.claude', config)), true, config);
@@ -152,7 +167,7 @@ test('a relocated vendor home is unreadable to other roles and holds its own rol
     unwrappedVendorHomes: [grokHome],
     relocatedXdgConfigHome: xdgConfigHome,
   };
-  const role = roleWith({ vendorHome: 'state' });
+  const role = roleWith({ vendorHome: { scope: 'state' } });
   const plan = planFor(role, { ...relocatedPaths, existingPaths: new Set(sandboxPolicyProbePaths(role, relocatedPaths)) });
   const { denyRead, allowWrite, denyWrite } = plan.policy.filesystem;
   for (const unreadable of [codexHome, path.join(homeDir, '.codex'), path.join(xdgConfigHome, 'gh'), path.join(xdgConfigHome, 'gcloud'), path.join(homeDir, '.config', 'gh')]) {

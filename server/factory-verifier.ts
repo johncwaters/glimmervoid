@@ -97,7 +97,7 @@ export function createFactoryVerifier({ config, spawnVerifier, serializeProject,
     const cwd = await ensureControlCheckout({ projectId: project.projectId, projectPath, sha: tipSha });
     const intentDiff = await readIntentDiff({ projectId: project.projectId, projectPath, intentId: intent.id, tipSha });
     const verdict = await runFactoryReview({ spawnReviewer: spawnVerifier, model: config.factory?.verifierModel ?? null,
-      signal: controller.signal, name: `Factory verifier ${intent.id}`, extraArgs: ['--add-dir', cwd],
+      signal: controller.signal, name: `Factory verifier ${intent.id}`, extraArgs: ['--add-dir', cwd], readablePaths: [cwd],
       buildPrompt: () => buildVerifierPrompt({ projectName: project.projectName, intent, children, tipSha, checkoutPath: cwd, intentDiff }) });
     if (!isEnabled()) return;
     readyByProject.delete(project.projectId);

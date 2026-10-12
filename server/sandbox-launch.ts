@@ -1,4 +1,4 @@
-import { access, mkdir, readdir, realpath, rm } from 'node:fs/promises';
+import { access, chmod, copyFile, lstat, mkdir, readdir, realpath, rename, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { rawTextOr } from '../shared/coerce.ts';
@@ -34,6 +34,8 @@ const LAUNCH_ID_SHAPE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SANDBOXED_ENV_COMMAND = '/usr/bin/env';
 const POLICY_FOLDER = 'sandbox-policies';
 const TEMP_FOLDER = 'sandbox-temp';
+const LAUNCH_HOME_FOLDER = 'sandbox-homes';
+const LOGIN_FILE_MODE = 0o600;
 
 async function isPresent(candidate: string): Promise<boolean> {
   try {
@@ -91,7 +93,27 @@ async function withRealRoots(role: SandboxRole): Promise<SandboxRole> {
     Promise.all(role.lockedCheckouts.map((checkout) => realpath(checkout))),
     Promise.all(role.commitCheckouts.map(async ({ checkout, gitDir }) => ({ checkout: await realpath(checkout), gitDir: await realpath(gitDir) }))),
   ]);
-  return { ...role, writableRoots, lockedCheckouts, commitCheckouts, readableWithinDenied: await realPathsWhenPresent(role.readableWithinDenied) };
+  const vendorHome = role.vendorHome.scope === 'launch' ? { ...role.vendorHome, cwd: await realPathWhenPresent(role.vendorHome.cwd) } : role.vendorHome;
+  return { ...role, vendorHome, writableRoots, lockedCheckouts, commitCheckouts, readableWithinDenied: await realPathsWhenPresent(role.readableWithinDenied) };
+}
+
+async function isRegularFile(candidate: string): Promise<boolean> {
+  try {
+    return (await lstat(candidate)).isFile();
+  } catch (error) {
+    if (!isMissingFileError(error)) throw error;
+    return false;
+  }
+}
+
+async function keepRefreshedLogins(links: SandboxLaunchPlan['launchHomeLinks'], launchId: string): Promise<void> {
+  for (const { linkPath, targetPath } of links.filter((link) => link.isLogin)) {
+    if (!await isRegularFile(linkPath)) continue;
+    const stagedPath = `${targetPath}.${launchId}`;
+    await copyFile(linkPath, stagedPath);
+    await chmod(stagedPath, LOGIN_FILE_MODE);
+    await rename(stagedPath, targetPath);
+  }
 }
 
 function launcherCommand(plan: SandboxLaunchPlan, policyPath: string): WrappedCommand | null {
@@ -114,6 +136,7 @@ async function prepareSandboxLaunch({ role, launchId, tempDir }: SandboxLaunchRe
     const [homeDir, glimmervoidHome, realRole] = await Promise.all([realpath(os.homedir()), realpath(glimmervoidHomeDir()), withRealRoots(role)]);
     const ownsTempDir = tempDir === undefined;
     const launchTempDir = tempDir === undefined ? path.join(glimmervoidHome, TEMP_FOLDER, launchId) : path.resolve(tempDir);
+    const launchHomeDir = path.join(glimmervoidHome, LAUNCH_HOME_FOLDER, launchId);
     const vendorLocations = await resolveVendorLocations(process.env, homeDir);
     if (vendorLocations === null) return { ok: false, reason: 'CODEX_HOME names no folder' };
     const xdgConfigHomeOverride = rawTextOr(process.env.XDG_CONFIG_HOME, null);
@@ -121,6 +144,7 @@ async function prepareSandboxLaunch({ role, launchId, tempDir }: SandboxLaunchRe
       homeDir,
       glimmervoidHome,
       tempDir: launchTempDir,
+      launchHomeDir,
       homeEntryNames: await readdir(homeDir),
       vendorLocations,
       unwrappedVendorHomes: await realPathsWhenPresent(grokHomes(process.env, homeDir)),
@@ -134,6 +158,7 @@ async function prepareSandboxLaunch({ role, launchId, tempDir }: SandboxLaunchRe
     const launcher = launcherCommand(plan, policyPath);
     if (!launcher) return { ok: false, reason: 'the sandbox runtime CLI could not be resolved' };
     await Promise.all(plan.requiredDirectories.map((directory) => mkdir(directory, { recursive: true })));
+    await Promise.all(plan.launchHomeLinks.map((link) => symlink(link.targetPath, link.linkPath)));
     await writeJsonAtomic(policyPath, plan.policy);
     const envPrefix = sandboxedEnvPrefix(plan);
     return {
@@ -148,6 +173,8 @@ async function prepareSandboxLaunch({ role, launchId, tempDir }: SandboxLaunchRe
         env: { ...plan.launchEnv },
         dispose: async () => {
           await rm(policyPath, { force: true });
+          await keepRefreshedLogins(plan.launchHomeLinks, launchId);
+          await rm(launchHomeDir, { recursive: true, force: true });
           if (ownsTempDir) await rm(launchTempDir, { recursive: true, force: true });
         },
       },

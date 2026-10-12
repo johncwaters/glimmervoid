@@ -14,6 +14,7 @@ import type { FactoryCheckSandbox, PrepareFactoryCheckRunner } from './factory-c
 import { DEFAULT_CONFIG } from './config-store.ts';
 import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, findWorkerCommitRefusal, inheritedSecretValues, listUncommittedWorkPaths, parseCheckCommand, parseFactoryReviewerOutput, redactSecretLines, reviewerOutputTail } from './core/factory-core.ts';
 import type { FactoryCheck, FactoryFence } from './core/factory-core.ts';
+import { LANE_CONFIG_EDIT_DENY_RULES } from './core/lane-permissions-core.ts';
 import { KEEP_MERGEABLE_SANDBOX_STUB_NAMES } from './core/my-prs-core.ts';
 import { nulSeparatedPaths } from './core/git-changed-paths-core.ts';
 import { prepareHardenedGitCommand, runHardenedGit } from './git-workspace.ts';
@@ -27,8 +28,8 @@ import type { LaneSpawn } from './lane-spawn.ts';
 export const FACTORY_REVIEWER_TOOLS = Object.freeze(['Read', 'Glob', 'Grep', 'Bash']);
 export const FACTORY_REVIEWER_PERMISSIONS = Object.freeze({
   defaultMode: 'dontAsk',
-  allow: ['Read', 'Glob', 'Grep', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)'],
-  deny: ['Edit', 'Write', 'NotebookEdit'],
+  allow: ['Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)'],
+  deny: ['Edit', 'Write', 'NotebookEdit', ...LANE_CONFIG_EDIT_DENY_RULES],
 });
 export const FACTORY_REVIEWER_SPAWN_ENV: Readonly<Record<string, string>> = Object.freeze({ CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '0' });
 const CASE_INSENSITIVE_LEDGER_PATHSPEC = ':(icase).coherence';
@@ -90,9 +91,9 @@ function failureText(error: unknown, maxChars = 4000): string {
   return `${error.message}\n${output}`.slice(-maxChars);
 }
 
-export async function runFactoryReview({ spawnReviewer, model, signal, buildPrompt, name, extraArgs = [] }: {
+export async function runFactoryReview({ spawnReviewer, model, signal, buildPrompt, name, extraArgs = [], readablePaths = [] }: {
   spawnReviewer: LaneSpawn; model: string | null; signal: AbortSignal;
-  buildPrompt: (resultPath: string) => string; name: string; extraArgs?: string[];
+  buildPrompt: (resultPath: string) => string; name: string; extraArgs?: string[]; readablePaths?: string[];
 }): Promise<FactoryReviewVerdict> {
   const reviewDirectory = await makeHostScratchDirectory('glimmervoid-factory-review-');
   try {
@@ -106,7 +107,7 @@ export async function runFactoryReview({ spawnReviewer, model, signal, buildProm
     await spawnReviewer({
       id: `factory-review-${crypto.randomUUID()}`, name, cwd: reviewerCwd,
       prompt: 'Review the assigned factory ticket and return its structured verdict.', agent: 'claude-code',
-      model, signal,
+      model, signal, readablePaths: [promptPath, ...readablePaths],
       extraArgs: [...extraArgs, '--append-system-prompt-file', promptPath, '--output-format', 'json', '--json-schema', JSON.stringify(z.toJSONSchema(FactoryReviewVerdict, { target: 'draft-7' })), '--permission-mode', 'dontAsk'],
       onOutput: (chunk) => {
         if (reviewerOutput.length + chunk.length > 16 * 1024 * 1024) { hasOutputOverflow = true; return; }

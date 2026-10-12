@@ -138,6 +138,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     countRunningSessions: () => allLiveSessions().filter((session) => session.state === STATES.RUNNING).length,
     log: logger,
   });
+  const sandboxRefusal = checkSandboxDependencies({ log: logger });
   const factory = createFactoryWiring({
     config, gitWorkspace, broadcast: broadcastControl, log: logger, telemetry,
     readSpentTodayUsd: () => {
@@ -148,8 +149,8 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     notify: (projectName, category, message) => { notificationManager.trigger(projectName, category, message); },
     spawnReviewer: createLaneSpawn({
       sessions: agentSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'factory', useReadOnlyPosture: true, allowTools: FACTORY_REVIEWER_TOOLS,
-      settingsPermissions: FACTORY_REVIEWER_PERMISSIONS, spawnEnv: FACTORY_REVIEWER_SPAWN_ENV,
+      replayBufferKB: config.replayBufferKB, laneName: 'factory', allowTools: FACTORY_REVIEWER_TOOLS,
+      settingsPermissions: FACTORY_REVIEWER_PERMISSIONS, spawnEnv: FACTORY_REVIEWER_SPAWN_ENV, sandboxRefusal,
     }),
     trustClaudeFolder: createClaudeFolderTrust().ensureTrusted,
     orchestratorOptions: {
@@ -168,7 +169,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     gitWorkspace,
     broadcast: broadcastControl,
   });
-  const sandboxRefusal = checkSandboxDependencies({ log: logger });
   const githubClock = createGithubClock({ baseIntervalMs: GITHUB_CLOCK_INTERVAL_MINUTES * 60000, log: logger });
   const glimmervoidHome = glimmervoidHomeDir();
   const sharedRepoCacheRoot = path.join(glimmervoidHome, 'team-review-repos');

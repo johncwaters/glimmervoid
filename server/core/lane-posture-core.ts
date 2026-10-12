@@ -2,6 +2,7 @@ import path from 'node:path';
 import { isPathInside } from '../../shared/paths.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES, LANE_ENVIRONMENT_ARGS } from './lane-permissions-core.ts';
 import { CREDENTIAL_HOME_ENTRIES } from './sandbox-policy-core.ts';
+import { LANE_CREDENTIAL_ENV } from './sandbox-roles-core.ts';
 
 function checkoutUnwritablePaths(checkoutPath: string): string[] {
   return [path.join(checkoutPath, '.git'), path.join(checkoutPath, '.claude')];
@@ -42,10 +43,6 @@ export type LanePosturePaths = {
   privateHomeToolFolders?: readonly string[];
 };
 
-export const LANE_CREDENTIAL_ENV = Object.freeze({
-  SSH_AUTH_SOCK: '', SSH_ASKPASS: '', GIT_ASKPASS: '', GIT_SSH_COMMAND: 'false', GIT_TERMINAL_PROMPT: '0',
-  GH_TOKEN: '', GITHUB_TOKEN: '', GH_ENTERPRISE_TOKEN: '', GITHUB_ENTERPRISE_TOKEN: '',
-});
 
 export const LANE_CREDENTIAL_DENY_READ = Object.freeze(CREDENTIAL_HOME_ENTRIES.map((entry) => `~/${entry}`));
 

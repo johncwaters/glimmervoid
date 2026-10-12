@@ -172,6 +172,7 @@ interface SessionSandboxFacts {
   cwd: string;
   hookPort: number | null;
   readablePaths: string[];
+  agentSessionId: string | null;
 }
 
 type PrepareSessionSandbox = (facts: SessionSandboxFacts) => Promise<SandboxLaunchResult>;
@@ -1438,10 +1439,13 @@ class Session extends EventEmitter {
 
     this._hasEndedTurn = spawnResumeSessionId !== null;
     this._suppressResumeCapture = false;
+    const launchSession = this._prepareSandbox
+      ? this._adapter.launchSessionId?.({ resumeSessionId: spawnResumeSessionId, extraArgs: this._extraClaudeArgs, generatedId: randomUUID() }) ?? null
+      : null;
     const agentArgs = this._adapter.buildArgs({
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       resumeSessionId: spawnResumeSessionId,
-      extraArgs: this._extraClaudeArgs,
+      extraArgs: launchSession?.extraArgs ?? this._extraClaudeArgs,
       antiSlopPrompt: this._antiSlopPrompt,
       initialPrompt: this._initialPrompt,
       hasOuterSandbox: this._prepareSandbox !== null,
@@ -1452,7 +1456,7 @@ class Session extends EventEmitter {
       resolved: this._spawnCommand || commandFor(this._adapter),
       settingsArgs,
       agentArgs,
-    }));
+    }), launchSession?.agentSessionId ?? null);
     if (!spawnCommand) return;
     const { file, args } = spawnCommand;
 
@@ -1517,9 +1521,9 @@ class Session extends EventEmitter {
     this.emit("error", cause);
   }
 
-  async _sandboxedSpawnCommand(command: { file: string; args: string[] }): Promise<SpawnCommand | null> {
+  async _sandboxedSpawnCommand(command: { file: string; args: string[] }, agentSessionId: string | null): Promise<SpawnCommand | null> {
     if (!this._prepareSandbox) return { ...command, env: {} };
-    const wrapped = await this._wrapInSandbox(this._prepareSandbox, command)
+    const wrapped = await this._wrapInSandbox(this._prepareSandbox, command, agentSessionId)
       .catch((error: unknown) => new Error(`${SANDBOX_REFUSED_PREFIX}${errorMessage(error)}`));
     if (this._destroyed) {
       this._hooks.cleanup();
@@ -1533,12 +1537,13 @@ class Session extends EventEmitter {
     return wrapped;
   }
 
-  async _wrapInSandbox(prepareSandbox: PrepareSessionSandbox, command: { file: string; args: string[] }): Promise<SpawnCommand> {
+  async _wrapInSandbox(prepareSandbox: PrepareSessionSandbox, command: { file: string; args: string[] }, agentSessionId: string | null): Promise<SpawnCommand> {
     const prepared = await prepareSandbox({
       launchId: randomUUID(),
       cwd: this.effectiveCwd(),
       hookPort: this._hooks.hasInjection() ? this._hooks.listenerPort() : null,
       readablePaths: this._hooks.injectedReadablePaths(this._isSaneYoloActive),
+      agentSessionId,
     });
     if (!prepared.ok) throw new Error(prepared.reason);
     this._disposeSandboxLaunch(this._sandboxLaunch);
