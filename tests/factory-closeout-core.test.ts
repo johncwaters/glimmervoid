@@ -167,6 +167,27 @@ test('an orchestrator ledger landing refuses any record that claims the factory 
   ], { trusted: false, intentId: 'wrk-intent' }), []);
 });
 
+test('an orchestrator ledger landing admits the calibration sample its stop hook appends and refuses a rewritten or forged one', () => {
+  const sample = (session: string, overrides: Record<string, unknown> = {}) => `${JSON.stringify({ id: 'sample', at: '2026-10-11T23:30:26.207Z', session,
+    changed: ['.coherence/work/s-a.jsonl'], predicted: [], observed: ['README.md'], outcome: 'unknown', ...overrides })}\n`;
+  const calibrationPath = '.coherence/calibration/orchestrator-session.jsonl';
+  assert.deepEqual(findForbiddenLedgerWrites([
+    { path: calibrationPath, previousText: null, currentText: sample('orchestrator-session') },
+    { path: '.coherence/calibration/host-scope-a-b.jsonl', previousText: null, currentText: sample('host/scope:a b') },
+  ], { trusted: false, intentId: 'wrk-intent' }), []);
+  assert.equal(findForbiddenLedgerWrites([
+    { path: calibrationPath, previousText: sample('orchestrator-session'), currentText: sample('another-session') },
+    { path: '.coherence/calibration/deleted.jsonl', previousText: sample('orchestrator-session'), currentText: null },
+    { path: '.coherence/calibration/forged.jsonl', previousText: null, currentText: sample('glimmervoid-factory') },
+    { path: '.coherence/calibration/damaged.jsonl', previousText: null, currentText: 'not json\n' },
+    { path: calibrationPath, previousText: sample('orchestrator-session'), currentText: sample('orchestrator-session') + sample('orchestrator-session', { outcome: 'clean' }) },
+    { path: calibrationPath, previousText: sample('orchestrator-session'), currentText: sample('orchestrator-session') + sample('another-session') },
+    { path: calibrationPath, previousText: sample('orchestrator-session'), currentText: sample('orchestrator-session') + sample('orchestrator-session').trimEnd() },
+    { path: '.coherence/calibration/nested.jsonl/orchestrator-session.jsonl', previousText: null, currentText: sample('orchestrator-session') },
+    { path: calibrationPath, previousText: null, currentText: sample('orchestrator-session', { at: undefined }) },
+  ], { trusted: false, intentId: 'wrk-intent' }).length, 9);
+});
+
 test('an orchestrator ledger landing refuses opening a root order or a child of any order but the active intent', () => {
   const opened = (parent: string | null) => `${JSON.stringify({ event: 'opened', session: 'orchestrator-session', work: 'wrk-9', parent, writeScopes: ['**'] })}\n`;
   const changes = [

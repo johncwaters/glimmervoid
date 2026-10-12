@@ -45,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Factory no longer stops on the orchestrator's own calibration sample**: the coherence stop hook appends a calibration sample to the ledger whenever an orchestrator session that created orders ends its turn, and the factory refused to land it and raised an exception. The sample that hook appends now lands with the orchestrator's other ledger writes, while a rewritten, deleted or forged one is still refused, as is one that carries a clean or defect verdict or sits in a file named for a different session.
 - **Factory dispatch on Linux**: a factory orchestrator on Linux could not start its workers, because its sandbox has a network of its own and `glimmervoid dispatch` got "fetch failed" trying to reach Glimmervoid directly. The session commands (`dispatch`, `spawn`, `attention`, `board`) now go through the sandbox's own local proxy when the direct connection is refused inside the sandbox. Outside the sandbox, and with any proxy that is not the sandbox's own, nothing changes.
 - **Usage catch-up on a fresh home**: transcript scans keep their short continuation timer when another scan is running, so catch-up finishes without starting overlapping scans.
 - **Factory worker ledger discard**: committed worker ledger files are discarded even when the folder's capitalization differs from `.coherence`, so they do not block close-out or reach the integration branch.

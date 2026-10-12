@@ -483,6 +483,12 @@ export function buildFactoryReviewerPrompt(worker: { workId: string; objective: 
 
 const OPEN_LEDGER_DIRECTORIES = new Set(['decisions', 'activity', 'read-traces']);
 const GUARDED_LEDGER_DIRECTORIES = new Set(['work', 'consequences', 'defects', 'experiments', 'calibration']);
+const HOOK_SAMPLE_LEDGER_DIRECTORIES = new Set(['calibration']);
+const HOOK_SAMPLE_OUTCOME = 'unknown';
+const HOOK_SAMPLE_FILE_STEM_MAX_LENGTH = 120;
+const HOOK_SAMPLE_PATH_SEGMENT_COUNT = 3;
+const HOOK_SAMPLE_TEXT_FIELDS = ['id', 'at'];
+const HOOK_SAMPLE_PATH_LIST_FIELDS = ['changed', 'predicted', 'observed'];
 const FACTORY_DEFECT_RECEIPT_PATTERN = new RegExp(`^(\\S+) {2}agent-assessed defect recorded by ${FACTORY_LEDGER_SESSION}\\s*$`);
 
 export type FactoryLedgerChange = { path: string; previousText: string | null; currentText: string | null };
@@ -513,6 +519,24 @@ function opensChildOfIntent(record: LedgerRecord, intentId: string | null): bool
 
 function isDeclaredFactoryWrite(record: LedgerRecord, writtenRecordIds: ReadonlySet<string>): boolean {
   return claimsFactorySession(record) && writtenRecordIds.has(String(Reflect.get(record, 'id')));
+}
+
+function hookSampleFileName(session: string): string {
+  const fileStem = session.replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, HOOK_SAMPLE_FILE_STEM_MAX_LENGTH) || 'unknown';
+  return `${fileStem}.jsonl`;
+}
+
+function isStringList(value: unknown): boolean {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+}
+
+function isHookSampleOfFile(record: LedgerRecord, fileName: string): boolean {
+  if (record === null) return false;
+  const session: unknown = Reflect.get(record, 'session');
+  if (typeof session !== 'string') return false;
+  if (HOOK_SAMPLE_TEXT_FIELDS.some((field) => typeof Reflect.get(record, field) !== 'string')) return false;
+  if (HOOK_SAMPLE_PATH_LIST_FIELDS.some((field) => !isStringList(Reflect.get(record, field)))) return false;
+  return Reflect.get(record, 'outcome') === HOOK_SAMPLE_OUTCOME && hookSampleFileName(session) === fileName;
 }
 
 function appendedLedgerRecords(change: FactoryLedgerChange): LedgerRecord[] {
@@ -559,6 +583,15 @@ export function findForbiddenLedgerWrites(changes: FactoryLedgerChange[], { trus
     const previousText = change.previousText ?? '';
     if (!change.currentText.startsWith(previousText)) {
       forbidden.push(`${change.path} was rewritten instead of appended`);
+      continue;
+    }
+    if (HOOK_SAMPLE_LEDGER_DIRECTORIES.has(directory)) {
+      const fileName = segments[segments.length - 1];
+      const isDirectChildOfDirectory = segments.length === HOOK_SAMPLE_PATH_SEGMENT_COUNT;
+      const appendsWholeLines = (previousText === '' || previousText.endsWith('\n')) && change.currentText.slice(previousText.length).endsWith('\n');
+      if (!isDirectChildOfDirectory || !appendsWholeLines || appendedRecords.some((record) => !isHookSampleOfFile(record, fileName))) {
+        forbidden.push(`${change.path} is not a calibration file gaining only whole unlabeled sample lines of the session it is named for`);
+      }
       continue;
     }
     if (appendedRecords.some((record) => !isAllowedLedgerRecord(directory, record, trusted))) {
