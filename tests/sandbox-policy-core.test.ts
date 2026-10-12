@@ -4,6 +4,7 @@ import test from 'node:test';
 import { SandboxRuntimeConfigSchema } from '@anthropic-ai/sandbox-runtime';
 import { buildSandboxLaunchPlan, sandboxPolicyProbePaths } from '../server/core/sandbox-policy-core.ts';
 import type { SandboxHost, SandboxLaunchPlan, SandboxNetworkAccess, SandboxRole } from '../server/core/sandbox-policy-core.ts';
+import { HOOK_VIA_SANDBOX_PROXY_ENV } from '../session/core/sandbox-proxy-core.ts';
 
 const homeDir = path.resolve('/home/operator');
 const glimmervoidHome = path.join(homeDir, '.glimmervoid');
@@ -77,6 +78,7 @@ test('an allowlist role reaches one loopback port and the vendor API, and sends 
   assert.equal('allowLocalBinding' in policy.network && policy.network.allowLocalBinding, false);
   assert.equal(sandboxedEnv.NO_PROXY?.split(',').includes('127.0.0.1'), false);
   assert.equal(sandboxedEnv.no_proxy, sandboxedEnv.NO_PROXY);
+  assert.equal(sandboxedEnv[HOOK_VIA_SANDBOX_PROXY_ENV], '1');
 });
 
 test('an open network role carries no domain list, and a check role carries an empty one with no local binding', () => {

@@ -289,6 +289,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_RTK_PATH` | internal | Set by Glimmervoid in the rtk hook relay environment to name the rtk binary. Not an operator setting. |
 | `GLIMMERVOID_HOOK_URL` | internal | Set by Glimmervoid in each session environment as the hook relay target. Not an operator setting. |
 | `GLIMMERVOID_AGENT_URL` | internal | Set by Glimmervoid in each session environment when `agentApi.enabled` is on; `glimmervoid spawn`, `attention` and `board` read it. Not an operator setting. |
+| `GLIMMERVOID_HOOK_VIA_SANDBOX_PROXY` | internal | Set by Glimmervoid inside a sandbox whose network is a domain list, so the hook relays post through the sandbox proxy and nowhere else. Not an operator setting. |
 
 ## Telemetry
 

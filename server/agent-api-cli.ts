@@ -4,8 +4,9 @@ import { resolveHookTarget } from '../session/core/hook-relay-core.ts';
 import { AgentDispatchRequest, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
 import { errorCode } from '../shared/text.ts';
-import { decideSandboxProxy, isAgentApiVerb } from './core/agent-api-core.ts';
-import type { SandboxProxy } from './core/agent-api-core.ts';
+import { decideSandboxProxy } from '../session/core/sandbox-proxy-core.ts';
+import type { SandboxProxy } from '../session/core/sandbox-proxy-core.ts';
+import { isAgentApiVerb } from './core/agent-api-core.ts';
 
 const AGENT_PATH_PREFIX = '/agent/';
 

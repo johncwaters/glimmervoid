@@ -1,9 +1,9 @@
-const LINUX_SANDBOX_BINARIES: readonly string[] = Object.freeze(['bwrap', 'socat']);
+const LINUX_SANDBOX_BINARIES: readonly string[] = Object.freeze(['bwrap', 'socat', 'rg']);
 const NO_SANDBOX_BINARIES: readonly string[] = Object.freeze([]);
 
-const SANDBOX_INSTALL_HINT = 'Install bubblewrap and socat, for example: sudo apt install bubblewrap socat';
+const SANDBOX_INSTALL_HINT = 'Install bubblewrap, socat and ripgrep, for example: sudo apt install bubblewrap socat ripgrep';
 
-const SANDBOXED_LANE_NAMES: readonly string[] = Object.freeze(['team review', 'Keep mergeable repairs', 'workflow sessions', 'benchmark runs']);
+const SANDBOXED_WORK = 'sandboxed sessions and factory checks';
 
 interface SandboxDependencyReport {
   platform: NodeJS.Platform;
@@ -22,18 +22,23 @@ function sandboxDependencyReport({ platform, binariesOnPath }: { platform: NodeJ
   return { platform, requiredBinaries, missingBinaries, installHint: missingBinaries.length > 0 ? SANDBOX_INSTALL_HINT : null };
 }
 
+function namesList(names: readonly string[]): string {
+  if (names.length <= 1) return names.join('');
+  return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}
+
 function missingBinariesPhrase(report: SandboxDependencyReport): string {
-  return `${report.missingBinaries.join(' and ')} ${report.missingBinaries.length === 1 ? 'is' : 'are'} not on PATH`;
+  return `${namesList(report.missingBinaries)} ${report.missingBinaries.length === 1 ? 'is' : 'are'} not on PATH`;
 }
 
 function sandboxSpawnRefusal(report: SandboxDependencyReport): string | null {
   if (report.missingBinaries.length === 0) return null;
-  return `not started: the Claude Code sandbox needs ${report.requiredBinaries.join(' and ')}, and ${missingBinariesPhrase(report)}. ${report.installHint}`;
+  return `not started: the sandbox needs ${namesList(report.requiredBinaries)}, and ${missingBinariesPhrase(report)}. ${report.installHint}`;
 }
 
 function sandboxBootWarning(report: SandboxDependencyReport): string | null {
   if (report.missingBinaries.length === 0) return null;
-  return `[sandbox] ${missingBinariesPhrase(report)}, so ${SANDBOXED_LANE_NAMES.join(', ')} will refuse to start sandboxed sessions. ${report.installHint}`;
+  return `[sandbox] ${missingBinariesPhrase(report)}, so ${SANDBOXED_WORK} will refuse to start. ${report.installHint}`;
 }
 
 function sandboxDoctorRows(report: SandboxDependencyReport): [string, string][] {
@@ -45,7 +50,7 @@ function sandboxDoctorRows(report: SandboxDependencyReport): [string, string][] 
 
 function sandboxInstallNotice(report: SandboxDependencyReport): string | null {
   if (report.installHint === null) return null;
-  return `glimmervoid: ${missingBinariesPhrase(report)}; team review, Keep mergeable, workflow sessions and benchmark runs need ${report.requiredBinaries.join(' and ')}. ${report.installHint}`;
+  return `glimmervoid: ${missingBinariesPhrase(report)}; ${SANDBOXED_WORK} need ${namesList(report.requiredBinaries)}. ${report.installHint}`;
 }
 
 export {

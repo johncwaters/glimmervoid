@@ -1,5 +1,6 @@
 import path from 'node:path';
 import type { FilesystemConfig, FilesystemPathEntry, NetworkConfig } from '@anthropic-ai/sandbox-runtime';
+import { HOOK_VIA_SANDBOX_PROXY_ENV } from '../../session/core/sandbox-proxy-core.ts';
 import { isPathInside } from '../../shared/paths.ts';
 
 type SandboxVendor = 'claude' | 'codex';
@@ -232,7 +233,7 @@ function networkPolicy(role: SandboxRole): SandboxPolicy['network'] {
 }
 
 function sandboxedEnvFor(role: SandboxRole, host: SandboxHostPaths): Record<string, string> {
-  if (role.network.access === 'allowlist') return { NO_PROXY: SANDBOXED_PROXY_BYPASS, no_proxy: SANDBOXED_PROXY_BYPASS };
+  if (role.network.access === 'allowlist') return { NO_PROXY: SANDBOXED_PROXY_BYPASS, no_proxy: SANDBOXED_PROXY_BYPASS, [HOOK_VIA_SANDBOX_PROXY_ENV]: '1' };
   if (role.network.access === 'open') return { TMPDIR: host.tempDir };
   return {};
 }

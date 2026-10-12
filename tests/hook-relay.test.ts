@@ -13,6 +13,7 @@ import {
   resolveHookTarget,
   decideRelayPost,
 } from '../session/core/hook-relay-core.ts';
+import { HOOK_VIA_SANDBOX_PROXY_ENV } from '../session/core/sandbox-proxy-core.ts';
 const BASE = 'http://127.0.0.1:41234/hook/sess-1?t=deadbeef';
 
 interface IngressRequest {
@@ -20,6 +21,7 @@ interface IngressRequest {
   url: string | undefined;
   body: string;
   contentType: string | undefined;
+  proxyAuthorization: string | undefined;
 }
 
 interface Ingress {
@@ -41,7 +43,7 @@ function startIngress({ status = 200, responseBody = JSON.stringify({ ok: true, 
     let body = '';
     req.on('data', (c) => { body += c; });
     req.on('end', () => {
-      received.push({ method: req.method, url: req.url, body, contentType: req.headers['content-type'] });
+      received.push({ method: req.method, url: req.url, body, contentType: req.headers['content-type'], proxyAuthorization: req.headers['proxy-authorization'] });
       res.writeHead(status, { 'content-type': 'application/json' });
       res.end(responseBody);
     });
@@ -174,4 +176,49 @@ test('an oversize payload is dropped locally rather than cut off mid-JSON by the
 test('nothing listening still exits 0', async () => {
   const result = await main(['Stop'], fakeStdin('{}'), { [HOOK_URL_ENV]: 'http://127.0.0.1:1/hook/s?t=t' });
   assert.equal(result.code, 0);
+});
+
+test('a hook post goes through the sandbox proxy exactly when the launch marked it, and is refused when that proxy is missing', async () => {
+  const ingress = await startIngress();
+  const sandboxProxy = await startIngress();
+  const hookUrl = `http://127.0.0.1:${ingress.port}/hook/sess-9?t=tok9`;
+  const sandboxProxyUrl = `http://sandbox%3Dname:secret@127.0.0.1:${sandboxProxy.port}`;
+  const markedHookEnv = { [HOOK_URL_ENV]: hookUrl, [HOOK_VIA_SANDBOX_PROXY_ENV]: '1' };
+  try {
+    const proxied = await main(['Stop'], fakeStdin('{"a":1}'), { ...markedHookEnv, SANDBOX_RUNTIME: '1', HTTP_PROXY: sandboxProxyUrl });
+    assert.equal(proxied.reason, 'status-200');
+    assert.deepEqual(sandboxProxy.received, [{
+      method: 'POST',
+      url: `http://127.0.0.1:${ingress.port}/hook/sess-9/stop?t=tok9`,
+      body: '{"a":1}',
+      contentType: 'application/json',
+      proxyAuthorization: `Basic ${Buffer.from('sandbox=name:secret').toString('base64')}`,
+    }]);
+    assert.equal(ingress.received.length, 0, 'a listener on the hook port inside the sandbox received the marked post');
+
+    const direct = await main(['Stop'], fakeStdin('{"b":2}'), { [HOOK_URL_ENV]: hookUrl, SANDBOX_RUNTIME: '1', HTTP_PROXY: sandboxProxyUrl });
+    assert.equal(direct.reason, 'status-200');
+    assert.deepEqual(ingress.received, [{
+      method: 'POST',
+      url: '/hook/sess-9/stop?t=tok9',
+      body: '{"b":2}',
+      contentType: 'application/json',
+      proxyAuthorization: undefined,
+    }]);
+    assert.equal(sandboxProxy.received.length, 1, 'an unmarked post went through an ambient loopback proxy');
+
+    const environmentsWithoutSandboxProxy: Record<string, string>[] = [
+      { SANDBOX_RUNTIME: '1', HTTP_PROXY: 'http://proxy.example.com:8080' },
+      { HTTP_PROXY: sandboxProxyUrl },
+    ];
+    for (const environment of environmentsWithoutSandboxProxy) {
+      const refused = await main(['Stop'], fakeStdin('{}'), { ...markedHookEnv, ...environment });
+      assert.equal(refused.reason, 'sandbox-proxy-missing', JSON.stringify(environment));
+    }
+    assert.equal(sandboxProxy.received.length, 1);
+    assert.equal(ingress.received.length, 1);
+  } finally {
+    ingress.server.close();
+    sandboxProxy.server.close();
+  }
 });

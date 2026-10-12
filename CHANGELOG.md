@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Linux sandbox check also needs ripgrep**: the sandbox check at startup, `glimmervoid doctor` and the install notice now look for `rg` (ripgrep) beside `bwrap` and `socat`, because the sandbox runtime refuses to start without it. With any of the three missing, team review, Keep mergeable repairs, workflow sessions and benchmark runs refuse to start and say which binary is missing; install all three with `sudo apt install bubblewrap socat ripgrep`.
 - **Tickets, not work orders**: Factory and knowledge graph text now says ticket wherever it said work order or order: the Factory tab, settings descriptions, `glimmervoid kg` help and errors, dispatch refusal reasons and the prompts factory sessions receive. A ticket is still a Coherence work record, so `coherence work` commands and `wrk-` ids are unchanged.
 - **Roomier phone header**: on the phone layout the top bar drops the ?, mute and power buttons, leaving the + Session button and the merge celebration tray. Mute moves to a new Alert sounds switch under Settings > Appearance and alerts (it also flips the desktop note button), Restart lives under Settings > Updates, and shortcuts and version under Settings > Shortcuts and about.
 - **Issues tab redesign**: Issues now uses the Reviews layout: scope tabs for all, yours, your teams and your projects, search and filters, live session status on every row, and a detail pane that loads the description and opens or jumps to the issue's session.

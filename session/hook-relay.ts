@@ -13,7 +13,7 @@ async function main(
   const body = await readStdin(stdin);
   const verdict = decideRelayPost({ env, event, payloadBytes: body.length });
   if (!verdict.post || !verdict.url) return { code: 0, reason: verdict.reason };
-  const response = await postToLoopback(verdict.url, body);
+  const response = await postToLoopback(verdict.url, body, env);
   return { code: 0, reason: response.reason };
 }
 
