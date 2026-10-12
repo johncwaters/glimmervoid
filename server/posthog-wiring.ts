@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import type { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
-import type { SessionOptions } from '../session/sessions.ts';
+import type { SessionOptions, SessionSandboxFacts } from '../session/sessions.ts';
 import { runGh, runGit } from './git-exec.ts';
 import type { ExecFileFn, RunCommandOptions } from './git-exec.ts';
 import { resolveHookTools as resolveSharedHookTools } from './hook-tools.ts';
@@ -15,6 +15,8 @@ import { appendTrailStep, createInvestigationTrail, trailStepFromHook } from './
 import type { InvestigationTrail } from './core/investigation-trail-core.ts';
 import { nulSeparatedPaths } from './core/git-changed-paths-core.ts';
 import * as core from './core/posthog-core.ts';
+import type { SandboxRole } from './core/sandbox-policy-core.ts';
+import { LANE_CREDENTIAL_ENV, workRole } from './core/sandbox-roles-core.ts';
 import type { PosthogIssue } from './core/posthog-core.ts';
 import {
   awaitSessionExit, createJobResultFile, readResultFile, registerEphemeralSession,
@@ -33,6 +35,8 @@ import { DEFAULT_POSTHOG_REPORT_DIR } from './posthog-report.ts';
 import { sendTelegramMessage } from './telegram-transport.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import { errorMessage } from '../shared/text.ts';
+import { prepareRoleSandbox, readLaneCommonGitDir } from './work-lane.ts';
+import type { RoleSandboxDependencies } from './work-lane.ts';
 import { isRecord } from '../shared/coerce.ts';
 import { createCoalescedTimer } from '../shared/coalesce-timer.ts';
 
@@ -147,6 +151,20 @@ interface PosthogWiringOptions {
   recordLane?: RecordLane | null;
   makeSession?: (options: SessionOptions) => Session;
   resolveHookTools?: typeof resolveSharedHookTools;
+  sandbox?: RoleSandboxDependencies;
+}
+
+interface PosthogLaneAccess {
+  writableRoots: readonly string[];
+  commitCheckout: string | null;
+}
+
+async function posthogLaneRole(facts: SessionSandboxFacts, { writableRoots, commitCheckout }: PosthogLaneAccess): Promise<SandboxRole> {
+  const commitCheckouts = commitCheckout === null ? [] : [{ checkout: commitCheckout, gitDir: await readLaneCommonGitDir(commitCheckout) }];
+  return {
+    ...workRole({ vendor: 'claude', cwd: facts.cwd, checkout: facts.cwd, readablePaths: facts.readablePaths, agentSessionId: facts.agentSessionId }),
+    lockedCheckouts: [], writableRoots, commitCheckouts,
+  };
 }
 
 interface ResolvedProject {
@@ -476,6 +494,7 @@ function createPosthogWiring({
   recordLane = null,
   makeSession = (options: SessionOptions) => new Session(options),
   resolveHookTools = resolveSharedHookTools,
+  sandbox = {},
 }: PosthogWiringOptions) {
   function activePosthogConfig(): PosthogLaneConfig & { host: string; apiKey: string } {
     const posthogConfig = config.posthog;
@@ -486,16 +505,18 @@ function createPosthogWiring({
   }
 
   function makeInvestigationSession(
-    { id, name, path: cwd, initialPrompt, spawnEnv, permissions = POSTHOG_DENY, onActivity = null }: {
+    { id, name, path: cwd, initialPrompt, spawnEnv, access, permissions = POSTHOG_DENY, onActivity = null }: {
       id: string;
       name: string;
       path: string;
       initialPrompt: string;
       spawnEnv?: Record<string, string>;
+      access: PosthogLaneAccess;
       permissions?: { deny: string[] };
       onActivity?: ((trail: InvestigationTrail) => void) | null;
     },
   ): Session {
+    const prepareSandbox = prepareRoleSandbox((facts) => posthogLaneRole(facts, access), sandbox);
     const sess = makeSession({
       id,
       name,
@@ -507,10 +528,11 @@ function createPosthogWiring({
       ephemeral: true,
       observeToolCalls: true,
       settingsPermissions: permissions,
-      spawnEnv,
+      spawnEnv: prepareSandbox === null ? spawnEnv : { ...LANE_CREDENTIAL_ENV, ...spawnEnv },
       replayBufferKB: config.replayBufferKB,
       hookRouter,
       getHookPort,
+      prepareSandbox,
     });
     registerEphemeralSession({
       map: investigationSessions, id, sess, closeSessionDataClients, logPrefix: 'posthog', name, recordLane,
@@ -605,6 +627,7 @@ function createPosthogWiring({
           baseBranch: workspace.base,
         }),
         spawnEnv: { POSTHOG_API_KEY: posthogConfig.apiKey, POSTHOG_HOST: posthogConfig.host },
+        access: { writableRoots: [path.dirname(resultFile.path)], commitCheckout: workspace.cwd },
         permissions: FIX_DENY,
         onActivity,
       });
@@ -679,6 +702,7 @@ function createPosthogWiring({
         path: cwd,
         initialPrompt: prompt,
         spawnEnv: { POSTHOG_API_KEY: posthogConfig.apiKey, POSTHOG_HOST: posthogConfig.host },
+        access: { writableRoots: [path.dirname(resultFile.path), REPORT_DIR, ...(repoPath === null ? [cwd] : [])], commitCheckout: null },
         onActivity,
       });
       await waitForExit(sess, signal);
@@ -822,6 +846,7 @@ export {
   buildFixPrompt,
   buildInvestigationPrompt,
   createPosthogWiring,
+  posthogLaneRole,
   makeResolveProjects,
   posthogCfgKey,
   posthogShouldStart,

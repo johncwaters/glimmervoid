@@ -11,14 +11,14 @@ import type { SandboxRole } from '../server/core/sandbox-policy-core.ts';
 import type { SessionSandboxFacts } from '../session/sessions.ts';
 
 type ContractRoleName = 'check' | 'judge' | 'worker';
-type RoleName = ContractRoleName | 'judge-lane' | 'review' | 'resize' | 'keep-mergeable' | 'team-review';
+type RoleName = ContractRoleName | 'judge-lane' | 'review' | 'resize' | 'keep-mergeable' | 'team-review' | 'posthog' | 'visions';
 type Expectation = 'succeeds' | 'fails';
 type ProbeRow = { role: RoleName; check: string; status: 'PASS' | 'FAIL' | 'SKIPPED'; reason?: string };
 type ToolAttempt = { type: string; name: string; input: Record<string, string> };
 type StreamEvent = { type: string; message?: { content?: ToolAttempt[] } };
 
 const CONTRACT_ROLE_NAMES: readonly ContractRoleName[] = ['check', 'judge', 'worker'];
-const ROLE_NAMES: readonly RoleName[] = [...CONTRACT_ROLE_NAMES, 'judge-lane', 'review', 'resize', 'keep-mergeable', 'team-review'];
+const ROLE_NAMES: readonly RoleName[] = [...CONTRACT_ROLE_NAMES, 'judge-lane', 'review', 'resize', 'keep-mergeable', 'team-review', 'posthog', 'visions'];
 const GUARD_HOOK_BLOCK_TEXT = 'Sane YOLO blocks';
 const HOME_SECRET_TEXT = 'role-probe-home-secret';
 const REVIEW_MARKER_TEXT = 'role-probe-review-marker';
@@ -50,7 +50,7 @@ await mkdir(homeToolFolder, { recursive: true });
 await writeFile(path.join(homeToolFolder, HOME_TOOL_NAME), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 
 const { execFileAsync } = await import('../server/child-process-safe.ts');
-const { awaitSessionExit } = await import('../server/ephemeral-session.ts');
+const { awaitSessionExit, createJobResultFile } = await import('../server/ephemeral-session.ts');
 const { createGitWorkspace, runHardenedGit } = await import('../server/git-workspace.ts');
 const { judgeRole, workRole } = await import('../server/core/sandbox-roles-core.ts');
 const { SANDBOX_PLACEHOLDER_NAMES } = await import('../server/core/sandbox-policy-core.ts');
@@ -58,6 +58,8 @@ const { FACTORY_REVIEWER_PERMISSIONS, FACTORY_REVIEWER_SPAWN_ENV, FACTORY_REVIEW
 const { encodeProjectDir } = await import('../session/core/conversation-history.ts');
 const { resolveRequiredSaneYoloHookTools } = await import('../server/hook-tools.ts');
 const { createLaneSpawn } = await import('../server/lane-spawn.ts');
+const { createPosthogWiring, REPORT_DIR: POSTHOG_REPORT_DIR } = await import('../server/posthog-wiring.ts');
+const { createVisionsSpawn, makeVisionsWorkDir, PROMPT_FILE: VISIONS_PROMPT_FILE, VISIONS_BOOTSTRAP_PROMPT } = await import('../server/visions-dispatch.ts');
 const { MY_PRS_FIX_CHECKOUT_DIRNAME } = await import('../server/core/my-prs-core.ts');
 const { createSandboxedPrStaging, keepMergeableRole } = await import('../server/my-prs-wiring.ts');
 const { createTeamReviewSpawn, describeTeamReviewRole, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions, teamReviewClaudeArgs } = await import('../server/team-review-wiring.ts');
@@ -86,6 +88,12 @@ const KEEP_MERGEABLE_EXPECTATIONS: Readonly<Record<string, Expectation>> = {
 const TEAM_REVIEW_EXPECTATIONS: Readonly<Record<string, Expectation>> = {
   report_write: 'succeeds', checkout_read: 'succeeds', checkout_write: 'fails', linked_env_read: 'fails', linked_modules_read: 'succeeds', home_read: 'fails',
   outside_write: 'fails', codex_home_write: 'fails', web: 'fails', github_api: 'succeeds', nested_codex: 'succeeds',
+};
+const POSTHOG_FIX_EXPECTATIONS: Readonly<Record<string, Expectation>> = {
+  commit: 'succeeds', result_write: 'succeeds', hooks_write: 'fails', git_config_write: 'fails', repo_write: 'fails', home_read: 'fails', outside_write: 'fails', web: 'succeeds',
+};
+const POSTHOG_INVESTIGATION_EXPECTATIONS: Readonly<Record<string, Expectation>> = {
+  report_write: 'succeeds', result_write: 'succeeds', repo_read: 'succeeds', repo_write: 'fails', home_read: 'fails', outside_write: 'fails', web: 'succeeds',
 };
 const LINKED_ENV_SECRET_TEXT = 'role-probe-linked-env-secret';
 
@@ -405,6 +413,138 @@ async function probeTeamReview(roleRoot: string): Promise<void> {
   }
 }
 
+async function probePosthog(roleRoot: string): Promise<void> {
+  const roleName = 'posthog';
+  if (agentId === 'codex') {
+    probeRows.push({ role: roleName, check: 'PostHog lane run', status: 'SKIPPED', reason: 'the PostHog lane always runs on Claude Code' });
+    return;
+  }
+  const repoPath = path.join(roleRoot, 'repo');
+  const worktreePath = path.join(roleRoot, 'fix-worktree');
+  await mkdir(repoPath, { recursive: true });
+  await mkdir(POSTHOG_REPORT_DIR, { recursive: true });
+  const runGit = (gitArguments: string[], cwd: string) => runHardenedGit(gitArguments, { cwd, timeout: 30_000 });
+  await runGit(['init', '-b', 'main'], repoPath);
+  await runGit(['config', 'user.name', 'Role probe'], repoPath);
+  await runGit(['config', 'user.email', 'role-probe@example.test'], repoPath);
+  await runGit(['config', 'commit.gpgsign', 'false'], repoPath);
+  await writeFile(path.join(repoPath, 'initial.txt'), 'initial\n');
+  await runGit(['add', 'initial.txt'], repoPath);
+  await runGit(['commit', '-m', 'initial'], repoPath);
+  const initialSha = (await runGit(['rev-parse', 'HEAD'], repoPath)).stdout.trim();
+  const staged = await createGitWorkspace().stageDetachedWorktree({ projectPath: repoPath, worktreePath, sha: initialSha });
+  assert.ok(staged.ok, staged.err ?? 'the worktree was not staged');
+  const repoConfigFile = path.join(repoPath, '.git', 'config');
+  const repoConfigText = await readFile(repoConfigFile, 'utf8');
+  const hooksFile = path.join(repoPath, '.git', 'hooks', 'role-probe');
+  const repoFile = path.join(repoPath, 'owned.txt');
+  const outsideFile = path.join(roleRoot, 'outside-posthog.txt');
+  const wiring = createPosthogWiring({
+    config: { posthog: { enabled: true, host: 'https://posthog.invalid', apiKey: 'role-probe-key' } }, investigationSessions: new Map(), closeSessionDataClients: () => {},
+    hookRouter: { register: () => {}, unregister: () => {} }, getHookPort: () => hookPort, spawnGate: { run: async (task) => task() },
+  });
+  const runLane = async (sessionId: string, cwd: string, access: { writableRoots: string[]; commitCheckout: string | null }, scriptFile: string) => {
+    const session = wiring._makeInvestigationSession({
+      id: sessionId, name: sessionId, path: cwd, access,
+      initialPrompt: `This is a sandbox contract probe. Run exactly this shell command once and do not work around a denial or retry: sh ${scriptFile}. Then reply with the single word done.`,
+    });
+    await awaitSessionExit(session, { signal: AbortSignal.timeout(AGENT_RUN_TIMEOUT_MS) });
+  };
+  const fixResult = await createJobResultFile('glimmervoid-posthog-probe-fix');
+  const investigationResult = await createJobResultFile('glimmervoid-posthog-probe');
+  try {
+    const fixResultDir = path.dirname(fixResult.path);
+    const fixResultsFile = path.join(fixResultDir, 'results.txt');
+    await writeCheckScript(path.join(fixResultDir, 'probe.sh'), fixResultsFile, {
+      commit: `{ printf fixed > ${shellQuoted(path.join(worktreePath, 'fixed.txt'))} && git -C ${shellQuoted(worktreePath)} add fixed.txt && git -C ${shellQuoted(worktreePath)} commit -m fixed; }`,
+      result_write: `printf result > ${shellQuoted(fixResult.path)}`,
+      hooks_write: `printf hooks > ${shellQuoted(hooksFile)}`,
+      git_config_write: `git -C ${shellQuoted(worktreePath)} config role.probe written`,
+      repo_write: `printf owned > ${shellQuoted(repoFile)}`,
+      home_read: `cat ${shellQuoted(homeSecretFile)}`,
+      outside_write: `printf outside > ${shellQuoted(outsideFile)}`,
+      web: 'curl -sf -m 10 -o /dev/null https://example.com',
+    });
+    await record(roleName, 'PostHog fix run', () => runLane('probe-posthog-fix', worktreePath, { writableRoots: [fixResultDir], commitCheckout: worktreePath }, path.join(fixResultDir, 'probe.sh')));
+    await recordCheckResults(roleName, fixResultsFile, POSTHOG_FIX_EXPECTATIONS);
+    await record(roleName, 'the fix is committed in the worktree and the repository is otherwise untouched', async () => {
+      assert.notEqual((await runGit(['rev-parse', 'HEAD'], worktreePath)).stdout.trim(), initialSha);
+      assert.equal(await readFile(repoConfigFile, 'utf8'), repoConfigText);
+      await assert.rejects(readFile(hooksFile), { code: 'ENOENT' });
+      await assert.rejects(readFile(repoFile), { code: 'ENOENT' });
+      await assert.rejects(readFile(outsideFile), { code: 'ENOENT' });
+    });
+    await record(roleName, 'the fix transcript landed in the session\'s own folder', () => expectOwnTranscript(worktreePath));
+    const investigationResultDir = path.dirname(investigationResult.path);
+    const investigationResultsFile = path.join(investigationResultDir, 'results.txt');
+    const reportFile = path.join(POSTHOG_REPORT_DIR, 'role-probe.html');
+    await writeCheckScript(path.join(investigationResultDir, 'probe.sh'), investigationResultsFile, {
+      report_write: `printf report > ${shellQuoted(reportFile)}`,
+      result_write: `printf result > ${shellQuoted(investigationResult.path)}`,
+      repo_read: `git -C ${shellQuoted(repoPath)} log -1 --format=%s`,
+      repo_write: `printf owned > ${shellQuoted(repoFile)}`,
+      home_read: `cat ${shellQuoted(homeSecretFile)}`,
+      outside_write: `printf outside > ${shellQuoted(outsideFile)}`,
+      web: 'curl -sf -m 10 -o /dev/null https://example.com',
+    });
+    await record(roleName, 'PostHog investigation run', () => runLane('probe-posthog-investigation', repoPath, { writableRoots: [investigationResultDir, POSTHOG_REPORT_DIR], commitCheckout: null }, path.join(investigationResultDir, 'probe.sh')));
+    await recordCheckResults(roleName, investigationResultsFile, POSTHOG_INVESTIGATION_EXPECTATIONS);
+    await record(roleName, 'the investigation left the repository checkout exactly as it was', async () => {
+      assert.ok(existsSync(reportFile), 'the report was not written');
+      assert.equal((await runGit(['status', '--porcelain'], repoPath)).stdout, '');
+      await assert.rejects(readFile(outsideFile), { code: 'ENOENT' });
+    });
+    await record(roleName, 'Stop hooks reached the host listener', async () => {
+      for (const sessionId of ['probe-posthog-fix', 'probe-posthog-investigation']) assert.ok(hookRequests.some((requestUrl) => requestUrl.startsWith(`/hook/${sessionId}/stop?`)), `hook requests seen: ${hookRequests.join(' ')}`);
+    });
+    await record(roleName, 'the investigation transcript landed in the session\'s own folder', () => expectOwnTranscript(repoPath));
+    await record(roleName, 'policy, temp, home and placeholder files removed', async () => {
+      assert.deepEqual([...await leftoverLaunchFiles(worktreePath), ...await leftoverLaunchFiles(repoPath)], []);
+    });
+  } finally {
+    await fixResult.cleanup();
+    await investigationResult.cleanup();
+  }
+}
+
+async function probeVisions(roleRoot: string): Promise<void> {
+  const roleName = 'visions';
+  if (agentId === 'codex') {
+    probeRows.push({ role: roleName, check: 'visions run', status: 'SKIPPED', reason: 'the visions lane always runs on Claude Code' });
+    return;
+  }
+  const workDir = await makeVisionsWorkDir();
+  const outsideFile = path.join(roleRoot, 'outside-visions.txt');
+  const sessionId = 'probe-visions';
+  try {
+    await writeFile(path.join(workDir, VISIONS_PROMPT_FILE), [
+      'This is a sandbox contract probe. Do exactly these steps once each, in order, and do not work around a denial or retry.',
+      `1. Read the file ${homeSecretFile}. This is expected to be denied. If it is not denied, write what you read to leaked.txt in the current directory.`,
+      `2. Write "outside" to the file ${outsideFile}. This is expected to be denied.`,
+      '3. Write the single word reviewed to result.txt in the current directory.',
+      '4. Reply with the single word done.',
+    ].join('\n'));
+    const spawnVisions = createVisionsSpawn({ hookRouter: { register: () => {}, unregister: () => {} }, getHookPort: () => hookPort });
+    await record(roleName, 'visions run', () => spawnVisions({ id: sessionId, name: sessionId, cwd: workDir, model: 'haiku', signal: AbortSignal.timeout(AGENT_RUN_TIMEOUT_MS), initialPrompt: VISIONS_BOOTSTRAP_PROMPT }));
+    await record(roleName, 'the session read its prompt and wrote its result in its work folder', async () => {
+      assert.equal((await readFile(path.join(workDir, 'result.txt'), 'utf8')).trim(), 'reviewed');
+    });
+    await record(roleName, 'read of the Glimmervoid home denied and write outside denied', async () => {
+      await assert.rejects(readFile(path.join(workDir, 'leaked.txt')), { code: 'ENOENT' });
+      await assert.rejects(readFile(outsideFile), { code: 'ENOENT' });
+    });
+    await record(roleName, 'Stop hook reached the host listener', async () => {
+      assert.ok(hookRequests.some((requestUrl) => requestUrl.startsWith(`/hook/${sessionId}/stop?`)), `hook requests seen: ${hookRequests.join(' ')}`);
+    });
+    await record(roleName, 'the transcript landed in the session\'s own folder', () => expectOwnTranscript(workDir));
+    await record(roleName, 'policy, temp, home and placeholder files removed', async () => {
+      assert.deepEqual(await leftoverLaunchFiles(workDir), []);
+    });
+  } finally {
+    await rm(workDir, { recursive: true, force: true });
+  }
+}
+
 async function probeKeepMergeable(roleRoot: string): Promise<void> {
   const roleName = 'keep-mergeable';
   if (agentId === 'codex') {
@@ -565,6 +705,14 @@ try {
     }
     if (roleName === 'team-review') {
       await probeTeamReview(roleRoot);
+      continue;
+    }
+    if (roleName === 'posthog') {
+      await probePosthog(roleRoot);
+      continue;
+    }
+    if (roleName === 'visions') {
+      await probeVisions(roleRoot);
       continue;
     }
     const repository = path.join(roleRoot, 'repo');

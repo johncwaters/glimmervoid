@@ -6,6 +6,7 @@ import type { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import { buildLanePermissions } from './core/lane-permissions-core.ts';
+import { LANE_CREDENTIAL_ENV, workRole } from './core/sandbox-roles-core.ts';
 import {
   DEFAULT_TIMEOUT_SECONDS,
   ERROR_SOURCE_SESSION,
@@ -24,6 +25,8 @@ import {
 } from './ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 import { createLaneLog } from './lane-log.ts';
+import { prepareRoleSandbox } from './work-lane.ts';
+import type { RoleSandboxDependencies } from './work-lane.ts';
 import { errorMessage } from '../shared/text.ts';
 import { DEFAULT_TIMER_FNS } from '../shared/timer-deps.ts';
 import type { ClearTimeoutFn, SetTimeoutFn } from '../shared/timer-deps.ts';
@@ -65,6 +68,7 @@ interface VisionsSpawnOptions {
   spawnGate?: SpawnGate | null;
   replayBufferKB?: number;
   recordLane?: RecordLane | null;
+  sandbox?: RoleSandboxDependencies;
 }
 
 interface VisionsDispatcherOptions {
@@ -154,12 +158,15 @@ async function readCommentsResult(
 
 function createVisionsSpawn({
   sessions = new Map(), closeSessionDataClients = () => {}, hookRouter = null, getHookPort = null,
-  spawnGate = null, replayBufferKB = undefined, recordLane = null,
+  spawnGate = null, replayBufferKB = undefined, recordLane = null, sandbox = {},
 }: VisionsSpawnOptions = {}): VisionsSpawn {
   return async function spawnVisionsSession({ id, name, cwd, model = null, signal = null, initialPrompt = VISIONS_BOOTSTRAP_PROMPT }) {
     const posture = visionsPermissions();
     const extraClaudeArgs = ['-p', ...posture.args];
     if (model) extraClaudeArgs.push('--model', model);
+    const prepareSandbox = prepareRoleSandbox((facts) => workRole({
+      vendor: 'claude', cwd: facts.cwd, checkout: facts.cwd, readablePaths: facts.readablePaths, agentSessionId: facts.agentSessionId,
+    }), sandbox);
     const options: SessionOptions = {
       id,
       name,
@@ -169,9 +176,11 @@ function createVisionsSpawn({
       initialPrompt,
       ephemeral: true,
       settingsPermissions: posture.permissions,
+      spawnEnv: prepareSandbox === null ? null : { ...LANE_CREDENTIAL_ENV },
       replayBufferKB,
       hookRouter,
       getHookPort,
+      prepareSandbox,
     };
     const sess = new Session(options);
     registerEphemeralSession({ map: sessions, id, sess, closeSessionDataClients, logPrefix: 'visions', name, recordLane });

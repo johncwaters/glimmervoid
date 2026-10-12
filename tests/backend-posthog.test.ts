@@ -25,6 +25,7 @@ import { createSpawnGate } from '../server/spawn-gate.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
+import type { SandboxRole } from '../server/core/sandbox-policy-core.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import type { ExecFileFn, ExecFileOptions } from '../server/git-exec.ts';
 import type { resolveHookTools as resolveSharedHookTools } from '../server/hook-tools.ts';
@@ -223,12 +224,20 @@ test('an investigation session reports its tool trail from routed hooks, pretool
     return session;
   };
   const trails: InvestigationTrail[] = [];
+  const wrappedRoles: SandboxRole[] = [];
   const wiring = createPosthogWiring({
     config: { posthog: { ...ENABLED }, replayBufferKB: 256 },
     ...inertWiringDeps(),
     hookRouter,
     getHookPort: () => 4321,
     makeSession,
+    sandbox: {
+      platform: 'linux', sandboxRefusal: () => null,
+      prepareSandbox: async ({ role }) => {
+        wrappedRoles.push(role);
+        return { ok: true, launch: { wrap: async (file: string, args: readonly string[]) => ({ file, args: [...args] }), env: {}, dispose: async () => {} } };
+      },
+    },
   });
   try {
     const session = wiring._makeInvestigationSession({
@@ -236,11 +245,13 @@ test('an investigation session reports its tool trail from routed hooks, pretool
       name: 'PostHog web #iss-9',
       path: process.cwd(),
       initialPrompt: 'prompt',
+      access: { writableRoots: ['/reports'], commitCheckout: null },
       onActivity: (trail) => trails.push(trail),
     });
     assert.equal(trails.length, 1, 'the empty trail is reported at spawn so the dashboard learns the start time');
     assert.equal(trails[0]?.steps.length, 0);
     await session.start();
+    assert.deepEqual(wrappedRoles.map((role) => [role.network, role.writableRoots, role.lockedCheckouts, role.commitCheckouts]), [[{ access: 'open' }, ['/reports'], [], []]], 'the investigation starts inside the sandbox runtime and writes only what it was given');
     const settings = JSON.parse(fs.readFileSync(path.join(hooksBaseDir, safePathSegment('posthog:1#iss-9'), 'settings.json'), 'utf8'));
     assert.match(String(settings.hooks.PreToolUse[0].hooks[0].url), /\/hook\/posthog%3A1%23iss-9\/pretooluse\?t=/, 'the trail only exists because the session subscribes to PreToolUse');
     const token = session._hooks.token();

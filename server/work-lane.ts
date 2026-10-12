@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
-import type { PrepareSessionSandbox } from '../session/sessions.ts';
+import type { PrepareSessionSandbox, SessionSandboxFacts } from '../session/sessions.ts';
 import { errorMessage, isMissingFileError } from '../shared/text.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { LANE_ENVIRONMENT_ARGS, buildShellLanePermissions } from './core/lane-permissions-core.ts';
+import type { SandboxRole } from './core/sandbox-policy-core.ts';
 import { isWorktreeAdminDirOf, LANE_CREDENTIAL_ENV, LANE_READABLE_HOME_FOLDERS, parseGitdirPointer, workRole } from './core/sandbox-roles-core.ts';
 import { runHardenedGit } from './git-workspace.ts';
 import { resolveRequiredSaneYoloHookTools } from './hook-tools.ts';
@@ -32,7 +33,24 @@ export type WorkLaneDependencies = {
   platform?: NodeJS.Platform;
 };
 
+export type RoleSandboxDependencies = Pick<WorkLaneDependencies, 'prepareSandbox' | 'sandboxRefusal' | 'platform'>;
+
 type ScopedWorktree = { worktreeDir: string; branch: string | null; base: string | null };
+
+export function prepareRoleSandbox(describeRole: (facts: SessionSandboxFacts) => SandboxRole | Promise<SandboxRole>, {
+  prepareSandbox = prepareSandboxLaunch, sandboxRefusal = allowSandboxedSpawn, platform = process.platform,
+}: RoleSandboxDependencies = {}): PrepareSessionSandbox | null {
+  if (platform === UNWRAPPED_PLATFORM) return null;
+  return async (facts) => {
+    const sandboxRefusalReason = sandboxRefusal();
+    if (sandboxRefusalReason !== null) return { ok: false, reason: sandboxRefusalReason };
+    try {
+      return await prepareSandbox({ role: await describeRole(facts), launchId: facts.launchId });
+    } catch (error) {
+      return { ok: false, reason: errorMessage(error) };
+    }
+  };
+}
 
 async function existingRealPath(candidate: string): Promise<string | null> {
   try {
