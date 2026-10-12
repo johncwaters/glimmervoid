@@ -43,7 +43,8 @@ async function runOnce(
   const listedSessionIds = new Set<string>();
   const controller = new AbortController();
   const watchWindowMinutes = options.factory.watchWindowMinutes ?? DEFAULT_CONFIG.factory.watchWindowMinutes;
-  const deadline = AbortSignal.timeout((targets[options.target].workLimitMinutes + watchWindowMinutes) * 60_000);
+  const workLimitMinutes = targets[options.target].workLimitMinutes;
+  const deadline = workLimitMinutes === null ? new AbortController().signal : AbortSignal.timeout((workLimitMinutes + watchWindowMinutes) * 60_000);
   const signal = AbortSignal.any([interrupt, deadline, controller.signal]);
   let tempDirectory: string | null = null;
   let prepared: Awaited<ReturnType<typeof prepareInstance>> | null = null;

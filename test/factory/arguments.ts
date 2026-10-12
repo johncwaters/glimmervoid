@@ -18,7 +18,7 @@ Runs real Claude intents sequentially; bills Claude usage.
   --live-workers <n>         Factory maxLiveWorkers
   --watch-window <minutes>   Factory watchWindowMinutes
 Defaults are shipped factory settings; the seed supplies all default checks.
-Target work limits are 30 minutes for throwaway and 90 for gated-clone, plus the watch window.
+A throwaway run stops after 30 minutes plus the watch window; a gated-clone run has no time limit.
 The gated clone uses the shipped checks: npm run typecheck, npm run lint, npm test.
 Telemetry is also off under DO_NOT_TRACK=1, GLIMMERVOID_TELEMETRY=0, CI=true or Settings > Privacy in the real config.
 Each verdict records the summary event as sent, failed, skipped-no-consent or skipped-remote-disabled.`;
