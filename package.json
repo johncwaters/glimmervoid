@@ -93,7 +93,7 @@
     "@biomejs/biome": "^2.5.14",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.6.3",
-    "playwright-core": "1.63.0",
+    "playwright-core": "1.64.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.1"
