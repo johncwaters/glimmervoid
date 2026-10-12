@@ -84,9 +84,13 @@ function sessionRole({ commitCheckouts, writableRoots, readDenied, readablePaths
   };
 }
 
+function isConfinedSessionVendor(usageVendor: string | null): boolean {
+  return usageVendor !== null && CONFINED_SESSION_VENDORS.includes(usageVendor);
+}
+
 function isSessionConfined({ usageVendor, isMarkedUnconfined, sessionFolders, unconfinedRepos }: SessionConfinementFacts): boolean {
   if (isMarkedUnconfined) return false;
-  if (usageVendor === null || !CONFINED_SESSION_VENDORS.includes(usageVendor)) return false;
+  if (!isConfinedSessionVendor(usageVendor)) return false;
   return !sessionFolders.some((folder) => unconfinedRepos.some((repo) => isPathInside(repo, folder)));
 }
 
@@ -100,7 +104,7 @@ function isWorktreeAdminDirOf({ adminDir, commonGitDir }: { adminDir: string; co
 }
 
 export {
-  isSessionConfined, isWorktreeAdminDirOf, judgeRole, LANE_CREDENTIAL_ENV, LANE_READABLE_HOME_FOLDERS, parseGitdirPointer, sessionRole,
+  isConfinedSessionVendor, isSessionConfined, isWorktreeAdminDirOf, judgeRole, LANE_CREDENTIAL_ENV, LANE_READABLE_HOME_FOLDERS, parseGitdirPointer, sessionRole,
   UNSHARED_WORKTREE_ENTRIES, workRole,
 };
 export type { JudgeRoleFacts, SessionConfinementFacts, SessionRoleFacts, WorkRoleFacts };

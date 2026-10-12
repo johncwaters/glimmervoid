@@ -71,13 +71,13 @@ export async function readLaneCommonGitDir(cwd: string): Promise<string> {
   return realpath(stdout.trim());
 }
 
-async function readCommonGitDirOfOwnCheckout(cwd: string): Promise<string> {
+export async function readGitDirsOfOwnCheckout(cwd: string): Promise<{ commonGitDir: string; worktreeAdminDir: string }> {
   const commonGitDir = await readLaneCommonGitDir(cwd);
   const { stdout: adminPath } = await runHardenedGit(['rev-parse', '--absolute-git-dir'], { cwd, timeout: 30_000 });
   const worktreeAdminDir = await realpath(adminPath.trim());
   const isLinkedWorktree = worktreeAdminDir !== commonGitDir;
   if (isLinkedWorktree && !isWorktreeAdminDirOf({ adminDir: worktreeAdminDir, commonGitDir })) throw new Error('Git admin directory is outside the linked worktree registry');
-  return commonGitDir;
+  return { commonGitDir, worktreeAdminDir };
 }
 
 export async function resolveWorkLane(input: WorkLaneInput, {
@@ -91,7 +91,7 @@ export async function resolveWorkLane(input: WorkLaneInput, {
   if (!hookTools?.some((tool) => tool.id === 'saneYolo')) return { ok: false as const, reason: GUARD_HOOK_UNAVAILABLE_ERROR };
   try {
     const cwd = await realpath(input.cwd);
-    const [commonGitDir, toolFolders] = await Promise.all([readCommonGitDirOfOwnCheckout(cwd), readableToolFolders(homeDir)]);
+    const [{ commonGitDir }, toolFolders] = await Promise.all([readGitDirsOfOwnCheckout(cwd), readableToolFolders(homeDir)]);
     const permissionsFor = (editableRoots: readonly string[]) => buildShellLanePermissions({ editableRoots, allowCommands: input.allowCommands, extraDeny: input.extraDeny });
     let checkout = input.deferWorktree ? null : cwd;
     const settingsPermissions = permissionsFor(checkout === null ? [] : [checkout]);

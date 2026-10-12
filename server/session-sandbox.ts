@@ -1,8 +1,9 @@
-import { lstat, mkdir, readdir, realpath, stat } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { PrepareSessionSandbox, SessionSandboxFacts } from '../session/sessions.ts';
 import { rawTextOr } from '../shared/coerce.ts';
+import { isPathInside } from '../shared/paths.ts';
 import { errorMessage } from '../shared/text.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { repositoryRootOfCommonGitDir } from './core/claude-trust-core.ts';
@@ -13,7 +14,7 @@ import { runHardenedGit } from './git-workspace.ts';
 import { allowSandboxedSpawn } from './sandbox-deps.ts';
 import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 import { prepareSandboxLaunch } from './sandbox-launch.ts';
-import { existingRealPath, readLaneCommonGitDir } from './work-lane.ts';
+import { existingRealPath, readGitDirsOfOwnCheckout } from './work-lane.ts';
 
 interface SessionSandboxSettings {
   writablePaths: readonly string[];
@@ -40,6 +41,7 @@ interface SessionSandboxDependencies {
 }
 
 type SessionSandbox = ReturnType<typeof createSessionSandbox>;
+type CommitCheckout = SandboxRole['commitCheckouts'][number];
 
 const UNWRAPPED_PLATFORM = 'win32';
 const GITHUB_TOKEN_TIMEOUT_MS = 5000;
@@ -52,35 +54,74 @@ async function readGithubCliToken(env: NodeJS.ProcessEnv): Promise<string | null
   return token || null;
 }
 
-async function gitCheckoutOf(folder: string): Promise<string | null> {
-  const toplevel = await runHardenedGit(['rev-parse', '--show-toplevel'], { cwd: folder, timeout: GIT_TIMEOUT_MS }).then(({ stdout }) => stdout.trim(), () => '');
-  return toplevel ? realpath(toplevel) : null;
+async function gitCheckoutOf(startFolder: string): Promise<string | null> {
+  const toplevel = await runHardenedGit(['rev-parse', '--show-toplevel'], { cwd: startFolder, timeout: GIT_TIMEOUT_MS }).then(({ stdout }) => stdout.trim(), () => '');
+  if (!toplevel) return null;
+  const checkout = await existingRealPath(toplevel);
+  if (checkout === null || !isPathInside(checkout, startFolder)) return null;
+  return checkout;
 }
 
-async function workspaceMemberCheckouts(workspaceFolder: string): Promise<string[]> {
+async function isRegisteredGitEntry(gitEntry: string, worktreeAdminDir: string): Promise<boolean> {
+  const registeredGitEntry = await readFile(path.join(worktreeAdminDir, 'gitdir'), 'utf8')
+    .then((registeredPath) => realpath(path.resolve(worktreeAdminDir, registeredPath.trim())))
+    .catch(() => null);
+  return registeredGitEntry === gitEntry;
+}
+
+async function ownGitDirOf(checkout: string, startFolder: string): Promise<string | null> {
+  const gitDirs = await readGitDirsOfOwnCheckout(startFolder).catch(() => null);
+  if (gitDirs === null) return null;
+  const { commonGitDir, worktreeAdminDir } = gitDirs;
+  const gitEntry = path.join(checkout, '.git');
+  const gitEntryStats = await lstat(gitEntry).catch(() => null);
+  if (gitEntryStats?.isDirectory()) return worktreeAdminDir === gitEntry && commonGitDir === gitEntry ? commonGitDir : null;
+  const isLinkedWorktree = worktreeAdminDir !== commonGitDir;
+  if (!gitEntryStats?.isFile() || !isLinkedWorktree) return null;
+  const gitDirsOfCheckout = checkout === startFolder ? gitDirs : await readGitDirsOfOwnCheckout(checkout).catch(() => null);
+  if (gitDirsOfCheckout?.worktreeAdminDir !== worktreeAdminDir) return null;
+  return await isRegisteredGitEntry(gitEntry, worktreeAdminDir) ? commonGitDir : null;
+}
+
+async function commitCheckoutOf(startFolder: string): Promise<CommitCheckout | null> {
+  const checkout = await gitCheckoutOf(startFolder);
+  if (checkout === null) return null;
+  const gitDir = await ownGitDirOf(checkout, startFolder);
+  return gitDir === null ? null : { checkout, gitDir };
+}
+
+async function memberCommitCheckoutOf(memberFolder: string): Promise<CommitCheckout | null> {
+  const commitCheckout = await commitCheckoutOf(memberFolder);
+  return commitCheckout?.checkout === memberFolder ? commitCheckout : null;
+}
+
+async function workspaceMemberCheckouts(workspaceFolder: string): Promise<CommitCheckout[]> {
   const entries = await readdir(workspaceFolder, { withFileTypes: true });
   const memberFolders = entries.filter((entry) => entry.isDirectory()).map((entry) => path.join(workspaceFolder, entry.name));
   const gitPointers = await Promise.all(memberFolders.map((memberFolder) => existingRealPath(path.join(memberFolder, '.git'))));
-  return memberFolders.filter((_memberFolder, index) => gitPointers[index] !== null);
+  const commitCheckouts = await Promise.all(memberFolders.filter((_memberFolder, index) => gitPointers[index] !== null).map(memberCommitCheckoutOf));
+  return commitCheckouts.filter((commitCheckout) => commitCheckout !== null);
 }
 
-async function sessionCheckouts(cwd: string, isWorkspace: boolean): Promise<string[]> {
+async function sessionCheckouts(cwd: string, isWorkspace: boolean): Promise<CommitCheckout[]> {
   if (isWorkspace) return workspaceMemberCheckouts(cwd);
-  const checkout = await gitCheckoutOf(cwd);
-  return checkout === null ? [] : [checkout];
+  const commitCheckout = await commitCheckoutOf(cwd);
+  return commitCheckout === null ? [] : [commitCheckout];
 }
 
-async function sharedFolderBehind(linkPath: string): Promise<string | null> {
+async function sharedFolderBehind(linkPath: string, repositoryFolder: string): Promise<string | null> {
   const linkStats = await lstat(linkPath).catch(() => null);
   if (!linkStats?.isSymbolicLink()) return null;
   const sharedPath = await existingRealPath(linkPath);
-  if (sharedPath === null) return null;
+  if (sharedPath !== repositoryFolder) return null;
   return (await stat(sharedPath)).isDirectory() ? sharedPath : null;
 }
 
-async function sharedFoldersOf(checkout: string, worktreeShare: readonly string[]): Promise<string[]> {
+async function sharedFoldersOf({ checkout, gitDir }: SandboxRole['commitCheckouts'][number], worktreeShare: readonly string[]): Promise<string[]> {
+  const repositoryRoot = repositoryRootOfCommonGitDir(gitDir);
+  if (repositoryRoot === null) return [];
   const sharedEntries = worktreeShare.filter((entry) => !UNSHARED_WORKTREE_ENTRIES.includes(entry));
-  const sharedFolders = await Promise.all(sharedEntries.map((entry) => sharedFolderBehind(path.join(checkout, entry))));
+  const sharedFolders = await Promise.all(sharedEntries.map((entry) => sharedFolderBehind(path.join(checkout, entry), path.resolve(path.join(repositoryRoot, entry)))));
   return sharedFolders.filter((sharedFolder) => sharedFolder !== null);
 }
 
@@ -101,9 +142,8 @@ function createSessionSandbox({
     const sessionUploads = path.join(uploadsRoot, sessionId);
     await mkdir(sessionUploads, { recursive: true });
     const cwd = await realpath(facts.cwd);
-    const checkouts = await sessionCheckouts(cwd, isWorkspace);
-    const commitCheckouts = await Promise.all(checkouts.map(async (checkout) => ({ checkout, gitDir: await readLaneCommonGitDir(checkout) })));
-    const sharedFolders = (await Promise.all(checkouts.map((checkout) => sharedFoldersOf(checkout, settings.worktreeShare)))).flat();
+    const commitCheckouts = await sessionCheckouts(cwd, isWorkspace);
+    const sharedFolders = (await Promise.all(commitCheckouts.map((commitCheckout) => sharedFoldersOf(commitCheckout, settings.worktreeShare)))).flat();
     const startFolderRoots = commitCheckouts.length === 0 ? [cwd] : [];
     const ownRepositoryRoot = isWorkspace || commitCheckouts[0] === undefined ? null : repositoryRootOfCommonGitDir(commitCheckouts[0].gitDir);
     return {
@@ -130,9 +170,9 @@ function createSessionSandbox({
       if (sandboxRefusalReason !== null) return { ok: false, reason: `${sandboxRefusalReason} ${OPT_OUT_HINT}` };
       try {
         const { role, cwd, trustFolder } = await describeSessionAccess(facts, request);
-        await recordClaudeFolderTrust(trustFolder);
         const prepared = await prepareSandbox({ role, launchId: facts.launchId, enterDir: cwd });
         if (!prepared.ok) return { ok: false, reason: `${prepared.reason}. ${OPT_OUT_HINT}` };
+        await recordClaudeFolderTrust(trustFolder);
         const githubToken = await readGithubToken();
         if (githubToken === null) return prepared;
         return { ok: true, launch: { ...prepared.launch, env: { ...prepared.launch.env, GH_TOKEN: githubToken } } };

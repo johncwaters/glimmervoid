@@ -202,11 +202,12 @@ interface WiringFixtureOptions {
   makeSessionThrowsFirst?: boolean;
   laneSessions?: Session[];
   holdSpawnGate?: boolean;
+  parentIsSandboxed?: boolean;
 }
 
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
-  holdSpawnGate = false,
+  holdSpawnGate = false, parentIsSandboxed = false,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -216,6 +217,7 @@ function wiringFixture({
     path: process.cwd(),
     dangerouslySkipPermissions: parentSkipsPermissions,
     ptySpawn: () => fakePty(),
+    prepareSandbox: parentIsSandboxed ? async () => ({ ok: false, reason: 'never launched' }) : null,
   });
   const created: Session[] = [];
   const childProjects: ProjectEntry[] = [];
@@ -272,8 +274,10 @@ function wiringFixture({
 }
 
 test('a valid spawn creates exactly one sibling that may not spawn again', async () => {
-  const fixture = wiringFixture();
+  const fixture = wiringFixture({ parentIsSandboxed: true });
   try {
+    const unsandboxed = await fixture.spawn(fixture.parent, { prompt: 'review the diff', agent: 'codex' });
+    assert.deepEqual([unsandboxed.status, fixture.created.length], [403, 0], 'a sandboxed parent cannot name an agent that runs outside the sandbox');
     const reply = await fixture.spawn(fixture.parent, { prompt: 'review the diff' });
     assert.equal(reply.status, 200);
     assert.equal(reply.body.ok, true);

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import { isKnownAgentId } from '../session/adapters/index.ts';
+import { getAdapter, isKnownAgentId } from '../session/adapters/index.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import type { Session } from '../session/sessions.ts';
 import type {
@@ -9,6 +9,7 @@ import type {
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord } from './control-replay-core.ts';
 import { decideSpawnAllowance, deriveChildSessionName, describePushLanding, parseAgentVerb, PUSH_UNAVAILABLE_REASON } from './core/agent-api-core.ts';
+import { isConfinedSessionVendor } from './core/sandbox-roles-core.ts';
 import { registerEphemeralSession } from './ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 import type { SessionSpawnOverrides } from './session-factory.ts';
@@ -65,6 +66,9 @@ function createAgentApiWiring({
       return { ok: false, status: 400, error: `unknown agent ${request.agent}` };
     }
     const agentId = request.agent || parent.agentId;
+    if (parent.isConfined && !isConfinedSessionVendor(getAdapter(agentId)?.usageVendor ?? null)) {
+      return { ok: false, status: 403, error: `a sandboxed session can only spawn a sandboxed agent, and ${agentId} does not run inside the sandbox` };
+    }
 
     const name = deriveChildSessionName(request.name || parent.name, listAllSessions().map((session) => session.name));
     const id = `${AGENT_LANE_TAG}-${crypto.randomUUID()}`;
