@@ -16,7 +16,7 @@ import {
 import type { HarnessTelemetryInputs } from '../test/factory/telemetry-core.ts';
 import { adoptRunHomeRemoteSwitch, harnessStateDirectory, loadHarnessInstallState, resolveHarnessTelemetryInputs, sendRunTelemetry } from '../test/factory/telemetry.ts';
 import { removeInside, resolveInside } from '../test/factory/cleanup.ts';
-import { bridgeSocketPathRefusal, decideGate, decideVerdict, matchedProductText, pidsStillNamingSameProcess, processesUsingBuildOutput, unexpectedAcceptanceError } from '../test/factory/verdict.ts';
+import { bridgeSocketPathRefusal, decideGate, decideVerdict, matchedProductText, pidsStillNamingSameProcess, processesUsingBuildOutput, readBuildOutput, unexpectedAcceptanceError } from '../test/factory/verdict.ts';
 import type { GateEvidence, VerdictInput } from '../test/factory/verdict.ts';
 
 const repoRoot = path.resolve(import.meta.dirname, '..');
@@ -113,21 +113,35 @@ test('the product source still contains every literal the verdict matches', () =
   }
 });
 
-test('a process running from the dist of this checkout, or one that could with an unreadable working directory, blocks the batch build, and so does a check sandbox socket path past the unix limit', () => {
-  const buildOutput = { directory: '/checkout/dist', entryPaths: ['/checkout/dist', '/checkout/dist/server', '/checkout/dist/server/index.js', '/checkout/dist/bin', '/checkout/dist/bin/glimmervoid.js'] };
-  const located = (pid: number, resolvedArguments: string[], unresolvedRelativeArguments: string[] = []) => ({ pid, command: '', resolvedArguments, unresolvedRelativeArguments });
-  const conflicts = processesUsingBuildOutput([
-    located(1, ['/usr/bin/node', '/checkout/dist/server/index.js']),
-    located(2, ['/usr/bin/node', '/other-checkout/dist/server/index.js']),
-    located(3, ['/usr/bin/node', '/checkout/dist/bin/glimmervoid.js']),
-    located(4, ['/usr/bin/node'], ['dist/server/index.js']),
-    located(5, ['/usr/bin/node'], ['../bin/glimmervoid.js']),
-    located(6, ['/usr/sbin/sshd'], ['listener', 'startups']),
-    located(7, ['/usr/bin/node', '/checkout/test/factory/run.ts']),
-    located(8, ['/usr/bin/node', '/checkout/dist/server/index.js']),
-    { ...located(9, []), command: 'node /checkout/dist/server/index.js' },
-  ], buildOutput, 8);
-  assert.deepEqual(conflicts.map((conflict) => conflict.pid), [1, 3, 4, 5, 9]);
+test('a process running from the dist of this checkout, or one whose relative argument names a dist file or a dist folder path from an unreadable working directory, blocks the batch build, while a bare word naming a dist folder does not, and so does a check sandbox socket path past the unix limit', async () => {
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'factory-build-output-test-'));
+  try {
+    const distDirectory = path.join(checkout, 'dist');
+    await mkdir(path.join(distDirectory, 'server'), { recursive: true });
+    await mkdir(path.join(distDirectory, 'bin'), { recursive: true });
+    await writeFile(path.join(distDirectory, 'server', 'index.js'), '');
+    await writeFile(path.join(distDirectory, 'bin', 'glimmervoid.js'), '');
+    const buildOutput = await readBuildOutput(distDirectory);
+    const serverEntry = path.join(distDirectory, 'server', 'index.js');
+    const located = (pid: number, resolvedArguments: string[], unresolvedRelativeArguments: string[] = []) => ({ pid, command: '', resolvedArguments, unresolvedRelativeArguments });
+    const conflicts = processesUsingBuildOutput([
+      located(1, ['/usr/bin/node', serverEntry]),
+      located(2, ['/usr/bin/node', '/other-checkout/dist/server/index.js']),
+      located(3, ['/usr/bin/node', path.join(distDirectory, 'bin', 'glimmervoid.js')]),
+      located(4, ['/usr/bin/node'], ['dist/server/index.js']),
+      located(5, ['/usr/bin/node'], ['../bin/glimmervoid.js']),
+      located(6, ['/usr/sbin/sshd'], ['listener', 'startups']),
+      located(7, ['/usr/bin/node', path.join(checkout, 'test', 'factory', 'run.ts')]),
+      located(8, ['/usr/bin/node', serverEntry]),
+      { ...located(9, []), command: `node ${serverEntry}` },
+      located(10, ['/usr/bin/weed'], ['server', 'dist']),
+      located(11, ['/usr/bin/node'], ['dist/server']),
+      located(12, ['/usr/bin/node'], ['../dist/server']),
+    ], buildOutput, 8);
+    assert.deepEqual(conflicts.map((conflict) => conflict.pid), [1, 3, 4, 5, 9, 11, 12]);
+  } finally {
+    await rm(checkout, { recursive: true, force: true });
+  }
   assert.equal(bridgeSocketPathRefusal('/tmp/glimmervoid-factory-run-XXXXXX/0001/tmp', 'linux'), null);
   assert.equal(bridgeSocketPathRefusal(`/${'a'.repeat(71)}`, 'linux'), null);
   assert.match(bridgeSocketPathRefusal(`/${'a'.repeat(72)}`, 'linux') ?? '', /needs 108 bytes and a unix socket path holds 107/);

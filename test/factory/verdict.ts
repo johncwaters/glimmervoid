@@ -1,3 +1,4 @@
+import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { FactoryDecisionLogLine } from '../../shared/contracts/factory-decision-log.ts';
 import { isPathInside } from '../../shared/paths.ts';
@@ -20,7 +21,8 @@ export interface RunningProcess {
 }
 export interface BuildOutput {
   directory: string;
-  entryPaths: readonly string[];
+  filePaths: readonly string[];
+  folderPaths: readonly string[];
 }
 export interface ProcessIdentity {
   pid: number;
@@ -114,9 +116,19 @@ export function parseDecisionLines(lines: string[]) {
   return { decisions, invalidDecisionLines };
 }
 
+export async function readBuildOutput(directory: string): Promise<BuildOutput> {
+  const entries = await readdir(directory, { recursive: true, withFileTypes: true });
+  const filePaths = entries.filter((entry) => entry.isFile()).map((entry) => path.join(entry.parentPath, entry.name));
+  const nestedFolderPaths = entries.filter((entry) => entry.isDirectory()).map((entry) => path.join(entry.parentPath, entry.name));
+  return { directory, filePaths, folderPaths: [directory, ...nestedFolderPaths] };
+}
+
 function couldLandInBuildOutput(relativeArgument: string, buildOutput: BuildOutput): boolean {
-  const pathTail = path.posix.normalize(relativeArgument).split('/').filter((segment) => segment !== '' && segment !== '.' && segment !== '..').join('/');
-  return pathTail !== '' && buildOutput.entryPaths.some((entryPath) => entryPath.endsWith(`/${pathTail}`));
+  const tailSegments = path.posix.normalize(relativeArgument).split('/').filter((segment) => segment !== '' && segment !== '.' && segment !== '..');
+  if (tailSegments.length === 0) return false;
+  const pathTail = tailSegments.join('/');
+  const candidatePaths = tailSegments.length === 1 ? buildOutput.filePaths : [...buildOutput.filePaths, ...buildOutput.folderPaths];
+  return candidatePaths.some((candidatePath) => candidatePath.endsWith(`/${pathTail}`));
 }
 
 export function processesUsingBuildOutput(processes: readonly RunningProcess[], buildOutput: BuildOutput, harnessPid: number): RunningProcess[] {

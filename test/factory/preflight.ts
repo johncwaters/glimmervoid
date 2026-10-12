@@ -1,9 +1,9 @@
-import { access, link, open, readFile, readdir, readlink, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, link, open, readFile, readlink, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { execFileAsync, spawn } from '../../server/child-process-safe.ts';
 import { parseCwdTable, parseProcessTable } from '../../server/core/team-review-reaper-core.ts';
 import { repoRoot } from './instance.ts';
-import { processesUsingBuildOutput } from './verdict.ts';
+import { processesUsingBuildOutput, readBuildOutput } from './verdict.ts';
 import type { RunningProcess } from './verdict.ts';
 
 const PROCESS_LIST_TIMEOUT_MS = 5_000;
@@ -115,8 +115,7 @@ export async function findProcessesUsingBuildOutput(): Promise<RunningProcess[]>
   const rows = parseProcessTable(stdout);
   const workingDirectories = await workingDirectoriesOfRunningProcesses(rows.map((row) => row.pid));
   const running = await Promise.all(rows.filter((row) => workingDirectories.has(row.pid)).map((row) => locateArguments(row.pid, row.args, workingDirectories.get(row.pid) ?? null)));
-  const entryPaths = [directory, ...(await readdir(directory, { recursive: true })).map((entry) => path.join(directory, entry))];
-  return processesUsingBuildOutput(running, { directory, entryPaths }, process.pid);
+  return processesUsingBuildOutput(running, await readBuildOutput(directory), process.pid);
 }
 
 export async function buildBatch(signal: AbortSignal) {
