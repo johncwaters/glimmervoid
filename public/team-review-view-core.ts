@@ -207,7 +207,7 @@ export function caughtUpSelectionView(sections: TeamReviewSections, actedKey: st
 
 export interface ActionReplyNotice {
   text: string;
-  tone: 'ok' | 'error';
+  tone: 'error';
 }
 
 export interface ActionReplyPlan {
@@ -225,8 +225,7 @@ export function planActionReply({ action, pullRequest, warning, isActedSelected 
   const statusText = actionOutcomeText(action);
   const outcome = `${pullRequest}: ${asSentence(statusText)}`;
   if (warning.trim()) return { statusText, shouldAdvance: false, notice: { text: `${outcome} ${asSentence(warning)}`, tone: 'error' } };
-  if (!isActedSelected) return { statusText, shouldAdvance: false, notice: null };
-  return { statusText, shouldAdvance: true, notice: { text: outcome, tone: 'ok' } };
+  return { statusText, shouldAdvance: isActedSelected, notice: null };
 }
 
 export function hasMultipleQueueRepos(sections: TeamReviewSections): boolean {

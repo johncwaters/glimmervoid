@@ -1014,11 +1014,10 @@ test('caught-up selection counts reviews still running when nothing needs the op
   assert.deepEqual(caughtUpSelectionView(groupDrafts(status([], [inFlightReview(2)])), null), { title: 'All caught up', detail: 'Nothing needs you right now. 1 review is still running.' });
 });
 
-test('an ok action reply advances the selected review and names the outcome', () => {
+test('an ok action reply advances the selected review without carrying its outcome onto the next one', () => {
   assert.deepEqual(planActionReply({ action: 'approve', pullRequest: 'Acme/app#1', warning: '', isActedSelected: true }), {
-    statusText: 'Approved on GitHub', shouldAdvance: true, notice: { text: 'Acme/app#1: Approved on GitHub.', tone: 'ok' },
+    statusText: 'Approved on GitHub', shouldAdvance: true, notice: null,
   });
-  assert.equal(planActionReply({ action: 'requeue', pullRequest: 'Acme/app#1', warning: '', isActedSelected: true }).notice?.text, 'Acme/app#1: Queued. The next poll reviews it again.');
 });
 
 test('an ok action reply carrying a warning stays on the acted review and keeps the warning', () => {

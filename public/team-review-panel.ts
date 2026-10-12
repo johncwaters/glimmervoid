@@ -1119,7 +1119,7 @@ export function applyTeamReviewActionResult(message: unknown): void {
       isActedSelected: _selectedKey === actionResult.key,
     });
     (handle?.settle ?? pending.settle)?.(true, reply.statusText);
-    if (reply.notice) showActionNotice(reply.notice);
+    if (reply.notice || reply.shouldAdvance) showActionNotice(reply.notice);
     if (!reply.shouldAdvance) return;
     _selectedKey = nextAttentionKey({ capturedOrder: pending.capturedOrder, actedKey: actionResult.key, groups: groupDrafts(_latest) });
     if (_selectedKey === null) _caughtUpSelection = { actedKey: actionResult.key };
