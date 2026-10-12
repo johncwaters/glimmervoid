@@ -523,14 +523,24 @@ test('a recorded ledger checkout removed after landing is recreated from integra
   assert.equal(wiring.getState()?.projects[0].orders.length, 2);
 });
 
-test('an intent queued with tickets lands them as its ledger children with their dependencies', async (context) => {
-  const { projectPath, git, start, request, readState } = await createIntentFixture(context);
+test('an intent queued with tickets lands them as its ledger children once it becomes the active intent, also when queued behind an open one', async (context) => {
+  const { projectPath, config, git, start, request, readState } = await createIntentFixture(context);
   const cliPath = resolvePackageBin('@danilocampos/coherence', 'coherence');
   assert.ok(cliPath);
   let shouldRefuseDependentTicket = true;
+  const spawned: { session: Session; overrides: SessionSpawnOverrides }[] = [];
+  const pollers: FactoryPoller[] = [];
   const wiring = await start(undefined, async ({ cwd, args }) => {
     if (shouldRefuseDependentTicket && args.includes('--depends-on')) throw new Error('dependent ticket refused');
     return (await execFileAsync(process.execPath, [cliPath, ...args], { cwd, timeout: REAL_PROCESS_DEADLINE_MS })).stdout;
+  }, {
+    trustClaudeFolder: async () => 'already-trusted',
+    createPoller: (dependencies) => {
+      const poller = createFactoryPoller(dependencies);
+      pollers.push(poller);
+      return poller;
+    },
+    orchestratorOptions: fakeOrchestratorOptions({ config, now: Date.now, spawned }),
   });
   const tickets = [
     { id: 'U1', objective: 'Add the retry helper', criteria: ['Retry helper exists'], dependsOn: [], writeScopes: ['server/retry.ts'] },
@@ -542,22 +552,38 @@ test('an intent queued with tickets lands them as its ledger children with their
   assert.equal(unordered.error, 'Invalid tickets: ticket U2 depends on U1, which is not an earlier ticket');
   const overlapping = await wiring.queueIntent({ ...request, tickets: [tickets[0], { ...tickets[1], dependsOn: [] }] });
   assert.equal(overlapping.error, 'Invalid tickets: tickets U1 and U2 write the same path, so one must depend on the other');
-  const halfCreated = await wiring.queueIntent({ ...request, tickets });
-  assert.equal(halfCreated.error, 'dependent ticket refused');
+  const uncreatable = await wiring.queueIntent({ ...request, writeScopes: ['**'], tickets: [{ ...tickets[0], writeScopes: ['./'] }] });
+  assert.match(uncreatable.error ?? '', /^Command failed: .* --write-scope \.\/ /);
+  const unprovable = await wiring.queueIntent({ ...request, tickets });
+  assert.equal(unprovable.error, 'dependent ticket refused');
   const { ledgerPath } = await readState();
   assert.ok(ledgerPath);
   assert.equal(await git(['status', '--porcelain'], ledgerPath), '');
+  assert.equal(wiring.getState()?.projects[0].orders.length, 0);
   shouldRefuseDependentTicket = false;
+  await wiring.control({ projectId: request.projectId, action: 'pause' });
   const queued = await wiring.queueIntent({ ...request, tickets });
   assert.equal(queued.ok, true, queued.error ?? 'Queue failed');
   assert.ok(queued.workId);
+  assert.equal(wiring.getState()?.projects[0].orders.length, 1);
+  shouldRefuseDependentTicket = true;
+  await wiring.control({ projectId: request.projectId, action: 'resume' });
+  assert.equal(wiring.getState()?.projects[0].error, 'dependent ticket refused');
+  assert.equal(spawned.length, 0);
+  assert.equal(await git(['status', '--porcelain'], ledgerPath), '');
+  shouldRefuseDependentTicket = false;
+  await pollers[0].refreshNow();
+  assert.equal(spawned.length, 1);
   assert.equal(wiring.getState()?.projects[0].error, null);
-  const secondTicketed = await wiring.queueIntent({ ...request, objective: 'Ship more retries', tickets });
-  assert.equal(secondTicketed.error, 'An intent that carries tickets can be queued only when no other intent is open; queue it after the open intent closes');
+  const queuedBehind = await wiring.queueIntent({ ...request, objective: 'Ship more retries', tickets });
+  assert.equal(queuedBehind.ok, true, queuedBehind.error ?? 'Queue failed');
+  assert.ok(queuedBehind.workId);
   const { stdout } = await execFileAsync(process.execPath, [cliPath, 'work', 'inspect', '--json'], {
     cwd: projectPath, encoding: 'utf8', timeout: 20_000,
   });
-  const children = CoherenceWorkInspect.parse(JSON.parse(stdout)).work.filter((order) => order.opened.parent === queued.workId);
+  const inspectedWork = CoherenceWorkInspect.parse(JSON.parse(stdout)).work;
+  assert.equal(inspectedWork.filter((order) => order.opened.parent === queuedBehind.workId).length, 0);
+  const children = inspectedWork.filter((order) => order.opened.parent === queued.workId);
   const [first, second] = tickets.map((ticket) => children.find((order) => order.opened.objective === ticket.objective));
   assert.equal(children.length, 2);
   assert.ok(first);
@@ -566,8 +592,10 @@ test('an intent queued with tickets lands them as its ledger children with their
   assert.deepEqual(second.opened.dependsOn, [first.work]);
   assert.deepEqual(second.opened.writeScopes, ['server/retry.ts']);
   assert.equal(second.opened.risk, request.risk);
-  assert.deepEqual((await readState()).ticketedIntentIds, [queued.workId]);
-  assert.equal(wiring.getState()?.projects[0].orders.length, 3);
+  const laneState = await readState();
+  assert.deepEqual(laneState.ticketedIntentIds, [queued.workId, queuedBehind.workId]);
+  assert.deepEqual(Object.keys(laneState.pendingIntentTickets ?? {}), [queuedBehind.workId]);
+  assert.equal(wiring.getState()?.projects[0].orders.length, 4);
 });
 
 test('queue refuses a forged factory record injected after screening and before staging', async (context) => {
@@ -662,6 +690,30 @@ for (const mechanism of ['fsmonitor', 'smudge', 'clean', 'process', 'external-di
   });
 }
 
+type WiringOrchestratorOptions = NonNullable<Parameters<typeof createFactoryWiring>[0]['orchestratorOptions']>;
+
+function fakeOrchestratorOptions({ config, now, spawned, pastedLines = [] }: {
+  config: WiringOrchestratorOptions['config']; now: () => number; spawned: { session: Session; overrides: SessionSpawnOverrides }[]; pastedLines?: string[];
+}): WiringOrchestratorOptions {
+  return {
+    getHookPort: () => 3911,
+    config, sessions: new Map<string, Session>(), broadcast: () => {}, closeSessionDataClients: () => {},
+    wireSessionEvents: () => {}, recordLane: () => {}, spawnGate: { run: async (operation) => operation() },
+    makeSession: (identity, _config, overrides) => {
+      const session = plainSession(identity.id, identity.name, identity.path);
+      session.start = async () => {
+        session.ptyProcess = fakePty();
+        session._ptyAlive = true;
+        session.state = STATES.RUNNING;
+        session.stateSince = now();
+      };
+      session.pasteTextWhenReady = (text) => { pastedLines.push(text); return { ok: true, deferred: false }; };
+      spawned.push({ session, overrides });
+      return session;
+    },
+  };
+}
+
 async function createStallFixture(context: test.TestContext, { trustClaudeFolder, expectedOrchestratorCount = 1, hasSeparateGitDirectory = false }: {
   trustClaudeFolder?: (repositoryRoot: string, sessionsSpawnedSoFar: number) => Promise<'already-trusted' | 'granted'>; expectedOrchestratorCount?: number; hasSeparateGitDirectory?: boolean;
 } = {}) {
@@ -703,23 +755,7 @@ async function createStallFixture(context: test.TestContext, { trustClaudeFolder
       pollers.push(poller);
       return poller;
     },
-    orchestratorOptions: {
-      getHookPort: () => 3911,
-      config: fixture.config, sessions: new Map<string, Session>(), broadcast: () => {}, closeSessionDataClients: () => {},
-      wireSessionEvents: () => {}, recordLane: () => {}, spawnGate: { run: async (operation) => operation() },
-      makeSession: (identity, _config, overrides) => {
-        const session = plainSession(identity.id, identity.name, identity.path);
-        session.start = async () => {
-          session.ptyProcess = fakePty();
-          session._ptyAlive = true;
-          session.state = STATES.RUNNING;
-          session.stateSince = nowMs;
-        };
-        session.pasteTextWhenReady = (text) => { pastedLines.push(text); return { ok: true, deferred: false }; };
-        spawned.push({ session, overrides });
-        return session;
-      },
-    },
+    orchestratorOptions: fakeOrchestratorOptions({ config: fixture.config, now: () => nowMs, spawned, pastedLines }),
   });
   assert.equal(spawned.length, expectedOrchestratorCount);
   return { wiring, notifications, spawned, child, inspection, commands, pastedLines, config: fixture.config, projectPath: fixture.projectPath, homeDir: fixture.homeDir,

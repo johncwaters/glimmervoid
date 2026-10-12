@@ -1,6 +1,6 @@
 import { access, chmod, mkdir, readFile, realpath, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { CoherenceTicketCreated, CoherenceWorkCreated, CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
+import { CoherenceTicketCreated, CoherenceWorkCreated } from '../shared/contracts/coherence.ts';
 import { FACTORY_ERROR_MAX_CHARS, FactoryControlRequest, FactoryLaneState, FactoryQueueIntentRequest, isSingleFactoryPathSegment } from '../shared/contracts/factory.ts';
 import type { FactoryControlResult, FactoryQueueIntentResult } from '../shared/contracts/factory.ts';
 import { comparableDirectoryPath } from '../shared/paths.ts';
@@ -8,7 +8,7 @@ import type { Config } from '../shared/contracts/config.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { buildCoherenceShims } from './core/coherence-session-core.ts';
-import { appendFactoryLandedSha, buildTicketCreateArgs, decideFactoryStalls, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, findIntentTicketProblem, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, isFactoryProjectInFlight, hasOpenTrustedIntent, hasValidWriteScopes, hasWildcardWriteScope, isCompletedCommandFailure, redactSecretLines } from './core/factory-core.ts';
+import { appendFactoryLandedSha, buildTicketCreateArgs, decideFactoryStalls, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, findIntentTicketProblem, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, isFactoryProjectInFlight, hasValidWriteScopes, hasWildcardWriteScope, isCompletedCommandFailure, redactSecretLines } from './core/factory-core.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import type { LaneSpend } from './core/usage-scan-core.ts';
 import { commitAndLandFactoryLedger, discardPendingLedgerWrites, hasCodeChangedBetween, readCodeDiffBetween, screenPendingLedgerWrites } from './factory-ledger.ts';
@@ -30,6 +30,7 @@ import { createFactoryPoller } from './factory-poller.ts';
 import type { FactoryPoller, FactoryPollerDeps } from './factory-poller.ts';
 import { createGitWorkspace, factoryGitEnvironment, isolateGitWorkspace, runHardenedGit } from './git-workspace.ts';
 import type { GitWorkspaceInstance } from './git-workspace.ts';
+import { makeHostScratchDirectory } from './host-scratch.ts';
 import { loadJsonStateFile, writeJsonAtomic, writeTextAtomic } from './json-file.ts';
 import { createLaneRunner } from './lane-runner.ts';
 import { cliPath as glimmervoidCliPath, resolvePackageBin } from './runtime-paths.ts';
@@ -283,7 +284,29 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     return new Set((await readLaneState(projectId)).trustedIntentIds ?? []);
   }
 
+  async function writePendingTickets(projectId: string, intentId: string): Promise<void> {
+    const pending = (await readLaneState(projectId)).pendingIntentTickets?.[intentId];
+    if (!pending) return;
+    const projectPath = requireProject(projectId);
+    const ledger = await ensureTrustedLedgerCheckout(projectId, projectPath);
+    try {
+      for (const ticket of pending.tickets) {
+        CoherenceTicketCreated.parse(JSON.parse(await runCoherence({ cwd: ledger.cwd, args: buildTicketCreateArgs({ intent: pending, intentWorkId: intentId, ticket }) })));
+      }
+      await landLedger(projectId, projectPath, ledger, `factory: write tickets of ${intentId}`, { trusted: true, intentId, landsCommittedWrites: true });
+    } catch (error) {
+      await discardPendingLedgerWrites(ledger.cwd).catch((discardError: unknown) => {
+        log.warn(`[factory] could not discard unlanded tickets of ${intentId}: ${errorMessage(discardError)}`);
+      });
+      throw error;
+    }
+    await updateLaneState(projectId, (state) => ({
+      pendingIntentTickets: Object.fromEntries(Object.entries(state.pendingIntentTickets ?? {}).filter(([pendingIntentId]) => pendingIntentId !== intentId)),
+    }));
+  }
+
   async function beginIntent({ projectId, intentId, headSha }: { projectId: string; intentId: string; headSha: string | null }): Promise<{ hasTickets: boolean }> {
+    await writePendingTickets(projectId, intentId);
     const state = await readLaneState(projectId);
     if (headSha && !state.intentBaseShas?.[intentId]) await writeLaneState(projectId, { ...state, intentBaseShas: { ...state.intentBaseShas, [intentId]: headSha } });
     return { hasTickets: (state.ticketedIntentIds ?? []).includes(intentId) };
@@ -304,12 +327,12 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
   }
 
   async function landLedger(projectId: string, projectPath: string, ledger: Awaited<ReturnType<typeof ensureLedgerCheckout>>, message: string,
-    { trusted, intentId = null, onCommitted }: { trusted: boolean; intentId?: string | null; onCommitted?: () => Promise<void> }): Promise<void> {
+    { trusted, intentId = null, onCommitted, landsCommittedWrites = false }: { trusted: boolean; intentId?: string | null; onCommitted?: () => Promise<void>; landsCommittedWrites?: boolean }): Promise<void> {
     const checkoutKey = await comparableDirectoryPath(ledger.cwd);
     try {
       await commitAndLandFactoryLedger({
         projectPath, ledger, message, targetBranch: await resolveIntegrationBranch(projectPath), gitWorkspace, trusted, intentId, writtenRecordIds: writtenRecordIdsByCheckout.get(checkoutKey) ?? new Set(),
-        retryLanding: landingErrors.has(projectId), factoryLandedShas: new Set((await readLaneState(projectId)).factoryLandedShas ?? []),
+        retryLanding: landsCommittedWrites || landingErrors.has(projectId), factoryLandedShas: new Set((await readLaneState(projectId)).factoryLandedShas ?? []),
         onRefused: (reason) => raiseException(projectId, reason), onCommitted,
         onIntegrationLanded: (integrationSha) => recordFactoryLandedSha(projectId, integrationSha),
       });
@@ -325,34 +348,30 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     }
   }
 
-  async function createIntentWork(intent: FactoryQueueIntentRequest, ledgerPath: string): Promise<string> {
-    const args = [
+  function buildIntentCreateArgs(intent: FactoryQueueIntentRequest): string[] {
+    return [
       'work', 'create', intent.objective,
       ...intent.criteria.flatMap((criterion) => ['--success', criterion]),
       '--risk', intent.risk, '--authority', 'user-directed', '--granted-by', 'operator',
       '--boundary', intent.boundary, '--id', factoryIntentWorkId(intent), '--session', FACTORY_LEDGER_SESSION, '--json',
     ];
-    const created = CoherenceWorkCreated.parse(JSON.parse(await runCoherence({ cwd: ledgerPath, args })));
-    const workIdsByTicketId = new Map<string, string>();
-    for (const ticket of intent.tickets ?? []) {
-      const ticketArgs = buildTicketCreateArgs({ intent, intentWorkId: created.work, ticket, workIdsByTicketId });
-      workIdsByTicketId.set(ticket.id, CoherenceTicketCreated.parse(JSON.parse(await runCoherence({ cwd: ledgerPath, args: ticketArgs }))).work);
-    }
-    return created.work;
   }
 
-  async function createTicketedIntentWork(intent: FactoryQueueIntentRequest, ledgerPath: string): Promise<string> {
-    const inspected = CoherenceWorkInspect.parse(JSON.parse(await runCoherence({ cwd: ledgerPath, args: ['work', 'inspect', '--json'] })));
-    if (hasOpenTrustedIntent(inspected.work, await readTrustedIntentIds(intent.projectId))) {
-      throw new Error('An intent that carries tickets can be queued only when no other intent is open; queue it after the open intent closes');
-    }
+  async function rehearseTicketCreation(intent: FactoryQueueIntentRequest): Promise<void> {
+    const rehearsalPath = await makeHostScratchDirectory('glimmervoid-factory-rehearsal-');
     try {
-      return await createIntentWork(intent, ledgerPath);
-    } catch (error) {
-      await discardPendingLedgerWrites(ledgerPath);
-      writtenRecordIdsByCheckout.delete(await comparableDirectoryPath(ledgerPath));
-      throw error;
+      const intentWorkId = CoherenceWorkCreated.parse(JSON.parse(await invokeCoherence({ cwd: rehearsalPath, args: buildIntentCreateArgs(intent) }))).work;
+      for (const ticket of intent.tickets ?? []) {
+        CoherenceTicketCreated.parse(JSON.parse(await invokeCoherence({ cwd: rehearsalPath, args: buildTicketCreateArgs({ intent, intentWorkId, ticket }) })));
+      }
+    } finally {
+      await rm(rehearsalPath, { recursive: true, force: true });
     }
+  }
+
+  async function createIntentWork(intent: FactoryQueueIntentRequest, ledgerPath: string): Promise<string> {
+    if (intent.tickets) await rehearseTicketCreation(intent);
+    return CoherenceWorkCreated.parse(JSON.parse(await runCoherence({ cwd: ledgerPath, args: buildIntentCreateArgs(intent) }))).work;
   }
 
   async function queueIntent(request: FactoryQueueIntentRequest): Promise<FactoryQueueIntentResult> {
@@ -369,11 +388,14 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       const outcome = await serializeProject(intent.projectId, async () => {
         const projectPath = requireProject(intent.projectId);
         const ledger = await ensureTrustedLedgerCheckout(intent.projectId, projectPath);
-        const intentWorkId = intent.tickets ? await createTicketedIntentWork(intent, ledger.cwd) : await createIntentWork(intent, ledger.cwd);
+        const intentWorkId = await createIntentWork(intent, ledger.cwd);
         await updateLaneState(intent.projectId, (state) => ({
           trustedIntentIds: [...new Set([...(state.trustedIntentIds ?? []), intentWorkId])],
           intentWriteScopes: { ...state.intentWriteScopes, [intentWorkId]: intent.writeScopes },
           ticketedIntentIds: intent.tickets ? [...new Set([...(state.ticketedIntentIds ?? []), intentWorkId])] : state.ticketedIntentIds,
+          pendingIntentTickets: intent.tickets && !(state.ticketedIntentIds ?? []).includes(intentWorkId)
+            ? { ...state.pendingIntentTickets, [intentWorkId]: { risk: intent.risk, boundary: intent.boundary, tickets: intent.tickets } }
+            : state.pendingIntentTickets,
         }));
         await landLedger(intent.projectId, projectPath, ledger, `factory: queue intent ${intentWorkId}`, { trusted: true, intentId: activeIntentIdOf(intent.projectId) });
         return { projectId: intent.projectId, ok: true, workId: intentWorkId };

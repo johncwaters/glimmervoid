@@ -269,7 +269,7 @@ export function isTransientAdmissionRefusal(reason: string): boolean {
 
 function normalizeScope(scope: string): string | null {
   const relativePath = scope.trim().replace(/\\/g, '/');
-  if (!relativePath || /[\x00-\x1f\x7f]/.test(relativePath) || relativePath.startsWith('/') || /^[A-Za-z]:/.test(relativePath)) return null;
+  if (!relativePath || /[\x00-\x1f\x7f-\x9f]/.test(relativePath) || relativePath.startsWith('/') || /^[A-Za-z]:/.test(relativePath)) return null;
   if (relativePath === '**') return '';
   const segments = relativePath.split('/');
   if (segments.includes('..')) return null;
@@ -299,7 +299,7 @@ function hasDistinctEntries(entries: readonly string[]): boolean {
 }
 
 function isUnsafeLedgerArgument(text: string): boolean {
-  return text.startsWith('-') || /[\x00-\x1f\x7f]/.test(text);
+  return text.startsWith('-') || /[\x00-\x1f\x7f-\x9f]/.test(text);
 }
 
 function findTicketShapeProblem(ticket: FactoryIntentTicket): string | null {
@@ -339,20 +339,19 @@ export function findIntentTicketProblem({ writeScopes, tickets = [] }: Pick<Fact
   return null;
 }
 
-export function hasOpenTrustedIntent(work: readonly FactoryWorkOrder[], trustedIntentIds: ReadonlySet<string>): boolean {
-  return work.some((order) => order.opened.parent === null && trustedIntentIds.has(order.work)
-    && order.state !== 'completed' && order.state !== 'cancelled');
+function factoryTicketWorkId(intentWorkId: string, ticketId: string): string {
+  return `wrk-${createHash('sha256').update(JSON.stringify([intentWorkId, ticketId])).digest('hex').slice(0, 16)}`;
 }
 
-export function buildTicketCreateArgs({ intent, intentWorkId, ticket, workIdsByTicketId }: {
-  intent: Pick<FactoryQueueIntentRequest, 'risk' | 'boundary'>; intentWorkId: string; ticket: FactoryIntentTicket; workIdsByTicketId: ReadonlyMap<string, string>;
+export function buildTicketCreateArgs({ intent, intentWorkId, ticket }: {
+  intent: Pick<FactoryQueueIntentRequest, 'risk' | 'boundary'>; intentWorkId: string; ticket: FactoryIntentTicket;
 }): string[] {
   return [
     'work', 'create', ticket.objective,
     ...ticket.criteria.flatMap((criterion) => ['--success', criterion]),
     '--risk', intent.risk, '--authority', 'user-directed', '--granted-by', 'operator',
-    '--boundary', intent.boundary, '--parent', intentWorkId,
-    ...ticket.dependsOn.flatMap((dependency) => ['--depends-on', workIdsByTicketId.get(dependency) ?? dependency]),
+    '--boundary', intent.boundary, '--parent', intentWorkId, '--id', factoryTicketWorkId(intentWorkId, ticket.id),
+    ...ticket.dependsOn.flatMap((dependency) => ['--depends-on', factoryTicketWorkId(intentWorkId, dependency)]),
     ...ticket.writeScopes.flatMap((scope) => ['--write-scope', scope]),
     '--session', FACTORY_LEDGER_SESSION, '--json',
   ];
@@ -506,7 +505,7 @@ export function buildFactoryCheckSandboxSettings({ writablePaths, privatePaths, 
 }
 
 export function parseCheckCommand(command: string): string[] | null {
-  if (!command.trim() || /[;&|<>$`'"\x00-\x1f\x7f]/.test(command.replace(/[\t\r\n]/g, ' '))) return null;
+  if (!command.trim() || /[;&|<>$`'"\x00-\x1f\x7f-\x9f]/.test(command.replace(/[\t\r\n]/g, ' '))) return null;
   return command.trim().split(/\s+/);
 }
 

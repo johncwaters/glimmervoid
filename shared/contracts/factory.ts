@@ -133,6 +133,9 @@ export const FactoryLaneState = z.object({
   trustedIntentIds: z.array(z.string().min(1)).optional(),
   intentWriteScopes: z.record(z.string().min(1), z.array(z.string().min(1))).optional(),
   ticketedIntentIds: z.array(z.string().min(1)).optional(),
+  pendingIntentTickets: z.record(z.string().min(1), z.object({
+    risk: CoherenceRisk, boundary: intentText, tickets: z.array(FactoryIntentTicket).min(1).max(FACTORY_INTENT_TICKET_LIMIT),
+  })).optional(),
   intentBaseShas: z.record(z.string().min(1), z.string().regex(/^[a-f0-9]{40,64}$/)).optional(),
   filedBreaches: z.array(z.string().min(1)).optional(),
   factoryLandedShas: z.array(z.string().regex(/^[a-f0-9]{40,64}$/)).optional(),

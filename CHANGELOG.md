@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Intents can carry their tickets**: a `factory-queue-intent` request accepts an optional `tickets` list (id, objective, criteria, dependsOn, writeScopes). The factory writes those tickets into the ledger itself when the intent is queued, with their dependencies and the intent's risk and boundary, and the orchestrator dispatches exactly those tickets. Such an intent is accepted only while no other intent is open, and two of its tickets may write the same path only when one depends on the other. An intent queued without tickets is still decomposed by the orchestrator.
+- **Intents can carry their tickets**: a `factory-queue-intent` request accepts an optional `tickets` list (id, objective, criteria, dependsOn, writeScopes). The factory writes those tickets into the ledger itself when the intent becomes the active one, with their dependencies and the intent's risk and boundary, and the orchestrator dispatches exactly those tickets. Such an intent can be queued behind an open one, and two of its tickets may write the same path only when one depends on the other. An intent queued without tickets is still decomposed by the orchestrator.
 
 - **The factory verifier sees what changed**: the verifier that closes an intent now receives the diff of everything that landed on the integration branch since work on that intent began, so it can judge criteria about what changed and what stayed the same.
 
