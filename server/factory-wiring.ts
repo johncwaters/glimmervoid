@@ -8,7 +8,7 @@ import type { Config } from '../shared/contracts/config.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { buildCoherenceShims } from './core/coherence-session-core.ts';
-import { appendFactoryLandedSha, buildTicketCreateArgs, decideFactoryStalls, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, findIntentTicketProblem, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, isFactoryProjectInFlight, hasValidWriteScopes, hasWildcardWriteScope, isCompletedCommandFailure, redactSecretLines } from './core/factory-core.ts';
+import { appendFactoryLandedSha, buildTicketCreateArgs, decideFactoryStalls, exceedsRiskCeiling, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, findIntentTicketProblem, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, isFactoryProjectInFlight, hasValidWriteScopes, hasWildcardWriteScope, isCompletedCommandFailure, redactSecretLines } from './core/factory-core.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import type { LaneSpend } from './core/usage-scan-core.ts';
 import { captureFactoryLedgerRecord, commitAndLandFactoryLedger, discardPendingLedgerWrites, hasCodeChangedBetween, listRecordsMissingFromHead, readCodeDiffBetween, screenPendingLedgerWrites } from './factory-ledger.ts';
@@ -412,6 +412,8 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       if (hasWildcardWriteScope(intent.writeScopes)) {
         throw new Error('Invalid write scopes: a write scope is a relative path (a folder covers everything under it) or ** for the whole repository');
       }
+      const maxRisk = config.factory?.maxRisk ?? 'medium';
+      if (exceedsRiskCeiling(intent.risk, maxRisk)) throw new Error(`Intent risk ${intent.risk} exceeds the factory risk ceiling ${maxRisk}`);
       const ticketProblem = findIntentTicketProblem(intent);
       if (ticketProblem) throw new Error(`Invalid tickets: ${ticketProblem}`);
       const outcome = await serializeProject(intent.projectId, async () => {

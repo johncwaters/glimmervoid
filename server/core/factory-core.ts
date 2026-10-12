@@ -363,6 +363,14 @@ function isCoherenceLedgerPath(relativePath: string): boolean {
   return folded === '.coherence' || folded?.startsWith('.coherence/') === true;
 }
 
+export type FactoryRisk = FactoryWorkOrder['opened']['risk'];
+
+const FACTORY_RISK_RANKS: Readonly<Record<FactoryRisk, number>> = { low: 0, medium: 1, high: 2, critical: 3 };
+
+export function exceedsRiskCeiling(risk: FactoryRisk, maxRisk: FactoryRisk = 'medium'): boolean {
+  return FACTORY_RISK_RANKS[risk] > FACTORY_RISK_RANKS[maxRisk];
+}
+
 export function decideAdmission({ order, intent, trustedIntentIds, intentWriteScopes, liveWorkers, maxRisk = 'medium', maxLiveWorkers = 2,
   todaySpend, dailyBudgetUsd, paused = false, filterDriverNames }: FactoryAdmissionInput): { admit: true } | { admit: false; reason: string; exception: boolean } {
   const refuse = (reason: string) => ({ admit: false as const, reason, exception: false });
@@ -384,8 +392,8 @@ export function decideAdmission({ order, intent, trustedIntentIds, intentWriteSc
   if (!orderScopes.every((scope) => scope !== null && intentScopes.some((intentScope) => intentScope !== null && containsScope(intentScope, scope)))) {
     return refuse('ticket write scopes exceed the intent write scopes');
   }
-  const riskRanks = { low: 0, medium: 1, high: 2, critical: 3 };
-  if (riskRanks[order.opened.risk] > riskRanks[maxRisk]) return refuse('ticket exceeds the risk ceiling');
+  if (exceedsRiskCeiling(order.opened.risk, maxRisk)) return refuse('ticket exceeds the risk ceiling');
+  if (exceedsRiskCeiling(intent.opened.risk, maxRisk)) return refuse('intent exceeds the risk ceiling');
   if (liveWorkers.length >= maxLiveWorkers) return refuse(FACTORY_REFUSAL_WORKER_CAP);
   const workerScopes = liveWorkers.flatMap((worker) => worker.writeScopes.map(normalizeScope));
   if (workerScopes.some((workerScope) => workerScope === null || orderScopes.some((scope) => scope !== null

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildWorkerPrompt, decideAdmission, isTransientAdmissionRefusal } from '../server/core/factory-core.ts';
+import { buildWorkerPrompt, decideAdmission, exceedsRiskCeiling, isTransientAdmissionRefusal } from '../server/core/factory-core.ts';
 import type { FactoryAdmissionInput, FactoryWorkOrder } from '../server/core/factory-core.ts';
 
 function makeOrder(work: string, parent: string | null, writeScopes = ['src']): FactoryWorkOrder {
@@ -29,6 +29,8 @@ const refusals: [string, Partial<FactoryAdmissionInput>, string][] = [
   ['high risk', { order: { ...order, opened: { ...order.opened, risk: 'high' } } }, 'risk ceiling'],
   ['critical risk', { order: { ...order, opened: { ...order.opened, risk: 'critical' } } }, 'risk ceiling'],
   ['lower ceiling', { maxRisk: 'low' }, 'risk ceiling'],
+  ['low ticket under a critical intent', { intent: { ...intent, opened: { ...intent.opened, risk: 'critical' } }, order: { ...order, opened: { ...order.opened, risk: 'low' } } }, 'intent exceeds the risk ceiling'],
+  ['medium ticket under a high intent', { intent: { ...intent, opened: { ...intent.opened, risk: 'high' } } }, 'intent exceeds the risk ceiling'],
   ['default cap', { liveWorkers: [{ writeScopes: ['test'] }, { writeScopes: ['docs'] }] }, 'cap'],
   ['configured cap', { maxLiveWorkers: 1, liveWorkers: [{ writeScopes: ['test'] }] }, 'cap'],
   ['over budget', { todaySpend: { status: 'known', amountUsd: 10.01 } }, 'over budget'],
@@ -79,7 +81,17 @@ test('admission admits root scope, equal budgets, configured limits and unlimite
   assert.deepEqual(decideAdmission({ ...baseline, intent: makeOrder(intent.work, null, ['./']), liveWorkers: [{ writeScopes: ['src2'] }] }), { admit: true });
   assert.deepEqual(decideAdmission({ ...baseline, dailyBudgetUsd: null, todaySpend: { status: 'known', amountUsd: 1000 } }), { admit: true });
   assert.deepEqual(decideAdmission({ ...baseline, maxRisk: 'high', order: { ...order, opened: { ...order.opened, risk: 'high' } } }), { admit: true });
+  assert.deepEqual(decideAdmission({ ...baseline, maxRisk: 'high', intent: { ...intent, opened: { ...intent.opened, risk: 'high' } } }), { admit: true });
   assert.deepEqual(decideAdmission({ ...baseline, maxLiveWorkers: 3, liveWorkers: [{ writeScopes: ['tests'] }, { writeScopes: ['docs'] }] }), { admit: true });
+});
+
+test('risk ceiling admits up to and including the ceiling and defaults to medium', () => {
+  assert.equal(exceedsRiskCeiling('low'), false);
+  assert.equal(exceedsRiskCeiling('medium'), false);
+  assert.equal(exceedsRiskCeiling('high'), true);
+  assert.equal(exceedsRiskCeiling('critical', 'high'), true);
+  assert.equal(exceedsRiskCeiling('critical', 'critical'), false);
+  assert.equal(exceedsRiskCeiling('medium', 'low'), true);
 });
 
 test('worker prompt pins its ticket, scopes, checks and finish policy', () => {
@@ -131,7 +143,7 @@ const transientReasons = [
 const permanentReasons = [
   'ticket does not exist', 'ticket is not open', 'ticket is not ready',
   'ticket is not a child of the active intent', 'ticket and intent require valid non-empty write scopes',
-  'ticket write scopes exceed the intent write scopes', 'ticket exceeds the risk ceiling',
+  'ticket write scopes exceed the intent write scopes', 'ticket exceeds the risk ceiling', 'intent exceeds the risk ceiling',
   'repository uses git filter drivers (lfs), which factory workers cannot run safely',
   'daily budget set but usage tracking is off', 'unknown refusal',
 ];
