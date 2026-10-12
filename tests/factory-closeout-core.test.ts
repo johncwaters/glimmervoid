@@ -33,11 +33,11 @@ test('factory fence matches protected paths case-insensitively on both sides', (
   });
 });
 
-const floorPaths = ['package.json', 'web/package.json', 'web/package-lock.json', 'web/.npmrc', 'tsconfig.json', 'web/tsconfig.build.json', 'biome.json', 'biome.jsonc',
-  'vitest.config.ts', 'jest.config.js', '.mocharc.yml', 'playwright.config.ts'];
+const floorPaths = ['package.json', 'web/package.json', 'web/package-lock.json', 'web/pnpm-lock.yaml', 'web/.npmrc', 'tsconfig.json', 'web/tsconfig.build.json', 'biome.json', 'biome.jsonc',
+  'src/feature/biome.json', 'vitest.config.ts', 'jest.config.js', '.mocharc.yml', 'playwright.config.ts'];
 
 test('factory fence enforces the fixed floor even when the configured list is empty', () => {
-  assert.deepEqual(checkFence({ writeScopes: ['.'], protectedPaths: [], changedPaths: [...floorPaths, 'web/biome.json', 'web/vitest.config.ts', 'src/tsconfig.ts'] }), {
+  assert.deepEqual(checkFence({ writeScopes: ['.'], protectedPaths: [], changedPaths: [...floorPaths, 'src/tsconfig.ts'] }), {
     ok: false, outside: [], protected: floorPaths, unsupportedProtectedPaths: [],
   });
 });

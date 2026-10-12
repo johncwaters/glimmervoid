@@ -84,8 +84,9 @@ const FACTORY_INTENT_TICKET_LIMIT = 32;
 const ticketKey = z.string().trim().min(1).max(64);
 
 export const FACTORY_PROTECTED_PATH_FLOOR = [
-  '**/package.json', '**/package-lock.json', '**/.npmrc', '**/tsconfig*.json', 'biome.json', 'biome.jsonc',
-  'vitest.config.*', 'jest.config.*', '.mocharc*', 'playwright.config.*',
+  '**/package.json', '**/package-lock.json', '**/npm-shrinkwrap.json', '**/yarn.lock', '**/pnpm-lock.yaml', '**/bun.lock', '**/bun.lockb',
+  '**/.npmrc', '**/.yarnrc', '**/.yarnrc.yml', '**/pnpm-workspace.yaml', '**/.pnpmfile.cjs', '**/tsconfig*.json', '**/biome.json', '**/biome.jsonc',
+  '**/vite.config.*', '**/vitest.config.*', '**/vitest.workspace.*', '**/jest.config.*', '**/.mocharc*', '**/playwright.config.*',
 ] as const;
 export const FactoryFloorAllowance = z.enum(FACTORY_PROTECTED_PATH_FLOOR);
 export type FactoryFloorAllowance = z.infer<typeof FactoryFloorAllowance>;
@@ -150,6 +151,9 @@ export const FactoryLaneState = z.object({
   watch: z.array(FactoryWatchEntry).optional(),
   trustedVerifications: z.array(z.object({ id: z.string().min(1), sha: z.string().regex(/^[a-f0-9]{40,64}$/) })).optional(),
   trustedIntentCloses: z.array(z.string().min(1)).optional(),
+  pendingVerifierTrusts: z.array(z.object({
+    intentId: z.string().min(1), sha: z.string().regex(/^[a-f0-9]{40,64}$/), records: z.array(FactoryUnlandedRecord).min(1),
+  })).optional(),
   trustedIntentIds: z.array(z.string().min(1)).optional(),
   intentWriteScopes: z.record(z.string().min(1), z.array(z.string().min(1))).optional(),
   intentFloorAllowances: z.record(z.string().min(1), floorAllowances).optional(),

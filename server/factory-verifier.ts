@@ -2,9 +2,10 @@ import { CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import type { Config } from '../shared/contracts/config.ts';
 import { errorMessage } from '../shared/text.ts';
 import { FactoryConsequences } from '../shared/contracts/factory.ts';
-import type { FactoryLaneState, FactoryProjectState, FactoryWorkerEvent } from '../shared/contracts/factory.ts';
-import { FACTORY_LEDGER_SESSION, buildVerifierPrompt, decideIntentClose, evidenceNamesOnlySha, findFactoryProjectPath, verifierDefectEvidence, verifierRejectionNote } from './core/factory-core.ts';
+import type { FactoryLaneState, FactoryProjectState, FactoryUnlandedRecord, FactoryWorkerEvent } from '../shared/contracts/factory.ts';
+import { FACTORY_LEDGER_SESSION, buildVerifierPrompt, decideIntentClose, evidenceNamesOnlySha, factoryWrittenRecordId, findFactoryProjectPath, verifierDefectEvidence, verifierRejectionNote } from './core/factory-core.ts';
 import { runFactoryReview } from './factory-closeout.ts';
+import { captureFactoryLedgerRecord, listRecordsMissingFromHead } from './factory-ledger.ts';
 import type { LaneSpawn } from './lane-spawn.ts';
 
 interface FactoryVerifierDeps {
@@ -51,7 +52,26 @@ export function createFactoryVerifier({ config, spawnVerifier, serializeProject,
     });
   }
 
+  function withTrustedIntentClose(state: FactoryLaneState, intentId: string, sha: string): FactoryLaneState {
+    const verificationId = verifierLinkId(intentId);
+    return { ...state,
+      trustedVerifications: [...(state.trustedVerifications ?? []).filter(({ id }) => id !== verificationId), { id: verificationId, sha }],
+      trustedIntentCloses: [...new Set([...(state.trustedIntentCloses ?? []), intentId])],
+      pendingVerifierTrusts: (state.pendingVerifierTrusts ?? []).filter((pendingTrust) => pendingTrust.intentId !== intentId) };
+  }
+
+  async function trustCommittedVerifierRecords(projectId: string, cwd: string): Promise<void> {
+    const state = await readLaneState(projectId);
+    let settledState = state;
+    for (const pendingTrust of state.pendingVerifierTrusts ?? []) {
+      if ((await listRecordsMissingFromHead(cwd, pendingTrust.records)).length > 0) continue;
+      settledState = withTrustedIntentClose(settledState, pendingTrust.intentId, pendingTrust.sha);
+    }
+    if (settledState !== state) await writeLaneState(projectId, settledState);
+  }
+
   async function hasTrustedIntentClose(projectId: string, cwd: string, intentId: string): Promise<boolean> {
+    await trustCommittedVerifierRecords(projectId, cwd);
     const state = await readLaneState(projectId);
     if (!(state.trustedIntentCloses ?? []).includes(intentId)) return false;
     return hasFactoryVerification(cwd, intentId, [verifierLinkId(intentId)], trustedShasById(state));
@@ -118,20 +138,34 @@ export function createFactoryVerifier({ config, spawnVerifier, serializeProject,
         return;
       }
       notifyOrchestrator(project.projectId, { workId: intent.id, event: 'verification passed' });
-      await runCoherence({ cwd: ledger.cwd, args: ['consequence', 'add', `verification:${verificationId}`, 'verifies', `work:${intent.id}`,
-        '--evidence', `Independent verifier passed every intent criterion at ${tipSha}`, '--session', FACTORY_LEDGER_SESSION, '--json'] });
-      await runCoherence({ cwd: ledger.cwd, args: ['work', 'close', intent.id, 'completed', '--because', 'Independent factory verifier passed',
-        '--session', FACTORY_LEDGER_SESSION, '--evidence', tipSha, ...children.flatMap((child) => ['--synthesized', child.id])] });
+      const linkArgs = ['consequence', 'add', `verification:${verificationId}`, 'verifies', `work:${intent.id}`,
+        '--evidence', `Independent verifier passed every intent criterion at ${tipSha}`, '--session', FACTORY_LEDGER_SESSION, '--json'];
+      const linkOutput = await runCoherence({ cwd: ledger.cwd, args: linkArgs });
+      const closeArgs = ['work', 'close', intent.id, 'completed', '--because', 'Independent factory verifier passed',
+        '--session', FACTORY_LEDGER_SESSION, '--evidence', tipSha, ...children.flatMap((child) => ['--synthesized', child.id]), '--json'];
+      const closeOutput = await runCoherence({ cwd: ledger.cwd, args: closeArgs });
+      const verifierRecords = await captureVerifierRecords(ledger.cwd, [{ args: linkArgs, output: linkOutput }, { args: closeArgs, output: closeOutput }]);
+      const pendingState = await readLaneState(project.projectId);
+      await writeLaneState(project.projectId, { ...pendingState, pendingVerifierTrusts: [
+        ...(pendingState.pendingVerifierTrusts ?? []).filter((pendingTrust) => pendingTrust.intentId !== intent.id), { intentId: intent.id, sha: tipSha, records: verifierRecords }] });
       const recordTrust = async () => {
-        const state = await readLaneState(project.projectId);
-        await writeLaneState(project.projectId, { ...state,
-          trustedVerifications: [...(state.trustedVerifications ?? []).filter(({ id }) => id !== verificationId), { id: verificationId, sha: tipSha }],
-          trustedIntentCloses: [...new Set([...(state.trustedIntentCloses ?? []), intent.id])] });
+        await writeLaneState(project.projectId, withTrustedIntentClose(await readLaneState(project.projectId), intent.id, tipSha));
       };
       await commitAndLand(project.projectId, projectPath, `factory: verify and close ${intent.id}`, { onCommitted: recordTrust });
       checkedIntents.add(`${project.projectId}:${intent.id}`);
       stopOrchestrator(project.projectId);
     });
+  }
+
+  async function captureVerifierRecords(cwd: string, writes: { args: string[]; output: string }[]): Promise<FactoryUnlandedRecord[]> {
+    const records: FactoryUnlandedRecord[] = [];
+    for (const write of writes) {
+      const recordId = factoryWrittenRecordId(write.output);
+      const record = recordId === null ? null : await captureFactoryLedgerRecord(cwd, recordId, write);
+      if (!record) throw new Error('Factory verifier could not find its own ledger record');
+      records.push(record);
+    }
+    return records;
   }
 
   async function tick(reported: FactoryProjectState): Promise<FactoryProjectState> {

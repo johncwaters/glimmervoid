@@ -1049,16 +1049,31 @@ test('intent closed without its independent verifier link pauses the factory eve
   assert.equal(fixture.exceptions.length, 1);
 });
 
-test('a verifier whose ledger landing fails leaves no trusted verification or intent close', async (context) => {
+test('a verifier whose ledger landing fails trusts its verification and close only once a later landing commits them', async (context) => {
   const fixture = await prepareVerifierFixture(context);
+  const intentId = fixture.worker.intentId;
   fixture.failVerifierLanding();
-  fixture.verifier.ready('repo', fixture.worker.intentId);
-  await fixture.verifier.tick(await fixture.readProject());
+  fixture.verifier.ready('repo', intentId);
+  const project = await fixture.readProject();
+  await fixture.verifier.tick(project);
   await waitFor(fixture.hasChanged, 'verifier finishes with a failed landing', 60_000);
   assert.match(fixture.exceptions.at(-1) ?? '', /Verifier landing unavailable/);
-  assert.equal(fixture.state.trustedVerifications?.some(({ id }) => id === `verifier-${fixture.worker.intentId}`), false);
+  assert.equal(fixture.state.trustedVerifications?.some(({ id }) => id === `verifier-${intentId}`), false);
   assert.deepEqual(fixture.state.trustedIntentCloses ?? [], []);
   assert.deepEqual(fixture.stoppedOrchestrators, []);
+  await fixture.verifier.tick(await fixture.readProject());
+  assert.deepEqual(fixture.state.trustedIntentCloses ?? [], []);
+  const exceptionCount = fixture.exceptions.length;
+  await fixture.land('repo', fixture.projectPath, 'factory: land unlanded writes repo');
+  const closed = await fixture.readProject();
+  assert.equal(closed.orders.find((order) => order.id === intentId)?.state, 'completed');
+  const ticked = await fixture.verifier.tick(closed);
+  assert.equal(ticked.paused, false);
+  assert.equal(fixture.state.paused, false);
+  assert.equal(fixture.exceptions.length, exceptionCount);
+  assert.deepEqual(fixture.state.trustedVerifications?.find(({ id }) => id === `verifier-${intentId}`), { id: `verifier-${intentId}`, sha: project.headSha });
+  assert.deepEqual(fixture.state.trustedIntentCloses, [intentId]);
+  assert.deepEqual(fixture.state.pendingVerifierTrusts, []);
 });
 
 test('a verifier push failure after the local ledger commit still trusts its verification and close, so the next tick does not pause the project', async (context) => {
