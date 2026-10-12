@@ -680,9 +680,9 @@ function claimsFactorySession(record: LedgerRecord): record is object {
   return record !== null && Reflect.get(record, 'session') === FACTORY_LEDGER_SESSION;
 }
 
-function isAllowedLedgerRecord(directory: string, record: LedgerRecord, trusted: boolean): boolean {
+function isAllowedLedgerRecord(directory: string, record: LedgerRecord): boolean {
   if (record === null) return false;
-  if (claimsFactorySession(record)) return trusted;
+  if (claimsFactorySession(record)) return true;
   return directory === 'work' && Reflect.get(record, 'event') === 'opened';
 }
 
@@ -796,7 +796,7 @@ export function isFactoryLedgerLineOfWrite(line: string, { args, output }: { arg
   return writtenRecordKey !== null && stableJsonKey(line) === writtenRecordKey;
 }
 
-export function findForbiddenLedgerWrites(changes: FactoryLedgerChange[], { trusted, intentId = null, declaredFactoryRecords = new Map<string, FactoryDeclaredRecord>() }: {
+export function findForbiddenLedgerWrites(changes: FactoryLedgerChange[], { intentId = null, declaredFactoryRecords = new Map<string, FactoryDeclaredRecord>() }: {
   trusted: boolean; intentId?: string | null; declaredFactoryRecords?: ReadonlyMap<string, FactoryDeclaredRecord>;
 }): string[] {
   const forbidden: string[] = [];
@@ -805,8 +805,8 @@ export function findForbiddenLedgerWrites(changes: FactoryLedgerChange[], { trus
     const segments = change.path.replace(/\\/g, '/').split('/');
     const appendedLines = appendedLedgerLines(change);
     const appendedRecords = appendedLines.map(({ record }) => record);
-    const isTrustedFactoryWrite = (appended: AppendedLedgerLine) => trusted && isDeclaredFactoryWrite(change, appended, declaredFactoryRecords, appendCountByLine);
-    if (appendedLines.some((appended) => claimsFactorySession(appended.record) && !isTrustedFactoryWrite(appended))) {
+    const isDeclaredWrite = (appended: AppendedLedgerLine) => isDeclaredFactoryWrite(change, appended, declaredFactoryRecords, appendCountByLine);
+    if (appendedLines.some((appended) => claimsFactorySession(appended.record) && !isDeclaredWrite(appended))) {
       forbidden.push(`${change.path} claims the ${FACTORY_LEDGER_SESSION} session without a declared factory write`);
       continue;
     }
@@ -836,11 +836,11 @@ export function findForbiddenLedgerWrites(changes: FactoryLedgerChange[], { trus
       }
       continue;
     }
-    if (appendedRecords.some((record) => !isAllowedLedgerRecord(directory, record, trusted))) {
+    if (appendedRecords.some((record) => !isAllowedLedgerRecord(directory, record))) {
       forbidden.push(`${change.path} gained a record other than work creation or a decision`);
       continue;
     }
-    if (appendedLines.some((appended) => !opensChildOfIntent(appended.record, intentId) && !isTrustedFactoryWrite(appended))) {
+    if (appendedLines.some((appended) => !opensChildOfIntent(appended.record, intentId) && !isDeclaredWrite(appended))) {
       forbidden.push(`${change.path} opened work that is not a child of the active intent`);
     }
   }
