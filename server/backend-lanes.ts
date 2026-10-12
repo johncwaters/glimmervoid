@@ -242,7 +242,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     }),
     spawnJudge: createLaneSpawn({
       sessions: benchmarkSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'benchmark',
+      replayBufferKB: config.replayBufferKB, laneName: 'benchmark', sandboxRefusal,
     }),
     credentials: createClaudeCredentials({ claudeCommand }),
     claudeCommand,
@@ -304,6 +304,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       recordLane,
       replayBufferKB: config.replayBufferKB,
       laneName: 'change-map',
+      sandboxRefusal,
     }),
   });
 
@@ -313,7 +314,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     logger,
     spawnLane: createLaneSpawn({
       sessions: taskTitleSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'task-title', allowTools: TASK_TITLE_LANE_TOOLS,
+      replayBufferKB: config.replayBufferKB, laneName: 'task-title', allowTools: TASK_TITLE_LANE_TOOLS, sandboxRefusal,
     }),
   });
 

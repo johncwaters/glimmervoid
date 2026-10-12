@@ -1538,7 +1538,7 @@ class Session extends EventEmitter {
       launchId: randomUUID(),
       cwd: this.effectiveCwd(),
       hookPort: this._hooks.hasInjection() ? this._hooks.listenerPort() : null,
-      readablePaths: this._hooks.injectedReadablePaths(),
+      readablePaths: this._hooks.injectedReadablePaths(this._isSaneYoloActive),
     });
     if (!prepared.ok) throw new Error(prepared.reason);
     this._disposeSandboxLaunch(this._sandboxLaunch);

@@ -91,7 +91,7 @@ async function withRealRoots(role: SandboxRole): Promise<SandboxRole> {
     Promise.all(role.lockedCheckouts.map((checkout) => realpath(checkout))),
     Promise.all(role.commitCheckouts.map(async ({ checkout, gitDir }) => ({ checkout: await realpath(checkout), gitDir: await realpath(gitDir) }))),
   ]);
-  return { ...role, writableRoots, lockedCheckouts, commitCheckouts };
+  return { ...role, writableRoots, lockedCheckouts, commitCheckouts, readableWithinDenied: await realPathsWhenPresent(role.readableWithinDenied) };
 }
 
 function launcherCommand(plan: SandboxLaunchPlan, policyPath: string): WrappedCommand | null {

@@ -68,7 +68,7 @@ interface SessionHookLifecycle {
   hasInjection(): boolean;
   hasSettings(): boolean;
   isRequiredSandboxMissing(): boolean;
-  injectedReadablePaths(): string[];
+  injectedReadablePaths(isSaneYoloActive: boolean): string[];
 }
 
 function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLifecycle {
@@ -80,9 +80,21 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     return options.hookTools.find((tool) => tool.id === "saneYolo");
   }
 
+  function injectedHookTools(isSaneYoloActive: boolean): ResolvedHookTool[] {
+    return options.hookTools.filter((tool) => tool.id !== "saneYolo" || isSaneYoloActive);
+  }
+
   function hookToolEnv(isSaneYoloActive: boolean): Record<string, string> {
-    const injectedTools = options.hookTools.filter((tool) => tool.id !== "saneYolo" || isSaneYoloActive);
-    return Object.assign({}, ...injectedTools.map((tool) => HOOK_TOOLS[tool.id].env(tool, saneYoloHomeDir())));
+    return Object.assign({}, ...injectedHookTools(isSaneYoloActive).map((tool) => HOOK_TOOLS[tool.id].env(tool, saneYoloHomeDir())));
+  }
+
+  function injectedReadablePaths(isSaneYoloActive: boolean): string[] {
+    if (token === null) return [];
+    return [
+      ...(settingsHandle === null ? [] : [path.dirname(settingsHandle.settingsPath)]),
+      ...injectedHookTools(isSaneYoloActive).map((tool) => tool.binPath),
+      ...(isSaneYoloActive ? [saneYoloHomeDir()] : []),
+    ];
   }
 
   function cleanup(): void {
@@ -292,7 +304,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     hasInjection: () => token !== null,
     hasSettings: () => settingsHandle !== null,
     isRequiredSandboxMissing: () => options.settingsSandbox !== null && settingsHandle === null,
-    injectedReadablePaths: () => (settingsHandle === null ? [] : [path.dirname(settingsHandle.settingsPath)]),
+    injectedReadablePaths,
   };
 }
 

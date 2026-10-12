@@ -8,12 +8,17 @@ import type { SessionOptions } from '../session/sessions.ts';
 import { buildLanePermissions } from './core/lane-permissions-core.ts';
 import { awaitSessionExit, registerEphemeralSession } from './ephemeral-session.ts';
 import { resolveLanePosture } from './lane-posture.ts';
-import { LANE_CREDENTIAL_DENY_READ } from './core/lane-posture-core.ts';
+import { LANE_CREDENTIAL_DENY_READ, LANE_CREDENTIAL_ENV } from './core/lane-posture-core.ts';
+import { judgeRole } from './core/sandbox-roles-core.ts';
 import { makeHostScratchDirectory } from './host-scratch.ts';
 import { writeJsonAtomic } from './json-file.ts';
+import { allowSandboxedSpawn } from './sandbox-deps.ts';
+import { prepareSandboxLaunch } from './sandbox-launch.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
+import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 
 const SETTINGS_DIR_PREFIX = 'glimmervoid-lane-settings-';
+const UNWRAPPED_PLATFORM = 'win32';
 
 const LANE_SPAWN_DENY_TOOLS = Object.freeze([
   'Bash', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task', 'Bash(git push:*)', 'Bash(gh:*)',
@@ -45,6 +50,9 @@ interface LaneSpawnOptions {
   settingsPermissions?: Record<string, unknown>;
   spawnEnv?: Readonly<Record<string, string>> | null;
   createSession?: (options: SessionOptions) => Session;
+  prepareSandbox?: typeof prepareSandboxLaunch;
+  sandboxRefusal?: SandboxSpawnRefusal;
+  platform?: NodeJS.Platform;
 }
 
 async function writeStandaloneDenySettings(permissions: unknown): Promise<{ args: string[]; cleanup(): Promise<void> }> {
@@ -64,9 +72,14 @@ function createLaneSpawn({
   sessions = new Map(), closeSessionDataClients = () => {}, hookRouter = null, getHookPort = null,
   spawnGate = null, replayBufferKB = undefined, recordLane = null, laneName, allowTools = [],
   createSession = (options) => new Session(options), settingsPermissions, spawnEnv = null, useReadOnlyPosture = false,
+  prepareSandbox = prepareSandboxLaunch, sandboxRefusal = allowSandboxedSpawn, platform = process.platform,
 }: LaneSpawnOptions): LaneSpawn {
   return async function spawnLaneSession({ id, name, prompt, cwd, agent = DEFAULT_AGENT_ID, extraArgs = [], model = null, signal = null, onOutput }) {
     const isCodex = agent === 'codex';
+    const hasNoShell = !isCodex && !useReadOnlyPosture && settingsPermissions === undefined;
+    const isWrapped = hasNoShell && platform !== UNWRAPPED_PLATFORM;
+    const sandboxRefusalReason = isWrapped ? sandboxRefusal() : null;
+    if (sandboxRefusalReason !== null) throw new Error(sandboxRefusalReason);
     const posture = isCodex ? null : buildLanePermissions({ denyTools: LANE_SPAWN_DENY_TOOLS, allowTools });
     const commandRules = Array.isArray(settingsPermissions?.allow) ? settingsPermissions.allow.filter((rule): rule is string => typeof rule === 'string' && rule.startsWith('Bash(')) : [];
     const resolvedPosture = !isCodex && useReadOnlyPosture && hookRouter ? await resolveLanePosture({
@@ -91,10 +104,14 @@ function createLaneSpawn({
       initialPrompt: prompt,
       ephemeral: true,
       settingsPermissions: permissions,
-      spawnEnv: sessionPosture || spawnEnv ? { ...spawnEnv, ...sessionPosture?.spawnEnv } : null,
+      spawnEnv: sessionPosture || spawnEnv || isWrapped ? { ...spawnEnv, ...sessionPosture?.spawnEnv, ...(isWrapped ? LANE_CREDENTIAL_ENV : {}) } : null,
       replayBufferKB,
       hookRouter,
       getHookPort,
+      prepareSandbox: isWrapped ? (facts) => prepareSandbox({
+        role: judgeRole({ vendor: 'claude', cwd: facts.cwd, hookPort: facts.hookPort, readablePaths: facts.readablePaths }),
+        launchId: facts.launchId,
+      }) : null,
     };
     try {
       const laneSession = createSession(options);

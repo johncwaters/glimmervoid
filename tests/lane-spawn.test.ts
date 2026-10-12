@@ -19,6 +19,7 @@ async function spawnedOptions(allowTools: readonly string[] | undefined, hasHook
   try {
     const spawnLane = createLaneSpawn({
       laneName: 'lane-spawn-test',
+      platform: 'linux',
       hookRouter: hasHookRouter ? { register: () => {}, unregister: () => {} } : null,
       ...(allowTools ? { allowTools } : {}),
       createSession: (options) => {
@@ -40,12 +41,21 @@ function toolsArgument(options: SessionOptions): string | undefined {
   return index === -1 ? undefined : args[index + 1];
 }
 
-test('the thread judge allow list reaches the spawned session as --tools Read,Write with and without a hook router', async () => {
+test('the thread judge allow list reaches the sandboxed session as --tools Read,Write with and without a hook router', async () => {
   for (const hasHookRouter of [true, false]) {
     const options = await spawnedOptions(THREAD_JUDGE_TOOLS, hasHookRouter);
     assert.equal(toolsArgument(options), 'Read,Write', `hookRouter: ${hasHookRouter}`);
+    assert.equal(typeof options.prepareSandbox, 'function');
     assert.equal((options.extraClaudeArgs ?? []).includes('--settings'), !hasHookRouter);
   }
+});
+
+test('a sandboxed lane refuses to spawn with the reason when the sandbox cannot start', async () => {
+  const spawnLane = createLaneSpawn({
+    laneName: 'lane-spawn-test', platform: 'linux', sandboxRefusal: () => 'bwrap is missing',
+    createSession: () => assert.fail('a lane that cannot be sandboxed must not spawn'),
+  });
+  await assert.rejects(spawnLane({ id: 'lane-spawn-refused', name: 'Lane spawn test', prompt: 'Synthetic prompt', cwd: os.tmpdir() }), /bwrap is missing/);
 });
 
 test('a lane spawned without an allow list emits no --tools argument', async () => {
@@ -158,6 +168,7 @@ test('factory reviewer spawns read-only in the worker cwd with structured output
       assert.equal(args.includes('--disable-slash-commands'), true);
       assert.equal(args[args.indexOf('--setting-sources') + 1], 'project,local');
       assert.deepEqual(chunks, ['{"type":"result"}']);
+      assert.equal(options.prepareSandbox ?? null, null);
       assert.deepEqual(options.spawnEnv, { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '0', ...(hasHookRouter ? LANE_CREDENTIAL_ENV : {}) });
       if (hasHookRouter) {
         assert.equal(options.getHookTools, null);
