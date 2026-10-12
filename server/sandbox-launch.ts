@@ -1,11 +1,12 @@
 import { access, chmod, copyFile, lstat, mkdir, readdir, realpath, rename, rm, symlink } from 'node:fs/promises';
+import type { Stats } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { rawTextOr } from '../shared/coerce.ts';
-import { errorMessage, isMissingFileError } from '../shared/text.ts';
+import { errorCode, errorMessage, isMissingFileError } from '../shared/text.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { listClaudeGlobalConfigPathCandidates } from './core/claude-trust-core.ts';
-import { buildSandboxLaunchPlan, sandboxPlaceholderPaths, sandboxPolicyProbePaths } from './core/sandbox-policy-core.ts';
+import { buildSandboxLaunchPlan, lockedClaudeMountPoints, sandboxPlaceholderPaths, sandboxPolicyProbePaths } from './core/sandbox-policy-core.ts';
 import type { SandboxHost, SandboxLaunchPlan, SandboxRole } from './core/sandbox-policy-core.ts';
 import { codexHomes, grokHomes, projectDirCandidates } from './core/usage-scan-core.ts';
 import { writeJsonAtomic } from './json-file.ts';
@@ -101,13 +102,21 @@ async function withRealRoots(role: SandboxRole): Promise<SandboxRole> {
   return { ...role, vendorHome, writableRoots, lockedCheckouts, commitCheckouts, readableWithinDenied: await realPathsWhenPresent(role.readableWithinDenied) };
 }
 
-async function isRegularFile(candidate: string): Promise<boolean> {
+async function lstatWhenPresent(candidate: string): Promise<Stats | null> {
   try {
-    return (await lstat(candidate)).isFile();
+    return await lstat(candidate);
   } catch (error) {
     if (!isMissingFileError(error)) throw error;
-    return false;
+    return null;
   }
+}
+
+async function isRegularFile(candidate: string): Promise<boolean> {
+  return (await lstatWhenPresent(candidate))?.isFile() ?? false;
+}
+
+async function isRealDirectory(candidate: string): Promise<boolean> {
+  return (await lstatWhenPresent(candidate))?.isDirectory() ?? false;
 }
 
 async function absentPaths(candidates: readonly string[]): Promise<string[]> {
@@ -119,6 +128,15 @@ async function removeLeftoverPlaceholders(placeholderPaths: readonly string[]): 
   for (const placeholderPath of placeholderPaths) {
     const placeholderStats = await lstat(placeholderPath).catch(() => null);
     if (placeholderStats?.isFile() && placeholderStats.size === 0) await rm(placeholderPath, { force: true });
+  }
+}
+
+async function createMissingMountPoints(mountPoints: readonly string[]): Promise<void> {
+  for (const mountPoint of mountPoints) {
+    if (!await isRealDirectory(path.dirname(mountPoint))) continue;
+    await mkdir(mountPoint).catch((error: unknown) => {
+      if (errorCode(error) !== 'EEXIST') throw error;
+    });
   }
 }
 
@@ -193,6 +211,7 @@ async function prepareSandboxLaunch({ role, launchId, tempDir, enterDir }: Sandb
           if (!rebuilt.ok) throw new Error(rebuilt.reason);
           await writeJsonAtomic(policyPath, rebuilt.plan.policy);
           placeholderPathsAbsentAtWrap = await absentPaths(sandboxPlaceholderPaths(realRole));
+          await createMissingMountPoints(lockedClaudeMountPoints(realRole));
           return { file: launcher.file, args: [...launcher.args, ...envPrefix, ...enteringFolder(enterDir, file, args)] };
         },
         env: { ...plan.launchEnv },

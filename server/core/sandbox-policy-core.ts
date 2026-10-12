@@ -125,6 +125,7 @@ const SHARED_HOME_WRITE_ENTRIES: readonly string[] = Object.freeze(['.npm/_logs'
 const SANDBOX_PLACEHOLDER_NAMES: readonly string[] = Object.freeze([
   '.bash_profile', '.bashrc', '.claude', '.gitconfig', '.gitmodules', '.idea', '.mcp.json', '.profile', '.ripgreprc', '.vscode', '.zprofile', '.zshrc',
 ]);
+const RUNTIME_MANDATORY_CLAUDE_DENY_FOLDERS: readonly string[] = Object.freeze(['commands', 'agents']);
 const SANDBOXED_PROXY_BYPASS = 'localhost,::1,169.254.0.0/16,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16';
 const HOOK_LOOPBACK_HOST = '127.0.0.1';
 const AGENT_SESSION_ID_SHAPE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/;
@@ -225,6 +226,10 @@ function writeDeniesWhenPresent(role: SandboxRole, host: SandboxHostPaths): stri
 
 function lockedCheckoutWriteDenies(role: SandboxRole): string[] {
   return role.lockedCheckouts.flatMap((checkout) => [path.join(checkout, '.git'), path.join(checkout, '.claude')]);
+}
+
+function lockedClaudeMountPoints(role: SandboxRole): string[] {
+  return role.lockedCheckouts.flatMap((checkout) => RUNTIME_MANDATORY_CLAUDE_DENY_FOLDERS.map((folder) => path.join(checkout, '.claude', folder)));
 }
 
 function sandboxPlaceholderPaths(role: SandboxRole): string[] {
@@ -337,5 +342,5 @@ function buildSandboxLaunchPlan(role: SandboxRole, host: SandboxHost): SandboxLa
   };
 }
 
-export { buildSandboxLaunchPlan, CREDENTIAL_HOME_ENTRIES, SANDBOX_PLACEHOLDER_NAMES, sandboxPlaceholderPaths, sandboxPolicyProbePaths };
+export { buildSandboxLaunchPlan, CREDENTIAL_HOME_ENTRIES, lockedClaudeMountPoints, SANDBOX_PLACEHOLDER_NAMES, sandboxPlaceholderPaths, sandboxPolicyProbePaths };
 export type { SandboxHost, SandboxLaunchPlan, SandboxLaunchState, SandboxNetworkAccess, SandboxRole };
