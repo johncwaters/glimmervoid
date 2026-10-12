@@ -3,14 +3,18 @@ import { errorMessage } from '../shared/text.ts';
 import type { EventEmitter } from 'node:events';
 import type { Session } from '../session/sessions.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
+import { CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import { FactoryWorkerEvent } from '../shared/contracts/factory.ts';
 import type { FactoryProjectState } from '../shared/contracts/factory.ts';
+import { AgentTicketRequest } from '../shared/contracts/session.ts';
+import type { AgentTicketReply, TicketAgentVerb } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
+import { decideTicketAction } from './core/agent-api-core.ts';
 import { buildCoherenceSessionOverrides } from './core/coherence-session-core.ts';
 import {
-  FACTORY_ORCHESTRATOR_EXIT_WINDOW_MS, FACTORY_SANE_YOLO_UNAVAILABLE, buildOrchestratorPrompt, collapseWorkerEvents, decideOrchestrator, formatWorkerEvent,
+  FACTORY_LEDGER_SESSION, FACTORY_ORCHESTRATOR_EXIT_WINDOW_MS, FACTORY_SANE_YOLO_UNAVAILABLE, buildOrchestratorPrompt, collapseWorkerEvents, decideOrchestrator, formatWorkerEvent,
   findFactoryProjectPath, isTurnEndHookEvent, nextIntent,
 } from './core/factory-core.ts';
 import type { FactoryStallSession } from './core/factory-core.ts';
@@ -35,7 +39,54 @@ export const FACTORY_ORCHESTRATOR_DENY = Object.freeze([
   'Bash(npx:*)', 'Bash(node:*)', 'Bash(pnpm:*)', 'Bash(yarn:*)', 'Bash(bunx:*)', ...LANE_CONFIG_EDIT_DENY_RULES,
 ]);
 
-export type FactoryOrchestratorSession = Pick<Session, 'id' | 'name' | 'path' | 'agentId' | 'state' | 'stateSince'
+export interface FactoryTicketVerbDeps {
+  getOrchestrator: (sessionId: string) => { projectId: string; intentId: string } | null;
+  findProjectPath: (projectId: string) => string | null;
+  serializeProject: <T>(projectId: string, operation: () => Promise<T>) => Promise<T>;
+  ensureLedger: (projectId: string, projectPath: string) => Promise<{ cwd: string }>;
+  runCoherence: (request: { cwd: string; args: string[] }) => Promise<string>;
+  commitAndLand: (projectId: string, projectPath: string, message: string) => Promise<void>;
+  hasLiveWorker: (projectId: string, workId: string) => boolean;
+}
+
+const TICKET_VERB_REASONS: Readonly<Record<TicketAgentVerb, string>> = Object.freeze({
+  reopen: 'Factory orchestrator reopened this blocked ticket',
+  cancel: 'Factory orchestrator cancelled this ticket',
+});
+
+export function createFactoryTicketVerbs({
+  getOrchestrator, findProjectPath, serializeProject, ensureLedger, runCoherence, commitAndLand, hasLiveWorker,
+}: FactoryTicketVerbDeps): Record<TicketAgentVerb, (sessionId: string, request: AgentTicketRequest) => Promise<AgentTicketReply>> {
+  async function changeTicket(verb: TicketAgentVerb, sessionId: string, request: AgentTicketRequest): Promise<AgentTicketReply> {
+    const { workId } = AgentTicketRequest.parse(request);
+    const context = getOrchestrator(sessionId);
+    if (!context) return { ok: false, reason: `${verb} requires a live factory orchestrator` };
+    const { projectId, intentId } = context;
+    const projectPath = findProjectPath(projectId);
+    if (!projectPath) return { ok: false, reason: 'unknown factory project' };
+    return serializeProject(projectId, async (): Promise<AgentTicketReply> => {
+      if (getOrchestrator(sessionId)?.intentId !== intentId) return { ok: false, reason: 'factory orchestrator is no longer live' };
+      const ledger = await ensureLedger(projectId, projectPath);
+      const inspected = CoherenceWorkInspect.parse(JSON.parse(await runCoherence({ cwd: ledger.cwd, args: ['work', 'inspect', '--json'] }))).work;
+      const ticket = inspected.find((candidate) => candidate.work === workId);
+      const action = decideTicketAction({ verb, intentId, ticket: ticket ? { parent: ticket.opened.parent, state: ticket.state } : null });
+      if (!action.ok) return { ok: false, reason: action.reason };
+      if (hasLiveWorker(projectId, workId)) return { ok: false, reason: 'the ticket has a live worker' };
+      const reason = TICKET_VERB_REASONS[verb];
+      const change = action.kind === 'transition' ? ['transition', workId, action.to] : ['close', workId, action.outcome];
+      await runCoherence({ cwd: ledger.cwd, args: ['work', ...change, '--because', reason, '--session', FACTORY_LEDGER_SESSION, '--evidence', reason] });
+      await commitAndLand(projectId, projectPath, `factory: ${verb} ${workId}`);
+      return { ok: true, workId, state: action.kind === 'transition' ? action.to : action.outcome };
+    });
+  }
+
+  return {
+    reopen: (sessionId, request) => changeTicket('reopen', sessionId, request),
+    cancel: (sessionId, request) => changeTicket('cancel', sessionId, request),
+  };
+}
+
+export type FactoryOrchestratorSession =Pick<Session, 'id' | 'name' | 'path' | 'agentId' | 'state' | 'stateSince'
   | 'start' | 'destroy' | '_destroyed' | '_killReap' | 'hasLivePty' | 'pasteTextWhenReady' | 'write'> & Pick<EventEmitter, 'on'>;
 
 export interface FactoryOrchestratorDeps<ManagedSession extends FactoryOrchestratorSession = Session> {

@@ -5,6 +5,7 @@ import { FACTORY_ERROR_MAX_CHARS, FactoryControlRequest, FactoryLaneState, Facto
 import type { FactoryControlResult, FactoryQueueIntentResult, FactoryUnlandedRecord } from '../shared/contracts/factory.ts';
 import { comparableDirectoryPath } from '../shared/paths.ts';
 import type { Config } from '../shared/contracts/config.ts';
+import type { AgentTicketReply, AgentTicketRequest, TicketAgentVerb } from '../shared/contracts/session.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { buildCoherenceShims } from './core/coherence-session-core.ts';
@@ -23,7 +24,7 @@ import { buildFactoryDecisionEvent } from './core/telemetry-core.ts';
 import type { Telemetry } from './telemetry.ts';
 import { repositoryRootOfCommonGitDir } from './core/claude-trust-core.ts';
 import type { FolderTrustOutcome } from './claude-trust.ts';
-import { createFactoryOrchestrator } from './factory-orchestrator.ts';
+import { createFactoryOrchestrator, createFactoryTicketVerbs } from './factory-orchestrator.ts';
 import type { Session } from '../session/sessions.ts';
 import type { FactoryOrchestratorDeps, FactoryOrchestratorSession } from './factory-orchestrator.ts';
 import { createFactoryPoller } from './factory-poller.ts';
@@ -68,6 +69,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
   const coherenceCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence');
   const coherenceHookCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence-hook');
   let dispatcher: ReturnType<typeof createFactoryDispatch<ManagedSession>> | null = null;
+  let ticketVerbs: ReturnType<typeof createFactoryTicketVerbs> | null = null;
   let todaySpend: LaneSpend = { status: 'known', amountUsd: 0 };
   const decisionLog = createFactoryDecisionLog({
     homeDir, now: pollerDeps.now, log, redact: (text) => redactSecretLines(text, factorySecretValues(process.env)),
@@ -269,6 +271,14 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
     const projectPath = findFactoryProjectPath(config, projectId);
     if (!projectPath) throw new Error('Unknown factory project');
     return projectPath;
+  }
+
+  async function changeTicket(verb: TicketAgentVerb, sessionId: string, request: AgentTicketRequest): Promise<AgentTicketReply> {
+    const verbs = factoryShouldStart(config).start ? ticketVerbs : null;
+    if (!verbs) return { ok: false, reason: 'Factory is not running' };
+    const reply = await verbs[verb](sessionId, request);
+    await runner.getPoller()?.refreshNow();
+    return reply;
   }
 
   async function ensureLedgerCheckout(projectId: string, projectPath: string) {
@@ -604,6 +614,12 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         },
       }) : null;
       dispatcher = activeDispatcher;
+      ticketVerbs = activeDispatcher ? createFactoryTicketVerbs({
+        getOrchestrator: (sessionId) => activeOrchestrator?.getLiveOrchestrator(sessionId) ?? null,
+        findProjectPath: (projectId) => findFactoryProjectPath(config, projectId) ?? null,
+        serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, commitAndLand,
+        hasLiveWorker: (projectId, workId) => activeDispatcher.getLiveWorkers(projectId).some((worker) => worker.workId === workId),
+      }) : null;
       let activeStalls = new Map<string, ReturnType<typeof decideFactoryStalls>[number]>();
       const projectIdleSinceMs = new Map<string, number>();
       const stallClock = pollerDeps.now ?? orchestratorOptions?.now ?? Date.now;
@@ -697,7 +713,10 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         await stoppingOrchestrator;
         await stoppingWorkers;
         activeStalls = new Map();
-        if (dispatcher === activeDispatcher) dispatcher = null;
+        if (dispatcher === activeDispatcher) {
+          dispatcher = null;
+          ticketVerbs = null;
+        }
         if (orchestrator === activeOrchestrator) orchestrator = null;
         for (const projectId of [...checkouts.keys()]) {
           await removeCheckout(projectId).catch((error: unknown) => {
@@ -733,6 +752,8 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       await runner.getPoller()?.refreshNow();
       return outcome;
     },
+    reopen: (sessionId: string, request: AgentTicketRequest) => changeTicket('reopen', sessionId, request),
+    cancel: (sessionId: string, request: AgentTicketRequest) => changeTicket('cancel', sessionId, request),
     queueIntent,
     control,
     restartIfConfigChanged: () => {

@@ -18,7 +18,7 @@ import { createFactoryWiring } from '../server/factory-wiring.ts';
 import { cliPath as glimmervoidCliPath, resolvePackageBin } from '../server/runtime-paths.ts';
 import type { FactoryState } from '../shared/contracts/factory.ts';
 import { createRepositoryWithOrigin, gitRunnerIn, initGitRepository, stubEnvironmentVariable } from './helpers/factory-fixture.ts';
-import { FACTORY_STALL_MS } from '../server/core/factory-core.ts';
+import { FACTORY_STALL_MS, decideIntentClose } from '../server/core/factory-core.ts';
 import type { LaneSpend } from '../server/core/usage-scan-core.ts';
 import type { Session } from '../session/sessions.ts';
 import { STATES } from '../shared/states.ts';
@@ -1155,4 +1155,57 @@ test('a pending transient refusal is discarded when admission becomes permanentl
   fixture.advanceClock(10_000);
   await fixture.tick();
   assert.equal(fixture.pastedLines.some((line) => line.includes('can be dispatched now')), false);
+});
+
+test('a live orchestrator reopens a blocked child and cancels an open one as factory ledger writes, refusing every other case', async (context) => {
+  const fixture = await createStallFixture(context);
+  fixture.emitHook(0);
+  const session = fixture.spawned[0].session;
+  const workId = fixture.child.work;
+  const ledgerWrites = () => fixture.commands.filter((args) => args[0] === 'work' && (args[1] === 'transition' || args[1] === 'close'));
+  assert.deepEqual(await fixture.wiring.reopen('not-the-orchestrator', { workId }), { ok: false, reason: 'reopen requires a live factory orchestrator' });
+  fixture.child.state = 'open';
+  assert.deepEqual(await fixture.wiring.reopen(session.id, { workId }), { ok: false, reason: 'only a blocked ticket can be reopened, and this one is open' });
+  assert.deepEqual(await fixture.wiring.cancel(session.id, { workId: 'wrk-9999999999999999' }), { ok: false, reason: 'no such ticket' });
+  assert.deepEqual(await fixture.wiring.cancel(session.id, { workId: fixture.inspection.work[0].work }), { ok: false, reason: 'the ticket is not a child of the active intent' });
+  assert.deepEqual(ledgerWrites(), []);
+  fixture.child.state = 'blocked';
+  assert.deepEqual(await fixture.wiring.reopen(session.id, { workId }), { ok: true, workId, state: 'open' });
+  const reopened = ledgerWrites().at(-1) ?? [];
+  assert.deepEqual(reopened.slice(0, 4), ['work', 'transition', workId, 'open']);
+  assert.equal(reopened[reopened.indexOf('--session') + 1], 'glimmervoid-factory');
+  fixture.child.state = 'open';
+  assert.deepEqual(await fixture.wiring.cancel(session.id, { workId }), { ok: true, workId, state: 'cancelled' });
+  assert.deepEqual(ledgerWrites().at(-1)?.slice(0, 4), ['work', 'close', workId, 'cancelled']);
+  assert.equal(ledgerWrites().length, 2);
+});
+
+test('the orchestrator cannot cancel a ticket while its worker is live', async (context) => {
+  const fixture = await createStallFixture(context);
+  fixture.emitHook(0);
+  const session = fixture.spawned[0].session;
+  const workId = fixture.child.work;
+  assert.equal((await fixture.wiring.dispatch(session.id, { workId })).ok, true);
+  fixture.child.state = 'open';
+  assert.deepEqual(await fixture.wiring.cancel(session.id, { workId }), { ok: false, reason: 'the ticket has a live worker' });
+  assert.equal(fixture.commands.some((args) => args[0] === 'work' && args[1] === 'close'), false);
+  fixture.spawned[1].session.destroy();
+  await fixture.tick();
+  assert.deepEqual(await fixture.wiring.cancel(session.id, { workId }), { ok: true, workId, state: 'cancelled' });
+});
+
+test('a cancelled child settles its intent while an unverified completed or blocked child still holds it', () => {
+  type Order = FactoryState['projects'][number]['orders'][number];
+  const order = (id: string, state: Order['state'], parent: string | null): Order => ({
+    id, objective: id, openedAt: '2026-10-12T00:00:00.000Z', criteria: [], boundary: 'repo', risk: 'low', state, readiness: 'ready',
+    parent, dependsOn: [], writeScopes: [], owner: null, lastEvent: null,
+  });
+  const intent = order('intent', 'active', null);
+  const decide = (children: Order[], verified: string[]) => decideIntentClose({ intent, children, verifiedWorkIds: new Set(verified), orchestratorSaidReady: true });
+  const dropped = order('dropped', 'cancelled', 'intent');
+  const shipped = order('shipped', 'completed', 'intent');
+  assert.equal(decide([dropped], []), 'verify');
+  assert.equal(decide([dropped, shipped], ['shipped']), 'verify');
+  assert.equal(decide([dropped, shipped], []), 'wait');
+  assert.equal(decide([dropped, order('stuck', 'blocked', 'intent')], []), 'wait');
 });
