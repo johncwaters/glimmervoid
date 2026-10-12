@@ -13,7 +13,7 @@ import claudeCode from '../session/adapters/claude-code.ts';
 import type { LaneSpawn } from '../server/lane-spawn.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES } from '../server/core/lane-permissions-core.ts';
 import { absolutePathReadRule } from '../server/core/team-review-core.ts';
-import { TEAM_REVIEW_SESSION_DENY_RULES, teamReviewAcceptEditsPermissions, teamReviewSandbox } from '../server/team-review-wiring.ts';
+import { TEAM_REVIEW_SESSION_DENY_RULES, teamReviewAcceptEditsPermissions } from '../server/team-review-wiring.ts';
 import type { TeamReviewSpawn } from '../server/team-review-wiring.ts';
 import { BenchmarkRun, BenchmarkStatus } from '../shared/contracts/benchmark.ts';
 import type { BenchmarkStatus as BenchmarkStatusType } from '../shared/contracts/benchmark.ts';
@@ -436,7 +436,6 @@ test('the subject sandbox cannot read the suite answer key or reach GitHub', asy
   const sandbox = subjectRequests[0]?.settingsSandbox;
   for (const folder of ['cases', 'candidates', 'runs']) assert.ok(sandbox?.filesystem.denyRead.includes(path.join(root, 'ladder', folder)), folder);
   assert.deepEqual(sandbox?.excludedCommands, ['codex exec *']);
-  assert.equal(teamReviewSandbox('/review-work').excludedCommands, undefined);
   assert.ok(sandbox?.filesystem.denyRead.includes('~/.ssh'));
   assert.equal(sandbox?.network.allowedDomains.some((domain) => /github/i.test(domain)), false);
 });
@@ -448,9 +447,6 @@ test('a subject without a checkout hides the shared repo cache and re-allows no 
   const sandbox = subjectRequests[0]?.settingsSandbox;
   assert.ok(sandbox?.filesystem.denyRead.includes(repoCacheRootFor(root)));
   assert.deepEqual(sandbox?.filesystem.allowRead, []);
-  const reviewSandbox = teamReviewSandbox('/review-work');
-  assert.equal(reviewSandbox.filesystem.allowRead, undefined);
-  assert.equal(reviewSandbox.filesystem.denyRead.includes(repoCacheRootFor(root)), false);
 });
 
 test('the subject may run codex exec, write its dispatch prompt and read its answer while team review permissions allow nothing', async () => {

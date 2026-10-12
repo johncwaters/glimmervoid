@@ -32,6 +32,7 @@ import { createTeamReviewPoller } from './team-review-poller.ts';
 import { bootStaggerDelay } from './boot-stagger.ts';
 import type { DraftExpectation, DraftPatch, ReviewOutcome, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller } from './team-review-poller.ts';
 import { allowSandboxedSpawn } from './sandbox-deps.ts';
+import { judgeRole } from './core/sandbox-roles-core.ts';
 import { prepareSandboxLaunch } from './sandbox-launch.ts';
 import type { SandboxRole } from './core/sandbox-policy-core.ts';
 import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
@@ -56,19 +57,10 @@ const TEAM_REVIEW_DENY_RULES = Object.freeze([
   'WebSearch',
 ]);
 const TEAM_REVIEW_SESSION_DENY_RULES = Object.freeze([...TEAM_REVIEW_DENY_RULES, ...LANE_CONFIG_EDIT_DENY_RULES]);
-const TEAM_REVIEW_ALLOWED_DOMAINS = Object.freeze([
-  'api.github.com',
-  'chatgpt.com',
-  '*.chatgpt.com',
-  'auth.openai.com',
-  'api.openai.com',
-  '*.openai.com',
-]);
+const TEAM_REVIEW_EXTRA_DOMAINS = Object.freeze(['api.github.com']);
+const TEAM_REVIEW_SHELL_ALLOW_RULE = 'Bash';
 const SANDBOX_RUNTIME_UNSUPPORTED_PLATFORM = 'win32';
-const TEAM_REVIEW_DENY_READ_PATHS = Object.freeze(['~/.ssh', '~/.config/gh', '~/Library/Keychains', '~/.git-credentials']);
-const CODEX_HOME_PATH = '~/.codex';
-const CODEX_HOME_DENY_WRITE_PATHS = Object.freeze(['config.toml', 'AGENTS.md', 'skills', 'rules', 'prompts', 'hooks.json'].map((entry) => `${CODEX_HOME_PATH}/${entry}`));
-const LINKED_CHECKOUT_DENY_READ_ENTRIES = Object.freeze(['.env', '.env.*', '.claude']);
+const LINKED_CHECKOUT_UNREADABLE_ENTRY = /^(?:\.env(?:\..*)?|\.claude)$/;
 const RESULT_MAX_BYTES = 1024 * 1024;
 const EMPTY_GH_CONFIG_DIRNAME = 'gh-config';
 const PUSH_DISABLED_URL = 'https://push-disabled.invalid/';
@@ -83,7 +75,7 @@ interface TeamReviewWiringConfig extends TeamReviewSettingsSource {
   repoRoots?: string[];
 }
 
-type TeamReviewSandbox = {
+type LaneSettingsSandbox = {
   enabled: true;
   failIfUnavailable: true;
   allowUnsandboxedCommands: false;
@@ -95,7 +87,7 @@ type TeamReviewSandbox = {
 
 type DescribeSandboxRole = (facts: SessionSandboxFacts) => SandboxRole;
 type TeamReviewConfinement =
-  | { settingsSandbox: TeamReviewSandbox; sandboxRole?: undefined }
+  | { settingsSandbox: LaneSettingsSandbox; sandboxRole?: undefined }
   | { sandboxRole: DescribeSandboxRole; settingsSandbox?: undefined };
 
 interface TeamReviewRepoCache {
@@ -220,30 +212,35 @@ function teamReviewReadAllowRules({ checkoutPath, linkedCheckout }: { checkoutPa
   return readableDirectories.map(core.absolutePathReadRule);
 }
 
-function teamReviewSandbox(workDir: string, linkedCheckout: string | null = null): TeamReviewSandbox {
-  const linkedCheckoutDenyRead = linkedCheckout === null ? [] : LINKED_CHECKOUT_DENY_READ_ENTRIES.map((entry) => path.join(linkedCheckout, entry));
+interface TeamReviewRoleFacts {
+  checkoutPath: string;
+  cachedClone: string;
+  unreadablePaths: readonly string[];
+}
+
+function teamReviewRole(facts: SessionSandboxFacts, { checkoutPath, cachedClone, unreadablePaths }: TeamReviewRoleFacts): SandboxRole {
   return {
-    enabled: true,
-    failIfUnavailable: true,
-    allowUnsandboxedCommands: false,
-    enableWeakerNetworkIsolation: true,
-    network: {
-      strictAllowlist: true,
-      allowLocalBinding: true,
-      allowAllUnixSockets: true,
-      allowedDomains: [...TEAM_REVIEW_ALLOWED_DOMAINS],
-    },
-    filesystem: {
-      allowWrite: [CODEX_HOME_PATH, workDir],
-      denyWrite: [...CODEX_HOME_DENY_WRITE_PATHS],
-      denyRead: [...TEAM_REVIEW_DENY_READ_PATHS, ...linkedCheckoutDenyRead],
-    },
+    ...judgeRole({ vendor: 'claude', cwd: facts.cwd, hookPort: facts.hookPort, agentSessionId: facts.agentSessionId, readablePaths: [...facts.readablePaths, checkoutPath, cachedClone] }),
+    vendors: ['claude', 'codex'],
+    network: { access: 'allowlist', domains: [...TEAM_REVIEW_EXTRA_DOMAINS], hookPort: facts.hookPort },
+    readDenied: [...unreadablePaths],
   };
+}
+
+async function describeTeamReviewRole({ checkoutPath, cachedClone, linkedCheckout }: { checkoutPath: string; cachedClone: string; linkedCheckout: string | null }): Promise<DescribeSandboxRole> {
+  const unreadablePaths = await linkedCheckoutUnreadablePaths(linkedCheckout);
+  return (facts) => teamReviewRole(facts, { checkoutPath, cachedClone, unreadablePaths });
+}
+
+async function linkedCheckoutUnreadablePaths(linkedCheckout: string | null): Promise<string[]> {
+  if (linkedCheckout === null) return [];
+  const entryNames = await fs.readdir(linkedCheckout);
+  return entryNames.filter((entryName) => LINKED_CHECKOUT_UNREADABLE_ENTRY.test(entryName)).map((entryName) => path.join(linkedCheckout, entryName));
 }
 
 function teamReviewClaudeArgs(tier: ReviewTier, readable: { checkoutPath: string; linkedCheckout: string | null }): string[] {
   const model = tier === 'full' ? core.FULL_MODEL : core.STAMP_MODEL;
-  return ['-p', '--allowedTools', ...teamReviewReadAllowRules(readable), '--strict-mcp-config', '--disallowedTools', ...TEAM_REVIEW_SESSION_DENY_RULES, '--model', model];
+  return ['-p', '--allowedTools', TEAM_REVIEW_SHELL_ALLOW_RULE, ...teamReviewReadAllowRules(readable), '--strict-mcp-config', '--disallowedTools', ...TEAM_REVIEW_SESSION_DENY_RULES, '--model', model];
 }
 
 function emptyGhConfigDir(workDir: string): string {
@@ -505,8 +502,8 @@ function createTeamReviewDispatcher({
   }
 
   function spawnWithTimeout(
-    { candidate, detail, tier, reasons, reportProgress, resume, priorReview, timeoutMs, workDir, checkoutPath, linkedCheckout, reportPath, postingPath, commentable, onPending, onSessionId }: SpawnReviewArgs & {
-      timeoutMs: number; workDir: string; checkoutPath: string; linkedCheckout: string | null; reportPath: string; postingPath: string; commentable: CommentableLines | null;
+    { candidate, detail, tier, reasons, reportProgress, resume, priorReview, timeoutMs, workDir, checkoutPath, cachedClone, linkedCheckout, reportPath, postingPath, commentable, onPending, onSessionId }: SpawnReviewArgs & {
+      timeoutMs: number; workDir: string; checkoutPath: string; cachedClone: string; linkedCheckout: string | null; reportPath: string; postingPath: string; commentable: CommentableLines | null;
       onPending: (pending: Promise<unknown>) => void;
       onSessionId: (id: string) => void;
     },
@@ -519,14 +516,14 @@ function createTeamReviewDispatcher({
       onPending,
       onTimeout: () => failed(`review timed out after ${timeoutSeconds}s`),
       onEmpty: () => failed('review ended without a result'),
-      start: (signal) => spawnSession({
+      start: async (signal) => spawnSession({
         id: `${core.TEAM_REVIEW_LANE_ID}:${candidate.key}`,
         name: `Team review ${candidate.key}`,
         cwd: workDir,
         spawnEnv: hooksPathPinnedSpawnEnv(workDir),
         extraClaudeArgs: teamReviewClaudeArgs(tier, { checkoutPath, linkedCheckout }),
         settingsPermissions: teamReviewAcceptEditsPermissions(),
-        settingsSandbox: teamReviewSandbox(workDir, linkedCheckout),
+        sandboxRole: await describeTeamReviewRole({ checkoutPath, cachedClone, linkedCheckout }),
         signal: shutdownSignal ? AbortSignal.any([signal, shutdownSignal]) : signal,
         onSessionId,
         resumeSessionId: resume?.sessionId,
@@ -588,7 +585,7 @@ function createTeamReviewDispatcher({
             reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds: timeoutBudgetMs / 1000 });
             resources.awakeStopwatch = startAwakeStopwatch({ now });
             return spawnWithTimeout({
-              ...args, timeoutMs: timeoutBudgetMs, workDir: args.resume.workDir, checkoutPath: args.resume.worktreePath, linkedCheckout: await resumedLinkedCheckout(candidate.repo, args.resume.worktreePath),
+              ...args, timeoutMs: timeoutBudgetMs, workDir: args.resume.workDir, checkoutPath: args.resume.worktreePath, cachedClone: projectPath, linkedCheckout: await resumedLinkedCheckout(candidate.repo, args.resume.worktreePath),
               reportPath: path.join(args.resume.workDir, core.REVIEW_REPORT_FILENAME),
               postingPath: path.join(args.resume.workDir, core.REVIEW_POSTING_FILENAME),
               commentable: diff === null ? null : core.commentableLines(diff),
@@ -647,7 +644,7 @@ function createTeamReviewDispatcher({
       reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds });
       resources.awakeStopwatch = startAwakeStopwatch({ now });
       return await spawnWithTimeout({
-        ...args, resume: undefined, timeoutMs: timeoutBudgetMs, workDir, checkoutPath: worktreePath, linkedCheckout, reportPath, postingPath, commentable: diff === null ? null : core.commentableLines(diff),
+        ...args, resume: undefined, timeoutMs: timeoutBudgetMs, workDir, checkoutPath: worktreePath, cachedClone: staged.projectPath, linkedCheckout, reportPath, postingPath, commentable: diff === null ? null : core.commentableLines(diff),
         onPending: (pending) => { pendingSession = pending; },
         onSessionId: (id) => { sessionId = id; },
       });
@@ -1054,10 +1051,10 @@ type TeamReviewWiring = ReturnType<typeof createTeamReviewWiring>;
 export {
   TEAM_REVIEW_DENY_RULES, TEAM_REVIEW_SESSION_DENY_RULES,
   createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewStateIo, createTeamReviewWiring, makeTeamReviewWorkDir,
-  emptyGhConfigDir, emptyTeamReviewStatus, hooksPathPinnedSpawnEnv, readReviewReport, sweepLeftoverCheckouts, teamReviewAcceptEditsPermissions, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
+  emptyGhConfigDir, emptyTeamReviewStatus, hooksPathPinnedSpawnEnv, readReviewReport, sweepLeftoverCheckouts, teamReviewAcceptEditsPermissions, teamReviewCfgKey, describeTeamReviewRole, teamReviewClaudeArgs, teamReviewRole, teamReviewShouldStart, teamReviewSpawnEnv,
 };
 export { readTeamReviewSettings } from './core/team-review-core.ts';
 export type {
-  TeamReviewActionGithub, TeamReviewActionOptions, TeamReviewActionOutcome, TeamReviewDispatchOptions, TeamReviewDraftStore, TeamReviewGitWorkspace, TeamReviewRepoCache, TeamReviewSandbox, TeamReviewSpawn, TeamReviewWiring,
+  TeamReviewActionGithub, TeamReviewActionOptions, TeamReviewActionOutcome, TeamReviewDispatchOptions, TeamReviewDraftStore, TeamReviewGitWorkspace, LaneSettingsSandbox, TeamReviewRepoCache, TeamReviewSpawn, TeamReviewWiring,
   TeamReviewWiringConfig, TeamReviewWiringOptions, TeamReviewWorkDir,
 };

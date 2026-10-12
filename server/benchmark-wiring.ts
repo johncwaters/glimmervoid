@@ -13,8 +13,8 @@ import type { LaneSpawn } from './lane-spawn.ts';
 import type { PrGh } from './pr-gh.ts';
 import { allowSandboxedSpawn } from './sandbox-deps.ts';
 import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
-import { TEAM_REVIEW_SESSION_DENY_RULES, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions, teamReviewSandbox } from './team-review-wiring.ts';
-import type { TeamReviewRepoCache, TeamReviewSpawn } from './team-review-wiring.ts';
+import { TEAM_REVIEW_SESSION_DENY_RULES, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions } from './team-review-wiring.ts';
+import type { LaneSettingsSandbox, TeamReviewRepoCache, TeamReviewSpawn } from './team-review-wiring.ts';
 import {
   BenchmarkCase, BenchmarkId, BenchmarkRun, BenchmarkStatus, BenchmarkSuite, PrCheckoutCaseInput,
 } from '../shared/contracts/benchmark.ts';
@@ -38,6 +38,10 @@ const PERSISTED_LINE_MAX_CHARS = 400;
 const REDACTED_SECRET = '[redacted]';
 const SUBJECT_UNREADABLE_SUITE_FOLDERS = Object.freeze(['cases', 'candidates', 'runs']);
 const SUBJECT_UNSANDBOXED_COMMANDS = Object.freeze(['codex exec *']);
+const SUBJECT_ALLOWED_DOMAINS = Object.freeze(['chatgpt.com', '*.chatgpt.com', 'auth.openai.com', 'api.openai.com', '*.openai.com']);
+const SUBJECT_DENY_READ_PATHS = Object.freeze(['~/.ssh', '~/.config/gh', '~/Library/Keychains', '~/.git-credentials']);
+const CODEX_HOME_PATH = '~/.codex';
+const CODEX_HOME_DENY_WRITE_PATHS = Object.freeze(['config.toml', 'AGENTS.md', 'skills', 'rules', 'prompts', 'hooks.json'].map((entry) => `${CODEX_HOME_PATH}/${entry}`));
 const CODEX_DISPATCH_FILE_ALLOW_RULES = Object.freeze(['Edit(//tmp/codex-dispatch-*.txt)', 'Read(//tmp/codex-dispatch-*.out)']);
 
 type ArmCommandRunner = (command: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number; signal: AbortSignal }) => Promise<{ ok: boolean; stdout: string; stderr: string }>;
@@ -149,15 +153,18 @@ function benchmarkSubjectClaudeArgs(armExtraArgs: readonly string[], checkoutPat
   return ['-p', ...armExtraArgs, '--disallowedTools', ...TEAM_REVIEW_SESSION_DENY_RULES, ...readAllowArgs, '--strict-mcp-config'];
 }
 
-function benchmarkSubjectSandbox(workDir: string, suiteDirectory: string, repoCacheRoot: string, sharedObjectsPath: string | null) {
-  const sandbox = teamReviewSandbox(workDir);
+function benchmarkSubjectSandbox(workDir: string, suiteDirectory: string, repoCacheRoot: string, sharedObjectsPath: string | null): LaneSettingsSandbox {
   return {
-    ...sandbox,
+    enabled: true,
+    failIfUnavailable: true,
+    allowUnsandboxedCommands: false,
+    enableWeakerNetworkIsolation: true,
     excludedCommands: [...SUBJECT_UNSANDBOXED_COMMANDS],
-    network: { ...sandbox.network, allowedDomains: sandbox.network.allowedDomains.filter((domain) => !/github/i.test(domain)) },
+    network: { strictAllowlist: true, allowLocalBinding: true, allowAllUnixSockets: true, allowedDomains: [...SUBJECT_ALLOWED_DOMAINS] },
     filesystem: {
-      ...sandbox.filesystem,
-      denyRead: [...sandbox.filesystem.denyRead, ...subjectUnreadableFolders(suiteDirectory), repoCacheRoot],
+      allowWrite: [CODEX_HOME_PATH, workDir],
+      denyWrite: [...CODEX_HOME_DENY_WRITE_PATHS],
+      denyRead: [...SUBJECT_DENY_READ_PATHS, ...subjectUnreadableFolders(suiteDirectory), repoCacheRoot],
       allowRead: sharedObjectsPath === null ? [] : [sharedObjectsPath],
     },
   };

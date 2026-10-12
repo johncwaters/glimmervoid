@@ -11,14 +11,14 @@ import type { SandboxRole } from '../server/core/sandbox-policy-core.ts';
 import type { SessionSandboxFacts } from '../session/sessions.ts';
 
 type ContractRoleName = 'check' | 'judge' | 'worker';
-type RoleName = ContractRoleName | 'judge-lane' | 'review' | 'resize' | 'keep-mergeable';
+type RoleName = ContractRoleName | 'judge-lane' | 'review' | 'resize' | 'keep-mergeable' | 'team-review';
 type Expectation = 'succeeds' | 'fails';
 type ProbeRow = { role: RoleName; check: string; status: 'PASS' | 'FAIL' | 'SKIPPED'; reason?: string };
 type ToolAttempt = { type: string; name: string; input: Record<string, string> };
 type StreamEvent = { type: string; message?: { content?: ToolAttempt[] } };
 
 const CONTRACT_ROLE_NAMES: readonly ContractRoleName[] = ['check', 'judge', 'worker'];
-const ROLE_NAMES: readonly RoleName[] = [...CONTRACT_ROLE_NAMES, 'judge-lane', 'review', 'resize', 'keep-mergeable'];
+const ROLE_NAMES: readonly RoleName[] = [...CONTRACT_ROLE_NAMES, 'judge-lane', 'review', 'resize', 'keep-mergeable', 'team-review'];
 const GUARD_HOOK_BLOCK_TEXT = 'Sane YOLO blocks';
 const HOME_SECRET_TEXT = 'role-probe-home-secret';
 const REVIEW_MARKER_TEXT = 'role-probe-review-marker';
@@ -60,7 +60,7 @@ const { resolveRequiredSaneYoloHookTools } = await import('../server/hook-tools.
 const { createLaneSpawn } = await import('../server/lane-spawn.ts');
 const { MY_PRS_FIX_CHECKOUT_DIRNAME } = await import('../server/core/my-prs-core.ts');
 const { createSandboxedPrStaging, keepMergeableRole } = await import('../server/my-prs-wiring.ts');
-const { createTeamReviewSpawn } = await import('../server/team-review-wiring.ts');
+const { createTeamReviewSpawn, describeTeamReviewRole, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions, teamReviewClaudeArgs } = await import('../server/team-review-wiring.ts');
 const { prepareSandboxLaunch } = await import('../server/sandbox-launch.ts');
 const { Session } = await import('../session/sessions.ts');
 
@@ -82,6 +82,12 @@ const EXPECTATIONS: Readonly<Record<ContractRoleName, Readonly<Record<string, Ex
 const KEEP_MERGEABLE_EXPECTATIONS: Readonly<Record<string, Expectation>> = {
   commit: 'succeeds', hooks_write: 'fails', git_config_write: 'fails', cached_clone_write: 'fails', home_read: 'fails', outside_write: 'fails', web: 'succeeds',
 };
+
+const TEAM_REVIEW_EXPECTATIONS: Readonly<Record<string, Expectation>> = {
+  report_write: 'succeeds', checkout_read: 'succeeds', checkout_write: 'fails', linked_env_read: 'fails', linked_modules_read: 'succeeds', home_read: 'fails',
+  outside_write: 'fails', codex_home_write: 'fails', web: 'fails', github_api: 'succeeds', nested_codex: 'succeeds',
+};
+const LINKED_ENV_SECRET_TEXT = 'role-probe-linked-env-secret';
 
 const probeRows: ProbeRow[] = [];
 const hookRequests: string[] = [];
@@ -309,6 +315,96 @@ async function probeFactoryReview(roleRoot: string): Promise<void> {
   });
 }
 
+async function writeCheckScript(scriptFile: string, resultsFile: string, checkCommands: Readonly<Record<string, string>>): Promise<void> {
+  const scriptLines = Object.entries(checkCommands).map(([check, command]) => `${command} >/dev/null 2>&1; echo "${check}=$?" >> ${shellQuoted(resultsFile)}`);
+  await writeFile(scriptFile, `${scriptLines.join('\n')}\n`);
+}
+
+async function recordCheckResults(roleName: RoleName, resultsFile: string, expectations: Readonly<Record<string, Expectation>>): Promise<void> {
+  const resultLines = (await readFile(resultsFile, 'utf8').catch(() => '')).split('\n').filter(Boolean);
+  const exitCodeByCheck = new Map(resultLines.map((line) => { const [check, exitCode] = line.split('='); return [check, Number(exitCode)] as const; }));
+  for (const [check, expectation] of Object.entries(expectations)) {
+    await record(roleName, `${check} ${expectation}`, async () => {
+      const exitCode = exitCodeByCheck.get(check);
+      assert.ok(exitCode !== undefined, 'the check did not run');
+      assert.equal(exitCode === 0 ? 'succeeds' : 'fails', expectation, `exit code ${exitCode}`);
+    });
+  }
+}
+
+async function probeTeamReview(roleRoot: string): Promise<void> {
+  const roleName = 'team-review';
+  if (agentId === 'codex') {
+    probeRows.push({ role: roleName, check: 'team review run', status: 'SKIPPED', reason: 'team review always runs on Claude Code and starts Codex itself' });
+    return;
+  }
+  const cachedClone = path.join(probeHome, 'team-review-repos', 'probe', 'review-app');
+  const checkoutPath = path.join(probeHome, 'team-review-worktrees', 'probe');
+  const workDir = path.join(probeHome, 'team-review-work', 'probe');
+  const linkedCheckout = path.join(roleRoot, 'linked');
+  await mkdir(cachedClone, { recursive: true });
+  await mkdir(path.dirname(checkoutPath), { recursive: true });
+  await mkdir(workDir, { recursive: true });
+  await mkdir(path.join(linkedCheckout, 'node_modules'), { recursive: true });
+  await writeFile(path.join(linkedCheckout, '.env'), `${LINKED_ENV_SECRET_TEXT}\n`);
+  await writeFile(path.join(linkedCheckout, 'node_modules', 'marker.txt'), 'marker\n');
+  const runGit = (gitArguments: string[], cwd: string) => runHardenedGit(gitArguments, { cwd, timeout: 30_000 });
+  await runGit(['init', '-b', 'main'], cachedClone);
+  await writeFile(path.join(cachedClone, 'initial.txt'), 'initial\n');
+  await runGit(['add', 'initial.txt'], cachedClone);
+  await runGit(['-c', 'user.name=Role probe', '-c', 'user.email=role-probe@example.test', '-c', 'commit.gpgsign=false', 'commit', '-m', 'initial'], cachedClone);
+  const headSha = (await runGit(['rev-parse', 'HEAD'], cachedClone)).stdout.trim();
+  const staged = await createGitWorkspace().stageDetachedWorktree({ projectPath: cachedClone, worktreePath: checkoutPath, sha: headSha });
+  assert.ok(staged.ok, staged.err ?? 'the worktree was not staged');
+  const outsideFile = path.join(roleRoot, 'outside-team-review.txt');
+  const checkoutFile = path.join(checkoutPath, 'owned.txt');
+  const codexHomeFile = path.join(os.homedir(), '.codex', `role-probe-team-review-${process.pid}`);
+  const resultsFile = path.join(workDir, 'results.txt');
+  await writeCheckScript(path.join(workDir, 'probe.sh'), resultsFile, {
+    report_write: `printf report > ${shellQuoted(path.join(workDir, 'report.txt'))}`,
+    checkout_read: `git -C ${shellQuoted(checkoutPath)} log -1 --format=%s`,
+    checkout_write: `printf owned > ${shellQuoted(checkoutFile)}`,
+    linked_env_read: `cat ${shellQuoted(path.join(linkedCheckout, '.env'))}`,
+    linked_modules_read: `cat ${shellQuoted(path.join(linkedCheckout, 'node_modules', 'marker.txt'))}`,
+    home_read: `cat ${shellQuoted(homeSecretFile)}`,
+    outside_write: `printf outside > ${shellQuoted(outsideFile)}`,
+    codex_home_write: `mkdir -p ${shellQuoted(codexHomeFile)}`,
+    web: 'curl -sf -m 10 -o /dev/null https://example.com',
+    github_api: 'curl -sf -m 10 -o /dev/null https://api.github.com/zen',
+    nested_codex: `codex exec -s read-only --skip-git-repo-check 'Reply with the single word ok.' </dev/null`,
+  });
+  const sessionId = 'probe-team-review';
+  const spawnReview = createTeamReviewSpawn({
+    reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: { register: () => {}, unregister: () => {} }, getHookPort: () => hookPort,
+    spawnGate: { run: async (task) => task() },
+  });
+  try {
+    await record(roleName, 'team review run', async () => {
+      await spawnReview({
+        id: sessionId, name: sessionId, cwd: workDir, spawnEnv: hooksPathPinnedSpawnEnv(workDir),
+        extraClaudeArgs: teamReviewClaudeArgs('stamp', { checkoutPath, linkedCheckout }), settingsPermissions: teamReviewAcceptEditsPermissions(),
+        sandboxRole: await describeTeamReviewRole({ checkoutPath, cachedClone, linkedCheckout }), signal: AbortSignal.timeout(AGENT_RUN_TIMEOUT_MS),
+        initialPrompt: 'This is a sandbox contract probe. Run exactly this shell command once and do not work around a denial or retry: sh probe.sh. Then reply with the single word done.',
+      });
+    });
+    await recordCheckResults(roleName, resultsFile, TEAM_REVIEW_EXPECTATIONS);
+    await record(roleName, 'host state untouched', async () => {
+      await assert.rejects(readFile(checkoutFile), { code: 'ENOENT' });
+      await assert.rejects(readFile(outsideFile), { code: 'ENOENT' });
+      assert.equal(existsSync(codexHomeFile), false, 'the shared Codex home was written');
+    });
+    await record(roleName, 'Stop hook reached the host listener', async () => {
+      assert.ok(hookRequests.some((requestUrl) => requestUrl.startsWith(`/hook/${sessionId}/stop?`)), `hook requests seen: ${hookRequests.join(' ')}`);
+    });
+    await record(roleName, 'the transcript landed in the session\'s own folder', () => expectOwnTranscript(workDir));
+    await record(roleName, 'policy, temp, home and placeholder files removed', async () => {
+      assert.deepEqual(await leftoverLaunchFiles(workDir), []);
+    });
+  } finally {
+    await rm(codexHomeFile, { recursive: true, force: true });
+  }
+}
+
 async function probeKeepMergeable(roleRoot: string): Promise<void> {
   const roleName = 'keep-mergeable';
   if (agentId === 'codex') {
@@ -344,8 +440,7 @@ async function probeKeepMergeable(roleRoot: string): Promise<void> {
     outside_write: `printf outside > ${shellQuoted(outsideFile)}`,
     web: 'curl -sf -m 10 -o /dev/null https://example.com',
   };
-  const scriptLines = Object.entries(checkCommands).map(([check, command]) => `${command} >/dev/null 2>&1; echo "${check}=$?" >> ${shellQuoted(resultsFile)}`);
-  await writeFile(path.join(workDir, 'probe.sh'), `${scriptLines.join('\n')}\n`);
+  await writeCheckScript(path.join(workDir, 'probe.sh'), resultsFile, checkCommands);
   const sessionIdPrefix = 'probe-keep-mergeable';
   const refuseRepoCacheUse = () => Promise.reject(new Error('the probe stages its own checkout'));
   const { runSession } = createSandboxedPrStaging({
@@ -364,15 +459,7 @@ async function probeKeepMergeable(roleRoot: string): Promise<void> {
     });
     assert.equal(outcome, 'finished');
   });
-  const resultLines = (await readFile(resultsFile, 'utf8').catch(() => '')).split('\n').filter(Boolean);
-  const exitCodeByCheck = new Map(resultLines.map((line) => { const [check, exitCode] = line.split('='); return [check, Number(exitCode)] as const; }));
-  for (const [check, expectation] of Object.entries(KEEP_MERGEABLE_EXPECTATIONS)) {
-    await record(roleName, `${check} ${expectation}`, async () => {
-      const exitCode = exitCodeByCheck.get(check);
-      assert.ok(exitCode !== undefined, 'the check did not run');
-      assert.equal(exitCode === 0 ? 'succeeds' : 'fails', expectation, `exit code ${exitCode}`);
-    });
-  }
+  await recordCheckResults(roleName, resultsFile, KEEP_MERGEABLE_EXPECTATIONS);
   await record(roleName, 'the repair is committed in the checkout and the host is otherwise untouched', async () => {
     assert.notEqual((await runGit(['rev-parse', 'HEAD'], checkout)).stdout.trim(), initialSha);
     assert.equal(await readFile(checkoutConfigFile, 'utf8'), checkoutConfigText);
@@ -474,6 +561,10 @@ try {
     }
     if (roleName === 'keep-mergeable') {
       await probeKeepMergeable(roleRoot);
+      continue;
+    }
+    if (roleName === 'team-review') {
+      await probeTeamReview(roleRoot);
       continue;
     }
     const repository = path.join(roleRoot, 'repo');

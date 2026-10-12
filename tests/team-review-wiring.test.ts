@@ -17,7 +17,7 @@ import type { DraftPatch, SpawnReviewArgs } from '../server/team-review-poller.t
 import type { PostedReview } from '../server/pr-gh.ts';
 import {
   TEAM_REVIEW_SESSION_DENY_RULES, createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewWiring, emptyTeamReviewStatus,
-  createTeamReviewStateIo, makeTeamReviewWorkDir, readTeamReviewSettings, sweepLeftoverCheckouts, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
+  createTeamReviewStateIo, makeTeamReviewWorkDir, readTeamReviewSettings, sweepLeftoverCheckouts, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewRole, teamReviewShouldStart, teamReviewSpawnEnv,
   hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions,
 } from '../server/team-review-wiring.ts';
 import type { TeamReviewActionGithub, TeamReviewDispatchOptions, TeamReviewSpawn } from '../server/team-review-wiring.ts';
@@ -42,6 +42,13 @@ const detail = PrDetail.parse({
 const DIFF = 'diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,2 +1,3 @@\n one\n+two\n three\n';
 
 type SpawnCall = Parameters<TeamReviewSpawn>[0] & { workDir: string; workDirFiles: string[]; prompt: string };
+const CACHED_CLONE = '/cache/Acme/app';
+const ROLE_FACTS = { launchId: 'launch-one', cwd: '/review/work', hookPort: 3911, readablePaths: ['/hook/settings'], agentSessionId: null };
+const describeProbeRole = () => teamReviewRole(ROLE_FACTS, { checkoutPath: '/tmp/checkout', cachedClone: CACHED_CLONE, unreadablePaths: [] });
+
+function roleOf(spawn: Pick<SpawnCall, 'sandboxRole'> | undefined) {
+  return spawn?.sandboxRole?.(ROLE_FACTS);
+}
 
 function reportText(head = HEAD) {
   return [
@@ -80,7 +87,7 @@ function setup(overrides: Partial<TeamReviewDispatchOptions> & {
     github: { prDiff: async () => (overrides.diff === undefined ? DIFF : overrides.diff) },
     repoCache: {
       listRepos: async () => [],
-      ensureRepo: async () => '/cache/Acme/app',
+      ensureRepo: async () => CACHED_CLONE,
       fetchPr: async () => ({ ok: !overrides.fetchedErr, headSha: overrides.fetchedErr ? null : (overrides.fetchedHead ?? HEAD), err: overrides.fetchedErr ?? '' }),
       hydrateTree: async (repo, headSha) => {
         checkoutEvents.push(`hydrate:${repo}@${headSha}`);
@@ -156,6 +163,7 @@ test('local checkout sharing prefers configured projects with matching origins a
   const populated: { projectPath: string; wtDir: string; shareList: string[] }[] = [];
   for (const directory of [wrong, missingModules, preferred, rootClone]) fs.mkdirSync(directory);
   for (const directory of [wrong, preferred, rootClone]) fs.mkdirSync(path.join(directory, 'node_modules'));
+  for (const entryName of ['.env', '.env.local', '.claude', '.environment']) fs.mkdirSync(path.join(preferred, entryName));
   const { review, spawns, cleanup } = setup({
     readLocalCheckoutConfig: () => ({ projects: [{ path: wrong }, { path: missingModules }, { path: preferred }], repoRoots: [root] }),
     gitWorkspace: checkoutSharingWorkspace({
@@ -167,7 +175,7 @@ test('local checkout sharing prefers configured projects with matching origins a
     assert.equal((await review(reviewArgs('full'))).status, 'ready');
     assert.deepEqual(populated, [{ projectPath: fs.realpathSync(preferred), wtDir: populated[0]?.wtDir, shareList: ['node_modules'], keepTrackableLinks: true }]);
     assert.match(spawns[0]?.prompt ?? '', /node_modules in the checkout is a read-only link/);
-    assert.deepEqual(spawns[0]?.settingsSandbox, teamReviewSandbox(spawns[0]?.workDir ?? '', fs.realpathSync(preferred)));
+    assert.deepEqual([...roleOf(spawns[0])?.readDenied ?? []].sort(), ['.claude', '.env', '.env.local'].map((secretEntry) => path.join(fs.realpathSync(preferred), secretEntry)));
   } finally {
     cleanup();
     fs.rmSync(root, { recursive: true, force: true });
@@ -196,7 +204,7 @@ test('a pull request that commits its own node_modules link is reviewed without 
   try {
     assert.equal((await review(reviewArgs('full'))).status, 'ready');
     assert.match(spawns[0]?.prompt ?? '', /No dependencies are installed/);
-    assert.deepEqual(spawns[0]?.settingsSandbox, teamReviewSandbox(spawns[0]?.workDir ?? ''));
+    assert.deepEqual(roleOf(spawns[0])?.readDenied, []);
     assert.match(warnings.join('\n'), /node_modules could not be linked/);
   } finally {
     cleanup();
@@ -497,9 +505,9 @@ test('resume uses the saved cwd and session with the remaining timeout without s
     assert.equal(spawns[0]?.initialPrompt, REVIEW_RESUME_PROMPT);
     assert.equal(spawns[0]?.cwd, workDir);
     assert.deepEqual(spawns[0]?.spawnEnv, hooksPathPinnedSpawnEnv(workDir));
-    assert.deepEqual(spawns[0]?.extraClaudeArgs.slice(0, 3), ['-p', '--allowedTools', `Read(/${worktreePath}/**)`]);
+    assert.deepEqual(spawns[0]?.extraClaudeArgs.slice(0, 4), ['-p', '--allowedTools', 'Bash', `Read(/${worktreePath}/**)`]);
     assert.equal(spawns[0]?.workDirFiles.includes('tmp'), false);
-    assert.deepEqual(spawns[0]?.settingsSandbox, teamReviewSandbox(workDir));
+    assert.deepEqual(roleOf(spawns[0]), teamReviewRole(ROLE_FACTS, { checkoutPath: worktreePath, cachedClone: CACHED_CLONE, unreadablePaths: [] }));
     assert.deepEqual(timeouts, [78000]);
   } finally {
     cleanup();
@@ -534,6 +542,7 @@ test('resume with a saved awake budget uses that budget even when the wall-clock
 test('a resumed review whose checkout links a local clone still denies reads of that clone', async () => {
   const localClone = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-resume-clone-')));
   fs.mkdirSync(path.join(localClone, 'node_modules'));
+  fs.writeFileSync(path.join(localClone, '.env'), '');
   const { dispatch, spawns, workRoot, worktreeRoot, cleanup } = setup({
     now: () => 3000, readLocalCheckoutConfig: () => ({ projects: [{ path: localClone }] }), gitWorkspace: checkoutSharingWorkspace(),
   });
@@ -545,9 +554,10 @@ test('a resumed review whose checkout links a local clone still denies reads of 
   try {
     const outcome = await dispatch({ ...reviewArgs('full'), resume });
     if ('kind' in outcome) throw new Error('expected a draft');
-    assert.deepEqual(spawns[0]?.settingsSandbox, teamReviewSandbox(workDir, localClone));
+    assert.deepEqual(roleOf(spawns[0])?.readDenied, [path.join(localClone, '.env')]);
     const args = spawns[0]?.extraClaudeArgs ?? [];
     assert.deepEqual(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--strict-mcp-config')), [
+      'Bash',
       `Read(/${worktreePath}/**)`, `Read(/${path.join(localClone, 'node_modules')}/**)`,
     ]);
   } finally {
@@ -572,7 +582,7 @@ test('a resumed review whose checkout links a directory other than the discovere
   try {
     const outcome = await dispatch({ ...reviewArgs('full'), resume });
     if ('kind' in outcome) throw new Error('expected a draft');
-    assert.deepEqual(spawns[0]?.settingsSandbox, teamReviewSandbox(workDir));
+    assert.deepEqual(roleOf(spawns[0])?.readDenied, []);
   } finally {
     cleanup();
     fs.rmSync(localClone, { recursive: true, force: true });
@@ -735,7 +745,8 @@ test('every tier runs the review from a throwaway work dir, and no argv entry na
       assert.deepEqual(spawns[0].workDirFiles, ['gh-config', REVIEW_PROMPT_FILENAME]);
       assert.deepEqual(spawns[0].spawnEnv, hooksPathPinnedSpawnEnv(spawns[0].workDir));
       assert.deepEqual(spawns[0].settingsPermissions, teamReviewAcceptEditsPermissions());
-      assert.deepEqual(spawns[0].settingsSandbox, teamReviewSandbox(spawns[0].workDir));
+      assert.deepEqual(roleOf(spawns[0])?.writableRoots, [ROLE_FACTS.cwd]);
+      assert.equal(spawns[0].settingsSandbox, undefined);
       assert.match(spawns[0].prompt, /whatever review skills or tools you have available/);
       assert.ok(spawns[0].prompt.includes(`git -C ${expectedWorktree}`));
       assert.ok(spawns[0].prompt.includes(path.join(spawns[0].workDir, REVIEW_REPORT_FILENAME)));
@@ -1104,34 +1115,11 @@ test('a report whose head is not the provided head is an error draft', async () 
   }
 });
 
-test('the sandbox fails closed, binds a strict egress allowlist, and keeps credential paths unreadable', () => {
-  const sandbox = teamReviewSandbox('/work/dir');
-  assert.equal(sandbox.enabled, true);
-  assert.equal(sandbox.failIfUnavailable, true, 'no bubblewrap means an error draft, never an unsandboxed run');
-  assert.equal(sandbox.allowUnsandboxedCommands, false);
-  assert.equal(sandbox.enableWeakerNetworkIsolation, true, 'macOS TLS verification needs trustd');
-  assert.equal(sandbox.network.strictAllowlist, true, 'without it the domain list is advisory');
-  assert.equal(sandbox.network.allowLocalBinding, true);
-  assert.equal(sandbox.network.allowAllUnixSockets, true);
-  assert.deepEqual(sandbox.network.allowedDomains, ['api.github.com', 'chatgpt.com', '*.chatgpt.com', 'auth.openai.com', 'api.openai.com', '*.openai.com']);
-  assert.deepEqual(sandbox.filesystem.allowWrite, ['~/.codex', '/work/dir']);
-  assert.deepEqual(sandbox.filesystem.denyWrite, ['~/.codex/config.toml', '~/.codex/AGENTS.md', '~/.codex/skills', '~/.codex/rules', '~/.codex/prompts', '~/.codex/hooks.json']);
-  assert.deepEqual(sandbox.filesystem.denyRead, ['~/.ssh', '~/.config/gh', '~/Library/Keychains', '~/.git-credentials']);
-  assert.deepEqual(Object.keys(sandbox).sort(), ['allowUnsandboxedCommands', 'enableWeakerNetworkIsolation', 'enabled', 'failIfUnavailable', 'filesystem', 'network']);
-  assert.deepEqual(Object.keys(sandbox.network).sort(), ['allowAllUnixSockets', 'allowLocalBinding', 'allowedDomains', 'strictAllowlist']);
-  assert.deepEqual(Object.keys(sandbox.filesystem).sort(), ['allowWrite', 'denyRead', 'denyWrite']);
-  assert.notEqual(teamReviewSandbox('/a').network.allowedDomains, teamReviewSandbox('/b').network.allowedDomains, 'each call hands out fresh arrays');
-  assert.notEqual(teamReviewSandbox('/a').filesystem.denyWrite, teamReviewSandbox('/b').filesystem.denyWrite, 'each call hands out fresh arrays');
-});
-
-test('a review that linked a local clone also denies reads of that clone env files and Claude settings', () => {
-  const localClone = path.join(path.sep, 'repos', 'app');
-  const sandbox = teamReviewSandbox('/work/dir', localClone);
-  assert.deepEqual(sandbox.filesystem.denyRead, [
-    '~/.ssh', '~/.config/gh', '~/Library/Keychains', '~/.git-credentials',
-    path.join(localClone, '.env'), path.join(localClone, '.env.*'), path.join(localClone, '.claude'),
-  ]);
-  assert.deepEqual(sandbox.filesystem.allowWrite, ['~/.codex', '/work/dir']);
+test('the review role writes only its work folder, reads its checkout and cached clone, and reaches only its agent APIs, the GitHub API and its session port', () => {
+  assert.deepEqual(teamReviewRole(ROLE_FACTS, { checkoutPath: '/trees/app', cachedClone: CACHED_CLONE, unreadablePaths: ['/repos/app/.env'] }), {
+    vendors: ['claude', 'codex'], vendorHome: { scope: 'launch', cwd: ROLE_FACTS.cwd, agentSessionId: null }, network: { access: 'allowlist', domains: ['api.github.com'], hookPort: 3911 },
+    writableRoots: [ROLE_FACTS.cwd], lockedCheckouts: [], commitCheckouts: [], readDenied: ['/repos/app/.env'], readableWithinDenied: ['/hook/settings', '/trees/app', CACHED_CLONE],
+  });
 });
 
 test('the posture accepts edits only inside the work dir, denies every GitHub path and config edit, loads no MCP server, and pins the model last', () => {
@@ -1146,9 +1134,9 @@ test('the posture accepts edits only inside the work dir, denies every GitHub pa
   for (const bareTool of ['Bash', 'Read', 'Write', 'Glob', 'Grep']) assert.equal(posture.deny.includes(bareTool), false, bareTool);
   for (const tier of ['stamp', 'full'] as const) {
     const args = teamReviewClaudeArgs(tier, { checkoutPath: '/reviews/checkout', linkedCheckout: null });
-    assert.deepEqual(args.slice(0, 4), ['-p', '--allowedTools', 'Read(//reviews/checkout/**)', '--strict-mcp-config']);
+    assert.deepEqual(args.slice(0, 5), ['-p', '--allowedTools', 'Bash', 'Read(//reviews/checkout/**)', '--strict-mcp-config']);
     assert.equal(args.includes('bypassPermissions'), false);
-    assert.deepEqual(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--strict-mcp-config')), ['Read(//reviews/checkout/**)'], 'no bare Write, Edit, Bash or Read grant');
+    assert.deepEqual(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--strict-mcp-config')), ['Bash', 'Read(//reviews/checkout/**)'], 'shell commands run because the sandbox runtime is the boundary, and there is no bare Write, Edit or Read grant');
     assert.equal(args.includes('--add-dir'), false, 'an added dir loads its .claude/skills, so the checkout is reached by path only');
     assert.deepEqual(args.slice(args.indexOf('--disallowedTools') + 1, -2), [...TEAM_REVIEW_SESSION_DENY_RULES], 'the argv carries the denies even when no hook settings file is written');
     assert.deepEqual(args.slice(-2), ['--model', tier === 'full' ? FULL_MODEL : STAMP_MODEL]);
@@ -1182,7 +1170,7 @@ test('the spawned session runs the constant bootstrap prompt with the given env,
   const posture = teamReviewAcceptEditsPermissions();
   const request: Parameters<TeamReviewSpawn>[0] = {
     id: 'team-review:Acme/app#7', name: 'Team review Acme/app#7', cwd: '/tmp/x', spawnEnv: teamReviewSpawnEnv('/tmp/x'),
-    extraClaudeArgs: teamReviewClaudeArgs('stamp', { checkoutPath: '/tmp/checkout', linkedCheckout: null }), settingsPermissions: posture, settingsSandbox: teamReviewSandbox('/tmp/x'),
+    extraClaudeArgs: teamReviewClaudeArgs('stamp', { checkoutPath: '/tmp/checkout', linkedCheckout: null }), settingsPermissions: posture, sandboxRole: describeProbeRole,
     signal: new AbortController().signal,
     onSessionId: (id) => { capturedIds.push(id); },
   };
@@ -1193,7 +1181,8 @@ test('the spawned session runs the constant bootstrap prompt with the given env,
   assert.deepEqual(created[0].spawnEnv, teamReviewSpawnEnv('/tmp/x'));
   assert.equal(created[0].dangerouslySkipPermissions, false);
   assert.deepEqual(created[0].settingsPermissions, posture);
-  assert.deepEqual(created[0].settingsSandbox, teamReviewSandbox('/tmp/x'));
+  assert.equal(created[0].settingsSandbox, null);
+  assert.equal(typeof created[0].prepareSandbox, 'function', 'the review starts inside the sandbox runtime');
   assert.equal(created[0].ephemeral, true);
   assert.equal(created[0].observeToolCalls, false, 'no tool hook is installed when nobody listens');
   assert.deepEqual(recorded, ['team-review']);
@@ -1235,7 +1224,7 @@ test('the spawned session resolves Sane YOLO hook tools from the held config wit
     });
     await spawn({
       id: 'team-review:Acme/app#7', name: 'Team review Acme/app#7', cwd: '/tmp/x', spawnEnv: teamReviewSpawnEnv('/tmp/x'),
-      extraClaudeArgs: [], settingsPermissions: { deny: [], defaultMode }, settingsSandbox: teamReviewSandbox('/tmp/x'),
+      extraClaudeArgs: [], settingsPermissions: { deny: [], defaultMode }, sandboxRole: describeProbeRole,
       signal: new AbortController().signal,
     });
     assert.deepEqual(resolverCalls, expectedCalls);
@@ -1262,7 +1251,7 @@ test('a review whose sandbox cannot be applied ends as an error draft without sp
     const draft = await review(reviewArgs('stamp'));
     assert.equal(draft.status, 'error');
     assert.equal(draft.error, SANDBOX_UNAPPLIED_ERROR);
-    assert.ok(created[0].settingsSandbox, 'the review asked for a sandbox');
+    assert.equal(typeof created[0].prepareSandbox, 'function', 'the review asked for a sandbox');
   } finally {
     cleanup();
   }
@@ -1290,7 +1279,7 @@ test('the spawned session forwards PreToolUse hook events as tool steps and igno
   });
   await spawn({
     id: 'team-review:Acme/app#7', name: 'Team review Acme/app#7', cwd: '/tmp/x', spawnEnv: teamReviewSpawnEnv('/tmp/x'),
-    extraClaudeArgs: teamReviewClaudeArgs('stamp', { checkoutPath: '/tmp/checkout', linkedCheckout: null }), settingsPermissions: teamReviewAcceptEditsPermissions(), settingsSandbox: teamReviewSandbox('/tmp/x'),
+    extraClaudeArgs: teamReviewClaudeArgs('stamp', { checkoutPath: '/tmp/checkout', linkedCheckout: null }), settingsPermissions: teamReviewAcceptEditsPermissions(), sandboxRole: describeProbeRole,
     signal: new AbortController().signal, onToolStep: (step) => { steps.push(step); },
   });
   assert.equal(created[0].observeToolCalls, true);
@@ -1587,7 +1576,7 @@ test('stopping the lane aborts an in-flight full review, yields no draft, and re
     },
     repoCache: {
       listRepos: async () => [],
-      ensureRepo: async () => '/cache/Acme/app',
+      ensureRepo: async () => CACHED_CLONE,
       fetchPr: async () => ({ ok: true, headSha: HEAD, err: '' }),
       hydrateTree: async () => ({ ok: true, err: '' }), hydrateRange: async () => ({ ok: true, err: '' }),
       hydrateSince: async () => true,
