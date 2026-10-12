@@ -56,6 +56,7 @@ import { createSessionHookLifecycle } from "./session-hook-lifecycle.ts";
 import type { HookRouterPort } from "./session-hook-lifecycle.ts";
 import type { SandboxLaunch, SandboxLaunchResult } from "../server/sandbox-launch.ts";
 import { createSessionWorktreeLifecycle } from "./session-worktree-lifecycle.ts";
+import { signalWindowChangeBelow } from "./window-change-signal.ts";
 import type { GitIsolationOptions } from "../server/core/git-invocation-core.ts";
 import type { GitWorkspace } from "./session-worktree-lifecycle.ts";
 import { createSessionBackgroundTracking } from "./session-background-tracking.ts";
@@ -1721,6 +1722,7 @@ class Session extends EventEmitter {
       try {
         this.ptyProcess.resize(cols, rows);
       } catch {}
+      if (this._sandboxLaunch && this._platform === "linux") void signalWindowChangeBelow(this.ptyProcess.pid);
     }
     this._resizeSeq += 1;
     this.emit("resize", { cols, rows, seq: this._resizeSeq });

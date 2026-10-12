@@ -11,17 +11,21 @@ import type { SandboxRole } from '../server/core/sandbox-policy-core.ts';
 import type { SessionSandboxFacts } from '../session/sessions.ts';
 
 type ContractRoleName = 'check' | 'judge' | 'worker';
-type RoleName = ContractRoleName | 'judge-lane' | 'review';
+type RoleName = ContractRoleName | 'judge-lane' | 'review' | 'resize' | 'keep-mergeable';
 type Expectation = 'succeeds' | 'fails';
 type ProbeRow = { role: RoleName; check: string; status: 'PASS' | 'FAIL' | 'SKIPPED'; reason?: string };
 type ToolAttempt = { type: string; name: string; input: Record<string, string> };
 type StreamEvent = { type: string; message?: { content?: ToolAttempt[] } };
 
 const CONTRACT_ROLE_NAMES: readonly ContractRoleName[] = ['check', 'judge', 'worker'];
-const ROLE_NAMES: readonly RoleName[] = [...CONTRACT_ROLE_NAMES, 'judge-lane', 'review'];
+const ROLE_NAMES: readonly RoleName[] = [...CONTRACT_ROLE_NAMES, 'judge-lane', 'review', 'resize', 'keep-mergeable'];
 const GUARD_HOOK_BLOCK_TEXT = 'Sane YOLO blocks';
 const HOME_SECRET_TEXT = 'role-probe-home-secret';
 const REVIEW_MARKER_TEXT = 'role-probe-review-marker';
+const HOME_TOOL_NAME = 'role-probe-tool';
+const RESIZED_COLUMNS = 101;
+const RESIZED_ROWS = 37;
+const RESIZE_WAIT_MS = 15_000;
 const LAUNCH_FOLDERS = ['sandbox-policies', 'sandbox-temp', 'sandbox-homes'];
 const AGENT_IDS = ['claude-code', 'codex'];
 const AGENT_RUN_TIMEOUT_MS = 240_000;
@@ -41,15 +45,22 @@ await mkdir(probeHome, { recursive: true });
 process.env.GLIMMERVOID_HOME = probeHome;
 const homeSecretFile = path.join(probeHome, 'secret.txt');
 await writeFile(homeSecretFile, `${HOME_SECRET_TEXT}\n`);
+const homeToolFolder = path.join(probeHome, 'factory', 'bin');
+await mkdir(homeToolFolder, { recursive: true });
+await writeFile(path.join(homeToolFolder, HOME_TOOL_NAME), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 
 const { execFileAsync } = await import('../server/child-process-safe.ts');
 const { awaitSessionExit } = await import('../server/ephemeral-session.ts');
 const { createGitWorkspace, runHardenedGit } = await import('../server/git-workspace.ts');
-const { judgeRole } = await import('../server/core/sandbox-roles-core.ts');
+const { judgeRole, workRole } = await import('../server/core/sandbox-roles-core.ts');
+const { SANDBOX_PLACEHOLDER_NAMES } = await import('../server/core/sandbox-policy-core.ts');
 const { FACTORY_REVIEWER_PERMISSIONS, FACTORY_REVIEWER_SPAWN_ENV, FACTORY_REVIEWER_TOOLS, runFactoryReview } = await import('../server/factory-closeout.ts');
 const { encodeProjectDir } = await import('../session/core/conversation-history.ts');
 const { resolveRequiredSaneYoloHookTools } = await import('../server/hook-tools.ts');
 const { createLaneSpawn } = await import('../server/lane-spawn.ts');
+const { MY_PRS_FIX_CHECKOUT_DIRNAME } = await import('../server/core/my-prs-core.ts');
+const { createSandboxedPrStaging, keepMergeableRole } = await import('../server/my-prs-wiring.ts');
+const { createTeamReviewSpawn } = await import('../server/team-review-wiring.ts');
 const { prepareSandboxLaunch } = await import('../server/sandbox-launch.ts');
 const { Session } = await import('../session/sessions.ts');
 
@@ -64,8 +75,12 @@ const EXPECTATIONS: Readonly<Record<ContractRoleName, Readonly<Record<string, Ex
   },
   worker: {
     tools_resolve: 'succeeds', scratch_write: 'succeeds', shared_state_write: 'fails', checkout_write: 'succeeds', git_add: 'fails', hooks_write: 'fails', update_ref: 'fails', claude_dir: 'fails',
-    git_pointer: 'fails', home_read: 'fails', outside_write: 'fails', web: 'succeeds', hook_port: 'succeeds', other_port: 'succeeds', user_bus: 'fails',
+    git_pointer: 'fails', home_read: 'fails', outside_write: 'fails', web: 'succeeds', hook_port: 'succeeds', other_port: 'succeeds', user_bus: 'fails', path_tool: 'succeeds',
   },
+};
+
+const KEEP_MERGEABLE_EXPECTATIONS: Readonly<Record<string, Expectation>> = {
+  commit: 'succeeds', hooks_write: 'fails', git_config_write: 'fails', cached_clone_write: 'fails', home_read: 'fails', outside_write: 'fails', web: 'succeeds',
 };
 
 const probeRows: ProbeRow[] = [];
@@ -131,9 +146,10 @@ const claudeTranscriptFolder = (cwd: string) => path.join(os.homedir(), '.claude
 function describeRole(roleName: ContractRoleName, checkout: string, evidenceDir: string, facts: SessionSandboxFacts): SandboxRole {
   const vendorHome = { scope: 'launch' as const, cwd: facts.cwd, agentSessionId: facts.agentSessionId };
   if (roleName === 'judge') return { ...judgeRole({ ...facts, vendor: sandboxVendor, cwd: evidenceDir }), vendorHome };
-  const shared = { vendorHome, commitCheckouts: [], readDenied: [], readableWithinDenied: facts.readablePaths, writableRoots: [evidenceDir] };
-  if (roleName === 'check') return { ...shared, vendors: [], network: { access: 'none' }, lockedCheckouts: [] };
-  return { ...shared, vendors: [sandboxVendor], network: { access: 'open' }, lockedCheckouts: [checkout] };
+  if (roleName === 'check') {
+    return { vendorHome, commitCheckouts: [], readDenied: [], readableWithinDenied: facts.readablePaths, writableRoots: [evidenceDir], vendors: [], network: { access: 'none' }, lockedCheckouts: [] };
+  }
+  return { ...workRole({ vendor: sandboxVendor, cwd: facts.cwd, checkout, readablePaths: [...facts.readablePaths, homeToolFolder], agentSessionId: facts.agentSessionId }), writableRoots: [evidenceDir] };
 }
 
 async function runAgent(roleName: ContractRoleName, checkout: string, evidenceDir: string, task: string): Promise<string> {
@@ -147,6 +163,7 @@ async function runAgent(roleName: ContractRoleName, checkout: string, evidenceDi
     agent: agentId,
     dangerouslySkipPermissions: true,
     bypassHookTrust: true,
+    prependPathDirs: [homeToolFolder],
     extraClaudeArgs: agentArgs,
     initialPrompt: task,
     ephemeral: true,
@@ -292,12 +309,150 @@ async function probeFactoryReview(roleRoot: string): Promise<void> {
   });
 }
 
-async function leftoverLaunchFiles(remainingWaits = LAUNCH_CLEANUP_WAITS): Promise<string[]> {
+async function probeKeepMergeable(roleRoot: string): Promise<void> {
+  const roleName = 'keep-mergeable';
+  if (agentId === 'codex') {
+    probeRows.push({ role: roleName, check: 'keep mergeable run', status: 'SKIPPED', reason: 'keep mergeable always runs on Claude Code' });
+    return;
+  }
+  const cachedClone = path.join(probeHome, 'team-review-repos', 'probe', 'app');
+  const workDir = path.join(probeHome, 'my-prs-work', 'probe');
+  const checkout = path.join(workDir, MY_PRS_FIX_CHECKOUT_DIRNAME);
+  await mkdir(cachedClone, { recursive: true });
+  await mkdir(workDir, { recursive: true });
+  const runGit = (gitArguments: string[], cwd: string) => runHardenedGit(gitArguments, { cwd, timeout: 30_000 });
+  await runGit(['init', '-b', 'main'], cachedClone);
+  await writeFile(path.join(cachedClone, 'initial.txt'), 'initial\n');
+  await runGit(['add', 'initial.txt'], cachedClone);
+  await runGit(['-c', 'user.name=Role probe', '-c', 'user.email=role-probe@example.test', '-c', 'commit.gpgsign=false', 'commit', '-m', 'initial'], cachedClone);
+  await runGit(['clone', '--quiet', '--shared', cachedClone, checkout], workDir);
+  await runGit(['config', 'user.name', 'Role probe'], checkout);
+  await runGit(['config', 'user.email', 'role-probe@example.test'], checkout);
+  const initialSha = (await runGit(['rev-parse', 'HEAD'], checkout)).stdout.trim();
+  const checkoutConfigFile = path.join(checkout, '.git', 'config');
+  const checkoutConfigText = await readFile(checkoutConfigFile, 'utf8');
+  const hooksFile = path.join(checkout, '.git', 'hooks', 'role-probe');
+  const cachedCloneFile = path.join(cachedClone, 'owned.txt');
+  const outsideFile = path.join(roleRoot, 'outside-keep-mergeable.txt');
+  const resultsFile = path.join(workDir, 'results.txt');
+  const checkCommands: Readonly<Record<string, string>> = {
+    commit: `{ printf repaired > ${shellQuoted(path.join(checkout, 'repaired.txt'))} && git -C ${shellQuoted(checkout)} add repaired.txt && git -C ${shellQuoted(checkout)} commit -m repaired; }`,
+    hooks_write: `printf hooks > ${shellQuoted(hooksFile)}`,
+    git_config_write: `git -C ${shellQuoted(checkout)} config role.probe written`,
+    cached_clone_write: `printf owned > ${shellQuoted(cachedCloneFile)}`,
+    home_read: `cat ${shellQuoted(homeSecretFile)}`,
+    outside_write: `printf outside > ${shellQuoted(outsideFile)}`,
+    web: 'curl -sf -m 10 -o /dev/null https://example.com',
+  };
+  const scriptLines = Object.entries(checkCommands).map(([check, command]) => `${command} >/dev/null 2>&1; echo "${check}=$?" >> ${shellQuoted(resultsFile)}`);
+  await writeFile(path.join(workDir, 'probe.sh'), `${scriptLines.join('\n')}\n`);
+  const sessionIdPrefix = 'probe-keep-mergeable';
+  const refuseRepoCacheUse = () => Promise.reject(new Error('the probe stages its own checkout'));
+  const { runSession } = createSandboxedPrStaging({
+    spawnSession: createTeamReviewSpawn({
+      reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: { register: () => {}, unregister: () => {} }, getHookPort: () => hookPort,
+      spawnGate: { run: async (task) => task() }, laneName: 'my-prs',
+    }),
+    repoCache: { ensureRepo: refuseRepoCacheUse, fetchPr: refuseRepoCacheUse, hydrateRange: refuseRepoCacheUse },
+    describeRole: keepMergeableRole,
+    timeoutSeconds: () => AGENT_RUN_TIMEOUT_MS / 1000,
+  });
+  await record(roleName, 'keep mergeable run', async () => {
+    const outcome = await runSession({
+      idPrefix: sessionIdPrefix, name: sessionIdPrefix, workDir, cachedClone, signal: AbortSignal.timeout(AGENT_RUN_TIMEOUT_MS), onPending: () => {},
+      initialPrompt: 'This is a sandbox contract probe. Run exactly this shell command once and do not work around a denial or retry: sh probe.sh. Then reply with the single word done.',
+    });
+    assert.equal(outcome, 'finished');
+  });
+  const resultLines = (await readFile(resultsFile, 'utf8').catch(() => '')).split('\n').filter(Boolean);
+  const exitCodeByCheck = new Map(resultLines.map((line) => { const [check, exitCode] = line.split('='); return [check, Number(exitCode)] as const; }));
+  for (const [check, expectation] of Object.entries(KEEP_MERGEABLE_EXPECTATIONS)) {
+    await record(roleName, `${check} ${expectation}`, async () => {
+      const exitCode = exitCodeByCheck.get(check);
+      assert.ok(exitCode !== undefined, 'the check did not run');
+      assert.equal(exitCode === 0 ? 'succeeds' : 'fails', expectation, `exit code ${exitCode}`);
+    });
+  }
+  await record(roleName, 'the repair is committed in the checkout and the host is otherwise untouched', async () => {
+    assert.notEqual((await runGit(['rev-parse', 'HEAD'], checkout)).stdout.trim(), initialSha);
+    assert.equal(await readFile(checkoutConfigFile, 'utf8'), checkoutConfigText);
+    await assert.rejects(readFile(hooksFile), { code: 'ENOENT' });
+    await assert.rejects(readFile(cachedCloneFile), { code: 'ENOENT' });
+    await assert.rejects(readFile(outsideFile), { code: 'ENOENT' });
+  });
+  await record(roleName, 'Stop hook reached the host listener', async () => {
+    assert.ok(hookRequests.some((requestUrl) => requestUrl.includes(sessionIdPrefix) && requestUrl.includes('/stop?')), `hook requests seen: ${hookRequests.join(' ')}`);
+  });
+  await record(roleName, 'the transcript landed in the session\'s own folder', () => expectOwnTranscript(workDir));
+  await record(roleName, 'policy, temp, home and placeholder files removed', async () => {
+    assert.deepEqual(await leftoverLaunchFiles(workDir), []);
+  });
+}
+
+async function waitForFileText(filePath: string, expectedText: string): Promise<string> {
+  const deadline = Date.now() + RESIZE_WAIT_MS;
+  let lastText = '';
+  while (Date.now() < deadline) {
+    lastText = (await readFile(filePath, 'utf8').catch(() => '')).trim();
+    if (lastText === expectedText) return lastText;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return lastText;
+}
+
+async function probeResize(roleRoot: string): Promise<void> {
+  if (process.platform !== 'linux') {
+    probeRows.push({ role: 'resize', check: 'a resize reaches the wrapped terminal', status: 'SKIPPED', reason: 'window size forwarding is Linux only' });
+    return;
+  }
+  for (const wrappedRole of ['judge', 'worker'] as const) {
+    const checkout = path.join(roleRoot, wrappedRole, 'checkout');
+    const evidenceDir = path.join(roleRoot, wrappedRole, 'evidence');
+    await mkdir(checkout, { recursive: true });
+    await mkdir(evidenceDir, { recursive: true });
+    const sizeFile = path.join(evidenceDir, 'size.txt');
+    const readyFile = path.join(evidenceDir, 'ready.txt');
+    const standInAgentDir = path.join(roleRoot, wrappedRole, 'bin');
+    await mkdir(standInAgentDir, { recursive: true });
+    await writeFile(path.join(standInAgentDir, 'claude'), [
+      '#!/bin/sh',
+      `trap 'stty size > ${shellQuoted(sizeFile)}' WINCH`,
+      `printf ready > ${shellQuoted(readyFile)}`,
+      'while :; do sleep 0.1; done',
+      '',
+    ].join('\n'), { mode: 0o755 });
+    const session = new Session({
+      id: `probe-resize-${wrappedRole}`, name: `probe-resize-${wrappedRole}`, path: evidenceDir, agent: 'claude-code', ephemeral: true,
+      prependPathDirs: [standInAgentDir],
+      hookRouter: { register: () => {}, unregister: () => {} }, getHookPort: () => hookPort,
+      hooksBaseDir: path.join(probeHome, 'scratch', 'glimmervoid-hooks'),
+      prepareSandbox: (facts) => prepareSandboxLaunch({ role: describeRole(wrappedRole, checkout, evidenceDir, facts), launchId: facts.launchId }),
+    });
+    try {
+      await session.start();
+      await record('resize', `a resize reaches a terminal program under the ${wrappedRole} wrap`, async () => {
+        assert.equal(await waitForFileText(readyFile, 'ready'), 'ready', 'the wrapped program never started');
+        session.resize(RESIZED_COLUMNS, RESIZED_ROWS);
+        assert.equal(await waitForFileText(sizeFile, `${RESIZED_ROWS} ${RESIZED_COLUMNS}`), `${RESIZED_ROWS} ${RESIZED_COLUMNS}`);
+      });
+    } finally {
+      session.destroy();
+    }
+    await record('resize', `no placeholder file is left in the ${wrappedRole} working folder or checkout`, async () => {
+      assert.deepEqual([...await leftoverLaunchFiles(evidenceDir), ...await readdir(checkout)], []);
+    });
+  }
+}
+
+async function leftoverLaunchFiles(workingFolder: string | null = null, remainingWaits = LAUNCH_CLEANUP_WAITS): Promise<string[]> {
   const folders = LAUNCH_FOLDERS.map((folder) => path.join(probeHome, folder));
-  const leftovers = (await Promise.all(folders.map((folder) => readdir(folder).catch(() => [])))).flat();
+  const launchFiles = (await Promise.all(folders.map((folder) => readdir(folder).catch(() => [])))).flat();
+  const workingFolderEntries = workingFolder === null ? [] : await readdir(workingFolder, { withFileTypes: true });
+  const placeholderFiles = workingFolderEntries.filter((entry) => entry.isFile() && SANDBOX_PLACEHOLDER_NAMES.includes(entry.name)).map((entry) => entry.name);
+  const leftovers = [...launchFiles, ...placeholderFiles];
   if (leftovers.length === 0 || remainingWaits === 0) return leftovers;
   await sleep(LAUNCH_CLEANUP_WAIT_MS);
-  return leftoverLaunchFiles(remainingWaits - 1);
+  return leftoverLaunchFiles(workingFolder, remainingWaits - 1);
 }
 
 try {
@@ -309,8 +464,16 @@ try {
       await probeJudgeLane(roleRoot);
       continue;
     }
+    if (roleName === 'resize') {
+      await probeResize(roleRoot);
+      continue;
+    }
     if (roleName === 'review') {
       await record(roleName, 'factory review run', () => probeFactoryReview(roleRoot));
+      continue;
+    }
+    if (roleName === 'keep-mergeable') {
+      await probeKeepMergeable(roleRoot);
       continue;
     }
     const repository = path.join(roleRoot, 'repo');
@@ -354,6 +517,7 @@ try {
       hook_port: `curl -sf -m 10 -o /dev/null http://127.0.0.1:${hookPort}/probe-ping/${roleName}`,
       other_port: `curl -sf -m 10 -o /dev/null http://127.0.0.1:${otherPort}/probe-ping/${roleName}`,
       ...(isUserBusProbed ? { user_bus: 'busctl --user list' } : {}),
+      ...(roleName === 'worker' && agentId === 'claude-code' ? { path_tool: HOME_TOOL_NAME } : {}),
     };
     const scriptLines = Object.entries(checkCommands).map(([check, command]) => `${command} >/dev/null 2>&1; echo "${check}=$?" >> ${shellQuoted(resultsFile)}`);
     await writeFile(scriptFile, `${scriptLines.join('\n')}\n`);
@@ -405,11 +569,12 @@ try {
     });
     if (roleName !== 'check' && agentId === 'codex') probeRows.push({ role: roleName, check: 'guard hook blocked a teardown command inside the sandbox', status: 'SKIPPED', reason: 'Codex output carries no structured tool events' });
     if (roleName !== 'check' && agentId === 'codex') probeRows.push({ role: roleName, check: 'file tool write outside attempted', status: 'SKIPPED', reason: 'Codex output carries no structured tool events' });
+    if (roleName === 'worker' && agentId === 'codex') probeRows.push({ role: roleName, check: 'path_tool succeeds', status: 'SKIPPED', reason: 'the factory worker always runs on Claude Code, and the Codex login shell rebuilds PATH on its own' });
     if (roleName !== 'check') await record(roleName, 'Stop hook reached the host listener', async () => {
       assert.ok(hookRequests.some((requestUrl) => requestUrl.startsWith(`/hook/probe-${roleName}/stop?`)), `hook requests seen: ${hookRequests.join(' ')}`);
     });
-    await record(roleName, 'policy, temp and home files removed', async () => {
-      assert.deepEqual(await leftoverLaunchFiles(), []);
+    await record(roleName, 'policy, temp, home and placeholder files removed', async () => {
+      assert.deepEqual(await leftoverLaunchFiles(roleName === 'check' ? null : checkout), []);
     });
   }
 } finally {

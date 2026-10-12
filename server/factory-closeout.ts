@@ -12,10 +12,10 @@ import type { FactoryWatchEntry } from '../shared/contracts/factory.ts';
 import { prepareSandboxedCheckRunner } from './factory-check-sandbox.ts';
 import type { FactoryCheckSandbox, PrepareFactoryCheckRunner } from './factory-check-sandbox.ts';
 import { DEFAULT_CONFIG } from './config-store.ts';
-import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, findWorkerCommitRefusal, inheritedSecretValues, listUncommittedWorkPaths, parseCheckCommand, parseFactoryReviewerOutput, redactSecretLines, reviewerOutputTail } from './core/factory-core.ts';
+import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, findWorkerCommitRefusal, listStagedSandboxPlaceholders, inheritedSecretValues, listUncommittedWorkPaths, parseCheckCommand, parseFactoryReviewerOutput, redactSecretLines, reviewerOutputTail } from './core/factory-core.ts';
 import type { FactoryCheck, FactoryFence } from './core/factory-core.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES } from './core/lane-permissions-core.ts';
-import { KEEP_MERGEABLE_SANDBOX_STUB_NAMES } from './core/my-prs-core.ts';
+import { SANDBOX_PLACEHOLDER_NAMES } from './core/sandbox-policy-core.ts';
 import { nulSeparatedPaths } from './core/git-changed-paths-core.ts';
 import { prepareHardenedGitCommand, runHardenedGit } from './git-workspace.ts';
 import { makeHostScratchDirectory } from './host-scratch.ts';
@@ -150,7 +150,7 @@ export function createFactoryCloseOut({
   }
 
   async function probeUncommittedWorkPaths(cwd: string): Promise<string[]> {
-    return listUncommittedWorkPaths(await runGit(cwd, ['--no-optional-locks', 'status', '--porcelain', '-z', '--no-renames', '--untracked-files=all']));
+    return listUncommittedWorkPaths(await runGit(cwd, ['--no-optional-locks', 'status', '--porcelain', '-z', '--no-renames', '--untracked-files=all']), SANDBOX_PLACEHOLDER_NAMES);
   }
 
   async function isIgnoredInProject(projectPath: string, sharedEntry: string): Promise<boolean> {
@@ -193,13 +193,19 @@ export function createFactoryCloseOut({
       const headSha = (await runGit(cwd, ['rev-parse', 'HEAD'])).trim();
       await runGit(cwd, ['read-tree', headSha], stagingIndexFile);
       await stageWorkerTreeInSandbox(cwd, indexDirectory, stagingIndexFile);
-      const stagedTree = (await runGit(cwd, ['write-tree'], stagingIndexFile)).trim();
-      const stagedChanges = await runGit(cwd, ['diff', '--raw', '--no-renames', '--no-abbrev', '--ignore-submodules=none', '-z', headSha, stagedTree]);
+      const readStagedChanges = async () => {
+        const tree = (await runGit(cwd, ['write-tree'], stagingIndexFile)).trim();
+        return { tree, rawDiff: await runGit(cwd, ['diff', '--raw', '--no-renames', '--no-abbrev', '--ignore-submodules=none', '-z', headSha, tree]) };
+      };
+      const stagedWithPlaceholders = await readStagedChanges();
+      const placeholderPaths = listStagedSandboxPlaceholders(stagedWithPlaceholders.rawDiff, SANDBOX_PLACEHOLDER_NAMES);
+      if (placeholderPaths.length > 0) await runGit(cwd, ['update-index', '--force-remove', '--', ...placeholderPaths], stagingIndexFile);
+      const { tree: stagedTree, rawDiff: stagedChanges } = placeholderPaths.length > 0 ? await readStagedChanges() : stagedWithPlaceholders;
       if (!stagedChanges) {
         await runGit(cwd, ['read-tree', headSha]);
         return null;
       }
-      const refusal = findWorkerCommitRefusal({ rawDiff: stagedChanges, sharedEntries: await sharedEntriesIgnoredInProject(worker.projectPath), placeholderNames: KEEP_MERGEABLE_SANDBOX_STUB_NAMES });
+      const refusal = findWorkerCommitRefusal({ rawDiff: stagedChanges, sharedEntries: await sharedEntriesIgnoredInProject(worker.projectPath) });
       if (refusal) return refusal;
       const commitSha = (await runGit(cwd, ['commit-tree', stagedTree, '-p', headSha, '-m', buildWorkerCommitMessage(worker)])).trim();
       await runGit(cwd, ['update-ref', 'HEAD', commitSha, headSha]);

@@ -122,6 +122,10 @@ test('vendor homes: a lane writes only its own transcript folder, session env fo
   assert.deepEqual(entryPaths(lanePolicy.allowWrite).filter((writable) => writable.startsWith(path.join(homeDir, '.claude'))), [
     path.join(homeDir, '.claude', 'projects', '-work-worktree'), path.join(homeDir, '.claude', 'session-env', agentSessionId), path.join(homeDir, '.claude', '.credentials.json'),
   ]);
+  const shellSnapshotFolder = path.join(homeDir, '.claude', 'shell-snapshots');
+  assert.equal(entryPaths(lanePolicy.denyRead).includes(shellSnapshotFolder), true);
+  assert.equal(planFor(roleWith()).requiredDirectories.includes(shellSnapshotFolder), true);
+  assert.equal(entryPaths(planFor(roleWith({ vendorHome: { scope: 'state' } })).policy.filesystem.denyRead).includes(shellSnapshotFolder), false);
   assert.equal(buildSandboxLaunchPlan(roleWith({ vendorHome: { scope: 'launch', cwd: worktree, agentSessionId: '../escape' } }), { ...hostPaths, existingPaths: new Set() }).ok, false);
   const codexLanePlan = planFor(roleWith({ vendors: ['codex'] }));
   const codexLaunchHome = path.join(launchHomeDir, 'codex');

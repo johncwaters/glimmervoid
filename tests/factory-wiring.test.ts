@@ -24,6 +24,7 @@ import type { Session } from '../session/sessions.ts';
 import { STATES } from '../shared/states.ts';
 import { plainSession } from './helpers/fake-session.ts';
 import { fakePty } from './helpers/fake-pty.ts';
+import { passthroughWorkLane } from './helpers/passthrough-work-lane.ts';
 import type { SessionSpawnOverrides } from '../server/session-factory.ts';
 import { readCoherenceFixture } from './helpers/factory-coherence-reports.ts';
 import { waitFor } from './helpers/wait-for.ts';
@@ -721,7 +722,7 @@ function fakeOrchestratorOptions({ config, now, spawned, pastedLines = [] }: {
   config: WiringOrchestratorOptions['config']; now: () => number; spawned: { session: Session; overrides: SessionSpawnOverrides }[]; pastedLines?: string[];
 }): WiringOrchestratorOptions {
   return {
-    getHookPort: () => 3911,
+    workLane: passthroughWorkLane(),
     config, sessions: new Map<string, Session>(), broadcast: () => {}, closeSessionDataClients: () => {},
     wireSessionEvents: () => {}, recordLane: () => {}, spawnGate: { run: async (operation) => operation() },
     makeSession: (identity, _config, overrides) => {

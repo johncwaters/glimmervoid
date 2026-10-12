@@ -4,13 +4,14 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileAsync, execFileSync } from '../server/child-process-safe.ts';
-import { createMyPrMergeabilityFix, createMyPrsStateIo, sweepKeepMergeableLeftovers } from '../server/my-prs-wiring.ts';
+import { confinedPrRole, createMyPrMergeabilityFix, createMyPrsStateIo, keepMergeableRole, sweepKeepMergeableLeftovers } from '../server/my-prs-wiring.ts';
 import { createRepoCache } from '../server/repo-cache.ts';
 import type { CommandResult } from '../server/repo-cache.ts';
-import { KEEP_MERGEABLE_EXTRA_DENY_READ_PATHS, createTeamReviewSpawn, hooksPathPinnedSpawnEnv, keepMergeableSandbox, teamReviewSandbox, teamReviewSpawnEnv } from '../server/team-review-wiring.ts';
+import { createTeamReviewSpawn, hooksPathPinnedSpawnEnv, teamReviewSpawnEnv } from '../server/team-review-wiring.ts';
+import { SANDBOX_PLACEHOLDER_NAMES } from '../server/core/sandbox-policy-core.ts';
 import type { TeamReviewSpawn } from '../server/team-review-wiring.ts';
 import {
-  KEEP_MERGEABLE_SANDBOX_STUB_NAMES, MY_PRS_FIX_BASE_BRANCH, MY_PRS_FIX_BOOTSTRAP_PROMPT, MY_PRS_FIX_CHECKOUT_DIRNAME, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, MY_PRS_FIX_PROMPT_FILENAME, keepMergeableTimeoutSeconds,
+  MY_PRS_FIX_BASE_BRANCH, MY_PRS_FIX_BOOTSTRAP_PROMPT, MY_PRS_FIX_CHECKOUT_DIRNAME, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, MY_PRS_FIX_PROMPT_FILENAME, keepMergeableTimeoutSeconds,
 } from '../server/core/my-prs-core.ts';
 import { LANE_ENVIRONMENT_ARGS } from '../server/core/lane-permissions-core.ts';
 import { Session } from '../session/sessions.ts';
@@ -108,9 +109,8 @@ async function fixHarness(root: string, { spawnSession, timeoutSeconds, setTimeo
   const pushes: string[][] = [];
   const logs: string[] = [];
   const warnings: string[] = [];
-  const glimmervoidHome = path.join(root, 'glimmervoid-home');
   const fix = createMyPrMergeabilityFix({
-    spawnSession, repoCache, workRoot, glimmervoidHome, timeoutSeconds, setTimeoutFn, clearTimeoutFn,
+    spawnSession, repoCache, workRoot, timeoutSeconds, setTimeoutFn, clearTimeoutFn,
     log: { log: (message: string) => { logs.push(message); }, warn: (message: string) => { warnings.push(message); } },
     runGit: async (args, cwd, _signal, env = {}) => {
       beforeGit(args);
@@ -120,7 +120,7 @@ async function fixHarness(root: string, { spawnSession, timeoutSeconds, setTimeo
     },
   });
   const cachedRepo = path.join(cacheRoot, 'Acme', 'app');
-  return { fix, pushes, logs, warnings, workRoot, headSha, cachedRepo, repoCache, glimmervoidHome, originDir };
+  return { fix, pushes, logs, warnings, workRoot, headSha, cachedRepo, repoCache, originDir };
 }
 
 function sshKeygenMissingReason(): string | false {
@@ -185,7 +185,7 @@ test('keep mergeable runs sandboxed with the review posture and the server fast-
   const reviewSessions = new Map<string, unknown>();
   const spawnSession = createTeamReviewSpawn({
     reviewSessions, closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
-    spawnGate: { run: async (task) => task() }, laneName: 'my-prs',
+    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', platform: 'linux',
     recordLane: (_id, lane) => { recordedLanes.push(lane); },
     makeSession: (options) => {
       createdSessions.push(options);
@@ -212,7 +212,8 @@ test('keep mergeable runs sandboxed with the review posture and the server fast-
     assert.match(createdSessions[0].id, /^my-prs:/);
     assert.ok(workDir.startsWith(harness.workRoot));
     assert.equal(createdSessions[0].initialPrompt, MY_PRS_FIX_BOOTSTRAP_PROMPT);
-    assert.deepEqual(createdSessions[0].settingsSandbox, keepMergeableSandbox(workDir, { glimmervoidHome: harness.glimmervoidHome, cachedClone: harness.cachedRepo }));
+    assert.equal(createdSessions[0].settingsSandbox, null);
+    assert.equal(typeof createdSessions[0].prepareSandbox, 'function', 'the repair starts inside the sandbox runtime');
     assert.deepEqual(createdSessions[0].spawnEnv, { ...teamReviewSpawnEnv(workDir), GIT_CONFIG_COUNT: '4', GIT_CONFIG_KEY_2: 'core.hooksPath', GIT_CONFIG_VALUE_2: '', GIT_CONFIG_KEY_3: 'commit.gpgsign', GIT_CONFIG_VALUE_3: 'false' });
     assert.deepEqual(createdSessions[0].spawnEnv, { ...hooksPathPinnedSpawnEnv(workDir), GIT_CONFIG_COUNT: '4', GIT_CONFIG_KEY_3: 'commit.gpgsign', GIT_CONFIG_VALUE_3: 'false' });
     assert.deepEqual(createdSessions[0].settingsPermissions, { deny: [...MY_PRS_FIX_DENY_RULES], defaultMode: 'acceptEdits' });
@@ -258,7 +259,7 @@ test('keep mergeable pushes the commit on the keep-mergeable branch even when th
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-detached-'));
   const spawnSession = createTeamReviewSpawn({
     reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
-    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', recordLane: () => {},
+    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', platform: 'linux', recordLane: () => {},
     makeSession: (options) => {
       const session = new Session(options);
       session.start = async () => {
@@ -287,7 +288,7 @@ test('keep mergeable hands off a repair over pull request history whose file con
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-partial-'));
   const spawnSession = createTeamReviewSpawn({
     reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
-    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', recordLane: () => {},
+    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', platform: 'linux', recordLane: () => {},
     makeSession: (options) => {
       const session = new Session(options);
       session.start = async () => {
@@ -314,7 +315,7 @@ test('keep mergeable re-signs the session commits in the trusted handoff when th
   const sessionShas: string[] = [];
   const spawnSession = createTeamReviewSpawn({
     reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
-    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', recordLane: () => {},
+    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', platform: 'linux', recordLane: () => {},
     makeSession: (options) => {
       const session = new Session(options);
       session.start = async () => {
@@ -352,7 +353,7 @@ test('keep mergeable refuses to re-sign and push a session commit whose message 
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-sign-latin1-'));
   const spawnSession = createTeamReviewSpawn({
     reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
-    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', recordLane: () => {},
+    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', platform: 'linux', recordLane: () => {},
     makeSession: (options) => {
       const session = new Session(options);
       session.start = async () => {
@@ -383,7 +384,7 @@ test('keep mergeable refuses to re-sign and push a session commit whose author n
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-sign-latin1-author-'));
   const spawnSession = createTeamReviewSpawn({
     reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
-    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', recordLane: () => {},
+    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', platform: 'linux', recordLane: () => {},
     makeSession: (options) => {
       const session = new Session(options);
       session.start = async () => {
@@ -417,16 +418,12 @@ test('keep mergeable excludes sandbox stub files from the checkout so a git add 
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-stubs-'));
   const spawnSession = createTeamReviewSpawn({
     reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
-    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', recordLane: () => {},
+    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', platform: 'linux', recordLane: () => {},
     makeSession: (options) => {
       const session = new Session(options);
       session.start = async () => {
         const checkoutPath = path.join(options.path, MY_PRS_FIX_CHECKOUT_DIRNAME);
-        for (const stubName of KEEP_MERGEABLE_SANDBOX_STUB_NAMES) {
-          const stubPath = path.join(checkoutPath, stubName.endsWith('/') ? `${stubName}stub` : stubName);
-          await fs.mkdir(path.dirname(stubPath), { recursive: true });
-          await fs.writeFile(stubPath, '');
-        }
+        for (const placeholderName of SANDBOX_PLACEHOLDER_NAMES) await fs.writeFile(path.join(checkoutPath, placeholderName), '');
         await resolveConflictAndCommit(checkoutPath);
         session.emit('exit');
       };
@@ -712,30 +709,16 @@ test('keep mergeable refuses a workflow file whose name git would print C-quoted
   }
 });
 
-test('the keep mergeable sandbox hides operator credential and config homes from Bash but re-opens its own work dir and cached clone', () => {
-  const sandbox = keepMergeableSandbox('/home/op/.glimmervoid/my-prs-work/wt', { glimmervoidHome: '/srv/glimmervoid', cachedClone: '/home/op/.glimmervoid/team-review-repos/Acme/app' });
-  for (const deniedPath of ['~/.ssh', '~/.config/gh', '~/.git-credentials', '~/.claude', '~/.codex', '~/.grok', '~/.glimmervoid', '~/.aws', '~/.gnupg', '~/.config', '~/.npmrc', '~/.netrc', '~/.docker', '~/.kube', '/srv/glimmervoid']) {
-    assert.ok(sandbox.filesystem.denyRead.includes(deniedPath), deniedPath);
-  }
-  for (const deniedPath of KEEP_MERGEABLE_EXTRA_DENY_READ_PATHS) assert.ok(sandbox.filesystem.denyRead.includes(deniedPath), deniedPath);
-  assert.equal(new Set(sandbox.filesystem.denyRead).size, sandbox.filesystem.denyRead.length);
-  assert.deepEqual(sandbox.filesystem.allowRead, ['/home/op/.glimmervoid/my-prs-work/wt', '/home/op/.glimmervoid/team-review-repos/Acme/app']);
-  assert.deepEqual(sandbox.filesystem.allowWrite, ['/home/op/.glimmervoid/my-prs-work/wt'], 'a denied ~/.codex is never writable');
-  assert.deepEqual(teamReviewSandbox('/work/dir').filesystem.denyRead, ['~/.ssh', '~/.config/gh', '~/Library/Keychains', '~/.git-credentials']);
-});
-
-test('the keep mergeable sandbox reaches no GitHub domain and opens no unix socket while the review sandbox stays as it was', () => {
-  const sandbox = keepMergeableSandbox('/work/dir', { glimmervoidHome: '/home/op/.glimmervoid', cachedClone: '/clone' });
-  const reviewSandbox = teamReviewSandbox('/work/dir');
-  assert.equal(sandbox.network.allowAllUnixSockets, false);
-  assert.equal(sandbox.network.strictAllowlist, true);
-  assert.deepEqual(sandbox.network.allowedDomains.filter((domain) => /github/i.test(domain)), []);
-  assert.deepEqual(sandbox.network.allowedDomains, reviewSandbox.network.allowedDomains.filter((domain) => !/github/i.test(domain)));
-  assert.equal(sandbox.failIfUnavailable, true);
-  assert.equal(sandbox.allowUnsandboxedCommands, false);
-  assert.deepEqual(sandbox.filesystem.denyWrite, reviewSandbox.filesystem.denyWrite);
-  assert.equal(reviewSandbox.network.allowAllUnixSockets, true);
-  assert.ok(reviewSandbox.network.allowedDomains.includes('api.github.com'));
+test('a staged pull request session writes only its work folder and reads its cached clone, and only keep mergeable gets open network', () => {
+  const workDir = '/home/op/.glimmervoid/my-prs-work/wt';
+  const cachedClone = '/home/op/.glimmervoid/team-review-repos/Acme/app';
+  const facts = { launchId: 'launch-one', cwd: workDir, hookPort: 3911, readablePaths: ['/hook/settings'], agentSessionId: 'agent-session-one' };
+  const confinedRole = confinedPrRole(facts, cachedClone);
+  assert.deepEqual(confinedRole, {
+    vendors: ['claude'], vendorHome: { scope: 'launch', cwd: workDir, agentSessionId: 'agent-session-one' }, network: { access: 'allowlist', domains: [], hookPort: 3911 },
+    writableRoots: [workDir], lockedCheckouts: [], commitCheckouts: [], readDenied: [], readableWithinDenied: ['/hook/settings', cachedClone],
+  });
+  assert.deepEqual(keepMergeableRole(facts, cachedClone), { ...confinedRole, network: { access: 'open' } });
 });
 
 test('keep mergeable aborts a session past the deadline read from teamReview.keepMergeableTimeoutMinutes and pushes nothing', async () => {

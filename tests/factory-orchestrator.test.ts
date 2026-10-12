@@ -14,9 +14,9 @@ import type { FactoryPoller } from '../server/factory-poller.ts';
 import { FACTORY_ORCHESTRATOR_ALLOW, FACTORY_ORCHESTRATOR_DENY, createFactoryOrchestrator } from '../server/factory-orchestrator.ts';
 import type { FactoryOrchestratorSession } from '../server/factory-orchestrator.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
-import { buildLanePosture } from '../server/core/lane-posture-core.ts';
+import { LANE_ENVIRONMENT_ARGS } from '../server/core/lane-permissions-core.ts';
+import type { SandboxRole } from '../server/core/sandbox-policy-core.ts';
 import { LANE_CREDENTIAL_ENV } from '../server/core/sandbox-roles-core.ts';
-import { teamReviewSandbox } from '../server/team-review-wiring.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import type { SessionSpawnOverrides } from '../server/session-factory.ts';
 import type { FactoryProjectState } from '../shared/contracts/factory.ts';
@@ -24,7 +24,8 @@ import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
 import { readCoherenceFixture } from './helpers/factory-coherence-reports.ts';
-import { createLedgerRepository, lanePrivateHome } from './helpers/factory-fixture.ts';
+import { createLedgerRepository } from './helpers/factory-fixture.ts';
+import { passthroughWorkLane } from './helpers/passthrough-work-lane.ts';
 import { waitFor } from './helpers/wait-for.ts';
 
 const project: FactoryProjectState = {
@@ -86,12 +87,13 @@ async function createFixture(context: TestContext, commitAndLand: (projectId: st
   const recordedLanes: string[] = [];
   const sessions = new Map<string, StubSession>();
   const exceptionNotices: string[] = [];
+  const preparedRoles: SandboxRole[] = [];
   let saneYoloHookTools: ResolvedHookTool[] | null = [{ id: 'saneYolo', binPath: '/cc-safety-net' }];
   let nowMs = 1_000_000;
   const orchestrator = createFactoryOrchestrator({
     config: { projects: [], factory: { enabled: true } }, sessions,
     nodePath: '/node', hookCliPath: '/coherence-hook.js', shimDir: '/factory/bin',
-    getHookPort: () => 3911,
+    workLane: passthroughWorkLane(preparedRoles),
     ensureLedger: async () => ({ ledgerPath, commonGitDir }), commitAndLand, readTrustedIntentIds: async () => trustedIntentIds,
     resolveSaneYoloHookTools: () => saneYoloHookTools,
     notifyException: (_projectId, reason) => { exceptionNotices.push(reason); },
@@ -110,7 +112,7 @@ async function createFixture(context: TestContext, commitAndLand: (projectId: st
     now: () => nowMs,
   });
   context.after(orchestrator.stop);
-  return { ledgerPath, commonGitDir, orchestrator, spawned, messages, lifecycle, sessions, recordedLanes, trustedIntentIds, exceptionNotices, advanceClock: (elapsedMs: number) => { nowMs += elapsedMs; },
+  return { ledgerPath, commonGitDir, orchestrator, spawned, messages, lifecycle, sessions, recordedLanes, trustedIntentIds, exceptionNotices, preparedRoles, advanceClock: (elapsedMs: number) => { nowMs += elapsedMs; },
     removeSaneYolo: () => { saneYoloHookTools = null; } };
 }
 
@@ -121,7 +123,7 @@ async function createMainLedgerRepository(context: TestContext, prefix: string) 
   return { repository, origin, ...ledgerRepository };
 }
 
-test('orchestrator uses the ledger cwd, pinned Claude hooks, Sane YOLO, a ledger sandbox and denying permissions and registers visibly before starting', async (context) => {
+test('orchestrator uses the ledger cwd, pinned Claude hooks, Sane YOLO, a work role locked to the ledger and denying permissions and registers visibly before starting', async (context) => {
   const fixture = await createFixture(context);
   const state = await fixture.orchestrator.tick(project);
   const { project: identity, overrides, session } = fixture.spawned[0];
@@ -144,16 +146,14 @@ test('orchestrator uses the ledger cwd, pinned Claude hooks, Sane YOLO, a ledger
   });
   assert.deepEqual(overrides.hookTools, [{ id: 'saneYolo', binPath: '/cc-safety-net' }]);
   assert.equal(overrides.getHookTools, null);
-  assert.ok(overrides.settingsSandbox);
-  const readableHomeFolders = (overrides.settingsSandbox.filesystem as { allowRead: string[] }).allowRead;
-  const expectedPosture = buildLanePosture({
-    access: 'own-checkout', writableRoots: [fixture.ledgerPath], network: { hookEndpoint: { host: '127.0.0.1', port: 3911 }, domains: [] },
-    allowCommands: FACTORY_ORCHESTRATOR_ALLOW.map((rule) => rule.slice(5, -3)), extraDeny: FACTORY_ORCHESTRATOR_DENY,
-    denyRead: teamReviewSandbox(os.tmpdir()).filesystem.denyRead, scrubCredentials: true,
-  }, { tempDir: await realpath(os.tmpdir()), commonGitDir: fixture.commonGitDir, privateHome: await lanePrivateHome(), privateHomeToolFolders: readableHomeFolders });
-  assert.deepEqual(overrides.settingsSandbox, expectedPosture.settingsSandbox);
-  assert.deepEqual(overrides.settingsPermissions, expectedPosture.settingsPermissions);
-  assert.deepEqual(overrides.extraClaudeArgs?.slice(2), expectedPosture.extraClaudeArgs);
+  assert.equal(overrides.settingsSandbox, undefined);
+  const preparation = await overrides.prepareSandbox?.({ launchId: 'launch-one', cwd: fixture.ledgerPath, hookPort: 3911, readablePaths: ['/hook/settings'], agentSessionId: claudeSessionId ?? null });
+  assert.equal(preparation?.ok, true);
+  assert.deepEqual(fixture.preparedRoles, [{
+    vendors: ['claude'], vendorHome: { scope: 'launch', cwd: fixture.ledgerPath, agentSessionId: claudeSessionId }, network: { access: 'open' },
+    writableRoots: [], lockedCheckouts: [fixture.ledgerPath], commitCheckouts: [], readDenied: [], readableWithinDenied: ['/hook/settings'],
+  }]);
+  assert.deepEqual(overrides.extraClaudeArgs?.slice(2), [...LANE_ENVIRONMENT_ARGS]);
   assert.deepEqual(FACTORY_ORCHESTRATOR_ALLOW, ['Bash(coherence work create:*)', 'Bash(coherence orient:*)', 'Bash(coherence work inspect:*)',
     'Bash(coherence context:*)', 'Bash(coherence decide:*)', 'Bash(coherence defects:*)', 'Bash(glimmervoid dispatch:*)']);
   for (const denied of ['Bash(coherence work close:*)', 'Bash(coherence work transition:*)', 'Bash(coherence work handoff:*)', 'Bash(coherence consequence:*)', 'Bash(coherence defect:*)', 'Edit', 'Write', 'Bash(git push:*)',
@@ -431,7 +431,7 @@ test('wiring stays inert when disabled and lane disabling destroys only its orch
     },
     gitWorkspace: { ...createGitWorkspace(), create: async () => ({ cwd: ledgerPath, branch: 'factory-ledger', isGit: true }) },
     orchestratorOptions: {
-      getHookPort: () => 3911,
+      workLane: passthroughWorkLane(),
       config, sessions, broadcast: () => {}, closeSessionDataClients: () => {}, recordLane: () => {},
       resolveSaneYoloHookTools: () => [{ id: 'saneYolo', binPath: '/cc-safety-net' }],
       wireSessionEvents: () => {}, spawnGate: { run: async (operation) => operation() },

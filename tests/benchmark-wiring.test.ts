@@ -138,7 +138,7 @@ test('each arm env and the injected token reach only that arm subject spawn, and
   assert.equal(candidateSpawn?.spawnEnv.CODEX_HOME, undefined);
   assert.equal(candidateSpawn?.extraClaudeArgs.slice(1, 3).join(' '), '--model opus');
   assert.equal(baselineSpawn?.spawnEnv.GH_TOKEN, '');
-  assert.equal(baselineSpawn?.settingsSandbox.enabled, true);
+  assert.equal(baselineSpawn?.settingsSandbox?.enabled, true);
   assert.ok(baselineSpawn?.extraClaudeArgs.includes('--strict-mcp-config'));
   assert.equal(judgeRequests.length, 2);
   assert.ok(judgeRequests.every((request) => request.model === 'opus' && !('spawnEnv' in request)));
@@ -270,8 +270,8 @@ test('a blobless cached checkout exposes only reviewed refs, keeps the base diff
         const prompt = fs.readFileSync(path.join(request.cwd, 'subject-prompt.md'), 'utf8');
         const checkoutPath = /Review (\S+) from/.exec(prompt)?.[1] ?? '';
         checkoutPaths.push(checkoutPath);
-        assert.deepEqual(request.settingsSandbox.filesystem.allowRead, [path.join(cachedRepo, '.git', 'objects')]);
-        assert.ok(request.settingsSandbox.filesystem.denyRead.includes(repoCacheRootFor(root)));
+        assert.deepEqual(request.settingsSandbox?.filesystem.allowRead, [path.join(cachedRepo, '.git', 'objects')]);
+        assert.ok(request.settingsSandbox?.filesystem.denyRead.includes(repoCacheRootFor(root)));
         assert.equal(request.cwd, path.join(path.dirname(checkoutPath), 'work'));
         assert.deepEqual(git(['for-each-ref', '--format=%(refname)'], checkoutPath).trim().split('\n'), ['refs/benchmark/base', 'refs/heads/review']);
         assert.equal(git(['remote'], checkoutPath).trim(), '');

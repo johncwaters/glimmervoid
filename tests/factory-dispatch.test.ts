@@ -12,12 +12,11 @@ import { buildCoherenceShims, buildCoherenceUserHooks } from '../server/core/coh
 import type { FactoryCloseOutWorker } from '../server/factory-closeout.ts';
 import { createFactoryDispatch } from '../server/factory-dispatch.ts';
 import { LANE_ENVIRONMENT_ARGS } from '../server/core/lane-permissions-core.ts';
-import { LANE_READABLE_HOME_FOLDERS } from '../server/core/lane-posture-core.ts';
+import type { SandboxRole } from '../server/core/sandbox-policy-core.ts';
 import type { LaneSpend } from '../server/core/usage-scan-core.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { cliPath, resolvePackageBin } from '../server/runtime-paths.ts';
 import { createSessionFactory } from '../server/session-factory.ts';
-import { teamReviewSandbox } from '../server/team-review-wiring.ts';
 import type { SessionSpawnOverrides } from '../server/session-factory.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
@@ -26,6 +25,7 @@ import type { FactoryWorkerEvent } from '../shared/contracts/factory.ts';
 import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { createCoherenceLedger, lanePrivateHome } from './helpers/factory-fixture.ts';
 import { fakePty } from './helpers/fake-pty.ts';
+import { passthroughWorkLane } from './helpers/passthrough-work-lane.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 
 async function createFixture(context: TestContext) {
@@ -56,6 +56,7 @@ async function createFixture(context: TestContext) {
   const exceptions = new Map<string, string>();
   const spawnEnvs: Record<string, string | undefined>[] = [];
   const spawnArguments: string[][] = [];
+  const preparedRoles: SandboxRole[] = [];
   const factory = createSessionFactory({ configStore: { configPath: path.join(directory, 'config.json') },
     hookRouter: new HookRouter(), getHookPort: () => 12345, getGitWorkspace: () => gitWorkspace, getPlanReviewPort: () => null,
     resolveHookTools: () => [], getUserHooks: () => [] });
@@ -65,7 +66,7 @@ async function createFixture(context: TestContext) {
   let shouldThrowOnMake = false;
   let saneYoloHookTools: ResolvedHookTool[] | null = [{ id: 'saneYolo', binPath: path.join(directory, 'cc-safety-net.js') }];
   const dependencies: Parameters<typeof createFactoryDispatch<Session>>[0] = {
-    getHookPort: () => 3911,
+    workLane: passthroughWorkLane(preparedRoles),
     onReadyIntent: (_projectId, intentId) => { readyIntents.push(intentId); },
     onWorkerTurnEnd: async (worker) => { turnEnds.push(worker); },
     config, sessions, nodePath: process.execPath, hookCliPath, shimDir: path.join(directory, 'bin'),
@@ -94,14 +95,14 @@ async function createFixture(context: TestContext) {
   const dispatcher = createFactoryDispatch(dependencies);
   context.after(async () => { await dispatcher.stop(); await coherenceLedger.settleProjectChain(); await rm(directory, { recursive: true, force: true }); });
   return { ...coherenceLedger, dispatcher, dependencies, directory, config, createOrder, workId, intentId, spawned, sessions, events, broadcasts, laneRecords, exceptions, hookCliPath,
-    spawnEnvs, spawnArguments, turnEnds, readyIntents, setSpend: (spend: LaneSpend) => { todaySpend = spend; },
+    spawnEnvs, spawnArguments, preparedRoles, turnEnds, readyIntents, setSpend: (spend: LaneSpend) => { todaySpend = spend; },
     settle: coherenceLedger.settleProjectChain,
     setPaused: (paused: boolean) => { isPaused = paused; },
     removeSaneYolo: () => { saneYoloHookTools = null; },
     endOrchestrator: () => { isOrchestratorLive = false; }, failMake: (shouldFail = true) => { shouldThrowOnMake = shouldFail; } };
 }
 
-test('dispatch hands off and activates at the integration tip, then provisions a worker worktree with coherence hooks, a worktree-scoped edit rule and a worktree sandbox', async (context) => {
+test('dispatch hands off and activates at the integration tip, then provisions a worker worktree with coherence hooks, a worktree-scoped edit rule and a work role locked to the worktree', async (context) => {
   const fixture = await createFixture(context);
   const reply = await fixture.dispatcher.dispatch('orchestrator', { workId: fixture.workId });
   if (!reply.ok) throw new Error(reply.reason);
@@ -134,19 +135,14 @@ test('dispatch hands off and activates at the integration tip, then provisions a
     allow: [`Edit(/${worktreePath}/**)`, 'Bash(coherence context:*)', 'Bash(rm:*)', 'Bash(npm run typecheck:*)', 'Bash(npm run lint:*)', 'Bash(npm test:*)'],
     deny: ['Bash(git push:*)', 'Bash(gh:*)', 'Bash(glimmervoid:*)', 'WebFetch', 'Edit(**/.git/**)', 'Edit(**/.claude/**)'] });
   const privateHome = await lanePrivateHome();
-  const privateHomeToolFolders = LANE_READABLE_HOME_FOLDERS.map((folder) => path.join(privateHome, folder));
-  assert.ok(overrides.settingsSandbox);
-  const readableHomeFolders = (overrides.settingsSandbox.filesystem as { allowRead: string[] }).allowRead;
-  for (const readableHomeFolder of readableHomeFolders) assert.ok(privateHomeToolFolders.includes(readableHomeFolder), readableHomeFolder);
-  assert.deepEqual(overrides.settingsSandbox, {
-    ...teamReviewSandbox(os.tmpdir()),
-    network: { ...teamReviewSandbox(os.tmpdir()).network, allowAllUnixSockets: false, allowedDomains: ['127.0.0.1:3911'] },
-    filesystem: {
-      allowWrite: [await realpath(os.tmpdir()), worktreePath],
-      denyWrite: [commonGitDir, path.join(worktreePath, '.git'), path.join(worktreePath, '.claude')],
-      denyRead: [...teamReviewSandbox(os.tmpdir()).filesystem.denyRead, privateHome],
-      allowRead: readableHomeFolders,
-    },
+  const sessionHookFolder = path.join(privateHome, 'scratch', 'glimmervoid-hooks', reply.sessionId);
+  assert.equal(overrides.settingsSandbox, undefined);
+  assert.equal(fixture.preparedRoles.length, 1);
+  const workerRole = fixture.preparedRoles[0];
+  assert.ok(workerRole.readableWithinDenied.includes(sessionHookFolder));
+  assert.deepEqual({ ...workerRole, readableWithinDenied: [] }, {
+    vendors: ['claude'], vendorHome: { scope: 'launch', cwd: worktreePath, agentSessionId: claudeSessionId }, network: { access: 'open' },
+    writableRoots: [], lockedCheckouts: [worktreePath], commitCheckouts: [], readDenied: [], readableWithinDenied: [],
   });
   assert.notEqual(spawned.session.worktreeDir, fixture.projectPath);
   assert.notEqual(spawned.session.worktreeDir, fixture.ledger.cwd);
@@ -165,10 +161,10 @@ test('dispatch hands off and activates at the integration tip, then provisions a
   assert.ok(settingsIndex >= 0);
   const settingsFile = fixture.spawnArguments[0][settingsIndex + 1];
   assert.ok(settingsFile);
-  const settings: { hooks: Record<string, unknown>; permissions: Record<string, unknown>; sandbox: Record<string, unknown> } = JSON.parse(await readFile(settingsFile, 'utf8'));
+  const settings: { hooks: Record<string, unknown>; permissions: Record<string, unknown>; sandbox?: Record<string, unknown> } = JSON.parse(await readFile(settingsFile, 'utf8'));
   assert.ok(settings.hooks.PostToolUse);
   assert.deepEqual(settings.permissions, overrides.settingsPermissions);
-  assert.deepEqual(settings.sandbox, overrides.settingsSandbox);
+  assert.deepEqual(settings.sandbox, { enabled: false });
   assert.deepEqual(overrides.hookTools, [{ id: 'saneYolo', binPath: path.join(fixture.directory, 'cc-safety-net.js') }]);
   assert.equal(overrides.getHookTools, null);
   assert.ok(JSON.stringify(settings.hooks.PreToolUse).includes('cc-safety-net.js\\" hook --coding-cli'));

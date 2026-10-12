@@ -22,6 +22,7 @@ import { createSessionFactory } from '../server/session-factory.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import type { Session } from '../session/sessions.ts';
 import { fakePty } from './helpers/fake-pty.ts';
+import { passthroughWorkLane } from './helpers/passthrough-work-lane.ts';
 import { createCoherenceLedger, initGitRepository, stubEnvironmentVariable } from './helpers/factory-fixture.ts';
 import { waitFor } from './helpers/wait-for.ts';
 import { FactoryLaneState, FactoryWorkerEvent } from '../shared/contracts/factory.ts';
@@ -277,7 +278,7 @@ test('a worker that changed nothing fails each attempt and blocks on the third',
   assert.equal(fixture.reviewRequests.length, 0);
 });
 
-test('close-out refuses to commit a nested repository, a shared host file or a sandbox placeholder and leaves the worker branch where it was, and commits an edit to a shared entry the repository tracks and a new file under one the project does not ignore', async (context) => {
+test('close-out refuses to commit a nested repository or a shared host file and leaves the worker branch where it was, and commits an edit to a shared entry the repository tracks and a new file under one the project does not ignore, leaving an empty sandbox placeholder out', async (context) => {
   const leaveNestedRepository = async (fixture: Awaited<ReturnType<typeof createFixture>>) => {
     const nestedRepositoryPath = path.join(fixture.workspace.cwd, 'vendored');
     await mkdir(nestedRepositoryPath);
@@ -296,9 +297,6 @@ test('close-out refuses to commit a nested repository, a shared host file or a s
       fixture.config.worktreeShare = ['node_modules', '.env'];
       await writeFile(path.join(fixture.projectPath, '.gitignore'), '.env\n');
       await writeFile(path.join(fixture.workspace.cwd, '.env'), 'OPERATOR_VALUE=from-the-host\n');
-    } },
-    { feedbackPattern: /A command was still running in this worktree\. Wait for every command to end/, leave: async (fixture: Awaited<ReturnType<typeof createFixture>>) => {
-      await writeFile(path.join(fixture.workspace.cwd, '.mcp.json'), '');
     } },
   ];
   for (const { feedbackPattern, leave } of refusedLeftovers) {
@@ -321,10 +319,12 @@ test('close-out refuses to commit a nested repository, a shared host file or a s
   await trackedEntryFixture.git(['add', '--', '.env'], trackedEntryFixture.workspace.cwd);
   await trackedEntryFixture.git(['commit', '-m', 'test: track env'], trackedEntryFixture.workspace.cwd);
   await writeFile(trackedEnvPath, 'TRACKED_VALUE=after\n');
+  await writeFile(path.join(trackedEntryFixture.workspace.cwd, '.mcp.json'), '');
   await trackedEntryFixture.closeOut.turnEnded(trackedEntryFixture.worker);
   assert.deepEqual(trackedEntryFixture.feedback, []);
   const mergedSha = trackedEntryFixture.mergedSha();
   assert.ok(mergedSha);
+  assert.equal(await trackedEntryFixture.git(['ls-tree', '--name-only', mergedSha, '.mcp.json']), '');
   assert.equal(await trackedEntryFixture.git(['show', `${mergedSha}:.env`]), 'TRACKED_VALUE=after');
   assert.equal(await trackedEntryFixture.git(['show', `${mergedSha}:src/backoff.ts`]), 'export const backoffMs = 100;');
 });
@@ -555,7 +555,7 @@ async function startFactoryWiring(fixture: Awaited<ReturnType<typeof createFixtu
     config, homeDir, now: () => nowMs, readSpentTodayUsd: () => ({ status: 'known', amountUsd: 1 }), prepareCheckRunner: prepareUnsandboxedCheckRunner,
     notify: (_projectName, category, message) => { notifications.push({ category, message }); }, gitWorkspace: fixture.gitWorkspace, firstTickDelayMs: () => 0, broadcast: () => {},
     orchestratorOptions: {
-      getHookPort: () => 3911,
+      workLane: passthroughWorkLane(),
       config, sessions, closeSessionDataClients: () => {}, wireSessionEvents: () => {}, broadcast: () => {}, recordLane: () => {},
       spawnGate: { run: async (operation) => operation() },
       makeSession: (project, currentConfig, overrides) => {

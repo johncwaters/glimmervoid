@@ -32,6 +32,7 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `team-review-wiring.ts` | Team review session and state helpers |
 | `ephemeral-session.ts` | Shared ephemeral-Session registration and cleanup |
 | `lane-spawn.ts` | Ephemeral lane spawn on the lane-permissions seam; every lane is wrapped in the judge sandbox role (`core/sandbox-roles-core.ts`), bar Windows |
+| `work-lane.ts` | Interactive work lane (factory worker and orchestrator): the work sandbox role plus dontAsk permissions and a required Sane YOLO hook; refuses on Windows |
 | `team-review-poller.ts` | Team review poller, IO-free |
 | `pr-gh.ts` | `gh` issue queries shared with the control plane |
 | `benchmark-wiring.ts` | Benchmark lane: suites under `~/.glimmervoid/benchmarks`, mining, one serial run (pure rules in `core/benchmark-core.ts`, `core/benchmark-mining-core.ts`) |

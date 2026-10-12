@@ -18,7 +18,7 @@ import type { FactoryDecisionWorkerEvent } from './core/factory-decision-log-cor
 import { createFactoryCloseOut, factorySecretValues } from './factory-closeout.ts';
 import type { FactoryCloseOutDeps } from './factory-closeout.ts';
 import { createFactoryDispatch } from './factory-dispatch.ts';
-import { readLaneCommonGitDir } from './lane-posture.ts';
+import { readLaneCommonGitDir } from './work-lane.ts';
 import { buildFactoryDecisionEvent } from './core/telemetry-core.ts';
 import type { Telemetry } from './telemetry.ts';
 import { repositoryRootOfCommonGitDir } from './core/claude-trust-core.ts';

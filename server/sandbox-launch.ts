@@ -5,7 +5,7 @@ import { rawTextOr } from '../shared/coerce.ts';
 import { errorMessage, isMissingFileError } from '../shared/text.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { listClaudeGlobalConfigPathCandidates } from './core/claude-trust-core.ts';
-import { buildSandboxLaunchPlan, sandboxPolicyProbePaths } from './core/sandbox-policy-core.ts';
+import { buildSandboxLaunchPlan, sandboxPlaceholderPaths, sandboxPolicyProbePaths } from './core/sandbox-policy-core.ts';
 import type { SandboxHost, SandboxLaunchPlan, SandboxRole } from './core/sandbox-policy-core.ts';
 import { codexHomes, grokHomes, projectDirCandidates } from './core/usage-scan-core.ts';
 import { writeJsonAtomic } from './json-file.ts';
@@ -106,6 +106,18 @@ async function isRegularFile(candidate: string): Promise<boolean> {
   }
 }
 
+async function absentPaths(candidates: readonly string[]): Promise<string[]> {
+  const presentCandidates = await presentPaths(candidates);
+  return candidates.filter((candidate) => !presentCandidates.has(candidate));
+}
+
+async function removeLeftoverPlaceholders(placeholderPaths: readonly string[]): Promise<void> {
+  for (const placeholderPath of placeholderPaths) {
+    const placeholderStats = await lstat(placeholderPath).catch(() => null);
+    if (placeholderStats?.isFile() && placeholderStats.size === 0) await rm(placeholderPath, { force: true });
+  }
+}
+
 async function keepRefreshedLogins(links: SandboxLaunchPlan['launchHomeLinks'], launchId: string): Promise<void> {
   for (const { linkPath, targetPath } of links.filter((link) => link.isLogin)) {
     if (!await isRegularFile(linkPath)) continue;
@@ -161,6 +173,7 @@ async function prepareSandboxLaunch({ role, launchId, tempDir }: SandboxLaunchRe
     await Promise.all(plan.launchHomeLinks.map((link) => symlink(link.targetPath, link.linkPath)));
     await writeJsonAtomic(policyPath, plan.policy);
     const envPrefix = sandboxedEnvPrefix(plan);
+    let placeholderPathsAbsentAtWrap: string[] = [];
     return {
       ok: true,
       launch: {
@@ -168,11 +181,13 @@ async function prepareSandboxLaunch({ role, launchId, tempDir }: SandboxLaunchRe
           const rebuilt = await buildPlanFromCurrentDisk();
           if (!rebuilt.ok) throw new Error(rebuilt.reason);
           await writeJsonAtomic(policyPath, rebuilt.plan.policy);
+          placeholderPathsAbsentAtWrap = await absentPaths(sandboxPlaceholderPaths(realRole));
           return { file: launcher.file, args: [...launcher.args, ...envPrefix, file, ...args] };
         },
         env: { ...plan.launchEnv },
         dispose: async () => {
           await rm(policyPath, { force: true });
+          await removeLeftoverPlaceholders(placeholderPathsAbsentAtWrap);
           await keepRefreshedLogins(plan.launchHomeLinks, launchId);
           await rm(launchHomeDir, { recursive: true, force: true });
           if (ownsTempDir) await rm(launchTempDir, { recursive: true, force: true });

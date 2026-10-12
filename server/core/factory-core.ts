@@ -404,7 +404,8 @@ export function appendFactoryLandedSha(landedShas: readonly string[], landedSha:
   return [...landedShas.filter((recordedSha) => recordedSha !== landedSha), landedSha].slice(-FACTORY_LANDED_SHA_LIMIT);
 }
 
-export { absolutePathEditRule, isWorktreeAdminDirOf, parseGitdirPointer } from './lane-posture-core.ts';
+export { absolutePathEditRule } from './lane-permissions-core.ts';
+export { isWorktreeAdminDirOf, parseGitdirPointer } from './sandbox-roles-core.ts';
 
 export function buildWorkerPrompt({ projectName, intent, order, claudeSessionId, checks = DEFAULT_FACTORY_CHECKS }: {
   projectName: string; intent: FactoryWorkOrder; order: FactoryWorkOrder; claudeSessionId: string; checks?: string[];
@@ -783,8 +784,12 @@ export function buildWorkerCommitMessage({ workId, objective }: { workId: string
   return `${subject}\n\nFactory ticket ${workId}`;
 }
 
-export function listUncommittedWorkPaths(porcelainZ: string): string[] {
-  return listDirtyPaths(porcelainZ).filter((dirtyPath) => !isCoherenceLedgerPath(dirtyPath));
+const UNTRACKED_STATUS_PREFIX = '?? ';
+
+export function listUncommittedWorkPaths(porcelainZ: string, placeholderNames: readonly string[] = []): string[] {
+  const isUntrackedPlaceholder = (entry: string) => entry.startsWith(UNTRACKED_STATUS_PREFIX) && placeholderNames.includes(entry.slice(UNTRACKED_STATUS_PREFIX.length));
+  const entriesBesidePlaceholders = porcelainZ.split('\0').filter((entry) => !isUntrackedPlaceholder(entry)).join('\0');
+  return listDirtyPaths(entriesBesidePlaceholders).filter((dirtyPath) => !isCoherenceLedgerPath(dirtyPath));
 }
 
 const NESTED_REPOSITORY_MODE = '160000';
@@ -793,27 +798,32 @@ const ABSENT_FROM_HEAD_MODE = '000000';
 const RAW_DIFF_ENTRY_PATTERN = /^:(\d{6}) (\d{6}) [0-9a-f]+ ([0-9a-f]+) [A-Z]\d*$/;
 const WORKER_COMMIT_UNREADABLE_REFUSAL = 'Glimmervoid could not read the staged changes, so nothing was committed. Finish the turn again.';
 
-export function findWorkerCommitRefusal({ rawDiff, sharedEntries, placeholderNames }: {
-  rawDiff: string; sharedEntries: readonly string[]; placeholderNames: readonly string[];
-}): string | null {
+export function listStagedSandboxPlaceholders(rawDiff: string, placeholderNames: readonly string[]): string[] {
+  const diffFields = rawDiff.split('\0');
+  const placeholderPaths: string[] = [];
+  for (let index = 0; index + 1 < diffFields.length; index += 2) {
+    const entry = RAW_DIFF_ENTRY_PATTERN.exec(diffFields[index]);
+    if (!entry) continue;
+    const [, oldMode, , newObjectId] = entry;
+    const changedPath = diffFields[index + 1];
+    if (oldMode === ABSENT_FROM_HEAD_MODE && EMPTY_BLOB_IDS.has(newObjectId) && placeholderNames.includes(changedPath)) placeholderPaths.push(changedPath);
+  }
+  return placeholderPaths;
+}
+
+export function findWorkerCommitRefusal({ rawDiff, sharedEntries }: { rawDiff: string; sharedEntries: readonly string[] }): string | null {
   const diffFields = rawDiff.split('\0');
   if (diffFields.length % 2 === 0 || diffFields.at(-1) !== '') return WORKER_COMMIT_UNREADABLE_REFUSAL;
   const sharedScopes = sharedEntries.map(normalizeScope).filter((sharedScope): sharedScope is string => sharedScope !== null && sharedScope !== '');
-  const placeholderFileNames = new Set(placeholderNames.map((placeholderName) => placeholderName.replace(/\/+$/, '')));
   const nestedRepositoryPaths: string[] = [];
   const sharedHostPaths: string[] = [];
-  let hasSandboxPlaceholder = false;
   for (let index = 0; index + 1 < diffFields.length; index += 2) {
     const entry = RAW_DIFF_ENTRY_PATTERN.exec(diffFields[index]);
     if (!entry) return WORKER_COMMIT_UNREADABLE_REFUSAL;
-    const [, oldMode, newMode, newObjectId] = entry;
+    const [, oldMode, newMode] = entry;
     const changedPath = diffFields[index + 1];
     if (newMode === NESTED_REPOSITORY_MODE) {
       nestedRepositoryPaths.push(changedPath);
-      continue;
-    }
-    if (placeholderFileNames.has(changedPath) && EMPTY_BLOB_IDS.has(newObjectId)) {
-      hasSandboxPlaceholder = true;
       continue;
     }
     if (oldMode === ABSENT_FROM_HEAD_MODE && sharedScopes.some((sharedScope) => containsScope(sharedScope, changedPath))) sharedHostPaths.push(changedPath);
@@ -821,7 +831,6 @@ export function findWorkerCommitRefusal({ rawDiff, sharedEntries, placeholderNam
   const refusals: string[] = [];
   if (nestedRepositoryPaths.length > 0) refusals.push(`Nested git repositories cannot be committed. Remove them, then finish the turn: ${nestedRepositoryPaths.join(', ')}`);
   if (sharedHostPaths.length > 0) refusals.push(`Shared host files cannot be committed. Restore the ignore rule that keeps them out of git, then finish the turn: ${sharedHostPaths.join(', ')}`);
-  if (hasSandboxPlaceholder) refusals.push('A command was still running in this worktree. Wait for every command to end, then finish the turn.');
   return refusals.length > 0 ? refusals.join('\n') : null;
 }
 

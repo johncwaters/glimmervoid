@@ -143,7 +143,7 @@ test('a held head that keep mergeable pushed itself is never repaired again', ()
 test('keep mergeable prompt pins the local checkout and asks for repairs committed locally, never pushed or merged', () => {
   const pr = { ...readyPr(), headRefName: 'fix/checks', isCrossRepository: true };
   const prompt = keepMergeablePrompt(pr);
-  for (const text of [pr.key, pr.headRefName, pr.baseRefName, pr.headRefOid, 'Fix merge conflicts', 'fix failing checks', 'commit the repairs locally', 'Do not push and do not merge', 'no network access to GitHub', 'anything under .github/', 'CODEOWNERS', 'credential or secret files']) {
+  for (const text of [pr.key, pr.headRefName, pr.baseRefName, pr.headRefOid, 'Fix merge conflicts', 'fix failing checks', 'commit the repairs locally', 'Do not push and do not merge', 'no GitHub credentials', 'anything under .github/', 'CODEOWNERS', 'credential or secret files']) {
     assert.ok(prompt.includes(text), text);
   }
   for (const text of ['gh repo clone', 'gh pr checkout', 'push to the PR head branch', 'fork remote']) {
@@ -554,14 +554,13 @@ test('auto-rebase records name the base on success and the first error line on f
   assert.deepEqual(autoRebaseRecord({ ok: false, err: '' }, 'main', NOW), { outcome: 'failed', at: NOW, message: 'GitHub refused the rebase' });
 });
 
-test('keep mergeable is bounded by acceptEdits with only the probed git allow rules and never a bare Write allow', () => {
+test('keep mergeable is bounded by acceptEdits and lets every shell command run, because the session starts inside the sandbox runtime', () => {
   const permissions = keepMergeablePermissions();
   assert.equal(permissions.defaultMode, 'acceptEdits');
   assert.notEqual(permissions.defaultMode, 'bypassPermissions');
   assert.deepEqual(permissions.deny, [...MY_PRS_FIX_DENY_RULES]);
   assert.equal(Object.hasOwn(permissions, 'allow'), false);
-  assert.deepEqual([...MY_PRS_FIX_ALLOW_RULES], ['Bash(git status:*)', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git add:*)', 'Bash(git commit:*)', 'Bash(git merge:*)']);
-  for (const rule of MY_PRS_FIX_ALLOW_RULES) assert.equal(/^(Write|Edit|Bash)$|^(Write|Edit)\(/.test(rule), false, rule);
+  assert.deepEqual([...MY_PRS_FIX_ALLOW_RULES], ['Bash'], 'probed: with no inner sandbox to auto-allow them, shell commands outside the allow rules were refused and no check could run');
 });
 
 test('keep mergeable ends its variadic tool lists with an option, or the bootstrap prompt is eaten as a rule', () => {

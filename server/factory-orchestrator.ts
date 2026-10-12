@@ -17,8 +17,8 @@ import type { FactoryStallSession } from './core/factory-core.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES } from './core/lane-permissions-core.ts';
 import { registerEphemeralSession } from './ephemeral-session.ts';
 import { resolveRequiredSaneYoloHookTools } from './hook-tools.ts';
-import { resolveLanePosture } from './lane-posture.ts';
-import { LANE_CREDENTIAL_DENY_READ } from './core/lane-posture-core.ts';
+import { resolveWorkLane } from './work-lane.ts';
+import type { WorkLaneDependencies } from './work-lane.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 import type { SessionSpawnOverrides } from './session-factory.ts';
@@ -54,7 +54,7 @@ export interface FactoryOrchestratorDeps<ManagedSession extends FactoryOrchestra
   commitAndLand: (projectId: string, intentId: string) => Promise<void>;
   readTrustedIntentIds: (projectId: string) => Promise<ReadonlySet<string>>;
   beginIntent?: (request: { projectId: string; intentId: string; headSha: string | null }) => Promise<{ hasTickets: boolean }>;
-  getHookPort: () => number | null;
+  workLane?: Pick<WorkLaneDependencies, 'prepareSandbox' | 'sandboxRefusal' | 'platform' | 'homeDir'>;
   resolveSaneYoloHookTools?: (config: GlimmervoidConfig) => ResolvedHookTool[] | null;
   notifyException?: (projectId: string, reason: string) => void;
   now?: () => number;
@@ -77,7 +77,7 @@ type OrchestratorRecord<ManagedSession> = {
 export function createFactoryOrchestrator<ManagedSession extends FactoryOrchestratorSession>({
   config, sessions, makeSession, wireSessionEvents, closeSessionDataClients, broadcast, spawnGate, recordLane,
   nodePath, hookCliPath, shimDir, ensureLedger, commitAndLand, readTrustedIntentIds, beginIntent = async () => ({ hasTickets: false }), now = Date.now,
-  getHookPort, resolveSaneYoloHookTools = resolveRequiredSaneYoloHookTools, notifyException = () => {},
+  workLane = {}, resolveSaneYoloHookTools = resolveRequiredSaneYoloHookTools, notifyException = () => {},
 }: FactoryOrchestratorDeps<ManagedSession>) {
   const records = new Map<string, OrchestratorRecord<ManagedSession>>();
   const queuedLinesByProject = new Map<string, string[]>();
@@ -141,12 +141,9 @@ export function createFactoryOrchestrator<ManagedSession extends FactoryOrchestr
       const { ledgerPath } = await ensureLedger(project.projectId);
       const { hasTickets } = await beginIntent({ projectId: project.projectId, intentId, headSha: project.headSha });
       if (stopped) return;
-      const posture = await resolveLanePosture({
-        access: 'own-checkout', cwd: ledgerPath, writableRoots: [ledgerPath],
-        network: { domains: [] }, getHookPort,
-        allowCommands: FACTORY_ORCHESTRATOR_ALLOW.map((rule) => rule.slice(5, -3)), extraDeny: FACTORY_ORCHESTRATOR_DENY,
-        denyRead: LANE_CREDENTIAL_DENY_READ, scrubCredentials: true,
-      }, { resolveSaneYoloHookTools: () => resolveSaneYoloHookTools(config) });
+      const posture = await resolveWorkLane({
+        cwd: ledgerPath, allowCommands: FACTORY_ORCHESTRATOR_ALLOW.map((rule) => rule.slice(5, -3)), extraDeny: FACTORY_ORCHESTRATOR_DENY,
+      }, { ...workLane, resolveSaneYoloHookTools: () => resolveSaneYoloHookTools(config) });
       if (!posture.ok) {
         if (posture.reason !== 'Sane YOLO is unavailable') throw new Error(posture.reason);
         if (record.error !== FACTORY_SANE_YOLO_UNAVAILABLE) notifyException(project.projectId, FACTORY_SANE_YOLO_UNAVAILABLE);

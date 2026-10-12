@@ -155,7 +155,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     trustClaudeFolder: createClaudeFolderTrust().ensureTrusted,
     orchestratorOptions: {
       config, sessions: agentSessions, makeSession, wireSessionEvents, closeSessionDataClients,
-      broadcast: broadcastControl, spawnGate, recordLane, getHookPort,
+      broadcast: broadcastControl, spawnGate, recordLane, workLane: { sandboxRefusal },
     },
   });
   const posthog = createPosthogWiring({
@@ -195,7 +195,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     sweepLeftovers: () => sweepKeepMergeableLeftovers({ workRoot: myPrsWorkRoot, repoCache: sharedRepoCache, gitWorkspace, log: logger }),
     fixMergeability: createMyPrMergeabilityFix({
       workRoot: myPrsWorkRoot,
-      glimmervoidHome,
       timeoutSeconds: () => keepMergeableTimeoutSeconds(config),
       repoCache: sharedRepoCache,
       log: logger,
@@ -216,7 +215,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       log: logger,
       sandboxRefusal,
       staging: createSandboxedPrStaging({
-        glimmervoidHome,
         repoCache: sharedRepoCache,
         spawnSession: createTeamReviewSpawn({
           reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,

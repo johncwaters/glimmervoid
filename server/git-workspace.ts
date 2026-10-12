@@ -23,6 +23,7 @@ import type { MarkerProbes } from './core/integration-branch-core.ts';
 import { MERGE_DRIVER_KEY_PATTERN, driverEnumerationEnv, mergeProbeEnv, neutralGitConfigEnv } from './core/merge-proof-core.ts';
 import type { MergeProbeEnvResult, MergeTreeOutcome } from './core/merge-proof-core.ts';
 import type { CheckoutTreeState, IntegrationSyncOutcome } from './core/integration-sync-core.ts';
+import { SANDBOX_PLACEHOLDER_NAMES } from './core/sandbox-policy-core.ts';
 import { normalizeSha } from './core/update-core.ts';
 import { isMissingFileError } from '../shared/text.ts';
 import { runGit } from './git-exec.ts';
@@ -254,6 +255,7 @@ function findWorktreeForBranch(porcelain: string, branch: string): string | null
   return hit ? hit.cwd : null;
 }
 
+const UNTRACKED_STATUS_PREFIX = '?? ';
 const WORKTREE_STATUS_ARGS = ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=all', '--ignore-submodules=none'];
 
 const isDirtyResult = (dirty: GitResult) => dirty.ok && dirty.out !== '';
@@ -703,6 +705,21 @@ function createGitWorkspace(opts: {
     return { wt: workspace.cwd, branch, target };
   }
 
+  async function isLeftoverSandboxPlaceholder(worktreePath: string, statusEntry: string): Promise<boolean> {
+    if (!statusEntry.startsWith(UNTRACKED_STATUS_PREFIX)) return false;
+    const entryName = statusEntry.slice(UNTRACKED_STATUS_PREFIX.length);
+    if (!SANDBOX_PLACEHOLDER_NAMES.includes(entryName)) return false;
+    const entryStats = await fs.promises.lstat(path.join(worktreePath, entryName)).catch(() => null);
+    return entryStats?.isFile() === true && entryStats.size === 0;
+  }
+
+  async function readUncommittedWork(worktreePath: string): Promise<{ ok: boolean; hasWork: boolean }> {
+    const status = await run(['--no-optional-locks', 'status', '--porcelain'], worktreePath);
+    const statusEntries = status.out.split('\n').filter((statusEntry) => statusEntry !== '');
+    const placeholderFlags = await Promise.all(statusEntries.map((statusEntry) => isLeftoverSandboxPlaceholder(worktreePath, statusEntry)));
+    return { ok: status.ok, hasWork: placeholderFlags.includes(false) };
+  }
+
   async function mergeBackBody({ projectPath, workspace, targetBranch }: WorktreeArgs): Promise<MergeOutcome> {
     const g = await resolveMergeBack({ projectPath, workspace, targetBranch });
     if (g.error) return g.error;
@@ -714,7 +731,7 @@ function createGitWorkspace(opts: {
     }
     const warning = mergeSyncWarning(baseSync, target);
 
-    if ((await run(['--no-optional-locks', 'status', '--porcelain'], wt)).out !== '') {
+    if ((await readUncommittedWork(wt)).hasWork) {
       return includeWarning({ merged: false, committed: false, branch, base: target, reason: 'uncommitted-changes', parked: true }, warning);
     }
 
@@ -774,9 +791,9 @@ function createGitWorkspace(opts: {
     if (g.error) return { ok: false, reason: g.error.reason ?? undefined };
     const { wt = '', target = '' } = g;
 
-    const status = await run(['--no-optional-locks', 'status', '--porcelain'], wt);
-    if (!status.ok) return { ok: false, reason: 'unreadable' };
-    if (status.out !== '') return { ok: false, reason: 'dirty' };
+    const uncommitted = await readUncommittedWork(wt);
+    if (!uncommitted.ok) return { ok: false, reason: 'unreadable' };
+    if (uncommitted.hasWork) return { ok: false, reason: 'dirty' };
 
     const behind = await run(['rev-list', '--count', `HEAD..${target}`], wt);
     if (!behind.ok) return { ok: false, reason: 'unreadable' };

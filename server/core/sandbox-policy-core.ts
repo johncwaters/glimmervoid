@@ -81,6 +81,7 @@ type SandboxLaunchPlanResult = { ok: true; plan: SandboxLaunchPlan } | { ok: fal
 interface VendorProfile {
   homeEntries: readonly string[];
   launchWritableFolders: (launch: SandboxLaunchState) => readonly string[];
+  launchPrivateFolders: readonly string[];
   launchHomeEnvName: string | null;
   loginFiles: readonly string[];
   configEntries: readonly string[];
@@ -95,6 +96,7 @@ const VENDOR_PROFILES: Readonly<Record<SandboxVendor, VendorProfile>> = Object.f
       path.join('projects', encodeProjectDir(cwd)),
       ...(agentSessionId === null ? [] : [path.join('session-env', agentSessionId)]),
     ],
+    launchPrivateFolders: ['shell-snapshots'],
     launchHomeEnvName: null,
     loginFiles: ['.credentials.json'],
     configEntries: ['settings.json', 'settings.local.json', 'hooks', 'skills', 'plugins', 'commands', 'agents', 'CLAUDE.md', 'AGENTS.md'],
@@ -104,6 +106,7 @@ const VENDOR_PROFILES: Readonly<Record<SandboxVendor, VendorProfile>> = Object.f
   codex: {
     homeEntries: ['.codex'],
     launchWritableFolders: () => [],
+    launchPrivateFolders: [],
     launchHomeEnvName: 'CODEX_HOME',
     loginFiles: ['auth.json'],
     configEntries: ['config.toml', 'AGENTS.md', 'skills', 'rules', 'prompts', 'hooks.json'],
@@ -119,6 +122,9 @@ const CLOUD_CREDENTIAL_HOME_ENTRIES: readonly string[] = Object.freeze(['.aws', 
 const XDG_CONFIG_DEFAULT_HOME_PREFIX = '.config/';
 const SHARED_TEMP_DIRS: readonly string[] = Object.freeze(['/tmp/claude', '/private/tmp/claude']);
 const SHARED_HOME_WRITE_ENTRIES: readonly string[] = Object.freeze(['.npm/_logs']);
+const SANDBOX_PLACEHOLDER_NAMES: readonly string[] = Object.freeze([
+  '.bash_profile', '.bashrc', '.claude', '.gitconfig', '.gitmodules', '.idea', '.mcp.json', '.profile', '.ripgreprc', '.vscode', '.zprofile', '.zshrc',
+]);
 const SANDBOXED_PROXY_BYPASS = 'localhost,::1,169.254.0.0/16,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16';
 const HOOK_LOOPBACK_HOST = '127.0.0.1';
 const AGENT_SESSION_ID_SHAPE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/;
@@ -165,6 +171,11 @@ function vendorWritableFolders(role: SandboxRole, host: SandboxHostPaths): strin
     if (profile.launchHomeEnvName !== null) return [launchHomeOf(host, vendor)];
     return vendorStatePaths(host, vendor, profile.launchWritableFolders(vendorHome));
   });
+}
+
+function launchPrivateFolders(role: SandboxRole, host: SandboxHostPaths): string[] {
+  if (role.vendorHome.scope === 'state') return [];
+  return role.vendors.flatMap((vendor) => vendorStatePaths(host, vendor, VENDOR_PROFILES[vendor].launchPrivateFolders));
 }
 
 function launchHomeLinkCandidates(role: SandboxRole, host: SandboxHostPaths): SandboxLaunchHomeLink[] {
@@ -216,6 +227,12 @@ function lockedCheckoutWriteDenies(role: SandboxRole): string[] {
   return role.lockedCheckouts.flatMap((checkout) => [path.join(checkout, '.git'), path.join(checkout, '.claude')]);
 }
 
+function sandboxPlaceholderPaths(role: SandboxRole): string[] {
+  const workingFolders = role.vendorHome.scope === 'launch' ? [role.vendorHome.cwd] : [];
+  const workingFolderPlaceholders = workingFolders.flatMap((workingFolder) => SANDBOX_PLACEHOLDER_NAMES.map((placeholderName) => path.join(workingFolder, placeholderName)));
+  return unique([...workingFolderPlaceholders, ...lockedCheckoutWriteDenies(role)]);
+}
+
 function homeEntriesNamedLike(host: SandboxHostPaths, homeEntries: readonly string[]): string[] {
   return host.homeEntryNames.filter((entryName) => homeEntries.some((homeEntry) => entryName.startsWith(homeEntry)));
 }
@@ -238,6 +255,7 @@ function readDeniedPaths(role: SandboxRole, host: SandboxHostPaths): string[] {
     ...otherVendors.flatMap((vendor) => vendorHeldPaths(host, vendor)),
     ...host.unwrappedVendorHomes,
     host.glimmervoidHome,
+    ...launchPrivateFolders(role, host),
     ...role.readDenied,
   ];
 }
@@ -313,11 +331,11 @@ function buildSandboxLaunchPlan(role: SandboxRole, host: SandboxHost): SandboxLa
       },
       launchEnv: Object.assign({ CLAUDE_CODE_TMPDIR: host.tempDir }, ...role.vendors.map((vendor) => VENDOR_PROFILES[vendor].launchEnv), launchHomeEnv(role, host)),
       sandboxedEnv: sandboxedEnvFor(role, host),
-      requiredDirectories: unique([host.tempDir, ...vendorWritableFolders(role, host)]),
+      requiredDirectories: unique([host.tempDir, ...vendorWritableFolders(role, host), ...launchPrivateFolders(role, host)]),
       launchHomeLinks: launchHomeLinkCandidates(role, host).filter((link) => isPresent(link.targetPath)),
     },
   };
 }
 
-export { buildSandboxLaunchPlan, CREDENTIAL_HOME_ENTRIES, sandboxPolicyProbePaths };
+export { buildSandboxLaunchPlan, CREDENTIAL_HOME_ENTRIES, SANDBOX_PLACEHOLDER_NAMES, sandboxPlaceholderPaths, sandboxPolicyProbePaths };
 export type { SandboxHost, SandboxLaunchPlan, SandboxLaunchState, SandboxNetworkAccess, SandboxRole };

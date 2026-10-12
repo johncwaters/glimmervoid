@@ -20,8 +20,7 @@ import { LANE_CONFIG_EDIT_DENY_RULES } from './core/lane-permissions-core.ts';
 import { runHardenedGit } from './git-workspace.ts';
 import { registerEphemeralSession } from './ephemeral-session.ts';
 import { resolveRequiredSaneYoloHookTools } from './hook-tools.ts';
-import { resolveLanePosture } from './lane-posture.ts';
-import { LANE_CREDENTIAL_DENY_READ } from './core/lane-posture-core.ts';
+import { resolveWorkLane } from './work-lane.ts';
 import type { FactoryOrchestratorDeps, FactoryOrchestratorSession } from './factory-orchestrator.ts';
 import type { FactoryCloseOutWorker } from './factory-closeout.ts';
 
@@ -36,7 +35,7 @@ type FactoryWorkerRecord<ManagedSession> = FactoryLiveWorker & {
   hasFirstHook: boolean;
 };
 
-export { readLaneCommonGitDir as readFactoryCommonGitDir } from './lane-posture.ts';
+export { readLaneCommonGitDir as readFactoryCommonGitDir } from './work-lane.ts';
 
 async function readFilterDriverNames(cwd: string): Promise<string[]> {
   const { stdout: trackedPaths } = await runHardenedGit(['ls-files', '-z'], { ...FILTER_PROBE_GIT_OPTIONS, cwd });
@@ -66,7 +65,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
   config, sessions, makeSession, wireSessionEvents, closeSessionDataClients, broadcast, spawnGate, recordLane,
   nodePath, hookCliPath, shimDir, getOrchestrator, serializeProject, ensureLedger, commitAndLand, runCoherence,
   readTodaySpend, readPaused, readTrustedIntentIds, readIntentWriteScopes = async () => new Map(), notifyOrchestrator, setException, onWorkerTurnEnd, onReadyIntent,
-  now = Date.now, getHookPort, resolveSaneYoloHookTools = resolveRequiredSaneYoloHookTools,
+  now = Date.now, workLane = {}, resolveSaneYoloHookTools = resolveRequiredSaneYoloHookTools,
 }: FactoryDispatchDeps<ManagedSession>) {
   const liveWorkers = new Map<string, FactoryWorkerRecord<ManagedSession>>();
   const reconciledProjects = new Set<string>();
@@ -155,12 +154,9 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
         if (!admission.admit) return refuse(admission.reason, admission.exception);
         pendingRefusals.delete(projectId);
         const checks = config.factory?.checks ?? DEFAULT_FACTORY_CHECKS;
-        const posture = await resolveLanePosture({
-          access: 'own-worktree', cwd: project.path, writableRoots: [], deferWorktree: true,
-          network: { domains: [] }, getHookPort,
-          allowCommands: ['coherence context', 'rm', ...checks], extraDeny: FACTORY_WORKER_DENY,
-          denyRead: LANE_CREDENTIAL_DENY_READ, scrubCredentials: true,
-        }, { resolveSaneYoloHookTools: () => resolveSaneYoloHookTools(config) });
+        const posture = await resolveWorkLane({
+          cwd: project.path, deferWorktree: true, allowCommands: ['coherence context', 'rm', ...checks], extraDeny: FACTORY_WORKER_DENY,
+        }, { ...workLane, resolveSaneYoloHookTools: () => resolveSaneYoloHookTools(config) });
         if (!posture.ok) return refuse(posture.reason === 'Sane YOLO is unavailable' ? FACTORY_SANE_YOLO_UNAVAILABLE : posture.reason, true);
         if (!order || !intent || !isAuthorized()) return refuse('factory orchestrator is no longer live');
         const workerSessionId = `factory-work-${workId.slice(-8)}`;

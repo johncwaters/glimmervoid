@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import type { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
-import type { SessionOptions } from '../session/sessions.ts';
+import type { SessionOptions, SessionSandboxFacts } from '../session/sessions.ts';
 import { type AwakeStopwatch, createAwakeTimeoutFn, startAwakeStopwatch } from './awake-timer.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { resolveHookTools as resolveSharedHookTools } from './hook-tools.ts';
@@ -32,6 +32,8 @@ import { createTeamReviewPoller } from './team-review-poller.ts';
 import { bootStaggerDelay } from './boot-stagger.ts';
 import type { DraftExpectation, DraftPatch, ReviewOutcome, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller } from './team-review-poller.ts';
 import { allowSandboxedSpawn } from './sandbox-deps.ts';
+import { prepareSandboxLaunch } from './sandbox-launch.ts';
+import type { SandboxRole } from './core/sandbox-policy-core.ts';
 import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 import { TeamReviewStateEntry, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type {
@@ -62,12 +64,10 @@ const TEAM_REVIEW_ALLOWED_DOMAINS = Object.freeze([
   'api.openai.com',
   '*.openai.com',
 ]);
+const SANDBOX_RUNTIME_UNSUPPORTED_PLATFORM = 'win32';
 const TEAM_REVIEW_DENY_READ_PATHS = Object.freeze(['~/.ssh', '~/.config/gh', '~/Library/Keychains', '~/.git-credentials']);
 const CODEX_HOME_PATH = '~/.codex';
 const CODEX_HOME_DENY_WRITE_PATHS = Object.freeze(['config.toml', 'AGENTS.md', 'skills', 'rules', 'prompts', 'hooks.json'].map((entry) => `${CODEX_HOME_PATH}/${entry}`));
-const KEEP_MERGEABLE_EXTRA_DENY_READ_PATHS = Object.freeze([
-  '~/.claude', '~/.codex', '~/.grok', '~/.glimmervoid', '~/.aws', '~/.gnupg', '~/.config', '~/.npmrc', '~/.netrc', '~/.docker', '~/.kube',
-]);
 const LINKED_CHECKOUT_DENY_READ_ENTRIES = Object.freeze(['.env', '.env.*', '.claude']);
 const RESULT_MAX_BYTES = 1024 * 1024;
 const EMPTY_GH_CONFIG_DIRNAME = 'gh-config';
@@ -93,10 +93,10 @@ type TeamReviewSandbox = {
   excludedCommands?: string[];
 };
 
-type KeepMergeableSandbox = Omit<TeamReviewSandbox, 'network' | 'filesystem'> & {
-  network: { strictAllowlist: true; allowLocalBinding: true; allowAllUnixSockets: false; allowedDomains: string[] };
-  filesystem: { allowWrite: string[]; denyWrite: string[]; denyRead: string[]; allowRead: string[] };
-};
+type DescribeSandboxRole = (facts: SessionSandboxFacts) => SandboxRole;
+type TeamReviewConfinement =
+  | { settingsSandbox: TeamReviewSandbox; sandboxRole?: undefined }
+  | { sandboxRole: DescribeSandboxRole; settingsSandbox?: undefined };
 
 interface TeamReviewRepoCache {
   listRepos(): Promise<string[]>;
@@ -120,14 +120,13 @@ interface TeamReviewGitWorkspace {
   pruneWorktrees(args: { projectPath: string }): Promise<{ ok: boolean; err?: string }>;
 }
 
-type TeamReviewSpawn = (options: {
+type TeamReviewSpawn = (options: TeamReviewConfinement & {
   id: string;
   name: string;
   cwd: string;
   spawnEnv: Record<string, string>;
   extraClaudeArgs: string[];
   settingsPermissions: { deny: string[]; defaultMode: string; allow?: string[] };
-  settingsSandbox: TeamReviewSandbox | KeepMergeableSandbox;
   signal: AbortSignal;
   onSessionId?: (id: string) => void;
   resumeSessionId?: string | null;
@@ -238,24 +237,6 @@ function teamReviewSandbox(workDir: string, linkedCheckout: string | null = null
       allowWrite: [CODEX_HOME_PATH, workDir],
       denyWrite: [...CODEX_HOME_DENY_WRITE_PATHS],
       denyRead: [...TEAM_REVIEW_DENY_READ_PATHS, ...linkedCheckoutDenyRead],
-    },
-  };
-}
-
-function keepMergeableSandbox(workDir: string, { glimmervoidHome, cachedClone }: { glimmervoidHome: string; cachedClone: string }): KeepMergeableSandbox {
-  const reviewSandbox = teamReviewSandbox(workDir);
-  return {
-    ...reviewSandbox,
-    network: {
-      ...reviewSandbox.network,
-      allowAllUnixSockets: false,
-      allowedDomains: reviewSandbox.network.allowedDomains.filter((domain) => !/github/i.test(domain)),
-    },
-    filesystem: {
-      allowWrite: [workDir],
-      denyWrite: [...reviewSandbox.filesystem.denyWrite],
-      denyRead: [...new Set([...reviewSandbox.filesystem.denyRead, ...KEEP_MERGEABLE_EXTRA_DENY_READ_PATHS, glimmervoidHome])],
-      allowRead: [workDir, cachedClone],
     },
   };
 }
@@ -714,6 +695,8 @@ function createTeamReviewSpawn({
   laneName = core.TEAM_REVIEW_LANE_ID,
   hookToolConfig = null,
   resolveHookTools = resolveSharedHookTools,
+  prepareSandbox = prepareSandboxLaunch,
+  platform = process.platform,
 }: {
   reviewSessions: Map<string, unknown>;
   closeSessionDataClients: (id: string) => void;
@@ -726,8 +709,11 @@ function createTeamReviewSpawn({
   laneName?: string;
   hookToolConfig?: { saneYolo?: boolean } | null;
   resolveHookTools?: typeof resolveSharedHookTools;
+  prepareSandbox?: typeof prepareSandboxLaunch;
+  platform?: NodeJS.Platform;
 }): TeamReviewSpawn {
-  return async function spawnTeamReviewSession({ id, name, cwd, spawnEnv, extraClaudeArgs, settingsPermissions, settingsSandbox, signal, onToolStep, onSessionId, resumeSessionId, initialPrompt }) {
+  return async function spawnTeamReviewSession({ id, name, cwd, spawnEnv, extraClaudeArgs, settingsPermissions, settingsSandbox, sandboxRole, signal, onToolStep, onSessionId, resumeSessionId, initialPrompt }) {
+    if (sandboxRole !== undefined && platform === SANDBOX_RUNTIME_UNSUPPORTED_PLATFORM) throw new Error(`${laneName} lane needs the sandbox runtime, which does not run on ${platform}`);
     const skipPermissions = settingsPermissions.defaultMode === 'bypassPermissions';
     const sess = makeSession({
       id,
@@ -742,7 +728,8 @@ function createTeamReviewSpawn({
       ephemeral: true,
       observeToolCalls: onToolStep !== undefined,
       settingsPermissions,
-      settingsSandbox,
+      settingsSandbox: settingsSandbox ?? null,
+      prepareSandbox: sandboxRole === undefined ? null : (facts) => prepareSandbox({ role: sandboxRole(facts), launchId: facts.launchId }),
       replayBufferKB,
       hookRouter,
       getHookPort,
@@ -1065,12 +1052,12 @@ function createTeamReviewWiring({
 type TeamReviewWiring = ReturnType<typeof createTeamReviewWiring>;
 
 export {
-  KEEP_MERGEABLE_EXTRA_DENY_READ_PATHS, TEAM_REVIEW_DENY_RULES, TEAM_REVIEW_SESSION_DENY_RULES,
+  TEAM_REVIEW_DENY_RULES, TEAM_REVIEW_SESSION_DENY_RULES,
   createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewStateIo, createTeamReviewWiring, makeTeamReviewWorkDir,
-  emptyGhConfigDir, emptyTeamReviewStatus, hooksPathPinnedSpawnEnv, keepMergeableSandbox, readReviewReport, sweepLeftoverCheckouts, teamReviewAcceptEditsPermissions, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
+  emptyGhConfigDir, emptyTeamReviewStatus, hooksPathPinnedSpawnEnv, readReviewReport, sweepLeftoverCheckouts, teamReviewAcceptEditsPermissions, teamReviewCfgKey, teamReviewClaudeArgs, teamReviewSandbox, teamReviewShouldStart, teamReviewSpawnEnv,
 };
 export { readTeamReviewSettings } from './core/team-review-core.ts';
 export type {
   TeamReviewActionGithub, TeamReviewActionOptions, TeamReviewActionOutcome, TeamReviewDispatchOptions, TeamReviewDraftStore, TeamReviewGitWorkspace, TeamReviewRepoCache, TeamReviewSandbox, TeamReviewSpawn, TeamReviewWiring,
-  KeepMergeableSandbox, TeamReviewWiringConfig, TeamReviewWiringOptions, TeamReviewWorkDir,
+  TeamReviewWiringConfig, TeamReviewWiringOptions, TeamReviewWorkDir,
 };

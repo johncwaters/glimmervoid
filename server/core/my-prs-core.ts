@@ -1,5 +1,6 @@
 import type { MyPr, MyPrAutoRebase, MyPrKeepMergeableAttemptRecord, MyPrSearchNode, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../shared/contracts/my-prs.ts';
 import { ACCEPT_EDITS_MODE, LANE_ENVIRONMENT_ARGS } from './lane-permissions-core.ts';
+import { SANDBOX_PLACEHOLDER_NAMES } from './sandbox-policy-core.ts';
 import { prKey } from './team-review-core.ts';
 import type { TeamReviewSettings, TeamReviewSettingsSource } from './team-review-core.ts';
 import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE } from '../../shared/settings-ranges.ts';
@@ -47,17 +48,7 @@ export const MY_PRS_FIX_DENY_RULES: readonly string[] = Object.freeze([
   'WebFetch',
   'WebSearch',
 ]);
-export const MY_PRS_FIX_ALLOW_RULES: readonly string[] = Object.freeze([
-  'Bash(git status:*)',
-  'Bash(git diff:*)',
-  'Bash(git log:*)',
-  'Bash(git add:*)',
-  'Bash(git commit:*)',
-  'Bash(git merge:*)',
-]);
-export const KEEP_MERGEABLE_SANDBOX_STUB_NAMES: readonly string[] = Object.freeze([
-  '.bash_profile', '.bashrc', '.claude/', '.gitconfig', '.gitmodules', '.idea/', '.mcp.json', '.profile', '.ripgreprc', '.vscode/', '.zprofile', '.zshrc',
-]);
+export const MY_PRS_FIX_ALLOW_RULES: readonly string[] = Object.freeze(['Bash']);
 const UNSAFE_BRANCH_NAME = /[\x00-\x20\x7f~^:?*[\\]|\.\.|@\{|^[-/.+]|\/\.|\/\/|[/.]$|\.lock$|\.lock\//;
 const MOVED_BRANCH_PUSH_REJECTION = /\[rejected\][^\n]*\((?:non-fast-forward|fetch first|stale info)\)/;
 
@@ -197,7 +188,7 @@ export function keepMergeablePrompt(pr: MyPr): string {
     `Keep pull request ${pr.key} mergeable.`,
     `The pull request is checked out in ./${MY_PRS_FIX_CHECKOUT_DIRNAME} on the local branch ${MY_PRS_FIX_WORK_BRANCH} at head ${pr.headRefOid}. Its base branch is available locally as the branch ${MY_PRS_FIX_BASE_BRANCH}.`,
     `The PR branch is ${JSON.stringify(pr.headRefName)} and its base branch is ${JSON.stringify(pr.baseRefName)}. When this was scheduled, mergeability was ${pr.mergeable} and the failing checks were ${JSON.stringify(pr.checks.failing)}.`,
-    'There is no network access to GitHub. Do not clone, fetch, or run gh.',
+    'There are no GitHub credentials here. Do not clone, fetch, or run gh.',
     `Fix merge conflicts by merging ${MY_PRS_FIX_BASE_BRANCH} into ${MY_PRS_FIX_WORK_BRANCH}, and fix failing checks at their root cause.`,
     `The local branch names are stand-ins, so title the merge commit with exactly this message, passed to git merge with -m: ${JSON.stringify(keepMergeableMergeMessage(pr))}.`,
     `Follow the repository instructions, run the relevant checks that work offline, and commit the repairs locally on ${MY_PRS_FIX_WORK_BRANCH}.`,
@@ -215,7 +206,7 @@ export function keepMergeableClaudeArgs(): string[] {
 }
 
 export function keepMergeableExcludeLines(): string {
-  return `\n${KEEP_MERGEABLE_SANDBOX_STUB_NAMES.map((stubName) => `/${stubName}`).join('\n')}\n`;
+  return `\n${SANDBOX_PLACEHOLDER_NAMES.map((placeholderName) => `/${placeholderName}`).join('\n')}\n`;
 }
 
 export function keepMergeablePushUrl(repo: string): string | null {
