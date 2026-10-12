@@ -1,6 +1,6 @@
 # Factory plan and handoff
 
-This file records the state of the Factory lane as of 2026-10-11, so that another agent can continue the work. Where it disagrees with the code or `AGENTS.md`, the code and `AGENTS.md` are right.
+This file records the state of the Factory lane as of 2026-10-12, so that another agent can continue the work. Where it disagrees with the code or `AGENTS.md`, the code and `AGENTS.md` are right.
 
 ## Goal and operator decisions
 
@@ -35,32 +35,23 @@ This file records the state of the Factory lane as of 2026-10-11, so that anothe
 - The Gate 2 fixes landed as `45c94124`.
 - Gate 2 passed on 2026-10-11, on a throwaway repo, with no operator input. One intent dispatched two workers, and each was reviewed, merged and watch-verified. The verifier then closed the intent.
 - `npm run lint` is clean on main as of `c2ba6adb`. Factory close-out runs lint as a default check, so lint must stay clean for self-hosting to work.
-- The gated self-host clone exists on the operator's machine as of 2026-10-11, with `coherence.config.json` on the staging remote only. The default checks pass in it: `npm run typecheck` and `npm test` at `cf7d6b3c`, `npm run lint` at `adbc108d`. No intent has run against it yet.
+- Gate 2b passed on 2026-10-11: one low-risk intent ran on a gated clone of glimmervoid with the default checks (`npm run typecheck`, `npm run lint`, `npm test`), the staging remote received the worker commit, and the real `main` did not move. Three more gated runs passed on 2026-10-12, each taking about 15 minutes, six sessions and about $1.40 of Claude usage.
+- No run needs a key sent to a session. Glimmervoid marks the project folder as trusted for Claude Code before the orchestrator starts.
+- The run harness in `test/factory/` replaced the gate steps that used to be done by hand.
+- The operator's own gated clone exists as of 2026-10-11, with `coherence.config.json` on its staging remote only. No intent has run against it yet: harness runs build a gated clone of their own.
 
 ## How to run a gate
 
-Never use the live instance on port 3000; do not restart it without asking the operator. Use an isolated sandbox instance built from your worktree:
+Never use the live instance on port 3000; do not restart it without asking the operator. The harness runs an isolated instance built from your worktree, with its own home and port:
 
-1. Seed a throwaway repo:
-   - `git init -b main`, with `commit.gpgsign false` and a local user;
-   - files: `package.json` with `"scripts": {"test": "node --test"}`, `coherence.config.json` holding `{}`, `src/math.js` exporting `add`, and `test/math.test.js`;
-   - commit, then push to a local bare `origin.git`.
-2. Write `<home>/config.json` with these values:
-   - `factory`: `enabled: true`, `maxRisk: "low"`, `maxLiveWorkers: 1`, `checks: ["npm test"]`, `watchWindowMinutes: 1`;
-   - `usage.enabled: true`;
-   - `projects`: `[{ "id", "name", "path" }]`.
+- `npm run factory:run -- --help` lists the options, and `--list-intents` prints the intent catalog.
+- `node test/factory/run.ts --runs 1 --intent one-file-change --watch-window 1` runs one intent on a throwaway repo, in about two minutes.
+- `node test/factory/run.ts --runs 1 --target gated-clone --intent gated-one-file-change --watch-window 1` runs one intent on a fresh gated clone of glimmervoid with the default checks.
+- `--intent-file <path>` queues any `factory-queue-intent` request written as JSON, which is how a rendered design spec reaches a run.
 
-   Leave `dailyBudgetUsd` unset, because of the scanner stall listed below.
-3. Run `npm run build`, then start the instance: `GLIMMERVOID_HOME=<home> GLIMMERVOID_PORT=3911 GLIMMERVOID_TELEMETRY=0 node dist/server/index.js`.
-4. Queue an intent over the control WebSocket:
-   - fetch the token from `GET http://127.0.0.1:3911/control-token`;
-   - connect to `ws://127.0.0.1:3911/control?token=<t>` with header `origin: http://127.0.0.1:3911`;
-   - send `{"type": "factory-queue-intent", "requestId", "projectId", "objective", "criteria": [...], "risk": "low", "boundary", "writeScopes": ["src", "test"]}`;
-   - the reply is `factory-queue-intent-result`.
-5. Watch the `factory-state` broadcasts. A gate passes when the intent is `completed`, the heading is `steady`, and `origin/main` holds the worker commits plus `factory: verify and close <intentId>`.
-6. Read any session's screen through `ws://127.0.0.1:3911/terminals/<sessionId>?token=<t>`. Input goes in as `{"type": "input", "data": "..."}`.
+Every run bills Claude usage. A run builds `dist/` from the worktree when it starts, so leave the worktree alone until it ends. Without `--watch-window`, a run waits out the shipped 30 minute watch window.
 
-Note that the orchestrator still stops on Claude's folder-trust dialog and the external-imports dialog when it starts. The gate harness got past them by sending keys over the terminal socket. Removing that dependency is the first open item below.
+A run passes when the intent is `completed`, the heading is `steady`, `origin/main` of the run's own remote holds the worker commits plus `factory: verify and close <intentId>`, and, for a gated clone, the real `main` did not move. The run prints its record folder, which holds the verdict, every `factory-state` broadcast, the server log, the decision log and the git logs.
 
 ## The gated self-host clone
 
@@ -86,26 +77,25 @@ Refreshing the clone from the real `main` is unproven. The expected route is to 
 
 ## Remaining work, in order
 
-1. **Orchestrator startup dialogs.** The orchestrator's cwd, the ledger checkout under `<home>/factory/<project>/`, is a new folder. Claude Code therefore shows the trust dialog and then the external CLAUDE.md imports dialog. Stall detection (`decideFactoryStalls`) raises an exception, but nothing clears the dialogs. A hands-off factory must start without them, for example by pre-trusting the ledger checkout. Find out which mechanism Claude Code actually honors before choosing one. Workers and reviewers did not hit these dialogs.
-2. **Gate 2b.** Run the same gate on the gated self-host clone, with the default checks (`npm run typecheck`, `npm run lint`, `npm test`) and one low-risk intent. Worker worktrees get `node_modules` through `worktreeShare`. A pass also needs the staging remote to hold the worker commits while the real `main` is unchanged.
-3. **Gated self-host.** After Gate 2b passes, the operator runs real intents against the gated clone and promotes what they accept. On the instance that runs the factory, set `factory.protectedPaths` to cover the factory's own guardrails: `server/factory-closeout.ts`, `server/factory-dispatch.ts`, `server/factory-ledger.ts`, `server/factory-orchestrator.ts`, `server/factory-poller.ts`, `server/factory-verifier.ts`, `server/factory-watch.ts`, `server/factory-wiring.ts`, `server/git-workspace.ts`, `server/core/factory-core.ts`, `server/core/git-invocation-core.ts`, `server/core/lane-permissions-core.ts`, `server/core/lane-posture-core.ts`, `server/lane-posture.ts`, `shared/contracts/browser-config.ts`, `shared/contracts/factory.ts`, `shared/contracts/coherence.ts`, and the defaults. Each entry is an exact path, a directory ending in `/`, or `**/` plus a file name, and `*` in any of those stands for any run of characters inside one path segment; these are the only shapes that `checkFence` in `server/core/factory-core.ts` matches, and any other glob syntax blocks every change. That way workers cannot loosen their own gates. Factory merges fast-forward source only. The live instance picks them up only when the operator rebuilds and restarts it.
-4. **Spec-fed intents.** The operator's spec tool renders a finalized design spec as one `factory-queue-intent` request, so nothing in glimmervoid has to change for the first run. Still open is how the spec's units of work reach the orchestrator: it can decompose from the intent alone, or the intent can carry the units as guidance, which needs a field on `FactoryQueueIntentRequest`.
-5. **Lifting the gate.** This is the operator's call, made after gated intents have been promoted cleanly. Only then commit `coherence.config.json` (`{}`) to glimmervoid main and point the factory at the real checkout.
-6. **Team review onto the lane posture module**, in its own commit. Benchmarks and issues follow later.
-7. **Security pass** (all deferred by the operator):
-   - Five glimmervoid tests fail inside the check sandbox, so Gate 2b cannot pass until they tolerate it: two that listen on a unix socket (`tests/backend-hook-route.test.ts`, `tests/backend-open-external-route.test.ts`), two that let vite write under `node_modules` (`tests/visions-extension-package.test.ts`, `tests/visions-relay.test.ts`), and one that writes to `/tmp` with its environment wiped (`tests/hand-run-harness-telemetry.test.ts`).
-   - Workers can write branch refs other than their own.
+1. **Gated self-host.** The operator runs real intents against the gated clone and promotes what they accept. On the instance that runs the factory, set `factory.protectedPaths` to cover the factory's own guardrails: `server/factory-closeout.ts`, `server/factory-dispatch.ts`, `server/factory-ledger.ts`, `server/factory-orchestrator.ts`, `server/factory-poller.ts`, `server/factory-verifier.ts`, `server/factory-watch.ts`, `server/factory-wiring.ts`, `server/git-workspace.ts`, `server/core/factory-core.ts`, `server/core/git-invocation-core.ts`, `server/core/lane-permissions-core.ts`, `server/core/lane-posture-core.ts`, `server/lane-posture.ts`, `shared/contracts/browser-config.ts`, `shared/contracts/factory.ts`, `shared/contracts/coherence.ts`, and the defaults. Each entry is an exact path, a directory ending in `/`, or `**/` plus a file name, and `*` in any of those stands for any run of characters inside one path segment; these are the only shapes that `checkFence` in `server/core/factory-core.ts` matches, and any other glob syntax blocks every change. That way workers cannot loosen their own gates. Factory merges fast-forward source only. The live instance picks them up only when the operator rebuilds and restarts it.
+2. **Spec-fed intents.** The operator's spec tool renders a finalized design spec as one `factory-queue-intent` request, so nothing in glimmervoid has to change for the first run, and the harness queues that request with `--intent-file`. Still open is how the spec's units of work reach the orchestrator: it can decompose from the intent alone, or the intent can carry the units as guidance, which needs a field on `FactoryQueueIntentRequest`.
+3. **Lifting the gate.** This is the operator's call, made after gated intents have been promoted cleanly. Only then commit `coherence.config.json` (`{}`) to glimmervoid main and point the factory at the real checkout.
+4. **Team review onto the lane posture module**, in its own commit. Benchmarks and issues follow later.
+5. **Security pass** (all deferred by the operator):
    - `mergeBack` pushes without the integration check.
    - A repo-level `.claude/settings.json` can widen the sandbox.
    - A repo-local `core.askPass` can run when `GIT_ASKPASS` is unset.
    - A byte-limited usage pass after catch-up reports spend as `known`, so the budget fails open (`server/core/usage-scan-core.ts`).
+   - A config file kept outside the Glimmervoid folder, and the files beside it, stay readable from a lane shell.
+   - The sandbox changes were checked on Linux only; macOS is unverified.
    - The Windows isolation paths are untested.
-8. **Bugs:**
-   - The usage scanner stalls on a fresh home: `scheduleContinuation` drops the continuation chain while a pass is in flight.
+6. **Bugs:**
    - Watch verification writes and breach notifications repeat every tick until a landing succeeds.
-   - `discardWorkerLedgerChanges` diffs committed paths with a case-sensitive `.coherence` pathspec, which only matters on case-sensitive filesystems.
    - The failed-push recovery has no test for a trusted landing whose push fails.
-9. **P3:**
+   - A throwaway harness run records no spend: the first usage scan on a fresh home reads every Claude transcript on the machine (about 13 minutes here), so a short run ends first. A daily budget refuses dispatch for the same stretch.
+   - Each harness run leaves one trusted project entry in the real Claude Code config, and nothing removes it.
+   - A check folder left under `scratch` in the Glimmervoid folder by a crash is never pruned.
+7. **P3:**
    - auto-revert on a watch breach, serialized through `git-workspace.ts`;
    - a staged rollout behind a PostHog flag for critical risk;
    - permission prompts answered by policy;
