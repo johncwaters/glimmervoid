@@ -11,7 +11,9 @@ import { createBackend } from '../server/backend.ts';
 import { createAgentApiWiring } from '../server/agent-api-wiring.ts';
 import { sessionIdFromBranch } from '../server/core/branch-gc-core.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
-import { describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
+import { createBackendHttpApp } from '../server/backend-http.ts';
+import { decideTicketAction, describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
+import type { AgentTicketRequest } from '../shared/contracts/session.ts';
 import { createSessionEventWiring } from '../server/session-event-wiring.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { Session } from '../session/sessions.ts';
@@ -928,4 +930,81 @@ test('a held attention note is dropped when the session exits before it can fire
   } finally {
     session.destroy();
   }
+});
+
+test('reopen and cancel are refused for a session that is not a live orchestrator, even with agentApi on', async () => {
+  const { base, token } = enabledBackend();
+  for (const verb of ['reopen', 'cancel']) {
+    const response = await post(base, verb, { workId: 'wrk-0123456789abcdef' }, token);
+    assert.equal(response.status, 403, verb);
+  }
+});
+
+const TICKET_ID = 'wrk-0123456789abcdef';
+
+async function orchestratorIngress(context: test.TestContext, withTicketVerbs: boolean) {
+  const session = new Session({ id: 'orchestrator', name: 'Master', path: os.tmpdir(), agentApi: true, ptySpawn: () => fakePty() });
+  session._hooks.inject();
+  const token = session.agentToken;
+  assert.ok(token);
+  const calls: { verb: string; sessionId: string; request: AgentTicketRequest }[] = [];
+  const state = { isOrchestrator: true };
+  const ticketVerbs = withTicketVerbs ? {
+    reopen: async (sessionId: string, request: AgentTicketRequest) => { calls.push({ verb: 'reopen', sessionId, request }); return { ok: true as const, workId: request.workId, state: 'open' as const }; },
+    cancel: async (sessionId: string, request: AgentTicketRequest) => { calls.push({ verb: 'cancel', sessionId, request }); return { ok: true as const, workId: request.workId, state: 'cancelled' as const }; },
+  } : {};
+  const app = createBackendHttpApp({ staticDir: null, configStore: { configPath: path.join(os.tmpdir(), 'ticket-verb-config.json') },
+    remote: { allowedOrigins: [] }, remoteAuth: null, allowedHosts: [], listenerPortsFor: () => [], pageToken: 'page',
+    hookRouter: { handle: () => ({ status: 200, reason: 'ok' }) }, getSession: () => session, getUsage: () => ({ ingestStatusline: () => {} }),
+    getAgentApi: () => ({ enabled: () => true, handle: async () => ({ status: 200, body: { ok: true } }) }),
+    getFactory: () => ({
+      getLiveOrchestrator: () => state.isOrchestrator ? { projectId: 'repo', intentId: 'intent' } : null,
+      dispatch: async () => ({ ok: true, sessionId: 'worker' }),
+      ...ticketVerbs,
+    }),
+  });
+  const server = http.createServer(app);
+  await listenOnLoopback(server);
+  context.after(async () => { session.destroy(); server.closeAllConnections(); await closeServer(server); });
+  const send = (verb: string, body: unknown, presented = token) => fetch(`http://127.0.0.1:${boundPort(server)}/agent/orchestrator/${verb}`, {
+    method: 'POST', headers: { authorization: `Bearer ${presented}` }, body: JSON.stringify(body),
+  });
+  return { calls, state, send };
+}
+
+test('a live orchestrator reopens and cancels through the factory with its validated work id', async (context) => {
+  const { calls, state, send } = await orchestratorIngress(context, true);
+  assert.equal((await send('reopen', { workId: TICKET_ID }, 'wrong')).status, 404);
+  const reopened = await send('reopen', { workId: TICKET_ID });
+  assert.equal(reopened.status, 200);
+  assert.deepEqual(await reopened.json(), { ok: true, workId: TICKET_ID, state: 'open' });
+  const cancelled = await send('cancel', { workId: TICKET_ID });
+  assert.equal(cancelled.status, 200);
+  assert.deepEqual(await cancelled.json(), { ok: true, workId: TICKET_ID, state: 'cancelled' });
+  for (const body of [{}, { workId: 'wrk-nothex' }, { workId: TICKET_ID, extra: true }]) {
+    assert.equal((await send('reopen', body)).status, 400, JSON.stringify(body));
+  }
+  state.isOrchestrator = false;
+  assert.equal((await send('cancel', { workId: TICKET_ID })).status, 403);
+  assert.deepEqual(calls, [
+    { verb: 'reopen', sessionId: 'orchestrator', request: { workId: TICKET_ID } },
+    { verb: 'cancel', sessionId: 'orchestrator', request: { workId: TICKET_ID } },
+  ]);
+});
+
+test('a factory without ticket verbs answers reopen and cancel as unavailable', async (context) => {
+  const { send } = await orchestratorIngress(context, false);
+  for (const verb of ['reopen', 'cancel']) assert.equal((await send(verb, { workId: TICKET_ID })).status, 501, verb);
+});
+
+test('a ticket action needs a child of the active intent in a state that verb allows', () => {
+  const child = (state: string) => ({ parent: 'wrk-intent', state });
+  assert.deepEqual(decideTicketAction({ verb: 'reopen', intentId: 'wrk-intent', ticket: child('blocked') }), { ok: true, kind: 'transition', to: 'open' });
+  assert.deepEqual(decideTicketAction({ verb: 'cancel', intentId: 'wrk-intent', ticket: child('blocked') }), { ok: true, kind: 'close', outcome: 'cancelled' });
+  assert.deepEqual(decideTicketAction({ verb: 'cancel', intentId: 'wrk-intent', ticket: child('open') }), { ok: true, kind: 'close', outcome: 'cancelled' });
+  for (const state of ['open', 'active', 'closed']) assert.equal(decideTicketAction({ verb: 'reopen', intentId: 'wrk-intent', ticket: child(state) }).ok, false, state);
+  for (const state of ['active', 'closed']) assert.equal(decideTicketAction({ verb: 'cancel', intentId: 'wrk-intent', ticket: child(state) }).ok, false, state);
+  assert.equal(decideTicketAction({ verb: 'reopen', intentId: 'wrk-intent', ticket: { parent: 'wrk-other', state: 'blocked' } }).ok, false);
+  assert.equal(decideTicketAction({ verb: 'reopen', intentId: 'wrk-intent', ticket: { parent: null, state: 'blocked' } }).ok, false);
+  assert.equal(decideTicketAction({ verb: 'cancel', intentId: 'wrk-intent', ticket: null }).ok, false);
 });

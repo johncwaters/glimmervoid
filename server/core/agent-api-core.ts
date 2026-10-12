@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 
-import { AGENT_API_VERBS, AgentDispatchRequest, AgentAttentionRequest, AgentSpawnRequest } from '../../shared/contracts/session.ts';
-import type { AgentApiVerb } from '../../shared/contracts/session.ts';
+import { AGENT_API_VERBS, AgentDispatchRequest, AgentAttentionRequest, AgentSpawnRequest, ORCHESTRATOR_AGENT_VERBS } from '../../shared/contracts/session.ts';
+import type { AgentApiVerb, OrchestratorAgentVerb, TicketAgentVerb } from '../../shared/contracts/session.ts';
 
 const MAX_LIVE_CHILDREN = 3;
 const MAX_LIFETIME_SPAWNS = 10;
@@ -110,6 +110,37 @@ function isAgentApiVerb(verb: string): verb is AgentApiVerb {
   return (AGENT_API_VERBS as readonly string[]).includes(verb);
 }
 
+function isOrchestratorAgentVerb(verb: string): verb is OrchestratorAgentVerb {
+  return (ORCHESTRATOR_AGENT_VERBS as readonly string[]).includes(verb);
+}
+
+interface TicketActionInput {
+  verb: TicketAgentVerb;
+  intentId: string;
+  ticket: { parent: string | null; state: string } | null;
+}
+
+type TicketAction =
+  | { ok: true; kind: 'transition'; to: 'open' }
+  | { ok: true; kind: 'close'; outcome: 'cancelled' }
+  | { ok: false; reason: string };
+
+const TICKET_ACTION_STATES: Readonly<Record<TicketAgentVerb, readonly string[]>> = Object.freeze({
+  reopen: Object.freeze(['blocked']),
+  cancel: Object.freeze(['open', 'blocked']),
+});
+
+function decideTicketAction({ verb, intentId, ticket }: TicketActionInput): TicketAction {
+  if (!ticket) return { ok: false, reason: 'no such ticket' };
+  if (ticket.parent !== intentId) return { ok: false, reason: 'the ticket is not a child of the active intent' };
+  const allowed = TICKET_ACTION_STATES[verb];
+  if (!allowed.includes(ticket.state)) {
+    return { ok: false, reason: `only a ${allowed.join(' or ')} ticket can be ${verb === 'reopen' ? 'reopened' : 'cancelled'}, and this one is ${ticket.state}` };
+  }
+  if (verb === 'reopen') return { ok: true, kind: 'transition', to: 'open' };
+  return { ok: true, kind: 'close', outcome: 'cancelled' };
+}
+
 function refuseInvalidBody(issues: readonly { message?: string }[]): AgentVerbRequest {
   return { ok: false, status: INVALID_BODY_STATUS, error: issues[0]?.message || 'invalid request' };
 }
@@ -121,6 +152,7 @@ function parseAgentVerb(verb: string, payload: Record<string, unknown>): AgentVe
     if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
     return { ok: true, verb, request: parsed.data };
   }
+  if (verb === 'reopen' || verb === 'cancel') return { ok: false, status: 403, error: `${verb} requires a live factory orchestrator` };
   if (verb === 'board' || verb === 'push') return { ok: true, verb };
   if (verb === 'attention') {
     const parsed = AgentAttentionRequest.safeParse(payload);
@@ -158,7 +190,7 @@ function deriveChildSessionName(parentName: string, existingNames: readonly stri
 }
 
 export {
-  decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describePushLanding, isAgentApiVerb, parseAgentVerb, tokensMatch,
-  PUSH_UNAVAILABLE_REASON, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN, REFUSAL_REASON, REFUSAL_STATUS,
+  decideAgentRequest, decideSpawnAllowance, decideTicketAction, deriveChildSessionName, describePushLanding, isAgentApiVerb, isOrchestratorAgentVerb,
+  parseAgentVerb, tokensMatch, PUSH_UNAVAILABLE_REASON, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN, REFUSAL_REASON, REFUSAL_STATUS,
 };
-export type { AgentVerbRequest, SpawnBudget };
+export type { AgentVerbRequest, SpawnBudget, TicketAction, TicketActionInput };

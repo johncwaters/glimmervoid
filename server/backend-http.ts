@@ -13,7 +13,9 @@ import { refocusReplyFor } from '../session/core/refocus-core.ts';
 import type { RefocusContext } from '../session/core/refocus-core.ts';
 import type { FactoryDispatchResult } from '../shared/contracts/factory.ts';
 import type { AgentApiPort } from './agent-api-wiring.ts';
-import { decideAgentRequest, REFUSAL_REASON, REFUSAL_STATUS } from './core/agent-api-core.ts';
+import { decideAgentRequest, isOrchestratorAgentVerb, REFUSAL_REASON, REFUSAL_STATUS } from './core/agent-api-core.ts';
+import { AgentTicketRequest } from '../shared/contracts/session.ts';
+import type { AgentTicketReply, OrchestratorAgentVerb, TicketAgentVerb } from '../shared/contracts/session.ts';
 import { decideHostAllowed } from './core/host-policy.ts';
 import { decideOpenExternalRequest, OPEN_EXTERNAL_BODY_CAP_BYTES } from './core/open-external-core.ts';
 import { decideOriginAllowed } from './core/origin-policy.ts';
@@ -97,6 +99,15 @@ function parseJsonBody(body: string): Record<string, unknown> {
   return parseJsonRecord(body, { admitArrays: true }) ?? {};
 }
 
+type TicketVerbHandler = (sessionId: string, request: AgentTicketRequest) => Promise<AgentTicketReply>;
+
+interface FactoryAgentPort {
+  getLiveOrchestrator: (sessionId: string) => { projectId: string; intentId: string } | null;
+  dispatch: (sessionId: string, payload: Record<string, unknown>) => Promise<FactoryDispatchResult>;
+  reopen?: TicketVerbHandler;
+  cancel?: TicketVerbHandler;
+}
+
 interface HookRouterOutput {
   status: number;
   reason: string;
@@ -134,7 +145,7 @@ interface BackendHttpDependencies {
   getUsage: () => { ingestStatusline: (payload: object) => void };
   getPlanReview?: () => PlanReviewHookPort | null;
   refocusContextFor?: (glimmervoidId: string) => RefocusContext;
-  getFactory?: () => { getLiveOrchestrator: (sessionId: string) => { projectId: string; intentId: string } | null; dispatch: (sessionId: string, payload: Record<string, unknown>) => Promise<FactoryDispatchResult> } | null;
+  getFactory?: () => FactoryAgentPort | null;
   getAgentApi?: () => AgentApiPort | null;
   recordOutcome?: OutcomeRecorder;
   logger?: Pick<Console, 'warn'>;
@@ -223,6 +234,46 @@ function receiveUpload({ req, res, sess, dir, filename, savedPath }: {
 
 function refuseAgentRequest(res: Response): void {
   res.status(REFUSAL_STATUS).json({ ok: false, error: REFUSAL_REASON });
+}
+
+function answerTicketVerb({ res, factory, sessionId, verb, payload }: {
+  res: Response;
+  factory: FactoryAgentPort;
+  sessionId: string;
+  verb: TicketAgentVerb;
+  payload: Record<string, unknown>;
+}): void {
+  const handler = factory[verb];
+  if (!handler) {
+    res.status(501).json({ ok: false, reason: `this Glimmervoid cannot ${verb} tickets` });
+    return;
+  }
+  const request = AgentTicketRequest.safeParse(payload);
+  if (!request.success) {
+    res.status(400).json({ ok: false, reason: request.error.issues[0]?.message || 'invalid request' });
+    return;
+  }
+  void handler(sessionId, request.data).then(
+    (reply) => { res.status(200).json(reply); },
+    () => { res.status(500).json({ ok: false, reason: `could not ${verb} the ticket` }); },
+  );
+}
+
+function answerOrchestratorVerb({ res, factory, sessionId, verb, payload }: {
+  res: Response;
+  factory: FactoryAgentPort;
+  sessionId: string;
+  verb: OrchestratorAgentVerb;
+  payload: Record<string, unknown>;
+}): void {
+  if (verb !== 'dispatch') {
+    answerTicketVerb({ res, factory, sessionId, verb, payload });
+    return;
+  }
+  void factory.dispatch(sessionId, payload).then(
+    (reply) => { res.status(200).json(reply); },
+    () => { res.status(500).json({ ok: false, reason: 'could not dispatch the ticket' }); },
+  );
 }
 
 function answerAgentVerb({ res, agentApi, session, verb, payload }: {
@@ -358,13 +409,14 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
     const session = getSession(req.params.glimmervoidId);
     const factory = getFactory();
     const isOrchestrator = factory?.getLiveOrchestrator(req.params.glimmervoidId) != null;
-    const isDispatch = req.params.verb === 'dispatch';
+    const verb = req.params.verb;
+    const isOrchestratorVerb = isOrchestratorAgentVerb(verb);
     const verdict = decideAgentRequest({
       sessionId: req.params.glimmervoidId,
       presentedToken: presentedToken(req),
       expectedToken: session?.agentToken ?? null,
       isLoopback: isLoopbackRequest(req),
-      enabled: isOrchestrator || isDispatch || agentApi?.enabled() === true,
+      enabled: isOrchestrator || isOrchestratorVerb || agentApi?.enabled() === true,
     });
     const overCap = (declaredBytes: string) => {
       logger.warn(`[agent] a ${declaredBytes} byte body is over the ${HOOK_BODY_CAP_BYTES} byte cap and was refused`);
@@ -375,19 +427,16 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
         refuseAgentRequest(res);
         return;
       }
-      if ((isDispatch && !isOrchestrator) || (isOrchestrator && !isDispatch)) {
-        res.status(403).json({ ok: false, reason: 'only live factory orchestrators may dispatch, and they may only dispatch' });
+      if (isOrchestratorVerb !== isOrchestrator) {
+        res.status(403).json({ ok: false, reason: 'only live factory orchestrators may dispatch, reopen or cancel, and they may do nothing else' });
         return;
       }
-      if (isDispatch && factory) {
-        void factory.dispatch(session.id, parseJsonBody(body)).then(
-          (reply) => { res.status(200).json(reply); },
-          () => { res.status(500).json({ ok: false, reason: 'could not dispatch the ticket' }); },
-        );
+      if (isOrchestratorAgentVerb(verb) && factory) {
+        answerOrchestratorVerb({ res, factory, sessionId: session.id, verb, payload: parseJsonBody(body) });
         return;
       }
       if (!agentApi) { refuseAgentRequest(res); return; }
-      answerAgentVerb({ res, agentApi, session, verb: req.params.verb, payload: parseJsonBody(body) });
+      answerAgentVerb({ res, agentApi, session, verb, payload: parseJsonBody(body) });
     });
   });
 }

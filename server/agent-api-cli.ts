@@ -1,16 +1,21 @@
 import http from 'node:http';
 
 import { resolveHookTarget } from '../session/core/hook-relay-core.ts';
-import { AgentDispatchRequest, AGENT_URL_ENV } from '../shared/contracts/session.ts';
+import { AgentDispatchRequest, AgentTicketRequest, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
 import { errorCode } from '../shared/text.ts';
 import { decideSandboxProxy } from '../session/core/sandbox-proxy-core.ts';
 import type { SandboxProxy } from '../session/core/sandbox-proxy-core.ts';
-import { isAgentApiVerb } from './core/agent-api-core.ts';
+import { isAgentApiVerb, isOrchestratorAgentVerb } from './core/agent-api-core.ts';
 
 const AGENT_PATH_PREFIX = '/agent/';
 
 type BodyBuilder = (rest: string[]) => Record<string, unknown> | null;
+
+function ticketBody(rest: string[]): Record<string, unknown> | null {
+  const parsed = AgentTicketRequest.safeParse({ workId: rest[0] });
+  return parsed.success ? parsed.data : null;
+}
 
 const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   spawn: (rest) => {
@@ -27,6 +32,8 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
     const parsed = AgentDispatchRequest.safeParse(rest[0] === '--ready' ? { readyIntent: rest[1] } : { workId: rest[0] });
     return parsed.success ? parsed.data : null;
   },
+  reopen: (rest) => ticketBody(rest),
+  cancel: (rest) => ticketBody(rest),
 };
 
 function bodySaysOk(text: string): boolean {
@@ -107,8 +114,8 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   }
   const body = BODY_BUILDERS[verb](args.slice(1));
   if (!body) {
-    if (verb === 'dispatch') {
-      console.error('glimmervoid dispatch: expected a work id matching wrk-[0-9a-f]{16}');
+    if (isOrchestratorAgentVerb(verb)) {
+      console.error(`glimmervoid ${verb}: expected a work id matching wrk-[0-9a-f]{16}`);
       return 1;
     }
     console.error(`glimmervoid ${verb}: this command needs text, for example "glimmervoid ${verb} check the failing test"`);

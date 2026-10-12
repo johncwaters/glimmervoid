@@ -80,8 +80,11 @@ export function isSamePromptQuestion(left: PendingPromptQuestion | null | undefi
 }
 
 export const AGENT_URL_ENV = 'GLIMMERVOID_AGENT_URL';
-export const AGENT_API_VERBS = ['spawn', 'attention', 'board', 'dispatch', 'push'] as const;
+export const AGENT_API_VERBS = ['spawn', 'attention', 'board', 'dispatch', 'reopen', 'cancel', 'push'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
+export const ORCHESTRATOR_AGENT_VERBS = ['dispatch', 'reopen', 'cancel'] as const satisfies readonly AgentApiVerb[];
+export type OrchestratorAgentVerb = (typeof ORCHESTRATOR_AGENT_VERBS)[number];
+export type TicketAgentVerb = Exclude<OrchestratorAgentVerb, 'dispatch'>;
 
 export const AgentSpawnRequest = z.object({
   prompt: z.string({ error: 'prompt must be a string' })
@@ -121,3 +124,14 @@ export const AgentDispatchRequest = z.object({
   readyIntent: z.string().regex(/^wrk-[0-9a-f]{16}$/).optional(),
 }).strict().refine((request) => Boolean(request.workId) !== Boolean(request.readyIntent), 'Expected exactly one work id or ready intent');
 export type AgentDispatchRequest = z.infer<typeof AgentDispatchRequest>;
+
+export const AgentTicketRequest = z.object({
+  workId: z.string({ error: 'workId must be a string' }).regex(/^wrk-[0-9a-f]{16}$/, { error: 'workId must match wrk-[0-9a-f]{16}' }),
+}).strict();
+export type AgentTicketRequest = z.infer<typeof AgentTicketRequest>;
+
+export const AgentTicketReply = z.discriminatedUnion('ok', [
+  z.object({ ok: z.literal(true), workId: z.string(), state: z.enum(['open', 'cancelled']) }),
+  z.object({ ok: z.literal(false), reason: z.string() }),
+]);
+export type AgentTicketReply = z.infer<typeof AgentTicketReply>;
