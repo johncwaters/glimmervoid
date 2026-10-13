@@ -19,6 +19,7 @@ test('buildMergePrompt (rebase-conflict): names branch, target, conflicting file
   assert.ok(p.includes('git rebase develop'));
   assert.ok(p.includes('git rebase --continue'));
   assert.ok(p.includes('/wt/abc'));
+  assert.equal(p.split('\n').at(-1), '  3. When the working tree is clean and rebased, run: glimmervoid push. If it answers no, do what its reply says; when the reply leaves nothing this session can do, say the work is ready and leave the merge to the operator.');
 });
 
 test('buildMergePrompt (not-fast-forward): no conflicting-files section, explains the advance', () => {
