@@ -41,6 +41,7 @@ Commands:
   board             From inside a Glimmervoid session, list the live sessions
   push              From inside a Glimmervoid session, land its commits on the integration branch and push it
   edit <path>       From inside a Glimmervoid session, surface a text file for the operator to edit in the dashboard
+  limits            From inside a Glimmervoid session, list which of these commands answer and what its sandbox blocks
   ssh-sign          What git runs inside a Glimmervoid session to sign a commit with the operator's forwarded ssh agent
   kg [command]      Experimental typed knowledge and task graph (Settings > Lanes > Knowledge graph)
 

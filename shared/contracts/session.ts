@@ -96,7 +96,7 @@ export const SshSignReply = z.union([
 
 export type SshSignRequest = z.infer<typeof SshSignRequest>;
 export type SshSignReply = z.infer<typeof SshSignReply>;
-export const AGENT_API_VERBS = ['spawn', 'attention', 'board', 'dispatch', 'reopen', 'cancel', 'push', 'edit'] as const;
+export const AGENT_API_VERBS = ['spawn', 'attention', 'board', 'dispatch', 'reopen', 'cancel', 'push', 'edit', 'limits'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
 export const ORCHESTRATOR_AGENT_VERBS = ['dispatch', 'reopen', 'cancel'] as const satisfies readonly AgentApiVerb[];
 export type OrchestratorAgentVerb = (typeof ORCHESTRATOR_AGENT_VERBS)[number];
@@ -148,7 +148,25 @@ export const SessionDoc = z.object({
 
 export type AgentEditRequest = z.infer<typeof AgentEditRequest>;
 export type SessionDoc = z.infer<typeof SessionDoc>;
+
+export const SESSION_COMMANDS = ['push', 'spawn', 'attention', 'board'] as const;
+
+export const SessionLimits = z.object({
+  commands: z.array(z.object({
+    name: z.enum(SESSION_COMMANDS),
+    answers: z.boolean(),
+    reason: z.string().optional(),
+  }).strict()),
+  sandboxed: z.boolean(),
+  deadEnds: z.array(z.object({ blocked: z.string(), route: z.string() }).strict()),
+}).strict();
+
+export const AgentLimitsReply = SessionLimits.extend({ ok: z.literal(true) }).strict();
+
 export type AgentSpawnRequest = z.infer<typeof AgentSpawnRequest>;
+export type SessionCommand = (typeof SESSION_COMMANDS)[number];
+export type SessionLimits = z.infer<typeof SessionLimits>;
+export type AgentLimitsReply = z.infer<typeof AgentLimitsReply>;
 export type AgentAttentionRequest = z.infer<typeof AgentAttentionRequest>;
 export type AgentAttentionReply = z.infer<typeof AgentAttentionReply>;
 export type AgentBoardRow = z.infer<typeof AgentBoardRow>;

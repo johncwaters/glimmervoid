@@ -1166,6 +1166,8 @@ class Session extends EventEmitter {
 
   getWorktreeCarry() { return this.worktreeLifecycle.getCarry(); }
 
+  get hasOwnWorktree(): boolean { return this.worktreeLifecycle.hasOwnWorktree(); }
+
   refreshGitContext() { return this.worktreeLifecycle.refreshGitContext(); }
 
   effectiveCwd(): string { return this.worktreeLifecycle.effectiveCwd(); }
