@@ -2,6 +2,7 @@ import { FACTORY_PROTECTED_PATH_FLOOR, FactoryQueueIntentRequest } from '#shared
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { FactoryProjectState, FactoryState } from '#shared/contracts/factory.ts';
 import { localClockText } from '#shared/display-text.ts';
+import { BADGE_LABELS } from '#shared/states.ts';
 import { buildPanelSection, el } from '../dom-helpers.ts';
 import { buildFactoryFloor, pickFactoryProject } from './factory-floor-core.ts';
 import type { FactoryCrate, FactoryFloor, FactoryStation } from './factory-floor-core.ts';
@@ -147,12 +148,12 @@ function buildFactoryControls(projectId: string, paused: boolean): HTMLElement {
   return controls;
 }
 
-const STATIONS: { id: FactoryStation; label: string; slots: number }[] = [
-  { id: 'queue', label: 'Queue', slots: 3 },
-  { id: 'workers', label: 'Workers', slots: 3 },
-  { id: 'review', label: 'Review', slots: 2 },
-  { id: 'watch', label: 'Watch', slots: 2 },
-  { id: 'shipped', label: 'Shipped', slots: 3 },
+const STATIONS: { id: FactoryStation; label: string }[] = [
+  { id: 'queue', label: 'Queue' },
+  { id: 'workers', label: 'Workers' },
+  { id: 'review', label: 'Review' },
+  { id: 'watch', label: 'Watch' },
+  { id: 'shipped', label: 'Shipped' },
 ];
 
 function buildRegion(title: string, className: string): HTMLElement {
@@ -177,10 +178,11 @@ function selectOrder(orderId: string): void {
   render();
 }
 
-function buildOrderSelector(id: string, objective: string, className: string): HTMLButtonElement {
-  const button = buildButton(className, objective, () => selectOrder(id));
+function buildOrderSelector(id: string, label: string, fullText: string, isSelected: boolean, className: string): HTMLButtonElement {
+  const button = buildButton(className, label, () => selectOrder(id));
   button.dataset.orderId = id;
-  button.setAttribute('aria-pressed', String(selectedOrderId === id));
+  button.title = fullText;
+  button.setAttribute('aria-pressed', String(isSelected));
   return button;
 }
 
@@ -192,15 +194,17 @@ function buildCrate(crate: FactoryCrate, isReadOnly: boolean): HTMLElement {
   const risk = el('span', 'factory-crate-risk', crate.risk);
   risk.dataset.risk = crate.risk;
   identity.append(el('span', null, crate.id), risk);
-  container.append(identity, buildOrderSelector(crate.id, crate.objective, 'factory-crate-title'));
+  container.append(identity, buildOrderSelector(crate.id, crate.title, crate.objective, crate.isSelected, 'factory-crate-title'));
   const sessionId = crate.sessionId;
   if (sessionId && openTerminal && !isReadOnly) container.append(buildButton('factory-action', 'Open terminal', () => openTerminal?.(sessionId)));
   if (crate.station !== 'workers') container.append(el('span', 'factory-crate-note', crate.status));
   return container;
 }
 
-function describeObservedRun(observedRun: NonNullable<FactoryProjectState['observedRun']>): string {
-  return `Read-only mirror of the factory harness run at ${observedRun.recordDirectory}. ${observedRun.outcome ? `Ended: ${observedRun.outcome}.` : 'No verdict yet.'}`;
+function buildObservedRun(observedRun: NonNullable<FactoryProjectState['observedRun']>): HTMLElement {
+  const line = el('p', 'factory-reason', `Watching harness run ${observedRun.recordDirectory.split(/[\\/]/).slice(-2).join('/')}, view only. ${observedRun.outcome ? `Ended: ${observedRun.outcome}.` : 'Still running.'}`);
+  line.title = observedRun.recordDirectory;
+  return line;
 }
 
 function buildTop(floor: FactoryFloor, project: FactoryProjectState): HTMLElement {
@@ -210,7 +214,7 @@ function buildTop(floor: FactoryFloor, project: FactoryProjectState): HTMLElemen
   const intent = buildRegion('Intent', 'factory-intent');
   intent.append(el('p', 'factory-count', floor.spend));
   if (floor.intent) {
-    intent.append(buildOrderSelector(floor.intent.id, floor.intent.objective, 'factory-intent-title'));
+    intent.append(buildOrderSelector(floor.intent.id, floor.intent.objective, floor.intent.objective, floor.selectedOrder?.id === floor.intent.id, 'factory-intent-title'));
     const criteria = el('ul', 'factory-criteria');
     for (const criterion of floor.intent.criteria) {
       const line = el('li', null, `${criterion.isMet ? '[x]' : '[ ]'} ${criterion.text}`);
@@ -228,7 +232,7 @@ function buildTop(floor: FactoryFloor, project: FactoryProjectState): HTMLElemen
   const pausedMarker = el('span', 'factory-paused-marker', '[paused]');
   pausedMarker.hidden = !floor.paused;
   heading.append(pausedMarker);
-  if (project.observedRun) heading.append(el('p', 'factory-reason', describeObservedRun(project.observedRun)));
+  if (project.observedRun) heading.append(buildObservedRun(project.observedRun));
   if (!isReadOnly) heading.append(buildFactoryControls(projectId, floor.paused));
   const owl = buildSprite('is-owl', 'Orchestrator owl');
   const sessionId = floor.orchestrator.sessionId;
@@ -239,13 +243,13 @@ function buildTop(floor: FactoryFloor, project: FactoryProjectState): HTMLElemen
     orchestrator.append(terminalButton);
   }
   if (!sessionId || !openTerminal || isReadOnly) orchestrator.append(owl);
-  if (floor.orchestrator.state) heading.append(el('span', 'factory-orchestrator-state', floor.orchestrator.state));
+  if (floor.orchestrator.state) heading.append(el('p', 'factory-orchestrator-state', `Orchestrator turn: ${BADGE_LABELS[floor.orchestrator.state]}`));
   orchestrator.append(heading);
   const upNext = buildRegion('Up next', 'factory-up-next');
   const intents = el('ol', 'factory-intent-queue');
   for (const order of floor.upNext) {
     const line = el('li');
-    line.append(buildOrderSelector(order.id, order.objective, 'factory-next-title'));
+    line.append(buildOrderSelector(order.id, order.title, order.objective, floor.selectedOrder?.id === order.id, 'factory-next-title'));
     intents.append(line);
   }
   upNext.append(intents);
@@ -261,18 +265,15 @@ function buildStation(station: (typeof STATIONS)[number], crates: FactoryCrate[]
   const head = el('div', 'factory-station-head');
   head.append(el('h3', 'factory-label', station.label), el('span', 'factory-count', String(crates.length)));
   const slots = el('div', station.id === 'workers' ? 'factory-pads' : 'factory-stack');
-  for (let slotIndex = 0; slotIndex < Math.max(station.slots, crates.length); slotIndex += 1) {
-    const crate = crates[slotIndex];
-    const emptySlot = el('div', 'factory-open', 'Open slot');
+  if (crates.length === 0) slots.append(el('div', 'factory-open', station.id === 'workers' ? 'No workers running' : 'Empty'));
+  for (const crate of crates) {
     if (station.id !== 'workers') {
-      slots.append(crate ? buildCrate(crate, isReadOnly) : emptySlot);
+      slots.append(buildCrate(crate, isReadOnly));
       continue;
     }
     const pad = el('div', 'factory-pad');
-    pad.dataset.state = crate?.hasConflict ? 'waiting' : crate ? 'running' : 'idle';
-    if (crate) pad.append(buildSprite(crate.animal.sprite, crate.animal.name));
-    if (!crate) pad.append(el('div', 'factory-sprite factory-sprite-empty'));
-    pad.append(crate ? buildCrate(crate, isReadOnly) : emptySlot, el('span', 'factory-pad-status', crate?.status ?? 'Idle'));
+    pad.dataset.state = crate.hasConflict ? 'waiting' : 'running';
+    pad.append(buildSprite(crate.animal.sprite, crate.animal.name), buildCrate(crate, isReadOnly), el('span', 'factory-pad-status', crate.status));
     slots.append(pad);
   }
   section.append(head, slots);
@@ -293,7 +294,7 @@ function buildBottom(floor: FactoryFloor): HTMLElement {
     const line = el('li');
     const time = el('time', 'factory-ledger-time', formatLedgerClock(event.at));
     time.dateTime = event.at;
-    line.append(time, el('span', null, `${event.orderId} ${event.event} (${event.session})`));
+    line.append(time, buildOrderSelector(event.orderId, event.title, event.title, floor.selectedOrder?.id === event.orderId, 'factory-ledger-title'), el('span', 'factory-ledger-event', event.description));
     lines.append(line);
   }
   if (floor.ledger.length === 0) lines.append(el('li', 'factory-empty', 'No ledger events.'));
@@ -304,11 +305,14 @@ function buildBottom(floor: FactoryFloor): HTMLElement {
   if (order) {
     const fields = el('dl');
     for (const [label, value] of [
-      ['Intent', order.intent ?? 'No parent intent'],
+      ['Ticket', order.title],
+      ['Status', order.status],
+      ['Brief', order.objective],
       ['Fence', order.writeScopes.join(', ') || 'None'],
       ['After', order.dependsOn.join(', ') || 'None'],
       ['Station', order.station],
       ['Session', order.owner ?? 'Unassigned'],
+      ...(order.station === 'intent' ? [] : [['Intent', order.intent ?? 'No parent intent']]),
     ]) fields.append(el('dt', null, label), el('dd', null, value));
     body.append(fields);
   }
@@ -363,7 +367,7 @@ function render(): void {
   for (const [selector, datasetKey] of FOCUS_RESTORE_TARGETS) {
     const focusedValue = focusedElement?.dataset[datasetKey];
     if (!focusedValue) continue;
-    const restored = [...root.querySelectorAll<HTMLElement>(selector)].find((element) => element.dataset[datasetKey] === focusedValue);
+    const restored = [...root.querySelectorAll<HTMLElement>(selector)].find((element) => element.dataset[datasetKey] === focusedValue && element.className === focusedElement?.className);
     restored?.focus({ preventScroll: true });
     if (restored instanceof HTMLTextAreaElement && selection) restored.setSelectionRange(selection.start, selection.end);
   }

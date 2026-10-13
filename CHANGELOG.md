@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Factory tab reads cleanly during real runs**: tickets show a short title instead of their whole brief cut off mid-line, and the full brief, status and dependencies (by name) sit in Selected ticket, which now opens on the first running ticket instead of staying empty. The intent title and every acceptance criterion show without a cramped scroll box. The orchestrator names tickets instead of quoting ids, labels its session state as its turn, and describes a watched harness run by its run name rather than its full path. Stations show only real tickets instead of rows of placeholder slots, the ledger lists ticket titles with what happened to each, and the panels no longer reserve large empty areas.
 - **Every review comment carries the same label**: inline review comments were labeled `**[reviewer] SEVERITY**`, only a bare `**SEVERITY**`, or not at all, depending on how the reviewer wrote them. Glimmervoid now labels each inline comment itself with the reviewer and severity of the finding it belongs to, replacing any label the reviewer wrote, and asks the reviewer to label the findings in the review body the same way.
 
 ## [0.32.0] - 2026-10-13

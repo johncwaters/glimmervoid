@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildFactoryFloor, pickFactoryProject } from '../public/factory/factory-floor-core.ts';
+import { buildFactoryFloor, pickFactoryProject, ticketTitle } from '../public/factory/factory-floor-core.ts';
 import { ANIMALS } from '../public/nyan-animals.ts';
 import { buildFactoryProjectState } from '../server/core/factory-core.ts';
 import { CoherenceOrient, CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
@@ -119,7 +119,9 @@ test('ledger uses fixture last events with newest first and a fifty line cap', a
   const lastEvent = project.orders[0].lastEvent;
   assert.ok(lastEvent);
   assert.equal(lastEvent.event, 'transitioned');
-  assert.deepEqual(buildFactoryFloor(project, null).ledger, [{ orderId: project.orders[0].id, ...lastEvent }]);
+  assert.deepEqual(buildFactoryFloor(project, null).ledger, [{
+    orderId: project.orders[0].id, title: ticketTitle(project.orders[0].objective), description: 'started', at: lastEvent.at,
+  }]);
   const orders = Array.from({ length: 60 }, (_, index) => makeOrder(`order-${index}`, {
     lastEvent: { event: 'opened', at: new Date(Date.UTC(2026, 9, 8, 10, index)).toISOString(), session: 'session' },
   }));
@@ -130,19 +132,22 @@ test('ledger uses fixture last events with newest first and a fifty line cap', a
   assert.equal(orders[0].id, 'order-0');
 });
 
-test('selected detail holds only intent, fence, dependencies, station and owner', () => {
+test('selected detail names the ticket, its status and its dependencies, defaulting to the first running worker', () => {
   const project = makeProject([
     makeOrder('intent', { parent: null }),
-    makeOrder('child', { state: 'active', owner: 'session', writeScopes: ['src/a.ts'], dependsOn: ['dependency'] }),
+    makeOrder('queued', { objective: 'Queued work. With details.' }),
+    makeOrder('child', { state: 'active', owner: 'session', writeScopes: ['src/a.ts'], dependsOn: ['queued', 'gone'] }),
   ]);
   const floor = buildFactoryFloor(project, 'child');
   assert.deepEqual(floor.selectedOrder, {
-    id: 'child', intent: 'Objective intent', writeScopes: ['src/a.ts'], dependsOn: ['dependency'], station: 'workers', owner: 'session',
+    id: 'child', title: 'Objective child', objective: 'Objective child', status: 'Running', intent: 'Objective intent',
+    writeScopes: ['src/a.ts'], dependsOn: ['Queued work.', 'gone'], station: 'workers', owner: 'session',
   });
   assert.equal(floor.stations.workers[0].isSelected, true);
-  assert.equal(buildFactoryFloor(project, 'missing').selectedOrder, null);
-  assert.equal(buildFactoryFloor(project, null).selectedOrder, null);
-  assert.equal(buildFactoryFloor(project, 'intent').selectedOrder?.station, 'intent');
+  assert.equal(buildFactoryFloor(project, 'missing').selectedOrder?.id, 'child');
+  assert.equal(buildFactoryFloor(project, null).selectedOrder?.id, 'child');
+  assert.equal(buildFactoryFloor(project, 'intent').selectedOrder?.status, 'Intent');
+  assert.equal(buildFactoryFloor(makeProject([makeOrder('intent', { parent: null })]), null).selectedOrder?.id, 'intent');
 });
 
 test('detail resolves ancestors and handles orphaned or cyclic parent references', () => {

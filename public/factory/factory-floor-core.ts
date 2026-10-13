@@ -1,4 +1,5 @@
 import type { FactoryProjectState } from '#shared/contracts/factory.ts';
+import type { SessionState } from '#shared/states.ts';
 import { ANIMALS } from '../nyan-animals.ts';
 
 type FactoryOrder = FactoryProjectState['orders'][number];
@@ -6,6 +7,7 @@ export type FactoryStation = 'queue' | 'workers' | 'review' | 'watch' | 'shipped
 
 export interface FactoryCrate {
   id: string;
+  title: string;
   objective: string;
   sessionId: string | null;
   risk: FactoryOrder['risk'];
@@ -22,11 +24,39 @@ export interface FactoryFloor {
   spend: string;
   note: string | null;
   intent: { id: string; objective: string; criteria: { text: string; isMet: boolean }[]; shippedCount: number; childCount: number } | null;
-  upNext: { id: string; objective: string }[];
-  orchestrator: { action: string; reason: string; isException: boolean; sessionId: string | null; state: string | null };
+  upNext: { id: string; title: string; objective: string }[];
+  orchestrator: { action: string; reason: string; isException: boolean; sessionId: string | null; state: SessionState | null };
   stations: Record<FactoryStation, FactoryCrate[]>;
-  ledger: { orderId: string; event: string; at: string; session: string }[];
-  selectedOrder: { id: string; intent: string | null; writeScopes: string[]; dependsOn: string[]; station: string; owner: string | null } | null;
+  ledger: { orderId: string; title: string; description: string; at: string }[];
+  selectedOrder: {
+    id: string; title: string; objective: string; status: string; intent: string | null;
+    writeScopes: string[]; dependsOn: string[]; station: string; owner: string | null;
+  } | null;
+}
+
+const TICKET_TITLE_MAX_CHARS = 90;
+const FIRST_SENTENCE_PATTERN = /^.+?[.!?](?=\s|$)/s;
+const TRANSITION_DESCRIPTIONS: Record<FactoryOrder['state'], string> = {
+  open: 'reopened', active: 'started', blocked: 'blocked', completed: 'completed', cancelled: 'cancelled',
+};
+
+export function ticketTitle(objective: string): string {
+  const firstSentence = FIRST_SENTENCE_PATTERN.exec(objective)?.[0] ?? objective;
+  if (firstSentence.length <= TICKET_TITLE_MAX_CHARS) return firstSentence;
+  const clipped = firstSentence.slice(0, TICKET_TITLE_MAX_CHARS);
+  const lastWordBreak = clipped.lastIndexOf(' ');
+  return `${lastWordBreak > 0 ? clipped.slice(0, lastWordBreak) : clipped}...`;
+}
+
+function nameTickets(text: string, ordersById: Map<string, FactoryOrder>): string {
+  let named = text;
+  for (const [id, order] of ordersById) named = named.replaceAll(id, `"${ticketTitle(order.objective)}"`);
+  return named;
+}
+
+function describeLedgerEvent(order: FactoryOrder, event: string): string {
+  if (event === 'transitioned') return TRANSITION_DESCRIPTIONS[order.state];
+  return event;
 }
 
 function pickStation(order: FactoryOrder, unverifiedIds: Set<string>, reviewingIds: Set<string>, watchIds: Set<string>): FactoryStation | null {
@@ -85,14 +115,18 @@ export function buildFactoryFloor(state: FactoryProjectState, selectedOrderId: s
     const hasConflict = conflictIds.has(order.id);
     const isHeld = hasConflict || order.state === 'blocked' || (order.state === 'open' && order.readiness === 'waiting');
     stations[station].push({
-      id: order.id, objective: order.objective, sessionId: state.liveWorkers?.find((worker) => worker.workId === order.id)?.sessionId ?? null, risk: order.risk, station,
+      id: order.id, title: ticketTitle(order.objective), objective: order.objective, sessionId: state.liveWorkers?.find((worker) => worker.workId === order.id)?.sessionId ?? null, risk: order.risk, station,
       status: reviewingIds.has(order.id) ? 'Reviewing' : orderStatus(order, hasConflict, station), hasConflict, isHeld,
-      isSelected: order.id === selectedOrderId, animal: pickAnimal(order),
+      isSelected: false, animal: pickAnimal(order),
     });
   }
   const ordersById = new Map(state.orders.map((order) => [order.id, order]));
-  const selectedOrder = selectedOrderId === null ? undefined : ordersById.get(selectedOrderId);
+  const crates = [...stations.workers, ...stations.review, ...stations.queue, ...stations.watch, ...stations.shipped];
+  const effectiveSelectedId = (selectedOrderId !== null && ordersById.has(selectedOrderId) ? selectedOrderId : null) ?? crates[0]?.id ?? activeIntent?.id ?? null;
+  for (const crate of crates) crate.isSelected = crate.id === effectiveSelectedId;
+  const selectedOrder = effectiveSelectedId === null ? undefined : ordersById.get(effectiveSelectedId);
   const selectedIntent = selectedOrder ? findIntent(selectedOrder, ordersById) : null;
+  const selectedCrate = crates.find((crate) => crate.id === effectiveSelectedId);
   return {
     paused: state.paused,
     spend: `Factory today: $${(state.spentTodayUsd ?? 0).toFixed(2)} / ${state.dailyBudgetUsd == null ? 'unlimited' : `$${state.dailyBudgetUsd.toFixed(2)}`}`,
@@ -102,16 +136,20 @@ export function buildFactoryFloor(state: FactoryProjectState, selectedOrderId: s
       criteria: activeIntent.criteria.map((text) => ({ text, isMet: activeIntent.state === 'completed' })),
       shippedCount: stations.shipped.length, childCount: children.length,
     } : null,
-    upNext: openRoots.filter((root) => root.id !== activeIntent?.id).map(({ id, objective }) => ({ id, objective })),
+    upNext: openRoots.filter((root) => root.id !== activeIntent?.id).map(({ id, objective }) => ({ id, title: ticketTitle(objective), objective })),
     orchestrator: state.error === null
-      ? { action: state.heading.action, reason: state.heading.reasons[0] ?? '', isException: false, sessionId: state.orchestrator?.sessionId ?? null, state: state.orchestrator?.state ?? null }
+      ? { action: state.heading.action, reason: nameTickets(state.heading.reasons[0] ?? '', ordersById), isException: false, sessionId: state.orchestrator?.sessionId ?? null, state: state.orchestrator?.state ?? null }
       : { action: 'Exception', reason: state.error, isException: true, sessionId: state.orchestrator?.sessionId ?? null, state: state.orchestrator?.state ?? null },
     stations,
-    ledger: state.orders.flatMap((order) => order.lastEvent ? [{ orderId: order.id, ...order.lastEvent }] : [])
+    ledger: state.orders.flatMap((order) => order.lastEvent
+      ? [{ orderId: order.id, title: ticketTitle(order.objective), description: describeLedgerEvent(order, order.lastEvent.event), at: order.lastEvent.at }]
+      : [])
       .sort((left, right) => Date.parse(right.at) - Date.parse(left.at)).slice(0, 50),
     selectedOrder: selectedOrder ? {
-      id: selectedOrder.id, intent: selectedIntent?.objective ?? null,
-      writeScopes: selectedOrder.writeScopes, dependsOn: selectedOrder.dependsOn,
+      id: selectedOrder.id, title: ticketTitle(selectedOrder.objective), objective: selectedOrder.objective,
+      status: selectedOrder.parent === null ? 'Intent' : selectedCrate?.status ?? TRANSITION_DESCRIPTIONS[selectedOrder.state],
+      intent: selectedIntent?.objective ?? null, writeScopes: selectedOrder.writeScopes,
+      dependsOn: selectedOrder.dependsOn.map((id) => { const dependency = ordersById.get(id); return dependency ? ticketTitle(dependency.objective) : id; }),
       station: selectedOrder.parent === null ? 'intent' : pickStation(selectedOrder, unverifiedIds, reviewingIds, watchIds) ?? 'cancelled',
       owner: selectedOrder.owner,
     } : null,
