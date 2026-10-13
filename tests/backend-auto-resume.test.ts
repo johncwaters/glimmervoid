@@ -268,6 +268,7 @@ test('createBackend defers boot auto-resume until the HTTP listener has a hook p
       name: 'boot-picked',
       path: projectDir,
       wasActive: true,
+      unconfined: true,
       resumeSessionId,
     }],
     teams: [],
