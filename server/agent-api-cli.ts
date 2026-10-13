@@ -145,4 +145,4 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   return reply.hasSuccessStatus && bodySaysOk(reply.text) ? 0 : 1;
 }
 
-export { runAgentApiCli };
+export { postToAgentIngress, runAgentApiCli };

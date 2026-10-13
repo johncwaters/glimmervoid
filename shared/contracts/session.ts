@@ -80,6 +80,22 @@ export function isSamePromptQuestion(left: PendingPromptQuestion | null | undefi
 }
 
 export const AGENT_URL_ENV = 'GLIMMERVOID_AGENT_URL';
+export const SIGN_URL_ENV = 'GLIMMERVOID_SIGN_URL';
+export const SSH_SIGN_BODY_CAP_BYTES = 1024 * 1024;
+
+export const SshSignRequest = z.object({
+  namespace: z.literal('git', { error: 'namespace must be git' }),
+  publicKey: z.string({ error: 'publicKey must be a string' }).min(1, { error: 'publicKey must not be empty' }).max(16384, { error: 'publicKey must be at most 16384 characters' }),
+  payload: z.base64({ error: 'payload must be base64' }),
+}).strict();
+
+export const SshSignReply = z.union([
+  z.object({ ok: z.literal(true), signature: z.string() }).strict(),
+  z.object({ ok: z.literal(false), error: z.string() }).strict(),
+]);
+
+export type SshSignRequest = z.infer<typeof SshSignRequest>;
+export type SshSignReply = z.infer<typeof SshSignReply>;
 export const AGENT_API_VERBS = ['spawn', 'attention', 'board', 'dispatch', 'reopen', 'cancel', 'push', 'edit'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
 export const ORCHESTRATOR_AGENT_VERBS = ['dispatch', 'reopen', 'cancel'] as const satisfies readonly AgentApiVerb[];

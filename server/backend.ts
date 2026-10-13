@@ -129,7 +129,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     recordOutcome,
     logger: console,
   });
-  const { agentIngressServer, getHookPort, hookRouter, makeSession, rtkInstall } = sessionRuntime;
+  const { agentIngressServer, getHookPort, hookRouter, makeSession, rtkInstall, sshSigner } = sessionRuntime;
 
   const getCurrentIngestLane = () => laneAssembly.currentIngest();
   const getCurrentVisionsLane = () => laneAssembly.currentVisions();
@@ -146,6 +146,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     }),
     getAgentApi: () => agentApi,
     getFactory: () => factory,
+    sshSigner,
     recordOutcome,
     logger: console,
   };

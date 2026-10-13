@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Signed commits from sessions on a remote box**: when your git config signs commits with an ssh key held by an agent (`gpg.format=ssh`, `commit.gpgsign=true`, `user.signingkey` set to the public key, as PostHog's devbox setup does), sessions now sign their commits and tags even though the sandbox cannot reach the agent. Git inside the session hands the commit to Glimmervoid, which signs it outside the sandbox with whichever reachable agent holds that key: the server's own `SSH_AUTH_SOCK`, or an agent forwarded by an open `ssh -A` or `coder ssh` connection. The key never enters the sandbox, and only git commit and tag objects can be signed. Keep a forwarded connection open while sessions commit; without one, the commit fails with a message saying so instead of pushing unsigned. Keep-mergeable PR repairs re-sign through the same forwarded agent.
+
 ### Removed
 
 - **The factory watch window is gone**: a merged factory ticket used to wait out a watch window (30 minutes by default) while Glimmervoid looked in PostHog for new errors in the files it touched, before the verifier could close its intent. That only ever caught anything when merged code shipped straight to production, and with no PostHog project mapped it was a dead wait. A ticket now counts as verified the moment it merges after its fence, checks and independent review pass, so the verifier closes the intent right away. The `factory.watchWindowMinutes` and `factory.watchProjects` settings are gone (an existing config that still sets them loads fine), the Factory tab has no Watch station, and the factory no longer files breach defects. The harness's `--watch-window` option is gone too. Let any factory intent that is in flight finish before you upgrade: a ticket that merged under the old version is never counted as verified by the new one, so its intent would stay open until you cancel it.

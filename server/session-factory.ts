@@ -31,6 +31,7 @@ interface SessionFactoryDependencies {
   resolveHookTools: (config: GlimmervoidConfig, options: { skipPermissions: boolean }) => ResolvedHookTool[];
   getUserHooks: (projectId: string) => UserHook[];
   sessionSandbox?: SessionSandbox;
+  commitSigningProgram?: string | null;
   homeDir?: string;
 }
 
@@ -88,6 +89,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       planLimits: planLimitsEnabled(config),
       getUserHooks: () => dependencies.getUserHooks(project.id),
       agentApi: config.agentApi?.enabled === true,
+      commitSigningProgram: dependencies.commitSigningProgram ?? null,
       ...overrides,
       prepareSandbox: 'prepareSandbox' in overrides ? overrides.prepareSandbox : defaultSandboxFor(project, config, overrides),
     });

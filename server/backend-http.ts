@@ -14,9 +14,12 @@ import type { RefocusContext } from '../session/core/refocus-core.ts';
 import type { FactoryDispatchResult } from '../shared/contracts/factory.ts';
 import type { AgentApiPort } from './agent-api-wiring.ts';
 import { decideAgentRequest, isOrchestratorAgentVerb, REFUSAL_REASON, REFUSAL_STATUS } from './core/agent-api-core.ts';
-import { AgentTicketRequest } from '../shared/contracts/session.ts';
+import { AgentTicketRequest, SSH_SIGN_BODY_CAP_BYTES, SshSignRequest } from '../shared/contracts/session.ts';
 import type { AgentTicketReply, OrchestratorAgentVerb, TicketAgentVerb } from '../shared/contracts/session.ts';
 import { decideHostAllowed } from './core/host-policy.ts';
+import { errorMessage } from '../shared/text.ts';
+import { isSignableGitObject, parseSshPublicKey } from './core/ssh-signing-core.ts';
+import type { SshSigner } from './ssh-signing.ts';
 import { decideOpenExternalRequest, OPEN_EXTERNAL_BODY_CAP_BYTES } from './core/open-external-core.ts';
 import { decideOriginAllowed } from './core/origin-policy.ts';
 import { classifyRequestOrigin } from './core/request-trust.ts';
@@ -147,6 +150,7 @@ interface BackendHttpDependencies {
   refocusContextFor?: (glimmervoidId: string) => RefocusContext;
   getFactory?: () => FactoryAgentPort | null;
   getAgentApi?: () => AgentApiPort | null;
+  sshSigner?: Pick<SshSigner, 'signWithAgent'> | null;
   recordOutcome?: OutcomeRecorder;
   logger?: Pick<Console, 'warn'>;
 }
@@ -325,7 +329,7 @@ function answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, to
 }
 
 type AgentIngressDependencies = Pick<BackendHttpDependencies,
-  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'getPlanReview' | 'refocusContextFor' | 'getFactory' | 'getAgentApi' | 'recordOutcome' | 'logger'>;
+  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'getPlanReview' | 'refocusContextFor' | 'getFactory' | 'getAgentApi' | 'sshSigner' | 'recordOutcome' | 'logger'>;
 
 function mountHostAllowList(app: Express, allowedHosts: string[]): void {
   app.use((req, res, next) => {
@@ -444,10 +448,51 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
   });
 }
 
+function mountCommitSigningRoute(app: Express, { getSession, sshSigner, logger }: {
+  getSession: (id: string) => Session | null;
+  sshSigner: Pick<SshSigner, 'signWithAgent'> | null;
+  logger: Pick<Console, 'warn'>;
+}): void {
+  app.post('/sign/:glimmervoidId', (req, res) => {
+    const session = getSession(req.params.glimmervoidId);
+    const verdict = decideAgentRequest({
+      sessionId: req.params.glimmervoidId,
+      presentedToken: presentedToken(req),
+      expectedToken: session?.commitSigningToken ?? null,
+      isLoopback: isLoopbackRequest(req),
+    });
+    const overCap = (declaredBytes: string) => {
+      logger.warn(`[sign] a ${declaredBytes} byte body is over the ${SSH_SIGN_BODY_CAP_BYTES} byte cap and was refused`);
+    };
+    void readCappedBody(req, SSH_SIGN_BODY_CAP_BYTES, overCap).then(async (body) => {
+      if (body === null) return;
+      if (!verdict.ok || !session || !sshSigner) {
+        refuseAgentRequest(res);
+        return;
+      }
+      const request = SshSignRequest.safeParse(parseJsonBody(body));
+      const publicKey = request.success ? parseSshPublicKey(request.data.publicKey) : null;
+      if (!request.success || !publicKey) {
+        res.status(400).json({ ok: false, error: request.success ? 'publicKey is not an ssh public key' : request.error.issues[0]?.message ?? 'invalid request' });
+        return;
+      }
+      const payload = Buffer.from(request.data.payload, 'base64');
+      if (!isSignableGitObject(payload)) {
+        res.status(400).json({ ok: false, error: 'only a git commit or tag object can be signed' });
+        return;
+      }
+      const outcome = await sshSigner.signWithAgent({ publicKey, namespace: request.data.namespace, payload })
+        .catch((error: unknown) => ({ ok: false as const, error: `could not sign: ${errorMessage(error)}` }));
+      res.status(outcome.ok ? 200 : 503).json(outcome);
+    });
+  });
+}
+
 function createAgentIngressApp(dependencies: AgentIngressDependencies): Express {
   const app = express();
   mountHostAllowList(app, dependencies.allowedHosts);
   mountAgentIngressRoutes(app, dependencies);
+  mountCommitSigningRoute(app, { getSession: dependencies.getSession, sshSigner: dependencies.sshSigner ?? null, logger: dependencies.logger ?? console });
   return app;
 }
 

@@ -41,6 +41,7 @@ Commands:
   board             From inside a Glimmervoid session, list the live sessions
   push              From inside a Glimmervoid session, land its commits on the integration branch and push it
   edit <path>       From inside a Glimmervoid session, surface a text file for the operator to edit in the dashboard
+  ssh-sign          What git runs inside a Glimmervoid session to sign a commit with the operator's forwarded ssh agent
   kg [command]      Experimental typed knowledge and task graph (Settings > Lanes > Knowledge graph)
 
 Options:
@@ -92,6 +93,10 @@ const SUBCOMMAND_RUNNERS = new Map<string, SubcommandRunner>([
   ['visions', async (subcommandArgs) => {
     const { runVisionsCli } = await import('../server/visions-cli.ts');
     return runVisionsCli(subcommandArgs);
+  }],
+  ['ssh-sign', async (subcommandArgs) => {
+    const { runSshSignCli } = await import('../server/ssh-sign-cli.ts');
+    return runSshSignCli(subcommandArgs);
   }],
   ...AGENT_API_VERBS.map((verb): [string, SubcommandRunner] => [verb, async (subcommandArgs, subcommandName) => {
     const { runAgentApiCli } = await import('../server/agent-api-cli.ts');

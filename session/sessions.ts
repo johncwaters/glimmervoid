@@ -22,6 +22,7 @@ import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts
 import type { SessionState } from "../shared/states.ts";
 import { unrefTimer } from "../shared/timer-deps.ts";
 import { AGENT_ATTENTION_NOTE_SEPARATOR, AGENT_URL_ENV } from "../shared/contracts/session.ts";
+import { commitSigningEnv } from "./core/commit-signing-env.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, isSamePromptQuestion, type AgentAttentionReply, type PendingPromptDetail } from "../shared/contracts/session.ts";
 import { generateToken } from "../detection/settings-injector.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
@@ -245,6 +246,7 @@ interface SessionOptions {
   workspaceRepos?: string[];
   agentDepth?: number;
   agentApi?: boolean;
+  commitSigningProgram?: string | null;
   factoryRole?: 'orchestrator' | null;
 }
 
@@ -326,6 +328,8 @@ class Session extends EventEmitter {
   _agentDepth: number;
   _agentToken: string | null;
   _agentApiEnabled: boolean;
+  _commitSigningProgram: string | null;
+  _commitSigningToken: string | null;
   _factoryRole: 'orchestrator' | null;
   _agentLiveChildren: number;
   _agentLifetimeSpawns: number;
@@ -432,6 +436,7 @@ class Session extends EventEmitter {
 
     agentDepth = 0,
     agentApi = false,
+    commitSigningProgram = null,
     factoryRole = null,
   }: SessionOptions) {
     super();
@@ -570,6 +575,8 @@ class Session extends EventEmitter {
     this._agentDepth = agentDepth;
     this._agentToken = generateToken();
     this._agentApiEnabled = agentApi === true;
+    this._commitSigningProgram = commitSigningProgram;
+    this._commitSigningToken = commitSigningProgram === null ? null : generateToken();
     this._factoryRole = factoryRole;
     this._agentLiveChildren = 0;
     this._agentLifetimeSpawns = 0;
@@ -1028,6 +1035,20 @@ class Session extends EventEmitter {
     return { [AGENT_URL_ENV]: url };
   }
 
+  get commitSigningToken(): string | null {
+    return this._commitSigningToken;
+  }
+
+  _commitSigningEnv(): Record<string, string> {
+    return commitSigningEnv({
+      port: this._hooks.listenerPort(),
+      sessionId: this.id,
+      token: this._commitSigningToken,
+      signingProgram: this._commitSigningProgram,
+      inheritedConfigParameters: this._spawnEnv?.GIT_CONFIG_PARAMETERS ?? process.env.GIT_CONFIG_PARAMETERS,
+    });
+  }
+
   agentSpawnBudget(): { liveChildren: number; lifetimeSpawns: number; inFlight: number; depth: number } {
     return {
       liveChildren: this._agentLiveChildren,
@@ -1417,7 +1438,7 @@ class Session extends EventEmitter {
     this._armTitleQuietFallback();
 
     this._titleSource.setContext({ cwdBasename: path.basename(this.effectiveCwd()) });
-    const injectedEnv = { ...hookInjection.env, ...this._agentApiEnv() };
+    const injectedEnv = { ...hookInjection.env, ...this._agentApiEnv(), ...this._commitSigningEnv() };
     const spawnExtraEnv = Object.keys(injectedEnv).length > 0
       ? { ...(this._spawnEnv || {}), ...injectedEnv }
       : this._spawnEnv;
@@ -1552,7 +1573,10 @@ class Session extends EventEmitter {
       launchId: randomUUID(),
       cwd: this.effectiveCwd(),
       hookPort: this._hooks.hasInjection() ? this._hooks.listenerPort() : null,
-      readablePaths: this._hooks.injectedReadablePaths(this._isSaneYoloActive),
+      readablePaths: [
+        ...this._hooks.injectedReadablePaths(this._isSaneYoloActive),
+        ...(this._commitSigningProgram === null ? [] : [this._commitSigningProgram]),
+      ],
       writablePaths: this._hooks.injectedWritablePaths(this._isSaneYoloActive),
       agentSessionId,
     });
@@ -1997,6 +2021,7 @@ class Session extends EventEmitter {
     if (this._destroyed) return;
     this._destroyed = true;
     this._agentToken = null;
+    this._commitSigningToken = null;
     this._pendingAttentionNotes = [];
 
     this._clearSleepKill();

@@ -31,6 +31,7 @@ import { CommitSha } from '../shared/contracts/team-review.ts';
 import { errorMessage } from '../shared/text.ts';
 import type { ClearTimeoutFn, SetTimeoutFn } from '../shared/timer-deps.ts';
 import { runGit } from './git-exec.ts';
+import { createSshSigner, readSigningKeySetting } from './ssh-signing.ts';
 
 type MyPrsPoller = ReturnType<typeof createMyPrsPoller>;
 type MyPrsPollerDependencies = Parameters<typeof createMyPrsPoller>[0];
@@ -210,12 +211,24 @@ function utf8CommitMessage(rawCommit: string): { ok: true; text: string } | { ok
   return { ok: true, text };
 }
 
+const hostSshSigner = createSshSigner();
+
+async function forwardedSigningAgentEnv(projectPath: string, runGit: KeepMergeableGitRunner, signal: AbortSignal): Promise<Record<string, string>> {
+  const signingKeySetting = await runGit(['config', '--get', 'user.signingkey'], projectPath, signal);
+  if (!signingKeySetting.ok || !signingKeySetting.out) return {};
+  const publicKey = await readSigningKeySetting(signingKeySetting.out, projectPath);
+  if (!publicKey) return {};
+  return await hostSshSigner.agentEnvFor(publicKey) ?? {};
+}
+
 export function createMyPrMergeabilityFix({
   spawnSession, repoCache, workRoot, makeWorkDir = makeTeamReviewWorkDir, runGit = runTrustedGit, log = console,
   timeoutSeconds = defaultSessionTimeoutSeconds, setTimeoutFn, clearTimeoutFn, sandboxRefusal = allowSandboxedSpawn,
+  signingAgentEnv = (projectPath: string, signal: AbortSignal) => forwardedSigningAgentEnv(projectPath, runGit, signal),
 }: SandboxedPrStagingOptions & {
   workRoot: string;
   sandboxRefusal?: SandboxSpawnRefusal;
+  signingAgentEnv?: (projectPath: string, signal: AbortSignal) => Promise<Record<string, string>>;
   makeWorkDir?: typeof makeTeamReviewWorkDir;
   log?: Pick<Console, 'log' | 'warn'>;
 }) {
@@ -235,6 +248,7 @@ export function createMyPrMergeabilityFix({
   async function signSessionCommits(projectPath: string, { headSha, baseSha, resultSha }: { headSha: string; baseSha: string; resultSha: string }, signal: AbortSignal): Promise<{ ok: true; sha: string } | { ok: false; err: string }> {
     const signingSetting = await runGit(['config', '--bool', 'commit.gpgsign'], projectPath, signal);
     if (!signingSetting.ok || signingSetting.out !== 'true') return { ok: true, sha: resultSha };
+    const agentEnv = await signingAgentEnv(projectPath, signal);
     const listed = await runGit(['rev-list', '--reverse', '--topo-order', '--parents', resultSha, '--not', headSha, baseSha], projectPath, signal);
     if (!listed.ok) return { ok: false, err: listed.err };
     const signedShaByOriginal = new Map<string, string>();
@@ -249,7 +263,7 @@ export function createMyPrMergeabilityFix({
       const message = utf8CommitMessage(rawCommit.out);
       if (!message.ok) return { ok: false, err: `${originalSha} ${message.err}` };
       const parentArgs = parentShas.flatMap((parentSha) => ['-p', signedShaByOriginal.get(parentSha) ?? parentSha]);
-      const signed = await runGit(['commit-tree', tree.out, ...parentArgs, '-S', '-m', message.text], projectPath, signal, { GIT_AUTHOR_NAME: authorName, GIT_AUTHOR_EMAIL: authorEmail, GIT_AUTHOR_DATE: authorDate });
+      const signed = await runGit(['commit-tree', tree.out, ...parentArgs, '-S', '-m', message.text], projectPath, signal, { ...agentEnv, GIT_AUTHOR_NAME: authorName, GIT_AUTHOR_EMAIL: authorEmail, GIT_AUTHOR_DATE: authorDate });
       const signedSha = CommitSha.safeParse(signed.out);
       if (!signed.ok || !signedSha.success) return { ok: false, err: signed.err };
       signedShaByOriginal.set(originalSha, signedSha.data);

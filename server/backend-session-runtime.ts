@@ -16,6 +16,8 @@ import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 import { createSessionFactory } from './session-factory.ts';
 import { createSessionSandbox } from './session-sandbox.ts';
 import { buildSettingsPayload } from './settings-payload.ts';
+import { cliPath } from './runtime-paths.ts';
+import { createSshSigner, installCommitSigningShim } from './ssh-signing.ts';
 
 interface BackendSessionRuntimeDependencies {
   config: GlimmervoidConfig;
@@ -51,7 +53,15 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
       });
     },
   });
+  const commitSigningProgram = installCommitSigningShim({
+    binDir: configSiblingPath(dependencies.configStore.configPath, 'bin'),
+    nodePath: process.execPath,
+    cliPath,
+    log: dependencies.logger,
+  });
+  const sshSigner = commitSigningProgram ? createSshSigner() : null;
   const makeSession = createSessionFactory({
+    commitSigningProgram,
     configStore: dependencies.configStore,
     getConfig: () => dependencies.configStore.config,
     hookRouter,
@@ -76,7 +86,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     }),
   });
 
-  return { agentIngressServer, getHookPort, hookRouter, makeSession, rtkInstall };
+  return { agentIngressServer, getHookPort, hookRouter, makeSession, rtkInstall, sshSigner };
 }
 
 export { createBackendSessionRuntime };
