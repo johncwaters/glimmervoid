@@ -172,6 +172,7 @@ export function buildOrchestratorPrompt({ projectName, intent, claudeSessionId, 
     'Dispatch a ready child by running glimmervoid dispatch <workId>. Glimmervoid enforces admission and starts its worker.',
     'To unblock a blocked child of this intent, run glimmervoid reopen <wrk-id>. To drop a blocked child instead, run glimmervoid cancel <wrk-id>. Never use coherence work transition or coherence work close for this.',
     'A child that depends on a cancelled child never becomes ready. Cancel it with glimmervoid cancel <wrk-id>, or create a replacement that does not depend on the cancelled one.',
+    'A child blocked with "Needs write scope" fails again if reopened. Cancel it with glimmervoid cancel <wrk-id> and create a replacement whose write scopes also cover the named files.',
     'Run each shell command on its own with no pipes, &&, ; or subshells, because chained commands are denied.',
     'A denied command means "not allowed here". Do not retry it another way.',
     'When glimmervoid dispatch is refused, report the refusal reason in one line and stop the turn. Glimmervoid surfaces the refusal to the operator; do not record it in the ledger.',
@@ -546,9 +547,10 @@ function readDiagnosticLinesAbove(lines: readonly string[], headerIndex: number)
   return lines.slice(firstDiagnosticIndex, headerIndex);
 }
 
-function listTapFailureBlocks(lines: readonly string[]): { realFailureBlocks: string[]; knockOnFailureBlocks: string[] } {
-  const realFailureBlocks: string[] = [];
-  const knockOnFailureBlocks: string[] = [];
+type TapFailure = { headerIndex: number; blockLines: string[]; isKnockOnFailure: boolean };
+
+function listTapFailures(lines: readonly string[]): TapFailure[] {
+  const failures: TapFailure[] = [];
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
     const failureLine = TAP_FAILURE_LINE_PATTERN.exec(lines[lineIndex]);
     if (!failureLine) continue;
@@ -562,9 +564,17 @@ function listTapFailureBlocks(lines: readonly string[]): { realFailureBlocks: st
     const blockLines = lines.slice(headerIndex, blockEndIndex + 1);
     const failureType = readTapFailureType(blockLines, blockIndent);
     if (failureType === TAP_PARENT_FAILURE_TYPE) continue;
+    failures.push({ headerIndex, blockLines, isKnockOnFailure: failureType !== null && TAP_KNOCK_ON_FAILURE_TYPES.has(failureType) });
+  }
+  return failures;
+}
+
+function listTapFailureBlocks(lines: readonly string[]): { realFailureBlocks: string[]; knockOnFailureBlocks: string[] } {
+  const realFailureBlocks: string[] = [];
+  const knockOnFailureBlocks: string[] = [];
+  for (const { headerIndex, blockLines, isKnockOnFailure } of listTapFailures(lines)) {
     const diagnostics = readDiagnosticLinesAbove(lines, headerIndex).join('\n').slice(0, MAX_TAP_DIAGNOSTIC_CHARS);
     const failureBlock = [diagnostics, blockLines.join('\n').slice(0, MAX_TAP_FAILURE_BLOCK_CHARS)].filter((part) => part.length > 0).join('\n');
-    const isKnockOnFailure = failureType !== null && TAP_KNOCK_ON_FAILURE_TYPES.has(failureType);
     (isKnockOnFailure ? knockOnFailureBlocks : realFailureBlocks).push(failureBlock);
   }
   return { realFailureBlocks, knockOnFailureBlocks };
@@ -583,8 +593,41 @@ export function summarizeFailedCheckOutput(output: string, maxChars: number): st
   return `${summarizedFailures}\n${output.slice(-remainingChars)}`;
 }
 
-export function decideCloseOut({ fence, checks, review, attempt }: {
+const TAP_LOCATION_LINE_PATTERN = /^ *location: '(.+):\d+:\d+'$/;
+
+function listTapFailureLocations(lines: readonly string[]): string[] {
+  return listTapFailures(lines)
+    .filter((failure) => !failure.isKnockOnFailure)
+    .flatMap((failure) => failure.blockLines.flatMap((line) => TAP_LOCATION_LINE_PATTERN.exec(line)?.[1] ?? []));
+}
+
+function toCheckoutRelativePath(location: string, checkoutPaths: readonly string[]): string | null {
+  const checkoutPath = checkoutPaths.find((candidate) => location.startsWith(`${candidate}/`));
+  if (checkoutPath === undefined) return null;
+  return normalizeScope(location.slice(checkoutPath.length + 1));
+}
+
+export function listFailingTestFilesOutsideScopes({ output, checkoutPaths, writeScopes }: {
+  output: string; checkoutPaths: readonly string[]; writeScopes: readonly string[];
+}): string[] {
+  const scopes = writeScopes.map(normalizeScope).filter((scope) => scope !== null);
+  const lines = output.split(/\r?\n/);
+  const outsideFiles = new Set<string>();
+  for (const location of listTapFailureLocations(lines)) {
+    const repoPath = toCheckoutRelativePath(location, checkoutPaths);
+    if (!repoPath || repoPath.split('/').includes('node_modules')) continue;
+    if (!scopes.some((scope) => containsScope(scope, repoPath))) outsideFiles.add(repoPath);
+  }
+  return [...outsideFiles].sort();
+}
+
+function isSameFileSet(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((file) => right.includes(file));
+}
+
+export function decideCloseOut({ fence, checks, review, attempt, failingFilesOutsideScopes = [], previousFailingFilesOutsideScopes = [] }: {
   fence: FactoryFence; checks: FactoryCheck[]; review: FactoryReviewVerdict | null; attempt: number;
+  failingFilesOutsideScopes?: readonly string[]; previousFailingFilesOutsideScopes?: readonly string[];
 }): { action: 'merge' } | { action: 'retry'; feedback: string } | { action: 'block'; reason: string } {
   const failures: string[] = [];
   const checkOutputs: string[] = [];
@@ -601,7 +644,14 @@ export function decideCloseOut({ fence, checks, review, attempt }: {
   if (review && !review.pass) failures.push(`Reviewer failed: ${review.findings.join('\n') || NO_FINDINGS_TEXT}`);
   if (failures.length === 0 && !review) failures.push('Reviewer verdict is missing');
   if (failures.length === 0) return { action: 'merge' };
-  const feedback = [...failures, ...checkOutputs].join('\n').slice(0, 3999);
+  const outsideScopeFiles = fence.ok && checkOutputs.length > 0 ? failingFilesOutsideScopes : [];
+  const outsideScopeHint = outsideScopeFiles.length > 0
+    ? [`Failing tests outside this ticket's write scopes: ${outsideScopeFiles.join(', ')}. Fix the failure inside your write scopes if you can. If the fix needs these files, finish the turn with no further change, and Glimmervoid hands the ticket back for a wider write scope.`]
+    : [];
+  const feedback = [...failures, ...outsideScopeHint, ...checkOutputs].join('\n').slice(0, 3999);
+  if (outsideScopeFiles.length > 0 && isSameFileSet(outsideScopeFiles, previousFailingFilesOutsideScopes)) {
+    return { action: 'block', reason: `Needs write scope: ${outsideScopeFiles.join(', ')}. Checks failed in these files, outside this ticket's write scopes, on consecutive attempts.\n${feedback}`.slice(0, 3999) };
+  }
   if (attempt >= 3) return { action: 'block', reason: feedback };
   return { action: 'retry', feedback };
 }

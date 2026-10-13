@@ -227,6 +227,29 @@ test('third factory failure blocks the ledger ticket and raises an exception', a
   assert.equal(fixture.events.at(-1)?.event, 'blocked');
 });
 
+test('a test failing outside the write scopes on two attempts in a row blocks the ticket as needing write scope, without using its third attempt', async (context) => {
+  const fixture = await createFixture(context);
+  await fixture.commitChange();
+  const pinnedTestTitle = 'pinned retry budget '.repeat(100);
+  const writePinnedTest = [
+    "import { mkdirSync, writeFileSync } from 'node:fs';",
+    "mkdirSync('tests', { recursive: true });",
+    `writeFileSync('tests/pinned.test.ts', ${JSON.stringify(`import test from 'node:test';\ntest(${JSON.stringify(pinnedTestTitle)}, () => { throw new Error('pinned'); });\n`)});`,
+  ].join('\n');
+  await writeFile(path.join(fixture.workspace.cwd, 'src/retry.ts'), `${writePinnedTest}\n`);
+  await fixture.git(['add', '.'], fixture.workspace.cwd);
+  await fixture.git(['commit', '-m', 'test: fail outside scope'], fixture.workspace.cwd);
+  fixture.config.factory = { enabled: true, checks: [`${process.execPath} src/retry.ts`, `${process.execPath} --test --test-reporter=tap tests/pinned.test.ts`] };
+  await fixture.closeOut.turnEnded(fixture.worker);
+  assert.match(fixture.feedback[0], /outside this ticket's write scopes: tests\/pinned\.test\.ts\./);
+  assert.equal(await fixture.orderState(fixture.worker.workId), 'active');
+  await fixture.closeOut.turnEnded(fixture.worker);
+  assert.equal(fixture.feedback.length, 1);
+  assert.equal(await fixture.orderState(fixture.worker.workId), 'blocked');
+  assert.match(fixture.exceptions[0], /^Needs write scope: tests\/pinned\.test\.ts\./);
+  assert.equal(fixture.events.at(-1)?.event, 'blocked');
+});
+
 test('a block whose landing fails still releases the worker and raises the exception, and the next landing carries the block', async (context) => {
   const fixture = await createFixture(context);
   await fixture.commitChange('outside.ts');
