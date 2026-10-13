@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.1] - 2026-10-13
+
 ### Added
 
 - **Edit an agent's drafts from the dashboard**: with `agentApi.enabled` on, a session can run `glimmervoid edit <path>` to hand you a text file from its checkout, and a Docs button appears on its card. Docs opens the file full screen, on desktop or phone, with an Edit view and a markdown Preview; Save writes it back so the agent reads your text on its next look. If the agent changed the file after you opened it, Save is refused and Reload shows its version, so neither side overwrites the other. Only an existing UTF-8 text file of 256 KiB or less inside the session's checkout can be surfaced, the dashboard can open only files a session surfaced, and the list is dropped when the session ends.
