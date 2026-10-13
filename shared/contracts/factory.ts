@@ -165,6 +165,8 @@ export const FactoryLaneState = z.object({
   filedBreaches: z.array(z.string().min(1)).optional(),
   factoryLandedShas: z.array(z.string().regex(/^[a-f0-9]{40,64}$/)).optional(),
   unlandedFactoryRecords: z.array(FactoryUnlandedRecord).optional(),
+  ticketBlockCounts: z.record(z.string().min(1), z.number().int().nonnegative()).optional(),
+  intentCapCancelCounts: z.record(z.string().min(1), z.number().int().nonnegative()).optional(),
 });
 export type FactoryLaneState = z.infer<typeof FactoryLaneState>;
 

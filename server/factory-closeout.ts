@@ -38,7 +38,22 @@ const WORK_OUTSIDE_LEDGER_PATHSPECS = ['.', ':(exclude,icase).coherence'];
 const FACTORY_REVIEW_TOO_LARGE_FEEDBACK ='change too large for review; split it into smaller tickets';
 const FAILED_CHECK_FEEDBACK_MAX_CHARS = 3500;
 
-type FactoryWorkerSession = Pick<Session, 'destroy' | 'pasteTextWhenReady' | 'write' | '_destroyed'>
+export const FACTORY_TICKET_BLOCK_CAP = 3;
+export const FACTORY_INTENT_CAP_CANCEL_LIMIT = 3;
+
+export type FactoryCapCounter = (projectId: string, id: string) => Promise<number>;
+
+function createMemoryCapCounter(): FactoryCapCounter {
+  const counts = new Map<string, number>();
+  return async (projectId, id) => {
+    const key = JSON.stringify([projectId, id]);
+    const count = (counts.get(key) ?? 0) + 1;
+    counts.set(key, count);
+    return count;
+  };
+}
+
+type FactoryWorkerSession =Pick<Session, 'destroy' | 'pasteTextWhenReady' | 'write' | '_destroyed'>
   & Partial<Pick<Session, 'id' | 'worktreeDir' | 'baseSha' | 'mergeWorktree'>>;
 
 export interface FactoryCloseOutWorker {
@@ -65,6 +80,8 @@ export interface FactoryCloseOutDeps {
   recordFactoryLandedSha: (projectId: string, integrationSha: string) => Promise<void>;
   readPaused: (projectId: string) => Promise<boolean>;
   readIntentFloorAllowances?: (projectId: string, intentId: string) => Promise<readonly string[]>;
+  countTicketBlock?: FactoryCapCounter;
+  countIntentCapCancel?: FactoryCapCounter;
   appendWatch: (entry: FactoryWatchEntry) => Promise<void>;
   notifyOrchestrator: (projectId: string, event: FactoryDecisionWorkerEvent) => void;
   setException: (projectId: string, reason: string) => void;
@@ -132,7 +149,7 @@ export async function runFactoryReview({ spawnReviewer, model, signal, buildProm
 
 export function createFactoryCloseOut({
   config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger, runCoherence, commitAndLand, readIntegrationSha, recordFactoryLandedSha, readPaused, readIntentFloorAllowances = async () => [],
-  appendWatch, notifyOrchestrator, setException, recordDecision = async () => {}, onReviewingChanged = () => {}, baseEnv = process.env, prepareCheckRunner = prepareSandboxedCheckRunner,
+  countTicketBlock = createMemoryCapCounter(), countIntentCapCancel = createMemoryCapCounter(), appendWatch, notifyOrchestrator, setException, recordDecision = async () => {}, onReviewingChanged = () => {}, baseEnv = process.env, prepareCheckRunner = prepareSandboxedCheckRunner,
 }: FactoryCloseOutDeps) {
   const reviewing = new Set<string>();
   const attempts = new Map<string, number>();
@@ -327,14 +344,47 @@ export function createFactoryCloseOut({
           '--session', FACTORY_LEDGER_SESSION, '--evidence', ledgerReason,
         ] });
       }
+      const blockCount = await countTicketBlock(worker.projectId, worker.workId);
       const blockedAttempt = attemptOf(worker);
       attempts.delete(worker.workId);
       worker.session.destroy();
-      notifyOrchestrator(worker.projectId, { workId: worker.workId, intentId: worker.intentId, sessionId: worker.session.id, attempt: blockedAttempt, event: 'blocked', failureClass, detail: decision.reason });
-      setException(worker.projectId, decision.reason);
-      await commitAndLand(worker.projectId, worker.projectPath, `factory: block ${worker.workId}`).catch(() => {});
+      const capNotice = blockCount >= FACTORY_TICKET_BLOCK_CAP ? await cancelTicketAtCap(worker, ledger.cwd, blockCount) : null;
+      notifyOrchestrator(worker.projectId, { workId: worker.workId, intentId: worker.intentId, sessionId: worker.session.id, attempt: blockedAttempt, event: 'blocked', failureClass,
+        detail: capNotice ? `${capNotice} Re-plan the intent without it.\n${decision.reason}` : decision.reason });
+      setException(worker.projectId, capNotice ? `${capNotice} Last block: ${decision.reason}` : decision.reason);
+      if (capNotice) await cancelIntentAtCap(worker, ledger.cwd);
+      await commitAndLand(worker.projectId, worker.projectPath, `factory: ${capNotice ? 'cancel' : 'block'} ${worker.workId}`).catch(() => {});
       return true;
     });
+  }
+
+  function cancelWork(cwd: string, workId: string, reason: string): Promise<string> {
+    return runCoherence({ cwd, args: [
+      'work', 'close', workId, 'cancelled', '--because', reason, '--session', FACTORY_LEDGER_SESSION, '--evidence', reason,
+    ] });
+  }
+
+  async function cancelTicketAtCap(worker: FactoryCloseOutWorker, cwd: string, blockCount: number): Promise<string | null> {
+    const notice = `Glimmervoid cancelled ${worker.workId} after ${blockCount} blocks.`;
+    try {
+      await cancelWork(cwd, worker.workId, notice);
+      return notice;
+    } catch (error) {
+      setException(worker.projectId, `Could not cancel ${worker.workId} at the block cap: ${failureText(error)}`);
+      return null;
+    }
+  }
+
+  async function cancelIntentAtCap(worker: FactoryCloseOutWorker, cwd: string): Promise<void> {
+    const capCancelCount = await countIntentCapCancel(worker.projectId, worker.intentId);
+    if (capCancelCount !== FACTORY_INTENT_CAP_CANCEL_LIMIT) return;
+    const notice = `Glimmervoid cancelled intent ${worker.intentId} after ${capCancelCount} of its tickets were cancelled at the block cap; the queue moves to the next intent.`;
+    try {
+      await cancelWork(cwd, worker.intentId, notice);
+      setException(worker.projectId, notice);
+    } catch (error) {
+      setException(worker.projectId, `Could not cancel intent ${worker.intentId} at the cap: ${failureText(error)}`);
+    }
   }
 
   async function closeOut(worker: FactoryCloseOutWorker): Promise<void> {

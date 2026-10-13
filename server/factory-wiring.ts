@@ -257,6 +257,24 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
 
   const readPaused = async (projectId: string) => (await readLaneState(projectId)).paused;
 
+  async function countTicketBlock(projectId: string, workId: string): Promise<number> {
+    let blockCount = 0;
+    await updateLaneState(projectId, (state) => {
+      blockCount = (state.ticketBlockCounts?.[workId] ?? 0) + 1;
+      return { ticketBlockCounts: { ...state.ticketBlockCounts, [workId]: blockCount } };
+    });
+    return blockCount;
+  }
+
+  async function countIntentCapCancel(projectId: string, intentId: string): Promise<number> {
+    let capCancelCount = 0;
+    await updateLaneState(projectId, (state) => {
+      capCancelCount = (state.intentCapCancelCounts?.[intentId] ?? 0) + 1;
+      return { intentCapCancelCounts: { ...state.intentCapCancelCounts, [intentId]: capCancelCount } };
+    });
+    return capCancelCount;
+  }
+
   function serializeProject<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
     const previous = projectChains.get(projectId) ?? Promise.resolve();
     const next = previous.then(operation, operation);
@@ -592,7 +610,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       }) : null;
       const activeCloseOut = spawnReviewer ? createFactoryCloseOut({
         config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, commitAndLand, readIntegrationSha,
-        recordFactoryLandedSha, readPaused, readIntentFloorAllowances, prepareCheckRunner, recordDecision: decisionLog.record,
+        recordFactoryLandedSha, readPaused, readIntentFloorAllowances, countTicketBlock, countIntentCapCancel, prepareCheckRunner, recordDecision: decisionLog.record,
         appendWatch: (entry) => updateLaneState(entry.projectId, (state) => ({ watch: [...(state.watch ?? []), entry] })),
         notifyOrchestrator,
         setException: raiseException,

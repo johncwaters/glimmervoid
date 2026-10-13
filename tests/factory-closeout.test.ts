@@ -13,7 +13,7 @@ import type { TestContext } from 'node:test';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import type { PrepareFactoryCheckRunner } from '../server/factory-check-sandbox.ts';
 import { createFactoryCloseOut } from '../server/factory-closeout.ts';
-import type { FactoryCloseOutWorker } from '../server/factory-closeout.ts';
+import type { FactoryCloseOutDeps, FactoryCloseOutWorker } from '../server/factory-closeout.ts';
 import { commitAndLandFactoryLedger, hasCodeChangedBetween, readCodeDiffBetween, screenPendingLedgerWrites } from '../server/factory-ledger.ts';
 import { hostScratchRoot } from '../server/host-scratch.ts';
 import type { LaneSpawn } from '../server/lane-spawn.ts';
@@ -35,7 +35,7 @@ const prepareUnsandboxedCheckRunner: PrepareFactoryCheckRunner = async () => ({
   dispose: async () => {},
 });
 
-async function createFixture(context: TestContext, activateOrder = true) {
+async function createFixture(context: TestContext, activateOrder = true, capCounters: Pick<FactoryCloseOutDeps, 'countTicketBlock' | 'countIntentCapCancel'> = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'factory-closeout-'));
   const cleanupTasks: (() => Promise<void>)[] = [];
   context.after(async () => {
@@ -89,7 +89,7 @@ async function createFixture(context: TestContext, activateOrder = true) {
     },
   };
   const closeOut = createFactoryCloseOut({
-    config, runCoherence, gitWorkspace, ensureLedger: async () => ledger,
+    ...capCounters, config, runCoherence, gitWorkspace, ensureLedger: async () => ledger,
     commitAndLand: async (...landing) => {
       if (shouldFailLanding) throw new Error('Ledger push is unavailable');
       return land(...landing);
@@ -268,6 +268,50 @@ test('a block clears the attempt count so a reopened ticket starts over at its f
   assert.equal(fixture.feedback.length, feedbackBefore + 1);
   assert.equal(fixture.events.at(-1)?.event, 'blocked');
   assert.equal(fixture.exceptions.length, 1);
+});
+
+test('a ticket blocked a third time is cancelled through the cancel path and the orchestrator is told to re-plan, without cancelling its intent', async (context) => {
+  const fixture = await createFixture(context);
+  await fixture.commitChange('outside.ts');
+  const reopenedWorker: FactoryCloseOutWorker = { ...fixture.worker, session: { ...fixture.worker.session, _destroyed: false, destroy: () => {} } };
+  for (const _attempt of [1, 2, 3]) await fixture.closeOut.turnEnded(fixture.worker);
+  for (const _reopen of [1, 2]) {
+    assert.equal(await fixture.orderState(fixture.worker.workId), 'blocked');
+    await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['work', 'transition', fixture.worker.workId, 'active', '--because', 'Factory reopen', '--session', 'glimmervoid-factory'] });
+    for (const _attempt of [1, 2, 3]) await fixture.closeOut.turnEnded(reopenedWorker);
+  }
+  assert.equal(await fixture.orderState(fixture.worker.workId), 'cancelled');
+  assert.equal(fixture.commands.filter((command) => command[1] === 'close' && command[2] === fixture.worker.workId && command[3] === 'cancelled').length, 1);
+  assert.notEqual(await fixture.orderState(fixture.worker.intentId), 'cancelled');
+  assert.equal(fixture.events.at(-1)?.event, 'blocked');
+  assert.match(fixture.events.at(-1)?.detail ?? '', /after 3 blocks\. Re-plan the intent without it\.\n.*outside\.ts/s);
+  assert.equal(fixture.exceptions.length, 3);
+  assert.doesNotMatch(fixture.exceptions[1], /cancelled/);
+  assert.match(fixture.exceptions[2], /cancelled .* after 3 blocks\. Last block: .*outside\.ts/s);
+});
+
+test('the third cap-cancelled ticket of an intent cancels the intent itself and raises a notice', async (context) => {
+  const fixture = await createFixture(context, true, { countTicketBlock: async () => 3, countIntentCapCancel: async () => 3 });
+  await fixture.commitChange('outside.ts');
+  for (const _attempt of [1, 2, 3]) await fixture.closeOut.turnEnded(fixture.worker);
+  assert.equal(await fixture.orderState(fixture.worker.workId), 'cancelled');
+  assert.equal(await fixture.orderState(fixture.worker.intentId), 'cancelled');
+  assert.match(fixture.exceptions.at(-1) ?? '', /cancelled intent .* after 3 of its tickets were cancelled at the block cap/);
+});
+
+test('an intent past its cap-cancel limit is not cancelled again', async (context) => {
+  const fixture = await createFixture(context, true, { countTicketBlock: async () => 4, countIntentCapCancel: async () => 4 });
+  await fixture.commitChange('outside.ts');
+  for (const _attempt of [1, 2, 3]) await fixture.closeOut.turnEnded(fixture.worker);
+  assert.equal(await fixture.orderState(fixture.worker.workId), 'cancelled');
+  assert.notEqual(await fixture.orderState(fixture.worker.intentId), 'cancelled');
+});
+
+test('lane state carries per-ticket block counts and per-intent cap-cancel counts', () => {
+  const state = FactoryLaneState.parse({ ledgerPath: null, ledgerBranch: null, paused: false, ticketBlockCounts: { 'wrk-a': 2 }, intentCapCancelCounts: { 'wrk-i': 1 } });
+  assert.deepEqual(state.ticketBlockCounts, { 'wrk-a': 2 });
+  assert.deepEqual(state.intentCapCancelCounts, { 'wrk-i': 1 });
+  assert.equal(FactoryLaneState.safeParse({ ledgerPath: null, ledgerBranch: null, paused: false, ticketBlockCounts: { 'wrk-a': -1 } }).success, false);
 });
 
 test('independent reviewer failure retries with findings', async (context) => {
