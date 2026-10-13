@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Claude Code sessions are told that Glimmervoid supervises them**: every Claude Code session Glimmervoid starts now gets one line appended to its system prompt, saying Glimmervoid supervises the session and that `glimmervoid --help` lists the commands it gives. A sandboxed session also reads that a refused write or connection will not succeed on retry, so it stops retrying what the sandbox blocks. This is the only always-on text Glimmervoid adds to a session. A launch that already appends its own system prompt gets no line.
+- **Claude Code and Codex sessions are told that Glimmervoid supervises them**: every Claude Code and Codex session Glimmervoid starts now gets one line added to its instructions, saying Glimmervoid supervises the session and that `glimmervoid --help` lists the commands it gives. A sandboxed session also reads that a refused write or connection will not succeed on retry, so it stops retrying what the sandbox blocks. This is the only always-on text Glimmervoid adds to a session. Your own instructions win: a Claude Code launch that already appends its own system prompt gets no line, and a Codex session gets none when your Codex `config.toml` sets `developer_instructions`, because a per-launch value would replace yours. Grok and custom agents get no line.
 
 ### Changed
 

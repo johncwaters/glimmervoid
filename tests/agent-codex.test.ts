@@ -22,6 +22,8 @@ interface CodexSpawnCall {
   env: Record<string, string | undefined>;
 }
 const CODEX_SESSION_ID = '01a030d4-6956-73c2-a74a-eedd17b6361d';
+const SUPERVISION_LINE = "Glimmervoid supervises this session. Run glimmervoid --help for the commands it gives you and this session's limits.";
+const SUPERVISION_ARGS = ['-c', `developer_instructions='''${SUPERVISION_LINE}'''`];
 
 function makeCodexSession(options: Partial<SessionOptions> = {}) {
   const calls: CodexSpawnCall[] = [];
@@ -77,6 +79,7 @@ test('buildArgs neutralizes the update prompt, leads with the resume subcommand,
   });
   assert.deepEqual(args, [
     '-c', 'check_for_update_on_startup=false',
+    ...SUPERVISION_ARGS,
     'resume', CODEX_SESSION_ID,
     '-a', 'never', '-s', 'workspace-write',
     '-m', 'gpt-5.6',
@@ -95,8 +98,51 @@ test('under an outer sandbox the Codex sandbox is off, with or without skip-perm
   assert.deepEqual(codex.buildArgs({ hasOuterSandbox: true, dangerouslySkipPermissions: true }).slice(-4), ['-a', 'never', '-s', 'danger-full-access']);
 });
 
-test('buildArgs on a plain session adds the update-check flag and nothing else', () => {
-  assert.deepEqual(codex.buildArgs(), ['-c', 'check_for_update_on_startup=false']);
+test('buildArgs on a plain session adds the update-check flag, the supervision line and nothing else', () => {
+  assert.deepEqual(codex.buildArgs(), ['-c', 'check_for_update_on_startup=false', ...SUPERVISION_ARGS]);
+});
+
+test('a sandboxed Codex launch also reads that a refused write or connection will not succeed on retry', () => {
+  const sandboxedLine = `${SUPERVISION_LINE} It runs in an OS-enforced sandbox, so a refused write or connection will not succeed on retry.`;
+  const sandboxedArgs = codex.buildArgs({ hasOuterSandbox: true }).slice(2, 4);
+  assert.deepEqual(sandboxedArgs, ['-c', `developer_instructions='''${sandboxedLine}'''`]);
+  assert.equal(sandboxedArgs[1].includes('"'), false, 'no double quotes reach a cmd.exe re-parse');
+});
+
+test('a Codex launch whose arguments set developer_instructions gets no supervision line', () => {
+  const extraArgs = ['-c', 'developer_instructions="lane rules"'];
+  assert.deepEqual(codex.buildArgs({ extraArgs }), ['-c', 'check_for_update_on_startup=false', ...extraArgs]);
+});
+
+test('only a developer_instructions key in the operator config counts as the operator setting their own', () => {
+  for (const configText of ['developer_instructions = "mine"', '  developer_instructions="""\nmine\n"""', 'model = "x"\r\n"developer_instructions" = "mine"']) {
+    assert.equal(codex.setsOperatorInstructions(configText), true, configText);
+  }
+  for (const configText of ['', 'model = "gpt"', '# developer_instructions = "off"', 'notes = "developer_instructions = x"']) {
+    assert.equal(codex.setsOperatorInstructions(configText), false, configText);
+  }
+});
+
+test('a Codex session passes no supervision line when the operator config.toml sets developer_instructions, and passes it otherwise', async () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-codex-home-'));
+  const launchArgs = async (id: string) => {
+    const { session, calls } = makeCodexSession({ id, spawnEnv: { CODEX_HOME: codexHome } });
+    try {
+      await session.start();
+      return calls[0].args;
+    } finally {
+      session.destroy();
+    }
+  };
+  try {
+    assert.deepEqual((await launchArgs('codex-no-config')).slice(0, 4), ['-c', 'check_for_update_on_startup=false', ...SUPERVISION_ARGS]);
+    fs.writeFileSync(path.join(codexHome, 'config.toml'), 'model = "gpt"\ndeveloper_instructions = "mine"\n');
+    assert.equal((await launchArgs('codex-own-instructions')).some((argument) => argument.startsWith('developer_instructions=')), false);
+    fs.writeFileSync(path.join(codexHome, 'config.toml'), 'model = "gpt"\n');
+    assert.deepEqual((await launchArgs('codex-plain-config')).slice(2, 4), SUPERVISION_ARGS);
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
 });
 
 test('hook args subscribe exactly five events as TOML literal strings, and the trust bypass is opt-in', () => {

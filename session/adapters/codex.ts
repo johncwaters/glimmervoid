@@ -2,6 +2,7 @@ import { HOOK_TOOLS, mergeCodexPreToolUse } from '../core/hook-tools.ts';
 import type { ResolvedHookTool } from '../core/hook-tools.ts';
 
 import fs from "node:fs";
+import path from "node:path";
 import { execFileSync } from "../../server/child-process-safe.ts";
 import { relayPath } from "../../server/runtime-paths.ts";
 import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
@@ -10,6 +11,8 @@ import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.
 import { buildAgentEnv } from "../core/spawn-env.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import { buildHookCommand } from "../core/hook-command-core.ts";
+import { supervisionLine } from "../core/session-routes.ts";
+import { codexHomes } from "../../server/core/usage-scan-core.ts";
 import type {
   AgentAdapterShape,
   AgentArgsOptions,
@@ -182,14 +185,36 @@ function permissionArgs(dangerouslySkipPermissions: boolean, hasOuterSandbox: bo
   return [];
 }
 
+const OPERATOR_CONFIG_FILE_NAME = "config.toml";
+const DEVELOPER_INSTRUCTIONS_KEY = "developer_instructions";
+const DEVELOPER_INSTRUCTIONS_DECLARATION_RE = /^[^\S\r\n]*["']?developer_instructions["']?[^\S\r\n]*=/m;
+
+function operatorConfigPath(env: SpawnEnv): string | null {
+  const [codexHome] = codexHomes(env, null);
+  if (!codexHome) return null;
+  return path.join(codexHome, OPERATOR_CONFIG_FILE_NAME);
+}
+
+function setsOperatorInstructions(operatorConfigText: string): boolean {
+  return DEVELOPER_INSTRUCTIONS_DECLARATION_RE.test(operatorConfigText);
+}
+
+function isDeveloperInstructionsOverride(launchArgument: string): boolean {
+  return launchArgument.startsWith(`${DEVELOPER_INSTRUCTIONS_KEY}=`);
+}
+
 function buildArgs({
   dangerouslySkipPermissions = false,
   resumeSessionId = null,
   extraArgs = [],
   initialPrompt = null,
   hasOuterSandbox = false,
+  hasOperatorInstructions = false,
 }: AgentArgsOptions = {}): string[] {
   const args = [...UPDATE_CHECK_ARGS];
+  if (!hasOperatorInstructions && !extraArgs.some(isDeveloperInstructionsOverride)) {
+    args.push("-c", `${DEVELOPER_INSTRUCTIONS_KEY}='''${supervisionLine({ isSandboxed: hasOuterSandbox })}'''`);
+  }
   if (resumeSessionId) args.push("resume", resumeSessionId);
   args.push(...permissionArgs(dangerouslySkipPermissions, hasOuterSandbox));
   if (extraArgs.length > 0) args.push(...extraArgs);
@@ -209,6 +234,8 @@ const codex = {
   buildSpawnCommand,
   buildEnv,
   buildArgs,
+  operatorConfigPath,
+  setsOperatorInstructions,
   buildHookArgs,
   buildHookCommand,
   mayContributeHooks,

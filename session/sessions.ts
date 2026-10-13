@@ -1,5 +1,5 @@
 import { awaitBounded } from "../server/core/shutdown-core.ts";
-import { errorMessage } from "../shared/text.ts";
+import { errorMessage, isMissingFileError } from "../shared/text.ts";
 import { randomUUID } from "node:crypto";
 import { createCompactionTracking, observeCompaction, finishCompaction, isCompactionEndingSignal, suppressCompactionSignal, mapCompactionActivityEvent, isIdleCompactionActivity } from "./core/compaction-core.ts";
 import { isCompactionRestoreEvent } from "../shared/compaction-restore-events.ts";
@@ -30,6 +30,7 @@ import { createStatusSource } from "../detection/status-source.ts";
 import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status-source.ts";
 import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedCommand } from "./core/spawn-command.ts";
+import type { SpawnEnv } from "./core/spawn-env.ts";
 import { DEFAULT_AGENT_ID, resolveAdapter, commandFor } from "./adapters/index.ts";
 import type { AgentAdapter, AgentCapabilities } from "./adapters/index.ts";
 
@@ -1476,6 +1477,7 @@ class Session extends EventEmitter {
       extraArgs: launchSession?.extraArgs ?? this._extraClaudeArgs,
       initialPrompt: this._initialPrompt,
       hasOuterSandbox: this._prepareSandbox !== null,
+      hasOperatorInstructions: this._hasOperatorInstructions(env),
     });
 
     const spawnCommand = await this._sandboxedSpawnCommand(this._adapter.buildSpawnCommand({
@@ -1550,6 +1552,16 @@ class Session extends EventEmitter {
     this._disposeSandboxLaunch(this._sandboxLaunch);
     this.transition("spawn_fail", { error: errorMessage(cause) });
     this.emit("error", cause);
+  }
+
+  _hasOperatorInstructions(env: SpawnEnv): boolean {
+    const operatorConfigPath = this._adapter.operatorConfigPath?.(env) ?? null;
+    if (operatorConfigPath === null) return false;
+    try {
+      return this._adapter.setsOperatorInstructions?.(fs.readFileSync(operatorConfigPath, "utf8")) === true;
+    } catch (error) {
+      return !isMissingFileError(error);
+    }
   }
 
   async _sandboxedSpawnCommand(command: { file: string; args: string[] }, agentSessionId: string | null): Promise<SpawnCommand | null> {

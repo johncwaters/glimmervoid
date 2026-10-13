@@ -74,6 +74,7 @@ interface AgentArgsOptions {
   extraArgs?: string[];
   initialPrompt?: string | null;
   hasOuterSandbox?: boolean;
+  hasOperatorInstructions?: boolean;
 }
 
 interface AgentLaunchSessionOptions {
@@ -114,6 +115,8 @@ interface AgentAdapter {
   buildEnv(baseEnv: SpawnEnv, extraEnv: SpawnEnv | null | undefined, options?: AgentEnvOptions): SpawnEnv;
   buildArgs(options?: AgentArgsOptions): string[];
   settingsArgs?(settingsPath: string): string[];
+  operatorConfigPath?(env: SpawnEnv): string | null;
+  setsOperatorInstructions?(operatorConfigText: string): boolean;
   launchSessionId?(options: AgentLaunchSessionOptions): AgentLaunchSession;
   sessionIdOf?(payload: HookPayload): unknown;
 }
