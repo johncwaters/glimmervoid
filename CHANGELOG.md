@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-10-13
+
 ### Added
 
 - **Signed commits from sessions on a remote box**: when your git config signs commits with an ssh key held by an agent (`gpg.format=ssh`, `commit.gpgsign=true`, `user.signingkey` set to the public key, as PostHog's devbox setup does), sessions now sign their commits and tags even though the sandbox cannot reach the agent. Git inside the session hands the commit to Glimmervoid, which signs it outside the sandbox with whichever reachable agent holds that key: the server's own `SSH_AUTH_SOCK`, or an agent forwarded by an open `ssh -A` or `coder ssh` connection. The key never enters the sandbox, and only git commit and tag objects can be signed. Keep a forwarded connection open while sessions commit; without one, the commit fails with a message saying so instead of pushing unsigned. Keep-mergeable PR repairs re-sign through the same forwarded agent.
