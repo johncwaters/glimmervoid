@@ -342,6 +342,7 @@ function decideCommandEvent({
 }
 
 export {
+  dataHome,
   MAX_COMMAND_CHARS,
   MAX_CONTINUATION_LINES,
   SHELLS,

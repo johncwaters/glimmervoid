@@ -17,6 +17,7 @@ interface WorkRoleFacts {
   cwd: string;
   checkout: string;
   readablePaths: readonly string[];
+  writablePaths?: readonly string[];
   agentSessionId: string | null;
 }
 
@@ -58,12 +59,12 @@ function judgeRole({ vendor, cwd, hookPort, readablePaths, agentSessionId }: Jud
   };
 }
 
-function workRole({ vendor, cwd, checkout, readablePaths, agentSessionId }: WorkRoleFacts): SandboxRole {
+function workRole({ vendor, cwd, checkout, readablePaths, writablePaths = [], agentSessionId }: WorkRoleFacts): SandboxRole {
   return {
     vendors: [vendor],
     vendorHome: { scope: 'launch', cwd, agentSessionId },
     network: { access: 'open' },
-    writableRoots: [],
+    writableRoots: [...writablePaths],
     lockedCheckouts: [checkout],
     commitCheckouts: [],
     readDenied: [],

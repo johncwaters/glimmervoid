@@ -97,7 +97,7 @@ const POSTHOG_INVESTIGATION_EXPECTATIONS: Readonly<Record<string, Expectation>> 
   report_write: 'succeeds', result_write: 'succeeds', repo_read: 'succeeds', repo_write: 'fails', home_read: 'fails', outside_write: 'fails', web: 'succeeds',
 };
 const SESSION_EXPECTATIONS: Readonly<Record<string, Expectation>> = {
-  starts_in_worktree: 'succeeds', commit_everything: 'succeeds', status_clean: 'succeeds', shared_folder_write: 'succeeds', listed_cache_write: 'succeeds', listed_secret_read: 'fails',
+  starts_in_worktree: 'succeeds', commit_everything: 'succeeds', status_clean: 'succeeds', shared_folder_write: 'succeeds', listed_cache_write: 'succeeds', hook_tool_data_write: 'succeeds', listed_secret_read: 'fails',
   hooks_write: 'fails', git_config_write: 'fails', repo_write: 'fails', home_read: 'fails', upload_read: 'succeeds', outside_write: 'fails', web: 'succeeds',
 };
 const SESSION_TRUST_PROMPT = 'trustthisfolder';
@@ -172,7 +172,7 @@ function describeRole(roleName: ContractRoleName, checkout: string, evidenceDir:
   if (roleName === 'check') {
     return { vendorHome, commitCheckouts: [], readDenied: [], readableWithinDenied: facts.readablePaths, writableRoots: [evidenceDir], vendors: [], network: { access: 'none' }, lockedCheckouts: [] };
   }
-  return { ...workRole({ vendor: sandboxVendor, cwd: facts.cwd, checkout, readablePaths: [...facts.readablePaths, homeToolFolder], agentSessionId: facts.agentSessionId }), writableRoots: [evidenceDir] };
+  return workRole({ vendor: sandboxVendor, cwd: facts.cwd, checkout, readablePaths: [...facts.readablePaths, homeToolFolder], writablePaths: [evidenceDir], agentSessionId: facts.agentSessionId });
 }
 
 async function runAgent(roleName: ContractRoleName, checkout: string, evidenceDir: string, task: string): Promise<string> {
@@ -208,7 +208,7 @@ async function runAgent(roleName: ContractRoleName, checkout: string, evidenceDi
 
 async function runCheckCommand(checkout: string, evidenceDir: string, scriptFile: string): Promise<void> {
   const prepared = await prepareSandboxLaunch({
-    role: describeRole('check', checkout, evidenceDir, { launchId: 'probe-check', cwd: checkout, hookPort: null, readablePaths: [], agentSessionId: null }),
+    role: describeRole('check', checkout, evidenceDir, { launchId: 'probe-check', cwd: checkout, hookPort: null, readablePaths: [], writablePaths: [], agentSessionId: null }),
     launchId: 'probe-check',
   });
   assert.ok(prepared.ok, prepared.ok ? '' : prepared.reason);
@@ -645,7 +645,10 @@ async function probeSession(roleRoot: string): Promise<void> {
   const listedCache = path.join(roleRoot, 'cache');
   const listedSecretFolder = path.join(roleRoot, 'secrets');
   const sharedFolder = path.join(repository, 'node_modules');
-  for (const folder of [repository, listedCache, listedSecretFolder, sharedFolder]) await mkdir(folder, { recursive: true });
+  const hookToolDataDir = path.join(roleRoot, 'hook-tool-data');
+  const quietHookTool = path.join(roleRoot, 'quiet-hook-tool');
+  for (const folder of [repository, listedCache, listedSecretFolder, sharedFolder, hookToolDataDir]) await mkdir(folder, { recursive: true });
+  await writeFile(quietHookTool, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   await writeFile(path.join(listedSecretFolder, 'token.txt'), `${HOME_SECRET_TEXT}\n`);
   const runGit = (gitArguments: string[], cwd = repository) => runHardenedGit(gitArguments, { cwd, timeout: 30_000 });
   await runGit(['init', '-b', 'main']);
@@ -674,6 +677,7 @@ async function probeSession(roleRoot: string): Promise<void> {
     status_clean: 'test -z "$(git status --porcelain)"',
     shared_folder_write: 'printf shared > node_modules/role-probe.txt',
     listed_cache_write: `printf cached > ${shellQuoted(path.join(listedCache, 'entry.txt'))}`,
+    hook_tool_data_write: `printf tracked > ${shellQuoted(path.join(hookToolDataDir, 'entry.txt'))}`,
     listed_secret_read: `cat ${shellQuoted(path.join(listedSecretFolder, 'token.txt'))}`,
     hooks_write: `printf hooks > ${shellQuoted(hooksFile)}`,
     git_config_write: 'git config role.probe written',
@@ -690,6 +694,7 @@ async function probeSession(roleRoot: string): Promise<void> {
     initialPrompt: 'This is a sandbox contract probe. Run exactly this shell command once and do not work around a denial or retry: sh probe.sh. Then reply with the single word done.',
     hookRouter: { register: () => {}, unregister: () => {} }, getHookPort: () => hookPort,
     hooksBaseDir: path.join(probeHome, 'scratch', 'glimmervoid-hooks'),
+    hookTools: [{ id: 'rtk', binPath: quietHookTool, dataDir: hookToolDataDir }],
     prepareSandbox: createSessionSandbox({
       getSettings: () => ({ writablePaths: [listedCache], unreadablePaths: [listedSecretFolder], worktreeShare: ['node_modules'] }),
       uploadsRoot,

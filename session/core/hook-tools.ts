@@ -70,6 +70,7 @@ type HookToolId = 'rtk' | 'saneYolo';
 interface ResolvedHookTool {
   id: HookToolId;
   binPath: string;
+  dataDir?: string;
 }
 
 interface HookToolDescriptor {

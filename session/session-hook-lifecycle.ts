@@ -69,6 +69,7 @@ interface SessionHookLifecycle {
   hasSettings(): boolean;
   isRequiredSandboxMissing(): boolean;
   injectedReadablePaths(isSaneYoloActive: boolean): string[];
+  injectedWritablePaths(isSaneYoloActive: boolean): string[];
 }
 
 function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLifecycle {
@@ -95,6 +96,11 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
       ...injectedHookTools(isSaneYoloActive).map((tool) => tool.binPath),
       ...(isSaneYoloActive ? [saneYoloHomeDir()] : []),
     ];
+  }
+
+  function injectedWritablePaths(isSaneYoloActive: boolean): string[] {
+    if (token === null) return [];
+    return injectedHookTools(isSaneYoloActive).flatMap((tool) => tool.dataDir === undefined ? [] : [tool.dataDir]);
   }
 
   function cleanup(): void {
@@ -305,6 +311,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     hasSettings: () => settingsHandle !== null,
     isRequiredSandboxMissing: () => options.settingsSandbox !== null && settingsHandle === null,
     injectedReadablePaths,
+    injectedWritablePaths,
   };
 }
 

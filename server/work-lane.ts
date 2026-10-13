@@ -61,9 +61,13 @@ export async function existingRealPath(candidate: string): Promise<string | null
   }
 }
 
-async function readableToolFolders(homeDir: string): Promise<string[]> {
-  const toolFolders = await Promise.all(LANE_READABLE_HOME_FOLDERS.map((folder) => existingRealPath(path.join(homeDir, folder))));
-  return toolFolders.filter((folder) => folder !== null);
+export async function existingRealPaths(candidates: readonly string[]): Promise<string[]> {
+  const realPaths = await Promise.all(candidates.filter((candidate) => path.isAbsolute(candidate)).map(existingRealPath));
+  return realPaths.filter((realPath) => realPath !== null);
+}
+
+function readableToolFolders(homeDir: string): Promise<string[]> {
+  return existingRealPaths(LANE_READABLE_HOME_FOLDERS.map((folder) => path.join(homeDir, folder)));
 }
 
 export async function readLaneCommonGitDir(cwd: string): Promise<string> {
@@ -108,7 +112,7 @@ export async function resolveWorkLane(input: WorkLaneInput, {
     const prepareSessionSandbox: PrepareSessionSandbox = async (facts) => {
       if (checkout === null) return { ok: false, reason: 'the lane worktree was never scoped' };
       return prepareSandbox({
-        role: workRole({ vendor: 'claude', cwd: facts.cwd, checkout, agentSessionId: facts.agentSessionId, readablePaths: [...facts.readablePaths, ...toolFolders] }),
+        role: workRole({ vendor: 'claude', cwd: facts.cwd, checkout, agentSessionId: facts.agentSessionId, readablePaths: [...facts.readablePaths, ...toolFolders], writablePaths: await existingRealPaths(facts.writablePaths) }),
         launchId: facts.launchId,
       });
     };

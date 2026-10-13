@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { SANE_YOLO_FILES } from '../session/core/sane-yolo.ts';
 import { glimmervoidHomeDir } from './core/config-path-core.ts';
+import { dataHome } from './core/ingest-shell-core.ts';
 import { getRtkPath } from './rtk-resolver.ts';
 import { resolvePackageBin } from './runtime-paths.ts';
 import { writeTextAtomicSync } from './json-file.ts';
@@ -11,6 +12,8 @@ import { isMissingFileError } from '../shared/text.ts';
 
 const writtenHomes = new Set<string>();
 const warnedTools = new Set<string>();
+const ensuredDataDirs = new Set<string>();
+const RTK_DATA_FOLDER = 'rtk';
 
 function saneYoloHomeDir(): string {
   return path.join(glimmervoidHomeDir(os.homedir(), process.env), 'sane-yolo');
@@ -33,6 +36,30 @@ function writeSaneYoloPolicy(homeDir: string): void {
   writtenHomes.add(homeDir);
 }
 
+function rtkDataDir(platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env, homeDir: string = os.homedir()): string | null {
+  if (platform === 'darwin') return path.join(homeDir, 'Library', 'Application Support', RTK_DATA_FOLDER);
+  if (platform !== 'linux') return null;
+  const dataHomeDir = dataHome(env, homeDir);
+  return path.isAbsolute(dataHomeDir) ? path.join(dataHomeDir, RTK_DATA_FOLDER) : null;
+}
+
+function ensureDataDir(dataDir: string | null): string | null {
+  if (dataDir === null || ensuredDataDirs.has(dataDir)) return dataDir;
+  fs.mkdirSync(dataDir, { recursive: true });
+  ensuredDataDirs.add(dataDir);
+  return dataDir;
+}
+
+function rtkHookTool(binPath: string, warn: (message: string) => void): ResolvedHookTool {
+  try {
+    const dataDir = ensureDataDir(rtkDataDir());
+    return dataDir === null ? { id: 'rtk', binPath } : { id: 'rtk', binPath, dataDir };
+  } catch (error) {
+    warnOnce('rtkDataDir', `[rtk] The rtk data folder could not be created: ${String(error)}. Sandboxed sessions will run rtk without savings tracking.`, warn);
+    return { id: 'rtk', binPath };
+  }
+}
+
 function warnOnce(toolId: string, message: string, warn: (message: string) => void): void {
   if (warnedTools.has(toolId)) return;
   warnedTools.add(toolId);
@@ -46,7 +73,7 @@ function resolveHookTools(
   const hookTools: ResolvedHookTool[] = [];
   if (config.rtk) {
     const rtkPath = getRtkPath();
-    if (rtkPath) hookTools.push({ id: 'rtk', binPath: rtkPath });
+    if (rtkPath) hookTools.push(rtkHookTool(rtkPath, warn));
     if (!rtkPath) warnOnce('rtk', '[rtk] config.rtk is true, but no rtk binary was found. Sessions will spawn without rtk hooks.', warn);
   }
   if (config.saneYolo === false || !skipPermissions) return hookTools;
@@ -72,4 +99,4 @@ function resolveRequiredSaneYoloHookTools(
   return hookTools.some((tool) => tool.id === 'saneYolo') ? hookTools : null;
 }
 
-export { resolveHookTools, resolveRequiredSaneYoloHookTools, saneYoloHomeDir, writeSaneYoloPolicy };
+export { resolveHookTools, resolveRequiredSaneYoloHookTools, rtkDataDir, saneYoloHomeDir, writeSaneYoloPolicy };

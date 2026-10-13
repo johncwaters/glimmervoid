@@ -245,6 +245,8 @@ test('a session with an outer sandbox spawns only the wrapped command with the a
   await withTempDir(async (dir) => {
     const calls: SpawnCall[] = [];
     let disposals = 0;
+    const rtkBinPath = path.join(dir, 'rtk');
+    const rtkDataDir = path.join(dir, 'rtk-data');
     const session = new Session({
       id: 'session-wrapped',
       name: 'wrapped',
@@ -255,6 +257,7 @@ test('a session with an outer sandbox spawns only the wrapped command with the a
       hookRouter: new HookRouter(),
       getHookPort: () => PORT,
       hooksBaseDir: dir,
+      hookTools: [{ id: 'rtk', binPath: rtkBinPath, dataDir: rtkDataDir }],
       prepareSandbox: async (facts) => ({
         ok: true,
         launch: {
@@ -278,7 +281,7 @@ test('a session with an outer sandbox spawns only the wrapped command with the a
       const { launchId, agentSessionId, ...factsBesideIds } = JSON.parse(String(calls[0].opts.env.PROBED_FACTS)) as SessionSandboxFacts;
       assert.match(launchId, /^[A-Za-z0-9][A-Za-z0-9._-]*$/);
       assert.equal(calls[0].args[calls[0].args.indexOf('--session-id') + 1], agentSessionId, 'the sandbox is told the session id the agent is started with');
-      assert.deepEqual(factsBesideIds, { cwd: dir, hookPort: PORT, readablePaths: [settingsDir] });
+      assert.deepEqual(factsBesideIds, { cwd: dir, hookPort: PORT, readablePaths: [settingsDir, rtkBinPath], writablePaths: [rtkDataDir] });
       assert.deepEqual(JSON.parse(fs.readFileSync(path.join(settingsDir, 'settings.json'), 'utf8')).sandbox, { enabled: false });
     } finally {
       session.destroy();

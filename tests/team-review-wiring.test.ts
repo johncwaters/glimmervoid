@@ -46,7 +46,7 @@ const DIFF = 'diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n
 
 type SpawnCall = Parameters<TeamReviewSpawn>[0] & { workDir: string; workDirFiles: string[]; prompt: string };
 const CACHED_CLONE = '/cache/Acme/app';
-const ROLE_FACTS = { launchId: 'launch-one', cwd: '/review/work', hookPort: 3911, readablePaths: ['/hook/settings'], agentSessionId: null };
+const ROLE_FACTS = { launchId: 'launch-one', cwd: '/review/work', hookPort: 3911, readablePaths: ['/hook/settings'], writablePaths: [], agentSessionId: null };
 const describeProbeRole = () => teamReviewRole(ROLE_FACTS, { checkoutPath: '/tmp/checkout', cachedClone: CACHED_CLONE, unreadablePaths: [] });
 
 function roleOf(spawn: Pick<SpawnCall, 'sandboxRole'> | undefined) {

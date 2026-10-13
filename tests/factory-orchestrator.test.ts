@@ -148,7 +148,7 @@ test('orchestrator uses the ledger cwd, pinned Claude hooks, Sane YOLO, a work r
   assert.deepEqual(overrides.hookTools, [{ id: 'saneYolo', binPath: '/cc-safety-net' }]);
   assert.equal(overrides.getHookTools, null);
   assert.equal(overrides.settingsSandbox, undefined);
-  const preparation = await overrides.prepareSandbox?.({ launchId: 'launch-one', cwd: fixture.ledgerPath, hookPort: 3911, readablePaths: ['/hook/settings'], agentSessionId: claudeSessionId ?? null });
+  const preparation = await overrides.prepareSandbox?.({ launchId: 'launch-one', cwd: fixture.ledgerPath, hookPort: 3911, readablePaths: ['/hook/settings'], writablePaths: [], agentSessionId: claudeSessionId ?? null });
   assert.equal(preparation?.ok, true);
   assert.deepEqual(fixture.preparedRoles, [{
     vendors: ['claude'], vendorHome: { scope: 'launch', cwd: fixture.ledgerPath, agentSessionId: claudeSessionId }, network: { access: 'open' },

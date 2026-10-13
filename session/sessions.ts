@@ -173,6 +173,7 @@ interface SessionSandboxFacts {
   cwd: string;
   hookPort: number | null;
   readablePaths: string[];
+  writablePaths: string[];
   agentSessionId: string | null;
 }
 
@@ -1552,6 +1553,7 @@ class Session extends EventEmitter {
       cwd: this.effectiveCwd(),
       hookPort: this._hooks.hasInjection() ? this._hooks.listenerPort() : null,
       readablePaths: this._hooks.injectedReadablePaths(this._isSaneYoloActive),
+      writablePaths: this._hooks.injectedWritablePaths(this._isSaneYoloActive),
       agentSessionId,
     });
     if (!prepared.ok) throw new Error(prepared.reason);

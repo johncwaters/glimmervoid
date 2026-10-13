@@ -14,7 +14,7 @@ import { runHardenedGit } from './git-workspace.ts';
 import { allowSandboxedSpawn } from './sandbox-deps.ts';
 import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 import { prepareSandboxLaunch } from './sandbox-launch.ts';
-import { existingRealPath, readGitDirsOfOwnCheckout } from './work-lane.ts';
+import { existingRealPath, existingRealPaths, readGitDirsOfOwnCheckout } from './work-lane.ts';
 
 interface SessionSandboxSettings {
   writablePaths: readonly string[];
@@ -125,11 +125,6 @@ async function sharedFoldersOf({ checkout, gitDir }: SandboxRole['commitCheckout
   return sharedFolders.filter((sharedFolder) => sharedFolder !== null);
 }
 
-async function existingRealPaths(candidates: readonly string[]): Promise<string[]> {
-  const realPaths = await Promise.all(candidates.filter((candidate) => path.isAbsolute(candidate)).map(existingRealPath));
-  return realPaths.filter((realPath) => realPath !== null);
-}
-
 function createSessionSandbox({
   getSettings, uploadsRoot, sandboxRefusal = allowSandboxedSpawn, prepareSandbox = prepareSandboxLaunch, trustClaudeFolder, platform = process.platform,
   homeDir = os.homedir(), env = process.env, readGithubToken = () => readGithubCliToken(env), log = console,
@@ -151,7 +146,7 @@ function createSessionSandbox({
       trustFolder: ownRepositoryRoot ?? cwd,
       role: sessionRole({
         commitCheckouts,
-        writableRoots: [...startFolderRoots, ...sharedFolders, ...await existingRealPaths(expandHome(settings.writablePaths))],
+        writableRoots: [...startFolderRoots, ...sharedFolders, ...await existingRealPaths([...expandHome(settings.writablePaths), ...facts.writablePaths])],
         readDenied: expandHome(settings.unreadablePaths).filter((unreadablePath) => path.isAbsolute(unreadablePath)),
         readablePaths: [...facts.readablePaths, ...await existingRealPaths([sessionUploads, githubCliConfigDir()])],
       }),

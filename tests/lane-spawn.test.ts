@@ -174,7 +174,7 @@ test('factory reviewer spawns wrapped in the judge sandbox role with its prompt 
       assert.deepEqual(chunks, ['{"type":"result"}']);
       assert.deepEqual(options.spawnEnv, { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '0', ...LANE_CREDENTIAL_ENV });
       assert.equal(options.settingsSandbox ?? null, null);
-      await options.prepareSandbox?.({ launchId: 'launch-one', cwd, hookPort: 3911, readablePaths: ['/hook/settings'], agentSessionId: 'agent-session-one' });
+      await options.prepareSandbox?.({ launchId: 'launch-one', cwd, hookPort: 3911, readablePaths: ['/hook/settings'], writablePaths: [], agentSessionId: 'agent-session-one' });
       assert.deepEqual(preparedRoles, [{
         vendors: ['claude'], vendorHome: { scope: 'launch', cwd, agentSessionId: 'agent-session-one' }, network: { access: 'allowlist', domains: [], hookPort: 3911 },
         writableRoots: [cwd], lockedCheckouts: [], commitCheckouts: [], readDenied: [], readableWithinDenied: ['/hook/settings', promptFile],

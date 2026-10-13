@@ -712,7 +712,7 @@ test('keep mergeable refuses a workflow file whose name git would print C-quoted
 test('a staged pull request session writes only its work folder and reads its cached clone, and only keep mergeable gets open network', () => {
   const workDir = '/home/op/.glimmervoid/my-prs-work/wt';
   const cachedClone = '/home/op/.glimmervoid/team-review-repos/Acme/app';
-  const facts = { launchId: 'launch-one', cwd: workDir, hookPort: 3911, readablePaths: ['/hook/settings'], agentSessionId: 'agent-session-one' };
+  const facts = { launchId: 'launch-one', cwd: workDir, hookPort: 3911, readablePaths: ['/hook/settings'], writablePaths: [], agentSessionId: 'agent-session-one' };
   const confinedRole = confinedPrRole(facts, cachedClone);
   assert.deepEqual(confinedRole, {
     vendors: ['claude'], vendorHome: { scope: 'launch', cwd: workDir, agentSessionId: 'agent-session-one' }, network: { access: 'allowlist', domains: [], hookPort: 3911 },
