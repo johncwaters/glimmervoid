@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **An idle session no longer retries a conflicting automatic rebase in a loop**: when a session's branch conflicted with its base branch, the automatic rebase could start and abort about twice a second for as long as the session sat idle, swapping the worktree's files each time and breaking any long test or build running in it. A conflicted rebase now waits until the base branch or the session's branch moves, or until a conflict resolution is actually recorded.
+
 ## [0.32.1] - 2026-10-13
 
 ### Added
