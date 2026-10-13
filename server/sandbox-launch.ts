@@ -80,10 +80,11 @@ async function symlinkTargetsInside(folder: string): Promise<string[]> {
   return targets.filter((target): target is string => target !== null);
 }
 
-async function blockedPathsWithRealTargets(candidates: readonly string[]): Promise<string[]> {
+async function blockedPathsWithRealTargets(candidates: readonly string[], operatorBlockedPaths: readonly string[]): Promise<string[]> {
   const resolved = await Promise.all(candidates.map(async (candidate) => {
     const isPresentEntry = await lstat(candidate).then(() => true, (error: unknown) => !isMissingFileError(error));
-    if (!isPresentEntry) return process.platform === ABSENT_PATH_DENY_PLATFORM ? [candidate] : [];
+    const isKeptWhenAbsent = process.platform === ABSENT_PATH_DENY_PLATFORM || operatorBlockedPaths.includes(candidate);
+    if (!isPresentEntry) return isKeptWhenAbsent ? [candidate] : [];
     const realCandidate = await realpath(candidate).catch(() => candidate);
     return [candidate, realCandidate, ...await symlinkTargetsInside(realCandidate)];
   }));
@@ -219,7 +220,7 @@ async function prepareSandboxLaunch({ role, launchId, tempDir, enterDir }: Sandb
       const hostPaths: SandboxHostPaths = { ...stableHostPaths, homeEntryNames, glimmervoidHomeEntryNames };
       const [existingPaths, writeBlockedPaths] = await Promise.all([
         presentPaths(sandboxPolicyProbePaths(realRole, hostPaths)),
-        blockedPathsWithRealTargets(standardWriteBlockCandidates(realRole, hostPaths)),
+        blockedPathsWithRealTargets(standardWriteBlockCandidates(realRole, hostPaths), realRole.blockedPaths ?? []),
       ]);
       return buildSandboxLaunchPlan(realRole, { ...hostPaths, existingPaths, writeBlockedPaths });
     };

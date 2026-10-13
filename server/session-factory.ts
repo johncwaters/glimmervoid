@@ -43,10 +43,10 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
 
   function defaultSandboxFor(project: ProjectEntry, config: GlimmervoidConfig, overrides: SessionSpawnOverrides): SessionOptions['prepareSandbox'] {
     if (!dependencies.sessionSandbox) return null;
-    const unconfinedRepos = (config.sandbox?.unconfinedRepos ?? []).map((repo) => expandTilde(repo, process.env, dependencies.homeDir ?? null));
+    const unconfinedRepos = (config.guardrails?.unguardedRepos ?? []).map((repo) => expandTilde(repo, process.env, dependencies.homeDir ?? null));
     const isConfined = isSessionConfined({
       usageVendor: getAdapter(overrides.agent ?? project.agent)?.usageVendor ?? null,
-      isMarkedUnconfined: project.unconfined === true,
+      isMarkedUnconfined: project.unguarded === true,
       sessionFolders: [project.path, ...(project.repos ?? [])],
       unconfinedRepos,
     });

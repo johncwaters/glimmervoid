@@ -15,7 +15,7 @@ import { prepareSandboxLaunch } from './sandbox-launch.ts';
 import { existingRealPaths, readGitDirsOfOwnCheckout } from './work-lane.ts';
 
 interface SessionSandboxSettings {
-  writablePaths: readonly string[];
+  blockedPaths: readonly string[];
   unreadablePaths: readonly string[];
 }
 
@@ -41,7 +41,7 @@ type SessionSandbox = ReturnType<typeof createSessionSandbox>;
 
 const UNWRAPPED_PLATFORM = 'win32';
 const GITHUB_TOKEN_TIMEOUT_MS = 5000;
-const OPT_OUT_HINT = 'Mark the session or its repository unconfined to start it outside the sandbox.';
+const OPT_OUT_HINT = 'Mark the session or its repository unguarded to start it without guardrails.';
 
 async function readGithubCliToken(env: NodeJS.ProcessEnv): Promise<string | null> {
   if (rawTextOr(env.GH_TOKEN, null) || rawTextOr(env.GITHUB_TOKEN, null)) return null;
@@ -67,12 +67,16 @@ function createSessionSandbox({
     await mkdir(sessionUploads, { recursive: true });
     const cwd = await realpath(facts.cwd);
     const ownRepositoryRoot = isWorkspace ? null : await repositoryRootOf(cwd);
+    const expandedBlockedPaths = expandHome(settings.blockedPaths);
+    const ignoredBlockedPaths = expandedBlockedPaths.filter((blockedPath) => !path.isAbsolute(blockedPath));
+    if (ignoredBlockedPaths.length > 0) log.warn(`[guardrails] ignoring guardrails.blockedPaths entries that are not absolute paths: ${ignoredBlockedPaths.join(', ')}`);
     return {
       cwd,
       trustFolder: ownRepositoryRoot ?? cwd,
       role: sessionRole({
-        writableRoots: await existingRealPaths([...expandHome(settings.writablePaths), ...facts.writablePaths]),
+        writableRoots: await existingRealPaths(facts.writablePaths),
         readDenied: expandHome(settings.unreadablePaths).filter((unreadablePath) => path.isAbsolute(unreadablePath)),
+        blockedPaths: expandedBlockedPaths.filter((blockedPath) => path.isAbsolute(blockedPath)),
         readablePaths: [...facts.readablePaths, ...await existingRealPaths([sessionUploads, githubCliConfigDir()])],
       }),
     };
@@ -80,7 +84,7 @@ function createSessionSandbox({
 
   async function recordClaudeFolderTrust(folder: string): Promise<void> {
     if (!trustClaudeFolder) return;
-    await trustClaudeFolder(folder).catch((error: unknown) => log.warn(`[sandbox] ${errorMessage(error)}`));
+    await trustClaudeFolder(folder).catch((error: unknown) => log.warn(`[guardrails] ${errorMessage(error)}`));
   }
 
   function prepareFor(request: SessionSandboxRequest): PrepareSessionSandbox | null {

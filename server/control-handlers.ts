@@ -261,9 +261,9 @@ const DASHBOARD_SETTING_PATHS = Object.freeze([
   ...USAGE_BUDGET_KEYS.map((key) => `usage.budget.${key}`),
   ...TELEGRAM_STRING_KEYS.map((key) => `telegram.${key}`),
   'agentApi.enabled',
-  'sandbox.unconfinedRepos',
-  'sandbox.writablePaths',
-  'sandbox.unreadablePaths',
+  'guardrails.unguardedRepos',
+  'guardrails.blockedPaths',
+  'guardrails.unreadablePaths',
   'telemetry.enabled',
 ]);
 
@@ -762,7 +762,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       if (incoming.ingest != null) cfg.ingest = mergeSettingsBlock(cfg.ingest, incoming.ingest, INGEST_SPEC);
       if (s.telegram != null) cfg.telegram = mergeSettingsBlockOverStored(cfg.telegram, s.telegram);
       if (s.agentApi != null) cfg.agentApi = mergeSettingsBlockOverStored(cfg.agentApi, s.agentApi);
-      if (s.sandbox != null) cfg.sandbox = mergeSettingsBlockOverStored(cfg.sandbox, s.sandbox);
+      if (s.guardrails != null) cfg.guardrails = mergeSettingsBlockOverStored(cfg.guardrails, s.guardrails);
       if (s.telemetry != null) cfg.telemetry = mergeSettingsBlockOverStored(cfg.telemetry, s.telemetry);
       if (!workflowsUpdate) return undefined;
       const storedWorkflowsMerge = mergeWorkflowsUpdateOverStored(cfg.workflows, workflowsUpdate);
@@ -889,7 +889,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     const project: ProjectEntry = { id, name, path: resolvedPath };
     if (workspaceRepos) project.repos = workspaceRepos;
     if (typeof dangerouslySkipPermissions === 'boolean') project.dangerouslySkipPermissions = dangerouslySkipPermissions;
-    if (unconfined) project.unconfined = true;
+    if (unconfined) project.unguarded = true;
     if (agent) project.agent = agent;
     const freshConfig = configStore.save(cfg => {
       cfg.projects.push(project);
@@ -970,7 +970,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
         path: project.path,
         agent: project.agent,
         dangerouslySkipPermissions: project.dangerouslySkipPermissions,
-        unconfined: project.unconfined,
+        unconfined: project.unguarded,
       });
       if (!created.ok) { reply({ error: created.error }); return; }
       const session = sessions.get(created.project.id);

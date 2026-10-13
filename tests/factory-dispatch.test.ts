@@ -194,11 +194,11 @@ test('the session factory wraps an ordinary Claude session unless it is marked u
     hookRouter: new HookRouter(), getHookPort: () => 12345, getGitWorkspace: () => null, getPlanReviewPort: () => null,
     resolveHookTools: () => [], getUserHooks: () => [],
     sessionSandbox: { prepareFor: ({ sessionId }) => { wrappedSessionIds.push(sessionId); return async () => ({ ok: false, reason: 'never launched' }); } } });
-  const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, projects: [], sandbox: { unconfinedRepos: [path.resolve('/work/dotfiles')] } };
+  const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, projects: [], guardrails: { unguardedRepos: [path.resolve('/work/dotfiles')] } };
   const project = (id: string, extra: Partial<ProjectEntry> = {}): ProjectEntry => ({ id, name: id, path: path.resolve('/work/app'), ...extra });
   const sessions = [
     makeSession(project('ordinary'), config),
-    makeSession(project('marked', { unconfined: true }), config),
+    makeSession(project('marked', { unguarded: true }), config),
     makeSession(project('listed', { path: path.resolve('/work/dotfiles/nvim') }), config),
     makeSession(project('codex', { agent: 'codex' }), config),
     makeSession(project('lane'), config, { prepareSandbox: null }),

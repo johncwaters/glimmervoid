@@ -52,7 +52,7 @@ test('linux missing socat names it with one install hint naming every package', 
   const report = linuxReport(['bwrap', 'rg']);
   assert.deepEqual(report.missingBinaries, ['socat']);
   assert.equal(report.installHint, 'Install bubblewrap, socat and ripgrep, for example: sudo apt install bubblewrap socat ripgrep');
-  assert.equal(sandboxSpawnRefusal(report), `not started: the sandbox needs bwrap, socat and rg, and socat is not on PATH. ${SANDBOX_INSTALL_HINT}`);
+  assert.equal(sandboxSpawnRefusal(report), `not started: the guardrails need bwrap, socat and rg, and socat is not on PATH. ${SANDBOX_INSTALL_HINT}`);
   assert.deepEqual(sandboxDoctorRows(report), [['bwrap', 'found'], ['socat', 'MISSING'], ['rg', 'found'], ['hint', SANDBOX_INSTALL_HINT]]);
 });
 
@@ -61,7 +61,7 @@ test('linux missing every binary names them all in the boot warning', () => {
   assert.deepEqual(report.missingBinaries, ['bwrap', 'socat', 'rg']);
   assert.equal(
     sandboxBootWarning(report),
-    `[sandbox] bwrap, socat and rg are not on PATH, so sandboxed sessions and factory checks will refuse to start. ${SANDBOX_INSTALL_HINT}`,
+    `[guardrails] bwrap, socat and rg are not on PATH, so guarded sessions and factory checks will refuse to start. ${SANDBOX_INSTALL_HINT}`,
   );
   assert.match(String(sandboxInstallNotice(report)), /bwrap, socat and rg are not on PATH.*sudo apt install bubblewrap socat ripgrep$/);
 });
@@ -71,7 +71,7 @@ test('a non-linux platform is never refused and the doctor says nothing was chec
   assert.deepEqual(report.missingBinaries, []);
   assert.equal(sandboxSpawnRefusal(report), null);
   assert.equal(sandboxInstallNotice(report), null);
-  assert.deepEqual(sandboxDoctorRows(report), [['sandbox', 'nothing to check on darwin']]);
+  assert.deepEqual(sandboxDoctorRows(report), [['guardrails', 'nothing to check on darwin']]);
 });
 
 test('the probe reuses the shared PATH lookup and treats a failed lookup as missing', () => {
@@ -97,7 +97,7 @@ test('the boot check probes once, warns once, and every spawn reads the cached r
   assert.equal(refusal(), refusal());
   assert.equal(probes, 1);
   assert.equal(warnings.length, 1);
-  assert.match(warnings[0] ?? '', /sandboxed sessions and factory checks will refuse to start/);
+  assert.match(warnings[0] ?? '', /guarded sessions and factory checks will refuse to start/);
 });
 
 test('a boot check that finds everything warns nothing and refuses nothing', () => {
@@ -143,7 +143,7 @@ test('postinstall prints one sandbox hint line when a binary is missing and stay
     const missing = runWithPath(['scripts/postinstall-path-check.ts'], missingPathDir);
     assert.equal(missing.status, 0, missing.stderr);
     const hintLines = missing.stdout.split('\n').filter((outputLine) => outputLine.includes('sudo apt install bubblewrap socat'));
-    assert.deepEqual(hintLines, [`glimmervoid: socat is not on PATH; sandboxed sessions and factory checks need bwrap, socat and rg. ${SANDBOX_INSTALL_HINT}`]);
+    assert.deepEqual(hintLines, [`glimmervoid: socat is not on PATH; guarded sessions and factory checks need bwrap, socat and rg. ${SANDBOX_INSTALL_HINT}`]);
     const found = runWithPath(['scripts/postinstall-path-check.ts'], foundPathDir);
     assert.equal(found.status, 0, found.stderr);
     assert.doesNotMatch(found.stdout, /bubblewrap/);

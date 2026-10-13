@@ -25,6 +25,7 @@ interface SessionRoleFacts {
   writableRoots: readonly string[];
   readDenied: readonly string[];
   readablePaths: readonly string[];
+  blockedPaths: readonly string[];
 }
 
 interface SessionConfinementFacts {
@@ -70,9 +71,10 @@ function workRole({ vendor, cwd, checkout, readablePaths, writablePaths = [], ag
   };
 }
 
-function sessionRole({ writableRoots, readDenied, readablePaths }: SessionRoleFacts): SandboxRole {
+function sessionRole({ writableRoots, readDenied, readablePaths, blockedPaths }: SessionRoleFacts): SandboxRole {
   return {
     guardrailLevel: 'standard',
+    blockedPaths: [...blockedPaths],
     vendors: SESSION_VENDORS,
     vendorHome: { scope: 'state' },
     network: { access: 'open' },

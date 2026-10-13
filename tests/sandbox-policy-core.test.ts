@@ -127,8 +127,10 @@ test('an ordinary Claude session is confined unless it or a folder above it is m
   const hookScratch = path.join(glimmervoidHome, 'scratch', 'glimmervoid-hooks', 'session-one');
   const githubLogin = path.join(homeDir, '.config', 'gh');
   const listedSecret = path.resolve('/work/secrets');
-  const role = sessionRole({ writableRoots: [hookScratch], readDenied: [listedSecret], readablePaths: [githubLogin] });
+  const listedBlocked = path.resolve('/work/protected');
+  const role = sessionRole({ writableRoots: [hookScratch], readDenied: [listedSecret], readablePaths: [githubLogin], blockedPaths: [listedBlocked] });
   const blocked = standardWriteBlockCandidates(role, hostPaths);
+  assert.equal(blocked.includes(listedBlocked), true);
   for (const blockedPath of ['.ssh', '.config/gh', '.aws', '.git-credentials', 'Library/Keychains', '.glimmervoid/config.json', '.glimmervoid/bin', '.glimmervoid/sandbox-policies']) {
     assert.equal(blocked.includes(path.join(homeDir, blockedPath)), true, blockedPath);
   }
@@ -154,7 +156,7 @@ test('every config sibling file the server names is write-blocked for a session 
   const sources = await Promise.all(serverFiles.map((file) => readFile(path.join(serverFolder, file), 'utf8')));
   const siblingNames = sources.flatMap((source) => [...source.matchAll(/configSiblingPath\([^,()]*,\s*'([^']+)'\)/g)].map((match) => match[1]));
   assert.ok(siblingNames.includes('pairings.json'));
-  const role = sessionRole({ writableRoots: [], readDenied: [], readablePaths: [] });
+  const role = sessionRole({ writableRoots: [], readDenied: [], readablePaths: [], blockedPaths: [] });
   for (const configFolder of [glimmervoidHome, path.resolve('/etc/glimmervoid')]) {
     const glimmervoidConfigFile = path.join(configFolder, 'settings.json');
     const blocked = standardWriteBlockCandidates(role, { ...hostPaths, glimmervoidConfigFile, glimmervoidHomeEntryNames: [] });

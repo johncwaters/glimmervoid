@@ -69,8 +69,8 @@ const KILL_MAX_WAIT_MS = 3000;
 const KILL_REAP_MAX_WAIT_MS = 2400;
 const SLEEP_KILL_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_PENDING_ATTENTION_NOTES = 5;
-const SANDBOX_UNAPPLIED_ERROR = "sandbox settings could not be applied, session not started";
-const SANDBOX_REFUSED_PREFIX = "session not started, the sandbox refused: ";
+const SANDBOX_UNAPPLIED_ERROR = "guardrail settings could not be applied, session not started";
+const SANDBOX_REFUSED_PREFIX = "session not started, the guardrails refused: ";
 const INNER_SANDBOX_OFF = Object.freeze({ enabled: false });
 
 function settingsSandboxForHooks(
@@ -1591,7 +1591,7 @@ class Session extends EventEmitter {
     if (!launch || launch !== this._sandboxLaunch) return;
     this._sandboxLaunch = null;
     launch.dispose().catch((error) => {
-      console.warn(`[session ${this.id}] sandbox cleanup failed: ${errorMessage(error)}`);
+      console.warn(`[session ${this.id}] guardrails cleanup failed: ${errorMessage(error)}`);
     });
   }
 

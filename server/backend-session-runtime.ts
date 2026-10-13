@@ -72,11 +72,10 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     getUserHooks: (projectId: string) => hooksForProject(dependencies.config.hooks, projectId),
     sessionSandbox: createSessionSandbox({
       getSettings: () => {
-        const { sandbox, worktreeShare } = dependencies.configStore.config;
+        const { guardrails } = dependencies.configStore.config;
         return {
-          writablePaths: sandbox?.writablePaths ?? DEFAULT_CONFIG.sandbox.writablePaths,
-          unreadablePaths: sandbox?.unreadablePaths ?? DEFAULT_CONFIG.sandbox.unreadablePaths,
-          worktreeShare: worktreeShare ?? DEFAULT_CONFIG.worktreeShare,
+          blockedPaths: guardrails?.blockedPaths ?? DEFAULT_CONFIG.guardrails.blockedPaths,
+          unreadablePaths: guardrails?.unreadablePaths ?? DEFAULT_CONFIG.guardrails.unreadablePaths,
         };
       },
       uploadsRoot: configSiblingPath(dependencies.configStore.configPath, 'uploads'),

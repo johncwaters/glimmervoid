@@ -301,7 +301,7 @@ test('a session with an outer sandbox spawns only the wrapped command with the a
     assert.deepEqual(await startRefused({ ...wrappedWithoutSettingsSandbox, getHookPort: () => null }), refusedUnapplied);
     assert.deepEqual(await startRefused({ ...wrappedWithoutSettingsSandbox, hooksBaseDir: occupiedBaseDir }), refusedUnapplied);
   });
-  const refusedMessage = 'session not started, the sandbox refused: bwrap is not on PATH';
+  const refusedMessage = 'session not started, the guardrails refused: bwrap is not on PATH';
   assert.deepEqual(await startRefused({ prepareSandbox: async () => ({ ok: false, reason: 'bwrap is not on PATH' }) }), { spawned: 0, errors: [refusedMessage] });
   assert.deepEqual(await startRefused({ prepareSandbox: async () => { throw new Error('bwrap is not on PATH'); } }), { spawned: 0, errors: [refusedMessage] });
 });

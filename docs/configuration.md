@@ -239,15 +239,15 @@ Rules that act on pull request events in the repositories you choose.
 | `workflows.maxActionsPerPoll` | Actions per poll | `20` | Most actions run in one poll. The rest are dropped and logged. |
 | `workflows` | Workflow rules | `{"enabled":true,"maxConcurrentSessions":2,"maxActionsPerPoll":20,"rules":[]}` | Each rule watches repositories for one pull request event (opened, checks-failed, review-requested, approved, commented or merged), narrows it by author, labels, base branch, your own pull requests or a review request to your team, and then notifies you, labels or comments on the pull request, or starts a sandboxed agent session that pushes nothing. Rules start disabled. Turn each rule on or off here; everything else about a rule is set in config.json. **File-only.** |
 
-### Session sandbox
+### Session guardrails
 
-Claude Code sessions run inside the sandbox runtime on Linux and macOS. Changes apply to sessions started after the change.
+Claude Code sessions on Linux and macOS write anywhere this account can, except credentials, Glimmervoid's own state and the blocked folders below. Changes apply to sessions started after the change.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `sandbox.unconfinedRepos` | Unconfined repositories | `[]` | Folders whose sessions run outside the sandbox. A session started in one of these folders, or below it, is not confined. Applies to sessions created after the change. |
-| `sandbox.writablePaths` | Writable folders | `["~/.npm","~/.cache"]` | Folders outside its checkout that a sandboxed session may write, such as package manager caches. A leading ~ means the home folder. |
-| `sandbox.unreadablePaths` | Unreadable folders | `[]` | Extra folders and files a sandboxed session cannot read, on top of the built-in credential list. A leading ~ means the home folder. |
+| `guardrails.unguardedRepos` | Unguarded repositories | `[]` | Folders whose sessions run without guardrails. A session started in one of these folders, or below it, is not guarded. Applies to sessions created after the change. |
+| `guardrails.blockedPaths` | Blocked folders | `[]` | Extra folders and files a guarded session cannot write, on top of credentials and Glimmervoid's own state. A leading ~ means the home folder. |
+| `guardrails.unreadablePaths` | Unreadable folders | `[]` | Extra folders and files a guarded session cannot read, on top of the built-in credential list. A leading ~ means the home folder. |
 
 ### Unattended actions
 

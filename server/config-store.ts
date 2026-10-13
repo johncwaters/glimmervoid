@@ -67,9 +67,9 @@ const DEFAULT_CONFIG = {
     enabled: false,
   },
 
-  sandbox: {
-    unconfinedRepos: [] as string[],
-    writablePaths: ['~/.npm', '~/.cache'],
+  guardrails: {
+    unguardedRepos: [] as string[],
+    blockedPaths: [] as string[],
     unreadablePaths: [] as string[],
   },
 
@@ -358,6 +358,16 @@ function pickRedactedBlock(
   return redacted;
 }
 
+function retiredGuardrailKeysWarning(config: GlimmervoidConfig): string | null {
+  const projects: unknown[] = Array.isArray(config.projects) ? config.projects : [];
+  const retiredKeys = [
+    ...(Object.hasOwn(config, 'sandbox') ? ['sandbox (move it to guardrails, renaming unconfinedRepos to unguardedRepos)'] : []),
+    ...(projects.some((project) => isRecord(project) && Object.hasOwn(project, 'unconfined')) ? ['projects[].unconfined (rename it to unguarded)'] : []),
+  ];
+  if (retiredKeys.length === 0) return null;
+  return `[guardrails] config.json still has ${retiredKeys.join(' and ')}. These keys are ignored, so their unreadable paths and opt-outs do not apply until you move them.`;
+}
+
 function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<DefaultConfig> } = {}) {
   const configPath = resolveConfigPath();
   const effectiveDefaults: Record<string, unknown> = { ...DEFAULT_CONFIG, ...(settingsDefaults || {}) };
@@ -370,6 +380,8 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
   writeBackupContent(`${configPath}.boot.bak`, loadedConfig.loadedContent);
   config.repoRoots = config.repoRoots || [];
   config.branchGc = resolveBranchGcAndWarn(config.branchGc);
+  const retiredGuardrailKeys = retiredGuardrailKeysWarning(config);
+  if (retiredGuardrailKeys !== null) console.warn(retiredGuardrailKeys);
 
   if (Array.isArray(config.projects) && ensureProjectIds(config.projects)) {
     try {
@@ -501,7 +513,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       recordSignals: config.recordSignals ?? effectiveDefaults.recordSignals,
       trace: { enabled: config.trace?.enabled ?? DEFAULT_CONFIG.trace.enabled },
       agentApi: { enabled: config.agentApi?.enabled ?? DEFAULT_CONFIG.agentApi.enabled },
-      sandbox: { ...DEFAULT_CONFIG.sandbox, ...config.sandbox },
+      guardrails: { ...DEFAULT_CONFIG.guardrails, ...config.guardrails },
       telemetry: { enabled: config.telemetry?.enabled ?? DEFAULT_CONFIG.telemetry.enabled },
       telemetryForcedOff: isTelemetryForcedOff(process.env),
       rtk: config.rtk ?? effectiveDefaults.rtk,
@@ -582,7 +594,7 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     if (newConfig.telegram != null) config.telegram = newConfig.telegram;
     if (newConfig.ingest != null) config.ingest = newConfig.ingest;
     if (newConfig.agentApi != null) config.agentApi = newConfig.agentApi;
-    if (newConfig.sandbox != null) config.sandbox = newConfig.sandbox;
+    if (newConfig.guardrails != null) config.guardrails = newConfig.guardrails;
     if (newConfig.telemetry != null) config.telemetry = newConfig.telemetry;
     if (newConfig.workflows == null) delete config.workflows;
     if (newConfig.workflows != null) config.workflows = newConfig.workflows;

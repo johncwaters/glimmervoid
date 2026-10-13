@@ -28,6 +28,7 @@ type GuardrailLevel = 'standard' | 'strict';
 
 interface SandboxRole {
   guardrailLevel?: GuardrailLevel;
+  blockedPaths?: readonly string[];
   vendors: readonly SandboxVendor[];
   vendorHome: SandboxVendorHome;
   network: SandboxNetworkAccess;
@@ -288,7 +289,7 @@ function glimmervoidStateWriteBlocks(role: SandboxRole, host: SandboxHostPaths):
 
 function standardWriteBlockCandidates(role: SandboxRole, host: SandboxHostPaths): string[] {
   if (!isStandardLevel(role)) return [];
-  return unique([...credentialWriteBlocks(host), ...glimmervoidStateWriteBlocks(role, host)]);
+  return unique([...credentialWriteBlocks(host), ...glimmervoidStateWriteBlocks(role, host), ...(role.blockedPaths ?? [])]);
 }
 
 function readDeniedPaths(role: SandboxRole, host: SandboxHostPaths): string[] {

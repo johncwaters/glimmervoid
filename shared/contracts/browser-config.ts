@@ -232,12 +232,21 @@ export const AgentApiFileSettings = z.object(agentApiShape, { error: 'agentApi m
 
 const optionalPathList = (field: string) => z.array(z.string({ error: `${field} must be an array of paths` }).trim().min(1, { error: `${field} must be an array of paths` }), { error: `${field} must be an array of paths` }).optional();
 const sandboxShape = {
-  unconfinedRepos: optionalPathList('sandbox.unconfinedRepos'),
-  writablePaths: optionalPathList('sandbox.writablePaths'),
-  unreadablePaths: optionalPathList('sandbox.unreadablePaths'),
+  unguardedRepos: optionalPathList('guardrails.unguardedRepos'),
+  blockedPaths: optionalPathList('guardrails.blockedPaths'),
+  unreadablePaths: optionalPathList('guardrails.unreadablePaths'),
 };
-const SandboxSettings = z.object(sandboxShape, { error: 'sandbox must be an object' }).strict().optional();
-export const SandboxFileSettings = z.object(sandboxShape, { error: 'sandbox must be an object' }).passthrough().optional();
+const isHomeRelativePath = (entry: string) => entry === '~' || entry.startsWith('~/') || entry.startsWith('~\\');
+const createSandboxSettings = (isAbsolutePath: (directory: string) => boolean) => z.object({
+  ...sandboxShape,
+  blockedPaths: z.array(
+    z.string({ error: 'guardrails.blockedPaths must be an array of paths' }).trim()
+      .min(1, { error: 'guardrails.blockedPaths must be an array of paths' })
+      .refine((entry) => isHomeRelativePath(entry) || isAbsolutePath(entry), { message: 'guardrails.blockedPaths entries must be absolute paths or start with ~/' }),
+    { error: 'guardrails.blockedPaths must be an array of paths' },
+  ).optional(),
+}, { error: 'guardrails must be an object' }).strict().optional();
+export const SandboxFileSettings = z.object(sandboxShape, { error: 'guardrails must be an object' }).passthrough().optional();
 
 const telemetryShape = { enabled: optionalBoolean('telemetry.enabled') };
 const TelemetrySettings = z.object(telemetryShape, { error: 'telemetry must be an object' }).strict().optional();
@@ -282,7 +291,7 @@ export const createBrowserConfigShape = (isAbsolutePath: (directory: string) => 
   telegram: TelegramSettings,
   ingest: IngestSettings,
   agentApi: AgentApiSettings,
-  sandbox: SandboxSettings,
+  guardrails: createSandboxSettings(isAbsolutePath),
   telemetry: TelemetrySettings,
   workflows: WorkflowsSettings.nullable().optional(),
 });

@@ -57,7 +57,7 @@ Update a clone with `git pull --ff-only && npm ci && npm run build`, then restar
 - **Claude Code CLI** on PATH, or another supported agent below.
 - **git** on PATH, for per-session worktrees.
 - **Linux only:** `build-essential` and `python3` for node-pty.
-- **Linux only:** `bubblewrap` (`bwrap`), `socat` and `ripgrep` (`rg`) for the sandbox that sandboxed sessions and factory checks run in (`sudo apt install bubblewrap socat ripgrep`). `glimmervoid doctor` reports all three.
+- **Linux only:** `bubblewrap` (`bwrap`), `socat` and `ripgrep` (`rg`) for the sandbox runtime behind session guardrails and factory checks (`sudo apt install bubblewrap socat ripgrep`). `glimmervoid doctor` reports all three.
 
 ## Supported agents
 

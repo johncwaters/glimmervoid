@@ -98,7 +98,7 @@ const POSTHOG_INVESTIGATION_EXPECTATIONS: Readonly<Record<string, Expectation>> 
   report_write: 'succeeds', result_write: 'succeeds', repo_read: 'succeeds', repo_write: 'fails', home_read: 'fails', outside_write: 'fails', web: 'succeeds',
 };
 const SESSION_EXPECTATIONS: Readonly<Record<string, Expectation>> = {
-  starts_in_worktree: 'succeeds', commit_everything: 'succeeds', status_clean: 'succeeds', shared_folder_write: 'succeeds', listed_cache_write: 'succeeds', hook_tool_data_write: 'succeeds', listed_secret_read: 'fails',
+  starts_in_worktree: 'succeeds', commit_everything: 'succeeds', status_clean: 'succeeds', shared_folder_write: 'succeeds', listed_blocked_write: 'fails', hook_tool_data_write: 'succeeds', listed_secret_read: 'fails',
   hooks_write: 'succeeds', git_config_write: 'succeeds', repo_write: 'succeeds', home_read: 'fails', upload_read: 'succeeds', outside_write: 'succeeds', web: 'succeeds',
   glimmervoid_state_write: 'fails', credential_write: 'fails',
 };
@@ -644,12 +644,12 @@ async function probeSession(roleRoot: string): Promise<void> {
   }
   const repository = path.join(roleRoot, 'repo');
   const worktree = path.join(roleRoot, 'worktree');
-  const listedCache = path.join(roleRoot, 'cache');
+  const listedBlockedFolder = path.join(roleRoot, 'blocked');
   const listedSecretFolder = path.join(roleRoot, 'secrets');
   const sharedFolder = path.join(repository, 'node_modules');
   const hookToolDataDir = path.join(roleRoot, 'hook-tool-data');
   const quietHookTool = path.join(roleRoot, 'quiet-hook-tool');
-  for (const folder of [repository, listedCache, listedSecretFolder, sharedFolder, hookToolDataDir]) await mkdir(folder, { recursive: true });
+  for (const folder of [repository, listedBlockedFolder, listedSecretFolder, sharedFolder, hookToolDataDir]) await mkdir(folder, { recursive: true });
   await writeFile(quietHookTool, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   await writeFile(path.join(listedSecretFolder, 'token.txt'), `${HOME_SECRET_TEXT}\n`);
   const runGit = (gitArguments: string[], cwd = repository) => runHardenedGit(gitArguments, { cwd, timeout: 30_000 });
@@ -682,7 +682,7 @@ async function probeSession(roleRoot: string): Promise<void> {
     commit_everything: '{ printf work > work.txt && git add -A && git commit -m work; }',
     status_clean: 'test -z "$(git status --porcelain)"',
     shared_folder_write: 'printf shared > node_modules/role-probe.txt',
-    listed_cache_write: `printf cached > ${shellQuoted(path.join(listedCache, 'entry.txt'))}`,
+    listed_blocked_write: `printf blocked > ${shellQuoted(path.join(listedBlockedFolder, 'entry.txt'))}`,
     hook_tool_data_write: `printf tracked > ${shellQuoted(path.join(hookToolDataDir, 'entry.txt'))}`,
     listed_secret_read: `cat ${shellQuoted(path.join(listedSecretFolder, 'token.txt'))}`,
     hooks_write: `printf hooks > ${shellQuoted(hooksFile)}`,
@@ -704,7 +704,7 @@ async function probeSession(roleRoot: string): Promise<void> {
     hooksBaseDir: path.join(probeHome, 'scratch', 'glimmervoid-hooks'),
     hookTools: [{ id: 'rtk', binPath: quietHookTool, dataDir: hookToolDataDir }],
     prepareSandbox: createSessionSandbox({
-      getSettings: () => ({ writablePaths: [listedCache], unreadablePaths: [listedSecretFolder] }),
+      getSettings: () => ({ blockedPaths: [listedBlockedFolder], unreadablePaths: [listedSecretFolder] }),
       uploadsRoot,
       readGithubToken: async () => null,
     }).prepareFor({ sessionId, isWorkspace: false }),

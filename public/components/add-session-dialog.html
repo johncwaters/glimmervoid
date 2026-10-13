@@ -32,8 +32,8 @@
 </label>
 <label class="dialog-label dialog-checkbox-label" id="add-session-unconfined-label">
   <input type="checkbox" class="dialog-checkbox" id="add-session-unconfined">
-  <span>Run outside the sandbox</span>
-  <span class="dialog-hint">Claude Code sessions run inside a sandbox that keeps writes to the session's own checkout and hides credentials and other agents' settings. Turn this on only for work the sandbox cannot serve, such as a dotfiles repository.</span>
+  <span>Run without guardrails</span>
+  <span class="dialog-hint">Claude Code sessions run with guardrails that block writes to credentials and Glimmervoid's own state and hide credentials and other agents' settings. Turn this on only for work the guardrails cannot serve.</span>
 </label>
 <div class="dialog-error" id="add-session-error"></div>
 <div class="dialog-actions">
