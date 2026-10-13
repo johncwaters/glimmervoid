@@ -232,13 +232,17 @@ test('a test failing outside the write scopes on two attempts in a row blocks th
     "import { mkdirSync, writeFileSync } from 'node:fs';",
     "mkdirSync('tests', { recursive: true });",
     `writeFileSync('tests/pinned.test.ts', ${JSON.stringify(`import test from 'node:test';\ntest(${JSON.stringify(pinnedTestTitle)}, () => { throw new Error('pinned'); });\n`)});`,
+    `writeFileSync('tests/own-reporter.test.ts', ${JSON.stringify("import test from 'node:test';\ntest('own reporter passes', () => {});\n")});`,
+    `writeFileSync('tests/old-node.ts', ${JSON.stringify("if ((process.env.NODE_OPTIONS ?? '').includes('--test-reporter')) { process.stderr.write('node: --test-reporter= is not allowed in NODE_OPTIONS\\n'); process.exit(9); }\n")});`,
   ].join('\n');
   await writeFile(path.join(fixture.workspace.cwd, 'src/retry.ts'), `${writePinnedTest}\n`);
   await fixture.git(['add', '.'], fixture.workspace.cwd);
   await fixture.git(['commit', '-m', 'test: fail outside scope'], fixture.workspace.cwd);
-  fixture.config.factory = { enabled: true, checks: [`${process.execPath} src/retry.ts`, `${process.execPath} --test --test-reporter=tap tests/pinned.test.ts`] };
+  fixture.config.factory = { enabled: true, checks: [`${process.execPath} src/retry.ts`, `${process.execPath} --test tests/pinned.test.ts`, `${process.execPath} --test --test-reporter=spec tests/own-reporter.test.ts`, `${process.execPath} tests/old-node.ts`] };
   await fixture.closeOut.turnEnded(fixture.worker);
   assert.match(fixture.feedback[0], /outside this ticket's write scopes: tests\/pinned\.test\.ts\./);
+  assert.match(fixture.feedback[0], /not ok 1 - pinned retry budget/);
+  assert.doesNotMatch(fixture.feedback[0], /ERR_INVALID_ARG_VALUE|own-reporter|not allowed in NODE_OPTIONS/);
   assert.equal(await fixture.orderState(fixture.worker.workId), 'active');
   await fixture.closeOut.turnEnded(fixture.worker);
   assert.equal(fixture.feedback.length, 1);

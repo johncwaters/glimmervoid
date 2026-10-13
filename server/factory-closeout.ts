@@ -10,7 +10,7 @@ import type { Config } from '../shared/contracts/config.ts';
 import { CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import { FactoryReviewVerdict } from '../shared/contracts/factory.ts';
 import { prepareSandboxedCheckRunner } from './factory-check-sandbox.ts';
-import type { FactoryCheckSandbox, PrepareFactoryCheckRunner } from './factory-check-sandbox.ts';
+import type { FactoryCheckRunner, FactoryCheckSandbox, PrepareFactoryCheckRunner } from './factory-check-sandbox.ts';
 import { DEFAULT_CONFIG } from './config-store.ts';
 import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, listFailingTestFilesOutsideScopes, listIntentCapClosings, findWorkerCommitRefusal, listStagedSandboxPlaceholders, inheritedSecretValues, listUncommittedWorkPaths, parseCheckCommand, parseFactoryReviewerOutput, redactSecretLines, reviewerOutputTail, summarizeFailedCheckOutput } from './core/factory-core.ts';
 import type { FactoryCheck, FactoryFence } from './core/factory-core.ts';
@@ -109,6 +109,26 @@ function failureText(error: unknown, maxChars = 4000): string {
     return typeof value === 'string' ? [value] : [];
   }).join('\n');
   return `${error.message}\n${output}`.slice(-maxChars);
+}
+
+const FORCED_TEST_REPORTER_NODE_OPTIONS = '--test-reporter=tap';
+
+function isTestReporterConflict(error: unknown): boolean {
+  const text = failureText(error, 16 * 1024 * 1024);
+  const isReporterArgumentConflict = text.includes('ERR_INVALID_ARG_VALUE') && text.includes("'--test-reporter'");
+  const isNodeOptionsRefusal = text.includes('--test-reporter') && text.includes('is not allowed in NODE_OPTIONS');
+  return isReporterArgumentConflict || isNodeOptionsRefusal;
+}
+
+function withForcedTapReporter(runCheck: FactoryCheckRunner): FactoryCheckRunner {
+  return async (argv, options) => {
+    try {
+      return await runCheck(argv, { ...options, env: { ...options.env, NODE_OPTIONS: FORCED_TEST_REPORTER_NODE_OPTIONS } });
+    } catch (error) {
+      if (!isTestReporterConflict(error)) throw error;
+      return runCheck(argv, options);
+    }
+  };
 }
 
 export async function runFactoryReview({ spawnReviewer, model, signal, buildPrompt, name, extraArgs = [], readablePaths = [] }: {
@@ -267,7 +287,7 @@ export function createFactoryCloseOut({
       if (!staged.ok) throw new Error(`Could not stage the factory check checkout: ${staged.err}`);
       await gitWorkspace.populate({ projectPath: worker.projectPath, wtDir: checkoutPath, shareList: sharedEntries(), ...untrustedCheckoutIsolation() });
       checkSandbox = await prepareCheckRunner({ scratchParent: checkoutParent, writablePaths: [checkoutPath] });
-      const { runCheck } = checkSandbox;
+      const runCheck = withForcedTapReporter(checkSandbox.runCheck);
       const env = checkEnv();
       const checkoutSecretValues = await readCheckoutSecretValues(checkoutPath);
       const checks: FactoryCheck[] = [];

@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **An idle session no longer retries a conflicting automatic rebase in a loop**: when a session's branch conflicted with its base branch, the automatic rebase could start and abort about twice a second for as long as the session sat idle, swapping the worktree's files each time and breaking any long test or build running in it. A conflicted rebase now waits until the base branch or the session's branch moves, or until a conflict resolution is actually recorded.
+- **Factory retry feedback names the failing test on Node 24**: Node 24 prints `node --test` results with the spec reporter, so a worker whose test check failed got the tail of the output as retry feedback, and a test failing outside the ticket's write scopes was never recognized, so the ticket was never blocked as needing write scope. Factory check runs now ask Node for the TAP reporter, so the feedback quotes the failing test again. A check that names its own `--test-reporter` makes Node refuse that; Glimmervoid then reruns it once as you wrote it, and that run's result counts. A Node too old to take that option from `NODE_OPTIONS` gets the same single rerun.
 
 ## [0.32.1] - 2026-10-13
 
