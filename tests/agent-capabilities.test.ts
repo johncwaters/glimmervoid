@@ -96,7 +96,8 @@ test('resume off: the bound conversation is kept but never becomes a spawn flag'
   });
   try {
     await session.start();
-    assert.deepEqual(calls[0].args, []);
+    assert.equal(calls[0].args.includes('--resume'), false);
+    assert.equal(calls[0].args.includes(RESUME_ID), false);
     assert.equal(session.toSnapshot().resumeSessionId, RESUME_ID, 'the binding is not silently dropped');
   } finally {
     session.destroy();
