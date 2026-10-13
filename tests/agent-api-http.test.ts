@@ -519,6 +519,22 @@ test('a child exiting tells the dashboard its card is gone', async () => {
   }
 });
 
+test('a factory worker is refused a spawn with the reason, and still reads the board and flags the operator', async () => {
+  const fixture = wiringFixture();
+  const worker = new Session({ id: 'factory-worker', name: 'worker', path: process.cwd(), factoryRole: 'worker', ptySpawn: () => fakePty() });
+  try {
+    const refused = await fixture.spawn(worker, { prompt: 'help me' });
+    assert.equal(refused.status, 403);
+    assert.deepEqual(refused.body, { ok: false, error: 'the factory starts and counts its workers, so a worker may not spawn a session' });
+    assert.deepEqual(fixture.created, [], 'no child was built');
+    assert.equal((await fixture.wiring.handle(worker, 'board', {})).status, 200);
+    assert.equal((await fixture.wiring.handle(worker, 'attention', { note: 'blocked on a decision' })).body.ok, true);
+  } finally {
+    worker.destroy();
+    fixture.destroyAll();
+  }
+});
+
 test('a second spawn while one is in flight is refused', async () => {
   const fixture = wiringFixture();
   try {

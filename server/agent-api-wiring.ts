@@ -59,7 +59,7 @@ function createAgentApiWiring({
 }: AgentApiWiringOptions): AgentApiPort {
   async function spawn(parent: Session, request: AgentSpawnRequest): Promise<SpawnOutcome> {
     const budget = parent.agentSpawnBudget();
-    const allowance = decideSpawnAllowance(budget);
+    const allowance = decideSpawnAllowance({ ...budget, isFactoryWorker: parent.factoryRole === 'worker' });
     if (!allowance.ok) return { ok: false, status: allowance.status, error: allowance.reason };
     if (request.agent && !isKnownAgentId(request.agent)) {
       return { ok: false, status: 400, error: `unknown agent ${request.agent}` };
