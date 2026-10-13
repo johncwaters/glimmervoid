@@ -110,9 +110,26 @@ function searchTokens(value: unknown) {
   return String(value || '').toLowerCase().match(/[a-z0-9]+/g) || [];
 }
 
+const EXACT_MATCH_QUALITY = 3;
+const PREFIX_MATCH_QUALITY = 2;
+const INFIX_MATCH_QUALITY = 1;
+const MIN_INFIX_QUERY_LENGTH = 3;
+
+function tokenMatchQuality(fieldToken: string, queryToken: string) {
+  if (fieldToken === queryToken) return EXACT_MATCH_QUALITY;
+  if (fieldToken.startsWith(queryToken)) return PREFIX_MATCH_QUALITY;
+  if (queryToken.length >= MIN_INFIX_QUERY_LENGTH && fieldToken.includes(queryToken)) return INFIX_MATCH_QUALITY;
+  return 0;
+}
+
 function fieldScore(tokens: string[], queryTokens: string[], weight: number) {
-  if (!queryTokens.every((token) => tokens.includes(token))) return 0;
-  return queryTokens.length * weight;
+  let totalMatchQuality = 0;
+  for (const queryToken of queryTokens) {
+    const bestMatchQuality = Math.max(0, ...tokens.map((fieldToken) => tokenMatchQuality(fieldToken, queryToken)));
+    if (bestMatchQuality === 0) return 0;
+    totalMatchQuality += bestMatchQuality;
+  }
+  return totalMatchQuality * weight;
 }
 
 function valuesEqual(left: unknown, right: unknown): boolean {

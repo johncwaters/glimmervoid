@@ -104,7 +104,7 @@ test('a successful save rehydrates its lane and preserves another dirty lane', a
   assert.deepEqual(collectDirtyBlocks(SETTINGS_MAP, original, edited), { posthog: { enabled: true } });
 });
 
-test('search uses exact tokens and weighted fields', async () => {
+test('search matches partial tokens, ranks fuller matches first and weights fields', async () => {
   const { scoreSettingsSearch } = await load();
   const map = [
     { id: 'feature', level: 'machine', title: 'Feature flags', settings: [
@@ -123,6 +123,13 @@ test('search uses exact tokens and weighted fields', async () => {
   assert.equal(results.some((entry) => entry.setting.id === 'keyword-only'), true);
   assert.equal(results[0].setting.id, 'title-match');
   assert.ok(results.findIndex((entry) => entry.setting.id === 'temperature') > 0);
+  assert.deepEqual(scoreSettingsSearch(map, 'temp').map((entry) => entry.setting.id), ['temperature', 'title-match']);
+  assert.deepEqual(scoreSettingsSearch(map, 'heat lim').map((entry) => entry.setting.id), ['title-match']);
+  assert.deepEqual(scoreSettingsSearch(map, 'flow').map((entry) => entry.setting.id), ['keyword-only']);
+  assert.deepEqual(scoreSettingsSearch(map, 'ow'), []);
+  const [wholeWordScore, wordStartScore, insideWordScore] = ['airflow', 'air', 'flow'].map((query) => scoreSettingsSearch(map, query)[0].score);
+  assert.ok(wholeWordScore > wordStartScore && wordStartScore > insideWordScore);
+  assert.deepEqual(scoreSettingsSearch(map, 'co').map((entry) => entry.setting.id), ['keyword-only', 'temperature', 'feature-flag']);
   assert.deepEqual(scoreSettingsSearch(map, ''), []);
 });
 
