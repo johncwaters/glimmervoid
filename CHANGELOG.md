@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Check for updates shows that it is working**: clicking Check for updates under Settings, Updates now disables the button and shows "Checking for updates." beside it until the result arrives, and says when the dashboard is not connected, instead of appearing to do nothing.
+- **Guardrails only block what they list**: an ordinary session still ran under the sandbox runtime's allow lists for everything but writes, so tools broke in ways sessions blamed on "the sandbox". File watchers failed with `EMFILE` (`fs.watch`, `@parcel/watcher`, Vite), node-pty failed with `posix_spawnp failed`, the macOS keychain looked empty (so `coder login`, `git-credential-osxkeychain` and other keychain logins failed), `open` and browser-based logins could not launch the browser, and Unix sockets were refused on Linux. Sessions with guardrails can now reach any macOS system service, any Unix socket and any terminal device, send Apple Events, and read and write the keychain. The credential folders and Glimmervoid's own state stay blocked for the session's own processes. The standard level guards against accidents rather than containing a hostile session, because an app it launches through Apple Events runs outside the guardrails. Lanes that read untrusted input (team review, PostHog fixes, the factory, benchmarks) keep their strict limits.
 
 ## [0.34.0] - 2026-10-13
 

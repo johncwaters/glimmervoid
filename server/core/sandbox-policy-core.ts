@@ -63,9 +63,15 @@ interface SandboxHost extends SandboxHostPaths {
   writeBlockedPaths: readonly string[];
 }
 
+type OpenNetworkPolicy = Pick<NetworkConfig, 'allowAllUnixSockets' | 'allowMachLookup'>;
+
+type SandboxTerminalScope = 'own' | 'any';
+
 interface SandboxPolicy {
-  network: NetworkConfig | { allowAllUnixSockets: false };
+  network: NetworkConfig | OpenNetworkPolicy;
   filesystem: FilesystemConfig;
+  terminalScope: SandboxTerminalScope;
+  allowAppleEvents: boolean;
 }
 
 interface SandboxLaunchHomeLink {
@@ -126,6 +132,7 @@ const SANDBOX_VENDORS: readonly SandboxVendor[] = Object.freeze(['claude', 'code
 const UNWRAPPED_VENDOR_HOME_ENTRIES: readonly string[] = Object.freeze(['.grok']);
 const CREDENTIAL_HOME_ENTRIES: readonly string[] = Object.freeze(['.ssh', '.config/gh', 'Library/Keychains', '.git-credentials']);
 const CLOUD_CREDENTIAL_HOME_ENTRIES: readonly string[] = Object.freeze(['.aws', '.azure', '.config/gcloud', '.kube', '.docker', '.gnupg', '.netrc', '.npmrc']);
+const STANDARD_LEVEL_USABLE_CREDENTIAL_ENTRIES: readonly string[] = Object.freeze(['Library/Keychains']);
 const XDG_CONFIG_DEFAULT_HOME_PREFIX = '.config/';
 const SHARED_TEMP_DIRS: readonly string[] = Object.freeze(['/tmp/claude', '/private/tmp/claude']);
 const SHARED_HOME_WRITE_ENTRIES: readonly string[] = Object.freeze(['.npm/_logs']);
@@ -147,6 +154,8 @@ const RUNTIME_MANDATORY_CLAUDE_DENY_FOLDERS: readonly string[] = Object.freeze([
 const SANDBOXED_PROXY_BYPASS = 'localhost,::1,169.254.0.0/16,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16';
 const HOOK_LOOPBACK_HOST = '127.0.0.1';
 const AGENT_SESSION_ID_SHAPE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/;
+const STANDARD_OPEN_NETWORK: OpenNetworkPolicy = Object.freeze({ allowAllUnixSockets: true, allowMachLookup: ['*'] });
+const STRICT_OPEN_NETWORK: OpenNetworkPolicy = Object.freeze({ allowAllUnixSockets: false });
 
 function unique(entries: readonly string[]): string[] {
   return [...new Set(entries)];
@@ -272,8 +281,14 @@ function isStandardLevel(role: SandboxRole): boolean {
   return role.guardrailLevel === 'standard';
 }
 
-function credentialWriteBlocks(host: SandboxHostPaths): string[] {
+function blockedCredentialHomeEntries(role: SandboxRole): string[] {
   const credentialHomeEntries = [...CREDENTIAL_HOME_ENTRIES, ...CLOUD_CREDENTIAL_HOME_ENTRIES];
+  if (!isStandardLevel(role)) return credentialHomeEntries;
+  return credentialHomeEntries.filter((entry) => !STANDARD_LEVEL_USABLE_CREDENTIAL_ENTRIES.includes(entry));
+}
+
+function credentialWriteBlocks(role: SandboxRole, host: SandboxHostPaths): string[] {
+  const credentialHomeEntries = blockedCredentialHomeEntries(role);
   return [...homePaths(host, credentialHomeEntries), ...relocatedXdgConfigPaths(host, credentialHomeEntries)];
 }
 
@@ -289,13 +304,13 @@ function glimmervoidStateWriteBlocks(role: SandboxRole, host: SandboxHostPaths):
 
 function standardWriteBlockCandidates(role: SandboxRole, host: SandboxHostPaths): string[] {
   if (!isStandardLevel(role)) return [];
-  return unique([...credentialWriteBlocks(host), ...glimmervoidStateWriteBlocks(role, host), ...(role.blockedPaths ?? [])]);
+  return unique([...credentialWriteBlocks(role, host), ...glimmervoidStateWriteBlocks(role, host), ...(role.blockedPaths ?? [])]);
 }
 
 function readDeniedPaths(role: SandboxRole, host: SandboxHostPaths): string[] {
   const otherVendors = SANDBOX_VENDORS.filter((vendor) => !role.vendors.includes(vendor));
   const otherVendorHomeEntries = [...otherVendors.flatMap((vendor) => VENDOR_PROFILES[vendor].homeEntries), ...UNWRAPPED_VENDOR_HOME_ENTRIES];
-  const credentialHomeEntries = [...CREDENTIAL_HOME_ENTRIES, ...CLOUD_CREDENTIAL_HOME_ENTRIES];
+  const credentialHomeEntries = blockedCredentialHomeEntries(role);
   return [
     ...homePaths(host, [...credentialHomeEntries, ...otherVendorHomeEntries, ...homeEntriesNamedLike(host, otherVendorHomeEntries)]),
     ...relocatedXdgConfigPaths(host, credentialHomeEntries),
@@ -337,7 +352,7 @@ function sandboxRoleRefusal(role: SandboxRole, host: SandboxHostPaths): string |
 }
 
 function networkPolicy(role: SandboxRole): SandboxPolicy['network'] {
-  if (role.network.access === 'open') return { allowAllUnixSockets: false };
+  if (role.network.access === 'open') return isStandardLevel(role) ? { ...STANDARD_OPEN_NETWORK } : { ...STRICT_OPEN_NETWORK };
   if (role.network.access === 'none') return { allowedDomains: [], deniedDomains: [], allowLocalBinding: false, allowAllUnixSockets: false };
   const hookEndpoint = role.network.hookPort === null ? [] : [`${HOOK_LOOPBACK_HOST}:${role.network.hookPort}`];
   const vendorDomains = role.vendors.flatMap((vendor) => VENDOR_PROFILES[vendor].apiDomains);
@@ -383,6 +398,8 @@ function buildSandboxLaunchPlan(role: SandboxRole, host: SandboxHost): SandboxLa
           allowRead: literalEntries([...writableWithinDenied, ...role.readableWithinDenied]),
           ...filesystemWrites(role, host, writablePaths),
         },
+        terminalScope: isStandardLevel(role) ? 'any' : 'own',
+        allowAppleEvents: isStandardLevel(role),
       },
       launchEnv: Object.assign({ CLAUDE_CODE_TMPDIR: host.tempDir }, ...role.vendors.map((vendor) => VENDOR_PROFILES[vendor].launchEnv), launchHomeEnv(role, host)),
       sandboxedEnv: sandboxedEnvFor(role, host),

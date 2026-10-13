@@ -115,7 +115,7 @@ test('a commit checkout may write its git dir except hooks, config and the workt
   }
 });
 
-test('an ordinary Claude session is confined unless it or a folder above it is marked unconfined, and writes everywhere except credentials and Glimmervoid state', () => {
+test('an ordinary Claude session is confined unless it or a folder above it is marked unconfined, and is blocked only from credentials and Glimmervoid state', () => {
   const claudeSession = { usageVendor: 'claude', isMarkedUnconfined: false, sessionFolders: [path.resolve('/work/repo')], unconfinedRepos: [] };
   assert.equal(isSessionConfined(claudeSession), true);
   assert.equal(isSessionConfined({ ...claudeSession, isMarkedUnconfined: true }), false);
@@ -131,10 +131,10 @@ test('an ordinary Claude session is confined unless it or a folder above it is m
   const role = sessionRole({ writableRoots: [hookScratch], readDenied: [listedSecret], readablePaths: [githubLogin], blockedPaths: [listedBlocked] });
   const blocked = standardWriteBlockCandidates(role, hostPaths);
   assert.equal(blocked.includes(listedBlocked), true);
-  for (const blockedPath of ['.ssh', '.config/gh', '.aws', '.git-credentials', 'Library/Keychains', '.glimmervoid/config.json', '.glimmervoid/bin', '.glimmervoid/sandbox-policies']) {
+  for (const blockedPath of ['.ssh', '.config/gh', '.aws', '.git-credentials', '.glimmervoid/config.json', '.glimmervoid/bin', '.glimmervoid/sandbox-policies']) {
     assert.equal(blocked.includes(path.join(homeDir, blockedPath)), true, blockedPath);
   }
-  for (const writablePath of ['.claude', '.claude/hooks', '.zshrc', '.gitconfig', '.glimmervoid/sandbox-temp', '.glimmervoid/scratch']) {
+  for (const writablePath of ['.claude', '.claude/hooks', '.zshrc', '.gitconfig', 'Library/Keychains', '.glimmervoid/sandbox-temp', '.glimmervoid/scratch']) {
     assert.equal(blocked.includes(path.join(homeDir, writablePath)), false, writablePath);
   }
   const linkedTarget = path.resolve('/dotfiles/ssh');
@@ -148,6 +148,15 @@ test('an ordinary Claude session is confined unless it or a folder above it is m
   assert.equal(entryPaths(filesystem.denyRead).includes(path.join(homeDir, '.ssh')), true);
   assert.equal(entryPaths(filesystem.allowRead).includes(githubLogin), true);
   assert.equal(entryPaths(filesystem.denyRead).includes(path.join(homeDir, '.codex')), false);
+  assert.equal(entryPaths(filesystem.denyRead).includes(path.join(homeDir, 'Library/Keychains')), false);
+  assert.deepEqual(network, { allowAllUnixSockets: true, allowMachLookup: ['*'] });
+  assert.equal(policy.terminalScope, 'any');
+  assert.equal(policy.allowAppleEvents, true);
+  const strictPolicy = planFor(roleWith({ network: networkByName.open })).policy;
+  assert.deepEqual(strictPolicy.network, { allowAllUnixSockets: false });
+  assert.equal(strictPolicy.terminalScope, 'own');
+  assert.equal(strictPolicy.allowAppleEvents, false);
+  assert.equal(entryPaths(strictPolicy.filesystem.denyRead).includes(path.join(homeDir, 'Library/Keychains')), true);
 });
 
 test('every config sibling file the server names is write-blocked for a session beside the config file, wherever the config lives', async () => {

@@ -8,7 +8,7 @@ import { errorMessage } from '../shared/text.ts';
 import { confineToOwnTerminal } from './core/sandbox-terminal-core.ts';
 
 const FORWARDED_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
-const OPEN_NETWORK: Partial<NetworkConfig> = { allowAllUnixSockets: false };
+const ANY_TERMINAL_SCOPE = 'any';
 const DEVICE_FOLDER = '/dev';
 const PSEUDO_TERMINAL_PREFIX = 'ttys';
 
@@ -21,11 +21,28 @@ function shellQuote(word: string): string {
   return `'${word.replace(/'/g, `'\\''`)}'`;
 }
 
-function readOpenPolicy(policyPath: string): SandboxRuntimeConfig {
+interface OpenPolicy {
+  runtimeConfig: SandboxRuntimeConfig;
+  isAnyTerminalAllowed: boolean;
+}
+
+function openNetworkOf(policy: unknown): Partial<NetworkConfig> {
+  const network = fieldOf(policy, 'network');
+  const machServices = fieldOf(network, 'allowMachLookup');
+  const allowMachLookup = Array.isArray(machServices) ? machServices.filter((service): service is string => typeof service === 'string') : [];
+  return { allowAllUnixSockets: fieldOf(network, 'allowAllUnixSockets') === true, ...(allowMachLookup.length === 0 ? {} : { allowMachLookup }) };
+}
+
+function readOpenPolicy(policyPath: string): OpenPolicy {
   const policy: unknown = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
   if (fieldOf(fieldOf(policy, 'network'), 'allowedDomains') !== undefined) throw new Error('a policy with a domain list must run through the sandbox runtime CLI');
   const filesystem = FilesystemConfigSchema.parse(fieldOf(policy, 'filesystem'));
-  return { network: OPEN_NETWORK, filesystem, allowPty: fieldOf(policy, 'allowPty') === true, enableWeakerNetworkIsolation: true } as SandboxRuntimeConfig;
+  return {
+    runtimeConfig: {
+      network: openNetworkOf(policy), filesystem, allowPty: fieldOf(policy, 'allowPty') === true, enableWeakerNetworkIsolation: true, allowAppleEvents: fieldOf(policy, 'allowAppleEvents') === true,
+    } as SandboxRuntimeConfig,
+    isAnyTerminalAllowed: fieldOf(policy, 'terminalScope') === ANY_TERMINAL_SCOPE,
+  };
 }
 
 function ownTerminalPath(): string {
@@ -38,8 +55,8 @@ function ownTerminalPath(): string {
   return path.join(DEVICE_FOLDER, ownName);
 }
 
-function sandboxArgv(argv: string[], policy: SandboxRuntimeConfig): string[] {
-  if (policy.allowPty !== true || process.platform !== 'darwin') return argv;
+function sandboxArgv(argv: string[], { runtimeConfig, isAnyTerminalAllowed }: OpenPolicy): string[] {
+  if (runtimeConfig.allowPty !== true || isAnyTerminalAllowed || process.platform !== 'darwin') return argv;
   const confinement = confineToOwnTerminal(argv, ownTerminalPath());
   if (!confinement.ok) throw new Error(confinement.reason);
   return confinement.argv;
@@ -73,7 +90,7 @@ async function launchInOpenNetworkSandbox(): Promise<void> {
   const exitWhenInterrupted = (): void => {
     if (beforeSpawn.interruptedBy !== null) process.exit(exitCodeFor(null, beforeSpawn.interruptedBy));
   };
-  await SandboxManager.initialize(openPolicy);
+  await SandboxManager.initialize(openPolicy.runtimeConfig);
   const commandLine = command.map(shellQuote).join(' ');
   const wrapped = await SandboxManager.wrapWithSandboxArgv(commandLine, undefined, undefined, interrupted.signal).catch((wrapFailure: unknown) => {
     exitWhenInterrupted();
