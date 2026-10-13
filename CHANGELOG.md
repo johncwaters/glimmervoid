@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Claude Code sessions are told that Glimmervoid supervises them**: every Claude Code session Glimmervoid starts now gets one line appended to its system prompt, saying Glimmervoid supervises the session and that `glimmervoid --help` lists the commands it gives. A sandboxed session also reads that a refused write or connection will not succeed on retry, so it stops retrying what the sandbox blocks. This is the only always-on text Glimmervoid adds to a session. A launch that already appends its own system prompt gets no line.
+
 ### Changed
 
 - **The agent commands work in every session with no setting**: every session Glimmervoid starts is now handed its own agent address, so `glimmervoid push`, `glimmervoid attention`, `glimmervoid board` and `glimmervoid spawn` no longer wait for a setting to be switched on. The server still answers no where a command must not run, and says why: only an operator session may spawn a session, only an operator session or a session it spawned may push, a lane session (review, PostHog, visions, change map, task title, benchmark) may read the board but may not raise attention, since its notes are not delivered to the operator, and a factory orchestrator stays limited to dispatch, reopen and cancel, including after it has been told to stop.

@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
 import { isBrailleChar, isSpinnerChar } from "../core/title-classifier-core.ts";
 import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
+import { supervisionLine } from "../core/session-routes.ts";
 import { buildAgentEnv } from "../core/spawn-env.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import { execFileSync } from "../../server/child-process-safe.ts";
@@ -201,14 +202,24 @@ function launchSessionId({ resumeSessionId, extraArgs, generatedId }: AgentLaunc
   return { agentSessionId: generatedId, extraArgs: [...extraArgs, SESSION_ID_FLAG, generatedId] };
 }
 
+const APPEND_SYSTEM_PROMPT_FLAG = "--append-system-prompt";
+const APPEND_SYSTEM_PROMPT_FILE_FLAG = "--append-system-prompt-file";
+const APPENDED_SYSTEM_PROMPT_FLAGS = Object.freeze([APPEND_SYSTEM_PROMPT_FLAG, APPEND_SYSTEM_PROMPT_FILE_FLAG]);
+
+function isAppendedSystemPromptArgument(launchArgument: string): boolean {
+  return APPENDED_SYSTEM_PROMPT_FLAGS.some((flag) => launchArgument === flag || launchArgument.startsWith(`${flag}=`));
+}
+
 function buildArgs({
   dangerouslySkipPermissions = false,
   resumeSessionId = null,
   extraArgs = [],
   initialPrompt = null,
+  hasOuterSandbox = false,
 }: AgentArgsOptions = {}): string[] {
   const args = dangerouslySkipPermissions ? ["--dangerously-skip-permissions"] : [];
   if (resumeSessionId) args.push("--resume", resumeSessionId);
+  if (!extraArgs.some(isAppendedSystemPromptArgument)) args.push(APPEND_SYSTEM_PROMPT_FLAG, supervisionLine({ isSandboxed: hasOuterSandbox }));
   for (let index = 0; index < extraArgs.length; index += 1) {
     const argument = extraArgs[index];
     if (resumeSessionId && argument === "--session-id") {

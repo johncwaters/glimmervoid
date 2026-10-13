@@ -27,6 +27,8 @@ interface AdapterSpawnCall {
 }
 const REPO_ROOT = path.join(import.meta.dirname, '..');
 const RESUME_ID = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
+const SUPERVISION_LINE = "Glimmervoid supervises this session. Run glimmervoid --help for the commands it gives you and this session's limits.";
+const SUPERVISION_ARGS = ['--append-system-prompt', SUPERVISION_LINE];
 
 function tmpHooksDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-adapter-'));
@@ -57,7 +59,7 @@ test('claude-code declares every capability, since it is the reference implement
   assert.equal(Object.values(claudeCode.capabilities).every((v) => v === true), true);
 });
 
-test('buildArgs keeps the pre-extraction order: perms, resume, lane flags, prompt last', () => {
+test('buildArgs keeps the order: perms, resume, supervision line, lane flags, prompt last', () => {
   const args = claudeCode.buildArgs({
     dangerouslySkipPermissions: true,
     resumeSessionId: RESUME_ID,
@@ -65,21 +67,39 @@ test('buildArgs keeps the pre-extraction order: perms, resume, lane flags, promp
     initialPrompt: 'THE PROMPT',
   });
   assert.deepEqual(args, [
-    '--dangerously-skip-permissions', '--resume', RESUME_ID, '-p', '--model', 'sonnet', 'THE PROMPT',
+    '--dangerously-skip-permissions', '--resume', RESUME_ID, ...SUPERVISION_ARGS, '-p', '--model', 'sonnet', 'THE PROMPT',
   ]);
-  assert.deepEqual(claudeCode.buildArgs(), [], 'a plain user session adds nothing');
+  assert.deepEqual(claudeCode.buildArgs(), SUPERVISION_ARGS, 'a plain user session adds the supervision line and nothing else');
+});
+
+test('a sandboxed Claude launch also reads that a refused write or connection will not succeed on retry', () => {
+  assert.deepEqual(claudeCode.buildArgs({ hasOuterSandbox: true }), [
+    '--append-system-prompt',
+    `${SUPERVISION_LINE} It runs in an OS-enforced sandbox, so a refused write or connection will not succeed on retry.`,
+  ]);
+});
+
+test('a Claude launch that already appends its own system prompt gets no supervision line', () => {
+  for (const extraArgs of [
+    ['--append-system-prompt', 'lane rules'],
+    ['--append-system-prompt=lane rules'],
+    ['--append-system-prompt-file', '/tmp/prompt.md'],
+    ['--append-system-prompt-file=/tmp/prompt.md'],
+  ]) {
+    assert.deepEqual(claudeCode.buildArgs({ extraArgs, hasOuterSandbox: true }), extraArgs, extraArgs[0]);
+  }
 });
 
 test('Claude drops both session-id forms on resume and keeps every other argument in order', () => {
   const extraArgs = ['-p', '--session-id', 'preassigned-id', '--model', 'sonnet', '--session-id=another-id', '--verbose'];
   assert.deepEqual(claudeCode.buildArgs({ resumeSessionId: RESUME_ID, extraArgs, initialPrompt: 'Prompt' }),
-    ['--resume', RESUME_ID, '-p', '--model', 'sonnet', '--verbose', 'Prompt']);
+    ['--resume', RESUME_ID, ...SUPERVISION_ARGS, '-p', '--model', 'sonnet', '--verbose', 'Prompt']);
   assert.deepEqual(extraArgs, ['-p', '--session-id', 'preassigned-id', '--model', 'sonnet', '--session-id=another-id', '--verbose']);
 });
 
 test('Claude keeps both session-id forms when starting a fresh conversation', () => {
   const extraArgs = ['--session-id', RESUME_ID, '--model', 'sonnet', `--session-id=${RESUME_ID}`];
-  assert.deepEqual(claudeCode.buildArgs({ extraArgs }), extraArgs);
+  assert.deepEqual(claudeCode.buildArgs({ extraArgs }), [...SUPERVISION_ARGS, ...extraArgs]);
 });
 
 test('every adapter forwards multiple PATH directories to the spawn env builder', () => {
@@ -126,6 +146,7 @@ test('spawn argv for a fully featured session is byte-identical to the pre-extra
       '--settings', settingsPath,
       '--dangerously-skip-permissions',
       '--resume', RESUME_ID,
+      ...SUPERVISION_ARGS,
       '-p', '--model', 'sonnet',
       'THE PROMPT',
     ]);

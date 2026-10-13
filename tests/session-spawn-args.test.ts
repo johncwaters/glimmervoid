@@ -8,6 +8,9 @@ import { encodeProjectDir } from '../session/core/conversation-history.ts';
 import { STATES } from '../shared/states.ts';
 import { waitFor } from './helpers/wait-for.ts';
 import { fakePty } from './helpers/fake-pty.ts';
+import { supervisionLine } from '../session/core/session-routes.ts';
+
+const SUPERVISION_ARGS = ['--append-system-prompt', supervisionLine({ isSandboxed: false })];
 
 interface ArgvCall {
   file: string;
@@ -54,6 +57,7 @@ test('start() appends extraClaudeArgs then the initialPrompt as the final positi
 
     assert.deepEqual(calls[0].args, [
       '--dangerously-skip-permissions',
+      ...SUPERVISION_ARGS,
       '-p',
       '--model',
       'sonnet',
@@ -67,7 +71,7 @@ test('start() appends extraClaudeArgs then the initialPrompt as the final positi
   }
 });
 
-test('a session with no team options spawns exactly as before (no extra args)', async () => {
+test('a session with no team options spawns with the supervision line and no other args', async () => {
   const calls: ArgvCall[] = [];
   const s = new Session({
     id: 'plain',
@@ -78,7 +82,7 @@ test('a session with no team options spawns exactly as before (no extra args)', 
   });
   try {
     await s.start();
-    assert.deepEqual(calls[0].args, [], 'no settings, no perms, no team args');
+    assert.deepEqual(calls[0].args, SUPERVISION_ARGS, 'no settings, no perms, no team args');
     assert.equal(s.toSnapshot().ephemeral, false);
   } finally {
     s.destroy();
