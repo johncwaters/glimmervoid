@@ -7,10 +7,7 @@ import {
   shortSha,
   parseResolvedSha,
   parseTagVersion,
-  parseLsRemoteTags,
-  parseLatestReleaseTag,
   parseRegistryLatest,
-  decideReleaseSource,
   decideInstallFlavor,
   buildUpdateCommand,
   buildReleaseUrl,
@@ -21,7 +18,6 @@ import {
 
 const SHA_A = '0123456789abcdef0123456789abcdef01234567';
 const SHA_B = 'fedcba9876543210fedcba9876543210fedcba98';
-const SHA_C = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
 test('parseResolvedSha reads the commit fragment of an npm git spec', () => {
   assert.equal(parseResolvedSha(`git+https://github.com/johncwaters/glimmervoid.git#${SHA_A}`), SHA_A);
@@ -58,50 +54,6 @@ test('parseTagVersion trims refs and rejects malformed or non-string tags', () =
   assert.equal(parseTagVersion(42), null);
 });
 
-test('parseLsRemoteTags returns the latest semver tag and prefers peeled shas', () => {
-  const stdout = [
-    `${SHA_A}\trefs/tags/v0.9.1`,
-    `${SHA_B}\trefs/tags/v0.10.0`,
-    `${SHA_C}\trefs/tags/v0.10.0^{}`,
-    `${SHA_A}\trefs/tags/0.99.0`,
-    `${SHA_B}\trefs/tags/v9.9.9-rc.1`,
-  ].join('\n');
-  assert.deepEqual(parseLsRemoteTags(stdout), { version: '0.10.0', sha: SHA_C });
-});
-
-test('parseLsRemoteTags tolerates garbage, CRLF, peeled-first order and duplicate versions', () => {
-  const stdout = [
-    'not a valid ls-remote row',
-    `${SHA_A}\trefs/heads/main`,
-    `${SHA_C}\trefs/tags/v0.10.0^{}`,
-    `${SHA_A}\trefs/tags/v0.10.0`,
-    `${SHA_B}\trefs/tags/v0.9.1`,
-    `${SHA_A}\trefs/tags/v0.10.0`,
-  ].join('\r\n');
-  assert.deepEqual(parseLsRemoteTags(stdout), { version: '0.10.0', sha: SHA_C });
-});
-
-test('parseLsRemoteTags accepts lightweight tags and ignores non-tag-only output', () => {
-  assert.deepEqual(parseLsRemoteTags(`${SHA_A}\trefs/tags/v0.8.0`), { version: '0.8.0', sha: SHA_A });
-  assert.equal(parseLsRemoteTags(`${SHA_A}\trefs/heads/main\r\n${SHA_B}\trefs/heads/develop`), null);
-});
-
-test('parseLsRemoteTags returns null when no valid release tag is present', () => {
-  assert.equal(parseLsRemoteTags(`${SHA_A}\trefs/tags/0.1.0\n${SHA_B}\trefs/heads/main`), null);
-  assert.equal(parseLsRemoteTags('fatal: could not read from remote repository'), null);
-  assert.equal(parseLsRemoteTags(''), null);
-  assert.equal(parseLsRemoteTags(undefined), null);
-});
-
-test('parseLatestReleaseTag reads tag_name and leaves sha null', () => {
-  assert.deepEqual(parseLatestReleaseTag({ tag_name: 'v0.21.0' }), { version: '0.21.0', sha: null });
-  assert.equal(parseLatestReleaseTag({ tag_name: '0.21.0' }), null);
-  assert.equal(parseLatestReleaseTag({ tag_name: 'v0.21.0-rc.1' }), null);
-  assert.equal(parseLatestReleaseTag({ name: 'v0.21.0' }), null);
-  assert.equal(parseLatestReleaseTag(null), null);
-  assert.equal(parseLatestReleaseTag([]), null);
-});
-
 test('parseRegistryLatest reads the published version and its gitHead', () => {
   assert.deepEqual(parseRegistryLatest({ version: '0.21.0', gitHead: SHA_A }), { version: '0.21.0', sha: SHA_A });
   assert.deepEqual(parseRegistryLatest({ version: '0.21.0' }), { version: '0.21.0', sha: null });
@@ -109,13 +61,6 @@ test('parseRegistryLatest reads the published version and its gitHead', () => {
   assert.equal(parseRegistryLatest({ version: '0.21.0-rc.1' }), null);
   assert.equal(parseRegistryLatest({ tag_name: 'v0.21.0' }), null);
   assert.equal(parseRegistryLatest(null), null);
-});
-
-test('decideReleaseSource sends npm-global and npx installs to the registry', () => {
-  assert.equal(decideReleaseSource('npm-global'), 'npm-registry');
-  assert.equal(decideReleaseSource('npx'), 'npm-registry');
-  assert.equal(decideReleaseSource('clone'), 'github-tags');
-  assert.equal(decideReleaseSource('unknown'), 'github-tags');
 });
 
 test('decideInstallFlavor prefers the lockfile commit, then gitHead, then a clone', () => {

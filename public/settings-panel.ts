@@ -69,6 +69,7 @@ import { usageStatusLines } from './usage-panel.ts';
 import { applySoundEnabled, onSoundEnabledChange } from './mute-button.ts';
 import {
   IDLE_UPDATE_REQUEST,
+  NOT_CONNECTED_TEXT,
   installedUpdateText,
   lastUpdateCheckText,
   latestUpdateDetails,
@@ -151,6 +152,8 @@ let restartServer = () => {};
 let confirmUpdateAndRestart = (proceed: (confirmedSessionIds: string[]) => void) => { proceed([]); };
 let lastAutoUpdateCheckAt: number | null = null;
 let isAutoUpdateCheckAwaitingStatus = false;
+let isUpdateCheckInFlight = false;
+let updateCheckSendFailure: string | null = null;
 const pendingWorkflowRuleIds = new Set<string>();
 const workflowRuleSaveErrorsById = new Map<string, string>();
 
@@ -577,7 +580,15 @@ function requestUpdateApply({ restartWhenStaged, confirmedSessionIds }: { restar
 
 function requestUpdateCheck() {
   lastAutoUpdateCheckAt = Date.now();
-  sendControlMsg({ type: 'update-check' });
+  const isSent = sendControlMsg({ type: 'update-check' });
+  isUpdateCheckInFlight = isSent;
+  updateCheckSendFailure = isSent ? null : NOT_CONNECTED_TEXT;
+  refreshUpdateRows();
+}
+
+function updateCheckStatusText(): string | null {
+  if (isUpdateCheckInFlight) return 'Checking for updates.';
+  return updateCheckSendFailure;
 }
 
 function checkUpdatesIfStale() {
@@ -610,10 +621,12 @@ function buildUpdateActions() {
       { decision: decisions.update, isPrimary: true },
     ),
     buildUpdateButton('Update without restart', () => requestUpdateApply({ restartWhenStaged: false }), { decision: decisions.update }),
-    buildUpdateButton('Check for updates', requestUpdateCheck),
+    buildUpdateButton('Check for updates', requestUpdateCheck, { decision: { enabled: !isUpdateCheckInFlight, reason: null } }),
     buildUpdateButton('Restart', restartServer, { decision: decisions.restart }),
   );
   actions.append(buttons, buildUpdateActionStatus(decisions.update.reason));
+  const checkStatusText = updateCheckStatusText();
+  if (checkStatusText) actions.append(buildUpdateActionStatus(checkStatusText));
   return actions;
 }
 
@@ -1284,6 +1297,8 @@ function refreshUpdateRows() {
 
 export function applySettingsUpdateStatus(status: unknown) {
   updateStatus = status as UpdateStatusView;
+  isUpdateCheckInFlight = false;
+  updateCheckSendFailure = null;
   updateRequest = reduceUpdateRequest(updateRequest, 'status-frame');
   refreshUpdateRows();
   if (isAutoUpdateCheckAwaitingStatus && selectedSection.id === UPDATES_SECTION_ID) checkUpdatesIfStale();
@@ -1297,6 +1312,9 @@ export function applySettingsUpdateProgress(journal: unknown) {
 
 export function clearSettingsUpdateRequest() {
   dispatchUpdateRequest('error-frame');
+  if (!isUpdateCheckInFlight) return;
+  isUpdateCheckInFlight = false;
+  refreshUpdateRows();
 }
 
 export function applySettingsProjects(projects: unknown) {

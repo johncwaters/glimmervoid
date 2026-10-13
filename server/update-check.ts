@@ -2,32 +2,25 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import type { UpdateChannel } from '../shared/contracts/update-journal.ts';
-import { REPO_SLUG } from '../shared/repo.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { parseLeftRightCount, parseRemoteFromUpstream } from './core/branch-sync-core.ts';
 import {
   decideInstallFlavor,
-  decideReleaseSource,
   decideUpdateStatus,
   isCheckFresh,
   normalizeSha,
-  parseLatestReleaseTag,
-  parseLsRemoteTags,
   parseRegistryLatest,
   parseResolvedSha,
 } from './core/update-core.ts';
-import type { InstallFlavor, ReleaseSource } from './core/update-core.ts';
+import type { InstallFlavor } from './core/update-core.ts';
 import { loadJsonStateFileSync, loadedJsonValue, writeJsonAtomicSync } from './json-file.ts';
 import { packageRoot as resolvedPackageRoot } from './runtime-paths.ts';
 import { runGit } from './git-exec.ts';
 
-const GIT_REMOTE_URL = `https://github.com/${REPO_SLUG}.git`;
-const GITHUB_LATEST_RELEASE_URL = `https://api.github.com/repos/${REPO_SLUG}/releases/latest`;
 const NPM_REGISTRY_LATEST_URL = 'https://registry.npmjs.org/glimmervoid/latest';
 const DEFAULT_TIMEOUT_MS = 8000;
 const GIT_HEAD_TIMEOUT_MS = 3000;
-const LS_REMOTE_TIMEOUT_MS = 5000;
 const RELEASE_ANCESTRY_TIMEOUT_MS = 3000;
 const MAIN_CHANNEL_BUDGET_MS = DEFAULT_TIMEOUT_MS;
 const MAIN_FETCH_TIMEOUT_MS = Math.floor(MAIN_CHANNEL_BUDGET_MS / 2);
@@ -35,6 +28,7 @@ const MAIN_REMOTE_TIP_TIMEOUT_MS = Math.floor(MAIN_CHANNEL_BUDGET_MS / 4);
 const MAIN_BEHIND_COUNT_TIMEOUT_MS = Math.floor(MAIN_CHANNEL_BUDGET_MS / 4);
 const STATE_FILE_NAME = 'update-check.json';
 const STATE_TTL_MS = 6 * 60 * 60 * 1000;
+const RELEASE_SOURCE = 'npm-registry';
 
 type RunCommand = typeof execFileAsync;
 type GitCallResult = { ok: boolean; out: string; err?: string };
@@ -201,30 +195,6 @@ async function resolveLatestRegistryVersion(
   }
 }
 
-async function resolveLatestRelease(
-  { flavor, runCommand, fetchFn, signal }: { flavor: InstallFlavor; runCommand: RunCommand; fetchFn: typeof fetch; signal: AbortSignal },
-): Promise<LatestTarget> {
-  if (decideReleaseSource(flavor) === 'npm-registry') return resolveLatestRegistryVersion({ fetchFn, signal });
-  const remoteTags = await runGitProbe(runCommand, ['ls-remote', '--tags', GIT_REMOTE_URL], {
-    timeout: LS_REMOTE_TIMEOUT_MS,
-    signal,
-  });
-  const fromRemote = parseLsRemoteTags(remoteTags.out);
-  if (fromRemote) return { ...fromRemote, behindCount: null, reason: null };
-  try {
-    const response = await fetchFn(GITHUB_LATEST_RELEASE_URL, {
-      signal,
-      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'glimmervoid-update-check' },
-    });
-    if (!response?.ok) return { version: null, sha: null, behindCount: null, reason: 'release-check-failed' };
-    const release = parseLatestReleaseTag(await response.json());
-    if (!release) return { version: null, sha: null, behindCount: null, reason: 'release-check-failed' };
-    return { ...release, behindCount: null, reason: null };
-  } catch {
-    return { version: null, sha: null, behindCount: null, reason: 'release-check-failed' };
-  }
-}
-
 function upstreamBranch(upstream: string): string | null {
   const slashIndex = upstream.indexOf('/');
   if (slashIndex < 0 || slashIndex === upstream.length - 1) return null;
@@ -375,7 +345,7 @@ async function checkForUpdate({
     const cached = readCheckState(statePath);
     const cacheOutrunByInstall = normalizeSha(cached?.latestSha) !== null
       && normalizeSha(cached?.latestSha) === installed.installedSha;
-    const expectedReleaseSource: ReleaseSource | null = updateChannel === 'release' ? decideReleaseSource(installed.flavor) : null;
+    const expectedReleaseSource = updateChannel === 'release' ? RELEASE_SOURCE : null;
     const isCacheFromSameSource = expectedReleaseSource === null || cached?.releaseSource === expectedReleaseSource;
     if (cached?.channel === updateChannel && isCacheFromSameSource && !cacheOutrunByInstall && isCheckFresh(cached.lastCheckAt, now, ttlMs)) {
       return finish(installed, targetFromCache(cached), currentVersion, updateChannel, platform, now, packageRoot, runCommand, signal);
@@ -383,7 +353,7 @@ async function checkForUpdate({
     signal.throwIfAborted();
     const latestTarget = updateChannel === 'main'
       ? await resolveLatestMain(installed, packageRoot, runCommand, fetchOrigin, signal)
-      : await resolveLatestRelease({ flavor: installed.flavor, runCommand, fetchFn, signal });
+      : await resolveLatestRegistryVersion({ fetchFn, signal });
     const hasCacheableTarget = latestTarget.reason === null
       && (latestTarget.version !== null || latestTarget.sha !== null);
     if (hasCacheableTarget) {
@@ -416,8 +386,6 @@ async function checkForUpdate({
 }
 
 export {
-  GITHUB_LATEST_RELEASE_URL,
-  GIT_REMOTE_URL,
   MAIN_FETCH_TIMEOUT_MS,
   NPM_REGISTRY_LATEST_URL,
   STATE_FILE_NAME,

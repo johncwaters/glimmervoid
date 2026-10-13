@@ -13,8 +13,6 @@ const INSTALL_FLAVORS = new Set<string>(InstallFlavor.options);
 const TAG_VERSION_RE = /^v(\d+\.\d+\.\d+)$/;
 const UPDATE_CHANNELS = new Set<string>(['release', 'main']);
 
-export type ReleaseSource = 'npm-registry' | 'github-tags';
-
 export interface ReleaseTag {
   version: string;
   sha: string | null;
@@ -44,32 +42,6 @@ function parseTagVersion(ref: unknown): string | null {
   const matched = TAG_VERSION_RE.exec(normalized);
   if (!matched) return null;
   return matched[1];
-}
-
-function parseLsRemoteTags(stdout: unknown): { version: string; sha: string } | null {
-  if (typeof stdout !== 'string') return null;
-  const tagsByVersion = new Map<string, { version: string; sha: string }>();
-  for (const line of stdout.split('\n')) {
-    const fields = line.trim().split(/\s+/);
-    if (fields.length < 2) continue;
-    const sha = normalizeSha(fields[0]);
-    if (!sha) continue;
-    const ref = fields[1];
-    const version = parseTagVersion(ref);
-    if (!version) continue;
-    const existing = tagsByVersion.get(version);
-    if (existing && !ref.endsWith('^{}')) continue;
-    tagsByVersion.set(version, { version, sha });
-  }
-  let latest: { version: string; sha: string } | null = null;
-  for (const entry of tagsByVersion.values()) {
-    if (!latest) {
-      latest = entry;
-      continue;
-    }
-    if (compareSemver(entry.version, latest.version) > 0) latest = entry;
-  }
-  return latest;
 }
 
 function isNpxCachePath(packageRoot: unknown): boolean {
@@ -141,18 +113,6 @@ function compareSemver(a: unknown, b: unknown): number {
     if (ta[i] < tb[i]) return -1;
   }
   return 0;
-}
-
-function parseLatestReleaseTag(doc: unknown): ReleaseTag | null {
-  if (!doc || typeof doc !== 'object') return null;
-  const version = parseTagVersion((doc as { tag_name?: unknown }).tag_name);
-  if (!version) return null;
-  return { version, sha: null };
-}
-
-function decideReleaseSource(flavor: unknown): ReleaseSource {
-  if (flavor === 'npm-global' || flavor === 'npx') return 'npm-registry';
-  return 'github-tags';
 }
 
 function parseRegistryLatest(doc: unknown): ReleaseTag | null {
@@ -241,4 +201,4 @@ function isCheckFresh(lastCheckAt: unknown, nowMs: unknown, ttlMs: unknown): boo
 }
 
 export type { InstallFlavor };
-export { NPM_GLOBAL_COMMAND, CLONE_COMMAND, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, parseTagVersion, parseLsRemoteTags, decideInstallFlavor, buildUpdateCommand, buildReleaseUrl, compareSemver, parseLatestReleaseTag, decideReleaseSource, parseRegistryLatest, decideUpdateStatus, isCheckFresh };
+export { NPM_GLOBAL_COMMAND, CLONE_COMMAND, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, parseTagVersion, decideInstallFlavor, buildUpdateCommand, buildReleaseUrl, compareSemver, parseRegistryLatest, decideUpdateStatus, isCheckFresh };
