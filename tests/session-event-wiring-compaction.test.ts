@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createSessionEventWiring } from '../server/session-event-wiring.ts';
+import { createSessionEventWiring, IDLE_COMPACTION_CONFIRM_MS } from '../server/session-event-wiring.ts';
 import { NotificationManager } from '../notifications/notification-manager.ts';
 import { Session } from '../session/sessions.ts';
 import { NOTIFICATION_STATES } from '../shared/notification-states.ts';
 import { STATES } from '../shared/states.ts';
 import type { NotificationContext } from '../notifications/notification-manager.ts';
 
-const PHONE_ESCALATION_MS = 50;
+const PHONE_ESCALATION_MS = IDLE_COMPACTION_CONFIRM_MS * 2;
 
 function wiredSession() {
   const session = new Session({ id: 'compaction-wiring', name: 'compaction-wiring', path: process.cwd(), statusConflictMs: 20, statusDedupMs: 10 });
@@ -60,12 +60,13 @@ for (const settledState of [STATES.COMPLETE, STATES.WAITING] as const) {
       session._statusSource.ingest({ signal: 'working', source: 'title', ts: Date.now() });
       assert.equal(session.state, STATES.RUNNING);
       session.ingestHookSignal({ signal: 'compaction-start', source: 'hook', ts: Date.now(), event: 'PreCompact', payload: { trigger: 'auto' } });
+      t.mock.timers.tick(IDLE_COMPACTION_CONFIRM_MS);
       const endSignal = endEvent === 'PostCompact' ? 'compaction-end' : 'session-start';
       session.ingestHookSignal({ signal: endSignal, source: 'hook', ts: Date.now(), event: endEvent, payload: { trigger: 'auto', source: 'compact' } });
 
       assert.equal(session.state, settledState);
       assert.equal(notificationManager.getNotificationState(session.id), NOTIFICATION_STATES.DELIVERED);
-      t.mock.timers.tick(PHONE_ESCALATION_MS);
+      t.mock.timers.tick(PHONE_ESCALATION_MS - IDLE_COMPACTION_CONFIRM_MS);
       assert.equal(phoneEscalations().length, 1);
       assert.equal(notificationManager.getNotificationState(session.id), NOTIFICATION_STATES.ESCALATED_PHONE);
     });
@@ -83,6 +84,24 @@ test('a prompt after an idle title spinner still acknowledges the earlier notifi
   session._statusSource.ingest({ signal: 'working', source: 'title', ts: Date.now() });
   assert.equal(notificationManager.getNotificationState(session.id), NOTIFICATION_STATES.DELIVERED);
   session.ingestHookSignal({ signal: 'resume', source: 'hook', ts: Date.now(), event: 'UserPromptSubmit' });
+  assert.equal(notificationManager.getNotificationState(session.id), NOTIFICATION_STATES.IDLE);
+  t.mock.timers.tick(PHONE_ESCALATION_MS);
+  assert.equal(phoneEscalations().length, 0);
+});
+
+test('work resuming after a prompt with no compaction acknowledges the waiting notification before it escalates', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const { session, notificationManager, phoneEscalations } = wiredSession();
+  t.after(() => {
+    session.destroy();
+    notificationManager.destroy();
+  });
+  session.transition('prompt_detected', { source: 'hook', signal: 'awaiting-input' });
+  session._statusSource.ingest({ signal: 'working', source: 'title', ts: Date.now() });
+  assert.equal(session.state, STATES.RUNNING);
+  assert.equal(notificationManager.getNotificationState(session.id), NOTIFICATION_STATES.DELIVERED);
+
+  t.mock.timers.tick(IDLE_COMPACTION_CONFIRM_MS);
   assert.equal(notificationManager.getNotificationState(session.id), NOTIFICATION_STATES.IDLE);
   t.mock.timers.tick(PHONE_ESCALATION_MS);
   assert.equal(phoneEscalations().length, 0);

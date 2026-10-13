@@ -12,6 +12,8 @@ import { resolveCheckConfig, runPostTurnChecks } from './post-turn-checker.ts';
 import type { Telemetry } from './telemetry.ts';
 import { errorMessage } from '../shared/text.ts';
 
+const IDLE_COMPACTION_CONFIRM_MS = 10000;
+
 interface WiringProject extends Record<string, unknown> {
   id?: string;
   postTurnChecks?: unknown;
@@ -108,6 +110,27 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     let pendingAgentNote: string | null = null;
     const notifyGate = createNotifyGate();
     let isAcknowledgeDeferredForCompaction = false;
+    let isCompacting = false;
+    let compactionConfirmTimer: NodeJS.Timeout | null = null;
+    const clearCompactionConfirm = () => {
+      if (compactionConfirmTimer === null) return;
+      clearTimeout(compactionConfirmTimer);
+      compactionConfirmTimer = null;
+    };
+    const releaseDeferredAcknowledge = () => {
+      clearCompactionConfirm();
+      if (!isAcknowledgeDeferredForCompaction) return;
+      isAcknowledgeDeferredForCompaction = false;
+      dependencies.notificationManager.acknowledge(session.id);
+    };
+    const armCompactionConfirm = () => {
+      compactionConfirmTimer = setTimeout(() => {
+        compactionConfirmTimer = null;
+        if (isCompacting) return;
+        releaseDeferredAcknowledge();
+      }, IDLE_COMPACTION_CONFIRM_MS);
+      compactionConfirmTimer.unref();
+    };
     let lastPersistedWasActive: boolean | null = null;
     let spawnedAtMs: number | null = null;
     const persistProjectField = (field: string, value: unknown) => {
@@ -148,9 +171,14 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         clearTimeout(postTurnDebounce);
         postTurnDebounce = null;
       }
+      clearCompactionConfirm();
       const reasonText = reason ? `, reason=${reason}` : '';
       dependencies.logger.log(`[${session.name}] exited (code=${exitCode}, signal=${signal}${reasonText})`);
       captureSessionEnded({ exitCode, signal, reason });
+    });
+    session.on('teardown', () => {
+      clearCompactionConfirm();
+      isAcknowledgeDeferredForCompaction = false;
     });
 
     const resolvePostTurn = () => {
@@ -212,6 +240,8 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       }
       const acknowledgeDecision = decideAcknowledge(isAcknowledgeDeferredForCompaction, from, event, detail?.isIdleCompactionActivity === true);
       isAcknowledgeDeferredForCompaction = acknowledgeDecision.isAcknowledgeDeferred;
+      clearCompactionConfirm();
+      if (isAcknowledgeDeferredForCompaction) armCompactionConfirm();
       if (acknowledgeDecision.shouldAcknowledge) dependencies.notificationManager.acknowledge(session.id);
 
       const { category, reason } = explainNotification(
@@ -259,12 +289,12 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     session.on('user-prompt', () => {
       pendingAgentNote = null;
       notifyGate.reset();
-      if (isAcknowledgeDeferredForCompaction) dependencies.notificationManager.acknowledge(session.id);
-      isAcknowledgeDeferredForCompaction = false;
+      releaseDeferredAcknowledge();
     });
     session.on('waiting-input-acknowledged', () => dependencies.notificationManager.acknowledge(session.id));
-    session.on('prompt-kind-change', ({ pendingPromptKind: nextKind }: { pendingPromptKind: string | null }) => {
+    session.on('prompt-kind-change', ({ pendingPromptKind: nextKind, isCompacting: isNowCompacting }: { pendingPromptKind: string | null; isCompacting: boolean }) => {
       pendingPromptKind = nextKind;
+      isCompacting = isNowCompacting;
     });
     const relay = (event: string, type: string) => session.on(event, (payload: Record<string, unknown> | undefined) => dependencies.broadcastControl({
       ...payload,
@@ -350,5 +380,5 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
   };
 }
 
-export { createSessionEventWiring, persistSessionField };
+export { createSessionEventWiring, persistSessionField, IDLE_COMPACTION_CONFIRM_MS };
 export type { SessionEventDependencies, WiringConfig, WiringIngestLane, WiringProject };
