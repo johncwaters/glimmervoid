@@ -133,8 +133,6 @@ export const FactorySettings = z.object({
   checks: z.array(z.string().trim().min(1)).optional(),
   protectedPaths: z.array(z.string().trim().min(1)).optional(),
   reviewerModel: z.string().trim().min(1).nullable().optional(),
-  watchWindowMinutes: z.number().int().min(ranges.FACTORY_WATCH_WINDOW_RANGE.min).max(ranges.FACTORY_WATCH_WINDOW_RANGE.max).optional(),
-  watchProjects: z.array(z.object({ project: z.string().trim().min(1), posthogProjectId: z.number().int().positive() })).optional(),
   dailyBudgetUsd: z.number().finite().nonnegative().nullable().optional(),
   verifierModel: z.string().trim().min(1).nullable().optional(),
   mirrorHarnessRuns: optionalBoolean('factory.mirrorHarnessRuns'),

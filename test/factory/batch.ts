@@ -3,7 +3,6 @@ import { appendFile, mkdir, mkdtemp, readFile, realpath, rmdir, writeFile } from
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { DEFAULT_CONFIG } from '../../server/config-store.ts';
 import { ClientMessage } from '../../shared/contracts/control-messages.ts';
 import { intents, parseIntentFile } from './intents.ts';
 import type { Intent } from './intents.ts';
@@ -43,9 +42,8 @@ async function runOnce(
   };
   const listedSessionIds = new Set<string>();
   const controller = new AbortController();
-  const watchWindowMinutes = options.factory.watchWindowMinutes ?? DEFAULT_CONFIG.factory.watchWindowMinutes;
   const workLimitMinutes = targets[options.target].workLimitMinutes;
-  const deadline = workLimitMinutes === null ? new AbortController().signal : AbortSignal.timeout((workLimitMinutes + watchWindowMinutes) * 60_000);
+  const deadline = workLimitMinutes === null ? new AbortController().signal : AbortSignal.timeout(workLimitMinutes * 60_000);
   const signal = AbortSignal.any([interrupt, deadline, controller.signal]);
   let tempDirectory: string | null = null;
   let prepared: Awaited<ReturnType<typeof prepareInstance>> | null = null;
@@ -157,7 +155,7 @@ async function runOnce(
   await writeJson(path.join(recordDirectory, HARNESS_VERDICT_FILE_NAME), verdict);
   const telemetrySendResult = await sendRunTelemetry({
     verdict, decision: decideHarnessTelemetry(telemetryInputsAfterRun), builtServerEntryPath,
-    context: { isCustomIntent: Boolean(options.intentFile), watchWindowMinutes, runIndex, batchSize: options.runs },
+    context: { isCustomIntent: Boolean(options.intentFile), runIndex, batchSize: options.runs },
   });
   const recordedVerdict = { ...verdict, telemetrySendResult };
   await writeJson(path.join(recordDirectory, HARNESS_VERDICT_FILE_NAME), recordedVerdict);

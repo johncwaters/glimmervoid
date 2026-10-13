@@ -10,8 +10,7 @@ This file records the state of the Factory lane as of 2026-10-12, so that anothe
   - the fence check;
   - its own checks;
   - a reviewer that never wrote the code;
-  - merge;
-  - a watch window;
+  - merge, which files the ticket's verification;
   - a separate verifier session that closes the intent.
 - The aim is near-zero intervention. There are no approval clicks; risk is managed by tiered guardrails instead.
 - Everything sits behind the Factory setting, which is off by default. The Focus tab is untouched.
@@ -45,11 +44,11 @@ This file records the state of the Factory lane as of 2026-10-12, so that anothe
 Never use the live instance on port 3000; do not restart it without asking the operator. The harness runs an isolated instance built from your worktree, with its own home and port:
 
 - `npm run factory:run -- --help` lists the options, and `--list-intents` prints the intent catalog.
-- `node test/factory/run.ts --runs 1 --intent one-file-change --watch-window 1` runs one intent on a throwaway repo, in about two minutes.
-- `node test/factory/run.ts --runs 1 --target gated-clone --intent gated-one-file-change --watch-window 1` runs one intent on a fresh gated clone of glimmervoid with the default checks.
+- `node test/factory/run.ts --runs 1 --intent one-file-change` runs one intent on a throwaway repo, in about two minutes.
+- `node test/factory/run.ts --runs 1 --target gated-clone --intent gated-one-file-change` runs one intent on a fresh gated clone of glimmervoid with the default checks.
 - `--intent-file <path>` queues any `factory-queue-intent` request written as JSON, which is how a rendered design spec reaches a run.
 
-Every run bills Claude usage. A run builds `dist/` from the worktree when it starts, so leave the worktree alone until it ends. Without `--watch-window`, a run waits out the shipped 30 minute watch window.
+Every run bills Claude usage. A run builds `dist/` from the worktree when it starts, so leave the worktree alone until it ends.
 
 A run passes when the intent is `completed`, the heading is `steady`, `origin/main` of the run's own remote holds the worker commits plus `factory: verify and close <intentId>`, and, for a gated clone, the real `main` did not move. The run prints its record folder, which holds the verdict, every `factory-state` broadcast, the server log, the decision log and the git logs.
 
@@ -77,7 +76,7 @@ Refreshing the clone from the real `main` is unproven. The expected route is to 
 
 ## Remaining work, in order
 
-1. **Gated self-host.** The operator runs real intents against the gated clone and promotes what they accept. On the instance that runs the factory, set `factory.protectedPaths` to cover the factory's own guardrails: `server/factory-closeout.ts`, `server/factory-dispatch.ts`, `server/factory-ledger.ts`, `server/factory-orchestrator.ts`, `server/factory-poller.ts`, `server/factory-verifier.ts`, `server/factory-watch.ts`, `server/factory-wiring.ts`, `server/git-workspace.ts`, `server/core/factory-core.ts`, `server/core/git-invocation-core.ts`, `server/core/lane-permissions-core.ts`, `server/core/sandbox-roles-core.ts`, `server/core/sandbox-policy-core.ts`, `server/sandbox-launch.ts`, `server/work-lane.ts`, `shared/contracts/browser-config.ts`, `shared/contracts/factory.ts`, `shared/contracts/coherence.ts`, and the defaults. Each entry is an exact path, a directory ending in `/`, or `**/` plus a file name, and `*` in any of those stands for any run of characters inside one path segment; these are the only shapes that `checkFence` in `server/core/factory-core.ts` matches, and any other glob syntax blocks every change. That way workers cannot loosen their own gates. Factory merges fast-forward source only. The live instance picks them up only when the operator rebuilds and restarts it.
+1. **Gated self-host.** The operator runs real intents against the gated clone and promotes what they accept. On the instance that runs the factory, set `factory.protectedPaths` to cover the factory's own guardrails: `server/factory-closeout.ts`, `server/factory-dispatch.ts`, `server/factory-ledger.ts`, `server/factory-orchestrator.ts`, `server/factory-poller.ts`, `server/factory-verifier.ts`, `server/factory-wiring.ts`, `server/git-workspace.ts`, `server/core/factory-core.ts`, `server/core/git-invocation-core.ts`, `server/core/lane-permissions-core.ts`, `server/core/sandbox-roles-core.ts`, `server/core/sandbox-policy-core.ts`, `server/sandbox-launch.ts`, `server/work-lane.ts`, `shared/contracts/browser-config.ts`, `shared/contracts/factory.ts`, `shared/contracts/coherence.ts`, and the defaults. Each entry is an exact path, a directory ending in `/`, or `**/` plus a file name, and `*` in any of those stands for any run of characters inside one path segment; these are the only shapes that `checkFence` in `server/core/factory-core.ts` matches, and any other glob syntax blocks every change. That way workers cannot loosen their own gates. Factory merges fast-forward source only. The live instance picks them up only when the operator rebuilds and restarts it.
 2. **Spec-fed intents.** The operator's spec tool renders a finalized design spec as one `factory-queue-intent` request, so nothing in glimmervoid has to change for the first run, and the harness queues that request with `--intent-file`. The request carries the spec's units of work as `tickets`, which the factory writes to the ledger when the intent becomes active so no model re-cuts them; a spec-fed run of two dependent tickets passed on the gated clone on 2026-10-12.
 3. **Lifting the gate.** This is the operator's call, made after gated intents have been promoted cleanly. Only then commit `coherence.config.json` (`{}`) to glimmervoid main and point the factory at the real checkout.
 4. **Team review onto a sandbox role**, in its own commit. Benchmarks and issues follow later.
@@ -96,7 +95,6 @@ Refreshing the clone from the real `main` is unproven. The expected route is to 
    - Each harness run leaves one trusted project entry in the real Claude Code config, and nothing removes it.
    - A check folder left under `scratch` in the Glimmervoid folder by a crash is never pruned.
 7. **P3:**
-   - auto-revert on a watch breach, serialized through `git-workspace.ts`;
    - a staged rollout behind a PostHog flag for critical risk;
    - permission prompts answered by policy;
    - a Codex second reviewer;

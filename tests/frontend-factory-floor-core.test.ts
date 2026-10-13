@@ -51,7 +51,6 @@ test('stations map open, dependency waiting, blocked, active and completed child
   assert.equal(floor.stations.workers[0]?.isHeld, false);
   assert.deepEqual(floor.stations.review.map((crate) => crate.id), ['review']);
   assert.deepEqual(floor.stations.shipped.map((crate) => crate.id), ['shipped']);
-  assert.deepEqual(floor.stations.watch, []);
   assert.equal(floor.intent?.shippedCount, 1);
   assert.equal(floor.intent?.childCount, 7);
   assert.deepEqual(floor.intent?.criteria, [{ text: 'All tests pass', isMet: false }]);
@@ -218,16 +217,15 @@ test('in-flight close-out prefers Review over ledger state for crates and select
   assert.equal(floor.stations.queue.length, 0);
 });
 
-test('open watches occupy Watch and the floor shows factory spend and non-exception notes', () => {
-  const floor = buildFactoryFloor(makeProject([makeOrder('intent', { parent: null }), makeOrder('watch', { state: 'completed' })], {
-    watches: [{ workId: 'watch', intentId: 'intent', projectId: 'project', mergedSha: 'a'.repeat(40), mergedAt: '2026-10-08T12:00:00.000Z', writeScopes: ['src'] }],
-    unverifiedCompletedWork: ['watch'], spentTodayUsd: 12.5, dailyBudgetUsd: 20, note: 'Watch query unavailable',
-  }), 'watch');
-  assert.deepEqual(floor.stations.watch.map((crate) => [crate.id, crate.status]), [['watch', 'Watching']]);
-  assert.equal(floor.stations.review.length, 0);
-  assert.equal(floor.selectedOrder?.station, 'watch');
+test('merged but unverified tickets sit in Review and the floor shows factory spend and non-exception notes', () => {
+  const floor = buildFactoryFloor(makeProject([makeOrder('intent', { parent: null }), makeOrder('merged', { state: 'completed' })], {
+    unverifiedCompletedWork: ['merged'], spentTodayUsd: 12.5, dailyBudgetUsd: 20, note: 'Verifier waiting on a slot',
+  }), 'merged');
+  assert.deepEqual(floor.stations.review.map((crate) => [crate.id, crate.status]), [['merged', 'Unverified']]);
+  assert.equal(floor.stations.shipped.length, 0);
+  assert.equal(floor.selectedOrder?.station, 'review');
   assert.equal(floor.spend, 'Factory today: $12.50 / $20.00');
-  assert.equal(floor.note, 'Watch query unavailable');
+  assert.equal(floor.note, 'Verifier waiting on a slot');
   assert.equal(floor.orchestrator.isException, false);
   assert.equal(buildFactoryFloor(makeProject([]), null).spend, 'Factory today: $0.00 / unlimited');
 });

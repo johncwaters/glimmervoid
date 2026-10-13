@@ -36,10 +36,7 @@ import { loadJsonStateFile, writeJsonAtomic, writeTextAtomic } from './json-file
 import { createLaneRunner } from './lane-runner.ts';
 import { cliPath as glimmervoidCliPath, resolvePackageBin } from './runtime-paths.ts';
 import { errorMessage, isMissingFileError } from '../shared/text.ts';
-import { createFactoryWatch } from './factory-watch.ts';
-import type { FactoryWatchDeps } from './factory-watch.ts';
 import { createFactoryVerifier } from './factory-verifier.ts';
-import { createPosthogApi } from './posthog-api.ts';
 
 const COHERENCE_CONFIG_PROBE_TIMEOUT_MS = 5_000;
 const ORCHESTRATOR_EXCEPTION_PREFIX = 'factory-exception';
@@ -52,7 +49,6 @@ interface FactoryWiringOptions<ManagedSession extends FactoryOrchestratorSession
   telemetry?: Pick<Telemetry, 'capture'>;
   readSpentTodayUsd?: () => LaneSpend;
   createPoller?: typeof createFactoryPoller;
-  runHogQL?: FactoryWatchDeps['runHogQL'];
   notify?: (projectName: string, category: string, message: string) => void;
   spawnVerifier?: FactoryCloseOutDeps['spawnReviewer'];
   spawnReviewer?: FactoryCloseOutDeps['spawnReviewer'];
@@ -63,7 +59,7 @@ interface FactoryWiringOptions<ManagedSession extends FactoryOrchestratorSession
 
 export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSession = Session>({
   config, broadcast, gitWorkspace = createGitWorkspace(), homeDir = glimmervoidHomeDir(),
-  createPoller = createFactoryPoller, log = console, telemetry, orchestratorOptions, trustClaudeFolder, spawnReviewer, prepareCheckRunner, spawnVerifier = spawnReviewer, readSpentTodayUsd = () => ({ status: 'known', amountUsd: 0 }), runHogQL, notify = () => {}, runCoherence: customRunCoherence, ...pollerDeps
+  createPoller = createFactoryPoller, log = console, telemetry, orchestratorOptions, trustClaudeFolder, spawnReviewer, prepareCheckRunner, spawnVerifier = spawnReviewer, readSpentTodayUsd = () => ({ status: 'known', amountUsd: 0 }), notify = () => {}, runCoherence: customRunCoherence, ...pollerDeps
 }: FactoryWiringOptions<ManagedSession>) {
   gitWorkspace = isolateGitWorkspace(gitWorkspace, { disableRepoCommands: true });
   const coherenceCliPath = resolvePackageBin('@danilocampos/coherence', 'coherence');
@@ -595,12 +591,6 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         if (shouldRecord) decisionLog.recordEvent(projectId, { ...event, intentId: event.intentId ?? activeIntentIdOf(projectId) ?? undefined });
         if (!isLogOnlyFactoryEvent(event)) activeOrchestrator?.notifyOrchestrator(projectId, event);
       };
-      const activeWatch = createFactoryWatch({
-        config, readLaneState, writeLaneState, serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, commitAndLand,
-        runHogQL: runHogQL ?? ((projectId, query) => createPosthogApi({ host: typeof config.posthog?.host === 'string' ? config.posthog.host : undefined, apiKey: typeof config.posthog?.apiKey === 'string' ? config.posthog.apiKey : undefined }).runHogQL(projectId, query)),
-        notifyOrchestrator,
-        notify: (projectName, message) => notify(projectName, FACTORY_NOTIFY_CATEGORY, message), now: pollerDeps.now, log, onChanged: refresh,
-      });
       const activeVerifier = spawnVerifier ? createFactoryVerifier({
         config, spawnVerifier, serializeProject, ensureLedger: ensureTrustedLedgerCheckout, ensureControlCheckout, hasCodeChangedSince, readIntentDiff, readLaneState, writeLaneState,
         runCoherence, commitAndLand, pause: (projectId) => serializeProject(projectId, () => updateLaneState(projectId, () => ({ paused: true }))),
@@ -612,7 +602,8 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
         config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, commitAndLand, readIntegrationSha,
         recordFactoryLandedSha, readPaused, readIntentFloorAllowances, countTicketBlock, countIntentCapCancel, prepareCheckRunner,
         releaseWorkers: (projectId, workIds) => dispatcher?.releaseWorkers(projectId, workIds), recordDecision: decisionLog.record,
-        appendWatch: (entry) => updateLaneState(entry.projectId, (state) => ({ watch: [...(state.watch ?? []), entry] })),
+        trustVerification: (projectId, verification) => updateLaneState(projectId, (state) => ({
+          trustedVerifications: [...(state.trustedVerifications ?? []).filter(({ id }) => id !== verification.id), verification] })),
         notifyOrchestrator,
         setException: raiseException,
         onReviewingChanged: refreshAfter('review state'),
@@ -694,8 +685,7 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
           await landUnlandedFactoryWrites(project.projectId);
           await activeDispatcher?.reconcileActiveOrders(project);
           if (!project.paused) activeCloseOut?.resumeHeld(project.projectId);
-          const watched = await activeWatch.tick(project);
-          const verified = activeVerifier ? await activeVerifier.tick(watched) : watched;
+          const verified = activeVerifier ? await activeVerifier.tick(project) : project;
           const updated = activeOrchestrator ? await activeOrchestrator.tick(verified) : verified;
           recordCrashLoopEpisode(project.projectId, activeOrchestrator && verified.error === null ? updated.error : null);
           if (updated.error === null) loggedSpawnExceptions.delete(project.projectId);
@@ -723,7 +713,6 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       });
       let stopping: Promise<void> | null = null;
       const stop = async () => {
-        activeWatch.stop();
         await activeVerifier?.stop();
         await activeCloseOut?.stop();
         const stoppingWorkers = activeDispatcher?.stop();

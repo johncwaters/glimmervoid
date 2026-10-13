@@ -151,7 +151,6 @@ const STATIONS: { id: FactoryStation; label: string; slots: number }[] = [
   { id: 'queue', label: 'Queue', slots: 3 },
   { id: 'workers', label: 'Workers', slots: 3 },
   { id: 'review', label: 'Review', slots: 2 },
-  { id: 'watch', label: 'Watch', slots: 2 },
   { id: 'shipped', label: 'Shipped', slots: 3 },
 ];
 

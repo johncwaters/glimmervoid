@@ -2,7 +2,7 @@ import type { FactoryProjectState } from '#shared/contracts/factory.ts';
 import { ANIMALS } from '../nyan-animals.ts';
 
 type FactoryOrder = FactoryProjectState['orders'][number];
-export type FactoryStation = 'queue' | 'workers' | 'review' | 'watch' | 'shipped';
+export type FactoryStation = 'queue' | 'workers' | 'review' | 'shipped';
 
 export interface FactoryCrate {
   id: string;
@@ -29,8 +29,7 @@ export interface FactoryFloor {
   selectedOrder: { id: string; intent: string | null; writeScopes: string[]; dependsOn: string[]; station: string; owner: string | null } | null;
 }
 
-function pickStation(order: FactoryOrder, unverifiedIds: Set<string>, reviewingIds: Set<string>, watchIds: Set<string>): FactoryStation | null {
-  if (watchIds.has(order.id)) return 'watch';
+function pickStation(order: FactoryOrder, unverifiedIds: Set<string>, reviewingIds: Set<string>): FactoryStation | null {
   if (reviewingIds.has(order.id)) return 'review';
   if (order.state === 'open' || order.state === 'blocked') return 'queue';
   if (order.state === 'active') return 'workers';
@@ -50,7 +49,6 @@ function orderStatus(order: FactoryOrder, hasConflict: boolean, station: Factory
   if (order.state === 'open' && order.readiness === 'waiting') return 'Waiting on dependency';
   if (station === 'workers') return 'Running';
   if (station === 'review') return 'Unverified';
-  if (station === 'watch') return 'Watching';
   if (station === 'shipped') return 'Shipped';
   return 'Ready';
 }
@@ -73,14 +71,13 @@ export function buildFactoryFloor(state: FactoryProjectState, selectedOrderId: s
   const activeParentIds = new Set(state.orders.filter((order) => order.state === 'active').map((order) => order.parent));
   const activeIntent = openRoots.find((root) => root.id === state.orchestrator?.intentId) ?? openRoots.find((root) => activeParentIds.has(root.id)) ?? openRoots[0] ?? null;
   const children = activeIntent ? state.orders.filter((order) => order.parent === activeIntent.id) : [];
-  const watchIds = new Set((state.watches ?? []).map((watch) => watch.workId));
   const reviewingIds = new Set(state.reviewing ?? []);
   const unverifiedIds = new Set(state.unverifiedCompletedWork);
   const conflictIds = new Set(state.conflicts.flatMap((conflict) => [conflict.left, conflict.right]));
-  const stations: FactoryFloor['stations'] = { queue: [], workers: [], review: [], watch: [], shipped: [] };
-  const floorOrders = state.orders.filter((order) => order.parent === activeIntent?.id || watchIds.has(order.id));
+  const stations: FactoryFloor['stations'] = { queue: [], workers: [], review: [], shipped: [] };
+  const floorOrders = state.orders.filter((order) => order.parent === activeIntent?.id);
   for (const order of floorOrders) {
-    const station = pickStation(order, unverifiedIds, reviewingIds, watchIds);
+    const station = pickStation(order, unverifiedIds, reviewingIds);
     if (!station) continue;
     const hasConflict = conflictIds.has(order.id);
     const isHeld = hasConflict || order.state === 'blocked' || (order.state === 'open' && order.readiness === 'waiting');
@@ -112,7 +109,7 @@ export function buildFactoryFloor(state: FactoryProjectState, selectedOrderId: s
     selectedOrder: selectedOrder ? {
       id: selectedOrder.id, intent: selectedIntent?.objective ?? null,
       writeScopes: selectedOrder.writeScopes, dependsOn: selectedOrder.dependsOn,
-      station: selectedOrder.parent === null ? 'intent' : pickStation(selectedOrder, unverifiedIds, reviewingIds, watchIds) ?? 'cancelled',
+      station: selectedOrder.parent === null ? 'intent' : pickStation(selectedOrder, unverifiedIds, reviewingIds) ?? 'cancelled',
       owner: selectedOrder.owner,
     } : null,
   };

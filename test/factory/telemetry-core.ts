@@ -23,14 +23,12 @@ export const FactoryHarnessRunProperties = z.object({
   order_count: z.number().int().nonnegative(),
   max_attempt: z.number().int().nonnegative().nullable(),
   spend_usd: z.number().nonnegative().nullable(),
-  watch_window_minutes: z.number().int().nonnegative(),
   run_index: z.number().int().positive(),
   batch_size: z.number().int().positive(),
 }).strict();
 
 export interface RunTelemetryContext {
   isCustomIntent: boolean;
-  watchWindowMinutes: number;
   runIndex: number;
   batchSize: number;
 }
@@ -50,7 +48,6 @@ export function buildRunTelemetryProperties(verdict: Verdict, context: RunTeleme
     order_count: verdict.orderCount,
     max_attempt: attempts.length > 0 ? Math.max(...attempts) : null,
     spend_usd: verdict.spendUsd,
-    watch_window_minutes: context.watchWindowMinutes,
     run_index: context.runIndex,
     batch_size: context.batchSize,
   });

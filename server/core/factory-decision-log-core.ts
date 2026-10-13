@@ -89,9 +89,6 @@ export function factoryWorkerDecision(projectId: string, event: FactoryDecisionW
     case 'ended': return { ...context, kind: 'admission', outcome: 'ended', failureClass: event.failureClass ?? null };
     case 'blocked': return { ...context, kind: 'admission', outcome: 'block', failureClass: event.failureClass ?? 'closeout' };
     case 'merged': return null;
-    case 'breach': return { ...context, kind: 'watch', outcome: 'breach', failureClass: 'breach' };
-    case 'verified': return { ...context, kind: 'watch', outcome: 'verified', failureClass: null };
-    case 'verified unwatched': return { ...context, kind: 'watch', outcome: 'verified-unwatched', failureClass: null };
     case 'verification failed': return { ...context, intentId: event.workId, kind: 'verification', outcome: 'failed', failureClass: 'verification' };
     case 'verification stale': return { ...context, intentId: event.workId, kind: 'verification', outcome: 'stale', failureClass: 'stale' };
     case 'verification passed': return { ...context, intentId: event.workId, kind: 'verification', outcome: 'passed', failureClass: null };

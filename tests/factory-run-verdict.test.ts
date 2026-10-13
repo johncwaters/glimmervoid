@@ -196,7 +196,7 @@ test('malformed and schema-invalid decision lines are counted and reported witho
   assert.equal(verdict.failureClass, 'exception');
 });
 
-const telemetryContext = { isCustomIntent: true, watchWindowMinutes: 1, runIndex: 2, batchSize: 3 };
+const telemetryContext = { isCustomIntent: true, runIndex: 2, batchSize: 3 };
 const installId = '8f32b196-3761-4540-a6f9-4f67da58cbae';
 
 test('the summary allowlist rejects extra keys and removes free text from a custom verdict', () => {
@@ -213,7 +213,7 @@ test('the summary allowlist rejects extra keys and removes free text from a cust
   const properties = buildRunTelemetryProperties(verdict, telemetryContext);
   assert.deepEqual(properties, {
     intent: 'custom', expected_end: 'refused', outcome: 'fail', failure_class: 'exception', duration_ms: 60_000,
-    session_count: 0, order_count: 0, max_attempt: null, spend_usd: null, watch_window_minutes: 1, run_index: 2, batch_size: 3,
+    session_count: 0, order_count: 0, max_attempt: null, spend_usd: null, run_index: 2, batch_size: 3,
   });
   assert.equal(FactoryHarnessRunProperties.safeParse({ ...properties, objective: privateText[1] }).success, false);
   assert.equal(FactoryHarnessBatch.safeParse({ ...batch, batch: [{ ...batch.batch[0], properties: { ...batch.batch[0].properties, path: privateText[2] } }] }).success, false);

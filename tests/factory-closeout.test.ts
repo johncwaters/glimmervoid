@@ -1,5 +1,3 @@
-import { createFactoryWatch } from '../server/factory-watch.ts';
-import type { FactoryWatchDeps } from '../server/factory-watch.ts';
 import { createFactoryVerifier } from '../server/factory-verifier.ts';
 import { buildFactoryProjectState, FACTORY_REVIEW_DIFF_MAX_CHARS, formatWorkerEvent, nextIntent } from '../server/core/factory-core.ts';
 import type { FactoryProjectState } from '../shared/contracts/factory.ts';
@@ -27,7 +25,6 @@ import { createCoherenceLedger, initGitRepository, stubEnvironmentVariable } fro
 import { waitFor } from './helpers/wait-for.ts';
 import { FactoryLaneState, FactoryWorkerEvent } from '../shared/contracts/factory.ts';
 import type { GlimmervoidConfig } from '../server/config-store.ts';
-import type { FactoryWatchEntry } from '../shared/contracts/factory.ts';
 import type { Config } from '../shared/contracts/config.ts';
 
 const prepareUnsandboxedCheckRunner: PrepareFactoryCheckRunner = async () => ({
@@ -54,14 +51,14 @@ async function createFixture(context: TestContext, activateOrder = true, capCoun
   assert.ok(workspace.baseSha);
   const feedback: string[] = [];
   const events: FactoryWorkerEvent[] = [];
-  const watches: FactoryWatchEntry[] = [];
+  const trustedVerifications: { projectId: string; id: string; sha: string }[] = [];
   const exceptions: string[] = [];
   const decisionReasons: (string | null)[] = [];
   const reviewRequests: Parameters<LaneSpawn>[0][] = [];
   const reviewerCwdEntries: string[][] = [];
   let isDestroyed = false;
   let isPaused = false;
-  let shouldFailWatchWrite = false;
+  let shouldFailTrustWrite = false;
   let shouldFailLanding = false;
   let shouldWriteVerdictFileOnly = false;
   let verdict: unknown = { pass: true, findings: [] };
@@ -98,9 +95,9 @@ async function createFixture(context: TestContext, activateOrder = true, capCoun
     readIntegrationSha: () => git(['rev-parse', 'integration']),
     recordFactoryLandedSha: async () => {},
     readPaused: async () => isPaused, baseEnv, recordDecision: async (decision) => { decisionReasons.push(decision.reason); }, prepareCheckRunner: (paths) => prepareCheckRunner(paths),
-    appendWatch: async (entry) => {
-      if (shouldFailWatchWrite) throw new Error('Watch state is unwritable');
-      watches.push(entry);
+    trustVerification: async (projectId, verification) => {
+      if (shouldFailTrustWrite) throw new Error('Lane state is unwritable');
+      trustedVerifications.push({ projectId, ...verification });
     },
     setException: (_projectId, reason) => { exceptions.push(reason); },
     notifyOrchestrator: (_projectId, event) => { events.push(event); },
@@ -128,9 +125,9 @@ async function createFixture(context: TestContext, activateOrder = true, capCoun
     await git(['add', '--', relativePath], workspace.cwd);
     await git(['commit', '-m', 'fix: retries'], workspace.cwd);
   };
-  return { ...coherenceLedger, config, worker, closeOut, createOrder, workspace, directory, cleanupTasks, feedback, events, watches, exceptions, decisionReasons, reviewRequests, reviewerCwdEntries, commitChange, baseEnv,
+  return { ...coherenceLedger, config, worker, closeOut, createOrder, workspace, directory, cleanupTasks, feedback, events, trustedVerifications, exceptions, decisionReasons, reviewRequests, reviewerCwdEntries, commitChange, baseEnv,
     isDestroyed: () => isDestroyed, mergedSha: () => mergedSha, setPaused: (paused: boolean) => { isPaused = paused; },
-    failWatchWrite: () => { shouldFailWatchWrite = true; },
+    failTrustWrite: () => { shouldFailTrustWrite = true; },
     setLandingFails: (isFailing: boolean) => { shouldFailLanding = isFailing; },
     setVerdictFileOnly: (nextVerdict: unknown) => { verdict = nextVerdict; shouldWriteVerdictFileOnly = true; },
     setVerdict: (nextVerdict: unknown) => { verdict = nextVerdict; },
@@ -140,7 +137,7 @@ async function createFixture(context: TestContext, activateOrder = true, capCoun
   };
 }
 
-test('passing factory worker merges and pushes, closes with merge-tip evidence, and records watch', async (context) => {
+test('passing factory worker merges and pushes, closes with merge-tip evidence, and files a trusted merge verification', async (context) => {
   const fixture = await createFixture(context);
   await fixture.commitChange();
   const previousOrigin = await fixture.git(['rev-parse', 'origin/integration']);
@@ -155,11 +152,11 @@ test('passing factory worker merges and pushes, closes with merge-tip evidence, 
   const closeCommand = fixture.commands.find((command) => command[1] === 'close');
   assert.ok(closeCommand);
   assert.equal(closeCommand[closeCommand.indexOf('--evidence') + 1], fixture.mergedSha());
-  assert.equal(fixture.watches[0].mergedSha, fixture.mergedSha());
-  assert.equal(fixture.watches[0].workId, fixture.worker.workId);
-  assert.equal(fixture.watches[0].intentId, fixture.worker.intentId);
-  assert.equal(fixture.watches[0].projectId, fixture.worker.projectId);
-  assert.deepEqual(fixture.watches[0].writeScopes, ['src/retry.ts']);
+  assert.deepEqual(fixture.trustedVerifications, [{ projectId: fixture.worker.projectId, id: `merged-${fixture.worker.workId}`, sha: fixture.mergedSha() }]);
+  const verificationCommand = fixture.commands.find((command) => command[0] === 'consequence' && command[2] === `verification:merged-${fixture.worker.workId}`);
+  assert.ok(verificationCommand);
+  assert.equal(verificationCommand[4], `work:${fixture.worker.workId}`);
+  assert.ok(verificationCommand[verificationCommand.indexOf('--evidence') + 1].includes(fixture.mergedSha() ?? 'missing'));
   assert.equal(fixture.events.at(-1)?.event, 'merged');
   assert.equal(fixture.closeOut.reviewing.size, 0);
   assert.notEqual(fixture.reviewRequests[0].cwd, fixture.workspace.cwd);
@@ -370,7 +367,7 @@ for (const verdict of [{ pass: 'yes', findings: [] }, null]) {
     if (verdict === null) fixture.setVerdict(null);
     await fixture.closeOut.turnEnded(fixture.worker);
     assert.match(fixture.feedback[0], /Reviewer returned no structured verdict/);
-    assert.equal(fixture.watches.length, 0);
+    assert.equal(fixture.trustedVerifications.length, 0);
   });
 }
 
@@ -637,7 +634,7 @@ test('parked merge is a failed attempt with the merge reason', async (context) =
   fixture.setMergeReason('rebase-conflict');
   await fixture.closeOut.turnEnded(fixture.worker);
   assert.match(fixture.feedback[0], /rebase-conflict/);
-  assert.equal(fixture.watches.length, 0);
+  assert.equal(fixture.trustedVerifications.length, 0);
 });
 
 test('overlapping turn ends are ignored while Review is active', async (context) => {
@@ -664,16 +661,15 @@ test('disabled factory runs no close-out', async (context) => {
   await fixture.closeOut.turnEnded(fixture.worker);
   assert.equal(fixture.reviewRequests.length, 0);
   assert.equal(fixture.feedback.length, 0);
-  assert.equal(fixture.watches.length, 0);
+  assert.equal(fixture.trustedVerifications.length, 0);
 });
 
 
 async function startFactoryWiring(fixture: Awaited<ReturnType<typeof createFixture>>, spawnReviewer: LaneSpawn) {
-  let nowMs = Date.now();
   const notifications: { category: string; message: string }[] = [];
   const config: GlimmervoidConfig = {
     projects: [{ id: 'repo', name: 'Factory', path: fixture.projectPath }], integrationBranch: 'integration',
-    factory: { enabled: true, watchWindowMinutes: 1, checks: [`${process.execPath} --version`], reviewerModel: null },
+    factory: { enabled: true, checks: [`${process.execPath} --version`], reviewerModel: null },
     worktreeRoot: path.join(fixture.directory, 'workers'), worktreeShare: [], recordSignals: false, liveWorktreeReview: false,
     agentApi: { enabled: false },
   };
@@ -686,7 +682,7 @@ async function startFactoryWiring(fixture: Awaited<ReturnType<typeof createFixtu
   await mkdir(path.dirname(statePath), { recursive: true });
   await writeFile(statePath, JSON.stringify({ ledgerPath: fixture.ledger.cwd, ledgerBranch: fixture.ledger.branch, paused: false, trustedIntentIds: [fixture.worker.intentId] }));
   const wiring = createFactoryWiring({
-    config, homeDir, now: () => nowMs, readSpentTodayUsd: () => ({ status: 'known', amountUsd: 1 }), prepareCheckRunner: prepareUnsandboxedCheckRunner,
+    config, homeDir, readSpentTodayUsd: () => ({ status: 'known', amountUsd: 1 }), prepareCheckRunner: prepareUnsandboxedCheckRunner,
     notify: (_projectName, category, message) => { notifications.push({ category, message }); }, gitWorkspace: fixture.gitWorkspace, firstTickDelayMs: () => 0, broadcast: () => {},
     orchestratorOptions: {
       workLane: passthroughWorkLane(),
@@ -708,16 +704,16 @@ async function startFactoryWiring(fixture: Awaited<ReturnType<typeof createFixtu
   assert.notEqual(wiring.getState()?.projects[0]?.heading.action, 'refuse', JSON.stringify(wiring.getState()));
   assert.equal(wiring.getState()?.projects[0]?.orders.find((order) => order.parent === null)?.readiness, 'ready', JSON.stringify(wiring.getState()));
   await waitFor(() => wiring.getState()?.projects[0]?.orchestrator != null, `factory starts the orchestrator: ${JSON.stringify(wiring.getState())}`, 30_000);
-  return { wiring, config, sessions, statePath, notifications, setNow: (timestampMs: number) => { nowMs = timestampMs; } };
+  return { wiring, config, sessions, statePath, notifications };
 }
 
-test('factory wiring observes worker Stop, exposes Review, and persists the merged watch entry', async (context) => {
+test('factory wiring observes worker Stop, exposes Review, and trusts the merge verification so the verifier closes the intent', async (context) => {
   const fixture = await createFixture(context, false);
   const workId = fixture.worker.workId;
   let finishReview: (() => void) | undefined;
   const reviewBarrier = new Promise<void>((resolve) => { finishReview = resolve; });
   fixture.cleanupTasks.push(async () => { finishReview?.(); });
-  const { wiring, config, sessions, statePath, notifications, setNow } = await startFactoryWiring(fixture, async (request) => {
+  const { wiring, config, sessions, statePath, notifications } = await startFactoryWiring(fixture, async (request) => {
     await reviewBarrier;
     request.onOutput?.(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, structured_output: { pass: true, findings: [] } }));
   });
@@ -733,16 +729,12 @@ test('factory wiring observes worker Stop, exposes Review, and persists the merg
   finishReview?.();
   await waitFor(() => worker._destroyed && wiring.getState()?.projects[0]?.reviewing?.includes(workId) === false, 'factory completes close-out and destroys the worker', 30_000);
   const state = FactoryLaneState.parse(JSON.parse(await readFile(statePath, 'utf8')));
-  assert.equal(state.watch?.length, 1);
-  assert.equal(state.watch[0].workId, workId);
-  assert.equal(state.watch[0].intentId, fixture.worker.intentId);
-  assert.deepEqual(state.watch[0].writeScopes, ['src/retry.ts']);
+  assert.deepEqual(state.trustedVerifications?.map(({ id }) => id), [`merged-${workId}`]);
   assert.equal(await fixture.orderState(workId), 'completed');
   assert.equal(await fixture.git(['rev-parse', 'integration']), await fixture.git(['rev-parse', 'origin/integration']));
   const queuedNext = await wiring.queueIntent({ projectId: 'repo', objective: 'Next intent', criteria: ['Retries pass'], risk: 'medium', boundary: 'This repo', writeScopes: ['src'] });
   assert.ok(queuedNext.workId, queuedNext.error ?? 'Queue failed');
   const nextIntentId = queuedNext.workId;
-  setNow(Date.now() + 61_000);
   const ready = await wiring.dispatch('factory-orch-repo', { readyIntent: fixture.worker.intentId });
   assert.equal(ready.ok, true);
   await waitFor(() => wiring.getState()?.projects[0]?.orchestrator?.intentId === nextIntentId, 'factory verifier closes the intent and starts the next orchestrator', 60_000);
@@ -775,10 +767,10 @@ test('a dispatch discards an orchestrator pending forged factory-session record 
   assert.equal(await fixture.orderState(fixture.worker.workId), 'active');
 });
 
-test('a watch write failure after a successful merge raises an exception, still closes the ticket and releases the worker without asking it to redo landed work', async (context) => {
+test('a trust write failure after a successful merge raises an exception, still closes the ticket and releases the worker without asking it to redo landed work', async (context) => {
   const fixture = await createFixture(context);
   await fixture.commitChange();
-  fixture.failWatchWrite();
+  fixture.failTrustWrite();
   await fixture.closeOut.turnEnded(fixture.worker);
   const mergedSha = fixture.mergedSha();
   assert.ok(mergedSha);
@@ -787,10 +779,10 @@ test('a watch write failure after a successful merge raises an exception, still 
   assert.deepEqual(fixture.events.map((event) => event.event), ['merged']);
   assert.deepEqual(fixture.feedback, []);
   assert.equal(fixture.exceptions.length, 1);
-  assert.match(fixture.exceptions[0], new RegExp(`Factory finalization failed after merge: the merged work at ${mergedSha} is unwatched: .*Watch state is unwritable`));
+  assert.match(fixture.exceptions[0], new RegExp(`Factory finalization failed after merge: the merged work at ${mergedSha} is unverified: .*Lane state is unwritable`));
 });
 
-test('a ledger landing failure after a merge still records the watch, releases the worker, and lands the close with the next landing', async (context) => {
+test('a ledger landing failure after a merge still trusts the merge verification, releases the worker, and lands the close with the next landing', async (context) => {
   const fixture = await createFixture(context);
   await fixture.commitChange();
   fixture.setLandingFails(true);
@@ -798,7 +790,7 @@ test('a ledger landing failure after a merge still records the watch, releases t
   const mergedSha = fixture.mergedSha();
   assert.ok(mergedSha);
   assert.match(fixture.exceptions[0], /Factory finalization failed after merge:.*Ledger push is unavailable/);
-  assert.deepEqual(fixture.watches.map((watch) => [watch.workId, watch.mergedSha]), [[fixture.worker.workId, mergedSha]]);
+  assert.deepEqual(fixture.trustedVerifications.map(({ id, sha }) => [id, sha]), [[`merged-${fixture.worker.workId}`, mergedSha]]);
   assert.equal(fixture.isDestroyed(), true);
   assert.deepEqual(fixture.events.map((event) => event.event), ['merged']);
   assert.equal(await fixture.orderState(fixture.worker.workId), 'active');
@@ -875,43 +867,29 @@ test('a passing verdict file without independent reviewer output cannot authoriz
   assert.equal(fixture.mergedSha(), null);
 });
 
-async function prepareWatchFixture(context: TestContext) {
+async function prepareMergedFixture(context: TestContext) {
   const fixture = await createFixture(context);
   await fixture.commitChange();
   await fixture.closeOut.turnEnded(fixture.worker);
-  const state: FactoryLaneState = { ledgerPath: fixture.ledger.cwd, ledgerBranch: fixture.ledger.branch ?? null, paused: false, watch: fixture.watches.slice() };
-  const config: GlimmervoidConfig = { projects: [{ id: 'repo', name: 'Factory', path: fixture.projectPath }], factory: { enabled: true, watchWindowMinutes: 1, watchProjects: [{ project: 'repo', posthogProjectId: 12 }], verifierModel: 'sonnet' }, posthog: { host: 'https://posthog.test', apiKey: 'test-key' } };
-  const notifications: string[] = [];
-  let queryCount = 0;
-  let queryBody: unknown = { results: [] };
-  let shouldFailQuery = false;
-  let nowMs = Date.parse(fixture.watches[0].mergedAt) + 60_000;
-  let shouldFailLanding = false;
-  const watchDeps: FactoryWatchDeps = { config, runCoherence: fixture.runCoherence, ensureLedger: async () => fixture.ledger, commitAndLand: async (...args) => {
-    if (shouldFailLanding) { shouldFailLanding = false; throw new Error('Landing unavailable'); }
-    await fixture.land(...args);
-  },
-    serializeProject: async <T>(_projectId: string, operation: () => Promise<T>) => operation(),
-    readLaneState: async () => state, writeLaneState: async (_projectId, updated) => { Object.assign(state, updated); }, now: () => nowMs,
-    log: { warn: () => {} }, notify: (_projectName, message) => { notifications.push(message); }, notifyOrchestrator: (_projectId, event) => { fixture.events.push(event); },
-    runHogQL: async (projectId, query) => {
-      queryCount += 1;
-      assert.equal(projectId, 12);
-      assert.ok(query.includes(fixture.watches[0].mergedAt));
-      if (shouldFailQuery) return { ok: false, error: 'query unavailable' };
-      return { ok: true, status: 200, body: queryBody };
-    },
-  };
-  const watcher = createFactoryWatch(watchDeps);
+  const state: FactoryLaneState = { ledgerPath: fixture.ledger.cwd, ledgerBranch: fixture.ledger.branch ?? null, paused: false,
+    trustedVerifications: fixture.trustedVerifications.map(({ id, sha }) => ({ id, sha })) };
+  const factoryConfig: GlimmervoidConfig = { projects: [{ id: 'repo', name: 'Factory', path: fixture.projectPath }], factory: { enabled: true, verifierModel: 'sonnet' } };
   const readProject = async (): Promise<FactoryProjectState> => buildFactoryProjectState({ projectId: 'repo', projectName: 'Factory',
     headSha: await fixture.git(['rev-parse', 'integration']), orient: await fixture.readOrient(), work: await fixture.inspect(), error: null, paused: state.paused });
-  return { ...fixture, watcher, watchDeps, state, failLanding: () => { shouldFailLanding = true; }, watchConfig: config, notifications, readProject, queryCount: () => queryCount,
-    setQuery: (body: unknown) => { queryBody = body; }, failQuery: () => { shouldFailQuery = true; }, restoreQuery: () => { shouldFailQuery = false; }, setNow: (timestampMs: number) => { nowMs = timestampMs; } };
+  return { ...fixture, state, factoryConfig, readProject };
 }
 
-async function assertVerifierIgnoresWatchLink(fixture: Awaited<ReturnType<typeof prepareWatchFixture>>) {
+async function addUnmergedCompletedChild(fixture: Awaited<ReturnType<typeof prepareMergedFixture>>): Promise<string> {
+  const childId = await fixture.createOrder(fixture.worker.intentId, 'Ship follow-up retries');
+  await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['work', 'close', childId, 'completed',
+    '--because', 'Follow-up merged', '--session', 'glimmervoid-factory', '--evidence', fixture.mergedSha() ?? 'missing'] });
+  await fixture.land('repo', fixture.projectPath, 'factory: follow-up merge');
+  return childId;
+}
+
+async function assertVerifierIgnoresMergeLink(fixture: Awaited<ReturnType<typeof prepareMergedFixture>>) {
   const reviewRequests: string[] = [];
-  const verifier = createFactoryVerifier({ config: fixture.watchConfig, runCoherence: fixture.runCoherence, ensureLedger: async () => fixture.ledger,
+  const verifier = createFactoryVerifier({ config: fixture.factoryConfig, runCoherence: fixture.runCoherence, ensureLedger: async () => fixture.ledger,
     commitAndLand: fixture.land, hasCodeChangedSince: async (projectPath, sinceSha) => hasCodeChangedBetween({ projectPath, sinceSha, tipSha: await fixture.git(['rev-parse', 'integration']) }),
     readLaneState: async () => fixture.state, writeLaneState: async () => {},
     ensureControlCheckout: async () => fixture.directory, serializeProject: async <T>(_projectId: string, operation: () => Promise<T>) => operation(),
@@ -924,98 +902,14 @@ async function assertVerifierIgnoresWatchLink(fixture: Awaited<ReturnType<typeof
   assert.deepEqual(reviewRequests, []);
 }
 
-test('clean watch files the verification and orient stops listing the merged ticket as unverified', async (context) => {
-  const fixture = await prepareWatchFixture(context);
-  assert.ok((await fixture.readProject()).unverifiedCompletedWork.includes(fixture.worker.workId));
-  await fixture.watcher.tick(await fixture.readProject());
-  assert.equal(fixture.state.watch?.length, 0);
-  assert.deepEqual(fixture.state.trustedVerifications, [{ id: `watch-${fixture.worker.workId}`, sha: fixture.watches[0].mergedSha }]);
+test('a merged ticket leaves the unverified list once its trusted merge verification lands', async (context) => {
+  const fixture = await prepareMergedFixture(context);
+  assert.deepEqual(fixture.state.trustedVerifications, [{ id: `merged-${fixture.worker.workId}`, sha: fixture.mergedSha() }]);
   assert.equal((await fixture.readProject()).unverifiedCompletedWork.includes(fixture.worker.workId), false);
-  await fixture.watcher.tick(await fixture.readProject());
-  assert.equal(fixture.queryCount(), 1);
-  assert.deepEqual(fixture.notifications, []);
-});
-
-test('a watch whose ledger landing fails records no trusted verification until a later landing succeeds', async (context) => {
-  const fixture = await prepareWatchFixture(context);
-  fixture.failLanding();
-  const project = await fixture.readProject();
-  await assert.rejects(() => fixture.watcher.tick(project), /Landing unavailable/);
-  assert.deepEqual(fixture.state.trustedVerifications ?? [], []);
-  assert.equal(fixture.state.watch?.length, 1);
-  await fixture.watcher.tick(await fixture.readProject());
-  assert.deepEqual(fixture.state.trustedVerifications, [{ id: `watch-${fixture.worker.workId}`, sha: fixture.watches[0].mergedSha }]);
-  assert.equal(fixture.state.watch?.length, 0);
-});
-
-test('one project query watches multiple merges and only drops elapsed clean windows', async (context) => {
-  const fixture = await prepareWatchFixture(context);
-  const firstWatch = fixture.watches[0];
-  const secondWorkId = await fixture.createOrder(fixture.worker.intentId, 'Ship follow-up retries');
-  await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['work', 'close', secondWorkId, 'completed',
-    '--because', 'Follow-up merged', '--session', 'glimmervoid-factory', '--evidence', firstWatch.mergedSha] });
-  await fixture.land('repo', fixture.projectPath, 'factory: follow-up merge');
-  const secondWatch = { ...firstWatch, workId: secondWorkId, mergedAt: new Date(Date.parse(firstWatch.mergedAt) + 30_000).toISOString() };
-  fixture.state.watch = [secondWatch, firstWatch];
-  const watched = await fixture.watcher.tick(await fixture.readProject());
-  assert.equal(fixture.queryCount(), 1);
-  assert.deepEqual(watched.watches, [secondWatch]);
-  assert.deepEqual(fixture.state.watch, [secondWatch]);
-  const refreshed = await fixture.readProject();
-  assert.equal(refreshed.unverifiedCompletedWork.includes(firstWatch.workId), false);
-  assert.equal(refreshed.unverifiedCompletedWork.includes(secondWorkId), true);
-  assert.deepEqual(fixture.notifications, []);
-});
-
-test('watch breach files one defect per issue and watch, notifies, and never verifies or reverts', async (context) => {
-  const fixture = await prepareWatchFixture(context);
-  const firstSeen = new Date(Date.parse(fixture.watches[0].mergedAt) + 1).toISOString();
-  fixture.setQuery({ columns: ['issueId', 'firstSeen', 'framePaths'], results: [['issue-123', firstSeen, ['webpack:///dist/src/retry.ts']], ['issue-123', firstSeen, ['src/retry.ts']]] });
-  await fixture.watcher.tick(await fixture.readProject());
-  await fixture.watcher.tick(await fixture.readProject());
-  assert.equal(fixture.commands.filter((command) => command[0] === 'defect').length, 1);
-  assert.equal(fixture.state.watch?.length, 0);
-  assert.equal(fixture.events.at(-1)?.event, 'breach');
-  assert.equal(fixture.notifications[0], `[factory] breach on ${fixture.worker.workId}: issue issue-123`);
-  assert.equal((await fixture.readProject()).unverifiedCompletedWork.includes(fixture.worker.workId), true);
-  assert.equal(await readFile(path.join(fixture.projectPath, 'src/retry.ts'), 'utf8'), 'export const retries = 1;\n');
-});
-
-for (const failure of ['unmapped', 'missing-key']) {
-  test(`watch ${failure} elapses into an honest unwatched verification, never a clean watch`, async (context) => {
-    const fixture = await prepareWatchFixture(context);
-    if (failure === 'unmapped' && fixture.watchConfig.factory) fixture.watchConfig.factory.watchProjects = [];
-    if (failure === 'missing-key') fixture.watchConfig.posthog = null;
-    const project = await fixture.watcher.tick(await fixture.readProject());
-    assert.match(project.note ?? '', /Watch:/);
-    assert.equal(project.error, null);
-    assert.equal(fixture.state.watch?.length, 0);
-    assert.equal(fixture.queryCount(), 0);
-    const added = fixture.commands.filter((command) => command[0] === 'consequence' && command[1] === 'add');
-    assert.equal(added.length, 1);
-    assert.equal(added[0][2], `verification:unwatched-${fixture.worker.workId}`);
-    assert.match(added[0][added[0].indexOf('--evidence') + 1], /no PostHog (project was mapped|API key was available)/);
-    assert.equal((await fixture.readProject()).unverifiedCompletedWork.includes(fixture.worker.workId), false);
-  });
-}
-
-test('a failed watch query carries the window forward without verifying, then a successful query verifies it', async (context) => {
-  const fixture = await prepareWatchFixture(context);
-  fixture.failQuery();
-  const failed = await fixture.watcher.tick(await fixture.readProject());
-  assert.match(failed.note ?? '', /query unavailable/);
-  assert.equal(fixture.state.watch?.length, 1);
-  assert.equal(fixture.commands.some((command) => command[0] === 'consequence' && command[1] === 'add'), false);
-  assert.equal((await fixture.readProject()).unverifiedCompletedWork.includes(fixture.worker.workId), true);
-  fixture.restoreQuery();
-  await fixture.watcher.tick(await fixture.readProject());
-  assert.equal(fixture.state.watch?.length, 0);
-  assert.equal(fixture.commands.find((command) => command[0] === 'consequence' && command[1] === 'add')?.[2], `verification:watch-${fixture.worker.workId}`);
 });
 
 async function prepareVerifierFixture(context: TestContext) {
-  const fixture = await prepareWatchFixture(context);
-  await fixture.watcher.tick(await fixture.readProject());
+  const fixture = await prepareMergedFixture(context);
   const reviewRequests: Parameters<LaneSpawn>[0][] = [];
   const verifierCwdEntries: string[][] = [];
   let verdict = { pass: true, findings: [] as string[] };
@@ -1027,7 +921,7 @@ async function prepareVerifierFixture(context: TestContext) {
   const failingPushWorkspace = { ...fixture.gitWorkspace, mergeKeep: async (args: Parameters<typeof fixture.gitWorkspace.mergeKeep>[0]) =>
     ({ merged: false, committed: true, branch: args.workspace?.branch ?? null, reason: 'push rejected by origin' }) };
   const intentBaseSha = await fixture.git(['rev-list', '--max-parents=0', 'integration']);
-  const verifier = createFactoryVerifier({ config: fixture.watchConfig, runCoherence: fixture.runCoherence, ensureLedger: async () => fixture.ledger,
+  const verifier = createFactoryVerifier({ config: fixture.factoryConfig, runCoherence: fixture.runCoherence, ensureLedger: async () => fixture.ledger,
     readIntentDiff: async ({ projectPath, tipSha }) => ({ baseSha: intentBaseSha, diffText: await readCodeDiffBetween({ projectPath, sinceSha: intentBaseSha, tipSha }) }),
     commitAndLand: async (...args) => {
       if (shouldFailVerifierLanding) throw new Error('Verifier landing unavailable');
@@ -1198,13 +1092,13 @@ test('a trusted verifier id cannot authorize a forged link and close whose evide
   assert.match(fixture.exceptions[0], /closed without its independent verifier link/);
 });
 
-test('a trusted watch id does not verify a child through a link whose evidence names a different sha', async (context) => {
-  const fixture = await prepareWatchFixture(context);
-  const childId = fixture.worker.workId;
-  fixture.state.trustedVerifications = [{ id: `watch-${childId}`, sha: fixture.watches[0].mergedSha }];
-  await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['consequence', 'add', `verification:watch-${childId}`, 'verifies', `work:${childId}`,
-    '--evidence', `Clean watch window after ${fixture.worker.baseSha ?? 'missing'} merged`, '--session', 'glimmervoid-factory', '--json'] });
-  await assertVerifierIgnoresWatchLink(fixture);
+test('a trusted merge id does not verify a child through a link whose evidence names a different sha', async (context) => {
+  const fixture = await prepareMergedFixture(context);
+  const childId = await addUnmergedCompletedChild(fixture);
+  fixture.state.trustedVerifications = [{ id: `merged-${childId}`, sha: fixture.mergedSha() ?? 'missing' }];
+  await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['consequence', 'add', `verification:merged-${childId}`, 'verifies', `work:${childId}`,
+    '--evidence', `Merged at ${fixture.worker.baseSha ?? 'missing'}`, '--session', 'glimmervoid-factory', '--json'] });
+  await assertVerifierIgnoresMergeLink(fixture);
 });
 
 test('a verifier link not written by the factory session cannot close the intent', async (context) => {
@@ -1231,62 +1125,26 @@ test('a verifier link and close claiming the factory session but absent from the
   assert.match(fixture.exceptions[0], /closed without its independent verifier link/);
 });
 
-test('a watch link claiming the factory session but absent from the lane state does not verify a child', async (context) => {
-  const fixture = await prepareWatchFixture(context);
-  const childId = fixture.worker.workId;
-  await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['consequence', 'add', `verification:watch-${childId}`, 'verifies', `work:${childId}`, '--evidence', 'Forged', '--session', 'glimmervoid-factory', '--json'] });
-  await assertVerifierIgnoresWatchLink(fixture);
+test('a merge link claiming the factory session but absent from the lane state does not verify a child', async (context) => {
+  const fixture = await prepareMergedFixture(context);
+  const childId = await addUnmergedCompletedChild(fixture);
+  await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['consequence', 'add', `verification:merged-${childId}`, 'verifies', `work:${childId}`, '--evidence', 'Forged', '--session', 'glimmervoid-factory', '--json'] });
+  await assertVerifierIgnoresMergeLink(fixture);
 });
 
-for (const [name, body] of [['a null body', null], ['a body without results', { columns: ['issueId'] }], ['unreadable array rows', { results: [['issue-1', '2026-01-01T00:00:00Z', []]] }]] as const) {
-  test(`a successful watch query with ${name} carries the window forward and never verifies`, async (context) => {
-    const fixture = await prepareWatchFixture(context);
-    fixture.setQuery(body);
-    const project = await fixture.watcher.tick(await fixture.readProject());
-    assert.match(project.note ?? '', /windows carry forward/);
-    assert.equal(fixture.state.watch?.length, 1);
-    assert.equal(fixture.commands.some((command) => command[0] === 'consequence' && command[1] === 'add'), false);
-    assert.deepEqual(fixture.state.trustedVerifications ?? [], []);
-    assert.equal((await fixture.readProject()).unverifiedCompletedWork.includes(fixture.worker.workId), true);
-  });
-}
-
-test('a watch link not written by the factory session does not verify a child for the intent', async (context) => {
-  const fixture = await prepareWatchFixture(context);
-  const childId = fixture.worker.workId;
-  await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['consequence', 'add', `verification:watch-${childId}`, 'verifies', `work:${childId}`, '--evidence', 'Forged', '--session', 'orchestrator-session', '--json'] });
-  await assertVerifierIgnoresWatchLink(fixture);
+test('a merge link not written by the factory session does not verify a child for the intent', async (context) => {
+  const fixture = await prepareMergedFixture(context);
+  const childId = await addUnmergedCompletedChild(fixture);
+  await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['consequence', 'add', `verification:merged-${childId}`, 'verifies', `work:${childId}`, '--evidence', 'Forged', '--session', 'orchestrator-session', '--json'] });
+  await assertVerifierIgnoresMergeLink(fixture);
 });
 
-test('disabled factory executes no watch query or verifier work', async (context) => {
+test('disabled factory executes no verifier work', async (context) => {
   const fixture = await prepareVerifierFixture(context);
-  fixture.watchConfig.factory = { enabled: false };
-  fixture.state.watch = fixture.watches.slice();
-  const queryCount = fixture.queryCount();
+  fixture.factoryConfig.factory = { enabled: false };
   fixture.verifier.ready('repo', fixture.worker.intentId);
-  await fixture.watcher.tick(await fixture.readProject());
   await fixture.verifier.tick(await fixture.readProject());
-  assert.equal(fixture.queryCount(), queryCount);
   assert.equal(fixture.reviewRequests.length, 0);
-  assert.equal(fixture.state.watch.length, 1);
-});
-
-test('watch resumes a persisted breach after failed landing and a restart without duplicating defects', async (context) => {
-  const fixture = await prepareWatchFixture(context);
-  const firstSeen = new Date(Date.parse(fixture.watches[0].mergedAt) + 1).toISOString();
-  fixture.setQuery({ results: [{ issueId: 'persisted-issue', firstSeen: firstSeen.replace('Z', ''), framePaths: ['src/retry.ts'] }] });
-  fixture.failLanding();
-  const project = await fixture.readProject();
-  await assert.rejects(() => fixture.watcher.tick(project), /Landing unavailable/);
-  assert.equal(fixture.state.watch?.[0]?.breaches?.[0]?.issueId, 'persisted-issue');
-  fixture.watcher.stop();
-  fixture.failQuery();
-  const restarted = createFactoryWatch(fixture.watchDeps);
-  await restarted.tick(await fixture.readProject());
-  assert.equal(await fixture.countLandedDefectsMentioning('persisted-issue'), 1);
-  assert.equal(fixture.notifications.length, 1);
-  assert.equal(fixture.state.watch?.length, 0);
-  assert.equal((await fixture.readProject()).unverifiedCompletedWork.includes(fixture.worker.workId), true);
 });
 
 async function startVerifierReviewThenMoveTip(context: TestContext, moveTip: (fixture: Awaited<ReturnType<typeof prepareVerifierFixture>>) => Promise<void>) {
@@ -1336,78 +1194,6 @@ test('verifier reports a stale verification when the orchestrator adds a child t
   assert.deepEqual(fixture.stoppedOrchestrators, []);
 });
 
-
-test('watch retries through pending ledger screening after a failed landing and lands exactly one breach defect', async (context) => {
-  const fixture = await prepareWatchFixture(context);
-  let screeningRefusals = 0;
-  fixture.watchDeps.ensureLedger = async () => {
-    await screenPendingLedgerWrites({ cwd: fixture.ledger.cwd, intentId: fixture.worker.intentId,
-      onRefused: () => { screeningRefusals += 1; } });
-    return fixture.ledger;
-  };
-  fixture.watcher.stop();
-  const watcher = createFactoryWatch(fixture.watchDeps);
-  const firstSeen = new Date(Date.parse(fixture.watches[0].mergedAt) + 1).toISOString();
-  fixture.setQuery({ results: [{ issueId: 'screened-retry', firstSeen, framePaths: ['src/retry.ts'] }] });
-  fixture.failLanding();
-  const project = await fixture.readProject();
-  await assert.rejects(() => watcher.tick(project), /Landing unavailable/);
-  assert.equal(fixture.state.watch?.length, 1);
-  assert.equal(await fixture.countLandedDefectsMentioning('screened-retry'), 0);
-  await watcher.tick(await fixture.readProject());
-  assert.equal(screeningRefusals, 1);
-  assert.equal(await fixture.countLandedDefectsMentioning('screened-retry'), 1);
-  assert.equal(fixture.state.watch?.length, 0);
-  assert.equal(fixture.commands.filter((command) => command[0] === 'defect' && command[1].includes('screened-retry')).length, 2);
-  assert.equal(await fixture.git(['rev-parse', 'integration']), await fixture.git(['rev-parse', 'integration'], path.join(fixture.directory, 'origin.git')));
-});
-
-
-test('a push failure after the ledger commit files the breach once, recovery lands exactly one defect, and a restart does not re-file', async (context) => {
-  const fixture = await prepareWatchFixture(context);
-  const originPath = path.join(fixture.directory, 'origin.git');
-  let screeningRefusals = 0;
-  let shouldFailPush = true;
-  let hasPendingLanding = false;
-  const failingPushWorkspace = { ...fixture.gitWorkspace, mergeKeep: async (args: Parameters<typeof fixture.gitWorkspace.mergeKeep>[0]) => {
-    if (!shouldFailPush) return fixture.gitWorkspace.mergeKeep(args);
-    shouldFailPush = false;
-    return { merged: false, committed: true, branch: args.workspace?.branch ?? null, reason: 'push rejected by origin' };
-  } };
-  fixture.watchDeps.ensureLedger = async () => {
-    await screenPendingLedgerWrites({ cwd: fixture.ledger.cwd, intentId: fixture.worker.intentId, onRefused: () => { screeningRefusals += 1; } });
-    return fixture.ledger;
-  };
-  fixture.watchDeps.commitAndLand = async (_projectId, projectPath, message, options) => {
-    try {
-      await commitAndLandFactoryLedger({ projectPath, ledger: fixture.ledger, targetBranch: 'integration', message, gitWorkspace: failingPushWorkspace,
-        declaredFactoryRecords: fixture.declaredFactoryRecords, retryLanding: hasPendingLanding, onCommitted: options?.onCommitted });
-      hasPendingLanding = false;
-    } catch (error) {
-      hasPendingLanding = true;
-      throw error;
-    }
-  };
-  fixture.watcher.stop();
-  const firstSeen = new Date(Date.parse(fixture.watches[0].mergedAt) + 1).toISOString();
-  fixture.setQuery({ results: [{ issueId: 'push-failed', firstSeen, framePaths: ['src/retry.ts'] }] });
-  const defectCommands = () => fixture.commands.filter((command) => command[0] === 'defect' && command[1].includes('push-failed')).length;
-  const landedDefects = () => fixture.countLandedDefectsMentioning('push-failed');
-  const watcher = createFactoryWatch(fixture.watchDeps);
-  await assert.rejects(async () => watcher.tick(await fixture.readProject()), /push rejected by origin/);
-  assert.equal(defectCommands(), 1);
-  assert.deepEqual(fixture.state.filedBreaches, [`${fixture.worker.workId}:push-failed`]);
-  assert.equal(await landedDefects(), 0);
-  watcher.stop();
-  const restarted = createFactoryWatch(fixture.watchDeps);
-  await restarted.tick(await fixture.readProject());
-  assert.equal(defectCommands(), 1);
-  assert.equal(screeningRefusals, 0);
-  assert.equal(await landedDefects(), 1);
-  assert.equal(fixture.state.watch?.length, 0);
-  assert.deepEqual(fixture.state.filedBreaches, []);
-  assert.equal(await fixture.git(['rev-parse', 'integration'], originPath), await fixture.git(['rev-parse', 'integration']));
-});
 
 test('factory worker session staging, polling, diff and teardown suppress shared fsmonitor commands', { skip: process.platform === 'win32' }, async (context) => {
   const fixture = await createFixture(context, false);

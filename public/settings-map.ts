@@ -773,16 +773,6 @@ export const SETTINGS_MAP = Object.freeze([
         defaultValue: null, nullable: true, keywords: ['claude', 'review'],
       },
       {
-        id: 'factory-watch-window', path: 'factory.watchWindowMinutes', title: 'Watch window (minutes)',
-        description: 'Time to watch merged tickets for new PostHog issues.', control: 'number',
-        range: 'FACTORY_WATCH_WINDOW_RANGE', defaultValue: 30, keywords: ['watch', 'posthog'],
-      },
-      {
-        id: 'factory-watch-projects', path: 'factory.watchProjects', title: 'Watch projects',
-        description: 'Map glimmervoid project ids to PostHog project ids in the config file.',
-        fileOnly: true, defaultValue: [], keywords: ['watch', 'posthog', 'mapping'],
-      },
-      {
         id: 'factory-daily-budget', path: 'factory.dailyBudgetUsd', title: 'Factory daily budget (USD)',
         description: 'Factory lane spend ceiling. Blank means no ceiling. Needs usage tracking: with it off, dispatch refuses.', control: 'number', range: 'NON_NEGATIVE_NUMBER_RANGE',
         integer: false, nullable: true, step: 0.01, defaultValue: null, keywords: ['spend', 'budget'],

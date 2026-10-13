@@ -179,7 +179,7 @@ export function decideVerdict(input: VerdictInput) {
   if (relevantDecisions.some((decision) => decision.failureClass === 'stall' || decision.outcome === 'stalled') || projects.some(({ project }) => isStallReport(project.error ?? ''))) candidates.push('stalled');
   if (relevantDecisions.some((decision) => decision.failureClass === 'check')) candidates.push('checks');
   if (relevantDecisions.some((decision) => decision.failureClass === 'review')) candidates.push('review');
-  if (input.errors.length > 0 || input.stopReason === 'exception' || invalidDecisionLines.length > 0 || projects.some(({ project }) => project.error !== null) || relevantDecisions.some((decision) => ['raised', 'failed', 'block', 'breach'].includes(decision.outcome))) candidates.push('exception');
+  if (input.errors.length > 0 || input.stopReason === 'exception' || invalidDecisionLines.length > 0 || projects.some(({ project }) => project.error !== null) || relevantDecisions.some((decision) => ['raised', 'failed', 'block'].includes(decision.outcome))) candidates.push('exception');
   if (input.stopReason === 'timeout') candidates.push('timeout');
   const hasSuccessfulStop = input.expectedEnd === 'refused' ? input.stopReason === 'refused' : input.stopReason === 'completed';
   const hasCleanPass = hasSuccessfulStop && hasPass && input.errors.length === 0 && invalidDecisionLines.length === 0 && !projects.at(-1)?.project.error;
@@ -191,7 +191,7 @@ export function decideVerdict(input: VerdictInput) {
   const elapsed = (timestamp: string | null | undefined) => timestamp ? Math.max(0, Date.parse(timestamp) - startedMs) : null;
   const queued = projects.find(({ project }) => project.orders.some((order) => order.id === workId));
   const firstWorker = projects.find(({ project }) => (project.liveWorkers?.length ?? 0) > 0);
-  const firstMerge = projects.find(({ project }) => project.watches?.some((watch) => watch.intentId === workId));
+  const firstMerge = projects.find(({ project }) => project.orders.some((order) => order.parent === workId && order.state === 'completed'));
   const completed = projects.find(({ project }) => project.orders.some((order) => order.id === workId && order.state === 'completed'));
   const attemptsPerOrder: Record<string, number> = {};
   const sessions = new Set(input.sessionIds);

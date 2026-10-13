@@ -5,8 +5,6 @@ export interface SettingsRange {
   label?: string;
 }
 
-export const FACTORY_WATCH_WINDOW_RANGE = Object.freeze({ min: 1, max: 1440 });
-
 export const FACTORY_MAX_LIVE_WORKERS_RANGE = Object.freeze({ min: 1 });
 
 export const POSITIVE_NUMBER_RANGE: SettingsRange = Object.freeze({ min: 0, exclusiveMin: true, label: 'a positive number' });
@@ -63,7 +61,6 @@ export const WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE = Object.freeze({ min: 1, max:
 export const SETTINGS_RANGES = Object.freeze({
   NON_NEGATIVE_NUMBER_RANGE,
   FACTORY_MAX_LIVE_WORKERS_RANGE,
-  FACTORY_WATCH_WINDOW_RANGE,
   FLYING_ANIMALS_GAP_RANGE,
   FLYING_ANIMALS_DURATION_RANGE,
   FLYING_ANIMALS_SCALE_RANGE,

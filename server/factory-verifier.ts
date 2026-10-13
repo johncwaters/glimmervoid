@@ -77,13 +77,13 @@ export function createFactoryVerifier({ config, spawnVerifier, serializeProject,
     return hasFactoryVerification(cwd, intentId, [verifierLinkId(intentId)], trustedShasById(state));
   }
 
-  async function readWatchVerifiedWorkIds(projectId: string, projectPath: string, workIds: string[]): Promise<Set<string>> {
+  async function readMergeVerifiedWorkIds(projectId: string, projectPath: string, workIds: string[]): Promise<Set<string>> {
     return serializeProject(projectId, async () => {
       const ledger = await ensureLedger(projectId, projectPath);
       const trustedShas = trustedShasById(await readLaneState(projectId));
       const verified = new Set<string>();
       for (const workId of workIds) {
-        if (await hasFactoryVerification(ledger.cwd, workId, [`watch-${workId}`, `unwatched-${workId}`], trustedShas)) verified.add(workId);
+        if (await hasFactoryVerification(ledger.cwd, workId, [`merged-${workId}`], trustedShas)) verified.add(workId);
       }
       return verified;
     });
@@ -196,7 +196,7 @@ export function createFactoryVerifier({ config, spawnVerifier, serializeProject,
     if (project.paused || project.error || !intent) return project;
     const children = project.orders.filter((order) => order.parent === intent.id);
     const completedChildIds = children.filter((order) => order.state === 'completed').map((order) => order.id);
-    const verifiedWorkIds = await readWatchVerifiedWorkIds(project.projectId, projectPath, completedChildIds);
+    const verifiedWorkIds = await readMergeVerifiedWorkIds(project.projectId, projectPath, completedChildIds);
     const decision = decideIntentClose({ intent, children, verifiedWorkIds, orchestratorSaidReady: true });
     if (decision !== 'verify' || !project.headSha || await hasCodeChangedSince(projectPath, project.headSha)) return project;
     const verifying = verify(project, projectPath, intent, children).catch((error: unknown) => {

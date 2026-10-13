@@ -9,7 +9,6 @@ import { DEFAULT_FACTORY_CHECKS, DEFAULT_FACTORY_PROTECTED_PATHS } from '../shar
 import type { Config } from '../shared/contracts/config.ts';
 import { CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import { FactoryReviewVerdict } from '../shared/contracts/factory.ts';
-import type { FactoryWatchEntry } from '../shared/contracts/factory.ts';
 import { prepareSandboxedCheckRunner } from './factory-check-sandbox.ts';
 import type { FactoryCheckSandbox, PrepareFactoryCheckRunner } from './factory-check-sandbox.ts';
 import { DEFAULT_CONFIG } from './config-store.ts';
@@ -83,7 +82,7 @@ export interface FactoryCloseOutDeps {
   countTicketBlock?: FactoryCapCounter;
   countIntentCapCancel?: FactoryCapCounter;
   releaseWorkers?: (projectId: string, workIds: readonly string[]) => void;
-  appendWatch: (entry: FactoryWatchEntry) => Promise<void>;
+  trustVerification: (projectId: string, verification: { id: string; sha: string }) => Promise<void>;
   notifyOrchestrator: (projectId: string, event: FactoryDecisionWorkerEvent) => void;
   setException: (projectId: string, reason: string) => void;
   recordDecision?: (decision: Extract<FactoryDecisionInput, { kind: 'closeout' | 'merge' }>) => Promise<void>;
@@ -150,7 +149,7 @@ export async function runFactoryReview({ spawnReviewer, model, signal, buildProm
 
 export function createFactoryCloseOut({
   config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger, runCoherence, commitAndLand, readIntegrationSha, recordFactoryLandedSha, readPaused, readIntentFloorAllowances = async () => [],
-  countTicketBlock = createMemoryCapCounter(), countIntentCapCancel = createMemoryCapCounter(), releaseWorkers = () => {}, appendWatch, notifyOrchestrator, setException, recordDecision = async () => {}, onReviewingChanged = () => {}, baseEnv = process.env, prepareCheckRunner = prepareSandboxedCheckRunner,
+  countTicketBlock = createMemoryCapCounter(), countIntentCapCancel = createMemoryCapCounter(), releaseWorkers = () => {}, trustVerification, notifyOrchestrator, setException, recordDecision = async () => {}, onReviewingChanged = () => {}, baseEnv = process.env, prepareCheckRunner = prepareSandboxedCheckRunner,
 }: FactoryCloseOutDeps) {
   const reviewing = new Set<string>();
   const attempts = new Map<string, number>();
@@ -312,6 +311,13 @@ export function createFactoryCloseOut({
         await checkSandbox?.dispose();
       }
     }
+  }
+
+  async function recordMergeVerification(worker: FactoryCloseOutWorker, ledgerCwd: string, mergedSha: string): Promise<void> {
+    const verificationId = `merged-${worker.workId}`;
+    await runCoherence({ cwd: ledgerCwd, args: ['consequence', 'add', `verification:${verificationId}`, 'verifies', `work:${worker.workId}`,
+      '--evidence', `Merged at ${mergedSha} after the fence, checks and independent review passed`, '--session', FACTORY_LEDGER_SESSION, '--json'] });
+    await trustVerification(worker.projectId, { id: verificationId, sha: mergedSha });
   }
 
   async function discardUncommittedLedgerChanges(cwd: string): Promise<void> {
@@ -504,9 +510,8 @@ export function createFactoryCloseOut({
           'work', 'close', worker.workId, 'completed', '--because', 'Factory fence, checks, and independent review passed',
           '--session', FACTORY_LEDGER_SESSION, '--evidence', mergedSha,
         ] });
-        await appendWatch({ workId: worker.workId, intentId: worker.intentId, projectId: worker.projectId,
-          mergedSha, mergedAt: new Date().toISOString(), writeScopes: worker.writeScopes }).catch((error: unknown) => {
-          setException(worker.projectId, `Factory finalization failed after merge: the merged work at ${mergedSha} is unwatched: ${failureText(error)}`);
+        await recordMergeVerification(worker, ledger.cwd, mergedSha).catch((error: unknown) => {
+          setException(worker.projectId, `Factory finalization failed after merge: the merged work at ${mergedSha} is unverified: ${failureText(error)}`);
         });
         worker.session.destroy();
         notifyOrchestrator(worker.projectId, { workId: worker.workId, event: 'merged', detail: `at ${mergedSha}` });

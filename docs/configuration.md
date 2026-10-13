@@ -216,8 +216,6 @@ Read Coherence reports from repositories whose integration branch holds a cohere
 | `factory.checks` | Worker checks | `["npm run typecheck","npm run lint","npm test"]` | Commands glimmervoid runs before merging worker commits. |
 | `factory.protectedPaths` | Protected paths | `["coherence.config.json",".coherence/","package.json","package-lock.json","**/AGENTS.md","**/CLAUDE.md","**/CLAUDE.local.md",".claude/",".github/"]` | Repo-relative files, directory prefixes ending in /, or **/NAME basenames workers cannot change. |
 | `factory.reviewerModel` | Reviewer model | `null` | Claude model for independent worker review. Blank uses the CLI default. |
-| `factory.watchWindowMinutes` | Watch window (minutes) | `30` | Time to watch merged tickets for new PostHog issues. |
-| `factory.watchProjects` | Watch projects | `[]` | Map glimmervoid project ids to PostHog project ids in the config file. **File-only.** |
 | `factory.dailyBudgetUsd` | Factory daily budget (USD) | `null` | Factory lane spend ceiling. Blank means no ceiling. Needs usage tracking: with it off, dispatch refuses. |
 | `factory.verifierModel` | Verifier model | `null` | Claude model for independent intent verification. Blank uses the CLI default. |
 | `factory.mirrorHarnessRuns` | Mirror harness runs | `false` | Show the latest factory harness run as a read-only project in the Factory tab while it runs and for a day after. Needs factory.enabled on; leave it off on a harness instance. |

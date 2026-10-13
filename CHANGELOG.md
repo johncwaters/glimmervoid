@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **The factory watch window is gone**: a merged factory ticket used to wait out a watch window (30 minutes by default) while Glimmervoid looked in PostHog for new errors in the files it touched, before the verifier could close its intent. That only ever caught anything when merged code shipped straight to production, and with no PostHog project mapped it was a dead wait. A ticket now counts as verified the moment it merges after its fence, checks and independent review pass, so the verifier closes the intent right away. The `factory.watchWindowMinutes` and `factory.watchProjects` settings are gone (an existing config that still sets them loads fine), the Factory tab has no Watch station, and the factory no longer files breach defects. The harness's `--watch-window` option is gone too. Let any factory intent that is in flight finish before you upgrade: a ticket that merged under the old version is never counted as verified by the new one, so its intent would stay open until you cancel it.
+
 ## [0.32.1] - 2026-10-13
 
 ### Added

@@ -6,7 +6,7 @@ import { stableConfigKey } from './config-secrets-core.ts';
 import { DEFAULT_FACTORY_CHECKS, DEFAULT_FACTORY_PROTECTED_PATHS } from '../../shared/contracts/browser-config.ts';
 import type { Config } from '../../shared/contracts/config.ts';
 import type { CoherenceOrient, CoherenceWorkInspect } from '../../shared/contracts/coherence.ts';
-import type { FactoryWorkerEvent, FactoryReviewVerdict, FactoryWatchEntry, FactoryIssue, FactoryIntentTicket, FactoryQueueIntentRequest } from '../../shared/contracts/factory.ts';
+import type { FactoryWorkerEvent, FactoryReviewVerdict, FactoryIntentTicket, FactoryQueueIntentRequest } from '../../shared/contracts/factory.ts';
 import { FACTORY_PROTECTED_PATH_FLOOR, FactoryProjectState, FactoryReviewerOutput } from '../../shared/contracts/factory.ts';
 import { STATES } from '../../shared/states.ts';
 import type { LaneSpend } from './usage-scan-core.ts';
@@ -45,8 +45,8 @@ export type FactoryStallSession = {
   projectIdleSinceMs?: number | null;
 };
 
-export function isFactoryProjectInFlight({ paused, liveWorkers, watches, verifierIntentIds }: Pick<FactoryProjectState, 'paused' | 'liveWorkers' | 'watches' | 'verifierIntentIds'>): boolean {
-  return paused || (liveWorkers?.length ?? 0) > 0 || (watches?.length ?? 0) > 0 || (verifierIntentIds?.length ?? 0) > 0;
+export function isFactoryProjectInFlight({ paused, liveWorkers, verifierIntentIds }: Pick<FactoryProjectState, 'paused' | 'liveWorkers' | 'verifierIntentIds'>): boolean {
+  return paused || (liveWorkers?.length ?? 0) > 0 || (verifierIntentIds?.length ?? 0) > 0;
 }
 
 export function decideFactoryStalls({ sessions, nowMs, stallMs = FACTORY_STALL_MS }: {
@@ -991,59 +991,6 @@ export function buildFactoryCheckEnv(baseEnv: Readonly<Record<string, string | u
 
 export function inheritedSecretValues(baseEnv: Readonly<Record<string, string | undefined>>): string[] {
   return Object.entries(baseEnv).flatMap(([key, value]) => SECRET_ENV_NAME_PATTERN.test(key) && typeof value === 'string' && value.length >= MIN_REDACTED_SECRET_CHARS ? [value] : []);
-}
-
-export function watchesDue(watches: FactoryWatchEntry[], nowMs: number, windowMs: number): { stillOpen: FactoryWatchEntry[]; elapsed: FactoryWatchEntry[] } {
-  const stillOpen: FactoryWatchEntry[] = [];
-  const elapsed: FactoryWatchEntry[] = [];
-  for (const watch of watches) {
-    if (nowMs - Date.parse(watch.mergedAt) >= windowMs) {
-      elapsed.push(watch);
-      continue;
-    }
-    stillOpen.push(watch);
-  }
-  return { stillOpen, elapsed };
-}
-
-function frameInsideScopes(framePath: string, scopes: string[]): boolean {
-  const stripped = framePath.replace(/\\/g, '/').replace(/^(?:webpack|app|file):\/\//, '').replace(/[?#].*$/, '').replace(/:\d+(?::\d+)?$/, '');
-  const segments = stripped.split('/').filter((segment) => segment !== '' && segment !== '.');
-  if (segments.includes('..')) return false;
-  for (let index = 0; index < segments.length; index += 1) {
-    const suffix = segments.slice(index).join('/');
-    if (scopes.some((scope) => containsScope(scope, suffix))) return true;
-  }
-  return false;
-}
-
-export function attributeIssues({ watches, issues }: { watches: FactoryWatchEntry[]; issues: FactoryIssue[] }): { watch: FactoryWatchEntry; issue: FactoryIssue }[] {
-  const breaches: { watch: FactoryWatchEntry; issue: FactoryIssue }[] = [];
-  const normalizedWatches = watches.map((watch) => ({ watch, mergedAtMs: Date.parse(watch.mergedAt),
-    scopes: watch.writeScopes.map(normalizeScope).filter((scope): scope is string => scope !== null) }));
-  for (const issue of issues) {
-    for (const { watch, mergedAtMs, scopes } of normalizedWatches) {
-      if (issue.firstSeenMs <= mergedAtMs) continue;
-      if (issue.framePaths.some((framePath) => frameInsideScopes(framePath, scopes))) breaches.push({ watch, issue });
-    }
-  }
-  return breaches;
-}
-
-export function buildIssuesSinceQuery(sinceIso: string): string {
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(sinceIso)
-    || !Number.isFinite(Date.parse(sinceIso)) || new Date(sinceIso).toISOString().slice(0, 19) !== sinceIso.slice(0, 19)) throw new Error('Invalid factory issue query timestamp');
-  return [
-    'SELECT properties.$exception_issue_id AS issueId, min(timestamp) AS firstSeen,',
-    "arrayDistinct(arrayFlatten(groupArray(arrayFlatten(arrayMap(exception -> arrayMap(frame -> JSONExtractString(frame, 'source'), JSONExtractArrayRaw(exception, 'stacktrace', 'frames')), JSONExtractArrayRaw(properties.$exception_list ?? '[]')))))) AS framePaths",
-    'FROM events',
-    "WHERE event = '$exception' AND properties.$exception_issue_id IS NOT NULL",
-    `AND properties.$exception_issue_id IN (SELECT properties.$exception_issue_id FROM events WHERE event = '$exception' AND timestamp >= toDateTime('${sinceIso}') GROUP BY properties.$exception_issue_id)`,
-    'GROUP BY issueId',
-    `HAVING firstSeen > toDateTime('${sinceIso}')`,
-    'ORDER BY firstSeen ASC, issueId ASC',
-    'LIMIT 500',
-  ].join('\n');
 }
 
 type FactoryIntent = FactoryProjectState['orders'][number];

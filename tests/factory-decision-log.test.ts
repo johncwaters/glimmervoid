@@ -57,7 +57,7 @@ test('close-out logs one decision per attempt with redacted byte-capped output a
     gitWorkspace: fixture.gitWorkspace, serializeProject: fixture.serializeProject,
     ensureLedger: async () => fixture.ledger, runCoherence: fixture.runCoherence, commitAndLand: fixture.land,
     readIntegrationSha: () => fixture.git(['rev-parse', 'integration']), recordFactoryLandedSha: async (_projectId, sha) => { mergedSha = sha; },
-    readPaused: async () => false, appendWatch: async () => {}, recordDecision: decisionLog.record,
+    readPaused: async () => false, trustVerification: async () => {}, recordDecision: decisionLog.record,
     baseEnv: { ...process.env, GLIMMERVOID_POSTHOG_API_KEY: secret },
     prepareCheckRunner: async () => ({ runCheck: (argv, options) => execFileAsync(argv[0], argv.slice(1), options), dispose: async () => {} }),
     spawnReviewer: async (request) => { request.onOutput?.(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, structured_output: { pass: true, findings: [] } })); },

@@ -496,21 +496,17 @@ test('factory close-out settings cross every config boundary and refuse invalid 
   }
 });
 
-test('factory watch, verifier and budget settings validate across every config boundary', () => {
-  const factory = { watchWindowMinutes: 1440, watchProjects: [{ project: 'repo', posthogProjectId: 12 }], dailyBudgetUsd: 7.5, verifierModel: 'sonnet' };
+test('factory verifier and budget settings validate across every config boundary', () => {
+  const factory = { dailyBudgetUsd: 7.5, verifierModel: 'sonnet' };
   assert.deepEqual(Config.parse({ ...DEFAULT_CONFIG, factory }).factory, factory);
   assert.deepEqual(BrowserConfig.parse({ factory }).factory, factory);
   assert.deepEqual(ConfigUpdate.parse({ factory }).factory, factory);
-  assert.equal(ConfigUpdate.safeParse({ factory: { watchWindowMinutes: 1, dailyBudgetUsd: 0 } }).success, true);
+  assert.equal(ConfigUpdate.safeParse({ factory: { dailyBudgetUsd: 0 } }).success, true);
+  assert.deepEqual(Config.parse({ ...DEFAULT_CONFIG, factory: { ...factory, watchWindowMinutes: 30, watchProjects: [] } }).factory, factory);
   assert.equal(ConfigUpdate.safeParse({ factory: { dailyBudgetUsd: null, verifierModel: null } }).success, true);
-  assert.equal(DEFAULT_CONFIG.factory.watchWindowMinutes, 30);
-  assert.deepEqual(DEFAULT_CONFIG.factory.watchProjects, []);
   assert.equal(DEFAULT_CONFIG.factory.dailyBudgetUsd, null);
   assert.equal(DEFAULT_CONFIG.factory.verifierModel, null);
   for (const invalid of [
-    { watchWindowMinutes: 0 }, { watchWindowMinutes: 1441 }, { watchWindowMinutes: 1.5 },
-    { watchProjects: [{ project: '', posthogProjectId: 12 }] }, { watchProjects: [{ project: 'repo', posthogProjectId: 0 }] },
-    { watchProjects: [{ project: 'repo', posthogProjectId: 1.5 }] }, { watchProjects: 'repo' },
     { dailyBudgetUsd: -1 }, { dailyBudgetUsd: Number.POSITIVE_INFINITY }, { dailyBudgetUsd: '7.5' },
     { verifierModel: '' }, { verifierModel: 42 },
   ]) {

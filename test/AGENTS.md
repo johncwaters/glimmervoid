@@ -45,7 +45,7 @@ Manual smoke tests and harnesses run directly with `node`, separate from the aut
 - A harness that imports a backend imports `support/disable-telemetry.ts` first to avoid counting throwaway homes as new installs (`tests/hand-run-harness-telemetry.test.ts`). Factory children send product events and one anonymous run summary under the persistent harness install id. `decideHarnessTelemetry` is the only place that turns them off: `--no-telemetry`, `DO_NOT_TRACK=1`, `GLIMMERVOID_TELEMETRY=0`, `CI=true`, the Settings > Privacy opt-out in the operator's real config or an unloadable install identity turn off both, and the product's remote switch skips only the summary (`skipped-remote-disabled`). `tests/factory-run-verdict.test.ts` pins that decision's summary result and the child environment it returns, not a spawned child. `$ai_generation` totals under the harness install id include unrelated sessions on the machine, so per-run cost is read from the summary event's `spend_usd`.
 
 ### Testing Requirements
-- Run factory gates with `npm run factory:run -- --intent one-file-change --watch-window 1`; this bills real Claude usage and never runs in `npm test`.
+- Run factory gates with `npm run factory:run -- --intent one-file-change`; this bills real Claude usage and never runs in `npm test`.
 - Run directly: `node test/smoke-dormant-boot.ts`.
 - Run the browser matrix: `npm run test:browser` (`--only <scenario>`, `--viewport <name>`, `--artifacts <dir>`, `--prove-failure`, `--headed`, `--executable <path>`).
 - `--prove-failure` adds the self-check case whose failure IS the proof, so it never sets the exit code: 0 when every other case passed and the proof bit, 1 when another case failed, 2 when the proof did not bite.

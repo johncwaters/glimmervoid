@@ -69,16 +69,15 @@ test('factory close-out settings survive dashboard saves and the reviewer model 
   assert.equal(hydrateFromSettings(SETTINGS_MAP, cleared)['factory.reviewerModel'], null);
 });
 
-test('factory watch, verifier and budget settings round-trip and nullable settings clear', () => {
+test('factory verifier and budget settings round-trip and nullable settings clear', () => {
   const session = dashboardSession();
   const section = SETTINGS_MAP.find((candidate) => candidate.id === 'lanes-factory');
   assert.ok(section);
   const loaded = session.request({ type: 'get-settings' }, 'settings').settings ?? {};
   const original = hydrateFromSettings(SETTINGS_MAP, loaded);
-  const edited = { ...original, 'factory.watchWindowMinutes': 120, 'factory.dailyBudgetUsd': 7.5, 'factory.verifierModel': 'sonnet' };
+  const edited = { ...original, 'factory.dailyBudgetUsd': 7.5, 'factory.verifierModel': 'sonnet' };
   const saved = session.request({ type: 'update-settings', settings: collectDirtyBlocks([section], original, edited) }, 'settings-updated').settings ?? {};
   const reloaded = hydrateFromSettings(SETTINGS_MAP, saved);
-  assert.equal(reloaded['factory.watchWindowMinutes'], 120);
   assert.equal(reloaded['factory.dailyBudgetUsd'], 7.5);
   assert.equal(reloaded['factory.verifierModel'], 'sonnet');
   const zeroBudget = session.request({ type: 'update-settings', settings: collectDirtyBlocks([section], reloaded, { ...reloaded, 'factory.dailyBudgetUsd': 0 }) }, 'settings-updated').settings ?? {};

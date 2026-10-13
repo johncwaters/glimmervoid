@@ -2,22 +2,6 @@ import { z } from 'zod';
 import { SessionState } from './session.ts';
 import { CoherenceOrient, CoherenceReadiness, CoherenceRisk, CoherenceWorkState } from './coherence.ts';
 
-export const FactoryIssue = z.object({ issueId: z.string().min(1), firstSeenMs: z.number().finite(), framePaths: z.array(z.string()) });
-export type FactoryIssue = z.infer<typeof FactoryIssue>;
-
-export const FactoryWatchEntry = z.object({
-  workId: z.string().min(1), intentId: z.string().min(1), projectId: z.string().min(1),
-  mergedSha: z.string().regex(/^[a-f0-9]{40,64}$/), mergedAt: z.iso.datetime(), writeScopes: z.array(z.string()),
-  breaches: z.array(FactoryIssue).optional(),
-});
-export type FactoryWatchEntry = z.infer<typeof FactoryWatchEntry>;
-
-export const FactoryHogQLResponse = z.looseObject({ results: z.array(z.unknown()) });
-
-export const FactoryIssueQueryRow = z.object({
-  issueId: z.string().min(1), firstSeen: z.string().min(1), framePaths: z.array(z.string()),
-});
-
 export const FactoryConsequences = z.looseObject({
   records: z.array(z.looseObject({ from: z.object({ kind: z.string(), id: z.string() }), relation: z.string(), to: z.object({ kind: z.string(), id: z.string() }), session: z.string().optional(), evidence: z.string().optional() })),
 });
@@ -30,7 +14,6 @@ export const FactoryProjectState = z.object({
   orchestrator: z.object({ sessionId: z.string(), intentId: z.string(), state: SessionState }).nullable(),
   liveWorkers: z.array(z.object({ workId: z.string(), sessionId: z.string() })).optional(),
   reviewing: z.array(z.string()).optional(),
-  watches: z.array(FactoryWatchEntry).optional(),
   note: z.string().nullable().optional(),
   spentTodayUsd: z.number().finite().nonnegative().optional(),
   dailyBudgetUsd: z.number().finite().nonnegative().nullable().optional(),
@@ -148,7 +131,6 @@ export const FactoryLaneState = z.object({
   ledgerPath: z.string().min(1).max(4096).nullable(),
   ledgerBranch: z.string().min(1).max(1024).nullable(),
   paused: z.boolean(),
-  watch: z.array(FactoryWatchEntry).optional(),
   trustedVerifications: z.array(z.object({ id: z.string().min(1), sha: z.string().regex(/^[a-f0-9]{40,64}$/) })).optional(),
   trustedIntentCloses: z.array(z.string().min(1)).optional(),
   pendingVerifierTrusts: z.array(z.object({
@@ -162,7 +144,6 @@ export const FactoryLaneState = z.object({
     risk: CoherenceRisk, boundary: intentText, tickets: z.array(FactoryIntentTicket).min(1).max(FACTORY_INTENT_TICKET_LIMIT),
   })).optional(),
   intentBaseShas: z.record(z.string().min(1), z.string().regex(/^[a-f0-9]{40,64}$/)).optional(),
-  filedBreaches: z.array(z.string().min(1)).optional(),
   factoryLandedShas: z.array(z.string().regex(/^[a-f0-9]{40,64}$/)).optional(),
   unlandedFactoryRecords: z.array(FactoryUnlandedRecord).optional(),
   ticketBlockCounts: z.record(z.string().min(1), z.number().int().nonnegative()).optional(),

@@ -16,9 +16,8 @@ Runs real Claude intents sequentially; bills Claude usage.
   --reviewer-model <model>   Factory reviewer model
   --verifier-model <model>   Factory verifier model
   --live-workers <n>         Factory maxLiveWorkers
-  --watch-window <minutes>   Factory watchWindowMinutes
 Defaults are shipped factory settings; the seed supplies all default checks.
-A throwaway run stops after 30 minutes plus the watch window; a gated-clone run has no time limit.
+A throwaway run stops after 30 minutes; a gated-clone run has no time limit.
 The gated clone uses the shipped checks: npm run typecheck, npm run lint, npm test.
 Telemetry is also off under DO_NOT_TRACK=1, GLIMMERVOID_TELEMETRY=0, CI=true or Settings > Privacy in the real config.
 Each verdict records the summary event as sent, failed, skipped-no-consent or skipped-remote-disabled.`;
@@ -46,7 +45,7 @@ export function parseArguments(argumentsPassed: string[]): Arguments {
     if (flag === '--list-intents') { options.listIntents = true; continue; }
     if (flag === '--keep') { options.keep = true; continue; }
     if (flag === '--no-telemetry') { options.noTelemetry = true; continue; }
-    if (!['--runs', '--target', '--intent', '--intent-file', '--artifacts', '--reviewer-model', '--verifier-model', '--live-workers', '--watch-window'].includes(flag ?? '')) throw new Error(`Unknown option: ${flag}`);
+    if (!['--runs', '--target', '--intent', '--intent-file', '--artifacts', '--reviewer-model', '--verifier-model', '--live-workers'].includes(flag ?? '')) throw new Error(`Unknown option: ${flag}`);
     const value = argumentsPassed[++index];
     if (!value || value.startsWith('--')) throw new Error(`Missing value for ${flag}`);
     switch (flag) {
@@ -64,7 +63,6 @@ export function parseArguments(argumentsPassed: string[]): Arguments {
       case '--reviewer-model': options.factory.reviewerModel = value; break;
       case '--verifier-model': options.factory.verifierModel = value; break;
       case '--live-workers': options.factory.maxLiveWorkers = Number(value); break;
-      case '--watch-window': options.factory.watchWindowMinutes = Number(value); break;
     }
   }
   if (hasIntentName && options.intentFile) throw new Error('Choose --intent or --intent-file');
