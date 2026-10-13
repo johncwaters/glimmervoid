@@ -51,7 +51,7 @@ test('an unknown agent id warns and falls back to the default rather than failin
 
 test('claude-code declares every capability, since it is the reference implementation', () => {
   assert.deepEqual(Object.keys(claudeCode.capabilities).sort(), [
-    'antiSlop', 'awaitingInput', 'backgroundAgents', 'compactQuiet', 'headless', 'hooks',
+    'awaitingInput', 'backgroundAgents', 'compactQuiet', 'headless', 'hooks',
     'resume', 'rtk', 'saneYolo', 'skipPermissionsFlag', 'statusLine',
   ]);
   assert.equal(Object.values(claudeCode.capabilities).every((v) => v === true), true);

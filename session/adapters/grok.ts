@@ -289,7 +289,6 @@ const grok = {
     statusLine: false,
     rtk: false,
     saneYolo: true,
-    antiSlop: false,
     compactQuiet: false,
     skipPermissionsFlag: true,
     headless: true,

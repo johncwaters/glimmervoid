@@ -95,7 +95,6 @@ test("the registry exposes the Grok adapter with the honest capability set", () 
     statusLine: false,
     rtk: false,
     saneYolo: true,
-    antiSlop: false,
     compactQuiet: false,
     skipPermissionsFlag: true,
     headless: true,

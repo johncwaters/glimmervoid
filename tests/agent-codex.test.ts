@@ -57,7 +57,6 @@ test('capabilities claim only what a live probe verified', () => {
     statusLine: false,
     rtk: true,
     saneYolo: true,
-    antiSlop: false,
     compactQuiet: false,
     skipPermissionsFlag: true,
     headless: true,

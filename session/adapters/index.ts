@@ -19,7 +19,6 @@ interface AgentCapabilities {
   statusLine: boolean;
   rtk: boolean;
   saneYolo: boolean;
-  antiSlop: boolean;
   compactQuiet: boolean;
   skipPermissionsFlag: boolean;
   headless: boolean;

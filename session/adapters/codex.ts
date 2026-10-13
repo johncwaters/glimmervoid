@@ -232,7 +232,6 @@ const codex = {
     statusLine: false,
     rtk: true,
     saneYolo: true,
-    antiSlop: false,
     compactQuiet: false,
     skipPermissionsFlag: true,
     headless: true,

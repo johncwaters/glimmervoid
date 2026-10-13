@@ -244,7 +244,6 @@ const claudeCode = {
     statusLine: true,
     rtk: true,
     saneYolo: true,
-    antiSlop: true,
     compactQuiet: true,
     skipPermissionsFlag: true,
     headless: true,
