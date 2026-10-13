@@ -1,8 +1,8 @@
 import { hasStandingViewerApproval, canApproveAfterComment, DECIDING_REVIEW_STATES, FindingSeverity, GithubReviewState, PostingPlan, QueuedReview, ReviewFinding, ReviewResult, ReviewVerdict } from '../../shared/contracts/team-review.ts';
-import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, findingSeveritiesIn, withoutAutomatedNote } from '../../shared/team-review-markdown.ts';
+import { AUTOMATED_REVIEW_NOTE, findingHeader as renderFindingHeader, parseLeadingFindingHeader, withoutAutomatedNote } from '../../shared/team-review-markdown.ts';
 import { isThreadPlaceholderDraft } from './team-review-threads-core.ts';
 import type {
-  DraftComment, FindingSeverity as FindingSeverityType, GithubReview, InFlightReview, PostedReviewEvent, PostingPlan as PostingPlanType, PrDetail, PriorReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
+  GithubReview, InFlightReview, PostedReviewEvent, PostingPlan as PostingPlanType, PrDetail, PriorReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
   ResumableReview, ReviewAssessment, ReviewResult as ReviewResultType, SearchedPr, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../../shared/contracts/team-review.ts';
 import { positiveNumberOr } from '../../shared/coerce.ts';
@@ -756,10 +756,45 @@ function isCommentable(comment: ReviewComment, commentable: CommentableLines | n
   return isLineCommentable(commentable, comment.path, comment.side, comment.line);
 }
 
-function renderPostingPlan(plan: PostingPlanType, commentable: CommentableLines | null): { body: string; comments: ReviewComment[] } {
+function locationKey(location: { path: string; line: number; side: ReviewComment['side'] }): string {
+  return `${location.path}:${location.line}:${location.side}`;
+}
+
+function lineKey(location: { path: string; line: number }): string {
+  return `${location.path}:${location.line}`;
+}
+
+function keepStrongestFinding(strongestByLocation: Map<string, ReviewFinding>, location: string, finding: ReviewFinding): void {
+  const strongest = strongestByLocation.get(location);
+  if (strongest && FindingSeverity.options.indexOf(strongest.severity) <= FindingSeverity.options.indexOf(finding.severity)) return;
+  strongestByLocation.set(location, finding);
+}
+
+function strongestFindingByLocation(findings: readonly ReviewFinding[]): Map<string, ReviewFinding> {
+  const strongestByLocation = new Map<string, ReviewFinding>();
+  for (const finding of findings) {
+    if (finding.line === null) continue;
+    keepStrongestFinding(strongestByLocation, locationKey({ path: finding.path, line: finding.line, side: finding.side }), finding);
+    keepStrongestFinding(strongestByLocation, lineKey({ path: finding.path, line: finding.line }), finding);
+  }
+  return strongestByLocation;
+}
+
+function labeledComment(comment: ReviewComment, finding: ReviewFinding | undefined): ReviewComment {
+  if (!finding) return comment;
+  const content = withoutAutomatedNote(comment.body);
+  const agentHeader = parseLeadingFindingHeader(content);
+  const commentText = agentHeader ? content.slice(agentHeader.length).trim() : content;
+  return { ...comment, body: `${findingHeader(finding)}\n\n${commentText}` };
+}
+
+function renderPostingPlan(plan: PostingPlanType, findings: readonly ReviewFinding[], commentable: CommentableLines | null): { body: string; comments: ReviewComment[] } {
   const comments: ReviewComment[] = [];
   const foldedSections: string[] = [];
-  for (const comment of plan.comments) {
+  const findingAtLocation = strongestFindingByLocation(findings);
+  for (const plannedComment of plan.comments) {
+    const finding = findingAtLocation.get(locationKey(plannedComment)) ?? findingAtLocation.get(lineKey(plannedComment));
+    const comment = labeledComment(plannedComment, finding);
     if (isCommentable(comment, commentable)) {
       comments.push({ ...comment, body: withAutomatedNote(comment.body) });
       continue;
@@ -776,25 +811,12 @@ function readyDraft(
     commentable?: CommentableLines | null; posting?: PostingPlanType | null;
   },
 ): ReviewDraft {
-  const rendered = posting ? renderPostingPlan(posting, commentable) : renderReview(result, commentable);
-  const severityByLocation = new Map<string, FindingSeverityType>();
-  for (const finding of result.findings) {
-    if (finding.line === null) continue;
-    const location = `${finding.path}:${finding.line}:${finding.side}`;
-    const previousSeverity = severityByLocation.get(location);
-    if (previousSeverity && FindingSeverity.options.indexOf(previousSeverity) <= FindingSeverity.options.indexOf(finding.severity)) continue;
-    severityByLocation.set(location, finding.severity);
-  }
-  const comments: DraftComment[] = rendered.comments.map((comment) => {
-    if (findingSeveritiesIn(comment.body).length > 0) return comment;
-    const severity = severityByLocation.get(`${comment.path}:${comment.line}:${comment.side}`);
-    return severity ? { ...comment, severity } : comment;
-  });
+  const rendered = posting ? renderPostingPlan(posting, result.findings, commentable) : renderReview(result, commentable);
   return {
     ...draftBase(candidate, tier, reasons, result.head),
     ...(reviewedBase ? { reviewedBase } : {}),
     verdict: result.verdict, summary: result.summary, ...(result.assessment ? { assessment: result.assessment } : {}),
-    body: rendered.body, comments, status: 'ready',
+    body: rendered.body, comments: rendered.comments, status: 'ready',
   };
 }
 
@@ -987,10 +1009,13 @@ function buildReviewPrompt({
     `- commit_id must be exactly ${head}.`,
     '- comments holds one entry per finding anchored to a line of the diff; each path is non-empty, each line is a',
     `  positive integer on that side of the diff, side is one of ${sides}, and each body is non-empty.`,
-    '- body holds only the findings that cannot anchor to a diff line, one short bullet each: `path:line`, the problem,',
-    '  the fix. Nothing else: no summary, no recap of the change, no praise, no verdict or its reasoning, no follow-up',
-    '  preamble, no list of what was checked or could not be run. With every finding inline, body is the empty string.',
-    '- Keep each comment to the problem and the fix, in a few sentences. Glimmervoid marks the review as automated itself.',
+    '- body holds only the findings that cannot anchor to a diff line, one short bullet each, in the form',
+    '  - **[<reviewer>] <severity>** `path:line`: the problem and the fix',
+    '  with the reviewer and severity that finding has in the report.',
+    '  Nothing else: no summary, no recap of the change, no praise, no verdict or its reasoning, no follow-up preamble,',
+    '  no list of what was checked or could not be run. With every finding inline, body is the empty string.',
+    '- Keep each comment to the problem and the fix, in a few sentences, with no label or heading. Glimmervoid marks the',
+    '  review as automated and labels each comment with its finding\'s reviewer and severity itself.',
     'If this file is missing or invalid, Glimmervoid renders the draft from the report findings instead.',
     '',
     'Untrusted data:',

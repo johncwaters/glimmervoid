@@ -1003,7 +1003,7 @@ test('the Step 4 posting plan is kept verbatim, paragraphs and all, with off-dif
   assert.equal(parsed.ok, true);
   if (!parsed.ok) return;
   const commentable = commentableLines('diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,4 +1,5 @@\n a\n b\n c\n+d\n e\n');
-  const { body, comments } = renderPostingPlan(parsed.plan, commentable);
+  const { body, comments } = renderPostingPlan(parsed.plan, [], commentable);
   assert.deepEqual(comments, [{ path: 'src/a.ts', line: 4, side: 'RIGHT', body: POSTED_INLINE_BODY }]);
   assert.equal(body, `${AUTOMATED_REVIEW_NOTE}\n\nAutomated review. See inline comments.\n\n**\`src/far.ts:90\`** (line not in the diff)\n\nOpen question.\n\nIs this intended? This is your call.`);
 });
@@ -1013,11 +1013,11 @@ test('a posting plan body always starts with the automated-review note, kept onc
   const empty = parsePostingPlan(postingPlanJson({ body: '', comments: [] }), HEAD);
   assert.equal(noted.ok && empty.ok, true);
   if (!noted.ok || !empty.ok) return;
-  assert.equal(renderPostingPlan(noted.plan, null).body, `${AUTOMATED_REVIEW_NOTE}\n\nLooks good.`);
-  assert.equal(renderPostingPlan(empty.plan, null).body, AUTOMATED_REVIEW_NOTE);
+  assert.equal(renderPostingPlan(noted.plan, [], null).body, `${AUTOMATED_REVIEW_NOTE}\n\nLooks good.`);
+  assert.equal(renderPostingPlan(empty.plan, [], null).body, AUTOMATED_REVIEW_NOTE);
 });
 
-test('ready drafts attach the strongest finding severity to matching posting plan comments', () => {
+test('ready drafts label each posting plan comment with its strongest finding, replacing any label the agent wrote', () => {
   const finding = { path: 'src/a.ts', line: 4, side: 'RIGHT', severity: 'LOW', reviewer: 'logic', disposition: 'NIT', body: 'Check this' };
   const result = ReviewResult.parse({
     verdict: 'REQUEST CHANGES', head: HEAD, summary: 'Review summary', assessment: null,
@@ -1026,13 +1026,17 @@ test('ready drafts attach the strongest finding severity to matching posting pla
   const posting = PostingPlan.parse({
     body: 'Review body', commit_id: HEAD,
     comments: [
-      { path: 'src/a.ts', line: 4, side: 'RIGHT', body: 'Matched' },
+      { path: 'src/a.ts', line: 4, side: 'RIGHT', body: '**MEDIUM**\n\nMatched' },
       { path: 'src/a.ts', line: 4, side: 'LEFT', body: 'Other side' },
       { path: 'src/a.ts', line: 5, side: 'RIGHT', body: 'Other line' },
     ],
   });
   const draft = readyDraft({ candidate: CANDIDATE, tier: 'full', reasons: [], result, posting });
-  assert.deepEqual(draft.comments.map((comment) => comment.severity), ['CRITICAL', undefined, undefined]);
+  assert.deepEqual(draft.comments.map((comment) => comment.body), [
+    `${AUTOMATED_REVIEW_NOTE}\n\n${findingHeader('logic', 'CRITICAL')}\n\nMatched`,
+    `${AUTOMATED_REVIEW_NOTE}\n\n${findingHeader('logic', 'CRITICAL')}\n\nOther side`,
+    `${AUTOMATED_REVIEW_NOTE}\n\nOther line`,
+  ]);
 });
 
 test('fallback comments keep their own header severity and carry no structured severity, including duplicate locations', () => {
@@ -1172,7 +1176,7 @@ test('an inline comment that lost its automated-review note gets it back, since 
   const parsed = parsePostingPlan(postingPlanJson({ comments: [{ path: 'src/a.ts', line: 4, body: 'Bare finding.' }] }), HEAD);
   assert.equal(parsed.ok, true);
   if (!parsed.ok) return;
-  assert.equal(renderPostingPlan(parsed.plan, null).comments[0]?.body, `${AUTOMATED_REVIEW_NOTE}\n\nBare finding.`);
+  assert.equal(renderPostingPlan(parsed.plan, [], null).comments[0]?.body, `${AUTOMATED_REVIEW_NOTE}\n\nBare finding.`);
 });
 
 test('a posting plan that is not JSON, malformed, or for another head is refused', () => {

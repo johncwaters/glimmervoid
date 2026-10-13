@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Every review comment carries the same label**: inline review comments were labeled `**[reviewer] SEVERITY**`, only a bare `**SEVERITY**`, or not at all, depending on how the reviewer wrote them. Glimmervoid now labels each inline comment itself with the reviewer and severity of the finding it belongs to, replacing any label the reviewer wrote, and asks the reviewer to label the findings in the review body the same way.
+
 ## [0.32.0] - 2026-10-13
 
 ### Added
