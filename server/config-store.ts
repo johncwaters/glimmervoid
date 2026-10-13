@@ -63,10 +63,6 @@ const DEFAULT_CONFIG = {
 
   factory: { enabled: false, maxRisk: 'medium' as const, maxLiveWorkers: 2, checks: DEFAULT_FACTORY_CHECKS, protectedPaths: DEFAULT_FACTORY_PROTECTED_PATHS, reviewerModel: null, dailyBudgetUsd: null, verifierModel: null, mirrorHarnessRuns: false },
 
-  agentApi: {
-    enabled: false,
-  },
-
   guardrails: {
     unguardedRepos: [] as string[],
     blockedPaths: [] as string[],
@@ -512,7 +508,6 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       detectBackgroundAgents: config.detectBackgroundAgents ?? effectiveDefaults.detectBackgroundAgents,
       recordSignals: config.recordSignals ?? effectiveDefaults.recordSignals,
       trace: { enabled: config.trace?.enabled ?? DEFAULT_CONFIG.trace.enabled },
-      agentApi: { enabled: config.agentApi?.enabled ?? DEFAULT_CONFIG.agentApi.enabled },
       guardrails: { ...DEFAULT_CONFIG.guardrails, ...config.guardrails },
       telemetry: { enabled: config.telemetry?.enabled ?? DEFAULT_CONFIG.telemetry.enabled },
       telemetryForcedOff: isTelemetryForcedOff(process.env),
@@ -593,7 +588,6 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
     if (newConfig.usage != null) config.usage = newConfig.usage;
     if (newConfig.telegram != null) config.telegram = newConfig.telegram;
     if (newConfig.ingest != null) config.ingest = newConfig.ingest;
-    if (newConfig.agentApi != null) config.agentApi = newConfig.agentApi;
     if (newConfig.guardrails != null) config.guardrails = newConfig.guardrails;
     if (newConfig.telemetry != null) config.telemetry = newConfig.telemetry;
     if (newConfig.workflows == null) delete config.workflows;

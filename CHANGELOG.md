@@ -9,7 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **The agent commands work in every session with no setting**: every session Glimmervoid starts is now handed its own agent address, so `glimmervoid push`, `glimmervoid attention`, `glimmervoid board` and `glimmervoid spawn` no longer wait for `agentApi.enabled` to be switched on, and that setting no longer does anything. The server still answers no where a command must not run, and says why: only an operator session may spawn a session, only an operator session or a session it spawned may push, a lane session (review, PostHog, visions, change map, task title, benchmark) may read the board but may not raise attention, since its notes are not delivered to the operator, and a factory orchestrator stays limited to dispatch, reopen and cancel, including after it has been told to stop.
+- **The agent commands work in every session with no setting**: every session Glimmervoid starts is now handed its own agent address, so `glimmervoid push`, `glimmervoid attention`, `glimmervoid board` and `glimmervoid spawn` no longer wait for a setting to be switched on. The server still answers no where a command must not run, and says why: only an operator session may spawn a session, only an operator session or a session it spawned may push, a lane session (review, PostHog, visions, change map, task title, benchmark) may read the board but may not raise attention, since its notes are not delivered to the operator, and a factory orchestrator stays limited to dispatch, reopen and cancel, including after it has been told to stop.
+
+### Removed
+
+- **The Agent API setting**: `agentApi.enabled` and its Settings row are gone, because the agent commands are now always available to a session. A `config.json` that still carries the key loads as before and the key is ignored.
 
 ## [0.34.1] - 2026-10-13
 

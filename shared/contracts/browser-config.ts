@@ -226,10 +226,6 @@ export const PlanReviewSettings = z.object({
   enabled: optionalBoolean('planReview.enabled'),
 }, { error: 'planReview must be an object' }).optional();
 
-const agentApiShape = { enabled: optionalBoolean('agentApi.enabled') };
-const AgentApiSettings = z.object(agentApiShape, { error: 'agentApi must be an object' }).strict().optional();
-export const AgentApiFileSettings = z.object(agentApiShape, { error: 'agentApi must be an object' }).passthrough().optional();
-
 const optionalPathList = (field: string) => z.array(z.string({ error: `${field} must be an array of paths` }).trim().min(1, { error: `${field} must be an array of paths` }), { error: `${field} must be an array of paths` }).optional();
 const sandboxShape = {
   unguardedRepos: optionalPathList('guardrails.unguardedRepos'),
@@ -290,7 +286,6 @@ export const createBrowserConfigShape = (isAbsolutePath: (directory: string) => 
   usage: createUsageSettings(isAbsolutePath),
   telegram: TelegramSettings,
   ingest: IngestSettings,
-  agentApi: AgentApiSettings,
   guardrails: createSandboxSettings(isAbsolutePath),
   telemetry: TelemetrySettings,
   workflows: WorkflowsSettings.nullable().optional(),

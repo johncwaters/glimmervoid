@@ -259,7 +259,6 @@ Controls that let automated work change repositories or install executable tooli
 | `saneYolo` | Sane YOLO | `true` | Block catastrophic commands in sessions that skip permission prompts when the cc-safety-net executable is available and trusted hooks are installed. Missing or untrusted hooks leave a session unprotected. Applies to sessions created after the change. |
 | `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no merge proof. Off keeps every unmerged branch. |
 | `postTurnChecks.mode` | Post-turn checks mode | `"report"` | Default mode for post-turn checks. Project and individual rule modes override it, so Report can still allow file fixes. |
-| `agentApi.enabled` | Agent API | `false` | Expose the per-session agent endpoint to running sessions. |
 | `rtk` | rtk output compression | `false` | Compress Bash output for newly spawned or restarted sessions. |
 
 ## Keys outside the Settings view
@@ -296,7 +295,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_SANE_YOLO_PATH` | internal | Names the Sane YOLO binary only in supervised sessions, so an installed Grok hook stays inert outside Glimmervoid. Not an operator setting. |
 | `GLIMMERVOID_RTK_PATH` | internal | Set by Glimmervoid in the rtk hook relay environment to name the rtk binary. Not an operator setting. |
 | `GLIMMERVOID_HOOK_URL` | internal | Set by Glimmervoid in each session environment as the hook relay target. Not an operator setting. |
-| `GLIMMERVOID_AGENT_URL` | internal | Set by Glimmervoid in each session environment when `agentApi.enabled` is on; `glimmervoid spawn`, `attention` and `board` read it. Not an operator setting. |
+| `GLIMMERVOID_AGENT_URL` | internal | Set by Glimmervoid in each session environment; `glimmervoid push`, `spawn`, `attention` and `board` read it. Not an operator setting. |
 | `GLIMMERVOID_SIGN_URL` | internal | Set by Glimmervoid in each operator session environment; `glimmervoid ssh-sign`, which git runs to sign a commit, posts there so the server signs with the operator's forwarded ssh agent. Not an operator setting. |
 | `GLIMMERVOID_HOOK_VIA_SANDBOX_PROXY` | internal | Set by Glimmervoid inside a sandbox whose network is a domain list, so the hook relays post through the sandbox proxy and nowhere else. Not an operator setting. |
 

@@ -887,13 +887,6 @@ export const SETTINGS_MAP = Object.freeze([
         keywords: ['quality', 'fixes'], defaultValue: 'report',
       },
       {
-        id: 'agent-api-enabled', path: 'agentApi.enabled', title: 'Agent API',
-        description: 'Expose the per-session agent endpoint to running sessions.',
-        control: 'toggle', keywords: ['session', 'localhost'], danger: true,
-        warning: 'Enabling this control lets a running session spawn sibling sessions, flag itself and read the board through a per-session token on localhost, and it applies to sessions spawned after the change.',
-        defaultValue: false,
-      },
-      {
         id: 'rtk-compression', path: 'rtk', title: 'rtk output compression',
         description: 'Compress Bash output for newly spawned or restarted sessions.',
         control: 'toggle', keywords: ['bash', 'tokens'], danger: true, status: 'rtk-install',

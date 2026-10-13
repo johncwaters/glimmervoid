@@ -260,7 +260,6 @@ const DASHBOARD_SETTING_PATHS = Object.freeze([
   ...USAGE_VENDOR_KEYS.map((key) => `usage.vendors.${key}`),
   ...USAGE_BUDGET_KEYS.map((key) => `usage.budget.${key}`),
   ...TELEGRAM_STRING_KEYS.map((key) => `telegram.${key}`),
-  'agentApi.enabled',
   'guardrails.unguardedRepos',
   'guardrails.blockedPaths',
   'guardrails.unreadablePaths',
@@ -827,7 +826,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       if (s.usage != null) cfg.usage = s.usage;
       if (incoming.ingest != null) cfg.ingest = mergeSettingsBlock(cfg.ingest, incoming.ingest, INGEST_SPEC);
       if (s.telegram != null) cfg.telegram = mergeSettingsBlockOverStored(cfg.telegram, s.telegram);
-      if (s.agentApi != null) cfg.agentApi = mergeSettingsBlockOverStored(cfg.agentApi, s.agentApi);
       if (s.guardrails != null) cfg.guardrails = mergeSettingsBlockOverStored(cfg.guardrails, s.guardrails);
       if (s.telemetry != null) cfg.telemetry = mergeSettingsBlockOverStored(cfg.telemetry, s.telemetry);
       if (!workflowsUpdate) return undefined;

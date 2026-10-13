@@ -808,33 +808,6 @@ test('the browser round trip never sees a credential and never blanks one', asyn
   });
 });
 
-test('an agentApi save persists, echoes, and flips the live config the agent route reads', () => {
-  const h = harness({ projects: [], agentApi: { enabled: false } });
-  h.send({ type: 'update-settings', settings: { agentApi: { enabled: true } } });
-
-  assert.deepEqual(h.cfg.agentApi, { enabled: true });
-  assert.deepEqual(updatedFrom(h)?.settings?.agentApi, { enabled: true });
-  assert.equal(h.store.config.agentApi?.enabled, true);
-  assert.equal(h.reloadCalls.length, 1);
-});
-
-test('an agentApi save carrying no keys leaves the stored enabled flag alone', () => {
-  const h = harness({ projects: [], agentApi: { enabled: true } });
-  h.send({ type: 'update-settings', settings: { agentApi: {} } });
-
-  assert.deepEqual(h.cfg.agentApi, { enabled: true });
-  assert.equal(h.store.config.agentApi?.enabled, true);
-});
-
-test('an agentApi block carrying an unknown key is rejected and nothing is persisted', () => {
-  const h = harness({ projects: [], agentApi: { enabled: false } });
-  h.send({ type: 'update-settings', settings: { agentApi: { enabled: true, token: 'x' } } });
-
-  assert.ok(errorFrom(h));
-  assert.deepEqual(h.cfg.agentApi, { enabled: false });
-  assert.equal(h.reloadCalls.length, 0);
-});
-
 test('a telemetry save persists, echoes, and flips the live config telemetry reads', () => {
   const h = harness({ projects: [], telemetry: { enabled: true } });
   h.send({ type: 'update-settings', settings: { telemetry: { enabled: false } } });
