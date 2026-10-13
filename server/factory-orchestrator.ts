@@ -205,7 +205,7 @@ export function createFactoryOrchestrator<ManagedSession extends FactoryOrchestr
       const coherence = buildCoherenceSessionOverrides({ claudeSessionId, nodePath, hookCliPath, shimDir });
       const identity = { id: `factory-orch-${project.projectId}`, name: `${project.projectName} orchestrator`, path: ledgerPath, dangerouslySkipPermissions: false };
       const session = makeSession(identity, config, {
-        ...coherence, ...posture.sessionOverrides, spawnEnv: { ...coherence.spawnEnv, ...posture.sessionOverrides.spawnEnv }, agent: 'claude-code', ephemeral: true, agentApi: true, gitWorkspace: null, dangerouslySkipPermissions: false,
+        ...coherence, ...posture.sessionOverrides, spawnEnv: { ...coherence.spawnEnv, ...posture.sessionOverrides.spawnEnv }, agent: 'claude-code', ephemeral: true, agentApi: true, factoryRole: 'orchestrator', gitWorkspace: null, dangerouslySkipPermissions: false,
         gitIsolation: { disableRepoCommands: true },
         initialPrompt: buildOrchestratorPrompt({ projectName: project.projectName, intent, claudeSessionId, hasTickets }),
         extraClaudeArgs: [...coherence.extraClaudeArgs, ...posture.sessionOverrides.extraClaudeArgs],

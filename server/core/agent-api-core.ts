@@ -16,7 +16,6 @@ interface AgentRequestInput {
   presentedToken: string | null | undefined;
   expectedToken: string | null | undefined;
   isLoopback: boolean;
-  enabled: boolean;
 }
 
 interface SpawnBudget {
@@ -79,9 +78,8 @@ function refused(): AgentVerdict {
 }
 
 function decideAgentRequest({
-  sessionId, presentedToken, expectedToken, isLoopback, enabled,
+  sessionId, presentedToken, expectedToken, isLoopback,
 }: AgentRequestInput): AgentVerdict {
-  if (!enabled) return refused();
   if (!isLoopback) return refused();
   if (!sessionId) return refused();
   if (!expectedToken) return refused();

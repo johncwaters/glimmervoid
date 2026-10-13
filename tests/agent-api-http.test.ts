@@ -19,7 +19,7 @@ import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import { SessionCardFields } from '../shared/contracts/index.ts';
-import { createConfigStore, DEFAULT_CONFIG } from '../server/config-store.ts';
+import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts';
 import { STATES } from '../shared/states.ts';
 import { fakePty } from './helpers/fake-pty.ts';
@@ -41,9 +41,8 @@ interface BootedBackend {
   token: string;
 }
 
-const booted: { enabled: BootedBackend | null; disabled: BootedBackend | null; prevEnv: string | undefined } = {
+const booted: { enabled: BootedBackend | null; prevEnv: string | undefined } = {
   enabled: null,
-  disabled: null,
   prevEnv: undefined,
 };
 
@@ -52,12 +51,7 @@ function enabledBackend(): BootedBackend {
   return booted.enabled;
 }
 
-function disabledBackend(): BootedBackend {
-  if (!booted.disabled) throw new Error('the disabled backend was never booted');
-  return booted.disabled;
-}
-
-async function boot(prefix: string, agentApiEnabled: boolean): Promise<BootedBackend> {
+async function boot(prefix: string): Promise<BootedBackend> {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const projectDir = path.join(tmpDir, 'project');
   fs.mkdirSync(projectDir);
@@ -66,7 +60,6 @@ async function boot(prefix: string, agentApiEnabled: boolean): Promise<BootedBac
     projects: [{ id: SESSION_ID, name: 'agent api', path: projectDir }],
     repoRoots: [],
     autoResume: false,
-    agentApi: { enabled: agentApiEnabled },
   }, null, 2), 'utf8');
   process.env.GLIMMERVOID_CONFIG = cfgPath;
 
@@ -104,13 +97,11 @@ function post(base: string, verb: string, body: unknown, token: string | null): 
 
 test.before(async () => {
   booted.prevEnv = process.env.GLIMMERVOID_CONFIG;
-  booted.enabled = await boot('glimmervoid-agentapi-on-', true);
-  booted.disabled = await boot('glimmervoid-agentapi-off-', false);
+  booted.enabled = await boot('glimmervoid-agentapi-on-');
 });
 
 test.after(async () => {
   await teardown(booted.enabled);
-  await teardown(booted.disabled);
   if (booted.prevEnv == null) delete process.env.GLIMMERVOID_CONFIG;
   if (booted.prevEnv != null) process.env.GLIMMERVOID_CONFIG = booted.prevEnv;
 });
@@ -149,13 +140,6 @@ test('an unknown session id is refused identically', async () => {
 test('an unknown verb is refused identically, so the surface cannot be probed', async () => {
   const { base, token } = enabledBackend();
   const response = await post(base, 'kill', {}, token);
-  assert.equal(response.status, 404);
-  assert.deepEqual(await response.json(), { ok: false, error: REFUSAL_REASON });
-});
-
-test('with agentApi off the ingress is inert even for the right token', async () => {
-  const { base, token } = disabledBackend();
-  const response = await post(base, 'board', {}, token);
   assert.equal(response.status, 404);
   assert.deepEqual(await response.json(), { ok: false, error: REFUSAL_REASON });
 });
@@ -606,35 +590,6 @@ test('sibling names never collide', async () => {
   }
 });
 
-test('a config edit that turns agentApi off switches the endpoint off', () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-agentapi-toggle-'));
-  const cfgPath = path.join(tmpDir, 'config.json');
-  fs.writeFileSync(cfgPath, JSON.stringify({ projects: [], agentApi: { enabled: true } }), 'utf8');
-  const previous = process.env.GLIMMERVOID_CONFIG;
-  process.env.GLIMMERVOID_CONFIG = cfgPath;
-  try {
-    const configStore = createConfigStore();
-    const wiring = createAgentApiWiring({
-      config: configStore.config,
-      agentSessions: new Map(),
-      listAllSessions: () => [],
-      listBoardSessions: () => [],
-      makeSession: () => { throw new Error('the toggle test never spawns'); },
-      wireSessionEvents: () => {},
-      closeSessionDataClients: () => {},
-      broadcastControl: () => {},
-      spawnGate: { run: (task: () => unknown) => Promise.resolve(task()) },
-    });
-    assert.equal(wiring.enabled(), true);
-    configStore.applySettings({ ...configStore.config, agentApi: { enabled: false } });
-    assert.equal(wiring.enabled(), false, 'the watcher reload reaches the endpoint');
-  } finally {
-    if (previous == null) delete process.env.GLIMMERVOID_CONFIG;
-    if (previous != null) process.env.GLIMMERVOID_CONFIG = previous;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  }
-});
-
 interface SnapshotFrame {
   type: string;
   sessions?: { id: string }[];
@@ -957,7 +912,7 @@ async function orchestratorIngress(context: test.TestContext, withTicketVerbs: b
   const app = createBackendHttpApp({ staticDir: null, configStore: { configPath: path.join(os.tmpdir(), 'ticket-verb-config.json') },
     remote: { allowedOrigins: [] }, remoteAuth: null, allowedHosts: [], listenerPortsFor: () => [], pageToken: 'page',
     hookRouter: { handle: () => ({ status: 200, reason: 'ok' }) }, getSession: () => session, getUsage: () => ({ ingestStatusline: () => {} }),
-    getAgentApi: () => ({ enabled: () => true, handle: async () => ({ status: 200, body: { ok: true } }) }),
+    getAgentApi: () => ({ handle: async () => ({ status: 200, body: { ok: true } }) }),
     getFactory: () => ({
       getLiveOrchestrator: () => state.isOrchestrator ? { projectId: 'repo', intentId: 'intent' } : null,
       dispatch: async () => ({ ok: true, sessionId: 'worker' }),

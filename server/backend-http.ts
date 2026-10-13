@@ -416,7 +416,6 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
       presentedToken: presentedToken(req),
       expectedToken: session?.agentToken ?? null,
       isLoopback: isLoopbackRequest(req),
-      enabled: isOrchestrator || isOrchestratorVerb || agentApi?.enabled() === true,
     });
     const overCap = (declaredBytes: string) => {
       logger.warn(`[agent] a ${declaredBytes} byte body is over the ${HOOK_BODY_CAP_BYTES} byte cap and was refused`);
@@ -425,6 +424,10 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
       if (body === null) return;
       if (!verdict.ok || !session) {
         refuseAgentRequest(res);
+        return;
+      }
+      if (session.factoryRole === 'orchestrator' && !isOrchestratorVerb) {
+        res.status(403).json({ ok: false, reason: 'only live factory orchestrators may dispatch, reopen or cancel, and they may do nothing else' });
         return;
       }
       if (isOrchestratorVerb !== isOrchestrator) {

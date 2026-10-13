@@ -336,20 +336,18 @@ test('lane start reconciles a factory-activated ticket with no live worker back 
   assert.equal(fixture.commands.filter((args) => args[1] === 'transition').length, handedCount);
 });
 
-test('HTTP permits only a live orchestrator to dispatch with the global agent API off and keeps bearer authentication', async (context) => {
-  const session = new Session({ id: 'orchestrator', name: 'Master', path: os.tmpdir(), agentApi: true, ptySpawn: () => fakePty() });
+test('HTTP permits only a live orchestrator to dispatch, still refuses a stopped orchestrator every other verb and keeps bearer authentication', async (context) => {
+  const session = new Session({ id: 'orchestrator', name: 'Master', path: os.tmpdir(), agentApi: true, factoryRole: 'orchestrator', ptySpawn: () => fakePty() });
   session._hooks.inject();
   const token = session.agentToken;
   assert.ok(token);
   const handled: string[] = [];
   const regularVerbs: string[] = [];
   let isOrchestrator = true;
-  let isAgentApiEnabled = false;
   const app = createBackendHttpApp({ staticDir: null, configStore: { configPath: path.join(os.tmpdir(), 'dispatch-config.json') },
     remote: { allowedOrigins: [] }, remoteAuth: null, allowedHosts: [], listenerPortsFor: () => [], pageToken: 'page',
     hookRouter: { handle: () => ({ status: 200, reason: 'ok' }) }, getSession: () => session, getUsage: () => ({ ingestStatusline: () => {} }),
-    getAgentApi: () => ({ enabled: () => isAgentApiEnabled, handle: async (_session, verb) => {
-      assert.equal(isAgentApiEnabled, true);
+    getAgentApi: () => ({ handle: async (_session, verb) => {
       regularVerbs.push(verb);
       return { status: 200, body: { ok: true } };
     } }),
@@ -368,17 +366,13 @@ test('HTTP permits only a live orchestrator to dispatch with the global agent AP
   for (const verb of ['spawn', 'board', 'attention']) assert.equal((await post(verb)).status, 403);
   isOrchestrator = false;
   assert.equal((await post('dispatch')).status, 403);
-  assert.equal((await post('spawn')).status, 404);
   assert.deepEqual(handled, ['wrk-0123456789abcdef']);
+  for (const verb of ['spawn', 'board', 'attention']) assert.equal((await post(verb)).status, 403);
   assert.deepEqual(regularVerbs, []);
-  isAgentApiEnabled = true;
-  for (const verb of ['spawn', 'board', 'attention']) assert.equal((await post(verb)).status, 200);
-  assert.deepEqual(regularVerbs, ['spawn', 'board', 'attention']);
   assert.equal((await post('dispatch')).status, 403);
   isOrchestrator = true;
   for (const verb of ['spawn', 'board', 'attention', 'unknown']) assert.equal((await post(verb)).status, 403);
   assert.equal((await post('dispatch')).status, 200);
-  assert.deepEqual(regularVerbs, ['spawn', 'board', 'attention']);
   await context.test('the POSIX glimmervoid launcher forwards dispatch to the authenticated running server', { skip: process.platform === 'win32' }, async (shimContext) => {
     const shimDir = await mkdtemp(path.join(os.tmpdir(), 'factory shim '));
     shimContext.after(() => rm(shimDir, { recursive: true, force: true }));
@@ -394,6 +388,7 @@ test('HTTP permits only a live orchestrator to dispatch with the global agent AP
     assert.deepEqual(JSON.parse(stdout), { ok: true, sessionId: 'worker' });
     assert.deepEqual(handled, ['wrk-0123456789abcdef', 'wrk-0123456789abcdef', 'wrk-0123456789abcdef']);
   });
+  assert.deepEqual(regularVerbs, []);
 });
 
 

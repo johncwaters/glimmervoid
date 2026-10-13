@@ -11,7 +11,6 @@ const GOOD = {
   presentedToken: 'tok-abc',
   expectedToken: 'tok-abc',
   isLoopback: true,
-  enabled: true,
 };
 
 test('a matching token on the loopback listener is admitted', () => {
@@ -20,7 +19,6 @@ test('a matching token on the loopback listener is admitted', () => {
 
 test('every way to fail authentication yields one byte-identical refusal', () => {
   const refusals = [
-    decideAgentRequest({ ...GOOD, enabled: false }),
     decideAgentRequest({ ...GOOD, isLoopback: false }),
     decideAgentRequest({ ...GOOD, sessionId: 'no-such-session', expectedToken: null }),
     decideAgentRequest({ ...GOOD, sessionId: '' }),

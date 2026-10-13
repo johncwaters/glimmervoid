@@ -244,6 +244,7 @@ interface SessionOptions {
   workspaceRepos?: string[];
   agentDepth?: number;
   agentApi?: boolean;
+  factoryRole?: 'orchestrator' | null;
 }
 
 interface ClaudeSessionIdEvent {
@@ -324,6 +325,7 @@ class Session extends EventEmitter {
   _agentDepth: number;
   _agentToken: string | null;
   _agentApiEnabled: boolean;
+  _factoryRole: 'orchestrator' | null;
   _agentLiveChildren: number;
   _agentLifetimeSpawns: number;
   _agentSpawnsInFlight: number;
@@ -429,6 +431,7 @@ class Session extends EventEmitter {
 
     agentDepth = 0,
     agentApi = false,
+    factoryRole = null,
   }: SessionOptions) {
     super();
     this.id = id;
@@ -566,6 +569,7 @@ class Session extends EventEmitter {
     this._agentDepth = agentDepth;
     this._agentToken = generateToken();
     this._agentApiEnabled = agentApi === true;
+    this._factoryRole = factoryRole;
     this._agentLiveChildren = 0;
     this._agentLifetimeSpawns = 0;
     this._agentSpawnsInFlight = 0;
@@ -1009,6 +1013,10 @@ class Session extends EventEmitter {
 
   get agentToken(): string | null {
     return this._agentToken;
+  }
+
+  get factoryRole(): 'orchestrator' | null {
+    return this._factoryRole;
   }
 
   _agentApiEnv(): Record<string, string> {

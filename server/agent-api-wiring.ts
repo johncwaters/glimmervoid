@@ -48,7 +48,6 @@ interface AgentApiReply {
 }
 
 interface AgentApiPort {
-  enabled(): boolean;
   handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentApiReply>;
 }
 
@@ -162,10 +161,7 @@ function createAgentApiWiring({
     return { status: 200, body: { ok: true, sessionId: outcome.sessionId, name: outcome.name } };
   }
 
-  return {
-    enabled: () => config.agentApi?.enabled === true,
-    handle,
-  };
+  return { handle };
 }
 
 export { createAgentApiWiring };

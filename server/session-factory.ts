@@ -19,7 +19,7 @@ import type { SessionSandbox } from './session-sandbox.ts';
 import { resolveUsageConfig } from './usage-wiring.ts';
 
 type SessionSpawnOverrides = Pick<SessionOptions,
-  'requireWorktree' | 'gitWorkspace' | 'gitIsolation' | 'settingsPermissions' | 'settingsSandbox' | 'prepareSandbox' | 'hookTools' | 'getHookTools' | 'dangerouslySkipPermissions' | 'agentApi' | 'agent' | 'agentDepth' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
+  'requireWorktree' | 'gitWorkspace' | 'gitIsolation' | 'settingsPermissions' | 'settingsSandbox' | 'prepareSandbox' | 'hookTools' | 'getHookTools' | 'dangerouslySkipPermissions' | 'agentApi' | 'factoryRole' | 'agent' | 'agentDepth' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
 
 interface SessionFactoryDependencies {
   configStore: { configPath: string };
