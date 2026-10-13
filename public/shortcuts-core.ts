@@ -31,6 +31,7 @@ const isActiveByAvailability: Record<ShortcutAvailability, (context: ShortcutCon
 };
 
 export interface ShortcutKeyEvent {
+  key: string;
   code: string;
   altKey: boolean;
   ctrlKey: boolean;
@@ -81,11 +82,18 @@ function holdsOnlyShortcutModifier(event: ShortcutKeyEvent, platform: ShortcutPl
   return event.altKey && !event.metaKey;
 }
 
+const NAVIGATION_KEYS: ReadonlySet<string> = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown']);
+
+function catalogCodeOf(event: ShortcutKeyEvent) {
+  return NAVIGATION_KEYS.has(event.key) ? event.key : event.code;
+}
+
 export function resolveDashboardShortcut(event: ShortcutKeyEvent, platform: ShortcutPlatform, context: ShortcutContext): ResolvedDashboardShortcut | null {
   if (!holdsOnlyShortcutModifier(event, platform)) return null;
+  const catalogCode = catalogCodeOf(event);
   for (const shortcut of shortcutsOn(platform)) {
     if (!isActiveByAvailability[shortcut.availability](context)) continue;
-    const step = shortcut.stepByCode.get(event.code);
+    const step = shortcut.stepByCode.get(catalogCode);
     if (step !== undefined) return { action: shortcut.action, step };
   }
   return null;

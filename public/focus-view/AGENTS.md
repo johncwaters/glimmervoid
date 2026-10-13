@@ -20,7 +20,7 @@ The Focus view: a watch-and-steer layout with a persistent left roster rail (one
 ### Working In This Directory
 - The stable-map rule is load-bearing: order is identity-based, never status-based. A state change must never reorder a pill or a group.
 - Kept projects: closing the last session of a project keeps its path as an empty rail group (header + "+" quick-add + a dismiss "×") so the operator re-adds a session without re-picking the folder. `../project-registry.ts` owns the one `knownProjectPaths` Set shared by the Focus rail and phone Board; `noteKnownProjectPath` is called from the session lifecycle in `app.ts`, and persistence stays in `ui-prefs` `keptProjects`. Membership drives the empty group; `forgetProject` removes a path permanently until a session is added on it again.
-- Add a binding only to the catalog in `../shortcuts-core.ts`: `app.ts` dispatch, the xterm pass-through and the help list all read it, and it matches `KeyboardEvent.code` under Cmd (Mac) or Alt so Option-typed characters reach the terminal.
+- Add a binding only to the catalog in `../shortcuts-core.ts`: `app.ts` dispatch, the xterm pass-through and the help list all read it, and it matches `KeyboardEvent.code` under Cmd (Mac) or Alt so Option-typed characters reach the terminal. Arrows and Page keys match `KeyboardEvent.key` instead, because an xrdp X server reports a wrong `code` for them.
 - `*-core.ts` files stay pure (no DOM, no window, no localStorage); they run under node:test too.
 - The center holds the REAL card (re-parented), not a copy; rail activity paints only on the pill, never on the centered terminal.
 

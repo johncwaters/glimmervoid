@@ -11,7 +11,7 @@ const CALM_IN_FOCUS: ShortcutContext = { isCalmAvailable: true, isCalmViewActive
 const CALM_VIEW: ShortcutContext = { isCalmAvailable: true, isCalmViewActive: true };
 
 function keyEvent(code: string, modifiers: Partial<ShortcutKeyEvent> = {}): ShortcutKeyEvent {
-  return { code, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, ...modifiers };
+  return { key: 'Unidentified', code, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, ...modifiers };
 }
 
 function shortcutModifierHeld(platform: ShortcutPlatform): Partial<ShortcutKeyEvent> {
@@ -48,6 +48,14 @@ test('each dashboard action resolves from its physical key under the platform mo
     assert.deepEqual(resolveDashboardShortcut(keyEvent('KeyI', held), platform, CALM_OFF), { action: 'merge', step: 0 });
     assert.deepEqual(resolveDashboardShortcut(keyEvent('KeyU', held), platform, CALM_OFF), { action: 'resolve-or-resync', step: 0 });
   }
+});
+
+test('an arrow or Page key resolves from its key value when the X server reports a wrong physical code, as under xrdp', () => {
+  const held = shortcutModifierHeld('other');
+  assert.deepEqual(resolveDashboardShortcut(keyEvent('Lang3', { ...held, key: 'ArrowUp' }), 'other', CALM_OFF), { action: 'rail-step', step: -1 });
+  assert.deepEqual(resolveDashboardShortcut(keyEvent('NumpadEnter', { ...held, key: 'ArrowDown' }), 'other', CALM_OFF), { action: 'rail-step', step: 1 });
+  assert.deepEqual(resolveDashboardShortcut(keyEvent('ControlRight', { ...held, key: 'PageDown' }), 'other', CALM_OFF), { action: 'view-step', step: 1 });
+  assert.equal(resolveDashboardShortcut(keyEvent('NumpadEnter', { ...held, key: 'Enter' }), 'other', CALM_OFF), null);
 });
 
 test('Command plus Left or Right steps the view tabs on a Mac', () => {
