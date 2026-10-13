@@ -6060,7 +6060,6 @@ html[data-compact-status] .focus-pill-label { display: none; }
   opacity: 0.55;
 }
 
-.focus-pill[data-merge="pending-review"] { border-color: var(--accent-dim); }
 .focus-pill[data-merge="parked"] { --st: var(--state-failed); border-color: var(--state-failed); }
 .focus-pill[data-merge="parked"] .focus-pill-merge { color: var(--state-failed); }
 
