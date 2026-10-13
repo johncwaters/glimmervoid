@@ -44,6 +44,8 @@ function buildMergePrompt(
     for (const f of files) lines.push(`  - ${f}`);
   }
   lines.push("");
+  lines.push("Only rebase this session branch; do not force-push or rewrite any shared history.");
+  lines.push("");
   lines.push(`Glimmervoid merges by rebasing "${br}" onto ${tgt} and then fast-forwarding ${tgt}. To unblock it:`);
   lines.push(`  1. From this worktree${worktreeDir ? ` (${worktreeDir})` : ""}, run: git rebase ${tgt}`);
   lines.push(
@@ -51,11 +53,10 @@ function buildMergePrompt(
       "then: git add the resolved files and git rebase --continue.",
   );
   lines.push(
-    "  3. When the working tree is clean and rebased, tell me it is ready, or click Merge in the Review " +
-      "panel: the merge will fast-forward.",
+    "  3. When the working tree is clean and rebased, run: glimmervoid push. " +
+      "If it answers no, do what its reply says; " +
+      "when the reply leaves nothing this session can do, say the work is ready and leave the merge to the operator.",
   );
-  lines.push("");
-  lines.push("Only rebase this session branch; do not force-push or rewrite any shared history.");
   return lines.join("\n");
 }
 

@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The parked-merge prompt ends with `glimmervoid push`**: when a session's merge parks, the prompt Glimmervoid pastes into the agent now ends by telling it to run `glimmervoid push` once its branch is rebased and clean. When the push answers no, the agent follows what the push reply tells it to do, and says the work is ready only when that reply leaves it nothing to do. It no longer asks the agent to click Merge in the Review panel, which an agent cannot do.
 - **The agent commands work in every session with no setting**: every session Glimmervoid starts is now handed its own agent address, so `glimmervoid push`, `glimmervoid attention`, `glimmervoid board` and `glimmervoid spawn` no longer wait for a setting to be switched on. The server still answers no where a command must not run, and says why: only an operator session may spawn a session, only an operator session or a session it spawned may push, a lane session (review, PostHog, visions, change map, task title, benchmark) may read the board but may not raise attention, since its notes are not delivered to the operator, and a factory orchestrator stays limited to dispatch, reopen and cancel, including after it has been told to stop.
 
 ### Removed
