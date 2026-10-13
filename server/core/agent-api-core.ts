@@ -23,6 +23,7 @@ interface SpawnBudget {
   lifetimeSpawns: number;
   inFlight: number;
   depth: number;
+  isFactoryWorker: boolean;
 }
 
 type AgentVerdict = { ok: true } | { ok: false; status: number; reason: string };
@@ -89,7 +90,10 @@ function decideAgentRequest({
   return { ok: true };
 }
 
-function decideSpawnAllowance({ liveChildren, lifetimeSpawns, inFlight, depth }: SpawnBudget): AgentVerdict {
+function decideSpawnAllowance({ liveChildren, lifetimeSpawns, inFlight, depth, isFactoryWorker }: SpawnBudget): AgentVerdict {
+  if (isFactoryWorker) {
+    return { ok: false, status: 403, reason: 'the factory starts and counts its workers, so a worker may not spawn a session' };
+  }
   if (depth !== SPAWNABLE_DEPTH) {
     return { ok: false, status: 403, reason: 'a spawned session may not spawn another' };
   }

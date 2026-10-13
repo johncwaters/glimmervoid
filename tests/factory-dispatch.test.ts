@@ -120,7 +120,8 @@ test('dispatch hands off and activates at the integration tip, then provisions a
   assert.match(claudeSessionId ?? '', /^[0-9a-f-]{36}$/);
   assert.equal(overrides.agent, 'claude-code');
   assert.equal(overrides.ephemeral, true);
-  assert.equal(overrides.agentApi, false);
+  assert.equal(overrides.agentApi, true);
+  assert.equal(overrides.factoryRole, 'worker');
   assert.equal(overrides.requireWorktree, true);
   assert.equal(overrides.dangerouslySkipPermissions, false);
   assert.deepEqual(overrides.spawnEnv, { COHERENCE_HOOK_HOST: 'claude', SSH_AUTH_SOCK: '', SSH_ASKPASS: '', GIT_ASKPASS: '', GIT_SSH_COMMAND: 'false',
@@ -157,7 +158,7 @@ test('dispatch hands off and activates at the integration tip, then provisions a
   assert.equal(fixture.spawnEnvs[0].SSH_AUTH_SOCK, '');
   assert.equal(fixture.spawnEnvs[0].GIT_ASKPASS, '');
   assert.equal(fixture.spawnEnvs[0].PATH?.split(path.delimiter)[0], overrides.prependPathDirs?.[0]);
-  assert.equal(fixture.spawnEnvs[0].GLIMMERVOID_AGENT_URL, undefined);
+  assert.match(fixture.spawnEnvs[0][AGENT_URL_ENV] ?? '', /^http:\/\/127\.0\.0\.1:\d+\/agent\/factory-work-[0-9a-f]+\?t=[0-9a-f]+$/, 'the worker holds its own agent address');
   assert.ok(fixture.spawnArguments[0].includes('--setting-sources'));
   const settingsIndex = fixture.spawnArguments[0].indexOf('--settings');
   assert.ok(settingsIndex >= 0);

@@ -41,7 +41,7 @@ test('the token comparison refuses a wrong token and any wrong length', () => {
   assert.equal(tokensMatch('abcd', ''), false);
 });
 
-const EMPTY_BUDGET = { liveChildren: 0, lifetimeSpawns: 0, inFlight: 0, depth: 0 };
+const EMPTY_BUDGET = { liveChildren: 0, lifetimeSpawns: 0, inFlight: 0, depth: 0, isFactoryWorker: false };
 
 test('a fresh top-level session may spawn', () => {
   assert.deepEqual(decideSpawnAllowance(EMPTY_BUDGET), { ok: true });
@@ -70,7 +70,7 @@ test('the lifetime cap survives children exiting', () => {
 });
 
 test('depth is checked before every count, so a child is refused even with an empty budget', () => {
-  const verdict = decideSpawnAllowance({ liveChildren: 9, lifetimeSpawns: 99, inFlight: 5, depth: 2 });
+  const verdict = decideSpawnAllowance({ liveChildren: 9, lifetimeSpawns: 99, inFlight: 5, depth: 2, isFactoryWorker: false });
   assert.equal(verdict.ok === false && verdict.status, 403);
 });
 

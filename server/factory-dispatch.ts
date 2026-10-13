@@ -180,7 +180,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
           const coherence = buildCoherenceSessionOverrides({ claudeSessionId, nodePath, hookCliPath, shimDir });
           const worker = makeSession(identity, config, {
             ...coherence, ...posture.sessionOverrides,
-            agent: 'claude-code', ephemeral: true, agentApi: false, requireWorktree: true, dangerouslySkipPermissions: false,
+            agent: 'claude-code', ephemeral: true, agentApi: true, factoryRole: 'worker', requireWorktree: true, dangerouslySkipPermissions: false,
             gitIsolation: { disableRepoCommands: true },
             initialPrompt: buildWorkerPrompt({ projectName: project.name, intent, order, claudeSessionId, checks }),
             extraClaudeArgs: [...coherence.extraClaudeArgs, ...posture.sessionOverrides.extraClaudeArgs],
