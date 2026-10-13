@@ -662,6 +662,11 @@ function withoutNitsSections(text: string): string {
   return keptLines.join('\n');
 }
 
+function failedRunReason(lines: readonly string[]): string {
+  const firstGap = bulletsIn(sectionAfter(lines, 'GAPS:'))[0];
+  return firstGap ? `the review run did not complete: ${firstGap}` : 'the review run did not complete (VERDICT: FAILED)';
+}
+
 function parseReviewReport(report: string, { isReReview = false }: { isReReview?: boolean } = {}): { ok: true; result: ReviewResultType } | { ok: false; reason: string } {
   if (isReReview) report = withoutNitsSections(report);
   const lines = report.split(/\r?\n/);
@@ -669,7 +674,7 @@ function parseReviewReport(report: string, { isReReview = false }: { isReReview?
   if (!head) return { ok: false, reason: 'the report has no HEAD_SHA line' };
   const verdict = /^VERDICT:\s*(.+?)\s*$/m.exec(report)?.[1];
   if (!verdict) return { ok: false, reason: 'the report has no VERDICT line' };
-  if (verdict === 'FAILED') return { ok: false, reason: 'the review run did not complete (VERDICT: FAILED)' };
+  if (verdict === 'FAILED') return { ok: false, reason: failedRunReason(lines) };
   const findingsSection = sectionAfter(lines, 'STRUCTURED_FINDINGS:');
   const summarySection = sectionAfter(lines, 'OVERALL_SUMMARY:');
   if (!findingsSection || !summarySection) return { ok: false, reason: 'the report is missing STRUCTURED_FINDINGS or OVERALL_SUMMARY' };

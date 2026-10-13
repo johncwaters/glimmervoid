@@ -234,6 +234,15 @@ export function keepMergeablePushArgs(url: string, branch: string, startHeadSha:
   return ['push', '--no-verify', '--quiet', `--force-with-lease=refs/heads/${branch}:${startHeadSha}`, url, keepMergeablePushRefspec(resultSha, branch)];
 }
 
+const PUSH_STDERR_NOISE = /^(?:To \S+|Review all repository rules|Found \d+ violations?:?|[0-9a-f]{40}|error: failed to push some refs\b)/;
+
+export function pushFailureReason(pushStderr: string, fallback: string): string {
+  const meaningfulLines = pushStderr.split(/\r?\n/)
+    .map((line) => line.replace(/^remote:\s*/, '').trim())
+    .filter((line) => line !== '' && !PUSH_STDERR_NOISE.test(line));
+  return meaningfulLines.length > 0 ? meaningfulLines.join(' ') : fallback;
+}
+
 export function isMovedBranchPushRejection(pushError: string): boolean {
   return MOVED_BRANCH_PUSH_REJECTION.test(pushError);
 }

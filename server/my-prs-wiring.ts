@@ -305,7 +305,7 @@ export function createMyPrMergeabilityFix({
     const pushed = await runGit(core.keepMergeablePushArgs(target.url, target.branch, pr.headRefOid, repairSha), staged.projectPath, signal);
     if (signal.aborted) return stopped;
     if (!pushed.ok && core.isMovedBranchPushRejection(pushed.err)) return reportRepairFailure(pr, `not pushed: ${target.branch} moved since the repair was staged, so the push was rejected and is not retried`);
-    if (!pushed.ok) return reportRepairFailure(pr, `pushing the repair to ${target.branch} failed: ${pushed.err}`);
+    if (!pushed.ok) return reportRepairFailure(pr, `pushing the repair to ${target.branch} failed: ${core.pushFailureReason(pushed.stderr ?? '', pushed.err)}`);
     log.log(`[${core.MY_PRS_LANE_ID}] keep mergeable pushed ${repairSha} to ${target.branch} for ${pr.key}`);
     return { outcome: 'pushed' };
   }

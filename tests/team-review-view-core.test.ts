@@ -413,6 +413,13 @@ test('comment parsing accepts fix and open question variants and plain comments'
   assert.equal(parseReviewComment('Plain comment').severity, null);
 });
 
+test('comment parsing strips an agent-written severity heading that names no reviewer', () => {
+  const parsed = parseReviewComment('> [!NOTE]\n> Automated review. Not written by a human.\n\n**MEDIUM**\n\nThe scanner keeps the raw host. Report the catalog host.');
+  assert.equal(parsed.tag, null);
+  assert.equal(parsed.severity, 'MEDIUM');
+  assert.equal(reviewCommentPreview(parsed.paragraphs), 'The scanner keeps the raw host.');
+});
+
 test('inline segments distinguish prose, code and file citations', () => {
   assert.deepEqual(parseInlineSegments('plain text'), [{ text: 'plain text', kind: 'text' }]);
   assert.deepEqual(parseInlineSegments('`foo()`'), [{ text: 'foo()', kind: 'code' }]);

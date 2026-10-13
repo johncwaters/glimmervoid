@@ -1,7 +1,7 @@
 import test from 'node:test';
 import { MyPrsLaneState, prunedFailedAutoRebaseAttempts } from '../server/core/my-prs-core.ts';
 import assert from 'node:assert/strict';
-import { autoRebaseRecord, consecutiveKeepMergeableAttempts, currentKeepMergeableAttempt, deriveStage, hasUnresolvedThreads, isHeadPushedByKeepMergeable, isMovedBranchPushRejection, keepMergeableAttemptKey, keepMergeableClaudeArgs, keepMergeablePermissions, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, keepMergeableFixesToCancel, keepMergeableHandoff, keepMergeablePrompt, keepMergeablePushArgs, keepMergeablePushTarget, keepMergeablePushUrl, mergeAttemptKey, mergeQueuePositions, mergeQueuePrsToMerge, prunedMergeQueueKeys, shouldFixMergeability, shouldAutoRebase, shouldRebaseMyPr, mergedSinceDate, myPrsShouldStart, prunedKeepMergeableState, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/core/my-prs-core.ts';
+import { autoRebaseRecord, consecutiveKeepMergeableAttempts, currentKeepMergeableAttempt, deriveStage, hasUnresolvedThreads, isHeadPushedByKeepMergeable, isMovedBranchPushRejection, pushFailureReason, keepMergeableAttemptKey, keepMergeableClaudeArgs, keepMergeablePermissions, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, keepMergeableFixesToCancel, keepMergeableHandoff, keepMergeablePrompt, keepMergeablePushArgs, keepMergeablePushTarget, keepMergeablePushUrl, mergeAttemptKey, mergeQueuePositions, mergeQueuePrsToMerge, prunedMergeQueueKeys, shouldFixMergeability, shouldAutoRebase, shouldRebaseMyPr, mergedSinceDate, myPrsShouldStart, prunedKeepMergeableState, sortedMyPrs, threadExcerpt, toMyPr, toMyPrThreads, truncatedSearchNote } from '../server/core/my-prs-core.ts';
 import { MyPrSearchNode } from '../shared/contracts/my-prs.ts';
 import type { MyPr, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode, MyPrKeepMergeableAttemptRecord } from '../shared/contracts/my-prs.ts';
 
@@ -312,6 +312,24 @@ test('keep mergeable recognises a moved branch push rejection from the non-fast-
   assert.equal(isMovedBranchPushRejection(' ! [rejected]        abc -> fix/checks (stale info)\nerror: failed to push some refs'), true);
   assert.equal(isMovedBranchPushRejection('fatal: Authentication failed'), false);
   assert.equal(isMovedBranchPushRejection(' ! [remote rejected] abc -> fix/checks (protected branch hook declined)'), false);
+});
+
+test('a rejected keep mergeable push reports the remote rule, not the git command line', () => {
+  const ruleRejection = [
+    'remote: error: GH013: Repository rule violations found for refs/heads/fix/checks.',
+    'remote: Review all repository rules at https://github.com/o/r/rules?ref=refs%2Fheads%2Ffix%2Fchecks',
+    'remote: ',
+    'remote: - Commits must have verified signatures.',
+    'remote:   Found 1 violation:',
+    'remote: ',
+    'remote:   6e0eabd46ee58905667ea13e7698c044d6bb1f98',
+    'remote: ',
+    'To https://github.com/o/r.git',
+    ' ! [remote rejected] 6e0eabd -> fix/checks (push declined due to repository rule violations)',
+    "error: failed to push some refs to 'https://github.com/o/r.git'",
+  ].join('\n');
+  assert.equal(pushFailureReason(ruleRejection, 'Command failed: git push'), 'error: GH013: Repository rule violations found for refs/heads/fix/checks. - Commits must have verified signatures. ! [remote rejected] 6e0eabd -> fix/checks (push declined due to repository rule violations)');
+  assert.equal(pushFailureReason('', 'Command failed: git push'), 'Command failed: git push');
 });
 
 test('keep mergeable hands off only a new commit on top of the head that leaves workflows as head or base had them', () => {

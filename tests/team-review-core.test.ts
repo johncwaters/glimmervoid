@@ -788,6 +788,7 @@ test('a report with no findings parses, and a failed, headless or garbled report
   assert.equal(clean.ok && clean.result.findings.length, 0);
   const refusals: [string, RegExp][] = [
     [REPORT.replace('VERDICT: REQUEST CHANGES', 'VERDICT: FAILED'), /did not complete/],
+    [`${REPORT.replace('VERDICT: REQUEST CHANGES', 'VERDICT: FAILED')}\n\nGAPS:\n- Every Bash call failed with "bwrap: loopback".\n- No file was read.`, /did not complete: Every Bash call failed with "bwrap: loopback"\.$/],
     [REPORT.replace(`HEAD_SHA: ${HEAD}`, ''), /no HEAD_SHA/],
     [REPORT.replace(`HEAD_SHA: ${HEAD}`, 'HEAD_SHA: abc123'), /invalid/],
     [REPORT.replace('VERDICT: REQUEST CHANGES', 'VERDICT: SHIP IT'), /invalid/],
