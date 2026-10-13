@@ -138,7 +138,6 @@ test('orchestrator uses the ledger cwd, pinned Claude hooks, Sane YOLO, a work r
   assert.equal(Object.hasOwn(overrides.spawnEnv ?? {}, AGENT_URL_ENV), false);
   assert.equal(overrides.agent, 'claude-code');
   assert.equal(overrides.ephemeral, true);
-  assert.equal(overrides.agentApi, true);
   assert.equal(overrides.factoryRole, 'orchestrator');
   assert.equal(overrides.gitWorkspace, null);
   assert.equal(overrides.dangerouslySkipPermissions, false);

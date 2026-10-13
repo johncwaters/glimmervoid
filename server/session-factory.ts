@@ -19,7 +19,7 @@ import type { SessionSandbox } from './session-sandbox.ts';
 import { resolveUsageConfig } from './usage-wiring.ts';
 
 type SessionSpawnOverrides = Pick<SessionOptions,
-  'requireWorktree' | 'gitWorkspace' | 'gitIsolation' | 'settingsPermissions' | 'settingsSandbox' | 'prepareSandbox' | 'hookTools' | 'getHookTools' | 'dangerouslySkipPermissions' | 'agentApi' | 'factoryRole' | 'agent' | 'agentDepth' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
+  'requireWorktree' | 'gitWorkspace' | 'gitIsolation' | 'settingsPermissions' | 'settingsSandbox' | 'prepareSandbox' | 'hookTools' | 'getHookTools' | 'dangerouslySkipPermissions' | 'factoryRole' | 'agent' | 'agentDepth' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
 
 interface SessionFactoryDependencies {
   configStore: { configPath: string };
@@ -88,7 +88,6 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       planReviewPort: dependencies.getPlanReviewPort(),
       planLimits: planLimitsEnabled(config),
       getUserHooks: () => dependencies.getUserHooks(project.id),
-      agentApi: config.agentApi?.enabled === true,
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
       ...overrides,
       prepareSandbox: 'prepareSandbox' in overrides ? overrides.prepareSandbox : defaultSandboxFor(project, config, overrides),

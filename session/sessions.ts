@@ -245,7 +245,6 @@ interface SessionOptions {
   worktreeShare?: string[] | null;
   workspaceRepos?: string[];
   agentDepth?: number;
-  agentApi?: boolean;
   commitSigningProgram?: string | null;
   factoryRole?: 'orchestrator' | 'worker' | null;
 }
@@ -328,7 +327,6 @@ class Session extends EventEmitter {
   _hooks: ReturnType<typeof createSessionHookLifecycle>;
   _agentDepth: number;
   _agentToken: string | null;
-  _agentApiEnabled: boolean;
   _commitSigningProgram: string | null;
   _commitSigningToken: string | null;
   _factoryRole: 'orchestrator' | 'worker' | null;
@@ -436,7 +434,6 @@ class Session extends EventEmitter {
     workspaceRepos = undefined,
 
     agentDepth = 0,
-    agentApi = false,
     commitSigningProgram = null,
     factoryRole = null,
   }: SessionOptions) {
@@ -576,7 +573,6 @@ class Session extends EventEmitter {
     });
     this._agentDepth = agentDepth;
     this._agentToken = generateToken();
-    this._agentApiEnabled = agentApi === true;
     this._commitSigningProgram = commitSigningProgram;
     this._commitSigningToken = commitSigningProgram === null ? null : generateToken();
     this._factoryRole = factoryRole;
@@ -1030,7 +1026,7 @@ class Session extends EventEmitter {
   }
 
   _agentApiEnv(): Record<string, string> {
-    if (!this._agentApiEnabled || !this._agentToken) return {};
+    if (!this._agentToken) return {};
     const port = this._hooks.listenerPort();
     if (!port) return {};
     const url = `http://127.0.0.1:${port}/agent/${encodeURIComponent(this.id)}?t=${encodeURIComponent(this._agentToken)}`;
