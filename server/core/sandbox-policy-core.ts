@@ -24,7 +24,10 @@ interface SandboxLaunchState {
 
 type SandboxVendorHome = { scope: 'state' } | SandboxLaunchState;
 
+type GuardrailLevel = 'standard' | 'strict';
+
 interface SandboxRole {
+  guardrailLevel?: GuardrailLevel;
   vendors: readonly SandboxVendor[];
   vendorHome: SandboxVendorHome;
   network: SandboxNetworkAccess;
@@ -44,9 +47,11 @@ interface SandboxVendorLocation {
 interface SandboxHostPaths {
   homeDir: string;
   glimmervoidHome: string;
+  glimmervoidConfigFile: string;
   tempDir: string;
   launchHomeDir: string;
   homeEntryNames: readonly string[];
+  glimmervoidHomeEntryNames: readonly string[];
   vendorLocations: Readonly<Record<SandboxVendor, SandboxVendorLocation>>;
   unwrappedVendorHomes: readonly string[];
   relocatedXdgConfigHome: string | null;
@@ -54,6 +59,7 @@ interface SandboxHostPaths {
 
 interface SandboxHost extends SandboxHostPaths {
   existingPaths: ReadonlySet<string>;
+  writeBlockedPaths: readonly string[];
 }
 
 interface SandboxPolicy {
@@ -124,6 +130,17 @@ const SHARED_TEMP_DIRS: readonly string[] = Object.freeze(['/tmp/claude', '/priv
 const SHARED_HOME_WRITE_ENTRIES: readonly string[] = Object.freeze(['.npm/_logs']);
 const SANDBOX_PLACEHOLDER_NAMES: readonly string[] = Object.freeze([
   '.bash_profile', '.bashrc', '.claude', '.gitconfig', '.gitmodules', '.idea', '.mcp.json', '.profile', '.ripgreprc', '.vscode', '.zprofile', '.zshrc',
+]);
+const WHOLE_FILESYSTEM = '/';
+const GLIMMERVOID_CONFIG_SIBLING_ENTRIES: readonly string[] = Object.freeze([
+  'bin', 'pairings.json', 'pairings-seen.json', 'plans', 'telegram-outbox.json', 'traces', 'uploads', 'usage-budget-state.json', 'usage-lanes.json', 'usage-warehouse.json',
+  'visions-intent.json',
+]);
+const GLIMMERVOID_HOME_STATE_ENTRIES: readonly string[] = Object.freeze([
+  'benchmark-runs', 'benchmarks', 'config.json', 'factory', 'issues-cache.json', 'knowledge-graph', 'litellm-pricing.json', 'my-prs-state.json', 'my-prs-work', 'posthog-reports',
+  'posthog-state.json', 'posthog-work', 'recordings', 'sandbox-homes', 'sandbox-policies', 'sane-yolo', 'scratch', 'sounds', 'team-review-repos', 'team-review-state.json',
+  'team-review-work', 'team-review-worktrees', 'telemetry-pending-crash.json', 'telemetry.json', 'tmp', 'update-check.json', 'update-journal.json', 'workflows-state.json',
+  'workflows-work',
 ]);
 const RUNTIME_MANDATORY_CLAUDE_DENY_FOLDERS: readonly string[] = Object.freeze(['commands', 'agents']);
 const SANDBOXED_PROXY_BYPASS = 'localhost,::1,169.254.0.0/16,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16';
@@ -250,6 +267,30 @@ function relocatedXdgConfigPaths(host: SandboxHostPaths, homeEntries: readonly s
     .map((entry) => path.join(xdgConfigHome, entry.slice(XDG_CONFIG_DEFAULT_HOME_PREFIX.length)));
 }
 
+function isStandardLevel(role: SandboxRole): boolean {
+  return role.guardrailLevel === 'standard';
+}
+
+function credentialWriteBlocks(host: SandboxHostPaths): string[] {
+  const credentialHomeEntries = [...CREDENTIAL_HOME_ENTRIES, ...CLOUD_CREDENTIAL_HOME_ENTRIES];
+  return [...homePaths(host, credentialHomeEntries), ...relocatedXdgConfigPaths(host, credentialHomeEntries)];
+}
+
+function glimmervoidStateWriteBlocks(role: SandboxRole, host: SandboxHostPaths): string[] {
+  const keptWritable = alwaysWritablePaths(role, host);
+  const configFolder = path.dirname(host.glimmervoidConfigFile);
+  const homeEntryNames = [...GLIMMERVOID_HOME_STATE_ENTRIES, ...GLIMMERVOID_CONFIG_SIBLING_ENTRIES, ...host.glimmervoidHomeEntryNames];
+  const homeEntries = homeEntryNames.map((entryName) => path.join(host.glimmervoidHome, entryName));
+  const configSiblings = GLIMMERVOID_CONFIG_SIBLING_ENTRIES.map((entryName) => path.join(configFolder, entryName));
+  return unique([host.glimmervoidConfigFile, ...homeEntries, ...configSiblings])
+    .filter((entryPath) => !keptWritable.some((writable) => isPathInside(entryPath, writable)));
+}
+
+function standardWriteBlockCandidates(role: SandboxRole, host: SandboxHostPaths): string[] {
+  if (!isStandardLevel(role)) return [];
+  return unique([...credentialWriteBlocks(host), ...glimmervoidStateWriteBlocks(role, host)]);
+}
+
 function readDeniedPaths(role: SandboxRole, host: SandboxHostPaths): string[] {
   const otherVendors = SANDBOX_VENDORS.filter((vendor) => !role.vendors.includes(vendor));
   const otherVendorHomeEntries = [...otherVendors.flatMap((vendor) => VENDOR_PROFILES[vendor].homeEntries), ...UNWRAPPED_VENDOR_HOME_ENTRIES];
@@ -275,7 +316,7 @@ function isValidPort(port: number): boolean {
 
 function hostNamedPaths(host: SandboxHostPaths): string[] {
   const relocatedXdgConfigHomes = host.relocatedXdgConfigHome === null ? [] : [host.relocatedXdgConfigHome];
-  return [host.homeDir, host.glimmervoidHome, host.tempDir, host.launchHomeDir, ...relocatedXdgConfigHomes, ...host.unwrappedVendorHomes, ...SANDBOX_VENDORS.flatMap((vendor) => vendorHeldPaths(host, vendor))];
+  return [host.homeDir, host.glimmervoidHome, host.glimmervoidConfigFile, host.tempDir, host.launchHomeDir, ...relocatedXdgConfigHomes, ...host.unwrappedVendorHomes, ...SANDBOX_VENDORS.flatMap((vendor) => vendorHeldPaths(host, vendor))];
 }
 
 function sandboxRoleRefusal(role: SandboxRole, host: SandboxHostPaths): string | null {
@@ -314,6 +355,15 @@ function sandboxedEnvFor(role: SandboxRole, host: SandboxHostPaths): Record<stri
   return {};
 }
 
+function filesystemWrites(role: SandboxRole, host: SandboxHost, writablePaths: readonly string[]): Pick<FilesystemConfig, 'allowWrite' | 'denyWrite'> {
+  if (isStandardLevel(role)) return { allowWrite: literalEntries([WHOLE_FILESYSTEM, ...writablePaths]), denyWrite: literalEntries(host.writeBlockedPaths) };
+  const isPresent = (candidate: string) => host.existingPaths.has(candidate);
+  return {
+    allowWrite: literalEntries(writablePaths),
+    denyWrite: literalEntries([...writeDeniesWhenPresent(role, host).filter(isPresent), ...lockedCheckoutWriteDenies(role)]),
+  };
+}
+
 function buildSandboxLaunchPlan(role: SandboxRole, host: SandboxHost): SandboxLaunchPlanResult {
   const refusal = sandboxRoleRefusal(role, host);
   if (refusal !== null) return { ok: false, reason: refusal };
@@ -330,8 +380,7 @@ function buildSandboxLaunchPlan(role: SandboxRole, host: SandboxHost): SandboxLa
         filesystem: {
           denyRead: literalEntries(readDenied),
           allowRead: literalEntries([...writableWithinDenied, ...role.readableWithinDenied]),
-          allowWrite: literalEntries(writablePaths),
-          denyWrite: literalEntries([...writeDeniesWhenPresent(role, host).filter(isPresent), ...lockedCheckoutWriteDenies(role)]),
+          ...filesystemWrites(role, host, writablePaths),
         },
       },
       launchEnv: Object.assign({ CLAUDE_CODE_TMPDIR: host.tempDir }, ...role.vendors.map((vendor) => VENDOR_PROFILES[vendor].launchEnv), launchHomeEnv(role, host)),
@@ -342,5 +391,7 @@ function buildSandboxLaunchPlan(role: SandboxRole, host: SandboxHost): SandboxLa
   };
 }
 
-export { buildSandboxLaunchPlan, CREDENTIAL_HOME_ENTRIES, lockedClaudeMountPoints, SANDBOX_PLACEHOLDER_NAMES, sandboxPlaceholderPaths, sandboxPolicyProbePaths };
-export type { SandboxHost, SandboxLaunchPlan, SandboxLaunchState, SandboxNetworkAccess, SandboxRole };
+export {
+  buildSandboxLaunchPlan, CREDENTIAL_HOME_ENTRIES, lockedClaudeMountPoints, SANDBOX_PLACEHOLDER_NAMES, sandboxPlaceholderPaths, sandboxPolicyProbePaths, standardWriteBlockCandidates,
+};
+export type { SandboxHost, SandboxHostPaths, SandboxLaunchPlan, SandboxLaunchState, SandboxNetworkAccess, SandboxRole };

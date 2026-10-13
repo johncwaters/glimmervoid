@@ -22,7 +22,6 @@ interface WorkRoleFacts {
 }
 
 interface SessionRoleFacts {
-  commitCheckouts: SandboxRole['commitCheckouts'];
   writableRoots: readonly string[];
   readDenied: readonly string[];
   readablePaths: readonly string[];
@@ -37,7 +36,6 @@ interface SessionConfinementFacts {
 
 const SESSION_VENDORS: readonly SandboxRoleVendor[] = Object.freeze(['claude', 'codex']);
 const CONFINED_SESSION_VENDORS: readonly string[] = Object.freeze(['claude']);
-const UNSHARED_WORKTREE_ENTRIES: readonly string[] = Object.freeze(['.claude']);
 
 const LANE_CREDENTIAL_ENV: Readonly<Record<string, string>> = Object.freeze({
   SSH_AUTH_SOCK: '', SSH_ASKPASS: '', GIT_ASKPASS: '', GIT_SSH_COMMAND: 'false', GIT_TERMINAL_PROMPT: '0',
@@ -72,14 +70,15 @@ function workRole({ vendor, cwd, checkout, readablePaths, writablePaths = [], ag
   };
 }
 
-function sessionRole({ commitCheckouts, writableRoots, readDenied, readablePaths }: SessionRoleFacts): SandboxRole {
+function sessionRole({ writableRoots, readDenied, readablePaths }: SessionRoleFacts): SandboxRole {
   return {
+    guardrailLevel: 'standard',
     vendors: SESSION_VENDORS,
     vendorHome: { scope: 'state' },
     network: { access: 'open' },
     writableRoots: [...new Set(writableRoots)],
     lockedCheckouts: [],
-    commitCheckouts,
+    commitCheckouts: [],
     readDenied: [...readDenied],
     readableWithinDenied: [...readablePaths],
   };
@@ -106,6 +105,6 @@ function isWorktreeAdminDirOf({ adminDir, commonGitDir }: { adminDir: string; co
 
 export {
   isConfinedSessionVendor, isSessionConfined, isWorktreeAdminDirOf, judgeRole, LANE_CREDENTIAL_ENV, LANE_READABLE_HOME_FOLDERS, parseGitdirPointer, sessionRole,
-  UNSHARED_WORKTREE_ENTRIES, workRole,
+  workRole,
 };
 export type { JudgeRoleFacts, SessionConfinementFacts, SessionRoleFacts, WorkRoleFacts };

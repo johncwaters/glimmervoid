@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import http from 'node:http';
@@ -98,7 +99,8 @@ const POSTHOG_INVESTIGATION_EXPECTATIONS: Readonly<Record<string, Expectation>> 
 };
 const SESSION_EXPECTATIONS: Readonly<Record<string, Expectation>> = {
   starts_in_worktree: 'succeeds', commit_everything: 'succeeds', status_clean: 'succeeds', shared_folder_write: 'succeeds', listed_cache_write: 'succeeds', hook_tool_data_write: 'succeeds', listed_secret_read: 'fails',
-  hooks_write: 'fails', git_config_write: 'fails', repo_write: 'fails', home_read: 'fails', upload_read: 'succeeds', outside_write: 'fails', web: 'succeeds',
+  hooks_write: 'succeeds', git_config_write: 'succeeds', repo_write: 'succeeds', home_read: 'fails', upload_read: 'succeeds', outside_write: 'succeeds', web: 'succeeds',
+  glimmervoid_state_write: 'fails', credential_write: 'fails',
 };
 const SESSION_TRUST_PROMPT = 'trustthisfolder';
 const SELECTION_MARKER = String.fromCharCode(0x276f);
@@ -666,6 +668,10 @@ async function probeSession(roleRoot: string): Promise<void> {
   const hooksFile = path.join(repository, '.git', 'hooks', 'role-probe');
   const repositoryFile = path.join(repository, 'owned.txt');
   const outsideFile = path.join(roleRoot, 'outside-session.txt');
+  const glimmervoidStateFile = path.join(probeHome, 'config.json');
+  const glimmervoidStateText = '{}\n';
+  await writeFile(glimmervoidStateFile, glimmervoidStateText);
+  const credentialFile = path.join(os.homedir(), '.ssh', `glimmervoid-role-probe-${randomUUID()}`);
   const resultsFile = path.join(worktree, 'results.txt');
   const sessionId = 'probe-session';
   const uploadsRoot = path.join(probeHome, 'uploads');
@@ -685,6 +691,8 @@ async function probeSession(roleRoot: string): Promise<void> {
     home_read: `cat ${shellQuoted(homeSecretFile)}`,
     upload_read: `cat ${shellQuoted(path.join(uploadsRoot, sessionId, 'pasted.txt'))}`,
     outside_write: `printf outside > ${shellQuoted(outsideFile)}`,
+    glimmervoid_state_write: `printf state > ${shellQuoted(glimmervoidStateFile)}`,
+    credential_write: `printf credential > ${shellQuoted(credentialFile)}`,
     web: 'curl -sf -m 10 -o /dev/null https://example.com',
     finished: 'true',
   });
@@ -696,7 +704,7 @@ async function probeSession(roleRoot: string): Promise<void> {
     hooksBaseDir: path.join(probeHome, 'scratch', 'glimmervoid-hooks'),
     hookTools: [{ id: 'rtk', binPath: quietHookTool, dataDir: hookToolDataDir }],
     prepareSandbox: createSessionSandbox({
-      getSettings: () => ({ writablePaths: [listedCache], unreadablePaths: [listedSecretFolder], worktreeShare: ['node_modules'] }),
+      getSettings: () => ({ writablePaths: [listedCache], unreadablePaths: [listedSecretFolder] }),
       uploadsRoot,
       readGithubToken: async () => null,
     }).prepareFor({ sessionId, isWorkspace: false }),
@@ -729,14 +737,14 @@ async function probeSession(roleRoot: string): Promise<void> {
     });
   } finally {
     session.destroy();
+    await rm(credentialFile, { force: true });
   }
   await recordCheckResults(roleName, resultsFile, SESSION_EXPECTATIONS);
-  await record(roleName, 'the commit holds only the session\'s file and the host is otherwise untouched', async () => {
+  await record(roleName, 'the commit holds only the session\'s file, the primary checkout took its writes and the blocked paths are untouched', async () => {
     assert.equal((await runGit(['log', '--format=', '--name-only', '-1'], worktree)).stdout.trim(), 'work.txt');
-    assert.equal(await readFile(repositoryConfigFile, 'utf8'), repositoryConfigText);
-    await assert.rejects(readFile(hooksFile), { code: 'ENOENT' });
-    await assert.rejects(readFile(repositoryFile), { code: 'ENOENT' });
-    await assert.rejects(readFile(outsideFile), { code: 'ENOENT' });
+    assert.notEqual(await readFile(repositoryConfigFile, 'utf8'), repositoryConfigText);
+    for (const writtenFile of [hooksFile, repositoryFile, outsideFile]) await readFile(writtenFile);
+    assert.equal(await readFile(glimmervoidStateFile, 'utf8'), glimmervoidStateText);
   });
   await record(roleName, 'SessionStart hook reached the host listener', async () => {
     assert.ok(hookRequests.some((requestUrl) => requestUrl.includes(sessionId) && requestUrl.includes('/sessionstart?')), `hook requests seen: ${hookRequests.join(' ')}`);

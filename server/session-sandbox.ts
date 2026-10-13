@@ -1,25 +1,22 @@
-import { lstat, mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { mkdir, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { PrepareSessionSandbox, SessionSandboxFacts } from '../session/sessions.ts';
 import { rawTextOr } from '../shared/coerce.ts';
-import { isPathInside } from '../shared/paths.ts';
 import { errorMessage } from '../shared/text.ts';
 import { execFileAsync } from './child-process-safe.ts';
 import { repositoryRootOfCommonGitDir } from './core/claude-trust-core.ts';
 import type { SandboxRole } from './core/sandbox-policy-core.ts';
-import { sessionRole, UNSHARED_WORKTREE_ENTRIES } from './core/sandbox-roles-core.ts';
+import { sessionRole } from './core/sandbox-roles-core.ts';
 import { expandTilde } from './core/usage-scan-core.ts';
-import { runHardenedGit } from './git-workspace.ts';
 import { allowSandboxedSpawn } from './sandbox-deps.ts';
 import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 import { prepareSandboxLaunch } from './sandbox-launch.ts';
-import { existingRealPath, existingRealPaths, readGitDirsOfOwnCheckout } from './work-lane.ts';
+import { existingRealPaths, readGitDirsOfOwnCheckout } from './work-lane.ts';
 
 interface SessionSandboxSettings {
   writablePaths: readonly string[];
   unreadablePaths: readonly string[];
-  worktreeShare: readonly string[];
 }
 
 interface SessionSandboxRequest {
@@ -41,11 +38,9 @@ interface SessionSandboxDependencies {
 }
 
 type SessionSandbox = ReturnType<typeof createSessionSandbox>;
-type CommitCheckout = SandboxRole['commitCheckouts'][number];
 
 const UNWRAPPED_PLATFORM = 'win32';
 const GITHUB_TOKEN_TIMEOUT_MS = 5000;
-const GIT_TIMEOUT_MS = 30_000;
 const OPT_OUT_HINT = 'Mark the session or its repository unconfined to start it outside the sandbox.';
 
 async function readGithubCliToken(env: NodeJS.ProcessEnv): Promise<string | null> {
@@ -54,75 +49,9 @@ async function readGithubCliToken(env: NodeJS.ProcessEnv): Promise<string | null
   return token || null;
 }
 
-async function gitCheckoutOf(startFolder: string): Promise<string | null> {
-  const toplevel = await runHardenedGit(['rev-parse', '--show-toplevel'], { cwd: startFolder, timeout: GIT_TIMEOUT_MS }).then(({ stdout }) => stdout.trim(), () => '');
-  if (!toplevel) return null;
-  const checkout = await existingRealPath(toplevel);
-  if (checkout === null || !isPathInside(checkout, startFolder)) return null;
-  return checkout;
-}
-
-async function isRegisteredGitEntry(gitEntry: string, worktreeAdminDir: string): Promise<boolean> {
-  const registeredGitEntry = await readFile(path.join(worktreeAdminDir, 'gitdir'), 'utf8')
-    .then((registeredPath) => realpath(path.resolve(worktreeAdminDir, registeredPath.trim())))
-    .catch(() => null);
-  return registeredGitEntry === gitEntry;
-}
-
-async function ownGitDirOf(checkout: string, startFolder: string): Promise<string | null> {
-  const gitDirs = await readGitDirsOfOwnCheckout(startFolder).catch(() => null);
-  if (gitDirs === null) return null;
-  const { commonGitDir, worktreeAdminDir } = gitDirs;
-  const gitEntry = path.join(checkout, '.git');
-  const gitEntryStats = await lstat(gitEntry).catch(() => null);
-  if (gitEntryStats?.isDirectory()) return worktreeAdminDir === gitEntry && commonGitDir === gitEntry ? commonGitDir : null;
-  const isLinkedWorktree = worktreeAdminDir !== commonGitDir;
-  if (!gitEntryStats?.isFile() || !isLinkedWorktree) return null;
-  const gitDirsOfCheckout = checkout === startFolder ? gitDirs : await readGitDirsOfOwnCheckout(checkout).catch(() => null);
-  if (gitDirsOfCheckout?.worktreeAdminDir !== worktreeAdminDir) return null;
-  return await isRegisteredGitEntry(gitEntry, worktreeAdminDir) ? commonGitDir : null;
-}
-
-async function commitCheckoutOf(startFolder: string): Promise<CommitCheckout | null> {
-  const checkout = await gitCheckoutOf(startFolder);
-  if (checkout === null) return null;
-  const gitDir = await ownGitDirOf(checkout, startFolder);
-  return gitDir === null ? null : { checkout, gitDir };
-}
-
-async function memberCommitCheckoutOf(memberFolder: string): Promise<CommitCheckout | null> {
-  const commitCheckout = await commitCheckoutOf(memberFolder);
-  return commitCheckout?.checkout === memberFolder ? commitCheckout : null;
-}
-
-async function workspaceMemberCheckouts(workspaceFolder: string): Promise<CommitCheckout[]> {
-  const entries = await readdir(workspaceFolder, { withFileTypes: true });
-  const memberFolders = entries.filter((entry) => entry.isDirectory()).map((entry) => path.join(workspaceFolder, entry.name));
-  const gitPointers = await Promise.all(memberFolders.map((memberFolder) => existingRealPath(path.join(memberFolder, '.git'))));
-  const commitCheckouts = await Promise.all(memberFolders.filter((_memberFolder, index) => gitPointers[index] !== null).map(memberCommitCheckoutOf));
-  return commitCheckouts.filter((commitCheckout) => commitCheckout !== null);
-}
-
-async function sessionCheckouts(cwd: string, isWorkspace: boolean): Promise<CommitCheckout[]> {
-  if (isWorkspace) return workspaceMemberCheckouts(cwd);
-  const commitCheckout = await commitCheckoutOf(cwd);
-  return commitCheckout === null ? [] : [commitCheckout];
-}
-
-async function sharedFolderBehind(linkPath: string, repositoryFolder: string): Promise<string | null> {
-  const linkStats = await lstat(linkPath).catch(() => null);
-  if (!linkStats?.isSymbolicLink()) return null;
-  const sharedPath = await existingRealPath(linkPath);
-  if (sharedPath !== repositoryFolder) return null;
-  return (await stat(sharedPath)).isDirectory() ? sharedPath : null;
-}
-
-async function sharedFoldersOf({ checkout, gitDir }: SandboxRole['commitCheckouts'][number], worktreeShare: readonly string[]): Promise<string[]> {
-  const repositoryRoot = repositoryRootOfCommonGitDir(gitDir);
-  if (repositoryRoot === null) return [];
-  const sharedEntries = worktreeShare.filter((entry) => !UNSHARED_WORKTREE_ENTRIES.includes(entry));
-  const sharedFolders = await Promise.all(sharedEntries.map((entry) => sharedFolderBehind(path.join(checkout, entry), path.resolve(path.join(repositoryRoot, entry)))));
-  return sharedFolders.filter((sharedFolder) => sharedFolder !== null);
+async function repositoryRootOf(cwd: string): Promise<string | null> {
+  const gitDirs = await readGitDirsOfOwnCheckout(cwd).catch(() => null);
+  return gitDirs === null ? null : repositoryRootOfCommonGitDir(gitDirs.commonGitDir);
 }
 
 function createSessionSandbox({
@@ -137,16 +66,12 @@ function createSessionSandbox({
     const sessionUploads = path.join(uploadsRoot, sessionId);
     await mkdir(sessionUploads, { recursive: true });
     const cwd = await realpath(facts.cwd);
-    const commitCheckouts = await sessionCheckouts(cwd, isWorkspace);
-    const sharedFolders = (await Promise.all(commitCheckouts.map((commitCheckout) => sharedFoldersOf(commitCheckout, settings.worktreeShare)))).flat();
-    const startFolderRoots = commitCheckouts.length === 0 ? [cwd] : [];
-    const ownRepositoryRoot = isWorkspace || commitCheckouts[0] === undefined ? null : repositoryRootOfCommonGitDir(commitCheckouts[0].gitDir);
+    const ownRepositoryRoot = isWorkspace ? null : await repositoryRootOf(cwd);
     return {
       cwd,
       trustFolder: ownRepositoryRoot ?? cwd,
       role: sessionRole({
-        commitCheckouts,
-        writableRoots: [...startFolderRoots, ...sharedFolders, ...await existingRealPaths([...expandHome(settings.writablePaths), ...facts.writablePaths])],
+        writableRoots: await existingRealPaths([...expandHome(settings.writablePaths), ...facts.writablePaths]),
         readDenied: expandHome(settings.unreadablePaths).filter((unreadablePath) => path.isAbsolute(unreadablePath)),
         readablePaths: [...facts.readablePaths, ...await existingRealPaths([sessionUploads, githubCliConfigDir()])],
       }),

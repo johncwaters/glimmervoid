@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
+import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
-import { SandboxRuntimeConfigSchema } from '@anthropic-ai/sandbox-runtime';
-import { buildSandboxLaunchPlan, sandboxPolicyProbePaths } from '../server/core/sandbox-policy-core.ts';
+import { FilesystemConfigSchema, SandboxRuntimeConfigSchema } from '@anthropic-ai/sandbox-runtime';
+import { buildSandboxLaunchPlan, sandboxPolicyProbePaths, standardWriteBlockCandidates } from '../server/core/sandbox-policy-core.ts';
 import type { SandboxHost, SandboxLaunchPlan, SandboxNetworkAccess, SandboxRole } from '../server/core/sandbox-policy-core.ts';
 import { isSessionConfined, sessionRole } from '../server/core/sandbox-roles-core.ts';
 import { HOOK_VIA_SANDBOX_PROXY_ENV } from '../session/core/sandbox-proxy-core.ts';
@@ -17,9 +18,12 @@ const commonGitDir = path.resolve('/work/repo/.git');
 const hostPaths = {
   homeDir,
   glimmervoidHome,
+  glimmervoidConfigFile: path.join(glimmervoidHome, 'config.json'),
   tempDir,
   launchHomeDir,
   homeEntryNames: ['.claude', '.claude.json', '.claude.json.backup', '.codex', '.codex.old', 'Projects'],
+  glimmervoidHomeEntryNames: ['config.json', 'sandbox-policies', 'sandbox-temp', 'scratch'],
+  writeBlockedPaths: [] as string[],
   vendorLocations: {
     claude: { stateFolder: path.join(homeDir, '.claude'), configFiles: [path.join(homeDir, '.claude.json')], otherHomes: [path.join(homeDir, '.config', 'claude')] },
     codex: { stateFolder: path.join(homeDir, '.codex'), configFiles: [], otherHomes: [] },
@@ -111,7 +115,7 @@ test('a commit checkout may write its git dir except hooks, config and the workt
   }
 });
 
-test('an ordinary Claude session is confined unless it or a folder above it is marked unconfined, and writes only its checkout and listed folders', () => {
+test('an ordinary Claude session is confined unless it or a folder above it is marked unconfined, and writes everywhere except credentials and Glimmervoid state', () => {
   const claudeSession = { usageVendor: 'claude', isMarkedUnconfined: false, sessionFolders: [path.resolve('/work/repo')], unconfinedRepos: [] };
   assert.equal(isSessionConfined(claudeSession), true);
   assert.equal(isSessionConfined({ ...claudeSession, isMarkedUnconfined: true }), false);
@@ -120,19 +124,42 @@ test('an ordinary Claude session is confined unless it or a folder above it is m
   assert.equal(isSessionConfined({ ...claudeSession, usageVendor: 'codex' }), false);
   assert.equal(isSessionConfined({ ...claudeSession, usageVendor: null }), false);
 
-  const packageCache = path.join(homeDir, '.npm');
+  const hookScratch = path.join(glimmervoidHome, 'scratch', 'glimmervoid-hooks', 'session-one');
   const githubLogin = path.join(homeDir, '.config', 'gh');
   const listedSecret = path.resolve('/work/secrets');
-  const { network, filesystem } = planFor(sessionRole({
-    commitCheckouts: [{ checkout: worktree, gitDir: commonGitDir }], writableRoots: [packageCache], readDenied: [listedSecret], readablePaths: [githubLogin],
-  })).policy;
+  const role = sessionRole({ writableRoots: [hookScratch], readDenied: [listedSecret], readablePaths: [githubLogin] });
+  const blocked = standardWriteBlockCandidates(role, hostPaths);
+  for (const blockedPath of ['.ssh', '.config/gh', '.aws', '.git-credentials', 'Library/Keychains', '.glimmervoid/config.json', '.glimmervoid/bin', '.glimmervoid/sandbox-policies']) {
+    assert.equal(blocked.includes(path.join(homeDir, blockedPath)), true, blockedPath);
+  }
+  for (const writablePath of ['.claude', '.claude/hooks', '.zshrc', '.gitconfig', '.glimmervoid/sandbox-temp', '.glimmervoid/scratch']) {
+    assert.equal(blocked.includes(path.join(homeDir, writablePath)), false, writablePath);
+  }
+  const linkedTarget = path.resolve('/dotfiles/ssh');
+  const { policy } = planFor(role, { ...hostWhereEveryProbedPathExists(role), writeBlockedPaths: [...blocked, linkedTarget] });
+  const { network, filesystem } = policy;
+  assert.equal(FilesystemConfigSchema.safeParse(filesystem).success, true);
   assert.equal('allowedDomains' in network, false);
-  for (const writablePath of [worktree, commonGitDir, packageCache]) assert.equal(entryPaths(filesystem.allowWrite).includes(writablePath), true, writablePath);
-  assert.equal(entryPaths(filesystem.denyWrite).includes(path.join(commonGitDir, 'hooks')), true);
+  assert.deepEqual(entryPaths(filesystem.allowWrite).slice(0, 2), ['/', tempDir]);
+  assert.deepEqual(entryPaths(filesystem.denyWrite), [...blocked, linkedTarget]);
   assert.equal(entryPaths(filesystem.denyRead).includes(listedSecret), true);
   assert.equal(entryPaths(filesystem.denyRead).includes(path.join(homeDir, '.ssh')), true);
   assert.equal(entryPaths(filesystem.allowRead).includes(githubLogin), true);
   assert.equal(entryPaths(filesystem.denyRead).includes(path.join(homeDir, '.codex')), false);
+});
+
+test('every config sibling file the server names is write-blocked for a session beside the config file, wherever the config lives', async () => {
+  const serverFolder = path.join(import.meta.dirname, '..', 'server');
+  const serverFiles = (await readdir(serverFolder, { recursive: true })).filter((file) => file.endsWith('.ts'));
+  const sources = await Promise.all(serverFiles.map((file) => readFile(path.join(serverFolder, file), 'utf8')));
+  const siblingNames = sources.flatMap((source) => [...source.matchAll(/configSiblingPath\([^,()]*,\s*'([^']+)'\)/g)].map((match) => match[1]));
+  assert.ok(siblingNames.includes('pairings.json'));
+  const role = sessionRole({ writableRoots: [], readDenied: [], readablePaths: [] });
+  for (const configFolder of [glimmervoidHome, path.resolve('/etc/glimmervoid')]) {
+    const glimmervoidConfigFile = path.join(configFolder, 'settings.json');
+    const blocked = standardWriteBlockCandidates(role, { ...hostPaths, glimmervoidConfigFile, glimmervoidHomeEntryNames: [] });
+    for (const blockedPath of [glimmervoidConfigFile, ...siblingNames.map((name) => path.join(configFolder, name))]) assert.equal(blocked.includes(blockedPath), true, blockedPath);
+  }
 });
 
 test('an absent path is never write-denied and an absent login file is never made writable', () => {

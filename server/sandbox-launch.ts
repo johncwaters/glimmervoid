@@ -6,8 +6,9 @@ import { rawTextOr } from '../shared/coerce.ts';
 import { errorCode, errorMessage, isMissingFileError } from '../shared/text.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { listClaudeGlobalConfigPathCandidates } from './core/claude-trust-core.ts';
-import { buildSandboxLaunchPlan, lockedClaudeMountPoints, sandboxPlaceholderPaths, sandboxPolicyProbePaths } from './core/sandbox-policy-core.ts';
-import type { SandboxHost, SandboxLaunchPlan, SandboxRole } from './core/sandbox-policy-core.ts';
+import { decideConfigPath } from './core/config-path-core.ts';
+import { buildSandboxLaunchPlan, lockedClaudeMountPoints, sandboxPlaceholderPaths, sandboxPolicyProbePaths, standardWriteBlockCandidates } from './core/sandbox-policy-core.ts';
+import type { SandboxHost, SandboxHostPaths, SandboxLaunchPlan, SandboxRole } from './core/sandbox-policy-core.ts';
 import { codexHomes, grokHomes, projectDirCandidates } from './core/usage-scan-core.ts';
 import { writeJsonAtomic } from './json-file.ts';
 import { relayPath, resolvePackageBin } from './runtime-paths.ts';
@@ -41,6 +42,7 @@ const LAUNCH_HOME_FOLDER = 'sandbox-homes';
 const START_FOLDER = 'start';
 const ENTER_FOLDER_SCRIPT = 'cd "$1" && shift && exec "$@"';
 const LOGIN_FILE_MODE = 0o600;
+const ABSENT_PATH_DENY_PLATFORM = 'darwin';
 
 async function isPresent(candidate: string): Promise<boolean> {
   try {
@@ -69,6 +71,29 @@ async function realPathWhenPresent(candidate: string): Promise<string> {
 
 function realPathsWhenPresent(candidates: readonly string[]): Promise<string[]> {
   return Promise.all(candidates.map(realPathWhenPresent));
+}
+
+async function symlinkTargetsInside(folder: string): Promise<string[]> {
+  const entries = await readdir(folder, { withFileTypes: true }).catch(() => []);
+  const symlinkEntries = entries.filter((entry) => entry.isSymbolicLink());
+  const targets = await Promise.all(symlinkEntries.map((entry) => realpath(path.join(folder, entry.name)).catch(() => null)));
+  return targets.filter((target): target is string => target !== null);
+}
+
+async function blockedPathsWithRealTargets(candidates: readonly string[]): Promise<string[]> {
+  const resolved = await Promise.all(candidates.map(async (candidate) => {
+    const isPresentEntry = await lstat(candidate).then(() => true, (error: unknown) => !isMissingFileError(error));
+    if (!isPresentEntry) return process.platform === ABSENT_PATH_DENY_PLATFORM ? [candidate] : [];
+    const realCandidate = await realpath(candidate).catch(() => candidate);
+    return [candidate, realCandidate, ...await symlinkTargetsInside(realCandidate)];
+  }));
+  return [...new Set(resolved.flat())];
+}
+
+async function configuredConfigFile(glimmervoidHome: string): Promise<string> {
+  const { envPath, homePath } = decideConfigPath({ env: process.env, homeDir: glimmervoidHome }, () => false);
+  const configFile = envPath ?? homePath;
+  return path.join(await realPathWhenPresent(path.dirname(configFile)), path.basename(configFile));
 }
 
 function scannedClaudeHomes(env: NodeJS.ProcessEnv, homeDir: string): string[] {
@@ -179,17 +204,25 @@ async function prepareSandboxLaunch({ role, launchId, tempDir, enterDir }: Sandb
     const vendorLocations = await resolveVendorLocations(process.env, homeDir);
     if (vendorLocations === null) return { ok: false, reason: 'CODEX_HOME names no folder' };
     const xdgConfigHomeOverride = rawTextOr(process.env.XDG_CONFIG_HOME, null);
-    const hostPaths = {
+    const stableHostPaths = {
       homeDir,
       glimmervoidHome,
+      glimmervoidConfigFile: await configuredConfigFile(glimmervoidHome),
       tempDir: launchTempDir,
       launchHomeDir,
-      homeEntryNames: await readdir(homeDir),
       vendorLocations,
       unwrappedVendorHomes: await realPathsWhenPresent(grokHomes(process.env, homeDir)),
       relocatedXdgConfigHome: xdgConfigHomeOverride === null ? null : await realPathWhenPresent(xdgConfigHomeOverride),
     };
-    const buildPlanFromCurrentDisk = async () => buildSandboxLaunchPlan(realRole, { ...hostPaths, existingPaths: await presentPaths(sandboxPolicyProbePaths(realRole, hostPaths)) });
+    const buildPlanFromCurrentDisk = async () => {
+      const [homeEntryNames, glimmervoidHomeEntryNames] = await Promise.all([readdir(homeDir), readdir(glimmervoidHome)]);
+      const hostPaths: SandboxHostPaths = { ...stableHostPaths, homeEntryNames, glimmervoidHomeEntryNames };
+      const [existingPaths, writeBlockedPaths] = await Promise.all([
+        presentPaths(sandboxPolicyProbePaths(realRole, hostPaths)),
+        blockedPathsWithRealTargets(standardWriteBlockCandidates(realRole, hostPaths)),
+      ]);
+      return buildSandboxLaunchPlan(realRole, { ...hostPaths, existingPaths, writeBlockedPaths });
+    };
     const built = await buildPlanFromCurrentDisk();
     if (!built.ok) return built;
     const { plan } = built;

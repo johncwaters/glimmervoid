@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Sessions write anywhere except credentials and Glimmervoid's own state**: an ordinary Claude Code session used to write only its own checkout and the folders you listed, so a session in a linked worktree could not fast-forward main in the primary checkout, and `/commit` promotion failed with `Operation not permitted`. A session can now write anywhere your account can, except credential folders (`~/.ssh`, `~/.config/gh`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker`, `~/.gnupg`, `~/.netrc`, `~/.npmrc`, `~/.git-credentials`, `~/Library/Keychains`) and Glimmervoid's home (`~/.glimmervoid`, bar the session's own temp and hook folders), plus `config.json` and Glimmervoid's files beside it when `GLIMMERVOID_CONFIG` or `--config` moves it elsewhere. A blocked entry that is a symlink is blocked at its target too. Your global agent config, git hooks and config, and shell startup files are now writable from a session. Lanes that read untrusted input (team review, PostHog fixes, the factory, benchmarks) keep their narrow write lists.
+
 ## [0.33.0] - 2026-10-13
 
 ### Added
