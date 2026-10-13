@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { AGENT_API_VERBS } from '../shared/contracts/session.ts';
+import { AGENT_API_VERBS, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import type { CustomAgentDeclaration } from '../shared/contracts/config.ts';
 import { execSync } from '../server/child-process-safe.ts';
 import { renderTable } from '../server/core/ascii-figure-core.ts';
@@ -54,6 +54,8 @@ const commandLine = parseCommandLine(args);
 
 if (commandLine.kind === 'help') {
   console.log(USAGE);
+  await printSessionLimits();
+  await drainOutput();
   process.exit(0);
 }
 
@@ -99,6 +101,13 @@ const SUBCOMMAND_RUNNERS = new Map<string, SubcommandRunner>([
   }]),
 ]);
 
+async function printSessionLimits(): Promise<void> {
+  if (!process.env[AGENT_URL_ENV]) return;
+  const { sessionLimitsHelpLines } = await import('../server/agent-api-cli.ts');
+  const limitsLines = await sessionLimitsHelpLines();
+  console.log(`\n${limitsLines.join('\n')}`);
+}
+
 function flushStream(stream: NodeJS.WriteStream): Promise<void> {
   return new Promise((resolve) => {
     stream.once('error', () => resolve());
@@ -106,8 +115,12 @@ function flushStream(stream: NodeJS.WriteStream): Promise<void> {
   });
 }
 
-async function exitAfterOutputDrains(exitCode: number): Promise<never> {
+async function drainOutput(): Promise<void> {
   await Promise.all([flushStream(process.stdout), flushStream(process.stderr)]);
+}
+
+async function exitAfterOutputDrains(exitCode: number): Promise<never> {
+  await drainOutput();
   process.exit(exitCode);
 }
 

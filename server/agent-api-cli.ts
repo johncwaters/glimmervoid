@@ -11,6 +11,8 @@ import { isAgentApiVerb, isOrchestratorAgentVerb } from './core/agent-api-core.t
 import { parseJsonOrNull } from './core/json-core.ts';
 
 const AGENT_PATH_PREFIX = '/agent/';
+const HELP_LIMITS_TIMEOUT_MS = 2000;
+const HELP_LIMITS_UNKNOWN_LINE = 'This session: Glimmervoid did not report its limits, so run glimmervoid limits to see why';
 
 type BodyBuilder = (rest: string[]) => Record<string, unknown> | null;
 
@@ -48,11 +50,15 @@ function bodySaysOk(text: string): boolean {
   }
 }
 
+function limitsLines(replyText: string): string[] | null {
+  const limits = AgentLimitsReply.safeParse(parseJsonOrNull(replyText));
+  if (!limits.success) return null;
+  return formatSessionLimits(limits.data);
+}
+
 function printableReply(verb: AgentApiVerb, replyText: string): string {
   if (verb !== 'limits') return replyText;
-  const limits = AgentLimitsReply.safeParse(parseJsonOrNull(replyText));
-  if (!limits.success) return replyText;
-  return formatSessionLimits(limits.data).join('\n');
+  return limitsLines(replyText)?.join('\n') ?? replyText;
 }
 
 type EndpointResolution = { ok: true; endpoint: URL; token: string } | { ok: false };
@@ -71,12 +77,19 @@ interface AgentReply {
   text: string;
 }
 
-async function postDirectly(endpoint: URL, headers: Record<string, string>, bodyText: string): Promise<AgentReply> {
-  const response = await fetch(endpoint, { method: 'POST', headers, body: bodyText });
+interface AgentPost {
+  endpoint: URL;
+  headers: Record<string, string>;
+  bodyText: string;
+  deadline: AbortSignal | null;
+}
+
+async function postDirectly({ endpoint, headers, bodyText, deadline }: AgentPost): Promise<AgentReply> {
+  const response = await fetch(endpoint, { method: 'POST', headers, body: bodyText, signal: deadline });
   return { hasSuccessStatus: response.ok, text: await response.text() };
 }
 
-function postThroughSandboxProxy(sandboxProxy: SandboxProxy, endpoint: URL, headers: Record<string, string>, bodyText: string): Promise<AgentReply> {
+function postThroughSandboxProxy(sandboxProxy: SandboxProxy, { endpoint, headers, bodyText, deadline }: AgentPost): Promise<AgentReply> {
   const proxyHeaders = sandboxProxy.authorization ? { 'proxy-authorization': sandboxProxy.authorization } : {};
   return new Promise((resolve, reject) => {
     const request = http.request({
@@ -85,6 +98,7 @@ function postThroughSandboxProxy(sandboxProxy: SandboxProxy, endpoint: URL, head
       method: 'POST',
       path: endpoint.href,
       headers: { ...headers, ...proxyHeaders, host: endpoint.host, 'content-length': String(Buffer.byteLength(bodyText)) },
+      ...(deadline ? { signal: deadline } : {}),
     }, (response) => {
       const chunks: Buffer[] = [];
       response.on('data', (chunk: Buffer) => { chunks.push(chunk); });
@@ -103,16 +117,40 @@ function wasConnectionRefused(error: unknown): boolean {
   return errorCode((error as { cause?: unknown } | null)?.cause) === 'ECONNREFUSED';
 }
 
-async function postToAgentIngress(endpoint: URL, token: string, body: Record<string, unknown>): Promise<AgentReply> {
-  const headers = { 'content-type': 'application/json', authorization: `Bearer ${token}` };
-  const bodyText = JSON.stringify(body);
+interface AgentIngressCall {
+  endpoint: URL;
+  token: string;
+  body: Record<string, unknown>;
+  deadline?: AbortSignal | null;
+}
+
+async function postToAgentIngress({ endpoint, token, body, deadline = null }: AgentIngressCall): Promise<AgentReply> {
+  const post: AgentPost = {
+    endpoint,
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    bodyText: JSON.stringify(body),
+    deadline,
+  };
   try {
-    return await postDirectly(endpoint, headers, bodyText);
+    return await postDirectly(post);
   } catch (error) {
     if (!wasConnectionRefused(error)) throw error;
     const sandboxProxy = decideSandboxProxy(process.env);
     if (!sandboxProxy) throw error;
-    return postThroughSandboxProxy(sandboxProxy, endpoint, headers, bodyText);
+    return postThroughSandboxProxy(sandboxProxy, post);
+  }
+}
+
+async function sessionLimitsHelpLines({ timeoutMs = HELP_LIMITS_TIMEOUT_MS }: { timeoutMs?: number } = {}): Promise<string[]> {
+  const rawUrl = process.env[AGENT_URL_ENV];
+  if (!rawUrl) return [];
+  const target = verbEndpoint(rawUrl, 'limits');
+  if (!target.ok) return [HELP_LIMITS_UNKNOWN_LINE];
+  try {
+    const reply = await postToAgentIngress({ endpoint: target.endpoint, token: target.token, body: {}, deadline: AbortSignal.timeout(timeoutMs) });
+    return limitsLines(reply.text) ?? [HELP_LIMITS_UNKNOWN_LINE];
+  } catch {
+    return [HELP_LIMITS_UNKNOWN_LINE];
   }
 }
 
@@ -141,9 +179,9 @@ async function runAgentApiCli(args: string[]): Promise<number> {
     console.error(`glimmervoid: ${AGENT_URL_ENV} must be a loopback http url under ${AGENT_PATH_PREFIX}, so nothing was sent`);
     return 1;
   }
-  const reply = await postToAgentIngress(target.endpoint, target.token, body);
+  const reply = await postToAgentIngress({ endpoint: target.endpoint, token: target.token, body });
   console.log(printableReply(verb, reply.text));
   return reply.hasSuccessStatus && bodySaysOk(reply.text) ? 0 : 1;
 }
 
-export { runAgentApiCli };
+export { runAgentApiCli, sessionLimitsHelpLines };
