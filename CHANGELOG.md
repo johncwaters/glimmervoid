@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A failed ledger landing survives a restart**: Glimmervoid remembers the exact content of its own unlanded ledger writes across a restart and retries landing them, instead of refusing every later landing as a forged factory write. A copy or altered version of one of those writes is still refused.
 - **A failed factory check names the failing tests**: when a check such as `npm test` fails, the retry feedback a worker gets, and the reason recorded when the ticket blocks, now carry each failing test with its error and the pass and fail counts, instead of only the last lines of output, which for a long suite were all passing tests.
 - **Factory workers wait for their own commands**: a factory worker now runs every shell command in the foreground, with up to 15 minutes per command, so a long `npm test` finishes and its result is seen before the worker ends its turn, instead of being moved to the background and left running.
+- **The factory orchestrator can now reopen or cancel a blocked ticket**: it is allowed to run `glimmervoid reopen <wrk-id>` and `glimmervoid cancel <wrk-id>` and is told to use them for a blocked child of its intent, instead of those commands being denied and the intent stalling. It still cannot change ticket state through coherence directly.
 
 ## [0.31.0] - 2026-10-12
 

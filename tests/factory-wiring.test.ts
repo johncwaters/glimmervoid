@@ -18,7 +18,8 @@ import { createFactoryWiring } from '../server/factory-wiring.ts';
 import { cliPath as glimmervoidCliPath, resolvePackageBin } from '../server/runtime-paths.ts';
 import type { FactoryState } from '../shared/contracts/factory.ts';
 import { createRepositoryWithOrigin, gitRunnerIn, initGitRepository, stubEnvironmentVariable } from './helpers/factory-fixture.ts';
-import { FACTORY_STALL_MS, decideIntentClose } from '../server/core/factory-core.ts';
+import { FACTORY_STALL_MS, buildOrchestratorPrompt, decideIntentClose } from '../server/core/factory-core.ts';
+import { FACTORY_ORCHESTRATOR_ALLOW, FACTORY_ORCHESTRATOR_DENY } from '../server/factory-orchestrator.ts';
 import type { LaneSpend } from '../server/core/usage-scan-core.ts';
 import type { Session } from '../session/sessions.ts';
 import { STATES } from '../shared/states.ts';
@@ -1178,6 +1179,20 @@ test('a live orchestrator reopens a blocked child and cancels an open one as fac
   assert.deepEqual(await fixture.wiring.cancel(session.id, { workId }), { ok: true, workId, state: 'cancelled' });
   assert.deepEqual(ledgerWrites().at(-1)?.slice(0, 4), ['work', 'close', workId, 'cancelled']);
   assert.equal(ledgerWrites().length, 2);
+});
+
+test('the orchestrator may run glimmervoid reopen and cancel, is told to use them for a blocked child, and still cannot transition or close work', () => {
+  assert.ok(FACTORY_ORCHESTRATOR_ALLOW.includes('Bash(glimmervoid reopen:*)'));
+  assert.ok(FACTORY_ORCHESTRATOR_ALLOW.includes('Bash(glimmervoid cancel:*)'));
+  assert.ok(FACTORY_ORCHESTRATOR_DENY.includes('Bash(coherence work transition:*)'));
+  assert.ok(FACTORY_ORCHESTRATOR_DENY.includes('Bash(coherence work close:*)'));
+  const intent: FactoryState['projects'][number]['orders'][number] = {
+    id: 'intent', objective: 'intent', openedAt: '2026-10-12T00:00:00.000Z', criteria: [], boundary: 'repo', risk: 'low', state: 'active', readiness: 'ready',
+    parent: null, dependsOn: [], writeScopes: [], owner: null, lastEvent: null,
+  };
+  const prompt = buildOrchestratorPrompt({ projectName: 'repo', intent, claudeSessionId: 'claude-session' });
+  assert.ok(prompt.includes('To unblock a blocked child of this intent, run glimmervoid reopen <wrk-id>.'));
+  assert.ok(prompt.includes('To drop a blocked child instead, run glimmervoid cancel <wrk-id>.'));
 });
 
 test('the orchestrator cannot cancel a ticket while its worker is live', async (context) => {

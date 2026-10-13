@@ -30,6 +30,7 @@ import type { SessionSpawnOverrides } from './session-factory.ts';
 export const FACTORY_ORCHESTRATOR_ALLOW = Object.freeze([
   'Bash(coherence work create:*)', 'Bash(coherence orient:*)', 'Bash(coherence work inspect:*)',
   'Bash(coherence context:*)', 'Bash(coherence decide:*)', 'Bash(coherence defects:*)', 'Bash(glimmervoid dispatch:*)',
+  'Bash(glimmervoid reopen:*)', 'Bash(glimmervoid cancel:*)',
 ]);
 
 export const FACTORY_ORCHESTRATOR_DENY = Object.freeze([
