@@ -6,6 +6,7 @@ import type { PendingPromptDetail } from '#shared/contracts/session.ts';
 import type { SessionState } from '#shared/states.ts';
 import { KILLABLE_STATES, RESTARTABLE_STATES, STATES } from '#shared/states.ts';
 import { playAlertSound } from '../alert-sound.ts';
+import { hasSessionDocs, openDocEditor } from '../doc-editor.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el, isMonitoringState } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
@@ -123,6 +124,11 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
   ui.btnTrace.addEventListener('click', () => {
     closeRestartMenu(ui);
     openTraceForSession(sessionId);
+  });
+
+  ui.btnDocs.addEventListener('click', () => {
+    closeRestartMenu(ui);
+    openDocEditor(sessionId);
   });
 
   ui.btnPlan.addEventListener('click', () => {
@@ -334,6 +340,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     btnResume: dom.btnResume,
     btnTrace: dom.btnTrace,
     btnPlan: dom.btnPlan,
+    btnDocs: dom.btnDocs,
     btnRemove: dom.btnRemove,
     debugOverlay: null,
     debugOpen: false,
@@ -365,6 +372,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
 
   wireCardEvents(sessionUi, id);
   updateButtonVisibility(sessionUi);
+  sessionUi.btnDocs.classList.toggle('visible', hasSessionDocs(id));
 
   if (state === STATES.RUNNING) setRunningActivity(sessionUi, true);
 

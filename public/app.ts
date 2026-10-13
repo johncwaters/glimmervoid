@@ -11,6 +11,7 @@ import { createClientErrorReporter } from './client-error-core.ts';
 import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from './flying-animal-preview.ts';
 import { checkControlLiveness, connectControl, onControlMessage, sendControlMsg, sendControlRequest, setConnectionStateCallback } from './control-ws.ts';
 import { createAddSessionDialog } from './dialogs.ts';
+import { applySessionDocsChanged, applySessionDocsSnapshot } from './doc-editor.ts';
 import { observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers.ts';
 import { routeExternalAnchorsThroughHost } from './external-link.ts';
 import type { FeatureSurfaceSettings } from './feature-surfaces-core.ts';
@@ -392,6 +393,8 @@ const messageHandlers = {
   'session-plan-changed': (msg) => { applySessionPlanChanged(msg); refreshAttentionSurfaces(); },
   'session-plan-draft': (msg) => { applySessionPlanDraft(msg); },
   'session-plan-response': (msg) => { applySessionPlanResponse(msg); },
+  'session-docs-changed': (msg) => applySessionDocsChanged(msg),
+  'session-docs-snapshot': (msg) => applySessionDocsSnapshot(msg),
 
   'notify':             (msg) => { showDesktopNotification(msg); handleDebugStateRefresh(msg.session); },
   'update-status':      (msg) => { showUpdateBanner(msg); applySettingsUpdateStatus(msg); },

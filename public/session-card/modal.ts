@@ -1,6 +1,14 @@
 import { el } from '../dom-helpers.ts';
 
-export function createModalOverlay({ dialogClass = 'dialog', closeOnBackdrop = true } = {}) {
+function isTopmostOverlay(overlay: HTMLElement) {
+  return [...document.querySelectorAll('.dialog-overlay')].at(-1) === overlay;
+}
+
+export function createModalOverlay({ dialogClass = 'dialog', closeOnBackdrop = true, onEscape }: {
+  dialogClass?: string;
+  closeOnBackdrop?: boolean;
+  onEscape?: () => void;
+} = {}) {
   const opener = document.activeElement;
 
   const overlay = document.createElement('div');
@@ -14,7 +22,11 @@ export function createModalOverlay({ dialogClass = 'dialog', closeOnBackdrop = t
 
   function onKeydown(e: KeyboardEvent) {
     if (e.key !== 'Escape') return;
-    close();
+    if (!onEscape) {
+      close();
+      return;
+    }
+    if (isTopmostOverlay(overlay)) onEscape();
   }
   document.addEventListener('keydown', onKeydown);
 

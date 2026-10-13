@@ -5898,6 +5898,39 @@ html[data-layout="phone"] .plan-revision-list { display: flex; flex-direction: c
 html[data-layout="phone"] .plan-revision-option { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 12px; text-align: left; font-size: 14px; }
 html[data-layout="phone"] .plan-revision-option::before { content: ""; flex: 0 0 12px; height: 12px; border: 1px solid var(--border-hover); border-radius: 50%; }
 html[data-layout="phone"] .plan-revision-option[aria-checked="true"]::before { border-color: var(--accent); background: var(--accent); }
+.doc-editor {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: min(1100px, calc(100vw - 32px));
+  height: calc(100dvh - 32px);
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  overflow: hidden;
+  font-family: var(--font-mono);
+}
+.doc-editor-header { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg-header); }
+.doc-editor-title { flex: 1 1 auto; min-width: 0; margin: 0; overflow: hidden; color: var(--text-head); font-size: 14px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.doc-editor-picker { max-width: 32ch; text-transform: none; letter-spacing: 0; }
+.doc-editor-modes { display: flex; border: 1px solid var(--border); border-radius: var(--radius); }
+.doc-editor-modes .plan-control { border-color: transparent; border-radius: 0; }
+.doc-editor-mode[aria-pressed="true"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.doc-editor-actions { display: flex; align-items: center; gap: 8px; }
+.doc-editor-status { color: var(--text-muted); font-size: 11px; }
+.doc-editor-status[data-tone="warn"] { color: var(--state-waiting); }
+.doc-editor-save:not(:disabled) { border-color: var(--accent-dim); color: var(--accent); }
+.doc-editor :is(button, select, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.doc-editor button:not(:disabled):hover { color: var(--text-head); border-color: var(--border-hover); }
+.doc-editor button:disabled { cursor: default; opacity: 0.42; }
+.doc-editor-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px; }
+.doc-editor-text { height: 100%; }
+html[data-layout="phone"] .doc-editor { width: 100vw; height: 100dvh; border: 0; border-radius: 0; }
+html[data-layout="phone"] .doc-editor-header { padding-top: max(8px, env(safe-area-inset-top)); }
+html[data-layout="phone"] .doc-editor .plan-control { min-height: 40px; }
+html[data-layout="phone"] .doc-editor-actions { flex: 1 1 100%; justify-content: flex-end; }
+html[data-layout="phone"] .doc-editor-status { margin-right: auto; }
+html[data-layout="phone"] .doc-editor-body { padding: 12px; }
 html[data-layout="phone"] .plan-revision-name { flex: 1 1 auto; }
 html[data-layout="phone"] .plan-revision-open { color: var(--state-waiting); font-size: 10px; font-weight: 700; }
 html[data-layout="phone"] .plan-action-bar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; padding: 4px 12px 10px; }

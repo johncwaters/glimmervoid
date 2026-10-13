@@ -138,7 +138,11 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   btnPlan.type = 'button';
   btnPlan.title = 'Show plan';
 
-  actions.append(btnPlan, btnDebug, btnTrace, restartMenuWrap, btnRemove);
+  const btnDocs = el('button', 'btn-action btn-face-plan btn-docs', 'Docs');
+  btnDocs.type = 'button';
+  btnDocs.title = 'Open docs the agent surfaced';
+
+  actions.append(btnDocs, btnPlan, btnDebug, btnTrace, restartMenuWrap, btnRemove);
   const tags = el('div', 'session-card-tags');
   const tagChildren = TAG_BADGES.map((spec) => buildTagBadge(spec));
   if (permsBadge) tagChildren.push(permsBadge);
@@ -149,7 +153,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   card.append(header, termWrap);
 
-  return { card, header, nameEl, elapsedEl, taskTitleEl, btnRestart, btnRestartFresh, btnRestartMenu, btnResume, btnTrace, btnRemove, btnPlan, btnDebug, restartMenu, termWrap };
+  return { card, header, nameEl, elapsedEl, taskTitleEl, btnRestart, btnRestartFresh, btnRestartMenu, btnResume, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, restartMenu, termWrap };
 }
 
 function buildRestartMenuItem(label: string, hint: string, className: string) {

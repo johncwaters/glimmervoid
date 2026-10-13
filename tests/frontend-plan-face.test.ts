@@ -110,6 +110,7 @@ test('the borrowed card swaps to plan and release restores the terminal face thr
     btnResume: button,
     btnTrace: button,
     btnPlan: button,
+    btnDocs: button,
     btnRemove: button,
     debugOverlay: null,
     debugOpen: false,
