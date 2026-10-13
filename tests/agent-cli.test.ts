@@ -122,6 +122,32 @@ test('attention posts the joined note and board posts an empty object', async ()
   });
 });
 
+test('limits prints the session limits as lines, and a reply it cannot read as it came', async () => {
+  const limitsReply = {
+    ok: true,
+    commands: [{ name: 'push', answers: true }, { name: 'spawn', answers: false, reason: 'a spawned session may not spawn another' }],
+    sandboxed: true,
+    deadEnds: [{ blocked: '/tmp is read-only', route: 'write temporary files under $TMPDIR' }],
+  };
+  await withAgentServer(() => ({ status: 200, body: JSON.stringify(limitsReply) }), async (agentUrl, received) => {
+    const run = await runCli(['limits'], agentUrl);
+    assert.equal(run.code, 0);
+    assert.equal(received[0].url, `/agent/${SESSION_ID}/limits`);
+    assert.deepEqual(run.stdout.join('\n').split('\n'), [
+      'This session:',
+      '  push: available',
+      '  spawn: not available, a spawned session may not spawn another',
+      '  sandbox: OS-enforced, so a refused write or connection will not succeed on retry',
+      '  /tmp is read-only: write temporary files under $TMPDIR',
+    ]);
+  });
+  const refusal = '{"ok":false,"reason":"only live factory orchestrators may dispatch, reopen or cancel, and they may do nothing else"}';
+  await withAgentServer(() => ({ status: 403, body: refusal }), async (agentUrl) => {
+    const run = await runCli(['limits'], agentUrl);
+    assert.deepEqual([run.code, run.stdout], [1, [refusal]]);
+  });
+});
+
 test('the token never rides the query string of the posted url', async () => {
   await withAgentServer(OK_REPLY, async (agentUrl, received) => {
     await runCli(['board'], agentUrl);

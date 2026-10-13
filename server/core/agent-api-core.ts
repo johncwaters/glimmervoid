@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 
 import { AGENT_API_VERBS, AgentDispatchRequest, AgentAttentionRequest, AgentSpawnRequest, ORCHESTRATOR_AGENT_VERBS } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, OrchestratorAgentVerb, TicketAgentVerb } from '../../shared/contracts/session.ts';
+import { attentionRoute, NO_OWN_WORKTREE_REASON, pushRoute, spawnRoute } from '../../session/core/session-routes.ts';
+import type { RouteVerdict, SessionRoleFacts } from '../../session/core/session-routes.ts';
 
 const MAX_LIVE_CHILDREN = 3;
 const MAX_LIFETIME_SPAWNS = 10;
@@ -27,17 +29,12 @@ interface SpawnBudget {
   isEphemeral: boolean;
 }
 
-interface AttentionCaller {
-  isEphemeral: boolean;
-  hasFactoryRole: boolean;
-  isSpawnedChild: boolean;
-}
-
 type AgentVerdict = { ok: true } | { ok: false; status: number; reason: string };
 
 type AgentVerbRequest =
   | { ok: true; verb: 'board' }
   | { ok: true; verb: 'push' }
+  | { ok: true; verb: 'limits' }
   | { ok: true; verb: 'dispatch'; request: AgentDispatchRequest }
   | { ok: true; verb: 'attention'; request: AgentAttentionRequest }
   | { ok: true; verb: 'spawn'; request: AgentSpawnRequest }
@@ -45,7 +42,6 @@ type AgentVerbRequest =
 
 const INVALID_BODY_STATUS = 400;
 const PUSH_REFUSED_STATUS = 409;
-const PUSH_UNAVAILABLE_REASON = 'not-operator-session';
 
 interface PushLanding {
   merged: boolean;
@@ -61,8 +57,7 @@ interface AgentPushReply {
 }
 
 const PUSH_REFUSAL_COPY: Readonly<Record<string, (landing: PushLanding) => string>> = Object.freeze({
-  [PUSH_UNAVAILABLE_REASON]: () => 'only an operator session or a session it spawned can push',
-  'no-worktree': () => 'this session has no worktree of its own, so there is nothing of its own to land',
+  'no-worktree': () => NO_OWN_WORKTREE_REASON,
   'merge-in-progress': () => 'a merge for this session is already running, so try again when it ends',
   'not-continuable': () => 'this session cannot be merged in its current state',
   destroyed: () => 'this session is ending',
@@ -96,16 +91,14 @@ function decideAgentRequest({
   return { ok: true };
 }
 
+function refuseByRole(route: RouteVerdict): AgentVerdict {
+  if (route.answers) return { ok: true };
+  return { ok: false, status: 403, reason: route.reason };
+}
+
 function decideSpawnAllowance({ liveChildren, lifetimeSpawns, inFlight, depth, isFactoryWorker, isEphemeral }: SpawnBudget): AgentVerdict {
-  if (isFactoryWorker) {
-    return { ok: false, status: 403, reason: 'the factory starts and counts its workers, so a worker may not spawn a session' };
-  }
-  if (depth !== SPAWNABLE_DEPTH) {
-    return { ok: false, status: 403, reason: 'a spawned session may not spawn another' };
-  }
-  if (isEphemeral) {
-    return { ok: false, status: 403, reason: 'only an operator session may spawn a session, because the new session gets an operator session sandbox, which can be wider than this one' };
-  }
+  const role = refuseByRole(spawnRoute({ isEphemeral, isSpawnedChild: depth !== SPAWNABLE_DEPTH, factoryRole: isFactoryWorker ? 'worker' : null }));
+  if (!role.ok) return role;
   if (inFlight >= MAX_SPAWNS_IN_FLIGHT) {
     return { ok: false, status: 429, reason: 'a spawn is already in flight' };
   }
@@ -118,11 +111,14 @@ function decideSpawnAllowance({ liveChildren, lifetimeSpawns, inFlight, depth, i
   return { ok: true };
 }
 
-function decideAttentionAllowance({ isEphemeral, hasFactoryRole, isSpawnedChild }: AttentionCaller): AgentVerdict {
-  if (!isEphemeral) return { ok: true };
-  if (hasFactoryRole) return { ok: true };
-  if (isSpawnedChild) return { ok: true };
-  return { ok: false, status: 403, reason: 'a lane session cannot raise attention, because its notes are not delivered to the operator' };
+function decideAttentionAllowance(caller: SessionRoleFacts): AgentVerdict {
+  return refuseByRole(attentionRoute(caller));
+}
+
+function describePushRouteRefusal(caller: SessionRoleFacts): AgentPushReply | null {
+  const route = pushRoute(caller);
+  if (route.answers) return null;
+  return { status: PUSH_REFUSED_STATUS, body: { ok: false, reason: route.code, error: route.reason } };
 }
 
 function isAgentApiVerb(verb: string): verb is AgentApiVerb {
@@ -172,7 +168,7 @@ function parseAgentVerb(verb: string, payload: Record<string, unknown>): AgentVe
     return { ok: true, verb, request: parsed.data };
   }
   if (verb === 'reopen' || verb === 'cancel') return { ok: false, status: 403, error: `${verb} requires a live factory orchestrator` };
-  if (verb === 'board' || verb === 'push') return { ok: true, verb };
+  if (verb === 'board' || verb === 'push' || verb === 'limits') return { ok: true, verb };
   if (verb === 'attention') {
     const parsed = AgentAttentionRequest.safeParse(payload);
     if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
@@ -209,7 +205,8 @@ function deriveChildSessionName(parentName: string, existingNames: readonly stri
 }
 
 export {
-  decideAgentRequest, decideAttentionAllowance, decideSpawnAllowance, decideTicketAction, deriveChildSessionName, describePushLanding, isAgentApiVerb,
-  isOrchestratorAgentVerb, parseAgentVerb, tokensMatch, PUSH_UNAVAILABLE_REASON, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN, REFUSAL_REASON, REFUSAL_STATUS,
+  decideAgentRequest, decideAttentionAllowance, decideSpawnAllowance, decideTicketAction, deriveChildSessionName, describePushLanding,
+  describePushRouteRefusal, isAgentApiVerb, isOrchestratorAgentVerb, parseAgentVerb, tokensMatch, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN,
+  REFUSAL_REASON, REFUSAL_STATUS,
 };
-export type { AgentVerbRequest, AttentionCaller, SpawnBudget, TicketAction, TicketActionInput };
+export type { AgentVerbRequest, SpawnBudget, TicketAction, TicketActionInput };

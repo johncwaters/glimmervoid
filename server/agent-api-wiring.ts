@@ -2,14 +2,16 @@ import crypto from 'node:crypto';
 
 import { getAdapter, isKnownAgentId } from '../session/adapters/index.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
+import { describeSessionLimits } from '../session/core/session-routes.ts';
+import type { SessionRoleFacts } from '../session/core/session-routes.ts';
 import type { Session } from '../session/sessions.ts';
 import type {
-  AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentSpawnRequest,
+  AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentLimitsReply, AgentSpawnRequest,
 } from '../shared/contracts/session.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord } from './control-replay-core.ts';
 import {
-  decideAttentionAllowance, decideSpawnAllowance, deriveChildSessionName, describePushLanding, parseAgentVerb, PUSH_UNAVAILABLE_REASON,
+  decideAttentionAllowance, decideSpawnAllowance, deriveChildSessionName, describePushLanding, describePushRouteRefusal, parseAgentVerb,
 } from './core/agent-api-core.ts';
 import { isConfinedSessionVendor } from './core/sandbox-roles-core.ts';
 import { registerEphemeralSession } from './ephemeral-session.ts';
@@ -128,16 +130,17 @@ function createAgentApiWiring({
     }
   }
 
-  function isSpawnedChild(session: Session): boolean {
-    return agentSessions.has(session.id) && session.id.startsWith(`${AGENT_LANE_TAG}-`);
+  function roleFactsOf(session: Session): SessionRoleFacts {
+    return {
+      isEphemeral: session.ephemeral,
+      isSpawnedChild: agentSessions.has(session.id) && session.id.startsWith(`${AGENT_LANE_TAG}-`),
+      factoryRole: session.factoryRole,
+      hasOwnWorktree: session.hasOwnWorktree,
+    };
   }
 
   function attention(session: Session, request: AgentAttentionRequest): AgentApiReply {
-    const allowance = decideAttentionAllowance({
-      isEphemeral: session.ephemeral,
-      hasFactoryRole: session.factoryRole !== null,
-      isSpawnedChild: isSpawnedChild(session),
-    });
+    const allowance = decideAttentionAllowance(roleFactsOf(session));
     if (!allowance.ok) return { status: allowance.status, body: { ok: false, error: allowance.reason } };
     const reply: AgentAttentionReply = session.noteAttention(request.note);
     return { status: reply.ok ? 200 : 429, body: reply };
@@ -153,8 +156,13 @@ function createAgentApiWiring({
     }));
   }
 
+  function limits(session: Session): AgentLimitsReply {
+    return { ok: true, ...describeSessionLimits({ ...roleFactsOf(session), isSandboxed: session.isConfined }) };
+  }
+
   async function push(session: Session): Promise<AgentApiReply> {
-    if (session.ephemeral && !isSpawnedChild(session)) return describePushLanding({ merged: false, reason: PUSH_UNAVAILABLE_REASON });
+    const routeRefusal = describePushRouteRefusal(roleFactsOf(session));
+    if (routeRefusal) return routeRefusal;
     return describePushLanding(await session.mergeAndContinue({ force: true }));
   }
 
@@ -164,6 +172,7 @@ function createAgentApiWiring({
     if (parsed.verb === 'dispatch') return { status: 403, body: { ok: false, reason: 'dispatch requires a live factory orchestrator' } };
     if (parsed.verb === 'board') return { status: 200, body: { ok: true, sessions: board() } };
     if (parsed.verb === 'push') return push(session);
+    if (parsed.verb === 'limits') return { status: 200, body: limits(session) };
     if (parsed.verb === 'attention') return attention(session, parsed.request);
     const outcome = await spawn(session, parsed.request);
     if (!outcome.ok) return { status: outcome.status, body: { ok: false, error: outcome.error } };

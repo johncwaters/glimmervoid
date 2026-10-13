@@ -378,6 +378,10 @@ function createSessionWorktreeLifecycle({
     };
   }
 
+  function hasOwnWorktree(): boolean {
+    return Boolean(gitWorkspace && lifecycleState.workspace);
+  }
+
   function setMergeStatus(status: MergeStatus, detail: Record<string, unknown> = {}, { emit = true }: { emit?: boolean } = {}): void {
     Object.assign(lifecycleState, projectMergeState(status, detail));
     if (!emit) return;
@@ -1199,6 +1203,7 @@ function createSessionWorktreeLifecycle({
   const api = {
     snapshot,
     getCarry,
+    hasOwnWorktree,
     effectiveCwd,
     refreshGitContext,
     provision,

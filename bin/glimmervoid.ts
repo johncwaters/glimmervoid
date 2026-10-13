@@ -40,6 +40,7 @@ Commands:
   attention <note>  From inside a Glimmervoid session, flag it as needing the operator
   board             From inside a Glimmervoid session, list the live sessions
   push              From inside a Glimmervoid session, land its commits on the integration branch and push it
+  limits            From inside a Glimmervoid session, list which of these commands answer and what its sandbox blocks
   kg [command]      Experimental typed knowledge and task graph (Settings > Lanes > Knowledge graph)
 
 Options:

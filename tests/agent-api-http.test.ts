@@ -13,6 +13,7 @@ import { sessionIdFromBranch } from '../server/core/branch-gc-core.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
 import { createBackendHttpApp } from '../server/backend-http.ts';
 import { decideTicketAction, describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
+import { AgentLimitsReply } from '../shared/contracts/session.ts';
 import type { AgentTicketRequest } from '../shared/contracts/session.ts';
 import { createSessionEventWiring } from '../server/session-event-wiring.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
@@ -560,6 +561,50 @@ test('a lane session is refused a spawn and an attention note with the reason, a
     assert.equal((await fixture.wiring.handle(lane, 'board', {})).status, 200);
   } finally {
     lane.destroy();
+    fixture.destroyAll();
+  }
+});
+
+test('limits tells a session which commands answer, and a sandboxed operator session each dead end with the route that still works', async () => {
+  const fixture = wiringFixture({ parentIsSandboxed: true });
+  const sandboxedLane = new Session({
+    id: 'review-lane', name: 'review', path: process.cwd(), ephemeral: true, ptySpawn: () => fakePty(),
+    prepareSandbox: async () => ({ ok: false, reason: 'never launched' }),
+  });
+  const unconfined = new Session({ id: 'unconfined', name: 'unconfined', path: process.cwd(), ptySpawn: () => fakePty() });
+  const limitsOf = async (session: Session) => {
+    const reply = await fixture.wiring.handle(session, 'limits', {});
+    assert.equal(reply.status, 200);
+    return AgentLimitsReply.parse(reply.body);
+  };
+  try {
+    const operatorLimits = await limitsOf(fixture.parent);
+    assert.deepEqual(operatorLimits.commands, [
+      { name: 'push', answers: false, reason: 'this session has no worktree of its own, so there is nothing of its own to land' },
+      ...['spawn', 'attention', 'board'].map((name) => ({ name, answers: true })),
+    ]);
+    assert.equal(operatorLimits.sandboxed, true);
+    assert.deepEqual(operatorLimits.deadEnds.map(({ route }) => route), [
+      'leave the merge to the operator', 'write temporary files under $TMPDIR', 'flag the operator with glimmervoid attention',
+    ]);
+    const laneLimits = await limitsOf(sandboxedLane);
+    assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [['push', false], ['spawn', false], ['attention', false], ['board', true]]);
+    assert.deepEqual([laneLimits.sandboxed, laneLimits.deadEnds], [true, []]);
+    const refusedCalls: [Session, AgentLimitsReply, string, Record<string, unknown>][] = [
+      [fixture.parent, operatorLimits, 'push', {}],
+      [sandboxedLane, laneLimits, 'push', {}],
+      [sandboxedLane, laneLimits, 'spawn', { prompt: 'help me' }],
+      [sandboxedLane, laneLimits, 'attention', { note: 'look' }],
+    ];
+    for (const [session, limits, command, payload] of refusedCalls) {
+      const refusal = await fixture.wiring.handle(session, command, payload);
+      assert.equal(refusal.body.error, limits.commands.find(({ name }) => name === command)?.reason, `${command} is refused for the reason limits gave`);
+    }
+    const unconfinedLimits = await limitsOf(unconfined);
+    assert.deepEqual([unconfinedLimits.sandboxed, unconfinedLimits.deadEnds], [false, []]);
+  } finally {
+    sandboxedLane.destroy();
+    unconfined.destroy();
     fixture.destroyAll();
   }
 });

@@ -1,12 +1,14 @@
 import http from 'node:http';
 
 import { resolveHookTarget } from '../session/core/hook-relay-core.ts';
-import { AgentDispatchRequest, AgentTicketRequest, AGENT_URL_ENV } from '../shared/contracts/session.ts';
+import { formatSessionLimits } from '../session/core/session-routes.ts';
+import { AgentDispatchRequest, AgentLimitsReply, AgentTicketRequest, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
 import { errorCode } from '../shared/text.ts';
 import { decideSandboxProxy } from '../session/core/sandbox-proxy-core.ts';
 import type { SandboxProxy } from '../session/core/sandbox-proxy-core.ts';
 import { isAgentApiVerb, isOrchestratorAgentVerb } from './core/agent-api-core.ts';
+import { parseJsonOrNull } from './core/json-core.ts';
 
 const AGENT_PATH_PREFIX = '/agent/';
 
@@ -28,6 +30,7 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   },
   board: () => ({}),
   push: () => ({}),
+  limits: () => ({}),
   dispatch: (rest) => {
     const parsed = AgentDispatchRequest.safeParse(rest[0] === '--ready' ? { readyIntent: rest[1] } : { workId: rest[0] });
     return parsed.success ? parsed.data : null;
@@ -43,6 +46,13 @@ function bodySaysOk(text: string): boolean {
   } catch {
     return false;
   }
+}
+
+function printableReply(verb: AgentApiVerb, replyText: string): string {
+  if (verb !== 'limits') return replyText;
+  const limits = AgentLimitsReply.safeParse(parseJsonOrNull(replyText));
+  if (!limits.success) return replyText;
+  return formatSessionLimits(limits.data).join('\n');
 }
 
 type EndpointResolution = { ok: true; endpoint: URL; token: string } | { ok: false };
@@ -123,7 +133,7 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   }
   const rawUrl = process.env[AGENT_URL_ENV];
   if (!rawUrl) {
-    console.error(`glimmervoid: ${AGENT_URL_ENV} is not set, so this is not a Glimmervoid session with the agent API turned on`);
+    console.error(`glimmervoid: ${AGENT_URL_ENV} is not set, so this is not a Glimmervoid session`);
     return 1;
   }
   const target = verbEndpoint(rawUrl, verb);
@@ -132,7 +142,7 @@ async function runAgentApiCli(args: string[]): Promise<number> {
     return 1;
   }
   const reply = await postToAgentIngress(target.endpoint, target.token, body);
-  console.log(reply.text);
+  console.log(printableReply(verb, reply.text));
   return reply.hasSuccessStatus && bodySaysOk(reply.text) ? 0 : 1;
 }
 
