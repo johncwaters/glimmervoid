@@ -81,7 +81,6 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       worktreeShare: config.worktreeShare || DEFAULT_CONFIG.worktreeShare,
       detectBackgroundAgents: config.detectBackgroundAgents,
       detectScheduledWakeups: config.detectScheduledWakeups,
-      antiSlopPrompt: config.antiSlopPrompt,
       hookTools: originalHookTools,
       getHookTools: () => refreshRtkHookTools(originalHookTools, dependencies.resolveHookTools(dependencies.getConfig?.() ?? config, { skipPermissions })),
       resumeSessionId: (project.resumeSessionId as string | null | undefined) || null,

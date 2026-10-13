@@ -57,19 +57,16 @@ test('claude-code declares every capability, since it is the reference implement
   assert.equal(Object.values(claudeCode.capabilities).every((v) => v === true), true);
 });
 
-test('buildArgs keeps the pre-extraction order: perms, resume, lane flags, anti-slop, prompt last', () => {
+test('buildArgs keeps the pre-extraction order: perms, resume, lane flags, prompt last', () => {
   const args = claudeCode.buildArgs({
     dangerouslySkipPermissions: true,
     resumeSessionId: RESUME_ID,
     extraArgs: ['-p', '--model', 'sonnet'],
-    antiSlopPrompt: true,
     initialPrompt: 'THE PROMPT',
   });
-  assert.deepEqual(args.slice(0, 6), [
-    '--dangerously-skip-permissions', '--resume', RESUME_ID, '-p', '--model', 'sonnet',
+  assert.deepEqual(args, [
+    '--dangerously-skip-permissions', '--resume', RESUME_ID, '-p', '--model', 'sonnet', 'THE PROMPT',
   ]);
-  assert.equal(args[6], '--append-system-prompt');
-  assert.equal(args[args.length - 1], 'THE PROMPT');
   assert.deepEqual(claudeCode.buildArgs(), [], 'a plain user session adds nothing');
 });
 
@@ -113,7 +110,6 @@ test('spawn argv for a fully featured session is byte-identical to the pre-extra
     dangerouslySkipPermissions: true,
     resumeSessionId: RESUME_ID,
     extraClaudeArgs: ['-p', '--model', 'sonnet'],
-    antiSlopPrompt: true,
     initialPrompt: 'THE PROMPT',
     hookRouter: new HookRouter(),
     getHookPort: () => 41234,
@@ -126,15 +122,13 @@ test('spawn argv for a fully featured session is byte-identical to the pre-extra
     await session.start();
     const { args, env } = calls[0];
     const settingsPath = path.join(hooksBaseDir, 'capture-session', 'settings.json');
-    assert.deepEqual(args.slice(0, 9), [
+    assert.deepEqual(args, [
       '--settings', settingsPath,
       '--dangerously-skip-permissions',
       '--resume', RESUME_ID,
       '-p', '--model', 'sonnet',
-      '--append-system-prompt',
+      'THE PROMPT',
     ]);
-    assert.equal(args[args.length - 1], 'THE PROMPT');
-    assert.equal(args.length, 11);
     assert.equal(env.CLAUDE_CODE_NO_FLICKER, '1');
     assert.equal('CLAUDECODE' in env, false);
     assert.equal('GLIMMERVOID_PORT' in env, false);

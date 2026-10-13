@@ -109,7 +109,7 @@ test('detectCodeSlop is idempotent (no shared-regex lastIndex leak)', () => {
 });
 
 test('new slop source files contain no literal em/en dash or ellipsis', () => {
-  const files = ['session/core/slop-code-patterns.ts', 'session/core/anti-slop-prompt.ts'];
+  const files = ['session/core/slop-code-patterns.ts'];
   for (const rel of files) {
     const src = fs.readFileSync(path.join(import.meta.dirname, '..', rel), 'utf8');
     assert.equal(src.includes(EM_DASH), false, `${rel} has an em dash`);

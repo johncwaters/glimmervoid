@@ -90,18 +90,6 @@ test('rtk off: no PreToolUse hook and no PATH prepend, even with a resolved bina
   }
 });
 
-test('antiSlop off: no --append-system-prompt reaches the argv', async () => {
-  const { session, calls } = makeSession({
-    id: 'slop', name: 'slop', antiSlopPrompt: true, adapter: agentWithout('antiSlop'),
-  });
-  try {
-    await session.start();
-    assert.deepEqual(calls[0].args, []);
-  } finally {
-    session.destroy();
-  }
-});
-
 test('resume off: the bound conversation is kept but never becomes a spawn flag', async () => {
   const { session, calls } = makeSession({
     id: 'resume', name: 'resume', resumeSessionId: RESUME_ID, adapter: agentWithout('resume'),

@@ -100,12 +100,6 @@ test('buildArgs on a plain session adds the update-check flag and nothing else',
   assert.deepEqual(codex.buildArgs(), ['-c', 'check_for_update_on_startup=false']);
 });
 
-test('the anti-slop note never reaches a codex argv, even when a caller asks for it', () => {
-  const args = codex.buildArgs({ antiSlopPrompt: true, initialPrompt: 'x' });
-  assert.equal(args.includes('--append-system-prompt'), false);
-  assert.equal(args[args.length - 1], 'x');
-});
-
 test('hook args subscribe exactly five events as TOML literal strings, and the trust bypass is opt-in', () => {
   const plain = codex.buildHookArgs({ relayPath: '/opt/glimmervoid/session/hook-relay.ts' }) ?? [];
   assert.equal(plain.includes('--dangerously-bypass-hook-trust'), false, 'off unless asked for');

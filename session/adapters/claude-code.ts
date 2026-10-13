@@ -1,7 +1,6 @@
 import { isRecord } from "../../shared/coerce.ts";
 
 import fs from "node:fs";
-import { buildAntiSlopArgs } from "../core/anti-slop-prompt.ts";
 import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
 import { isBrailleChar, isSpinnerChar } from "../core/title-classifier-core.ts";
 import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
@@ -206,7 +205,6 @@ function buildArgs({
   dangerouslySkipPermissions = false,
   resumeSessionId = null,
   extraArgs = [],
-  antiSlopPrompt = false,
   initialPrompt = null,
 }: AgentArgsOptions = {}): string[] {
   const args = dangerouslySkipPermissions ? ["--dangerously-skip-permissions"] : [];
@@ -220,7 +218,6 @@ function buildArgs({
     if (resumeSessionId && argument.startsWith("--session-id=")) continue;
     args.push(argument);
   }
-  args.push(...buildAntiSlopArgs(antiSlopPrompt));
   if (initialPrompt != null) args.push(initialPrompt);
   return args;
 }

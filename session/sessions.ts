@@ -215,7 +215,6 @@ interface SessionOptions {
   extraClaudeArgs?: string[];
   ephemeral?: boolean;
   resumeSessionId?: string | null;
-  antiSlopPrompt?: boolean;
   settingsPermissions?: Record<string, unknown> | null;
   settingsSandbox?: Record<string, unknown> | null;
   prepareSandbox?: PrepareSessionSandbox | null;
@@ -314,7 +313,6 @@ class Session extends EventEmitter {
   _transcriptPath: string | null;
   _lastClaudeSessionReport: { id: string; transcriptPath: string | null; isResumeTarget: boolean } | null;
   _suppressResumeCapture: boolean;
-  _antiSlopPrompt: boolean;
   _spawnEnv: Record<string, string> | null;
   _prependPathDirs: string[];
   _hookTools: ResolvedHookTool[];
@@ -386,7 +384,6 @@ class Session extends EventEmitter {
     resumeSessionId = null,
     taskTitleState = undefined,
 
-    antiSlopPrompt = false,
 
     settingsPermissions = null,
     settingsSandbox = null,
@@ -532,7 +529,6 @@ class Session extends EventEmitter {
     this._transcriptPath = null;
     this._lastClaudeSessionReport = null;
     this._suppressResumeCapture = false;
-    this._antiSlopPrompt = !!antiSlopPrompt && this._can("antiSlop");
     this.ephemeral = !!ephemeral;
     this._spawnEnv = spawnEnv;
     this._prependPathDirs = prependPathDirs;
@@ -1448,7 +1444,6 @@ class Session extends EventEmitter {
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       resumeSessionId: spawnResumeSessionId,
       extraArgs: launchSession?.extraArgs ?? this._extraClaudeArgs,
-      antiSlopPrompt: this._antiSlopPrompt,
       initialPrompt: this._initialPrompt,
       hasOuterSandbox: this._prepareSandbox !== null,
     });

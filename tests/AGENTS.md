@@ -13,7 +13,7 @@ Tests are named `<module>.test.ts` after the module under test. Notable clusters
 |---------|-------|
 | Detection | `status-source`, `hook-source`, `osc-title-source`, `replay-harness`, `worktree-detection`, `worktree-watch`, `integration-ref-watch`, `title-latch-recovery` |
 | Agent adapters | `agent-adapters` (the seam plus its byte-identity pins), `agent-capabilities` (one capability off per test), `agent-codex` (the Codex adapter: argv, hook table, title profile, boot-quiet latch, gate off) |
-| Session core | `state-machine`, `status-mapper` (via `sessions-detection`), `agent-tracker`, `wakeup-tracker` (via `pending-wakeup`), `spawn-command`, `spawn-env`, `spawn-gate`, `spawn-integration`, `merge-prompt`, `anti-slop-prompt`, `post-turn-rules`, `slop-code-patterns`, `post-turn-checker` |
+| Session core | `state-machine`, `status-mapper` (via `sessions-detection`), `agent-tracker`, `wakeup-tracker` (via `pending-wakeup`), `spawn-command`, `spawn-env`, `spawn-gate`, `spawn-integration`, `merge-prompt`, `post-turn-rules`, `slop-code-patterns`, `post-turn-checker` |
 | Session/server | `sessions-buffer`, `sessions-worktree`, `session-resize`, `session-write-guard`, `ws-sender`, `control-worktree` |
 | Worktrees | `git-workspace-session`, `git-workspace-rebase`, `rebase-gate`, `sessions-auto-rebase`, `session-spawn-args`, `no-direct-git-worktree`, `backend-worktree-reconcile` |
 | Usage tracking | `usage-entry-core`, `usage-pricing-core`, `usage-aggregate-core`, `usage-blocks-core`, `usage-scan-core`, `usage-scanner`, `usage-pricing`, `backend-usage`, `control-settings-usage`, `frontend-usage-view` |
