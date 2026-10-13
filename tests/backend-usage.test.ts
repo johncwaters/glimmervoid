@@ -15,6 +15,7 @@ import { loadPricing } from '../server/usage-pricing.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { DashboardClient } from './helpers/dashboard-ws.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
+import { settleBackendShutdown } from './helpers/lanes.ts';
 
 const SESSION_ID = 'b0000000-0000-4000-8000-000000000001';
 const CLAUDE_SESSION_ID = 'c1c1c1c1-2222-4333-8444-555555555555';
@@ -160,7 +161,7 @@ function withBackend({ usage }: { usage?: Record<string, unknown> }, fn: (harnes
     try {
       await fn({ dash, counts: probe.counts, cfgPath });
     } finally {
-      backend.shutdown();
+      await settleBackendShutdown(backend);
       server.closeAllConnections();
       await closeServer(server);
       if (prevEnv == null) delete process.env.GLIMMERVOID_CONFIG;

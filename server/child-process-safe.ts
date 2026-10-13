@@ -42,7 +42,8 @@ function split(rest: unknown[]): {
   let options: Record<string, unknown> | undefined;
   let callback: ExecFileCallback | undefined;
   for (const v of rest) {
-    if (Array.isArray(v) && v.every((entry) => typeof entry === 'string')) args = v;
+    if (Array.isArray(v) && !v.every((entry) => typeof entry === 'string')) throw new TypeError('command arguments must all be strings');
+    if (Array.isArray(v)) args = v;
     if (typeof v === "function") callback = v as ExecFileCallback;
     if (v && typeof v === "object" && !Array.isArray(v)) {
       options = v as Record<string, unknown>;

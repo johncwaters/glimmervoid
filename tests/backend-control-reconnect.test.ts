@@ -9,6 +9,7 @@ import { createBackend } from '../server/backend.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, openSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { DashboardClient } from './helpers/dashboard-ws.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
+import { settleBackendShutdown } from './helpers/lanes.ts';
 
 const SESSION_ID = 'reconnect-test-session';
 
@@ -42,7 +43,7 @@ function withBackend(fn: (client: DashboardClient) => Promise<void>) {
     try {
       await fn(client);
     } finally {
-      backend.shutdown();
+      await settleBackendShutdown(backend);
       server.closeAllConnections();
       await closeServer(server);
       if (prevEnv == null) delete process.env.GLIMMERVOID_CONFIG;

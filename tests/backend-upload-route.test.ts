@@ -13,6 +13,7 @@ import type { Session } from '../session/sessions.ts';
 import { capturingPty } from './helpers/fake-pty.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
+import { settleBackendShutdown } from './helpers/lanes.ts';
 
 const SESSION_ID = 'a0000000-0000-4000-8000-000000000001';
 
@@ -100,7 +101,7 @@ test.after(async () => {
   if (!booted.context) return;
   const { backend, server, prevEnv, tmpDir } = booted.context;
   detachFakePty();
-  backend.shutdown();
+  await settleBackendShutdown(backend);
 
   server.closeAllConnections();
   await closeServer(server);

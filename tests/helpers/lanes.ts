@@ -20,8 +20,13 @@ function visionsLane(backend: Backend): VisionsLane | null {
   return backend.getLane('visions');
 }
 
+async function settleBackendShutdown(backend: Backend): Promise<void> {
+  const settled = backend.shutdown();
+  await Promise.allSettled([...settled.reaps, ...settled.stoppers.map((entry) => entry.promise)]);
+}
+
 export {
-  ingestLane, usageLane, visionsLane,
+  ingestLane, settleBackendShutdown, usageLane, visionsLane,
 };
 export type {
   Backend, IngestLane, UsageLane, VisionsLane,

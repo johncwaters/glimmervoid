@@ -374,7 +374,8 @@ function createSeenStore({
     if (last != null && at - last < throttleMs) return;
     lastWriteByDevice.set(deviceId, at);
     doc[deviceId] = at;
-    pending = writeJsonAtomic(filePath, doc, { mode: 0o600 })
+    pending = (pending ?? Promise.resolve())
+      .then(() => writeJsonAtomic(filePath, doc, { mode: 0o600 }))
       .catch(() => {  });
   }
 

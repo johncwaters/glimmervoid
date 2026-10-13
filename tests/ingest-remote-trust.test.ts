@@ -10,7 +10,7 @@ import { createBackend } from '../server/backend.ts';
 import { createPairingsStore } from '../server/pairings-store.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import { closeServer, listenOnLoopback, reserveFreePort } from './helpers/http-server.ts';
-import { ingestLane } from './helpers/lanes.ts';
+import { ingestLane, settleBackendShutdown } from './helpers/lanes.ts';
 
 type Backend = ReturnType<typeof createBackend>;
 
@@ -100,7 +100,7 @@ test.before(async () => {
 test.after(async () => {
   const context = booted.current;
   if (!context) return;
-  context.backend.shutdown();
+  await settleBackendShutdown(context.backend);
   for (const server of [context.localServer, context.remoteServer]) {
     server.closeAllConnections();
     await closeServer(server);

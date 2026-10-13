@@ -39,7 +39,7 @@ interface RemoteAuth {
   mountPairRoutes(app: Express): void;
   authenticate(req: IncomingMessage): AuthOutcome;
   trustOf(req: IncomingMessage): RequestTrust;
-  stop(): void;
+  stop(): Promise<void> | null;
 }
 
 function htmlPage(title: string, message: string): string {
@@ -82,6 +82,7 @@ function createRemoteAuth({
   const remoteListenerPort = remote?.enabled ? remote.port : null;
   const ownerLogin = remote?.ownerLogin ?? '';
   if (remote?.enabled) log(describeOwnerCheck(ownerLogin));
+  let isStopped = false;
   const stopWatch = pairingsStore.watch(() => {
     log('[remote] pairings.json changed - device list reloaded');
   });
@@ -94,7 +95,7 @@ function createRemoteAuth({
     const secretMatches = hashesMatch(hashSecret(parsed.secret), device.secretHash);
     const verdict = decideDeviceAuth({ record: device, now: now(), maxAgeMs: deviceMaxAgeMs, secretMatches });
     if (!verdict.ok) return { ok: false, reason: verdict.reason, device: null };
-    if (seenStore) seenStore.touch(device.id);
+    if (seenStore && !isStopped) seenStore.touch(device.id);
     return { ok: true, reason: null, device };
   }
 
@@ -174,8 +175,10 @@ function createRemoteAuth({
     });
   }
 
-  function stop(): void {
+  function stop(): Promise<void> | null {
+    isStopped = true;
     stopWatch();
+    return seenStore?.pending ?? null;
   }
 
   return { httpMiddleware, isUpgradeAuthorized, mountPairRoutes, authenticate, trustOf, stop };

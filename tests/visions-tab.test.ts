@@ -10,7 +10,7 @@ import { createBackend } from '../server/backend.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { DashboardClient } from './helpers/dashboard-ws.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
-import { visionsLane } from './helpers/lanes.ts';
+import { settleBackendShutdown, visionsLane } from './helpers/lanes.ts';
 import type { Backend } from './helpers/lanes.ts';
 import { createReplayLog } from '../server/control-replay-core.ts';
 
@@ -70,7 +70,7 @@ function withVisionsBackend(fn: (scope: VisionsScope) => Promise<void>) {
       await fn({ dash, backend, track: (ws) => { sockets.push(ws); return ws; } });
     } finally {
       for (const ws of sockets) ws.close();
-      backend.shutdown();
+      await settleBackendShutdown(backend);
       server.closeAllConnections();
       await closeServer(server);
       if (prevEnv == null) delete process.env.GLIMMERVOID_CONFIG;
@@ -178,7 +178,7 @@ test('a control client connecting with the lane off is told nothing about the vi
     assert.equal(received.some((frame) => frame.type.startsWith('visions-')), false, 'an absent lane adds no frame');
     await closeSocket(ws);
   } finally {
-    backend.shutdown();
+    await settleBackendShutdown(backend);
     server.closeAllConnections();
     await closeServer(server);
     if (prevEnv == null) delete process.env.GLIMMERVOID_CONFIG;

@@ -13,6 +13,7 @@ import { createBackend } from '../server/backend.ts';
 import { createPairingsStore } from '../server/pairings-store.ts';
 import { boundPort, closeServer, listenOnLoopback, reserveFreePort } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
+import { settleBackendShutdown } from './helpers/lanes.ts';
 
 interface RemoteOnContext {
   tmpDir: string;
@@ -115,7 +116,7 @@ test.before(async () => {
 test.after(async () => {
   if (!booted.context) return;
   const { backend, localServer, remoteServer, prevEnv, tmpDir } = booted.context;
-  backend.shutdown();
+  await settleBackendShutdown(backend);
   for (const server of [localServer, remoteServer]) {
     server.closeAllConnections();
     await closeServer(server);

@@ -12,6 +12,7 @@ import type { OutcomeName } from '../shared/outcome-names.ts';
 import type { Session } from '../session/sessions.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
+import { settleBackendShutdown } from './helpers/lanes.ts';
 
 const SESSION_ID = 'hook-route-session';
 
@@ -64,7 +65,7 @@ test.before(async () => {
 test.after(async () => {
   if (!booted.context) return;
   const { backend, server, prevEnv, tmpDir } = booted.context;
-  backend.shutdown();
+  await settleBackendShutdown(backend);
 
   server.closeAllConnections();
   await closeServer(server);

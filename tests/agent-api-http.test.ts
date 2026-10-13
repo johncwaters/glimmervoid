@@ -28,6 +28,7 @@ import { connectControl, controlDeps, createControlServer, testConfigStore } fro
 import { hasGit, git } from './helpers/git-fixture.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
+import { settleBackendShutdown } from './helpers/lanes.ts';
 
 const SESSION_ID = 'agent-api-session';
 const GIT = hasGit();
@@ -85,7 +86,7 @@ async function boot(prefix: string, agentApiEnabled: boolean): Promise<BootedBac
 
 async function teardown(context: BootedBackend | null): Promise<void> {
   if (!context) return;
-  context.backend.shutdown();
+  await settleBackendShutdown(context.backend);
   context.server.closeAllConnections();
   await closeServer(context.server);
   fs.rmSync(context.tmpDir, { recursive: true, force: true });

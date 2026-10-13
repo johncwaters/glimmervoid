@@ -12,6 +12,7 @@ import { createPairingsStore } from '../server/pairings-store.ts';
 import { createRemoteAuth } from '../server/remote-auth.ts';
 import { closeServer, listenOnLoopback, reserveFreePort } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
+import { settleBackendShutdown } from './helpers/lanes.ts';
 
 const OWNER_LOGIN = 'owner@example.com';
 const OWNER_HEADERS = { 'Tailscale-User-Login': OWNER_LOGIN };
@@ -92,7 +93,7 @@ test.before(async () => {
 test.after(async () => {
   if (!booted.context) return;
   const { backend, localServer, remoteServer, previousConfigEnv, tmpDir } = booted.context;
-  backend.shutdown();
+  await settleBackendShutdown(backend);
   for (const server of [localServer, remoteServer]) {
     server.closeAllConnections();
     await closeServer(server);

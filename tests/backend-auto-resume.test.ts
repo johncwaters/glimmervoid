@@ -17,6 +17,7 @@ import { STATES } from '../shared/states.ts';
 import { UNREACHABLE_PID, fakePty } from './helpers/fake-pty.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { waitFor } from './helpers/wait-for.ts';
+import { settleBackendShutdown } from './helpers/lanes.ts';
 
 interface SpawnCall {
   id?: string;
@@ -300,7 +301,7 @@ test('createBackend defers boot auto-resume until the HTTP listener has a hook p
     assert.notEqual(resumeIndex, -1, 'auto-resume keeps the resume argument');
     assert.equal(calls[0].args[resumeIndex + 1], resumeSessionId);
   } finally {
-    if (live.backend) live.backend.shutdown();
+    if (live.backend) await settleBackendShutdown(live.backend);
     if (server.listening) await closeServer(server);
     pty.spawn = originalSpawn;
     if (prevEnv == null) delete process.env.GLIMMERVOID_CONFIG;
@@ -337,11 +338,11 @@ test('createBackend shutdown removes pending boot listeners before listen', asyn
     const listenersBeforeBackend = server.listenerCount('listening');
     live.backend = createBackend(server, { staticDir: null });
     assert.equal(server.listenerCount('listening'), listenersBeforeBackend + 2);
-    live.backend.shutdown();
+    await settleBackendShutdown(live.backend);
     live.backend = null;
     assert.equal(server.listenerCount('listening'), listenersBeforeBackend);
   } finally {
-    if (live.backend) live.backend.shutdown();
+    if (live.backend) await settleBackendShutdown(live.backend);
     if (server.listening) await closeServer(server);
     pty.spawn = originalSpawn;
     if (prevEnv == null) delete process.env.GLIMMERVOID_CONFIG;

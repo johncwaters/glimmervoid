@@ -12,6 +12,7 @@ import { createBackend } from '../server/backend.ts';
 import { fetchPageToken } from './helpers/dashboard-ws.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
+import { settleBackendShutdown } from './helpers/lanes.ts';
 
 interface PageTokenContext {
   tmpDir: string;
@@ -48,7 +49,7 @@ test.before(async () => {
 test.after(async () => {
   if (!booted.context) return;
   const { backend, server, prevEnv, tmpDir } = booted.context;
-  backend.shutdown();
+  await settleBackendShutdown(backend);
   server.closeAllConnections();
   await closeServer(server);
   if (prevEnv == null) delete process.env.GLIMMERVOID_CONFIG;

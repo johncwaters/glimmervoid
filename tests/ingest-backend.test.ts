@@ -12,7 +12,7 @@ import type { CreateBackendOptions } from '../server/backend.ts';
 import { dashboardClient } from './helpers/dashboard-ws.ts';
 import type { DashboardClient } from './helpers/dashboard-ws.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
-import { ingestLane, visionsLane } from './helpers/lanes.ts';
+import { ingestLane, settleBackendShutdown, visionsLane } from './helpers/lanes.ts';
 import { createReplayLog } from '../server/control-replay-core.ts';
 import { ACTIVITY_METHOD } from '../server/core/ingest-editor-core.ts';
 import { registerEphemeralSession } from '../server/ephemeral-session.ts';
@@ -184,8 +184,7 @@ function withBackend(
       });
     } finally {
       for (const ws of sockets) ws.terminate();
-      const settled = backend.shutdown();
-      await Promise.allSettled([...settled.reaps, ...settled.stoppers.map((entry) => entry.promise)]);
+      await settleBackendShutdown(backend);
       server.closeAllConnections();
       await closeServer(server);
       if (prevEnv == null) delete process.env.GLIMMERVOID_CONFIG;

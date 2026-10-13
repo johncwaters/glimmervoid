@@ -15,6 +15,7 @@ import { MAX_PROMPT_BYTES } from '../server/core/visions-dispatch-core.ts';
 import { DIGEST_BUDGET_CHARS, createVisionsWiring, VISIONS_DEBOUNCE_MS } from '../server/visions-wiring.ts';
 import type { VisionsWiringOptions } from '../server/visions-wiring.ts';
 import { listenOnLoopback, reserveFreePort } from './helpers/http-server.ts';
+import { settleBackendShutdown } from './helpers/lanes.ts';
 
 type Wiring = ReturnType<typeof createVisionsWiring>;
 type Connection = ReturnType<Wiring['openConnection']>;
@@ -2253,7 +2254,7 @@ async function bootBackend(configPatch: Record<string, unknown>, { remotePort = 
 
 test.after(async () => {
   for (const entry of booted) {
-    entry.backend?.shutdown();
+    if (entry.backend) await settleBackendShutdown(entry.backend);
     for (const server of [entry.server, entry.remoteServer]) {
       if (!server) continue;
       server.closeAllConnections();

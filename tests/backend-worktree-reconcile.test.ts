@@ -12,6 +12,7 @@ import type { RegistryProject } from '../server/core/session-registry-core.ts';
 import { Session } from '../session/sessions.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import { hasGit, git } from './helpers/git-fixture.ts';
+import { settleBackendShutdown } from './helpers/lanes.ts';
 
 const GIT = hasGit();
 
@@ -251,7 +252,7 @@ test('boot wiring: createBackend runs the reconcile (clean orphan removed, dirty
     assert.ok(!fs.existsSync(cleanWorktree.cwd), 'boot removed the clean orphan worktree');
     assert.ok(fs.existsSync(path.join(dirtyWorktree.cwd, 'wip.js')), 'boot kept the orphan holding unmerged work');
   } finally {
-    if (booted.backend) booted.backend.shutdown();
+    if (booted.backend) await settleBackendShutdown(booted.backend);
     if (prevEnv == null) delete process.env.GLIMMERVOID_CONFIG;
     if (prevEnv != null) process.env.GLIMMERVOID_CONFIG = prevEnv;
     fs.rmSync(worktreeBase, { recursive: true, force: true });

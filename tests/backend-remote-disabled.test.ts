@@ -12,6 +12,7 @@ import { createBackend } from '../server/backend.ts';
 import { dashboardClient } from './helpers/dashboard-ws.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
+import { settleBackendShutdown } from './helpers/lanes.ts';
 
 interface RemoteOffContext {
   tmpDir: string;
@@ -48,7 +49,7 @@ test.before(async () => {
 test.after(async () => {
   if (!booted.context) return;
   const { backend, server, prevEnv, tmpDir } = booted.context;
-  backend.shutdown();
+  await settleBackendShutdown(backend);
   server.closeAllConnections();
   await closeServer(server);
   if (prevEnv == null) delete process.env.GLIMMERVOID_CONFIG;
@@ -162,7 +163,7 @@ test('a disabled remote block with a publicHost grants no extra origin', async (
     assert.equal(outcome, 'refused', 'the configured host grants nothing while remote is disabled');
     ws.close();
   } finally {
-    otherBackend.shutdown();
+    await settleBackendShutdown(otherBackend);
     otherServer.closeAllConnections();
     await closeServer(otherServer);
     if (outerConfig == null) delete process.env.GLIMMERVOID_CONFIG;

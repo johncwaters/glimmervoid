@@ -11,7 +11,7 @@ import { createBackend } from '../server/backend.ts';
 import { dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { DashboardClient } from './helpers/dashboard-ws.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
-import { ingestLane, visionsLane } from './helpers/lanes.ts';
+import { ingestLane, settleBackendShutdown, visionsLane } from './helpers/lanes.ts';
 import type { Backend } from './helpers/lanes.ts';
 
 const WAIT_MS = 5000;
@@ -60,7 +60,7 @@ function withBackend(configExtras: Record<string, unknown>, fn: (scope: LaneScop
     try {
       await fn({ backend, cfgPath, dash: await dashboardClient(boundPort(server)) });
     } finally {
-      backend.shutdown();
+      await settleBackendShutdown(backend);
       server.closeAllConnections();
       await closeServer(server);
       if (previousConfigEnv == null) delete process.env.GLIMMERVOID_CONFIG;

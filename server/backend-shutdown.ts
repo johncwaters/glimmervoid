@@ -14,7 +14,7 @@ interface BackendShutdownDependencies {
   cancelAutoResume: () => void;
   healthInterval: NodeJS.Timeout;
   getStopConfigWatch: () => (() => void) | null;
-  remoteAuth: { stop: () => void } | null;
+  remoteAuth: { stop: () => unknown } | null;
   stopUpdateCheck: () => void;
   stopUpdateApply?: () => unknown;
   notificationManager: { destroy: () => void };
@@ -78,7 +78,8 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     clearInterval(dependencies.healthInterval);
     const stopConfigWatch = dependencies.getStopConfigWatch();
     if (stopConfigWatch) stopConfigWatch();
-    if (dependencies.remoteAuth) dependencies.remoteAuth.stop();
+    const remoteAuth = dependencies.remoteAuth;
+    if (remoteAuth) stoppers.add('remote-auth', () => remoteAuth.stop());
     dependencies.stopUpdateCheck();
     if (dependencies.stopUpdateApply) stoppers.add('update-apply', () => dependencies.stopUpdateApply?.());
 

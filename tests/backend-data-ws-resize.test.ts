@@ -16,6 +16,7 @@ import type { DashboardClient, DataRecordingSocket } from './helpers/dashboard-w
 import { UNREACHABLE_PID } from './helpers/fake-pty.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
+import { settleBackendShutdown } from './helpers/lanes.ts';
 
 const SESSION_ID = 'a0000000-0000-4000-8000-000000000002';
 
@@ -124,7 +125,7 @@ test.after(async () => {
   const { backend, server, session, prevEnv, tmpDir } = booted.context;
   session.ptyProcess = null;
   session._ptyAlive = false;
-  backend.shutdown();
+  await settleBackendShutdown(backend);
   server.closeAllConnections();
   await closeServer(server);
   if (prevEnv == null) delete process.env.GLIMMERVOID_CONFIG;

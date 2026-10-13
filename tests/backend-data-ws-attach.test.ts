@@ -19,6 +19,7 @@ import type { DashboardClient, DataRecordingSocket } from './helpers/dashboard-w
 import { fakePty } from './helpers/fake-pty.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
+import { settleBackendShutdown } from './helpers/lanes.ts';
 
 const { Terminal } = headless;
 
@@ -124,7 +125,7 @@ test.after(async () => {
   session.ptyProcess = null;
   session._ptyAlive = false;
   session._output.disposeScreenKeeper();
-  backend.shutdown();
+  await settleBackendShutdown(backend);
   server.closeAllConnections();
   await closeServer(server);
   if (prevEnv == null) delete process.env.GLIMMERVOID_CONFIG;
