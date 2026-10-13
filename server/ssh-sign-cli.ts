@@ -90,8 +90,10 @@ async function runSshSignCli(args: string[], env: NodeJS.ProcessEnv = process.en
   const localAttempt = env.SSH_AUTH_SOCK ? await runSigningProgram(signingProgram, args, { captureStderr: true }) : null;
   if (localAttempt?.exitCode === 0) return 0;
   const payload = await fs.readFile(invocation.bufferFile);
-  const reply = await postToAgentIngress(target.endpoint, target.token, {
-    namespace: invocation.namespace, publicKey: publicKeyText, payload: payload.toString('base64'),
+  const reply = await postToAgentIngress({
+    endpoint: target.endpoint,
+    token: target.token,
+    body: { namespace: invocation.namespace, publicKey: publicKeyText, payload: payload.toString('base64') },
   }).then((answer) => parseSignReply(answer.text), (error: unknown): SshSignReply => ({ ok: false, error: `Glimmervoid did not answer the signing request: ${errorMessage(error)}` }));
   if (reply.ok) {
     await fs.writeFile(`${invocation.bufferFile}.sig`, reply.signature);

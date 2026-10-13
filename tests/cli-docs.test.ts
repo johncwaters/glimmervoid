@@ -4,12 +4,15 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
+
 const REPO_ROOT = path.join(import.meta.dirname, '..');
 const DOCS_NAMING_CLI_COMMANDS = ['README.md', 'SECURITY.md', 'CONTRIBUTING.md', 'docs/troubleshooting.md', 'docs/testing-cli.md', 'docs/distribution.md'];
 const CLI_INVOCATION = /(?:bin\/glimmervoid\.ts|(?<![-\w/.])(?<!-g )glimmervoid) ((?:--?)?[a-z][a-z-]*)/g;
 
 function helpText(): string {
-  return execFileSync(process.execPath, [path.join(REPO_ROOT, 'bin', 'glimmervoid.ts'), '--help'], { encoding: 'utf8' }).trimEnd();
+  const { [AGENT_URL_ENV]: _sessionAgentUrl, ...environmentOutsideAnySession } = process.env;
+  return execFileSync(process.execPath, [path.join(REPO_ROOT, 'bin', 'glimmervoid.ts'), '--help'], { encoding: 'utf8', env: environmentOutsideAnySession }).trimEnd();
 }
 
 function codeIn(markdown: string): string[] {

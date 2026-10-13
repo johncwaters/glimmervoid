@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import http from 'node:http';
+import path from 'node:path';
+import { promisify } from 'node:util';
 
-import { runAgentApiCli } from '../server/agent-api-cli.ts';
+import { runAgentApiCli, sessionLimitsHelpLines } from '../server/agent-api-cli.ts';
 import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { boundPort, closeServer, listenOnLoopback, reserveFreePort } from './helpers/http-server.ts';
 
@@ -22,30 +25,59 @@ interface ReceivedRequest {
 }
 
 const SANDBOX_ENVIRONMENT_NAMES = ['SANDBOX_RUNTIME', 'HTTP_PROXY', 'http_proxy'];
+const CLI_ENTRY = path.join(import.meta.dirname, '..', 'bin', 'glimmervoid.ts');
+const LIMITS_UNKNOWN_LINE = 'This session: Glimmervoid did not report its limits, so run glimmervoid limits to see why';
+const LIMITS_REPLY = JSON.stringify({
+  ok: true,
+  commands: [{ name: 'push', answers: true }, { name: 'spawn', answers: false, reason: 'a spawned session may not spawn another' }],
+  sandboxed: true,
+  deadEnds: [{ blocked: '/tmp is read-only', route: 'write temporary files under $TMPDIR' }],
+});
+const LIMITS_LINES = [
+  'This session:',
+  '  push: available',
+  '  spawn: not available, a spawned session may not spawn another',
+  '  sandbox: OS-enforced, so a refused write or connection will not succeed on retry',
+  '  /tmp is read-only: write temporary files under $TMPDIR',
+];
+
+async function helpOutput(agentUrl: string | null): Promise<string[]> {
+  const { [AGENT_URL_ENV]: _sessionAgentUrl, ...environmentOutsideAnySession } = process.env;
+  const environment = agentUrl === null ? environmentOutsideAnySession : { ...environmentOutsideAnySession, [AGENT_URL_ENV]: agentUrl };
+  const { stdout } = await promisify(execFile)(process.execPath, [CLI_ENTRY, '--help'], { encoding: 'utf8', env: environment });
+  return stdout.trimEnd().split('\n');
+}
 
 function setEnvironmentValue(name: string, value: string | null | undefined): void {
   if (value == null) delete process.env[name];
   if (value != null) process.env[name] = value;
 }
 
+async function inSessionEnvironment<Outcome>(agentUrl: string | null, sandboxEnvironment: Record<string, string>, run: () => Promise<Outcome>): Promise<Outcome> {
+  const controlledNames = [AGENT_URL_ENV, ...SANDBOX_ENVIRONMENT_NAMES];
+  const previousValues = controlledNames.map((name) => [name, process.env[name]] as const);
+  setEnvironmentValue(AGENT_URL_ENV, agentUrl);
+  for (const name of SANDBOX_ENVIRONMENT_NAMES) setEnvironmentValue(name, sandboxEnvironment[name]);
+  try {
+    return await run();
+  } finally {
+    for (const [name, previousValue] of previousValues) setEnvironmentValue(name, previousValue);
+  }
+}
+
 async function runCli(args: string[], agentUrl: string | null, sandboxEnvironment: Record<string, string> = {}): Promise<CliRun> {
   const stdout: string[] = [];
   const stderr: string[] = [];
-  const controlledNames = [AGENT_URL_ENV, ...SANDBOX_ENVIRONMENT_NAMES];
-  const previousValues = controlledNames.map((name) => [name, process.env[name]] as const);
   const previousLog = console.log;
   const previousError = console.error;
-  setEnvironmentValue(AGENT_URL_ENV, agentUrl);
-  for (const name of SANDBOX_ENVIRONMENT_NAMES) setEnvironmentValue(name, sandboxEnvironment[name]);
   console.log = (line: unknown) => { stdout.push(String(line)); };
   console.error = (line: unknown) => { stderr.push(String(line)); };
   try {
-    const code = await runAgentApiCli(args);
+    const code = await inSessionEnvironment(agentUrl, sandboxEnvironment, () => runAgentApiCli(args));
     return { code, stdout, stderr };
   } finally {
     console.log = previousLog;
     console.error = previousError;
-    for (const [name, previousValue] of previousValues) setEnvironmentValue(name, previousValue);
   }
 }
 
@@ -123,29 +155,44 @@ test('attention posts the joined note and board posts an empty object', async ()
 });
 
 test('limits prints the session limits as lines, and a reply it cannot read as it came', async () => {
-  const limitsReply = {
-    ok: true,
-    commands: [{ name: 'push', answers: true }, { name: 'spawn', answers: false, reason: 'a spawned session may not spawn another' }],
-    sandboxed: true,
-    deadEnds: [{ blocked: '/tmp is read-only', route: 'write temporary files under $TMPDIR' }],
-  };
-  await withAgentServer(() => ({ status: 200, body: JSON.stringify(limitsReply) }), async (agentUrl, received) => {
+  await withAgentServer(() => ({ status: 200, body: LIMITS_REPLY }), async (agentUrl, received) => {
     const run = await runCli(['limits'], agentUrl);
     assert.equal(run.code, 0);
     assert.equal(received[0].url, `/agent/${SESSION_ID}/limits`);
-    assert.deepEqual(run.stdout.join('\n').split('\n'), [
-      'This session:',
-      '  push: available',
-      '  spawn: not available, a spawned session may not spawn another',
-      '  sandbox: OS-enforced, so a refused write or connection will not succeed on retry',
-      '  /tmp is read-only: write temporary files under $TMPDIR',
-    ]);
+    assert.deepEqual(run.stdout.join('\n').split('\n'), LIMITS_LINES);
   });
   const refusal = '{"ok":false,"reason":"only live factory orchestrators may dispatch, reopen or cancel, and they may do nothing else"}';
   await withAgentServer(() => ({ status: 403, body: refusal }), async (agentUrl) => {
     const run = await runCli(['limits'], agentUrl);
     assert.deepEqual([run.code, run.stdout], [1, [refusal]]);
   });
+});
+
+test('--help in a session ends with its limits, or with one line when the server does not answer', async () => {
+  const staticHelp = await helpOutput(null);
+  assert.equal(staticHelp[0], 'Usage: glimmervoid [command] [options]');
+  await withAgentServer(() => ({ status: 200, body: LIMITS_REPLY }), async (agentUrl, received) => {
+    assert.deepEqual(await helpOutput(agentUrl), [...staticHelp, '', ...LIMITS_LINES]);
+    assert.deepEqual(received.map(({ url, authorization }) => [url, authorization]), [[`/agent/${SESSION_ID}/limits`, `Bearer ${TOKEN}`]]);
+  });
+  const deadAgentUrl = `http://127.0.0.1:${await reserveFreePort()}/agent/${SESSION_ID}?t=${TOKEN}`;
+  assert.deepEqual(await helpOutput(deadAgentUrl), [...staticHelp, '', LIMITS_UNKNOWN_LINE]);
+});
+
+test('one deadline covers the direct post and the sandbox proxy retry behind --help', async () => {
+  const agentUrl = `http://127.0.0.1:${await reserveFreePort()}/agent/${SESSION_ID}?t=${TOKEN}`;
+  let proxiedRequests = 0;
+  const silentProxy = http.createServer(() => { proxiedRequests += 1; });
+  await listenOnLoopback(silentProxy);
+  const sandboxEnvironment = { SANDBOX_RUNTIME: '1', HTTP_PROXY: `http://127.0.0.1:${boundPort(silentProxy)}` };
+  try {
+    const helpLines = await inSessionEnvironment(agentUrl, sandboxEnvironment, () => sessionLimitsHelpLines({ timeoutMs: 150 }));
+    assert.deepEqual(helpLines, [LIMITS_UNKNOWN_LINE]);
+    assert.equal(proxiedRequests, 1, 'the retry reached the proxy and was cut off there');
+  } finally {
+    silentProxy.closeAllConnections();
+    await closeServer(silentProxy);
+  }
 });
 
 test('the token never rides the query string of the posted url', async () => {
