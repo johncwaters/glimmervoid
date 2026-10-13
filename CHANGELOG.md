@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-10-13
+
 ### Added
 
 - **`glimmervoid reopen` and `glimmervoid cancel` commands for factory orchestrators**: both take a work id and, like `glimmervoid dispatch`, only a live factory orchestrator may use them. Any other session is refused. `reopen` puts a blocked child of the active intent back to open so it can be dispatched again; `cancel` closes an open or blocked child that has no live worker. Glimmervoid checks the ticket and writes the change to the factory record itself, and a cancelled ticket no longer holds its intent back from verification. The orchestrator's prompt tells it to use them for a blocked child, and to cancel or replace a child that depends on a cancelled one, since that child can never become ready; it still cannot change ticket state through coherence directly.
