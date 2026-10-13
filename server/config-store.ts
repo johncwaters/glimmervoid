@@ -84,7 +84,6 @@ const DEFAULT_CONFIG = {
 
   skipPermissionsByDefault: false,
 
-  antiSlopPrompt: false,
   rtk: false,
   saneYolo: true,
 
@@ -505,7 +504,6 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
       sandbox: { ...DEFAULT_CONFIG.sandbox, ...config.sandbox },
       telemetry: { enabled: config.telemetry?.enabled ?? DEFAULT_CONFIG.telemetry.enabled },
       telemetryForcedOff: isTelemetryForcedOff(process.env),
-      antiSlopPrompt: config.antiSlopPrompt ?? effectiveDefaults.antiSlopPrompt,
       rtk: config.rtk ?? effectiveDefaults.rtk,
       rtkInstallSupported: assetForPlatform(process.platform, process.arch) !== null,
       saneYolo: config.saneYolo ?? effectiveDefaults.saneYolo,

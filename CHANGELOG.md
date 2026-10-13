@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- **Anti-slop code-quality note on Claude Code sessions**: Glimmervoid no longer appends the anti-slop code-quality note to the system prompt of Claude Code sessions. A config file that still sets `antiSlopPrompt` loads as before and the key does nothing. To keep that guidance, put it in your own agent instructions file.
+- **Anti-slop code-quality note on Claude Code sessions**: Glimmervoid no longer appends the anti-slop code-quality note to the system prompt of Claude Code sessions. The `antiSlopPrompt` setting and its Settings row are gone with it; a config file that still sets the key loads as before and the key does nothing. To keep that guidance, put it in your own agent instructions file.
 - **REVIEW tag on session pills**: the Focus rail and the phone Board no longer tag a session REVIEW, or tint its pill border, while its worktree holds changes that are not merged yet. The tag tracked unmerged work, not something to acknowledge, so opening the session never cleared it and it read as a stuck alert. PARKED and MERGING still show, and the review panel still lists the unmerged changes.
 
 ### Fixed

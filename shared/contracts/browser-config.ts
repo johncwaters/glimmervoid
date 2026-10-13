@@ -258,7 +258,6 @@ export const createBrowserConfigShape = (isAbsolutePath: (directory: string) => 
   calmLayout: optionalBoolean('calmLayout'),
   detectBackgroundAgents: optionalBoolean('detectBackgroundAgents'),
   recordSignals: optionalBoolean('recordSignals'),
-  antiSlopPrompt: optionalBoolean('antiSlopPrompt'),
   rtk: optionalBoolean('rtk'),
   saneYolo: optionalBoolean('saneYolo'),
   skipPermissionsByDefault: optionalBoolean('skipPermissionsByDefault'),

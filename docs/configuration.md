@@ -47,7 +47,6 @@ Config-file-only detection, timing, worktree and process settings.
 | `detectBackgroundAgents` | Detect background agents | `true` | Hold completion while tracked background work is active. Changes apply to newly created sessions; recreate existing sessions to apply them. **File-only.** |
 | `recordSignals` | Record structural signals | `true` | Keep forensic status and hook recordings for newly created sessions. Full capture (capture.enabled) records these signals even when this is off. Recreate existing sessions to change recording. **File-only.** |
 | `trace.enabled` | Capture session traces | `true` | Keep normalized Claude transcript traces for session debugging. Requires a server restart. **File-only.** |
-| `antiSlopPrompt` | Anti-slop prompt | `false` | Append the built-in code-quality note to Claude Code instructions. Changes apply to newly created sessions; recreate existing sessions to apply them. **File-only.** |
 | `detectScheduledWakeups` | Detect scheduled wakeups | `true` | Surface advisory wakeup timing for scheduled sessions. Requires a server restart to update the configuration, and newly created sessions use the change. **File-only.** |
 | `worktreeAutoRebase` | Worktree auto-rebase | `true` | Rebase eligible session worktrees when the integration branch moves. Changes apply to newly created sessions; recreate existing sessions to apply them. **File-only.** |
 | `worktreeRerere` | Worktree rerere | `true` | Reuse recorded Git conflict resolutions. Requires a server restart. **File-only.** |
