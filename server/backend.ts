@@ -37,6 +37,7 @@ import { detectInstallFlavor } from './update-check.ts';
 import type { CheckForUpdate } from './backend-update.ts';
 import { createBackendSessionRuntime } from './backend-session-runtime.ts';
 import { checkSandboxDependencies } from './sandbox-deps.ts';
+import { warnWhenGitIsTooOld } from './git-version.ts';
 import { createOutcomesLane } from './outcomes-wiring.ts';
 import { createUpdateApplyLane } from './update-apply.ts';
 import { bundled, packageRoot } from './runtime-paths.ts';
@@ -116,6 +117,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   let agentApi: AgentApiPort | null = null;
   let gitWorkspace: ReturnType<typeof createBackendLanes>['gitWorkspace'] | null = null;
   const sandboxRefusal = checkSandboxDependencies({ log: console });
+  warnWhenGitIsTooOld({ log: console });
   const sessionRuntime = createBackendSessionRuntime({
     config,
     configStore,

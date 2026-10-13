@@ -16,6 +16,8 @@ import { errorText } from '../shared/text.ts';
 import { probeNodePty } from '../server/node-pty-preflight.ts';
 import { sandboxDoctorRows } from '../server/core/sandbox-deps-core.ts';
 import { probeSandboxDependencies } from '../server/sandbox-deps.ts';
+import { gitDoctorRows } from '../server/core/git-version-core.ts';
+import { probeGitVersion } from '../server/git-version.ts';
 import { packageRoot } from '../server/runtime-paths.ts';
 import { formatPathNotice, npmGlobalBinDir, onPath, pnpmGlobalBinDir } from './path-doctor.ts';
 
@@ -251,6 +253,9 @@ async function runDoctor(): Promise<void> {
 
   switchSection('Sandbox');
   for (const [label, value] of sandboxDoctorRows(probeSandboxDependencies({ platform, exec: execSync }))) line(label, value);
+
+  switchSection('Git');
+  for (const [label, value] of gitDoctorRows(probeGitVersion())) line(label, value);
 
   switchSection('Config');
   line('resolved config', resolveConfigPathReadOnly());
