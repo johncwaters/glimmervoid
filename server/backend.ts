@@ -42,6 +42,7 @@ import { createOutcomesLane } from './outcomes-wiring.ts';
 import { createUpdateApplyLane } from './update-apply.ts';
 import { bundled, packageRoot } from './runtime-paths.ts';
 import { createTelemetry } from './telemetry.ts';
+import { createSessionDocsWiring } from './session-docs-wiring.ts';
 import { glimmervoidHomeDir as resolveGlimmervoidHomeDir } from './core/config-path-core.ts';
 import { decideIsDevInstall, parsePosthogReleaseId } from './core/telemetry-core.ts';
 
@@ -190,6 +191,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     closeSessionDataClients,
   } = webSockets;
   broadcastControl = broadcastControlFromWebSockets;
+  const sessionDocs = createSessionDocsWiring({ broadcastControl: broadcastControlFromWebSockets });
 
   const sessions = new Map<string, Session>();
   const agentSessions = new Map<string, Session>();
@@ -283,6 +285,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     broadcastControl,
     spawnGate,
     recordLane,
+    sessionDocs,
     logger: console,
   });
 
@@ -475,6 +478,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     readTracePage: traceWiring?.readTracePage ?? null,
     readPlanRevision: laneAssembly.planReview?.readPlanRevision ?? null,
     decidePlanReview: laneAssembly.planReview?.decide ?? null,
+    sessionDocs,
     changeMapNarrator: laneAssembly.changeMapNarrator,
     serverBuild: () => serverBuild,
     telemetry,

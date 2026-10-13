@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import { AGENT_API_VERBS, AgentDispatchRequest, AgentAttentionRequest, AgentSpawnRequest, ORCHESTRATOR_AGENT_VERBS } from '../../shared/contracts/session.ts';
+import { AGENT_API_VERBS, AgentDispatchRequest, AgentAttentionRequest, AgentEditRequest, AgentSpawnRequest, ORCHESTRATOR_AGENT_VERBS } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, OrchestratorAgentVerb, TicketAgentVerb } from '../../shared/contracts/session.ts';
 
 const MAX_LIVE_CHILDREN = 3;
@@ -32,6 +32,7 @@ type AgentVerbRequest =
   | { ok: true; verb: 'push' }
   | { ok: true; verb: 'dispatch'; request: AgentDispatchRequest }
   | { ok: true; verb: 'attention'; request: AgentAttentionRequest }
+  | { ok: true; verb: 'edit'; request: AgentEditRequest }
   | { ok: true; verb: 'spawn'; request: AgentSpawnRequest }
   | { ok: false; status: number; error: string };
 
@@ -154,6 +155,11 @@ function parseAgentVerb(verb: string, payload: Record<string, unknown>): AgentVe
   if (verb === 'board' || verb === 'push') return { ok: true, verb };
   if (verb === 'attention') {
     const parsed = AgentAttentionRequest.safeParse(payload);
+    if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
+    return { ok: true, verb, request: parsed.data };
+  }
+  if (verb === 'edit') {
+    const parsed = AgentEditRequest.safeParse(payload);
     if (!parsed.success) return refuseInvalidBody(parsed.error.issues);
     return { ok: true, verb, request: parsed.data };
   }

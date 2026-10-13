@@ -133,6 +133,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - A pairing cookie is RCE as the server account, the control WS accepting any project path plus `dangerouslySkipPermissions`. Pairing URLs are single-use, short-TTL, never logged or stored in plaintext; the store fails CLOSED on corruption.
 - The `/pair/*` exemption is judged on the DECODED pathname: `express.static` resolves dot segments, so an un-normalized check served the dashboard bundle under `/pair/%2e%2e/`.
 - Remote config is unreachable from the control WS, and remote-off is fully inert: no route, no middleware, no file (`tests/backend-remote-disabled.test.ts`). Binding wider needs `GLIMMERVOID_INSECURE_BIND=1`.
+- A dashboard socket reads or saves only a path its session surfaced through `glimmervoid edit`, and every read and save re-runs containment against the checkout, so the browser never widens file access past what the agent token surfaced (`tests/session-docs.test.ts`).
 - Two HTTP write ingresses. `POST /hook/:glimmervoidId/:event` keeps its per-session bearer token, and its RESPONSE is also an ingress, so only Glimmervoid-authored text may be injected. Each untrusted corpus in a lane prompt gets its OWN `contentMarker` fence, so one cannot close another, and it is a sha256 digest rather than a cheap hash an attacker's text could fix-point. `POST /upload/:sessionId` sits behind remote-auth with a size cap; a non-image upload keeps only a sanitized extension from the client name, never the name itself.
 
 ### Transport and Session Identity

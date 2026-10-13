@@ -1,4 +1,5 @@
 import http from 'node:http';
+import path from 'node:path';
 
 import { resolveHookTarget } from '../session/core/hook-relay-core.ts';
 import { AgentDispatchRequest, AgentTicketRequest, AGENT_URL_ENV } from '../shared/contracts/session.ts';
@@ -28,6 +29,10 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   },
   board: () => ({}),
   push: () => ({}),
+  edit: (rest) => {
+    const docPath = rest.join(' ').trim();
+    return docPath ? { path: path.resolve(docPath) } : null;
+  },
   dispatch: (rest) => {
     const parsed = AgentDispatchRequest.safeParse(rest[0] === '--ready' ? { readyIntent: rest[1] } : { workId: rest[0] });
     return parsed.success ? parsed.data : null;
@@ -116,6 +121,10 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   if (!body) {
     if (isOrchestratorAgentVerb(verb)) {
       console.error(`glimmervoid ${verb}: expected a work id matching wrk-[0-9a-f]{16}`);
+      return 1;
+    }
+    if (verb === 'edit') {
+      console.error('glimmervoid edit: this command needs a file path, for example "glimmervoid edit drafts/post.md"');
       return 1;
     }
     console.error(`glimmervoid ${verb}: this command needs text, for example "glimmervoid ${verb} check the failing test"`);

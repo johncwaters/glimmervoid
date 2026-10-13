@@ -59,6 +59,7 @@ import type { MyPrKeepMergeableResult, MyPrMergeResult, MyPrMergeWhenReadyResult
 import type { UpdateStatus } from './backend-update.ts';
 import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { PlanReadRequest, PlanReadResult } from './plan-review-wiring.ts';
+import type { SessionDocsPort } from './session-docs-wiring.ts';
 import type { TracePage, TracePageRequest } from './trace-wiring.ts';
 import { createChangeMapService } from './change-map-wiring.ts';
 import type { ChangeMapNarrator } from './change-map-wiring.ts';
@@ -152,6 +153,7 @@ interface ControlHandlerDeps {
   readTracePage?: ((glimmervoidSessionId: string, request: TracePageRequest) => Promise<TracePage>) | null;
   readPlanRevision?: ((sessionId: string, request: PlanReadRequest) => Promise<PlanReadResult | null>) | null;
   decidePlanReview?: ((sessionId: string, decision: PlanDecision) => string | null) | null;
+  sessionDocs?: SessionDocsPort | null;
   telemetry?: Pick<Telemetry, 'captureException' | 'captureClientError'> | null;
 }
 
@@ -318,6 +320,8 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'save-hook': () => ({ type: 'save-hook-result', requestId, ok: false, error: message }),
     'delete-hook': () => ({ type: 'delete-hook-result', requestId, ok: false, error: message }),
     'send-diff-annotations': () => ({ type: 'send-diff-annotations-result', requestId, ok: false, error: message }),
+    'session-doc-read': () => ({ type: 'session-doc-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
+    'session-doc-save': () => ({ type: 'session-doc-save-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
   };
   const requestType = typeof msg?.type === 'string' ? msg.type : '';
   if (Object.hasOwn(builders, requestType)) return builders[requestType]();
@@ -404,6 +408,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     readTracePage = null,
     readPlanRevision = null,
     decidePlanReview = null,
+    sessionDocs = null,
     changeMapNarrator = null,
   } = deps;
 
@@ -1399,6 +1404,26 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
         session: session.name,
         message: refusal,
       }));
+    },
+    'session-doc-read': async (message: ClientMessageOf<'session-doc-read'>, ws: ControlSocket) => {
+      const reply = { type: 'session-doc-response', requestId: message.requestId ?? null, id: message.id, path: message.path };
+      const session = findSession(message);
+      if (!sessionDocs || !session) return ws.send(JSON.stringify({ ...reply, ok: false, error: 'Session not found' }));
+      try {
+        ws.send(JSON.stringify({ ...reply, ...await sessionDocs.read(session, message.path) }));
+      } catch (error) {
+        ws.send(JSON.stringify({ ...reply, ok: false, error: `Read failed: ${errorMessage(error)}` }));
+      }
+    },
+    'session-doc-save': async (message: ClientMessageOf<'session-doc-save'>, ws: ControlSocket) => {
+      const reply = { type: 'session-doc-save-result', requestId: message.requestId ?? null, id: message.id, path: message.path };
+      const session = findSession(message);
+      if (!sessionDocs || !session) return ws.send(JSON.stringify({ ...reply, ok: false, error: 'Session not found' }));
+      try {
+        ws.send(JSON.stringify({ ...reply, ...await sessionDocs.save(session, message.path, message.text, message.baseHash) }));
+      } catch (error) {
+        ws.send(JSON.stringify({ ...reply, ok: false, error: `Save failed: ${errorMessage(error)}` }));
+      }
     },
     'shutdown':         handleShutdown,
     'restart-server':   handleRestart,

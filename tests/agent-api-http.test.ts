@@ -9,6 +9,7 @@ import type { Server } from 'node:http';
 
 import { createBackend } from '../server/backend.ts';
 import { createAgentApiWiring } from '../server/agent-api-wiring.ts';
+import { createSessionDocsWiring } from '../server/session-docs-wiring.ts';
 import { sessionIdFromBranch } from '../server/core/branch-gc-core.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
 import { createBackendHttpApp } from '../server/backend-http.ts';
@@ -245,6 +246,7 @@ function wiringFixture({
         ? new Promise<unknown>((resolve) => { heldGateTasks.push(() => { resolve(task()); }); })
         : Promise.resolve(task())),
     },
+    sessionDocs: createSessionDocsWiring({ broadcastControl: (message) => { broadcasts.push(message); } }),
     logger: { warn: () => {} },
   });
   const releaseSpawnGate = () => {

@@ -45,10 +45,17 @@ export function openContainedFile(
   root: string,
   allowsMissingFile: true,
 ): Promise<ContainedFileResult<OpenedFile | MissingContainedFile>>;
+export function openContainedFile(
+  candidate: string,
+  root: string,
+  allowsMissingFile: false,
+  opensForWriting: true,
+): Promise<ContainedFileResult<OpenedFile>>;
 export async function openContainedFile(
   candidate: string,
   root: string,
   allowsMissingFile = false,
+  opensForWriting = false,
 ): Promise<ContainedFileResult<OpenedFile | MissingContainedFile>> {
   let realRoot: string;
   try {
@@ -67,7 +74,8 @@ export async function openContainedFile(
   if (!isPathInside(realRoot, realCandidate, { allowEqual: false })) return { ok: false, reason: 'outside-root' };
   let handle: FileHandle | null = null;
   try {
-    handle = await fs.promises.open(realCandidate, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+    const accessFlag = opensForWriting ? fs.constants.O_RDWR : fs.constants.O_RDONLY;
+    handle = await fs.promises.open(realCandidate, accessFlag | fs.constants.O_NONBLOCK);
     const stat = await handle.stat();
     if (stat.isFile()) return { ok: true, file: { handle, realPath: realCandidate, stat } };
     await handle.close().catch(() => {});

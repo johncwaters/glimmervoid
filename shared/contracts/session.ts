@@ -80,7 +80,7 @@ export function isSamePromptQuestion(left: PendingPromptQuestion | null | undefi
 }
 
 export const AGENT_URL_ENV = 'GLIMMERVOID_AGENT_URL';
-export const AGENT_API_VERBS = ['spawn', 'attention', 'board', 'dispatch', 'reopen', 'cancel', 'push'] as const;
+export const AGENT_API_VERBS = ['spawn', 'attention', 'board', 'dispatch', 'reopen', 'cancel', 'push', 'edit'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
 export const ORCHESTRATOR_AGENT_VERBS = ['dispatch', 'reopen', 'cancel'] as const satisfies readonly AgentApiVerb[];
 export type OrchestratorAgentVerb = (typeof ORCHESTRATOR_AGENT_VERBS)[number];
@@ -114,6 +114,24 @@ export const AgentBoardRow = z.object({
   ephemeral: SessionSnapshot.shape.ephemeral,
 }).strict();
 
+export const SESSION_DOC_BODY_CAP_BYTES = 256 * 1024;
+export const SESSION_DOC_PATH_MAX_CHARS = 4096;
+export const SESSION_DOCS_MAX = 20;
+
+export const AgentEditRequest = z.object({
+  path: z.string({ error: 'path must be a string' })
+    .min(1, { error: 'path must not be empty' })
+    .max(SESSION_DOC_PATH_MAX_CHARS, { error: `path must be at most ${SESSION_DOC_PATH_MAX_CHARS} characters` }),
+}).strict();
+
+export const SessionDoc = z.object({
+  path: z.string(),
+  name: z.string(),
+  surfacedAt: z.number().finite(),
+}).strict();
+
+export type AgentEditRequest = z.infer<typeof AgentEditRequest>;
+export type SessionDoc = z.infer<typeof SessionDoc>;
 export type AgentSpawnRequest = z.infer<typeof AgentSpawnRequest>;
 export type AgentAttentionRequest = z.infer<typeof AgentAttentionRequest>;
 export type AgentAttentionReply = z.infer<typeof AgentAttentionReply>;

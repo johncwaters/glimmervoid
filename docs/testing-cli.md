@@ -55,6 +55,7 @@ Commands:
   attention <note>  From inside a Glimmervoid session, flag it as needing the operator
   board             From inside a Glimmervoid session, list the live sessions
   push              From inside a Glimmervoid session, land its commits on the integration branch and push it
+  edit <path>       From inside a Glimmervoid session, surface a text file for the operator to edit in the dashboard
   kg [command]      Experimental typed knowledge and task graph (Settings > Lanes > Knowledge graph)
 
 Options:

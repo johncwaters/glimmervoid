@@ -13,7 +13,7 @@ import {
   PlanResponseFrame,
 } from './plan-review.ts';
 import { ChangeMap } from './change-map.ts';
-import { PendingPromptDetail, PendingWakeup, SessionSnapshot, SessionState, TaskTitle } from './session.ts';
+import { PendingPromptDetail, PendingWakeup, SESSION_DOC_PATH_MAX_CHARS, SessionDoc, SessionSnapshot, SessionState, TaskTitle } from './session.ts';
 import { TraceRecord } from './trace.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
 import { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus } from './team-review.ts';
@@ -40,6 +40,7 @@ const optionalError = nullableString.optional();
 const opaqueObject = openObject();
 const opaqueArray = z.array(z.unknown());
 const planRevisionNumber = z.number().int().positive();
+const sessionDocPath = z.string().min(1).max(SESSION_DOC_PATH_MAX_CHARS);
 const trailSteps = z.array(openObject({ at: timestamp, tool: z.string(), detail: z.string() }));
 export const CustomAgentSummaryRow = z.object({
   id: z.string(),
@@ -206,6 +207,8 @@ const clientVariants = [
     draft: z.boolean().optional(),
   }),
   loose('plan-decision', PlanDecision.shape),
+  loose('session-doc-read', { id: sessionId, path: sessionDocPath, requestId }),
+  loose('session-doc-save', { id: sessionId, path: sessionDocPath, text: z.string(), baseHash: z.string().min(1), requestId }),
   loose('client-error', ClientErrorReport.shape),
   loose('dismiss', { id: sessionId, force: z.unknown().optional(), expectedState: SessionState.optional() }),
   ...idOnlyClientVariants,
@@ -248,6 +251,10 @@ export const SERVER_MESSAGE_TYPES = Object.freeze([
   'session-plan-changed',
   'session-plan-draft',
   'session-plan-response',
+  'session-docs-changed',
+  'session-docs-snapshot',
+  'session-doc-response',
+  'session-doc-save-result',
   'notify',
   'update-status',
   'update-progress',
@@ -423,6 +430,10 @@ const serverVariants = [
   loose('session-plan-changed', PlanChangedPush.shape),
   loose('session-plan-draft', PlanDraftPush.shape),
   loose('session-plan-response', PlanResponseFrame.shape),
+  loose('session-docs-changed', { id: sessionId, docs: z.array(SessionDoc) }),
+  loose('session-docs-snapshot', { sessions: z.record(z.string(), z.array(SessionDoc)) }),
+  loose('session-doc-response', { requestId, id: sessionId, path: z.string(), ok: z.boolean(), text: z.string().optional(), hash: z.string().optional(), error: optionalError }),
+  loose('session-doc-save-result', { requestId, id: sessionId, path: z.string(), ok: z.boolean(), hash: z.string().optional(), conflict: z.boolean().optional(), error: optionalError }),
   loose('notify', {
     session: z.string(),
     category: z.string(),

@@ -13,6 +13,7 @@ import { isConfinedSessionVendor } from './core/sandbox-roles-core.ts';
 import { registerEphemeralSession } from './ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 import type { SessionSpawnOverrides } from './session-factory.ts';
+import type { SessionDocsPort } from './session-docs-wiring.ts';
 import { errorMessage } from '../shared/text.ts';
 
 const AGENT_LANE_TAG = 'agent-spawn';
@@ -35,6 +36,7 @@ interface AgentApiWiringOptions {
   broadcastControl: (message: ControlMessageRecord) => void;
   spawnGate: SpawnGate;
   recordLane?: RecordLane | null;
+  sessionDocs: SessionDocsPort;
   logger?: Pick<Console, 'warn'>;
 }
 
@@ -53,7 +55,7 @@ interface AgentApiPort {
 
 function createAgentApiWiring({
   config, agentSessions, listAllSessions, listBoardSessions, makeSession, wireSessionEvents, closeSessionDataClients,
-  broadcastControl, spawnGate,
+  broadcastControl, spawnGate, sessionDocs,
   recordLane = null,
   logger = console,
 }: AgentApiWiringOptions): AgentApiPort {
@@ -155,6 +157,11 @@ function createAgentApiWiring({
     if (parsed.verb === 'attention') {
       const reply = attention(session, parsed.request);
       return { status: reply.ok ? 200 : 429, body: reply };
+    }
+    if (parsed.verb === 'edit') {
+      const reply = await sessionDocs.surface(session, parsed.request);
+      if (!reply.ok) return { status: 400, body: reply };
+      return { status: 200, body: { ok: true, path: reply.doc.path, name: reply.doc.name } };
     }
     const outcome = await spawn(session, parsed.request);
     if (!outcome.ok) return { status: outcome.status, body: { ok: false, error: outcome.error } };
