@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Paste or drop screenshots into a session from any browser**: pressing Ctrl+V or Cmd+V with an image on the clipboard, or dropping files onto a session's terminal, now uploads them to Glimmervoid and types the saved path into the session, the way the phone's Image and File keys already did. This works when the dashboard is opened on a different machine from the server, such as through a Coder port-forward URL, where the agent cannot read your local clipboard. A paste that carries text still pastes the text.
+- **Add or remove repositories in a workspace**: a workspace session's restart menu now has Edit repositories, which lists its current repositories alongside the ones found under your repo roots. Saving restarts the session in the same folder and resumes its conversation: a new repository gets its own worktree on the workspace branch, a removed one has its worktree deleted while its branch keeps any committed work, and the workspace `AGENTS.md` map is rewritten to match unless you edited it. Removing a repository with uncommitted changes is refused until you commit or discard them.
 
 ## [0.34.0] - 2026-10-13
 

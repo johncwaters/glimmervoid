@@ -6,8 +6,11 @@ import path from 'node:path';
 import { createGitWorkspace } from '../server/git-workspace.ts';
 import { planWorkspace } from '../session/core/workspace-core.ts';
 import { createSessionWorkspaceMembers } from '../session/session-workspace-members.ts';
+import { carryWorktreeAcrossRecreate } from '../server/session-registry.ts';
 import { Session } from '../session/sessions.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
+import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
+import { waitFor } from './helpers/wait-for.ts';
 
 function makeRepo(root: string, name: string): string {
   const repo = path.join(root, name);
@@ -36,6 +39,10 @@ test('workspace member shell preserves existing maps, reports partial failure an
     const claudePath = path.join(planned.plan.folder, 'CLAUDE.md');
     assert.match(fs.readFileSync(agentsPath, 'utf8'), /first\//);
     assert.equal(fs.readFileSync(claudePath, 'utf8'), '@AGENTS.md\n');
+    const annotatedMap = fs.readFileSync(agentsPath, 'utf8').replace(/^(- first\/.*)$/m, '$1\nNOTE: first/ deploys to prod');
+    fs.writeFileSync(agentsPath, annotatedMap);
+    assert.equal((await shell.provision()).ok, true);
+    assert.equal(fs.readFileSync(agentsPath, 'utf8'), annotatedMap);
     fs.writeFileSync(agentsPath, 'custom map\n');
     fs.writeFileSync(claudePath, 'custom pointer\n');
     assert.equal((await shell.provision()).ok, true);
@@ -207,6 +214,75 @@ test('workspace change checks announce each new member commit to the same file',
     assert.equal(changes.length, 2);
   } finally {
     session.destroy();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('editing workspace repositories keeps shared members, releases dropped ones and refreshes the generated map', { skip: !hasGit() }, async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-workspace-edit-'));
+  const first = makeRepo(root, 'first');
+  const second = makeRepo(root, 'second');
+  const third = makeRepo(root, 'third');
+  const folder = path.join(root, 'ws-workspace-edit');
+  const sessionAt = (workspaceRepos: string[]) => new Session({ id: 'workspace-edit-session', name: 'Workspace Edit', path: folder, workspaceRepos, gitWorkspace: createGitWorkspace() });
+  const before = sessionAt([first, second]);
+  const after = sessionAt([first, third]);
+  try {
+    assert.equal(await before._provisionWorktree(), true);
+    fs.writeFileSync(path.join(folder, 'first', 'in-progress.txt'), 'kept');
+    before.destroy();
+    await carryWorktreeAcrossRecreate(before, after);
+    assert.equal(await after._provisionWorktree(), true);
+
+    assert.equal(fs.readFileSync(path.join(folder, 'first', 'in-progress.txt'), 'utf8'), 'kept');
+    assert.equal(fs.existsSync(path.join(folder, 'second')), false);
+    assert.equal(fs.existsSync(path.join(folder, 'third', 'README.md')), true);
+    assert.equal(git(['rev-parse', 'glimmervoid/workspace/workspace-edit-session'], second).trim().length, 40);
+    const map = fs.readFileSync(path.join(folder, 'AGENTS.md'), 'utf8');
+    assert.match(map, /^- third\/: /m);
+    assert.doesNotMatch(map, /^- second\/: /m);
+
+    fs.writeFileSync(path.join(folder, 'third', 'dirty.txt'), 'unsaved');
+    after.destroy();
+    const dormant = sessionAt([first, third]);
+    const config = { projects: [{ id: 'workspace-edit-session', name: 'Workspace Edit', path: folder, repos: [first, third] }] };
+    const control = connectControl<{ type: string; error?: string | null }>(createControlServer(controlDeps(config, { sessions: new Map([['workspace-edit-session', dormant]]) })));
+    control.send({ type: 'set-workspace-repos', id: 'workspace-edit-session', repos: [first, second], requestId: 'drop-dirty' });
+    const replyFor = () => control.sent.find((frame) => frame.type === 'set-workspace-repos-result');
+    await waitFor(() => replyFor() !== undefined, 'set-workspace-repos replied', 10000);
+    dormant.destroy();
+    assert.equal(replyFor()?.error, 'third has uncommitted changes. Commit or discard them before removing it from the workspace.');
+  } finally {
+    after.destroy();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a stale workspace release waiting on the old reap keeps members the live session re-added', { skip: !hasGit() }, async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-workspace-readd-'));
+  const repos = ['a', 'b', 'c'].map((name) => makeRepo(root, name));
+  const folder = path.join(root, 'ws-workspace-readd');
+  const sessionAt = (workspaceRepos: string[]) => new Session({ id: 'workspace-readd-session', name: 'Workspace Readd', path: folder, workspaceRepos, gitWorkspace: createGitWorkspace() });
+  const original = sessionAt(repos);
+  const narrowed = sessionAt(repos.slice(0, 2));
+  const restored = sessionAt(repos);
+  const registered = new Map([['workspace-readd-session', narrowed]]);
+  const currentSessionFor = (id: string) => registered.get(id) ?? null;
+  try {
+    assert.equal(await original._provisionWorktree(), true);
+    original.destroy();
+    let finishOriginalReap = () => {};
+    original._killReap = new Promise<void>((resolve) => { finishOriginalReap = resolve; });
+    const staleRelease = carryWorktreeAcrossRecreate(original, narrowed, currentSessionFor);
+    narrowed.destroy();
+    registered.set('workspace-readd-session', restored);
+    await carryWorktreeAcrossRecreate(narrowed, restored, currentSessionFor);
+    assert.equal(await restored._provisionWorktree(), true);
+    finishOriginalReap();
+    await staleRelease;
+    assert.equal(fs.existsSync(path.join(folder, 'c', 'README.md')), true);
+  } finally {
+    restored.destroy();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

@@ -2,6 +2,7 @@ import addSessionHTML from './components/add-session-dialog.html?raw';
 import { sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { el, query, queryTag } from './dom-helpers.ts';
 import { applyDialogAria, buildDialogShell, createModalOverlay } from './session-card/modal.ts';
+import { buildRepoCheckbox } from './session-card/workspace-repos-dialog.ts';
 import { DEFAULT_AGENT_ID, decideAgentAvailability, decideAgentPicker } from './session-card/agent-core.ts';
 import { countSessionsByName, suggestSessionName } from './session-card/naming.ts';
 import { onSessionTick } from './session-card/session-tick.ts';
@@ -89,13 +90,7 @@ export function createAddSessionDialog() {
           const existingCount = countSessionsByName(project.name);
           const label = existingCount > 0 ? `${project.name} (${existingCount} open)` : project.name;
           group.appendChild(option(label, { value: JSON.stringify({ name: project.name, path: project.path }) }));
-          const choice = el('label', 'dialog-checkbox-label');
-          const checkbox = el('input');
-          checkbox.type = 'checkbox';
-          checkbox.className = 'dialog-checkbox';
-          checkbox.value = project.path;
-          choice.append(checkbox, el('span', null, project.name));
-          workspaceListEl.appendChild(choice);
+          workspaceListEl.appendChild(buildRepoCheckbox(project.name, project.path));
           hasProjects = true;
         }
         pickerEl.appendChild(group);

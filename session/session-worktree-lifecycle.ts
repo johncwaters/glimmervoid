@@ -676,9 +676,14 @@ function createSessionWorktreeLifecycle({
     setMergeStatus(status);
   }
 
-  async function releaseWorkspaceMembers(members: ReturnType<typeof createSessionWorkspaceMembers>): Promise<void> {
-    const released = await members.release();
+  async function releaseWorkspaceMembers(members: ReturnType<typeof createSessionWorkspaceMembers>, keepRepoPaths: string[] = []): Promise<void> {
+    const released = await members.release({ keepRepoPaths });
     if (released.keptDirs.length > 0) console.warn(`[session ${id}] kept workspace members with uncommitted work: ${released.keptDirs.join(", ")}`);
+  }
+
+  async function releaseDroppedWorkspaceMembers(keepRepoPaths: string[]): Promise<void> {
+    if (!workspaceMembers?.ok) return;
+    await releaseWorkspaceMembers(workspaceMembers.members, keepRepoPaths);
   }
 
   async function discardWorktree(): Promise<void> {
@@ -1221,6 +1226,7 @@ function createSessionWorktreeLifecycle({
     mergeAndContinue,
     adoptWorktree,
     discardWorktree,
+    releaseDroppedWorkspaceMembers,
   };
   return api;
 }

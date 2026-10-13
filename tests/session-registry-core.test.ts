@@ -41,6 +41,15 @@ test('an edited custom agent declaration marks its live session for recreation',
   assert.deepEqual(diff.unchanged, []);
 });
 
+test('a workspace whose repository list changed is recreated so its members are reprovisioned', () => {
+  const diff = diffProjects(
+    new Map([['project-1', liveSession({ workspaceRepos: ['/one', '/two'] })]]),
+    [declaredProject({ repos: ['/one', '/three'] })],
+    dependenciesWithFingerprints(null, null),
+  );
+  assert.deepEqual(diff.modified.map((project) => project.id), ['project-1']);
+});
+
 test('an unchanged custom agent declaration leaves its live session alone across a reload', () => {
   const fingerprint = '["opencode",["--yolo"],"idle","busy"]';
   const diff = diffProjects(

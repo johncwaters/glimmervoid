@@ -50,6 +50,11 @@ export function planWorkspaceMembers({ folder, sessionId, repoPaths }: {
   return { ok: true, plan: { folder, branch, members } };
 }
 
+export function listDroppedRepoPaths(previousRepoPaths: string[], nextRepoPaths: string[]): string[] {
+  const nextRepoKeys = new Set(nextRepoPaths.map((repoPath) => caseFoldedPathKey(path.resolve(repoPath))));
+  return previousRepoPaths.filter((repoPath) => !nextRepoKeys.has(caseFoldedPathKey(path.resolve(repoPath))));
+}
+
 export function renderWorkspaceAgentsMd({ sessionName, branch, members }: { sessionName: string; branch: string; members: WorkspaceMember[] }): string {
   const lines = [
     `# ${sessionName}`,

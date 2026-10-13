@@ -36,6 +36,7 @@ import type { RestartChoice } from './restart-menu-core.ts';
 import type { SessionCardFace } from './face-core.ts';
 import { openConfirmDialog } from './modal.ts';
 import { openResumeDialog } from './resume-dialog.ts';
+import { openWorkspaceReposDialog } from './workspace-repos-dialog.ts';
 import { showErrorToast } from './toast.ts';
 
 import { refreshElapsed } from './session-tick.ts';
@@ -74,6 +75,7 @@ function updateButtonVisibility(ui: SessionUi) {
   ui.btnRestartFresh.classList.toggle('visible', canRestart);
 
   ui.btnResume.classList.add('visible');
+  ui.btnWorkspaceRepos.classList.toggle('visible', ui.card.dataset.workspace !== undefined);
   ui.btnTrace.classList.toggle('visible', isDebugModeEnabled());
   ui.btnPlan.classList.toggle('visible', decidePlanHeaderAction(ui) !== 'hidden');
   ui.btnRemove.classList.add('visible');
@@ -121,6 +123,11 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     openResumeDialog(sessionId, { currentState: ui.currentState });
   });
 
+  ui.btnWorkspaceRepos.addEventListener('click', () => {
+    closeRestartMenu(ui);
+    openWorkspaceReposDialog(sessionId);
+  });
+
   ui.btnTrace.addEventListener('click', () => {
     closeRestartMenu(ui);
     openTraceForSession(sessionId);
@@ -163,7 +170,7 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     ui.btnRestartMenu.setAttribute('aria-expanded', String(isOpen));
   });
 
-  const menuItems = [ui.btnRestart, ui.btnRestartFresh, ui.btnResume];
+  const menuItems = [ui.btnRestart, ui.btnRestartFresh, ui.btnResume, ui.btnWorkspaceRepos];
   function moveMenuFocus(event: KeyboardEvent) {
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
     event.preventDefault();
@@ -338,6 +345,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     btnRestartFresh: dom.btnRestartFresh,
     btnRestartMenu: dom.btnRestartMenu,
     btnResume: dom.btnResume,
+    btnWorkspaceRepos: dom.btnWorkspaceRepos,
     btnTrace: dom.btnTrace,
     btnPlan: dom.btnPlan,
     btnDocs: dom.btnDocs,

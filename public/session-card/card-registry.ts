@@ -34,6 +34,7 @@ export interface SessionUi {
   btnRestartFresh: HTMLButtonElement;
   btnRestartMenu: HTMLButtonElement;
   btnResume: HTMLButtonElement;
+  btnWorkspaceRepos: HTMLButtonElement;
   btnTrace: HTMLButtonElement;
   btnPlan: HTMLButtonElement;
   btnDocs: HTMLButtonElement;

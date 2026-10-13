@@ -10,6 +10,7 @@ export interface RegistryProject {
   name: string;
   customTitle?: string;
   path: string;
+  repos?: string[];
   agent?: AgentId;
   codexBypassHookTrust?: boolean;
   dangerouslySkipPermissions?: boolean;
@@ -19,6 +20,7 @@ export interface RegistrySession {
   ephemeral?: boolean;
   name?: string;
   path?: string;
+  workspaceRepos?: string[] | null;
   agentId?: string;
   dangerouslySkipPermissions?: boolean;
   bypassHookTrust?: boolean;
@@ -45,6 +47,12 @@ function decideWasActiveFlip(to: SessionState, event: string, pendingRestart: bo
   if (to === STATES.STARTING || to === STATES.RUNNING) return true;
   if (!pendingRestart && (event === 'user_kill' || to === STATES.DONE || to === STATES.FAILED)) return false;
   return null;
+}
+
+function haveSameWorkspaceRepos(projectRepos: string[] | undefined, sessionRepos: string[] | null | undefined): boolean {
+  const configured = projectRepos ?? [];
+  const running = sessionRepos ?? [];
+  return configured.length === running.length && configured.every((repoPath, index) => repoPath === running[index]);
 }
 
 function shouldStartAfterModify(previousState: string): boolean {
@@ -81,7 +89,8 @@ function diffProjects(
     const agentChanged = resolvedAgentId !== session.agentId
       || agentFingerprintOf(resolvedAgentId) !== capturedAgentFingerprintOf(id);
     const hookTrustChanged = (project.codexBypassHookTrust === true) !== session.bypassHookTrust;
-    if (pathChanged || permissionsChanged || agentChanged || hookTrustChanged) {
+    const workspaceReposChanged = !haveSameWorkspaceRepos(project.repos, session.workspaceRepos);
+    if (pathChanged || permissionsChanged || agentChanged || hookTrustChanged || workspaceReposChanged) {
       modified.push(project);
       continue;
     }

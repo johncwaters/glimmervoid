@@ -47,7 +47,7 @@ interface SessionRegistryDependencies {
   spawnGate: RegistrySpawnGate;
   gitWorkspaceSync: RegistryGitWorkspace;
   reconcileSessionWorktrees: (input: ReconcileWorktreesOptions) => void;
-  carryWorktreeAcrossRecreate: (oldSession: Session | null, newSession: Session) => unknown;
+  carryWorktreeAcrossRecreate: (oldSession: Session | null, newSession: Session, currentSessionFor?: (id: string) => Session | null) => unknown;
   ensureProjectIds: (projects: RegistryProject[]) => boolean;
   resolveAgentId: (agent: AgentId) => string;
   agentFingerprintOf?: (agentId: string) => string | null;
@@ -98,7 +98,19 @@ function runAutoResume(
   return Promise.all(runs);
 }
 
-function carryWorktreeAcrossRecreate(oldSession: Session | null, newSession: Session): unknown {
+function releaseDroppedWorkspaceMembers(oldSession: Session, newSession: Session, currentSessionFor?: (id: string) => Session | null): Promise<void> {
+  return Promise.resolve(oldSession._killReap)
+    .catch(() => {})
+    .then(() => {
+      const liveSession = currentSessionFor?.(oldSession.id) ?? newSession;
+      const keepRepoPaths = isSameDirectoryPath(liveSession.path, oldSession.path) ? liveSession.workspaceRepos ?? [] : [];
+      return oldSession.releaseDroppedWorkspaceMembers(keepRepoPaths);
+    })
+    .catch((error: unknown) => console.warn(`[config] releasing dropped workspace members failed for ${oldSession.name}: ${errorMessage(error)}`));
+}
+
+function carryWorktreeAcrossRecreate(oldSession: Session | null, newSession: Session, currentSessionFor?: (id: string) => Session | null): unknown {
+  if (oldSession?.workspaceRepos) return releaseDroppedWorkspaceMembers(oldSession, newSession, currentSessionFor);
   const carry = oldSession?.getWorktreeCarry?.();
   if (!oldSession || !carry) return;
   if (isSameDirectoryPath(newSession.path, oldSession.path)) {
@@ -285,7 +297,7 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
       sessions.set(project.id, newSession);
       captureAgentFingerprint(project);
       dependencies.wireSessionEvents(newSession);
-      dependencies.carryWorktreeAcrossRecreate(oldSession, newSession);
+      dependencies.carryWorktreeAcrossRecreate(oldSession, newSession, getSession);
       dependencies.broadcastControl({
         type: 'session-modified',
         ...projectSessionCard(newSession, { id: project.id, name: project.name }),

@@ -38,7 +38,7 @@ import { createPrGh } from './pr-gh.ts';
 import type { PrGh } from './pr-gh.ts';
 import { buildSettingsPayload as buildSettingsPayloadFrom } from './settings-payload.ts';
 import { RESUME_ID_RE } from '../session/core/auto-resume.ts';
-import { planWorkspace } from '../session/core/workspace-core.ts';
+import { listDroppedRepoPaths, planWorkspace, planWorkspaceMembers } from '../session/core/workspace-core.ts';
 import { runGit } from './git-exec.ts';
 import { firstGitErrorLine } from './core/branch-sync-core.ts';
 import { DEFAULT_AGENT_ID, describeAgentResolvability, isKnownAgentId, listAgentIds } from '../session/adapters/index.ts';
@@ -576,6 +576,72 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       if (project) project.name = newName;
     });
     if (freshConfig) applyConfigReload(freshConfig);
+  }
+
+  function handleGetWorkspaceRepos(msg: ClientMessageOf<'get-workspace-repos'>, ws: ControlSocket): void {
+    const project = findConfiguredProject(msg.id);
+    if (!project?.repos) {
+      replyTo(ws, msg, 'workspace-repos', { id: msg.id, ok: false, repos: [], error: 'This session is not a workspace' });
+      return;
+    }
+    replyTo(ws, msg, 'workspace-repos', { id: msg.id, ok: true, repos: project.repos, error: null });
+  }
+
+  async function findDroppedMemberWithUncommittedWork(workspaceFolder: string, droppedRepoPaths: string[]): Promise<string | null> {
+    for (const repoPath of droppedRepoPaths) {
+      const memberName = path.basename(path.resolve(repoPath));
+      const memberDir = path.join(workspaceFolder, memberName);
+      const memberExists = await fs.promises.stat(memberDir).then(() => true, () => false);
+      if (!memberExists) continue;
+      const memberStatus = await runGit(['--no-optional-locks', 'status', '--porcelain'], { cwd: memberDir });
+      if (!memberStatus.ok) throw memberStatus.error;
+      if (memberStatus.out !== '') return memberName;
+    }
+    return null;
+  }
+
+  async function handleSetWorkspaceRepos(msg: ClientMessageOf<'set-workspace-repos'>, ws: ControlSocket): Promise<void> {
+    const reply = (error: string | null) => replyTo(ws, msg, 'set-workspace-repos-result', { id: msg.id, ok: error === null, error });
+    const project = findConfiguredProject(msg.id);
+    const session = sessions.get(msg.id);
+    if (!project?.repos || !session) {
+      reply('This session is not a workspace');
+      return;
+    }
+    const missingRepo = msg.repos.find((repoPath) => !isExistingDirectory(repoPath));
+    if (missingRepo) {
+      reply(`Repository path does not exist: ${missingRepo}`);
+      return;
+    }
+    const planned = planWorkspaceMembers({ folder: project.path, sessionId: project.id, repoPaths: msg.repos });
+    if (!planned.ok) {
+      reply(planned.error);
+      return;
+    }
+    const nextRepos = planned.plan.members.map((member) => member.repoPath);
+    try {
+      const dirtyMemberName = await findDroppedMemberWithUncommittedWork(project.path, listDroppedRepoPaths(project.repos, nextRepos));
+      if (dirtyMemberName) {
+        reply(`${dirtyMemberName} has uncommitted changes. Commit or discard them before removing it from the workspace.`);
+        return;
+      }
+    } catch (error) {
+      reply(`Could not check the workspace for uncommitted changes: ${errorMessage(error)}`);
+      return;
+    }
+    const freshConfig = configStore.save((cfg) => {
+      const configured = cfg.projects.find((entry) => entry.id === project.id);
+      if (!configured) return ABORT_CONFIG_SAVE;
+      configured.repos = nextRepos;
+      return undefined;
+    });
+    if (!freshConfig) {
+      reply(`Could not save session "${project.name}"`);
+      return;
+    }
+    applyConfigReload(freshConfig);
+    console.log(`[control] Workspace repositories updated via UI: ${project.name} (${nextRepos.length} repos)`);
+    reply(null);
   }
 
   function handleSetSessionTitle(msg: ClientMessageOf<'set-session-title'>, ws: ControlSocket): void {
@@ -1269,6 +1335,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'resume-conversation': handleResumeConversation,
     'remove-session':   handleRemoveSession,
     'rename-session':   handleRenameSession,
+    'get-workspace-repos': handleGetWorkspaceRepos,
+    'set-workspace-repos': handleSetWorkspaceRepos,
     'set-session-title': handleSetSessionTitle,
     'reorder-sessions': handleReorderSessions,
     'ping':             handlePing,

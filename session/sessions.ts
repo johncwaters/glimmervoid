@@ -314,6 +314,7 @@ class Session extends EventEmitter {
   _initialPrompt: string | null;
   _extraClaudeArgs: string[];
   _resumeSessionId: string | null;
+  readonly workspaceRepos: string[] | null;
   _transcriptPath: string | null;
   _lastClaudeSessionReport: { id: string; transcriptPath: string | null; isResumeTarget: boolean } | null;
   _suppressResumeCapture: boolean;
@@ -535,6 +536,7 @@ class Session extends EventEmitter {
     this._initialPrompt = initialPrompt;
     this._extraClaudeArgs = Array.isArray(extraClaudeArgs) ? extraClaudeArgs : [];
     this._resumeSessionId = resumeSessionId || null;
+    this.workspaceRepos = workspaceRepos ? [...workspaceRepos] : null;
     this._transcriptPath = null;
     this._lastClaudeSessionReport = null;
     this._suppressResumeCapture = false;
@@ -1185,6 +1187,8 @@ class Session extends EventEmitter {
   _settleWorktreeOnExit() { return this.worktreeLifecycle.settleOnExit(); }
 
   discardWorktreeIfClean() { return this.worktreeLifecycle.discardIfClean(); }
+
+  releaseDroppedWorkspaceMembers(keepRepoPaths: string[]) { return this.worktreeLifecycle.releaseDroppedWorkspaceMembers(keepRepoPaths); }
 
   pasteMergePrompt() { return this.worktreeLifecycle.pasteMergePrompt(); }
 

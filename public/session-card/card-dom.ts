@@ -117,7 +117,8 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const btnRestart = buildRestartMenuItem('Restart', 'Keeps this conversation', 'overflow-restart');
   const btnRestartFresh = buildRestartMenuItem('Restart fresh', 'Ends this conversation and starts a new one', 'overflow-restart-fresh');
   const btnResume = buildRestartMenuItem('Resume conversation...', 'Pick an earlier conversation', 'overflow-resume');
-  restartMenu.append(btnRestart, btnRestartFresh, btnResume);
+  const btnWorkspaceRepos = buildRestartMenuItem('Edit repositories...', 'Add or remove repositories in this workspace', 'overflow-workspace-repos');
+  restartMenu.append(btnRestart, btnRestartFresh, btnResume, btnWorkspaceRepos);
   restartMenuWrap.append(btnRestartMenu, restartMenu);
 
   const btnDebug = el('button', 'btn-action btn-debug', '\u2699');
@@ -153,7 +154,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   card.append(header, termWrap);
 
-  return { card, header, nameEl, elapsedEl, taskTitleEl, btnRestart, btnRestartFresh, btnRestartMenu, btnResume, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, restartMenu, termWrap };
+  return { card, header, nameEl, elapsedEl, taskTitleEl, btnRestart, btnRestartFresh, btnRestartMenu, btnResume, btnWorkspaceRepos, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, restartMenu, termWrap };
 }
 
 function buildRestartMenuItem(label: string, hint: string, className: string) {
