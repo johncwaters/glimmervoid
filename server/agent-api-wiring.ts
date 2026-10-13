@@ -8,7 +8,9 @@ import type {
 } from '../shared/contracts/session.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord } from './control-replay-core.ts';
-import { decideSpawnAllowance, deriveChildSessionName, describePushLanding, parseAgentVerb, PUSH_UNAVAILABLE_REASON } from './core/agent-api-core.ts';
+import {
+  decideAttentionAllowance, decideSpawnAllowance, deriveChildSessionName, describePushLanding, parseAgentVerb, PUSH_UNAVAILABLE_REASON,
+} from './core/agent-api-core.ts';
 import { isConfinedSessionVendor } from './core/sandbox-roles-core.ts';
 import { registerEphemeralSession } from './ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
@@ -59,7 +61,7 @@ function createAgentApiWiring({
 }: AgentApiWiringOptions): AgentApiPort {
   async function spawn(parent: Session, request: AgentSpawnRequest): Promise<SpawnOutcome> {
     const budget = parent.agentSpawnBudget();
-    const allowance = decideSpawnAllowance({ ...budget, isFactoryWorker: parent.factoryRole === 'worker' });
+    const allowance = decideSpawnAllowance({ ...budget, isFactoryWorker: parent.factoryRole === 'worker', isEphemeral: parent.ephemeral });
     if (!allowance.ok) return { ok: false, status: allowance.status, error: allowance.reason };
     if (request.agent && !isKnownAgentId(request.agent)) {
       return { ok: false, status: 400, error: `unknown agent ${request.agent}` };
@@ -126,8 +128,19 @@ function createAgentApiWiring({
     }
   }
 
-  function attention(parent: Session, request: AgentAttentionRequest): AgentAttentionReply {
-    return parent.noteAttention(request.note);
+  function isSpawnedChild(session: Session): boolean {
+    return agentSessions.has(session.id) && session.id.startsWith(`${AGENT_LANE_TAG}-`);
+  }
+
+  function attention(session: Session, request: AgentAttentionRequest): AgentApiReply {
+    const allowance = decideAttentionAllowance({
+      isEphemeral: session.ephemeral,
+      hasFactoryRole: session.factoryRole !== null,
+      isSpawnedChild: isSpawnedChild(session),
+    });
+    if (!allowance.ok) return { status: allowance.status, body: { ok: false, error: allowance.reason } };
+    const reply: AgentAttentionReply = session.noteAttention(request.note);
+    return { status: reply.ok ? 200 : 429, body: reply };
   }
 
   function board(): AgentBoardRow[] {
@@ -141,8 +154,7 @@ function createAgentApiWiring({
   }
 
   async function push(session: Session): Promise<AgentApiReply> {
-    const isSpawnedChild = agentSessions.has(session.id) && session.id.startsWith(`${AGENT_LANE_TAG}-`);
-    if (session.ephemeral && !isSpawnedChild) return describePushLanding({ merged: false, reason: PUSH_UNAVAILABLE_REASON });
+    if (session.ephemeral && !isSpawnedChild(session)) return describePushLanding({ merged: false, reason: PUSH_UNAVAILABLE_REASON });
     return describePushLanding(await session.mergeAndContinue({ force: true }));
   }
 
@@ -152,10 +164,7 @@ function createAgentApiWiring({
     if (parsed.verb === 'dispatch') return { status: 403, body: { ok: false, reason: 'dispatch requires a live factory orchestrator' } };
     if (parsed.verb === 'board') return { status: 200, body: { ok: true, sessions: board() } };
     if (parsed.verb === 'push') return push(session);
-    if (parsed.verb === 'attention') {
-      const reply = attention(session, parsed.request);
-      return { status: reply.ok ? 200 : 429, body: reply };
-    }
+    if (parsed.verb === 'attention') return attention(session, parsed.request);
     const outcome = await spawn(session, parsed.request);
     if (!outcome.ok) return { status: outcome.status, body: { ok: false, error: outcome.error } };
     return { status: 200, body: { ok: true, sessionId: outcome.sessionId, name: outcome.name } };

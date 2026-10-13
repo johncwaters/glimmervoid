@@ -117,16 +117,17 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   });
   void laneLedger.load();
   const recordLane = laneLedger.record;
-  const allLiveSessions = (): Session[] => [
-    ...sessions.values(),
-    ...agentSessions.values(),
-    ...reviewSessions.values(),
-    ...investigationSessions.values(),
-    ...visionsSessions.values(),
-    ...changeMapSessions.values(),
-    ...taskTitleSessions.values(),
-    ...benchmarkSessions.values(),
+  const liveSessionMaps = (): Map<string, Session>[] => [
+    sessions, agentSessions, reviewSessions, investigationSessions, visionsSessions, changeMapSessions, taskTitleSessions, benchmarkSessions,
   ];
+  const allLiveSessions = (): Session[] => liveSessionMaps().flatMap((sessionsById) => [...sessionsById.values()]);
+  const findLiveSession = (id: string): Session | null => {
+    for (const sessionsById of liveSessionMaps()) {
+      const session = sessionsById.get(id);
+      if (session) return session;
+    }
+    return null;
+  };
   const branchGc = createBranchGcWiring({
     config,
     gitWorkspace,
@@ -503,6 +504,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
 
   return {
     allLiveSessions,
+    findLiveSession,
     benchmarks,
     benchmarkSessions,
     branchGc,

@@ -120,7 +120,6 @@ test('dispatch hands off and activates at the integration tip, then provisions a
   assert.match(claudeSessionId ?? '', /^[0-9a-f-]{36}$/);
   assert.equal(overrides.agent, 'claude-code');
   assert.equal(overrides.ephemeral, true);
-  assert.equal(overrides.agentApi, true);
   assert.equal(overrides.factoryRole, 'worker');
   assert.equal(overrides.requireWorktree, true);
   assert.equal(overrides.dangerouslySkipPermissions, false);
@@ -338,7 +337,7 @@ test('lane start reconciles a factory-activated ticket with no live worker back 
 });
 
 test('HTTP permits only a live orchestrator to dispatch, still refuses a stopped orchestrator every other verb and keeps bearer authentication', async (context) => {
-  const session = new Session({ id: 'orchestrator', name: 'Master', path: os.tmpdir(), agentApi: true, factoryRole: 'orchestrator', ptySpawn: () => fakePty() });
+  const session = new Session({ id: 'orchestrator', name: 'Master', path: os.tmpdir(), factoryRole: 'orchestrator', ptySpawn: () => fakePty() });
   session._hooks.inject();
   const token = session.agentToken;
   assert.ok(token);

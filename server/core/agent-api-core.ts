@@ -24,6 +24,13 @@ interface SpawnBudget {
   inFlight: number;
   depth: number;
   isFactoryWorker: boolean;
+  isEphemeral: boolean;
+}
+
+interface AttentionCaller {
+  isEphemeral: boolean;
+  hasFactoryRole: boolean;
+  isSpawnedChild: boolean;
 }
 
 type AgentVerdict = { ok: true } | { ok: false; status: number; reason: string };
@@ -89,12 +96,15 @@ function decideAgentRequest({
   return { ok: true };
 }
 
-function decideSpawnAllowance({ liveChildren, lifetimeSpawns, inFlight, depth, isFactoryWorker }: SpawnBudget): AgentVerdict {
+function decideSpawnAllowance({ liveChildren, lifetimeSpawns, inFlight, depth, isFactoryWorker, isEphemeral }: SpawnBudget): AgentVerdict {
   if (isFactoryWorker) {
     return { ok: false, status: 403, reason: 'the factory starts and counts its workers, so a worker may not spawn a session' };
   }
   if (depth !== SPAWNABLE_DEPTH) {
     return { ok: false, status: 403, reason: 'a spawned session may not spawn another' };
+  }
+  if (isEphemeral) {
+    return { ok: false, status: 403, reason: 'only an operator session may spawn a session, because the new session gets an operator session sandbox, which can be wider than this one' };
   }
   if (inFlight >= MAX_SPAWNS_IN_FLIGHT) {
     return { ok: false, status: 429, reason: 'a spawn is already in flight' };
@@ -106,6 +116,13 @@ function decideSpawnAllowance({ liveChildren, lifetimeSpawns, inFlight, depth, i
     return { ok: false, status: 429, reason: `this session has used its ${MAX_LIFETIME_SPAWNS} spawns` };
   }
   return { ok: true };
+}
+
+function decideAttentionAllowance({ isEphemeral, hasFactoryRole, isSpawnedChild }: AttentionCaller): AgentVerdict {
+  if (!isEphemeral) return { ok: true };
+  if (hasFactoryRole) return { ok: true };
+  if (isSpawnedChild) return { ok: true };
+  return { ok: false, status: 403, reason: 'a lane session cannot raise attention, because its notes are not delivered to the operator' };
 }
 
 function isAgentApiVerb(verb: string): verb is AgentApiVerb {
@@ -192,7 +209,7 @@ function deriveChildSessionName(parentName: string, existingNames: readonly stri
 }
 
 export {
-  decideAgentRequest, decideSpawnAllowance, decideTicketAction, deriveChildSessionName, describePushLanding, isAgentApiVerb, isOrchestratorAgentVerb,
-  parseAgentVerb, tokensMatch, PUSH_UNAVAILABLE_REASON, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN, REFUSAL_REASON, REFUSAL_STATUS,
+  decideAgentRequest, decideAttentionAllowance, decideSpawnAllowance, decideTicketAction, deriveChildSessionName, describePushLanding, isAgentApiVerb,
+  isOrchestratorAgentVerb, parseAgentVerb, tokensMatch, PUSH_UNAVAILABLE_REASON, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN, REFUSAL_REASON, REFUSAL_STATUS,
 };
-export type { AgentVerbRequest, SpawnBudget, TicketAction, TicketActionInput };
+export type { AgentVerbRequest, AttentionCaller, SpawnBudget, TicketAction, TicketActionInput };

@@ -136,7 +136,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const agentIngressDependencies: AgentIngressDependencies = {
     allowedHosts,
     hookRouter,
-    getSession: getSessionAny,
+    getSession: (glimmervoidId) => laneAssembly.findLiveSession(glimmervoidId),
     getUsage: () => usage,
     getPlanReview: () => laneAssembly.planReview,
     refocusContextFor: (glimmervoidId) => ({

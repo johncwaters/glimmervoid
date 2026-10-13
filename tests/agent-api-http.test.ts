@@ -535,6 +535,35 @@ test('a factory worker is refused a spawn with the reason, and still reads the b
   }
 });
 
+test('a lane session is refused a spawn and an attention note with the reason, and still reads the board', async () => {
+  const fixture = wiringFixture();
+  const lane = new Session({ id: 'review-lane', name: 'review', path: process.cwd(), ephemeral: true, ptySpawn: () => fakePty() });
+  const raisedNotes: string[] = [];
+  try {
+    const refused = await fixture.spawn(lane, { prompt: 'help me' });
+    assert.equal(refused.status, 403);
+    assert.match(String(refused.body.error), /^only an operator session may spawn a session/);
+    assert.deepEqual(fixture.created, [], 'no child was built');
+    lane.on('agent-attention', ({ note }: { note: string }) => { raisedNotes.push(note); });
+    lane.transition('user_start');
+    lane.transition('spawn_success', { spawnCwdExists: true });
+    const whileStarting = await fixture.wiring.handle(lane, 'attention', { note: 'nobody is listening' });
+    assert.equal(whileStarting.status, 403);
+    assert.deepEqual(whileStarting.body, { ok: false, error: 'a lane session cannot raise attention, because its notes are not delivered to the operator' });
+    lane.transition('first_output');
+    assert.equal(lane.state, STATES.IDLE, 'a refused note is not held to fire once the lane can accept one');
+    const whileIdle = await fixture.wiring.handle(lane, 'attention', { note: 'nobody is listening' });
+    assert.deepEqual([whileIdle.status, whileIdle.body.ok], [403, false]);
+    assert.equal(lane.state, STATES.IDLE, 'a refused note leaves the lane where it was');
+    assert.equal(lane.toSnapshot().pendingPromptKind, null);
+    assert.deepEqual(raisedNotes, [], 'a refused note is never raised');
+    assert.equal((await fixture.wiring.handle(lane, 'board', {})).status, 200);
+  } finally {
+    lane.destroy();
+    fixture.destroyAll();
+  }
+});
+
 test('a second spawn while one is in flight is refused', async () => {
   const fixture = wiringFixture();
   try {
@@ -915,7 +944,7 @@ test('reopen and cancel are refused for a session that is not a live orchestrato
 const TICKET_ID = 'wrk-0123456789abcdef';
 
 async function orchestratorIngress(context: test.TestContext, withTicketVerbs: boolean) {
-  const session = new Session({ id: 'orchestrator', name: 'Master', path: os.tmpdir(), agentApi: true, ptySpawn: () => fakePty() });
+  const session = new Session({ id: 'orchestrator', name: 'Master', path: os.tmpdir(), ptySpawn: () => fakePty() });
   session._hooks.inject();
   const token = session.agentToken;
   assert.ok(token);

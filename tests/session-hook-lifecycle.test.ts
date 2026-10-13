@@ -22,7 +22,7 @@ import type { SpawnCall } from './helpers/fake-pty.ts';
 
 const PORT = 41234;
 
-function sessionFor(agentId: string, baseDir: string, agentApi = true, settingsSandbox: Record<string, unknown> | null = null) {
+function sessionFor(agentId: string, baseDir: string, settingsSandbox: Record<string, unknown> | null = null) {
   const calls: SpawnCall[] = [];
   const session = new Session({
     settingsSandbox,
@@ -30,7 +30,6 @@ function sessionFor(agentId: string, baseDir: string, agentApi = true, settingsS
     name: agentId,
     path: baseDir,
     agent: agentId,
-    agentApi,
     spawnCommand: { path: process.execPath, kind: 'exe' },
     hookRouter: new HookRouter(),
     getHookPort: () => PORT,
@@ -66,18 +65,6 @@ test('every agent spawns with an agent API url on the loopback listener', async 
       }
     });
   }
-});
-
-test('a session spawned with the agent API off is handed no agent url at all', async () => {
-  await withTempDir(async (dir) => {
-    const { session, calls } = sessionFor('claude-code', dir, false);
-    try {
-      await session.start();
-      assert.equal(AGENT_URL_ENV in calls[0].opts.env, false, 'the default config leaks no agent url');
-    } finally {
-      session.destroy();
-    }
-  });
 });
 
 test('factory overrides reach Claude argv and env with coherence hooks after fresh project hooks', async () => {
@@ -181,7 +168,7 @@ test('the agent token is a second token, never the hook token', async () => {
 test('a settings sandbox reaches the hook settings file verbatim, and no sandbox key is written without one', async () => {
   await withTempDir(async (dir) => {
     const sandbox = { enabled: true, failIfUnavailable: true, filesystem: { denyRead: ['~/.ssh'] } };
-    const sandboxed = sessionFor('claude-code', dir, true, sandbox);
+    const sandboxed = sessionFor('claude-code', dir, sandbox);
     const plain = sessionFor('claude-code', path.join(dir, 'plain'));
     try {
       await sandboxed.session.start();
