@@ -26,6 +26,7 @@ import { osc8LinkHandler, registerUrlLinkProvider } from './terminal-links.ts';
 import { isTerminalSubmitKeystroke } from './terminal-submit-core.ts';
 import { decideTerminalLinkState } from './terminal-link-core.ts';
 import { showErrorToast } from './toast.ts';
+import { uploadFilesToSession } from '../session-upload.ts';
 import { wireTouchScroll } from './touch-scroll.ts';
 import { reacquireWebglIfStale, releaseWebgl, tryLoadWebGL } from './webgl-pool.ts';
 import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from '../flying-animal-preview.ts';
@@ -554,7 +555,36 @@ export function wireTerminalIO(ui: SessionUi, sessionId: string) {
     for (const notify of inputSubscribers) notify(sessionId, isSubmit);
   });
 
+  wireFileTransfer(ui.termWrap, sessionId, ui.abortController.signal);
   connectDataWs(sessionId, ui, term);
+}
+
+function carriesFiles(transfer: DataTransfer | null): transfer is DataTransfer {
+  return !!transfer && Array.from(transfer.types).includes('Files');
+}
+
+function wireFileTransfer(termWrap: HTMLElement, sessionId: string, signal: AbortSignal) {
+  termWrap.addEventListener('paste', (event) => {
+    const clipboard = event.clipboardData;
+    if (!clipboard || clipboard.files.length === 0) return;
+    if (clipboard.getData('text/plain') !== '') return;
+    event.preventDefault();
+    event.stopPropagation();
+    void uploadFilesToSession(sessionId, Array.from(clipboard.files));
+  }, { capture: true, signal });
+
+  termWrap.addEventListener('dragover', (event) => {
+    if (!carriesFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  }, { signal });
+
+  termWrap.addEventListener('drop', (event) => {
+    if (!carriesFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void uploadFilesToSession(sessionId, Array.from(event.dataTransfer.files));
+  }, { capture: true, signal });
 }
 
 export function ensureTerminalSetup(ui: SessionUi, sessionId: string) {

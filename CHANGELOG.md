@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Paste or drop screenshots into a session from any browser**: pressing Ctrl+V or Cmd+V with an image on the clipboard, or dropping files onto a session's terminal, now uploads them to Glimmervoid and types the saved path into the session, the way the phone's Image and File keys already did. This works when the dashboard is opened on a different machine from the server, such as through a Coder port-forward URL, where the agent cannot read your local clipboard. A paste that carries text still pastes the text.
+
 ## [0.34.0] - 2026-10-13
 
 ### Changed

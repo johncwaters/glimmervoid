@@ -2,6 +2,7 @@ import { el } from '../dom-helpers.ts';
 import type { MobileKey } from '../mobile-keys.ts';
 import { isClipboardKey, isUploadKey, mobileKeyBytes, MOBILE_KEYS } from '../mobile-keys.ts';
 import { showErrorToast } from '../session-card/toast.ts';
+import { uploadFileToSession } from '../session-upload.ts';
 
 export function createMobileKeyStrip({ send, getSessionId }: { send: (data: string | null | undefined) => void; getSessionId?: () => string | null | undefined }) {
   const strip = el('div', 'phone-key-strip');
@@ -61,37 +62,16 @@ export function createMobileKeyStrip({ send, getSessionId }: { send: (data: stri
       showErrorToast('No session is open to upload to');
       return;
     }
-    uploadFile(sessionId, file, pickingButton);
+    uploadPickedFile(sessionId, file, pickingButton);
   }
 
-  async function uploadFile(sessionId: string, file: File, btn: HTMLButtonElement | null) {
+  async function uploadPickedFile(sessionId: string, file: File, btn: HTMLButtonElement | null) {
     if (btn) btn.disabled = true;
-    const headers: Record<string, string> = { 'x-glimmervoid-upload-name': encodeURIComponent(file.name) };
-    if (file.type) headers['content-type'] = file.type;
-    try {
-      const res = await fetch(`/upload/${encodeURIComponent(sessionId)}`, {
-        method: 'POST',
-        body: file,
-        headers,
-      });
-      if (!res.ok) showErrorToast(await uploadErrorText(res));
-    } catch {
-      showErrorToast('Upload failed');
-    } finally {
-      if (btn) btn.disabled = false;
-    }
+    await uploadFileToSession(sessionId, file);
+    if (btn) btn.disabled = false;
   }
 
   return strip;
-}
-
-async function uploadErrorText(res: Response) {
-  try {
-    const body = (await res.json()) as { error?: unknown } | null;
-    if (body && typeof body.error === 'string') return `Upload failed: ${body.error}`;
-  } catch {
-  }
-  return 'Upload failed';
 }
 
 function pasteFromClipboard(send: (data: string) => void) {
