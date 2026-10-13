@@ -501,8 +501,8 @@ body {
   display: inline-flex;
 
   color: var(--perms-warn);
-  border: 1px solid var(--perms-warn);
-  background: color-mix(in oklab, var(--perms-warn) 16%, transparent);
+  border: 1px solid color-mix(in oklab, var(--perms-warn) 55%, transparent);
+  background: color-mix(in oklab, var(--perms-warn) 14%, transparent);
 }
 
 .worktree-badge {
