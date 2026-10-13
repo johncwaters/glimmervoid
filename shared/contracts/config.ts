@@ -2,7 +2,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { TaskTitle } from './session.ts';
 import {
-  FactorySettings, AgentApiFileSettings, BranchGcControlSettings, ChangeMapSettings, GithubSettings,
+  FactorySettings, BranchGcControlSettings, ChangeMapSettings, GithubSettings,
   createBrowserConfig, optionalBoolean, optionalLooseObject,
   PlanReviewSettings, SandboxFileSettings, TelemetryFileSettings, TraceSettings,
 } from './browser-config.ts';
@@ -120,7 +120,6 @@ const FILE_CONFIG_SHAPE = {
   telegram: optionalLooseObject('telegram'),
   ingest: optionalLooseObject('ingest'),
   workflows: optionalLooseObject('workflows'),
-  agentApi: AgentApiFileSettings,
   sandbox: SandboxFileSettings,
   telemetry: TelemetryFileSettings,
   trace: TraceSettings,
@@ -161,7 +160,7 @@ export const Config = z.object({
 
 export const CONFIG_BLOCK_KEYS = Object.freeze([
   'changeMap', 'taskTitle', 'branchGc', 'postTurnChecks', 'visions', 'github', 'teamReview', 'benchmarks', 'factory', 'knowledgeGraph', 'posthog', 'usage', 'telegram', 'ingest',
-  'agentApi', 'sandbox', 'telemetry', 'workflows', 'coder',
+  'sandbox', 'telemetry', 'workflows', 'coder',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {
   if (CONFIG_BLOCK_KEYS.includes(key)) return false;

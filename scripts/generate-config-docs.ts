@@ -33,7 +33,7 @@ export const ENVIRONMENT_VARIABLES: readonly EnvironmentVariable[] = Object.free
   { name: 'GLIMMERVOID_SANE_YOLO_PATH', audience: 'internal', description: 'Names the Sane YOLO binary only in supervised sessions, so an installed Grok hook stays inert outside Glimmervoid. Not an operator setting.' },
   { name: 'GLIMMERVOID_RTK_PATH', audience: 'internal', description: 'Set by Glimmervoid in the rtk hook relay environment to name the rtk binary. Not an operator setting.' },
   { name: 'GLIMMERVOID_HOOK_URL', audience: 'internal', description: 'Set by Glimmervoid in each session environment as the hook relay target. Not an operator setting.' },
-  { name: 'GLIMMERVOID_AGENT_URL', audience: 'internal', description: 'Set by Glimmervoid in each session environment when `agentApi.enabled` is on; `glimmervoid spawn`, `attention` and `board` read it. Not an operator setting.' },
+  { name: 'GLIMMERVOID_AGENT_URL', audience: 'internal', description: 'Set by Glimmervoid in each session environment; `glimmervoid push`, `spawn`, `attention` and `board` read it. Not an operator setting.' },
   { name: 'GLIMMERVOID_HOOK_VIA_SANDBOX_PROXY', audience: 'internal', description: 'Set by Glimmervoid inside a sandbox whose network is a domain list, so the hook relays post through the sandbox proxy and nowhere else. Not an operator setting.' },
 ]);
 

@@ -144,16 +144,6 @@ test('planReview.enabled is a boolean file-only setting that defaults on', () =>
   assert.equal('planReview' in BrowserConfig.shape, false);
 });
 
-test('agentApi.enabled is a boolean dashboard-writable setting that defaults off', () => {
-  assert.equal(DEFAULT_CONFIG.agentApi.enabled, false);
-  assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, agentApi: { enabled: true } }).success, true);
-  const refused = Config.safeParse({ ...DEFAULT_CONFIG, agentApi: { enabled: 'true' } });
-  assert.equal(refused.success, false);
-  assert.equal(refused.success === false && configIssueMessage(refused.error), 'agentApi.enabled must be a boolean');
-  assert.equal('agentApi' in ConfigUpdate.shape, true);
-  assert.equal('agentApi' in BrowserConfig.shape, true);
-});
-
 test('the sandbox block lists paths, defaults to the package caches, and refuses anything that is not a path list', () => {
   assert.deepEqual(DEFAULT_CONFIG.sandbox, { unconfinedRepos: [], writablePaths: ['~/.npm', '~/.cache'], unreadablePaths: [] });
   assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, sandbox: { unconfinedRepos: ['~/dotfiles'] } }).success, true);
@@ -163,21 +153,6 @@ test('the sandbox block lists paths, defaults to the package caches, and refuses
   assert.equal(ConfigUpdate.safeParse({ sandbox: { writablePaths: [''] } }).success, false);
   assert.equal(ConfigUpdate.safeParse({ sandbox: { enabled: false } }).success, false);
   assert.equal(CONFIG_BLOCK_KEYS.includes('sandbox'), true);
-});
-
-test('the persisted config tolerates an unrecognized agentApi key the dashboard update refuses', () => {
-  assert.equal(Config.safeParse({ ...DEFAULT_CONFIG, agentApi: { enabled: true, token: 'x' } }).success, true);
-  assert.equal(ConfigUpdate.safeParse({ agentApi: { enabled: true, token: 'x' } }).success, false);
-  assert.equal(BrowserConfig.safeParse({ agentApi: { enabled: true, token: 'x' } }).success, false);
-  assert.equal(CONFIG_BLOCK_KEYS.includes('agentApi'), true);
-});
-
-test('a settings update carries agentApi.enabled and nothing else inside the block', () => {
-  const accepted = ConfigUpdate.safeParse({ agentApi: { enabled: true } });
-  assert.equal(accepted.success, true);
-  assert.deepEqual(accepted.success === true && accepted.data.agentApi, { enabled: true });
-  assert.equal(ConfigUpdate.safeParse({ agentApi: { enabled: true, token: 'x' } }).success, false);
-  assert.equal(ConfigUpdate.safeParse({ agentApi: { enabled: 'true' } }).success, false);
 });
 
 test('telemetry.enabled is a boolean dashboard-writable setting that defaults on', () => {
@@ -289,13 +264,15 @@ test('updateChannel accepts release and main across config boundaries', () => {
   assert.equal(ConfigUpdate.safeParse({ updateChannel: 'nightly' }).success, false);
 });
 
-test('a config still carrying the retired mill and memory keys parses, and the keys pass through untouched', () => {
+test('a config still carrying the retired mill, memory, agentApi and antiSlopPrompt keys parses, and the keys pass through untouched', () => {
   const retired = {
     millEnabled: false,
     packsAutoRebuild: false,
     packDistiller: { enabled: true, intervalHours: 24, timeoutSeconds: 900 },
     millMetrics: { retainDays: 90, holdoutPercent: 50 },
     memory: { enabled: true, retainDays: 365, distill: { enabled: true, intervalMinutes: 60 } },
+    agentApi: { enabled: true, token: 'x' },
+    antiSlopPrompt: true,
   };
   const config = {
     ...DEFAULT_CONFIG,
@@ -308,6 +285,7 @@ test('a config still carrying the retired mill and memory keys parses, and the k
   const data: Record<string, unknown> = parsed.success ? parsed.data : {};
   for (const [key, value] of Object.entries(retired)) assert.deepEqual(data[key], value, key);
   for (const key of Object.keys(retired)) assert.equal(CONFIG_BLOCK_KEYS.includes(key), false, key);
+  assert.equal(ConfigUpdate.safeParse({ agentApi: { enabled: true } }).success, false, 'the dashboard can no longer save the retired block');
 });
 
 test('branchGc prefixes parse as string arrays and reject non-arrays', () => {
