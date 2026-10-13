@@ -6,7 +6,7 @@ import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import { FactoryWorkerEvent } from '../shared/contracts/factory.ts';
 import type { FactoryProjectState } from '../shared/contracts/factory.ts';
-import { AgentTicketRequest } from '../shared/contracts/session.ts';
+import { AgentTicketRequest, ORCHESTRATOR_AGENT_VERBS } from '../shared/contracts/session.ts';
 import type { AgentTicketReply, TicketAgentVerb } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
@@ -29,8 +29,8 @@ import type { SessionSpawnOverrides } from './session-factory.ts';
 
 export const FACTORY_ORCHESTRATOR_ALLOW = Object.freeze([
   'Bash(coherence work create:*)', 'Bash(coherence orient:*)', 'Bash(coherence work inspect:*)',
-  'Bash(coherence context:*)', 'Bash(coherence decide:*)', 'Bash(coherence defects:*)', 'Bash(glimmervoid dispatch:*)',
-  'Bash(glimmervoid reopen:*)', 'Bash(glimmervoid cancel:*)',
+  'Bash(coherence context:*)', 'Bash(coherence decide:*)', 'Bash(coherence defects:*)',
+  ...ORCHESTRATOR_AGENT_VERBS.map((verb) => `Bash(glimmervoid ${verb}:*)`),
 ]);
 
 export const FACTORY_ORCHESTRATOR_DENY = Object.freeze([
@@ -87,7 +87,7 @@ export function createFactoryTicketVerbs({
   };
 }
 
-export type FactoryOrchestratorSession =Pick<Session, 'id' | 'name' | 'path' | 'agentId' | 'state' | 'stateSince'
+export type FactoryOrchestratorSession = Pick<Session, 'id' | 'name' | 'path' | 'agentId' | 'state' | 'stateSince'
   | 'start' | 'destroy' | '_destroyed' | '_killReap' | 'hasLivePty' | 'pasteTextWhenReady' | 'write'> & Pick<EventEmitter, 'on'>;
 
 export interface FactoryOrchestratorDeps<ManagedSession extends FactoryOrchestratorSession = Session> {

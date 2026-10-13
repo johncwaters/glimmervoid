@@ -154,8 +154,8 @@ test('orchestrator uses the ledger cwd, pinned Claude hooks, Sane YOLO, a work r
     writableRoots: [], lockedCheckouts: [fixture.ledgerPath], commitCheckouts: [], readDenied: [], readableWithinDenied: ['/hook/settings'],
   }]);
   assert.deepEqual(overrides.extraClaudeArgs?.slice(2), [...LANE_ENVIRONMENT_ARGS]);
-  assert.deepEqual(FACTORY_ORCHESTRATOR_ALLOW, ['Bash(coherence work create:*)', 'Bash(coherence orient:*)', 'Bash(coherence work inspect:*)',
-    'Bash(coherence context:*)', 'Bash(coherence decide:*)', 'Bash(coherence defects:*)', 'Bash(glimmervoid dispatch:*)']);
+  assert.deepEqual(FACTORY_ORCHESTRATOR_ALLOW.filter((rule) => rule.startsWith('Bash(coherence')), ['Bash(coherence work create:*)', 'Bash(coherence orient:*)',
+    'Bash(coherence work inspect:*)', 'Bash(coherence context:*)', 'Bash(coherence decide:*)', 'Bash(coherence defects:*)']);
   for (const denied of ['Bash(coherence work close:*)', 'Bash(coherence work transition:*)', 'Bash(coherence work handoff:*)', 'Bash(coherence consequence:*)', 'Bash(coherence defect:*)', 'Edit', 'Write', 'Bash(git push:*)',
     'Bash(npx:*)', 'Bash(node:*)', 'Bash(pnpm:*)', 'Bash(yarn:*)', 'Bash(bunx:*)', 'Edit(**/.git/**)', 'Edit(**/.claude/**)']) {
     assert.ok(FACTORY_ORCHESTRATOR_DENY.includes(denied), denied);

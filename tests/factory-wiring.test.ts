@@ -29,6 +29,7 @@ import { passthroughWorkLane } from './helpers/passthrough-work-lane.ts';
 import type { SessionSpawnOverrides } from '../server/session-factory.ts';
 import { readCoherenceFixture } from './helpers/factory-coherence-reports.ts';
 import { waitFor } from './helpers/wait-for.ts';
+import { ORCHESTRATOR_AGENT_VERBS } from '../shared/contracts/session.ts';
 
 const REAL_PROCESS_DEADLINE_MS = 30_000;
 
@@ -1181,9 +1182,7 @@ test('a live orchestrator reopens a blocked child and cancels an open one as fac
   assert.equal(ledgerWrites().length, 2);
 });
 
-test('the orchestrator may run glimmervoid reopen and cancel, is told to use them for a blocked child, and still cannot transition or close work', () => {
-  assert.ok(FACTORY_ORCHESTRATOR_ALLOW.includes('Bash(glimmervoid reopen:*)'));
-  assert.ok(FACTORY_ORCHESTRATOR_ALLOW.includes('Bash(glimmervoid cancel:*)'));
+test('the orchestrator may run and is told about every orchestrator agent verb, and still cannot transition or close work', () => {
   assert.ok(FACTORY_ORCHESTRATOR_DENY.includes('Bash(coherence work transition:*)'));
   assert.ok(FACTORY_ORCHESTRATOR_DENY.includes('Bash(coherence work close:*)'));
   const intent: FactoryState['projects'][number]['orders'][number] = {
@@ -1191,8 +1190,10 @@ test('the orchestrator may run glimmervoid reopen and cancel, is told to use the
     parent: null, dependsOn: [], writeScopes: [], owner: null, lastEvent: null,
   };
   const prompt = buildOrchestratorPrompt({ projectName: 'repo', intent, claudeSessionId: 'claude-session' });
-  assert.ok(prompt.includes('To unblock a blocked child of this intent, run glimmervoid reopen <wrk-id>.'));
-  assert.ok(prompt.includes('To drop a blocked child instead, run glimmervoid cancel <wrk-id>.'));
+  for (const verb of ORCHESTRATOR_AGENT_VERBS) {
+    assert.ok(FACTORY_ORCHESTRATOR_ALLOW.includes(`Bash(glimmervoid ${verb}:*)`), verb);
+    assert.ok(prompt.includes(`glimmervoid ${verb} <`), verb);
+  }
 });
 
 test('the orchestrator cannot cancel a ticket while its worker is live', async (context) => {

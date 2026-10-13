@@ -256,6 +256,12 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
     }
   }
 
+  function releaseWorkers(projectId: string, workIds: readonly string[]): void {
+    for (const worker of liveWorkersOf(projectId)) {
+      if (workIds.includes(worker.workId)) worker.session.destroy();
+    }
+  }
+
   function releaseProject(projectId: string): void {
     pendingRefusals.delete(projectId);
     for (const worker of liveWorkersOf(projectId)) worker.session.destroy();
@@ -316,7 +322,7 @@ export function createFactoryDispatch<ManagedSession extends FactoryOrchestrator
     });
   }
 
-  return { dispatch, releaseProject, stop, reconcileActiveOrders, renudgeRefusedDispatch, getStallSessions,
+  return { dispatch, releaseProject, releaseWorkers, stop, reconcileActiveOrders, renudgeRefusedDispatch, getStallSessions,
     hasPendingRefusal: (projectId: string) => pendingRefusals.has(projectId),
     getLiveWorkers: (projectId: string) => liveWorkersOf(projectId).map(({ workId, sessionId: workerSessionId }) => ({ workId, sessionId: workerSessionId })),
   };

@@ -35,7 +35,7 @@ const prepareUnsandboxedCheckRunner: PrepareFactoryCheckRunner = async () => ({
   dispose: async () => {},
 });
 
-async function createFixture(context: TestContext, activateOrder = true, capCounters: Pick<FactoryCloseOutDeps, 'countTicketBlock' | 'countIntentCapCancel'> = {}) {
+async function createFixture(context: TestContext, activateOrder = true, capCounters: Pick<FactoryCloseOutDeps, 'countTicketBlock' | 'countIntentCapCancel' | 'releaseWorkers'> = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'factory-closeout-'));
   const cleanupTasks: (() => Promise<void>)[] = [];
   context.after(async () => {
@@ -299,12 +299,28 @@ test('the third cap-cancelled ticket of an intent cancels the intent itself and 
   assert.match(fixture.exceptions.at(-1) ?? '', /cancelled intent .* after 3 of its tickets were cancelled at the block cap/);
 });
 
-test('an intent past its cap-cancel limit is not cancelled again', async (context) => {
-  const fixture = await createFixture(context, true, { countTicketBlock: async () => 4, countIntentCapCancel: async () => 4 });
+test('an intent at its cap-cancel limit releases and cancels its live descendants deepest first and synthesizes its completed children, so coherence lets the intent close', async (context) => {
+  const releasedWorkIds: string[] = [];
+  const fixture = await createFixture(context, true, { countTicketBlock: async () => 3, countIntentCapCancel: async () => 4,
+    releaseWorkers: (_projectId, workIds) => releasedWorkIds.push(...workIds) });
+  const activate = (workId: string) => fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['work', 'transition', workId, 'active', '--because', 'Factory dispatch', '--session', 'glimmervoid-factory'] });
+  const siblingId = await fixture.createOrder(fixture.worker.intentId, 'Ship backoff');
+  await activate(siblingId);
+  const grandchildId = await fixture.createOrder(siblingId, 'Ship backoff jitter');
+  await activate(grandchildId);
+  const mergedSiblingId = await fixture.createOrder(fixture.worker.intentId, 'Ship retry metrics');
+  await activate(mergedSiblingId);
+  await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['work', 'close', mergedSiblingId, 'completed', '--because', 'merged', '--evidence', 'tip', '--session', 'glimmervoid-factory'] });
+  const dependent: { work: string } = JSON.parse(await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: [
+    'work', 'create', 'Ship retry docs', '--success', 'Docs pass', '--risk', 'medium', '--authority', 'user-directed', '--granted-by', 'operator',
+    '--boundary', 'This repo', '--session', 'glimmervoid-factory', '--write-scope', 'src/retry.ts', '--parent', fixture.worker.intentId, '--depends-on', fixture.worker.workId, '--json',
+  ] }));
   await fixture.commitChange('outside.ts');
   for (const _attempt of [1, 2, 3]) await fixture.closeOut.turnEnded(fixture.worker);
-  assert.equal(await fixture.orderState(fixture.worker.workId), 'cancelled');
-  assert.notEqual(await fixture.orderState(fixture.worker.intentId), 'cancelled');
+  assert.deepEqual(releasedWorkIds.sort(), [siblingId, grandchildId, dependent.work].sort());
+  for (const workId of [fixture.worker.workId, siblingId, grandchildId, dependent.work, fixture.worker.intentId]) assert.equal(await fixture.orderState(workId), 'cancelled', workId);
+  assert.equal(await fixture.orderState(mergedSiblingId), 'completed');
+  assert.match(fixture.exceptions.at(-1) ?? '', /cancelled intent .* after 4 of its tickets were cancelled at the block cap/);
 });
 
 test('lane state carries per-ticket block counts and per-intent cap-cancel counts', () => {

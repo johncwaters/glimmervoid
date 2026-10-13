@@ -610,7 +610,8 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
       }) : null;
       const activeCloseOut = spawnReviewer ? createFactoryCloseOut({
         config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger: ensureTrustedLedgerCheckout, runCoherence, commitAndLand, readIntegrationSha,
-        recordFactoryLandedSha, readPaused, readIntentFloorAllowances, countTicketBlock, countIntentCapCancel, prepareCheckRunner, recordDecision: decisionLog.record,
+        recordFactoryLandedSha, readPaused, readIntentFloorAllowances, countTicketBlock, countIntentCapCancel, prepareCheckRunner,
+        releaseWorkers: (projectId, workIds) => dispatcher?.releaseWorkers(projectId, workIds), recordDecision: decisionLog.record,
         appendWatch: (entry) => updateLaneState(entry.projectId, (state) => ({ watch: [...(state.watch ?? []), entry] })),
         notifyOrchestrator,
         setException: raiseException,
