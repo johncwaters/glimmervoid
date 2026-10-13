@@ -53,7 +53,7 @@ const prepareSandboxedCheckRunner: PrepareFactoryCheckRunner = async ({ scratchP
   const runCheck: FactoryCheckRunner = async (argv, { timeout, signal, ...execOptions }) => {
     const [checkCommand, ...checkArgs] = argv;
     if (checkCommand === undefined) throw new Error('Factory check command is empty');
-    const wrapped = await launch.wrap(checkCommand, checkArgs);
+    const wrapped = await launch.wrap(checkCommand, checkArgs, { hasTerminal: false });
     const timeoutSignal = AbortSignal.timeout(timeout);
     try {
       return await execFileAsync(wrapped.file, wrapped.args, {

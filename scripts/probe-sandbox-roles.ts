@@ -213,7 +213,7 @@ async function runCheckCommand(checkout: string, evidenceDir: string, scriptFile
   });
   assert.ok(prepared.ok, prepared.ok ? '' : prepared.reason);
   try {
-    const wrapped = await prepared.launch.wrap('sh', [scriptFile]);
+    const wrapped = await prepared.launch.wrap('sh', [scriptFile], { hasTerminal: false });
     await execFileAsync(wrapped.file, wrapped.args, { cwd: checkout, env: { ...process.env, ...prepared.launch.env }, timeout: 120_000 });
   } finally {
     await prepared.launch.dispose();

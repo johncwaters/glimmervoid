@@ -18,7 +18,7 @@ interface WrappedCommand {
 }
 
 interface SandboxLaunch {
-  wrap: (file: string, args: readonly string[]) => Promise<WrappedCommand>;
+  wrap: (file: string, args: readonly string[], options: { hasTerminal: boolean }) => Promise<WrappedCommand>;
   env: Record<string, string>;
   cwd?: string;
   dispose: () => Promise<void>;
@@ -206,10 +206,10 @@ async function prepareSandboxLaunch({ role, launchId, tempDir, enterDir }: Sandb
     return {
       ok: true,
       launch: {
-        wrap: async (file, args) => {
+        wrap: async (file, args, { hasTerminal }) => {
           const rebuilt = await buildPlanFromCurrentDisk();
           if (!rebuilt.ok) throw new Error(rebuilt.reason);
-          await writeJsonAtomic(policyPath, rebuilt.plan.policy);
+          await writeJsonAtomic(policyPath, { ...rebuilt.plan.policy, allowPty: hasTerminal && rebuilt.plan.launcher === 'open-network' });
           placeholderPathsAbsentAtWrap = await absentPaths(sandboxPlaceholderPaths(realRole));
           await createMissingMountPoints(lockedClaudeMountPoints(realRole));
           return { file: launcher.file, args: [...launcher.args, ...envPrefix, ...enteringFolder(enterDir, file, args)] };

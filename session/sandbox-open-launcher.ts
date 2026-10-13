@@ -1,11 +1,16 @@
 import fs from 'node:fs';
+import path from 'node:path';
+import tty from 'node:tty';
 import { FilesystemConfigSchema, SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import type { NetworkConfig, SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 import { spawn } from '../server/child-process-safe.ts';
 import { errorMessage } from '../shared/text.ts';
+import { confineToOwnTerminal } from './core/sandbox-terminal-core.ts';
 
 const FORWARDED_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
 const OPEN_NETWORK: Partial<NetworkConfig> = { allowAllUnixSockets: false };
+const DEVICE_FOLDER = '/dev';
+const PSEUDO_TERMINAL_PREFIX = 'ttys';
 
 function fieldOf(record: unknown, field: string): unknown {
   if (typeof record !== 'object' || record === null) return undefined;
@@ -20,7 +25,24 @@ function readOpenPolicy(policyPath: string): SandboxRuntimeConfig {
   const policy: unknown = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
   if (fieldOf(fieldOf(policy, 'network'), 'allowedDomains') !== undefined) throw new Error('a policy with a domain list must run through the sandbox runtime CLI');
   const filesystem = FilesystemConfigSchema.parse(fieldOf(policy, 'filesystem'));
-  return { network: OPEN_NETWORK, filesystem } as SandboxRuntimeConfig;
+  return { network: OPEN_NETWORK, filesystem, allowPty: fieldOf(policy, 'allowPty') === true } as SandboxRuntimeConfig;
+}
+
+function ownTerminalPath(): string {
+  if (!tty.isatty(0)) throw new Error('a policy with terminal access needs the launcher to run in a terminal');
+  const ownDevice = fs.fstatSync(0).rdev;
+  const ownName = fs.readdirSync(DEVICE_FOLDER)
+    .filter((name) => name.startsWith(PSEUDO_TERMINAL_PREFIX))
+    .find((name) => fs.statSync(path.join(DEVICE_FOLDER, name)).rdev === ownDevice);
+  if (ownName === undefined) throw new Error('the launcher terminal is not a pseudo-terminal under /dev');
+  return path.join(DEVICE_FOLDER, ownName);
+}
+
+function sandboxArgv(argv: string[], policy: SandboxRuntimeConfig): string[] {
+  if (policy.allowPty !== true || process.platform !== 'darwin') return argv;
+  const confinement = confineToOwnTerminal(argv, ownTerminalPath());
+  if (!confinement.ok) throw new Error(confinement.reason);
+  return confinement.argv;
 }
 
 function exitCodeFor(code: number | null, signal: NodeJS.Signals | null): number {
@@ -57,7 +79,7 @@ async function launchInOpenNetworkSandbox(): Promise<void> {
     exitWhenInterrupted();
     throw wrapFailure;
   });
-  const [shell, ...shellArgs] = wrapped.argv;
+  const [shell, ...shellArgs] = sandboxArgv(wrapped.argv, openPolicy);
   if (!shell || shellArgs.at(-1) === commandLine) throw new Error('the sandbox runtime returned the command unwrapped');
   exitWhenInterrupted();
   child = spawn(shell, shellArgs, { stdio: 'inherit', env: wrapped.env });

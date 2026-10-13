@@ -1557,7 +1557,7 @@ class Session extends EventEmitter {
     if (!prepared.ok) throw new Error(prepared.reason);
     this._disposeSandboxLaunch(this._sandboxLaunch);
     this._sandboxLaunch = prepared.launch;
-    const wrapped = await prepared.launch.wrap(command.file, command.args);
+    const wrapped = await prepared.launch.wrap(command.file, command.args, { hasTerminal: true });
     return { ...wrapped, env: prepared.launch.env, cwd: prepared.launch.cwd };
   }
 

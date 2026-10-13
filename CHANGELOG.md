@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Sandboxed sessions take keyboard and mouse input again on macOS**: a session started inside the sandbox could not switch its terminal to raw mode, so moving the mouse over the terminal typed strings like `^[[<35;12;20M` into the prompt and keys only arrived after Enter. Sessions now reach their own terminal from inside the sandbox, and no other: every other terminal on the machine stays out of reach, and factory checks, which run without a terminal, still get none.
 - **Every review comment carries the same label**: inline review comments were labeled `**[reviewer] SEVERITY**`, only a bare `**SEVERITY**`, or not at all, depending on how the reviewer wrote them. Glimmervoid now labels each inline comment itself with the reviewer and severity of the finding it belongs to, replacing any label the reviewer wrote, and asks the reviewer to label the findings in the review body the same way.
 
 ## [0.32.0] - 2026-10-13
