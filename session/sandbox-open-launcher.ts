@@ -25,7 +25,7 @@ function readOpenPolicy(policyPath: string): SandboxRuntimeConfig {
   const policy: unknown = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
   if (fieldOf(fieldOf(policy, 'network'), 'allowedDomains') !== undefined) throw new Error('a policy with a domain list must run through the sandbox runtime CLI');
   const filesystem = FilesystemConfigSchema.parse(fieldOf(policy, 'filesystem'));
-  return { network: OPEN_NETWORK, filesystem, allowPty: fieldOf(policy, 'allowPty') === true } as SandboxRuntimeConfig;
+  return { network: OPEN_NETWORK, filesystem, allowPty: fieldOf(policy, 'allowPty') === true, enableWeakerNetworkIsolation: true } as SandboxRuntimeConfig;
 }
 
 function ownTerminalPath(): string {
