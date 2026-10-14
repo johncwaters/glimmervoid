@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
-import { absolutePathEditRule, buildWorkerPrompt, factoryConfigKey, isWorktreeAdminDirOf, parseGitdirPointer, decideFactoryStalls, isTurnEndHookEvent, FACTORY_STALL_MS, buildFactoryProjectState, buildOrchestratorPrompt, collapseWorkerEvents, decideOrchestrator, formatWorkerEvent, verifierDefectEvidence, verifierRejectionNote, factoryStateSignature, nextIntent } from '../server/core/factory-core.ts';
+import { absolutePathEditRule, buildWorkerPrompt, factoryConfigKey, isWorktreeAdminDirOf, parseGitdirPointer, decideFactoryStalls, isTurnEndHookEvent, FACTORY_STALL_MS, buildFactoryProjectState, buildOrchestratorPrompt, collapseWorkerEvents, decideOrchestrator, formatWorkerEvent, verifierDefectEvidence, verifierRejectionNote, factoryStateSignature, nextIntent } from '../server/factory/core/factory-core.ts';
 import { CoherenceOrient, CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
-import type { FactoryStallSession } from '../server/core/factory-core.ts';
+import type { FactoryStallSession } from '../server/factory/core/factory-core.ts';
 import { STATES } from '../shared/states.ts';
 import { FactoryProjectState } from '../shared/contracts/factory.ts';
 import { readCoherenceFixture } from './helpers/factory-coherence-reports.ts';

@@ -1,31 +1,31 @@
 import crypto from 'node:crypto';
-import { errorMessage } from '../shared/text.ts';
+import { errorMessage } from '../../shared/text.ts';
 import type { EventEmitter } from 'node:events';
-import type { Session } from '../session/sessions.ts';
-import { projectSessionCard } from '../session/core/snapshot-projection.ts';
-import { CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
-import { FactoryWorkerEvent } from '../shared/contracts/factory.ts';
-import type { FactoryProjectState } from '../shared/contracts/factory.ts';
-import { AgentTicketRequest, ORCHESTRATOR_AGENT_VERBS } from '../shared/contracts/session.ts';
-import type { AgentTicketReply, TicketAgentVerb } from '../shared/contracts/session.ts';
-import { STATES } from '../shared/states.ts';
-import type { ControlBroadcast } from './backend/backend-websockets.ts';
-import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
-import { decideTicketAction } from './core/agent-api-core.ts';
-import { buildCoherenceSessionOverrides } from './core/coherence-session-core.ts';
+import type { Session } from '../../session/sessions.ts';
+import { projectSessionCard } from '../../session/core/snapshot-projection.ts';
+import { CoherenceWorkInspect } from '../../shared/contracts/coherence.ts';
+import { FactoryWorkerEvent } from '../../shared/contracts/factory.ts';
+import type { FactoryProjectState } from '../../shared/contracts/factory.ts';
+import { AgentTicketRequest, ORCHESTRATOR_AGENT_VERBS } from '../../shared/contracts/session.ts';
+import type { AgentTicketReply, TicketAgentVerb } from '../../shared/contracts/session.ts';
+import { STATES } from '../../shared/states.ts';
+import type { ControlBroadcast } from '../backend/backend-websockets.ts';
+import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
+import { decideTicketAction } from '../core/agent-api-core.ts';
+import { buildCoherenceSessionOverrides } from '../core/coherence-session-core.ts';
 import {
   FACTORY_LEDGER_SESSION, FACTORY_ORCHESTRATOR_EXIT_WINDOW_MS, FACTORY_SANE_YOLO_UNAVAILABLE, buildOrchestratorPrompt, collapseWorkerEvents, decideOrchestrator, formatWorkerEvent,
   findFactoryProjectPath, isTurnEndHookEvent, nextIntent,
 } from './core/factory-core.ts';
 import type { FactoryStallSession } from './core/factory-core.ts';
-import { LANE_CONFIG_EDIT_DENY_RULES } from './lanes/core/lane-permissions-core.ts';
-import { registerEphemeralSession } from './lanes/ephemeral-session.ts';
-import { resolveRequiredSaneYoloHookTools } from './hook-tools.ts';
-import { resolveWorkLane } from './lanes/work-lane.ts';
-import type { WorkLaneDependencies } from './lanes/work-lane.ts';
-import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
-import type { RecordLane, SpawnGate } from './lanes/ephemeral-session.ts';
-import type { SessionSpawnOverrides } from './session/session-factory.ts';
+import { LANE_CONFIG_EDIT_DENY_RULES } from '../lanes/core/lane-permissions-core.ts';
+import { registerEphemeralSession } from '../lanes/ephemeral-session.ts';
+import { resolveRequiredSaneYoloHookTools } from '../hook-tools.ts';
+import { resolveWorkLane } from '../lanes/work-lane.ts';
+import type { WorkLaneDependencies } from '../lanes/work-lane.ts';
+import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
+import type { RecordLane, SpawnGate } from '../lanes/ephemeral-session.ts';
+import type { SessionSpawnOverrides } from '../session/session-factory.ts';
 
 export const FACTORY_ORCHESTRATOR_ALLOW = Object.freeze([
   'Bash(coherence work create:*)', 'Bash(coherence orient:*)', 'Bash(coherence work inspect:*)',

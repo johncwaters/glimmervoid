@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FactoryCheck, FactoryFence } from '../../server/core/factory-core.ts';
+import type { FactoryCheck, FactoryFence } from '../../server/factory/core/factory-core.ts';
 import { FactoryReviewVerdict, isSingleFactoryPathSegment } from './factory.ts';
 
 export const FACTORY_DECISION_OUTPUT_MAX_BYTES = 16 * 1024;

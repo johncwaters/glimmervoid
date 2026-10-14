@@ -8,7 +8,7 @@ import os from 'node:os';
 import { decideTelemetryConsent, resolveProjectToken } from '../server/core/telemetry-core.ts';
 import { TELEMETRY_BASE_PROPERTY_KEYS, TelemetryState } from '../shared/contracts/telemetry.ts';
 import { FactoryState } from '../shared/contracts/factory.ts';
-import { factoryHarnessRunsDirectory } from '../server/core/factory-harness-mirror-core.ts';
+import { factoryHarnessRunsDirectory } from '../server/factory/core/factory-harness-mirror-core.ts';
 import { builtServerEntryPath, prepareInstance } from '../test/factory/instance.ts';
 import {
   FactoryHarnessBaseProperties, FactoryHarnessBatch, FactoryHarnessRunProperties,

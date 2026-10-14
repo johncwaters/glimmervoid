@@ -3,8 +3,8 @@ import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { HARNESS_MIRROR_MAX_IDLE_MS, HARNESS_STATE_FILE_NAME, HARNESS_VERDICT_FILE_NAME, harnessBatchName, harnessRunName } from '../server/core/factory-harness-mirror-core.ts';
-import { createFactoryHarnessMirror } from '../server/factory-harness-mirror.ts';
+import { HARNESS_MIRROR_MAX_IDLE_MS, HARNESS_STATE_FILE_NAME, HARNESS_VERDICT_FILE_NAME, harnessBatchName, harnessRunName } from '../server/factory/core/factory-harness-mirror-core.ts';
+import { createFactoryHarnessMirror } from '../server/factory/factory-harness-mirror.ts';
 
 function harnessProject(headSha: string) {
   return {

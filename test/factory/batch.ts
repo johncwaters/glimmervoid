@@ -21,7 +21,7 @@ import { bridgeSocketPathRefusal, decideVerdict, parseDecisionLines, unexpectedA
 import type { VerdictInput } from './verdict.ts';
 import { adoptRunHomeRemoteSwitch, resolveHarnessTelemetryInputs, sendRunTelemetry } from './telemetry.ts';
 import { decideHarnessTelemetry } from './telemetry-core.ts';
-import { HARNESS_STATE_FILE_NAME, HARNESS_VERDICT_FILE_NAME, factoryHarnessRunsDirectory, harnessBatchName, harnessRunName } from '../../server/core/factory-harness-mirror-core.ts';
+import { HARNESS_STATE_FILE_NAME, HARNESS_VERDICT_FILE_NAME, factoryHarnessRunsDirectory, harnessBatchName, harnessRunName } from '../../server/factory/core/factory-harness-mirror-core.ts';
 import type { HarnessTelemetryInputs, RecordedVerdict } from './telemetry-core.ts';
 
 function errorText(error: unknown) { return error instanceof Error ? error.message : String(error); }

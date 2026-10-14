@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { execFileAsync } from '../server/child-process-safe.ts';
-import { buildFactoryCheckEnv, factoryWrittenRecordId, findForbiddenLedgerWrites } from '../server/core/factory-core.ts';
+import { buildFactoryCheckEnv, factoryWrittenRecordId, findForbiddenLedgerWrites } from '../server/factory/core/factory-core.ts';
 import { buildHardenedGitInvocation, gitInvocationEnvironment, parseFilterDriverNames } from '../server/git/core/git-invocation-core.ts';
 import { createGitWorkspace, runHardenedGit } from '../server/git/git-workspace.ts';
 

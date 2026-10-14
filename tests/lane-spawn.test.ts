@@ -6,7 +6,7 @@ import test from 'node:test';
 import { LANE_CONFIG_EDIT_DENY_RULES } from '../server/lanes/core/lane-permissions-core.ts';
 import { LANE_CREDENTIAL_ENV } from '../server/sandbox/core/sandbox-roles-core.ts';
 import { createLaneSpawn } from '../server/lanes/lane-spawn.ts';
-import { FACTORY_REVIEWER_PERMISSIONS, FACTORY_REVIEWER_SPAWN_ENV, FACTORY_REVIEWER_TOOLS } from '../server/factory-closeout.ts';
+import { FACTORY_REVIEWER_PERMISSIONS, FACTORY_REVIEWER_SPAWN_ENV, FACTORY_REVIEWER_TOOLS } from '../server/factory/factory-closeout.ts';
 import { THREAD_JUDGE_TOOLS } from '../server/team-review-thread-judge.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';

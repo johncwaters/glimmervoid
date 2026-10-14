@@ -1,16 +1,16 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
-import { contentMarker } from './visions-dispatch-core.ts';
-import { stableConfigKey } from './config-secrets-core.ts';
-import { DEFAULT_FACTORY_CHECKS, DEFAULT_FACTORY_PROTECTED_PATHS } from '../../shared/contracts/browser-config.ts';
-import type { Config } from '../../shared/contracts/config.ts';
-import type { CoherenceOrient, CoherenceWorkInspect } from '../../shared/contracts/coherence.ts';
-import type { FactoryWorkerEvent, FactoryReviewVerdict, FactoryIntentTicket, FactoryQueueIntentRequest } from '../../shared/contracts/factory.ts';
-import { FACTORY_PROTECTED_PATH_FLOOR, FactoryProjectState, FactoryReviewerOutput } from '../../shared/contracts/factory.ts';
-import { STATES } from '../../shared/states.ts';
-import type { LaneSpend } from './usage-scan-core.ts';
-import type { SessionState } from '../../shared/states.ts';
+import { contentMarker } from '../../core/visions-dispatch-core.ts';
+import { stableConfigKey } from '../../core/config-secrets-core.ts';
+import { DEFAULT_FACTORY_CHECKS, DEFAULT_FACTORY_PROTECTED_PATHS } from '../../../shared/contracts/browser-config.ts';
+import type { Config } from '../../../shared/contracts/config.ts';
+import type { CoherenceOrient, CoherenceWorkInspect } from '../../../shared/contracts/coherence.ts';
+import type { FactoryWorkerEvent, FactoryReviewVerdict, FactoryIntentTicket, FactoryQueueIntentRequest } from '../../../shared/contracts/factory.ts';
+import { FACTORY_PROTECTED_PATH_FLOOR, FactoryProjectState, FactoryReviewerOutput } from '../../../shared/contracts/factory.ts';
+import { STATES } from '../../../shared/states.ts';
+import type { LaneSpend } from '../../core/usage-scan-core.ts';
+import type { SessionState } from '../../../shared/states.ts';
 
 export const FACTORY_NOTIFY_CATEGORY = 'factory';
 export const FACTORY_LEDGER_SESSION = 'glimmervoid-factory';
@@ -415,8 +415,8 @@ export function appendFactoryLandedSha(landedShas: readonly string[], landedSha:
   return [...landedShas.filter((recordedSha) => recordedSha !== landedSha), landedSha].slice(-FACTORY_LANDED_SHA_LIMIT);
 }
 
-export { absolutePathEditRule } from '../lanes/core/lane-permissions-core.ts';
-export { isWorktreeAdminDirOf, parseGitdirPointer } from '../sandbox/core/sandbox-roles-core.ts';
+export { absolutePathEditRule } from '../../lanes/core/lane-permissions-core.ts';
+export { isWorktreeAdminDirOf, parseGitdirPointer } from '../../sandbox/core/sandbox-roles-core.ts';
 
 export function buildWorkerPrompt({ projectName, intent, order, claudeSessionId, checks = DEFAULT_FACTORY_CHECKS }: {
   projectName: string; intent: FactoryWorkOrder; order: FactoryWorkOrder; claudeSessionId: string; checks?: string[];

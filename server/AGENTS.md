@@ -9,9 +9,7 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 
 | File | Description |
 |------|-------------|
-| `factory-decision-log.ts` | Local factory decision append and retention |
-| `core/factory-decision-log-core.ts` | Pure factory decision mapping and output limits |
-| `../shared/contracts/factory-decision-log.ts` | Strict factory decision line contract |
+| `factory/` | Factory orchestrator, dispatch, verifier, ledger and decision log; the decision line contract is `../shared/contracts/factory-decision-log.ts` |
 | `backend/` | Express + WebSocket server factory and its wiring, one concern per file |
 | `session/` | Session construction, config reconciliation, one-time event wiring, docs and trace |
 | `control-handlers.ts` | Control-WebSocket message handlers (kill, restart, rename, settings) |

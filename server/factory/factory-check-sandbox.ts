@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { execFileAsync } from './child-process-safe.ts';
-import { prepareSandboxLaunch } from './sandbox/sandbox-launch.ts';
+import { execFileAsync } from '../child-process-safe.ts';
+import { prepareSandboxLaunch } from '../sandbox/sandbox-launch.ts';
 
 interface FactoryCheckExecOptions {
   cwd: string;

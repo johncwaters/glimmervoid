@@ -1,12 +1,12 @@
-import { CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
-import type { Config } from '../shared/contracts/config.ts';
-import { errorMessage } from '../shared/text.ts';
-import { FactoryConsequences } from '../shared/contracts/factory.ts';
-import type { FactoryLaneState, FactoryProjectState, FactoryUnlandedRecord, FactoryWorkerEvent } from '../shared/contracts/factory.ts';
+import { CoherenceWorkInspect } from '../../shared/contracts/coherence.ts';
+import type { Config } from '../../shared/contracts/config.ts';
+import { errorMessage } from '../../shared/text.ts';
+import { FactoryConsequences } from '../../shared/contracts/factory.ts';
+import type { FactoryLaneState, FactoryProjectState, FactoryUnlandedRecord, FactoryWorkerEvent } from '../../shared/contracts/factory.ts';
 import { FACTORY_LEDGER_SESSION, buildVerifierPrompt, decideIntentClose, evidenceNamesOnlySha, factoryWrittenRecordId, findFactoryProjectPath, verifierDefectEvidence, verifierRejectionNote } from './core/factory-core.ts';
 import { runFactoryReview } from './factory-closeout.ts';
 import { captureFactoryLedgerRecord, listRecordsMissingFromHead } from './factory-ledger.ts';
-import type { LaneSpawn } from './lanes/lane-spawn.ts';
+import type { LaneSpawn } from '../lanes/lane-spawn.ts';
 
 interface FactoryVerifierDeps {
   config: Pick<Config, 'factory' | 'projects'>;

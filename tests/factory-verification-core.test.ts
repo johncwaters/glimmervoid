@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { checkFence, decideAdmission, decideIntentClose, evidenceNamesOnlySha } from '../server/core/factory-core.ts';
-import type { FactoryWorkOrder } from '../server/core/factory-core.ts';
+import { checkFence, decideAdmission, decideIntentClose, evidenceNamesOnlySha } from '../server/factory/core/factory-core.ts';
+import type { FactoryWorkOrder } from '../server/factory/core/factory-core.ts';
 import type { FactoryProjectState } from '../shared/contracts/factory.ts';
 
 const mergedAt = '2026-10-08T12:00:00.000Z';

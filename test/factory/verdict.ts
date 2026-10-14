@@ -8,10 +8,10 @@ import type { ExpectedEnd } from './intents.ts';
 export const failurePrecedence = ['interrupted', 'queue-refused', 'stalled', 'checks', 'review', 'exception', 'timeout'] as const;
 export type FailureClass = typeof failurePrecedence[number];
 export const matchedProductText = {
-  verifyCloseSubject: { sourceFile: 'server/factory-verifier.ts', text: 'factory: verify and close ' },
-  promptStall: { sourceFile: 'server/core/factory-core.ts', text: ' is waiting on a prompt' },
-  startupStall: { sourceFile: 'server/core/factory-core.ts', text: ' session did not start: check Claude Code folder trust' },
-  idleStall: { sourceFile: 'server/core/factory-core.ts', text: ' ended its turn with nothing running' },
+  verifyCloseSubject: { sourceFile: 'server/factory/factory-verifier.ts', text: 'factory: verify and close ' },
+  promptStall: { sourceFile: 'server/factory/core/factory-core.ts', text: ' is waiting on a prompt' },
+  startupStall: { sourceFile: 'server/factory/core/factory-core.ts', text: ' session did not start: check Claude Code folder trust' },
+  idleStall: { sourceFile: 'server/factory/core/factory-core.ts', text: ' ended its turn with nothing running' },
 } as const;
 export interface RunningProcess {
   pid: number;

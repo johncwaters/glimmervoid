@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildFactoryFloor, pickFactoryProject } from '../public/factory/factory-floor-core.ts';
 import { ANIMALS } from '../public/nyan-animals-core.ts';
-import { buildFactoryProjectState } from '../server/core/factory-core.ts';
+import { buildFactoryProjectState } from '../server/factory/core/factory-core.ts';
 import { CoherenceOrient, CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import type { FactoryProjectState } from '../shared/contracts/factory.ts';
 import { readCoherenceFixture } from './helpers/factory-coherence-reports.ts';

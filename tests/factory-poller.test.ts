@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createFactoryPoller } from '../server/factory-poller.ts';
-import type { FactoryPollerDeps } from '../server/factory-poller.ts';
+import { createFactoryPoller } from '../server/factory/factory-poller.ts';
+import type { FactoryPollerDeps } from '../server/factory/factory-poller.ts';
 import type { FactoryState } from '../shared/contracts/factory.ts';
 import { readCoherenceFixture } from './helpers/factory-coherence-reports.ts';
 

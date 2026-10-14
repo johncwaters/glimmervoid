@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildFactoryCheckEnv, checkFence, decideCloseOut, inheritedSecretValues, listDirtyPaths, listUncommittedWorkPaths, findForbiddenLedgerWrites, parseCheckCommand, parseFactoryReviewerOutput, buildFactoryReviewerPrompt, redactSecretLines, withIntentFloorAllowances, FACTORY_REVIEW_DIFF_MAX_CHARS } from '../server/core/factory-core.ts';
+import { buildFactoryCheckEnv, checkFence, decideCloseOut, inheritedSecretValues, listDirtyPaths, listUncommittedWorkPaths, findForbiddenLedgerWrites, parseCheckCommand, parseFactoryReviewerOutput, buildFactoryReviewerPrompt, redactSecretLines, withIntentFloorAllowances, FACTORY_REVIEW_DIFF_MAX_CHARS } from '../server/factory/core/factory-core.ts';
 import { DEFAULT_FACTORY_PROTECTED_PATHS } from '../shared/contracts/browser-config.ts';
 
 const fenceInput = { writeScopes: ['src'], protectedPaths: DEFAULT_FACTORY_PROTECTED_PATHS };

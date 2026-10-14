@@ -1,13 +1,13 @@
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { isSingleFactoryPathSegment } from '../shared/contracts/factory.ts';
-import type { FactoryDecisionLogLine } from '../shared/contracts/factory-decision-log.ts';
-import { errorMessage, isMissingFileError } from '../shared/text.ts';
-import { glimmervoidHomeDir } from './config-store.ts';
+import { isSingleFactoryPathSegment } from '../../shared/contracts/factory.ts';
+import type { FactoryDecisionLogLine } from '../../shared/contracts/factory-decision-log.ts';
+import { errorMessage, isMissingFileError } from '../../shared/text.ts';
+import { glimmervoidHomeDir } from '../config-store.ts';
 import { buildFactoryDecisionLine, factoryDecisionDayFileName, factoryWorkerDecision } from './core/factory-decision-log-core.ts';
 import type { FactoryDecisionInput, FactoryDecisionWorkerEvent } from './core/factory-decision-log-core.ts';
-import { appendJsonLine } from './json-file.ts';
-import { pruneAgedFiles } from './prune-files.ts';
+import { appendJsonLine } from '../json-file.ts';
+import { pruneAgedFiles } from '../prune-files.ts';
 
 export function createFactoryDecisionLog({ homeDir = glimmervoidHomeDir(), now = Date.now, log = console, redact = (text) => text, onDecision }: {
   homeDir?: string; now?: () => number; log?: Pick<Console, 'warn'>; redact?: (text: string) => string; onDecision?: (line: FactoryDecisionLogLine) => void;

@@ -1,5 +1,5 @@
-import { FACTORY_DECISION_OUTPUT_MAX_BYTES, FactoryDecisionLogLine } from '../../shared/contracts/factory-decision-log.ts';
-import type { FactoryWorkerEvent, FactoryReviewVerdict } from '../../shared/contracts/factory.ts';
+import { FACTORY_DECISION_OUTPUT_MAX_BYTES, FactoryDecisionLogLine } from '../../../shared/contracts/factory-decision-log.ts';
+import type { FactoryWorkerEvent, FactoryReviewVerdict } from '../../../shared/contracts/factory.ts';
 import { inheritedSecretValues } from './factory-core.ts';
 import type { FactoryCheck, FactoryFence } from './factory-core.ts';
 

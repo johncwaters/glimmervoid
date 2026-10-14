@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { FactoryHarnessStateLine } from '../../shared/contracts/factory.ts';
-import type { FactoryHarnessVerdict, FactoryProjectState, FactoryState } from '../../shared/contracts/factory.ts';
+import { FactoryHarnessStateLine } from '../../../shared/contracts/factory.ts';
+import type { FactoryHarnessVerdict, FactoryProjectState, FactoryState } from '../../../shared/contracts/factory.ts';
 
 export const HARNESS_MIRROR_MAX_IDLE_MS = 24 * 60 * 60 * 1000;
 const HARNESS_MIRROR_PROJECT_PREFIX = 'harness-';

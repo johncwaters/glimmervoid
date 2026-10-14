@@ -1,26 +1,26 @@
 import type { FactoryDecisionWorkerEvent } from './core/factory-decision-log-core.ts';
 import crypto from 'node:crypto';
-import { STATES } from '../shared/states.ts';
-import { errorMessage } from '../shared/text.ts';
-import type { Session } from '../session/sessions.ts';
-import { projectSessionCard } from '../session/core/snapshot-projection.ts';
-import { DEFAULT_FACTORY_CHECKS } from '../shared/contracts/browser-config.ts';
-import { CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
-import { AgentDispatchRequest } from '../shared/contracts/session.ts';
-import type { FactoryDispatchResult, FactoryProjectState } from '../shared/contracts/factory.ts';
-import { buildCoherenceSessionOverrides } from './core/coherence-session-core.ts';
+import { STATES } from '../../shared/states.ts';
+import { errorMessage } from '../../shared/text.ts';
+import type { Session } from '../../session/sessions.ts';
+import { projectSessionCard } from '../../session/core/snapshot-projection.ts';
+import { DEFAULT_FACTORY_CHECKS } from '../../shared/contracts/browser-config.ts';
+import { CoherenceWorkInspect } from '../../shared/contracts/coherence.ts';
+import { AgentDispatchRequest } from '../../shared/contracts/session.ts';
+import type { FactoryDispatchResult, FactoryProjectState } from '../../shared/contracts/factory.ts';
+import { buildCoherenceSessionOverrides } from '../core/coherence-session-core.ts';
 import {
   FACTORY_LEDGER_SESSION, FACTORY_REFUSAL_PAUSED, FACTORY_SANE_YOLO_UNAVAILABLE, buildWorkerPrompt, decideAdmission, findFactoryProjectPath, isTransientAdmissionRefusal,
   isTurnEndHookEvent,
 } from './core/factory-core.ts';
 import type { FactoryLiveWorker, FactoryStallSession } from './core/factory-core.ts';
-import type { LaneSpend } from './core/usage-scan-core.ts';
-import { parseFilterDriverNames } from './git/core/git-invocation-core.ts';
-import { LANE_CONFIG_EDIT_DENY_RULES } from './lanes/core/lane-permissions-core.ts';
-import { runHardenedGit } from './git/git-workspace.ts';
-import { registerEphemeralSession } from './lanes/ephemeral-session.ts';
-import { resolveRequiredSaneYoloHookTools } from './hook-tools.ts';
-import { resolveWorkLane } from './lanes/work-lane.ts';
+import type { LaneSpend } from '../core/usage-scan-core.ts';
+import { parseFilterDriverNames } from '../git/core/git-invocation-core.ts';
+import { LANE_CONFIG_EDIT_DENY_RULES } from '../lanes/core/lane-permissions-core.ts';
+import { runHardenedGit } from '../git/git-workspace.ts';
+import { registerEphemeralSession } from '../lanes/ephemeral-session.ts';
+import { resolveRequiredSaneYoloHookTools } from '../hook-tools.ts';
+import { resolveWorkLane } from '../lanes/work-lane.ts';
 import type { FactoryOrchestratorDeps, FactoryOrchestratorSession } from './factory-orchestrator.ts';
 import type { FactoryCloseOutWorker } from './factory-closeout.ts';
 
@@ -37,7 +37,7 @@ type FactoryWorkerRecord<ManagedSession> = FactoryLiveWorker & {
   hasFirstHook: boolean;
 };
 
-export { readLaneCommonGitDir as readFactoryCommonGitDir } from './lanes/work-lane.ts';
+export { readLaneCommonGitDir as readFactoryCommonGitDir } from '../lanes/work-lane.ts';
 
 async function readFilterDriverNames(cwd: string): Promise<string[]> {
   const { stdout: trackedPaths } = await runHardenedGit(['ls-files', '-z'], { ...FILTER_PROBE_GIT_OPTIONS, cwd });

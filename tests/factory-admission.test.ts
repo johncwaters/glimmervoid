@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildWorkerPrompt, decideAdmission, exceedsRiskCeiling, isTransientAdmissionRefusal } from '../server/core/factory-core.ts';
-import type { FactoryAdmissionInput, FactoryWorkOrder } from '../server/core/factory-core.ts';
+import { buildWorkerPrompt, decideAdmission, exceedsRiskCeiling, isTransientAdmissionRefusal } from '../server/factory/core/factory-core.ts';
+import type { FactoryAdmissionInput, FactoryWorkOrder } from '../server/factory/core/factory-core.ts';
 
 function makeOrder(work: string, parent: string | null, writeScopes = ['src']): FactoryWorkOrder {
   return { work, state: 'open', readiness: 'ready', owner: { session: 'factory', agent: 'claude-code' }, last: null,

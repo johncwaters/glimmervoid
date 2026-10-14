@@ -3,8 +3,8 @@ import { open, readdir } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import path from 'node:path';
-import { FactoryHarnessVerdict } from '../shared/contracts/factory.ts';
-import type { FactoryProjectState, FactoryState } from '../shared/contracts/factory.ts';
+import { FactoryHarnessVerdict } from '../../shared/contracts/factory.ts';
+import type { FactoryProjectState, FactoryState } from '../../shared/contracts/factory.ts';
 import { HARNESS_STATE_FILE_NAME, HARNESS_VERDICT_FILE_NAME, describeHarnessOutcome, isHarnessRunFresh, latestHarnessBatchName, latestHarnessRunName, latestHarnessState, mirrorHarnessProjects } from './core/factory-harness-mirror-core.ts';
 
 const STATE_TAIL_MAX_BYTES = 4 * 1024 * 1024;
