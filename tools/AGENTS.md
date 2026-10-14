@@ -4,7 +4,7 @@
 # tools
 
 ## Purpose
-Editor tooling: `vscode-visions/` is built into `dist/` and packed into a VSIX at runtime by `server/visions-setup.ts`, so it ships.
+Editor tooling: `vscode-visions/` is built into `dist/` and packed into a VSIX at runtime by `server/visions/visions-setup.ts`, so it ships.
 
 ## Subdirectories
 

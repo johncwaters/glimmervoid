@@ -1,4 +1,4 @@
-import { isPathInside } from '../../shared/paths.ts';
+import { isPathInside } from '../../../shared/paths.ts';
 interface ScopeProject {
   id?: unknown;
   path?: unknown;

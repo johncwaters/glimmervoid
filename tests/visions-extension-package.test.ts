@@ -11,7 +11,7 @@ import { build } from 'vite';
 import type { AddressInfo } from 'node:net';
 
 import vscode from './helpers/vscode-stub.ts';
-import { packVsix } from '../server/visions-setup.ts';
+import { packVsix } from '../server/visions/visions-setup.ts';
 
 const WAIT_MS = 8000;
 

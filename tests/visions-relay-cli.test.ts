@@ -4,7 +4,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { WebSocketServer } from 'ws';
-import { createParserState, feedFrameBytes, serializeFrame } from '../server/core/visions-lsp-core.ts';
+import { createParserState, feedFrameBytes, serializeFrame } from '../server/visions/core/visions-lsp-core.ts';
 import type { AddressInfo } from 'node:net';
 
 type LspRecord = Record<string, unknown>;

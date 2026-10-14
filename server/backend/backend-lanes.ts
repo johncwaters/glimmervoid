@@ -45,13 +45,13 @@ import { createLaneLedger } from '../usage/usage-lane-ledger.ts';
 import { createTraceWiring } from '../trace-wiring.ts';
 import { createTraceChangeBroadcast } from '../trace-control.ts';
 import { createUploadsWiring } from '../uploads-wiring.ts';
-import { createVisionsDispatcher, createVisionsSpawn } from '../visions-dispatch.ts';
-import { createVisionsSetup } from '../visions-setup.ts';
-import { createVisionsWiring } from '../visions-wiring.ts';
+import { createVisionsDispatcher, createVisionsSpawn } from '../visions/visions-dispatch.ts';
+import { createVisionsSetup } from '../visions/visions-setup.ts';
+import { createVisionsWiring } from '../visions/visions-wiring.ts';
 import { resolveIngestConfig } from '../ingest/core/ingest-core.ts';
-import { resolveVisionsConfig } from '../core/visions-dispatch-core.ts';
-import type { DispatchState } from '../core/visions-dispatch-core.ts';
-import { resolveVisionsScopeProjects, visionsLaneReloadSignature } from '../core/visions-scope-core.ts';
+import { resolveVisionsConfig } from '../visions/core/visions-dispatch-core.ts';
+import type { DispatchState } from '../visions/core/visions-dispatch-core.ts';
+import { resolveVisionsScopeProjects, visionsLaneReloadSignature } from '../visions/core/visions-scope-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 
 interface BackendLaneOptions {

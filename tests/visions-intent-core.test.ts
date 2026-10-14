@@ -24,8 +24,8 @@ import {
   retireStaleThreads,
   reviveIntentState,
   sanitizeIntentText,
-} from '../server/core/visions-intent-core.ts';
-import type { IntentState } from '../server/core/visions-intent-core.ts';
+} from '../server/visions/core/visions-intent-core.ts';
+import type { IntentState } from '../server/visions/core/visions-intent-core.ts';
 
 const NOW = 1700000000000;
 const PROJECT = 'e1f4c0de-0000-4000-8000-000000000001';
@@ -125,11 +125,11 @@ test('the thread id shape has one definition, which the intent core builds its r
   assert.equal(THREAD_ID_PATTERN, VISIONS_THREAD_ID_PATTERN);
   assert.equal(THREAD_ID_RE.source, `^${VISIONS_THREAD_ID_PATTERN}$`);
   const restated = /\/\^?t-\[0-9a-f\]\{8\}/;
-  for (const file of ['server/core/visions-intent-core.ts', 'server/core/visions-dispatch-core.ts', 'public/visions-view-core.ts']) {
+  for (const file of ['server/visions/core/visions-intent-core.ts', 'server/visions/core/visions-dispatch-core.ts', 'public/visions/visions-view-core.ts']) {
     const source = fs.readFileSync(path.join(import.meta.dirname, '..', file), 'utf8');
     assert.equal(restated.test(source), false, `${file} must build the id shape from the shared pattern, not restate it`);
   }
-  const browserCore = fs.readFileSync(path.join(import.meta.dirname, '..', 'public/visions-view-core.ts'), 'utf8');
+  const browserCore = fs.readFileSync(path.join(import.meta.dirname, '..', 'public/visions/visions-view-core.ts'), 'utf8');
   assert.match(browserCore, /import \{ VISIONS_THREAD_ID_PATTERN \} from '#shared\/visions-intent-ids\.ts';/);
 });
 

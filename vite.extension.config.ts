@@ -45,7 +45,7 @@ export default defineConfig({
       input: {
         extension: path.join(extensionSourceDir, 'extension.ts'),
         'lsp-convert': path.join(extensionSourceDir, 'lsp-convert.ts'),
-        'visions-lsp-core': path.join(repoRoot, 'server', 'core', 'visions-lsp-core.ts'),
+        'visions-lsp-core': path.join(repoRoot, 'server', 'visions', 'core', 'visions-lsp-core.ts'),
       },
       output: {
         format: 'cjs',

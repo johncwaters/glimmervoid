@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 
-import { renderTable } from './core/ascii-figure-core.ts';
-import { buildSetupGuide, commandLine, recipeIds } from './core/editor-setup-core.ts';
-import { isExtensionInstalled } from './core/editor-extension-core.ts';
-import { extensionIdOf } from './core/vsix-core.ts';
-import { editorTargets } from './editor-wire.ts';
-import type { EditorOutcome } from './editor-wire.ts';
+import { renderTable } from '../core/ascii-figure-core.ts';
+import { buildSetupGuide, commandLine, recipeIds } from '../core/editor-setup-core.ts';
+import { isExtensionInstalled } from '../core/editor-extension-core.ts';
+import { extensionIdOf } from '../core/vsix-core.ts';
+import { editorTargets } from '../editor-wire.ts';
+import type { EditorOutcome } from '../editor-wire.ts';
 import {
   RELAY_PATH, editorExtensions, packVsix, relayInvocationOptions, resolveRelayInvocation, resolvedEditorPaths,
   unwireEverything, wireEverything,
@@ -70,7 +70,7 @@ async function runStatus(): Promise<number> {
 }
 
 async function runRelay(): Promise<never> {
-  const { createRelay } = await import('../session/visions-relay.ts');
+  const { createRelay } = await import('../../session/visions-relay.ts');
   createRelay().start();
   return new Promise(() => {});
 }

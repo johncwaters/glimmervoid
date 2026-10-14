@@ -7,7 +7,7 @@ import {
 import type { AppliedChange } from './visions-buffer-core.ts';
 import { lineOfOffset, lineStartOffsets, replacedSpanOfWholeTextChange } from './visions-buffer-core.ts';
 import { formatTouchedRanges, shiftLines } from './visions-touch-core.ts';
-import { isRecord, nonNegativeIntOr, positiveIntOr } from '../../shared/coerce.ts';
+import { isRecord, nonNegativeIntOr, positiveIntOr } from '../../../shared/coerce.ts';
 
 const DEFAULT_QUIET_MS = 30000;
 const DEFAULT_COOLDOWN_MS = 300000;

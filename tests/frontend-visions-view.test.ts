@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { IntentThread, VisionsComment, VisionsFixEntry } from '../public/visions-view-core.ts';
+import type { IntentThread, VisionsComment, VisionsFixEntry } from '../public/visions/visions-view-core.ts';
 
-import { applyCommentsMessage, applyCommentsSnapshot, applyFindingsMessage, applyFindingsSnapshot, applyFixMessage, applyFixSnapshot, applyHandMessage, applyHandSnapshot, applyIntentMessage, basenameOfUri, commentCountText, commentLineLabel, decideVisionsAttention, emptyIntentState, findingCountText, findingLineLabel, fixCountText, fixEntryOfMessage, fixLineLabel, fixOutcomeText, intentAgeText, intentMetaText, intentRows, intentStateOfMessage, MAX_RENDERED_FIXES, normalizeIntentThread, sectionCountText, VISIONS_ATTENTION_HAND, VISIONS_ATTENTION_UNSEEN, VISIONS_INTENT_EMPTY_TEXT, VISIONS_INTENT_UNOWNED_LABEL, visionsAttentionState, visionsHandText, visionsSections } from '../public/visions-view-core.ts';
+import { applyCommentsMessage, applyCommentsSnapshot, applyFindingsMessage, applyFindingsSnapshot, applyFixMessage, applyFixSnapshot, applyHandMessage, applyHandSnapshot, applyIntentMessage, basenameOfUri, commentCountText, commentLineLabel, decideVisionsAttention, emptyIntentState, findingCountText, findingLineLabel, fixCountText, fixEntryOfMessage, fixLineLabel, fixOutcomeText, intentAgeText, intentMetaText, intentRows, intentStateOfMessage, MAX_RENDERED_FIXES, normalizeIntentThread, sectionCountText, VISIONS_ATTENTION_HAND, VISIONS_ATTENTION_UNSEEN, VISIONS_INTENT_EMPTY_TEXT, VISIONS_INTENT_UNOWNED_LABEL, visionsAttentionState, visionsHandText, visionsSections } from '../public/visions/visions-view-core.ts';
 import { createAttentionAck } from '../public/attention-ack-core.ts';
 
 type WireFrame = Record<string, unknown>;

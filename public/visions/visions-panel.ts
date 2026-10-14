@@ -1,7 +1,7 @@
-import { el, isPanelHidden } from './dom-helpers.ts';
-import { createAttentionAck } from './attention-ack-core.ts';
-import { createSettingsLink } from './settings-link.ts';
-import { getVisionsAttentionAck, setVisionsAttentionAck } from './ui-prefs.ts';
+import { el, isPanelHidden } from '../dom-helpers.ts';
+import { createAttentionAck } from '../attention-ack-core.ts';
+import { createSettingsLink } from '../settings-link.ts';
+import { getVisionsAttentionAck, setVisionsAttentionAck } from '../ui-prefs.ts';
 import {
   INGEST_EMPTY_TEXT,
   VISIONS_EMPTY_TEXT,

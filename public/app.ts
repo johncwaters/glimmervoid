@@ -20,7 +20,7 @@ import { centerSessionQuietly, focusAdjacentInRail, focusNextAttention, focusNth
 import { initFormFactor, isPhoneLayout, onLayoutChange } from './form-factor.ts';
 import type { HealthSnapshot } from './health-monitor.ts';
 import { applyHealthSnapshot, mountHealthMonitor } from './health-monitor.ts';
-import { applyIngestActivity, applyIngestSnapshot, applyVisionsComments, applyVisionsFindings, applyVisionsFix, applyVisionsHand, applyVisionsIntent, applyVisionsSettings, applyVisionsSnapshot, setVisionsProjectNames } from './visions-panel.ts';
+import { applyIngestActivity, applyIngestSnapshot, applyVisionsComments, applyVisionsFindings, applyVisionsFix, applyVisionsHand, applyVisionsIntent, applyVisionsSettings, applyVisionsSnapshot, setVisionsProjectNames } from './visions/visions-panel.ts';
 import { applyDeleteHookResult, applyHooksReport, applySaveHookResult, setHooksRequestSender } from './hooks-panel.ts';
 import { initNotifications, showDesktopNotification } from './notifications.ts';
 import { phonePanelsFromDesktopViews } from './phone/phone-panels-core.ts';

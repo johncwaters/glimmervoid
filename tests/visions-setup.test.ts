@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createVisionsSetup, installExtensions, resolvedEditorPaths } from '../server/visions-setup.ts';
-import type { ExtensionReport, WireReport } from '../server/visions-setup.ts';
-import { IMPLIED_INGEST, decideImpliedDefaults } from '../server/core/visions-defaults-core.ts';
+import { createVisionsSetup, installExtensions, resolvedEditorPaths } from '../server/visions/visions-setup.ts';
+import type { ExtensionReport, WireReport } from '../server/visions/visions-setup.ts';
+import { IMPLIED_INGEST, decideImpliedDefaults } from '../server/visions/core/visions-defaults-core.ts';
 
 type TestConfig = {
   visions: { enabled: boolean; dispatch?: { enabled: boolean } };

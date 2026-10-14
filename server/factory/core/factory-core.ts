@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
-import { contentMarker } from '../../core/visions-dispatch-core.ts';
+import { contentMarker } from '../../visions/core/visions-dispatch-core.ts';
 import { stableConfigKey } from '../../core/config-secrets-core.ts';
 import { DEFAULT_FACTORY_CHECKS, DEFAULT_FACTORY_PROTECTED_PATHS } from '../../../shared/contracts/browser-config.ts';
 import type { Config } from '../../../shared/contracts/config.ts';

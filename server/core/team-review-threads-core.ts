@@ -1,7 +1,7 @@
 import { TeamReviewThreadResult } from '../../shared/contracts/team-review.ts';
 import type { ReviewDraft, TeamReviewCompareFiles, TeamReviewThread, TeamReviewThreadNode, TeamReviewThreadResult as ThreadResult, ViewerThreadTally } from '../../shared/contracts/team-review.ts';
 import { parseLeadingFindingHeader, withoutAutomatedNote } from '../../shared/team-review-markdown.ts';
-import { contentMarker } from './visions-dispatch-core.ts';
+import { contentMarker } from '../visions/core/visions-dispatch-core.ts';
 
 export const THREAD_JUDGE_BACKOFF_MS = 15 * 60 * 1000;
 export const THREAD_PROMPT_MAX_CHARS = 48000;

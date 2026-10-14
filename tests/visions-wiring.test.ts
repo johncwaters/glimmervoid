@@ -11,9 +11,9 @@ import type { TestContext } from 'node:test';
 import { createBackend } from '../server/backend/backend.ts';
 import { createConfigStore } from '../server/config-store.ts';
 import { CONFIG_SCALAR_KEYS, ConfigUpdate } from '../shared/contracts/index.ts';
-import { MAX_PROMPT_BYTES } from '../server/core/visions-dispatch-core.ts';
-import { DIGEST_BUDGET_CHARS, createVisionsWiring, VISIONS_DEBOUNCE_MS } from '../server/visions-wiring.ts';
-import type { VisionsWiringOptions } from '../server/visions-wiring.ts';
+import { MAX_PROMPT_BYTES } from '../server/visions/core/visions-dispatch-core.ts';
+import { DIGEST_BUDGET_CHARS, createVisionsWiring, VISIONS_DEBOUNCE_MS } from '../server/visions/visions-wiring.ts';
+import type { VisionsWiringOptions } from '../server/visions/visions-wiring.ts';
 import { listenOnLoopback, reserveFreePort } from './helpers/http-server.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
 

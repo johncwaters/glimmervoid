@@ -12,9 +12,9 @@ import {
   createVisionsDispatcher,
   readCommentsResult,
   visionsPermissions,
-} from '../server/visions-dispatch.ts';
-import type { VisionsSpawn } from '../server/visions-dispatch.ts';
-import { MAX_PROMPT_BYTES, buildVisionsPrompt } from '../server/core/visions-dispatch-core.ts';
+} from '../server/visions/visions-dispatch.ts';
+import type { VisionsSpawn } from '../server/visions/visions-dispatch.ts';
+import { MAX_PROMPT_BYTES, buildVisionsPrompt } from '../server/visions/core/visions-dispatch-core.ts';
 
 type DispatcherOptions = Parameters<typeof createVisionsDispatcher>[0];
 type SpawnArgs = Parameters<VisionsSpawn>[0];

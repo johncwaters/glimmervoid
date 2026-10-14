@@ -9,8 +9,8 @@ import {
   createParserState,
   feedFrameBytes,
   serializeFrame,
-} from "../server/core/visions-lsp-core.ts";
-import type { LspMessage, LspParserState } from "../server/core/visions-lsp-core.ts";
+} from "../server/visions/core/visions-lsp-core.ts";
+import type { LspMessage, LspParserState } from "../server/visions/core/visions-lsp-core.ts";
 import {
   applyDidChange,
   applyDidClose,
@@ -20,8 +20,8 @@ import {
   getDoc,
   listDocs,
   uriOfParams,
-} from "../server/core/visions-buffer-core.ts";
-import type { Range } from "../server/core/visions-buffer-core.ts";
+} from "../server/visions/core/visions-buffer-core.ts";
+import type { Range } from "../server/visions/core/visions-buffer-core.ts";
 import { decideConfigPath, glimmervoidHomeDir } from "../server/core/config-path-core.ts";
 import { ACTIVITY_METHOD } from "../server/ingest/core/ingest-editor-core.ts";
 import {

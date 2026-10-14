@@ -7,8 +7,8 @@ import type { Duplex } from 'node:stream';
 import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
 
-import type { ControlBroadcast } from './backend/backend-websockets.ts';
-import { ACTIVITY_METHOD } from './ingest/core/ingest-editor-core.ts';
+import type { ControlBroadcast } from '../backend/backend-websockets.ts';
+import { ACTIVITY_METHOD } from '../ingest/core/ingest-editor-core.ts';
 import {
   applyDidChange, applyDidClose, applyDidOpen, createDocStore, detectBlankLineBoundary, formatRange, getDoc, listDocs, uriOfParams,
 } from './core/visions-buffer-core.ts';
@@ -70,13 +70,13 @@ import {
   shiftLines, touchedLineCount, touchedRangesFor,
 } from './core/visions-touch-core.ts';
 import type { TouchedRange } from './core/visions-touch-core.ts';
-import { createJsonStateWriter, jsonStateLoadError, loadJsonStateFileSync } from './json-file.ts';
-import { createLaneLog } from './lanes/lane-log.ts';
-import type { LaneLogger } from './lanes/lane-log.ts';
-import { errorMessage } from '../shared/text.ts';
-import { isRecord } from '../shared/coerce.ts';
-import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
-import type { ClearTimeoutFn, SetTimeoutFn } from '../shared/timer-deps.ts';
+import { createJsonStateWriter, jsonStateLoadError, loadJsonStateFileSync } from '../json-file.ts';
+import { createLaneLog } from '../lanes/lane-log.ts';
+import type { LaneLogger } from '../lanes/lane-log.ts';
+import { errorMessage } from '../../shared/text.ts';
+import { isRecord } from '../../shared/coerce.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../../shared/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
 
 const VISIONS_DEBOUNCE_MS = 300;
 const MAX_FRAME_BYTES = 2 * 1024 * 1024;

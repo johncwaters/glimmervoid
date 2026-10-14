@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 
-import { VISIONS_THREAD_ID_PATTERN } from '../../shared/visions-intent-ids.ts';
-import { sanitizeOneLine } from './text-core.ts';
+import { VISIONS_THREAD_ID_PATTERN } from '../../../shared/visions-intent-ids.ts';
+import { sanitizeOneLine } from '../../core/text-core.ts';
 
 const MAX_INTENT_CHARS = 300;
 const MODEL_SOURCE = 'model';

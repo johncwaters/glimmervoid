@@ -1,4 +1,4 @@
-import { isRecord } from '../../shared/coerce.ts';
+import { isRecord } from '../../../shared/coerce.ts';
 const IMPLIED_INGEST = Object.freeze({
   enabled: true,
   sources: Object.freeze({

@@ -1,5 +1,5 @@
 import test from 'node:test';
-import { visionsLaneReloadSignature } from '../server/core/visions-scope-core.ts';
+import { visionsLaneReloadSignature } from '../server/visions/core/visions-scope-core.ts';
 import assert from 'node:assert/strict';
 
 import {
@@ -10,7 +10,7 @@ import {
   projectForUri,
   resolveVisionsScopeProjects,
   scopePathsOf,
-} from '../server/core/visions-scope-core.ts';
+} from '../server/visions/core/visions-scope-core.ts';
 
 test('pathOfFileUri normalizes plain and percent-encoded file uris', () => {
   assert.equal(pathOfFileUri('file:///home/me/project/README.md'), '/home/me/project/README.md');

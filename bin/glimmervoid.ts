@@ -94,7 +94,7 @@ const SUBCOMMAND_RUNNERS = new Map<string, SubcommandRunner>([
     return runKnowledgeGraphCommand(subcommandArgs);
   }],
   ['visions', async (subcommandArgs) => {
-    const { runVisionsCli } = await import('../server/visions-cli.ts');
+    const { runVisionsCli } = await import('../server/visions/visions-cli.ts');
     return runVisionsCli(subcommandArgs);
   }],
   ['ssh-sign', async (subcommandArgs) => {

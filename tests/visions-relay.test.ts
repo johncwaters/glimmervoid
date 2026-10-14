@@ -14,7 +14,7 @@ import {
   createParserState,
   feedFrameBytes,
   serializeFrame,
-} from '../server/core/visions-lsp-core.ts';
+} from '../server/visions/core/visions-lsp-core.ts';
 import {
   CODE_ACTION_TIMEOUT_MS, SYNC_KIND_INCREMENTAL, readConfiguredPort, resolvePortPlan, sendWsFrame, sendWsJson,
 } from '../session/visions-relay.ts';

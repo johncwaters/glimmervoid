@@ -37,7 +37,7 @@ import {
   carryResultAcrossEdit,
   commentsToLsp,
   relineDiagnostics,
-} from '../server/core/visions-dispatch-core.ts';
+} from '../server/visions/core/visions-dispatch-core.ts';
 
 const URI = 'file:///tmp/plan-visions.md';
 const NOW = 1700000000000;
@@ -1077,7 +1077,7 @@ test('the size pre-check measures the buffer as the numbered prefix will deliver
   assert.equal(decideDocumentSize('# Title\n').dispatch, true, 'an ordinary buffer is untouched');
 });
 
-import * as focusCore from '../server/core/visions-dispatch-core.ts';
+import * as focusCore from '../server/visions/core/visions-dispatch-core.ts';
 
 test('a buffer with no edit since it was opened is an orientation charged to the machine, once per open', () => {
   const state = createDispatchState();

@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { ActivityEvent } from '../public/visions-view-core.ts';
+import type { ActivityEvent } from '../public/visions/visions-view-core.ts';
 
-import { activityAgeText, activityCountText, activityOverflowCount, activityOverflowText, activityScopeText, activitySourceLabel, applyActivityMessage, applyActivitySnapshot, eventsOfMessage, INGEST_EMPTY_TEXT, MAX_RENDERED_ACTIVITY, normalizeActivityEvent } from '../public/visions-view-core.ts';
+import { activityAgeText, activityCountText, activityOverflowCount, activityOverflowText, activityScopeText, activitySourceLabel, applyActivityMessage, applyActivitySnapshot, eventsOfMessage, INGEST_EMPTY_TEXT, MAX_RENDERED_ACTIVITY, normalizeActivityEvent } from '../public/visions/visions-view-core.ts';
 
 const NOW = 1700000000000;
 

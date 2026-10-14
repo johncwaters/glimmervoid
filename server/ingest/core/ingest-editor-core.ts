@@ -1,4 +1,4 @@
-import { deepestRootFor, normalizeShapePath, pathOfFileUri } from '../../core/visions-scope-core.ts';
+import { deepestRootFor, normalizeShapePath, pathOfFileUri } from '../../visions/core/visions-scope-core.ts';
 
 const SOURCE = 'editor';
 

@@ -1,7 +1,7 @@
 import type { createBackend } from '../../server/backend/backend.ts';
 import type { createIngestLane } from '../../server/ingest/ingest-wiring.ts';
 import type { createUsageWiring } from '../../server/usage/usage-wiring.ts';
-import type { createVisionsWiring } from '../../server/visions-wiring.ts';
+import type { createVisionsWiring } from '../../server/visions/visions-wiring.ts';
 
 type Backend = ReturnType<typeof createBackend>;
 type IngestLane = ReturnType<typeof createIngestLane>;

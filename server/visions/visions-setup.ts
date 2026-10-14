@@ -3,32 +3,32 @@ import { stripTypeScriptTypes } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 
-import { resolvePathCommandMatches } from '../session/core/spawn-command.ts';
-import { execFileAsync, execSync } from './child-process-safe.ts';
-import { isPathInside } from '../shared/paths.ts';
+import { resolvePathCommandMatches } from '../../session/core/spawn-command.ts';
+import { execFileAsync, execSync } from '../child-process-safe.ts';
+import { isPathInside } from '../../shared/paths.ts';
 import {
   decideEditorTargets, isExtensionInstalled, resolveEditorPathsFor, visionsExtensionFiles,
-} from './core/editor-extension-core.ts';
-import type { EditorTarget as ExtensionEditorTarget } from './core/editor-extension-core.ts';
-import { relayInvocation } from './core/editor-setup-core.ts';
-import type { Invocation } from './core/editor-setup-core.ts';
+} from '../core/editor-extension-core.ts';
+import type { EditorTarget as ExtensionEditorTarget } from '../core/editor-extension-core.ts';
+import { relayInvocation } from '../core/editor-setup-core.ts';
+import type { Invocation } from '../core/editor-setup-core.ts';
 import { applyChanges, decideImpliedDefaults } from './core/visions-defaults-core.ts';
 import type { ImpliedChange } from './core/visions-defaults-core.ts';
-import { buildVsix, extensionIdOf } from './core/vsix-core.ts';
-import type { VsixManifest } from './core/vsix-core.ts';
-import { unwireEditors, wireEditors } from './editor-wire.ts';
-import type { EditorOutcome } from './editor-wire.ts';
-import { createLaneLog } from './lanes/lane-log.ts';
-import type { LaneLogger } from './lanes/lane-log.ts';
-import { bundled, cliPath, extensionDir, packageRoot, relayPath } from './runtime-paths.ts';
-import { errorMessage } from '../shared/text.ts';
+import { buildVsix, extensionIdOf } from '../core/vsix-core.ts';
+import type { VsixManifest } from '../core/vsix-core.ts';
+import { unwireEditors, wireEditors } from '../editor-wire.ts';
+import type { EditorOutcome } from '../editor-wire.ts';
+import { createLaneLog } from '../lanes/lane-log.ts';
+import type { LaneLogger } from '../lanes/lane-log.ts';
+import { bundled, cliPath, extensionDir, packageRoot, relayPath } from '../runtime-paths.ts';
+import { errorMessage } from '../../shared/text.ts';
 
 const EXTENSION_DIR = extensionDir;
 const RELAY_PATH = relayPath('visions-relay');
 
 const LSP_CORE_PATH = bundled
   ? path.join(EXTENSION_DIR, 'visions-lsp-core.js')
-  : path.join(packageRoot, 'server', 'core', 'visions-lsp-core.ts');
+  : path.join(packageRoot, 'server', 'visions', 'core', 'visions-lsp-core.ts');
 const CLI_PATH = cliPath;
 const EDITOR_TIMEOUT_MS = 60000;
 

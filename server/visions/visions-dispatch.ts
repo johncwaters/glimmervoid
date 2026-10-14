@@ -2,11 +2,11 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import type { HookRouter } from '../detection/hook-source.ts';
-import { Session } from '../session/sessions.ts';
-import type { SessionOptions } from '../session/sessions.ts';
-import { buildLanePermissions } from './lanes/core/lane-permissions-core.ts';
-import { LANE_CREDENTIAL_ENV, workRole } from './sandbox/core/sandbox-roles-core.ts';
+import type { HookRouter } from '../../detection/hook-source.ts';
+import { Session } from '../../session/sessions.ts';
+import type { SessionOptions } from '../../session/sessions.ts';
+import { buildLanePermissions } from '../lanes/core/lane-permissions-core.ts';
+import { LANE_CREDENTIAL_ENV, workRole } from '../sandbox/core/sandbox-roles-core.ts';
 import {
   DEFAULT_TIMEOUT_SECONDS,
   ERROR_SOURCE_SESSION,
@@ -22,14 +22,14 @@ import type { VisionsComment } from './core/visions-dispatch-core.ts';
 import { readIntentProposal, sanitizeIntentText } from './core/visions-intent-core.ts';
 import {
   awaitSessionExit, drainPending, firstLine, raceWithAbort, registerEphemeralSession,
-} from './lanes/ephemeral-session.ts';
-import type { RecordLane, SpawnGate } from './lanes/ephemeral-session.ts';
-import { createLaneLog } from './lanes/lane-log.ts';
-import { prepareRoleSandbox } from './lanes/work-lane.ts';
-import type { RoleSandboxDependencies } from './lanes/work-lane.ts';
-import { errorMessage } from '../shared/text.ts';
-import { DEFAULT_TIMER_FNS } from '../shared/timer-deps.ts';
-import type { ClearTimeoutFn, SetTimeoutFn } from '../shared/timer-deps.ts';
+} from '../lanes/ephemeral-session.ts';
+import type { RecordLane, SpawnGate } from '../lanes/ephemeral-session.ts';
+import { createLaneLog } from '../lanes/lane-log.ts';
+import { prepareRoleSandbox } from '../lanes/work-lane.ts';
+import type { RoleSandboxDependencies } from '../lanes/work-lane.ts';
+import { errorMessage } from '../../shared/text.ts';
+import { DEFAULT_TIMER_FNS } from '../../shared/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
 
 const RESULT_VERDICTS = new Set(['COMMENTS', 'NONE', 'ERROR']);
 const RESULT_FILE = VISIONS_RESULT_FILE;

@@ -12,7 +12,7 @@ import { ACTIVITY_METHOD } from '../server/ingest/core/ingest-editor-core.ts';
 
 const requireFromHere = createRequire(import.meta.url);
 
-const LSP_CORE_PATH = requireFromHere.resolve('../server/core/visions-lsp-core.ts');
+const LSP_CORE_PATH = requireFromHere.resolve('../server/visions/core/visions-lsp-core.ts');
 const CONVERT_PATH = requireFromHere.resolve('../tools/vscode-visions/lsp-convert.ts');
 const RELAY_PATH = path.join(import.meta.dirname, '..', 'session', 'visions-relay.ts');
 const WAIT_MS = 8000;
