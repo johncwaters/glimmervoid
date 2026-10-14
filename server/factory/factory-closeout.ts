@@ -12,7 +12,7 @@ import { FactoryReviewVerdict } from '../../shared/contracts/factory.ts';
 import { prepareSandboxedCheckRunner } from './factory-check-sandbox.ts';
 import type { FactoryCheckRunner, FactoryCheckSandbox, PrepareFactoryCheckRunner } from './factory-check-sandbox.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
-import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, listFailingTestFilesOutsideScopes, listIntentCapClosings, findWorkerCommitRefusal, listStagedSandboxPlaceholders, inheritedSecretValues, listUncommittedWorkPaths, parseCheckCommand, parseFactoryReviewerOutput, redactSecretLines, reviewerOutputTail, summarizeFailedCheckOutput } from './core/factory-core.ts';
+import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, isInheritedCheckFailure, listFailingTestFilesOutsideScopes, listIntentCapClosings, findWorkerCommitRefusal, listStagedSandboxPlaceholders, inheritedSecretValues, listUncommittedWorkPaths, parseCheckCommand, parseFactoryReviewerOutput, redactSecretLines, reviewerOutputTail, summarizeFailedCheckOutput } from './core/factory-core.ts';
 import type { FactoryCheck, FactoryFence } from './core/factory-core.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES } from '../lanes/core/lane-permissions-core.ts';
 import { SANDBOX_PLACEHOLDER_NAMES } from '../sandbox/core/sandbox-policy-core.ts';
@@ -85,6 +85,7 @@ export interface FactoryCloseOutDeps {
   trustVerification: (projectId: string, verification: { id: string; sha: string }) => Promise<void>;
   notifyOrchestrator: (projectId: string, event: FactoryDecisionWorkerEvent) => void;
   setException: (projectId: string, reason: string) => void;
+  clearException?: (projectId: string, expectedReason: string) => void;
   recordDecision?: (decision: Extract<FactoryDecisionInput, { kind: 'closeout' | 'merge' }>) => Promise<void>;
   onReviewingChanged?: () => void;
   baseEnv?: NodeJS.ProcessEnv;
@@ -93,6 +94,27 @@ export interface FactoryCloseOutDeps {
 
 export function factorySecretValues(baseEnv: NodeJS.ProcessEnv): (string | undefined)[] {
   return [...GLIMMERVOID_SECRET_KEYS.map((key) => baseEnv[key]), ...inheritedSecretValues(baseEnv)];
+}
+
+type FactoryCheckoutRun = {
+  checks: FactoryCheck[]; loggedChecks: FactoryCheck[]; decisionReasonChecks: FactoryCheck[]; checkoutSecretValues: string[];
+  failingFilesOutsideScopesByCommand: Map<string, string[]>; failureTextByCommand: Map<string, string>; checkoutPaths: string[];
+};
+
+const EMPTY_CHECKOUT_RUN: FactoryCheckoutRun = { checks: [], loggedChecks: [], decisionReasonChecks: [], checkoutSecretValues: [], failingFilesOutsideScopesByCommand: new Map(), failureTextByCommand: new Map(), checkoutPaths: [] };
+
+function chargeableChecks(checks: readonly FactoryCheck[], inheritedCommands: readonly string[]): FactoryCheck[] {
+  return checks.map((check) => !check.pass && inheritedCommands.includes(check.command) ? { ...check, pass: true } : check);
+}
+
+function chargeableFailingFilesOutsideScopes(run: FactoryCheckoutRun, inheritedCommands: readonly string[]): string[] {
+  const outsideFiles = [...run.failingFilesOutsideScopesByCommand].filter(([command]) => !inheritedCommands.includes(command)).flatMap(([, files]) => files);
+  return [...new Set(outsideFiles)].sort();
+}
+
+function inheritedChecksNote(baseSha: string, inheritedCommands: readonly string[]): string | null {
+  if (inheritedCommands.length === 0) return null;
+  return `Not charged for checks already failing at base ${baseSha.slice(0, 12)}: ${inheritedCommands.join(', ')}`;
 }
 
 function closeOutFailureText(decision: ReturnType<typeof decideCloseOut>): string | null {
@@ -169,11 +191,12 @@ export async function runFactoryReview({ spawnReviewer, model, signal, buildProm
 
 export function createFactoryCloseOut({
   config, spawnReviewer, gitWorkspace, serializeProject, ensureLedger, runCoherence, commitAndLand, readIntegrationSha, recordFactoryLandedSha, readPaused, readIntentFloorAllowances = async () => [],
-  countTicketBlock = createMemoryCapCounter(), countIntentCapCancel = createMemoryCapCounter(), releaseWorkers = () => {}, trustVerification, notifyOrchestrator, setException, recordDecision = async () => {}, onReviewingChanged = () => {}, baseEnv = process.env, prepareCheckRunner = prepareSandboxedCheckRunner,
+  countTicketBlock = createMemoryCapCounter(), countIntentCapCancel = createMemoryCapCounter(), releaseWorkers = () => {}, trustVerification, notifyOrchestrator, setException, clearException = () => {}, recordDecision = async () => {}, onReviewingChanged = () => {}, baseEnv = process.env, prepareCheckRunner = prepareSandboxedCheckRunner,
 }: FactoryCloseOutDeps) {
   const reviewing = new Set<string>();
   const attempts = new Map<string, number>();
   const failingFilesOutsideScopesByWork = new Map<string, string[]>();
+  const blockExceptionByProject = new Map<string, string>();
   const pending = new Map<string, Promise<void>>();
   const held = new Map<string, FactoryCloseOutWorker>();
   const reviewController = new AbortController();
@@ -278,12 +301,12 @@ export function createFactoryCloseOut({
     return envFileTexts.flatMap(envFileSecretValues);
   }
 
-  async function runChecksInCleanCheckout(worker: FactoryCloseOutWorker, headSha: string): Promise<{ checks: FactoryCheck[]; loggedChecks: FactoryCheck[]; decisionReasonChecks: FactoryCheck[]; checkoutSecretValues: string[]; failingFilesOutsideScopes: string[] } | null> {
+  async function runChecksInCleanCheckout(worker: FactoryCloseOutWorker, sha: string, commands: readonly string[] = config.factory?.checks ?? DEFAULT_FACTORY_CHECKS): Promise<FactoryCheckoutRun | null> {
     const checkoutParent = await makeHostScratchDirectory('glimmervoid-factory-checks-');
     const checkoutPath = path.join(checkoutParent, 'checkout');
     let checkSandbox: FactoryCheckSandbox | null = null;
     try {
-      const staged = await gitWorkspace.stageDetachedWorktree({ projectPath: worker.projectPath, worktreePath: checkoutPath, sha: headSha, ...untrustedCheckoutIsolation() });
+      const staged = await gitWorkspace.stageDetachedWorktree({ projectPath: worker.projectPath, worktreePath: checkoutPath, sha, ...untrustedCheckoutIsolation() });
       if (!staged.ok) throw new Error(`Could not stage the factory check checkout: ${staged.err}`);
       await gitWorkspace.populate({ projectPath: worker.projectPath, wtDir: checkoutPath, shareList: sharedEntries(), ...untrustedCheckoutIsolation() });
       checkSandbox = await prepareCheckRunner({ scratchParent: checkoutParent, writablePaths: [checkoutPath] });
@@ -293,10 +316,11 @@ export function createFactoryCloseOut({
       const checks: FactoryCheck[] = [];
       const loggedChecks: FactoryCheck[] = [];
       const decisionReasonChecks: FactoryCheck[] = [];
-      const failingFilesOutsideScopes = new Set<string>();
+      const failingFilesOutsideScopesByCommand = new Map<string, string[]>();
+      const failureTextByCommand = new Map<string, string>();
       const checkoutPaths = [...new Set([checkoutPath, await realpath(checkoutPath)])];
       const loggedText = (capturedText: string) => redactSecretLines(capturedText, [...secretValues(), ...checkoutSecretValues]);
-      for (const command of config.factory?.checks ?? DEFAULT_FACTORY_CHECKS) {
+      for (const command of commands) {
         if (!isLive(worker)) return null;
         const argv = parseCheckCommand(command);
         if (!argv) {
@@ -315,14 +339,14 @@ export function createFactoryCloseOut({
         } catch (error) {
           checks.push({ command, pass: false, output: failedCheckOutput(error) });
           const fullFailureText = failureText(error, 16 * 1024 * 1024);
-          const outsideFiles = listFailingTestFilesOutsideScopes({ output: fullFailureText, checkoutPaths, writeScopes: worker.writeScopes });
-          for (const outsideFile of outsideFiles) failingFilesOutsideScopes.add(outsideFile);
+          failureTextByCommand.set(command, fullFailureText);
+          failingFilesOutsideScopesByCommand.set(command, listFailingTestFilesOutsideScopes({ output: fullFailureText, checkoutPaths, writeScopes: worker.writeScopes }));
           const loggedFailureText = loggedText(fullFailureText);
           loggedChecks.push({ command, pass: false, output: capFactoryDecisionOutput(loggedFailureText) });
           decisionReasonChecks.push({ command, pass: false, output: summarizeFailedCheckOutput(loggedFailureText, FAILED_CHECK_FEEDBACK_MAX_CHARS) });
         }
       }
-      return { checks, loggedChecks, decisionReasonChecks, checkoutSecretValues, failingFilesOutsideScopes: [...failingFilesOutsideScopes].sort() };
+      return { checks, loggedChecks, decisionReasonChecks, checkoutSecretValues, failingFilesOutsideScopesByCommand, failureTextByCommand, checkoutPaths };
     } finally {
       try {
         await removeCheckCheckout(worker.projectPath, checkoutPath);
@@ -331,6 +355,17 @@ export function createFactoryCloseOut({
         await checkSandbox?.dispose();
       }
     }
+  }
+
+  async function listInheritedCheckCommands(worker: FactoryCloseOutWorker, baseSha: string, headRun: FactoryCheckoutRun): Promise<string[] | null> {
+    const failedCommands = headRun.checks.filter((check) => !check.pass && headRun.failureTextByCommand.has(check.command)).map((check) => check.command);
+    if (failedCommands.length === 0) return [];
+    const baseRun = await runChecksInCleanCheckout(worker, baseSha, failedCommands).catch(() => EMPTY_CHECKOUT_RUN);
+    if (baseRun === null) return null;
+    return failedCommands.filter((command) => isInheritedCheckFailure({
+      headOutput: headRun.failureTextByCommand.get(command) ?? '', headCheckoutPaths: headRun.checkoutPaths,
+      baseOutput: baseRun.failureTextByCommand.get(command) ?? null, baseCheckoutPaths: baseRun.checkoutPaths,
+    }));
   }
 
   async function recordMergeVerification(worker: FactoryCloseOutWorker, ledgerCwd: string, mergedSha: string): Promise<void> {
@@ -383,6 +418,8 @@ export function createFactoryCloseOut({
       failingFilesOutsideScopesByWork.delete(worker.workId);
       worker.session.destroy();
       const capNotice = blockCount >= FACTORY_TICKET_BLOCK_CAP ? await cancelTicketAtCap(worker, ledger.cwd, blockCount) : null;
+      if (capNotice) blockExceptionByProject.delete(worker.projectId);
+      if (!capNotice) blockExceptionByProject.set(worker.projectId, decision.reason);
       notifyOrchestrator(worker.projectId, { workId: worker.workId, intentId: worker.intentId, sessionId: worker.session.id, attempt: blockedAttempt, event: 'blocked', failureClass,
         detail: capNotice ? `${capNotice} Re-plan the intent without it.\n${decision.reason}` : decision.reason });
       setException(worker.projectId, capNotice ? `${capNotice} Last block: ${decision.reason}` : decision.reason);
@@ -448,6 +485,7 @@ export function createFactoryCloseOut({
     let decision: ReturnType<typeof decideCloseOut> | null = null;
     let loggedReason: string | null = null;
     let attemptFailureClass: FactoryDecisionInput['failureClass'] = null;
+    let inheritedNote: string | null = null;
     let hasMerged = false;
     const loggedText = (text: string) => redactSecretLines(text, [...secretValues(), ...checkoutSecretValues]);
     const loggedVerdict = () => verdict ? { ...verdict, findings: verdict.findings.map(loggedText) } : null;
@@ -481,9 +519,13 @@ export function createFactoryCloseOut({
         await failedAttempt('Review size', FACTORY_REVIEW_TOO_LARGE_FEEDBACK);
         return;
       }
-      const captured = fence.ok ? await runChecksInCleanCheckout(worker, headSha) : { checks: [], loggedChecks: [], decisionReasonChecks: [], checkoutSecretValues: [], failingFilesOutsideScopes: [] };
+      const captured = fence.ok ? await runChecksInCleanCheckout(worker, headSha) : EMPTY_CHECKOUT_RUN;
       if (captured === null || !isLive(worker)) return;
-      const { checks } = captured;
+      const inheritedCommands = await listInheritedCheckCommands(worker, baseSha, captured);
+      if (inheritedCommands === null || !isLive(worker)) return;
+      inheritedNote = inheritedChecksNote(baseSha, inheritedCommands);
+      const checks = chargeableChecks(captured.checks, inheritedCommands);
+      const failingFilesOutsideScopes = chargeableFailingFilesOutsideScopes(captured, inheritedCommands);
       loggedChecks = captured.loggedChecks;
       checkoutSecretValues = captured.checkoutSecretValues;
       const shouldReview = fence.ok && checks.every((check) => check.pass);
@@ -491,10 +533,10 @@ export function createFactoryCloseOut({
         name: `Factory review ${worker.workId}`, buildPrompt: (resultPath) => buildFactoryReviewerPrompt({ ...worker, baseSha }, headSha, resultPath, reviewDiff) }) : null;
       if (!isLive(worker)) return;
       attemptFailureClass = factoryCloseOutFailureClass(fence, checks, verdict);
-      const outsideScopes = { failingFilesOutsideScopes: captured.failingFilesOutsideScopes, previousFailingFilesOutsideScopes: failingFilesOutsideScopesByWork.get(worker.workId) ?? [] };
-      failingFilesOutsideScopesByWork.set(worker.workId, captured.failingFilesOutsideScopes);
+      const outsideScopes = { failingFilesOutsideScopes, previousFailingFilesOutsideScopes: failingFilesOutsideScopesByWork.get(worker.workId) ?? [] };
+      failingFilesOutsideScopesByWork.set(worker.workId, failingFilesOutsideScopes);
       const closeOutDecision = decideCloseOut({ fence, checks, review: verdict, attempt: attemptOf(worker), ...outsideScopes });
-      loggedReason = closeOutFailureText(decideCloseOut({ fence, checks: captured.decisionReasonChecks, review: loggedVerdict(), attempt, ...outsideScopes }));
+      loggedReason = closeOutFailureText(decideCloseOut({ fence, checks: chargeableChecks(captured.decisionReasonChecks, inheritedCommands), review: loggedVerdict(), attempt, ...outsideScopes }));
       if (closeOutDecision.action !== 'merge') {
         if (await applyFailure(worker, closeOutDecision, attemptFailureClass)) decision = closeOutDecision;
         return;
@@ -517,6 +559,9 @@ export function createFactoryCloseOut({
         const merged = await worker.session.mergeWorktree(untrustedCheckoutIsolation());
         if (!merged.merged) throw new Error(merged.reason ?? (merged.conflicts?.join(', ') || 'Worker merge did not merge'));
         hasMerged = true;
+        const blockException = blockExceptionByProject.get(worker.projectId);
+        blockExceptionByProject.delete(worker.projectId);
+        if (blockException !== undefined) clearException(worker.projectId, blockException);
         attempts.delete(worker.workId);
         failingFilesOutsideScopesByWork.delete(worker.workId);
         const mergedSha = await readIntegrationSha(worker.projectPath);
@@ -534,7 +579,7 @@ export function createFactoryCloseOut({
           setException(worker.projectId, `Factory finalization failed after merge: the merged work at ${mergedSha} is unverified: ${failureText(error)}`);
         });
         worker.session.destroy();
-        notifyOrchestrator(worker.projectId, { workId: worker.workId, event: 'merged', detail: `at ${mergedSha}` });
+        notifyOrchestrator(worker.projectId, { workId: worker.workId, event: 'merged', detail: [`at ${mergedSha}`, inheritedNote].filter((part) => part !== null).join('. ') });
         await commitAndLand(worker.projectId, worker.projectPath, `factory: complete ${worker.workId}`);
       });
     } catch (error) {
@@ -543,7 +588,7 @@ export function createFactoryCloseOut({
     } finally {
       if (decision) void recordDecision({
         ...factoryDecisionContext(worker.projectId, { workId: worker.workId, intentId: worker.intentId,
-          sessionId: worker.session.id, reason: decision.action === 'merge' ? null : loggedReason }),
+          sessionId: worker.session.id, reason: decision.action === 'merge' ? inheritedNote : loggedReason }),
         kind: 'closeout', outcome: decision.action, attempt, durationMs: Math.max(0, Date.now() - attemptStartedAtMs),
         failureClass: decision.action === 'merge' ? null : attemptFailureClass,
         fence, checks: capFactoryDecisionChecks(loggedChecks), review: loggedVerdict(),

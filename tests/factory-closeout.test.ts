@@ -53,6 +53,7 @@ async function createFixture(context: TestContext, activateOrder = true, capCoun
   const events: FactoryWorkerEvent[] = [];
   const trustedVerifications: { projectId: string; id: string; sha: string }[] = [];
   const exceptions: string[] = [];
+  const clearedExceptions: string[] = [];
   const decisionReasons: (string | null)[] = [];
   const reviewRequests: Parameters<LaneSpawn>[0][] = [];
   const reviewerCwdEntries: string[][] = [];
@@ -100,6 +101,7 @@ async function createFixture(context: TestContext, activateOrder = true, capCoun
       trustedVerifications.push({ projectId, ...verification });
     },
     setException: (_projectId, reason) => { exceptions.push(reason); },
+    clearException: (_projectId, expectedReason) => { clearedExceptions.push(expectedReason); },
     notifyOrchestrator: (_projectId, event) => { events.push(event); },
     spawnReviewer: async (request) => {
       const promptFileIndex = request.extraArgs?.indexOf('--append-system-prompt-file') ?? -1;
@@ -125,7 +127,7 @@ async function createFixture(context: TestContext, activateOrder = true, capCoun
     await git(['add', '--', relativePath], workspace.cwd);
     await git(['commit', '-m', 'fix: retries'], workspace.cwd);
   };
-  return { ...coherenceLedger, config, worker, closeOut, createOrder, workspace, directory, cleanupTasks, feedback, events, trustedVerifications, exceptions, decisionReasons, reviewRequests, reviewerCwdEntries, commitChange, baseEnv,
+  return { ...coherenceLedger, config, worker, closeOut, createOrder, workspace, directory, cleanupTasks, feedback, events, trustedVerifications, exceptions, clearedExceptions, decisionReasons, reviewRequests, reviewerCwdEntries, commitChange, baseEnv,
     isDestroyed: () => isDestroyed, mergedSha: () => mergedSha, setPaused: (paused: boolean) => { isPaused = paused; },
     failTrustWrite: () => { shouldFailTrustWrite = true; },
     setLandingFails: (isFailing: boolean) => { shouldFailLanding = isFailing; },
@@ -199,6 +201,54 @@ test('failing repo check retries with its failing tests and load-time crash caus
   assert.doesNotMatch(fixture.feedback[0], /expected failure evidence/);
   assert.match(fixture.decisionReasons[0] ?? '', /failed check evidence/);
   assert.equal(fixture.reviewRequests.length, 0);
+});
+
+async function writeBaseRedLintCheck(fixture: Awaited<ReturnType<typeof createFixture>>): Promise<void> {
+  const lintScriptPath = path.join(fixture.directory, 'base-red-lint.mjs');
+  await writeFile(lintScriptPath, [
+    "import { existsSync, readFileSync } from 'node:fs';",
+    "process.stdout.write('public/style.css:9193:149 lint/suspicious/noShorthandPropertyOverrides\\n');",
+    "if (existsSync('src/retry.ts') && readFileSync('src/retry.ts', 'utf8').includes('worse')) process.stdout.write('src/retry.ts:1:1 lint/style/useConst\\n');",
+    'process.exitCode = 1;',
+  ].join('\n'));
+  fixture.config.factory = { enabled: true, checks: [`${process.execPath} ${lintScriptPath}`] };
+}
+
+test('a check already failing the same way at the ticket base is not charged to the ticket, which merges with a note', async (context) => {
+  const fixture = await createFixture(context);
+  await fixture.commitChange();
+  await writeBaseRedLintCheck(fixture);
+  await fixture.closeOut.turnEnded(fixture.worker);
+  assert.equal(fixture.feedback.length, 0);
+  assert.equal(fixture.reviewRequests.length, 1);
+  assert.notEqual(fixture.mergedSha(), null);
+  assert.match(fixture.decisionReasons.find((reason) => reason?.startsWith('Not charged')) ?? '', /^Not charged for checks already failing at base [0-9a-f]{12}: .*base-red-lint\.mjs$/);
+});
+
+test('a ticket that adds a failure to a check already failing at its base is still charged', async (context) => {
+  const fixture = await createFixture(context);
+  await fixture.commitChange();
+  await writeFile(path.join(fixture.workspace.cwd, 'src/retry.ts'), 'export const worse = true;\n');
+  await fixture.git(['commit', '-am', 'fix: worse retries'], fixture.workspace.cwd);
+  await writeBaseRedLintCheck(fixture);
+  await fixture.closeOut.turnEnded(fixture.worker);
+  assert.match(fixture.feedback[0], /src\/retry.ts:1:1 lint\/style\/useConst/);
+  assert.equal(fixture.reviewRequests.length, 0);
+  assert.equal(fixture.mergedSha(), null);
+});
+
+test('a merge after a block clears that block exception, so a factory that recovered stops reporting it', async (context) => {
+  const fixture = await createFixture(context);
+  await fixture.commitChange('outside.ts');
+  for (const _attempt of [1, 2, 3]) await fixture.closeOut.turnEnded(fixture.worker);
+  assert.equal(fixture.exceptions.length, 1);
+  await fixture.runCoherence({ cwd: fixture.ledger.cwd, args: ['work', 'transition', fixture.worker.workId, 'active', '--because', 'Factory reopen', '--session', 'glimmervoid-factory'] });
+  await fixture.git(['rm', '-q', 'outside.ts'], fixture.workspace.cwd);
+  await fixture.commitChange();
+  const reopenedWorker: FactoryCloseOutWorker = { ...fixture.worker, session: { ...fixture.worker.session, _destroyed: false, destroy: () => {} } };
+  await fixture.closeOut.turnEnded(reopenedWorker);
+  assert.notEqual(fixture.mergedSha(), null);
+  assert.deepEqual(fixture.clearedExceptions, fixture.exceptions);
 });
 
 test('a check sandbox that cannot be prepared fails the attempt and never merges or runs a reviewer', async (context) => {

@@ -17,7 +17,7 @@ import { checkGate, readGateProof, readRealCommits } from './gate.ts';
 import { removeInside } from './cleanup.ts';
 import { targets } from './targets.ts';
 import { summaryRows } from './summary.ts';
-import { bridgeSocketPathRefusal, decideVerdict, parseDecisionLines, unexpectedAcceptanceError } from './verdict.ts';
+import { bridgeSocketPathRefusal, decideVerdict, findUnrecoveredException, parseDecisionLines, unexpectedAcceptanceError } from './verdict.ts';
 import type { VerdictInput } from './verdict.ts';
 import { adoptRunHomeRemoteSwitch, resolveHarnessTelemetryInputs, sendRunTelemetry } from './telemetry.ts';
 import { decideHarnessTelemetry } from './telemetry-core.ts';
@@ -93,14 +93,16 @@ async function runOnce(
       controller.abort();
     }, (sessionId) => listedSessionIds.add(sessionId), (error) => { input.errors.push(error.message); controller.abort(); });
     control.queue(queuedIntent);
+    let previousUnrecoveredException: string | null = null;
     while (!signal.aborted) {
       if (instance.child.exitCode !== null || instance.child.signalCode !== null) throw new Error('Built instance exited during the run');
       if (input.queueReply?.ok === false) { input.stopReason = 'refused'; hasTerminalStopReason = true; break; }
       const project = input.broadcasts.at(-1)?.state.projects.find((candidate) => candidate.projectId === input.projectId);
-      if (project?.error) { input.stopReason = 'exception'; hasTerminalStopReason = true; break; }
       if (input.queueReply?.workId && project?.heading.action === 'steady' && project.orders.some((order) => order.id === input.queueReply?.workId && order.state === 'completed')) { input.stopReason = 'completed'; hasTerminalStopReason = true; break; }
       const decisions = parseDecisionLines(await readDecisionLines(prepared.isolatedHome, input.projectId, false));
-      if (decisions.decisions.some((decision) => decision.kind === 'exception' || decision.outcome === 'block') || decisions.invalidDecisionLines.length > 0) { input.stopReason = 'exception'; hasTerminalStopReason = true; break; }
+      const unrecoveredException = findUnrecoveredException(project?.error, decisions.decisions);
+      if ((unrecoveredException !== null && unrecoveredException === previousUnrecoveredException) || decisions.invalidDecisionLines.length > 0) { input.stopReason = 'exception'; hasTerminalStopReason = true; break; }
+      previousUnrecoveredException = unrecoveredException;
       await sleep(500, undefined, { signal });
     }
     input.decisionLines = await readDecisionLines(prepared.isolatedHome, input.projectId, false);

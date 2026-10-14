@@ -17,7 +17,7 @@ import {
 import type { HarnessTelemetryInputs } from '../test/factory/telemetry-core.ts';
 import { adoptRunHomeRemoteSwitch, loadHarnessInstallState, resolveHarnessTelemetryInputs, sendRunTelemetry } from '../test/factory/telemetry.ts';
 import { removeInside, resolveInside } from '../test/factory/cleanup.ts';
-import { bridgeSocketPathRefusal, decideGate, decideVerdict, matchedProductText, pidsStillNamingSameProcess, processesUsingBuildOutput, readBuildOutput, unexpectedAcceptanceError } from '../test/factory/verdict.ts';
+import { bridgeSocketPathRefusal, decideGate, decideVerdict, findUnrecoveredException, matchedProductText, parseDecisionLines, pidsStillNamingSameProcess, processesUsingBuildOutput, readBuildOutput, unexpectedAcceptanceError } from '../test/factory/verdict.ts';
 import type { GateEvidence, VerdictInput } from '../test/factory/verdict.ts';
 
 const repoRoot = path.resolve(import.meta.dirname, '..');
@@ -53,6 +53,18 @@ function completingInput(): VerdictInput {
     originCommits: [{ sha: workerSha, subject: 'Add subtract' }, { sha: 'b'.repeat(40), subject: verifyCloseSubject }],
   });
 }
+
+test('a run keeps going past a block the orchestrator can re-plan and stops on any other exception', () => {
+  const blockReason = 'Needs write scope: tests/pending-wakeup.test.ts';
+  const blocked = parseDecisionLines([
+    decision({ kind: 'exception', outcome: 'raised', failureClass: 'exception', reason: blockReason }),
+    decision({ kind: 'admission', outcome: 'block', failureClass: 'check', reason: blockReason }),
+  ]).decisions;
+  assert.equal(findUnrecoveredException(blockReason, blocked), null);
+  const stalled = [...blocked, ...parseDecisionLines([decision({ kind: 'exception', outcome: 'stalled', failureClass: 'stall', reason: 'factory orchestrator idle' })]).decisions];
+  assert.equal(findUnrecoveredException(blockReason, stalled), 'factory orchestrator idle');
+  assert.equal(findUnrecoveredException('Ledger is unreadable', blocked), 'Ledger is unreadable');
+});
 
 test('completion requires steady completion and both worker and verify-close commits on origin', () => {
   const verdict = decideVerdict(completingInput());

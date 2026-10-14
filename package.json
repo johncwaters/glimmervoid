@@ -55,7 +55,7 @@
   "scripts": {
     "start": "node dist/server/index.js",
     "factory:run": "node test/factory/run.ts",
-    "lint": "biome check .",
+    "lint": "biome check . --max-diagnostics=none",
     "test": "node --import ./tests/helpers/isolate-home.ts --test \"tests/**/*.test.ts\"",
     "typecheck": "tsc --project tsconfig.json && tsc --project tsconfig.public.json && tsc --project tsconfig.browser-harness.json",
     "test:browser": "node test/browser/harness.ts",

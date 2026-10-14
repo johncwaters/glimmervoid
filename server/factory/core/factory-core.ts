@@ -621,6 +621,61 @@ export function listFailingTestFilesOutsideScopes({ output, checkoutPaths, write
   return [...outsideFiles].sort();
 }
 
+const DIAGNOSTIC_PATH_SOURCE = String.raw`[\w@+-][\w@.+-]*(?:\/[\w@.+-]+)*\.\w+`;
+const LOCATED_DIAGNOSTIC_PATTERN = new RegExp(String.raw`(${DIAGNOSTIC_PATH_SOURCE})(?::\d+(?::\d+)?|\(\d+,\d+\)):?\s+(\S.*)$`);
+const UNLOCATED_BIOME_HEADER_PATTERN = new RegExp(String.raw`^(${DIAGNOSTIC_PATH_SOURCE}) +([^\s\u2500-\u257f].*?)\s*[\u2500-\u257f]+\s*$`);
+const BOX_DRAWING_CHARACTERS_PATTERN = /[\u2500-\u257f]/g;
+
+function relativeOutputLines(output: string, checkoutPaths: readonly string[]): string[] {
+  const relativeOutput = checkoutPaths.reduce((text, checkoutPath) => text.split(`${checkoutPath}/`).join(''), output);
+  return relativeOutput.split(/\r?\n/);
+}
+
+function listRealTapFailureKeys(lines: readonly string[]): string[] {
+  return listTapFailures(lines)
+    .filter((failure) => !failure.isKnockOnFailure)
+    .map((failure) => {
+      const title = lines[failure.headerIndex].replace(TAP_FAILURE_LINE_PATTERN, '$1');
+      const testFile = failure.blockLines.flatMap((line) => TAP_LOCATION_LINE_PATTERN.exec(line)?.[1] ?? [])[0] ?? '';
+      return `${title}\n${testFile}`;
+    });
+}
+
+function toDiagnosticKey(path: string, message: string): string {
+  return `${path} ${message.replace(BOX_DRAWING_CHARACTERS_PATTERN, ' ').replace(/\s+/g, ' ').trim()}`;
+}
+
+function listDiagnosticKeys(lines: readonly string[]): string[] {
+  return lines.flatMap((line) => {
+    const diagnostic = LOCATED_DIAGNOSTIC_PATTERN.exec(line) ?? UNLOCATED_BIOME_HEADER_PATTERN.exec(line);
+    return diagnostic ? [toDiagnosticKey(diagnostic[1], diagnostic[2])] : [];
+  });
+}
+
+function hasEveryOccurrenceIn(entries: readonly string[], knownEntries: readonly string[]): boolean {
+  const remainingCountByEntry = new Map<string, number>();
+  for (const entry of knownEntries) remainingCountByEntry.set(entry, (remainingCountByEntry.get(entry) ?? 0) + 1);
+  for (const entry of entries) {
+    const remainingCount = remainingCountByEntry.get(entry) ?? 0;
+    if (remainingCount === 0) return false;
+    remainingCountByEntry.set(entry, remainingCount - 1);
+  }
+  return true;
+}
+
+export function isInheritedCheckFailure({ headOutput, headCheckoutPaths, baseOutput, baseCheckoutPaths }: {
+  headOutput: string; headCheckoutPaths: readonly string[]; baseOutput: string | null; baseCheckoutPaths: readonly string[];
+}): boolean {
+  if (baseOutput === null) return false;
+  const headLines = relativeOutputLines(headOutput, headCheckoutPaths);
+  const baseLines = relativeOutputLines(baseOutput, baseCheckoutPaths);
+  const headTapFailureKeys = listRealTapFailureKeys(headLines);
+  if (headTapFailureKeys.length > 0) return hasEveryOccurrenceIn(headTapFailureKeys, listRealTapFailureKeys(baseLines));
+  const headDiagnosticKeys = listDiagnosticKeys(headLines);
+  if (headDiagnosticKeys.length === 0) return false;
+  return hasEveryOccurrenceIn(headDiagnosticKeys, listDiagnosticKeys(baseLines));
+}
+
 function isSameFileSet(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((file) => right.includes(file));
 }

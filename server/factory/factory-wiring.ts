@@ -606,6 +606,9 @@ export function createFactoryWiring<ManagedSession extends FactoryOrchestratorSe
           trustedVerifications: [...(state.trustedVerifications ?? []).filter(({ id }) => id !== verification.id), verification] })),
         notifyOrchestrator,
         setException: raiseException,
+        clearException: (projectId, expectedReason) => {
+          if (exceptions.get(projectId) === expectedReason) exceptions.delete(projectId);
+        },
         onReviewingChanged: refreshAfter('review state'),
       }) : null;
       const activeDispatcher = orchestratorOptions && coherenceHookCliPath ? createFactoryDispatch({
