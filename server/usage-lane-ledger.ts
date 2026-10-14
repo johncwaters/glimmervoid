@@ -2,9 +2,9 @@ import nodeFsPromises from 'node:fs/promises';
 
 import { laneMapFromLedger, pruneLedger } from './core/usage-lane-core.ts';
 import type { LaneLedgerEntry } from './core/usage-lane-core.ts';
-import type { RecordLane } from './ephemeral-session.ts';
+import type { RecordLane } from './lanes/ephemeral-session.ts';
 import { createJsonStateStore } from './json-file.ts';
-import { createLaneLog } from './lane-log.ts';
+import { createLaneLog } from './lanes/lane-log.ts';
 import { errorMessage } from '../shared/text.ts';
 import { createSerialQueue } from './spawn-gate.ts';
 

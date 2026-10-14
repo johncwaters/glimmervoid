@@ -1,10 +1,10 @@
 import * as core from './core/my-prs-core.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
-import { secondaryRateLimitWaitMs } from './core/lane-backoff.ts';
+import { secondaryRateLimitWaitMs } from './lanes/core/lane-backoff.ts';
 import { prKey } from './core/team-review-core.ts';
-import { drainPending, firstLine } from './ephemeral-session.ts';
-import { createTickLoop } from './lane-runner.ts';
-import type { SharedClock } from './lane-runner.ts';
+import { drainPending, firstLine } from './lanes/ephemeral-session.ts';
+import { createTickLoop } from './lanes/lane-runner.ts';
+import type { SharedClock } from './lanes/lane-runner.ts';
 import type { PrGh } from './pr-gh.ts';
 import type { MyPr, MyPrAutoRebase, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrKeepMergeableAttemptRecord, MyPrMergeabilityFixResult, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsStatus, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
 import { errorMessage } from '../shared/text.ts';

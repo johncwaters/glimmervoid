@@ -1,8 +1,8 @@
 import { CoherenceOrient, CoherenceWorkInspect } from '../shared/contracts/coherence.ts';
 import type { FactoryProjectState, FactoryState } from '../shared/contracts/factory.ts';
 import { buildFactoryProjectState, FACTORY_TICK_INTERVAL_MS, factoryStateSignature, isCompletedCommandFailure } from './core/factory-core.ts';
-import { createTickLoop } from './lane-runner.ts';
-import type { TickLoopOptions } from './lane-runner.ts';
+import { createTickLoop } from './lanes/lane-runner.ts';
+import type { TickLoopOptions } from './lanes/lane-runner.ts';
 import { errorMessage } from '../shared/text.ts';
 
 interface FactoryProject {

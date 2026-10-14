@@ -4,7 +4,7 @@ import { GITHUB_CLOCK_INTERVAL_MINUTES, runsEveryTicks } from '../server/core/gi
 import { POLL_INTERVAL_MINUTES as MY_PRS_POLL_INTERVAL_MINUTES } from '../server/core/my-prs-core.ts';
 import { POLL_INTERVAL_MINUTES as TEAM_REVIEW_POLL_INTERVAL_MINUTES } from '../server/core/team-review-core.ts';
 import { createGithubClock } from '../server/github-clock.ts';
-import { createTickLoop } from '../server/lane-runner.ts';
+import { createTickLoop } from '../server/lanes/lane-runner.ts';
 
 const FIVE_MINUTES_MS = 5 * 60000;
 

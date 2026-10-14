@@ -14,7 +14,7 @@ import { createFactoryCloseOut } from '../server/factory-closeout.ts';
 import type { FactoryCloseOutDeps, FactoryCloseOutWorker } from '../server/factory-closeout.ts';
 import { commitAndLandFactoryLedger, hasCodeChangedBetween, readCodeDiffBetween, screenPendingLedgerWrites } from '../server/factory-ledger.ts';
 import { hostScratchRoot } from '../server/host-scratch.ts';
-import type { LaneSpawn } from '../server/lane-spawn.ts';
+import type { LaneSpawn } from '../server/lanes/lane-spawn.ts';
 import { createFactoryWiring } from '../server/factory-wiring.ts';
 import { createSessionFactory } from '../server/session/session-factory.ts';
 import { HookRouter } from '../detection/hook-source.ts';

@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createLaneLog } from '../server/lane-log.ts';
-import type { LaneLog, LaneLogOptions } from '../server/lane-log.ts';
+import { createLaneLog } from '../server/lanes/lane-log.ts';
+import type { LaneLog, LaneLogOptions } from '../server/lanes/lane-log.ts';
 
 interface CapturedLog {
   log: LaneLog;

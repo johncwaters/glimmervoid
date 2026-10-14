@@ -15,8 +15,8 @@ import {
   parseHistoryLines,
 } from './core/ingest-shell-core.ts';
 import type { HistoryLocation, HistoryParseState, ShellIngestEvent } from './core/ingest-shell-core.ts';
-import { createLaneLog } from './lane-log.ts';
-import type { LaneLogger } from './lane-log.ts';
+import { createLaneLog } from './lanes/lane-log.ts';
+import type { LaneLogger } from './lanes/lane-log.ts';
 import { errorMessage } from '../shared/text.ts';
 import { positiveIntOr } from '../shared/coerce.ts';
 import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';

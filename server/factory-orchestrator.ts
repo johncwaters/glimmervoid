@@ -18,13 +18,13 @@ import {
   findFactoryProjectPath, isTurnEndHookEvent, nextIntent,
 } from './core/factory-core.ts';
 import type { FactoryStallSession } from './core/factory-core.ts';
-import { LANE_CONFIG_EDIT_DENY_RULES } from './core/lane-permissions-core.ts';
-import { registerEphemeralSession } from './ephemeral-session.ts';
+import { LANE_CONFIG_EDIT_DENY_RULES } from './lanes/core/lane-permissions-core.ts';
+import { registerEphemeralSession } from './lanes/ephemeral-session.ts';
 import { resolveRequiredSaneYoloHookTools } from './hook-tools.ts';
-import { resolveWorkLane } from './work-lane.ts';
-import type { WorkLaneDependencies } from './work-lane.ts';
+import { resolveWorkLane } from './lanes/work-lane.ts';
+import type { WorkLaneDependencies } from './lanes/work-lane.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
-import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
+import type { RecordLane, SpawnGate } from './lanes/ephemeral-session.ts';
 import type { SessionSpawnOverrides } from './session/session-factory.ts';
 
 export const FACTORY_ORCHESTRATOR_ALLOW = Object.freeze([

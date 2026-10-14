@@ -14,8 +14,8 @@ import {
   decideAttentionAllowance, decideEditAllowance, decideSpawnAllowance, deriveChildSessionName, describePushLanding, describePushRouteRefusal, parseAgentVerb,
 } from './core/agent-api-core.ts';
 import { isConfinedSessionVendor } from './core/sandbox-roles-core.ts';
-import { registerEphemeralSession } from './ephemeral-session.ts';
-import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
+import { registerEphemeralSession } from './lanes/ephemeral-session.ts';
+import type { RecordLane, SpawnGate } from './lanes/ephemeral-session.ts';
 import type { SessionSpawnOverrides } from './session/session-factory.ts';
 import type { SessionDocsPort } from './session/session-docs-wiring.ts';
 import { errorMessage } from '../shared/text.ts';

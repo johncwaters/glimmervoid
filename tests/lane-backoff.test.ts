@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 
 import {
   nextRetrySchedule, QUICK_RETRY_DELAYS_MS, parseRetryAfterMs, secondaryRateLimitWaitMs, shouldSkipTick, SECONDARY_RATE_LIMIT_MIN_WAIT_MS,
-} from '../server/core/lane-backoff.ts';
+} from '../server/lanes/core/lane-backoff.ts';
 import { DEFAULT_MAX_MS, nextBackoffMs } from '../shared/backoff.ts';
-import type { TickLoopOptions, TickOutcome } from '../server/lane-runner.ts';
-import { createTickLoop } from '../server/lane-runner.ts';
+import type { TickLoopOptions, TickOutcome } from '../server/lanes/lane-runner.ts';
+import { createTickLoop } from '../server/lanes/lane-runner.ts';
 
 test('full jitter picks a point inside the exponential ceiling, never the ceiling itself', () => {
   const baseMs = 1000;

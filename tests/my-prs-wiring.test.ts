@@ -13,7 +13,7 @@ import type { TeamReviewSpawn } from '../server/team-review-wiring.ts';
 import {
   MY_PRS_FIX_BASE_BRANCH, MY_PRS_FIX_BOOTSTRAP_PROMPT, MY_PRS_FIX_CHECKOUT_DIRNAME, MY_PRS_FIX_ALLOW_RULES, MY_PRS_FIX_DENY_RULES, MY_PRS_FIX_PROMPT_FILENAME, keepMergeableTimeoutSeconds,
 } from '../server/core/my-prs-core.ts';
-import { LANE_ENVIRONMENT_ARGS } from '../server/core/lane-permissions-core.ts';
+import { LANE_ENVIRONMENT_ARGS } from '../server/lanes/core/lane-permissions-core.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
 import type { MyPr } from '../shared/contracts/my-prs.ts';

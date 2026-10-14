@@ -3,8 +3,8 @@ import { monitorEventLoopDelay } from 'node:perf_hooks';
 import type { OutcomeName } from '../shared/outcome-names.ts';
 import { countOutcome, drainOutcomeSummary, emptyOutcomeCounts } from './core/outcome-summary-core.ts';
 import type { OutcomeCounts } from './core/outcome-summary-core.ts';
-import { createLaneLog } from './lane-log.ts';
-import type { LaneLogger } from './lane-log.ts';
+import { createLaneLog } from './lanes/lane-log.ts';
+import type { LaneLogger } from './lanes/lane-log.ts';
 import { DEFAULT_TIMER_FNS } from '../shared/timer-deps.ts';
 import type { ClearIntervalFn, SetIntervalFn } from '../shared/timer-deps.ts';
 

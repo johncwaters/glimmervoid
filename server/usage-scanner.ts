@@ -55,8 +55,8 @@ import {
 } from './core/usage-warehouse-core.ts';
 import type { WarehouseRecord } from './core/usage-warehouse-core.ts';
 import { createJsonStateStore } from './json-file.ts';
-import { createLaneLog } from './lane-log.ts';
-import type { LaneLog } from './lane-log.ts';
+import { createLaneLog } from './lanes/lane-log.ts';
+import type { LaneLog } from './lanes/lane-log.ts';
 import { errorMessage, isMissingFileError } from '../shared/text.ts';
 
 const DEFAULT_BYTE_BUDGET = 64 * 1024 * 1024;

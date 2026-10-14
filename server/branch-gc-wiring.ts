@@ -2,9 +2,9 @@ import { DEFAULT_INTERVAL_MS, DEFAULT_STALE_DAYS, createBranchGcPoller } from '.
 import { bootStaggerDelay } from './boot-stagger.ts';
 import { DEFAULT_BRANCH_GC_PREFIXES } from './core/branch-gc-core.ts';
 import type { BranchGcGitWorkspace, BranchGcPoller } from './branch-gc-poller.ts';
-import { createLaneRunner } from './lane-runner.ts';
-import type { LaneRunnerGate, LaneStatusRecord } from './lane-runner.ts';
-import { emptyLaneStatus } from './lane-status.ts';
+import { createLaneRunner } from './lanes/lane-runner.ts';
+import type { LaneRunnerGate, LaneStatusRecord } from './lanes/lane-runner.ts';
+import { emptyLaneStatus } from './lanes/lane-status.ts';
 import type { BranchGcFileSettings } from '../shared/contracts/index.ts';
 
 interface BranchGcWiringConfig {

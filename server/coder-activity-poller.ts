@@ -2,8 +2,8 @@ import {
   buildCoderActivityMessage, CODER_ACTIVITY_RETRY_MAX_WAIT_MS, CODER_ACTIVITY_STOPPED_MESSAGE, CODER_ACTIVITY_TICK_INTERVAL_MS, decideCoderReport,
 } from './core/coder-activity-core.ts';
 import type { CoderActivityLastReport, CoderActivityState } from './core/coder-activity-core.ts';
-import { createTickLoop } from './lane-runner.ts';
-import type { TickLoopOptions, TickOutcome } from './lane-runner.ts';
+import { createTickLoop } from './lanes/lane-runner.ts';
+import type { TickLoopOptions, TickOutcome } from './lanes/lane-runner.ts';
 import { errorMessage } from '../shared/text.ts';
 
 interface CoderActivityReport {

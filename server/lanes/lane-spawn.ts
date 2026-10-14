@@ -1,20 +1,20 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 
-import type { HookRouter } from '../detection/hook-source.ts';
-import { DEFAULT_AGENT_ID } from '../session/adapters/index.ts';
-import { Session } from '../session/sessions.ts';
-import type { SessionOptions } from '../session/sessions.ts';
+import type { HookRouter } from '../../detection/hook-source.ts';
+import { DEFAULT_AGENT_ID } from '../../session/adapters/index.ts';
+import { Session } from '../../session/sessions.ts';
+import type { SessionOptions } from '../../session/sessions.ts';
 import { buildLanePermissions } from './core/lane-permissions-core.ts';
 import { awaitSessionExit, registerEphemeralSession } from './ephemeral-session.ts';
-import { judgeRole, LANE_CREDENTIAL_ENV } from './core/sandbox-roles-core.ts';
-import { resolveRequiredSaneYoloHookTools } from './hook-tools.ts';
-import { makeHostScratchDirectory } from './host-scratch.ts';
-import { writeJsonAtomic } from './json-file.ts';
-import { allowSandboxedSpawn } from './sandbox-deps.ts';
-import { prepareSandboxLaunch } from './sandbox-launch.ts';
+import { judgeRole, LANE_CREDENTIAL_ENV } from '../core/sandbox-roles-core.ts';
+import { resolveRequiredSaneYoloHookTools } from '../hook-tools.ts';
+import { makeHostScratchDirectory } from '../host-scratch.ts';
+import { writeJsonAtomic } from '../json-file.ts';
+import { allowSandboxedSpawn } from '../sandbox-deps.ts';
+import { prepareSandboxLaunch } from '../sandbox-launch.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
-import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
+import type { SandboxSpawnRefusal } from '../sandbox-deps.ts';
 
 const SETTINGS_DIR_PREFIX = 'glimmervoid-lane-settings-';
 const UNWRAPPED_PLATFORM = 'win32';

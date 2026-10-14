@@ -1,11 +1,11 @@
 import { viewerThreadTally, hasPresentableThreads, isThreadPlaceholderDraft, answeredViewerThreads, shouldAutoResolveThread, shouldJudgeThread, buildThreadJudgePrompt, parseThreadJudgeResult, threadJudgePatch, THREAD_JUDGE_BACKOFF_MS, THREAD_PLACEHOLDER_ERROR } from './core/team-review-threads-core.ts';
 import * as core from './core/team-review-core.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
-import { secondaryRateLimitWaitMs } from './core/lane-backoff.ts';
+import { secondaryRateLimitWaitMs } from './lanes/core/lane-backoff.ts';
 import type { ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSettings } from './core/team-review-core.ts';
-import { firstLine } from './ephemeral-session.ts';
-import { createTickLoop } from './lane-runner.ts';
-import type { SharedClock, TickOutcome } from './lane-runner.ts';
+import { firstLine } from './lanes/ephemeral-session.ts';
+import { createTickLoop } from './lanes/lane-runner.ts';
+import type { SharedClock, TickOutcome } from './lanes/lane-runner.ts';
 import type { PrReference, PrReviewSnapshot, PrSearchResult, PrGh } from './pr-gh.ts';
 import { allowSandboxedSpawn } from './sandbox-deps.ts';
 import type { SandboxSpawnRefusal } from './sandbox-deps.ts';

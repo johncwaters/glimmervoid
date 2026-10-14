@@ -14,16 +14,16 @@ import type { FactoryCheckRunner, FactoryCheckSandbox, PrepareFactoryCheckRunner
 import { DEFAULT_CONFIG } from './config-store.ts';
 import { FACTORY_LEDGER_SESSION, FACTORY_REVIEW_DIFF_MAX_CHARS, buildFactoryCheckEnv, buildFactoryReviewerPrompt, buildWorkerCommitMessage, checkFence, decideCloseOut, listFailingTestFilesOutsideScopes, listIntentCapClosings, findWorkerCommitRefusal, listStagedSandboxPlaceholders, inheritedSecretValues, listUncommittedWorkPaths, parseCheckCommand, parseFactoryReviewerOutput, redactSecretLines, reviewerOutputTail, summarizeFailedCheckOutput } from './core/factory-core.ts';
 import type { FactoryCheck, FactoryFence } from './core/factory-core.ts';
-import { LANE_CONFIG_EDIT_DENY_RULES } from './core/lane-permissions-core.ts';
+import { LANE_CONFIG_EDIT_DENY_RULES } from './lanes/core/lane-permissions-core.ts';
 import { SANDBOX_PLACEHOLDER_NAMES } from './core/sandbox-policy-core.ts';
 import { nulSeparatedPaths } from './git/core/git-changed-paths-core.ts';
 import { prepareHardenedGitCommand, runHardenedGit } from './git/git-workspace.ts';
 import { makeHostScratchDirectory } from './host-scratch.ts';
 import type { GitWorkspaceInstance } from './git/git-workspace.ts';
-import { readLaneResultFile } from './lane-spawn.ts';
+import { readLaneResultFile } from './lanes/lane-spawn.ts';
 import { writeJsonAtomic, writeTextAtomic } from './json-file.ts';
 import { z } from 'zod';
-import type { LaneSpawn } from './lane-spawn.ts';
+import type { LaneSpawn } from './lanes/lane-spawn.ts';
 
 export const FACTORY_REVIEWER_TOOLS = Object.freeze(['Read', 'Glob', 'Grep', 'Bash']);
 export const FACTORY_REVIEWER_PERMISSIONS = Object.freeze({

@@ -9,8 +9,8 @@ import type { TaskTitleRefinementResult } from '../session/core/task-title-core.
 import type { Session } from '../session/sessions.ts';
 import { BrowserConfig } from '../shared/contracts/config.ts';
 import { STATES } from '../shared/states.ts';
-import { readLaneResultFile } from './lane-spawn.ts';
-import type { LaneSpawn } from './lane-spawn.ts';
+import { readLaneResultFile } from './lanes/lane-spawn.ts';
+import type { LaneSpawn } from './lanes/lane-spawn.ts';
 import { errorMessage } from '../shared/text.ts';
 
 const PROMPT_FILE = 'task-title-prompt.txt';

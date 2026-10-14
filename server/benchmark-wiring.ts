@@ -9,7 +9,7 @@ import type { BenchmarkRunnerDependencies, PlannedCell } from './core/benchmark-
 import { mineCandidates } from './core/benchmark-mining-core.ts';
 import { absolutePathReadRule } from './core/team-review-core.ts';
 import { loadJsonStateFile, loadedJsonValue, writeJsonAtomic } from './json-file.ts';
-import type { LaneSpawn } from './lane-spawn.ts';
+import type { LaneSpawn } from './lanes/lane-spawn.ts';
 import type { PrGh } from './pr-gh.ts';
 import { allowSandboxedSpawn } from './sandbox-deps.ts';
 import type { SandboxSpawnRefusal } from './sandbox-deps.ts';

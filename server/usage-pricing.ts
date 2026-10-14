@@ -5,8 +5,8 @@ import { glimmervoidHomeDir } from './config-store.ts';
 import { normalizePricingTable } from './core/usage-pricing-core.ts';
 import type { ModelPrice } from './core/usage-pricing-core.ts';
 import pricingSnapshot from './data/claude-pricing.json' with { type: 'json' };
-import { createLaneLog } from './lane-log.ts';
-import type { LaneLog } from './lane-log.ts';
+import { createLaneLog } from './lanes/lane-log.ts';
+import type { LaneLog } from './lanes/lane-log.ts';
 import { errorMessage } from '../shared/text.ts';
 import { loadJsonStateFile, loadedJsonValue, writeJsonAtomic } from './json-file.ts';
 

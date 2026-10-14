@@ -4,8 +4,8 @@ import {
   DEFAULT_FLUSH_MS, appendChunk, createTerminalAccumulator, flushAccumulator, rebaseline,
 } from './core/ingest-terminal-core.ts';
 import type { TerminalIngestEvent } from './core/ingest-terminal-core.ts';
-import { createLaneLog } from './lane-log.ts';
-import type { LaneLogger } from './lane-log.ts';
+import { createLaneLog } from './lanes/lane-log.ts';
+import type { LaneLogger } from './lanes/lane-log.ts';
 import { errorMessage } from '../shared/text.ts';
 import { DEFAULT_TIMER_FNS } from '../shared/timer-deps.ts';
 import type { ClearTimeoutFn, SetTimeoutFn } from '../shared/timer-deps.ts';

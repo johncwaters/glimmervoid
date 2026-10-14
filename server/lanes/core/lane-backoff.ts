@@ -1,5 +1,5 @@
-import type { ReviewsRetry } from '../../shared/contracts/reviews.ts';
-import { nextBackoffMs } from '../../shared/backoff.ts';
+import type { ReviewsRetry } from '../../../shared/contracts/reviews.ts';
+import { nextBackoffMs } from '../../../shared/backoff.ts';
 
 export const QUICK_RETRY_DELAYS_MS = Object.freeze([10_000, 30_000, 90_000]);
 

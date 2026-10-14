@@ -12,7 +12,7 @@ import type { GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts'
 import { buildCoherenceShims, buildCoherenceUserHooks } from '../server/core/coherence-session-core.ts';
 import type { FactoryCloseOutWorker } from '../server/factory-closeout.ts';
 import { createFactoryDispatch } from '../server/factory-dispatch.ts';
-import { LANE_ENVIRONMENT_ARGS } from '../server/core/lane-permissions-core.ts';
+import { LANE_ENVIRONMENT_ARGS } from '../server/lanes/core/lane-permissions-core.ts';
 import type { SandboxRole } from '../server/core/sandbox-policy-core.ts';
 import type { LaneSpend } from '../server/core/usage-scan-core.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';

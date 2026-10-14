@@ -25,7 +25,7 @@ import { createGitWorkspace, createGitWorkspaceSync } from '../git/git-workspace
 import { createIngestLane } from '../ingest-wiring.ts';
 import { createChangeNarrator } from '../change-narrator.ts';
 import { TASK_TITLE_LANE_TOOLS, createTaskTitleRefiner } from '../task-title-refiner.ts';
-import { createLaneSpawn } from '../lane-spawn.ts';
+import { createLaneSpawn } from '../lanes/lane-spawn.ts';
 import { createPlanReviewWiring } from '../plan-review-wiring.ts';
 import { createPosthogWiring } from '../posthog-wiring.ts';
 import type { SandboxSpawnRefusal } from '../sandbox-deps.ts';

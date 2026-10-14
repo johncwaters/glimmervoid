@@ -8,7 +8,7 @@ import { Session } from '../session/sessions.ts';
 import { createTaskTitleRefiner } from '../server/task-title-refiner.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import { waitFor } from './helpers/wait-for.ts';
-import type { LaneSpawn } from '../server/lane-spawn.ts';
+import type { LaneSpawn } from '../server/lanes/lane-spawn.ts';
 import { STATES } from '../shared/states.ts';
 import { BrowserConfig, Config, CONFIG_BLOCK_KEYS, ConfigUpdate } from '../shared/contracts/config.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';

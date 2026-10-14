@@ -18,7 +18,7 @@ import {
 } from '../server/core/usage-lane-core.ts';
 import type { LaneRollupRow } from '../server/core/usage-lane-core.ts';
 import { createLaneLedger } from '../server/usage-lane-ledger.ts';
-import { registerEphemeralSession } from '../server/ephemeral-session.ts';
+import { registerEphemeralSession } from '../server/lanes/ephemeral-session.ts';
 
 const NOW = Date.parse('2026-08-19T12:00:00.000Z');
 const DAY_MS = 24 * 60 * 60 * 1000;

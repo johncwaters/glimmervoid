@@ -2,11 +2,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import type { Session } from '../session/sessions.ts';
-import { awaitBounded } from './core/shutdown-core.ts';
-import { firstLine } from './core/text-core.ts';
-import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
-import type { ClearTimeoutFn, SetTimeoutFn } from '../shared/timer-deps.ts';
+import type { Session } from '../../session/sessions.ts';
+import { awaitBounded } from '../core/shutdown-core.ts';
+import { firstLine } from '../core/text-core.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../../shared/timer-deps.ts';
+import type { ClearTimeoutFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
 
 const JOB_RESULT_FILENAME = 'result.json';
 

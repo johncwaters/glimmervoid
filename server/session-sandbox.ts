@@ -12,7 +12,7 @@ import { expandTilde } from './core/usage-scan-core.ts';
 import { allowSandboxedSpawn } from './sandbox-deps.ts';
 import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 import { prepareSandboxLaunch } from './sandbox-launch.ts';
-import { existingRealPaths, readGitDirsOfOwnCheckout } from './work-lane.ts';
+import { existingRealPaths, readGitDirsOfOwnCheckout } from './lanes/work-lane.ts';
 
 interface SessionSandboxSettings {
   blockedPaths: readonly string[];

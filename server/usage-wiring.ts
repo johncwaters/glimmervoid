@@ -20,7 +20,7 @@ import {
 } from './core/usage-statusline-core.ts';
 import type { StatuslineSnapshot } from './core/usage-statusline-core.ts';
 import { createJsonStateStore } from './json-file.ts';
-import { createLaneLog } from './lane-log.ts';
+import { createLaneLog } from './lanes/lane-log.ts';
 import { getRtkPath } from './rtk-resolver.ts';
 import { sendTelegramMessage } from './telegram-transport.ts';
 import { loadPricing } from './usage-pricing.ts';

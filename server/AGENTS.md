@@ -23,14 +23,12 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `usage-pricing.ts` | Claude model pricing loader |
 | `data/claude-pricing.json` | Bundled LiteLLM pricing snapshot |
 | `spawn-gate.ts` | Process-wide async serialization of `pty.spawn` initiation (ConPTY wedge avoidance) |
+| `lanes/` | Ephemeral and interactive lane spawning, logging and status (`lanes/AGENTS.md`) |
 | `git/git-workspace.ts` | THE ONLY module allowed to run `git worktree` (`tests/no-direct-git-worktree.test.ts`) |
 | `config-store.ts` | Runtime config load/save/defaults |
 | `child-process-safe.ts` | THE ONLY importer of `node:child_process` (`tests/no-direct-child-process.test.ts`) |
 | `update-check.ts` | Startup release-tag check, advisory only |
 | `team-review-wiring.ts` | Team review session and state helpers |
-| `ephemeral-session.ts` | Shared ephemeral-Session registration and cleanup |
-| `lane-spawn.ts` | Ephemeral lane spawn on the lane-permissions seam; every lane is wrapped in the judge sandbox role (`core/sandbox-roles-core.ts`), bar Windows |
-| `work-lane.ts` | Interactive work lane (factory worker and orchestrator): the work sandbox role plus dontAsk permissions and a required Sane YOLO hook; refuses on Windows |
 | `session-sandbox.ts` | Ordinary session sandbox: the session role, rebuilt from the live checkout at every spawn; the session factory's default |
 | `team-review-poller.ts` | Team review poller, IO-free |
 | `pr-gh.ts` | `gh` issue queries shared with the control plane |
@@ -99,15 +97,6 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - The ledger (`usage-lanes.json`) is keyed by a VENDOR-NAMESPACED composite `<vendor>:<sessionId>`, the same shape the scanner's dedup uses, so a codex id cannot collide with a claude one now that Glimmervoid supervises both; a pre-M5 file keyed `claudeSessionId` round-trips as vendor `claude`. It is written from the `claude-session-id` event (name kept for wire/back-compat; payload now carries `{ vendor, sessionId }`, `vendor` from the session's adapter `usageVendor`).
 - Wire-unit traps, normalized once in `public/usage-view-core.ts`: `tokenLimit.pct` is a RATIO, not a percentage, and `scan.dirs` an ARRAY, not a count; face-value reads fail silently. Today is the SERVER's day, or a viewer in another zone reads the wrong bucket.
 - The statusLine relay MUST chain the operator's own, since a per-session settings file REPLACES the global one and would delete their HUD; its POST is abandoned quickly to add no latency. The reply stays plain `{ ok, reason }`: telemetry must never become an injection point.
-
-### Ephemeral Lane Write Boundaries
-
-- THE boundary is `defaultMode: acceptEdits` plus a throwaway cwd holding only the result file. Four plausible spellings fail SILENTLY, so every clause below comes from live probes recorded in `server/core/lane-permissions-core.ts`.
-- No lane may grant a bare `Write` allow, which unbounds the writes, and nothing narrower grants the tool.
-- A PATH DENY is not a write boundary: probed with a bare `Write` allow present, both spellings let the write through, and a rule that looks like a boundary and is not is worse than none.
-- No lane may deny bare `Read`, `Write`, `Glob` or `Grep`: a bare `Read` deny refuses the Write tool, mutually exclusive with a result-file contract.
-- The mode is set in the lane's managed settings file, overriding the operator's own, or `defaultMode: auto` leaves a classifier deciding these writes instead of a rule.
-- A lane prompt is written in its throwaway cwd and invoked by a constant bootstrap argument, since a Windows `.cmd` shim re-parses argv through `cmd.exe` (`server/visions-dispatch.ts`, `server/change-narrator.ts`).
 
 ### Plan Review
 

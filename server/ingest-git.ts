@@ -13,8 +13,8 @@ import {
   shouldReadCommit,
 } from './core/ingest-git-core.ts';
 import type { GitCommit, GitIngestEvent, GitLayout, GitRepoState } from './core/ingest-git-core.ts';
-import { createLaneLog } from './lane-log.ts';
-import type { LaneLogger } from './lane-log.ts';
+import { createLaneLog } from './lanes/lane-log.ts';
+import type { LaneLogger } from './lanes/lane-log.ts';
 import { errorMessage, isMissingFileError } from '../shared/text.ts';
 import { positiveIntOr } from '../shared/coerce.ts';
 import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';

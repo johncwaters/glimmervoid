@@ -4,7 +4,7 @@ import { bootStaggerDelay } from './boot-stagger.ts';
 import { createCoderActivityPoller } from './coder-activity-poller.ts';
 import type { CoderActivityPoller, CoderActivityPollerDeps, CoderActivityReport } from './coder-activity-poller.ts';
 import { coderActivityShouldStart } from './core/coder-activity-core.ts';
-import { createLaneRunner } from './lane-runner.ts';
+import { createLaneRunner } from './lanes/lane-runner.ts';
 
 type CoderActivityWiringConfig = Pick<Config, 'coder'>;
 interface CoderActivityWiringOptions extends Omit<CoderActivityPollerDeps, 'reportStatus'> {

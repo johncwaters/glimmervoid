@@ -51,14 +51,14 @@ await mkdir(homeToolFolder, { recursive: true });
 await writeFile(path.join(homeToolFolder, HOME_TOOL_NAME), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 
 const { execFileAsync } = await import('../server/child-process-safe.ts');
-const { awaitSessionExit, createJobResultFile } = await import('../server/ephemeral-session.ts');
+const { awaitSessionExit, createJobResultFile } = await import('../server/lanes/ephemeral-session.ts');
 const { createGitWorkspace, runHardenedGit } = await import('../server/git/git-workspace.ts');
 const { judgeRole, workRole } = await import('../server/core/sandbox-roles-core.ts');
 const { SANDBOX_PLACEHOLDER_NAMES } = await import('../server/core/sandbox-policy-core.ts');
 const { FACTORY_REVIEWER_PERMISSIONS, FACTORY_REVIEWER_SPAWN_ENV, FACTORY_REVIEWER_TOOLS, runFactoryReview } = await import('../server/factory-closeout.ts');
 const { encodeProjectDir } = await import('../session/core/conversation-history.ts');
 const { resolveRequiredSaneYoloHookTools } = await import('../server/hook-tools.ts');
-const { createLaneSpawn } = await import('../server/lane-spawn.ts');
+const { createLaneSpawn } = await import('../server/lanes/lane-spawn.ts');
 const { createPosthogWiring, REPORT_DIR: POSTHOG_REPORT_DIR } = await import('../server/posthog-wiring.ts');
 const { createVisionsSpawn, makeVisionsWorkDir, PROMPT_FILE: VISIONS_PROMPT_FILE, VISIONS_BOOTSTRAP_PROMPT } = await import('../server/visions-dispatch.ts');
 const { MY_PRS_FIX_CHECKOUT_DIRNAME } = await import('../server/core/my-prs-core.ts');

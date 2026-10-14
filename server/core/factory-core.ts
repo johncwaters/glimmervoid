@@ -415,7 +415,7 @@ export function appendFactoryLandedSha(landedShas: readonly string[], landedSha:
   return [...landedShas.filter((recordedSha) => recordedSha !== landedSha), landedSha].slice(-FACTORY_LANDED_SHA_LIMIT);
 }
 
-export { absolutePathEditRule } from './lane-permissions-core.ts';
+export { absolutePathEditRule } from '../lanes/core/lane-permissions-core.ts';
 export { isWorktreeAdminDirOf, parseGitdirPointer } from './sandbox-roles-core.ts';
 
 export function buildWorkerPrompt({ projectName, intent, order, claudeSessionId, checks = DEFAULT_FACTORY_CHECKS }: {

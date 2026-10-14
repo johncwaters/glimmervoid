@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import * as ephemeralSession from '../server/ephemeral-session.ts';
+import * as ephemeralSession from '../server/lanes/ephemeral-session.ts';
 
 const { createJobResultFile, JOB_RESULT_FILENAME, readResultFile } = ephemeralSession;
 

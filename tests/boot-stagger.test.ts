@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BOOT_STAGGER_MAX_MS, BOOT_STAGGER_MIN_MS, bootStaggerDelayMs } from '../server/core/boot-stagger-core.ts';
-import { createTickLoop } from '../server/lane-runner.ts';
+import { createTickLoop } from '../server/lanes/lane-runner.ts';
 
 test('a lane started at boot waits a random 30 s to 5 min before its first tick', () => {
   assert.equal(bootStaggerDelayMs(0, 0), BOOT_STAGGER_MIN_MS);

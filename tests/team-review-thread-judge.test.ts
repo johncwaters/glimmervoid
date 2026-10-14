@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
-import { buildLanePermissions } from '../server/core/lane-permissions-core.ts';
-import { LANE_SPAWN_DENY_TOOLS } from '../server/lane-spawn.ts';
+import { buildLanePermissions } from '../server/lanes/core/lane-permissions-core.ts';
+import { LANE_SPAWN_DENY_TOOLS } from '../server/lanes/lane-spawn.ts';
 import { THREAD_JUDGE_TOOLS, createThreadJudge } from '../server/team-review-thread-judge.ts';
 
 test('thread judge uses a constant bootstrap, validates its result and removes its work directory', async () => {

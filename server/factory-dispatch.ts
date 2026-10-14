@@ -16,11 +16,11 @@ import {
 import type { FactoryLiveWorker, FactoryStallSession } from './core/factory-core.ts';
 import type { LaneSpend } from './core/usage-scan-core.ts';
 import { parseFilterDriverNames } from './git/core/git-invocation-core.ts';
-import { LANE_CONFIG_EDIT_DENY_RULES } from './core/lane-permissions-core.ts';
+import { LANE_CONFIG_EDIT_DENY_RULES } from './lanes/core/lane-permissions-core.ts';
 import { runHardenedGit } from './git/git-workspace.ts';
-import { registerEphemeralSession } from './ephemeral-session.ts';
+import { registerEphemeralSession } from './lanes/ephemeral-session.ts';
 import { resolveRequiredSaneYoloHookTools } from './hook-tools.ts';
-import { resolveWorkLane } from './work-lane.ts';
+import { resolveWorkLane } from './lanes/work-lane.ts';
 import type { FactoryOrchestratorDeps, FactoryOrchestratorSession } from './factory-orchestrator.ts';
 import type { FactoryCloseOutWorker } from './factory-closeout.ts';
 
@@ -37,7 +37,7 @@ type FactoryWorkerRecord<ManagedSession> = FactoryLiveWorker & {
   hasFirstHook: boolean;
 };
 
-export { readLaneCommonGitDir as readFactoryCommonGitDir } from './work-lane.ts';
+export { readLaneCommonGitDir as readFactoryCommonGitDir } from './lanes/work-lane.ts';
 
 async function readFilterDriverNames(cwd: string): Promise<string[]> {
   const { stdout: trackedPaths } = await runHardenedGit(['ls-files', '-z'], { ...FILTER_PROBE_GIT_OPTIONS, cwd });

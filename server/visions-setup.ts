@@ -18,8 +18,8 @@ import { buildVsix, extensionIdOf } from './core/vsix-core.ts';
 import type { VsixManifest } from './core/vsix-core.ts';
 import { unwireEditors, wireEditors } from './editor-wire.ts';
 import type { EditorOutcome } from './editor-wire.ts';
-import { createLaneLog } from './lane-log.ts';
-import type { LaneLogger } from './lane-log.ts';
+import { createLaneLog } from './lanes/lane-log.ts';
+import type { LaneLogger } from './lanes/lane-log.ts';
 import { bundled, cliPath, extensionDir, packageRoot, relayPath } from './runtime-paths.ts';
 import { errorMessage } from '../shared/text.ts';
 

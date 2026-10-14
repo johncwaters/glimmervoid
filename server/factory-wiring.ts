@@ -19,7 +19,7 @@ import type { FactoryDecisionWorkerEvent } from './core/factory-decision-log-cor
 import { createFactoryCloseOut, factorySecretValues } from './factory-closeout.ts';
 import type { FactoryCloseOutDeps } from './factory-closeout.ts';
 import { createFactoryDispatch } from './factory-dispatch.ts';
-import { readLaneCommonGitDir } from './work-lane.ts';
+import { readLaneCommonGitDir } from './lanes/work-lane.ts';
 import { buildFactoryDecisionEvent } from './core/telemetry-core.ts';
 import type { Telemetry } from './telemetry.ts';
 import { repositoryRootOfCommonGitDir } from './core/claude-trust-core.ts';
@@ -33,7 +33,7 @@ import { createGitWorkspace, factoryGitEnvironment, isolateGitWorkspace, runHard
 import type { GitWorkspaceInstance } from './git/git-workspace.ts';
 import { makeHostScratchDirectory } from './host-scratch.ts';
 import { loadJsonStateFile, writeJsonAtomic, writeTextAtomic } from './json-file.ts';
-import { createLaneRunner } from './lane-runner.ts';
+import { createLaneRunner } from './lanes/lane-runner.ts';
 import { cliPath as glimmervoidCliPath, resolvePackageBin } from './runtime-paths.ts';
 import { errorMessage, isMissingFileError } from '../shared/text.ts';
 import { createFactoryVerifier } from './factory-verifier.ts';

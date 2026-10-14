@@ -9,19 +9,19 @@ import { type AwakeStopwatch, createAwakeTimeoutFn, startAwakeStopwatch } from '
 import { glimmervoidHomeDir } from './config-store.ts';
 import { resolveHookTools as resolveSharedHookTools } from './hook-tools.ts';
 import { trailStepFromHook } from './core/investigation-trail-core.ts';
-import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES } from './core/lane-permissions-core.ts';
+import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES } from './lanes/core/lane-permissions-core.ts';
 import * as core from './core/team-review-core.ts';
 import type { CommentableLines, NewWorkPointer, ReviewTier, TeamReviewCandidate, TeamReviewSettingsSource } from './core/team-review-core.ts';
 import {
   awaitSessionExit, drainPending, firstLine, raceWithAbort,
   registerEphemeralSession,
-} from './ephemeral-session.ts';
-import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
+} from './lanes/ephemeral-session.ts';
+import type { RecordLane, SpawnGate } from './lanes/ephemeral-session.ts';
 import { createJsonStateStore } from './json-file.ts';
-import { createLaneRunner } from './lane-runner.ts';
-import type { LaneRunnerGate, LaneStatusRecord, SharedClock } from './lane-runner.ts';
+import { createLaneRunner } from './lanes/lane-runner.ts';
+import type { LaneRunnerGate, LaneStatusRecord, SharedClock } from './lanes/lane-runner.ts';
 import { THREAD_JUDGE_TOOLS, createThreadJudge } from './team-review-thread-judge.ts';
-import { createLaneSpawn } from './lane-spawn.ts';
+import { createLaneSpawn } from './lanes/lane-spawn.ts';
 import { TeamReviewActionRequest as ActionRequestSchema } from '../shared/contracts/team-review.ts';
 import { createPrGh } from './pr-gh.ts';
 import type { PrGh } from './pr-gh.ts';

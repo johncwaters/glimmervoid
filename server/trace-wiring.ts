@@ -33,7 +33,7 @@ import { readSessionTracePage } from './session/core/session-trace-core.ts';
 import { isSafePathSegment } from './core/upload-core.ts';
 import { appendJsonLines, createJsonStateWriter } from './json-file.ts';
 import type { JsonStateWriter } from './json-file.ts';
-import { createLaneLog } from './lane-log.ts';
+import { createLaneLog } from './lanes/lane-log.ts';
 import { configSiblingPath } from './pairings-store.ts';
 import { pruneAgedFiles } from './prune-files.ts';
 import { errorMessage } from '../shared/text.ts';

@@ -5,7 +5,7 @@ import path from 'node:path';
 import type { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';
-import { buildLanePermissions } from './core/lane-permissions-core.ts';
+import { buildLanePermissions } from './lanes/core/lane-permissions-core.ts';
 import { LANE_CREDENTIAL_ENV, workRole } from './core/sandbox-roles-core.ts';
 import {
   DEFAULT_TIMEOUT_SECONDS,
@@ -22,11 +22,11 @@ import type { VisionsComment } from './core/visions-dispatch-core.ts';
 import { readIntentProposal, sanitizeIntentText } from './core/visions-intent-core.ts';
 import {
   awaitSessionExit, drainPending, firstLine, raceWithAbort, registerEphemeralSession,
-} from './ephemeral-session.ts';
-import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
-import { createLaneLog } from './lane-log.ts';
-import { prepareRoleSandbox } from './work-lane.ts';
-import type { RoleSandboxDependencies } from './work-lane.ts';
+} from './lanes/ephemeral-session.ts';
+import type { RecordLane, SpawnGate } from './lanes/ephemeral-session.ts';
+import { createLaneLog } from './lanes/lane-log.ts';
+import { prepareRoleSandbox } from './lanes/work-lane.ts';
+import type { RoleSandboxDependencies } from './lanes/work-lane.ts';
 import { errorMessage } from '../shared/text.ts';
 import { DEFAULT_TIMER_FNS } from '../shared/timer-deps.ts';
 import type { ClearTimeoutFn, SetTimeoutFn } from '../shared/timer-deps.ts';

@@ -1,5 +1,5 @@
 import type { MyPr, MyPrAutoRebase, MyPrKeepMergeableAttemptRecord, MyPrSearchNode, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../shared/contracts/my-prs.ts';
-import { ACCEPT_EDITS_MODE, LANE_ENVIRONMENT_ARGS } from './lane-permissions-core.ts';
+import { ACCEPT_EDITS_MODE, LANE_ENVIRONMENT_ARGS } from '../lanes/core/lane-permissions-core.ts';
 import { SANDBOX_PLACEHOLDER_NAMES } from './sandbox-policy-core.ts';
 import { prKey } from './team-review-core.ts';
 import type { TeamReviewSettings, TeamReviewSettingsSource } from './team-review-core.ts';

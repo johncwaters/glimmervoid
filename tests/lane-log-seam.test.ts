@@ -39,7 +39,7 @@ test('trace and usage lanes use lane-log for their logging boundary', () => {
   const offenders: string[] = [];
   for (const { file, prefix } of laneModules) {
     const source = sourceFor(file);
-    if (!source.includes("from './lane-log.ts'")) offenders.push(`${file}: missing import from './lane-log.ts'`);
+    if (!/from '[./]*(?:lanes\/)?lane-log\.ts'/.test(source)) offenders.push(`${file}: missing import from lane-log.ts`);
     if (/console\./.test(source)) offenders.push(`${file}: direct console channel`);
     if (calledLoggerChannel.test(source)) offenders.push(`${file}: called logger channel`);
     if (loggerGuard.test(source)) offenders.push(`${file}: hand-rolled logger guard`);

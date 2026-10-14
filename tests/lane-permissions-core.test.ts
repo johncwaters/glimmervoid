@@ -4,10 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { ACCEPT_EDITS_MODE, buildLanePermissions } from '../server/core/lane-permissions-core.ts';
+import { ACCEPT_EDITS_MODE, buildLanePermissions } from '../server/lanes/core/lane-permissions-core.ts';
 import { buildHookSettings } from '../detection/settings-injector.ts';
 import { makeNarrationWorkDir } from '../server/change-narrator.ts';
-import { LANE_SPAWN_DENY_TOOLS } from '../server/lane-spawn.ts';
+import { LANE_SPAWN_DENY_TOOLS } from '../server/lanes/lane-spawn.ts';
 import { VISIONS_DENY_TOOLS, makeVisionsWorkDir } from '../server/visions-dispatch.ts';
 
 test('the boundary is acceptEdits over the throwaway cwd, and there is no allow list at all', () => {
@@ -78,7 +78,7 @@ test('--tools is never the last token, since only a following option ends the va
 
 test('the lanes outside the seam are named, and the ones on it all cwd into a throwaway dir', async () => {
   const readSource = (file: string) => fs.readFileSync(path.join(import.meta.dirname, '..', 'server', file), 'utf8');
-  const LANES_ON_THE_SEAM = ['visions-dispatch.ts', 'lane-spawn.ts'];
+  const LANES_ON_THE_SEAM = ['visions-dispatch.ts', 'lanes/lane-spawn.ts'];
   const LANES_OFF_THE_SEAM = ['posthog-wiring.ts', 'team-review-wiring.ts'];
 
   const LANE_WORK_DIRS = [

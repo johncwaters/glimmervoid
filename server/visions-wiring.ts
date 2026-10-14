@@ -71,8 +71,8 @@ import {
 } from './core/visions-touch-core.ts';
 import type { TouchedRange } from './core/visions-touch-core.ts';
 import { createJsonStateWriter, jsonStateLoadError, loadJsonStateFileSync } from './json-file.ts';
-import { createLaneLog } from './lane-log.ts';
-import type { LaneLogger } from './lane-log.ts';
+import { createLaneLog } from './lanes/lane-log.ts';
+import type { LaneLogger } from './lanes/lane-log.ts';
 import { errorMessage } from '../shared/text.ts';
 import { isRecord } from '../shared/coerce.ts';
 import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';

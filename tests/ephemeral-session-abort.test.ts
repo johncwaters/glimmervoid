@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { awaitSessionExit, drainPending, raceWithAbort } from '../server/ephemeral-session.ts';
+import { awaitSessionExit, drainPending, raceWithAbort } from '../server/lanes/ephemeral-session.ts';
 import type { Session } from '../session/sessions.ts';
 import { plainSession } from './helpers/fake-session.ts';
 import { manualTimers } from './helpers/manual-timers.ts';

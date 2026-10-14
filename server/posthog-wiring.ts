@@ -20,11 +20,11 @@ import { LANE_CREDENTIAL_ENV, workRole } from './core/sandbox-roles-core.ts';
 import type { PosthogIssue } from './core/posthog-core.ts';
 import {
   awaitSessionExit, createJobResultFile, readResultFile, registerEphemeralSession,
-} from './ephemeral-session.ts';
-import type { JobResultFile, RecordLane, ResultFileOutcome, SpawnGate } from './ephemeral-session.ts';
-import { createLaneRunner } from './lane-runner.ts';
-import type { LaneRunnerGate, LaneStatusRecord } from './lane-runner.ts';
-import { emptyLaneStatus } from './lane-status.ts';
+} from './lanes/ephemeral-session.ts';
+import type { JobResultFile, RecordLane, ResultFileOutcome, SpawnGate } from './lanes/ephemeral-session.ts';
+import { createLaneRunner } from './lanes/lane-runner.ts';
+import type { LaneRunnerGate, LaneStatusRecord } from './lanes/lane-runner.ts';
+import { emptyLaneStatus } from './lanes/lane-status.ts';
 import { loadJsonStateFile, loadedJsonValue, writeJsonAtomic } from './json-file.ts';
 import { createPosthogApi } from './posthog-api.ts';
 import type { PosthogApi } from './posthog-api.ts';
@@ -35,8 +35,8 @@ import { DEFAULT_POSTHOG_REPORT_DIR } from './posthog-report.ts';
 import { sendTelegramMessage } from './telegram-transport.ts';
 import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
 import { errorMessage } from '../shared/text.ts';
-import { prepareRoleSandbox, readLaneCommonGitDir } from './work-lane.ts';
-import type { RoleSandboxDependencies } from './work-lane.ts';
+import { prepareRoleSandbox, readLaneCommonGitDir } from './lanes/work-lane.ts';
+import type { RoleSandboxDependencies } from './lanes/work-lane.ts';
 import { isRecord } from '../shared/coerce.ts';
 import { createCoalescedTimer } from '../shared/coalesce-timer.ts';
 

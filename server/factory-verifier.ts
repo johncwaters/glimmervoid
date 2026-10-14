@@ -6,7 +6,7 @@ import type { FactoryLaneState, FactoryProjectState, FactoryUnlandedRecord, Fact
 import { FACTORY_LEDGER_SESSION, buildVerifierPrompt, decideIntentClose, evidenceNamesOnlySha, factoryWrittenRecordId, findFactoryProjectPath, verifierDefectEvidence, verifierRejectionNote } from './core/factory-core.ts';
 import { runFactoryReview } from './factory-closeout.ts';
 import { captureFactoryLedgerRecord, listRecordsMissingFromHead } from './factory-ledger.ts';
-import type { LaneSpawn } from './lane-spawn.ts';
+import type { LaneSpawn } from './lanes/lane-spawn.ts';
 
 interface FactoryVerifierDeps {
   config: Pick<Config, 'factory' | 'projects'>;
