@@ -1,4 +1,4 @@
-import type { ControlBroadcast } from './backend-websockets.ts';
+import type { ControlBroadcast } from './backend/backend-websockets.ts';
 import { unrefTimer } from '../shared/timer-deps.ts';
 
 export const TRACE_CHANGE_COALESCE_MS = 250;

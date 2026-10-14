@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import pty from 'node-pty';
 
-import { createBackend, runAutoResume, persistSessionField, decideWasActiveFlip } from '../server/backend.ts';
+import { createBackend, runAutoResume, persistSessionField, decideWasActiveFlip } from '../server/backend/backend.ts';
 import { createConfigStore } from '../server/config-store.ts';
 import type { ConfigStore } from '../server/config-store.ts';
 import type { RegistryConfig } from '../server/session-registry.ts';

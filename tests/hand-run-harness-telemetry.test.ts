@@ -7,7 +7,7 @@ import { execFileAsync } from '../server/child-process-safe.ts';
 
 const repoRoot = path.resolve(import.meta.dirname, '..');
 const handRunDirectory = path.join(repoRoot, 'test');
-const backendEntrySpecifier = String.raw`(?:[./]*server\/(?:backend|main|index)\.ts|vite)`;
+const backendEntrySpecifier = String.raw`(?:[./]*server\/(?:backend\/backend|main|index)\.ts|vite)`;
 const bootsBackendThroughStaticImport = new RegExp(String.raw`^import\s+(?!type\b)[^;]*?['"]${backendEntrySpecifier}['"]`, 'm');
 const bootsBackendThroughDynamicImport = new RegExp(String.raw`import\(\s*['"]${backendEntrySpecifier}['"]\s*\)`);
 const importsTelemetryKillSwitch = /^import\s+['"][./]*(?:support\/)?disable-telemetry\.ts['"]/m;

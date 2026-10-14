@@ -5,7 +5,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createBackend } from '../server/backend.ts';
+import { createBackend } from '../server/backend/backend.ts';
 import type { HookPayload } from '../shared/contracts/index.ts';
 import type { Session } from '../session/sessions.ts';
 

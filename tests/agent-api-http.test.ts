@@ -7,12 +7,12 @@ import path from 'node:path';
 import { setTimeout as setTimeoutPromise } from 'node:timers/promises';
 import type { Server } from 'node:http';
 
-import { createBackend } from '../server/backend.ts';
+import { createBackend } from '../server/backend/backend.ts';
 import { createAgentApiWiring } from '../server/agent-api-wiring.ts';
 import { createSessionDocsWiring } from '../server/session-docs-wiring.ts';
 import { sessionIdFromBranch } from '../server/core/branch-gc-core.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
-import { createBackendHttpApp } from '../server/backend-http.ts';
+import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import { decideTicketAction, describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
 import { AgentLimitsReply } from '../shared/contracts/session.ts';
 import type { AgentTicketRequest } from '../shared/contracts/session.ts';

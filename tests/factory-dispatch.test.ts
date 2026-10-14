@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
-import { createBackendHttpApp } from '../server/backend-http.ts';
+import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts';

@@ -6,8 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Server } from 'node:http';
 
-import { createBackendHttpApp } from '../server/backend-http.ts';
-import type { BackendHttpDependencies } from '../server/backend-http.ts';
+import { createBackendHttpApp } from '../server/backend/backend-http.ts';
+import type { BackendHttpDependencies } from '../server/backend/backend-http.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 
 const OGG_BYTES = Buffer.from('OggS fake audio payload');

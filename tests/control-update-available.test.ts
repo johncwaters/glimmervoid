@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createBackendUpdateCheck } from '../server/backend-update.ts';
-import type { UpdateStatus } from '../server/backend-update.ts';
+import { createBackendUpdateCheck } from '../server/backend/backend-update.ts';
+import type { UpdateStatus } from '../server/backend/backend-update.ts';
 import { decideUpdateStatus } from '../server/core/update-core.ts';
 import type { ControlHandlerDeps } from '../server/control-handlers.ts';
 import type { ControlMessageRecord } from '../server/core/control-replay-core.ts';

@@ -7,7 +7,7 @@ import path from 'node:path';
 import type { Server } from 'node:http';
 import WebSocket from 'ws';
 
-import { createBackend } from '../server/backend.ts';
+import { createBackend } from '../server/backend/backend.ts';
 import { createPairingsStore } from '../server/pairings-store.ts';
 import { createRemoteAuth } from '../server/remote-auth.ts';
 import { closeServer, listenOnLoopback, reserveFreePort } from './helpers/http-server.ts';

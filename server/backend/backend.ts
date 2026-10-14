@@ -3,48 +3,48 @@ import fs from 'node:fs';
 import type { Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { customAgentFingerprint, resolveAdapter, setCustomAgents } from '../session/adapters/index.ts';
-import type { Session } from '../session/sessions.ts';
-import { createConfigStore, generateProjectId, ensureProjectIds, glimmervoidHomeDir } from './config-store.ts';
-import type { GlimmervoidConfig } from './config-store.ts';
-import { createLifecycle } from './server-lifecycle.ts';
-import { execFileAsync, spawn } from './child-process-safe.ts';
+import { customAgentFingerprint, resolveAdapter, setCustomAgents } from '../../session/adapters/index.ts';
+import type { Session } from '../../session/sessions.ts';
+import { createConfigStore, generateProjectId, ensureProjectIds, glimmervoidHomeDir } from '../config-store.ts';
+import type { GlimmervoidConfig } from '../config-store.ts';
+import { createLifecycle } from '../server-lifecycle.ts';
+import { execFileAsync, spawn } from '../child-process-safe.ts';
 import { createAgentIngressApp, createBackendHttpApp } from './backend-http.ts';
-import { createHostUrlOpener } from './host-url-opener.ts';
-import { createAgentApiWiring } from './agent-api-wiring.ts';
-import type { AgentApiPort } from './agent-api-wiring.ts';
+import { createHostUrlOpener } from '../host-url-opener.ts';
+import { createAgentApiWiring } from '../agent-api-wiring.ts';
+import type { AgentApiPort } from '../agent-api-wiring.ts';
 import { createBackendWebSockets } from './backend-websockets.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 import { createBackendShutdown } from './backend-shutdown.ts';
 import { createBackendTrust } from './backend-trust.ts';
-import { createSessionEventWiring, persistSessionField } from './session-event-wiring.ts';
+import { createSessionEventWiring, persistSessionField } from '../session-event-wiring.ts';
 import {
   carryWorktreeAcrossRecreate,
   createSessionRegistry,
   reconcileSessionWorktrees,
   runAutoResume,
-} from './session-registry.ts';
+} from '../session-registry.ts';
 import { createBackendLanes } from './backend-lanes.ts';
 import type { BackendLaneOptions } from './backend-lanes.ts';
 import type { AgentIngressDependencies } from './backend-http.ts';
-import { decideWasActiveFlip, shouldStartAfterModify } from './core/session-registry-core.ts';
+import { decideWasActiveFlip, shouldStartAfterModify } from '../core/session-registry-core.ts';
 import { createBackendHealth } from './backend-health.ts';
 import { createBackendNotifications } from './backend-notifications.ts';
 import { createBackendControl } from './backend-control.ts';
 import { createBackendUpdateCheck } from './backend-update.ts';
-import { normalizeUpdateChannel } from './core/update-core.ts';
-import { detectInstallFlavor } from './update-check.ts';
+import { normalizeUpdateChannel } from '../core/update-core.ts';
+import { detectInstallFlavor } from '../update-check.ts';
 import type { CheckForUpdate } from './backend-update.ts';
 import { createBackendSessionRuntime } from './backend-session-runtime.ts';
-import { checkSandboxDependencies } from './sandbox-deps.ts';
-import { warnWhenGitIsTooOld } from './git-version.ts';
-import { createOutcomesLane } from './outcomes-wiring.ts';
-import { createUpdateApplyLane } from './update-apply.ts';
-import { bundled, packageRoot } from './runtime-paths.ts';
-import { createTelemetry } from './telemetry.ts';
-import { createSessionDocsWiring } from './session-docs-wiring.ts';
-import { glimmervoidHomeDir as resolveGlimmervoidHomeDir } from './core/config-path-core.ts';
-import { decideIsDevInstall, parsePosthogReleaseId } from './core/telemetry-core.ts';
+import { checkSandboxDependencies } from '../sandbox-deps.ts';
+import { warnWhenGitIsTooOld } from '../git-version.ts';
+import { createOutcomesLane } from '../outcomes-wiring.ts';
+import { createUpdateApplyLane } from '../update-apply.ts';
+import { bundled, packageRoot } from '../runtime-paths.ts';
+import { createTelemetry } from '../telemetry.ts';
+import { createSessionDocsWiring } from '../session-docs-wiring.ts';
+import { glimmervoidHomeDir as resolveGlimmervoidHomeDir } from '../core/config-path-core.ts';
+import { decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-core.ts';
 
 interface CreateBackendOptions extends BackendLaneOptions {
   staticDir?: string | null;

@@ -7,8 +7,8 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
 
-import { createBackend } from '../server/backend.ts';
-import type { CreateBackendOptions } from '../server/backend.ts';
+import { createBackend } from '../server/backend/backend.ts';
+import type { CreateBackendOptions } from '../server/backend/backend.ts';
 import { dashboardClient } from './helpers/dashboard-ws.ts';
 import type { DashboardClient } from './helpers/dashboard-ws.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';

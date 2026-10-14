@@ -8,7 +8,7 @@ import type { Server } from 'node:http';
 import headless from '@xterm/headless';
 import type { Terminal as HeadlessTerminal } from '@xterm/headless';
 
-import { createBackend } from '../server/backend.ts';
+import { createBackend } from '../server/backend/backend.ts';
 import { PtySizeFrame } from '../shared/contracts/data-messages.ts';
 import { SCREEN_KEEPER_SCROLLBACK, SCREEN_RESET } from '../session/core/screen-keeper-core.ts';
 import type { Session } from '../session/sessions.ts';

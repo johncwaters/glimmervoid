@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import WebSocket from 'ws';
 
-import { createBackendWebSockets } from '../server/backend-websockets.ts';
+import { createBackendWebSockets } from '../server/backend/backend-websockets.ts';
 import { createSessionEventWiring } from '../server/session-event-wiring.ts';
 import { createCustomAdapter } from '../session/adapters/custom.ts';
 import { Session } from '../session/sessions.ts';

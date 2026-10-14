@@ -7,7 +7,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createBackend } from '../server/backend.ts';
+import { createBackend } from '../server/backend/backend.ts';
 import { createUsageWiring } from '../server/usage-wiring.ts';
 import type { UsageWiringOptions } from '../server/usage-wiring.ts';
 import { createUsageScanner } from '../server/usage-scanner.ts';

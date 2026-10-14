@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { runAgentSetupCli } from "../server/agent-setup-cli.ts";
-import { createBackend } from "../server/backend.ts";
+import { createBackend } from "../server/backend/backend.ts";
 import grok from "../session/adapters/grok.ts";
 import type { Session } from "../session/sessions.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";

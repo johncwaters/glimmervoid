@@ -8,7 +8,7 @@ import path from 'node:path';
 import type { Server } from 'node:http';
 import WebSocket from 'ws';
 
-import { createBackend } from '../server/backend.ts';
+import { createBackend } from '../server/backend/backend.ts';
 import { fetchPageToken } from './helpers/dashboard-ws.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { carryWorktreeAcrossRecreate, shouldStartAfterModify } from '../server/backend.ts';
+import { carryWorktreeAcrossRecreate, shouldStartAfterModify } from '../server/backend/backend.ts';
 import { STATES } from '../shared/states.ts';
 import { Session } from '../session/sessions.ts';
 import { fakePty } from './helpers/fake-pty.ts';

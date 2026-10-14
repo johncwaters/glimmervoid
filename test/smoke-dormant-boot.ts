@@ -2,7 +2,7 @@ import './support/disable-telemetry.ts';
 import http from 'node:http';
 import WebSocket from 'ws';
 
-import { createBackend } from '../server/backend.ts';
+import { createBackend } from '../server/backend/backend.ts';
 import { claudeCommand } from '../session/sessions.ts';
 
 interface SnapshotSession {

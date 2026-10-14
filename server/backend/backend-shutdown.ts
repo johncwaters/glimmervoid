@@ -1,5 +1,5 @@
-import { createStopperCollector } from './core/shutdown-core.ts';
-import type { StopperEntry } from './core/shutdown-core.ts';
+import { createStopperCollector } from '../core/shutdown-core.ts';
+import type { StopperEntry } from '../core/shutdown-core.ts';
 
 interface ShutdownSession {
   destroy(): void;

@@ -6,8 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Server } from 'node:http';
 
-import { createBackend } from '../server/backend.ts';
-import { createBackendHttpApp } from '../server/backend-http.ts';
+import { createBackend } from '../server/backend/backend.ts';
+import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import type { OutcomeName } from '../shared/outcome-names.ts';
 import type { Session } from '../session/sessions.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';

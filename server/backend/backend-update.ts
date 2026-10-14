@@ -1,10 +1,10 @@
-import type { UpdateApplyRefusal, UpdateStatus } from '../shared/contracts/control-messages.ts';
-import type { UpdateChannel, UpdateJournal, UpdateJournalSummary } from '../shared/contracts/update-journal.ts';
+import type { UpdateApplyRefusal, UpdateStatus } from '../../shared/contracts/control-messages.ts';
+import type { UpdateChannel, UpdateJournal, UpdateJournalSummary } from '../../shared/contracts/update-journal.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
-import { decideFastForward, decidePreflight } from './core/update-apply-core.ts';
-import { decideUpdateStatus, normalizeUpdateChannel, shortSha } from './core/update-core.ts';
-import { checkForUpdate as defaultCheckForUpdate } from './update-check.ts';
-import type { FetchOrigin, UpdateCheckStatus } from './update-check.ts';
+import { decideFastForward, decidePreflight } from '../core/update-apply-core.ts';
+import { decideUpdateStatus, normalizeUpdateChannel, shortSha } from '../core/update-core.ts';
+import { checkForUpdate as defaultCheckForUpdate } from '../update-check.ts';
+import type { FetchOrigin, UpdateCheckStatus } from '../update-check.ts';
 
 const UPDATE_RECHECK_MS = 24 * 60 * 60 * 1000;
 

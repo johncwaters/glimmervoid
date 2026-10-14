@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Server } from 'node:http';
 
-import { createBackend } from '../server/backend.ts';
+import { createBackend } from '../server/backend/backend.ts';
 import { MAX_UPLOAD_BYTES } from '../server/core/upload-core.ts';
 import type { Session } from '../session/sessions.ts';
 import { capturingPty } from './helpers/fake-pty.ts';

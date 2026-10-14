@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createBackendNotifications } from '../server/backend-notifications.ts';
+import { createBackendNotifications } from '../server/backend/backend-notifications.ts';
 import { createSessionFactory } from '../server/session-factory.ts';
 import type { GlimmervoidConfig } from '../server/config-store.ts';
 import { HookRouter } from '../detection/hook-source.ts';

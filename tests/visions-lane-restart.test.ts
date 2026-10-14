@@ -7,7 +7,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type WebSocket from 'ws';
 
-import { createBackend } from '../server/backend.ts';
+import { createBackend } from '../server/backend/backend.ts';
 import { dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { DashboardClient } from './helpers/dashboard-ws.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';

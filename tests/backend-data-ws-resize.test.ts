@@ -7,7 +7,7 @@ import path from 'node:path';
 import type { Server } from 'node:http';
 import WebSocket from 'ws';
 
-import { createBackend } from '../server/backend.ts';
+import { createBackend } from '../server/backend/backend.ts';
 import { PtySizeFrame } from '../shared/contracts/data-messages.ts';
 import { SCREEN_RESET } from '../session/core/screen-keeper-core.ts';
 import type { Session } from '../session/sessions.ts';

@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createBackendShutdown } from '../server/backend-shutdown.ts';
-import type { BackendShutdownDependencies } from '../server/backend-shutdown.ts';
+import { createBackendShutdown } from '../server/backend/backend-shutdown.ts';
+import type { BackendShutdownDependencies } from '../server/backend/backend-shutdown.ts';
 
 function shutdownDependencies(stoppedLanes: string[], overrides: Partial<BackendShutdownDependencies> = {}): BackendShutdownDependencies {
   const idle = { stop: () => {} };

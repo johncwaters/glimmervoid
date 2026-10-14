@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Server } from 'node:http';
 
-import { createBackendHttpApp } from '../server/backend-http.ts';
+import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import { createPlanReviewWiring } from '../server/plan-review-wiring.ts';
 import type { PlanReviewWiringOptions } from '../server/plan-review-wiring.ts';
 import { PLAN_HOLD_RELEASE_MS } from '../detection/settings-injector.ts';

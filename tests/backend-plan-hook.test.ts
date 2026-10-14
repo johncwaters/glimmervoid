@@ -6,8 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Server } from 'node:http';
 
-import { createBackend } from '../server/backend.ts';
-import { createBackendHttpApp } from '../server/backend-http.ts';
+import { createBackend } from '../server/backend/backend.ts';
+import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import { PLAN_BODY_CAP_BYTES } from '../shared/contracts/plan-review.ts';
 import { PLAN_RESULT_BODY_CAP_BYTES, carriesPlanBody } from '../server/plan-review-wiring.ts';
 import type { Session } from '../session/sessions.ts';

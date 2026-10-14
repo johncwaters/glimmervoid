@@ -1,6 +1,6 @@
 import type { WebSocket } from 'ws';
-import type { Session } from '../session/sessions.ts';
-import { STATES } from '../shared/states.ts';
+import type { Session } from '../../session/sessions.ts';
+import { STATES } from '../../shared/states.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 
 const HEALTH_SNAPSHOT_INTERVAL_MS = 10000;

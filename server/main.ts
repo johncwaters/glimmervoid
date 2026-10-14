@@ -1,7 +1,7 @@
 import http from 'node:http';
 import type { Server } from 'node:http';
 
-import { createBackend } from './backend.ts';
+import { createBackend } from './backend/backend.ts';
 import { spawn } from './child-process-safe.ts';
 import { decideBindHost } from './core/remote-config.ts';
 import { FIRST_RUN_NOTICE } from './core/telemetry-core.ts';

@@ -19,7 +19,7 @@ import { TASK_TITLE_MAX_LENGTH, TaskTitle } from '../shared/contracts/session.ts
 import { STATES } from '../shared/states.ts';
 import { claudeProjectsDir, listRepoConversations } from '../session/core/conversation-history.ts';
 import type { Session } from '../session/sessions.ts';
-import type { ControlSocket } from './backend-websockets.ts';
+import type { ControlSocket } from './backend/backend-websockets.ts';
 import { glimmervoidHomeDir, ABORT_CONFIG_SAVE } from './config-store.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord, ReplayLog } from './core/control-replay-core.ts';
@@ -56,7 +56,7 @@ import type { BenchmarkActionResult, BenchmarkStatus } from '../shared/contracts
 import type { TeamReviewActionResult, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import { MyPrKeepMergeableRequest, MyPrMergeRequest, MyPrMergeWhenReadyRequest } from '../shared/contracts/my-prs.ts';
 import type { MyPrKeepMergeableResult, MyPrMergeResult, MyPrMergeWhenReadyResult, MyPrsStatus } from '../shared/contracts/my-prs.ts';
-import type { UpdateStatus } from './backend-update.ts';
+import type { UpdateStatus } from './backend/backend-update.ts';
 import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { PlanReadRequest, PlanReadResult } from './plan-review-wiring.ts';
 import type { SessionDocsPort } from './session-docs-wiring.ts';

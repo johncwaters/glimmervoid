@@ -10,7 +10,7 @@ import type {
   UpdateFileSystem,
   UpdateGitWorkspace,
 } from '../server/update-apply.ts';
-import type { UpdateStatus } from '../server/backend-update.ts';
+import type { UpdateStatus } from '../server/backend/backend-update.ts';
 import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
 
 const ROOT = '/repo/glimmervoid';

@@ -7,7 +7,7 @@ import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 import type { Plugin, ViteDevServer } from 'vite';
 
-type GlimmervoidBackend = ReturnType<typeof import('./server/backend.ts').createBackend>;
+type GlimmervoidBackend = ReturnType<typeof import('./server/backend/backend.ts').createBackend>;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -21,7 +21,7 @@ function glimmervoidBackendPlugin(): Plugin {
     configureServer(server: ViteDevServer) {
       const httpServer = server.httpServer;
       if (!(httpServer instanceof http.Server)) throw new Error('The Glimmervoid dev backend needs Vite\'s plain HTTP server; middleware mode and HTTP/2 have none.');
-      const { createBackend } = require('./server/backend.ts') as typeof import('./server/backend.ts');
+      const { createBackend } = require('./server/backend/backend.ts') as typeof import('./server/backend/backend.ts');
       backend = createBackend(httpServer, {
         staticDir: null,
         settingsDefaults: { debugMode: true },

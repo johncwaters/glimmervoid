@@ -23,7 +23,7 @@ function sourceFor(file: string): string {
 
 function wiringArgumentObject(source: string, call: string): string {
   const callStart = source.indexOf(call);
-  assert.notEqual(callStart, -1, `expected ${call} in server/backend-lanes.ts`);
+  assert.notEqual(callStart, -1, `expected ${call} in server/backend/backend-lanes.ts`);
   const objectStart = callStart + call.length - 1;
   let openBraceDepth = 0;
   for (let index = objectStart; index < source.length; index++) {
@@ -56,7 +56,7 @@ test('trace and usage lanes use lane-log for their logging boundary', () => {
 });
 
 test('backend lane wiring forwards logger and debug settings', () => {
-  const source = sourceFor('server/backend-lanes.ts');
+  const source = sourceFor('server/backend/backend-lanes.ts');
   for (const call of ['createTraceWiring({', 'createUsageWiring({']) {
     const argumentObject = wiringArgumentObject(source, call);
     assert.match(argumentObject, /\blogger\b/, `${call} must receive logger`);

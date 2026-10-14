@@ -5,7 +5,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createBackend } from '../server/backend.ts';
+import { createBackend } from '../server/backend/backend.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, openSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { DashboardClient } from './helpers/dashboard-ws.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';

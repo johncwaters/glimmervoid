@@ -1,16 +1,16 @@
 import type { WebSocket } from 'ws';
-import { NotificationManager } from '../notifications/notification-manager.ts';
-import { createTelegramChannel, decideTelegramNotification } from '../notifications/channels/telegram.ts';
-import { createWebNotificationChannel } from '../notifications/channels/web-notification.ts';
-import { createTelegramCompletionDefer } from '../notifications/telegram-completion-defer.ts';
-import { createTelegramOutbox } from '../notifications/telegram-outbox.ts';
-import type { Session } from '../session/sessions.ts';
+import { NotificationManager } from '../../notifications/notification-manager.ts';
+import { createTelegramChannel, decideTelegramNotification } from '../../notifications/channels/telegram.ts';
+import { createWebNotificationChannel } from '../../notifications/channels/web-notification.ts';
+import { createTelegramCompletionDefer } from '../../notifications/telegram-completion-defer.ts';
+import { createTelegramOutbox } from '../../notifications/telegram-outbox.ts';
+import type { Session } from '../../session/sessions.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
-import { createClientPresence } from './core/client-presence.ts';
-import type { OutcomeRecorder } from '../shared/outcome-names.ts';
-import { configSiblingPath } from './pairings-store.ts';
-import { sendTelegramMessage } from './telegram-transport.ts';
-import { createHeartbeat } from './ws-heartbeat.ts';
+import { createClientPresence } from '../core/client-presence.ts';
+import type { OutcomeRecorder } from '../../shared/outcome-names.ts';
+import { configSiblingPath } from '../pairings-store.ts';
+import { sendTelegramMessage } from '../telegram-transport.ts';
+import { createHeartbeat } from '../ws-heartbeat.ts';
 
 const ESCALATION_INTERVAL_MS = 300000;
 const DEFAULT_PHONE_ESCALATION_MS = 300000;

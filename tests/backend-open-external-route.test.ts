@@ -7,8 +7,8 @@ import path from 'node:path';
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import type { Server } from 'node:http';
 
-import { createBackendHttpApp } from '../server/backend-http.ts';
-import type { BackendHttpDependencies } from '../server/backend-http.ts';
+import { createBackendHttpApp } from '../server/backend/backend-http.ts';
+import type { BackendHttpDependencies } from '../server/backend/backend-http.ts';
 import { decideOpenExternalRequest, MAX_EXTERNAL_URL_LENGTH, parseOpenableUrl } from '../server/core/open-external-core.ts';
 import { createHostUrlOpener } from '../server/host-url-opener.ts';
 import type { HostOpenOutcome } from '../server/host-url-opener.ts';

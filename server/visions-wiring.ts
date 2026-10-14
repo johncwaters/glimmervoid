@@ -7,7 +7,7 @@ import type { Duplex } from 'node:stream';
 import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
 
-import type { ControlBroadcast } from './backend-websockets.ts';
+import type { ControlBroadcast } from './backend/backend-websockets.ts';
 import { ACTIVITY_METHOD } from './core/ingest-editor-core.ts';
 import {
   applyDidChange, applyDidClose, applyDidOpen, createDocStore, detectBlankLineBoundary, formatRange, getDoc, listDocs, uriOfParams,

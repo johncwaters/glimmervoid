@@ -9,7 +9,7 @@ import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import WebSocket from 'ws';
 
-import { createBackend } from '../server/backend.ts';
+import { createBackend } from '../server/backend/backend.ts';
 import { createPairingsStore } from '../server/pairings-store.ts';
 import { boundPort, closeServer, listenOnLoopback, reserveFreePort } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';

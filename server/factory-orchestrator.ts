@@ -9,7 +9,7 @@ import type { FactoryProjectState } from '../shared/contracts/factory.ts';
 import { AgentTicketRequest, ORCHESTRATOR_AGENT_VERBS } from '../shared/contracts/session.ts';
 import type { AgentTicketReply, TicketAgentVerb } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
-import type { ControlBroadcast } from './backend-websockets.ts';
+import type { ControlBroadcast } from './backend/backend-websockets.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import { decideTicketAction } from './core/agent-api-core.ts';
 import { buildCoherenceSessionOverrides } from './core/coherence-session-core.ts';

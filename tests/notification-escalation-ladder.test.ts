@@ -12,8 +12,8 @@ import { NOTIFICATION_STATES as NS, NOTIFICATION_TRANSITIONS } from '../shared/n
 import { createTelegramChannel, decideTelegramNotification } from '../notifications/channels/telegram.ts';
 import { createTelegramCompletionDefer } from '../notifications/telegram-completion-defer.ts';
 import type { NotificationContext } from '../notifications/notification-manager.ts';
-import { createBackendNotifications } from '../server/backend-notifications.ts';
-import type { NotificationConfig } from '../server/backend-notifications.ts';
+import { createBackendNotifications } from '../server/backend/backend-notifications.ts';
+import type { NotificationConfig } from '../server/backend/backend-notifications.ts';
 import { plainSession } from './helpers/fake-session.ts';
 
 interface RecordedDelivery {

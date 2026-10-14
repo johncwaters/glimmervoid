@@ -8,7 +8,7 @@ import path from 'node:path';
 import WebSocket from 'ws';
 import type { TestContext } from 'node:test';
 
-import { createBackend } from '../server/backend.ts';
+import { createBackend } from '../server/backend/backend.ts';
 import { createConfigStore } from '../server/config-store.ts';
 import { CONFIG_SCALAR_KEYS, ConfigUpdate } from '../shared/contracts/index.ts';
 import { MAX_PROMPT_BYTES } from '../server/core/visions-dispatch-core.ts';

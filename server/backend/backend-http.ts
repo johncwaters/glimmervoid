@@ -5,31 +5,31 @@ import path from 'node:path';
 import { pipeline } from 'node:stream';
 import express from 'express';
 import type { Express, Request, RequestHandler, Response } from 'express';
-import { HOOK_EVENTS } from '../detection/settings-injector.ts';
-import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT } from '../shared/contracts/plan-review.ts';
-import { parseJsonRecord } from './core/json-core.ts';
-import type { Session } from '../session/sessions.ts';
-import { refocusReplyFor } from '../session/core/refocus-core.ts';
-import type { RefocusContext } from '../session/core/refocus-core.ts';
-import type { FactoryDispatchResult } from '../shared/contracts/factory.ts';
-import type { AgentApiPort } from './agent-api-wiring.ts';
-import { decideAgentRequest, isOrchestratorAgentVerb, REFUSAL_REASON, REFUSAL_STATUS } from './core/agent-api-core.ts';
-import { AgentTicketRequest, SSH_SIGN_BODY_CAP_BYTES, SshSignRequest } from '../shared/contracts/session.ts';
-import type { AgentTicketReply, OrchestratorAgentVerb, TicketAgentVerb } from '../shared/contracts/session.ts';
-import { decideHostAllowed } from './core/host-policy.ts';
-import { errorMessage } from '../shared/text.ts';
-import { isSignableGitObject, parseSshPublicKey } from './core/ssh-signing-core.ts';
-import type { SshSigner } from './ssh-signing.ts';
-import { decideOpenExternalRequest, OPEN_EXTERNAL_BODY_CAP_BYTES } from './core/open-external-core.ts';
-import { decideOriginAllowed } from './core/origin-policy.ts';
-import { classifyRequestOrigin } from './core/request-trust.ts';
-import type { HostUrlOpener } from './host-url-opener.ts';
-import type { OutcomeRecorder } from '../shared/outcome-names.ts';
-import { glimmervoidHomeDir } from './config-store.ts';
-import { resolveCustomSoundsDir } from './core/custom-sounds-core.ts';
-import { mountCustomSoundRoutes } from './custom-sounds-routes.ts';
-import { configSiblingPath } from './pairings-store.ts';
-import { clientDir } from './runtime-paths.ts';
+import { HOOK_EVENTS } from '../../detection/settings-injector.ts';
+import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT } from '../../shared/contracts/plan-review.ts';
+import { parseJsonRecord } from '../core/json-core.ts';
+import type { Session } from '../../session/sessions.ts';
+import { refocusReplyFor } from '../../session/core/refocus-core.ts';
+import type { RefocusContext } from '../../session/core/refocus-core.ts';
+import type { FactoryDispatchResult } from '../../shared/contracts/factory.ts';
+import type { AgentApiPort } from '../agent-api-wiring.ts';
+import { decideAgentRequest, isOrchestratorAgentVerb, REFUSAL_REASON, REFUSAL_STATUS } from '../core/agent-api-core.ts';
+import { AgentTicketRequest, SSH_SIGN_BODY_CAP_BYTES, SshSignRequest } from '../../shared/contracts/session.ts';
+import type { AgentTicketReply, OrchestratorAgentVerb, TicketAgentVerb } from '../../shared/contracts/session.ts';
+import { decideHostAllowed } from '../core/host-policy.ts';
+import { errorMessage } from '../../shared/text.ts';
+import { isSignableGitObject, parseSshPublicKey } from '../core/ssh-signing-core.ts';
+import type { SshSigner } from '../ssh-signing.ts';
+import { decideOpenExternalRequest, OPEN_EXTERNAL_BODY_CAP_BYTES } from '../core/open-external-core.ts';
+import { decideOriginAllowed } from '../core/origin-policy.ts';
+import { classifyRequestOrigin } from '../core/request-trust.ts';
+import type { HostUrlOpener } from '../host-url-opener.ts';
+import type { OutcomeRecorder } from '../../shared/outcome-names.ts';
+import { glimmervoidHomeDir } from '../config-store.ts';
+import { resolveCustomSoundsDir } from '../core/custom-sounds-core.ts';
+import { mountCustomSoundRoutes } from '../custom-sounds-routes.ts';
+import { configSiblingPath } from '../pairings-store.ts';
+import { clientDir } from '../runtime-paths.ts';
 import {
   buildUploadFilename,
   decideUploadType,
@@ -37,7 +37,7 @@ import {
   framePathPaste,
   isSafePathSegment,
   planUploadRetention,
-} from './core/upload-core.ts';
+} from '../core/upload-core.ts';
 
 const HOOK_BODY_CAP_BYTES = 64 * 1024;
 const UNNAMED_HOOK_EVENT = 'an unknown event';

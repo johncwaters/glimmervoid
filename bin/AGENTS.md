@@ -16,7 +16,7 @@ The globally-installed CLI entry point for Glimmervoid (`npm install -g glimmerv
 ## For AI Agents
 
 ### Working In This Directory
-- Keep this a thin argv parser; real logic belongs in `server/backend.ts` or `server/config-store.ts`.
+- Keep this a thin argv parser; real logic belongs in `server/backend/backend.ts` or `server/config-store.ts`.
 - `package.json` `bin` points at the BUILT CLI under `dist/`, so a new local import rides the bundle and needs no `files` entry; the packaged-install job in `.github/workflows/test.yml` is still the gate.
 
 ### Testing Requirements
@@ -25,7 +25,7 @@ The globally-installed CLI entry point for Glimmervoid (`npm install -g glimmerv
 ## Dependencies
 
 ### Internal
-- `../server/main.ts` / `../server/backend.ts` - the server it boots
+- `../server/main.ts` / `server/backend/backend.ts` - the server it boots
 - `../server/config-store.ts` - config resolution
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Server } from 'node:http';
 
-import { createBackend } from '../server/backend.ts';
+import { createBackend } from '../server/backend/backend.ts';
 import type { Session } from '../session/sessions.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { settleBackendShutdown, usageLane } from './helpers/lanes.ts';

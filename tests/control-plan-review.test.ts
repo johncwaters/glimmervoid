@@ -298,10 +298,10 @@ test('a revision the client names but the store never held is refused rather tha
 });
 
 test('every plan summary reaches every control client, and the body request reaches the lane', () => {
-  const lanesSource = fs.readFileSync(new URL('../server/backend-lanes.ts', import.meta.url), 'utf8');
+  const lanesSource = fs.readFileSync(new URL('../server/backend/backend-lanes.ts', import.meta.url), 'utf8');
   assert.match(lanesSource, /planReview\?\.on\('plan-changed'/);
   assert.match(lanesSource, /broadcastControl\(\{ type: 'session-plan-changed', \.\.\.summary \}\)/);
-  const backendSource = fs.readFileSync(new URL('../server/backend.ts', import.meta.url), 'utf8');
+  const backendSource = fs.readFileSync(new URL('../server/backend/backend.ts', import.meta.url), 'utf8');
   assert.match(backendSource, /readPlanRevision: laneAssembly\.planReview\?\.readPlanRevision \?\? null/);
   assert.match(backendSource, /getPlanReviewPort: \(\) => laneAssembly\.planReview\?\.port \?\? null/);
 });
@@ -564,7 +564,7 @@ test('a draft body crosses the socket only when the client asks for one', async 
 });
 
 test('every plan draft notice reaches every control client', () => {
-  const lanesSource = fs.readFileSync(new URL('../server/backend-lanes.ts', import.meta.url), 'utf8');
+  const lanesSource = fs.readFileSync(new URL('../server/backend/backend-lanes.ts', import.meta.url), 'utf8');
   assert.match(lanesSource, /planReview\?\.on\('plan-draft'/);
   assert.match(lanesSource, /broadcastControl\(\{ type: 'session-plan-draft', \.\.\.notice \}\)/);
 });

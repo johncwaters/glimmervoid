@@ -43,7 +43,7 @@ test('a bundled install resolves the same assets as .js under dist', () => {
 
 test('the dashboard build is always read from dist/client, bundled or not', () => {
   const fromSource = computeRuntimePaths({
-    moduleFile: path.join(PACKAGE_ROOT, 'server', 'backend-http.ts'),
+    moduleFile: path.join(PACKAGE_ROOT, 'server', 'backend', 'backend-http.ts'),
     hasPackageJson: onlyRootHasPackageJson,
   });
   const fromBundle = computeRuntimePaths({

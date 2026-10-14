@@ -5,7 +5,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
-import { reconcileSessionWorktrees, createBackend } from '../server/backend.ts';
+import { reconcileSessionWorktrees, createBackend } from '../server/backend/backend.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
 import type { SessionWorktree, WorktreeArgs } from '../server/git-workspace.ts';
 import type { RegistryProject } from '../server/core/session-registry-core.ts';

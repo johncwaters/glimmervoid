@@ -37,7 +37,7 @@ import type { CommandResult } from './git-exec.ts';
 import { createJsonStateWriter, writeJsonAtomic } from './json-file.ts';
 import { isMissingFileError } from '../shared/text.ts';
 import { probeBranchAndUpstream } from './update-check.ts';
-import type { UpdateStatus } from './backend-update.ts';
+import type { UpdateStatus } from './backend/backend-update.ts';
 
 const FETCH_TIMEOUT_MS = 60_000;
 const HANDOFF_QUEUE_ADMISSION_TIMEOUT_MS = 30_000;

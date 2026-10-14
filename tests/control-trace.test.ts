@@ -321,7 +321,7 @@ test('a read failure answers an error frame naming the session so the panel can 
 
 test('trace changes use the all-control broadcast and append bursts coalesce by session', () => {
   assert.equal(REFRESHABLE_TYPES.has('session-trace-changed'), true);
-  const backendLanesSource = fs.readFileSync(new URL('../server/backend-lanes.ts', import.meta.url), 'utf8');
+  const backendLanesSource = fs.readFileSync(new URL('../server/backend/backend-lanes.ts', import.meta.url), 'utf8');
   assert.match(backendLanesSource, /createTraceChangeBroadcast\(\{ source: traceWiring, broadcast: broadcastControl \}\)/);
   const source = new EventEmitter();
   const scheduled = new Map<NodeJS.Timeout, () => void>();
