@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { diffProjects, machineSkipsPermissionsByDefault, projectSkipsPermissions } from '../server/core/session-registry-core.ts';
-import type { RegistryDependencies, RegistryProject, RegistrySession } from '../server/core/session-registry-core.ts';
+import { diffProjects, machineSkipsPermissionsByDefault, projectSkipsPermissions } from '../server/session/core/session-registry-core.ts';
+import type { RegistryDependencies, RegistryProject, RegistrySession } from '../server/session/core/session-registry-core.ts';
 
 function liveSession(overrides: Partial<RegistrySession> = {}): RegistrySession {
   return {

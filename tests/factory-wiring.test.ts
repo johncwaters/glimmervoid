@@ -26,7 +26,7 @@ import { STATES } from '../shared/states.ts';
 import { plainSession } from './helpers/fake-session.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import { passthroughWorkLane } from './helpers/passthrough-work-lane.ts';
-import type { SessionSpawnOverrides } from '../server/session-factory.ts';
+import type { SessionSpawnOverrides } from '../server/session/session-factory.ts';
 import { readCoherenceFixture } from './helpers/factory-coherence-reports.ts';
 import { waitFor } from './helpers/wait-for.ts';
 import { ORCHESTRATOR_AGENT_VERBS } from '../shared/contracts/session.ts';

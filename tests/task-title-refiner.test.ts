@@ -6,7 +6,7 @@ import test from 'node:test';
 import { setImmediate as nextTick } from 'node:timers/promises';
 import { Session } from '../session/sessions.ts';
 import { createTaskTitleRefiner } from '../server/task-title-refiner.ts';
-import { createSessionEventWiring } from '../server/session-event-wiring.ts';
+import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import { waitFor } from './helpers/wait-for.ts';
 import type { LaneSpawn } from '../server/lane-spawn.ts';
 import { STATES } from '../shared/states.ts';

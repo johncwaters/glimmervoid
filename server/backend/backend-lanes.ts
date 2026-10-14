@@ -8,7 +8,7 @@ import type { ControlBroadcast } from './backend-websockets.ts';
 import { comparableDirectoryPath } from '../../shared/canonical-paths.ts';
 import { createBenchmarkWiring } from '../benchmark-wiring.ts';
 import { STATES } from '../../shared/states.ts';
-import type { SessionSpawnOverrides } from '../session-factory.ts';
+import type { SessionSpawnOverrides } from '../session/session-factory.ts';
 import type { ProjectEntry } from '../config-store.ts';
 import { FACTORY_REVIEWER_PERMISSIONS, FACTORY_REVIEWER_SPAWN_ENV, FACTORY_REVIEWER_TOOLS } from '../factory-closeout.ts';
 import { createFactoryWiring } from '../factory-wiring.ts';

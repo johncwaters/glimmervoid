@@ -29,7 +29,7 @@ import {
   withCommittedOffset,
 } from './core/trace-tail-core.ts';
 import type { ContainmentRefusal } from './core/trace-tail-core.ts';
-import { readSessionTracePage } from './core/session-trace-core.ts';
+import { readSessionTracePage } from './session/core/session-trace-core.ts';
 import { isSafePathSegment } from './core/upload-core.ts';
 import { appendJsonLines, createJsonStateWriter } from './json-file.ts';
 import type { JsonStateWriter } from './json-file.ts';

@@ -19,7 +19,7 @@ import type { PlanReadResult } from '../plan-review-wiring.ts';
 import type { TracePage, TracePageRequest } from '../trace-wiring.ts';
 import type { Telemetry } from '../telemetry.ts';
 import { errorMessage } from '../../shared/text.ts';
-import type { SessionDocsPort } from '../session-docs-wiring.ts';
+import type { SessionDocsPort } from '../session/session-docs-wiring.ts';
 
 interface SnapshotLane {
   snapshotMessage: () => Record<string, unknown>;

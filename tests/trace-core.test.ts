@@ -6,7 +6,7 @@ import path from 'node:path';
 import { MAX_RAW_LINE_CHARS, TraceRecord } from '../shared/contracts/trace.ts';
 import type { TraceRecord as TraceRecordType } from '../shared/contracts/trace.ts';
 import { DROPPED_LINE_TYPES, MAX_TRACE_BODY_CHARS, traceRecordsFromTranscriptLine } from '../server/core/trace-core.ts';
-import { MAX_SESSION_TRACE_READ_BYTES } from '../server/core/session-trace-core.ts';
+import { MAX_SESSION_TRACE_READ_BYTES } from '../server/session/core/session-trace-core.ts';
 import { toolDetailLine } from '../shared/tool-detail.ts';
 
 const fixturePath = path.join(import.meta.dirname, 'fixtures', 'trace', 'claude-records.jsonl');

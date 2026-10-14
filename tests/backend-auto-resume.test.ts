@@ -9,7 +9,7 @@ import pty from 'node-pty';
 import { createBackend, runAutoResume, persistSessionField, decideWasActiveFlip } from '../server/backend/backend.ts';
 import { createConfigStore } from '../server/config-store.ts';
 import type { ConfigStore } from '../server/config-store.ts';
-import type { RegistryConfig } from '../server/session-registry.ts';
+import type { RegistryConfig } from '../server/session/session-registry.ts';
 import { createSpawnGate } from '../server/spawn-gate.ts';
 import { Session } from '../session/sessions.ts';
 import { encodeProjectDir } from '../session/core/conversation-history.ts';

@@ -1,16 +1,16 @@
 import fs from 'node:fs';
 import type { Server } from 'node:http';
 
-import { pickAutoResume } from '../session/core/auto-resume.ts';
-import { projectSessionCard } from '../session/core/snapshot-projection.ts';
-import type { Session } from '../session/sessions.ts';
-import { isSameDirectoryPath } from '../shared/canonical-paths.ts';
-import { STATES } from '../shared/states.ts';
+import { pickAutoResume } from '../../session/core/auto-resume.ts';
+import { projectSessionCard } from '../../session/core/snapshot-projection.ts';
+import type { Session } from '../../session/sessions.ts';
+import { isSameDirectoryPath } from '../../shared/canonical-paths.ts';
+import { STATES } from '../../shared/states.ts';
 import type { AgentId, RegistryProject } from './core/session-registry-core.ts';
 import { diffProjects, machineSkipsPermissionsByDefault, shouldStartAfterModify } from './core/session-registry-core.ts';
-import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
-import type { SessionWorktree, WorktreeArgs } from './git-workspace.ts';
-import { errorMessage } from '../shared/text.ts';
+import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
+import type { SessionWorktree, WorktreeArgs } from '../git-workspace.ts';
+import { errorMessage } from '../../shared/text.ts';
 
 interface RegistryConfig extends Record<string, unknown> {
   projects: RegistryProject[];

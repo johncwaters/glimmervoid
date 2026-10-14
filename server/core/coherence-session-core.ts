@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { UserHook } from '../../session/core/user-hooks-core.ts';
-import type { SessionSpawnOverrides } from '../session-factory.ts';
+import type { SessionSpawnOverrides } from '../session/session-factory.ts';
 
 export const COHERENCE_HOOK_EVENTS = ['SubagentStart', 'SessionStart', 'SubagentStop', 'Stop', 'PostToolUse'] as const;
 export const COHERENCE_POST_TOOL_USE_MATCHER = 'Read|Grep|Glob|Write|Edit|MultiEdit|NotebookEdit';

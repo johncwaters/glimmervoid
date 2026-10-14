@@ -1,6 +1,6 @@
-import type { ProjectConfig } from '../../shared/contracts/config.ts';
-import type { SessionState } from '../../shared/states.ts';
-import { STATES } from '../../shared/states.ts';
+import type { ProjectConfig } from '../../../shared/contracts/config.ts';
+import type { SessionState } from '../../../shared/states.ts';
+import { STATES } from '../../../shared/states.ts';
 
 export type AgentId = ProjectConfig['agent'];
 

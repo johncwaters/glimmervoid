@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import { runAgentApiCli } from '../server/agent-api-cli.ts';
 import { createAgentApiWiring } from '../server/agent-api-wiring.ts';
-import { createSessionDocsWiring } from '../server/session-docs-wiring.ts';
+import { createSessionDocsWiring } from '../server/session/session-docs-wiring.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import { CONTROL_FRAME_ENVELOPE_BYTES, CONTROL_FRAME_MAX_BYTES } from '../shared/contracts/control-messages.ts';
 import { AGENT_URL_ENV, SESSION_DOC_BODY_CAP_BYTES } from '../shared/contracts/session.ts';

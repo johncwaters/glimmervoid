@@ -18,7 +18,7 @@ import { LANE_ENVIRONMENT_ARGS } from '../server/core/lane-permissions-core.ts';
 import type { SandboxRole } from '../server/core/sandbox-policy-core.ts';
 import { LANE_CREDENTIAL_ENV } from '../server/core/sandbox-roles-core.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
-import type { SessionSpawnOverrides } from '../server/session-factory.ts';
+import type { SessionSpawnOverrides } from '../server/session/session-factory.ts';
 import type { FactoryProjectState } from '../shared/contracts/factory.ts';
 import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';

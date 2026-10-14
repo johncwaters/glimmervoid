@@ -9,14 +9,14 @@ import type { Server } from 'node:http';
 
 import { createBackend } from '../server/backend/backend.ts';
 import { createAgentApiWiring } from '../server/agent-api-wiring.ts';
-import { createSessionDocsWiring } from '../server/session-docs-wiring.ts';
+import { createSessionDocsWiring } from '../server/session/session-docs-wiring.ts';
 import { sessionIdFromBranch } from '../server/core/branch-gc-core.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
 import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import { decideTicketAction, describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
 import { AgentLimitsReply } from '../shared/contracts/session.ts';
 import type { AgentTicketRequest } from '../shared/contracts/session.ts';
-import { createSessionEventWiring } from '../server/session-event-wiring.ts';
+import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { Session } from '../session/sessions.ts';
 import type { SessionOptions } from '../session/sessions.ts';

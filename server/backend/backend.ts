@@ -17,17 +17,17 @@ import { createBackendWebSockets } from './backend-websockets.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 import { createBackendShutdown } from './backend-shutdown.ts';
 import { createBackendTrust } from './backend-trust.ts';
-import { createSessionEventWiring, persistSessionField } from '../session-event-wiring.ts';
+import { createSessionEventWiring, persistSessionField } from '../session/session-event-wiring.ts';
 import {
   carryWorktreeAcrossRecreate,
   createSessionRegistry,
   reconcileSessionWorktrees,
   runAutoResume,
-} from '../session-registry.ts';
+} from '../session/session-registry.ts';
 import { createBackendLanes } from './backend-lanes.ts';
 import type { BackendLaneOptions } from './backend-lanes.ts';
 import type { AgentIngressDependencies } from './backend-http.ts';
-import { decideWasActiveFlip, shouldStartAfterModify } from '../core/session-registry-core.ts';
+import { decideWasActiveFlip, shouldStartAfterModify } from '../session/core/session-registry-core.ts';
 import { createBackendHealth } from './backend-health.ts';
 import { createBackendNotifications } from './backend-notifications.ts';
 import { createBackendControl } from './backend-control.ts';
@@ -42,7 +42,7 @@ import { createOutcomesLane } from '../outcomes-wiring.ts';
 import { createUpdateApplyLane } from '../update-apply.ts';
 import { bundled, packageRoot } from '../runtime-paths.ts';
 import { createTelemetry } from '../telemetry.ts';
-import { createSessionDocsWiring } from '../session-docs-wiring.ts';
+import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { glimmervoidHomeDir as resolveGlimmervoidHomeDir } from '../core/config-path-core.ts';
 import { decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-core.ts';
 

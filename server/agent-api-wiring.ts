@@ -16,8 +16,8 @@ import {
 import { isConfinedSessionVendor } from './core/sandbox-roles-core.ts';
 import { registerEphemeralSession } from './ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
-import type { SessionSpawnOverrides } from './session-factory.ts';
-import type { SessionDocsPort } from './session-docs-wiring.ts';
+import type { SessionSpawnOverrides } from './session/session-factory.ts';
+import type { SessionDocsPort } from './session/session-docs-wiring.ts';
 import { errorMessage } from '../shared/text.ts';
 
 const AGENT_LANE_TAG = 'agent-spawn';

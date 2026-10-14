@@ -13,7 +13,7 @@ import { resolveHookTools } from '../hook-tools.ts';
 import { createClaudeFolderTrust } from '../claude-trust.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
 import type { SandboxSpawnRefusal } from '../sandbox-deps.ts';
-import { createSessionFactory } from '../session-factory.ts';
+import { createSessionFactory } from '../session/session-factory.ts';
 import { createSessionSandbox } from '../session-sandbox.ts';
 import { buildSettingsPayload } from '../settings-payload.ts';
 import { cliPath } from '../runtime-paths.ts';

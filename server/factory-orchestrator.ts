@@ -25,7 +25,7 @@ import { resolveWorkLane } from './work-lane.ts';
 import type { WorkLaneDependencies } from './work-lane.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
-import type { SessionSpawnOverrides } from './session-factory.ts';
+import type { SessionSpawnOverrides } from './session/session-factory.ts';
 
 export const FACTORY_ORCHESTRATOR_ALLOW = Object.freeze([
   'Bash(coherence work create:*)', 'Bash(coherence orient:*)', 'Bash(coherence work inspect:*)',

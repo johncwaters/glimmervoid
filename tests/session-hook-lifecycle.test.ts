@@ -15,7 +15,7 @@ import grok from '../session/adapters/grok.ts';
 import { renderGrokHooksFile } from '../session/core/grok-hooks-file-core.ts';
 import { saneYoloHomeDir } from '../server/hook-tools.ts';
 import { buildCoherenceSessionOverrides } from '../server/core/coherence-session-core.ts';
-import { createSessionFactory } from '../server/session-factory.ts';
+import { createSessionFactory } from '../server/session/session-factory.ts';
 import type { HooksBlock, UserHook } from '../session/core/user-hooks-core.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import type { SpawnCall } from './helpers/fake-pty.ts';

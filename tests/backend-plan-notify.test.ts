@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createWebNotificationChannel } from '../notifications/channels/web-notification.ts';
 import type { NotifyBroadcast } from '../notifications/channels/web-notification.ts';
 import { NotificationManager } from '../notifications/notification-manager.ts';
-import { createSessionEventWiring } from '../server/session-event-wiring.ts';
+import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import { STATES } from '../shared/states.ts';
 import { plainSession } from './helpers/fake-session.ts';
 

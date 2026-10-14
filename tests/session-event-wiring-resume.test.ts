@@ -5,12 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { createConfigStore } from '../server/config-store.ts';
 import type { ConfigStore } from '../server/config-store.ts';
-import { createSessionFactory } from '../server/session-factory.ts';
+import { createSessionFactory } from '../server/session/session-factory.ts';
 import { Session } from '../session/sessions.ts';
 import type { Server } from 'node:http';
-import { createSessionRegistry } from '../server/session-registry.ts';
+import { createSessionRegistry } from '../server/session/session-registry.ts';
 
-import { createSessionEventWiring } from '../server/session-event-wiring.ts';
+import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import { plainSession } from './helpers/fake-session.ts';
 
 function wiredSession(session = plainSession('resume-persist-session'), configStore?: ConfigStore) {

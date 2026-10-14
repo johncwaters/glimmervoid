@@ -2,15 +2,15 @@ import fs from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 
-import { SESSION_DOC_BODY_CAP_BYTES, SESSION_DOCS_MAX } from '../shared/contracts/session.ts';
-import type { AgentEditRequest, SessionDoc } from '../shared/contracts/session.ts';
-import { isPathInside } from '../shared/paths.ts';
-import { openContainedFile } from './contained-file.ts';
-import type { OpenedFile } from './contained-file.ts';
+import { SESSION_DOC_BODY_CAP_BYTES, SESSION_DOCS_MAX } from '../../shared/contracts/session.ts';
+import type { AgentEditRequest, SessionDoc } from '../../shared/contracts/session.ts';
+import { isPathInside } from '../../shared/paths.ts';
+import { openContainedFile } from '../contained-file.ts';
+import type { OpenedFile } from '../contained-file.ts';
 import { decodeDocBytes, describeDocRefusal, encodeDocText, hashDocBytes, withSurfacedDoc } from './core/session-docs-core.ts';
 import type { DocRefusal } from './core/session-docs-core.ts';
-import type { ControlMessageRecord } from './core/control-replay-core.ts';
-import { createKeyedSerialQueue } from './spawn-gate.ts';
+import type { ControlMessageRecord } from '../core/control-replay-core.ts';
+import { createKeyedSerialQueue } from '../spawn-gate.ts';
 
 interface DocSession {
   id: string;

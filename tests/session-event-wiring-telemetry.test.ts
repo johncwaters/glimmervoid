@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createSessionEventWiring } from '../server/session-event-wiring.ts';
+import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import { plainSession } from './helpers/fake-session.ts';
 
 function wiredSession() {

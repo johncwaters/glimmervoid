@@ -11,7 +11,7 @@ import { REFRESHABLE_TYPES } from '../server/core/control-send-core.ts';
 import {
   MAX_SESSION_TRACE_READ_BYTES,
   sessionTracePageFromBytes,
-} from '../server/core/session-trace-core.ts';
+} from '../server/session/core/session-trace-core.ts';
 import { createTraceChangeBroadcast, TRACE_CHANGE_COALESCE_MS } from '../server/trace-control.ts';
 import { createTraceWiring } from '../server/trace-wiring.ts';
 import type { TracePage, TracePageRequest } from '../server/trace-wiring.ts';

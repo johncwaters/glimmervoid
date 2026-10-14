@@ -288,7 +288,7 @@ test('binding and clearing the resume id updates the session and its snapshot', 
 });
 
 test('session factory resolves hook tools with the effective project permission choice', async () => {
-  const { createSessionFactory } = await import('../server/session-factory.ts');
+  const { createSessionFactory } = await import('../server/session/session-factory.ts');
   const requests: boolean[] = [];
   const makeSession = createSessionFactory({
     configStore: { configPath: path.join(claudeConfigDir, 'config.json') },

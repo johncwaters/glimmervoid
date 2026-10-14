@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 
-import { SESSION_DOC_BODY_CAP_BYTES } from '../../shared/contracts/session.ts';
-import type { SessionDoc } from '../../shared/contracts/session.ts';
-import type { ContainmentRefusal } from './trace-tail-core.ts';
+import { SESSION_DOC_BODY_CAP_BYTES } from '../../../shared/contracts/session.ts';
+import type { SessionDoc } from '../../../shared/contracts/session.ts';
+import type { ContainmentRefusal } from '../../core/trace-tail-core.ts';
 
 type DocRefusal = ContainmentRefusal | 'too-large' | 'binary' | 'not-surfaced' | 'changed-on-disk' | 'hard-linked';
 

@@ -8,7 +8,7 @@ import path from 'node:path';
 import { reconcileSessionWorktrees, createBackend } from '../server/backend/backend.ts';
 import { createGitWorkspace } from '../server/git-workspace.ts';
 import type { SessionWorktree, WorktreeArgs } from '../server/git-workspace.ts';
-import type { RegistryProject } from '../server/core/session-registry-core.ts';
+import type { RegistryProject } from '../server/session/core/session-registry-core.ts';
 import { Session } from '../session/sessions.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import { hasGit, git } from './helpers/git-fixture.ts';

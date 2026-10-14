@@ -1,22 +1,22 @@
-import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
-import { refreshRtkHookTools } from '../session/core/rtk-settings-core.ts';
+import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
+import { refreshRtkHookTools } from '../../session/core/rtk-settings-core.ts';
 import path from 'node:path';
 
-import type { HookRouter } from '../detection/hook-source.ts';
-import type { UserHook } from '../session/core/user-hooks-core.ts';
-import { createRecorder } from '../session/session-recorder.ts';
-import type { GitWorkspace } from '../session/session-worktree-lifecycle.ts';
-import { Session } from '../session/sessions.ts';
-import type { SessionOptions, SessionPlanReviewPort } from '../session/sessions.ts';
-import { getAdapter } from '../session/adapters/index.ts';
-import { DEFAULT_CONFIG } from './config-store.ts';
-import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
-import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
-import { isSessionConfined } from './core/sandbox-roles-core.ts';
+import type { HookRouter } from '../../detection/hook-source.ts';
+import type { UserHook } from '../../session/core/user-hooks-core.ts';
+import { createRecorder } from '../../session/session-recorder.ts';
+import type { GitWorkspace } from '../../session/session-worktree-lifecycle.ts';
+import { Session } from '../../session/sessions.ts';
+import type { SessionOptions, SessionPlanReviewPort } from '../../session/sessions.ts';
+import { getAdapter } from '../../session/adapters/index.ts';
+import { DEFAULT_CONFIG } from '../config-store.ts';
+import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
+import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
+import { isSessionConfined } from '../core/sandbox-roles-core.ts';
 import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './core/session-registry-core.ts';
-import { expandTilde } from './core/usage-scan-core.ts';
-import type { SessionSandbox } from './session-sandbox.ts';
-import { resolveUsageConfig } from './usage-wiring.ts';
+import { expandTilde } from '../core/usage-scan-core.ts';
+import type { SessionSandbox } from '../session-sandbox.ts';
+import { resolveUsageConfig } from '../usage-wiring.ts';
 
 type SessionSpawnOverrides = Pick<SessionOptions,
   'requireWorktree' | 'gitWorkspace' | 'gitIsolation' | 'settingsPermissions' | 'settingsSandbox' | 'prepareSandbox' | 'hookTools' | 'getHookTools' | 'dangerouslySkipPermissions' | 'factoryRole' | 'agent' | 'agentDepth' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;

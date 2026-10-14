@@ -16,7 +16,7 @@ import { commitAndLandFactoryLedger, hasCodeChangedBetween, readCodeDiffBetween,
 import { hostScratchRoot } from '../server/host-scratch.ts';
 import type { LaneSpawn } from '../server/lane-spawn.ts';
 import { createFactoryWiring } from '../server/factory-wiring.ts';
-import { createSessionFactory } from '../server/session-factory.ts';
+import { createSessionFactory } from '../server/session/session-factory.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import type { Session } from '../session/sessions.ts';
 import { fakePty } from './helpers/fake-pty.ts';

@@ -1,5 +1,5 @@
-import type { TraceRecord } from '../../shared/contracts/trace.ts';
-import { TraceRecord as TraceRecordSchema } from '../../shared/contracts/trace.ts';
+import type { TraceRecord } from '../../../shared/contracts/trace.ts';
+import { TraceRecord as TraceRecordSchema } from '../../../shared/contracts/trace.ts';
 
 export const MAX_SESSION_TRACE_READ_BYTES = 512 * 1024;
 

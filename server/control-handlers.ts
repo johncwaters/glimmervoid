@@ -31,7 +31,7 @@ import { readPosthogReport } from './posthog-report.ts';
 import * as posthogCore from './core/posthog-core.ts';
 import { formatDiffAnnotationMessage } from './core/diff-annotations-core.ts';
 import { buildGithubIssuePrompt, deriveIssueSessionName } from './core/github-issues-core.ts';
-import { machineSkipsPermissionsByDefault } from './core/session-registry-core.ts';
+import { machineSkipsPermissionsByDefault } from './session/core/session-registry-core.ts';
 import { prKey } from './core/team-review-core.ts';
 import { mergeWorkflowsUpdateOverStored } from './core/workflows-core.ts';
 import { createPrGh } from './pr-gh.ts';
@@ -59,7 +59,7 @@ import type { MyPrKeepMergeableResult, MyPrMergeResult, MyPrMergeWhenReadyResult
 import type { UpdateStatus } from './backend/backend-update.ts';
 import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { PlanReadRequest, PlanReadResult } from './plan-review-wiring.ts';
-import type { SessionDocsPort } from './session-docs-wiring.ts';
+import type { SessionDocsPort } from './session/session-docs-wiring.ts';
 import type { TracePage, TracePageRequest } from './trace-wiring.ts';
 import { createChangeMapService } from './change-map-wiring.ts';
 import type { ChangeMapNarrator } from './change-map-wiring.ts';

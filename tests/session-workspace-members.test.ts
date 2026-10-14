@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createGitWorkspace } from '../server/git-workspace.ts';
 import { planWorkspace } from '../session/core/workspace-core.ts';
 import { createSessionWorkspaceMembers } from '../session/session-workspace-members.ts';
-import { carryWorktreeAcrossRecreate } from '../server/session-registry.ts';
+import { carryWorktreeAcrossRecreate } from '../server/session/session-registry.ts';
 import { Session } from '../session/sessions.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';

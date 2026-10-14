@@ -4,7 +4,7 @@ import http from 'node:http';
 import WebSocket from 'ws';
 
 import { createBackendWebSockets } from '../server/backend/backend-websockets.ts';
-import { createSessionEventWiring } from '../server/session-event-wiring.ts';
+import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import { createCustomAdapter } from '../session/adapters/custom.ts';
 import { Session } from '../session/sessions.ts';
 import { ASK_USER_QUESTION_TOOL_NAME } from '../shared/contracts/session.ts';

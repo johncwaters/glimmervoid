@@ -1,16 +1,16 @@
-import { createNotifyGate, decideAcknowledge, explainNotification } from '../session/core/notify-gate.ts';
-import type { ClaudeSessionIdEvent, Session } from '../session/sessions.ts';
-import type { PersistedTaskTitle } from '../shared/contracts/config.ts';
-import { AGENT_ATTENTION_NOTE_SEPARATOR } from '../shared/contracts/session.ts';
-import { STATES } from '../shared/states.ts';
-import type { SessionState } from '../shared/states.ts';
-import type { ControlMessageRecord } from './core/control-replay-core.ts';
+import { createNotifyGate, decideAcknowledge, explainNotification } from '../../session/core/notify-gate.ts';
+import type { ClaudeSessionIdEvent, Session } from '../../session/sessions.ts';
+import type { PersistedTaskTitle } from '../../shared/contracts/config.ts';
+import { AGENT_ATTENTION_NOTE_SEPARATOR } from '../../shared/contracts/session.ts';
+import { STATES } from '../../shared/states.ts';
+import type { SessionState } from '../../shared/states.ts';
+import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { decideWasActiveFlip } from './core/session-registry-core.ts';
-import { adapterBucket, classifySessionExit } from './core/telemetry-core.ts';
-import { INTERACTIVE_LANE } from './core/usage-lane-core.ts';
-import { resolveCheckConfig, runPostTurnChecks } from './post-turn-checker.ts';
-import type { Telemetry } from './telemetry.ts';
-import { errorMessage } from '../shared/text.ts';
+import { adapterBucket, classifySessionExit } from '../core/telemetry-core.ts';
+import { INTERACTIVE_LANE } from '../core/usage-lane-core.ts';
+import { resolveCheckConfig, runPostTurnChecks } from '../post-turn-checker.ts';
+import type { Telemetry } from '../telemetry.ts';
+import { errorMessage } from '../../shared/text.ts';
 
 const IDLE_COMPACTION_CONFIRM_MS = 10000;
 

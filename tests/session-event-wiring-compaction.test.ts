@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createSessionEventWiring, IDLE_COMPACTION_CONFIRM_MS } from '../server/session-event-wiring.ts';
+import { createSessionEventWiring, IDLE_COMPACTION_CONFIRM_MS } from '../server/session/session-event-wiring.ts';
 import { NotificationManager } from '../notifications/notification-manager.ts';
 import { Session } from '../session/sessions.ts';
 import { NOTIFICATION_STATES } from '../shared/notification-states.ts';

@@ -13,7 +13,7 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `core/factory-decision-log-core.ts` | Pure factory decision mapping and output limits |
 | `../shared/contracts/factory-decision-log.ts` | Strict factory decision line contract |
 | `backend/` | Express + WebSocket server factory and its wiring, one concern per file |
-| `session-{factory,registry,event-wiring}.ts` | Session construction, config reconciliation, and one-time event wiring |
+| `session/` | Session construction, config reconciliation, one-time event wiring, docs and trace |
 | `control-handlers.ts` | Control-WebSocket message handlers (kill, restart, rename, settings) |
 | `server-lifecycle.ts` | Boot/shutdown helpers; restart strategy in `core/restart-strategy.ts` |
 | `ws-sender.ts` | Data-WebSocket sender: batching and backpressure |
@@ -125,7 +125,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - Port-exact Origin, the port read from the socket so nothing a client sends decides it; a mismatch falls THROUGH to the allow-list. Browser channels demand an Origin, non-browser ingresses do not.
 - A per-process page token guards local control and data upgrades, riding the query string since a browser cannot set a WS handshake header. `GET /control-token` refuses a disallowed Origin outright.
 - Trust is the LISTENER PORT, never a header or IP: a reverse proxy makes remote traffic look loopback, so an IP or `X-Forwarded-For` rule would hand every visitor local trust (`tests/request-trust.test.ts`).
-- An ordinary Claude Code session is wrapped by default in `session-factory.ts`. A caller that sets `prepareSandbox`, even to null, owns its own confinement, and only operator config opts a session out (`projects[].unguarded`, `guardrails.unguardedRepos`), never the agent API: a child is unconfined only when its parent is (`tests/factory-dispatch.test.ts`).
+- An ordinary Claude Code session is wrapped by default in `session/session-factory.ts`. A caller that sets `prepareSandbox`, even to null, owns its own confinement, and only operator config opts a session out (`projects[].unguarded`, `guardrails.unguardedRepos`), never the agent API: a child is unconfined only when its parent is (`tests/factory-dispatch.test.ts`).
 - The ordinary session wrap starts in a scratch folder and enters the checkout inside the sandbox, because the sandbox runtime plants protected-name placeholders in its working folder and a session that commits everything would commit them (`session` role in `scripts/probe-sandbox-roles.ts`).
 - Sessions reach `/hook` and `/agent` on their OWN loopback listener, never the dashboard port: a lane sandbox allowlists one exact host and port (enforced on Linux, macOS unverified), and that port must not also serve `GET /control-token` or the control WS (`tests/backend-auto-resume.test.ts`).
 - A pairing cookie is RCE as the server account, the control WS accepting any project path plus `dangerouslySkipPermissions`. Pairing URLs are single-use, short-TTL, never logged or stored in plaintext; the store fails CLOSED on corruption.
