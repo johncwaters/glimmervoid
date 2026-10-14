@@ -15,9 +15,9 @@ import {
   normalizeLedger,
   planWindowStartsMs,
   pruneLedger,
-} from '../server/core/usage-lane-core.ts';
-import type { LaneRollupRow } from '../server/core/usage-lane-core.ts';
-import { createLaneLedger } from '../server/usage-lane-ledger.ts';
+} from '../server/usage/core/usage-lane-core.ts';
+import type { LaneRollupRow } from '../server/usage/core/usage-lane-core.ts';
+import { createLaneLedger } from '../server/usage/usage-lane-ledger.ts';
 import { registerEphemeralSession } from '../server/lanes/ephemeral-session.ts';
 
 const NOW = Date.parse('2026-08-19T12:00:00.000Z');

@@ -1,5 +1,5 @@
 import { localDayKey, localHourMinuteText, twoUnitDurationText } from '#shared/display-text.ts';
-import { attentionSignature } from './attention-ack-core.ts';
+import { attentionSignature } from '../attention-ack-core.ts';
 import { numberOr, textOr } from '#shared/coerce.ts';
 
 export interface UsageModelRow {

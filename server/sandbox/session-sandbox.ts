@@ -8,7 +8,7 @@ import { execFileAsync } from '../child-process-safe.ts';
 import { repositoryRootOfCommonGitDir } from '../core/claude-trust-core.ts';
 import type { SandboxRole } from './core/sandbox-policy-core.ts';
 import { sessionRole } from './core/sandbox-roles-core.ts';
-import { expandTilde } from '../core/usage-scan-core.ts';
+import { expandTilde } from '../usage/core/usage-scan-core.ts';
 import { allowSandboxedSpawn } from './sandbox-deps.ts';
 import type { SandboxSpawnRefusal } from './sandbox-deps.ts';
 import { prepareSandboxLaunch } from './sandbox-launch.ts';

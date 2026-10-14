@@ -7,7 +7,7 @@ import type { SessionState } from '../../shared/states.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { decideWasActiveFlip } from './core/session-registry-core.ts';
 import { adapterBucket, classifySessionExit } from '../core/telemetry-core.ts';
-import { INTERACTIVE_LANE } from '../core/usage-lane-core.ts';
+import { INTERACTIVE_LANE } from '../usage/core/usage-lane-core.ts';
 import { resolveCheckConfig, runPostTurnChecks } from '../post-turn-checker.ts';
 import type { Telemetry } from '../telemetry.ts';
 import { errorMessage } from '../../shared/text.ts';

@@ -9,7 +9,7 @@ import type { CoherenceOrient, CoherenceWorkInspect } from '../../../shared/cont
 import type { FactoryWorkerEvent, FactoryReviewVerdict, FactoryIntentTicket, FactoryQueueIntentRequest } from '../../../shared/contracts/factory.ts';
 import { FACTORY_PROTECTED_PATH_FLOOR, FactoryProjectState, FactoryReviewerOutput } from '../../../shared/contracts/factory.ts';
 import { STATES } from '../../../shared/states.ts';
-import type { LaneSpend } from '../../core/usage-scan-core.ts';
+import type { LaneSpend } from '../../usage/core/usage-scan-core.ts';
 import type { SessionState } from '../../../shared/states.ts';
 
 export const FACTORY_NOTIFY_CATEGORY = 'factory';

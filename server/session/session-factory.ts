@@ -14,9 +14,9 @@ import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { isSessionConfined } from '../sandbox/core/sandbox-roles-core.ts';
 import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './core/session-registry-core.ts';
-import { expandTilde } from '../core/usage-scan-core.ts';
+import { expandTilde } from '../usage/core/usage-scan-core.ts';
 import type { SessionSandbox } from '../sandbox/session-sandbox.ts';
-import { resolveUsageConfig } from '../usage-wiring.ts';
+import { resolveUsageConfig } from '../usage/usage-wiring.ts';
 
 type SessionSpawnOverrides = Pick<SessionOptions,
   'requireWorktree' | 'gitWorkspace' | 'gitIsolation' | 'settingsPermissions' | 'settingsSandbox' | 'prepareSandbox' | 'hookTools' | 'getHookTools' | 'dangerouslySkipPermissions' | 'factoryRole' | 'agent' | 'agentDepth' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;

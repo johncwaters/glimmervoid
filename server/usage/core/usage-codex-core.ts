@@ -1,6 +1,6 @@
 import { parseJsonLine, vendorUsageEntry } from './usage-entry-core.ts';
 import type { DedupIdentityEntry, UsageEntry } from './usage-entry-core.ts';
-import { numberOr, rawTextOr } from '../../shared/coerce.ts';
+import { numberOr, rawTextOr } from '../../../shared/coerce.ts';
 
 interface CodexTokenUsage {
   input_tokens?: unknown;

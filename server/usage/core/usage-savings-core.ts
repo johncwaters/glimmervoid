@@ -1,6 +1,6 @@
 import { lookupModelPrice, ratesForPrice } from './usage-pricing-core.ts';
 import { vendorOf } from './usage-aggregate-core.ts';
-import { isRecord, numberOr, rawTextOr } from '../../shared/coerce.ts';
+import { isRecord, numberOr, rawTextOr } from '../../../shared/coerce.ts';
 
 export interface RtkDailyRow {
   date: string;

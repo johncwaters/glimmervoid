@@ -5,7 +5,7 @@ import {
   costForEntry,
   lookupModelPrice,
   normalizePricingTable,
-} from '../server/core/usage-pricing-core.ts';
+} from '../server/usage/core/usage-pricing-core.ts';
 import pricingSnapshot from '../server/data/claude-pricing.json' with { type: 'json' };
 
 test('normalizePricingTable accepts snapshot-shaped and raw LiteLLM-shaped objects', () => {

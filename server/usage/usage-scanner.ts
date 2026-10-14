@@ -5,7 +5,7 @@ import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
 import { buildUsageReport, pruneEntries } from './core/usage-aggregate-core.ts';
-import { localDayKey } from '../shared/display-text.ts';
+import { localDayKey } from '../../shared/display-text.ts';
 import { dailyBaseline, detectBurnAnomaly, detectDailyAnomaly } from './core/usage-anomaly-core.ts';
 import { buildBlocks, burnRate, projectBlock } from './core/usage-blocks-core.ts';
 import type { UsageBlock } from './core/usage-blocks-core.ts';
@@ -54,10 +54,10 @@ import {
   warehouseDailyRows,
 } from './core/usage-warehouse-core.ts';
 import type { WarehouseRecord } from './core/usage-warehouse-core.ts';
-import { createJsonStateStore } from './json-file.ts';
-import { createLaneLog } from './lanes/lane-log.ts';
-import type { LaneLog } from './lanes/lane-log.ts';
-import { errorMessage, isMissingFileError } from '../shared/text.ts';
+import { createJsonStateStore } from '../json-file.ts';
+import { createLaneLog } from '../lanes/lane-log.ts';
+import type { LaneLog } from '../lanes/lane-log.ts';
+import { errorMessage, isMissingFileError } from '../../shared/text.ts';
 
 const DEFAULT_BYTE_BUDGET = 64 * 1024 * 1024;
 const DEFAULT_CHUNK_SIZE = 1024 * 1024;

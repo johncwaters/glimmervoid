@@ -14,7 +14,7 @@ import type { FactoryCloseOutWorker } from '../server/factory/factory-closeout.t
 import { createFactoryDispatch } from '../server/factory/factory-dispatch.ts';
 import { LANE_ENVIRONMENT_ARGS } from '../server/lanes/core/lane-permissions-core.ts';
 import type { SandboxRole } from '../server/sandbox/core/sandbox-policy-core.ts';
-import type { LaneSpend } from '../server/core/usage-scan-core.ts';
+import type { LaneSpend } from '../server/usage/core/usage-scan-core.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { cliPath, resolvePackageBin } from '../server/runtime-paths.ts';
 import { createSessionFactory } from '../server/session/session-factory.ts';

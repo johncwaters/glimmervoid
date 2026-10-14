@@ -7,7 +7,7 @@ import {
   buildPlanLimitsMessage,
   planLimitsSignature,
   selectOfficialSessionCost,
-} from '../server/core/usage-statusline-core.ts';
+} from '../server/usage/core/usage-statusline-core.ts';
 
 const NOW = 1_800_000_000_000;
 

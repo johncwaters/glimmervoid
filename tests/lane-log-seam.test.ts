@@ -7,10 +7,10 @@ const repoRoot = path.join(import.meta.dirname, '..');
 
 const laneModules = [
   { file: 'server/trace-wiring.ts', prefix: '[trace]' },
-  { file: 'server/usage-wiring.ts', prefix: '[usage]' },
-  { file: 'server/usage-scanner.ts', prefix: '[usage]' },
-  { file: 'server/usage-lane-ledger.ts', prefix: '[usage]' },
-  { file: 'server/usage-pricing.ts', prefix: '[usage]' },
+  { file: 'server/usage/usage-wiring.ts', prefix: '[usage]' },
+  { file: 'server/usage/usage-scanner.ts', prefix: '[usage]' },
+  { file: 'server/usage/usage-lane-ledger.ts', prefix: '[usage]' },
+  { file: 'server/usage/usage-pricing.ts', prefix: '[usage]' },
 ];
 
 const calledLoggerChannel = /\blogger\s*\.\s*(?:log|warn|error|info|debug)\s*\(/;

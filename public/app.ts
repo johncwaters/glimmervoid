@@ -62,7 +62,7 @@ import { getActiveView, uiState } from './ui-state-core.ts';
 import { updateBannerMode } from './updates-view-core.ts';
 import { decideAppReveal, MAX_REVEAL_WAIT_MS } from './app-reveal-core.ts';
 import { whenBundledMonoFontLoads } from './mono-font.ts';
-import { applyPlanLimits, applyUsageReport, applyUsageSessions, setUsageRequestSender } from './usage-panel.ts';
+import { applyPlanLimits, applyUsageReport, applyUsageSessions, setUsageRequestSender } from './usage/usage-panel.ts';
 import { createDashboardViews } from './view-registry.ts';
 import type { DashboardView } from './view-registry.ts';
 import { refreshViewOnReason, refreshVisibleViews, viewAvailabilityFromSettings, viewsInTabOrder } from './view-registry-core.ts';

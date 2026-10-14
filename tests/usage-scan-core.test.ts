@@ -12,7 +12,7 @@ import {
   resolveProjectsDirs,
   shouldEvaluateDespiteIoFailures,
   splitLines,
-} from '../server/core/usage-scan-core.ts';
+} from '../server/usage/core/usage-scan-core.ts';
 
 test('an incremental io-failed pass still earns a warehouse write, a forced one does not', () => {
   assert.equal(shouldPersistWarehouse({ outcome: 'complete', storeReset: true }), true);

@@ -8,8 +8,8 @@ import { canonicalizePath } from '../../shared/canonical-paths.ts';
 import { claudeProjectsDir } from '../../session/core/conversation-history.ts';
 import {
   codexHomes, codexRootCandidates, codexSessionIdFromPath, grokHomes, grokRootCandidates, isUsageFile,
-} from '../core/usage-scan-core.ts';
-import { INTERACTIVE_LANE, laneKey } from '../core/usage-lane-core.ts';
+} from '../usage/core/usage-scan-core.ts';
+import { INTERACTIVE_LANE, laneKey } from '../usage/core/usage-lane-core.ts';
 import {
   MAX_CATCH_UP_BYTES, applyRead, canTrustCachedListing, createTailState, isActiveMtime, pickStaleByMtime,
   planRead,

@@ -14,7 +14,7 @@ import {
   isTurnEndHookEvent,
 } from './core/factory-core.ts';
 import type { FactoryLiveWorker, FactoryStallSession } from './core/factory-core.ts';
-import type { LaneSpend } from '../core/usage-scan-core.ts';
+import type { LaneSpend } from '../usage/core/usage-scan-core.ts';
 import { parseFilterDriverNames } from '../git/core/git-invocation-core.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES } from '../lanes/core/lane-permissions-core.ts';
 import { runHardenedGit } from '../git/git-workspace.ts';

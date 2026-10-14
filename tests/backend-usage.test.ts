@@ -8,10 +8,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { createBackend } from '../server/backend/backend.ts';
-import { createUsageWiring } from '../server/usage-wiring.ts';
-import type { UsageWiringOptions } from '../server/usage-wiring.ts';
-import { createUsageScanner } from '../server/usage-scanner.ts';
-import { loadPricing } from '../server/usage-pricing.ts';
+import { createUsageWiring } from '../server/usage/usage-wiring.ts';
+import type { UsageWiringOptions } from '../server/usage/usage-wiring.ts';
+import { createUsageScanner } from '../server/usage/usage-scanner.ts';
+import { loadPricing } from '../server/usage/usage-pricing.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { DashboardClient } from './helpers/dashboard-ws.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';

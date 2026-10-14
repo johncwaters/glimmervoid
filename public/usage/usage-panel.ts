@@ -1,10 +1,10 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import { createAttentionAck } from './attention-ack-core.ts';
-import { nextRequestId } from './control-ws.ts';
-import { buildPanelSection, el, isPanelHidden } from './dom-helpers.ts';
-import { createPollAgoTicker, formatAgo } from './poll-ago.ts';
-import { createSettingsLink } from './settings-link.ts';
-import { getUsageAttentionAck, setUsageAttentionAck } from './ui-prefs.ts';
+import { createAttentionAck } from '../attention-ack-core.ts';
+import { nextRequestId } from '../control-ws.ts';
+import { buildPanelSection, el, isPanelHidden } from '../dom-helpers.ts';
+import { createPollAgoTicker, formatAgo } from '../poll-ago.ts';
+import { createSettingsLink } from '../settings-link.ts';
+import { getUsageAttentionAck, setUsageAttentionAck } from '../ui-prefs.ts';
 import {
   DEFAULT_DAY_SORT,
   DEFAULT_MODEL_SORT,

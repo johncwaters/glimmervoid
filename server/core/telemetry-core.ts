@@ -9,7 +9,7 @@ import type {
   AiGenerationProperties, ExceptionFrame, ExceptionProperties, FactoryDecisionProperties, SessionExitKind, TelemetryAdapter,
 } from '../../shared/contracts/telemetry.ts';
 import type { FactoryDecisionLogLine } from '../../shared/contracts/factory-decision-log.ts';
-import type { UsageGenerationRollupRow } from './usage-entry-core.ts';
+import type { UsageGenerationRollupRow } from '../usage/core/usage-entry-core.ts';
 
 const POSTHOG_INGEST_HOST = 'https://us.i.posthog.com';
 const POSTHOG_PROJECT_TOKEN = 'phc_s68t9vWmeGcrWkx4NkLQaEiVZ9sMBxv8GjQBbAcix2Sf';

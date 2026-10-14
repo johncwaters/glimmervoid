@@ -8,7 +8,7 @@ import {
 } from '../server/core/telemetry-core.ts';
 import { AiGenerationProperties, TELEMETRY_EVENT_SCHEMAS, TELEMETRY_EVENTS } from '../shared/contracts/telemetry.ts';
 import { FactoryDecisionLogLine } from '../shared/contracts/factory-decision-log.ts';
-import type { UsageGenerationRollupRow } from '../server/core/usage-entry-core.ts';
+import type { UsageGenerationRollupRow } from '../server/usage/core/usage-entry-core.ts';
 import type { TelemetryEventName } from '../shared/contracts/telemetry.ts';
 
 const POSIX_PACKAGE_ROOT = '/home/alice/.npm-global/lib/node_modules/glimmervoid';

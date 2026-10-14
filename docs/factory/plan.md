@@ -84,7 +84,7 @@ Refreshing the clone from the real `main` is unproven. The expected route is to 
    - `mergeBack` pushes without the integration check.
    - A repo-level `.claude/settings.json` can widen the sandbox.
    - A repo-local `core.askPass` can run when `GIT_ASKPASS` is unset.
-   - A byte-limited usage pass after catch-up reports spend as `known`, so the budget fails open (`server/core/usage-scan-core.ts`).
+   - A byte-limited usage pass after catch-up reports spend as `known`, so the budget fails open (`server/usage/core/usage-scan-core.ts`).
    - A config file kept outside the Glimmervoid folder, and the files beside it, stay readable from a lane shell.
    - The sandbox changes were checked on Linux only; macOS is unverified.
    - The Windows isolation paths are untested.

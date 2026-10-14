@@ -1,6 +1,6 @@
 import type { UsageTotals } from './usage-entry-core.ts';
 import { addEntryToTotals, emptyTotals } from './usage-entry-core.ts';
-import { numberOr, rawTextOr } from '../../shared/coerce.ts';
+import { numberOr, rawTextOr } from '../../../shared/coerce.ts';
 
 export interface WarehouseRecord {
   day: string;

@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { loadPricing } from '../server/usage-pricing.ts';
-import type { LoadPricingOptions } from '../server/usage-pricing.ts';
-import { costForEntry } from '../server/core/usage-pricing-core.ts';
-import type { ModelPrice } from '../server/core/usage-pricing-core.ts';
+import { loadPricing } from '../server/usage/usage-pricing.ts';
+import type { LoadPricingOptions } from '../server/usage/usage-pricing.ts';
+import { costForEntry } from '../server/usage/core/usage-pricing-core.ts';
+import type { ModelPrice } from '../server/usage/core/usage-pricing-core.ts';
 
 type PricingFileSystem = NonNullable<LoadPricingOptions['fsPromises']>;
 

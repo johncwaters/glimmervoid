@@ -2,8 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { computeCacheSavings, normalizeRtkGain } from '../server/core/usage-savings-core.ts';
-import { normalizePricingTable, ratesForPrice } from '../server/core/usage-pricing-core.ts';
+import { computeCacheSavings, normalizeRtkGain } from '../server/usage/core/usage-savings-core.ts';
+import { normalizePricingTable, ratesForPrice } from '../server/usage/core/usage-pricing-core.ts';
 
 const RTK_SAMPLE = {
   summary: {

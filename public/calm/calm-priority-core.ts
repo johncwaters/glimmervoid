@@ -3,7 +3,7 @@ import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { STATES } from '#shared/states.ts';
 import type { SessionAttentionTier } from '../focus-view/attention-core.ts';
 import { pickNextAttention, SESSION_ATTENTION_RANK_BY_TIER, sessionAttentionTier } from '../focus-view/attention-core.ts';
-import { formatMinutes } from '../usage-view-core.ts';
+import { formatMinutes } from '../usage/usage-view-core.ts';
 import { hasPermissionKeys } from './permission-keys-core.ts';
 
 export type CalmTier = SessionAttentionTier;

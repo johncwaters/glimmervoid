@@ -21,8 +21,8 @@ import { seedReviewMergeStatus, setReviewDiff, setReviewMergeStatus } from '../s
 import { setSelectedId } from '../sidebar/selection.ts';
 import { getSoundId, isSoundEnabled } from '../ui-prefs.ts';
 import { openTraceForSession } from '../trace-panel.ts';
-import type { UsageSessionUsage } from '../usage-view-core.ts';
-import { sessionChipText, sessionChipTitle } from '../usage-view-core.ts';
+import type { UsageSessionUsage } from '../usage/usage-view-core.ts';
+import { sessionChipText, sessionChipTitle } from '../usage/usage-view-core.ts';
 import { setRunningActivity } from './activity.ts';
 import { agentBadgeText } from './agent-core.ts';
 import { computeAggregate } from './aggregate-core.ts';

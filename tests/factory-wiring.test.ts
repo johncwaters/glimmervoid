@@ -20,7 +20,7 @@ import type { FactoryState } from '../shared/contracts/factory.ts';
 import { createRepositoryWithOrigin, gitRunnerIn, initGitRepository, stubEnvironmentVariable } from './helpers/factory-fixture.ts';
 import { FACTORY_STALL_MS, buildOrchestratorPrompt, decideIntentClose } from '../server/factory/core/factory-core.ts';
 import { FACTORY_ORCHESTRATOR_ALLOW, FACTORY_ORCHESTRATOR_DENY } from '../server/factory/factory-orchestrator.ts';
-import type { LaneSpend } from '../server/core/usage-scan-core.ts';
+import type { LaneSpend } from '../server/usage/core/usage-scan-core.ts';
 import type { Session } from '../session/sessions.ts';
 import { STATES } from '../shared/states.ts';
 import { plainSession } from './helpers/fake-session.ts';

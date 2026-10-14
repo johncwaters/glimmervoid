@@ -16,7 +16,7 @@ import path from "node:path";
 import pty from "node-pty";
 import { EventEmitter } from "node:events";
 import { execFile } from "../server/child-process-safe.ts";
-import { projectDirCandidates } from "../server/core/usage-scan-core.ts";
+import { projectDirCandidates } from "../server/usage/core/usage-scan-core.ts";
 import { requireExecutableSpawnHelper } from "../server/node-pty-preflight.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";

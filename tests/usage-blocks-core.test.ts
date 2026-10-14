@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildBlocks, burnRate, projectBlock } from '../server/core/usage-blocks-core.ts';
+import { buildBlocks, burnRate, projectBlock } from '../server/usage/core/usage-blocks-core.ts';
 
 function entry(timestampMs: number, input: number, cacheRead = 0, costUSD = 1) {
   return {

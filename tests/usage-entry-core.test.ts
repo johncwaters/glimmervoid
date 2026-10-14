@@ -10,8 +10,8 @@ import {
   parseUsageLine,
   shouldReplace,
   totalTokensOf,
-} from '../server/core/usage-entry-core.ts';
-import type { UsageEntry } from '../server/core/usage-entry-core.ts';
+} from '../server/usage/core/usage-entry-core.ts';
+import type { UsageEntry } from '../server/usage/core/usage-entry-core.ts';
 
 function line(overrides = {}) {
   return JSON.stringify({

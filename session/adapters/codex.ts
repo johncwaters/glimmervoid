@@ -12,7 +12,7 @@ import { buildAgentEnv } from "../core/spawn-env.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import { buildHookCommand } from "../core/hook-command-core.ts";
 import { supervisionLine } from "../core/session-routes.ts";
-import { codexHomes } from "../../server/core/usage-scan-core.ts";
+import { codexHomes } from "../../server/usage/core/usage-scan-core.ts";
 import type {
   AgentAdapterShape,
   AgentArgsOptions,

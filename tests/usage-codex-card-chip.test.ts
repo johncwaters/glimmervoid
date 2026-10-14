@@ -5,9 +5,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createUsageWiring } from '../server/usage-wiring.ts';
-import { createUsageScanner } from '../server/usage-scanner.ts';
-import { loadPricing } from '../server/usage-pricing.ts';
+import { createUsageWiring } from '../server/usage/usage-wiring.ts';
+import { createUsageScanner } from '../server/usage/usage-scanner.ts';
+import { loadPricing } from '../server/usage/usage-pricing.ts';
 import { isolateTranscriptHomes } from './helpers/transcript-homes.ts';
 
 const CODEX_SESSION_ID = '019f43ea-76ac-7041-bd4b-6362e85f6630';

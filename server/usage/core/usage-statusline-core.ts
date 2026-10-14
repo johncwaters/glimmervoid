@@ -1,4 +1,4 @@
-import { isRecord, numberOr } from '../../shared/coerce.ts';
+import { isRecord, numberOr } from '../../../shared/coerce.ts';
 
 const PCT_DECIMALS = 1;
 

@@ -9,7 +9,7 @@ import {
   decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, nodeMajorVersion, resolveProjectToken,
 } from './core/telemetry-core.ts';
 import type { RemoteTelemetryState, TelemetryConfig, TelemetryEnvironment } from './core/telemetry-core.ts';
-import type { UsageGenerationRollupRow } from './core/usage-entry-core.ts';
+import type { UsageGenerationRollupRow } from './usage/core/usage-entry-core.ts';
 import { createJsonStateStore, loadJsonStateFile, writeJsonAtomicSync } from './json-file.ts';
 import { createLaneLog } from './lanes/lane-log.ts';
 import type { LaneLogger } from './lanes/lane-log.ts';

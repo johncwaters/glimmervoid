@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   grokDedupIdentity,
   parseGrokUsageLine,
-} from '../server/core/usage-grok-core.ts';
+} from '../server/usage/core/usage-grok-core.ts';
 
 function grokLine(overrides = {}) {
   return JSON.stringify({

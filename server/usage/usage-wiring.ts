@@ -1,11 +1,11 @@
 import nodeFsPromises from 'node:fs/promises';
 import path from 'node:path';
 
-import { decideTelegramNotification } from '../notifications/channels/telegram.ts';
-import { USAGE_INTEGER_RANGES } from '../shared/settings-ranges.ts';
-import { USAGE_BUDGET_KEYS, USAGE_COST_MODES, USAGE_VENDOR_KEYS } from '../shared/usage-config.ts';
-import type { UsageVendorKey } from '../shared/usage-config.ts';
-import { execFileAsync as defaultExecFileAsync } from './child-process-safe.ts';
+import { decideTelegramNotification } from '../../notifications/channels/telegram.ts';
+import { USAGE_INTEGER_RANGES } from '../../shared/settings-ranges.ts';
+import { USAGE_BUDGET_KEYS, USAGE_COST_MODES, USAGE_VENDOR_KEYS } from '../../shared/usage-config.ts';
+import type { UsageVendorKey } from '../../shared/usage-config.ts';
+import { execFileAsync as defaultExecFileAsync } from '../child-process-safe.ts';
 import { evaluateBudget, markFired, mergeFiredState, normalizeBudgetConfig } from './core/usage-budget-core.ts';
 import type { BudgetAlert, BudgetConfig, BudgetFiredState } from './core/usage-budget-core.ts';
 import { planWindowStartsMs } from './core/usage-lane-core.ts';
@@ -19,21 +19,21 @@ import {
   shouldBroadcastPlanLimits,
 } from './core/usage-statusline-core.ts';
 import type { StatuslineSnapshot } from './core/usage-statusline-core.ts';
-import { createJsonStateStore } from './json-file.ts';
-import { createLaneLog } from './lanes/lane-log.ts';
-import { getRtkPath } from './rtk-resolver.ts';
-import { sendTelegramMessage } from './telegram-transport.ts';
+import { createJsonStateStore } from '../json-file.ts';
+import { createLaneLog } from '../lanes/lane-log.ts';
+import { getRtkPath } from '../rtk-resolver.ts';
+import { sendTelegramMessage } from '../telegram-transport.ts';
 import { loadPricing } from './usage-pricing.ts';
 import type { PricingResult } from './usage-pricing.ts';
-import type { Telemetry } from './telemetry.ts';
+import type { Telemetry } from '../telemetry.ts';
 import { createUsageScanner } from './usage-scanner.ts';
 import type { UsageScannerApi, UsageScannerOptions } from './usage-scanner.ts';
-import { errorMessage } from '../shared/text.ts';
-import { isRecord } from '../shared/coerce.ts';
-import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
-import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../shared/timer-deps.ts';
-import { createCoalescedTimer } from '../shared/coalesce-timer.ts';
-import { createSerialQueue } from './spawn-gate.ts';
+import { errorMessage } from '../../shared/text.ts';
+import { isRecord } from '../../shared/coerce.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../../shared/timer-deps.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
+import { createCoalescedTimer } from '../../shared/coalesce-timer.ts';
+import { createSerialQueue } from '../spawn-gate.ts';
 
 const DEFAULT_USAGE_CONFIG = Object.freeze({
   enabled: true,

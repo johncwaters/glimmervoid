@@ -12,7 +12,7 @@ import { onDebugModeChanged } from './session-card/card-dom.ts';
 import { mountSettingsView } from './settings-panel.ts';
 import { setTeamReviewActivityCallback } from './team-review-panel.ts';
 import { applyTraceConnectionState, mountTraceView, openTraceForSession, refreshTraceView } from './trace-panel.ts';
-import { acknowledgeUsageAttention, mountUsageView, refreshUsageView, requestUsageReport, setUsageActivityCallback } from './usage-panel.ts';
+import { acknowledgeUsageAttention, mountUsageView, refreshUsageView, requestUsageReport, setUsageActivityCallback } from './usage/usage-panel.ts';
 import { acknowledgeVisionsAttention, mountVisionsView, refreshVisionsView, setVisionsActivityCallback } from './visions-panel.ts';
 import { viewAttentionState, viewsInTabOrder } from './view-registry-core.ts';
 import type { PrimaryView, PrimaryViewDefinition, ViewAttention } from './view-registry-core.ts';

@@ -24,10 +24,8 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `notify-dedupe-core.ts` | Pure cross-tab claim (short-TTL localStorage) so exactly one open tab raises each notification |
 | `alert-sound.ts` / `alert-sound-core.ts` | Alert sounds: synthesized built-ins plus the operator's own files from `GET /custom-sounds`; any id no longer present resolves to the default |
 | `health-monitor.ts` | Footer panel rendering server memory/leak telemetry from `health-snapshot` messages |
-| `usage-panel.ts` | Usage tab DOM shell fed by `usage-sessions` pushes and `request-usage-report` replies |
 | `hooks-panel.ts` / `hooks-view-core.ts` | Hooks tab: operator Claude Code hooks (`request-hooks-report`, `save-hook`, `delete-hook`) over a pure core owning every string and draft rule |
 | `trace-panel.ts` / `trace-view-core.ts` | Trace tab: one session's recorded trace paged over `session-trace`, over a pure core owning turn grouping and row labels |
-| `usage-view-core.ts` | Pure Usage tab formatting, sorting, caveat text, warning text, and per-card chip text |
 | `theme.ts` | Theme definitions applied as CSS custom properties; terminal theme derived at runtime |
 | `ui-prefs.ts` / `local-store.ts` | THE localStorage home for UI state (sound, theme, active view, rail and sidebar widths), over quota-safe wrappers. Each key is declared once in `ui-prefs.ts`'s `PREFS` table with its default and normalizer; the accessors are one line each. The review sidebar's width keeps its own storage key so an existing install's saved width survives |
 | `shortcuts-core.ts` | Pure catalog of dashboard shortcuts matched by `KeyboardEvent.code` under Cmd (Mac) or Alt, plus the help list groups; `app.ts` dispatch, the xterm pass-through and the help list all read it |
@@ -52,6 +50,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `phone/` | Phone layout: Board, Terminal and Review behind a bottom nav, plus one More screen per desktop tab, rendered only under `[data-layout="phone"]` (see `phone/AGENTS.md`) |
 | `plan/` | Safe plan parsing and the session card's shared plan face (see `plan/AGENTS.md`) |
 | `sidebar/` | Review sidebar: diff rendering, selection, merge actions (see `sidebar/AGENTS.md`) |
+| `usage/` | Usage tab: the DOM shell and its pure formatting core |
 | `components/` | Static HTML fragments imported `?raw` (see `components/AGENTS.md`) |
 
 ## For AI Agents

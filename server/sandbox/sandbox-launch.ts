@@ -9,7 +9,7 @@ import { listClaudeGlobalConfigPathCandidates } from '../core/claude-trust-core.
 import { decideConfigPath } from '../core/config-path-core.ts';
 import { buildSandboxLaunchPlan, lockedClaudeMountPoints, sandboxPlaceholderPaths, sandboxPolicyProbePaths, standardWriteBlockCandidates } from './core/sandbox-policy-core.ts';
 import type { SandboxHost, SandboxHostPaths, SandboxLaunchPlan, SandboxRole } from './core/sandbox-policy-core.ts';
-import { codexHomes, grokHomes, projectDirCandidates } from '../core/usage-scan-core.ts';
+import { codexHomes, grokHomes, projectDirCandidates } from '../usage/core/usage-scan-core.ts';
 import { writeJsonAtomic } from '../json-file.ts';
 import { relayPath, resolvePackageBin } from '../runtime-paths.ts';
 

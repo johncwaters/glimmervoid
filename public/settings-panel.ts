@@ -65,7 +65,7 @@ import {
   setSoundId,
   setThemeId,
 } from './ui-prefs.ts';
-import { usageStatusLines } from './usage-panel.ts';
+import { usageStatusLines } from './usage/usage-panel.ts';
 import { applySoundEnabled, onSoundEnabledChange } from './mute-button.ts';
 import {
   IDLE_UPDATE_REQUEST,

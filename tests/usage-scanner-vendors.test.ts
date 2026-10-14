@@ -4,12 +4,12 @@ import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createUsageScanner } from '../server/usage-scanner.ts';
-import type { UsageScannerOptions } from '../server/usage-scanner.ts';
-import { normalizePricingTable } from '../server/core/usage-pricing-core.ts';
-import { codexDedupIdentity } from '../server/core/usage-codex-core.ts';
-import { grokDedupIdentity } from '../server/core/usage-grok-core.ts';
-import { dedupKeys } from '../server/core/usage-entry-core.ts';
+import { createUsageScanner } from '../server/usage/usage-scanner.ts';
+import type { UsageScannerOptions } from '../server/usage/usage-scanner.ts';
+import { normalizePricingTable } from '../server/usage/core/usage-pricing-core.ts';
+import { codexDedupIdentity } from '../server/usage/core/usage-codex-core.ts';
+import { grokDedupIdentity } from '../server/usage/core/usage-grok-core.ts';
+import { dedupKeys } from '../server/usage/core/usage-entry-core.ts';
 
 type Scanner = ReturnType<typeof createUsageScanner>;
 type UsageReport = ReturnType<Scanner['buildReport']>;

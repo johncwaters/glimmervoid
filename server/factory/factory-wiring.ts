@@ -11,7 +11,7 @@ import { glimmervoidHomeDir } from '../config-store.ts';
 import { buildCoherenceShims } from '../core/coherence-session-core.ts';
 import { appendFactoryLandedSha, buildTicketCreateArgs, decideFactoryStalls, exceedsRiskCeiling, factoryConfigKey, factoryWrittenRecordId, findFactoryProjectPath, findIntentTicketProblem, FACTORY_FIRST_TICK_DELAY_MS, FACTORY_LEDGER_SESSION, FACTORY_NOTIFY_CATEGORY, factoryIntentWorkId, factoryShouldStart, isFactoryProjectInFlight, hasValidWriteScopes, hasWildcardWriteScope, isCompletedCommandFailure, redactSecretLines, withIntentFloorAllowances } from './core/factory-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
-import type { LaneSpend } from '../core/usage-scan-core.ts';
+import type { LaneSpend } from '../usage/core/usage-scan-core.ts';
 import { captureFactoryLedgerRecord, commitAndLandFactoryLedger, discardPendingLedgerWrites, hasCodeChangedBetween, listRecordsMissingFromHead, readCodeDiffBetween, screenPendingLedgerWrites } from './factory-ledger.ts';
 import { createFactoryDecisionLog } from './factory-decision-log.ts';
 import { factoryDecisionContext, isLogOnlyFactoryEvent } from './core/factory-decision-log-core.ts';

@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 
 import {
   createUsageWiring, resolveUsageConfig, DEFAULT_USAGE_CONFIG, RTK_SAVINGS_TTL_MS,
-} from '../server/usage-wiring.ts';
-import { normalizePricingTable } from '../server/core/usage-pricing-core.ts';
-import type { UsageScannerApi } from '../server/usage-scanner.ts';
+} from '../server/usage/usage-wiring.ts';
+import { normalizePricingTable } from '../server/usage/core/usage-pricing-core.ts';
+import type { UsageScannerApi } from '../server/usage/usage-scanner.ts';
 
 const COMPLETE_PASS: Awaited<ReturnType<UsageScannerApi['runPass']>> = {
   files: 1,

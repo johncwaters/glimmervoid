@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { numberOr, rawTextOr } from '../../shared/coerce.ts';
-import { parseJsonRecord } from './json-core.ts';
+import { numberOr, rawTextOr } from '../../../shared/coerce.ts';
+import { parseJsonRecord } from '../../core/json-core.ts';
 
 const NULL_REJECT_FIELDS = Object.freeze([
   ['id'],

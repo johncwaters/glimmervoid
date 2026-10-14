@@ -5,7 +5,7 @@ import {
   dailyBaseline,
   detectBurnAnomaly,
   detectDailyAnomaly,
-} from '../server/core/usage-anomaly-core.ts';
+} from '../server/usage/core/usage-anomaly-core.ts';
 
 test('dailyBaseline needs seven usable history days', () => {
   assert.equal(dailyBaseline(days(6, 2), { excludeDay: '2026-08-19' }), null);

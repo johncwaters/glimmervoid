@@ -8,8 +8,8 @@ import {
   markFired,
   mergeFiredState,
   normalizeBudgetConfig,
-} from '../server/core/usage-budget-core.ts';
-import type { BudgetAlert, BudgetFiredState } from '../server/core/usage-budget-core.ts';
+} from '../server/usage/core/usage-budget-core.ts';
+import type { BudgetAlert, BudgetFiredState } from '../server/usage/core/usage-budget-core.ts';
 
 function stampAlerts(firedState: BudgetFiredState, alerts: BudgetAlert[]): BudgetFiredState {
   for (const alert of alerts) {

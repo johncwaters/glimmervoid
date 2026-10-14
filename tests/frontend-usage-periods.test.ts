@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { HeatmapCell, UsageModelRow, UsageWireRow } from '../public/usage-view-core.ts';
+import type { HeatmapCell, UsageModelRow, UsageWireRow } from '../public/usage/usage-view-core.ts';
 
-import { anomalyLine, anomalyTone, BUDGET_ATTENTION_PCT, budgetRowMeterLabel, budgetRowPct, budgetRows, budgetRowText, budgetScopeLabel, DEFAULT_PERIOD_VIEW, glimmervoidOverhead, hasAnomaly, hasLaneAttribution, HEATMAP_DAY_LABELS, HEATMAP_WEEKS, heatmapCells, heatmapCellTitle, heatmapTone, historyNote, LANE_SCOPE_HINT, laneLabel, laneRows, laneSessionsText, monthKey, monthlyRows, overheadLanesText, overheadPlanText, PERIOD_VIEWS, periodLabel, periodRows, prReviewsSpendTile, usageAttentionSignature, weeklyRows, weekStartKey } from '../public/usage-view-core.ts';
-import * as core from '../public/usage-view-core.ts';
+import { anomalyLine, anomalyTone, BUDGET_ATTENTION_PCT, budgetRowMeterLabel, budgetRowPct, budgetRows, budgetRowText, budgetScopeLabel, DEFAULT_PERIOD_VIEW, glimmervoidOverhead, hasAnomaly, hasLaneAttribution, HEATMAP_DAY_LABELS, HEATMAP_WEEKS, heatmapCells, heatmapCellTitle, heatmapTone, historyNote, LANE_SCOPE_HINT, laneLabel, laneRows, laneSessionsText, monthKey, monthlyRows, overheadLanesText, overheadPlanText, PERIOD_VIEWS, periodLabel, periodRows, prReviewsSpendTile, usageAttentionSignature, weeklyRows, weekStartKey } from '../public/usage/usage-view-core.ts';
+import * as core from '../public/usage/usage-view-core.ts';
 
 interface DayOptions {
   tokens?: number;

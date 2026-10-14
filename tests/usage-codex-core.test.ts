@@ -5,7 +5,7 @@ import {
   codexDedupIdentity,
   createCodexUsageState,
   parseCodexUsageLine,
-} from '../server/core/usage-codex-core.ts';
+} from '../server/usage/core/usage-codex-core.ts';
 
 function turnContextLine(model = 'gpt-5.5') {
   return JSON.stringify({

@@ -2,9 +2,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createUsageWiring, resolveUsageConfig, DEFAULT_USAGE_CONFIG } from '../server/usage-wiring.ts';
-import type { UsageScannerApi } from '../server/usage-scanner.ts';
-import { sessionChipCost } from '../public/usage-view-core.ts';
+import { createUsageWiring, resolveUsageConfig, DEFAULT_USAGE_CONFIG } from '../server/usage/usage-wiring.ts';
+import type { UsageScannerApi } from '../server/usage/usage-scanner.ts';
+import { sessionChipCost } from '../public/usage/usage-view-core.ts';
 
 const COMPLETE_PASS: Awaited<ReturnType<UsageScannerApi['runPass']>> = {
   files: 1,

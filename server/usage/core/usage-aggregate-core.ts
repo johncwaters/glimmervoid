@@ -1,7 +1,7 @@
 import type { UsageEntryLike, UsageTotals } from './usage-entry-core.ts';
 import { addEntryToTotals, dedupKeys, emptyTotals, totalTokensOf } from './usage-entry-core.ts';
-import { numberOr } from '../../shared/coerce.ts';
-import { localDayKey } from '../../shared/display-text.ts';
+import { numberOr } from '../../../shared/coerce.ts';
+import { localDayKey } from '../../../shared/display-text.ts';
 
 interface VendorTotals {
   tokens: number;

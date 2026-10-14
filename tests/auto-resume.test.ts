@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { pickAutoResume, resolveResumeTarget, shouldAdoptReportedResumeId, RESUME_ID_RE } from '../session/core/auto-resume.ts';
-import { projectDirCandidates } from '../server/core/usage-scan-core.ts';
+import { projectDirCandidates } from '../server/usage/core/usage-scan-core.ts';
 
 const RESUME_SESSION_ID = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
 const REPORTED_SESSION_ID = '11111111-1111-4111-8111-111111111111';

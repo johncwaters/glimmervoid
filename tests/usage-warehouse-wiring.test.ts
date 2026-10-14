@@ -5,9 +5,9 @@ import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createUsageScanner } from '../server/usage-scanner.ts';
-import type { UsageScannerOptions } from '../server/usage-scanner.ts';
-import { normalizePricingTable } from '../server/core/usage-pricing-core.ts';
+import { createUsageScanner } from '../server/usage/usage-scanner.ts';
+import type { UsageScannerOptions } from '../server/usage/usage-scanner.ts';
+import { normalizePricingTable } from '../server/usage/core/usage-pricing-core.ts';
 
 type Scanner = ReturnType<typeof createUsageScanner>;
 

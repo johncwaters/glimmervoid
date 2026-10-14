@@ -6,7 +6,7 @@ import {
   pruneWarehouse,
   rollupFromReport,
   warehouseDailyRows,
-} from '../server/core/usage-warehouse-core.ts';
+} from '../server/usage/core/usage-warehouse-core.ts';
 
 test('mergeWarehouse replaces records with the same day and model key', () => {
   const existing = [record('2026-08-18', 'claude-a', 1)];

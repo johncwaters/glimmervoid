@@ -1,4 +1,4 @@
-import { numberOr } from '../../shared/coerce.ts';
+import { numberOr } from '../../../shared/coerce.ts';
 
 export interface DailyUsageRow {
   day?: unknown;

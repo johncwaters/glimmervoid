@@ -1,5 +1,5 @@
 import type { RateLimitWindow, RateLimitWindows } from './usage-statusline-core.ts';
-import { numberOr, rawTextOr } from '../../shared/coerce.ts';
+import { numberOr, rawTextOr } from '../../../shared/coerce.ts';
 
 export interface LaneLedgerEntry {
   vendor: string;

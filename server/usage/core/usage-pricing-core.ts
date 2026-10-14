@@ -1,4 +1,4 @@
-import { numberOr } from '../../shared/coerce.ts';
+import { numberOr } from '../../../shared/coerce.ts';
 
 export type ModelPrice = Record<string, unknown>;
 

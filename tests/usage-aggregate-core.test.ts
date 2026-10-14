@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { UsageEntryLike } from '../server/core/usage-entry-core.ts';
-import { buildUsageReport, pruneEntries } from '../server/core/usage-aggregate-core.ts';
+import type { UsageEntryLike } from '../server/usage/core/usage-entry-core.ts';
+import { buildUsageReport, pruneEntries } from '../server/usage/core/usage-aggregate-core.ts';
 
 function entry(
   timestampMs: number,
