@@ -260,4 +260,4 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
 }
 
 export { createBackendUpdateCheck };
-export type { BackendUpdateCheck, BackendUpdateDependencies, CheckForUpdate, UpdateStatus };
+export type { CheckForUpdate, UpdateStatus };

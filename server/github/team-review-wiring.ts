@@ -1057,15 +1057,6 @@ function createTeamReviewWiring({
   };
 }
 
-type TeamReviewWiring = ReturnType<typeof createTeamReviewWiring>;
-
-export {
-  TEAM_REVIEW_DENY_RULES, TEAM_REVIEW_SESSION_DENY_RULES,
-  createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewStateIo, createTeamReviewWiring, makeTeamReviewWorkDir,
-  emptyGhConfigDir, emptyTeamReviewStatus, hooksPathPinnedSpawnEnv, readReviewReport, sweepLeftoverCheckouts, teamReviewAcceptEditsPermissions, teamReviewCfgKey, describeTeamReviewRole, teamReviewClaudeArgs, teamReviewRole, teamReviewShouldStart, teamReviewSpawnEnv,
-};
+export { TEAM_REVIEW_SESSION_DENY_RULES, createTeamReviewActions, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewStateIo, createTeamReviewWiring, makeTeamReviewWorkDir, emptyGhConfigDir, emptyTeamReviewStatus, hooksPathPinnedSpawnEnv, sweepLeftoverCheckouts, teamReviewAcceptEditsPermissions, teamReviewCfgKey, describeTeamReviewRole, teamReviewClaudeArgs, teamReviewRole, teamReviewShouldStart, teamReviewSpawnEnv };
 export { readTeamReviewSettings } from './core/team-review-core.ts';
-export type {
-  TeamReviewActionGithub, TeamReviewActionOptions, TeamReviewActionOutcome, TeamReviewDispatchOptions, TeamReviewDraftStore, TeamReviewGitWorkspace, LaneSettingsSandbox, TeamReviewRepoCache, TeamReviewSpawn, TeamReviewWiring,
-  TeamReviewWiringConfig, TeamReviewWiringOptions, TeamReviewWorkDir,
-};
+export type { TeamReviewActionGithub, TeamReviewActionOutcome, TeamReviewDispatchOptions, TeamReviewGitWorkspace, LaneSettingsSandbox, TeamReviewRepoCache, TeamReviewSpawn };

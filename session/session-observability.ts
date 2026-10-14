@@ -56,5 +56,4 @@ function createSessionObservability({ agentId, getRecorder }: SessionObservabili
   };
 }
 
-export { createSessionObservability, AUDIT_LOG_MAX };
-export type { DecisionRecorder, SessionObservability, SessionObservabilityOptions };
+export { createSessionObservability };

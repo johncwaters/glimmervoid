@@ -870,4 +870,4 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
 }
 
 export { createPrGh, normalizeIssue };
-export type { CommandResult, RepoPrSearch, GithubIssue, GithubIssueDetail, GithubIssueLabel, PostedReview, PrGh, PrHeadReference, PrReference, PrReviewSnapshot, PrSearchResult };
+export type { CommandResult, PostedReview, PrGh, PrReference, PrReviewSnapshot, PrSearchResult };

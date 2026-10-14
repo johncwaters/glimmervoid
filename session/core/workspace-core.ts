@@ -14,7 +14,7 @@ export interface WorkspacePlan {
   members: WorkspaceMember[];
 }
 
-export type WorkspacePlanningResult = { ok: true; plan: WorkspacePlan } | { ok: false; error: string };
+type WorkspacePlanningResult = { ok: true; plan: WorkspacePlan } | { ok: false; error: string };
 
 export function planWorkspace({ worktreeRoot, sessionName, sessionId, repoPaths }: {
   worktreeRoot: string;

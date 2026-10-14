@@ -208,4 +208,4 @@ function createWsSender(ws: WsSenderSocket, opts: WsSenderOptions = {}): WsSende
 }
 
 export { createWsSender, DEFAULTS };
-export type { WsSender, WsSenderOptions, WsSenderSocket, WsSenderSource };
+export type { WsSender, WsSenderOptions, WsSenderSocket };

@@ -16,7 +16,7 @@ export interface ReplayRecord {
   [key: string]: unknown;
 }
 
-export interface ReplayOptions {
+interface ReplayOptions {
   stabilizationMs?: number;
   conflictWindowMs?: number;
   dedupWindowMs?: number;

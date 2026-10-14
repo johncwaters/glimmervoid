@@ -5,14 +5,14 @@ export interface MergeActionVerdict {
   isEnabled: boolean;
 }
 
-export interface MergeDisabledInputs {
+interface MergeDisabledInputs {
   status: string;
   hasCommits: boolean;
   live: boolean;
   state: string;
 }
 
-export interface ReviewHeadline {
+interface ReviewHeadline {
   text: string;
   namesMergeTarget: boolean;
 }
@@ -110,7 +110,7 @@ export function mergeDisabledReason({
 
 export type ReviewBranchSync = Pick<ServerMessageOf<'branch-sync-status'>, 'branch' | 'upstream' | 'state' | 'ahead' | 'behind' | 'fetched' | 'action' | 'error'>;
 
-export type BranchSyncClickAction = 'resync' | 'recheck';
+type BranchSyncClickAction = 'resync' | 'recheck';
 
 export function hasReviewChanges({ fetched, changedFileCount, hasCommits }: {
   fetched: boolean;

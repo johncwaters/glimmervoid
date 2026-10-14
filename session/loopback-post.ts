@@ -91,5 +91,4 @@ async function postPayload(url: string, body: Buffer): Promise<string | null> {
   return outcome.responseBody;
 }
 
-export { postPayload, postToLoopback, POST_TIMEOUT_MS };
-export type { LoopbackPostOutcome };
+export { postPayload, postToLoopback };

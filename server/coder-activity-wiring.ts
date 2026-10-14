@@ -71,4 +71,3 @@ function createCoderActivityWiring({ config, env = process.env, fetch: fetchStat
 }
 
 export { createCoderActivityReporter, createCoderActivityWiring };
-export type { CoderActivityWiringConfig, CoderActivityWiringOptions };

@@ -385,13 +385,5 @@ async function checkForUpdate({
   }
 }
 
-export {
-  MAIN_FETCH_TIMEOUT_MS,
-  NPM_REGISTRY_LATEST_URL,
-  STATE_FILE_NAME,
-  STATE_TTL_MS,
-  checkForUpdate,
-  detectInstallFlavor,
-  probeBranchAndUpstream,
-};
+export { MAIN_FETCH_TIMEOUT_MS, NPM_REGISTRY_LATEST_URL, checkForUpdate, detectInstallFlavor, probeBranchAndUpstream };
 export type { CheckForUpdateOptions, FetchOrigin, GitCallResult, UpdateCheckStatus };

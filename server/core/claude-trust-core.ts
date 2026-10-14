@@ -68,4 +68,3 @@ export {
   listClaudeGlobalConfigPathCandidates,
   repositoryRootOfCommonGitDir,
 };
-export type { FolderTrustDecision };

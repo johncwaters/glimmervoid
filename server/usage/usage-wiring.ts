@@ -726,18 +726,5 @@ function createUsageWiring({
   };
 }
 
-export {
-  DEFAULT_USAGE_CONFIG,
-  NUDGE_DEBOUNCE_MS,
-  PARTIAL_CONTINUE_MS,
-  RTK_SAVINGS_TTL_MS,
-  USAGE_BUDGET_KEYS,
-  USAGE_COST_MODES,
-  USAGE_VENDOR_KEYS,
-  budgetAlertText,
-  createUsageWiring,
-  resolveUsageConfig,
-  usageCfgKey,
-  usageShouldStart,
-};
-export type { UsageLaneConfig, UsageWiringOptions };
+export { DEFAULT_USAGE_CONFIG, RTK_SAVINGS_TTL_MS, USAGE_BUDGET_KEYS, USAGE_COST_MODES, USAGE_VENDOR_KEYS, budgetAlertText, createUsageWiring, resolveUsageConfig };
+export type { UsageWiringOptions };

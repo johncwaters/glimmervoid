@@ -1,6 +1,6 @@
 const COOKIE_NAME = 'glimmervoid_device';
 
-export interface SetCookieOptions {
+interface SetCookieOptions {
   maxAgeSeconds?: number | null;
   secure?: boolean;
   sameSite?: string;
@@ -8,12 +8,12 @@ export interface SetCookieOptions {
   httpOnly?: boolean;
 }
 
-export interface DeviceCookie {
+interface DeviceCookie {
   id: string;
   secret: string;
 }
 
-export interface CookieFlags {
+interface CookieFlags {
   secure: boolean;
   sameSite: string;
 }

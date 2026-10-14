@@ -460,5 +460,3 @@ export function createMyPrsWiring({ config, broadcast, log = console, homeDir = 
   }
   return { startPoller: runner.startPoller, stopPoller: runner.stopPoller, restartIfConfigChanged: runner.restartIfConfigChanged, getStatus, mergePr, refresh, setKeepMergeable, setMergeWhenReady };
 }
-
-export type { MyPrMergeOutcome };

@@ -10,10 +10,10 @@ export const FLYING_ANIMALS_DEFAULTS = Object.freeze({
   flyingAnimalsOnPhone: true,
 });
 
-export type FlyingAnimalsAdvanced = { [Key in keyof typeof FLYING_ANIMALS_DEFAULTS]: typeof FLYING_ANIMALS_DEFAULTS[Key] extends boolean ? boolean : number };
+type FlyingAnimalsAdvanced = { [Key in keyof typeof FLYING_ANIMALS_DEFAULTS]: typeof FLYING_ANIMALS_DEFAULTS[Key] extends boolean ? boolean : number };
 export type FlyingAnimalsOptions = FlyingAnimalsAdvanced & { flyingAnimalsExcludedSprites: string[] };
 
-export function normalizeFlyingAnimalsNumber(value: unknown, fallback: number, range: { min: number; max: number }): number {
+function normalizeFlyingAnimalsNumber(value: unknown, fallback: number, range: { min: number; max: number }): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
   return Math.min(range.max, Math.max(range.min, value));
 }

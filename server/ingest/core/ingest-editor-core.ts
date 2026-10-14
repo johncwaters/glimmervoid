@@ -14,7 +14,7 @@ const VERB_BY_KIND: Readonly<Record<string, string>> = Object.freeze({
   'doc-close': 'closed',
 });
 
-export interface EditorNotification {
+interface EditorNotification {
   method?: string;
   uri?: string;
   roots?: string[];

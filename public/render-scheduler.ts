@@ -4,7 +4,7 @@ const WRITE_SLICE_BYTES = 16 * 1024;
 
 const ignoreDrain = () => {};
 
-export type TerminalSinkWrite = (data: string, onDrained: () => void) => void;
+type TerminalSinkWrite = (data: string, onDrained: () => void) => void;
 
 interface PendingAction {
   run: () => void;

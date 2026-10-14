@@ -124,4 +124,3 @@ function projectSessionSnapshots(source: SnapshotSource) {
 }
 
 export { projectSessionCard, projectSessionSnapshots };
-export type { SessionCardIdentity, SessionCardSource, SnapshotSource };

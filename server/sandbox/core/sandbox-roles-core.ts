@@ -109,4 +109,4 @@ export {
   isConfinedSessionVendor, isSessionConfined, isWorktreeAdminDirOf, judgeRole, LANE_CREDENTIAL_ENV, LANE_READABLE_HOME_FOLDERS, parseGitdirPointer, sessionRole,
   workRole,
 };
-export type { JudgeRoleFacts, SessionConfinementFacts, SessionRoleFacts, WorkRoleFacts };
+export type { SessionRoleFacts };

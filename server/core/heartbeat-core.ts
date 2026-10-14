@@ -2,12 +2,12 @@ const DEFAULT_INTERVAL_MS = 30_000;
 
 const DEFAULT_DEADLINE_MS = 75_000;
 
-export interface HeartbeatConnection<TKey> {
+interface HeartbeatConnection<TKey> {
   key: TKey;
   lastSeenAt?: number;
 }
 
-export interface HeartbeatSweepPlan<TKey> {
+interface HeartbeatSweepPlan<TKey> {
   terminate: TKey[];
   ping: TKey[];
 }

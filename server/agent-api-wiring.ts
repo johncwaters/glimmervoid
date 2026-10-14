@@ -192,4 +192,4 @@ function createAgentApiWiring({
 }
 
 export { createAgentApiWiring };
-export type { AgentApiPort, AgentApiReply };
+export type { AgentApiPort };

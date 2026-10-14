@@ -6,9 +6,9 @@ import { nativeBindingCandidates, spawnHelperCandidates } from './core/node-pty-
 import { firstLine } from './core/text-core.ts';
 import { errorMessage } from '../shared/text.ts';
 
-export type NodePtyProbeResult = { ok: true; packageDir: string } | { ok: false; reason: string; packageDir: string };
+type NodePtyProbeResult = { ok: true; packageDir: string } | { ok: false; reason: string; packageDir: string };
 
-export interface NativeScanScope {
+interface NativeScanScope {
   platform: NodeJS.Platform;
   arch: string;
 }

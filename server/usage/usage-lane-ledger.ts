@@ -89,4 +89,3 @@ function createLaneLedger({
 }
 
 export { createLaneLedger };
-export type { LaneLedger, LaneLedgerOptions };

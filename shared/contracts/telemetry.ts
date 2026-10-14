@@ -2,8 +2,8 @@ import { z } from 'zod';
 import { BUILTIN_AGENT_IDS } from './config.ts';
 import { FactoryDecisionFailureClass, FactoryDecisionKind, FactoryDecisionOutcome } from './factory-decision-log.ts';
 
-export const TELEMETRY_ADAPTERS = Object.freeze([...BUILTIN_AGENT_IDS, 'custom'] as const);
-export const SESSION_EXIT_KINDS = Object.freeze(['clean', 'error', 'signal', 'no_output'] as const);
+const TELEMETRY_ADAPTERS = Object.freeze([...BUILTIN_AGENT_IDS, 'custom'] as const);
+const SESSION_EXIT_KINDS = Object.freeze(['clean', 'error', 'signal', 'no_output'] as const);
 
 export const MAX_EXCEPTION_FRAMES = 64;
 export const MAX_TEXT_LENGTH = 512;
@@ -13,17 +13,17 @@ export const MAX_AI_MODEL_LENGTH = 128;
 const nonNegativeInteger = z.number().int().nonnegative();
 const boundedText = z.string().max(MAX_TEXT_LENGTH);
 
-export const AppStartedProperties = z.object({}).strict();
+const AppStartedProperties = z.object({}).strict();
 
-export const AppActiveProperties = z.object({
+const AppActiveProperties = z.object({
   active_session_count: nonNegativeInteger,
 }).strict();
 
-export const SessionStartedProperties = z.object({
+const SessionStartedProperties = z.object({
   adapter: z.enum(TELEMETRY_ADAPTERS),
 }).strict();
 
-export const SessionEndedProperties = z.object({
+const SessionEndedProperties = z.object({
   adapter: z.enum(TELEMETRY_ADAPTERS),
   exit_kind: z.enum(SESSION_EXIT_KINDS),
   duration_seconds: nonNegativeInteger,

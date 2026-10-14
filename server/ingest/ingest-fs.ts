@@ -364,9 +364,5 @@ function createFsIngest({
   };
 }
 
-export {
-  CONFIG_HOLDER,
-  DEFAULT_MAX_ROOTS,
-  createFsIngest,
-};
-export type { FsIngestOptions, RootSubscription, WatcherModule };
+export { createFsIngest };
+export type { FsIngestOptions, WatcherModule };

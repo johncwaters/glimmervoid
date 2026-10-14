@@ -198,4 +198,4 @@ function createRepoCache({ rootDir, commandRunner = defaultCommandRunner, remote
 }
 
 export { createRepoCache };
-export type { CommandResult, CommandRunner, NewWorkIsolation, RepoCacheOptions };
+export type { CommandResult, CommandRunner, NewWorkIsolation };

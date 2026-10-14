@@ -312,4 +312,4 @@ async function runPostTurnChecks({
 }
 
 export { gitRoot, listChangedFiles, resolveCheckConfig, runPostTurnChecks };
-export type { PostTurnCheckConfig, PostTurnDependencies, PostTurnReport };
+export type { PostTurnDependencies, PostTurnReport };

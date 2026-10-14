@@ -213,11 +213,5 @@ async function loadPricing({
   return { table: normalizePricingTable(pricingSnapshot), source: 'snapshot', fetchedAt: null };
 }
 
-export {
-  CACHE_TTL_MS,
-  FETCH_PROVIDERS,
-  LITELLM_PRICING_URL,
-  loadPricing,
-  trimAnthropicModels,
-};
+export { loadPricing };
 export type { LoadPricingOptions, PricingResult };

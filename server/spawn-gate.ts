@@ -70,5 +70,4 @@ function createKeyedSerialQueue(): KeyedSerialQueue {
 
 const createSpawnGate = createSerialQueue;
 
-export { createKeyedSerialQueue, createSerialQueue, createSpawnGate, isQueueAdmissionTimeout, QUEUE_ADMISSION_TIMED_OUT };
-export type { KeyedSerialQueue, SerialQueue, SerialQueueRunOptions };
+export { createKeyedSerialQueue, createSerialQueue, createSpawnGate, isQueueAdmissionTimeout };

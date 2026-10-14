@@ -1,6 +1,6 @@
 import { getKeptProjects, setKeptProjects } from './ui-prefs.ts';
 
-export const knownProjectPaths = new Set(getKeptProjects());
+const knownProjectPaths = new Set(getKeptProjects());
 
 function persistKnownProjectPaths() {
   setKeptProjects([...knownProjectPaths]);

@@ -316,4 +316,4 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
 }
 
 export { createSessionHookLifecycle };
-export type { HookInjectionResult, HookRouterPort, SessionHookLifecycle, SessionHookOptions };
+export type { HookRouterPort };

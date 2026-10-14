@@ -71,8 +71,7 @@ export const FACTORY_PROTECTED_PATH_FLOOR = [
   '**/.npmrc', '**/.yarnrc', '**/.yarnrc.yml', '**/pnpm-workspace.yaml', '**/.pnpmfile.cjs', '**/tsconfig*.json', '**/biome.json', '**/biome.jsonc',
   '**/vite.config.*', '**/vitest.config.*', '**/vitest.workspace.*', '**/jest.config.*', '**/.mocharc*', '**/playwright.config.*',
 ] as const;
-export const FactoryFloorAllowance = z.enum(FACTORY_PROTECTED_PATH_FLOOR);
-export type FactoryFloorAllowance = z.infer<typeof FactoryFloorAllowance>;
+const FactoryFloorAllowance = z.enum(FACTORY_PROTECTED_PATH_FLOOR);
 const floorAllowances = z.array(FactoryFloorAllowance).max(FACTORY_PROTECTED_PATH_FLOOR.length);
 
 export const FactoryIntentTicket = z.object({

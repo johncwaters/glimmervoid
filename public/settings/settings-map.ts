@@ -38,7 +38,7 @@ export interface SettingsSetting {
   value?: unknown;
 }
 
-export interface SettingsSectionLink {
+interface SettingsSectionLink {
   settingId: string;
   title: string;
 }

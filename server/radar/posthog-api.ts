@@ -250,4 +250,4 @@ export {
   normalizeIssues,
   parseSpikeIssueIds,
 };
-export type { NormalizedIssue, PosthogApi, PosthogResponse, ProjectId, TrafficBuckets };
+export type { NormalizedIssue, PosthogApi, PosthogResponse, TrafficBuckets };

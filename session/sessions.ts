@@ -2074,4 +2074,4 @@ function claudeCommand(): ResolvedCommand {
 }
 
 export { SANDBOX_UNAPPLIED_ERROR, Session, claudeCommand };
-export type { ClaudeSessionIdEvent, PrepareSessionSandbox, SessionOptions, SessionPlanReviewPort, SessionPty, SessionRecorderPort, SessionSandboxFacts };
+export type { ClaudeSessionIdEvent, PrepareSessionSandbox, SessionOptions, SessionPlanReviewPort, SessionSandboxFacts };

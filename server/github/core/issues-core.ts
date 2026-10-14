@@ -6,10 +6,10 @@ export const ISSUES_LANE_ID = 'issues';
 export const ISSUES_STATE_FILENAME = 'issues-cache.json';
 export const POLL_INTERVAL_MINUTES = 5;
 export const MAX_REPO_ISSUES = 300;
-export const MAX_TOTAL_ISSUES = 1000;
+const MAX_TOTAL_ISSUES = 1000;
 
 export interface IssuesProjectRepo { repo: string; projectId: string }
-export interface IssuesProjectConfig { id?: string; path: string; repos?: readonly string[] }
+interface IssuesProjectConfig { id?: string; path: string; repos?: readonly string[] }
 export interface IssuesSourceBatch {
   source: IssueSource;
   repo?: string;

@@ -20,7 +20,7 @@ export interface StoredDoc {
   text: string;
 }
 
-export interface DocStore {
+interface DocStore {
   docsByUri: Record<string, StoredDoc>;
 }
 
@@ -318,4 +318,4 @@ function listDocs(store: DocStore): Array<StoredDoc | null> {
   return Object.keys(store.docsByUri).map((uri) => getDoc(store, uri));
 }
 
-export { createDocStore, detectBlankLineBoundary, uriOfParams, applyContentChange, applyDidOpen, applyDidChange, applyDidClose, formatRange, getDoc, lineOfOffset, lineStartOffsets, listDocs, offsetOfPosition, replacedSpanOfWholeTextChange };
+export { createDocStore, detectBlankLineBoundary, uriOfParams, applyDidOpen, applyDidChange, applyDidClose, formatRange, getDoc, lineOfOffset, lineStartOffsets, listDocs, offsetOfPosition, replacedSpanOfWholeTextChange };

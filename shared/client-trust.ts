@@ -1,4 +1,4 @@
-export type ClientTrust = 'local' | 'remote';
+type ClientTrust = 'local' | 'remote';
 
 export function normalizeClientTrust(trust: unknown): ClientTrust {
   return trust === 'remote' ? 'remote' : 'local';

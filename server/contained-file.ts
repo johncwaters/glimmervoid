@@ -86,4 +86,4 @@ export async function openContainedFile(
   }
 }
 
-export type { ContainedFileResult, MissingContainedFile, OpenedFile };
+export type { OpenedFile };

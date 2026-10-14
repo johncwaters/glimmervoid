@@ -1505,15 +1505,4 @@ async function populateWorktree(projectPath: string, wtDir: string, shareList: s
 type GitWorkspaceInstance = ReturnType<typeof createGitWorkspace>;
 
 export { createGitWorkspace, createGitWorkspaceSync };
-export type {
-  GitResult,
-  GitWorkspaceInstance,
-  IntegrationSyncResult,
-  MergeFastForwardOutcome,
-  MergeFastForwardResult,
-  MergeOutcome,
-  RebaseOutcome,
-  SessionWorktree,
-  WorkspaceHandle,
-  WorktreeArgs,
-};
+export type { GitWorkspaceInstance, IntegrationSyncResult, SessionWorktree, WorkspaceHandle, WorktreeArgs };

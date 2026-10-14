@@ -19,7 +19,7 @@ const MAX_SAMPLE_FILES = 5;
 const MAX_REL_PATH_CHARS = 200;
 const TRUNCATED_SUFFIX = '...';
 
-export type FsChangeKind = 'create' | 'update' | 'delete';
+type FsChangeKind = 'create' | 'update' | 'delete';
 
 export interface FsBatch {
   files: Map<string, FsChangeKind>;
@@ -27,7 +27,7 @@ export interface FsBatch {
   floored: boolean;
 }
 
-export interface DaemonWriteRules {
+interface DaemonWriteRules {
   paths: string[];
   dir: string;
   prefix: string;

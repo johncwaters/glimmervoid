@@ -191,5 +191,5 @@ function createLifecycle({
   return { requestShutdown, requestRestart };
 }
 
-export { awaitReaps, awaitStoppers, awaitTeardown, createLifecycle };
-export type { Lifecycle, LifecycleOptions, RespawnFn };
+export { awaitReaps, createLifecycle };
+export type { LifecycleOptions };

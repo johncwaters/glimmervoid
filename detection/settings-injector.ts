@@ -23,19 +23,19 @@ const PLAN_HOLD_RELEASE_MS = (PLAN_HOOK_TIMEOUT_SEC - PLAN_HOLD_RELEASE_LEAD_SEC
 const DIR_MODE = 0o700;
 const FILE_MODE = 0o600;
 
-export interface SettingsHookHandler {
+interface SettingsHookHandler {
   type: string;
   url?: string;
   command?: string;
   timeout?: number;
 }
 
-export interface SettingsHookEntry {
+interface SettingsHookEntry {
   matcher?: string;
   hooks: SettingsHookHandler[];
 }
 
-export interface SessionPermissions {
+interface SessionPermissions {
   allow?: string[];
   deny?: string[];
   defaultMode?: string;
@@ -49,7 +49,7 @@ export interface HookSettings {
   sandbox?: Record<string, unknown>;
 }
 
-export interface BuildHookSettingsOptions {
+interface BuildHookSettingsOptions {
   port: number;
   glimmervoidId: string;
   token: string;
@@ -68,7 +68,7 @@ export interface BuildHookSettingsOptions {
   userHooks?: UserHook[];
 }
 
-export interface WriteSessionSettingsOptions extends Omit<BuildHookSettingsOptions, 'token'> {
+interface WriteSessionSettingsOptions extends Omit<BuildHookSettingsOptions, 'token'> {
   token?: string;
   baseDir?: string;
 }
@@ -283,26 +283,4 @@ function sweepOrphans(baseDir: string = DEFAULT_BASE_DIR, maxAgeMs: number = 24 
 
 const safeDirSegment = safePathSegment;
 
-export {
-  buildHookSettings,
-  describeBuiltinHooks,
-  writeSessionSettings,
-  sweepOrphans,
-  generateToken,
-  safeDirSegment,
-  buildStatuslineCommand,
-  buildCommandHookCommand,
-  readUserStatuslineCommand,
-  HOOK_EVENTS,
-  WAKEUP_TOOL_MATCHER,
-  DEFAULT_BASE_DIR,
-  DEFAULT_TIMEOUT_SEC,
-  PLAN_HOOK_TIMEOUT_SEC,
-  PLAN_HOLD_RELEASE_MS,
-  PLAN_TOOL_MATCHER,
-  DIR_MODE,
-  FILE_MODE,
-  RELAY_PATH,
-  COMMAND_HOOK_RELAY_PATH,
-  NO_CHAIN,
-};
+export { buildHookSettings, describeBuiltinHooks, writeSessionSettings, sweepOrphans, generateToken, safeDirSegment, buildStatuslineCommand, readUserStatuslineCommand, HOOK_EVENTS, WAKEUP_TOOL_MATCHER, DEFAULT_TIMEOUT_SEC, PLAN_HOOK_TIMEOUT_SEC, PLAN_HOLD_RELEASE_MS, DIR_MODE, FILE_MODE, RELAY_PATH, COMMAND_HOOK_RELAY_PATH, NO_CHAIN };

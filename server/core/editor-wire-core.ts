@@ -11,7 +11,7 @@ export interface WireInvocation {
   args: string[];
 }
 
-export interface WireResult {
+interface WireResult {
   text: string;
   changed: boolean;
   reason: string;
@@ -246,15 +246,4 @@ function kateSettings(invocation: WireInvocation): JsonSettingsTarget {
   };
 }
 
-export {
-  SERVER_ID,
-  emacsMerge,
-  emacsRemove,
-  helixMerge,
-  helixRemove,
-  jsonSettingsMerge,
-  jsonSettingsRemove,
-  kateSettings,
-  neovimDropIn,
-  sublimeSettings,
-};
+export { emacsMerge, emacsRemove, helixMerge, helixRemove, jsonSettingsMerge, jsonSettingsRemove, kateSettings, neovimDropIn, sublimeSettings };

@@ -393,4 +393,4 @@ export {
   defaultSeenPath,
   pairingsSignature,
 };
-export type { PairedDevice, PairingsDocument, PairingsStore, PendingPairing, RedeemOutcome, SeenStore };
+export type { PairedDevice, PairingsStore, SeenStore };

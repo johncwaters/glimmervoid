@@ -251,4 +251,3 @@ export {
   MAX_TRACE_BODY_CHARS,
   traceRecordsFromTranscriptLine,
 };
-export type { TraceLineContext };

@@ -15,8 +15,8 @@ export const PendingWakeup = z.object({
 }).passthrough();
 
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion';
-export const PROMPT_QUESTION_MAX_CHARS = 300;
-export const PROMPT_QUESTION_OPTION_MAX_CHARS = 80;
+const PROMPT_QUESTION_MAX_CHARS = 300;
+const PROMPT_QUESTION_OPTION_MAX_CHARS = 80;
 export const PROMPT_QUESTION_MAX_OPTIONS = 8;
 
 const hasNoHiddenCharacters = (text: string) => !PROMPT_DETAIL_HIDDEN_CHARACTERS.test(text);

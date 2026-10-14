@@ -58,4 +58,3 @@ function shouldDeferAttention(state: SessionState): boolean {
 }
 
 export { acceptsAttentionSignal, mapSignalToEvent, shouldDeferAttention };
-export type { LifecycleEvent };

@@ -14,7 +14,7 @@ export type QueueRowKind = 'ready' | 'settled' | 'inReview' | 'queued' | 'attent
 type ReviewPriorityBand = 'blocking-others' | 'actionable' | 'waiting-on-author' | 'not-ready';
 type ReviewPriorityReason = 'direct-request' | 'team-request' | 'changes-requested' | 'checks-failing' | 'checks-pending' | 'draft' | 'review-available' | 'approved';
 
-export const REVIEW_PRIORITY_REASON_TEXT: Readonly<Record<ReviewPriorityReason, string>> = {
+const REVIEW_PRIORITY_REASON_TEXT: Readonly<Record<ReviewPriorityReason, string>> = {
   'direct-request': 'Needs you', 'team-request': 'Ready',
   'changes-requested': 'Author to fix', 'checks-failing': 'Checks failing', 'checks-pending': 'Checks running', draft: 'Draft', 'review-available': 'Ready', approved: 'Approved',
 };
@@ -29,7 +29,7 @@ export function classifyReviewPriority(review: Pick<QueuedReview, 'requestSource
   return { band: 'actionable', reason: review.requestSource === 'direct' ? 'review-available' : 'team-request' };
 }
 
-export interface QueueRowAges {
+interface QueueRowAges {
   opened?: string | null;
   reviewed?: string | null;
   posted?: string | null;
@@ -37,7 +37,7 @@ export interface QueueRowAges {
   viewerApproval?: string | null;
 }
 
-export interface PostedOutcome {
+interface PostedOutcome {
   label: string;
   tone: StateTone;
   icon: PrStatusIcon;
@@ -65,7 +65,7 @@ export function postedOutcome(draft: ReviewDraft): PostedOutcome | null {
   return VIEWER_REVIEW_OUTCOMES[latestViewerReview.state];
 }
 
-export interface QueueRowGlyph {
+interface QueueRowGlyph {
   tone: StateTone;
   icon: PrStatusIcon;
   meaning: string;
@@ -135,7 +135,7 @@ export function isPostedAwaitingViewer(draft: ReviewDraft): boolean {
   return draft.status === 'posted' && isAwaitingViewerAfterResolvedComments(draft);
 }
 
-export function isAwaitingViewerAfterResolvedComments(draft: ReviewDraft): boolean {
+function isAwaitingViewerAfterResolvedComments(draft: ReviewDraft): boolean {
   if (!hasAllViewerThreadsResolved(draft)) return false;
   if (hasStandingViewerApproval(draft)) return false;
   const head = currentHead(draft);
@@ -210,7 +210,7 @@ export interface ActionReplyNotice {
   tone: 'error';
 }
 
-export interface ActionReplyPlan {
+interface ActionReplyPlan {
   statusText: string;
   shouldAdvance: boolean;
   notice: ActionReplyNotice | null;
@@ -239,12 +239,12 @@ export function queueRowRefLabel(repo: string, number: number, hasMultipleRepos:
   return `#${number}`;
 }
 
-export interface ReviewInlineSegment {
+interface ReviewInlineSegment {
   text: string;
   kind: 'text' | 'code' | 'citation';
 }
 
-export type ReviewParagraph = {
+type ReviewParagraph = {
   kind: 'prose';
   lead: string;
   leadKind: 'fix' | 'question' | null;
@@ -255,7 +255,7 @@ export type ReviewParagraph = {
   code: string;
 };
 
-export interface ParsedReviewComment {
+interface ParsedReviewComment {
   tag: string | null;
   severity: FindingSeverity | null;
   paragraphs: ReviewParagraph[];
@@ -292,7 +292,7 @@ const QUEUE_ROW_VERDICT_LABELS: Readonly<Record<ReviewDraft['verdict'], string>>
   BLOCKED: 'Blocked',
 };
 
-export function queueRowVerdictLabel(verdict: ReviewDraft['verdict']): string {
+function queueRowVerdictLabel(verdict: ReviewDraft['verdict']): string {
   return QUEUE_ROW_VERDICT_LABELS[verdict];
 }
 
@@ -424,7 +424,7 @@ function describeGithubReview(review: GithubReview, head: string): string {
   return `you ${verb} (older commit)`;
 }
 
-export interface ViewerApprovalContext {
+interface ViewerApprovalContext {
   approvedCommit: string;
   submittedAt: GithubReview['submittedAt'];
   state: 'APPROVED' | 'CHANGES_REQUESTED';
@@ -704,7 +704,7 @@ const ACTION_LABELS: Readonly<Record<TeamReviewAction, string>> = Object.freeze(
   'resolve-thread': 'Resolve',
 });
 
-export interface DetailActionLayout {
+interface DetailActionLayout {
   footer: readonly TeamReviewAction[];
   more: readonly TeamReviewAction[];
 }

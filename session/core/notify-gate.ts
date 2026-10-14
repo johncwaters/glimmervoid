@@ -97,4 +97,3 @@ function decideNotification(
 }
 
 export { createNotifyGate, decideAcknowledge, decideNotification, explainNotification };
-export type { AcknowledgeDecision, NotifyDecision, NotifyGate, NotifyOptions };

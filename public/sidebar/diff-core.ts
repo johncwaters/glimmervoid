@@ -1,6 +1,6 @@
 import type { DiffAnnotation } from '#shared/contracts/control-messages.ts';
 
-export interface DiffLine {
+interface DiffLine {
   type: string;
   text: string;
   oldLineNumber: number | null;
@@ -22,7 +22,7 @@ export function parseHunkHeader(header: string): { oldStart: number; newStart: n
   return { oldStart, newStart };
 }
 
-export interface DiffHunk {
+interface DiffHunk {
   header: string;
   lines: DiffLine[];
 }

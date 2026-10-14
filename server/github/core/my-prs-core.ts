@@ -149,10 +149,10 @@ export function mergeQueuePositions(mergeQueueKeys: readonly string[], prs: read
   return positionByKey;
 }
 
-export const KEEP_MERGEABLE_FIRST_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
-export const KEEP_MERGEABLE_MAX_RETRY_DELAY_MS = 48 * 60 * 60 * 1000;
+const KEEP_MERGEABLE_FIRST_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
+const KEEP_MERGEABLE_MAX_RETRY_DELAY_MS = 48 * 60 * 60 * 1000;
 
-export function keepMergeableRetryDelayMs(consecutiveAttempts: number): number {
+function keepMergeableRetryDelayMs(consecutiveAttempts: number): number {
   return nextBackoffMs({ attempt: consecutiveAttempts, baseMs: KEEP_MERGEABLE_FIRST_RETRY_DELAY_MS, maxMs: KEEP_MERGEABLE_MAX_RETRY_DELAY_MS, jitter: 'none' });
 }
 
@@ -179,7 +179,7 @@ export function shouldFixMergeability(pr: MyPr, keepMergeableKeys: ReadonlySet<s
   return pr.mergeable === 'CONFLICTING' || pr.checks.state === 'FAILURE' || pr.checks.state === 'ERROR';
 }
 
-export function keepMergeableMergeMessage(pr: Pick<MyPr, 'baseRefName' | 'headRefName'>): string {
+function keepMergeableMergeMessage(pr: Pick<MyPr, 'baseRefName' | 'headRefName'>): string {
   return `Merge ${pr.baseRefName} into ${pr.headRefName}`;
 }
 
@@ -385,7 +385,7 @@ export function myPrsStatus({ ts, configured, reason = null, viewer = null, prs 
   return { type: 'my-prs-status', ts, configured, reason, viewer, prs, error, truncatedNote, isKeepMergeableEnabled, isMergeQueueEnabled };
 }
 
-export interface MyPrsFeatureSettings {
+interface MyPrsFeatureSettings {
   isKeepMergeableEnabled: boolean;
   isMergeQueueEnabled: boolean;
   keepMergeableTimeoutMinutes: number;

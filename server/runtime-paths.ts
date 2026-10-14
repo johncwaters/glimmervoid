@@ -23,7 +23,7 @@ const runtimePaths: RuntimePaths = computeRuntimePaths({
 
 const { assetRoot, bundled, cliPath, clientDir, extensionDir, packageRoot, relayPath } = runtimePaths;
 
-export { assetRoot, bundled, cliPath, clientDir, extensionDir, packageRoot, relayPath, runtimePaths };
+export { assetRoot, bundled, cliPath, clientDir, extensionDir, packageRoot, relayPath };
 
 const packageBins = new Map<string, string | null>();
 

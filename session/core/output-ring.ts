@@ -96,4 +96,4 @@ function createOutputRing(maxBytes: number): OutputRing {
 }
 
 export { createOutputRing };
-export type { OutputRing, OutputRingSlice, OutputRingStats };
+export type { OutputRingSlice, OutputRingStats };

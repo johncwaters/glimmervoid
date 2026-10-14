@@ -157,4 +157,4 @@ export {
   proveMergedAcrossTips,
   safeDirectoryEntries,
 };
-export type { GitProbeOutput, MergeProbeEnvResult, MergeProof, MergeProofReason, MergeProofVerdict, MergeTreeOutcome, TipProbe };
+export type { MergeProbeEnvResult, MergeProof, MergeProofReason, MergeTreeOutcome, TipProbe };

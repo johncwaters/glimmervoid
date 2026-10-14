@@ -58,13 +58,13 @@ export interface ArmedAdvance {
   armedPromptSummary: string | undefined;
 }
 
-export interface ArmedSessionSnapshot {
+interface ArmedSessionSnapshot {
   state: string;
   stateSince: number | null | undefined;
   pendingPromptSummary: string | undefined;
 }
 
-export type ArmedAdvanceDecision = 'fire' | 'keep' | 'cancel';
+type ArmedAdvanceDecision = 'fire' | 'keep' | 'cancel';
 
 export function decideArmedAdvance(
   armed: ArmedAdvance,

@@ -38,4 +38,4 @@ function decideWaitingInput({ state, hasHookAwaitingInput, pendingPromptKind, is
 }
 
 export { decideWaitingInput, isTerminalReportOnly };
-export type { WaitingInputContext, WaitingInputDecision };
+export type { WaitingInputContext };

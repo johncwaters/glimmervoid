@@ -1,7 +1,7 @@
 
-export const OUTCOME_READ_MS = 4000;
+const OUTCOME_READ_MS = 4000;
 
-export interface RenderHoldOptions {
+interface RenderHoldOptions {
   render: () => void;
   holdMs?: number;
   setTimer?: (handler: () => void, timeout: number) => number;

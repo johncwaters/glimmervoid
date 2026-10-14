@@ -40,7 +40,7 @@ export const FACTORY_ORCHESTRATOR_DENY = Object.freeze([
   'Bash(npx:*)', 'Bash(node:*)', 'Bash(pnpm:*)', 'Bash(yarn:*)', 'Bash(bunx:*)', ...LANE_CONFIG_EDIT_DENY_RULES,
 ]);
 
-export interface FactoryTicketVerbDeps {
+interface FactoryTicketVerbDeps {
   getOrchestrator: (sessionId: string) => { projectId: string; intentId: string } | null;
   findProjectPath: (projectId: string) => string | null;
   serializeProject: <T>(projectId: string, operation: () => Promise<T>) => Promise<T>;

@@ -64,7 +64,7 @@ function buildRtkHookEntry(rtkPath: string): RtkHookEntry {
 }
 
 export { resolveRtkPath, buildRtkHookEntry };
-export type { RtkHookEntry, RtkPathInputs, StatApi };
+export type { StatApi };
 
 type HookToolId = 'rtk' | 'saneYolo';
 interface ResolvedHookTool {
@@ -112,4 +112,4 @@ function mergeCodexPreToolUse(groups: readonly string[]): string[] {
 }
 
 export { HOOK_TOOLS, mergeCodexPreToolUse, quoteCommandPath, toForwardSlashes };
-export type { HookToolId, ResolvedHookTool, HookToolDescriptor };
+export type { HookToolId, ResolvedHookTool };

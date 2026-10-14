@@ -17,7 +17,7 @@ import { prepareSandboxLaunch } from '../sandbox/sandbox-launch.ts';
 const UNWRAPPED_PLATFORM = 'win32';
 const GUARD_HOOK_UNAVAILABLE_ERROR = 'Sane YOLO is unavailable';
 
-export type WorkLaneInput = {
+type WorkLaneInput = {
   cwd: string;
   deferWorktree?: boolean;
   allowCommands: readonly string[];
@@ -52,7 +52,7 @@ export function prepareRoleSandbox(describeRole: (facts: SessionSandboxFacts) =>
   };
 }
 
-export async function existingRealPath(candidate: string): Promise<string | null> {
+async function existingRealPath(candidate: string): Promise<string | null> {
   try {
     return await realpath(candidate);
   } catch (error) {

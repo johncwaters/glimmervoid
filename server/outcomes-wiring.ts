@@ -85,5 +85,5 @@ function createOutcomesLane({
   };
 }
 
-export { createOutcomesLane, SUMMARY_INTERVAL_MS };
-export type { LoopLagHistogram, OutcomesLaneOptions };
+export { createOutcomesLane };
+export type { LoopLagHistogram };

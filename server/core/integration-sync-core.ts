@@ -10,7 +10,7 @@ export type IntegrationSyncOutcome =
 
 export type CheckoutTreeState = 'clean' | 'dirty' | 'unknown';
 
-export interface IntegrationSyncDecision {
+interface IntegrationSyncDecision {
   action: 'none' | 'update' | 'update-checkout';
   outcome: IntegrationSyncOutcome;
 }

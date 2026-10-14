@@ -740,16 +740,5 @@ function createAgentLogIngest({
   };
 }
 
-export {
-  CODEX_HEAD_BYTES,
-  DEFAULT_ACTIVE_WITHIN_MS,
-  DEFAULT_DISCOVER_MS,
-  DEFAULT_POLL_MS,
-  createAgentLogIngest,
-};
-export type {
-  AgentLogIngestOptions,
-  TranscriptFileSystem,
-  CachedDir,
-  TranscriptContext,
-};
+export { DEFAULT_DISCOVER_MS, DEFAULT_POLL_MS, createAgentLogIngest };
+export type { AgentLogIngestOptions, TranscriptFileSystem };

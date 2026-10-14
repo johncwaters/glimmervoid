@@ -28,4 +28,3 @@ function nextBackoffMs({
 }
 
 export { DEFAULT_BASE_MS, DEFAULT_MAX_MS, nextBackoffMs };
-export type { BackoffJitter };

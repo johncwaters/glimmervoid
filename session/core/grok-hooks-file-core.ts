@@ -103,5 +103,4 @@ function classifyGrokHooksFile(
   return "managed-stale";
 }
 
-export { renderGrokHooksFile, classifyGrokHooksFile, isManagedCommand };
-export type { GrokHooksClassification, GrokHooksFileOptions, HookHandler, HookMatcherGroup };
+export { renderGrokHooksFile, classifyGrokHooksFile };

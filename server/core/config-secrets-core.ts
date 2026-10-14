@@ -71,4 +71,3 @@ function stableConfigKey(value: unknown): string {
 }
 
 export { ENV_SECRET_BINDINGS, readEnvSecrets, stableConfigKey, withEnvSecrets, withoutEnvSecrets };
-export type { EnvSecretBinding, ResolvedEnvSecret };

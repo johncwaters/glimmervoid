@@ -74,4 +74,3 @@ export {
   resolveHookTarget,
   decideRelayPost,
 };
-export type { RelayPostVerdict };

@@ -675,8 +675,5 @@ function createConfigStore({ settingsDefaults }: { settingsDefaults?: Partial<De
 
 type ConfigStore = ReturnType<typeof createConfigStore>;
 
-export {
-  createConfigStore, resolveConfigPath, glimmervoidHomeDir, generateProjectId, ensureProjectIds, validateConfig, loadConfigFile,
-  ABORT_CONFIG_SAVE, DEFAULT_CONFIG, CONFIG_DIR_MODE, CONFIG_FILE_MODE, SECRET_PRESENCE_SUFFIX,
-};
-export type { BranchGcBlock, ConfigStore, DefaultConfig, GlimmervoidConfig, LoadedConfig, ProjectEntry };
+export { createConfigStore, resolveConfigPath, glimmervoidHomeDir, generateProjectId, ensureProjectIds, validateConfig, loadConfigFile, ABORT_CONFIG_SAVE, DEFAULT_CONFIG, CONFIG_FILE_MODE, SECRET_PRESENCE_SUFFIX };
+export type { ConfigStore, DefaultConfig, GlimmervoidConfig, ProjectEntry };

@@ -184,5 +184,4 @@ function createRemoteAuth({
   return { httpMiddleware, isUpgradeAuthorized, mountPairRoutes, authenticate, trustOf, stop };
 }
 
-export { DEVICE_COOKIE_MAX_AGE_SECONDS, createRemoteAuth };
-export type { AuthOutcome, RemoteAuth, RemoteAuthOptions };
+export { createRemoteAuth };

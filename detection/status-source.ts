@@ -11,7 +11,7 @@ const IMMEDIATE = new Set(['working', 'awaiting-input', 'resume', 'session-start
 
 const ACTIVITY = new Set(['working', 'resume']);
 
-export interface RawStatusSignal {
+interface RawStatusSignal {
   signal: string;
   source?: string;
   confidence?: string;
@@ -34,7 +34,7 @@ export interface MetaStatusSignal {
   ts: number;
 }
 
-export interface StatusSourceOptions {
+interface StatusSourceOptions {
   sessionId?: string;
   conflictWindowMs?: number;
   dedupWindowMs?: number;

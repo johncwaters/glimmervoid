@@ -29,7 +29,7 @@ function percentile(sorted: number[], p: number) {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-export interface StressOptions {
+interface StressOptions {
   sessions?: number;
   durationMs?: number;
   linesPerTick?: number;

@@ -23,9 +23,9 @@ export interface RadarIssue {
   status?: unknown;
 }
 
-export type TrailStepRow = ServerMessageOf<'radar-investigation-activity'>['trail'][number];
+type TrailStepRow = ServerMessageOf<'radar-investigation-activity'>['trail'][number];
 
-export type InvestigationActivityFrame = Partial<Pick<ServerMessageOf<'radar-investigation-activity'>, 'projectId' | 'issueId' | 'inFlight' | 'startedAt' | 'trail'>>;
+type InvestigationActivityFrame = Partial<Pick<ServerMessageOf<'radar-investigation-activity'>, 'projectId' | 'issueId' | 'inFlight' | 'startedAt' | 'trail'>>;
 
 export type InvestigationFinishedFrame = Partial<Pick<ServerMessageOf<'radar-investigation-finished'>, 'projectId' | 'issueId' | 'startedAt' | 'trail' | 'verdict' | 'summaryLine'>>;
 
@@ -46,7 +46,7 @@ export interface RadarProject {
   issues?: RadarIssue[];
 }
 
-export interface RadarInvestigation {
+interface RadarInvestigation {
   id?: unknown;
   issueId?: unknown;
   projectId?: unknown;
@@ -74,7 +74,7 @@ export interface RadarSnapshot {
 
 export type RadarLoadPhase = 'pending' | 'placeholder' | 'ready';
 
-export interface RadarUpdateFeed {
+interface RadarUpdateFeed {
   updateAvailable?: unknown;
   command?: unknown;
   current?: unknown;
@@ -340,7 +340,7 @@ export function summarizeIssues(issues: unknown) {
 
 export const DEFAULT_STALE_MS = 5 * 60 * 1000;
 
-export function staleThresholdMs(intervalMs: unknown) {
+function staleThresholdMs(intervalMs: unknown) {
   const interval = Number(intervalMs);
   if (!Number.isFinite(interval) || interval <= 0) return DEFAULT_STALE_MS;
   return interval * 2;
@@ -375,7 +375,7 @@ export function hostsDiffer(projects: unknown) {
   return seen.size > 1;
 }
 
-export function radarProjectAlert(
+function radarProjectAlert(
   project: RadarProject | null | undefined,
   nowTs: unknown,
   opts: { intervalMs?: unknown } = {}

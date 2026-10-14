@@ -55,4 +55,3 @@ async function pruneAgedFiles({
 }
 
 export { idForEntry, pruneAgedFiles };
-export type { PruneAgedFilesOptions };

@@ -543,4 +543,4 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
 }
 
 export { createBackendLanes };
-export type { BackendLaneDependencies, BackendLaneOptions };
+export type { BackendLaneOptions };

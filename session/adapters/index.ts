@@ -238,20 +238,4 @@ export {
   resetCommandCache,
   setCustomAgents,
 };
-export type {
-  AgentAdapter,
-  AgentAdapterShape,
-  AgentArgsOptions,
-  AgentCapabilities,
-  AgentCommandOptions,
-  AgentHookProfile,
-  AgentLaunchSession,
-  AgentLaunchSessionOptions,
-  AgentSpawnCommandOptions,
-  AgentTitleProfile,
-  ArgvConfigInjection,
-  HomeHooksFileInjection,
-  HookInjection,
-  ProjectConfigCandidate,
-  SettingsFileInjection,
-};
+export type { AgentAdapter, AgentAdapterShape, AgentArgsOptions, AgentCapabilities, AgentCommandOptions, AgentHookProfile, AgentLaunchSession, AgentLaunchSessionOptions, AgentSpawnCommandOptions, AgentTitleProfile, ArgvConfigInjection, HomeHooksFileInjection, ProjectConfigCandidate };

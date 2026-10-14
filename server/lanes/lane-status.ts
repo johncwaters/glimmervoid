@@ -16,4 +16,3 @@ function emptyLaneStatus(type: string, gate: LaneGate): EmptyLaneStatus {
 }
 
 export { emptyLaneStatus };
-export type { EmptyLaneStatus, LaneGate };

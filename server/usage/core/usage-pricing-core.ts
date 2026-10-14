@@ -2,7 +2,7 @@ import { numberOr } from '../../../shared/coerce.ts';
 
 export type ModelPrice = Record<string, unknown>;
 
-export interface PricedEntry {
+interface PricedEntry {
   costUSD?: unknown;
   input?: unknown;
   output?: unknown;
@@ -14,7 +14,7 @@ export interface PricedEntry {
   model?: unknown;
 }
 
-export interface ResolvedModelPrice {
+interface ResolvedModelPrice {
   key: string;
   price: ModelPrice;
 }

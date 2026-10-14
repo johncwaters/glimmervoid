@@ -49,7 +49,7 @@ export interface ChangeMapNarrator {
   narrationFor(map: ChangeMap, onSettled: () => void, options?: { mayStart?: boolean }): ChangeMapNarration;
 }
 
-export interface ChangeMapBuildOptions {
+interface ChangeMapBuildOptions {
   mayStartNarration?: boolean;
 }
 

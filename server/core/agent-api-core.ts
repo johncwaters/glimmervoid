@@ -219,4 +219,3 @@ export {
   describePushRouteRefusal, isAgentApiVerb, isOrchestratorAgentVerb, parseAgentVerb, tokensMatch, MAX_LIFETIME_SPAWNS, MAX_LIVE_CHILDREN,
   REFUSAL_REASON, REFUSAL_STATUS,
 };
-export type { AgentVerbRequest, SpawnBudget, TicketAction, TicketActionInput };

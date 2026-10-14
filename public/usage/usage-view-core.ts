@@ -16,18 +16,18 @@ export interface UsageModelRow {
 
 export type UsageWireRow = Record<string, unknown>;
 
-export interface UsageTokenLimit {
+interface UsageTokenLimit {
   max?: unknown;
   pct?: unknown;
 }
 
-export interface UsageProjection {
+interface UsageProjection {
   projectedTokens?: unknown;
   projectedCostUSD?: unknown;
   remainingMinutes?: unknown;
 }
 
-export interface UsageBurn {
+interface UsageBurn {
   tokensPerMinute?: unknown;
   tokensPerMinuteExCache?: unknown;
   costPerHour?: unknown;
@@ -44,14 +44,14 @@ export interface UsageBlock {
   projection?: UsageProjection;
 }
 
-export interface UsageLaneRow {
+interface UsageLaneRow {
   lane?: unknown;
   sessions?: unknown;
   tokens?: unknown;
   costUSD?: unknown;
 }
 
-export interface UsageBudgetRow {
+interface UsageBudgetRow {
   scope?: unknown;
   budgetUsd?: unknown;
   spentUsd?: unknown;
@@ -59,7 +59,7 @@ export interface UsageBudgetRow {
   tone?: unknown;
 }
 
-export interface UsageAnomaly {
+interface UsageAnomaly {
   daily?: { baselineDays?: unknown; ratio?: unknown; todayUsd?: unknown; baselineUsd?: unknown } | null;
   burn?: { ratio?: unknown; current?: unknown; baseline?: unknown } | null;
 }
@@ -71,18 +71,18 @@ export interface RtkSavings {
   savingsPct?: unknown;
 }
 
-export interface CacheSavings {
+interface CacheSavings {
   cacheReadTokens?: unknown;
   savedUSD?: unknown;
   unpricedModels?: unknown;
 }
 
-export interface UsageSavings {
+interface UsageSavings {
   rtk?: RtkSavings | null;
   cache?: CacheSavings | null;
 }
 
-export interface UsageVendorTotals {
+interface UsageVendorTotals {
   tokens?: unknown;
   costUSD?: unknown;
 }
@@ -97,7 +97,7 @@ export interface UsageTotals {
   byVendor?: Record<string, UsageVendorTotals | null | undefined>;
 }
 
-export interface UsageScan {
+interface UsageScan {
   dirs?: unknown;
   files?: unknown;
   entries?: unknown;
@@ -438,14 +438,14 @@ export function hasLaneAttribution(report: UsageReport | null | undefined) {
   return laneRows(report).some((row) => isGlimmervoidLane(row.lane));
 }
 
-export interface OverheadLane {
+interface OverheadLane {
   lane: string;
   label: string;
   tokens: number;
   costUSD: number;
 }
 
-export interface OverheadWindow {
+interface OverheadWindow {
   key: 'fiveHour' | 'sevenDay';
   label: string;
   tokens: number;
@@ -539,7 +539,7 @@ export function rtkSavings(savings: UsageSavings | null | undefined): RtkSavings
   return rtk;
 }
 
-export function cacheSavings(savings: UsageSavings | null | undefined): CacheSavings | null {
+function cacheSavings(savings: UsageSavings | null | undefined): CacheSavings | null {
   const cache = savings?.cache;
   if (!cache || typeof cache !== 'object') return null;
   return cache;
@@ -910,7 +910,7 @@ export function claudeOnlyHint(totals: UsageTotals | null | undefined) {
 
 export const PLAN_LIMIT_STALE_MS = 60 * 60 * 1000;
 
-export interface PlanWindow {
+interface PlanWindow {
   pct?: unknown;
   resetsAtMs?: unknown;
 }

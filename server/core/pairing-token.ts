@@ -5,33 +5,33 @@ const DEFAULT_DEVICE_MAX_AGE_MS = 180 * 24 * 60 * 60 * 1000;
 
 export type RandomBytes = (size: number) => Buffer;
 
-export interface RedeemableRecord {
+interface RedeemableRecord {
   usedAt?: number | null;
   expiresAt?: number;
   [key: string]: unknown;
 }
 
-export interface DeviceRecord {
+interface DeviceRecord {
   revokedAt?: number | null;
   createdAt?: number;
   [key: string]: unknown;
 }
 
-export interface PairingToken {
+interface PairingToken {
   token: string;
   tokenHash: string;
   createdAt: number;
   expiresAt: number;
 }
 
-export interface DeviceCredential {
+interface DeviceCredential {
   id: string;
   secret: string;
   secretHash: string;
   cookieValue: string;
 }
 
-export interface AuthDecision {
+interface AuthDecision {
   ok: boolean;
   reason: string | null;
 }

@@ -37,10 +37,10 @@ const WORK_OUTSIDE_LEDGER_PATHSPECS = ['.', ':(exclude,icase).coherence'];
 const FACTORY_REVIEW_TOO_LARGE_FEEDBACK ='change too large for review; split it into smaller tickets';
 const FAILED_CHECK_FEEDBACK_MAX_CHARS = 3500;
 
-export const FACTORY_TICKET_BLOCK_CAP = 3;
-export const FACTORY_INTENT_CAP_CANCEL_LIMIT = 3;
+const FACTORY_TICKET_BLOCK_CAP = 3;
+const FACTORY_INTENT_CAP_CANCEL_LIMIT = 3;
 
-export type FactoryCapCounter = (projectId: string, id: string) => Promise<number>;
+type FactoryCapCounter = (projectId: string, id: string) => Promise<number>;
 
 function createMemoryCapCounter(): FactoryCapCounter {
   const counts = new Map<string, number>();

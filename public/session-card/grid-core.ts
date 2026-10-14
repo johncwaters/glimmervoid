@@ -21,7 +21,7 @@ export interface GridDecisionInput {
   lastClaim: TerminalGrid | null;
 }
 
-export interface GridActions {
+interface GridActions {
   resizeTo: TerminalGrid | null;
   owedClaim: TerminalGrid | null;
   keepsPendingSettle: boolean;
@@ -29,7 +29,7 @@ export interface GridActions {
   isFollowing: boolean;
 }
 
-export interface ViewerEngagementInput {
+interface ViewerEngagementInput {
   isDocumentVisible: boolean;
   isDocumentFocused: boolean;
   hasFocusInsideCard: boolean;
@@ -37,7 +37,7 @@ export interface ViewerEngagementInput {
   isPhoneLayout: boolean;
 }
 
-export interface GridEngagementEdgeInput {
+interface GridEngagementEdgeInput {
   authoritative: TerminalGrid | null;
   isActiveViewer: boolean;
   isDocumentEngaged: boolean;
@@ -45,14 +45,14 @@ export interface GridEngagementEdgeInput {
   lastClaim: TerminalGrid | null;
 }
 
-export type GridEngagementEdgeAction = 'none' | 'resync' | 'rebid';
+type GridEngagementEdgeAction = 'none' | 'resync' | 'rebid';
 
 export interface DataFrameState {
   hasSeenSize: boolean;
   lastSeq: number;
 }
 
-export type DataFrameDecision =
+type DataFrameDecision =
   | { kind: 'attach-size'; cols: number; rows: number; seq: number }
   | { kind: 'size'; cols: number; rows: number; seq: number }
   | { kind: 'bytes'; data: string }
@@ -70,7 +70,7 @@ function isUsableGrid(grid: TerminalGrid | null): grid is TerminalGrid {
   return grid.cols > 0 && grid.rows > 0;
 }
 
-export function clampGridToContract(grid: TerminalGrid): TerminalGrid {
+function clampGridToContract(grid: TerminalGrid): TerminalGrid {
   return {
     cols: Math.min(Math.max(grid.cols, VIEWER_MIN_COLS), VIEWER_MAX_COLS),
     rows: Math.min(Math.max(grid.rows, VIEWER_MIN_ROWS), VIEWER_MAX_ROWS),

@@ -534,4 +534,4 @@ function createBranchGcPoller(deps: BranchGcPollerDeps): BranchGcPoller {
 }
 
 export { BRANCH_GC_FETCH_TIMEOUT_MS, DEFAULT_INTERVAL_MS, DEFAULT_STALE_DAYS, createBranchGcPoller };
-export type { BranchGcGitWorkspace, BranchGcPoller, BranchGcPollerDeps, BranchGcProjectSummary };
+export type { BranchGcGitWorkspace, BranchGcPoller };

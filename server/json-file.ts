@@ -402,14 +402,4 @@ export {
   writeTextAtomic,
   writeTextAtomicSync,
 };
-export type {
-  AppendOptions,
-  AsyncFileSystem,
-  AsyncWriteOptions,
-  JsonStateLoadOutcome,
-  JsonStateLoadSyncFileSystem,
-  JsonStateStore,
-  JsonStateWriter,
-  SyncFileSystem,
-  SyncWriteOptions,
-};
+export type { AsyncFileSystem, AsyncWriteOptions, JsonStateWriter, SyncFileSystem, SyncWriteOptions };

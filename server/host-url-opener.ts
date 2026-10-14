@@ -46,4 +46,4 @@ function createHostUrlOpener({
 }
 
 export { createHostUrlOpener };
-export type { HostOpenOutcome, HostUrlOpener, SpawnProcess };
+export type { HostOpenOutcome, HostUrlOpener };

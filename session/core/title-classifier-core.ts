@@ -47,13 +47,4 @@ function classifyAgentTitle(
   return "unknown";
 }
 
-export {
-  BRAILLE_MAX,
-  BRAILLE_MIN,
-  classifyAgentTitle,
-  firstCharOfTitle,
-  isBrailleChar,
-  isPathLikeTitle,
-  isSpinnerChar,
-};
-export type { TitleVocabulary };
+export { classifyAgentTitle, firstCharOfTitle, isBrailleChar, isPathLikeTitle, isSpinnerChar };

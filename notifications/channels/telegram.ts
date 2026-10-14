@@ -2,12 +2,12 @@ import { sendTelegramMessage } from '../../server/telegram-transport.ts';
 import { decideOffDashboardDelivery } from '../../server/core/client-presence.ts';
 import type { NotificationContext } from '../notification-manager.ts';
 
-export interface TelegramDecision {
+interface TelegramDecision {
   send: boolean;
   reason: string;
 }
 
-export interface TelegramGateInput {
+interface TelegramGateInput {
   enabled: unknown;
 
   botToken: string | undefined;

@@ -33,13 +33,13 @@ export interface HookRegistration {
   hooks: HookProfile | null;
 }
 
-export interface HookHandleResult {
+interface HookHandleResult {
   status: number;
   signal: string | null;
   reason: string;
 }
 
-export interface HookRouterDependencies {
+interface HookRouterDependencies {
   recordOutcome?: OutcomeRecorder;
 }
 

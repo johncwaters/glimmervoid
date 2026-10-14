@@ -409,7 +409,5 @@ function buildSandboxLaunchPlan(role: SandboxRole, host: SandboxHost): SandboxLa
   };
 }
 
-export {
-  buildSandboxLaunchPlan, CREDENTIAL_HOME_ENTRIES, lockedClaudeMountPoints, SANDBOX_PLACEHOLDER_NAMES, sandboxPlaceholderPaths, sandboxPolicyProbePaths, standardWriteBlockCandidates,
-};
-export type { SandboxHost, SandboxHostPaths, SandboxLaunchPlan, SandboxLaunchState, SandboxNetworkAccess, SandboxRole };
+export { buildSandboxLaunchPlan, lockedClaudeMountPoints, SANDBOX_PLACEHOLDER_NAMES, sandboxPlaceholderPaths, sandboxPolicyProbePaths, standardWriteBlockCandidates };
+export type { SandboxHost, SandboxHostPaths, SandboxLaunchPlan, SandboxNetworkAccess, SandboxRole };

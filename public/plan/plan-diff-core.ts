@@ -1,6 +1,6 @@
 export type PlanDiffLineKind = 'added' | 'removed' | 'unchanged' | 'skipped';
 
-export interface PlanDiffLine {
+interface PlanDiffLine {
   kind: PlanDiffLineKind;
   text: string;
 }

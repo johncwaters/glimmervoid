@@ -94,4 +94,3 @@ async function sendTelegramMessage({
 }
 
 export { sendTelegramMessage };
-export type { SendTelegramOptions, SendTelegramResult, TelegramBody, TelegramSendBounds, TelegramTransport };

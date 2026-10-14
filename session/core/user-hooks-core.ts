@@ -265,12 +265,4 @@ export {
   hooksForProject,
   appendUserHooks,
 };
-export type {
-  ClaudeHookHandler,
-  HookEventEntry,
-  HookInput,
-  HooksBlock,
-  HooksBlockEntry,
-  StoredHookRecord,
-  UserHook,
-};
+export type { HookEventEntry, HookInput, HooksBlock, UserHook };

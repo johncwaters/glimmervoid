@@ -1,11 +1,11 @@
 import path from 'node:path';
 
-export interface EditorIdentity {
+interface EditorIdentity {
   command: string;
   label: string;
 }
 
-export interface EditorCandidate extends EditorIdentity {
+interface EditorCandidate extends EditorIdentity {
   macAppBundleName?: string;
 }
 
@@ -18,12 +18,12 @@ export interface EditorTarget extends EditorIdentity {
   commandPath: string;
 }
 
-export interface EditorTargetDecision {
+interface EditorTargetDecision {
   targets: EditorTarget[];
   reason: string;
 }
 
-export interface ExtensionFile {
+interface ExtensionFile {
   path: string;
   data: string;
 }
@@ -154,11 +154,4 @@ function isExtensionInstalled(stdout: unknown, extensionId: string): boolean {
   return parseInstalledExtensions(stdout).some((line) => line.toLowerCase() === wanted);
 }
 
-export {
-  decideEditorTargets,
-  isExtensionInstalled,
-  parseInstalledExtensions,
-  relayStamp,
-  resolveEditorPathsFor,
-  visionsExtensionFiles,
-};
+export { decideEditorTargets, isExtensionInstalled, parseInstalledExtensions, resolveEditorPathsFor, visionsExtensionFiles };

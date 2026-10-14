@@ -13,7 +13,7 @@ export function agentBadgeText(agent: unknown) {
   return BUILTIN_AGENT_BADGE_LABELS[id] || id;
 }
 
-export interface AgentOption {
+interface AgentOption {
   id?: unknown;
   label?: unknown;
   resolvable?: unknown;

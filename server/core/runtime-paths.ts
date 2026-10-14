@@ -11,7 +11,7 @@ export interface RuntimePaths {
   relayPath: (relayName: string) => string;
 }
 
-export interface RuntimePathsInput {
+interface RuntimePathsInput {
   moduleFile: string;
   hasPackageJson: (directory: string) => boolean;
 }

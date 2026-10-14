@@ -1,6 +1,6 @@
 import type { PrimaryView } from '../view-registry-core.ts';
 
-export type DesktopView<PanelElement> = Pick<PrimaryView<PanelElement>, 'view' | 'label' | 'glyph' | 'el' | 'hasOwnPhoneScreen'>;
+type DesktopView<PanelElement> = Pick<PrimaryView<PanelElement>, 'view' | 'label' | 'glyph' | 'el' | 'hasOwnPhoneScreen'>;
 
 export interface PhonePanel<PanelElement> {
   id: string;

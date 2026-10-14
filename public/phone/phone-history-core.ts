@@ -1,8 +1,8 @@
 export type PushedPhoneHistoryEntry = 'none' | 'screen' | 'calm-sheet';
 
-export type PhonePopStateDecision = 'own-sheet-pop' | 'close-sheet' | 'adopt-sheet-entry' | 'consume-stray-sheet-entry' | 'navigate';
+type PhonePopStateDecision = 'own-sheet-pop' | 'close-sheet' | 'adopt-sheet-entry' | 'consume-stray-sheet-entry' | 'navigate';
 
-export type CalmSheetOpenedDecision = 'push-sheet-entry' | 'defer-until-own-pop' | 'keep-history';
+type CalmSheetOpenedDecision = 'push-sheet-entry' | 'defer-until-own-pop' | 'keep-history';
 
 const CALM_SHEET_STATE_KEY = 'glimmervoidCalmSheet';
 

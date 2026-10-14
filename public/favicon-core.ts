@@ -1,6 +1,6 @@
 import { sessionAttentionTier } from './focus-view/attention-core.ts';
 
-export type FaviconVariant = 'idle' | 'complete' | 'waiting';
+type FaviconVariant = 'idle' | 'complete' | 'waiting';
 
 const TRIANGLE_COLORS: Readonly<Record<FaviconVariant, string>> = Object.freeze({
   idle: '#c084fc',

@@ -4,7 +4,7 @@ const SOURCE = 'agentLogs';
 
 const MAX_RAW_CHARS = 4000;
 
-export type VendorState = Record<string, string>;
+type VendorState = Record<string, string>;
 
 export type AgentIngestEvent = {
   source: string;
@@ -15,7 +15,7 @@ export type AgentIngestEvent = {
   detail: Record<string, unknown>;
 }
 
-export interface AgentMapResult {
+interface AgentMapResult {
   events: AgentIngestEvent[];
   root: string | null;
   sessionId: string | null;
@@ -288,12 +288,4 @@ function mapAgentLine({
   return mapped;
 }
 
-export {
-  DISPATCH_WORKDIR_MARKERS,
-  MAX_RAW_CHARS,
-  isDispatchWorkdir,
-  firstTextBlock,
-  mapAgentLine,
-  parseTimestamp,
-  toolTarget,
-};
+export { MAX_RAW_CHARS, isDispatchWorkdir, firstTextBlock, mapAgentLine, parseTimestamp, toolTarget };

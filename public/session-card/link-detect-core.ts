@@ -27,7 +27,7 @@ export function trimTrailingPunctuation(url: string) {
   }
 }
 
-export interface DetectedUrl {
+interface DetectedUrl {
   start: number;
   end: number;
   url: string;

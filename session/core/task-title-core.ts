@@ -11,7 +11,7 @@ export interface TaskTitleVocabulary {
   agentSuffix: string | null;
 }
 
-export function normalizeTaskTitle(title: string): string | null {
+function normalizeTaskTitle(title: string): string | null {
   return title.replace(new RegExp(TASK_TITLE_CONTROL_CHARACTERS.source, 'g'), ' ').replace(/\s+/g, ' ').trim().slice(0, TASK_TITLE_MAX_LENGTH).trimEnd() || null;
 }
 
@@ -117,7 +117,7 @@ export function isSubstantivePrompt(prompt: unknown): boolean {
   return !CONTINUATION_PROMPTS.has(cleanedPrompt.toLowerCase().replace(/[.!?]+$/, '').trim());
 }
 
-export interface TaskTitleRefinementGate {
+interface TaskTitleRefinementGate {
   substantivePromptsSinceRefinement: number;
   lastRefinementAt: number | null;
   now: number;
@@ -126,7 +126,7 @@ export interface TaskTitleRefinementGate {
   isEphemeral: boolean;
 }
 
-export type TaskTitleRefinementDecision = { action: 'refine' } | {
+type TaskTitleRefinementDecision = { action: 'refine' } | {
   action: 'skip'; reason: 'ephemeral' | 'custom-title' | 'no-prompts' | 'cooldown';
 };
 

@@ -38,4 +38,3 @@ function decideGateRelease({
 }
 
 export { decideGateRelease, DEFAULT_GATE_RELEASE_SETTLE_MS };
-export type { GateReleaseInputs, GateReleaseVerdict };

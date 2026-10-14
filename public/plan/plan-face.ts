@@ -19,7 +19,7 @@ import type { PlanActionKind, PlanDecisionExtras, PlanMode } from './plan-view-c
 
 export type PlanResponse = PlanResponseFrame;
 
-export interface PlanFaceUpdate {
+interface PlanFaceUpdate {
   state?: PlanReviewState;
   response?: PlanResponse;
   draft?: PlanDraftPush;
@@ -28,7 +28,7 @@ export interface PlanFaceUpdate {
   decisionRefused?: boolean;
 }
 
-export interface PlanFaceDeps {
+interface PlanFaceDeps {
   signal?: AbortSignal;
   requestPlan: (id: string, agentId: string | null, revision?: number) => boolean;
   requestDraft: (id: string, agentId: string | null) => boolean;

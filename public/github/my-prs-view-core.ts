@@ -5,13 +5,13 @@ import type { MyPr, MyPrMergeKind, MyPrStage, MyPrsStatus as MyPrsStatusType, My
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
 import type { StateTone } from '../state-tone-core.ts';
 
-export interface MyPrSection { title: string; prs: MyPr[] }
-export interface ThreadRow {
+interface MyPrSection { title: string; prs: MyPr[] }
+interface ThreadRow {
   location: string; url: string; author: string; excerpt: string; replySummary: string; lastActivityAt: string;
   waiting: { tone: StateTone; icon: PrStatusIcon; text: string } | null;
 }
-export interface ReviewRow { reviewer: string; text: string; tone: StateTone; icon: PrStatusIcon; submittedAt: string | null }
-export interface ReadinessRow { label: 'Checks' | 'Review' | 'Threads' | 'Conflicts' | 'Base' | 'Auto-rebase'; tone: StateTone; icon: PrStatusIcon; text: string }
+interface ReviewRow { reviewer: string; text: string; tone: StateTone; icon: PrStatusIcon; submittedAt: string | null }
+interface ReadinessRow { label: 'Checks' | 'Review' | 'Threads' | 'Conflicts' | 'Base' | 'Auto-rebase'; tone: StateTone; icon: PrStatusIcon; text: string }
 
 export interface ToggleControlState { isVisible: boolean; isPressed: boolean; isDisabled: boolean; statusText: string }
 
@@ -101,8 +101,8 @@ export function parseMyPrsStatus(message: unknown): MyPrsStatusType | null {
   return parsed.success ? parsed.data : null;
 }
 
-export interface MyPrStackRow { pr: MyPr; parentKey: string | null; depth: number }
-export interface MyPrStack { root: MyPr; rows: MyPrStackRow[] }
+interface MyPrStackRow { pr: MyPr; parentKey: string | null; depth: number }
+interface MyPrStack { root: MyPr; rows: MyPrStackRow[] }
 
 export function groupStackedMyPrs(prs: readonly MyPr[]): MyPrStack[] {
   const stackParentCandidates = prs.filter((pr) => pr.state === 'OPEN' && !pr.isCrossRepository);
@@ -140,7 +140,7 @@ export function groupStackedMyPrs(prs: readonly MyPr[]): MyPrStack[] {
   return stacks;
 }
 
-export interface MyPrStackSection extends MyPrSection { rows: MyPrStackRow[] }
+interface MyPrStackSection extends MyPrSection { rows: MyPrStackRow[] }
 
 function mostUrgentSectionTitle(stack: MyPrStack): SectionTitle {
   const mostUrgentIndex = stack.rows.reduce((urgentIndex, { pr }) => Math.min(urgentIndex, SECTION_TITLES_BY_URGENCY.indexOf(SECTION_BY_STAGE[pr.stage])), SECTION_TITLES_BY_URGENCY.length - 1);
@@ -286,7 +286,7 @@ export function emptyStateText(status: MyPrsStatusType | null): string {
   return 'No open or recently merged pull requests found.';
 }
 
-export interface QueueNotice { text: string; tone: 'error' | 'info' }
+interface QueueNotice { text: string; tone: 'error' | 'info' }
 
 export function queueNotices(status: MyPrsStatusType | null, nowMs = 0): QueueNotice[] {
   if (!status) return [];
@@ -313,7 +313,7 @@ export function mergeCelebrationText(mergedPrs: readonly MyPr[]): string {
 }
 
 export interface MergeAttempt { head: string; phase: 'pending' | 'failed' | MyPrMergeKind; text: string }
-export interface MergeControlState { isVisible: boolean; isDisabled: boolean; statusText: string; tone: 'ok' | 'error' | 'busy' | null }
+interface MergeControlState { isVisible: boolean; isDisabled: boolean; statusText: string; tone: 'ok' | 'error' | 'busy' | null }
 
 const HIDDEN_MERGE_CONTROL: MergeControlState = { isVisible: false, isDisabled: true, statusText: '', tone: null };
 const MERGE_KIND_STATUS: Readonly<Record<MyPrMergeKind, Pick<MergeControlState, 'statusText' | 'tone'>>> = {

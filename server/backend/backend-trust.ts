@@ -77,4 +77,3 @@ function createBackendTrust(dependencies: BackendTrustDependencies): BackendTrus
 }
 
 export { createBackendTrust };
-export type { BackendTrust, BackendTrustDependencies };

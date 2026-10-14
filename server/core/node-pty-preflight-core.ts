@@ -1,12 +1,12 @@
 import path from 'node:path';
 
-export interface NativeBindingScope {
+interface NativeBindingScope {
   packageDir: string;
   platform: NodeJS.Platform;
   arch: string;
 }
 
-export interface BootRefusalScope {
+interface BootRefusalScope {
   platform: NodeJS.Platform;
   packageDir: string;
   reason: string;

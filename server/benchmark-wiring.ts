@@ -627,7 +627,5 @@ function createBenchmarkWiring({
   return { getStatus: currentStatus, refreshStatus, submitAction, sweepLeftovers, stop };
 }
 
-type BenchmarkWiring = ReturnType<typeof createBenchmarkWiring>;
-
-export { BENCHMARK_LANE_ID, createBenchmarkWiring };
-export type { ArmCommandRunner, BenchmarkGitWorkspace, BenchmarkWiring, BenchmarkWiringOptions };
+export { createBenchmarkWiring };
+export type { BenchmarkWiringOptions };

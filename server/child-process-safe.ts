@@ -108,4 +108,4 @@ function spawn(file: string, ...rest: unknown[]): ChildProcess {
 const execFileAsync = promisify(execFile);
 
 export { execFile, execFileAsync, execFileSync, execSync, spawn, hide };
-export type { ExecFileCallback, ExecFileResult };
+export type { ExecFileCallback };

@@ -96,4 +96,4 @@ function runRtk(binPath: string, body: Buffer): Promise<string> {
   return runHookTool("rtk", binPath, body);
 }
 
-export { main, runRtk, runHookTool, RTK_TIMEOUT_MS };
+export { main, runRtk, runHookTool };

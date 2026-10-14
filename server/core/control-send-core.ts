@@ -1,9 +1,9 @@
 import { isReplayable } from './control-replay-core.ts';
 
-export type ControlMessageClass = 'critical' | 'refreshable' | 'normal';
-export type ControlSendAction = 'send' | 'drop' | 'close';
+type ControlMessageClass = 'critical' | 'refreshable' | 'normal';
+type ControlSendAction = 'send' | 'drop' | 'close';
 
-export interface ControlSendDecision {
+interface ControlSendDecision {
   action: ControlSendAction;
   reason: string | null;
 }

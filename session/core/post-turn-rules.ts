@@ -199,15 +199,5 @@ function looksBinary(buf: string | Buffer): boolean {
   return false;
 }
 
-export {
-  applyRules,
-  exemptions,
-  shouldCheckPath,
-  globToRegExp,
-  looksBinary,
-  fixTrailingWhitespace,
-  fixFinalNewline,
-  stripBom,
-  detectSlop,
-};
-export type { PathScope, RuleConfig, RuleContext, RuleFinding, RuleResult };
+export { applyRules, exemptions, shouldCheckPath, looksBinary, fixTrailingWhitespace, fixFinalNewline, stripBom, detectSlop };
+export type { RuleConfig };

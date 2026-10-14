@@ -80,7 +80,7 @@ export interface UsageGenerationRollupRow {
   isModelKnown: boolean;
 }
 
-export interface ReplaceCandidate extends TokenCountsSource {
+interface ReplaceCandidate extends TokenCountsSource {
   isSidechain?: boolean;
   speed?: string | null;
 }
@@ -432,4 +432,4 @@ function presentEmpty(value: unknown): boolean {
   return typeof value === 'string' && value.trim() === '';
 }
 
-export { addEntryToTotals, dedupKeys, emptyTotals, expandAdvisorIterations, foldEntryIntoGenerationRollup, foldReplacementIntoGenerationRollup, GENERATION_RECENCY_WINDOW_MS, identityFromRelPath, isWithinGenerationRecencyWindow, mergeGenerationRollups, parseJsonLine, parseUsageLine, shouldReplace, totalTokensOf, vendorUsageEntry };
+export { addEntryToTotals, dedupKeys, emptyTotals, expandAdvisorIterations, foldEntryIntoGenerationRollup, foldReplacementIntoGenerationRollup, identityFromRelPath, isWithinGenerationRecencyWindow, mergeGenerationRollups, parseJsonLine, parseUsageLine, shouldReplace, totalTokensOf, vendorUsageEntry };

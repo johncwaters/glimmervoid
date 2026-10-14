@@ -35,7 +35,7 @@ export interface TraceTurn {
   metrics: TraceTurnMetrics;
 }
 
-export interface TraceTurnMetrics {
+interface TraceTurnMetrics {
   rowCount: number;
   toolCallCount: number;
   errorCount: number;
@@ -358,7 +358,7 @@ function forgetTurnToolCalls(grouping: TraceGrouping, turn: TraceTurn): void {
   forgetRowToolCalls(grouping, turn.head ? [turn.head, ...turn.rows] : turn.rows);
 }
 
-export interface TraceTrim {
+interface TraceTrim {
   droppedTurnCount: number;
   droppedRowCount: number;
 }
@@ -414,7 +414,7 @@ export function resolveTraceSessionId(
   return options[0]?.id ?? null;
 }
 
-export type TracePageDirection = 'tail' | 'earlier' | 'forward';
+type TracePageDirection = 'tail' | 'earlier' | 'forward';
 
 export interface TraceRequest {
   id: string;
@@ -423,7 +423,7 @@ export interface TraceRequest {
   endingAt?: number | 'tail';
 }
 
-export interface TraceRequestInputs {
+interface TraceRequestInputs {
   selectedSessionId: string | null;
   isPanelVisible: boolean;
   hasPendingRequest: boolean;
@@ -437,7 +437,7 @@ export function nextTraceRequest(inputs: TraceRequestInputs): TraceRequest | nul
   return { id: inputs.selectedSessionId, direction: 'forward', after: inputs.nextOffset };
 }
 
-export interface EarlierTraceRequestInputs {
+interface EarlierTraceRequestInputs {
   selectedSessionId: string | null;
   hasPendingRequest: boolean;
   hasLoadedOnce: boolean;
@@ -457,16 +457,16 @@ export function earlierTraceRequest(inputs: EarlierTraceRequestInputs, maxReside
   return { id: inputs.selectedSessionId, direction: 'earlier', after: 0, endingAt: inputs.firstOffset };
 }
 
-export interface TraceResidentWindow {
+interface TraceResidentWindow {
   sessionId: string;
   firstOffset: number;
   nextOffset: number;
   hasLoadedOnce: boolean;
 }
 
-export type TraceReplyOutcome = 'ignore' | 'stale' | 'reset' | 'seed' | 'append' | 'prepend';
+type TraceReplyOutcome = 'ignore' | 'stale' | 'reset' | 'seed' | 'append' | 'prepend';
 
-export interface TraceReplyInputs {
+interface TraceReplyInputs {
   pendingRequest: TraceRequest | null;
   resident: TraceResidentWindow | null;
   reply: { id: string; start: number; next: number; reset: boolean };
@@ -486,7 +486,7 @@ export function traceReplyOutcome(inputs: TraceReplyInputs): TraceReplyOutcome {
   return reply.start === pendingRequest.after ? 'append' : 'reset';
 }
 
-export interface TraceRebuildInputs {
+interface TraceRebuildInputs {
   hasSelectionChanged: boolean;
   isRenderedTraceStale: boolean;
   hasRenderedOnce: boolean;

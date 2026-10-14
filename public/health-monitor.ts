@@ -11,7 +11,7 @@ const STATE_ABBREV: Record<string, string> = {
   COMPLETE: 'CMP', DONE: 'DON', FAILED: 'FAI',
 };
 
-export interface HealthSession {
+interface HealthSession {
   name: string;
   state: string;
   hasPty: boolean;

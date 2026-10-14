@@ -82,5 +82,4 @@ function createBranchGcWiring({
   };
 }
 
-export { branchGcCfgKey, branchGcShouldStart, createBranchGcWiring };
-export type { BranchGcWiring, BranchGcWiringConfig, BranchGcWiringOptions };
+export { createBranchGcWiring };

@@ -381,4 +381,4 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
 }
 
 export { createTelemetry, MAX_QUEUED_EVENTS, MAX_REPORTED_EXCEPTION_FINGERPRINTS };
-export type { CrashEventSource, Telemetry, TelemetryOptions };
+export type { Telemetry, TelemetryOptions };

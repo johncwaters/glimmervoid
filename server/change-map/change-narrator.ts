@@ -206,4 +206,3 @@ function createChangeNarrator({ getConfig, spawnNarration, spawnLane = createLan
 }
 
 export { createChangeNarrator, makeNarrationWorkDir };
-export type { ChangeNarratorOptions, SpawnNarration, SpawnNarrationOptions };

@@ -6,7 +6,7 @@ const HEADING_RE = /^( {0,3})(#{1,6})(?:\s|$)/;
 
 const WORD_RE = /(?<![A-Za-z0-9'])[A-Za-z][A-Za-z0-9']*/g;
 
-export interface DocumentPosition {
+interface DocumentPosition {
   line: number;
   character: number;
 }

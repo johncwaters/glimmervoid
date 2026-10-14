@@ -12,4 +12,4 @@ function buildHookCommand(relayPath: string, event: string, argvTail: readonly s
   return `node ${quotedPath} ${rawEvent}${argvTail.length ? ` ${argvTail.join(" ")}` : ""}`;
 }
 
-export { SAFE_EVENT_RE, buildHookCommand };
+export { buildHookCommand };

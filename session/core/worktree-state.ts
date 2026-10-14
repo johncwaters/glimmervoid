@@ -21,4 +21,4 @@ function projectMergeState(mergeStatus: MergeStatus, detail: MergeStatusDetail =
 }
 
 export { projectMergeState };
-export type { MergeState, MergeStatus, MergeStatusDetail };
+export type { MergeStatus };

@@ -50,4 +50,4 @@ function createCoalescedTimer({
 }
 
 export { createCoalescedTimer };
-export type { CoalesceMode, CoalescedTimer };
+export type { CoalescedTimer };

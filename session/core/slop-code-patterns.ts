@@ -85,4 +85,3 @@ function detectCodeSlop(content: unknown, relPath?: unknown, cap = DEFAULT_FINDI
 }
 
 export { detectCodeSlop, extOf, DEFAULT_FINDINGS_CAP };
-export type { SlopMatch, SlopSubrule };

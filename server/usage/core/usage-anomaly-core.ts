@@ -1,18 +1,18 @@
 import { numberOr } from '../../../shared/coerce.ts';
 
-export interface DailyUsageRow {
+interface DailyUsageRow {
   day?: unknown;
   costUSD?: unknown;
   tokens?: unknown;
 }
 
-export interface DailyBaseline {
+interface DailyBaseline {
   meanUsd: number;
   meanTokens: number;
   days: number;
 }
 
-export interface UsageRateBlock {
+interface UsageRateBlock {
   isGap?: boolean;
   entries?: unknown;
   startTs?: unknown;
@@ -20,7 +20,7 @@ export interface UsageRateBlock {
   tokens?: unknown;
 }
 
-export interface DailyAnomaly {
+interface DailyAnomaly {
   kind: 'daily';
   todayUsd: number;
   todayTokens: number;
@@ -28,7 +28,7 @@ export interface DailyAnomaly {
   ratio: number;
 }
 
-export interface BurnAnomaly {
+interface BurnAnomaly {
   kind: 'burn';
   current: number;
   baseline: number;

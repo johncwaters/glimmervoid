@@ -20,10 +20,9 @@ export const MyPrMergeabilityFixResult = z.discriminatedUnion('outcome', [
 ]);
 export type MyPrMergeabilityFixResult = z.infer<typeof MyPrMergeabilityFixResult>;
 
-export const MyPrKeepMergeableAttempt = z.strictObject({
+const MyPrKeepMergeableAttempt = z.strictObject({
   outcome: z.enum(['pushed', 'no-change', 'failed', 'stopped', 'timed-out']), reason: z.string().min(1).optional(), at: z.number().finite(),
 });
-export type MyPrKeepMergeableAttempt = z.infer<typeof MyPrKeepMergeableAttempt>;
 
 export const MyPrKeepMergeableAttemptRecord = MyPrKeepMergeableAttempt.extend({ key: pullRequestKey, headRefOid: CommitSha, baseRefOid: CommitSha, consecutiveAttempts: z.number().int().min(1).optional() });
 export type MyPrKeepMergeableAttemptRecord = z.infer<typeof MyPrKeepMergeableAttemptRecord>;
@@ -61,8 +60,7 @@ export const MyPrThread = z.object({
 });
 export type MyPrThread = z.infer<typeof MyPrThread>;
 
-export const MyPrReview = z.object({ reviewer: z.string().nullable(), state: z.string(), submittedAt: z.string().nullable() });
-export type MyPrReview = z.infer<typeof MyPrReview>;
+const MyPrReview = z.object({ reviewer: z.string().nullable(), state: z.string(), submittedAt: z.string().nullable() });
 
 export const MyPrAutoRebase = z.object({ outcome: z.enum(['rebased', 'failed']), at: z.number().finite(), message: z.string() });
 export type MyPrAutoRebase = z.infer<typeof MyPrAutoRebase>;

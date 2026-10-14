@@ -7,7 +7,7 @@ const repoSlug = z.string().regex(/^[^/\s]+\/[^/\s]+$/);
 const timestamp = z.number().finite();
 const nonEmptyText = z.string().min(1);
 
-export const BENCHMARK_INJECTED_ENV_NAMES = Object.freeze(['CLAUDE_CODE_OAUTH_TOKEN']);
+const BENCHMARK_INJECTED_ENV_NAMES = Object.freeze(['CLAUDE_CODE_OAUTH_TOKEN']);
 
 export const BenchmarkId = z.string().regex(BENCHMARK_ID_RE);
 export type BenchmarkId = z.infer<typeof BenchmarkId>;
@@ -16,7 +16,7 @@ function hasUniqueIds(entries: readonly { id: string }[]): boolean {
   return new Set(entries.map((entry) => entry.id)).size === entries.length;
 }
 
-export const BenchmarkCaseSource = z.discriminatedUnion('kind', [
+const BenchmarkCaseSource = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('manual') }),
   z.strictObject({
     kind: z.literal('github-merged-prs'),
@@ -25,23 +25,20 @@ export const BenchmarkCaseSource = z.discriminatedUnion('kind', [
     limit: z.number().int().min(1).max(500),
   }),
 ]);
-export type BenchmarkCaseSource = z.infer<typeof BenchmarkCaseSource>;
 
-export const BenchmarkWorkspace = z.discriminatedUnion('kind', [
+const BenchmarkWorkspace = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('none') }),
   z.strictObject({ kind: z.literal('pr-checkout') }),
 ]);
-export type BenchmarkWorkspace = z.infer<typeof BenchmarkWorkspace>;
 
 export const BenchmarkSubjectOutput = z.enum(['review-findings', 'json']);
 export type BenchmarkSubjectOutput = z.infer<typeof BenchmarkSubjectOutput>;
 
-export const BenchmarkSubject = z.strictObject({
+const BenchmarkSubject = z.strictObject({
   promptTemplate: nonEmptyText,
   output: BenchmarkSubjectOutput,
   timeoutSeconds: z.number().int().min(30).max(4 * 60 * 60),
 });
-export type BenchmarkSubject = z.infer<typeof BenchmarkSubject>;
 
 export const BenchmarkArm = z.strictObject({
   id: BenchmarkId,
@@ -55,10 +52,9 @@ export const BenchmarkArm = z.strictObject({
 });
 export type BenchmarkArm = z.infer<typeof BenchmarkArm>;
 
-export const BenchmarkScorer = z.discriminatedUnion('kind', [
+const BenchmarkScorer = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('llm-judge-match'), model: nonEmptyText }),
 ]);
-export type BenchmarkScorer = z.infer<typeof BenchmarkScorer>;
 
 export const BenchmarkSuite = z.strictObject({
   id: BenchmarkId,
@@ -85,7 +81,7 @@ export const BenchmarkReference = z.strictObject({
 });
 export type BenchmarkReference = z.infer<typeof BenchmarkReference>;
 
-export const BenchmarkCaseOrigin = z.discriminatedUnion('kind', [
+const BenchmarkCaseOrigin = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('manual') }),
   z.strictObject({
     kind: z.literal('github-pr'),
@@ -95,7 +91,6 @@ export const BenchmarkCaseOrigin = z.discriminatedUnion('kind', [
     minedAt: timestamp,
   }),
 ]);
-export type BenchmarkCaseOrigin = z.infer<typeof BenchmarkCaseOrigin>;
 
 export const BenchmarkCase = z.strictObject({
   id: BenchmarkId,
@@ -124,8 +119,7 @@ export const BenchmarkJudgement = z.strictObject({
 });
 export type BenchmarkJudgement = z.infer<typeof BenchmarkJudgement>;
 
-export const BenchmarkCellStatus = z.enum(['scored', 'invalid', 'error']);
-export type BenchmarkCellStatus = z.infer<typeof BenchmarkCellStatus>;
+const BenchmarkCellStatus = z.enum(['scored', 'invalid', 'error']);
 
 export const BenchmarkCellResult = z.strictObject({
   caseId: BenchmarkId,
@@ -142,8 +136,7 @@ export const BenchmarkCellResult = z.strictObject({
 });
 export type BenchmarkCellResult = z.infer<typeof BenchmarkCellResult>;
 
-export const BenchmarkRunStatus = z.enum(['running', 'completed', 'interrupted', 'failed']);
-export type BenchmarkRunStatus = z.infer<typeof BenchmarkRunStatus>;
+const BenchmarkRunStatus = z.enum(['running', 'completed', 'interrupted', 'failed']);
 
 export const BenchmarkRun = z.strictObject({
   id: BenchmarkId,
@@ -204,8 +197,7 @@ export const BenchmarkActionResult = z.object({
 });
 export type BenchmarkActionResult = z.infer<typeof BenchmarkActionResult>;
 
-export const BenchmarkCellPhase = z.enum(['setup', 'preflight', 'workspace', 'subject', 'judge']);
-export type BenchmarkCellPhase = z.infer<typeof BenchmarkCellPhase>;
+const BenchmarkCellPhase = z.enum(['setup', 'preflight', 'workspace', 'subject', 'judge']);
 
 export const BenchmarkInFlightCell = z.object({
   suiteId: BenchmarkId,
@@ -270,14 +262,13 @@ export const MinedReviewThread = z.object({
 });
 export type MinedReviewThread = z.infer<typeof MinedReviewThread>;
 
-export const MinedReview = z.object({
+const MinedReview = z.object({
   databaseId: z.number().int().positive(),
   author: githubAuthor,
   body: z.string(),
   submittedAt: z.string().nullable(),
   commit: z.object({ oid: CommitSha }).nullable(),
 });
-export type MinedReview = z.infer<typeof MinedReview>;
 
 export const MinedBaseEvent = z.discriminatedUnion('__typename', [
   z.object({ __typename: z.literal('BaseRefChangedEvent'), createdAt: z.string() }),

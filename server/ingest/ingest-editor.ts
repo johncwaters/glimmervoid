@@ -73,4 +73,3 @@ function createEditorIngest({
 }
 
 export { createEditorIngest };
-export type { EditorIngest, EditorIngestOptions };

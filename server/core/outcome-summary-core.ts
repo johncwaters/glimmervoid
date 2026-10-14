@@ -45,4 +45,4 @@ function drainOutcomeSummary(
 }
 
 export { countOutcome, drainOutcomeSummary, emptyOutcomeCounts };
-export type { OutcomeCounts, OutcomeSummaryFields };
+export type { OutcomeCounts };

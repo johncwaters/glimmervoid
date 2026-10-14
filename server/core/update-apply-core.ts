@@ -386,15 +386,4 @@ export {
   QUARANTINED_DIST_NAME,
   retireAtBoot,
 };
-export type {
-  EndingMoment,
-  HandOffRenamePlan,
-  PreflightDecision,
-  PreflightFacts,
-  PreflightRefusalReason,
-  RenameOperation,
-  RunFailureMoment,
-  RunStartFacts,
-  StepMoment,
-  UpdateArtifact,
-};
+export type { PreflightFacts, RenameOperation };

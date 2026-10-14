@@ -5,7 +5,7 @@ import type { SessionStateSource } from '../session-actions-core.ts';
 export type SessionAttentionTier = 'now' | 'next' | 'later' | 'ready' | 'working' | 'resting';
 export type SessionAttentionOption = 'needs-you' | 'phone-triage' | 'calm' | 'favicon';
 
-export interface SessionAttentionRow {
+interface SessionAttentionRow {
   state?: unknown;
   unseen?: unknown;
   hasEndedTurn?: unknown;
@@ -45,7 +45,7 @@ export function sessionAttentionRank(row: SessionAttentionRow, option: SessionAt
   return SESSION_ATTENTION_RANK_BY_TIER[sessionAttentionTier(row, option)];
 }
 
-export interface RosterEntry {
+interface RosterEntry {
   isDormant?: boolean;
   name?: unknown;
 }
@@ -110,7 +110,7 @@ export function attentionSummaryText(count: number) {
 const ATTENTION_RANK_BY_LEVEL = new Map<string, number>([['hand', 2]]);
 const ATTENTION_RANK_PRESENT = 1;
 
-export type AttentionLevel = string | boolean | null | undefined;
+type AttentionLevel = string | boolean | null | undefined;
 
 export function attentionRank(level: AttentionLevel) {
   if (!level) return 0;

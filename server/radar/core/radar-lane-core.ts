@@ -24,14 +24,14 @@ export interface PosthogIssue {
   title?: unknown;
 }
 
-export interface RadarFixRecord {
+interface RadarFixRecord {
   at: number;
   verdict: string;
   reproduced: boolean;
   prUrl: string | null;
 }
 
-export interface RadarHistoryPoint {
+interface RadarHistoryPoint {
   ts: number;
   occurrences: number;
 }
@@ -54,7 +54,7 @@ export interface PosthogStateEntry {
   pendingInvestigationChange?: string;
 }
 
-export interface RadarVerdictInfo {
+interface RadarVerdictInfo {
   observedAt?: number | null;
   inFlight?: boolean;
   pingedPhases?: string[];
@@ -90,7 +90,7 @@ export interface InvestigationRecord {
   archivedAt?: number;
 }
 
-export interface ProjectLike {
+interface ProjectLike {
   id?: string;
   name?: string;
   path?: string;

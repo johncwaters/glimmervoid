@@ -35,4 +35,3 @@ function buildSettingsPayload({
 }
 
 export { buildSettingsPayload };
-export type { SettingsPayloadOptions };

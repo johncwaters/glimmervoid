@@ -110,4 +110,4 @@ function createSessionSandbox({
 }
 
 export { createSessionSandbox };
-export type { SessionSandbox, SessionSandboxDependencies, SessionSandboxSettings };
+export type { SessionSandbox };

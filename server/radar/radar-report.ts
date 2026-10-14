@@ -82,9 +82,4 @@ async function readPosthogReport(
   return { ok: true, found: false, issueId: resolved.issueId, message: 'Report not found' };
 }
 
-export {
-  DEFAULT_POSTHOG_REPORT_DIR,
-  readPosthogReport,
-  resolvePosthogReportPath,
-};
-export type { ReadReportResult, ResolvedReportPath };
+export { DEFAULT_POSTHOG_REPORT_DIR, readPosthogReport };

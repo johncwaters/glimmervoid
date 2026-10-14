@@ -1236,19 +1236,5 @@ function createSessionWorktreeLifecycle({
   return api;
 }
 
-export { createSessionWorktreeLifecycle, WORKTREE_CHECK_DEBOUNCE_MS };
-export type {
-  AdoptWorktreeOptions,
-  BranchSyncResult,
-  IntegrationSyncResult,
-  RebaseResult,
-  WorkspaceArgs,
-  GitWorkspace,
-  MergeResult,
-  SessionPort,
-  SessionSnapshot,
-  Workspace,
-  WorktreeLifecycleOptions,
-  WorktreeLifecycleState,
-  WorktreeSignature,
-};
+export { createSessionWorktreeLifecycle };
+export type { IntegrationSyncResult, RebaseResult, WorkspaceArgs, GitWorkspace, MergeResult, SessionPort, SessionSnapshot, Workspace, WorktreeSignature };

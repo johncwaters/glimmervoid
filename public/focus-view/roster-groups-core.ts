@@ -7,7 +7,7 @@ export interface RosterGroup<Row> {
   rows: Row[];
 }
 
-export interface GroupedRoster<Row> {
+interface GroupedRoster<Row> {
   flat: boolean;
   order: string[];
   groups: RosterGroup<Row>[];

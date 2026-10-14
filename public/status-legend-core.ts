@@ -1,7 +1,7 @@
 import type { SessionState } from '#shared/states.ts';
 import { BADGE_LABELS, STATES } from '#shared/states.ts';
 
-export interface StatusLegendEntry {
+interface StatusLegendEntry {
   state: SessionState;
   awaitingBackgroundTasks: boolean;
   label: string;

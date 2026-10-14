@@ -29,7 +29,7 @@ function buildShellLanePermissions({ editableRoots, allowCommands, extraDeny }: 
   };
 }
 
-export interface LanePermissions {
+interface LanePermissions {
   permissions: { deny: string[]; defaultMode: string };
   args: string[];
 }

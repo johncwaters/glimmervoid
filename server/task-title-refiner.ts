@@ -259,4 +259,3 @@ function createTaskTitleRefiner({ getConfig, spawnLane, nowFn = () => Date.now()
 }
 
 export { TASK_TITLE_LANE_TOOLS, createTaskTitleRefiner };
-export type { TaskTitleRefinerOptions };

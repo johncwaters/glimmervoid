@@ -8,12 +8,12 @@ export interface TouchedRange {
   end: number;
 }
 
-export interface TouchState {
+interface TouchState {
   touchedByUri: Map<string, TouchedRange[]>;
   reviewByUri: Map<string, TouchedRange[]>;
 }
 
-export type TouchedSet = 'session' | 'review';
+type TouchedSet = 'session' | 'review';
 
 interface ChangeSpan {
   replacedStart: number;

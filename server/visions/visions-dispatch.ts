@@ -301,4 +301,4 @@ export {
   readCommentsResult,
   visionsPermissions,
 };
-export type { DispatchInput, DispatchResult, VisionsSpawn };
+export type { VisionsSpawn };

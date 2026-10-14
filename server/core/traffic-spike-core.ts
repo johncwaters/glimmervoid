@@ -11,7 +11,7 @@ const ESCALATION_GROWTH_FACTOR = 2;
 
 const TRAFFIC_KEY = '_traffic';
 
-export interface TrafficBaseline {
+interface TrafficBaseline {
   p90: number;
   median: number;
   sampleHours: number;
@@ -24,7 +24,7 @@ export interface TrafficState {
   peakUsers: number;
 }
 
-export interface TrafficVerdict {
+interface TrafficVerdict {
   action: 'none' | 'ping' | 'escalate' | 'clear';
   reason: string;
   nextState: TrafficState;

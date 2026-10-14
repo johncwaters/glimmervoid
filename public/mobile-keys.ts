@@ -1,4 +1,4 @@
-export const CLIPBOARD_ACTION = 'clipboard';
+const CLIPBOARD_ACTION = 'clipboard';
 
 export const UPLOAD_ACTION = 'upload';
 

@@ -24,4 +24,4 @@ function pendingResizes(queue: readonly ResizeMarker[], parsedOffset: number): P
 }
 
 export { SCREEN_RESET, SCREEN_KEEPER_SCROLLBACK, pendingResizes };
-export type { PendingResizeSplit, ResizeMarker };
+export type { ResizeMarker };

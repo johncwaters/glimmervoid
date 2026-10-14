@@ -93,4 +93,4 @@ function createTelegramCompletionDefer({
   return channel;
 }
 
-export { createTelegramCompletionDefer, DEFAULT_TELEGRAM_COMPLETION_RECHECK_MS };
+export { createTelegramCompletionDefer };

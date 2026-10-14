@@ -3,13 +3,13 @@ import { TraceRecord as TraceRecordSchema } from '../../../shared/contracts/trac
 
 export const MAX_SESSION_TRACE_READ_BYTES = 512 * 1024;
 
-export interface SessionTracePage {
+interface SessionTracePage {
   records: TraceRecord[];
   start: number;
   next: number;
 }
 
-export interface SessionTracePageRequest {
+interface SessionTracePageRequest {
   after: number;
   endingAt?: number | 'tail';
   size: number;

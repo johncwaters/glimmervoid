@@ -14,7 +14,7 @@ import type { OutboxEntry } from './core/outbox-core.ts';
 const OUTBOX_VERSION = 1;
 const DEFAULT_RETRY_INTERVAL_MS = 60000;
 
-export interface TelegramOutboxDeps {
+interface TelegramOutboxDeps {
   filePath: string;
 
   send: (entry: OutboxEntry) => Promise<{ ok: boolean }>;
@@ -175,4 +175,4 @@ function createTelegramOutbox({
   };
 }
 
-export { createTelegramOutbox, OUTBOX_VERSION };
+export { createTelegramOutbox };

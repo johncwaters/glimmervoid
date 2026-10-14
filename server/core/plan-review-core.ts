@@ -309,4 +309,4 @@ export {
   revisionRecord,
   selectEntry,
 };
-export type { OperatorDecisionText, PlanChangedPayload, PlanReviewEvent, PlanReviewProgress, PlanRevisionIndexEntry };
+export type { PlanChangedPayload, PlanReviewEvent, PlanReviewProgress, PlanRevisionIndexEntry };

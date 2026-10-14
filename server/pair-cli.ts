@@ -127,4 +127,4 @@ function runPairCli(args: string[]): number {
   return runMint(store, remote, argValue(args, '--name'));
 }
 
-export { PASSWORD_WARNING, buildPairUrl, runPairCli };
+export { runPairCli };

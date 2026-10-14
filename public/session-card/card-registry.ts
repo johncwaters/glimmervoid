@@ -9,7 +9,7 @@ import type { TerminalGrid } from './grid-core.ts';
 
 export type SessionCardElement = HTMLDivElement & { _cardHostClass?: string };
 
-export type PlanFaceController = ReturnType<typeof createPlanFace>;
+type PlanFaceController = ReturnType<typeof createPlanFace>;
 
 export interface SessionUi {
   term: Terminal | null;

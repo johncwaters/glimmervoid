@@ -22,7 +22,7 @@ interface PhoneScreenSpec {
   glyph: string;
 }
 
-export interface PhoneShellHooks {
+interface PhoneShellHooks {
   headerControls?: AdoptableElement[];
   panels?: PhonePanel<HTMLElement>[];
   onScreenShown?: (screenId: string) => void;

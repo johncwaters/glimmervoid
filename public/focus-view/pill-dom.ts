@@ -1,6 +1,6 @@
 import { el, query, stateChip } from '../dom-helpers.ts';
 
-export type PillRefs = ReturnType<typeof buildPillSkeleton>['refs'];
+type PillRefs = ReturnType<typeof buildPillSkeleton>['refs'];
 
 export function buildPillSkeleton<Tag extends 'button' | 'div'>(tagName: Tag, className: string) {
   const pill = el(tagName, className);

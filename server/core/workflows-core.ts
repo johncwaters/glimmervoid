@@ -40,7 +40,7 @@ export interface PlannedWorkflowAction {
   event: WorkflowEvent;
 }
 
-export type WorkflowsSettingsResolution = ({ ok: true } & WorkflowsSettingsType) | { ok: false; reason: string };
+type WorkflowsSettingsResolution = ({ ok: true } & WorkflowsSettingsType) | { ok: false; reason: string };
 
 export function resolveWorkflowsSettings(block: unknown): WorkflowsSettingsResolution {
   const parsed = WorkflowsSettings.safeParse(block ?? {});

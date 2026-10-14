@@ -1603,4 +1603,4 @@ export {
   DASHBOARD_SETTING_PATHS,
   registerControlHandlers,
 };
-export type { FactoryControl, BenchmarkControl, ControlHandlerDeps, ControlRequest, MyPrMergeControl, TeamReviewActionControl };
+export type { FactoryControl, BenchmarkControl, ControlHandlerDeps, MyPrMergeControl, TeamReviewActionControl };

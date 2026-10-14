@@ -96,4 +96,4 @@ function createScreenKeeper({ cols, rows }: { cols: number; rows: number }): Scr
 }
 
 export { createScreenKeeper };
-export type { ScreenKeeper, ScreenKeeperFactory };
+export type { ScreenKeeperFactory };

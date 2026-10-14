@@ -168,4 +168,4 @@ export {
   resolveAgentCommand,
   buildAgentSpawnCommand,
 };
-export type { CommandKind, PathLookupExec, PathLookupExecFile, PathLookupOptions, ResolvedCommand };
+export type { PathLookupExec, PathLookupExecFile, ResolvedCommand };

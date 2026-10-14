@@ -49,4 +49,3 @@ export {
   hostOpenerCommandFor,
   parseOpenableUrl,
 };
-export type { OpenExternalVerdict };

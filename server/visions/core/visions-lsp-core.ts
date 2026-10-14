@@ -6,7 +6,7 @@ export interface LspParserState {
   neededBodyBytes: number | null;
 }
 
-export interface LspParseError {
+interface LspParseError {
   parseError: true;
   reason?: string;
   raw: string;

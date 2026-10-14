@@ -146,13 +146,4 @@ function runAgentSetupCli(args: string[], deps: AgentSetupDeps = {}): number {
   return 1;
 }
 
-export {
-  USAGE,
-  runAgentSetupCli,
-  inspectGrokAgentSetup,
-  setupInputs,
-  ensureWritableHooksDirectory,
-  replaceFileAtomically,
-};
-
-export type { AgentSetupDeps, AtomicWriteFileSystem, DirectoryFileSystem, GrokSetupInspection, SetupFileSystem };
+export { USAGE, runAgentSetupCli, inspectGrokAgentSetup, ensureWritableHooksDirectory, replaceFileAtomically };

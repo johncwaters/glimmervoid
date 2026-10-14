@@ -32,7 +32,7 @@ export function deriveNyanGeometry({
   };
 }
 
-export type NyanGeometry = ReturnType<typeof deriveNyanGeometry>;
+type NyanGeometry = ReturnType<typeof deriveNyanGeometry>;
 
 export function nyanFlightStyleProperties(geometry: NyanGeometry, scaleMultiplier: number): Array<readonly [string, string]> {
   return [

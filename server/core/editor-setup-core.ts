@@ -3,21 +3,21 @@ export interface Invocation {
   args: string[];
 }
 
-export interface EditorRecipe {
+interface EditorRecipe {
   id: string;
   label: string;
   where: string;
   build: (invocation: Invocation) => string;
 }
 
-export interface SetupGuideSection {
+interface SetupGuideSection {
   id: string;
   label: string;
   where: string;
   snippet: string;
 }
 
-export interface SetupGuide {
+interface SetupGuide {
   ok: boolean;
   reason: string;
   sections: SetupGuideSection[];
@@ -179,10 +179,4 @@ function buildSetupGuide({
   };
 }
 
-export {
-  EDITOR_RECIPES,
-  buildSetupGuide,
-  commandLine,
-  recipeIds,
-  relayInvocation,
-};
+export { buildSetupGuide, commandLine, recipeIds, relayInvocation };

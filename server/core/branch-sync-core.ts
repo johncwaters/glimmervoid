@@ -1,9 +1,9 @@
 export const GIT_FETCH_TIMEOUT_MS = 8000;
 
-export type BranchSyncState = 'no-upstream' | 'unknown' | 'diverged' | 'ahead' | 'behind' | 'in-sync';
-export type ResyncAction = 'ff-merge' | 'ff-fetch' | 'push' | 'none';
+type BranchSyncState = 'no-upstream' | 'unknown' | 'diverged' | 'ahead' | 'behind' | 'in-sync';
+type ResyncAction = 'ff-merge' | 'ff-fetch' | 'push' | 'none';
 
-export interface LeftRightCount {
+interface LeftRightCount {
   behind: number;
   ahead: number;
 }
@@ -57,7 +57,7 @@ function decideResyncAction(state: string, isCheckedOut: boolean): ResyncAction 
   return 'none';
 }
 
-export interface ResyncCommand {
+interface ResyncCommand {
   args: string[];
   timeoutMs: number | undefined;
   successAction: 'fast-forwarded' | 'pushed';

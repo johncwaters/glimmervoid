@@ -6,23 +6,23 @@ import { versionLabel } from './radar/radar-core.ts';
 
 export type UpdateStatusView = Partial<UpdateStatus>;
 
-export interface UpdateActionDecision {
+interface UpdateActionDecision {
   enabled: boolean;
   reason: string | null;
 }
 
-export interface UpdateActionAvailability {
+interface UpdateActionAvailability {
   update: UpdateActionDecision;
   restart: UpdateActionDecision;
 }
 
-export interface UpdateProgressStep {
+interface UpdateProgressStep {
   id: string;
   label: string;
   status: UpdateStepStatus;
 }
 
-export interface UpdateProgressProjection {
+interface UpdateProgressProjection {
   state: UpdateRunState;
   terminalLine: string | null;
   steps: UpdateProgressStep[];
@@ -166,9 +166,9 @@ export function projectUpdateProgress(journal: UpdateJournal | null | undefined)
 
 const AUTO_CHECK_STALE_MS = 10 * 60_000;
 
-export type UpdateSummaryTone = 'unknown' | 'current' | 'available' | 'running' | 'staged';
+type UpdateSummaryTone = 'unknown' | 'current' | 'available' | 'running' | 'staged';
 
-export interface UpdateSummary {
+interface UpdateSummary {
   tone: UpdateSummaryTone;
   headline: string;
 }

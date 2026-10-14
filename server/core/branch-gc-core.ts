@@ -23,13 +23,13 @@ export interface KeptBranch {
   reason: string;
 }
 
-export interface DeletedBranch {
+interface DeletedBranch {
   name: string;
   reason: string;
   tipSha: string;
 }
 
-export interface BranchGcPlan {
+interface BranchGcPlan {
   deletions: DeletedBranch[];
   kept: KeptBranch[];
 }
@@ -53,7 +53,7 @@ export interface WorktreeGcDecision {
   reason: 'missing-directory' | 'locked' | 'live-session' | 'protected' | 'foreign-prefix' | 'status-probe-failed' | 'uncommitted-changes' | 'no-commits' | 'merge-proof-failed' | 'unmerged' | 'merged';
 }
 
-export interface WorktreeGcPlan {
+interface WorktreeGcPlan {
   removals: WorktreeGcDecision[];
   kept: WorktreeGcDecision[];
 }
@@ -187,4 +187,4 @@ function planWorktreeGc({
   return { removals, kept };
 }
 
-export { DAY_MS, DEFAULT_BRANCH_GC_PREFIXES, MERGED_DELETION_REASON, SESSION_BRANCH_PREFIX, STALE_DELETION_REASON, UNMERGED_KEPT_REASON, matchedPrefix, planBranchGc, planWorktreeGc, protectedBranchNames, sessionIdFromBranch, usablePrefixes, worktreeIntegrationTips };
+export { DAY_MS, DEFAULT_BRANCH_GC_PREFIXES, UNMERGED_KEPT_REASON, matchedPrefix, planBranchGc, planWorktreeGc, sessionIdFromBranch, usablePrefixes, worktreeIntegrationTips };

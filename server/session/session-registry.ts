@@ -359,10 +359,4 @@ export {
   reconcileSessionWorktrees,
   runAutoResume,
 };
-export type {
-  ReconcileWorktreesOptions,
-  RegistryConfig,
-  RegistryGitWorkspace,
-  SessionRegistry,
-  SessionRegistryDependencies,
-};
+export type { RegistryConfig };

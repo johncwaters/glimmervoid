@@ -1,7 +1,7 @@
 import { clampColumnWidth, keyboardWidthDelta } from './column-width-core.ts';
 import type { ColumnWidthBounds } from './column-width-core.ts';
 
-export interface ColumnResizerOptions {
+interface ColumnResizerOptions {
   resizer: HTMLElement;
   column: HTMLElement;
   widthHost: HTMLElement;

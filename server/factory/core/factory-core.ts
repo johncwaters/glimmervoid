@@ -249,11 +249,11 @@ export type FactoryAdmissionInput = {
   filterDriverNames: readonly string[];
 };
 
-export const FACTORY_REFUSAL_SPEND_UNKNOWN = 'usage history is still being scanned; spend is not known yet';
-export const FACTORY_REFUSAL_WORKER_CAP = 'live worker cap reached';
-export const FACTORY_REFUSAL_SCOPE_OVERLAP = 'write scopes overlap a live worker';
+const FACTORY_REFUSAL_SPEND_UNKNOWN = 'usage history is still being scanned; spend is not known yet';
+const FACTORY_REFUSAL_WORKER_CAP = 'live worker cap reached';
+const FACTORY_REFUSAL_SCOPE_OVERLAP = 'write scopes overlap a live worker';
 export const FACTORY_REFUSAL_PAUSED = 'factory is paused';
-export const FACTORY_REFUSAL_OVER_BUDGET = 'daily spend is over budget';
+const FACTORY_REFUSAL_OVER_BUDGET = 'daily spend is over budget';
 export const FACTORY_SANE_YOLO_UNAVAILABLE = 'Sane YOLO is unavailable';
 
 const UNKNOWN_SPEND_REFUSALS: Readonly<Record<Exclude<LaneSpend['status'], 'known'>, string>> = {
@@ -366,7 +366,7 @@ function isCoherenceLedgerPath(relativePath: string): boolean {
   return folded === '.coherence' || folded?.startsWith('.coherence/') === true;
 }
 
-export type FactoryRisk = FactoryWorkOrder['opened']['risk'];
+type FactoryRisk = FactoryWorkOrder['opened']['risk'];
 
 const FACTORY_RISK_RANKS: Readonly<Record<FactoryRisk, number>> = { low: 0, medium: 1, high: 2, critical: 3 };
 
@@ -409,7 +409,7 @@ export function decideAdmission({ order, intent, trustedIntentIds, intentWriteSc
 
 export const FACTORY_INTEGRATION_MOVED_OUTSIDE = 'integration branch moved outside the factory';
 
-export const FACTORY_LANDED_SHA_LIMIT = 50;
+const FACTORY_LANDED_SHA_LIMIT = 50;
 
 export function appendFactoryLandedSha(landedShas: readonly string[], landedSha: string): string[] {
   return [...landedShas.filter((recordedSha) => recordedSha !== landedSha), landedSha].slice(-FACTORY_LANDED_SHA_LIMIT);

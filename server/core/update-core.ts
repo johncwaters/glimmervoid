@@ -13,7 +13,7 @@ const INSTALL_FLAVORS = new Set<string>(InstallFlavor.options);
 const TAG_VERSION_RE = /^v(\d+\.\d+\.\d+)$/;
 const UPDATE_CHANNELS = new Set<string>(['release', 'main']);
 
-export interface ReleaseTag {
+interface ReleaseTag {
   version: string;
   sha: string | null;
 }

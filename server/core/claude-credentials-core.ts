@@ -66,5 +66,5 @@ function decideArmToken({ login, nowMs, cellTimeoutSeconds, hasRefreshed, expire
   return { kind: 'unavailable', reason: exhaustedLoginReason(login, nowMs, cellTimeoutSeconds, expiresAtBeforeRefresh, hasWaitedForExpiry) };
 }
 
-export { EXPIRY_WAIT_GRACE_MS, LOGIN_REFRESH_MARGIN_MS, decideArmToken, parseStoredCredentials, requiredValidUntil };
-export type { ArmTokenDecision, LoginAccessToken };
+export { EXPIRY_WAIT_GRACE_MS, LOGIN_REFRESH_MARGIN_MS, decideArmToken, parseStoredCredentials };
+export type { LoginAccessToken };

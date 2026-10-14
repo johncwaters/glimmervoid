@@ -181,11 +181,5 @@ async function listRepoConversations({
   });
 }
 
-export {
-  claudeProjectsDir,
-  encodeProjectDir,
-  listRepoWorktreePaths,
-  listRepoConversations,
-  cleanTitle,
-};
-export type { ConversationEntry, GitRunner, ListConversationsOptions, TranscriptFsApi, TranscriptMeta };
+export { claudeProjectsDir, encodeProjectDir, listRepoConversations, cleanTitle };
+export type { GitRunner };

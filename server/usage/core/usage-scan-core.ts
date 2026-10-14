@@ -21,7 +21,7 @@ export function laneSpendStatus({ isTrackingEnabled, scan }: {
   return 'known';
 }
 
-export interface FileReadCursor {
+interface FileReadCursor {
   offset?: number;
   size?: number;
   mtimeMs?: number;

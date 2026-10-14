@@ -18,7 +18,7 @@ const numberRangeLabel = (range: SettingsRange) => {
   if (range.exclusiveMin) return `greater than ${range.min}`;
   return `at least ${range.min}`;
 };
-export const optionalNumber = (field: string, range: SettingsRange = ranges.POSITIVE_NUMBER_RANGE) => z.number({ error: `${field} must be ${numberRangeLabel(range)}` })
+const optionalNumber = (field: string, range: SettingsRange = ranges.POSITIVE_NUMBER_RANGE) => z.number({ error: `${field} must be ${numberRangeLabel(range)}` })
   .finite()
   .refine((value) => !range.exclusiveMin || value > range.min, { message: `${field} must be ${numberRangeLabel(range)}` })
   .refine((value) => range.exclusiveMin || value >= range.min, { message: `${field} must be ${numberRangeLabel(range)}` })
@@ -47,7 +47,7 @@ export const ChangeMapSettings = optionalObject('changeMap', {
   }),
 });
 
-export const TaskTitleSettings = z.object({
+const TaskTitleSettings = z.object({
   refiner: z.object({
     enabled: optionalBoolean('taskTitle.refiner.enabled'),
     model: optionalString('taskTitle.refiner.model', true),
@@ -209,7 +209,7 @@ const createUsageSettings = (isAbsolutePath: (directory: string) => boolean) => 
     .optional(),
 });
 
-export const TelegramSettings = optionalObject('telegram', {
+const TelegramSettings = optionalObject('telegram', {
   botToken: optionalString('telegram.botToken', true),
   chatId: optionalString('telegram.chatId', true),
 });
@@ -248,7 +248,7 @@ const telemetryShape = { enabled: optionalBoolean('telemetry.enabled') };
 const TelemetrySettings = z.object(telemetryShape, { error: 'telemetry must be an object' }).strict().optional();
 export const TelemetryFileSettings = z.object(telemetryShape, { error: 'telemetry must be an object' }).passthrough().optional();
 
-export const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean) => ({
+const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean) => ({
   port: z.number().int().min(0).max(65535).optional(),
   autoRecoverSeconds: z.number().finite().nonnegative().optional(),
   inputGraceSeconds: z.number().finite().nonnegative().optional(),

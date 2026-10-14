@@ -128,4 +128,4 @@ export {
   planMirrorReplay,
   replayDidOpenMessage,
 };
-export type { DaemonMessage, FrameDecision, MirrorDocument, MirrorSyncInputs, MirrorSyncPlan };
+export type { DaemonMessage };

@@ -1,4 +1,4 @@
-export interface BoundedWaitOutcome {
+interface BoundedWaitOutcome {
   timedOut: boolean;
   settled: PromiseSettledResult<unknown>[];
 }
@@ -8,7 +8,7 @@ export interface StopperEntry {
   promise: Promise<unknown>;
 }
 
-export interface StopperCollector {
+interface StopperCollector {
   add: (name: string, run: () => unknown) => Promise<unknown>;
   entries: () => StopperEntry[];
 }

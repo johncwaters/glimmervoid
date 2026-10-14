@@ -11,12 +11,12 @@ export interface ViewerSizeRecord {
   resizeSeq: number;
 }
 
-export interface SessionSize {
+interface SessionSize {
   cols: number;
   rows: number;
 }
 
-export interface ResolvedSessionSize extends SessionSize {
+interface ResolvedSessionSize extends SessionSize {
   changed: boolean;
 }
 

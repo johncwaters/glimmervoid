@@ -61,4 +61,3 @@ function buildMergePrompt(
 }
 
 export { buildMergePrompt };
-export type { MergePromptInputs };

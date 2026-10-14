@@ -5,7 +5,7 @@ const BEAT_THROTTLE_MS = 320;
 const QUIET_AFTER_MS = 8000;
 
 export type ActivityRenderKind = 'beat' | 'flag';
-export type ActivityRenderer = (ui: SessionUi, kind: ActivityRenderKind) => void;
+type ActivityRenderer = (ui: SessionUi, kind: ActivityRenderKind) => void;
 
 let renderer: ActivityRenderer | null = null;
 export function setActivityRenderer(fn: ActivityRenderer | null) { renderer = fn; }

@@ -4,7 +4,7 @@ import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 export type ViewAttention = boolean | string | null;
 export type ViewRefreshReason = 'shown' | 'connected' | ServerMessage['type'];
 
-export interface ViewAttentionSource {
+interface ViewAttentionSource {
   subscribe: (notify: (attention: ViewAttention) => void) => void;
   acknowledge: () => void;
 }

@@ -15,4 +15,3 @@ function confineToOwnTerminal(argv: readonly string[], ownTerminalPath: string):
 }
 
 export { confineToOwnTerminal };
-export type { TerminalConfinement };

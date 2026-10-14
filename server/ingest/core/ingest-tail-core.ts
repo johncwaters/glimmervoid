@@ -8,7 +8,7 @@ const HEAD_SAMPLE_BYTES = 512;
 
 const LISTING_SETTLE_MS = 2000;
 
-export interface TailStat {
+interface TailStat {
   size?: number;
   mtimeMs?: number;
   ino?: number;
@@ -26,7 +26,7 @@ export interface TailState {
   vendorState: Record<string, string> | null;
 }
 
-export interface TailReadPlan {
+interface TailReadPlan {
   action: 'seed' | 'skip' | 'reset' | 'read';
   start: number;
   end: number;

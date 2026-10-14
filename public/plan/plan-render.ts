@@ -109,7 +109,7 @@ export function renderPlanBlocks(blocks: readonly PlanBlock[]): HTMLElement {
   return root;
 }
 
-export interface PlanSectionHandlers {
+interface PlanSectionHandlers {
   hasComment: (section: PlanSection) => boolean;
   isComposing: (section: PlanSection) => boolean;
   onComment: (section: PlanSection) => void;

@@ -116,4 +116,4 @@ function createClaudeCredentials({
 }
 
 export { OVERRIDE_TOKEN_ENV, createClaudeCredentials };
-export type { ClaudeCredentialsOptions, CommandRunner, Sleeper };
+export type { CommandRunner, Sleeper };

@@ -2,14 +2,14 @@ import { lookupModelPrice, ratesForPrice } from './usage-pricing-core.ts';
 import { vendorOf } from './usage-aggregate-core.ts';
 import { isRecord, numberOr, rawTextOr } from '../../../shared/coerce.ts';
 
-export interface RtkDailyRow {
+interface RtkDailyRow {
   date: string;
   commands: number;
   savedTokens: number;
   savingsPct: number;
 }
 
-export interface RtkGain {
+interface RtkGain {
   commands: number;
   inputTokens: number;
   outputTokens: number;

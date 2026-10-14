@@ -5,7 +5,7 @@ import { NOTIFICATION_STATES as NS, NOTIFICATION_TRANSITIONS } from '../shared/n
 import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import type { NotificationState } from '../shared/notification-states.ts';
 
-export type NotificationKind = 'plan';
+type NotificationKind = 'plan';
 
 export interface NotificationContext {
   escalationCount: number;
@@ -14,11 +14,11 @@ export interface NotificationContext {
   kind?: NotificationKind;
 }
 
-export interface ChannelDelivery {
+interface ChannelDelivery {
   send?: boolean;
 }
 
-export type NotificationChannelFn = (
+type NotificationChannelFn = (
   sessionName: string,
   category: string,
   message: string,
@@ -49,7 +49,7 @@ export interface NotificationManagerOptions {
   phoneEscalationMs?: number;
 }
 
-export interface NotificationManagerDependencies extends NotificationManagerOptions {
+interface NotificationManagerDependencies extends NotificationManagerOptions {
   recordOutcome?: OutcomeRecorder;
 }
 

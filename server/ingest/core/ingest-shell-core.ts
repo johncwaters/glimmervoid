@@ -25,7 +25,7 @@ export interface HistoryLocation {
   name: string | null;
 }
 
-export interface ParsedCommand {
+interface ParsedCommand {
   text: string;
   ts: number | null;
 }
@@ -36,7 +36,7 @@ export interface HistoryParseState {
   entry: ParsedCommand | null;
 }
 
-export interface ParseResult {
+interface ParseResult {
   commands: ParsedCommand[];
   state: HistoryParseState;
 }

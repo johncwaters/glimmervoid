@@ -11,7 +11,7 @@ export interface UsageBlock extends UsageTotals {
   lastEntryTs: number | null;
 }
 
-export interface BurnRate {
+interface BurnRate {
   tokensPerMinute: number;
   tokensPerMinuteExCache: number;
   costPerHour: number;

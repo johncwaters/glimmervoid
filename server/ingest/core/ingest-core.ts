@@ -2,9 +2,9 @@ import { isRecord, positiveIntOr, textOr } from '../../../shared/coerce.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '../../../shared/display-text.ts';
 
 
-export type SourceName = 'terminal' | 'agentLogs' | 'git' | 'fs' | 'shellHistory' | 'editor';
+type SourceName = 'terminal' | 'agentLogs' | 'git' | 'fs' | 'shellHistory' | 'editor';
 
-export type IngestSourceConfig = {
+type IngestSourceConfig = {
   enabled: boolean;
   maxEntries: number;
   maxBytes: number;
@@ -24,7 +24,7 @@ export interface IngestConfig {
   sources: Record<string, IngestSourceConfig>;
 }
 
-export interface IngestScope {
+interface IngestScope {
   root: string | null;
   sessionId: string | null;
 }
@@ -46,7 +46,7 @@ export interface IngestRing {
   maxBytes: number;
 }
 
-export interface IngestStore {
+interface IngestStore {
   config: IngestConfig;
   rings: Map<string, IngestRing>;
   seq: number;

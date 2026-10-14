@@ -338,4 +338,4 @@ function createLaneRunner<Poller extends RestartablePoller>({
 }
 
 export { createLaneRunner, createTickLoop };
-export type { LaneRunner, LaneRunnerGate, LaneRunnerOptions, LaneStatusRecord, RestartablePoller, SharedClock, TickLoop, TickLoopOptions, TickOutcome };
+export type { LaneRunnerGate, LaneStatusRecord, SharedClock, TickLoopOptions, TickOutcome };

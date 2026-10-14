@@ -6,7 +6,7 @@ export interface BatchLogState {
   lastSeq: number | null;
 }
 
-export interface BatchLogEntry {
+interface BatchLogEntry {
   events: number;
   overflowed: number;
   firstSeq: number;

@@ -4,8 +4,8 @@ import { buildWebSocketUrl } from './ws-url-core.ts';
 import { clearPageToken, loadPageToken, pageToken, withPageToken } from './ws-token.ts';
 import { ServerMessage } from '#shared/contracts/control-messages.ts';
 
-export type ControlMessageHandler = (message: ServerMessage) => void;
-export type ConnectionStateCallback = (state: string, label: string) => void;
+type ControlMessageHandler = (message: ServerMessage) => void;
+type ConnectionStateCallback = (state: string, label: string) => void;
 
 interface PendingRequest {
   resolve: (message: ServerMessage) => void;

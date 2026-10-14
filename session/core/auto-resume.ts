@@ -98,4 +98,3 @@ function shouldAdoptReportedResumeId(
 }
 
 export { pickAutoResume, resolveResumeTarget, shouldAdoptReportedResumeId, RESUME_ID_RE };
-export type { AutoResumeConfig, AutoResumeProject, ReportedResumeId };

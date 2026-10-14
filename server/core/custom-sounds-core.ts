@@ -72,7 +72,6 @@ function decideByteRange(rangeHeader: unknown, sizeBytes: number): ByteRangeDeci
   return { kind: 'partial', start, end: Math.min(requestedEnd, sizeBytes - 1) };
 }
 
-export type { ByteRangeDecision };
 export {
   customSoundContentType,
   decideByteRange,

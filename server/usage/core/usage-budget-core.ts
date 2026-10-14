@@ -7,7 +7,7 @@ export interface BudgetConfig {
   monthlyUsd: number | null;
 }
 
-export type BudgetScope = 'daily' | 'monthly';
+type BudgetScope = 'daily' | 'monthly';
 
 export type BudgetFiredState = Record<BudgetScope, Record<string, number[]>>;
 
@@ -20,7 +20,7 @@ export interface BudgetAlert {
   periodKey: string;
 }
 
-export interface BudgetStandingRow {
+interface BudgetStandingRow {
   scope: BudgetScope;
   spentUsd: number;
   budgetUsd: number;

@@ -170,4 +170,4 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
 }
 
 export { createSessionOutput };
-export type { ScreenSnapshot, SessionOutput, SessionOutputOptions, SessionEventBinder, PasteResult };
+export type { ScreenSnapshot };

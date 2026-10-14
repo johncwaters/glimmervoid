@@ -103,4 +103,4 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
 }
 
 export { createSessionFactory };
-export type { SessionFactoryDependencies, SessionSpawnOverrides };
+export type { SessionSpawnOverrides };

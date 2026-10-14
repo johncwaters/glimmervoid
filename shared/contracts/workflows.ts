@@ -4,11 +4,11 @@ import { MyPrSearchNode, repositoryName } from './my-prs.ts';
 import { GH_SEGMENT } from './github-ids.ts';
 import { WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE, WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE } from '../settings-ranges.ts';
 
-export const WORKFLOW_TRIGGERS = Object.freeze(['opened', 'checks-failed', 'review-requested', 'approved', 'commented', 'merged'] as const);
-export const WORKFLOW_ACTION_TYPES = Object.freeze(['notify', 'spawn', 'label', 'comment'] as const);
-export const WORKFLOW_PROMPT_TEMPLATE_MAX_CHARACTERS = 20000;
-export const WORKFLOW_COMMENT_BODY_MAX_CHARACTERS = 65536;
-export const WORKFLOW_LABEL_NAME_MAX_CHARACTERS = 50;
+const WORKFLOW_TRIGGERS = Object.freeze(['opened', 'checks-failed', 'review-requested', 'approved', 'commented', 'merged'] as const);
+const WORKFLOW_ACTION_TYPES = Object.freeze(['notify', 'spawn', 'label', 'comment'] as const);
+const WORKFLOW_PROMPT_TEMPLATE_MAX_CHARACTERS = 20000;
+const WORKFLOW_COMMENT_BODY_MAX_CHARACTERS = 65536;
+const WORKFLOW_LABEL_NAME_MAX_CHARACTERS = 50;
 export const DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS = 2;
 export const DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL = 20;
 
@@ -54,7 +54,7 @@ export const WorkflowAction = z.discriminatedUnion('type', [
 ], { error: `workflows.rules[].actions[].type must be one of ${WORKFLOW_ACTION_TYPES.join(', ')}` });
 export type WorkflowAction = z.infer<typeof WorkflowAction>;
 
-export const WorkflowFilters = z.strictObject({
+const WorkflowFilters = z.strictObject({
   mine: z.boolean({ error: 'workflows.rules[].filters.mine must be a boolean' }).optional(),
   teamReviewRequested: z.boolean({ error: 'workflows.rules[].filters.teamReviewRequested must be a boolean' }).optional(),
   authors: nonEmptyList('workflows.rules[].filters.authors', z.string({ error: 'workflows.rules[].filters.authors must hold GitHub logins' })
@@ -63,7 +63,6 @@ export const WorkflowFilters = z.strictObject({
   baseBranches: nonEmptyList('workflows.rules[].filters.baseBranches', z.string({ error: 'workflows.rules[].filters.baseBranches must hold branch names' })
     .min(1, { error: 'workflows.rules[].filters.baseBranches must hold branch names' })).optional(),
 }, { error: 'workflows.rules[].filters must be an object' });
-export type WorkflowFilters = z.infer<typeof WorkflowFilters>;
 
 const WorkflowRuleId = z.string({ error: 'workflows.rules[].id must be a string' })
   .regex(RULE_ID, { error: 'workflows.rules[].id must be 1 to 64 lowercase letters, digits and dashes, starting with a letter or digit' });
@@ -100,7 +99,7 @@ export const WorkflowsSettings = z.strictObject({
 });
 export type WorkflowsSettings = z.infer<typeof WorkflowsSettings>;
 
-export const WorkflowRuleToggle = z.strictObject({
+const WorkflowRuleToggle = z.strictObject({
   id: WorkflowRuleId,
   enabled: WorkflowRuleEnabled,
 }, { error: 'a dashboard update of workflows.rules[] carries only id and enabled' });

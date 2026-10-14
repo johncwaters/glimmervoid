@@ -4,7 +4,7 @@ export const CHANGE_MAP_LIST_CAP = 20;
 export const CHANGE_MAP_CLAIM_MAX_CHARS = 600;
 export const CHANGE_MAP_CLAIMS_MAX = 12;
 
-export const CHANGE_MAP_FACT_KINDS = Object.freeze([
+const CHANGE_MAP_FACT_KINDS = Object.freeze([
   'file', 'subsystem', 'co-change', 'hotspot', 'blast', 'untested', 'collision', 'link',
 ] as const);
 export type ChangeMapFactKind = (typeof CHANGE_MAP_FACT_KINDS)[number];
@@ -112,11 +112,10 @@ export const RepoChangeMap = z.strictObject({
 });
 export type RepoChangeMap = z.infer<typeof RepoChangeMap>;
 
-export const NarrativeClaim = z.strictObject({
+const NarrativeClaim = z.strictObject({
   text: z.string().min(1).max(CHANGE_MAP_CLAIM_MAX_CHARS),
   factIds: z.array(factId).min(1),
 });
-export type NarrativeClaim = z.infer<typeof NarrativeClaim>;
 
 export const ChangeNarrative = z.strictObject({
   factsHash: z.string().min(1),

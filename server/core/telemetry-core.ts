@@ -377,4 +377,4 @@ export {
   decideIsDevInstall, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, isTelemetryForcedOff, nodeMajorVersion,
   parseBrowserStackFrames, parsePosthogReleaseId, parseV8StackFrames, resolveProjectToken, scrubLocalPath, urlPathOnly,
 };
-export type { RemoteTelemetryState, TelemetryConfig, TelemetryConsent, TelemetryEnvironment };
+export type { RemoteTelemetryState, TelemetryConfig, TelemetryEnvironment };

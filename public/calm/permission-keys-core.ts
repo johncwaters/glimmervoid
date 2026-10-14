@@ -1,7 +1,7 @@
 import { PROMPT_QUESTION_MAX_OPTIONS } from '#shared/contracts/session.ts';
 import { STATES } from '#shared/states.ts';
 
-export interface PermissionKeystroke {
+interface PermissionKeystroke {
   data: string;
 }
 
@@ -9,7 +9,7 @@ export interface TimedKeystroke extends PermissionKeystroke {
   delayBeforeMs: number;
 }
 
-export interface RejectAndInstructPlan {
+interface RejectAndInstructPlan {
   dismissPrompt: readonly PermissionKeystroke[];
   instruct: readonly TimedKeystroke[];
 }
@@ -99,7 +99,7 @@ export function isAnyPromptShowing(currentState: string, pendingPromptKind: stri
   return currentState === STATES.WAITING && typeof pendingPromptKind === 'string' && pendingPromptKind !== '';
 }
 
-export type InstructionDelivery = 'send' | 'wait' | 'give-up';
+type InstructionDelivery = 'send' | 'wait' | 'give-up';
 
 export function decideInstructionDelivery({ currentState, pendingPromptKind, elapsedMs }: {
   currentState: string;

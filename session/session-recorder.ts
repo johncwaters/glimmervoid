@@ -331,4 +331,3 @@ function createRecorder(
 }
 
 export { SessionRecorder, createRecorder, defaultRecordingsDir };
-export type { CaptureConfig, SessionRecorderOptions };

@@ -204,6 +204,4 @@ export {
   awaitSessionExit, createJobResultFile, drainPending, firstLine, raceWithAbort, readResultFile,
   registerEphemeralSession, JOB_RESULT_FILENAME,
 };
-export type {
-  JobResultFile, RecordLane, RegisterableSession, ResultDecorator, ResultFileOutcome, ResultValidator, SpawnGate,
-};
+export type { JobResultFile, RecordLane, ResultFileOutcome, SpawnGate };

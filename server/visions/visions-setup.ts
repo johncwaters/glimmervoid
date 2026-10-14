@@ -365,4 +365,4 @@ export {
   unwireEverything,
   wireEverything,
 };
-export type { ExtensionReport, InstallOutcome, VisionsSetupOptions, WireReport };
+export type { ExtensionReport, WireReport };

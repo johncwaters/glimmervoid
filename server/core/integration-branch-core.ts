@@ -13,7 +13,7 @@ export function defaultBranchFromRemoteHead(remoteHead: string): string | null {
   return remoteHead.slice(REMOTE_HEAD_PREFIX.length) || null;
 }
 
-export interface MarkerBaseDecision {
+interface MarkerBaseDecision {
   base: string | null;
   migrateTo: string | null;
   measureRef: string | null;
@@ -26,12 +26,12 @@ export interface MarkerProbes {
   isMarkerAbsorbedByDefault: boolean | null;
 }
 
-export interface MarkerRefCandidate {
+interface MarkerRefCandidate {
   ref: string;
   argv: string[];
 }
 
-export interface MarkerProbePlan {
+interface MarkerProbePlan {
   markerRefCandidates: MarkerRefCandidate[];
   absorbedByDefault: (resolvedMarkerRef: string) => string[];
 }

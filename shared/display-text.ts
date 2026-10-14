@@ -1,15 +1,15 @@
-export type SecondsRounding = 'floor' | 'round';
+type SecondsRounding = 'floor' | 'round';
 
-export type ElapsedUnitWording = 'compact' | 'abbreviated' | 'spelled';
+type ElapsedUnitWording = 'compact' | 'abbreviated' | 'spelled';
 
-export interface ElapsedTextOptions {
+interface ElapsedTextOptions {
   rounding: SecondsRounding;
   wording: ElapsedUnitWording;
   suffix: string;
   justNowBelowSeconds: number;
 }
 
-export type ByteSizeLargestUnit = 'KB' | 'GB';
+type ByteSizeLargestUnit = 'KB' | 'GB';
 
 const SECONDS_PER_MINUTE = 60;
 const SECONDS_PER_HOUR = 3600;

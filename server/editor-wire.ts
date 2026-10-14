@@ -200,7 +200,5 @@ function unwireEditors({ dryRun = false, targets = null, ...detection }: {
   return list.map((target) => unwireEditor(target, { dryRun }));
 }
 
-export {
-  editorTargets, unwireEditor, unwireEditors, wireEditor, wireEditors,
-};
-export type { EditorDetection, EditorOutcome, EditorPlan, EditorTarget, WireEditorsOptions };
+export { editorTargets, unwireEditors, wireEditors };
+export type { EditorDetection, EditorOutcome, EditorTarget };

@@ -1,6 +1,6 @@
 import type { ChangeMap, ChangeMapFactKind, RepoChangeMap } from '#shared/contracts/change-map.ts';
 
-export interface ChangeMapWarningView {
+interface ChangeMapWarningView {
   factId: string;
   kind: ChangeMapFactKind;
   severity: number;

@@ -12,9 +12,9 @@ export const PLAN_RESULT_HOOK_EVENT = 'posttooluse-plan';
 export const PLAN_TOOL_NAME = 'ExitPlanMode';
 
 export const HEADING_SCAN_MAX_CHARS = 4096;
-export const ATX_HEADING = /^ {0,3}(#{1,6})[ \t]+(.*)$/;
+const ATX_HEADING = /^ {0,3}(#{1,6})[ \t]+(.*)$/;
 
-export interface AtxHeading {
+interface AtxHeading {
   level: number;
   text: string;
 }
@@ -123,7 +123,7 @@ export const PlanRevisionSummary = z.object({
   title: z.string(),
 });
 
-export const PlanReviewOpenRevision = z.object({
+const PlanReviewOpenRevision = z.object({
   revision: z.number().int().positive(),
   since: z.number().finite(),
 });
@@ -186,7 +186,6 @@ export type PlanSectionComment = z.infer<typeof PlanSectionComment>;
 export type PlanDecision = z.infer<typeof PlanDecision>;
 export type PlanDecisionRequest = Omit<PlanDecision, 'id'>;
 export type PlanRevisionSummary = z.infer<typeof PlanRevisionSummary>;
-export type PlanReviewOpenRevision = z.infer<typeof PlanReviewOpenRevision>;
 export type PlanReview = z.infer<typeof PlanReview>;
 export type PlanReviewState = z.infer<typeof PlanReviewState>;
 export type PlanRevisionBody = z.infer<typeof PlanRevisionBody>;

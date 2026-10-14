@@ -1126,12 +1126,5 @@ function createVisionsWiring({
   };
 }
 
-export {
-  APPLY_EDIT_TIMEOUT_MS,
-  DIGEST_BUDGET_CHARS,
-  VISIONS_DEBOUNCE_MS,
-  createVisionsWiring,
-  isMarkdownDoc,
-  readFrame,
-};
-export type { DispatchOutcome, VisionsConnection, VisionsWiringOptions };
+export { DIGEST_BUDGET_CHARS, VISIONS_DEBOUNCE_MS, createVisionsWiring };
+export type { DispatchOutcome, VisionsWiringOptions };

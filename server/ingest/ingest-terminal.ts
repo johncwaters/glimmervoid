@@ -166,4 +166,4 @@ function createTerminalIngest({
 }
 
 export { createTerminalIngest };
-export type { SessionTap, TappableSession, TerminalIngestOptions };
+export type { SessionTap, TappableSession };

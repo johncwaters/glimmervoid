@@ -35,7 +35,7 @@ export const AGENT_ID_SHAPE_MESSAGE = 'an agent id of 2 to 32 characters of lowe
 
 const AGENT_COMMAND_BASENAME_RE = /^[A-Za-z0-9._+-]+$/;
 const AGENT_COMMAND_ABSOLUTE_RE = /^(?:\/|[A-Za-z]:[\\/])[A-Za-z0-9._+\-\\/]*[A-Za-z0-9._+-]$/;
-export const AGENT_COMMAND_SHAPE_MESSAGE = 'a bare command name or an absolute path, built only from letters, digits, dot, underscore, plus, dash and path separators';
+const AGENT_COMMAND_SHAPE_MESSAGE = 'a bare command name or an absolute path, built only from letters, digits, dot, underscore, plus, dash and path separators';
 
 function isSpawnableCommand(command: string): boolean {
   if (AGENT_COMMAND_BASENAME_RE.test(command)) return true;
@@ -56,7 +56,7 @@ export const CustomAgentDeclaration = z.object({
   busyTitle: z.string({ error: 'customAgents[].busyTitle must be a string' }).optional(),
 }).strict();
 
-export const CustomAgentDeclarations = z.array(CustomAgentDeclaration, { error: 'customAgents must be an array' })
+const CustomAgentDeclarations = z.array(CustomAgentDeclaration, { error: 'customAgents must be an array' })
   .superRefine((declarations, ctx) => {
     const claimedIds = new Set<string>(BUILTIN_AGENT_IDS);
     for (const [index, declaration] of declarations.entries()) {

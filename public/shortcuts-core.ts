@@ -6,7 +6,7 @@ const MAC_COMMAND = String.fromCharCode(0x2318);
 
 export type ShortcutPlatform = 'mac' | 'other';
 
-export type DashboardShortcutAction =
+type DashboardShortcutAction =
   | 'next-attention'
   | 'rail-step'
   | 'view-step'
@@ -99,7 +99,7 @@ export function resolveDashboardShortcut(event: ShortcutKeyEvent, platform: Shor
   return null;
 }
 
-export function shortcutModifierCaption(platform: ShortcutPlatform) {
+function shortcutModifierCaption(platform: ShortcutPlatform) {
   return platform === 'mac' ? MAC_COMMAND : 'Alt';
 }
 

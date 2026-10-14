@@ -53,7 +53,7 @@ const LINT_MESSAGE_PREFIX_PATTERNS = [
 
 export type DispatchTrigger = 'activity' | 'edit';
 
-export interface DispatchConfig {
+interface DispatchConfig {
   enabled: boolean;
   quietMs: number;
   cooldownMs: number;
@@ -63,7 +63,7 @@ export interface DispatchConfig {
   model: string;
 }
 
-export interface DispatchTimeEntry {
+interface DispatchTimeEntry {
   ts: number;
   trigger: DispatchTrigger;
   reason?: string;
@@ -84,7 +84,7 @@ export interface VisionsComment {
   basis?: string;
 }
 
-export interface TouchedLineRange {
+interface TouchedLineRange {
   start: number;
   end: number;
 }
@@ -97,16 +97,16 @@ export interface LineDiagnostic {
   message: string;
 }
 
-export type DispatchGateConfig = Pick<DispatchConfig, 'enabled' | 'cooldownMs' | 'activityMaxPerHour' | 'maxPerHour'>;
+type DispatchGateConfig = Pick<DispatchConfig, 'enabled' | 'cooldownMs' | 'activityMaxPerHour' | 'maxPerHour'>;
 
-export interface DispatchVerdict {
+interface DispatchVerdict {
   dispatch: boolean;
   gate: string | null;
   trigger: DispatchTrigger | null;
   reason?: string;
 }
 
-export interface IntentThreadSummary {
+interface IntentThreadSummary {
   id: string;
   text: string;
 }

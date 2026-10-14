@@ -42,8 +42,8 @@ export const POSTHOG_TRAFFIC_BASELINE_RANGE = Object.freeze({ min: 1, max: 30, l
 
 export const USAGE_SCAN_INTERVAL_RANGE = Object.freeze({ min: 1, max: 1440 });
 export const USAGE_RETAIN_DAYS_RANGE = Object.freeze({ min: 1, max: 3650 });
-export const USAGE_WAREHOUSE_RETAIN_DAYS_RANGE = Object.freeze({ min: 30, max: 3650 });
-export const USAGE_SESSION_BLOCK_HOURS_RANGE = Object.freeze({ min: 1, max: 24 });
+const USAGE_WAREHOUSE_RETAIN_DAYS_RANGE = Object.freeze({ min: 30, max: 3650 });
+const USAGE_SESSION_BLOCK_HOURS_RANGE = Object.freeze({ min: 1, max: 24 });
 export const USAGE_BUDGET_RANGE = POSITIVE_NUMBER_RANGE;
 export const USAGE_INTEGER_RANGES = Object.freeze({
   scanIntervalMinutes: USAGE_SCAN_INTERVAL_RANGE,

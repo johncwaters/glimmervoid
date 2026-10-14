@@ -462,10 +462,5 @@ function createGitIngest({
   };
 }
 
-export {
-  DEFAULT_GIT_TIMEOUT_MS,
-  DEFAULT_MAX_REPOS,
-  MAX_GIT_BUFFER_BYTES,
-  createGitIngest,
-};
-export type { GitIngestOptions, WatchedRepo };
+export { createGitIngest };
+export type { GitIngestOptions };

@@ -48,4 +48,4 @@ function saneYoloEnv(homeDir: string): Record<string, string> {
   };
 }
 
-export { SANE_YOLO_PATH_ENV, SANE_YOLO_POLICY, SANE_YOLO_RULES, SANE_YOLO_INFRA_RULEBOOK, SANE_YOLO_FILES, saneYoloEnv };
+export { SANE_YOLO_PATH_ENV, SANE_YOLO_FILES, saneYoloEnv };

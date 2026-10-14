@@ -149,12 +149,6 @@ export function hasStandingViewerApproval(draft: { githubReviews?: readonly Gith
   return (draft.githubReviews ?? []).some((review) => review.isViewer && review.state === 'APPROVED');
 }
 
-export const PrReviewState = z.object({
-  head: CommitSha,
-  reviews: z.array(GithubReview),
-});
-export type PrReviewState = z.infer<typeof PrReviewState>;
-
 export const PriorReview = z.object({
   head: CommitSha,
   base: CommitSha.optional(),
@@ -341,12 +335,11 @@ export type TeamReviewState = z.infer<typeof TeamReviewState>;
 export const ReviewProgressPhase = z.enum(['preparing', 'checkout', 'reviewing']);
 export type ReviewProgressPhase = z.infer<typeof ReviewProgressPhase>;
 
-export const ReviewProgressStep = z.object({
+const ReviewProgressStep = z.object({
   at: z.number().finite(),
   tool: z.string(),
   detail: z.string(),
 });
-export type ReviewProgressStep = z.infer<typeof ReviewProgressStep>;
 
 export const InFlightReview = z.object({
   ...reviewPriorityShape,

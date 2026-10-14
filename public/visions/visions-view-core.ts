@@ -135,7 +135,7 @@ export function applyIntentMessage(state: IntentState | null | undefined, msg: {
   return { byProject, unowned: current.unowned };
 }
 
-export function intentProjectLabel(projectId: string, namesById: Map<string, string> | null = null) {
+function intentProjectLabel(projectId: string, namesById: Map<string, string> | null = null) {
   const name = namesById && typeof namesById.get === 'function' ? namesById.get(projectId) : null;
   return typeof name === 'string' && name ? name : projectId;
 }
@@ -248,7 +248,7 @@ export function visionsHandText(hand: unknown) {
   return `Raised hand: ${text}`;
 }
 
-export function handOfMessage(msg: { hand?: unknown } | null | undefined) {
+function handOfMessage(msg: { hand?: unknown } | null | undefined) {
   const hand = typeof msg?.hand === 'string' ? msg.hand.trim() : '';
   return hand || null;
 }
@@ -283,7 +283,7 @@ export const VISIONS_ATTENTION_UNSEEN = 'unseen';
 
 const ATTENTION_ENTRY_SEPARATOR = '\n';
 
-export interface VisionsAttentionState {
+interface VisionsAttentionState {
   signature: string;
   handEntries: string[];
   contentEntries: string[];
@@ -364,7 +364,7 @@ export function commentLineLabel(comment: VisionsComment | null | undefined) {
   return `L${Math.floor(line)}`;
 }
 
-export function diagnosticsOfMessage(msg: { diagnostics?: unknown } | null | undefined): VisionsFinding[] {
+function diagnosticsOfMessage(msg: { diagnostics?: unknown } | null | undefined): VisionsFinding[] {
   return Array.isArray(msg?.diagnostics) ? msg.diagnostics : [];
 }
 
@@ -381,7 +381,7 @@ export function applyFindingsMessage(findingsByUri: Map<string, VisionsFinding[]
   return next;
 }
 
-export function commentsOfMessage(msg: { comments?: unknown } | null | undefined): VisionsComment[] {
+function commentsOfMessage(msg: { comments?: unknown } | null | undefined): VisionsComment[] {
   return Array.isArray(msg?.comments) ? msg.comments : [];
 }
 
@@ -473,7 +473,7 @@ export function fixOutcomeText(entry: { applied?: unknown } | null | undefined) 
   return entry?.applied === true ? 'applied' : 'refused';
 }
 
-export function normalizeFixEntry(rawEntry: unknown, { uri = '', ts = 0 }: { uri?: string; ts?: number } = {}): VisionsFixEntry | null {
+function normalizeFixEntry(rawEntry: unknown, { uri = '', ts = 0 }: { uri?: string; ts?: number } = {}): VisionsFixEntry | null {
   if (!rawEntry || typeof rawEntry !== 'object') return null;
   const raw = rawEntry as { message?: unknown; line?: unknown; ts?: unknown; uri?: unknown; code?: unknown; applied?: unknown };
   const message = typeof raw.message === 'string' ? raw.message.trim() : '';

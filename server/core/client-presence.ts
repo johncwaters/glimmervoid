@@ -1,4 +1,4 @@
-export interface ClientPresence {
+interface ClientPresence {
   connect: (key: unknown) => void;
   disconnect: (key: unknown) => void;
   setFocus: (key: unknown, focused: boolean) => void;

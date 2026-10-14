@@ -184,11 +184,3 @@ function createBackendControl(dependencies: BackendControlDependencies): void {
 }
 
 export { createBackendControl };
-export type {
-  BackendControlDependencies,
-  LaneReader,
-  RadarControl,
-  SnapshotLane,
-  TeamReviewControl,
-  UsageControl,
-};

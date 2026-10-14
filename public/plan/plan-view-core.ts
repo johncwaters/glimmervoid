@@ -37,7 +37,7 @@ export interface PlanDecisionExtras {
   plan?: string;
 }
 
-export interface PlanActionView {
+interface PlanActionView {
   kind: PlanActionKind;
   label: string;
   enabled: boolean;
@@ -241,7 +241,7 @@ export function mergePlanChanged(state: PlanReviewState, message: PlanChangedMes
   return { reviews };
 }
 
-export interface ReadingPosition {
+interface ReadingPosition {
   headingOffsets: readonly number[];
   scrollTop: number;
   isScrolledToEnd: boolean;

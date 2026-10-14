@@ -63,7 +63,7 @@ export interface HookDraft {
   projects: string[];
 }
 
-export interface HookTemplate {
+interface HookTemplate {
   id: string;
   label: string;
   summary: string;

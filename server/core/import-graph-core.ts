@@ -11,7 +11,7 @@ export const CALL_IMPORT = /\b(?:require|import)\s*\(\s*(['"])([^'"]+)\1\s*\)/g;
 export const STATIC_IMPORT = /\bimport\b(?:(?:(?!\b(?:import|export)\b)[^'";])*?\bfrom)?\s*(['"])([^'"]+)\1/g;
 export const EXPORT_FROM =/\bexport\b(?:(?!\b(?:import|export)\b)[^'";])*?\bfrom\s*(['"])([^'"]+)\1/g;
 
-export interface ImportGraph {
+interface ImportGraph {
   dependentsByPath: Map<string, Set<string>>;
 }
 

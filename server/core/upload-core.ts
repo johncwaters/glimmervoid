@@ -20,7 +20,7 @@ const CLIENT_NAME_EXTENSION_RE = /\.([A-Za-z0-9]{1,16})$/;
 
 const UPLOAD_FILENAME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{8}(\.[a-z0-9]{1,16})?$/;
 
-export type UploadTypeVerdict =
+type UploadTypeVerdict =
   | { ok: true; extension: string }
   | { ok: false; status: number; error: string };
 

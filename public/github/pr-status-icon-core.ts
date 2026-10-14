@@ -2,7 +2,7 @@ export type PrStatusIcon =
   | 'merged' | 'draft' | 'conflict' | 'behind' | 'failed' | 'running' | 'passed' | 'ready' | 'changes-requested'
   | 'thread' | 'reviewer' | 'your-turn' | 'queued' | 'fork' | 'discarded' | 'stale' | 'unknown' | 'none';
 
-export interface PrStatusLegendEntry { label: string; meaning: string }
+interface PrStatusLegendEntry { label: string; meaning: string }
 
 export const PR_STATUS_LEGEND: Readonly<Record<PrStatusIcon, PrStatusLegendEntry>> = {
   ready: { label: 'Ready', meaning: 'Ready to merge, or nothing left for you to do.' },

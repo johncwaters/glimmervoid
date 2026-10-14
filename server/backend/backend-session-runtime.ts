@@ -89,4 +89,3 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
 }
 
 export { createBackendSessionRuntime };
-export type { BackendSessionRuntimeDependencies };

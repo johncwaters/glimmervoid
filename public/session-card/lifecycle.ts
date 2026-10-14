@@ -393,8 +393,8 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
   return sessionUi;
 }
 
-export type SessionPlanChangedMessage = PlanChangedMessage;
-export type SessionPlanDraftMessage = PlanDraftPush;
+type SessionPlanChangedMessage = PlanChangedMessage;
+type SessionPlanDraftMessage = PlanDraftPush;
 
 function preferredFaceFor(ui: SessionUi): SessionCardFace {
   const hasOpenReview = ui.planReviewState.reviews.some((review) => review.state === 'open');

@@ -442,11 +442,5 @@ function createShellHistoryIngest({
   };
 }
 
-export {
-  DEFAULT_DISCOVER_MS,
-  DEFAULT_MAX_COMMANDS_PER_DRAIN,
-  DEFAULT_MAX_TRACKED,
-  DEFAULT_POLL_MS,
-  createShellHistoryIngest,
-};
-export type { ShellHistoryContext, ShellHistoryOptions };
+export { DEFAULT_DISCOVER_MS, DEFAULT_MAX_TRACKED, DEFAULT_POLL_MS, createShellHistoryIngest };
+export type { ShellHistoryOptions };

@@ -37,7 +37,6 @@ type FactoryWorkerRecord<ManagedSession> = FactoryLiveWorker & {
   hasFirstHook: boolean;
 };
 
-export { readLaneCommonGitDir as readFactoryCommonGitDir } from '../lanes/work-lane.ts';
 
 async function readFilterDriverNames(cwd: string): Promise<string[]> {
   const { stdout: trackedPaths } = await runHardenedGit(['ls-files', '-z'], { ...FILTER_PROBE_GIT_OPTIONS, cwd });

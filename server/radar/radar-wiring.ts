@@ -836,24 +836,5 @@ function createRadarWiring({
   };
 }
 
-export {
-  FIX_DENY,
-  FORCE_TICK_DEBOUNCE_MS,
-  POSTHOG_DENY,
-  REPORT_DIR,
-  REPORT_RETAIN_FILES,
-  WORK_DIR,
-  buildFixPrompt,
-  buildInvestigationPrompt,
-  createRadarWiring,
-  radarLaneRole,
-  makeResolveProjects,
-  posthogCfgKey,
-  radarShouldStart,
-  pushFixBranch,
-  readFixResult,
-  readInvestigationResult,
-  runCli,
-  sweepReports,
-};
-export type { PosthogGitWorkspace, RadarWiringConfig, RadarWiringOptions, PosthogWorkspace };
+export { FIX_DENY, POSTHOG_DENY, REPORT_DIR, WORK_DIR, buildFixPrompt, buildInvestigationPrompt, createRadarWiring, makeResolveProjects, posthogCfgKey, radarShouldStart, pushFixBranch, readFixResult, readInvestigationResult, runCli, sweepReports };
+export type { PosthogGitWorkspace, RadarWiringConfig, PosthogWorkspace };

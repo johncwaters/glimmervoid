@@ -29,7 +29,7 @@ export interface TitleSignal {
   source: string;
 }
 
-export interface OscTitleSourceOptions {
+interface OscTitleSourceOptions {
   stabilizationMs?: number;
   titleProfile?: TitleProfile;
 }

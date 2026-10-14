@@ -1,6 +1,6 @@
 import { toolDetailLine } from '../../shared/tool-detail.ts';
 
-export interface TrailStep {
+interface TrailStep {
   at: number;
   tool: string;
   detail: string;
@@ -11,7 +11,7 @@ export interface InvestigationTrail {
   steps: TrailStep[];
 }
 
-export const TRAIL_MAX_STEPS = 80;
+const TRAIL_MAX_STEPS = 80;
 const TRAIL_TOOL_MAX_CHARS = 64;
 
 function describeToolStep(toolName: unknown, toolInput: unknown): { tool: string; detail: string } | null {

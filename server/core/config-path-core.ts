@@ -1,8 +1,8 @@
 import path from 'node:path';
 
-export type ConfigPathSource = 'env' | 'home' | 'none';
+type ConfigPathSource = 'env' | 'home' | 'none';
 
-export interface ConfigPathDecision {
+interface ConfigPathDecision {
   path: string | null;
   source: ConfigPathSource;
   homePath: string;

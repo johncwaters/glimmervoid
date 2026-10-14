@@ -437,13 +437,4 @@ export {
   DEFAULT_SHELL_TASK_TTL_MS,
   DEFAULT_TEAMMATE_TASK_TTL_MS,
 };
-export type {
-  DeclaredEntry,
-  NextDrainInputs,
-  TaskRegistry,
-  TaskRegistryBreakdown,
-  TaskRegistryInspection,
-  TaskRegistryOptions,
-  TimestampMap,
-  AgentStopOutcome,
-};
+export type { DeclaredEntry, TaskRegistryBreakdown, TaskRegistryOptions };

@@ -91,4 +91,4 @@ export {
   extractCronTaskId,
   MAX_WAKEUPS,
 };
-export type { WakeupEntry, WakeupMap };
+export type { WakeupMap };

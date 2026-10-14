@@ -8,7 +8,7 @@ import { parseThreadJudgeResult } from './core/team-review-threads-core.ts';
 import type { TeamReviewThreadResult } from '../../shared/contracts/team-review.ts';
 
 export const THREAD_JUDGE_TOOLS = Object.freeze(['Read', 'Write']);
-export const THREAD_JUDGE_TIMEOUT_MS = 120000;
+const THREAD_JUDGE_TIMEOUT_MS = 120000;
 
 export function createThreadJudge(spawn: LaneSpawn, shutdownSignal?: AbortSignal): (prompt: string) => Promise<TeamReviewThreadResult | null> {
   return async (prompt) => {

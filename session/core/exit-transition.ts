@@ -26,4 +26,4 @@ function decideExitTransition(
 }
 
 export { decideExitTransition };
-export type { ExitSignal, ExitTransition };
+export type { ExitSignal };

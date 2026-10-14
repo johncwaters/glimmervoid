@@ -107,4 +107,3 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
 }
 
 export { createBackendHealth };
-export type { BackendHealth, BackendHealthDependencies };

@@ -134,4 +134,4 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
 }
 
 export { createBackendShutdown };
-export type { BackendShutdownDependencies, ShutdownOutcome, ShutdownSession };
+export type { BackendShutdownDependencies };

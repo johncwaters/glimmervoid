@@ -26,4 +26,4 @@ function unrefTimer<Handle>(handle: Handle): Handle {
 }
 
 export { DEFAULT_TIMER_FNS, unrefTimer };
-export type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn, TimerFns, TimerHandle };
+export type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn, TimerHandle };

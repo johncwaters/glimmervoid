@@ -22,7 +22,7 @@ const CORROBORATED_MATCH_THRESHOLD = 0.5;
 
 const DEDUPE_ELIGIBLE_CHANGES = new Set(['new', 'spiking']);
 
-export interface SignatureRecord {
+interface SignatureRecord {
   projectId: string;
   issueId: string;
   title: string;
@@ -34,7 +34,7 @@ export interface SignatureRecord {
   recurredIssueIds: string[];
 }
 
-export interface RecurrenceScore {
+interface RecurrenceScore {
   score: number;
   shared: number;
   corroboration: number;
@@ -42,7 +42,7 @@ export interface RecurrenceScore {
   matched: boolean;
 }
 
-export interface RecurrenceMatch extends RecurrenceScore {
+interface RecurrenceMatch extends RecurrenceScore {
   key: string;
   record: SignatureRecord;
 }
@@ -56,7 +56,7 @@ export interface RecurrenceDecision {
   score: number;
 }
 
-export interface RecurrenceOptions {
+interface RecurrenceOptions {
   recurrenceDedupe?: boolean;
   recurrenceWindowDays?: number;
   transientRecurrenceLimit?: number;
