@@ -360,6 +360,9 @@ test('newly merged PRs are only those that were open in the previous status', ()
 });
 
 test('merge celebration text names one PR or counts several', () => {
-  assert.equal(mergeCelebrationText([pr('merged', 7)]), 'Merged Acme/app#7');
-  assert.equal(mergeCelebrationText([pr('merged', 7), pr('merged', 8)]), 'Merged 2 pull requests');
+  assert.deepEqual(mergeCelebrationText([pr('merged', 7)]), { message: 'Merged Acme/app#7', detailLines: ['Fix'] });
+  assert.deepEqual(mergeCelebrationText([7, 8, 9, 10, 11].map((number) => pr('merged', number))), {
+    message: 'Merged 5 pull requests',
+    detailLines: ['Acme/app#7 Fix', 'Acme/app#8 Fix', 'Acme/app#9 Fix', 'and 2 more'],
+  });
 });

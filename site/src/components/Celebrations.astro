@@ -17,7 +17,7 @@
 <script>
   import { mountCelebrationTray, queueMergeCelebration } from '../../../public/merge-celebration.ts';
 
-  const DEMO_PULL_REQUESTS = ['fix-auth-redirect', 'flaky-upload-test', 'migrate-billing', 'bump-node-22', 'rename-color-tokens'];
+  const DEMO_PULL_REQUEST_TITLES = ['Fix the auth redirect loop', 'Stabilize the flaky upload test', 'Migrate billing to the new ledger', 'Bump Node to 22', 'Rename the color tokens'];
   const tray = document.getElementById('celebration-tray');
   const trophyButton = document.getElementById('btn-celebrations');
   const count = document.getElementById('celebration-tray-count');
@@ -25,9 +25,9 @@
   let queuedMergeCount = 0;
 
   function queueDemoMerge(): void {
-    const branch = DEMO_PULL_REQUESTS[queuedMergeCount % DEMO_PULL_REQUESTS.length];
+    const title = DEMO_PULL_REQUEST_TITLES[queuedMergeCount % DEMO_PULL_REQUEST_TITLES.length];
     queuedMergeCount += 1;
-    queueMergeCelebration(`Merged ${branch} (#${100 + queuedMergeCount})`);
+    queueMergeCelebration({ message: `Merged acme/app#${100 + queuedMergeCount}`, detailLines: [title] });
   }
 
   if (tray && trophyButton instanceof HTMLButtonElement && count && queueButton) {

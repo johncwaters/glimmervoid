@@ -2635,6 +2635,8 @@ a.radar-issue-title:hover {
 .merge-celebration-title { margin: 0 0 2px; color: var(--state-complete); font-family: var(--font-mono); font-size: 16px; font-weight: 700; letter-spacing: 0.1em; line-height: 1.4; text-shadow: 0 0 18px color-mix(in srgb, var(--state-complete) 55%, transparent); }
 .merge-celebration-letter { display: inline-block; white-space: pre; animation: merge-celebration-slam 450ms cubic-bezier(0.2, 1.6, 0.4, 1) calc(var(--celebration-reveal) + var(--letter-delay)) both; }
 .merge-celebration-message { margin: 0; color: var(--text); font-family: var(--font-mono); font-size: 14px; font-weight: 700; letter-spacing: 0.04em; overflow-wrap: anywhere; animation: merge-celebration-reveal 400ms ease-out calc(var(--celebration-reveal) + 250ms) both; }
+.merge-celebration-details { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 0; padding: 0; list-style: none; animation: merge-celebration-reveal 400ms ease-out calc(var(--celebration-reveal) + 350ms) both; }
+.merge-celebration-detail { display: -webkit-box; overflow: hidden; color: var(--text-muted); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .merge-confetti { position: absolute; top: 0; left: 0; right: 0; height: 0; }
 .merge-confetti-piece { --confetti-launch: calc(var(--celebration-reveal) + var(--confetti-delay)); position: absolute; top: 0; left: var(--confetti-start-x); opacity: 0; animation: merge-confetti-drift var(--confetti-flight-ms) cubic-bezier(0.2, 0.8, 0.4, 1) var(--confetti-launch) forwards; }
 .merge-confetti-arc { display: block; animation: merge-confetti-rise var(--confetti-rise-ms) cubic-bezier(0.33, 0.67, 0.67, 1) var(--confetti-launch) both, merge-confetti-fall var(--confetti-fall-ms) cubic-bezier(0.3, 0, 0.7, 0.7) calc(var(--confetti-launch) + var(--confetti-rise-ms)) forwards; }
@@ -2830,7 +2832,7 @@ a.radar-issue-title:hover {
 }
 @media (prefers-reduced-motion: reduce) {
   .merge-confetti, .merge-celebration-scene { display: none; }
-  .merge-celebration-card, .merge-celebration-letter, .merge-celebration-message { animation: none; }
+  .merge-celebration-card, .merge-celebration-letter, .merge-celebration-message, .merge-celebration-details { animation: none; }
 }
 .my-pr-facts { display: flex; flex-direction: column; gap: 8px; margin: 0; padding-left: 20px; color: var(--text-muted); font-size: 12px; }
 .my-pr-error { margin: 0; padding: 8px 14px; color: var(--state-failed); font-size: 12px; }

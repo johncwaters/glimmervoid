@@ -3,6 +3,7 @@ import { el, setStyleProperties } from './dom-helpers.ts';
 import { mergeCelebrationSound } from './merge-celebration/celebration-sound-core.ts';
 import { confettiPieceStyleProperties, confettiScaleFor } from './merge-celebration/confetti-core.ts';
 import { MERGE_CELEBRATION_SCENES, type MergeCelebrationScene } from './merge-celebration/scenes.ts';
+import type { MergeCelebrationText } from './github/my-prs-view-core.ts';
 import { isSoundEnabled } from './ui-prefs.ts';
 
 const CONFETTI_PIECE_COUNT = 48;
@@ -10,7 +11,7 @@ const CELEBRATION_DURATION_MS = 5600;
 
 const MAX_QUEUED_CELEBRATIONS = 20;
 
-interface QueuedCelebration { message: string; scene: MergeCelebrationScene }
+interface QueuedCelebration { text: MergeCelebrationText; scene: MergeCelebrationScene }
 interface CelebrationTrayElements { tray: HTMLElement; button: HTMLButtonElement; count: HTMLElement }
 
 let activeCelebration: HTMLElement | null = null;
@@ -66,7 +67,13 @@ function playCelebrationSound(positionInPlayThrough: number): void {
   }
 }
 
-function playCelebration(message: string, scene: MergeCelebrationScene, positionInPlayThrough: number): void {
+function createDetailList(detailLines: readonly string[]): HTMLElement {
+  const detailList = el('ul', 'merge-celebration-details');
+  for (const detailLine of detailLines) detailList.append(el('li', 'merge-celebration-detail', detailLine));
+  return detailList;
+}
+
+function playCelebration(text: MergeCelebrationText, scene: MergeCelebrationScene, positionInPlayThrough: number): void {
   activeCelebration?.remove();
   playCelebrationSound(positionInPlayThrough);
   const overlay = el('div', 'merge-celebration');
@@ -74,7 +81,7 @@ function playCelebration(message: string, scene: MergeCelebrationScene, position
   const card = el('div', 'merge-celebration-card');
   const stage = el('div', 'merge-celebration-stage');
   const title = createTitle(scene.title);
-  stage.append(title, el('p', 'merge-celebration-message', message), createSceneSlot(scene));
+  stage.append(title, el('p', 'merge-celebration-message', text.message), createDetailList(text.detailLines), createSceneSlot(scene));
   const burst = el('div', 'merge-confetti');
   burst.style.setProperty('--confetti-scale', String(confettiScaleFor(positionInPlayThrough)));
   for (let index = 0; index < CONFETTI_PIECE_COUNT; index += 1) burst.append(createConfettiPiece(index));
@@ -108,7 +115,7 @@ function playNextQueuedCelebration(): void {
   isPlayingQueuedCelebrations = nextCelebration !== undefined;
   renderCelebrationTray();
   if (!nextCelebration) return;
-  playCelebration(nextCelebration.message, nextCelebration.scene, playThroughPosition);
+  playCelebration(nextCelebration.text, nextCelebration.scene, playThroughPosition);
   playThroughPosition += 1;
   window.setTimeout(playNextQueuedCelebration, CELEBRATION_DURATION_MS);
 }
@@ -122,8 +129,8 @@ export function mountCelebrationTray(tray: HTMLElement, button: HTMLButtonElemen
   renderCelebrationTray();
 }
 
-export function queueMergeCelebration(message: string, scene: MergeCelebrationScene = pickScene()): void {
-  queuedCelebrations.push({ message, scene });
+export function queueMergeCelebration(text: MergeCelebrationText, scene: MergeCelebrationScene = pickScene()): void {
+  queuedCelebrations.push({ text, scene });
   if (queuedCelebrations.length > MAX_QUEUED_CELEBRATIONS) queuedCelebrations.shift();
   renderCelebrationTray();
 }

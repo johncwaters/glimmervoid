@@ -315,9 +315,16 @@ export function newlyMergedPrs(previous: readonly MyPr[] | null, next: readonly 
   return next.filter((pr) => pr.state === 'MERGED' && openKeys.has(pr.key));
 }
 
-export function mergeCelebrationText(mergedPrs: readonly MyPr[]): string {
-  if (mergedPrs.length === 1) return `Merged ${mergedPrs[0].key}`;
-  return `Merged ${mergedPrs.length} pull requests`;
+const MAX_CELEBRATED_PR_LINES = 3;
+
+export interface MergeCelebrationText { message: string; detailLines: string[] }
+
+export function mergeCelebrationText(mergedPrs: readonly MyPr[]): MergeCelebrationText {
+  if (mergedPrs.length === 1) return { message: `Merged ${mergedPrs[0].key}`, detailLines: [mergedPrs[0].title] };
+  const listedPrLines = mergedPrs.slice(0, MAX_CELEBRATED_PR_LINES).map((mergedPr) => `${mergedPr.key} ${mergedPr.title}`);
+  const unlistedCount = mergedPrs.length - listedPrLines.length;
+  const detailLines = unlistedCount > 0 ? [...listedPrLines, `and ${unlistedCount} more`] : listedPrLines;
+  return { message: `Merged ${mergedPrs.length} pull requests`, detailLines };
 }
 
 export interface MergeAttempt { head: string; phase: 'pending' | 'failed' | MyPrMergeKind; text: string }
