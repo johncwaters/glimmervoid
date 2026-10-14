@@ -9,6 +9,7 @@ import { CLAUDE_CONFIG_LOCK_STALE_MS, repositoryRootOfCommonGitDir } from '../se
 
 const REPOSITORY_ROOT = '/work/seeded-repo';
 const OTHER_ROOT = '/work/other-repo';
+const GRANTED_ENTRY_KEYS = { hasTrustDialogAccepted: true, hasClaudeMdExternalIncludesApproved: true, hasClaudeMdExternalIncludesWarningShown: true };
 
 async function prepareClaudeConfig(t: test.TestContext, configText: string | null, platform?: NodeJS.Platform) {
   const configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-claude-trust-'));
@@ -20,7 +21,7 @@ async function prepareClaudeConfig(t: test.TestContext, configText: string | nul
   return { configDir, configPath, trust, waits };
 }
 
-test('granting trust changes one key of one project entry and leaves the rest of the Claude config as it was', async (t) => {
+test('granting trust approves the folder and its external CLAUDE.md imports in one project entry and leaves the rest of the Claude config as it was', async (t) => {
   const original = {
     numStartups: 7,
     oauthAccount: { emailAddress: 'operator@example.test' },
@@ -36,7 +37,7 @@ test('granting trust changes one key of one project entry and leaves the rest of
 
   const writtenText = await fs.readFile(configPath, 'utf8');
   const expected = structuredClone(original);
-  expected.projects[REPOSITORY_ROOT].hasTrustDialogAccepted = true;
+  Object.assign(expected.projects[REPOSITORY_ROOT], GRANTED_ENTRY_KEYS);
   assert.equal(writtenText, JSON.stringify(expected, null, 2));
   assert.equal((await fs.stat(configPath)).mode & 0o777, 0o600);
   assert.deepEqual(await fs.readdir(configDir), ['.claude.json']);
@@ -45,7 +46,7 @@ test('granting trust changes one key of one project entry and leaves the rest of
   assert.equal(await fs.readFile(configPath, 'utf8'), writtenText);
 });
 
-test('a folder Claude Code has never seen gets an entry that approves nothing but trust', async (t) => {
+test('a folder Claude Code has never seen gets an entry that approves only trust and external CLAUDE.md imports', async (t) => {
   const { configPath, trust } = await prepareClaudeConfig(t, `${JSON.stringify({ userID: 'kept' }, null, 2)}\n`);
 
   assert.equal(await trust.ensureTrusted(REPOSITORY_ROOT), 'granted');
@@ -54,8 +55,26 @@ test('a folder Claude Code has never seen gets an entry that approves nothing bu
   assert.ok(writtenText.endsWith('}\n'));
   assert.deepEqual(JSON.parse(writtenText), {
     userID: 'kept',
-    projects: { [REPOSITORY_ROOT]: { allowedTools: [], mcpContextUris: [], mcpServers: {}, enabledMcpjsonServers: [], disabledMcpjsonServers: [], hasTrustDialogAccepted: true } },
+    projects: { [REPOSITORY_ROOT]: { allowedTools: [], mcpContextUris: [], mcpServers: {}, enabledMcpjsonServers: [], disabledMcpjsonServers: [], ...GRANTED_ENTRY_KEYS } },
   });
+});
+
+test('a folder trusted by an earlier trust-only grant is granted again so Claude Code stops asking about external CLAUDE.md imports', async (t) => {
+  const { configPath, trust } = await prepareClaudeConfig(t, JSON.stringify({ projects: { [REPOSITORY_ROOT]: { hasTrustDialogAccepted: true } } }, null, 2));
+
+  assert.equal(await trust.ensureTrusted(REPOSITORY_ROOT), 'granted');
+
+  assert.deepEqual(JSON.parse(await fs.readFile(configPath, 'utf8')), { projects: { [REPOSITORY_ROOT]: GRANTED_ENTRY_KEYS } });
+});
+
+test('a folder where the operator declined external CLAUDE.md imports is trusted but keeps the decline', async (t) => {
+  const declinedEntry = { hasTrustDialogAccepted: false, hasClaudeMdExternalIncludesApproved: false, hasClaudeMdExternalIncludesWarningShown: true };
+  const { configPath, trust } = await prepareClaudeConfig(t, JSON.stringify({ projects: { [REPOSITORY_ROOT]: declinedEntry } }, null, 2));
+
+  assert.equal(await trust.ensureTrusted(REPOSITORY_ROOT), 'granted');
+  assert.deepEqual(JSON.parse(await fs.readFile(configPath, 'utf8')), { projects: { [REPOSITORY_ROOT]: { ...declinedEntry, hasTrustDialogAccepted: true } } });
+
+  assert.equal(await trust.ensureTrusted(REPOSITORY_ROOT), 'already-trusted');
 });
 
 test('a legacy .config.json in the Claude config home is the file that gets the grant', async (t) => {
@@ -66,12 +85,12 @@ test('a legacy .config.json in the Claude config home is the file that gets the 
 
   assert.equal(await trust.ensureTrusted(REPOSITORY_ROOT), 'granted');
 
-  assert.deepEqual(JSON.parse(await fs.readFile(legacyConfigPath, 'utf8')), { projects: { [REPOSITORY_ROOT]: { hasTrustDialogAccepted: true } } });
+  assert.deepEqual(JSON.parse(await fs.readFile(legacyConfigPath, 'utf8')), { projects: { [REPOSITORY_ROOT]: GRANTED_ENTRY_KEYS } });
   assert.equal(await fs.readFile(configPath, 'utf8'), untrustedText);
 });
 
 test('a Windows folder is looked up under the forward-slash key Claude Code stores it by', async (t) => {
-  const trustedText = JSON.stringify({ projects: { 'C:/work/seeded-repo': { hasTrustDialogAccepted: true } } }, null, 2);
+  const trustedText = JSON.stringify({ projects: { 'C:/work/seeded-repo': GRANTED_ENTRY_KEYS } }, null, 2);
   const { configPath, trust } = await prepareClaudeConfig(t, trustedText, 'win32');
 
   assert.equal(await trust.ensureTrusted('C:\\work\\seeded-repo'), 'already-trusted');

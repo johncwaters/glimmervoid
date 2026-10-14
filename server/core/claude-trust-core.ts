@@ -5,7 +5,8 @@ const CLAUDE_LEGACY_CONFIG_FILE_NAME = '.config.json';
 const CLAUDE_CONFIG_LOCK_SUFFIX = '.lock';
 const CLAUDE_CONFIG_LOCK_STALE_MS = 10_000;
 const CLAUDE_CONFIG_LOCK_RETRY_DELAYS_MS = Object.freeze([200, 400, 800, 1600]);
-const TRUST_KEY = 'hasTrustDialogAccepted';
+const GRANTED_KEYS = Object.freeze(['hasTrustDialogAccepted', 'hasClaudeMdExternalIncludesApproved', 'hasClaudeMdExternalIncludesWarningShown']);
+const TRUST_ONLY_KEYS = Object.freeze(['hasTrustDialogAccepted']);
 
 type FolderTrustDecision =
   | { kind: 'trusted' }
@@ -40,6 +41,10 @@ function isConfigLockStale(lockModifiedMs: number, nowMs: number): boolean {
   return nowMs - lockModifiedMs > CLAUDE_CONFIG_LOCK_STALE_MS;
 }
 
+function hasRecordedExternalImportsDecline(existingEntry: Record<string, unknown> | undefined): boolean {
+  return existingEntry?.hasClaudeMdExternalIncludesWarningShown === true && existingEntry.hasClaudeMdExternalIncludesApproved !== true;
+}
+
 function decideFolderTrust(configText: string, repositoryRoot: string, platform: NodeJS.Platform): FolderTrustDecision {
   const projectKey = claudeProjectKeyOf(repositoryRoot, platform);
   let config: unknown;
@@ -53,8 +58,9 @@ function decideFolderTrust(configText: string, repositoryRoot: string, platform:
   if (!isPlainRecord(projects)) return { kind: 'unreadable', reason: 'its projects key is not an object' };
   const existingEntry = projects[projectKey];
   if (existingEntry !== undefined && !isPlainRecord(existingEntry)) return { kind: 'unreadable', reason: 'its entry for this folder is not an object' };
-  if (existingEntry?.[TRUST_KEY] === true) return { kind: 'trusted' };
-  const trustedEntry = { ...(existingEntry ?? newProjectEntry()), [TRUST_KEY]: true };
+  const keysToGrant = hasRecordedExternalImportsDecline(existingEntry) ? TRUST_ONLY_KEYS : GRANTED_KEYS;
+  if (keysToGrant.every((key) => existingEntry?.[key] === true)) return { kind: 'trusted' };
+  const trustedEntry = { ...(existingEntry ?? newProjectEntry()), ...Object.fromEntries(keysToGrant.map((key) => [key, true])) };
   const nextConfigText = JSON.stringify({ ...config, projects: { ...projects, [projectKey]: trustedEntry } }, null, 2);
   return { kind: 'grant', nextConfigText: configText.endsWith('\n') ? `${nextConfigText}\n` : nextConfigText };
 }

@@ -29,7 +29,7 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `sandbox/session-sandbox.ts` | Ordinary session sandbox: the session role, rebuilt from the live checkout at every spawn; the session factory's default |
 | `benchmark-wiring.ts` | Benchmark lane: suites under `~/.glimmervoid/benchmarks`, mining, one serial run (pure rules in `core/benchmark-core.ts`, `core/benchmark-mining-core.ts`) |
 | `claude-credentials.ts` | The operator's Claude Code access token for benchmark arms (decisions in `core/claude-credentials-core.ts`) |
-| `claude-trust.ts` | Grants Claude Code folder trust for a factory project under Claude Code's own config lock (decisions in `core/claude-trust-core.ts`) |
+| `claude-trust.ts` | Grants Claude Code folder trust plus external CLAUDE.md import approval (never over a recorded decline) for a session, lane or factory folder under Claude Code's own config lock (decisions in `core/claude-trust-core.ts`) |
 | `github/core/team-review-core.ts` | Pure team review decisions |
 | `core/branch-sync-core.ts` | Pure ahead/behind decisions for the branch-sync indicator |
 | `core/restart-strategy.ts` | Pure restart strategy, keyed on systemd's `INVOCATION_ID` |
