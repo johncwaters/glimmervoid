@@ -3,7 +3,7 @@ import {
   DIFF_ANNOTATION_NOTE_MAX_CHARS,
   DIFF_ANNOTATION_PATH_MAX_CHARS,
 } from '../../shared/contracts/control-messages.ts';
-import { scrubForPaste } from './posthog-core.ts';
+import { scrubForPaste } from '../radar/core/radar-lane-core.ts';
 
 const DIFF_ANNOTATION_HEADER = 'Operator review notes on the current worktree diff:';
 const DIFF_ANNOTATION_CLOSING = 'Address each note, then reply with what changed.';

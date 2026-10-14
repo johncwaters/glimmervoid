@@ -1,4 +1,4 @@
-import { toCount } from './posthog-core.ts';
+import { toCount } from '../radar/core/radar-lane-core.ts';
 
 const DEFAULT_TRAFFIC_SPIKE_MULTIPLIER = 3;
 const DEFAULT_TRAFFIC_SPIKE_MIN_USERS = 10;

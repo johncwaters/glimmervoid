@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import type { PosthogApi } from '../server/posthog-api.ts';
+import type { PosthogApi } from '../server/radar/posthog-api.ts';
 import {
   FIX_DENY,
   POSTHOG_DENY,
@@ -19,8 +19,8 @@ import {
   readInvestigationResult,
   runCli,
   sweepReports,
-} from '../server/posthog-wiring.ts';
-import type { PosthogGitWorkspace, PosthogWiringConfig, PosthogWorkspace } from '../server/posthog-wiring.ts';
+} from '../server/radar/radar-wiring.ts';
+import type { PosthogGitWorkspace, PosthogWiringConfig, PosthogWorkspace } from '../server/radar/radar-wiring.ts';
 import { createSpawnGate } from '../server/spawn-gate.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';

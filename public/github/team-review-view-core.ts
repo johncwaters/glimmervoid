@@ -5,7 +5,7 @@ import type {
 import { shortSha } from '#shared/git-text.ts';
 import { findingSeveritiesIn, parseLeadingFindingHeader, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import { attentionSignature } from '../attention-ack-core.ts';
-import { formatClockOffset } from '../radar-core.ts';
+import { formatClockOffset } from '../radar/radar-core.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
 import type { StateTone } from '../state-tone-core.ts';
 

@@ -7,7 +7,7 @@ import { applyFactoryConnectionState, mountFactoryView } from './factory/factory
 import { mountHooksView, refreshHooksView, requestHooksReport } from './hooks-panel.ts';
 import { applyIssuesConnectionState, mountIssuesView, refreshIssuesViewOnShow } from './github/issues-panel.ts';
 import { acknowledgePrsViewAttention, mountPrsView } from './github/prs-view.ts';
-import { acknowledgeRadarAttention, mountRadarView, setRadarActivityCallback, setRadarTraceOpener } from './radar-panel.ts';
+import { acknowledgeRadarAttention, mountRadarView, setRadarActivityCallback, setRadarTraceOpener } from './radar/radar-panel.ts';
 import { onDebugModeChanged } from './session-card/card-dom.ts';
 import { mountSettingsView } from './settings/settings-panel.ts';
 import { setTeamReviewActivityCallback } from './github/team-review-panel.ts';

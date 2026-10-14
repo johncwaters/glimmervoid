@@ -9,8 +9,8 @@ import {
   clampBaselineDays,
   DEFAULT_BASELINE_DAYS,
   MAX_BASELINE_DAYS,
-} from '../server/posthog-api.ts';
-import type { PosthogResponse, TrafficBuckets } from '../server/posthog-api.ts';
+} from '../server/radar/posthog-api.ts';
+import type { PosthogResponse, TrafficBuckets } from '../server/radar/posthog-api.ts';
 
 interface FetchCall {
   url: string;

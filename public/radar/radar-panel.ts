@@ -1,13 +1,13 @@
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import { createAttentionAck } from './attention-ack-core.ts';
-import { buildPanelSection, buildStatChip, el, externalLink, isPanelHidden, projectsOf } from './dom-helpers.ts';
-import { createInvestigationDialog, createPosthogReportDialog } from './dialogs.ts';
-import type { InvestigationDialog } from './dialogs.ts';
-import { sendControlRequest } from './control-ws.ts';
-import { createPollAgoTicker, formatAgo, formatDuration } from './poll-ago.ts';
+import { createAttentionAck } from '../attention-ack-core.ts';
+import { buildPanelSection, buildStatChip, el, externalLink, isPanelHidden, projectsOf } from '../dom-helpers.ts';
+import { createInvestigationDialog, createPosthogReportDialog } from '../dialogs.ts';
+import type { InvestigationDialog } from '../dialogs.ts';
+import { sendControlRequest } from '../control-ws.ts';
+import { createPollAgoTicker, formatAgo, formatDuration } from '../poll-ago.ts';
 import { createRenderHold } from './radar-hold-core.ts';
-import { createSettingsLink } from './settings/settings-link.ts';
-import { getRadarAttentionAck, setRadarAttentionAck } from './ui-prefs.ts';
+import { createSettingsLink } from '../settings/settings-link.ts';
+import { getRadarAttentionAck, setRadarAttentionAck } from '../ui-prefs.ts';
 import {
   applyInvestigationActivity as patchInvestigationActivity,
   applyInvestigationFinished as patchInvestigationFinished,

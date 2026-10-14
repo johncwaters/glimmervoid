@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createRenderHold } from '../public/radar-hold-core.ts';
+import { createRenderHold } from '../public/radar/radar-hold-core.ts';
 
 function fakeClock() {
   let nowMs = 0;

@@ -3,8 +3,8 @@ import { clockDurationText } from '#shared/display-text.ts';
 import { numberOr, textOr } from '#shared/coerce.ts';
 import { shortSha } from '#shared/git-text.ts';
 
-import { attentionSignature } from './attention-ack-core.ts';
-import { lanePlaceholder } from './lane-placeholder-core.ts';
+import { attentionSignature } from '../attention-ack-core.ts';
+import { lanePlaceholder } from '../lane-placeholder-core.ts';
 
 export interface RadarIssue {
   issueId?: unknown;

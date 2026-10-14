@@ -1,7 +1,7 @@
 import test from 'node:test';
-import { resolvePosthogHost } from '../server/core/posthog-core.ts';
+import { resolvePosthogHost } from '../server/radar/core/radar-lane-core.ts';
 import assert from 'node:assert/strict';
-import type { InvestigationRecord } from '../server/core/posthog-core.ts';
+import type { InvestigationRecord } from '../server/radar/core/radar-lane-core.ts';
 
 import {
   issueKey,
@@ -29,7 +29,7 @@ import {
   ISSUE_HISTORY_CAP,
   MAX_PING_TITLE_CHARS,
   MAX_SUMMARY_LINE_CHARS,
-} from '../server/core/posthog-core.ts';
+} from '../server/radar/core/radar-lane-core.ts';
 
 function makeIssue(overrides = {}) {
   return {
@@ -574,7 +574,7 @@ import {
   resolveIssueProject,
   scrubForPaste,
   buildIssueSessionPrompt,
-} from '../server/core/posthog-core.ts';
+} from '../server/radar/core/radar-lane-core.ts';
 
 test('validateIssueRef accepts a plain project/issue pair', () => {
   assert.deepEqual(validateIssueRef({ projectId: 42, issueId: 'iss-1' }), {
@@ -707,7 +707,7 @@ import {
   validateInvestigationId,
   INVESTIGATION_LOG_CAP,
   DEFAULT_ARCHIVED_RETENTION_DAYS,
-} from '../server/core/posthog-core.ts';
+} from '../server/radar/core/radar-lane-core.ts';
 
 const ARCHIVED_RETENTION_MS = DEFAULT_ARCHIVED_RETENTION_DAYS * 86400000;
 
@@ -878,7 +878,7 @@ import {
   projectParentDirs,
   pickDirectoryForProjectName,
   sanitizeSessionName,
-} from '../server/core/posthog-core.ts';
+} from '../server/radar/core/radar-lane-core.ts';
 
 test('slugKey compares on alphanumerics only', () => {
   assert.equal(slugKey('CardHarbor'), slugKey('card-harbor'));

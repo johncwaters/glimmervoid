@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createPosthogPoller } from '../server/posthog-poller.ts';
-import type { PosthogPollerDependencies } from '../server/posthog-poller.ts';
-import type { PosthogApi } from '../server/posthog-api.ts';
+import { createPosthogPoller } from '../server/radar/radar-poller.ts';
+import type { PosthogPollerDependencies } from '../server/radar/radar-poller.ts';
+import type { PosthogApi } from '../server/radar/posthog-api.ts';
 
 type Poller = ReturnType<typeof createPosthogPoller>;
 type JobResult = Awaited<ReturnType<PosthogPollerDependencies['spawnInvestigation']>>;

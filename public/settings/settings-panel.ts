@@ -11,7 +11,7 @@ import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { ensureNotificationPermission, notificationPermission, notificationsSupported } from '../notifications.ts';
 import { formatAgo } from '../poll-ago.ts';
-import { UPDATES_SECTION_ID } from '../radar-core.ts';
+import { UPDATES_SECTION_ID } from '../radar/radar-core.ts';
 import type { SettingsSection, SettingsSetting, SettingsOption, WorkflowRuleToggleRow } from './settings-map.ts';
 import {
   SETTINGS_MAP, SETTINGS_MOVED_SETTINGS, SETTINGS_SECTION_ALIASES, withoutWorkflowRuleDefinitions, workflowRuleSummaryLines, workflowRuleToggleRows,

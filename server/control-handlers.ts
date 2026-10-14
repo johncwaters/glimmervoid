@@ -27,8 +27,8 @@ import { normalizeClientTrust } from './core/request-trust.ts';
 import {
   INGEST_SPEC, mergeSettingsBlock, validateSettingsBlock,
 } from './core/settings-block-core.ts';
-import { readPosthogReport } from './posthog-report.ts';
-import * as posthogCore from './core/posthog-core.ts';
+import { readPosthogReport } from './radar/radar-report.ts';
+import * as posthogCore from './radar/core/radar-lane-core.ts';
 import { formatDiffAnnotationMessage } from './core/diff-annotations-core.ts';
 import { buildGithubIssuePrompt, deriveIssueSessionName } from './github/core/github-issues-core.ts';
 import { machineSkipsPermissionsByDefault } from './session/core/session-registry-core.ts';

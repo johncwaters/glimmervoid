@@ -1,4 +1,4 @@
-import { toCount } from './core/posthog-core.ts';
+import { toCount } from './core/radar-lane-core.ts';
 
 const DEFAULT_ISSUE_LIMIT = 50;
 const DEFAULT_DATE_RANGE_HOURS = 24;

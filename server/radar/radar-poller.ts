@@ -1,18 +1,18 @@
-import type { InvestigationTrail } from './core/investigation-trail-core.ts';
-import * as core from './core/posthog-core.ts';
-import type { InvestigationRecord, PosthogIssue, PosthogIssueChange, PosthogStateEntry } from './core/posthog-core.ts';
-import * as recurrence from './core/posthog-recurrence.ts';
-import type { RecurrenceDecision } from './core/posthog-recurrence.ts';
-import * as traffic from './core/traffic-spike-core.ts';
-import type { TrafficState } from './core/traffic-spike-core.ts';
-import { firstLine, raceWithAbort } from './lanes/ephemeral-session.ts';
-import { createTickLoop } from './lanes/lane-runner.ts';
-import type { TickOutcome } from './lanes/lane-runner.ts';
+import type { InvestigationTrail } from '../core/investigation-trail-core.ts';
+import * as core from './core/radar-lane-core.ts';
+import type { InvestigationRecord, PosthogIssue, PosthogIssueChange, PosthogStateEntry } from './core/radar-lane-core.ts';
+import * as recurrence from './core/radar-recurrence.ts';
+import type { RecurrenceDecision } from './core/radar-recurrence.ts';
+import * as traffic from '../core/traffic-spike-core.ts';
+import type { TrafficState } from '../core/traffic-spike-core.ts';
+import { firstLine, raceWithAbort } from '../lanes/ephemeral-session.ts';
+import { createTickLoop } from '../lanes/lane-runner.ts';
+import type { TickOutcome } from '../lanes/lane-runner.ts';
 import { normalizeIssues, parseSpikeIssueIds } from './posthog-api.ts';
 import type { NormalizedIssue, PosthogApi } from './posthog-api.ts';
-import { errorMessage } from '../shared/text.ts';
-import { DEFAULT_TIMER_FNS } from '../shared/timer-deps.ts';
-import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../shared/timer-deps.ts';
+import { errorMessage } from '../../shared/text.ts';
+import { DEFAULT_TIMER_FNS } from '../../shared/timer-deps.ts';
+import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
 
 
 const OBSERVATION_PINGS: Record<string, { kind: string; dedupe: boolean } | undefined> = {

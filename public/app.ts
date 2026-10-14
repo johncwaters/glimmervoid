@@ -34,8 +34,8 @@ import { applyFactoryControlResult, applyFactoryQueueIntentResult, applyFactoryS
 import { applyBenchmarkActionResult, applyBenchmarkStatus, setBenchmarkRequestSender } from './benchmark-panel.ts';
 import { applyIssueDetailResult, refreshIssuesSessionState, applyIssuesStatus, applyOpenIssueSessionResult, setIssuesRequestSender } from './github/issues-panel.ts';
 
-import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID, updateBannerText } from './radar-core.ts';
-import { applyInvestigationActivity, applyInvestigationFinished, applyPosthogStatus } from './radar-panel.ts';
+import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID, updateBannerText } from './radar/radar-core.ts';
+import { applyInvestigationActivity, applyInvestigationFinished, applyPosthogStatus } from './radar/radar-panel.ts';
 import { handleDebugStateRefresh, handleDebugStateResponse, setSessionSaneYolo } from './session-card/card-dom.ts';
 import { findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';

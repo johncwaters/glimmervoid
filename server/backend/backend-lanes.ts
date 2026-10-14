@@ -27,7 +27,7 @@ import { createChangeNarrator } from '../change-map/change-narrator.ts';
 import { TASK_TITLE_LANE_TOOLS, createTaskTitleRefiner } from '../task-title-refiner.ts';
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
 import { createPlanReviewWiring } from '../plan-review-wiring.ts';
-import { createPosthogWiring } from '../posthog-wiring.ts';
+import { createPosthogWiring } from '../radar/radar-wiring.ts';
 import type { SandboxSpawnRefusal } from '../sandbox/sandbox-deps.ts';
 import { createSpawnGate } from '../spawn-gate.ts';
 import type { Telemetry } from '../telemetry.ts';

@@ -36,7 +36,7 @@ import {
   trailStepRows,
   updateBannerText,
   verdictLabel,
-} from '../public/radar-core.ts';
+} from '../public/radar/radar-core.ts';
 
 const changesOf = (issues: { change?: string }[]): (string | undefined)[] => issues.map((issue) => issue.change);
 

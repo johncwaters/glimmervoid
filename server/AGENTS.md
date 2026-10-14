@@ -21,6 +21,7 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `lanes/` | Ephemeral and interactive lane spawning, logging and status (`lanes/AGENTS.md`) |
 | `usage/` | Usage lane: transcript scanner, pricing loader, lane ledger and wiring (`usage/AGENTS.md`) |
 | `github/` | GitHub lanes: issues, my PRs, team PR review and its reaper and thread judge, `gh` queries, the shared clock and rate limit (`github/AGENTS.md`) |
+| `radar/` | Radar lane: the PostHog API client, poller, wiring and report, with its cores (`radar/AGENTS.md`) |
 | `git/git-workspace.ts` | THE ONLY module allowed to run `git worktree` (`tests/no-direct-git-worktree.test.ts`) |
 | `config-store.ts` | Runtime config load/save/defaults |
 | `child-process-safe.ts` | THE ONLY importer of `node:child_process` (`tests/no-direct-child-process.test.ts`) |
@@ -58,14 +59,6 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 ### Remote Branch GC
 
 - Deletion needs ancestry or tree-containment proof (`server/core/merge-proof-core.ts`) or staleness, any probe failure keeps it, and the push is a leased qualified refspec on that listed tip, so cleanup cannot lose a branch; `dryRun` traces would-delete (`tests/branch-gc-poller.test.ts`).
-
-### Radar / PostHog Auto-Fix (opt-in)
-
-- The agent COMMITS; the server pushes and opens the PR. `FIX_DENY` denies `git push` and `gh` outright, since a prefix deny-list cannot constrain a push TARGET or a merge API call.
-- The server REFUSES the handoff when the diff touches `.github/workflows/`, making "never touches CI" structural; the PR url comes from `gh` stdout, never the agent.
-- The branch name carries a random discriminator: a deterministic one collides with a previous fix's pushed branch, burning the timeout on a regression after a fix.
-- Both sessions start inside the sandbox runtime with open network, because they fetch untrusted issue data (`posthogLaneRole`): an investigation writes only its report and result folders, a fix also commits in its own worktree, and the repository's hooks and git config stay locked (`node scripts/probe-sandbox-roles.ts --role posthog`).
-- The live investigation view is the hook-derived tool trail, never the PTY: `claude -p` writes nothing to its terminal until the final answer, so a terminal viewer would show a blank screen for the whole run.
 
 ### Benchmarks (opt-in)
 

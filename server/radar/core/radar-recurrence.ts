@@ -1,5 +1,5 @@
-import type { PosthogIssueChange } from './posthog-core.ts';
-import { planInvestigations, toCount } from './posthog-core.ts';
+import type { PosthogIssueChange } from './radar-lane-core.ts';
+import { planInvestigations, toCount } from './radar-lane-core.ts';
 
 const DEFAULT_RECURRENCE_WINDOW_DAYS = 7;
 

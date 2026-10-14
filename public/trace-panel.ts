@@ -1,7 +1,7 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { buildPanelSection, el, isPanelHidden, query, writeClipboardText } from './dom-helpers.ts';
-import { formatTrailOffset } from './radar-core.ts';
+import { formatTrailOffset } from './radar/radar-core.ts';
 import {
   appendTraceRecords,
   createTraceGrouping,

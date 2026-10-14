@@ -19,7 +19,7 @@ import {
   SIGNATURE_CAP,
   DEFAULT_RECURRENCE_WINDOW_DAYS,
   DEFAULT_TRANSIENT_RECURRENCE_LIMIT,
-} from '../server/core/posthog-recurrence.ts';
+} from '../server/radar/core/radar-recurrence.ts';
 
 const DAY_MS = 86400000;
 const NOW = 10 * DAY_MS;

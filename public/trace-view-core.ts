@@ -1,7 +1,7 @@
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { byteSizeText } from '#shared/display-text.ts';
 import { firstDetailLine, toolDetailLine } from '#shared/tool-detail.ts';
-import { formatClockOffset } from './radar-core.ts';
+import { formatClockOffset } from './radar/radar-core.ts';
 
 const TRACE_MAX_RESIDENT_ROWS = 5000;
 

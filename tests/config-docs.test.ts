@@ -69,6 +69,6 @@ test('every config key outside the Settings view carries a note, and no note out
 });
 
 test('the PostHog lane still refuses to start without Telegram, as the reference says', () => {
-  const wiring = fs.readFileSync(path.join(REPO_ROOT, 'server', 'posthog-wiring.ts'), 'utf8');
+  const wiring = fs.readFileSync(path.join(REPO_ROOT, 'server', 'radar', 'radar-wiring.ts'), 'utf8');
   assert.match(wiring, /posthog\.enabled but telegram botToken\/chatId missing/);
 });

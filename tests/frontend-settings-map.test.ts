@@ -9,7 +9,7 @@ import type { SettingsBlockSpec } from '../server/core/settings-block-core.ts';
 import type { SettingsSetting } from '../public/settings/settings-map.ts';
 import { UPDATE_CHANNELS, POST_TURN_CHECK_MODES, CHANGE_MAP_NARRATOR_ENGINES } from '../shared/contracts/browser-config.ts';
 import { USAGE_COST_MODES } from '../shared/usage-config.ts';
-import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from '../public/radar-core.ts';
+import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from '../public/radar/radar-core.ts';
 import { collectDirtyBlocks, hydrateFromSettings } from '../public/settings/settings-view-core.ts';
 import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID } from '../public/github/team-review-view-core.ts';
 

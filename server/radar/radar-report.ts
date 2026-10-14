@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { glimmervoidHomeDir } from './config-store.ts';
-import { isMissingFileError } from '../shared/text.ts';
+import { glimmervoidHomeDir } from '../config-store.ts';
+import { isMissingFileError } from '../../shared/text.ts';
 
 const DEFAULT_POSTHOG_REPORT_DIR = path.join(glimmervoidHomeDir(), 'posthog-reports');
 const POSTHOG_REPORT_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;

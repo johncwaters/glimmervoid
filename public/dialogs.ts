@@ -7,8 +7,8 @@ import { DEFAULT_AGENT_ID, decideAgentAvailability, decideAgentPicker } from './
 import { countSessionsByName, suggestSessionName } from './session-card/naming.ts';
 import { onSessionTick } from './session-card/session-tick.ts';
 import { formatAgo } from './poll-ago.ts';
-import { formatTrailOffset, trailContentKey, trailStatusText } from './radar-core.ts';
-import type { InvestigationView } from './radar-core.ts';
+import { formatTrailOffset, trailContentKey, trailStatusText } from './radar/radar-core.ts';
+import type { InvestigationView } from './radar/radar-core.ts';
 
 interface OptionSettings {
   value?: string;

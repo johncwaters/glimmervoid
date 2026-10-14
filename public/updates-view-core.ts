@@ -2,7 +2,7 @@ import type { UpdateStatus } from '#shared/contracts/control-messages.ts';
 import type { UpdateJournal, UpdateRunState, UpdateStepStatus } from '#shared/contracts/update-journal.ts';
 import { textOr } from '#shared/coerce.ts';
 import { shortSha } from '#shared/git-text.ts';
-import { versionLabel } from './radar-core.ts';
+import { versionLabel } from './radar/radar-core.ts';
 
 export type UpdateStatusView = Partial<UpdateStatus>;
 

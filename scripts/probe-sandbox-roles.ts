@@ -59,7 +59,7 @@ const { FACTORY_REVIEWER_PERMISSIONS, FACTORY_REVIEWER_SPAWN_ENV, FACTORY_REVIEW
 const { encodeProjectDir } = await import('../session/core/conversation-history.ts');
 const { resolveRequiredSaneYoloHookTools } = await import('../server/hook-tools.ts');
 const { createLaneSpawn } = await import('../server/lanes/lane-spawn.ts');
-const { createPosthogWiring, REPORT_DIR: POSTHOG_REPORT_DIR } = await import('../server/posthog-wiring.ts');
+const { createPosthogWiring, REPORT_DIR: POSTHOG_REPORT_DIR } = await import('../server/radar/radar-wiring.ts');
 const { createVisionsSpawn, makeVisionsWorkDir, PROMPT_FILE: VISIONS_PROMPT_FILE, VISIONS_BOOTSTRAP_PROMPT } = await import('../server/visions/visions-dispatch.ts');
 const { MY_PRS_FIX_CHECKOUT_DIRNAME } = await import('../server/github/core/my-prs-core.ts');
 const { createSandboxedPrStaging, keepMergeableRole } = await import('../server/github/my-prs-wiring.ts');
