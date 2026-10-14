@@ -83,11 +83,14 @@ function fakeSessionGit(cmds: string[], opts: FakeGitOptions = {}): (rawArgs: st
     failure.status = 1;
     throw failure;
   };
+  let stashedMessage = '';
   return (rawArgs) => {
     cmds.push(rawArgs.join(' '));
 
     const args = rawArgs[0] === '-c' ? rawArgs.slice(2) : rawArgs;
     if (args[0] === 'rev-list') return ahead;
+    if (args[0] === 'stash' && args[1] === 'push') stashedMessage = args.at(-1) ?? '';
+    if (args[0] === 'stash' && args[1] === 'list') return stashedMessage ? `stash@{0} stashsha On glimmervoid/session/abc: ${stashedMessage}\n` : '';
     if (args.includes('status')) return dirty;
     if (args[0] === 'diff') return conflicts.join('\n');
     if (args[0] === 'rev-parse' && args.includes('REBASE_HEAD')) {
@@ -610,7 +613,7 @@ test('mergeKeep (injected): nothing committed is a no-op that KEEPS the worktree
   assert.ok(!cmds.some((c) => c.startsWith('worktree remove')), 'worktree kept on nothing-to-commit');
 });
 
-test('mergeKeep (injected): uncommitted work is STASHED around the rebase, then restored (pop)', async () => {
+test('mergeKeep (injected): uncommitted work is STASHED around the rebase, then restored by SHA', async () => {
   const cmds: string[] = [];
   const gw = createGitWorkspace({ git: fakeSessionGit(cmds, { ahead: '1', dirty: ' M f.js', head: 'develop' }) });
   const ws = { cwd: '/wt', isGit: true, branch: 'glimmervoid/session/abc', base: 'develop' };
@@ -618,10 +621,11 @@ test('mergeKeep (injected): uncommitted work is STASHED around the rebase, then 
 
   assert.equal(r.merged, true);
   assert.equal(r.restoreConflict, false);
-  assert.ok(cmds.includes('stash push --include-untracked -m glimmervoid-merge'), 'stashes the uncommitted work');
+  assert.ok(cmds.some((c) => /^stash push --include-untracked -m glimmervoid-merge-[0-9a-f-]{36}$/.test(c)), 'stashes the uncommitted work under a unique tag');
   assert.ok(ranRebaseOnto(cmds, 'develop'), 'rebases on the now-clean tree');
-  assert.ok(cmds.includes('stash pop'), 'restores the uncommitted work onto the rebased worktree');
-  assert.ok(!cmds.includes('stash drop'), 'mergeKeep restores rather than drops');
+  assert.ok(cmds.includes('stash apply stashsha'), 'restores its own entry by SHA onto the rebased worktree');
+  assert.ok(cmds.includes('stash drop stash@{0}'), 'then drops only that entry');
+  assert.ok(!cmds.includes('stash pop'), 'never pops the shared stack top');
 });
 
 test('mergeKeep (real git): lands on develop yet keeps the worktree alive for a second round', { skip: !GIT }, async () => {
@@ -676,6 +680,44 @@ test('mergeKeep (real git): committed work merges; uncommitted work is preserved
 
     assert.equal(fs.readFileSync(path.join(ws.cwd, 'wip.js'), 'utf8').replace(/\r\n/g, '\n'), 'work in progress\n', 'restored intact');
     assert.ok(git(['status', '--porcelain'], ws.cwd).includes('wip.js'), 'and it is still uncommitted after the merge');
+    await gw.discard({ projectPath: repo, workspace: ws });
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('mergeKeep (real git): restores its own saved work when another stash entry lands on the shared stack mid-merge', { skip: !GIT }, async () => {
+  const repo = initRepoOnDevelop();
+  try {
+    let hasOtherSessionStashed = false;
+    const gw = createGitWorkspace({
+      git: (args, cwd) => {
+        const isRebaseStart = args.includes('rebase') && !args.includes('--abort');
+        if (isRebaseStart && !hasOtherSessionStashed) {
+          fs.writeFileSync(path.join(repo, 'other-session.js'), 'other session work\n', 'utf8');
+          git(['stash', 'push', '--include-untracked', '-m', 'other-session'], repo);
+          hasOtherSessionStashed = true;
+        }
+        return git(args, cwd);
+      },
+    });
+    const ws = await gw.create({ projectPath: repo, teamId: 'session', label: 'stackrace', baseBranch: 'develop' });
+
+    fs.writeFileSync(path.join(ws.cwd, 'committed.js'), 'shipped\n', 'utf8');
+    git(['add', 'committed.js'], ws.cwd); git(['commit', '-m', 'committed work'], ws.cwd);
+    fs.writeFileSync(path.join(ws.cwd, 'wip.js'), 'work in progress\n', 'utf8');
+
+    const r = await gw.mergeKeep({ projectPath: repo, workspace: ws, targetBranch: 'develop' });
+    assert.equal(hasOtherSessionStashed, true);
+    assert.equal(r.merged, true);
+    assert.equal(r.restoreConflict, false);
+    assert.equal(fs.readFileSync(path.join(ws.cwd, 'wip.js'), 'utf8').replace(/\r\n/g, '\n'), 'work in progress\n');
+    assert.ok(!fs.existsSync(path.join(ws.cwd, 'other-session.js')), 'another session\'s stash never lands in this worktree');
+
+    const stashSubjects = git(['stash', 'list', '--format=%gs'], repo).trim().split('\n');
+    assert.equal(stashSubjects.length, 1, 'only the other entry remains on the stack');
+    assert.match(stashSubjects[0], /: other-session$/);
+    assert.equal(git(['show', 'stash@{0}^3:other-session.js'], repo).replace(/\r\n/g, '\n'), 'other session work\n');
     await gw.discard({ projectPath: repo, workspace: ws });
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });

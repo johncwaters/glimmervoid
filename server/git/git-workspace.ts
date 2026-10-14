@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { GIT_CONFIG_LISTING_ARGS, buildHardenedGitInvocation, gitInvocationEnvironment } from './core/git-invocation-core.ts';
@@ -628,6 +629,29 @@ function createGitWorkspace(opts: {
     return { done: false, conflicted: (await unmergedPaths(wt)).length > 0 };
   }
 
+  async function findStashEntryByTag(wt: string, tag: string): Promise<{ selector: string; sha: string } | null> {
+    const listing = await run(['stash', 'list', '--format=%gd %H %gs'], wt);
+    const entry = listing.out.split(/\r?\n/).find((line) => line.endsWith(`: ${tag}`));
+    if (!entry) return null;
+    const [selector = '', sha = ''] = entry.split(' ');
+    return { selector, sha };
+  }
+
+  async function saveUncommittedWork(wt: string): Promise<{ tag: string; sha: string } | null> {
+    const tag = `glimmervoid-merge-${crypto.randomUUID()}`;
+    if (!(await run(['stash', 'push', '--include-untracked', '-m', tag], wt)).ok) return null;
+    const entry = await findStashEntryByTag(wt, tag);
+    return entry ? { tag, sha: entry.sha } : null;
+  }
+
+  async function restoreSavedWork(wt: string, savedWork: { tag: string; sha: string } | null): Promise<boolean> {
+    if (!savedWork) return true;
+    if (!(await run(['stash', 'apply', savedWork.sha], wt)).ok) return false;
+    const entry = await findStashEntryByTag(wt, savedWork.tag);
+    if (entry?.sha === savedWork.sha) await run(['stash', 'drop', entry.selector], wt);
+    return true;
+  }
+
   const RERERE_STEP_CAP = 50;
   async function replayRecordedResolutions(wt: string): Promise<{ ok: boolean; steps: number }> {
     let steps = 0;
@@ -663,7 +687,7 @@ function createGitWorkspace(opts: {
     }
 
     const dirty = (await run(['--no-optional-locks', 'status', '--porcelain'], wt)).out !== '';
-    const stashed = dirty && (await run(['stash', 'push', '--include-untracked', '-m', 'glimmervoid-merge'], wt)).ok;
+    const savedWork = dirty ? await saveUncommittedWork(wt) : null;
 
     let rerereReplayed = false;
     if (!(await run(withAutoUpdate(['rebase', target]), wt)).ok) {
@@ -672,7 +696,7 @@ function createGitWorkspace(opts: {
         : { ok: false };
       if (!replay.ok) {
         const conflicts = await abortRebaseWithConflicts(wt);
-        if (stashed) await run(['stash', 'pop'], wt);
+        await restoreSavedWork(wt, savedWork);
         return { committed: true, merged: false, reason: 'rebase-conflict', parked: true, conflicts };
       }
       rerereReplayed = true;
@@ -681,11 +705,11 @@ function createGitWorkspace(opts: {
     const head = (await run(['rev-parse', '--abbrev-ref', 'HEAD'], projectPath)).out;
     const merged = await fastForwardTarget(projectPath, `refs/heads/${branch}`, target, head === target);
     if (!merged.ok) {
-      if (stashed) await run(['stash', 'pop'], wt);
+      await restoreSavedWork(wt, savedWork);
       return { committed: true, merged: false, reason: 'not-fast-forward', parked: true, rerereReplayed };
     }
 
-    const restoreConflict = stashed ? !(await run(['stash', 'pop'], wt)).ok : false;
+    const restoreConflict = !(await restoreSavedWork(wt, savedWork));
     return { committed: true, merged: true, reason: null, restoreConflict, rerereReplayed };
   }
 
